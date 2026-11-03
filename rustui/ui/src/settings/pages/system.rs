@@ -175,6 +175,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     helper.chevron = false;
     rows.push(helper);
     rows.push(Row::link("about").tab(4).icon("tv").label("About this TV").help("Model, serial number, platform and software version.").does(go("about")));
+    rows.push(Row::link("logging").tab(4).icon("server").label("Logging").help("Send TV logs to a server.").does(go("logging")));
     rows.push(Row::link("support").tab(4).icon("circle-help").label("Support").help("TV information, software update, privacy, self-diagnosis and reset.").does(go("support")));
     rows
 }

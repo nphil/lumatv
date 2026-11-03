@@ -8,7 +8,7 @@
 //!                                                        the service again whenever it ends, until `stop`
 //! lumatv-helper stop   --brand <app dir>/brand.json     SIGTERM, wait for the lock, SIGKILL after 8 s
 //! lumatv-helper status --brand <app dir>/brand.json
-//! lumatv-helper run    --brand ... [--stderr]           foreground (development)
+//! lumatv-helper run    --brand ...                      foreground (development)
 //! lumatv-helper check-config --brand ...
 //! lumatv-helper voice-link --brand ... --url <Home Assistant>   the access token is read from standard input
 //! lumatv-helper voice-unlink --brand ...
@@ -76,7 +76,6 @@ struct Args {
     brand: Option<PathBuf>,
     data_dir: Option<PathBuf>,
     url: Option<String>,
-    stderr: bool,
     host: Option<String>,
     port: Option<u16>,
     stream_port: Option<u16>,
@@ -155,7 +154,6 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             }
             "--new" => out.scrypted.new = true,
             "--check" => out.scrypted.check = true,
-            "--stderr" => out.stderr = true,
             "-h" | "--help" | "help" if out.command.is_empty() => out.command = "help".to_owned(),
             flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
             word if out.command.is_empty() => out.command = word.to_owned(),
@@ -189,7 +187,7 @@ fn fail(code: i32, message: &str) -> i32 {
 fn usage() -> Value {
     json!({
         "ok": true,
-        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|ha-link|ha-unlink|plugin-consent|plugin-enable|plugin-disable|plugin-status|hue-link|hue-area|hue-unlink|z2m-link|z2m-unlink|ble-link|ble-unlink|scrypted-link|scrypted-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>] [--id <plugin> [--approve <code>] [--from <package dir>]] [--host <Hue bridge, Bifrost or MQTT broker> [--port <n>] [--stream-port <n>] [--fps <n>] [--pair] [--area <id>] [--user <name>] [--base-topic <topic>] [--light <name>=<place>]...] [ble-link: [--port <n>] [--name <node>] [--friendly-name <text>] [--scan-seconds <5-30>] [--rest-seconds <window-600>] [--standby|--no-standby] [--always|--no-always] [--rotate-key]] [scrypted-link: --address <bridge IP[:port]> --pin <fingerprint> --new [--device <name>] | --check]",
+        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|ha-link|ha-unlink|plugin-consent|plugin-enable|plugin-disable|plugin-status|hue-link|hue-area|hue-unlink|z2m-link|z2m-unlink|ble-link|ble-unlink|scrypted-link|scrypted-unlink|version> (--brand <brand.json> | --data-dir <dir>) [command options]"
     })
 }
 
@@ -237,7 +235,7 @@ pub fn main(args: Vec<String>) -> i32 {
         }
         "check-config" => with_config(&args, check_config),
         "run" => with_config(&args, |paths, config| {
-            serve(paths, config, None, args.stderr, None)
+            serve(paths, config, None, None)
         }),
         "start" => with_config(&args, start),
         "stop" => with_config(&args, |paths, _| stop(&paths)),
@@ -406,9 +404,9 @@ struct Held {
 }
 
 /// Opens the log and makes it the process's. `false` after saying why to the starter.
-fn open_log(paths: &Paths, config: &Config, stderr_log: bool, ready: &mut Option<File>) -> bool {
+fn open_log(config: &Config, ready: &mut Option<File>) -> bool {
     let level = Level::parse(&config.log.level).unwrap_or(Level::Info);
-    match Logger::open(&paths.log_file(), level, config.log.max_bytes, stderr_log) {
+    match Logger::new(level) {
         Ok(logger) => {
             log::init(logger);
             true
@@ -416,10 +414,7 @@ fn open_log(paths: &Paths, config: &Config, stderr_log: bool, ready: &mut Option
         Err(e) => {
             report(
                 ready,
-                &Outcome::Failed(format!(
-                    "cannot open the log {}: {e}",
-                    paths.log_file().display()
-                )),
+                &Outcome::Failed(format!("cannot create bounded log producer: {e}")),
             );
             false
         }
@@ -454,7 +449,6 @@ fn serve(
     paths: Paths,
     config: Config,
     mut ready: Option<File>,
-    stderr_log: bool,
     held: Option<Held>,
 ) -> i32 {
     // The brand's data dir is directly under /var/lib (checked at load); the tool creates it, and a fresh one is made here.
@@ -469,7 +463,7 @@ fn serve(
     sys::block_termination_signals();
     let supervised = held.is_some();
     // A supervisor has opened the log, taken the lock and lowered the priority already.
-    if !supervised && !open_log(&paths, &config, stderr_log, &mut ready) {
+    if !supervised && !open_log(&config, &mut ready) {
         return 1;
     }
     let (mut lock, owner) = match held {
@@ -547,7 +541,7 @@ fn supervise(paths: Paths, config: Config, mut ready: Option<File>) -> i32 {
         );
         return 1;
     }
-    if !open_log(&paths, &config, false, &mut ready) {
+    if !open_log(&config, &mut ready) {
         return 1;
     }
     let mut lock = match take_lock(&paths, &mut ready) {
@@ -596,7 +590,6 @@ fn supervise(paths: Paths, config: Config, mut ready: Option<File>) -> i32 {
                         paths,
                         config,
                         Some(pipe),
-                        false,
                         Some(Held {
                             lock: copy,
                             owner: pid,
@@ -1289,8 +1282,8 @@ mod tests {
         let a = parse_args(&args(&["start", "--brand", "/app/brand.json"])).unwrap();
         assert_eq!(a.command, "start");
         assert_eq!(a.brand, Some(PathBuf::from("/app/brand.json")));
-        let a = parse_args(&args(&["--data-dir", "/tmp/x", "run", "--stderr"])).unwrap();
-        assert_eq!((a.command.as_str(), a.stderr), ("run", true));
+        let a = parse_args(&args(&["--data-dir", "/tmp/x", "run"])).unwrap();
+        assert_eq!(a.command, "run");
         assert_eq!(a.data_dir, Some(PathBuf::from("/tmp/x")));
         assert_eq!(parse_args(&args(&["--help"])).unwrap().command, "help");
     }

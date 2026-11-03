@@ -2,7 +2,7 @@
 //! page (the back pill of a child page, the title, the subtitle, the chip) and the tab bar. Each is made once for what it shows and
 //! set in place when it moves; layers are made under the surface's root group (the caller wraps the call in `adopting_view`).
 
-use super::layout::{SegGeom, Sizes, seg_geom};
+use super::layout::{SegGeom, Sizes, seg_geom, tab_height};
 use super::paint::Paint;
 use super::rows::pill;
 use super::{BACK_ID, BAR_BACK_ID, Geometry, HIDDEN, REGION_HEAD, REGION_TABS, TAB_ID};
@@ -248,6 +248,7 @@ impl Tabs {
     pub fn build(kit: &mut Kit, engine: &mut Engine, paint: &Paint, sz: &Sizes, geo: &Geometry, page: &PageView, sig: String, y: f32, z: i32) -> std::io::Result<Tabs> {
         let width = geo.content.w;
         let mut g = seg_geom(kit, sz, &page.tabs, TypeRole::Label, Some(width));
+        g.h = tab_height(kit, sz);
         let share = (width / page.tabs.len().max(1) as f32).floor();
         g.seg_w = g.seg_w.max(share);
         g.in_view = if page.tabs.len() as f32 * g.seg_w > width { ((width / g.seg_w).floor() as usize).max(1) } else { page.tabs.len() };
@@ -262,7 +263,7 @@ impl Tabs {
         let focus = kit.ui.scene.shape(sw as u32, sh as u32, z + 1, pill(paint.seg_focus(), paint.edge_raised, r2, 1.0), HIDDEN);
         let hover = kit.ui.scene.shape(sw as u32, sh as u32, z + 1, pill(paint.wash_hover, faded(paint.edge_raised, 0.6), r2, 1.0), HIDDEN);
         let ty = kit.ty(TypeRole::Label);
-        let top = ((g.h - line_height(ty)) / 2.0).round();
+        let top = ((g.h - line_height(ty) - sz.s2 - sz.s1) / 2.0).round();
         let items: Vec<Item> = page.tabs.iter().enumerate().take(g.in_view).map(|(i, t)| Item::Text(Run { text: t, ty, colour: paint.ink, x: i as f32 * g.seg_w, y: top, w: g.seg_w, align: Align::Centre })).collect();
         let labels = TextLayer::new(&mut kit.ui, Frame::new(at.0, at.1, total, g.h), z + 2, &items)?;
         for i in 0..g.in_view {
@@ -287,17 +288,21 @@ impl Tabs {
         }
         let place = |i: usize| Props::at(self.at.0 + (i - first) as f32 * g.seg_w + sz.s1, self.at.1 + sz.s1);
         let in_view = |i: usize| i >= first && i < first + g.in_view;
-        let glide = |layer: &ui::scene::Layer, to: Props| kit.glide(layer, to, Beat::Label);
+        let chosen_new = self.state.0 == usize::MAX || first != self.state.3;
+        let focus_new = chosen_new || !self.state.1;
+        let move_plate = |layer: &ui::scene::Layer, to: Props, new: bool| {
+            if new { layer.set(to); } else { kit.glide(layer, to, Beat::Label); }
+        };
         if in_view(anchor) {
-            glide(&self.chosen, place(anchor));
+            move_plate(&self.chosen, place(anchor), chosen_new);
             let p = place(anchor);
-            glide(&self.mark, Props::at(p.x + ((g.seg_w - 2.0 * sz.s1 - sz.s7) / 2.0).round(), self.at.1 + g.h - sz.s1 - sz.s2));
+            move_plate(&self.mark, Props::at(p.x + ((g.seg_w - 2.0 * sz.s1 - sz.s7) / 2.0).round(), self.at.1 + g.h - sz.s1 - sz.s2), chosen_new);
         } else {
             self.chosen.set(HIDDEN);
             self.mark.set(HIDDEN);
         }
         if focused && in_view(anchor) {
-            glide(&self.focus, place(anchor));
+            move_plate(&self.focus, place(anchor), focus_new);
         } else {
             self.focus.set(HIDDEN);
         }
@@ -307,7 +312,7 @@ impl Tabs {
         }
         if first != self.state.3 {
             let ty = kit.ty(TypeRole::Label);
-            let top = ((g.h - line_height(ty)) / 2.0).round();
+            let top = ((g.h - line_height(ty) - sz.s2 - sz.s1) / 2.0).round();
             let items: Vec<Item> = self.names.iter().enumerate().skip(first).take(g.in_view).map(|(i, t)| Item::Text(Run { text: t, ty, colour: paint.ink, x: (i - first) as f32 * g.seg_w, y: top, w: g.seg_w, align: Align::Centre })).collect();
             self.labels.draw(&mut kit.ui, &items);
             for i in 0..16 {
@@ -318,5 +323,63 @@ impl Tabs {
             }
         }
         self.state = (tab, focused, hovered, first);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::view::StopView;
+    use ui::reference::flatten;
+
+    #[test]
+    fn tab_label_and_mark_have_clearance_at_both_scales() {
+        for scale in [1.0, 2.0] {
+            let (_, kit) = crate::kit::testkit::kit(scale);
+            let sz = Sizes::of(&kit);
+            let height = tab_height(&kit, &sz);
+            let line = line_height(kit.ty(TypeRole::Label));
+            let top = ((height - line - sz.s2 - sz.s1) / 2.0).round();
+            let mark_top = height - sz.s1 - sz.s2;
+            assert!(top >= sz.s1);
+            assert!(mark_top - (top + line) >= sz.s1);
+            assert!(mark_top + sz.s1 <= height - sz.s1);
+        }
+    }
+
+    #[test]
+    fn tab_plates_land_on_new_pages_and_animate_within_a_page() {
+        for scale in [1.0, 2.0] {
+            let (mut h, mut kit) = crate::kit::testkit::kit(scale);
+            let mut engine = Engine::new(&kit).unwrap();
+            let sz = Sizes::of(&kit);
+            let geo = Geometry::of(&kit, &sz);
+            let paint = Paint::of(&kit);
+            let page = PageView {
+                id: "page".into(), title: String::new(), subtitle: String::new(), back: None, chip: None,
+                tabs: vec!["one".into(), "two".into()], tab: 0, rows: vec![], stop: StopView::Tabs,
+                seg: 0, active: true, figure: None,
+            };
+            for _ in 0..2 {
+                let mut tabs = Tabs::build(&mut kit, &mut engine, &paint, &sz, &geo, &page, String::new(), geo.content.y, 0).unwrap();
+                let ids = [tabs.chosen.id(), tabs.mark.id(), tabs.focus.id()];
+                tabs.update(&mut kit, &mut engine, &paint, &sz, 0, true, None);
+                h.commit();
+                let initial = flatten(&h.all(), 0, 0);
+                for id in ids {
+                    let plate = initial.iter().find(|layer| layer.id == id).unwrap();
+                    assert!(plate.shown() && plate.props.x >= geo.content.x && plate.props.y >= geo.content.y);
+                }
+                tabs.update(&mut kit, &mut engine, &paint, &sz, 1, true, None);
+                h.commit();
+                let at_start = flatten(&h.all(), 0, 0);
+                let in_flight = flatten(&h.all(), 0, 50_000_000);
+                for id in ids {
+                    let start = at_start.iter().find(|layer| layer.id == id).unwrap().props.x;
+                    let later = in_flight.iter().find(|layer| layer.id == id).unwrap().props.x;
+                    assert!(later > start, "the plate moves within the page");
+                }
+            }
+        }
     }
 }

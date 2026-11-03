@@ -3,9 +3,9 @@
 //!
 //! **When it is up.** `active` is the owner's saver not being off and either a preview (`forced`), LG's power state `Screen Saver` (LG's saver
 //! was started: under LumaTV's compositor this one is drawn above it) or `owned`: tvpower asked, while Home was in front and this saver wanted
-//! to draw, whether LG's saver may start, and the answer was no (the power state stays `Active`, LG's saver is never started). It is *up* when
-//! it is active and Home is in front. `owned` ends on a key, a pointer that moves more than a few pixels, Home no longer in front, the TV
-//! switched off and the owner turning the saver off.
+//! to draw, whether LG's saver may start, and the answer was no (the power state stays `Active`, LG's saver is never started). An owned saver is
+//! up only over Home; LG's confirmed saver and previews are up over any foreground app while the TV is on. Ownership ends on a key, a pointer
+//! that moves more than a few pixels, Home no longer in front, the TV switched off or the owner turning the saver off.
 //!
 //! **The vote.** While Home is in front and the saver is wanted (`takesOver`: `own` is not false and the style not off) the model is on
 //! tvpower's two screen-saver lists, `/power2` and `/power`, with `registerScreenSaverRequest {clientName, subscribe: true}`, asks again when a
@@ -188,7 +188,7 @@ impl Saver {
     }
 
     pub fn up(&self) -> bool {
-        self.active() && (self.home_front || self.forced)
+        self.tv_on && self.active() && (self.home_front || self.lg())
     }
 
     /// LG's own state is the saver's (a key must ask the TV to turn the screen on), or this is a preview.
@@ -251,7 +251,7 @@ impl Saver {
             }
             Input::Luna { tag, payload } => self.heard(*tag, payload, now, &mut out),
             Input::Key { down: true, .. } if self.up() => self.wake(now, &mut out),
-            Input::Pointer { x, y, buttons, visible } if self.up() && self.owned && *visible => {
+            Input::Pointer { x, y, buttons, visible } if self.up() && *visible => {
                 if *buttons != 0 {
                     self.wake(now, &mut out);
                 } else {
@@ -378,9 +378,8 @@ impl Saver {
             subscribe: false,
         });
         out.push(Effect::Log(format!(
-            "[saver] {} asked: {} -> {}",
+            "[saver] {} asked: {}",
             LISTS[i],
-            payload,
             if yes { "yes (not ours to draw)" } else { "no (LumaTV's saver draws)" }
         )));
         if !yes {
@@ -556,6 +555,90 @@ mod tests {
     }
 
     #[test]
+    fn native_confirmed_saver_appears_over_apps_only_after_lg_starts_it() {
+        for app in ["com.webos.app.marquee", "com.nvidia.geforcenow", "arbitrary.app"] {
+            let mut s = saver();
+            s.update(&topic("foreground", json!({"app": app, "home": false})), NOW);
+            s.update(&helper("screen", json!({"on": true, "state": "Active"})), NOW + 1);
+            assert!(!s.up(), "{app}: active app must remain visible");
+            let calls = luna_calls(&question(&mut s, 0, 7, NOW + 2));
+            assert_eq!(calls[0].2["ack"], true, "{app}: a question is not approval");
+            assert!(!s.up() && s.state()["owned"] == false);
+            let fx = s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 3);
+            assert!(s.up() && s.view(NOW + 3).up && s.wants_keys(), "{app}: LG approved the saver");
+            assert!(fx.contains(&Effect::Redraw));
+        }
+    }
+
+    #[test]
+    fn native_app_saver_wakes_like_home_and_follows_native_pointer_and_power_state() {
+        let mut s = saver();
+        s.update(&topic("foreground", json!({"app": "marquee", "home": false})), NOW);
+        s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 1);
+        let pointer = |x, buttons| Input::Pointer { x, y: 10.0, buttons, visible: true };
+        assert!(luna_calls(&s.update(&pointer(1.0, 0), NOW + 2)).is_empty());
+        assert!(luna_calls(&s.update(&pointer(5.0, 0), NOW + 3)).is_empty());
+        assert!(s.up(), "small pointer movement does not wake");
+        let fx = s.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, NOW + 4);
+        assert!(luna_calls(&fx).is_empty() && s.up());
+        let fx = s.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, NOW + 5);
+        let calls = luna_calls(&fx);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].1, "luna://com.webos.service.tvpower/power/turnOnScreen");
+        assert!(!s.up() && !s.wants_keys() && fx.contains(&Effect::Redraw));
+        s.update(&helper("screen", json!({"on": true, "state": "Active"})), NOW + 6);
+        assert!(!s.up());
+        s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 7);
+        s.update(&pointer(1.0, 0), NOW + 8);
+        let fx = s.update(&pointer(100.0, 0), NOW + 9);
+        assert_eq!(luna_calls(&fx)[0].1, "luna://com.webos.service.tvpower/power/turnOnScreen");
+        assert!(!s.up() && fx.contains(&Effect::Redraw));
+        s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 10);
+        let fx = s.update(&pointer(100.0, 1), NOW + 11);
+        assert_eq!(luna_calls(&fx)[0].1, "luna://com.webos.service.tvpower/power/turnOnScreen");
+        assert!(!s.up());
+    }
+
+    #[test]
+    fn app_transition_drops_home_ownership_but_keeps_native_confirmation() {
+        let mut s = saver();
+        home(&mut s, NOW);
+        question(&mut s, 0, 1, NOW + 1);
+        let fx = s.update(&topic("foreground", json!({"app": "game", "home": false})), NOW + 2);
+        assert!(!s.up() && s.state()["owned"] == false && fx.contains(&Effect::Redraw));
+        let fx = s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 3);
+        assert!(s.up() && fx.contains(&Effect::Redraw));
+        home(&mut s, NOW + 4);
+        s.update(&topic("foreground", json!({"app": "game", "home": false})), NOW + 5);
+        assert!(s.up() && s.state()["owned"] == false);
+        s.update(&helper("screen", json!({"on": false, "state": "Screen Saver"})), NOW + 6);
+        assert!(!s.up(), "the TV being off takes precedence over a stale native state");
+        s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 7);
+        assert!(s.up());
+        s.set_config(Config::from_theme(&json!({"screensaver": {"style": "off"}}), false, 90), NOW + 8);
+        assert!(!s.up());
+        let mut lg = Saver::new(Config::from_theme(&json!({"screensaver": {"own": false}}), false, 90), "c", 1);
+        let fx = lg.update(&topic("foreground", json!({"app": "game", "home": false})), NOW);
+        assert!(luna_calls(&fx).is_empty());
+        lg.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 1);
+        assert!(lg.up() && lg.state()["owned"] == false, "own=false only disables the Home vote");
+    }
+
+    #[test]
+    fn native_app_saver_never_writes_lgs_timeout_preference() {
+        let mut s = saver();
+        let mut effects = s.update(&topic("foreground", json!({"app": "game", "home": false})), NOW);
+        effects.extend(s.update(&helper("screen", json!({"on": true, "state": "Active"})), NOW + 1));
+        effects.extend(s.update(&Input::Tick, NOW + 3_600_000));
+        assert!(!s.up(), "time alone cannot start the saver");
+        effects.extend(s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 3_600_001));
+        effects.extend(s.update(&Input::Key { name: "left".into(), down: true, repeat: false }, NOW + 3_600_002));
+        let calls = luna_calls(&effects);
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0].1.ends_with("/power/turnOnScreen"));
+    }
+
+    #[test]
     fn with_home_in_front_it_is_on_both_of_tvpowers_lists_and_with_an_app_in_front_it_is_on_neither() {
         let mut s = saver();
         assert!(luna_calls(&s.update(&topic("foreground", json!({"app": "netflix", "home": false})), NOW)).is_empty());
@@ -655,13 +738,14 @@ mod tests {
         question(&mut t, 0, 1, NOW + 1);
         t.update(&at(5.0, 5.0, 1), NOW + 2);
         assert!(!t.up(), "a button wakes at once");
-        // LG's own state wakes on the pointer by itself: it is not this model's
+        // The compositor also asks LG to wake when it receives the pointer over LG's own saver.
         let mut u = saver();
         home(&mut u, NOW);
         u.update(&helper("screen", json!({"state": "Screen Saver"})), NOW + 1);
         u.update(&at(1.0, 1.0, 0), NOW + 2);
-        u.update(&at(900.0, 900.0, 0), NOW + 3);
-        assert!(u.up());
+        let fx = u.update(&at(900.0, 900.0, 0), NOW + 3);
+        assert!(!u.up());
+        assert_eq!(luna_calls(&fx)[0].1, "luna://com.webos.service.tvpower/power/turnOnScreen");
     }
 
     #[test]

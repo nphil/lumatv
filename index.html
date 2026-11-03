@@ -16,11 +16,11 @@
     </div>
     <div id="status-card" class="glass">
       <div class="status-item">
-        <span class="status-label">Applied</span>
+        <span class="status-label">Running</span>
         <span class="status-value" id="stat-applied">&#8211;</span>
       </div>
       <div class="status-item">
-        <span class="status-label">Mounts</span>
+        <span class="status-label">Enabled at boot</span>
         <span class="status-value" id="stat-mounts">&#8211;</span>
       </div>
       <div class="status-item">
@@ -42,8 +42,8 @@
 
     <section class="row glass focusable" id="row-apply" tabindex="0" data-role="apply">
       <div class="row-main">
-        <span class="row-title">Apply {{displayName}}</span>
-        <span class="row-sub">Mount the glass compositor and reskinned home screen</span>
+        <span class="row-title">Open {{displayName}}</span>
+        <span class="row-sub">Enable the native compositor or open Home if it is already running</span>
       </div>
       <span class="row-chevron">&#8250;</span>
     </section>
@@ -51,20 +51,11 @@
     <section class="row glass focusable danger" id="row-revert" tabindex="0" data-role="revert">
       <div class="row-main">
         <span class="row-title">Revert to stock</span>
-        <span class="row-sub">Unmount everything and restore the original home screen</span>
+        <span class="row-sub">Disable the native compositor and restore the original Home</span>
       </div>
       <span class="row-chevron">&#8250;</span>
     </section>
 
-    <section class="row glass focusable" id="row-persist" tabindex="0" data-role="persist">
-      <div class="row-main">
-        <span class="row-title">Run at boot</span>
-        <span class="row-sub">Re-apply {{displayName}} automatically after every restart</span>
-      </div>
-      <span class="row-toggle" id="toggle-persist" data-on="false">
-        <span class="row-toggle-knob"></span>
-      </span>
-    </section>
 
     <section class="row glass focusable" id="row-standby" tabindex="0" data-role="standby">
       <div class="row-main">
@@ -76,15 +67,6 @@
       </span>
     </section>
 
-    <section class="row glass focusable" id="row-fps" tabindex="0" data-role="fps">
-      <div class="row-main">
-        <span class="row-title">FPS overlay</span>
-        <span class="row-sub">Show the compositor debug frame counter</span>
-      </div>
-      <span class="row-toggle" id="toggle-fps" data-on="false">
-        <span class="row-toggle-knob"></span>
-      </span>
-    </section>
 
     <section class="row glass focusable" id="row-wallpaper" tabindex="0" data-role="wallpaper">
       <div class="row-main">
@@ -129,7 +111,7 @@
   <div class="overlay" id="overlay-confirm-revert" hidden>
     <div class="overlay-panel glass danger-panel">
       <h2>Revert to stock?</h2>
-      <p>This unmounts {{displayName}} and restores the original webOS home screen. Boot-time re-apply will also be turned off.</p>
+      <p>This disables {{displayName}} at boot and restores the original webOS home screen. Preferences are kept.</p>
       <div class="overlay-actions">
         <button class="overlay-btn focusable" id="confirm-revert-yes" tabindex="0" data-role="confirm-revert-yes">Yes, revert</button>
         <button class="overlay-btn focusable" id="confirm-revert-no" tabindex="0" data-role="confirm-revert-no">Cancel</button>
@@ -141,8 +123,8 @@
   <div class="overlay overlay-busy" id="overlay-apply-busy" hidden>
     <div class="overlay-panel glass busy-panel">
       <div class="spinner"></div>
-      <h2>Applying {{displayName}}</h2>
-      <p>The screen will flash and Home will restart. This normally takes 20&#8211;40 seconds &#8211; please wait.</p>
+      <h2>Opening {{displayName}}</h2>
+      <p>If the compositor needs to start, the screen will flash and Home will restart. Please wait.</p>
     </div>
   </div>
 

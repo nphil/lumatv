@@ -1,11 +1,4 @@
-"""Run with: python3 -m unittest tests.test_package_tools
-
-What tools/build-ipk.sh puts under tools/ on the set against what the tool calls there. The first round-7 TV run of `lumatv inputcommon`
-answered "tools/inputcommon.sh did not answer" because that script and the two it needs were in the repository and not in the package.
-The check is the closure: from the tool and the boot hook, every `$APPDIR/tools/<script>` a shell file calls and every sibling module a
-python file imports, followed through the files it finds; each must be copied by a `cp ... "$DATA_ROOT/tools/"` line of the build
-script and listed in its REQUIRED_FILES (the list the dry run and the early error read).
-"""
+"""Check packaged tools and payload dependencies against their runtime callers."""
 import os
 import re
 import shlex
@@ -140,7 +133,9 @@ def payload_problems(build_text):
             continue
         directory, base = os.path.split(path)
         if os.path.exists(os.path.join(ROOT, "payload", path)):
-            if 'cp -R payload/. "$DATA_ROOT/payload/"' not in build_text:
+            tree_copy = '    cp -R "$item" "$DATA_ROOT/payload/"'
+            tree_loop = 'for item in payload/* payload/.[!.]* payload/..?*; do'
+            if tree_copy not in build_text or tree_loop not in build_text:
                 problems.append("%s: payload/%s is in the repository and the build script no longer copies the payload tree" % (name, path))
             continue
         sources = [s for s in staged.get(directory, []) if os.path.basename(s) == base]
@@ -168,49 +163,11 @@ class Packaged(unittest.TestCase):
         self.assertGreater(len(names), 12, "the closure found almost nothing: %s" % sorted(names))
         self.assertEqual(missing(self.build, names), [])
 
-    def test_the_closure_reaches_the_scripts_it_should(self):
-        names = wanted()
-        for must in ("lumatv", "autostart.sh", "bootcap.sh", "brand.sh", "compositor.sh", "inputcommon.sh", "inputcommon_patch.py", "voice.sh", "voice_patch.py", "maliit.sh", "maliit_patch.py", "keyboard_patch.py",
-                     "notification_patch.py", "tokens.py", "preload.py", "theme.py", "keyfilter.py", "systemui.py", "systemui_patch.py", "tileicons.js"):
-            self.assertIn(must, names)
-
-    def test_the_input_banner_and_keyboard_restyle_are_shipped(self):
-        # the three that were missing, and the modules they import
-        for name in ("inputcommon.sh", "inputcommon_patch.py", "voice.sh", "voice_patch.py", "maliit.sh", "maliit_patch.py", "keyboard_patch.py", "notification_patch.py", "tokens.py"):
-            self.assertIn(name, copied(self.build), name)
-            self.assertIn(name, required(self.build), name)
-
     def test_what_the_build_script_copies_is_in_the_repository_and_in_the_required_list(self):
         for name in copied(self.build):
             self.assertTrue(os.path.exists(os.path.join(TOOLS, name)), name + " is copied and does not exist")
         self.assertEqual(sorted(n for n in copied(self.build) if n not in required(self.build)), [])
 
-    def test_the_checker_finds_a_script_that_is_not_shipped(self):
-        names = wanted()
-        without_cp = self.build.replace("cp tools/inputcommon.sh tools/inputcommon_patch.py tools/voice.sh", "cp tools/inputcommon_patch.py tools/voice.sh")
-        self.assertEqual(missing(without_cp, names), ["inputcommon.sh"])
-        without_listed = self.build.replace("tools/keyboard_patch.py\n", "", 1)
-        self.assertEqual(missing(without_listed, names), ["keyboard_patch.py (not in REQUIRED_FILES)"])
-        without_import = self.build.replace("tools/notification_patch.py ", "")
-        self.assertEqual(missing(without_import, names), ["notification_patch.py"])
-
-    def test_the_dry_run_names_the_three_as_present(self):
-        r = subprocess.run(["sh", BUILD, "--dry-run"], cwd=ROOT, capture_output=True, text=True, timeout=60)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        for name in ("inputcommon.sh", "inputcommon_patch.py", "voice.sh", "voice_patch.py", "maliit.sh", "maliit_patch.py", "keyboard_patch.py", "tileicons.js", "systemui.py", "systemui_patch.py"):
-            self.assertIn("✓ tools/%s\n" % name, r.stdout)
-        self.assertNotIn("✗ tools/", r.stdout)
-
-    def test_python_tools_are_run_by_python3_and_shell_ones_by_sh_so_no_execute_bit_is_needed(self):
-        # the three are started as `sh <script>` / `python3 <script>`; a copy that lost its mode still runs
-        text = read(os.path.join(TOOLS, "lumatv"))
-        self.assertIn('sh "$INPUTCOMMON_TOOL"', text)
-        self.assertIn('python3 "$KEYBOARD_TOOL"', text)
-        self.assertIn('python3 "$IC_PATCH_TOOL"', read(os.path.join(TOOLS, "inputcommon.sh")))
-        self.assertIn('sh "$VOICE_TOOL"', text)
-        self.assertIn('exec sh "$APPDIR/tools/inputcommon.sh"', read(os.path.join(TOOLS, "voice.sh")))
-        self.assertIn('sh "$KEYS_TOOL"', text)
-        self.assertIn('python3 "$PATCH_TOOL"', read(os.path.join(TOOLS, "maliit.sh")))
 
     def test_every_payload_file_the_tool_names_is_in_the_package(self):
         self.assertGreaterEqual(len(payload_refs()), 15, sorted(payload_refs()))
@@ -222,7 +179,7 @@ class Packaged(unittest.TestCase):
         self.assertEqual(payload_problems(no_cp), ["VPLANE_SRC: payload/vplane/lumatv-vplane is built and no cp puts it in $DATA_ROOT/payload/vplane/"])
         not_listed = self.build.replace("vplane/build/arm/lumatv-vplane\n", "", 1)
         self.assertEqual(payload_problems(not_listed), ["VPLANE_SRC: vplane/build/arm/lumatv-vplane is copied and not in REQUIRED_FILES"])
-        no_tree = self.build.replace('cp -R payload/. "$DATA_ROOT/payload/"', "")
+        no_tree = self.build.replace('    cp -R "$item" "$DATA_ROOT/payload/"', "")
         self.assertTrue(any(p.startswith("VPLANE_SH:") for p in payload_problems(no_tree)))
 
     def test_the_video_plane_player_comes_with_its_script_role_and_clips_and_the_two_executables_are_marked(self):

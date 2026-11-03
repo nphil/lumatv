@@ -16,6 +16,24 @@ use crate::scene::Hole;
 use crate::surface::SurfaceId;
 use crate::{Rect, State, plain_global};
 
+fn unique_context<'a>(mut contexts: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+    let context = contexts.next()?;
+    (!context.is_empty() && contexts.next().is_none()).then_some(context)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unique_context;
+
+    #[test]
+    fn foreground_context_must_be_single_and_nonempty() {
+        assert_eq!(unique_context([].into_iter()), None);
+        assert_eq!(unique_context([""].into_iter()), None);
+        assert_eq!(unique_context(["one"].into_iter()), Some("one"));
+        assert_eq!(unique_context(["one", "two"].into_iter()), None);
+    }
+}
+
 pub struct Exported {
     pub window_id: String,
     pub surface: SurfaceId,
@@ -210,6 +228,7 @@ impl Dispatch<WlWebosExported, ExportedData> for State {
             state.scene.set_video_expected(e.surface, still);
         }
         state.vwin_sync();
+        state.shell_rust_sync_video();
     }
 }
 
@@ -323,6 +342,36 @@ impl State {
         destination.translated(origin.0, origin.1)
     }
 
+    /// The one visible video belonging to the foreground card, if its identity is unambiguous.
+    pub(crate) fn foreground_video(&self) -> Option<(&str, &str)> {
+        if !self.luna_state.power.rendering || self.shell_home_drawn() {
+            return None;
+        }
+        let foreground = self.scene.foreground(&self.surfaces)?;
+        let app = foreground.app_id();
+        if app.is_empty() || app == crate::scene::HOME_APP || foreground.map_serial == 0
+            || !self.surfaces.get(foreground.surface).is_some_and(|s| s.is_mapped())
+        {
+            return None;
+        }
+        let candidates = self.foreign.exported.values().filter(|e| {
+            let mut root = e.surface;
+            while let Some(crate::surface::Role::Subsurface { parent }) = self.surfaces.get(root).map(|s| s.role) {
+                root = parent;
+            }
+            (root == foreground.surface
+                || self.scene.group_of_member(root).is_some_and(|g| g.owner == foreground.surface))
+                && self.surfaces.get(e.surface).is_some_and(|s| s.is_mapped())
+                && !e.destination.is_empty()
+                && self.scene.video_hole_visible(foreground.id, e.surface, e.destination)
+        }).flat_map(|e| e.contexts.iter().map(String::as_str));
+        let context = unique_context(candidates)?;
+        if self.foreign.exported.values().flat_map(|e| &e.contexts).filter(|c| c.as_str() == context).count() != 1 {
+            return None;
+        }
+        Some((context, app))
+    }
+
     /// An output rectangle in the panel's pixels: what videooutputd holds and reports (`getStatus`'s `displayOutput`), and what a full-screen placement
     /// carries (3840x2160). A window is not asked for in these: see [`State::ui_rect`].
     pub(crate) fn panel_rect(&self, r: &Rect) -> Rect {
@@ -355,11 +404,16 @@ impl State {
         if let Some(w) = self.scene.window_of(surface).and_then(|w| self.scene.window(w)).filter(|w| w.kind == crate::window::WindowType::VideoWindow) {
             dest = if w.vwin_live { w.vwin_rect } else { Rect::default() };
         }
+        let expected = (!contexts.is_empty() && !dest.is_empty()).then_some(Hole { surface, rect: dest });
+        if self.scene.holes.iter().find(|h| h.surface == surface).copied() != expected {
+            self.scene.invalidate_video_holes_for_surface(surface, &self.surfaces);
+        }
         let out_rect = self.exported_output_rect(surface, dest);
         self.scene.holes.retain(|h| h.surface != surface);
         if !contexts.is_empty() && !dest.is_empty() {
             self.scene.holes.push(Hole { surface, rect: dest });
         }
+        self.shell_rust_sync_video();
         for (id, i) in &self.foreign.imported {
             if i.window_id == window_id
                 && let Ok(res) = WlWebosImported::from_id(&self.dh, id.clone())
@@ -387,6 +441,9 @@ impl State {
     }
 
     fn attach_punchthrough(&mut self, imported: &wayland_backend::server::ObjectId, window_id: &str, ctx: String) {
+        if let Some(e) = self.foreign.exported.get(window_id).filter(|e| !e.contexts.contains(&ctx)) {
+            self.scene.invalidate_video_holes_for_surface(e.surface, &self.surfaces);
+        }
         if let Some(i) = self.foreign.imported.get_mut(imported) {
             i.context = Some(ctx.clone());
         }
@@ -407,6 +464,11 @@ impl State {
     }
 
     fn detach_punchthrough(&mut self, imported: &wayland_backend::server::ObjectId, window_id: &str) -> Option<String> {
+        if let Some(e) = self.foreign.exported.get(window_id)
+            && !e.contexts.is_empty()
+        {
+            self.scene.invalidate_video_holes_for_surface(e.surface, &self.surfaces);
+        }
         let ctx = self.foreign.imported.get_mut(imported).and_then(|i| i.context.take());
         if let Some(e) = self.foreign.exported.get_mut(window_id) {
             match &ctx {

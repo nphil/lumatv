@@ -11,7 +11,6 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 
 use super::Scene;
 use crate::surface::{SurfaceId, Surfaces};
-use crate::window::WindowType;
 use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect};
 
 /// One picture the switcher wants: the surface's buffer scaled into `rect`, `alpha` opaque, its corners rounded by `radius` pixels.
@@ -44,8 +43,7 @@ pub struct PlannedPreview {
     pub dirty: bool,
 }
 
-/// The backdrop in a plan: drawn just before the item at index `before` (the first item of the shell's system layer, or past the last
-/// one when that layer is idle), so the layer's own chrome stands on the pictures and no window of LG's is above them.
+/// The backdrop follows all client windows and sits under native UI chrome.
 pub struct Backdrop {
     pub before: usize,
     pub scrim: [f32; 4],
@@ -71,12 +69,7 @@ impl Scene {
         let mut sig = BackdropSig::default();
         let mut dirty = false;
         if let Some(spec) = &self.backdrop {
-            let before = self
-                .plan
-                .items
-                .iter()
-                .position(|i| self.windows.get(&i.window).is_some_and(|w| w.kind == WindowType::ShellSystem))
-                .unwrap_or(self.plan.items.len());
+            let before = self.plan.items.len();
             let mut previews = Vec::with_capacity(spec.previews.len());
             for p in &spec.previews {
                 let Some(s) = surfaces.get(p.surface) else { continue };

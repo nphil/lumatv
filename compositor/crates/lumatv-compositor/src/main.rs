@@ -44,27 +44,23 @@ fn main() {
             std::process::exit(2);
         }
     };
-    // The log's lines are written by a thread of its own: the queue is emptied before the error line, so that the file is in order, and before the process ends.
+    // Datagram logging never waits for the collector, including at shutdown.
     let result = run(config);
     log::logger().flush();
     if let Err(e) = result {
-        eprintln!("lumatv-compositor: {e}");
+        log::error!("lumatv-compositor: {e}");
         std::process::exit(1);
     }
 }
 
 fn init_logging() {
     let level = std::env::var("LUMATV_LOG").ok().and_then(|v| v.parse().ok()).unwrap_or(log::LevelFilter::Info);
-    match logsink::Logger::start(libc::STDERR_FILENO) {
-        Ok(logger) => {
-            log::set_boxed_logger(Box::new(logger)).ok();
-        }
-        Err(e) => {
-            eprintln!("lumatv-compositor: the log's writer thread: {e}");
-            std::process::exit(1);
-        }
-    }
+    log::set_boxed_logger(Box::new(logsink::Logger::start())).ok();
     log::set_max_level(level);
+    if let Some(output) = lumatv_compositor::childlog::pipe("lumatv-compositor", "") {
+        // Native libraries still write stderr; the bounded drain never waits for the collector.
+        unsafe { libc::dup2(output.as_raw_fd(), libc::STDERR_FILENO); }
+    }
     #[cfg(feature = "ui")]
     lumatv_render::set_log_sink(|message| log::info!("renderer: {message}")).expect("renderer log sink initialized once");
 }
@@ -82,14 +78,14 @@ fn run(config: Config) -> io::Result<()> {
     }
     // SAFETY: setting an environment variable at start-up, before any thread exists.
     unsafe { std::env::set_var("XDG_RUNTIME_DIR", &config.runtime_dir) };
-    // The writer is the first thread: only after the environment is set and the main arena is grown.
+    // Open the nonblocking logging descriptor before entering the frame loop.
     init_logging();
     if !refused.is_empty() {
         log::warn!("mem: malloc refused {}", refused.join(", "));
     }
     log::info!("mem: heap grown {} MiB in {:.1} ms; malloc takes no mmap, no trim", mem::PREGROW >> 20, grown.as_secs_f64() * 1e3);
     log::info!("mem: {}", mem::lock(config.mlock));
-    // The trace ring, where the supervisor finds it after a crash (the runtime directory is tmpfs): opened once the directory exists.
+    // The fixed diagnostic trace is budgeted separately from the central text log.
     if let Some(path) = config.ring_path() {
         match ring::open(&path, ring::SIZE) {
             Ok(()) => {
@@ -201,7 +197,7 @@ fn run(config: Config) -> io::Result<()> {
     }
     // `--refresh 120`: the output is asked once it exists; a refusal (no divider on this kernel) keeps the default, and says so.
     if config.refresh_hz != lumatv_compositor::refresh::DEFAULT_HZ {
-        match state.output.set_refresh(config.refresh_hz) {
+        match state.refresh_apply(config.refresh_hz) {
             Ok(hz) => state.journal(format!("refresh: {hz} Hz from the command line")),
             Err(e) => {
                 log::warn!("refresh {} Hz refused: {e}; staying at {}", config.refresh_hz, lumatv_compositor::refresh::DEFAULT_HZ);
@@ -252,7 +248,6 @@ fn run(config: Config) -> io::Result<()> {
     const TAG_CONTROL_CLIENT: u64 = 1 << 32;
     const TAG_INPUT: u64 = 1 << 33;
     const TAG_UI: u64 = 10;
-    const TAG_SHELL: u64 = 11;
     const TAG_SHELL_RUST: u64 = 12;
     const TAG_IM: u64 = 13;
     epoll.add(display.backend().poll_fd().as_raw_fd(), TAG_WL)?;
@@ -270,16 +265,13 @@ fn run(config: Config) -> io::Result<()> {
     if let Some(fd) = state.output.ui_fd() {
         epoll.add(fd, TAG_UI)?;
     }
-    // The shell client (shell.rs): its UI channel's wake-up; started once the socket listens, so it finds the display. The Rust
-    // shell (shell_rust.rs) beside it, on a channel of its own.
-    state.shell_start();
-    if let Some(fd) = state.shell_fd() {
-        epoll.add(fd, TAG_SHELL)?;
-    }
     if let Some(socket) = rust_socket.take() {
         state.shell_rust.adopt_socket(socket);
     }
     state.shell_rust_start();
+    if state.shell_rust.gave_up {
+        return Err(io::Error::other(state.shell_rust.error.clone().unwrap_or_else(|| "native UI failed to start".into())));
+    }
     let mut rust_fd = state.shell_rust_fd();
     if let Some(fd) = rust_fd {
         epoll.add(fd, TAG_SHELL_RUST)?;
@@ -334,6 +326,12 @@ fn run(config: Config) -> io::Result<()> {
     let mut last_flip_seen: Option<u64> = None;
 
     loop {
+        if let Some(error) = state.fatal_error.take() {
+            return Err(io::Error::other(error));
+        }
+        if state.shell_rust.gave_up {
+            return Err(io::Error::other(state.shell_rust.error.clone().unwrap_or_else(|| "native UI failed".into())));
+        }
         if TERM.load(std::sync::atomic::Ordering::Relaxed) && !state.should_exit {
             state.journal("exit: asked to stop (SIGTERM or SIGINT)".into());
             state.should_exit = true;
@@ -347,7 +345,6 @@ fn run(config: Config) -> io::Result<()> {
                 _ => {}
             }
         }
-        // `ctl shell rust +kind` on a compositor started with no kinds opens the Rust client's channel now: its wake fd joins the loop.
         if state.shell_rust_fd() != rust_fd {
             if let Some(old) = rust_fd {
                 epoll.del(old);
@@ -358,7 +355,7 @@ fn run(config: Config) -> io::Result<()> {
             }
         }
         let now = Instant::now();
-        let wake = [deadline, linger_until].into_iter().flatten().min();
+        let wake = [deadline, linger_until, state.nooperation_deadline()].into_iter().flatten().min();
         let timeout = match wake {
             Some(d) => d.saturating_duration_since(now).as_millis().clamp(1, 1000) as i32,
             None => 1000,
@@ -441,12 +438,6 @@ fn run(config: Config) -> io::Result<()> {
                     if state.ui_wake() {
                         handled |= 1 << 9;
                         state.tick();
-                        tick.rearm(&state)?;
-                    }
-                }
-                TAG_SHELL => {
-                    if state.shell_poll() {
-                        handled |= 1 << 9;
                         tick.rearm(&state)?;
                     }
                 }
@@ -545,6 +536,7 @@ fn run(config: Config) -> io::Result<()> {
             }
         }
         state.drain_client_events(&client_events);
+        state.nooperation_tick();
         // A commit onto a still screen (KMS) is drawn now rather than at the next tick.
         if state.wants_frame_now() {
             handled |= 1 << 9;
@@ -645,10 +637,10 @@ fn run(config: Config) -> io::Result<()> {
     state.probe_poll();
     if let Some(p) = &state.probe {
         log::info!("{}", p.summary());
-        println!("{}", p.summary());
+        let _ = writeln!(io::stdout().lock(), "{}", p.summary());
     }
     log::info!("summary: {}", state.summary());
-    println!("summary: {}", state.summary());
+    let _ = writeln!(io::stdout().lock(), "summary: {}", state.summary());
     if let Some(l) = control_listener {
         drop(l);
         let _ = std::fs::remove_file(control::socket_path(&config.runtime_dir));

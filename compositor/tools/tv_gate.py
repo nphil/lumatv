@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Drives the C4 gate from the workstation: LumaTV's compositor goes live as a session (cutover.sh enable --session: this
 boot only, on any firmware), the checks of tools/tv-gate.sh run in order with the receiver muted, the set is woken after
-the standby check, and the checks that end the live session (Home held on a virtual remote, the compositor stopped and
-killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
+the standby check, and the checks that end the live session (the supervisor's independent Home hold, compositor stop and
+kill) each get a fresh session. Home held for 10 seconds is the stock-LG recovery route. Exit 0 only when every check passed; the result
 lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
-    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--x1-strict] [--apps-repeat N] [--rust-kinds home,quick,...|all] [--video-apps youtube,netflix,plex|all] [--video-seconds N] [--x1-rt N] [--x1-callbacks commit|early|landing] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120] [--scanout direct] [--force-wake]
+    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--x1-strict] [--apps-repeat N] [--rust-kinds home,quick,...|all] [--video-apps youtube,netflix,plex|all] [--video-seconds N] [--x1-rt N] [--x1-callbacks commit|early|landing] [--enable-after] [--frames-clients commit|early|landing] [--frames-quick] [--refresh 120] [--scanout direct] [--force-wake]
 
 The gate's rule for the frame check (the x1 probe, 60 s) fails on a gap that is the compositor's: a late flip, the loop slow to take a flip up
 or waiting, callbacks that went out late. A gap that is the client's own wake-up after callbacks that came on time is reported with its count and
@@ -13,21 +13,19 @@ not counted. The raw swaps and their original strict verdict remain prominent in
 The run is traced (capture.sh's kwait mode; tv-gate.sh, "The frame rule"). Missing, lost, truncated or mismatched evidence is INCONCLUSIVE and cannot pass.
 --x1-strict explicitly runs the PLAN's original rule without requiring a trace: every client swap gap or compositor frame gap over 20 ms fails. --x1-seconds under 60
 can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, apps, keys, ime, standby, homekey,
-wd-hang, wd-crash, escape. --video-apps youtube,netflix,plex (or all) runs the video check after the others: each app plays full screen for --video-seconds (default 120) while the gate reads the page
+wd-hang, wd-crash. --video-apps youtube,netflix,plex (or all) runs the video check after the others: each app plays full screen for --video-seconds (default 120) while the gate reads the page
 format (AR24) and fb0's constant alpha, the DISPLAY capture (the video must not be black), the compositor's CPU, composed frames and page flips with nothing over the video, and
 each overlay over it (volume, quick panel, input picker, drawer, toast, alert: first frame, the video around it, no frame of its motion dropped, idle after the close).
 --only runs just the named ones (in one session, the live check and the evidence included); the
-step-1 test of the remote's keys and the keyboard is `--only keys,ime`. --frames-callbacks landing runs the surface frame gate with
-the shell client's frame callbacks at the flip (`ctl callbacks shell landing`), against the default of a frame
-ahead of it inside a run of its frames, so that a round says what the change made. The surface frame gate runs the whole set of surfaces
-(Home's D-pad, the panels, the screens walked with the D-pad, the switcher, the keyboards and the launches with smooth transitions); --frames-quick
+step-1 test of the remote's keys and the keyboard is `--only keys,ime`. The surface frame gate runs the whole set of surfaces
+(Home's D-pad, the panels, the screens walked with the D-pad, the switcher, the keyboard and the launches with smooth transitions); --frames-quick
 runs the quick set, which starts no app and changes a setting only if the owner has the remote's number keys off or Quick Access on, for a regular round.
 --refresh 120 runs the surface frame gate in the compositor's refresh test mode (docs/research/ui120-result.md): `gate.sh refresh 120`
 before it (the OSD vblank divider at 1, the pacer at 8.33 ms; a GATE refresh line with the rate measured three ways, Mali busy and the
 temperature at idle Home), the gate's dropped-frame threshold at 10 ms, idle Home measured again after the surfaces, then
 `gate.sh refresh 60` (and once more in the clean-up, whatever happened). `--only frames --refresh 120` is the whole 120 Hz check.
 --scanout direct switches direct scan-out on for the surface frame gate (docs/research/scanout-research.md, TV check list d): `gate.sh scanout direct`
-before it (the shell asked for buffers the plane takes, the compositor's switch on, the shell started again), `gate.sh scanout read` after it (frames
+before it (the compositor's switch on), `gate.sh scanout read` after it (frames
 shown direct and composed, the reason of each composed one); the gate's files and trace tag carry `-scanout`, so the run beside the same gate without
 the switch keeps both. `--only frames --refresh 120 --scanout direct` is the 120 Hz check with the switch on.
 
@@ -70,25 +68,23 @@ WAKE_GUARD_MINUTES = 15
 # --force-wake (set by the drivers' argument parsers): wake() does not wait for LG's panel refresh.
 FORCE_WAKE = False
 LATER_SESSION_MINUTES = 6
-# The apps check's pass (YouTube then PlxNative, with its waits) is about 45 s, and the rust check's kind takes the client's restarts (on, off, back as found)
-# and its own waits: both lengthen the first session, whose timer must outlast them.
+# The apps check and native checks lengthen the first session.
 APPS_PASS_SECONDS = 45
 RUST_KIND_MINUTES = 2
 # The kinds the rust check drives by default (tools/tv-gate.sh: LUMATV_RUST_KINDS unset).
-RUST_KINDS_ALL = 16
+RUST_KINDS_ALL = 22
 # The video check (tools/tv-gate.sh `video`): one app's run is its wait for the film, the 5 s settle, the three captures, the sampled seconds (--video-seconds) and
 # six overlays of about 15 s each, with a minute for the launch and the close.
 VIDEO_APPS_ALL = ["youtube", "netflix", "plex"]
 VIDEO_SECONDS = 120
 VIDEO_FIXED_SECONDS = 45 + 5 + 6 + 6 * 15 + 60
 # Every check that can be skipped or picked with --only, in the order the gate runs them.
-CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "apps", "keys", "ime", "shell", "rust", "video", "frames", "frames-load", "standby", "homekey", "wd-hang", "wd-crash", "escape"]
+CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "apps", "keys", "ime", "shell", "rust", "video", "frames", "frames-load", "standby", "homekey", "wd-hang", "wd-crash"]
 # The surface frame gate (docs/research/perf/gate.py) under LumaTV's compositor: LumaTV's own surfaces, drawn by the shell client. A regular round
 # runs the quick set (--frames-quick): the original four and the walks that press nothing but the D-pad on Home, Settings and the library. The
-# full set (the default) adds the ones that change a setting for their run and put it back (the app switcher, smooth transitions, which
-# keyboard serves a field) and start apps (Netflix, LG's Search and Content Store and browser, LG's Settings), which is most of the time.
+# The full set also starts apps and changes the app switcher and transitions settings temporarily.
 FRAMES_SURFACES_QUICK = "home-dpad,quick,picker,toast,settings-scroll,apps-grid,home-widgets"
-FRAMES_SURFACES = FRAMES_SURFACES_QUICK + ",switcher,transitions-netflix,transitions-settings,keyboard-luma,keyboard-lg"
+FRAMES_SURFACES = FRAMES_SURFACES_QUICK + ",switcher,transitions-netflix,transitions-settings,keyboard"
 FRAMES_QUICK_SESSION_MINUTES = 30
 FRAMES_SESSION_MINUTES = 60
 PERF_GATE = os.path.join(here, "..", "..", "docs", "research", "perf", "gate.py")
@@ -302,13 +298,31 @@ def all_passed(lines):
     verdicts = [VERDICT.match(l) for l in lines if VERDICT.match(l)]
     return bool(verdicts) and all(m.group(1) == "PASS" for m in verdicts)
 
+def missing_results(lines, expected):
+    missing = []
+    for name in expected:
+        if name == "frames-load":
+            found = any(re.match(r"^GATE frames-load: (?:measured\b|PASS\b|FAIL\b)", line) for line in lines)
+        else:
+            found = any(re.match(r"^GATE " + re.escape(name) + r": (?:PASS|FAIL)\b", line) for line in lines)
+        if not found:
+            missing.append("GATE %s: FAIL missing result" % name)
+    return missing
+
+def safety_step(name, live, step, report):
+    if not live:
+        report("GATE %s: FAIL session not live" % name)
+        return
+    step(name, "sh /tmp/lumatv/gate.sh %s" % name, 300)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip", default="")
     ap.add_argument("--only", default="")
     ap.add_argument("--x1-seconds", type=int, default=60)
     ap.add_argument("--apps-repeat", type=int, default=1, help="run the apps check's YouTube-then-PlxNative pair this many times (1 to 30): PlxNative's close crashed in 9 of 10 of round 17's, so the fix is judged over a run of them")
-    ap.add_argument("--rust-kinds", default="", help="run the rust check (the Rust shell's kinds one at a time: on, shown, first frame, frames, GL errors, off, put back; a kind not built is SKIPPED) over these kinds, comma separated, or `all`; the check is off unless this is given or --only names it. The kinds the compositor keeps (shell-rust.conf) are put back")
+    ap.add_argument("--rust-kinds", default="", help="run native UI readiness, display and close checks for these kinds, comma separated, or `all`; off unless given or --only names rust")
     ap.add_argument("--video-apps", default="", help="run the video check (tools/tv-gate.sh `video`) over these apps, comma separated, or `all` (youtube, netflix, plex): each plays full screen for --video-seconds with the page format, the DISPLAY capture's picture, the compositor's cost and each overlay over the video measured; off unless this is given or --only names video (then youtube). Plex's film is started by the owner")
     ap.add_argument("--video-seconds", type=int, default=VIDEO_SECONDS, help="the seconds each app of the video check is sampled with nothing over its video (default 120)")
     ap.add_argument("--x1-rt", type=int, default=0, help="run the x1 client SCHED_FIFO N (1 to 99) instead of time-shared: an A/B for the client's own wake-ups against the set's other tasks, the rule unchanged")
@@ -319,10 +333,8 @@ def main():
     ap.add_argument("--frames-load", action="store_true", help="also run the surface frame gate under synthetic background load (decode, Home Assistant websocket, BLE scan, a low-priority download): a report, not a rule")
     ap.add_argument("--x1-strict", action="store_true", help="the PLAN's rule for x1: the run is not traced and any gap over 20 ms in the client's swaps fails it, the client's own wake-ups included (the default fails only the compositor's)")
     ap.add_argument("--kwait", action="store_true", help="trace the x1 run (the default unless --x1-strict; with --x1-strict the run is traced and the rule stays strict)")
-    ap.add_argument("--frames-callbacks", choices=["early", "landing"], default="early",
-                    help="when the shell client's frame callbacks go out in the surface frame gate: a frame ahead of the flip inside a run of its frames (early, the default) or at the flip (landing)")
     ap.add_argument("--frames-clients", choices=["commit", "early", "landing"],
-                    help="when every other client's frame callbacks go out in the surface frame gate (`ctl callbacks clients`): with the commit (the default since round 19), the frame's draw (early) or the flip (landing): "
+                    help="when clients' frame callbacks go out in the surface frame gate (`ctl callbacks clients`): with the commit (the default since round 19), the frame's draw (early) or the flip (landing): "
                          "an A/B of the apps' pacing against the default, the rule unchanged; the default is put back after the gate and the line `callbacks` says how many went out with a commit. "
                          "The quick set has no app drawing: the A/B is for the full set (the switcher, the app launches, the keyboard's Search app)")
     ap.add_argument("--refresh", type=int, choices=[60, 120], default=60,
@@ -360,6 +372,7 @@ def main():
     tv.put(os.path.join(here, "tv-rustjson.py"), "/tmp/lumatv/rustjson.py")
     tv.put(os.path.join(here, "tv-pngstat.py"), "/tmp/lumatv/pngstat.py")
     tv.put(LIBRARY, "/tmp/lumatv/compositor.sh")
+    tv.put(os.path.join(here, "..", "..", "tools", "logrelay.py"), "/tmp/lumatv/logrelay.py")
     if os.path.exists(VERIFIED_LIST):
         tv.put(VERIFIED_LIST, "/tmp/lumatv/verified.list")
     tv.tv("rm -rf /tmp/lumatv/out/gate; mkdir -p /tmp/lumatv/out/gate")
@@ -399,7 +412,13 @@ def main():
         """LumaTV's compositor live for this boot only, ended by the set itself after `minutes`, then `live` says so (the
         label names the line when it is a second session of the run)."""
         print(pty("sh /tmp/lumatv/cutover.sh enable --session --max-minutes %d" % minutes, 300))
-        step("live", "sh /tmp/lumatv/gate.sh live%s" % (" " + label if label else ""))
+        out = step("live", "sh /tmp/lumatv/gate.sh live%s" % (" " + label if label else ""))
+        expected = "live" + ("-" + label if label else "")
+        missing = missing_results(out.splitlines(), [expected])
+        for line in missing:
+            print(line)
+            lines.append(line)
+        return any(line.rstrip("\r").startswith("GATE %s: PASS " % expected) for line in out.splitlines())
     if not wake():
         sys.exit("the set does not answer; nothing was changed")
     # The Home stub as the run finds it. The Home holds of the escape checks are also what LG's compositor's stub watches for: its own
@@ -418,7 +437,7 @@ def main():
             step("firmware", "sh /tmp/lumatv/gate.sh firmware", 300)
         if "homeheld" not in skip:
             step("homeheld", "sh /tmp/lumatv/gate.sh homeheld", 120)
-        session(first_minutes)
+        live = session(first_minutes)
         if "volume" not in skip:
             line = volume_check()
             print(line)
@@ -466,13 +485,12 @@ def main():
         step("evidence", "sh /tmp/lumatv/gate.sh evidence", 120)
         if run_frames or run_load:
             # A session of its own: the surface gate waits for a 90 s old compositor and runs several minutes.
-            session(frames_minutes * (run_frames + run_load), "frames")
-            if a.frames_callbacks == "landing" or a.frames_clients:
-                print(pty("%ssh /tmp/lumatv/gate.sh callbacks%s" % ("LUMATV_CLIENTS_CALLBACKS=%s " % a.frames_clients if a.frames_clients else "",
-                                                                   " landing" if a.frames_callbacks == "landing" else ""), 60))
+            live = session(frames_minutes * (run_frames + run_load), "frames")
+            if a.frames_clients:
+                print(pty("LUMATV_CLIENTS_CALLBACKS=%s sh /tmp/lumatv/gate.sh callbacks" % a.frames_clients, 60))
         if run_frames:
             if a.scanout == "direct":
-                # The shell asked for buffers the plane takes, the switch on, the shell started again; then what the compositor counts.
+                # Enable direct scan-out, then report the compositor's counters.
                 step("scanout", "sh /tmp/lumatv/gate.sh scanout direct", 180)
             if a.refresh != 60:
                 # The switch, then idle Home at the new rate: the rate three ways, the compositor's measure, Mali and the temperature.
@@ -513,10 +531,8 @@ def main():
         for name in ended:
             if name in skip:
                 continue
-            step(name, "sh /tmp/lumatv/gate.sh %s" % name, 300)
-            session(LATER_SESSION_MINUTES, "after-" + name)
-        if "escape" not in skip:
-            step("escape", "sh /tmp/lumatv/gate.sh escape", 300)
+            safety_step(name, live, step, lambda line: (print(line), lines.append(line)))
+            live = session(LATER_SESSION_MINUTES, "after-" + name)
     finally:
         # Whatever happened above, LG's compositor is the live one afterwards with the flag removed (a failed
         # escape would otherwise leave LumaTV's running); --enable-after turns it back on below after a pass.
@@ -530,9 +546,8 @@ def main():
                 print("divider after: " + pty("f=/sys/module/lg1k/parameters/fbdev_vsync_cnt_on_flip; [ \"$(cat $f)\" = 2 ] || echo 2 > $f; cat $f", 20).strip())
             except Exception as e:
                 print("divider restore failed: %s" % e)
-        # The session's whole log (the escape and the fallback included) stays in the state directory until the next
-        # start of LumaTV's compositor truncates it.
-        tv.tv("cp /var/lib/lumatv/compositor/compositor.log /tmp/lumatv/out/gate/compositor-final.log; cp /var/lib/lumatv/compositor/sm.log /tmp/lumatv/out/gate/sm-final.log")
+        # Export the bounded central text window before the next diagnostic run.
+        tv.tv(". /tmp/lumatv/compositor.sh; comp_log lumatv-compositor > /tmp/lumatv/out/gate/compositor-final.log; comp_log lumatv-sm > /tmp/lumatv/out/gate/sm-final.log")
         avr_mute(False)
         if stub_was_on:
             try:
@@ -545,6 +560,20 @@ def main():
                 print("persistent enable (the state the run found): " + pty("sh /tmp/lumatv/cutover.sh enable", 300).strip()[-200:])
             except Exception as e:
                 print("persistent enable failed: %s" % e)
+    required = set(CHECKS) - skip
+    required.discard("rust")
+    required.discard("video")
+    required.discard("frames-load")
+    if run_rust:
+        required.add("rust")
+    if run_video:
+        required.update("video-" + app for app in video_apps)
+    if run_load:
+        required.add("frames-load")
+    if run_frames and a.refresh != 60:
+        required.remove("frames")
+        required.add("frames at %d Hz" % a.refresh)
+    lines.extend(missing_results(lines, sorted(required)))
     ok = all_passed(lines)
     print("\n".join(lines))
     print("GATE: %s" % ("PASS" if ok else "FAIL"))

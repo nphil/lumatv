@@ -135,6 +135,11 @@ pub fn seg_geom(kit: &mut Kit, sz: &Sizes, options: &[String], role: TypeRole, f
     SegGeom { seg_w, n, h: sz.target, in_view }
 }
 
+/// The tab label and its selected mark need separate vertical space at every text scale.
+pub fn tab_height(kit: &Kit, sz: &Sizes) -> f32 {
+    sz.target.max(line_height(kit.ty(TypeRole::Label)) + 2.0 * sz.s2 + 2.0 * sz.s1).ceil()
+}
+
 /// Measures `row` laid out `w` wide (a page's row, a rail's row).
 pub fn measure_row(kit: &mut Kit, row: &Row, w: f32) -> RowGeom {
     let sz = Sizes::of(kit);

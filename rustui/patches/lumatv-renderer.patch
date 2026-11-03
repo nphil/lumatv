@@ -31,7 +31,33 @@
          self.region_px += other.region_px;
          self.rects += other.rects;
          self.culled += other.culled;
-@@ -465,20 +472,23 @@
+@@ -278,6 +285,25 @@
+     props.visible && props.opacity > 0.0 && props.scale > 0.0
+ }
+ 
++/// Conservative panel-space extent of the pixels a resolved layer can paint.
++pub(crate) fn painted_extent(panel: &Panel, layer: &Drawn) -> Option<Area> {
++    let props = &layer.props;
++    if !is_shown(props) {
++        return None;
++    }
++    let scissor = match props.clip.map(|clip| panel.scissor(clip)) {
++        Some(None) => return None,
++        Some(rect) => rect,
++        None => None,
++    };
++    let at = placement(layer, props);
++    let extent = panel.quad_of(&at, extent_of(&layer.content, props, (at.width, at.height)));
++    if !panel.is_on_panel(&extent, scissor) {
++        return None;
++    }
++    bounds(&extent, scissor).and_then(|area| damage::intersect(&area, &panel_area_of(panel)))
++}
++
+ pub(crate) fn placement(layer: &Drawn, props: &Props) -> Placement {
+     Placement {
+         x: props.x,
+@@ -465,20 +491,23 @@
  /// What the frames drawn into one set of render targets leave to say about the next one.
  struct Account {
      /// What each render target owes when it is drawn into.
@@ -57,7 +83,7 @@
          }
      }
  }
-@@ -515,8 +525,16 @@
+@@ -515,8 +544,16 @@
  #[derive(Clone, Copy, Debug)]
  pub struct Draw {
      pub surface: Surface,
@@ -74,7 +100,7 @@
  }
  
  /// What a frame knows of the layers of one render target, by layer: the layers, the part of each that is drawn in the
-@@ -527,7 +545,7 @@
+@@ -527,7 +564,7 @@
      /// The layers the target shows, among `layers`.
      members: std::ops::Range<usize>,
      layers: &'a [Drawn],
@@ -83,7 +109,7 @@
      extents: &'a [Option<Area>],
      asks: &'a [Option<Ask>],
      revisions: &'a [u64],
-@@ -545,8 +563,8 @@
+@@ -545,8 +582,8 @@
  }
  
  /// What planning a frame settles for every render target it is drawn into.
@@ -94,7 +120,7 @@
      panel_area: Area,
      /// The job of each layer, and everything each draws on the panel (seen or not).
      job_of: Vec<Option<usize>>,
-@@ -566,6 +584,34 @@
+@@ -566,6 +603,34 @@
      looked: Vec<bool>,
  }
  
@@ -129,7 +155,16 @@
  /// How long refraction takes to come back once a glass surface has stopped moving (`ideas::ADAPTIVE`): at once. Nitin
  /// compared 200 ms, 100 ms and none on the Show (10-01) and could not tell them apart; with no fade a surface that stops
  /// is the same in every frame after, so still glass can hold it three frames later instead of after the fade. The
-@@ -746,13 +792,23 @@
+@@ -677,7 +742,7 @@
+         Backdrop::Cached { .. } | Backdrop::Live { .. } => true,
+         Backdrop::Prepared { id } => sets.has_picture(id),
+     };
+-    glass.tint.3 == 255 || backdrop
++    glass.tint_gradient.map_or(glass.tint.3 == 255, |g| g.top.3 == 255 && g.bottom.3 == 255) || backdrop
+ }
+ 
+ /// Where `layer`, drawn as `props` place it, certainly covers what is below it completely, in panel pixels, and inside
+@@ -746,13 +811,23 @@
  /// Where a layer is drawn in a frame, and what the picture of the prepared backdrop on it is a picture of: what the frame is
  /// compared with the one before by (`Frozen`).
  #[derive(Clone, Copy)]
@@ -156,7 +191,7 @@
  /// The bytes of `pixels` RGBA pixels, for the count of bytes uploaded.
  fn picture_bytes(pixels: u64) -> u32 {
      u32::try_from(pixels * 4).unwrap_or(u32::MAX)
-@@ -772,8 +828,8 @@
+@@ -772,8 +847,8 @@
      /// its glass blurs. A layer that moves from one plane to another is drawn where it was not, and no longer where it was,
      /// though it is what it was in every other way.
      member: bool,
@@ -167,7 +202,99 @@
      /// Everything it draws, seen or not: what the pictures behind the glass above it are made of.
      extent: Option<Area>,
  }
-@@ -1256,6 +1312,8 @@
+@@ -811,6 +886,10 @@
+ fn pad(scale: f32) -> f32 {
+     (1.0 / scale).min(MAX_PAD)
+ }
++/// The local painted bounds of a glass layer, including shadow and antialiasing.
++pub fn glass_extent(glass: &compositor_protocol::Glass, size: (f32, f32), scale: f32) -> [f32; 4] {
++    glass::Surfaces::extent(glass, size, pad(scale))
++}
+ 
+ /// The rectangle of a layer that anything of it is drawn in, `[left, top, right, bottom]` in layer pixels: the body,
+ /// and the anti-aliased fringe or the shadows around it. One definition, so that what the backdrops are planned from
+@@ -829,7 +908,7 @@
+             };
+             [-pad, -pad, size.0 + pad, size.1 + pad]
+         }
+-        Content::Glass(glass) => glass::Surfaces::extent(glass, size, pad(props.scale)),
++        Content::Glass(glass) => glass_extent(glass, size, props.scale),
+     }
+ }
+ 
+@@ -954,6 +1033,10 @@
+ }
+ 
+ impl Renderer {
++    pub(crate) fn painted_extent(&self, layer: &Drawn) -> Option<Area> {
++        painted_extent(&self.panel, layer)
++    }
++
+     pub fn new(gl: Gles, panel: Panel) -> io::Result<Self> {
+         let started = Instant::now();
+         let ndc = [2.0 / panel.width as f32, 2.0 / panel.height as f32];
+@@ -1058,35 +1141,32 @@
+             })
+         };
+         let glass = |backdrop, depth| {
+-            Content::Glass(Glass {
+-                corner_radius: 24.0,
+-                tint: Rgba(30, 28, 44, 150),
+-                edge: Rgba(60, 60, 80, 80),
+-                edge_width: 1.0,
+-                highlight: Rgba(70, 70, 90, 90),
+-                sheen: Some(Sheen {
+-                    peak: 0.2,
+-                    floor: 0.05,
+-                    start: 0.2,
+-                    end: 0.8,
++            Content::Glass(Glass { corner_radius: 24.0,
++            tint: Rgba(30, 28, 44, 150),
++            edge: Rgba(60, 60, 80, 80),
++            edge_width: 1.0,
++            highlight: Rgba(70, 70, 90, 90),
++            sheen: Some(Sheen {
++                peak: 0.2,
++                floor: 0.05,
++                start: 0.2,
++                end: 0.8,
++            }),
++            shadows: [
++                Some(Shadow {
++                    offset_y: 8.0,
++                    blur: 24.0,
++                    colour: Rgba(0, 0, 0, 90),
++                }),
++                Some(Shadow {
++                    offset_y: 2.0,
++                    blur: 6.0,
++                    colour: Rgba(0, 0, 0, 60),
+                 }),
+-                shadows: [
+-                    Some(Shadow {
+-                        offset_y: 8.0,
+-                        blur: 24.0,
+-                        colour: Rgba(0, 0, 0, 90),
+-                    }),
+-                    Some(Shadow {
+-                        offset_y: 2.0,
+-                        blur: 6.0,
+-                        colour: Rgba(0, 0, 0, 60),
+-                    }),
+-                ],
+-                depth,
+-                backdrop,
+-                saturation: 1.2,
+-                refraction: 6.0,
+-            })
++            ],
++            depth,
++            backdrop,
++            saturation: 1.2, refraction: 6.0, edge_lens: None, tint_gradient: None, })
+         };
+         let shape = |radius, fill, border| {
+             Content::Shape(Shape {
+@@ -1256,6 +1336,8 @@
              },
              slot: None,
              target: target.framebuffer,
@@ -176,7 +303,71 @@
          };
          let planes = [
              plane(&target, 0, walls, false),
-@@ -2113,6 +2171,8 @@
+@@ -1313,6 +1395,19 @@
+         self.wallpapers.set_look(look);
+     }
+ 
++    /// Home's controls are scoped to its layer; the revision invalidates retained pictures even while paused.
++    pub fn set_silk(&mut self, id: LayerId, silk: wallpapers::Silk) -> bool {
++        let changed = self.wallpapers.set_silk(id, silk);
++        self.stale |= changed;
++        changed
++    }
++
++    pub fn clear_silk(&mut self) -> bool {
++        let changed = self.wallpapers.clear_silk();
++        self.stale |= changed;
++        changed
++    }
++
+     pub fn gles(&self) -> &Gles {
+         &self.gl
+     }
+@@ -1383,6 +1478,7 @@
+                 self.glass.forget(*id);
+             }
+             Op::Clear => {
++                self.clear_silk();
+                 let ids: Vec<LayerId> = self.textures.keys().copied().collect();
+                 for id in ids {
+                     self.remove(id);
+@@ -1657,6 +1753,9 @@
+         out.clear();
+         for layer in layers {
+             let mut layer = *layer;
++            if matches!(layer.content, Content::Wallpaper(_)) {
++                layer.version = atlas::mixed(layer.version, self.wallpapers.revision(layer.id));
++            }
+             if let (level @ 1.., Content::Glass(glass)) = (self.ladder, layer.content) {
+                 let plainer = ladder::rewrite(glass, level);
+                 if plainer != glass {
+@@ -1960,6 +2059,16 @@
+             let body = [0.0, 0.0, at.width, at.height];
+             bounds(&self.panel.quad_of(&at, body), None).unwrap_or([0; 4])
+         };
++        let sample_in = |view: View| -> Area {
++            let at = placement(layer, props_of(layer, view));
++            let lens = match layer.content {
++                Content::Glass(glass) => glass.edge_lens.map_or(0.0, |lens| lens.lens.max(0.0)),
++                _ => 0.0,
++            };
++            if lens == 0.0 { return body_in(view); }
++            let extent = [-lens, -lens, at.width + lens, at.height + lens];
++            bounds(&self.panel.quad_of(&at, extent), None).unwrap_or([0; 4])
++        };
+         // A blur is soft, so its picture can be small: with `ideas::HALF_RES` half of the size it was, in each direction (which
+         // is one halving less for the blur's chain to make).
+         let smaller = |downsample: u8| {
+@@ -2001,6 +2110,8 @@
+                 downsample,
+                 body_now: body_in(View::Now),
+                 body_rest: body_in(View::Rest),
++                sample_now: sample_in(View::Now),
++                sample_rest: sample_in(View::Rest),
+             }),
+         }
+     }
+@@ -2113,6 +2224,8 @@
              surface: Surface::whole(layers.len()),
              slot: None,
              target,
@@ -185,7 +376,7 @@
          };
          self.draw_frame(layers, &[draw], source).remove(0)
      }
-@@ -2133,6 +2193,8 @@
+@@ -2133,6 +2246,8 @@
              surface: Surface::whole(layers.len()),
              slot: Some(slot),
              target,
@@ -194,7 +385,7 @@
          };
          self.draw_frame(layers, &[draw], source).remove(0)
      }
-@@ -2234,22 +2296,22 @@
+@@ -2234,22 +2349,22 @@
          damage::intersect(&grown, &panel_area_of(&self.panel))
      }
  
@@ -226,7 +417,7 @@
          let Facts {
              members,
              layers,
-@@ -2258,8 +2320,9 @@
+@@ -2258,8 +2373,9 @@
              asks,
              revisions,
          } = facts;
@@ -237,7 +428,7 @@
          };
          let before: HashMap<LayerId, &Frozen> = prev.iter().map(|f| (f.layer.id, f)).collect();
          // Layers that were there and are still are stacked as they were (a layer that is made again is a new one, and
-@@ -2273,44 +2336,46 @@
+@@ -2273,44 +2389,46 @@
                  .filter(|l| before.contains_key(&l.id))
                  .map(|l| l.id));
          if !same_order {
@@ -304,7 +495,7 @@
          let panel = panel_area_of(&self.panel);
          let mut forced = vec![false; count];
          loop {
-@@ -2330,13 +2395,13 @@
+@@ -2330,13 +2448,13 @@
                          grew = true;
                      }
                  }
@@ -321,7 +512,7 @@
                  {
                      for &u in *users {
                          grew |= !std::mem::replace(&mut forced[u], true);
-@@ -2347,13 +2412,22 @@
+@@ -2347,13 +2465,22 @@
                  break;
              }
          }
@@ -350,7 +541,7 @@
              }
          }
          total
-@@ -2361,31 +2435,30 @@
+@@ -2361,31 +2488,30 @@
  
      /// What a layer changes from the frame before: in the frame (where it was seen and where it is seen now) and in the
      /// pictures behind the glass above it (everywhere it was drawn and is). `now` is where it is drawn now, and what the
@@ -396,7 +587,7 @@
          }
          // A picture the app changed in places, on a layer that is what it was in every other way: only those places.
          let unversioned = Drawn {
-@@ -2404,34 +2477,46 @@
+@@ -2404,34 +2530,46 @@
                  places = damage::union(places, self.image_area(layer, *rect));
              }
              if any {
@@ -453,7 +644,7 @@
                      layer: *layer,
                      revision: revisions[i],
                      member: members.contains(&i),
-@@ -2440,22 +2525,36 @@
+@@ -2440,22 +2578,36 @@
                  })
                  .collect(),
          );
@@ -497,7 +688,16 @@
          let mut first = DrawReport::default();
          // The count of what the GL is asked is the frame's: what the housekeeping between frames asked is not in it.
          self.gl.take_calls();
-@@ -2632,8 +2731,10 @@
+@@ -2479,7 +2631,7 @@
+             || self.ladder > 0
+             || layers
+                 .iter()
+-                .any(|l| matches!(l.content, Content::Glyphs(_)))
++                .any(|l| matches!(l.content, Content::Glyphs(_) | Content::Wallpaper(_)))
+         {
+             self.revise(layers, adapting, &mut revised);
+             first.fading = adapting
+@@ -2632,8 +2784,10 @@
          first.shadow_ns += mesh_ns;
          first.plan_ns += nanos(planning);
  
@@ -509,7 +709,7 @@
              panel_area,
              job_of,
              extents,
-@@ -2646,30 +2747,62 @@
+@@ -2646,30 +2800,62 @@
              sights,
              looked,
          };
@@ -519,7 +719,14 @@
 -            let mut report = if n == 0 { first } else { DrawReport::default() };
 -            self.draw_surface(&frame, draw, &mut done, &mut report);
 -            reports.push(report);
--        }
++        Planned {
++            frame,
++            first,
++            done: Done::default(),
++            changed: Vec::new(),
++            backdrops: 0,
++            uploaded: 0,
+         }
 -        if let Some(first) = reports.first_mut() {
 -            first.gl = self.gl.take_calls();
 -        }
@@ -528,14 +735,6 @@
 -        self.revisions = revisions;
 -        self.revised = revised;
 -        let opened = done.opened;
-+        Planned {
-+            frame,
-+            first,
-+            done: Done::default(),
-+            changed: Vec::new(),
-+            backdrops: 0,
-+            uploaded: 0,
-+        }
 +    }
 +
 +    /// Draws the frame `planned` into one render target: what of its layers can be seen, what of the target is owed, the
@@ -592,7 +791,7 @@
      }
  
      /// What of the layers of the jobs `members` can be seen: a layer that an opaque one of them covers is not drawn, and one
-@@ -2700,11 +2833,12 @@
+@@ -2700,11 +2886,12 @@
      /// `region` with the rectangles merged that are cheaper drawn in one pass over their cover than in a pass each ([`Region::merged`]).
      /// A pass over a rectangle draws every layer that meets it, so the pass costs the rectangle's pixels and [`damage::DRAW_WORTH`]
      /// for each of them: the rows of a page that scrolls are a band each, with a few percent of the page between them, and under
@@ -607,7 +806,7 @@
          // One bit for each backdrop of the plan; a plan of more than that leaves the region as it is.
          if region.rects().len() < 2 || frame.plan.len() > u64::BITS as usize {
              return region;
-@@ -2714,15 +2848,27 @@
+@@ -2714,15 +2901,27 @@
                  .and_then(|job| sights[job].area())
                  .is_some_and(|seen| backdrop::overlaps(&seen, area))
          };
@@ -637,7 +836,7 @@
              damage::RECT_WORTH + damage::pixels(area) + damage::DRAW_WORTH * drawn
          };
          let groups = |area: &Area| {
-@@ -2736,6 +2882,70 @@
+@@ -2736,6 +2935,70 @@
          region.merged(cost, |a, b, one| groups(one) == groups(a) | groups(b))
      }
  
@@ -708,7 +907,7 @@
      /// One render target of a frame: what of its layers can be seen, what of it is owed, the pictures behind its glass, and
      /// the layers themselves.
      fn draw_surface(
-@@ -2743,6 +2953,7 @@
+@@ -2743,6 +3006,7 @@
          frame: &Frame,
          draw: &Draw,
          done: &mut Done,
@@ -716,7 +915,7 @@
          report: &mut DrawReport,
      ) {
          let Surface {
-@@ -2751,7 +2962,7 @@
+@@ -2751,7 +3015,7 @@
              to,
              transparent,
          } = draw.surface;
@@ -725,7 +924,7 @@
  
          // What of the frame can be seen: a layer that an opaque layer above it covers is not drawn, and one that it covers
          // in part is drawn where it is not. (The pictures the glass surfaces are made of below still draw everything below
-@@ -2771,58 +2982,32 @@
+@@ -2771,58 +3035,32 @@
              .iter()
              .filter(|&&k| sights[k] == Sight::Hidden)
              .count() as u32;
@@ -765,6 +964,8 @@
 -                    extents: &frame.extents[..to],
 -                    asks: &asks,
 -                    revisions: &frame.revisions[..to],
+-                };
+-                self.frame_damage(stack, facts, &stale_layers, &sharing)
 +        // What the frame has to draw: all of it, or the part of it that this render target owes (the renderer's account of
 +        // the ring) or that the caller asks for. The plane's account covers the layers it shows and the ones below them,
 +        // which show through the glass above.
@@ -773,23 +974,7 @@
 +                report.damage = Region::of(panel_area);
 +                report.damage_px = damage::pixels(&panel_area);
 +                Region::of(panel_area)
-+            }
-+            (slot, areas) => {
-+                let accounting = Instant::now();
-+                self.account(frame, draw.surface, changed);
-+                let changed = changed[stack].as_ref().expect("the plane was accounted");
-+                report.damage = changed.region();
-+                report.damage_px = changed.pixels();
-+                let region = match (slot, areas) {
-+                    (Some(slot), _) => {
-+                        let mut owed = TileSet::new(width, height);
-+                        self.accounts[stack].ring.frame(slot, changed, &mut owed);
-+                        owed.region()
-+                    }
-+                    (None, areas) => areas.unwrap_or(Region::of(panel_area)),
-                 };
--                self.frame_damage(stack, facts, &stale_layers, &sharing)
--            }
+             }
 -        };
 -        report.damage = changed;
 -        let region = match draw.slot {
@@ -804,11 +989,25 @@
 -                    &frame.extents[..to],
 -                    &frame.revisions[..to],
 -                );
++            (slot, areas) => {
++                let accounting = Instant::now();
++                self.account(frame, draw.surface, changed);
++                let changed = changed[stack].as_ref().expect("the plane was accounted");
++                report.damage = changed.region();
++                report.damage_px = changed.pixels();
++                let region = match (slot, areas) {
++                    (Some(slot), _) => {
++                        let mut owed = TileSet::new(width, height);
++                        self.accounts[stack].ring.frame(slot, changed, &mut owed);
++                        owed.region()
++                    }
++                    (None, areas) => areas.unwrap_or(Region::of(panel_area)),
++                };
 +                report.damage_ns += nanos(accounting);
                  region
              }
          };
-@@ -2834,10 +3019,17 @@
+@@ -2834,10 +3072,17 @@
          // A region that is nearly all of the panel is drawn as all of it: a scissor would save nothing. Otherwise each of
          // its rectangles is drawn in whole tiles (drawing more of what the frame shows is never wrong), on its own, as far
          // as the account keeps them apart (`LUMASHOW_DRAW_OFF=rects` draws their one cover, to measure what that costs) and
@@ -830,7 +1029,7 @@
          let drawn_region = partial.unwrap_or(Region::of(panel_area));
          report.region_px = drawn_region.pixels();
          report.rects = drawn_region.rects().len() as u16;
-@@ -3139,14 +3331,18 @@
+@@ -3139,14 +3384,18 @@
          match partial {
              None => {
                  gl.disable(GL_SCISSOR_TEST);
@@ -851,3 +1050,48 @@
                      // The pass before may have ended with blending off, and a pass begins with it on.
                      gl.enable(GL_BLEND);
                      report.drawn += drawing.draw(layers, &self.jobs, &pass(Some(rect)));
+@@ -3509,6 +3758,7 @@
+                         gl,
+                         &wallpaper,
+                         &wallpapers::Draw {
++                            layer: layer.id,
+                             size: (width, height),
+                             opacity,
+                             origin: {
+@@ -3800,22 +4050,19 @@
+     fn warming_up_raises_no_error_leaves_no_layer_behind_and_changes_nothing_that_is_drawn_after() {
+         use compositor_protocol::{Backdrop, Glass, Rgba, Wallpaper, WallpaperKind};
+         let scene = || {
+-            let glass = Glass {
+-                corner_radius: 20.0,
+-                tint: Rgba(30, 28, 44, 150),
+-                edge: Rgba(60, 60, 80, 80),
+-                edge_width: 1.0,
+-                highlight: Rgba(0, 0, 0, 0),
+-                sheen: None,
+-                shadows: [None, None],
+-                depth: None,
+-                backdrop: Backdrop::Live {
+-                    radius: 20.0,
+-                    downsample: 4,
+-                },
+-                saturation: 1.0,
+-                refraction: 0.0,
+-            };
++            let glass = Glass { corner_radius: 20.0,
++            tint: Rgba(30, 28, 44, 150),
++            edge: Rgba(60, 60, 80, 80),
++            edge_width: 1.0,
++            highlight: Rgba(0, 0, 0, 0),
++            sheen: None,
++            shadows: [None, None],
++            depth: None,
++            backdrop: Backdrop::Live {
++                radius: 20.0,
++                downsample: 4,
++            },
++            saturation: 1.0, refraction: 0.0, edge_lens: None, tint_gradient: None, };
+             vec![
+                 drawn(
+                     1,
+

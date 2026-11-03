@@ -60,7 +60,7 @@ pub fn glass_of(kit: &Kit, kind: PaneKind, h: f32, lit: bool, over_video: bool) 
     };
     let tint = if lit { kit.ui.look.colour(PaletteRole::GlassRaised) } else { kit.ui.look.colour(PaletteRole::Glass) };
     let edge = if lit { kit.tokens.extra(kit.mode).glass_focus_edge } else { kit.ui.look.colour(PaletteRole::Edge) };
-    Glass { corner_radius: base.corner_radius, tint: if over_video { base.tint } else { tint }, edge, backdrop, saturation: kit.tokens.saturation, ..pair.rest }
+    pane::decorate(kit, kind, Glass { corner_radius: base.corner_radius, tint: if over_video { base.tint } else { tint }, edge, backdrop, saturation: kit.tokens.saturation, ..pair.rest }, over_video)
 }
 
 /// The scale a dock tile lifts to: `scale`, nudged so the lifted tile is an even number of pixels wider than at rest. Its edges, which
@@ -277,12 +277,13 @@ pub struct HomeSurface {
     view_art_at: Option<u64>,
     news_index: usize,
     last_clock_s: u64,
-    wall_mode: Option<Mode>,
     page_hidden: bool,
     pub glyph_runs: bool,
 }
 
 impl HomeSurface {
+    pub fn silk_report(&self) -> &Value { self.wall.report() }
+
     pub fn new(_system_z: i32) -> Self {
         Self {
             module: None,
@@ -317,7 +318,6 @@ impl HomeSurface {
             view_art_at: None,
             news_index: 0,
             last_clock_s: 0,
-            wall_mode: None,
             page_hidden: false,
             glyph_runs: true,
         }
@@ -367,8 +367,24 @@ impl HomeSurface {
     /// Draws Home as the model has it. Returns whether something of Home is on screen.
     pub fn apply(&mut self, kit: &mut Kit, engine: &mut Engine, home: &mut Home, now: u64) -> std::io::Result<bool> {
         let now_ns = Self::now_ns();
-        // the wallpaper's own backdrop for the clear glass: made when the theme asks and the picture is up, given back when it does not
-        self.wall.sync_backdrop(kit, &home.theme, self.data.as_deref(), self.module.as_deref());
+        self.wall.set_held(home.wallpaper_held());
+        if let Some(s) = self.wall.load(kit, &home.theme, self.data.as_deref(), self.module.as_deref())? {
+            if s.tint.is_some() {
+                home.tint = wallpaper::tint_file(&self.wall.source, &s);
+            }
+        }
+        if let Some(s) = self.wall.sample.filter(|s| s.luma >= 0.0)
+            && home.theme.get("material").and_then(Value::as_str).unwrap_or("auto") == "auto"
+        {
+            let threshold = home.theme.get("materialThreshold").and_then(Value::as_f64).unwrap_or(0.6) as f32;
+            let mode = if s.luma > threshold { Mode::Light } else { Mode::Dark };
+            if mode != kit.mode {
+                kit.retheme(kit.tokens.clone(), mode, kit.text_scale);
+                // Regrade the same original for the resolved mode, without resampling it.
+                self.wall.load(kit, &home.theme, self.data.as_deref(), self.module.as_deref())?;
+            }
+        }
+        self.wall.sync_backdrop(kit, &home.theme);
         let rebuild = self.generation != kit.generation() || self.text_scale != kit.text_scale || self.backdrop != kit.wall_backdrop;
         home.set_text_scale(kit.text_scale);
         if let Some(name) = home.name_to_measure() {
@@ -381,26 +397,6 @@ impl HomeSurface {
             self.generation = kit.generation();
             self.text_scale = kit.text_scale;
             self.backdrop = kit.wall_backdrop;
-        }
-        // a calm Home (something over it, a key a moment ago) stills the warp: its steps would owe the whole screen to every page of the ring (`Home::set_calm`)
-        self.wall.set_held(home.wallpaper_held());
-        // the wallpaper: loaded when the theme names it, sampled for the material and the accent
-        if let Some(s) = self.wall.load(kit, &home.theme, self.data.as_deref(), self.module.as_deref())? {
-            let material = home.theme.get("material").and_then(Value::as_str).unwrap_or("auto");
-            if material == "auto" && s.luma >= 0.0 {
-                let threshold = home.theme.get("materialThreshold").and_then(Value::as_f64).unwrap_or(0.6) as f32;
-                let mode = if s.luma > threshold { Mode::Light } else { Mode::Dark };
-                if mode != kit.mode {
-                    let tokens = kit.tokens.clone();
-                    kit.retheme(tokens, mode, kit.text_scale);
-                    self.wall_mode = Some(mode);
-                    return self.apply(kit, engine, home, now);
-                }
-            }
-            if let Some(t) = s.tint {
-                home.tint = wallpaper::tint_file(&self.wall.source, &s);
-                let _ = t;
-            }
         }
         self.wall.restyle(kit, &home.theme);
         let hole = home.wall_hole;
@@ -568,7 +564,7 @@ impl HomeSurface {
         let (halo, fade, pill, pill_text) = scene.adopting(&viewport, || -> std::io::Result<_> {
             let halo = kit.ui.scene.image(440, 230, Z_DOCK + 2, HIDDEN)?;
             let fade = if home.dock.scrollable() {
-                let base = if kit.mode == Mode::Light { Rgba(244, 242, 248, 240) } else { Rgba(18, 14, 26, 230) };
+                let base = kit.ui.look.colour(PaletteRole::Glass);
                 let s = Shape { corner_radius: 0.0, fill: compositor_protocol::Fill::Linear { from: Rgba(0, 0, 0, 0), to: base, angle_deg: 90.0 }, border_width: 0.0, border: Rgba(0, 0, 0, 0) };
                 Some(kit.ui.scene.shape(frame.w as u32, home.dock.fade.max(1) as u32, Z_DOCK + 8, s, Props::at(0.0, frame.h - home.dock.fade as f32)))
             } else {
@@ -1233,6 +1229,55 @@ mod tests {
     use crate::kit::screen::Input;
     use crate::kit::testkit;
     use serde_json::json;
+
+    #[test]
+    fn auto_returns_to_cached_source_mode_after_preview_and_threshold_change() {
+        for (pixel, expected, preview) in [(32u8, Mode::Dark, Mode::Light), (224u8, Mode::Light, Mode::Dark)] {
+            let file = std::env::temp_dir().join(format!("lumatv-auto-{}-{pixel}.png", std::process::id()));
+            let mut enc = png::Encoder::new(std::fs::File::create(&file).unwrap(), 1, 1);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            enc.write_header().unwrap().write_image_data(&[pixel, pixel, pixel, 255]).unwrap();
+            let (h, mut kit) = testkit::kit_in(expected, 1.0);
+            let mut engine = Engine::new(&kit).unwrap();
+            let raw = json!({"material": "auto", "materialThreshold": 0.6, "wallpaper": file.to_str().unwrap(),
+                "wallpaperPalette": {"dark": ["#000000", "#111111", "#222222"], "light": ["#aaaaaa", "#bbbbbb", "#ffffff"]}});
+            let auto = lumatv_tokens::Tokens::from_json(&raw);
+            kit.retheme(auto.clone(), expected, 1.0);
+            let mut home = Home::new(auto.json().clone(), super::super::grid::shipped(), json!({}));
+            let mut surface = HomeSurface::new(1000);
+            surface.apply(&mut kit, &mut engine, &mut home, 1).unwrap();
+            let sample = surface.wall.sample.unwrap();
+            let tint = home.tint.clone();
+            let mut manual = raw.clone();
+            manual["material"] = json!(if preview == Mode::Light { "light" } else { "dark" });
+            let tokens = lumatv_tokens::Tokens::from_json(&manual);
+            kit.retheme(tokens.clone(), preview, 1.0);
+            home.set_theme(tokens.json().clone());
+            surface.apply(&mut kit, &mut engine, &mut home, 2).unwrap();
+            assert_eq!(kit.mode, preview);
+            kit.retheme(auto.clone(), preview, 1.0);
+            home.set_theme(auto.json().clone());
+            surface.apply(&mut kit, &mut engine, &mut home, 3).unwrap();
+            assert_eq!(kit.mode, expected);
+            let key = if kit.mode == Mode::Dark { "dark" } else { "light" };
+            assert_eq!(kit.tokens.json()["wallpaperPalette"][key], raw["wallpaperPalette"][key]);
+            assert_eq!(surface.wall.sample, Some(sample));
+            assert_eq!(home.tint, tint);
+            let generation = kit.generation();
+            surface.apply(&mut kit, &mut engine, &mut home, 4).unwrap();
+            assert_eq!(kit.generation(), generation);
+            let mut changed = raw.clone();
+            changed["materialThreshold"] = json!(if expected == Mode::Dark { 0.0 } else { 1.0 });
+            let tokens = lumatv_tokens::Tokens::from_json(&changed);
+            kit.retheme(tokens.clone(), expected, 1.0);
+            home.set_theme(tokens.json().clone());
+            surface.apply(&mut kit, &mut engine, &mut home, 5).unwrap();
+            assert_eq!(kit.mode, preview);
+            std::fs::remove_file(file).unwrap();
+            std::mem::forget(h);
+        }
+    }
 
     fn fixtures(h: &mut Home) {
         h.start(1000);

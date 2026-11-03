@@ -241,6 +241,7 @@ impl SettingsStore {
                 Some(weather_rule as Rule),
             ),
             (include_str!("schemas/base.news.json"), None),
+            (include_str!("schemas/base.logging.json"), Some(logging_rule as Rule)),
             (include_str!("schemas/base.ambient.json"), None),
             (
                 include_str!("schemas/base.receiver.json"),
@@ -420,7 +421,7 @@ impl SettingsStore {
             .push((owner.to_owned(), Arc::new(listener)));
     }
 
-    fn text(&self, owner: &str, key: &str) -> Option<String> {
+    pub(crate) fn text(&self, owner: &str, key: &str) -> Option<String> {
         match self.effective(owner)?.get(key)? {
             Value::Text(t) => Some(t.clone()),
             Value::Choice(c) => Some(c.to_string()),
@@ -428,14 +429,14 @@ impl SettingsStore {
         }
     }
 
-    fn integer(&self, owner: &str, key: &str) -> Option<i64> {
+    pub(crate) fn integer(&self, owner: &str, key: &str) -> Option<i64> {
         match self.effective(owner)?.get(key)? {
             Value::Integer(n) => Some(*n),
             _ => None,
         }
     }
 
-    fn flag(&self, owner: &str, key: &str) -> Option<bool> {
+    pub(crate) fn flag(&self, owner: &str, key: &str) -> Option<bool> {
         match self.effective(owner)?.get(key)? {
             Value::Bool(b) => Some(*b),
             _ => None,
@@ -549,6 +550,18 @@ fn weather_rule(values: &Values) -> Result<(), FieldErrors> {
     }
 }
 
+
+fn logging_rule(values: &Values) -> Result<(), FieldErrors> {
+    let host = text_of(values, "host").unwrap_or("");
+    let enabled = matches!(values.get("enabled"), Some(Value::Bool(true)));
+    if (!host.is_empty() && !crate::logging::valid_host(host)) || (enabled && host.is_empty()) {
+        let mut errors = FieldErrors::default();
+        errors.insert(field("host"), FieldError::refused("use an IP address or DNS hostname without a scheme or port"));
+        return Err(errors);
+    }
+    Ok(())
+}
+
 /// An address is a name or an IPv4 number: letters, digits, dots and dashes, as the text goes into a request line.
 fn receiver_rule(values: &Values) -> Result<(), FieldErrors> {
     let mut errors = FieldErrors::default();
@@ -660,6 +673,7 @@ mod tests {
             owners,
             [
                 "base.ambient",
+                "base.logging",
                 "base.news",
                 "base.receiver",
                 "base.voice",
@@ -1042,7 +1056,7 @@ mod tests {
         .unwrap();
         s.register(schema.clone(), None).unwrap();
         s.apply("hello", vec![text("name", "Nitin")], None).unwrap();
-        assert_eq!(s.owners().len(), 6);
+        assert_eq!(s.owners().len(), 7);
         // An older revision of the same owner is refused; a newer one replaces the page and keeps the values.
         let mut older = schema.clone();
         older.revision = 0;

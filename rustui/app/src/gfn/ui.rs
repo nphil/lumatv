@@ -89,6 +89,8 @@ fn ring_glass(p: &Palette) -> Glass {
         backdrop: Backdrop::None,
         saturation: 1.0,
         refraction: 0.0,
+        edge_lens: None,
+        tint_gradient: None,
     }
 }
 

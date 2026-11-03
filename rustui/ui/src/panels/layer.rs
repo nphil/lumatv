@@ -132,6 +132,7 @@ pub struct Panels {
     ime: Ime,
     ime_s: ImeSurface,
     redraw: bool,
+    interactive_visible: bool,
     idle_due: Option<u64>,
     /// The number of the last `show` taken (the compositor counts them; a replayed one is not a new press).
     last_show: u64,
@@ -168,6 +169,7 @@ impl Panels {
             ime: Ime::new(),
             ime_s: ImeSurface::new(base + crate::kit::z::KEYBOARD - crate::kit::z::PANELS),
             redraw: false,
+            interactive_visible: false,
             idle_due: None,
             last_show: 0,
             events: Vec::new(),
@@ -222,9 +224,6 @@ impl Panels {
         self.env.previews.set_active(kinds.picker);
         if kinds.quick || kinds.picker || kinds.drawer || kinds.menu || kinds.confirm || kinds.switcher || kinds.entry {
             out.extend(self.env.start());
-        }
-        if kinds.drawer {
-            out.extend(self.drawer.log.subscribe());
         }
         if kinds.switcher {
             out.extend(self.switcher.subscribe());
@@ -324,12 +323,6 @@ impl Panels {
             && self.drawer.answer(*status, data)
         {
             self.redraw = true;
-        }
-        if kinds.drawer {
-            let notes = Drawer::notes(&self.env);
-            if self.drawer.log.update(input, &notes, now) {
-                self.redraw = true;
-            }
         }
         if kinds.quick && matches!(input, Input::Fetched { .. } | Input::Luna { .. }) {
             let o = self.quick.answer(input, &mut self.env, now);
@@ -455,11 +448,15 @@ impl Panels {
     /// the person backed out) is handed back once by [`Panels::take_typed`]. Returns whether the sheet opened: not without its kind, not over
     /// the switcher.
     pub fn ask_text(&mut self, prompt: &str, text: &str, secret: bool, kinds: &Kinds, now: u64, out: &mut Vec<Effect>) -> bool {
+        self.ask_text_purpose(prompt, text, secret, super::ime::PURPOSE_NORMAL, kinds, now, out)
+    }
+
+    pub fn ask_text_purpose(&mut self, prompt: &str, text: &str, secret: bool, purpose: u32, kinds: &Kinds, now: u64, out: &mut Vec<Effect>) -> bool {
         if !kinds.entry || self.switcher_life.presented() {
             return false;
         }
         self.make_room(Which::Entry, kinds, now, out);
-        self.entry.open(prompt, text, secret, now);
+        self.entry.open_purpose(prompt, text, secret, purpose, now);
         self.entry.life.show(now);
         self.idle_due = Some(now + IDLE_MS);
         self.redraw = true;
@@ -540,6 +537,15 @@ impl Panels {
     pub fn key(&mut self, kinds: &Kinds, name: &str, down: bool, repeat: bool, now: u64) -> Vec<Effect> {
         let mut out = Vec::new();
         let Some(w) = self.up(kinds) else { return out };
+        if w == Which::Entry {
+            if !down { return out; }
+            self.idle_due = Some(now + IDLE_MS);
+            let was = self.entry.visual_state();
+            let o = self.entry.input(name, down, repeat, now);
+            self.redraw |= was != self.entry.visual_state();
+            self.run(w, o, kinds, now, &mut out);
+            return out;
+        }
         let Some(k) = K::parse(name) else { return out };
         if down {
             self.idle_due = Some(now + IDLE_MS);
@@ -739,63 +745,74 @@ impl Panels {
         std::mem::take(&mut self.redraw)
     }
 
+    pub(crate) fn interactive_visible(&self) -> bool {
+        self.interactive_visible
+    }
+
     /// Draws what changed. Returns whether anything of a panel is on the screen.
     pub fn apply(&mut self, kinds: &Kinds, kit: &mut Kit, engine: &mut Engine, now_ms: u64, now_ns: u64) -> Result<bool, String> {
+        if (self.up(kinds).is_some() && !self.interactive_visible) || (self.keyboard_up(kinds) && !self.ime_s.is_up()) {
+            kit.theme_thumbnails.release_unleased();
+        }
         let mut live = false;
-        if kinds.quick {
-            let view = self.quick.view(&self.env, now_ms);
-            match self.quick_s.apply(kit, engine, &view, self.quick.life.phase(), now_ms, now_ns) {
-                Ok(on) => live |= on && self.quick.life.visible(),
-                Err(e) => return Err(format!("quick panel: {e}")),
+        // The apps' keyboard is independent of the panels and must still draw if one fails.
+        let panels_error = (|| -> Result<(), String> {
+            if kinds.quick {
+                let view = self.quick.view(&self.env, now_ms);
+                match self.quick_s.apply(kit, engine, &view, self.quick.life.phase(), now_ms, now_ns) {
+                    Ok(on) => live |= on && self.quick.life.visible(),
+                    Err(e) => { self.interactive_visible |= live; return Err(format!("quick panel: {e}")); },
+                }
             }
-        }
-        if kinds.picker {
-            let view = self.picker.view(&self.env, now_ms);
-            match self.picker_s.apply(kit, engine, &view, &self.env.previews, self.picker.life.phase(), now_ns) {
-                Ok(on) => live |= on && self.picker.life.visible(),
-                Err(e) => return Err(format!("input picker: {e}")),
+            if kinds.picker {
+                let view = self.picker.view(&self.env, now_ms);
+                match self.picker_s.apply(kit, engine, &view, &self.env.previews, self.picker.life.phase(), now_ns) {
+                    Ok(on) => live |= on && self.picker.life.visible(),
+                    Err(e) => { self.interactive_visible |= live; return Err(format!("input picker: {e}")); },
+                }
             }
-        }
-        if kinds.drawer {
-            let view = self.drawer.view(&self.env, now_ms);
-            match self.drawer_s.apply(kit, engine, &view, self.drawer.life.phase(), self.bell, now_ns) {
-                Ok(on) => live |= on && self.drawer.life.visible(),
-                Err(e) => return Err(format!("notification drawer: {e}")),
+            if kinds.drawer {
+                let view = self.drawer.view(&self.env, now_ms);
+                match self.drawer_s.apply(kit, engine, &view, self.drawer.life.phase(), self.bell, now_ns) {
+                    Ok(on) => live |= on && self.drawer.life.visible(),
+                    Err(e) => { self.interactive_visible |= live; return Err(format!("notification drawer: {e}")); },
+                }
             }
-        }
-        let over_video = !self.env.fg.home;
-        if kinds.menu
-            && let Some(view) = self.menu.view(over_video)
-        {
-            match self.menu_s.apply(kit, engine, &view, self.menu.life.phase(), now_ns) {
-                Ok(on) => live |= on && self.menu.life.visible(),
-                Err(e) => return Err(format!("context menu: {e}")),
+            let over_video = !self.env.fg.home;
+            if kinds.menu
+                && let Some(view) = self.menu.view(over_video)
+            {
+                match self.menu_s.apply(kit, engine, &view, self.menu.life.phase(), now_ns) {
+                    Ok(on) => live |= on && self.menu.life.visible(),
+                    Err(e) => { self.interactive_visible |= live; return Err(format!("context menu: {e}")); },
+                }
             }
-        }
-        if kinds.confirm
-            && let Some(view) = self.confirm.view(over_video)
-        {
-            match self.confirm_s.apply(kit, engine, &view, self.confirm.life.phase(), now_ns) {
-                Ok(on) => live |= on && self.confirm.life.visible(),
-                Err(e) => return Err(format!("confirm dialog: {e}")),
+            if kinds.confirm
+                && let Some(view) = self.confirm.view(over_video)
+            {
+                match self.confirm_s.apply(kit, engine, &view, self.confirm.life.phase(), now_ns) {
+                    Ok(on) => live |= on && self.confirm.life.visible(),
+                    Err(e) => { self.interactive_visible |= live; return Err(format!("confirm dialog: {e}")); },
+                }
             }
-        }
-        if kinds.switcher {
-            let view = self.switcher.view(now_ms);
-            match self.switcher_s.apply(kit, engine, &view, self.switcher_life.phase(), now_ns) {
-                Ok(on) => live |= on && self.switcher_life.visible(),
-                Err(e) => return Err(format!("app switcher: {e}")),
+            if kinds.switcher {
+                let view = self.switcher.view(now_ms);
+                match self.switcher_s.apply(kit, engine, &view, self.switcher_life.phase(), now_ns) {
+                    Ok(on) => live |= on && self.switcher_life.visible(),
+                    Err(e) => { self.interactive_visible |= live; return Err(format!("app switcher: {e}")); },
+                }
+                // the cards' places go to the compositor, which moves the pictures there on its own clock
+                self.drawn.extend(self.switcher.layout(straight(kit.tokens.extra(kit.mode).scrim_hide), kit.ui.look.reduced_motion));
             }
-            // the cards' places go to the compositor, which moves the pictures there on its own clock
-            self.drawn.extend(self.switcher.layout(straight(kit.tokens.extra(kit.mode).scrim_hide), kit.ui.look.reduced_motion));
-        }
-        if kinds.entry {
-            let view = self.entry.view(over_video);
-            match self.entry_s.apply(kit, engine, &view, self.entry.life.phase(), now_ms, now_ns) {
-                Ok(on) => live |= on && self.entry.life.visible(),
-                Err(e) => return Err(format!("text entry: {e}")),
+            if kinds.entry {
+                let view = self.entry.view(over_video);
+                match self.entry_s.apply(kit, engine, &view, self.entry.life.phase(), now_ms, now_ns) {
+                    Ok(on) => live |= on && self.entry.life.visible(),
+                    Err(e) => { self.interactive_visible |= live; return Err(format!("text entry: {e}")); },
+                }
             }
-        }
+            Ok(())
+        })().err();
         if kinds.keyboard {
             if self.ime.take_key_taken() {
                 self.ime_s.on_key(engine);
@@ -803,7 +820,11 @@ impl Panels {
             let view = self.ime.view();
             match self.ime_s.apply(kit, engine, &view, self.ime.life.phase(), now_ns) {
                 Ok(on) => live |= on && self.ime.life.visible(),
-                Err(e) => return Err(format!("apps' keyboard: {e}")),
+                Err(e) => {
+                    self.interactive_visible |= live;
+                    let error = format!("apps' keyboard: {e}");
+                    return Err(panels_error.map_or(error.clone(), |panel| format!("{panel}; {error}")));
+                },
             }
             // where the sheet is, for the compositor to keep the field clear of it (once for each place)
             if let Some((x, y, w, h)) = self.ime_s.sheet()
@@ -812,7 +833,11 @@ impl Panels {
                 self.drawn.push(e);
             }
         }
-        Ok(live)
+        self.interactive_visible = live;
+        match panels_error {
+            Some(error) => Err(error),
+            None => Ok(live),
+        }
     }
 
     /// What the last draw asks of the compositor.
@@ -1029,18 +1054,73 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_panel_does_not_block_the_apps_keyboard_or_its_shown_callback() {
+        let mut r = Rig::new(json!({}));
+        r.kinds = Kinds::parse("quick,keyboard");
+        let scene = r.kit.ui.scene.clone();
+        let held: Vec<_> = (0..r.kit.room().groups.saturating_sub(3))
+            .map(|_| scene.group(None, compositor_protocol::GroupPose::IDENTITY).unwrap()).collect();
+        r.show("quick", false);
+        r.p.update(&r.kinds, &Input::Topic { topic: "ime".into(), data: json!({"active": true, "show": true, "model": 5, "app": "youtube.leanback.v4", "purpose": 0, "enter": 5, "text": true}) }, r.now);
+
+        let error = r.p.apply(&r.kinds, &mut r.kit, &mut r.engine, r.now, r.now * 1_000_000).unwrap_err();
+        assert!(error.starts_with("quick panel:"), "{error}");
+        assert!(!r.p.ime_s.geometry(&r.engine).is_null(), "the keyboard was built");
+        assert!(r.p.interactive_visible(), "the keyboard is reported visible");
+        assert!(r.p.take_drawn().iter().any(|effect| matches!(effect, Effect::Channel { path, body } if path == "/v1/ime" && body["op"] == "shown" && body["model"] == 5)));
+        drop(held);
+    }
+
+    #[test]
+    fn transient_toasts_do_not_enter_drawer_history_or_unread() {
+        use crate::kit::screen::Model;
+        use crate::system::toast::{self, Toasts};
+
+        let mut r = Rig::new(json!({}));
+        let subscriptions = r.p.start(&r.kinds);
+        assert!(!subscriptions.iter().any(|effect| matches!(effect, Effect::Luna { uri, .. } if uri == toast::FEED_URI)));
+
+        let mut toasts = Toasts::new();
+        let input = Input::Luna { tag: toast::FEED_TAG, payload: json!({"message": "Remote battery low"}) };
+        toasts.update(&input, r.now);
+        r.p.update(&r.kinds, &input, r.now);
+        assert_eq!(toasts.view()[0].title, "Remote battery low");
+        assert!(r.p.drawer.log.items().is_empty());
+        assert_eq!(r.p.unread(), 0);
+
+        // An in-flight reply from the former drawer subscription is not a notification either.
+        r.p.update(&r.kinds, &Input::Luna { tag: 0x5100_0100, payload: json!({"message": "Remote battery low"}) }, r.now);
+        assert!(r.p.drawer.log.items().is_empty());
+        assert_eq!(r.p.unread(), 0);
+
+        r.p.drawer.log.post(super::super::notelog::Item { id: String::new(), source: String::new(), icon: String::new(), title: "TV update ready".into(), body: String::new(), time: r.now, actions: Vec::new() });
+        r.p.update(&r.kinds, &Input::Helper { topic: "plugins".into(), data: json!({"plugins": [{"id": "lock", "name": "Front door", "state": "connected"}]}) }, r.now);
+        r.p.update(&r.kinds, &Input::Helper { topic: "plugin.lock.notifications".into(), data: json!({"items": [{"id": "battery", "channel": "events", "revision": 1, "receivedAt": 10.0, "post": {"title": "Battery low", "body": "Replace it", "actions": []}}]}) }, r.now);
+        assert_eq!(r.p.drawer.log.items()[0].title, "TV update ready");
+        assert_eq!(r.p.unread(), 2);
+        r.show("drawer", false);
+        assert_eq!(r.p.unread(), 0);
+    }
+
+    #[test]
     fn a_show_opens_the_panel_it_takes_the_keys_and_back_closes_it_and_the_layers_go_at_last() {
         let mut r = Rig::new(json!({}));
         assert!(r.p.can(&r.kinds).contains(&"quick") && !r.p.wants(&r.kinds));
+        assert!(!r.p.interactive_visible());
         r.show("quick", false);
         assert_eq!(r.p.up(&r.kinds), Some(Which::Quick));
         assert!(r.p.wants(&r.kinds));
         assert!(r.apply());
+        assert!(r.p.interactive_visible());
         assert_eq!(r.p.geometry(&r.kinds, &r.engine)["quick"]["sheet"]["x"], 1320.0);
         r.key("back");
         assert!(!r.p.wants(&r.kinds) && r.phase(Which::Quick) == "Leaving");
+        assert!(r.apply());
+        assert!(r.p.interactive_visible(), "the leaving panel is still visible");
         r.tick(200);
         assert_eq!(r.phase(Which::Quick), "Parked");
+        assert!(!r.apply());
+        assert!(!r.p.interactive_visible(), "a parked panel is not visible");
         r.tick(4100);
         assert_eq!(r.phase(Which::Quick), "Gone");
         assert!(!r.apply(), "nothing of it is on the screen");
@@ -1268,19 +1348,13 @@ mod tests {
         assert!(r.p.ask_text("Wi-Fi password", "", true, &r.kinds, r.now, &mut out));
         assert_eq!(r.p.up(&r.kinds), Some(Which::Entry));
         assert!(r.apply());
-        assert_eq!(r.p.geometry(&r.kinds, &r.engine)["entry"]["caps"][14], "t");
+        assert_eq!(r.p.geometry(&r.kinds, &r.engine)["entry"]["caps"][29], "g");
         r.press("ok");
         r.press("5");
-        r.press("down");
-        r.press("down");
-        r.press("down");
-        r.press("right");
-        // the second key row from the bottom is `zxcv`: down from `y`'s neighbour reaches the bottom row's space bar, Done is the last key
-        for _ in 0..3 {
-            r.press("right");
-        }
+        r.press("up");
+        for _ in 0..6 { r.press("right"); }
         r.press("ok");
-        assert_eq!(r.p.take_typed(), vec![Typed::Entered("t5".into())]);
+        assert_eq!(r.p.take_typed(), vec![Typed::Entered("g5".into())]);
         assert!(r.p.take_typed().is_empty(), "handed over once");
         assert!(r.p.take_events().is_empty(), "no model is told what was typed");
         assert!(!r.p.wants(&r.kinds) && r.phase(Which::Entry) == "Leaving");

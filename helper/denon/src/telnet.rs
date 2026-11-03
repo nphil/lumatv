@@ -3,8 +3,7 @@
 //! Measured on the set's S760H (`docs/research/native-helper/denon2-2026-10-25-1648/`): it accepts a second client beside
 //! Home Assistant's, answers `PW?` with `PWON`, `MV?` with `MV355` (35.5 on the panel's 0 to 98 scale) and `MVMAX 665`,
 //! `MU?` with `MUOFF`, `SI?` with `SITV` and `SVOFF`, ends every line with `\r`, and pushes each change (`MV36`) to every
-//! client. This module only reads: [`Session::query`] refuses anything that is not a query. Commands go over HTTP
-//! ([`crate::Client::send_command`]); their effect comes back here as a push.
+//! client. Queries and closed typed candidate settings use this connection.
 //!
 //! [`parse_line`] and [`Snapshot`] are pure; [`Session`] is the blocking transport with no thread of its own.
 
@@ -176,8 +175,7 @@ impl Session {
         self.stream.try_clone()
     }
 
-    /// Sends one query (`MV?`: 2 to 16 characters of `A-Z`, `0-9`, ending in `?`) and its line end. Anything else is refused
-    /// without writing: this connection only reads.
+    /// Sends one query, rejecting anything that does not have query syntax.
     pub fn query(&mut self, query: &str) -> Result<(), ClientError> {
         let valid = (2..=16).contains(&query.len())
             && query.ends_with('?')
@@ -191,6 +189,23 @@ impl Session {
         line.extend_from_slice(query.as_bytes());
         line.push(b'\r');
         self.stream.write_all(&line).map_err(|e| io_error(&e))
+    }
+
+    /// Sends an enumerated candidate query, including protocol punctuation.
+    pub fn query_setting(&mut self, query: crate::settings::Query) -> Result<(), ClientError> {
+        self.stream
+            .write_all(query.as_str().as_bytes())
+            .and_then(|_| self.stream.write_all(b"\r"))
+            .map_err(|e| io_error(&e))
+    }
+
+    /// Sends a closed, validated candidate command. Capability checks belong to the caller.
+    pub fn write_setting(&mut self, setting: crate::settings::Setting) -> Result<(), ClientError> {
+        let mut command = setting.command();
+        command.push('\r');
+        self.stream
+            .write_all(command.as_bytes())
+            .map_err(|e| io_error(&e))
     }
 
     /// Waits up to `wait` for data and appends the whole lines that arrived to `lines`. `Ok(true)` if any bytes came,
@@ -342,6 +357,23 @@ mod tests {
         let mut got = [0u8; 8];
         peer.read_exact(&mut got).unwrap();
         assert_eq!(&got, b"MV?\rPW?\r");
+    }
+
+    #[test]
+    fn typed_queries_and_writes_are_separate() {
+        use crate::settings::{Query, Setting, Tone};
+        let (mut session, mut peer) = pair();
+        assert_eq!(
+            session.query("PSTONE CTRL ON"),
+            Err(ClientError::InvalidCommand)
+        );
+        session.query_setting(Query::MultEq).unwrap();
+        session
+            .write_setting(Setting::Bass(Tone::new(-6).unwrap()))
+            .unwrap();
+        let mut got = [0u8; 20];
+        peer.read_exact(&mut got).unwrap();
+        assert_eq!(&got, b"PSMULTEQ: ?\rPSBAS44\r");
     }
 
     #[test]

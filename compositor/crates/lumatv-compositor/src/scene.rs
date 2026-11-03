@@ -27,14 +27,8 @@ use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect};
 /// otherwise. The card LumaTV's Home is drawn in place of.
 pub const HOME_APP: &str = "com.webos.app.home";
 
-/// The Rust shell's Home in the transitions: it is the engine's layers, under every window, and has no window to move. A track of this id stands for it,
-/// so a launch holds Home (the shell is told it is still on the screen: its layers and its launch screen stay up under the card) until the card is whole,
-/// as the QML Home's window does. It is drawn by nothing here: the engine already draws it under the windows.
+/// Native Home is an engine layer, represented in transitions by a synthetic window ID.
 pub const HOME_RUST: WindowId = WindowId(u32::MAX);
-
-/// How recent a commit of the shell's idle system layer must be to count as the frame its `live` announces: the word follows the frame by
-/// what the client's request takes, 100 ms and more under load on the set (the layer's empty frame after its last content is older still).
-const JOIN_FRESH_NS: u64 = 400_000_000;
 
 /// LG's keyboard at 1080p: maliit's `keyboardDefaultHeight` (`876 / resolution`, resolution 2) and what a window that was sized to the
 /// keyboard is on the set (1920x438 in the gate's good runs). The keyboard sits in the top rows of its window (`normalKeyboard` at y 0).
@@ -176,6 +170,8 @@ pub struct Hole {
 /// moving wallpaper's video, an app's controls over its own video) is not touched by it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlannedHole {
+    /// The surface-local request used to build this plan.
+    pub source: Hole,
     /// The pixels the hole touches (a veiled hole: the veil's, as moved by its card's pose).
     pub rect: Rect,
     pub before: usize,
@@ -260,6 +256,31 @@ pub struct Item {
     /// show it any other way either, so a window that did is never scanned out whole.
     pub xform: bool,
 }
+
+// Map client canvas coordinates into the drawn quad, rounding outward.
+fn subtitle_rect(bounds: crate::surface::SubtitleBounds, quad: FRect, clip: FRect) -> Option<Option<Rect>> {
+    let r = bounds.rect;
+    if bounds.canvas_width <= 0 || bounds.canvas_height <= 0 || quad.w <= 0.0 || quad.h <= 0.0
+        || ![quad.x, quad.y, quad.w, quad.h, clip.x, clip.y, clip.w, clip.h].iter().all(|v| v.is_finite())
+    {
+        return None;
+    }
+    if r.w == 0 && r.h == 0 {
+        return Some(None);
+    }
+    let sx = quad.w as f64 / bounds.canvas_width as f64;
+    let sy = quad.h as f64 / bounds.canvas_height as f64;
+    let left = (quad.x as f64 + r.x as f64 * sx).max(clip.x as f64).max(0.0);
+    let top = (quad.y as f64 + r.y as f64 * sy).max(clip.y as f64).max(0.0);
+    let right = (quad.x as f64 + (r.x as f64 + r.w as f64) * sx).min(clip.right() as f64).min(OUTPUT_WIDTH as f64);
+    let bottom = (quad.y as f64 + (r.y as f64 + r.h as f64) * sy).min(clip.bottom() as f64).min(OUTPUT_HEIGHT as f64);
+    if right <= left || bottom <= top {
+        return Some(None);
+    }
+    let (x, y, right, bottom) = (left.floor() as i32, top.floor() as i32, right.ceil() as i32, bottom.ceil() as i32);
+    Some(Some(Rect::new(x, y, right - x, bottom - y)))
+}
+
 
 impl Item {
     /// The pixels this item is drawn on: `rect`, or what its pose moves it to.
@@ -363,6 +384,10 @@ pub struct Plan {
     /// The Rust Home (the engine's stack 0) is under a window that covers the output and nothing moves: nothing of it can be seen, so the frame
     /// does not draw it (and its changes owe nothing): what an overlay over a playing video asked the GPU for was Home's 70-odd layers again.
     pub home_hidden: bool,
+    /// Black veil opacity over native Home, below windows and system UI.
+    pub home_dim: f32,
+    /// Number of wallpaper items below native Home.
+    pub home_before: usize,
     /// A transition is moving or fading at the plan's time (the engine's own animations are asked of it: `Gl::ui_animating`): the frame after this
     /// one is due at the next refresh.
     pub animating: bool,
@@ -400,7 +425,7 @@ impl Plan {
             Err(NotSole::Cursor)
         } else if !self.holes.is_empty() || self.video {
             Err(NotSole::Video)
-        } else if one.dim != 1.0 {
+        } else if one.dim != 1.0 || (self.home_dim > 0.0 && !self.home_hidden) {
             Err(NotSole::Dimmed)
         } else if self.gain_on {
             Err(NotSole::Gain)
@@ -502,15 +527,12 @@ pub struct Scene {
     last_backdrop: BackdropSig,
     /// What the last plan drew and where, to damage what moved, appeared, restacked or vanished.
     last_placed: Vec<Placed>,
+    /// Planned holes invalidated by surface mutations since the last plan.
+    invalid_video_holes: Vec<SurfaceId>,
     last_holes: Vec<PlannedHole>,
     plan: Plan,
     /// Whether the last stack built drew LumaTV's Home in the card slot ([`Scene::shell_home_shown`]).
     home_shown: bool,
-    /// The shell's system layer has nothing to show ([`Scene::set_shell_system_live`]): its window is left out of the
-    /// stack, mapped and warm as it stays.
-    system_idle: bool,
-    /// The Rust shell draws Home (the `home` kind, on the engine's stack 0 under the windows): the QML shell's Home window is left
-    /// out of the stack, and Home counts as drawn whenever no app's card is in front ([`Scene::set_home_rust`]).
     home_rust: bool,
     /// The windows in transition (`transition.rs`): drawn through poses while their tracks run.
     pub transitions: Transitions,
@@ -527,8 +549,6 @@ pub struct Scene {
     prev_stack: Vec<WindowId>,
     /// Windows destroyed at the front of the screen that a transition still draws.
     zombies: Vec<Zombie>,
-    /// The system layer came back live since the last plan: it joins without damage of its own (see `plan`).
-    system_joining: bool,
     // Scratch space for planning, reused across frames.
     stack: Vec<(Layer, u64, WindowId)>,
     members: Vec<(i32, SurfaceId)>,
@@ -545,6 +565,72 @@ pub struct Scene {
 }
 
 impl Scene {
+    /// Whether the last frame planned a visible clear for this unchanged surface-local hole.
+    pub fn video_hole_visible(&self, window: WindowId, surface: SurfaceId, rect: Rect) -> bool {
+        self.plan.holes.iter().any(|h| {
+            h.source == (Hole { surface, rect })
+                && !self.invalid_video_holes.contains(&surface)
+                && self.holes.contains(&h.source)
+                && self.plan.items.get(h.before).is_some_and(|item| item.window == window && item.surface == surface && !item.ghost)
+                && h.veil.is_none_or(|veil| veil.clear && veil.alpha < 1.0)
+                && !self.hole_covered_or_uncertain(h)
+        })
+    }
+
+    // Later clears may reveal a different plane, whose identity the plan cannot establish. Count those pixels as uncertain.
+    fn hole_covered_or_uncertain(&self, hole: &PlannedHole) -> bool {
+        // Sweep without allocating. The hole's own item is excluded: its controls are drawn over the clear.
+        let rects = || self.plan.items[hole.before + 1..].iter().filter(|item| item.opaque && item.pose.is_none()).map(|item| item.rect)
+            .chain(self.plan.holes.iter().filter(|other| other.before > hole.before && other.veil.is_none_or(|veil| veil.clear)).map(|other| other.rect));
+        let mut x = hole.rect.x;
+        while x < hole.rect.right() {
+            let mut next_x = hole.rect.right();
+            for rect in rects() {
+                if rect.x > x { next_x = next_x.min(rect.x); }
+                if rect.right() > x { next_x = next_x.min(rect.right()); }
+            }
+            let mut y = hole.rect.y;
+            while y < hole.rect.bottom() {
+                let end = rects().filter(|rect| rect.x <= x && rect.right() >= next_x
+                    && rect.y <= y && rect.bottom() > y)
+                    .map(|rect| rect.bottom()).max().unwrap_or(y);
+                if end == y { return false; }
+                y = end;
+            }
+            x = next_x;
+        }
+        true
+    }
+
+    /// Invalidate planned holes on a surface and its subsurface/group descendants until the next plan.
+    pub fn invalidate_video_holes_for_surface(&mut self, surface: SurfaceId, surfaces: &Surfaces) {
+        for hole in &self.plan.holes {
+            let mut current = hole.source.surface;
+            loop {
+                if current == surface {
+                    if !self.invalid_video_holes.contains(&hole.source.surface) {
+                        self.invalid_video_holes.push(hole.source.surface);
+                    }
+                    break;
+                }
+                current = match surfaces.get(current).map(|s| s.role) {
+                    Some(Role::Subsurface { parent }) => parent,
+                    Some(Role::GroupMember { owner }) => owner,
+                    _ => break,
+                };
+            }
+        }
+    }
+
+    /// Invalidate the previous frame when the foreground card changes before a new plan.
+    pub fn invalidate_planned_video_holes(&mut self) {
+        for hole in &self.plan.holes {
+            if !self.invalid_video_holes.contains(&hole.source.surface) {
+                self.invalid_video_holes.push(hole.source.surface);
+            }
+        }
+    }
+
     pub fn create_window(&mut self, surface: SurfaceId) -> WindowId {
         if let Some(id) = self.by_surface.get(&surface) {
             return *id;
@@ -568,18 +654,15 @@ impl Scene {
         self.by_surface.get(&surface).copied()
     }
 
-    /// The topmost drawn surface under an output point and the rectangle it is drawn at (the last plan), for
-    /// the pointer. Holes are the video's, not a window's, so they do not count; the shell's system layer counts only
-    /// while it wants the keys or within its keyboard's rectangle (a transparent layer must not take the pointer from the app under it).
+    /// The topmost drawn non-video surface under an output point, from the last plan.
     pub fn surface_at(&self, x: i32, y: i32) -> Option<(SurfaceId, Rect)> {
-        let keyboard = self.shell_pointer.is_some_and(|r| r.contains(x, y));
         self.plan
             .items
             .iter()
             .rev()
             .filter(|i| !i.ghost && i.rect.contains(x, y))
             // (a video window is transparent and nobody's: the pointer goes through it to what is under)
-            .find(|i| self.windows.get(&i.window).is_none_or(|w| w.kind != WindowType::VideoWindow && (w.kind != WindowType::ShellSystem || w.takes_keys || keyboard)))
+            .find(|i| self.windows.get(&i.window).is_none_or(|w| w.kind != WindowType::VideoWindow))
             .map(|i| (i.surface, i.rect))
     }
 
@@ -592,11 +675,6 @@ impl Scene {
     pub fn take_visual(&mut self, window: WindowId) -> Option<Visual> {
         let now = self.plan_ns;
         self.transitions.take_visual(window, now)
-    }
-
-    /// The shell client's window of `kind` (`ShellHome` or `ShellSystem`), if it has one.
-    pub fn shell_window(&self, kind: WindowType) -> Option<&Window> {
-        self.windows.values().find(|w| w.kind == kind)
     }
 
     /// Whether the last stack drew LumaTV's Home in the card slot: the shell's Home window is mapped and the card at the front is
@@ -623,61 +701,15 @@ impl Scene {
 
     /// [`Scene::shell_home_covered`] over the stack as it stands (the plan builds it once a frame).
     fn home_covered_in(&self, surfaces: &Surfaces) -> bool {
-        // The Rust shell's Home is on the engine and has no window of its own in the stack: it sits under every layer above Home's.
-        let from = match self.stack.iter().position(|(layer, _, _)| *layer == Layer::Home) {
-            Some(home) => home + 1,
-            None if self.home_rust => self.stack.iter().position(|(layer, _, _)| *layer > Layer::Home).unwrap_or(self.stack.len()),
-            None => return true,
-        };
-        self.stack[from..].iter().any(|(_, _, id)| {
+        if !self.home_rust { return true; }
+        self.stack.iter().filter(|(layer, _, _)| *layer >= Layer::Cards).any(|(_, _, id)| {
             self.windows.get(id).is_some_and(|w| {
-                !w.kind.is_shell()
-                    && w.kind != WindowType::VideoWindow
+                w.kind != WindowType::VideoWindow
                     && surfaces.get(w.surface).map(|s| s.size()).is_some_and(|(sw, sh)| sw >= OUTPUT_WIDTH as i32 && sh >= OUTPUT_HEIGHT as i32)
             })
         })
     }
 
-    /// The shell's system layer wants the keys, or stops wanting them; returns whether that changed (the focus then moves).
-    pub fn set_shell_takes_keys(&mut self, takes: bool) -> bool {
-        let mut changed = false;
-        for w in self.windows.values_mut().filter(|w| w.kind == WindowType::ShellSystem) {
-            changed |= w.takes_keys != takes;
-            w.takes_keys = takes;
-        }
-        changed
-    }
-
-    /// The shell says its system layer has something to show, or nothing any more. The window keeps its surface, its
-    /// buffers and their imports either way (a toast's window made anew paid a window, three CMA buffers and three warms
-    /// before its first frame: 44-52 ms on the tenth gate against 50 allowed), so the next thing it shows costs one frame.
-    /// A layer with nothing on it is transparent: left out of the stack an app's buffer goes to the plane whole, and
-    /// brought back it joins quietly, its next commit the frame that shows it (a frame for the join alone would take the
-    /// refresh that commit is meant for). Returns whether a frame is wanted now: the layer's frame came in the last
-    /// [`JOIN_FRESH_NS`] while it was idle, ahead of the word on the channel, so the join is what shows it. A frame older
-    /// than that is what the layer left when it went idle (Qt draws the layer once more, empty, after a toast's end).
-    pub fn set_shell_system_live(&mut self, live: bool, now_ns: u64) -> bool {
-        let joining = live && self.system_idle;
-        self.system_idle = !live;
-        if !joining {
-            return false;
-        }
-        let fresh = self
-            .windows
-            .values()
-            .any(|w| w.kind == WindowType::ShellSystem && w.commits > w.commits_drawn && now_ns.saturating_sub(w.last_commit_ns) < JOIN_FRESH_NS);
-        self.system_joining = !fresh;
-        fresh
-    }
-
-    /// How long ago the system layer's last commit arrived, in ms (`None` when it has no window).
-    pub fn shell_system_commit_age_ms(&self, now_ns: u64) -> Option<u64> {
-        self.windows.values().find(|w| w.kind == WindowType::ShellSystem).map(|w| now_ns.saturating_sub(w.last_commit_ns) / 1_000_000)
-    }
-
-    pub fn shell_system_live(&self) -> bool {
-        !self.system_idle
-    }
 
     /// The Rust shell's Home is on the engine (or no longer is). Returns whether that changed.
     pub fn set_home_rust(&mut self, on: bool) -> bool {
@@ -765,6 +797,31 @@ impl Scene {
         self.windows.values().filter(|w| Self::in_front(w, surfaces) && w.state != ShellState::Minimized).max_by_key(|w| w.front)
     }
 
+    /// The foreground's committed subtitle report as drawn by the last scene plan.
+    pub fn subtitle_bounds<'a>(&'a self, surfaces: &Surfaces) -> Option<(&'a str, SurfaceId, Option<Rect>)> {
+        let front = self.foreground(surfaces)?;
+        let mut found = None;
+        for item in self.plan.items.iter().filter(|item| item.window == front.id && !item.ghost) {
+            let Some(surface) = surfaces.get(item.surface).filter(|s| s.is_mapped()) else { continue };
+            let Some(bounds) = surface.current.subtitle_bounds else { continue };
+            // Only the foreground root has an independently published identity.
+            if item.surface != front.surface {
+                return None;
+            }
+            if item.xform || found.is_some() {
+                return None;
+            }
+            let (quad, clip) = match item.pose {
+                Some(pose) if pose.alpha > 0.0 => (pose.quad, pose.clip),
+                Some(_) => return None,
+                None => (FRect::from_rect(item.rect), FRect::from_rect(item.rect)),
+            };
+            found = Some((front.app_id(), item.surface, subtitle_rect(bounds, quad, clip)?));
+        }
+        found
+    }
+
+
     /// Brings the card `id` to the front: what LG's fullscreen container does for a card that asks for fullscreen,
     /// mapped (a relaunch over another card) or not yet (a preloaded app relaunched). Nothing for a window that is
     /// not a card.
@@ -838,27 +895,21 @@ impl Scene {
         let w = self.windows.get(self.by_surface.get(&member)?)?;
         w.needs_focus().then_some(w.id)
     }
-
-    /// Mapped windows in draw order, bottom to top, into `self.stack`. LumaTV's Home (the shell's `ShellHome` window) takes the
-    /// card slot while the card at the front is SAM's Home, the stub that draws nothing, or while there is no card at all; under
-    /// an app's card it is left out, as the stub is while Home is drawn in its place. The moving wallpaper's window (`Wallpaper`, the
-    /// lowest layer) goes with it: it is drawn, with its hole, only under Home that is drawn, so an app that takes the front gets the
-    /// plane's picture back the same frame, whatever the player is still doing.
+    /// Mapped windows in draw order. Native Home occupies the card slot while no app card is in front;
+    /// the moving wallpaper and its video hole are drawn only under Home.
     fn build_stack(&mut self, surfaces: &Surfaces) {
         self.stack.clear();
         for w in self.windows.values() {
             if w.map_serial == 0 || w.state == ShellState::Minimized || !surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false) {
                 continue;
             }
+            // The native compositor never displays vendor keyboard windows.
+            if w.kind == WindowType::Keyboard {
+                continue;
+            }
             // A group member is drawn with its owner (`plan`), and a card that is not in front is none of the stack's: a window that left
             // its group while mapped waits for its own `set_state(fullscreen)`.
             if w.in_group || (w.kind.is_card() && w.front == 0) {
-                continue;
-            }
-            if w.kind == WindowType::ShellSystem && self.system_idle {
-                continue;
-            }
-            if w.kind == WindowType::ShellHome && self.home_rust {
                 continue;
             }
             // A video window is in the stack only while a claim is granted for it (`vwin`): without one it is a transparent window of nobody's.
@@ -876,7 +927,7 @@ impl Scene {
             }
         }
         let card_is_home = last_card.map(|i| self.windows.get(&self.stack[i].2).is_some_and(|w| w.app_id() == HOME_APP)).unwrap_or(true);
-        let has_shell_home = self.home_rust || self.stack.iter().any(|(layer, _, _)| *layer == Layer::Home);
+        let has_shell_home = self.home_rust;
         self.home_shown = has_shell_home && card_is_home;
         // What is at the front of the screen, for the transitions: Home, an app's card (the Home stub's own card when LumaTV's Home is not
         // there to take its place), or nothing they move (no card, the screensaver's).
@@ -902,7 +953,7 @@ impl Scene {
         self.stack.retain(|(layer, _, _)| {
             let keep_it = match layer {
                 Layer::Cards => last_card == Some(i) && !drop_card,
-                Layer::Home | Layer::Wallpaper => has_shell_home && card_is_home,
+                Layer::Wallpaper => has_shell_home && card_is_home,
                 _ => true,
             };
             i += 1;
@@ -1034,11 +1085,10 @@ impl Scene {
         let mut home: Vec<(WindowId, FRect)> = self
             .windows
             .values()
-            .filter(|w| matches!(w.kind, WindowType::ShellHome | WindowType::Wallpaper) && w.map_serial > 0)
+            .filter(|w| w.kind == WindowType::Wallpaper && w.map_serial > 0)
             .map(|w| (w.id, full))
             .collect();
-        let mut home_ui: Vec<(WindowId, FRect)> =
-            self.windows.values().filter(|w| w.kind == WindowType::ShellHome && w.map_serial > 0).map(|w| (w.id, full)).collect();
+        let mut home_ui: Vec<(WindowId, FRect)> = Vec::new();
         if self.home_rust {
             home.push((HOME_RUST, full));
             home_ui.push((HOME_RUST, full));
@@ -1130,6 +1180,7 @@ impl Scene {
     pub fn plan_at(&mut self, surfaces: &Surfaces, now_ns: u64) -> &Plan {
         let output = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
         self.plan.clear();
+        self.invalid_video_holes.clear();
         if self.plan.tiles.is_none() {
             self.plan.tiles = Some(Tiles::new(OUTPUT_WIDTH, OUTPUT_HEIGHT));
         }
@@ -1142,24 +1193,21 @@ impl Scene {
         for (_, _, wid) in &self.stack {
             let Some(w) = self.windows.get(wid) else { continue };
             pending |= w.commits > w.commits_drawn;
-            match w.kind {
-                WindowType::ShellHome => views[0] = Some(w.commits),
-                WindowType::ShellSystem => views[1] = Some(w.commits),
-                _ => {}
-            }
         }
-        // The Rust shell's Home is no window of the stack: the engine draws it under the windows. It is on the screen while no app's card is
-        // in front, and the care sees it as a layer of no commits (it cannot be moved or dimmed here: the panel's dim, `paneldim`, is what
-        // the idle ease asks for, and a Home that draws a clock every second is as still as one that draws nothing). A moving wallpaper is a
-        // hole, which holds the panel dim by itself.
+        // Native Home is not a window; its clock commits do not reset the idle timer.
         if self.home_rust && self.home_shown {
             views[0] = Some(0);
         }
         self.care.step(now_ns, views, pending);
+        let home_dim = if self.home_rust && self.home_shown && !self.care.saver { 1.0 - self.care.dim(0) } else { 0.0 };
+        if self.plan.home_dim != home_dim {
+            self.plan.home_dim = home_dim;
+            self.plan.damage = self.plan.damage.union(&output);
+            self.plan.tiles.as_mut().unwrap().add(&output);
+        }
         let app = self.app_view();
         self.care.step_app(now_ns, app, pending);
         self.care_only = self.care.beat_frame() && !pending;
-        let (shift, dims) = (self.care.offset(), [self.care.dim(0), self.care.dim(1)]);
         // The card the app features look at, and where and how bright they draw it (the origin and 1 unless it is engaged).
         let app_card = app.map(|a| WindowId(a.window));
         let (app_shift, app_dim) = (self.care.app_offset(), self.care.app_dim());
@@ -1206,18 +1254,13 @@ impl Scene {
                 // rectangle the app asked for when it asked for one.
                 let g = surfaces.get(w.surface).map(|s| keyboard_geometry(s.size(), s.current.input.as_deref())).unwrap_or_default();
                 keyboard_origin(g, self.keyboard_pref)
-            } else if matches!(w.kind, WindowType::ShellHome | WindowType::ShellSystem) {
-                // LumaTV's own screens orbit and dim (`oledcare`); an app's card, the video under Home and the keyboard do not.
-                dim = dims[(w.kind == WindowType::ShellSystem) as usize];
-                drift = shift;
-                (w.position.0 + shift.0, w.position.1 + shift.1)
             } else {
                 w.position
             };
             let owner = w.surface;
             let pose = self.pose_of(wid, now_ns).or_else(|| texture_pose(w, surfaces));
             let ghost = self.transitions.active() && !self.stack.iter().any(|(_, _, id)| *id == wid);
-            let gain = !w.kind.is_shell() && !matches!(w.kind, WindowType::Wallpaper | WindowType::VideoWindow);
+            let gain = !matches!(w.kind, WindowType::Wallpaper | WindowType::VideoWindow);
             let look = Look { window: wid, origin, dim, pose, ghost, under_hole: false, gain, drift };
             self.build_members(owner);
             let m = self.members.len();
@@ -1243,6 +1286,9 @@ impl Scene {
                 }
             }
         }
+        self.plan.home_before = self.plan.items.iter().take_while(|i| {
+            self.windows.get(&i.window).is_some_and(|w| w.kind == WindowType::Wallpaper)
+        }).count();
         for (_, _, wid) in &self.draw {
             if let Some(w) = self.windows.get_mut(wid) {
                 w.commits_drawn = w.commits;
@@ -1263,7 +1309,7 @@ impl Scene {
             let planned = match (veil, item.pose) {
                 (None, _) => {
                     let r = logical.intersect(&output);
-                    (!r.is_empty()).then_some(PlannedHole { rect: r, before, veil: None })
+                    (!r.is_empty()).then_some(PlannedHole { source: *h, rect: r, before, veil: None })
                 }
                 (Some(v), pose) => {
                     let (quad, clip, radius, alpha) = match pose {
@@ -1281,6 +1327,7 @@ impl Scene {
                     };
                     let r = quad.bounds().intersect(&clip.bounds()).intersect(&output);
                     (!r.is_empty()).then_some(PlannedHole {
+                        source: *h,
                         rect: r,
                         before,
                         veil: Some(HoleVeil { quad, clip, radius, alpha, clear: pose.is_none() && v.alpha < 1.0 }),
@@ -1314,16 +1361,6 @@ impl Scene {
             dim: (i.dim * 100.0).round() as u8,
             pose: i.pose.map(|p| p.key()),
         }));
-        // The system layer back in the stack counts as having been there: no damage for the join itself.
-        if std::mem::take(&mut self.system_joining) {
-            for (i, p) in self.placed.iter().enumerate() {
-                let of_layer = self.windows.get(&self.plan.items[i].window).is_some_and(|w| w.kind == WindowType::ShellSystem);
-                if of_layer && !self.last_placed.contains(p) {
-                    let at = i.min(self.last_placed.len());
-                    self.last_placed.insert(at, *p);
-                }
-            }
-        }
         // The box dim (`boxdim`): which cells of the app's pictures may have changed this frame (their own damage, before a redraw of
         // everything below wipes it), whether the layout changed, and the map's step. A step damages the cells it changed, the items keep
         // their own. Nothing of it runs while neither it nor an app feature is on.
@@ -1506,12 +1543,8 @@ impl Scene {
                     }
                 }
             };
-            // LumaTV's Home fills its window with an opaque wallpaper, whatever its buffer's format says: alone on the screen it goes to
-            // the plane whole (direct scan-out), and its idle tick costs the compositor a flip, not a composition.
-            let shell_home = self.windows.get(&window).is_some_and(|w| w.kind == WindowType::ShellHome);
             let opaque = posed.is_none()
-                && (shell_home
-                    || s.current
+                && (s.current
                         .opaque
                         .as_ref()
                         .map(|o| o.iter().any(|r| r.x <= 0 && r.y <= 0 && r.right() >= rect.w && r.bottom() >= rect.h))
@@ -1540,3 +1573,22 @@ impl crate::buffer::BufferKindRef<'_> {
 
 #[allow(dead_code)]
 fn _assert_types(_: WindowType) {}
+
+#[cfg(test)]
+mod subtitle_tests {
+    use super::*;
+    use crate::surface::SubtitleBounds;
+
+    #[test]
+    fn canvas_is_scaled_clipped_and_rounded_outward() {
+        let bounds = SubtitleBounds { canvas_width: 100, canvas_height: 100, rect: Rect::new(10, 20, 60, 40) };
+        let quad = FRect::new(-10.0, 30.0, 101.0, 200.0);
+        let clip = FRect::new(20.0, 0.0, 40.0, 100.0);
+        assert_eq!(subtitle_rect(bounds, quad, clip), Some(Some(Rect::new(20, 70, 40, 30))));
+        assert_eq!(subtitle_rect(bounds, quad, FRect::new(200.0, 0.0, 20.0, 20.0)), Some(None));
+        let empty = SubtitleBounds { rect: Rect::new(0, 0, 0, 0), ..bounds };
+        assert_eq!(subtitle_rect(empty, quad, clip), Some(None));
+        assert_eq!(subtitle_rect(bounds, FRect::new(0.0, 0.0, 0.0, 1.0), clip), None);
+    }
+}
+

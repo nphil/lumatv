@@ -218,7 +218,7 @@ impl Live {
     }
 
     /// The answer to the ask: the helper refused (a camera that is offline, no stream inside the limits, the live path off).
-    pub fn answered(&mut self, tag: u64, status: u16, data: &Value) -> Vec<Effect> {
+    pub fn answered(&mut self, tag: u64, status: u16, _data: &Value) -> Vec<Effect> {
         if self.ask_tag != Some(tag) {
             return Vec::new();
         }
@@ -227,9 +227,7 @@ impl Live {
             return Vec::new();
         }
         self.phase = Phase::Given;
-        let err = data.get("error").unwrap_or(data);
-        let word = |k: &str| err.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-        vec![Effect::Log(format!("camera pop-up: the helper refused the live stream ({status} {}): {}", word("code"), word("message")))]
+        vec![Effect::Log(format!("camera pop-up: the helper refused the live stream ({status})"))]
     }
 
     /// `cameras.live`: the stream the helper plays.
@@ -468,7 +466,7 @@ mod tests {
         let tag = asks(&l.set_window(Window::Carried, "main", true, T0))[0].0;
         let fx = l.answered(tag, 409, &json!({"error": {"code": "offline", "message": "The camera is offline"}}));
         assert!(l.given());
-        assert!(matches!(&fx[0], Effect::Log(s) if s.contains("offline")), "{fx:?}");
+        assert!(matches!(&fx[0], Effect::Log(s) if s.contains("409") && !s.contains("offline")), "{fx:?}");
 
         let mut slow = card();
         slow.set_window(Window::Carried, "main", true, T0);

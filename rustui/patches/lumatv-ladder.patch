@@ -1,0 +1,11 @@
+--- a/ladder.rs
++++ b/ladder.rs
+@@ -318,6 +318,7 @@
+         glass = Glass {
+             backdrop: Backdrop::None,
+             refraction: 0.0,
++            edge_lens: None,
+             highlight: Rgba(0, 0, 0, 0),
+             sheen: None,
+             shadows: [None, None],
+

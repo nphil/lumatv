@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="lumatv_subtitles_v1">
+  <description summary="subtitle painted bounds">
+    An optional private hint for the painted subtitle area of a client surface.
+    Bounds use the stated canvas coordinates and take effect on wl_surface.commit.
+    A 0 by 0 rectangle reports that no subtitles are painted; until a report
+    is committed, or after a region is destroyed or its surface unmapped, the
+    bounds are unknown.
+  </description>
+  <interface name="lumatv_subtitle_manager_v1" version="1">
+    <enum name="error">
+      <entry name="invalid_surface" value="0" summary="surface does not belong to the client"/>
+      <entry name="duplicate_region" value="1" summary="surface already has a subtitle region"/>
+    </enum>
+    <request name="destroy" type="destructor"/>
+    <request name="get_region">
+      <arg name="id" type="new_id" interface="lumatv_subtitle_region_v1"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+  </interface>
+  <interface name="lumatv_subtitle_region_v1" version="1">
+    <enum name="error">
+      <entry name="invalid_bounds" value="0" summary="invalid canvas or rectangle"/>
+    </enum>
+    <request name="destroy" type="destructor"/>
+    <request name="set_bounds">
+      <description summary="set the pending painted subtitle bounds">
+        Canvas dimensions must be positive and at most 16384. The rectangle
+        must fit within the canvas; width and height are both positive or both
+        zero. A zero-sized rectangle denotes known empty subtitle content.
+      </description>
+      <arg name="canvas_width" type="int"/>
+      <arg name="canvas_height" type="int"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+  </interface>
+</protocol>

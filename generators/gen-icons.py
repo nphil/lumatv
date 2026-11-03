@@ -4,13 +4,13 @@
 The compositor's Qt has no SVG plugin, so every glyph ships as a PNG rendered
 once here, at its display size, so it is never resampled on the set. Stroke
 icons come in two inks (dark material = light ink, light material = dark ink);
-weather "now" glyphs are coloured and material-independent. Output: payload/compositor/lumatv/icons/.
+weather "now" glyphs are coloured and material-independent. Output: compositor/assets/ui/icons/.
 """
 import os
 import cairosvg
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "payload", "compositor", "lumatv", "icons")
+OUT = os.path.join(ROOT, "compositor", "assets", "ui", "icons")
 os.makedirs(OUT, exist_ok=True)
 
 INK = {"d": "rgba(242,239,246,0.66)", "l": "rgba(23,19,31,0.66)"}

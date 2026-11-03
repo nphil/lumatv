@@ -108,6 +108,10 @@ impl SettingsHost {
         self.model.take_theme_file()
     }
 
+    pub fn take_theme_preview(&mut self) -> Option<Option<Value>> {
+        self.model.take_theme_preview()
+    }
+
     pub fn set_theme(&mut self, theme: Value) {
         self.model.set_theme(theme);
         self.redraw = true;
@@ -135,6 +139,7 @@ impl SettingsHost {
             return Ok(false);
         }
         self.model.set_light(kit.mode == ui::lucent::palette::Mode::Light);
+        self.model.set_text_scale(kit.text_scale);
         let view = self.model.view();
         self.surface.apply(kit, engine, &view, over_video, now, now_ns)
     }
@@ -151,6 +156,11 @@ impl SettingsHost {
         self.surface.restyle();
         self.redraw = true;
     }
+    pub fn restyle_glass(&mut self, kit: &Kit) {
+        self.surface.restyle_glass(kit);
+        self.redraw = true;
+    }
+
 
     /// The pages Home's search offers as answers.
     pub fn search_pages(&self) -> Vec<Value> {
@@ -182,6 +192,66 @@ mod tests {
         host.update(&Input::Key { name: name.into(), down: true, repeat: false }, t);
         host.update(&Input::Key { name: name.into(), down: false, repeat: false }, t + 20);
     }
+    #[test]
+    fn glass_restyle_keeps_settings_controls_alive() {
+        use compositor_protocol::Request;
+        let (mut h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).unwrap();
+        let theme = lumatv_tokens::Tokens::from_json(&json!({"glassStrength": {"clear": 0.8}, "wallpaperMotion": {"enabled": false}, "motion": {"transitions": true}})).json().clone();
+        let mut host = SettingsHost::new(1000, &theme, &json!({}));
+        host.open(Some("look"), 0);
+        host.click(Target::Row { id: "glassstrength".into(), seg: None, value: None }, 0);
+        host.apply(&mut kit, &mut engine, false, 1, 1_000_000).unwrap();
+        h.commit();
+        host.update(&Input::Key { name: "right".into(), down: true, repeat: false }, 2);
+        let mut changed = theme;
+        changed["glassStrength"]["clear"] = json!(0.81);
+        let tokens = lumatv_tokens::Tokens::from_json(&changed);
+        kit.retheme(tokens, Mode::Dark, 1.0);
+        host.restyle_glass(&kit);
+        host.apply(&mut kit, &mut engine, false, 2, 2_000_000).unwrap();
+        let changes = h.commit();
+        assert!(changes.iter().any(|r| matches!(r, Request::Restyle { .. })));
+        assert!(changes.iter().any(|r| matches!(r, Request::Set { props, .. } if props.clip.is_some())), "the slider fill updates in place");
+        assert!(!changes.iter().any(|r| matches!(r, Request::GroupDelete { .. })), "the settings rows must not be recreated");
+        let page = host.model.view().page.unwrap();
+        assert_eq!(page.rows.iter().find(|r| r.id == "glassstrength").unwrap().num, 81.0);
+        assert!(page.rows.iter().any(|r| r.id == "wallpaper"));
+        assert!(page.rows.iter().find(|r| r.id == "transitions").unwrap().on);
+    }
+
+
+    #[test]
+    fn gallery_uses_renderers_effective_text_scale() {
+        for (scale, columns) in [(1.0, 3), (2.0, 2)] {
+            let (_h, mut kit) = testkit::kit_in(Mode::Dark, scale);
+            let mut engine = Engine::new(&kit).unwrap();
+            let mut host = SettingsHost::new(1000, &json!({}), &json!({}));
+            host.open(Some("themes"), 0);
+            host.apply(&mut kit, &mut engine, false, 1, 1_000_000).unwrap();
+            let page = host.model.view().page.unwrap();
+            assert_eq!(page.rows.iter().find(|r| !r.cards.is_empty()).unwrap().cards.len(), columns);
+        }
+    }
+
+    #[test]
+    fn gallery_fits_loaded_home_budget_while_scrolling() {
+        let (_h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).unwrap();
+        let scene = kit.ui.scene.clone();
+        let room = kit.room();
+        let _home_groups: Vec<_> = (0..room.groups.saturating_sub(32)).map(|_| scene.group(None, compositor_protocol::GroupPose::IDENTITY).unwrap()).collect();
+        let _home_layers: Vec<_> = (0..room.layers.saturating_sub(150)).map(|_| scene.shape(1, 1, 0, ui::components::plate::solid(compositor_protocol::Rgba(0, 0, 0, 255), 0.0), compositor_protocol::Props::at(0.0, 0.0))).collect();
+        let mut host = SettingsHost::new(1000, &json!({}), &json!({}));
+        host.open(Some("themes"), 1000);
+        for i in 0..21u64 {
+            let t = 2000 + i * 300;
+            host.apply(&mut kit, &mut engine, false, t, t * 1_000_000).expect("gallery must fit");
+            assert!(!scene.take_overflow(), "layer exhaustion at gallery step {i}");
+            press(&mut host, if i % 3 == 2 { "down" } else { "right" }, t + 30);
+        }
+    }
+
 
     /// The pages and tabs this change added or changed (Hold gear, About this TV, Allow LG Remote Service, AV reset, Auto power sync and No
     /// signal image, Auto Tuning, LG logo), each walked row by row so the scrolled list is read at every place.

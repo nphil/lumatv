@@ -8,7 +8,7 @@ use super::editor::{self, Editor, Mode, Zone};
 use super::grid;
 use super::model::{Home, Layer};
 use super::picker;
-use super::search::{self, Search};
+use super::search;
 use super::surface::{HIDDEN, HomeSurface, Lift, faded, glass_of};
 use super::widgets::Words;
 use crate::kit::button::{Button, Place, Spec, Tone};
@@ -19,7 +19,7 @@ use crate::kit::pane::PaneKind;
 use crate::kit::picture::{self};
 use crate::kit::text::{Text, role_style, width_of};
 use crate::kit::{Engine, Id, Kit};
-use compositor_protocol::{Backdrop, Fill, GroupPose, Props, Rgba, Shape};
+use compositor_protocol::{Backdrop, Fill, Glass, GroupPose, Props, Rgba, Shape};
 use lumatv_tokens::{Radius, TypeRole};
 use serde_json::Value;
 use ui::components::{Align, Block, plate};
@@ -29,8 +29,6 @@ use ui::lucent::palette::PaletteRole;
 use ui::scene::{GlassLayer, ImageLayer, ShapeLayer};
 use ui::text::Weight;
 
-const CURSOR_X: Region = Region(20);
-const CURSOR_Y: Region = Region(21);
 const PAD_X: Region = Region(22);
 const PAD_Y: Region = Region(23);
 
@@ -321,161 +319,123 @@ impl HomeSurface {
 }
 
 // ---- search
+struct SearchAnswerArt {
+    plate: ShapeLayer,
+    words: Block,
+    title: String,
+    sub: String,
+    state: Option<bool>,
+}
+
 pub struct SearchSurface {
-    scrim: ShapeLayer,
-    sheet: GlassLayer,
-    field: ShapeLayer,
-    field_icon: Option<ImageLayer>,
+    keyboard: crate::panels::ime_surface::ImeSurface,
+    _field: ShapeLayer,
+    _field_icon: Option<ImageLayer>,
+    _hints: Vec<crate::kit::hint::HintRow>,
     typed: Text,
     caret: ShapeLayer,
-    hint: Text,
-    answers: Vec<(ShapeLayer, Block)>,
-    entry_note: Block,
-    keys_art: ImageLayer,
-    caps: Block,
-    cursor: Cursor,
-    caps_key: String,
-    shown_text: String,
+    selection: ShapeLayer,
+    answers: Vec<SearchAnswerArt>,
+    _entry_note: Text,
+    revision: Option<u64>,
+    caret_x: f32,
+    style: ui::components::Style,
+    at: Frame,
 }
 
 impl SearchSurface {
     pub fn new(kit: &mut Kit, engine: &mut Engine, home: &Home, z: i32) -> std::io::Result<Self> {
-        let scrim = scrim(kit, z);
-        let sf = search::SHEET;
-        let sheet = kit.ui.scene.glass(sf.w as u32, sf.h as u32, z + 1, glass_of(kit, PaneKind::Sheet, sf.h, false, false), Props::at(sf.x, sf.y));
-        let ink = kit.ui.look.ink();
-        let ink2 = kit.ui.look.ink2();
-        let ff = Search::field_frame();
+        use crate::kit::focus::Scope;
+        use crate::kit::hint::{Action, Hint, HintRow, Key, RowAt};
+        use crate::panels::life::Phase;
+        let mut keyboard = crate::panels::ime_surface::ImeSurface::for_owner(z, Scope(212), Region(2800), 0x2800_0000, Id(0x2800_FF00));
+        keyboard.header_height = search::header_height(&kit.tokens, kit.text_scale);
+        keyboard.apply(kit, engine, &home.search.view().keyboard, Phase::Open, 0)?;
+        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        let ff = home.search.field_frame();
         let field = kit.ui.scene.shape(ff.w as u32, ff.h as u32, z + 2, Shape { corner_radius: kit.tokens.radius(Radius::Tile), fill: Fill::Solid(faded(ink, 0.06)), border_width: 1.0, border: kit.ui.look.colour(PaletteRole::Edge) }, Props::at(ff.x, ff.y));
-        let field_icon = crate::kit::icon::layer(kit, if home.search.entry { "keyboard" } else { "search" }, 32, ink2, z + 3, Props::at(ff.x + 26.0, ff.y + 26.0))?;
-        let mut ty = kit.ty(TypeRole::Title);
-        ty.px = (32.0 * kit.text_scale).round() as u32;
-        let typed_style = ui::components::style(ty, ink, Align::Left);
-        let typed = Text::line_at(kit, ff.x + 76.0, ff.y + ff.h / 2.0, ff.w - 76.0 - 420.0, z + 3, typed_style, "")?;
-        let caret = kit.ui.scene.shape(3, 38, z + 3, plate::solid(kit.ui.look.accent(), 2.0), Props::at(ff.x + 80.0, ff.y + 23.0));
-        let hint_words = if home.search.entry { "Back cancels" } else if home.search.voice { "Hold the mic key to speak" } else { "" };
-        let hint = Text::line_at(kit, ff.x + ff.w - 26.0 - 400.0, ff.y + ff.h / 2.0, 400.0, z + 3, role_style(kit, TypeRole::Caption, None, ink2, Align::Right), hint_words)?;
+        let icon_size = (32.0 * kit.text_scale).round() as u32;
+        let field_icon = crate::kit::icon::layer(kit, if home.search.entry { "keyboard" } else { "search" }, icon_size, ink2, z + 3, Props::at(ff.x + kit.space(5), ff.y + (ff.h - icon_size as f32) / 2.0))?;
+        let mut hint_specs = vec![Hint::key(Key::Back, Action::Close)];
+        if home.voice_ready && !home.search.entry { hint_specs.push(Hint { keys: vec![(Key::Mic, true)], action: None, label: None }); }
+        let hint_width = crate::panels::ui::hints_width(kit, &hint_specs, TypeRole::Label, kit.space(5));
+        let mut hints = Vec::new();
+        let mut hint_x = ff.x + ff.w - kit.space(5) - hint_width;
+        for spec in hint_specs {
+            let row = HintRow::new(kit, &spec, TypeRole::Label, RowAt { x: hint_x, y: ff.y, h: ff.h, z: z + 3 }, ink2)?;
+            hint_x += row.width() + kit.space(5); hints.push(row);
+        }
+        let style = role_style(kit, TypeRole::Title, None, ink, Align::Left);
+        let at = Frame::new(ff.x + icon_size as f32 + 2.0 * kit.space(5), ff.y + ((ff.h - kit.line(TypeRole::Title)) / 2.0).round(), ff.w - icon_size as f32 - 4.0 * kit.space(5) - hint_width, kit.line(TypeRole::Title));
+        let typed = Text::new(kit, at, z + 5, style, "")?;
+        let selection = plate::shape(&kit.ui, Frame::new(0.0, 0.0, at.w, at.h), z + 4, plate::solid(faded(kit.ui.look.accent(), 0.24), 0.0));
+        selection.set(HIDDEN);
+        let caret = kit.ui.scene.shape(3, at.h as u32, z + 6, plate::solid(kit.ui.look.accent(), 1.5), HIDDEN);
         let mut answers = Vec::new();
         for i in 0..4 {
-            let af = Search::answer_frame(i);
-            let plate_l = kit.ui.scene.shape(af.w as u32, af.h as u32, z + 2, Shape { corner_radius: kit.tokens.radius(Radius::Row), fill: Fill::Solid(faded(ink, 0.05)), border_width: 1.0, border: Rgba(0, 0, 0, 0) }, HIDDEN);
+            let af = home.search.answer_frame(i);
+            let inset = kit.space(5);
+            let top = ((af.h - kit.line(TypeRole::Label) - kit.line(TypeRole::Caption)) / 2.0).round();
+            let plate = kit.ui.scene.shape(af.w as u32, af.h as u32, z + 2, Shape { corner_radius: kit.tokens.radius(Radius::Row), fill: Fill::Solid(faded(ink, 0.05)), border_width: 1.0, border: Rgba(0, 0, 0, 0) }, HIDDEN);
             let lines = vec![
-                (Frame::new(100.0, 22.0, af.w - 122.0, kit.line(TypeRole::Label)), role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left), String::new()),
-                (Frame::new(100.0, 22.0 + kit.line(TypeRole::Label), af.w - 122.0, kit.line(TypeRole::Caption)), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()),
+                (Frame::new(inset, top, af.w - 2.0 * inset, kit.line(TypeRole::Label)), role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left), String::new()),
+                (Frame::new(inset, top + kit.line(TypeRole::Label), af.w - 2.0 * inset, kit.line(TypeRole::Caption)), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()),
             ];
-            let block = Block::new(&mut kit.ui, af, z + 3, lines)?;
-            answers.push((plate_l, block));
+            let mut words = Block::new(&mut kit.ui, af, z + 3, lines)?;
+            words.set_props(HIDDEN);
+            answers.push(SearchAnswerArt { plate, words, title: String::new(), sub: String::new(), state: None });
         }
-        let nf = Frame::new(sf.x + 40.0, sf.y + 134.0, sf.w - 80.0, 108.0);
-        let note_lines = vec![
-            (Frame::new(100.0, 22.0, nf.w - 122.0, kit.line(TypeRole::Label)), role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left), home.search.prompt.clone()),
-            (Frame::new(100.0, 22.0 + kit.line(TypeRole::Label), nf.w - 122.0, kit.line(TypeRole::Caption)), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), "Done saves the name here and on the dock. An empty name brings back the one LG gave.".to_owned()),
-        ];
-        let entry_note = Block::new(&mut kit.ui, nf, z + 3, note_lines)?;
-        let kf = Frame::new(search::KEYS_X, search::KEYS_Y, 930.0, 400.0);
-        let mut keys_art = kit.ui.scene.image(kf.w as u32, kf.h as u32, z + 2, Props::at(kf.x, kf.y))?;
-        {
-            // the shift and backspace keys carry icons, not characters the face has
-            let shift = kit.icons.draw("arrow-big-up", 28, ink).map(|rgba| picture::Picture { width: 28, height: 28, rgba });
-            let erase = kit.icons.draw("delete", 28, ink).map(|rgba| picture::Picture { width: 28, height: 28, rgba });
-            let (w, h) = (keys_art.width(), keys_art.height());
-            let mut canvas = super::widgets::Canvas { px: keys_art.pixels_mut(), w, h };
-            let glass = kit.ui.look.colour(PaletteRole::Glass);
-            let r = kit.tokens.radius(Radius::Control);
-            for i in 0..search::N_KEYS {
-                let f = Search::key_frame(i);
-                canvas.rounded(Frame::new(f.x - kf.x, f.y - kf.y, f.w, f.h), r, glass);
-                let icon = match home.search.key_at(i) {
-                    "\u{21e7}" => shift.as_ref(),
-                    "\u{232b}" => erase.as_ref(),
-                    _ => None,
-                };
-                if let Some(p) = icon {
-                    canvas.picture(p, (f.x - kf.x + (f.w - 28.0) / 2.0).round() as i32, (f.y - kf.y + (f.h - 28.0) / 2.0).round() as i32, 28, 28);
-                }
-            }
-        }
-        keys_art.damage(None);
-        let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Centre);
-        let cap_of = |k: &str| if k == "\u{21e7}" || k == "\u{232b}" { String::new() } else { k.to_owned() };
-        let caps = Block::new(&mut kit.ui, kf, z + 5, (0..search::N_KEYS).map(|i| { let f = Search::key_frame(i); (Frame::new(f.x - kf.x, f.y - kf.y, f.w, f.h), style, cap_of(home.search.key_at(i))) }).collect())?;
-        let cursor = Cursor::new(kit, engine, CURSOR_X, CURSOR_Y, 84.0, 72.0, kit.tokens.radius(Radius::Control), z + 4)?;
-        let _ = (&entry_note, &scrim, &sheet, &field);
-        Ok(Self { scrim, sheet, field, field_icon, typed, caret, hint, answers, entry_note, keys_art, caps, cursor, caps_key: String::new(), shown_text: "\u{0}".into() })
+        let nf = home.search.answer_frame(0);
+        let prompt = Text::line_at(kit, nf.x + kit.space(5), nf.y + nf.h / 2.0, ff.w - 2.0 * kit.space(5), z + 3, role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left), if home.search.entry { home.search.view().prompt } else { "" })?;
+        Ok(Self { keyboard, _field: field, _field_icon: field_icon, _hints: hints, typed, caret, selection, answers, _entry_note: prompt, revision: None, caret_x: 0.0, style, at })
     }
 
     pub fn update(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, now: u64) -> std::io::Result<()> {
         let s = &home.search;
-        let ink = kit.ui.look.ink();
-        let ink2 = kit.ui.look.ink2();
-        let shown = s.shown();
-        if shown != self.shown_text {
-            self.shown_text = shown.clone();
+        let v = s.view();
+        self.keyboard.focus_visible = s.answer_index().is_none();
+        self.keyboard.apply(kit, engine, &v.keyboard, crate::panels::life::Phase::Open, now * 1_000_000)?;
+        if self.revision != Some(v.revision) {
+            let (shown, start, end, caret_x) = crate::panels::entry_surface::excerpt(kit, self.style, v.shown, v.cursor, self.at.w);
             self.typed.set(kit, &shown);
-            let style = self.typed_style(kit);
-            let w = width_of(kit, style, &shown);
-            let ff = Search::field_frame();
-            self.caret.set(Props::at(ff.x + 76.0 + w + 2.0, ff.y + 23.0));
+            self.caret_x = caret_x;
+            if let Some((lo, hi)) = v.selection.filter(|(lo, hi)| *hi > start && *lo < end) {
+                let prefix = if start > 0 { width_of(kit, self.style, "…") } else { 0.0 };
+                let left = width_of(kit, self.style, &v.shown[start..lo.max(start).min(end)]) + prefix;
+                let right = width_of(kit, self.style, &v.shown[start..hi.min(end).max(start)]) + prefix;
+                self.selection.set(Props { clip: Some(compositor_protocol::Rect { x: self.at.x + left, y: self.at.y, w: right - left, h: self.at.h }), ..Props::at(self.at.x + left, self.at.y) });
+            } else { self.selection.set(HIDDEN); }
+            self.revision = Some(v.revision);
         }
-        self.caret.set(Props { opacity: if s.caret_on(now) { 1.0 } else { 0.0 }, ..Props::at(self.caret_x(kit, &shown), Search::field_frame().y + 23.0) });
-        let caps_key = format!("{}{}", s.symbols, s.shift);
-        if caps_key != self.caps_key {
-            self.caps_key = caps_key;
-            let caps: Vec<String> = (0..search::N_KEYS)
-                .map(|i| {
-                    let k = s.key_at(i);
-                    if k == "\u{21e7}" || k == "\u{232b}" {
-                        String::new()
-                    } else if s.shift && k.chars().count() == 1 {
-                        k.to_uppercase()
-                    } else {
-                        k.to_owned()
-                    }
-                })
-                .collect();
-            let refs: Vec<(usize, &str, Rgba)> = caps.iter().enumerate().map(|(i, c)| (i, c.as_str(), ink)).collect();
-            self.caps.set_many(&mut kit.ui, &refs);
-        }
-        let answers = s.answers();
-        for (i, (plate_l, block)) in self.answers.iter_mut().enumerate() {
-            match answers.get(i) {
-                Some(a) if !s.entry => {
-                    let f = Search::answer_frame(i);
-                    let focused = home.focus.current() == Some(Id(search::ANSWER_ID + i as u32));
-                    plate_l.set(Props::at(f.x, f.y));
-                    plate_l.reshape(Shape { corner_radius: kit.tokens.radius(Radius::Row), fill: Fill::Solid(faded(ink, if focused { 0.12 } else { 0.05 })), border_width: 1.0, border: if focused { kit.ui.look.colour(PaletteRole::EdgeRaised) } else { Rgba(0, 0, 0, 0) } });
-                    block.set_many(&mut kit.ui, &[(0, &a.title, ink), (1, &a.sub, ink2)]);
-                    block.set_props(Props::at(f.x, f.y));
+        self.caret.set(if s.caret_on(now) { Props::at(self.at.x + self.caret_x + 2.0, self.at.y) } else { HIDDEN });
+        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        for (i, art) in self.answers.iter_mut().enumerate() {
+            if let Some(a) = s.answers().get(i) {
+                let f = s.answer_frame(i);
+                let focused = s.answer_index() == Some(i);
+                if art.title != a.title || art.sub != a.sub {
+                    art.title.clone_from(&a.title); art.sub.clone_from(&a.sub);
+                    let room = f.w - 2.0 * kit.space(5);
+                    let title_ty = ui::text::Type { weight: Weight::SemiBold, ..kit.ty(TypeRole::Label) };
+                    let sub_ty = kit.ty(TypeRole::Caption);
+                    let title = ui::components::ellipsise(&mut kit.ui.fonts, &a.title, title_ty, room);
+                    let sub = ui::components::ellipsise(&mut kit.ui.fonts, &a.sub, sub_ty, room);
+                    art.words.set_many(&mut kit.ui, &[(0, &title, ink), (1, &sub, ink2)]);
                 }
-                _ => {
-                    plate_l.set(HIDDEN);
-                    block.set_props(HIDDEN);
+                if art.state != Some(focused) {
+                    art.plate.set(Props::at(f.x, f.y));
+                    art.plate.reshape(Shape { corner_radius: kit.tokens.radius(Radius::Row), fill: Fill::Solid(faded(ink, if focused { 0.12 } else { 0.05 })), border_width: 1.0, border: if focused { kit.ui.look.colour(PaletteRole::EdgeRaised) } else { Rgba(0, 0, 0, 0) } });
+                    art.words.set_props(Props::at(f.x, f.y));
+                    art.state = Some(focused);
                 }
+            } else if art.state.take().is_some() {
+                art.plate.set(HIDDEN); art.words.set_props(HIDDEN);
             }
         }
-        let nf = Frame::new(search::SHEET.x + 40.0, search::SHEET.y + 134.0, 10.0, 10.0);
-        self.entry_note.set_props(if s.entry { Props::at(nf.x, nf.y) } else { HIDDEN });
-        if let Some(id) = home.focus.current().filter(|_| home.layer == Layer::Search) {
-            if let Some(i) = id.0.checked_sub(search::KEY_ID).filter(|i| (*i as usize) < search::N_KEYS) {
-                self.cursor.go(kit, engine, Search::key_frame(i as usize));
-            }
-        }
-        let _ = (&self.field_icon, &self.hint, &self.keys_art, &self.scrim, &self.sheet, &self.field);
         Ok(())
     }
 
-    fn typed_style(&self, kit: &Kit) -> ui::components::Style {
-        let mut ty = kit.ty(TypeRole::Title);
-        ty.px = (32.0 * kit.text_scale).round() as u32;
-        ui::components::style(ty, kit.ui.look.ink(), Align::Left)
-    }
-
-    fn caret_x(&self, kit: &mut Kit, shown: &str) -> f32 {
-        let style = self.typed_style(kit);
-        Search::field_frame().x + 76.0 + width_of(kit, style, shown) + 2.0
-    }
-
-    pub fn destroy(self, _engine: &mut Engine) {}
+    pub fn destroy(mut self, engine: &mut Engine) { self.keyboard.drop_all(engine); }
 }
 
 // ---- the layout editor
@@ -680,8 +640,7 @@ impl EditorSurface {
                 let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), warning, Align::Centre);
                 let w = (width_of(kit, style, &ed.toast) + 2.0 * kit.space(5)).round();
                 let (x, y) = (((1920.0 - w) / 2.0).round(), 1080.0 - 54.0 - 56.0 - 8.0);
-                let mut g = glass_of(kit, PaneKind::Pill, 56.0, false, false);
-                g.tint = faded(warning, 0.18);
+                let g = warning_toast_glass(kit, warning);
                 self.toast = kit.ui.scene.glass(w as u32, 56, self.z + 10, g, Props::at(x, y));
                 self.toast_text = Text::new(kit, Frame::new(x, y, w, 56.0), self.z + 11, style, &ed.toast)?;
                 self.toast_text.set_props(Props::at(x, y));
@@ -1146,6 +1105,32 @@ impl PopoverSurface {
             lint.word(kit, &format!("popover label {}", def.key), def.label, inner, label_style, Some(row));
             let value = if def.kind == Kind::Action { "\u{203a}".to_owned() } else { popover::text(def, &wm) };
             lint.word(kit, &format!("popover value {}", def.key), &value, inner, value_style, Some(row));
+        }
+    }
+}
+
+fn warning_toast_glass(kit: &Kit, warning: Rgba) -> Glass {
+    let mut glass = glass_of(kit, PaneKind::Pill, 56.0, false, false);
+    glass.tint = faded(warning, 0.18);
+    glass.tint_gradient = None;
+    glass
+}
+
+#[cfg(test)]
+mod warning_toast_tests {
+    use super::*;
+    use crate::kit::testkit;
+    use lumatv_tokens::CardGlass;
+
+    #[test]
+    fn warning_tint_overrides_each_material_gradient() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let warning = kit.ui.look.colour(PaletteRole::Warning);
+        for material in CardGlass::ALL {
+            kit.tokens.card_glass = material;
+            let glass = warning_toast_glass(&kit, warning);
+            assert_eq!(glass.tint, faded(warning, 0.18));
+            assert_eq!(glass.tint_gradient, None);
         }
     }
 }

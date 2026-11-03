@@ -1,9 +1,10 @@
 {
   "version": 2,
-  "name": "Ros\u00e9 Pine silk",
+  "name": "Rose Pine",
   "wallpaper": "wall_1080.png",
   "material": "auto",
   "materialThreshold": 0.55,
+  "palette": { "dark": "rose-pine", "light": "rose-pine" },
   "dark": {
     "canvas": "#191724",
     "sheet": "#F51F1D2E",
@@ -85,6 +86,7 @@
   "blurRadius": 30,
   "saturation": 0.25,
   "cardGlass": "clear",
+  "glassStrength": { "clear": 1, "frosted": 1, "liquid": 1, "glazed": 1 },
   "depth": {
     "level": "normal",
     "steps": { "flat": 0, "normal": 1, "deep": 1.5 }

@@ -128,8 +128,8 @@ pub fn path_of(theme: &Value, data_dir: Option<&Path>, module_dir: Option<&Path>
     }
     let candidates = [
         data_dir.map(|d| d.join("theme").join(name)),
-        module_dir.map(|m| m.join("../../wallpaper").join(name)),
-        module_dir.map(|m| m.join("../../wallpaper/wall_1080.png")),
+        module_dir.map(|m| m.join("wallpaper").join(name)),
+        module_dir.map(|m| m.join("wallpaper/wall_1080.png")),
     ];
     candidates.into_iter().flatten().find(|p| p.is_file())
 }
@@ -142,13 +142,73 @@ pub fn scrim_of(theme: &Value, mode: ui::lucent::palette::Mode) -> [f32; 3] {
     [at(0), at(1), at(2)]
 }
 
-/// Whether the theme asks for the `clear` card glass (the default) and not `frosted`.
+/// Clear and Liquid sample the prepared wallpaper; Frosted and Glazed sample the page.
 pub fn clear_glass(theme: &Value) -> bool {
-    theme.get("cardGlass").and_then(Value::as_str) != Some("frosted")
+    !matches!(theme.get("cardGlass").and_then(Value::as_str), Some("frosted" | "glazed"))
 }
 
 /// The scrim the Silk wallpaper's shader applies by itself, at the top, the middle and the bottom (`SILK_SCRIM` in `rustui/render/src/wallpapers.rs`).
 pub const SILK_SCRIM: [f32; 3] = [0.10, 0.18, 0.46];
+
+fn silk_of(wm: &Value) -> lumatv_render::Silk {
+    use super::popover::control;
+    lumatv_render::Silk { amplitude: control("amplitude", wm), depth: control("depth", wm), scale: control("scale", wm), detail: control("detail", wm),
+        look: lumatv_render::Look { vignette: control("vignette", wm), specular: control("specular", wm), bloom: control("bloom", wm) } }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Grade { saturation: f32, contrast: f32, palette: Option<[[u8; 3]; 3]> }
+
+impl Grade {
+    fn of(theme: &Value, mode: ui::lucent::palette::Mode) -> Self {
+        let wm = theme.get("wallpaperMotion").unwrap_or(&Value::Null);
+        let key = if mode == ui::lucent::palette::Mode::Light { "light" } else { "dark" };
+        let palette = theme.get("wallpaperPalette").and_then(|p| p.get(key)).and_then(palette_of);
+        Self { saturation: super::popover::control("saturation", wm), contrast: super::popover::control("contrast", wm), palette }
+    }
+
+    fn paint(self, original: &[u8], into: &mut [u8]) {
+        if self.palette.is_none() && self.saturation == 1.0 && self.contrast == 1.0 { into.copy_from_slice(original); return; }
+        let map = self.palette.map(|stops| {
+            std::array::from_fn::<_, 256, _>(|i| {
+                let x = i as f32 / 255.0 * 2.0;
+                let (a, b, t) = if i < 128 { (stops[0], stops[1], x) } else { (stops[1], stops[2], x - 1.0) };
+                std::array::from_fn::<_, 3, _>(|c| (f32::from(a[c]) + (f32::from(b[c]) - f32::from(a[c])) * t) / 255.0)
+            })
+        });
+        for (src, dst) in original.chunks_exact(4).zip(into.chunks_exact_mut(4)) {
+            let alpha = f32::from(src[3]);
+            if alpha == 0.0 { dst.fill(0); continue; }
+            let mut c = [src[0], src[1], src[2]].map(|v| f32::from(v) / alpha);
+            if let Some(map) = &map {
+                let luma = (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]).clamp(0.0, 1.0);
+                c = map[(luma * 255.0).round() as usize];
+            }
+            let l = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+            for i in 0..3 {
+                dst[i] = (((l + (c[i] - l) * self.saturation - 0.5) * self.contrast + 0.5).clamp(0.0, 1.0) * alpha).round() as u8;
+            }
+            dst[3] = src[3];
+        }
+    }
+}
+
+// "original" explicitly restores the authored wallpaper after a palette preview or save.
+fn palette_of(value: &Value) -> Option<[[u8; 3]; 3]> {
+    if value.as_str() == Some("original") { return None; }
+    let stops = value.as_array()?;
+    if stops.len() != 3 { return None; }
+    let parse = |value: &Value| -> Option<[u8; 3]> {
+        let s = value.as_str()?.as_bytes();
+        if s.len() != 7 || s[0] != b'#' { return None; }
+        let digit = |c: u8| -> Option<u8> {
+            match c { b'0'..=b'9' => Some(c - b'0'), b'a'..=b'f' => Some(c - b'a' + 10), b'A'..=b'F' => Some(c - b'A' + 10), _ => None }
+        };
+        Some([digit(s[1])? * 16 + digit(s[2])?, digit(s[3])? * 16 + digit(s[4])?, digit(s[5])? * 16 + digit(s[6])?])
+    };
+    Some([parse(&stops[0])?, parse(&stops[1])?, parse(&stops[2])?])
+}
+
 
 pub struct WallpaperSurface {
     /// The prepared set of the plain picture (the `clear` card glass), then the plain picture it captures, then the Silk layer: dropped in this order.
@@ -164,6 +224,10 @@ pub struct WallpaperSurface {
     hole: bool,
     generation: u64,
     spec: Option<WallSpec>,
+    original: Option<Picture>,
+    grade: Option<Grade>,
+    silk: Option<lumatv_render::Silk>,
+    report: Value,
     /// Whether the picture is up: the hole took it down.
     shown: bool,
     /// Something is over Home: the warp stands where it is (fps 0, the rest of the look kept, so nothing jumps), the steps owe the screen.
@@ -172,7 +236,7 @@ pub struct WallpaperSurface {
 
 impl WallpaperSurface {
     pub fn new(z: i32) -> Self {
-        Self { backdrop: None, plain: None, plain_hidden: false, layer: None, scrim_top: None, scrim_bottom: None, z, source: String::new(), sample: None, hole: false, generation: 0, spec: None, shown: false, held: false }
+        Self { backdrop: None, plain: None, plain_hidden: false, layer: None, scrim_top: None, scrim_bottom: None, z, source: String::new(), sample: None, hole: false, generation: 0, spec: None, original: None, grade: None, silk: None, report: Value::Null, shown: false, held: false }
     }
 
     /// Holds the warp still while something is over Home, and lets it go on when nothing is: the spec is restyled by the next `load`.
@@ -180,54 +244,65 @@ impl WallpaperSurface {
         self.held = held;
     }
 
-    /// The motion the theme asks for: Silk at the theme's fps and amplitude, still when the motion is off or reduced, and stopped (the same look, no steps)
+    /// The motion the theme asks for: Silk at the theme's pace, still when motion is off or reduced, and stopped (the same look, no steps)
     /// while `held`.
     fn spec_of(theme: &Value, reduced: bool, held: bool) -> WallSpec {
-        let wm = theme.get("wallpaperMotion").cloned().unwrap_or(Value::Null);
+        let wm = theme.get("wallpaperMotion").unwrap_or(&Value::Null);
         let on = wm.get("enabled").and_then(Value::as_bool) != Some(false) && !reduced;
-        let amp = wm.get("amplitude").and_then(Value::as_f64).unwrap_or(4.0) as f32;
-        let speed = wm.get("speed").and_then(Value::as_f64).unwrap_or(1.0) as f32;
-        let fps = wm.get("fps").and_then(Value::as_u64).unwrap_or(10).clamp(1, 60) as u8;
-        WallSpec { kind: WallpaperKind::Silk, speed: if on { speed } else { 0.0 }, intensity: if on { (amp / 16.0).clamp(0.0, 1.0) } else { 0.0 }, fps: if on && !held { fps } else { 0 } }
+        let speed = super::popover::control("speed", wm);
+        let fps = super::popover::control("fps", wm).round() as u8;
+        WallSpec { kind: WallpaperKind::Silk, speed: if on { speed } else { 0.0 }, intensity: if on { 1.0 } else { 0.0 }, fps: if on && !held { fps } else { 0 } }
     }
 
-    /// Loads the picture when the theme names another one (or none is up yet); the sample of a new picture is returned.
+    /// Loads another source once; grading changes always start from the original fitted pixels.
     pub fn load(&mut self, kit: &mut Kit, theme: &Value, data_dir: Option<&Path>, module_dir: Option<&Path>) -> std::io::Result<Option<Sample>> {
         let path = path_of(theme, data_dir, module_dir);
         let source = path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
         let spec = Self::spec_of(theme, kit.ui.look.reduced_motion, self.held);
-        if source == self.source && self.layer.is_some() {
-            if self.spec != Some(spec)
-                && let Some(l) = &self.layer
-            {
-                l.restyle(spec)?;
-                self.spec = Some(spec);
+        let wm = theme.get("wallpaperMotion").unwrap_or(&Value::Null);
+        let silk = silk_of(wm);
+        let grade = Grade::of(theme, kit.mode);
+        let mut sampled = None;
+        if source != self.source || self.layer.is_none() {
+            self.drop_backdrop(kit);
+            self.layer = None;
+            self.original = None;
+            self.report = Value::Null;
+            let Some(path) = path else { self.sample = None; return Ok(None) };
+            let bytes = std::fs::read(&path)?;
+            let pic = picture::decode(&bytes).map_err(std::io::Error::other)?.fitted(W, H, Fit::Cover);
+            let s = sample(&pic.rgba);
+            let hidden = Props { opacity: if self.hole { 0.0 } else { 1.0 }, visible: !self.hole, ..Props::at(0.0, 0.0) };
+            self.layer = Some(kit.ui.scene.wallpaper(W, H, self.z, spec, hidden)?);
+            self.original = Some(pic);
+            self.source = source;
+            self.sample = Some(s);
+            self.shown = !self.hole;
+            self.spec = None;
+            self.silk = None;
+            self.grade = None;
+            sampled = Some(s);
+        }
+        if self.grade != Some(grade) {
+            self.drop_backdrop(kit);
+            if let (Some(original), Some(layer)) = (&self.original, &mut self.layer) {
+                if let Some(px) = layer.pixels_mut() { grade.paint(&original.rgba, px); }
+                layer.damage(None);
             }
-            return Ok(None);
+            self.grade = Some(grade);
         }
-        self.source = source;
-        self.drop_backdrop(kit);
-        self.layer = None;
-        let Some(path) = path else {
-            self.sample = None;
-            return Ok(None);
-        };
-        let bytes = std::fs::read(&path)?;
-        let pic: Picture = picture::decode(&bytes).map_err(std::io::Error::other)?;
-        let fitted = pic.fitted(W, H, Fit::Cover);
-        let s = sample(&fitted.rgba);
-        let hidden = Props { opacity: if self.hole { 0.0 } else { 1.0 }, visible: !self.hole, ..Props::at(0.0, 0.0) };
-        let mut layer = kit.ui.scene.wallpaper(W, H, self.z, spec, hidden)?;
-        if let Some(px) = layer.pixels_mut() {
-            px.copy_from_slice(&fitted.rgba);
+        if let Some(layer) = &self.layer {
+            if self.spec != Some(spec) { layer.restyle(spec)?; self.spec = Some(spec); }
+            if self.silk != Some(silk) {
+                self.report = json!({"id": layer.id().0, "amplitude": silk.amplitude, "depth": silk.depth, "scale": silk.scale, "detail": silk.detail,
+                    "vignette": silk.look.vignette, "specular": silk.look.specular, "bloom": silk.look.bloom});
+                self.silk = Some(silk);
+            }
         }
-        layer.damage(None);
-        self.layer = Some(layer);
-        self.spec = Some(spec);
-        self.sample = Some(s);
-        self.shown = !self.hole;
-        Ok(Some(s))
+        Ok(sampled)
     }
+
+    pub fn report(&self) -> &Value { &self.report }
 
     fn drop_backdrop(&mut self, kit: &mut Kit) {
         kit.wall_backdrop = None;
@@ -240,7 +315,7 @@ impl WallpaperSurface {
     /// Glass does (it samples the graded wallpaper, and the scrim over the page is not under it); `frosted` shows the page below the glass, scrim and
     /// all, which is the more opaque look. The picture's blur is a prepared set of a plain copy of it, made once; the copy is on the screen (under the
     /// wallpaper that covers it) until the compositor has made the set, then hidden, and the glass is told only when the set can be shown.
-    pub fn sync_backdrop(&mut self, kit: &mut Kit, theme: &Value, data_dir: Option<&Path>, module_dir: Option<&Path>) {
+    pub fn sync_backdrop(&mut self, kit: &mut Kit, theme: &Value) {
         let want = clear_glass(theme) && kit.tier != ui::lucent::material::MaterialTier::T0 && self.layer.is_some();
         if !want {
             if self.backdrop.is_some() {
@@ -249,13 +324,10 @@ impl WallpaperSurface {
             return;
         }
         if self.backdrop.is_none() {
-            let Some(path) = path_of(theme, data_dir, module_dir) else { return };
-            let Ok(bytes) = std::fs::read(&path) else { return };
-            let Ok(pic) = picture::decode(&bytes) else { return };
-            let fitted = pic.fitted(W, H, Fit::Cover);
+            let Some(fitted) = &self.original else { return };
             let on = Props::at(0.0, 0.0);
             let Ok(mut plain) = kit.ui.scene.image(W, H, self.z - 1, on) else { return };
-            plain.pixels_mut().copy_from_slice(&fitted.rgba);
+            self.grade.unwrap_or(Grade { saturation: 1.0, contrast: 1.0, palette: None }).paint(&fitted.rgba, plain.pixels_mut());
             plain.damage(None);
             let spec = ui::BackdropSpec { wallpaper: Some(plain.id()), plates: Vec::new(), radius: kit.tokens.blur, downsample: 4 };
             let Ok(set) = kit.ui.scene.prepare_backdrop(&spec) else { return };
@@ -335,6 +407,53 @@ impl WallpaperSurface {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owner_wallpaper_precedes_packaged_fallback() {
+        let assets = crate::kit::testkit::module_dir();
+        let data = std::env::temp_dir().join(format!("lumatv-wallpaper-path-{}", std::process::id()));
+        std::fs::create_dir_all(data.join("theme")).unwrap();
+        let owner = data.join("theme/custom.png");
+        std::fs::write(&owner, b"owner wallpaper").unwrap();
+        assert_eq!(path_of(&json!({"wallpaper": "custom.png"}), Some(&data), Some(&assets)), Some(owner));
+        assert_eq!(path_of(&json!({"wallpaper": "missing.png"}), Some(&data), Some(&assets)), Some(assets.join("wallpaper/wall_1080.png")));
+        std::fs::remove_dir_all(data).unwrap();
+    }
+
+    #[test]
+    fn palette_follows_resolved_mode_and_original_or_null_restores_original() {
+        use ui::lucent::palette::Mode;
+        let mut theme = json!({"wallpaperPalette": {"light": ["#102030", "#8090a0", "#f0e0d0"], "dark": null}});
+        assert_eq!(Grade::of(&theme, Mode::Light).palette, Some([[16, 32, 48], [128, 144, 160], [240, 224, 208]]));
+        assert_eq!(Grade::of(&theme, Mode::Dark).palette, None);
+        theme["wallpaperPalette"]["dark"] = json!("original");
+        assert_eq!(Grade::of(&theme, Mode::Dark).palette, None);
+        assert!(Grade::of(&theme, Mode::Light).palette.is_some());
+        theme["wallpaperPalette"]["light"] = json!(["#000000", "#abcdef", "#12345é"]);
+        assert_eq!(Grade::of(&theme, Mode::Light).palette, None);
+        assert_eq!(Grade::of(&json!({}), Mode::Dark).palette, None);
+    }
+
+    #[test]
+    fn grading_always_starts_from_original_and_preserves_alpha() {
+        let original = [0, 0, 0, 255, 64, 64, 64, 128, 255, 255, 255, 255, 0, 0, 0, 0];
+        let plain = Grade { saturation: 1.0, contrast: 1.0, palette: None };
+        let coloured = Grade { palette: Some([[10, 20, 30], [100, 120, 140], [220, 230, 240]]), ..plain };
+        let other = Grade { saturation: 0.5, contrast: 1.1, ..coloured };
+        let mut output = [0; 16];
+        coloured.paint(&original, &mut output);
+        let first = output;
+        assert_eq!(&output[..4], &[10, 20, 30, 255]);
+        assert_eq!(&output[8..12], &[220, 230, 240, 255]);
+        assert_eq!([output[3], output[7], output[11], output[15]], [255, 128, 255, 0]);
+        other.paint(&original, &mut output);
+        assert_ne!(output, first);
+        coloured.paint(&original, &mut output);
+        assert_eq!(output, first);
+        let reset = Grade { palette: Grade::of(&json!({"wallpaperPalette": {"dark": "original"}}), ui::lucent::palette::Mode::Dark).palette, ..plain };
+        reset.paint(&original, &mut output);
+        assert_eq!(output, original);
+    }
 
     #[test]
     fn a_held_wallpaper_keeps_its_look_and_takes_no_steps() {

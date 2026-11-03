@@ -148,6 +148,14 @@ pub struct Shell {
     /// The system layer's kinds that sit over everything: the alerts, the cards, the pop-up, the capture mark, the saver.
     sys: Layer,
     home: Home,
+    /// Wallpaper waits for Home to come to the foreground before taking its keys.
+    wallpaper_waiting: bool,
+    /// The latest confirmed theme and the temporary Settings patch, if any.
+    theme_base: Value,
+    theme_preview: Option<Value>,
+    /// Rebuild glass surfaces after the strength slider comes to rest.
+    glass_restyle_at: Option<u64>,
+    theme_default_scale: f32,
     /// The text of the layout file Settings has seen (Home's), to hand it the layout again when Home changes it.
     settings_layout: String,
     home_surface: HomeSurface,
@@ -169,12 +177,18 @@ pub struct Shell {
     cards_took: bool,
     /// Which buttons of the pointer the screens may hear ([`Guard`]).
     pointer_guard: Guard,
+    /// A pointer press that woke the saver retains its release.
+    saver_pointer_down: bool,
     /// The last report sent, so an unchanged one is not sent again.
     reported: Option<Value>,
     /// The last text logged for each surface whose apply failed, and the surfaces that failed in this pass: a failure that repeats every frame is logged once.
     apply_errs: Vec<(&'static str, String)>,
     apply_failed_now: Vec<&'static str>,
     live: bool,
+    // Last successful draws: volume, toast, Home, cameras, Settings, display lab.
+    interactive_surfaces: u8,
+    // Volume and toast keep voting through the fades started by their surfaces.
+    interactive_fades: [Option<u64>; 2],
     redraw: bool,
     /// Whether any overlay (Settings, the display lab, a panel) was up at the last look, and until when Home counts it as over it, in ms (`u64::MAX`
     /// while it is up): Home is let go [`OVERLAY_RELEASE_MS`] after the event that finds the overlay gone, past its fade-out or slide-out, which a
@@ -192,6 +206,8 @@ pub struct Shell {
     /// The keys whose press the display lab took (their release is the lab's too: the lab may have closed on the press, and no screen under it
     /// is to see a release whose press it never saw).
     lab_keys: Vec<String>,
+    /// Waking presses and their repeats/releases belong to the saver, even after it has gone.
+    saver_keys: Vec<(String, u32)>,
 }
 
 impl Shell {
@@ -209,7 +225,12 @@ impl Shell {
             settings: SettingsHost::new(system_z, theme, &home.layout),
             lab: crate::lab::host::LabHost::new(system_z + crate::kit::z::LAB),
             settings_layout: home.layout_text.clone(),
+            theme_base: theme.clone(),
+            theme_default_scale: kit.text_scale,
+            theme_preview: None,
+            glass_restyle_at: None,
             home,
+            wallpaper_waiting: false,
             home_surface: HomeSurface::new(system_z),
             cameras: Cameras::new(system_z + crate::kit::z::CAMERAS, CamerasConfig::from_theme(&kit, theme)),
             vwin: crate::host::vwin::Vwin::new(),
@@ -221,10 +242,13 @@ impl Shell {
             kinds,
             cards_took: false,
             pointer_guard: Guard::default(),
+            saver_pointer_down: false,
             reported: None,
             apply_errs: Vec::new(),
             apply_failed_now: Vec::new(),
             live: false,
+            interactive_surfaces: 0,
+            interactive_fades: [None; 2],
             redraw: false,
             overlay_up: false,
             overlay_until: 0,
@@ -234,6 +258,7 @@ impl Shell {
             data_dir: None,
             entry_keys: Vec::new(),
             lab_keys: Vec::new(),
+            saver_keys: Vec::new(),
         })
     }
 
@@ -369,25 +394,53 @@ impl Shell {
             },
             None => (500, json!({"error": "no data directory"})),
         };
-        // the owner's places the editor wrote: every surface reads them from now on, and Settings' rows say them in words
-        if tag == crate::system::layer::LAYOUT_TAG && status == 200 {
-            self.set_places(&data);
-            self.settings.set_theme(data.clone());
+        if status == 200 {
+            self.theme_base = data.clone();
+            self.home.theme_text = data.to_string();
+            let tokens = lumatv_tokens::Tokens::from_json(&self.theme_base);
+            let mut previous = self.kit.tokens.json().clone();
+            previous["glassStrength"] = tokens.json()["glassStrength"].clone();
+            if patch.as_object().is_some_and(|p| p.len() == 1 && p.contains_key("glassStrength"))
+                && self.theme_preview.is_none() && previous == *tokens.json()
+            {
+                // Only the panes need the live strength; the other surfaces can wait until the slider rests.
+                self.settings.set_theme(tokens.json().clone());
+                self.kit.tokens = tokens;
+                self.settings.restyle_glass(&self.kit);
+                self.glass_restyle_at = Some(now + 350);
+            } else {
+                self.glass_restyle_at = None;
+                self.apply_theme_look(now, acts, true);
+            }
         }
         self.feed(&Input::Fetched { tag, status, data }, now, acts);
     }
 
     fn feed(&mut self, input: &Input, now: u64, acts: &mut Vec<Act>) {
+        if let Input::Fetched { tag, status: 200, data } = input
+            && *tag == crate::home::model::THEME_TAG
+            && *data != self.theme_base
+        {
+            self.theme_base = data.clone();
+            self.glass_restyle_at = None;
+            self.apply_theme_look(now, acts, true);
+        }
         // the compositor's `refresh` topic: the Hz the output runs at (`ctl refresh 120`)
         if let Input::Topic { topic, data } = input
             && topic == "refresh"
             && let Some(hz) = data.get("hz").and_then(Value::as_f64)
         {
+            if self.kit.refresh_hz < crate::kit::motion::INSTANT_MODAL_HZ && hz as f32 >= crate::kit::motion::INSTANT_MODAL_HZ {
+                self.redraw = true;
+            }
             self.kit.refresh_hz = hz as f32;
+            // The compositor also replays this topic after attaching the engine.
+            self.reported = None;
         }
         // Who had the keys when this input arrived: a key that answers an alert or wakes the saver was theirs, and the screens under them
         // never see it (the key that wakes the TV does nothing else).
         let key_like = matches!(input, Input::Key { .. } | Input::Pointer { .. });
+        let settings_had = self.kinds.settings && self.settings.is_open();
         let cards_had = matches!(input, Input::Key { .. }) && self.cards_took;
         let lab_had = key_like && self.lab_wants();
         let layer_had = key_like && (self.sys.wants(&self.kinds) || cards_had || lab_had);
@@ -426,6 +479,7 @@ impl Shell {
                 for r in self.home.take_requests() {
                     // the Settings and the drawer are other kinds' surfaces: routed to them when they are in the list
                     match r {
+                        crate::home::model::Request::Quick => self.open_panel_or_app(Which::Quick, self.kinds.quick, "com.palm.app.settings", now, acts),
                         crate::home::model::Request::Settings if self.kinds.settings => {
                             for e in self.settings.open(None, now) {
                                 self.carry(e, now, acts);
@@ -457,8 +511,24 @@ impl Shell {
                         crate::home::model::Request::SettingsPage(page) => acts.push(Act::Log(format!("home asks for settings at {page}"))),
                         crate::home::model::Request::Settings => acts.push(Act::Log("home asks for settings".into())),
                         crate::home::model::Request::Notifications => acts.push(Act::Log("home asks for notifications".into())),
+                        crate::home::model::Request::Cameras if self.kinds.cameras => {
+                            for e in self.cameras.open_grid(now) {
+                                self.carry(e, now, acts);
+                            }
+                            self.cameras_asks(now, acts);
+                            self.redraw = true;
+                        }
+                        crate::home::model::Request::Cameras => acts.push(Act::Log("home asks for cameras".into())),
                     }
                 }
+            }
+        }
+        if self.wallpaper_waiting {
+            if matches!(input, Input::Key { down: true, .. } | Input::Pointer { buttons: 1.., .. }) || !self.settings.is_open() {
+                self.wallpaper_waiting = false;
+            } else if self.home.active {
+                self.wallpaper_waiting = false;
+                self.open_wallpaper(now, acts);
             }
         }
         self.extras_flow(now, acts);
@@ -475,7 +545,8 @@ impl Shell {
             }
             self.cameras_asks(now, acts);
         }
-        if self.kinds.settings && !layer_had {
+        // Opening Settings from Home does not hand the same press to its first row.
+        if self.kinds.settings && !layer_had && (!key_like || settings_had) {
             for e in self.settings.update(input, now) {
                 self.carry(e, now, acts);
             }
@@ -577,7 +648,7 @@ impl Shell {
         let mut sizes = lumatv_placement::Sizes::new();
         self.sys.sample_sizes(&mut self.kit, &mut sizes);
         self.volume_surface.sample_sizes(&mut self.kit, &mut sizes);
-        sizes.set("toast", lumatv_placement::Size::new(560, self.toast_surface.sample_height(&self.kit).ceil() as i32));
+        sizes.set("toast", lumatv_placement::Size::new(320, self.toast_surface.sample_height(&self.kit).ceil() as i32));
         sizes.set("mute", lumatv_placement::Size::new(64, 64));
         sizes
     }
@@ -596,8 +667,10 @@ impl Shell {
     pub fn channel(&mut self, event: &Event, now: u64) -> Vec<Act> {
         let mut acts = Vec::new();
         match event {
-            Event::Up(_) => {}
+            Event::Up(false) => self.feed(&Input::Topic { topic: "channel.up".into(), data: json!(false) }, now, &mut acts),
+            Event::Up(true) => {},
             Event::State(topics) => {
+                self.feed(&Input::Topic { topic: "channel.up".into(), data: json!(false) }, now, &mut acts);
                 // A session starts from the state: every topic as if pushed, in the order the compositor keeps them (the audio
                 // state read at the start opens nothing: the model knows a first report from a change).
                 for (topic, data) in topics {
@@ -690,6 +763,23 @@ impl Shell {
     /// are the kit's rule.
     pub fn key(&mut self, event: &KeyEvent, now: u64) -> Vec<Act> {
         let mut acts = Vec::new();
+        if let KeyEvent::Key { name, down, repeat, seat } = event {
+            if let Some(i) = self.saver_keys.iter().position(|(key, owner)| key == name && owner == seat) {
+                if !*down {
+                    self.saver_keys.remove(i);
+                }
+                self.after(now, &mut acts);
+                return acts;
+            }
+            if *down && self.sys.saver_up(&self.kinds) && !self.sys.questions_up(&self.kinds) {
+                self.saver_keys.push((name.clone(), *seat));
+                for e in self.sys.update(&self.kinds, &Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now) {
+                    self.carry(e, now, &mut acts);
+                }
+                self.after(now, &mut acts);
+                return acts;
+            }
+        }
         // the voice key is held while the person speaks: its press starts the microphone, its release ends it, and nothing else hears it
         if let KeyEvent::Key { name, down, repeat, .. } = event
             && name == "voice"
@@ -763,6 +853,21 @@ impl Shell {
                 let now_ns = self.kit.ui.scene.now_ns();
                 // no screen hears a button that was not seen going down, or a button on a hidden pointer
                 let sample = self.pointer_guard.filter(Sample { x: *x, y: *y, buttons: *buttons, visible: *visible });
+                if self.saver_pointer_down {
+                    if !sample.visible || sample.buttons == 0 {
+                        self.saver_pointer_down = false;
+                    }
+                    self.after(now, &mut acts);
+                    return acts;
+                }
+                if self.sys.saver_up(&self.kinds) && !self.sys.questions_up(&self.kinds) {
+                    self.saver_pointer_down = sample.visible && sample.buttons != 0;
+                    for e in self.sys.update(&self.kinds, &Input::Pointer { x: sample.x, y: sample.y, buttons: sample.buttons, visible: sample.visible }, now) {
+                        self.carry(e, now, &mut acts);
+                    }
+                    self.after(now, &mut acts);
+                    return acts;
+                }
                 let (buttons, visible) = (&sample.buttons, &sample.visible);
                 // the layout editor, the AI prompt and the display lab are the whole screen's: nothing under them hears the pointer
                 let lab_up = self.lab_wants();
@@ -804,6 +909,10 @@ impl Shell {
     /// Time passed: the models' timers and the surfaces' own.
     pub fn tick(&mut self, now: u64) -> Vec<Act> {
         let mut acts = Vec::new();
+        if self.glass_restyle_at.is_some_and(|at| now >= at) {
+            self.apply_theme_look(now, &mut acts, false);
+            self.glass_restyle_at = None;
+        }
         // the pictures of the inputs are taken in the quiet: nothing of the shell is up
         let quiet = !(self.panels.wants(&self.kinds)
             || (self.kinds.settings && self.settings.is_open())
@@ -839,6 +948,9 @@ impl Shell {
 
     /// Draws what changed and reports when the report changed.
     fn after(&mut self, now: u64, acts: &mut Vec<Act>) {
+        for fade in &mut self.interactive_fades {
+            if fade.is_some_and(|until| now >= until) { *fade = None; }
+        }
         // the material in use and the saver: what the moving wallpaper's clip needs to be Home's besides the theme
         if self.kinds.home {
             let (light, saver) = (self.kit.mode == ui::lucent::palette::Mode::Light, self.sys.saver_up(&self.kinds));
@@ -923,6 +1035,10 @@ impl Shell {
         if self.redraw {
             self.redraw = false;
             let mut live = false;
+            let mut interactive = self.interactive_surfaces;
+            let set_visible = |bits: &mut u8, bit: u8, on: bool| {
+                if on { *bits |= bit; } else { *bits &= !bit; }
+            };
             if self.kinds.osd {
                 // a mute mark the owner placed drifts about its place, clear of the cards and the panel that are up
                 let mut avoid = self.sys.avoid(&self.kinds);
@@ -933,14 +1049,33 @@ impl Shell {
                 self.volume.set_placed(self.volume_surface.mark_places(&avoid));
                 let view = self.volume.view();
                 match self.volume_surface.apply(&mut self.kit, &view, now) {
-                    Ok(on) => live |= on,
-                    Err(e) => acts.push(Act::Log(format!("volume: {e}"))),
+                    Ok(on) => {
+                        live |= on;
+                        if view.up { self.interactive_fades[0] = None; }
+                        else if interactive & 1 != 0 {
+                            let ms = u64::from(self.kit.beat_ms(crate::kit::motion::Beat::Rest));
+                            self.interactive_fades[0] = (ms != 0).then_some(now.saturating_add(ms));
+                        }
+                        set_visible(&mut interactive, 1, view.up);
+                    },
+                    Err(e) => {
+                        if self.volume_surface.pill_visible() { interactive |= 1; }
+                        acts.push(Act::Log(format!("volume: {e}")));
+                    },
                 }
             }
             if self.kinds.toast {
                 let view = self.toasts.view();
                 match self.toast_surface.apply(&mut self.kit, &view, self.volume_surface.pane_rect(), self.sys.app_front()) {
-                    Ok(on) => live |= on,
+                    Ok(on) => {
+                        live |= on;
+                        if on { self.interactive_fades[1] = None; }
+                        else if interactive & 2 != 0 {
+                            let ms = u64::from(self.kit.beat_ms(crate::kit::motion::Beat::Layer));
+                            self.interactive_fades[1] = (ms != 0).then_some(now.saturating_add(ms));
+                        }
+                        set_visible(&mut interactive, 2, on);
+                    },
                     Err(e) => self.apply_failed("toasts", format!("toasts: {e}"), acts),
                 }
             }
@@ -971,13 +1106,13 @@ impl Shell {
             }
             if self.kinds.home {
                 match self.home_surface.apply(&mut self.kit, &mut self.engine, &mut self.home, now) {
-                    Ok(on) => live |= on,
+                    Ok(on) => { live |= on; set_visible(&mut interactive, 4, on && self.home.active); },
                     Err(e) => self.apply_failed("home", format!("home: {e}"), acts),
                 }
             }
             if self.kinds.cameras {
                 match self.cameras.apply(&mut self.kit, &mut self.engine, now) {
-                    Ok(on) => live |= on,
+                    Ok(on) => { live |= on; set_visible(&mut interactive, 8, on); },
                     Err(e) => self.apply_failed("cameras", format!("cameras: {e}"), acts),
                 }
             }
@@ -985,14 +1120,14 @@ impl Shell {
                 let now_ns = self.kit.ui.scene.now_ns();
                 let over_video = self.sys.app_front();
                 match self.settings.apply(&mut self.kit, &mut self.engine, over_video, now, now_ns) {
-                    Ok(on) => live |= on,
+                    Ok(on) => { live |= on; set_visible(&mut interactive, 16, on); },
                     Err(e) => self.apply_failed("settings", format!("settings: {e}"), acts),
                 }
             }
             if self.kinds.displaylab {
                 let now_ns = self.kit.ui.scene.now_ns();
                 match self.lab.apply(&mut self.kit, &mut self.engine, now_ns) {
-                    Ok(on) => live |= on,
+                    Ok(on) => { live |= on; set_visible(&mut interactive, 32, on); },
                     // a lab that cannot be seen is not run: it ends, and the screen is put back
                     Err(e) => {
                         self.apply_failed("displaylab", format!("displaylab: {e}"), acts);
@@ -1003,6 +1138,7 @@ impl Shell {
                 }
             }
             self.live = live;
+            self.interactive_surfaces = interactive;
             let failed = std::mem::take(&mut self.apply_failed_now);
             self.apply_errs.retain(|(src, _)| failed.contains(src));
         }
@@ -1122,6 +1258,7 @@ impl Shell {
         s["panels"] = self.panels.state(&self.kinds);
         if self.kinds.home {
             s["home"] = self.home.state();
+            s["home"]["silk"] = self.home_surface.silk_report().clone();
         }
         if self.kinds.cameras {
             s["cameras"] = self.cameras.state();
@@ -1140,6 +1277,7 @@ impl Shell {
             }
         }
         s["live"] = json!(self.live);
+        s["interactiveVisible"] = json!(self.sys.screen_on() && (self.interactive_surfaces != 0 || self.interactive_fades.iter().any(Option::is_some) || self.sys.interactive_visible() || self.panels.interactive_visible()));
         let room = self.kit.room();
         s["room"] = json!({"layers": room.layers, "groups": room.groups, "tracks": room.tracks});
         s
@@ -1160,7 +1298,7 @@ impl Shell {
         let cameras = if self.kinds.cameras { self.cameras.due_at() } else { None };
         let settings = if self.kinds.settings { self.settings.due_at() } else { None };
         let lab = if self.kinds.displaylab { self.lab.due_at() } else { None };
-        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, self.vwin.due_at(), self.release_at].into_iter().flatten().min()
+        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, self.vwin.due_at(), self.release_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1]].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {
@@ -1243,13 +1381,17 @@ impl Shell {
     /// The theme or the text size changed: the surfaces are made again at the next draw, and the layout editor, when it is open, measures the
     /// surfaces it stands in for again (its stand-ins follow the person's text size, not the size they had when it was opened).
     pub fn restyle(&mut self) {
+        self.restyle_surfaces(false);
+    }
+
+    fn restyle_surfaces(&mut self, glass_only: bool) {
         self.volume_surface.restyle();
         self.toast_surface.restyle();
         self.sys.restyle(&mut self.engine);
         self.panels.restyle(&mut self.engine);
         self.home_surface.restyle();
         self.cameras.restyle(&mut self.engine, self.kit.text_scale);
-        self.settings.restyle();
+        if glass_only { self.settings.restyle_glass(&self.kit); } else { self.settings.restyle(); }
         self.lab.restyle(&mut self.engine);
         if self.kinds.layout && self.sys.layout_open() {
             let sizes = self.layout_sizes();
@@ -1326,6 +1468,13 @@ impl Shell {
         live.into_iter().chain(self.sys.popup_claim(&self.kinds)).collect()
     }
 
+    fn open_wallpaper(&mut self, now: u64, acts: &mut Vec<Act>) {
+        for e in self.settings.close(now) { self.carry(e, now, acts); }
+        let mut out = Vec::new();
+        self.home.edit_wallpaper(&mut out);
+        for e in out { self.carry(e, now, acts); }
+    }
+
     /// What Settings asked of the shell: to close, to launch LG's Settings app, to open the layout editor; the theme it wrote becomes the
     /// look in force.
     fn settings_requests(&mut self, now: u64, acts: &mut Vec<Act>) {
@@ -1346,7 +1495,7 @@ impl Shell {
                     if self.kinds.layout {
                         self.start_layout(item.as_deref());
                     } else {
-                        acts.push(Act::Log(format!("settings: the layout editor was asked for ({item:?}) and is not this process's")));
+                        acts.push(Act::Log("settings: the layout editor is not this process's".into()));
                     }
                 }
                 ShellRequest::DisplayLab => {
@@ -1376,9 +1525,19 @@ impl Shell {
                         self.carry(e, now, acts);
                     }
                 }
-                ShellRequest::Text { prompt, text, secret } => {
+                ShellRequest::Wallpaper => {
+                    if self.kinds.home {
+                        if self.home.active {
+                            self.open_wallpaper(now, acts);
+                        } else if !self.wallpaper_waiting {
+                            self.wallpaper_waiting = true;
+                            self.carry(Effect::Luna { tag: crate::system::layer::LAUNCH_TAG, uri: "luna://com.webos.applicationManager/launchDefaultApp".into(), payload: json!({"category": "home"}), subscribe: false }, now, acts);
+                        }
+                    }
+                }
+                ShellRequest::Text { prompt, text, secret, purpose } => {
                     let mut out = Vec::new();
-                    if self.panels.ask_text(&prompt, &text, secret, &self.kinds, now, &mut out) {
+                    if self.panels.ask_text_purpose(&prompt, &text, secret, purpose, &self.kinds, now, &mut out) {
                         for e in out {
                             self.carry(e, now, acts);
                         }
@@ -1394,16 +1553,40 @@ impl Shell {
             self.settings_layout = self.home.layout_text.clone();
             self.settings.set_layout(self.home.layout.clone());
         }
-        if let Some(file) = self.settings.take_theme_file() {
-            let theme = self.reload_theme(&file);
-            // the owner's choices of inputs and of their previews are the panels' too
-            for e in self.panels.set_theme(&theme, now) {
-                self.carry(e, now, acts);
-            }
-            // the saver's own numbers (clockLevel, dim, style, own) and the placements are in it
-            for e in self.sys.set_theme(&theme, now) {
-                self.carry(e, now, acts);
-            }
+        if let Some(preview) = self.settings.take_theme_preview() {
+            self.theme_preview = preview;
+            self.home.set_theme_preview(self.theme_preview.clone());
+            self.glass_restyle_at = None;
+            self.apply_theme_look(now, acts, false);
+        }
+        if let Some(file) = self.settings.take_theme_file() && file != self.theme_base {
+            self.theme_base = file;
+            self.home.theme_text = self.theme_base.to_string();
+            self.glass_restyle_at = None;
+            self.apply_theme_look(now, acts, true);
+        }
+    }
+
+    fn apply_theme_look(&mut self, now: u64, acts: &mut Vec<Act>, update_settings: bool) {
+        if update_settings {
+            let confirmed = lumatv_tokens::Tokens::from_json(&self.theme_base).json().clone();
+            self.settings.set_theme(confirmed);
+        }
+        let mut file = self.theme_base.clone();
+        if let Some(preview) = &self.theme_preview {
+            crate::host::theme::merge_one_level(&mut file, preview);
+        }
+        let theme = lumatv_tokens::Tokens::from_json(&file).json().clone();
+        if self.kit.tokens.json() == &theme && self.home.theme == theme {
+            return;
+        }
+        let theme = self.reload_look(&file);
+        self.home.set_theme(theme.clone());
+        for e in self.panels.set_theme(&theme, now) {
+            self.carry(e, now, acts);
+        }
+        for e in self.sys.set_theme(&theme, now) {
+            self.carry(e, now, acts);
         }
     }
 
@@ -1417,18 +1600,25 @@ impl Shell {
 
     /// The owner's theme file changed (Settings wrote it): the look in force is the shipped theme under it. Returns the merged theme.
     pub fn reload_theme(&mut self, file: &Value) -> Value {
+        self.glass_restyle_at = None;
+        let theme = self.reload_look(file);
+        self.settings.set_theme(theme.clone());
+        theme
+    }
+
+    fn reload_look(&mut self, file: &Value) -> Value {
         let tokens = lumatv_tokens::Tokens::from_json(file);
         let mode = match tokens.material {
             lumatv_tokens::Material::Dark => ui::lucent::palette::Mode::Dark,
             lumatv_tokens::Material::Light => ui::lucent::palette::Mode::Light,
             lumatv_tokens::Material::Auto { .. } => self.kit.mode,
         };
-        let scale = file.pointer("/type/scale").and_then(Value::as_f64).map_or(self.kit.text_scale, |s| (s as f32).clamp(1.0, 2.0));
+        let scale = file.pointer("/type/scale").and_then(Value::as_f64).map_or(self.theme_default_scale, |s| (s as f32).clamp(1.0, 2.0));
         let theme = tokens.json().clone();
         self.kit.retheme(tokens, mode, scale);
+        self.cameras.app.cfg = CamerasConfig::from_theme(&self.kit, &theme);
         self.set_places(&theme);
-        self.settings.set_theme(theme.clone());
-        self.restyle();
+        self.restyle_surfaces(self.glass_restyle_at.is_some());
         theme
     }
 }
@@ -1445,6 +1635,224 @@ mod tests {
         let (h, kit) = testkit::kit(1.0);
         let shell = Shell::new(kit, Kinds::parse("cameras"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
         (h, shell)
+    }
+
+    #[test]
+    fn settings_promotion_during_close_releases_the_surface_and_vote() {
+        use compositor_protocol::{Request, motion::Settle};
+        let (mut h, mut shell) = home_shell("home,settings");
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "org.test.player", "home": false, "covered": true}) }, 2_000);
+        shell.channel(&Event::Topic { topic: "refresh".into(), data: json!({"hz": 60}) }, 2_010);
+        shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "settings"}) }, 2_020);
+        h.commit();
+        let mut acts = Vec::new();
+        for effect in shell.settings.close(2_030) { shell.carry(effect, 2_030, &mut acts); }
+        shell.after(2_030, &mut acts);
+        assert_eq!(shell.state()["interactiveVisible"], true, "the 60 Hz close still fades");
+        let closing = h.commit();
+        let fade = closing.iter().find_map(|r| match r {
+            Request::MotionSettle { id, target: Some(0.0), settle: Settle::Timed(token), .. } if token.duration_ms > 0 => Some(*id),
+            _ => None,
+        }).expect("Settings started its 60 Hz closing fade");
+        shell.channel(&Event::Topic { topic: "refresh".into(), data: json!({"hz": 120}) }, 2_040);
+        let finished = h.commit();
+        // Dropping the surface removes its track, so no close animation remains in flight.
+        assert!(finished.iter().any(|r| matches!(r, Request::MotionDelete { id } if *id == fade)), "the fade track is released");
+        assert_eq!(shell.state()["interactiveVisible"], false);
+    }
+
+    #[test]
+    fn settings_reopen_during_fade_keeps_interactive_vote() {
+        for promote in [false, true] {
+            let (_h, mut shell) = home_shell("home,settings");
+            shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "org.test.player", "home": false, "covered": true}) }, 2_000);
+            shell.channel(&Event::Topic { topic: "refresh".into(), data: json!({"hz": 60}) }, 2_010);
+            assert_eq!(shell.state()["interactiveVisible"], false);
+            shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "settings"}) }, 2_020);
+            let mut acts = Vec::new();
+            for effect in shell.settings.close(2_030) { shell.carry(effect, 2_030, &mut acts); }
+            shell.after(2_030, &mut acts);
+            shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "settings"}) }, 2_040);
+            if promote {
+                shell.channel(&Event::Topic { topic: "refresh".into(), data: json!({"hz": 120}) }, 2_050);
+            }
+            shell.tick(3_000);
+            assert_eq!(shell.state()["interactiveVisible"], true, "reopened Settings keeps its vote past the old close deadline");
+        }
+    }
+
+    #[test]
+    fn interactive_visibility_follows_native_menu_until_it_finishes_leaving() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("menu"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).unwrap();
+        shell.start();
+        assert_eq!(shell.state()["interactiveVisible"], false);
+        shell.channel(&Event::Topic { topic: "menu.open".into(), data: json!({"items": [{"id": "a", "label": "A"}]}) }, 1_000);
+        assert_eq!(shell.state()["interactiveVisible"], true);
+        key(&mut shell, "back", 1_100);
+        assert_eq!(shell.state()["interactiveVisible"], true);
+        shell.tick(2_000);
+        assert_eq!(shell.state()["interactiveVisible"], false);
+    }
+
+    #[test]
+    fn home_votes_only_in_foreground_with_screen_on() {
+        let (_h, mut shell) = home_shell("home");
+        assert_eq!(shell.state()["interactiveVisible"], true);
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "org.test.player", "home": false, "covered": true}) }, 2_000);
+        assert_eq!(shell.state()["interactiveVisible"], false);
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true, "covered": false}) }, 3_000);
+        assert_eq!(shell.state()["interactiveVisible"], true);
+        shell.channel(&Event::Topic { topic: "screen".into(), data: json!({"on": false}) }, 4_000);
+        assert_eq!(shell.state()["interactiveVisible"], false);
+    }
+    #[test]
+    fn interactive_visibility_tracks_drawn_keyboard_screen_and_reconnect() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("keyboard"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).unwrap();
+        shell.start();
+        assert_eq!(shell.state()["interactiveVisible"], false);
+        shell.channel(&Event::Topic { topic: "keyboard".into(), data: json!({"up": true}) }, 1_000);
+        assert_eq!(shell.state()["interactiveVisible"], false, "external keyboard latch is not a drawn keyboard");
+        shell.channel(&Event::Topic { topic: "ime".into(), data: json!({"active": true, "show": true, "model": 1}) }, 1_100);
+        assert_eq!(shell.state()["interactiveVisible"], true);
+        let acts = shell.channel(&Event::State(Vec::new()), 1_200);
+        assert!(acts.iter().any(|a| matches!(a, Act::Channel(o) if o.path == "/v1/ui" && o.body.as_ref().is_some_and(|b| b["state"]["interactiveVisible"] == true))));
+        let acts = shell.channel(&Event::Topic { topic: "refresh".into(), data: json!({"hz": 60}) }, 1_250);
+        assert!(acts.iter().any(|a| matches!(a, Act::Channel(o) if o.path == "/v1/ui" && o.body.as_ref().is_some_and(|b| b["state"]["interactiveVisible"] == true))));
+        shell.channel(&Event::Topic { topic: "screen".into(), data: json!({"on": false}) }, 1_300);
+        assert_eq!(shell.state()["interactiveVisible"], false);
+    }
+
+    #[test]
+    fn interactive_visibility_distinguishes_volume_pill_mute_mark_and_toast() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("osd,toast"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).unwrap();
+        shell.start();
+        let audio = |cause| Event::Topic { topic: "audio".into(), data: json!({"volumeStatus": {"volume": 31, "muteStatus": true, "soundOutput": "tv_speaker", "maxVolume": 100, "cause": cause}}) };
+        shell.channel(&audio(""), 1_000);
+        assert_eq!(shell.state()["mark"], true);
+        assert_eq!(shell.state()["interactiveVisible"], false);
+        shell.channel(&audio("volumeUp"), 1_100);
+        assert_eq!(shell.state()["interactiveVisible"], true);
+        shell.tick(10_000);
+        assert_eq!(shell.state()["mark"], true);
+        shell.tick(10_500);
+        assert_eq!(shell.state()["interactiveVisible"], false);
+        shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "toast", "n": 1}) }, 11_000);
+        assert_eq!(shell.state()["interactiveVisible"], true);
+        shell.tick(20_000);
+        shell.tick(20_500);
+        assert_eq!(shell.state()["interactiveVisible"], false);
+    }
+
+    #[test]
+    fn volume_consumes_subtitle_bounds_from_the_channel() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("osd"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).unwrap();
+        shell.start();
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app":"player", "surface":1, "home":false}) }, 1_000);
+        shell.channel(&Event::Topic { topic: "subtitleBounds".into(), data: json!({"app":"player", "surface":1, "rect":null}) }, 1_001);
+        let audio = |cause| Event::Topic { topic: "audio".into(), data: json!({"volumeStatus":{"volume":31,"muteStatus":false,"soundOutput":"tv_speaker","maxVolume":100,"cause":cause}}) };
+        shell.channel(&audio(""), 1_002);
+        shell.channel(&audio("volumeUp"), 1_003);
+        let base = shell.volume_surface.pane_rect().unwrap();
+        shell.channel(&Event::Topic { topic: "subtitleBounds".into(), data: json!({"app":"player", "surface":1, "rect":{"x":0,"y":900,"w":1920,"h":150}}) }, 1_004);
+        let raised = shell.volume_surface.pane_rect().unwrap();
+        assert!(raised.y < base.y);
+        assert!(raised.y + raised.h + shell.kit.space(2) <= 900.0);
+        shell.channel(&Event::Topic { topic: "subtitleBounds".into(), data: json!({"app":"player", "surface":1, "rect":null}) }, 1_005);
+        assert_eq!(shell.volume_surface.pane_rect().unwrap().y, raised.y);
+    }
+
+
+    #[test]
+    fn loaded_legacy_custom_colours_do_not_claim_the_shipped_palette() {
+        let (_h, mut shell) = shell();
+        let mut acts = Vec::new();
+        shell.feed(&Input::Fetched { tag: crate::home::model::THEME_TAG, status: 200,
+            data: json!({"dark": {"accent": "#010203"}, "palette": {"light": "other"}}) }, 1, &mut acts);
+        for theme in [shell.kit.tokens.json(), &shell.home.theme] {
+            assert_eq!(theme["palette"]["dark"], "");
+            assert_eq!(theme["palette"]["light"], "other");
+            assert_eq!(theme["dark"]["accent"], "#010203");
+        }
+    }
+    #[test]
+    fn rapid_glass_writes_keep_sibling_settings_and_restyle_once() {
+        let (_h, mut shell) = home_shell("home,settings");
+        let dir = std::env::temp_dir().join(format!("lumatv-glass-writes-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("theme")).unwrap();
+        let original = json!({"wallpaperMotion": {"enabled": false}, "motion": {"transitions": true}, "glassStrength": {"clear": 0.8, "liquid": 0.4}});
+        std::fs::write(dir.join("theme/theme.json"), original.to_string()).unwrap();
+        shell.dirs(&testkit::module_dir(), &dir);
+        let mut acts = Vec::new();
+        shell.theme_base = original;
+        shell.apply_theme_look(0, &mut acts, true);
+        shell.settings.open(Some("look"), 1);
+        shell.settings.click(crate::settings::model::Target::Row { id: "glassstrength".into(), seg: None, value: None }, 10);
+        let generation = shell.kit.generation();
+        for (now, value, repeat) in [(100, 0.79, false), (150, 0.78, true), (200, 0.77, true)] {
+            shell.key(&KeyEvent::Key { name: "left".into(), down: true, repeat, seat: 0 }, now);
+            let page = shell.settings.model.view().page.unwrap();
+            assert_eq!(page.rows.iter().find(|r| r.id == "glassstrength").unwrap().num, (value * 100.0_f64).round());
+            assert!(page.rows.iter().any(|r| r.id == "wallpaper"));
+            assert!(page.rows.iter().find(|r| r.id == "transitions").unwrap().on);
+            assert_eq!(shell.kit.generation(), generation);
+            assert_eq!(shell.kit.tokens.json()["glassStrength"]["clear"], value);
+        }
+        let saved: Value = serde_json::from_slice(&std::fs::read(dir.join("theme/theme.json")).unwrap()).unwrap();
+        assert_eq!(saved["glassStrength"], json!({"clear": 0.77, "liquid": 0.4}));
+        assert_eq!(saved["wallpaperMotion"]["enabled"], false);
+        assert_eq!(saved["motion"]["transitions"], true);
+        assert_eq!(shell.glass_restyle_at, Some(550));
+        shell.tick(549);
+        assert_eq!(shell.kit.generation(), generation);
+        shell.tick(550);
+        assert_eq!(shell.kit.generation(), generation + 1);
+        assert_eq!(shell.kit.tokens.json()["glassStrength"]["clear"], 0.77);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn glass_write_keeps_and_applies_an_external_sibling_change() {
+        let (_h, mut shell) = home_shell("home,settings");
+        let dir = std::env::temp_dir().join(format!("lumatv-glass-external-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("theme")).unwrap();
+        let original = json!({"wallpaperMotion": {"enabled": false}, "motion": {"transitions": true}});
+        std::fs::write(dir.join("theme/theme.json"), original.to_string()).unwrap();
+        shell.dirs(&testkit::module_dir(), &dir);
+        let mut acts = Vec::new();
+        shell.theme_base = original;
+        shell.apply_theme_look(0, &mut acts, true);
+        shell.write_theme(9999, &json!({"glassStrength": {"clear": 0.8}}), 100, &mut acts);
+        crate::host::theme::persist(&dir, &json!({"wallpaperMotion": {"enabled": true}})).unwrap();
+        shell.write_theme(9999, &json!({"glassStrength": {"clear": 0.7}}), 150, &mut acts);
+        assert_eq!(shell.home.theme["wallpaperMotion"]["enabled"], true);
+        assert_eq!(shell.home.theme["motion"]["transitions"], true);
+        assert_eq!(shell.home.theme["glassStrength"]["clear"], 0.7);
+        assert!(shell.glass_restyle_at.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+
+    #[test]
+    fn preview_tracks_external_theme_changes_and_cancel_restores_them() {
+        let (_h, mut shell) = shell();
+        let mut acts = Vec::new();
+        shell.theme_base = json!({"type": {"scale": 1.0}, "clock": {"style": "digital"}});
+        shell.theme_preview = Some(json!({"type": {"scale": 1.5}}));
+        shell.home.set_theme_preview(shell.theme_preview.clone());
+        shell.apply_theme_look(0, &mut acts, false);
+        assert_eq!(shell.kit.text_scale, 1.5);
+        shell.feed(&Input::Fetched { tag: crate::home::model::THEME_TAG, status: 200, data: json!({"type": {"scale": 1.0}, "clock": {"style": "analog"}}) }, 1, &mut acts);
+        assert_eq!(shell.kit.text_scale, 1.5);
+        assert_eq!(shell.home.theme["clock"]["style"], "analog");
+        shell.theme_preview = None;
+        shell.home.set_theme_preview(None);
+        shell.apply_theme_look(2, &mut acts, false);
+        assert_eq!(shell.kit.text_scale, 1.0);
+        assert_eq!(shell.home.theme["clock"]["style"], "analog");
     }
 
     #[test]
@@ -1544,6 +1952,72 @@ mod tests {
         acts
     }
 
+    #[test]
+    fn wallpaper_from_look_previews_and_saves_then_returns_to_look() {
+        let (_h, mut shell) = home_shell("home,settings");
+        let dir = std::env::temp_dir().join(format!("lumatv-wallpaper-route-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("theme")).unwrap();
+        std::fs::write(dir.join("theme/theme.json"), r#"{"wallpaperMotion":{"enabled":true,"speed":1.2},"custom":{"kept":true}}"#).unwrap();
+        shell.dirs(&testkit::module_dir(), &dir);
+        shell.open_settings(Some("look"), 2_000);
+        shell.settings.click(crate::settings::model::Target::Row { id: "wallpaper".into(), seg: None, value: None }, 2_010);
+        shell.after(2_010, &mut Vec::new());
+        assert!(!shell.settings.is_open());
+        assert_eq!(shell.home.state()["layer"], "popover");
+        assert_eq!(shell.home.state()["popover"]["row"], "enabled");
+        key(&mut shell, "ok", 2_100);
+        assert_eq!(shell.home.theme["wallpaperMotion"]["enabled"], false);
+        key(&mut shell, "back", 2_200);
+        assert!(shell.settings.is_open());
+        assert_eq!(shell.settings.model.view().page.unwrap().id, "look");
+        let saved: Value = serde_json::from_slice(&std::fs::read(dir.join("theme/theme.json")).unwrap()).unwrap();
+        assert_eq!(saved["wallpaperMotion"]["enabled"], false);
+        assert_eq!(saved["wallpaperMotion"]["speed"], 1.2);
+        assert_eq!(saved["custom"]["kept"], true);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn wallpaper_waits_for_home_before_opening_over_an_app() {
+        let (_h, mut shell) = home_shell("home,settings");
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "org.test.player", "home": false, "covered": true}) }, 2_000);
+        shell.open_settings(Some("look"), 2_100);
+        shell.settings.click(crate::settings::model::Target::Row { id: "wallpaper".into(), seg: None, value: None }, 2_110);
+        let mut acts = Vec::new();
+        shell.after(2_110, &mut acts);
+        assert!(shell.settings.is_open());
+        assert_eq!(shell.home.state()["layer"], "");
+        assert!(luna_calls(&acts, "launchDefaultApp").iter().any(|call| call["payload"]["category"] == "home"));
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true, "covered": false}) }, 2_200);
+        assert!(!shell.settings.is_open());
+        assert_eq!(shell.home.state()["layer"], "popover");
+        key(&mut shell, "ok", 2_300);
+        assert_eq!(shell.home.theme["wallpaperMotion"]["enabled"], false);
+        key(&mut shell, "back", 2_400);
+        assert!(shell.settings.is_open());
+        assert_eq!(shell.settings.model.view().page.unwrap().id, "look");
+    }
+
+    #[test]
+    fn wallpaper_forced_close_saves_without_reopening_settings() {
+        let (_h, mut shell) = home_shell("home,settings");
+        let dir = std::env::temp_dir().join(format!("lumatv-wallpaper-exit-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("theme")).unwrap();
+        std::fs::write(dir.join("theme/theme.json"), r#"{"wallpaperMotion":{"enabled":true}}"#).unwrap();
+        shell.dirs(&testkit::module_dir(), &dir);
+        shell.open_settings(Some("look"), 2_000);
+        shell.settings.click(crate::settings::model::Target::Row { id: "wallpaper".into(), seg: None, value: None }, 2_010);
+        shell.after(2_010, &mut Vec::new());
+        key(&mut shell, "ok", 2_100);
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "org.test.player", "home": false, "covered": true}) }, 2_200);
+        assert!(!shell.settings.is_open());
+        assert_eq!(shell.home.state()["layer"], "");
+        assert!(shell.home.take_requests().is_empty());
+        let saved: Value = serde_json::from_slice(&std::fs::read(dir.join("theme/theme.json")).unwrap()).unwrap();
+        assert_eq!(saved["wallpaperMotion"]["enabled"], false);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     fn luna_calls(acts: &[Act], method: &str) -> Vec<Value> {
         acts.iter()
             .filter_map(|a| match a {
@@ -1569,8 +2043,71 @@ mod tests {
         shell.tick(180_050);
         assert_eq!(shell.state()["saver"], true, "the question was answered no: {}", shell.state()["saverState"]);
         assert_eq!(shell.state()["saverState"]["owned"], true);
+        assert_eq!(shell.state()["interactiveVisible"], true, "Home remains a pacing demand while retained under the saver");
         key(&mut shell, "left", 181_000);
         assert_eq!(shell.state()["saver"], false, "a key ends it");
+    }
+
+    #[test]
+    fn native_saver_wake_press_repeat_and_release_do_not_close_the_panel() {
+        let (_h, mut shell) = home_shell("home,saver,quick");
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "org.test.player", "home": false, "covered": true}) }, 1_900);
+        shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "quick", "n": 1}) }, 2_000);
+        shell.tick(2_300);
+        assert_eq!(shell.state()["panels"]["quick"], "open");
+        shell.helper(&Event::Topic { topic: "screen".into(), data: json!({"on": true, "state": "Screen Saver"}) }, 2_500);
+        assert_eq!(shell.state()["saver"], true);
+        assert_eq!(shell.state()["panels"]["quick"], "open", "panel remains open under the native saver");
+        let event = |down, repeat| KeyEvent::Key { name: "back".into(), down, repeat, seat: 0 };
+        let acts = shell.key(&event(true, false), 2_600);
+        assert_eq!(luna_calls(&acts, "/power/turnOnScreen").len(), 1);
+        assert_eq!(shell.state()["saver"], false);
+        shell.key(&event(true, true), 2_650);
+        shell.key(&event(false, false), 2_700);
+        assert_eq!(shell.state()["panels"]["quick"], "open", "wake key and release must not close it");
+        key(&mut shell, "back", 2_800);
+        shell.tick(3_100);
+        assert_ne!(shell.state()["panels"]["quick"], "open", "the next press reaches the panel");
+    }
+
+    #[test]
+    fn native_saver_pointer_wake_does_not_click_the_panel_under_it() {
+        let (_h, mut shell) = home_shell("home,saver,quick");
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "org.test.player", "home": false, "covered": true}) }, 1_900);
+        shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "quick", "n": 1}) }, 2_000);
+        shell.tick(2_300);
+        shell.helper(&Event::Topic { topic: "screen".into(), data: json!({"on": true, "state": "Screen Saver"}) }, 2_500);
+        assert_eq!(shell.state()["saver"], true);
+        assert_eq!(shell.state()["panels"]["quick"], "open");
+        let pointer = |buttons| KeyEvent::Pointer { x: 300.0, y: 300.0, buttons, visible: true };
+        shell.key(&pointer(0), 2_550);
+        assert_eq!(shell.state()["saver"], true, "the takeover sample is not a wake");
+        let acts = shell.key(&pointer(1), 2_600);
+        assert_eq!(luna_calls(&acts, "/power/turnOnScreen").len(), 1);
+        assert_eq!(shell.state()["saver"], false);
+        shell.key(&pointer(0), 2_650);
+        assert_eq!(shell.state()["panels"]["quick"], "open", "the waking click did not reach the panel");
+        shell.key(&pointer(1), 2_700);
+        shell.key(&pointer(0), 2_750);
+        shell.tick(3_000);
+        assert_ne!(shell.state()["panels"]["quick"], "open", "a later click reaches the panel");
+    }
+
+    #[test]
+    fn voice_wakes_native_saver_without_starting_or_stopping_voice_search() {
+        let (_h, mut shell) = home_shell("home,saver");
+        shell.helper(&Event::Up(true), 1_100);
+        shell.helper(&Event::Topic { topic: "voice".into(), data: json!({"ready": true, "state": "idle"}) }, 1_200);
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "org.test.player", "home": false}) }, 1_300);
+        shell.helper(&Event::Topic { topic: "screen".into(), data: json!({"on": true, "state": "Screen Saver"}) }, 1_400);
+        assert_eq!(shell.state()["saver"], true);
+        let acts = key(&mut shell, "voice", 1_500);
+        assert_eq!(luna_calls(&acts, "/power/turnOnScreen").len(), 1);
+        assert_eq!(helper_calls(&acts, "/v1/voice/listen"), 0);
+        assert_eq!(helper_calls(&acts, "/v1/voice/stop"), 0);
+        assert_eq!(shell.state()["extras"]["voice"], "");
+        let acts = shell.key(&KeyEvent::Key { name: "voice".into(), down: true, repeat: false, seat: 0 }, 1_600);
+        assert_eq!(helper_calls(&acts, "/v1/voice/listen"), 1, "ordinary voice still starts listening");
     }
 
     #[test]
@@ -1852,21 +2389,21 @@ mod tests {
         shell.channel(&Event::Topic { topic: "keyboard.text".into(), data: json!({"text": "netw"}) }, 2_100);
         let answers = shell.state()["home"]["search"]["answers"].clone();
         let page = answers.as_array().unwrap().iter().position(|a| a["kind"] == "page" && a["id"] == "network").expect("Settings' Network page is an answer");
-        // the answer is a stop of the arrows: up from the keyboard reaches the answers, down walks them
+        // Up from the keyboard reaches the answers; left and right choose one.
         for i in 0..6 {
-            if shell.state()["home"]["search"]["index"].as_u64().is_some_and(|i| i >= 43) {
+            if shell.home.search.answer_index().is_some() {
                 break;
             }
             key(&mut shell, "up", 2_200 + i * 100);
         }
         for i in 0..4 {
-            let at = shell.state()["home"]["search"]["index"].as_u64().unwrap();
-            if at == 43 + page as u64 {
+            let at = shell.home.search.answer_index().expect("an answer is focused");
+            if at == page {
                 break;
             }
-            key(&mut shell, if at > 43 + page as u64 { "left" } else { "right" }, 3_000 + i * 100);
+            key(&mut shell, if at > page { "left" } else { "right" }, 3_000 + i * 100);
         }
-        assert_eq!(shell.state()["home"]["search"]["index"], 43 + page as u64, "{}", shell.state()["home"]["search"]);
+        assert_eq!(shell.home.search.answer_index(), Some(page));
         key(&mut shell, "ok", 4_000);
         assert_eq!(shell.state()["settings"]["open"], true);
         assert_eq!(shell.state()["settings"]["page"], "network");

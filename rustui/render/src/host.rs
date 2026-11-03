@@ -141,6 +141,14 @@ pub struct Pumped {
     pub closed: bool,
 }
 
+/// A frame-local protected panel area and the two independent layer groups it excludes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Exclusion {
+    pub area: [i32; 4],
+    pub popup_z: (i32, i32),
+    pub marker_z: (i32, i32),
+}
+
 pub struct Engine {
     renderer: Renderer,
     scene: Scene,
@@ -214,6 +222,9 @@ struct External {
     /// Scratch for [`Engine::merge_areas`].
     merging: TileSet,
     system_z: i32,
+    exclusion: Option<Exclusion>,
+    exclusion_dirty: bool,
+    standin_groups: Option<((i32, i32), (i32, i32))>,
     /// The z of each layer, from the commits: the scene lists layers in z order, and where the system layer begins is the first
     /// whose z is `system_z` or more.
     z: HashMap<LayerId, i32>,
@@ -582,6 +593,9 @@ impl Engine {
                 tidy_more: false,
                 uploaded_bytes: 0,
                 external: stacks.then(|| External {
+                    exclusion: None,
+                    exclusion_dirty: false,
+                    standin_groups: None,
                     compositor: config.external,
                     ring: (!config.external).then(|| Ring::new(config.pages.max(1), config.width, config.height)),
                     last_page: None,
@@ -757,6 +771,7 @@ impl Engine {
     pub fn redraw_wanted(&self) -> bool {
         self.renderer.wants_frame()
             || self.ahead
+            || self.external.as_ref().is_some_and(|external| external.exclusion_dirty)
             || (self.floor.as_ref().is_some_and(|floor| floor.behind) && self.home_shown && matches!(self.scene.demand(), Demand::Idle))
     }
 
@@ -875,6 +890,12 @@ impl Engine {
     pub fn set_transparent(&mut self, on: bool) {
         self.transparent = on;
     }
+
+    pub fn set_silk(&mut self, id: LayerId, silk: crate::Silk) -> bool {
+        self.renderer.set_silk(id, silk)
+    }
+
+    pub fn clear_silk(&mut self) -> bool { self.renderer.clear_silk() }
 
     /// Takes in the waiting commits, draws the scene as it is at `now_ns` and leaves it in the window's framebuffer, ready for
     /// the swap.
@@ -1027,6 +1048,22 @@ impl Engine {
         }
     }
 
+    /// Sets the protected area for subsequent compositor frame plans.
+    pub fn set_exclusion(&mut self, exclusion: Option<Exclusion>) {
+        if let Some(external) = self.external.as_mut() {
+            external.exclusion_dirty |= external.exclusion != exclusion;
+            external.exclusion = exclusion;
+        }
+    }
+
+    /// Omits these two layer groups while a composed stand-in supplies old app pixels.
+    pub fn set_standin_groups(&mut self, groups: Option<((i32, i32), (i32, i32))>) {
+        if let Some(external) = self.external.as_mut() {
+            external.exclusion_dirty |= external.standin_groups != groups;
+            external.standin_groups = groups;
+        }
+    }
+
     /// The first half of a frame inside a compositor ([`HostConfig::external`]): takes in the waiting commits, steps the scene to
     /// `now_ns`, places the layers and works out what each stack changes from the frame before ([`Engine::changed`]). Nothing is
     /// drawn: the compositor adds the change to its own account of what each page owes, and draws.
@@ -1042,6 +1079,30 @@ impl Engine {
             engine.scene.resolve(now_ns, &mut engine.drawn);
             engine.renderer.set_time(now_ns);
             let Some(external) = engine.external.as_mut() else { return };
+            external.exclusion_dirty = false;
+            if let Some((popup, marker)) = external.standin_groups {
+                engine.drawn.retain(|layer| external.z.get(&layer.id).is_none_or(|&z| {
+                    !(z >= popup.0 && z < popup.1 || z >= marker.0 && z < marker.1)
+                }));
+            }
+            if let Some(exclusion) = external.exclusion {
+                let overlaps = |range: (i32, i32)| {
+                    engine.drawn.iter().any(|layer| {
+                        external.z.get(&layer.id).is_some_and(|&z| z >= range.0 && z < range.1)
+                            && engine.renderer.painted_extent(layer).is_some_and(|area| {
+                                crate::damage::intersect(&area, &exclusion.area).is_some()
+                            })
+                    })
+                };
+                let popup = overlaps(exclusion.popup_z);
+                let marker = overlaps(exclusion.marker_z);
+                engine.drawn.retain(|layer| {
+                    external.z.get(&layer.id).is_none_or(|&z| {
+                        !(popup && z >= exclusion.popup_z.0 && z < exclusion.popup_z.1
+                            || marker && z >= exclusion.marker_z.0 && z < exclusion.marker_z.1)
+                    })
+                });
+            }
             external.split = engine.drawn.partition_point(|layer| external.z.get(&layer.id).is_some_and(|&z| z < external.system_z));
             engine.over_frames = if external.split < engine.drawn.len() { OVER_FRAMES } else { engine.over_frames.saturating_sub(1) };
             let mut planned = engine.renderer.plan_frame(&engine.drawn, &engine.scene);
@@ -1121,16 +1182,21 @@ impl Engine {
     /// what the page owes, so that no pixel of the windows around them is touched. While something is over Home, stack 0 comes
     /// from the floor: what the floor owes under the areas is drawn into it first, and each area is then one copy of it.
     pub fn draw_stack(&mut self, stack: usize, target: u32, areas: &[Area]) -> io::Result<()> {
-        self.draw_stack_from(stack, target, areas, true)
+        self.draw_stack_from(stack, target, areas, true, stack == 0)
     }
 
     /// [`Engine::draw_stack`] with every layer of the stack drawn straight into `target`, the floor left out and left as it is:
     /// what a check compares a page drawn from the floor with.
     pub fn draw_stack_direct(&mut self, stack: usize, target: u32, areas: &[Area]) -> io::Result<()> {
-        self.draw_stack_from(stack, target, areas, false)
+        self.draw_stack_from(stack, target, areas, false, stack == 0)
     }
 
-    fn draw_stack_from(&mut self, stack: usize, target: u32, areas: &[Area], from_floor: bool) -> io::Result<()> {
+    /// Draws a stack over existing compositor pixels without clearing or using the opaque Home floor.
+    pub fn draw_stack_over(&mut self, stack: usize, target: u32, areas: &[Area]) -> io::Result<()> {
+        self.draw_stack_from(stack, target, areas, false, false)
+    }
+
+    fn draw_stack_from(&mut self, stack: usize, target: u32, areas: &[Area], from_floor: bool, clear: bool) -> io::Result<()> {
         let Some(region) = Region::exact(areas) else {
             return Err(io::Error::other("draw_stack: more areas than a region keeps apart"));
         };
@@ -1190,7 +1256,7 @@ impl Engine {
                     }
                 }
             }
-            let draw = Draw { surface, slot: None, target, areas: Some(region), clear: stack == 0 };
+            let draw = Draw { surface, slot: None, target, areas: Some(region), clear };
             let report = engine.renderer.draw_planned(planned, &draw);
             external.report.add(&report);
         });

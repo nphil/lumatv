@@ -147,6 +147,7 @@ pub struct Layer {
     intents: Vec<Intent>,
     /// Something the surfaces must draw again.
     redraw: bool,
+    interactive_visible: bool,
 }
 
 impl Layer {
@@ -189,6 +190,7 @@ impl Layer {
             taken: Vec::new(),
             intents: Vec::new(),
             redraw: false,
+            interactive_visible: false,
         }
     }
 
@@ -374,6 +376,7 @@ impl Layer {
         }
         // an alert that has the keys takes them: the saver never sees a key that was meant to answer it
         let alert_has_keys = (kinds.alert && self.alerts.wants()) || (kinds.ai && self.ai.wants());
+        let saver_has_keys = kinds.saver && self.saver.wants_keys();
         if kinds.alert {
             out.extend(self.alerts.update(input, now));
         }
@@ -395,7 +398,7 @@ impl Layer {
         self.now_ms = now;
         // what Home draws around itself: its question, remote, frame and voice bar have the keys while they are up, unless a question of the alerts
         // (or the editor) has them
-        if kinds.home && !(key_like && (alert_has_keys || self.layout_open())) {
+        if kinds.home && !(key_like && (alert_has_keys || self.layout_open() || saver_has_keys)) {
             out.extend(self.extras.update(input, now));
             let view = self.extras.view();
             if view != self.extras_seen {
@@ -426,7 +429,7 @@ impl Layer {
             out.extend(self.saver.update(input, now));
         }
         // the pop-up and the cards: a key that answers an alert or wakes the saver was not meant for them
-        let key_theirs = !matches!(input, Input::Key { .. }) || !(alert_has_keys || (kinds.saver && self.saver.wants_keys()));
+        let key_theirs = !matches!(input, Input::Key { .. }) || !(alert_has_keys || saver_has_keys);
         // the camera card is above the cards: a key it takes is not theirs
         let popup_had = kinds.popup && self.popup.armed(now);
         if kinds.popup && key_theirs {
@@ -607,36 +610,41 @@ impl Layer {
         glance::build(&self.hub, &self.weather, &civil, now_ms, self.saver.config().glance)
     }
 
+    pub(crate) fn interactive_visible(&self) -> bool { self.interactive_visible }
+
+    pub(crate) fn screen_on(&self) -> bool { self.screen_on }
+
     /// Draws what changed. Returns whether anything of the layer is on the screen.
     pub fn apply(&mut self, kinds: &Kinds, kit: &mut Kit, engine: &mut Engine, now_ms: u64) -> Result<bool, String> {
         let now_ns = kit.ui.scene.now_ns();
         let mut live = false;
+        let mut interactive = false;
         if kinds.alert {
             let view = self.alerts.view();
             match self.alert_surface.apply(kit, engine, &view, now_ms, now_ns) {
-                Ok(on) => live |= on,
-                Err(e) => return Err(format!("alerts: {e}")),
+                Ok(on) => { live |= on; interactive |= on; },
+                Err(e) => { self.interactive_visible |= interactive; return Err(format!("alerts: {e}")); },
             }
         }
         if kinds.banner {
             let view = self.banner.view();
             match self.banner_surface.apply(kit, engine, view.as_ref(), self.app_front(), now_ms, now_ns) {
-                Ok(on) => live |= on,
-                Err(e) => return Err(format!("banner: {e}")),
+                Ok(on) => { live |= on; interactive |= on; },
+                Err(e) => { self.interactive_visible |= interactive; return Err(format!("banner: {e}")); },
             }
         }
         if kinds.ai {
             let view = self.ai.view(now_ms);
             match self.ai_surface.apply(kit, view.as_ref(), self.app_front(), now_ms) {
-                Ok(on) => live |= on,
-                Err(e) => return Err(format!("ai prompt: {e}")),
+                Ok(on) => { live |= on; interactive |= on; },
+                Err(e) => { self.interactive_visible |= interactive; return Err(format!("ai prompt: {e}")); },
             }
         }
         if kinds.saver {
             let glance = self.glance(now_ms);
             match self.saver_surface.apply(kit, &mut self.saver, &glance, now_ms) {
                 Ok(on) => live |= on,
-                Err(e) => return Err(format!("saver: {e}")),
+                Err(e) => { self.interactive_visible |= interactive; return Err(format!("saver: {e}")); },
             }
         }
         let over = self.app_front();
@@ -648,7 +656,7 @@ impl Layer {
             }
             match self.popup_surface.apply(kit, &view, self.popup.best(), self.popup.revision, over, now_ms) {
                 Ok(on) => live |= on,
-                Err(e) => return Err(format!("camera pop-up: {e}")),
+                Err(e) => { self.interactive_visible |= interactive; return Err(format!("camera pop-up: {e}")); },
             }
             // where the picture box is on the screen: what the live video's claim is for
             self.popup.set_picture_rect(self.popup_surface.picture_rect());
@@ -664,15 +672,15 @@ impl Layer {
             let column = Column { width, gap, popup, drawer_ready, over_video: over };
             match self.cards_surface.apply(kit, self.overlay.shown(), &column, now_ms) {
                 Ok(on) => live |= on,
-                Err(e) => return Err(format!("cards: {e}")),
+                Err(e) => { self.interactive_visible |= interactive; return Err(format!("cards: {e}")); },
             }
         }
         if kinds.layout {
             if let Some(editor) = &self.layout {
                 let view = editor.view(now_ms);
                 match self.layout_surface.apply(kit, engine, &view, editor, now_ms, now_ns) {
-                    Ok(on) => live |= on,
-                    Err(e) => return Err(format!("layout editor: {e}")),
+                    Ok(on) => { live |= on; interactive |= on; },
+                    Err(e) => { self.interactive_visible |= interactive; return Err(format!("layout editor: {e}")); },
                 }
             } else if self.layout_surface.is_open() {
                 self.layout_surface.close(engine);
@@ -683,8 +691,8 @@ impl Layer {
             let view = self.extras.view();
             let now_ns = kit.ui.scene.now_ns();
             match self.extras_surface.apply(kit, engine, &view, now_ms, now_ns) {
-                Ok(on) => live |= on,
-                Err(e) => return Err(format!("home extras: {e}")),
+                Ok(on) => { live |= on; interactive |= on; },
+                Err(e) => { self.interactive_visible |= interactive || self.extras_surface.interactive_visible(); return Err(format!("home extras: {e}")); },
             }
             if let Some(icon) = self.extras_surface.splash_icon() {
                 self.extras.set_splash_icon(icon);
@@ -694,9 +702,10 @@ impl Layer {
         if kinds.capture {
             match self.capture_surface.apply(kit, &self.capture.view(), over, now_ms) {
                 Ok(on) => live |= on,
-                Err(e) => return Err(format!("capture: {e}")),
+                Err(e) => { self.interactive_visible |= interactive; return Err(format!("capture: {e}")); },
             }
         }
+        self.interactive_visible = interactive;
         Ok(live)
     }
 
@@ -941,5 +950,29 @@ impl Layer {
 
     pub fn base(&self) -> i32 {
         self.base
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saver_wake_key_does_not_operate_home_extras_or_camera_popup() {
+        let mut layer = Layer::new(0, &json!({}), &json!({}));
+        let kinds = Kinds::parse("home,saver,popup,cards");
+        layer.extras.note(super::super::extras::Note::Ask { digit: "1".into(), picks: vec![] }, 1000);
+        layer.popup.set_can_expand(true);
+        layer.popup.update(&Input::Helper { topic: "cameras.popup".into(), data: json!({"id": 8, "camera": "275", "kind": "person", "at": 1000, "untilMs": 30000}) }, 1000);
+        assert!(layer.popup.armed(1700));
+        layer.saver.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "game", "home": false}) }, 1700);
+        layer.saver.update(&Input::Helper { topic: "screen".into(), data: json!({"on": true, "state": "Screen Saver"}) }, 1701);
+        assert!(layer.saver.up());
+        let ask = layer.extras.view().ask;
+        let fx = layer.update(&kinds, &Input::Key { name: "ok".into(), down: true, repeat: false }, 1702);
+        assert!(!layer.saver.up());
+        assert_eq!(layer.extras.view().ask, ask);
+        assert!(!fx.iter().any(|e| matches!(e, Effect::Post { path, .. } if path == "/v1/cameras/popup/clear")));
+        assert!(!layer.take_intents().iter().any(|i| matches!(i, Intent::OpenCamera(_))));
     }
 }

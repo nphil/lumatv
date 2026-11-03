@@ -124,55 +124,6 @@ fn commit(client: &mut Client, window: &harness::Window, argb: u32) -> wayland_c
     buffer
 }
 
-#[test]
-fn a_shell_windows_callback_goes_out_when_its_frame_is_the_oldest_on_its_way() {
-    let (mut server, landed, drawn_at) = flipping(QUICK_DRAW);
-    let mut client = Client::connect(&mut server);
-    let shell = client.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", "LumaHome");
-    commit(&mut client, &shell, 0xff19_80e6);
-    wait_drawn(&drawn_at, 1);
-    assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1), "nothing is ahead of the first frame: its callback goes out when it is drawn");
-
-    // The client's next frame, made on that callback, is drawn while the first is on its way: it waits for the first to land.
-    commit(&mut client, &shell, 0xffe6_8019);
-    wait_drawn(&drawn_at, 2);
-    assert!(!client.wait_until(Duration::from_millis(100), |s| s.frames_done >= 2), "behind a frame on its way, a callback waits for it");
-    landed.store(1, Ordering::SeqCst);
-    assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 2), "the first landed: the second is the oldest and its callback goes out");
-    assert_eq!(server.eval(|s| s.stats.callbacks_ahead), 2);
-}
-
-#[test]
-fn with_the_switch_off_a_shell_windows_callback_waits_for_its_flip() {
-    let (mut server, landed, drawn_at) = flipping(QUICK_DRAW);
-    server.eval(|s| s.shell_ahead = false);
-    let mut client = Client::connect(&mut server);
-    let shell = client.card("_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM", "LumaLayer");
-    commit(&mut client, &shell, 0xff19_80e6);
-    wait_drawn(&drawn_at, 1);
-    assert!(!client.wait_until(Duration::from_millis(100), |s| s.frames_done >= 1), "its callback waits for its flip");
-    landed.store(1, Ordering::SeqCst);
-    assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1));
-    assert_eq!(server.eval(|s| s.stats.callbacks_ahead), 0);
-}
-
-#[test]
-fn a_shell_windows_replaced_buffer_is_released_when_the_frame_that_replaced_it_lands() {
-    let (mut server, landed, drawn_at) = flipping(QUICK_DRAW);
-    let mut client = Client::connect(&mut server);
-    let shell = client.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", "LumaHome");
-    let first = commit(&mut client, &shell, 0xff19_80e6).id().protocol_id();
-    wait_drawn(&drawn_at, 1);
-    commit(&mut client, &shell, 0xffe6_8019);
-    wait_drawn(&drawn_at, 2);
-    // The first buffer is on the screen's way until the second frame, the one that replaced it, lands: the client, let run ahead,
-    // would draw into it at once if it had it back.
-    assert!(!client.wait_until(Duration::from_millis(100), |s| s.releases.contains(&first)), "not given back when the second frame is drawn");
-    landed.store(1, Ordering::SeqCst);
-    assert!(!client.wait_until(Duration::from_millis(100), |s| s.releases.contains(&first)), "nor when the first frame lands");
-    landed.store(1, Ordering::SeqCst);
-    assert!(client.wait_until(Duration::from_secs(3), |s| s.releases.contains(&first)), "given back when the second frame lands");
-}
 
 #[test]
 fn a_cards_callback_and_replaced_buffer_go_out_when_its_frame_is_the_oldest_on_its_way() {

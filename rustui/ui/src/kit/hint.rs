@@ -206,16 +206,27 @@ impl HintRow {
         let RowAt { x, y, h, z } = at;
         let side = glyph_side(kit, role);
         let gap = kit.space(2);
+        let names = hint.glyphs();
         let mut pen = x;
         let mut glyphs = Vec::new();
-        for name in hint.glyphs() {
-            let at = Props::at(pen, (y + (h - side as f32) / 2.0).round());
-            let mut layer = kit.ui.scene.image(side, side, z, at)?;
-            let colour = glyph_colour_of(kit, name, ink);
-            glyph::draw(name, side, colour, layer.pixels_mut());
+        if !names.is_empty() {
+            let stride = (side as f32 + gap).round() as u32;
+            let width = stride * (names.len() as u32 - 1) + side;
+            let at = Props::at(x, (y + (h - side as f32) / 2.0).round());
+            let mut layer = kit.ui.scene.image(width, side, z, at)?;
+            let mut pixels = vec![0; (side * side * 4) as usize];
+            for (i, name) in names.iter().enumerate() {
+                pixels.fill(0);
+                glyph::draw(name, side, glyph_colour_of(kit, name, ink), &mut pixels);
+                for row in 0..side as usize {
+                    let src = row * side as usize * 4;
+                    let dst = (row * width as usize + i * stride as usize) * 4;
+                    layer.pixels_mut()[dst..dst + side as usize * 4].copy_from_slice(&pixels[src..src + side as usize * 4]);
+                }
+            }
             layer.damage(None);
             glyphs.push((layer, at));
-            pen += side as f32 + gap;
+            pen += width as f32 + gap;
         }
         let label = match &hint.label {
             Some(text) => {
@@ -228,7 +239,7 @@ impl HintRow {
                 Some((l, at))
             }
             None => {
-                pen -= gap;
+                if !names.is_empty() { pen -= gap; }
                 None
             }
         };

@@ -156,6 +156,8 @@ pub enum Op {
     Owner { owner: String, key: String, value: Value },
     /// A patch of the theme: applied live and written to the owner's theme.json.
     Patch(Value),
+    /// Confirm a gallery theme only after its write succeeds.
+    ThemeChoice(Value),
     /// A key of the page's own state.
     Set(String, Value),
     /// Another page (`host.openPage`).
@@ -167,7 +169,7 @@ pub enum Op {
     /// The small picker: a list of options by the row that asked, a pick writes and closes.
     Pick(Rc<ChoiceSpec>),
     /// Text from the person (the keyboard); what is typed becomes the operations `then` makes.
-    Entry { prompt: String, text: String, secret: bool, then: Rc<dyn Fn(String) -> Vec<Op>> },
+    Entry { prompt: String, text: String, secret: bool, purpose: u32, then: Rc<dyn Fn(String) -> Vec<Op>> },
     /// LG's Settings app (or another), at a screen of its own; this Settings closes.
     Launch { app: String, params: Value },
     /// The shell is asked for something outside Settings (the layout editor).
@@ -199,10 +201,12 @@ pub enum ShellRequest {
     HomeLayout(Value),
     /// Closes Settings and opens Home's layout editor.
     EditHome,
+    /// Opens Home's wallpaper editor.
+    Wallpaper,
     /// Opens the display lab (kind `displaylab`) over Settings, which stays where it was for the way back.
     DisplayLab,
     /// Asks the keyboard for text (a Wi-Fi password, the TV's name); the answer comes back as `entered` or `entry_cancelled`.
-    Text { prompt: String, text: String, secret: bool },
+    Text { prompt: String, text: String, secret: bool, purpose: u32 },
 }
 
 impl std::fmt::Debug for Op {
@@ -223,6 +227,7 @@ impl std::fmt::Debug for Op {
             Op::Send { name, method, path, body } => write!(f, "Send({name:?} {method} {path} {body:?})"),
             Op::Owner { owner, key, value } => write!(f, "Owner({owner}.{key}={value})"),
             Op::Patch(p) => write!(f, "Patch({p})"),
+            Op::ThemeChoice(p) => write!(f, "ThemeChoice({p})"),
             Op::Set(k, v) => write!(f, "Set({k}={v})"),
             Op::Open { page, .. } => write!(f, "Open({page})"),
             Op::Up => write!(f, "Up"),

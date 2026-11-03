@@ -217,7 +217,7 @@ fn check_config_reports_what_the_set_must_have() {
 fn the_foreground_run_reports_ready_and_ends_on_sigterm() {
     let dir = data_dir(json!({}));
     let mut child = Command::new(BIN)
-        .args(["run", "--stderr", "--data-dir"])
+        .args(["run", "--data-dir"])
         .arg(dir.path())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

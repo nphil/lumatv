@@ -1,7 +1,7 @@
 //! Keys and the pointer from the set's input devices (C4). `lginput2` turns every remote (IR `LGE RCU`, the Magic
 //! Remote `LGE M-RCU`, network keys as `Smart Remote RCU Input`, …) into evdev devices; the compositor reads them
 //! all and routes each key by the focused window's key mask and access policies, keeping the compositor's own
-//! keys (Home, the hold-Home escape) for itself. The Magic Remote's pointer arrives as absolute axes (the census in
+//! keys (Home) for itself. The Magic Remote's pointer arrives as absolute axes (the census in
 //! `docs/research/arch/input-devices-01.txt`: `ABS=3` on every `LGE M-RCU`, the only relative axis is the wheel);
 //! a turn of the wheel shows the cursor (`remote.pointerShow` `wheel`, the default; `movement` is LG's: a motion shows it),
 //! motion moves it while it shows, OK clicks while it shows, a navigation key or 10 s of stillness hides it. Reads are
@@ -16,9 +16,8 @@ use std::time::{Duration, Instant};
 use crate::State;
 use crate::buttons;
 use crate::keys::{self, Action, Ctx};
-use crate::luna::ToBridge;
 use crate::server::seat;
-use crate::window::{WindowType, key_mask};
+use crate::window::key_mask;
 
 /// Linux input event codes the routing knows by name (`linux/input-event-codes.h`).
 pub mod code {
@@ -68,8 +67,6 @@ pub mod code {
 /// A Power key still down this long after its press is held; one pressed again after more is a new press (its release was lost).
 const POWER_REPEAT_WINDOW: Duration = Duration::from_secs(2);
 
-/// How long Home is held for the escape to LG's compositor (PLAN: 650 ms).
-pub const HOLD_HOME: Duration = Duration::from_millis(650);
 
 /// What a key means to the compositor before any client sees it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -352,14 +349,12 @@ pub fn open_all(dir: &std::path::Path) -> Vec<Device> {
 /// The compositor's key state: the Home hold, the remote's own keys (`keys.rs`) and what was delivered.
 #[derive(Default)]
 pub struct Keys {
-    home_down_since: Option<Instant>,
-    home_escape_sent: bool,
     pub delivered: u64,
     pub dropped: u64,
     pub router: keys::Router,
     /// What the owner made of the remote's buttons (`remote.buttons`), re-read when the theme file changes.
     pub buttons: buttons::ButtonMap,
-    /// The buttons of `buttons` whose press was taken or changed, with the code that went on (`None`: taken), until their release.
+    /// Remapped or consumed buttons, including a saver wake, retained through repeats and release.
     mapped: Vec<(u32, Option<u32>)>,
     /// What the gear does when held (`remote.gearHold`), read with the app buttons.
     pub gear_hold: keys::HoldAction,
@@ -471,7 +466,18 @@ impl State {
         // Told over LG's Input Manager queue that the pointer shows (`im_queue`), lginput2 sends the wheel's press as the mouse button, BTN_LEFT, in
         // place of KEY_ENTER (entries 0 and 185 of its key table). It is the same OK: a click while the pointer shows, the key when it hid first.
         let code = if code == seat::BTN_LEFT { code::KEY_ENTER } else { code };
+        let saver_up = self.lg_saver_up();
         self.care_input();
+        if saver_up {
+            if pressed {
+                if !self.keys.mapped.iter().any(|(c, _)| *c == code) {
+                    self.keys.mapped.push((code, None));
+                }
+            } else if let Some(i) = self.keys.mapped.iter().position(|(c, _)| *c == code) {
+                self.keys.mapped.swap_remove(i);
+            }
+            return;
+        }
         // The owner's choices for the remote's buttons come before anything else sees the key.
         let Some(code) = self.remap_button(code, pressed) else {
             self.seat.last_input = "key";
@@ -480,7 +486,7 @@ impl State {
         // While the Magic Remote's cursor shows, OK is a click on what it points at (LG's behaviour); an arrow or
         // Back hides the cursor and goes on as a key. A release goes the way its press went: a press taken as a key (by the Rust shell, or by an app's
         // keyboard) has its release as a key even if the cursor showed in between, and one taken as a click has its release as one.
-        let key_press_open = !pressed && (self.shell_rust.took.iter().any(|(c, _)| *c == code) || self.seat.pressed.iter().any(|(_, c)| *c == code));
+        let key_press_open = !pressed && (self.shell_rust.took.iter().any(|(c, _, _)| *c == code) || self.seat.pressed.iter().any(|(_, c)| *c == code));
         if matches!(code, code::KEY_ENTER | code::KEY_OK) && !key_press_open && self.seat.cursor_visible && (self.seat.pointer_focus.is_some() || self.shell_rust.pointer_in) {
             if seat::pointer_button(self, pressed) {
                 self.keys.delivered += 1;
@@ -505,12 +511,6 @@ impl State {
         if first_press && logical == keys::Logical::Gear {
             self.shell_show("quick", true);
         }
-        // The overlay cards' OK and Back, which the shell's system layer asks for by name while an app has the focus (`takes`): they go to
-        // the layer as `syskey` events, the arrows and everything else stay the app's (`shell_takes_key`).
-        if self.shell_takes_key(seat, code, pressed, out.swallow, now) {
-            self.seat.last_input = "key";
-            return;
-        }
         // The Rust shell's layer: every key but the compositor's own while it wants them, and its cards' OK and Back (`shell_rust.rs`).
         if !matches!(code, code::KEY_HOME | code::KEY_HOMEPAGE | code::KEY_RF_HOME | code::KEY_VOLUMEUP | code::KEY_VOLUMEDOWN | code::KEY_MUTE)
             && self.shell_rust_takes_key(seat, code, pressed, out.swallow, now)
@@ -526,28 +526,9 @@ impl State {
         let (mask, back, home) = focused
             .map(|w| (w.key_mask, w.access_policy("_WEBOS_ACCESS_POLICY_KEYS_BACK"), w.access_policy("_WEBOS_ACCESS_POLICY_KEYS_HOME")))
             .unwrap_or((0, false, false));
-        // The shell's windows (LumaTV's Home, its system layer with a panel open) get every key but the compositor's own: Back
-        // closes what they have open, never them, and Home stays the escape and the Home app's.
-        let shell_focus = focused.is_some_and(|w| w.kind.is_shell());
-        let r = if shell_focus
-            && !matches!(code, code::KEY_HOME | code::KEY_HOMEPAGE | code::KEY_RF_HOME | code::KEY_VOLUMEUP | code::KEY_VOLUMEDOWN | code::KEY_MUTE)
-        {
-            Route::Client
-        } else {
-            route(code, mask, back, home)
-        };
-        if matches!(code, code::KEY_HOME | code::KEY_HOMEPAGE | code::KEY_RF_HOME) {
-            if pressed {
-                if self.keys.home_down_since.is_none() {
-                    self.keys.home_down_since = Some(now);
-                    self.keys.home_escape_sent = false;
-                }
-            } else {
-                let held = self.keys.home_down_since.take().map(|t| now.saturating_duration_since(t)).unwrap_or_default();
-                if !self.keys.home_escape_sent && r == Route::Home && held < HOLD_HOME {
-                    self.home_tap(now, from_network, self.shell_hears_home_key(shell_focus));
-                }
-            }
+        let r = route(code, mask, back, home);
+        if matches!(code, code::KEY_HOME | code::KEY_HOMEPAGE | code::KEY_RF_HOME) && !pressed && r == Route::Home {
+            self.home_tap(now, from_network, self.shell_hears_home_key());
         }
         // An input method that holds the keyboard grab (the on-screen keyboard) is given every key the app would have got, Back
         // and the arrows included; Home, Volume and Mute stay the compositor's. The shell's own keyboard takes the arrows, OK, Back and
@@ -621,22 +602,12 @@ impl State {
         }
     }
 
-    /// Called every tick: a Home held 650 ms is the escape to LG's compositor (PLAN); the holds of the remote's own keys come
-    /// due; a cursor still for [`seat::CURSOR_TIMEOUT`] hides; the shell client is looked after.
+    /// Called every tick: the remote's holds come due, an idle cursor hides, and the shell client is looked after.
     pub fn poll_holds(&mut self) {
         self.poll_holds_at(Instant::now());
     }
 
     pub fn poll_holds_at(&mut self, now: Instant) {
-        if let Some(t) = self.keys.home_down_since
-            && !self.keys.home_escape_sent
-            && now.saturating_duration_since(t) >= HOLD_HOME
-        {
-            self.keys.home_escape_sent = true;
-            self.journal("input: Home held 650 ms: asking the supervisor to fall back to LG's compositor".into());
-            self.luna.send(ToBridge::Fallback { reason: "hold Home 650 ms".into() });
-        }
-        self.shell_tick(now);
         if self.shell_rust_tick(now) {
             self.ui_socket_new = true;
         }
@@ -744,10 +715,9 @@ impl State {
         self.scene.foreground(&self.surfaces).map(|w| w.app_id().to_string()).unwrap_or_default()
     }
 
-    /// Whether a keyboard is on the screen with a text field to close it for: its window is mapped (LG's) or the shell's keyboard is up, and
-    /// a field holds the activation. A keyboard window nobody asked for (no field) is none of the keys' business.
+    /// Whether the native keyboard is visible for the active text field.
     pub fn keyboard_up(&self) -> bool {
-        self.ime.active_model().is_some() && (self.ime.own_taking() || self.scene.windows().any(|w| w.kind == WindowType::Keyboard && w.map_serial > 0))
+        self.ime.own_taking()
     }
 
     pub(crate) fn home_pressed(&mut self, from_network: bool) {
@@ -758,15 +728,12 @@ impl State {
         );
     }
 
-    /// Back on a window that does not take it, Exit, Back held: LG's compositor closes the window
-    /// (`_WEBOS_LAUNCH_PREV_APP_AFTER_CLOSING` decides what shows next); here the window gets `close` and the app manager is told. The
-    /// Home app is not closed by either (LG closes its Home view and nothing else): a Home that closed would leave a black screen, and
-    /// neither is the shell's window that has the keys (it got the key itself and closes what it has open).
+    /// Back or Exit closes the focused app, except Home.
     pub(crate) fn back_pressed(&mut self) {
         let Some(wid) = self.seat.focus.and_then(|s| self.scene.window_of(s)) else { return };
-        let (app, shell) = self.scene.window(wid).map(|w| (w.app_id().to_string(), w.kind.is_shell())).unwrap_or_default();
-        if app == crate::scene::HOME_APP || shell {
-            self.journal(format!("input: Back or Exit on {}: nothing to close", if shell { "LumaTV's shell" } else { "Home" }));
+        let app = self.scene.window(wid).map(|w| w.app_id().to_string()).unwrap_or_default();
+        if app == crate::scene::HOME_APP {
+            self.journal("input: Back or Exit on Home: nothing to close".into());
             return;
         }
         if let Some(res) = self.webos_shell_resource(wid) {

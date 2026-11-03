@@ -95,6 +95,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
         prompt: "Name".into(),
         text: String::new(),
         secret: false,
+        purpose: crate::panels::ime::PURPOSE_NAME,
         then: Rc::new(move |name| {
             let name = name.trim().to_string();
             if name.is_empty() {
@@ -160,6 +161,7 @@ fn person_rows(c: &Ctx) -> Vec<Row> {
             prompt: "Name".into(),
             text: text(p, "name").into(),
             secret: false,
+            purpose: crate::panels::ime::PURPOSE_NAME,
             then: Rc::new(move |name| {
                 let name = name.trim().to_string();
                 if name.is_empty() { Vec::new() } else { vec![Op::Send { name: None, method: "POST", path: path.clone(), body: Some(json!({"name": name})) }] }
@@ -193,6 +195,7 @@ fn person_rows(c: &Ctx) -> Vec<Row> {
                 prompt: "Current PIN".into(),
                 text: String::new(),
                 secret: true,
+                purpose: crate::panels::ime::PURPOSE_DIGITS,
                 then: Rc::new(move |current| vec![Op::Send { name: None, method: "POST", path: pin_path.clone(), body: Some(json!({"clear": true, "current": current})) }]),
             }]
         }
@@ -202,6 +205,7 @@ fn person_rows(c: &Ctx) -> Vec<Row> {
             prompt: "New PIN".into(),
             text: String::new(),
             secret: true,
+            purpose: crate::panels::ime::PURPOSE_DIGITS,
             then: Rc::new(move |pin| {
                 if pin.len() == 4 && pin.bytes().all(|b| b.is_ascii_digit()) {
                     vec![Op::Send { name: None, method: "POST", path: pin_path.clone(), body: Some(json!({"pin": pin})) }]

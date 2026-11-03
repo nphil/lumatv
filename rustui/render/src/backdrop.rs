@@ -33,138 +33,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
 
-/// A rectangle of panel pixels, `[left, top, right, bottom]`.
-pub type Area = [i32; 4];
-
-pub fn overlaps(a: &Area, b: &Area) -> bool {
-    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
-}
-
-fn union(a: &Area, b: &Area) -> Area {
-    [
-        a[0].min(b[0]),
-        a[1].min(b[1]),
-        a[2].max(b[2]),
-        a[3].max(b[3]),
-    ]
-}
-
-fn grown(a: &Area, by: i32, within: &Area) -> Area {
-    [
-        (a[0] - by).max(within[0]),
-        (a[1] - by).max(within[1]),
-        (a[2] + by).min(within[2]),
-        (a[3] + by).min(within[3]),
-    ]
-}
-
-/// How a backdrop is kept.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Refresh {
-    /// Made again every frame, of the layers as drawn.
-    Live,
-    /// Made of the layers at rest, and again only when the fingerprint of the layers below changes.
-    Cached,
-}
-
-/// What a glass surface asks of its backdrop.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Ask {
-    pub refresh: Refresh,
-    /// The blur's standard deviation in panel pixels.
-    pub radius: f32,
-    /// How many times smaller than the panel the picture is: 2, 4 or 8.
-    pub downsample: u8,
-    /// The surface's body now, and at rest.
-    pub body_now: Area,
-    pub body_rest: Area,
-}
-
-impl Ask {
-    /// The surface's body where a backdrop of `refresh`'s kind sees it: now, or at rest.
-    pub fn body(&self, refresh: Refresh) -> Area {
-        match refresh {
-            Refresh::Live => self.body_now,
-            Refresh::Cached => self.body_rest,
-        }
-    }
-}
-
-/// One layer of the frame, in drawing order, as far as backdrops care.
-#[derive(Clone, Copy, Debug)]
-pub struct Layer {
-    pub id: LayerId,
-    /// Changes whenever the layer changes what it is or where it rests.
-    pub version: u64,
-    /// Everything of the layer that is drawn (a glass surface's shadows too), now and at rest; `None` when it is not
-    /// shown then.
-    pub now: Option<Area>,
-    pub rest: Option<Area>,
-    pub ask: Option<Ask>,
-}
-
-/// One blurred picture a frame needs.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Backdrop {
-    pub refresh: Refresh,
-    pub radius: f32,
-    pub downsample: u8,
-    /// The layers before this index are what it is a picture of.
-    pub upto: usize,
-    /// The part of the panel that has to be right: the bodies that use it, and the blur's reach around them. The whole
-    /// panel for a cached one, which has to serve the surface wherever it is moved to.
-    pub area: Area,
-    /// The indices of the glass surfaces that show it. When there are several, they cast their shadows together, and
-    /// a live picture has the shadows in it (see the top of this file).
-    pub users: Vec<usize>,
-}
-
-/// The backdrops a frame needs, in the order they are to be made. `reach` is how far a blur of the given radius and
-/// downsampling reaches, in panel pixels.
-pub fn plan(layers: &[Layer], panel: Area, mut reach: impl FnMut(f32, u8) -> i32) -> Vec<Backdrop> {
-    let mut out: Vec<Backdrop> = Vec::new();
-    for (index, layer) in layers.iter().enumerate() {
-        let Some(ask) = layer.ask else { continue };
-        let body = ask.body(ask.refresh);
-        let area = match ask.refresh {
-            Refresh::Live => grown(&body, reach(ask.radius, ask.downsample), &panel),
-            Refresh::Cached => panel,
-        };
-        // The latest backdrop of the same kind that nothing drawn since would show on the surface's body. What a surface
-        // that shares it has around its body, its shadows, is no obstacle: it is cast into the picture (see `Backdrop`),
-        // where the others' bodies see it through the glass. Only its body can be in the way.
-        let shared = out.iter_mut().rev().find(|b| {
-            (b.refresh, b.radius, b.downsample) == (ask.refresh, ask.radius, ask.downsample)
-                && layers[b.upto..index].iter().enumerate().all(|(k, below)| {
-                    let shared_body = b
-                        .users
-                        .contains(&(b.upto + k))
-                        .then(|| below.ask.map(|a| a.body(ask.refresh)))
-                        .flatten();
-                    let footprint = shared_body.or(match ask.refresh {
-                        Refresh::Live => below.now,
-                        Refresh::Cached => below.rest,
-                    });
-                    footprint.is_none_or(|f| !overlaps(&f, &body))
-                })
-        });
-        match shared {
-            Some(backdrop) => {
-                backdrop.area = union(&backdrop.area, &area);
-                backdrop.users.push(index);
-            }
-            None => out.push(Backdrop {
-                refresh: ask.refresh,
-                radius: ask.radius,
-                downsample: ask.downsample,
-                upto: index,
-                area,
-                users: vec![index],
-            }),
-        }
-    }
-    out
-}
+mod plan;
+pub use self::plan::{Area, Ask, Backdrop, Layer, Refresh, overlaps, plan};
 
 /// A number that stands for the layers below `upto`, at rest, and the blur: it is the same until one of them is
 /// created, deleted, restyled, damaged or set somewhere else, and it does not change while one is animated or a
@@ -909,6 +779,8 @@ mod tests {
                 downsample,
                 body_now: body,
                 body_rest: body,
+                sample_now: body,
+                sample_rest: body,
             }),
             ..plain(id, 1, body)
         }
@@ -1271,19 +1143,16 @@ mod tests {
 
     /// Glass that shows its backdrop and nothing else.
     fn clear_glass(backdrop: Ask_) -> Glass {
-        Glass {
-            corner_radius: 0.0,
-            tint: Rgba(0, 0, 0, 0),
-            edge: Rgba(0, 0, 0, 0),
-            edge_width: 0.0,
-            highlight: Rgba(0, 0, 0, 0),
-            sheen: None,
-            shadows: [None, None],
-            depth: None,
-            backdrop,
-            saturation: 1.0,
-            refraction: 0.0,
-        }
+        Glass { corner_radius: 0.0,
+        tint: Rgba(0, 0, 0, 0),
+        edge: Rgba(0, 0, 0, 0),
+        edge_width: 0.0,
+        highlight: Rgba(0, 0, 0, 0),
+        sheen: None,
+        shadows: [None, None],
+        depth: None,
+        backdrop,
+        saturation: 1.0, refraction: 0.0, edge_lens: None, tint_gradient: None, }
     }
 
     fn glass_layer(id: u32, glass: Glass, size: (u32, u32), at: (f32, f32)) -> crate::scene::Drawn {

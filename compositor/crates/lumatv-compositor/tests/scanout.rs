@@ -348,17 +348,17 @@ fn every_rule_on_a_real_buffer_composes_the_frame_with_its_own_reason() {
 }
 
 #[test]
-fn a_system_layer_composes_the_frame_it_appears_in_and_the_plane_has_the_window_again_when_it_leaves() {
+fn a_keyboard_composes_the_frame_it_appears_in_and_the_plane_has_the_window_again_when_it_leaves() {
     let (mut server, knobs) = rig();
     let mut client = Client::connect(&mut server);
     let mali: MaliBufferSharing = client.globals.bind(&client.qh, 5..=5, ()).unwrap();
     let app = client.card("_WEBOS_WINDOW_TYPE_CARD", "App");
-    let sys = client.card("_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM", "LumaTV System");
+    let sys = client.card("_WEBOS_WINDOW_TYPE_KEYBOARD", "Keyboard");
     let a = takeable(&mut client, &mali);
     show(&mut client, &app.surface, &a);
     assert!(matches!(frames(&knobs).last(), Some(Frame::Direct(_))));
 
-    // The system layer shows something (a volume bar): two pictures, the plane cannot blend them.
+    // A keyboard appears over the card: the plane cannot blend both pictures.
     let bar = client.shm_buffer(400, 80, 0xcc20_2020);
     show(&mut client, &sys.surface, &bar);
     assert_eq!(frames(&knobs).last(), Some(&Frame::Composed("layers".into())));
@@ -367,12 +367,9 @@ fn a_system_layer_composes_the_frame_it_appears_in_and_the_plane_has_the_window_
     show(&mut client, &app.surface, &a2);
     assert_eq!(frames(&knobs).last(), Some(&Frame::Composed("layers".into())));
 
-    // The layer has nothing to show any more: the shell says so, and the window's own buffer goes to the plane in the next frame.
-    server.eval(|s| {
-        let now = lumatv_compositor::output::monotonic_ns();
-        s.scene.set_shell_system_live(false, now);
-        s.scene.redraw_all();
-    });
+    // Removing the keyboard lets the app's buffer go to the plane again.
+    sys.surface.destroy();
+    client.roundtrip();
     let a3 = takeable(&mut client, &mali);
     show(&mut client, &app.surface, &a3);
     assert!(matches!(frames(&knobs).last(), Some(Frame::Direct(_))), "{:?}", frames(&knobs));
@@ -388,12 +385,13 @@ fn a_system_layer_composes_the_frame_it_appears_in_and_the_plane_has_the_window_
 }
 
 #[test]
-fn the_shells_home_as_a_linear_buffer_is_taken_and_in_the_clients_own_layout_it_is_not() {
+fn an_opaque_alpha_buffer_is_taken_in_linear_layout_but_not_in_an_unsupported_layout() {
     let (mut server, knobs) = rig();
     let mut client = Client::connect(&mut server);
     let mali: MaliBufferSharing = client.globals.bind(&client.qh, 5..=5, ()).unwrap();
-    let home = client.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", "LumaTV Home");
-    // Qt's window is transparent (an alpha buffer), and the scene counts Home's picture opaque: it fills its window with a wallpaper.
+    let home = client.card("_WEBOS_WINDOW_TYPE_CARD", "App");
+    let opaque = client.region(0, 0, 1920, 1080);
+    home.surface.set_opaque_region(Some(&opaque));
     let linear = dmabuf(&mut client, &mali, (1920, 1080), 7680, fourcc::ABGR8888, modifier::LINEAR);
     show(&mut client, &home.surface, &linear);
     assert!(matches!(frames(&knobs).last(), Some(Frame::Direct(_))), "{:?}", frames(&knobs));
@@ -402,14 +400,13 @@ fn the_shells_home_as_a_linear_buffer_is_taken_and_in_the_clients_own_layout_it_
     assert_eq!(frames(&knobs).last(), Some(&Frame::Composed("modifier".into())));
 }
 
-/// Home's buffers presented one after another while the OLED care's orbit walks one pixel a frame (a beat due at every frame rides on the
-/// frame drawn anyway): the care's offset at each frame, with what the output did.
+/// An app's successive buffers while app shift moves its picture.
 fn orbit_frames(server: &mut Server, client: &mut Client, mali: &MaliBufferSharing, home: &harness::Window, knobs: &Arc<Knobs>, n: usize) -> Vec<((i32, i32), Frame)> {
     let mut out = Vec::new();
     for _ in 0..n {
         let buf = takeable(client, mali);
         show(client, &home.surface, &buf);
-        let offset = server.eval(|s| s.scene.care.offset());
+        let offset = server.eval(|s| s.scene.care.app_offset());
         out.push((offset, frames(knobs).last().cloned().unwrap()));
     }
     out
@@ -420,9 +417,10 @@ fn the_cares_orbit_is_the_planes_position_right_or_down_of_the_origin_when_allow
     let (mut server, knobs) = rig_with(Policy { mode: Mode::Direct, offset: true, ..Policy::default() });
     let mut client = Client::connect(&mut server);
     let mali: MaliBufferSharing = client.globals.bind(&client.qh, 5..=5, ()).unwrap();
-    let home = client.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", "LumaTV Home");
+    let home = client.card("_WEBOS_WINDOW_TYPE_CARD", "App");
     server.eval(|s| {
-        s.scene.care.settings.enabled = true;
+        s.scene.care.settings.app_shift = true;
+        s.scene.care.settings.app_after_ns = 0;
         s.scene.care.settings.radius = 1;
         s.scene.care.settings.step_ns = 1;
     });
@@ -463,8 +461,8 @@ fn the_cares_orbit_is_the_planes_position_right_or_down_of_the_origin_when_allow
     let report = server.eval(|s| s.scanout_report());
     assert_eq!(report["offset"]["on"], false);
 
-    // The care off again: Home is back at the origin and direct, whatever the switch.
-    server.eval(|s| s.scene.care.settings.enabled = false);
+    // Turning app shift off returns the card to the origin.
+    server.eval(|s| s.scene.care.settings.app_shift = false);
     let walked = orbit_frames(&mut server, &mut client, &mali, &home, &knobs, 2);
     assert!(matches!(walked.last(), Some(((0, 0), Frame::Direct(_)))), "{walked:?}");
 }
@@ -678,7 +676,7 @@ fn a_capture_composes_every_frame_and_the_switch_works_at_run_time() {
     let status: serde_json::Value = serde_json::from_str(&server.eval(|s| control::handle(s, "status").text())).unwrap();
     assert_eq!(status["scanout"]["mode"], "direct");
     assert!(status["scanout"]["frames"]["direct"].as_u64() >= Some(2));
-    assert!(server.eval(|s| control::handle(s, "scanout sideways").text()).contains("scanout [off|direct|offset on|off|shell-env"));
+    assert!(server.eval(|s| control::handle(s, "scanout sideways").text()).contains("scanout [off|direct|offset on|off]"));
     // The plane offset's switch over the socket: on, read back, a word it does not take, off.
     let v: serde_json::Value = serde_json::from_str(&server.eval(|s| control::handle(s, "scanout offset on").text())).unwrap();
     assert_eq!((v["ok"].as_bool(), v["scanout"]["offset"]["on"].as_bool()), (Some(true), Some(true)), "{v}");
@@ -686,18 +684,6 @@ fn a_capture_composes_every_frame_and_the_switch_works_at_run_time() {
     assert!(server.eval(|s| control::handle(s, "scanout offset sideways").text()).contains("scanout offset on|off"));
     let v: serde_json::Value = serde_json::from_str(&server.eval(|s| control::handle(s, "scanout offset off").text())).unwrap();
     assert_eq!(v["scanout"]["offset"]["on"].as_bool(), Some(false), "{v}");
-
-    // The shell client's extra environment: set, read back in the report, refused when it is not NAME=VALUE, cleared.
-    let reply = server.eval(|s| control::handle(s, "scanout shell-env WAYLAND_AFBC=0 A=b=c").text());
-    let v: serde_json::Value = serde_json::from_str(&reply).unwrap();
-    assert_eq!(v["scanout"]["shellEnv"], serde_json::json!(["WAYLAND_AFBC=0", "A=b=c"]), "{reply}");
-    assert_eq!(server.eval(|s| s.config.scanout_shell_env.clone()), vec![("WAYLAND_AFBC".to_string(), "0".to_string()), ("A".to_string(), "b=c".to_string())]);
-    let reply = server.eval(|s| control::handle(s, "scanout shell-env nonsense").text());
-    assert!(reply.contains("\"ok\":false") && reply.contains("NAME=VALUE"), "{reply}");
-    assert_eq!(server.eval(|s| s.config.scanout_shell_env.len()), 2, "a refused line changes nothing");
-    let reply = server.eval(|s| control::handle(s, "scanout shell-env none").text());
-    let v: serde_json::Value = serde_json::from_str(&reply).unwrap();
-    assert_eq!(v["scanout"]["shellEnv"], serde_json::json!([]), "{reply}");
 }
 
 #[test]

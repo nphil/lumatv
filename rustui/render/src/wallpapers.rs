@@ -74,6 +74,22 @@ pub struct Look {
     pub bloom: f32,
 }
 
+/// Home's controls in theme units, applied only to its named Silk layer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Silk {
+    pub amplitude: f32,
+    pub depth: f32,
+    pub scale: f32,
+    pub detail: f32,
+    pub look: Look,
+}
+
+impl Default for Silk {
+    fn default() -> Self {
+        Self { amplitude: 4.0, depth: SILK_DEPTH, scale: SILK_SCALE, detail: SILK_DETAIL, look: Look::default() }
+    }
+}
+
 /// Whether a kind is an overlay: it draws over what is below instead of covering it.
 pub fn is_overlay(kind: &WallpaperKind) -> bool {
     matches!(
@@ -406,6 +422,7 @@ impl Program {
 /// How one wallpaper is drawn this time.
 #[derive(Clone, Copy)]
 pub struct Draw<'a> {
+    pub layer: compositor_protocol::LayerId,
     /// The layer's size in its own pixels.
     pub size: (f32, f32),
     pub opacity: f32,
@@ -424,6 +441,8 @@ pub struct Draw<'a> {
 /// The programs and meshes of every kind of wallpaper.
 pub struct Wallpapers {
     look: Look,
+    home_silk: Option<(compositor_protocol::LayerId, Silk)>,
+    silk_revision: u64,
     silk: Program,
     /// Silk with LumaGlass's optional extras compiled in, used only when one of them is asked for.
     silk_look: Program,
@@ -518,6 +537,8 @@ impl Wallpapers {
             mesh(&sprite_mesh(count, seed, home), None)
         };
         Ok(Self {
+            home_silk: None,
+            silk_revision: 0,
             look,
             silk: program(
                 shader::silk_vertex(false),
@@ -585,6 +606,19 @@ impl Wallpapers {
         self.look = look;
     }
 
+    pub fn set_silk(&mut self, id: compositor_protocol::LayerId, silk: Silk) -> bool {
+        if self.home_silk == Some((id, silk)) { return false; }
+        self.home_silk = Some((id, silk));
+        self.silk_revision = self.silk_revision.wrapping_add(1).max(1);
+        true
+    }
+
+    pub fn clear_silk(&mut self) -> bool { self.home_silk.take().is_some() }
+
+    pub fn revision(&self, id: compositor_protocol::LayerId) -> u64 {
+        if self.home_silk.is_some_and(|(of, _)| of == id) { self.silk_revision } else { 0 }
+    }
+
     /// Sets the program's placement and opacity, and blending on or off.
     fn begin(&self, gl: &Gles, program: &Program, draw: &Draw, blend: bool) {
         gl.use_program(program.id);
@@ -617,21 +651,25 @@ impl Wallpapers {
         match wallpaper.kind {
             WallpaperKind::Silk => {
                 let Some(picture) = draw.picture else { return };
-                let with_look = self.look != Look::default();
+                let home = self.home_silk.filter(|(id, _)| *id == draw.layer).map(|(_, silk)| silk);
+                let silk = home.unwrap_or(Silk { look: self.look, ..Silk::default() });
+                let look = silk.look;
+                let with_look = look != Look::default();
                 let p = if with_look {
                     &self.silk_look
                 } else {
                     &self.silk
                 };
                 self.begin(gl, p, draw, blend_base);
-                let warp = Warp::new(draw.phase, SILK_AMPLITUDE, SILK_DEPTH, SILK_DETAIL, motion);
+                let mut warp = Warp::new(draw.phase, silk.amplitude / 1920.0, silk.depth, silk.detail, motion);
+                warp.params[2] = silk.scale;
                 Self::set_warp(gl, p, &warp);
                 if with_look {
                     gl.uniform3f(
                         p.u("u_look"),
-                        self.look.vignette,
-                        self.look.specular,
-                        self.look.bloom,
+                        look.vignette,
+                        look.specular,
+                        look.bloom,
                     );
                 }
                 gl.uniform3f(p.u("u_scrim"), SILK_SCRIM[0], SILK_SCRIM[1], SILK_SCRIM[2]);
@@ -1679,19 +1717,16 @@ mod tests {
     }
 
     fn glass(backdrop: Backdrop) -> Glass {
-        Glass {
-            corner_radius: 0.0,
-            tint: Rgba(0, 0, 0, 0),
-            edge: Rgba(0, 0, 0, 0),
-            edge_width: 0.0,
-            highlight: Rgba(0, 0, 0, 0),
-            sheen: None,
-            shadows: [None, None],
-            depth: None,
-            backdrop,
-            saturation: 1.0,
-            refraction: 0.0,
-        }
+        Glass { corner_radius: 0.0,
+        tint: Rgba(0, 0, 0, 0),
+        edge: Rgba(0, 0, 0, 0),
+        edge_width: 0.0,
+        highlight: Rgba(0, 0, 0, 0),
+        sheen: None,
+        shadows: [None, None],
+        depth: None,
+        backdrop,
+        saturation: 1.0, refraction: 0.0, edge_lens: None, tint_gradient: None, }
     }
 
     fn glass_layer(id: u32, backdrop: Backdrop, at: (f32, f32), size: (u32, u32)) -> Drawn {

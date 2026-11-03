@@ -28,8 +28,8 @@ fallback while telnet is down. Seen on the set at 19:42: one :23 connection, non
 - Next, not mine: (a) QML for the AI prompt (`ai`, `ai.prompt` topics, `/v1/ai`) and for plugin cards, tiles, pages and toasts
   (topics below); (b) the settings flow that writes `plugins/enabled.json` behind the physical remote; (c) a TV smoke test of the
   broker (ask Main for a slot; plan under "Plugin broker"); (d) start/stop wiring in `tools/lumatv` (snippet below, unchanged).
-- If the helper misbehaves on the set: `lumatv-helper stop --brand <app dir>/brand.json`, read `/var/lib/lumatv/log-helper`,
-  set `"fetch": {"backend": "curl"}` or `"fetch": {"user": null}` in `/var/lib/lumatv/helper.json` for TLS trouble.
+- If the helper misbehaves on the set: `lumatv-helper stop --brand <app dir>/brand.json`; inspect tagged records with `tools/logrelay.py read <tag> [count]` (for example `helper` or `plugins`) from `/tmp/lumatv-logs/current.log` and `previous.log`, the bounded temporary RAM windows. Set `"fetch": {"backend": "curl"}` or `{"fetch": {"user": null}}` in `/var/lib/lumatv/helper.json` for TLS trouble.
+- If the helper misbehaves on the set: `lumatv-helper stop --brand <app dir>/brand.json`; inspect tagged records with `tools/logrelay.py read <tag> [count]` (for example `helper` or `plugins`) from `/tmp/lumatv-logs/current.log` and `previous.log`, the bounded temporary RAM windows. Set `"fetch": {"backend": "curl"}` or `{"fetch": {"user": null}}` in `/var/lib/lumatv/helper.json` for TLS trouble.
 - Git: shared working tree; stage only `helper/` and this file; `git push -q forge main`; never `git pull`.
 
 ## What is in `helper/`
@@ -63,9 +63,7 @@ lumatv-helper check-config --brand ...              # what the set has: luna-sen
 - `start` is idempotent (`"already":true` when running) and safe from SSH or a boot hook: the child is its own session, all
   inherited descriptors are closed (a captured stdout reaches end of file, a shell's lock fd does not stay held), SIGHUP is
   ignored. A single instance is enforced by `flock` on `/var/lib/lumatv/helper.lock`, which holds the pid and port.
-- Files, all under the brand's data dir: `log-helper` (+ `log-helper.1`, 256 KiB each, UTC stamps), `helper.lock`,
-  `helper.json` (optional process config), `cache/weather.json`, `cache/news.json`, `settings/<owner>.json`.
-  `--brand` reads `dataDir` by `tools/brand.sh`'s rule (directly under `/var/lib`).
+- Files under the brand data dir: `helper.lock`, `helper.json` (optional process config), `cache/weather.json`, `cache/news.json`, and `settings/<owner>.json`. `--brand` reads `dataDir` by `tools/brand.sh`'s rule (directly under `/var/lib`).
 - Port: 127.0.0.1:18731 (`helper.json` `listen.port`). A non-loopback `listen.host` is refused at config load.
 - Start it after `/var/lib/lumatv` is writable (about 13 s into boot): in `autostart.sh --worker` after `boot-bind`, and at
   the end of `apply`. Stop it in `revert`.
@@ -93,7 +91,7 @@ All keys optional; an unknown key or a bad value stops `start` with the reason (
 | Key | Default | Meaning |
 |---|---|---|
 | `listen.host`, `listen.port` | `127.0.0.1`, 18731 | loopback only; 0 asks for a free port (tests) |
-| `log.level`, `log.maxBytes` | `info`, 262144 | `error`, `warn`, `info`, `debug`; size at which `log-helper` becomes `log-helper.1` |
+| `log.level` | `info` | `error`, `warn`, `info`, `debug`; helper and compositor records use `/tmp/lumatv-logs/current.log` (`previous.log` is the prior RAM window), read with `tools/logrelay.py read <tag> [count]`; bounded RAM retention only |
 | `screen.source`, `screen.pollMs` | `luna`, 5000 | `on` treats the screen as always on (development); the poll period if subscribing fails |
 | `receiver.pollMs`, `fastPollMs`, `burstMs`, `maxBackoffMs`, `hideAfterMs`, `telnetPort` | 2000, 250, 3000, 30000, 6000, 23 | `pollMs`: telnet re-query period, HTTP fallback period and reconnect backoff base; `fastPollMs`/`burstMs`: fallback burst after a nudge; `telnetPort` 0 turns the telnet link off; `connectTimeoutMs` 1500 and `requestTimeoutMs` 3000 also exist |
 | `fetch.backend`, `fetch.openssl`, `fetch.curl`, `fetch.caBundle`, `fetch.user` | `auto`, `/usr/bin/openssl`, `curl`, first existing of the usual paths, `nobody` | HTTPS transport; `user: null` runs the TLS child as the helper |
@@ -115,6 +113,8 @@ helper is down: retry in a couple of seconds). Every answer is `{"ok":true,"api"
 | `GET /v1/health` | liveness, `boot` |
 | `GET /v1/state` | `boot`, `seq`, `helper` (version, pid, rssKb, threads, fetch backend), `topics` (all of them, one read) |
 | `GET /v1/state/{topic}`, `/v1/screen`, `/v1/receiver`, `/v1/weather`, `/v1/news` | one topic with its `seq` |
+| `GET /v1/receiver/settings` | the same receiver topic; refreshes bounded settings-read interest while the Receiver page is open |
+| `POST /v1/receiver/set` | local owner only; exactly `{ "setting", "value", "session" }` with the current `settingsSession` |
 | `GET /v1/events?after=&boot=&timeout=&topics=` | long poll, up to 30 s: `{"seq","reset","events":[{"seq","at","topic","kind","data"}]}` |
 | `POST /v1/receiver/nudge` | read the receiver now and fast for 3 s (send it when a volume key is pressed) |
 | `POST /v1/receiver/volume` | `{"level": 0 to 98}`: send the volume display's level to the receiver as an absolute `MV` command (at most one in 100 ms, newest level only; read back after 400 ms and sent again, up to 3 times, if a late CEC step moved it) |
@@ -179,6 +179,36 @@ before the helper is up. Fields: `fetchedAt`, `staleAt`, `expiresAt` (ms), then 
   `topics.news.doc.items` from `/v1/state` at once, update on events. The card no longer needs `live` for fetching.
 
 ## Receiver
+
+The native Receiver page (`0a8467e6`) and helper (`94ebaded`) are installed.
+Actual AVR-S760H readback and the TV page confirm six advertised main inputs,
+power, dialogue enhancement and Eco capabilities. Hardware setting writes remain
+unexercised; local HTTP/Telnet coverage verifies matching readback, mismatches,
+disconnect without retry and stale-session rejection. Audyssey and Zone 2 controls
+remain disabled where current prerequisites are unqualified.
+
+AppCommand discovery requires its UTF-8 XML declaration, CRLF envelope and charset
+on the observed port 8080 service. HTTP 200 with an empty `rx` is not capability
+evidence; missing capability data stays unknown.
+
+The receiver topic includes `settingsSession` and per-setting descriptors with
+support, current value and independent freshness, writability, choices or
+numeric bounds, and pending/result state. Unknown data is not proof of an
+unsupported feature; mode, signal, power and prerequisite changes can disable
+controls. Source lists and Zone 2 volume limits are independently read, not
+copied from the main zone. Tone and Audyssey controls require their current
+prerequisites; they do not silently enable them. Global subwoofer level is not
+writable without a qualified mapping. Stereo and Direct are the only mode
+choices advertised for an identified AVR-S760H and recognized fresh signal.
+
+A `202` response contains `accepted`, `requestId` and `session` in the normal
+envelope: it means queued, not applied. Only a newer matching readback on the
+same held session reports `applied`; mismatch, timeout, disconnect or changed
+context reports failure. Only one typed write may be outstanding; it is not
+retried after uncertain delivery. Settings queries use the existing held link
+and bounded HTTP discovery, and stop shortly after page interest ends. The
+separate main-volume path retains half-step readings and follows manual receiver
+changes.
 
 `GET /goform/formMainZone_MainZoneXmlStatusLite.xml` on 192.168.1.93:8080 (read on 2026-10-25): HTTP/1.0 from `mongoose2.5`,
 no `Content-Length`; `Power` `ON` or `OFF` (the S760H writes OFF in standby and keeps reporting its last input and volume),

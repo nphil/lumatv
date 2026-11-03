@@ -29,6 +29,7 @@ use ui::geometry::Frame;
 use ui::lucent::palette::{Mode, PaletteRole};
 use ui::scene::{ImageLayer, ShapeLayer};
 use ui::text::Weight;
+use std::rc::Rc;
 
 pub const SCOPE: Scope = Scope(209);
 const REGION: Region = Region(2700);
@@ -75,16 +76,23 @@ fn tones(kit: &Kit) -> Tones {
     let wash = if light { 0 } else { 255 };
     let hair = if light { 0.12 } else { (f32::from(edge(kit).3) / 255.0).clamp(0.10, 0.22) };
     let tile = over(sheet, wash, hair);
-    let lit = if light { 0.22 } else { 0.28 };
-    // the plate under the focus is a tile: the wash that takes it to the lit colour
-    let a = ((lit - hair) / (1.0 - hair)).clamp(0.0, 1.0);
-    let k = (f32::from(wash) * a).round() as u8;
+    let lit = crate::kit::widgets::focus_wash(kit);
     Tones {
         sheet,
         tile,
         tile_edge: over(tile, wash, hair),
         func: mix_over(sheet, over(sheet, wash, 0.10), 0.35),
-        lit: Rgba(k, k, k, (a * 255.0).round() as u8),
+        lit,
+    }
+}
+
+fn action_colours(kit: &Kit) -> (Rgba, Rgba) {
+    let accent = (kit.ui.look.accent(), kit.ui.look.accent_ink());
+    if crate::kit::lint::contrast_on(accent.1, accent.0, [0.0; 3]) >= 7.0 {
+        accent
+    } else {
+        // A low-contrast accent uses the inverse primary roles, without changing the palette.
+        (kit.ui.look.ink(), kit.ui.look.canvas())
     }
 }
 
@@ -96,37 +104,44 @@ fn mix_over(a: Rgba, b: Rgba, alpha: f32) -> Rgba {
 
 /// Where everything is.
 #[derive(Clone, Debug, PartialEq)]
-struct Geometry {
-    padded: bool,
-    scale: f32,
-    unit: f32,
-    key_h: f32,
-    gap: f32,
+pub(crate) struct Geometry {
+    pub(crate) padded: bool,
+    pub(crate) scale: f32,
+    pub(crate) unit: f32,
+    pub(crate) key_h: f32,
+    pub(crate) gap: f32,
     /// The sheet as it shows on the screen (the compositor is told this one).
-    sheet: Frame,
+    pub(crate) sheet: Frame,
     /// The sheet as it is drawn: its sides and its bottom corners are off the screen.
-    face: Frame,
-    grid: Frame,
-    keys: Vec<Frame>,
+    pub(crate) face: Frame,
+    pub(crate) grid: Frame,
+    pub(crate) keys: Vec<Frame>,
 }
 
-fn geometry(kit: &Kit, layout: &Layout) -> Geometry {
+pub(crate) fn geometry(kit: &Kit, layout: &Layout, header: f32) -> Geometry {
+    geometry_for(&kit.tokens, kit.text_scale, layout, header)
+}
+
+pub(crate) fn geometry_for(tokens: &lumatv_tokens::Tokens, text_scale: f32, layout: &Layout, header: f32) -> Geometry {
     let padded = layout.pad;
-    let scale = kit.text_scale.clamp(1.0, 1.5);
+    let scale = text_scale.clamp(1.0, 1.5);
     let (unit, key_h, gap) = if padded {
         ((176.0 * scale).round().min(220.0), (84.0 * scale).round(), 12.0)
     } else {
         ((104.0 * scale).round().min(134.0), (68.0 * scale).round(), 10.0)
     };
+    let key_h = if header > 0.0 {
+        key_h.min(((SCREEN_H - 54.0 - header - tokens.space(5) - BOTTOM_PAD - (layout.rows - 1) as f32 * gap) / layout.rows as f32).floor())
+    } else { key_h };
     let (grid_w, grid_h) = (layout.cols as f32 * unit + (layout.cols - 1) as f32 * gap, layout.rows as f32 * key_h + (layout.rows - 1) as f32 * gap);
-    let top = kit.space(5);
+    let top = tokens.space(5);
     let sheet_w = if padded { grid_w + 128.0 } else { SCREEN_W };
-    let sheet_h = (top + grid_h + BOTTOM_PAD).ceil();
+    let sheet_h = (top + grid_h + BOTTOM_PAD + header).ceil();
     let sheet = Frame::new(((SCREEN_W - sheet_w) / 2.0).round(), SCREEN_H - sheet_h, sheet_w, sheet_h);
-    let radius = kit.tokens.radius(Radius::Sheet);
+    let radius = tokens.radius(Radius::Sheet);
     let face =
         if padded { Frame::new(sheet.x, sheet.y, sheet.w, sheet.h + radius) } else { Frame::new(sheet.x - 4.0, sheet.y, sheet.w + 8.0, sheet.h + radius) };
-    let grid = Frame::new(sheet.x + ((sheet.w - grid_w) / 2.0).round(), sheet.y + top, grid_w, grid_h);
+    let grid = Frame::new(sheet.x + ((sheet.w - grid_w) / 2.0).round(), sheet.y + top + header, grid_w, grid_h);
     let keys = layout
         .keys
         .iter()
@@ -156,14 +171,15 @@ impl Lit {
         let radius = kit.tokens.radius(Radius::Row);
         let ink = kit.ui.look.ink();
         let space = layout.keys.iter().position(|k| k.kind == Kind::Space).map_or((geo.unit, geo.key_h), |i| (geo.keys[i].w, geo.keys[i].h));
-        let make = |fill: Rgba, w: f32, h: f32| {
+        let action_ink = action_colours(kit).1;
+        let make = |fill: Rgba, w: f32, h: f32, border: Rgba| {
             let s =
-                plate::shape(&kit.ui, Frame::new(0.0, 0.0, w, h), z, Shape { corner_radius: radius, fill: Fill::Solid(fill), border_width: 3.0, border: ink });
+                plate::shape(&kit.ui, Frame::new(0.0, 0.0, w, h), z, Shape { corner_radius: radius, fill: Fill::Solid(fill), border_width: 3.0, border });
             s.set(HIDDEN);
             s
         };
         // the accent key keeps its fill: only its ring is the focus
-        Self { shapes: [make(tones.lit, geo.unit, geo.key_h), make(Rgba(0, 0, 0, 0), geo.unit, geo.key_h), make(tones.lit, space.0, space.1)], at: None }
+        Self { shapes: [make(tones.lit, geo.unit, geo.key_h, ink), make(Rgba(0, 0, 0, 0), geo.unit, geo.key_h, action_ink), make(tones.lit, space.0, space.1, ink)], at: None }
     }
 
     /// The ring goes to key `i`: it glides from a key of its own class, and is there at once from another's.
@@ -186,7 +202,7 @@ impl Lit {
 type Caps = (Block, Vec<(String, Rgba)>, Vec<bool>);
 
 struct Built {
-    sig: String,
+    sig: (u64, f32, Option<LayoutId>, f32),
     /// What the plates and pictures were painted for (the layout, the enter key, the voice key).
     paint: String,
     geo: Geometry,
@@ -201,14 +217,21 @@ struct Built {
     dot: ShapeLayer,
     bar: ShapeLayer,
     line: ShapeLayer,
-    layout: Layout,
+    layout: Rc<Layout>,
     /// Which keys take a press (the cue skips the ones that do not).
     enabled: Vec<bool>,
+    labels_state: (u8, bool, String),
 }
 
 pub struct ImeSurface {
-    stage: Stage,
+    pub(crate) stage: Stage,
     built: Option<Built>,
+    scope: Scope,
+    region: Region,
+    base: u32,
+    pub(crate) header_height: f32,
+    pub(crate) focus_visible: bool,
+    backdrop: Option<Id>,
 }
 
 /// What the pointer did on the keys in one sample: the key a press began on, and the key a click ended on.
@@ -221,17 +244,22 @@ pub struct Pointed {
 impl ImeSurface {
     /// `z` is the keyboard's band base.
     pub fn new(z: i32) -> Self {
-        Self { stage: Stage::new(z, SCOPE), built: None }
+        Self { stage: Stage::new(z, SCOPE), built: None, scope: SCOPE, region: REGION, base: BASE, header_height: 0.0, focus_visible: true, backdrop: None }
     }
+
+    pub(crate) fn for_owner(z: i32, scope: Scope, region: Region, base: u32, backdrop: Id) -> Self {
+        Self { stage: Stage::new(z, scope).hiding(), built: None, scope, region, base, header_height: 0.0, focus_visible: true, backdrop: Some(backdrop) }
+    }
+
+    fn id(&self, i: usize) -> Id { Id(self.base + i as u32) }
+    fn index_of(&self, id: Id) -> Option<usize> { id.0.checked_sub(self.base).map(|v| v as usize).filter(|i| *i < 64) }
 
     pub fn is_up(&self) -> bool {
         self.stage.is_up()
     }
 
-    fn signature(kit: &Kit, layout: &Layout) -> String {
-        // every full layout has the same grid; a pad has its own (the digits' pad has no corners)
-        let shape = if layout.pad { layout.id.name() } else { "full" };
-        format!("{}|{}|{shape}", kit.generation(), kit.text_scale)
+    fn signature(&self, kit: &Kit, layout: &Layout) -> (u64, f32, Option<LayoutId>, f32) {
+        (kit.generation(), kit.text_scale, layout.pad.then_some(layout.id), self.header_height)
     }
 
     fn paint_signature(v: &View) -> String {
@@ -253,7 +281,7 @@ impl ImeSurface {
     fn cap_ink(kit: &Kit, v: &View, i: usize) -> Rgba {
         let k = &v.layout.keys[i];
         if k.accent {
-            kit.ui.look.accent_ink()
+            action_colours(kit).1
         } else if k.needs_text && !v.has_text {
             crate::kit::button::faded(kit.ui.look.ink(), kit.tokens.states.disabled_opacity)
         } else {
@@ -303,7 +331,8 @@ impl ImeSurface {
 
     fn paint_plates(kit: &mut Kit, art: &mut ImageLayer, t: &Tones, geo: &Geometry, v: &View) {
         let radius = kit.tokens.radius(Radius::Row);
-        let (ink, accent, accent_ink) = (kit.ui.look.ink(), kit.ui.look.accent(), kit.ui.look.accent_ink());
+        let ink = kit.ui.look.ink();
+        let (accent, accent_ink) = action_colours(kit);
         let side = (32.0 * geo.scale).round() as u32;
         let (w, h) = (art.width(), art.height());
         art.pixels_mut().fill(0);
@@ -341,7 +370,7 @@ impl ImeSurface {
         art.damage(None);
     }
 
-    fn build(kit: &mut Kit, engine: &mut Engine, root: &ui::group::Group, z: i32, v: &View, geo: Geometry, sig: String) -> std::io::Result<Built> {
+    fn build(&self, kit: &mut Kit, engine: &mut Engine, root: &ui::group::Group, z: i32, v: &View, geo: Geometry, sig: (u64, f32, Option<LayoutId>, f32)) -> std::io::Result<Built> {
         let scene = kit.ui.scene.clone();
         let t = tones(kit);
         let ink = kit.ui.look.ink();
@@ -378,12 +407,13 @@ impl ImeSurface {
                     line,
                     layout: v.layout.clone(),
                     enabled,
+                    labels_state: (v.shift, v.has_text, v.note.clone()),
                 })
             })
             .map_err(|e| std::io::Error::other(format!("{e}")))
             .inspect(|b| {
                 for (i, f) in b.geo.keys.iter().enumerate() {
-                    engine.focus.register(key_id(i), *f, REGION, SCOPE);
+                    engine.focus.register(self.id(i), *f, self.region, self.scope);
                 }
             })
     }
@@ -391,7 +421,7 @@ impl ImeSurface {
     fn drop_built(&mut self, engine: &mut Engine) {
         if let Some(b) = self.built.take() {
             for i in 0..b.geo.keys.len() {
-                engine.focus.unregister(key_id(i));
+                engine.focus.unregister(self.id(i));
             }
         }
     }
@@ -402,15 +432,16 @@ impl ImeSurface {
             self.drop_all(engine);
             return Ok(false);
         }
-        let sig = Self::signature(kit, &v.layout);
-        let geo = geometry(kit, &v.layout);
-        let arrive = Arrive::Bottom(geo.sheet.h + 64.0);
+        let sig = self.signature(kit, &v.layout);
+        let arrive = Arrive::Bottom(self.built.as_ref().filter(|b| b.sig == sig).map_or_else(|| geometry(kit, &v.layout, self.header_height).sheet.h, |b| b.geo.sheet.h) + 64.0);
         if self.stage.needs_root(arrive) || self.built.as_ref().is_some_and(|b| b.sig != sig) {
             self.drop_built(engine);
         }
-        self.stage.ensure(kit, phase, arrive, false)?;
+        self.stage.ensure(kit, phase, arrive, self.backdrop.is_some())?;
         if self.built.is_none() {
-            let built = Self::build(kit, engine, self.stage.group(), self.stage.z(), v, geo, sig)?;
+            if let Some(backdrop) = self.backdrop { self.stage.backdrop(engine, backdrop, self.region); }
+            let geo = geometry(kit, &v.layout, self.header_height);
+            let built = self.build(kit, engine, self.stage.group(), self.stage.z(), v, geo, sig)?;
             if kit.ui.scene.take_overflow() {
                 return Err(std::io::Error::other("the scene is full: the keyboard could not be drawn whole"));
             }
@@ -418,17 +449,18 @@ impl ImeSurface {
             self.stage.refocus();
         }
         if let Some(b) = self.built.as_mut() {
-            Self::update(kit, self.stage.group(), self.stage.z(), b, v);
+            Self::update(kit, self.stage.group(), self.stage.z(), b, v, self.focus_visible);
         }
         if self.stage.phase(kit, engine, phase) {
-            self.stage.focus(engine, Some(key_id(v.focus)), now_ns);
+            self.stage.focus(engine, self.focus_visible.then(|| self.id(v.focus)), now_ns);
         }
         Ok(true)
     }
 
     /// What changes in place: the plates of another layout, the words, the dots of Shift and the line of the space bar, and the ring.
-    fn update(kit: &mut Kit, root: &ui::group::Group, z: i32, b: &mut Built, v: &View) {
-        if v.layout != b.layout {
+    fn update(kit: &mut Kit, root: &ui::group::Group, z: i32, b: &mut Built, v: &View, focus_visible: bool) {
+        let changed_layout = !Rc::ptr_eq(&v.layout, &b.layout);
+        if changed_layout {
             let paint = Self::paint_signature(v);
             if paint != b.paint {
                 let t = tones(kit);
@@ -439,8 +471,8 @@ impl ImeSurface {
             b.lit.at = None;
         }
         // a layout of the same grid has other words (the marks), other styles for them (a word is smaller than a character) and another focus
-        let classes: Vec<bool> = v.layout.keys.iter().map(|k| k.kind == Kind::Char).collect();
-        if classes != b.classes {
+        let classes_changed = changed_layout && (v.layout.keys.len() != b.classes.len() || v.layout.keys.iter().zip(&b.classes).any(|(k, was)| (k.kind == Kind::Char) != *was));
+        if classes_changed {
             let scene = kit.ui.scene.clone();
             let geo = b.geo.clone();
             if let Ok((caps, now, classes)) = scene.adopting_view(root, || Self::make_caps(kit, z, &geo, v)) {
@@ -449,13 +481,17 @@ impl ImeSurface {
                 b.classes = classes;
             }
         }
-        let now: Vec<(String, Rgba)> = (0..v.layout.keys.len()).map(|i| (Self::cap_text(v, i), Self::cap_ink(kit, v, i))).collect();
-        if now != b.caps_now {
-            let changes: Vec<(usize, &str, Rgba)> = now.iter().enumerate().map(|(i, (t, c))| (i, t.as_str(), *c)).collect();
-            b.caps.set_many(&mut kit.ui, &changes);
-            b.caps_now = now;
+        if changed_layout || b.labels_state.0 != v.shift || b.labels_state.1 != v.has_text || b.labels_state.2 != v.note {
+            let now: Vec<(String, Rgba)> = (0..v.layout.keys.len()).map(|i| (Self::cap_text(v, i), Self::cap_ink(kit, v, i))).collect();
+            if now != b.caps_now {
+                let changes: Vec<(usize, &str, Rgba)> = now.iter().enumerate().map(|(i, (t, c))| (i, t.as_str(), *c)).collect();
+                b.caps.set_many(&mut kit.ui, &changes);
+                b.caps_now = now;
+            }
+            b.enabled.clear();
+            b.enabled.extend(v.layout.keys.iter().map(|k| !k.needs_text || v.has_text));
+            b.labels_state = (v.shift, v.has_text, v.note.clone());
         }
-        b.enabled = v.layout.keys.iter().map(|k| !k.needs_text || v.has_text).collect();
         // Shift's state: a dot when one capital is waiting, a dot and a bar for caps lock (the ink, so it reads on every plate)
         let shift = if v.layout.shiftable { v.layout.index_of("shift") } else { None };
         match shift.map(|i| b.geo.keys[i]) {
@@ -473,7 +509,9 @@ impl ImeSurface {
             Some(r) if v.note.is_empty() => b.line.set(Props::at(r.x + ((r.w - 96.0) / 2.0).round(), r.y + (r.h / 2.0).round() + 6.0)),
             _ => b.line.set(HIDDEN),
         }
-        if b.lit.at.map(|(_, i)| i) != Some(v.focus) {
+        if !focus_visible {
+            if b.lit.at.take().is_some() { for shape in &b.lit.shapes { shape.set(HIDDEN); } }
+        } else if b.lit.at.map(|(_, i)| i) != Some(v.focus) {
             b.lit.go(kit, &b.geo, &v.layout, v.focus.min(v.layout.keys.len() - 1));
         }
     }
@@ -492,7 +530,9 @@ impl ImeSurface {
     /// the key it ended on.
     pub fn pointer(&mut self, kit: &Kit, engine: &mut Engine, now_ns: u64, s: Sample) -> Pointed {
         let radius = kit.tokens.radius(Radius::Row);
-        let enabled = self.built.as_ref().map(|b| b.enabled.clone()).unwrap_or_default();
+        let enabled = self.built.as_ref().map(|b| b.enabled.as_slice()).unwrap_or_default();
+        let base = self.base;
+        let key_of = |id: Id| id.0.checked_sub(base).map(|i| i as usize).filter(|i| *i < 64);
         let mut down = None;
         let click = self.stage.pointer(kit, engine, now_ns, s, |touch| match touch {
             Touch::Hover { to, .. } => to.and_then(key_of).filter(|i| enabled.get(*i).copied().unwrap_or(false)).map(|_| radius),
@@ -527,8 +567,8 @@ impl ImeSurface {
             "sheet": f(b.geo.sheet), "grid": f(b.geo.grid), "scale": b.geo.scale, "padded": b.geo.padded, "layout": b.layout.id.name(),
             "keys": b.geo.keys.iter().map(|k| f(*k)).collect::<Vec<_>>(),
             "caps": b.caps_now.iter().map(|(t, _)| t.clone()).collect::<Vec<_>>(),
-            "focus": engine.focus.current().and_then(key_of),
-            "layers": self.layers(), "scope": SCOPE.0,
+            "focus": engine.focus.current().and_then(|id| self.index_of(id)),
+            "layers": self.layers(), "scope": self.scope.0,
         })
     }
 
@@ -537,7 +577,7 @@ impl ImeSurface {
         let Some(b) = &self.built else { return };
         let t = tones(kit);
         let sheet = lint.panel("keyboard sheet", b.geo.sheet, t.sheet, false);
-        let (accent, accent_ink) = (kit.ui.look.accent(), kit.ui.look.accent_ink());
+        let (accent, accent_ink) = action_colours(kit);
         for (i, k) in b.layout.keys.iter().enumerate() {
             let f = b.geo.keys[i];
             let paint = if k.accent {
@@ -781,6 +821,26 @@ mod tests {
         u.t = 2300;
         u.apply();
         assert!(!u.s.is_up());
+    }
+
+    #[test]
+    fn key_text_and_focus_keep_tv_contrast_in_both_materials() {
+        use crate::kit::lint::contrast_on;
+        for mode in [Mode::Dark, Mode::Light] {
+            let u = Up::new(mode, 1.0, PURPOSE_NORMAL, ENTER_DONE, true);
+            let b = u.s.built.as_ref().unwrap(); let t = tones(&u.kit);
+            let (action, action_ink) = action_colours(&u.kit);
+            for (i, k) in b.layout.keys.iter().enumerate() {
+                let paint = if k.accent { action } else if k.fn_key { t.func } else { t.tile };
+                let ink = b.caps_now[i].1;
+                assert!(contrast_on(ink, paint, [0.0; 3]) >= 7.0, "{mode:?} key {i} text");
+                let focus = if k.accent { Rgba(0, 0, 0, 0) } else { t.lit };
+                let under = [f32::from(paint.0), f32::from(paint.1), f32::from(paint.2)];
+                assert!(contrast_on(ink, focus, under) >= 7.0, "{mode:?} key {i} focused text");
+                let ring = if k.accent { action_ink } else { u.kit.ui.look.ink() };
+                assert!(contrast_on(ring, focus, under) >= 3.0, "{mode:?} key {i} focus ring");
+            }
+        }
     }
 
     #[test]

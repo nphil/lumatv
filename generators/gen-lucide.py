@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rasterises the Lucide icons the mocks use into white-on-transparent PNGs for the compositor's QML.
 
-    python3 generators/gen-lucide.py [--size 64] [--out payload/compositor/lumatv/icons/lucide]
+    python3 generators/gen-lucide.py [--size 64] [--out compositor/assets/ui/icons/lucide]
 
 The icon source is `docs/mocks/icons.js` (Lucide 1.27, ISC licence): 24-grid stroke paths, stroke width
 1.9, round caps and joins, the same icons the approved mocks draw. Each becomes `<name>.png`, 64 px
@@ -51,7 +51,7 @@ def sheet_html(icons, size):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--size", type=int, default=64)
-    ap.add_argument("--out", default=os.path.join(ROOT, "payload", "compositor", "lumatv", "icons", "lucide"))
+    ap.add_argument("--out", default=os.path.join(ROOT, "compositor", "assets", "ui", "icons", "lucide"))
     a = ap.parse_args()
     icons = load_icons()
     names = sorted(icons)

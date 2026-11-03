@@ -361,7 +361,7 @@ impl Voice {
             }
             Err(Ended::Cancelled) => {}
             Err(Ended::Failed(code, message)) => {
-                crate::log_warn!("voice: {code}: {message}");
+                crate::log_warn!("voice: {code}");
                 self.set_phase(session, Phase::Failed(code, message));
             }
         }

@@ -736,6 +736,8 @@ impl State {
     /// A key or the pointer (`Scene::input` and the panel).
     pub fn care_input(&mut self) {
         let now = crate::output::monotonic_ns();
+        self.nooperation_activity();
+        self.wake_lg_saver();
         self.scene.input(now);
         let call = self.panel.input(now);
         self.panel_send(call);

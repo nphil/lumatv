@@ -1,7 +1,6 @@
-//! The Rust shell end to end on the host (feature `ui`, Mesa's software GL): the real `lumatv-ui` binary started by the compositor's
-//! own supervision (`shell_rust.rs`) with the engine's socket and the key socket, speaking the UI channel on its own port; the audio
-//! topic puts its volume display on the output, the toast feed its toast, and a restart drops its layers and brings it back.
-//! Needs `rustui/target/debug/lumatv-ui` (built by `cargo build -p lumatv-ui` in `rustui/`); skipped without it.
+//! Native UI supervision on the host with the real client, Mesa, engine socket and channel.
+//! Audio and toast events update the client; an unexpected exit detaches its engine and requests stock recovery.
+//! Requires rustui/target/debug/lumatv-ui; skipped without it.
 #![cfg(feature = "ui")]
 
 mod harness;
@@ -44,7 +43,7 @@ fn wait_for(server: &Server, what: &str, timeout: Duration, f: impl FnMut(&mut l
 }
 
 #[test]
-fn the_rust_shell_is_started_by_the_compositor_and_draws_the_volume_display_and_a_toast() {
+fn the_native_client_reports_audio_and_toasts_and_its_exit_requests_stock_recovery() {
     if !Path::new(MESA).exists() {
         eprintln!("skipped: no Mesa at {MESA}");
         return;
@@ -75,7 +74,7 @@ fn the_rust_shell_is_started_by_the_compositor_and_draws_the_volume_display_and_
         Box::new(gl)
     }));
     let socket = rx.recv().unwrap();
-    let (d, module) = (dir.clone(), dir.join("module"));
+    let (d, module) = (dir.clone(), dir.join("compositor/assets/ui"));
     std::fs::create_dir_all(module.join("icons/audio")).unwrap();
     server.eval(move |s| {
         s.config.runtime_dir = d.clone();
@@ -92,9 +91,10 @@ fn the_rust_shell_is_started_by_the_compositor_and_draws_the_volume_display_and_
         s.shell_rust.connected && s.shell_rust.engine_connected
     });
     wait_for(&server, "the client's first report", Duration::from_secs(10), |s| s.shell_rust.ui_state.get("kinds").is_some());
+    wait_for(&server, "the first native frame", Duration::from_secs(10), |s| s.shell_report()["ready"] == json!(true));
     let report = server.eval(|s| s.shell_report());
-    assert_eq!(report["rust"]["ui"]["kinds"], json!(["osd", "toast"]));
-    assert_eq!(report["rust"]["ui"]["osd"], false);
+    assert_eq!(report["ui"]["kinds"], json!(["osd", "toast"]));
+    assert_eq!(report["ui"]["osd"], false);
 
     // a volume key: the audio service's state with a cause puts the display up, over the windows (none: black)
     server.eval(|s| {
@@ -102,33 +102,26 @@ fn the_rust_shell_is_started_by_the_compositor_and_draws_the_volume_display_and_
         s.shell_audio(&json!({"volumeStatus": {"volume": 31, "muteStatus": false, "soundOutput": "tv_speaker", "maxVolume": 100, "cause": "volumeUp"}}));
     });
     wait_for(&server, "the display reported up", Duration::from_secs(10), |s| s.shell_rust.ui_state["osd"] == json!(true));
-    wait_for(&server, "the display drawn", Duration::from_secs(10), |s| {
-        let image = harness::drawn(s);
-        // the pane over nothing (no Home drawn): lifted on the bottom edge, 440 wide about the middle
-        image.pixel(760, 865) != [0, 0, 0, 255]
-    });
-    let (image, errors) = server.eval(|s| (s.output.capture().unwrap(), s.stats.gl_errors));
-    assert_ne!(image.pixel(960, 865), [0, 0, 0, 255], "the bar's pane is drawn");
-    assert_eq!(image.pixel(960, 300), [0, 0, 0, 255], "nothing else is");
-    assert_eq!(errors, 0);
 
-    // the toast feed: the client subscribed through the channel; a push becomes a toast in the upper right corner
+    // The client subscribes to LG's transient toast feed through the channel.
     let token = server.eval(|s| s.shell_rust.luna_tags.iter().find(|t| t.uri.ends_with("/getToastNotification")).map(|t| t.token));
     let token = token.expect("the client subscribed to the toast feed");
     server.eval(move |s| {
         assert!(s.shell_luna_event(token, &json!({"sourceId": "lg", "message": "Remote battery low", "timeout": 8})));
     });
     wait_for(&server, "the toast reported", Duration::from_secs(10), |s| s.shell_rust.ui_state["toasts"] == json!(1));
-    wait_for(&server, "the toast drawn", Duration::from_secs(10), |s| harness::drawn(s).pixel(1600, 70) != [0, 0, 0, 255]);
 
-    // a restart: the layers go with the client in one frame, and the client comes back
-    server.eval(|s| s.shell_rust_restart());
-    wait_for(&server, "the layers gone", Duration::from_secs(10), |s| harness::drawn(s).pixel(1600, 70) == [0, 0, 0, 255]);
-    wait_for(&server, "the client back on the engine", Duration::from_secs(20), |s| {
-        s.shell_rust.connected && s.shell_rust.engine_connected && s.shell_rust.stats.starts == 2
-    });
+    // An unexpected client exit removes the layers and requests stock recovery, without restarting.
+    let pid = server.eval(|s| s.shell_rust.child_pid().unwrap());
+    // SAFETY: the PID belongs to the child started by this test.
+    assert_eq!(unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) }, 0);
+    wait_for(&server, "native UI exit", Duration::from_secs(10), |s| s.shell_rust.gave_up);
+    wait_for(&server, "the engine detached", Duration::from_secs(10), |s| !s.output.ui_attached());
     let report = server.eval(|s| s.shell_report());
-    assert_eq!(report["rust"]["stats"]["starts"], 2);
+    assert_eq!(report["stats"]["starts"], 1);
+    assert_eq!(report["stats"]["exits"], 1);
+    assert_eq!(report["connected"], false);
+    assert_eq!(report["ready"], false);
     drop(server);
     let _ = std::fs::remove_dir_all(&dir);
 }

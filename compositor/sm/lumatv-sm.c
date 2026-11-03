@@ -14,8 +14,8 @@
 //      heartbeat it over the bridge socket every 500 ms and fall back when it exits, misses two beats, draws frames
 //      the panel never shows (6 s) or leaves no window mapped (45 s) while the set is on. The compositor can ask for
 //      the fallback itself (the hold-Home escape), which also records the escape.
-//   3. Hold Home. Independently of the compositor, read the remotes' evdev nodes: Home held 650 ms, or still held when
-//      this process starts (a boot with Home held down), is the same escape. The way back to LG's therefore works
+//   3. Hold Home. Independently of the compositor, read the remotes' evdev nodes: Home held 10 seconds is the escape.
+//      A key already down starts its hold when its device is opened. The way back to LG's works
 //      while the compositor is starting, wedged or blind to its input.
 //   4. Bridge luna. Register the compositor's bus names, forward every call as a JSON line, send the compositor's
 //      replies (subscriptions kept by token) and make its outbound calls.
@@ -35,7 +35,7 @@
 //
 // Build: compositor/sm/build.sh (zig cc, arm-linux-gnueabi glibc 2.28, stub libraries for the link; the set's
 // libraries at run time). Usage: lumatv-sm [--dry-run|--probe] [--state DIR] [--print-fingerprint]
-//                                          [--would-run] [--home-held [MS]]
+//                                          [--would-run] [--would-enable MODE] [--home-held [MS]]
 //   --dry-run   never touches the mount or execs LG's binary; registers the bus names with a ".lumatv" suffix and
 //               runs the compositor offscreen on the private socket, for a test of the bridge beside LG's compositor
 //               (the hub refuses the suffixed names, since no role file allows them: that part proves nothing).
@@ -47,7 +47,9 @@
 //   --would-run read-only: prints "run" (exit 0) or "no WORD: reason" (exit 3) as decide() would answer now. The early
 //               boot hook asks it before it places the mount, so the decision has one implementation; any other
 //               exit means this binary cannot run on this firmware (missing library, wrong ABI) and no mount is made.
-//   --home-held [MS] exit 0 when a remote's Home key is down now and stays down for MS (default 700), else 1.
+//   --would-enable MODE checks a proposed persistent or session enable without changing state, with the same output and
+//               exit status as --would-run; existing enabled, escape and failure markers do not affect the proposal.
+//   --home-held [MS] exit 0 when a remote's Home key is down now and stays down for MS (default 10000), else 1.
 // The unit is Type=notify: READY=1 goes to systemd's socket once the compositor is connected (else the start
 // times out and the unit is restarted), and /tmp/lsm-ready is touched, which is what webapp-mgr.service waits for.
 #define _GNU_SOURCE
@@ -56,6 +58,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/input.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -73,8 +76,10 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
+#include "../../logging/stream.h"
 
 // ---- luna-service2 (public API, webosose/luna-service2 lunaservice.h) ----
 typedef struct LSHandle LSHandle;
@@ -120,6 +125,7 @@ GMainLoop *g_main_loop_new(void *context, gboolean running);
 void g_main_loop_run(GMainLoop *loop);
 void g_main_loop_quit(GMainLoop *loop);
 GIOChannel *g_io_channel_unix_new(int fd);
+gboolean g_source_remove(unsigned tag);
 unsigned g_io_add_watch(GIOChannel *ch, int condition, GIOFunc fn, gpointer data);
 unsigned g_timeout_add(unsigned ms, GSourceFunc fn, gpointer data);
 unsigned g_child_watch_add(int pid, GChildWatchFunc fn, gpointer data);
@@ -141,31 +147,44 @@ static unsigned long ping_seq = 0, pong_seq = 0;
 static unsigned long inbound_token = 0;
 static double started_mono;
 static char running_path[600];
-static FILE *logf;
-#define SM_LOG_MAX (256 * 1024)
-
-static void rotate_open_log(void);
 
 static void logline(const char *fmt, ...) {
     char ts[32];
     time_t t = time(NULL);
-    strftime(ts, sizeof ts, "%H:%M:%S", localtime(&t));
+    struct tm tm;
+    strftime(ts, sizeof ts, "%H:%M:%S", localtime_r(&t, &tm));
+    char message[4097];
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, "[lumatv-sm %s] ", ts);
-    vfprintf(stderr, fmt, ap);
-    fprintf(stderr, "\n");
+    vsnprintf(message, sizeof message, fmt, ap);
     va_end(ap);
-    if (logf) {
-        va_start(ap, fmt);
-        fprintf(logf, "[%s] ", ts);
-        vfprintf(logf, fmt, ap);
-        fprintf(logf, "\n");
-        fflush(logf);
-        va_end(ap);
-        rotate_open_log();
-    }
+    lumatv_log("lumatv-sm", 6, "[%s] %s", ts, message);
 }
+
+static int native_saved_stdout = -1, native_saved_stderr = -1;
+
+static void native_output_restore(void) {
+    if (native_saved_stdout < 0) return;
+    dup2(native_saved_stdout, STDOUT_FILENO);
+    dup2(native_saved_stderr, STDERR_FILENO);
+    close(native_saved_stdout);
+    close(native_saved_stderr);
+    native_saved_stdout = native_saved_stderr = -1;
+}
+
+static void native_output_start(void) {
+    int saved_out = fcntl(STDOUT_FILENO, F_DUPFD_CLOEXEC, 3);
+    if (saved_out < 0) return;
+    int saved_err = fcntl(STDERR_FILENO, F_DUPFD_CLOEXEC, 3);
+    if (saved_err < 0) { close(saved_out); return; }
+    int output = lumatv_log_pipe("lumatv-sm");
+    if (output < 0) { close(saved_out); close(saved_err); return; }
+    native_saved_stdout = saved_out;
+    native_saved_stderr = saved_err;
+    if (dup2(output, STDOUT_FILENO) < 0 || dup2(output, STDERR_FILENO) < 0) native_output_restore();
+    close(output);
+}
+
 
 static char *path_in_state(const char *name) {
     static char buf[4][512];
@@ -346,13 +365,20 @@ static void verdict_no(struct verdict *v, const char *word, const char *fmt, ...
     va_end(ap);
 }
 
-// Whether LumaTV may run now. Read-only (a leftover `running` marker counts as a failure here without being
-// consumed), so the early boot hook can ask before it places the mount; the real start asks the same function.
-static void decide(struct verdict *v) {
+static void decide_requirements(struct verdict *v, enum flag_kind flag) {
     char fp[17], want[64] = "";
     fingerprint(fp);
     FILE *f = fopen(path_in_state("fingerprint"), "r");
     if (f) { if (fscanf(f, "%63s", want) != 1) want[0] = 0; fclose(f); }
+    const char *missing = bundle_missing();
+    if (missing) { verdict_no(v, "bundle", "the bundle is incomplete: %s is missing", missing); return; }
+    if (strcmp(fp, want) != 0) { verdict_no(v, "firmware", "firmware fingerprint differs from the verified one"); return; }
+    if (flag == FLAG_PERSISTENT && !verified_has(fp)) verdict_no(v, "firmware", "firmware build is not on the verified list");
+}
+
+// Whether LumaTV may run now. Read-only (a leftover `running` marker counts as a failure here without being
+// consumed), so the early boot hook can ask before it places the mount; the real start asks the same function.
+static void decide(struct verdict *v) {
     enum flag_kind flag = read_flag();
     v->run = true;
     snprintf(v->word, sizeof v->word, "run");
@@ -360,48 +386,77 @@ static void decide(struct verdict *v) {
     if (flag == FLAG_OFF) { verdict_no(v, "off", "not enabled"); return; }
     if (flag == FLAG_STALE) { verdict_no(v, "session", "the enable was a session of an earlier boot"); return; }
     if (file_exists(path_in_state("escaped"))) { verdict_no(v, "escaped", "escape recorded; re-enable from the tool"); return; }
-    const char *missing = bundle_missing();
-    if (missing) { verdict_no(v, "bundle", "the bundle is incomplete: %s is missing", missing); return; }
-    if (strcmp(fp, want) != 0) { verdict_no(v, "firmware", "firmware fingerprint differs from the verified one"); return; }
-    if (flag == FLAG_PERSISTENT && !verified_has(fp)) { verdict_no(v, "firmware", "firmware build is not on the verified list"); return; }
+    decide_requirements(v, flag);
+    if (!v->run) return;
     if (failures_effective() >= 2) { verdict_no(v, "failures", "two consecutive failures"); return; }
 }
 
+static void decide_enable(struct verdict *v, const char *mode) {
+    v->run = true;
+    snprintf(v->word, sizeof v->word, "run");
+    v->why[0] = 0;
+    enum flag_kind flag;
+    if (mode && !strcmp(mode, "persistent")) flag = FLAG_PERSISTENT;
+    else if (mode && !strcmp(mode, "session")) flag = FLAG_SESSION;
+    else { verdict_no(v, "mode", "expected persistent or session"); return; }
+    if (flag == FLAG_SESSION) {
+        char id[64];
+        if (!read_first_line(boot_id_path, id, sizeof id) || !id[0]) {
+            verdict_no(v, "session", "current boot id is unavailable"); return;
+        }
+    }
+    decide_requirements(v, flag);
+}
+
 // ---- Home held (the escape's second reader) ----
-// The compositor's own escape (input.rs, 650 ms) needs the compositor running and reading the remote. This one
-// needs neither: evdev nodes opened here, so a boot with Home held down, a compositor still starting and one
+// This independent reader opens evdev nodes itself, so a boot with Home held down, a compositor still starting and one
 // wedged before it reads any key all end the same way. The network key devices (the SSAP keys of the TV's own app
 // and of automations) are left out: this is a person's escape, at the TV.
-#define HOLD_HOME_SECS 0.65
+#define HOLD_HOME_SECS 10.0
 #define MAX_INPUTS 32
 
-struct home { double down_at; };    // 0 while no Home key is down
-static struct home home_state;
+struct home { double down_at[3]; };
 
 // LG's RF_HOME (network-input-service's key table): the code PlainHome reads as the Magic Remote's Home and perf/kb.py injects as Home
 // through the SSAP key device; the kernel headers do not name it.
 #define KEY_RF_HOME 773
-static bool is_home_key(int code) { return code == KEY_HOME || code == KEY_HOMEPAGE || code == KEY_RF_HOME; }
 
 // A key event of a remote: press and repeat start the hold, release ends it.
 static void home_event(struct home *h, int code, int value, double now) {
-    if (!is_home_key(code)) return;
-    if (value != 0) { if (h->down_at == 0) h->down_at = now; }
-    else h->down_at = 0;
+    int i = code == KEY_HOME ? 0 : code == KEY_HOMEPAGE ? 1 : code == KEY_RF_HOME ? 2 : -1;
+    if (i < 0) return;
+    if (value == 1 || value == 2) { if (h->down_at[i] == 0) h->down_at[i] = now; }
+    else if (value == 0) h->down_at[i] = 0;
 }
 
-static bool home_due(const struct home *h, double now) { return h->down_at != 0 && now - h->down_at >= HOLD_HOME_SECS; }
+static bool home_due(const struct home *h, double now) {
+    for (int i = 0; i < 3; i++) if (h->down_at[i] != 0 && now - h->down_at[i] >= HOLD_HOME_SECS) return true;
+    return false;
+}
 
 static bool name_is_network_keys(const char *name) {
     return strstr(name, "Smart Remote RCU Input") != NULL || strstr(name, "LGE Network Input") != NULL;
 }
 
-// The event node, read-only and non-blocking; -1 for one that does not open or is a network key device.
-static int open_input(const char *path) {
+static bool home_bits_set(const unsigned char *bits, size_t n);
+enum input_kind { INPUT_REJECT, INPUT_OTHER, INPUT_GENERIC, INPUT_LG_REMOTE };
+static enum input_kind classify_input(const char *name, const unsigned char *keys, size_t n) {
+    if (!name || !*name || name_is_network_keys(name)) return INPUT_REJECT;
+    if (!strcmp(name, "LGE RCU") || !strncmp(name, "LGE M-RCU - Builtin [", 21) ||
+        !strncmp(name, "LGE TONE+ - Builtin [", 21) || !strncmp(name, "LGE W-RCU - Builtin [", 21) ||
+        !strcmp(name, "LGE Simple Premium")) return INPUT_LG_REMOTE;
+    return keys && home_bits_set(keys, n) ? INPUT_GENERIC : INPUT_OTHER;
+}
+
+static int open_input(const char *path, enum input_kind *kind) {
     int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) return -1;
     char name[96] = "";
-    if (ioctl(fd, EVIOCGNAME(sizeof name - 1), name) >= 0 && name_is_network_keys(name)) { close(fd); return -1; }
+    if (ioctl(fd, EVIOCGNAME(sizeof name - 1), name) <= 0 || !name[0]) { close(fd); return -1; }
+    unsigned char keys[128] = {0};
+    bool have_keys = ioctl(fd, EVIOCGBIT(EV_KEY, sizeof keys), keys) >= 0;
+    *kind = classify_input(name, have_keys ? keys : NULL, sizeof keys);
+    if (*kind == INPUT_REJECT) { close(fd); return -1; }
     return fd;
 }
 
@@ -420,42 +475,54 @@ static bool home_bits_set(const unsigned char *bits, size_t n) {
 // than it holds.
 #define KEY_STATE_BYTES 128
 _Static_assert(KEY_STATE_BYTES * 8 > KEY_RF_HOME && KEY_STATE_BYTES * 8 > KEY_HOMEPAGE, "the key-state buffer must reach every Home code");
-static bool input_home_down(int fd) {
-    unsigned char bits[KEY_STATE_BYTES];
-    memset(bits, 0, sizeof bits);
-    if (ioctl(fd, EVIOCGKEY(sizeof bits), bits) < 0) return false;
-    return home_bits_set(bits, sizeof bits);
-}
 
 static int open_inputs_all(int *fds, int n) {
     DIR *d = opendir(input_dir);
     if (!d) return 0;
     int got = 0;
     struct dirent *e;
-    while (got < n && (e = readdir(d))) {
-        if (strncmp(e->d_name, "event", 5) != 0) continue;
-        char path[300];
-        snprintf(path, sizeof path, "%s/%s", input_dir, e->d_name);
-        int fd = open_input(path);
-        if (fd >= 0) fds[got++] = fd;
+    for (int pass = INPUT_LG_REMOTE; pass >= INPUT_OTHER && got < n; pass--) {
+        rewinddir(d);
+        while (got < n && (e = readdir(d))) {
+            if (strncmp(e->d_name, "event", 5) != 0) continue;
+            char path[300]; enum input_kind kind;
+            snprintf(path, sizeof path, "%s/%s", input_dir, e->d_name);
+            int fd = open_input(path, &kind);
+            if (fd < 0) continue;
+            if (kind == (enum input_kind)pass) fds[got++] = fd; else close(fd);
+        }
     }
     closedir(d);
     return got;
 }
 
-static bool home_down_any(const int *fds, int n) {
-    for (int i = 0; i < n; i++) if (input_home_down(fds[i])) return true;
-    return false;
-}
-
-// Home down now and still down `ms` milliseconds later (polled every 50 ms). Returns at once when it is not down.
+// Only a key held continuously on the same device counts; another remote cannot extend its hold.
 static bool home_held_for(int ms) {
     int fds[MAX_INPUTS];
+    unsigned char held[MAX_INPUTS][KEY_STATE_BYTES] = {{0}};
     int n = open_inputs_all(fds, MAX_INPUTS);
-    bool held = home_down_any(fds, n);
-    for (int waited = 0; held && waited < ms; waited += 50) { usleep(50000); held = home_down_any(fds, n); }
+    const int keys[] = { KEY_HOME, KEY_HOMEPAGE, KEY_RF_HOME };
+    bool any = false;
+    for (int i = 0; i < n; i++) {
+        if (ioctl(fds[i], EVIOCGKEY(KEY_STATE_BYTES), held[i]) < 0) memset(held[i], 0, KEY_STATE_BYTES);
+        any |= home_bits_set(held[i], KEY_STATE_BYTES);
+    }
+    double end = mono_now() + ms / 1000.0;
+    while (any && mono_now() < end) {
+        usleep(50000);
+        any = false;
+        for (int i = 0; i < n; i++) {
+            unsigned char bits[KEY_STATE_BYTES] = {0};
+            if (ioctl(fds[i], EVIOCGKEY(sizeof bits), bits) < 0) memset(bits, 0, sizeof bits);
+            for (size_t k = 0; k < sizeof keys / sizeof keys[0]; k++) {
+                int byte = keys[k] / 8;
+                held[i][byte] &= (unsigned char)(bits[byte] | ~(1u << (keys[k] % 8)));
+            }
+            any |= home_bits_set(held[i], KEY_STATE_BYTES);
+        }
+    }
     for (int i = 0; i < n; i++) close(fds[i]);
-    return held;
+    return any;
 }
 
 // ---- systemd and the rest of webOS ----
@@ -472,20 +539,38 @@ static void sd_notify_ready(void) {
     if (a.sun_path[0] == '@') a.sun_path[0] = 0;
     socklen_t alen = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + len);
     const char *msg = "READY=1\n";
-    ssize_t n = sendto(fd, msg, strlen(msg), MSG_NOSIGNAL, (struct sockaddr *)&a, alen);
+    ssize_t n = sendto(fd, msg, strlen(msg), MSG_NOSIGNAL | MSG_DONTWAIT, (struct sockaddr *)&a, alen);
     logline("sd_notify READY=1 to %s: %s", path, n < 0 ? strerror(errno) : "sent");
     close(fd);
 }
 
 // /tmp/lsm-ready is the file lsm-ready.path watches and webapp-mgr.service's ConditionPathExists; LG's compositor
 // has it made through `initctl emit lsm-ready` when its first frame is up.
+static pid_t initctl_pid;
+static void initctl_exited(int pid, int status, gpointer data) {
+    (void)status; (void)data;
+    if (initctl_pid == pid) initctl_pid = 0;
+}
+static gboolean initctl_timeout(gpointer data) {
+    pid_t pid = (pid_t)(intptr_t)data;
+    if (initctl_pid == pid) {
+        if (kill(pid, SIGKILL) < 0) logline("initctl kill: %s", strerror(errno));
+        else logline("initctl timed out");
+    }
+    return 0;
+}
+
 static void emit_lsm_ready(void) {
     int fd = open("/tmp/lsm-ready", O_WRONLY | O_CREAT, 0644);
     if (fd >= 0) close(fd);
     if (access("/sbin/initctl", X_OK) == 0) {
         pid_t p = fork();
         if (p == 0) { execl("/sbin/initctl", "initctl", "emit", "--no-wait", "lsm-ready", (char *)NULL); _exit(127); }
-        if (p > 0) waitpid(p, NULL, 0);
+        if (p > 0) {
+            initctl_pid = p;
+            g_child_watch_add(p, initctl_exited, NULL);
+            g_timeout_add(2000, initctl_timeout, (gpointer)(intptr_t)p);
+        } else if (p < 0) logline("initctl fork: %s", strerror(errno));
     }
     logline("lsm-ready emitted");
 }
@@ -494,9 +579,8 @@ static void emit_lsm_ready(void) {
 // back by itself; recover-home.sh (compositor/tools/tv-recover-home.sh) waits for LG's compositor and repairs
 // that. Started as its own session so it outlives the exec and nothing of it reaches the unit's main process.
 static void spawn_recovery(void) {
-    char script[600], logpath[600];
+    char script[600];
     snprintf(script, sizeof script, "%s/bin/recover-home.sh", state_dir);
-    snprintf(logpath, sizeof logpath, "%s/sm.log", state_dir);
     if (access(script, R_OK) != 0) { logline("no %s; LG's Home is not relaunched", script); return; }
     pid_t p = fork();
     if (p < 0) return;
@@ -508,10 +592,10 @@ static void spawn_recovery(void) {
         if (null >= 0) { dup2(null, 0); dup2(null, 1); dup2(null, 2); close(null); }
         for (int fd = 3; fd < 256; fd++) close(fd);
         unsetenv("NOTIFY_SOCKET");
-        execl("/bin/sh", "sh", script, logpath, (char *)NULL);
+        execl("/bin/sh", "sh", script, "--stock", (char *)NULL);
         _exit(127);
     }
-    waitpid(p, NULL, 0);
+    (void)waitpid(p, NULL, WNOHANG);
     logline("recover-home.sh started");
 }
 
@@ -545,22 +629,46 @@ static void mkdir_p(const char *path) {
     mkdir(tmp, 0755);
 }
 
-// Copies the last `max_lines` lines of `src`, of its last `max_bytes` bytes at the most, to `dst`. False when `src` cannot be read.
-static bool copy_tail(const char *src, const char *dst, int max_lines, size_t max_bytes) {
-    FILE *f = fopen(src, "r");
-    if (!f) return false;
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    long start = size > (long)max_bytes ? size - (long)max_bytes : 0;
-    fseek(f, start, SEEK_SET);
+static const char *log_directory = "/tmp/lumatv-logs";
+
+// Crash exports remain bounded snapshots; ordinary retention belongs only to the collector.
+static bool copy_log_tail(const char *tag, const char *dst, int max_lines, size_t max_bytes) {
     char *buf = malloc(max_bytes + 1);
-    if (!buf) { fclose(f); return false; }
-    size_t n = fread(buf, 1, max_bytes, f);
-    fclose(f);
-    char *from = buf, *end = buf + n;
-    if (start > 0) { char *nl = memchr(buf, '\n', n); from = nl ? nl + 1 : end; }   // the cut began inside a line
-    char *scan = end;
-    if (scan > from && scan[-1] == '\n') scan--;                                    // a last newline ends a line, it does not start one
+    if (!buf) return false;
+    size_t n = 0;
+    const char *names[] = { "previous.log", "current.log" };
+    for (size_t generation = 0; generation < 2; generation++) {
+        char path[700], line[4098];
+        snprintf(path, sizeof path, "%s/%s", log_directory, names[generation]);
+        FILE *f = fopen(path, "r");
+        if (!f) continue;
+        size_t read_bytes = 0;
+        while (read_bytes < 524288 && fgets(line, sizeof line, f)) {
+            size_t size = strlen(line);
+            read_bytes += size;
+            if (line[0] != '<' || !isdigit((unsigned char)line[1])) continue;
+            char *header_end;
+            unsigned long pri = strtoul(line + 1, &header_end, 10);
+            if (pri > 191 || *header_end != '>') continue;
+            char *message = header_end + 1;
+            size_t tag_len = strlen(tag);
+            if (strncmp(message, tag, tag_len) || strncmp(message + tag_len, ": ", 2)) continue;
+            message += tag_len + 2;
+            size = strlen(message);
+            if (size > max_bytes) continue;
+            if (n + size > max_bytes) {
+                size_t discard = n + size - max_bytes;
+                while (discard < n && buf[discard - 1] != '\n') discard++;
+                memmove(buf, buf + discard, n - discard);
+                n -= discard;
+            }
+            memcpy(buf + n, message, size);
+            n += size;
+        }
+        fclose(f);
+    }
+    char *from = buf, *end = buf + n, *scan = end;
+    if (scan > from && scan[-1] == '\n') scan--;
     for (int seen = 0; scan > from;) {
         scan--;
         if (*scan == '\n' && ++seen == max_lines) { from = scan + 1; break; }
@@ -685,9 +793,9 @@ static void crash_bundle(const char *reason, bool problem, char *name, size_t na
         fclose(f);
     }
     snprintf(path, sizeof path, "%s/compositor.log.tail", dir);
-    copy_tail(path_in_state("compositor.log"), path, CRASH_LOG_LINES, CRASH_LOG_BYTES);
+    copy_log_tail("lumatv-compositor", path, CRASH_LOG_LINES, CRASH_LOG_BYTES);
     snprintf(path, sizeof path, "%s/sm.log.tail", dir);
-    copy_tail(path_in_state("sm.log"), path, 60, 16 * 1024);
+    copy_log_tail("lumatv-sm", path, 60, 16 * 1024);
     snprintf(path, sizeof path, "%s/trace.txt", dir);
     char ring[600];
     snprintf(ring, sizeof ring, "%s/lumatv-trace.ring", runtime_dir);
@@ -706,19 +814,41 @@ static void crash_bundle(const char *reason, bool problem, char *name, size_t na
 
 // ---- fallback to LG's compositor ----
 static void release_for_exec(void);
+static void cleanup_owned_ui(void);
+static bool reap_within(pid_t pid, int milliseconds) {
+    double end = mono_now() + milliseconds / 1000.0;
+    for (;;) {
+        pid_t r = waitpid(pid, NULL, WNOHANG);
+        if (r == pid || (r < 0 && errno == ECHILD)) return true;
+        if (r < 0 && errno != EINTR) return false;
+        if (mono_now() >= end) return false;
+        usleep(10000);
+    }
+}
+
 static void fallback(const char *reason, bool count_failure) {
+    if (supervising && !dry_run && !probe) {
+        struct timespec stamp;
+        clock_gettime(CLOCK_MONOTONIC, &stamp);
+        char intent[96];
+        snprintf(intent, sizeof intent, "%ld:%ld:%ld", (long)getpid(), (long)stamp.tv_sec, stamp.tv_nsec);
+        write_text(path_in_state("stock-ui-held"), intent);
+    }
     logline("fallback: %s", reason);
     write_text(path_in_state("last-fallback"), reason);
     if (count_failure) write_number(path_in_state("failures"), read_number(path_in_state("failures"), 0) + 1);
     // Handing the screen over on purpose is not an unclean end: the next start must not count it a second time.
     forget_running();
     if (child_pid > 0) {
-        kill(child_pid, SIGTERM);
-        for (int i = 0; i < 20 && waitpid(child_pid, NULL, WNOHANG) == 0; i++) usleep(50000);
-        kill(child_pid, SIGKILL);
-        waitpid(child_pid, NULL, 0);
+        pid_t pid = child_pid;
+        if (kill(pid, SIGTERM) < 0) logline("compositor SIGTERM: %s", strerror(errno));
+        if (!reap_within(pid, 1000)) {
+            if (kill(pid, SIGKILL) < 0) logline("compositor SIGKILL: %s", strerror(errno));
+            if (!reap_within(pid, 1000)) logline("compositor did not exit; continuing stock handoff");
+        }
         child_pid = 0;
     }
+    if (supervising && !dry_run && !probe) cleanup_owned_ui();
     if (!dry_run && !probe) restore_vsync_divider();
     if (dry_run || probe) {
         logline("%s: would unmount %s and exec LG's compositor", dry_run ? "dry run" : "probe", lg_binary);
@@ -797,6 +927,82 @@ static bool json_string(const char *obj, const char *key, char *out, size_t outs
     return true;
 }
 
+// pidfds prevent PID reuse; they do not prevent an inspected process from execing before the signal.
+#ifndef SYS_pidfd_open
+#define SYS_pidfd_open 434
+#endif
+#ifndef SYS_pidfd_send_signal
+#define SYS_pidfd_send_signal 424
+#endif
+static int ui_open_pid(pid_t pid) { return (int)syscall(SYS_pidfd_open, pid, 0); }
+static void ui_stop_pid(int fd) { if (syscall(SYS_pidfd_send_signal, fd, SIGKILL, NULL, 0) < 0) logline("UI pidfd signal: %s", strerror(errno)); }
+static void ui_close_pid(int fd) { close(fd); }
+
+static bool ui_owned_process(const char *exe, char *cmd, size_t len) {
+    if (!len || cmd[len - 1] != 0) return false;
+    char *args[8]; size_t n = 0;
+    for (size_t at = 0; at < len;) {
+        if (n == sizeof args / sizeof args[0]) return false;
+        args[n++] = cmd + at;
+        size_t l = strnlen(cmd + at, len - at);
+        if (l == len - at) return false;
+        at += l + 1;
+    }
+    char binary[600], loader[600], lib[600], qml[600], resolved[PATH_MAX];
+    snprintf(binary, sizeof binary, "%s/bin/lumatv-ui", state_dir);
+    snprintf(loader, sizeof loader, "%s/lib/ld-linux-aarch64.so.1", state_dir);
+    snprintf(lib, sizeof lib, "%s/lib", state_dir);
+    snprintf(qml, sizeof qml, "%s/shell/Shell.qml", state_dir);
+    const char *binary_exe = realpath(binary, resolved) ? resolved : binary;
+    if (n == 1 && !strcmp(exe, binary_exe) && !strcmp(args[0], binary)) return true;
+    const char *loader_exe = realpath(loader, resolved) ? resolved : loader;
+    if (n == 4 && !strcmp(exe, loader_exe) && !strcmp(args[0], loader) &&
+        !strcmp(args[1], "--library-path") && !strcmp(args[2], lib) && !strcmp(args[3], binary)) return true;
+    const char *runner = realpath("/usr/bin/qml-runner", resolved) ? resolved : "/usr/bin/qml-runner";
+    if (n != 2 || strcmp(exe, runner) || strcmp(args[0], "/usr/bin/qml-runner")) return false;
+    char app[128], main[600], event[32];
+    return json_string(args[1], "event", event, sizeof event) && !strcmp(event, "launch") &&
+           json_string(args[1], "appId", app, sizeof app) && !strcmp(app, "org.nphil.lumatv.shell") &&
+           json_string(args[1], "main", main, sizeof main) && !strcmp(main, qml);
+}
+
+static void scan_owned_ui(const char *proc, int (*open_pid)(pid_t), void (*stop_pid)(int), void (*close_pid)(int)) {
+    DIR *dir = opendir(proc);
+    if (!dir) return;
+    double end = mono_now() + 0.25;
+    struct dirent *ent;
+    int seen = 0;
+    while (seen++ < 4096 && mono_now() < end && (ent = readdir(dir))) {
+        char *tail;
+        long number = strtol(ent->d_name, &tail, 10);
+        if (!*ent->d_name || *tail || number <= 1 || number > INT32_MAX || number == getpid()) continue;
+        int handle = open_pid((pid_t)number);
+        if (handle < 0) continue;
+        char path[512], exe[600], cmd[4096];
+        snprintf(path, sizeof path, "%s/%s/exe", proc, ent->d_name);
+        ssize_t en = readlink(path, exe, sizeof exe - 1);
+        if (en > 0 && (size_t)en < sizeof exe - 1) {
+            exe[en] = 0;
+            snprintf(path, sizeof path, "%s/%s/cmdline", proc, ent->d_name);
+            int fd = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+            if (fd >= 0) {
+                ssize_t count = read(fd, cmd, sizeof cmd);
+                close(fd);
+                if (count > 0 && (size_t)count < sizeof cmd && ui_owned_process(exe, cmd, (size_t)count)) stop_pid(handle);
+            }
+        }
+        close_pid(handle);
+    }
+    closedir(dir);
+}
+
+static void cleanup_owned_ui(void) {
+    int probe_fd = ui_open_pid(getpid());
+    if (probe_fd < 0) { logline("pidfd unavailable; skipping UI process signals to avoid PID reuse"); return; }
+    close(probe_fd);
+    scan_owned_ui("/proc", ui_open_pid, ui_stop_pid, ui_close_pid);
+}
+
 static bool json_number(const char *obj, const char *key, unsigned long *out) {
     const char *v; size_t n;
     if (!json_value(obj, key, &v, &n) || n == 0) return false;
@@ -836,13 +1042,21 @@ static void flatten(char *s) {
 #define MAX_PENDING 256
 static char *pending[MAX_PENDING];
 static int npending;
+static bool bridge_broken;
 
 static void write_line(const char *line) {
+    if (bridge_fd < 0 || bridge_broken) return;
     size_t n = strlen(line);
     struct iovec iov[2] = { { (void *)line, n }, { (void *)"\n", 1 } };
     struct msghdr mh = { 0 };
     mh.msg_iov = iov; mh.msg_iovlen = 2;
-    if (sendmsg(bridge_fd, &mh, MSG_NOSIGNAL) < 0) logline("bridge send: %s", strerror(errno));
+    ssize_t written = sendmsg(bridge_fd, &mh, MSG_NOSIGNAL | MSG_DONTWAIT);
+    if (written < 0 || (size_t)written != n + 1) {
+        if (written < 0) logline("bridge send: %s", strerror(errno));
+        else logline("bridge send: short write (%zd of %zu)", written, n + 1);
+        bridge_broken = true;
+        shutdown(bridge_fd, SHUT_RDWR);
+    }
 }
 
 static void send_line(const char *line) {
@@ -889,10 +1103,12 @@ static void release_for_exec(void) {
     }
     logline("released %d bus name(s); exec %s", nbuses, lg_binary);
     nbuses = 0;
-    if (logf) { fclose(logf); logf = NULL; }
+    // LG inherits the unit's original streams and their original blocking flags, never LumaTV's native drain.
+    native_output_restore();
     long max = sysconf(_SC_OPEN_MAX);
     if (max < 0 || max > 65536) max = 4096;
     for (int fd = 3; fd < max; fd++) close(fd);
+    lumatv_log_reset();
 }
 
 static bool on_method(LSHandle *sh, LSMessage *msg, void *ctx) {
@@ -1082,6 +1298,7 @@ static gboolean on_bridge_readable(GIOChannel *ch, int cond, gpointer data) {
     (void)ch; (void)data;
     if (cond & (G_IO_HUP | G_IO_ERR)) { bridge_gone("compositor closed the bridge socket"); return 0; }
     ssize_t n = read(bridge_fd, inbuf + inlen, sizeof inbuf - inlen - 1);
+    if (n < 0 && (errno == EAGAIN || errno == EINTR)) return 1;
     if (n <= 0) { bridge_gone("bridge read ended"); return 0; }
     inlen += n;
     inbuf[inlen] = 0;
@@ -1100,13 +1317,15 @@ static gboolean on_bridge_readable(GIOChannel *ch, int cond, gpointer data) {
 
 static gboolean on_bridge_accept(GIOChannel *ch, int cond, gpointer data) {
     (void)ch; (void)cond; (void)data;
-    int fd = accept4(bridge_listen, NULL, NULL, SOCK_CLOEXEC);
+    int fd = accept4(bridge_listen, NULL, NULL, SOCK_CLOEXEC | SOCK_NONBLOCK);
     if (fd < 0) return 1;
     if (bridge_fd >= 0) { logline("bridge: second connection refused"); close(fd); return 1; }
     bridge_fd = fd;
+    bridge_broken = false;
     logline("bridge: compositor connected");
-    flush_pending();
     g_io_add_watch(g_io_channel_unix_new(fd), G_IO_IN | G_IO_HUP | G_IO_ERR, on_bridge_readable, NULL);
+    flush_pending();
+    if (bridge_broken) return 1;
     // The compositor is listening on LG's socket and the bus names are ours: the unit is up.
     if (!dry_run) { sd_notify_ready(); emit_lsm_ready(); }
     return 1;
@@ -1240,13 +1459,12 @@ static int read_extra_flags(void) {
 }
 
 static void spawn_compositor(void) {
-    char loader[600], libdir[600], bin[600], blob[600], bridge[600], logpath[600];
+    char loader[600], libdir[600], bin[600], blob[600], bridge[600];
     snprintf(loader, sizeof loader, "%s/lib/ld-linux-aarch64.so.1", state_dir);
     snprintf(libdir, sizeof libdir, "%s/lib", state_dir);
     snprintf(bin, sizeof bin, "%s/bin/lumatv-compositor", state_dir);
     snprintf(blob, sizeof blob, "%s/lib/libmali-bifrost-g52-g24p0-wayland-gbm.so", state_dir);
     snprintf(bridge, sizeof bridge, "%s/bridge.sock", state_dir);
-    snprintf(logpath, sizeof logpath, "%s/compositor.log", state_dir);
     mkdir(runtime_dir, 0700);
     // read here, in the parent: the child allocates nothing
     int extra = dry_run ? 0 : read_extra_flags();
@@ -1255,11 +1473,12 @@ static void spawn_compositor(void) {
         for (int i = 0; i < extra; i++) { strncat(line, i ? " " : "", sizeof line - strlen(line) - 1); strncat(line, extra_words[i], sizeof line - strlen(line) - 1); }
         logline("compositor flags from %s: %s", EXTRA_FLAGS_FILE, line);
     }
+    int output = lumatv_log_pipe("lumatv-compositor");
+    if (output < 0) output = open("/dev/null", O_WRONLY | O_CLOEXEC);
     pid_t pid = fork();
-    if (pid < 0) { fallback("fork failed", true); return; }
+    if (pid < 0) { if (output >= 0) close(output); fallback("fork failed", true); return; }
     if (pid == 0) {
-        int lf = open(logpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (lf >= 0) { dup2(lf, 1); dup2(lf, 2); close(lf); }
+        if (output >= 0) { dup2(output, 1); dup2(output, 2); close(output); }
         setenv("XDG_RUNTIME_DIR", runtime_dir, 1);
         setenv("LUMATV_LUNA_BRIDGE", bridge, 1);
         setenv("LUMATV_LOG", "info", 0);
@@ -1282,6 +1501,7 @@ static void spawn_compositor(void) {
         execv(loader, (char *const *)av);
         _exit(127);
     }
+    if (output >= 0) close(output);
     child_pid = pid;
     g_child_watch_add(pid, on_child, NULL);
     logline("compositor started: pid %d (%s)", pid, dry_run ? "dry run, private socket, offscreen" : "kms on /tmp/xdg/wayland-0");
@@ -1448,7 +1668,20 @@ static void ask_power(void) {
 }
 
 // ---- the Home watcher's devices ----
-static struct { int fd; char path[300]; } inputs[MAX_INPUTS];
+static struct { int fd; char path[300]; struct home home; bool resync; enum input_kind kind; unsigned watch; } inputs[MAX_INPUTS];
+static void home_seed(struct home *h, const unsigned char *bits, size_t n, double now);
+static int input_read_keys(int fd, unsigned char *bits, size_t n) { return ioctl(fd, EVIOCGKEY(n), bits); }
+static int (*input_get_keys)(int, unsigned char *, size_t) = input_read_keys;
+static gboolean (*input_remove_watch)(unsigned) = g_source_remove;
+
+static void input_close_slot(int slot) {
+    if (inputs[slot].watch && !input_remove_watch(inputs[slot].watch)) logline("input: could not remove watch %u", inputs[slot].watch);
+    close(inputs[slot].fd);
+    inputs[slot].fd = -1;
+    inputs[slot].watch = 0;
+    inputs[slot].resync = false;
+    memset(&inputs[slot].home, 0, sizeof inputs[slot].home);
+}
 
 static gboolean on_input(GIOChannel *ch, int cond, gpointer data) {
     (void)ch;
@@ -1457,52 +1690,91 @@ static gboolean on_input(GIOChannel *ch, int cond, gpointer data) {
     if (fd < 0) return 0;
     bool gone = (cond & (G_IO_HUP | G_IO_ERR)) != 0;
     struct input_event ev[32];
-    while (!gone) {
+    for (int batch = 0; batch < 4 && !gone; batch++) {
         ssize_t n = read(fd, ev, sizeof ev);
         if (n < 0) { if (errno != EAGAIN && errno != EINTR) gone = true; break; }
         if (n == 0) break;
-        for (size_t i = 0; i < (size_t)n / sizeof ev[0]; i++)
-            if (ev[i].type == EV_KEY) home_event(&home_state, ev[i].code, ev[i].value, mono_now());
+        for (size_t i = 0; i < (size_t)n / sizeof ev[0]; i++) {
+            if (ev[i].type == EV_SYN && ev[i].code == SYN_DROPPED) {
+                memset(&inputs[idx].home, 0, sizeof inputs[idx].home);
+                inputs[idx].resync = true;
+            } else if (inputs[idx].resync && ev[i].type == EV_SYN && ev[i].code == SYN_REPORT) {
+                unsigned char bits[KEY_STATE_BYTES] = {0};
+                if (input_get_keys(fd, bits, sizeof bits) >= 0) {
+                    home_seed(&inputs[idx].home, bits, sizeof bits, mono_now());
+                    inputs[idx].resync = false;
+                }
+            } else if (!inputs[idx].resync && ev[i].type == EV_KEY) {
+                home_event(&inputs[idx].home, ev[i].code, ev[i].value, mono_now());
+            }
+        }
         if ((size_t)n < sizeof ev) break;
     }
     // A device that goes (a remote's radio dropping) takes its key releases with it: a Home that was down on it is no hold.
-    if (gone) { close(fd); inputs[idx].fd = -1; home_state.down_at = 0; return 0; }
+    if (gone) { close(fd); inputs[idx].fd = -1; inputs[idx].watch = 0; inputs[idx].resync = false; memset(&inputs[idx].home, 0, sizeof inputs[idx].home); return 0; }
     return 1;
 }
 
 // Opens the event nodes not yet watched, again every few seconds: a remote that pairs later is a new node. A Home
 // key already down on a new node starts its hold.
+static void home_seed(struct home *h, const unsigned char *bits, size_t n, double now) {
+    const int keys[] = { KEY_HOME, KEY_HOMEPAGE, KEY_RF_HOME };
+    memset(h, 0, sizeof *h);
+    for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++)
+        if ((size_t)keys[i] / 8 < n && (bits[keys[i] / 8] & (1u << (keys[i] % 8)))) home_event(h, keys[i], 1, now);
+}
+
+static int input_slot_for(enum input_kind kind) {
+    int lower = -1;
+    for (int i = 0; i < MAX_INPUTS; i++) {
+        if (inputs[i].fd < 0) return i;
+        if (inputs[i].kind < kind && (lower < 0 || inputs[i].kind < inputs[lower].kind)) lower = i;
+    }
+    return lower;
+}
+
 static void scan_inputs(void) {
     DIR *d = opendir(input_dir);
     if (!d) return;
     struct dirent *e;
-    while ((e = readdir(d)) != NULL) {
-        if (strncmp(e->d_name, "event", 5) != 0) continue;
-        char path[300];
-        snprintf(path, sizeof path, "%s/%s", input_dir, e->d_name);
-        int slot = -1;
-        bool known = false;
-        for (int i = 0; i < MAX_INPUTS; i++) {
-            if (inputs[i].fd >= 0 && !strcmp(inputs[i].path, path)) known = true;
-            else if (inputs[i].fd < 0 && slot < 0) slot = i;
+    for (int pass = INPUT_LG_REMOTE; pass >= INPUT_OTHER; pass--) {
+        rewinddir(d);
+        while ((e = readdir(d)) != NULL) {
+            if (strncmp(e->d_name, "event", 5) != 0) continue;
+            char path[300]; enum input_kind kind;
+            snprintf(path, sizeof path, "%s/%s", input_dir, e->d_name);
+            bool known = false;
+            for (int i = 0; i < MAX_INPUTS; i++)
+                if (inputs[i].fd >= 0 && !strcmp(inputs[i].path, path)) known = true;
+            if (known) continue;
+            int fd = open_input(path, &kind);
+            if (fd < 0) continue;
+            if (kind != (enum input_kind)pass) { close(fd); continue; }
+            int slot = input_slot_for(kind);
+            if (slot < 0) { close(fd); continue; }
+            if (inputs[slot].fd >= 0) input_close_slot(slot);
+            inputs[slot].fd = fd; inputs[slot].kind = kind;
+            snprintf(inputs[slot].path, sizeof inputs[slot].path, "%s", path);
+            inputs[slot].resync = false;
+            memset(&inputs[slot].home, 0, sizeof inputs[slot].home);
+            unsigned char bits[KEY_STATE_BYTES] = {0};
+            if (ioctl(fd, EVIOCGKEY(sizeof bits), bits) >= 0)
+                home_seed(&inputs[slot].home, bits, sizeof bits, mono_now());
+            inputs[slot].watch = g_io_add_watch(g_io_channel_unix_new(fd), G_IO_IN | G_IO_ERR | G_IO_HUP, on_input, (gpointer)(intptr_t)slot);
         }
-        if (known) continue;
-        if (slot < 0) break;
-        int fd = open_input(path);
-        if (fd < 0) continue;
-        inputs[slot].fd = fd;
-        snprintf(inputs[slot].path, sizeof inputs[slot].path, "%s", path);
-        if (input_home_down(fd)) home_event(&home_state, KEY_HOMEPAGE, 1, mono_now());
-        g_io_add_watch(g_io_channel_unix_new(fd), G_IO_IN | G_IO_ERR | G_IO_HUP, on_input, (gpointer)(intptr_t)slot);
     }
     closedir(d);
 }
 
 static gboolean on_home_timer(gpointer data) {
     (void)data;
-    if (home_due(&home_state, mono_now())) {
-        write_text(path_in_state("escaped"), "hold Home 650 ms (supervisor)");
-        fallback("hold Home 650 ms (supervisor)", false);
+    double now = mono_now();
+    for (int i = 0; i < MAX_INPUTS; i++) if (inputs[i].fd >= 0 && home_due(&inputs[i].home, now)) {
+        struct pollfd pending_input = { .fd = inputs[i].fd, .events = POLLIN };
+        int ready = poll(&pending_input, 1, 0);
+        if (ready != 0) continue; // Process queued releases or a disconnect before deciding.
+        write_text(path_in_state("escaped"), "hold Home 10 s (supervisor)");
+        fallback("hold Home 10 s (supervisor)", false);
     }
     return 1;
 }
@@ -1547,28 +1819,6 @@ static void on_term(int sig) {
     _exit(0);
 }
 
-// Removes one stale log from the last runs: the file is appended to by every start and every watchdog line.
-static void rotate_log(void) {
-    struct stat st;
-    char p[600], old[620];
-    snprintf(p, sizeof p, "%s/sm.log", state_dir);
-    if (stat(p, &st) == 0 && st.st_size > SM_LOG_MAX) {
-        snprintf(old, sizeof old, "%s.old", p);
-        rename(p, old);
-    }
-}
-
-// The same bound while running: rotate_log runs once at start, and a repeated line (the power query every 10 s while it fails) grows the
-// file for as long as the supervisor lives.
-static void rotate_open_log(void) {
-    if (!logf || ftell(logf) <= SM_LOG_MAX) return;
-    char p[600], old[620];
-    snprintf(p, sizeof p, "%s/sm.log", state_dir);
-    snprintf(old, sizeof old, "%s.old", p);
-    fclose(logf);
-    rename(p, old);
-    logf = fopen(p, "a");
-}
 
 #ifdef LUMATV_SM_TEST
 // The JSON scanner against lines as serde_json writes them on the compositor's side.
@@ -1588,9 +1838,9 @@ static void test_json(void) {
     CHECK(json_value(out, "payload", &v, &n) && v[0] == '{' && v[n - 1] == '}' && n == 94);
     const char *pong = "{\"kind\":\"pong\",\"seq\":42}";
     CHECK(json_number(pong, "seq", &tok) && tok == 42);
-    const char *esc = "{\"kind\":\"fallback\",\"reason\":\"hold \\\"Home\\\" 650 ms\"}";
+    const char *esc = "{\"kind\":\"fallback\",\"reason\":\"hold \\\"Home\\\" 10 s\"}";
     char reason[64];
-    CHECK(json_string(esc, "reason", reason, sizeof reason) && !strcmp(reason, "hold \"Home\" 650 ms"));
+    CHECK(json_string(esc, "reason", reason, sizeof reason) && !strcmp(reason, "hold \"Home\" 10 s"));
     char fp[17]; fingerprint(fp); CHECK(strlen(fp) == 16);
     char e[64]; json_escape("a\"b\\c\n", e, sizeof e); CHECK(!strcmp(e, "a\\\"b\\\\c\\n"));
     char pretty[] = "{\"kind\":\"inbound\",\"payload\":{\n    \"subscribe\": true\r\n}}";
@@ -1656,6 +1906,111 @@ static void fresh_state(void) {
     boot_id_path = strdup(p);
 }
 
+static unsigned ui_stopped;
+static int fake_ui_open(pid_t pid) { return (int)pid; }
+static void fake_ui_stop(int handle) { if (handle == 123) ui_stopped |= 1; else if (handle == 124) ui_stopped |= 2; else if (handle == 125) ui_stopped |= 4; }
+static void fake_ui_close(int handle) { (void)handle; }
+
+static void test_owned_ui_cleanup(void) {
+    fresh_state();
+    char proc[400], path[500], binary[400], loader[400], lib[400], args[2048];
+    char runner[PATH_MAX];
+    const char *runner_exe = realpath("/usr/bin/qml-runner", runner) ? runner : "/usr/bin/qml-runner";
+    snprintf(proc, sizeof proc, "%s/proc", tdir); CHECK(mkdir(proc, 0755) == 0);
+    snprintf(binary, sizeof binary, "%s/bin/lumatv-ui", tdir);
+    snprintf(loader, sizeof loader, "%s/lib/ld-linux-aarch64.so.1", tdir);
+    snprintf(lib, sizeof lib, "%s/lib", tdir);
+    for (int pid = 123; pid <= 125; pid++) {
+        snprintf(path, sizeof path, "%s/%d", proc, pid); CHECK(mkdir(path, 0755) == 0);
+        snprintf(path, sizeof path, "%s/%d/exe", proc, pid);
+        CHECK(symlink(pid == 125 ? runner_exe : loader, path) == 0);
+        snprintf(path, sizeof path, "%s/%d/cmdline", proc, pid);
+        int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600); CHECK(fd >= 0);
+        int n = 0;
+        if (pid == 125) {
+            n += snprintf(args + n, sizeof args - n, "%s", "/usr/bin/qml-runner") + 1;
+            n += snprintf(args + n, sizeof args - n, "{\"event\":\"launch\",\"appId\":\"org.nphil.lumatv.shell\",\"main\":\"%s/shell/Shell.qml\"}", tdir) + 1;
+        } else {
+            n += snprintf(args + n, sizeof args - n, "%s", loader) + 1;
+            n += snprintf(args + n, sizeof args - n, "%s", "--library-path") + 1;
+            n += snprintf(args + n, sizeof args - n, "%s", lib) + 1;
+            n += snprintf(args + n, sizeof args - n, "%s", pid == 123 ? binary : "/usr/bin/foreign-app") + 1;
+        }
+        CHECK(fd >= 0 && write(fd, args, (size_t)n) == n);
+        if (fd >= 0) close(fd);
+    }
+    ui_stopped = 0;
+    scan_owned_ui(proc, fake_ui_open, fake_ui_stop, fake_ui_close);
+    CHECK(ui_stopped == 5);
+}
+
+static void check_enable(const char *mode, const char *word) {
+    const char *names[] = {".", "bin", "lib", "enabled", "escaped", "failures", "running", "fingerprint",
+                           "verified.list", "boot_id", "bin/lumatv-compositor", "bin/recover-home.sh",
+                           "lib/ld-linux-aarch64.so.1", "lib/libmali-bifrost-g52-g24p0-wayland-gbm.so",
+                           "last-fallback", "sm.log"};
+    struct stat before[sizeof names / sizeof names[0]], after;
+    bool exists[sizeof names / sizeof names[0]];
+    char path[400];
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
+        snprintf(path, sizeof path, "%s/%s", tdir, names[i]);
+        exists[i] = stat(path, &before[i]) == 0;
+    }
+    struct verdict v;
+    decide_enable(&v, mode);
+    CHECK(!strcmp(v.word, word));
+    CHECK(v.run == !strcmp(word, "run"));
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
+        snprintf(path, sizeof path, "%s/%s", tdir, names[i]);
+        bool now = stat(path, &after) == 0;
+        CHECK(now == exists[i]);
+        if (now && exists[i]) {
+            CHECK(before[i].st_ino == after.st_ino && before[i].st_mode == after.st_mode &&
+                  before[i].st_size == after.st_size && before[i].st_mtim.tv_sec == after.st_mtim.tv_sec &&
+                  before[i].st_mtim.tv_nsec == after.st_mtim.tv_nsec &&
+                  before[i].st_ctim.tv_sec == after.st_ctim.tv_sec && before[i].st_ctim.tv_nsec == after.st_ctim.tv_nsec);
+        }
+    }
+}
+
+static void test_decide_enable(void) {
+    fresh_state();
+    check_enable("persistent", "run");
+    check_enable("session", "run");
+    check_enable(NULL, "mode");
+    check_enable("invalid", "mode");
+    put("enabled", "session OLD-BOOT\n");
+    put("escaped", "escape\n");
+    put("failures", "9\n");
+    put("running", "unclean\n");
+    check_enable("persistent", "run");
+    check_enable("session", "run");
+    drop("bin/recover-home.sh");
+    check_enable("persistent", "bundle");
+    check_enable("session", "bundle");
+    put("bin/recover-home.sh", "x");
+    put("fingerprint", "corrupted\n");
+    check_enable("persistent", "firmware");
+    check_enable("session", "firmware");
+    drop("fingerprint");
+    check_enable("persistent", "firmware");
+    check_enable("session", "firmware");
+    char fp[17], line[64];
+    fingerprint(fp);
+    snprintf(line, sizeof line, "%s\n", fp);
+    put("fingerprint", line);
+    put("verified.list", "fingerprint corrupted\n");
+    check_enable("persistent", "firmware");
+    check_enable("session", "run");
+    drop("verified.list");
+    check_enable("persistent", "firmware");
+    check_enable("session", "run");
+    put("boot_id", "");
+    check_enable("session", "session");
+    drop("boot_id");
+    check_enable("session", "session");
+}
+
 static void test_decide(void) {
     struct verdict v;
     fresh_state();
@@ -1667,7 +2022,7 @@ static void test_decide(void) {
     put("enabled", "persistent\n");
     decide(&v);
     CHECK(v.run);
-    put("escaped", "hold Home 650 ms");
+    put("escaped", "hold Home 10 s");
     decide(&v);
     CHECK(!v.run && !strcmp(v.word, "escaped") && !strcmp(v.why, "escape recorded; re-enable from the tool"));
     drop("escaped");
@@ -1910,26 +2265,23 @@ static void test_home(void) {
     struct home h = { 0 };
     CHECK(!home_due(&h, 100));
     home_event(&h, KEY_HOMEPAGE, 1, 100.0);
-    CHECK(!home_due(&h, 100.0) && !home_due(&h, 100.6) && home_due(&h, 100.65) && home_due(&h, 105));
-    home_event(&h, KEY_HOMEPAGE, 2, 100.5);                                    // a repeat does not restart the hold
-    CHECK(home_due(&h, 100.65));
-    home_event(&h, KEY_HOMEPAGE, 0, 100.7);
-    CHECK(!home_due(&h, 105));                                                // a release ends it
+    CHECK(!home_due(&h, 109.99) && home_due(&h, 110.0));
+    home_event(&h, KEY_HOMEPAGE, 2, 109.0);
+    CHECK(home_due(&h, 110.0));
+    home_event(&h, KEY_HOMEPAGE, 0, 110.1);
+    CHECK(!home_due(&h, 120));
     home_event(&h, KEY_ENTER, 1, 200.0);
-    CHECK(!home_due(&h, 205));                                                // other keys do not count
-    home_event(&h, KEY_HOME, 1, 300.0);                                       // the older code counts as well
-    CHECK(home_due(&h, 300.7));
-    home_event(&h, KEY_HOME, 0, 300.3);
-    CHECK(!home_due(&h, 301));                                                // a tap is not a hold
-    home_event(&h, KEY_RF_HOME, 1, 400.0);                                    // LG's RF_HOME counts as well
-    CHECK(!home_due(&h, 400.6) && home_due(&h, 400.7) && home_due(&h, 405));
-    home_event(&h, KEY_RF_HOME, 2, 400.5);                                    // a repeat does not restart it
-    CHECK(home_due(&h, 400.7));
-    home_event(&h, KEY_RF_HOME, 0, 400.8);
-    CHECK(!home_due(&h, 405));
-    home_event(&h, KEY_RF_HOME, 1, 500.0);
-    home_event(&h, KEY_RF_HOME, 0, 500.3);
-    CHECK(!home_due(&h, 501));                                                // a tap is not a hold
+    CHECK(!home_due(&h, 220));
+    home_event(&h, KEY_HOME, 1, 300.0);
+    home_event(&h, KEY_RF_HOME, 1, 301.0);
+    home_event(&h, KEY_RF_HOME, 0, 302.0);
+    CHECK(home_due(&h, 310.0));
+    home_event(&h, KEY_HOME, 0, 310.1);
+    home_event(&h, KEY_RF_HOME, 1, 400.0);
+    home_event(&h, KEY_RF_HOME, 2, 409.0);
+    CHECK(!home_due(&h, 409.99) && home_due(&h, 410.0));
+    home_event(&h, KEY_RF_HOME, 0, 410.1);
+    CHECK(!home_due(&h, 420.0));
     // the key-state bitmap of EVIOCGKEY: each of the three Home codes is found, other keys' bits are not Home, and a bit past the
     // end of a short answer is not read
     unsigned char bits[128];
@@ -1949,6 +2301,30 @@ static void test_home(void) {
     }
     CHECK(name_is_network_keys("Smart Remote RCU Input") && name_is_network_keys("LGE Network Input"));
     CHECK(!name_is_network_keys("LGE RCU") && !name_is_network_keys("LGE M-RCU - Builtin [0]"));
+    // The saved C4 census records these physical names, but not per-key capability bitmaps.
+    const char *remote_names[] = { "LGE RCU", "LGE M-RCU - Builtin [0]", "LGE M-RCU - Builtin [1]",
+        "LGE M-RCU - Builtin [2]", "LGE TONE+ - Builtin [3]", "LGE W-RCU - Builtin [5]", "LGE Simple Premium" };
+    unsigned char none[128] = {0};
+    for (size_t i = 0; i < sizeof remote_names / sizeof remote_names[0]; i++) {
+        CHECK(classify_input(remote_names[i], NULL, 0) == INPUT_LG_REMOTE);
+        CHECK(classify_input(remote_names[i], none, sizeof none) == INPUT_LG_REMOTE);
+    }
+    CHECK(classify_input("Smart Remote RCU Input", bits, sizeof bits) == INPUT_REJECT);
+    CHECK(classify_input("LGE Network Input", bits, sizeof bits) == INPUT_REJECT);
+    CHECK(classify_input("", bits, sizeof bits) == INPUT_REJECT);
+    CHECK(classify_input("keyboard", none, sizeof none) == INPUT_OTHER);
+    none[KEY_HOME / 8] |= 1u << (KEY_HOME % 8);
+    CHECK(classify_input("keyboard", none, sizeof none) == INPUT_GENERIC);
+    for (int i = 0; i < MAX_INPUTS; i++) { inputs[i].fd = i + 10; inputs[i].kind = INPUT_GENERIC; }
+    CHECK(input_slot_for(INPUT_GENERIC) == -1);
+    CHECK(input_slot_for(INPUT_LG_REMOTE) == 0);
+    inputs[0].kind = INPUT_LG_REMOTE;
+    CHECK(input_slot_for(INPUT_LG_REMOTE) == 1);
+    inputs[2].kind = INPUT_OTHER;
+    CHECK(input_slot_for(INPUT_LG_REMOTE) == 2);
+    CHECK(input_slot_for(INPUT_GENERIC) == 2);
+    CHECK(input_slot_for(INPUT_OTHER) == -1);
+    for (int i = 0; i < MAX_INPUTS; i++) inputs[i].fd = -1;
     // no event nodes, or ones that are no input devices: Home is not held, and nothing is waited for
     fresh_state();
     char dir[320];
@@ -1960,18 +2336,22 @@ static void test_home(void) {
     put("input/event0", "not a device");
     put("input/mouse0", "not an event node");
     int fds[MAX_INPUTS];
-    CHECK(open_inputs_all(fds, MAX_INPUTS) == 1);
-    CHECK(!input_home_down(fds[0]));
-    close(fds[0]);
+    CHECK(open_inputs_all(fds, MAX_INPUTS) == 0);
     t0 = mono_now();
     CHECK(!home_held_for(700) && mono_now() - t0 < 0.1);
 }
 
 // What the watcher reads from a device: Home's press and release in the layout of this build's input_event, other keys
 // ignored, and a device that goes taking a Home held on it with it.
+static int fake_input_keys(int fd, unsigned char *bits, size_t n) {
+    (void)fd; memset(bits, 0, n); bits[KEY_HOMEPAGE / 8] |= 1u << (KEY_HOMEPAGE % 8); return 0;
+}
+static unsigned removed_input_watch;
+static gboolean fake_remove_input_watch(unsigned tag) { removed_input_watch = tag; return 1; }
+
 static void test_input_reads(void) {
     for (int i = 0; i < MAX_INPUTS; i++) inputs[i].fd = -1;
-    memset(&home_state, 0, sizeof home_state);
+    memset(&inputs[0].home, 0, sizeof inputs[0].home);
     int p[2];
     CHECK(pipe2(p, O_NONBLOCK) == 0);
     inputs[0].fd = p[0];
@@ -1981,46 +2361,137 @@ static void test_input_reads(void) {
     ev[1].type = EV_KEY; ev[1].code = KEY_HOMEPAGE; ev[1].value = 1;
     CHECK(write(p[1], ev, sizeof ev) == (ssize_t)sizeof ev);
     CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1);
-    CHECK(home_state.down_at != 0);
+    CHECK(inputs[0].home.down_at[1] != 0);
     ev[0].code = KEY_HOMEPAGE; ev[0].value = 0;
     CHECK(write(p[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
-    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && home_state.down_at == 0);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && inputs[0].home.down_at[1] == 0);
     ev[0].code = KEY_RF_HOME; ev[0].value = 1;                          // LG's RF_HOME is Home on a remote as well
     CHECK(write(p[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
-    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && home_state.down_at != 0);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && inputs[0].home.down_at[2] != 0);
     ev[0].value = 0;
     CHECK(write(p[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
-    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && home_state.down_at == 0);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && inputs[0].home.down_at[2] == 0);
     ev[0].code = KEY_HOMEPAGE;
     ev[0].value = 2;                                                    // a repeat is the key still down
     CHECK(write(p[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
-    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && home_state.down_at != 0);
-    CHECK(on_input(NULL, G_IO_HUP, (gpointer)(intptr_t)0) == 0);        // the device is gone with Home down on it
-    CHECK(inputs[0].fd == -1 && home_state.down_at == 0);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && inputs[0].home.down_at[1] != 0);
+    struct input_event lost[3] = {0};
+    lost[0].type = EV_SYN; lost[0].code = SYN_DROPPED;
+    lost[1].type = EV_KEY; lost[1].code = KEY_HOMEPAGE; lost[1].value = 1;
+    lost[2].type = EV_SYN; lost[2].code = SYN_REPORT;
+    CHECK(write(p[1], lost, sizeof lost) == (ssize_t)sizeof lost);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0));
+    CHECK(inputs[0].resync && !home_due(&inputs[0].home, mono_now() + 20));
+    input_get_keys = fake_input_keys;
+    CHECK(write(p[1], &lost[2], sizeof lost[2]) == (ssize_t)sizeof lost[2]);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0));
+    CHECK(!inputs[0].resync && inputs[0].home.down_at[1] != 0);
+    input_get_keys = input_read_keys;
+    ev[0].code = KEY_HOMEPAGE; ev[0].value = 0;
+    CHECK(write(p[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0));
+    CHECK(inputs[0].home.down_at[1] == 0);
+    struct input_event flood[129] = {0};
+    for (int i = 0; i < 129; i++) { flood[i].type = EV_KEY; flood[i].code = KEY_ENTER; flood[i].value = 1; }
+    flood[128].code = KEY_HOMEPAGE;
+    CHECK(write(p[1], flood, sizeof flood) == (ssize_t)sizeof flood);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0));
+    CHECK(inputs[0].home.down_at[1] == 0);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0));
+    CHECK(inputs[0].home.down_at[1] != 0);
+    inputs[0].home.down_at[1] = mono_now() - 11;
+    ev[0].code = KEY_HOMEPAGE; ev[0].value = 0;
+    CHECK(write(p[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
+    CHECK(on_home_timer(NULL) == 1);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0));
+    CHECK(inputs[0].home.down_at[1] == 0);
+    CHECK(on_input(NULL, G_IO_HUP, (gpointer)(intptr_t)0) == 0);
+    CHECK(inputs[0].fd == -1 && inputs[0].home.down_at[1] == 0);
     close(p[1]);
+    int replacement[2]; CHECK(pipe2(replacement, O_NONBLOCK) == 0);
+    inputs[0].fd = replacement[0]; inputs[0].watch = 73;
+    inputs[0].home.down_at[0] = 100; inputs[0].resync = true;
+    removed_input_watch = 0; input_remove_watch = fake_remove_input_watch;
+    input_close_slot(0);
+    CHECK(removed_input_watch == 73 && inputs[0].fd == -1 && inputs[0].watch == 0);
+    CHECK(!inputs[0].resync && !home_due(&inputs[0].home, 200));
+    input_remove_watch = g_source_remove; close(replacement[1]);
+    int a[2], b[2];
+    CHECK(pipe2(a, O_NONBLOCK) == 0 && pipe2(b, O_NONBLOCK) == 0);
+    inputs[0].fd = a[0]; inputs[1].fd = b[0];
+    memset(&inputs[0].home, 0, sizeof inputs[0].home);
+    memset(&inputs[1].home, 0, sizeof inputs[1].home);
+    ev[0].code = KEY_HOME; ev[0].value = 1;
+    CHECK(write(a[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
+    CHECK(write(b[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0));
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)1));
+    CHECK(on_input(NULL, G_IO_HUP, (gpointer)(intptr_t)0) == 0);
+    CHECK(inputs[0].home.down_at[0] == 0 && inputs[1].home.down_at[0] != 0);
+    ev[0].value = 0;
+    CHECK(write(b[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)1));
+    CHECK(inputs[1].home.down_at[0] == 0);
+    close(a[1]); close(b[1]); close(b[0]); inputs[1].fd = -1;
+    unsigned char bits[KEY_STATE_BYTES] = {0};
+    bits[KEY_RF_HOME / 8] |= 1u << (KEY_RF_HOME % 8);
+    struct home seeded;
+    home_seed(&seeded, bits, sizeof bits, 50.0);
+    CHECK(!home_due(&seeded, 59.99) && home_due(&seeded, 60.0));
+    home_event(&seeded, KEY_RF_HOME, 0, 60.1);
+    CHECK(!home_due(&seeded, 70.0));
+
+    pid_t blocked = fork();
+    CHECK(blocked >= 0);
+    if (blocked == 0) { for (;;) pause(); }
+    if (blocked > 0) {
+        double started = mono_now();
+        CHECK(!reap_within(blocked, 100));
+        CHECK(mono_now() - started < 1.0);
+        kill(blocked, SIGKILL);
+        CHECK(reap_within(blocked, 1000));
+    }
 }
 
-static void test_log_rotation(void) {
+static void test_nonblocking_bridge_and_initctl(void) {
+    int sv[2];
+    CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    char block[4096] = {0};
+    int filled = 0;
+    while (filled < 4096 && send(sv[0], block, sizeof block, MSG_DONTWAIT | MSG_NOSIGNAL) > 0) filled++;
+    CHECK(filled < 4096 && (errno == EAGAIN || errno == EWOULDBLOCK));
+    bridge_fd = sv[0]; bridge_broken = false;
+    double start = mono_now();
+    write_line("{\"kind\":\"ping\"}");
+    CHECK(bridge_broken && mono_now() - start < 0.5);
+    struct home held = {0};
+    home_event(&held, KEY_HOME, 1, 100);
+    CHECK(home_due(&held, 110));
+    close(sv[0]); close(sv[1]); bridge_fd = -1; bridge_broken = false;
+
+    pid_t p = fork();
+    CHECK(p >= 0);
+    if (p == 0) { for (;;) pause(); }
+    if (p > 0) {
+        initctl_pid = p;
+        start = mono_now();
+        CHECK(initctl_timeout((gpointer)(intptr_t)p) == 0);
+        CHECK(mono_now() - start < 0.5);
+        CHECK(reap_within(p, 1000));
+        initctl_exited(p, 0, NULL);
+        CHECK(initctl_pid == 0);
+    }
+}
+
+static void slurp_path(const char *p, char *out, size_t n);
+
+static void test_logs_do_not_touch_old_files(void) {
     fresh_state();
-    put("sm.log", "short\n");
-    rotate_log();
-    CHECK(has("sm.log") && !has("sm.log.old"));
-    char *big = malloc(300 * 1024);
-    memset(big, 'x', 300 * 1024 - 1);
-    big[300 * 1024 - 1] = 0;
-    put("sm.log", big);
-    free(big);
-    rotate_log();
-    CHECK(!has("sm.log") && has("sm.log.old"));
-    // while running: a flood of one line stays under two generations
-    fresh_state();
-    logf = fopen(path_in_state("sm.log"), "a");
-    for (int i = 0; i < 20000; i++) logline("ask_power: tvpower did not answer, retrying in 10 s (%d)", i);
-    struct stat st1, st2;
-    CHECK(stat(path_in_state("sm.log"), &st1) == 0 && st1.st_size <= SM_LOG_MAX + 512);
-    CHECK(stat(path_in_state("sm.log.old"), &st2) == 0 && st2.st_size <= SM_LOG_MAX + 512);
-    fclose(logf);
-    logf = NULL;
+    put("sm.log", "old evidence\n");
+    for (int i = 0; i < 100; i++) logline("collector may be offline %d", i);
+    char text[64];
+    slurp_path(path_in_state("sm.log"), text, sizeof text);
+    CHECK(!strcmp(text, "old evidence\n") && !has("sm.log.old"));
 }
 
 // The bridge's hang-up of a compositor that crashed: the reason is the reaped status, not the socket. A child holding
@@ -2122,10 +2593,15 @@ static void test_crash_bundle(void) {
     crash_root = strdup(root);
     runtime_dir = tdir;
     started_mono = mono_now() - 42;
-    FILE *f = fopen(path_in_state("compositor.log"), "w");
-    for (int i = 1; i <= 300; i++) fprintf(f, "[srv %d.000] info line %d\n", i, i);
+    log_directory = tdir;
+    FILE *f = fopen(path_in_state("previous.log"), "w");
+    for (int i = 1; i <= 150; i++) fprintf(f, "<134>lumatv-compositor: [srv %d.000] info line %d\n", i, i);
+    fputs("<134>lumatv-sm: [00:00:01] start\n<134>lumatv-sm: [00:00:02] registered com.webos.x\n", f);
     fclose(f);
-    put("sm.log", "[00:00:01] start\n[00:00:02] registered com.webos.x\n");
+    f = fopen(path_in_state("current.log"), "w");
+    for (int i = 151; i <= 300; i++) fprintf(f, "<134>lumatv-compositor: [srv %d.000] info line %d\n", i, i);
+    fputs("<134>lumatv-compositor-other: wrong tag\n<999>lumatv-compositor: invalid priority\n", f);
+    fclose(f);
     snprintf(file, sizeof file, "%s/lumatv-trace.ring", tdir);
     make_ring(file, 64, 20);                              // 100 bytes written into 64: wrapped, the newest twelve and a half lines are there
 
@@ -2150,7 +2626,7 @@ static void test_crash_bundle(void) {
     CHECK(!strcmp(text, name));
 
     // A hand-back the owner asked for leaves a bundle and no `pending` of its own: the first problem is still the one waiting.
-    crash_bundle("hold Home 650 ms", false, name, sizeof name);
+    crash_bundle("hold Home 10 s", false, name, sizeof name);
     CHECK(name[0] != 0 && strcmp(name, first) != 0);
     snprintf(file, sizeof file, "%s/%s/reason.txt", root, name); slurp_path(file, text, sizeof text);
     CHECK(strstr(text, "kind: escape\n") != NULL);
@@ -2184,19 +2660,23 @@ static void test_crash_bundle(void) {
     CHECK(!strcmp(text, "no trace ring\n"));
     crash_root = NULL;
     runtime_dir = "/tmp/xdg";
+    log_directory = "/tmp/lumatv-logs";
 }
 
 int main(void) {
     test_json();
     test_decide();
+    test_decide_enable();
     test_running_marker();
     test_watchdog();
     test_status_parsing();
     test_control_query();
     test_home();
     test_input_reads();
+    test_nonblocking_bridge_and_initctl();
+    test_owned_ui_cleanup();
     test_bridge_gone();
-    test_log_rotation();
+    test_logs_do_not_touch_old_files();
     test_crash_bundle();
     for (int i = 0; i < nmade; i++) { char cmd[300]; snprintf(cmd, sizeof cmd, "rm -rf %s", made[i]); if (system(cmd) != 0) failures_seen++; }
     printf("lumatv-sm json tests: %s\n", failures_seen ? "FAILED" : "ok");
@@ -2205,28 +2685,28 @@ int main(void) {
 #else
 int main(int argc, char **argv) {
     saved_argv = argv;
-    bool would_run = false, home_held = false;
-    int home_ms = 700;
+    bool would_run = false, would_enable = false, home_held = false;
+    const char *enable_mode = NULL;
+    int home_ms = 10000;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--dry-run")) dry_run = true;
         else if (!strcmp(argv[i], "--probe")) probe = true;
         else if (!strcmp(argv[i], "--state") && i + 1 < argc) state_dir = argv[++i];
         else if (!strcmp(argv[i], "--print-fingerprint")) { char fp[17]; fingerprint(fp); printf("%s\n", fp); return 0; }
         else if (!strcmp(argv[i], "--would-run")) would_run = true;
+        else if (!strcmp(argv[i], "--would-enable")) { would_enable = true; if (i + 1 < argc) enable_mode = argv[++i]; }
         else if (!strcmp(argv[i], "--home-held")) { home_held = true; if (i + 1 < argc && isdigit((unsigned char)argv[i + 1][0])) home_ms = atoi(argv[++i]); }
     }
     // The two questions the early boot hook asks before it mounts anything: read-only, no log, no state written.
-    if (would_run) {
+    if (would_enable || would_run) {
         struct verdict v;
-        decide(&v);
+        if (would_enable) decide_enable(&v, enable_mode); else decide(&v);
         if (v.run) { printf("run\n"); return 0; }
         printf("no %s: %s\n", v.word, v.why);
         return 3;
     }
     if (home_held) return home_held_for(home_ms) ? 0 : 1;
     mkdir(state_dir, 0755);
-    rotate_log();
-    logf = fopen(path_in_state("sm.log"), "a");
     started_mono = mono_now();
     signal(SIGPIPE, SIG_IGN);
     if (probe) {
@@ -2237,6 +2717,7 @@ int main(int argc, char **argv) {
         printf("probe from %s\n", exe);
         return probe_buses();
     }
+    native_output_start();
 
     // 1. Decide. The start line says what the decision starts from (failures counting a run that never settled), and a
     // run that never settled or ended cleanly is counted after it, so that the line stays in this start's own part of the log.
@@ -2252,12 +2733,6 @@ int main(int argc, char **argv) {
         struct verdict v;
         decide(&v);
         if (!v.run) fallback(v.why, false);
-        // Home held down at this moment (a boot with the key held, a restart under a hand on it) is the escape
-        // before anything of LumaTV's has started: nothing of LG's has been disturbed, so it is a plain hand-back.
-        if (home_held_for(700)) {
-            write_text(path_in_state("escaped"), "hold Home at start");
-            fallback("hold Home at start", false);
-        }
         snprintf(running_path, sizeof running_path, "%s", path_in_state("running"));
         mark_running();
         signal(SIGTERM, on_term);

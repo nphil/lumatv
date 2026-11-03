@@ -1,54 +1,6 @@
-//! The frame path must not touch the heap once it is warm (LumaShow lesson 20): the allocator below counts the
-//! allocations of *this* thread while a test arms it. The pattern is LumaShow's `alloc_tests.rs`; the tests here are
-//! this compositor's (`pacer_tests.rs` uses `counted` too).
+//! The frame path must not touch the heap once it is warm. The shared test allocator counts allocations on the calling thread.
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::cell::Cell;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-thread_local! {
-    static ARMED: Cell<bool> = const { Cell::new(false) };
-}
-static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
-
-struct Counting;
-
-fn count() {
-    if ARMED.with(Cell::get) {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-// SAFETY: every call is forwarded to the system allocator unchanged.
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        count();
-        unsafe { System.alloc(layout) }
-    }
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        count();
-        unsafe { System.alloc_zeroed(layout) }
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { System.dealloc(ptr, layout) }
-    }
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        count();
-        unsafe { System.realloc(ptr, layout, new_size) }
-    }
-}
-
-#[global_allocator]
-static ALLOCATOR: Counting = Counting;
-
-/// Runs `f` with this thread's allocations counted.
-pub(crate) fn counted(f: impl FnOnce()) -> usize {
-    ALLOCATIONS.store(0, Ordering::Relaxed);
-    ARMED.with(|a| a.set(true));
-    f();
-    ARMED.with(|a| a.set(false));
-    ALLOCATIONS.load(Ordering::Relaxed)
-}
+pub(crate) use crate::harness::counted;
 
 #[cfg(test)]
 mod tests {

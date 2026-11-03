@@ -79,10 +79,9 @@ class Rig:
             shutil.copy(os.path.join(SHIPPED, "clock.vpg"), self.clipdir)
         self.captions = []
         if captions:
-            geo = clips.geometry()
-            for i, entry in enumerate(clips.pictures()[:len(clip_keys)]):
-                bm = clips.caption_bitmap(entry, geo)
-                clips.write_vpt(os.path.join(self.clipdir, "clip%d.vpt" % i), bm)
+            names = sorted(f for f in os.listdir(SHIPPED) if f.endswith(".vpt"))
+            for i, name in enumerate(names[:len(clip_keys)]):
+                shutil.copy(os.path.join(SHIPPED, name), os.path.join(self.clipdir, "clip%d.vpt" % i))
                 self.captions.append(clips.read_vpt(os.path.join(self.clipdir, "clip%d.vpt" % i)))
         self.ndl_log = os.path.join(self.tmp, "ndl.log")
         open(self.ndl_log, "w").close()

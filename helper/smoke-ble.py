@@ -98,7 +98,7 @@ def main():
         global WINDOW
         WINDOW = 5
         host, key = linked["host"], linked["key"]
-        helper = subprocess.Popen([binary, "run", "--data-dir", data, "--stderr"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        helper = subprocess.Popen([binary, "run", "--data-dir", data], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             for _ in range(100):
                 time.sleep(0.1)

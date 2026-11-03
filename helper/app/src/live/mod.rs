@@ -1569,7 +1569,7 @@ fn log_end(session: &Session) {
 }
 
 fn fail(inner: &Inner, session: &Session, why: &str) {
-    crate::log_warn!("cameras: live: {why}");
+    crate::log_warn!("cameras: live session {} failed", session.id);
     inner.update(session.id, |v| {
         v.state = "failed";
         v.reason = why.to_owned();

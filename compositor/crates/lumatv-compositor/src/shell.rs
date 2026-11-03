@@ -1,43 +1,10 @@
-//! The shell client and the UI channel: build-order items 2 to 4 of "Surfaces under LumaTV's compositor"
-//! (`docs/research/compositor-c2-result.md`), the interim route; the result is `compositor-surfaces-result.md`.
-//!
-//! The shell is LumaTV's existing QML (`payload/compositor/<module>`: LumaHome with its Settings layer, the volume display,
-//! toasts, alerts and the PIN prompt, the quick panel and the input picker, the screensaver) in a 32-bit Qt process on LG's
-//! own Qt 5.12, started here through `/usr/bin/qml-runner` (SAM's QML runner) as a client of this compositor with two
-//! windows (`compositor/shell/Shell.qml`): `ShellHome`, drawn in the card slot while the Home stub's card is the foreground
-//! one, and `ShellSystem`, above every window (`window.rs`, `scene.rs`). Keys reach them as any window's do, on
-//! `wl_keyboard` with the focus the scene gives (the Home window while it is drawn, the system layer while it says it
-//! wants them), after the compositor's own routing (`input.rs`, `keys.rs`), so the hold-Home escape, Volume and Mute and
-//! the gear's and Input's decisions stay the compositor's.
-//!
-//! Everything else goes over the UI channel: an HTTP server on the loopback (`--shell-port`) that the client long-polls the
-//! way it polls LumaTV's helper (`kit/Helper.qml`), since QML has no socket of its own and the set has no QtWebSockets.
-//! To the UI, as topics: `foreground` (the app in front and whether Home is drawn), `screen`, `cursor`, `keyboard`, `wall` (whether the
-//! moving wallpaper's hole is under Home), `refresh` (the Hz the output runs at, `refresh.rs`),
-//! `audio` (the audio service's volume state the compositor subscribes to), `capture` (the recording dot's cue and the capture notes,
-//! `screencap`; the shell's `state.capture.dot` is what a recording waits for), `homekey`; and `show` (a panel the gear or
-//! Input asked for) and `luna` (the answers to its calls). From the UI: what it can show (`can`), whether its system layer
-//! wants the keys (`wants`), its state for the gate (`state`), and luna calls from an allowlist, which the bridge makes in
-//! the compositor's name: qml-runner's own bus role reaches the app manager and nothing else. Every request carries the
-//! token of `<runtime dir>/lumatv-shell.token` (root-only), so another local process cannot drive the channel.
-//!
-//! LumaTV's own on-screen keyboard (`server/ime.rs`, `lumatv keyboard luma`) uses three more things of the channel: the topic `ime` (the
-//! text field that holds the activation and whether it wants the keyboard), the event `imekey` (the remote's keys while the keyboard is up)
-//! and `POST /v1/ime` (what it typed, the keys it pressed, where it is on the screen), and `keyboard` in `can`.
-//!
-//! The overlay cards (the doorbell, a finished timer, an alert, a score) take two keys without the keyboard focus: the report's `takes`
-//! (`["ok", "back"]`, [`TAKEABLE`]) asks for them by name while an app has the focus, they reach the shell as `syskey` events
-//! (`{k, d, r}` as `imekey`) and the app never sees them (`State::shell_takes_key`, called from `input.rs`); every other key stays the app's.
-//!
-//! The server runs on a thread of its own and never touches the compositor's state: requests come to the loop as
-//! [`Msg`]s through a channel and an eventfd ([`State::shell_fd`]), events go out through the shared [`Outbox`].
+//! Native shell state, events and shared UI channel.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
@@ -46,26 +13,13 @@ use parking_lot::Mutex;
 use serde_json::{Value, json};
 
 use crate::State;
-use crate::config::ShellMode;
-use crate::luna::{Outbound, ToBridge};
 use crate::window::WindowType;
 
-/// SAM's QML runner: LG's Qt, QML and Wayland client stack in one 32-bit process.
-pub const RUNNER: &str = "/usr/bin/qml-runner";
-/// The app id the shell gives its windows (`appId` property); journal lines and `ctl windows` show it.
-pub const APP_ID: &str = "org.nphil.lumatv.shell";
-pub(crate) const TOKEN_FILE: &str = "lumatv-shell.token";
-/// A client that has not polled for this long is gone (its own long poll is 25 s).
-pub(crate) const POLL_TIMEOUT: Duration = Duration::from_secs(40);
-/// Restarts: after this many within [`RESTART_WINDOW`] the shell is given up until `ctl shell restart`.
 pub(crate) const RESTART_LIMIT: usize = 5;
 pub(crate) const RESTART_WINDOW: Duration = Duration::from_secs(600);
+pub(crate) const NICE: i32 = 10;
 /// Events kept for a client that is behind; one that is further behind is told to read the state again.
 pub(crate) const EVENTS_KEPT: usize = 512;
-/// The client starts once SAM's Home has mapped, or this long after the compositor started.
-const START_ALONE: Duration = Duration::from_secs(15);
-/// The client's nice level: below the apps (nice 0), so an app's frames win the CPU over the shell's.
-pub(crate) const NICE: i32 = 10;
 /// The kernel's trace buffer. The frame gate's captures (`docs/research/perf/capture.sh`) read their markers from it; the compositor
 /// leaves two kinds of its own there (`Q:<panel>-show` when it asks the shell for a panel on a key, `Q:<feed>-delivered` when a
 /// notification reaches it from the service), so the gate can tell what the shell is asked, and when, from what the shell does with it.
@@ -78,8 +32,7 @@ pub const TAKEABLE: &[&str] = &["ok", "back", "voice", "screenremote", "search",
 /// A press the layer took whose release has not come for this long was a release lost: the next press is a new one, not a repeat.
 pub(crate) const TOOK_STALE: Duration = Duration::from_secs(3);
 
-/// The bus names the shell may call through the bridge: the services LumaTV's QML calls under LG's compositor (read off
-/// `payload/compositor/<module>`), and the compositor's own names, which the bridge routes back to `luna_methods.rs`.
+/// Services permitted through the native UI bridge. The compositor handles its own names in `luna_methods.rs`.
 pub const ALLOWED_SERVICES: &[&str] = &[
     "com.webos.applicationManager",
     "com.webos.service.applicationmanager",
@@ -136,6 +89,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "org.webosbrew.hbchannel.service/getConfiguration",
     "org.webosbrew.hbchannel.service/setConfiguration",
     "com.webos.service.factorymanager/getFactoryOpt",
+    "com.webos.service.videooutput/getStatus",
     "com.webos.service.videooutput/reset/resetVideoSettings",
 ];
 
@@ -157,7 +111,9 @@ pub enum Msg {
     Connected,
     /// Any request: the client is alive.
     Seen,
-    /// `POST /v1/ui`: any subset of the four.
+    /// The native UI has committed its first frame.
+    FrameReady,
+    /// `POST /v1/ui`
     Ui { can: Option<Vec<String>>, wants: Option<bool>, live: Option<bool>, state: Option<Value> },
     /// `POST /v1/luna`.
     Luna { tag: u64, uri: String, payload: Value, subscribe: bool },
@@ -219,23 +175,6 @@ pub(crate) struct Link {
     pub(crate) wake_in: OwnedFd,
 }
 
-/// How the client is started.
-struct Launch {
-    runner: PathBuf,
-    main_qml: PathBuf,
-    port: u16,
-    token_path: PathBuf,
-    log: PathBuf,
-}
-
-/// Why a start on the spawn thread did not give a child.
-enum SpawnFailure {
-    /// No LumaHome.qml under the data directory: the shell is given up until `ctl shell restart`.
-    NoModule(PathBuf),
-    /// The runner did not start; tried again after a pause.
-    Start(std::io::Error),
-}
-
 /// A luna call made for the shell: its tag, the bridge token it got.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LunaTag {
@@ -256,603 +195,22 @@ pub struct Stats {
     pub shows: u64,
 }
 
-pub struct Shell {
-    launch: Option<Launch>,
-    pub(crate) link: Option<Link>,
-    child: Option<Child>,
-    /// A start on its thread (`spawn_client`) whose child has not arrived yet.
-    spawning: Option<Receiver<Result<Child, SpawnFailure>>>,
-    /// The thread that forks the client (`spawn_thread`), made at the first start and kept for the life of the compositor: the
-    /// client's PR_SET_PDEATHSIG fires when the thread that forked it ends, so a thread per start killed the client at once.
-    spawner: Option<Sender<SpawnRequest>>,
-    child_started: Option<Instant>,
-    starts: VecDeque<Instant>,
-    next_start: Option<Instant>,
-    last_wait: Option<Instant>,
-    pub gave_up: bool,
-    pub connected: bool,
-    last_seen: Option<Instant>,
-    /// What the UI says it can show now: "quick", "picker", "drawer", "keyboard".
-    pub can: Vec<String>,
-    /// The UI's system layer wants the keys.
-    pub wants: bool,
-    /// The keys the UI's system layer takes by name while an app has the focus (`Msg::Takes`): they reach it as `syskey` events and the
-    /// app never sees them, every other key stays the app's. Empty when the layer asks for none.
-    pub takes: Vec<String>,
-    /// The keys whose press the layer took and whose release it is still owed (code, when the last press or repeat came): a release (and a
-    /// repeat) of a key goes where its press went, whatever `takes` says by then.
-    pub took: Vec<(u32, Instant)>,
-    /// The UI's system layer has something to show (a banner, a panel, a toast, the saver). Its window stays mapped and warm
-    /// meanwhile; the scene draws it only while this is true (`Scene::set_shell_system_live`). True until the UI says.
-    pub live: bool,
-    /// What the UI last reported about itself (`ctl shell` shows it; the gate reads it).
-    pub ui_state: Value,
-    pub luna_tags: Vec<LunaTag>,
-    /// Tags the client cancelled before their call reached the compositor: `/v1/cancel` and `/v1/luna` are separate requests, on
-    /// separate connections, so a cancel can be handled first. The call is dropped when it comes (the client has forgotten its tag, so it
-    /// would be a subscription nobody ever cancels and whose answers go nowhere). Oldest first, bounded.
-    cancelled_early: Vec<u64>,
-    /// The last value pushed per topic, so an unchanged state is not pushed again.
-    pushed: BTreeMap<String, Value>,
-    /// Without a server thread (tests, `--shell off`) the events pushed, newest last.
-    pub recorded: Vec<Value>,
-    pub stats: Stats,
-    pub error: Option<String>,
-    /// Where the trace markers are written ([`TRACE_MARKER`]; a file of its own in the tests).
-    pub marker: PathBuf,
-}
-
-impl Default for Shell {
-    fn default() -> Self {
-        Shell {
-            launch: None,
-            link: None,
-            child: None,
-            spawning: None,
-            spawner: None,
-            child_started: None,
-            starts: VecDeque::new(),
-            next_start: None,
-            last_wait: None,
-            gave_up: false,
-            connected: false,
-            last_seen: None,
-            can: Vec::new(),
-            wants: false,
-            takes: Vec::new(),
-            took: Vec::new(),
-            live: true,
-            ui_state: Value::Null,
-            luna_tags: Vec::new(),
-            cancelled_early: Vec::new(),
-            pushed: BTreeMap::new(),
-            recorded: Vec::new(),
-            stats: Stats::default(),
-            error: None,
-            marker: PathBuf::from(TRACE_MARKER),
-        }
-    }
-}
-
-impl Drop for Shell {
-    fn drop(&mut self) {
-        if let Some(c) = &mut self.child {
-            let _ = c.kill();
-            let _ = c.wait();
-        }
-    }
-}
-
-impl Shell {
-    /// Whether a server thread or a child exists.
-    pub fn enabled(&self) -> bool {
-        self.launch.is_some()
-    }
-
-    pub fn child_pid(&self) -> Option<u32> {
-        self.child.as_ref().map(Child::id)
-    }
-
-    /// Queues one event for the client (and keeps it when there is no client thread). Returns its sequence number.
-    pub fn push(&mut self, topic: &str, data: Value) -> u64 {
-        self.stats.events += 1;
-        self.pushed.insert(topic.to_string(), data.clone());
-        match &self.link {
-            Some(l) => {
-                let seq = l.outbox.lock().push(topic, data);
-                wake(&l.wake_out);
-                seq
-            }
-            None => {
-                self.recorded.push(json!({"topic": topic, "data": data}));
-                if self.recorded.len() > EVENTS_KEPT {
-                    self.recorded.remove(0);
-                }
-                self.recorded.len() as u64
-            }
-        }
-    }
-
-    /// Pushes `topic` when its value differs from the last push.
-    pub fn push_if_changed(&mut self, topic: &str, data: Value) -> bool {
-        if self.pushed.get(topic) == Some(&data) {
-            return false;
-        }
-        self.push(topic, data);
-        true
-    }
-
-    /// The topics pushed so far, for `ctl shell` and the tests.
-    pub fn topic(&self, name: &str) -> Option<&Value> {
-        self.pushed.get(name)
-    }
-
-    /// Handles one message from the server thread without a `State` (the parts that need one are in `State::shell_handle`).
-    fn note_seen(&mut self, now: Instant) {
-        self.last_seen = Some(now);
-        if !self.connected {
-            self.connected = true;
-        }
-    }
-
-    /// Writes a line into the trace buffer ([`TRACE_MARKER`]); where there is none (the host, a kernel without tracefs) nothing happens.
-    fn mark(&self, text: &str) {
-        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&self.marker) {
-            let _ = f.write_all(format!("{text}\n").as_bytes());
-        }
-    }
-}
-
 /// The main loop's side.
 impl State {
-    /// Decides whether the shell runs (`--shell`), opens the channel and starts the client. Called once the Wayland socket
-    /// listens, so the client finds it.
-    pub fn shell_start(&mut self) {
-        let main_qml = match &self.config.shell {
-            ShellMode::Off => return,
-            ShellMode::At(p) => p.clone(),
-            ShellMode::Auto => {
-                if !self.config.input {
-                    return;
-                }
-                match bundle_shell() {
-                    Some(p) => p,
-                    None => {
-                        log::info!("shell: no shell/Shell.qml beside this executable; the shell client is not run");
-                        return;
-                    }
-                }
-            }
-        };
-        let runner = PathBuf::from(RUNNER);
-        if !runner.exists() {
-            self.journal(format!("shell: {} is not on this set; the shell client is not run", runner.display()));
-            self.shell.error = Some("no qml-runner".into());
-            return;
-        }
-        let token_path = self.config.runtime_dir.join(TOKEN_FILE);
-        let token = match write_token(&token_path) {
-            Ok(t) => t,
-            Err(e) => {
-                self.journal(format!("shell: token file {}: {e}; the shell client is not run", token_path.display()));
-                self.shell.error = Some(format!("token: {e}"));
-                return;
-            }
-        };
-        let listener = match TcpListener::bind(("127.0.0.1", self.config.shell_port)) {
-            Ok(l) => l,
-            Err(e) => {
-                self.journal(format!("shell: port {}: {e}; the shell client is not run", self.config.shell_port));
-                self.shell.error = Some(format!("port {}: {e}", self.config.shell_port));
-                return;
-            }
-        };
-        let link = match spawn_server(listener, token) {
-            Ok(l) => l,
-            Err(e) => {
-                self.journal(format!("shell: server: {e}; the shell client is not run"));
-                self.shell.error = Some(format!("server: {e}"));
-                return;
-            }
-        };
-        let log = self.config.data_dir.join("compositor/shell.log");
-        self.shell.link = Some(link);
-        self.shell.launch = Some(Launch { runner, main_qml, port: self.config.shell_port, token_path, log });
-        self.journal(format!("shell: UI channel on 127.0.0.1:{}", self.config.shell_port));
-        self.shell_sync_topics();
-        // The client's first frames and WebAppMgr's Home arriving together cost a missed refresh (CompFrames' trial, 2026-10-27): the
-        // client starts once SAM's Home has mapped, or START_ALONE after this compositor started.
-        self.shell.next_start = Some(Instant::now() + START_ALONE);
-    }
-
     /// Whether SAM's Home (the Home stub) has a mapped window.
     pub(crate) fn sam_home_mapped(&self) -> bool {
         self.scene.windows().any(|w| w.app_id() == crate::scene::HOME_APP && w.map_serial > 0)
     }
 
-    /// The eventfd the server thread writes when a message waits; the loop polls it.
-    pub fn shell_fd(&self) -> Option<RawFd> {
-        self.shell.link.as_ref().map(|l| l.wake_in.as_raw_fd())
-    }
-
-    /// Starts the client on a thread of its own: the fork and the exec of a 32-bit Qt process took the loop 23 ms on the
-    /// tenth gate's trial (`loop: 24.5 ms in one pass` at the shell's start), a refresh and a half. The child arrives at a
-    /// later tick (`shell_tick`); meanwhile `spawning` says one is on its way.
-    fn shell_spawn(&mut self) {
-        let Some(l) = &self.shell.launch else { return };
-        if self.shell.spawning.is_some() {
-            return;
-        }
-        let now = Instant::now();
-        self.shell.starts.retain(|t| now.duration_since(*t) < RESTART_WINDOW);
-        if self.shell.starts.len() >= RESTART_LIMIT {
-            self.shell.gave_up = true;
-            self.journal(format!("shell: {RESTART_LIMIT} starts in {} min, giving up (ctl shell restart tries again)", RESTART_WINDOW.as_secs() / 60));
-            return;
-        }
-        self.shell.starts.push_back(now);
-        let job = SpawnJob {
-            runner: l.runner.clone(),
-            main_qml: l.main_qml.clone(),
-            port: l.port,
-            token_path: l.token_path.clone(),
-            log: l.log.clone(),
-            data_dir: self.config.data_dir.clone(),
-            runtime_dir: self.config.runtime_dir.clone(),
-            socket: self.config.socket.clone(),
-            extra_env: self.config.scanout_shell_env.clone(),
-        };
-        let (tx, rx) = channel();
-        let spawner = match &self.shell.spawner {
-            Some(s) => Ok(s.clone()),
-            None => spawn_thread().inspect(|s| self.shell.spawner = Some(s.clone())),
-        };
-        match spawner.and_then(|s| s.send((job, tx)).map_err(|_| std::io::Error::other("the spawn thread ended"))) {
-            Ok(()) => self.shell.spawning = Some(rx),
-            Err(e) => {
-                self.shell.spawner = None;
-                self.journal(format!("shell: no thread to start the client: {e}"));
-                self.shell.error = Some(format!("start: {e}"));
-                self.shell.next_start = Some(now + Duration::from_secs(10));
-            }
-        }
-    }
-
-    /// Takes the child (or the failure) a start left on its thread, once it is there.
-    fn shell_take_spawned(&mut self, now: Instant) {
-        let Some(rx) = &self.shell.spawning else { return };
-        let result = match rx.try_recv() {
-            Ok(r) => r,
-            Err(std::sync::mpsc::TryRecvError::Empty) => return,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err(SpawnFailure::Start(std::io::Error::other("the spawn thread ended without a result"))),
-        };
-        self.shell.spawning = None;
-        let Some(l) = &self.shell.launch else { return };
-        match result {
-            Ok(child) => {
-                self.shell.stats.starts += 1;
-                self.journal(format!("shell: client started, pid {} ({} {})", child.id(), l.runner.display(), l.main_qml.display()));
-                self.shell.child = Some(child);
-                self.shell.child_started = Some(now);
-                self.shell.next_start = None;
-            }
-            Err(SpawnFailure::NoModule(root)) => {
-                self.journal(format!("shell: no LumaHome.qml under {}; the shell client is not run", root.display()));
-                self.shell.error = Some("no module".into());
-                self.shell.gave_up = true;
-            }
-            Err(SpawnFailure::Start(e)) => {
-                self.journal(format!("shell: {} did not start: {e}", l.runner.display()));
-                self.shell.error = Some(format!("start: {e}"));
-                self.shell.next_start = Some(now + Duration::from_secs(10));
-            }
-        }
-    }
-
-    /// Supervision, called every tick: a start on its thread is taken in, a client that exited is started again after a
-    /// pause, a client that stopped polling is taken as gone (its luna subscriptions cancelled).
-    pub fn shell_tick(&mut self, now: Instant) {
-        if self.shell.launch.is_none() {
-            return;
-        }
-        self.shell_take_spawned(now);
-        if self.shell.last_wait.is_none_or(|t| now.duration_since(t) >= Duration::from_millis(500)) {
-            self.shell.last_wait = Some(now);
-            let exited = self.shell.child.as_mut().and_then(|c| c.try_wait().ok().flatten());
-            if let Some(status) = exited {
-                self.shell.child = None;
-                self.shell.stats.exits += 1;
-                let alive = self.shell.child_started.map(|t| now.duration_since(t)).unwrap_or_default();
-                self.journal(format!("shell: client exited ({status}) after {:.0} s", alive.as_secs_f64()));
-                self.shell_client_gone("the client exited");
-                // A client that ran a while gets a quick restart; one that died at once waits longer each time.
-                let pause = if alive > Duration::from_secs(60) { 2 } else { 2u64 << self.shell.starts.len().min(4) };
-                self.shell.next_start = Some(now + Duration::from_secs(pause));
-            }
-        }
-        let first = self.shell.starts.is_empty();
-        if self.shell.child.is_none()
-            && self.shell.spawning.is_none()
-            && !self.shell.gave_up
-            && self.shell.next_start.is_some_and(|t| now >= t || (first && self.sam_home_mapped()))
-        {
-            if first {
-                self.journal(format!(
-                    "shell: starting the client ({})",
-                    if self.sam_home_mapped() { "SAM's Home has mapped" } else { "no Home yet, 15 s are up" }
-                ));
-            }
-            self.shell_spawn();
-        }
-        if self.shell.connected && self.shell.last_seen.is_some_and(|t| now.duration_since(t) > POLL_TIMEOUT) {
-            self.shell_client_gone("no poll for 40 s");
-        }
-    }
-
-    fn shell_client_gone(&mut self, why: &str) {
-        if !self.shell_rust.answers("keyboard") {
-            crate::server::ime::own_gone(self);
-        }
-        self.switcher_reset();
-        if self.shell.connected || !self.shell.luna_tags.is_empty() {
-            self.journal(format!("shell: client gone ({why}); {} luna subscription(s) cancelled", self.shell.luna_tags.iter().filter(|t| t.subscribe).count()));
-        }
-        self.shell.connected = false;
-        self.shell.can.clear();
-        self.shell.takes.clear();
-        self.shell.took.clear();
-        self.shell.cancelled_early.clear();
-        for t in std::mem::take(&mut self.shell.luna_tags) {
-            if t.subscribe {
-                self.luna.send(ToBridge::Cancel { token: t.token });
-            }
-        }
-        if self.shell.wants {
-            self.shell.wants = false;
-            if self.scene.set_shell_takes_keys(false) {
-                crate::server::seat::refocus(self);
-            }
-        }
-    }
-
-    /// `ctl shell restart`: ends the client and starts it again, whatever the count.
-    pub fn shell_restart(&mut self) {
-        if let Some(c) = &mut self.shell.child {
-            let _ = c.kill();
-            let _ = c.wait();
-        }
-        self.shell.child = None;
-        self.shell.starts.clear();
-        self.shell.gave_up = false;
-        self.shell_client_gone("restart asked for");
-        self.shell_spawn();
-    }
-
-    /// Takes in what the server thread received. Returns whether a frame was drawn for it (the main loop re-arms its tick).
-    pub fn shell_poll(&mut self) -> bool {
-        let Some(l) = &self.shell.link else { return false };
-        drain(&l.wake_in);
-        let mut msgs = Vec::new();
-        while let Ok(m) = l.inbox.try_recv() {
-            msgs.push(m);
-        }
-        let mut drew = false;
-        for m in msgs {
-            drew |= self.shell_handle(m);
-        }
-        drew
-    }
-
-    /// One message from the client (the tests call this directly). Returns whether a frame was drawn for it: the system
-    /// layer came live with its frame already in, on a still screen.
-    pub fn shell_handle(&mut self, msg: Msg) -> bool {
-        let now = Instant::now();
-        match msg {
-            Msg::Connected => {
-                let was = self.shell.connected;
-                self.shell.note_seen(now);
-                if !was {
-                    self.journal("shell: client connected".into());
-                }
-                // Its session starts from the state: every topic is pushed again so the first poll has them all.
-                self.shell.pushed.clear();
-                self.switcher.topics_sig = 0;
-                self.shell_sync_topics();
-            }
-            Msg::Seen => self.shell.note_seen(now),
-            Msg::Ui { can, wants, live, state } => {
-                self.shell.note_seen(now);
-                if let Some(can) = can
-                    && can != self.shell.can
-                {
-                    self.journal(format!("shell: can show {}", if can.is_empty() { "nothing".to_string() } else { can.join(", ") }));
-                    self.shell.can = can;
-                }
-                if let Some(w) = wants
-                    && w != self.shell.wants
-                {
-                    self.shell.wants = w;
-                    self.journal(format!("shell: the system layer {} the keys", if w { "wants" } else { "lets go of" }));
-                    if self.scene.set_shell_takes_keys(w) {
-                        crate::server::seat::refocus(self);
-                    }
-                }
-                // The state goes in before the live word can return: the report that brings the layer live carries the state that
-                // says why (the volume display's `osd`), and an identical report is never sent again.
-                if let Some(s) = state {
-                    self.shell.ui_state = s;
-                }
-                if let Some(l) = live
-                    && l != self.shell.live
-                {
-                    self.shell.live = l;
-                    let now_ns = crate::output::monotonic_ns();
-                    let age = self.scene.shell_system_commit_age_ms(now_ns);
-                    let fresh = self.scene.set_shell_system_live(l, now_ns);
-                    // The focus is looked for among the windows in the stack, which has no idle layer: a layer that wanted the keys
-                    // while it was idle (the word `wants` came before the word `live`) has them only once it is back in the stack.
-                    crate::server::seat::refocus(self);
-                    if l {
-                        // Where a toast's first frame goes: the layer's last commit against the word that it is live.
-                        self.journal(format!(
-                            "shell: system layer live; its last commit {} ms ago, join {}",
-                            age.map_or("-".to_string(), |a| a.to_string()),
-                            if fresh { "draws it" } else { "quiet" }
-                        ));
-                    }
-                    if fresh && self.output.draws_on_damage(now) {
-                        self.tick();
-                        return true;
-                    }
-                }
-            }
-            Msg::Luna { tag, uri, payload, subscribe } => {
-                self.shell.note_seen(now);
-                if let Some(i) = self.shell.cancelled_early.iter().position(|t| *t == tag) {
-                    self.shell.cancelled_early.remove(i);
-                    self.shell.stats.luna_cancelled_early += 1;
-                    return false;
-                }
-                if !allowed(&uri) {
-                    self.shell.stats.luna_refused += 1;
-                    self.journal(format!("shell: luna {uri} refused (not on the allowlist)"));
-                    self.shell
-                        .push("luna", json!({"tag": tag, "payload": {"returnValue": false, "errorCode": -1, "errorText": "not allowed by the compositor"}}));
-                    return false;
-                }
-                if self.remote_service_refused(&uri, &payload) {
-                    self.shell.stats.luna_refused += 1;
-                    self.journal("shell: LG Remote Service is blocked (Settings > Privacy), launch dropped".into());
-                    self.shell.push("luna", json!({"tag": tag, "payload": {"returnValue": false, "errorCode": -1, "errorText": "LG Remote Service is blocked"}}));
-                    return false;
-                }
-                if is_saver_vote(&uri) && self.shell_rust.answers("saver") {
-                    // one saver votes: the Rust shell's. The QML one is told no (it asks again at its own pace and never owns the saver).
-                    self.shell.stats.luna_refused += 1;
-                    self.shell
-                        .push("luna", json!({"tag": tag, "payload": {"returnValue": false, "errorCode": -1, "errorText": "the Rust shell answers the saver"}}));
-                    return false;
-                }
-                self.shell.stats.luna_calls += 1;
-                let token = self.luna_token();
-                self.shell.luna_tags.push(LunaTag { tag, token, subscribe, uri: uri.clone() });
-                if !subscribe && self.shell.luna_tags.len() > 256 {
-                    // One-shot calls whose answer never came (a service that is down) must not pile up.
-                    let n = self.shell.luna_tags.len() - 256;
-                    let mut dropped = 0;
-                    self.shell.luna_tags.retain(|t| {
-                        let keep = t.subscribe || dropped >= n;
-                        if !keep {
-                            dropped += 1;
-                        }
-                        keep
-                    });
-                }
-                self.luna.send(ToBridge::Outbound(Outbound { token, uri, payload, subscribe }));
-            }
-            Msg::Cancel { tag } => {
-                self.shell.note_seen(now);
-                if let Some(i) = self.shell.luna_tags.iter().position(|t| t.tag == tag) {
-                    let t = self.shell.luna_tags.remove(i);
-                    if t.subscribe {
-                        self.luna.send(ToBridge::Cancel { token: t.token });
-                    }
-                } else {
-                    if self.shell.cancelled_early.len() >= 64 {
-                        self.shell.cancelled_early.remove(0);
-                    }
-                    self.shell.cancelled_early.push(tag);
-                }
-            }
-            Msg::Ime(body) => {
-                self.shell.note_seen(now);
-                if !self.shell_rust.answers("keyboard") {
-                    crate::server::ime::own_op(self, &body);
-                }
-            }
-            Msg::Switcher(body) => {
-                self.shell.note_seen(now);
-                // The pictures move on the compositor's clock: a still screen shows the change at once, a running one at the tick.
-                if self.switcher_op(&body, now) && self.output.draws_on_damage(now) {
-                    self.tick();
-                    return true;
-                }
-            }
-            Msg::Vwin(body) => {
-                self.shell.note_seen(now);
-                self.vwin_command(&body);
-                // the picture changes with the answer: a still screen shows it now, a running one at the tick
-                if self.output.draws_on_damage(now) {
-                    self.tick();
-                    return true;
-                }
-            }
-            Msg::Front(app) => {
-                self.shell.note_seen(now);
-                crate::server::webos_shell::front_app(self, &app);
-                if self.output.draws_on_damage(now) {
-                    self.tick();
-                    return true;
-                }
-            }
-            Msg::AppKey { app, key } => {
-                self.shell.note_seen(now);
-                crate::server::webos_shell::app_key(self, &app, &key);
-            }
-            Msg::Takes(names) => {
-                self.shell.note_seen(now);
-                // only the names the keyboard's key table knows (`own_key_name`), each once
-                let mut takes: Vec<String> = Vec::new();
-                for n in names {
-                    if !takes.contains(&n) && TAKEABLE.contains(&n.as_str()) {
-                        takes.push(n);
-                    }
-                }
-                if takes != self.shell.takes {
-                    self.journal(format!(
-                        "shell: the system layer {}",
-                        if takes.is_empty() { "lets go of OK and Back".to_string() } else { format!("takes {} for its cards", takes.join(" and ")) }
-                    ));
-                    self.shell.takes = takes;
-                }
-            }
-        }
-        false
-    }
-
-    /// An answer to one of the compositor's calls: the shell's, if a tag of either client owns the token. Returns whether it was. A
-    /// push of the toast feed to the QML client is withheld while the Rust shell answers `toast` (`shell_rust.rs`): one shell draws it.
+    /// Deliver an answer to the native UI client.
     pub fn shell_luna_event(&mut self, token: u64, payload: &Value) -> bool {
-        let Some(i) = self.shell.luna_tags.iter().position(|t| t.token == token) else { return self.shell_rust_luna_event(token, payload) };
-        let tag = self.shell.luna_tags[i].tag;
-        let feed = notification_feed(&self.shell.luna_tags[i].uri, payload);
-        let withheld = (feed == Some("toast") && self.shell_rust.answers("toast"))
-            || (opens_alert(&self.shell.luna_tags[i].uri, payload) && self.shell_rust.answers("alert"));
-        if let Some(feed) = feed
-            && !withheld
-        {
-            self.shell.mark(&format!("Q:{feed}-delivered"));
-            // The journal's clock against `shell: system layer live; its last commit N ms ago`: the time the client took from the
-            // delivery to its first frame of the toast or alert.
-            self.journal(format!("shell: {feed} delivered to the client"));
-        }
-        if !self.shell.luna_tags[i].subscribe {
-            self.shell.luna_tags.remove(i);
-        }
-        if !withheld {
-            self.shell.push("luna", json!({"tag": tag, "payload": payload}));
-        }
-        true
+        self.shell_rust_luna_event(token, payload)
     }
 
-    /// The audio service's state (the compositor's own subscription): the UI's `LS.audioService` reads it; the Rust shell's volume
-    /// display when `osd` is its, and the QML client not then.
+    /// Forward audio updates to the native UI.
     pub fn shell_audio(&mut self, payload: &Value) {
         if self.shell_rust.enabled() {
             self.shell_rust.push("audio", payload.clone());
-        }
-        if (self.shell.enabled() || self.shell.connected) && !self.shell_rust.answers("osd") {
-            self.shell.push("audio", payload.clone());
         }
     }
 
@@ -884,33 +242,21 @@ impl State {
         ]
     }
 
-    /// Pushes the topics the UI follows when they changed: what is in front, the screen, the keyboard, the cursor. Called
-    /// wherever the scene or the input state changed (`luna_notify` and the shell's own mappings). The Rust client gets the same.
+    /// Publish the native UI topics and capture state.
     pub fn shell_sync_topics(&mut self) {
         self.shell_rust_sync_topics();
-        // the field that is asking goes to the client that answers the keyboard, the other is told there is none
         crate::server::ime::own_publish(self);
-        if !self.shell.enabled() && !self.shell.connected {
-            return;
-        }
-        for (topic, value) in self.shell_topic_values() {
-            self.shell.push_if_changed(&topic, value);
-        }
-        self.switcher_sync_topics();
         self.screencap_publish();
     }
 
-    /// Whether LumaTV's Home would be drawn now: the shell's Home window is mapped and the foreground card is SAM's Home or there is
-    /// none (the scene's rule, `scene.rs` `build_stack`).
+    /// Whether native Home is drawn under the current foreground or its transition.
     pub fn shell_home_drawn(&self) -> bool {
-        let home_mapped = self.scene.home_rust() || self.scene.shell_window(WindowType::ShellHome).is_some_and(|w| w.map_serial > 0);
-        home_mapped && (self.scene.foreground(&self.surfaces).is_none_or(|w| w.app_id() == crate::scene::HOME_APP) || self.scene.transitions.holds_home())
+        self.scene.home_rust() && (self.scene.foreground(&self.surfaces).is_none_or(|w| w.app_id() == crate::scene::HOME_APP) || self.scene.transitions.holds_home())
     }
 
-    /// Whether a shell client hears the Home key: a shell window of the QML shell has the focus, or the Rust shell is connected and has Home drawn
-    /// (its Home is no window, so nothing is focused under it: `ctl status` focus is null).
-    pub fn shell_hears_home_key(&self, shell_focus: bool) -> bool {
-        shell_focus || (self.shell_rust.connected && self.shell_home_drawn())
+    /// Whether native Home hears the Home key.
+    pub fn shell_hears_home_key(&self) -> bool {
+        self.shell_rust.connected && self.shell_home_drawn()
     }
 
     /// The moving wallpaper's window is closed the moment LumaTV's Home is not drawn (an app, an input, LG's Home or Settings took the front):
@@ -930,19 +276,9 @@ impl State {
         }
     }
 
-    /// One of the shell's windows got its first buffer.
-    pub fn shell_window_mapped(&mut self, kind: WindowType) {
-        self.journal(format!("shell: {} window mapped", if kind == WindowType::ShellHome { "Home" } else { "system layer" }));
-        self.shell_sync_topics();
-    }
-
-    /// Whether the client that answers `kind` ("quick", "picker", "drawer") is connected and said it can show it now: the Rust shell
-    /// for a kind on its list, the QML client for the rest.
+    /// Whether the native UI can show this kind now.
     pub fn shell_can(&self, kind: &str) -> bool {
-        if self.shell_rust.answers(kind) {
-            return self.shell_rust.connected && self.shell_rust.can.iter().any(|c| c == kind);
-        }
-        self.shell.connected && self.shell.can.iter().any(|c| c == kind)
+        self.shell_rust.answers(kind) && self.shell_rust.connected && self.shell_rust.can.iter().any(|c| c == kind)
     }
 
     /// The gear's tap, the Input key, a request through the luna methods: LumaTV's own panel when the UI says it can show it
@@ -957,23 +293,15 @@ impl State {
         if !self.shell_can(kind) {
             return false;
         }
-        if self.shell_rust.answers(kind) {
-            self.shell_rust.stats.shows += 1;
-            if !warm {
-                self.shell_rust.mark(&format!("Q:{kind}-show"));
-            }
-            let mut event = json!({"kind": kind, "warm": warm, "n": self.shell_rust.stats.shows});
-            if let Some(page) = page {
-                event["page"] = json!(page);
-            }
-            self.shell_rust.push("show", event);
-            return true;
-        }
-        self.shell.stats.shows += 1;
+        self.shell_rust.stats.shows += 1;
         if !warm {
-            self.shell.mark(&format!("Q:{kind}-show"));
+            self.shell_rust.mark(&format!("Q:{kind}-show"));
         }
-        self.shell.push("show", json!({"kind": kind, "warm": warm, "n": self.shell.stats.shows}));
+        let mut event = json!({"kind": kind, "warm": warm, "n": self.shell_rust.stats.shows});
+        if let Some(page) = page {
+            event["page"] = json!(page);
+        }
+        self.shell_rust.push("show", event);
         true
     }
 
@@ -985,10 +313,6 @@ impl State {
     /// [`State::shell_home_key`], saying whether the switcher is on offer: Home was pressed at rest with apps open, and the UI, which knows what
     /// Home has open, may open the switcher instead of closing something.
     pub fn shell_home_key_offer(&mut self, switcher: bool) {
-        if self.shell.connected {
-            let n = self.shell.stats.events;
-            self.shell.push("homekey", json!({"n": n, "switcher": switcher}));
-        }
         // the Rust client closes what it has open on the Home key as well (the saver wakes, the Cameras app closes)
         if self.shell_rust.connected {
             let n = self.shell_rust.stats.events;
@@ -996,76 +320,17 @@ impl State {
         }
     }
 
-    /// A line in the kernel's trace buffer for the frame gate (`Q:<name>-show`, `-shown`): the keyboard writes its own, since it is asked for by
-    /// a text field and not by a key of the remote.
+    /// Write a trace marker for UI events.
     pub fn shell_mark(&self, text: &str) {
-        self.shell.mark(text);
+        self.shell_rust.mark(text);
     }
 
-    /// One key of the remote, offered to the system layer before the focus routing: the cards of the overlay system take OK and Back (`takes`)
-    /// while an app has the keyboard focus, the keys arrive as `syskey` events and the app never sees them; every other key, and every key
-    /// while the layer takes none, goes the way it always went. A release (and a repeat) goes where its press went: a press the layer took
-    /// has its release here even when the cards are gone by then (the app is never left with a release of a key it had no press of), and a
-    /// press the app has (the OK that was down as a card arrived) keeps its repeats and its release. `swallowed`: the router already took
-    /// the key (the gear, Input, an app button, a hold that fired): nothing here.
-    pub fn shell_takes_key(&mut self, seat: crate::server::seat::SeatId, code: u32, pressed: bool, swallowed: bool, now: Instant) -> bool {
-        let Some(name) = crate::server::ime::own_key_name(code) else { return false };
-        let mut repeat = false;
-        if let Some(i) = self.shell.took.iter().position(|(c, _)| *c == code) {
-            if !pressed {
-                self.shell.took.remove(i);
-                self.shell.push("syskey", json!({"k": name, "d": false, "r": false}));
-                self.keys.delivered += 1;
-                return true;
-            }
-            if now.saturating_duration_since(self.shell.took[i].1) < TOOK_STALE {
-                self.shell.took[i].1 = now;
-                repeat = true;
-            } else {
-                self.shell.took.remove(i);
-            }
-        }
-        if !repeat {
-            if !pressed || swallowed || !self.shell.connected || !self.shell.takes.iter().any(|n| n == name) {
-                return false;
-            }
-            // the layer's own windows get their keys on wl_keyboard: only an app's focus is the layer's to share
-            let focused = self.seat.focus.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w));
-            if !focused.is_some_and(|w| !w.kind.is_shell()) || self.seat.pressed.contains(&(seat, code)) {
-                return false;
-            }
-            self.shell.took.push((code, now));
-        }
-        self.shell.push("syskey", json!({"k": name, "d": true, "r": repeat}));
-        self.keys.delivered += 1;
-        true
-    }
-
-    /// `ctl shell`.
+    /// UI state for diagnostics.
     pub fn shell_report(&self) -> Value {
-        let s = &self.shell;
-        json!({
-            "ok": true,
-            "enabled": s.enabled(),
-            "gaveUp": s.gave_up,
-            "error": s.error,
-            "pid": s.child_pid(),
-            "connected": s.connected,
-            "can": s.can,
-            "wants": s.wants,
-            "takes": s.takes,
-            "systemLive": s.live,
-            "homeDrawn": self.shell_home_drawn(),
-            "homeMapped": self.scene.shell_window(WindowType::ShellHome).is_some_and(|w| w.map_serial > 0),
-            "systemMapped": self.scene.shell_window(WindowType::ShellSystem).is_some_and(|w| w.map_serial > 0),
-            "homeCommits": self.scene.shell_window(WindowType::ShellHome).map(|w| w.commits).unwrap_or(0),
-            "systemCommits": self.scene.shell_window(WindowType::ShellSystem).map(|w| w.commits).unwrap_or(0),
-            "ui": s.ui_state,
-            "topics": s.pushed,
-            "lunaOpen": s.luna_tags.iter().map(|t| json!({"tag": t.tag, "uri": t.uri, "subscribe": t.subscribe})).collect::<Vec<_>>(),
-            "stats": {"starts": s.stats.starts, "exits": s.stats.exits, "events": s.stats.events, "lunaCalls": s.stats.luna_calls, "lunaRefused": s.stats.luna_refused, "lunaCancelledEarly": s.stats.luna_cancelled_early, "shows": s.stats.shows},
-            "rust": self.shell_rust_report(),
-        })
+        let mut report = self.shell_rust_report();
+        report["ok"] = json!(true);
+        report["homeDrawn"] = json!(self.shell_home_drawn());
+        report
     }
 }
 
@@ -1082,129 +347,10 @@ pub(crate) fn notification_feed(uri: &str, payload: &Value) -> Option<&'static s
     None
 }
 
-/// Whether a push of the notification service opens an alert, the input popup or a PIN prompt: what the Rust shell's `alert` kind draws, and
-/// so what the QML client is not given while that kind is the Rust shell's.
-pub(crate) fn opens_alert(uri: &str, payload: &Value) -> bool {
-    let action = |key: &str| payload.get(key).and_then(Value::as_str) == Some("open");
-    ((uri.ends_with("/getAlertNotification") || uri.ends_with("/getInputAlertNotification")) && action("alertAction"))
-        || (uri.ends_with("/getPincodePromptNotification") && action("pincodePromptAction"))
-}
-
-/// Whether a call of the QML client is a vote on tvpower's screen saver lists (`SaverVote.qml`): refused while the Rust shell answers `saver`,
-/// so that the QML saver never owns the saver the Rust one draws.
-pub(crate) fn is_saver_vote(uri: &str) -> bool {
-    uri.starts_with("luna://com.webos.service.tvpower/") && uri.ends_with("/registerScreenSaverRequest")
-}
-
-/// `<bundle>/shell/Shell.qml` beside this executable (`<bundle>/bin/lumatv-compositor`), when the bundle has one.
-fn bundle_shell() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let bundle = exe.parent()?.parent()?;
-    let p = bundle.join("shell/Shell.qml");
-    p.is_file().then_some(p)
-}
-
-/// LumaTV's QML module as `tools/lumatv` stages it: the directory under `<data dir>/qml/WebOSCompositor` that holds
-/// `LumaHome.qml` (named by the brand's `qmlModule`).
+/// Directory containing the native UI assets.
 pub(crate) fn module_dir(data_dir: &Path) -> Option<PathBuf> {
-    let root = data_dir.join("qml/WebOSCompositor");
-    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root).ok()?.flatten().map(|e| e.path()).filter(|p| p.join("LumaHome.qml").is_file()).collect();
-    dirs.sort();
-    dirs.into_iter().next()
-}
-
-/// What a start needs off the loop's state: the launch and the paths the client is told.
-struct SpawnJob {
-    runner: PathBuf,
-    main_qml: PathBuf,
-    port: u16,
-    token_path: PathBuf,
-    log: PathBuf,
-    data_dir: PathBuf,
-    runtime_dir: PathBuf,
-    socket: String,
-    /// More environment for the client (`--scanout-shell-env`): what asks its window for buffers the plane can scan out.
-    extra_env: Vec<(String, String)>,
-}
-
-/// A start asked of the spawn thread, and where its child goes.
-type SpawnRequest = (SpawnJob, Sender<Result<Child, SpawnFailure>>);
-
-/// The thread that forks every client start (`Shell::spawner`). It lives until the compositor drops its sender, which is the
-/// end of the process: the client's PR_SET_PDEATHSIG is tied to this thread, so the thread must outlive the client.
-fn spawn_thread() -> std::io::Result<Sender<SpawnRequest>> {
-    let (tx, rx) = channel::<SpawnRequest>();
-    std::thread::Builder::new().name("shell-spawn".into()).spawn(move || {
-        for (job, reply) in rx {
-            let _ = reply.send(spawn_client(job));
-        }
-    })?;
-    Ok(tx)
-}
-
-/// Starts the client: the module lookup, the log file and the fork and exec of the runner, on the spawn thread.
-fn spawn_client(job: SpawnJob) -> Result<Child, SpawnFailure> {
-    let imports = job.main_qml.parent().map(|d| d.join("imports")).unwrap_or_default();
-    let Some(module_dir) = module_dir(&job.data_dir) else {
-        return Err(SpawnFailure::NoModule(job.data_dir.join("qml/WebOSCompositor")));
-    };
-    let params = json!({
-        "port": job.port,
-        "tokenFile": job.token_path,
-        "dataDir": job.data_dir,
-        "moduleDir": module_dir,
-        "runtimeDir": job.runtime_dir,
-        "socket": job.socket,
-    });
-    let arg = json!({"event": "launch", "appId": APP_ID, "main": job.main_qml, "params": params}).to_string();
-    let log = crate::childlog::pipe(&job.log);
-    let mut cmd = Command::new(&job.runner);
-    cmd.arg(arg)
-        .env_remove("NOTIFY_SOCKET")
-        .env_remove("LUMATV_LUNA_BRIDGE")
-        .env_remove("LUMATV_LOG")
-        .env("XDG_RUNTIME_DIR", &job.runtime_dir)
-        .env("WAYLAND_DISPLAY", &job.socket)
-        // LG's Qt apps' environment, read off the set (`compositor-surfaces-result.md`).
-        .env("QT_QPA_PLATFORM", "wayland")
-        .env("QT_WAYLAND_SHELL_INTEGRATION", "webos")
-        .env("QT_WAYLAND_HARDWARE_INTEGRATION", "wayland-egl")
-        .env("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1")
-        .env("QT_WAYLAND_XKB_RULE_NAMES", "evdev:lgwebostv:us::")
-        .env("QT_IM_MODULE", "wayland")
-        .env("QT_QPA_FONTDIR", "/usr/share/fonts")
-        .env("QT_HARFBUZZ", "new")
-        .env("WEBOS_GL_DISABLE_THREADED_RENDERING", "1")
-        .env("QML2_IMPORT_PATH", format!("{}:/usr/lib/qt5/qml", imports.display()))
-        .env("LUMATV_SHELL_PORT", job.port.to_string())
-        .stdin(Stdio::null());
-    for (k, v) in &job.extra_env {
-        cmd.env(k, v);
-    }
-    match log {
-        Some(f) => {
-            let err = f.try_clone().map(Stdio::from).unwrap_or_else(|_| Stdio::null());
-            cmd.stdout(Stdio::from(f)).stderr(err);
-        }
-        None => {
-            cmd.stdout(Stdio::null()).stderr(Stdio::null());
-        }
-    }
-    // The client dies with the compositor: a Qt client left over would hold LG's compositor's socket name after the fallback.
-    // Its class is time-shared by the loop's reset-on-fork flag (`sched::fifo`); the nice level is set here.
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::process::CommandExt;
-        // SAFETY: prctl and setpriority in the child between fork and exec touch nothing shared.
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
-                libc::setpriority(libc::PRIO_PROCESS, 0, NICE);
-                Ok(())
-            });
-        }
-    }
-    cmd.spawn().map_err(SpawnFailure::Start)
+    let dir = data_dir.join("compositor/assets/ui");
+    dir.is_dir().then_some(dir)
 }
 
 /// Writes a fresh token (32 hex digits from the kernel's random source) readable by the owner only.
@@ -1367,6 +513,10 @@ fn handle_request(req: &Request, token: &str, outbox: &Arc<Mutex<Outbox>>, inbox
             let after = req.query.get("after").and_then(|v| v.parse().ok()).unwrap_or(0);
             let timeout = req.query.get("timeout").and_then(|v| v.parse().ok()).unwrap_or(25u64).min(60);
             Handled::Poll { after, timeout: Duration::from_secs(timeout) }
+        }
+        ("POST", "/v1/frame-ready") => {
+            inbox.send(Msg::FrameReady);
+            Handled::Answer(200, json!({"ok": true}))
         }
         ("POST", "/v1/ui") => {
             let can = body.get("can").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect());
@@ -1602,6 +752,22 @@ mod tests {
     }
 
     #[test]
+    fn frame_ready_requires_authentication_and_post() {
+        let outbox = Arc::new(Mutex::new(Outbox { seq: 0, events: VecDeque::new(), topics: BTreeMap::new(), boot: 1 }));
+        let (tx, rx) = channel();
+        let inbox = Inbox { tx, wake: eventfd().unwrap() };
+        let req = Request { method: "POST".into(), path: "/v1/frame-ready".into(), query: BTreeMap::new(), token: "wrong".into(), body: Vec::new(), close: false };
+        assert!(matches!(handle_request(&req, "right", &outbox, &inbox), Handled::Answer(403, _)));
+        assert!(rx.try_recv().is_err());
+        let req = Request { token: "right".into(), method: "GET".into(), ..req };
+        assert!(matches!(handle_request(&req, "right", &outbox, &inbox), Handled::Answer(404, _)));
+        assert!(rx.try_recv().is_err());
+        let req = Request { method: "POST".into(), ..req };
+        assert!(matches!(handle_request(&req, "right", &outbox, &inbox), Handled::Answer(200, _)));
+        assert_eq!(rx.try_recv().unwrap(), Msg::FrameReady);
+    }
+
+    #[test]
     fn the_server_answers_over_tcp_and_holds_a_long_poll() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -1636,77 +802,4 @@ mod tests {
         assert_eq!(n, 1);
     }
 
-    #[test]
-    fn the_client_is_started_off_the_loop_and_arrives_at_a_later_tick() {
-        // The runner is `sh`, handed the launch JSON as its script: it exits at once, which is all the loop's side needs.
-        let dir = std::env::temp_dir().join(format!("lumatv-shell-spawn-{}", std::process::id()));
-        let module = dir.join("qml/WebOSCompositor/lumatv");
-        std::fs::create_dir_all(&module).unwrap();
-        std::fs::write(module.join("LumaHome.qml"), "").unwrap();
-        let display: wayland_server::Display<State> = wayland_server::Display::new().unwrap();
-        let config = crate::config::Config { data_dir: dir.clone(), runtime_dir: dir.clone(), ..crate::config::Config::default() };
-        let mut state = State::new(display.handle(), config, Box::new(crate::render::software::Software::new(64, 64)), Box::new(crate::luna::Null::default()));
-        state.shell.launch = Some(Launch {
-            runner: PathBuf::from("/bin/sh"),
-            main_qml: dir.join("Shell.qml"),
-            port: 1,
-            token_path: dir.join("token"),
-            log: dir.join("shell.log"),
-        });
-        state.shell.next_start = Some(Instant::now());
-        let t0 = Instant::now();
-        state.shell_tick(Instant::now());
-        let pass = t0.elapsed();
-        assert!(state.shell.child.is_none() && state.shell.spawning.is_some(), "the start is on its thread, the tick returned without a child");
-        assert!(state.journal.iter().any(|l| l.contains("shell: starting the client")));
-        let mut arrived = false;
-        for _ in 0..200 {
-            state.shell_tick(Instant::now());
-            if state.shell.child.is_some() {
-                arrived = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert!(arrived, "the child came through the channel");
-        assert!(state.shell.spawning.is_none());
-        assert_eq!(state.shell.stats.starts, 1);
-        assert!(state.journal.iter().any(|l| l.contains("shell: client started, pid")), "{:?}", state.journal);
-        // No second start while one was on its way, and the pass that asked for it was not held for the exec.
-        assert_eq!(state.shell.starts.len(), 1);
-        assert!(pass < Duration::from_millis(50), "the tick took {pass:?}");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn the_client_outlives_the_start_that_forked_it() {
-        // PR_SET_PDEATHSIG fires when the thread that forked the client ends: on the set the client was killed 0 s after
-        // its start (round 6) while the spawn thread of each start ended. The runner here is a script that sleeps.
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("lumatv-shell-outlive-{}", std::process::id()));
-        let module = dir.join("qml/WebOSCompositor/lumatv");
-        std::fs::create_dir_all(&module).unwrap();
-        std::fs::write(module.join("LumaHome.qml"), "").unwrap();
-        let runner = dir.join("runner.sh");
-        std::fs::write(&runner, "#!/bin/sh\nexec sleep 30\n").unwrap();
-        std::fs::set_permissions(&runner, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let display: wayland_server::Display<State> = wayland_server::Display::new().unwrap();
-        let config = crate::config::Config { data_dir: dir.clone(), runtime_dir: dir.clone(), ..crate::config::Config::default() };
-        let mut state = State::new(display.handle(), config, Box::new(crate::render::software::Software::new(64, 64)), Box::new(crate::luna::Null::default()));
-        state.shell.launch = Some(Launch { runner, main_qml: dir.join("Shell.qml"), port: 1, token_path: dir.join("token"), log: dir.join("shell.log") });
-        state.shell.next_start = Some(Instant::now());
-        for _ in 0..200 {
-            state.shell_tick(Instant::now());
-            if state.shell.child.is_some() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        std::thread::sleep(Duration::from_millis(300));
-        let child = state.shell.child.as_mut().expect("the client started");
-        assert!(child.try_wait().unwrap().is_none(), "the client is still running 300 ms after its start");
-        let _ = child.kill();
-        let _ = child.wait();
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }

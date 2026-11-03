@@ -14,6 +14,24 @@ pub fn name_or(table: Table, value: &str, fallback: &str) -> String {
     table.iter().find(|(k, _)| *k == value).map_or_else(|| fallback.to_string(), |(_, n)| (*n).to_string())
 }
 
+/// LG's picture-mode captions; unknown native values remain readable as given.
+pub fn picture_mode(value: &str) -> &str {
+    match value {
+        "filmMaker" => "Filmmaker",
+        "cinema" => "Cinema",
+        "normal" => "Standard",
+        "vivid" => "Vivid",
+        "personalized" => "Personalized",
+        "game" => "Game",
+        "sports" => "Sports",
+        "eco" => "Eco",
+        "expert1" => "Expert · day",
+        "expert2" => "Expert · night",
+        "dolbyHdrCinemaBright" => "Cinema Home",
+        _ => value,
+    }
+}
+
 pub const NONE: Table = &[];
 pub const ONOFF: Table = &[("on", "On"), ("off", "Off")];
 pub const SLOW_TO_FAST: Table = &[("verySlow", "Very slow"), ("slow", "Slow"), ("medium", "Medium"), ("fast", "Fast"), ("veryFast", "Very fast")];

@@ -24,7 +24,7 @@
 #   cutover.sh disable     unmount, restart LG's compositor, bring Home back; the enabled flag is removed; the timer
 #                          is cancelled
 #   cutover.sh status      what is live now, and the timer
-#   cutover.sh revert      unmount and restart LG's compositor (the flag stays); the timer is cancelled
+#   cutover.sh revert      restore stock UI and disable LumaTV; the timer is cancelled
 #   cutover.sh firmware check    hash LG's binary and libraries and say whether this build is on verified.list (exit 0/5)
 #   cutover.sh firmware record   print the verified.list entry for this build, for the gate to add once it has passed
 #   cutover.sh boot-check  what the boot hook would decide now (JSON), changing nothing
@@ -35,7 +35,8 @@ LG=${LUMATV_LG:-/usr/bin/surface-manager}
 COMP=$STATE
 COMP_LG=$LG
 COMP_MOUNTINFO=${LUMATV_MOUNTINFO:-/proc/self/mountinfo}
-COMP_LOCK=${LUMATV_RECOVER_LOCK:-/tmp/lumatv-recover.lock}
+COMP_LOCK=${LUMATV_RECOVER_LOCK:-/tmp/lumatv-recover.flock}
+LUMATV_TOOL=${LUMATV_TOOL:-/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv}
 [ -f $D/compositor.sh ] || { echo "deploy first: $D/compositor.sh is missing"; exit 1; }
 log_line() { :; }
 . $D/compositor.sh
@@ -49,12 +50,11 @@ is_mounted() { comp_mounted; }
 SELF=$0
 case $SELF in /*) ;; *) SELF=$PWD/$SELF ;; esac
 SAFETY=$STATE/safety-timer
-SAFETY_LOG=$STATE/safety-timer.log
 SAFETY_DEFAULT=15
 SAFETY_MINUTE=${LUMATV_SAFETY_MINUTE:-60}   # seconds in one of the timer's minutes; the host test shortens it
 
 now_s() { read -r n_up _ < /proc/uptime; echo "${n_up%.*}"; }
-safety_log() { echo "[$(date +%H:%M:%S)] $*" >> $SAFETY_LOG; }
+safety_log() { python3 "$D/logrelay.py" send lumatv-sm "safety: [$(date +%H:%M:%S)] $*" 2>/dev/null || :; }
 safety_owner() { o_pid=""; { read -r o_pid _ < $SAFETY; } 2>/dev/null; echo "$o_pid"; }
 
 # The pid the record names, when that process is a timer job: a job that was killed leaves its record behind, and the
@@ -99,17 +99,7 @@ safety_start() {
 
 revert() {
     safety_cancel
-    # When the supervisor already fell back (unmounted and execd LG's binary, recovery under way) a second restart
-    # would only take LG's compositor down again; then only the recovery is joined.
-    if is_mounted; then
-        umount "$LG" || umount -l "$LG"
-        systemctl restart surface-manager-daemon
-    fi
-    echo "revert: $(systemctl is-active surface-manager-daemon); mounted: $(is_mounted && echo yes || echo no); exe: $(readlink /proc/$(pgrep -x surface-manager | head -1)/exe 2>/dev/null)"
-    # A recovery still running from the forward switch would make this one a no-op (recover-home.sh joins a
-    # running one and exits); it is bounded, so wait for it first.
-    n=0; while [ -d $COMP_LOCK ] && [ $n -lt 150 ]; do sleep 1; n=$((n+1)); done
-    sh $STATE/bin/recover-home.sh $STATE/sm.log
+    "$LUMATV_TOOL" compositor off
 }
 
 # The bundle's files as install saw them: size of every file under bin/ and lib/, and the SHA-256 of the ones under
@@ -130,17 +120,24 @@ case "${1:-help}" in
 install)
     # LG's binary has to be the one at its path: with the mount in place the path shows the supervisor.
     if is_mounted; then echo "LumaTV's compositor is mounted over LG's; run disable first"; exit 1; fi
+    [ -d "$D/assets/ui" ] || { echo "deploy first: $D/assets/ui is missing"; exit 1; }
+    storage_guard "$STATE" "$D/bin" "$D/lib" "$D/assets/ui" "$D/recover-home.sh" "$D/logrelay.py" "$D/verified.list" || { echo "$STORAGE_WHY"; exit 1; }
     mkdir -p $STATE/bin $STATE/lib
     cp $D/bin/lumatv-compositor $D/bin/lumatv-sm $STATE/bin/
     # The Rust shell (a bundle built with `ui`) is looked for beside the compositor, which the supervisor runs from here; one left by an
     # earlier bundle is not kept when this one has none.
     if [ -f $D/bin/lumatv-ui ]; then cp $D/bin/lumatv-ui $STATE/bin/; else rm -f $STATE/bin/lumatv-ui; fi
     cp $D/recover-home.sh $STATE/bin/recover-home.sh
+    cp $D/logrelay.py $STATE/bin/logrelay.py
     cp $D/lib/* $STATE/lib/
     chmod +x $STATE/bin/*
-    # The shell client's QML (the compositor runs it from <bundle>/shell/Shell.qml when it is there).
-    rm -rf $STATE/shell
-    [ -d $D/shell ] && cp -R $D/shell $STATE/shell
+    # Remove the old shell so it cannot be auto-started.
+    rm -rf "$STATE/shell"
+    mkdir -p "$STATE/assets"
+    rm -rf "$STATE/assets/ui.new"
+    cp -R "$D/assets/ui" "$STATE/assets/ui.new" || exit 1
+    rm -rf "$STATE/assets/ui"
+    mv "$STATE/assets/ui.new" "$STATE/assets/ui" || exit 1
     # The builds the gate passed on come with the deploy (compositor/firmware/verified.list); a set that was never
     # given one keeps what it has, or an empty list, which verifies nothing.
     if [ -f $D/verified.list ]; then cp $D/verified.list $STATE/verified.list
@@ -149,7 +146,7 @@ install)
     stat -c '%s %Y' $LG > $STATE/lg-binary
     comp_fw_manifest > $STATE/manifest
     write_bundle_manifest
-    echo 2 > $STATE/supervisor-api
+    echo 3 > $STATE/supervisor-api
     echo 0 > $STATE/failures
     rm -f $STATE/escaped $STATE/last-fallback $STATE/enabled $STATE/running $STATE/fw-verified $STATE/fw-unverified
     fw=$(comp_fw_check force)
@@ -173,7 +170,7 @@ status)
     echo "flag: $(comp_flag); firmware: $(comp_fw_state); supervisor-api: $(cat $STATE/supervisor-api 2>/dev/null || echo none)"
     echo "safety timer: $(safety_state)"
     ls -la $STATE 2>/dev/null | grep -vE 'bin|lib'
-    tail -5 $STATE/sm.log 2>/dev/null
+    comp_log lumatv-sm | tail -5
     ;;
 firmware)
     case "${2:-check}" in
@@ -206,55 +203,31 @@ trial|enable)
         done
         [ -z "$mins" ] || [ $mode = session ] || { echo "--max-minutes goes with --session: a persistent enable has no timer"; exit 1; } ;;
     esac
-    [ -x $STATE/bin/lumatv-sm ] || { echo "run install first"; exit 1; }
-    [ "$(cat $STATE/supervisor-api 2>/dev/null)" = 2 ] || { echo "the bundle predates supervisor-api; run install first"; exit 1; }
-    if is_mounted; then echo "already mounted; 'cutover.sh status' says what runs"; exit 1; fi
-    comp_lg_unchanged || { echo "LG's compositor binary is not the one the bundle was installed against (firmware changed); run install first"; exit 4; }
-    comp_bundle_ok full || { echo "the bundle is not the installed one ($COMP_WHY); run install first"; exit 6; }
-    # A persistent enable is for a firmware build the gate passed on. A session (a trial, or the gate itself on a
-    # build it has not passed on) may run on any, and a reboot ends it: the flag names this boot.
-    fw=$(comp_fw_check force); fwrc=$?
-    if [ $fwrc -ne 0 ] && [ $mode = persistent ]; then
-        echo "$fw"
-        echo "refusing a persistent enable: LumaTV's compositor waits for the gate to pass on this firmware and for compositor/firmware/verified.list to list it ('enable --session' runs the gate)"
-        exit 5
-    fi
-    if [ $fwrc -eq 0 ]; then echo "firmware: $fw"; else echo "firmware: $fw (this boot only: a reboot goes back to LG's compositor)"; fi
-    echo 0 > $STATE/failures; rm -f $STATE/escaped $STATE/running
-    if [ $mode = session ]; then echo "session $(comp_boot_id)" > $STATE/enabled; else echo persistent > $STATE/enabled; fi
-    # What the supervisor will decide at its start, asked first: a refusal there would only blank the panel for a
-    # restart and a recovery to end where it began.
-    comp_sm_says
-    if [ "$COMP_WORD" != run ]; then
-        rm -f $STATE/enabled
-        echo "the supervisor would not start: $COMP_WORD: $COMP_WHY"
-        exit 7
-    fi
+    [ -x "$LUMATV_TOOL" ] || { echo "LumaTV tool is not installed: $LUMATV_TOOL"; exit 1; }
     if [ $mode = session ]; then
         if [ $cmd = trial ]; then mins=$(( (secs + 59) / 60 + 5 )); else mins=${mins:-$SAFETY_DEFAULT}; fi
         if ! safety_start $mins; then
             safety_cancel > /dev/null
-            rm -f $STATE/enabled
             echo "the safety timer did not start; nothing was mounted"
             exit 8
         fi
         echo "safety timer: this session ends by itself after $mins min if it is still live ('cutover.sh disable' cancels the timer)"
     fi
-    if [ $cmd = trial ]; then trap 'rm -f $STATE/enabled; revert' EXIT INT TERM; fi
-    mount --bind $STATE/bin/lumatv-sm $LG
-    echo "mounted; restarting the unit"
-    systemctl restart surface-manager-daemon
-    # WebAppMgr loses its socket with the old compositor and restarts into none until systemd's start limit
-    # leaves it failed (webapp-mgr.service is PartOf surface-manager.service, not the daemon unit, so nothing
-    # restarts it for us); the same recovery as after a fallback brings it and Home back once the supervisor
-    # reports ready. It holds /tmp/lumatv-recover.lock while it runs.
-    ( sh $STATE/bin/recover-home.sh $STATE/sm.log > /dev/null 2>&1 & )
+    if [ "$cmd" = trial ]; then trap 'revert' EXIT; trap 'exit 1' INT TERM; fi
+    if "$LUMATV_TOOL" compositor on "$mode"; then
+        :
+    else
+        switch_rc=$?
+        safety_cancel > /dev/null
+        [ "$cmd" = trial ] && trap - EXIT INT TERM
+        exit "$switch_rc"
+    fi
     t=0
     while [ $t -lt $secs ]; do
         sleep 5; t=$((t+5))
         sm=$(pgrep -x surface-manager | head -1)
         echo "t=${t}s unit=$(systemctl is-active surface-manager-daemon) exe=$(readlink /proc/$sm/exe 2>/dev/null) compositor=$(pgrep -f 'bin/lumatv-compositor' | head -1 || echo none) mounted=$(is_mounted && echo yes || echo no) wam=$(systemctl is-active webapp-mgr)"
-        tail -2 $STATE/sm.log 2>/dev/null | sed 's/^/   /'
+        comp_log lumatv-sm | tail -2 | sed 's/^/   /'
         if ! is_mounted; then echo "the supervisor fell back to LG's compositor: $(cat $STATE/last-fallback 2>/dev/null)"; break; fi
         if [ $cmd = enable ] && [ $t -ge 30 ]; then break; fi
     done
@@ -272,26 +245,22 @@ trial|enable)
             timeout 10 luna-send -n 1 -f luna://com.webos.surfacemanager/getForegroundAppInfo '{}' > $O/foreground.json 2>&1
             echo "trial evidence: $(grep -o '"summary":"[^"]*"' $O/status.json) windows $(grep -o '"appId":"[^"]*"' $O/windows.json | sort -u | tr '\n' ' ')"
         fi
-        cp $STATE/sm.log $STATE/compositor.log $O/ 2>/dev/null
+        comp_log lumatv-sm > $O/sm.log; comp_log lumatv-compositor > $O/compositor.log
         trap - EXIT INT TERM
-        rm -f $STATE/enabled
-        revert
+        revert || exit 1
     else
-        n=0; while [ -d $COMP_LOCK ] && [ $n -lt 90 ]; do sleep 1; n=$((n+1)); done
+        n=0; while comp_recovering && [ $n -lt 90 ]; do sleep 1; n=$((n+1)); done
         # The watch above ends at the first fallback too: LG's compositor is then the live one, and an enable that
         # leaves its flag behind would try LumaTV's again at the next boot.
         if ! is_mounted; then
-            safety_cancel > /dev/null
-            rm -f $STATE/enabled
-            echo "enable failed: the supervisor fell back to LG's compositor ($(cat $STATE/last-fallback 2>/dev/null)); the flag is removed, LG's compositor is live"
+            revert
+            echo "enable failed: the supervisor fell back to LG's compositor ($(cat $STATE/last-fallback 2>/dev/null))"
             exit 9
         fi
         echo "enabled ($mode): LumaTV's compositor stays live (recovery done after ${n}s more); 'cutover.sh disable' restores LG's"
     fi
     ;;
 disable)
-    safety_cancel
-    rm -f $STATE/enabled $STATE/running
     revert
     ;;
 revert) revert ;;
@@ -311,9 +280,9 @@ safety-run)
     [ "$(safety_owner)" = "$$" ] || exit 0
     # Claimed: the disable below must not cancel the job it runs under.
     rm -f $SAFETY
-    if is_mounted && [ "$(comp_flag)" = session ]; then
+    if [ "$(comp_flag)" = session ]; then
         safety_log "$mins min are up with the session still live: disable"
-        sh "$SELF" disable >> $SAFETY_LOG 2>&1
+        python3 "$D/logrelay.py" output lumatv-sm sh "$SELF" disable
         safety_log "disable exit $?"
     else
         safety_log "$mins min are up; the session had already ended (mounted $(is_mounted && echo yes || echo no), flag $(comp_flag))"

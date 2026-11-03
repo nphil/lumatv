@@ -28,8 +28,8 @@ fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
     p
 }
 
-fn factory(binary: PathBuf, dir: &Path) -> VencFactory {
-    VencFactory { binary, log: dir.join("venc.log") }
+fn factory(binary: PathBuf, _dir: &Path) -> VencFactory {
+    VencFactory { binary }
 }
 
 fn host_venc() -> Option<PathBuf> {
@@ -126,7 +126,7 @@ fn the_real_program_records_a_whole_file_through_the_wire() {
         let text = String::from_utf8_lossy(&out.stdout);
         assert!(text.contains("codec_name=h264") && text.contains("width=640") && text.contains("height=360") && text.contains("nb_read_packets=20"), "{text}");
     }
-    assert!(std::fs::read_to_string(d.join("venc.log")).unwrap().contains("\"route\":\"feed:pipe->/dev/venc->pipe\""));
+    assert!(!d.join("venc.log").exists(), "encoder diagnostics belong only to the collector");
     let _ = std::fs::remove_dir_all(&d);
 }
 

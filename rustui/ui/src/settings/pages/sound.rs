@@ -232,11 +232,11 @@ fn rows(c: &Ctx) -> Vec<Row> {
             .does(go("receiver")),
     );
     let level = rc.and_then(|r| r.get("volumeAbs")).and_then(Value::as_f64);
-    let mut volume = Row::slider("rcvolume", 0.0, 98.0, 1.0).tab(0).icon("volume-2").label("Receiver volume");
+    let mut volume = Row::slider("rcvolume", 0.0, 98.0, 0.5).tab(0).icon("volume-2").label("Receiver volume");
     volume.info = true;
     volume.detail = if rc.is_some() { String::new() } else { "Receiver not answering".into() };
     volume.num = level.unwrap_or(0.0);
-    volume.value_text = Some(level.map_or("\u{2013}".into(), |v| format!("{}", v.round() as i64)));
+    volume.value_text = Some(level.map_or("\u{2013}".into(), |v| format!("{v}")));
     rows.push(volume);
     let mut shown_mode = Row::info("soundmode").tab(0).icon("audio-waveform").label("Sound mode").value(&names::name_or(MODE_NAMES, &md, ""));
     shown_mode.detail = if to_rx { "Not used with the receiver".into() } else { String::new() };
@@ -756,8 +756,14 @@ mod tests {
         assert_eq!(by_id(&r, "rcvolume").value_text.as_deref(), Some("\u{2013}"));
         w.topics.set_helper("receiver", json!({"reachable": true, "fresh": true, "volumeAbs": 41.5}));
         let r = rows(&w.ctx());
-        assert_eq!(by_id(&r, "rcvolume").value_text.as_deref(), Some("42"));
+        assert_eq!(by_id(&r, "rcvolume").value_text.as_deref(), Some("41.5"));
         assert!(by_id(&r, "rcvolume").info && by_id(&r, "rcvolume").detail.is_empty());
+        w.topics.set_helper("receiver", json!({"reachable": true, "fresh": true, "volumeAbs": 42.0}));
+        assert_eq!(by_id(&rows(&w.ctx()), "rcvolume").value_text.as_deref(), Some("42"));
+        w.topics.set_helper("receiver", json!({"reachable": true, "fresh": false, "volumeAbs": 41.5}));
+        let r = rows(&w.ctx());
+        assert_eq!(by_id(&r, "rcvolume").value_text.as_deref(), Some("\u{2013}"));
+        assert_eq!(by_id(&r, "rcvolume").detail, "Receiver not answering");
     }
 
     #[test]

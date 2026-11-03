@@ -144,6 +144,11 @@ stop_service() {
 }
 finish() { removed "$1"; if [ -n "$DM" ]; then kill "$DM" 2>/dev/null; DM=; fi; }
 waitfor() { n=0; while [ ! -e "$1" ] && [ "$n" -lt "$2" ]; do sleep 1; n=$((n + 1)); done; }
+capture_log() {
+  # A bounded, per-window evidence export; the service itself writes only to the collector.
+  python3 "$R/logrelay.py" read lumatv-capture 100 |
+    awk -v marker="waiting for $1 " 'index($0,marker) { found=1; n=0 } found { lines[n++]=$0 } END { for(i=0;i<n;i++) print lines[i] }' > "$2"
+}
 trap 'stop_service; finish trap' EXIT
 trap 'exit 130' INT TERM HUP
 # the helper's own copy of the service, if one runs, leaves the capture to this one
@@ -167,16 +172,21 @@ LOG0=$(wc -c < /var/log/messages 2>/dev/null || echo 0)
 ( sleep @DEAD@; if [ -e "$FLAG" ]; then rm -f "$FLAG"; echo "removed deadman $(now)" >> "$R/flag-events.txt"; fi ) >/dev/null 2>&1 &
 DM=$!
 touch "$FLAG" && echo "created @N@ $(now)" >> "$R/flag-events.txt"
-"$STATE/bin/lumatv-capture" -s "$R/cap.sock" -r @HZ@ -i 100 -b 1000 > "$R/@N@.service.log" 2>&1 &
+"$STATE/bin/lumatv-capture" -s "$R/@N@.cap.sock" -r @HZ@ -i 100 -b 1000 >/dev/null 2>&1 &
 SVC=$!
 echo $SVC > "$R/svc.pid"
-python3 "$R/slot_collect.py" "$R/cap.sock" @SECS@ @N@ "$R/@N@.json" --pid $SVC > "$R/@N@.txt" 2>&1 &
+python3 "$R/slot_collect.py" "$R/@N@.cap.sock" @SECS@ @N@ "$R/@N@.json" --pid $SVC > "$R/@N@.txt" 2>&1 &
 COL=$!
 wait $COL
 echo "exit=$?" >> "$R/@N@.txt"
 COL=
-n=0; while [ "$n" -lt 40 ] && ! grep -q "capture ended" "$R/@N@.service.log" 2>/dev/null; do sleep 0.1; n=$((n + 1)); done
+n=0; while [ "$n" -lt 40 ]; do
+  capture_log "$R/@N@.cap.sock" "$R/@N@.service.log"
+  grep -q "capture ended" "$R/@N@.service.log" 2>/dev/null && break
+  sleep 0.1; n=$((n + 1))
+done
 stop_service
+capture_log "$R/@N@.cap.sock" "$R/@N@.service.log"
 finish end
 tail -c +$((LOG0 + 1)) /var/log/messages 2>/dev/null | grep -E 'LSHUB|capture|vtCapture' | tail -n 40 > "$R/@N@.log.txt"
 cat /proc/interrupts > "$R/interrupts-@N@-after.txt"
@@ -362,7 +372,7 @@ def run(a):
         role_local = os.path.join(out, "role.json")
         with open(role_local, "w") as f:
             f.write(slurp(ROLE).replace('"type": "regular"', '"type": "%s"' % a.role_type))
-        for local, name in ((SERVICE, "lumatv-capture"), (COLLECT, "slot_collect.py"), (CAPTURE_SH, "capture.sh"), (role_local, "role.json")):
+        for local, name in ((SERVICE, "lumatv-capture"), (COLLECT, "slot_collect.py"), (CAPTURE_SH, "capture.sh"), (os.path.join(REPO, "tools", "logrelay.py"), "logrelay.py"), (role_local, "role.json")):
             tv.put(local, "%s/%s" % (remote, name))
         sh("chmod +x %s/lumatv-capture %s/capture.sh" % (remote, remote))
         dry = sh("%s/lumatv-capture -n" % remote)

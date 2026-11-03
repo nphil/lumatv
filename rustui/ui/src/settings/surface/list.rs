@@ -86,6 +86,20 @@ impl ListArt {
         &self.key
     }
 
+    pub fn offset(&self) -> f32 { self.offset }
+
+    pub fn restore_offset(&mut self, offset: f32) { self.offset = offset.max(0.0); }
+
+    /// Keep the scroll group and its track while replacing palette-dependent row art.
+    pub fn reparent_restyle(&mut self, parent: Option<&Group>, engine: &mut Engine) -> std::io::Result<()> {
+        self.viewport.set_parent(parent.map(Group::id), false).map_err(other)?;
+        for slot in &mut self.slots {
+            if let Some(art) = slot.art.take() { art.release(engine, false); }
+            slot.live = false;
+        }
+        Ok(())
+    }
+
     /// The scroller's track covers 0 to `extent`; a list whose height changed has a new one.
     fn rescroll(&mut self, kit: &mut Kit, engine: &mut Engine, extent: f32) -> std::io::Result<()> {
         let rest = GroupPose { y: self.zone, ..GroupPose::IDENTITY };
@@ -155,6 +169,7 @@ impl ListArt {
     pub fn apply(&mut self, kit: &mut Kit, engine: &mut Engine, paint: Paint, rows: &[Row], stop: Option<usize>, hovered: Option<usize>, seg: usize, focused: bool, now_ns: u64, at_once: bool) -> std::io::Result<()> {
         let sz = Sizes::of(kit);
         let w = self.size.0;
+        let new_list = self.slots.is_empty();
         // the slots follow the rows: a row that kept its place and its words keeps its layers
         let mut slots: Vec<Slot> = Vec::with_capacity(rows.len());
         let mut old: Vec<Option<Slot>> = std::mem::take(&mut self.slots).into_iter().map(Some).collect();
@@ -162,14 +177,20 @@ impl ListArt {
         let mut y = 0.0;
         for (i, r) in rows.iter().enumerate() {
             let sig = signature(r);
-            let kept = old.get_mut(i).and_then(Option::take).filter(|s| s.id == r.id && s.sig == sig && s.w == w);
-            let (geom, art, live) = match kept {
-                Some(s) => (s.geom, s.art, s.live),
-                None => {
-                    if let Some(Some(gone)) = old.get_mut(i).map(Option::take)
+            let previous = old.get_mut(i).and_then(Option::take);
+            let (geom, art, live) = match previous {
+                Some(s) if s.id == r.id && s.sig == sig && s.w == w => (s.geom, s.art, s.live),
+                previous => {
+                    if let Some(gone) = previous
                         && let Some(a) = &gone.art
                     {
-                        a.release(engine, true);
+                        let same_row = gone.id == r.id;
+                        a.release(engine, same_row);
+                        if same_row {
+                            for (id, _) in a.cards.iter().skip(r.cards.len()) {
+                                engine.flow.drop_lift(*id);
+                            }
+                        }
                     }
                     {
                         let mut g = measure_row(kit, r, w);
@@ -210,7 +231,7 @@ impl ListArt {
         if layout_changed {
             self.rescroll(kit, engine, self.col.total)?;
             // the spring starts from rest at the offset the list is at
-            engine.flow.scroll_to(self.region, self.offset).map_err(other)?;
+            engine.flow.scroll_snap(self.region, self.offset).map_err(other)?;
         }
         // scroll to show the focus
         let usable = self.usable();
@@ -221,7 +242,11 @@ impl ListArt {
         let want = want.clamp(0.0, self.col.total.max(0.0));
         if (want - self.offset).abs() > 0.01 {
             self.offset = want;
-            engine.flow.scroll_to(self.region, want).map_err(other)?;
+            if new_list {
+                engine.flow.scroll_snap(self.region, want).map_err(other)?;
+            } else {
+                engine.flow.scroll_to(self.region, want).map_err(other)?;
+            }
         }
         // the clip is cut at the last whole row
         let whole = whole_rows(&self.col, self.offset, usable);
@@ -258,9 +283,10 @@ impl ListArt {
         // holds two or three, not one for every row it shows
         for i in 0..self.slots.len() {
             let Some(art) = self.slots[i].art.as_mut() else { continue };
+            art.follow_card((focused && stop == Some(i)).then_some(seg));
             if stop == Some(i) || !art.at_rest(engine, now_ns) {
                 let mut env = Env { kit, engine, paint, sz, scroll: &self.scroll, z: self.z, region: self.region, scope: self.scope, origin };
-                art.ensure_plates(&mut env)?;
+                art.ensure_plates(&mut env, (focused && stop == Some(i)).then_some(seg), now_ns)?;
             } else {
                 art.drop_plates(engine);
             }
@@ -320,5 +346,33 @@ impl ListArt {
         let a = self.art(i)?;
         let abs = |r: ui::geometry::Frame| ui::geometry::Frame::new(f.x + r.x, f.y + r.y, r.w, r.h);
         Some((f, a.control.map(abs), a.info.map(abs)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kit::testkit;
+    use crate::settings::row::Card;
+
+    #[test]
+    fn replacing_rows_releases_obsolete_focus_groups() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let mut engine = Engine::new(&kit).unwrap();
+        let mut list = ListArt::new(&mut kit, &mut engine, None, "test".into(), (0.0, 0.0), (900.0, 600.0), Region(42), Scope::BASE, 0, ROW_ID, false).unwrap();
+        let paint = Paint::of(&kit);
+        let cards = || (0..3).map(|i| Card { title: format!("Card {i}"), ..Card::default() }).collect();
+        let mut row = Row::cards("gallery", cards());
+        list.apply(&mut kit, &mut engine, paint, &[row.clone()], Some(0), None, 2, true, 1_000_000, true).unwrap();
+        let removed = Id(ROW_ID + 3);
+        assert!(engine.flow.has(removed));
+        row.cards.truncate(1);
+        list.apply(&mut kit, &mut engine, paint, &[row.clone()], Some(0), None, 0, true, 2_000_000, true).unwrap();
+        assert!(!engine.flow.has(removed));
+        row.id = "replacement".into();
+        list.apply(&mut kit, &mut engine, paint, &[row], None, None, 0, false, 3_000_000, true).unwrap();
+        assert!(!engine.flow.has(Id(ROW_ID + 1)));
+        list.release(&mut engine);
+        drop(list);
     }
 }

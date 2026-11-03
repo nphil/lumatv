@@ -1,11 +1,12 @@
 //! LumaTV's own keyboard path (`server/ime.rs`, `own_*`): an app's text model on one connection and the shell's keyboard on the UI channel
 //! (`Msg::Ime`, the `ime` topic, the `imekey` events), no input method at all. What the shell types reaches the field as `commit_string`,
 //! `keysym` and `delete_surrounding_text`, the remote's navigation keys go to the shell while its keyboard is up and everything else stays
-//! the app's, and LG's keyboard serves the field whenever the flag, the shell or its keyboard is missing.
+//! the app's. Native keyboard failures trigger stock recovery.
 
 mod harness;
 
 use std::path::PathBuf;
+use std::io::{Read, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -13,7 +14,7 @@ use harness::{Client, Server, Window};
 use lumatv_compositor::Rect;
 use lumatv_compositor::State;
 use lumatv_compositor::input::code::*;
-use lumatv_compositor::server::ime::{OWN_FLAG, own_tick};
+use lumatv_compositor::server::ime::own_tick;
 use lumatv_compositor::server::seat::SeatId;
 use lumatv_compositor::shell::Msg;
 use lumatv_wl_protocols::input_method::client::input_method::InputMethod;
@@ -27,20 +28,24 @@ const KEY_A: u32 = 30;
 const KEY_3: u32 = 4;
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-/// A compositor whose data directory holds the flag (or not) and whose shell client says it can show the keyboard (or not).
-fn setup(flag: bool, can: bool) -> (Server, PathBuf) {
+/// Configurable native keyboard capability.
+fn setup(can: bool) -> (Server, PathBuf) {
     let server = Server::start();
     let dir = std::env::temp_dir().join(format!("lumatv-ime-own-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst)));
     std::fs::create_dir_all(&dir).unwrap();
-    if flag {
-        std::fs::write(dir.join(OWN_FLAG), "").unwrap();
-    }
+    let port = {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap().port()
+    };
+    std::fs::write(dir.join("port"), port.to_string()).unwrap();
     let d = dir.clone();
     server.eval(move |s| {
         s.config.data_dir = d;
-        s.shell_handle(Msg::Connected);
+        s.shell_rust.kinds = vec!["keyboard".to_string()];
+        s.shell_rust_open(port, "token".into()).unwrap();
+        s.shell_rust_handle(Msg::Connected);
         let can = if can { vec!["keyboard".to_string()] } else { Vec::new() };
-        s.shell_handle(Msg::Ui { can: Some(can), wants: None, live: None, state: None });
+        s.shell_rust_handle(Msg::Ui { can: Some(can), wants: None, live: None, state: None });
     });
     (server, dir)
 }
@@ -73,23 +78,6 @@ impl App {
     }
 }
 
-/// The shell's keyboard window of the system layer: 64x64, mapped above the app.
-struct Layer {
-    _client: Client,
-    _kb: WlKeyboard,
-    _buf: WlBuffer,
-}
-
-fn layer(server: &mut Server) -> Layer {
-    let mut client = Client::connect_extra(server);
-    let kb = client.seat.get_keyboard(&client.qh, ());
-    let win = client.card("_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM", "Layer");
-    win.webos.set_property("appId".into(), "org.nphil.lumatv.shell".into());
-    let buf = client.shm_buffer(64, 64, 0x8000_0080);
-    client.present(&win.surface, &buf);
-    assert!(client.wait_until(WAIT, |s| s.frames_done >= 1), "the layer presented");
-    Layer { _client: client, _kb: kb, _buf: buf }
-}
 
 /// Polls the compositor's state until `pred` holds.
 fn until(server: &Server, what: &str, pred: impl Fn(&mut State) -> bool + Send + Clone + 'static) {
@@ -106,15 +94,28 @@ fn until(server: &Server, what: &str, pred: impl Fn(&mut State) -> bool + Send +
 
 /// What the shell's keyboard says over `POST /v1/ime`.
 fn say(server: &Server, op: Value) {
-    server.eval(move |s| s.shell_handle(Msg::Ime(op)));
+    server.eval(move |s| s.shell_rust_handle(Msg::Ime(op)));
 }
 
 fn topic(server: &Server) -> Value {
-    server.eval(|s| s.shell.topic("ime").cloned().unwrap_or(Value::Null))
+    server.eval(|s| s.shell_rust.topic("ime").cloned().unwrap_or(Value::Null))
+}
+
+fn events(server: &Server, topic: &str) -> Vec<Value> {
+    let dir = server.eval(|s| s.config.data_dir.clone());
+    let port: u16 = std::fs::read_to_string(dir.join("port")).unwrap().parse().unwrap();
+    let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stream.set_read_timeout(Some(WAIT)).unwrap();
+    stream.write_all(b"GET /v1/events?after=0&timeout=0 HTTP/1.1\r\nX-Luma-Token: token\r\nConnection: close\r\n\r\n").unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200 "), "{response}");
+    let body: Value = serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+    body["events"].as_array().unwrap().iter().filter(|e| e["topic"] == topic).map(|e| e["data"].clone()).collect()
 }
 
 fn imekeys(server: &Server) -> Vec<Value> {
-    server.eval(|s| s.shell.recorded.iter().filter(|e| e["topic"] == "imekey").map(|e| e["data"].clone()).collect())
+    events(server, "imekey")
 }
 
 /// An app's field described and activated, asking for its keyboard; the compositor has taken it all in.
@@ -126,7 +127,7 @@ fn open_field(server: &mut Server, a: &mut App, hint: u32, purpose: u32, enter: 
     a.model.show_input_panel();
     a.client.conn.flush().unwrap();
     assert!(a.client.wait_until(WAIT, |s| s.ime.model_enters == 1), "the field is told it entered");
-    until(server, "the shell is told the field wants its keyboard", |s| s.shell.topic("ime").is_some_and(|t| t["show"] == true));
+    until(server, "the native UI is told the field wants its keyboard", |s| s.shell_rust.topic("ime").is_some_and(|t| t["show"] == true));
     topic(server)["model"].as_u64().unwrap()
 }
 
@@ -136,7 +137,7 @@ fn shown(server: &Server, model: u64, x: i32, y: i32, w: i32, h: i32) {
 
 #[test]
 fn what_the_shells_keyboard_types_reaches_the_field_and_the_field_is_described_to_it() {
-    let (mut server, dir) = setup(true, true);
+    let (mut server, dir) = setup(true);
     let mut a = app(&mut server, "Search");
     let model = open_field(&mut server, &mut a, 0x1, 6, 5);
 
@@ -147,7 +148,6 @@ fn what_the_shells_keyboard_types_reaches_the_field_and_the_field_is_described_t
         (json!(true), json!(1), json!(6), json!(5), json!(true))
     );
     assert!(!t.to_string().contains("abc"), "the field's words never leave the compositor: {t}");
-    assert_eq!(server.eval(|s| s.ime.asked), 0, "LG's input method was never asked for");
     assert!(!server.eval(|s| s.keyboard_up()), "asked for, not on the screen yet: the keys are the app's");
 
     // On the screen: the field is told where, the keyboard is up.
@@ -178,7 +178,7 @@ fn what_the_shells_keyboard_types_reaches_the_field_and_the_field_is_described_t
 
 #[test]
 fn the_remotes_navigation_keys_are_the_keyboards_while_it_is_up_and_the_apps_again_when_it_hides() {
-    let (mut server, dir) = setup(true, true);
+    let (mut server, dir) = setup(true);
     let mut a = app(&mut server, "Search");
     let model = open_field(&mut server, &mut a, 0x7, 0, 5);
     // Before it is on the screen the arrow is the app's.
@@ -243,7 +243,7 @@ fn the_remotes_navigation_keys_are_the_keyboards_while_it_is_up_and_the_apps_aga
     // The app asks again: the keyboard comes back as the same field's, and Exit closes the field.
     a.model.show_input_panel();
     a.client.conn.flush().unwrap();
-    until(&server, "the field wants its keyboard again", |s| s.shell.topic("ime").is_some_and(|t| t["show"] == true));
+    until(&server, "the field wants its keyboard again", |s| s.shell_rust.topic("ime").is_some_and(|t| t["show"] == true));
     shown(&server, model, 0, 626, 1920, 454);
     until(&server, "up again", |s| s.keyboard_up());
     server.eval(|s| {
@@ -258,7 +258,7 @@ fn the_remotes_navigation_keys_are_the_keyboards_while_it_is_up_and_the_apps_aga
 
 #[test]
 fn the_field_hiding_its_keyboard_or_leaving_ends_it_and_a_new_field_is_described_to_the_shell_at_once() {
-    let (mut server, dir) = setup(true, true);
+    let (mut server, dir) = setup(true);
     let mut a = app(&mut server, "Search");
     let model = open_field(&mut server, &mut a, 0x7, 2, 0);
     shown(&server, model, 580, 626, 760, 454);
@@ -274,17 +274,17 @@ fn the_field_hiding_its_keyboard_or_leaving_ends_it_and_a_new_field_is_described
     // A second field of the same app takes the activation while the first held it: one topic change, to the second.
     a.model.show_input_panel();
     a.client.conn.flush().unwrap();
-    until(&server, "wants it again", |s| s.shell.topic("ime").is_some_and(|t| t["show"] == true));
+    until(&server, "wants it again", |s| s.shell_rust.topic("ime").is_some_and(|t| t["show"] == true));
     let second = a.client.text_model_factory().create_text_model(&a.client.qh, ());
     a.client.roundtrip();
     second.set_content_type(0xc0, 8);
     second.activate(2, &a.client.seat, &a.win.surface);
     second.show_input_panel();
     a.client.conn.flush().unwrap();
-    until(&server, "the second field", |s| s.shell.topic("ime").is_some_and(|t| t["purpose"] == 8 && t["show"] == true));
+    until(&server, "the second field", |s| s.shell_rust.topic("ime").is_some_and(|t| t["purpose"] == 8 && t["show"] == true));
     let t = topic(&server);
     assert_ne!(t["model"].as_u64().unwrap(), model, "the shell is told of the other field");
-    let changes: Vec<Value> = server.eval(|s| s.shell.recorded.iter().filter(|e| e["topic"] == "ime").map(|e| e["data"].clone()).collect());
+    let changes = events(&server, "ime");
     let last_of_first = changes.iter().rposition(|c| c["model"] == json!(model) && c["show"] == true).expect("the first field asked for its keyboard");
     assert!(changes[last_of_first + 1..].iter().all(|c| c["active"] == true), "no inactive state between the two fields: {changes:?}");
     let _ = std::fs::remove_dir_all(dir);
@@ -292,7 +292,7 @@ fn the_field_hiding_its_keyboard_or_leaving_ends_it_and_a_new_field_is_described
 
 #[test]
 fn the_release_of_the_key_that_opened_the_keyboard_goes_back_to_the_app() {
-    let (mut server, dir) = setup(true, true);
+    let (mut server, dir) = setup(true);
     let mut a = app(&mut server, "Search");
     // OK is pressed on the field, which opens the keyboard; the keyboard comes up, and then OK is let go.
     server.eval(|s| s.key_event(SeatId(0), KEY_ENTER, true, false));
@@ -315,23 +315,42 @@ fn the_release_of_the_key_that_opened_the_keyboard_goes_back_to_the_app() {
 }
 
 #[test]
-fn without_the_flag_or_a_shell_that_can_show_it_the_field_goes_to_lgs_input_method() {
-    for (flag, can) in [(false, true), (true, false), (false, false)] {
-        let (mut server, dir) = setup(flag, can);
-        let asked = std::sync::Arc::new(AtomicUsize::new(0));
-        let counter = asked.clone();
-        server.eval(move |s| {
-            s.ime.ask_for_input_method = Box::new(move || {
-                counter.fetch_add(1, Ordering::SeqCst);
-            })
-        });
-        let mut a = app(&mut server, "Search");
-        a.activate();
-        until(&server, "the activation waits for an input method", |s| s.ime.asked == 1);
-        assert_eq!(topic(&server)["active"], json!(false), "the shell's keyboard is not asked (flag {flag}, can show {can})");
-        assert_eq!(asked.load(Ordering::SeqCst), 1);
-        let _ = std::fs::remove_dir_all(dir);
-    }
+fn old_keyboard_markers_cannot_select_vendor_ime() {
+    let (mut server, dir) = setup(true);
+    std::fs::write(dir.join(".keyboard-lg"), "").unwrap();
+    std::fs::write(dir.join(".keyboard-luma"), "").unwrap();
+    let (mut k, _method) = maliit(&mut server);
+    let mut a = app(&mut server, "Search");
+    let _model = open_field(&mut server, &mut a, 0x7, 0, 0);
+    let panel = k.input_panel();
+    let surface = k.compositor.create_surface(&k.qh, ());
+    let _panel_surface = panel.get_input_panel_surface(&surface, &k.qh, ());
+    let buffer = k.shm_buffer(1920, 360, 0xff20_2020);
+    k.present(&surface, &buffer);
+    k.roundtrip();
+    server.eval(|s| s.tick());
+    a.client.roundtrip();
+    assert!(!server.eval(|s| s.keyboard_up()));
+    assert!(a.client.state.ime.panel_states.is_empty());
+    assert!(a.client.state.ime.panel_rects.is_empty());
+    assert!(server.eval(|s| s.scene.last_plan().items.iter().all(|i| s.scene.window(i.window).is_none_or(|w| w.kind != lumatv_compositor::window::WindowType::Keyboard))));
+    k.roundtrip();
+    assert_eq!(k.state.ime.activations, 0);
+    assert!(!server.eval(|s| s.should_exit));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn unavailable_native_keyboard_requires_stock_recovery_without_vendor_activation() {
+    let (mut server, dir) = setup(false);
+    let (mut k, _method) = maliit(&mut server);
+    let mut a = app(&mut server, "Search");
+    a.activate();
+    until(&server, "native keyboard failure", |s| s.should_exit && s.fatal_error.is_some());
+    k.roundtrip();
+    assert_eq!(k.state.ime.activations, 0);
+    assert_eq!(server.eval(|s| s.ime_report()["own"]["broken"].clone()), json!(true));
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 fn maliit(server: &mut Server) -> (Client, InputMethod) {
@@ -343,33 +362,36 @@ fn maliit(server: &mut Server) -> (Client, InputMethod) {
 }
 
 #[test]
-fn a_keyboard_that_does_not_come_up_in_two_seconds_gives_the_field_to_lgs_for_a_minute() {
-    let (mut server, dir) = setup(true, true);
+fn a_native_keyboard_that_does_not_appear_requires_stock_recovery() {
+    let (mut server, dir) = setup(true);
     let mut a = app(&mut server, "Search");
     let _model = open_field(&mut server, &mut a, 0x7, 0, 0);
     let (mut k, _method) = maliit(&mut server);
-    assert_eq!(k.state.ime.activations, 0, "the shell was asked first");
-    // The shell says nothing: past two seconds the field goes to LG's input method, which is shown at once.
+    a.client.roundtrip();
+    assert_eq!(a.client.state.ime.model_enters, 1, "binding a vendor input method must not enter the native field again");
+    server.eval(|s| own_tick(s, Instant::now() + Duration::from_millis(500)));
+    assert!(!server.eval(|s| s.should_exit || s.fatal_error.is_some()));
     server.eval(|s| own_tick(s, Instant::now() + Duration::from_secs(3)));
-    assert!(k.wait_until(WAIT, |s| s.ime.activations == 1 && s.ime.shows == 1), "the field was handed over and its keyboard asked to show");
-    assert_eq!(topic(&server)["active"], json!(false));
+    k.roundtrip();
+    assert!(server.eval(|s| s.should_exit && s.fatal_error.is_some()));
+    assert_eq!((k.state.ime.activations, k.state.ime.shows), (0, 0));
     let report = server.eval(|s| s.ime_report()["own"].clone());
     assert_eq!((report["broken"].clone(), report["counts"]["failed"].clone()), (json!(true), json!(1)));
-    // The next field is LG's too, while the minute lasts.
-    let mut b = app(&mut server, "Other");
-    b.activate();
-    assert!(k.wait_until(WAIT, |s| s.ime.activations == 2), "{:?}", k.state.ime.activations);
     let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
 fn the_shell_going_ends_the_field_it_serves_and_a_late_ok_from_it_is_dropped() {
-    let (mut server, dir) = setup(true, true);
+    let (mut server, dir) = setup(true);
     let mut a = app(&mut server, "Search");
+    let (mut k, _method) = maliit(&mut server);
     let model = open_field(&mut server, &mut a, 0x7, 0, 0);
     shown(&server, model, 0, 626, 1920, 454);
     until(&server, "up", |s| s.keyboard_up());
-    server.eval(|s| s.shell_restart());
+    server.eval(|s| s.shell_rust_restart());
+    assert!(server.eval(|s| s.should_exit && s.fatal_error.is_some()));
+    k.roundtrip();
+    assert_eq!(k.state.ime.activations, 0);
     assert!(a.client.wait_until(WAIT, |s| s.ime.model_leaves == 1), "the field left with the shell's keyboard");
     assert!(!server.eval(|s| s.ime_grabbing() || s.keyboard_up() || s.scene.shell_pointer.is_some()));
     say(&server, json!({"op": "text", "text": "late"}));
@@ -379,65 +401,38 @@ fn the_shell_going_ends_the_field_it_serves_and_a_late_ok_from_it_is_dropped() {
 }
 
 #[test]
-fn the_system_layer_takes_the_pointer_inside_the_keyboard_and_nowhere_else() {
-    let (mut server, dir) = setup(true, true);
+fn native_keyboard_sets_and_clears_its_pointer_region() {
+    let (mut server, dir) = setup(true);
     let mut a = app(&mut server, "Search");
-    let _layer = layer(&mut server);
     let model = open_field(&mut server, &mut a, 0x7, 0, 0);
-    let title_at = |x: i32, y: i32| {
-        move |s: &mut State| {
-            s.tick();
-            s.scene.surface_at(x, y).and_then(|(sid, _)| s.scene.window_of(sid)).and_then(|w| s.scene.window(w)).map(|w| w.title.clone())
-        }
-    };
-    assert_eq!(server.eval(title_at(10, 10)).as_deref(), Some("Search"), "the transparent layer lets the pointer through");
-    // The keyboard is where the layer's window is (64x64 in this test): the pointer is the layer's there.
-    shown(&server, model, 0, 0, 64, 64);
+    assert_eq!(server.eval(|s| s.scene.shell_pointer), None);
+    shown(&server, model, 10, 20, 64, 64);
     until(&server, "up", |s| s.keyboard_up());
-    assert_eq!(server.eval(title_at(10, 10)).as_deref(), Some("Layer"));
+    assert_eq!(server.eval(|s| s.scene.shell_pointer), Some(Rect::new(10, 20, 64, 64)));
     say(&server, json!({"op": "hide"}));
     until(&server, "down", |s| !s.keyboard_up());
-    assert_eq!(server.eval(title_at(10, 10)).as_deref(), Some("Search"));
+    assert_eq!(server.eval(|s| s.scene.shell_pointer), None);
     let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
 fn a_field_that_never_asks_for_its_keyboard_still_gets_the_shells_at_activation() {
     // LG's Search app activates its text model and never sends `show_input_panel`; maliit shows at the activation, so does the shell's.
-    let (mut server, _dir) = setup(true, true);
+    let (mut server, dir) = setup(true);
     let mut a = app(&mut server, "Search");
     a.model.set_content_type(5, 0);
     a.model.set_enter_key_type(5);
     a.activate();
     a.client.conn.flush().unwrap();
     assert!(a.client.wait_until(WAIT, |s| s.ime.model_enters == 1), "the field is told it entered");
-    until(&server, "the shell is told the field wants its keyboard", |s| s.shell.topic("ime").is_some_and(|t| t["show"] == true));
+    until(&server, "the native UI is told the field wants its keyboard", |s| s.shell_rust.topic("ime").is_some_and(|t| t["show"] == true));
     // and the app can still take it away
     a.model.hide_input_panel();
     a.client.conn.flush().unwrap();
-    until(&server, "the keyboard is hidden by the app", |s| s.shell.topic("ime").is_some_and(|t| t["show"] == false));
+    until(&server, "the keyboard is hidden by the app", |s| s.shell_rust.topic("ime").is_some_and(|t| t["show"] == false));
+    let _ = std::fs::remove_dir_all(dir);
 }
 
-/// [`setup`] with the Rust client answering the kind `keyboard` (its channel is open and nothing runs behind it) instead of the QML client.
-fn setup_rust() -> (Server, PathBuf) {
-    let server = Server::start();
-    let dir = std::env::temp_dir().join(format!("lumatv-ime-own-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst)));
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join(OWN_FLAG), "").unwrap();
-    let port = {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        l.local_addr().unwrap().port()
-    };
-    let d = dir.clone();
-    server.eval(move |s| {
-        s.config.data_dir = d;
-        s.shell_rust.kinds = vec!["keyboard".to_string()];
-        s.shell_rust_open(port, "token".into()).unwrap();
-        s.shell_rust_handle(Msg::Connected);
-        s.shell_rust_handle(Msg::Ui { can: Some(vec!["keyboard".to_string()]), wants: None, live: None, state: None });
-    });
-    (server, dir)
-}
 
 fn rust_topic(server: &Server, name: &'static str) -> Value {
     server.eval(move |s| s.shell_rust.topic(name).cloned().unwrap_or(Value::Null))
@@ -445,7 +440,7 @@ fn rust_topic(server: &Server, name: &'static str) -> Value {
 
 #[test]
 fn the_rust_client_that_answers_the_keyboard_is_told_the_field_and_the_keys_and_what_it_types_reaches_the_field() {
-    let (mut server, dir) = setup_rust();
+    let (mut server, dir) = setup(true);
     assert!(server.eval(|s| s.shell_can("keyboard")), "the Rust client's word is the one that counts");
     let mut a = app(&mut server, "Search");
     a.model.set_content_type(0x7, 6);
@@ -459,13 +454,7 @@ fn the_rust_client_that_answers_the_keyboard_is_told_the_field_and_the_keys_and_
     let t = rust_topic(&server, "ime");
     assert_eq!((t["purpose"].clone(), t["enter"].clone(), t["text"].clone()), (json!(6), json!(5), json!(true)));
     assert!(!t.to_string().contains("abc"), "the field's words never leave the compositor: {t}");
-    assert_eq!(server.eval(|s| s.ime.asked), 0, "LG's input method was never asked for");
     let model = t["model"].as_u64().unwrap();
-
-    // what the QML client says is not the keyboard's while the Rust client answers it
-    say(&server, json!({"op": "shown", "model": model, "x": 0, "y": 626, "w": 1920, "h": 454}));
-    a.client.roundtrip();
-    assert!(!server.eval(|s| s.keyboard_up()), "a request through the QML client's route is dropped");
 
     // the Rust client's sheet on the screen: the field is told where, the remote's keys are the keyboard's
     server.eval(move |s| s.shell_rust_handle(Msg::Ime(json!({"op": "shown", "model": model, "x": 0, "y": 626, "w": 1920, "h": 454}))));
@@ -475,7 +464,6 @@ fn the_rust_client_that_answers_the_keyboard_is_told_the_field_and_the_keys_and_
     assert_eq!(rust_topic(&server, "imekey"), json!({"k": "right", "d": true, "r": false}));
     server.eval(|s| s.key_event(SeatId(0), KEY_RIGHT, false, false));
     assert_eq!(rust_topic(&server, "imekey"), json!({"k": "right", "d": false, "r": false}));
-    assert!(server.eval(|s| s.shell.topic("imekey").is_none()), "the QML client hears nothing");
 
     // what it types: text and Enter, then Back hides it and the field stays
     server.eval(move |s| {

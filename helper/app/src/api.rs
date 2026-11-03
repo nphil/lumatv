@@ -13,6 +13,7 @@
 //! | `GET /v1/events?after=&boot=&timeout=&topics=` | long poll for changes after `seq` |
 //! | `POST /v1/receiver/nudge` | read the receiver now and fast for a few seconds |
 //! | `POST /v1/receiver/volume` | send the level the volume display shows to the receiver: `{"level": 0 to 98}` (`receiver_volume.rs`) |
+//! | `GET /v1/receiver/settings`, `POST /v1/receiver/set` | receiver settings and typed writes |
 //! | `POST /v1/refresh` | fetch weather and news now |
 //! | `GET /v1/settings`, `GET /v1/settings/{owner}`, `POST /v1/settings/{owner}` | the settings layer |
 //! | `GET /v1/voice`, `POST /v1/voice/{listen,stop,cancel,refresh}` | voice search (`voice.rs`) |
@@ -58,8 +59,18 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/v1/state/{topic}", "one topic"),
     ("GET", "/v1/screen", "the screen topic"),
     ("GET", "/v1/receiver", "the receiver topic"),
+    (
+        "GET",
+        "/v1/receiver/settings",
+        "the receiver topic and interest in its settings",
+    ),
     ("GET", "/v1/weather", "the weather topic"),
     ("GET", "/v1/news", "the news topic"),
+    (
+        "GET",
+        "/v1/logging",
+        "bounded local and best-effort UDP logging status",
+    ),
     (
         "GET",
         "/v1/device",
@@ -99,6 +110,11 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
         "POST",
         "/v1/receiver/volume",
         "send the volume display's level to the receiver: {\"level\": 0 to 98}, in halves, coalesced to 10 a second",
+    ),
+    (
+        "POST",
+        "/v1/receiver/set",
+        "set a receiver setting: setting, value and session",
     ),
     (
         "POST",
@@ -241,6 +257,15 @@ fn body_object(request: &Request) -> Result<Map<String, Value>, Response> {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReceiverSetBody {
+    setting: String,
+    #[serde(deserialize_with = "Value::deserialize")]
+    value: Value,
+    session: String,
+}
+
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct ApplyBody {
     changes: Vec<SettingChange>,
@@ -305,6 +330,69 @@ impl Api {
         }
         self.ambient.set_context(flags[0], flags[1]);
         self.ok(json!({"ambient": self.ambient.status()}))
+    }
+
+    fn receiver_settings(&self, request: &Request) -> Response {
+        if !request.peer.is_loopback() {
+            return error_response(403, "local_only", "receiver settings are local only");
+        }
+        let _ = self.receiver_tx.send(receiver::Cmd::SettingsInterest);
+        self.topic("receiver")
+    }
+
+    fn receiver_set(&self, request: &Request) -> Response {
+        if !request.peer.is_loopback() {
+            return error_response(403, "local_only", "receiver settings are local only");
+        }
+        if let Err(response) = self.profiles.require_owner() {
+            return response;
+        }
+        if request
+            .body
+            .iter()
+            .copied()
+            .find(|b| !b.is_ascii_whitespace())
+            != Some(b'{')
+        {
+            return bad_request("expected exactly setting, value and session");
+        }
+        let body: ReceiverSetBody = match serde_json::from_slice(&request.body) {
+            Ok(body) => body,
+            Err(_) => return bad_request("expected exactly setting, value and session"),
+        };
+        let (reply, response) = std::sync::mpsc::channel();
+        if self
+            .receiver_tx
+            .send(receiver::Cmd::SettingsSet {
+                setting: body.setting,
+                value: body.value,
+                session: body.session,
+                reply,
+            })
+            .is_err()
+        {
+            return error_response(503, "worker_error", "receiver worker unavailable");
+        }
+        match response.recv() {
+            Ok(receiver::SettingsResponse::Accepted {
+                request_id,
+                session,
+            }) => Response::json(
+                202,
+                &envelope(
+                    json!({"accepted": true, "requestId": request_id, "session": session}),
+                    now_ms(),
+                ),
+            ),
+            Ok(receiver::SettingsResponse::Invalid(message)) => bad_request(&message),
+            Ok(receiver::SettingsResponse::Busy) => error_response(409, "busy", "receiver is busy"),
+            Ok(receiver::SettingsResponse::Unavailable(message)) => {
+                error_response(503, "unavailable", &message)
+            }
+            Ok(receiver::SettingsResponse::WorkerError) | Err(_) => {
+                error_response(503, "worker_error", "receiver worker unavailable")
+            }
+        }
     }
 
     /// The volume display's level, for the receiver thread to send as an absolute level. Only the newest level of a burst is sent.
@@ -389,13 +477,29 @@ impl Api {
         }
         let now = now_ms();
         let (seq, value) = self.hub.topic_at(name);
-        let Some(value) = value else {
+        let Some(mut value) = value else {
             return error_response(
                 404,
                 "no_such_topic",
                 "nothing has been published under that topic",
             );
         };
+        if name == "logging" {
+            // Desired settings remain authoritative even if RAM protection stopped the worker.
+            let enabled = self
+                .settings
+                .flag("base.logging", "enabled")
+                .unwrap_or(false);
+            let server = json!({"host": self.settings.text("base.logging", "host").unwrap_or_default(), "port": self.settings.integer("base.logging", "port").unwrap_or(514)});
+            if value["server"] != server || value["enabled"] != enabled {
+                value["active"] = json!(false);
+            }
+            value["enabled"] = json!(enabled);
+            value["server"] = server;
+            if let Some(sources) = self.hub.get("loggingSources") {
+                value["sources"] = sources;
+            }
+        }
         Response::json(
             200,
             &envelope(
@@ -551,6 +655,8 @@ impl Handler for Api {
                 self.ok(json!({"requested": true}))
             }
             ["v1", "receiver", "volume"] if post => self.receiver_volume(request),
+            ["v1", "receiver", "settings"] if get => self.receiver_settings(request),
+            ["v1", "receiver", "set"] if post => self.receiver_set(request),
             ["v1", "refresh"] if post => self.refresh(request),
             ["v1", "settings"] if get => self.settings_list(),
             ["v1", "settings", owner] if get => self.settings_get(owner),
@@ -571,6 +677,7 @@ impl Handler for Api {
                 crate::onhome::handle(&self.onhome, request, rest)
             }
             ["v1", "gfn", rest @ ..] => crate::gfn_boost::handle(request, rest),
+            ["v1", "logging"] if get => self.topic("logging"),
             ["v1", "crash", rest @ ..] => crate::crash::handle(request, rest),
             ["v1", "openapps"] => {
                 if post {
@@ -625,13 +732,14 @@ fn is_known_path(segments: &[&str]) -> bool {
                     | "receiver"
                     | "weather"
                     | "news"
+                    | "logging"
                     | "device"
                     | "ambient"
                     | "images"
             ]
             | ["v1", "image", _, _]
             | ["v1", "state" | "settings", _]
-            | ["v1", "receiver", "nudge" | "volume"]
+            | ["v1", "receiver", "nudge" | "volume" | "settings" | "set"]
             | ["v1", "ambient", "test" | "context" | "refresh"]
     )
 }
@@ -639,7 +747,7 @@ fn is_known_path(segments: &[&str]) -> bool {
 fn allowed_methods(segments: &[&str]) -> &'static str {
     match segments {
         ["v1", "refresh"]
-        | ["v1", "receiver", "nudge" | "volume"]
+        | ["v1", "receiver", "nudge" | "volume" | "set"]
         | ["v1", "ambient", "test" | "context" | "refresh"] => "POST",
         ["v1", "settings", _] => "GET, POST",
         _ => "GET",
@@ -661,7 +769,11 @@ mod tests {
     struct NoFetch;
 
     impl fetch::Fetch for NoFetch {
-        fn get(&self, _url: &str, _limits: fetch::FetchLimits) -> Result<Vec<u8>, fetch::FetchError> {
+        fn get(
+            &self,
+            _url: &str,
+            _limits: fetch::FetchLimits,
+        ) -> Result<Vec<u8>, fetch::FetchError> {
             Err(fetch::FetchError::Offline)
         }
     }
@@ -878,6 +990,24 @@ mod tests {
                 .status,
             404
         );
+    }
+
+    #[test]
+    fn logging_status_keeps_desired_settings_when_the_worker_is_unavailable() {
+        let rig = rig();
+        rig.api.hub.set("logging", json!({"enabled":false,"active":false,"server":{"host":"","port":514},"transport":"udp","error":"RAM filesystem required","ramLimitBytes":1048576}));
+        let response = rig.api.handle(&request("POST", "/v1/settings/base.logging", r#"{"changes":[{"key":"host","value":{"type":"text","value":"127.0.0.1"}},{"key":"port","value":{"type":"integer","value":1514}},{"key":"enabled","value":{"type":"bool","value":true}}]}"#));
+        assert_eq!(response.status, 200);
+        let value = body(&rig.api.handle(&request("GET", "/v1/logging", "")));
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["topic"], "logging");
+        assert_eq!(
+            value["value"]["server"],
+            json!({"host":"127.0.0.1","port":1514})
+        );
+        assert_eq!(value["value"]["enabled"], true);
+        assert_eq!(value["value"]["active"], false);
+        assert_eq!(value["value"]["error"], "RAM filesystem required");
     }
 
     #[test]
@@ -1112,6 +1242,731 @@ mod tests {
     }
 
     #[test]
+    fn receiver_settings_reads_the_topic_and_signals_interest() {
+        let rig = rig();
+        rig.api
+            .hub
+            .set("receiver", json!({"settings": {"ready": true}}));
+        let expected = body(&rig.api.handle(&request("GET", "/v1/receiver", "")));
+        let actual = body(&rig.api.handle(&request("GET", "/v1/receiver/settings", "")));
+        for key in ["boot", "seq", "topic", "value", "ok", "api"] {
+            assert_eq!(actual[key], expected[key], "{key}");
+        }
+        assert!(matches!(
+            rig.receiver_rx.try_recv(),
+            Ok(receiver::Cmd::SettingsInterest)
+        ));
+    }
+
+    #[test]
+    fn receiver_settings_rejects_nonlocal_and_malformed_requests() {
+        let rig = rig();
+        for path in ["/v1/receiver/settings", "/v1/receiver/set"] {
+            let method = if path.ends_with("set") { "POST" } else { "GET" };
+            let mut req = request(method, path, r#"{"setting":"x","value":1,"session":"s"}"#);
+            req.peer = std::net::Ipv4Addr::new(192, 168, 1, 2).into();
+            assert_eq!(rig.api.handle(&req).status, 403);
+        }
+        for input in [
+            "",
+            "null",
+            "[]",
+            r#"["x",1,"s"]"#,
+            "{}",
+            r#"{"setting":"x","session":"s"}"#,
+            r#"{"value":1,"session":"s"}"#,
+            r#"{"setting":"x","value":1}"#,
+            r#"{"setting":1,"value":1,"session":"s"}"#,
+            r#"{"setting":"x","value":1,"session":1}"#,
+            r#"{"setting":"x","value":1,"session":"s","extra":true}"#,
+            r#"{"setting":"x","setting":"y","value":1,"session":"s"}"#,
+        ] {
+            assert_eq!(
+                rig.api
+                    .handle(&request("POST", "/v1/receiver/set", input))
+                    .status,
+                400,
+                "{input}"
+            );
+        }
+        assert!(rig.receiver_rx.try_recv().is_err());
+        assert_eq!(
+            rig.api
+                .handle(&request("POST", "/v1/receiver/settings", ""))
+                .status,
+            405
+        );
+        assert_eq!(
+            rig.api
+                .handle(&request("GET", "/v1/receiver/set", ""))
+                .status,
+            405
+        );
+    }
+
+    #[test]
+    fn receiver_settings_maps_worker_responses_and_preserves_typed_values() {
+        let cases = [
+            (
+                receiver::SettingsResponse::Accepted {
+                    request_id: "request-1".into(),
+                    session: "screen-1".into(),
+                },
+                202,
+            ),
+            (
+                receiver::SettingsResponse::Invalid("invalid value".into()),
+                400,
+            ),
+            (receiver::SettingsResponse::Busy, 409),
+            (
+                receiver::SettingsResponse::Unavailable("offline".into()),
+                503,
+            ),
+            (receiver::SettingsResponse::WorkerError, 503),
+        ];
+        for (answer, status) in cases {
+            let Rig {
+                api,
+                receiver_rx,
+                _dir,
+                ..
+            } = rig();
+            let worker = std::thread::spawn(move || match receiver_rx.recv().unwrap() {
+                receiver::Cmd::SettingsSet {
+                    setting,
+                    value,
+                    session,
+                    reply,
+                } => {
+                    assert_eq!(setting, "test.setting");
+                    assert_eq!(value, json!({"enabled": true, "level": 3}));
+                    assert_eq!(session, "screen-1");
+                    reply.send(answer).unwrap();
+                }
+                other => panic!("unexpected command: {other:?}"),
+            });
+            let response = api.handle(&request("POST", "/v1/receiver/set", r#"{"setting":"test.setting","value":{"enabled":true,"level":3},"session":"screen-1"}"#));
+            assert_eq!(response.status, status);
+            if status == 202 {
+                let result = body(&response);
+                assert_eq!(result["accepted"], true);
+                assert_eq!(result["requestId"], "request-1");
+                assert_eq!(result["session"], "screen-1");
+            }
+            worker.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn receiver_settings_worker_disconnect_is_unavailable() {
+        let Rig {
+            api,
+            receiver_rx,
+            _dir,
+            ..
+        } = rig();
+        drop(receiver_rx);
+        let response = api.handle(&request(
+            "POST",
+            "/v1/receiver/set",
+            r#"{"setting":"x","value":null,"session":"s"}"#,
+        ));
+        assert_eq!(response.status, 503);
+
+        let Rig {
+            api,
+            receiver_rx,
+            _dir,
+            ..
+        } = rig();
+        let worker = std::thread::spawn(move || drop(receiver_rx.recv().unwrap()));
+        let response = api.handle(&request(
+            "POST",
+            "/v1/receiver/set",
+            r#"{"setting":"x","value":null,"session":"s"}"#,
+        ));
+        assert_eq!(response.status, 503);
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn receiver_settings_write_requires_owner() {
+        let mut rig = rig();
+        let paths = crate::config::Paths::new(rig._dir.path());
+        let theme = paths.data_dir.join("theme");
+        std::fs::create_dir_all(&theme).unwrap();
+        std::fs::write(theme.join("theme.json"), "{}").unwrap();
+        std::fs::write(theme.join("layout.json"), r#"{"widgets":[]}"#).unwrap();
+        let ctx = crate::ctx::Ctx {
+            config: Arc::new(crate::config::Config::default()),
+            paths,
+            hub: rig.api.hub.clone(),
+            settings: rig.api.settings.clone(),
+            stop: crate::control::Stop::new(),
+        };
+        rig.api.profiles = crate::profiles::Profiles::open(&ctx);
+        assert_eq!(
+            rig.api
+                .handle(&request(
+                    "POST",
+                    "/v1/profiles/switch",
+                    r#"{"id":"isabel"}"#
+                ))
+                .status,
+            200
+        );
+        let response = rig.api.handle(&request(
+            "POST",
+            "/v1/receiver/set",
+            r#"{"setting":"x","value":1,"session":"s"}"#,
+        ));
+        assert_eq!(response.status, 403);
+        assert_eq!(body(&response)["error"]["code"], "owner_only");
+        assert!(rig.receiver_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn receiver_settings_real_http_and_telnet_round_trip() {
+        use std::io::{Read, Write};
+        use std::net::{Shutdown, TcpListener, TcpStream};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Instant;
+
+        struct FakeReceiver {
+            stop: Arc<AtomicBool>,
+            disconnect: Arc<AtomicBool>,
+            hold: Arc<AtomicBool>,
+            mismatch: Arc<AtomicBool>,
+            missing_prerequisites: Arc<AtomicBool>,
+            writes: Arc<std::sync::Mutex<Vec<String>>>,
+            threads: Vec<std::thread::JoinHandle<()>>,
+        }
+        impl Drop for FakeReceiver {
+            fn drop(&mut self) {
+                self.stop.store(true, Ordering::SeqCst);
+                for thread in self.threads.drain(..) {
+                    thread.join().unwrap();
+                }
+            }
+        }
+        fn exchange(
+            addr: std::net::SocketAddr,
+            method: &str,
+            path: &str,
+            data: &str,
+        ) -> (u16, Value) {
+            let mut stream = TcpStream::connect(addr).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            write!(stream, "{method} {path} HTTP/1.1\r\nHost: {addr}\r\nX-Luma-Client: test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{data}", data.len()).unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            let (headers, body) = response.split_once("\r\n\r\n").unwrap();
+            let status = headers
+                .lines()
+                .next()
+                .unwrap()
+                .split_whitespace()
+                .nth(1)
+                .unwrap()
+                .parse()
+                .unwrap();
+            (status, serde_json::from_str(body).unwrap())
+        }
+        fn wait_for(mut f: impl FnMut() -> Option<Value>) -> Value {
+            let end = Instant::now() + Duration::from_secs(12);
+            while Instant::now() < end {
+                if let Some(value) = f() {
+                    return value;
+                }
+                std::thread::sleep(Duration::from_millis(30));
+            }
+            panic!("receiver settings integration timed out");
+        }
+
+        let web = TcpListener::bind("127.0.0.1:0").unwrap();
+        let web_port = web.local_addr().unwrap().port();
+        let telnet = TcpListener::bind("127.0.0.1:0").unwrap();
+        let telnet_port = telnet.local_addr().unwrap().port();
+        web.set_nonblocking(true).unwrap();
+        telnet.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let disconnect = Arc::new(AtomicBool::new(false));
+        let hold = Arc::new(AtomicBool::new(true));
+        let mismatch = Arc::new(AtomicBool::new(false));
+        let missing_prerequisites = Arc::new(AtomicBool::new(false));
+        let writes = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let web_thread = {
+            let stop = stop.clone();
+            let missing_prerequisites = missing_prerequisites.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    match web.accept() {
+                        Ok((mut stream, _)) => {
+                            stream
+                                .set_read_timeout(Some(Duration::from_millis(200)))
+                                .unwrap();
+                            let mut request = Vec::new();
+                            let mut chunk = [0; 2048];
+                            loop {
+                                let n = stream.read(&mut chunk).unwrap_or(0);
+                                if n == 0 {
+                                    break;
+                                }
+                                request.extend_from_slice(&chunk[..n]);
+                                if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n")
+                                {
+                                    let head = String::from_utf8_lossy(&request[..end]);
+                                    let length = head
+                                        .lines()
+                                        .find_map(|line| {
+                                            let (key, value) = line.split_once(':')?;
+                                            key.eq_ignore_ascii_case("content-length")
+                                                .then(|| value.trim().parse::<usize>().ok())
+                                                .flatten()
+                                        })
+                                        .unwrap_or(0);
+                                    if request.len() >= end + 4 + length {
+                                        break;
+                                    }
+                                }
+                            }
+                            let request = String::from_utf8_lossy(&request);
+                            let missing = missing_prerequisites.load(Ordering::SeqCst);
+                            let (status, body) = if request
+                                .starts_with("GET /goform/Deviceinfo.xml ")
+                            {
+                                if missing {
+                                    (
+                                        "200 OK",
+                                        "<Device_Info><ModelName>AVR-S760H</ModelName></Device_Info>",
+                                    )
+                                } else {
+                                    (
+                                        "200 OK",
+                                        concat!(
+                                            "<Device_Info><ModelName>AVR-S760H</ModelName>",
+                                            "<DeviceZoneCapabilities><Zone><No>0</No></Zone><InputSource><Control>1</Control><List>",
+                                            "<Source><FuncName>TV AUDIO</FuncName><DefaultName>TV Audio</DefaultName></Source>",
+                                            "<Source><FuncName>Blu-ray</FuncName><DefaultName>Blu-ray</DefaultName></Source>",
+                                            "<Source><FuncName>CD</FuncName><DefaultName>CD</DefaultName></Source>",
+                                            "</List></InputSource></DeviceZoneCapabilities>",
+                                            "<DeviceZoneCapabilities><Zone><No>1</No></Zone><InputSource><Control>1</Control><List>",
+                                            "<Source><FuncName>CD</FuncName><DefaultName>CD</DefaultName></Source>",
+                                            "</List></InputSource></DeviceZoneCapabilities></Device_Info>"
+                                        ),
+                                    )
+                                }
+                            } else if missing {
+                                ("404 Not Found", "")
+                            } else if request.starts_with("POST /goform/AppCommand.xml ") {
+                                for command in [
+                                    "GetToneControl",
+                                    "GetRenameSource",
+                                    "GetDeletedSource",
+                                    "GetAllZoneVolume",
+                                ] {
+                                    assert!(request.contains(command));
+                                }
+                                (
+                                    "200 OK",
+                                    concat!(
+                                        "<rx><cmd><status>1</status><adjust>1</adjust></cmd>",
+                                        "<cmd><functionrename><list><name>TV AUDIO</name><rename>Television</rename></list></functionrename></cmd>",
+                                        "<cmd><functiondelete><list><FuncName>TV AUDIO</FuncName><use>1</use></list><list><FuncName>CD</FuncName><use>1</use></list><list><FuncName>Blu-ray</FuncName><use>0</use></list></functiondelete></cmd>",
+                                        "<cmd><zone2><state>variable</state><limit>0.0</limit></zone2></cmd></rx>"
+                                    ),
+                                )
+                            } else if request.starts_with("POST /goform/AppCommand0300.xml ") {
+                                assert!(request.contains("GetAudyssey"));
+                                (
+                                    "200 OK",
+                                    "<rx><cmd><list><param name=\"dynamiceq\" control=\"1\">0</param><param name=\"reflevoffset\" control=\"1\">0</param><param name=\"dynamicvol\" control=\"1\">0</param><param name=\"multeq\" control=\"1\">1</param></list></cmd></rx>",
+                                )
+                            } else {
+                                ("404 Not Found", "")
+                            };
+                            let _ = write!(
+                                stream,
+                                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                                body.len()
+                            );
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(10))
+                        }
+                        Err(e) => panic!("fake HTTP: {e}"),
+                    }
+                }
+            })
+        };
+        let telnet_thread = {
+            let (stop, disconnect, hold, mismatch, writes) = (
+                stop.clone(),
+                disconnect.clone(),
+                hold.clone(),
+                mismatch.clone(),
+                writes.clone(),
+            );
+            std::thread::spawn(move || {
+                let mut power = false;
+                let mut direct = false;
+                let mut bass_one = false;
+                while !stop.load(Ordering::SeqCst) {
+                    let (mut stream, _) = match telnet.accept() {
+                        Ok(connection) => connection,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(10));
+                            continue;
+                        }
+                        Err(e) => panic!("fake telnet: {e}"),
+                    };
+                    stream
+                        .set_read_timeout(Some(Duration::from_millis(20)))
+                        .unwrap();
+                    let mut bytes = Vec::new();
+                    let mut desired = None;
+                    let mut awaiting = false;
+                    let mut direct_requested = false;
+                    let mut direct_readback = false;
+                    let mut bass_requested = false;
+                    let mut bass_readback = false;
+                    while !stop.load(Ordering::SeqCst) && !disconnect.swap(false, Ordering::SeqCst)
+                    {
+                        let mut chunk = [0; 512];
+                        match stream.read(&mut chunk) {
+                            Ok(0) => break,
+                            Ok(n) => bytes.extend_from_slice(&chunk[..n]),
+                            Err(e)
+                                if matches!(
+                                    e.kind(),
+                                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                                ) => {}
+                            Err(_) => break,
+                        }
+                        while let Some(end) = bytes.iter().position(|b| *b == b'\r') {
+                            let line = String::from_utf8_lossy(&bytes[..end]).into_owned();
+                            bytes.drain(..=end);
+                            let reply = match line.as_str() {
+                                "PW?" => Some("PWON\r"),
+                                "MV?" => Some("MV45\r"),
+                                "MU?" => Some("MUOFF\r"),
+                                "SI?" => Some("SITV\r"),
+                                "MS?" if direct_requested => {
+                                    direct_readback = true;
+                                    None
+                                }
+                                "MS?" => Some(if direct { "MSDIRECT\r" } else { "MSSTEREO\r" }),
+                                "SSINFAISSIG ?" => Some("SYSDA PCM ZERO\r"),
+                                "MSDIRECT" => {
+                                    writes.lock().unwrap().push(line.clone());
+                                    direct_requested = true;
+                                    None
+                                }
+                                "PSTONE CTRL ?" => Some("PSTONE CTRL ON\r"),
+                                "PSDYNEQ ?" => Some("PSDYNEQ OFF\r"),
+                                "PSBAS ?" if bass_requested => {
+                                    bass_readback = true;
+                                    None
+                                }
+                                "PSBAS ?" => Some(if bass_one { "PSBAS51\r" } else { "PSBAS50\r" }),
+                                "PSBAS51" => {
+                                    writes.lock().unwrap().push(line.clone());
+                                    bass_requested = true;
+                                    None
+                                }
+                                "PSTRE ?" => Some("PSTRE50\r"),
+                                "PSMULTEQ: ?" => Some("PSMULTEQ:AUDYSSEY\r"),
+                                "PSDYNVOL ?" => Some("PSDYNVOL OFF\r"),
+                                "PSREFLEV ?" => Some("PSREFLEV 0\r"),
+                                "Z2ON" | "Z2OFF" => {
+                                    writes.lock().unwrap().push(line.clone());
+                                    desired = Some(line == "Z2ON");
+                                    None
+                                }
+                                "Z2?" if desired.is_some() => {
+                                    awaiting = true;
+                                    None
+                                }
+                                "Z2?" => Some(if power {
+                                    "Z2ON\rZ2CD\rZ235\r"
+                                } else {
+                                    "Z2OFF\rZ2CD\rZ235\r"
+                                }),
+                                _ => None,
+                            };
+                            if let Some(reply) = reply {
+                                let _ = stream.write_all(reply.as_bytes());
+                            }
+                        }
+                        if bass_readback && !hold.load(Ordering::SeqCst) {
+                            bass_one = true;
+                            let _ = stream.write_all(b"PSBAS51\r");
+                            bass_requested = false;
+                            bass_readback = false;
+                        }
+                        if direct_readback && !hold.load(Ordering::SeqCst) {
+                            direct = true;
+                            let _ = stream.write_all(b"MSDIRECT\r");
+                            direct_requested = false;
+                            direct_readback = false;
+                        }
+                        if awaiting && !hold.load(Ordering::SeqCst) {
+                            if !mismatch.load(Ordering::SeqCst) {
+                                power = desired.unwrap();
+                            }
+                            let _ = stream.write_all(if power {
+                                b"Z2ON\rZ2CD\rZ235\r"
+                            } else {
+                                b"Z2OFF\rZ2CD\rZ235\r"
+                            });
+                            awaiting = false;
+                            desired = None;
+                        }
+                    }
+                    let _ = stream.shutdown(Shutdown::Both);
+                }
+            })
+        };
+        let fake = FakeReceiver {
+            stop,
+            disconnect,
+            hold,
+            mismatch,
+            missing_prerequisites,
+            writes,
+            threads: vec![web_thread, telnet_thread],
+        };
+        let Rig {
+            api,
+            receiver_rx,
+            _dir,
+            ..
+        } = rig();
+        let changes = serde_json::from_value(json!([
+            {"key":"host", "value":{"type":"text", "value":"127.0.0.1"}},
+            {"key":"port", "value":{"type":"integer", "value":web_port}}
+        ]))
+        .unwrap();
+        api.settings.apply("base.receiver", changes, None).unwrap();
+        api.hub.set(
+            "screen",
+            json!({"on":true, "source":"assumed", "state":"Active"}),
+        );
+        let mut config = crate::config::Config::default();
+        config.receiver.telnet_port = telnet_port;
+        config.receiver.poll_ms = 2000;
+        config.receiver.max_backoff_ms = 2000;
+        config.receiver.connect_timeout_ms = 300;
+        config.receiver.request_timeout_ms = 2000;
+        let ctx = crate::ctx::Ctx {
+            config: Arc::new(config),
+            paths: crate::config::Paths::new(_dir.path()),
+            hub: api.hub.clone(),
+            settings: api.settings.clone(),
+            stop: crate::control::Stop::new(),
+        };
+        let tx = api.receiver_tx.clone();
+        let receiver = receiver::spawn(&ctx, tx.clone(), receiver_rx).unwrap();
+        let server = crate::http::Server::start(
+            "127.0.0.1:0".parse().unwrap(),
+            Arc::new(api),
+            Default::default(),
+        )
+        .unwrap();
+        let addr = server.local_addr();
+        let read = || exchange(addr, "GET", "/v1/receiver/settings", "").1;
+        let initial = wait_for(|| {
+            let value = read();
+            (value["value"]["settings"]["zone2Power"]["writable"] == true).then_some(value)
+        });
+        let session = initial["value"]["settingsSession"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let post = |value: bool, session: &str| {
+            exchange(
+                addr,
+                "POST",
+                "/v1/receiver/set",
+                &json!({"setting":"zone2Power", "value":value, "session":session}).to_string(),
+            )
+        };
+        let (status, accepted) = post(true, &session);
+        assert_eq!(status, 202);
+        let first_id = accepted["requestId"].as_str().unwrap().to_owned();
+        wait_for(|| {
+            let value = read();
+            (value["value"]["settings"]["zone2Power"]["pending"]["requestId"] == first_id)
+                .then_some(value)
+        });
+        fake.hold.store(false, Ordering::SeqCst);
+        wait_for(|| {
+            let value = read();
+            (value["value"]["settings"]["zone2Power"]["result"]["requestId"] == first_id
+                && value["value"]["settings"]["zone2Power"]["result"]["status"] == "applied"
+                && value["value"]["settings"]["zone2Power"]["value"] == true)
+                .then_some(value)
+        });
+        let controls = wait_for(|| {
+            let value = read();
+            let settings = &value["value"]["settings"];
+            (settings["input"]["writable"] == true
+                && settings["zone2Input"]["writable"] == true
+                && settings["zone2Volume"]["writable"] == true
+                && settings["bass"]["writable"] == true
+                && settings["dynVol"]["writable"] == true)
+                .then_some(value)
+        });
+        let settings = &controls["value"]["settings"];
+        assert_eq!(
+            settings["input"]["options"],
+            json!([{"value":"TV","label":"Television"},{"value":"CD","label":"CD"}])
+        );
+        assert_eq!(
+            settings["zone2Input"]["options"],
+            json!([{"value":"CD","label":"CD"}])
+        );
+        assert_eq!(settings["zone2Volume"]["value"], 35.0);
+        assert_eq!(settings["zone2Volume"]["max"], 80.0);
+        let rejected = |setting: &str, value: Value| {
+            exchange(
+                addr,
+                "POST",
+                "/v1/receiver/set",
+                &json!({"setting":setting,"value":value,"session":session}).to_string(),
+            )
+            .0
+        };
+        assert_eq!(rejected("input", json!("BD")), 400);
+        assert_eq!(rejected("zone2Input", json!("TV")), 400);
+        assert_eq!(rejected("zone2Volume", json!(81)), 400);
+        assert_eq!(rejected("bass", json!(1.5)), 400);
+        fake.hold.store(true, Ordering::SeqCst);
+        let (status, accepted) = exchange(
+            addr,
+            "POST",
+            "/v1/receiver/set",
+            &json!({
+                "setting":"bass", "value":1.0, "session":session
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 202);
+        let bass_id = accepted["requestId"].as_str().unwrap().to_owned();
+        wait_for(|| {
+            let value = read();
+            (value["value"]["settings"]["bass"]["pending"]["requestId"] == bass_id).then_some(value)
+        });
+        fake.hold.store(false, Ordering::SeqCst);
+        wait_for(|| {
+            let value = read();
+            (value["value"]["settings"]["bass"]["result"]["requestId"] == bass_id
+                && value["value"]["settings"]["bass"]["result"]["status"] == "applied"
+                && value["value"]["settings"]["bass"]["value"] == 1)
+                .then_some(value)
+        });
+        let mode = wait_for(|| {
+            let value = read();
+            (value["value"]["settings"]["soundMode"]["writable"] == true).then_some(value)
+        });
+        assert_eq!(
+            mode["value"]["settings"]["soundMode"]["options"],
+            json!([
+                {"value":"STEREO","label":"Stereo"}, {"value":"DIRECT","label":"Direct"}
+            ])
+        );
+        assert_eq!(rejected("soundMode", json!("PURE DIRECT")), 400);
+        fake.hold.store(true, Ordering::SeqCst);
+        let (status, accepted) = exchange(
+            addr,
+            "POST",
+            "/v1/receiver/set",
+            &json!({
+                "setting":"soundMode", "value":"DIRECT", "session":session
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 202);
+        let mode_id = accepted["requestId"].as_str().unwrap().to_owned();
+        wait_for(|| {
+            let value = read();
+            (value["value"]["settings"]["soundMode"]["pending"]["requestId"] == mode_id)
+                .then_some(value)
+        });
+        fake.hold.store(false, Ordering::SeqCst);
+        wait_for(|| {
+            let value = read();
+            (value["value"]["settings"]["soundMode"]["result"]["requestId"] == mode_id
+                && value["value"]["settings"]["soundMode"]["result"]["status"] == "applied"
+                && value["value"]["settings"]["soundMode"]["value"] == "DIRECT")
+                .then_some(value)
+        });
+        fake.mismatch.store(true, Ordering::SeqCst);
+        let (status, accepted) = post(false, &session);
+        assert_eq!(status, 202);
+        let second_id = accepted["requestId"].as_str().unwrap().to_owned();
+        wait_for(|| {
+            let value = read();
+            (value["value"]["settings"]["zone2Power"]["result"]["requestId"] == second_id
+                && value["value"]["settings"]["zone2Power"]["result"]["status"] == "failed")
+                .then_some(value)
+        });
+        fake.mismatch.store(false, Ordering::SeqCst);
+        fake.hold.store(true, Ordering::SeqCst);
+        let (status, accepted) = post(false, &session);
+        assert_eq!(status, 202);
+        let interrupted_id = accepted["requestId"].as_str().unwrap().to_owned();
+        wait_for(|| (fake.writes.lock().unwrap().len() == 5).then(|| json!(true)));
+        fake.missing_prerequisites.store(true, Ordering::SeqCst);
+        fake.disconnect.store(true, Ordering::SeqCst);
+        wait_for(|| {
+            let value = read();
+            (value["value"]["settings"]["zone2Power"]["result"]["requestId"] == interrupted_id
+                && value["value"]["settings"]["zone2Power"]["result"]["status"] == "failed")
+                .then_some(value)
+        });
+        wait_for(|| {
+            let value = read();
+            value["value"]["settingsSession"]
+                .as_str()
+                .filter(|new| *new != session)
+                .map(|_| value.clone())
+        });
+        fake.hold.store(false, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(
+            fake.writes.lock().unwrap().len(),
+            5,
+            "interrupted write was retried"
+        );
+        let unavailable = wait_for(|| {
+            let value = read();
+            let settings = &value["value"]["settings"];
+            (settings["input"]["support"] == "supported"
+                && settings["zone2Power"]["support"] == "supported")
+                .then_some(value)
+        });
+        let settings = &unavailable["value"]["settings"];
+        assert_eq!(settings["input"]["writable"], false);
+        assert_eq!(settings["input"]["options"], json!([]));
+        assert_eq!(settings["zone2Input"]["writable"], false);
+        assert_eq!(settings["zone2Volume"]["writable"], false);
+        let count = fake.writes.lock().unwrap().len();
+        assert_eq!(post(false, &session).0, 503);
+        assert_eq!(fake.writes.lock().unwrap().len(), count);
+        assert_eq!(
+            *fake.writes.lock().unwrap(),
+            vec!["Z2ON", "PSBAS51", "MSDIRECT", "Z2OFF", "Z2OFF"]
+        );
+        server.stop(Duration::from_secs(2));
+        tx.send(receiver::Cmd::Stop).unwrap();
+        receiver.join().unwrap();
+    }
+
+    #[test]
     fn nudge_and_refresh_reach_their_threads() {
         let rig = rig();
         assert_eq!(
@@ -1120,7 +1975,10 @@ mod tests {
                 .status,
             200
         );
-        assert_eq!(rig.receiver_rx.try_recv(), Ok(receiver::Cmd::Nudge));
+        assert!(matches!(
+            rig.receiver_rx.try_recv(),
+            Ok(receiver::Cmd::Nudge)
+        ));
         assert_eq!(
             rig.api
                 .handle(&request(
@@ -1131,7 +1989,10 @@ mod tests {
                 .status,
             200
         );
-        assert_eq!(rig.receiver_rx.try_recv(), Ok(receiver::Cmd::Volume(93)));
+        assert!(matches!(
+            rig.receiver_rx.try_recv(),
+            Ok(receiver::Cmd::Volume(93))
+        ));
         for bad in [
             r#"{"level":99}"#,
             r#"{"level":-1}"#,

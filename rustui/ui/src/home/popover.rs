@@ -1,11 +1,9 @@
 //! The status bar's settings popover (`StatusBar.qml`, `popoverType: "settings"`): a glass panel under the gear with the wallpaper's motion in
 //! live rows. Up and Down move, Left and Right change the value of the row and Home behind shows it at once (the cards and the dock step back so
-//! the wallpaper is seen), OK on a toggle turns it, OK on "All settings" opens Settings and on "TV settings" LG's. What was changed is written to the
+//! the wallpaper is seen), OK on a toggle turns it and OK on "TV settings" opens LG's. What was changed is written to the
 //! owner's theme when the popover closes (`wallpaperMotion`, one level deep).
 //!
-//! The rows are the QML's, each with its own range and step. The GPU wallpaper of the Rust shell carries the amount, the speed and the frame rate
-//! (`WallpaperSurface::spec_of`); the others (depth, wave size, detail, vignette, specular, bloom, saturation, contrast) are written to the theme as
-//! the QML wrote them and decide which clip of the video wallpaper is Home's ([`super::wallvideo::pick`]).
+//! The rows share their ranges with the GPU wallpaper consumer; changes are previewed live and persisted on close.
 
 use crate::kit::focus::{Region, Scope};
 use serde_json::{Map, Value, json};
@@ -23,7 +21,7 @@ pub const HEAD_GAP: f32 = 8.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kind {
-    /// A row that does something: "settings" (All settings) or "tvsettings" (LG's Settings).
+    /// A row that opens LG's settings.
     Action,
     Toggle,
     Slider { min: f64, max: f64, step: f64, unit: &'static str },
@@ -41,8 +39,7 @@ const fn slider(label: &'static str, key: &'static str, default: f64, min: f64, 
     Def { label, key, kind: Kind::Slider { min, max, step, unit }, default }
 }
 
-pub const ROWS: [Def; 14] = [
-    Def { label: "All settings", key: "settings", kind: Kind::Action, default: 0.0 },
+pub const ROWS: [Def; 13] = [
     Def { label: "Wallpaper motion", key: "enabled", kind: Kind::Toggle, default: 1.0 },
     slider("Amount", "amplitude", 4.0, 0.0, 16.0, 1.0, " px"),
     slider("Speed", "speed", 1.0, 0.2, 3.0, 0.1, "x"),
@@ -64,7 +61,6 @@ pub enum Done {
     Nothing,
     /// A value changed: the key of `wallpaperMotion` and what it is now.
     Changed(&'static str, Value),
-    Settings,
     TvSettings,
 }
 
@@ -80,11 +76,20 @@ pub struct Popover {
 
 /// The value of a row now, from the theme's `wallpaperMotion`.
 pub fn number(def: &Def, wm: &Value) -> f64 {
-    wm.get(def.key).and_then(Value::as_f64).unwrap_or(def.default)
+    let value = wm.get(def.key).and_then(Value::as_f64).filter(|n| n.is_finite()).unwrap_or(def.default);
+    match def.kind {
+        Kind::Slider { min, max, .. } => value.clamp(min, max),
+        _ => value,
+    }
 }
 
 pub fn is_on(def: &Def, wm: &Value) -> bool {
     wm.get(def.key).and_then(Value::as_bool).unwrap_or(def.default != 0.0)
+}
+
+/// A wallpaper control, using exactly the bounds and defaults displayed by the popover.
+pub fn control(key: &str, wm: &Value) -> f32 {
+    number(ROWS.iter().find(|d| d.key == key).expect("wallpaper control"), wm) as f32
 }
 
 /// The value as the row says it: "On", "4 px", "1.0x", "0.25".
@@ -133,7 +138,7 @@ impl Popover {
         match self.def().kind {
             Kind::Toggle => self.adjust(1, wm),
             Kind::Slider { .. } => Done::Nothing,
-            Kind::Action => if self.def().key == "settings" { Done::Settings } else { Done::TvSettings },
+            Kind::Action => Done::TvSettings,
         }
     }
 
@@ -185,47 +190,44 @@ mod tests {
     #[test]
     fn a_slider_steps_on_its_own_grid_inside_its_range_and_says_its_value_as_the_qml_did() {
         let mut p = Popover::new(2);
-        p.index = 2;
+        p.index = 1;
         let wm = json!({});
-        assert_eq!(text(&ROWS[2], &wm), "4 px");
+        assert_eq!(text(&ROWS[1], &wm), "4 px");
         assert_eq!(p.adjust(1, &wm), Done::Changed("amplitude", json!(5.0)));
-        assert_eq!(text(&ROWS[2], &json!({"amplitude": 5})), "5 px");
+        assert_eq!(text(&ROWS[1], &json!({"amplitude": 5})), "5 px");
         assert_eq!(p.adjust(-1, &json!({"amplitude": 0})), Done::Changed("amplitude", json!(0.0)), "never below the range");
         assert_eq!(p.adjust(1, &json!({"amplitude": 16})), Done::Changed("amplitude", json!(16.0)), "nor above");
-        p.index = 3;
+        p.index = 2;
         assert_eq!(p.adjust(1, &json!({"speed": 0.95})), Done::Changed("speed", json!(1.1)), "a step of 0.1 lands on the grid, as the QML's rounding did");
-        assert_eq!(text(&ROWS[3], &json!({"speed": 1.0})), "1.0x");
-        p.index = 4;
-        assert_eq!(text(&ROWS[4], &json!({})), "0.25");
+        assert_eq!(text(&ROWS[2], &json!({"speed": 1.0})), "1.0x");
+        p.index = 3;
+        assert_eq!(text(&ROWS[3], &json!({})), "0.25");
         assert_eq!(p.adjust(-1, &json!({"depth": 0.25})), Done::Changed("depth", json!(0.2)));
-        p.index = 7;
+        p.index = 6;
         assert_eq!(p.adjust(1, &json!({})), Done::Changed("fps", json!(15.0)));
-        assert_eq!(text(&ROWS[7], &json!({})), "10 fps");
+        assert_eq!(text(&ROWS[6], &json!({})), "10 fps");
     }
 
     #[test]
     fn the_toggle_turns_on_left_right_and_ok_and_the_actions_only_on_ok() {
         let mut p = Popover::new(0);
-        p.index = 1;
-        assert_eq!(text(&ROWS[1], &json!({})), "On", "the motion is on unless the theme says otherwise");
+        assert_eq!(text(&ROWS[0], &json!({})), "On", "the motion is on unless the theme says otherwise");
         assert_eq!(p.adjust(1, &json!({})), Done::Changed("enabled", json!(false)));
         assert_eq!(p.press(&json!({"enabled": false})), Done::Changed("enabled", json!(true)));
-        assert_eq!(text(&ROWS[1], &json!({"enabled": false})), "Off");
-        p.index = 0;
+        assert_eq!(text(&ROWS[0], &json!({"enabled": false})), "Off");
+        p.index = 12;
         assert_eq!(p.adjust(1, &json!({})), Done::Nothing);
-        assert_eq!(p.press(&json!({})), Done::Settings);
-        p.index = 13;
         assert_eq!(p.press(&json!({})), Done::TvSettings);
-        p.index = 5;
+        p.index = 4;
         assert_eq!(p.press(&json!({})), Done::Nothing, "a slider has nothing to press");
     }
 
     #[test]
     fn what_was_changed_is_kept_for_the_theme_once_and_the_panel_is_under_its_item_inside_the_bar() {
         let mut p = Popover::new(0);
-        p.index = 2;
+        p.index = 1;
         p.adjust(1, &json!({}));
-        p.index = 3;
+        p.index = 2;
         p.adjust(1, &json!({}));
         assert_eq!(p.take_dirty(), Some(json!({"amplitude": 5.0, "speed": 1.1})));
         assert_eq!(p.take_dirty(), None);
@@ -234,7 +236,7 @@ mod tests {
         assert_eq!((left.pane.x, left.pane.y, left.pane.w), (70.0, 122.0, 440.0), "a left item hangs from its left edge, 8 under the bar");
         let right = p.layout(bar, Frame::new(1744.0, 60.0, 48.0, 48.0), false, 1.0);
         assert_eq!(right.pane.x + right.pane.w, 1792.0, "a right one from its right edge");
-        assert_eq!(right.rows.len(), 14, "all the rows fit at 100 %");
+        assert_eq!(right.rows.len(), 13, "all the rows fit at 100 %");
         assert!(right.pane.bottom() <= 1080.0 - 54.0);
     }
 
@@ -243,11 +245,11 @@ mod tests {
         let mut p = Popover::new(0);
         let bar = Frame::new(64.0, 54.0, 1792.0, 120.0);
         let l = p.layout(bar, Frame::new(1700.0, 60.0, 96.0, 96.0), false, 2.0);
-        assert!(l.rows.len() < 14 && l.rows[0].0 == 0, "{}", l.rows.len());
+        assert!(l.rows.len() < 13 && l.rows[0].0 == 0, "{}", l.rows.len());
         assert!(l.pane.bottom() <= 1080.0 - 54.0 + 0.5, "{:?}", l.pane);
-        p.index = 13;
+        p.index = 12;
         let l = p.layout(bar, Frame::new(1700.0, 60.0, 96.0, 96.0), false, 2.0);
-        assert_eq!(l.rows.last().map(|r| r.0), Some(13), "the last row is in view");
+        assert_eq!(l.rows.last().map(|r| r.0), Some(12), "the last row is in view");
         p.index = 0;
         assert_eq!(p.layout(bar, Frame::new(1700.0, 60.0, 96.0, 96.0), false, 2.0).rows[0].0, 0);
     }

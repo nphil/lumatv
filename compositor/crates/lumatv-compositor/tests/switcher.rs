@@ -30,7 +30,6 @@ const CLOSE_APP: &str = "luna://com.webos.applicationManager/closeByAppId";
 const LAUNCH: &str = "luna://com.webos.applicationManager/launch";
 const MS: fn(u64) -> Duration = Duration::from_millis;
 
-const HOME_COLOUR: u32 = 0xffff_00ff;
 const PLEX: u32 = 0xff00_ff00;
 const YOUTUBE: u32 = 0xffff_0000;
 const NETFLIX: u32 = 0xff00_00ff;
@@ -56,18 +55,17 @@ fn app(server: &mut Server, title: &str, app_id: &str, argb: u32) -> Held {
     app_with(server, title, app_id, 400, 225, move |_, _| argb)
 }
 
-/// LumaTV's Home window (64x64) and what the shell says it can show.
-fn shell_up(server: &mut Server, can: &[&str]) -> Held {
-    server.eval(|s| s.shell_handle(Msg::Connected));
+/// A connected native UI with Home on the engine and the requested available panels.
+fn shell_up(server: &mut Server, can: &[&str]) {
     let can: Vec<String> = can.iter().map(|c| c.to_string()).collect();
-    server.eval(move |s| s.shell_handle(Msg::Ui { can: Some(can), wants: None, live: None, state: None }));
-    let mut client = Client::connect_extra(server);
-    let win = client.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", "LumaHome");
-    win.webos.set_property("appId".into(), "org.nphil.lumatv.shell".into());
-    let buf = client.shm_buffer(64, 64, HOME_COLOUR);
-    client.present(&win.surface, &buf);
-    assert!(client.wait_until(WAIT, |s| s.frames_done >= 1));
-    Held { _client: client, win, _buf: buf }
+    server.eval(move |s| {
+        s.shell_rust_open(0, "test".into()).unwrap();
+        s.shell_rust.kinds = vec!["home".into(), "switcher".into()];
+        s.shell_rust_handle(Msg::Connected);
+        s.shell_rust_handle(Msg::Ui { can: Some(can), wants: None, live: None, state: None });
+        s.shell_rust.engine_connected = true;
+        s.shell_rust_sync_home();
+    });
 }
 
 struct Rig {
@@ -78,7 +76,8 @@ struct Rig {
 /// Netflix, YouTube and Plex (the newest of them) mapped, then Home's stub: Home is in front, with the three behind it.
 fn rig_home(can: &[&str]) -> Rig {
     let mut server = Server::start();
-    let mut apps = vec![shell_up(&mut server, can)];
+    shell_up(&mut server, can);
+    let mut apps = Vec::new();
     apps.push(app(&mut server, "Netflix", "netflix", NETFLIX));
     apps.push(app(&mut server, "YouTube", "youtube", YOUTUBE));
     apps.push(app(&mut server, "Plex", "plex", PLEX));
@@ -92,7 +91,8 @@ fn rig_home(can: &[&str]) -> Rig {
 /// The same three after Home's stub: Plex is in front, Home is behind everything.
 fn rig_app(can: &[&str]) -> Rig {
     let mut server = Server::start();
-    let mut apps = vec![shell_up(&mut server, can)];
+    shell_up(&mut server, can);
+    let mut apps = Vec::new();
     apps.push(app(&mut server, "Stub", HOME_STUB, 0xff10_1010));
     apps.push(app(&mut server, "Netflix", "netflix", NETFLIX));
     apps.push(app(&mut server, "YouTube", "youtube", YOUTUBE));
@@ -118,11 +118,11 @@ fn calls(s: &State, uri: &str) -> Vec<Value> {
 }
 
 fn topic(s: &State, name: &str) -> Value {
-    s.shell.topic(name).cloned().unwrap_or(Value::Null)
+    s.shell_rust.topic(name).cloned().unwrap_or(Value::Null)
 }
 
 fn recorded(s: &State, name: &str) -> Vec<Value> {
-    s.shell.recorded.iter().filter(|e| e["topic"] == name).map(|e| e["data"].clone()).collect()
+    s.shell_rust.events().iter().filter(|e| e["topic"] == name).map(|e| e["data"].clone()).collect()
 }
 
 fn layout(cards: &[(&str, i32, i32, i32, i32, i32)], ms: u64) -> Value {
@@ -131,7 +131,7 @@ fn layout(cards: &[(&str, i32, i32, i32, i32, i32)], ms: u64) -> Value {
 }
 
 fn op(s: &mut State, body: Value) -> bool {
-    s.shell_handle(Msg::Switcher(body))
+    s.shell_rust_handle(Msg::Switcher(body))
 }
 
 /// The pictures the switcher has in the frame at `t`: (rectangle, opacity, corner radius).
@@ -225,7 +225,7 @@ fn with_the_switch_off_every_press_is_home_alone() {
     server.ticking.store(false, Ordering::SeqCst);
     let (homes, active) = server.eval(|s| {
         // the shell client is gone
-        s.shell_restart();
+        s.shell_rust_restart();
         let t0 = Instant::now();
         tap(s, t0, MS(80));
         tap(s, t0 + MS(200), MS(80));
@@ -235,34 +235,32 @@ fn with_the_switch_off_every_press_is_home_alone() {
 }
 
 #[test]
-fn the_hold_of_home_is_the_same_escape_as_ever_also_right_after_a_tap_and_with_the_switcher_open() {
+fn home_hold_does_not_trigger_recovery_and_release_remains_a_home_action() {
     let rig = rig_app(&["switcher"]);
     let (falls, homes, active) = rig.server.eval(|s| {
         let t0 = Instant::now();
         tap(s, t0, MS(80));
-        // a second press, held: within the double-press window, but past 650 ms it is the escape and nothing else
         s.key_event_at(SeatId(0), KEY_HOMEPAGE, true, false, t0 + MS(200));
-        s.poll_holds_at(t0 + MS(200 + 649));
-        let before = s.luna.history().iter().filter(|m| matches!(m, ToBridge::Fallback { .. })).count();
-        s.poll_holds_at(t0 + MS(200 + 650));
-        let after = s.luna.history().iter().filter(|m| matches!(m, ToBridge::Fallback { .. })).count();
-        assert_eq!((before, after), (0, 1), "650 ms, to the millisecond");
-        s.key_event_at(SeatId(0), KEY_HOMEPAGE, false, false, t0 + MS(200 + 900));
-        (after, launches_home(s), s.switcher_active())
+        s.key_event_at(SeatId(0), KEY_HOMEPAGE, true, false, t0 + MS(700));
+        s.poll_holds_at(t0 + MS(850));
+        assert_eq!(launches_home(s), 1, "repeat does not act before release");
+        s.key_event_at(SeatId(0), KEY_HOMEPAGE, false, false, t0 + MS(1100));
+        (s.luna.history().iter().filter(|m| matches!(m, ToBridge::Fallback { .. })).count(), launches_home(s), s.switcher_active())
     });
-    assert_eq!((falls, homes, active), (1, 1, false), "the release after the escape launches nothing and opens nothing");
-    // with the switcher open the hold is still the escape
+    assert_eq!((falls, homes, active), (0, 2, false));
+
     let rig = rig_app(&["switcher"]);
-    let falls = rig.server.eval(|s| {
+    let (falls, active) = rig.server.eval(|s| {
         let t0 = Instant::now();
         tap(s, t0, MS(80));
         tap(s, t0 + MS(250), MS(80));
         assert!(s.switcher_active());
         s.key_event_at(SeatId(0), KEY_HOMEPAGE, true, false, t0 + MS(1000));
-        s.poll_holds_at(t0 + MS(1000 + 650));
-        s.luna.history().iter().filter(|m| matches!(m, ToBridge::Fallback { .. })).count()
+        s.poll_holds_at(t0 + MS(1650));
+        s.key_event_at(SeatId(0), KEY_HOMEPAGE, false, false, t0 + MS(1900));
+        (s.luna.history().iter().filter(|m| matches!(m, ToBridge::Fallback { .. })).count(), s.switcher.accepting())
     });
-    assert_eq!(falls, 1);
+    assert_eq!((falls, active), (0, false));
 }
 
 #[test]
@@ -271,7 +269,7 @@ fn a_shell_that_connects_again_is_told_the_apps_again() {
     rig.server.eval(|s| {
         let before = recorded(s, "apps").len();
         assert!(before >= 1);
-        s.shell_handle(Msg::Connected);
+        s.shell_rust_handle(Msg::Connected);
         assert_eq!(recorded(s, "apps").len(), before + 1, "its first poll has the apps, though nothing about them changed");
         assert_eq!(topic(s, "switcher")["open"], false);
     });
@@ -378,7 +376,7 @@ fn the_pictures_and_the_dim_are_in_the_frame_only_while_it_is_open() {
     rig.server.eval(|s| {
         let img = drawn(s);
         assert_eq!(img.pixel(300, 400), [0, 0, 0, 255], "closed: the pictures are gone");
-        assert_eq!(img.pixel(10, 10), [255, 0, 255, 255], "and Home is itself again");
+        assert_eq!(img.pixel(10, 10), [0, 0, 0, 255], "closed: no native Home pixels in the software fixture");
         assert!(s.scene.last_plan().backdrop.is_none(), "the plan carries nothing of it");
     });
 }
@@ -535,7 +533,7 @@ fn quit_closes_the_app_through_the_app_manager_and_the_card_goes_when_the_window
         assert!((yt_pic.1 - 0.35).abs() < 0.01, "{yt_pic:?}");
     });
     // the app's window closes: its card fades out and the list says so
-    let youtube = rig.apps.remove(2);
+    let youtube = rig.apps.remove(1);
     youtube.win.surface.destroy();
     drop(youtube);
     rig.apps[0]._client.roundtrip();
@@ -597,7 +595,7 @@ fn home_and_the_shell_going_away_close_it() {
         assert!(s.switcher_open(None, t0));
         op(s, layout(&[("plex", 112, 340, 400, 225, 22)], 0));
         assert!(s.switcher_active());
-        s.shell_restart();
+        s.shell_rust_restart();
         assert!(!s.switcher_active(), "no shell, no switcher: nothing could place the cards or take a key");
         assert!(!backdrop_in_plan(s));
     });

@@ -241,8 +241,8 @@ impl Screencap {
         self.armed
     }
 
-    fn factory(&self, settings: &Settings, data_dir: &Path) -> Arc<dyn EncoderFactory> {
-        self.factory.clone().unwrap_or_else(|| Arc::new(VencFactory { binary: settings.encoder.clone(), log: data_dir.join("compositor/venc.log") }))
+    fn factory(&self, settings: &Settings, _data_dir: &Path) -> Arc<dyn EncoderFactory> {
+        self.factory.clone().unwrap_or_else(|| Arc::new(VencFactory { binary: settings.encoder.clone() }))
     }
 }
 
@@ -311,21 +311,14 @@ impl State {
         }
     }
 
-    /// Whether the client that draws the capture mark is the Rust shell's (kind `capture`): its topic and its dot are that client's, the QML
-    /// client's are left out.
-    fn screencap_rust(&self) -> bool {
-        self.shell_rust.answers("capture")
-    }
-
-    /// Whether something on the screen can say a capture is happening: the system layer of the client that answers `capture` is there.
+    /// The capture indicator must be handled by the connected native UI.
     fn screencap_indicator_ready(&self) -> bool {
-        if self.screencap_rust() { self.shell_rust.connected } else { self.shell.connected }
+        self.shell_rust.answers("capture") && self.shell_rust.connected
     }
 
-    /// Whether the shell says its recording dot is on the screen.
+    /// Whether the native UI says its recording dot is on the screen.
     pub(crate) fn screencap_dot_up(&self) -> bool {
-        let (connected, state) = if self.screencap_rust() { (self.shell_rust.connected, &self.shell_rust.ui_state) } else { (self.shell.connected, &self.shell.ui_state) };
-        connected && state.pointer("/capture/dot").and_then(Value::as_bool) == Some(true)
+        self.screencap_indicator_ready() && self.shell_rust.ui_state.pointer("/capture/dot").and_then(Value::as_bool) == Some(true)
     }
 
     fn screencap_gate(&self, settings: &Settings) -> Result<(), Reply> {
@@ -464,7 +457,7 @@ impl State {
             "recording": self.screencap.rec.is_some(),
             "recorder": rec,
             "encoder": {"path": factory.describe(), "available": factory.available()},
-            "shell": {"connected": self.screencap_indicator_ready(), "dot": self.screencap_dot_up(), "client": if self.screencap_rust() { "rust" } else { "qml" }},
+            "shell": {"connected": self.screencap_indicator_ready(), "dot": self.screencap_dot_up(), "client": "rust"},
             "settings": {
                 "maxBytes": settings.max_bytes, "maxRecordSeconds": settings.max_record_seconds,
                 "height": settings.record_height, "fps": settings.record_fps, "kbps": settings.record_kbps,
@@ -490,8 +483,7 @@ impl State {
     /// Pushes the `capture` topic when it changed (also from `shell_sync_topics`, so a client that connects late has it). Nothing is built
     /// while it has not: this runs wherever the scene changed, which is the frame path's neighbourhood.
     pub fn screencap_publish(&mut self) {
-        let rust = self.screencap_rust();
-        if !(self.shell.enabled() || self.shell.connected || rust) {
+        if !self.shell_rust.answers("capture") {
             return;
         }
         let key = (
@@ -502,17 +494,13 @@ impl State {
             self.screencap.last.as_ref().map_or(0, |l| l.at_ms),
         );
         // A client that connected since (the sync clears what was pushed) has not heard it, whatever the key says.
-        let told = if rust { self.shell_rust.topic("capture").is_some() } else { self.shell.topic("capture").is_some() };
+        let told = self.shell_rust.topic("capture").is_some();
         if self.screencap.published == Some(key) && told {
             return;
         }
         self.screencap.published = Some(key);
         let topic = self.screencap_topic();
-        if rust {
-            self.shell_rust.push_if_changed("capture", topic);
-        } else {
-            self.shell.push_if_changed("capture", topic);
-        }
+        self.shell_rust.push_if_changed("capture", topic);
     }
 
     /// Once per tick, after the frame: screenshots waiting for a frame, the recording's state and pictures, writers that finished.

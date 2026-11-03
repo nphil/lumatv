@@ -128,7 +128,7 @@ def run(steps=(), wait=4000, extra=(), lg=None, helper=None, kinds='settings', t
     threading.Thread(target=run_steps, daemon=True).start()
     cmd = [BIN, '--host', '--kinds', kinds, '--port', str(port), '--token-file', token_path, '--helper-port', str(helper.port),
            '--wait', str(wait), '--data-dir', data, '--shm', os.path.join(data, 'shm'), '--text-scale', str(text_scale), '--mode', mode,
-           '--module-dir', os.path.join(ROOT, 'payload', 'compositor', 'lumatv'), *extra]
+           '--module-dir', os.path.join(ROOT, 'compositor', 'assets', 'ui'), *extra]
     if theme is not None:
         cmd += ['--theme', json.dumps(theme)]
     env = dict(os.environ, LIBGL_ALWAYS_SOFTWARE='1')

@@ -7,6 +7,7 @@ check (SHA-256 of LG's binary and libraries against verified.list), the flag's s
 bundle's integrity, the supervisor's own answers and the Home hold at boot are in the classes after
 `Compositor`. The library runs under `set -u`, as it does inside tools/lumatv.
 """
+import fcntl
 import hashlib
 import json
 import os
@@ -18,6 +19,38 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 LIB = os.path.join(ROOT, "tools", "compositor.sh")
+
+class StorageGuard(unittest.TestCase):
+    def test_reserve_peak_and_unreadable_capacity(self):
+        with tempfile.TemporaryDirectory() as d:
+            source = os.path.join(d, "incoming")
+            os.mkdir(source)
+            with open(os.path.join(source, "data"), "wb") as f:
+                f.write(b"x" * 4096)
+            fake = os.path.join(d, "df")
+            with open(fake, "w") as f:
+                f.write('#!/bin/sh\n[ "$FAIL_DF" != "$1" ] || exit 1\n'
+                        'case "$1" in -Pk) echo "fs $BLOCK_TOTAL 1 $BLOCK_FREE 1% /";;'
+                        ' -Pi) echo "fs $INODE_TOTAL 1 $INODE_FREE 1% /";; esac\n')
+            os.chmod(fake, 0o755)
+            env = dict(os.environ, PATH=d + os.pathsep + os.environ["PATH"],
+                       BLOCK_TOTAL="1000000", BLOCK_FREE="200000",
+                       INODE_TOTAL="100000", INODE_FREE="20000", FAIL_DF="")
+            script = '. "$LIB"; storage_guard "$DEST" "$SOURCE"'
+            def run(**kw):
+                return subprocess.run(["sh", "-eu", "-c", script],
+                                      env=dict(env, LIB=LIB, DEST=d, SOURCE=source, **kw)).returncode
+            self.assertEqual(run(), 0)
+            self.assertNotEqual(run(BLOCK_FREE="100000"), 0)
+            self.assertNotEqual(run(INODE_FREE="10000"), 0)
+            self.assertNotEqual(run(FAIL_DF="-Pi"), 0)
+            self.assertNotEqual(run(BLOCK_TOTAL="bad"), 0)
+            self.assertNotEqual(run(BLOCK_FREE="1000001"), 0)
+            self.assertNotEqual(run(INODE_FREE="100001"), 0)
+            self.assertNotEqual(run(BLOCK_TOTAL="999999999999999999999999999999"), 0)
+            self.assertNotEqual(run(INODE_TOTAL="999999999999999999999999999999"), 0)
+            self.assertNotEqual(run(BLOCK_TOTAL="0008"), 0)
+
 
 MOUNT = '''#!/bin/sh
 # mount --bind SRC DST: records DST in the fake mount table
@@ -40,7 +73,7 @@ SM = '''#!/bin/sh
 echo "$*" >> "$FAKE/sm-args"
 case "$*" in
   *--print-fingerprint*) echo abcdef0123456789 ;;
-  *--would-run*)
+  *--would-run*|*--would-enable*)
     [ -e "$FAKE/sm-broken" ] && exit 127
     [ -e "$FAKE/sm-says" ] && { cat "$FAKE/sm-says"; exit 3; }
     echo run ;;
@@ -125,7 +158,7 @@ class Fixture(unittest.TestCase):
         st = os.stat(self.lg)
         self.put("lg-binary", f"{st.st_size} {int(st.st_mtime)}\n")
         self.put("enabled")
-        self.put("supervisor-api", "2\n")
+        self.put("supervisor-api", "3\n")
         lines = []
         for sub in ("bin", "lib"):
             for name in sorted(os.listdir(self.state(sub))):
@@ -146,6 +179,7 @@ class Fixture(unittest.TestCase):
                    'log_line() { echo "log: $1" >> "$FAKE/calls"; }\n'
                    'restart_surface() { echo restart >> "$FAKE/calls"; [ ! -e "$FAKE/restart-fails" ]; }\n'
                    'recover_home() { echo recover >> "$FAKE/calls"; }\n'
+                   'stock_ui_restore() { echo restore >> "$FAKE/calls"; }\n'
                    f'. {LIB}\n')
         r = subprocess.run(["sh", "-c", prelude + script], env=dict(self.env, **(env or {})), capture_output=True, text=True)
         return r.returncode, r.stdout.strip()
@@ -191,11 +225,9 @@ class Compositor(Fixture):
         os.remove(os.path.join(self.comp, "lg-binary"))
         self.assertEqual(self.sh("comp_boot_mount"), (0, "firmware"))
 
-    def test_boot_keeps_lgs_compositor_after_a_boot_that_never_completed(self):
-        pending = os.path.join(self.tmp.name, "pending")
-        open(pending, "w").close()
-        self.env["BOOT_PENDING"] = pending
-        self.assertEqual(self.sh("comp_boot_mount"), (0, "failsafe"))
+    def test_boot_keeps_lgs_compositor_when_stock_ui_is_held(self):
+        self.put("stock-ui-held")
+        self.assertEqual(self.sh("comp_boot_mount"), (0, "held"))
         self.assertFalse(self.mounted())
 
     def test_boot_never_fails_the_boot(self):
@@ -221,14 +253,14 @@ class Compositor(Fixture):
             f.write(f"1 2 0:3 / {self.lg}.old rw - overlay x rw\n1 2 0:3 / /mnt{self.lg} rw - overlay x rw\n")
         self.assertEqual(self.sh("comp_mounted && echo yes || echo no")[1], "no")
 
-    def test_on_mounts_clears_the_failure_state_restarts_and_recovers(self):
+    def test_on_mounts_and_clears_the_failure_state(self):
         open(os.path.join(self.comp, "escaped"), "w").close()
         open(os.path.join(self.comp, "last-fallback"), "w").write("hold-home")
         open(os.path.join(self.comp, "failures"), "w").write("2\n")
         rc, out = self.sh("comp_switch on")
         self.assertEqual((rc, out), (0, ""))
         self.assertTrue(self.mounted())
-        self.assertEqual(self.calls()[1:], ["restart", "recover"])
+        self.assertEqual(self.calls(), [f"mount {self.comp}/bin/lumatv-sm {self.lg}"])
         self.assertFalse(os.path.exists(os.path.join(self.comp, "escaped")))
         self.assertFalse(os.path.exists(os.path.join(self.comp, "last-fallback")))
         self.assertEqual(open(os.path.join(self.comp, "failures")).read().strip(), "0")
@@ -239,29 +271,30 @@ class Compositor(Fixture):
         with open(os.path.join(self.comp, "bin", "lumatv-sm"), "w") as f:
             f.write("#!/bin/sh\n")
         os.chmod(os.path.join(self.comp, "bin", "lumatv-sm"), 0o755)
-        os.mkdir(os.path.join(self.tmp.name, "recover.lock"))
-        self.assertEqual(self.sh("comp_switch on")[0], 3)
-        os.rmdir(os.path.join(self.tmp.name, "recover.lock"))
+        with open(os.path.join(self.tmp.name, "recover.lock"), "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertEqual(self.sh("comp_switch on")[0], 3)
         with open(self.lg, "w") as f:
             f.write("a different binary")
         self.assertEqual(self.sh("comp_switch on")[0], 4)
         self.assertFalse(self.mounted())
         self.assertNotIn("restart", self.calls())
 
-    def test_on_reports_a_unit_that_did_not_come_back(self):
-        open(os.path.join(self.tmp.name, "restart-fails"), "w").close()
+    def test_on_reports_mount_failure(self):
+        self.fake("mount-fails")
         rc, out = self.sh("comp_switch on")
         self.assertEqual(rc, 1)
-        self.assertIn("run 'off'", out)
+        self.assertEqual(out, "mount failed")
         self.assertNotIn("recover", self.calls())
 
-    def test_off_removes_the_flag_and_the_mount_and_brings_lgs_home_back(self):
+    def test_off_removes_the_flag_and_mount_and_restores_stock_ui(self):
         self.sh("comp_switch on")
         rc, out = self.sh("comp_switch off")
         self.assertEqual(rc, 0)
         self.assertFalse(self.mounted())
         self.assertFalse(os.path.exists(os.path.join(self.comp, "enabled")))
-        self.assertEqual(self.calls()[-2:], ["restart", "recover"])
+        self.assertEqual(self.calls()[-2:], [f"umount {self.lg}", "restore"])
+        self.assertTrue(os.path.exists(self.state("stock-ui-held")))
 
     def test_off_when_it_was_never_on_restarts_nothing(self):
         rc, out = self.sh("comp_switch off")
@@ -277,15 +310,21 @@ class Compositor(Fixture):
 
     def test_a_recovery_in_progress_is_seen(self):
         self.assertEqual(self.sh("comp_recovering && echo yes || echo no")[1], "no")
-        os.mkdir(os.path.join(self.tmp.name, "recover.lock"))
-        self.assertEqual(self.sh("comp_recovering && echo yes || echo no")[1], "yes")
+        with open(os.path.join(self.tmp.name, "recover.lock"), "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertEqual(self.sh("comp_recovering && echo yes || echo no")[1], "yes")
+        self.assertEqual(self.sh("comp_recovering && echo yes || echo no")[1], "no")
 
     def test_status_is_one_valid_json_object(self):
-        open(os.path.join(self.comp, "sm.log"), "w").write('12:00:00 said "hello"\\ there\n')
+        logs = os.path.join(self.tmp.name, "central")
+        os.mkdir(logs)
+        self.env["LUMATV_LOG_DIR"] = logs
+        open(os.path.join(logs, "current.log"), "w").write('<134>lumatv-sm: 12:00:00 said "hello"\\ there\n')
         open(os.path.join(self.comp, "last-fallback"), "w").write('a "quoted" reason\n')
         open(os.path.join(self.comp, "failures"), "w").write("1\n")
         j = json.loads(self.sh("comp_json")[1])
         self.assertEqual((j["bundle"], j["enabled"], j["mounted"], j["live"], j["lgBinary"], j["failures"]), (True, True, False, False, "same", 1))
+        self.assertEqual(j["smLog"], "12:00:00 said hello there")
         self.sh("comp_boot_mount")
         j = json.loads(self.sh("comp_json")[1])
         self.assertEqual((j["mounted"], j["lgBinary"]), (True, "mounted"))
@@ -518,23 +557,11 @@ class BootDecision(Fixture):
         self.assertIn("no supervisor-api", self.logged()[0])
         self.assertEqual([c for c in self.sm_calls() if "would-run" in c or "home-held" in c], [])
 
-    def test_home_held_at_boot_is_the_escape_and_is_recorded_as_one(self):
+    def test_supervisor_handles_home_hold_without_hook_query(self):
         self.fake("home-held")
-        self.assertEqual(self.boot("check"), (0, "home"))
-        self.assertFalse(os.path.exists(self.state("escaped")), "a check records nothing")
-        self.assertEqual(self.boot(), (0, "home"))
-        self.assertFalse(self.mounted())
-        with open(self.state("escaped")) as f:
-            self.assertEqual(f.read().strip(), "hold Home at boot")
-        # the supervisor refuses the next boot on that record, and the hook says so before it mounts anything
-        os.remove(os.path.join(self.tmp.name, "home-held"))
-        self.fake("sm-says", "no escaped: escape recorded; re-enable from the tool\n")
-        self.assertEqual(self.boot(), (0, "escaped"))
-
-    def test_home_is_asked_after_the_cheaper_questions(self):
-        self.fake("home-held")
-        self.fake("sm-broken")
-        self.assertEqual(self.boot(), (0, "broken"))
+        self.assertEqual(self.boot("check"), (0, "would-mount"))
+        self.assertEqual(self.boot(), (0, "mounted"))
+        self.assertFalse(os.path.exists(self.state("escaped")))
         self.assertEqual([c for c in self.sm_calls() if "home-held" in c], [])
 
     def test_a_damaged_bundle_is_not_mounted(self):
@@ -548,12 +575,12 @@ class BootDecision(Fixture):
         self.assertEqual(self.boot(), (0, "bundle"))
         self.assertIn("no bundle.manifest", self.logged()[0])
 
-    def test_a_boot_that_never_completed_outranks_every_other_answer(self):
+    def test_stock_ui_hold_outranks_firmware_refusal(self):
         with open(self.libs[0], "ab") as f:
             f.write(b"an update")
-        pending = os.path.join(self.tmp.name, "pending")
-        open(pending, "w").close()
-        self.assertEqual(self.sh("comp_boot_mount", env={"BOOT_PENDING": pending}), (0, "failsafe"))
+        self.put("stock-ui-held")
+        self.assertEqual(self.boot(), (0, "held"))
+        self.assertFalse(self.mounted())
 
     def test_a_check_mounts_nothing_and_says_what_a_boot_would_do(self):
         self.assertEqual(self.boot("check"), (0, "would-mount"))
@@ -589,7 +616,7 @@ class Switch(Fixture):
         rc, out = self.sh("comp_switch on")
         self.assertEqual(rc, 5)
         self.assertIn("unverified: ", out)
-        self.assertIn("verified.list", out)
+        self.assertIn(self.libs[0], out)
         self.assertFalse(self.mounted())
         self.assertNotIn("restart", self.calls())
 
@@ -624,50 +651,6 @@ class Switch(Fixture):
         self.assertFalse(os.path.exists(self.state("running")))
 
 
-def lumatv_function(name):
-    """One shell function of tools/lumatv, from its `name() {` line to the closing brace in column 0."""
-    out, on = [], False
-    with open(os.path.join(ROOT, "tools", "lumatv"), encoding="utf-8") as f:
-        for line in f:
-            if line.startswith(name + "() {"):
-                on = True
-            if on:
-                out.append(line)
-                if line.rstrip() == "}":
-                    return "".join(out)
-    raise AssertionError(name + " not found")
-
-
-class Revert(Fixture):
-    """`lumatv revert` (do_revert_internal) against the library's own comp_mounted and comp_release: with nothing else of
-    the tool on, the supervisor's mount is all there is to undo, and LG's compositor is back only if the unit restarts."""
-
-    def revert(self):
-        others = ("helper_stop", "capture_remove", "vplane_remove", "remove_env", "clear_qml_cache", "keyfilter_set",
-                  "remove_early_hook", "drain_umount", "revert_tile_icons", "home_back_after_restart", "disarm_restart_crashes")
-        stubs = "".join('%s() { echo %s >> "$FAKE/calls"; }\n' % (n, n) for n in others)
-        return self.sh("set +u\ncd \"$FAKE\"\n" + stubs + "homestub_drop() { HS_DROPPED=0; }\nis_mounted() { return 1; }\n"
-                       + lumatv_function("do_revert_internal") + 'do_revert_internal\necho "changed=$REVERT_CHANGED"')
-
-    def test_the_mount_alone_is_a_change_that_restarts_the_unit_and_recovers_home(self):
-        self.sh("comp_boot_mount")
-        self.assertTrue(self.mounted())
-        rc, out = self.revert()
-        self.assertEqual((rc, out), (0, "changed=1"))
-        self.assertFalse(self.mounted())
-        self.assertFalse(os.path.exists(self.state("enabled")))
-        c = self.calls()
-        self.assertEqual(c.count("restart"), 1, c)
-        self.assertLess(c.index("restart"), c.index("recover"))
-        self.assertNotIn("home_back_after_restart", c)             # the recovery launches Home itself, once
-
-    def test_a_set_that_was_already_on_lgs_compositor_is_not_restarted(self):
-        self.put("enabled")                                        # flag only: the supervisor fell back and unmounted
-        rc, out = self.revert()
-        self.assertEqual((rc, out), (0, "changed=0"))
-        self.assertFalse(os.path.exists(self.state("enabled")))
-        self.assertNotIn("restart", self.calls())
-        self.assertNotIn("recover", self.calls())
 
 
 if __name__ == "__main__":

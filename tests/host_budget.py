@@ -158,7 +158,7 @@ def run(surface, refresh=120, binary=BIN, reference=False):
     (ms, drawn px, rects, layers, floor px, CPU us, of it taking in commits us)."""
     data = tempfile.mkdtemp(prefix='hostbudget-')
     os.makedirs(os.path.join(data, 'theme'))
-    shutil.copy(os.path.join(ROOT, 'payload', 'wallpaper', 'wall_1080.png'), os.path.join(data, 'theme', 'wall_1080.png'))
+    shutil.copy(os.path.join(ROOT, 'compositor', 'assets', 'ui', 'wallpaper', 'wall_1080.png'), os.path.join(data, 'theme', 'wall_1080.png'))
     with open(os.path.join(ROOT, 'payload', 'theme', 'theme.json')) as f:
         theme = json.load(f)
     # the gate's `still`: the wallpaper's tick and the weather card's sprites off while a surface is measured
@@ -173,7 +173,7 @@ def run(surface, refresh=120, binary=BIN, reference=False):
              "plugin.home-assistant.cards": home.HOME_CARDS}
     cmd = [binary, '--host', '--virtual', '--refresh', str(refresh), '--kinds', 'osd,toast,home,settings,quick,picker,drawer,menu,confirm',
            '--data-dir', data, '--shm', os.path.join(data, 'shm'), '--wait', str(w.at + 500), '--log', log,
-           '--module-dir', os.path.join(ROOT, 'payload', 'compositor', 'lumatv'),
+           '--module-dir', os.path.join(ROOT, 'compositor', 'assets', 'ui'),
            '--push', '40:refresh:' + json.dumps({"hz": refresh}), '--push', '50:foreground:' + json.dumps(home.HOME),
            '--luna', '80:%d:%s' % (home.LP_TAG, json.dumps({"launchPoints": home.launch_points()}))]
     for topic, doc in feeds.items():

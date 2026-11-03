@@ -23,6 +23,7 @@ export XDG_RUNTIME_DIR=$D WAYLAND_DISPLAY=wayland-lumatv LUMATV_LOG=${LUMATV_LOG
 # The private loader sets up the blob's glibc; LG's /etc/ld.so.preload names a 32-bit libSegFault, which the
 # 64-bit loader skips with a warning (seen in X2 r8b).
 
+. "$D/compositor.sh"
 kill_ours() {
     pkill -f 'bin/lumatv-compositor' 2>/dev/null
     pkill -f 'bin/x2cli' 2>/dev/null
@@ -37,7 +38,7 @@ start_server() {
     ( $SRV --capture-dir $D/out/$name "$@" > $D/out/$name/server.log 2>&1 & )
     n=0
     while [ ! -S $D/wayland-lumatv ] && [ $n -lt 40 ]; do sleep 0.1; n=$((n+1)); done
-    [ -S $D/wayland-lumatv ] || { echo "$name: server did not open the socket"; sed -n 1,30p $D/out/$name/server.log; return 1; }
+    [ -S $D/wayland-lumatv ] || { echo "$name: server did not open the socket"; comp_current_log | head -30; return 1; }
 }
 
 # wait_server NAME SECONDS: wait for the server to exit on its own, then make sure it is gone
@@ -51,6 +52,7 @@ wait_server() {
 report() {
     name=$1; want=$2
     log=$D/out/$name/server.log
+    comp_current_log >> "$log"
     grep -E ' (warn|error) |egl:|check x2|window [0-9]+ mapped|client bound|create_buffer' $log | head -30
     summary=$(grep '^summary:' $log | tail -1)
     echo "$summary"

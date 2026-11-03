@@ -1,5 +1,5 @@
-/* The clip container the player reads (tools/vplane_clips.py writes it; its docstring has the byte layout) and the glyph atlas of the
- * corner clock. A clip is mapped, checked once, and then every access unit is a pointer and a length: nothing is parsed while it plays.
+/* The clip container the player reads (tools/vplane_clips.py provides format helpers) and the glyph atlas of the corner clock.
+ * A clip is mapped and checked once; every access unit is a pointer and a length, with no parsing during playback.
  */
 #ifndef VPL_VPC_H
 #define VPL_VPC_H
@@ -48,8 +48,8 @@ int vpg_open(vpg_t *g, const char *path, char *err, size_t cap);
 void vpg_close(vpg_t *g);
 const vpg_glyph *vpg_find(const vpg_t *g, uint32_t cp);
 
-/* A print's caption: coverage of its words as bitmap, placed on the screen where the QML puts the text; `split` columns of it are the artist's
- * name (drawn in the first ink), the rest is the other ink's. */
+/* A print's caption as a positioned coverage bitmap; `split` columns are the artist's name, drawn in the first ink,
+ * and the rest is drawn in the second ink. */
 typedef struct {
     void *map;
     size_t map_len;

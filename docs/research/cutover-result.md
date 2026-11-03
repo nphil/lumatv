@@ -2,8 +2,13 @@
 
 Watchdog, firmware check, hold-Home escape, the boot-time enable path and the frame gate of C4 (PLAN: "a watchdog and
 a boot-time firmware check switch back to it on any failure, and the hold-Home escape forces it. Gate: the X1 test with
-zero frames over 20 ms in 60 s"). Offline work, 2026-10-25; nothing here has run on the set. Facts marked
-[INFERENCE] were not observed.
+zero frames over 20 ms in 60 s"). The initial offline report below is historical; current installation evidence follows.
+
+## Current registration (2026-11-02)
+
+An isolated UI replacement left `bundle.manifest` at the previous UI size and prevented native startup after reboot. The unchanged canonical `disable/install/probe/enable` sequence re-registered a production-seeded bundle, preserving all current binaries, libraries, assets, tools and settings; each step exited zero. Rollback remains off-TV and temporary TV staging was removed. Native persistent/live, firmware verified, failures zero and the UI mapped inode were observed. A cold reboot was not performed.
+
+UI-only replacement does not refresh the bundle's boot-verification record. Reuse the canonical complete-bundle installer; never hand-edit the manifest. A healthy mounted compositor reports `compositor check` decision `already`, not `run`; acceptance must also check live state, firmware and failures.
 
 ## Resume here
 

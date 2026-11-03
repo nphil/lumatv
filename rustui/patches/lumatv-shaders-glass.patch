@@ -1,0 +1,83 @@
+--- a/shaders/glass.rs
++++ b/shaders/glass.rs
+@@ -120,6 +120,7 @@
+ uniform vec2 u_size;
+ uniform vec2 u_inv_panel;
+ uniform mediump vec4 u_tint;
++uniform mediump vec4 u_tint_bottom;
+ uniform mediump vec4 u_sheen;
+ uniform mediump vec2 u_sheen_k;
+ uniform mediump float u_opacity;
+@@ -137,12 +138,13 @@
+     if (u_sheen.x + u_sheen.y > 0.0) {
+         a = sheen_alpha(t);
+     }
++    mediump vec4 tint = mix(u_tint, u_tint_bottom, clamp(a_local.y / u_size.y, 0.0, 1.0));
+ #if BACKDROP
+-    v_colour = vec4((vec3(a) + (1.0 - a) * u_tint.rgb) * u_opacity, u_opacity);
++    v_colour = vec4((vec3(a) + (1.0 - a) * tint.rgb) * u_opacity, u_opacity);
+     // Where the backdrop picture, which covers the panel, is read, and how much of it shows.
+-    v_seen = vec3(a_panel * u_inv_panel, (1.0 - a) * (1.0 - u_tint.a) * u_opacity);
++    v_seen = vec3(a_panel * u_inv_panel, (1.0 - a) * (1.0 - tint.a) * u_opacity);
+ #else
+-    v_colour = (vec4(a) + (1.0 - a) * u_tint) * u_opacity;
++    v_colour = (vec4(a) + (1.0 - a) * tint) * u_opacity;
+ #endif
+     gl_Position = vec4(a_panel * u_ndc - 1.0, 0.0, 1.0);
+ }";
+@@ -208,11 +210,13 @@
+ uniform float u_pixel;
+ uniform mediump float u_opacity;
+ uniform mediump vec4 u_tint;
++uniform mediump vec4 u_tint_bottom;
+ uniform mediump vec4 u_edge;
+ uniform float u_edge_width;
+ uniform mediump vec4 u_highlight;
+ uniform mediump vec4 u_sheen;
+ uniform mediump vec2 u_sheen_k;
++uniform vec3 u_edge_lens;
+ #if BACKDROP
+ uniform sampler2D u_backdrop;
+ uniform mediump float u_saturation;
+@@ -244,26 +248,33 @@
+         return;
+     }
+ 
++    mediump vec4 tint = mix(u_tint, u_tint_bottom, clamp(v_local.y / u_size.y, 0.0, 1.0));
+ #if BACKDROP
+     vec2 uv = v_uv;
+ #if REFRACTION
+-    if (d > -u_bend.y) {
+-        // The distance field's gradient is the outward normal; the backdrop is read that far inside instead, more
+-        // the nearer the edge, so it looks bent by a lens.
++    if (d > -max(u_bend.y, u_edge_lens.x)) {
+         vec2 q = abs(p) - half_size + u_radius;
+         vec2 n = max(q.x, q.y) > 0.0 ? normalize(max(q, 0.0)) : (q.x > q.y ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
+         n *= sign(p);
+-        float bend = u_bend.x * (1.0 - smoothstep(0.0, u_bend.y, -d));
+-        uv -= (u_axes.xy * n.x + u_axes.zw * n.y) * bend * u_inv_panel;
++        vec2 axis = u_axes.xy * n.x + u_axes.zw * n.y;
++        if (u_edge_lens.x > 0.0) {
++            float t = clamp(1.0 + d / u_edge_lens.x, 0.0, 1.0);
++            uv += axis * (t * t * u_edge_lens.y) * u_inv_panel;
++        } else {
++            float bend = u_bend.x * (1.0 - smoothstep(0.0, u_bend.y, -d));
++            uv -= axis * bend * u_inv_panel;
++        }
+     }
+ #endif
+     mediump vec3 seen = texture(u_backdrop, uv).rgb;
+     if (u_saturation != 1.0) {
+         seen = mix(vec3(dot(seen, vec3(0.299, 0.587, 0.114))), seen, u_saturation);
+     }
+-    mediump vec4 c = vec4(u_tint.rgb + seen * (1.0 - u_tint.a), 1.0);
++    float clear_rim = u_edge_lens.x > 0.0 ? clamp(1.0 + d / u_edge_lens.x, 0.0, 1.0) * u_edge_lens.z : 0.0;
++    tint *= 1.0 - clear_rim;
++    mediump vec4 c = vec4(tint.rgb + seen * (1.0 - tint.a), 1.0);
+ #else
+-    mediump vec4 c = u_tint;
++    mediump vec4 c = tint;
+ #endif
+ 
+     if (u_sheen.x + u_sheen.y > 0.0) {
+

@@ -22,6 +22,7 @@ use lumatv_wl_protocols::input_method::server::{input_method::InputMethod, input
 use lumatv_wl_protocols::mali_buffer_sharing::server::mali_buffer_sharing::MaliBufferSharing;
 use lumatv_wl_protocols::starfish::server::{wl_starfish_output::WlStarfishOutput, wl_starfish_pointer::WlStarfishPointer};
 use lumatv_wl_protocols::text::server::text_model_factory::TextModelFactory;
+use lumatv_wl_protocols::lumatv_subtitles_v1::server::lumatv_subtitle_manager_v1::LumatvSubtitleManagerV1;
 use lumatv_wl_protocols::webos_extension::server::wl_webos_xinput_extension::WlWebosXinputExtension;
 use lumatv_wl_protocols::webos_foreign::server::wl_webos_foreign::WlWebosForeign;
 use lumatv_wl_protocols::webos_input_manager::server::wl_webos_input_manager::WlWebosInputManager;
@@ -39,6 +40,31 @@ use crate::output::{Output, Presented};
 use crate::render::gl::BufferPath;
 use crate::scene::Scene;
 use crate::surface::{SurfaceId, Surfaces};
+
+// The fallback is the same panel-space band as placement::model::SUBS.
+fn caption_exclusion(report: Option<Option<crate::Rect>>, eligible_app: bool) -> Option<crate::Rect> {
+    match report {
+        Some(rect) => rect,
+        None if eligible_app => Some(crate::Rect::new(0, 905, crate::OUTPUT_WIDTH as i32, 105)),
+        None => None,
+    }
+}
+
+#[cfg(test)]
+mod caption_exclusion_tests {
+    use super::caption_exclusion;
+    use crate::Rect;
+
+    #[test]
+    fn known_empty_and_bounds_override_the_unknown_app_fallback() {
+        let rect = Rect::new(20, 840, 1000, 120);
+        assert_eq!(caption_exclusion(Some(Some(rect)), true), Some(rect));
+        assert_eq!(caption_exclusion(Some(Some(rect)), false), Some(rect));
+        assert_eq!(caption_exclusion(Some(None), true), None);
+        assert_eq!(caption_exclusion(None, true), Some(Rect::new(0, 905, 1920, 105)));
+        assert_eq!(caption_exclusion(None, false), None);
+    }
+}
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct Stats {
@@ -133,8 +159,7 @@ pub struct CheckState {
     pub unread: u64,
 }
 
-/// When a client's frame callbacks go out (`ctl callbacks clients commit|early|landing`); the shell client has its own switch
-/// ([`State::shell_ahead`]).
+/// When a client's frame callbacks go out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClientCallbacks {
     /// A card's with the commit that carries them, before the frame is drawn; every other window's as under [`Self::Draw`].
@@ -204,6 +229,7 @@ struct Owed {
 pub struct State {
     pub dh: DisplayHandle,
     pub config: Config,
+    pub refresh_policy: crate::refresh::Policy,
     pub surfaces: Surfaces,
     pub scene: Scene,
     pub output: Box<dyn Output>,
@@ -213,8 +239,6 @@ pub struct State {
     pub luna_state: crate::luna_methods::LunaState,
     pub keys: crate::input::Keys,
     pub ime: super::ime::ImeState,
-    /// The shell client and its UI channel (`shell.rs`).
-    pub shell: crate::shell::Shell,
     /// The Rust shell client (`shell_rust.rs`): the kinds it answers, its channel and its supervision.
     pub shell_rust: crate::shell_rust::RustShell,
     /// The app switcher (`switcher.rs`).
@@ -227,6 +251,8 @@ pub struct State {
     /// Recent protocol-level events worth showing on the control socket (bounded).
     pub journal: Vec<String>,
     pub should_exit: bool,
+    /// A fatal runtime failure requires the supervisor to restore stock.
+    pub fatal_error: Option<String>,
     pub last_capture: Option<PathBuf>,
     /// Captured frames are encoded and written on its thread.
     pub pngs: capture::Writer,
@@ -235,9 +261,6 @@ pub struct State {
     /// The `wl_webos_shell_surface` of each window that has one.
     pub webos_shells: HashMap<crate::window::WindowId, lumatv_wl_protocols::webos_shell::server::wl_webos_shell_surface::WlWebosShellSurface>,
     pub started: Instant,
-    /// Whether the shell client's frame callbacks go out ahead of their flip ([`Owed::ahead`]); `ctl callbacks shell landing` turns it
-    /// off, at the flip, for an A/B on the set.
-    pub shell_ahead: bool,
     /// When every other client's frame callbacks go out ([`ClientCallbacks`]): at the commit, a frame ahead of the flip with the
     /// buffers its frame replaced, or at the flip with the buffers given back at the draw.
     pub client_callbacks: ClientCallbacks,
@@ -287,9 +310,11 @@ impl State {
         scene.care = crate::oledcare::Care::new(&config.data_dir);
         let motion = crate::transition::ThemeSwitch::new(&config.data_dir);
         let panel_dir = config.data_dir.clone();
+        let refresh_policy = crate::refresh::Policy::new(config.refresh_hz);
         State {
             dh,
             config,
+            refresh_policy,
             surfaces: Surfaces::default(),
             scene,
             output,
@@ -300,7 +325,6 @@ impl State {
             luna_state: crate::luna_methods::LunaState::default(),
             keys,
             ime: super::ime::ImeState::default(),
-            shell: crate::shell::Shell::default(),
             shell_rust: crate::shell_rust::RustShell::default(),
             switcher: crate::switcher::Switcher::default(),
             motion,
@@ -309,12 +333,12 @@ impl State {
             clients: HashMap::new(),
             journal: Vec::new(),
             should_exit: false,
+            fatal_error: None,
             last_capture: None,
             pngs: capture::Writer::default(),
             screencap: crate::screencap::Screencap::default(),
             webos_shells: HashMap::new(),
             started: Instant::now(),
-            shell_ahead: true,
             client_callbacks: ClientCallbacks::Commit,
             ui_socket_new: false,
             serial: 0,
@@ -364,6 +388,7 @@ impl State {
         }
         dh.create_global::<State, WlStarfishPointer, ()>(1, ());
         dh.create_global::<State, WlStarfishOutput, ()>(1, ());
+        dh.create_global::<State, LumatvSubtitleManagerV1, ()>(1, ());
     }
 
     /// One more `wl_seat` global, for an input device (`create_globals` made seat 0); returns its id, which the
@@ -442,6 +467,7 @@ impl State {
         let client = self.seat.surfaces.get(&id).and_then(|s| s.client()).map(|c| c.id());
         let buffer = self.surfaces.get(id).and_then(|s| s.current.buffer.as_ref()).map_or(0, |b| b.id().protocol_id());
         self.trace_client(client, "commit", buffer, false);
+        let mut mapping_changed = false;
         for (sid, eff) in effects {
             if eff.new_buffer
                 && let Some(s) = self.surfaces.get(sid)
@@ -449,11 +475,18 @@ impl State {
             {
                 log::warn!("surface {} committed a buffer of unknown size", sid.0);
             }
+            if eff.mapped_changed.is_some() || eff.geometry_changed {
+                self.scene.invalidate_video_holes_for_surface(sid, &self.surfaces);
+                mapping_changed = true;
+            }
             if let Some(mapped) = eff.mapped_changed {
+                let card = self.scene.window_of(sid).and_then(|id| self.scene.window(id)).is_some_and(|w| w.kind.is_card() && !w.in_group && w.state != crate::window::ShellState::Minimized);
+                let was_front = !mapped && card && self.scene.windows().filter(|w| w.kind.is_card() && !w.in_group && w.front > 0 && w.state != crate::window::ShellState::Minimized && (w.map_serial == 0 || w.surface == sid || self.surfaces.get(w.surface).is_some_and(|s| s.is_mapped()))).max_by_key(|w| w.front).is_some_and(|w| w.surface == sid);
+                if card && (mapped || was_front) { self.scene.invalidate_planned_video_holes(); }
                 self.scene.set_mapped(sid, mapped);
                 if let Some(wid) = self.scene.window_of(sid) {
                     let w = self.scene.window(wid).unwrap();
-                    let is_card = w.kind.is_card();
+                    let (is_card, is_saver) = (w.kind.is_card(), w.kind == crate::window::WindowType::Screensaver);
                     let line = format!(
                         "window {} {} ({:?} app {:?} title {:?} size {:?})",
                         wid.0,
@@ -468,6 +501,8 @@ impl State {
                         super::webos_shell::on_mapped(self, wid);
                     } else if is_card {
                         super::webos_shell::on_card_gone(self);
+                    } else if is_saver {
+                        super::webos_shell::sync_exposed(self);
                     }
                     super::seat::refocus(self);
                 }
@@ -479,7 +514,6 @@ impl State {
             if eff.new_buffer {
                 if let Some(w) = self.scene.window_of(sid).and_then(|w| self.scene.window_mut(w)) {
                     w.commits += 1;
-                    w.last_commit_ns = crate::output::monotonic_ns();
                 }
                 self.note_cadence(sid);
                 // The buffer's first-use costs are paid here, in the clients' pass, not in the frame that first
@@ -499,6 +533,9 @@ impl State {
                     self.fire_callbacks(callbacks, crate::output::monotonic_ms(), "callbacks-at-commit");
                 }
             }
+        }
+        if mapping_changed {
+            self.luna_notify();
         }
         // A window that commits but never attaches a buffer never maps (HDMI 2 on the 2026-10-25 gate: created,
         // fullscreen, exported, never mapped); the first such commit is journalled once per window.
@@ -564,12 +601,17 @@ impl State {
         }
         self.destroy_callbacks(gone);
         let was_card = self.scene.window_of(id).and_then(|wid| self.scene.window(wid)).is_some_and(|w| w.kind.is_card());
+        let was_saver = self.scene.window_of(id).and_then(|wid| self.scene.window(wid)).is_some_and(|w| w.kind == crate::window::WindowType::Screensaver);
         self.scene.remove_surface(id);
         super::ime::surface_gone(self, id);
         self.cadence.remove(&id);
         self.foreign.surface_destroyed(id);
         if was_card {
             super::webos_shell::on_card_gone(self);
+        }
+        if was_saver { self.luna_notify(); }
+        if !was_card {
+            self.shell_rust_sync_topics();
         }
         super::seat::refocus(self);
     }
@@ -612,6 +654,7 @@ impl State {
         } else {
             None
         };
+        let home_before_plan = self.shell_home_drawn();
         self.switcher_frame(t0);
         self.scene.transitions.suspended = self.switcher_active();
         // The screen is off (standby): nothing is mid-move when it comes back.
@@ -620,12 +663,11 @@ impl State {
         }
         self.panel.settings = self.scene.care.settings.paneldim;
         self.panel.set_bridge(self.luna.is_connected());
-        let State { scene, surfaces, output, stats, shell, shell_rust, screencap, panel, .. } = self;
+        let State { scene, surfaces, output, stats, shell_rust, screencap, panel, .. } = self;
         scene.care.refresh(now_ns);
         // while the panel is the one dimming Home, Home is drawn at full brightness (and may go to the plane whole)
-        scene.care.panel_carry = panel.carries();
-        // the saver is up when the client that answers it says so (the QML shell's, or the Rust shell's once `saver` is on its list)
-        scene.care.saver = [&shell.ui_state, &shell_rust.ui_state].iter().any(|s| s.get("saver").and_then(serde_json::Value::as_bool) == Some(true));
+        scene.care.panel_carry = panel.carries() || panel.dimmed();
+        scene.care.saver = shell_rust.ui_state.get("saver").and_then(serde_json::Value::as_bool) == Some(true);
         scene.boxdim.capturing = screencap.armed();
         // A box dim sample the GPU has finished (`boxdim`): judged before this plan, so what it saw changed is in this frame.
         if scene.boxdim.in_flight() {
@@ -639,7 +681,22 @@ impl State {
                 }
             }
         }
-        let plan = scene.plan_at(surfaces, now_ns);
+        scene.plan_at(surfaces, now_ns);
+        let eligible_app = scene.foreground(surfaces).is_some_and(|front| {
+            front.app_id() != crate::scene::HOME_APP
+                && scene.last_plan().items.iter().any(|item| item.window == front.id && !item.ghost)
+        });
+        let report = scene.subtitle_bounds(surfaces);
+        let exclusion = caption_exclusion(report.map(|(_, _, rect)| rect), eligible_app);
+        output.ui_set_exclusion(exclusion);
+        let root = report.and_then(|(_, root, _)| match scene.last_plan().items.as_slice() {
+            [item] if item.surface == root && !item.ghost && item.pose.is_none() && !item.xform
+                && item.drift == (0, 0)
+                && item.rect == crate::Rect::new(0, 0, crate::OUTPUT_WIDTH as i32, crate::OUTPUT_HEIGHT as i32) => Some(root),
+            _ => None,
+        });
+        output.ui_set_standin_root(root);
+        let plan = scene.last_plan();
         let mut drew = false;
         let ui_changed = output.ui_needs_frame().unwrap_or_else(|e| {
             log::error!("system UI: {e}");
@@ -711,17 +768,10 @@ impl State {
             self.stats.frames_drawn += 1;
             self.after_drawn_frame();
         }
-        let State { scene, surfaces, shell_ahead, client_callbacks, .. } = &mut *self;
-        let is_shell = |id: SurfaceId| scene.window_of(id).and_then(|w| scene.window(w)).is_some_and(|w| w.kind.is_shell());
-        let early = |id: SurfaceId| if is_shell(id) { *shell_ahead } else { *client_callbacks != ClientCallbacks::Landing };
-        let (callbacks, ahead) = surfaces.take_frame_callbacks(early);
-        // The buffers the commits replaced: given back now when the callbacks wait for the flip, with the early callbacks, or when
-        // the frame lands (the shell's).
-        let [retired, ahead_buffers, buffers] = surfaces.take_retired(|id| match (early(id), is_shell(id)) {
-            (false, _) => 0,
-            (true, false) => 1,
-            (true, true) => 2,
-        });
+        let State { surfaces, client_callbacks, .. } = &mut *self;
+        let early = *client_callbacks != ClientCallbacks::Landing;
+        let (callbacks, ahead) = surfaces.take_frame_callbacks(|_| early);
+        let [retired, ahead_buffers, buffers] = surfaces.take_retired(|_| usize::from(early));
         self.route_callbacks(Owed { callbacks, ahead, ahead_buffers, buffers }, presented);
         let t_callbacks = Instant::now();
         // What clients let go of: released now, or kept while the display still reads it.
@@ -733,9 +783,12 @@ impl State {
         self.release_displayed();
         self.surfaces.clear_damage();
         let t_released = Instant::now();
-        if drew {
+        if home_before_plan != self.shell_home_drawn() {
             self.luna_notify();
+        } else {
+            self.shell_rust_sync_video();
         }
+        self.shell_rust_sync_subtitle_bounds();
         self.screencap_tick(drew);
         if let Some(n) = self.config.frames
             && self.stats.frames_drawn >= n
@@ -1106,7 +1159,6 @@ impl State {
             })
         });
         v["tap"] = self.tap.status().report();
-        v["shellEnv"] = self.config.scanout_shell_env.iter().map(|(k, val)| format!("{k}={val}")).collect::<Vec<_>>().into();
         if let Some(p) = &self.probe {
             v["probe"] = p.report();
         }

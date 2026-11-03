@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<rx>
+<cmd>
+<name>GetAudyssey</name>
+<list>
+<param name="dynamiceq" control="2">1</param>
+<param name="reflevoffset" control="2">0</param>
+<param name="dynamicvol" control="2">0</param>
+<param name="multeq" control="2">3</param>
+</list>
+</cmd>
+</rx>

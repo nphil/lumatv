@@ -1,7 +1,5 @@
-//! The engine's programs and an attach that must not hold the loop (feature `ui`, Mesa's software GL). The set's Mali takes 1.3 s to link
-//! the engine's programs, and round 18's loop, which linked them when `ctl shell rust +kind` attached an engine, answered nothing for
-//! that long and lost the supervisor's heartbeat. A stand-in for the driver's time (`LUMATV_COMPILE_DELAY_MS`: each program a renderer
-//! links itself takes that much longer) tells what the loop's thread links from what another thread does.
+//! Native engine programs must link off the loop thread at startup and restart. The set's Mali takes 1.3 s to link them.
+//! `LUMATV_COMPILE_DELAY_MS` simulates that delay for each program linked by a renderer.
 #![cfg(feature = "ui")]
 
 use lumatv_compositor::output::Output;

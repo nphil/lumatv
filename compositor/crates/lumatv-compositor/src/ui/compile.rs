@@ -1,10 +1,8 @@
 //! The engine's shader programs, linked off the loop thread.
 //!
-//! A client's engine attaches while the compositor runs (`ctl shell rust +kind`, a client that restarts), on the loop thread, and the
-//! renderer links 48 programs: the set's Mali took 1.3 s for them (round 17) and 1.5 s on round 18's fresh session, during which the loop
-//! answered nothing and the supervisor's heartbeat (a ping every 500 ms, two unanswered) put LG's compositor back. So the programs are
-//! linked here, on a thread of its own with a context that shares the loop's, before the engine attaches; the attach then takes them
-//! from `lumatv_render::programs::Cache` and links nothing (`Gl::attach_ui_when_ready`).
+//! The native engine attaches on the loop thread at startup and on client restart. Linking its 48 programs there would block the loop:
+//! the set's Mali took 1.3–1.5 s. They are linked on a separate shared context first, then the attach takes them from
+//! `lumatv_render::programs::Cache` and links nothing (`Gl::attach_ui_when_ready`).
 //!
 //! Sharing is what lets a program made in one context be drawn with in another: programs, shaders, textures and buffers are objects of
 //! the share group, where framebuffers and vertex arrays are the context's own, which is why a whole renderer cannot be made here and

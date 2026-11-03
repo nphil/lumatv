@@ -898,7 +898,6 @@ impl crate::State {
             let window = self.scene.window_of(e.surface).and_then(|id| self.scene.window(id));
             match window.map(|w| w.kind) {
                 Some(WindowType::VideoWindow) => ours.extend(e.contexts.iter().map(String::as_str)),
-                Some(WindowType::ShellHome | WindowType::ShellSystem) => {}
                 Some(WindowType::Wallpaper) => {
                     ours.extend(e.contexts.iter().map(String::as_str));
                     if !e.contexts.is_empty() {
@@ -942,7 +941,7 @@ impl crate::State {
                 .map(|e| {
                     let window = self.scene.window_of(e.surface).and_then(|id| self.scene.window(id));
                     let playing = !e.contexts.is_empty();
-                    let ours = window.is_some_and(|w| matches!(w.kind, WindowType::VideoWindow | WindowType::Wallpaper | WindowType::ShellHome | WindowType::ShellSystem));
+                    let ours = window.is_some_and(|w| matches!(w.kind, WindowType::VideoWindow | WindowType::Wallpaper));
                     json!({
                         "window": e.window_id,
                         "app": window.map_or("", |w| w.app_id()),

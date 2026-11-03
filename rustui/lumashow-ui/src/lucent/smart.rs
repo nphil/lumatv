@@ -463,33 +463,30 @@ fn rest_glass(
         ),
     };
     let lip_raised = recipe.lip == Lip::Raised || lifted;
-    Glass {
-        corner_radius: recipe.radius,
-        tint,
-        edge,
-        edge_width,
-        highlight: match recipe.lip {
-            Lip::None => Rgba(0, 0, 0, 0),
-            _ if lip_raised => f.highlight_raised,
-            _ => f.highlight_rest,
-        },
-        sheen: recipe.sheen.then_some(f.sheen),
-        shadows: shadows_of(recipe.cast, f),
-        depth: depth_of(recipe.pair, f),
-        backdrop: if recipe.cached {
-            match tier {
-                MaterialTier::T2 => Backdrop::Live {
-                    radius: radius_of_blur(f),
-                    downsample: 8,
-                },
-                _ => f.cached_backdrop,
-            }
-        } else {
-            FieldTokens::NO_BACKDROP
-        },
-        saturation: f.saturation,
-        refraction: 0.0,
-    }
+    Glass { corner_radius: recipe.radius,
+    tint,
+    edge,
+    edge_width,
+    highlight: match recipe.lip {
+        Lip::None => Rgba(0, 0, 0, 0),
+        _ if lip_raised => f.highlight_raised,
+        _ => f.highlight_rest,
+    },
+    sheen: recipe.sheen.then_some(f.sheen),
+    shadows: shadows_of(recipe.cast, f),
+    depth: depth_of(recipe.pair, f),
+    backdrop: if recipe.cached {
+        match tier {
+            MaterialTier::T2 => Backdrop::Live {
+                radius: radius_of_blur(f),
+                downsample: 8,
+            },
+            _ => f.cached_backdrop,
+        }
+    } else {
+        FieldTokens::NO_BACKDROP
+    },
+    saturation: f.saturation, refraction: 0.0, edge_lens: None, tint_gradient: None, }
 }
 
 fn radius_of_blur(f: &FieldTokens) -> f32 {

@@ -103,9 +103,11 @@ fn prepare(server: &Server, data: &Path, with_fake: bool) -> Arc<Mutex<Seen>> {
 fn shell(server: &Server, connected: bool, dot: bool) {
     server.eval(move |s| {
         if connected {
-            s.shell_handle(Msg::Connected);
+            s.shell_rust.kinds = vec!["capture".into()];
+            s.shell_rust_open(0, "test".into()).unwrap();
+            s.shell_rust_handle(Msg::Connected);
         }
-        s.shell_handle(Msg::Ui { can: None, wants: None, live: None, state: Some(json!({"capture": {"dot": dot}})) });
+        s.shell_rust_handle(Msg::Ui { can: Some(vec!["capture".into()]), wants: None, live: None, state: Some(json!({"capture": {"dot": dot}})) });
     });
 }
 
@@ -242,7 +244,7 @@ fn a_screenshot_is_a_png_of_the_composed_picture_and_the_hole_for_video_is_black
     assert_eq!(at(960, 1040), [128, 128, 128], "premultiplied pixels are composited over black");
 
     // The shell is told: a counter its toast follows, and what the last capture was.
-    let topic = server.eval(|s| s.shell.topic("capture").cloned()).expect("the capture topic");
+    let topic = server.eval(|s| s.shell_rust.topic("capture").cloned()).expect("the capture topic");
     assert_eq!(
         (topic["recording"].clone(), topic["n"].clone(), topic["last"]["kind"].clone(), topic["last"]["name"].clone()),
         (json!(false), json!(1), json!("shot"), json!(name))
@@ -293,7 +295,7 @@ fn a_recording_runs_through_the_encoder_into_a_playable_file_while_the_dot_is_up
         let reply = start(&server, "screencap record start");
         move || answer(reply)
     });
-    assert!(wait_for(WAIT, || server.eval(|s| s.shell.topic("capture").cloned()).is_some_and(|t| t["recording"] == true)), "the topic asks for the dot");
+    assert!(wait_for(WAIT, || server.eval(|s| s.shell_rust.topic("capture").cloned()).is_some_and(|t| t["recording"] == true)), "the topic asks for the dot");
     std::thread::sleep(Duration::from_millis(100));
     assert!(!waiting.is_finished(), "not started before the dot is confirmed");
     shell(&server, false, true);
@@ -335,7 +337,7 @@ fn a_recording_runs_through_the_encoder_into_a_playable_file_while_the_dot_is_up
     assert!(s.lumas[..first_green].iter().all(|&l| (61..=65).contains(&l)), "all red before the first green: {:?}", s.lumas);
     drop(s);
 
-    let topic = server.eval(|s| s.shell.topic("capture").cloned()).unwrap();
+    let topic = server.eval(|s| s.shell_rust.topic("capture").cloned()).unwrap();
     assert_eq!((topic["recording"].clone(), topic["last"]["kind"].clone(), topic["last"]["ok"].clone()), (json!(false), json!("recording"), json!(true)));
     assert_eq!(ask(&server, "screencap record stop")["code"], "not-recording");
     let _ = std::fs::remove_dir_all(&data);
@@ -354,7 +356,7 @@ fn a_recording_does_not_start_without_the_dot_and_says_so() {
     assert!(a["error"].as_str().unwrap().contains("dot"), "{a}");
     assert!(wait_for(WAIT, || !server.eval(|s| s.screencap_status()["recording"].as_bool().unwrap())), "the recording is gone");
     assert!(seen.lock().closed, "the encoder was given back");
-    let topic = server.eval(|s| s.shell.topic("capture").cloned()).unwrap();
+    let topic = server.eval(|s| s.shell_rust.topic("capture").cloned()).unwrap();
     assert_eq!(topic["recording"], false, "the dot is taken down again");
     assert_eq!(std::fs::read_dir(data.join("captures")).map_or(0, |d| d.count()), 0, "and no file is left");
     let _ = std::fs::remove_dir_all(&data);

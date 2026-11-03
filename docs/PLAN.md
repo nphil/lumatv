@@ -29,6 +29,31 @@ Open: an unexplained reboot during the camera full view over YouTube (round 26; 
 are off until it is understood); HDMI picture-in-picture on SUB0; the focus-dim cost of
 Home's widgets at 120 Hz.
 
+Completed after the wake fix (owner priority, 2026-10-31):
+the existing custom keyboard passed actual-TV checks in Marquee’s Bazarr address
+and API-key fields and in LG Search. Keyboard luma remains enabled. Both
+keyboard tasks are complete; FPS and latency were not benchmarked.
+
+
+
+UI backlog (2026-10-31): the approved compact toast, single-toast replacement,
+transient-notification separation and original audio-format glyph layout are
+implemented and host-native tested, but not installed or accepted on the TV.
+Toast placement remains adjustable under Settings > Home & look > Layout of
+pop-ups; no separate padding control was added. Details and evidence are in
+`docs/research/rust-shell-core-result.md`.
+
+Foreground Marquee pacing: the narrow automatic 120 policy is built, host-verified and independently reviewed, but not installed or accepted on the TV. Separate owner authorization for compositor/platform maintenance is required before the TV policy gate and six-second Marquee UI recheck. Manual numeric refresh remains pinned until `ctl refresh auto`; the startup Home base defaults to 60. LG owns panel cadence; the compositor setting does not force a 120 Hz panel.
+
+R2 request179715b6-e14a-4347-af5f-08b3ccfbcb0b was approved then failed pre-mutation, changefb6f79b1-4d44-46d0-8e1b-637f70652148; original permission consumed. TV lease remains RELEASED for human use. The parent’s unused corrected-request permission is caller-owned, nontransferable and does not automatically cover R4. No request, TV action or installation here.
+
+Native screensaver activation (2026-11-02): core `bc5a069b` installed; automatic approximately180-second LG clock over idle Marquee’s profile screen, stable visibility, ordinary-key return and final Active Standby/owned release accepted. Actual images and receipt: `/data/home/tmp/lumatv-saver-idle-20261102/wake/visual-final/`. Home180-second/key dismissal had prior TV acceptance. UI0a/helper94/SM and protected integrations preserved; no app or receiver change. Earlier594/2904/7351 attempts are partial, not the final baseline. Broader paused/playing/all-app and resource audit remains the separate follow-up below.
+
+Screensaver follow-up (2026-11-02): properly vet the complete automatic-activation fix and assess improvements across idle detection, paused/playing apps, wake/standby, failure recovery and resource use. This covers the whole fix, not only the timer. Preserve LG media vetoes rather than registering a blanket app-level refusal. Two unrelated old native host checks also need maintenance: Home topic whole-payload equality and the retired LG Settings fallback expectation; their failures were not treated as saver regressions.
+
+Dispatcher recognition and single-pin R3 review remain complete; frozen R3 rejects the captured native LG argv/LD settings and retained HDMI2 resources despite matching6 dispatch/35 renderer references. Direct Fix it offline authorized separate R4 only: local review, real-capture guard checks and pinned-loader emulation passed; R4 receipt/pins are in HANDOFF.md. New runtime preload/identity evidence and actual-TV acceptance remain unobserved. Occupied background HDMI may be interrupted and cannot be called idle. R2/R3 and renderer/R8 payloads remain unchanged; no enclosing wake-maintenance replay.
+
+
 Display hardware work follows `docs/research/display-chip-direct.md`: use measured
 driver-exposed paths before raw-register experiments. The OSD0_1 AFBC probe showed no
 extra layer; the linear rerun needs Nitin present. Strongest-role investigation resumes
@@ -298,17 +323,26 @@ Before building:
 3. Volume keys still go to the receiver through HDMI-CEC as today. LG's own volume and mute popup never opens: `build_shadow`
    patches it out of the shadow module in the same restart that brings the display (`docs/research/volume-osd-result.md`).
 
-Receiver controls in Settings › Sound › Receiver, shown only while the AVR is
-reachable, with the same reach as Home Assistant's Denon integration: power,
-input (the receiver's own source names: Apple TV, Bluetooth, HEOS Music,
-MAGNAVOX 4K BD, PS4, TV Audio), sound mode (MOVIE, MUSIC, GAME, DIRECT, PURE
-DIRECT, STEREO, DOLBY DIGITAL, DTS SURROUND, AURO3D, MCH STEREO, and the DSP
-styles under More), Audyssey (Dynamic EQ, Dynamic Volume, MultEQ), dialog
-and subwoofer levels, bass and treble, Cinema EQ, ECO mode, Quick Select 1-4
-and Zone 2. A receiver tile in the quick panel shows input, sound mode and
-volume. Every command is the receiver's own (`SI`, `MS`, `PS`, `MV`...);
-values are read back after each change, and any value older than 6 s
-without an answer is hidden rather than shown.
+The recorded AVR-S760H has no documented master-volume step-size setting. Its
+[Audio > Volume manual](https://manuals.denon.com/avrs760h/NA/EN/GFNFSYwrfimgdw.php)
+offers Scale, Limit, Power On Level and Mute Level; Scale changes absolute versus
+relative display units, not half-unit increments. The native popup and read-only
+Sound volume row preserve the actual half-unit level. Quick Settings already uses
+the helper’s decimal `volumeText`; integer TV-only levels remain unchanged.
+
+Settings › Sound › Receiver uses individual, model- and readback-qualified
+controls over the existing helper connection. Missing evidence stays unknown;
+conditional controls remain disabled when their current prerequisites are not
+met. Stereo and Direct are the only advertised sound-mode choices, and only for
+the identified AVR-S760H with a fresh recognized signal. Global subwoofer level
+remains unavailable until its protocol mapping is qualified. Zone 2 has its own
+source choices and reported volume limit, independent of the main zone.
+
+The helper accepts one typed setting write at a time and reports it applied only
+after matching receiver readback on the same session. The native UI and helper
+are built; deployment and acceptance of these controls on the TV and receiver
+remain pending. The local fake-receiver smoke covers applied and failed readback,
+disconnect without retry, and rejection of an old session.
 
 ## Native helper
 

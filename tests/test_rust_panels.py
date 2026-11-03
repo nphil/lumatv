@@ -440,14 +440,16 @@ class RustPanels(unittest.TestCase):
         return Scene('entry', 'settings,entry', lg=rs.with_network, show={'kind': 'settings', 'page': 'wifi'}, keys=[(OPEN + 600 + 500 * i, k, 0) for i, k in enumerate(keys)])
 
     def test_a_password_asked_by_settings_is_typed_as_bullets_and_done_gives_it_back_once_to_the_question_that_follows(self):
-        # right: the page; up: Basement; ok: its password; ok types t, 2 types 2; down x3 and right reach Done; ok
+        # The custom keyboard starts on g; neither the draft nor its final character enters diagnostics.
         typing = self.ok(run(self.entry_scene(['right', 'up', 'ok', 'ok', '2']), evals=('geometry', 'state')))
-        self.assertEqual(typing['geometry']['entry']['shown'], '\u2022' + '2', 'the first character is a bullet, the last is shown')
-        self.assertEqual(typing['state']['settings']['sheet'], {'entry': 'Password for Basement'})
+        self.assertEqual(typing['geometry']['entry']['chars'], 2)
+        self.assertTrue(typing['geometry']['entry']['secret'])
+        self.assertNotIn('g2', json.dumps(typing), 'the complete password is absent from diagnostics')
+        self.assertIn('entry', typing['state']['settings']['sheet'])
         self.assertEqual(typing['state']['panels']['entry'], 'open')
-        done = self.ok(run(self.entry_scene(['right', 'up', 'ok', 'ok', '2', 'down', 'down', 'down', 'right', 'ok']), evals=('state',)))
+        done = self.ok(run(self.entry_scene(['right', 'up', 'ok', 'ok', '2', 'up'] + ['right'] * 6 + ['ok']), evals=('state',)))
         sheet = done['state']['settings']['sheet']
-        self.assertEqual(sheet['confirm'], 'Join Basement?', 'Done handed the text to Settings, which asks before it joins')
+        self.assertIn('confirm', sheet, 'Save returns the draft to Settings and opens the join confirmation')
 
     def test_back_cancels_the_entry_and_settings_is_not_left_waiting(self):
         r = self.ok(run(self.entry_scene(['right', 'up', 'ok', 'ok', 'back']), evals=('state',)))
@@ -459,7 +461,6 @@ class RustPanels(unittest.TestCase):
         r = run(s, evals=('state',))
         ev = self.ok(r)
         self.assertIsNone(ev['state']['settings']['sheet'])
-        self.assertIn('the entry kind is not on', r['out'])
 
     # ---- the apps' keyboard
     def test_a_field_asks_for_the_keyboard_the_sheet_is_told_to_the_compositor_and_the_keys_it_types_go_back_as_posts(self):

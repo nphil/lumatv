@@ -7,22 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+The native compositor executes LG idle timers, keeps screensavers above idle apps with the required application-lifecycle notifications, and wakes them through LG’s existing power service without forwarding the wake key into the app. LG playback policy remains authoritative.
 
+Receiver settings use individually qualified controls and confirm changes from receiver readback, without changing main-volume behavior.
+Receiver discovery declares its XML encoding so compatible Denon receivers return their reported capabilities.
+
+Home Cameras opens the native grid and full-screen viewer. Home Assistant and Scrypted credential stores enforce owner-only directories and exclusive private temporary files before atomic replacement.
+
+The bottom volume popup keeps its full shadow and antialiasing outside reported subtitle bounds through cue changes.
+
+Picture-mode labels capitalize Personalized without changing the native mode identifier.
+Partial LG picture replies retain the current controls; confirmed input, mode or range changes still invalidate stale values.
+Picture-mode strips keep focused choices visible and align focus and pointer bounds with their rendered cells. OLED pixel brightness uses its own native settings context. Glass-strength changes update existing Settings controls without rebuilding unrelated switches on every key repeat.
+Card focus outlines retain the rendered button geometry while their highlight fades, without lifting or enlarging the outline independently.
+The status-bar gear opens Quick Settings. Home & look contains the native Wallpaper editor, preserving live preview and save-on-close without the redundant All settings link.
+Glass type replaces the Home-specific label. Non-Rose theme wallpapers use curated dark/light shadow, midtone and highlight colors; Rose Pine retains the original wallpaper.
+
+The native compositor uses the Rust UI for all shell kinds, with stock LG Home
+as the failure path. Obsolete project QML frontends and restyles are removed;
+ownership-checked restoration removes previous overlays.
+Boot activates the mounted native compositor; confirmed standby skips foreground-dependent preparation, while active wake intent and stock recovery remain guarded.
+
+### Added
+- Compact single-toast display replaces the previous toast and keeps transient LG messages out of notification history and unread counts.
+- Volume displays original encoded-audio glyphs. PCM with Dolby Surround or DTS Neural:X processing also shows its processing brand, with an explicit PCM carrier label.
+- Receiver volume preserves half-unit readings in the popup and Sound settings instead of rounding, with room for the decimal at both text sizes.
+- Automatic compositor pacing selects 120 for foreground Marquee and restores the startup base elsewhere, with a manual override.
+
+- Experimental native wake policy restores the previous foreground app on normal wake and power-on, retaining native explicit-destination priorities and bounded recovery in the existing boot worker. Rollback of an originally absent policy path sets the explicit stock path, with different setting metadata.
+- Native wake trials handle bootd log truncation and Factory-setting precedence, retain failed configuration readback, and refuse unsafe defaults or changed setting ownership. Selector and fallback output retain the final app-ID character through LG’s native shell reader. Startup serializes policy reload, existing destination landing and final acceptance with fresh worker/activation tokens; native explicit choices and newer foregrounds remain protected. Early-start records accept LG’s space-padded timestamps without weakening freshness checks. First-launch inputcommon wrappers require corroborated native input/action records; an unproven newer action never revives older intent.
+- Optional UDP syslog forwarding keeps up to 1 MiB of ordinary logs in RAM, with no
+  flash fallback. Settings > System > About > Logging edits the destination.
 - LumaTV's compositor is live on the set (persistent), with LG's compositor as the automatic
   fallback (hold Home about 1 s). The full device gate passed every blocking check: PlxNative's
   close 15 of 15, x1, the shell, standby and the fallback tests; the frame lines show only
   isolated 33 ms intervals and a few slow first frames.
-- Compositor (not live yet): LumaTV's compositor draws LumaTV's own screens. Home, Settings,
-  the quick panel, input picker, volume display, toasts, alerts, input popup, PIN prompt and
-  screensaver run as a standalone Qt client (qml-runner) in two compositor windows, fed over a
-  token-gated loopback channel with luna calls proxied from an allowlist; the gear and Input
-  open LumaTV's panels first. New gate checks `shell` (screens and idle cost) and `frames`.
-- Rust shell kinds, each opt-in with `ctl shell rust +KIND` and the QML client as fallback:
-  `home`, `osd`, `toast`, `alert`, `saver`, `capture`, `popup`, `cards`, `layout`, `quick`,
-  `picker`, `drawer`, `menu`, `confirm`, `switcher`, `entry`, `keyboard`, `settings` (every
-  page), `cameras`, `ai` and `banner`. Home, the panels and Settings run on the set; a kind
-  becomes the default only after two passing device rounds.
 - The Magic Remote pointer appears only when the wheel is turned; Settings > Remote & pointer >
   Show pointer switches back to LG's show-on-movement. (ae3c348 cc57205)
 - Hardware planes behind switches: live page-layout switch (`ctl afbc`, `ctl pagealpha`),
@@ -462,6 +481,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The recovery gate waits for the actual recovery lock, requires every requested result and checks the supervisor's 10-second Home hold as the stock LG escape.
+
+- Picture-mode arrows and selection use LG's current context, native mode choices and confirmed readback; stale per-mode controls remain disabled during the switch.
+- The screensaver can display over idle apps after LG approves its existing timeout, retaining native playback protections; wake input is kept out of the controls underneath.
+- Silk lighting controls remain effective with wallpaper motion off, and repaint without requiring text layers.
+- Interrupted maintenance blocks boot activation and configuration migration while preserving status reads and human emergency stop commands.
+- Rust Home applies every wallpaper control live, including independent warp, lighting and colour grading.
+  The graded original also supplies clear glass; held Home updates without restarting.
+- Home search and Rust text entries use the custom Lucent keyboard, with address and number layouts,
+  Unicode cursor editing, intact long values, fully masked passwords and TV-readable key contrast.
 - The Rust compositor requests standby and wake from LG’s power service on a fresh Power press. Held repeats do not reverse an in-progress power change.
 
 - /var no longer fills from the shell's own logs: the compositor gives the Rust and QML shell clients a pipe it copies into a log

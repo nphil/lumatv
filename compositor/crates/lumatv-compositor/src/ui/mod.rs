@@ -43,7 +43,7 @@ pub mod demo;
 
 use crate::Rect;
 use crate::damage::Tiles;
-use lumatv_render::host::{Engine, FrameCost, HostConfig};
+use lumatv_render::host::{Engine, Exclusion, FrameCost, HostConfig};
 use lumatv_render::programs::Cache;
 use lumatv_render::tiles::TileSet;
 use lumatv_render::{Demand, Gles};
@@ -56,6 +56,7 @@ use std::sync::Arc;
 /// The engine, and the scratch the compositor's tiles are turned into the engine's areas with.
 pub struct Ui {
     engine: Engine,
+    system_z: i32,
     scratch: Vec<[i32; 4]>,
     areas: Vec<[i32; 4]>,
 }
@@ -100,7 +101,7 @@ impl Ui {
                 system_z,
             },
         )?;
-        Ok((Self { engine, scratch: Vec::new(), areas: Vec::new() }, app))
+        Ok((Self { engine, system_z, scratch: Vec::new(), areas: Vec::new() }, app))
     }
 
     pub fn finish_handshake(&mut self) -> io::Result<()> {
@@ -120,6 +121,22 @@ impl Ui {
     /// The engine, for what this module does not wrap (housekeeping, the idle moments, a test's reads).
     pub fn engine(&mut self) -> &mut Engine {
         &mut self.engine
+    }
+
+    /// Applies this frame's caption bounds before the engine plans the UI.
+    pub fn set_exclusion(&mut self, area: Option<Rect>) {
+        let z = self.system_z;
+        self.engine.set_exclusion(area.map(|r| Exclusion {
+            area: [r.x, r.y, r.right(), r.bottom()],
+            popup_z: (z + 800, z + 804),
+            marker_z: (z + 804, z + 806),
+        }));
+    }
+
+    /// A stand-in carries the old caption and popup together; no fresh popup may be drawn over it.
+    pub fn set_standin_popup_suppressed(&mut self, suppressed: bool) {
+        let z = self.system_z;
+        self.engine.set_standin_groups(suppressed.then_some(((z + 800, z + 804), (z + 804, z + 806))));
     }
 
     /// Reads what the app has sent. `true` when the app has closed its end.
@@ -213,6 +230,13 @@ impl Ui {
         self.areas.clear();
         self.areas.extend(owed.iter().map(|r| [r.x, r.y, r.right(), r.bottom()]));
         self.engine.draw_stack(0, fbo, &self.areas)
+    }
+
+    /// Draws Home over the wallpaper plane without clearing its hole.
+    pub fn draw_under_over(&mut self, fbo: u32, owed: &[Rect]) -> io::Result<()> {
+        self.areas.clear();
+        self.areas.extend(owed.iter().map(|r| [r.x, r.y, r.right(), r.bottom()]));
+        self.engine.draw_stack_over(0, fbo, &self.areas)
     }
 
     /// Draws system layers over application windows, before the pointer.

@@ -349,6 +349,7 @@ dependencies = [
  "libc",
  "mesh3d",
  "parking_lot",
+ "serde_json",
 ]
 
 [[package]]

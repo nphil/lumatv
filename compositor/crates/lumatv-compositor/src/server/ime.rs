@@ -11,15 +11,12 @@
 //! is told so, with its rectangle, to keep its field clear of it. Leaving is the app's `deactivate`, its surface losing the focus,
 //! the Exit key (`close_keyboard`), the keyboard's server going, or the app going.
 //!
-//! No input method yet: LG asks the system for one (`initctl emit ime-activate`) and finishes the activation when it binds and names
-//! its display (`input_method.set_display_id`); so does this.
 //!
-//! LumaTV's own keyboard (`lumatv keyboard luma`): while the flag file [`OWN_FLAG`] is in the data directory and the shell client says it can
-//! show a `keyboard`, a field is served by the shell instead of an input method. There is no context and no grab: the field's content type,
+//! LumaTV's native keyboard serves every field.
+//! There is no context and no grab: the field's content type,
 //! enter key and `show_input_panel` go to the shell as the `ime` topic of the UI channel, the remote's navigation keys go to it as `imekey`
 //! events while its keyboard is on the screen, and what it types comes back as `POST /v1/ime` and leaves as the field's `commit_string`
-//! and `keysym` ([`own_op`]). LG's input method (maliit) serves every field when the flag is absent, the shell is not live or its keyboard
-//! does not come up within [`OWN_SHOW_WITHIN`].
+//! and `keysym` ([`own_op`]). A native keyboard failure hands control back to stock.
 
 use std::time::{Duration, Instant};
 
@@ -44,14 +41,8 @@ use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect, State, plain_global};
 
 /// The display an input method serves: the set has one.
 const DISPLAY: u32 = 0;
-/// At most one request for an input method in this long: the system takes a moment to start one.
-const ASK_EVERY: Duration = Duration::from_secs(3);
-/// The flag `lumatv keyboard luma` leaves in the data directory: LumaTV's own keyboard serves the fields while the shell can show it.
-pub const OWN_FLAG: &str = ".keyboard-luma";
-/// The shell has this long to put its keyboard on the screen after a field asked for it; past it LG's keyboard serves the field.
+/// The native keyboard must appear within this time after a field asks for it.
 const OWN_SHOW_WITHIN: Duration = Duration::from_secs(2);
-/// After a keyboard that did not come up, LG's keyboard serves every field for this long.
-const OWN_BROKEN_FOR: Duration = Duration::from_secs(60);
 
 pub struct ModelData(u32);
 pub struct MethodData(u32);
@@ -130,8 +121,6 @@ pub struct Own {
     pub up: Option<Rect>,
     /// `show_input_panel` went to the shell at this time and its keyboard has not said it is up.
     pending: Option<Instant>,
-    /// LG's keyboard serves every field until then: the shell's did not come up in time.
-    broken_until: Option<Instant>,
     pub counts: OwnCounts,
 }
 
@@ -145,11 +134,6 @@ pub struct ImeState {
     pub grab_down: Vec<u32>,
     /// The keyboard window's rectangle while one is on the screen.
     pub panel: Option<Rect>,
-    last_ask: Option<Instant>,
-    /// How many times an input method was asked for.
-    pub asked: u32,
-    /// Asks the system for an input method; the host tests replace it.
-    pub ask_for_input_method: Box<dyn FnMut()>,
     pub counts: Counts,
     /// The shell's own keyboard.
     pub own: Own,
@@ -165,38 +149,12 @@ impl Default for ImeState {
             grab: None,
             grab_down: Vec::new(),
             panel: None,
-            last_ask: None,
-            asked: 0,
-            ask_for_input_method: Box::new(ask_system),
             counts: Counts::default(),
             own: Own::default(),
         }
     }
 }
 
-/// What LG's compositor does when a text model activates and no input method is there: `initctl emit ime-activate`, which starts
-/// the keyboard's server. Not waited for (the loop must not stand still for it); the child is reaped on a thread.
-fn ask_system() {
-    let initctl = "/sbin/initctl";
-    if !std::path::Path::new(initctl).exists() {
-        log::warn!("ime: {initctl} is not there; no input method can be asked for");
-        return;
-    }
-    match std::process::Command::new(initctl)
-        .args(["emit", "ime-activate"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(mut child) => {
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
-        }
-        Err(e) => log::warn!("ime: {initctl}: {e}"),
-    }
-}
 
 impl ImeState {
     fn model(&self, id: u32) -> Option<&Model> {
@@ -207,10 +165,6 @@ impl ImeState {
         self.models.iter_mut().find(|m| m.id == id)
     }
 
-    /// The input method that serves the display, when there is a live one that has said which.
-    fn ready_method(&self) -> Option<(u32, InputMethod)> {
-        self.methods.iter().find(|m| m.display == Some(DISPLAY) && live(&m.res)).map(|m| (m.id, m.res.clone()))
-    }
 
     /// The model that holds the activation, with its surface's id.
     pub fn active_model(&self) -> Option<(u32, Option<SurfaceId>)> {
@@ -264,9 +218,6 @@ impl GlobalDispatch<InputMethod, ()> for State {
         state.ime.methods.push(Method { id, res, display });
         let who = state.client_info(client);
         state.journal(format!("ime: an input method (version {version}) bound by {who}"));
-        if display.is_some() {
-            method_ready(state);
-        }
     }
 }
 
@@ -286,7 +237,6 @@ impl Dispatch<InputMethod, MethodData> for State {
                 m.display = Some(id);
             }
             state.journal(format!("ime: the input method serves display {id}"));
-            method_ready(state);
         }
     }
 
@@ -618,6 +568,7 @@ impl Dispatch<InputPanel, ()> for State {
                 w.set_property("_WEBOS_WINDOW_TYPE", "_WEBOS_WINDOW_TYPE_KEYBOARD");
                 w.props.insert("needFocus".into(), "false".into());
             }
+            state.refresh_policy_sync();
             data_init.init(id, PanelSurfaceData { surface: sid, window: wid });
             state.note_request("input_panel", 0, "get_input_panel_surface");
             let who = state.client_info(client);
@@ -690,53 +641,16 @@ fn activate(state: &mut State, mid: u32, surface: &WlSurface) {
     let app = state.scene.window_of(sid).and_then(|w| state.scene.window(w)).map(|w| w.app_id().to_string()).unwrap_or_default();
     state.journal(format!("ime: text model {mid} activated on surface {} ({app:?})", sid.0));
     begin(state, mid);
-    // The shell's keyboard hears of a field it serves from `begin_own`; a field that goes to LG's is news to it too when a field it served left.
     own_publish(state);
 }
 
-/// Makes the model's context in the input method's client and tells the app it entered, or asks for an input method first.
+/// Serve every field with the native keyboard, or exit for stock recovery.
 fn begin(state: &mut State, mid: u32) {
-    if own_ready(state) {
+    if state.shell_can("keyboard") {
         begin_own(state, mid);
-        return;
+    } else {
+        own_failure(state, "native keyboard unavailable");
     }
-    let Some((method_id, method)) = state.ime.ready_method() else {
-        request_input_method(state);
-        return;
-    };
-    let Some(client) = method.client() else { return };
-    let ctx = match client.create_resource::<InputMethodContext, ContextData, State>(&state.dh, 1, ContextData { model: mid }) {
-        Ok(c) => c,
-        Err(e) => {
-            log::warn!("ime: the input method's context: {e}");
-            return;
-        }
-    };
-    let serial = state.next_serial();
-    method.activate(&ctx, serial);
-    let panel = state.ime.panel;
-    let Some(m) = state.ime.model_mut(mid) else { return };
-    m.ctx = Some(ctx.clone());
-    m.method = Some((method_id, method.clone()));
-    let (res, surface, show, preferred) = (m.res.clone(), m.surface.clone(), std::mem::take(&mut m.show_wanted), m.preferred);
-    if show {
-        method.show_input_panel(&ctx);
-    }
-    state.scene.keyboard_pref = preferred;
-    if let Some(surface) = surface
-        && live(&res)
-        && live(&surface)
-    {
-        res.enter(&surface);
-    }
-    // A keyboard that is already up is news to the field.
-    if let Some(r) = panel
-        && live(&res)
-    {
-        res.input_panel_state(1);
-        res.input_panel_rect(r.x, r.y, r.w as u32, r.h as u32);
-    }
-    state.journal(format!("ime: text model {mid} entered; the input method's context is made"));
 }
 
 /// A model stops being active: the keyboard is told, the field is told it left and the keyboard is no longer up for it.
@@ -788,15 +702,6 @@ fn model_gone(state: &mut State, mid: u32) {
     state.ime.models.retain(|m| m.id != mid);
 }
 
-/// An input method came up (or named its display): an activation that was waiting for it goes on.
-fn method_ready(state: &mut State) {
-    if let Some(mid) = state.ime.active
-        && state.ime.model(mid).is_some_and(|m| m.active && m.ctx.is_none())
-        && state.ime.ready_method().is_some()
-    {
-        begin(state, mid);
-    }
-}
 
 fn method_gone(state: &mut State, id: u32) {
     state.ime.methods.retain(|m| m.id != id);
@@ -864,7 +769,7 @@ pub fn refresh_panel(state: &mut State) {
     let was_up = state.ime.panel.is_some();
     state.ime.panel = now;
     state.journal(line);
-    let Some(res) = state.ime.active.and_then(|id| state.ime.model(id)).map(|m| m.res.clone()).filter(live) else { return };
+    let Some(res) = state.ime.active.and_then(|id| state.ime.model(id)).filter(|m| !m.own).map(|m| m.res.clone()).filter(live) else { return };
     match now {
         Some(r) => {
             if !was_up {
@@ -876,24 +781,9 @@ pub fn refresh_panel(state: &mut State) {
     }
 }
 
-fn request_input_method(state: &mut State) {
-    let now = Instant::now();
-    if state.ime.last_ask.is_some_and(|t| now.saturating_duration_since(t) < ASK_EVERY) {
-        return;
-    }
-    state.ime.last_ask = Some(now);
-    state.ime.asked += 1;
-    state.journal("ime: no input method is bound; asking the system for one (initctl emit ime-activate)".into());
-    (state.ime.ask_for_input_method)();
-}
 
 // ---- the shell's own keyboard
 
-/// Whether a field is served by the shell's keyboard now: the owner's flag, the shell able to show one, and no failure to bring one up
-/// in the last minute.
-fn own_ready(state: &State) -> bool {
-    state.shell_can("keyboard") && state.ime.own.broken_until.is_none_or(|t| Instant::now() >= t) && state.config.data_dir.join(OWN_FLAG).exists()
-}
 
 /// The model the shell's keyboard serves, if any.
 fn own_active(state: &State) -> Option<u32> {
@@ -974,19 +864,7 @@ pub fn own_publish(state: &mut State) {
         }
         None => serde_json::json!({"active": false, "show": false}),
     };
-    // the client that answers the keyboard gets the field; the other is told there is none (a client that was the keyboard's a moment ago)
-    let none = serde_json::json!({"active": false, "show": false});
-    if state.shell_rust.answers("keyboard") {
-        state.shell_rust.push_if_changed("ime", doc);
-        if state.shell.enabled() || state.shell.connected {
-            state.shell.push_if_changed("ime", none);
-        }
-    } else {
-        state.shell.push_if_changed("ime", doc);
-        if state.shell_rust.enabled() {
-            state.shell_rust.push_if_changed("ime", none);
-        }
-    }
+    state.shell_rust.push_if_changed("ime", doc);
 }
 
 /// The field asks for its keyboard: the shell is told, and has [`OWN_SHOW_WITHIN`] to say it is up.
@@ -1137,44 +1015,30 @@ fn own_nav(state: &mut State, code: u32, pressed: bool, repeat: bool) {
     let Some(name) = own_key_name(code) else { return };
     state.ime.own.counts.nav += 1;
     let event = serde_json::json!({"k": name, "d": pressed, "r": repeat});
-    if state.shell_rust.answers("keyboard") {
-        state.shell_rust.push("imekey", event);
-    } else {
-        state.shell.push("imekey", event);
-    }
+    state.shell_rust.push("imekey", event);
 }
 
-/// The shell's client went: a field it served leaves (the next one goes to LG's keyboard until the shell is back).
+/// If the native keyboard's client disappears while serving a field, restore stock.
 pub fn own_gone(state: &mut State) {
-    if let Some(mid) = own_active(state) {
-        deactivate(state, mid, "the shell's keyboard went");
+    if own_active(state).is_some() {
+        own_failure(state, "native keyboard disconnected");
     }
     own_off(state);
 }
 
-/// Called every tick: a keyboard the shell was asked for and did not put on the screen in [`OWN_SHOW_WITHIN`] is given up for a minute, and
-/// the field goes to LG's keyboard at once (it is shown there, as the field asked).
-pub fn own_tick(state: &mut State, now: Instant) {
-    let Some(t) = state.ime.own.pending else { return };
-    if now.saturating_duration_since(t) < OWN_SHOW_WITHIN {
-        return;
-    }
+fn own_failure(state: &mut State, reason: &str) {
     state.ime.own.pending = None;
-    state.ime.own.broken_until = Some(now + OWN_BROKEN_FOR);
     state.ime.own.counts.failed += 1;
-    let Some(mid) = own_active(state) else { return };
-    state.journal(format!(
-        "ime: the shell's keyboard did not come up in {} s; LG's keyboard serves for {} s",
-        OWN_SHOW_WITHIN.as_secs(),
-        OWN_BROKEN_FOR.as_secs()
-    ));
-    if let Some(m) = state.ime.model_mut(mid) {
-        m.own = false;
-        m.own_show = false;
-        m.show_wanted = true;
+    state.journal(format!("ime: {reason}; restoring stock"));
+    state.fatal_error = Some(format!("ime: {reason}"));
+    state.should_exit = true;
+}
+
+/// A native keyboard that does not appear in time is a fatal shell failure.
+pub fn own_tick(state: &mut State, now: Instant) {
+    if state.ime.own.pending.is_some_and(|t| now.saturating_duration_since(t) >= OWN_SHOW_WITHIN) {
+        own_failure(state, "native keyboard did not appear");
     }
-    own_publish(state);
-    begin(state, mid);
 }
 
 impl State {
@@ -1233,18 +1097,16 @@ impl State {
             "keyboardUp": self.keyboard_up(),
             "grab": ime.grab.as_ref().is_some_and(live),
             "grabbing": ime.grabbing(),
-            "asked": ime.asked,
             "counts": {
                 "activations": ime.counts.activations, "declined": ime.counts.declined, "commits": ime.counts.commits, "preedits": ime.counts.preedits,
                 "deletes": ime.counts.deletes, "keysyms": ime.counts.keysyms, "grabbedKeys": ime.counts.grabbed_keys,
             },
             "own": {
-                "flag": self.config.data_dir.join(OWN_FLAG).exists(),
                 "canShow": self.shell_can("keyboard"),
                 "serving": own_active(self).is_some(),
                 "up": own.up.map(|r| serde_json::json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})),
                 "pending": own.pending.is_some(),
-                "broken": own.broken_until.is_some_and(|t| Instant::now() < t),
+                "broken": self.fatal_error.is_some(),
                 "counts": {
                     "activations": own.counts.activations, "shown": own.counts.shown, "texts": own.counts.texts, "keys": own.counts.keys,
                     "clears": own.counts.clears, "hides": own.counts.hides, "nav": own.counts.nav, "failed": own.counts.failed,

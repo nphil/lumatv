@@ -42,6 +42,7 @@ mod still;
 pub mod tiles;
 mod wallpaper;
 mod wallpapers;
+pub mod silk_report;
 
 pub use geometry::Panel;
 pub use gl::{Gles, RenderTarget};
@@ -52,4 +53,4 @@ pub use scene::{Demand, Drawn, Scene};
 pub use session::{Config, Limits, Session};
 pub use stats::SharedStats;
 pub use clock::now_ns;
-pub use wallpapers::Look;
+pub use wallpapers::{Look, Silk};

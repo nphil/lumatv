@@ -14,7 +14,7 @@
 #   manifest         SHA-256 of LG's binary and libraries as installed (LG's binary is hidden once mounted)
 #   verified.list    the builds the gate passed on, from compositor/firmware/verified.list
 #   bundle.manifest  size (and SHA-256 for bin/) of every file of the bundle
-#   supervisor-api   2: the supervisor in bin/ answers --would-run and --home-held
+#   supervisor-api   3: the supervisor also answers read-only --would-enable
 # and the flag `enabled`: empty or "persistent" holds across boots, "session <boot id>" only in the boot
 # it was made in (a gate or trial cut short never becomes a boot-time enable).
 #
@@ -23,13 +23,66 @@
 # comp_switch on (the user's command) and the cutover script's enable and trial do.
 #
 # Expects from the caller: COMP (the state directory, <dataDir>/compositor), log_line, and, for
-# comp_switch, restart_surface, recover_home and take_mutation_lock. The COMP_* variables below default to
-# the set's paths and exist so the host test can point them elsewhere.
+# comp_switch off, stock_ui_restore. The caller serializes the switch and performs restart and recovery after unlocking.
+# The COMP_* variables below default to the set's paths and let host tests point them elsewhere.
+
+# Reserve one tenth of the filesystem, at least 64 MiB and 2000 inodes.
+# Count the whole incoming set because .new files coexist with installed files.
+storage_guard() {
+  sg_path=$1; shift
+  STORAGE_WHY="storage capacity unavailable"
+  while [ ! -e "$sg_path" ] && [ "$sg_path" != / ]; do sg_path=$(dirname "$sg_path"); done
+  sg_blocks=$(df -Pk "$sg_path" 2>/dev/null) || return 1
+  sg_inodes=$(df -Pi "$sg_path" 2>/dev/null) || return 1
+  sg_pair=$(printf "%s\n" "$sg_blocks" | awk 'END {if (NF < 6) exit 1; print $2, $4}') || return 1
+  sg_total=${sg_pair% *}; sg_free=${sg_pair#* }
+  sg_pair=$(printf "%s\n" "$sg_inodes" | awk 'END {if (NF < 6) exit 1; print $2, $4}') || return 1
+  sg_itotal=${sg_pair% *}; sg_ifree=${sg_pair#* }
+  for sg_value in "$sg_total" "$sg_free" "$sg_itotal" "$sg_ifree" "${STORAGE_EXTRA_KIB:-0}" "${STORAGE_EXTRA_INODES:-0}"; do
+    case "$sg_value" in ""|*[!0-9]*|0[0-9]*) return 1 ;; esac
+    [ "${#sg_value}" -le 12 ] || return 1
+  done
+  [ "$sg_total" -gt 0 ] && [ "$sg_itotal" -gt 0 ] || return 1
+  [ "$sg_free" -le "$sg_total" ] && [ "$sg_ifree" -le "$sg_itotal" ] || return 1
+  sg_need=$((1024 + ${STORAGE_EXTRA_KIB:-0})); sg_count=$((32 + ${STORAGE_EXTRA_INODES:-0}))
+  for sg_source; do
+    [ -e "$sg_source" ] || continue
+    sg_size=$(du -sk "$sg_source" 2>/dev/null) || return 1
+    sg_size=${sg_size%%[!0-9]*}
+    case "$sg_size" in ""|*[!0-9]*|0[0-9]*) return 1 ;; esac
+    [ "${#sg_size}" -le 12 ] || return 1
+    sg_entries=$(find "$sg_source" -print 2>/dev/null) || return 1
+    sg_n=$(printf "%s\n" "$sg_entries" | wc -l | tr -d "[:space:]")
+    case "$sg_n" in ""|*[!0-9]*|0[0-9]*) return 1 ;; esac
+    [ "${#sg_n}" -le 12 ] || return 1
+    sg_need=$((sg_need + sg_size + sg_n * 4))
+    sg_count=$((sg_count + sg_n))
+    [ "${#sg_need}" -le 12 ] && [ "${#sg_count}" -le 12 ] || return 1
+  done
+  sg_reserve=$(((sg_total + 9) / 10)); [ "$sg_reserve" -ge 65536 ] || sg_reserve=65536
+  sg_ireserve=$(((sg_itotal + 9) / 10)); [ "$sg_ireserve" -ge 2000 ] || sg_ireserve=2000
+  STORAGE_WHY="insufficient storage reserve for staging"
+  [ "$sg_free" -ge $((sg_need + sg_reserve)) ] && [ "$sg_ifree" -ge $((sg_count + sg_ireserve)) ]
+}
+
+comp_log() {
+  comp_log_dir=${LUMATV_LOG_DIR:-/tmp/lumatv-logs}
+  cat "$comp_log_dir/previous.log" "$comp_log_dir/current.log" 2>/dev/null |
+    awk -v tag="$1" '/^<[0-9]+>/ {
+      pri=$0; sub(/^</, "", pri); sub(/>.*/, "", pri); if (pri+0 > 191) next
+      sub(/^<[0-9]+>/, ""); prefix=tag ": "
+      if (index($0, prefix)==1) print substr($0, length(prefix)+1)
+    }'
+}
+
+comp_current_log() {
+  comp_log lumatv-compositor | awk '/\] info mem: heap grown /{n=0} {l[n++]=$0} END{for(i=0;i<n;i++) print l[i]}'
+}
 
 COMP_LG="${COMP_LG:-/usr/bin/surface-manager}"
 COMP_MOUNTINFO="${COMP_MOUNTINFO:-/proc/self/mountinfo}"
-# A recovery of LG's Home (tv-recover-home.sh) holds this directory while it runs.
-COMP_LOCK="${COMP_LOCK:-/tmp/lumatv-recover.lock}"
+# The recovery script holds this OS-backed lock while restoring Home.
+COMP_LOCK="${COMP_LOCK:-/tmp/lumatv-recover.flock}"
 COMP_RELEASE="${COMP_RELEASE:-/etc/starfish-release}"
 COMP_BOOT_ID="${COMP_BOOT_ID:-/proc/sys/kernel/random/boot_id}"
 # What the firmware check hashes besides LG's compositor binary and the release file: the GPU driver and the
@@ -66,7 +119,7 @@ comp_live() {
 
 # A recovery is in progress: nothing may restart the compositor's unit meanwhile.
 comp_recovering() {
-  [ -e "$COMP_LOCK" ]
+  ! ( flock -n 8 ) 8>"$COMP_LOCK" 2>/dev/null
 }
 
 # This boot's id: what a session flag carries.
@@ -263,8 +316,16 @@ comp_bundle_ok() {
 # so the question is asked only of a bundle whose install wrote supervisor-api.
 comp_sm_says() {
   COMP_WORD=broken; COMP_WHY=""
-  if [ "$(cat "$COMP/supervisor-api" 2>/dev/null)" != 2 ]; then COMP_WHY="the supervisor is from an older install (no supervisor-api)"; return 0; fi
-  s_out=$(if command -v timeout >/dev/null 2>&1; then timeout 10 "$COMP/bin/lumatv-sm" --state "$COMP" --would-run 2>&1; else "$COMP/bin/lumatv-sm" --state "$COMP" --would-run 2>&1; fi); s_rc=$?
+  s_api=$(cat "$COMP/supervisor-api" 2>/dev/null)
+  case "${1:-}" in
+    persistent|session)
+      [ "$s_api" = 3 ] || { COMP_WHY="the supervisor predates enable preflight; install again"; return 0; }
+      set -- --would-enable "$1" ;;
+    *)
+      case "$s_api" in 2|3) ;; *) COMP_WHY="the supervisor is from an older install (no supervisor-api)"; return 0 ;; esac
+      set -- --would-run ;;
+  esac
+  s_out=$(if command -v timeout >/dev/null 2>&1; then timeout 10 "$COMP/bin/lumatv-sm" --state "$COMP" "$@" 2>&1; else "$COMP/bin/lumatv-sm" --state "$COMP" "$@" 2>&1; fi); s_rc=$?
   case "$s_rc" in
     0) COMP_WORD=run ;;
     3) COMP_WORD=$(printf '%s\n' "$s_out" | sed -n 's/^no \([a-z]*\):.*/\1/p' | head -n 1)
@@ -275,23 +336,18 @@ comp_sm_says() {
   return 0
 }
 
-# Whether a remote's Home key is down now and stays down: the escape, at boot.
-comp_home_held() {
-  [ -x "$COMP/bin/lumatv-sm" ] && [ "$(cat "$COMP/supervisor-api" 2>/dev/null)" = 2 ] || return 1
-  "$COMP/bin/lumatv-sm" --state "$COMP" --home-held 700 >/dev/null 2>&1
-}
-
 # ---------------------------------------------------------------- boot
 # What the early hook decides, as COMP_WORD (and COMP_WHY), the first refusal winning:
 #   already   the mount is in place            off       not enabled, no bundle, or a session of an earlier boot
-#   failsafe  the previous boot never completed
+#   held      stock UI was selected by recovery
 #   firmware  LG's binary changed, or this firmware is not a build the gate passed on (persistent enable only)
 #   bundle    the installed bundle is damaged or older than the checks
 #   escaped, failures, session   the supervisor's own refusals        broken   the supervisor cannot run here
-#   home      Home is held down (the escape at boot)                  ok       everything allows the mount
+#   ok        everything allows the mount
 # `force` makes the firmware check hash the files instead of trusting the cached result.
 comp_boot_decide() {
   COMP_WHY=""
+  if [ -e "$COMP/stock-ui-held" ]; then COMP_WORD=held; COMP_WHY="stock UI is held after recovery"; return 0; fi
   if comp_mounted; then COMP_WORD=already; return 0; fi
   d_flag=$(comp_flag)
   case "$d_flag" in
@@ -300,7 +356,6 @@ comp_boot_decide() {
     *) COMP_WORD=off; return 0 ;;
   esac
   if [ ! -x "$COMP/bin/lumatv-sm" ]; then COMP_WORD=off; COMP_WHY="no bundle"; return 0; fi
-  if [ -f "${BOOT_PENDING:-/nonexistent}" ]; then COMP_WORD=failsafe; COMP_WHY="the previous boot never completed"; return 0; fi
   if ! comp_lg_unchanged; then COMP_WORD=firmware; COMP_WHY="LG's compositor binary is not the one the bundle was installed against"; return 0; fi
   if [ "$d_flag" = persistent ]; then
     if ! d_fw=$(comp_fw_check "${1:-}"); then COMP_WORD=firmware; COMP_WHY="$d_fw"; return 0; fi
@@ -308,7 +363,6 @@ comp_boot_decide() {
   if ! comp_bundle_ok; then COMP_WORD=bundle; return 0; fi
   comp_sm_says
   if [ "$COMP_WORD" != run ]; then return 0; fi
-  if comp_home_held; then COMP_WORD=home; COMP_WHY="Home is held down"; return 0; fi
   COMP_WORD=ok
   return 0
 }
@@ -317,19 +371,23 @@ comp_boot_decide() {
 # says LumaTV's compositor is wanted. Prints one word for the log (comp_boot_decide's, or mounted when it mounted,
 # or error when the mount did not take); the reason goes to the log through log_line when there is one. With
 # `check` nothing is changed and `would-mount` stands for mounted. Never fails the boot: the exit status is 0.
-# A stale session flag is removed; Home held down is recorded as an escape, as the compositor's own hold would.
+# A stale session flag is removed. The supervisor handles the recovery hold.
 comp_boot_mount() {
   comp_boot_decide
   if [ -n "$COMP_WHY" ]; then log_line "compositor-boot: $COMP_WORD: $COMP_WHY"; fi
   if [ "$COMP_WORD" != ok ]; then
     if [ "${1:-}" != check ]; then
-      if [ "$COMP_WORD" = home ]; then echo "hold Home at boot" > "$COMP/escaped" 2>/dev/null; fi
       if [ "$COMP_WORD" = off ] && [ "$(comp_flag)" = stale ]; then rm -f "$COMP/enabled" 2>/dev/null; fi
     fi
     echo "$COMP_WORD"
     return 0
   fi
   if [ "${1:-}" = check ]; then echo would-mount; return 0; fi
+  if [ -e "$COMP/stock-ui-held" ]; then
+    log_line "compositor-boot: held: stock UI is held after recovery"
+    echo held
+    return 0
+  fi
   if mount --bind "$COMP/bin/lumatv-sm" "$COMP_LG" 2>/dev/null && comp_mounted; then echo mounted; else echo error; fi
   return 0
 }
@@ -344,32 +402,63 @@ comp_release() {
   return 0
 }
 
-# on | off. `on` is the persistent enable and needs the bundle from `install`, a firmware build on the verified
-# list and an intact bundle; it clears the failure count and the recorded escape, mounts, restarts the unit and lets
-# the supervisor take over. `off` is the way back: flag removed, mount removed, LG's compositor restarted, Home
-# recovered.
+# The caller holds the mutation lock for the switch, then releases it before restart and Home recovery.
+# Persistent enable requires verified firmware; a session enable ends at the next boot.
+comp_ready() {
+  c_wait=0
+  while [ $c_wait -lt 15 ]; do
+    c_pid=$(systemctl show surface-manager-daemon --property=MainPID --value 2>/dev/null)
+    case "$c_pid" in ''|*[!0-9]*|0) c_pid=0 ;; esac
+    c_exe=$(stat -Lc '%d:%i' "/proc/$c_pid/exe" 2>/dev/null)
+    c_expected=$(stat -Lc '%d:%i' "$COMP/bin/lumatv-sm" 2>/dev/null)
+    if [ ! -e "$COMP/stock-ui-held" ] && comp_mounted && [ -n "$c_exe" ] && [ "$c_exe" = "$c_expected" ] &&
+       systemctl is-active --quiet surface-manager-daemon && pgrep -P "$c_pid" -f "$COMP/bin/lumatv-compositor" >/dev/null 2>&1 &&
+       [ ! -e "$COMP/stock-ui-held" ]; then return 0; fi
+    sleep 1; c_wait=$((c_wait + 1))
+  done
+  echo "native compositor did not become ready"
+  return 1
+}
+
+# Test a fresh enable without changing the installed state or a live compositor.
+comp_preflight() (
+  case "${1:-persistent}" in persistent|session) ;; *) echo "invalid enable mode"; return 2 ;; esac
+  [ -x "$COMP/bin/lumatv-sm" ] || { echo "no bundle in $COMP (run compositor/tools/tv-cutover.sh install first)"; return 2; }
+  comp_recovering && { echo "a recovery of LG's Home is running; try again when it is done"; return 3; }
+  comp_mounted && { echo "the compositor is already mounted"; return 1; }
+  comp_lg_unchanged || { echo "LG's compositor binary is not the one the bundle was installed against (firmware changed); install again"; return 4; }
+  if [ "${1:-persistent}" = persistent ]; then
+    w_fw=$({ comp_fw_manifest; echo '@@LIST@@'; cat "$COMP/verified.list" 2>/dev/null; } | comp_fw_compare)
+    case "$w_fw" in verified\ *) ;; *) echo "${w_fw:-unverified: no verified.list is installed}; firmware must pass the gate"; return 5 ;; esac
+  fi
+  comp_bundle_ok full || { echo "the bundle is not the installed one ($COMP_WHY); install again"; return 6; }
+  comp_sm_says "${1:-persistent}"
+  [ "$COMP_WORD" = run ] || { echo "the supervisor would not start: $COMP_WORD: $COMP_WHY"; return 7; }
+  return 0
+)
+
 comp_switch() {
   case "${1:-}" in
     on)
-      [ -x "$COMP/bin/lumatv-sm" ] || { echo "no bundle in $COMP (run compositor/tools/tv-cutover.sh install first)"; return 2; }
-      comp_recovering && { echo "a recovery of LG's Home is running; try again when it is done"; return 3; }
-      comp_lg_unchanged || comp_mounted || { echo "LG's compositor binary is not the one the bundle was installed against (firmware changed); install again"; return 4; }
-      if ! w_fw=$(comp_fw_check force); then echo "$w_fw; LumaTV's compositor waits for LG's firmware to pass the gate (compositor/tools/tv_gate.py) and be listed in compositor/firmware/verified.list"; return 5; fi
-      comp_bundle_ok full || { echo "the bundle is not the installed one ($COMP_WHY); install again"; return 6; }
-      echo persistent > "$COMP/enabled"
+      [ "${3:-}" = preflighted ] || comp_preflight "${2:-persistent}" || return $?
+      [ ! -e "$COMP/stock-ui-held" ] || { echo "stock UI recovery is held"; return 1; }
+      if [ "${2:-persistent}" = session ]; then echo "session $(comp_boot_id)" > "$COMP/enabled"; else echo persistent > "$COMP/enabled"; fi
       echo 0 > "$COMP/failures"
       rm -f "$COMP/escaped" "$COMP/last-fallback" "$COMP/running"
+      [ ! -e "$COMP/stock-ui-held" ] || { echo "stock UI recovery is held"; return 1; }
       comp_mounted || mount --bind "$COMP/bin/lumatv-sm" "$COMP_LG" || { echo "mount failed"; return 1; }
-      restart_surface || { echo "the compositor's unit did not come back; run 'off'"; return 1; }
-      recover_home
+      [ ! -e "$COMP/stock-ui-held" ] || { echo "stock UI recovery is held"; return 1; }
       ;;
     off)
-      rm -f "$COMP/enabled" 2>/dev/null
+      c_rc=0
+      mkdir -p "$COMP" && { (set -C; : > "$COMP/stock-ui-held") 2>/dev/null || [ -e "$COMP/stock-ui-held" ]; } || { echo "could not hold stock UI"; c_rc=1; }
+      rm -f "$COMP/enabled" || { echo "could not disable the compositor"; c_rc=1; }
       if comp_mounted; then
-        umount "$COMP_LG" 2>/dev/null || umount -l "$COMP_LG" 2>/dev/null
-        restart_surface || return 1
+        umount "$COMP_LG" 2>/dev/null || umount -l "$COMP_LG" 2>/dev/null || { echo "could not unmount the compositor"; c_rc=1; }
       fi
-      recover_home
+      comp_mounted && { echo "the compositor is still mounted"; c_rc=1; }
+      stock_ui_restore >/dev/null || { echo "could not restore stock UI"; c_rc=1; }
+      return "$c_rc"
       ;;
     *) echo "compositor: on, off, status or check"; return 2 ;;
   esac
@@ -389,7 +478,7 @@ comp_json() {
   fl=$(cat "$COMP/failures" 2>/dev/null); [ -n "$fl" ] || fl=0
   case "$fl" in *[!0-9]*) fl=0 ;; esac
   lf=$(cat "$COMP/last-fallback" 2>/dev/null | tr -d '"\\' | tr '\n' ' ' | cut -c1-160)
-  sl=$(tail -n 1 "$COMP/sm.log" 2>/dev/null | tr -d '"\\' | cut -c1-200)
+  sl=$(comp_log lumatv-sm | tail -n 1 | tr -d '"\\' | cut -c1-200)
   printf '{"bundle":%s,"enabled":%s,"flag":"%s","mounted":%s,"live":%s,"lgBinary":"%s","firmware":"%s","escaped":%s,"unsettled":%s,"failures":%s,"lastFallback":"%s","smLog":"%s"}' \
     "$bd" "$en" "$(comp_flag)" "$mt" "$lv" "$fw" "$(comp_fw_state)" "$esc" "$unc" "$fl" "$lf" "$sl"
 }

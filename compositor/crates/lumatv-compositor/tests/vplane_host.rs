@@ -464,9 +464,9 @@ fn the_wallpaper_is_a_hole_under_home_and_home_draws_over_it() {
     assert_eq!(mine["originalInput"], json!({"x": 0, "y": 0, "width": 1920, "height": 1080}), "the request the TV took in round 15 (placement-variants.txt, v1)");
     // the shell is told the hole is there (it hides its own wallpaper only then)
     let topic = server.eval(|s| {
-        s.shell.connected = true;
+        s.shell_rust_open(0, "test".into()).unwrap();
         s.shell_sync_topics();
-        s.shell.topic("wall").cloned()
+        s.shell_rust.topic("wall").cloned()
     });
     assert_eq!(topic, Some(json!({"hole": true})));
 
@@ -480,7 +480,7 @@ fn the_wallpaper_is_a_hole_under_home_and_home_draws_over_it() {
     assert!(wait_for(Duration::from_secs(3), || server.eval(|s| s.scene.holes.is_empty() && !s.windows_report().iter().any(|w| w["type"] == "Wallpaper"))));
     let topic = server.eval(|s| {
         s.shell_sync_topics();
-        s.shell.topic("wall").cloned()
+        s.shell_rust.topic("wall").cloned()
     });
     assert_eq!(topic, Some(json!({"hole": false})));
     assert_eq!(server.eval(|s| s.output.capture().unwrap()).pixel(1500, 700), [0, 0, 255, 255], "the app's picture, whole");

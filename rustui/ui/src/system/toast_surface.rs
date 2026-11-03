@@ -1,39 +1,33 @@
-//! The toasts drawn (the mock `docs/mocks/07-toast`): a column of cards, 560 wide, the first line the title in the label role, the rest
-//! the body in the caption role in the secondary ink, a tinted info tile at the left (or the service's own picture, when it gave one that
-//! is a file the host can read). Where the column rests is the placement crate's (`layout.overlays.toast`): by default centred at the foot of
-//! the screen, 5 % of the height above the bottom edge, and above the volume bar while that is up. A card comes in from the edge it rests
-//! against (a rise from below at the foot) while it fades in. Three slots are made once, hidden, and shown with each toast's words: the
-//! first real toast finds its layers built and its glyphs in the atlas (the QML kept one slot warm for the same reason).
+//! A single compact toast at the owner's saved overlay placement. The default is centred above the TV-safe bottom edge.
 
 use super::toast::Toast;
-use crate::kit::Kit;
 use crate::kit::glyph;
 use crate::kit::motion::Beat;
 use crate::kit::pane::{Pane, PaneKind};
-use crate::kit::text::{Text, role_style};
+use crate::kit::text::role_style;
+use crate::kit::{Kit, wrap};
 use compositor_protocol::{Props, Rect};
 use lumatv_placement::{Frame as PlacementFrame, Rect as PlacedRect, Registry, Size, User, above_subtitles, model::STACK, stack_beside};
-use lumatv_tokens::{Radius, TypeRole};
+use lumatv_tokens::TypeRole;
 use serde_json::Value;
-use ui::components::{Align, plate};
+use ui::components::{Align, text::{Run, draw_runs, line_height}};
 use ui::geometry::Frame;
-use ui::scene::{ImageLayer, ShapeLayer};
+use ui::scene::ImageLayer;
 
-const WIDTH: f32 = 560.0;
-const TILE: u32 = 48;
-const SLOTS: usize = 3;
-/// How far a card travels while it fades in, from the edge it rests against.
+const MIN_WIDTH: f32 = 320.0;
+const MAX_WIDTH: f32 = 480.0;
+const MIN_HEIGHT: f32 = 64.0;
+const ICON: u32 = 24;
 const RISE: f32 = 24.0;
 
-struct Slot {
+struct Card {
     pane: Pane,
-    tile: ShapeLayer,
     icon: ImageLayer,
-    title: Text,
-    body: Text,
-    /// The toast shown in it, and where the slot is.
-    showing: Option<u64>,
+    words: ImageLayer,
+    id: u64,
     at: (f32, f32),
+    size: (f32, f32),
+    visible: bool,
 }
 
 pub struct ToastSurface {
@@ -41,10 +35,9 @@ pub struct ToastSurface {
     registry: Registry,
     user: User,
     frame: PlacementFrame,
-    slots: Vec<Slot>,
+    card: Option<Card>,
     generation: u64,
     text_scale: f32,
-    height: f32,
 }
 
 impl ToastSurface {
@@ -52,180 +45,104 @@ impl ToastSurface {
         let registry = Registry::shipped().clone();
         let user = registry.user_from_json(theme.pointer("/layout/overlays").unwrap_or(&Value::Null));
         let frame = PlacementFrame::from_json(layout, theme.pointer("/overlays/limit"));
-        Self { z, registry, user, frame, slots: Vec::new(), generation: 0, text_scale: 1.0, height: 0.0 }
+        Self { z, registry, user, frame, card: None, generation: 0, text_scale: 1.0 }
     }
 
-    /// One card's height, for the editor's stand-in.
+    /// The compact single-line stand-in used by the placement editor.
     pub fn sample_height(&self, kit: &Kit) -> f32 {
-        Self::card_height(kit)
+        (kit.line(TypeRole::Caption).max(ICON as f32) + 2.0 * kit.space(4)).max(MIN_HEIGHT).ceil()
     }
 
-    /// The owner's places changed (`layout.overlays`).
     pub fn set_user(&mut self, user: User) {
         self.user = user;
     }
 
-    /// One card's height: the title and the body lines inside the padding, never less than the tile's row.
-    fn card_height(kit: &Kit) -> f32 {
-        let pad = kit.space(3);
-        let inner = (kit.line(TypeRole::Label) + kit.space(1) + kit.line(TypeRole::Caption)).max(TILE as f32);
-        (inner + 2.0 * pad).ceil()
-    }
-
-    fn build(&mut self, kit: &mut Kit) -> std::io::Result<()> {
-        self.slots.clear();
-        let h = Self::card_height(kit);
-        self.height = h;
-        let pad = kit.space(3);
+    fn build(&mut self, kit: &mut Kit, toast: &Toast) -> std::io::Result<()> {
+        let pad = kit.space(4);
+        let gap = kit.space(3);
+        let style = role_style(kit, TypeRole::Caption, None, kit.ui.look.ink(), Align::Left);
+        let line = line_height(style.ty);
+        let text = if toast.body.is_empty() { toast.title.clone() } else { format!("{}\n{}", toast.title, toast.body) };
+        let overhead = 2.0 * pad + ICON as f32 + gap;
+        let widest = text.split('\n').map(|s| kit.ui.fonts.measure(s, style.ty).width).fold(0.0, f32::max);
+        let width = (widest + overhead + 2.0).ceil().clamp(MIN_WIDTH, MAX_WIDTH);
+        let text_width = width - overhead;
+        let room = self.registry.zone_of("toast", &self.frame).h as f32;
+        let max_lines = (((room - 2.0 * pad) / line).floor() as usize).max(1);
+        let lines = wrap::lines(kit, style, &text, text_width - 2.0, max_lines);
+        let text_height = line * lines.len() as f32;
+        let height = (text_height.max(ICON as f32) + 2.0 * pad).max(MIN_HEIGHT).ceil();
         let hidden = Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) };
-        let accent = kit.ui.look.accent();
-        let tint = compositor_protocol::Rgba(
-            (u32::from(accent.0) * 41 / 255) as u8,
-            (u32::from(accent.1) * 41 / 255) as u8,
-            (u32::from(accent.2) * 41 / 255) as u8,
-            41,
-        );
-        let ink = kit.ui.look.ink();
-        let ink2 = kit.ui.look.ink2();
-        for _ in 0..SLOTS {
-            let pane = Pane::new(kit, Frame::new(0.0, 0.0, WIDTH, h), self.z, PaneKind::Card, false);
-            pane.layer().set(hidden);
-            let tile =
-                plate::shape(&kit.ui, Frame::new(0.0, 0.0, TILE as f32, TILE as f32), self.z + 1, plate::solid(tint, kit.tokens.radius(Radius::Control)));
-            tile.set(hidden);
-            let mut icon = kit.ui.scene.image(TILE * 7 / 12, TILE * 7 / 12, self.z + 2, hidden)?;
-            glyph::draw("info", TILE * 7 / 12, accent, icon.pixels_mut());
-            icon.damage(None);
-            let text_w = WIDTH - 2.0 * pad - TILE as f32 - pad;
-            let mut title = Text::new(
-                kit,
-                Frame::new(0.0, 0.0, text_w, kit.line(TypeRole::Label)),
-                self.z + 3,
-                role_style(kit, TypeRole::Label, None, ink, Align::Left),
-                "",
-            )?;
-            title.set_props(hidden);
-            let mut body = Text::new(
-                kit,
-                Frame::new(0.0, 0.0, text_w, kit.line(TypeRole::Caption)),
-                self.z + 3,
-                role_style(kit, TypeRole::Caption, None, ink2, Align::Left),
-                "",
-            )?;
-            body.set_props(hidden);
-            self.slots.push(Slot { pane, tile, icon, title, body, showing: None, at: (0.0, 0.0) });
-        }
+        let pane = Pane::new(kit, Frame::new(0.0, 0.0, width, height), self.z, PaneKind::Card, false);
+        pane.layer().set(hidden);
+        let mut icon = kit.ui.scene.image(ICON, ICON, self.z + 1, hidden)?;
+        glyph::draw("info", ICON, kit.ui.look.accent(), icon.pixels_mut());
+        icon.damage(None);
+        let mut words = kit.ui.scene.image(text_width.ceil() as u32, text_height.ceil() as u32, self.z + 2, hidden)?;
+        let runs: Vec<Run<'_>> = lines.iter().enumerate().map(|(i, s)| Run::left(s, style.ty, style.colour, 0.0, i as f32 * line, text_width)).collect();
+        draw_runs(&mut kit.ui, &mut words, &runs);
+        self.card = Some(Card { pane, icon, words, id: toast.id, at: (0.0, 0.0), size: (width, height), visible: false });
         self.generation = kit.generation();
         self.text_scale = kit.text_scale;
         Ok(())
     }
 
-    /// Where a column of `n` cards starts: the toast item's rectangle for a column of that height (the place is a fraction of the room the
-    /// column leaves, so it never runs past its zone), and whether the newest card is at the top of it. An item anchored in the upper half
-    /// grows downwards from its edge (newest on top, the older ones under it); one anchored low grows upwards (newest at the foot, nearest
-    /// the edge, the older ones above it). `bar` is the volume bar while it is up: a column that would meet it goes beside it, above it
-    /// for one that grows up. `over_app`: an app's picture is behind.
-    fn column(&self, n: usize, gap: f32, bar: Option<&PlacedRect>, over_app: bool) -> ((f32, f32), bool) {
-        let n = n.max(1);
-        let total = (n as f32 * self.height + (n - 1) as f32 * gap).ceil() as i32;
-        let down = self.registry.placement_of("toast", &self.user).is_none_or(|p| p.placement.grows_down());
-        let rect = self.registry.rect_of("toast", &self.user, &self.frame, Size::new(WIDTH as i32, total));
-        // over an app the column rests above the film's subtitles, not on them; the bar (lifted over an app) is cleared after that
-        let rect = rect.map(|r| if over_app { above_subtitles(r, STACK) } else { r });
-        let rect = rect.map(|r| stack_beside(bar, r, STACK, down));
-        let at = rect.map_or((1920.0 - 24.0 - WIDTH, 24.0), |r| (r.x as f32, r.y as f32));
-        (at, down)
-    }
-
-    /// How many cards the zone holds one over the other, at the card's height now (never fewer than one: a toast is not left unseen for its size).
-    fn fit(&self, gap: f32) -> usize {
-        let room = self.registry.zone_of("toast", &self.frame).h as f32;
-        (((room + gap) / (self.height + gap)).floor() as usize).max(1)
-    }
-
-    /// Draws `toasts` (newest first). `bar`: the volume bar's rectangle while it is up; `over_app`: an app is in front. Returns whether any is on screen.
+    /// Draws the current toast, clearing the volume bar and subtitles using the placement rules.
     pub fn apply(&mut self, kit: &mut Kit, toasts: &[Toast], bar: Option<Rect>, over_app: bool) -> std::io::Result<bool> {
-        if self.slots.is_empty() || self.generation != kit.generation() || self.text_scale != kit.text_scale {
-            self.build(kit)?;
-        }
-        let pad = kit.space(3);
-        let gap = kit.space(2);
-        let h = self.height;
-        let shown = toasts.len().min(SLOTS).min(self.fit(gap));
-        let bar = bar.map(|b| PlacedRect::new(b.x.round() as i32, b.y.round() as i32, b.w.round() as i32, b.h.round() as i32));
-        let ((x0, y0), down) = self.column(shown, gap, bar.as_ref(), over_app);
-        // a card arrives from the edge it rests against
-        let from = self.registry.slide_of("toast", &self.user);
-        let travel = if kit.ui.look.reduced_motion { 0.0 } else { RISE };
-        let (dx, dy) = (from.x as f32 * travel, from.y as f32 * travel);
-        let title_h = kit.line(TypeRole::Label);
-        let body_h = kit.line(TypeRole::Caption);
-        for (i, slot) in self.slots.iter_mut().enumerate() {
-            // the newest is nearest the edge the item is anchored to
-            let row = if down { i } else { shown.saturating_sub(1).saturating_sub(i) };
-            let y = y0 + row as f32 * (h + gap);
-            match toasts.get(i).filter(|_| i < shown) {
-                Some(t) => {
-                    let fresh = slot.showing != Some(t.id);
-                    slot.title.set(kit, &t.title);
-                    slot.body.set(kit, &t.body);
-                    let pane_props = Props::at(x0, y);
-                    let tile_at = Props::at(x0 + pad, y + ((h - TILE as f32) / 2.0).round());
-                    let icon_side = (TILE * 7 / 12) as f32;
-                    let icon_at = Props::at(tile_at.x + ((TILE as f32 - icon_side) / 2.0).round(), tile_at.y + ((TILE as f32 - icon_side) / 2.0).round());
-                    let text_x = x0 + pad + TILE as f32 + pad;
-                    let has_body = !t.body.is_empty();
-                    let block = if has_body { title_h + kit.space(1) + body_h } else { title_h };
-                    let title_at = Props::at(text_x, y + ((h - block) / 2.0).round());
-                    let body_at = Props::at(text_x, title_at.y + title_h + kit.space(1));
-                    if fresh || slot.at != (x0, y) {
-                        let to = |kit: &Kit, layer: &ui::scene::Layer, at: Props| {
-                            if fresh { kit.arrive_from(layer, at, (dx, dy), Beat::Layer) } else { kit.glide(layer, at, Beat::Layer) }
-                        };
-                        to(kit, slot.pane.layer(), pane_props);
-                        to(kit, &slot.tile, tile_at);
-                        to(kit, &slot.icon, icon_at);
-                        to(kit, slot.title.layer(), title_at);
-                        if has_body {
-                            to(kit, slot.body.layer(), body_at);
-                        } else {
-                            slot.body.set_props(Props { opacity: 0.0, visible: false, ..body_at });
-                        }
-                        slot.pane.move_to(x0, y);
-                        slot.at = (x0, y);
-                        slot.showing = Some(t.id);
-                    } else if !has_body {
-                        slot.body.set_props(Props { opacity: 0.0, visible: false, ..body_at });
-                    } else {
-                        slot.body.set_props(body_at);
-                    }
-                }
-                None => {
-                    if slot.showing.is_some() {
-                        let from = slot.pane.at();
-                        kit.leave(slot.pane.layer(), from, Beat::Layer);
-                        let gone = Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) };
-                        slot.tile.set(gone);
-                        slot.icon.set(gone);
-                        slot.title.set_props(gone);
-                        slot.body.set_props(gone);
-                        slot.showing = None;
-                    }
-                }
+        let Some(toast) = toasts.first() else {
+            if let Some(card) = self.card.as_mut().filter(|c| c.visible) {
+                kit.leave(card.pane.layer(), card.pane.at(), Beat::Layer);
+                let hidden = Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) };
+                card.icon.set(hidden);
+                card.words.set(hidden);
+                card.visible = false;
             }
+            return Ok(false);
+        };
+        let fresh = self.card.as_ref().is_none_or(|c| c.id != toast.id || !c.visible)
+            || self.generation != kit.generation() || self.text_scale != kit.text_scale;
+        if fresh {
+            self.card = None;
+            self.build(kit, toast)?;
         }
-        Ok(!toasts.is_empty())
+        let card = self.card.as_mut().unwrap();
+        let (width, height) = card.size;
+        let down = self.registry.placement_of("toast", &self.user).is_none_or(|p| p.placement.grows_down());
+        let bar = bar.map(|b| PlacedRect::new(b.x.round() as i32, b.y.round() as i32, b.w.round() as i32, b.h.round() as i32));
+        let rect = self.registry.rect_of("toast", &self.user, &self.frame, Size::new(width as i32, height as i32));
+        let rect = rect.map(|r| if over_app { above_subtitles(r, STACK) } else { r });
+        let rect = rect.map(|r| stack_beside(bar.as_ref(), r, STACK, down));
+        let (x, y) = rect.map_or(((1920.0 - width) / 2.0, 1026.0 - height), |r| (r.x as f32, r.y as f32));
+        if fresh || card.at != (x, y) {
+            let from = self.registry.slide_of("toast", &self.user);
+            let travel = if kit.ui.look.reduced_motion { 0.0 } else { RISE };
+            let delta = (from.x as f32 * travel, from.y as f32 * travel);
+            let pad = kit.space(4);
+            let gap = kit.space(3);
+            let text_height = card.words.height() as f32;
+            let pane_at = Props::at(x, y);
+            let icon_at = Props::at(x + pad, y + ((height - ICON as f32) / 2.0).round());
+            let words_at = Props::at(x + pad + ICON as f32 + gap, y + ((height - text_height) / 2.0).round());
+            let move_layer = |layer: &ui::scene::Layer, at: Props| {
+                if fresh { kit.arrive_from(layer, at, delta, Beat::Layer) } else { kit.glide(layer, at, Beat::Layer) }
+            };
+            move_layer(card.pane.layer(), pane_at);
+            move_layer(&card.icon, icon_at);
+            move_layer(&card.words, words_at);
+            card.pane.move_to(x, y);
+            card.at = (x, y);
+            card.visible = true;
+        }
+        Ok(true)
     }
 
-    /// The cards' rectangles, top to bottom, while they show (the tests read where they are).
+    /// The current toast rectangle, if visible.
     pub fn rects(&self) -> Vec<Rect> {
-        let mut rects: Vec<Rect> = self.slots.iter().filter(|s| s.showing.is_some()).map(|s| Rect { x: s.at.0, y: s.at.1, w: WIDTH, h: self.height }).collect();
-        rects.sort_by(|a, b| a.y.total_cmp(&b.y));
-        rects
+        self.card.as_ref().filter(|c| c.visible).map(|c| vec![Rect { x: c.at.0, y: c.at.1, w: c.size.0, h: c.size.1 }]).unwrap_or_default()
     }
 
     pub fn restyle(&mut self) {
-        self.slots.clear();
+        self.card = None;
     }
 }
 
@@ -235,124 +152,47 @@ mod tests {
     use crate::kit::testkit;
     use serde_json::json;
 
-    fn toasts(n: u64) -> Vec<Toast> {
-        (0..n).map(|i| Toast { id: n - i, title: format!("Toast {}", n - i), body: "Something happened".into(), icon: String::new(), expires: 99_000 }).collect()
-    }
-
-    fn surface(anchor: &str, dy: f64) -> ToastSurface {
-        let theme = json!({"layout": {"overlays": {"toast": {"anchor": anchor, "dx": 0.0, "dy": dy}}}});
-        ToastSurface::new(1900, &theme, &json!({}))
-    }
-
-    /// A surface the owner never placed: where the toasts rest by default.
-    fn resting() -> ToastSurface {
-        ToastSurface::new(1900, &json!({}), &json!({}))
+    fn toast(title: &str, body: &str) -> Toast {
+        Toast { id: 1, title: title.into(), body: body.into(), icon: String::new(), expires: 5000 }
     }
 
     #[test]
-    fn by_default_the_toasts_rest_centred_at_the_foot_with_five_percent_of_the_height_under_them() {
+    fn compact_default_and_adaptive_multiline_stay_in_safe_area() {
         for scale in [1.0, 2.0] {
             let (_h, mut kit) = testkit::kit(scale);
-            let mut s = resting();
-            s.apply(&mut kit, &toasts(1), None, false).unwrap();
-            let r = s.rects()[0];
-            assert_eq!(r.x + r.w / 2.0, 960.0, "centred at {scale}: {r:?}");
-            assert!(1080.0 - (r.y + r.h) >= 54.0, "5 % of 1080 under it at {scale}: {r:?}");
-            assert!(1080.0 - (r.y + r.h) < 54.0 + 1.0, "and not floating higher than that at {scale}: {r:?}");
-            s.apply(&mut kit, &toasts(3), None, false).unwrap();
-            let rects = s.rects();
-            assert_eq!(rects.len(), 3);
-            assert_eq!(rects[2].y + rects[2].h, 1026.0, "the newest at the foot, the older ones above it: {rects:?}");
-            assert!(s.slots[0].at.1 > s.slots[1].at.1 && s.slots[1].at.1 > s.slots[2].at.1);
+            let mut surface = ToastSurface::new(1900, &json!({}), &json!({}));
+            surface.apply(&mut kit, &[toast("Ready", "")], None, false).unwrap();
+            let short = surface.rects()[0];
+            assert_eq!(short.w, 320.0);
+            assert!(short.h >= 64.0);
+            assert_eq!(short.x + short.w / 2.0, 960.0);
+            assert_eq!(short.y + short.h, 1026.0);
+            let mut long = toast("A much longer notification title that wraps", "Another line with meaningful detail and a lengthy continuation.");
+            long.id = 2;
+            surface.apply(&mut kit, &[long], None, false).unwrap();
+            let r = surface.rects()[0];
+            assert!(r.w > short.w && r.w <= 480.0);
+            assert!(r.h > short.h);
+            assert!(r.y >= 24.0 && r.y + r.h == 1026.0);
         }
     }
 
     #[test]
-    fn above_the_volume_bar_while_it_is_up_and_at_the_foot_again_when_it_goes() {
+    fn saved_anchor_and_clearance_are_preserved() {
         let (_h, mut kit) = testkit::kit(1.0);
-        let mut s = resting();
+        let mut surface = ToastSurface::new(1900, &json!({}), &json!({}));
+        let t = toast("Ready", "");
         let bar = Rect { x: 740.0, y: 988.0, w: 440.0, h: 60.0 };
-        s.apply(&mut kit, &toasts(2), None, false).unwrap();
-        let at_foot = s.rects();
-        s.apply(&mut kit, &toasts(2), Some(bar), false).unwrap();
-        let over = s.rects();
-        let low = over.last().unwrap();
-        assert_eq!(low.y + low.h, bar.y - 16.0, "the lowest card is 16 above the bar: {over:?}");
-        assert_eq!(over[1].y - over[0].y, at_foot[1].y - at_foot[0].y, "the column keeps its shape");
-        s.apply(&mut kit, &toasts(2), None, false).unwrap();
-        assert_eq!(s.rects(), at_foot, "the bar gone, the column is back at the foot");
-    }
-
-    #[test]
-    fn over_an_app_the_column_rests_16_above_the_subtitles_with_the_lifted_bar_under_it_and_a_high_column_is_left_alone() {
-        for scale in [1.0, 2.0] {
-            let (_h, mut kit) = testkit::kit(scale);
-            let mut s = resting();
-            s.apply(&mut kit, &toasts(1), None, true).unwrap();
-            let r = s.rects()[0];
-            assert_eq!(r.y + r.h, 905.0 - 16.0, "not on the subtitles (905 to 1010) at {scale}: {r:?}");
-            s.apply(&mut kit, &toasts(3), None, true).unwrap();
-            let col = s.rects();
-            assert_eq!(col[2].y + col[2].h, 889.0, "the lowest card at {scale}: {col:?}");
-            // the bar rides 60 higher over an app (928 to 988): below the subtitles' clearance, so the column does not move for it
-            let lifted = Rect { x: 740.0, y: 928.0, w: 440.0, h: 60.0 };
-            s.apply(&mut kit, &toasts(1), Some(lifted), true).unwrap();
-            let r = s.rects()[0];
-            assert_eq!(r.y + r.h, 889.0, "{r:?}");
-            // off the app, back at the foot with its 54 px
-            s.apply(&mut kit, &toasts(1), None, false).unwrap();
-            assert_eq!(s.rects()[0].y + s.rects()[0].h, 1026.0);
-            // a column the owner put high is not in the subtitles' way
-            let mut top = surface("top-right", 0.0);
-            top.apply(&mut kit, &toasts(1), None, false).unwrap();
-            let at = top.rects();
-            top.apply(&mut kit, &toasts(1), None, true).unwrap();
-            assert_eq!(top.rects(), at);
-        }
-    }
-
-    #[test]
-    fn a_column_anchored_high_grows_down_from_its_edge_and_one_anchored_low_grows_up_from_its_edge_the_newest_nearest_it() {
-        let (_h, mut kit) = testkit::kit(1.0);
-        let mut top = surface("top-right", 0.0);
-        assert!(top.apply(&mut kit, &toasts(3), None, false).unwrap());
-        let rects = top.rects();
-        assert_eq!(rects.len(), 3);
-        assert_eq!(rects[0].y, 24.0, "the first card is at the top edge of the zone");
-        assert!(rects[1].y > rects[0].y && rects[2].y > rects[1].y, "the older ones under it");
-        // the newest (the first of the list) is the one nearest the edge
-        assert_eq!(top.slots[0].at.1, rects[0].y);
-
-        let mut low = surface("bottom-right", 0.0);
-        assert!(low.apply(&mut kit, &toasts(3), None, false).unwrap());
-        let rects = low.rects();
-        let zone_bottom = 1026.0;
-        assert_eq!(rects.len(), 3);
-        assert_eq!(rects[2].y + rects[2].h, zone_bottom, "the lowest card ends at the zone's foot: {rects:?}");
-        assert!(rects[0].y >= 24.0, "the column stays inside its zone: {rects:?}");
-        assert!(low.slots[0].at.1 > low.slots[1].at.1 && low.slots[1].at.1 > low.slots[2].at.1, "the newest at the foot, the older ones above it");
-    }
-
-    #[test]
-    fn one_toast_anchored_low_is_at_the_foot_and_the_column_never_leaves_its_zone_at_large_text() {
-        for scale in [1.0, 2.0] {
-            let (_h, mut kit) = testkit::kit(scale);
-            for (anchor, dy) in [("top-right", 0.0), ("right", 0.3), ("bottom-right", 0.0), ("bottom-left", 0.0)] {
-                let mut s = surface(anchor, dy);
-                s.apply(&mut kit, &toasts(1), None, false).unwrap();
-                let one = s.rects();
-                assert_eq!(one.len(), 1);
-                s.apply(&mut kit, &toasts(3), None, false).unwrap();
-                let rects = s.rects();
-                assert!(!rects.is_empty());
-                for r in &rects {
-                    assert!(r.y >= 24.0 - 0.5 && r.y + r.h <= 1026.0 + 0.5, "{anchor} at {scale}: {r:?} is outside the zone");
-                }
-                for pair in rects.windows(2) {
-                    assert!(pair[1].y >= pair[0].y + pair[0].h, "{anchor} at {scale}: cards overlap: {rects:?}");
-                }
-                assert!(s.fit(kit.space(2)) >= rects.len(), "{anchor} at {scale}: the zone holds what is drawn");
-            }
-        }
+        surface.apply(&mut kit, &[t.clone()], Some(bar), false).unwrap();
+        let r = surface.rects()[0];
+        assert_eq!(r.y + r.h, bar.y - 16.0);
+        surface.apply(&mut kit, &[t.clone()], None, true).unwrap();
+        assert_eq!(surface.rects()[0].y + surface.rects()[0].h, 889.0);
+        surface.apply(&mut kit, &[], None, false).unwrap();
+        assert!(surface.rects().is_empty());
+        let theme = json!({"layout": {"overlays": {"toast": {"anchor": "top-right", "dx": 0.0, "dy": 0.0}}}});
+        let mut top = ToastSurface::new(1900, &theme, &json!({}));
+        top.apply(&mut kit, &[t], None, false).unwrap();
+        assert_eq!(top.rects()[0].y, 24.0);
     }
 }

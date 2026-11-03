@@ -62,6 +62,7 @@ pub struct Kit {
     pub text_scale: f32,
     /// The Lucide icons of the module (`kit/icon.rs`); empty until the shell is given its module directory.
     pub icons: icon::Icons,
+    pub(crate) theme_thumbnails: crate::settings::surface::rows::thumbnails::Cache,
     generation: u64,
     /// The blurred wallpaper picture alone, as a prepared set Home has made (the `clear` card glass): the glass of Home's panes shows it, not the page below
     /// them, which has the scrim on it. The QML Home's glass samples the graded picture and not the scrim over it.
@@ -81,7 +82,7 @@ impl Kit {
             ui.fonts.set_glyph_source(Some(Box::new(gridfit::GridFit::new())));
         }
         ui.enable_glyph_text().map_err(|e| std::io::Error::other(format!("{e}")))?;
-        let mut kit = Self { ui, tokens, mode, tier, text_scale, icons: icon::Icons::default(), generation: 1, wall_backdrop: None, refresh_hz: 60.0 };
+        let mut kit = Self { ui, tokens, mode, tier, text_scale, icons: icon::Icons::default(), theme_thumbnails: Default::default(), generation: 1, wall_backdrop: None, refresh_hz: 60.0 };
         kit.warm();
         Ok(kit)
     }
@@ -110,12 +111,16 @@ impl Kit {
 
     /// Installs another theme or mode or text size: a new look generation; screens restyle what they show.
     pub fn retheme(&mut self, tokens: Tokens, mode: Mode, text_scale: f32) {
+        let roles = [TypeRole::Label, TypeRole::Caption, TypeRole::Body, TypeRole::Title];
+        let before = roles.map(|role| self.ty(role));
         self.generation += 1;
         self.tokens = tokens;
         self.mode = mode;
         self.text_scale = text_scale;
         self.ui.look = self.tokens.look(mode, self.generation, self.tier, text_scale);
-        self.warm();
+        if before != roles.map(|role| self.ty(role)) {
+            self.warm();
+        }
     }
 
     pub fn generation(&self) -> u64 {

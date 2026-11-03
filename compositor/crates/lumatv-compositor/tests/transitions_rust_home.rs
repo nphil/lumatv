@@ -13,7 +13,6 @@ use lumatv_compositor::output::Image;
 use lumatv_compositor::render::egl::Platform;
 use lumatv_compositor::render::gl::{BufferPath, Gl};
 use lumatv_compositor::scene::Hole;
-use lumatv_compositor::window::SHELL_HOME_TITLE;
 use serde_json::json;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -87,7 +86,6 @@ fn rig() -> Rig {
         s.set_launch_origin(&json!({"appId": "com.webos.app.hdmi2", "tile": {"x": TILE.0, "y": TILE.1, "width": TILE.2, "height": TILE.3, "radius": 22}}));
         s.tick_at(1_000 * MS);
     });
-    let _ = SHELL_HOME_TITLE;
     Rig { server, client, _keep: vec![(stub, clear)], _ui: ui, hangup }
 }
 

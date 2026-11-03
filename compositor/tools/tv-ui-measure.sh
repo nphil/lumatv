@@ -30,6 +30,7 @@ export XDG_RUNTIME_DIR=$D WAYLAND_DISPLAY=wayland-lumatv LUMATV_LOG=info
 OUT=$D/out/ui
 GPU=/sys/kernel/debug/mali0/dvfs_utilization
 
+. "$D/compositor.sh"
 restore() {
     pkill -f 'bin/lumatv-compositor' 2>/dev/null
     pkill -f 'bin/x2cli' 2>/dev/null
@@ -70,6 +71,7 @@ phase() {
     pkill -f 'bin/lumatv-compositor' 2>/dev/null
     pkill -f 'bin/x2cli' 2>/dev/null
     wait $SAMPLER 2>/dev/null
+    comp_current_log >> $OUT/$name.server.log
     grep -E 'summary|error|warn|gl error' $OUT/$name.server.log | grep -v 'ld.so.preload' | tail -8
     sleep 1
 }

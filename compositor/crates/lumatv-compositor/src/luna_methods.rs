@@ -27,12 +27,59 @@ pub struct LunaState {
     next_token: u64,
     /// Outbound tokens of the tvpower registrations, to tell their pushes apart.
     power_tokens: Vec<(u64, &'static str)>,
+    nooperation: crate::nooperation::Timers,
     /// The audio service's volume subscription, and the mute state it last pushed (what Mute toggles from).
     audio_token: Option<u64>,
+    saver_wake_token: Option<u64>,
     pub muted: bool,
     /// The tokens of the video calls (placements, properties, mute) that have not been answered yet: (token, method, context). Capped: an answer
     /// that never comes must not grow it.
     video_calls: Vec<(u64, String, String)>,
+    cover: CoverLaunch,
+}
+
+
+struct CoverLaunch {
+    pending: [Value; 4],
+    token: Option<u64>,
+    status: &'static str,
+}
+impl Default for CoverLaunch {
+    fn default() -> Self { Self { pending: Default::default(), token: None, status: "closed" } }
+}
+
+impl CoverLaunch {
+    fn prepare(&mut self, payload: &Value) -> bool {
+        let input_params = match payload.get("inputParams") {
+            Some(p) if p.is_object() => Some(p),
+            Some(_) => return false,
+            None => None,
+        };
+        let mut pending = [const { Value::Null }; 4];
+        for (index, key) in ["firstApp", "secondApp", "fallback", "finalFallback"].into_iter().enumerate() {
+            if let Some(app) = payload.get(key) {
+                if app.is_null() { continue; }
+                let Some(obj) = app.as_object() else { return false; };
+                let Some(id) = obj.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) else { continue; };
+                if obj.get("params").is_some_and(|p| !p.is_object()) { return false; }
+                let mut app = app.clone();
+                let input = matches!(id, "com.webos.app.livetv" | "com.webos.app.hdmi1" | "com.webos.app.hdmi2"
+                    | "com.webos.app.hdmi3" | "com.webos.app.hdmi4" | "com.webos.app.dp1" | "com.webos.app.dp2"
+                    | "com.webos.app.usbc1" | "com.webos.app.usbc2" | "com.webos.app.externalinput.av1"
+                    | "com.webos.app.externalinput.av2" | "com.webos.app.externalinput.component"
+                    | "com.webos.app.externalinput.scart" | "com.webos.app.smhl");
+                if !obj.contains_key("params") {
+                    app["params"] = if input { input_params.cloned().unwrap_or_else(|| json!({"boot": true})) } else { json!({}) };
+                }
+                pending[index] = app;
+            }
+        }
+        if pending.iter().all(Value::is_null) { return false; }
+        self.pending = pending;
+        self.token = None;
+        self.status = "launching";
+        true
+    }
 }
 
 impl LunaState {
@@ -62,7 +109,10 @@ impl Default for LunaState {
             power: Power::default(),
             next_token: 0,
             power_tokens: Vec::new(),
+            nooperation: crate::nooperation::Timers::default(),
             audio_token: None,
+            saver_wake_token: None,
+            cover: CoverLaunch::default(),
             video_calls: Vec::new(),
             muted: false,
         }
@@ -131,8 +181,43 @@ impl State {
         self.luna_state.next_token
     }
 
+    fn cover_next(&mut self) {
+        let Some(app) = self.luna_state.cover.pending.iter_mut().find_map(|app| (!app.is_null()).then(|| app.take())) else {
+            self.luna_state.cover.status = "failed";
+            self.journal("coverUI: every launch candidate failed".into());
+            return;
+        };
+        const LAUNCH: &str = "luna://com.webos.applicationManager/launch";
+        if self.remote_service_refused(LAUNCH, &app) {
+            self.journal("luna: LG Remote Service is blocked (Settings > Privacy), launch dropped".into());
+            self.cover_next();
+            return;
+        }
+        let token = self.luna_token();
+        self.luna_state.cover.token = Some(token);
+        self.luna.send(ToBridge::Outbound(Outbound { token, uri: LAUNCH.into(), payload: app, subscribe: false }));
+    }
+
+    fn cover_answer(&mut self, token: u64, payload: &Value) -> bool {
+        if self.luna_state.cover.token != Some(token) { return false; }
+        self.luna_state.cover.token = None;
+        if payload.get("returnValue").and_then(Value::as_bool) == Some(true) {
+            self.luna_state.cover.pending.fill(Value::Null);
+            self.luna_state.cover.status = "closed";
+            self.luna_call("luna://com.webos.bootManager/generateSignal".into(), json!({"name": "firstapp-launched"}));
+        } else if payload.get("returnValue").and_then(Value::as_bool) == Some(false) {
+            self.cover_next();
+        } else {
+            self.luna_state.cover.pending.fill(Value::Null);
+            self.luna_state.cover.status = "failed";
+            self.journal("coverUI: invalid launch response".into());
+        }
+        true
+    }
+
     /// Registers with tvpower and subscribes to the audio service's volume state (call once the bridge is up).
     pub fn luna_register(&mut self) {
+        self.luna_state.saver_wake_token = None;
         let calls = power::register_calls();
         let rounds = ["PreparePowerOff", "PreparePowerOn", "PowerOffLogoRequest", "PowerState"];
         for ((uri, payload), round) in calls.into_iter().zip(rounds) {
@@ -145,11 +230,27 @@ impl State {
         self.luna.send(ToBridge::Outbound(Outbound { token, uri: format!("{AUDIO}/master/getVolume"), payload: json!({"subscribe": true}), subscribe: true }));
         // the hardware video windows read the video sinks' status while their switch is on (`vwin`)
         self.vwin_subscribe();
+        let token = self.luna_token();
+        self.luna_state.nooperation.token = Some(token);
+        self.luna.send(ToBridge::Outbound(Outbound { token, uri: crate::nooperation::TIMER_INFO.into(),
+            payload: json!({"subscribe": true}), subscribe: true }));
     }
 
     /// An answer to one of the compositor's own calls: tvpower pushes and the audio service's volume state are the
     /// ones acted on; the shell's calls are answered to it.
     pub fn luna_event(&mut self, ev: Event) {
+        if self.luna_state.saver_wake_token == Some(ev.token) {
+            self.luna_state.saver_wake_token = None;
+            if ev.payload.get("returnValue").and_then(Value::as_bool) == Some(false) {
+                self.journal(format!("screensaver: LG wake refused: {}", ev.payload));
+            }
+            return;
+        }
+        if self.luna_state.nooperation.token == Some(ev.token) {
+            self.luna_state.nooperation.update(&ev.payload, std::time::Instant::now());
+            return;
+        }
+        if self.cover_answer(ev.token, &ev.payload) { return; }
         if self.panel_answer(ev.token, &ev.payload) {
             return;
         }
@@ -187,6 +288,10 @@ impl State {
             return;
         }
         if let Some((uri, payload)) = self.luna_state.power.on_push(round, &ev.payload) {
+            if round == "PreparePowerOn" && self.luna_state.power.rendering {
+                self.nooperation_activity();
+            }
+            self.refresh_policy_sync();
             let next = ev.payload.get("next sub state").and_then(Value::as_str).unwrap_or("");
             let line = format!("tvpower: {round} ({next}) -> ack{}", self.since_power_key());
             self.journal(line);
@@ -197,6 +302,39 @@ impl State {
             let token = self.luna_token();
             self.luna.send(ToBridge::Outbound(Outbound { token, uri, payload, subscribe: false }));
             self.shell_sync_topics();
+        }
+    }
+
+    pub fn nooperation_deadline(&self) -> Option<std::time::Instant> {
+        self.luna_state.power.rendering.then(|| self.luna_state.nooperation.deadline()).flatten()
+    }
+
+    pub(crate) fn lg_saver_up(&self) -> bool {
+        self.scene.windows().any(|w| w.kind == WindowType::Screensaver
+            && w.state != crate::window::ShellState::Minimized && w.map_serial > 0
+            && self.surfaces.get(w.surface).is_some_and(|s| s.is_mapped()))
+    }
+
+    pub(crate) fn wake_lg_saver(&mut self) {
+        if self.luna_state.saver_wake_token.is_some() || !self.lg_saver_up() { return; }
+        let token = self.luna_token();
+        self.luna_state.saver_wake_token = Some(token);
+        self.luna.send(ToBridge::Outbound(Outbound { token,
+            uri: "luna://com.webos.service.tvpower/power2/turnOnScreen".into(),
+            payload: json!({}), subscribe: false }));
+    }
+
+    pub(crate) fn nooperation_activity(&mut self) {
+        self.luna_state.nooperation.activity(std::time::Instant::now());
+    }
+
+    /// Runs even when no frames are drawn. LG still decides whether media permits the saver.
+    pub fn nooperation_tick(&mut self) {
+        if !self.luna_state.power.rendering { return; }
+        let now = std::time::Instant::now();
+        while let Some(kind) = self.luna_state.nooperation.expired(now) {
+            let payload = json!({"type": kind, "status": "expired"});
+            self.luna_call(crate::nooperation::TIMER_EXPIRED.into(), payload);
         }
     }
 
@@ -390,8 +528,21 @@ impl State {
                 let fg = self.scene.foreground(&self.surfaces);
                 json!({"returnValue": true, "appId": fg.map(|w| w.app_id().to_string()).unwrap_or_default(), "keyMask": fg.map(|w| w.key_mask).unwrap_or(0)})
             }
-            ("com.webos.coverUI", "getStatus") => json!({"returnValue": true, "status": "closed"}),
-            ("com.webos.coverUI", "open") | ("com.webos.coverUI", "close") => ok(),
+            ("com.webos.coverUI", "getStatus") => json!({"returnValue": true, "status": self.luna_state.cover.status}),
+            ("com.webos.coverUI", "open") => {
+                if self.luna_state.cover.prepare(payload) {
+                    self.cover_next();
+                    ok()
+                } else {
+                    json!({"returnValue": false, "errorText": "valid firstApp, secondApp or fallback required"})
+                }
+            }
+            ("com.webos.coverUI", "close") => {
+                self.luna_state.cover.pending.fill(Value::Null);
+                self.luna_state.cover.token = None;
+                self.luna_state.cover.status = "closed";
+                ok()
+            }
             ("com.webos.surfacemanager.systemui", "closeAllSystemUI") => ok(),
             ("com.webos.surfacemanager.screenSaver", "restartUserActivityTimer") => ok(),
             _ => return None,
@@ -421,7 +572,7 @@ impl State {
                 .windows()
                 .filter(mapped)
                 .filter(|w| !w.in_group)
-                .filter(|w| matches!(w.kind, WindowType::Overlay | WindowType::Floating | WindowType::Popup) && w.state != crate::window::ShellState::Minimized)
+                .filter(|w| matches!(w.kind, WindowType::Overlay | WindowType::Floating | WindowType::Popup | WindowType::Screensaver) && w.state != crate::window::ShellState::Minimized)
                 .collect();
             above.sort_by_key(|w| w.map_serial);
             tops.extend(above);
@@ -555,6 +706,92 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn power_rounds_update_the_interactive_refresh_vote() {
+        let display = wayland_server::Display::<State>::new().unwrap();
+        let mut state = State::new(display.handle(), crate::config::Config::default(),
+            Box::new(crate::render::software::Software::new(64, 64)), Box::new(crate::luna::Null::default()));
+        state.shell_rust.engine_connected = true;
+        state.shell_rust_handle(crate::shell::Msg::Ui {
+            can: None, wants: None, live: None, state: Some(json!({"interactiveVisible": true})),
+        });
+        assert_eq!(state.config.refresh_hz, 120);
+        state.luna_state.power_tokens.extend([(700, "PreparePowerOff"), (701, "PreparePowerOn")]);
+        state.luna_event(Event { token: 700, payload: json!({"timestamp": "1", "next sub state": "active standby"}) });
+        assert_eq!(state.config.refresh_hz, 60);
+        state.luna_event(Event { token: 701, payload: json!({"timestamp": "2", "next sub state": "active"}) });
+        assert_eq!(state.config.refresh_hz, 120);
+    }
+
+    #[test]
+    fn cover_open_routes_real_inbound_and_luna_responses() {
+        let display = wayland_server::Display::<State>::new().unwrap();
+        let mut state = State::new(display.handle(), crate::config::Config::default(),
+            Box::new(crate::render::software::Software::new(64, 64)), Box::new(crate::luna::Null::default()));
+        let open = |state: &mut State, payload| state.luna_inbound(Inbound { token: 900, service: "com.webos.coverUI".into(),
+            method: "open".into(), payload, subscribe: false, sender: "bootd".into(), cancelled: false });
+        let calls = |state: &State| state.luna.history().into_iter().filter_map(|m| match m {
+            ToBridge::Outbound(o) => Some(o), _ => None
+        }).collect::<Vec<_>>();
+        open(&mut state, json!({"firstApp":{},"secondApp":{"id":"com.webos.app.livetv"},"fallback":{"id":"home"}}));
+        let first = calls(&state).pop().unwrap();
+        assert_eq!(first.payload, json!({"id":"com.webos.app.livetv","params":{"boot":true}}));
+        state.luna_event(Event { token: first.token, payload: json!({"returnValue":false}) });
+        let fallback = calls(&state).pop().unwrap();
+        assert_eq!(fallback.payload, json!({"id":"home","params":{}}));
+        state.luna_event(Event { token: fallback.token, payload: json!({"returnValue":false}) });
+        assert_eq!(state.luna_method("com.webos.coverUI", "getStatus", &json!({}), "").unwrap()["status"], "failed");
+        assert_eq!(calls(&state).len(), 2);
+        open(&mut state, json!({"firstApp":{"id":"app","params":{"x":1}},"secondApp":{"id":"other"},"fallback":{"id":"home"}}));
+        let good = calls(&state).pop().unwrap();
+        assert_eq!(good.payload, json!({"id":"app","params":{"x":1}}));
+        state.luna_event(Event { token: good.token, payload: json!({"returnValue":true}) });
+        let all = calls(&state);
+        assert_eq!(all.len(), 4);
+        assert_eq!(all[3].uri, "luna://com.webos.bootManager/generateSignal");
+        assert_eq!(all[3].payload, json!({"name":"firstapp-launched"}));
+        assert_eq!(state.luna_method("com.webos.coverUI", "getStatus", &json!({}), "").unwrap()["status"], "closed");
+        open(&mut state, json!({"firstApp":{"id":"first"},"secondApp":{"id":"second"},"fallback":{"id":"home"}}));
+        let first = calls(&state).pop().unwrap();
+        state.luna_event(Event { token: first.token, payload: json!({"returnValue":false}) });
+        let second = calls(&state).pop().unwrap();
+        assert_eq!(second.payload["id"], "second");
+        state.luna_method("com.webos.coverUI", "close", &json!({}), "");
+        let count = calls(&state).len();
+        state.luna_event(Event { token: second.token, payload: json!({"returnValue":false}) });
+        assert_eq!(calls(&state).len(), count, "close cancels pending fallback");
+        open(&mut state, json!({"inputParams":{"boot":true,"channelId":"7"},"secondApp":{"id":"com.webos.app.hdmi1"}}));
+        assert_eq!(calls(&state).pop().unwrap().payload["params"], json!({"boot":true,"channelId":"7"}));
+        let count = calls(&state).len();
+        let wake = json!({"firstApp":{}, "secondApp":{}, "fallback":{"id":"missing.app"},
+            "finalFallback":{"id":"com.webos.app.home"}});
+        open(&mut state, wake.clone());
+        let saved = calls(&state).pop().unwrap();
+        assert_eq!(saved.uri, "luna://com.webos.applicationManager/launch");
+        assert_eq!(saved.payload, json!({"id":"missing.app","params":{}}));
+        assert_eq!(calls(&state).len(), count + 1);
+        state.luna_event(Event { token: saved.token, payload: json!({"returnValue":false,"errorText":"app not found"}) });
+        let home = calls(&state).pop().unwrap();
+        assert_eq!(home.uri, "luna://com.webos.applicationManager/launch");
+        assert_eq!(home.payload, json!({"id":"com.webos.app.home","params":{}}));
+        assert_eq!(calls(&state).len(), count + 2);
+        state.luna_event(Event { token: home.token, payload: json!({"returnValue":true}) });
+        let signal = calls(&state).pop().unwrap();
+        assert_eq!(signal.uri, "luna://com.webos.bootManager/generateSignal");
+        assert_eq!(signal.payload, json!({"name":"firstapp-launched"}));
+        assert_eq!(calls(&state).len(), count + 3);
+        assert_eq!(state.luna_method("com.webos.coverUI", "getStatus", &json!({}), "").unwrap()["status"], "closed");
+
+        open(&mut state, wake);
+        let saved = calls(&state).pop().unwrap();
+        state.luna_event(Event { token: saved.token, payload: json!({"returnValue":false}) });
+        let home = calls(&state).pop().unwrap();
+        let count = calls(&state).len();
+        state.luna_event(Event { token: home.token, payload: json!({"returnValue":false}) });
+        assert_eq!(calls(&state).len(), count, "terminal failure must not signal firstapp-launched");
+        assert_eq!(state.luna_method("com.webos.coverUI", "getStatus", &json!({}), "").unwrap()["status"], "failed");
+    }
 
     #[test]
     fn power_rounds_are_acked_with_their_timestamp() {

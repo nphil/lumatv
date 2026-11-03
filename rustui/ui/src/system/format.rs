@@ -76,11 +76,24 @@ pub fn played(sound_mode: &str, signal: &str) -> String {
     format
 }
 
-/// "Dolby Digital+ · Surround", "DTS:X", "PCM 2.0", or "" while the format is not known.
+// PCM remains the carrier even when the receiver applies a branded upmixer.
+fn upmixer(sound_mode: &str, carrier: &str) -> Option<(&'static str, &'static str)> {
+    if !carrier.starts_with("PCM") && carrier != "Multi Ch In" { return None; }
+    let mode = sound_mode.trim();
+    if ["DOLBY AUDIO-DSUR", "DOLBY SURROUND", "DSUR"].iter().any(|m| mode.eq_ignore_ascii_case(m)) {
+        Some(("Dolby Surround", "dolby"))
+    } else if ["DTS NEURAL:X", "DTS NEURAL X", "DTS NEURALX", "NEURAL:X"].iter().any(|m| mode.eq_ignore_ascii_case(m)) {
+        Some(("DTS Neural:X", "dts"))
+    } else { None }
+}
+
 pub fn describe(sound_mode: &str, signal: &str) -> String {
     let format = played(sound_mode, signal);
     if format.is_empty() {
         return String::new();
+    }
+    if let Some((name, _)) = upmixer(sound_mode, &format) {
+        return format!("{format} · {name}");
     }
     let word = mode(sound_mode);
     if format == "Dolby Atmos" || format == "DTS:X" {
@@ -99,7 +112,7 @@ pub fn logo(sound_mode: &str, signal: &str) -> &'static str {
         "Dolby Digital" | "Dolby Digital+" | "Dolby TrueHD" => "dolby",
         "DTS:X" => "dtsx",
         "DTS" | "DTS-HD" => "dts",
-        _ => "",
+        carrier => upmixer(sound_mode, carrier).map_or("", |(_, logo)| logo),
     }
 }
 
@@ -123,5 +136,21 @@ mod tests {
         assert_eq!(describe("STEREO", "DTS"), "DTS \u{b7} Stereo");
         assert_eq!(describe("DOLBY ATMOS", "Dolby TrueHD"), "Dolby Atmos", "Atmos decoding over TrueHD");
         assert_eq!(stream("SOMETHING ELSE"), "");
+    }
+    #[test]
+    fn pcm_upmixing_reports_processing_without_relabelling_the_input() {
+        assert_eq!(played("DOLBY AUDIO-DSUR", "PCM"), "PCM");
+        assert_eq!(logo("DOLBY AUDIO-DSUR", "PCM"), "dolby");
+        assert_eq!(describe("DOLBY AUDIO-DSUR", "PCM"), "PCM · Dolby Surround");
+        assert_eq!(played("DTS NEURAL:X", "PCM 2CH"), "PCM 2.0");
+        assert_eq!(logo("DTS NEURAL:X", "PCM 2CH"), "dts");
+        assert_eq!(describe("DTS NEURAL:X", "PCM 2CH"), "PCM 2.0 · DTS Neural:X");
+        for signal in ["", "PCM ZERO", "NO SIGNAL", "SOMETHING ELSE"] {
+            assert_eq!(logo("DOLBY AUDIO-DSUR", signal), "");
+            assert_eq!(describe("DOLBY AUDIO-DSUR", signal), "");
+        }
+        for mode in ["STEREO", "DIRECT", "MULTI CH STEREO", "DOLBY ATMOS"] {
+            assert_eq!(logo(mode, "PCM"), "");
+        }
     }
 }

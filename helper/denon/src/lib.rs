@@ -4,7 +4,7 @@
 //! needs no held connection. Measured on the set's receiver: the reply is `HTTP/1.0` from `mongoose2.5` with no
 //! `Content-Length` (the body ends when the receiver closes), and the fuller `formMainZone_MainZoneXml.xml` answers
 //! `403 Forbidden` on this port, so only the Lite status is read. The telnet port pushes every change to each connected
-//! client and accepts a second one beside Home Assistant's; [`telnet`] is that read-only link.
+//! client and accepts a second one beside Home Assistant's; the telnet module provides the held link.
 //!
 //! [`parse_status_lite`] and [`telnet::parse_line`] are pure; [`Client`] and [`telnet::Session`] are blocking transports with
 //! a hard deadline. None keeps state between calls: the helper's receiver thread decides when to ask and what a change is.
@@ -13,6 +13,8 @@
 
 mod client;
 mod status;
+mod prerequisites;
+pub mod settings;
 pub mod telnet;
 
 pub use client::{Client, ClientError, STATUS_LITE_PATH, mute_command, volume_command};

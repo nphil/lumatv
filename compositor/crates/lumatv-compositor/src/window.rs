@@ -37,12 +37,6 @@ pub enum WindowType {
     BootPopup,
     Alert,
     AdvancedAlert,
-    /// LumaTV's own Home, drawn by the shell client (`shell.rs`) in place of the Home stub's card while that card is the
-    /// foreground one: `_WEBOS_WINDOW_TYPE_LUMATV_HOME`, or a window titled [`SHELL_HOME_TITLE`].
-    ShellHome,
-    /// LumaTV's system layer (the volume display, toasts and alerts, the PIN prompt, the quick panel and the input picker, the
-    /// screensaver), above every window: `_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM`, or a window titled [`SHELL_SYSTEM_TITLE`].
-    ShellSystem,
     /// The moving wallpaper's window (`lumatv-vplane`, role `wall`): a transparent surface that owns the video element Home's wallpaper is,
     /// under LumaTV's Home and only while that is drawn: `_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER`. Under LG's compositor the type is not
     /// known, so the player is never asked for it there.
@@ -55,10 +49,6 @@ pub enum WindowType {
     Unknown,
 }
 
-/// The titles the shell client gives its two windows, the second way they are told apart from the apps' (a plain `Window`
-/// cannot set LG's window type, a `WebOSWindow` can).
-pub const SHELL_HOME_TITLE: &str = "LumaTV shell: home";
-pub const SHELL_SYSTEM_TITLE: &str = "LumaTV shell: system";
 
 impl WindowType {
     pub fn parse(name: &str) -> WindowType {
@@ -88,8 +78,6 @@ impl WindowType {
             "_WEBOS_WINDOW_TYPE_BOOTPOPUP" => BootPopup,
             "_WEBOS_WINDOW_TYPE_ALERT" => Alert,
             "_WEBOS_WINDOW_TYPE_ADVANCEDALERT" => AdvancedAlert,
-            "_WEBOS_WINDOW_TYPE_LUMATV_HOME" => ShellHome,
-            "_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM" => ShellSystem,
             "_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER" => Wallpaper,
             "_WEBOS_WINDOW_TYPE_LUMATV_VIDEO" => VideoWindow,
             _ => Unknown,
@@ -101,14 +89,13 @@ impl WindowType {
         use WindowType::*;
         match self {
             Wallpaper => Layer::Wallpaper,
-            ShellHome => Layer::Home,
-            Card | Home | Screensaver | Unknown => Layer::Cards,
+            Card | Home | Unknown => Layer::Cards,
             Overlay | Floating | Restricted => Layer::Overlays,
             VideoWindow => Layer::Video,
             SystemUi | TopUi | Volume | Indicator | Spinner | LongPressSpinner | InfiniteSpinner | CoverUi => Layer::SystemUi,
             Popup | Alert | AdvancedAlert | PinCodePrompt | Toast | BootPopup => Layer::Popups,
             Keyboard | VoiceAgent => Layer::Keyboard,
-            ShellSystem => Layer::Shell,
+            Screensaver => Layer::Screensaver,
             ScreenCover | Splash => Layer::Cover,
         }
     }
@@ -118,18 +105,12 @@ impl WindowType {
         self.layer() == Layer::Cards
     }
 
-    /// One of the shell client's two windows: neither a card nor anything LG's views know.
-    pub fn is_shell(self) -> bool {
-        matches!(self, WindowType::ShellHome | WindowType::ShellSystem)
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Layer {
     /// The moving wallpaper's window, under LumaTV's Home and drawn only with it.
     Wallpaper,
-    /// LumaTV's Home, under the cards (drawn in the card slot while the Home stub's card is the foreground one).
-    Home,
     Cards,
     Overlays,
     /// LumaTV's own video windows (`WindowType::VideoWindow`): over the cards and LG's overlays, under everything that must stay visible over a video.
@@ -137,14 +118,14 @@ pub enum Layer {
     SystemUi,
     Popups,
     Keyboard,
-    /// LumaTV's system layer.
-    Shell,
+    /// LG layer 9 covers the idle app without changing its foreground or lifecycle.
+    Screensaver,
     Cover,
 }
 
 impl Layer {
-    pub const ALL: [Layer; 10] =
-        [Layer::Wallpaper, Layer::Home, Layer::Cards, Layer::Overlays, Layer::Video, Layer::SystemUi, Layer::Popups, Layer::Keyboard, Layer::Shell, Layer::Cover];
+    pub const ALL: [Layer; 9] =
+        [Layer::Wallpaper, Layer::Cards, Layer::Overlays, Layer::Video, Layer::SystemUi, Layer::Popups, Layer::Keyboard, Layer::Screensaver, Layer::Cover];
 }
 
 /// `wl_webos_shell_surface.state`.
@@ -209,15 +190,10 @@ pub struct Window {
     /// What the client was last told by `wl_webos_shell_surface.exposed`: its rectangle (true) or none (false). Sent
     /// on each change only, as OSE's `WebOSSurfaceItem::m_exposed` latches it.
     pub exposed: bool,
-    /// The shell's system layer has a surface that wants the keys (a panel is open, a prompt is up): it takes the keyboard
-    /// focus and the pointer. Off, it is drawn but lets both through to whatever is under it. Set over the UI channel.
-    pub takes_keys: bool,
-    /// Commits with a new buffer: what the client drew, whether or not it was shown (the shell's idle cost is read off it).
+    /// Commits with a new buffer, whether or not it was shown.
     pub commits: u64,
-    /// `commits` as of the last plan that drew the window, and when the last commit came (CLOCK_MONOTONIC ns): a system
-    /// layer coming back live says whether a frame of it arrived meanwhile (`Scene::set_shell_system_live`).
+    /// Commits as of the last plan that drew the window.
     pub commits_drawn: u64,
-    pub last_commit_ns: u64,
     /// A video window (`WindowType::VideoWindow`) with a granted claim: it is in the stack and its element has a hole and a placement, at
     /// [`Window::vwin_rect`] (`vwin`). Never true for another kind.
     pub vwin_live: bool,
@@ -253,10 +229,8 @@ impl Window {
             has_webos_shell: false,
             bare_commit_seen: false,
             exposed: false,
-            takes_keys: false,
             commits: 0,
             commits_drawn: 0,
-            last_commit_ns: 0,
             vwin_live: false,
             vwin_texture: false,
             vwin_rect: Rect::default(),
@@ -270,29 +244,17 @@ impl Window {
         self.props.get("appId").map(String::as_str).unwrap_or("")
     }
 
-    /// Applies one `set_property`; returns whether the window type changed (the scene must re-layer). A window the title
-    /// made a shell window keeps that through a later default type (a plain Qt `Window` has no type of its own to send).
+    /// Applies one `set_property`; returns whether the window type changed (the scene must re-layer).
     pub fn set_property(&mut self, name: &str, value: &str) -> bool {
         let mut relayer = false;
         match name {
             "_WEBOS_WINDOW_TYPE" => {
                 let k = WindowType::parse(value);
-                if k.is_shell() || !self.kind.is_shell() {
-                    relayer = k != self.kind;
-                    self.kind = k;
-                }
+                relayer = k != self.kind;
+                self.kind = k;
             }
             "title" => {
                 self.title = value.to_string();
-                let shell = match value {
-                    SHELL_HOME_TITLE => Some(WindowType::ShellHome),
-                    SHELL_SYSTEM_TITLE => Some(WindowType::ShellSystem),
-                    _ => None,
-                };
-                if let Some(k) = shell {
-                    relayer = k != self.kind;
-                    self.kind = k;
-                }
             }
             "windowPosX" => {
                 if let Ok(v) = value.parse() {
@@ -314,12 +276,9 @@ impl Window {
         self.props.get(name).map(|v| v == "true").unwrap_or(false)
     }
 
-    /// Whether the window takes the keyboard focus when it is on top. The on-screen keyboard never does by default: the field it types
-    /// into stays focused (LG's input panel surface refuses the focus on a click as well). The shell's system layer only while it has
-    /// something that wants the keys.
+    /// Whether the window takes keyboard focus when on top. The on-screen keyboard leaves its field focused by default.
     pub fn needs_focus(&self) -> bool {
         match self.kind {
-            WindowType::ShellSystem => self.takes_keys,
             WindowType::Wallpaper | WindowType::VideoWindow => false,
             _ => self.props.get("needFocus").map(|v| v != "false").unwrap_or(self.kind != WindowType::Keyboard),
         }

@@ -227,6 +227,31 @@ impl Scroll {
         self.offset
     }
 
+    /// The compositor-clock estimate, not the target, while a scroll is moving.
+    pub fn offset_at(&self, now_ns: u64) -> f32 {
+        self.track.as_ref().map_or(self.offset, |track| track.value_at(now_ns))
+    }
+
+    /// Covers the remaining critically damped trajectory, including a reversal overshoot.
+    pub fn swept(&self, engine: &Engine, now_ns: u64) -> (f32, f32) {
+        let current = self.offset_at(now_ns);
+        let mut low = current.min(self.offset);
+        let mut high = current.max(self.offset);
+        if !engine.flow.spec.reduced && engine.flow.spec.response_ms > 0.0 {
+            let velocity = self.track.as_ref().map_or(0.0, |t| t.velocity_at(now_ns));
+            let omega = std::f32::consts::TAU * 1000.0 / engine.flow.spec.response_ms;
+            let a = current - self.offset;
+            let b = velocity + omega * a;
+            let t = velocity / (omega * b);
+            if t.is_finite() && t > 0.0 {
+                let extreme = self.offset + (a + b * t) * (-omega * t).exp();
+                low = low.min(extreme);
+                high = high.max(extreme);
+            }
+        }
+        (low, high)
+    }
+
     /// Scrolls to `offset` (clamped) on the focus spring; `at_once` jumps.
     pub fn to(&mut self, engine: &Engine, offset: f32, at_once: bool) {
         let offset = offset.clamp(0.0, self.extent);

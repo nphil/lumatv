@@ -1,6 +1,18 @@
 # On Home: Home Assistant's lights, sensors and devices on Home (result, 2026-10-30)
 
-The Smart home card of Home in the Rust shell, fed by Home Assistant's LumaShow integration. Built and tested on the offline host; nothing has run on the TV.
+The Smart home card in the Rust shell receives Home Assistant's LumaShow integration over an encrypted connection.
+
+## Current pairing (2026-11-02)
+
+The existing LumaTV entry `01M627CQ3HVVVFM62HQEYVFE57` is connected. Its 48 shared entities and all control/sensitive options are unchanged; the TV exposes 46 supported tiles, with control disabled. No device action was sent.
+
+The missing TV key was recreated with the existing `ble-link` command and supplied privately to the entry's automatic `reauth_confirm` flow over verified HTTPS. The key remains only in the protected TV store and HA configuration; no key belongs in this note. The token-backed plugin is separate from this card's encrypted pairing.
+
+Reauthentication is integration-initiated. The HA REST flow endpoint ignores a supplied `context.source`; top-level `entry_id` starts **reconfigure**, not reauthentication. Discover the existing repair through `config_entries/flow/progress`, then complete that flow.
+
+Native Settings reported 46 things and displayed live light states. The Smart home widget is enabled at Half width in the former At home slot; At home is hidden, not deleted. Clock, weather and apps remain. The existing canonical bundle installer refreshed the stale UI verification record without changing any installed binary; native startup is persistent/live, firmware verified and failures zero. A cold reboot was not performed.
+
+ The bounded screen window expired after the widget selection was captured. Cleanup restored filmMaker/default OLED pixel backlight 84, confirmed Active Standby and removed the temporary remote key helper. The ordinary lease was released with local mirror absent and own remote token gone. Proof is under `/data/home/tmp/lumatv-ha-cameras-20261102/`; `smart-home-enabled.png` shows the saved widget choice. Earlier implementation notes below are historical.
 
 ## Resume here
 

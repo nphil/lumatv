@@ -21,7 +21,7 @@ ROOT = os.path.abspath(os.path.join(HERE, '..'))
 sys.path.insert(0, os.path.join(HERE, 'qmlhost'))
 BIN = os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
 MESA = '/usr/lib/x86_64-linux-gnu/libEGL.so.1'
-MODULE = os.path.join(ROOT, 'payload', 'compositor', 'lumatv')
+MODULE = os.path.join(ROOT, 'compositor', 'assets', 'ui')
 HOME = {"app": "com.webos.app.home", "home": True}
 APP = {"app": "netflix", "home": False}
 

@@ -178,7 +178,7 @@ class Helper:
         os.makedirs(os.path.join(self.dir, 'settings'))
         with open(os.path.join(self.dir, 'settings', 'base.receiver.json'), 'w') as f:
             json.dump({'owner': 'base.receiver', 'schema_revision': 1, 'version': 1, 'values': {'enabled': False}}, f)
-        self.p = subprocess.Popen([binary, 'run', '--data-dir', self.dir, '--stderr'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.p = subprocess.Popen([binary, 'run', '--data-dir', self.dir], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         # up, and with a reading of the weather: a helper that has none when the shell asks publishes an empty one over the shell's, and the radar is
         # opened only for a place (a person opens the view long after the helper has its reading)
         import urllib.request

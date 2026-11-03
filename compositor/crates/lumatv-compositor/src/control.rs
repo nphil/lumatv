@@ -107,21 +107,11 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             "subscriptions": state.luna_state.subscriptions.iter().map(|s| json!({"token": s.token, "service": s.service, "method": s.method, "sender": s.sender, "last": s.last})).collect::<Vec<_>>(),
         }),
         "shell" => {
-            // shell [restart | show KIND]: the shell client and its UI channel (`shell.rs`); `show` asks the UI for a panel the way
-            // the gear and Input do, `restart` ends the client and starts it again.
+            // Show a native panel or restart the native UI client.
             match words.next() {
                 Some("restart") => {
-                    state.shell_restart();
                     state.shell_rust_restart();
-                    state.shell_report()
-                }
-                Some("rust") => {
-                    // shell rust [+kind | -kind ...]: the kinds the Rust shell answers (`shell_rust.rs`); none lists them.
-                    let changes: Vec<&str> = words.collect();
-                    match state.shell_rust_set_kinds(&changes) {
-                        Ok(()) => json!({"ok": true, "rust": state.shell_rust_report()}),
-                        Err(e) => json!({"ok": false, "error": e}),
-                    }
+                    state.shell_rust_report()
                 }
                 Some("show") => {
                     // shell show KIND [PAGE]: the page is for a kind that has them (`settings privacy`)
@@ -130,7 +120,8 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                     let taken = state.shell_show_page(kind, false, page);
                     json!({"ok": true, "kind": kind, "page": page, "taken": taken})
                 }
-                _ => state.shell_report(),
+                None => state.shell_rust_report(),
+                Some(_) => json!({"ok": false, "error": "shell [restart | show KIND [PAGE]]"}),
             }
         }
         "switcher" => {
@@ -328,19 +319,13 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             (Some("mali"), Some("other")) => json!({"ok": true, "threads": crate::sched::mali_threads(None)}),
             _ => json!({"ok": false, "error": "sched mali fifo [PRIO] | sched mali other"}),
         },
-        // When frame callbacks go out, for an A/B on the set without a restart: `callbacks shell early` (a frame ahead of the flip, the
-        // default) or `callbacks shell landing` (at the flip); `callbacks clients commit` (a card's with its commit, the default),
-        // `early` (a frame ahead of the flip) or `landing` (at the flip). `clients` is every client but the shell (`ClientCallbacks`).
+        // Select when client frame callbacks are delivered.
         "callbacks" => match (words.next(), words.next()) {
-            (Some("shell"), Some(how @ ("early" | "landing"))) => {
-                state.shell_ahead = how == "early";
-                json!({"ok": true, "shell": how})
-            }
             (Some("clients"), Some(how)) if crate::server::state::ClientCallbacks::parse(how).is_some() => {
                 state.client_callbacks = crate::server::state::ClientCallbacks::parse(how).unwrap();
                 json!({"ok": true, "clients": how})
             }
-            _ => json!({"ok": false, "error": "callbacks shell early|landing | callbacks clients commit|early|landing"}),
+            _ => json!({"ok": false, "error": "callbacks clients commit|early|landing"}),
         },
         // The process's memory as the frame path sees it: resident, pinned, and what malloc holds from the kernel (`mem::report`).
         "mem" => crate::mem::report(),
@@ -390,41 +375,33 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         // The refresh the output runs at (`refresh`, docs/research/ui120-result.md): `refresh` reads the mode and the measure since the
         // last switch, `refresh 60|120` switches it (the OSD's vblank divider, the pacer's period, the tick, the shell's `refresh` topic),
         // `refresh reset` starts the measure over at the mode in force (the gate's windows).
-        "refresh" => match words.next() {
-            None => json!({"ok": true, "hz": state.config.refresh_hz, "tick_ms": state.config.tick_ns as f64 / 1e6, "measure": state.output.refresh_report()}),
-            Some(w) => match w.parse::<u32>().ok().filter(|&hz| crate::refresh::supported(hz)).or((w == "reset").then_some(state.config.refresh_hz)) {
-                Some(hz) => match state.output.set_refresh(hz) {
-                    Ok(hz) => {
-                        state.config.refresh_hz = hz;
-                        state.config.tick_ns = crate::refresh::period_ns(hz);
-                        state.journal(format!("refresh: {hz} Hz (control socket{})", if w == "reset" { ", measure reset" } else { "" }));
-                        state.shell_sync_topics();
-                        json!({"ok": true, "hz": hz, "tick_ms": state.config.tick_ns as f64 / 1e6, "measure": state.output.refresh_report()})
-                    }
-                    Err(e) => json!({"ok": false, "error": format!("refresh {hz}: {e}"), "hz": state.config.refresh_hz}),
+        "refresh" => {
+            let result = match words.next() {
+                None => Ok(None),
+                Some("reset") => { state.output.reset_refresh_measure(); Ok(None) },
+                Some("auto") => state.refresh_auto().map(Some),
+                Some(w) => match w.parse::<u32>().ok().filter(|&hz| crate::refresh::supported(hz)) {
+                    Some(hz) => state.refresh_apply(hz).map(|hz| { state.refresh_policy.manual = true; Some(hz) }),
+                    None => Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "refresh [60|120|auto|reset]")),
                 },
-                None => json!({"ok": false, "error": "refresh [60|120|reset]"}),
-            },
+            };
+            match result {
+                Ok(changed) => {
+                    if let Some(hz) = changed {
+                        state.journal(format!("refresh: {hz} Hz (control socket)"));
+                        state.shell_sync_topics();
+                    }
+                    json!({"ok": true, "hz": state.config.refresh_hz, "mode": if state.refresh_policy.manual { "manual" } else { "auto" }, "default_hz": state.refresh_policy.default_hz, "tick_ms": state.config.tick_ns as f64 / 1e6, "measure": state.output.refresh_report()})
+                }
+                Err(e) => json!({"ok": false, "error": e.to_string(), "hz": state.config.refresh_hz}),
+            }
         },
         // Direct scan-out of a full-screen client buffer (`scanout`, docs/research/scanout-research.md): `scanout` reads the counters (direct and
         // composed frames, the reason of each composed one, the last frame's state, the protocol tap and the off-screen proof), `scanout off|direct`
         // switches it for a TV check (the screen is redrawn through the new path in the next frame), `scanout offset on|off` lets a direct frame
-        // carry the OLED care's orbit as the plane's position, `scanout shell-env NAME=VALUE...|none` sets the environment the shell client is
-        // started with beyond its own, for the next `ctl shell restart` (what asks its window for buffers the plane takes).
+        // carry the OLED care's orbit as the plane's position.
         "scanout" => match words.next() {
             None => json!({"ok": true, "scanout": state.scanout_report()}),
-            Some("shell-env") => {
-                let given: Vec<&str> = words.collect();
-                let parsed: Option<Vec<(String, String)>> =
-                    given.iter().map(|w| w.split_once('=').filter(|(k, _)| !k.is_empty()).map(|(k, v)| (k.to_string(), v.to_string()))).collect();
-                match (given.as_slice(), parsed) {
-                    ([], _) => {}
-                    (["none"], _) => state.config.scanout_shell_env.clear(),
-                    (_, Some(env)) => state.config.scanout_shell_env = env,
-                    (_, None) => return Reply::Now(json!({"ok": false, "error": "scanout shell-env NAME=VALUE... | none"}).to_string()),
-                }
-                json!({"ok": true, "scanout": state.scanout_report(), "note": "the shell client takes it at its next start (ctl shell restart)"})
-            }
             Some("offset") => match words.next() {
                 Some(w @ ("on" | "off")) => match state.set_scanout_offset(w == "on") {
                     Ok(()) => {
@@ -443,7 +420,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                     }
                     Err(e) => json!({"ok": false, "error": format!("scanout {w}: {e}"), "scanout": state.scanout_report()}),
                 },
-                None => json!({"ok": false, "error": "scanout [off|direct|offset on|off|shell-env NAME=VALUE...|none]"}),
+                None => json!({"ok": false, "error": "scanout [off|direct|offset on|off]"}),
             },
         },
         // A test picture of another size on the primary plane for a while (`kms::pageprobe`, docs/research/layer-deep-result.md): `pageprobe`
@@ -500,7 +477,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks shell early|landing, callbacks clients commit|early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], paneldim [want X|release], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks clients commit|early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], paneldim [want X|release], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

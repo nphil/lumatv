@@ -107,12 +107,14 @@ pub struct Confirm {
 /// the kind that owns the surface when that kind is in the list, and logs it otherwise.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
+    Quick,
     /// The app switcher: Back from the top of Home (when the owner wants it) and a press of Home with nothing open on Home.
     Switcher,
     Settings,
     /// Settings at one of its pages (Quick Access's More, a Search answer that is a page).
     SettingsPage(String),
     Notifications,
+    Cameras,
 }
 
 /// The one thing a view needs that is not read from the model: where the focus is now and whether it has rested.
@@ -155,6 +157,7 @@ pub struct Home {
     pub shipped_layout: Value,
     pub layout_text: String,
     pub theme_text: String,
+    theme_preview: Option<Value>,
     pub tint: Value,
     pub weather: Value,
     /// The helper's `weather.more`: the hours, the details of now and the alerts of the full weather view.
@@ -203,6 +206,7 @@ pub struct Home {
     pub confirm: Option<Confirm>,
     /// The status bar's settings popover while it is up, and what it changed that is to be written to the theme at the next update.
     pub popover: Option<Popover>,
+    wallpaper_return_settings: bool,
     /// Where the popover and its rows are (made when it opens and when its focus moves; the surface draws this).
     pub popover_lay: Option<popover::Layout>,
     persist: Option<Value>,
@@ -275,6 +279,7 @@ impl Home {
             layout: Value::Null,
             layout_text: serde_json::to_string(&user_layout).unwrap_or_default(),
             theme_text: String::new(),
+            theme_preview: None,
             tint: Value::Null,
             weather: Value::Null,
             weather_more: Value::Null,
@@ -313,6 +318,7 @@ impl Home {
             menu_app: None,
             confirm: None,
             popover: None,
+            wallpaper_return_settings: false,
             popover_lay: None,
             persist: None,
             active: false,
@@ -392,8 +398,15 @@ impl Home {
         self.dock.refresh(&self.theme);
         self.rest_ms = self.theme.pointer("/motion/restMs").and_then(Value::as_u64).unwrap_or(150);
         self.hold_ms = self.theme.pointer("/motion/holdMs").and_then(Value::as_u64).unwrap_or(700);
+        self.search.configure(&self.theme, self.text_scale);
         self.register();
+        if self.layer == Layer::Search { self.search.register(&mut self.focus); }
         self.dirty = true;
+    }
+
+    /// Keep disk polling from replacing a temporary Settings preview.
+    pub fn set_theme_preview(&mut self, preview: Option<Value>) {
+        self.theme_preview = preview;
     }
 
     /// The cards on Home (not the dock, not hidden), in the layout's order.
@@ -454,7 +467,9 @@ impl Home {
         if (scale - self.text_scale).abs() > 0.001 {
             self.text_scale = scale;
             self.apps.scale = scale;
+            self.search.configure(&self.theme, scale);
             self.register();
+            if self.layer == Layer::Search { self.search.register(&mut self.focus); }
             self.dirty = true;
         }
     }
@@ -753,7 +768,7 @@ impl Home {
         if self.picker.tick(now) {
             self.redraw(out);
         }
-        if self.search.tick(now) {
+        if self.layer == Layer::Search && self.search.tick(now) {
             self.redraw(out);
         }
         if self.onhome_said.as_ref().is_some_and(|(_, until)| now >= *until) {
@@ -792,7 +807,7 @@ impl Home {
         }
         take(self.editor.as_ref().and_then(Editor::due_at));
         take(self.picker.due_at());
-        take(self.search.due_at());
+        if self.layer == Layer::Search { take(self.search.due_at()); }
         take(self.stills.due_at(self.camera_stills_visible()));
         take(self.wall.due_at());
         take(self.radar.due_at(self.radar_loops()));
@@ -974,7 +989,11 @@ impl Home {
                     let text = data.to_string();
                     if text != self.theme_text {
                         self.theme_text = text;
-                        let merged = merge_over(&lumatv_tokens::Tokens::shipped().json().clone(), data);
+                        let mut file = data.clone();
+                        if let Some(preview) = &self.theme_preview {
+                            crate::host::theme::merge_one_level(&mut file, preview);
+                        }
+                        let merged = lumatv_tokens::Tokens::from_json(&file).json().clone();
                         self.set_theme(merged);
                         self.redraw(out);
                     }
@@ -1064,6 +1083,14 @@ impl Home {
             if name == "ok" && !down {
                 self.reset_ok();
             }
+            return;
+        }
+        if self.layer == Layer::Search {
+            if down { self.focus.key(); }
+            let before = self.search.visual_state();
+            let result = self.search.input(name, down, repeat, &mut self.focus, self.now);
+            self.search_out(result, out);
+            if self.layer != Layer::Search || self.search.visual_state() != before { self.redraw(out); }
             return;
         }
         if let Some(d) = name.chars().next().filter(|c| c.is_ascii_digit() && name.len() == 1) {
@@ -1276,7 +1303,7 @@ impl Home {
                 match kind.as_str() {
                     "profile" => self.open_picker(out),
                     "search" => self.open_search(out),
-                    "settings" => self.open_popover(i, out),
+                    "settings" => self.requests.push(Request::Quick),
                     "notifications" => self.requests.push(Request::Notifications),
                     _ => {}
                 }
@@ -1437,6 +1464,7 @@ impl Home {
     pub fn set_search_pages(&mut self, pages: Vec<Value>) {
         self.search.set_pages(pages.clone());
         self.search_pages = pages;
+        if self.layer == Layer::Search { self.search.register(&mut self.focus); }
         self.dirty = true;
     }
 
@@ -1470,7 +1498,7 @@ impl Home {
         match self.cards().iter().find(|e| e.id == wid).map(|e| e.kind.as_str()) {
             // the plugins' chips take the keys only while there are some; with none the card opens Home Assistant's page
             Some("homeassistant") => !self.ha_items().is_empty(),
-            Some("cameras" | "news") => true,
+            Some("news") => true,
             Some("onhome") => !self.onhome_tiles().is_empty(),
             _ => false,
         }
@@ -1551,7 +1579,6 @@ impl Home {
         let n = match kind.as_str() {
             "onhome" => self.onhome_tiles().len(),
             "homeassistant" => self.ha_items().len(),
-            "cameras" => self.camera_items().len(),
             "news" => self.news_items().len(),
             _ => 0,
         };
@@ -1628,6 +1655,9 @@ impl Home {
         if kind == "onhome" {
             self.requests.push(Request::SettingsPage("onhome".into()));
         }
+        if kind == "cameras" {
+            self.requests.push(Request::Cameras);
+        }
         if kind == "weather" {
             self.wview.open();
             self.open_layer(Layer::Weather, SCOPE_WEATHER);
@@ -1674,6 +1704,9 @@ impl Home {
             && let Some(p) = self.popover.take()
         {
             self.keep_popover(p);
+            if std::mem::take(&mut self.wallpaper_return_settings) {
+                self.requests.push(Request::SettingsPage("look".into()));
+            }
             self.popover_lay = None;
             for i in 0..popover::ROWS.len() as u32 {
                 self.focus.unregister(Id(popover::ROW_ID + i));
@@ -1688,6 +1721,7 @@ impl Home {
     }
 
     pub fn close_all(&mut self) {
+        self.wallpaper_return_settings = false;
         while self.layer != Layer::None {
             if self.layer == Layer::Edit {
                 if let Some(ed) = self.editor.take() {
@@ -1711,7 +1745,8 @@ impl Home {
 
     pub fn open_search(&mut self, out: &mut Vec<Effect>) {
         let apps: Vec<Value> = self.apps.all().iter().map(|a| json!({"id": a.id, "title": a.title, "iconUrl": a.icon})).collect();
-        self.search.open(apps, self.voice_ready, self.now);
+        self.search.configure(&self.theme, self.text_scale);
+        self.search.open(apps, self.now);
         self.search.set_pages(self.search_pages.clone());
         self.pages_wanted = true;
         self.open_layer(Layer::Search, SCOPE_SEARCH);
@@ -1802,8 +1837,8 @@ impl Home {
         }
     }
 
-    fn search_key(&mut self, name: &str, dir: Option<Dir>, out: &mut Vec<Effect>) {
-        let o = self.search.key(name, dir, &mut self.focus, self.now);
+    fn search_key(&mut self, name: &str, _dir: Option<Dir>, out: &mut Vec<Effect>) {
+        let o = self.search.input(name, true, false, &mut self.focus, self.now);
         self.search_out(o, out);
     }
 
@@ -1830,7 +1865,7 @@ impl Home {
                     "web" => self.start_app("com.webos.app.browser", &json!({"target": format!("https://duckduckgo.com/?q={}", text.replace(' ', "+"))}), "Browser", out),
                     // a page of Settings: Settings opens at it (the shell's kind of that name when it is one)
                     "page" => self.requests.push(Request::SettingsPage(id)),
-                    _ => out.push(Effect::Log(format!("search picked {kind} {id}"))),
+                    _ => out.push(Effect::Log(format!("search picked {kind}"))),
                 }
             }
             SearchOut::Entered(text) => {
@@ -1872,12 +1907,19 @@ impl Home {
         self.redraw(out);
     }
 
+    pub fn edit_wallpaper(&mut self, out: &mut Vec<Effect>) {
+        let items = self.status_items();
+        let item = items.iter().position(|item| item.get("type").and_then(Value::as_str) == Some("settings")).unwrap_or(0);
+        self.open_popover(item, out);
+        self.wallpaper_return_settings = true;
+    }
+
     /// Where the panel and its rows are now (the surface draws what this says), and the rows in view registered as the pointer's targets.
     pub fn popover_layout(&mut self) -> Option<popover::Layout> {
         let item = self.popover.as_ref()?.item;
         let (sx, sy) = self.safe();
         let bar = ui::geometry::Frame::new(sx, sy, 1920.0 - 2.0 * sx, self.status_height());
-        let &(x, y, w, h) = self.status_frames().get(item)?;
+        let (x, y, w, h) = self.status_frames().get(item).copied().unwrap_or((sx, sy, 48.0, 48.0));
         let left = item < self.left_count();
         let scale = self.text_scale;
         self.popover.as_mut().map(|p| p.layout(bar, ui::geometry::Frame::new(x, y, w, h), left, scale))
@@ -1907,11 +1949,8 @@ impl Home {
                 }
                 self.theme["wallpaperMotion"][key] = value;
             }
-            Done::Settings => {
-                self.close_layer();
-                self.requests.push(Request::Settings);
-            }
             Done::TvSettings => {
+                self.wallpaper_return_settings = false;
                 self.close_layer();
                 self.start_app("com.palm.app.settings", &json!({}), "Settings", out);
             }
@@ -2124,6 +2163,7 @@ impl Home {
                     }
                     "rename" => {
                         let title = app.get("title").and_then(Value::as_str).unwrap_or("").to_owned();
+                        self.search.configure(&self.theme, self.text_scale);
                         self.search.open_entry(&format!("Rename {title}"), &title, self.now);
                         self.open_layer(Layer::Search, SCOPE_SEARCH);
                         self.search.register(&mut self.focus);
@@ -2206,6 +2246,12 @@ impl Home {
                 if self.layer == Layer::Apps {
                     let action = self.apps.clicked(id, &mut self.focus);
                     self.apps_out(action, out);
+                    self.redraw(out);
+                    return;
+                }
+                if self.layer == Layer::Search {
+                    let result = self.search.clicked(id, &mut self.focus, self.now);
+                    self.search_out(result, out);
                     self.redraw(out);
                     return;
                 }
@@ -2355,6 +2401,18 @@ mod tests {
         h.update(&Input::Luna { tag: LP_TAG, payload: json!({"launchPoints": lps}) }, 1001);
         h
     }
+    #[test]
+    fn theme_poll_keeps_preview_and_adopts_unrelated_disk_changes() {
+        let mut h = home();
+        h.set_theme_preview(Some(json!({"clock": {"style": "preview"}})));
+        h.update(&Input::Fetched { tag: THEME_TAG, status: 200, data: json!({"clock": {"style": "digital", "other": 1}}) }, 1100);
+        assert_eq!(h.theme["clock"]["style"], "preview");
+        assert_eq!(h.theme["clock"]["other"], 1);
+        h.update(&Input::Fetched { tag: THEME_TAG, status: 200, data: json!({"clock": {"style": "analog", "other": 2}}) }, 1200);
+        assert_eq!(h.theme["clock"]["style"], "preview");
+        assert_eq!(h.theme["clock"]["other"], 2);
+    }
+
 
     fn press(h: &mut Home, name: &str, at: u64) -> Vec<Effect> {
         let mut out = h.update(&Input::Key { name: name.into(), down: true, repeat: false }, at);
@@ -2994,14 +3052,54 @@ mod tests {
         let mut h = home();
         h.update(&Input::Helper { topic: "voice".into(), data: json!({"ready": true, "state": "heard", "text": "net"}) }, 2000);
         assert_eq!(h.layer, Layer::Search);
-        assert_eq!(h.search.text, "net");
+        assert_eq!(h.search.text(), "net");
         assert_eq!(h.search.answers()[0].id, "netflix");
         h.update(&Input::Topic { topic: "keyboard.text".into(), data: json!({"text": "you"}) }, 2100);
-        assert_eq!(h.search.text, "you");
+        assert_eq!(h.search.text(), "you");
         let out = h.update(&Input::Topic { topic: "keyboard.text".into(), data: json!({"text": "you\n"}) }, 2200);
         assert_eq!(h.layer, Layer::None, "Done closes the sheet");
         assert!(!out.iter().any(|e| matches!(e, Effect::Luna { .. })), "Done on a search opens nothing by itself");
     }
+
+    #[test]
+    fn search_owns_digit_and_ok_repeats_and_pointer_clicks_use_the_shared_key_geometry() {
+        let mut h = home();
+        h.set_text_scale(2.0);
+        press(&mut h, "search", 2000);
+        press(&mut h, "7", 2100);
+        assert_eq!(h.search.text(), "7", "digits type instead of opening Quick Access");
+        h.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, 2200);
+        h.update(&Input::Key { name: "ok".into(), down: true, repeat: true }, 2600);
+        h.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 2700);
+        assert_eq!(h.search.text(), "7g", "a held character key types once, without Home's long-press action");
+        let key = h.search.key_frames()[15];
+        let (x, y) = (key.x + key.w / 2.0, key.y + key.h / 2.0);
+        for (at, buttons) in [(2800, 0), (2810, 1), (2820, 0)] {
+            h.update(&Input::Pointer { x, y, buttons, visible: true }, at);
+        }
+        assert_eq!(h.search.text(), "7ge", "the pointer activates the key it clicked, not the previous keyboard focus");
+        press(&mut h, "back", 2900);
+        assert_eq!(h.layer, Layer::None);
+    }
+
+    #[test]
+    fn a_late_settings_page_registers_the_new_search_answer_before_a_pointer_click() {
+        let mut h = home();
+        press(&mut h, "search", 2000);
+        h.update(&Input::Topic { topic: "keyboard.text".into(), data: json!({"text": "net"}) }, 2100);
+        assert_eq!(h.search.answers().len(), 2);
+        h.set_search_pages(vec![json!({"id": "network", "title": "Network", "sub": "Settings"})]);
+        assert_eq!(h.search.answers()[2].kind, "web");
+        let f = h.search.answer_frame(2);
+        let (x, y) = (f.x + f.w / 2.0, f.y + f.h / 2.0);
+        let mut out = Vec::new();
+        for (at, buttons) in [(2200, 0), (2210, 1), (2220, 0)] {
+            out.extend(h.update(&Input::Pointer { x, y, buttons, visible: true }, at));
+        }
+        assert_eq!(h.layer, Layer::None);
+        assert!(out.iter().any(|e| matches!(e, Effect::Luna { payload, .. } if payload["id"] == "com.webos.app.browser" && payload["params"]["target"].as_str().is_some_and(|s| s.contains("net")))));
+    }
+
 
     #[test]
     fn the_picker_shows_on_wake_when_the_owner_asked_for_it() {
@@ -3294,24 +3392,18 @@ mod tests {
         let answers = h.search.answers();
         assert_eq!(answers.iter().map(|a| (a.kind, a.id.as_str())).collect::<Vec<_>>(), vec![("app", "netflix"), ("page", "network"), ("web", "web")]);
         assert_eq!(answers[1].sub, "Settings \u{b7} Connected");
-        // the arrows reach the answer: the keyboard's top row is under them
-        for _ in 0..5 {
-            if h.state()["search"]["index"].as_u64().is_some_and(|i| i >= 43) {
-                break;
-            }
-            press(&mut h, "up", 2200);
+        for i in 0..3 { press(&mut h, "up", 2200 + i * 100); }
+        assert!(h.search.answer_index().is_some());
+        while h.search.answer_index() != Some(1) {
+            let key = if h.search.answer_index().unwrap() > 1 { "left" } else { "right" };
+            press(&mut h, key, 2600);
         }
-        assert!(h.state()["search"]["index"].as_u64().unwrap() >= 43, "{}", h.state()["search"]);
-        while h.state()["search"]["index"].as_u64() != Some(44) {
-            press(&mut h, "down", 2300);
-            assert!(h.state()["search"]["index"].as_u64().unwrap() >= 43);
-        }
-        let out = press(&mut h, "ok", 2400);
+        let out = press(&mut h, "ok", 2800);
         assert_eq!(h.take_requests(), vec![Request::SettingsPage("network".into())]);
         assert_eq!(h.layer, Layer::None, "the sheet is closed behind it");
         assert!(!out.iter().any(|e| matches!(e, Effect::Luna { .. })), "nothing is launched");
         // a page picked is not an app: the next Search starts from the pages the shell gave
-        press(&mut h, "search", 2600);
+        press(&mut h, "search", 3000);
         assert!(h.take_pages_wanted() && h.search.answers().is_empty());
     }
 
@@ -3322,22 +3414,21 @@ mod tests {
             }
             press(h, "right", 1500 + i * 100);
         }
-        press(h, "ok", 2000);
+        h.open_popover(2, &mut Vec::new());
     }
 
     #[test]
-    fn ok_on_the_gear_opens_the_wallpaper_popover_whose_values_change_at_once_and_are_written_to_the_theme_when_it_closes() {
+    fn wallpaper_popover_values_change_at_once_and_are_written_to_the_theme_when_it_closes() {
         let mut h = home();
         gear(&mut h);
         assert_eq!(h.layer, Layer::Popover);
-        assert!(h.take_requests().is_empty(), "the gear opens the popover first, Settings is a row of it");
-        press(&mut h, "down", 2100);
+        assert!(h.take_requests().is_empty());
         press(&mut h, "down", 2200);
         assert_eq!(h.state()["popover"]["row"], "amplitude");
         let out = press(&mut h, "right", 2300);
         assert_eq!(h.theme["wallpaperMotion"]["amplitude"], 5.0, "Home behind has it at once");
         assert!(out.contains(&Effect::Redraw));
-        assert_eq!(h.state()["popover"]["values"][2], "5 px");
+        assert_eq!(h.state()["popover"]["values"][1], "5 px");
         press(&mut h, "right", 2400);
         press(&mut h, "up", 2500);
         press(&mut h, "ok", 2600);
@@ -3354,13 +3445,10 @@ mod tests {
     }
 
     #[test]
-    fn the_rows_that_do_something_open_the_settings_kinds_page_or_lgs_settings_and_a_click_is_the_row_it_is_on_and_outside_it_closes() {
+    fn tv_settings_opens_and_pointer_controls_and_closes_the_wallpaper_panel() {
         let mut h = home();
         gear(&mut h);
-        press(&mut h, "ok", 2100);
-        assert_eq!((h.layer, h.take_requests()), (Layer::None, vec![Request::Settings]), "All settings");
-        gear(&mut h);
-        for i in 0..13 {
+        for i in 0..12 {
             press(&mut h, "down", 2300 + i * 40);
         }
         let out = press(&mut h, "ok", 2900);
@@ -3375,9 +3463,9 @@ mod tests {
             h.update(&Input::Pointer { x, y, buttons: 1, visible: true }, at + 20);
             h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, at + 40);
         };
-        click(&mut h, centre(&rows[3].1), 3000);
+        click(&mut h, centre(&rows[2].1), 3000);
         assert_eq!(h.theme["wallpaperMotion"]["speed"], 1.1, "Speed took a step up");
-        click(&mut h, centre(&rows[1].1), 3100);
+        click(&mut h, centre(&rows[0].1), 3100);
         assert_eq!(h.theme["wallpaperMotion"]["enabled"], false);
         assert_eq!(h.layer, Layer::Popover, "a row's click leaves it up");
         click(&mut h, (200.0, 900.0), 3200);

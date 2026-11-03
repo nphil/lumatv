@@ -54,8 +54,7 @@ pub struct Config {
     pub im_queue: bool,
     /// Exercise the optional system-layer renderer without replacing any TV surfaces.
     pub ui_demo: bool,
-    /// The kinds the Rust shell (`lumatv-ui`, `shell_rust.rs`) answers instead of the QML client: `osd` (the volume and mute display),
-    /// `toast` (LG's toast feed); `ctl shell rust +kind -kind` changes it at run time. Empty: the Rust shell is not started.
+    /// Native UI kinds enabled for this run. Empty disables the native client for diagnostics.
     pub shell_rust: Vec<String>,
     /// LumaTV's data directory (`/var/lib/lumatv` on the set): the theme the remote's app buttons are read from (`theme/theme.json`) and
     /// the key codes taught to the routing (`compositor/keys.conf`).
@@ -64,10 +63,7 @@ pub struct Config {
     pub rt_priority: i32,
     /// SCHED_FIFO priority of the Mali blob's submission threads (`sched::mali_threads`); 0 leaves them time-shared.
     pub rt_mali: i32,
-    /// The shell client (`shell.rs`): `Auto` runs it live (`--input`) when the bundle beside this executable has `shell/Shell.qml`,
-    /// `Off` never, `At(path)` runs that root QML.
-    pub shell: ShellMode,
-    /// The loopback port of the UI channel the shell client speaks to.
+    /// The loopback port of the UI channel.
     pub shell_port: u16,
     /// Whether what the compositor touches is pinned in RAM (`mem::lock`): `auto` locks it when the set's limit and headroom allow.
     pub mlock: crate::mem::Mlock,
@@ -85,8 +81,6 @@ pub struct Config {
     /// The off-screen proof of route A: record and PRIME-import every driver-served buffer's descriptor, without taking the screen
     /// (`scanout::probe`).
     pub scanout_probe: bool,
-    /// More environment for the shell client, so that its window buffers are ones the plane can take (`--scanout-shell-env`).
-    pub scanout_shell_env: Vec<(String, String)>,
     /// Where the Magic Remote's pointer is drawn: into the frame (`gpu`, the default) or by the cursor plane (`plane`, `pointer`). `ctl pointer
     /// plane|gpu` switches it while running.
     pub pointer: crate::pointer::Mode,
@@ -110,12 +104,6 @@ pub enum RingSetting {
     At(PathBuf),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ShellMode {
-    Auto,
-    Off,
-    At(PathBuf),
-}
 
 impl Default for Config {
     fn default() -> Self {
@@ -147,7 +135,6 @@ impl Default for Config {
             data_dir: PathBuf::from("/var/lib/lumatv"),
             rt_priority: 20,
             rt_mali: 19,
-            shell: ShellMode::Auto,
             shell_port: 18750,
             mlock: crate::mem::Mlock::Auto,
             ring: RingSetting::Auto,
@@ -155,7 +142,6 @@ impl Default for Config {
             refresh_hz: crate::refresh::DEFAULT_HZ,
             scanout: crate::scanout::Policy::default(),
             scanout_probe: false,
-            scanout_shell_env: Vec::new(),
             pointer: crate::pointer::Mode::default(),
             pointer_alpha: crate::pointer::Alpha::default(),
             page_alpha: true,
@@ -192,9 +178,7 @@ pub const USAGE: &str = "lumatv-compositor [options]
                          compositor/keys.conf the key codes the routing was taught (`NAME CODE` per line)
   --ui-demo              draw the system-layer diagnostic (requires feature ui and gl|kms); LUMATV_UI_DEMO_HZ (ticker rate,
                          default 60) and LUMATV_UI_DEMO_VOLUME_S (the volume bar up 2 s every N s) pace it
-  --shell-rust LIST      the kinds the Rust shell (bin/lumatv-ui, drawn by the engine inside the compositor) answers instead of
-                         the QML client: osd, toast (comma-separated; requires feature ui and gl|kms); `ctl shell rust +osd -toast`
-                         changes the list at run time. Default: none, the QML shell answers everything
+  --shell-rust LIST      native UI kinds for diagnostics (comma-separated; requires feature ui and gl|kms); production enables all kinds
   --rt-priority N        SCHED_FIFO priority of the frame loop's thread, 1-99 (default 20; 0 keeps it time-shared)
   --mlock off|auto       pin the pages the compositor touches in RAM, so memory pressure from the apps in front never evicts or swaps them
                          (default auto: mlockall on fault, when RLIMIT_MEMLOCK or CAP_IPC_LOCK and the free memory allow)
@@ -205,8 +189,6 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --refresh 60|120       the refresh the output runs at (default 60): 120 is the test mode (docs/research/ui120-result.md), the OSD
                          vblank divider set to 1 so page flips land at every panel refresh; `ctl refresh 60|120` switches it while running
   --rt-mali N            SCHED_FIFO priority of the Mali blob's submission threads, 1-99 (default 19; 0 keeps them time-shared)
-  --shell off|auto|PATH  the shell client (LumaTV's QML on LG's Qt through /usr/bin/qml-runner): auto (default) runs it with
-                         --input when <bundle>/shell/Shell.qml sits beside this executable's bin/; PATH names another root QML
   --shell-port N         the loopback port of the UI channel (default 18750)
   --scanout off|direct   direct scan-out of a full-screen client buffer, so that the compositor does not copy it (default off; needs --renderer kms):
                          `ctl scanout [off|direct]` reads the counters and switches it while running (docs/research/scanout-research.md)
@@ -218,7 +200,6 @@ pub const USAGE: &str = "lumatv-compositor [options]
                          direct; shifts right or down only (default off; `ctl scanout offset on|off` switches it; docs/research/layer-deep-result.md)
   --scanout-probe        the off-screen proof: record every driver-served buffer's descriptor and PRIME-import it into the display driver
                          without taking master or showing anything (tools/tv-scanout-proof.sh; needs --buffers driver)
-  --scanout-shell-env K=V  one more environment variable for the shell client (repeatable), the way to ask its window for a layout the plane takes
   --pointer gpu|plane    where the Magic Remote's pointer is drawn (default gpu: a sprite in the frame; plane: the cursor plane, which moves it with no frame
                          drawn; needs --renderer kms). `ctl pointer [plane|gpu|X Y]` reads the counters, switches it or moves it (docs/research/hw-planes-result.md)
   --pointer-alpha premultiplied|straight  how the cursor plane reads its image's alpha (default premultiplied, as the frame is)
@@ -328,13 +309,6 @@ impl Config {
                         return Err("--rt-mali takes 0 to 99".into());
                     }
                 }
-                "--shell" => {
-                    c.shell = match value()?.as_str() {
-                        "off" => ShellMode::Off,
-                        "auto" => ShellMode::Auto,
-                        p => ShellMode::At(PathBuf::from(p)),
-                    }
-                }
                 "--mlock" => {
                     c.mlock = match value()?.as_str() {
                         "off" => crate::mem::Mlock::Off,
@@ -374,11 +348,6 @@ impl Config {
                 }
                 "--scanout-offset" => c.scanout.offset = true,
                 "--scanout-probe" => c.scanout_probe = true,
-                "--scanout-shell-env" => {
-                    let v = value()?;
-                    let (k, val) = v.split_once('=').filter(|(k, _)| !k.is_empty()).ok_or("--scanout-shell-env NAME=VALUE")?;
-                    c.scanout_shell_env.push((k.to_string(), val.to_string()));
-                }
                 "--pointer" => {
                     let v = value()?;
                     c.pointer = crate::pointer::Mode::parse(&v).ok_or_else(|| format!("--pointer takes gpu or plane, not {v}"))?;
@@ -424,9 +393,12 @@ impl Config {
         if c.ui_demo && (!cfg!(feature = "ui") || c.renderer == RendererKind::Software) {
             return Err("--ui-demo requires a build with feature ui and --renderer gl|kms".into());
         }
-        // Without the flag, the kinds `ctl shell rust` kept in the data directory (a flip from the workstation survives a restart).
-        if c.shell_rust.is_empty() && cfg!(feature = "ui") && c.renderer != RendererKind::Software {
-            c.shell_rust = crate::shell_rust::read_kinds(&c.data_dir);
+        // Old persisted partial selections must not leave production without native surfaces.
+        if c.input && c.renderer == RendererKind::Kms && !c.ui_demo {
+            if !cfg!(feature = "ui") {
+                return Err("production requires a build with feature ui".into());
+            }
+            c.shell_rust = crate::shell_rust::KINDS.iter().map(|kind| (*kind).to_string()).collect();
         }
         if !c.shell_rust.is_empty() && (!cfg!(feature = "ui") || c.renderer == RendererKind::Software) {
             return Err("--shell-rust requires a build with feature ui and --renderer gl|kms".into());
@@ -470,6 +442,28 @@ impl Config {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "ui")]
+    #[test]
+    fn production_enables_all_native_kinds_even_with_old_partial_selection() {
+        let dir = std::env::temp_dir().join(format!("lumatv-config-kinds-{}", std::process::id()));
+        let path = dir.join("compositor/shell-rust.conf");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "osd,toast").unwrap();
+        let args = ["--renderer", "kms", "--driver", "/x", "--input", "--data-dir", dir.to_str().unwrap()];
+        let expected = crate::shell_rust::KINDS.iter().map(|kind| (*kind).to_string()).collect::<Vec<_>>();
+        assert_eq!(Config::parse(args.map(String::from)).unwrap().shell_rust, expected);
+        let mut partial = args.map(String::from).to_vec();
+        partial.extend(["--shell-rust".into(), "osd".into()]);
+        assert_eq!(Config::parse(partial).unwrap().shell_rust, expected);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn removed_shell_options_are_rejected() {
+        assert!(Config::parse(["--shell", "auto"].map(String::from)).is_err());
+        assert!(Config::parse(["--scanout-shell-env", "NAME=value"].map(String::from)).is_err());
+    }
+
     #[test]
     fn parses_the_tv_run() {
         let c = Config::parse(
@@ -490,7 +484,7 @@ mod tests {
     fn the_scanout_switch_is_off_unless_asked_and_needs_the_plane() {
         let c = Config::parse(["--driver", "/x/libmali.so"].map(String::from)).unwrap();
         assert_eq!(c.scanout, crate::scanout::Policy::default());
-        assert!(c.scanout.mode == crate::scanout::Mode::Off && !c.scanout_probe && c.scanout_shell_env.is_empty());
+        assert!(c.scanout.mode == crate::scanout::Mode::Off && !c.scanout_probe);
         let c = Config::parse(
             [
                 "--renderer",
@@ -503,8 +497,6 @@ mod tests {
                 "none",
                 "--scanout-trust",
                 "0x0800000000000151",
-                "--scanout-shell-env",
-                "WAYLAND_AFBC=0",
                 "--scanout-offset",
             ]
             .map(String::from),
@@ -513,15 +505,12 @@ mod tests {
         assert_eq!(c.scanout.mode, crate::scanout::Mode::Direct);
         assert_eq!(c.scanout.acquire, crate::scanout::Acquire::Trust);
         assert_eq!(c.scanout.trust, vec![0x0800_0000_0000_0151]);
-        assert_eq!(c.scanout_shell_env, vec![("WAYLAND_AFBC".to_string(), "0".to_string())]);
         assert!(c.scanout.offset);
         let direct_without_the_plane = ["--renderer", "gl", "--driver", "/x/libmali.so", "--scanout", "direct"].map(String::from);
         assert!(Config::parse(direct_without_the_plane).unwrap_err().contains("--renderer kms"));
         assert!(Config::parse(["--scanout", "on"].map(String::from)).is_err());
         assert!(Config::parse(["--scanout-acquire", "fence"].map(String::from)).is_err());
         assert!(Config::parse(["--scanout-trust", "zz"].map(String::from)).is_err());
-        assert!(Config::parse(["--scanout-shell-env", "NOEQUALS"].map(String::from)).is_err());
-        assert!(Config::parse(["--scanout-shell-env", "=1"].map(String::from)).is_err());
         let probe = Config::parse(["--renderer", "gl", "--driver", "/x/libmali.so", "--buffers", "driver", "--scanout-probe"].map(String::from)).unwrap();
         assert!(probe.scanout_probe && probe.scanout.mode == crate::scanout::Mode::Off, "the proof shows nothing: the switch stays off");
         assert!(Config::parse(["--scanout-probe"].map(String::from)).is_err(), "no renderer, no driver buffers to record");

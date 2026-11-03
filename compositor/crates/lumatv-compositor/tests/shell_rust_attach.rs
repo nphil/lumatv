@@ -1,10 +1,5 @@
-//! The real `lumatv-compositor` binary (feature `ui`, Mesa's software GL) started with no Rust shell kinds, then given one at run time with
-//! `ctl shell rust +settings`, the way round 18's fresh session was: the engine attaches while the loop runs. The set's Mali takes 1.3 s
-//! to link the engine's programs and the loop that did it answered nothing for that long, so the supervisor's heartbeat (a ping every
-//! 500 ms, two unanswered) put LG's compositor back. `LUMATV_COMPILE_DELAY_MS` stands in for the driver's time: each program a renderer
-//! links itself takes 30 ms longer, so that the 48 programs are 1.4 s for whoever links them. The loop's longest pass (`ctl status`,
-//! `stats.passUsMax`) must stay far under that, the engine must take its programs from the thread that linked them, and the restart of
-//! the client, which attaches a new engine, must link nothing.
+//! Native UI startup links shaders off the compositor loop, and restart reuses them.
+//! The artificial link delay makes loop stalls visible in the pass-time budget.
 #![cfg(feature = "ui")]
 
 use std::os::unix::fs::PermissionsExt;
@@ -25,7 +20,7 @@ fn ctl(dir: &Path, words: &[&str]) -> serde_json::Value {
 
 /// The pid of the Rust client, once it is running.
 fn client_pid(dir: &Path) -> Option<u64> {
-    ctl(dir, &["shell", "rust"])["rust"]["pid"].as_u64()
+    ctl(dir, &["shell"])["pid"].as_u64()
 }
 
 fn wait_for<T>(what: &str, within: Duration, mut ask: impl FnMut() -> Option<T>) -> T {
@@ -60,7 +55,7 @@ fn an_engine_attached_while_the_loop_runs_does_not_hold_the_loop_for_its_program
     let mut child = Command::new(env!("CARGO_BIN_EXE_lumatv-compositor"))
         .args(["--runtime-dir", dir.to_str().unwrap(), "--data-dir", dir.to_str().unwrap(), "--seconds", "60"])
         .args(["--renderer", "gl", "--driver", MESA, "--egl-platform", "surfaceless", "--buffers", "own", "--output", "640x360"])
-        .args(["--shell-port", &port.to_string()])
+        .args(["--shell-port", &port.to_string(), "--shell-rust", "settings"])
         .env("LIBGL_ALWAYS_SOFTWARE", "1")
         .env("LUMATV_COMPILE_DELAY_MS", LINK_MS.to_string())
         .env("LUMATV_UI_BIN", &client)
@@ -71,9 +66,8 @@ fn an_engine_attached_while_the_loop_runs_does_not_hold_the_loop_for_its_program
     let sock = dir.join("lumatv-control");
     wait_for("the control socket", Duration::from_secs(10), || sock.exists().then_some(()));
 
-    assert_eq!(ctl(&dir, &["shell", "rust"])["rust"]["kinds"], serde_json::json!([]), "started with no kinds");
-    assert_eq!(ctl(&dir, &["shell", "rust", "+settings"])["ok"], true);
-    // The client starts once the programs are linked, 1.4 s on their thread; the loop answers meanwhile.
+    assert_eq!(ctl(&dir, &["shell"])["kinds"], serde_json::json!(["settings"]));
+    // The client starts once the programs are linked on their own thread.
     let first = wait_for("the client's start", Duration::from_secs(30), || client_pid(&dir));
     assert!(ctl(&dir, &["status"])["ok"] == true, "the loop answers while the engine's programs are linked");
     // A restart attaches a new engine: the old one's programs are in the cache again, and nothing is linked.

@@ -6,6 +6,19 @@ boot line and settings (`TV:`), the X4 bus capture (`docs/research/arch/x4`), ro
 run 2026-10-26 04:09-04:25) and the notes named.
 
 Evidence tags: `TV:` read on this set, `SRC:` LG's kernel tree, `PUB:` public, `[INFERENCE]` not proven, the probe below names it.
+## Current foreground pacing policy (2026-10-31)
+
+The independently reviewed source policy is host-verified and ARM-built, but not installed or accepted on the TV. Exact foreground app `com.beb.plxnative` selects the compositor's 120 setting; otherwise it uses the startup `--refresh` base, default 60. A successful `ctl refresh 60` or `ctl refresh 120` pins manual mode until `ctl refresh auto`; `ctl refresh reset` resets measurement only. Failed divider writes leave applied state unchanged. One attempt occurs per foreground transition, with no per-frame retries, native callback commit changes, or panel/video writes. Actual protocol regressions cover webOS and legacy title changes, input-panel type changes, window type changes in both directions, and minimize to Maximized/Default.
+
+Nine refresh tests, 11 callback tests and two existing native control/capture/ring tests passed. The normal UI-feature production ARM release build completed in 39.75 s; the ARM64 PIE stripped artifact is `/data/home/tmp/lumatv-foreground-pacing-20261031/lumatv-compositor-legacy`, SHA256 `f5c864ae1e869da3e2f60af14faca77ef51664254c8043652dff84a2fbf3463a`. Independent source review is clear. The 904c8 and 9762 candidates were superseded by repairs covering eligibility and legacy title changes.
+
+The later Design finding below overrides earlier optimism: LG Starfish owns native cadence, including 120 or fractional 119.88 Hz and the 100 Hz family for 25/50 content. In round 22 five disconnected `fr_rate` writes failed to restore 100 to 120; only video restored it. Divider 1 follows 100 when LG selects that family, not an independent 120 Hz OSD. Optical flash-free transitions are not established.
+
+Current native menu routing (source, November 1): `compositor/src/scene.rs:736–780` chooses the newest mapped, non-minimized nongroup card. Overlay, volume, toast, keyboard, ShellSystem and cover windows are not pacing cards (`window.rs:99–147`). Ordinary overlays therefore inherit the underlying card: Marquee selects nominal120, while Home and other cards retain startup base60. The policy is not a universal120 Home/system-menu mode. Numeric control overrides remain sticky; auto restores foreground policy; reset changes measurements only (`control.rs:390–411`).
+
+Qt Shell has a nominal16ms basic animation timer and selected frame-driven120 quick/picker/dock paths (`compositor/shell/Shell.qml:80–87`; `ui120-result.md:159–189`), not an all-animation120 guarantee. Embedded Rust UI starts with refresh_hz60 as a scene hint (`ui/mod.rs:81–102`) but advances from each compositor plan (`host.rs:1036–1048`); the initial hint is not proof of a universal60 repaint cap. The existing fake-KMS refresh protocol suite was rerun locally:9 passed,0 failed. This is host protocol evidence, not current TV mode, timing acceptance or permission to force global120.
+
+For causal work, read `scanout-research.md:82–140,178–186,204–222`, `frames-120-result.md:101–182,205–219` and `compositor-gate9-result.md:904–947`. OSD plane IDs32/34 alias one RGBA layer; hardware video remains separate. Default-off compatible-sole-fullscreen direct scanout has composition fallback and archived on-set acceptance still pending. The old flip-copy/no-copy result in `rustui-result.md:65–118` is not the later hidden-Qt GPU-slot correlation. Preserve commit callbacks and LG-owned video families; historical complex Home results do not justify global120.
 
 ## Resume here
 

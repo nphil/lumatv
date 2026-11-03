@@ -24,15 +24,15 @@ INPUT_ICON = os.path.join(ROOT, "assets", "icon160.png")
 
 
 def backdrop(material):
-    """Home in this material, rendered once per run: what the view is drawn over."""
+    """Render the native Home behind LG's notification view."""
     if material not in _BACKDROPS:
+        sys.path.insert(0, os.path.dirname(HERE))
+        from test_rust_home import RustHome
         path = os.path.join(_DIR, "home-%s.png" % material)
-        user = {"perf": {"syncResidents": True}, "material": material}
-        r = subprocess.run([sys.executable, os.path.join(HERE, "qmlhost.py"), "LumaHome.qml", "--fake-helper", "--prop", "hostActive=true",
-                            "--theme", json.dumps(user), "--shot", path, "--wait", "8000"],
-                           env=dict(os.environ, DISPLAY=xdisplay.DISPLAY), capture_output=True, text=True, timeout=120)
+        host = RustHome(methodName="test_the_shipped_layout_is_drawn_where_it_always_was_and_the_dock_is_the_persons_own")
+        out, _, _ = host.host(3500, [['--snap', '3000:' + path]], mode=material)
         if not os.path.exists(path):
-            raise RuntimeError("Home backdrop not rendered: " + (r.stdout + r.stderr)[-400:])
+            raise RuntimeError("Home backdrop not rendered: " + out[-400:])
         _BACKDROPS[material] = path
     return _BACKDROPS[material]
 

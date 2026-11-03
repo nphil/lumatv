@@ -5,7 +5,7 @@
 //! - **the trigger** ([`HomeTaps`]): a Home tap acts when the key is let go, as it always did, and the first one is never held back
 //!   to see whether a second comes. A second tap within [`DOUBLE_HOME`] of a tap that went Home from an app opens the switcher
 //!   with that app shrinking into its card; a tap while Home is in front and at rest (the shell decides, it knows what Home has
-//!   open) opens it too; a tap while it is open closes it. The 650 ms hold of Home (`input.rs`) is not touched by any of this.
+//!   open) opens it too; a tap while it is open closes it.
 //! - **the apps**: the cards the compositor holds, newest first, each with whether a picture of it can be drawn. An app whose picture
 //!   is on the video plane (a hole in its window, or an input) is never sampled: the plane cannot be read here and the switcher shows
 //!   the app's icon on a tile instead.
@@ -369,7 +369,7 @@ impl State {
         self.switcher.active()
     }
 
-    /// A Home tap, let go before the escape's 650 ms: Home as ever, or the switcher (see the module).
+    /// A Home release opens Home or the switcher (see the module).
     pub(crate) fn home_tap(&mut self, now: Instant, from_network: bool, shell_focus: bool) {
         let foreground = self.foreground_app();
         let ctx = TapContext {
@@ -766,14 +766,8 @@ impl State {
         let open = self.switcher.accepting();
         let from = if open { self.switcher.from.clone().unwrap_or_default() } else { String::new() };
         let state = json!({"open": open, "from": from, "n": self.switcher.seq});
-        // one client draws the switcher's chrome: the Rust shell when it answers the kind (the QML client hears no more of it), else the QML one
-        if self.shell_rust.answers("switcher") {
-            self.shell_rust.push_if_changed("apps", Value::Array(list));
-            self.shell_rust.push_if_changed("switcher", state);
-        } else {
-            self.shell.push_if_changed("apps", Value::Array(list));
-            self.shell.push_if_changed("switcher", state);
-        }
+        self.shell_rust.push_if_changed("apps", Value::Array(list));
+        self.shell_rust.push_if_changed("switcher", state);
     }
 
     /// `ctl switcher`.

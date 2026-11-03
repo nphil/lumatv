@@ -85,22 +85,17 @@ pub trait EncoderFactory: Send + Sync {
 /// The hardware encoder through `lumatv-venc feed`.
 pub struct VencFactory {
     pub binary: PathBuf,
-    /// Where the child's own messages go (its stderr): `<data>/compositor/venc.log`, rewritten at each session.
-    pub log: PathBuf,
 }
 
 impl EncoderFactory for VencFactory {
     fn open(&self, spec: &EncoderSpec) -> io::Result<Box<dyn Encoder>> {
-        if let Some(dir) = self.log.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let log = std::fs::File::create(&self.log)?;
+        let log = crate::childlog::pipe("lumatv-compositor", "venc: ");
         let mut child = Command::new(&self.binary)
             .args(["feed", "-w", &spec.width.to_string(), "-h", &spec.height.to_string(), "-r", &spec.fps.to_string()])
             .args(["-b", &spec.kbps.to_string(), "-g", &spec.gop.to_string()])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::from(log))
+            .stderr(log.map_or_else(Stdio::null, Stdio::from))
             .spawn()
             .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", self.binary.display())))?;
         let (stdin, stdout) = (child.stdin.take().expect("piped"), child.stdout.take().expect("piped"));
@@ -109,7 +104,7 @@ impl EncoderFactory for VencFactory {
             let _ = child.wait();
             return Err(e);
         }
-        let mut enc = VencChild { child, stdin: Some(stdin), stdout, spec: *spec, log: self.log.clone(), frames: 0 };
+        let mut enc = VencChild { child, stdin: Some(stdin), stdout, spec: *spec, frames: 0 };
         let mut hello = [0u8; HEADER_LEN];
         if let Err(e) = read_exact_by(enc.stdout.as_raw_fd(), &mut hello, Instant::now() + OPEN_DEADLINE) {
             let why = enc.why_it_ended(&e);
@@ -143,7 +138,6 @@ struct VencChild {
     stdin: Option<ChildStdin>,
     stdout: ChildStdout,
     spec: EncoderSpec,
-    log: PathBuf,
     frames: u64,
 }
 
@@ -219,15 +213,19 @@ fn write_all_by(fd: RawFd, mut buf: &[u8], deadline: Instant) -> io::Result<()> 
     Ok(())
 }
 
+fn encoder_tail() -> Option<String> {
+    crate::logsink::tail("lumatv-compositor", usize::MAX).into_iter().rev().find_map(|line| line.strip_prefix("venc: ").map(str::to_owned))
+}
+
 impl VencChild {
     fn kill(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 
-    /// What to say when the child stopped talking: the last line it wrote to its log, or the error that came.
+    /// The encoder's latest retained diagnostic, if the collector has received it.
     fn why_it_ended(&self, e: &io::Error) -> String {
-        let tail = std::fs::read_to_string(&self.log).ok().and_then(|t| t.lines().rev().find(|l| !l.trim().is_empty()).map(str::to_string));
+        let tail = encoder_tail();
         match tail {
             Some(t) => format!("{e}: {t}"),
             None => e.to_string(),
@@ -278,7 +276,7 @@ impl Encoder for VencChild {
         loop {
             match self.child.try_wait() {
                 Ok(Some(status)) => {
-                    let said = std::fs::read_to_string(&self.log).ok().and_then(|t| t.lines().rev().find(|l| !l.trim().is_empty()).map(str::to_string));
+                    let said = encoder_tail();
                     return format!("encoder exit {status} after {} frames{}", self.frames, said.map(|s| format!(": {s}")).unwrap_or_default());
                 }
                 Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
@@ -413,11 +411,9 @@ mod tests {
     fn a_child_that_is_not_there_is_an_error_that_names_it() {
         let f = VencFactory {
             binary: PathBuf::from("/definitely/not/lumatv-venc"),
-            log: std::env::temp_dir().join(format!("venc-none-{}.log", std::process::id())),
         };
         assert!(!f.available());
         let e = f.open(&EncoderSpec { width: 64, height: 64, fps: 30, kbps: 500, gop: 30 }).err().expect("an error");
         assert!(e.to_string().contains("/definitely/not/lumatv-venc"), "{e}");
-        let _ = std::fs::remove_file(&f.log);
     }
 }

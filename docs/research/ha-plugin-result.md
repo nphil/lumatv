@@ -1,5 +1,13 @@
 # Home Assistant plugin on the TV
 
+Current native acceptance, 2026-11-02: verified TLS at `https://ha.nateshome.net`, a dedicated local-only non-administrator `lumatv` user, and one ten-year LumaTV token. The token is persisted only in the private TV store, never UI/topics. The temporary provisioning refresh session was revoked; no identified obsolete LumaTV token existed in the former account, so unrelated credentials were preserved. Both credential stores now enforce 0700 parents and exclusive 0600 temporary files before atomic replacement.
+
+The approved plugin runs as uid 20000 and connects to HA 2026.10.4. Living Room is saved through its existing settings route; actual native Settings shows Connected, the address, and Access token Saved. This is the token-backed At-home/Quick path. The separate Smart home card remains Not paired and requires the existing HA-side LumaShow/ESPHome sharing setup in `onhome-result.md`; BLE pairing, sharing policy and sensitive controls were not broadened.
+
+Installed helper SHA256 `1926b8b74cb0a453bc27fc045e0a83887539ee244e84c86c58d8bd2f0b861aaa`, UI `10bd16987319e797e438bb8da1775c0fa84580e72419675fb709a00e4b2c3ab9`; compositor `6dab7dcda18890e8f89fbeb9c34de5632a3919b6350e58441f452de669c61abc` unchanged. Proof/previous-component rollback are off-TV at `/data/home/tmp/lumatv-ha-cameras-20261102/`. Final Active Standby, original filmMaker/default OLED84 restored, receiver untouched, own mutex released with mirror absent and token gone.
+
+The QML notes and unverified checklist below are historical, not current native acceptance.
+
 LumaShow's `plugins/home-assistant` runs on the TV unchanged, through the helper's plugin broker (API level 1). Its cards are chips in Home's At-home lane, its tiles are rows of the quick panel, its notifications are in the drawer, and its settings are a page of Settings (Home & look › Home Assistant). With no plugin card the lane says in two or three words where Home Assistant stands; the placeholder chips ("3 lights on", "Locked", "Playing · Sonos") are gone.
 
 ## Resume here
@@ -53,12 +61,12 @@ Home Assistant's tokens are not scoped, so the TV gets its own user.
 - The helper (root) installs the package into `<data>/plugins/home-assistant` (`plugin-enable`) and runs `bin/home-assistant` as uid 20000 (the first free of the plugins' range), group 2000, in a session of its own, with a cleared environment, `no_new_privs`, no core dumps, priority 10 and ceilings (128 MiB address space for class S, 64 files, 64 processes, 1 MiB per file). If the helper dies, the program gets SIGTERM; a program that stops is started again after 2 s, doubling to a minute. The TV's kernel has no seccomp and no namespaces, so this is not the Show's box: the ceilings catch a runaway and only reviewed plugins belong in `enabled.json`.
 - The program connects to the broker at `/run/lumashow-plugins/broker.sock`, is told where the lease is, and asks the helper to watch entities (`ha.watch`), call a service (`ha.call`) and list registries (`ha.list`). The helper holds the one WebSocket to Home Assistant, refuses what the manifest did not ask for, and refuses the never-called domains. A refused token is tried once, then only after `ha-link` or "Forget link".
 - The plugin's cards, tiles and notifications are topics `plugin.home-assistant.cards|tiles|notifications|facts`; `PluginHub.qml` turns them into the lane's chips, the quick panel's rows and the drawer's entries. A tap is `POST /v1/plugins/home-assistant/actions/<action>`. The plugin's settings are `/v1/settings/home-assistant`, written in their kinds (a list of ids is `{"type":"ordered"}`).
-- Logs: the helper's `/var/lib/lumatv/log-helper` (lines starting `plugins:`), the program's own `/var/lib/lumatv/plugins/home-assistant/log` (rotated at 256 KiB).
+- Logs: read helper records by tag with `tools/logrelay.py read plugins 50` from `/tmp/lumatv-logs/current.log` (or the previous RAM window `/tmp/lumatv-logs/previous.log`). The plugin program's own `/var/lib/lumatv/plugins/home-assistant/log` remains separate (rotated at 256 KiB).
 
 ## TV check list (not verified: nothing here has run on the TV)
 
 1. `$H plugin-status --brand $B` before anything: `enabled` is empty.
-2. After `plugin-enable`, within a few seconds: `log-helper` has `plugins: home-assistant: started its program`, `ps` shows `home-assistant` with uid 20000 (not root) and `NoNewPrivs: 1` in `/proc/<pid>/status`, and `/run/lumashow-plugins/broker.sock` exists. If the uid or group switch or the limits fail on the TV's kernel, the program's entry in `GET /v1/plugins` carries the reason.
+2. After `plugin-enable`, within a few seconds: `tools/logrelay.py read plugins 50` shows `plugins: home-assistant: started its program`, `ps` shows `home-assistant` with uid 20000 (not root) and `NoNewPrivs: 1` in `/proc/<pid>/status`, and `/run/lumashow-plugins/broker.sock` exists. If the uid or group switch or the limits fail on the TV's kernel, the program's entry in `GET /v1/plugins` carries the reason.
 3. `curl -s http://127.0.0.1:18731/v1/plugins` lists `home-assistant` as `connected`.
 4. `ha-link` ends with `connected` and Home Assistant's version. A wrong token ends with `auth_failed`, the lane says "Token refused", and Home Assistant's log shows one failed login, not a stream.
 5. The page shows address, "Saved", Room tab with the rooms; picking one makes the At-home card show "<Room> N of M on".
@@ -67,7 +75,7 @@ Home Assistant's tokens are not scoped, so the TV gets its own user.
 8. Stop Home Assistant: the lane says "Offline" and the program stays up; start it: it reconnects by itself.
 9. "Forget link" with two OKs: the lane says "Not linked", `/var/lib/lumatv/ha/` has no `link.json`.
 10. `plugin-disable --id home-assistant` ends the program in under 3 s and the lane says "Not switched on". Reboot the TV with it enabled: the helper starts it again.
-11. Nothing printed anywhere holds the token: search `log-helper`, `plugins/home-assistant/log` and `GET /v1/state` for its first characters.
+11. Nothing printed anywhere holds the token: search the central `plugins` RAM log and `plugins/home-assistant/log`, and check `GET /v1/state` for its first characters.
 12. Idle cost: resident size and CPU of `home-assistant` and the helper before and after (record them here).
 
 ## For LumaShow (not edited; this is the exact proposal)

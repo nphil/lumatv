@@ -339,7 +339,7 @@ def render_posters(base_path, look_doc, n, indices, jobs):
 # ---- the stream -----------------------------------------------------------------------------------------------------------
 
 def encoder_args(qp, frames, bits):
-    """Like the art clips' (vplane_clips.encoder_args): one key picture, then predicted ones, one reference, no reordering. A constant
+    """One key picture, then predicted ones, one reference, no reordering. A constant
     quantiser, the same for every picture (ipratio and pbratio 1: the key picture the loop restarts at is the quality of the one before
     it), and the dark gradient gets the adaptive quantiser's help; why not a constant quality is in the docstring."""
     color = "colorprim=bt709:transfer=bt709:colormatrix=bt709"

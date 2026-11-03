@@ -770,7 +770,7 @@ impl Inner {
             return;
         }
         let (status, reason) = Self::status_of(trouble);
-        crate::log_info!("cameras: {} ({})", reason, status.word());
+        crate::log_info!("cameras: link {}", status.word());
         // a link the bridge refuses or whose certificate is not the pinned one has no cameras to show; one that merely does not answer keeps its
         // last list (the tiles dim, with their age)
         self.stills.set_bridge(None);

@@ -96,6 +96,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
         prompt: "TV name".into(),
         text: current,
         secret: false,
+        purpose: crate::panels::ime::PURPOSE_NORMAL,
         then: Rc::new(|t| if t.trim().is_empty() { Vec::new() } else { vec![Op::Lg { ds: "network.deviceName".into(), value: json!(t.trim()), app: None }] }),
     }]));
     rows.push(c.toggle(Spec::new("network.ipv6Enable").tab(2).on_off("true", "false").icon("globe").label("IPv6").lg_shown()));
@@ -173,7 +174,7 @@ fn join(ssid: &str, pass: &str) -> Vec<Op> {
 
 fn password(ssid: &str, then: impl Fn(&str, &str) -> Vec<Op> + 'static) -> Op {
     let ssid = ssid.to_string();
-    Op::Entry { prompt: format!("Password for {ssid}"), text: String::new(), secret: true, then: Rc::new(move |text| then(&ssid, &text)) }
+    Op::Entry { purpose: 0, prompt: format!("Password for {ssid}"), text: String::new(), secret: true, then: Rc::new(move |text| then(&ssid, &text)) }
 }
 
 fn wifi_rows(c: &Ctx) -> Vec<Row> {
@@ -196,6 +197,7 @@ fn wifi_rows(c: &Ctx) -> Vec<Row> {
         prompt: "Network name".into(),
         text: String::new(),
         secret: false,
+        purpose: crate::panels::ime::PURPOSE_NORMAL,
         then: Rc::new(|ssid| if ssid.is_empty() { Vec::new() } else { vec![password(&ssid, join)] }),
     }]));
     let mut again = Row::action("rescan", "Search").icon("refresh-cw").label("Search Again").admin().does(scan(c));
@@ -308,7 +310,7 @@ fn field(d: &Draft, id: &'static str, icon: &str, label: &'static str, value: &s
     } else {
         "Set to Manual".into()
     };
-    r.does(vec![Op::Entry { prompt: label.into(), text: value.to_string(), secret: false, then: Rc::new(move |t| vec![Op::Set(format!("ip.{id}"), json!(t.trim()))]) }])
+    r.does(vec![Op::Entry { prompt: label.into(), text: value.to_string(), secret: false, purpose: crate::panels::ime::PURPOSE_URL, then: Rc::new(move |t| vec![Op::Set(format!("ip.{id}"), json!(t.trim()))]) }])
 }
 
 fn ip_rows(c: &Ctx) -> Vec<Row> {
@@ -396,7 +398,7 @@ mod tests {
         let r = rows(&w.ctx());
         assert_eq!(by_id(&r, "tvname").value, "Living room");
         let ops = (by_id(&r, "tvname").act.as_ref().unwrap())(Arg::Press);
-        let [Op::Entry { prompt, text, secret, then }] = &ops[..] else { panic!("{ops:?}") };
+        let [Op::Entry { prompt, text, secret, then, .. }] = &ops[..] else { panic!("{ops:?}") };
         assert_eq!((prompt.as_str(), text.as_str(), *secret), ("TV name", "Living room", false));
         assert!(then("   ".into()).is_empty());
         assert!(matches!(&then(" Den ".into())[..], [Op::Lg { ds, value, .. }] if ds == "network.deviceName" && value == "Den"));

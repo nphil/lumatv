@@ -8,6 +8,8 @@
 //! This is the model: what is focused, what a key does, what the rows say. The surface draws [`Quick::view`].
 
 pub mod tiles;
+mod info;
+pub use info::Display as DisplayInfo;
 
 use super::arrange;
 use super::clock;
@@ -111,7 +113,7 @@ struct Edit {
 #[derive(Clone, Debug, PartialEq)]
 enum Popup {
     Slider { row: String, spec: Slider, shown: f64, key_at: u64 },
-    Pick { row: String, title: String, text: &'static str, icon: String, options: Vec<String>, index: usize },
+    Pick { row: String, act: Act, title: String, text: &'static str, icon: String, options: Vec<String>, index: usize },
     Add { items: Vec<(String, String, String)>, text: &'static str, index: usize },
 }
 
@@ -185,6 +187,7 @@ pub struct OptionView {
     pub icon: String,
     pub detail: String,
     pub current: bool,
+    pub enabled: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -199,6 +202,9 @@ pub struct PadView {
     pub pin: pin::View,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VideoInfo { pub width: Option<u64>, pub height: Option<u64>, pub fps: Option<f64> }
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct View {
     pub up: bool,
@@ -206,6 +212,8 @@ pub struct View {
     pub title: String,
     /// The head's second word: the time ("9:52 PM"), empty in edit mode where the glyphs say what the keys do.
     pub clock: String,
+    pub info: DisplayInfo,
+    pub video_info: Option<VideoInfo>,
     pub hints_head: Vec<Hint>,
     pub hints_foot: Vec<Hint>,
     pub strip: Option<Vec<Person>>,
@@ -237,6 +245,12 @@ pub struct Quick {
     slider_due: Option<u64>,
     clock_due: Option<u64>,
     shot_due: Option<u64>,
+    info_due: Option<u64>,
+    info_tag: u64,
+    info_answered: Option<u64>,
+    video: Option<info::Video>,
+    info_authority: Option<(String, String)>,
+    monitor: info::Monitor,
     pub hold: Hold,
 }
 
@@ -269,6 +283,12 @@ impl Quick {
             slider_due: None,
             clock_due: None,
             shot_due: None,
+            info_due: None,
+            info_tag: 0x5A00_0000,
+            info_answered: None,
+            video: None,
+            info_authority: None,
+            monitor: info::Monitor::default(),
             hold: Hold::default(),
         }
     }
@@ -330,6 +350,13 @@ impl Quick {
         self.sync_focus_id(&rows);
         self.read_due = Some(now + u64::from(self.life.enter_ms) + READ_AFTER_MS);
         self.clock_due = Some(now + 15_000);
+        self.video = None;
+        self.info_authority = env.screen_on.then(|| env.fg.video.clone()).flatten();
+        self.info_answered = None;
+        self.info_tag = self.info_tag.wrapping_add(1);
+        self.monitor.set_active(false);
+        self.info_due = Some(now + u64::from(self.life.enter_ms) + READ_AFTER_MS);
+        self.monitor.set_active(env.screen_on);
         Out::effects(env.gate.set_active(true, now))
     }
 
@@ -340,6 +367,11 @@ impl Quick {
         self.pin = None;
         self.read_due = None;
         self.clock_due = None;
+        self.info_due = None;
+        self.info_answered = None;
+        self.video = None;
+        self.info_authority = None;
+        self.monitor.set_active(false);
         self.hold.clear();
         out.effects.extend(env.gate.set_active(false, now));
         out
@@ -354,6 +386,17 @@ impl Quick {
     /// The services answered, or the tiles changed (a plugin's came or went): the focus stays on the same tile by id, and until a key is
     /// pressed it goes to the first tile that can take it (the picture mode is only focusable once the settings service has answered).
     pub fn sync(&mut self, env: &Env) {
+        if self.info_due.is_some() {
+            let authority = if env.screen_on { env.fg.video.as_ref() } else { None };
+            if self.info_authority.as_ref() != authority {
+                self.info_authority = authority.cloned();
+                self.info_tag = self.info_tag.wrapping_add(1);
+                self.info_answered = None;
+                self.video = None;
+                self.monitor.reset();
+            }
+            self.monitor.set_active(env.screen_on);
+        }
         if !self.life.presented() {
             return;
         }
@@ -407,15 +450,25 @@ impl Quick {
 
     // ---- what an act does
 
-    fn set_level(env: &mut Env, v: f64) -> Vec<Effect> {
-        env.sio.write("picture.backlight", &json!(v.round().clamp(0.0, 100.0) as i64), None)
+    fn set_level(env: &mut Env, v: f64, now: u64) -> Vec<Effect> {
+        env.sio.write("picture.backlight", &json!(v.round().clamp(0.0, 100.0) as i64), None, now)
     }
 
     /// Carries out the act of the row `id`.
     fn act(&mut self, act: &Act, v: Val, env: &mut Env, now: u64) -> Out {
         let mut out = Out::default();
         match (act, v) {
-            (Act::Picture, Val::Index(i)) => out.effects = env.sio.write("picture.pictureMode", &json!(tiles::MODE_VALUES[i.min(6)]), None),
+            (Act::Picture(values), Val::Index(i)) => {
+                if let Some((value, true)) = values.get(i) {
+                    let available = env.sio.list("picture.pictureMode").map_or_else(
+                        || env.sio.desc("picture.pictureMode").is_none() && tiles::MODE_VALUES.contains(&value.as_str()) && env.sio.picture_dynamic_range().is_some_and(|range| range.eq_ignore_ascii_case("sdr")),
+                        |list| list.iter().any(|item| item.value == *value && item.visible && item.active),
+                    );
+                    if available && env.sio.usable("picture.pictureMode") {
+                        out.effects = env.sio.write("picture.pictureMode", &json!(value), None, now);
+                    }
+                }
+            }
             (Act::Receiver, Val::Delta(d)) => {
                 // the volume the way the keys move it, through the TV (which sends it to the receiver over HDMI-CEC); the helper is told
                 // to read the receiver now so the new level appears at once
@@ -432,15 +485,15 @@ impl Quick {
                 out.asks.push(Ask::Settings((*page).to_string()));
                 out.close = true;
             }
-            (Act::Energy, Val::Index(i)) => out.effects = env.sio.write("picture.energySaving", &json!(tiles::ENERGY_VALUES[i.min(4)]), None),
-            (Act::Oled, Val::Delta(d)) => out.effects = Self::set_level(env, env.sio.num("picture.backlight", 0.0) + f64::from(d) * 5.0),
-            (Act::Oled, Val::Num(n)) => out.effects = Self::set_level(env, n),
+            (Act::Energy, Val::Index(i)) => out.effects = env.sio.write("picture.energySaving", &json!(tiles::ENERGY_VALUES[i.min(4)]), None, now),
+            (Act::Oled, Val::Delta(d)) => out.effects = Self::set_level(env, env.sio.num("picture.backlight", 0.0) + f64::from(d) * 5.0, now),
+            (Act::Oled, Val::Num(n)) => out.effects = Self::set_level(env, n, now),
             (Act::ScreenOff, _) => {
-                out.effects = env.sio.write("option.screenOff", &json!("on"), None);
+                out.effects = env.sio.write("option.screenOff", &json!("on"), None, now);
                 out.close = true;
             }
-            (Act::Pointer, Val::On(on)) => out.effects = env.sio.write("general.remotePointer", &json!(if on { "on" } else { "off" }), None),
-            (Act::Eye, Val::On(on)) => out.effects = env.sio.write("picture.eyeComfortMode", &json!(if on { "on" } else { "off" }), None),
+            (Act::Pointer, Val::On(on)) => out.effects = env.sio.write("general.remotePointer", &json!(if on { "on" } else { "off" }), None, now),
+            (Act::Eye, Val::On(on)) => out.effects = env.sio.write("picture.eyeComfortMode", &json!(if on { "on" } else { "off" }), None, now),
             (Act::Shot, _) => {
                 // the screenshot is taken once the panel has slid away, so the picture is of what was under it
                 self.shot_due = Some(now + 900);
@@ -490,11 +543,12 @@ impl Quick {
             let x = tiles::pick_extras(&r.id);
             Popup::Pick {
                 row: r.id.clone(),
+                act: r.act.clone(),
                 title: r.label.clone(),
                 text: x.text,
                 icon: x.icon.map_or_else(|| r.icon.clone(), str::to_string),
                 options: r.options.clone(),
-                index: r.index.unwrap_or(0),
+                index: r.index.filter(|&i| !matches!(&r.act, Act::Picture(values) if !values.get(i).is_some_and(|(_, active)| *active))).or_else(|| match &r.act { Act::Picture(values) => values.iter().position(|(_, active)| *active), _ => None }).unwrap_or(0),
             }
         });
     }
@@ -583,11 +637,10 @@ impl Quick {
                 match r.kind {
                     Kind::Nudge => Some(self.act(&r.act.clone(), Val::Delta(d), env, now)),
                     Kind::Stepper => {
-                        let n = r.options.len() as i32;
-                        if n > 0 {
-                            self.seg = (self.seg as i32 + d + n).rem_euclid(n) as usize;
-                            let act = r.act.clone();
-                            Some(self.act(&act, Val::Index(self.seg), env, now))
+                        let from = if matches!(r.act, Act::Picture(_)) { r.index.unwrap_or(if d > 0 { r.options.len().saturating_sub(1) } else { 0 }) } else { self.seg };
+                        if let Some(next) = r.step_index(from, d) {
+                            self.seg = next;
+                            Some(self.act(&r.act, Val::Index(next), env, now))
                         } else {
                             Some(Out::default())
                         }
@@ -643,54 +696,54 @@ impl Quick {
 
     fn popup_key(&mut self, k: K, env: &mut Env, now: u64) -> Out {
         let mut out = Out::default();
-        let Some(popup) = self.popup.clone() else { return out };
-        match popup {
-            Popup::Slider { row, spec, shown, .. } => match k {
+        let Some(mut popup) = self.popup.take() else { return out };
+        let mut close = false;
+        match &mut popup {
+            Popup::Slider { row, spec, shown, key_at } => match k {
                 K::Left | K::Right => {
-                    let v = (shown + if k == K::Left { -spec.step } else { spec.step }).clamp(spec.from, spec.to);
-                    if v != shown {
-                        if let Some(Popup::Slider { shown, key_at, .. }) = self.popup.as_mut() {
-                            *shown = v;
-                            *key_at = now;
-                        }
+                    let v = (*shown + if k == K::Left { -spec.step } else { spec.step }).clamp(spec.from, spec.to);
+                    if v != *shown {
+                        *shown = v;
+                        *key_at = now;
                         let rows = tiles::everything(env);
-                        if let Some(r) = rows.iter().find(|r| r.id == row) {
-                            out = self.act(&r.act.clone(), Val::Num(v), env, now);
-                        }
+                        if let Some(r) = rows.iter().find(|r| r.id == *row) { out = self.act(&r.act, Val::Num(v), env, now); }
                     }
                 }
-                K::Ok | K::Back => self.popup = None,
+                K::Ok | K::Back => close = true,
                 _ => {}
             },
-            Popup::Pick { row, options, index, .. } => match k {
-                K::Up => self.set_option(index.saturating_sub(1)),
-                K::Down => self.set_option((index + 1).min(options.len().saturating_sub(1))),
+            Popup::Pick { act, options, index, .. } => match k {
+                K::Up | K::Down => {
+                    let enabled = |i| !matches!(&*act, Act::Picture(values) if !values.get(i).is_some_and(|(_, active)| *active));
+                    let next = if k == K::Up { (0..*index).rev().find(|&i| enabled(i)) } else { ((*index + 1)..options.len()).find(|&i| enabled(i)) };
+                    if let Some(next) = next { *index = next; }
+                }
                 K::Ok => {
-                    self.popup = None;
-                    let rows = tiles::everything(env);
-                    if let Some(r) = rows.iter().find(|r| r.id == row) {
-                        out = self.act(&r.act.clone(), Val::Index(index), env, now);
+                    if !matches!(&*act, Act::Picture(values) if !values.get(*index).is_some_and(|(_, active)| *active)) {
+                        out = self.act(act, Val::Index(*index), env, now);
+                        close = true;
                     }
                 }
-                K::Back => self.popup = None,
+                K::Back => close = true,
                 _ => {}
             },
             Popup::Add { items, index, .. } => match k {
-                K::Up => self.set_option(index.saturating_sub(1)),
-                K::Down => self.set_option((index + 1).min(items.len().saturating_sub(1))),
+                K::Up => *index = index.saturating_sub(1),
+                K::Down => *index = (*index + 1).min(items.len().saturating_sub(1)),
                 K::Ok => {
-                    self.popup = None;
-                    if let Some((id, _, _)) = items.get(index) {
+                    close = true;
+                    if let Some((id, _, _)) = items.get(*index) {
                         let shown = Self::ids(&self.rows(env));
                         let n = shown.len();
                         out.effects = self.keep_order(arrange::added(&shown, id), true);
                         self.edit.index = n;
                     }
                 }
-                K::Back => self.popup = None,
+                K::Back => close = true,
                 _ => {}
             },
         }
+        if !close { self.popup = Some(popup); }
         out
     }
 
@@ -816,10 +869,12 @@ impl Quick {
                 _ => Out::default(),
             };
         }
-        if let Some(popup) = self.popup.clone() {
+        if let Some(popup) = self.popup.as_ref() {
             if let Target::Option(i) = t {
+                if matches!(popup, Popup::Pick { act: Act::Picture(values), .. } if !values.get(i).is_some_and(|(_, active)| *active)) { return Out::default(); }
+                let pick = matches!(popup, Popup::Pick { .. } | Popup::Add { .. });
                 self.set_option(i);
-                if matches!(popup, Popup::Pick { .. } | Popup::Add { .. }) {
+                if pick {
                     return self.popup_key(K::Ok, env, now);
                 }
             }
@@ -846,11 +901,10 @@ impl Quick {
                 self.sync_focus_id(&rows);
                 match (side, rows[i].kind) {
                     (Some(d), Kind::Stepper) => {
-                        let n = rows[i].options.len() as i32;
-                        if n > 0 {
-                            self.seg = (self.seg as i32 + d + n).rem_euclid(n) as usize;
-                            let act = rows[i].act.clone();
-                            return self.act(&act, Val::Index(self.seg), env, now);
+                        let from = if matches!(rows[i].act, Act::Picture(_)) { rows[i].index.unwrap_or(if d > 0 { rows[i].options.len().saturating_sub(1) } else { 0 }) } else { self.seg };
+                        if let Some(next) = rows[i].step_index(from, d) {
+                            self.seg = next;
+                            return self.act(&rows[i].act, Val::Index(next), env, now);
                         }
                         Out::default()
                     }
@@ -898,6 +952,19 @@ impl Quick {
 
     pub fn tick(&mut self, env: &mut Env, now: u64) -> Out {
         let mut out = Out::default();
+        if self.info_answered.is_some_and(|at| now.saturating_sub(at) > 3_000) {
+            self.info_answered = None;
+            self.video = None;
+            self.monitor.reset();
+        }
+        if self.info_due.is_some_and(|d| now >= d) {
+            self.info_due = Some(now + 1_000);
+            if env.screen_on && self.info_authority.is_some() {
+                self.info_tag = self.info_tag.wrapping_add(1);
+                out.effects.push(Effect::Luna { tag: self.info_tag, uri: "luna://com.webos.service.videooutput/getStatus".into(), payload: json!({}), subscribe: false });
+            }
+            out.effects.push(Effect::Redraw);
+        }
         if self.read_due.is_some_and(|d| now >= d) {
             self.read_due = None;
             // each reading's answer rebinds rows; they are asked for once the slide is over
@@ -933,11 +1000,22 @@ impl Quick {
 
     pub fn due_at(&self) -> Option<u64> {
         let slider = if matches!(self.popup, Some(Popup::Slider { .. })) { self.slider_due } else { None };
-        [self.read_due, self.clock_due, self.shot_due, slider, self.hold.due_at(), self.life.due_at()].into_iter().flatten().min()
+        [self.read_due, self.clock_due, self.shot_due, self.info_due, slider, self.hold.due_at(), self.life.due_at()].into_iter().flatten().min()
     }
 
     /// What the helper answered to the panel's requests: the capture's state after a command, the profile switch (and its PIN).
     pub fn answer(&mut self, input: &Input, env: &mut Env, now: u64) -> Out {
+        if let Input::Luna { tag, payload } = input {
+            if self.info_due.is_some() && *tag == self.info_tag {
+                let next = info::video(payload).filter(|v| env.screen_on && self.info_authority.as_ref().is_some_and(|(context, app)| v.context == *context && v.app == *app) && self.info_authority == env.fg.video);
+                if self.video.as_ref().map(|v| (&v.context, &v.app)) != next.as_ref().map(|v| (&v.context, &v.app)) {
+                    self.monitor.reset();
+                }
+                self.video = next;
+                self.info_answered = Some(now);
+                return Out::effects(vec![Effect::Redraw]);
+            }
+        }
         let Input::Fetched { tag, status, data } = input else { return Out::default() };
         match *tag {
             t if t == tags::CAPTURE_POST => Out::effects(vec![Effect::Fetch { tag: tags::CAPTURE_READ, path: "/v1/capture".into() }]),
@@ -978,19 +1056,22 @@ impl Quick {
         let editing = self.editing;
         let popup = self.popup.as_ref().map(|p| match p {
             Popup::Slider { spec, shown, .. } => PopupView::Slider { title: spec.title.into(), text: spec.text.into(), from: spec.from, to: spec.to, step: spec.step, value: *shown, marks: spec.marks, icons: spec.icons },
-            Popup::Pick { row, title, text, icon, options, index } => {
-                let current = tiles::everything(env).iter().find(|r| r.id == *row).and_then(|r| r.index);
+            Popup::Pick { row, act, title, text, icon, options, index } => {
+                let current = match act {
+                    Act::Picture(values) => values.iter().position(|(value, _)| *value == env.sio.text("picture.pictureMode")),
+                    _ => tiles::everything(env).iter().find(|r| r.id == *row).and_then(|r| r.index),
+                };
                 PopupView::Pick {
                     title: title.clone(),
                     text: (*text).into(),
-                    options: options.iter().enumerate().map(|(i, o)| OptionView { label: o.clone(), icon: icon.clone(), detail: Self::pick_detail(row, i, now), current: current == Some(i) }).collect(),
+                    options: options.iter().enumerate().map(|(i, o)| OptionView { label: o.clone(), icon: icon.clone(), detail: Self::pick_detail(row, i, now), current: current == Some(i), enabled: !matches!(act, Act::Picture(values) if !values.get(i).is_some_and(|(_, active)| *active)) }).collect(),
                     index: *index,
                 }
             }
             Popup::Add { items, text, index } => PopupView::Pick {
                 title: "Add a tile".into(),
                 text: (*text).into(),
-                options: items.iter().map(|(_, icon, label)| OptionView { label: label.clone(), icon: icon.clone(), detail: String::new(), current: false }).collect(),
+                options: items.iter().map(|(_, icon, label)| OptionView { label: label.clone(), icon: icon.clone(), detail: String::new(), current: false, enabled: true }).collect(),
                 index: *index,
             },
         });
@@ -1028,6 +1109,8 @@ impl Quick {
             editing,
             title: if editing { "Edit tiles".into() } else { "Quick settings".into() },
             clock: clock_text,
+            info: self.monitor.snapshot(),
+            video_info: self.video.as_ref().filter(|v| env.screen_on && self.info_due.is_some() && self.info_authority.as_ref().is_some_and(|(context, app)| v.context == *context && v.app == *app) && self.info_authority == env.fg.video && self.info_answered.is_some_and(|at| now.saturating_sub(at) <= 3_000)).map(|v| VideoInfo { width: v.width, height: v.height, fps: v.fps }),
             hints_head: head,
             hints_foot: if env.popups_on() { vec![Hint::hold(Key::Ok, Action::Edit), Hint::key(Key::Back, Action::Close)] } else { Vec::new() },
             strip: if editing || self.pin.is_some() { None } else { strip.clone() },

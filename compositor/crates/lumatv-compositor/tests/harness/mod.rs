@@ -152,7 +152,7 @@ fn run_server(
 ) {
     let mut display: Display<State> = Display::new().unwrap();
     let dh = display.handle();
-    // a data directory of its own: `ctl vwin MODE` and `ctl shell rust` keep their choices in it, and a test must not write the machine's
+    // Isolate persistent compositor choices from the host and other tests.
     static SERVERS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let data_dir = std::env::temp_dir().join(format!("lumatv-harness-{}-{}", std::process::id(), SERVERS.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
     let config = Config { frames: None, data_dir, ..Config::default() };
@@ -589,6 +589,8 @@ impl Dispatch<lumatv_wl_protocols::starfish::client::wl_starfish_pointer::WlStar
 
 delegate_noop!(ClientState: ignore wayland_client::protocol::wl_touch::WlTouch);
 delegate_noop!(ClientState: ignore lumatv_wl_protocols::starfish::client::wl_starfish_output::WlStarfishOutput);
+delegate_noop!(ClientState: ignore lumatv_wl_protocols::lumatv_subtitles_v1::client::lumatv_subtitle_manager_v1::LumatvSubtitleManagerV1);
+delegate_noop!(ClientState: ignore lumatv_wl_protocols::lumatv_subtitles_v1::client::lumatv_subtitle_region_v1::LumatvSubtitleRegionV1);
 
 delegate_noop!(ClientState: ignore WlCompositor);
 delegate_noop!(ClientState: ignore WlShell);

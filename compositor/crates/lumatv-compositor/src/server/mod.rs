@@ -14,6 +14,7 @@ pub mod seat;
 pub mod shell;
 pub mod shm;
 pub mod starfish;
+pub mod subtitles;
 pub mod state;
 pub mod webos_shell;
 

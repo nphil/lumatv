@@ -493,6 +493,236 @@ fn surface_group_member_draws_above_its_owner() {
 }
 
 #[test]
+fn foreground_video_follows_mapped_group_member_and_detachment() {
+    use serde_json::{Value, json};
+    let mut server = Server::start();
+    server.eval(|s| { s.shell_rust_open(0, "test".into()).unwrap(); s.shell_rust_sync_topics(); });
+    let video = |server: &Server| server.eval(|s| s.shell_rust.topic("foreground").unwrap()["video"].clone());
+    let mut client = Client::connect(&mut server);
+    let owner = client.card("_WEBOS_WINDOW_TYPE_CARD", "Player");
+    owner.webos.set_property("appId".into(), "org.test.player".into());
+    let buf = client.shm_buffer(64, 64, 0xff00_0000);
+    let background = client.card("_WEBOS_WINDOW_TYPE_CARD", "Background");
+    background.webos.set_property("appId".into(), "org.test.background".into());
+    client.present(&background.surface, &buf);
+    client.present(&owner.surface, &buf);
+    let group = client.groups.create_surface_group(&owner.surface, "video.group".into(), &client.qh, ());
+    let _layer = group.create_layer("top".into(), 10, &client.qh, ());
+    let member = client.compositor.create_surface(&client.qh, ());
+    group.attach(&member, "top".into());
+    client.present(&member, &buf);
+    let export = client.foreign.export_element(&member, 0, &client.qh, ());
+    client.roundtrip();
+    let import = client.foreign.import_element(client.state.window_ids[0].0.clone(), 0, &client.qh, ());
+    let region = client.region(0, 0, 64, 64);
+    export.set_exported_window(&region, &region);
+    import.attach_punchthrough("group-context".into());
+    client.roundtrip();
+    server.eval(|s| { s.tick(); });
+    assert_eq!(video(&server), json!({"context":"group-context", "app":"org.test.player"}));
+    let focus = server.eval(|s| s.seat.focus);
+    assert!(focus.is_some(), "the card owns keyboard focus");
+    server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
+    let other = client.card("_WEBOS_WINDOW_TYPE_CARD", "Other");
+    other.webos.set_property("appId".into(), "org.test.other".into());
+    client.present(&other.surface, &buf);
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "the other card has no video authority");
+    other.surface.attach(None, 0, 0);
+    other.surface.commit();
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "returning to the previous card cannot revive its old plan");
+    server.eval(|s| { s.tick(); });
+    assert_eq!(video(&server)["context"], "group-context", "the returned card reacquires authority after a fresh plan");
+    background.surface.attach(None, 0, 0);
+    background.surface.commit();
+    client.roundtrip();
+    assert_eq!(video(&server)["context"], "group-context", "unmapping a background card does not invalidate foreground video");
+    member.attach(None, 0, 0);
+    member.commit();
+    client.roundtrip();
+    assert_eq!(server.eval(|s| s.seat.focus), focus);
+    assert_eq!(video(&server), Value::Null, "an unmapped group member cannot supply current video");
+    client.present(&member, &buf);
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "remapping cannot reuse the old plan");
+    server.eval(|s| { s.tick(); });
+    assert_eq!(server.eval(|s| s.seat.focus), focus);
+    assert_eq!(video(&server), json!({"context":"group-context", "app":"org.test.player"}), "remapping restores the authority without a focus change");
+    group.detach(&member);
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null);
+    group.attach(&member, "top".into());
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "reattaching the same member cannot reuse the old plan");
+    server.eval(|s| { s.tick(); });
+    assert_eq!(video(&server)["context"], "group-context");
+    import.detach_punchthrough();
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null);
+    import.attach_punchthrough("group-context".into());
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "reattaching the same context cannot reuse the old plan");
+    server.eval(|s| { s.tick(); });
+    assert_eq!(video(&server)["context"], "group-context");
+    let unrelated = client.compositor.create_surface(&client.qh, ());
+    client.present(&unrelated, &buf);
+    client.roundtrip();
+    assert_eq!(video(&server)["context"], "group-context", "unrelated surface mapping does not invalidate video");
+    member.damage(0, 0, 1, 1);
+    member.commit();
+    client.roundtrip();
+    assert_eq!(video(&server)["context"], "group-context", "pixel-only commits do not invalidate video");
+    let same_size = client.shm_buffer(64, 64, 0xff11_2233);
+    client.present(&member, &same_size);
+    client.roundtrip();
+    assert_eq!(video(&server)["context"], "group-context", "a same-size replacement buffer does not invalidate video");
+    server.ticking.store(true, std::sync::atomic::Ordering::SeqCst);
+    member.destroy();
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null);
+}
+
+#[test]
+fn foreground_video_uses_subsurface_hole_position_and_current_placement() {
+    use serde_json::{Value, json};
+    let mut server = Server::start();
+    server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
+    server.eval(|s| {
+        s.vwin.alloc.policy.mode = lumatv_compositor::vwin::Mode::Off;
+        s.shell_rust_open(0, "test".into()).unwrap();
+        s.shell_rust_sync_topics();
+    });
+    let video = |server: &Server| server.eval(|s| s.shell_rust.topic("foreground").unwrap()["video"].clone());
+    let mut client = Client::connect(&mut server);
+    let owner = client.card("_WEBOS_WINDOW_TYPE_CARD", "Player");
+    owner.webos.set_property("appId".into(), "org.test.player".into());
+    let buf = client.shm_buffer(64, 64, 0);
+    client.present(&owner.surface, &buf);
+    let child = client.compositor.create_surface(&client.qh, ());
+    let sub = client.subcompositor.get_subsurface(&child, &owner.surface, &client.qh, ());
+    sub.set_position(2000, 0);
+    client.present(&child, &buf);
+    owner.surface.commit();
+    let export = client.foreign.export_element(&child, 0, &client.qh, ());
+    client.roundtrip();
+    let import = client.foreign.import_element(client.state.window_ids[0].0.clone(), 0, &client.qh, ());
+    let region = client.region(0, 0, 64, 64);
+    export.set_exported_window(&region, &region);
+    import.attach_punchthrough("child-context".into());
+    client.roundtrip();
+    server.eval(|s| { s.tick(); });
+    assert_eq!(video(&server), Value::Null, "a local on-screen rectangle is off-screen after the tree offset");
+    sub.set_position(1900, 0);
+    owner.surface.commit();
+    client.roundtrip();
+    server.eval(|s| { s.tick(); });
+    assert_eq!(video(&server), json!({"context":"child-context", "app":"org.test.player"}), "a partially clipped hole is visible");
+    sub.set_position(2000, 0);
+    owner.surface.commit();
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "committed movement invalidates the old hole immediately");
+    sub.set_position(1900, 0);
+    owner.surface.commit();
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "returning to the same position cannot reuse the old plan");
+    server.eval(|s| { s.tick(); });
+    assert_eq!(video(&server)["context"], "child-context", "a fresh plan restores the visible hole");
+    let moved = client.region(100, 0, 64, 64);
+    export.set_exported_window(&region, &moved);
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "an old planned hole cannot authorize a new destination");
+    server.eval(|s| { s.tick(); });
+    assert_eq!(video(&server), Value::Null, "the replanned hole is entirely clipped");
+}
+
+#[test]
+fn rust_foreground_video_tracks_visible_unambiguous_foreign_context() {
+    use serde_json::{Value, json};
+    let mut server = Server::start();
+    server.eval(|s| {
+        s.vwin.alloc.policy.mode = lumatv_compositor::vwin::Mode::Off;
+        s.shell_rust_open(0, "test".into()).unwrap();
+        s.shell_rust_sync_topics();
+    });
+    let video = |server: &Server| server.eval(|s| { s.tick(); s.shell_rust.topic("foreground").unwrap()["video"].clone() });
+    let mut client = Client::connect(&mut server);
+    let app = client.card("_WEBOS_WINDOW_TYPE_CARD", "Player");
+    app.webos.set_property("appId".into(), "org.test.player".into());
+    let buf = client.shm_buffer(64, 64, 0xff00_0000);
+    client.present(&app.surface, &buf);
+    let export = client.foreign.export_element(&app.surface, 0, &client.qh, ());
+    client.roundtrip();
+    let id = client.state.window_ids[0].0.clone();
+    let import = client.foreign.import_element(id, 0, &client.qh, ());
+    import.attach_punchthrough("ctx-1".into());
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "no destination yet");
+    let src = client.region(0, 0, 64, 64);
+    let visible = client.region(0, 0, 64, 64);
+    export.set_exported_window(&src, &visible);
+    client.roundtrip();
+    assert_eq!(video(&server), json!({"context":"ctx-1", "app":"org.test.player"}));
+    let left = client.card("_WEBOS_WINDOW_TYPE_OVERLAY", "Left");
+    let half = client.shm_buffer(32, 64, 0xff00_0000);
+    let opaque = client.region(0, 0, 32, 64);
+    left.surface.set_opaque_region(Some(&opaque));
+    client.present(&left.surface, &half);
+    client.roundtrip();
+    assert_eq!(video(&server)["context"], "ctx-1", "a partial opaque overlay leaves video visible");
+    let right = client.card("_WEBOS_WINDOW_TYPE_OVERLAY", "Right");
+    right.webos.set_property("windowPosX".into(), "32".into());
+    right.surface.set_opaque_region(Some(&opaque));
+    client.present(&right.surface, &half);
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "the union of opaque overlays covers the hole");
+    right.surface.destroy();
+    client.roundtrip();
+    assert_eq!(video(&server)["context"], "ctx-1", "uncovering part reacquires the source");
+    left.surface.destroy();
+    client.roundtrip();
+    assert_eq!(video(&server)["context"], "ctx-1", "removing the remaining overlay preserves the source");
+    let cover = client.card("_WEBOS_WINDOW_TYPE_OVERLAY", "Cover");
+    cover.surface.set_opaque_region(Some(&visible));
+    client.present(&cover.surface, &buf);
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "one opaque overlay covers the whole hole");
+    cover.surface.destroy();
+    client.roundtrip();
+    assert_eq!(video(&server)["context"], "ctx-1", "removing the full overlay reacquires the source");
+    let offscreen = client.region(2000, 0, 64, 64);
+    export.set_exported_window(&src, &offscreen);
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "offscreen placement");
+    let clipped = client.region(1900, 0, 64, 64);
+    export.set_exported_window(&src, &clipped);
+    client.roundtrip();
+    assert_eq!(video(&server), json!({"context":"ctx-1", "app":"org.test.player"}));
+    let second = client.foreign.import_element(client.state.window_ids[0].0.clone(), 0, &client.qh, ());
+    second.attach_punchthrough("ctx-2".into());
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "multiple contexts are ambiguous");
+    second.detach_punchthrough();
+    client.roundtrip();
+    assert_eq!(video(&server)["context"], "ctx-1");
+    server.eval(|s| { s.luna_state.power.rendering = false; s.shell_rust_sync_topics(); });
+    assert_eq!(video(&server), Value::Null, "screen off");
+    server.eval(|s| { s.luna_state.power.rendering = true; s.shell_rust_sync_topics(); });
+    assert_eq!(video(&server)["context"], "ctx-1");
+    let home = client.card("_WEBOS_WINDOW_TYPE_CARD", "Home");
+    home.webos.set_property("appId".into(), "com.webos.app.home".into());
+    client.present(&home.surface, &buf);
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "Home covers the player");
+    home.surface.destroy();
+    client.roundtrip();
+    assert_eq!(video(&server)["context"], "ctx-1");
+    export.destroy();
+    client.roundtrip();
+    assert_eq!(video(&server), Value::Null, "export destroyed");
+}
+
+#[test]
 fn exported_video_region_becomes_a_hole_and_a_placement_call() {
     let mut server = Server::start();
     let mut client = Client::connect(&mut server);
@@ -773,8 +1003,7 @@ fn a_client_that_disconnects_with_the_focus_does_not_take_the_server_down() {
     assert!(server.eval(|s| s.seat.pointer_focus.is_some()), "the pointer is on Home's surface now");
 }
 
-/// A Home key of the remote, whichever code it sends: a tap launches the home app and never reaches the client, a hold past 650 ms asks the
-/// supervisor for the fallback, and the release after the escape launches nothing.
+/// Every remote Home code launches on release, including after a hold, without reaching the client or triggering recovery.
 fn home_through_the_remote_command(code: u32) {
     use lumatv_compositor::luna::ToBridge;
     let mut server = Server::start();
@@ -789,20 +1018,23 @@ fn home_through_the_remote_command(code: u32) {
     assert!(reply.contains("\"ok\":true"), "{reply}");
     let launched = server.eval(|s| s.luna.sent().iter().any(|(uri, _)| uri.ends_with("/launchDefaultApp")));
     assert!(launched, "a tapped Home ({code}) launches the home app");
-    // Held past 650 ms, the tick's hold poll sends the fallback to the supervisor.
+    // A hold and repeated presses do not trigger recovery or launch until release.
+    server.eval(move |s| lumatv_compositor::control::handle(s, &format!("remote {code} press")).text());
     server.eval(move |s| lumatv_compositor::control::handle(s, &format!("remote {code} press")).text());
     std::thread::sleep(std::time::Duration::from_millis(700));
     server.eval(|s| s.poll_holds());
     let fallback = server.eval(|s| s.luna.history().iter().any(|m| matches!(m, ToBridge::Fallback { .. })));
-    assert!(fallback, "a held Home ({code}) is the escape to LG's compositor");
+    assert!(!fallback, "a held Home ({code}) must not trigger recovery");
+    let before = server.eval(|s| s.luna.sent().iter().filter(|(uri, _)| uri.ends_with("/launchDefaultApp")).count());
+    assert_eq!(before, 1, "repeated presses do not launch Home");
     server.eval(move |s| lumatv_compositor::control::handle(s, &format!("remote {code} release")).text());
     let launches = server.eval(|s| s.luna.sent().iter().filter(|(uri, _)| uri.ends_with("/launchDefaultApp")).count());
-    assert_eq!(launches, 1, "the release after an escape does not launch Home again");
+    assert_eq!(launches, 2, "release after a hold launches Home once");
     assert!(client.state.keys.is_empty(), "Home never reached the client");
 }
 
 #[test]
-fn home_held_through_the_remote_command_asks_for_the_fallback() {
+fn home_held_through_the_remote_command_does_not_ask_for_fallback() {
     home_through_the_remote_command(172);
 }
 

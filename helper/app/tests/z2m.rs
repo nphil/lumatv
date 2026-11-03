@@ -498,8 +498,8 @@ fn nothing_secret(text: &str) {
     assert!(!text.contains(PASSWORD), "the password was printed: {text}");
 }
 
-fn log_text(rig: &Rig) -> String {
-    std::fs::read_to_string(rig.paths.log_file()).unwrap_or_default()
+fn log_text(_rig: &Rig) -> String {
+    lumatv_helper::logging::tail("lumatv-helper", 100).join("\n")
 }
 
 // ------------------------------------------------------------------------------------------------- the tests

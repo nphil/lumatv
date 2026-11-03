@@ -373,7 +373,7 @@ pub const KEY_PLAY: u32 = 207;
 /// focus from the app, so it is the app's while the view is up; any other focus gets nothing, and the answer says so.
 pub fn tap_app_key(state: &mut State, app: &str, code: u32) -> bool {
     let focused = state.seat.focus.and_then(|s| state.scene.window_of(s)).and_then(|w| state.scene.window(w));
-    if !focused.is_some_and(|w| !w.kind.is_shell() && w.app_id() == app) {
+    if !focused.is_some_and(|w| w.app_id() == app) {
         return false;
     }
     let seat = SeatId(0);
@@ -436,7 +436,14 @@ pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
     state.pointer_sync();
     // the Rust client's layers have the pointer where they are (the sample goes over its key socket) and the app under them hears nothing
     let rust = state.shell_rust_pointer_sample(x, y, true);
-    let hit = if rust { None } else { state.scene.surface_at(x, y) };
+    // An app holding a button keeps its pointer focus until the matching release.
+    let hit = if state.seat.button_down {
+        state.seat.pointer_focus.map(|surface| (surface, state.seat.pointer_focus_rect))
+    } else if rust {
+        None
+    } else {
+        state.scene.surface_at(x, y)
+    };
     let target = hit.map(|(s, _)| s);
     let time = crate::output::monotonic_ms();
     if target != state.seat.pointer_focus {
@@ -478,7 +485,14 @@ pub fn pointer_button(state: &mut State, pressed: bool) -> bool {
     if !pressed && !state.seat.button_down && !state.shell_rust_button_down() {
         return true;
     }
-    if state.shell_rust_pointer_button(pressed) {
+    if pressed && !state.seat.button_down && state.seat.cursor_visible
+        && (state.shell_rust_saver_up() || (state.shell_rust.pointer_in && !state.shell_rust.wants))
+    {
+        // Refresh ownership at the real press, without inventing motion or interrupting an app's held press.
+        let (x, y) = state.seat.pointer_position;
+        state.shell_rust_pointer_sample(x, y, true);
+    }
+    if !state.seat.button_down && state.shell_rust_pointer_button(pressed) {
         state.seat.last_input = "pointer";
         state.seat.cursor_shown_at = Some(std::time::Instant::now());
         return true;

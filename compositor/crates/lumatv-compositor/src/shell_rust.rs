@@ -1,19 +1,5 @@
-//! The Rust shell client (`docs/research/rust-shell-plan.md`, section 4.1): `lumatv-ui`, LumaTV's shell logic as a 64-bit process
-//! without GL, whose layers the engine inside this compositor draws (feature `ui`, `src/ui`). It runs beside the QML client
-//! (`shell.rs`) during the migration and answers the kinds `--shell-rust LIST` names (`ctl shell rust +kind -kind` changes the
-//! list and restarts it): `osd`, the volume and mute display from the `audio` topic, `toast`, LG's toast feed, and `settings`, LumaTV's
-//! Settings (opened by the `show` event, the gear held, `ctl shell show settings [PAGE]`; it takes every key but Home's while it is open). For a kind on
-//! the list the compositor withholds the feed from the QML client (the `audio` topic, the toast feed's pushes), so one shell
-//! draws each surface; for the rest the QML client goes on as before, untouched. The QML shell stays the fallback for a kind until
-//! its Rust surface has passed the gate on the set twice.
-//!
-//! What the client gets at its start: the engine's socket (`LUMATV_UI_FD`, the client's end of the pair `Output::ui_attach`
-//! made; the engine's handshake finishes once the client has said hello), the key socket (`LUMATV_UI_KEYS_FD`: JSON lines,
-//! `{"key": {k, d, r, seat}}` while its layer has the keys and `{"pointer": {x, y, buttons, visible}}` samples), and the UI channel
-//! on a port of its own (`--shell-port` plus one, a token of its own) with the same messages as the QML client's: the topics, the
-//! `show` events, `luna` answers, and its reports (`can`, `wants`, `live`, `state`). Supervision is the QML client's: nice 10,
-//! PR_SET_PDEATHSIG, a restart after a pause, given up after five starts in ten minutes, `ctl shell restart`. A client that is
-//! gone takes its layers with it in one frame (the engine is dropped with its socket) and the compositor keeps composing.
+//! Native shell client and its UI channel. The compositor owns rendering while
+//! the supervised client supplies layers and receives input and service events.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::Write;
@@ -29,20 +15,22 @@ use serde_json::{Value, json};
 
 use crate::State;
 use crate::shell::{
-    EVENTS_KEPT, Link, LunaTag, Msg, NICE, POLL_TIMEOUT, RESTART_LIMIT, RESTART_WINDOW, Stats, TAKEABLE, TOOK_STALE, TRACE_MARKER, allowed, drain,
+    EVENTS_KEPT, Link, LunaTag, Msg, NICE, RESTART_LIMIT, RESTART_WINDOW, Stats, TAKEABLE, TOOK_STALE, TRACE_MARKER, allowed, drain,
     spawn_server, wake, write_token,
 };
 
-/// The kinds the Rust shell may answer, in the order `ctl shell` lists them. `quick`, `picker` and `drawer` are the panels LumaTV opens
-/// itself (`State::shell_show`): while the Rust shell answers one, its `show` goes to it and the QML client's panel stays shut.
+/// The kinds the native shell can provide.
 pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "menu", "confirm", "switcher", "entry", "keyboard", "alert", "saver", "capture", "cards", "popup", "layout", "ai", "banner", "displaylab"];
 /// Where the system layer's layers begin in the engine's z: everything the Rust shell draws over the windows is at this or more.
 pub const SYSTEM_Z: i32 = 1000;
 const TOKEN_FILE: &str = "lumatv-ui.token";
-/// The client starts once SAM's Home has mapped, or this long after the compositor started (the QML client's rule).
+/// Start after SAM's Home maps, or after this delay.
 const START_ALONE: Duration = Duration::from_secs(15);
+// An idle long poll may last 60 seconds.
+const POLL_TIMEOUT: Duration = Duration::from_secs(75);
+const READY_TIMEOUT: Duration = Duration::from_secs(40);
 
-/// `osd,toast` (or `+osd -toast` changes) as a sorted list of the known kinds; unknown names are dropped.
+/// Parse a diagnostic selection as a sorted list of known kinds.
 pub fn parse_kinds(list: &str) -> Vec<String> {
     let mut out: Vec<String> = list.split(',').map(str::trim).filter(|k| KINDS.contains(k)).map(str::to_string).collect();
     out.sort();
@@ -50,27 +38,6 @@ pub fn parse_kinds(list: &str) -> Vec<String> {
     out
 }
 
-/// `kinds` with `+kind` added and `-kind` removed, as `ctl shell rust` takes them; `Err` names an unknown word.
-pub fn change_kinds(kinds: &[String], words: &[&str]) -> Result<Vec<String>, String> {
-    let mut out: Vec<String> = kinds.to_vec();
-    for w in words {
-        let (add, name) = match w.as_bytes().first() {
-            Some(b'+') => (true, &w[1..]),
-            Some(b'-') => (false, &w[1..]),
-            _ => return Err(format!("{w}: +kind or -kind")),
-        };
-        if !KINDS.contains(&name) {
-            return Err(format!("{name}: not a kind ({})", KINDS.join(", ")));
-        }
-        out.retain(|k| k != name);
-        if add {
-            out.push(name.to_string());
-        }
-    }
-    out.sort();
-    out.dedup();
-    Ok(out)
-}
 
 pub struct RustShell {
     /// The kinds this client answers; empty means it is not run.
@@ -79,7 +46,6 @@ pub struct RustShell {
     link: Option<Link>,
     port: u16,
     token_path: Option<PathBuf>,
-    log: Option<PathBuf>,
     child: Option<Child>,
     /// The engine's client end, attached before any child and not handed to one yet.
     socket: Option<UnixStream>,
@@ -87,6 +53,10 @@ pub struct RustShell {
     keys: Option<UnixStream>,
     keys_refused: bool,
     child_started: Option<Instant>,
+    attach_started: Option<Instant>,
+    frame_ready: bool,
+    supported: Vec<String>,
+    was_standby: bool,
     starts: VecDeque<Instant>,
     next_start: Option<Instant>,
     last_wait: Option<Instant>,
@@ -99,7 +69,7 @@ pub struct RustShell {
     /// The client's system layer wants the keys: they go over the key socket (`State::shell_rust_takes_key`).
     pub wants: bool,
     pub takes: Vec<String>,
-    pub took: Vec<(u32, Instant)>,
+    pub took: Vec<(u32, &'static str, Instant)>,
     /// The pointer is over the client's layers: its samples go over the key socket until it leaves (`State::shell_rust_pointer_sample`).
     pub pointer_in: bool,
     /// Where the last sample was.
@@ -111,6 +81,7 @@ pub struct RustShell {
     pub luna_tags: Vec<LunaTag>,
     cancelled_early: Vec<u64>,
     pushed: BTreeMap<String, Value>,
+    subtitle_bounds: Option<(String, crate::surface::SurfaceId, Option<crate::Rect>)>,
     pub recorded: Vec<Value>,
     pub stats: Stats,
     pub error: Option<String>,
@@ -127,12 +98,15 @@ impl Default for RustShell {
             link: None,
             port: 0,
             token_path: None,
-            log: None,
             child: None,
             socket: None,
             keys: None,
             keys_refused: false,
             child_started: None,
+            attach_started: None,
+            frame_ready: false,
+            supported: Vec::new(),
+            was_standby: false,
             starts: VecDeque::new(),
             next_start: None,
             last_wait: None,
@@ -152,6 +126,7 @@ impl Default for RustShell {
             luna_tags: Vec::new(),
             cancelled_early: Vec::new(),
             pushed: BTreeMap::new(),
+            subtitle_bounds: None,
             recorded: Vec::new(),
             stats: Stats::default(),
             error: None,
@@ -176,8 +151,7 @@ impl RustShell {
         self.link.is_some()
     }
 
-    /// Whether `kind` is the Rust shell's: on the list, with the client meant to run. The feeds of such a kind are withheld from
-    /// the QML client whether or not the Rust client is up yet, so a surface is never drawn twice.
+    /// Whether the native client is responsible for a kind.
     pub fn answers(&self, kind: &str) -> bool {
         self.enabled() && self.kinds.iter().any(|k| k == kind)
     }
@@ -186,9 +160,23 @@ impl RustShell {
         self.child.as_ref().map(Child::id)
     }
 
+    fn ready(&self) -> bool {
+        self.connected && self.engine_connected && self.frame_ready
+            && self.kinds.iter().all(|kind| self.supported.contains(kind))
+    }
+
+    fn attach_timed_out(&mut self, now: Instant) -> bool {
+        now.saturating_duration_since(*self.attach_started.get_or_insert(now)) > READY_TIMEOUT
+    }
+
     /// The engine's client end, from the attach made before the loop (`main.rs`), kept for the first start.
     pub fn adopt_socket(&mut self, socket: UnixStream) {
         self.socket = Some(socket);
+    }
+
+    /// Supplies the key channel when the client is started externally.
+    pub fn adopt_key_socket(&mut self, socket: UnixStream) {
+        self.keys = Some(socket);
     }
 
     pub fn push(&mut self, topic: &str, data: Value) -> u64 {
@@ -220,6 +208,14 @@ impl RustShell {
 
     pub fn topic(&self, name: &str) -> Option<&Value> {
         self.pushed.get(name)
+    }
+
+    /// The bounded event history, including events queued for a connected client.
+    pub fn events(&self) -> Vec<Value> {
+        match &self.link {
+            Some(link) => link.outbox.lock().events.iter().map(|(_, topic, data)| json!({"topic": topic, "data": data})).collect(),
+            None => self.recorded.clone(),
+        }
     }
 
     fn note_seen(&mut self, now: Instant) {
@@ -263,22 +259,6 @@ impl RustShell {
     }
 }
 
-/// Where the kinds chosen with `ctl shell rust` are kept between starts, under the data directory: one line, `osd,toast`. A
-/// compositor started without `--shell-rust` reads it, so a flip made from the workstation survives a restart and a redeploy.
-pub const KINDS_FILE: &str = "compositor/shell-rust.conf";
-
-/// The kinds kept in `data_dir` (`KINDS_FILE`), none when there is no file.
-pub fn read_kinds(data_dir: &std::path::Path) -> Vec<String> {
-    std::fs::read_to_string(data_dir.join(KINDS_FILE)).map(|t| parse_kinds(t.trim())).unwrap_or_default()
-}
-
-fn write_kinds(data_dir: &std::path::Path, kinds: &[String]) -> std::io::Result<()> {
-    let path = data_dir.join(KINDS_FILE);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, format!("{}\n", kinds.join(",")))
-}
 
 /// How the client is run. On the set the supervisor starts the compositor as `<lib>/ld-linux-aarch64.so.1 --library-path <lib>
 /// <bin>/lumatv-compositor`, because the 64-bit ELFs name `/lib/ld-linux-aarch64.so.1` as their interpreter and the set's 32-bit
@@ -364,8 +344,7 @@ fn find_launch() -> Option<Launch> {
 }
 
 impl State {
-    /// Opens the Rust client's channel and plans its first start (`--shell-rust`). Called with `shell_start`, once the Wayland
-    /// socket listens. The engine was attached before the loop (`main.rs`, `Output::ui_attach`) and its client end adopted.
+    /// Open the native client's channel once the Wayland socket listens.
     pub fn shell_rust_start(&mut self) {
         let kinds = self.config.shell_rust.clone();
         if kinds.is_empty() {
@@ -375,6 +354,7 @@ impl State {
         let Some(launch) = find_launch() else {
             self.journal("shell-rust: no lumatv-ui beside the compositor's program (or LUMATV_UI_BIN), or its loader is gone; the Rust shell is not run".into());
             self.shell_rust.error = Some("no lumatv-ui".into());
+            self.shell_rust.gave_up = true;
             return;
         };
         let port = self.config.shell_port + 1;
@@ -384,6 +364,7 @@ impl State {
             Err(e) => {
                 self.journal(format!("shell-rust: token file {}: {e}; the Rust shell is not run", token_path.display()));
                 self.shell_rust.error = Some(format!("token: {e}"));
+                self.shell_rust.gave_up = true;
                 return;
             }
         };
@@ -392,6 +373,7 @@ impl State {
             Err(e) => {
                 self.journal(format!("shell-rust: port {port}: {e}; the Rust shell is not run"));
                 self.shell_rust.error = Some(format!("port {port}: {e}"));
+                self.shell_rust.gave_up = true;
                 return;
             }
         };
@@ -400,6 +382,7 @@ impl State {
             Err(e) => {
                 self.journal(format!("shell-rust: server: {e}; the Rust shell is not run"));
                 self.shell_rust.error = Some(format!("server: {e}"));
+                self.shell_rust.gave_up = true;
                 return;
             }
         };
@@ -407,7 +390,6 @@ impl State {
         self.shell_rust.launch = Some(launch);
         self.shell_rust.port = port;
         self.shell_rust.token_path = Some(token_path);
-        self.shell_rust.log = Some(self.config.data_dir.join("compositor/shell-rust.log"));
         self.journal(format!("shell-rust: UI channel on 127.0.0.1:{port}, answers {}", self.shell_rust.kinds.join(", ")));
         self.shell_rust_sync_topics();
         self.shell_rust.next_start = Some(Instant::now() + START_ALONE);
@@ -442,7 +424,7 @@ impl State {
         self.shell_rust.starts.retain(|t| now.duration_since(*t) < RESTART_WINDOW);
         if self.shell_rust.starts.len() >= RESTART_LIMIT {
             self.shell_rust.gave_up = true;
-            self.journal(format!("shell-rust: {RESTART_LIMIT} starts in {} min, giving up (ctl shell restart tries again)", RESTART_WINDOW.as_secs() / 60));
+            self.journal(format!("shell-rust: {RESTART_LIMIT} starts in {} min; returning to stock", RESTART_WINDOW.as_secs() / 60));
             return;
         }
         let shm = self.config.runtime_dir.join("ui-shm");
@@ -464,6 +446,7 @@ impl State {
                 match self.output.ui_attach(&driver, SYSTEM_Z, shm.clone()) {
                     Ok(s) => {
                         self.shell_rust.shaders_told = false;
+                        self.shell_rust.attach_started = None;
                         // The client is forked at the next tick: the attach and the fork each take a pass of their own, so that neither adds
                         // to the other's.
                         self.shell_rust.socket = Some(s);
@@ -473,6 +456,11 @@ impl State {
                     // The engine's programs are being linked on a thread of its own (`Output::ui_attach`): the loop goes on, and asks
                     // again at the next tick.
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        if self.shell_rust.attach_timed_out(now) {
+                            self.shell_rust.error = Some("UI engine attachment timed out".into());
+                            self.shell_rust.gave_up = true;
+                            return;
+                        }
                         if !std::mem::replace(&mut self.shell_rust.shaders_told, true) {
                             self.journal("shell-rust: the engine's programs are being linked on a thread of its own; the client starts when they are".into());
                         }
@@ -482,7 +470,7 @@ impl State {
                     Err(e) => {
                         self.journal(format!("shell-rust: the engine could not be attached: {e}"));
                         self.shell_rust.error = Some(format!("engine: {e}"));
-                        self.shell_rust.next_start = Some(now + Duration::from_secs(10));
+                        self.shell_rust.gave_up = true;
                         return;
                     }
                 }
@@ -492,14 +480,15 @@ impl State {
             Ok(p) => p,
             Err(e) => {
                 self.journal(format!("shell-rust: key socket: {e}"));
-                self.shell_rust.next_start = Some(now + Duration::from_secs(10));
+                self.shell_rust.error = Some(format!("key socket: {e}"));
+                self.shell_rust.gave_up = true;
                 self.shell_rust.socket = Some(socket);
                 return;
             }
         };
         let _ = ours.set_nonblocking(true);
         self.shell_rust.starts.push_back(now);
-        let log = self.shell_rust.log.as_deref().and_then(crate::childlog::pipe);
+        let log = crate::childlog::pipe("lumatv-shell-rust", "");
         let mut cmd = launch.command();
         cmd.env_remove("NOTIFY_SOCKET")
             .env_remove("LUMATV_LUNA_BRIDGE")
@@ -517,6 +506,11 @@ impl State {
         }
         if let Some(module) = crate::shell::module_dir(&self.config.data_dir) {
             cmd.env("LUMATV_MODULE_DIR", module);
+        } else {
+            self.shell_rust.error = Some("native UI assets missing".into());
+            self.shell_rust.gave_up = true;
+            self.output.ui_detach();
+            return;
         }
         match log {
             Some(f) => {
@@ -533,12 +527,18 @@ impl State {
             use std::os::unix::process::CommandExt;
             // SAFETY: dup2, prctl and setpriority in the child between fork and exec touch nothing shared; the descriptors are the
             // parent's own, open until the spawn returns.
+            let parent = std::process::id() as libc::pid_t;
             unsafe {
                 cmd.pre_exec(move || {
                     if libc::dup2(engine_fd, 3) < 0 || libc::dup2(keys_fd, 4) < 0 {
                         return Err(std::io::Error::last_os_error());
                     }
-                    libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if libc::getppid() != parent {
+                        return Err(std::io::Error::other("compositor exited during UI launch"));
+                    }
                     libc::setpriority(libc::PRIO_PROCESS, 0, NICE);
                     Ok(())
                 });
@@ -550,6 +550,8 @@ impl State {
                 self.journal(format!("shell-rust: client started, pid {} ({})", child.id(), binary.display()));
                 self.shell_rust.child = Some(child);
                 self.shell_rust.child_started = Some(now);
+                self.shell_rust.frame_ready = false;
+                self.shell_rust.supported.clear();
                 self.shell_rust.next_start = None;
                 self.shell_rust.keys = Some(ours);
                 self.shell_rust.keys_refused = false;
@@ -558,7 +560,7 @@ impl State {
             Err(e) => {
                 self.journal(format!("shell-rust: {} did not start: {e}", binary.display()));
                 self.shell_rust.error = Some(format!("start: {e}"));
-                self.shell_rust.next_start = Some(now + Duration::from_secs(10));
+                self.shell_rust.gave_up = true;
                 self.output.ui_detach();
             }
         }
@@ -567,9 +569,7 @@ impl State {
         drop(theirs);
     }
 
-    /// Supervision, every tick: a client that exited is started again after a pause, one that stopped polling is taken as gone, the
-    /// engine's handshake is finished once the client has said hello. Returns whether the engine's socket is new (the loop adds it
-    /// to its poll set).
+    /// Check the client and complete its engine handshake.
     pub fn shell_rust_tick(&mut self, now: Instant) -> bool {
         if self.shell_rust.link.is_none() {
             return false;
@@ -584,8 +584,8 @@ impl State {
                 let alive = self.shell_rust.child_started.map(|t| now.duration_since(t)).unwrap_or_default();
                 self.journal(format!("shell-rust: client exited ({status}) after {:.0} s", alive.as_secs_f64()));
                 self.shell_rust_client_gone("the client exited");
-                let pause = if alive > Duration::from_secs(60) { 2 } else { 2u64 << self.shell_rust.starts.len().min(4) };
-                self.shell_rust.next_start = Some(now + Duration::from_secs(pause));
+                self.shell_rust.error = Some(format!("client exited: {status}"));
+                self.shell_rust.gave_up = true;
             }
         }
         let first = self.shell_rust.starts.is_empty();
@@ -598,22 +598,52 @@ impl State {
         if self.shell_rust.child.is_some() && !self.shell_rust.engine_connected {
             match self.output.ui_handshake() {
                 Ok(true) => {
-                    self.shell_rust.engine_connected = true;
-                    self.journal("shell-rust: the client is on the engine; its layers are drawn from here".into());
+                    self.shell_rust_engine_connected();
                     new_socket = true;
-                    self.shell_rust_sync_home();
                 }
                 Ok(false) => {}
                 Err(e) => {
-                    self.journal(format!("shell-rust: the engine's handshake failed: {e}; the client is restarted"));
-                    self.shell_rust_restart();
+                    self.journal(format!("shell-rust: the engine's handshake failed: {e}"));
+                    self.shell_rust.error = Some(format!("handshake: {e}"));
+                    self.shell_rust.gave_up = true;
                 }
             }
         }
-        if self.shell_rust.connected && self.shell_rust.last_seen.is_some_and(|t| now.duration_since(t) > POLL_TIMEOUT) {
-            self.shell_rust_client_gone("no poll for 40 s");
+        let standby = !self.luna_state.power.rendering;
+        if standby || self.shell_rust.was_standby {
+            if self.shell_rust.connected {
+                self.shell_rust.last_seen = Some(now);
+            }
+            if self.shell_rust.child.is_some() && !self.shell_rust.ready() {
+                self.shell_rust.child_started = Some(now);
+            }
+        }
+        self.shell_rust.was_standby = standby;
+        if !standby && self.shell_rust.connected && self.shell_rust.last_seen.is_some_and(|t| now.saturating_duration_since(t) > POLL_TIMEOUT) {
+            self.shell_rust_client_gone("UI polling timed out");
+            if self.shell_rust.launch.is_some() {
+                self.shell_rust.error = Some("UI stopped polling".into());
+                self.shell_rust.gave_up = true;
+            }
+        }
+        if self.shell_rust.launch.is_some() && self.shell_rust.child.is_some()
+            && !self.shell_rust.ready() && self.luna_state.power.rendering
+            && self.shell_rust.child_started.is_some_and(|t| now.saturating_duration_since(t) > READY_TIMEOUT)
+        {
+            self.shell_rust.error = Some("UI did not become ready".into());
+            self.shell_rust.gave_up = true;
         }
         new_socket
+    }
+
+    fn shell_rust_engine_connected(&mut self) {
+        self.shell_rust.ui_state = Value::Null;
+        self.shell_rust.engine_connected = true;
+        self.journal("shell-rust: the client is on the engine; its layers are drawn from here".into());
+        self.shell_rust_sync_home();
+        self.refresh_policy_sync();
+        // A report may have arrived before the engine handshake completed.
+        self.shell_rust.push("refresh", json!({"hz": self.config.refresh_hz}));
     }
 
     fn shell_rust_client_gone(&mut self, why: &str) {
@@ -631,7 +661,12 @@ impl State {
         }
         self.shell_rust.connected = false;
         self.shell_rust.engine_connected = false;
+        self.shell_rust.frame_ready = false;
+        self.shell_rust.supported.clear();
+        self.shell_rust.attach_started = None;
+        self.shell_rust.ui_state = Value::Null;
         self.shell_rust_sync_home();
+        self.refresh_policy_sync();
         self.shell_rust.can.clear();
         self.shell_rust.takes.clear();
         self.shell_rust.took.clear();
@@ -653,15 +688,13 @@ impl State {
         self.shell_rust.socket = None;
     }
 
-    /// Whether the Rust shell draws Home now: the `home` kind is its and the client is on the engine. The scene then leaves the QML
-    /// shell's Home window out of the stack and counts Home as drawn while no app's card is in front, which is what the `foreground`
-    /// topic tells both clients (the Rust one answers `wants` for the keys while Home is in front).
+    /// Synchronize Home visibility with the native engine connection.
     pub fn shell_rust_sync_home(&mut self) {
         let on = self.shell_rust.answers("home") && self.shell_rust.engine_connected;
         if self.scene.set_home_rust(on) {
             self.journal(format!(
                 "shell-rust: Home is {}",
-                if on { "the Rust shell's: the QML Home window is left out of the stack" } else { "the QML shell's again" }
+                if on { "native" } else { "not connected" }
             ));
             self.shell_sync_topics();
         }
@@ -683,41 +716,6 @@ impl State {
         self.shell_rust.next_start = Some(Instant::now());
     }
 
-    /// `ctl shell rust +kind -kind`: the new list, kept in the data directory for the next start (`KINDS_FILE`), the client restarted
-    /// with it (or started, when none ran yet). The QML client gets the kinds it lost back through the feeds, and loses the ones the
-    /// Rust shell gained, at the next change of each.
-    pub fn shell_rust_set_kinds(&mut self, words: &[&str]) -> Result<(), String> {
-        let kinds = change_kinds(&self.config.shell_rust, words)?;
-        if kinds == self.config.shell_rust {
-            return Ok(());
-        }
-        self.journal(format!("shell-rust: answers {}", if kinds.is_empty() { "nothing".to_string() } else { kinds.join(", ") }));
-        self.config.shell_rust = kinds.clone();
-        if let Err(e) = write_kinds(&self.config.data_dir, &kinds) {
-            self.journal(format!("shell-rust: the kinds were not kept for the next start: {e}"));
-        }
-        if self.shell_rust.link.is_none() {
-            self.shell_rust_start();
-            self.shell_rust_start_now();
-            return Ok(());
-        }
-        self.shell_rust.kinds = kinds;
-        self.shell_rust_restart();
-        self.shell_rust_sync_home();
-        if self.shell_rust.kinds.is_empty() {
-            self.shell_rust.next_start = None;
-        }
-        // what the QML client was denied is pushed again when it changes next; the audio state it has not seen goes now
-        if let Some(audio) = self.shell_rust.topic("audio").cloned()
-            && !self.shell_rust.answers("osd")
-        {
-            self.shell.push("audio", audio);
-        }
-        // the switcher's topics go to whichever client answers it now
-        self.switcher.topics_sig = 0;
-        self.shell_sync_topics();
-        Ok(())
-    }
 
     pub fn shell_rust_poll(&mut self) -> bool {
         let Some(l) = &self.shell_rust.link else { return false };
@@ -746,8 +744,13 @@ impl State {
                 self.shell_rust.pushed.clear();
                 self.switcher.topics_sig = 0;
                 self.shell_rust_sync_topics();
+                self.screencap_publish();
             }
             Msg::Seen => self.shell_rust.note_seen(now),
+            Msg::FrameReady => {
+                self.shell_rust.note_seen(now);
+                self.shell_rust.frame_ready = true;
+            }
             Msg::Ui { can, wants, live, state } => {
                 self.shell_rust.note_seen(now);
                 if let Some(can) = can
@@ -763,9 +766,19 @@ impl State {
                     self.journal(format!("shell-rust: the system layer {} the keys", if w { "wants" } else { "lets go of" }));
                     crate::server::seat::refocus(self);
                 }
-                if let Some(s) = state {
+                let changed = if let Some(s) = state {
+                    if let Some(kinds) = s.get("kinds").and_then(Value::as_array) {
+                        self.shell_rust.supported = kinds.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                    }
+                    let changed = self.output.ui_state(&s);
                     self.shell_rust.ui_state = s;
-                }
+                    changed
+                } else {
+                    if let Some(s) = self.shell_rust.ui_state.as_object_mut() {
+                        s.remove("interactiveVisible");
+                    }
+                    false
+                };
                 if let Some(l) = live
                     && l != self.shell_rust.live
                 {
@@ -774,6 +787,11 @@ impl State {
                         // where a toast's first frame goes: the report that it is live against the engine's next frame
                         self.journal("shell-rust: system layer live".into());
                     }
+                }
+                self.refresh_policy_sync();
+                if changed && self.output.draws_on_damage(now) {
+                    self.tick();
+                    return true;
                 }
             }
             Msg::Luna { tag, uri, payload, subscribe } => {
@@ -788,6 +806,12 @@ impl State {
                     self.journal(format!("shell-rust: luna {uri} refused (not on the allowlist)"));
                     self.shell_rust
                         .push("luna", json!({"tag": tag, "payload": {"returnValue": false, "errorCode": -1, "errorText": "not allowed by the compositor"}}));
+                    return false;
+                }
+                if self.remote_service_refused(&uri, &payload) {
+                    self.shell_rust.stats.luna_refused += 1;
+                    self.journal("shell-rust: LG Remote Service is blocked (Settings > Privacy), launch dropped".into());
+                    self.shell_rust.push("luna", json!({"tag": tag, "payload": {"returnValue": false, "errorCode": -1, "errorText": "LG Remote Service is blocked"}}));
                     return false;
                 }
                 // Where a tile is for the transitions is the compositor's own knowledge: answered here, not sent to the bus, so it does not depend on the
@@ -898,17 +922,102 @@ impl State {
         true
     }
 
-    /// The topics the Rust client follows: the same as the QML client's (`shell_sync_topics` computes them and hands them here).
+    fn shell_rust_foreground_surface(&self) -> Option<u32> {
+        let window = self.scene.foreground(&self.surfaces)?;
+        self.surfaces.get(window.surface).filter(|s| s.is_mapped()).map(|_| window.surface.0)
+    }
+
+    /// Foreign element updates need a topic push only when the visible identity changes.
+    pub(crate) fn shell_rust_sync_video(&mut self) {
+        if !self.shell_rust.enabled() {
+            return;
+        }
+        let video = self.shell_rust.topic("foreground").and_then(|v| v.get("video"));
+        let same = match (video, self.foreground_video()) {
+            (Some(Value::Null), None) => true,
+            (Some(v), Some((context, app))) => v.get("context").and_then(Value::as_str) == Some(context)
+                && v.get("app").and_then(Value::as_str) == Some(app),
+            _ => false,
+        };
+        let surface = self.shell_rust_foreground_surface();
+        let old_surface = self.shell_rust.topic("foreground").and_then(|v| v.get("surface"));
+        let same_surface = match (old_surface, surface) {
+            (Some(Value::Null), None) => true,
+            (Some(v), Some(id)) => v.as_u64() == Some(id as u64),
+            _ => false,
+        };
+        if !same || !same_surface {
+            let Some(mut foreground) = self.shell_rust.topic("foreground").cloned() else {
+                self.shell_rust_sync_topics();
+                return;
+            };
+            foreground["video"] = match self.foreground_video() {
+                Some((context, app)) => json!({"context": context, "app": app}),
+                None => Value::Null,
+            };
+            foreground["surface"] = json!(surface);
+            self.shell_rust.push_if_changed("foreground", foreground);
+        }
+    }
+
+    pub(crate) fn shell_rust_sync_subtitle_bounds(&mut self) {
+        if !self.shell_rust.enabled() {
+            return;
+        }
+        let bounds = self.scene.subtitle_bounds(&self.surfaces);
+        let same = match (&self.shell_rust.subtitle_bounds, bounds) {
+            (None, None) => true,
+            (Some((old_app, old_surface, old_rect)), Some((app, surface, rect))) =>
+                old_app == app && *old_surface == surface && *old_rect == rect,
+            _ => false,
+        };
+        if same && self.shell_rust.topic("subtitleBounds").is_some() {
+            return;
+        }
+        let value = match bounds {
+            Some((app, surface, rect)) => json!({"app": app, "surface": surface.0, "rect": rect.map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h}))}),
+            None => Value::Null,
+        };
+        self.shell_rust.subtitle_bounds = bounds.map(|(app, surface, rect)| (app.to_owned(), surface, rect));
+        self.shell_rust.push("subtitleBounds", value);
+    }
+
+
+    /// The shared topics plus the Rust-only foreground video identity.
     pub fn shell_rust_sync_topics(&mut self) {
         if !self.shell_rust.enabled() {
             return;
         }
-        for (topic, value) in self.shell_topic_values() {
+        for (topic, mut value) in self.shell_topic_values() {
+            if topic == "foreground" {
+                let video = self.foreground_video();
+                let surface = self.shell_rust_foreground_surface();
+                let unchanged = self.shell_rust.topic("foreground").and_then(Value::as_object).zip(value.as_object()).is_some_and(|(old, base)| {
+                    old.len() == base.len() + 2 && base.iter().all(|(key, v)| old.get(key) == Some(v))
+                        && match (old.get("surface"), surface) {
+                            (Some(Value::Null), None) => true,
+                            (Some(v), Some(id)) => v.as_u64() == Some(id as u64),
+                            _ => false,
+                        }
+                        && match (old.get("video"), video) {
+                        (Some(Value::Null), None) => true,
+                        (Some(v), Some((context, app))) => v.get("context").and_then(Value::as_str) == Some(context) && v.get("app").and_then(Value::as_str) == Some(app),
+                        _ => false,
+                    }
+                });
+                if unchanged { continue; }
+                value["video"] = match video {
+                    Some((context, app)) => json!({"context": context, "app": app}),
+                    None => Value::Null,
+                };
+                value["surface"] = json!(surface);
+            }
             self.shell_rust.push_if_changed(&topic, value);
         }
         if self.shell_rust.answers("switcher") {
             self.switcher_sync_topics();
         }
+        self.shell_rust_sync_subtitle_bounds();
     }
 
     /// Whether the Rust client's layer has the keys: the keys go over the key socket (`input.rs`).
@@ -918,7 +1027,7 @@ impl State {
     }
 
     /// Whether the Rust client's saver is up (its state says so): every key of the remote wakes it, the ones the key socket has no name for too.
-    fn shell_rust_saver_up(&self) -> bool {
+    pub(crate) fn shell_rust_saver_up(&self) -> bool {
         self.shell_rust.answers("saver") && self.shell_rust.ui_state.get("saver").and_then(Value::as_bool) == Some(true)
     }
 
@@ -926,48 +1035,46 @@ impl State {
     /// own goes to it), or its cards take OK and Back by name while an app has the focus (`takes`, as the QML client's). Returns
     /// whether the key went to it.
     pub fn shell_rust_takes_key(&mut self, seat: crate::server::seat::SeatId, code: u32, pressed: bool, swallowed: bool, now: Instant) -> bool {
-        // a key `keys.conf` taught the Rust shell by name (the mic, the on-screen remote, Search): sent only while the client lists it in its `takes`
-        let taught = if crate::server::ime::own_key_name(code).is_none() { self.keys.router.table.shell_name(code) } else { None };
-        let name = match crate::server::ime::own_key_name(code).or(taught) {
-            Some(n) => n,
-            // the saver is up: any key wakes it, whatever it is (the colour keys, play, menu), and the key does nothing else
-            None if self.shell_rust_saver_up() => "any",
-            None => return false,
-        };
-        let mut repeat = false;
-        if let Some(i) = self.shell_rust.took.iter().position(|(c, _)| *c == code) {
+        if let Some(i) = self.shell_rust.took.iter().position(|(c, _, _)| *c == code) {
+            let (_, name, last) = self.shell_rust.took[i];
             if !pressed {
                 self.shell_rust.took.remove(i);
                 self.shell_rust.send_key(name, false, false, seat.0);
                 self.keys.delivered += 1;
                 return true;
             }
-            if now.saturating_duration_since(self.shell_rust.took[i].1) < TOOK_STALE {
-                self.shell_rust.took[i].1 = now;
-                repeat = true;
-            } else {
-                self.shell_rust.took.remove(i);
+            if now.saturating_duration_since(last) < TOOK_STALE {
+                self.shell_rust.took[i].2 = now;
+                self.shell_rust.send_key(name, true, true, seat.0);
+                self.keys.delivered += 1;
+                return true;
             }
+            self.shell_rust.took.remove(i);
         }
-        if !repeat {
-            if !pressed || swallowed || !self.shell_rust.connected {
+        // Taught keys normally go only to a client that lists them; an active saver takes every key.
+        let taught = if crate::server::ime::own_key_name(code).is_none() { self.keys.router.table.shell_name(code) } else { None };
+        let name = match crate::server::ime::own_key_name(code).or(taught) {
+            Some(n) => n,
+            None if self.shell_rust_saver_up() => "any",
+            None => return false,
+        };
+        if !pressed || swallowed || !self.shell_rust.connected {
+            return false;
+        }
+        let wants = self.shell_rust_wants_keys();
+        let takes = self.shell_rust.takes.iter().any(|n| n == name);
+        if (!wants && !takes) || (taught.is_some() && !takes && !(wants && self.shell_rust_saver_up())) {
+            return false;
+        }
+        if takes && !wants {
+            // Only an app's focus is the layer's to share.
+            let focused = self.seat.focus.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w));
+            if focused.is_none() || self.seat.pressed.contains(&(seat, code)) {
                 return false;
             }
-            let wants = self.shell_rust_wants_keys();
-            let takes = self.shell_rust.takes.iter().any(|n| n == name);
-            if (!wants && !takes) || (taught.is_some() && !takes) {
-                return false;
-            }
-            if takes && !wants {
-                // only an app's focus is the layer's to share
-                let focused = self.seat.focus.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w));
-                if !focused.is_some_and(|w| !w.kind.is_shell()) || self.seat.pressed.contains(&(seat, code)) {
-                    return false;
-                }
-            }
-            self.shell_rust.took.push((code, now));
         }
-        self.shell_rust.send_key(name, true, repeat, seat.0);
+        self.shell_rust.took.push((code, name, now));
+        self.shell_rust.send_key(name, true, false, seat.0);
         self.keys.delivered += 1;
         true
     }
@@ -1048,6 +1155,8 @@ impl State {
             "pid": s.child_pid(),
             "connected": s.connected,
             "engine": s.engine_connected,
+            "frameReady": s.frame_ready,
+            "ready": s.ready(),
             "can": s.can,
             "wants": s.wants,
             "takes": s.takes,
@@ -1063,23 +1172,15 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shell::is_saver_vote;
     use std::io::Read;
 
-    /// A state with both clients' channels open on free ports (no child is started: no binary), the Rust shell answering `kinds`.
+    /// A native channel without starting a child.
     fn state_with(kinds: &str) -> (State, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!("lumatv-shell-rust-{}-{}", std::process::id(), kinds.len()));
         std::fs::create_dir_all(&dir).unwrap();
         let display: wayland_server::Display<State> = wayland_server::Display::new().unwrap();
-        // two ports in a row (the QML client's and the Rust client's), free at this moment: another test may take one in between, so each is
-        // bound at once and the pair is tried again when the second is not there
-        let (port, listener, rust_listener) = loop {
-            let first = TcpListener::bind("127.0.0.1:0").unwrap();
-            let port = first.local_addr().unwrap().port();
-            if let Ok(second) = TcpListener::bind(("127.0.0.1", port + 1)) {
-                break (port, first, second);
-            }
-        };
+        let rust_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = rust_listener.local_addr().unwrap().port();
         let config = crate::config::Config {
             data_dir: dir.clone(),
             runtime_dir: dir.clone(),
@@ -1088,14 +1189,130 @@ mod tests {
             ..crate::config::Config::default()
         };
         let mut state = State::new(display.handle(), config, Box::new(crate::render::software::Software::new(64, 64)), Box::new(crate::luna::Null::default()));
-        // the QML client's side as `shell_start` would leave it, without its runner
-        state.shell.link = Some(spawn_server(listener, "qml".into()).unwrap());
         state.shell_rust.link = Some(spawn_server(rust_listener, "rust".into()).unwrap());
         state.shell_rust.kinds = parse_kinds(kinds);
-        state.shell.marker = dir.join("marker");
         state.shell_rust.marker = dir.join("marker");
         (state, dir)
     }
+
+    #[test]
+    fn engine_attach_clears_early_report_and_requests_a_fresh_one() {
+        let (mut state, _dir) = state_with("toast");
+        let report = || Msg::Ui { can: None, wants: None, live: None, state: Some(json!({"interactiveVisible": true})) };
+        state.shell_rust_handle(report());
+        assert_eq!(state.config.refresh_hz, 60);
+        state.shell_rust_engine_connected();
+        assert!(state.shell_rust.ui_state.is_null());
+        assert_eq!(state.shell_rust.topic("refresh"), Some(&json!({"hz": 60})));
+        state.shell_rust_handle(report());
+        assert_eq!(state.config.refresh_hz, 120);
+    }
+
+    #[test]
+    fn stale_and_restarted_clients_clear_the_interactive_refresh_vote() {
+        let (mut state, _dir) = state_with("toast");
+        let report = || Msg::Ui { can: None, wants: None, live: None, state: Some(json!({"interactiveVisible": true})) };
+        state.shell_rust.engine_connected = true;
+        state.shell_rust_handle(report());
+        assert_eq!(state.config.refresh_hz, 120);
+        state.shell_rust.last_seen = Some(Instant::now() - POLL_TIMEOUT - Duration::from_secs(1));
+        state.shell_rust_tick(Instant::now());
+        assert_eq!(state.config.refresh_hz, 60);
+        assert!(state.shell_rust.ui_state.is_null());
+        state.shell_rust.engine_connected = true;
+        state.shell_rust_handle(Msg::Connected);
+        state.refresh_policy_sync();
+        assert_eq!(state.config.refresh_hz, 60);
+        state.shell_rust_handle(report());
+        assert_eq!(state.config.refresh_hz, 120);
+        state.shell_rust_restart();
+        assert_eq!(state.config.refresh_hz, 60);
+        assert!(state.shell_rust.ui_state.is_null());
+    }
+
+    #[test]
+    fn supervised_client_that_stops_polling_requests_stock_recovery() {
+        let (mut state, _dir) = state_with("home,keyboard");
+        state.shell_rust.launch = Some(Launch { binary: PathBuf::from("unused"), loader: None });
+        state.shell_rust_handle(Msg::Connected);
+        state.shell_rust.last_seen = Some(Instant::now() - POLL_TIMEOUT - Duration::from_secs(1));
+        state.shell_rust_tick(Instant::now());
+        assert!(state.shell_rust.gave_up);
+        assert_eq!(state.shell_rust.error.as_deref(), Some("UI stopped polling"));
+    }
+
+    #[test]
+    fn readiness_requires_every_requested_kind_and_a_presented_commit() {
+        let (mut state, _) = state_with("home,keyboard");
+        state.shell_rust_handle(Msg::Connected);
+        state.shell_rust_engine_connected();
+        state.shell_rust_handle(Msg::Ui { can: Some(vec!["home".into(), "keyboard".into()]), wants: None, live: None, state: Some(json!({"kinds": ["home"]})) });
+        assert!(!state.shell_rust.ready());
+        state.shell_rust_handle(Msg::FrameReady);
+        assert!(!state.shell_rust.ready());
+        state.shell_rust_handle(Msg::Ui { can: Some(vec![]), wants: None, live: None, state: Some(json!({"kinds": ["home", "keyboard"]})) });
+        assert!(state.shell_rust.ready(), "temporary availability does not define support");
+        state.shell_rust_client_gone("test");
+        assert!(!state.shell_rust.ready());
+        assert!(!state.shell_rust.frame_ready);
+        assert!(state.shell_rust.supported.is_empty());
+    }
+
+    #[test]
+    fn quiet_long_poll_is_not_mistaken_for_a_dead_client() {
+        let (mut state, _) = state_with("home");
+        state.shell_rust.launch = Some(Launch { binary: PathBuf::from("unused"), loader: None });
+        state.shell_rust_handle(Msg::Connected);
+        state.shell_rust.last_seen = Some(Instant::now() - Duration::from_secs(65));
+        state.shell_rust_tick(Instant::now());
+        assert!(!state.shell_rust.gave_up);
+        assert!(state.shell_rust.connected);
+    }
+
+    #[test]
+    fn startup_deadline_waits_through_standby_then_expires_on_wake() {
+        let (mut state, _) = state_with("home");
+        state.shell_rust.launch = Some(Launch { binary: PathBuf::from("unused"), loader: None });
+        state.shell_rust.child = Some(Command::new("sleep").arg("120").spawn().unwrap());
+        state.shell_rust.engine_connected = true;
+        let now = Instant::now();
+        state.shell_rust.child_started = Some(now - READY_TIMEOUT - Duration::from_secs(1));
+        state.luna_state.power.rendering = false;
+        state.shell_rust_tick(now);
+        assert!(!state.shell_rust.gave_up);
+        state.luna_state.power.rendering = true;
+        let wake = now + Duration::from_secs(180);
+        state.shell_rust_tick(wake);
+        assert!(!state.shell_rust.gave_up);
+        state.shell_rust_tick(wake + READY_TIMEOUT + Duration::from_secs(1));
+        assert_eq!(state.shell_rust.error.as_deref(), Some("UI did not become ready"));
+    }
+
+    #[test]
+    fn polling_deadline_restarts_on_wake() {
+        let (mut state, _) = state_with("home");
+        state.shell_rust.launch = Some(Launch { binary: PathBuf::from("unused"), loader: None });
+        state.shell_rust_handle(Msg::Connected);
+        let now = Instant::now();
+        state.luna_state.power.rendering = false;
+        state.shell_rust_tick(now);
+        state.luna_state.power.rendering = true;
+        let wake = now + Duration::from_secs(180);
+        state.shell_rust_tick(wake);
+        assert!(!state.shell_rust.gave_up);
+        state.shell_rust_tick(wake + POLL_TIMEOUT + Duration::from_secs(1));
+        assert_eq!(state.shell_rust.error.as_deref(), Some("UI stopped polling"));
+    }
+
+    #[test]
+    fn repeated_would_block_is_bounded() {
+        let mut shell = RustShell::default();
+        let now = Instant::now();
+        assert!(!shell.attach_timed_out(now));
+        assert!(!shell.attach_timed_out(now + READY_TIMEOUT));
+        assert!(shell.attach_timed_out(now + READY_TIMEOUT + Duration::from_millis(1)));
+    }
+
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("lumatv-shell-rust-{name}-{}", std::process::id()));
@@ -1168,117 +1385,47 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The client is started through the loader with its two descriptors and its environment. The stand-in loader drops the loader's
-    /// options and runs its program with `sh`; the stand-in client is not executable, so a direct exec of it (the bug) fails.
-    #[test]
-    fn the_client_is_spawned_through_the_loader_when_there_is_one() {
-        let root = scratch("spawn");
-        let out = root.join("out");
-        write_file(&root.join("lib/ld-linux-aarch64.so.1"), &format!("#!/bin/sh\necho \"loader $*\" >> {}\nshift 2\nexec sh \"$@\"\n", out.display()), 0o755);
-        write_file(&root.join("bin/lumatv-ui"), &format!("echo \"client fd3=$LUMATV_UI_FD kinds=$LUMATV_UI_KINDS\" >> {}\n", out.display()), 0o644);
-        let (mut state, _dir) = state_with("osd,toast");
-        let (engine, _theirs) = UnixStream::pair().unwrap();
-        state.shell_rust.adopt_socket(engine);
-        state.shell_rust.launch = Some(Launch {
-            binary: root.join("bin/lumatv-ui"),
-            loader: Some(Loader { path: root.join("lib/ld-linux-aarch64.so.1"), lib: root.join("lib") }),
-        });
-        state.shell_rust_spawn();
-        assert!(state.shell_rust.child.is_some(), "{:?}", state.journal);
-        let child = state.shell_rust.child.as_mut().unwrap();
-        assert!(child.wait().unwrap().success());
-        let text = std::fs::read_to_string(&out).unwrap();
-        let lines: Vec<_> = text.lines().collect();
-        assert_eq!(lines, [format!("loader --library-path {} {}", root.join("lib").display(), root.join("bin/lumatv-ui").display()), "client fd3=3 kinds=osd,toast".into()]);
-
-        // the same client exec'd directly, as before: not executable, so the spawn fails and is journalled
-        let (mut state, _dir) = state_with("osd,toast");
-        let (engine, _theirs) = UnixStream::pair().unwrap();
-        state.shell_rust.adopt_socket(engine);
-        state.shell_rust.launch = Some(Launch { binary: root.join("bin/lumatv-ui"), loader: None });
-        state.shell_rust_spawn();
-        assert!(state.shell_rust.child.is_none());
-        assert!(state.journal.iter().any(|l| l.contains("did not start")), "{:?}", state.journal);
-        let _ = std::fs::remove_dir_all(&root);
-    }
 
     #[test]
     fn the_audio_topic_goes_to_the_shell_that_answers_osd_and_the_toast_feed_likewise() {
         let (mut state, _dir) = state_with("osd,toast");
-        state.shell_handle(Msg::Connected);
         state.shell_rust_handle(Msg::Connected);
         state.shell_audio(&json!({"volumeStatus": {"volume": 3}}));
-        assert!(state.shell.topic("audio").is_none(), "the QML client is not told the audio state while osd is the Rust shell's");
         assert_eq!(state.shell_rust.topic("audio").unwrap()["volumeStatus"]["volume"], 3);
-        // both subscribe to the toast feed; the push reaches the Rust client alone
-        state.shell_handle(Msg::Luna {
-            tag: 7,
-            uri: "luna://com.webos.notification/getToastNotification".into(),
-            payload: json!({"subscribe": true}),
-            subscribe: true,
-        });
         state.shell_rust_handle(Msg::Luna {
             tag: 9,
             uri: "luna://com.webos.notification/getToastNotification".into(),
             payload: json!({"subscribe": true}),
             subscribe: true,
         });
-        let qml_token = state.shell.luna_tags[0].token;
         let rust_token = state.shell_rust.luna_tags[0].token;
-        assert!(state.shell_luna_event(qml_token, &json!({"message": "Remote battery low"})));
-        assert!(state.shell.topic("luna").is_none(), "withheld from the QML client");
         assert!(state.shell_luna_event(rust_token, &json!({"message": "Remote battery low"})));
         assert_eq!(state.shell_rust.topic("luna").unwrap()["tag"], 9);
         assert!(state.journal.iter().any(|l| l.contains("shell-rust: toast delivered")));
-        // a feed that is not a kind of the Rust shell goes to the QML client as before
-        state.shell_handle(Msg::Luna {
-            tag: 8,
-            uri: "luna://com.webos.notification/getAlertNotification".into(),
-            payload: json!({"subscribe": true}),
-            subscribe: true,
-        });
-        let alert_token = state.shell.luna_tags.iter().find(|t| t.tag == 8).unwrap().token;
-        assert!(state.shell_luna_event(alert_token, &json!({"alertAction": "open", "alertInfo": {"message": "hot"}})));
-        assert_eq!(state.shell.topic("luna").unwrap()["tag"], 8);
     }
 
     #[test]
-    fn the_alert_kind_takes_the_three_notification_feeds_from_the_qml_client_and_only_what_opens_a_surface() {
+    fn native_alert_receives_all_three_notification_feeds() {
         let (mut state, _dir) = state_with("alert");
-        state.shell_handle(Msg::Connected);
         state.shell_rust_handle(Msg::Connected);
         let feeds =
             [("getAlertNotification", "alertAction"), ("getInputAlertNotification", "alertAction"), ("getPincodePromptNotification", "pincodePromptAction")];
         for (i, (feed, _)) in feeds.iter().enumerate() {
             let uri = format!("luna://com.webos.notification/{feed}");
-            state.shell_handle(Msg::Luna { tag: 10 + i as u64, uri: uri.clone(), payload: json!({"subscribe": true}), subscribe: true });
             state.shell_rust_handle(Msg::Luna { tag: 20 + i as u64, uri, payload: json!({"subscribe": true}), subscribe: true });
         }
         for (i, (_, action)) in feeds.iter().enumerate() {
-            let qml = state.shell.luna_tags.iter().find(|t| t.tag == 10 + i as u64).unwrap().token;
             let rust = state.shell_rust.luna_tags.iter().find(|t| t.tag == 20 + i as u64).unwrap().token;
-            assert!(state.shell_luna_event(qml, &json!({*action: "open"})));
-            assert!(
-                state.shell.topic("luna").is_none_or(|l| l["tag"] != 10 + i as u64),
-                "{action} of feed {i}: what opens a surface is withheld from the QML client"
-            );
             assert!(state.shell_luna_event(rust, &json!({*action: "open"})));
             assert_eq!(state.shell_rust.topic("luna").unwrap()["tag"], 20 + i as u64, "and reaches the Rust client");
         }
-        let qml = state.shell.luna_tags.iter().find(|t| t.tag == 10).unwrap().token;
-        assert!(state.shell_luna_event(qml, &json!({"alertAction": "closeAll"})));
-        assert_eq!(state.shell.topic("luna").unwrap()["tag"], 10, "a close still goes to it: nothing of it is open, and nothing is lost");
     }
 
     #[test]
-    fn with_the_saver_the_rust_shells_the_qml_one_is_refused_its_vote_and_the_care_reads_the_rust_clients_word() {
+    fn native_saver_vote_and_care_follow_the_client() {
         let (mut state, _dir) = state_with("saver");
-        state.shell_handle(Msg::Connected);
         state.shell_rust_handle(Msg::Connected);
         let vote = "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest";
-        state.shell_handle(Msg::Luna { tag: 31, uri: vote.into(), payload: json!({"clientName": "qml", "subscribe": true}), subscribe: true });
-        assert!(state.shell.luna_tags.is_empty(), "the QML client's vote is not passed on");
-        assert_eq!(state.shell.topic("luna").unwrap()["payload"]["returnValue"], false, "it is told no");
         state.shell_rust_handle(Msg::Luna { tag: 32, uri: vote.into(), payload: json!({"clientName": "rust", "subscribe": true}), subscribe: true });
         assert_eq!(state.shell_rust.luna_tags.len(), 1, "the Rust client's vote goes through");
         // the OLED care stands aside for the saver the Rust client says is up
@@ -1288,26 +1435,15 @@ mod tests {
         state.shell_rust_handle(Msg::Ui { can: None, wants: Some(false), live: Some(false), state: Some(json!({"saver": false})) });
         state.tick();
         assert!(!state.scene.care.saver);
-        // without the kind the vote is the QML client's as before
-        let (mut qml_only, _d2) = state_with("toast");
-        qml_only.shell_handle(Msg::Connected);
-        qml_only.shell_handle(Msg::Luna { tag: 31, uri: vote.into(), payload: json!({"subscribe": true}), subscribe: true });
-        assert_eq!(qml_only.shell.luna_tags.len(), 1);
-        assert!(
-            is_saver_vote("luna://com.webos.service.tvpower/power/registerScreenSaverRequest")
-                && !is_saver_vote("luna://com.webos.service.tvpower/power/getPowerState")
-        );
     }
 
     #[test]
-    fn the_rust_client_is_told_whether_the_panel_carries_the_savers_dim_and_the_qml_one_is_not() {
+    fn native_client_is_told_whether_the_panel_carries_saver_dim() {
         let (mut state, _dir) = state_with("saver");
-        state.shell_handle(Msg::Connected);
         state.shell_rust_handle(Msg::Connected);
         // no luna bridge on the set (the null one): the panel cannot be asked, the saver dims its own picture
         state.tick();
         assert_eq!(state.shell_rust.topic("paneldim").unwrap()["carry"], false);
-        assert!(state.shell.topic("paneldim").is_none(), "the QML client's saver dims its own picture");
         // a bridge that is up: the panel carries, and the client is told
         state.panel.set_bridge(true);
         state.panel_dim_tick(crate::output::monotonic_ns());
@@ -1325,104 +1461,72 @@ mod tests {
     }
 
     #[test]
-    fn with_the_capture_mark_the_rust_shells_the_topic_and_the_dot_are_its_own_and_the_qml_client_is_not_told() {
+    fn native_capture_topic_and_dot_follow_the_client() {
         let (mut state, _dir) = state_with("capture");
-        state.shell_handle(Msg::Connected);
         state.shell_rust_handle(Msg::Connected);
         state.screencap_publish();
         assert!(state.shell_rust.topic("capture").is_some(), "the Rust client is told");
-        assert!(state.shell.topic("capture").is_none(), "the QML client is not");
         assert!(!state.screencap_dot_up());
-        // the QML client's dot is not the dot: nothing of the Rust client's is on the screen
-        state.shell_handle(Msg::Ui { can: None, wants: None, live: None, state: Some(json!({"capture": {"dot": true}})) });
-        assert!(!state.screencap_dot_up(), "a dot the QML client draws does not count while the Rust shell answers capture");
         state.shell_rust_handle(Msg::Ui { can: None, wants: None, live: None, state: Some(json!({"capture": {"dot": true}})) });
         assert!(state.screencap_dot_up());
-        // without the kind it is the QML client's as before
-        let (mut qml, _d2) = state_with("toast");
-        qml.shell_handle(Msg::Connected);
-        qml.screencap_publish();
-        assert!(qml.shell.topic("capture").is_some());
-        qml.shell_handle(Msg::Ui { can: None, wants: None, live: None, state: Some(json!({"capture": {"dot": true}})) });
-        assert!(qml.screencap_dot_up());
     }
 
+
     #[test]
-    fn with_osd_off_the_list_the_qml_client_keeps_the_audio_topic_and_the_switch_moves_it() {
-        let (mut state, _dir) = state_with("toast");
-        state.shell_handle(Msg::Connected);
+    fn subtitle_unknown_is_published_once_and_replayed_on_reconnect() {
+        let (mut state, _dir) = state_with("popup");
         state.shell_rust_handle(Msg::Connected);
-        state.shell_audio(&json!({"volumeStatus": {"volume": 5}}));
-        assert_eq!(state.shell.topic("audio").unwrap()["volumeStatus"]["volume"], 5);
-        assert_eq!(state.shell_rust.topic("audio").unwrap()["volumeStatus"]["volume"], 5, "the Rust client follows the topic too");
-        assert!(state.shell_rust_set_kinds(&["+osd"]).is_ok());
-        assert_eq!(state.config.shell_rust, vec!["osd", "toast"]);
-        assert!(state.shell_rust.answers("osd"));
-        state.shell_audio(&json!({"volumeStatus": {"volume": 6}}));
-        assert_eq!(state.shell.topic("audio").unwrap()["volumeStatus"]["volume"], 5, "the QML client hears no more of it");
-        assert!(state.shell_rust_set_kinds(&["-osd"]).is_ok());
-        assert_eq!(state.shell.topic("audio").unwrap()["volumeStatus"]["volume"], 6, "given back: the state it missed is pushed");
-        assert!(state.shell_rust_set_kinds(&["quick"]).is_err());
-        assert!(state.shell_rust_set_kinds(&["+bogus"]).is_err());
+        assert_eq!(state.shell_rust.topic("subtitleBounds"), Some(&Value::Null));
+        assert_eq!(state.shell_rust.topic("foreground").unwrap()["surface"], Value::Null);
+        let before = state.shell_rust.events().len();
+        state.shell_rust_sync_subtitle_bounds();
+        assert_eq!(state.shell_rust.events().len(), before);
+        state.shell_rust.pushed.clear();
+        state.shell_rust_sync_subtitle_bounds();
+        assert_eq!(state.shell_rust.topic("subtitleBounds"), Some(&Value::Null));
+        assert_eq!(state.shell_rust.events().len(), before + 1);
     }
 
+
     #[test]
-    fn the_shows_and_the_topics_reach_both_clients_and_a_kind_is_answered_by_its_shell() {
+    fn only_native_kinds_can_open_and_receive_topics() {
         let (mut state, _dir) = state_with("osd");
-        state.shell_handle(Msg::Connected);
         state.shell_rust_handle(Msg::Connected);
-        state.shell_handle(Msg::Ui { can: Some(vec!["quick".into(), "picker".into()]), wants: None, live: None, state: None });
         state.shell_rust_handle(Msg::Ui { can: Some(vec![]), wants: Some(false), live: Some(false), state: Some(json!({"osd": false})) });
-        assert!(state.shell_can("quick"), "a kind the Rust shell does not answer is the QML client's");
-        assert!(state.shell_show("quick", false));
-        assert_eq!(state.shell.topic("show").unwrap()["kind"], "quick");
-        assert!(state.shell_rust.topic("show").is_none());
-        assert!(!state.shell_can("osd"), "osd is the Rust shell's and it shows no panel");
+        assert!(!state.shell_can("quick"));
+        assert!(!state.shell_show("quick", false));
+        assert!(!state.shell_can("osd"));
         state.shell_sync_topics();
-        for topic in ["foreground", "screen", "cursor", "refresh", "wall", "transitions", "keyboard"] {
-            assert!(state.shell.topic(topic).is_some(), "{topic} for the QML client");
-            assert_eq!(state.shell.topic(topic), state.shell_rust.topic(topic), "{topic} the same for the Rust client");
+        for topic in ["foreground", "screen", "cursor", "refresh", "wall", "transitions", "keyboard", "subtitleBounds"] {
+            assert!(state.shell_rust.topic(topic).is_some(), "{topic} for native UI");
         }
-        let report = state.shell_report();
-        assert_eq!(report["rust"]["kinds"], json!(["osd"]));
-        assert_eq!(report["rust"]["connected"], true);
-        assert_eq!(report["rust"]["ui"]["osd"], false);
+        let report = state.shell_rust_report();
+        assert_eq!(report["kinds"], json!(["osd"]));
+        assert_eq!(report["connected"], true);
+        assert_eq!(report["ui"]["osd"], false);
     }
 
     #[test]
-    fn the_qml_client_is_told_which_kinds_the_rust_shell_answers_so_it_leaves_out_its_cards_and_its_pop_up_and_the_editor_is_shown_by_the_rust_client() {
+    fn native_layout_editor_opens_only_when_available() {
         let (mut state, _dir) = state_with("cards,popup,layout");
-        state.shell_handle(Msg::Connected);
         state.shell_rust_handle(Msg::Connected);
-        state.shell_sync_topics();
-        assert_eq!(state.shell.topic("rust").unwrap()["kinds"], json!(["cards", "layout", "popup"]), "the QML client reads the list and draws neither");
-        // the editor: only when the Rust client says it can, and with the item as the page
-        assert!(!state.shell_show_page("layout", false, Some("popup")), "not before the client says it can");
+        assert!(!state.shell_show_page("layout", false, Some("popup")));
         state.shell_rust_handle(Msg::Ui { can: Some(vec!["layout".into()]), wants: Some(false), live: Some(false), state: Some(json!({"layout": {"open": false}})) });
         assert!(state.shell_show_page("layout", false, Some("popup")));
         let show = state.shell_rust.topic("show").unwrap();
         assert_eq!((show["kind"].as_str(), show["page"].as_str()), (Some("layout"), Some("popup")));
-        assert!(state.shell.topic("show").is_none(), "the QML client has no editor to open");
-        // without the kinds the QML client is told the list is empty and goes on as before
-        let (mut qml, _d2) = state_with("toast");
-        qml.shell_handle(Msg::Connected);
-        qml.shell_sync_topics();
-        assert_eq!(qml.shell.topic("rust").unwrap()["kinds"], json!(["toast"]));
     }
 
     #[test]
     fn the_switcher_is_drawn_by_the_client_that_answers_it_and_only_that_one_hears_of_it() {
         let (mut state, _dir) = state_with("switcher");
-        state.shell_handle(Msg::Connected);
         state.shell_rust_handle(Msg::Connected);
-        state.shell_handle(Msg::Ui { can: Some(vec!["switcher".into()]), wants: None, live: None, state: None });
-        assert!(!state.shell_can("switcher"), "the Rust shell answers it: the QML client's word does not count");
+        assert!(!state.shell_can("switcher"));
         state.shell_rust_handle(Msg::Ui { can: Some(vec!["switcher".into()]), wants: Some(false), live: Some(false), state: None });
         assert!(state.shell_can("switcher"));
         state.shell_sync_topics();
         assert_eq!(state.shell_rust.topic("switcher").unwrap()["open"], false);
         assert_eq!(state.shell_rust.topic("apps"), Some(&json!([])));
-        assert!(state.shell.topic("switcher").is_none() && state.shell.topic("apps").is_none(), "the QML client is not told");
         // its request to open one is the compositor's to judge: with no app running nothing opens
         assert!(!state.shell_rust_handle(Msg::Switcher(json!({"op": "open"}))));
         assert_eq!(state.switcher_report()["open"], false);
@@ -1443,12 +1547,12 @@ mod tests {
             state.key_event_at(seat, crate::input::code::KEY_HOME, true, false, at);
             state.key_event_at(seat, crate::input::code::KEY_HOME, false, false, at + Duration::from_millis(60));
         };
-        assert!(!state.shell_hears_home_key(false), "Home is not drawn: nothing to tell");
+        assert!(!state.shell_hears_home_key(), "Home is not drawn: nothing to tell");
         let now = Instant::now();
         tap(&mut state, now);
         assert!(state.shell_rust.topic("homekey").is_none(), "an app has the screen: the Home key is the compositor's");
         state.scene.set_home_rust(true);
-        assert!(state.shell_hears_home_key(false), "Home is drawn by the Rust shell, which has no window to focus");
+        assert!(state.shell_hears_home_key(), "Home is drawn by the Rust shell, which has no window to focus");
         tap(&mut state, now + Duration::from_secs(5));
         assert!(state.shell_rust.topic("homekey").is_some(), "the Rust client is told of the Home key, which may open the switcher");
     }
@@ -1565,6 +1669,47 @@ mod tests {
     }
 
     #[test]
+    fn taught_keys_wake_the_saver_without_changing_other_layers_key_choices() {
+        let (mut state, _dir) = state_with("saver");
+        state.shell_rust_handle(Msg::Connected);
+        let mut reader = with_key_socket(&mut state);
+        state.keys.router.table = crate::keys::KeyTable::parse("voice 1050\nsearch 1051\nscreenremote 1052\n").0;
+        let seat = crate::server::seat::SeatId(0);
+        let now = Instant::now();
+        let keys = [(1050, "voice"), (1051, "search"), (1052, "screenremote")];
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: Some(json!({"saver": false})) });
+        for (code, _) in keys {
+            assert!(!state.shell_rust_takes_key(seat, code, true, false, now), "ordinary layer did not list {code}");
+        }
+        state.shell_rust_handle(Msg::Takes(keys.iter().map(|(_, name)| (*name).into()).collect()));
+        for (code, _) in keys {
+            assert!(state.shell_rust_takes_key(seat, code, true, false, now));
+            assert!(state.shell_rust_takes_key(seat, code, false, false, now));
+        }
+        state.shell_rust_handle(Msg::Takes(Vec::new()));
+        for (code, _) in keys {
+            state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: Some(json!({"saver": true})) });
+            assert!(state.shell_rust_takes_key(seat, code, true, false, now), "saver takes {code}");
+            state.shell_rust_handle(Msg::Ui { can: None, wants: Some(false), live: Some(false), state: Some(json!({"saver": false})) });
+            assert!(state.shell_rust_takes_key(seat, code, false, false, now), "release follows the waking press");
+            assert!(!state.shell_rust_takes_key(seat, code, true, false, now), "next press is not captured");
+        }
+        reader.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let mut text = String::new();
+        let mut buf = [0u8; 2048];
+        while text.matches('\n').count() < 12 {
+            let n = reader.read(&mut buf).unwrap();
+            assert_ne!(n, 0);
+            text.push_str(std::str::from_utf8(&buf[..n]).unwrap());
+        }
+        let events: Vec<Value> = text.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        for (i, (_, name)) in keys.iter().cycle().take(6).enumerate() {
+            assert_eq!(events[2 * i], json!({"key": {"k": name, "d": true, "r": false, "seat": 0}}));
+            assert_eq!(events[2 * i + 1], json!({"key": {"k": name, "d": false, "r": false, "seat": 0}}));
+        }
+    }
+
+    #[test]
     fn any_key_wakes_a_saver_that_is_up_as_the_name_any_and_the_home_key_reaches_the_rust_client() {
         let (mut state, _dir) = state_with("saver");
         state.shell_rust_handle(Msg::Connected);
@@ -1605,15 +1750,10 @@ mod tests {
     }
 
     #[test]
-    fn the_kinds_are_the_known_ones_sorted_and_changed_by_sign() {
+    fn the_kinds_are_the_known_ones_sorted() {
         assert_eq!(parse_kinds("toast,osd,osd, nothing,settings"), vec!["osd", "settings", "toast"]);
         assert!(parse_kinds("").is_empty());
         assert_eq!(parse_kinds("osd,ai"), vec!["ai", "osd"], "the AI prompt is a kind of its own");
-        let kinds = parse_kinds("osd");
-        assert_eq!(change_kinds(&kinds, &["+toast"]).unwrap(), vec!["osd", "toast"]);
-        assert_eq!(change_kinds(&kinds, &["-osd", "+toast"]).unwrap(), vec!["toast"]);
-        assert!(change_kinds(&kinds, &["osd"]).is_err());
-        assert!(change_kinds(&kinds, &["+bogus"]).is_err());
     }
 
     /// The state of `keys_go_over_the_key_socket...`: a connected Rust client with a key socket whose other end is returned.
@@ -1681,6 +1821,147 @@ mod tests {
     }
 
     #[test]
+    fn native_saver_captures_real_app_input_and_preserves_an_earlier_app_press() {
+        use crate::harness::{Client, Server};
+        use crate::input::code::{KEY_ENTER, KEY_LEFT};
+        use crate::server::seat::{SeatId, pointer_motion};
+
+        let mut server = Server::start();
+        let mut app = Client::connect(&mut server);
+        let _keyboard = app.seat.get_keyboard(&app.qh, ());
+        let _pointer = app.seat.get_pointer(&app.qh, ());
+        let window = app.card("_WEBOS_WINDOW_TYPE_CARD", "Player");
+        let buffer = app.shm_buffer(64, 64, 0xff00_0000);
+        app.present(&window.surface, &buffer);
+        assert!(app.wait_until(Duration::from_secs(3), |s| s.keyboard_enters >= 1 && s.frames_done >= 1));
+        let _keys = server.eval(|s| {
+            s.shell_rust_open(0, "test".into()).unwrap();
+            s.shell_rust.kinds = vec!["saver".into()];
+            s.shell_rust_handle(Msg::Connected);
+            with_key_socket(s)
+        });
+        server.eval(|s| pointer_motion(s, 20, 25));
+        assert!(app.wait_until(Duration::from_secs(3), |s| !s.pointer_enters.is_empty()));
+        let t = Instant::now();
+
+        // An app already holding a press receives its release, even if the saver comes up in between.
+        server.eval(move |s| s.key_event_at(SeatId(0), KEY_ENTER, true, false, t));
+        assert!(app.wait_until(Duration::from_secs(3), |s| s.buttons.len() == 1));
+        server.eval(move |s| {
+            s.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: Some(json!({"saver": true})) });
+            pointer_motion(s, 25, 30);
+            s.key_event_at(SeatId(0), KEY_ENTER, true, false, t + Duration::from_millis(25));
+            s.key_event_at(SeatId(0), KEY_ENTER, false, false, t + Duration::from_millis(50));
+        });
+        assert!(app.wait_until(Duration::from_secs(3), |s| s.buttons.len() == 3));
+        assert_eq!(app.state.buttons, vec![(0x110, 1), (0x110, 1), (0x110, 0)]);
+
+        // A stationary cursor stays over the app, but a new click belongs to the saver.
+        server.eval(move |s| {
+            s.key_event_at(SeatId(0), KEY_ENTER, true, false, t + Duration::from_millis(200));
+            s.shell_rust_handle(Msg::Ui { can: None, wants: Some(false), live: Some(false), state: Some(json!({"saver": false})) });
+            s.key_event_at(SeatId(0), KEY_ENTER, false, false, t + Duration::from_millis(250));
+        });
+        app.roundtrip();
+        assert_eq!(app.state.buttons.len(), 3, "the app did not receive the waking click");
+        server.eval(move |s| {
+            s.key_event_at(SeatId(0), KEY_ENTER, true, false, t + Duration::from_millis(400));
+            s.key_event_at(SeatId(0), KEY_ENTER, false, false, t + Duration::from_millis(450));
+        });
+        assert!(app.wait_until(Duration::from_secs(3), |s| s.buttons.len() == 5));
+        assert_eq!(&app.state.buttons[3..], &[(0x110, 1), (0x110, 0)]);
+
+        // The waking key and its release are the saver's; the next key goes to the app.
+        server.eval(move |s| {
+            s.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: Some(json!({"saver": true})) });
+            s.key_event_at(SeatId(0), KEY_LEFT, true, false, t + Duration::from_millis(600));
+            s.shell_rust_handle(Msg::Ui { can: None, wants: Some(false), live: Some(false), state: Some(json!({"saver": false})) });
+            s.key_event_at(SeatId(0), KEY_LEFT, false, false, t + Duration::from_millis(650));
+        });
+        app.roundtrip();
+        assert!(app.state.keys.is_empty(), "the app did not receive the waking key");
+        server.eval(move |s| {
+            s.key_event_at(SeatId(0), KEY_LEFT, true, false, t + Duration::from_millis(800));
+            s.key_event_at(SeatId(0), KEY_LEFT, false, false, t + Duration::from_millis(850));
+        });
+        assert!(app.wait_until(Duration::from_secs(3), |s| s.keys.len() == 2));
+        assert_eq!(app.state.keys, vec![(KEY_LEFT, 1), (KEY_LEFT, 0)]);
+    }
+
+    #[test]
+    fn unknown_wake_key_keeps_its_original_name_until_release_for_real_app() {
+        use crate::harness::{Client, Server};
+        use crate::input::code::KEY_RED;
+        use crate::server::seat::SeatId;
+
+        let mut server = Server::start();
+        let mut app = Client::connect(&mut server);
+        let _keyboard = app.seat.get_keyboard(&app.qh, ());
+        let window = app.card("_WEBOS_WINDOW_TYPE_CARD", "Player");
+        let buffer = app.shm_buffer(64, 64, 0xff00_0000);
+        app.present(&window.surface, &buffer);
+        assert!(app.wait_until(Duration::from_secs(3), |s| s.keyboard_enters >= 1 && s.frames_done >= 1));
+        let reader = server.eval(|s| {
+            s.shell_rust_open(0, "test".into()).unwrap();
+            s.shell_rust.kinds = vec!["saver".into()];
+            s.shell_rust_handle(Msg::Connected);
+            with_key_socket(s)
+        });
+        let t = Instant::now();
+        server.eval(move |s| {
+            s.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: Some(json!({"saver": true})) });
+            s.key_event_at(SeatId(0), KEY_RED, true, false, t);
+            s.shell_rust_handle(Msg::Ui { can: None, wants: Some(false), live: Some(false), state: Some(json!({"saver": false})) });
+            s.key_event_at(SeatId(0), KEY_RED, true, false, t + Duration::from_millis(50));
+            s.key_event_at(SeatId(0), KEY_RED, false, false, t + Duration::from_millis(100));
+            assert!(s.shell_rust.took.is_empty(), "the wake key capture is released");
+        });
+        app.roundtrip();
+        assert!(app.state.keys.is_empty(), "no repeat or orphan release reaches the app");
+        let events = lines(reader);
+        assert_eq!(events, vec![
+            json!({"key": {"k": "any", "d": true, "r": false, "seat": 0}}),
+            json!({"key": {"k": "any", "d": true, "r": true, "seat": 0}}),
+            json!({"key": {"k": "any", "d": false, "r": false, "seat": 0}}),
+        ]);
+        server.eval(move |s| {
+            s.key_event_at(SeatId(0), KEY_RED, true, false, t + Duration::from_millis(200));
+            s.key_event_at(SeatId(0), KEY_RED, false, false, t + Duration::from_millis(250));
+        });
+        assert!(app.wait_until(Duration::from_secs(3), |s| s.keys.len() == 2));
+        assert_eq!(app.state.keys, vec![(KEY_RED, 1), (KEY_RED, 0)]);
+    }
+
+    #[test]
+    fn stationary_app_pointer_is_claimed_by_native_saver_without_motion() {
+        let (mut state, _dir) = state_with("saver");
+        state.shell_rust_handle(Msg::Connected);
+        let theirs = with_key_socket(&mut state);
+        state.seat.cursor_visible = true;
+        state.seat.pointer_position = (300, 200);
+        state.seat.pointer_focus = Some(crate::surface::SurfaceId(999));
+        let motions = state.seat.motions;
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: Some(json!({"saver": true})) });
+        assert_eq!(state.seat.motions, motions, "handoff is not remote motion");
+        assert!(!state.shell_rust.pointer_in, "metadata alone sends no pointer sample");
+        state.seat.button_down = true;
+        assert!(!crate::server::seat::pointer_button(&mut state, false), "an app-held release is not captured by the saver");
+        assert!(!state.shell_rust.pointer_in);
+        state.seat.button_down = false;
+        assert!(crate::server::seat::pointer_button(&mut state, true));
+        assert!(state.shell_rust.pointer_in, "the real press claims the stationary pointer");
+        assert!(state.shell_rust_button_down());
+        assert!(!state.seat.button_down, "the app did not receive the press");
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(false), live: Some(false), state: Some(json!({"saver": false})) });
+        assert!(crate::server::seat::pointer_button(&mut state, false), "release follows the waking press");
+        assert!(!state.seat.button_down);
+        assert!(!crate::server::seat::pointer_button(&mut state, true), "the next press goes back toward the app");
+        assert!(!state.shell_rust.pointer_in);
+        let sent: Vec<(u64, bool)> = lines(theirs).iter().map(|l| (l["pointer"]["buttons"].as_u64().unwrap(), l["pointer"]["visible"].as_bool().unwrap())).collect();
+        assert_eq!(sent, vec![(0, true), (1, true), (0, true), (0, false)]);
+    }
+
+    #[test]
     fn a_release_with_no_press_is_nothing_a_press_needs_the_cursor_shown_and_a_hidden_cursor_ends_a_press_without_a_click() {
         let (mut state, _dir) = state_with("home");
         state.shell_rust_handle(Msg::Connected);
@@ -1744,21 +2025,16 @@ mod tests {
     }
 
     #[test]
-    fn the_field_and_the_keys_of_the_keyboard_go_to_the_client_that_answers_it_and_the_other_is_told_there_is_none() {
+    fn keyboard_routes_only_to_the_client_that_supports_it() {
         let (mut state, _dir) = state_with("keyboard");
-        state.shell_handle(Msg::Connected);
         state.shell_rust_handle(Msg::Connected);
         state.shell_sync_topics();
         assert_eq!(state.shell_rust.topic("ime"), Some(&json!({"active": false, "show": false})));
-        assert_eq!(state.shell.topic("ime"), Some(&json!({"active": false, "show": false})));
-        state.shell_handle(Msg::Ui { can: Some(vec!["keyboard".into()]), wants: None, live: None, state: None });
-        assert!(!state.shell_can("keyboard"), "the QML client's word does not count while the Rust client answers the kind");
         state.shell_rust_handle(Msg::Ui { can: Some(vec!["keyboard".into()]), wants: None, live: None, state: None });
         assert!(state.shell_can("keyboard"));
-        // a kind that is not the Rust client's stays the QML client's
-        let (mut qml, _dir2) = state_with("osd");
-        qml.shell_handle(Msg::Connected);
-        qml.shell_handle(Msg::Ui { can: Some(vec!["keyboard".into()]), wants: None, live: None, state: None });
-        assert!(qml.shell_can("keyboard"));
+        let (mut absent, _dir2) = state_with("osd");
+        absent.shell_rust_handle(Msg::Connected);
+        absent.shell_rust_handle(Msg::Ui { can: Some(vec!["keyboard".into()]), wants: None, live: None, state: None });
+        assert!(!absent.shell_can("keyboard"));
     }
 }

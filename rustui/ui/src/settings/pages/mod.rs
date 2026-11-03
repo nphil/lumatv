@@ -15,6 +15,7 @@ pub mod home;
 pub mod homeassistant;
 pub mod inputs;
 pub mod language;
+pub mod logging;
 pub mod network;
 pub mod onhome;
 pub mod owner;
@@ -28,6 +29,7 @@ pub mod saver;
 pub mod sound;
 pub mod support;
 pub mod system;
+pub mod themes;
 pub mod util;
 pub mod widgets;
 
@@ -49,6 +51,7 @@ pub fn all() -> Vec<Page> {
         profiles::person(),
         profiles::avatars(),
         home::popups(),
+        themes::page(),
         widgets::page(),
         homeassistant::page(),
         onhome::page(),
@@ -67,6 +70,7 @@ pub fn all() -> Vec<Page> {
         access::emergency(),
         access::captions(),
         about::page(),
+        logging::page(),
         support::page(),
         support::delete_data(),
         support::permissions(),
@@ -96,7 +100,7 @@ mod tests {
     #[test]
     fn every_icon_a_settings_page_names_is_in_the_icon_set() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let have = root.join("../../payload/compositor/lumatv/icons/lucide");
+        let have = root.join("../../compositor/assets/ui/icons/lucide");
         assert!(have.is_dir(), "the icon set is at {have:?}");
         let mut missing = Vec::new();
         let mut files = vec![root.join("src/settings")];

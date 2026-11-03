@@ -130,6 +130,12 @@ pub struct Gl {
     /// buffer (`render_rects`), so the frame goes out on time and the content follows a refresh or two later. Without it the
     /// tick holds the frame instead (`warming`).
     standin_source: Option<TargetId>,
+    /// Surface eligible for whole-frame stand-in popup suppression.
+    standin_root: Option<SurfaceId>,
+    standin_source_root: Option<SurfaceId>,
+    standin_plan_root: Option<SurfaceId>,
+    /// Scratch for a stand-in whose source page is also its destination.
+    standin_scratch: Option<TargetId>,
     /// The surfaces the last composed frame stood in for, with the rectangle each covered: owed once their buffers are warm
     /// (`standin_due`, `owed_standins`). Rebuilt by every composed frame.
     standins: Vec<(SurfaceId, Rect)>,
@@ -308,6 +314,10 @@ impl Gl {
             rects: Vec::new(),
             redraw_all: false,
             standin_source: None,
+            standin_root: None,
+            standin_source_root: None,
+            standin_plan_root: None,
+            standin_scratch: None,
             standins: Vec::new(),
             standins_next: Vec::new(),
             standin_tiles: crate::damage::Tiles::new(width, height),
@@ -928,9 +938,45 @@ impl Gl {
     /// while a buffer warms, and nothing is owed to a stand-in any more.
     pub fn set_standin_source(&mut self, page: Option<TargetId>) {
         self.standin_source = page;
+        self.standin_source_root = if page.is_some() && (self.standins.is_empty() || self.standin_source_root == self.standin_plan_root) {
+            self.standin_plan_root
+        } else {
+            None
+        };
         if page.is_none() {
             self.standins.clear();
+            #[cfg(feature = "ui")]
+            if let Some(ui) = &mut self.ui {
+                ui.set_standin_popup_suppressed(false);
+            }
         }
+    }
+
+    /// Suppresses fresh system popups over a whole-frame stand-in from the same qualified root.
+    pub fn prepare_ui_standin(&mut self, plan: &Plan) -> bool {
+        self.standin_plan_root = match plan.items.as_slice() {
+            [item] if Some(item.surface) == self.standin_root
+                && !item.ghost && item.pose.is_none()
+                && item.rect == Rect::new(0, 0, self.width as i32, self.height as i32) => self.standin_root,
+            _ => None,
+        };
+        #[cfg(feature = "ui")]
+        {
+            let suppress = self.ui.is_some() && self.standin_source.is_some_and(|p| p.0 < self.targets.len() && self.targets[p.0].tex != 0)
+                && self.standin_plan_root.is_some()
+                && self.standin_plan_root == self.standin_source_root
+                && plan.items.iter().any(|item| {
+                    Some(item.surface) == self.standin_plan_root
+                        && item.pose.is_none()
+                        && self.textures.get(&item.buffer.id()).is_some_and(|t| t.external && (t.warm_sync.is_some() || t.held))
+                });
+            if let Some(ui) = &mut self.ui {
+                ui.set_standin_popup_suppressed(suppress);
+            }
+            suppress
+        }
+        #[cfg(not(feature = "ui"))]
+        { false }
     }
 
     /// A host's stand-in for a driver that is busy with `buffer` after its commit (tests): the texture counts as a
@@ -1076,6 +1122,26 @@ impl Gl {
         self.use_plain();
     }
 
+    fn draw_home_over_wallpaper(&mut self, plan: &Plan, rects: &[Rect]) -> io::Result<()> {
+        #[cfg(feature = "ui")]
+        if let Some(ui) = &mut self.ui {
+            ui.draw_under_over(self.targets[self.current.0].fbo, rects)?;
+        }
+        self.draw_home_dim(plan.home_dim, rects);
+        Ok(())
+    }
+
+    fn draw_home_dim(&self, dim: f32, rects: &[Rect]) {
+        if dim <= 0.0 { return; }
+        let full = FRect::new(0.0, 0.0, self.width as f32, self.height as f32);
+        self.use_xf();
+        for r in rects {
+            self.scissor(r);
+            self.draw_posed(0, &full, &full, 0.0, dim, 1.0, false, Some([0.0; 3]));
+        }
+        self.use_plain();
+    }
+
     /// `dim` is the OLED care's (the item's own, 1 for nearly everything): it multiplies the pose's brightness.
     fn draw_pose_item(&self, tex: GLuint, p: &Posed, dim: f32, y_invert: bool, rects: &[Rect]) -> bool {
         let mut drawn = false;
@@ -1172,7 +1238,7 @@ impl Gl {
             self.current = TargetId(0);
         }
         if self.standin_source == Some(id) {
-            self.standin_source = None;
+            self.set_standin_source(None);
         }
     }
 
@@ -1251,6 +1317,42 @@ impl Gl {
         if target.0 < self.targets.len() {
             self.current = target;
         }
+    }
+
+    /// Snapshots an aliased stand-in before the destination is modified.
+    pub fn snapshot_aliased_standin(&mut self) -> io::Result<()> {
+        let Some(source) = self.standin_source.filter(|source| *source == self.current) else { return Ok(()) };
+        let scratch = match self.standin_scratch {
+            Some(id) => id,
+            None => {
+                let id = self.add_target()?;
+                self.standin_scratch = Some(id);
+                id
+            }
+        };
+        let (tex, top_down) = (self.targets[source.0].tex, self.targets[source.0].top_down);
+        let previous = std::mem::replace(&mut self.current, scratch);
+        let full = Rect::new(0, 0, self.width as i32, self.height as i32);
+        if self.egl.gl_error() != egl::GL_NO_ERROR { self.gl_errors += 1; }
+        // SAFETY: both textures and framebuffer belong to this current context.
+        unsafe {
+            let a = &self.egl.api;
+            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, self.targets[scratch.0].fbo);
+            (a.glViewport)(0, 0, self.width as i32, self.height as i32);
+            (a.glUseProgram)(self.program);
+            (a.glDisable)(egl::GL_SCISSOR_TEST);
+            (a.glDisable)(egl::GL_BLEND);
+        }
+        self.set_dim(1.0);
+        self.draw_quad(tex, &full, top_down);
+        self.current = previous;
+        let err = self.egl.gl_error();
+        if err != egl::GL_NO_ERROR {
+            self.gl_errors += 1;
+            return Err(egl::other(format!("standin snapshot: GL error {err:#x}")));
+        }
+        self.standin_source = Some(scratch);
+        Ok(())
     }
 
     /// A native fence fd for the work submitted so far (`EGL_ANDROID_native_fence_sync`, which the blob on the set
@@ -1381,9 +1483,11 @@ impl Gl {
         };
         // (the engine's stack 0 clears the owed rectangles and draws Home into them; with Home hidden under an app's card they are cleared here
         // as they are without an engine, to the opaque black that LG's compositor has under an app, and the card and the system layer go over it)
+        let wall_home = plan.home_before > 0 && !self.home_hidden && self.has_ui();
         #[cfg(feature = "ui")]
         if let Some(ui) = &mut self.ui
             && !self.home_hidden
+            && !wall_home
         {
             ui.draw_under(self.targets[self.current.0].fbo, rects)?;
         }
@@ -1395,7 +1499,7 @@ impl Gl {
             (a.glViewport)(0, 0, self.width as i32, self.height as i32);
             (a.glUseProgram)(self.program);
             (a.glEnable)(egl::GL_SCISSOR_TEST);
-            if !self.has_ui() || self.home_hidden {
+            if !self.has_ui() || self.home_hidden || wall_home {
                 (a.glClearColor)(0.0, 0.0, 0.0, 1.0);
                 for r in rects {
                     self.scissor(r);
@@ -1404,6 +1508,9 @@ impl Gl {
             }
             (a.glEnable)(egl::GL_BLEND);
             (a.glBlendFunc)(egl::GL_ONE, egl::GL_ONE_MINUS_SRC_ALPHA);
+        }
+        if !wall_home && !self.home_hidden && self.has_ui() {
+            self.draw_home_dim(plan.home_dim, rects);
         }
         let (mut imports, mut import_us) = (0u32, 0u64);
         self.standin_tiles.clear();
@@ -1416,6 +1523,9 @@ impl Gl {
         // The box dim's map on the app's pictures while one is engaged (`gl/boxdim.rs`); nothing of it otherwise.
         let gained = self.boxdim_frame(plan);
         for (index, item) in plan.items.iter().enumerate() {
+            if wall_home && index == plan.home_before {
+                self.draw_home_over_wallpaper(plan, rects)?;
+            }
             if let Some(b) = plan.backdrop.as_ref().filter(|b| b.before == index) {
                 self.draw_backdrop(b, rects);
             }
@@ -1488,6 +1598,9 @@ impl Gl {
             if drawn {
                 stats.drawn += 1;
             }
+        }
+        if wall_home && plan.home_before == plan.items.len() {
+            self.draw_home_over_wallpaper(plan, rects)?;
         }
         // an idle system layer leaves the backdrop above every item
         if let Some(b) = plan.backdrop.as_ref().filter(|b| b.before >= plan.items.len()) {
@@ -1832,6 +1945,19 @@ impl Output for Gl {
         Gl::warming(self)
     }
 
+    fn ui_set_exclusion(&mut self, area: Option<Rect>) {
+        #[cfg(not(feature = "ui"))]
+        let _ = area;
+        #[cfg(feature = "ui")]
+        if let Some(ui) = &mut self.ui {
+            ui.set_exclusion(area);
+        }
+    }
+
+    fn ui_set_standin_root(&mut self, root: Option<SurfaceId>) {
+        self.standin_root = root;
+    }
+
     fn defer_frees(&mut self, on: bool) {
         Gl::defer_frees(self, on);
     }
@@ -1860,6 +1986,13 @@ impl Output for Gl {
 
     fn prepare_previews(&mut self, buffers: &[WlBuffer]) {
         Gl::prepare_previews(self, buffers);
+    }
+
+    fn ui_state(&mut self, state: &serde_json::Value) -> bool {
+        #[cfg(feature = "ui")]
+        { self.ui.as_mut().is_some_and(|ui| lumatv_render::silk_report::apply(ui.engine(), state)) }
+        #[cfg(not(feature = "ui"))]
+        { let _ = state; false }
     }
 
     fn ui_needs_frame(&mut self) -> io::Result<bool> {

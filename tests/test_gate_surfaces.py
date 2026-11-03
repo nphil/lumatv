@@ -1,14 +1,4 @@
-"""Run with: python3 -m unittest tests.test_gate_surfaces   (the host tests need Xvfb and PyQt5; they skip without them)
-
-The frame gate's screen walks and launches (docs/research/perf/gate.py: settings-scroll, apps-grid, home-widgets, switcher, transitions-*,
-keyboard-*): the table's numbers and tokens, the settings a surface turns on and puts back, and where the keys take the screens. Nothing here
-measures time: the set's gate does. The walks are replayed on the real QML through the offline host, key by key as kb.py would send them (taps,
-held keys with their repeats), so that a walk that opens the wrong screen, presses an OK that launches an app or changes a setting, or ends
-away from Home shows up here and not on the TV.
-
-A host run takes about fifteen seconds, so each test is one run that replays one or two cycles.
-"""
-import ast
+"""Frame-gate plans, switch restoration and native host walk replay."""
 import json
 import os
 import re
@@ -22,13 +12,11 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "docs", "research", "perf"))
 import gate  # noqa: E402
-import test_keyboard_own as keyboard_host  # noqa: E402
-import test_switcher as switcher_host  # noqa: E402
-from test_settings import HostCase  # noqa: E402
-from xdisplay import DISPLAY, HAVE_QT  # noqa: E402
+import host_budget  # noqa: E402
+import test_rust_home as native_home  # noqa: E402
 
-NEW = ["settings-scroll", "apps-grid", "home-widgets", "switcher", "transitions-netflix", "transitions-settings", "keyboard-luma", "keyboard-lg"]
-WALKS = ["settings-scroll", "apps-grid", "home-widgets", "switcher", "keyboard-luma", "keyboard-lg"]
+NEW = ["settings-scroll", "apps-grid", "home-widgets", "switcher", "transitions-netflix", "transitions-settings", "keyboard"]
+WALKS = ["settings-scroll", "apps-grid", "home-widgets", "switcher", "keyboard"]
 LAUNCHES = ["transitions-netflix", "transitions-settings"]
 VALUES = {"INPUT": "241", "HDMI": "3"}
 
@@ -88,7 +76,7 @@ class Table(unittest.TestCase):
             self.assertNotIn("OK", key_names(walk_of(surface(n))), n)
         self.assertNotIn("BACK", key_names(walk_of(surface("home-widgets"))))
         self.assertEqual(set(key_names(walk_of(surface("switcher")))), {"LEFT", "RIGHT", "BACK"})
-        self.assertEqual(set(key_names(walk_of(surface("keyboard-luma")))), {"UP", "DOWN", "LEFT", "RIGHT"})
+        self.assertEqual(set(key_names(walk_of(surface("keyboard")))), {"UP", "DOWN", "LEFT", "RIGHT"})
         settings = walk_of(surface("settings-scroll"))
         self.assertEqual(key_names(settings).count("RIGHT"), 2)                      # the two entries into a page, from the rail
         self.assertEqual(key_names(gate.SETTINGS_PAGE.split()), ["RIGHT", "DOWN", "UP", "BACK"])
@@ -163,10 +151,10 @@ class Switches(unittest.TestCase):
     """The settings a surface turns on for its run are the owner's again afterwards, read back."""
 
     class Set:
-        """The tool on the set: theme.json, `transitions` and `keyboard`, as `lumatv` answers them."""
+        """The tool on the set: theme.json and transitions, as `lumatv` answers them."""
 
-        def __init__(self, theme=None, transitions=False, keyboard="lg", fail=()):
-            self.theme, self.transitions, self.keyboard, self.fail, self.log = theme if theme is not None else {}, transitions, keyboard, fail, []
+        def __init__(self, theme=None, transitions=False, fail=()):
+            self.theme, self.transitions, self.fail, self.log = theme if theme is not None else {}, transitions, fail, []
 
         def sh(self, cmd, timeout=120):
             if gate.TOOL not in cmd:
@@ -184,11 +172,6 @@ class Switches(unittest.TestCase):
                 return 0, json.dumps({"ok": True, "transitions": {"on": self.transitions, "compositor": "own"}}), ""
             if args in ("transitions on", "transitions off"):
                 self.transitions = args.endswith("on")
-                return 0, "{}", ""
-            if args == "keyboard status":
-                return 0, json.dumps({"ok": True, "on": False, "patched": False, "keyboard": self.keyboard}), ""
-            if args in ("keyboard luma", "keyboard lg"):
-                self.keyboard = args.split()[1]
                 return 0, "{}", ""
             raise AssertionError(cmd)
 
@@ -212,7 +195,7 @@ class Switches(unittest.TestCase):
         saved = []
         with mock.patch.object(gate.time, "sleep"):
             gate.set_switches(rig, wanted, saved)
-            during = (rig.set.theme.get("remote", {}).get("appSwitcher"), rig.set.transitions, rig.set.keyboard)
+            during = (rig.set.theme.get("remote", {}).get("appSwitcher"), rig.set.transitions)
             return saved, during, gate.restore_switches(rig, saved)
 
     def test_the_switcher_is_on_for_the_run_and_off_again(self):
@@ -238,21 +221,17 @@ class Switches(unittest.TestCase):
         self.assertEqual([c for c in rig.set.log if "theme set" in c], [])
 
     def test_what_the_owner_had_on_stays_on_and_is_not_written(self):
-        rig = self.rig(theme={"remote": {"appSwitcher": True}}, transitions=True, keyboard="luma")
-        saved, during, problems = self.during_and_after(rig, {"app-switcher": True, "transitions": True, "keyboard": "luma"})
+        rig = self.rig(theme={"remote": {"appSwitcher": True}}, transitions=True)
+        saved, during, problems = self.during_and_after(rig, {"app-switcher": True, "transitions": True})
         self.assertEqual(problems, "")
-        self.assertEqual([c for c in rig.set.log if " set " in c or c.endswith((" on", " off", " luma", " lg"))], [])
+        self.assertEqual([c for c in rig.set.log if " set " in c or c.endswith((" on", " off"))], [])
         self.assertEqual(rig.set.theme, {"remote": {"appSwitcher": True}})
 
-    def test_transitions_and_both_keyboards_come_back_as_found(self):
+    def test_transitions_come_back_as_found(self):
         for was in (False, True):
             rig = self.rig(transitions=was)
             saved, during, problems = self.during_and_after(rig, {"transitions": not was})
             self.assertEqual((during[1], rig.set.transitions, problems), (not was, was, ""))
-        for was, run in (("lg", "luma"), ("luma", "lg"), ("lg", "lg")):
-            rig = self.rig(keyboard=was)
-            saved, during, problems = self.during_and_after(rig, {"keyboard": run})
-            self.assertEqual((during[2], rig.set.keyboard, problems), (run, was, ""))
 
     def test_a_value_that_does_not_come_back_is_reported(self):
         rig = self.rig(transitions=False)
@@ -265,10 +244,10 @@ class Switches(unittest.TestCase):
         self.assertTrue(rig.set.transitions)
 
     def test_a_tool_that_will_not_answer_stops_the_surface_and_leaves_what_it_touched_to_be_put_back(self):
-        rig = self.rig(fail=("keyboard status",))
+        rig = self.rig(fail=("theme get",))
         saved = []
-        with mock.patch.object(gate.time, "sleep"), self.assertRaisesRegex(RuntimeError, "keyboard status failed"):
-            gate.set_switches(rig, {"transitions": True, "keyboard": "luma"}, saved)
+        with mock.patch.object(gate.time, "sleep"), self.assertRaisesRegex(RuntimeError, "theme get failed"):
+            gate.set_switches(rig, {"transitions": True, "app-switcher": True}, saved)
         self.assertEqual(saved, [("transitions", False)])
         self.assertTrue(rig.set.transitions)
         rig.set.fail = ()
@@ -277,17 +256,14 @@ class Switches(unittest.TestCase):
         self.assertFalse(rig.set.transitions)
 
     def test_a_surface_that_fails_gives_the_owners_values_back(self):
-        rig = self.rig(keyboard="lg")
+        rig = self.rig()
         rig.capture.side_effect = RuntimeError("capture failed")
         with mock.patch.object(gate.time, "sleep"):
-            res = gate.run_surface(rig, surface("keyboard-luma"), "t", 0, Mock(since=Mock(return_value=([], True))))
+            res = gate.run_surface(rig, surface("switcher"), "t", 0, Mock(since=Mock(return_value=([], True))))
         by = {c["name"]: c for c in res["checks"]}
         self.assertFalse(by["run"]["ok"])
         self.assertTrue(by["switches_restored"]["ok"])
-        self.assertEqual(rig.set.keyboard, "lg")
-        # the setup ran after the switch and the teardown before it was put back
-        commands = [c for c in rig.set.log]
-        self.assertLess(commands.index(gate.TOOL + " keyboard luma"), commands.index(gate.TOOL + " keyboard lg"))
+        self.assertFalse(rig.set.theme.get("remote", {}).get("appSwitcher", False))
 
     def test_a_value_that_will_not_come_back_fails_the_surface(self):
         rig = self.rig()
@@ -397,17 +373,14 @@ class Transitions(unittest.TestCase):
 
 class Setups(unittest.TestCase):
     def test_the_search_app_is_opened_with_its_keyboard_up_and_closed_after(self):
-        for n in ("keyboard-luma", "keyboard-lg"):
-            s = surface(n)
-            self.assertEqual(s["setup"], gate.VOICE_SETUP[:4], n)
-            self.assertNotIn("kb.py", " ".join(s["setup"]), n)            # Back would hide the keyboard
-            self.assertEqual(s["teardown"], gate.VOICE_TEARDOWN, n)
-        self.assertEqual(surface("keyboard-luma")["switches"], {"keyboard": "luma"})
-        self.assertEqual(surface("keyboard-lg")["switches"], {"keyboard": "lg"})
+        s = surface("keyboard")
+        self.assertEqual(s["setup"], gate.VOICE_SETUP[:4])
+        self.assertNotIn("kb.py", " ".join(s["setup"]))
+        self.assertEqual(s["teardown"], gate.VOICE_TEARDOWN)
+        self.assertEqual(s["switches"], {})
 
-    def test_both_keyboards_get_the_same_walk_and_it_is_balanced(self):
-        a, b = walk_of(surface("keyboard-luma")), walk_of(surface("keyboard-lg"))
-        self.assertEqual(a, b)
+    def test_keyboard_walk_is_balanced(self):
+        a = walk_of(surface("keyboard"))
         ups = [t for t in a if t.startswith(("LEFT", "UP"))]
         downs = [t for t in a if t.startswith(("RIGHT", "DOWN"))]
         self.assertEqual(sorted(t.replace("LEFT", "RIGHT").replace("UP", "DOWN") for t in ups), sorted(downs))
@@ -467,314 +440,24 @@ class Setups(unittest.TestCase):
         self.assertEqual(json.loads(sent[0].split("theme set ", 1)[1].strip("'")), {"wallpaperMotion": {"enabled": False}, "weather": {"animated": False}})
 
 
-# ------------------------------------------------------------------------------------------------------------ the host
+@unittest.skipUnless(os.path.exists(native_home.BIN) and os.path.exists(native_home.MESA), "needs the native host binary and Mesa")
+class NativeWalks(unittest.TestCase):
+    def replay(self, name):
+        walk = host_budget.walk_of(name)
+        runner = native_home.RustHome(methodName="test_the_shipped_layout_is_drawn_where_it_always_was_and_the_dock_is_the_persons_own")
+        steps = [walk.args, ['--eval', '%d:state' % (walk.at - 100)]]
+        return runner.host(walk.at + 100, steps, kinds='home,settings,quick,picker,drawer,menu,confirm')
 
-KEYS = {"UP": "Qt.Key_Up", "DOWN": "Qt.Key_Down", "LEFT": "Qt.Key_Left", "RIGHT": "Qt.Key_Right", "OK": "Qt.Key_Return", "BACK": "Qt.Key_Back",
-        # the number keys by evdev code (KEY_1 = 2 ... KEY_9 = 10, KEY_0 = 11), as kb.py takes them
-        **{str(code): "Qt.Key_%d" % (code - 1 if code < 11 else 0) for code in range(2, 12)}}
-STATE = ("JSON.stringify({fl: root.focusLayer, si: root.statusFocusIndex, so: root.settingsOpen, po: root.popoverOpen, wf: root.widgetFocusId,"
-         " dr: root.dockRow, dc: root.dockCol, lo: root.layerOpen, ed: root.editing})")
-# the calls of the luna stand-in that are not reads: a launch, a close, a write of a setting or of the dock's order, a reset or a shutdown
-CALLS = ("JSON.stringify(root.lunaCalls.filter(function(c) { return /^\\/(set[A-Z]|launch|close|move|remove|delete|reset|reboot|turn|create|install|uninstall|shutdown)/.test(c.method) })"
-         ".map(function(c) { return c.method + ' ' + (c.payload || '').slice(0, 60) }))")
-READY = 6000
-STEP = 150
+    def test_home_walk_returns_to_the_status_bar_without_launching(self):
+        out, states, _ = self.replay('home-widgets')
+        self.assertEqual(states[-1]['home']['focusLayer'], 'statusbar')
+        self.assertNotIn('[log] launch', out)
 
-
-def repeats_of(hold_ms):
-    """The auto-repeats kb.py sends for a held key: it sleeps 100 ms and tests `0.3 < elapsed < hold`, each pass a little over its 100 ms, so
-    the first repeat is at 300 ms and then there is one every 100 ms."""
-    return sum(1 for i in range(1, 1000) if 0.3 < i * 0.1 + 0.0005 < hold_ms / 1000.0)
-
-
-def events(token):
-    """A key token as the events kb.py sends: [(key, pressed, repeat)]; [] for a marker, a sleep or a luna call."""
-    if token[0] in "@!" or re.fullmatch(r"s[\d.]+", token):
-        return []
-    if token.endswith("+"):
-        return [(token[:-1], True, False)]
-    if token.endswith("-"):
-        return [(token[:-1], False, False)]
-    if "x" in token:
-        name, rest = token.split("x", 1)
-        return [(name, True, False), (name, False, False)] * int(rest.partition("@")[0])
-    if ":" in token:
-        name, ms = token.split(":")
-        return [(name, True, False)] + [(name, True, True)] * repeats_of(int(ms)) + [(name, False, False)]
-    return [(token, True, False), (token, False, False)]
+    def test_settings_walk_closes_without_launching(self):
+        out, states, _ = self.replay('settings-scroll')
+        self.assertIn(states[-1]['panels']['quick'], ('closing', 'parked', 'gone'))
+        self.assertNotIn('[log] launch', out)
 
 
-def home_js(token):
-    """The token as calls of Home's key handler (the key filter's `key(code, pressed, autoRepeat, device)`). The gear is not a key of Home's under LumaTV's
-    compositor: its tap is the compositor's, which asks the shell for the quick panel (Shell.show, Bus.panel); over Home that is HomePanels.open."""
-    if token == "MENU":
-        return "root.openLayer('quick');"
-    return "".join("root.key(%s,%s,%s,0);" % (KEYS[k], str(p).lower(), str(r).lower()) for k, p, r in events(token))
-
-
-def settle(token):
-    return re.fullmatch(r"s[\d.]+", token) is not None
-
-
-class Home(HostCase):
-    """LumaHome through the offline host, the way a remote presses it."""
-
-    def replay(self, tokens):
-        """Runs the tokens, one eval each; the state after each token, in order, and the luna calls that launch or write, at the end."""
-        steps = []
-        t = READY
-        for tok in tokens:
-            steps += ["--eval", "%d:(function(){%s return %s})()" % (t, home_js(tok), STATE)]
-            t += 350 if settle(tok) else STEP
-        steps += ["--eval", "%d:%s" % (t, CALLS)]
-        rc, out = self.host(*steps, "--wait", str(t + 600))
-        self.assertEqual(rc, 0, out[-1500:])
-        vals = []
-        for line in out.splitlines():
-            m = re.match(r"\[eval\] \((.*), (True|False)\)$", line)
-            if m and m.group(1)[:1] in "'\"":
-                vals.append(ast.literal_eval(m.group(1)))          # the host prints a Python repr
-        self.assertEqual(len(vals), len(tokens) + 1, out[-2500:])
-        return [json.loads(v) for v in vals[:-1]], json.loads(vals[-1])
-
-
-@unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
-class HomeKeys(Home):
-    def after(self, tokens, states, token, nth=0):
-        """The state after the nth occurrence of `token`."""
-        return states[[i for i, t in enumerate(tokens) if t == token][nth]]
-
-    @staticmethod
-    def fixture_points():
-        """The launch points the offline host's make-believe TV (a capture of the owner's) lists, in order."""
-        with open(os.path.join(ROOT, "tests", "qmlhost", "stubs", "WebOSServices", "FakeApps.js")) as f:
-            text = f.read()
-        rows = re.findall(r'^    \["([^"]+)", "[^"]*", "[^"]*", \{([^}]*)\}\]', text, re.M)
-        return [{"id": i, "hidden": "hidden: true" in o} for i, o in rows] + [{"id": "com.webos.app.hdmi2"}]
-
-    def resolved(self, name):
-        """The surface with its tile's number key worked out from the host's launch points, as the gate does on the set."""
-        rig = Mock()
-        rig.sh.return_value = (0, json.dumps({"launchPoints": self.fixture_points()}), "")
-        return gate.resolve_tile(rig, surface(name))[0]
-
-    def test_home_top_finds_the_status_bars_first_item_from_anywhere_on_home(self):
-        tokens, marks = [], []
-        for start in ("RIGHTx4@0.1 DOWN", "UPx2@0.1 RIGHTx2@0.1", "DOWNx3@0.1 LEFTx2@0.1", "DOWNx2@0.1"):
-            tokens += start.split() + gate.HOME_TOP.split()
-            marks.append(len(tokens) - 1)
-        states, calls = self.replay(tokens)
-        for i in marks:
-            self.assertEqual((states[i]["fl"], states[i]["si"]), ("statusbar", 0), (i, states[i]))
-        self.assertEqual(calls, [])
-
-    def test_settings_opens_from_the_quick_panels_last_button_walks_and_closes_again_twice(self):
-        s = surface("settings-scroll")
-        tokens = gate.cycle_tokens(s) * 2
-        states, calls = self.replay(tokens)
-        for n in (0, 1):
-            panel = self.after(tokens, states, "s0.2", n)                  # the end of prep
-            self.assertEqual((panel["lo"], panel["so"]), ("quick", False), (n, panel))
-            opened = self.after(tokens, states, "OK-", n)
-            self.assertEqual((opened["so"], opened["lo"]), (True, ""), "the release of OK on the button opens Settings and the panel goes: the marker is on its edge")
-            end = self.after(tokens, states, "@settings-scroll-close", n)
-            self.assertEqual((end["so"], end["po"], end["lo"], end["ed"]), (False, False, "", False), "the walk ends on Home")
-        self.assertEqual(calls, [], "no app launched, no setting written")
-
-    def test_the_library_opens_from_the_apps_tiles_number_and_closes_with_nothing_launched_twice(self):
-        s = self.resolved("apps-grid")
-        self.assertEqual(s["open"].split()[1], "2")                          # the Apps tile is the first: KEY_1
-        tokens = gate.cycle_tokens(s) * 2
-        states, calls = self.replay(tokens)
-        for n in (0, 1):
-            opened = self.after(tokens, states, "2", n)
-            self.assertEqual((opened["lo"], opened["fl"]), ("apps", "dock"), (n, opened))
-            end = self.after(tokens, states, "@apps-grid-close", n)
-            self.assertEqual((end["lo"], end["fl"], end["dr"], end["dc"]), ("", "dock", 0, 0), "Back from the library: the dock's first tile, which has the focus")
-        self.assertEqual(calls, [])
-
-    def test_the_library_opens_wherever_the_focus_is_and_whichever_place_the_apps_tile_has(self):
-        # the number key is the dock's, whatever Home's focus: after the status bar and after a card, and with the Apps tile moved to the fourth place
-        points = self.fixture_points()
-        moved = [points[1], points[2], points[3], points[0]] + points[4:]
-        rig = Mock()
-        rig.sh.return_value = (0, json.dumps({"launchPoints": moved}), "")
-        number = gate.resolve_tile(rig, surface("apps-grid"))[0]["open"].split()[1]
-        self.assertEqual(number, "5")                                          # KEY_4
-        tokens = ["UPx8@0.1", number, "BACK", "DOWN", "DOWN", "RIGHT", number, "BACK"]
-        # the host's own list has the Apps tile first, so it is the first tile's key that opens it there: this walk is about the focus
-        tokens = [t if t != number else "2" for t in tokens]
-        states, calls = self.replay(tokens)
-        self.assertEqual([st["lo"] for i, st in enumerate(states) if tokens[i] == "2"], ["apps", "apps"])
-        self.assertEqual(calls, [])
-
-    def test_the_home_walk_visits_every_row_and_opens_nothing_twice(self):
-        s = surface("home-widgets")
-        tokens = gate.cycle_tokens(s) * 2
-        states, calls = self.replay(tokens)
-        first = [st for tok, st in zip(tokens, states)][:len(tokens) // 2]
-        self.assertEqual({st["fl"] for st in first}, {"statusbar", "widgets", "dock"})
-        self.assertEqual([st["si"] for st in first if st["fl"] == "statusbar"][:3], [0, 0, 0])
-        self.assertEqual(max(st["si"] for st in first), 3, "all four items of the status bar")
-        self.assertEqual({st["wf"] for st in first if st["fl"] == "widgets"}, {"clock", "home", "news", "weather"}, "every card")
-        self.assertEqual({st["dr"] for st in first if st["fl"] == "dock"}, {0, 1}, "the dock's rows")
-        self.assertTrue(all(not st["so"] and not st["po"] and st["lo"] == "" and not st["ed"] for st in states))
-        self.assertEqual((states[len(tokens) // 2 - 1]["fl"], states[-1]["fl"]), ("statusbar", "statusbar"), "each cycle ends where it can start again")
-        self.assertEqual(calls, [])
-
-    def test_a_tile_found_by_its_number_is_the_one_that_opens(self):
-        points = self.fixture_points()
-        tokens, apps = [], []
-        for app in ("netflix", "com.webos.app.browser", "com.lighting.huesync"):      # the second tile, the ninth, the tenth (the 0 key)
-            code, number = gate.tile_digit(points, app)
-            tokens += [str(code), "UPx8@0.1"]
-            apps.append((app, number))
-        self.assertEqual(apps, [("netflix", 2), ("com.webos.app.browser", 9), ("com.lighting.huesync", 10)])
-        states, calls = self.replay(tokens)
-        ids = [re.search(r'"id":\s*"([^"]+)"', c).group(1) for c in calls if c.startswith("/launch ")]
-        self.assertEqual(ids, [a for a, _ in apps], calls)
-        self.assertEqual([states[i]["dc"] for i in (0, 2, 4)], [1, 8, 9], "the dock's cursor is on the tile that opened")
-        self.assertFalse([c for c in calls if "setSystemSettings" in c or "moveLaunchPoint" in c])
-
-    def test_lgs_settings_is_the_last_row_of_lumatvs_settings_rail_reached_through_the_quick_panel(self):
-        s = surface("transitions-settings")
-        tokens = gate.cycle_tokens(s) * 2
-        states, calls = self.replay(tokens)
-        launched = [c for c in calls if c.startswith("/launch ")]
-        self.assertEqual(len(launched), 2, calls)
-        self.assertTrue(all('"com.palm.app.settings"' in c for c in launched), launched)
-        for n in (0, 1):
-            before = self.after(tokens, states, "@transitions-settings-open", n)
-            self.assertEqual((before["so"], before["lo"]), (True, ""), "Settings is up with its rail on the last row when OK is pressed")
-            after = self.after(tokens, states, "OK-", n)
-            self.assertEqual((after["so"], after["lo"]), (False, ""), "and the launch closes it: Home is under the app that comes")
-        self.assertFalse([c for c in calls if "setSystemSettings" in c])
-
-
-@unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
-class ScreenKeys(HostCase):
-    """The screens' own handlers, standalone, for what Home's state does not show."""
-
-    def run_screen(self, surface_file, init, tokens, state_js, dir_of, wait_extra=400):
-        steps = [(5000, init)]
-        t = 5300
-        for tok in tokens:
-            js = "".join(dir_of(k, p, r) for k, p, r in events(tok))
-            steps.append((t, "(function(){%s return %s})()" % (js, state_js)))
-            t += 200
-        args = []
-        for ms, e in steps:
-            args += ["--eval", "%d:%s" % (ms, e)]
-        rc, out = self.host(*args, "--wait", str(t + wait_extra), surface=surface_file)
-        self.assertEqual(rc, 0, out[-1500:])
-        vals = [json.loads(m.group(1).replace("\\'", "'")) for m in re.finditer(r"\[eval\] \('(\{.*\})', (?:True|False)\)$", out, re.M)]
-        self.assertEqual(len(vals), len(tokens), out[-2000:])
-        return vals, [ln.split("[sig] ", 1)[1] for ln in out.splitlines() if "[sig] " in ln]
-
-    @staticmethod
-    def press_dir(k, pressed, repeat):
-        return 'root.key("%s");' % k.lower() if pressed else ""
-
-    def test_settings_moves_its_rail_and_pages_and_changes_nothing(self):
-        s = surface("settings-scroll")
-        toks = gate.cycle_tokens(s)
-        walk = toks[toks.index("@settings-scroll-open") + 2:toks.index("@settings-scroll-close")]
-        init = ("(function(){root.closeRequested.connect(function(){console.log('[sig] close')});root.themePatch.connect(function(p){console.log('[sig] patch')});"
-                "root.themePersist.connect(function(p){console.log('[sig] persist')});root.launchApp.connect(function(a){console.log('[sig] launch ' + a)});return 1})()")
-        states, signals = self.run_screen("Settings.qml", init, walk, "JSON.stringify({z: root.zone, r: root.railIndex, c: root.current})", self.press_dir)
-
-        def at(token, nth=0):
-            return states[[i for i, t in enumerate(walk) if t == token][nth]]
-        self.assertEqual(at("RIGHT", 0), {"z": "page", "r": 0, "c": "picture"})
-        self.assertEqual(at("BACK", 0), {"z": "rail", "r": 0, "c": "picture"}, "Back leaves a page for the rail; Left would have moved a slider")
-        self.assertEqual(at("DOWNx8@0.06"), {"z": "rail", "r": 8, "c": "system"}, "eight sections down is System, each switching the page beside it")
-        self.assertEqual(at("RIGHT", 1), {"z": "page", "r": 8, "c": "system"})
-        self.assertEqual(at("UPx9@0.06"), {"z": "rail", "r": 0, "c": "picture"}, "and back on the section the next open starts from")
-        self.assertEqual(signals, ["close"], "Back on the rail closes it, and nothing was patched, written or launched")
-
-    def test_the_library_moves_across_down_and_into_its_rail_and_launches_nothing(self):
-        s = surface("apps-grid")
-        toks = gate.cycle_tokens(s)
-        walk = toks[toks.index("@apps-grid-open") + 2:toks.index("@apps-grid-close")]
-        init = ("(function(){root.launched.connect(function(a){console.log('[sig] launched ' + a.id)});root.closeRequested.connect(function(){console.log('[sig] close')});"
-                "root.menuRequested.connect(function(){console.log('[sig] menu')});root.searchRequested.connect(function(){console.log('[sig] search')});return 1})()")
-        state = "JSON.stringify({c: root.cellIndex, g: root.inGrid, s: root.searchFocused, r: root.railIndex, n: root.list.length, row: root.scrollRow})"
-        states, signals = self.run_screen("panels/AppsGrid.qml", init, walk, state, self.press_dir)
-
-        def at(token, nth=0):
-            return states[[i for i, t in enumerate(walk) if t == token][nth]]
-        self.assertGreaterEqual(at("RIGHTx4@0.12")["n"], 15, "the host's TV lists 23 apps: five rows")
-        self.assertEqual(at("RIGHTx4@0.12")["c"], 4)
-        down = at("DOWN:600")
-        self.assertTrue(down["g"] and not down["s"] and down["row"] > 0, "the held key walks down the grid and scrolls it")
-        up = at("UP:600")
-        self.assertTrue(up["g"] and not up["s"] and up["row"] == 0, "and back to the first row without reaching the search button")
-        out = at("LEFTx5@0.12")
-        self.assertEqual((out["g"], out["s"], out["r"]), (False, False, 0), "four moves along, the fifth leaves the grid for the rail")
-        self.assertEqual(at("DOWNx3@0.12")["r"], 3, "the rail's sections")
-        self.assertEqual(at("UPx3@0.12")["r"], 0)
-        self.assertTrue(at("RIGHT")["g"])
-        self.assertEqual(signals, ["close"], "no app launched, no menu, no search")
-
-
-@unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
-class SwitcherKeys(unittest.TestCase):
-    def test_the_walk_moves_between_the_cards_quits_nothing_and_closes(self):
-        helper = switcher_host.Switcher("test_reduced_motion_is_said_to_the_compositor")
-        apps = [{"id": "netflix", "title": "Netflix", "picture": "video", "state": ""},
-                {"id": "com.webos.app.discovery", "title": "LG Content Store", "picture": "live", "state": ""},
-                {"id": "com.webos.app.browser", "title": "Web Browser", "picture": "live", "state": ""}]
-        walk = walk_of(surface("switcher"))
-        steps = [(700, switcher_host.feed(apps, True), "opened")]
-        at = 1000
-        labels = []
-        for i, tok in enumerate(walk):
-            for k, pressed, repeat in events(tok):
-                if pressed:
-                    steps.append((at, "overlay.key(%s, true, %s, 0)" % (KEYS[k], str(repeat).lower()), "k%d" % len(steps)))
-                    at += 40
-            if events(tok):
-                steps.append((at, switcher_host.STATE, "after%d" % i))
-                labels.append((i, tok))
-                at += 150
-        got, out = helper.run_overlay(steps, at + 400)
-        self.assertEqual(got["after%d" % labels[0][0]].split()[0:2], ["true", "true"], "the walk starts with the switcher up and the keys in it")
-        by = {tok: got["after%d" % i] for i, tok in labels}
-        self.assertTrue(by["RIGHTx2@0.2"].startswith("true true card/2/"), "two cards along: %s" % by)
-        self.assertTrue(by["LEFTx2@0.2"].startswith("true true card/0/"), "left and right come back to the first card: %s" % by)
-        self.assertTrue(by["LEFT:700"].startswith("true true card/0/"), by)
-        ops = [o["op"] for o in helper.posts(out)]
-        self.assertEqual(ops[0], "layout")
-        self.assertNotIn("quit", ops)
-        self.assertNotIn("quitall", ops)
-        self.assertNotIn("activate", ops)
-        self.assertEqual(ops[-1], "close", "Back asks the compositor to close it (the overlay stays up until the compositor's feed says it is closed)")
-
-
-@unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
-class KeyboardKeys(unittest.TestCase):
-    def test_the_walk_across_the_keys_types_nothing_and_leaves_the_keyboard_up(self):
-        helper = keyboard_host.OwnKeyboard("test_hidden_the_keyboard_runs_nothing_and_the_system_layer_draws_no_frame")
-        s = keyboard_host.Script(keyboard_host.READY + 1000, gap=120)
-        for tok in walk_of(surface("keyboard-luma")):
-            if settle(tok):
-                s.at += int(float(tok[1:]) * 1000)
-                continue
-            for k, pressed, repeat in events(tok):
-                if pressed:
-                    s.args += keyboard_host.push(s.at, "imekey", {"k": k.lower(), "d": True, "r": repeat}) + \
-                        keyboard_host.push(s.at + 40, "imekey", {"k": k.lower(), "d": False, "r": False})
-                    s.at += 100 if repeat else 120
-            s.read(tok)
-        end = s.at + 600
-        rc, out = helper.host("--push", "%d:ime:%s" % (keyboard_host.READY, json.dumps(keyboard_host.FIELD)), *s.args, wait=end)
-        helper.clean(rc, out)
-        posts = helper.lines(out, "ime")
-        self.assertEqual([p["op"] for p in posts if p["op"] != "shown"], [], "no letter typed, nothing entered, the keyboard not put away")
-        got = helper.evals(out)
-        self.assertTrue(all(k["up"] for k in got.values()), "the keyboard is up after every step")
-        self.assertGreaterEqual(len({json.dumps(k.get("key")) for k in got.values()}), 2, "the focus moved over the keys")
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

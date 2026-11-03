@@ -1,10 +1,10 @@
 //! What LumaTV's compositor left behind when it was put out of the way: the crash notice Settings shows.
 //!
 //! When the supervisor (`compositor/sm/lumatv-sm.c`) hands the screen back to LG's compositor because of a problem (the compositor died, hung,
-//! or drew nothing the panel showed), it saves a bundle under `/var/lib/lumatv/crash/<time>-<n>/`: `reason.txt` (reason, kind, time, how long the
-//! compositor had run, failures counted), the compositor's last log lines, its own, the compositor's trace ring (what the loop did in its last
-//! seconds) and a few numbers of the system. `latest` names the newest bundle, `pending` the newest one a problem made that nobody has read. A
-//! hand-back the owner asked for (the hold-Home escape) leaves a bundle with kind `escape` and no `pending`.
+//! or drew nothing the panel showed), it saves a bounded diagnostic bundle under `/var/lib/lumatv/crash/<time>-<n>/`: `reason.txt`,
+//! the central RAM compositor/supervisor tails, the fixed trace ring snapshot and system metadata. The retained ordinary
+//! runtime logs stay in RAM; the existing eight crash archives remain separately budgeted diagnostics. `latest` and `pending`
+//! name the newest bundle and unread notice. A hand-back the owner asked for leaves kind `escape` and no `pending`.
 //!
 //! Settings > Support shows "LumaTV recovered from a problem" with a Details row while `pending` is there, and removes it when the owner has read
 //! it. Nothing here polls: the page asks when it opens.
@@ -18,12 +18,9 @@ use crate::API_VERSION;
 use crate::http::{Request, Response, error_response};
 use crate::timeutil::now_ms;
 use serde_json::{Value, json};
-use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_ROOT: &str = "/var/lib/lumatv/crash";
-/// The most of a file's end that is read, and the lines of it that are returned.
-const TAIL_BYTES: u64 = 32 * 1024;
 const TAIL_LINES: usize = 30;
 
 pub const ROUTES: &[(&str, &str, &str)] = &[
@@ -39,29 +36,17 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     ),
 ];
 
-/// The last `lines` lines of a file's last [`TAIL_BYTES`] bytes; none when it cannot be read.
-fn tail(path: &Path, lines: usize) -> Vec<String> {
-    let Ok(mut f) = std::fs::File::open(path) else {
-        return Vec::new();
-    };
-    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
-    let start = len.saturating_sub(TAIL_BYTES);
-    let mut bytes = Vec::new();
-    if f.seek(SeekFrom::Start(start)).is_err()
-        || f.take(TAIL_BYTES).read_to_end(&mut bytes).is_err()
-    {
-        return Vec::new();
-    }
-    let text = String::from_utf8_lossy(&bytes);
-    // The cut began inside a line: the first line is not whole.
-    let mut all: Vec<&str> = text.lines().collect();
-    if start > 0 && !all.is_empty() {
-        all.remove(0);
-    }
-    all[all.len().saturating_sub(lines)..]
-        .iter()
-        .map(|l| l.to_string())
-        .collect()
+fn trace_tail(path: &Path, lines: usize) -> Vec<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut file) = std::fs::File::open(path) else { return Vec::new(); };
+    let size = file.metadata().map_or(0, |meta| meta.len());
+    let start = size.saturating_sub(32768);
+    if file.seek(SeekFrom::Start(start)).is_err() { return Vec::new(); }
+    let mut bytes = [0u8; 32768];
+    let Ok(n) = file.read(&mut bytes) else { return Vec::new(); };
+    let text = String::from_utf8_lossy(&bytes[..n]);
+    let all: Vec<_> = text.lines().skip(usize::from(start > 0)).collect();
+    all[all.len().saturating_sub(lines)..].iter().map(|line| (*line).to_owned()).collect()
 }
 
 /// The value of `key: value` in a `reason.txt`.
@@ -121,8 +106,8 @@ pub fn latest(root: &Path) -> Option<Value> {
         "uptimeSecs": field(&reason, "compositor uptime").and_then(|v| v.trim_end_matches(" s").parse::<u64>().ok()),
         "failures": field(&reason, "failures").and_then(|v| v.parse::<u64>().ok()),
         "path": dir.display().to_string(),
-        "log": tail(&dir.join("compositor.log.tail"), TAIL_LINES),
-        "trace": tail(&dir.join("trace.txt"), TAIL_LINES),
+        "log": trace_tail(&dir.join("compositor.log.tail"), TAIL_LINES),
+        "trace": trace_tail(&dir.join("trace.txt"), TAIL_LINES),
         "count": count(root),
     }))
 }
@@ -239,11 +224,7 @@ mod tests {
         );
         let log = c["log"].as_array().unwrap();
         assert_eq!(log.len(), TAIL_LINES);
-        assert_eq!(
-            log.last().unwrap(),
-            "[srv 50.000] info line 50",
-            "the newest lines, the last one last"
-        );
+        assert_eq!(log.last().unwrap(), "[srv 50.000] info line 50");
         assert_eq!(c["trace"].as_array().unwrap().len(), 2);
         assert!(c["path"].as_str().unwrap().ends_with("20261028-031244-001"));
         let _ = fs::remove_dir_all(&root);

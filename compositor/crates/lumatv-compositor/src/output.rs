@@ -206,6 +206,15 @@ pub trait Output {
         Vec::new()
     }
 
+    /// Applies the Rust Home state snapshot to its UI engine.
+    fn ui_state(&mut self, _state: &serde_json::Value) -> bool { false }
+
+    /// Protects caption pixels from the system popup in the next frame.
+    fn ui_set_exclusion(&mut self, _area: Option<crate::Rect>) {}
+
+    /// Identifies the foreground root with an authoritative subtitle report.
+    fn ui_set_standin_root(&mut self, _root: Option<crate::surface::SurfaceId>) {}
+
     /// Takes in system UI requests, including changes that do not damage any application window.
     fn ui_needs_frame(&mut self) -> io::Result<bool> {
         Ok(false)
@@ -344,6 +353,9 @@ pub trait Output {
     fn set_refresh(&mut self, hz: u32) -> io::Result<u32> {
         Ok(hz)
     }
+
+    /// Clear only refresh measurements, without changing output timing.
+    fn reset_refresh_measure(&mut self) {}
 
     /// The refresh mode's measure since the last switch (`refresh::Measure::report`), for `ctl refresh`; `None` without flips.
     fn refresh_report(&self) -> Option<serde_json::Value> {

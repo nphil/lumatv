@@ -37,13 +37,13 @@ most SOAK_TRACE_MAX so the ring never overflows. Exit status 0 only when every c
 Home must be on screen when the gate starts. The set needs python3 for kb.py; kb.py and
 capture.sh are copied to /tmp on the set at the start, so nothing else has to be installed.
 
-Screens walked with the D-pad and apps launched from Home (`settings-scroll`, `apps-grid`, `home-widgets`, `switcher`, `keyboard-luma`, `keyboard-lg`,
+Screens walked with the D-pad and apps launched from Home (`settings-scroll`, `apps-grid`, `home-widgets`, `switcher`, `keyboard`,
 `transitions-netflix`, `transitions-settings`; named with --surfaces, under LumaTV's compositor, Home at rest in front) run on the owner's own Home
 layout, which they never ask to be reset: they reach Settings through the quick panel, a dock tile by its number key (its place read off the dock's own
 list) and Home's top by keys that clamp. They put Home's focus in a known place before every cycle (`prep`, a window of its own), are timed from the key
 that enters the screen and hold the whole walk in the open window: the same bars as every surface, the burst-end check off, and the key-to-first-frame
 check off for a launch, whose first frame is the app's resume. A surface that needs a setting for its run (`switches`: the app switcher, the number
-keys, smooth transitions, which keyboard serves a field) sets it, reads it back at the end whatever happened and fails if it is not the owner's again;
+keys, smooth transitions) sets it, reads it back at the end whatever happened and fails if it is not the owner's again;
 `transitions-*` also read the compositor's counters (`ctl transitions`) around the measured cycles. Errors that another app's own QML logs (LG
 Search's) are not counted against a surface; at 120 Hz the shell's `[FrameMotion]` lines are read from the same log and printed as `slides:`.
 tv_gate.py runs them in its frames check: all of them by default, the ones that start no app (and change a setting only when the number keys are off or Quick Access on) with --frames-quick.
@@ -141,7 +141,7 @@ SWITCHER_TEARDOWN = app_gone(*[a for a, _ in SWITCHER_APPS])
 
 # What the surfaces switch for a run (a surface's `switches`: {name: value}). The gate reads the value first, sets the one the surface needs and
 # puts the one it read back at the end, whatever happened: `read(sh)` the current value, `write(sh, value)` the new one, `wait_s` how long the set
-# takes to act on it (Home reads theme.json every 2 s, the compositor once a second; the keyboard flag is read at every field).
+# takes to act on it (Home reads theme.json every 2 s, the compositor once a second).
 
 
 def _tool_json(sh, args):
@@ -168,12 +168,6 @@ def _read_app_switcher(sh):
 def _read_transitions(sh):
     return bool(_tool_json(sh, 'transitions status')['transitions']['on'])
 
-
-def _read_keyboard(sh):
-    who = _tool_json(sh, 'keyboard status')['keyboard']
-    if who not in ('luma', 'lg'):
-        raise RuntimeError(f'lumatv keyboard status says {who!r}')
-    return who
 
 
 def _write_flag(sh, args):
@@ -204,8 +198,6 @@ SWITCHES = {
                      'write': lambda sh, on: _theme_set(sh, {'remote': {'quickAccess': {'on': bool(on)}}})},
     'transitions': {'read': _read_transitions, 'wait_s': 3,
                     'write': lambda sh, on: _write_flag(sh, 'transitions ' + ('on' if on else 'off'))},
-    'keyboard': {'read': _read_keyboard, 'wait_s': 0,
-                 'write': lambda sh, who: _write_flag(sh, f'keyboard {who}')},
 }
 NUMBER_KEYS = {'number-keys': True, 'quick-access': False}      # what a surface that presses a dock tile's number key switches (see QUICK_PANEL_FOOT's note)
 
@@ -261,8 +253,6 @@ KEYBOARD_WALK = 'RIGHTx6@0.12 DOWNx2@0.12 LEFTx6@0.12 UPx2@0.12 RIGHT:900 s0.2 L
 # full_budget_s seconds one full capture may hold (default FULL_TRACE_BUDGET_S): less over playback, where the ring fills faster
 # thresholds    per-surface overrides of THRESHOLDS; None switches a check off
 # inputs_free   verify that teardown released every input decoder port and input app
-OVERLAYS_ON = [TOOL + " theme set '{\"overlays\":{\"enabled\":true}}'", 'sleep 3']
-OVERLAYS_OFF = [TOOL + " theme set '{\"overlays\":{\"enabled\":false}}'"]
 SURFACES = [
     {'name': 'home-idle', 'still': False,
      'open': '@home-idle-open s3', 'close': '@home-idle-close', 'settle_s': 3,
@@ -332,7 +322,7 @@ SURFACES = [
      'transition': False, 'soak': False,
      'thresholds': {'burst_end_ms': None}},
     # The screens of LumaTV's shell walked with the D-pad, one cycle a surface (`--surfaces settings-scroll,apps-grid,home-widgets,switcher,
-    # transitions-netflix,transitions-settings,keyboard-luma,keyboard-lg`, LumaTV's compositor, Home at rest in front), on the owner's own Home layout:
+    # transitions-netflix,transitions-settings,keyboard`, LumaTV's compositor, Home at rest in front), on the owner's own Home layout:
     # none counts on where a card, a status bar item or a dock tile is (see HOME_TOP, QUICK_PANEL_FOOT and the dock's number keys above). Each
     # ends on Home. The window of a walk is the key that enters the screen (first frame within 50 ms), the walk and the way out, so the frames over
     # 20 ms inside a running animation and the p90 of the render cost are those of everything the walk moves; a walk's burst never ends at a point
@@ -390,15 +380,9 @@ SURFACES = [
      'open': '@transitions-settings-open OK', 'close': '@transitions-settings-close BACK', 'settle_s': 3, 'close_settle_s': 2,
      'ctl_transitions': True, 'app_retries': 0,
      'thresholds': {'first_frame_ms': None, 'burst_end_ms': None}},
-    # `keyboard-luma`, `keyboard-lg`: LG's Search app with its keyboard up (setup opens it cold, the keyboard comes with it), the D-pad across the keys
-    # with taps and held keys, down to the bottom rows and back; OK is never pressed, so nothing is typed. The same walk is measured with the keyboard
-    # LumaTV's shell draws (`lumatv keyboard luma`) and with LG's maliit (`keyboard lg`), each put back to the owner's at the end. First frame
-    # within 50 ms as for every key; LG's keyboard is a process of its own whose drawing the capture counts as an app's, so it is not measured again.
-    {'name': 'keyboard-luma', 'default': False, 'switches': {'keyboard': 'luma'}, 'setup': KEYBOARD_SETUP, 'teardown': VOICE_TEARDOWN,
-     'open': '@keyboard-luma-open ' + KEYBOARD_WALK, 'close': '@keyboard-luma-close', 'settle_s': 0.5, 'close_settle_s': 0.5,
-     'transition': False, 'thresholds': {'burst_end_ms': None}},
-    {'name': 'keyboard-lg', 'default': False, 'switches': {'keyboard': 'lg'}, 'setup': KEYBOARD_SETUP, 'teardown': VOICE_TEARDOWN,
-     'open': '@keyboard-lg-open ' + KEYBOARD_WALK, 'close': '@keyboard-lg-close', 'settle_s': 0.5, 'close_settle_s': 0.5,
+    # Search opens the stock LG keyboard. Walk without typing; its frames belong to LG's process.
+    {'name': 'keyboard', 'default': False, 'setup': KEYBOARD_SETUP, 'teardown': VOICE_TEARDOWN,
+     'open': '@keyboard-open ' + KEYBOARD_WALK, 'close': '@keyboard-close', 'settle_s': 0.5, 'close_settle_s': 0.5,
      'transition': False, 'app_retries': 0, 'thresholds': {'burst_end_ms': None}},
     # The gallery is built by the theme flag, not by a key (Home polls theme.json within 2 s), and
     # BACK turns the flag off again. Each cycle sets it, waits for the build, then times the first
@@ -416,21 +400,6 @@ SURFACES = [
      'thresholds': {'burst_end_ms': 300.0}},
     {'name': 'alert', 'default': False, 'delivery': True,
      'open': '@alert-open !alert', 'close': '@alert-close OK', 'settle_s': 2.5},
-    # The overlay cards over a film and over an input (`--surfaces overlay-netflix,overlay-hdmi`, docs/research/overlays-result.md): `overlays.enabled`
-    # is set for the run, a card is made through the door file (`!overlay` in kb.py: a timer that finished) and BACK dismisses it once it has been up
-    # 0.6 s. LumaOverlay reads the door once a second, so the first frame is not timed from the write; the burst (the fade in, 180 ms) and the frames
-    # over 20 ms while the card is up and while it goes are what is judged, and with the app playing the playback must not stutter.
-    {'name': 'overlay-netflix', 'default': False, 'setup': OVERLAYS_ON + NETFLIX_SETUP, 'teardown': NETFLIX_TEARDOWN + OVERLAYS_OFF,
-     'open': '@overlay-netflix-open !overlay', 'close': '@overlay-netflix-close BACK', 'settle_s': 3.5, 'close_settle_s': 1, 'transition': False,
-     'full_budget_s': NETFLIX_FULL_BUDGET_S, 'thresholds': {'first_frame_ms': None}},
-    {'name': 'overlay-hdmi', 'default': False, 'setup': OVERLAYS_ON + HDMI_SETUP, 'teardown': HDMI_TEARDOWN + OVERLAYS_OFF,
-     'open': '@overlay-hdmi-open !overlay', 'close': '@overlay-hdmi-close BACK', 'settle_s': 3.5, 'close_settle_s': 1, 'transition': False,
-     'inputs_free': True, 'thresholds': {'first_frame_ms': None}},
-    {'name': 'kit-gallery',
-     'setup': [TOOL + " theme set '{\"kitGallery\":true}'", 'sleep 3'],
-     'teardown': [TOOL + " theme set '{\"kitGallery\":false}'"],
-     'reopen': [TOOL + " theme set '{\"kitGallery\":true}'"], 'reopen_wait_s': 3,
-     'open': '@kit-gallery-open DOWN', 'close': '@kit-gallery-close BACK', 'settle_s': 1.5},
 ]
 
 SURFACE_DEFAULTS = {'setup': [], 'teardown': [], 'reopen': [], 'reopen_wait_s': 0, 'settle_s': 1.0, 'close_settle_s': None,
@@ -488,7 +457,7 @@ PAGE_KB = 4
 
 # A line of /var/log/messages that matches any of these fails the surface. The QML ones count only from our processes (LOG_OWN_PROGRAM_RE): LG's
 # apps that the gate drives (Search, Settings, the Content Store) log their own QML warnings there (LG Search's `SearchView.qml:294:13: Unable to
-# assign [undefined] to QQuickItem*`, which round 15 counted against `keyboard-luma`), and a surface is not failed for another app's code.
+# assign [undefined] to QQuickItem*`), and a surface is not failed for another app's code.
 LOG_QML_PATTERNS = [r'TypeError', r'ReferenceError', r'is not a type', r'Binding loop', r'Unable to assign', r'Cannot assign', r'ShaderEffectSource']
 LOG_ANY_PROCESS_PATTERNS = [r'\[LumaKeys\].*failed', r'\[LumaHome\].*(invalid|unreadable|failed)', r'crash', r'segfault']
 LOG_FAIL_PATTERNS = LOG_QML_PATTERNS + LOG_ANY_PROCESS_PATTERNS
@@ -599,6 +568,8 @@ def find(names, entries=None, values=None):
     table = {e['name']: e for e in (SURFACES if entries is None else entries)}
     out = []
     for n in names:
+        if entries is None and n in ('overlay-netflix', 'overlay-hdmi'):
+            raise ValueError(f'{n}: native overlay cards require plugin-broker records; the control socket has no card injection command')
         if n not in table:
             raise ValueError(f'unknown surface {n!r}; known: {", ".join(table)}')
         out.append(fill(surface(table[n]), values or {}))

@@ -1,16 +1,16 @@
 # LumaTV
 
-Liquid glass home screen for rooted LG webOS TVs. Reskins the stock LG webOS 10 Home screen with a compositor-level "liquid glass" material design, generated abstract wallpaper, and a decluttered home layout.
+LumaTV provides a native liquid-glass home screen for rooted LG webOS TVs.
 
 EXPERIMENTAL - TRY AT YOUR OWN RISK!
 
 ## Features
 
-- **Liquid glass theme**: Layered glass aesthetic with Rose Pine color palette, applied at the compositor level for seamless integration
-- **Abstract wallpaper**: Generated dynamic wallpaper displayed through a transparent Home screen
-- **Decluttered layout**: LG's network-loaded recommendation shelf and Q-card row are removed, which is also the single biggest responsiveness win; the hero strings are blanked so the clock and weather widgets own that space
+- **Liquid glass theme**: Native Home, panels and settings share a layered glass design
+- **Abstract wallpaper**: Generated wallpaper for the native Home screen
+- **Home layout**: Configurable cards, widgets and app dock
 - **Survives reboots**: an opt-in Homebrew Channel boot hook re-applies the mod after every restart. It does **not** survive a firmware update - an update replaces the system partitions, after which you re-apply from the app (one button)
-- **Non-destructive**: every change is a bind mount over a read-only file plus a private copy under `/var/lib/lumatv`. No system file is ever written, and `Revert to stock` removes all of it
+- **Reversible**: compositor changes use bind mounts and private copies. The optional wake policy changes configd separately; `wake off` restores its previous settings.
 
 ## Requirements
 
@@ -44,12 +44,17 @@ EXPERIMENTAL - TRY AT YOUR OWN RISK!
    ```
 4. The app appears in the Homebrew Channel; launch it to apply the mod
 
+Helper updates require the matching `tools/lumatv`: apply, boot and `helper start` atomically remove the obsolete
+`helper.json` field `log.maxBytes` before running the new helper. Other configuration bytes, permissions and ownership stay
+intact; invalid JSON or a detected configuration change stops startup without overwriting the file. Product configuration
+writers share a lock on the data directory; arbitrary external editors do not participate in that lock.
+
 ## Usage
 
 Launch **LumaTV** from the Homebrew Channel. The app provides:
 
-- **Apply**: Install the mod (mounts compositor QML and Home app assets, restarts services)
-- **Revert**: Remove the mod (unmounts everything, unregisters the key filter, restarts services)
+- **Apply**: Apply LumaTV and start an installed native compositor bundle
+- **Revert**: Restore stock LG Home and remove LumaTV overlays
 - **Persist** (on/off): Keep the mod applied across reboots (persists state to `/var/lib/lumatv/`, and installs the early boot hook described below)
 - **Instant on** (on/off): Stay in RAM while off so power-on is instant with the mod already up, or power fully down (see Standby below)
 - **FPS** (on/off): Enable compositor FPS debug overlay (for development)
@@ -59,39 +64,14 @@ Launch **LumaTV** from the Homebrew Channel. The app provides:
 
 ## How It Works
 
-The compositor draws the Home screen; the stock Home app stays resident
-underneath as a placeholder.
+The native compositor uses the Rust UI for all 22 shell kinds. The compositor
+bundle is installed separately from the IPK. Startup and runtime failures
+return to stock LG Home. Project QML frontends and restyles are not shipped;
+ownership-checked restoration removes previous LumaTV overlays.
 
-### 1. Compositor layer
+### Theme
 
-`surface-manager` resolves QML modules through `QML2_IMPORT_PATH`. The tool
-keeps a shadow copy of the `WebOSCompositor` module under `/var/lib/lumatv/qml`
-with two changes and points the compositor at it through its optional
-environment file:
-
-- `views/fullscreen/StarfishFullscreenContainer.qml` is stock plus one
-  `Loader` that instantiates `lumatv/LumaHome.qml` while Home is the
-  container's app.
-- `lumatv/` holds the Home itself: wallpaper, the glass material (one
-  cached blur of the wallpaper sampled by single-quad shaders for cards,
-  tiles and the status bar), the status bar, the widget grid (clock, Home
-  Assistant, news, weather) and the app dock. The layer animates with
-  transforms and shader uniforms only; nothing runs per frame while idle.
-
-Remote keys arrive through `payload/keyfilter/lumatv.js`, which the tool
-registers in configd's `com.webos.surfacemanager.keyFilters` list; the stock
-key filter loads every entry of that list and picks up changes live. The
-Magic Remote pointer arrives as ordinary QtQuick mouse events.
-
-### 2. Theme
-
-`/var/lib/lumatv/theme/` is a self-contained package: `theme.json`
-(material tokens, accent, radii, blur, motion, tile rules, widget settings),
-`layout.json` (safe area, column grid with row heights, status bar items,
-widget entries with col/row/span/rows) and the assets they reference
-(wallpaper, fonts, icons, widget QML). Changes reload within 2 s without a
-compositor restart. Widget types resolve to a built-in, a `.qml` file in the
-theme directory, or an installed pack under `/var/lib/lumatv/widgets/`.
+`/var/lib/lumatv/theme/` holds the theme and Home layout configuration.
 
 The owner's `layout.json` holds only what differs from the shipped one, and is written by Settings › Home & look › Home widgets, by the
 layout editor on Home (hold OK on a card) and by `lumatv layout get|check|put|set|reset`. A card has `id`, `type`, `col`, `row`, `span`
@@ -100,43 +80,44 @@ losing its place. `lumatv layout reset` is the way back to the shipped layout.
 
 Nitin and Isabel have a profile each (`docs/research/profiles-design.md`): the helper keeps each person's look, cards, dock and quick panel in
 `profiles/<id>/` and puts the active person's part into these files when the profile is switched (`/v1/profiles/switch`). Which keys are a person's
-and which the household's is `payload/compositor/lumatv/profile-scope.json`.
+and which the household's is `compositor/assets/ui/profile-scope.json`.
 
-### 3. Home app assets (`/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets`)
-
-A bind mount of a merged copy of the stock assets with a decluttered
-`home.xml`, blank hero banners and adjusted strings, so the placeholder Home
-paints nothing that could show through.
+The stock LG Home app remains the fallback.
 
 The mod state and configuration live in `/var/lib/lumatv/`, which persists across reboots if persistence is enabled.
+An interrupted maintenance transaction blocks boot activation and configuration migration through
+`/var/lib/lumatv/maintenance`. Status reads and human off, revert and Home-hold escape remain available;
+the interruption marker and root-private rollback copies remain until reviewed recovery completes.
 
-### 4. Home stub (optional, over SSH)
-
-`lumatv homestub on` replaces LG's Flutter Home with a blank web app of the
-same id, bound over its directory, so the compositor-drawn Home is the only
-Home (one 32 MB renderer instead of a 72-80 MB process). It starts a 120 s
-trial: press OK on the toast, or run `lumatv homestub confirm`, to keep it,
-otherwise it reverts itself. `off` and `revert` remove it. A guard process
-gives LG's Home back within about 6 s if the Home layer stops drawing, and
-holding Home for 650 ms anywhere does the same by hand until the next apply
-or reboot. `lumatv homestub status` reports its state.
-
-### Boot timing
-
-The set resumes a hibernation image rather than cold-booting, and the
-compositor inside it starts at 2.63s. It cannot load the modded QML: `/var`
-does not show the writable filesystem until `mount-readwrite.service` at
-12.96s, so the compositor unit's optional `EnvironmentFile` under `/var` is
-not a path that exists yet. One compositor restart per boot is therefore
-structural, and ~13s is the floor for applying anything.
-
-With persistence on, the apply runs from a PATH shim in front of `grep` for
-`kdump.service` (starts 14.2s) rather than waiting for Homebrew Channel's
-`init.d` run-parts at ~33s. The modded home reaches the panel at ~33s, and
-stock Home never paints first. Homebrew Channel's hook remains as the
-fallback if the early apply fails.
 
 ### Standby
+
+`lumatv wake on` stages an experimental, opt-in policy to restore the last
+foreground app on ordinary wake and power-on; `wake off` restores the previous
+reason list and policy, and `wake status` reports the configured state. The
+existing detached boot worker reloads the owned policy after boot bindings,
+then uses the existing destination landing and apply path before final checks.
+Fresh worker and activation tokens bind acceptance to the actual foreground,
+not a potentially stale native `firstAppId`. Native explicit input/app choices
+retain priority. The lifecycle commands `stage`, `trial`, `persist`, the phased
+`boot-check` and `commit` are internal.
+
+The runtime trial accepts native log truncation only when the latest bootd
+start timestamp falls within the trial's monotonic-clock window and both
+policy loaders name the owned policy. Failures retain per-check observations
+and requested/observed configuration values before restoring stock settings.
+Factory settings override temporary values on this firmware. The trial removes
+only stock-valued Factory overrides after checking that the underlying defaults
+remain stock after power loss. Recovery restores Factory before temporary values.
+
+Acceptance uses fresh native policy-load records, actual foreground and activation-specific
+boot reports. The staged cold-start check must pass before `wake commit`; renderer health alone does not establish a destination pass.
+`wake off` is separate from `lumatv revert`. When the original policy path was
+absent, rollback sets
+the explicit stock path instead: its behavior is stock, but the setting's
+metadata differs from an absent value. A future firmware change may require
+removing that override and rebasing the owned policy. Unsupported native
+policies are rejected rather than replaced.
 
 A full boot only happens when the set has gone cold. After power-off it
 enters active standby with RAM alive, and a power-on from there is instant,
@@ -164,7 +145,7 @@ off regardless because the crash is silent and costs a cold boot.
 
 ## Firmware Compatibility
 
-The mod is **developed and tested on webOS 10.2.1** (build 5202, Rockhopper chassis). Compatibility with other webOS 10 releases depends on the layout of the compositor QML and Home app structure; a firmware update may break the mod (the TV will still boot and work normally without the mod applied).
+The mod is developed and tested on webOS 10.2.1 (build 5202, Rockhopper chassis). Other firmware releases may require changes.
 
 To re-apply after a firmware update:
 1. Launch LumaTV in the Homebrew Channel
@@ -174,19 +155,12 @@ To re-apply after a firmware update:
 
 ### Mod not appearing on screen after apply
 
-- Check **Status** in the app: ensure "Applied: yes" and all three mounts are present
-- Restart the Home app: swipe up on the home screen or open another app then return
-- If compositing still looks wrong, check **Log** for errors; try **Revert** then **Apply** again
+- Check **Status** and **Log** in the app for errors.
+- Use **Revert** to return to stock LG Home.
 
 ### TV appears stuck/frozen after apply
 
-- Revert the mod via the Homebrew Channel → LumaTV → **Revert** (this unmounts everything)
-- Or SSH in and manually: `pkill -f surface-manager-daemon; pkill -f com.webos.app.home; systemctl restart surface-manager-daemon`
-
-### Black/corrupt wallpaper on screen
-
-- The wallpaper must be copied to `/tmp/hx/wall_1080.png` before the compositor starts; check app **Log** for copy errors
-- If persisting across reboots, verify `/var/lib/webosbrew/init.d/50-lumatv` exists and is executable
+- Revert the mod via the Homebrew Channel → LumaTV → **Revert**.
 
 ## Building
 
@@ -202,7 +176,7 @@ To re-apply after a firmware update:
 sh tools/build-ipk.sh
 ```
 
-This outputs `org.nphil.lumatv_0.1.0_all.ipk` and validates its structure.
+The builder names the IPK from the app version and validates its structure.
 
 ### Generate Manifest
 
@@ -214,13 +188,10 @@ Creates a `manifest.json` with package metadata for the Homebrew Channel.
 
 ### Branding
 
-Every name comes from `brand.json`: display name, short id, app id, data dir and
-QML module directory. Sources carry `{{displayName}}`, `{{shortId}}`, `{{appId}}`,
-`{{dataDir}}` and `{{qmlModule}}` placeholders; `tools/build-ipk.sh` fills them in on the
-staged copy, names the ipk, the tool, the QML module directory, the key filter
-and the stylesheet from the file, and ships it so the on-TV tool and boot hook
-read the same names. Renaming the project means editing `brand.json` and, if
-the repository moved, its `repo` entry.
+Names come from `brand.json`. The IPK builder fills branding placeholders in
+the staged copy and ships the branding file for the on-TV tools.
+Renaming the project means editing `brand.json` and, if the repository moved,
+its `repo` entry.
 
 Sets that ran the project as LumaGlass (data in `/var/lib/lumaglass`) are moved
 over by the first run of the new tool: data, boot hooks and env files follow, and
@@ -250,7 +221,7 @@ rest on.
 
 The mod is completely non-destructive:
 
-- **Revert**: Launch LumaTV → **Revert** (removes all mounts, unregisters the key filter, restarts compositor)
+- **Revert**: Launch LumaTV → **Revert** to restore stock LG Home.
 - **Uninstall**: Revert first, then remove the app from Homebrew Channel (or via `ipk-uninstall` on SSH)
 
 After revert, the TV returns to stock appearance and behavior; no system files were modified.

@@ -149,6 +149,7 @@ fn add_rows(c: &Ctx, rows: &mut Vec<Row>, have: &[Value]) {
             prompt: "Search shared things".into(),
             text: q.clone(),
             secret: false,
+            purpose: crate::panels::ime::PURPOSE_NORMAL,
             then: Rc::new(move |t| {
                 let t = t.trim().to_owned();
                 vec![Op::Set("q".into(), json!(t)), Op::Set("offset".into(), json!(0)), ask(&t, &aarea, &agroup, 0)]

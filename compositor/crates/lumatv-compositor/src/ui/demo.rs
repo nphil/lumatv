@@ -31,6 +31,8 @@ fn card(backdrop: Backdrop, tint: Rgba) -> Glass {
         backdrop,
         saturation: 1.2,
         refraction: 0.0,
+        edge_lens: None,
+        tint_gradient: None,
     }
 }
 

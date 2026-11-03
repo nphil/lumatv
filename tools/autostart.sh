@@ -36,17 +36,21 @@ APPDIR=$(cd "$(dirname "$self")/.." 2>/dev/null && pwd)
 brand_load "$APPDIR/brand.json" 2>/dev/null || exit 0
 
 STATE="$BRAND_DATA_DIR"
-LOG="$STATE/log"
+# A durable transaction directory blocks boot after interrupted promotion.
+maintenance_clear() {
+  [ ! -e "$STATE/maintenance" ] && [ ! -L "$STATE/maintenance" ]
+}
+maintenance_clear || exit 0
 # Per-boot, so it lives in tmpfs: the pid of whichever hook is applying.
 WORKER_MARK="/tmp/.$BRAND_SHORT_ID-worker"
 CLI="$APPDIR/tools/$BRAND_SHORT_ID"
 
 log() {
-  mkdir -p "$STATE" 2>/dev/null
-  # The uptime is the boot's monotonic clock: the wall clock is not set for the first seconds, and the log's
-  # own stamps say nothing about how far into the boot a step was.
-  read -r up_s _ < /proc/uptime 2>/dev/null
-  echo "$(date '+%Y-%m-%d %H:%M:%S') boot: [up ${up_s:-?} s] $1" >> "$LOG" 2>/dev/null
+  # Early boot can precede the collector. Drop those records rather than hold up boot.
+  (
+    read -r up_s _ < /proc/uptime 2>/dev/null
+    python3 "$APPDIR/tools/logrelay.py" send lumatv-tool "$(date '+%Y-%m-%d %H:%M:%S') boot: [up ${up_s:-?} s] $1"
+  ) </dev/null >/dev/null 2>&1 &
 }
 
 # Never let anything below abort the boot path.
@@ -57,97 +61,86 @@ if [ ! -x "$CLI" ]; then
   exit 0
 fi
 
-# Honour the opt-in flag as well as the symlink's presence.
-if ! grep -q '"persist"[[:space:]]*:[[:space:]]*true' "$STATE/config.json" 2>/dev/null; then
-  log "persist disabled in config, skipping"
+# Native compositor enable is independent of the legacy persist preference.
+if [ ! -f "$STATE/compositor/enabled" ] && ! grep -q '"persist"[[:space:]]*:[[:space:]]*true' "$STATE/config.json" 2>/dev/null; then
+  log "startup disabled, skipping"
   exit 0
 fi
 
 # --worker: the detached half, run by whichever hook got here first.
-#
-# homestub-boot first, when the Home stub is switched on: LG's Home must not
-# start (bootd opens it about 14 s into a power-on, the hook runs at 12-14 s),
-# so the stub goes over its directory before anything else is done. Then
-# boot-bind, so the binds are live within a second; then boot-restart, which
-# restarts the compositor because its first start at boot+2.6s cannot
-# see our EnvironmentFile - nothing writable is mounted on /var until
-# mount-readwrite.service at ~13s; then the full apply, which restarts it only
-# if boot-restart did not. The early hook (a PATH shim on
-# kdump.service, 14.2s) gets here about 19s before Homebrew Channel's
-# run-parts does, which is the whole difference between a boot that shows
-# stock Home and one that does not.
 if [ "$1" = "--worker" ]; then
-  # Claimed before any work, not after: the late hook fires while the early
-  # apply is still running, and a marker written only on success let it start
-  # a second apply that then took the "previous boot never completed"
-  # failsafe path, because boot-ok had not been written yet either.
+  maintenance_clear || exit 0
+  # Claim before work so the second boot hook cannot start a competing worker.
   echo $$ > "$WORKER_MARK" 2>/dev/null
-  # Tells apply it is on the boot path: never force the panel on.
+  # Boot preparation must not force the panel on.
   LUMA_BOOT=1; export LUMA_BOOT
+  LUMATV_WAKE_TOKEN=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-')
+  export LUMATV_WAKE_TOKEN
   # LG's system-update block (the Homebrew Channel's flag and its four /etc/hosts names) goes first of all, in parallel with the
   # rest: the channel's own startup.sh binds it at +27 s, the network is up at +22.7 s and the update check runs then, which raised
   # LG's "update now?" alert on the cold boot of 2026-10-29. Only while the channel's flag is set; it does nothing otherwise.
   if [ -x "$APPDIR/tools/declutter.sh" ]; then
-    ( ub=$(timeout 20 "$APPDIR/tools/declutter.sh" updateblock early </dev/null 2>&1); log "update block early: $(echo "$ub" | tr -d '\n' | cut -c1-300)" ) &
+    ( maintenance_clear || exit 0; ub=$(timeout 20 "$APPDIR/tools/declutter.sh" updateblock early </dev/null 2>&1); log "update block early: $(echo "$ub" | tr -d '\n' | cut -c1-300)" ) &
   fi
   # LG's ad, recognition and upload pieces start from +11.8 s (the push client), +16.9 s (pbs) and +18.7 s (the content miner), and
   # the network comes up at about +17.5 s: declutter's early step goes first and in parallel with everything below, so that nothing
   # waits for the Home stub or the compositor. Bounded; it only reports that no group is on when none is.
   if [ -x "$APPDIR/tools/declutter.sh" ]; then
-    ( de=$(timeout 20 "$APPDIR/tools/declutter.sh" early </dev/null 2>&1); log "declutter early: $(echo "$de" | tr -d '\n' | cut -c1-300)" ) &
+    ( maintenance_clear || exit 0; de=$(timeout 20 "$APPDIR/tools/declutter.sh" early </dev/null 2>&1); log "declutter early: $(echo "$de" | tr -d '\n' | cut -c1-300)" ) &
   fi
   # The logo check's frames (tools/bootcap.sh): `echo <seconds> > $STATE/bootcap` before a reboot.
   # One boot only, and detached like everything else here.
   if [ -f "$STATE/bootcap" ] && [ -x "$APPDIR/tools/bootcap.sh" ]; then
+    maintenance_clear || exit 0
     bc_secs=$(cat "$STATE/bootcap" 2>/dev/null)
     rm -f "$STATE/bootcap"
     setsid "$APPDIR/tools/bootcap.sh" "$bc_secs" "/tmp/$BRAND_SHORT_ID-bootcap" </dev/null >/dev/null 2>&1 &
     log "boot capture of ${bc_secs}s started"
   fi
-  hs=$("$CLI" homestub-boot 2>&1)
-  log "homestub-boot: $(echo "$hs" | tr -d '\n' | cut -c1-200)"
-  # LumaTV's own compositor, when it is enabled: the supervisor goes over LG's binary here, before the
-  # restart that apply makes, so that restart starts it. A set that never enabled it answers "off".
-  cb=$("$CLI" compositor-boot 2>&1)
-  log "compositor-boot: $(echo "$cb" | tr -d '\n' | cut -c1-200)"
-  bb=$("$CLI" boot-bind 2>&1)
-  log "boot-bind: $(echo "$bb" | tr -d '\n' | cut -c1-200)"
-  # The compositor's restart, as soon as boot-bind has the set in place and before apply's preparation; the panel
-  # shows the last input until it, and apply used to reach it at ~55 s. When it found a shader that does not compile it
-  # has reverted the set to stock, and apply must not put it back this boot.
-  br=$("$CLI" boot-restart 2>&1)
-  log "boot-restart: $(echo "$br" | tr -d '\n' | cut -c1-200)"
-  case "$br" in
-    *'auto-reverted to stock'*) exit 0 ;;
-  esac
-  out=$("$CLI" apply 2>&1)
-  case "$out" in
-    *'"ok":true'*)
-      log "apply ok"
-      "$CLI" boot-ok >/dev/null 2>&1
-      ;;
-    *)
-      log "apply failed: $(echo "$out" | tr -d '\n' | cut -c1-300)"
-      # Let run-parts still have its go: the net is the whole point of it.
-      rm -f "$WORKER_MARK" 2>/dev/null
-      ;;
+  cb=$("$CLI" compositor-boot 2>&1); cb_rc=$?
+  log "compositor-boot ($cb_rc): $(echo "$cb" | tr -d '\n' | cut -c1-200)"
+  case "$cb_rc:$cb" in
+    0:*'"compositor":"mounted"'*|0:*'"compositor":"already"'*)
+      case "$cb" in
+        *'"standby":true'*)
+          ca=$(timeout 240 "$CLI" compositor-boot activate standby </dev/null 2>&1); ca_rc=$?
+          log "compositor standby activation ($ca_rc): $(echo "$ca" | tr -d '\n' | cut -c1-200)"
+          if [ "$ca_rc" -eq 0 ]; then echo done > "$WORKER_MARK" 2>/dev/null; else rm -f "$WORKER_MARK" 2>/dev/null; fi
+          ;;
+        *)
+      wc=$(timeout 240 "$CLI" wake boot-check prepare "$LUMATV_WAKE_TOKEN" </dev/null 2>&1); wc_rc=$?
+      log "wake prepare ($wc_rc): $(echo "$wc" | tr -d '\n' | cut -c1-200)"
+      if [ "$wc_rc" -eq 0 ]; then
+        ca=$(timeout 240 "$CLI" compositor-boot activate </dev/null 2>&1); ca_rc=$?
+        log "compositor activation ($ca_rc): $(echo "$ca" | tr -d '\n' | cut -c1-200)"
+        if [ "$ca_rc" -eq 0 ]; then
+          wc=$(timeout 45 "$CLI" wake boot-check finalize "$LUMATV_WAKE_TOKEN" </dev/null 2>&1); wc_rc=$?
+          log "wake finalize ($wc_rc): $(echo "$wc" | tr -d '\n' | cut -c1-200)"
+        else
+          wc_rc=$ca_rc
+        fi
+      fi
+          if [ "$wc_rc" -eq 0 ]; then echo done > "$WORKER_MARK" 2>/dev/null; else rm -f "$WORKER_MARK" 2>/dev/null; fi ;;
+      esac ;;
+    0:*'"compositor":"error"'*) rm -f "$WORKER_MARK" 2>/dev/null ;;
+    0:*) echo done > "$WORKER_MARK" 2>/dev/null ;;
+    *) rm -f "$WORKER_MARK" 2>/dev/null ;;
   esac
   # What this boot's log says about the logo path, kept in $STATE (/var/log/messages rotates; the window's own record,
   # $STATE/logo-events, is written by BootLogo.qml and MasterBrand.qml).
+  maintenance_clear || exit 0
   [ -x "$APPDIR/tools/bootcap.sh" ] && "$APPDIR/tools/bootcap.sh" events "$STATE/boot-events" </dev/null >/dev/null 2>&1
   exit 0
 fi
 
-# A worker is already running or has already succeeded this boot, so
-# run-parts has nothing to do. A stale pid means that worker died without
-# finishing, and then the net should still run.
+# A worker is already running or has already succeeded this boot.
 if [ -f "$WORKER_MARK" ]; then
   wpid=$(cat "$WORKER_MARK" 2>/dev/null)
-  if [ -n "$wpid" ] && { [ -d "/proc/$wpid" ] || [ ! -e "$STATE/.boot-pending" ]; }; then
+  if [ "$wpid" = done ] || { [ -n "$wpid" ] && [ -d "/proc/$wpid" ]; }; then
     log "early hook already handled this boot, nothing to do"
     exit 0
   fi
-  log "early worker $wpid is gone and the boot never completed, applying"
+  log "early worker $wpid did not finish; retrying"
 fi
 
 # Everything below runs DETACHED, and that is the whole point.
@@ -162,5 +155,6 @@ fi
 # So: return to run-parts immediately and do the work in a detached child.
 # startup.sh closes the lock fd for children (`run-parts ... 200>&-`), so the
 # child cannot hold Homebrew Channel's startup lock either.
+maintenance_clear || exit 0
 setsid "$APPDIR/tools/autostart.sh" --worker </dev/null >/dev/null 2>&1 &
 exit 0

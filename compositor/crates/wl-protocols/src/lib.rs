@@ -3,9 +3,8 @@
 //! `protocol/webos/*.xml` started as the public webOS OSE files (webos-wayland-extensions, commit 4059350fd2be) and
 //! are folded to LG's own tables as read on the set by `docs/research/arch/wlproto_from_elf.py`
 //! (`protocol/lg-tables.txt`, checked by `tests/lg_tables.rs`): opcodes are positional, and LG's order and
-//! versions differ from OSE's in six interfaces. `protocol/private/*.xml` are LG's private ones:
-//! `mali_buffer_sharing` (verified on the set in X2) and the two `wl_starfish_*` interfaces (verified tables; LG's
-//! SDL needs the pointer one to exist).
+//! versions differ from OSE's in six interfaces. The private protocols include LG's `mali_buffer_sharing` and
+//! `wl_starfish_*` interfaces, plus LumaTV's optional subtitle bounds hint.
 //!
 //! Each protocol module has a `server` submodule (the compositor) and, behind the `client` feature, a `client`
 //! submodule (the test client).
@@ -68,3 +67,4 @@ protocol!(input_method, "../../protocol/webos/input-method.xml");
 protocol!(text, "../../protocol/webos/text.xml");
 protocol!(mali_buffer_sharing, "../../protocol/private/mali-buffer-sharing.xml");
 protocol!(starfish, "../../protocol/private/starfish.xml");
+protocol!(lumatv_subtitles_v1, "../../protocol/private/lumatv-subtitles-v1.xml");

@@ -76,10 +76,7 @@ Compositor (`compositor/crates/lumatv-compositor`):
   measure per flip since the last switch (`Measure`: flips one, two, three and more refreshes apart at the period in force, the worst
   interval, frames late, lost and missed by the pacer's reading, and the frame pipeline from draw to the GPU's finish as a fixed
   histogram with p50, p99 and max to a quarter of a millisecond).
-- `--refresh 60|120` (`config.rs`, default 60) and `ctl refresh [60|120|reset]` (`control.rs`): the switch writes the divider first (a
-  refused write changes nothing), keys the pacer to the period by order (`FlipTiming::rekey`), sets the fixed tick to it (`ticker.rs`
-  reads the live config), starts the measure over and tells the shell (`refresh` topic, `{"hz": N}`); `refresh` alone reads the mode and
-  the measure; `reset` starts the measure over at the mode in force.
+- `--refresh 60|120` (`config.rs`, default 60) and `ctl refresh [60|120|auto|reset]` (`control.rs`): successful numeric commands pin the manual mode until `auto` restores foreground policy. A switch writes the divider first (a refused write changes nothing), keys the pacer (`FlipTiming::rekey`), sets the fixed tick, starts the measure over and tells the shell (`refresh` topic, `{"hz": N}`). `refresh` alone reads the mode and measure; `reset` starts the measure over at the mode in force. Current policy and panel cadence limits are in `framerate-result.md`.
 - The supervisor (`sm/lumatv-sm.c`) puts the divider back to 2 before it execs LG's compositor on a fallback, for a compositor killed
   mid-run; the gate driver does the same in its clean-up.
 

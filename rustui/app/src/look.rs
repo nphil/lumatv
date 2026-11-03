@@ -163,6 +163,8 @@ pub fn card(p: &Palette, radius: f32, focus: bool, lifted: bool) -> Glass {
         backdrop: Backdrop::Cached { radius: BLUR },
         saturation: SATURATION,
         refraction: 0.0,
+        edge_lens: None,
+        tint_gradient: None,
     }
 }
 
@@ -182,6 +184,8 @@ pub fn tile(plate: Rgba, focus: bool, lifted: bool) -> Glass {
         backdrop: Backdrop::None,
         saturation: 1.0,
         refraction: 0.0,
+        edge_lens: None,
+        tint_gradient: None,
     }
 }
 
@@ -202,6 +206,8 @@ pub fn halo(accent: Rgba) -> Glass {
         backdrop: Backdrop::None,
         saturation: 1.0,
         refraction: 0.0,
+        edge_lens: None,
+        tint_gradient: None,
     }
 }
 
@@ -219,5 +225,7 @@ pub fn pill() -> Glass {
         backdrop: Backdrop::None,
         saturation: 1.0,
         refraction: 0.0,
+        edge_lens: None,
+        tint_gradient: None,
     }
 }

@@ -120,7 +120,7 @@ impl RowLayout {
 /// A row's value text as the control shows it: a stepper's current choice, a nudge's reading.
 pub fn below_text(r: &Row) -> Option<String> {
     match r.kind {
-        Kind::Stepper => Some(r.index.and_then(|i| r.options.get(i)).cloned().unwrap_or_default()),
+        Kind::Stepper => Some(r.index.and_then(|i| r.options.get(i)).cloned().unwrap_or_else(|| r.value.clone())),
         Kind::Nudge => Some(r.value.clone()),
         _ => None,
     }
@@ -553,7 +553,7 @@ fn popup_layout_with(kit: &mut Kit, p: &PopupView, text_max: usize) -> PopupLayo
 mod tests {
     use super::*;
     use crate::kit::testkit;
-    use crate::panels::quick::tiles::{Act, Kind};
+    use crate::panels::quick::tiles::Kind;
 
     fn row(kind: Kind) -> Row {
         let mut r = tiles_row("picture", kind);
@@ -566,7 +566,6 @@ mod tests {
         let mut r = crate::panels::quick::tiles::tiles(&env).remove(0);
         r.id = id.into();
         r.kind = kind;
-        r.act = Act::Picture;
         r
     }
 
@@ -713,7 +712,7 @@ mod tests {
             title: "Picture mode".into(),
             text: "How the picture looks.".into(),
             options: (0..7)
-                .map(|i| super::super::quick::OptionView { label: format!("Mode {i}"), icon: "image".into(), detail: String::new(), current: i == 1 })
+                .map(|i| super::super::quick::OptionView { label: format!("Mode {i}"), icon: "image".into(), detail: String::new(), current: i == 1, enabled: true })
                 .collect(),
             index: 1,
         };
@@ -731,7 +730,7 @@ mod tests {
             title: "Picture mode".into(),
             text: "How the picture looks. Each input keeps its own.".into(),
             options: (0..7)
-                .map(|i| super::super::quick::OptionView { label: format!("Mode {i}"), icon: "image".into(), detail: String::new(), current: i == 1 })
+                .map(|i| super::super::quick::OptionView { label: format!("Mode {i}"), icon: "image".into(), detail: String::new(), current: i == 1, enabled: true })
                 .collect(),
             index: 1,
         };

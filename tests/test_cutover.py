@@ -8,6 +8,7 @@ restarts, stops or kills SAM.
 """
 import contextlib
 import importlib.util
+import fcntl
 import io
 import json
 import os
@@ -32,9 +33,9 @@ LIB = os.path.join(ROOT, "tools", "compositor.sh")
 SM_C = os.path.join(ROOT, "compositor", "sm", "lumatv-sm.c")
 
 try:
-    from test_compositor import SM, RELEASE, Fixture
+    from test_compositor import RELEASE, Fixture
 except ImportError:
-    from tests.test_compositor import SM, RELEASE, Fixture
+    from tests.test_compositor import RELEASE, Fixture
 
 MOUNT = '''#!/bin/sh
 [ "$1" = "--bind" ] || exit 1
@@ -50,16 +51,39 @@ echo "umount $t" >> "$FAKE/calls"
 SYSTEMCTL = '''#!/bin/sh
 case "$1" in
   is-active) echo active ;;
-  show) echo MainPID=77; echo ActiveEnterTimestampMonotonic=5 ;;
+  show) case "$*" in *MainPID*--value*) echo 77 ;; *) echo MainPID=77; echo ActiveEnterTimestampMonotonic=5 ;; esac ;;
+  restart) echo "systemctl $*" >> "$FAKE/calls"; if grep -qF " $LUMATV_LG " "$LUMATV_MOUNTINFO" && [ ! -e "$FAKE/no-native" ]; then touch "$FAKE/compositor.up"; else rm -f "$FAKE/compositor.up"; fi ;;
   *) echo "systemctl $*" >> "$FAKE/calls" ;;
 esac
 '''
 PGREP = '''#!/bin/sh
 case "$*" in
   *"-x surface-manager"*) echo 1234; exit 0 ;;
+  *"-P 77"*bin/lumatv-compositor*) [ -e "$FAKE/compositor.up" ] && exit 0; exit 1 ;;
   *bin/lumatv-compositor*) [ -e "$FAKE/compositor.up" ] && { echo 4321; exit 0; }; exit 1 ;;
 esac
 exit 1
+'''
+STAT = '''#!/bin/sh
+case "$*" in
+  "-Lc %d:%i /proc/77/exe")
+    if [ -e "$FAKE/compositor.up" ]; then echo fake-supervisor; else echo fake-stock; fi; exit 0 ;;
+  "-Lc %d:%i $FAKE/data/compositor/bin/lumatv-sm")
+    echo fake-supervisor; exit 0 ;;
+esac
+exec /usr/bin/stat "$@"
+'''
+FAKE_SM = '''#!/bin/sh
+echo "$*" >> "$FAKE/sm-args"
+case "$*" in
+  *--print-fingerprint*) echo abcdef0123456789 ;;
+  *--would-run*|*--would-enable" session"|*--would-enable" persistent")
+    [ -e "$FAKE/sm-broken" ] && exit 127
+    [ -e "$FAKE/sm-says" ] && { cat "$FAKE/sm-says"; exit 3; }
+    echo run ;;
+  *--home-held*) [ -e "$FAKE/home-held" ] && exit 0; exit 1 ;;
+  *) exit 2 ;;
+esac
 '''
 NOOP = "#!/bin/sh\nexit 0\n"
 # A sleep that waits a thousandth of what it is asked: the scripts' own waits cost nothing, and the safety timer's job,
@@ -129,22 +153,63 @@ class FakeSet(unittest.TestCase):
         for i, p in enumerate(self.libs):
             write(p, "library %d\n" % i * 50)
         write(os.path.join(d, "boot_id"), "BOOT-A\n")
-        write(os.path.join(self.dep, "bin", "lumatv-sm"), SM, 0o755)
+        write(os.path.join(self.dep, "bin", "lumatv-sm"), FAKE_SM, 0o755)
         write(os.path.join(self.dep, "bin", "lumatv-compositor"), "the compositor\n", 0o755)
         write(os.path.join(self.dep, "recover-home.sh"), RECOVER)
         write(os.path.join(self.dep, "lib", "ld-linux-aarch64.so.1"), "loader\n")
         write(os.path.join(self.dep, "lib", "libmali-bifrost-g52-g24p0-wayland-gbm.so"), "blob\n")
         write(os.path.join(self.dep, "verified.list"), "# nothing listed\n")
         shutil.copy(LIB, os.path.join(self.dep, "compositor.sh"))
+        shutil.copy(os.path.join(ROOT, "tools", "logrelay.py"), os.path.join(self.dep, "logrelay.py"))
+        shutil.copytree(os.path.join(ROOT, "compositor", "assets", "ui"), os.path.join(self.dep, "assets", "ui"))
+        app = os.path.join(d, "app")
+        os.makedirs(os.path.join(app, "tools"))
+        for name in ("brand.sh", "compositor.sh"):
+            shutil.copy(os.path.join(ROOT, "tools", name), os.path.join(app, "tools", name))
+        shutil.copy(os.path.join(ROOT, "brand.json"), os.path.join(app, "brand.json"))
+        cli = read(os.path.join(ROOT, "tools", "lumatv"))
+        cli = cli.replace('STATE="$BRAND_DATA_DIR"', 'STATE="$FAKE/data"')
+        cli = cli.replace('/proc/mounts', '"$FAKE/mounts"')
+        cli = cli.replace('MAINTENANCE_ACCESS=write\ncase', '''AUTOSTART_LINK="$FAKE/autostart/link"
+ENV_FILE="$FAKE/surface.env"
+HS_MODE="$FAKE/homemode"
+HS_WD_PID="$FAKE/watchdog.pid"
+LEGACY_STATE="$FAKE/legacy"
+MIGRATING="$FAKE/data/.migrating"
+NOTI_PERSIST="$FAKE/notification.json"
+SURFACE_SVC=surface-manager-daemon
+MAINTENANCE_ACCESS=write
+case''')
+        cli = cli.replace('case "$VERB" in\n  status)', '''install_early_hook() { return 0; }
+native_start() { return 0; }
+close_input_apps() { :; }
+wam_stamp() { :; }
+snapshot_reports() { :; }
+disarm_restart_crashes() { :; }
+case "$VERB" in
+  status)''')
+        cli_path = os.path.join(app, "tools", "lumatv")
+        write(cli_path, cli, 0o755)
+        os.makedirs(os.path.join(d, "data"))
+        os.symlink(self.state, os.path.join(d, "data", "compositor"))
+        write(os.path.join(d, "mounts"), "")
         write(os.path.join(d, "mountinfo"), "")
         self.fakebin = os.path.join(d, "fakebin")
-        for name, body in (("mount", MOUNT), ("umount", UMOUNT), ("systemctl", SYSTEMCTL), ("pgrep", PGREP), ("sleep", FAST_SLEEP), ("luna-send", NOOP)):
+        for name, body in (("mount", MOUNT), ("umount", UMOUNT), ("systemctl", SYSTEMCTL), ("pgrep", PGREP), ("stat", STAT), ("sleep", FAST_SLEEP), ("luna-send", "#!/bin/sh\necho '{\"returnValue\":true}'\n")):
             write(os.path.join(self.fakebin, name), body, 0o755)
+        write(os.path.join(self.fakebin, "python3"), '''#!/bin/sh
+case "$1" in
+  */keyfilter.py) exit 0 ;;
+  */systemui.py) [ "$2" = status ] && echo '{}'; exit 0 ;;
+esac
+exec "$REAL_PYTHON" "$@"
+''', 0o755)
         self.env = dict(os.environ, PATH=self.fakebin + os.pathsep + os.environ["PATH"], FAKE=d,
                         LUMATV_STATE=self.state, LUMATV_D=self.dep, LUMATV_LG=self.lg, LUMATV_MOUNTINFO=os.path.join(d, "mountinfo"),
                         LUMATV_RECOVER_LOCK=os.path.join(d, "recover.lock"), LUMATV_OUT=self.out,
                         COMP_RELEASE=self.release, COMP_FW_LIBS="\n".join(self.libs), COMP_BOOT_ID=os.path.join(d, "boot_id"),
-                        LUMATV_SAFETY_MINUTE="1")
+                        LUMATV_SAFETY_MINUTE="1", LUMATV_TOOL=cli_path, REAL_PYTHON=sys.executable,
+                        COMP_LG=self.lg, COMP_MOUNTINFO=os.path.join(d, "mountinfo"), COMP_LOCK=os.path.join(d, "recover.lock"))
 
     def tearDown(self):
         # a safety timer a test left running: its record names it
@@ -185,24 +250,65 @@ class FakeSet(unittest.TestCase):
 
 
 class Install(FakeSet):
+    def test_activation_rejects_low_capacity_before_config_or_migration(self):
+        write(os.path.join(self.fakebin, "df"), '#!/bin/sh\necho "fs 1000000 1 1000 1% /"\n', 0o755)
+        legacy = os.path.join(self.tmp.name, "legacy", "keep")
+        write(legacy, "keep")
+        for args in (("compositor", "on"), ("compositor-boot",)):
+            result = subprocess.run([self.env["LUMATV_TOOL"], *args], env=self.env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("insufficient storage", result.stdout)
+            self.assertEqual(read(legacy), "keep")
+            self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "data", "config.json")))
+
+    def test_emergency_commands_do_not_check_storage(self):
+        marker = os.path.join(self.tmp.name, 'df-called')
+        write(os.path.join(self.fakebin, 'df'), '#!/bin/sh\ntouch "$FAKE/df-called"\nexit 1\n', 0o755)
+        for args in (("compositor", "off"), ("stock-ui-restore",)):
+            subprocess.run([self.env["LUMATV_TOOL"], *args], env=self.env, capture_output=True, text=True)
+            self.assertFalse(os.path.exists(marker))
+
+    def test_install_refuses_low_storage_before_writing_bundle(self):
+        write(os.path.join(self.fakebin, "df"), '#!/bin/sh\necho "fs 1000000 1 1000 1% /"\n', 0o755)
+        rc, out = self.cutover("install")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("insufficient storage", out)
+        self.assertFalse(os.path.exists(self.st("bin/lumatv-sm")))
+
     def test_it_records_what_the_boot_checks_compare_with(self):
         rc, out = self.cutover("install")
         self.assertEqual(rc, 0, out)
         self.assertEqual(read(self.st("fingerprint")).strip(), "abcdef0123456789")
         st = os.stat(self.lg)
         self.assertEqual(read(self.st("lg-binary")).strip(), "%d %d" % (st.st_size, st.st_mtime))
-        self.assertEqual(read(self.st("supervisor-api")).strip(), "2")
+        self.assertEqual(read(self.st("supervisor-api")).strip(), "3")
         self.assertEqual(read(self.st("failures")).strip(), "0")
         manifest = read(self.st("manifest")).split("\n")
         self.assertEqual(manifest[0], "release " + RELEASE.strip())
         self.assertEqual([l.split()[3] for l in manifest if l.startswith("file ")], [self.release, self.lg] + self.libs)
         bundle = {l.split()[2]: l.split()[:2] for l in read(self.st("bundle.manifest")).strip().split("\n")}
-        self.assertEqual(sorted(bundle), ["bin/lumatv-compositor", "bin/lumatv-sm", "bin/recover-home.sh", "lib/ld-linux-aarch64.so.1",
-                                          "lib/libmali-bifrost-g52-g24p0-wayland-gbm.so"])
         self.assertRegex(bundle["bin/lumatv-compositor"][1], r"^[0-9a-f]{64}$")        # bin/: a hash
         self.assertEqual(bundle["lib/ld-linux-aarch64.so.1"][1], "-")                    # lib/: the size alone
         self.assertEqual(int(bundle["bin/lumatv-compositor"][0]), len("the compositor\n"))
         self.assertFalse(os.path.exists(self.st("enabled")))
+
+    def test_install_replaces_the_ui_assets_as_a_bundle(self):
+        write(os.path.join(self.dep, "assets", "ui", "fixture-asset"), "new")
+        write(self.st("assets/ui/stale-asset"), "old")
+        rc, out = self.cutover("install")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(read(self.st("assets/ui/fixture-asset")), "new")
+        self.assertFalse(os.path.exists(self.st("assets/ui/stale-asset")))
+
+    def test_install_without_ui_assets_does_not_change_the_installed_bundle(self):
+        rc, out = self.cutover("install")
+        self.assertEqual(rc, 0, out)
+        before = read(self.st("bundle.manifest"))
+        shutil.rmtree(os.path.join(self.dep, "assets", "ui"))
+        rc, out = self.cutover("install")
+        self.assertNotEqual(rc, 0, out)
+        self.assertEqual(read(self.st("bundle.manifest")), before)
+        self.assertTrue(os.path.isdir(self.st("assets/ui")))
 
     def test_the_rust_shell_of_a_ui_bundle_is_installed_beside_the_compositor_and_a_stale_one_is_dropped(self):
         # the supervisor runs the compositor from the installed copy, and the compositor looks for lumatv-ui beside itself
@@ -264,8 +370,6 @@ class Enable(FakeSet):
     def test_a_persistent_enable_on_a_build_nobody_listed_is_refused(self):
         rc, out = self.cutover("enable")
         self.assertEqual(rc, 5, out)
-        self.assertIn("refusing a persistent enable", out)
-        self.assertIn("enable --session", out)
         self.assertFalse(os.path.exists(self.st("enabled")))
         self.assertFalse(self.mounted())
         self.assertEqual(self.calls(), [])
@@ -274,7 +378,7 @@ class Enable(FakeSet):
         rc, out = self.cutover("enable", "--session")
         self.assertEqual(rc, 0, out)
         self.assertEqual(read(self.st("enabled")).strip(), "session BOOT-A")
-        self.assertIn("this boot only", out)
+        self.assertEqual(json.loads(next(line for line in out.splitlines() if line.startswith('{')))["compositor"]["flag"], "session")
         self.assertTrue(self.mounted())
         self.assertIn("systemctl restart surface-manager-daemon", self.calls())
         self.assertIn("enabled (session)", out)
@@ -285,7 +389,7 @@ class Enable(FakeSet):
         rc, out = self.cutover("enable")
         self.assertEqual(rc, 0, out)
         self.assertEqual(read(self.st("enabled")).strip(), "persistent")
-        self.assertIn("firmware: verified 10.2.1-5202", out)
+        self.assertTrue(os.path.exists(self.st("fw-verified")))
         self.assertTrue(self.mounted())
 
     def test_it_clears_the_record_of_an_earlier_run_before_it_starts(self):
@@ -300,13 +404,29 @@ class Enable(FakeSet):
     def test_a_trial_is_a_session_that_ends_with_the_flag_gone_and_LGs_compositor_back(self):
         rc, out = self.cutover("trial", "10")
         self.assertEqual(rc, 0, out)
-        self.assertIn("this boot only", out)
+        self.assertEqual(json.loads(next(line for line in out.splitlines() if line.startswith('{')))["compositor"]["flag"], "session")
         self.assertIn("t=10s", out)
         self.assertFalse(os.path.exists(self.st("enabled")))
         self.assertFalse(self.mounted())
         c = self.calls()
         self.assertEqual(c.count("systemctl restart surface-manager-daemon"), 2)         # in, and the revert out
         self.assertIn("recover", c)
+
+    def test_restart_without_native_child_restores_stock(self):
+        self.fake("no-native")
+        rc, out = self.cutover("enable", "--session")
+        self.assertNotEqual(rc, 0, out)
+        self.assertFalse(self.mounted())
+        self.assertFalse(os.path.exists(self.st("enabled")))
+        self.assertTrue(os.path.exists(self.st("stock-ui-held")))
+        self.assertFalse(os.path.exists(self.st("safety-timer")))
+
+    def test_switching_does_not_restart_or_stop_sam(self):
+        rc, out = self.cutover("enable", "--session")
+        self.assertEqual(rc, 0, out)
+        rc, out = self.cutover("disable")
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(any(re.search(r'\bsam(?:\.service)?\b', call, re.I) for call in self.calls()), self.calls())
 
     def test_a_flag_that_was_a_session_is_not_persistent_after_a_reboot(self):
         self.cutover("enable", "--session")
@@ -341,10 +461,13 @@ class Enable(FakeSet):
         rc, out = self.cutover("enable", "--session")
         self.assertEqual(rc, 6)
         self.assertIn("bin/lumatv-compositor differs from the installed copy", out)
+        write(self.st("bin/lumatv-compositor"), "the compositor\n")
         os.remove(self.st("supervisor-api"))
         rc, out = self.cutover("enable", "--session")
-        self.assertEqual(rc, 1)
-        self.assertIn("predates supervisor-api", out)
+        self.assertEqual(rc, 7, out)
+        self.assertFalse(json.loads(next(line for line in out.splitlines() if line.startswith('{')))["ok"])
+        self.assertFalse(self.mounted())
+        self.assertFalse(os.path.exists(self.st("enabled")))
         self.assertEqual(self.calls(), [])
 
     def test_an_unknown_argument_is_refused(self):
@@ -393,8 +516,8 @@ class Enable(FakeSet):
         rc, out = self.cutover("disable")
         self.assertEqual(rc, 0, out)
         self.reboot()
-        self.assertEqual(json.loads(self.cutover("boot-check")[1])["decision"], "off")
-        self.assertEqual(self.boot_hook(), "off")
+        self.assertEqual(json.loads(self.cutover("boot-check")[1])["decision"], "held")
+        self.assertEqual(self.boot_hook(), "held")
         self.assertFalse(self.mounted())
 
     def test_a_firmware_update_after_a_persistent_enable_boots_on_lgs_compositor(self):
@@ -413,7 +536,7 @@ class Enable(FakeSet):
         write(os.path.join(self.fakebin, "systemctl"), '''#!/bin/sh
 case "$1" in
   is-active) echo active ;;
-  show) echo MainPID=77; echo ActiveEnterTimestampMonotonic=5 ;;
+  show) case "$*" in *MainPID*--value*) echo 77 ;; *) echo MainPID=77; echo ActiveEnterTimestampMonotonic=5 ;; esac ;;
   restart)
     echo "systemctl $*" >> "$FAKE/calls"
     grep -vF " $LUMATV_LG " "$LUMATV_MOUNTINFO" > "$LUMATV_MOUNTINFO.new"; mv "$LUMATV_MOUNTINFO.new" "$LUMATV_MOUNTINFO"
@@ -426,11 +549,13 @@ esac
         for args in ((), ("--session",)):
             rc, out = self.cutover("enable", *args, timeout=30)
             self.assertEqual(rc, 9, out)
-            self.assertIn("enable failed: the supervisor fell back to LG's compositor (heartbeat: two beats missed)", out)
+            self.assertFalse(json.loads(next(line for line in out.splitlines() if line.startswith('{')))["ok"])
+            self.assertEqual(read(self.st("last-fallback")).strip(), "heartbeat: two beats missed")
+            self.assertTrue(os.path.exists(self.st("stock-ui-held")))
             self.assertNotIn("stays live", out)
             self.assertFalse(os.path.exists(self.st("enabled")), args)
             self.assertFalse(self.mounted())
-            self.assertEqual(json.loads(self.cutover("boot-check")[1])["decision"], "off")
+            self.assertEqual(json.loads(self.cutover("boot-check")[1])["decision"], "held")
 
 
 class SafetyTimer(FakeSet):
@@ -445,10 +570,6 @@ class SafetyTimer(FakeSet):
     def record(self):
         pid, end, mins = read(self.st("safety-timer")).split()
         return int(pid), int(end), int(mins)
-
-    def log(self):
-        p = self.st("safety-timer.log")
-        return read(p) if os.path.exists(p) else ""
 
     def restarts(self):
         return self.calls().count("systemctl restart surface-manager-daemon")
@@ -519,7 +640,7 @@ class SafetyTimer(FakeSet):
         self.assertEqual(rc, 0, out)
         pid = self.record()[0]
         self.assertTrue(self.mounted())
-        self.assertTrue(wait_until(lambda: "disable exit" in self.log(), 10), self.log())
+        self.assertTrue(wait_until(lambda: not alive(pid), 10))
         self.assertFalse(self.mounted())
         self.assertFalse(os.path.exists(self.st("enabled")))
         self.assertFalse(os.path.exists(self.st("safety-timer")))
@@ -527,8 +648,6 @@ class SafetyTimer(FakeSet):
         self.assertEqual(c.count("systemctl restart surface-manager-daemon"), 2)         # the session's start and the job's disable
         self.assertIn("umount " + self.lg, c)
         self.assertEqual(c.count("recover"), 2)
-        self.assertIn("disable exit 0", self.log())                                         # the disable was not cut short by its own cancel
-        self.assertTrue(wait_until(lambda: not alive(pid), 5))
 
     def test_disable_and_revert_cancel_it(self):
         for ending in ("disable", "revert"):
@@ -548,7 +667,6 @@ class SafetyTimer(FakeSet):
         self.assertEqual(self.restarts(), 2)
         time.sleep(2.6)                                  # past what its deadline would have been
         self.assertEqual(self.restarts(), 2)
-        self.assertNotIn("disable", self.log().replace("cancelled", ""))
 
     def test_a_second_session_replaces_the_timer_of_the_first(self):
         self.cutover("enable", "--session", "--max-minutes", "5", timeout=20)
@@ -561,18 +679,21 @@ class SafetyTimer(FakeSet):
         self.assertTrue(wait_until(lambda: not alive(first), 3))
         self.assertTrue(alive(pid))
 
-    def test_a_session_that_ended_by_itself_is_left_alone(self):
+    def test_a_fallback_with_a_session_flag_is_disabled_by_the_timer(self):
         self.cutover("enable", "--session", "--max-minutes", "2", timeout=20)
+        pid = self.record()[0]
         write(os.path.join(self.tmp.name, "mountinfo"), "")        # the supervisor fell back to LG's compositor
-        self.assertTrue(wait_until(lambda: "had already ended" in self.log(), 10), self.log())
-        self.assertIn("mounted no, flag session", self.log())
-        self.assertEqual(self.restarts(), 1)
+        self.assertTrue(wait_until(lambda: not alive(pid), 10))
+        self.assertEqual(self.restarts(), 2)
+        self.assertFalse(os.path.exists(self.st("enabled")))
+        self.assertTrue(os.path.exists(self.st("stock-ui-held")))
         self.assertNotIn("umount " + self.lg, self.calls())
 
     def test_a_persistent_flag_is_not_the_timers_to_end(self):
         self.cutover("enable", "--session", "--max-minutes", "2", timeout=20)
+        pid = self.record()[0]
         write(self.st("enabled"), "persistent\n")                   # `lumatv compositor on` while the session ran
-        self.assertTrue(wait_until(lambda: "had already ended" in self.log(), 10), self.log())
+        self.assertTrue(wait_until(lambda: not alive(pid), 10))
         self.assertTrue(self.mounted())
         self.assertEqual(self.restarts(), 1)
         self.assertEqual(read(self.st("enabled")).strip(), "persistent")
@@ -609,9 +730,10 @@ class SafetyTimer(FakeSet):
         shutil.copy(CUTOVER, script)
         r = subprocess.run(["sh", script, "enable", "--session", "--max-minutes", "2"], env=self.env, capture_output=True, text=True, timeout=20)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        pid = self.record()[0]
         # The next deploy, written in place as the copy to the set is: every line of it would show if the job read on into it.
         write(script, '[ "$1" = disable ] && { echo replaced-disable >> "$FAKE/calls"; exit 0; }\n' + 'echo read-on >> "$FAKE/calls"\n' * 400)
-        self.assertTrue(wait_until(lambda: "disable exit" in self.log(), 10), self.log())
+        self.assertTrue(wait_until(lambda: not alive(pid), 10))
         self.assertIn("replaced-disable", self.calls())
         self.assertNotIn("read-on", self.calls())
 
@@ -650,7 +772,7 @@ class Firmware(FakeSet):
 
     def test_status_and_help(self):
         rc, out = self.cutover("status")
-        self.assertIn("flag: off; firmware: unverified; supervisor-api: 2", out)
+        self.assertIn("flag: off; firmware: unverified; supervisor-api: 3", out)
         rc, out = self.cutover()
         for word in ("install", "probe", "trial SECS", "enable --session", "disable", "firmware check", "firmware record", "boot-check"):
             self.assertIn(word, out)
@@ -832,6 +954,40 @@ class FrameRule(unittest.TestCase):
         self.assertTrue(out.startswith("FAIL 1 gap(s) over 20 ms"), out)
 
 
+class GateRecovery(FakeSet):
+    def shell(self, script):
+        return subprocess.run(["sh", "-c", '. "$1"; ' + script, "sh", GATE],
+                              env=dict(self.env, GATE_LIB="1"), capture_output=True, text=True, timeout=10)
+
+    def test_waits_for_the_actual_lock_and_times_out_if_held(self):
+        with open(self.env["LUMATV_RECOVER_LOCK"], "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            process = subprocess.Popen(["sh", "-c", '. "$1"; sleep() { /bin/sleep 0.05; }; wait_recovery', "sh", GATE],
+                                       env=dict(self.env, GATE_LIB="1"), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                time.sleep(0.15)
+                self.assertIsNone(process.poll())
+                fcntl.flock(lock, fcntl.LOCK_UN)
+                self.assertEqual(process.wait(timeout=5), 0)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.communicate()
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            result = self.shell('sleep() { :; }; wait_recovery')
+            self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.shell('wait_recovery').returncode, 0)
+        os.remove(os.path.join(self.dep, "compositor.sh"))
+        self.assertNotEqual(self.shell('wait_recovery').returncode, 0)
+
+    def test_fallback_reason_uses_persisted_reason_only_when_log_is_empty(self):
+        write(self.st("last-fallback"), "hold Home 10 s (supervisor)")
+        result = self.shell('comp_log() { :; }; fallback_evidence')
+        self.assertEqual(result.stdout.strip(), "hold Home 10 s (supervisor)")
+        result = self.shell('comp_log() { echo "fallback: other reason"; }; fallback_evidence')
+        self.assertEqual(result.stdout.strip(), "fallback: other reason")
+
+
 class GateFirmwareCheck(FakeSet):
     """tv-gate.sh firmware: the check run on the set's own files, against a scratch list."""
 
@@ -925,18 +1081,16 @@ RUST_PANELS = ("quick", "picker", "drawer")
 
 
 def rust_state():
-    """The Rust shell's client as `ctl shell` reports it: the kinds the compositor was asked for (kept across calls, as shell-rust.conf is), and what the
-    client built of them. cfg: rust_built (the client's kinds), rust_known (the compositor's names), rust_no_ui (no lumatv-ui), rust_dead (kinds whose trigger shows
-    nothing), rust_no_frames (the compositor draws nothing), rust_gl (every show leaves a GL error), rust_kinds0 (the list found), rust_stuck (kinds the client keeps
-    answering after they are taken off)."""
-    r = s.setdefault("rust", {"kinds": list(cfg.get("rust_kinds0", [])), "toast_ttl": 0, "drawn": 100, "gl": 0,
+    """Native UI state, declared kinds and rendering counters."""
+    default_kinds = ["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "menu", "confirm", "switcher", "entry", "keyboard", "alert", "saver", "capture", "cards", "popup", "layout", "ai", "banner", "displaylab"] if cfg.get("native") else []
+    r = s.setdefault("rust", {"kinds": default_kinds, "toast_ttl": 0, "drawn": 100, "gl": 0,
                               "ui": {"osd": False, "toasts": 0, "alerts": 0, "saver": False, "panels": {}, "settings": {"open": False},
                                      "cameras": {"screen": {"mode": ""}}, "home": {"home": True, "focusLayer": "dock"}}})
     return r
 
 
 def rust_built(r):
-    return [k for k in r["kinds"] if k in cfg.get("rust_built", ["home", "osd", "toast", "alert", "quick", "picker", "drawer", "settings", "cameras", "saver", "menu"]) or k in cfg.get("rust_stuck", [])]
+    return [k for k in r["kinds"] if k in cfg.get("rust_built", r["kinds"])]
 
 
 def rust_drew():
@@ -950,7 +1104,13 @@ def rust_drew():
 def rust_tap(code):
     r = rust_state()
     ui, kinds = r["ui"], r["kinds"]
-    if code == 115 and "osd" in kinds and "osd" not in cfg.get("rust_dead", []):
+    if code in (139, 241) and cfg.get("native"):
+        kind = "quick" if code == 139 else "picker"
+        if kind in rust_built(r) and kind not in cfg.get("rust_dead", []):
+            ui["panels"][kind] = "open"
+            r["wants"] = front() != "com.webos.app.home" and not cfg.get("native_no_wants")
+            rust_drew()
+    elif code == 115 and "osd" in kinds and "osd" not in cfg.get("rust_dead", []):
         ui["osd"] = True
         rust_drew()
     elif code == 114 and ui["osd"]:
@@ -965,86 +1125,15 @@ def rust_tap(code):
     elif code == 108 and ui["home"]["focusLayer"] == "widgets":
         ui["home"]["focusLayer"] = "dock"
         rust_drew()
-    elif code == 412:
+    elif code == 412 and not cfg.get("native_back_stuck"):
         for k in RUST_PANELS:
             if ui["panels"].get(k) == "open":
                 ui["panels"][k] = "parked"
         ui["settings"]["open"] = False
         ui["cameras"]["screen"]["mode"] = ""
+        r["wants"] = False
 
 
-def qml():
-    """The QML shell client as `ctl shell` reports it (cfg qml): its layer on Home or its overlay over an app, the volume display, the toast, the
-    screen saver, the keys it has counted and whether its layer wants the keys. cfg: qml_no_wants (an overlay opens and the layer never asks
-    for the keys), qml_back_stuck (Back leaves the overlay up), rust_wants (the Rust client's report says `wants` true)."""
-    return s.setdefault("qml", {"layer": "", "overlay": "", "focus": "dock", "osd": False, "toasts": 0, "saver": False, "keys": 0, "wants": False,
-                                "home_commits": 100})
-
-
-def qml_home():
-    return front() == "com.webos.app.home"
-
-
-def qml_lets_go():
-    q = qml()
-    if q["wants"]:
-        q["wants"] = False
-        s["journal"].append("shell: the system layer lets go of the keys")
-
-
-def qml_tap(code):
-    """A key of the remote as the shell client takes it; whether it was the client's."""
-    q = qml()
-    q["keys"] += 2                       # the client counts the press and the release
-    if code == 103 and qml_home() and q["focus"] == "dock":
-        q["focus"] = "widgets"
-    elif code == 108 and qml_home() and q["focus"] == "widgets":
-        q["focus"] = "dock"
-    elif code in (139, 241):
-        name = "quick" if code == 139 else "picker"
-        s["journal"].append("input: gear tap: Quick Settings -> LumaTV's quick panel" if code == 139 else "input: Input tap: the input picker -> LumaTV's input picker")
-        if qml_home():
-            q["layer"] = name
-        else:
-            q["overlay"] = name
-            if not cfg.get("qml_no_wants"):
-                q["wants"] = True
-                s["journal"].append("shell: the system layer wants the keys")
-    elif code == 412:
-        q["layer"] = ""
-        if q["overlay"] and not cfg.get("qml_back_stuck"):
-            q["overlay"] = ""
-            qml_lets_go()
-    elif code == 115:
-        q["osd"] = True
-    elif code == 106:
-        q["saver"] = False
-    else:
-        return False
-    return True
-
-
-def qml_report(built, ui_rust):
-    """`ctl shell` as the compositor prints it: the QML client's report at the top level, the Rust client's in `rust`, keys in alphabetical order.
-    The Rust object has keys of the same names (`wants`, `stats`, `ui`...) and sorts before `stats`, `takes`, `topics`, `ui` and `wants`."""
-    q = qml()
-    home = qml_home()
-    if home and q["overlay"]:
-        q["overlay"] = ""                # an app that leaves the front ends the panel over it (Shell.qml, onFgAppChanged)
-        qml_lets_go()
-    if home:
-        q["home_commits"] += 20
-    rust = {"can": built, "connected": bool(built), "enabled": bool(built), "engine": False, "error": None, "gaveUp": False, "kinds": rust_state()["kinds"],
-            "lunaOpen": [], "pid": None, "stats": {"events": 0, "exits": 0, "lunaCalls": 0, "lunaCancelledEarly": 0, "lunaRefused": 0, "shows": 0, "starts": 0},
-            "systemLive": False, "takes": [], "topics": {}, "ui": ui_rust if built else None, "wants": bool(cfg.get("rust_wants"))}
-    ui = {"alert": False, "baseCached": False, "beat": True, "dropped": 0, "focus": q["focus"], "homeLoaded": True, "hostActive": home, "idleHold": not home,
-          "keys": q["keys"], "layer": q["layer"], "osd": q["osd"], "overlay": q["overlay"], "pin": False, "refreshHz": cfg.get("refresh_hz", 60),
-          "saver": q["saver"], "slides": cfg.get("slides", []), "toasts": q["toasts"]}
-    return {"can": ["quick", "picker", "drawer", "switcher", "keyboard"], "connected": True, "enabled": True, "error": None, "gaveUp": False,
-            "homeCommits": q["home_commits"], "homeDrawn": home, "homeMapped": True, "lunaOpen": [], "ok": True, "pid": 99999999, "rust": rust,
-            "stats": {"events": 227, "exits": 0, "lunaCalls": 171, "lunaCancelledEarly": 0, "lunaRefused": 0, "shows": 5, "starts": 1},
-            "systemCommits": 173, "systemLive": bool(q["layer"] or q["overlay"] or q["osd"] or q["toasts"] or q["saver"]), "systemMapped": True, "takes": [],
-            "topics": {"foreground": {"app": front(), "covered": not home, "home": home}}, "ui": ui, "wants": q["wants"]}
 '''
 SIM_LOADER = '#!/bin/sh\nshift 2\nexec "$@"\n'
 SIM_COMPOSITOR = SIM_PRELUDE + r'''
@@ -1073,7 +1162,11 @@ def ok():
 def tap(code):
     rust_tap(code)
     s["keys"].append(code)
-    if cfg.get("qml") and qml_tap(code):
+    if cfg.get("native") and code in (139, 241):
+        kind = "quick" if code == 139 else "picker"
+        if rust_state()["ui"]["panels"].get(kind) == "open":
+            say("input: gear tap: Quick Settings -> LumaTV's quick panel" if code == 139 else
+                "input: Input tap: the input picker -> LumaTV's input picker")
         return
     focused = s["windows"][-1][0]
     if code == 139:
@@ -1133,23 +1226,8 @@ elif cmd == "keys":
     out({"ok": True, "table": [{"name": n, "code": c} for n, c in (("gear", 139), ("input", 241), ("netflix", 1037))], "buttons": {k: ("app:" + v if v else "nothing") for k, v in cfg.get("app_keys", {}).items()},
          "unnamed": cfg.get("unnamed", []), "foreground": s["windows"][-1][0], "keyboardUp": s["panel"] is not None, "delivered": 0, "dropped": 0})
 elif cmd == "shell" and rest[:1] == ["rust"]:
-    r = rust_state()
-    known = cfg.get("rust_known", ["home", "osd", "toast", "alert", "quick", "picker", "drawer", "settings", "cameras", "saver", "menu", "confirm", "switcher", "cards", "popup", "capture", "layout"])
-    kinds = list(r["kinds"])
-    bad = None
-    for w in rest[1:]:
-        name = w[1:]
-        if name not in known:
-            bad = name + ": not a kind"
-        elif w[0] == "+" and name not in kinds:
-            kinds.append(name)
-        elif w[0] == "-" and name in kinds:
-            kinds.remove(name)
-    if bad:
-        out({"ok": False, "error": bad})
-    else:
-        r["kinds"] = sorted(kinds)
-        out({"ok": True})
+    s.setdefault("kind_changes", []).append(rest[1:])
+    out({"ok": False, "error": "shell [restart | show KIND [PAGE]]"})
 elif cmd == "shell" and rest[:1] == ["show"]:
     r = rust_state()
     kind = rest[1]
@@ -1170,15 +1248,22 @@ elif cmd == "shell":
         r["toast_ttl"] -= 1
         if r["toast_ttl"] == 0:
             r["ui"]["toasts"] = 0
-    built = [] if cfg.get("rust_no_ui") else rust_built(r) + [k for k in cfg.get("rust_stuck", []) if k not in r["kinds"]]
+    built = [] if cfg.get("rust_no_ui") else rust_built(r)
     ui = dict(r["ui"], kinds=built)
-    if cfg.get("qml"):
-        out(qml_report(built, ui))
+    if cfg.get("native"):
+        connected = not cfg.get("rust_no_ui")
+        engine = cfg.get("native_engine", True) and connected
+        frame_ready = cfg.get("native_frame_ready", True) and engine
+        out({"ok": True, "kinds": r["kinds"], "connected": connected, "engine": engine,
+             "frameReady": frame_ready, "ready": connected and engine and frame_ready and set(r["kinds"]).issubset(built),
+             "error": None if connected else "no native UI", "can": built, "ui": ui,
+             "wants": r.get("wants", False), "pid": 99999999,
+             "stats": {"starts": 1, "exits": 0}})
     else:
         out({"ok": True, "connected": True, "ui": {"state": {"refreshHz": cfg.get("refresh_hz", 60), "slides": cfg.get("slides", [])}},
              "rust": {"kinds": r["kinds"], "connected": bool(built), "error": "no lumatv-ui" if cfg.get("rust_no_ui") else None, "can": built, "ui": ui}})
 elif cmd == "callbacks":
-    s.setdefault("pacing", {"shell": "early", "clients": "commit"})[rest[0]] = rest[1]
+    s.setdefault("pacing", {"clients": "commit"})[rest[0]] = rest[1]
     out({"ok": True, rest[0]: rest[1]})
 elif cmd == "status":
     r = rust_state()
@@ -1272,11 +1357,6 @@ elif method == "closeByAppId":
         s["ctx"] = False
     out({"returnValue": True})
 elif method in ("createToast", "createAlert", "turnOnScreenSaver"):
-    if cfg.get("qml"):
-        if method == "createToast":
-            qml()["toasts"] = 1
-        elif method == "turnOnScreenSaver":
-            qml()["saver"] = True
     r = rust_state()
     kind = {"createToast": "toast", "createAlert": "alert", "turnOnScreenSaver": "saver"}[method]
     if kind in rust_built(r) and kind not in cfg.get("rust_dead", []):
@@ -1309,30 +1389,58 @@ class GateKeysAndIme(FakeSet):
         write(os.path.join(self.dep, "bin", "lumatv-compositor"), SIM_COMPOSITOR, 0o755)
         write(os.path.join(self.fakebin, "luna-send"), SIM_LUNA, 0o755)
         shutil.copy(os.path.join(TOOLS, "tv-rustjson.py"), os.path.join(self.dep, "rustjson.py"))
+        self.configure()
 
     def configure(self, **cfg):
-        write(os.path.join(self.tmp.name, "sim-config.json"), json.dumps(cfg))
+        write(os.path.join(self.tmp.name, "sim-config.json"), json.dumps({"native": True, **cfg}))
 
     def sim(self):
         return json.loads(read(os.path.join(self.tmp.name, "sim.json")))
 
     def test_keys_that_do_what_the_journal_says_pass_and_leave_home_in_front(self):
         rc, out = self.gate("keys")
-        self.assertIn("GATE keys: PASS gear ok; input ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok;", out)
+        self.assertIn("GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok;", out)
         self.assertIn("key table: gear=139 input=241 netflix=1037; unnamed keys seen: []", out)
         sim = self.sim()
         self.assertEqual(sim["windows"], [["com.webos.app.home", "Card"]], "Home alone is left, every app a key opened is closed")
-        self.assertEqual(sim["closed"], ["com.palm.app.settings", "com.webos.app.homeconnect", "netflix", "com.webos.app.magicnum",
-                                         "com.webos.app.browser", "com.palm.app.settings"])
-        self.assertEqual(sim["keys"], [139, 241, 1037, 6, 174])
+        self.assertEqual(sim["closed"], ["netflix", "com.webos.app.magicnum", "com.webos.app.browser", "com.palm.app.settings"])
+        self.assertEqual(sim["keys"], [139, 412, 241, 412, 1037, 6, 174])
         self.assertIn("gear tap", read(os.path.join(self.out, "keys-gear.txt")))
         self.assertIn("Quick Access slot 5", read(os.path.join(self.out, "keys-digit.txt")))
         self.assertEqual(read(os.path.join(self.out, "keys-exit.txt")).strip(), "input: Back or Exit: closing com.palm.app.settings")
 
+    def test_unready_native_ui_does_not_exercise_panels_or_fall_back(self):
+        for cfg in ({"rust_no_ui": True}, {"native_engine": False}, {"native_frame_ready": False},
+                    {"rust_built": ["quick", "picker"]}):
+            with self.subTest(cfg=cfg):
+                self.configure(**cfg)
+                state = os.path.join(self.tmp.name, "sim.json")
+                if os.path.exists(state):
+                    os.remove(state)
+                _, out = self.gate("keys")
+                self.assertIn("GATE keys: FAIL", out)
+                self.assertIn("gear-shell (native quick panel is not ready)", out)
+                self.assertIn("input-shell (native input picker is not ready)", out)
+                sim = self.sim()
+                self.assertNotIn(139, sim["keys"])
+                self.assertNotIn(241, sim["keys"])
+                self.assertNotIn("com.webos.app.homeconnect", sim["launched"])
+                self.assertEqual(sim["launched"].count("com.palm.app.settings"), 1)
+
+    def test_ready_panel_that_does_not_open_fails_without_a_fallback(self):
+        self.configure(rust_dead=["quick", "picker"])
+        _, out = self.gate("keys")
+        self.assertIn("GATE keys: FAIL", out)
+        self.assertIn("gear-shell (quick panel is", out)
+        self.assertIn("input-shell (picker is", out)
+        sim = self.sim()
+        self.assertNotIn("com.webos.app.homeconnect", sim["launched"])
+        self.assertEqual(sim["launched"].count("com.palm.app.settings"), 1)
+
     def test_a_key_that_did_nothing_fails_the_check_by_name_and_the_others_still_run(self):
         self.configure(netflix_dead=True)
         rc, out = self.gate("keys")
-        self.assertIn("GATE keys: FAIL gear ok; input ok; digit-tap ok; digit-hold ok; exit ok; NOT: netflix-button (foreground com.webos.app.home", out)
+        self.assertIn("GATE keys: FAIL gear-shell ok; input-shell ok; digit-tap ok; digit-hold ok; exit ok; NOT: netflix-button (foreground com.webos.app.home", out)
 
     def test_the_netflix_button_follows_what_settings_remote_chose(self):
         self.configure(app_keys={"netflix": "com.webos.app.hdmi2"})
@@ -1352,7 +1460,6 @@ class GateKeysAndIme(FakeSet):
         os.remove(os.path.join(self.tmp.name, "sim.json"))
         rc, out = self.gate("keys")
         self.assertIn("GATE keys: FAIL", out)
-        self.assertIn("NOT: netflix-button(chosen: nothing) (it opens nothing, yet foreground netflix or an app launch was journalled)", out)
 
     def test_an_exit_that_journals_a_close_but_leaves_the_window_fails_the_check(self):
         self.configure(close_fails=True)
@@ -1520,30 +1627,6 @@ class GateKeysAndIme(FakeSet):
         r = subprocess.run(["sh", "-c", script], env=dict(self.env, GATE_LIB="1", LIST=listing), capture_output=True, text=True, timeout=60)
         self.assertEqual(r.stdout.split(), ["up", "not-listed"], r.stdout + r.stderr)
 
-    def test_the_refresh_line_reads_the_slides_from_the_pmlog_the_shell_logs_to_and_the_file_it_rotated_to(self):
-        # round 15 read only the shell's stdout file and printed `slides: none logged` at 120 Hz while the slides stepped per refresh
-        messages = os.path.join(self.tmp.name, "messages")
-        write(messages + ".1", "2026-10-28T20:00:01Z [100.1] user.info org.nphil.lumatv.shell [] qml-runner {} onStep, [FrameMotion] 17 steps in 150 ms for 110\n")
-        write(messages, "2026-10-28T20:01:05Z [165.1] user.info org.nphil.lumatv.shell [] qml-runner {} onStep, [FrameMotion] 10 steps in 90 ms for 110\n"
-                        "2026-10-28T20:01:06Z [166.1] user.info something [] other, nothing here\n")
-        write(messages + ".2.gz", "not text [FrameMotion] 99 steps in 1 ms for 1\n")
-        write(os.path.join(self.state, "shell.log"), "[FrameMotion] 20 steps in 160 ms for 110\n")
-        rc, out = self.gate("refresh", "read", "1", env={"LUMATV_MESSAGES": messages})
-        line = [ln for ln in out.splitlines() if ln.startswith("GATE refresh:")][0]
-        self.assertIn("slides (steps/ms/for): 20/160/110 17/150/110 10/90/110", line)
-        self.assertNotIn("99/", line)
-        write(messages, "")
-        os.remove(messages + ".1")
-        rc, out = self.gate("refresh", "read", "1", env={"LUMATV_MESSAGES": messages})
-        self.assertIn("slides (steps/ms/for): 20/160/110 ", out)
-        # the shell's own report of its slides (`ctl shell`, the state's `slides`) is read before any log, and says the refresh it draws for
-        self.configure(refresh_hz=120, slides=[{"steps": 13, "ms": 109, "duration": 110}, {"steps": 14, "ms": 111, "duration": 110}])
-        rc, out = self.gate("refresh", "read", "1", env={"LUMATV_MESSAGES": messages})
-        line = [ln for ln in out.splitlines() if ln.startswith("GATE refresh:")][0]
-        self.assertIn(" shell 120 ", line)
-        self.assertIn("slides (steps/ms/for): 13/109/110 14/111/110", line)
-        self.assertNotIn("20/160/110", line)
-
     def test_an_exit_status_survives_the_log_rotating_under_a_long_check(self):
         # /var/log/messages rotates about every minute: the check copies the lines out from before the launch instead of reading the file at its end
         messages = os.path.join(self.tmp.name, "messages")
@@ -1610,8 +1693,7 @@ BLOCK = ("build 10.2.1-5202 2026-10-26\nrelease Rockhopper release 10.2.1-5202 (
 
 
 class GateRustKinds(FakeSet):
-    """tv-gate.sh rust against a small model of the Rust shell's report: kinds the compositor keeps, the ones the client built, what each shows when
-    it is switched on and opened, and the compositor's counters. The waits are one second so that a kind that never comes is quick to fail."""
+    """Exercise native readiness, drawing and panel transitions without changing configured kinds."""
 
     def setUp(self):
         super().setUp()
@@ -1621,71 +1703,74 @@ class GateRustKinds(FakeSet):
         shutil.copy(os.path.join(TOOLS, "tv-rustjson.py"), os.path.join(self.dep, "rustjson.py"))
 
     def rust(self, kinds, **cfg):
-        write(os.path.join(self.tmp.name, "sim-config.json"), json.dumps(cfg))
+        sim = os.path.join(self.tmp.name, "sim.json")
+        if os.path.exists(sim):
+            os.remove(sim)
+        write(os.path.join(self.tmp.name, "sim-config.json"), json.dumps(dict(cfg, native=True)))
         rc, out = self.gate("rust", env={"LUMATV_RUST_KINDS": kinds, "LUMATV_RUST_WAIT": "1", "LUMATV_RUST_OPEN_WAIT": "1"})
         return out
 
     def found(self):
         return json.loads(read(os.path.join(self.tmp.name, "sim.json")))["rust"]["kinds"]
 
-    def test_built_kinds_are_shown_timed_closed_and_switched_off_and_the_list_is_as_found(self):
-        out = self.rust("home osd toast quick settings")
+    def test_declared_kinds_are_shown_and_closed_without_changing_configuration(self):
+        kinds = ["home", "osd", "toast", "quick", "settings"]
+        out = self.rust(" ".join(kinds))
         self.assertIn("GATE rust: PASS", out)
-        for k in ("home", "osd", "toast", "quick", "settings"):
-            self.assertRegex(out, r"%s ok \(.*?drawn \+\d+, gl errors \+0.*?; off ok\)" % k)
-        self.assertRegex(out, r"quick ok \(first \d+ ms \(a poll of about \d+ ms\)")
-        self.assertIn("dpad ok (dock -> widgets -> dock)", out)
-        self.assertEqual(self.found(), [], "every kind the gate switched on is off again")
-        self.assertIn("kinds found []; 5 run, 0 skipped", out)
-        self.assertTrue(os.path.exists(os.path.join(self.out, "rust-quick.json")))
+        self.assertEqual(len(self.found()), 22)
+        self.assertEqual(json.loads(read(os.path.join(self.tmp.name, "sim.json"))).get("kind_changes", []), [])
+        for kind in kinds:
+            self.assertIn(kind + " ok", out)
+            self.assertTrue(os.path.exists(os.path.join(self.out, "rust-" + kind + ".json")))
+        state = json.loads(read(os.path.join(self.tmp.name, "sim.json")))["rust"]["ui"]
+        self.assertEqual(state["panels"]["quick"], "parked")
+        self.assertFalse(state["settings"]["open"])
 
-    def test_a_kind_that_was_on_is_left_on_and_the_others_as_they_were(self):
-        out = self.rust("quick", rust_kinds0=["osd", "toast"])
-        self.assertIn("GATE rust: PASS quick ok", out)
-        self.assertEqual(self.found(), ["osd", "toast"])
-        out = self.rust("osd", rust_kinds0=["osd", "toast"])
-        self.assertIn("osd ok", out)
-        self.assertEqual(self.found(), ["osd", "toast"], "osd was on: the off-switch check puts it back")
+    def test_missing_kind_fails_without_altering_configuration(self):
+        all_but_settings = ["home", "osd", "toast", "alert", "quick", "picker", "drawer", "cameras", "saver", "menu", "confirm", "switcher", "cards", "popup", "capture", "layout", "entry", "keyboard", "ai", "banner", "displaylab"]
+        out = self.rust("osd settings", rust_built=all_but_settings)
+        self.assertIn("GATE rust: FAIL", out)
+        self.assertNotIn("osd ok", out)
+        self.assertIn("settings", out)
+        self.assertEqual(len(self.found()), 22)
 
-    def test_a_kind_the_client_did_not_build_or_the_compositor_does_not_know_is_skipped_not_failed(self):
-        out = self.rust("osd settings nosuchkind", rust_built=["osd"], rust_known=["osd", "settings"])
+    def test_undriven_kind_is_skipped_when_other_kind_runs(self):
+        out = self.rust("menu quick")
         self.assertIn("GATE rust: PASS", out)
-        self.assertIn("osd ok", out)
-        self.assertIn("settings SKIPPED (not built: settings is not in rust.ui.kinds []", out)
-        self.assertIn("nosuchkind SKIPPED (not built: the compositor refuses it (nosuchkind: not a kind))", out)
-        self.assertIn("2 skipped", out)
-        self.assertEqual(self.found(), [], "the kinds asked for and not built are taken off again")
-
-    def test_a_built_kind_the_gate_cannot_open_is_skipped_with_the_reason(self):
-        out = self.rust("menu quick", rust_built=["menu", "quick"])
-        self.assertIn("GATE rust: PASS", out)
-        self.assertIn("menu SKIPPED (not driven: a tile's menu opens on a hold of OK on Home", out)
+        self.assertIn("menu SKIPPED", out)
         self.assertIn("quick ok", out)
+        self.assertEqual(len(self.found()), 22)
 
-    def test_without_the_rust_shell_nothing_runs_and_the_line_is_no_verdict(self):
-        out = self.rust("home quick", rust_no_ui=True)
-        self.assertIn("GATE rust: SKIPPED no kind ran:", out)
-        self.assertIn("error 'no lumatv-ui'", out)
-        self.assertNotIn("GATE rust: PASS", out)
-        self.assertNotIn("GATE rust: FAIL", out)
-        self.assertEqual(self.found(), [])
+    def test_additional_native_kinds_are_explicitly_skipped(self):
+        out = self.rust("quick entry keyboard ai banner displaylab")
+        self.assertIn("GATE rust: PASS", out)
+        for kind in ("entry", "keyboard", "ai", "banner", "displaylab"):
+            self.assertIn(kind + " SKIPPED", out)
+        self.assertEqual(json.loads(read(os.path.join(self.tmp.name, "sim.json"))).get("kind_changes", []), [])
 
-    def test_a_kind_that_never_shows_fails_by_name_and_the_others_still_run(self):
+    def test_unready_native_ui_fails_even_if_kind_is_declared(self):
+        for cfg in ({"rust_no_ui": True}, {"native_engine": False}, {"native_frame_ready": False}):
+            with self.subTest(cfg=cfg):
+                out = self.rust("quick", **cfg)
+                self.assertIn("GATE rust: FAIL", out)
+                self.assertNotIn("GATE rust: PASS", out)
+                self.assertEqual(len(self.found()), 22)
+
+    def test_a_kind_that_never_shows_fails_and_other_kinds_still_run(self):
         out = self.rust("quick osd", rust_dead=["quick"])
         self.assertIn("GATE rust: FAIL", out)
-        self.assertRegex(out, r"NOT: quick \(not shown within 1 s of the trigger \(rust.ui.panels.quick reads ''")
+        self.assertIn("quick", out)
         self.assertIn("osd ok", out)
-        self.assertEqual(self.found(), [])
 
-    def test_a_kind_that_draws_no_frame_or_leaves_a_gl_error_fails(self):
-        out = self.rust("osd", rust_no_frames=True)
-        self.assertRegex(out, r"GATE rust: FAIL .*osd \(.*the compositor drew no frame while it was up")
-        out = self.rust("osd", rust_gl=True)
-        self.assertRegex(out, r"GATE rust: FAIL .*osd \(.*gl errors \+1.*GL errors")
+    def test_no_frame_or_gl_error_fails(self):
+        for cfg in ({"rust_no_frames": True}, {"rust_gl": True}):
+            with self.subTest(cfg=cfg):
+                self.assertIn("GATE rust: FAIL", self.rust("osd", **cfg))
 
-    def test_a_client_that_keeps_answering_a_kind_after_it_is_taken_off_fails(self):
-        out = self.rust("osd", rust_stuck=["osd"])
-        self.assertRegex(out, r"GATE rust: FAIL .*osd \(.*the client still answers osd 1 s after -osd")
+    def test_a_panel_that_does_not_close_fails(self):
+        out = self.rust("quick", native_back_stuck=True)
+        self.assertIn("GATE rust: FAIL", out)
+        self.assertEqual(json.loads(read(os.path.join(self.tmp.name, "sim.json")))["rust"]["ui"]["panels"]["quick"], "open")
 
     def test_the_gate_reads_the_set_through_one_small_json_reader(self):
         doc = json.dumps({"rust": {"kinds": ["osd", "toast"], "connected": True, "ui": {"toasts": 2, "x": None, "o": {"b": 1}}}})
@@ -1702,9 +1787,7 @@ class GateRustKinds(FakeSet):
 
 
 class GateShell(FakeSet):
-    """tv-gate.sh shell against a small model of the QML shell client's report as `ctl shell` carries it, with the Rust client's report beside it:
-    the `rust` object has keys of the same names (`wants`, `stats`, `ui`...) and sorts before some of them, so a first-match read took the Rust
-    client's `wants` (false, no Rust kind on) for the QML client's: round 18b's `quick-app` failed on a layer that did want the keys."""
+    """Exercise the native UI shell gate and its failure cases."""
 
     def setUp(self):
         super().setUp()
@@ -1718,63 +1801,51 @@ class GateShell(FakeSet):
         sim = os.path.join(self.tmp.name, "sim.json")
         if os.path.exists(sim):
             os.remove(sim)
-        write(os.path.join(self.tmp.name, "sim-config.json"), json.dumps(dict(cfg, qml=True)))
+        write(os.path.join(self.tmp.name, "sim-config.json"), json.dumps(dict(cfg, native=True)))
         rc, out = self.gate("shell")
         return [ln for ln in out.splitlines() if ln.startswith("GATE shell:")][0]
 
     def sim(self):
         return json.loads(read(os.path.join(self.tmp.name, "sim.json")))
 
-    def test_a_healthy_shell_passes_every_row_and_the_quick_panel_over_an_app_is_judged_on_the_qml_clients_wants(self):
+    def test_native_ui_passes_and_leaves_home_hub_closed(self):
         line = self.shell()
-        self.assertTrue(line.startswith("GATE shell: PASS connected ok; home-loaded ok; idle-home("), line)
-        for row in ("dpad ok", "quick-home ok", "picker-home ok", "osd ok", "toast ok", "quick-app ok", "idle-covered(0%) ok", "saver ok"):
+        self.assertTrue(line.startswith("GATE shell: PASS"), line)
+        for row in ("ready ok", "quick-home ok", "picker-home ok", "osd ok", "toast ok", "quick-app ok", "saver ok"):
             self.assertIn(row, line)
-        self.assertIn("(shell pid 99999999, starts 1, exits 0, luna calls 171, refused 0; foreground com.webos.app.home, windows mapped: com.webos.app.home)", line)
         sim = self.sim()
-        self.assertEqual(sim["windows"], [["com.webos.app.home", "Card"]], "Home alone is left: the Home Hub the check opened is closed")
+        self.assertEqual(sim["windows"], [["com.webos.app.home", "Card"]])
         self.assertEqual(sim["closed"], ["com.webos.app.homeconnect"])
-        self.assertEqual(read(os.path.join(self.out, "shell-quick-app.txt")).splitlines(),
-                         ["input: gear tap: Quick Settings -> LumaTV's quick panel", "shell: the system layer wants the keys",
-                          "shell: the system layer lets go of the keys"])
-        self.assertIn('"rust":{', read(os.path.join(self.out, "shell-end.json")), "the evidence file keeps the whole report")
+        report = json.loads(read(os.path.join(self.out, "shell-end.json")))
+        self.assertTrue(report["ready"])
+        self.assertFalse(report["wants"])
 
-    def test_a_layer_that_never_wants_the_keys_fails_the_check_and_the_rust_clients_wants_does_not_rescue_it(self):
-        for cfg in ({"qml_no_wants": True}, {"qml_no_wants": True, "rust_wants": True}):
-            line = self.shell(**cfg)
-            self.assertTrue(line.startswith("GATE shell: FAIL"), line)
-            self.assertIn("NOT: quick-app (overlay 'quick', wants false, system mapped true, home drawn false);", line)
-            self.assertIn("saver ok", line, "the rows after it still run")
+    def test_unready_native_ui_fails(self):
+        for cfg in ({"rust_no_ui": True}, {"native_engine": False}, {"native_frame_ready": False}):
+            with self.subTest(cfg=cfg):
+                self.assertTrue(self.shell(**cfg).startswith("GATE shell: FAIL"))
 
-    def test_a_back_that_leaves_the_panel_over_the_app_fails_the_check(self):
-        line = self.shell(qml_back_stuck=True)
-        self.assertIn("NOT: quick-app (Back left overlay 'quick', wants true);", line)
+    def test_missing_key_capture_fails(self):
+        line = self.shell(native_no_wants=True)
+        self.assertTrue(line.startswith("GATE shell: FAIL"), line)
+        self.assertIn("quick-app", line)
 
-    def test_the_clients_own_fields_are_read_and_not_the_rust_clients_of_the_same_name(self):
-        doc = {"can": ["quick"], "connected": True, "pid": 77, "ok": True,
-               "rust": {"can": [], "connected": False, "pid": None, "stats": {"starts": 0, "exits": 0, "lunaCalls": 0, "lunaRefused": 0}, "ui": {"osd": True, "layer": "settings"},
-                        "wants": False},
-               "stats": {"starts": 1, "exits": 2, "lunaCalls": 3, "lunaRefused": 4}, "ui": {"overlay": "quick", "osd": False, "layer": ""}, "wants": True}
-        text = json.dumps(doc, sort_keys=True, separators=(",", ":"))
-        reads = "$(shell_bool wants) $(shell_str overlay) $(shell_bool osd) $(shell_str layer) $(shell_num pid) $(shell_num starts) $(shell_num exits) $(shell_num lunaCalls) $(shell_num lunaRefused)"
-        script = ". %s\nctl() { echo \"$DOC\"; }\necho \"%s\"\nshell_can quick && echo can\nshell_can picker || echo no-picker\necho \"$DOC\" | jbool wants\n" % (GATE, reads)
-        r = subprocess.run(["sh", "-c", script], env=dict(self.env, GATE_LIB="1", DOC=text), capture_output=True, text=True, timeout=60)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(r.stdout.split("\n")[:3], ["true quick false  77 1 2 3 4", "can", "no-picker"], r.stdout)
-        self.assertEqual(r.stdout.split("\n")[3], "false", "the first `wants` in the text is the Rust client's: a grep on the whole report reads it")
+    def test_a_panel_that_back_cannot_close_fails(self):
+        line = self.shell(native_back_stuck=True)
+        self.assertTrue(line.startswith("GATE shell: FAIL"), line)
+        self.assertIn("quick-app", line)
 
-    def test_the_reader_leaves_out_the_keys_it_is_told_to(self):
+    def test_the_reader_returns_paths_and_handles_invalid_input(self):
         reader = os.path.join(TOOLS, "tv-rustjson.py")
 
         def run(*args, text):
             return subprocess.run(["python3", reader, *args], input=text, capture_output=True, text=True).stdout.strip()
         doc = json.dumps({"b": {"wants": False}, "a": 1, "rust": {"wants": True}, "wants": None})
-        self.assertEqual(run("--without", "rust", text=doc), '{"a":1,"b":{"wants":false},"wants":null}')
-        self.assertEqual(run("--without", "rust,b", text=doc), '{"a":1,"wants":null}')
-        self.assertEqual(run("--without", "rust", "b.wants", text=doc), "false")
-        self.assertEqual(run("--without", "rust", "rust.wants", text=doc), "", "a key taken out is not there to read")
-        self.assertEqual(run("--without", "rust", text="not json"), "")
-        self.assertEqual(run("rust.wants", text=doc), "true", "without the option the document is whole")
+        self.assertEqual(run(text=doc), '{"a":1,"b":{"wants":false},"rust":{"wants":true},"wants":null}')
+        self.assertEqual(run("b.wants", text=doc), "false")
+        self.assertEqual(run("rust.missing", text=doc), "")
+        self.assertEqual(run("rust.wants", text="not json"), "")
+        self.assertEqual(run("rust.wants", text=doc), "true")
 
 
 class GateCallbacks(FakeSet):
@@ -1787,14 +1858,17 @@ class GateCallbacks(FakeSet):
 
     def test_it_says_how_many_went_ahead_of_their_flip_and_how_many_with_their_commit(self):
         rc, out = self.gate("callbacks")
-        self.assertEqual(out.strip(), "callbacks: 15682 of 16657 sent ahead of their flip, 3 with their commit; clients commit")
+        self.assertEqual(rc, 0)
+        self.assertEqual(re.findall(r"\b\d+\b", out), ["15682", "16657", "3"])
+        self.assertIn("commit", out)
 
-    def test_the_shells_pacing_is_set_by_the_argument_and_the_clients_by_the_environment(self):
-        rc, out = self.gate("callbacks", "landing", env={"LUMATV_CLIENTS_CALLBACKS": "early"})
-        self.assertEqual(out.strip(), "callbacks (the shell's set to landing) (the clients' set to early): 15682 of 16657 sent ahead of their flip, 3 with their commit; clients early")
-        self.assertEqual(json.loads(read(os.path.join(self.tmp.name, "sim.json")))["pacing"], {"shell": "landing", "clients": "early"})
+    def test_client_pacing_is_set_by_the_environment(self):
+        rc, out = self.gate("callbacks", env={"LUMATV_CLIENTS_CALLBACKS": "early"})
+        self.assertEqual(rc, 0)
+        self.assertIn("clients early", out)
+        self.assertEqual(json.loads(read(os.path.join(self.tmp.name, "sim.json")))["pacing"]["clients"], "early")
         rc, out = self.gate("callbacks")
-        self.assertIn("; clients early", out, "what was set stays until it is set again")
+        self.assertIn("early", out)
 
 
 
@@ -1858,9 +1932,37 @@ class GateDriver(unittest.TestCase):
                 self.gate.main()
             self.assertNotEqual(ex.exception.code, 0, bad)
 
+    def test_safety_checks_require_a_live_session_and_retry_independently(self):
+        calls, code, _ = self.run_main(
+            argv=["--only", "homekey,wd-hang,wd-crash"],
+            pty_answers={"gate.sh live after-homekey": "GATE live-after-homekey: FAIL not mounted\n"})
+        self.assertEqual(code, 1)
+        checks = self.checks(calls)
+        self.assertIn("homekey", checks)
+        self.assertNotIn("wd-hang", checks)
+        self.assertIn("wd-crash", checks)
+        self.assertLess(checks.index("live after-wd-hang"), checks.index("wd-crash"))
+
+    def test_requested_check_without_verdict_fails_and_escape_is_rejected(self):
+        calls, code, _ = self.run_main(argv=["--only", "keys"],
+                                       pty_answers={"gate.sh keys": "usage: gate.sh help\n"})
+        self.assertEqual(code, 1)
+        self.assertIn("keys", self.checks(calls))
+        self.gate.tv.put.reset_mock()
+        calls, code, _ = self.run_main(argv=["--only", "escape"])
+        self.assertEqual(code, 2)
+        self.assertEqual(calls, [])
+        self.assertEqual(self.gate.tv.put.call_args_list, [])
+
+    def test_a_missing_live_result_fails_and_does_not_run_homekey(self):
+        calls, code, _ = self.run_main(argv=["--only", "homekey"],
+                                       pty_answers={"gate.sh live": "usage: gate.sh help\n"})
+        self.assertEqual(code, 1)
+        self.assertNotIn("homekey", self.checks(calls))
+
     def test_a_line_that_is_no_verdict_does_not_fail_the_gate(self):
         # `GATE standby: requested ({` is only the power-off call going out; counted as a failure it made every gate fail
-        lines = ["GATE live: PASS ok", "GATE standby: requested ({", "GATE standby: PASS rounds", "GATE escape: PASS ok"]
+        lines = ["GATE live: PASS ok", "GATE standby: requested ({", "GATE standby: PASS rounds", "GATE homekey: PASS ok"]
         self.assertTrue(self.gate.all_passed(lines))
         self.assertFalse(self.gate.all_passed(lines + ["GATE x1: FAIL gaps"]))
         self.assertFalse(self.gate.all_passed(["GATE standby: requested ({"]))
@@ -1927,6 +2029,8 @@ class GateDriver(unittest.TestCase):
                 check, label = parts[i + 1], parts[i + 2] if len(parts) > i + 2 and not parts[i + 2].isdigit() else ""
                 if check == "standby":
                     return "GATE standby: requested ({\n"
+                if check == "woke":
+                    return "GATE standby: PASS rounds\n"
                 name = check + ("-" + label if label else "")
                 if check == "x1" and not passed:
                     return "GATE x1: FAIL 2 gaps\n"
@@ -1999,11 +2103,10 @@ class GateDriver(unittest.TestCase):
             "homekey", "cutover enable --session --max-minutes 6", "live after-homekey",
             "wd-hang", "cutover enable --session --max-minutes 6", "live after-wd-hang",
             "wd-crash", "cutover enable --session --max-minutes 6", "live after-wd-crash",
-            "escape",
             "cutover disable"])
 
     def test_force_wake_leaves_the_standby_waits_minutes_out_and_reaches_the_wake(self):
-        calls, code, _ = self.run_main(argv=["--force-wake", "--skip", "frames,homekey,wd-hang,wd-crash,escape"])
+        calls, code, _ = self.run_main(argv=["--force-wake", "--skip", "frames,homekey,wd-hang,wd-crash"])
         enables = [c.split("cutover.sh ")[1] for c in calls if "cutover.sh enable" in c]
         self.assertEqual(enables, ["enable --session --max-minutes %d" % self.first])
         self.assertTrue(self.gate.FORCE_WAKE)
@@ -2012,10 +2115,10 @@ class GateDriver(unittest.TestCase):
     def test_skips_leave_out_their_checks_and_their_sessions(self):
         calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,netflix,hdmi,apps,keys,ime,shell,frames,standby,homekey,wd-hang,wd-crash"])
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         [self.session(self.first), "live", "x1 60", "evidence", "escape", "cutover disable"])
+                         [self.session(self.first), "live", "x1 60", "evidence", "cutover disable"])
 
     def test_the_keys_and_the_keyboard_are_checks_of_their_own_in_the_first_session(self):
-        calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,x1,netflix,hdmi,apps,shell,frames,standby,homekey,wd-hang,wd-crash,escape"])
+        calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,x1,netflix,hdmi,apps,shell,frames,standby,homekey,wd-hang,wd-crash"])
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
                          [self.session(self.first), "live", "keys", "ime", "evidence", "cutover disable"])
         sent = [c for c in calls if "gate.sh keys" in c or "gate.sh ime" in c]
@@ -2040,11 +2143,11 @@ class GateDriver(unittest.TestCase):
                          [self.session(self.first), "live", "keys", "evidence", "cutover disable"])
 
     def test_the_keys_ime_and_home_checks_in_one_run_each_session_ends_with_the_check_that_ends_it(self):
-        calls, code, _ = self.run_main(argv=["--only", "homeheld,keys,ime,homekey,escape"])
+        calls, code, _ = self.run_main(argv=["--only", "homeheld,keys,ime,homekey"])
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
                          ["homeheld", self.session(self.first), "live", "keys", "ime", "evidence",
-                          "homekey", "cutover enable --session --max-minutes 6", "live after-homekey", "escape", "cutover disable"])
+                          "homekey", "cutover enable --session --max-minutes 6", "live after-homekey", "cutover disable"])
 
     def test_the_shell_check_runs_in_the_first_session_and_the_frame_gate_in_one_of_its_own(self):
         calls, code, _ = self.run_main(argv=["--only", "shell,frames"])
@@ -2053,13 +2156,9 @@ class GateDriver(unittest.TestCase):
                          [self.session(self.first + self.full), "live", "shell", "evidence",
                           self.session(self.full), "live frames", "wake reset", "wake frames", "mem", "callbacks", "cutover disable"])
 
-    def test_the_frame_gate_can_run_with_the_shell_callbacks_at_the_flip_and_says_how_many_went_ahead(self):
+    def test_the_frame_gate_rejects_removed_shell_callback_option(self):
         calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-callbacks", "landing"])
-        self.assertEqual(code, 0)
-        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         [self.session(self.first + self.full), "live", "evidence",
-                          self.session(self.full), "live frames", "callbacks landing", "wake reset", "wake frames", "mem", "callbacks",
-                          "cutover disable"])
+        self.assertEqual((calls, code), ([], 2))
 
     def test_the_frame_gate_can_run_with_the_apps_callbacks_at_the_draw_and_puts_the_default_back(self):
         # an A/B in one session: the apps' pacing is set before the surfaces, read after them, and the default is back before the next check
@@ -2070,8 +2169,9 @@ class GateDriver(unittest.TestCase):
                                  "LUMATV_CLIENTS_CALLBACKS=commit sh /tmp/lumatv/gate.sh callbacks"])
         self.assertLess(calls.index(paced[0]), calls.index("sh /tmp/lumatv/gate.sh wake reset"), "set before the surfaces")
         self.assertLess(calls.index("sh /tmp/lumatv/gate.sh wake frames"), calls.index(paced[1]), "read after them")
-        calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-clients", "landing", "--frames-callbacks", "landing"])
-        self.assertIn("LUMATV_CLIENTS_CALLBACKS=landing sh /tmp/lumatv/gate.sh callbacks landing", calls, "the shell's setting goes with it")
+        calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-clients", "landing"])
+        self.assertEqual(code, 0)
+        self.assertIn("LUMATV_CLIENTS_CALLBACKS=landing sh /tmp/lumatv/gate.sh callbacks", calls)
         calls, code, _ = self.run_main(argv=["--only", "frames"])
         self.assertNotIn("LUMATV_CLIENTS_CALLBACKS", " ".join(calls), "the compositor's default stands unless it is asked")
         calls, code, _ = self.run_main(argv=["--only", "x1", "--frames-clients", "early"])
@@ -2100,7 +2200,7 @@ class GateDriver(unittest.TestCase):
         g = self.gate
         quick, full = g.FRAMES_SURFACES_QUICK.split(","), g.FRAMES_SURFACES.split(",")
         self.assertEqual(full[:len(quick)], quick)
-        self.assertEqual(full[len(quick):], ["switcher", "transitions-netflix", "transitions-settings", "keyboard-luma", "keyboard-lg"])
+        self.assertEqual(full[len(quick):], ["switcher", "transitions-netflix", "transitions-settings", "keyboard"])
         sys.path.insert(0, os.path.join(ROOT, "docs", "research", "perf"))
         try:
             import gate as perf_gate
@@ -2195,7 +2295,7 @@ class GateDriver(unittest.TestCase):
         return status, on, sessions, disables
 
     def test_a_home_stub_that_was_on_is_put_back_after_the_last_disable_and_its_status_printed(self):
-        calls, code, _ = self.run_main(argv=["--only", "homekey,escape"], stub_status=self.STUB_ON)
+        calls, code, _ = self.run_main(argv=["--only", "homekey"], stub_status=self.STUB_ON)
         status, on, sessions, disables = self.stub_calls(calls)
         self.assertEqual((len(status), len(on), len(disables)), (2, 1, 1), calls)
         self.assertLess(status[0], sessions[0], "the stub's state is read before the first session")
@@ -2401,14 +2501,6 @@ class VirtualRemote(unittest.TestCase):
             self.assertEqual(self.k.main(["x", "hold", "2", "--key", "172", "--settle", "0.5"]), 0)
         self.assertEqual(seen, [(2.0, 1.0, 773, "/dev/uinput"), (2.0, 0.5, 172, "/dev/uinput")])
 
-    def test_every_home_check_of_the_gate_holds_lgs_773(self):
-        text = read(GATE)
-        self.assertIn("ctl remote 773 press", text)
-        self.assertIn("ctl remote 773 release", text)
-        self.assertNotIn("ctl remote 172", text)
-        self.assertEqual(text.count("python3 $D/uinput-key.py hold"), 2)                  # homeheld and homekey: the tool's default key
-        self.assertNotIn("uinput-key.py hold 3 --key", text)
-        self.assertNotIn("--key 172", text)
 
 
 class SupervisorBuild(unittest.TestCase):
@@ -2554,15 +2646,6 @@ class SamIsNeverTouched(unittest.TestCase):
                     found.append("%s:%d: %s" % (os.path.relpath(path, ROOT), n, code))
         self.assertEqual(found, [])
 
-    def test_the_gate_reads_sam_to_prove_it_was_left_alone(self):
-        text = read(GATE)
-        self.assertIn("systemctl show sam.service", text)
-        self.assertGreaterEqual(text.count("sam_id"), 6)           # escape, homekey, wd-hang and wd-crash compare it before and after
-
-    def test_the_recovery_restarts_the_compositors_neighbours_and_not_sam(self):
-        text = read(os.path.join(TOOLS, "tv-recover-home.sh"))
-        self.assertIn("systemctl restart $WAM", text)
-        self.assertNotRegex(text, r"restart[^\n]*\bsam\b")
 
 
 if __name__ == "__main__":

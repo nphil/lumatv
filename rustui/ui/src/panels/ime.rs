@@ -16,6 +16,8 @@
 use super::life::Life;
 use crate::kit::screen::Effect;
 use serde_json::{Value, json};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 // ---- what a field says
 
@@ -445,11 +447,6 @@ impl Layout {
         self.keys.iter().position(|k| k.id == id)
     }
 
-    fn keys_of_row(&self, row: usize) -> Vec<usize> {
-        let mut list: Vec<usize> = (0..self.keys.len()).filter(|i| self.keys[*i].row == row).collect();
-        list.sort_by_key(|i| self.keys[*i].col);
-        list
-    }
 
     /// One step of the D-pad from key `from`: the key it lands on and the column the walk wants. Left and Right walk the row and wrap to its
     /// other end; Up and Down go to the key above or below at the column the walk started from (`want`, kept while only moving vertically,
@@ -462,25 +459,25 @@ impl Layout {
         };
         match dir {
             Move::Left | Move::Right => {
-                let row = self.keys_of_row(k.row);
-                let p = row.iter().position(|i| *i == from).unwrap_or(0);
-                let n = row[(p + if dir == Move::Right { 1 } else { row.len() - 1 }) % row.len()];
+                let row = || self.keys.iter().enumerate().filter(|(_, c)| c.row == k.row);
+                let n = if dir == Move::Right {
+                    row().filter(|(_, c)| c.col > k.col).min_by_key(|(_, c)| c.col).or_else(|| row().min_by_key(|(_, c)| c.col))
+                } else {
+                    row().filter(|(_, c)| c.col < k.col).max_by_key(|(_, c)| c.col).or_else(|| row().max_by_key(|(_, c)| c.col))
+                }.map_or(from, |(i, _)| i);
                 (n, self.keys[n].centre())
             }
             Move::Up | Move::Down => {
                 let stride = if dir == Move::Down { 1 } else { self.rows - 1 };
                 for i in 1..=self.rows {
                     let r = (k.row + stride * i) % self.rows;
-                    let list = self.keys_of_row(r);
-                    if list.is_empty() {
-                        continue;
-                    }
                     let dist = |c: &Key| {
                         let (lo, hi) = (c.col as f32, (c.col + c.span) as f32);
                         if want >= lo && want < hi { 0.0 } else { (want - lo).abs().min((want - hi).abs()) }
                     };
-                    let best = list.iter().copied().min_by(|a, b| dist(&self.keys[*a]).total_cmp(&dist(&self.keys[*b]))).unwrap_or(from);
-                    return (best, want);
+                    if let Some((best, _)) = self.keys.iter().enumerate().filter(|(_, c)| c.row == r).min_by(|(_, a), (_, b)| dist(a).total_cmp(&dist(b))) {
+                        return (best, want);
+                    }
                 }
                 (from, want)
             }
@@ -601,7 +598,8 @@ impl Gate {
     /// Whether to act on this press of `key` at `now`.
     pub fn pass(&mut self, key: &str, repeat: bool, now: u64) -> bool {
         if !repeat || self.key != key {
-            self.key = key.to_string();
+            self.key.clear();
+            self.key.push_str(key);
             self.first = now;
             self.last = now;
             self.steps = 0;
@@ -624,7 +622,7 @@ impl Gate {
 /// What the surface draws of the keyboard.
 #[derive(Clone, Debug, PartialEq)]
 pub struct View {
-    pub layout: Layout,
+    pub layout: Rc<Layout>,
     pub shift: u8,
     pub focus: usize,
     /// The field has text: the keys that need it are not dimmed.
@@ -643,6 +641,7 @@ enum Probe {
 
 pub struct Ime {
     pub life: Life,
+    layout_cache: RefCell<Option<(LayoutId, u32, bool, Rc<Layout>)>>,
     field: Field,
     symbols: bool,
     shift: u8,
@@ -667,6 +666,7 @@ impl Default for Ime {
     fn default() -> Self {
         Self {
             life: Life::new(super::life::ENTER_MS, super::life::EXIT_MS, 0),
+            layout_cache: RefCell::new(None),
             field: Field::default(),
             symbols: false,
             shift: 0,
@@ -709,8 +709,13 @@ impl Ime {
         if self.symbols && !self.base().is_pad() { LayoutId::Symbols } else { self.base() }
     }
 
-    pub fn layout(&self) -> Layout {
-        Layout::build(self.layout_id(), self.field.enter, self.voice_ok)
+    pub fn layout(&self) -> Rc<Layout> {
+        let id = self.layout_id();
+        let mut cache = self.layout_cache.borrow_mut();
+        if cache.as_ref().is_none_or(|(was, enter, voice, _)| (*was, *enter, *voice) != (id, self.field.enter, self.voice_ok)) {
+            *cache = Some((id, self.field.enter, self.voice_ok, Rc::new(Layout::build(id, self.field.enter, self.voice_ok))));
+        }
+        cache.as_ref().unwrap().3.clone()
     }
 
     pub fn focus(&self) -> usize {

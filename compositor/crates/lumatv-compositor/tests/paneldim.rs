@@ -1,6 +1,4 @@
-//! The panel dim on the scene (`paneldim`, `server/state.rs`): idle Home's ease and the Rust shell's saver go to the panel's own light through the
-//! settings service (a stand-in on the luna bridge here), Home stays at full brightness in the plan so the plane takes it whole, and every way
-//! out puts the user's value back.
+//! Panel dimming of native Home and the saver through the TV settings bridge, including restoration.
 
 mod harness;
 
@@ -15,7 +13,6 @@ use lumatv_compositor::luna::{Bridge, Event, FromBridge, ToBridge};
 use lumatv_compositor::output::monotonic_ns;
 use lumatv_compositor::paneldim::{JOURNAL, READ_URI, WRITE_URI};
 use lumatv_compositor::scene::Hole;
-use lumatv_compositor::window::WindowType;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use wayland_client::protocol::wl_buffer::WlBuffer;
@@ -101,14 +98,8 @@ struct Shown {
     _buf: WlBuffer,
 }
 
-fn home(server: &mut Server) -> Shown {
-    let mut client = Client::connect(server);
-    let win = client.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", "LumaHome");
-    win.webos.set_property("appId".into(), "org.nphil.lumatv.shell".into());
-    let buf = client.shm_buffer(1920, 1080, 0xff00_00ff);
-    client.present(&win.surface, &buf);
-    client.roundtrip();
-    Shown { _client: client, _win: win, _buf: buf }
+fn home(server: &mut Server) {
+    server.eval(|s| { s.scene.set_home_rust(true); });
 }
 
 fn quiet_server(tv: &Stand) -> Server {
@@ -150,11 +141,10 @@ fn run(s: &mut State, mut t: u64, ms: u64) -> u64 {
     t
 }
 
-/// What the last plan drew Home at, and whether it goes to the plane whole.
-fn plan(s: &State) -> (f32, bool) {
+/// Native Home is engine-drawn rather than a Wayland scan-out candidate.
+fn plan(s: &State) -> (usize, bool) {
     let p = s.scene.last_plan();
-    let home = p.items.iter().find(|i| s.scene.window(i.window).is_some_and(|w| w.kind == WindowType::ShellHome)).expect("Home is drawn");
-    (home.dim, p.sole_fullscreen().is_some())
+    (p.items.len(), p.sole_fullscreen().is_some())
 }
 
 fn care_on(s: &mut State) {
@@ -167,7 +157,7 @@ fn care_on(s: &mut State) {
 }
 
 #[test]
-fn an_idle_home_dims_the_panel_not_the_picture_and_the_plane_still_takes_it_whole() {
+fn an_idle_native_home_dims_the_panel_without_a_wayland_window() {
     let tv = Stand::new(80);
     let mut server = quiet_server(&tv);
     let _home = home(&mut server);
@@ -175,13 +165,13 @@ fn an_idle_home_dims_the_panel_not_the_picture_and_the_plane_still_takes_it_whol
         care_on(s);
         let t = monotonic_ns();
         let mut t = run(s, t, 500);
-        assert_eq!(plan(s), (1.0, true), "bright: direct");
+        assert_eq!(plan(s), (0, false), "native Home has no Wayland buffer");
         // still for longer than the wait, a beat every 30 s and its two seconds' grace: the care's level is 0.8 after the first beat
         t = run(s, t, 33_000);
         assert_eq!(s.scene.care.home_want(), 0.8, "Home's ease has run");
         t = run(s, t, 40_000);
-        assert_eq!(s.scene.care.dim(0), 1.0, "and is not what is drawn");
-        assert_eq!(plan(s), (1.0, true), "Home is drawn at full brightness and may go to the plane whole while the panel is dim");
+        assert_eq!(plan(s), (0, false), "panel dim does not introduce a Wayland window");
+        assert_eq!(s.scene.last_plan().home_dim, 0.0, "the panel alone dims Home");
         let _ = t;
     });
     assert_eq!(tv.value(), 64, "round(80 x 0.8)");
@@ -230,7 +220,7 @@ fn a_key_puts_the_value_back_and_the_journal_goes() {
         deliver(s);
         assert!(!journal_of().exists());
         let t = run(s, t, 1_000);
-        assert_eq!(plan(s), (1.0, true));
+        assert_eq!(plan(s), (0, false));
         // still, again: the hold after a key and the wait of the care come first
         run(s, t, 5_000);
     });
@@ -238,7 +228,7 @@ fn a_key_puts_the_value_back_and_the_journal_goes() {
 }
 
 #[test]
-fn with_the_switch_off_the_gpu_dims_as_before_and_the_panel_is_not_asked() {
+fn with_panel_dim_off_the_panel_is_not_asked() {
     let tv = Stand::new(80);
     let mut server = quiet_server(&tv);
     let _home = home(&mut server);
@@ -247,7 +237,9 @@ fn with_the_switch_off_the_gpu_dims_as_before_and_the_panel_is_not_asked() {
         s.scene.care.settings.paneldim.enabled = false;
         let t = run(s, monotonic_ns(), 500);
         let t = run(s, t, 75_000);
-        assert_eq!(plan(s), (0.8, false), "drawn dark, composed");
+        assert_eq!(s.scene.care.home_want(), 0.8);
+        assert!((s.scene.last_plan().home_dim - 0.2).abs() < 0.0001, "Home uses the compositor when panel dim is off");
+        assert_eq!(plan(s), (0, false));
         let _ = t;
     });
     let (value, reads, writes) = {
@@ -258,7 +250,7 @@ fn with_the_switch_off_the_gpu_dims_as_before_and_the_panel_is_not_asked() {
 }
 
 #[test]
-fn a_refused_write_hands_the_dim_back_to_the_gpu() {
+fn a_refused_write_stops_panel_dimming() {
     let tv = Stand::new(80);
     tv.0.lock().refuse = true;
     let mut server = quiet_server(&tv);
@@ -266,12 +258,44 @@ fn a_refused_write_hands_the_dim_back_to_the_gpu() {
     server.eval(|s| {
         care_on(s);
         let t = run(s, monotonic_ns(), 500);
-        let _ = run(s, t, 75_000);
+        let t = run(s, t, 75_000);
         assert!(!s.panel.carries());
-        assert_eq!(plan(s), (0.8, false), "the picture is dimmed as it was before the panel did it");
+        assert_eq!(s.scene.care.home_want(), 0.8);
+        assert_eq!(plan(s), (0, false));
+        assert!((s.scene.last_plan().home_dim - 0.2).abs() < 0.0001, "refused write dims native Home");
+        s.care_input();
+        run(s, t, 250);
+        assert_eq!(s.scene.last_plan().home_dim, 0.0, "input restores Home");
         assert!(s.journal.iter().any(|l| l.contains("the GPU dim does the work")), "{:?}", s.journal);
     });
     assert_eq!(tv.0.lock().writes.len(), 1, "one try, then nothing for ten minutes");
+}
+
+#[test]
+fn failed_ramp_does_not_double_dim_before_panel_restoration() {
+    let tv = Stand::new(80);
+    let mut server = quiet_server(&tv);
+    home(&mut server);
+    let t = server.eval(|s| {
+        care_on(s);
+        let t = run(s, monotonic_ns(), 36_000);
+        assert!(s.panel.dimmed(), "the panel ramp has begun");
+        t
+    });
+    tv.0.lock().refuse = true;
+    let t = server.eval(move |s| {
+        let t = run(s, t, 5_000);
+        assert!(!s.panel.carries());
+        assert!(s.panel.dimmed(), "the failed restore still holds panel brightness down");
+        assert_eq!(s.scene.last_plan().home_dim, 0.0, "software waits for panel restoration");
+        t
+    });
+    tv.0.lock().refuse = false;
+    server.eval(move |s| {
+        run(s, t, 40_000);
+        assert!(!s.panel.dimmed());
+        assert!((s.scene.last_plan().home_dim - 0.2).abs() < 0.0001, "software takes over after restoration");
+    });
 }
 
 #[test]
@@ -280,6 +304,16 @@ fn a_video_hole_a_standby_and_the_saver_leaving_each_put_the_value_back() {
         let tv = Stand::new(80);
         let mut server = quiet_server(&tv);
         let _home = home(&mut server);
+        let _video = if how == 0 {
+            let mut client = Client::connect(&mut server);
+            let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Video");
+            let buf = client.shm_buffer(1920, 1080, 0xff00_00ff);
+            client.present(&win.surface, &buf);
+            client.roundtrip();
+            Some(Shown { _client: client, _win: win, _buf: buf })
+        } else {
+            None
+        };
         server.eval(move |s| {
             let t = run(s, monotonic_ns(), 500);
             s.panel_want_ctl = Some(0.5);
@@ -287,7 +321,7 @@ fn a_video_hole_a_standby_and_the_saver_leaving_each_put_the_value_back() {
             assert_eq!(s.panel.status()["written"], 40);
             match how {
                 0 => {
-                    let surface = s.scene.windows().find(|w| w.kind == WindowType::ShellHome).unwrap().surface;
+                    let surface = s.scene.windows().next().unwrap().surface;
                     s.scene.holes.push(Hole { surface, rect: Rect::new(160, 90, 1280, 720) });
                 }
                 1 => s.luna_state.power.rendering = false,

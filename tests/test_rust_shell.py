@@ -73,7 +73,7 @@ class RustShell(unittest.TestCase):
         shot = os.path.join(tempfile.gettempdir(), 'rustshell-osd-toast-%d.png' % os.getpid())
         rc, out, chan, data = self.host([
             (300, lambda c: (c.push('foreground', HOME), c.push('screen', {"on": True}))),
-            (800, lambda c: c.push('foreground', APP)),
+            (800, lambda c: (c.push('foreground', {**APP, 'surface': 1}), c.push('subtitleBounds', {'app': APP['app'], 'surface': 1, 'rect': None}))),
             (1200, lambda c: c.push('audio', AUDIO0)),
             (1500, lambda c: c.push('audio', AUDIO)),
             (2500, self.answer_toast),
@@ -116,6 +116,53 @@ class RustShell(unittest.TestCase):
             self.assertNotEqual(im.getpixel((960, 860)), (0, 0, 0), "the toast's card is drawn above the subtitles")
             self.assertEqual(im.getpixel((960, 540)), (0, 0, 0), "nothing else is")
         os.remove(shot)
+
+    def test_subtitle_volume_geometry_and_snapshots(self):
+        shots = tempfile.mkdtemp(prefix='rustshell-subtitles-')
+        geometry = {}
+        for mode in ('dark', 'light'):
+            for scale in (1.0, 2.0):
+                with self.subTest(mode=mode, scale=scale):
+                    name = '%s-%d' % (mode, scale * 100)
+                    paths = {state: os.path.join(shots, '%s-%s.png' % (name, state)) for state in ('unknown', 'gap', 'empty', 'collision')}
+                    push = lambda ms, topic, data: ['--push', '%d:%s:%s' % (ms, topic, json.dumps(data, separators=(',', ':')))]
+                    base = ['--mode', mode, '--theme', json.dumps({'material': mode}), '--text-scale', str(scale)]
+                    empty_topic = {'app': APP['app'], 'surface': 1, 'rect': None}
+                    collision_topic = {'app': APP['app'], 'surface': 1, 'rect': {'x': 0, 'y': 870, 'w': 1920, 'h': 150}}
+                    def capture(first, second, initial, changed):
+                        # Mesa can spend several seconds in its first frame on a loaded host.
+                        # Only retry a run that never reached the scheduled evaluations.
+                        for attempt in range(3):
+                            offset = 3000 * (attempt + 1)
+                            extra = list(base)
+                            extra += push(offset + 300, 'foreground', {**APP, 'surface': 1})
+                            extra += push(offset + 350, 'screen', {'on': True})
+                            if initial is not None:
+                                extra += push(offset + 400, 'subtitleBounds', initial)
+                            extra += push(offset + 500, 'audio', AUDIO0) + push(offset + 700, 'audio', AUDIO)
+                            extra += push(offset + 1200, 'subtitleBounds', changed)
+                            for ms, state in ((1000, first), (1500, second)):
+                                if os.path.exists(paths[state]):
+                                    os.remove(paths[state])
+                                extra += ['--eval', '%d:geometry' % (offset + ms), '--snap', '%d:%s' % (offset + ms + 100, paths[state])]
+                            rc, out, _, _ = self.host([], wait=offset + 1900, extra=extra)
+                            self.assertEqual(rc, 0, out[-3000:])
+                            values = self.evals(out)
+                            if values:
+                                break
+                        self.assertEqual(len(values), 2, out[-3000:])
+                        result = [value['osd'] for value in values]
+                        self.assertTrue(all(r is not None for r in result), values)
+                        return result
+                    unknown, gap = capture('unknown', 'gap', None, empty_topic)
+                    empty, collision = capture('empty', 'collision', empty_topic, collision_topic)
+                    self.assertLessEqual(unknown['y'] + unknown['h'], 905)
+                    self.assertEqual(gap['y'], unknown['y'], 'the lifted bar stays raised across a cue gap')
+                    self.assertEqual(empty['y'] + empty['h'], 988)
+                    self.assertLessEqual(collision['y'] + collision['h'], 870)
+                    self.assertTrue(all(os.path.exists(p) for p in paths.values()), paths)
+                    geometry[name] = {'unknown': unknown, 'gap': gap, 'empty': empty, 'collision': collision, 'snapshots': paths}
+        print('SUBTITLE_VOLUME_SMOKE ' + json.dumps(geometry, sort_keys=True), flush=True)
 
     def test_frames_are_damage_only_and_the_text_is_glyph_quads(self):
         rc, out, chan, data = self.host([

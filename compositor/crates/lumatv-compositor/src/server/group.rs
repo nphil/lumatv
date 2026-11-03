@@ -46,10 +46,14 @@ impl Dispatch<WlWebosSurfaceGroupCompositor, ()> for State {
                     return;
                 };
                 if state.scene.groups.iter().any(|g| g.name == name) {
+                    if let Some(owner) = state.scene.groups.iter().find(|g| g.name == name).map(|g| g.owner) {
+                        state.scene.invalidate_video_holes_for_surface(owner, &state.surfaces);
+                    }
                     log::warn!("surface group {name:?} already exists; replacing");
                     state.scene.groups.retain(|g| g.name != name);
                 }
                 state.scene.groups.push(Group { name: name.clone(), owner, layers: BTreeMap::new(), allow_anonymous: false, anonymous: Vec::new() });
+                state.shell_rust_sync_video();
                 data_init.init(id, GroupData { name: name.clone(), is_owner: true });
                 state.journal(format!("surface group {name:?} created by surface {}", owner.0));
             }
@@ -88,7 +92,11 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
             wl_webos_surface_group::Request::CreateLayer { id, name, z_index } => {
                 state.note_request("wl_webos_surface_group", pid, &format!("create_layer({name:?}, z {z_index})"));
                 if let Some(gi) = gi {
+                    if let Some(member) = state.scene.groups[gi].layers.get(&name).and_then(|l| l.member) {
+                        state.scene.invalidate_video_holes_for_surface(member, &state.surfaces);
+                    }
                     state.scene.groups[gi].layers.insert(name.clone(), GroupLayer { z: z_index, key_index: 0, member: None });
+                    state.shell_rust_sync_video();
                 }
                 data_init.init(id, LayerData { group: gname, name });
             }
@@ -96,6 +104,15 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
                 let sid = surface_id(&surface);
                 state.note_request("wl_webos_surface_group", pid, &format!("attach(surface {:?}, layer {layer_name:?})", sid.map(|s| s.0)));
                 if let (Some(sid), Some(gi)) = (sid, gi) {
+                    if let Some(layer) = state.scene.groups[gi].layers.get(&layer_name)
+                        && layer.member != Some(sid)
+                    {
+                        let old = layer.member;
+                        if let Some(old) = old {
+                            state.scene.invalidate_video_holes_for_surface(old, &state.surfaces);
+                        }
+                        state.scene.invalidate_video_holes_for_surface(sid, &state.surfaces);
+                    }
                     let g = &mut state.scene.groups[gi];
                     let owner = g.owner;
                     let attached = match g.layers.get_mut(&layer_name) {
@@ -122,6 +139,9 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
                 let hint = z_hint;
                 state.note_request("wl_webos_surface_group", pid, &format!("attach_anonymous(surface {:?}, z_hint {hint})", sid.map(|s| s.0)));
                 if let (Some(sid), Some(gi)) = (sid, gi) {
+                    if state.scene.groups[gi].allow_anonymous {
+                        state.scene.invalidate_video_holes_for_surface(sid, &state.surfaces);
+                    }
                     let g = &mut state.scene.groups[gi];
                     let owner = g.owner;
                     if g.allow_anonymous {
@@ -146,6 +166,11 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
                 let sid = surface_id(&surface);
                 state.note_request("wl_webos_surface_group", pid, &format!("detach(surface {:?})", sid.map(|s| s.0)));
                 if let (Some(sid), Some(gi)) = (sid, gi) {
+                    if state.scene.groups[gi].layers.values().any(|l| l.member == Some(sid))
+                        || state.scene.groups[gi].anonymous.iter().any(|(member, _)| *member == sid)
+                    {
+                        state.scene.invalidate_video_holes_for_surface(sid, &state.surfaces);
+                    }
                     let g = &mut state.scene.groups[gi];
                     for l in g.layers.values_mut() {
                         if l.member == Some(sid) {
@@ -177,6 +202,9 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
 
     fn destroyed(state: &mut Self, _client: ClientId, _resource: &WlWebosSurfaceGroup, data: &GroupData) {
         if data.is_owner {
+            if let Some(owner) = state.scene.groups.iter().find(|g| g.name == data.name).map(|g| g.owner) {
+                state.scene.invalidate_video_holes_for_surface(owner, &state.surfaces);
+            }
             state.scene.groups.retain(|g| g.name != data.name);
             // Its members are listed with it no more; they stay members, which are shown by no one without their owner.
             state.luna_notify();
@@ -210,6 +238,11 @@ impl Dispatch<WlWebosSurfaceGroupLayer, LayerData> for State {
         }
         match request {
             wl_webos_surface_group_layer::Request::SetZIndex { z_index } => {
+                if let Some(member) = state.scene.groups.iter().find(|g| g.name == data.group)
+                    .and_then(|g| g.layers.get(&data.name)).filter(|l| l.z != z_index).and_then(|l| l.member)
+                {
+                    state.scene.invalidate_video_holes_for_surface(member, &state.surfaces);
+                }
                 let has_member = layer(state, data).is_some_and(|l| {
                     l.z = z_index;
                     l.member.is_some()
@@ -231,8 +264,14 @@ impl Dispatch<WlWebosSurfaceGroupLayer, LayerData> for State {
     }
 
     fn destroyed(state: &mut Self, _client: ClientId, _resource: &WlWebosSurfaceGroupLayer, data: &LayerData) {
+        if let Some(member) = state.scene.groups.iter().find(|g| g.name == data.group)
+            .and_then(|g| g.layers.get(&data.name)).and_then(|l| l.member)
+        {
+            state.scene.invalidate_video_holes_for_surface(member, &state.surfaces);
+        }
         if let Some(g) = state.scene.groups.iter_mut().find(|g| g.name == data.group) {
             g.layers.remove(&data.name);
         }
+        state.shell_rust_sync_video();
     }
 }

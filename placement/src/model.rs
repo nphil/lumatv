@@ -465,7 +465,7 @@ pub const ITEMS: [Item; 5] = [
         auto: false,
         stacks: Some("volume"),
         default: Placement::new(Anchor::Bottom, 0.0, 0.0),
-        sample: Size::new(560, 98),
+        sample: Size::new(320, 66),
     },
 ];
 

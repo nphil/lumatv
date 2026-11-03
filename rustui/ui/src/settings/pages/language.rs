@@ -212,6 +212,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
             prompt: "Zip code".into(),
             text: current,
             secret: false,
+            purpose: crate::panels::ime::PURPOSE_DIGITS,
             then: Rc::new(|t| {
                 let z = t.trim().to_string();
                 if z.len() == 5 && z.bytes().all(|b| b.is_ascii_digit()) { vec![Op::Lg { ds: "option.zipcode".into(), value: json!(z), app: None }] } else { vec![Op::Set("zipbad".into(), json!(true))] }

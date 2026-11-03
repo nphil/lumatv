@@ -1,93 +1,166 @@
 #!/bin/sh
-# Brings the user interface back after the compositor was replaced: the KMS maintenance window, the end of a trial
-# cutover, lumatv-sm's fallback and the forward switch to LumaTV's compositor all end here. Runs ON THE SET
-# (busybox sh); installed as /tmp/lumatv/recover-home.sh and /var/lib/lumatv/compositor/bin/recover-home.sh.
-#
-# What goes wrong without it (first KMS window, 2026-10-25): webapp-mgr.service is Restart=on-failure and PartOf
-# surface-manager.service (the oneshot wrapper, not the daemon unit); when the compositor goes away WebAppMgr
-# restarts into no socket until systemd's start limit leaves it "failed", and the web Home stub (a WebAppMgr app)
-# cannot launch: black panel. The fix is the sequence tools/lumatv's relaunch_home uses after a compositor
-# restart: reset the unit, start it, wait until listRunningApps answers, launch Home once, wait for it. Under
-# LG's compositor "it" is pixels on the panel; under LumaTV's the Home app is the transparent stub (LumaHome is
-# LG's compositor's QML), so there the wait is for Home in listRunningApps.
-#
-#   recover-home.sh [LOG]   wait for surface-manager-daemon to be active, recover WebAppMgr, launch Home, end the
-#                           Netflix instance of the compositor that went, sweep the librdx crash reports (HANDOFF
-#                           "Standby"); lines appended to LOG if given
+# WebAppMgr keeps a connection to the compositor that went away. Recovery resets its
+# failed unit, waits for the replacement bus, restarts the existing GUI services,
+# and launches Home. Stock recovery first removes only LumaTV-owned UI shadows.
+# Installed as bin/recover-home.sh; runs on the TV, never on the build host.
 WAM=webapp-mgr.service
 SM=surface-manager-daemon.service
-LOG=${1:-}
+LOG_RELAY=${LUMATV_LOG_RELAY:-$(dirname "$0")/logrelay.py}
 CAP=/tmp/lumatv-recover.png
+STOCK_HOLD=/var/lib/lumatv/compositor/stock-ui-held
+LOCK=/tmp/lumatv-recover.flock
 
-say() { echo "recover: $*"; [ -n "$LOG" ] && echo "$(date '+%H:%M:%S') recover: $*" >> "$LOG"; }
-ls_ok() { grep -q '"returnValue"[[:space:]]*:[[:space:]]*true'; }
-ours() { grep -q ' /usr/bin/surface-manager ' /proc/self/mountinfo && pgrep -f 'bin/lumatv-compositor' > /dev/null; }
-home_running() { timeout 10 luna-send -n 1 luna://com.palm.webappmanager/listRunningApps '{}' 2>/dev/null | grep -q '"com.webos.app.home"'; }
+clock_s() {
+    read -r uptime rest < /proc/uptime || return 1
+    printf '%s\n' "${uptime%%.*}"
+}
+started=$(clock_s) || exit 1
+# Reserve the last four seconds for a final Home request. These are userspace
+# bounds, not a guarantee against uninterruptible kernel or scheduling stalls.
+work_deadline=$((started + 116))
+remaining() { now=$(clock_s) || return 1; printf '%s\n' "$((work_deadline - now))"; }
+has_budget() { left=$(remaining) && [ "$left" -gt 0 ]; }
+bounded() {
+    limit=$1; shift
+    left=$(remaining) || return 124
+    [ "$left" -gt 0 ] || return 124
+    [ "$limit" -le "$left" ] || limit=$left
+    timeout -k 1 "$limit" "$@" 8>&-
+}
+say() {
+    echo "recover: $*"
+    bounded 3 python3 "$LOG_RELAY" send lumatv-sm "recover: $*" 2>/dev/null || :
+}
+ls_ok() { grep -q '"returnValue"[[:space:]]*:[[:space:]]*true' 8>&-; }
+ours() { grep -q ' /usr/bin/surface-manager ' /proc/self/mountinfo 8>&- && pgrep -f 'bin/lumatv-compositor' 8>&- >/dev/null; }
+home_running() { bounded 10 luna-send -n 1 luna://com.palm.webappmanager/listRunningApps '{}' 2>/dev/null | grep -q '"com.webos.app.home"' 8>&-; }
+pause() { has_budget && sleep 1; }
 
-# One recovery at a time: the supervisor's fallback and the trial script's revert can both ask for it, and a
-# second Home launch while the first is still waiting for pixels leaves the panel black (tools/lumatv).
-LOCK=/tmp/lumatv-recover.lock
-if ! mkdir $LOCK 2>/dev/null; then
-    say "another recovery is running; waiting for it"
-    n=0; while [ -d $LOCK ] && [ $n -lt 120 ]; do sleep 1; n=$((n+1)); done
-    [ -d $LOCK ] && rm -rf $LOCK
-    exit 0
+failed=0
+stock=0
+[ "${1:-}" != "--stock" ] && [ ! -e "$STOCK_HOLD" ] || stock=1
+stock_yield() {
+    if [ "$stock" = 0 ] && [ -e "$STOCK_HOLD" ]; then
+        say "stock recovery requested; yielding the serialized handoff"
+        exit 0
+    fi
+}
+
+stock_generation() { cat "$STOCK_HOLD" 8>&- 2>/dev/null || :; }
+checkpoint() {
+    stock_yield
+    [ "$stock" = 0 ] || [ "$(stock_generation)" = "$generation" ]
+}
+
+launch_home() {
+    if launch_reply=$(timeout -k 1 3 luna-send -n 1 luna://com.webos.applicationManager/launch '{"id":"com.webos.app.home"}' 8>&- 2>/dev/null) && printf '%s\n' "$launch_reply" | ls_ok; then
+        say "Home launch accepted; display acceptance remains unverified"
+    else
+        failed=1
+        say "Home launch refused, failed or timed out"
+    fi
+}
+
+# Hold the lock through the complete recovery, including visibility checks. A
+# later stock request may run sequentially: an already-listed Home can still be
+# the cached transparent stub and must not bypass the restored stock GUI restart.
+exec 8>>"$LOCK" || exit 1
+wait_lock=10
+[ "$stock" = 0 ] || wait_lock=30
+if ! flock -x -w "$wait_lock" 8; then
+    say "another recovery still owns the handoff"
+    exit 1
 fi
-trap 'rm -rf $LOCK' EXIT INT TERM
+stock_yield
+recovery_pass() {
+if [ "$stock" = 1 ]; then
+    generation=$(stock_generation)
+    n=0
+    while has_budget && grep -q ' /usr/bin/surface-manager ' /proc/self/mountinfo 8>&- && [ "$n" -lt 10 ]; do
+        pause; n=$((n+1))
+    done
+    if bounded 30 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv stock-ui-restore; then
+        say "owned stock UI restoration completed"
+    else
+        failed=1
+        say "owned stock UI restoration failed or timed out; attempting Home"
+    fi
+    checkpoint || return 2
+fi
+
 n=0
-while [ "$(systemctl is-active $SM)" != "active" ] && [ $n -lt 40 ]; do sleep 1; n=$((n+1)); done
-say "$SM $(systemctl is-active $SM) after ${n}s; exe $(readlink /proc/$(pgrep -x surface-manager | head -1)/exe 2>/dev/null)"
-# The compositor is back when its bus name answers. After the supervisor execs LG's binary the unit never leaves
-# "active" and the old socket file is still there, so neither says anything; LG's compositor registers the name
-# during its start-up, the supervisor once LumaTV's compositor listens.
-n=0
-while [ $n -lt 40 ]; do
-    timeout 5 luna-send -n 1 luna://com.webos.surfacemanager/getForegroundAppInfo '{}' 2>/dev/null | ls_ok && break
-    sleep 1; n=$((n+1))
+while has_budget && [ "$n" -lt 5 ]; do
+    checkpoint || return 2
+    [ "$(bounded 3 systemctl is-active "$SM" 2>/dev/null)" != active ] || break
+    pause; n=$((n+1))
 done
-say "compositor answering on the bus after ${n}s"
-sleep 2
-# What LG's lsm-ready.service does once its compositor is ready: WebAppMgr, booster and maliit-server each hold a
-# Wayland connection to the compositor that went away, so they are restarted. booster and maliit only when they
-# run (both were inactive in the census), so nothing the set was not running gets started.
-systemctl reset-failed $WAM 2>/dev/null
-systemctl restart $WAM
-systemctl try-restart booster.service maliit-server.service 2>/dev/null
-say "$WAM restarted: $(systemctl is-active $WAM); booster $(systemctl is-active booster.service); maliit $(systemctl is-active maliit-server.service)"
+say "$SM wait: $n attempts"
+checkpoint || return 2
+# A live unit and an old socket do not prove the replacement compositor has
+# registered its bus name. Keep the existing bus-readiness check.
 n=0
-while [ $n -lt 30 ]; do
-    if timeout 10 luna-send -n 1 luna://com.palm.webappmanager/listRunningApps '{}' 2>/dev/null | ls_ok; then break; fi
-    sleep 1; n=$((n+1))
+while has_budget && [ "$n" -lt 3 ]; do
+    checkpoint || return 2
+    bounded 5 luna-send -n 1 luna://com.webos.surfacemanager/getForegroundAppInfo '{}' 2>/dev/null | ls_ok && break
+    pause; n=$((n+1))
 done
-say "WebAppMgr answering after ${n}s ($(systemctl is-active $WAM))"
-sleep 1
-timeout 10 luna-send -n 1 luna://com.webos.applicationManager/launch '{"id":"com.webos.app.home"}' >/dev/null 2>&1
+say "compositor bus wait: $n attempts"
+checkpoint || return 2
+has_budget && sleep 2
+
+# Only services already running are try-restarted; no inactive booster or input
+# method is started. Check stock intent between bounded service operations.
+bounded 10 systemctl reset-failed "$WAM" 2>/dev/null || :
+checkpoint || return 2
+bounded 20 systemctl restart "$WAM" || failed=1
+checkpoint || return 2
+bounded 20 systemctl try-restart booster.service maliit-server.service 2>/dev/null || :
+checkpoint || return 2
+n=0
+while has_budget && [ "$n" -lt 3 ]; do
+    checkpoint || return 2
+    bounded 10 luna-send -n 1 luna://com.palm.webappmanager/listRunningApps '{}' 2>/dev/null | ls_ok && break
+    pause; n=$((n+1))
+done
+say "WebAppMgr wait: $n attempts"
+checkpoint || return 2
+pause
+checkpoint || return 2
+# This final bounded request is attempted even if an earlier phase exhausted its
+# work budget. Service errors must not turn the emergency path into a no-op.
+launch_home
+checkpoint || return 2
 n=0
 if ours; then
-    while [ $n -lt 30 ]; do
+    while has_budget && [ "$n" -lt 3 ]; do
+        checkpoint || return 2
         home_running && break
-        sleep 1; n=$((n+1))
+        pause; n=$((n+1))
     done
-    if [ $n -lt 30 ]; then say "Home running under LumaTV's compositor after ${n}s"; else say "Home not in listRunningApps after 30 s"; fi
+    if home_running; then say "Home is listed under LumaTV"; else say "Home listing unavailable"; fi
 else
-    while [ $n -lt 30 ]; do
-        b=$(timeout 10 luna-send -n 1 luna://com.webos.service.capture/executeOneShot "{\"path\":\"$CAP\",\"method\":\"DISPLAY\",\"format\":\"PNG\",\"width\":320,\"height\":180}" 2>/dev/null | tr ',' '\n' | grep writtenBytes | tr -dc '0-9')
+    b=
+    while has_budget && [ "$n" -lt 3 ]; do
+        checkpoint || return 2
+        b=$(bounded 10 luna-send -n 1 luna://com.webos.service.capture/executeOneShot "{\"path\":\"$CAP\",\"method\":\"DISPLAY\",\"format\":\"PNG\",\"width\":320,\"height\":180}" 2>/dev/null | tr ',' '\n' 8>&- | grep writtenBytes 8>&- | tr -dc '0-9' 8>&-)
         [ -n "$b" ] && [ "$b" -gt 4096 ] && break
-        sleep 1; n=$((n+1))
+        pause; n=$((n+1))
     done
-    if [ $n -lt 30 ]; then say "Home on the panel after ${n}s (capture $b bytes)"; else say "panel still blank after 30 s (capture ${b:-none} bytes)"; fi
+    say "display capture: ${b:-unavailable} bytes; not visual Home verification"
 fi
-rm -f $CAP
-# A Netflix instance preloaded under the compositor that just went keeps the services it bound at its start and fails
-# to play (tvq-pb-101 in the third and fifth gates; the same under LG's compositor after declutter's runtime changes).
-# Ending it is enough: the preload manager loads a fresh one as soon as an app closes. Only Netflix: the HDMI input
-# apps survive a swap (HDMI 2's preloaded instance drew under LumaTV's compositor on the fifth gate).
-if timeout 10 luna-send -n 1 luna://com.webos.applicationManager/running '{}' 2>/dev/null | grep -q '"id":"netflix"'; then
-    timeout 10 luna-send -n 1 luna://com.webos.applicationManager/closeByAppId '{"id":"netflix"}' > /dev/null 2>&1
-    say "ended the Netflix instance of the previous compositor; the preload manager loads a fresh one"
-fi
-# The compositor restart makes com.webos.app.inputcommon crash on teardown; its report would make faultmanager
-# reboot the set at the next power-off. Pathname expansion handles the raw bytes in the names.
-sleep 10
-rm -f /tmp/var/log/reports/librdx/* 2>/dev/null
-say "librdx reports swept; remaining $(ls /tmp/var/log/reports/librdx 2>/dev/null | wc -l)"
+checkpoint || return 2
+return 0
+}
+
+# A newer fallback may arrive after a previous stock restore. Repeat the ordered
+# recovery for its generation without extending the original work deadline.
+while :; do
+    if recovery_pass; then break; fi
+    if ! has_budget; then
+        failed=1
+        launch_home
+        break
+    fi
+done
+rm -f "$CAP" 8>&-
+exit "$failed"

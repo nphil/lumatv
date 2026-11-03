@@ -1,8 +1,8 @@
 //! The notification drawer (`docs/mocks/13-notifications`, `panels/Drawer.qml` of the QML shell): a panel down the right side, the quick
 //! panel's width and place, that opens from the bell on Home's top bar (and a long press of the gear key), with what has happened grouped
 //! the way Android does: by who said it (AI access: what an assistant asked for and what was decided, the helper's audit; each plugin:
-//! the broker's notifications, with the plugin's own buttons; the TV: the [`NoteLog`], an update ready, what LG's notification service
-//! said). A group is as new as its newest notification and the groups are ordered by it; inside a group the newest comes first.
+//! the broker's notifications, with the plugin's own buttons; the TV: the [`NoteLog`], such as an update ready).
+//! A group is as new as its newest notification and the groups are ordered by it; inside a group the newest comes first.
 //! Notifications that say exactly the same (title, text and buttons) are one entry with a count. A group of one entry is that entry
 //! under a label; a group of several is a header with a focus of its own (OK opens or folds the group, Right reaches its Clear) and its
 //! newest entry, the others behind OK. One column the D-pad moves down; Right and Left move between an item's buttons; OK runs the
@@ -559,7 +559,7 @@ pub(crate) mod tests {
     pub(crate) fn open(env: &Env) -> Drawer {
         let mut d = Drawer::new();
         d.life.show(0);
-        d.log.from_toast(&json!({"message": "TV update ready\nwebOS 10.2.3"}), &[], NOW - 100_000);
+        d.log.post(notelog::Item { id: String::new(), source: String::new(), icon: String::new(), title: "TV update ready".into(), body: "webOS 10.2.3".into(), time: NOW - 100_000, actions: Vec::new() });
         d.open(env, NOW);
         d.answer(200, &audit());
         d
@@ -599,7 +599,7 @@ pub(crate) mod tests {
         let env = env();
         let mut d = Drawer::new();
         d.life.show(0);
-        d.log.from_toast(&json!({"message": "TV update ready"}), &[], NOW - 100_000);
+        d.log.post(notelog::Item { id: String::new(), source: String::new(), icon: String::new(), title: "TV update ready".into(), body: String::new(), time: NOW - 100_000, actions: Vec::new() });
         assert_eq!(d.log.unread(&Drawer::notes(&env)), 3, "the TV's update and the plugin's two notes are unread before the drawer opens");
         let out = d.open(&env, NOW);
         assert_eq!(out.effects, vec![Effect::Fetch { tag: tags::AUDIT, path: "/v1/ai/audit?limit=12".into() }]);

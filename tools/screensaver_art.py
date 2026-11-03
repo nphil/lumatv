@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetches the art mode's pictures and writes `payload/compositor/lumatv/art/` with its index.
+"""Fetches the art mode's pictures and writes `compositor/assets/ui/art/` with its index.
 
     python3 tools/screensaver_art.py [--check]
 
@@ -25,7 +25,7 @@ import urllib.request
 from PIL import Image
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-OUT = os.path.join(ROOT, "payload", "compositor", "lumatv", "art")
+OUT = os.path.join(ROOT, "compositor", "assets", "ui", "art")
 API = "https://commons.wikimedia.org/w/api.php"
 UA = "LumaTV/0.4 (screensaver art; licence-checked; https://nateshome.net)"
 LONG_SIDE = 1280

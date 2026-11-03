@@ -1,8 +1,10 @@
-//! The real `lumatv-compositor` binary (software renderer) started with no Rust shell kinds, then given one at run time with
-//! `ctl shell rust +osd`: the channel the client talks to is created then, and the loop must listen to it from then on.
-//! A stand-in client does what `lumatv-ui` does first (GET /v1/state with the token) and the compositor must report it connected.
+//! Native UI startup creates a channel the compositor loop listens to.
+//! A stand-in client fetches state with the token and must be reported connected.
+#![cfg(feature = "ui")]
 
 use std::io::{Read, Write};
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use std::net::TcpStream;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -13,19 +15,24 @@ fn ctl(dir: &std::path::Path, words: &[&str]) -> serde_json::Value {
 }
 
 #[test]
-fn a_kind_enabled_at_run_time_gets_its_client_connection_noticed_by_the_loop() {
+fn native_startup_channel_notices_its_client_connection() {
     let dir = std::env::temp_dir().join(format!("lumatv-shell-rust-runtime-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
+    let mesa = "/usr/lib/x86_64-linux-gnu/libEGL.so.1";
+    if !Path::new(mesa).exists() { return; }
+    let client_bin = dir.join("client.sh");
+    std::fs::write(&client_bin, "#!/bin/sh\nexec sleep 60\n").unwrap();
+    std::fs::set_permissions(&client_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
     let port = {
         let first = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         first.local_addr().unwrap().port().saturating_sub(1).max(20000)
     };
     let mut child = Command::new(env!("CARGO_BIN_EXE_lumatv-compositor"))
-        .args(["--runtime-dir", dir.to_str().unwrap(), "--data-dir", dir.to_str().unwrap(), "--renderer", "software", "--seconds", "30"])
-        .args(["--shell-port", &port.to_string()])
-        // a client that exists; the engine is not attached on this renderer, so it is not started and the test plays its part
-        .env("LUMATV_UI_BIN", "/bin/true")
+        .args(["--runtime-dir", dir.to_str().unwrap(), "--data-dir", dir.to_str().unwrap(), "--renderer", "gl", "--driver", mesa, "--egl-platform", "surfaceless", "--buffers", "own", "--output", "640x360", "--seconds", "60"])
+        .args(["--shell-port", &port.to_string(), "--shell-rust", "osd"])
+        .env("LIBGL_ALWAYS_SOFTWARE", "1")
+        .env("LUMATV_UI_BIN", &client_bin)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -37,8 +44,8 @@ fn a_kind_enabled_at_run_time_gets_its_client_connection_noticed_by_the_loop() {
     }
     assert!(sock.exists(), "the control socket");
 
-    assert_eq!(ctl(&dir, &["shell", "rust"])["rust"]["kinds"], serde_json::json!([]), "started with no kinds");
-    assert_eq!(ctl(&dir, &["shell", "rust", "+osd"])["ok"], true);
+    assert_eq!(ctl(&dir, &["shell"])["kinds"], serde_json::json!(["osd"]));
+    assert_eq!(ctl(&dir, &["shell"])["ready"], false, "a process without a first frame is not ready");
 
     let token = std::fs::read_to_string(dir.join("lumatv-ui.token")).expect("the token file").trim().to_string();
     let mut client = TcpStream::connect(("127.0.0.1", port + 1)).expect("the channel listens");
@@ -50,11 +57,11 @@ fn a_kind_enabled_at_run_time_gets_its_client_connection_noticed_by_the_loop() {
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut connected = false;
     while !connected && Instant::now() < deadline {
-        connected = ctl(&dir, &["shell", "rust"])["rust"]["connected"] == true;
+        connected = ctl(&dir, &["shell"])["connected"] == true;
         std::thread::sleep(Duration::from_millis(50));
     }
     let _ = ctl(&dir, &["quit"]);
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&dir);
-    assert!(connected, "the loop noticed the client that connected to a channel created after it started");
+    assert!(connected, "the loop noticed the client on the startup channel");
 }

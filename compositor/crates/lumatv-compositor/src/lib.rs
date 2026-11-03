@@ -10,6 +10,12 @@
 //! bridge, and `main.rs` the process (sockets, tick, control).
 
 #[cfg(test)]
+extern crate self as lumatv_compositor;
+#[cfg(test)]
+#[path = "../tests/harness/mod.rs"]
+mod harness;
+
+#[cfg(test)]
 mod alloc_tests;
 pub mod afbc;
 pub mod boxdim;
@@ -27,6 +33,7 @@ pub mod kms;
 pub mod logsink;
 pub mod luna;
 pub mod luna_methods;
+pub(crate) mod nooperation;
 pub mod mem;
 pub mod oledcare;
 pub mod output;

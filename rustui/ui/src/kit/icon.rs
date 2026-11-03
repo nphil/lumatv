@@ -165,7 +165,7 @@ mod tests {
     use super::*;
 
     fn module() -> PathBuf {
-        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../payload/compositor/lumatv"))
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../compositor/assets/ui"))
     }
 
     #[test]

@@ -7,9 +7,9 @@ use std::path::PathBuf;
 use ui::lucent::material::MaterialTier;
 use ui::lucent::palette::Mode;
 
-/// The module's directory in the repository (`payload/compositor/lumatv`).
+/// The UI assets in the repository.
 pub fn module_dir() -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../payload/compositor/lumatv"))
+    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../compositor/assets/ui"))
 }
 
 pub fn kit(text_scale: f32) -> (ui::testing::Harness, Kit) {

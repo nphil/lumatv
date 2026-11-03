@@ -1,11 +1,11 @@
-//! The volume display drawn: a slim pill with the level as a number and a thin bar, the format's mark at its end, the slashed
+//! The volume display drawn: a slim pill with the format's mark, the level as a number and a thin bar, the slashed
 //! speaker in place of the number while muted; the mute mark that stays and hops. Where it sits is the placement crate's
 //! (`placement/`: `layout.overlays.volume` in the theme, the bottom edge by default, the left or right edge as a vertical bar,
 //! lifted 60 px over an app's picture on the bottom edge: 92 px from the bottom edge in all). The layers are made once per layout (a new
 //! width, edge or look makes them again, hidden) and moved, shown, hidden and restyled from then on; a key's bar appears on its
 //! own frame, without a fade.
 
-use super::volume::{Source, View};
+use super::volume::{Source, Subtitles, View};
 use crate::kit::Kit;
 use crate::kit::glyph;
 use crate::kit::motion::Beat;
@@ -86,6 +86,8 @@ struct Built {
     track: ShapeLayer,
     fill: ShapeLayer,
     logo: Option<ImageLayer>,
+    caption: Option<Text>,
+    caption_at: (f32, f32),
     offline: Text,
     /// Where the parts sit relative to the pane's corner.
     number_at: (f32, f32),
@@ -115,11 +117,14 @@ pub struct VolumeSurface {
     built: Option<Built>,
     mark: Option<Mark>,
     shown: bool,
+    raised: f32,
     last: Option<View>,
     pub edge: Anchor,
 }
 
 impl VolumeSurface {
+    pub(crate) fn pill_visible(&self) -> bool { self.shown }
+
     /// `icons` is where the format marks are (`<module>/icons/audio`); `theme` the merged theme (its `layout.overlays` places the
     /// bar), `layout` Home's `layout.json` for the safe area.
     pub fn new(z: i32, icons: &std::path::Path, theme: &Value, layout: &Value) -> Self {
@@ -128,7 +133,7 @@ impl VolumeSurface {
         let frame = PlacementFrame::from_json(layout, theme.pointer("/overlays/limit"));
         let logos = ["atmos", "dolby", "dtsx", "dts"].into_iter().filter_map(|n| load_logo(icons, n)).collect();
         let edge = registry.placement_of("volume", &user).map_or(Anchor::Bottom, |p| p.placement.anchor);
-        Self { z, logos, registry, user, frame, built: None, mark: None, shown: false, last: None, edge }
+        Self { z, logos, registry, user, frame, built: None, mark: None, shown: false, raised: 0.0, last: None, edge }
     }
 
     /// The bar's size on each edge as the editor draws its stand-in: along the bottom and, turned, up the sides (`Sizes::set_edge`).
@@ -159,18 +164,36 @@ impl VolumeSurface {
         Some(self.registry.drift_spots("mute", &self.user, &self.frame, size, avoid).into_iter().map(|p| (p.x, p.y)).collect())
     }
 
-    /// The pane's size for `view` at the kit's text size: (width, height) as the bar lies, before any turn to an edge.
+    fn caption<'a>(&self, view: &'a View) -> &'a str {
+        if view.logo.is_empty() || !(view.format.starts_with("PCM") || view.format.starts_with("Multi Ch In")) {
+            ""
+        } else if self.vertical() {
+            view.format.split('·').next().unwrap_or("").trim()
+        } else {
+            &view.format
+        }
+    }
+
+    /// The pane's size for `view` at the kit's text size, before any turn to an edge.
     fn measure(&self, kit: &mut Kit, view: &View) -> (f32, f32, f32, f32, f32) {
         let pad_x = kit.space(6);
         let pad_y = kit.space(3);
         let gap = kit.space(5);
         let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), kit.ui.look.ink(), Align::Right);
-        let num_w = widest(kit, style, &["100"]).max(GLYPH as f32);
+        let num_w = widest(kit, style, &["100", "88.5"]).max(GLYPH as f32);
         let logo_h = (kit.ty(TypeRole::Label).px as f32 * 1.08).round();
         let logo_w = self.logo_width(view, logo_h);
         let row_h = kit.line(TypeRole::Label).max(logo_h).max(GLYPH as f32);
         let w = (2.0 * pad_x + num_w + gap + BAR_MIN + if logo_w > 0.0 { gap + logo_w } else { 0.0 }).max(440.0);
         let h = (row_h.ceil() + 2.0 * pad_y).max(56.0);
+        let caption = self.caption(view);
+        let (w, h) = if caption.is_empty() { (w, h) } else {
+            let style = role_style(kit, TypeRole::Caption, None, kit.ui.look.ink(), Align::Centre);
+            let text_w = widest(kit, style, &[caption]);
+            let extra = kit.line(TypeRole::Caption) + kit.space(2);
+            if self.vertical() { (w + extra, h.max(text_w + 2.0 * kit.space(2))) }
+            else { (w.max(text_w + 2.0 * pad_x), h + extra) }
+        };
         (w, h, num_w, logo_w, logo_h)
     }
 
@@ -202,10 +225,47 @@ impl VolumeSurface {
         Rect { x: r.x as f32, y: r.y as f32, w: r.w as f32, h: r.h as f32 }
     }
 
+    // Keep the highest position for this showing, so gaps between cues do not make the bar jump.
+    fn avoid_subtitles(&mut self, mut at: Rect, view: &View, gap: f32, extent: [f32; 4]) -> Option<Rect> {
+        let subtitles = match view.subtitles {
+            Subtitles::Unknown if view.over_video => Some(Rect { x: 0.0, y: lumatv_placement::model::SUBS.top as f32, w: 1920.0, h: (lumatv_placement::model::SUBS.bottom - lumatv_placement::model::SUBS.top) as f32 }),
+            Subtitles::Bounds { x, y, w, h } => Some(Rect { x, y, w, h }),
+            _ => None,
+        };
+        let mark = self.mark.as_ref().filter(|m| m.shown).map(|m| {
+            let f = m.pane.frame();
+            Rect { x: f.x, y: f.y, w: f.w, h: f.h }
+        });
+        let mut raised = self.raised;
+        at.y -= raised;
+        // An upward move can encounter an obstacle previously above the bar.
+        for _ in 0..2 {
+            for r in [subtitles, mark].into_iter().flatten() {
+                let left = (at.x + extent[0]).floor();
+                let top = (at.y + extent[1]).floor();
+                let right = (at.x + extent[2]).ceil();
+                let bottom = (at.y + extent[3]).ceil();
+                if left < r.x + r.w + gap && right + gap > r.x
+                    && top < r.y + r.h + gap && bottom + gap > r.y
+                {
+                    let lift = (bottom + gap - r.y).ceil();
+                    raised += lift;
+                    at.y -= lift;
+                }
+            }
+        }
+        if at.y < self.frame.safe_y as f32 { return None; }
+        self.raised = raised;
+        Some(at)
+    }
+
     fn build(&mut self, kit: &mut Kit, view: &View) -> std::io::Result<Built> {
         let (w, h, num_w, logo_w, logo_h) = self.measure(kit, view);
         let vertical = self.vertical();
         let (pw, ph) = if vertical { (h, w) } else { (w, h) };
+        let caption_text = self.caption(view);
+        let caption_h = if caption_text.is_empty() { 0.0 } else { kit.line(TypeRole::Caption) + kit.space(2) };
+        let body_h = ph - caption_h;
         let z = self.z;
         let pad_x = kit.space(6);
         let gap = kit.space(5);
@@ -216,27 +276,28 @@ impl VolumeSurface {
         let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, if vertical { Align::Centre } else { Align::Right });
         let line = kit.line(TypeRole::Label);
         let track_h = kit.space(2);
-        // the parts along the bar: the number, the bar, the mark; turned on their side on a vertical edge (the number at the top)
+        // The vertical edge keeps the number at the top and the mark at the bottom.
         let (number_at, number_w, track_rect, logo_at, muted_at) = if vertical {
             let number_at = (0.0, pad_x);
             let bar_top = pad_x + line + gap;
-            let bar_bottom = ph - pad_x - if logo_w > 0.0 { gap + logo_h } else { 0.0 };
+            let bar_bottom = body_h - pad_x - if logo_w > 0.0 { gap + logo_h } else { 0.0 };
             (
                 number_at,
                 pw,
                 Frame::new(((pw - track_h) / 2.0).round(), bar_top, track_h, (bar_bottom - bar_top).max(BAR_MIN / 2.0)),
-                (((pw - logo_h) / 2.0).round(), ph - pad_x - logo_h),
+                (((pw - logo_h) / 2.0).round(), body_h - pad_x - logo_h),
                 (((pw - GLYPH as f32) / 2.0).round(), pad_x + ((line - GLYPH as f32) / 2.0).round()),
             )
         } else {
-            let x = pad_x + num_w + gap;
-            let track_w = pw - x - pad_x - if logo_w > 0.0 { gap + logo_w } else { 0.0 };
+            let number_x = pad_x + if logo_w > 0.0 { logo_w + gap } else { 0.0 };
+            let x = number_x + num_w + gap;
+            let track_w = pw - x - pad_x;
             (
-                (pad_x, ((ph - line) / 2.0).round()),
+                (number_x, ((body_h - line) / 2.0).round()),
                 num_w,
-                Frame::new(x, ((ph - track_h) / 2.0).round(), track_w, track_h),
-                (pw - pad_x - logo_w, ((ph - logo_h) / 2.0).round()),
-                (pad_x + ((num_w - GLYPH as f32) / 2.0).round(), ((ph - GLYPH as f32) / 2.0).round()),
+                Frame::new(x, ((body_h - track_h) / 2.0).round(), track_w, track_h),
+                (pad_x, ((body_h - logo_h) / 2.0).round()),
+                (number_x + ((num_w - GLYPH as f32) / 2.0).round(), ((body_h - GLYPH as f32) / 2.0).round()),
             )
         };
         let mut number = Text::new(kit, Frame::new(number_at.0, number_at.1, number_w, line), z + 3, style, "\u{2013}")?;
@@ -260,14 +321,20 @@ impl VolumeSurface {
             }
             _ => None,
         };
-        let caption = role_style(kit, TypeRole::Caption, None, ink, Align::Centre);
+        let caption_style = role_style(kit, TypeRole::Caption, None, ink, Align::Centre);
         let cap_line = kit.line(TypeRole::Caption);
         let offline_at = if vertical { (0.0, ((ph - cap_line) / 2.0).round()) } else { (pad_x, ((ph - cap_line) / 2.0).round()) };
+        let caption_at = (if vertical { 0.0 } else { pad_x }, ph - if vertical { pad_x } else { kit.space(3) } - cap_line);
+        let caption = if caption_text.is_empty() { None } else {
+            let mut text = Text::new(kit, Frame::new(caption_at.0, caption_at.1, if vertical { pw } else { pw - 2.0 * pad_x }, cap_line), z + 3, caption_style, caption_text)?;
+            text.set_props(hidden);
+            Some(text)
+        };
         let mut offline = Text::new(
             kit,
             Frame::new(offline_at.0, offline_at.1, if vertical { pw } else { pw - 2.0 * pad_x }, cap_line),
             z + 3,
-            caption,
+            caption_style,
             "Receiver not answering",
         )?;
         offline.set_props(hidden);
@@ -279,6 +346,8 @@ impl VolumeSurface {
             track,
             fill,
             logo,
+            caption,
+            caption_at,
             offline,
             number_at,
             muted_at,
@@ -291,8 +360,15 @@ impl VolumeSurface {
 
     /// Draws `view`, at `now` (monotonic ms). Returns whether anything of the display is on screen.
     pub fn apply(&mut self, kit: &mut Kit, view: &View, now: u64) -> std::io::Result<bool> {
-        if view.up {
-            let (w, h, _, _, _) = self.measure(kit, view);
+        if !view.up { self.raised = 0.0; }
+        let (w, h, _, _, _) = self.measure(kit, view);
+        let base = self.place(w, h, view.over_video);
+        let (pw, ph) = if self.vertical() { (h, w) } else { (w, h) };
+        let glass = crate::kit::pane::glass(kit, PaneKind::Pill, ph, view.over_video);
+        let extent = lumatv_render::renderer::glass_extent(&glass, (pw.round(), ph.round()), 1.0);
+        let at = if view.up { self.avoid_subtitles(base, view, kit.space(2), extent) } else { None };
+        let blocked = view.up && at.is_none();
+        if let Some(at) = at {
             let (pw, ph) = if self.vertical() { (h, w) } else { (w, h) };
             let key = (pw as u32, ph as u32, view.over_video, view.logo.clone(), kit.generation());
             if self.built.as_ref().is_none_or(|b| b.key != key) {
@@ -300,7 +376,8 @@ impl VolumeSurface {
                 self.built = Some(built);
                 self.shown = false;
             }
-            let at = self.place(w, h, view.over_video);
+            let caption_text = self.caption(view);
+            let snap = self.raised > 0.0 || matches!(view.subtitles, Subtitles::Bounds { .. }) || (view.over_video && view.subtitles == Subtitles::Unknown);
             let b = self.built.as_mut().expect("built above");
             let muted = view.muted && view.source != Source::None;
             let number_props = Props::at(at.x + b.number_at.0, at.y + b.number_at.1);
@@ -326,6 +403,11 @@ impl VolumeSurface {
                 b.pane.move_to(at.x, at.y);
                 b.track.set(track_props);
                 b.fill.set(fill_props);
+            } else if snap {
+                b.pane.layer().set(pane_props);
+                b.pane.move_to(at.x, at.y);
+                b.track.set(track_props);
+                b.fill.set(fill_props);
             } else if moved {
                 // the app came or went under a bar that is showing: it glides
                 kit.glide(b.pane.layer(), pane_props, Beat::Card);
@@ -345,17 +427,28 @@ impl VolumeSurface {
             if let Some(logo) = &b.logo {
                 show(logo, Props::at(at.x + b.logo_at.0, at.y + b.logo_at.1), readable && !view.logo.is_empty());
             }
+            if let Some(caption) = &mut b.caption {
+                caption.set(kit, caption_text);
+                show(caption.layer(), Props::at(at.x + b.caption_at.0, at.y + b.caption_at.1), readable && !muted && !view.logo.is_empty());
+            }
             show(b.offline.layer(), Props::at(at.x + b.offline_at.0, at.y + b.offline_at.1), view.offline);
             self.shown = true;
         } else if self.shown {
             if let Some(b) = &self.built {
                 let from = b.pane.at();
-                kit.leave(b.pane.layer(), from, Beat::Rest);
+                if blocked {
+                    b.pane.layer().set(Props { opacity: 0.0, visible: false, ..from });
+                } else {
+                    kit.leave(b.pane.layer(), from, Beat::Rest);
+                }
                 for layer in [&*b.track, &*b.fill, b.number.layer(), &*b.muted, b.offline.layer()] {
                     layer.set(Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) });
                 }
                 if let Some(logo) = &b.logo {
                     logo.set(Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) });
+                }
+                if let Some(caption) = &b.caption {
+                    caption.layer().set(Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) });
                 }
             }
             self.shown = false;
@@ -466,6 +559,195 @@ mod tests {
 
     fn layout() -> Value {
         serde_json::from_str(include_str!("../../../../payload/theme/layout.json")).unwrap()
+    }
+
+    #[test]
+    fn subtitle_collision_is_minimal_stable_and_hides_when_no_safe_position_exists() {
+        let (_host, mut kit) = testkit::kit(1.0);
+        let mut surface = VolumeSurface::new(1000, std::path::Path::new("/nonexistent"), &json!({}), &layout());
+        let mut view = View::sample();
+        view.over_video = true;
+        view.subtitles = Subtitles::Empty;
+        surface.apply(&mut kit, &view, 0).unwrap();
+        let base = surface.pane_rect().unwrap();
+        let gap = kit.space(2);
+        view.subtitles = Subtitles::Bounds { x: base.x, y: base.y + base.h - 10.0, w: base.w, h: 60.0 };
+        surface.apply(&mut kit, &view, 1).unwrap();
+        let raised = surface.pane_rect().unwrap();
+        let glass = crate::kit::pane::glass(&kit, PaneKind::Pill, base.h, true);
+        let extent = lumatv_render::renderer::glass_extent(&glass, (base.w, base.h), 1.0);
+        assert_eq!(raised.y, base.y - (10.0 + gap + extent[3] - base.h).ceil());
+        view.subtitles = Subtitles::Empty;
+        surface.apply(&mut kit, &view, 2).unwrap();
+        assert_eq!(surface.pane_rect().unwrap().y, raised.y);
+        view.subtitles = Subtitles::Bounds { x: 0.0, y: 1.0, w: 1920.0, h: 1079.0 };
+        surface.apply(&mut kit, &view, 3).unwrap();
+        assert!(surface.pane_rect().is_none());
+        view.subtitles = Subtitles::Empty;
+        surface.apply(&mut kit, &view, 4).unwrap();
+        assert_eq!(surface.pane_rect().unwrap().y, raised.y);
+        view.up = false;
+        surface.apply(&mut kit, &view, 5).unwrap();
+        view.up = true;
+        surface.apply(&mut kit, &view, 6).unwrap();
+        assert_eq!(surface.pane_rect().unwrap().y, base.y);
+    }
+
+    #[test]
+    fn unknown_uses_the_fallback_band_but_side_bars_and_distant_cues_stay_put() {
+        let (_host, mut kit) = testkit::kit(1.0);
+        let mut surface = VolumeSurface::new(1000, std::path::Path::new("/nonexistent"), &json!({}), &layout());
+        let mut view = View::sample();
+        view.over_video = true;
+        view.subtitles = Subtitles::Empty;
+        surface.apply(&mut kit, &view, 0).unwrap();
+        let base = surface.pane_rect().unwrap();
+        view.subtitles = Subtitles::Bounds { x: 0.0, y: base.y, w: 50.0, h: base.h };
+        surface.apply(&mut kit, &view, 1).unwrap();
+        assert_eq!(surface.pane_rect().unwrap().y, base.y);
+        view.subtitles = Subtitles::Unknown;
+        surface.apply(&mut kit, &view, 2).unwrap();
+        let raised = surface.pane_rect().unwrap();
+        assert!(raised.y + raised.h + kit.space(2) <= lumatv_placement::model::SUBS.top as f32);
+        // Vertical bars use the same painted-bound protection.
+        for edge in [Anchor::Left, Anchor::Right] {
+            surface.edge = edge;
+            let r = Rect { x: 100.0, y: 400.0, w: 56.0, h: 440.0 };
+            let extent = [0.0, 0.0, r.w, r.h];
+            assert!(surface.avoid_subtitles(r, &view, kit.space(2), extent).is_some());
+        }
+    }
+
+    #[test]
+    fn raised_bar_keeps_clear_of_the_disappearing_mute_mark() {
+        let (_host, mut kit) = testkit::kit(1.0);
+        let mut surface = VolumeSurface::new(1000, std::path::Path::new("/nonexistent"), &json!({}), &layout());
+        let mut view = View::sample();
+        view.up = false;
+        view.mark_up = true;
+        view.spots = vec![(740, 200)];
+        surface.apply(&mut kit, &view, 0).unwrap();
+        view.up = true;
+        view.mark_up = false;
+        view.subtitles = Subtitles::Bounds { x: 0.0, y: 250.0, w: 1920.0, h: 750.0 };
+        surface.apply(&mut kit, &view, 1).unwrap();
+        let bar = surface.pane_rect().unwrap();
+        assert!(bar.y + bar.h + kit.space(2) <= 200.0);
+    }
+    #[test]
+    fn caption_safe_pill_survives_native_frame_guard() {
+        use lumatv_render::host::{Engine, Exclusion, HostConfig};
+        use lumatv_render::tiles::TileSet;
+        use lumatv_render::Gles;
+        use ui::lucent::{material::MaterialTier, palette::Mode};
+        use ui::SceneOptions;
+
+        let gl = Gles::software_pbuffer(c"libEGL.so.1", 1920, 1080).unwrap();
+        let target = gl.new_render_target(1920, 1080).unwrap();
+        let wrapped = unsafe { Gles::current(c"libEGL.so.1") }.unwrap();
+        let shm = std::env::temp_dir().join(format!("lumatv-volume-caption-{}", std::process::id()));
+        std::fs::create_dir_all(&shm).unwrap();
+        let (mut engine, socket) = Engine::new(wrapped, HostConfig {
+            width: 1920, height: 1080, refresh_hz: 60.0, shm_dir: shm.clone(), direct: false,
+            gpu_sync: false, idle_trim: false, pages: 0, reference: false, blit: false,
+            external: true, system_z: 100,
+        }).unwrap();
+        let (scene, _, events) = ui::Scene::over_with(socket, SceneOptions { shm_dir: Some(shm.clone()), ..Default::default() }).unwrap();
+        engine.finish_handshake().unwrap();
+        let mut tokens = lumatv_tokens::Tokens::shipped();
+        let mut now = lumatv_render::now_ns();
+        for depth in [1.0, 1.5, 0.0] {
+            tokens.depth_scale = depth;
+            let mut kit = Kit::new(scene.clone(), tokens.clone(), Mode::Dark, MaterialTier::T1, 1.0).unwrap();
+            let _ground = kit.ui.scene.shape(1920, 1080, 0, ui::components::plate::solid(Rgba(20, 30, 40, 255), 0.0), Props::at(0.0, 0.0));
+            let mut surface = VolumeSurface::new(100, std::path::Path::new("/nonexistent"), &json!({}), &layout());
+            let mut view = View::sample();
+            view.over_video = true;
+            for y in [938, 900] {
+                view.subtitles = Subtitles::Bounds { x: 709.0, y: y as f32, w: 518.0, h: 55.0 };
+                surface.apply(&mut kit, &view, 0).unwrap();
+                let pill = surface.pane_rect().unwrap();
+                engine.set_exclusion(Some(Exclusion { area: [709, y, 1227, y + 55], popup_z: (100, 104), marker_z: (104, 106) }));
+                for _ in 0..30 {
+                    while let Ok(event) = events.try_recv() { kit.ui.scene.observe(&event); }
+                    if let Some(atlas) = kit.ui.text_atlas() { atlas.pump(); }
+                    if kit.ui.scene.has_pending() { let _ = kit.ui.try_commit().unwrap(); }
+                    now += 16_666_667;
+                    engine.pump().unwrap();
+                    engine.plan(now).unwrap();
+                    let mut damage = TileSet::new(1920, 1080);
+                    damage.fill();
+                    let mut areas = Vec::new();
+                    damage.rects(&mut areas);
+                    engine.draw_stack_direct(0, target.framebuffer, &areas).unwrap();
+                    engine.draw_stack(1, target.framebuffer, &areas).unwrap();
+                    let cost = engine.finish().unwrap();
+                    assert_eq!(cost.gl_error, None);
+                    engine.frame_done(now, &cost);
+                    engine.tidy();
+                    gl.bind_framebuffer(target.framebuffer);
+                    let centre = gl.read_pixels((pill.x + pill.w / 2.0) as i32, (pill.y + pill.h / 2.0) as i32, 1, 1);
+                    let ground = gl.read_pixels(0, 0, 1, 1);
+                    if ground == [20, 30, 40, 255] && centre != ground { break; }
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+                gl.bind_framebuffer(target.framebuffer);
+                assert_eq!(gl.read_pixels(0, 0, 1, 1), [20, 30, 40, 255], "ground did not arrive");
+                assert_ne!(gl.read_pixels((pill.x + pill.w / 2.0) as i32, (pill.y + pill.h / 2.0) as i32, 1, 1), [20, 30, 40, 255], "popup suppressed at depth {depth}, cue {y}");
+                assert!(gl.read_pixels(709, y, 518, 55).chunks_exact(4).all(|p| p == [20, 30, 40, 255]), "popup painted over caption at depth {depth}, cue {y}");
+            }
+        }
+        let _ = std::fs::remove_dir_all(shm);
+    }
+
+
+    #[test]
+    fn real_format_marks_lead_the_horizontal_bar_and_keep_the_vertical_order() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let icons = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../compositor/assets/ui/icons/audio");
+        let mut surface = VolumeSurface::new(1000, &icons, &json!({}), &layout());
+        let mut view = View::sample();
+        view.source = Source::Receiver;
+        let pad = kit.space(6);
+        let gap = kit.space(5);
+
+        for (name, width) in [("atmos", 438), ("dolby", 984), ("dts", 286), ("dtsx", 316)] {
+            view.logo = name.into();
+            let art = surface.logos.iter().find(|art| art.name == name).expect("real mark decoded");
+            assert_eq!((art.width, art.height), (width, 112));
+            let (_, _, num_w, logo_w, logo_h) = surface.measure(&mut kit, &view);
+            let (render_w, render_h, pixels) = art.render(logo_h as u32, logo_h * 7.0, Rgba(90, 120, 150, 255));
+            assert_eq!(render_w as f32, logo_w);
+            assert!(render_h > 0 && pixels.chunks_exact(4).any(|p| p[3] > 0));
+            assert!(pixels.chunks_exact(4).all(|p| p[0] <= p[3] && p[1] <= p[3] && p[2] <= p[3]));
+            let built = surface.build(&mut kit, &view).unwrap();
+            assert!(built.logo.is_some());
+            assert_eq!(built.logo_at.0, pad);
+            assert_eq!(built.number_at.0, pad + logo_w + gap);
+            assert_eq!(built.track_rect.x, built.number_at.0 + num_w + gap);
+            assert_eq!(built.muted_at.0, built.number_at.0 + ((num_w - GLYPH as f32) / 2.0).round());
+            assert!(built.track_rect.w >= BAR_MIN);
+        }
+
+        for logo in ["", "unknown", "pcm"] {
+            view.logo = logo.into();
+            view.muted = logo.is_empty();
+            let built = surface.build(&mut kit, &view).unwrap();
+            assert!(built.logo.is_none());
+            assert_eq!(built.number_at.0, pad);
+            assert_eq!(built.muted_at.0, pad + ((surface.measure(&mut kit, &view).2 - GLYPH as f32) / 2.0).round());
+        }
+
+        view.muted = false;
+        view.logo = "atmos".into();
+        for edge in [Anchor::Left, Anchor::Right] {
+            surface.edge = edge;
+            let built = surface.build(&mut kit, &view).unwrap();
+            assert!(built.vertical);
+            assert!(built.number_at.1 < built.track_rect.y);
+            assert!(built.track_rect.y + built.track_rect.h < built.logo_at.1);
+        }
     }
 
     #[test]

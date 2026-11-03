@@ -35,6 +35,7 @@ pub struct Foreground {
     pub app: String,
     pub home: bool,
     pub known: bool,
+    pub video: Option<(String, String)>,
 }
 
 /// What the helper's `/v1/capture` said, reduced to what a tile shows (`settings/Capture.js`).
@@ -143,7 +144,12 @@ impl Env {
         match input {
             Input::Topic { topic, data } => match topic.as_str() {
                 "foreground" => {
-                    let fg = Foreground { app: data.get("app").and_then(Value::as_str).unwrap_or("").to_string(), home: data.get("home").and_then(Value::as_bool).unwrap_or(false), known: true };
+                    let app = data.get("app").and_then(Value::as_str).unwrap_or("");
+                    let home = data.get("home").and_then(Value::as_bool).unwrap_or(false);
+                    let video = data.get("video").and_then(|v| Some((v.get("context")?.as_str()?, v.get("app")?.as_str()?)))
+                        .filter(|(context, source_app)| !home && !context.is_empty() && *source_app == app && !app.is_empty())
+                        .map(|(context, app)| (context.to_owned(), app.to_owned()));
+                    let fg = Foreground { app: app.to_string(), home, known: true, video };
                     changed |= fg != self.fg;
                     self.fg = fg;
                 }
@@ -157,6 +163,9 @@ impl Env {
                         self.audio_output = out.to_string();
                         changed = true;
                     }
+                }
+                "channel.up" if data.as_bool() == Some(false) => {
+                    changed |= self.fg.video.take().is_some();
                 }
                 _ => {}
             },
@@ -182,7 +191,9 @@ impl Env {
             }
             _ => {}
         }
+        let sio_revision = self.sio.revision;
         out.extend(self.sio.update(input, now));
+        changed |= self.sio.revision != sio_revision;
         let (e, c) = self.inputs.update(input, now);
         out.extend(e);
         changed |= c;
@@ -236,6 +247,19 @@ impl Env {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_timed_out_picture_read_redraws_the_unknown_mode() {
+        let mut env = Env::new(json!({}));
+        env.sio.learn("picture", &json!({"settings":{"pictureMode":"eco"}, "dimension":{"pictureMode":"eco", "dynamicRange":"sdr", "input":"hdmi1"}}));
+        let write = env.sio.write("picture.pictureMode", &json!("filmMaker"), None, 100);
+        let Effect::Luna { tag, .. } = &write[0] else { panic!() };
+        env.update(&Input::Luna {tag:*tag, payload:json!({"returnValue":true})}, 101);
+        assert_eq!(env.sio.text("picture.pictureMode"), "filmMaker");
+        let (_, changed) = env.update(&Input::Tick, 2101);
+        assert!(changed);
+        assert!(!env.sio.has("picture.pictureMode"));
+    }
 
     #[test]
     fn the_owners_switches_are_on_unless_the_theme_says_false_and_the_editor_is_off_until_it_says_true() {

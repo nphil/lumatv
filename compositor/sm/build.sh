@@ -18,7 +18,7 @@ S(LSSubscriptionAdd) S(LSSubscriptionReply) S(LSSubscriptionSetCancelFunction)
 EOF
 cat > "$out/stubs/glib.c" <<'EOF'
 #define S(name) void name(void) {}
-S(g_main_loop_new) S(g_main_loop_run) S(g_main_loop_quit) S(g_io_channel_unix_new) S(g_io_add_watch) S(g_timeout_add) S(g_child_watch_add)
+S(g_main_loop_new) S(g_main_loop_run) S(g_main_loop_quit) S(g_io_channel_unix_new) S(g_io_add_watch) S(g_timeout_add) S(g_child_watch_add) S(g_source_remove)
 EOF
 
 build() { # target outdir
@@ -26,12 +26,12 @@ build() { # target outdir
     mkdir -p "$d"
     zig cc -target "$t" -shared -fPIC -o "$d/libluna-service2.so.3" "$out/stubs/ls2.c" -Wl,-soname,libluna-service2.so.3
     zig cc -target "$t" -shared -fPIC -o "$d/libglib-2.0.so.0" "$out/stubs/glib.c" -Wl,-soname,libglib-2.0.so.0
-    zig cc -target "$t" -O2 -s -Wall -Wextra -Wno-unused-parameter -o "$d/lumatv-sm" "$here/lumatv-sm.c" "$d/libluna-service2.so.3" "$d/libglib-2.0.so.0"
+    zig cc -target "$t" -O2 -s -Wall -Wextra -Wno-unused-parameter -pthread -o "$d/lumatv-sm" "$here/lumatv-sm.c" "$d/libluna-service2.so.3" "$d/libglib-2.0.so.0"
 }
 build arm-linux-gnueabi.2.28 "$out/arm"
 build x86_64-linux-gnu.2.36 "$out/host"
 # The scanner tests, host build, run now.
-zig cc -target x86_64-linux-gnu.2.36 -O1 -DLUMATV_SM_TEST -Wno-unused-function -o "$out/host/lumatv-sm-test" "$here/lumatv-sm.c" "$out/host/libluna-service2.so.3" "$out/host/libglib-2.0.so.0"
+zig cc -target x86_64-linux-gnu.2.36 -O1 -DLUMATV_SM_TEST -Wno-unused-function -pthread -o "$out/host/lumatv-sm-test" "$here/lumatv-sm.c" "$out/host/libluna-service2.so.3" "$out/host/libglib-2.0.so.0"
 "$out/host/lumatv-sm-test"
 # The set's binary: strip the stub paths from the record (only the sonames matter) and show what it needs.
 cp "$out/arm/lumatv-sm" "$out/lumatv-sm"

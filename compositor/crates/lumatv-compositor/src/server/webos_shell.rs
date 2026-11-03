@@ -9,8 +9,19 @@ use lumatv_wl_protocols::webos_shell::server::wl_webos_shell_surface::{self, Sta
 use super::compositor::surface_id;
 use super::shell::take_toplevel_role;
 use crate::surface::{Role, SurfaceId};
-use crate::window::{ShellState, WindowId};
+use crate::window::{ShellState, WindowId, WindowType};
 use crate::{State, plain_global};
+
+pub(crate) fn invalidate_front_change(state: &mut State, before: Option<SurfaceId>) -> Option<SurfaceId> {
+    let after = state.scene.foreground(&state.surfaces).map(|w| w.surface);
+    if before != after {
+        for surface in [before, after].into_iter().flatten() {
+            state.scene.invalidate_video_holes_for_surface(surface, &state.surfaces);
+        }
+    }
+    after
+}
+
 
 pub struct WebosShellSurfaceData {
     pub surface: SurfaceId,
@@ -79,6 +90,7 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
             }
             wl_webos_shell_surface::Request::SetState { state: st } => {
                 state.note_request("wl_webos_shell_surface", pid, &format!("set_state({st})"));
+                let before = state.scene.foreground(&state.surfaces).map(|w| w.surface);
                 let new = ShellState::from_u32(st);
                 // A window attached to a surface group is no card (LG: `__allowedFullscreen`): it never comes to the front, whatever it asks for.
                 let card = state.scene.window(data.window).is_some_and(|w| w.kind.is_card() && !w.in_group);
@@ -101,38 +113,45 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                     state.scene.raise(data.window);
                     state.journal(format!("window {}: raised to the front (set_state fullscreen)", data.window.0));
                     settle_cards(state, None);
+                    invalidate_front_change(state, before);
                     state.luna_notify();
                 } else if card && new == ShellState::Minimized && was_top {
                     settle_cards(state, Some(data.window));
+                    invalidate_front_change(state, before);
+                    state.luna_notify();
+                }
+                if card && old != Some(new) {
+                    state.refresh_policy_sync();
+                } else if old != Some(new) && state.scene.window(data.window).is_some_and(|w| w.kind == WindowType::Screensaver) {
+                    sync_exposed(state);
                     state.luna_notify();
                 }
                 super::seat::refocus(state);
             }
             wl_webos_shell_surface::Request::SetProperty { name, value } => {
                 state.note_request("wl_webos_shell_surface", pid, &format!("set_property({name:?}, {value:?})"));
+                let before = state.scene.foreground(&state.surfaces).map(|w| w.surface);
+                let app_changed = name == "appId" && state.scene.window(data.window).is_some_and(|w| w.app_id() != value);
                 let mut line = None;
-                let mut shell_shown = false;
+                let mut relayer = false;
                 if let Some(w) = state.scene.window_mut(data.window) {
-                    let relayer = w.set_property(&name, &value);
+                    relayer = w.set_property(&name, &value);
                     if relayer || name == "appId" || name == "title" {
                         line = Some(format!("window {}: {name} = {value} ({:?})", data.window.0, w.kind));
                     }
-                    shell_shown = name == "title" && w.kind.is_shell();
+                }
+                if app_changed {
+                    state.scene.invalidate_video_holes_for_surface(data.surface, &state.surfaces);
+                }
+                if relayer || app_changed {
+                    invalidate_front_change(state, before);
+                    state.luna_notify();
                 }
                 if let Some(l) = line {
                     state.journal(l);
                 }
-                // The shell client sends its windows' properties at every showing. LG's Qt platform plugin makes Qt's expose of the
-                // compositor's `exposed`, and Qt's own expose is missing at the first showing of a window whose platform window was
-                // made earlier (the system layer, made with the client and shown later: never drew, gate runs 2026-10-27 21:05 and
-                // 21:11); the rectangle is the output's, as for a card that has no buffer yet.
-                if shell_shown {
-                    let (ow, oh) = state.output.size();
-                    send_exposed(resource, Some((ow as i32, oh as i32)));
-                    if let Some(w) = state.scene.window_mut(data.window) {
-                        w.exposed = true;
-                    }
-                    state.journal(format!("window {}: exposed {ow}x{oh} (a shell window shown)", data.window.0));
+                if name == "appId" || relayer {
+                    state.refresh_policy_sync();
                 }
             }
             wl_webos_shell_surface::Request::SetKeyMask { webos_key } => {
@@ -163,6 +182,7 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
             }
         } else {
             let was_card = state.scene.window(data.window).is_some_and(|w| w.kind.is_card());
+            let was_saver = state.scene.window(data.window).is_some_and(|w| w.kind == WindowType::Screensaver);
             state.scene.remove_window(data.window);
             if let Some(s) = state.surfaces.get_mut(data.surface) {
                 s.role = Role::None;
@@ -170,6 +190,7 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
             if was_card {
                 on_card_gone(state);
             }
+            if was_saver { state.luna_notify(); }
             super::seat::refocus(state);
         }
     }
@@ -197,9 +218,8 @@ pub fn on_mapped(state: &mut State, wid: WindowId) {
         state.luna_notify();
     } else if kind.is_card() {
         settle_cards(state, None);
-    } else if kind.is_shell() {
+    } else if kind == WindowType::Screensaver {
         sync_exposed(state);
-        state.shell_window_mapped(kind);
     }
     if !has_webos {
         return;
@@ -221,6 +241,7 @@ pub fn group_changed(state: &mut State, card_left: bool) {
     } else {
         sync_group_members(state);
     }
+    state.refresh_policy_sync();
     state.luna_notify();
     super::seat::refocus(state);
 }
@@ -235,6 +256,7 @@ pub fn on_card_gone(state: &mut State) {
 /// does not handle its own relaunch (YouTube: `handlesRelaunch` false) reloads it at its start page; a raise keeps the page and its video.
 /// An app with no card left (the app manager closed it) is launched, which is all there is to do for it. Returns whether a card was raised.
 pub fn front_app(state: &mut State, app: &str) -> bool {
+    let before = state.scene.foreground(&state.surfaces).map(|w| w.surface);
     let card = state
         .scene
         .windows()
@@ -251,6 +273,7 @@ pub fn front_app(state: &mut State, app: &str) -> bool {
     state.scene.raise(wid);
     state.journal(format!("front: {app} (window {}) raised to the front, not launched again", wid.0));
     settle_cards(state, None);
+    invalidate_front_change(state, before);
     state.luna_notify();
     super::seat::refocus(state);
     true
@@ -308,6 +331,7 @@ pub fn settle_cards(state: &mut State, except: Option<WindowId>) {
     }
     sync_exposed(state);
     sync_group_members(state);
+    state.refresh_policy_sync();
 }
 
 /// Tells each card what `wl_webos_shell_surface.exposed` it has: the foreground card its whole rectangle, every other
@@ -317,15 +341,16 @@ pub fn settle_cards(state: &mut State, except: Option<WindowId>) {
 /// surface size yet; it gets the output's, the rectangle a card fills [INFERENCE: OSE would send an empty list
 /// there, which Qt 5 takes as an expose all the same]. The empty list for a covered or minimized card is this
 /// compositor's reading of the protocol ("areas that are visible in this surface"); OSE never unexposes a card.
-/// The shell client's windows (Qt as well) are exposed whole for as long as they are mapped.
 pub fn sync_exposed(state: &mut State) {
     let fg = state.scene.foreground(&state.surfaces).map(|w| w.id);
     let changes: Vec<(WindowId, bool)> = state
         .scene
         .windows()
-        .filter(|w| (w.kind.is_card() || w.kind.is_shell()) && w.has_webos_shell && !w.in_group)
+        .filter(|w| (w.kind.is_card() || w.kind == WindowType::Screensaver) && w.has_webos_shell && !w.in_group)
         .filter_map(|w| {
-            let wanted = if w.kind.is_shell() { w.map_serial > 0 } else { Some(w.id) == fg };
+            let wanted = if w.kind == WindowType::Screensaver {
+                w.state != ShellState::Minimized && w.map_serial > 0 && state.surfaces.get(w.surface).is_some_and(|s| s.is_mapped())
+            } else { Some(w.id) == fg };
             (w.exposed != wanted).then_some((w.id, wanted))
         })
         .collect();

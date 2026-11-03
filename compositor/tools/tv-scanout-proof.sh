@@ -25,6 +25,7 @@ P=/tmp/scanout-proof
 SOCK=wayland-scanout-proof
 BIN="$LD --library-path $LIB $D/bin/lumatv-compositor"
 
+. "$D/compositor.sh"
 # Only what runs from the private directory: LG's compositor and the live one are not matched.
 kill_ours() {
     pkill -f "lumatv-compositor --runtime-dir $P" 2>/dev/null
@@ -42,7 +43,7 @@ variant() {
     rm -f $P/$SOCK $P/$SOCK.lock $P/lumatv-control
     echo "== $name: client $size $*"
     echo "   before: $(cma)"
-    ( LUMATV_LOG=debug $BIN --runtime-dir $P --socket $SOCK --renderer gl --driver $BLOB --buffers driver --shell off \
+    ( LUMATV_LOG=debug $BIN --runtime-dir $P --socket $SOCK --renderer gl --driver $BLOB --buffers driver \
         --scanout-probe --check x2 --seconds 40 --log-protocol > "$out/server.log" 2>&1 & )
     n=0
     while [ ! -S $P/$SOCK ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n+1)); done
@@ -62,6 +63,7 @@ variant() {
 
 verdict() {
     name=$1; out=$2
+    comp_current_log >> "$out/server.log"
     {
         echo "variant $name"
         grep -E 'scanout-probe: buffer|scanout-probe summary' "$out/server.log" | sed 's/^\[srv *[0-9.]*\] *info *//' | uniq

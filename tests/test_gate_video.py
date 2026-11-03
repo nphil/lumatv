@@ -111,7 +111,7 @@ esac
 STATUS_OK = {"ok": True, "pageFormat": "AR24", "videoHolesOpaque": False, "stats": {"drawn": 100, "uiDrawn": 5}}
 REFRESH_OK = {"ok": True, "hz": 60, "measure": {"intervals": {"one": 100, "two": 0, "three": 0, "more": 0, "worst_ms": 16.9}, "motion": {"intervals": 90, "dropped": 0, "dropped_worst_ms": 0.0},
                                                 "frames": {"late": 0, "lost": 0, "missed": 0}}}
-SHELL = {"ok": True, "rust": {"connected": True, "kinds": ["osd"], "ui": {"kinds": ["osd", "quick"], "osd": True, "panels": {"quick": "open"}}}}
+SHELL = {"ok": True, "ready": True, "ui": {"kinds": ["osd", "quick"], "osd": True, "panels": {"quick": "open"}}}
 
 
 class Video(Fixture):
@@ -219,11 +219,11 @@ class Video(Fixture):
         out = self.run_video()
         self.assertTrue(out.startswith("GATE video-current: FAIL no video element came up within 2 s"), out)
 
-    def test_an_overlay_the_shell_did_not_build_is_said_so_not_failed(self):
+    def test_an_overlay_the_native_ui_does_not_declare_fails(self):
         self.env["LUMATV_VIDEO_OVERLAYS"] = "osd,drawer"
         out = self.run_video()
-        self.assertIn("drawer: not built", out)
-        self.assertTrue(out.startswith("GATE video-current: PASS"), out)
+        self.assertIn("drawer: native UI not ready or kind absent", out)
+        self.assertTrue(out.startswith("GATE video-current: FAIL"), out)
 
 
 if __name__ == "__main__":

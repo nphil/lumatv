@@ -18,6 +18,8 @@ use ui::lucent::palette::{Mode, PaletteRole, Roles, Straight};
 use ui::lucent::resolve::resolve_variant;
 use ui::text::{Type, Weight};
 
+pub mod themes;
+
 /// The shipped theme, the base every owner's theme is merged over.
 pub const SHIPPED: &str = include_str!("../../../payload/theme/theme.json");
 
@@ -31,6 +33,22 @@ pub enum Material {
     Dark,
     Light,
     Auto { threshold: f32 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CardGlass { Clear, Frosted, Liquid, Glazed }
+
+impl CardGlass {
+    pub const ALL: [Self; 4] = [Self::Clear, Self::Frosted, Self::Liquid, Self::Glazed];
+    pub const fn id(self) -> &'static str {
+        match self { Self::Clear => "clear", Self::Frosted => "frosted", Self::Liquid => "liquid", Self::Glazed => "glazed" }
+    }
+    pub const fn label(self) -> &'static str {
+        match self { Self::Clear => "Clear", Self::Frosted => "Frosted", Self::Liquid => "Liquid", Self::Glazed => "Glazed" }
+    }
+    pub const fn index(self) -> usize {
+        match self { Self::Clear => 0, Self::Frosted => 1, Self::Liquid => 2, Self::Glazed => 3 }
+    }
 }
 
 /// The type roles of the TV profile (`type` in the theme: 92/40/28/26/24 at 1080p).
@@ -147,8 +165,9 @@ pub struct Tokens {
     pub motion: Motion,
     pub blur: f32,
     pub saturation: f32,
-    /// Theme `cardGlass`: `clear` (the QML Home's translucent glass, the default) or `frosted` (the glass over the page, scrim and all, which is more opaque).
-    pub clear_glass: bool,
+    pub card_glass: CardGlass,
+    pub glass_strengths: [f32; 4],
+    pub depth_scale: f32,
 }
 
 /// A QML colour (`#RRGGBB` or `#AARRGGBB`) as a straight colour.
@@ -244,7 +263,24 @@ impl Tokens {
     /// The shipped theme with `user` merged over it.
     pub fn from_json(user: &Value) -> Self {
         let mut json: Value = serde_json::from_str(SHIPPED).expect("the shipped theme is JSON");
+        // Older owner files have colours but no palette identity. Do not label custom colours as the shipped palette.
+        let custom = ["dark", "light"].map(|mode| {
+            user.get("palette").and_then(|p| p.get(mode)).is_none()
+                && user.get(mode).and_then(Value::as_object).is_some_and(|block| block.iter().any(|(key, value)| {
+                    let fallback = match key.as_str() {
+                        "glassRaised" => "glassFocus", "edge" => "glassEdge", "edgeRaised" => "glassFocusEdge", _ => key,
+                    };
+                    let original = json.get(mode).and_then(|b| b.get(key).or_else(|| b.get(fallback))).and_then(Value::as_str).and_then(colour);
+                    let overridden = value.as_str().and_then(colour);
+                    original.is_some() && overridden.is_some() && original != overridden
+                }))
+        });
         merge(&mut json, user);
+        for (mode, custom) in ["dark", "light"].into_iter().zip(custom) {
+            if custom && json.get("palette").is_some_and(Value::is_object) {
+                json["palette"][mode] = Value::String(String::new());
+            }
+        }
         let empty = Map::new();
         let block = |name: &str| json.get(name).and_then(Value::as_object).unwrap_or(&empty);
         let dark = roles(block("dark"));
@@ -314,6 +350,15 @@ impl Tokens {
             reduced: mo.get("reduced").and_then(Value::as_bool).unwrap_or(false),
             transitions: mo.get("transitions").and_then(Value::as_bool).unwrap_or(false),
         };
+        let card_glass = CardGlass::ALL.into_iter().find(|style| Some(style.id()) == json.get("cardGlass").and_then(Value::as_str)).unwrap_or(CardGlass::Clear);
+        let strengths = block("glassStrength");
+        let glass_strengths = CardGlass::ALL.map(|style| {
+            strengths.get(style.id()).and_then(Value::as_f64).filter(|n| n.is_finite()).map_or(1.0, |n| n.clamp(0.0, 1.0) as f32)
+        });
+        let depth = block("depth");
+        let level = depth.get("level").and_then(Value::as_str).filter(|s| matches!(*s, "flat" | "normal" | "deep")).unwrap_or("normal");
+        let fallback = match level { "flat" => 0.0, "deep" => 1.5, _ => 1.0 };
+        let depth_scale = depth.get("steps").and_then(|s| s.get(level)).and_then(Value::as_f64).filter(|n| n.is_finite() && *n >= 0.0).map_or(fallback, |n| n as f32);
         Self {
             name: json.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
             material,
@@ -331,10 +376,14 @@ impl Tokens {
             motion,
             blur: f(json.get("blurRadius"), 30.0),
             saturation: 1.0 + f(json.get("saturation"), 0.25),
-            clear_glass: json.get("cardGlass").and_then(serde_json::Value::as_str) != Some("frosted"),
+            card_glass,
+            glass_strengths,
+            depth_scale,
             json,
         }
     }
+
+    pub fn glass_strength(&self) -> f32 { self.glass_strengths[self.card_glass.index()] }
 
     /// Whether the glyphs are grid-fitted (`text.gridFit`, on in the shipped theme): stems and bars on whole pixels, so an edge is not smeared over two
     /// panel pixels by the OSD scaler (`kit/gridfit.rs`, `docs/research/text-render-result.md`). Read when the shell starts.
@@ -423,6 +472,30 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn legacy_palette_identity_tracks_actual_mode_colours() {
+        let shipped = Tokens::shipped().json().clone();
+        let matching = json!({"dark": shipped["dark"].clone(), "light": shipped["light"].clone()});
+        let loaded = Tokens::from_json(&matching);
+        assert_eq!(loaded.json()["palette"], shipped["palette"]);
+        let custom = Tokens::from_json(&json!({"dark": {"accent": "#010203"}}));
+        assert_eq!(custom.json()["palette"]["dark"], "");
+        assert_eq!(custom.json()["palette"]["light"], "rose-pine");
+        assert_eq!(custom.json()["dark"]["accent"], "#010203");
+        let explicit = Tokens::from_json(&json!({"palette": {"dark": "unknown", "light": "custom"}, "dark": {"accent": "#010203"}}));
+        assert_eq!(explicit.json()["palette"], json!({"dark": "unknown", "light": "custom"}));
+    }
+
+    #[test]
+    fn strength_is_independent_clamped_and_depth_uses_selected_step() {
+        let t = Tokens::from_json(&json!({"cardGlass":"liquid", "glassStrength":{"clear":-1, "frosted":2, "liquid":0.42, "glazed":"bad"}, "depth":{"level":"deep", "steps":{"deep":1.75}}}));
+        assert_eq!(t.glass_strengths, [0.0, 1.0, 0.42, 1.0]);
+        assert_eq!(t.glass_strength(), 0.42);
+        assert_eq!(t.depth_scale, 1.75);
+        assert_eq!(Tokens::from_json(&json!({"depth":{"level":"flat"}})).depth_scale, 0.0);
+        assert_eq!(Tokens::from_json(&json!({"depth":{"level":"unknown"}})).depth_scale, 1.0);
+    }
+
+    #[test]
     fn grid_fit_text_is_on_in_the_shipped_theme_and_an_owners_theme_turns_it_off() {
         assert!(Tokens::shipped().grid_fit());
         assert!(!Tokens::from_json(&json!({"text": {"gridFit": false}})).grid_fit());
@@ -441,7 +514,6 @@ mod tests {
     #[test]
     fn the_shipped_theme_resolves_in_both_modes_with_its_own_roles() {
         let t = Tokens::shipped();
-        assert_eq!(t.name, "Rosé Pine silk");
         assert_eq!(t.roles(Mode::Dark)[PaletteRole::Accent], Straight::new(0xA7, 0x9B, 0xF5, 255));
         assert_eq!(t.roles(Mode::Light)[PaletteRole::Accent], Straight::new(0x90, 0x7A, 0xA9, 255));
         assert_eq!(t.roles(Mode::Dark)[PaletteRole::GlassRaised], Straight::new(0x2C, 0x26, 0x3A, 0x8F), "glassFocus stands in for glassRaised");
@@ -469,9 +541,6 @@ mod tests {
         assert_eq!(t.motion.rest_ms, 60);
         assert_eq!(t.blur, 30.0);
         assert_eq!(t.saturation, 1.25);
-        assert!(t.clear_glass, "the card glass is clear unless the theme says frosted");
-        assert!(!Tokens::from_json(&json!({"cardGlass": "frosted"})).clear_glass);
-        assert!(Tokens::from_json(&json!({"cardGlass": "milk"})).clear_glass, "a word it does not know is the default");
     }
 
     #[test]

@@ -1,0 +1,33 @@
+--- a/mesh.rs
++++ b/mesh.rs
+@@ -581,19 +581,16 @@
+             return;
+         };
+         let glass = |backdrop| {
+-            let content = Content::Glass(Glass {
+-                corner_radius: 0.0,
+-                tint: Rgba(0, 0, 0, 0),
+-                edge: Rgba(0, 0, 0, 0),
+-                edge_width: 0.0,
+-                highlight: Rgba(0, 0, 0, 0),
+-                sheen: None,
+-                shadows: [None, None],
+-                depth: None,
+-                backdrop,
+-                saturation: 1.0,
+-                refraction: 0.0,
+-            });
++            let content = Content::Glass(Glass { corner_radius: 0.0,
++            tint: Rgba(0, 0, 0, 0),
++            edge: Rgba(0, 0, 0, 0),
++            edge_width: 0.0,
++            highlight: Rgba(0, 0, 0, 0),
++            sheen: None,
++            shadows: [None, None],
++            depth: None,
++            backdrop,
++            saturation: 1.0, refraction: 0.0, edge_lens: None, tint_gradient: None, });
+             drawn(3, (300, 160), content, Props::at(50.0, 20.0))
+         };
+         let live = glass(Backdrop::Live {
+

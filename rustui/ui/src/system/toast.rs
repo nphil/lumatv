@@ -1,8 +1,7 @@
 //! The toasts' model (`panels/Notify.qml` of the QML shell, the toast part; the mock `docs/mocks/07-toast`): LG's toast feed
 //! (`luna://com.webos.notification/getToastNotification`, subscribed) drawn by LumaTV under its own compositor. Nothing is filtered
-//! or delayed: a remote-battery or pairing toast is shown as soon as the service pushes it, in the upper safe corner, newest
-//! first, at most three, each gone after its own timeout (LG's 5 s). A toast of the same words replaces the one up rather than
-//! stacking (LG's ToastModel.js). A toast never takes a key or the focus.
+//! or delayed: the newest toast replaces the current one and expires after its own timeout (LG's 5 s by default).
+//! A toast never takes a key or the focus.
 
 use crate::kit::screen::{Effect, Input, Model};
 use serde_json::{Value, json};
@@ -10,27 +9,26 @@ use serde_json::{Value, json};
 /// The tag the feed's subscription answers come back with.
 pub const FEED_TAG: u64 = 0x7041;
 pub const FEED_URI: &str = "luna://com.webos.notification/getToastNotification";
-const KEEP: usize = 3;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Toast {
     pub id: u64,
     pub title: String,
     pub body: String,
-    /// A picture of the service's own (a file path or a URL), or "" for LG's stock icon, which is drawn as the kit's info tile.
+    /// A picture of the service's own (a file path or a URL), or "" for LG's stock icon.
     pub icon: String,
     pub expires: u64,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Toasts {
-    list: Vec<Toast>,
+    current: Option<Toast>,
     serial: u64,
     subscribed: bool,
     changed: bool,
 }
 
-/// What the surface draws: the toasts, newest first.
+/// What the surface draws: at most the current toast.
 pub type View = Vec<Toast>;
 
 impl Toasts {
@@ -61,7 +59,7 @@ impl Toasts {
         }
         let mut lines = text.split('\n');
         let title = lines.next().unwrap_or("").trim().to_string();
-        let body = lines.map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
+        let body = lines.map(str::trim).collect::<Vec<_>>().join("\n");
         let icon = m.get("iconPath").and_then(Value::as_str).unwrap_or("").to_string();
         let own = icon.is_empty() || {
             let file = icon.rsplit('/').next().unwrap_or("").to_lowercase();
@@ -70,23 +68,21 @@ impl Toasts {
         let timeout = m.get("timeout").and_then(Value::as_f64).filter(|t| *t > 0.0).map_or(5000.0, |t| t * 1000.0);
         self.serial += 1;
         let toast = Toast { id: self.serial, title, body, icon: if own { String::new() } else { icon }, expires: now + timeout as u64 };
-        self.list.retain(|t| !(t.title == toast.title && t.body == toast.body));
-        self.list.insert(0, toast);
-        self.list.truncate(KEEP);
+        self.current = Some(toast);
         self.changed = true;
     }
 
     pub fn is_empty(&self) -> bool {
-        self.list.is_empty()
+        self.current.is_none()
     }
 
     pub fn len(&self) -> usize {
-        self.list.len()
+        usize::from(self.current.is_some())
     }
 
     /// The state for the compositor's gate (`ctl shell`'s `ui.toasts`).
     pub fn state(&self) -> Value {
-        json!(self.list.len())
+        json!(self.len())
     }
 }
 
@@ -102,9 +98,10 @@ impl Model for Toasts {
                 }
             }
             Input::Tick => {
-                let n = self.list.len();
-                self.list.retain(|t| t.expires > now);
-                self.changed = n != self.list.len();
+                if self.current.as_ref().is_some_and(|t| t.expires <= now) {
+                    self.current = None;
+                    self.changed = true;
+                }
             }
             _ => {}
         }
@@ -112,11 +109,11 @@ impl Model for Toasts {
     }
 
     fn view(&self) -> View {
-        self.list.clone()
+        self.current.iter().cloned().collect()
     }
 
     fn due_at(&self) -> Option<u64> {
-        self.list.iter().map(|t| t.expires).min()
+        self.current.as_ref().map(|t| t.expires)
     }
 }
 
@@ -151,25 +148,27 @@ mod tests {
     }
 
     #[test]
-    fn the_first_line_is_the_title_the_rest_the_body_and_the_same_words_replace_rather_than_stack() {
+    fn incoming_messages_replace_the_current_toast_and_expiry_never_revives_old_messages() {
         let mut t = Toasts::new();
-        push(&mut t, "Bluetooth<br>Headphones connected", None, 1000);
-        assert_eq!(t.view()[0].title, "Bluetooth");
-        assert_eq!(t.view()[0].body, "Headphones connected");
-        assert_eq!(t.view()[0].expires, 6000, "LG's 5 s");
-        push(&mut t, "Bluetooth<br>Headphones connected", None, 2000);
-        assert_eq!(t.len(), 1, "replaced, not stacked");
-        assert_eq!(t.view()[0].expires, 7000);
-        for i in 0..4 {
-            push(&mut t, &format!("Toast {i}"), None, 3000 + i);
-        }
-        assert_eq!(t.len(), 3, "at most three");
-        assert_eq!(t.view()[0].title, "Toast 3", "newest first");
-        assert!(push(&mut t, "   ", None, 4000).is_empty(), "an empty message is nothing");
+        push(&mut t, "Bluetooth<br>Headphones connected<br>Ready", Some(20.0), 1000);
+        assert_eq!(t.view()[0].body, "Headphones connected\nReady");
+        push(&mut t, "New", Some(2.0), 2000);
+        assert_eq!(t.len(), 1);
+        assert_eq!(t.view()[0].title, "New");
+        assert_eq!(t.due_at(), Some(4000));
+        assert!(t.update(&Input::Tick, 3999).is_empty());
+        assert_eq!(t.update(&Input::Tick, 4000), vec![Effect::Redraw]);
+        assert!(t.is_empty());
+        assert_eq!(t.due_at(), None);
+        assert!(t.update(&Input::Tick, 21000).is_empty());
+        push(&mut t, "Same", None, 22000);
+        push(&mut t, "Same", None, 23000);
+        assert_eq!(t.due_at(), Some(28000));
+        assert!(push(&mut t, "   ", None, 24000).is_empty());
     }
 
     #[test]
-    fn lgs_stock_icons_are_the_kits_tile_and_a_services_own_picture_is_kept() {
+    fn lgs_stock_icons_and_service_pictures_are_distinguished() {
         let mut t = Toasts::new();
         t.update(&Input::Luna { tag: FEED_TAG, payload: json!({"message": "A", "iconPath": "/usr/share/icons/info.png"}) }, 1);
         assert_eq!(t.view()[0].icon, "");

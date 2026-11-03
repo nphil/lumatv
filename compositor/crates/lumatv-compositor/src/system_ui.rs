@@ -1,19 +1,10 @@
-//! What the remote's keys ask of the system layer (`keys::SystemRequest`), carried out by LumaTV's shell where it draws the
-//! surface (`shell.rs`) and with LG's own services otherwise.
-//!
-//! LG's key chain opens Quick Settings, the input picker, Quick Access and the rest as system windows of its own compositor
-//! (`systemUIManager/launch`). `State::system_request` is the one place where a key asks for a surface. The shell client says
-//! what it can show now (`can`: the quick panel, the input picker, the notification drawer) and is asked first; the table below
-//! is the route for what it declines or does not draw: each goes to the app LG's own filters reach for the same key (the Home Hub
-//! for Input's, the accessibility overlay for Mute), or, for the
-//! windows that exist only inside LG's compositor, the nearest app that shows the same thing, said in the journal line.
+//! Routes remote system requests to the native UI or explicitly selected LG apps.
 
 use serde_json::{Value, json};
 
 use crate::State;
 use crate::keys::{HoldAction, SystemRequest};
 
-const SETTINGS: &str = "com.palm.app.settings";
 const HOME_HUB: &str = "com.webos.app.homeconnect";
 const QUICK_ACCESS: &str = "com.webos.app.magicnum";
 const ACCESSIBILITY: &str = "com.webos.app.accessibility-overlay";
@@ -29,14 +20,14 @@ impl State {
                 if self.shell_show("quick", false) {
                     self.journal("input: gear tap: Quick Settings -> LumaTV's quick panel".into());
                 } else {
-                    self.interim("gear tap", "Quick Settings", SETTINGS, None);
+                    self.journal("input: gear tap: Quick Settings cannot be shown now, nothing opened".into());
                 }
             }
             SystemRequest::InputPicker => {
                 if self.shell_show("picker", false) {
                     self.journal("input: Input tap: the input picker -> LumaTV's input picker".into());
                 } else {
-                    self.interim("Input tap", "the input picker", HOME_HUB, None);
+                    self.journal("input: Input tap: the input picker cannot be shown now, nothing opened".into());
                 }
             }
             SystemRequest::InputHub => self.launch("Input held", "the Home Hub", HOME_HUB, None),

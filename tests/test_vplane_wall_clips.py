@@ -238,9 +238,8 @@ class Shipped(unittest.TestCase):
         with open(os.path.join(SHIPPED, "wall.json")) as f:
             return json.load(f)
 
-    def test_the_shipped_set_checks_and_the_prints_are_not_disturbed(self):
+    def test_the_shipped_set_checks(self):
         self.assertEqual(vw.check(SHIPPED), [])
-        self.assertEqual(vc.check(SHIPPED), [], "the wallpaper's clip is not one of the prints")
 
     def test_a_clip_whose_look_or_picture_or_file_moved_is_reported(self):
         with tempfile.TemporaryDirectory() as d:

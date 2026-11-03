@@ -219,6 +219,8 @@ impl Dispatch<WlSubcompositor, ()> for State {
                     resource.post_error(wl_subcompositor::Error::BadSurface, "surface already has a role or is its own parent");
                     return;
                 }
+                state.scene.invalidate_video_holes_for_surface(child, &state.surfaces);
+                state.shell_rust_sync_video();
                 data_init.init(id, SubsurfaceData { surface: child });
                 state.note_request("wl_subcompositor", 0, &format!("get_subsurface(surface {} under {})", child.0, par.0));
             }
@@ -273,6 +275,7 @@ impl Dispatch<WlSubsurface, SubsurfaceData> for State {
     }
 
     fn destroyed(state: &mut Self, _client: ClientId, _resource: &WlSubsurface, data: &SubsurfaceData) {
+        state.scene.invalidate_video_holes_for_surface(data.surface, &state.surfaces);
         if let Some(s) = state.surfaces.get_mut(data.surface) {
             if let crate::surface::Role::Subsurface { parent } = s.role {
                 s.role = crate::surface::Role::None;
@@ -281,5 +284,6 @@ impl Dispatch<WlSubsurface, SubsurfaceData> for State {
                 }
             }
         }
+        state.shell_rust_sync_video();
     }
 }

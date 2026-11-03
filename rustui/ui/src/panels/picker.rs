@@ -313,7 +313,7 @@ mod tests {
         env.update(&Input::Luna { tag: *tag, payload: json!({"settings": {"soundOutput": "tv_speaker"}}) }, 1);
         assert_eq!(sound_line(&env), "Sound: TV speakers");
         // the setting says the TV's speakers and an external device; the audio service says the receiver is in effect
-        env.sio.write("sound.soundOutput", &json!("tv_external_speaker"), None);
+        env.sio.write("sound.soundOutput", &json!("tv_external_speaker"), None, 1);
         assert_eq!(sound_line(&env), "Sound: TV and Denon AVR-S760H");
         let (_, changed) = env.update(&audio("external_arc"), 2);
         assert!(changed, "a change of the way out redraws the picker");

@@ -21,19 +21,12 @@
 #                     and held, Exit; each judged by the compositor's journal and by what SAM then has in front
 #   gate.sh ime       a text field in LG's Search app brings up maliit's keyboard: an input method bound, a context made for the field,
 #                     the keyboard's window on the screen at the bottom, a key typed on it reaching the field, the keyboard closing
-#   gate.sh shell     the shell client (shell.rs, compositor/shell): connected, LumaTV's Home drawn in the stub's place and taking the
-#                     D-pad, the quick panel and the input picker on the gear and Input (on Home and over an app, where the system
-#                     layer takes the keys and lets go), the volume display on a volume key, a toast, the screensaver when tvpower
-#                     starts it, and the idle cost (commits a second and CPU on Home at rest, none with an app covering Home);
-#                     Home in front and no app left at the end
-#   gate.sh rust      the Rust shell's kinds one at a time (LUMATV_RUST_KINDS names them; default: all): on, shown, first frame, frames drawn and GL errors, closed,
-#                     off, put back as found; a kind the compositor or the client does not have is SKIPPED (tv_gate.py --rust-kinds)
+#   gate.sh shell     native UI readiness, Home navigation, panels, volume, toast and saver
+#   gate.sh rust      native UI kinds: readiness, display, drawing and close checks (LUMATV_RUST_KINDS selects kinds)
 #   gate.sh evidence  no check: SAM's subscriptions, the clients (command lines, globals) and both logs, while live
 #   gate.sh key CODE  one remote key through the compositor's routing (the volume check in tv_gate.py)
 #   gate.sh standby   power off (remoteKey); the driver wakes the set; `gate.sh woke` then checks the rounds
 #   gate.sh woke      after the wake: PreparePowerOff and PreparePowerOn acked, no fallback, Home on the panel
-#   gate.sh escape    Home (773) held 1 s through the compositor's own routing: the supervisor falls back to LG's,
-#                     records the escape, LG's Home comes back, SAM was not restarted
 #   gate.sh firmware  not live: the firmware check on this set's own files and tools, against a scratch list
 #   gate.sh homeheld  not live: a virtual remote holds Home (773); `lumatv-sm --home-held` sees it, then stops seeing it
 #   gate.sh homekey   live: the supervisor's own Home reader (773), on a virtual remote the compositor never opened
@@ -45,14 +38,9 @@
 #                     middle not black, the compositor's cost with nothing over the video, and each overlay (volume, quick panel, picker, drawer, toast, alert)
 #                     over it: first frame, video seen around it, no frame of its motion dropped, idle again after the close (tv_gate.py --video-apps)
 #   gate.sh mem       what the compositor has resident and pinned, malloc's mmapped blocks, and what the set has left (report)
-#   gate.sh callbacks [early|landing]   no check: the frame callbacks' pacing (`ctl callbacks`). An argument sets the shell client's, and
-#                     LUMATV_CLIENTS_CALLBACKS=commit|early|landing every other client's (tv_gate.py --frames-callbacks, --frames-clients); then how many of
-#                     all the callbacks went out ahead of their flip and how many with their commit so far, and the clients' setting. A report
+#   gate.sh callbacks   report client frame callbacks; LUMATV_CLIENTS_CALLBACKS sets their pacing
 #   gate.sh load start SECS [KINDS] | stop | status   synthetic background load (decode, ws, ble, download) for the frame gate's loaded run
-#   gate.sh scanout [direct|off|read]   direct scan-out (docs/research/scanout-research.md): `direct` asks the shell for buffers the plane takes (`ctl scanout
-#                     shell-env WAYLAND_AFBC=0`), switches the compositor's scan-out on and starts the shell again, so that its Home window makes buffers the
-#                     protocol tap sees; `off` switches it off; `read` (the default) only reports: frames shown direct and composed, the reason of each
-#                     composed one, the last frame's state. A report, no rule
+#   gate.sh scanout [direct|off|read]   set or report direct scan-out
 #   gate.sh refresh [60|120|reset|read] [SECS]   the refresh test mode (`ctl refresh`, docs/research/ui120-result.md): with 60 or 120 switches the
 #                     output to it (the OSD vblank divider, the pacer, the tick, the shell), then measures SECS (default 5) of the screen as it is:
 #                     flips a second, DE2VSYNC and osd_irq a second, the compositor's measure (intervals in refreshes, late, lost, missed,
@@ -77,7 +65,7 @@ BLOB=$LIB/libmali-bifrost-g52-g24p0-wayland-gbm.so
 OUT=${LUMATV_OUT:-$D/out/gate}
 LGBIN=${LUMATV_LG:-/usr/bin/surface-manager}
 MOUNTINFO=${LUMATV_MOUNTINFO:-/proc/self/mountinfo}
-RECOVER_LOCK=${LUMATV_RECOVER_LOCK:-/tmp/lumatv-recover.lock}
+COMP_LOCK=${LUMATV_RECOVER_LOCK:-/tmp/lumatv-recover.flock}
 MESSAGES=${LUMATV_MESSAGES:-/var/log/messages}
 # PlxNative's own crash log (a `*** SIGNAL` report per crash): SAM's exit line for its crash at the close was missing or read as a
 # clean close in 4 of 9 crashes (round 17), and the report is written about 1.05 s after the close.
@@ -161,57 +149,27 @@ jnum() { grep -o "\"$1\":-\{0,1\}[0-9]*" | head -n 1 | cut -d: -f2; }
 # The first string, or the first true/false, of that name in the JSON on stdin.
 jstr() { grep -o "\"$1\":\"[^\"]*\"" | head -n 1 | cut -d'"' -f4; }
 jbool() { grep -o "\"$1\":\(true\|false\)" | head -n 1 | cut -d: -f2; }
-# The shell client (`ctl shell`): whether it says it can show a panel of KIND now, and its own state's fields. The report is read without its
-# `rust` object (the Rust client's own report): the compositor's JSON has its keys in alphabetical order, `rust` sorts before `stats`,
-# `takes`, `topics`, `ui` and `wants`, and has keys of those names, so the first `"wants":` was the Rust client's (false while no Rust kind
-# is on) and `quick-app` failed on a layer that did want the keys (round 18b). rustjson.py reads the JSON, as for the rust check. With a Rust
-# kind on, the screen the set shows is the Rust client's: `--merge-rust` folds its panel, volume display, toasts, saver, keys and `can` into the
-# fields the checks of `keys` and `shell` read (the QML client's are empty or false then); with no Rust kind on it is the QML report alone.
+# Native UI report and its client state.
 RUSTJSON=$D/rustjson.py
-shell_json() { ctl shell | python3 $RUSTJSON --merge-rust; }
-shell_can() { shell_json | grep -o '"can":\[[^]]*\]' | grep -q "\"$1\""; }
-shell_str() { shell_json | jstr "$1"; }
-shell_bool() { shell_json | jbool "$1"; }
-shell_num() { shell_json | jnum "$1"; }
-# Waits, SECS at most, for the shell's string field NAME to be VALUE.
-wait_shell_str() { w=0; while [ "$w" -lt "$3" ]; do [ "$(shell_str "$1")" = "$2" ] && return 0; sleep 0.5; w=$((w+1)); done; [ "$(shell_str "$1")" = "$2" ]; }
-wait_shell_bool() { w=0; while [ "$w" -lt "$3" ]; do [ "$(shell_bool "$1")" = "$2" ] && return 0; sleep 0.5; w=$((w+1)); done; [ "$(shell_bool "$1")" = "$2" ]; }
-wait_shell_num_ge() { w=0; while [ "$w" -lt "$3" ]; do [ "$(shell_num "$1")" -ge "$2" ] 2>/dev/null && return 0; sleep 0.5; w=$((w+1)); done; return 1; }
-# The shell's idle cost over SECS: "commits-per-second cpu-percent" of its Home window and of qml-runner (every thread, one core = 100).
-shell_idle_cost() {
-    sp=$(shell_num pid); c0=$(shell_num homeCommits); t0=$(awk '{print $14+$15}' /proc/$sp/stat 2>/dev/null)
-    sleep "$1"
-    c1=$(shell_num homeCommits); t1=$(awk '{print $14+$15}' /proc/$sp/stat 2>/dev/null)
-    hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
-    echo "$(( (${c1:-0} - ${c0:-0}) / $1 )) $(( (${t1:-0} - ${t0:-0}) * 100 / hz / $1 ))"
-}
-
-# The Rust shell's kinds (`gate.sh rust`). Its report is `ctl shell`'s `rust` object: `kinds` (what the compositor was asked for, kept in
-# shell-rust.conf), `connected`, and `ui`, the client's own state, whose `kinds` are the ones the client built and answers. rustjson.py reads
-# a dotted path out of JSON on stdin.
-# Seconds a restart of the client is waited for, and a kind's trigger (the host tests shorten both).
-RUST_WAIT=${LUMATV_RUST_WAIT:-30}
+shell_json() { ctl shell | python3 $RUSTJSON; }
 RUST_OPEN=${LUMATV_RUST_OPEN_WAIT:-10}
 rust_get() { ctl shell | python3 $RUSTJSON "$1"; }
-rust_kinds_on() { rust_get rust.kinds; }
-# A kinds list in one order (the compositor keeps its own sorted; a list is compared as a set).
-rust_sorted() { echo "$1" | tr ',' '\n' | sort | tr '\n' ','; }
-rust_answers() { [ "$(rust_get rust.connected)" = true ] && case ",$(rust_get rust.ui.kinds)," in *",$1,"*) return 0 ;; esac; return 1; }
-# Waits, SECS at most, for the client to answer KIND (WANT yes) or not to (WANT no: the client is gone or its kinds lack it).
-rust_wait_answers() {
-    end=$(( $(uptime_cs) + $3 * 100 ))
-    while :; do
-        if rust_answers "$1"; then have=yes; else have=no; fi
-        [ "$have" = "$2" ] && return 0
-        [ "$(uptime_cs)" -ge "$end" ] && return 1
-        sleep 0.3
+rust_kinds_on() { rust_get kinds; }
+rust_answers() { [ "$(rust_get ready)" = true ] && case ",$(rust_get ui.kinds)," in *",$1,"*) return 0 ;; esac; return 1; }
+wait_panel() {
+    n=0
+    while [ "$n" -lt "$3" ]; do
+        case "$(rust_get "ui.panels.$1")" in opening|open) state=open ;; closing|parked|gone) state=closed ;; *) state=unknown ;; esac
+        [ "$state" = "$2" ] && return 0
+        sleep 0.5; n=$((n+1))
     done
+    return 1
 }
 # Where each kind says it is shown (a path of `ctl shell`) and what that reading must be. A panel's phase is opening, open, closing, parked or gone.
 rust_path() {
     case $1 in
-        osd) echo rust.ui.osd ;; toast) echo rust.ui.toasts ;; alert) echo rust.ui.alerts ;; saver) echo rust.ui.saver ;; home) echo rust.ui.home.home ;;
-        quick|picker|drawer) echo rust.ui.panels.$1 ;; settings) echo rust.ui.settings.open ;; cameras) echo rust.ui.cameras.screen.mode ;;
+        osd) echo ui.osd ;; toast) echo ui.toasts ;; alert) echo ui.alerts ;; saver) echo ui.saver ;; home) echo ui.home.home ;;
+        quick|picker|drawer) echo ui.panels.$1 ;; settings) echo ui.settings.open ;; cameras) echo ui.cameras.screen.mode ;;
     esac
 }
 rust_is_open() {
@@ -248,9 +206,15 @@ rust_undriven() {
         menu) echo "a tile's menu opens on a hold of OK on Home, which the gate does not press" ;;
         confirm) echo "a panel asks it for an action, which the gate does not take" ;;
         switcher) echo "the app switcher needs open apps; the frames gate's switcher surface covers it" ;;
-        cards|popup) echo "the owner's switch (overlays.enabled, cameras) is off and the gate does not set it" ;;
+        cards) echo "the native card queue requires plugin-broker records; the control socket cannot inject a card" ;;
+        popup) echo "the camera pop-up requires a camera event and the owner's settings" ;;
         capture) echo "needs capture.enabled and the encoder, which are the owner's (docs/research/capture-result.md)" ;;
         layout) echo "Back asks whether to save the layout; the gate does not answer it" ;;
+        entry) echo "a screen must request text entry" ;;
+        keyboard) echo "an application text field must request the keyboard; the ime check covers it" ;;
+        ai) echo "an AI prompt must be requested by its service" ;;
+        banner) echo "a banner requires an input event or the owner's banner setting" ;;
+        displaylab) echo "the display lab requires navigation through Picture settings" ;;
     esac
 }
 # The documented bar for a kind's first frame, in ms (rust-panels-result.md: a panel opens in under 150 ms), or nothing: the reading is then INFO.
@@ -261,44 +225,31 @@ rust_drawn() { ctl status | python3 $RUSTJSON stats.drawn; }
 rust_ui_drawn() { ctl status | python3 $RUSTJSON stats.uiDrawn; }
 rust_gl_errors() { ctl status | sed -n 's/.*gl errors \([0-9][0-9]*\).*/\1/p' | head -n 1; }
 # What one `ctl shell` takes (ms, to three reads): a first-frame reading is a poll of it, so it is good to about twice this.
-rust_poll_ms() { t=$(uptime_cs); for i in 1 2 3; do rust_get rust.connected > /dev/null; done; echo $(( ($(uptime_cs) - t) * 10 / 3 )); }
-# Leaves KIND as it was found (WAS yes or no): back on when it was, off when it was not, and the client's answer waited for.
-rust_restore() {
-    if [ "$2" = yes ]; then ctl shell rust +$1 > /dev/null; rust_wait_answers $1 yes $RUST_WAIT; else ctl shell rust -$1 > /dev/null; rust_wait_answers $1 no $RUST_WAIT; fi
-}
+rust_poll_ms() { t=$(uptime_cs); for i in 1 2 3; do rust_get connected > /dev/null; done; echo $(( ($(uptime_cs) - t) * 10 / 3 )); }
 # The Rust Home's D-pad: Up from where Home's focus is moves it to another layer and Down brings it back. The Rust Home starts on its top layer (the
 # status bar), where Up moves nothing: then Down moves the focus away and Up brings it back. Sets DPAD_OK (yes or no), the three layers read
 # (DPAD_F0 before, DPAD_F1 after the first key, DPAD_F2 after the second) and DPAD_KEYS (the order pressed).
 rust_home_dpad() {
-    DPAD_F0=$(rust_get rust.ui.home.focusLayer); key_tap 103; sleep 1
-    DPAD_F1=$(rust_get rust.ui.home.focusLayer)
+    DPAD_F0=$(rust_get ui.home.focusLayer); key_tap 103; sleep 1
+    DPAD_F1=$(rust_get ui.home.focusLayer)
     if [ "$DPAD_F1" = "$DPAD_F0" ]; then
-        key_tap 108; sleep 1; DPAD_F1=$(rust_get rust.ui.home.focusLayer)
-        key_tap 103; sleep 1; DPAD_F2=$(rust_get rust.ui.home.focusLayer)
+        key_tap 108; sleep 1; DPAD_F1=$(rust_get ui.home.focusLayer)
+        key_tap 103; sleep 1; DPAD_F2=$(rust_get ui.home.focusLayer)
         DPAD_KEYS="Down then Up"
     else
-        key_tap 108; sleep 1; DPAD_F2=$(rust_get rust.ui.home.focusLayer)
+        key_tap 108; sleep 1; DPAD_F2=$(rust_get ui.home.focusLayer)
         DPAD_KEYS="Up then Down"
     fi
     if [ "$DPAD_F1" != "$DPAD_F0" ] && [ "$DPAD_F2" = "$DPAD_F0" ]; then DPAD_OK=yes; else DPAD_OK=no; fi
 }
-# One kind's checks, in this shell: sets RC (ok, no or skip) and RT (the words for the gate's line). Not built (the compositor refuses the name, or the
-# client's kinds lack it after the restart a change of kinds makes) is skip; so is a kind that is built and that the gate has no way to open (why: rust_undriven).
+# Check only declared native kinds; the gate never changes the running UI configuration.
 rust_check_kind() {
     k=$1; RC=ok; RT=""
-    was=no; case ",$(rust_kinds_on)," in *",$k,"*) was=yes ;; esac
-    ans=$(ctl shell rust +$k)
-    case "$ans" in
-        *'"ok":true'*) ;;
-        *) RC=skip; RT="not built: the compositor refuses it ($(echo "$ans" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'))"; return ;;
-    esac
-    if ! rust_wait_answers $k yes $RUST_WAIT; then
-        RC=skip; RT="not built: $k is not in rust.ui.kinds [$(rust_get rust.ui.kinds)], connected $(rust_get rust.connected), error '$(rust_get rust.error)'"
-        rust_restore $k $was
-        return
+    if ! rust_answers "$k"; then
+        RC=no; RT="native UI not ready or $k absent: ready $(rust_get ready), kinds [$(rust_get ui.kinds)], error '$(rust_get error)'"; return
     fi
     why=$(rust_undriven $k)
-    if [ -n "$why" ]; then RC=skip; RT="not driven: $why"; rust_restore $k $was; return; fi
+    if [ -n "$why" ]; then RC=skip; RT="not driven: $why"; return; fi
     home; sleep 2
     ctl note rust-$k > /dev/null
     path=$(rust_path $k); pm=$(rust_poll_ms)
@@ -318,15 +269,18 @@ rust_check_kind() {
         sleep 1
         dpad=""
         if [ $k = home ]; then
-            # The D-pad as the QML check reads it: Up from where Home's focus is moves it to another layer and Down brings it back (see rust_home_dpad).
-            # The frames it draws are Home's.
+            # Home navigation must change focus and return to its starting layer.
             rust_home_dpad
             if [ "$DPAD_OK" = yes ]; then dpad="; dpad ok ($DPAD_F0 -> $DPAD_F1 -> $DPAD_F2)"; else RC=no; dpad="; dpad: focus '$DPAD_F0', then '$DPAD_F1' and '$DPAD_F2' after $DPAD_KEYS"; fi
         fi
         ctl shell > $OUT/rust-$k.json
         d1=$(rust_drawn); g1=$(rust_gl_errors)
-        drawn=$(( ${d1:-0} - ${d0:-0} )); gl=$(( ${g1:-0} - ${g0:-0} ))
-        RT="${first:+first $first ms (a poll of about $pm ms), }drawn +$drawn, gl errors +$gl$dpad"
+        if [ -z "$d0" ] || [ -z "$d1" ] || [ -z "$g0" ] || [ -z "$g1" ]; then
+            RC=no; RT="missing frame or GL error counters"; drawn=0; gl=0
+        else
+            drawn=$(( d1 - d0 )); gl=$(( g1 - g0 ))
+            RT="${first:+first $first ms (a poll of about $pm ms), }drawn +$drawn, gl errors +$gl$dpad"
+        fi
         bud=$(rust_budget $k)
         if [ -n "$bud" ] && [ "${first:-0}" -gt $(( bud + 2 * pm )) ]; then RC=no; RT="$RT; first frame over the $bud ms bar"; fi
         [ "$drawn" -ge 1 ] || { RC=no; RT="$RT; the compositor drew no frame while it was up"; }
@@ -337,23 +291,16 @@ rust_check_kind() {
             if rust_is_open $k "$(rust_get $path)"; then RC=no; RT="$RT; still up $RUST_OPEN s after its close"; fi
         fi
     else
-        RC=no; RT="not shown within $RUST_OPEN s of the trigger ($path reads '$(rust_get $path)'; can $(rust_get rust.can))"
+        RC=no; RT="not shown within $RUST_OPEN s of the trigger ($path reads '$(rust_get $path)'; can $(rust_get can))"
         [ $k = home ] || rust_close $k
     fi
     journal_after rust-$k > $OUT/rust-$k.txt
-    # The off switch: the kind goes from the list at once and the client stops answering it; then it is left as it was found.
-    ctl shell rust -$k > /dev/null
-    case ",$(rust_kinds_on)," in *",$k,"*) RC=no; RT="$RT; still on the compositor's list after -$k" ;; esac
-    if rust_wait_answers $k no $RUST_WAIT; then RT="$RT; off ok"; else RC=no; RT="$RT; the client still answers $k $RUST_WAIT s after -$k"; fi
-    rust_restore $k $was
 }
 # What the input method has sent to the fields so far (commits, preedits and keysyms), from the `ctl ime` JSON in file $1.
 ime_typed() { c=$(jnum commits < "$1"); p=$(jnum preedits < "$1"); k=$(jnum keysyms < "$1"); echo $(( ${c:-0} + ${p:-0} + ${k:-0} )); }
-# With the Home stub mounted (tools/lumatv homestub) Home is a transparent page by design and LumaHome lives in
-# LG's compositor's QML, so a Home on the panel under LumaTV's compositor is black: the panel test then passes on
-# the mapped window alone and the detail line carries home-stub 1.
+# Native Home must produce a capture even when LG's Home stub is mounted.
 stub_mounted() { grep -c ' /usr/palm/applications/com.webos.app.home ' $MOUNTINFO; }
-home_panel_ok() { [ "$(stub_mounted)" -ge 1 ] || [ "${1:-0}" -gt 4096 ]; }
+home_panel_ok() { [ "${1:-0}" -gt 4096 ]; }
 # The kernel's audio decoder port an input left open (Open=1, Connect=HDMI_PORTn) with no input app running: Netflix's
 # sound then fails with tvq-pb-101 whatever the compositor (lumatv close_input_apps, round 9 result note, Round 10).
 held_port() {
@@ -361,14 +308,19 @@ held_port() {
         grep -qs '^Open=1' "$f" && sed -n 's/^Connect=\(HDMI_PORT[0-9]*\|ATV\|DTV\).*/\1/p' "$f"
     done | head -n1
 }
-# sm.log is appended by every supervisor start (trials, earlier gates): the checks read the current run only.
-run_log() { awk '/\] start: /{n=0} {l[n++]=$0} END{for(i=0;i<n;i++) print l[i]}' $STATE/sm.log 2>/dev/null; }
+# The collector keeps prior starts too; checks read only the supervisor's current run.
+run_log() { comp_log lumatv-sm | awk '/\] start: /{n=0} {l[n++]=$0} END{for(i=0;i<n;i++) print l[i]}'; }
 # SAM (sam.service) is never restarted by anything of LumaTV's: eARC, CEC and the picture mode are lost with it (PLAN,
 # "App manager restarts"). Its pid and start time before and after a fallback say it was not.
 sam_id() { systemctl show sam.service -p MainPID -p ActiveEnterTimestampMonotonic 2>/dev/null | tr '\n' ' '; }
 # After a fallback: wait for the unmount (half seconds, at most $1 of them) and for the recovery of LG's Home.
 wait_unmount() { u=0; while is_mounted && [ $u -lt ${1:-40} ]; do sleep 0.5; u=$((u+1)); done; }
-wait_recovery() { n=0; while [ -d $RECOVER_LOCK ] && [ $n -lt 120 ]; do sleep 1; n=$((n+1)); done; }
+wait_recovery() { command -v comp_recovering >/dev/null 2>&1 || return 1; n=0; while comp_recovering && [ $n -lt 120 ]; do sleep 1; n=$((n+1)); done; ! comp_recovering; }
+fallback_evidence() {
+    fb=$(comp_log lumatv-sm | grep 'fallback:' | tail -1)
+    [ -n "$fb" ] || fb=$(cat "$STATE/last-fallback" 2>/dev/null)
+    printf '%s\n' "$fb"
+}
 
 # ---- the frame rule, as functions the tests source (GATE_LIB=1) ----
 # The client's RESULT line as "frames seconds fps b17 b20 b33 bover worst".
@@ -639,11 +591,11 @@ x1)
     # was then, a frame held while a driver buffer warms, a surface stood in for, each buffer's warm, buffers freed. The
     # gaps' cause is read from these lines; only the ones over the limit count against the rule (comp_over_limit).
     t0=$(sed -n 's/.*starting at monotonic \([0-9.]*\).*/\1/p' $OUT/x1.log); t1=$(sed -n 's/.*ended at monotonic \([0-9.]*\).*/\1/p' $OUT/x1.log)
-    awk -v a="${t0:-0}" -v b="${t1:-0}" '/^\[srv/ { t = $2; sub(/\]/, "", t); t += 0; if (t >= a && t <= b + 1 && $0 ~ /loop:|frame gap|client (dis)?connected|atomic commit|page-flip|callbacks held|flip reached|frame held|warm done|warm:|standin:|trace:|bury:|tick:|boxdim:/) print }' \
-        $STATE/compositor.log > $OUT/x1-compositor.txt
+    comp_log lumatv-compositor | awk -v a="${t0:-0}" -v b="${t1:-0}" '/^\[srv/ { t = $2; sub(/\]/, "", t); t += 0; if (t >= a && t <= b + 1 && $0 ~ /loop:|frame gap|client (dis)?connected|atomic commit|page-flip|callbacks held|flip reached|frame held|warm done|warm:|standin:|trace:|bury:|tick:|boxdim:/) print }' \
+        > $OUT/x1-compositor.txt
     stalls=$(grep -c 'loop: [0-9.]* ms in one pass' $OUT/x1-compositor.txt); gaps=$(grep -c 'frame gap' $OUT/x1-compositor.txt); churn=$(grep -c 'client connected' $OUT/x1-compositor.txt)
     # What counts against the rule is what the log says over the limit while the client was alive (not the second after).
-    comp_over=$(comp_over_limit $STATE/compositor.log "${t0:-0}" "${t1:-0}")
+    comp_over=$(comp_over_limit $OUT/x1-compositor.txt "${t0:-0}" "${t1:-0}")
     # Keep the original strict verdict and raw swaps even when a complete trace attributes gaps to the client.
     raw_strict=$(x1_rule "$res" "$secs" "$late_before" "$late_after" "$comp_over")
     echo "$raw_strict" > $OUT/x1-strict-result.txt
@@ -651,7 +603,7 @@ x1)
     if [ -n "$kw" ]; then
         coverage=$(sed -n 's/^x1 attribution: //p' $OUT/x1-kwait.txt 2>/dev/null | head -n 1)
         attrib=$(sed -n 's/^x1 gaps: .*compositor-attributable \([0-9]*\) .*client-only \([0-9]*\), unexplained \([0-9]*\)$/\1 \2 \3/p' $OUT/x1-kwait.txt 2>/dev/null | head -n 1)
-        [ -z "$attrib" ] || own=$(comp_over_limit $STATE/compositor.log "${t0:-0}" "${t1:-0}" own)
+        [ -z "$attrib" ] || own=$(comp_over_limit $OUT/x1-compositor.txt "${t0:-0}" "${t1:-0}" own)
     fi
     detail="RAW STRICT: $raw_strict | RAW RESULT: $res | attribution coverage: $coverage | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn, over ${GAP_LIMIT_MS} ms $comp_over${attrib:+ (the loop's and the flips' own: $own)}; $sched${LUMATV_X1_RT:+; the client SCHED_FIFO $LUMATV_X1_RT}$cbnote${LUMATV_X1_STRICT:+; the strict rule} | wake-up latency: ${wakeline:-not read} | waits: $waitsline${kwsum:+ | $kwsum}"
     echo "$detail" > $OUT/x1-result.txt
@@ -680,7 +632,7 @@ netflix)
     card=$(grep -c '"netflix"' $OUT/netflix-windows.json)
     video=$(grep -o '"video":\[[^]]*\]' $OUT/netflix-windows.json | head -c 300)
     placements=$(grep -o 'setDisplayWindow\|setCropRegion' $OUT/netflix-journal.json | wc -l)
-    drops=$(grep -c 'message too short\|error in client communication' $STATE/compositor.log)
+    drops=$(comp_log lumatv-compositor | grep -c 'message too short\|error in client communication')
     pm=$(picture_mode)
     fgp=$(fg)
     b=$(cap $OUT/netflix.png)
@@ -804,47 +756,52 @@ keys)
     kd=""; bad=""
     res() { if [ "$1" = ok ]; then kd="$kd $2 ok;"; else bad="$bad $2 ($3);"; fi; }
     home; sleep 3
-    # The gear's tap: LumaTV's quick panel when the shell client says it can show it (`gate.sh shell` checks the panel itself); with no shell,
-    # LG's Settings stands in for Quick Settings. Settings is an overlay and slow to map (8.1 s after the tap on the set, window 3 of the
-    # first TV run), hence 25 s.
+    # The native quick panel must be ready; LG Settings is not a substitute.
     ctl note keys-gear > /dev/null
-    if shell_can quick; then
+    if rust_answers quick; then
         key_tap 139
-        if wait_shell_str layer quick 10 && journal_after keys-gear | grep -q "input: gear tap: Quick Settings -> LumaTV's quick panel"; then res ok gear-shell
-        else res no gear-shell "the shell's layer is '$(shell_str layer)'; or no journal line"; fi
+        if wait_panel quick open 10 && journal_after keys-gear | grep -q "input: gear tap: Quick Settings -> LumaTV's quick panel"; then res ok gear-shell
+        else res no gear-shell "quick panel is '$(rust_get ui.panels.quick)'; or no journal line"; fi
         key_tap 412; sleep 2
     else
-        key_tap 139
-        if wait_app com.palm.app.settings 25 && journal_after keys-gear | grep -q 'input: gear tap: Quick Settings .*launching com.palm.app.settings'; then res ok gear
-        else res no gear "$(where_now); or no journal line"; fi
-        close_app com.palm.app.settings; sleep 2; home; sleep 3
+        res no gear-shell "native quick panel is not ready"
     fi
     journal_after keys-gear > $OUT/keys-gear.txt
-    # Input's tap: LumaTV's input picker through the shell, or the Home Hub as the picker's stand-in.
+    # Input's tap must open the native input picker.
     ctl note keys-input > /dev/null
-    if shell_can picker; then
+    if rust_answers picker; then
         key_tap 241
-        if wait_shell_str layer picker 10 && journal_after keys-input | grep -q "input: Input tap: the input picker -> LumaTV's input picker"; then res ok input-shell
-        else res no input-shell "the shell's layer is '$(shell_str layer)'; or no journal line"; fi
+        if wait_panel picker open 10 && journal_after keys-input | grep -q "input: Input tap: the input picker -> LumaTV's input picker"; then res ok input-shell
+        else res no input-shell "picker is '$(rust_get ui.panels.picker)'; or no journal line"; fi
         key_tap 412; sleep 2
     else
-        key_tap 241
-        if wait_app com.webos.app.homeconnect 15 && journal_after keys-input | grep -q 'input: Input tap: .*launching com.webos.app.homeconnect'; then res ok input
-        else res no input "$(where_now); or no journal line"; fi
-        close_app com.webos.app.homeconnect; sleep 2; home; sleep 3
+        res no input-shell "native input picker is not ready"
     fi
     journal_after keys-input > $OUT/keys-input.txt
-    # The Netflix button follows Settings > Remote: no choice is LG's own target (netflix), a choice is that app, "" is nothing.
+    # Remote choices are typed actions, not raw app IDs. Judge visible results rather than diagnostic wording.
     nk=$(ctl keys | grep -o '"netflix":"[^"]*"' | head -n 1)
+    nsupported=yes; napp=""
     if [ -z "$nk" ]; then napp=netflix; nb=netflix-button
-    else napp=$(echo "$nk" | cut -d'"' -f4); nb="netflix-button(chosen: ${napp:-nothing})"; fi
-    ctl note keys-netflix > /dev/null; key_tap 1037
-    if [ -z "$napp" ]; then
-        sleep 3
-        if [ "$(fg)" = com.webos.app.home ] && ! journal_after keys-netflix | grep -q 'input: app button'; then res ok "$nb"
-        else res no "$nb" "it opens nothing, yet foreground $(fg) or an app launch was journalled"; fi
-    elif wait_app "$napp" 25 && journal_after keys-netflix | grep -q "input: app button: $napp, launching $napp"; then res ok "$nb"
-    else res no "$nb" "$(where_now); or no journal line"; fi
+    else
+        naction=$(echo "$nk" | cut -d'"' -f4)
+        case "$naction" in
+            app:*) napp=${naction#app:}; nb="netflix-button(chosen: $napp)" ;;
+            nothing) nb="netflix-button(chosen: nothing)" ;;
+            *) nsupported=no; nb="netflix-button(chosen: $naction)" ;;
+        esac
+    fi
+    ctl note keys-netflix > /dev/null
+    if [ "$nsupported" = no ]; then res no "$nb" "the gate cannot judge this chosen action"
+    else
+        n_before=$(mapped_apps | sort -u)
+        key_tap 1037
+        if [ -z "$napp" ]; then
+            sleep 3
+            if [ "$(fg)" = com.webos.app.home ] && [ "$(mapped_apps | sort -u)" = "$n_before" ]; then res ok "$nb"
+            else res no "$nb" "it opens nothing, yet $(where_now)"; fi
+        elif wait_app "$napp" 25 && { [ "$(fg)" = "$napp" ] || ! printf '%s\n' "$n_before" | grep -Fqx -- "$napp"; }; then res ok "$nb"
+        else res no "$nb" "$(where_now)"; fi
+    fi
     journal_after keys-netflix > $OUT/keys-netflix.txt
     [ -z "$napp" ] || close_app "$napp"
     sleep 4; home; sleep 4
@@ -876,85 +833,40 @@ keys)
     if [ -z "$bad" ]; then pass keys "$detail"; else fail keys "$detail"; fi
     ;;
 shell)
-    # The shell client under LumaTV's compositor: its surfaces on Home and over an app, each read back from the client's own report
-    # (`ctl shell`, the `ui` object the client sends every second and on each change) and the compositor's journal. Keys go through
-    # `ctl remote`, the path the remote's take. Home is in front at the start and at the end; the Home Hub, the one app opened, is closed.
     sd=""; bad=""
     res() { if [ "$1" = ok ]; then sd="$sd $2 ok;"; else bad="$bad $2 ($3);"; fi; }
     home; sleep 3
     ctl shell > $OUT/shell-start.json
-    if [ "$(shell_bool connected)" = true ] && [ "$(shell_bool homeMapped)" = true ] && [ "$(shell_bool homeDrawn)" = true ]; then res ok connected
-    else res no connected "connected $(shell_bool connected), home mapped $(shell_bool homeMapped), drawn $(shell_bool homeDrawn), pid $(shell_num pid)"; fi
-    if [ "$(shell_bool homeLoaded)" = true ] && [ "$(shell_bool hostActive)" = true ] && [ "$(shell_bool beat)" = true ]; then res ok home-loaded
-    else res no home-loaded "homeLoaded $(shell_bool homeLoaded), hostActive $(shell_bool hostActive), beat $(shell_bool beat)"; fi
-    # Idle on Home: the client commits at the wallpaper's tick at most (10 a second) and stays under a third of a core; the compositor
-    # takes Home's buffer to the plane whole (the opaque rule in scene.rs), so each costs it a flip.
-    set -- $(shell_idle_cost 10); ic=$1; icpu=$2
-    if [ "${ic:-99}" -le 12 ] && [ "${icpu:-999}" -le 35 ]; then res ok "idle-home(${ic}/s,${icpu}%)"; else res no idle-home "$ic commits/s, $icpu % cpu on Home at rest"; fi
-    # The D-pad: Up from the dock reaches the widgets, Down comes back; the shell counts the keys it got. With the Rust Home on, the keys go to the
-    # Rust client (the QML one counts none) and it starts on the status bar: the same two layers read from its own report.
-    if rust_answers home; then
-        rust_home_dpad
-        if [ "$DPAD_OK" = yes ]; then res ok "dpad(rust: $DPAD_F0 -> $DPAD_F1 -> $DPAD_F2)"; else res no dpad "Rust Home: focus '$DPAD_F0', then '$DPAD_F1' and '$DPAD_F2' after $DPAD_KEYS"; fi
-    else
-        k0=$(shell_num keys); key_tap 103; sleep 1
-        f1=$(shell_str focus); key_tap 108; sleep 1
-        f2=$(shell_str focus); k1=$(shell_num keys)
-        if [ "$f1" = widgets ] && [ "$f2" = dock ] && [ "${k1:-0}" -ge $(( ${k0:-0} + 4 )) ]; then res ok dpad
-        else res no dpad "focus '$f1' after Up, '$f2' after Down, keys $k0 -> $k1"; fi
-    fi
-    # The quick panel and the input picker on Home: the gear's tap and Input, Back closes each.
-    ctl note shell-quick > /dev/null; key_tap 139
-    if wait_shell_str layer quick 10; then key_tap 412; if wait_shell_str layer "" 10; then res ok quick-home; else res no quick-home "Back left the layer '$(shell_str layer)'"; fi
-    else res no quick-home "layer '$(shell_str layer)' after the gear; can $(shell_json | grep -o '"can":\[[^]]*\]')"; fi
-    journal_after shell-quick > $OUT/shell-quick.txt
-    ctl note shell-picker > /dev/null; key_tap 241
-    if wait_shell_str layer picker 10; then key_tap 412; if wait_shell_str layer "" 10; then res ok picker-home; else res no picker-home "Back left the layer '$(shell_str layer)'"; fi
-    else res no picker-home "layer '$(shell_str layer)' after Input"; fi
-    journal_after shell-picker > $OUT/shell-picker.txt
-    # The volume display: a volume key through the compositor's own route; the audio service's push reaches the client as the audio topic.
-    key_tap 115
-    if wait_shell_bool osd true 8 && wait_shell_bool systemMapped true 6; then res ok osd
-    else res no osd "osd $(shell_bool osd), system window mapped $(shell_bool systemMapped) after Volume+ (audio topic: $(shell_json | grep -o '"audio":{[^}]*' | cut -c1-120))"; fi
-    # A toast through the notification service, as any app raises one.
-    ls1 com.webos.notification/createToast '{"message":"LumaTV gate: a toast under its own compositor","sourceId":"org.nphil.lumatv"}' > /dev/null
-    if wait_shell_num_ge toasts 1 10 && wait_shell_bool systemMapped true 6; then res ok toast
-    else res no toast "toasts $(shell_num toasts), system window mapped $(shell_bool systemMapped) after createToast"; fi
-    # Over an app (the Home Hub, a card): the system layer draws the quick panel, takes the keys while it is up and lets go on Back.
+    if [ "$(rust_get ready)" = true ]; then res ok ready
+    else res no ready "connected $(rust_get connected), engine $(rust_get engine), frameReady $(rust_get frameReady), error $(rust_get error)"; fi
+    rust_home_dpad
+    if [ "$DPAD_OK" = yes ]; then res ok "dpad($DPAD_F0 -> $DPAD_F1 -> $DPAD_F2)"; else res no dpad "focus '$DPAD_F0', '$DPAD_F1', '$DPAD_F2' after $DPAD_KEYS"; fi
+    key_tap 139
+    if wait_panel quick open 10; then key_tap 412; if wait_panel quick closed 10; then res ok quick-home; else res no quick-home "Back did not close quick"; fi
+    else res no quick-home "quick $(rust_get ui.panels.quick)"; fi
+    key_tap 241
+    if wait_panel picker open 10; then key_tap 412; if wait_panel picker closed 10; then res ok picker-home; else res no picker-home "Back did not close picker"; fi
+    else res no picker-home "picker $(rust_get ui.panels.picker)"; fi
+    for k in osd toast saver; do
+        rust_check_kind "$k"
+        if [ "$RC" = ok ]; then res ok "$k"; else res no "$k" "$RT"; fi
+    done
     ls1 com.webos.applicationManager/launch '{"id":"com.webos.app.homeconnect"}' > /dev/null
     if wait_app com.webos.app.homeconnect 20; then
-        sleep 3
-        ctl note shell-quick-app > /dev/null; key_tap 139
-        if wait_shell_str overlay quick 10 && wait_shell_bool wants true 4 && wait_shell_bool systemMapped true 6; then
+        sleep 3; key_tap 139
+        if wait_panel quick open 10 && [ "$(rust_get wants)" = true ]; then
             key_tap 412
-            if wait_shell_str overlay "" 10 && wait_shell_bool wants false 4; then res ok quick-app; else res no quick-app "Back left overlay '$(shell_str overlay)', wants $(shell_bool wants)"; fi
-        else res no quick-app "overlay '$(shell_str overlay)', wants $(shell_bool wants), system mapped $(shell_bool systemMapped), home drawn $(shell_bool homeDrawn)"; fi
-        journal_after shell-quick-app > $OUT/shell-quick-app.txt
-        # Covered by the app: Home draws nothing and the client sleeps (its tick is held, `covered` in the foreground topic).
-        sleep 2
-        set -- $(shell_idle_cost 10); ac=$1; acpu=$2
-        if [ "${ac:-99}" -eq 0 ] && [ "${acpu:-999}" -le 3 ]; then res ok "idle-covered(${acpu}%)"; else res no idle-covered "$ac commits/s, $acpu % cpu with the Home Hub in front; covered $(shell_json | grep -o '"covered":[a-z]*')"; fi
+            if wait_panel quick closed 10 && [ "$(rust_get wants)" = false ]; then res ok quick-app; else res no quick-app "quick $(rust_get ui.panels.quick), wants $(rust_get wants)"; fi
+        else res no quick-app "quick $(rust_get ui.panels.quick), wants $(rust_get wants)"; fi
     else res no quick-app "the Home Hub did not map: $(where_now)"; fi
-    close_app com.webos.app.homeconnect; sleep 3; home; sleep 4
-    # The screensaver: tvpower asked to start it; LumaTV's own answers and draws (on Home, LumaHome's). Any key ends it.
-    ls1 com.webos.service.tvpower/power2/turnOnScreenSaver '{}' > /dev/null
-    if wait_shell_bool saver true 15; then key_tap 106; if wait_shell_bool saver false 10; then res ok saver; else res no saver "a key did not end it"; fi
-    else res no saver "saver $(shell_bool saver) after turnOnScreenSaver; $(shell_json | grep -oE '"vote":\{"shell":(null|\{[^}]*\}),"home":(null|\{[^}]*\})\}')"; fi
-    sleep 2; home; sleep 2
+    close_app com.webos.app.homeconnect; sleep 3; home; sleep 2
     ctl shell > $OUT/shell-end.json
-    sj=$(shell_json)
-    detail="${sd# }${bad:+ NOT:$bad} (shell pid $(echo "$sj" | jnum pid), starts $(echo "$sj" | jnum starts), exits $(echo "$sj" | jnum exits), luna calls $(echo "$sj" | jnum lunaCalls), refused $(echo "$sj" | jnum lunaRefused); $(where_now))"
+    detail="${sd# }${bad:+ NOT:$bad} (pid $(rust_get pid), starts $(rust_get stats.starts), exits $(rust_get stats.exits); $(where_now))"
     echo "$detail" > $OUT/shell-result.txt
     if [ -z "$bad" ]; then pass shell "$detail"; else fail shell "$detail"; fi
     ;;
 rust)
-    # The Rust shell's kinds one at a time (docs/research/rust-shell-plan.md, section 6; LUMATV_RUST_KINDS, space or comma separated, names the kinds,
-    # tv_gate.py --rust-kinds): each is switched on (`ctl shell rust +KIND`, which restarts the client with it), read back from the client's own report (it
-    # must be in rust.ui.kinds), shown the way the set shows it, timed to the first reading that says it is up, checked for frames drawn and GL errors
-    # while it is up, closed, and switched off (`-KIND`: gone from the list and from the client's kinds), then left as it was found. A kind the compositor
-    # refuses or the client does not have is SKIPPED, not failed, and so is a built one the gate has no way to open (rust_undriven); the line says which and why.
-    # With the Rust shell unavailable (a bundle without `ui`) nothing runs, and the line says so without a verdict. The kinds list is put back exactly.
-    asked=$(echo "${LUMATV_RUST_KINDS:-home osd toast alert quick picker drawer settings cameras saver menu confirm switcher cards popup capture layout}" | tr ',' ' ')
+    asked=$(echo "${LUMATV_RUST_KINDS:-home osd toast alert quick picker drawer settings cameras saver menu confirm switcher cards popup capture layout entry keyboard ai banner displaylab}" | tr ',' ' ')
     home; sleep 3
     k0=$(rust_kinds_on)
     ctl shell > $OUT/rust-start.json
@@ -967,13 +879,6 @@ rust)
             *) ran=$((ran+1)); bad="$bad $k ($RT);" ;;
         esac
     done
-    # Whatever happened above, the compositor's list is what it was.
-    now=$(rust_kinds_on)
-    if [ "$(rust_sorted "$now")" != "$(rust_sorted "$k0")" ]; then
-        for k in $(echo "$k0" | tr ',' ' '); do ctl shell rust +$k > /dev/null; done
-        for k in $(echo "$now" | tr ',' ' '); do case ",$k0," in *",$k,"*) ;; *) ctl shell rust -$k > /dev/null ;; esac; done
-        [ "$(rust_sorted "$(rust_kinds_on)")" = "$(rust_sorted "$k0")" ] || bad="$bad kinds not restored (found [$k0], now [$(rust_kinds_on)]);"
-    fi
     home; sleep 1
     detail="${sd# }${bad:+ NOT:$bad} (kinds found [$k0]; $ran run, $skipped skipped)"
     echo "$detail" > $OUT/rust-result.txt
@@ -1051,21 +956,17 @@ evidence)
     ctl status > $OUT/status.json
     run_log | grep -E 'subscription|bridge:' > $OUT/sm-subscriptions.txt
     run_log | grep -E 'watchdog:|settled|previous run' > $OUT/sm-watchdog.txt
-    grep -E 'client (dis)?connected' $STATE/compositor.log > $OUT/clients.txt
+    comp_log lumatv-compositor | grep -E 'client (dis)?connected' > $OUT/clients.txt
     # The wire as a client sees it (globals, seats, output, webos seats, starfish timer), to set against LG's run of 2026-10-28.
     [ -f $D/wlprobe.py ] && XDG_RUNTIME_DIR=/tmp/xdg timeout 20 python3 $D/wlprobe.py /tmp/xdg/wayland-0 2 > $OUT/wlprobe.txt 2>&1
-    cp $STATE/compositor.log $OUT/compositor.log; run_log > $OUT/sm.log
+    comp_log lumatv-compositor > $OUT/compositor.log; run_log > $OUT/sm.log
     echo "evidence: $(grep -c applicationManager $OUT/sm-subscriptions.txt) subscription(s) from SAM, $(wc -l < $OUT/clients.txt) client lines, $(grep -c 'loop:' $OUT/compositor.log) loop stalls, $(wc -l < $OUT/sm-watchdog.txt) watchdog lines"
     ;;
 callbacks)
-    # The frame callbacks' pacing (`ctl callbacks`): with an argument it sets the shell client's (`ctl callbacks shell early|landing`), and
-    # LUMATV_CLIENTS_CALLBACKS=commit|early|landing sets every other client's (`ctl callbacks clients`). It then says how many of all the
-    # callbacks went out ahead of their flip so far (the shell's, by default) and how many with the commit that carried them (a card's, by
-    # default): over Home alone the apps send next to none, so a pacing that changed only theirs was not in play. Not a check: no GATE line.
-    [ -z "${2:-}" ] || ctl callbacks shell "$2" > /dev/null
+    # Report client callback pacing; optionally set it for the frame gate.
     [ -z "${LUMATV_CLIENTS_CALLBACKS:-}" ] || ctl callbacks clients "$LUMATV_CLIENTS_CALLBACKS" > /dev/null
     st=$(ctl status)
-    echo "callbacks${2:+ (the shell's set to $2)}${LUMATV_CLIENTS_CALLBACKS:+ (the clients' set to $LUMATV_CLIENTS_CALLBACKS)}: $(echo "$st" | jnum callbacksAhead) of $(echo "$st" | jnum callbacks) sent ahead of their flip, $(echo "$st" | jnum callbacksAtCommit) with their commit; clients $(echo "$st" | jstr clientCallbacks)"
+    echo "callbacks${LUMATV_CLIENTS_CALLBACKS:+ (clients set to $LUMATV_CLIENTS_CALLBACKS)}: $(echo "$st" | jnum callbacksAhead) of $(echo "$st" | jnum callbacks) sent ahead of their flip, $(echo "$st" | jnum callbacksAtCommit) with their commit; clients $(echo "$st" | jstr clientCallbacks)"
     ;;
 refresh)
     # The refresh test mode: switch (60, 120), reset or read; then SECS of the screen as it is, counted three ways (the OSD plane's flips,
@@ -1098,31 +999,21 @@ refresh)
     m=$(ctl refresh)
     r_shell=$(shell_json)
     shell_hz=$(echo "$r_shell" | grep -o '"refreshHz":[0-9]*' | head -n 1 | cut -d: -f2)
-    # the per-frame motions' own count (kit/FrameMotion.qml): the last few slides as the shell's state reports them (`Lu.slides`, steps/ms/duration
-    # each; round 15 found no line of theirs in the shell's stdout file), else the `[FrameMotion]` lines of the runner's log, which QML's console
-    # writes to PmLog, /var/log/messages (it rotates about every minute: the file and the ones it rotated to, oldest first). `gate.py` reads the
-    # same lines per surface (`slides:`).
     # (by key: the compositor's JSON has its keys in alphabetical order, not the shell's)
     slides=$(echo "$r_shell" | grep -o '"slides":\[[^]]*\]' | head -n 1 | grep -o '{[^}]*}' | awk '{ s = m = d = "?"
         if (match($0, /"steps":[0-9]+/)) s = substr($0, RSTART + 8, RLENGTH - 8)
         if (match($0, /"ms":[0-9]+/)) m = substr($0, RSTART + 5, RLENGTH - 5)
         if (match($0, /"duration":[0-9]+/)) d = substr($0, RSTART + 11, RLENGTH - 11)
         printf "%s/%s/%s ", s, m, d }')
-    [ -n "$slides" ] || slides=$( { cat $STATE/shell.log 2>/dev/null; for f in $(ls -tr $MESSAGES $MESSAGES.* 2>/dev/null); do case $f in *.gz|*.xz|*.bz2) ;; *) cat "$f" ;; esac; done; } | grep -o '\[FrameMotion\] [0-9]* steps in [0-9]* ms for [0-9]*' | tail -n 6 | sed 's/\[FrameMotion\] \([0-9]*\) steps in \([0-9]*\) ms for \([0-9]*\)/\1\/\2\/\3/' | tr '\n' ' ')
     echo "$m" > $OUT/refresh-${r_hz:-x}-${2:-read}.json
     echo "GATE refresh: measured hz ${r_hz:-?} divider ${r_div:-unreadable} shell ${shell_hz:-?} over ${r_secs} s: OSD flips/s $(per_s "$f0" "$f1"), DE2VSYNC/s $(per_s "$v0" "$v1"), osd_irq/s $(per_s "$o0" "$o1"); compositor: $(echo "$m" | grep -o '"intervals":{[^}]*}') $(echo "$m" | grep -o '"frames":{[^}]*}') $(echo "$m" | grep -o '"pipeline_ms":{[^}]*}') flips/s $(echo "$m" | grep -o '"flips_per_second":[0-9.]*' | cut -d: -f2); mali busy ${mali} %; temperature ${temp:-unreadable}; slides (steps/ms/for): ${slides:-none}"
     ;;
 scanout)
-    # Direct scan-out (`ctl scanout`): `direct` sets the shell client's environment for the layout the plane takes, turns the switch on (the protocol
-    # tap goes on the display now) and starts the shell again, since a buffer made before the tap has no descriptor and is composed; `off` turns it off;
-    # `read` only reports. A FAIL is a refused command; what the counters say is for the reader.
+    # Direct scan-out counters describe eligible client surfaces.
     case "${2:-read}" in
     direct)
-        ctl scanout shell-env WAYLAND_AFBC=0 > /dev/null
         r_set=$(ctl scanout direct)
         if ! echo "$r_set" | grep -q '"ok":true'; then echo "GATE scanout: FAIL $r_set"; exit 1; fi
-        ctl shell restart > /dev/null
-        wait_shell_bool homeDrawn true 40
         sleep 2 ;;
     off)
         r_set=$(ctl scanout off)
@@ -1153,26 +1044,6 @@ woke)
     detail="rounds: PreparePowerOff $off PreparePowerOn $on; fallbacks $fb; state $st; uptime before $(cut -d' ' -f1 $OUT/standby-uptime-before) now $(cut -d' ' -f1 /proc/uptime); mounted $(is_mounted && echo yes || echo no); panel ${b:-0} bytes"
     echo "$detail" > $OUT/woke-result.txt
     if [ "$off" -ge 1 ] && [ "$on" -ge 1 ] && [ "$fb" = 0 ] && [ "$st" = active ] && is_mounted && home_panel_ok "$b"; then pass standby "$detail"; else fail standby "$detail"; fi
-    ;;
-escape)
-    # Home as LG's RF_HOME (773, what PlainHome reads as the Magic Remote's Home and perf/kb.py injects); the compositor's tests cover 172 and 102.
-    sam0=$(sam_id)
-    ctl remote 773 press > /dev/null
-    sleep 1
-    ctl remote 773 release > /dev/null 2>&1
-    wait_unmount 40
-    sleep 2
-    fb=$(grep 'fallback:' $STATE/sm.log | tail -1)
-    esc=$([ -f $STATE/escaped ] && echo yes || echo no)
-    exe=$(readlink /proc/$(pgrep -x surface-manager | head -1)/exe 2>/dev/null)
-    # recover-home.sh (started by the supervisor) brings Home back; wait for it.
-    wait_recovery
-    sleep 2
-    b=$(cap $OUT/escape.png)
-    sam1=$(sam_id)
-    detail="unmounted after $((u/2))s; $fb; escaped $esc; exe $exe; recovery ${n}s; panel ${b:-0} bytes; wam $(systemctl is-active webapp-mgr); sam $([ "$sam0" = "$sam1" ] && echo unchanged || echo "CHANGED $sam0 -> $sam1")"
-    echo "$detail" > $OUT/escape-result.txt
-    if ! is_mounted && [ "$esc" = yes ] && echo "$fb" | grep -q 'hold Home' && [ "${b:-0}" -gt 4096 ] && [ "$sam0" = "$sam1" ]; then pass escape "$detail"; else fail escape "$detail"; fi
     ;;
 firmware)
     # The firmware check on this set's real files, tools and hash speed, against a scratch state directory: nothing the
@@ -1222,19 +1093,19 @@ firmware)
     fi
     ;;
 homeheld)
-    # A virtual remote holds Home for 3 s (uinput); the supervisor's question for the early boot hook, asked from a fresh
+    # A virtual remote holds Home for 13 s (uinput); the supervisor's hold reader, asked from a fresh
     # process in the middle of it, says yes, and after the release says no. Run while LG's compositor is live: the
     # supervisor's own reader would take the key as the escape.
     if [ ! -c /dev/uinput ] || [ ! -x $STATE/bin/lumatv-sm ] || [ ! -f $D/uinput-key.py ]; then
         fail homeheld "no /dev/uinput, or the bundle or $D/uinput-key.py is missing"
     else
-        python3 $D/uinput-key.py hold 3 --settle 0.5 > $OUT/homeheld-inject.txt 2>&1 &
+        python3 $D/uinput-key.py hold 13 --settle 0.5 > $OUT/homeheld-inject.txt 2>&1 &
         ip=$!
         sleep 2
-        $STATE/bin/lumatv-sm --state $STATE --home-held 700; held=$?
+        $STATE/bin/lumatv-sm --state $STATE --home-held 10000; held=$?
         wait $ip; injrc=$?
         sleep 0.5
-        $STATE/bin/lumatv-sm --state $STATE --home-held 700; after=$?
+        $STATE/bin/lumatv-sm --state $STATE --home-held 10000; after=$?
         detail="while held: exit $held (0 = held); after the release: exit $after (1 = not held); injector exit $injrc"
         echo "$detail" > $OUT/homeheld-result.txt
         if [ "$held" = 0 ] && [ "$after" = 1 ] && [ "$injrc" = 0 ]; then pass homeheld "$detail"; else fail homeheld "$detail"; fi
@@ -1242,27 +1113,27 @@ homeheld)
     ;;
 homekey)
     # The supervisor's own reader: the virtual remote is made after the compositor started, so the compositor (which
-    # opens the event nodes once) never sees it and only the supervisor's rescan can. Home held 1.5 s on it must end the
+    # opens the event nodes once) never sees it and only the supervisor's rescan can. Home held 12 s on it must end the
     # session as an escape: recorded as one, not counted as a failure, SAM untouched.
     if ! is_mounted || [ ! -c /dev/uinput ] || [ ! -f $D/uinput-key.py ]; then
         fail homekey "not live, or no /dev/uinput, or $D/uinput-key.py is missing"
     else
         sam0=$(sam_id); f0=$(cat $STATE/failures 2>/dev/null || echo 0)
-        python3 $D/uinput-key.py hold 1.5 --settle 9 > $OUT/homekey-inject.txt 2>&1 &
+        python3 $D/uinput-key.py hold 12 --settle 9 > $OUT/homekey-inject.txt 2>&1 &
         ip=$!
         wait_unmount 60
         wait $ip; injrc=$?
         sleep 2
-        wait_recovery
+        recovery=complete; wait_recovery || recovery=timeout
         sleep 2
-        fb=$(grep 'fallback:' $STATE/sm.log | tail -1)
+        fb=$(fallback_evidence)
         esc=$([ -f $STATE/escaped ] && echo yes || echo no)
         f1=$(cat $STATE/failures 2>/dev/null || echo 0)
         b=$(cap $OUT/homekey.png)
         sam1=$(sam_id)
-        detail="unmounted after $((u/2))s; $fb; escaped $esc; failures $f0 -> $f1; panel ${b:-0} bytes; injector exit $injrc; sam $([ "$sam0" = "$sam1" ] && echo unchanged || echo "CHANGED $sam0 -> $sam1")"
+        detail="unmounted after $((u/2))s; $fb; recovery $recovery; escaped $esc; failures $f0 -> $f1; panel ${b:-0} bytes; injector exit $injrc; sam $([ "$sam0" = "$sam1" ] && echo unchanged || echo "CHANGED $sam0 -> $sam1")"
         echo "$detail" > $OUT/homekey-result.txt
-        if ! is_mounted && [ "$esc" = yes ] && echo "$fb" | grep -q 'hold Home 650 ms (supervisor)' && [ "$f0" = "$f1" ] && [ "${b:-0}" -gt 4096 ] && [ "$sam0" = "$sam1" ]; then pass homekey "$detail"; else fail homekey "$detail"; fi
+        if ! is_mounted && [ "$recovery" = complete ] && [ "$esc" = yes ] && echo "$fb" | grep -q 'hold Home 10 s (supervisor)' && [ "$f0" = "$f1" ] && [ "${b:-0}" -gt 4096 ] && [ "$sam0" = "$sam1" ]; then pass homekey "$detail"; else fail homekey "$detail"; fi
     fi
     ;;
 wd-hang|wd-crash)
@@ -1277,16 +1148,16 @@ wd-hang|wd-crash)
         wait_unmount 60
         took=$u
         sleep 2
-        wait_recovery
+        recovery=complete; wait_recovery || recovery=timeout
         sleep 2
         reason=$(cat $STATE/last-fallback 2>/dev/null)
         f1=$(cat $STATE/failures 2>/dev/null || echo 0)
         gone=$(pgrep -f 'bin/lumatv-compositor' | head -1)
         b=$(cap $OUT/$1.png)
         sam1=$(sam_id)
-        detail="unmounted after $((took/2)).$((took%2*5)) s; reason: $reason; failures $f0 -> $f1; escaped $([ -f $STATE/escaped ] && echo yes || echo no); compositor left: ${gone:-none}; panel ${b:-0} bytes; wam $(systemctl is-active webapp-mgr); sam $([ "$sam0" = "$sam1" ] && echo unchanged || echo "CHANGED $sam0 -> $sam1"); crash bundle $(crash_summary)"
+        detail="unmounted after $((took/2)).$((took%2*5)) s; reason: $reason; recovery $recovery; failures $f0 -> $f1; escaped $([ -f $STATE/escaped ] && echo yes || echo no); compositor left: ${gone:-none}; panel ${b:-0} bytes; wam $(systemctl is-active webapp-mgr); sam $([ "$sam0" = "$sam1" ] && echo unchanged || echo "CHANGED $sam0 -> $sam1"); crash bundle $(crash_summary)"
         echo "$detail" > $OUT/$1-result.txt
-        if ! is_mounted && [ "$took" -le "$limit" ] && echo "$reason" | grep -q "$want" && [ "$f1" = "$((f0+1))" ] && [ ! -f $STATE/escaped ] && [ -z "$gone" ] && [ "${b:-0}" -gt 4096 ] && [ "$sam0" = "$sam1" ]; then pass $1 "$detail"; else fail $1 "$detail"; fi
+        if ! is_mounted && [ "$recovery" = complete ] && [ "$took" -le "$limit" ] && echo "$reason" | grep -q "$want" && [ "$f1" = "$((f0+1))" ] && [ ! -f $STATE/escaped ] && [ -z "$gone" ] && [ "${b:-0}" -gt 4096 ] && [ "$sam0" = "$sam1" ]; then pass $1 "$detail"; else fail $1 "$detail"; fi
     fi
     ;;
 wake)
@@ -1374,7 +1245,7 @@ video)
     # 4 each overlay over the video
     v_pm=$(rust_poll_ms); v_ov=""
     for k in $(echo "$v_overlays" | tr ',' ' '); do
-        if ! rust_answers $k; then v_ov="$v_ov $k: not built;"; continue; fi
+        if ! rust_answers "$k"; then bad="$bad $k: native UI not ready or kind absent;"; continue; fi
         ctl note video-overlay-$k > /dev/null
         ctl refresh reset > /dev/null
         g0=$(rust_gl_errors); c0=$(cpu_ticks "${vs_pid:-self}"); d0=$(rust_drawn); f0=$(fb_flips)

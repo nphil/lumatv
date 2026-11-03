@@ -1,6 +1,6 @@
 //! Local profiles: a person's Home kept apart from the household's settings.
 //!
-//! A profile is a person's look, cards and dock, quick panel, key choices and popup places (what `payload/compositor/lumatv/profile-scope.json`
+//! A profile is a person's look, cards and dock, quick panel, key choices and popup places (what `compositor/assets/ui/profile-scope.json`
 //! lists); everything else on the TV (picture, sound, network, privacy, AI access, panel care, the screensaver, LG's own settings) belongs
 //! to the household and to no profile. Nitin is the owner and the administrator of the shared settings; Isabel is the second profile. LG's
 //! account is not a profile and is not read for one.
@@ -131,7 +131,7 @@ pub const COPY: &[&str] = &[
 pub const COLORS: &[&str] = &[
     "#A79BF5", "#EB6F92", "#F6C177", "#9CCFD8", "#3E8FB0", "#EA9A97", "#C4A7E7", "#908CAA",
 ];
-const SCOPE_JSON: &str = include_str!("../../../payload/compositor/lumatv/profile-scope.json");
+const SCOPE_JSON: &str = include_str!("../../../compositor/assets/ui/profile-scope.json");
 /// The key of theme.json that says which profile the working copy was written for.
 const MARK: &str = "_profile";
 const SYNC_EVERY: Duration = Duration::from_millis(1500);

@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<rx>
+<cmd>
+<status>0</status>
+<adjust></adjust>
+<basslevel></basslevel>
+<bassvalue></bassvalue>
+<treblelevel></treblelevel>
+<treblevalue></treblevalue>
+</cmd>
+<cmd>
+<functionrename>
+<list>
+<name>SOURCE</name>
+<rename>Source</rename>
+</list>
+<list>
+<name>CBL/SAT</name>
+<rename>CBL/SAT         </rename>
+</list>
+<list>
+<name>Media Player</name>
+<rename>Apple TV        </rename>
+</list>
+<list>
+<name>Blu-ray</name>
+<rename>MAGNAVOX 4K BD  </rename>
+</list>
+<list>
+<name>GAME</name>
+<rename>PS4             </rename>
+</list>
+<list>
+<name>AUX1</name>
+<rename>AUX1            </rename>
+</list>
+<list>
+<name>AUX2</name>
+<rename>AUX2            </rename>
+</list>
+<list>
+<name>TV AUDIO</name>
+<rename>TV Audio        </rename>
+</list>
+<list>
+<name>PHONO</name>
+<rename>Phono           </rename>
+</list>
+<list>
+<name>TUNER</name>
+<rename>Tuner</rename>
+</list>
+<list>
+<name>NETWORK</name>
+<rename>HEOS Music</rename>
+</list>
+<list>
+<name>Bluetooth</name>
+<rename>Bluetooth</rename>
+</list>
+</functionrename>
+</cmd>
+<cmd>
+<functiondelete>
+<list>
+<name>CBL/SAT</name>
+<FuncName>CBL/SAT</FuncName>
+<use>0</use>
+</list>
+<list>
+<name>Media Player</name>
+<FuncName>Media Player</FuncName>
+<use>1</use>
+</list>
+<list>
+<name>Blu-ray</name>
+<FuncName>Blu-ray</FuncName>
+<use>1</use>
+</list>
+<list>
+<name>GAME</name>
+<FuncName>GAME</FuncName>
+<use>1</use>
+</list>
+<list>
+<name>AUX1</name>
+<FuncName>AUX1</FuncName>
+<use>0</use>
+</list>
+<list>
+<name>AUX2</name>
+<FuncName>AUX2</FuncName>
+<use>0</use>
+</list>
+<list>
+<name>TV AUDIO</name>
+<FuncName>TV AUDIO</FuncName>
+<use>1</use>
+</list>
+<list>
+<name>PHONO</name>
+<FuncName>PHONO</FuncName>
+<use>0</use>
+</list>
+<list>
+<name>TUNER</name>
+<FuncName>TUNER</FuncName>
+<use>0</use>
+</list>
+<list>
+<name>NETWORK</name>
+<FuncName>NETWORK</FuncName>
+<use>1</use>
+</list>
+<list>
+<name>Bluetooth</name>
+<FuncName>Bluetooth</FuncName>
+<use>1</use>
+</list>
+</functiondelete>
+</cmd>
+<cmd>
+<zone1>
+<volume>-61.0</volume>
+<state>variable</state>
+<limit>OFF</limit>
+<disptype>ABSOLUTE</disptype>
+<dispvalue>19.0</dispvalue>
+</zone1>
+<zone2>
+<volume>-40</volume>
+<state>variable</state>
+<limit>-10.0</limit>
+<disptype>ABSOLUTE</disptype>
+<dispvalue> 40</dispvalue>
+</zone2>
+</cmd>
+</rx>

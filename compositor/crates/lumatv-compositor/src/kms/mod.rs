@@ -1323,6 +1323,10 @@ impl Output for Kms {
         Ok(hz)
     }
 
+    fn reset_refresh_measure(&mut self) {
+        self.timing.measure = Default::default();
+    }
+
     fn refresh_report(&self) -> Option<serde_json::Value> {
         let mut r = self.timing.measure.report(self.timing.period_ns());
         r["hz"] = self.refresh_hz.into();
@@ -1356,6 +1360,18 @@ impl Output for Kms {
 
     fn size(&self) -> (u32, u32) {
         (self.width, self.height)
+    }
+
+    fn ui_state(&mut self, state: &serde_json::Value) -> bool {
+        self.gl.ui_state(state)
+    }
+
+    fn ui_set_exclusion(&mut self, area: Option<crate::Rect>) {
+        self.gl.ui_set_exclusion(area);
+    }
+
+    fn ui_set_standin_root(&mut self, root: Option<crate::surface::SurfaceId>) {
+        self.gl.ui_set_standin_root(root);
     }
 
     /// The system UI's requests, and a frame owed to a surface a frame stood in for once its buffer is warm.

@@ -1,6 +1,10 @@
 # Volume and mute display: LumaTV's own, the only one
 
 ## Resume here
+Current source note (2026-10-31): the approved native volume layout renders the original RGBA audio PNG glyphs left of the number and bar; PCM, unknown formats and mute have no fake fallback. The existing helper path, freshness handling, module path and format mapper were already present. Host-native rendering proves the assets decode and render, but does not diagnose or verify the missing glyph on the actual TV. These UI changes have not been installed or accepted on the TV. See `rust-shell-core-result.md` for native input and evidence details.
+
+The following resume state is historical.
+
 
 State at 2026-10-25 22:35 (the cut for TV round 8): the display is a slim bar at the bottom centre (Nitin, 22:20), in the repo and offline-tested. The set
 still shows the right-edge pane of `ddc293c` until the round's `lumatv apply`. The first deploy took two restarts: the first, with files copied unrendered,

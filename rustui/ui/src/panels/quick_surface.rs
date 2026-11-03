@@ -11,6 +11,7 @@
 use super::life::Phase;
 use super::quick::tiles::Row;
 use super::quick::{EditView, Focus, PadView, Person, PopupView, Target, View};
+use super::quick::{DisplayInfo, VideoInfo};
 use super::quick_layout::{self as lay, PopupLayout, RowLayout, Trail};
 use super::stage::{Stage, Touch};
 use super::ui::{Arrive, Line, Scroll, WordLine, Words, hints_width};
@@ -37,6 +38,7 @@ use ui::geometry::Frame;
 use ui::group::Group;
 use ui::lucent::palette::PaletteRole;
 use ui::scene::{ImageLayer, ShapeLayer};
+use std::sync::Arc;
 use ui::text::Weight;
 
 pub const SCOPE: Scope = Scope(200);
@@ -57,6 +59,13 @@ fn other(e: ui::error::UiError) -> std::io::Error {
     std::io::Error::other(format!("{e}"))
 }
 
+fn release_scope(engine: &mut Engine, scope: Scope) {
+    for id in engine.focus.ids_in_scope(scope) {
+        engine.focus.unregister(id);
+        engine.flow.drop_lift(id);
+    }
+}
+
 fn zero() -> Frame {
     Frame::new(0.0, 0.0, 0.0, 0.0)
 }
@@ -69,20 +78,23 @@ enum Ctrl {
     Stepper(Stepper),
 }
 
-struct RowParts {
-    id: Id,
-    row_id: String,
+struct RowArt {
     cell: Group,
     plate: Plate,
     _tile: ImageLayer,
     words: Words,
     ctrl: Ctrl,
+    layers: usize,
+}
+
+struct RowParts {
+    id: Id,
+    row_id: String,
+    art: Option<RowArt>,
     layout: RowLayout,
-    /// The row's top in the list's content, from the window's top.
     top: f32,
     enabled: bool,
     visible: bool,
-    layers: usize,
 }
 
 struct ListParts {
@@ -90,7 +102,7 @@ struct ListParts {
     rows: Vec<RowParts>,
     tops: Vec<f32>,
     x0: f32,
-    /// The rows are hidden when they do not fit once the spring has landed (ms).
+    reach: Reach,
     settle_due: Option<u64>,
 }
 
@@ -168,6 +180,7 @@ struct Built {
     edit: Option<EditParts>,
     pad: Option<PadParts>,
     foot: Option<Foot>,
+    _info: Option<(ShapeLayer, Words, Frame)>,
     over_video: bool,
 }
 
@@ -200,6 +213,11 @@ struct PopupBuilt {
     _marks: Vec<Words>,
     _icons: Vec<ImageLayer>,
 }
+struct InfoCache {
+    key: (DisplayInfo, Option<VideoInfo>, u32, u32),
+    lines: Arc<Vec<String>>,
+}
+
 
 pub struct QuickSurface {
     /// The root, the dim, the modal scope, the first focus and the pointer's cue and click.
@@ -210,6 +228,7 @@ pub struct QuickSurface {
     popup_hover: Hover,
     popup_modal: bool,
     shake_due: Option<(u64, usize)>,
+    info_cache: Option<InfoCache>,
 }
 
 fn person_who(p: &Person) -> Who {
@@ -219,7 +238,7 @@ fn person_who(p: &Person) -> Who {
 impl QuickSurface {
     /// `z` is the panels' band base.
     pub fn new(z: i32) -> Self {
-        Self { stage: Stage::new(z, SCOPE), built: None, popup: None, popup_hover: Hover::new(z + 24), popup_modal: false, shake_due: None }
+        Self { stage: Stage::new(z, SCOPE), built: None, popup: None, popup_hover: Hover::new(z + 24), popup_modal: false, shake_due: None, info_cache: None }
     }
 
     pub fn is_up(&self) -> bool {
@@ -233,12 +252,12 @@ impl QuickSurface {
 
     // ---- building
 
-    fn signature(kit: &mut Kit, v: &View, rows: &[RowLayout]) -> String {
+    fn signature(kit: &mut Kit, v: &View, rows: &[RowLayout], info_lines: usize) -> String {
         let strip: Vec<String> = v.strip.iter().flatten().map(|p| format!("{}/{}/{}/{}/{:?}", p.id, p.name, p.active, p.locked, p.avatar_file)).collect();
         let edit: Vec<String> = v.edit.iter().flat_map(|e| e.rows.iter().map(|r| format!("{}/{}/{}/{}", r.id, r.label, r.detail, r.icon))).collect();
         let head = lay::head_layout(kit, v, lay::SHEET_W - 2.0 * kit.space(6));
         format!(
-            "{}|{}|{}|{}|{:?}|{:?}|{}|{}|{:?}|{:?}|{:?}",
+            "{}|{}|{}|{}|{:?}|{:?}|{}|{}|{:?}|{:?}|{:?}|{}",
             kit.generation(),
             kit.text_scale,
             v.editing,
@@ -249,7 +268,8 @@ impl QuickSurface {
             rows.iter().map(RowLayout::signature).collect::<Vec<_>>().join("\n"),
             head.title,
             head.below,
-            v.pad.as_ref().map(|p| p.pin.name.clone())
+            v.pad.as_ref().map(|p| p.pin.name.clone()),
+            info_lines
         )
     }
 
@@ -317,7 +337,7 @@ impl QuickSurface {
         rows: &[Row],
         layouts: Vec<RowLayout>,
         window: Frame,
-        z: i32,
+        _z: i32,
     ) -> std::io::Result<ListParts> {
         let spacing = kit.space(1);
         let mut tops = Vec::new();
@@ -327,40 +347,44 @@ impl QuickSurface {
             top += l.h + spacing;
         }
         let content_h = (top - spacing).max(0.0);
-        let scroll = Scroll::new(kit, root, window, content_h, Reach::lift(kit, Lift::Row, (window.w, layouts.iter().fold(0.0, |m: f32, l| m.max(l.h)))))?;
-        let scene = kit.ui.scene.clone();
-        let ink = kit.ui.look.ink();
-        let ink2 = kit.ui.look.ink2();
+        let reach = Reach::lift(kit, Lift::Row, (window.w, layouts.iter().fold(0.0, |m: f32, l| m.max(l.h))));
+        let scroll = Scroll::new(kit, root, window, content_h, reach)?;
         let x0 = window.x;
         let mut parts = Vec::new();
         for (i, (r, l)) in rows.iter().zip(layouts).enumerate() {
-            let before = kit.room().layers;
             let id = Target::Row(i).id();
             let top = tops[i];
-            let (x, y) = (x0, window.y + top);
+            let local = Frame::new(x0, window.y + top, window.w, l.h);
             let visible = scroll.fits(top, l.h, 0.0);
-            let cell = scene
-                .group(
-                    Some(scroll.inner.id()),
-                    GroupPose { visible, opacity: if r.enabled { 1.0 } else { kit.tokens.states.disabled_opacity }, ..GroupPose::IDENTITY },
-                )
-                .map_err(other)?;
-            let local = Frame::new(x, y, window.w, l.h);
-            let plate =
-                Self::make_plate(kit, engine, &cell, id, if visible { local } else { zero() }, local, REGION_LIST, SCOPE, z + 1, Lift::Row, Radius::Row)?;
+            engine.focus.register(id, if visible { local } else { zero() }, REGION_LIST, SCOPE);
             engine.focus.set_enabled(id, r.enabled);
-            let (tile_px, words, ctrl) = scene.adopting(&cell, || -> std::io::Result<_> {
-                let tile_px = tile(kit, l.tile.w as u32, &l.icon, false).layer(kit, z + 2, Props::at(x + l.tile.x, y + l.tile.y))?;
-                let mut lines: Vec<WordLine> = l.label.iter().map(|t| WordLine::new(t, TypeRole::Label, ink)).collect();
-                lines.extend(l.detail.iter().map(|t| WordLine::new(t, TypeRole::Caption, ink2)));
-                let words = Words::new(kit, x + l.words.x, y + l.words.y, l.words.w, z + 3, &lines)?;
-                let ctrl = Self::build_ctrl(kit, r, &l, x, y, z + 3)?;
-                Ok((tile_px, words, ctrl))
-            })?;
-            let layers = before.saturating_sub(kit.room().layers);
-            parts.push(RowParts { id, row_id: r.id.clone(), cell, plate, _tile: tile_px, words, ctrl, layout: l, top, enabled: r.enabled, visible, layers });
+            parts.push(RowParts { id, row_id: r.id.clone(), art: None, layout: l, top, enabled: r.enabled, visible });
         }
-        Ok(ListParts { scroll, rows: parts, tops, x0, settle_due: None })
+        Ok(ListParts { scroll, rows: parts, tops, x0, reach, settle_due: None })
+    }
+
+    fn build_row(kit: &mut Kit, engine: &mut Engine, scroll: &Scroll, row: &Row, parts: &RowParts, z: i32) -> std::io::Result<RowArt> {
+        let scene = kit.ui.scene.clone();
+        let before = kit.room().layers;
+        let window = scroll.window();
+        let (x, y) = (window.x, window.y + parts.top);
+        let l = &parts.layout;
+        let cell = scene.group(Some(scroll.inner.id()), GroupPose { visible: parts.visible, opacity: if row.enabled { 1.0 } else { kit.tokens.states.disabled_opacity }, ..GroupPose::IDENTITY }).map_err(other)?;
+        let ink = kit.ui.look.ink();
+        let ink2 = kit.ui.look.ink2();
+        let (tile_px, words, ctrl) = scene.adopting(&cell, || -> std::io::Result<_> {
+            let tile_px = tile(kit, l.tile.w as u32, &l.icon, false).layer(kit, z + 2, Props::at(x + l.tile.x, y + l.tile.y))?;
+            let mut lines: Vec<WordLine> = l.label.iter().map(|t| WordLine::new(t, TypeRole::Label, ink)).collect();
+            lines.extend(l.detail.iter().map(|t| WordLine::new(t, TypeRole::Caption, ink2)));
+            let words = Words::new(kit, x + l.words.x, y + l.words.y, l.words.w, z + 3, &lines)?;
+            let ctrl = Self::build_ctrl(kit, row, l, x, y, z + 3)?;
+            Ok((tile_px, words, ctrl))
+        })?;
+        let local = Frame::new(x, y, window.w, l.h);
+        let frame = engine.focus.frame(parts.id).unwrap_or_else(zero);
+        let plate = Self::make_plate(kit, engine, &cell, parts.id, frame, local, REGION_LIST, SCOPE, z + 1, Lift::Row, Radius::Row)?;
+        engine.focus.set_enabled(parts.id, row.enabled);
+        Ok(RowArt { cell, plate, _tile: tile_px, words, ctrl, layers: before.saturating_sub(kit.room().layers) })
     }
 
     fn build_strip(kit: &mut Kit, engine: &mut Engine, root: &Group, people: &[Person], origin: Frame, z: i32) -> std::io::Result<(Vec<StripCell>, f32)> {
@@ -579,7 +603,7 @@ impl QuickSurface {
         }
     }
 
-    fn build(kit: &mut Kit, engine: &mut Engine, root_group: &Group, z: i32, view: &View, rows: Vec<RowLayout>, sig: String) -> std::io::Result<Built> {
+    fn build(kit: &mut Kit, engine: &mut Engine, root_group: &Group, z: i32, view: &View, rows: Vec<RowLayout>, sig: String, info_lines: &[String]) -> std::io::Result<Built> {
         let scene = kit.ui.scene.clone();
         let sheet = lay::sheet();
         let pad = kit.space(6);
@@ -615,17 +639,33 @@ impl QuickSurface {
             let mut cursor = sheet.y + pad + head_h + kit.space(4);
             let sheet_bottom = sheet.y + sheet.h - pad;
             let (mut strip, mut list, mut edit, mut pad_parts, mut foot) = (Vec::new(), None, None, None, None);
+            let mut info = None;
             if let Some(p) = &view.pad {
                 let parts = Self::build_pad(kit, engine, root_group, p, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?;
                 pad_parts = Some(parts);
             } else if let Some(e) = view.edit.as_ref().filter(|_| view.editing) {
                 edit = Some(Self::build_edit(kit, engine, root_group, e, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?);
             } else {
-                // the foot: "All settings" and what the keys do
+                let inset = kit.space(3);
+                let lines = info_lines;
+                let height = lines.len() as f32 * kit.line(TypeRole::Caption) + 2.0 * inset;
                 let btn_h = Button::height(kit);
                 let hints_h = if view.hints_foot.is_empty() { 0.0 } else { kit.line(TypeRole::Caption) };
                 let foot_h = btn_h + if hints_h > 0.0 { hints_h + kit.space(2) } else { 0.0 };
                 let foot_y = sheet_bottom - foot_h;
+                let strip_h = view.strip.as_ref().map_or(0.0, |people| lay::strip_layout(kit, people.len(), inner).h + kit.space(2));
+                let tallest = rows.iter().map(|row| row.h).fold(0.0_f32, f32::max);
+                let outside = foot_y - kit.space(4) - cursor - strip_h - height - kit.space(4) < tallest;
+                let x = if outside { sheet.x - inner - kit.space(2) } else { sheet.x + pad };
+                let y = if outside { sheet.y + pad } else { cursor };
+                let frame = Frame::new(x, y, inner, height);
+                let fill = if outside { kit.ui.look.colour(PaletteRole::Sheet) } else { focus_wash(kit) };
+                let shape = plate::shape(&kit.ui, frame, z + 2, Shape { corner_radius: height / 2.0, fill: Fill::Solid(fill), border_width: 0.0, border: lit_edge(kit) });
+                let words: Vec<WordLine> = lines.iter().map(|s| WordLine::new(s, TypeRole::Caption, ink)).collect();
+                let text = Words::new(kit, frame.x + inset, frame.y + inset, frame.w - 2.0 * inset, z + 3, &words)?;
+                info = Some((shape, text, frame));
+                if !outside { cursor += height + kit.space(4); }
+                // the foot: "All settings" and what the keys do
                 let place =
                     Place { id: Target::Foot.id(), frame: Frame::new(sheet.x + pad, foot_y, inner, btn_h), region: REGION_FOOT, scope: SCOPE, z: z + 3 };
                 let mut button = Button::new(kit, engine, place, Spec::new("All settings", Tone::Plain).with_icon("settings"))?;
@@ -651,7 +691,7 @@ impl QuickSurface {
                 let window = Frame::new(sheet.x + pad, cursor, inner, (foot_y - kit.space(4) - cursor).max(1.0));
                 list = Some(Self::build_list(kit, engine, root_group, &view.rows, rows, window, z)?);
             }
-            Ok(Built { sig, pane, head, strip, list, edit, pad: pad_parts, foot, over_video: view.over_video })
+            Ok(Built { sig, pane, head, strip, list, edit, pad: pad_parts, foot, over_video: view.over_video, _info: info })
         })
     }
 
@@ -665,16 +705,22 @@ impl QuickSurface {
                     "pick|{}|{}|{title}|{text}|{:?}",
                     kit.generation(),
                     kit.text_scale,
-                    options.iter().map(|o| (&o.label, &o.icon, &o.detail, o.current)).collect::<Vec<_>>()
+                    options.iter().map(|o| (&o.label, &o.icon, &o.detail, o.current, o.enabled)).collect::<Vec<_>>()
                 )
             }
         }
     }
 
-    fn build_popup(kit: &mut Kit, engine: &mut Engine, root_group: &Group, z: i32, p: &PopupView, sig: String) -> std::io::Result<PopupBuilt> {
+    fn build_popup(kit: &mut Kit, engine: &mut Engine, root_group: &Group, z: i32, p: &PopupView, sig: String, avoid: Option<Frame>) -> std::io::Result<PopupBuilt> {
         let scene = kit.ui.scene.clone();
         let z = z + 20;
-        let layout = lay::popup_layout(kit, p);
+        let mut layout = lay::popup_layout(kit, p);
+        if let Some(info) = avoid {
+            let x = layout.frame.x.min(info.x - kit.space(2) - layout.frame.w);
+            let dx = x - layout.frame.x;
+            layout.frame.x = x;
+            if let Some(scroll) = &mut layout.scroll { scroll.window.x += dx; }
+        }
         let group = scene.group(Some(root_group.id()), GroupPose::IDENTITY).map_err(other)?;
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
@@ -740,12 +786,12 @@ impl QuickSurface {
                     PopupFace::Slider { slider, value: value_line, shown: *value }
                 }
                 PopupView::Pick { options, .. } => {
-                    let label_style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left);
                     // the options move in a window of the card when they are more than it can hold
                     scroll = layout.scroll.as_ref().map(|sc| Scroll::new(kit, &group, sc.window, sc.content_h, Reach::lift(kit, Lift::Row, (sc.window.w, layout.options.iter().fold(0.0, |m: f32, o| m.max(o.h)))))).transpose()?;
                     let parent = scroll.as_ref().map_or(&group, |s| &s.inner);
                     let mut rows = Vec::new();
                     for (i, o) in options.iter().enumerate() {
+                        let option_ink = if o.enabled { ink } else { ink2 };
                         let of = layout.options[i];
                         let rf = Frame::new(f.x + of.x, f.y + of.y, of.w, of.h);
                         let fits = match (&scroll, &layout.scroll) {
@@ -773,8 +819,9 @@ impl QuickSurface {
                             } else {
                                 icon::layer(kit, &o.icon, 28, ink2, z + 2, Props::at(rf.x + kit.space(4), rf.y + ((rf.h - 28.0) / 2.0).round()))?
                             };
-                            let lines = wrap::lines(kit, label_style, &o.label, rf.w - x - 120.0, 4);
-                            let wl: Vec<WordLine> = lines.iter().map(|t| WordLine::new(t, TypeRole::Label, ink).weight(Weight::SemiBold)).collect();
+                            let option_style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), option_ink, Align::Left);
+                            let lines = wrap::lines(kit, option_style, &o.label, rf.w - x - 120.0, 4);
+                            let wl: Vec<WordLine> = lines.iter().map(|t| WordLine::new(t, TypeRole::Label, option_ink).weight(Weight::SemiBold)).collect();
                             let wh = Words::height_of(kit, &wl);
                             let words = Words::new(kit, rf.x + x, rf.y + ((rf.h - wh) / 2.0).round(), rf.w - x - 120.0, z + 2, &wl)?;
                             let (detail, tick) = if o.current {
@@ -789,15 +836,16 @@ impl QuickSurface {
                                         Props::at(rf.x + rf.w - kit.space(4) - 28.0, rf.y + ((rf.h - 28.0) / 2.0).round()),
                                     )?,
                                 )
-                            } else if !o.detail.is_empty() {
-                                let dw = width_of(kit, role_style(kit, TypeRole::Caption, None, ink2, Align::Right), &o.detail) + 2.0;
+                            } else if !o.enabled || !o.detail.is_empty() {
+                                let detail = if o.enabled { o.detail.as_str() } else { "Not available" };
+                                let dw = width_of(kit, role_style(kit, TypeRole::Caption, None, ink2, Align::Right), detail) + 2.0;
                                 let w = Words::new(
                                     kit,
                                     rf.x + rf.w - kit.space(4) - dw,
                                     rf.y + ((rf.h - kit.line(TypeRole::Caption)) / 2.0).round(),
                                     dw,
                                     z + 2,
-                                    &[WordLine::new(&o.detail, TypeRole::Caption, ink2).aligned(Align::Right)],
+                                    &[WordLine::new(detail, TypeRole::Caption, ink2).aligned(Align::Right)],
                                 )?;
                                 (Some(w), None)
                             } else {
@@ -853,7 +901,7 @@ impl QuickSurface {
         }
         if let Some(l) = b.list {
             for r in l.rows {
-                r.plate.destroy(engine);
+                if let Some(art) = r.art { art.plate.destroy(engine); } else { engine.focus.unregister(r.id); }
             }
         }
         if let Some(e) = b.edit {
@@ -885,6 +933,7 @@ impl QuickSurface {
     }
 
     pub fn restyle(&mut self, engine: &mut Engine) {
+        self.info_cache = None;
         self.drop_all(engine);
     }
 }
@@ -904,18 +953,45 @@ impl QuickSurface {
         }
         self.stage.ensure(kit, phase, Arrive::Right(lay::TRAVEL), true)?;
         let width = lay::SHEET_W - 2.0 * kit.space(6);
+        let info_width = width - 2.0 * kit.space(3);
+        let key = (view.info, view.video_info, kit.text_scale.to_bits(), info_width.to_bits());
+        if self.info_cache.as_ref().is_none_or(|cached| cached.key != key) {
+            let display = match view.info {
+                DisplayInfo::Hz(hz) => format!("~{hz} Hz"),
+                DisplayInfo::Measuring => "Measuring".into(),
+                DisplayInfo::Unavailable => "Unavailable".into(),
+            };
+            let video = view.video_info.map(|v| {
+                let mut parts = Vec::new();
+                if let (Some(width), Some(height)) = (v.width, v.height) { parts.push(format!("{width}×{height}")); }
+                if let Some(fps) = v.fps {
+                    let number = format!("{fps:.3}");
+                    parts.push(format!("{} fps", number.trim_end_matches('0').trim_end_matches('.')));
+                }
+                if parts.is_empty() { "Unknown".into() } else { parts.join("  ") }
+            }).unwrap_or_else(|| "Unknown".into());
+            let text = format!("Video  {video}   ·   Display sync  {display}");
+            let style = role_style(kit, TypeRole::Caption, None, kit.ui.look.ink(), Align::Left);
+            let lines = Arc::new(wrap::lines(kit, style, &text, info_width, 4));
+            self.info_cache = Some(InfoCache { key, lines });
+        }
+        let info_lines = Arc::clone(&self.info_cache.as_ref().expect("information cache").lines);
         let layouts: Vec<RowLayout> =
             if view.editing || view.pad.is_some() { Vec::new() } else { view.rows.iter().map(|r| lay::row_layout(kit, r, width)).collect() };
-        let sig = Self::signature(kit, view, &layouts);
+        let sig = Self::signature(kit, view, &layouts, info_lines.len());
         if self.built.as_ref().is_none_or(|b| b.sig != sig) {
             self.drop_built(engine);
             // a click on nothing is Back: the whole screen is a focusable under everything else, absent from the keys
             self.stage.backdrop(engine, Target::Backdrop.id(), REGION_LIST);
-            let built = Self::build(kit, engine, self.stage.group(), self.stage.z(), view, layouts, sig)?;
-            if kit.ui.scene.take_overflow() {
-                drop(built);
-                return Err(std::io::Error::other("the scene is full: the quick panel could not be drawn whole"));
-            }
+            let built = match Self::build(kit, engine, self.stage.group(), self.stage.z(), view, layouts, sig, &info_lines) {
+                Ok(built) if !kit.ui.scene.take_overflow() => built,
+                result => {
+                    let error = result.err().unwrap_or_else(|| std::io::Error::other("the scene is full: the quick panel could not be drawn whole"));
+                    let _ = kit.ui.scene.take_overflow();
+                    release_scope(engine, SCOPE);
+                    return Err(error);
+                }
+            };
             self.built = Some(built);
             // the focused row of what was just made is lifted at once, not flown to
             self.stage.refocus();
@@ -925,7 +1001,7 @@ impl QuickSurface {
             self.drop_popup(engine);
         }
         if self.stage.phase(kit, engine, phase) {
-            self.update(kit, engine, view, now_ms, now_ns);
+            self.update(kit, engine, view, &info_lines, now_ms, now_ns)?;
         }
         Ok(true)
     }
@@ -938,13 +1014,19 @@ impl QuickSurface {
             }
             return Ok(());
         };
-        let sig = Self::popup_signature(kit, p);
+        let avoid = self.built.as_ref().and_then(|b| b._info.as_ref()).map(|(_, _, frame)| *frame).filter(|f| f.x < lay::sheet().x);
+        let sig = format!("{}:{:?}", Self::popup_signature(kit, p), avoid);
         if self.popup.as_ref().is_none_or(|c| c.sig != sig) {
             self.drop_popup(engine);
-            let built = Self::build_popup(kit, engine, self.stage.group(), self.stage.z(), p, sig)?;
-            if kit.ui.scene.take_overflow() {
-                return Err(std::io::Error::other("the scene is full: the card could not be drawn whole"));
-            }
+            let built = match Self::build_popup(kit, engine, self.stage.group(), self.stage.z(), p, sig, avoid) {
+                Ok(built) if !kit.ui.scene.take_overflow() => built,
+                result => {
+                    let error = result.err().unwrap_or_else(|| std::io::Error::other("the scene is full: the card could not be drawn whole"));
+                    let _ = kit.ui.scene.take_overflow();
+                    release_scope(engine, POPUP_SCOPE);
+                    return Err(error);
+                }
+            };
             self.popup = Some(built);
             engine.focus.open_modal(POPUP_SCOPE);
             self.popup_modal = true;
@@ -974,10 +1056,12 @@ impl QuickSurface {
     }
 
     /// What changes without changing the layout, and the focus.
-    fn update(&mut self, kit: &mut Kit, engine: &mut Engine, view: &View, now_ms: u64, now_ns: u64) {
+    fn update(&mut self, kit: &mut Kit, engine: &mut Engine, view: &View, info_lines: &[String], now_ms: u64, now_ns: u64) -> std::io::Result<()> {
         let focus_row = if let Some(Focus::Row(i)) = view.focus { Some(i) } else { None };
         let disabled = kit.tokens.states.disabled_opacity;
+        let z = self.stage.z();
         let mut shake = None;
+        if let Some(i) = focus_row { self.reveal_row(engine, i, now_ms); }
         if let Some(b) = self.built.as_mut() {
             if b.over_video != view.over_video {
                 b.pane.restyle(kit, view.over_video);
@@ -988,19 +1072,38 @@ impl QuickSurface {
             {
                 c.set(kit, 0, &view.clock);
             }
+            if let Some((_, words, _)) = b._info.as_mut() {
+                for (i, line) in info_lines.iter().enumerate() { words.set(kit, i, line); }
+            }
             if let Some(list) = b.list.as_mut() {
+                let (low, high) = list.scroll.swept(engine, now_ns);
+                let window = list.scroll.window();
                 for (i, (row, parts)) in view.rows.iter().zip(list.rows.iter_mut()).enumerate() {
+                    let needed = parts.top + parts.layout.h >= low - list.reach.top
+                        && parts.top <= high + window.h + list.reach.bottom || focus_row == Some(i);
+                    if !needed && parts.art.is_some() && engine.flow.resting(parts.id, now_ns) {
+                        parts.art = None;
+                        engine.flow.drop_lift(parts.id);
+                    }
+                    if needed && parts.art.is_none() {
+                        parts.visible = true;
+                        let art = Self::build_row(kit, engine, &list.scroll, row, parts, z)?;
+                        if kit.ui.scene.take_overflow() {
+                            engine.flow.drop_lift(parts.id);
+                            return Err(std::io::Error::other("the scene is full: a quick row could not be drawn"));
+                        }
+                        parts.art = Some(art);
+                    }
                     if parts.enabled != row.enabled {
                         parts.enabled = row.enabled;
-                        set_cell(&parts.cell, parts.visible, row.enabled, disabled);
+                        if let Some(art) = &parts.art { set_cell(&art.cell, parts.visible, row.enabled, disabled); }
                         engine.focus.set_enabled(parts.id, row.enabled);
                     }
-                    match &mut parts.ctrl {
+                    let Some(art) = parts.art.as_mut() else { continue };
+                    match &mut art.ctrl {
                         Ctrl::Toggle(t) => t.set(kit, row.on),
                         Ctrl::Stepper(s) => {
-                            if let Some(v) = lay::below_text(row) {
-                                s.set_value(kit, &v);
-                            }
+                            if let Some(v) = lay::below_text(row) { s.set_value(kit, &v); }
                             s.set_focused(kit, focus_row == Some(i));
                         }
                         _ => {}
@@ -1031,7 +1134,7 @@ impl QuickSurface {
         self.stage.focus(engine, Self::focus_id(view), now_ns);
         // the list moves to show the focused row whole
         match &view.focus {
-            Some(Focus::Row(i)) => self.reveal_row(engine, *i, now_ms, disabled),
+            Some(Focus::Row(_)) => {}
             Some(Focus::EditRow(i)) => self.reveal_edit(engine, *i),
             Some(Focus::Option(i)) => self.reveal_option(engine, *i),
             Some(Focus::EditAdd) => {
@@ -1040,6 +1143,7 @@ impl QuickSurface {
             }
             _ => {}
         }
+        Ok(())
     }
 
     fn shake_step(&mut self, kit: &Kit, step: usize, now_ms: u64) {
@@ -1054,25 +1158,17 @@ impl QuickSurface {
     }
 
     /// Moves the list so that the focused row shows whole, on the focus's spring, and puts the registry's frames where the rows will be.
-    fn reveal_row(&mut self, engine: &mut Engine, i: usize, now_ms: u64, disabled: f32) {
+    fn reveal_row(&mut self, engine: &mut Engine, i: usize, now_ms: u64) {
         let Some(list) = self.built.as_mut().and_then(|b| b.list.as_mut()) else { return };
         let Some(r) = list.rows.get(i) else { return };
         let target = list.scroll.reveal(r.top, r.layout.h, &list.tops);
         if (target - list.scroll.offset()).abs() < 0.5 {
             return;
         }
-        let old = list.scroll.offset();
         list.scroll.to(engine, target, false);
         let window = list.scroll.window();
         for r in &mut list.rows {
-            let was = list.scroll.fits(r.top, r.layout.h, old);
             let will = list.scroll.fits(r.top, r.layout.h, target);
-            // both stay drawn while it moves; the ones that will not fit go when it has landed
-            let shown = r.visible;
-            r.visible = was || will;
-            if r.visible != shown {
-                set_cell(&r.cell, r.visible, r.enabled, disabled);
-            }
             engine.focus.place(r.id, if will { Frame::new(list.x0, window.y + r.top - target, window.w, r.layout.h) } else { zero() });
         }
         list.settle_due = Some(now_ms + SETTLE_MS);
@@ -1120,24 +1216,18 @@ impl QuickSurface {
 
     // ---- time
 
-    /// The spring has landed: the rows that do not fit whole are taken away; the shake goes on. Returns whether anything changed.
+    /// Schedules resource cleanup once the scroll motion has actually settled.
     pub fn tick(&mut self, kit: &Kit, now_ms: u64) -> bool {
         let mut changed = false;
-        let disabled = kit.tokens.states.disabled_opacity;
         if let Some(list) = self.built.as_mut().and_then(|b| b.list.as_mut())
             && list.settle_due.is_some_and(|d| now_ms >= d)
         {
-            list.settle_due = None;
-            let offset = list.scroll.offset();
-            for r in &mut list.rows {
-                let fits = list.scroll.fits(r.top, r.layout.h, offset);
-                if r.visible != fits {
-                    r.visible = fits;
-                    set_cell(&r.cell, fits, r.enabled, disabled);
-                    changed = true;
-                }
+            if list.scroll.settling_at(now_ms.saturating_mul(1_000_000)) {
+                list.settle_due = Some(now_ms + SETTLE_MS);
+            } else {
+                list.settle_due = None;
+                changed = true;
             }
-            // the rows are only taken away here; the registry's frames were put at the target when the move started
         }
         if let Some((due, step)) = self.shake_due
             && now_ms >= due
@@ -1248,7 +1338,7 @@ impl QuickSurface {
     /// How many layers the panel holds (the scene's budget).
     pub fn layers(&self) -> usize {
         let Some(b) = &self.built else { return usize::from(self.stage.has_scrim()) };
-        let rows = b.list.as_ref().map_or(0, |l| l.rows.iter().map(|r| r.layers).sum());
+        let rows = b.list.as_ref().map_or(0, |l| l.rows.iter().filter_map(|r| r.art.as_ref()).map(|art| art.layers).sum());
         let edit = b.edit.as_ref().map_or(0, |e| e.rows.len() * 5 + 5);
         let strip = b.strip.len() * 3;
         let pad = b.pad.as_ref().map_or(0, |p| 5 + p.cells.len() * 3);
@@ -1261,6 +1351,7 @@ impl QuickSurface {
             + strip
             + pad
             + foot
+            + b._info.as_ref().map_or(0, |(_, text, _)| 1 + text.layers())
             + usize::from(self.stage.has_scrim())
     }
 
@@ -1273,7 +1364,7 @@ impl QuickSurface {
             .flat_map(|l| l.rows.iter())
             .map(|r| {
                 let fr = engine.focus.frame(r.id).unwrap_or_else(zero);
-                json!({"id": r.row_id, "frame": f(fr), "h": r.layout.h, "stacked": r.layout.stacked, "beside": r.layout.beside, "label": r.layout.label.join(" "), "visible": r.visible})
+                json!({"id": r.row_id, "frame": f(fr), "h": r.layout.h, "stacked": r.layout.stacked, "beside": r.layout.beside, "label": r.layout.label.join(" "), "visible": fr.w > 0.0 && fr.h > 0.0})
             })
             .collect();
         let foot = b.foot.as_ref().map(|x| f(x.button.frame()));
@@ -1308,6 +1399,10 @@ impl QuickSurface {
         if let Some(c) = &b.head.clock {
             c.feed_lint(kit, lint, "quick clock", Some(sheet), (0.0, 0.0));
         }
+        if let Some((_, words, frame)) = &b._info {
+            let parent = if frame.x < lay::sheet().x { lint.panel("quick information pill", *frame, paint, false) } else { sheet };
+            words.feed_lint(kit, lint, "quick information", Some(parent), (0.0, 0.0));
+        }
         if let Some(list) = &b.list {
             let offset = list.scroll.offset();
             for r in &list.rows {
@@ -1315,8 +1410,9 @@ impl QuickSurface {
                     continue;
                 }
                 let shift = (0.0, -offset);
-                r.words.feed_lint(kit, lint, &format!("row {}", r.row_id), Some(sheet), shift);
-                match &r.ctrl {
+                let Some(art) = &r.art else { continue };
+                art.words.feed_lint(kit, lint, &format!("row {}", r.row_id), Some(sheet), shift);
+                match &art.ctrl {
                     Ctrl::Stepper(s) => s.feed_lint(kit, lint, &format!("row {} value", r.row_id), Some(sheet), shift),
                     Ctrl::Chip(c) => c.feed_lint(kit, lint, &format!("row {}", r.row_id), shift, sheet),
                     Ctrl::Value { _text: Some(t), .. } => t.feed_lint(kit, lint, &format!("row {} value", r.row_id), Some(sheet), shift),
@@ -1437,6 +1533,61 @@ mod tests {
     }
 
     #[test]
+    fn failed_build_releases_focus_resources_before_retry() {
+        let (_h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).unwrap();
+        let (q, env) = rig(false);
+        let mut surface = QuickSurface::new(crate::kit::z::PANELS);
+        let scene = kit.ui.scene.clone();
+        let held: Vec<_> = (0..kit.room().groups.saturating_sub(3))
+            .map(|_| scene.group(None, GroupPose::IDENTITY).unwrap()).collect();
+        let view = q.view(&env, 1000);
+        let phase = q.life.phase();
+        assert!(surface.apply(&mut kit, &mut engine, &view, phase, 1000, 1_000_000_000).is_err());
+        let room = kit.room().groups;
+        for _ in 0..3 {
+            assert!(surface.apply(&mut kit, &mut engine, &view, phase, 1000, 1_000_000_000).is_err());
+            assert_eq!(kit.room().groups, room);
+            assert!(engine.focus.ids_in_scope(SCOPE).is_empty());
+        }
+        drop(held);
+        assert!(surface.apply(&mut kit, &mut engine, &view, phase, 1000, 1_000_000_000).is_ok());
+    }
+
+    #[test]
+    fn visible_row_plates_are_reused_between_focus_moves() {
+        let mut u = Up::new(Mode::Dark, 1.0, false);
+        let first = Target::Row(0).id();
+        let group = u.engine.flow.group(first).unwrap().id();
+        u.key(K::Down);
+        u.key(K::Up);
+        assert_eq!(u.engine.flow.group(first).unwrap().id(), group);
+    }
+
+    #[test]
+    fn scrolling_and_reversal_keep_the_swept_viewport_drawn() {
+        let mut u = Up::new(Mode::Dark, 2.0, false);
+        for key in [K::Down, K::Down, K::Down, K::Down, K::Down, K::Down, K::Up, K::Up, K::Down] {
+            press(&mut u.q, &mut u.env, key);
+            u.t = u.kit.ui.scene.now_ns() / 1_000_000;
+            u.apply();
+            let list = u.s.built.as_ref().unwrap().list.as_ref().unwrap();
+            let now_ns = u.t * 1_000_000;
+            let (low, high) = list.scroll.swept(&u.engine, now_ns);
+            for row in &list.rows {
+                let crosses_clip = row.top + row.layout.h >= low - list.reach.top
+                    && row.top <= high + list.scroll.window().h + list.reach.bottom;
+                if crosses_clip {
+                    let art = row.art.as_ref().expect("a swept row has retained drawing");
+                    assert!(art.cell.world_at(now_ns).visible, "the retained row is visible through its parents");
+                } else if u.engine.focus.current() != Some(row.id) && u.engine.flow.resting(row.id, now_ns) {
+                    assert!(row.art.is_none(), "off-trajectory rows release their drawing");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn the_sheet_is_560_wide_and_forty_pixels_from_the_right_edge_and_holds_the_rows_the_foot_and_the_glyphs() {
         let u = Up::new(Mode::Dark, 1.0, false);
         let g = u.s.geometry(&u.engine);
@@ -1483,6 +1634,76 @@ mod tests {
     }
 
     #[test]
+    fn video_information_keeps_clear_of_the_header_and_rows_at_both_text_sizes() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let mut u = Up::new(mode, scale, false);
+                let mut view = u.q.view(&u.env, u.t);
+                view.info = DisplayInfo::Hz(120);
+                view.video_info = Some(VideoInfo { width: Some(3840), height: Some(2160), fps: Some(59.94) });
+                u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t, u.t * 1_000_000).unwrap();
+                let b = u.s.built.as_ref().unwrap();
+                let pill = b._info.as_ref().unwrap().2;
+                let list = b.list.as_ref().unwrap().scroll.window();
+                assert!(pill.y + pill.h <= list.y || pill.x + pill.w <= list.x, "{mode:?} {scale}");
+                assert!(u.lint().is_empty(), "{mode:?} {scale}: {:?}", u.lint());
+            }
+        }
+    }
+    #[test]
+    fn enlarged_information_moves_with_the_sheet_and_stays_adjacent_in_world_space() {
+        use compositor_protocol::Props;
+        for mode in [Mode::Dark, Mode::Light] {
+            let mut u = Up::new(mode, 2.0, false);
+            let mut view = u.q.view(&u.env, u.t);
+            view.info = DisplayInfo::Hz(120);
+            view.video_info = Some(VideoInfo { width: Some(3840), height: Some(2160), fps: Some(59.94) });
+            u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t, u.t * 1_000_000).unwrap();
+            let built = u.s.built.as_ref().unwrap();
+            let (shape, _, pill) = built._info.as_ref().unwrap();
+            let sheet = built.pane.frame();
+            let root = u.s.stage.group();
+            assert_eq!(shape.group(), Some(root.id()));
+            assert_eq!(built.pane.layer().group(), Some(root.id()));
+            let now = u.kit.ui.scene.now_ns();
+            for at in [now, now + 120_000_000, now + 2_000_000_000] {
+                let world = root.world_at(at);
+                let a = world.props(&Props::at(pill.x, pill.y), (pill.w, pill.h));
+                let b = world.props(&Props::at(sheet.x, sheet.y), (sheet.w, sheet.h));
+                let gap = b.x - (a.x + pill.w);
+                assert!((0.0..=u.kit.space(2) + 0.5).contains(&gap), "{mode:?} at {at}: pill is adjacent to the sheet, gap {gap}");
+                if at == now + 2_000_000_000 {
+                    assert!(a.x >= 0.0 && a.y >= 0.0 && a.x + pill.w <= 1920.0 && a.y + pill.h <= 1080.0, "{mode:?}: visible pill {a:?}");
+                    assert!(b.x > 1000.0, "the sheet remains right-anchored: {b:?}");
+                }
+            }
+        }
+    }
+
+
+    #[test]
+    fn information_layout_is_reused_until_the_displayed_value_changes() {
+        let mut u = Up::new(Mode::Dark, 1.0, false);
+        let mut view = u.q.view(&u.env, u.t);
+        view.info = DisplayInfo::Hz(120);
+        u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t, u.t * 1_000_000).unwrap();
+        let cached = Arc::clone(&u.s.info_cache.as_ref().unwrap().lines);
+        assert!(cached.iter().any(|line| line.contains("Unknown")));
+        u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t + 1, (u.t + 1) * 1_000_000).unwrap();
+        assert!(Arc::ptr_eq(&cached, &u.s.info_cache.as_ref().unwrap().lines));
+        view.info = DisplayInfo::Hz(60);
+        u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t + 2, (u.t + 2) * 1_000_000).unwrap();
+        assert!(!Arc::ptr_eq(&cached, &u.s.info_cache.as_ref().unwrap().lines));
+        assert!(u.s.info_cache.as_ref().unwrap().lines.iter().any(|line| line.contains("~60 Hz")));
+        view.video_info = Some(VideoInfo { width: Some(1920), height: Some(1080), fps: Some(23.976) });
+        u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t + 3, (u.t + 3) * 1_000_000).unwrap();
+        let lines = &u.s.info_cache.as_ref().unwrap().lines;
+        assert!(lines.iter().any(|line| line.contains("1920×1080")));
+        assert!(lines.iter().any(|line| line.contains("23.976 fps")));
+        assert!(!lines.iter().any(|line| line.contains("HDR")));
+    }
+
+    #[test]
     fn the_list_moves_to_show_the_focused_row_whole_at_200_percent() {
         let mut u = Up::new(Mode::Dark, 2.0, false);
         let window = u.s.built.as_ref().and_then(|b| b.list.as_ref()).map(|l| l.scroll.window()).expect("a list");
@@ -1496,10 +1717,8 @@ mod tests {
             }
         }
         assert!(u.s.built.as_ref().and_then(|b| b.list.as_ref()).map_or(0.0, |l| l.scroll.offset()) > 0.0, "the list moved");
-        assert!(u.s.due_at().is_some(), "the rows that do not fit are taken away when the spring has landed");
         u.t += 400;
-        assert!(u.s.tick(&u.kit, u.t));
-        assert!(u.s.due_at().is_none());
+        u.s.tick(&u.kit, u.t);
     }
 
     #[test]
@@ -1539,13 +1758,20 @@ mod tests {
         assert!(n >= 4, "a card of choices");
         // more choices than the card has room for at this text size
         let many: Vec<crate::panels::quick::OptionView> = (0..14)
-            .map(|i| crate::panels::quick::OptionView { label: format!("Choice number {i}"), icon: "image".into(), detail: String::new(), current: i == 0 })
+            .map(|i| crate::panels::quick::OptionView { label: format!("Choice number {i}"), icon: "image".into(), detail: String::new(), current: i == 0, enabled: true })
             .collect();
         let mut view = u.q.view(&u.env, u.t);
         view.popup = Some(PopupView::Pick { title: "Picture mode".into(), text: "How the picture looks.".into(), options: many, index: 0 });
         view.focus = Some(Focus::Option(0));
         let phase = u.q.life.phase();
         u.s.apply(&mut u.kit, &mut u.engine, &view, phase, u.t, u.t * 1_000_000).expect("drawn");
+        let info = u.s.built.as_ref().unwrap()._info.as_ref().unwrap().2;
+        let popup = u.s.popup.as_ref().unwrap();
+        let card = popup.layout.frame;
+        let at = u.kit.ui.scene.now_ns() + 2_000_000_000;
+        let info_world = u.s.stage.group().world_at(at).props(&Props::at(info.x, info.y), (info.w, info.h));
+        let card_world = popup._group.as_ref().unwrap().world_at(at).props(&Props::at(card.x, card.y), (card.w, card.h));
+        assert!(card_world.x >= 0.0 && card_world.x + card.w <= info_world.x, "card and information remain visible and separate");
         let g = u.s.geometry(&u.engine);
         let (top, bottom) = (g["popup"]["y"].as_f64().unwrap(), g["popup"]["y"].as_f64().unwrap() + g["popup"]["h"].as_f64().unwrap());
         assert!(top >= 54.0 - 0.5 && bottom <= 1080.0 - 54.0 + 0.5, "the card stays inside the safe area: {top}..{bottom}");
@@ -1729,7 +1955,7 @@ mod tests {
         u.q.life.tick(7000);
         assert_eq!(u.q.life.phase(), Phase::Gone);
         assert!(!u.apply());
-        assert!(u.kit.room().layers > with + 40, "everything goes");
+        assert!(u.kit.room().layers > with, "the parked panel gives its layers back");
     }
 
     #[test]

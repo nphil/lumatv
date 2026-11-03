@@ -20,20 +20,9 @@ pub fn page() -> Page {
 }
 
 const MODES: [&str; 9] = ["filmMaker", "cinema", "normal", "vivid", "game", "sports", "eco", "expert1", "expert2"];
-const MODE_NAMES: names::Table = &[
-    ("filmMaker", "Filmmaker"),
-    ("cinema", "Cinema"),
-    ("normal", "Standard"),
-    ("vivid", "Vivid"),
-    ("game", "Game"),
-    ("sports", "Sports"),
-    ("eco", "Eco"),
-    ("expert1", "Expert \u{b7} day"),
-    ("expert2", "Expert \u{b7} night"),
-];
 
 fn summary(c: &Ctx) -> String {
-    c.lg.opt_text("picture.pictureMode").map(|m| names::name_or(MODE_NAMES, &m, "")).unwrap_or_default()
+    c.lg.opt_text("picture.pictureMode").map(|m| names::picture_mode(&m).to_string()).unwrap_or_default()
 }
 
 fn chip(c: &Ctx) -> Option<(String, &'static str)> {
@@ -83,7 +72,27 @@ fn rows(c: &Ctx) -> Vec<Row> {
         ("Expert \u{b7} day", "sun-medium"),
         ("Expert \u{b7} night", "moon-star"),
     ];
-    rows.push(c.cards(Spec::new("picture.pictureMode").tab(0).strip(4).values(&MODES).cards(&cards)));
+    let current = c.lg.text("picture.pictureMode");
+    let choices = if let Some(list) = c.lg.list("picture.pictureMode") {
+        list.into_iter().filter(|item| item.visible && item.active && !item.value.is_empty()).map(|item| (item.value, item.active)).collect::<Vec<_>>()
+    } else if c.lg.desc("picture.pictureMode").is_none() && MODES.contains(&current.as_str()) && c.lg.picture_dynamic_range().is_some_and(|range| range.eq_ignore_ascii_case("sdr")) {
+        MODES.iter().map(|mode| ((*mode).to_string(), true)).collect()
+    } else {
+        Vec::new()
+    };
+    let labels: Vec<String> = choices.iter().map(|(value, _)| names::picture_mode(value).to_string()).collect();
+    let values: Vec<&str> = choices.iter().map(|(value, _)| value.as_str()).collect();
+    let native_cards: Vec<(&str, &str)> = choices.iter().zip(&labels).map(|((value, _), label)| {
+        let icon = MODES.iter().position(|mode| *mode == value.as_str()).map_or("image", |i| cards[i].1);
+        (label.as_str(), icon)
+    }).collect();
+    let mut mode_row = c.cards(Spec::new("picture.pictureMode").tab(0).strip(4).values(&values).cards(&native_cards));
+    mode_row.enabled &= choices.iter().any(|(_, active)| *active);
+    mode_row = mode_row.act(move |arg| match arg {
+        Arg::Index(i) => choices.get(i).filter(|(_, active)| *active).map(|(value, _)| vec![Op::Lg { ds: "picture.pictureMode".into(), value: json!(value), app: None }]).unwrap_or_default(),
+        _ => Vec::new(),
+    });
+    rows.push(mode_row);
     rows.push(c.slider(Spec::new("picture.backlight").tab(0).icon("sun").label("OLED pixel brightness").range(0.0, 100.0, 1.0)));
     rows.push(c.toggle(Spec::new("picture.filmmakerAmbientLight").tab(0).icon("lamp").label("Filmmaker ambient light").help("Lifts dark scenes a little when the room is bright.")));
     rows.push(c.toggle(Spec::new("aiPicture.ai_Picture").tab(0).icon("sparkles").label("AI Picture Pro").help("LG's sharpening and upscaling. Off keeps the picture as the film was made.")));
@@ -154,7 +163,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     apply.enabled = c.lg.usable("picture.applyToAllInput");
     rows.push(apply.does(ask("list-checks", "Apply to all inputs?", "Every input gets this mode's settings.", "Apply", "Cancel", false, vec![Op::Lg { ds: "picture.applyToAllInput".into(), value: json!("picture"), app: None }])));
     let mut reset = Row::action("reset", "Reset").tab(5).icon("rotate-ccw").label("Reset").danger();
-    reset.enabled = c.lg.has("picture.pictureMode");
+    reset.enabled = c.lg.picture_context_ready();
     let dim = c.lg.dimension("picture").cloned().unwrap_or(Value::Null);
     let mode = c.lg.opt_text("picture.pictureMode").unwrap_or_default();
     rows.push(reset.does(ask(
@@ -480,7 +489,7 @@ mod tests {
     fn picture_world() -> World {
         let mut w = World::new(lg_with(
             &[
-                ("picture", json!({"settings": {"pictureMode": "cinema", "backlight": 40, "energySaving": "off", "contrast": 85, "brightness": 50, "gamma": "medium", "truMotionMode": "user", "truMotionJudder": 3, "dynamicColor": "user", "pictureSettingModified": {"vivid": true}, "applyToAllInput": "none"}, "dimension": {"input": "hdmi1", "pictureMode": "cinema"}})),
+                ("picture", json!({"settings": {"pictureMode": "cinema", "backlight": 40, "energySaving": "off", "contrast": 85, "brightness": 50, "gamma": "medium", "truMotionMode": "user", "truMotionJudder": 3, "dynamicColor": "user", "pictureSettingModified": {"vivid": true}, "applyToAllInput": "none"}, "dimension": {"input": "hdmi1", "pictureMode": "cinema", "dynamicRange": "sdr"}})),
                 ("aiPicture", json!({"settings": {"ai_Picture": "off"}})),
             ],
             &[("picture", json!({"results": [{"key": "gamma", "values": {"arrayExt": [{"value": "low"}, {"value": "medium"}, {"value": "high2", "active": false}]}}, {"key": "contrast", "values": {"range": {"min": 0, "max": 100}}}]}))],
@@ -502,6 +511,24 @@ mod tests {
         assert!(matches!(&ops[..], [Op::Lg { ds, value, .. }] if ds == "picture.pictureMode" && value == "filmMaker"));
         assert_eq!(by_id(&r, "picture.backlight").num, 40.0);
         assert_eq!(by_id(&r, "picture.gamma").options, vec!["1.9", "2.2", "BT.1886"]);
+    }
+
+    #[test]
+    fn picture_cards_follow_native_visible_modes_and_block_inactive_modes() {
+        let mut w = picture_world();
+        w.lg.learn("picture", &json!({"settings": {"pictureMode": "dolbyHdrCinema"}}));
+        w.lg.learn_desc("picture", &json!({"results": [{"key": "pictureMode", "values": {"arrayExt": [
+            {"value": "dolbyHdrCinema"}, {"value": "hidden", "visible": false},
+            {"value": "dolbyHdrGame", "active": false}, {"value": "filmMaker"}
+        ]}}]}));
+        let rows = rows(&w.ctx());
+        let mode = by_id(&rows, "picture.pictureMode");
+        assert_eq!(mode.cards.len(), 2);
+        assert_eq!(mode.index, Some(0));
+        assert_eq!(summary(&w.ctx()), "dolbyHdrCinema");
+        let act = mode.act.as_ref().unwrap();
+        assert!(matches!(&act(Arg::Index(1))[..], [Op::Lg { value, .. }] if value == "filmMaker"));
+        assert!(act(Arg::Index(2)).is_empty());
     }
 
     #[test]
@@ -533,6 +560,14 @@ mod tests {
         let min = by_id(&r, "picture.energySavingAutoMin");
         assert!(!min.enabled);
         assert_eq!(min.detail, "TV not answering");
+    }
+
+    #[test]
+    fn reset_waits_for_confirmed_picture_context_after_a_mode_change() {
+        let mut w = picture_world();
+        assert!(by_id(&rows(&w.ctx()), "reset").enabled);
+        w.lg.write("picture.pictureMode", &json!("filmMaker"), None, 100);
+        assert!(!by_id(&rows(&w.ctx()), "reset").enabled);
     }
 
     #[test]

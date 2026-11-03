@@ -455,19 +455,19 @@ fn ctl_page_layout_is_refused_where_there_are_no_pages_or_the_holes_would_lose_t
 #[test]
 fn the_shell_asks_through_its_channel_and_reads_the_answer_in_the_topic() {
     let mut server = Server::start();
-    server.eval(|s| s.shell_handle(Msg::Connected));
+    server.eval(|s| { s.shell_rust_open(0, "test".into()).unwrap(); s.shell_rust_handle(Msg::Connected); });
     let _app = app(&mut server, "App", 0xffff_0000);
     set_mode(&server, Mode::Apps);
     let _feeder = feeder(&mut server, "Cameras", "_ctx_cam");
-    server.eval(|s| s.shell_handle(Msg::Vwin(claim("cam", "camera-popup", "org.test.cameras", POPUP))));
-    let topic = server.eval(|s| s.shell.topic("vwin").cloned()).expect("the topic is published");
+    server.eval(|s| s.shell_rust_handle(Msg::Vwin(claim("cam", "camera-popup", "org.test.cameras", POPUP))));
+    let topic = server.eval(|s| s.shell_rust.topic("vwin").cloned()).expect("the topic is published");
     assert_eq!(topic["mode"], "apps");
     assert_eq!(topic["claims"][0]["id"], "cam");
     assert_eq!(topic["claims"][0]["state"], "granted", "{topic}");
     assert_eq!(topic["claims"][0]["placed"], true);
     assert_eq!(topic["free"], 1);
-    server.eval(|s| s.shell_handle(Msg::Vwin(json!({"op": "release", "id": "cam"}))));
-    let topic = server.eval(|s| s.shell.topic("vwin").cloned()).unwrap();
+    server.eval(|s| s.shell_rust_handle(Msg::Vwin(json!({"op": "release", "id": "cam"}))));
+    let topic = server.eval(|s| s.shell_rust.topic("vwin").cloned()).unwrap();
     assert_eq!(topic["claims"].as_array().map(Vec::len), Some(0), "{topic}");
     assert_eq!(topic["free"], 2);
 }

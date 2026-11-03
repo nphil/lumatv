@@ -1,0 +1,88 @@
+--- a/session.rs
++++ b/session.rs
+@@ -731,6 +731,13 @@
+         backdrop: check_backdrop(glass.backdrop)?,
+         saturation: ranged("saturation", glass.saturation, 0.0, MAX_SATURATION)?,
+         refraction: ranged("refraction", glass.refraction, 0.0, MAX_REFRACTION)?,
++        edge_lens: glass.edge_lens.map(|lens| -> Result<_, String> {
++            Ok(compositor_protocol::EdgeLens {
++                bevel: ranged("edge bevel", lens.bevel, 0.0, MAX_REFRACTION)?,
++                lens: ranged("edge lens", lens.lens, 0.0, MAX_REFRACTION)?,
++                rim_clear: ranged("edge rim clear", lens.rim_clear, 0.0, 1.0)?,
++            })
++        }).transpose()?,
+         ..glass
+     })
+ }
+@@ -931,40 +938,37 @@
+     }
+ 
+     fn glass() -> Glass {
+-        Glass {
+-            corner_radius: 28.0,
+-            tint: Rgba(18, 14, 26, 102),
+-            edge: Rgba(31, 31, 31, 31),
+-            edge_width: 1.0,
+-            highlight: Rgba(18, 18, 18, 18),
+-            sheen: Some(Sheen {
+-                peak: 0.16,
+-                floor: 0.05,
+-                start: 0.38,
+-                end: 0.6,
++        Glass { corner_radius: 28.0,
++        tint: Rgba(18, 14, 26, 102),
++        edge: Rgba(31, 31, 31, 31),
++        edge_width: 1.0,
++        highlight: Rgba(18, 18, 18, 18),
++        sheen: Some(Sheen {
++            peak: 0.16,
++            floor: 0.05,
++            start: 0.38,
++            end: 0.6,
++        }),
++        shadows: [
++            Some(Shadow {
++                offset_y: 24.0,
++                blur: 60.0,
++                colour: Rgba(0, 0, 0, 71),
+             }),
+-            shadows: [
+-                Some(Shadow {
+-                    offset_y: 24.0,
+-                    blur: 60.0,
+-                    colour: Rgba(0, 0, 0, 71),
+-                }),
+-                None,
+-            ],
+-            depth: Some(Depth {
+-                inset: false,
+-                offset: 2.0,
+-                blur: 4.0,
+-                light: Rgba(26, 26, 26, 26),
+-                shade: Rgba(0, 0, 0, 82),
+-            }),
+-            backdrop: Backdrop::Live {
+-                radius: 30.0,
+-                downsample: 4,
+-            },
+-            saturation: 1.2,
+-            refraction: 6.0,
+-        }
++            None,
++        ],
++        depth: Some(Depth {
++            inset: false,
++            offset: 2.0,
++            blur: 4.0,
++            light: Rgba(26, 26, 26, 26),
++            shade: Rgba(0, 0, 0, 82),
++        }),
++        backdrop: Backdrop::Live {
++            radius: 30.0,
++            downsample: 4,
++        },
++        saturation: 1.2, refraction: 6.0, edge_lens: None, tint_gradient: None, }
+     }
+ 
+     fn wallpaper(kind: WallpaperKind) -> Wallpaper {
+

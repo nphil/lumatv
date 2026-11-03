@@ -5,6 +5,9 @@
 //!
 //! Layers hang under the list's scroll group, so a scroll is one track and a row costs nothing while it scrolls; the plate's group is
 //! the one the focus lifts (the tile, the words and the control stay where they are, as in the QML row: the lift grows the plate only).
+#[path = "thumbnails.rs"]
+pub(crate) mod thumbnails;
+
 
 use super::layout::{RowGeom, SegGeom, Sizes};
 use super::paint::{Paint, tile_pixels};
@@ -14,7 +17,7 @@ use crate::kit::glyph;
 use crate::kit::motion::Beat;
 use crate::kit::{Engine, Kit, Lifted, icon};
 use crate::settings::row::{Face, Kind, Row};
-use compositor_protocol::{Fill, GroupPose, Props, Rect, Rgba, Shape};
+use compositor_protocol::{Edges, Fill, GroupPose, Props, Rect, Rgba, Shape};
 use lumatv_tokens::{Radius, TypeRole};
 use ui::components::Align;
 use ui::components::text::{Run, line_height};
@@ -82,11 +85,15 @@ pub struct CardArt {
     /// The glyph is an icon (it takes the accent when chosen), not a face.
     face_free: bool,
     glyph_at: Props,
-    hover: ShapeLayer,
+    normal_shape: Shape,
+    hover_shape: Shape,
+    selected_shape: Shape,
+    hovered: bool,
     base: ShapeLayer,
     _lit: Option<ShapeLayer>,
     spec: PlateSpec,
     glyph: Option<ImageLayer>,
+    _thumbnail: Option<thumbnails::Lease>,
     check: Option<ImageLayer>,
     selected: Option<bool>,
     _text: TextLayer,
@@ -126,6 +133,7 @@ pub struct RowArt {
     mark: Option<ImageLayer>,
     trailing: Trailing,
     moment: Moment,
+    strip: Option<(Group, Group, usize)>,
     /// Where the control and the info mark are, in the row's own coordinates, for the pointer.
     pub control: Option<Frame>,
     pub info: Option<Frame>,
@@ -177,13 +185,13 @@ fn mid(rect: &Frame, h: f32) -> f32 {
 
 /// The plate of a focusable: the group the focus lifts and, in it, the lit glass. The focusable is registered by [`RowArt::sync_focus`]
 /// (a row takes the pointer and the focus only where it is whole in view); the lift is the engine's from here.
-fn make_plate(env: &mut Env, id: Id, rect: Frame, lift: bool, scale: f32, rise: f32, radius: f32) -> std::io::Result<ShapeLayer> {
+fn make_plate(env: &mut Env, id: Id, rect: Frame, lift: bool, scale: f32, rise: f32, radius: f32, strong: bool) -> std::io::Result<ShapeLayer> {
     let (w, h) = (rect.w, rect.h);
     let rest = GroupPose { x: rect.x, y: rect.y, pivot_x: w / 2.0, pivot_y: h / 2.0, ..GroupPose::IDENTITY };
     let scene = env.kit.ui.scene.clone();
     let group = scene.group(Some(env.scroll.id()), rest).map_err(other)?;
     let lit_group = scene.group(Some(group.id()), GroupPose { opacity: 0.0, ..GroupPose::IDENTITY }).map_err(other)?;
-    let shape = pill(env.paint.wash_focus, env.paint.edge_raised, radius, 1.0);
+    let shape = pill(env.paint.wash_focus, if strong { env.paint.ink } else { env.paint.edge_raised }, radius, if strong { 2.0 } else { 1.0 });
     let z = env.z;
     let lit = scene.adopting(&lit_group, || scene.shape(w.round() as u32, h.round() as u32, z + 1, shape, Props::at(0.0, 0.0)));
     if lift {
@@ -309,6 +317,7 @@ impl RowArt {
             mark: None,
             trailing: Trailing::None,
             moment: Moment::default(),
+            strip: None,
             control: None,
             info: None,
             cards: Vec::new(),
@@ -318,6 +327,16 @@ impl RowArt {
             Kind::Note => art.build_note(env, row)?,
             Kind::Empty => art.build_empty(env, row)?,
             Kind::Figure => art.build_figure(env, row)?,
+            Kind::Cards if row.strip => {
+                let scene = env.kit.ui.scene.clone();
+                let clip = scene.group(Some(env.scroll.id()), GroupPose::IDENTITY).map_err(other)?;
+                let g = art.geom.cards.expect("a card row has geometry");
+                clip.set_clip_feathered(Some(Rect { x: rect.x + g.edge - g.gap / 2.0, y: rect.y - g.card_h, w: g.across as f32 * (g.card_w + g.gap), h: g.card_h * 3.0 }), Edges::NONE);
+                let scroll = scene.group(Some(clip.id()), GroupPose::IDENTITY).map_err(other)?;
+                let mut card_env = Env { kit: env.kit, engine: env.engine, paint: env.paint, sz: env.sz, scroll: &scroll, z: env.z, region: env.region, scope: env.scope, origin: env.origin };
+                art.build_cards(&mut card_env, row)?;
+                art.strip = Some((clip, scroll, 0));
+            }
             Kind::Cards => art.build_cards(env, row)?,
             _ => art.build_row(env, row)?,
         }
@@ -730,7 +749,6 @@ impl RowArt {
         let sz = env.sz;
         let paint = env.paint;
         let radius = env.kit.tokens.radius(Radius::Control);
-        let scale = env.kit.tokens.focus.button_scale;
         let (tl, tc) = (env.kit.ty(TypeRole::Label), env.kit.ty(TypeRole::Caption));
         let (ll, lc) = (line_height(tl), line_height(tc));
         let side = (sz.target * 0.5).round() as u32;
@@ -743,10 +761,19 @@ impl RowArt {
             let y = self.rect.y + line as f32 * (g.card_h + g.gap);
             let rect = Frame::new(x, y, g.card_w, g.card_h);
             let id = Id(self.id.0 + 1 + i as u32);
-            let spec = PlateSpec { rect, scale, rise: env.kit.tokens.focus.card_lift, radius };
-            let base = make_shape(env, rect.w, rect.h, env.z, pill(paint.wash_hover, paint.edge, radius, 1.0), Props::at(rect.x, rect.y));
-            let hover = make_shape(env, rect.w, rect.h, env.z + 2, pill(paint.wash_hover, faded(paint.edge_raised, 0.6), radius, 1.0), HIDDEN);
+            // Card content stays still, so its focus wash must stay on the same bounds.
+            let spec = PlateSpec { rect, scale: 1.0, rise: 0.0, radius };
+            let normal_shape = pill(paint.wash_hover, paint.edge, radius, 1.0);
+            let hover_shape = pill(paint.wash_hover, faded(paint.edge_raised, 0.6), radius, 1.0);
+            let selected_shape = pill(paint.wash_selected, paint.edge, radius, 1.0);
+            let base = make_shape(env, rect.w, rect.h, env.z, normal_shape, Props::at(rect.x, rect.y));
             let glyph_at = Props::at(rect.x + sz.s5, rect.y + ((rect.h - side as f32) / 2.0).round());
+            let thumbnail = if c.face.is_none() {
+                let scene = env.kit.ui.scene.clone();
+                env.kit.theme_thumbnails.acquire(&scene, env.scroll, &c.icon, env.z + 3, glyph_at, side)?
+            } else {
+                None
+            };
             let glyph = match &c.face {
                 Some(f) => {
                     let px = face_px(env, f, side, row.enabled);
@@ -757,11 +784,14 @@ impl RowArt {
                     layer.damage(None);
                     Some(layer)
                 }
+                None if thumbnail.is_some() => None,
                 None if c.icon.is_empty() => None,
                 None => make_icon(env, &c.icon, side, paint.dim(paint.ink2, row.enabled), env.z + 3, glyph_at)?,
             };
-            let check = make_icon(env, "check", check_side, paint.accent, env.z + 3, Props { visible: false, opacity: 0.0, ..Props::at(rect.x + rect.w - check_side as f32 - sz.s4, rect.y + sz.s3) })?;
-            let tx = sz.s5 + if glyph.is_some() { side as f32 + sz.s4 } else { 0.0 };
+            let check = if row.index == Some(i) {
+                make_icon(env, "check", check_side, paint.accent, env.z + 3, Props::at(rect.x + rect.w - check_side as f32 - sz.s4, rect.y + sz.s3))?
+            } else { None };
+            let tx = sz.s5 + if glyph.is_some() || thumbnail.is_some() { side as f32 + sz.s4 } else { 0.0 };
             let tw = (g.card_w - tx - sz.s5 - check_side as f32 - sz.s2).max(40.0);
             let ellipsised = |kit: &mut Kit, text: &str, role: TypeRole| {
                 let ty = kit.ty(role);
@@ -777,7 +807,7 @@ impl RowArt {
             }
             let text = make_text(env, Frame::new(rect.x + tx, rect.y, tw, rect.h), env.z + 4, &items)?;
             self.cards.push((id, rect));
-            cards.push(CardArt { id, frame: rect, icon: c.icon.clone(), face_free: c.face.is_none(), glyph_at, hover, base, _lit: None, spec, glyph, check, selected: None, _text: text });
+            cards.push(CardArt { id, frame: rect, icon: c.icon.clone(), face_free: c.face.is_none(), glyph_at, normal_shape, hover_shape, selected_shape, hovered: false, base, _lit: None, spec, glyph, _thumbnail: thumbnail, check, selected: None, _text: text });
         }
         self.trailing = Trailing::Cards(cards);
         Ok(())
@@ -856,11 +886,15 @@ impl RowArt {
                 }
                 let in_view = |i: usize| i >= new_first && i < new_first + geom.in_view;
                 let place = |i: usize| Props::at(at.0 + (i - new_first) as f32 * geom.seg_w + sz.s1, at.1 + sz.s1);
+                // A hidden plate has no meaningful geometry to animate from.
+                let had_index = index.is_some_and(|i| i >= *first && i < *first + geom.in_view);
+                let had_cursor = cursor.is_some_and(|i| i >= *first && i < *first + geom.in_view);
                 match want_idx.filter(|i| in_view(*i)) {
                     Some(i) => {
-                        beat(env.kit, chosen, place(i));
+                        if at_once || !had_index || new_first != *first { chosen.set(place(i)); } else { beat(env.kit, chosen, place(i)); }
                         let m = place(i);
-                        beat(env.kit, mark, Props::at(m.x + ((geom.seg_w - 2.0 * sz.s1 - sz.s7) / 2.0).round(), at.1 + geom.h - sz.s1 - sz.s2));
+                        let to = Props::at(m.x + ((geom.seg_w - 2.0 * sz.s1 - sz.s7) / 2.0).round(), at.1 + geom.h - sz.s1 - sz.s2);
+                        if at_once || !had_index || new_first != *first { mark.set(to); } else { beat(env.kit, mark, to); }
                     }
                     None => {
                         chosen.set(HIDDEN);
@@ -868,7 +902,9 @@ impl RowArt {
                     }
                 }
                 match want_cursor.filter(|i| in_view(*i)) {
-                    Some(i) => beat(env.kit, focus, place(i)),
+                    Some(i) => {
+                        if at_once || !had_cursor || new_first != *first { focus.set(place(i)); } else { beat(env.kit, focus, place(i)); }
+                    }
                     None => focus.set(HIDDEN),
                 }
                 if new_first != *first {
@@ -904,10 +940,15 @@ impl RowArt {
                     let i = (c.id.0 - self.id.0 - 1) as usize;
                     let sel = row.index == Some(i);
                     if c.selected != Some(sel) {
-                        let radius = env.kit.tokens.radius(Radius::Control);
-                        c.base.reshape(pill(if sel { paint.wash_selected } else { paint.wash_hover }, paint.edge, radius, 1.0));
-                        if let Some(ck) = &c.check {
-                            ck.set(if sel { Props::at(c.frame.x + c.frame.w - ck.width() as f32 - sz.s4, c.frame.y + sz.s3) } else { Props { visible: false, opacity: 0.0, ..Props::at(0.0, 0.0) } });
+                        c.base.reshape(if c.hovered { c.hover_shape } else if sel { c.selected_shape } else { c.normal_shape });
+                        if sel && c.check.is_none() {
+                            let side = (sz.target * 0.34).round() as u32;
+                            let scroll = self.strip.as_ref().map_or(env.scroll, |(_, scroll, _)| scroll);
+                            let mut card_env = Env { kit: env.kit, engine: env.engine, paint: env.paint, sz: env.sz, scroll, z: env.z, region: env.region, scope: env.scope, origin: env.origin };
+                            let z = card_env.z;
+                            c.check = make_icon(&mut card_env, "check", side, paint.accent, z + 3, Props::at(c.frame.x + c.frame.w - side as f32 - sz.s4, c.frame.y + sz.s3)).ok().flatten();
+                        } else if !sel {
+                            c.check = None;
                         }
                         if c.face_free
                             && let Some(g) = &mut c.glyph
@@ -930,11 +971,32 @@ impl RowArt {
 
     /// The hover cue of one card of a row of cards.
     pub fn set_card_hover(&mut self, id: Id, on: bool) {
-        if let Trailing::Cards(cards) = &self.trailing {
+        if let Trailing::Cards(cards) = &mut self.trailing {
             for c in cards {
                 let me = on && c.id == id;
-                c.hover.set(Props { opacity: if me { 1.0 } else { 0.0 }, visible: me, ..Props::at(c.frame.x, c.frame.y) });
+                if me != c.hovered {
+                    c.hovered = me;
+                    c.base.reshape(if me { c.hover_shape } else if c.selected == Some(true) { c.selected_shape } else { c.normal_shape });
+                }
             }
+        }
+    }
+
+    pub fn follow_card(&mut self, card: Option<usize>) {
+        let Some((_, scroll, first)) = &mut self.strip else { return };
+        let Some(g) = self.geom.cards else { return };
+        let Some(card) = card.filter(|i| *i < self.cards.len()) else { return };
+        let next = if card < *first { card } else if card >= *first + g.across { card + 1 - g.across } else { *first };
+        if next != *first {
+            *first = next;
+            scroll.set_pose(GroupPose { x: -(next as f32) * (g.card_w + g.gap), ..GroupPose::IDENTITY });
+        }
+    }
+
+    pub fn segment_at(&self, x: f32) -> Option<usize> {
+        match &self.trailing {
+            Trailing::Seg { geom, first, .. } => geom.at(x, *first),
+            _ => None,
         }
     }
 
@@ -945,9 +1007,13 @@ impl RowArt {
             return;
         }
         if self.kind == Kind::Cards {
-            for (id, rect) in &self.cards {
-                if live {
-                    let f = Frame::new(row_frame.x + rect.x - self.rect.x, row_frame.y + rect.y - self.rect.y, rect.w, rect.h);
+            for (i, (id, rect)) in self.cards.iter().enumerate() {
+                let (first, across, offset) = match (&self.strip, self.geom.cards) {
+                    (Some((_, _, first)), Some(g)) => (*first, g.across, *first as f32 * (g.card_w + g.gap)),
+                    _ => (0, self.cards.len(), 0.0),
+                };
+                if live && i >= first && i < first + across {
+                    let f = Frame::new(row_frame.x + rect.x - self.rect.x - offset, row_frame.y + rect.y - self.rect.y, rect.w, rect.h);
                     engine.focus.register(*id, f, region, scope);
                 } else {
                     engine.focus.unregister(*id);
@@ -989,18 +1055,25 @@ impl RowArt {
     }
 
     /// Makes the plates the row has none of: the row's own, or one for each card. The focus is about to come to the row.
-    pub fn ensure_plates(&mut self, env: &mut Env) -> std::io::Result<()> {
+    pub fn ensure_plates(&mut self, env: &mut Env, card: Option<usize>, now_ns: u64) -> std::io::Result<()> {
         if !self.focusable {
             return Ok(());
         }
         if let Some(s) = self.plate
             && self._lit.is_none()
         {
-            self._lit = Some(make_plate(env, self.id, s.rect, true, s.scale, s.rise, s.radius)?);
+            self._lit = Some(make_plate(env, self.id, s.rect, true, s.scale, s.rise, s.radius, false)?);
         }
         if let Trailing::Cards(cards) = &mut self.trailing {
-            for c in cards.iter_mut().filter(|c| c._lit.is_none()) {
-                c._lit = Some(make_plate(env, c.id, c.spec.rect, true, c.spec.scale, c.spec.rise, c.spec.radius)?);
+            for (i, c) in cards.iter_mut().enumerate() {
+                if card == Some(i) && c._lit.is_none() {
+                    let scroll = self.strip.as_ref().map_or(env.scroll, |(_, scroll, _)| scroll);
+                    let mut card_env = Env { kit: env.kit, engine: env.engine, paint: env.paint, sz: env.sz, scroll, z: env.z, region: env.region, scope: env.scope, origin: env.origin };
+                    c._lit = Some(make_plate(&mut card_env, c.id, c.spec.rect, true, c.spec.scale, c.spec.rise, c.spec.radius, c.icon.starts_with("theme:"))?);
+                } else if card != Some(i) && c._lit.is_some() && env.engine.focus.current() != Some(c.id) && env.engine.flow.resting(c.id, now_ns) {
+                    c._lit = None;
+                    env.engine.flow.drop_lift(c.id);
+                }
             }
         }
         Ok(())
@@ -1015,6 +1088,123 @@ impl RowArt {
                 c._lit = None;
                 engine.flow.drop_lift(c.id);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ui::reference::flatten;
+
+    #[test]
+    fn segment_plates_start_at_their_row_and_move_between_options() {
+        for scale in [1.0, 2.0] {
+            let (mut h, mut kit) = crate::kit::testkit::kit(scale);
+            let mut engine = Engine::new(&kit).unwrap();
+            let sz = Sizes::of(&kit);
+            let paint = Paint::of(&kit);
+            let scroll = kit.ui.scene.group(None, GroupPose { x: 500.0, y: 300.0, ..GroupPose::IDENTITY }).unwrap();
+            let mut row = Row::seg("row", &["one", "two"]).index(Some(0));
+            let geom = super::super::layout::measure_row(&mut kit, &row, 900.0);
+            let mut env = Env { kit: &mut kit, engine: &mut engine, paint, sz, scroll: &scroll, z: 0, region: Region(2), scope: Scope::BASE, origin: (500.0, 300.0) };
+            let mut art = RowArt::build(&mut env, &row, geom, 120.0, 900.0, Id(10), true).unwrap();
+            let ids = match &art.trailing {
+                Trailing::Seg { chosen, mark, focus, .. } => [chosen.id(), mark.id(), focus.id()],
+                _ => unreachable!(),
+            };
+            art.update(&mut env, &row, Moment { focused: true, hovered: false, seg: Some(0) }, false);
+            h.commit();
+            let initial = flatten(&h.all(), 0, 0);
+            for id in ids {
+                let plate = initial.iter().find(|layer| layer.id == id).unwrap();
+                assert!(plate.shown() && plate.props.x > 500.0 && plate.props.y >= 420.0);
+            }
+            row.index = Some(1);
+            art.update(&mut env, &row, Moment { focused: true, hovered: false, seg: Some(1) }, false);
+            h.commit();
+            let start = flatten(&h.all(), 0, 0);
+            let later = flatten(&h.all(), 0, 50_000_000);
+            for id in ids {
+                let x = start.iter().find(|layer| layer.id == id).unwrap().props.x;
+                let next = later.iter().find(|layer| layer.id == id).unwrap().props.x;
+                assert!(next > x, "the plate moves within the row");
+            }
+        }
+    }
+
+    #[test]
+    fn strip_scrolls_both_ways_with_rendered_and_pointer_bounds_together() {
+        for scale in [1.0, 2.0] {
+            let (mut h, mut kit) = crate::kit::testkit::kit(scale);
+            let mut engine = Engine::new(&kit).unwrap();
+            let sz = Sizes::of(&kit);
+            let paint = Paint::of(&kit);
+            let scroll = kit.ui.scene.group(None, GroupPose { x: 100.0, y: 200.0, ..GroupPose::IDENTITY }).unwrap();
+            let cards = (0..9).map(|i| crate::settings::row::Card { title: format!("Mode {i}"), ..Default::default() }).collect();
+            let mut row = Row::cards("modes", cards);
+            row.strip = true;
+            row.in_view = 4;
+            let geom = super::super::layout::measure_row(&mut kit, &row, 900.0);
+            let g = geom.cards.unwrap();
+            let mut env = Env { kit: &mut kit, engine: &mut engine, paint, sz, scroll: &scroll, z: 0, region: Region(2), scope: Scope::BASE, origin: (100.0, 200.0) };
+            let mut art = RowArt::build(&mut env, &row, geom, 0.0, 900.0, Id(10), true).unwrap();
+            let bases: Vec<_> = match &art.trailing { Trailing::Cards(cards) => cards.iter().map(|c| c.base.id()).collect(), _ => unreachable!() };
+            for i in (0..9).chain((0..9).rev()) {
+                art.follow_card(Some(i));
+                art.sync_focus(env.engine, Frame::new(100.0, 200.0, 900.0, g.card_h), Region(2), Scope::BASE, true);
+                art.ensure_plates(&mut env, Some(i), 0).unwrap();
+                assert!(env.engine.focus(Id(11 + i as u32), 0));
+                let frame = env.engine.focus.frame(Id(11 + i as u32)).unwrap();
+                assert!(frame.x >= 100.0 && frame.right() <= 1000.0);
+                assert_eq!(env.engine.focus.hit(frame.x + frame.w / 2.0, frame.y + frame.h / 2.0), Some(Id(11 + i as u32)));
+                h.commit();
+                let plate_id = match &art.trailing { Trailing::Cards(cards) => cards[i]._lit.as_ref().unwrap().id(), _ => unreachable!() };
+                for at in [50_000_000, 2_000_000_000] {
+                    let layers = flatten(&h.all(), 0, at);
+                    let base = layers.iter().find(|layer| layer.id == bases[i]).unwrap();
+                    let plate = layers.iter().find(|layer| layer.id == plate_id).unwrap();
+                    assert!(plate.shown());
+                    if at == 50_000_000 { assert!(plate.props.opacity < 0.99, "focus is still animating"); }
+                    assert!((base.props.x - frame.x).abs() < 0.1);
+                    for (name, actual, expected) in [
+                        ("x", plate.props.x, base.props.x),
+                        ("y", plate.props.y, base.props.y),
+                        ("width", plate.width as f32 * plate.props.scale, base.width as f32 * base.props.scale),
+                        ("height", plate.height as f32 * plate.props.scale, base.height as f32 * base.props.scale),
+                    ] {
+                        assert!((actual - expected).abs() < 0.1, "card {i} at {scale}x and {at}ns: {name} {actual} != {expected}");
+                    }
+                }
+                env.engine.clear(2_000_000_000);
+                art.drop_plates(env.engine);
+            }
+        }
+    }
+
+    #[test]
+    fn scrolled_segment_hits_and_focus_follow_visible_cells() {
+        let (mut h, mut kit) = crate::kit::testkit::kit(1.0);
+        let mut engine = Engine::new(&kit).unwrap();
+        let sz = Sizes::of(&kit);
+        let paint = Paint::of(&kit);
+        let scroll = kit.ui.scene.group(None, GroupPose::IDENTITY).unwrap();
+        let row = Row::seg("row", &["first long", "second long", "third long", "fourth long", "fifth long"]);
+        let geom = super::super::layout::measure_row(&mut kit, &row, 500.0);
+        let g = geom.seg.unwrap();
+        assert!(g.in_view < g.n);
+        let mut env = Env { kit: &mut kit, engine: &mut engine, paint, sz, scroll: &scroll, z: 0, region: Region(2), scope: Scope::BASE, origin: (0.0, 0.0) };
+        let mut art = RowArt::build(&mut env, &row, geom, 0.0, 500.0, Id(10), true).unwrap();
+        let focus_id = match &art.trailing { Trailing::Seg { focus, .. } => focus.id(), _ => unreachable!() };
+        for i in (0..g.n).chain((0..g.n).rev()) {
+            art.update(&mut env, &row, Moment { focused: true, hovered: false, seg: Some(i) }, true);
+            let first = match &art.trailing { Trailing::Seg { first, .. } => *first, _ => unreachable!() };
+            let x = (i - first) as f32 * g.seg_w;
+            assert_eq!(art.segment_at(x + g.seg_w / 2.0), Some(i));
+            h.commit();
+            let layers = flatten(&h.all(), 0, 0);
+            let plate = layers.iter().find(|layer| layer.id == focus_id).unwrap();
+            assert!((plate.props.x - (art.control.unwrap().x + x + sz.s1)).abs() < 0.1);
         }
     }
 }

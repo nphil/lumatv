@@ -7,6 +7,13 @@ in `compositor/` (Cargo workspace; crates `lumatv-wl-protocols` and
 TV runs are listed as ready scripts with their expected results. Facts
 marked [INFERENCE] were not observed on the set.
 
+Current native cutover,2026-11-01: the matched Rust compositor/UI/supervisor are installed and persistently enabled. The supervisor detects a ten-second Home hold independently of the UI and restores only stock LG Home. Focused TV checks passed: heartbeat hang recovery3.5s, killed-process recovery0.5s and Home release after9s settle+10s hold. Actual stock-Home screenshots were viewed for all three. This does not guarantee recovery from a kernel or hardware lock.
+
+The gate waits for `/tmp/lumatv-recover.flock`; missing requested results fail closed.43focused local checks and independent review pass. The earlier full hardware gate remains failed because its legacy log/IME/performance assertions were not accepted; it was not rerun or relabelled. Current native typing and universal zero-hitch120 remain unverified. Exact pins and receipts are retained in `/data/home/tmp/lumatv-wake-handoff-20261031.B91cpuWy/RESUME.md`.
+
+Obsolete private Qt runtime copies and owned deployment staging were removed after native readiness and unmounted checks. Final free space: /tmp766208KiB,/var579152KiB,appstore4084228KiB. Vendor/profile/theme/avatar data remain intact. The TV was left Active and the existing lease released with both local mirror and remote lock absent.
+
+
 ## Resume here
 
 State (2026-10-25 19:50 EDT, code `4ee268a`): the seventh gate ran on the

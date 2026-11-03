@@ -608,7 +608,7 @@ mod tests {
             let (h, kit) = testkit::kit_in(mode, scale);
             let engine = Engine::new(&kit).expect("an engine");
             let mut env = tv(devices(n));
-            env.sio.write("sound.soundOutput", &json!("external_arc"), None);
+            env.sio.write("sound.soundOutput", &json!("external_arc"), None, 0);
             let mut p = Picker::new();
             p.life.show(0);
             p.open(&mut env, 0);
@@ -839,7 +839,7 @@ mod tests {
             let (h, kit) = testkit::kit_in(mode, scale);
             let engine = Engine::new(&kit).expect("an engine");
             let mut env = tv(devices(n));
-            env.sio.write("sound.soundOutput", &json!("external_arc"), None);
+            env.sio.write("sound.soundOutput", &json!("external_arc"), None, 0);
             env.previews.set_active(true);
             env.update(&Input::Helper { topic: "up".into(), data: json!(true) }, 0);
             let mut p = Picker::new();

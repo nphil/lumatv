@@ -1,0 +1,12 @@
+[package]
+name = "compositor-protocol"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Messages between the LumaShow app and its compositor, and the framing they travel in"
+
+[dependencies]
+serde = { version = "1", default-features = false, features = ["derive"] }
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+libc = "0.2"

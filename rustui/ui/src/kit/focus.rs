@@ -141,6 +141,11 @@ impl Focus {
         }
     }
 
+    /// IDs belonging to a surface, including disabled or inert registrations.
+    pub fn ids_in_scope(&self, scope: Scope) -> Vec<Id> {
+        self.entries.iter().filter(|entry| entry.scope == scope).map(|entry| entry.id).collect()
+    }
+
     /// Moves a focusable (a row that scrolled) without changing its order.
     pub fn place(&mut self, id: Id, frame: Frame) {
         if let Some(e) = self.entries.iter_mut().find(|e| e.id == id) {

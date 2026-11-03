@@ -1,83 +1,8 @@
 #!/bin/sh
 # On-device engine (POSIX sh / busybox ash only). Names come from brand.json.
 #
-# Verb map (each verb prints exactly one JSON object on stdout, exit 0/nonzero):
-#   status                 -> current measured state
-#   apply                  -> stage the mod, point the compositor at it, relaunch Home
-#   revert                 -> drop the env override, unbind, restore icons, back to stock
-#   persist on|off         -> toggle the boot-hook symlink in webosbrew init.d
-#   fps on|off             -> toggle the compositor FPS debug overlay
-#   restart                -> restart the compositor and bring Home back (what apply does when it must)
-#   boot-restart           -> the boot hook's early compositor restart, right after boot-bind; lands on Home, or on the input
-#                            bootd opened when the TV is set to start on its last input (general.homeAutoLaunch off)
-#   helper start|stop|status -> the native helper daemon (weather, news, receiver, settings API)
-#   capture start|stop|remove|status -> the ambient light's colour reader and its bus role (payload/capture/capture.sh)
-#   inputs status|release  -> the kernel's audio decoder ports and the input apps running; `release` frees a port an input
-#                            left open (the input launched and closed through SAM; Netflix's tvq-pb-101 after a compositor restart)
-#   vplane install|start|stop|remove|status -> the art saver's video-plane player and its clips (payload/vplane/vplane.sh); `install`
-#                            writes an LS2 role, so it is the owner's own command and apply never runs it; apply starts a player
-#                            that is installed, revert removes it
-#   feeder install|remove|status -> the camera feeder, the program that plays a camera's live picture (payload/feeder/feeder.sh); `install`
-#                            writes an LS2 role, so it is the owner's own command and apply never runs it; apply brings an installed one
-#                            up to date, revert removes it
-#   gfn install|remove|status -> the GeForce NOW app (its own package, shipped inside this one, payload/gfn/): `install` is the owner's own
-#                            command and also updates; apply only updates an app that is already installed (tools/gfnapp.sh)
-#   updateblock status     -> whether LG's system updates are blocked: the Homebrew Channel's flag and what /etc/hosts maps now (read only;
-#                            the setting is changed in Settings > System > Support > Update, through the channel's own service)
-#   openapps status        -> open apps without updating: whether the setting is on and what LG's list of apps that must be updated before
-#                            they open holds now (read only; the helper keeps the list empty, the setting is in Settings > System >
-#                            Support > Update); revert puts the list LG had back
-#   wallpaper video|gpu|status -> Home's wallpaper source (theme.wallpaperMotion.source, default gpu): `video` plays the wallpaper as a looping
-#                            clip on the video plane through the video-plane player, under LumaTV's own compositor; the status names what is
-#                            missing (the compositor, the player installed and running, a clip), and until it is all there the GPU draws it
-#   transitions on|off|status -> smooth transitions (theme.motion.transitions, default off): under LumaTV's own compositor an app grows out of its
-#                            tile and goes back into it, one app fades over another, a card on the video plane arrives on a veil and Home
-#                            dissolves over it on the way out (docs/research/transitions-result.md); LG's compositor cuts, as ever
-#   surfaces               -> the registry: every switch, whether it is on, and what puts LG's back
-#   compositor on|off|status|check -> LumaTV's own compositor in place of LG's (tools/compositor.sh); `on` is the
-#                            persistent enable and needs a firmware build on verified.list; `check` is what the
-#                            boot hook would decide (flag, firmware hashes, bundle, supervisor, Home held), changing nothing
-#   notifications on|off|status -> LG's toast, alert and PIN views in the Luma look, without their shadow layers
-#   logo on|off|status     -> LumaTV's power-on and power-off logos in place of LG's (theme.json logo.on / logo.off: 1-3)
-#   preload on|off|status  -> keep only Netflix warm in the background (payload/preload.json)
-#   standby warm|cold      -> Quick Start+ on with webos-sddp off, or fully off
-#   ntfy set <url>|off|test -> configure/test ntfy.sh notifications
-#   log [n]                -> last n log lines (default 20)
-#   systemui on|off|status -> Quick Settings from our staged QML tree, or stock
-#   webglass on|off|status -> glass stylesheet in the settings web apps
-#   store on [parts]|off|status|probe [parts] -> LG's Content Store (com.webos.app.discovery) in the Lucent look: WAM's user script for the app,
-#                            laid into its directory (the firmware's read-only /mnt/otncabi) by an overlay mount (tools/store.sh); parts are
-#                            look, motion (the default), canvas and lazy; off by default, `off` puts LG's store back exactly, re-mounted by apply
-#                            at every boot while on. `probe` mounts LG's page (or the parts given) with the probe part and starts the receiver
-#                            it posts its structure to (tools/store_probe.py); never persisted, `off` or a reboot ends it
-#   inputcommon on|off|status -> LG's input banners (com.webos.app.inputcommon) in the Lucent look: a patched copy of its QML
-#                            mounted over LG's (tools/inputcommon.sh); off by default, re-mounted by apply at every boot while on
-#   voice on|off|status    -> LG's Search app (com.webos.app.voice) in the Lucent look: a patched copy of its QML mounted over
-#                            LG's (tools/voice.sh), and the app's resident process ended so that the next open reads it; off by default,
-#                            re-mounted by apply at every boot while on
-#   keys on|off|status     -> LG's on-screen keyboard keys (maliit) in the Lucent look: a patched copy of its QML mounted over LG's
-#                            (tools/maliit.sh) and the keyboard's server (maliit-server.service) restarted so that it reads it; off by
-#                            default, re-mounted by apply at every boot while on
-#   keyboard on|off|status -> the on-screen keyboard's window in the theme's layer motion (shadow module, tools/keyboard_patch.py);
-#                            off by default; a change is one rebuild and, under LG's compositor, one restart
-#   keyboard luma|lg       -> who serves a text field's keyboard under LumaTV's compositor: LumaTV's own (the shell client draws it, the
-#                            compositor binds it to the field) or LG's maliit (the default); a flag the compositor reads at every field,
-#                            so nothing is rebuilt, mounted or restarted
-#   cover on|off|status    -> LG's startup cover (CoverUI) in the Lucent look, LG's sequencing kept (shadow module, tools/cover_patch.py);
-#                            off by default; a change is one rebuild and, under LG's compositor, one restart
-#   splash on|off|status   -> LG's launch splash (an app with no picture of its own) and launch spinner in the Lucent look (shadow module,
-#                            tools/splash_patch.py); off by default; a change is one rebuild and, under LG's compositor, one restart
-#   standbyscreen on|off|status -> LG's Always Ready (the art and clock on the panel in standby, `general.lifeOnScreenMode`) off, so the panel
-#                            goes dark (Nitin, 2026-10-23); `on` puts back the mode that was there; read from the TV's own setting
-#   homestub on|off|confirm|status -> LumaHome as the only Home: a stub in LG's Home's place
-#   version                -> version string from appinfo.json
-#
-# Nothing is ever written outside $APPDIR, $STATE (the brand's dataDir), the
-# init.d boot-hook link, the env files under /var/systemd/system/env, configd,
-# bind mounts, /tmp, and the compositor's QML cache, which is only ever
-# deleted. The one-time move from the previous brand's layout (migrate_legacy)
-# touches the same places plus the old data dir and, through appInstallService,
-# the old apps.
+# Commands return one JSON object. The compositor command enables or disables
+# the native runtime; stock-ui-restore removes only owned legacy UI changes.
 
 set -u
 
@@ -98,7 +23,7 @@ APP_ID="$BRAND_APP_ID"
 QML_MODULE="$BRAND_QML_MODULE"
 STATE="$BRAND_DATA_DIR"
 CONFIG="$STATE/config.json"
-LOGFILE="$STATE/log"
+LOG_TOOL="$APPDIR/tools/logrelay.py"
 ASSETS="$STATE/assets"
 BACKUP="$STATE/backup"
 STAMP="$STATE/.built-stamp"
@@ -117,23 +42,13 @@ BOUND_AT="$STATE/.bound-at"
 BOOT_PENDING="$STATE/.boot-pending"
 
 APPINFO="$APPDIR/appinfo.json"
-QML_SRC="$APPDIR/payload/compositor/StarfishFullscreenContainer.qml"
-HOME_XML_SRC="$APPDIR/payload/home/home.xml"
-EN_SED_SRC="$APPDIR/payload/home/en.json.sed"
 WALL_SRC="$APPDIR/payload/wallpaper/wall_1080.png"
 BG_HD_SRC="$APPDIR/payload/wallpaper/bg_hd.png"
 BG_2K_SRC="$APPDIR/payload/wallpaper/bg_2k.png"
 BG_4K_SRC="$APPDIR/payload/wallpaper/bg_4k.png"
-# The compositor-drawn Home: a QML directory swapped into the shadow module
-# beside the container, a key-filter script registered with configd that hands
-# it the remote, and the theme it reads at runtime. Fonts and theme live
-# outside the module so the companion app can change them without a module
-# rebuild.
-LUMA_SRC="$APPDIR/payload/compositor/$QML_MODULE"
 FONTS_SRC="$APPDIR/payload/fonts"
 AVATARS_SRC="$APPDIR/payload/avatars"
 THEME_SRC="$APPDIR/payload/theme"
-KEYFILTER_SRC="$APPDIR/payload/keyfilter/$SHORT_ID.js"
 KEYFILTER_TOOL="$APPDIR/tools/keyfilter.py"
 THEME_TOOL="$APPDIR/tools/theme.py"
 LAYOUT_TOOL="$APPDIR/tools/layout.py"
@@ -148,7 +63,7 @@ KEYFILTER_DIR="$STATE/keyfilter"
 KEYFILTER_HANDLER=handleLumaHome
 
 # The native helper (helper/): a static aarch64 daemon on 127.0.0.1:18731 that holds weather and news,
-# the receiver and the settings store for the compositor's QML. An ipk update cannot overwrite a
+# the receiver and the settings store for the native compositor. An ipk update cannot overwrite a
 # running executable (text busy), so the shipped copy is staged under $STATE/bin and swapped when
 # it differs; the daemon is stopped for the swap and started again.
 # LG's background preloads. Only Netflix and the Home stub stay on the list: the tool switches every
@@ -161,6 +76,7 @@ KEYFILTER_HANDLER=handleLumaHome
 # next screen-on applies them: the 14 held calls were 140 s of a boot apply in standby).
 # $PRELOAD_ORIG is LG's list as found, so `off` and `revert` put it back.
 PRELOAD_TOOL="$APPDIR/tools/preload.py"
+WAKE_TOOL="$APPDIR/tools/wake.py"
 PRELOAD_SRC="$APPDIR/payload/preload.json"
 PRELOAD_STATE="$STATE/preload.json"
 PRELOAD_ORIG="$STATE/preload.orig"
@@ -192,107 +108,22 @@ FEEDER_SH="$APPDIR/payload/feeder/feeder.sh"
 FEEDER_SRC="$APPDIR/payload/feeder/lumatv-gfn-feeder"
 FEEDER_ROLE="$APPDIR/payload/feeder/role.json"
 
-# Quick Settings, drawn by the compositor from a QML tree in /usr that configd
-# names per app id. The stock tree is copied to /var once, our replacement
-# files are laid over the copy, and configd is pointed at it - so /usr keeps
-# its lowerdir-only overlay untouched and `systemui off` is one configd write.
-SYSTEMUI_SRC="$APPDIR/payload/systemui"
+# Paths used to restore owned legacy system UI redirects.
 SYSTEMUI_TOOL="$APPDIR/tools/systemui.py"
-SYSTEMUI_PATCH_TOOL="$APPDIR/tools/systemui_patch.py"
 TOKENS_TOOL="$APPDIR/tools/tokens.py"
 SYSTEMUI_STAGE="$STATE/systemui"
 QS_APP=com.webos.app.quicksettings
-QS_STOCK=/usr/lib/qt5/qml/QuickSettings
-QS_STAGE="$SYSTEMUI_STAGE/QuickSettings"
-QS_MAIN="$QS_STAGE/QuickSettings.qml"
-# Fingerprint of the stock tree the staged copy was built from; a firmware
-# update changes it and forces a rebuild rather than feeding old QML to new
-# libraries.
-QS_STOCK_FP="$SYSTEMUI_STAGE/.stock-fp"
-# Set while the menus are ours, so apply can put them back after a reboot (the
-# overlay mounts do not survive one) or after a firmware update (which replaces
-# the tree the staged copy was built from).
-SYSTEMUI_ON="$STATE/.systemui-on"
-
-# The power-on and power-off logos: two small system-UI windows (payload/systemui/BootLogo and
-# MasterBrand) that stand in for LG's, redirected through the same configd entry as Quick Settings.
-# They need no copy of LG's tree, only the logo components that LumaHome's module already carries
-# ($SHADOW_ROOT/WebOSCompositor/$QML_MODULE/logo), and answer tvpowerd by themselves if those
-# are missing, so a redirect never holds a power-off.
-LOGO_ON="$STATE/.logo-on"
-
-# The notification view (toasts, alerts, input popups, the PIN prompt) is one item the compositor
-# loads from the file named for the view `notificationView`. A copy of LG's tree is patched
-# (tools/notification_patch.py: Manrope, the toast's colours, no DropShadow layers) and the view
-# is pointed at it through `sysuicompmgr/changeSystemUIView`, which LG persists in
-# /var/preferences and answers with an error code when the file is not there. The data layer and
-# the item contract are LG's, so a notification of any kind arrives as LG's code expects. Revert
-# and a failed stage point the view back at LG's file, since a persisted path to a file that is
-# gone would leave the next boot with no notifications at all.
 NOTI_STOCK=/usr/lib/qt5/qml/SystemUI/Notification
 NOTI_STAGE="$SYSTEMUI_STAGE/SystemUI/Notification"
-NOTI_ON="$STATE/.notifications-on"
-NOTI_PATCH_TOOL="$APPDIR/tools/notification_patch.py"
-NOTI_OVERLAY="$APPDIR/payload/notification"
 NOTI_VIEW_URI="luna://com.webos.service.sysuicompmgr/changeSystemUIView"
 NOTI_PERSIST=/var/preferences/starfish-luna-surface-manager/systemUiViews.json
 LOGO_BOOT_APP=com.webos.app.bootlogo
 LOGO_OFF_APP=com.webos.app.masterbrand
 
-# The web-app settings surfaces. Their UI is Enact/Sandstone drawn as a
-# transparent overlay, so a stylesheet is all it takes; the mount that delivers
-# it is described in webglass_set.
+# Legacy web-app overlays are removed during stock UI restoration.
 WEBGLASS_SRC="$APPDIR/payload/webapps"
 WEBGLASS_STAGE="$STATE/webapps"
-WEBGLASS_ON="$STATE/.webglass-on"
 
-# LG's input banners (com.webos.app.inputcommon) in the Luma look: tools/inputcommon.sh stages a patched copy of the app's QML and
-# mounts it over LG's directory. A mount does not survive a reboot, so apply asserts it again while the switch is on, as it does
-# for webglass.
-INPUTCOMMON_TOOL="$APPDIR/tools/inputcommon.sh"
-INPUTCOMMON_ON="$STATE/.inputcommon-on"
-# LG's Search app (com.webos.app.voice): the same overlay mount, by tools/voice.sh (it runs tools/inputcommon.sh for the other tree).
-VOICE_TOOL="$APPDIR/tools/voice.sh"
-VOICE_ON="$STATE/.voice-on"
-# LG's on-screen keyboard keys (maliit, MaliitServer): the same overlay mount, by tools/maliit.sh, and a restart of maliit-server.service
-# (the one unit LG's lsm-ready.service restarts itself) so that the server reads the mounted QML; it never touches SAM.
-KEYS_TOOL="$APPDIR/tools/maliit.sh"
-KEYS_ON="$STATE/.keys-on"
-# LG's Content Store (com.webos.app.discovery), a web app of the firmware's read-only otncabi partition whose page is LG's cloud page:
-# WAM's user script for the app, built by tools/store_theme.py and laid into the app's directory by an overlay mount (tools/store.sh).
-# The flag holds the parts that are on. A mount does not survive a reboot, so apply asserts it again while the switch is on.
-STORE_TOOL="$APPDIR/tools/store.sh"
-STORE_ON="$STATE/.store-on"
-# The on-screen keyboard's window in the theme's layer motion instead of LG's 600 ms jelly: the shadow module's copy of
-# views/StarfishKeyboardView.qml is patched when the module is built. It matters only while LG's compositor is the live one. Off by
-# default like every other restyle of an LG process: `keyboard on` leaves the flag that build_shadow reads and the rebuild makes the patch.
-KEYBOARD_TOOL="$APPDIR/tools/keyboard_patch.py"
-KEYBOARD_ON="$STATE/.keyboard-on"
-# Who serves a text field's keyboard under LumaTV's compositor (`keyboard luma|lg`): the flag the compositor reads at every field
-# (compositor server/ime.rs OWN_FLAG). Absent, LG's maliit serves, as before; under LG's compositor nothing reads it.
-KEYBOARD_LUMA="$STATE/.keyboard-luma"
-# What build_shadow's patches are made of: each patch script, the modules it imports and the files it reads. shadow_patch_fp
-# fingerprints them, so that an update that changes only one of them (a patch, or the theme's motion) rebuilds the shadow and
-# restarts the compositor once; without it a set that already has a shadow keeps the old one. A patch added to build_shadow
-# appends its files to this list on the line after it is defined (tests/test_lumatv_inputcommon.py fails when one is missing).
-SHADOW_PATCH_FILES="$KEYBOARD_TOOL $NOTI_PATCH_TOOL $TOKENS_TOOL $THEME_SRC/theme.json"
-# LG's own volume and mute popup, the shadow module's copy of views/StarfishVolumeView.qml, is never available there (tools/volume_patch.py):
-# LumaTV's display (panels/VolumeOsd.qml, in the overlay layer) is the only one, over Home, every app and every input. LG's popup is back whenever
-# that module is not the one loaded (`revert`, a stock compositor); nothing persistent is written to configd.
-VOLUME_TOOL="$APPDIR/tools/volume_patch.py"
-SHADOW_PATCH_FILES="$SHADOW_PATCH_FILES $VOLUME_TOOL"
-# LG's startup cover, the CoverUI module the compositor imports (`import CoverUI 1.0`), with LumaTV's picture on LG's sequencing (tools/cover_patch.py):
-# a copy of the module in the shadow, made when it is built. Off by default; `cover on` leaves the flag that build_shadow reads and the rebuild
-# makes the patch. LG's launch splash and spinner (tools/splash_patch.py) are the same kind of switch over two views of the compositor module.
-COVER_TOOL="$APPDIR/tools/cover_patch.py"
-COVER_SRC="$APPDIR/payload/cover"
-COVER_ON="$STATE/.cover-on"
-STOCK_COVER_MODULE=/usr/lib/qt5/qml/CoverUI
-SHADOW_PATCH_FILES="$SHADOW_PATCH_FILES $COVER_TOOL $APPDIR/payload/cover/block.qml $APPDIR/payload/cover/cover-input.png $APPDIR/payload/cover/cover-app.png"
-SPLASH_TOOL="$APPDIR/tools/splash_patch.py"
-SPLASH_SRC="$APPDIR/payload/splash"
-SPLASH_ON="$STATE/.splash-on"
-SHADOW_PATCH_FILES="$SHADOW_PATCH_FILES $SPLASH_TOOL $APPDIR/payload/splash/card.qml $APPDIR/payload/splash/spinner.qml"
 
 # The compositor resolves QML modules through QML2_IMPORT_PATH, and its unit
 # reads an optional environment file from /var - which is writable and
@@ -467,18 +298,14 @@ mtime_epoch() {
   date -r "$1" +%s 2>/dev/null || echo 0
 }
 
+log_stderr() {
+  python3 "$LOG_TOOL" stderr lumatv-tool "$@"
+}
+log_output() {
+  python3 "$LOG_TOOL" output lumatv-tool "$@"
+}
 log_line() {
-  mkdir -p "$STATE" 2>/dev/null
-  ts=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
-  msg=$(printf '%s' "$1" | tr '\n' ' ')
-  printf '%s %s\n' "$ts" "$msg" >> "$LOGFILE" 2>/dev/null
-  if [ -f "$LOGFILE" ]; then
-    lc=$(wc -l < "$LOGFILE" 2>/dev/null | tr -d ' ')
-    [ -n "$lc" ] || lc=0
-    if [ "$lc" -gt 200 ] 2>/dev/null; then
-      tail -n 200 "$LOGFILE" > "$LOGFILE.trim.$$" 2>/dev/null && mv "$LOGFILE.trim.$$" "$LOGFILE"
-    fi
-  fi
+  python3 "$LOG_TOOL" send lumatv-tool "$(date '+%Y-%m-%d %H:%M:%S') $1" 2>/dev/null || :
 }
 
 # ------------------------------------------------------------- mount helpers
@@ -707,10 +534,13 @@ restart_surface() {
   # restart was not attempted, which callers do not treat as a failure of the set.
   i=0; while comp_recovering && [ "$i" -lt 180 ]; do sleep 1; i=$((i+1)); done
   if comp_recovering; then log_line "restart: a recovery of LG's Home is still running, the compositor is not restarted"; return 2; fi
-  close_input_apps "restart"
+  if [ "${2:-}" = standby ] && ! panel_is_active_standby; then return 2; fi
+  [ "${1:-}" = stock ] || close_input_apps "restart"
   WAM_STAMP0=$(wam_stamp)
   reports_before=$(snapshot_reports)
-  systemctl restart "$SURFACE_SVC" >/dev/null 2>&1
+  if [ "${1:-}" = native ] && [ -e "$COMP/stock-ui-held" ]; then return 1; fi
+  if [ "${2:-}" = standby ] && ! panel_is_active_standby; then return 2; fi
+  systemctl restart "$SURFACE_SVC" >/dev/null 2>&1 || return 1
   wait_surface_active || return 1
   disarm_restart_crashes "$reports_before"
   return 0
@@ -773,16 +603,36 @@ panel_is_active() {
     | tr -d '\n' | grep -q '"state"[[:space:]]*:[[:space:]]*"Active"'
 }
 
+panel_is_active_standby() {
+  timeout 4 luna-send -n 1 luna://com.webos.service.tvpower/power/getPowerState '{}' 2>/dev/null |
+    python3 -c 'import json, sys
+try:
+    d = json.load(sys.stdin)
+    sys.exit(0 if d.get("returnValue") is True and d.get("state") == "Active Standby" else 1)
+except (ValueError, AttributeError):
+    sys.exit(1)' 2>/dev/null
+}
+
 take_mutation_lock() {
+  maintenance_guard || return 1
+  # A durable human veto outranks the transaction holding this lock.
+  if [ "${MAINTENANCE_ACCESS:-write}" = emergency ] && maintenance_present; then
+    return 0
+  fi
   # Serialise anything that mounts, unmounts or restarts the compositor. Two
   # concurrent applies interleave their unmount/stage/bind steps and can leave
   # the wrong number of mounts live; the boot hook made this reachable, because
   # a user launching the app can now overlap the detached boot apply.
   mkdir -p "$(dirname "$LOCKFILE")" 2>/dev/null
-  exec 9>"$LOCKFILE" 2>/dev/null || return 0
+  exec 9>"$LOCKFILE" 2>/dev/null || return 1
   if ! flock -x -w "$LOCK_WAIT" 9 2>/dev/null; then
     return 1
   fi
+  maintenance_guard || { exec 9>&-; return 1; }
+  case "$VERB" in
+    compositor-boot)
+      if [ -e "$COMP/stock-ui-held" ]; then exec 9>&-; return 1; fi ;;
+  esac
   return 0
 }
 
@@ -814,7 +664,7 @@ cfg_get_str() {
 }
 
 cfg_read_all() {
-  ensure_config
+  [ "${MAINTENANCE_ACCESS:-write}" != write ] || ensure_config
   CFG_FPS=$(cfg_get_bool fps); [ -n "$CFG_FPS" ] || CFG_FPS=false
   CFG_PERSIST=$(cfg_get_bool persist); [ -n "$CFG_PERSIST" ] || CFG_PERSIST=false
   CFG_NTFY_ENABLED=$(cfg_get_bool enabled); [ -n "$CFG_NTFY_ENABLED" ] || CFG_NTFY_ENABLED=false
@@ -891,16 +741,7 @@ get_model() {
 
 # ------------------------------------------------------------- QML staging
 
-stage_compositor() {
-  # $1 = fps (true|false), $2 = output path (default: the live stage). Always
-  # rebuilt from the pristine payload, so the payload itself is never touched
-  # and repeated calls are idempotent.
-  fps="$1"; out="${2:-$COMPOSITOR_STAGE}"
-  mkdir -p "$STATE" 2>/dev/null
-  sed -e "s#file:///tmp/hx/wall_1080\\.png#file://$WALLPAPER_STAGE#" \
-      -e "s/property bool debugFps: true/property bool debugFps: $fps/" \
-      "$QML_SRC" > "$out.tmp.$$" && mv "$out.tmp.$$" "$out"
-}
+
 
 tree_fp() {
   # Content hash of a directory (or a file): every file's bytes in path order
@@ -914,31 +755,7 @@ tree_fp() {
   fi
 }
 
-stage_luma() {
-  # $1 = fps (true|false), $2 = output dir (default: the live stage). The Home
-  # QML directory copied verbatim plus a generated settings.json carrying the
-  # fps flag: it lives inside the module so that flipping fps changes the
-  # staged tree and earns the compositor restart that makes it visible. The
-  # shipped theme.json and layout.json go in beside it as theme.default.json and
-  # layout.default.json: LumaHome reads them at once and merges the user's copies
-  # over them, so a changed default is a changed tree, and earns the restart too.
-  # build_shadow copies the directory into the module. Nothing under
-  # controllers/ is shadowed: types reached through the module's qmldir
-  # (StarfishKeyController and friends) resolve to /usr/lib/qt5 regardless of
-  # QML2_IMPORT_PATH on this firmware, so Home input goes through the
-  # container's focus instead.
-  fps="$1"; out="${2:-$LUMA_STAGE}"
-  [ -d "$LUMA_SRC" ] || return 1
-  rm -rf "$out.tmp.$$" 2>/dev/null
-  mkdir -p "$out.tmp.$$" 2>/dev/null || return 1
-  cp -R "$LUMA_SRC" "$out.tmp.$$/$QML_MODULE" 2>/dev/null || { rm -rf "$out.tmp.$$"; return 1; }
-  printf '{"fps":%s}\n' "$fps" > "$out.tmp.$$/$QML_MODULE/settings.json"
-  cp "$THEME_SRC/theme.json" "$out.tmp.$$/$QML_MODULE/theme.default.json" 2>/dev/null \
-    && cp "$THEME_SRC/layout.json" "$out.tmp.$$/$QML_MODULE/layout.default.json" 2>/dev/null \
-    || { rm -rf "$out.tmp.$$"; return 1; }
-  rm -rf "$out" 2>/dev/null
-  mv "$out.tmp.$$" "$out"
-}
+
 
 stage_theme() {
   # Fonts and the default wallpaper are payload-owned and always refreshed.
@@ -960,7 +777,7 @@ stage_theme() {
   fi
   for f in theme.json layout.json; do
     [ -f "$THEME_DIR/$f" ] || printf '{}\n' > "$THEME_DIR/$f"
-    python3 "$THEME_TOOL" "$THEME_DIR/$f" minimize "$THEME_SRC/$f" < /dev/null >/dev/null 2>>"$LOGFILE" \
+    log_stderr python3 "$THEME_TOOL" "$THEME_DIR/$f" minimize "$THEME_SRC/$f" < /dev/null >/dev/null \
       || log_line "stage_theme: $f could not be read, left as it is"
     rm -f "$THEME_DIR/.shipped-$f" 2>/dev/null
   done
@@ -970,68 +787,12 @@ stage_theme() {
 
 write_tokens_js() {
   # Rewritten only when it changes, so its mtime says when the tokens last moved.
-  python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" js < /dev/null > "$THEME_DIR/Tokens.js.new" 2>>"$LOGFILE" || { rm -f "$THEME_DIR/Tokens.js.new"; return 1; }
+  log_stderr python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" js < /dev/null > "$THEME_DIR/Tokens.js.new" || { rm -f "$THEME_DIR/Tokens.js.new"; return 1; }
   if cmp -s "$THEME_DIR/Tokens.js.new" "$THEME_DIR/Tokens.js" 2>/dev/null; then rm -f "$THEME_DIR/Tokens.js.new"; else mv -f "$THEME_DIR/Tokens.js.new" "$THEME_DIR/Tokens.js"; fi
 }
 
-keyfilter_set() {
-  # $1 = add|remove. The stock StarfishKeyFilter builds its handler chain from
-  # the configd list com.webos.surfacemanager.keyFilters, and picks up changes
-  # live (Settings.subscribe). That list is the only way a script of ours sees
-  # remote keys inside the compositor: a shadowed controllers/StarfishKeyFilter
-  # .qml is never loaded on this firmware (module types resolve to /usr/lib
-  # regardless of QML2_IMPORT_PATH; only relative-file references from an
-  # already-shadowed view pick up the override). Our entry goes first: the
-  # stock handleSystemKeys answers Back with NotAccepted (deliver to the app
-  # and stop) while Home is up, so a later entry never sees Back at all.
-  # Ours returns NextPolicy for everything it does not consume, so the stock
-  # chain runs unchanged behind it.
-  #
-  # luna-send prints nothing when its stdin is a pipe, so the helper is a
-  # file and runs with stdin from /dev/null, never a heredoc.
-  mode="$1"
-  if [ "$mode" = add ]; then
-    mkdir -p "$KEYFILTER_DIR" 2>/dev/null || return 1
-    cp -f "$KEYFILTER_SRC" "$KEYFILTER_DIR/$SHORT_ID.js" 2>/dev/null || return 1
-  fi
-  python3 "$KEYFILTER_TOOL" "$mode" "$KEYFILTER_HANDLER" "$KEYFILTER_DIR/$SHORT_ID.js" < /dev/null 2>>"$LOGFILE"
-}
 
-systemui_stage() {
-  # Copy the stock Quick Settings tree once, then lay our files over it. The
-  # copy is 27MB; it is rebuilt only when the stock tree's fingerprint moves,
-  # which is to say after a firmware update.
-  fp=$(tree_fp "$QS_STOCK")
-  if [ ! -f "$QS_MAIN" ] || [ "$fp" != "$(cat "$QS_STOCK_FP" 2>/dev/null)" ]; then
-    rm -rf "$QS_STAGE.new" 2>/dev/null
-    mkdir -p "$SYSTEMUI_STAGE" 2>/dev/null || return 1
-    cp -a "$QS_STOCK" "$QS_STAGE.new" 2>/dev/null || return 1
-    rm -rf "$QS_STAGE.old" 2>/dev/null
-    [ -d "$QS_STAGE" ] && mv "$QS_STAGE" "$QS_STAGE.old" 2>/dev/null
-    mv "$QS_STAGE.new" "$QS_STAGE" 2>/dev/null || return 1
-    rm -rf "$QS_STAGE.old" 2>/dev/null
-    printf '%s\n' "$fp" > "$QS_STOCK_FP"
-  fi
-  # Our overlay, re-applied every time so an app update lands without a
-  # 27MB recopy. Mirrors the payload's directory layout onto the stage.
-  # No pipeline: a `while read` on the far side of one runs in a subshell,
-  # where a failed copy cannot fail the function.
-  ok=1
-  for rel in $(cd "$SYSTEMUI_SRC" && find . -type f -name '*.qml'); do
-    mkdir -p "$SYSTEMUI_STAGE/$(dirname "$rel")" 2>/dev/null
-    cp -f "$SYSTEMUI_SRC/$rel" "$SYSTEMUI_STAGE/$rel" 2>/dev/null || ok=0
-  done
-  [ "$ok" = 1 ] || return 1
-  [ -f "$QS_MAIN" ] || return 1
-  # Targeted edits to LG's own files: the glass palette, and the retention that
-  # stops the panel being rebuilt on every open. Fatal on a missing anchor, so
-  # a firmware update that rewrites them is caught here rather than shipping a
-  # half-patched menu.
-  # The palette comes from the live theme, so the menus are tinted by the
-  # wallpaper in use rather than by constants in the patch.
-  pal=$(python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" qml < /dev/null 2>>"$LOGFILE")
-  python3 "$SYSTEMUI_PATCH_TOOL" "$QS_STAGE" "$pal" < /dev/null >>"$LOGFILE" 2>&1
-}
+
 
 webglass_apps() {
   # The web apps the shared web theme is laid over: the Settings app, its sub-apps and the other Enact/Sandstone apps that
@@ -1039,664 +800,92 @@ webglass_apps() {
   grep -v '^[[:space:]]*\(#\|$\)' "$WEBGLASS_SRC/apps.txt" 2>/dev/null
 }
 
-webglass_set() {
-  # $1 = on|off.
-  #
-  # WebAppMgr loads webOSUserScripts/userScript.js from an app's own directory
-  # into that app's page. /usr is a lowerdir-only overlay and cannot gain a new
-  # file, so each app directory gets its own overlay mount: LG's directory as
-  # the lower layer, ours as the upper. That adds the script and the stylesheet
-  # and nothing else - no copy of a 23MB bundle, and unmounting restores the
-  # stock app exactly.
-  mode="$1"
-  rc=0
-  for app in $(webglass_apps); do
-    target="/usr/palm/applications/$app"
-    [ -d "$target" ] || continue
-    up="$WEBGLASS_STAGE/$app/upper/webOSUserScripts"
-    work="$WEBGLASS_STAGE/$app/work"
-    drain_umount "$target"
-    if [ "$mode" = on ]; then
-      mkdir -p "$up" "$work" 2>/dev/null || { rc=1; continue; }
-      cp -f "$WEBGLASS_SRC/userScript.js" "$up/userScript.js" 2>/dev/null || rc=1
-      cp -f "$WEBGLASS_SRC/$SHORT_ID.css" "$up/$SHORT_ID.css" 2>/dev/null || rc=1
-      python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" css < /dev/null > "$up/theme.css" 2>>"$LOGFILE" || rc=1
-      # The same font the Home screen uses, beside the stylesheet that asks for
-      # it: a web app can only load a face from its own directory.
-      for f in Manrope-Regular.ttf Manrope-Medium.ttf Manrope-SemiBold.ttf Manrope-Bold.ttf; do
-        cp -f "$FONTS_SRC/$f" "$up/$f" 2>/dev/null || rc=1
-      done
-      mount -t overlay "$SHORT_ID" -o \
-        "lowerdir=$target,upperdir=$WEBGLASS_STAGE/$app/upper,workdir=$work" \
-        "$target" 2>>"$LOGFILE" || rc=1
-    fi
-    # Either way the running instance holds the old page; closing it means the
-    # next launch builds against what is mounted now.
-    luna-send -n 1 luna://com.webos.applicationManager/closeByAppId \
-      "{\"id\":\"$app\"}" >/dev/null 2>&1
-  done
-  return $rc
-}
 
-verb_webglass() {
-  case "${1:-status}" in
-    on|off)
-      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
-      if webglass_set "$1"; then
-        [ "$1" = on ] && : > "$WEBGLASS_ON" || rm -f "$WEBGLASS_ON"
-        log_line "webglass $1"
-        printf '{"ok":true,"webglass":"%s"}\n' "$1"
-      else
-        emit_error "could not switch the settings apps to $1"
-        return 1
-      fi
-      ;;
-    status)
-      n=0
-      for app in $(webglass_apps); do
-        is_mounted "/usr/palm/applications/$app" && n=$((n+1))
-      done
-      printf '{"ok":true,"mounted":%s}\n' "$n"
-      ;;
-    *) emit_error "usage: webglass on|off|status"; return 1 ;;
-  esac
-  return 0
-}
 
-inputcommon_mounted() {
-  # Whether the overlay is in place, by the tool's own report. apply leaves one alone: `on` drops inputcommon's process snapshot,
-  # and doing that at every launch of the app would cost the next input switch a cold start. A reboot clears the mount and the
-  # next apply makes it; after an update of the app, `inputcommon on` stages the new patch.
-  sh "$INPUTCOMMON_TOOL" status < /dev/null 2>/dev/null | grep -q '"mounted":true'
-}
 
-inputcommon_set() {
-  # $1 = on|off. tools/inputcommon.sh stages the patched copy, mounts it and drops inputcommon's process snapshot (or the reverse)
-  # and prints one JSON object, kept in $ic_out. It leaves what is in force alone when it cannot stage or mount.
-  ic_out=$(sh "$INPUTCOMMON_TOOL" "$1" < /dev/null 2>>"$LOGFILE"); ic_rc=$?
-  log_line "inputcommon $1: $(printf '%s' "$ic_out" | cut -c1-200)"
-  [ "$ic_rc" -eq 0 ] && printf '%s' "$ic_out" | grep -q '"ok":true'
-}
 
-verb_inputcommon() {
-  case "${1:-status}" in
-    on|off)
-      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
-      if inputcommon_set "$1"; then
-        if [ "$1" = on ]; then : > "$INPUTCOMMON_ON"; else rm -f "$INPUTCOMMON_ON"; fi
-        printf '%s\n' "$ic_out"
-      else
-        case "$ic_out" in '{'*'"ok":false'*) printf '%s\n' "$ic_out" ;; *) emit_error "tools/inputcommon.sh did not answer" ;; esac
-        return 1
-      fi ;;
-    status)
-      ic_out=$(sh "$INPUTCOMMON_TOOL" status < /dev/null 2>>"$LOGFILE")
-      ic_now=false; [ -f "$INPUTCOMMON_ON" ] && ic_now=true
-      case "$ic_out" in
-        '{"ok":true,'*) ic_rest=${ic_out#'{"ok":true,'}; printf '{"ok":true,"on":%s,%s\n' "$ic_now" "$ic_rest" ;;
-        *) emit_error "tools/inputcommon.sh did not answer"; return 1 ;;
-      esac ;;
-    *) emit_error "usage: inputcommon on|off|status"; return 1 ;;
-  esac
-  return 0
-}
 
-voice_mounted() {
-  # As inputcommon_mounted: apply leaves a mounted overlay alone, `voice on` is what ends the app's instance.
-  sh "$VOICE_TOOL" status < /dev/null 2>/dev/null | grep -q '"mounted":true'
-}
 
-voice_set() {
-  # $1 = on|off, one JSON object in $vo_out; what is in force stays when it cannot stage or mount.
-  vo_out=$(sh "$VOICE_TOOL" "$1" < /dev/null 2>>"$LOGFILE"); vo_rc=$?
-  log_line "voice $1: $(printf '%s' "$vo_out" | cut -c1-200)"
-  [ "$vo_rc" -eq 0 ] && printf '%s' "$vo_out" | grep -q '"ok":true'
-}
 
-verb_voice() {
-  case "${1:-status}" in
-    on|off)
-      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
-      if voice_set "$1"; then
-        if [ "$1" = on ]; then : > "$VOICE_ON"; else rm -f "$VOICE_ON"; fi
-        printf '%s\n' "$vo_out"
-      else
-        case "$vo_out" in '{'*'"ok":false'*) printf '%s\n' "$vo_out" ;; *) emit_error "tools/voice.sh did not answer" ;; esac
-        return 1
-      fi ;;
-    status)
-      vo_out=$(sh "$VOICE_TOOL" status < /dev/null 2>>"$LOGFILE")
-      vo_now=false; [ -f "$VOICE_ON" ] && vo_now=true
-      case "$vo_out" in
-        '{"ok":true,'*) vo_rest=${vo_out#'{"ok":true,'}; printf '{"ok":true,"on":%s,%s\n' "$vo_now" "$vo_rest" ;;
-        *) emit_error "tools/voice.sh did not answer"; return 1 ;;
-      esac ;;
-    *) emit_error "usage: voice on|off|status"; return 1 ;;
-  esac
-  return 0
-}
 
-keys_mounted() {
-  # As inputcommon_mounted: apply leaves a mounted overlay alone, `keys on` is what restarts the server.
-  sh "$KEYS_TOOL" status < /dev/null 2>/dev/null | grep -q '"mounted":true'
-}
 
-keys_set() {
-  # $1 = on|off, one JSON object in $ks_out; what is in force stays when it cannot stage or mount, and a server that does not come back
-  # on the patched keys (or logs a file of them it could not load) is put back on LG's by the tool, which then answers ok:false.
-  ks_out=$(sh "$KEYS_TOOL" "$1" < /dev/null 2>>"$LOGFILE"); ks_rc=$?
-  log_line "keys $1: $(printf '%s' "$ks_out" | cut -c1-200)"
-  [ "$ks_rc" -eq 0 ] && printf '%s' "$ks_out" | grep -q '"ok":true'
-}
 
-verb_keys() {
-  case "${1:-status}" in
-    on|off)
-      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
-      if keys_set "$1"; then
-        if [ "$1" = on ]; then : > "$KEYS_ON"; else rm -f "$KEYS_ON"; fi
-        printf '%s\n' "$ks_out"
-      else
-        case "$ks_out" in '{'*'"ok":false'*) printf '%s\n' "$ks_out" ;; *) emit_error "tools/maliit.sh did not answer" ;; esac
-        return 1
-      fi ;;
-    status)
-      ks_out=$(sh "$KEYS_TOOL" status < /dev/null 2>>"$LOGFILE")
-      ks_now=false; [ -f "$KEYS_ON" ] && ks_now=true
-      case "$ks_out" in
-        '{"ok":true,'*) ks_rest=${ks_out#'{"ok":true,'}; printf '{"ok":true,"on":%s,%s\n' "$ks_now" "$ks_rest" ;;
-        *) emit_error "tools/maliit.sh did not answer"; return 1 ;;
-      esac ;;
-    *) emit_error "usage: keys on|off|status"; return 1 ;;
-  esac
-  return 0
-}
 
-store_mounted() {
-  # Whether the overlay is in place, by the tool's own report. apply leaves one alone: `on` ends the store's running instance, and doing
-  # that at every launch of the app would cost the next open of the store a cold start.
-  sh "$STORE_TOOL" status < /dev/null 2>/dev/null | grep -q '"mounted":true'
-}
 
-store_set() {
-  # $1 = on|off|probe, $2 = the parts (on and probe). tools/store.sh builds the script, mounts it and ends the store's instance (or the
-  # reverse; probe also starts the receiver the page posts to) and prints one JSON object, kept in $st_out. It leaves what is in force
-  # alone when it cannot build or mount.
-  st_out=$(sh "$STORE_TOOL" "$1" "${2:-}" < /dev/null 2>>"$LOGFILE"); st_rc=$?
-  log_line "store $1: $(printf '%s' "$st_out" | cut -c1-200)"
-  [ "$st_rc" -eq 0 ] && printf '%s' "$st_out" | grep -q '"ok":true'
-}
 
-store_parts_on() {
-  # The parts the flag names, "" for the default (a flag made by `: >`).
-  sed -n 1p "$STORE_ON" 2>/dev/null
-}
 
-verb_store() {
-  case "${1:-status}" in
-    on)
-      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
-      if store_set on "${2:-}"; then
-        # The parts as the tool settled them, so that a boot mounts what was asked for.
-        st_parts=$(printf '%s' "$st_out" | sed -n 's/.*"parts":"\([^"]*\)".*/\1/p')
-        printf '%s\n' "$st_parts" > "$STORE_ON"
-        printf '%s\n' "$st_out"
-      else
-        case "$st_out" in '{'*'"ok":false'*) printf '%s\n' "$st_out" ;; *) emit_error "tools/store.sh did not answer" ;; esac
-        return 1
-      fi ;;
-    off)
-      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
-      if store_set off; then
-        rm -f "$STORE_ON"
-        printf '%s\n' "$st_out"
-      else
-        case "$st_out" in '{'*'"ok":false'*) printf '%s\n' "$st_out" ;; *) emit_error "tools/store.sh did not answer" ;; esac
-        return 1
-      fi ;;
-    status)
-      st_out=$(sh "$STORE_TOOL" status < /dev/null 2>>"$LOGFILE")
-      st_now=false; [ -f "$STORE_ON" ] && st_now=true
-      case "$st_out" in
-        '{"ok":true,'*) st_rest=${st_out#'{"ok":true,'}; printf '{"ok":true,"on":%s,%s\n' "$st_now" "$st_rest" ;;
-        *) emit_error "tools/store.sh did not answer"; return 1 ;;
-      esac ;;
-    probe)
-      # The page's structure to a receiver on the set, for the next round's selectors. Never written to the flag: a boot returns to what
-      # the flag says, which is LG's store unless `store on` was run.
-      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
-      if store_set probe "${2:-}"; then
-        printf '%s\n' "$st_out"
-      else
-        case "$st_out" in '{'*'"ok":false'*) printf '%s\n' "$st_out" ;; *) emit_error "tools/store.sh did not answer" ;; esac
-        return 1
-      fi ;;
-    *) emit_error "usage: store on [parts]|off|status|probe [parts]"; return 1 ;;
-  esac
-  return 0
-}
 
-keyboard_patched() {
-  # Whether the shadow module's copy of LG's keyboard view carries the patch (true or false).
-  if grep -q 'Luma: patched' "$SHADOW_ROOT/WebOSCompositor/views/StarfishKeyboardView.qml" 2>/dev/null; then printf true; else printf false; fi
-}
 
-verb_keyboard() {
-  # The on-screen keyboard's window in the theme's layer motion (tools/keyboard_patch.py). The patch is made when the shadow module is
-  # built, so a change of the switch is a rebuild: apply does it, once, and restarts LG's compositor if that is the live one. A set that
-  # was never applied has no module yet: the flag is all there is to change and the first apply reads it. The keys themselves
-  # (maliit's, in another process) are `keys on|off`, a switch of their own: no rebuild and no compositor restart.
-  case "${1:-status}" in
-    on|off)
-      kb_was=off; [ -f "$KEYBOARD_ON" ] && kb_was=on
-      mkdir -p "$STATE" 2>/dev/null
-      if [ "$1" = on ]; then : > "$KEYBOARD_ON" || { emit_error "could not write $KEYBOARD_ON"; return 1; }; else rm -f "$KEYBOARD_ON"; fi
-      kb_applied=false
-      if [ -d "$SHADOW_ROOT" ]; then
-        kb_out=$(sh "$APPDIR/tools/lumatv" apply < /dev/null 2>>"$LOGFILE")
-        case "$kb_out" in
-          '{"ok":true'*) kb_applied=true ;;
-          *)
-            # the set is as it was: the flag goes back with it
-            if [ "$kb_was" = on ]; then : > "$KEYBOARD_ON"; else rm -f "$KEYBOARD_ON"; fi
-            case "$kb_out" in '{'*'"ok":false'*) printf '%s\n' "$kb_out" ;; *) emit_error "apply did not answer" ;; esac
-            return 1 ;;
-        esac
-      fi
-      log_line "keyboard $1 (applied: $kb_applied)"
-      printf '{"ok":true,"keyboard":"%s","applied":%s,"patched":%s}\n' "$1" "$kb_applied" "$(keyboard_patched)" ;;
-    luma|lg)
-      # See KEYBOARD_LUMA: the next field is the new one's, so there is nothing to rebuild, mount or restart.
-      mkdir -p "$STATE" 2>/dev/null
-      if [ "$1" = luma ]; then : > "$KEYBOARD_LUMA" || { emit_error "could not write $KEYBOARD_LUMA"; return 1; }; else rm -f "$KEYBOARD_LUMA"; fi
-      log_line "keyboard $1"
-      printf '{"ok":true,"keyboard":"%s"}\n' "$1" ;;
-    status)
-      kb_now=false; [ -f "$KEYBOARD_ON" ] && kb_now=true
-      kb_who=lg; [ -f "$KEYBOARD_LUMA" ] && kb_who=luma
-      printf '{"ok":true,"on":%s,"patched":%s,"keyboard":"%s"}\n' "$kb_now" "$(keyboard_patched)" "$kb_who" ;;
-    *) emit_error "usage: keyboard on|off|status|luma|lg"; return 1 ;;
-  esac
-  return 0
-}
 
-shadow_switch() {
-  # $1 = the surface's name, $2 = its flag file, $3 = on|off. A restyle of an LG process that is made when the shadow module is built
-  # (tools/cover_patch.py, tools/splash_patch.py): the flag is what build_shadow reads, so a change of the switch is a rebuild. apply does it,
-  # once, and restarts LG's compositor if that is the live one (the picture flashes). A set that was never applied has no module yet: the flag is
-  # all there is to change and the first apply reads it. When the apply fails the flag goes back with the set.
-  ss_name=$1; ss_flag=$2
-  ss_was=off; [ -f "$ss_flag" ] && ss_was=on
-  mkdir -p "$STATE" 2>/dev/null
-  if [ "$3" = on ]; then : > "$ss_flag" || { emit_error "could not write $ss_flag"; return 1; }; else rm -f "$ss_flag"; fi
-  ss_applied=false
-  if [ -d "$SHADOW_ROOT" ]; then
-    ss_out=$(sh "$APPDIR/tools/lumatv" apply < /dev/null 2>>"$LOGFILE")
-    case "$ss_out" in
-      '{"ok":true'*) ss_applied=true ;;
-      *)
-        if [ "$ss_was" = on ]; then : > "$ss_flag"; else rm -f "$ss_flag"; fi
-        case "$ss_out" in '{'*'"ok":false'*) printf '%s\n' "$ss_out" ;; *) emit_error "apply did not answer" ;; esac
-        return 1 ;;
-    esac
-  fi
-  log_line "$ss_name $3 (applied: $ss_applied)"
-  return 0
-}
 
-cover_patched() {
-  if grep -q 'Luma: patched' "$SHADOW_ROOT/CoverUI/UserInterfaceLayer/Containers/MainView.qml" 2>/dev/null; then printf true; else printf false; fi
-}
 
-verb_cover() {
-  # The startup cover in LumaTV's look (docs/mocks/26-startup-cover); LG's sequencing is untouched. `status` says whether the switch is on and
-  # whether the shadow module holds the patched copy.
-  case "${1:-status}" in
-    on|off)
-      shadow_switch cover "$COVER_ON" "$1" || return 1
-      printf '{"ok":true,"cover":"%s","applied":%s,"patched":%s}\n' "$1" "$ss_applied" "$(cover_patched)" ;;
-    status)
-      cv_now=false; [ -f "$COVER_ON" ] && cv_now=true
-      printf '{"ok":true,"on":%s,"patched":%s}\n' "$cv_now" "$(cover_patched)" ;;
-    *) emit_error "usage: cover on|off|status"; return 1 ;;
-  esac
-  return 0
-}
 
-splash_patched() {
-  if grep -q 'Luma: patched' "$SHADOW_ROOT/WebOSCompositor/views/StarfishImageSplash.qml" 2>/dev/null \
-     && grep -q 'Luma: patched' "$SHADOW_ROOT/WebOSCompositor/views/StarfishSpinnerView.qml" 2>/dev/null; then printf true; else printf false; fi
-}
 
-verb_splash() {
-  # The launch splash and the launch spinner of LG's compositor in LumaTV's look (docs/mocks/15-launch-splash, 15-spinner): an app with no
-  # splash picture of its own gets LumaTV's launch screen, and the grey disc is LumaTV's ring. The Home launch screen (panels/Splash.qml) is LumaHome's own.
-  case "${1:-status}" in
-    on|off)
-      shadow_switch splash "$SPLASH_ON" "$1" || return 1
-      printf '{"ok":true,"splash":"%s","applied":%s,"patched":%s}\n' "$1" "$ss_applied" "$(splash_patched)" ;;
-    status)
-      sp_now=false; [ -f "$SPLASH_ON" ] && sp_now=true
-      printf '{"ok":true,"on":%s,"patched":%s}\n' "$sp_now" "$(splash_patched)" ;;
-    *) emit_error "usage: splash on|off|status"; return 1 ;;
-  esac
-  return 0
-}
 
-logo_set() {
-  # $1 = on|off. The staged windows are laid down first, so a redirect never points at a file that
-  # is not there. The windows are preloaded surfaces: closed after the redirect, the next launch
-  # loads from the new path.
-  if [ "$1" = on ]; then
-    for w in BootLogo MasterBrand; do
-      mkdir -p "$SYSTEMUI_STAGE/$w" 2>/dev/null || return 1
-      cp -f "$SYSTEMUI_SRC/$w/$w.qml" "$SYSTEMUI_STAGE/$w/$w.qml" 2>/dev/null || return 1
-    done
-    python3 "$SYSTEMUI_TOOL" on "$LOGO_BOOT_APP" "$SYSTEMUI_STAGE/BootLogo/BootLogo.qml" < /dev/null 2>>"$LOGFILE" || return 1
-    python3 "$SYSTEMUI_TOOL" on "$LOGO_OFF_APP" "$SYSTEMUI_STAGE/MasterBrand/MasterBrand.qml" < /dev/null 2>>"$LOGFILE" || return 1
-  else
-    python3 "$SYSTEMUI_TOOL" off "$LOGO_BOOT_APP" < /dev/null 2>>"$LOGFILE" || return 1
-    python3 "$SYSTEMUI_TOOL" off "$LOGO_OFF_APP" < /dev/null 2>>"$LOGFILE" || return 1
-  fi
-  for app in "$LOGO_BOOT_APP" "$LOGO_OFF_APP"; do
-    luna-send -n 1 luna://com.webos.service.systemUIManager/closeByAppId "{\"appId\":\"$app\"}" >/dev/null 2>&1
-  done
-  return 0
-}
 
-noti_view() {
-  # $1 = the view's QML file. 0 when the compositor accepted it: no error code in the answer and,
-  # since a success may print nothing, the path in the file LG writes when it takes a change.
-  out=$(timeout 15 luna-send -n 1 "$NOTI_VIEW_URI" "{\"viewName\":\"notificationView\",\"viewSource\":\"file://$1\"}" 2>&1 < /dev/null)
-  case "$out" in
-    *'"errorCode"'*) log_line "notifications: the compositor refused $1: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-160)"; return 1 ;;
-  esac
-  if ! grep -qF "file://$1" "$NOTI_PERSIST" 2>/dev/null; then
-    log_line "notifications: $1 was not taken ($(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120))"
-    return 1
-  fi
-  return 0
-}
 
-noti_stage() {
-  # A fresh copy of LG's tree every time, patched; the old stage stays until the new one is whole.
-  pal=$(python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" qml < /dev/null 2>>"$LOGFILE") || return 1
-  [ -d "$NOTI_STOCK" ] || return 1
-  rm -rf "$NOTI_STAGE.new" 2>/dev/null
-  mkdir -p "$SYSTEMUI_STAGE/SystemUI" 2>/dev/null || return 1
-  cp -a "$NOTI_STOCK" "$NOTI_STAGE.new" 2>/dev/null || { rm -rf "$NOTI_STAGE.new"; return 1; }
-  python3 "$NOTI_PATCH_TOOL" "$NOTI_STAGE.new" "$pal" "$NOTI_OVERLAY" < /dev/null 2>>"$LOGFILE" || { rm -rf "$NOTI_STAGE.new"; return 1; }
-  rm -rf "$NOTI_STAGE.old" 2>/dev/null
-  [ -d "$NOTI_STAGE" ] && mv "$NOTI_STAGE" "$NOTI_STAGE.old" 2>/dev/null
-  mv "$NOTI_STAGE.new" "$NOTI_STAGE" 2>/dev/null || return 1
-  rm -rf "$NOTI_STAGE.old" 2>/dev/null
-  return 0
-}
 
-noti_set() {
-  # $1 = on|off. `on` falls back to LG's view when the stage or the compositor says no.
-  if [ "$1" = on ]; then
-    if noti_stage && noti_view "$NOTI_STAGE/NotificationView.qml"; then return 0; fi
-    noti_view "$NOTI_STOCK/NotificationView.qml"
-    return 1
-  fi
-  noti_view "$NOTI_STOCK/NotificationView.qml"
-}
 
-verb_notifications() {
-  case "${1:-status}" in
-    on|off)
-      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
-      if noti_set "$1"; then
-        [ "$1" = on ] && : > "$NOTI_ON" || rm -f "$NOTI_ON"
-        log_line "notifications $1"
-        printf '{"ok":true,"notifications":"%s"}\n' "$1"
-      else
-        rm -f "$NOTI_ON"
-        emit_error "could not switch the notification view to $1; LG's view is in place"
-        return 1
-      fi ;;
-    status)
-      printf '{"ok":true,"on":%s,"staged":%s}\n' "$( [ -f "$NOTI_ON" ] && echo true || echo false )" "$( [ -f "$NOTI_STAGE/NotificationView.qml" ] && echo true || echo false )" ;;
-    *) emit_error "usage: notifications on|off|status"; return 1 ;;
-  esac
-  return 0
-}
 
-verb_logo() {
-  case "${1:-status}" in
-    on|off)
-      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
-      if logo_set "$1"; then
-        [ "$1" = on ] && : > "$LOGO_ON" || rm -f "$LOGO_ON"
-        log_line "logo $1"
-        printf '{"ok":true,"logo":"%s","main":%s}\n' "$1" "$(python3 "$SYSTEMUI_TOOL" status < /dev/null 2>/dev/null || echo null)"
-      else
-        emit_error "could not switch the logos to $1"
-        return 1
-      fi
-      ;;
-    status)
-      printf '{"ok":true,"on":%s,"main":%s}\n' "$( [ -f "$LOGO_ON" ] && echo true || echo false )" \
-        "$(python3 "$SYSTEMUI_TOOL" status < /dev/null 2>/dev/null || echo null)"
-      ;;
-    *) emit_error "usage: logo on|off|status"; return 1 ;;
-  esac
-  return 0
-}
 
-systemui_set() {
-  # $1 = on|off. Redirects the compositor's Quick Settings entry between our
-  # staged tree and the stock one. configd picks the change up live, but the
-  # panel is a preloaded surface: it is killed so the next open builds from
-  # the new path.
-  if [ "$1" = on ]; then
-    systemui_stage || return 1
-    python3 "$SYSTEMUI_TOOL" on "$QS_APP" "$QS_MAIN" < /dev/null 2>>"$LOGFILE" || return 1
-  else
-    python3 "$SYSTEMUI_TOOL" off "$QS_APP" < /dev/null 2>>"$LOGFILE" || return 1
-  fi
-  # The panel belongs to the compositor's systemUIManager, not to SAM, so
-  # applicationManager cannot close it. Closing drops the running panel,
-  # resident or not, so the next open loads from the new path. The compositor
-  # keeps compiled QML for its lifetime, so new content at the same path (a
-  # restage) needs a compositor restart.
-  luna-send -n 1 luna://com.webos.service.systemUIManager/closeByAppId \
-    "{\"appId\":\"$QS_APP\"}" >/dev/null 2>&1
-  return 0
-}
 
-verb_systemui() {
-  case "${1:-status}" in
-    on|off)
-      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
-      if systemui_set "$1"; then
-        [ "$1" = on ] && : > "$SYSTEMUI_ON" || rm -f "$SYSTEMUI_ON"
-        log_line "systemui $1"
-        printf '{"ok":true,"systemui":"%s","main":%s}\n' "$1" "$(python3 "$SYSTEMUI_TOOL" status < /dev/null 2>/dev/null || echo null)"
-      else
-        emit_error "could not switch Quick Settings to $1"
-        return 1
-      fi
-      ;;
-    status)
-      printf '{"ok":true,"staged":%s,"main":%s}\n' \
-        "$( [ -f "$QS_MAIN" ] && echo true || echo false )" \
-        "$(python3 "$SYSTEMUI_TOOL" status < /dev/null 2>/dev/null || echo null)"
-      ;;
-    *) emit_error "usage: systemui on|off|status"; return 1 ;;
-  esac
-  return 0
-}
 
-staged_hash() {
-  # Identity of the whole staged set: everything a bind or the shadow module
-  # exposes to the compositor and to Home.
-  { cat "$COMPOSITOR_STAGE" "$WALLPAPER_STAGE" "$ASSETS/home.xml" "$ASSETS/i18n/en.json" 2>/dev/null; tree_fp "$LUMA_STAGE"; } | md5sum | cut -c1-32
-}
 
-stock_module_fp() {
-  # Identity of the stock module as installed: the recursive listing, which
-  # carries every file's name, size and mtime. A firmware update rewrites the
-  # tree and that shows up here, so there is no need to hash 2.8MB of content
-  # on every boot.
-  #
-  # Not `find -printf`: this is busybox 1.35 find, which does not have it, and
-  # the failure was silent - the pipeline hashed empty input, so every
-  # fingerprint compared equal to every other and the staleness check could
-  # never fire. Verified: `ls -lnR` is stable across calls (412 lines here)
-  # and differs as soon as any file's size changes.
-  ls -lnR "$STOCK_QML_MODULE" 2>/dev/null | md5sum | cut -c1-32
-}
 
-shadow_self_fp() {
-  # Identity of the shadow tree. The listing carries every file's size, so a
-  # truncated copy fails this even though the file is present.
-  ls -lnR "$SHADOW_ROOT" 2>/dev/null | md5sum | cut -c1-32
-}
 
-shadow_patch_fp() {
-  # Identity of what the shadow's patches were made from (SHADOW_PATCH_FILES, in that order) and of the switches that decide whether a
-  # patch is made. A file that is not there counts as different from one that is.
-  {
-    for sp_f in $SHADOW_PATCH_FILES; do
-      printf '%s\n' "$sp_f"
-      cat "$sp_f" 2>/dev/null
-    done
-    if [ -f "${KEYBOARD_ON:-}" ]; then printf 'keyboard on\n'; else printf 'keyboard off\n'; fi
-    if [ -f "${COVER_ON:-}" ]; then printf 'cover on\n'; else printf 'cover off\n'; fi
-    if [ -f "${SPLASH_ON:-}" ]; then printf 'splash on\n'; else printf 'splash off\n'; fi
-  } | md5sum | cut -c1-32
-}
 
-shadow_patch_current() {
-  [ "$(cat "$SHADOW_PATCH_FP" 2>/dev/null)" = "$(shadow_patch_fp)" ]
-}
 
-build_shadow() {
-  # Rebuild the shadow module from the stock one, swap our staged QML into it,
-  # and record both what it was built from and what it now contains. Built
-  # beside the live copy and renamed in, so a compositor starting mid-build
-  # never sees a half-copied module.
-  [ -d "$STOCK_QML_MODULE" ] || return 1
-  [ -f "$COMPOSITOR_STAGE" ] || return 1
-  [ -d "$LUMA_STAGE/$QML_MODULE" ] || return 1
-  rm -rf "$SHADOW_ROOT.next" 2>/dev/null
-  mkdir -p "$SHADOW_ROOT.next" 2>/dev/null || return 1
-  cp -a "$STOCK_QML_MODULE" "$SHADOW_ROOT.next/" 2>/dev/null || { rm -rf "$SHADOW_ROOT.next"; return 1; }
-  cp -f "$COMPOSITOR_STAGE" "$SHADOW_ROOT.next/WebOSCompositor/$MODULE_RELPATH" 2>/dev/null || { rm -rf "$SHADOW_ROOT.next"; return 1; }
-  cp -R "$LUMA_STAGE/$QML_MODULE" "$SHADOW_ROOT.next/WebOSCompositor/$QML_MODULE" 2>/dev/null || { rm -rf "$SHADOW_ROOT.next"; return 1; }
 
-  # The on-screen keyboard's window comes and goes in the theme's layer motion (tools/keyboard_patch.py). The tool writes nothing
-  # when an anchor of LG's view is missing (a firmware update changed it): the shadow then keeps LG's file.
-  kb="$SHADOW_ROOT.next/WebOSCompositor/views/StarfishKeyboardView.qml"
-  if [ -f "${KEYBOARD_ON:-}" ] && [ -f "$kb" ] && [ -f "$KEYBOARD_TOOL" ]; then
-    python3 "$KEYBOARD_TOOL" "$kb" "$THEME_SRC/theme.json" < /dev/null 2>>"$LOGFILE" || log_line "build_shadow: the keyboard patch was refused, LG's keyboard view stays"
-  fi
 
-  # LG's volume and mute popup never opens (tools/volume_patch.py). The tool writes nothing when an anchor of LG's view is missing (a
-  # firmware update changed it): the shadow then keeps LG's file and the popup shows beside LumaTV's display until the patch is brought up to date.
-  vv="$SHADOW_ROOT.next/WebOSCompositor/views/StarfishVolumeView.qml"
-  if [ -f "$vv" ] && [ -f "$VOLUME_TOOL" ]; then
-    python3 "$VOLUME_TOOL" "$vv" < /dev/null 2>>"$LOGFILE" || log_line "build_shadow: the volume patch was refused, LG's volume popup stays"
-  fi
 
-  # The startup cover and the launch splash and spinner, when their switches are on: the cover is a copy of LG's CoverUI module beside the
-  # compositor's, the other two are views of the compositor module. Each tool writes nothing when an anchor of LG's files is missing (a firmware
-  # update changed it): the shadow then keeps LG's, and the log says so.
-  if [ -f "${COVER_ON:-}" ] && [ -d "${STOCK_COVER_MODULE:-}" ] && [ -f "${COVER_TOOL:-}" ]; then
-    cv_pal=$(python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" qml < /dev/null 2>>"$LOGFILE")
-    rm -rf "$SHADOW_ROOT.next/CoverUI" 2>/dev/null
-    if [ -n "$cv_pal" ] && cp -a "$STOCK_COVER_MODULE" "$SHADOW_ROOT.next/CoverUI" 2>/dev/null \
-       && python3 "$COVER_TOOL" "$SHADOW_ROOT.next/CoverUI" "$cv_pal" "$DISPLAY_NAME" "$COVER_SRC" < /dev/null 2>>"$LOGFILE"; then
-      :
-    else
-      rm -rf "$SHADOW_ROOT.next/CoverUI" 2>/dev/null
-      log_line "build_shadow: the cover patch was refused, LG's startup cover stays"
-    fi
-  fi
-  sv="$SHADOW_ROOT.next/WebOSCompositor/views"
-  if [ -f "${SPLASH_ON:-}" ] && [ -f "$sv/StarfishImageSplash.qml" ] && [ -f "$sv/StarfishSpinnerView.qml" ] && [ -f "${SPLASH_TOOL:-}" ]; then
-    sp_pal=$(python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" qml < /dev/null 2>>"$LOGFILE")
-    if [ -z "$sp_pal" ] || ! python3 "$SPLASH_TOOL" "$sv" "$sp_pal" "$SPLASH_SRC" < /dev/null 2>>"$LOGFILE"; then
-      log_line "build_shadow: the splash patch was refused, LG's launch splash and spinner stay"
-    fi
-  fi
 
-  # Get the contents on disk BEFORE the rename publishes them. /var is ext4
-  # data=ordered, so without this a power cut can commit the directory entries
-  # and lose the data, leaving a complete-looking module full of truncated
-  # files that the compositor will happily start on and render nothing from.
-  sync
 
-  rm -rf "$SHADOW_ROOT.old" 2>/dev/null
-  [ -d "$SHADOW_ROOT" ] && mv "$SHADOW_ROOT" "$SHADOW_ROOT.old"
-  mv "$SHADOW_ROOT.next" "$SHADOW_ROOT" || { [ -d "$SHADOW_ROOT.old" ] && mv "$SHADOW_ROOT.old" "$SHADOW_ROOT"; return 1; }
-  rm -rf "$SHADOW_ROOT.old" 2>/dev/null
-  stock_module_fp > "$SHADOW_STOCK_FP"
-  shadow_self_fp > "$SHADOW_SELF_FP"
-  shadow_patch_fp > "$SHADOW_PATCH_FP"
-  sync
-  return 0
-}
 
-shadow_current() {
-  # Usable means all three: it still holds exactly the staged QML, it is
-  # byte-for-byte the tree we published, and it was built from the stock
-  # module installed right now.
-  [ -f "$SHADOW_QML" ] || return 1
-  [ "$(md5sum < "$SHADOW_QML" 2>/dev/null)" = "$(md5sum < "$COMPOSITOR_STAGE" 2>/dev/null)" ] || return 1
-  [ "$(tree_fp "$SHADOW_ROOT/WebOSCompositor/$QML_MODULE")" = "$(tree_fp "$LUMA_STAGE/$QML_MODULE")" ] || return 1
-  [ "$(cat "$SHADOW_SELF_FP" 2>/dev/null)" = "$(shadow_self_fp)" ] || return 1
-  shadow_patch_current || return 1
-  [ "$(cat "$SHADOW_STOCK_FP" 2>/dev/null)" = "$(stock_module_fp)" ] || return 1
-  return 0
-}
 
-env_extra_lines() {
-  # Allowlisted KEY=VALUE lines of $ENV_EXTRA in file order; values limited to
-  # characters systemd's EnvironmentFile takes literally. QML_FORCE_DISK_CACHE
-  # is accepted but dropped: env_line always sets it, and Qt treats any value,
-  # 0 included, as set.
-  [ -f "$ENV_EXTRA" ] || return 0
-  grep -E "^($ENV_EXTRA_KEYS)=[A-Za-z0-9_.:/,+-]+\$" "$ENV_EXTRA" 2>/dev/null \
-    | grep -v '^QML_FORCE_DISK_CACHE='
-  return 0
-}
 
-env_line() {
-  printf 'QML2_IMPORT_PATH=%s:/usr/lib/qt5/qml\n' "$SHADOW_ROOT"
-  printf 'QML_FORCE_DISK_CACHE=1\n'
-  printf 'QT_QPA_UPDATE_IDLE_TIME=0\n'
-  env_extra_lines
-}
 
-env_live() { [ "$(cat "$ENV_FILE" 2>/dev/null)" = "$(env_line)" ]; }
 
-write_env() {
-  mkdir -p "$ENV_DIR" 2>/dev/null || return 1
-  env_live && return 0
-  env_line > "$ENV_FILE.tmp.$$" && mv -f "$ENV_FILE.tmp.$$" "$ENV_FILE"
-}
 
-remove_env() { rm -f "$ENV_FILE" "$ENV_FILE.tmp."* 2>/dev/null; return 0; }
 
-clear_qml_cache() { rm -rf "$QML_CACHE_DIR" 2>/dev/null; return 0; }
 
-compositor_has_shadow() {
-  # Whether the running compositor was started with our import path. Only its
-  # own environment says so; the env file on disk says what the NEXT one gets.
-  # LumaTV's compositor draws no QML: the process that carries LG's name is its supervisor, whose
-  # environment says nothing, so a live LumaTV compositor counts as having what it needs.
-  comp_live && return 0
-  p=$(pgrep -x surface-manager 2>/dev/null | head -n1)
-  [ -n "$p" ] || return 1
-  tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -qF "QML2_IMPORT_PATH=$SHADOW_ROOT:"
-}
 
-all_binds_live() {
-  is_mounted "$STOCK_ASSETS"
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 REPORTS_DIR=/tmp/var/log/reports/librdx
 
@@ -1984,6 +1173,8 @@ homestub_drop() {
 }
 
 homestub_escape() {
+  MAINTENANCE_ACCESS=emergency
+  maintenance_human_stop
   # Home held: LG's own Home on screen, LumaHome out of its way, until the next
   # apply or reboot.
   take_mutation_lock || { log_line "homestub: escape could not take the lock"; return 1; }
@@ -2075,224 +1266,11 @@ homestub_json() {
     "$hs_cfg" "$hs_state" "$hs_mo" "$hs_st" "$hs_fl" "$hs_left" "$hs_gd" "$hs_bt" "$(hs_strikes)"
 }
 
-verb_homestub() {
-  case "${1:-status}" in
-    on)
-      [ -f "$STUB_SRC/appinfo.json" ] || { emit_error "the stub's files are missing from this install"; return 1; }
-      if hs_mounted_any && ! hs_mounted_ours; then
-        emit_error "something else is mounted on LG's Home directory (Glasshouse Home?)"; return 1
-      fi
-      rm -f "$HS_SKIP" "$HS_STRIKES" "$HS_ESCAPE" "$HS_CONFIRM"
-      # A switch that was already confirmed needs no trial: it only comes back up.
-      # Otherwise a trial with no deadline yet: apply brings the stub up for it, the
-      # clock starts when it has.
-      hs_kept=false; [ "$(cfg_get_bool homestub)" = true ] && hs_kept=true
-      [ "$hs_kept" = true ] || printf 'pending\n' > "$HS_TRIAL"
-      hs_out=$(verb_apply)
-      case "$hs_out" in
-        *'"ok":true'*) : ;;
-        *) rm -f "$HS_TRIAL"; printf '%s\n' "$hs_out"; return 1 ;;
-      esac
-      if ! hs_mounted_ours || [ "$(sam_home_type)" != web ]; then
-        rm -f "$HS_TRIAL"
-        emit_error "the stub did not come up; LG's Home stays (see the log)"; return 1
-      fi
-      if ! hs_beat_seen 50; then
-        take_mutation_lock >/dev/null 2>&1
-        hs_front=0; hs_stub_in_front && hs_front=1
-        homestub_drop legacy
-        [ "$hs_front" = 1 ] && hs_open_home
-        log_line "homestub: LumaHome never started its heartbeat, stub removed"
-        emit_error "LumaHome did not start drawing; LG's Home is back"; return 1
-      fi
-      if [ "$hs_kept" = true ]; then
-        log_line "homestub: on"
-        printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)"
-        return 0
-      fi
-      printf 'trial %s\n' "$(( $(uptime_s) + HS_TRIAL_SECS ))" > "$HS_TRIAL"
-      hs_mode_set stub "trial=$HS_TRIAL_SECS"
-      log_line "homestub: on trial for $HS_TRIAL_SECS s"
-      printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)"
-      ;;
-    off)
-      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
-      set_cfg_bool homestub false
-      rm -f "$HS_SKIP" "$HS_STRIKES"
-      hs_front=0; hs_stub_in_front && hs_front=1
-      homestub_drop legacy
-      [ "$hs_front" = 1 ] && hs_open_home
-      log_line "homestub: off"
-      printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)"
-      ;;
-    confirm)
-      if [ ! -f "$HS_TRIAL" ]; then
-        if [ "$(cfg_get_bool homestub)" = true ] && hs_mounted_ours; then
-          printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)"; return 0
-        fi
-        emit_error "no trial is running"; return 1
-      fi
-      homestub_confirm
-      case $? in
-        0) printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)" ;;
-        2) emit_error "the stub is not in place"; return 1 ;;
-        *) emit_error "LumaHome is not drawing (no heartbeat); not confirming"; return 1 ;;
-      esac
-      ;;
-    status) printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)" ;;
-    *) emit_error "usage: homestub on|off|confirm|status"; return 1 ;;
-  esac
-  return 0
-}
 
-verb_homestub_boot() {
-  # The boot worker's first act (tools/autostart.sh), before anything touches
-  # Home: the stub goes over LG's Home as early as the early hook runs, because
-  # bootd opens Home about 14 s into a power-on and the hook starts at 12-14 s.
-  # The compositor is still stock then; the apply that follows restarts it.
-  if [ "$(cfg_get_bool homestub)" != true ]; then
-    printf '{"ok":true,"stub":false,"reason":"off"}\n'; return 0
-  fi
-  take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
-  rm -f "$HS_SKIP"
-  if [ -f "$BOOT_PENDING" ]; then
-    # The previous boot never reached boot-ok. Whatever stopped it may have been
-    # the stub, so this boot has LG's Home.
-    hs_strike "the previous boot never completed"
-    : > "$HS_SKIP"
-    printf '{"ok":true,"stub":false,"reason":"failsafe"}\n'; return 0
-  fi
-  if [ "$(hs_strikes)" -ge "$HS_MAX_STRIKES" ]; then
-    set_cfg_bool homestub false
-    printf '{"ok":true,"stub":false,"reason":"faults"}\n'; return 0
-  fi
-  if [ ! -d "$ASSETS/i18n" ] || [ ! -f "$STUB_SRC/appinfo.json" ]; then
-    printf '{"ok":true,"stub":false,"reason":"no-stage"}\n'; return 0
-  fi
-  if homestub_up; then
-    hs_wd_start
-    printf '{"ok":true,"stub":true}\n'
-  else
-    printf '{"ok":true,"stub":false,"reason":"failed"}\n'
-  fi
-  return 0
-}
 
-verb_homestub_watch() {
-  # The guard: one detached shell. While all is well it forks one grep every 10 s:
-  # the reads are builtins and the one-second wait is a read on a fifo.
-  if hs_wd_alive && [ "$(cat "$HS_WD_PID" 2>/dev/null)" != "$$" ]; then exit 0; fi
-  printf '%s\n' "$$" > "$HS_WD_PID"
-  HS_IN_GUARD=1
-  trap 'hs_guard_exit' TERM INT HUP
-  [ -p "$HS_TICK" ] || { rm -f "$HS_TICK"; mkfifo "$HS_TICK" 2>/dev/null; }
-  # Requests and a beat left from before this guard started are stale.
-  rm -f "$HS_ESCAPE" "$HS_CONFIRM" "$HS_BEAT"
-  read -r hs_up hs_idle < /proc/uptime; hs_now=${hs_up%%.*}
-  hs_last=""; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE)); hs_cpid=""; hs_gap=0; hs_good=0; hs_mchk=$hs_now; hs_dark=0
-  log_line "homestub: guard started"
-  while :; do
-    if [ -p "$HS_TICK" ]; then read -t 1 hs_x <> "$HS_TICK" 2>/dev/null; else sleep 1; fi
-    read -r hs_up hs_idle < /proc/uptime; hs_now=${hs_up%%.*}
 
-    if [ -e "$HS_ESCAPE" ]; then
-      rm -f "$HS_ESCAPE"; homestub_escape; hs_guard_exit
-    fi
-    if [ -e "$HS_CONFIRM" ]; then
-      rm -f "$HS_CONFIRM"; homestub_confirm >/dev/null 2>&1
-    fi
-    if [ -f "$HS_TRIAL" ]; then
-      hs_dl=""; { read -r hs_tb hs_dl < "$HS_TRIAL"; } 2>/dev/null
-      case "$hs_dl" in
-        ''|*[!0-9]*) : ;;
-        *) if [ "$hs_now" -ge "$hs_dl" ]; then homestub_expire; hs_guard_exit; fi ;;
-      esac
-    fi
 
-    # The compositor: a new process, or none yet, means it is restarting and LumaHome
-    # needs the grace again. One that started after this guard did has to carry the
-    # module: the first start of a boot is stock, but a restart is ours, and one
-    # without the module (failsafe, revert, a changed env file) leaves the stub
-    # showing nothing.
-    if [ -z "$hs_cpid" ] || [ ! -d "/proc/$hs_cpid" ]; then
-      hs_np=$(pgrep -x surface-manager 2>/dev/null | head -n1)
-      if [ -z "$hs_np" ]; then
-        hs_cpid=""; hs_gap=1; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE))
-      elif [ "$hs_np" != "$hs_cpid" ]; then
-        if [ -n "$hs_cpid" ] || [ "$hs_gap" = 1 ]; then
-          log_line "homestub: compositor restarted"
-          # A process read between its fork and exec shows systemd's environment,
-          # not ours, so the module has to be missing for 3 s before LG's Home is
-          # given back.
-          hs_ci=0
-          while [ "$hs_ci" -lt 3 ] && ! compositor_has_shadow; do sleep 1; hs_ci=$((hs_ci+1)); done
-          if ! compositor_has_shadow; then
-            homestub_fault "the compositor restarted without LumaTV's module"
-            hs_guard_exit
-          fi
-        fi
-        hs_gap=0; hs_cpid=$hs_np; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE))
-      fi
-    fi
 
-    # LumaTV's own compositor draws no LumaHome: there is no beat to read, and its supervisor
-    # falls back by itself (and runs the Home recovery), so the stub stays and the checks below
-    # that read the beat are skipped while it is live.
-    if comp_live; then
-      hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE))
-    else
-    hs_b=""; { read -r hs_b < "$HS_BEAT"; } 2>/dev/null
-    # The compositor's container writes "error" in place of a beat when LumaHome
-    # failed to load.
-    if [ "$hs_b" = error ]; then
-      homestub_fault "LumaHome could not be loaded"
-      hs_guard_exit
-    fi
-    if [ -n "$hs_b" ] && [ "$hs_b" != "$hs_last" ]; then
-      hs_last=$hs_b; hs_ok_at=$hs_now; hs_good=$((hs_good + 1)); hs_dark=0
-      # A minute of beats ends the run of faults.
-      if [ "$hs_good" -eq 60 ]; then rm -f "$HS_STRIKES"; fi
-    fi
-    if [ "$hs_now" -ge "$hs_grace" ] && [ $((hs_now - hs_ok_at)) -ge "$HS_STALE" ]; then
-      # No beat, and the panel is off (standby): not a fault. After a restart of the
-      # compositor with the panel off (a boot into standby) LumaHome never beat in 14
-      # minutes of standby, and the guard gave LG's Home back at 30 s. The beat is checked
-      # again from the first screen-on, with a fresh grace. A set that is on gets no such
-      # allowance.
-      if ! panel_is_active; then
-        if [ "$hs_dark" = 0 ]; then hs_dark=1; log_line "homestub: no beat and the panel is off, waiting for the screen"; fi
-        hs_ok_at=$hs_now
-      elif [ "$hs_dark" = 1 ]; then
-        hs_dark=0; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE))
-        log_line "homestub: screen on, waiting for the beat"
-      else
-        # Unchanged for HS_STALE s. The file's own age is checked before LG's Home is
-        # given back: a fault was once logged on the guard's reading alone while
-        # LumaHome's counter showed no stall.
-        hs_age=$(( $(date +%s) - $(mtime_epoch "$HS_BEAT") ))
-        if [ "$hs_age" -le 2 ]; then
-          log_line "homestub: beat read as unchanged at '$hs_last' for $((hs_now - hs_ok_at)) s but the file is $hs_age s old, kept"
-          hs_ok_at=$hs_now
-        else
-          homestub_fault "LumaHome's heartbeat stopped ($((hs_now - hs_ok_at)) s, file $hs_age s old)"
-          hs_guard_exit
-        fi
-      fi
-    fi
-    fi
-
-    # Every 10 s: is the stub still mounted? A guard for a stub that is gone has
-    # nothing to guard. One grep: a read loop over mountinfo costs a syscall per
-    # byte in busybox's ash, 4 % of a core at one scan in 5 s.
-    if [ $((hs_now - hs_mchk)) -ge 10 ]; then
-      hs_mchk=$hs_now
-      if ! hs_mounted_any; then
-        log_line "homestub: the stub is no longer mounted, guard stops"
-        hs_guard_exit
-      fi
-    fi
-  done
-}
 
 # ------------------------------------------------------------------- revert
 
@@ -2320,11 +1298,143 @@ jpeg_stage() {
     || { rm -f "$JPEG_BIN.new"; log_line "jpeg: could not stage the decoder"; return 1; }
 }
 
+helper_config_migrate() {
+  python3 - "$STATE/helper.json" <<'PY'
+import fcntl
+import json
+import os
+import stat
+import sys
+import secrets
+
+
+def invalid_constant(_):
+    raise ValueError("non-finite JSON number")
+
+
+def verify_directory(path, parent):
+    named = os.stat(os.path.dirname(path) or ".", follow_symlinks=False)
+    held = os.fstat(parent)
+    if not stat.S_ISDIR(named.st_mode) or (named.st_dev, named.st_ino) != (held.st_dev, held.st_ino):
+        raise ValueError("data directory changed during migration; no changes made")
+
+def migrate(path, parent):
+    try:
+        fd = os.open(os.path.basename(path), os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW, dir_fd=parent)
+    except FileNotFoundError:
+        return
+    with os.fdopen(fd, "rb") as source:
+        before = os.fstat(source.fileno())
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("configuration is not a regular file")
+        raw = source.read()
+        text = raw.decode("utf-8")
+        document = json.loads(text, parse_constant=invalid_constant)
+        if not isinstance(document, dict):
+            raise ValueError("configuration must be a JSON object")
+        log = document.get("log")
+        if not isinstance(log, dict) or "maxBytes" not in log:
+            return
+        decoder = json.JSONDecoder()
+
+        def fields(start):
+            pos = start + 1
+            while True:
+                while text[pos].isspace():
+                    pos += 1
+                if text[pos] == "}":
+                    return
+                key_start = pos
+                key, pos = decoder.raw_decode(text, pos)
+                while text[pos].isspace():
+                    pos += 1
+                pos += 1  # The complete document was validated above: this is the colon.
+                while text[pos].isspace():
+                    pos += 1
+                value_start = pos
+                _, pos = decoder.raw_decode(text, pos)
+                yield key, key_start, value_start, pos
+                while text[pos].isspace():
+                    pos += 1
+                if text[pos] == "}":
+                    return
+                pos += 1
+
+        root = list(fields(len(text) - len(text.lstrip())))
+        logs = [item for item in root if item[0] == "log"]
+        if len(logs) != 1:
+            raise ValueError("duplicate log keys prevent a safe migration")
+        members = list(fields(logs[0][2]))
+        obsolete = [i for i, item in enumerate(members) if item[0] == "maxBytes"]
+        if len(obsolete) != 1:
+            raise ValueError("duplicate maxBytes keys prevent a safe migration")
+        index = obsolete[0]
+        start, end = members[index][1], members[index][3]
+        if index + 1 < len(members):
+            end = members[index + 1][1]
+        elif index:
+            start = members[index - 1][3]
+        # Removing a member's byte span preserves every other value, escape, and numeric precision exactly.
+        updated = (text[:start] + text[end:]).encode("utf-8")
+        candidate = ".helper.json." + secrets.token_hex(8)
+        temporary = None
+        try:
+            target_fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+            temporary = candidate
+            with os.fdopen(target_fd, "wb") as target:
+                os.fchown(target.fileno(), before.st_uid, before.st_gid)
+                os.fchmod(target.fileno(), stat.S_IMODE(before.st_mode))
+                target.write(updated)
+                target.flush()
+                os.fsync(target.fileno())
+            source.seek(0)
+            current_bytes = source.read()
+            current = os.stat(os.path.basename(path), dir_fd=parent, follow_symlinks=False)
+            signature = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns,
+                                       value.st_ctime_ns, value.st_mode, value.st_uid, value.st_gid)
+            if signature(current) != signature(before) or current_bytes != raw:
+                raise ValueError("configuration changed during migration; no changes made")
+            verify_directory(path, parent)
+            os.replace(temporary, os.path.basename(path), src_dir_fd=parent, dst_dir_fd=parent)
+            temporary = None
+            os.fsync(parent)
+        finally:
+            if temporary is not None:
+                os.unlink(temporary, dir_fd=parent)
+
+
+directory_fd = None
+try:
+    try:
+        directory_fd = os.open(os.path.dirname(sys.argv[1]) or ".", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        sys.exit(0)
+    # Every product helper.json writer locks this stable parent inode before opening/replacing the file.
+    # External editors do not participate; the checks above detect earlier edits, not a full pathname CAS.
+    fcntl.flock(directory_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    verify_directory(sys.argv[1], directory_fd)
+    migrate(sys.argv[1], directory_fd)
+except (OSError, ValueError) as error:
+    print("helper: helper.json migration failed: %s" % error, file=sys.stderr)
+    sys.exit(1)
+finally:
+    if directory_fd is not None:
+        os.close(directory_fd)
+PY
+}
+
+
 helper_start() {
+  maintenance_guard || return 1
   # Idempotent. The helper runs under its own supervisor (`lumatv-helper start`), which starts it again after a crash, a signal or the
   # out-of-memory killer; this is what starts the supervisor, on every apply and boot. Needs $STATE writable (the boot worker and apply run after /var is). A failure is
   # logged and never fatal: Home draws the last saved weather and news without it.
   [ -x "$HELPER_SRC" ] || { log_line "helper: no helper in the package"; return 1; }
+  if ! migration_error=$(helper_config_migrate 2>&1); then
+    printf '%s\n' "$migration_error" >&2
+    log_line "$migration_error"
+    return 1
+  fi
   if ! cmp -s "$HELPER_SRC" "$HELPER_BIN" 2>/dev/null; then
     [ -x "$HELPER_BIN" ] && "$HELPER_BIN" stop --brand "$APPDIR/brand.json" >/dev/null 2>&1
     mkdir -p "$STATE/bin" 2>/dev/null \
@@ -2358,7 +1468,7 @@ helper_json() {
 
 verb_helper() {
   case "$1" in
-    start) if helper_start; then printf '{"ok":true,"helper":%s}\n' "$(helper_json)"; else emit_error "helper did not start; see $LOGFILE"; return 1; fi ;;
+    start) if helper_start; then printf '{"ok":true,"helper":%s}\n' "$(helper_json)"; else emit_error "helper did not start; see lumatv log"; return 1; fi ;;
     stop) helper_stop; printf '{"ok":true,"helper":%s}\n' "$(helper_json)" ;;
     status) printf '{"ok":true,"helper":%s}\n' "$(helper_json)" ;;
     *) emit_error "helper: start, stop or status"; return 1 ;;
@@ -2484,7 +1594,7 @@ capture_json() {
 
 verb_capture() {
   case "$1" in
-    start) if capture_start; then printf '{"ok":true,"capture":%s}\n' "$(capture_json)"; else emit_error "capture did not start; see $LOGFILE"; return 1; fi ;;
+    start) if capture_start; then printf '{"ok":true,"capture":%s}\n' "$(capture_json)"; else emit_error "capture did not start; see lumatv log"; return 1; fi ;;
     stop) capture_stop; printf '{"ok":true,"capture":%s}\n' "$(capture_json)" ;;
     remove) capture_remove; printf '{"ok":true,"capture":%s}\n' "$(capture_json)" ;;
     status) printf '{"ok":true,"capture":%s}\n' "$(capture_json)" ;;
@@ -2583,7 +1693,7 @@ vplane_remove() { [ -f "$VPLANE_SH" ] && sh "$VPLANE_SH" remove "$STATE" >/dev/n
 verb_vplane() {
   case "${1:-status}" in
     install)
-      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      take_mutation_lock || { emit_error "another mutation is still running"; return 1; }
       if vplane_install; then printf '{"ok":true,"vplane":%s}\n' "$(vplane_json)"; else emit_error "vplane did not install: $vp_out"; return 1; fi ;;
     start) if vplane_start; then printf '{"ok":true,"vplane":%s}\n' "$(vplane_json)"; else emit_error "vplane did not start: $vp_out"; return 1; fi ;;
     stop) vplane_stop; printf '{"ok":true,"vplane":%s}\n' "$(vplane_json)" ;;
@@ -2730,10 +1840,11 @@ verb_transitions() {
   return 0
 }
 
+
 verb_preload() {
   case "$1" in
     on|off|status)
-      out=$(python3 "$PRELOAD_TOOL" "$1" "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null 2>>"$LOGFILE"); rc=$?
+      out=$(log_stderr python3 "$PRELOAD_TOOL" "$1" "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null); rc=$?
       [ -n "$out" ] || out='{"ok":false,"error":"preload tool failed"}'
       printf '%s\n' "$out"
       [ "$1" = status ] || log_line "preload $1: $(printf '%s' "$out" | cut -c1-200)"
@@ -2742,19 +1853,139 @@ verb_preload() {
   esac
 }
 
+verb_wake() {
+  case "$1" in
+    status) python3 "$WAKE_TOOL" status < /dev/null ;;
+    boot-check)
+      if [ "${LUMA_BOOT:-}" = 1 ]; then
+        maintenance_guard || return 1
+        python3 "$WAKE_TOOL" "$@" < /dev/null; return $?
+      fi
+      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
+      python3 "$WAKE_TOOL" "$@" < /dev/null; rc=$?
+      exec 9>&-
+      return $rc ;;
+    on|off|stage|trial|persist|commit)
+      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
+      python3 "$WAKE_TOOL" "$1" < /dev/null; rc=$?
+      exec 9>&-
+      return $rc ;;
+    *) emit_error "wake: on, off, status, stage, trial, persist, boot-check or commit"; return 1 ;;
+  esac
+}
+
 recover_home() {
   # LG's Home after the compositor was away and came back: the bundle's own script when it is there
   # (it holds the recovery lock), else the tool's relaunch.
-  if [ -f "$COMP/bin/recover-home.sh" ]; then sh "$COMP/bin/recover-home.sh" "$COMP/sm.log" >/dev/null 2>&1
+  if [ -f "$COMP/bin/recover-home.sh" ]; then sh "$COMP/bin/recover-home.sh" >/dev/null 2>&1
   else home_back_after_restart; fi
 }
+
+clear_stock_running() (
+  [ -e "$COMP/running" ] || return 0
+  exec 9>"$LOCKFILE" 2>/dev/null || return 1
+  flock -x -w "$LOCK_WAIT" 9 2>/dev/null || return 1
+  [ -e "$COMP/stock-ui-held" ] && [ ! -e "$COMP/enabled" ] && ! comp_mounted || return 1
+  systemctl is-active --quiet "$SURFACE_SVC" || return 1
+  stock_pid=$(systemctl show "$SURFACE_SVC" --property=MainPID --value 2>/dev/null)
+  case "$stock_pid" in ""|*[!0-9]*|0) return 1 ;; esac
+  stock_exe=$(stat -Lc "%d:%i" "/proc/$stock_pid/exe" 2>/dev/null) || return 1
+  supervisor_exe=$(stat -Lc "%d:%i" "$COMP/bin/lumatv-sm" 2>/dev/null) || return 1
+  [ -n "$stock_exe" ] && [ "$stock_exe" != "$supervisor_exe" ] || return 1
+  rm -f "$COMP/running"
+)
 
 verb_compositor() {
   case "${1:-status}" in
     on|off)
-      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
-      msg=$(comp_switch "$1"); rc=$?
-      if [ "$rc" -ne 0 ]; then emit_error "$msg"; return 1; fi
+      take_mutation_lock || { emit_error "another mutation is still running"; return 1; }
+      rc=0; msg=""
+      if [ "$1" = on ]; then
+        old_hold_present=false; old_hold_generation=""
+        if [ -e "$COMP/stock-ui-held" ]; then
+          old_hold_present=true
+          old_hold_generation=$(cat "$COMP/stock-ui-held") || { exec 9>&-; emit_error "could not read stock UI hold"; return 1; }
+        fi
+        msg=$(comp_preflight "${2:-}"); rc=$?
+        if [ "$rc" -ne 0 ]; then exec 9>&-; emit_error "$msg"; return "$rc"; fi
+        native_storage_guard || { exec 9>&-; emit_error "$STORAGE_WHY"; return 1; }
+        mkdir -p "$COMP" || { emit_error "could not prepare compositor state"; return 1; }
+        if [ "$old_hold_present" = true ]; then
+          hold_tmp=$(mktemp "$COMP/.enable-hold.XXXXXX") || { exec 9>&-; emit_error "could not prepare stock UI hold"; return 1; }
+          if ! mv -f "$COMP/stock-ui-held" "$hold_tmp"; then
+            rm -f "$hold_tmp"; exec 9>&-; emit_error "stock UI hold changed during enable"; return 9
+          fi
+          moved_generation=$(cat "$hold_tmp") || { ln "$hold_tmp" "$COMP/stock-ui-held" 2>/dev/null || :; exec 9>&-; emit_error "could not read stock UI hold"; return 1; }
+          if [ "$moved_generation" != "$old_hold_generation" ]; then
+            if ! ln "$hold_tmp" "$COMP/stock-ui-held" 2>/dev/null && [ ! -e "$COMP/stock-ui-held" ]; then
+              exec 9>&-; emit_error "could not preserve new stock UI hold"; return 1
+            fi
+            rm -f "$hold_tmp"; exec 9>&-; emit_error "stock UI recovery interrupted compositor startup"; return 9
+          fi
+          rm -f "$hold_tmp" || { ln "$hold_tmp" "$COMP/stock-ui-held" 2>/dev/null || :; exec 9>&-; emit_error "could not consume stock UI hold"; return 1; }
+        elif [ -e "$COMP/stock-ui-held" ]; then
+          exec 9>&-; emit_error "stock UI recovery interrupted compositor startup"; return 9
+        fi
+        mkdir -p "$(dirname "$AUTOSTART_LINK")" 2>/dev/null || { rc=1; msg="could not prepare boot hook"; }
+        if [ "$rc" -eq 0 ]; then
+          ln -sfn "$AUTOSTART_SRC" "$AUTOSTART_LINK" 2>/dev/null || { rc=1; msg="could not install boot hook"; }
+        fi
+        if [ "$rc" -eq 0 ]; then
+          (install_early_hook) || log_line "compositor: early boot hook unavailable; using init.d"
+          if [ -e "$COMP/stock-ui-held" ]; then
+            rc=9; msg="stock UI recovery interrupted compositor startup"
+          else
+            (native_start >/dev/null) || { rc=1; msg="native startup failed"; }
+          fi
+        fi
+      fi
+      if [ "$rc" -eq 0 ]; then msg=$(comp_switch "$1" "${2:-}" preflighted); rc=$?; fi
+      if [ "$1" = on ] && [ "$rc" -eq 1 ] && [ -e "$COMP/stock-ui-held" ]; then
+        rc=9; msg="stock UI recovery interrupted compositor startup"
+      fi
+      if [ "$1" = on ] && [ "$rc" -ne 0 ]; then
+        { (set -C; : > "$COMP/stock-ui-held") 2>/dev/null || [ -e "$COMP/stock-ui-held" ]; } || msg="$msg; could not restore stock UI hold"
+        (comp_switch off >/dev/null) || msg="$msg; stock UI restoration incomplete"
+      fi
+      exec 9>&-
+      if [ "$1" = off ] || [ "$rc" -ne 0 ]; then
+        if (restart_surface stock); then
+          (clear_stock_running) || { [ "$rc" -ne 0 ] || rc=1; msg="$msg; could not clear stock running marker"; }
+        else
+          [ "$rc" -ne 0 ] || rc=1; msg="$msg; stock compositor restart failed"
+        fi
+        (recover_home) || { [ "$rc" -ne 0 ] || rc=1; msg="$msg; Home recovery failed"; }
+      else
+        if [ -e "$COMP/stock-ui-held" ]; then
+          rc=9; msg="stock UI recovery interrupted compositor startup"
+        else
+          (restart_surface native) || { rc=1; msg="compositor restart failed"; }
+        fi
+        (recover_home) || { rc=1; msg="$msg; Home recovery failed"; }
+        if [ "$rc" -eq 0 ]; then
+          (comp_ready) || { rc=1; msg="native compositor did not become ready"; }
+        fi
+        if [ -e "$COMP/stock-ui-held" ] || [ -e "$COMP/last-fallback" ]; then
+          rc=9; msg="supervisor returned to stock UI during startup"
+        fi
+        if [ "$rc" -ne 0 ]; then
+          { (set -C; : > "$COMP/stock-ui-held") 2>/dev/null || [ -e "$COMP/stock-ui-held" ]; } || msg="$msg; could not restore stock UI hold"
+          if take_mutation_lock; then
+            (comp_switch off >/dev/null) || msg="$msg; stock UI restoration incomplete"
+            exec 9>&-
+          else
+            exec 9>&-
+            msg="$msg; could not acquire lock to restore stock UI"
+          fi
+          if (restart_surface stock); then
+            (clear_stock_running) || msg="$msg; could not clear stock running marker"
+          else
+            msg="$msg; stock compositor restart failed"
+          fi
+          (recover_home) || msg="$msg; Home recovery failed"
+        fi
+      fi
+      if [ "$rc" -ne 0 ]; then emit_error "$msg"; return "$rc"; fi
       log_line "compositor $1"
       printf '{"ok":true,"compositor":%s}\n' "$(comp_json)" ;;
     status) printf '{"ok":true,"compositor":%s}\n' "$(comp_json)" ;;
@@ -2765,105 +1996,214 @@ verb_compositor() {
 }
 
 verb_compositor_boot() {
-  # The early hook's step before apply restarts the compositor: place the mount when everything allows it
+  # Place the mount when everything allows it
   # (the flag, a firmware build the gate passed on, an intact bundle, a supervisor that answers, Home not held).
   # comp_boot_mount logs the reason of a refusal itself; the word is logged here.
-  r=$(comp_boot_mount)
-  log_line "compositor-boot: $r"
-  printf '{"ok":true,"compositor":"%s"}\n' "$r"
-  return 0
-}
-
-revert_tile_icons() {
-  [ -x "$NODE" ] && [ -f "$TILEICONS" ] || return 0
-  out=$("$NODE" "$TILEICONS" revert "$STATE" 2>>"$LOGFILE") || return 0
-  n=$(printf '%s' "$out" | sed -n 's/.*"restored":\([0-9]*\).*/\1/p'); [ -n "$n" ] || n=0
-  [ "$n" -gt 0 ] && log_line "tile icons: restored $n file(s); the launcher reads them at its next start"
-  return 0
-}
-
-do_revert_internal() {
-  # Mechanics only; never prints. Sets REVERT_CHANGED=1 if anything was
-  # actually mounted or restored, so callers can decide whether a disruptive
-  # compositor restart / Home relaunch is warranted.
-  REVERT_CHANGED=0
-
-  helper_stop
-  openapps_restore
-  capture_remove
-  vplane_remove
-  feeder_remove
-  rm -f "$JPEG_BIN" "$JPEG_BIN.new"   # the picture decoder: the helper that started it is stopped, so it has ended
-  # LumaTV's compositor over LG's binary is a change in its own right: the unit has to be restarted for the unmount to
-  # mean LG's compositor, whatever else this revert found to undo.
-  revert_was_comp=0
-  if comp_mounted; then revert_was_comp=1; REVERT_CHANGED=1; fi
-  comp_release
-  [ -f "$PRELOAD_STATE" ] && python3 "$PRELOAD_TOOL" off "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null 2>&1
-
-  # LG's Home first, so what the restart below brings up is LG's, not the stub.
-  homestub_drop legacy
-  if [ "${HS_DROPPED:-0}" = 1 ]; then REVERT_CHANGED=1; fi
-  rm -f "$HS_MODE" "$HS_BEAT" "$HS_SKIP" "$HS_STRIKES"
-
-  # The env file is what makes a starting compositor load our module, so it
-  # goes first: from that point on any compositor start is stock, whether or
-  # not the restart below succeeds.
-  if [ -f "$ENV_FILE" ]; then REVERT_CHANGED=1; fi
-  remove_env
-  rm -f "$ENV_EXTRA"
-  clear_qml_cache
-  keyfilter_set remove
-  [ -f "$LOGO_ON" ] && logo_set off
-  [ -f "$NOTI_ON" ] && { noti_set off; rm -f "$NOTI_ON"; }
-  rm -f "$KEYBOARD_ON"
-  rm -f "$KEYBOARD_LUMA"
-  rm -f "$COVER_ON" "$SPLASH_ON"
-  [ -f "$INPUTCOMMON_ON" ] && { inputcommon_set off; rm -f "$INPUTCOMMON_ON"; }
-  [ -f "$STORE_ON" ] && { store_set off; rm -f "$STORE_ON"; }
-  [ -f "$VOICE_ON" ] && { voice_set off; rm -f "$VOICE_ON"; }
-  [ -f "$KEYS_ON" ] && { keys_set off; rm -f "$KEYS_ON"; }
-  # Nothing of ours should run on the boot path after a revert, including the
-  # PATH shim kdump.service would otherwise resolve.
-  remove_early_hook
-  if [ -d "$SHADOW_ROOT" ]; then REVERT_CHANGED=1; fi
-  rm -rf "$SHADOW_ROOT" "$SHADOW_ROOT.next" "$SHADOW_ROOT.old" 2>/dev/null
-  rm -f "$SHADOW_STOCK_FP" "$SHADOW_SELF_FP" "$SHADOW_PATCH_FP" 2>/dev/null
-
-  if is_mounted "$STOCK_ASSETS"; then REVERT_CHANGED=1; fi
-  drain_umount "$STOCK_ASSETS"
-
-  revert_tile_icons
-
-  # Nothing of ours is live any more, so the next apply must not inherit the
-  # old bind time and skip a restart the compositor genuinely needs.
-  rm -f "$BOUND_AT" "$BOOT_PENDING"
-
-  if [ "$REVERT_CHANGED" -eq 1 ]; then
-    restart_surface >/dev/null 2>&1
-    if [ "$revert_was_comp" -eq 1 ]; then
-      # WebAppMgr lost its socket with LumaTV's compositor: the recovery `compositor off` runs (reset, restart, Home).
-      recover_home
-      disarm_restart_crashes "$reports_before"
-    else
-      home_back_after_restart
-    fi
-  fi
-  return 0
-}
-
-verb_revert() {
-  if ! take_mutation_lock; then
-    emit_error "another apply or revert is still running"
+  take_mutation_lock || { emit_error "stock UI held or another mutation is in progress"; return 1; }
+  if comp_enabled && ! native_storage_guard; then
+    log_line "compositor-boot: $STORAGE_WHY"
+    emit_error "$STORAGE_WHY"
     return 1
   fi
-  do_revert_internal
-  mounts=$(count_mounts)
-  log_line "revert: changed=$REVERT_CHANGED mounts=$mounts"
-  ntfy_notify "$DISPLAY_NAME reverted to stock"
-  printf '{"ok":true,"applied":false,"mounts":%s}\n' "$mounts"
+  boot_comp_result=$(comp_boot_mount)
+  case "$boot_comp_result" in
+    mounted|already)
+      native_start >/dev/null || { exec 9>&-; emit_error "native startup failed"; return 1; }
+      install_frame_app
+      if [ -f "${GFN_IPK:-}" ] && [ -d "${GFN_DIR:-}" ] && ! gfn_current && ! gfn_running; then
+        if app_storage_guard "$GFN_IPK" "$GFN_DIR"; then
+          gfn_update || log_line "boot: GeForce NOW update failed"
+        else
+          log_line "boot: GeForce NOW update deferred: $STORAGE_WHY"
+        fi
+      fi
+      if feeder_installed; then
+        if storage_guard "$STATE" "$FEEDER_SRC" "$(dirname "$FEEDER_SRC")/lib"; then
+          feeder_update || true
+        else
+          log_line "boot: feeder update deferred: $STORAGE_WHY"
+        fi
+      fi
+      ;;
+  esac
+  log_line "compositor-boot: $boot_comp_result"
+  boot_standby=false
+  if panel_is_active_standby; then boot_standby=true; fi
+  printf '{"ok":true,"compositor":"%s","standby":%s}\n' "$boot_comp_result" "$boot_standby"
   return 0
 }
+
+verb_compositor_boot_activate() {
+  take_mutation_lock || { emit_error "stock UI held or another mutation is in progress"; return 1; }
+  if ! comp_enabled || ! comp_mounted || [ -e "$COMP/stock-ui-held" ] || comp_recovering; then
+    exec 9>&-; emit_error "compositor activation refused"; return 1
+  fi
+  exec 9>&-
+  if comp_live && comp_ready >/dev/null; then
+    if [ "${1:-}" = standby ] && ! panel_is_active_standby; then
+      emit_error "standby changed before activation"; return 1
+    fi
+    printf '{"ok":true,"compositor":"live"}\n'; return 0
+  fi
+  landing=
+  if [ "${1:-}" = standby ]; then
+    panel_is_active_standby || { emit_error "standby changed before activation"; return 1; }
+  elif panel_is_active; then
+    landing=$(boot_landing_app)
+  fi
+  restart_surface native "${1:-}"; restart_rc=$?
+  if [ "$restart_rc" -eq 2 ] || [ -e "$COMP/stock-ui-held" ] || comp_recovering; then
+    emit_error "compositor activation interrupted by stock recovery"; return 1
+  fi
+  if [ "$restart_rc" -eq 0 ] && comp_ready >/dev/null && [ ! -e "$COMP/stock-ui-held" ]; then
+    if [ -n "$landing" ] && [ "$landing" != __wake_skip__ ] && panel_is_active; then
+      land_on_app "$landing" restart
+    fi
+    printf '{"ok":true,"compositor":"live"}\n'
+    return 0
+  fi
+  if take_mutation_lock; then
+    (comp_switch off >/dev/null) || log_line "compositor-boot: stock UI restoration incomplete"
+    exec 9>&-
+    (restart_surface stock "${1:-}" && clear_stock_running) || log_line "compositor-boot: stock compositor restart failed"
+  else
+    exec 9>&-
+    log_line "compositor-boot: could not acquire lock to restore stock UI"
+  fi
+  emit_error "native compositor activation failed"
+  return 1
+}
+
+
+
+
+
+# Remove only a known upper directory, and never peel a foreign covering mount.
+stock_ui_unmount_overlay() {
+  su_target=$1; su_upper=$2; su_count=0
+  [ -r /proc/mounts ] || return 1
+  while :; do
+    awk -v target="$su_target" -v upper="$su_upper" '
+      $2 == target {
+        owned = 0
+        if ($3 == "overlay") {
+          n = split($4, opts, ",")
+          for (i = 1; i <= n; i++) if (opts[i] == "upperdir=" upper) owned = 1
+        }
+        if (owned) found = 1
+        top = owned
+      }
+      END { if (!found) exit 1; if (!top) exit 2 }
+    ' /proc/mounts
+    su_layer=$?
+    [ "$su_layer" -eq 1 ] && return 0
+    [ "$su_layer" -eq 0 ] && [ "$su_count" -lt 8 ] || return 1
+    timeout 3 umount "$su_target" >/dev/null 2>&1 || return 1
+    su_count=$((su_count + 1))
+  done
+}
+
+stock_ui_luna_ok() {
+  su_reply=$(timeout 3 luna-send -n 1 "$1" "$2" </dev/null 2>/dev/null) || return 1
+  printf '%s' "$su_reply" | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("returnValue") is True else 1)' 2>/dev/null
+}
+
+stock_ui_restore_env() {
+  [ -f "$ENV_FILE" ] || return 0
+  python3 - "$ENV_FILE" "$SHADOW_ROOT" <<'PY'
+import os, shlex, stat, sys, tempfile
+path, shadow = sys.argv[1:]
+with open(path, encoding="utf-8") as f:
+    lines = f.readlines()
+out = []
+for line in lines:
+    key, sep, value = line.partition("=")
+    if not sep or key.strip() != "QML2_IMPORT_PATH":
+        out.append(line)
+        continue
+    values = shlex.split(value, comments=True)
+    if len(values) != 1:
+        raise ValueError("unsupported QML2_IMPORT_PATH")
+    parts = values[0].split(":")
+    if shadow not in parts:
+        out.append(line)
+        continue
+    parts = [part for part in parts if part != shadow]
+    if parts:
+        out.append('QML2_IMPORT_PATH="' + ":".join(parts).replace("\\", "\\\\").replace('"', '\\"') + '"\n')
+if out != lines:
+    fd, tmp = tempfile.mkstemp(prefix=".lumatv-env-", dir=os.path.dirname(path))
+    try:
+        os.fchmod(fd, stat.S_IMODE(os.stat(path).st_mode))
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.writelines(out)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+PY
+}
+
+stock_ui_restore() {
+  if [ ! -f "$COMP/stock-ui-held" ] || comp_mounted; then
+    emit_error "stock UI restore requires the stock recovery hold and an unmounted supervisor"
+    return 1
+  fi
+  su_failed=0
+  hs_wd_stop
+  if hs_mounted_ours; then
+    hs_unmount || su_failed=1
+    if ! hs_mounted_ours; then
+      stock_ui_luna_ok luna://com.webos.applicationManager/blockSystemApp "{\"id\":\"$HOME_APP_ID\"}" || su_failed=1
+      stock_ui_luna_ok luna://com.webos.applicationManager/releaseBlockSystemApp "{\"id\":\"$HOME_APP_ID\"}" || su_failed=1
+      stock_ui_luna_ok luna://com.palm.webappmanager/killApp "{\"appId\":\"$HOME_APP_ID\"}" || su_failed=1
+    fi
+  fi
+  hs_mode_set lg
+  if [ -d "$ASSETS" ] && [ -d "$STOCK_ASSETS" ]; then
+    su_i=0
+    while [ "$su_i" -lt 8 ] && [ "$(stat -c %d:%i "$STOCK_ASSETS" 2>/dev/null)" = "$(stat -c %d:%i "$ASSETS" 2>/dev/null)" ]; do
+      timeout 3 umount "$STOCK_ASSETS" >/dev/null 2>&1 || { su_failed=1; break; }
+      su_i=$((su_i + 1))
+    done
+    if [ "$su_i" -eq 8 ] && [ "$(stat -c %d:%i "$STOCK_ASSETS" 2>/dev/null)" = "$(stat -c %d:%i "$ASSETS" 2>/dev/null)" ]; then su_failed=1; fi
+  fi
+  for su_target in /usr/palm/applications/com.webos.app.inputcommon/qml /usr/share/com.webos.app.inputcommon/qml; do
+    stock_ui_unmount_overlay "$su_target" "$STATE/inputcommon/upper" || su_failed=1
+  done
+  for su_target in /usr/palm/applications/com.webos.app.voice/qml /usr/share/com.webos.app.voice/qml; do
+    stock_ui_unmount_overlay "$su_target" "$STATE/voice/upper" || su_failed=1
+  done
+  stock_ui_unmount_overlay /usr/lib/maliit/plugins/qml "$STATE/maliit/upper" || su_failed=1
+  for su_target in /mnt/otncabi/usr/palm/applications/com.webos.app.discovery /usr/palm/applications/com.webos.app.discovery; do
+    stock_ui_unmount_overlay "$su_target" "$STATE/store/upper" || su_failed=1
+  done
+  for su_app in $(webglass_apps); do
+    stock_ui_unmount_overlay "/usr/palm/applications/$su_app" "$WEBGLASS_STAGE/$su_app/upper" || su_failed=1
+  done
+  stock_ui_restore_env || su_failed=1
+  timeout 5 python3 "$KEYFILTER_TOOL" remove "$KEYFILTER_HANDLER" "$KEYFILTER_DIR/$SHORT_ID.js" </dev/null >/dev/null 2>&1 || su_failed=1
+  su_status=$(timeout 5 python3 "$SYSTEMUI_TOOL" status </dev/null 2>/dev/null) || su_failed=1
+  for su_app in "$QS_APP" "$LOGO_BOOT_APP" "$LOGO_OFF_APP"; do
+    su_path=$(printf '%s' "$su_status" | python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1], ""))' "$su_app" 2>/dev/null) || { su_failed=1; continue; }
+    case "$su_path" in
+      "file://$SYSTEMUI_STAGE/"*) timeout 5 python3 "$SYSTEMUI_TOOL" off "$su_app" </dev/null >/dev/null 2>&1 || su_failed=1 ;;
+    esac
+  done
+  if grep -qF "file://$NOTI_STAGE/" "$NOTI_PERSIST" 2>/dev/null; then
+    stock_ui_luna_ok "$NOTI_VIEW_URI" "{\"viewName\":\"notificationView\",\"viewSource\":\"file://$NOTI_STOCK/NotificationView.qml\"}" || su_failed=1
+    grep -qF "file://$NOTI_STOCK/NotificationView.qml" "$NOTI_PERSIST" 2>/dev/null || su_failed=1
+  fi
+  if [ "$su_failed" -ne 0 ]; then emit_error "stock UI restore incomplete"; return 1; fi
+  printf '{"ok":true}\n'
+}
+verb_stock_ui_restore() {
+  LOCK_WAIT=3
+  take_mutation_lock || { emit_error "stock UI restore could not acquire mutation lock"; return 1; }
+  stock_ui_restore
+}
+
+
 
 # ------------------------------------------------------------- storage guard
 
@@ -2874,513 +2214,37 @@ verb_revert() {
 
 # "free_kb total_kb free_inodes total_inodes" for the filesystem holding $1 (or its nearest existing parent); inodes are 0 0 where
 # the TV's busybox df cannot say.
-storage_capacity() {
-  sc_p="$1"
-  while [ ! -e "$sc_p" ] && [ "$sc_p" != "/" ]; do sc_p=$(dirname "$sc_p"); done
-  sc_b=$(df -Pk "$sc_p" 2>/dev/null | tail -n 1)
-  set -- $sc_b
-  [ "$#" -ge 4 ] && [ "$2" -gt 0 ] 2>/dev/null && [ "$4" -ge 0 ] 2>/dev/null || return 1
-  sc_total=$2; sc_free=$4
-  sc_i=$(df -Pi "$sc_p" 2>/dev/null | tail -n 1)
-  set -- $sc_i
-  if [ "$#" -ge 4 ] && [ "$2" -gt 0 ] 2>/dev/null && [ "$4" -ge 0 ] 2>/dev/null; then
-    printf '%s %s %s %s\n' "$sc_free" "$sc_total" "$4" "$2"
-  else
-    printf '%s %s 0 0\n' "$sc_free" "$sc_total"
-  fi
-}
+
 
 # "kb inodes" an apply copies beside what is there. Each tree is counted once, which is the new copy; the old one is already in the
 # partition's used figure. $1 = 1 when the stock assets are copied again; $2 = 1 for what this apply really writes: the Home tree and
 # the shadow module only when they differ from what is staged, the binaries only when they differ from the staged ones, the fonts,
 # avatars and theme only where their directories are missing (otherwise each file is overwritten in place). $2 = 0 counts all of it.
-storage_need() {
-  sn_kb=0; sn_n=0
-  sn_list="$FONTS_SRC $AVATARS_SRC $THEME_SRC $HELPER_SRC $JPEG_SRC $WALL_SRC"
-  if [ "${2:-0}" -eq 1 ]; then
-    sn_list=""
-    [ -d "$FONTS_DIR" ] || sn_list="$sn_list $FONTS_SRC"
-    [ -d "$AVATARS_DIR" ] || sn_list="$sn_list $AVATARS_SRC"
-    [ -d "$THEME_DIR" ] || sn_list="$sn_list $THEME_SRC"
-    cmp -s "$HELPER_SRC" "$HELPER_BIN" 2>/dev/null || sn_list="$sn_list $HELPER_SRC"
-    cmp -s "$JPEG_SRC" "$JPEG_BIN" 2>/dev/null || sn_list="$sn_list $JPEG_SRC"
-    [ -f "$WALLPAPER_STAGE" ] && cmp -s "$WALL_SRC" "$WALLPAPER_STAGE" 2>/dev/null || sn_list="$sn_list $WALL_SRC"
-    luma_stage_current && shadow_current || sn_list="$sn_list $LUMA_SRC $STOCK_QML_MODULE $LUMA_SRC"
-  else
-    sn_list="$sn_list $LUMA_SRC $STOCK_QML_MODULE $LUMA_SRC"
-  fi
-  for sn_d in $sn_list; do
-    [ -e "$sn_d" ] || continue
-    sn_kb=$((sn_kb + $(du -sk "$sn_d" 2>/dev/null | cut -f1) + 4))
-    sn_n=$((sn_n + $(find "$sn_d" 2>/dev/null | wc -l | tr -d ' ')))
-  done
-  if [ "${1:-0}" -eq 1 ] && [ -d "$STOCK_ASSETS" ]; then
-    sn_kb=$((sn_kb + $(du -sk "$STOCK_ASSETS" 2>/dev/null | cut -f1) + 4))
-    sn_n=$((sn_n + $(find "$STOCK_ASSETS" 2>/dev/null | wc -l | tr -d ' ')))
-  fi
-  printf '%s %s\n' "$sn_kb" "$sn_n"
-}
+
 
 # Whether the staged Home tree is what stage_luma would write now: every shipped file, the two shipped defaults and the fps flag, and
 # nothing else.
-luma_stage_current() {
-  lsc_t="$LUMA_STAGE/$QML_MODULE"
-  [ -d "$lsc_t" ] || return 1
-  [ "$(find "$LUMA_SRC" -type f 2>/dev/null | wc -l | tr -d ' ')" -eq $(( $(find "$lsc_t" -type f 2>/dev/null | wc -l | tr -d ' ') - 3 )) ] || return 1
-  ( cd "$LUMA_SRC" && find . -type f | while IFS= read -r lsc_f; do cmp -s "$lsc_f" "$lsc_t/$lsc_f" || exit 1; done ) || return 1
-  cmp -s "$THEME_SRC/theme.json" "$lsc_t/theme.default.json" && cmp -s "$THEME_SRC/layout.json" "$lsc_t/layout.default.json" || return 1
-  lsc_fps=$(cfg_get_bool fps); [ -n "$lsc_fps" ] || lsc_fps=false
-  [ "$(cat "$lsc_t/settings.json" 2>/dev/null)" = "{\"fps\":$lsc_fps}" ]
-}
+
 
 # True when $1 kb and $2 files leave the reserve free in blocks and in inodes; the reason in $STORAGE_WHY when they do not.
-storage_fits() {
-  if [ "$sg_free" -lt $(($1 + sg_rk)) ]; then
-    STORAGE_WHY="not enough space in $STATE: $((sg_free / 1024)) MiB free, the apply stages $(($1 / 1024)) MiB and $((sg_rk / 1024)) MiB must stay free"
-    return 1
-  fi
-  if [ "$sg_itotal" -gt 0 ]; then
-    sg_ri=$((sg_itotal / 10)); [ "$sg_ri" -ge 2000 ] || sg_ri=2000
-    if [ "$sg_ifree" -lt $(($2 + sg_ri)) ]; then
-      STORAGE_WHY="not enough inodes in $STATE: $sg_ifree free, the apply stages $2 files and $sg_ri must stay free"
-      return 1
-    fi
-  fi
-  return 0
-}
+
 
 # Returns 1 with the reason in $STORAGE_WHY when the peak does not fit. Everything is counted first, which is cheap; only an apply that
 # would not fit that way is looked at closely, so that one that writes nothing new (a boot's) passes on a partition that is fuller
 # than the reserve, and one that really writes is held to the reserve.
-storage_guard() {
-  STORAGE_WHY=""
-  sg_cap=$(storage_capacity "$STATE") || { log_line "storage: the free space of $STATE cannot be read, not checked"; return 0; }
-  sg_build="${1:-0}"
-  set -- $sg_cap
-  sg_free=$1; sg_total=$2; sg_ifree=$3; sg_itotal=$4
-  sg_rk=$((sg_total / 10)); [ "$sg_rk" -ge 65536 ] || sg_rk=65536
-  set -- $(storage_need "$sg_build" 0)
-  storage_fits "$1" "$2" && return 0
-  set -- $(storage_need "$sg_build" 1)
-  [ "$1" -eq 0 ] && [ "$2" -eq 0 ] && return 0
-  storage_fits "$1" "$2"
-}
+
 
 # -------------------------------------------------------------------- apply
 
-verb_apply() {
-  apply_run; apply_rc=$?
-  # The helper serves Home's status icons data, weather and profile: an apply that failed and rolled back (which stops it) leaves
-  # it running anyway; only `revert` and `helper stop` mean it off. Idempotent where it runs already.
-  case "$(helper_json)" in *'"running":true'*) ;; *) helper_start || true ;; esac
-  return "$apply_rc"
-}
 
-apply_run() {
-  if ! take_mutation_lock; then
-    emit_error "another apply or revert is still running"
-    return 1
-  fi
-  t0=$(date +%s)
-  mkdir -p "$STATE" "$BACKUP" 2>/dev/null
 
-  version=$(get_version); [ -n "$version" ] || version="0.0.0"
 
-  # 1. Build/refresh $ASSETS from real stock, never from a merged view.
-  need_build=0
-  if [ ! -d "$ASSETS" ] || [ ! -d "$ASSETS/i18n" ]; then
-    need_build=1
-  else
-    stamp_epoch=$(mtime_epoch "$STAMP")
-    for src in "$HOME_XML_SRC" "$EN_SED_SRC" "$BG_HD_SRC" "$BG_2K_SRC" "$BG_4K_SRC"; do
-      s_epoch=$(mtime_epoch "$src")
-      if [ "$s_epoch" -gt "$stamp_epoch" ] 2>/dev/null; then need_build=1; fi
-    done
-  fi
-
-  if ! storage_guard "$need_build"; then
-    log_line "apply: refused before changing anything: $STORAGE_WHY"
-    ntfy_notify "$DISPLAY_NAME apply refused: $STORAGE_WHY"
-    emit_error "$STORAGE_WHY"
-    return 1
-  fi
-
-  if [ "$need_build" -eq 1 ]; then
-    # The copy below reads LG's own directory; homestub_sync puts the stub back.
-    if hs_mounted_ours; then homestub_drop legacy; fi
-    # Unmount first: if a bind is already active, reading the target now
-    # would copy a merged view, never real stock.
-    drain_umount "$STOCK_ASSETS"
-    rm -rf "$ASSETS.building" 2>/dev/null
-    mkdir -p "$ASSETS.building"
-    cperr=$( (cd "$STOCK_ASSETS" && cp -R . "$ASSETS.building") 2>&1 >/dev/null )
-    cprc=$?
-    if [ "$cprc" -ne 0 ]; then
-      log_line "apply: failed to copy stock assets: $cperr"
-      ntfy_notify "$DISPLAY_NAME apply failed: could not copy stock assets"
-      emit_error "stock asset copy failed: $cperr"
-      return 1
-    fi
-    # i18n is a symlink in real stock; dereference it into a real directory
-    # so string overlays land inside the copy, not on the original target.
-    if [ -L "$ASSETS.building/i18n" ]; then
-      i18n_target=$(readlink "$ASSETS.building/i18n" 2>/dev/null)
-      case "$i18n_target" in
-        /*) : ;;
-        *) i18n_target="$STOCK_ASSETS/$i18n_target" ;;
-      esac
-      if [ -n "$i18n_target" ] && [ -d "$i18n_target" ]; then
-        rm -f "$ASSETS.building/i18n"
-        mkdir -p "$ASSETS.building/i18n"
-        ( cd "$i18n_target" && cp -R . "$ASSETS.building/i18n" ) 2>/dev/null
-      fi
-    fi
-    # Keep a pristine copy of the stock strings. Every apply regenerates
-    # en.json from this, so the greeting cannot freeze at a stale value the
-    # way an in-place rewrite would (the sed rules match stock text only).
-    if [ -f "$ASSETS.building/i18n/en.json" ]; then
-      cp -f "$ASSETS.building/i18n/en.json" "$ASSETS.building/i18n/en.json.stock" 2>/dev/null
-    fi
-    rm -rf "$ASSETS" 2>/dev/null
-    mv "$ASSETS.building" "$ASSETS"
-    touch "$STAMP" 2>/dev/null
-  fi
-
-  # 2. Overlay payload onto $ASSETS.
-  cp -f "$HOME_XML_SRC" "$ASSETS/home.xml" 2>/dev/null
-
-  mkdir -p "$ASSETS/images/hd" "$ASSETS/images/2k" "$ASSETS/images/4k" 2>/dev/null
-  cp -f "$BG_HD_SRC" "$ASSETS/images/hd/bg_banner_img.png" 2>/dev/null
-  cp -f "$BG_2K_SRC" "$ASSETS/images/2k/bg_banner_img.png" 2>/dev/null
-  cp -f "$BG_4K_SRC" "$ASSETS/images/4k/bg_banner_img.png" 2>/dev/null
-
-  # Keep a pristine stock copy and always regenerate from it: rewriting
-  # en.json in place would stop matching the stock keys on the second apply.
-  # The greeting is owned by the compositor QML, not by these strings.
-  if [ ! -f "$ASSETS/i18n/en.json.stock" ] && [ -f "$ASSETS/i18n/en.json" ]; then
-    cp -f "$ASSETS/i18n/en.json" "$ASSETS/i18n/en.json.stock" 2>/dev/null
-  fi
-  if [ -f "$ASSETS/i18n/en.json.stock" ]; then
-    sed -f "$EN_SED_SRC" "$ASSETS/i18n/en.json.stock" 2>/dev/null > "$ASSETS/i18n/en.json.tmp.$$" \
-      && mv "$ASSETS/i18n/en.json.tmp.$$" "$ASSETS/i18n/en.json"
-  fi
-
-  # 3. Stage the compositor QML this apply would use, then decide what changed.
-  #
-  # The compositor picks our QML up through the import path (a shadow copy of
-  # its module), not a bind, so there is nothing to unmount for it. Home still
-  # reads its layout from a bound assets directory. A byte-identical set that
-  # is already live and already served by a shadow-aware compositor is left
-  # untouched, so a no-op apply neither remounts nor restarts anything.
-  fps_now=$(cfg_get_bool fps); [ -n "$fps_now" ] || fps_now=false
-  stage_compositor "$fps_now" "$COMPOSITOR_STAGE.next"
-  if ! stage_luma "$fps_now" "$LUMA_STAGE.next"; then
-    log_line "apply: Home QML payload missing"
-    ntfy_notify "$DISPLAY_NAME apply failed: Home QML payload missing"
-    emit_error "Home QML payload missing"
-    return 1
-  fi
-  stage_theme
-  install_frame_app
-  # An installed GeForce NOW app is brought to the shipped build; a failure is logged, never fatal (its sign-in and library are untouched).
-  gfn_update || log_line "apply: the GeForce NOW app was not updated"
-  # The key-filter script is read once when the compositor builds its handler
-  # chain, so a changed script needs the restart below; compare before the copy.
-  kf_changed=1
-  [ "$(md5sum < "$KEYFILTER_SRC" 2>/dev/null)" = "$(md5sum < "$KEYFILTER_DIR/$SHORT_ID.js" 2>/dev/null)" ] && kf_changed=0
-  keyfilter_set add || log_line "apply: could not register the key filter with configd"
-
-  # The settings menus are re-asserted here, not just when the verb is run: the
-  # configd redirect survives a reboot but the staged tree has to be rebuilt
-  # after a firmware update, and the overlay mounts are gone after every boot.
-  # Both are no-ops when they are already in place.
-  [ -f "$SYSTEMUI_ON" ] && { systemui_set on || log_line "apply: could not point Quick Settings at the staged tree"; }
-  [ -f "$WEBGLASS_ON" ] && { webglass_set on || log_line "apply: could not mount the settings-app stylesheet"; }
-  [ -f "$LOGO_ON" ] && { logo_set on || log_line "apply: could not point the logos at the staged windows"; }
-  [ -f "$NOTI_ON" ] && { noti_set on || { rm -f "$NOTI_ON"; log_line "apply: the notification view fell back to LG's"; }; }
-  [ -f "$INPUTCOMMON_ON" ] && { inputcommon_mounted || inputcommon_set on || log_line "apply: could not mount the patched input banners over LG's"; }
-  [ -f "$STORE_ON" ] && { store_mounted || store_set on "$(store_parts_on)" || log_line "apply: could not mount the theme over LG's Content Store"; }
-  [ -f "$VOICE_ON" ] && { voice_mounted || voice_set on || log_line "apply: could not mount the patched Search app over LG's"; }
-  [ -f "$KEYS_ON" ] && { keys_mounted || keys_set on || log_line "apply: could not mount the patched keyboard keys over LG's"; }
-
-  # What the compositor reads (QML, wallpaper) is tracked apart from the rest
-  # of the set: a running compositor that already has the shadow only needs a
-  # restart when one of those two actually changed, and nothing else in the
-  # set can be reached with a restart alone.
-  compositor_changed=1
-  if [ "$kf_changed" -eq 0 ] \
-     && [ "$(md5sum < "$COMPOSITOR_STAGE.next" 2>/dev/null)" = "$(md5sum < "$COMPOSITOR_STAGE" 2>/dev/null)" ] \
-     && [ "$(md5sum < "$WALL_SRC" 2>/dev/null)" = "$(md5sum < "$WALLPAPER_STAGE" 2>/dev/null)" ] \
-     && [ "$(tree_fp "$LUMA_STAGE.next")" = "$(tree_fp "$LUMA_STAGE")" ] \
-     && shadow_patch_current; then
-    compositor_changed=0
-  fi
-  # The env file is read only when the compositor starts, so a change to it
-  # (env.extra edited, or a tool update that changes env_line) needs the
-  # restart too. Taken before write_env below makes the file current.
-  env_changed=0
-  env_live || env_changed=1
-  changed=1
-  if [ "$compositor_changed" -eq 0 ] && all_binds_live && shadow_current && env_live; then
-    changed=0
-    rm -f "$COMPOSITOR_STAGE.next"; rm -rf "$LUMA_STAGE.next"
-    log_line "apply: staged set unchanged, shadow current, assets bound, not remounting"
-  fi
-
-  if [ "$changed" -eq 1 ]; then
-    cp -f "$WALL_SRC" "$WALLPAPER_STAGE" 2>/dev/null
-    mv -f "$COMPOSITOR_STAGE.next" "$COMPOSITOR_STAGE"
-    rm -rf "$LUMA_STAGE" 2>/dev/null; mv -f "$LUMA_STAGE.next" "$LUMA_STAGE"
-
-    # 4. Build the shadow compositor module and point the compositor's env
-    # file at it. This is what a freshly starting compositor reads; nothing
-    # is mounted for it.
-    if ! build_shadow; then
-      log_line "apply: could not build shadow compositor module"
-      do_revert_internal
-      ntfy_notify "$DISPLAY_NAME apply failed: could not build compositor module"
-      emit_error "shadow module build failed"
-      return 1
-    fi
-    if ! write_env; then
-      log_line "apply: could not write compositor env file"
-      do_revert_internal
-      ntfy_notify "$DISPLAY_NAME apply failed: could not write compositor env"
-      emit_error "compositor env write failed"
-      return 1
-    fi
-
-    # 5. Bind Home's assets (its layout, strings and banner images). Under the stub
-    # they stay bound where they are: the path below is not LG's directory then.
-    if hs_mounted_ours && ! is_mounted "$STOCK_ASSETS"; then homestub_drop legacy; fi
-    if hs_mounted_ours; then
-      log_line "apply: Home's assets stay bound under the stub"
-    else
-      drain_umount "$STOCK_ASSETS"
-      binderr=$(mount --bind "$ASSETS" "$STOCK_ASSETS" 2>&1 >/dev/null)
-      if [ $? -ne 0 ]; then
-        log_line "apply: bind failed on assets: $binderr"
-        do_revert_internal
-        ntfy_notify "$DISPLAY_NAME apply failed: assets bind failed"
-        emit_error "assets bind failed: $binderr"
-        return 1
-      fi
-      if ! is_mounted "$STOCK_ASSETS"; then
-        log_line "apply: assets bind verification failed"
-        do_revert_internal
-        ntfy_notify "$DISPLAY_NAME apply failed: bind verification failed"
-        emit_error "assets bind verification failed"
-        return 1
-      fi
-    fi
-    record_bound_now
-  fi
-
-  # 5b. The compositor paints the dock itself now, so the per-app icon and
-  # iconColor edits Home once needed are restored and never made again.
-  revert_tile_icons
-
-  # 5c. The Home stub, before anything restarts, so the Home the compositor's
-  # restart relaunches is the stub.
-  homestub_sync
-
-  # 5d. The helper before the compositor restarts, so Home's first request finds it. Not fatal.
-  helper_start
-  # 5e. The colour reader and its bus role. Not fatal: it idles until the helper wants a picture.
-  capture_start || true
-  # 5f. The art saver's video-plane player, where the owner installed it. Not fatal: without it the saver draws its own picture. Never
-  # installed from here: its role is a permission, so `lumatv vplane install` is the owner's.
-  if vplane_installed; then vplane_start || true; fi
-  # 5g. The camera feeder, where the owner installed it: a new build is staged over the old one. Not fatal; never installed from here, its role is
-  # a permission like the player's.
-  if feeder_installed; then feeder_update || true; fi
-  # The preload list is configd's and survives a restart; re-asserted only where `preload on` was
-  # run, and written only when it differs.
-  [ -f "$PRELOAD_STATE" ] && python3 "$PRELOAD_TOOL" on "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null 2>>"$LOGFILE"
-
-  # 6. Bring the change on screen.
-  #
-  # The compositor only reads QML at startup, so the shadow reaches the screen
-  # when it next starts, and its first start at boot+2.6s cannot see the env
-  # file (see the constants block: /var is not the writable filesystem that
-  # early). So the restart is the mechanism, not a fallback: if the compositor
-  # that is running does not have the shadow, restart it.
-  #
-  # Deliberately NOT gated on panel_is_active. That gate was here to avoid
-  # racing a power transition, and it silently abandoned the restart instead:
-  # on a boot where the panel had not finished waking, apply skipped it, and
-  # nothing ever retried, so the set ran the whole session on stock QML under
-  # a modded Home layout. A restart while the panel is dark is invisible;
-  # never restarting is not. restart_surface cleans up the crash reports the
-  # restart provokes, which is what keeps power-off immediate.
-  # A compositor that started with the shadow but before this apply rebuilt
-  # it is still running the previous QML; the shadow on disk says nothing
-  # about what the running process loaded.
-  restart_needed=0
-  if surface_start_uptime >/dev/null 2>&1; then
-    if ! compositor_has_shadow || [ "$compositor_changed" -eq 1 ] || [ "$env_changed" -eq 1 ]; then restart_needed=1; fi
-  fi
-  # A changed compositor set starts from an empty QML cache; a restart for an
-  # env change or a stock compositor at boot keeps it.
-  [ "$compositor_changed" -eq 1 ] && clear_qml_cache
-  # LumaTV's own compositor reads none of the QML this apply staged; restarting its unit would only
-  # blank the panel.
-  if comp_live; then restart_needed=0; fi
-
-  if [ "$restart_needed" -eq 1 ]; then
-    marker=$(wc -l < "$MSGLOG" 2>/dev/null | tr -d ' '); [ -n "$marker" ] || marker=0
-    restart_surface; rs=$?
-    if [ "$rs" -eq 2 ]; then
-      # Nothing was changed on the compositor's side: the staged set, the module and the helper stay as they are,
-      # and VERIFIED is not written, so the next apply restarts the compositor.
-      log_line "apply: the compositor was not restarted (a recovery of LG's Home is running); run apply again when it is done"
-      emit_error "a recovery of LG's Home is still running; the compositor was not restarted, run apply again"
-      return 1
-    fi
-    if [ "$rs" -ne 0 ]; then
-      log_line "apply: surface-manager-daemon did not come back active"
-      do_revert_internal
-      ntfy_notify "$DISPLAY_NAME apply failed: compositor did not restart"
-      emit_error "compositor did not become active after restart"
-      return 1
-    fi
-    log_line "apply: compositor restarted to read shadow module"
-    home_back_after_restart
-    if sed -n "$((marker+1)),\$p" "$MSGLOG" 2>/dev/null | grep -qa 'shader compilation failed'; then
-      log_line "apply: shader compilation failure detected post-restart, auto-reverting"
-      rm -f "$VERIFIED"
-      do_revert_internal
-      ntfy_notify "$DISPLAY_NAME apply failed: shader compilation error, auto-reverted to stock"
-      emit_error "shader compilation failed; auto-reverted to stock"
-      return 1
-    fi
-  elif [ "$changed" -eq 1 ]; then
-    # Compositor already serves the shadow (or is not yet up); only Home needs
-    # to re-read the freshly bound assets.
-    kill_home_app
-    relaunch_home
-  fi
-  staged_hash > "$VERIFIED"
-
-  mounts=$(count_mounts)
-  took=$(( $(date +%s) - t0 ))
-  log_line "apply: success version=$version mounts=$mounts took=${took}s"
-  ntfy_notify "$DISPLAY_NAME applied (v$version)"
-  printf '{"ok":true,"applied":true,"mounts":%s,"took":%s}\n' "$mounts" "$took"
-  return 0
-}
 
 # ---------------------------------------------------------------- boot-bind
 
-verb_boot_bind() {
-  # The boot hook's opening move. The compositor's first start is always
-  # stock - at 2.63s /var is not yet the writable filesystem, so its optional
-  # EnvironmentFile read finds nothing (see the constants block) - and the
-  # apply that follows this restarts it. Binding first matters: the bind is
-  # what Home re-reads, and the restart kills Home anyway.
-  #
-  # What this does is bind Home's assets - a bind mount does not survive a
-  # reboot - and check the two things that can make a persistent env file
-  # dangerous.
-  #
-  # 1. A firmware update replaces the stock compositor module. Our shadow was
-  #    built from the old one, so it would feed stale QML to new libraries.
-  #    Rebuild it; if that fails, drop the env file so the set is stock.
-  # 2. Our QML could stop the compositor from starting at all. Unlike a bind,
-  #    a persistent env file would repeat that on every boot. If the hook runs
-  #    and no compositor is up, drop the env file and restart, which puts the
-  #    TV back on stock rather than leaving a black screen.
-  if ! take_mutation_lock; then
-    emit_error "another apply or revert is still running"
-    return 1
-  fi
-  if [ -f "$BOOT_PENDING" ]; then
-    rm -f "$BOOT_PENDING"
-    log_line "boot-bind: previous boot never completed, skipping fast path once"
-    printf '{"ok":true,"bound":false,"reason":"failsafe"}\n'
-    return 0
-  fi
-  if [ ! -f "$COMPOSITOR_STAGE" ] || [ ! -f "$WALLPAPER_STAGE" ] || [ ! -d "$LUMA_STAGE/$QML_MODULE" ] || [ ! -f "$ASSETS/home.xml" ] || [ ! -d "$ASSETS/i18n" ]; then
-    log_line "boot-bind: no staged set, leaving it to apply"
-    printf '{"ok":true,"bound":false,"reason":"no-stage"}\n'
-    return 0
-  fi
-  if [ "$(staged_hash)" != "$(cat "$VERIFIED" 2>/dev/null)" ]; then
-    log_line "boot-bind: staged set is not the verified one, leaving it to apply"
-    printf '{"ok":true,"bound":false,"reason":"unverified"}\n'
-    return 0
-  fi
 
-  touch "$BOOT_PENDING"
 
-  # Fail safe first: a compositor that never came up outranks everything else.
-  if [ -f "$ENV_FILE" ] && ! surface_start_uptime >/dev/null 2>&1; then
-    log_line "boot-bind: no compositor running with our env file present, reverting to stock"
-    homestub_drop legacy
-    remove_env
-    rm -f "$ENV_EXTRA"
-    systemctl restart "$SURFACE_SVC" >/dev/null 2>&1
-    ntfy_notify "$DISPLAY_NAME disabled itself: compositor did not start"
-    printf '{"ok":true,"bound":false,"reason":"compositor-absent"}\n'
-    return 0
-  fi
 
-  if ! shadow_current; then
-    # Either the firmware replaced the stock module, or the shadow itself is
-    # damaged - a power cut mid-build leaves every file present and most of
-    # them truncated. Both mean the module on disk cannot be trusted.
-    log_line "boot-bind: shadow module not current (stale or damaged), rebuilding"
-    if build_shadow; then
-      log_line "boot-bind: shadow module rebuilt"
-      # The compositor started before this hook did. If it loaded the module we
-      # have just replaced, it is running on the bad one - and a compositor
-      # that started on a truncated module comes up healthy and presents
-      # nothing, so no liveness check catches it. Restart it once. LumaTV's own
-      # compositor draws none of this module, so a rebuild (a changed patch
-      # rebuilds it, SHADOW_PATCH_FILES) gives it nothing to reload and the
-      # restart would only cost a boot's frames.
-      if ! comp_live && compositor_has_shadow && panel_is_active; then
-        log_line "boot-bind: compositor had loaded the damaged module, restarting it"
-        restart_surface >/dev/null 2>&1
-        home_back_after_restart
-      fi
-    else
-      log_line "boot-bind: shadow rebuild failed, dropping env file"
-      homestub_drop legacy
-      remove_env
-      if compositor_has_shadow && panel_is_active; then
-        restart_surface >/dev/null 2>&1
-        home_back_after_restart
-      fi
-      ntfy_notify "$DISPLAY_NAME disabled itself: compositor module unusable"
-      printf '{"ok":true,"bound":false,"reason":"stale-module"}\n'
-      return 0
-    fi
-  fi
-  write_env
-  keyfilter_set add || log_line "boot-bind: could not register the key filter with configd"
-
-  n=0
-  if ! is_mounted "$STOCK_ASSETS"; then
-    mount --bind "$ASSETS" "$STOCK_ASSETS" >/dev/null 2>&1 && n=$((n+1))
-  fi
-  if all_binds_live; then
-    record_bound_now
-    log_line "boot-bind: $n bind(s) made, assets live, compositor already on shadow=$(compositor_has_shadow && echo yes || echo no)"
-    printf '{"ok":true,"bound":true,"mounts":%s}\n' "$(count_mounts)"
-  else
-    log_line "boot-bind: assets bind incomplete, leaving it to apply"
-    printf '{"ok":true,"bound":false,"reason":"incomplete"}\n'
-  fi
-  return 0
-}
-
-verb_boot_ok() {
-  # Called by the boot hook once the boot's apply reported ok.
-  rm -f "$BOOT_PENDING"
-  printf '{"ok":true}\n'
-  return 0
-}
 
 # ------------------------------------------------------------- boot-restart
 
@@ -3396,117 +2260,106 @@ foreground_app_id() {
 }
 
 boot_landing_app() {
-  # What the boot's compositor restart puts back in front. Home, unless the owner set the TV to start on
-  # its last input (general.homeAutoLaunch off): then the app in front now, which is the input bootd
-  # opened at ~14 s. Prints the app id, or nothing for Home.
+  # The wake policy owns the boot target when its detached worker has a token.
+  # A failed revalidation must not turn an uncertain foreground into Home.
+  if [ "${LUMA_BOOT:-0}" = 1 ] && [ -z "${LUMATV_WAKE_TOKEN:-}" ]; then
+    printf '%s\n' __wake_skip__
+    return 0
+  fi
+  if [ -n "${LUMATV_WAKE_TOKEN:-}" ]; then
+    if [ "${2:-}" = restart ]; then
+      la_result=$(python3 "$WAKE_TOOL" boot-check landing "$LUMATV_WAKE_TOKEN" restart "$3" < /dev/null 2>/dev/null)
+    else
+      la_result=$(python3 "$WAKE_TOOL" boot-check landing "$LUMATV_WAKE_TOKEN" < /dev/null 2>/dev/null)
+    fi
+    la_target=$(printf '%s' "$la_result" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    if data.get("phase") == "no-active-policy":
+        print("__inactive__")
+    elif data.get("ok") is not False and isinstance(data.get("appId"), str) and data["appId"] and "params" in data and (data["params"] is None or isinstance(data["params"], dict)):
+        print(json.dumps({"appId": data["appId"], "params": data["params"], "source": data.get("source")}))
+    else:
+        print("__wake_skip__")
+except (ValueError, TypeError, AttributeError):
+    print("__wake_skip__")
+')
+    if [ "$la_target" != __inactive__ ]; then
+      printf '%s\n' "${la_target:-__wake_skip__}"
+      return 0
+    fi
+  fi
+  [ "${1:-}" = apply ] && return 0
   [ "$(get_general_setting homeAutoLaunch)" = off ] || return 0
   la_app=$(foreground_app_id)
   case "$la_app" in ''|"$HOME_APP_ID") return 0 ;; esac
-  printf '%s\n' "$la_app"
+  python3 -c 'import json, sys; print(json.dumps({"appId": sys.argv[1], "params": {}, "legacy": True}))' "$la_app"
 }
 
 land_on_app() {
-  # $1 = app id. One launch, then a bounded wait for it to be in front; the panel's pixels say nothing
-  # here (an input with a signal is video). If it does not arrive, Home is what the set gets.
-  luna-send -n 1 "$HOME_LAUNCH_URI" "{\"id\":\"$1\"}" >/dev/null 2>&1
+  # $1 is the captured app and launch parameters; $2 marks a compositor restart.
+  la_legacy=$(printf '%s' "$1" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("legacy") else "no")')
+  if [ "$la_legacy" = no ]; then
+    if [ "${2:-}" = restart ]; then
+      la_original_app=$(printf '%s' "$1" | python3 -c 'import json, sys; print(json.load(sys.stdin)["appId"])')
+      la_fresh=$(boot_landing_app apply restart "$la_original_app")
+    else
+      la_fresh=$(boot_landing_app apply)
+    fi
+    if [ -z "$la_fresh" ] || [ "$la_fresh" = __wake_skip__ ]; then
+      if [ "${2:-}" = restart ]; then sleep 3; disarm_restart_crashes "$reports_before"; fi
+      return 0
+    fi
+    set -- "$la_fresh" "${2:-}"
+  fi
+  la_app=$(printf '%s' "$1" | python3 -c 'import json, sys; print(json.load(sys.stdin)["appId"])')
+  la_preserve=$(printf '%s' "$1" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin)["params"] is None else "no")')
+  if [ "$la_preserve" = yes ]; then
+    if [ "$(foreground_app_id)" = "$la_app" ]; then
+      if [ "${2:-}" = restart ]; then sleep 3; disarm_restart_crashes "$reports_before"; fi
+      return 0
+    fi
+    la_source=$(printf '%s' "$1" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("source", ""))')
+    if [ "$la_source" != native-input-id-only ]; then
+      LANDING_UNACCEPTED=1
+      log_line "boot landing: $la_app not accepted; input parameters unavailable"
+      if [ "${2:-}" = restart ]; then sleep 3; disarm_restart_crashes "$reports_before"; fi
+      return 0
+    fi
+    la_payload=$(printf '%s' "$1" | python3 -c 'import json, sys; print(json.dumps({"id": json.load(sys.stdin)["appId"]}))')
+  else
+    la_payload=$(printf '%s' "$1" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(json.dumps({"id": d["appId"], "params": d["params"]}))')
+  fi
+  if [ "${2:-}" != restart ] && [ "$(foreground_app_id)" = "$la_app" ]; then return 0; fi
+  luna-send -n 1 "$HOME_LAUNCH_URI" "$la_payload" >/dev/null 2>&1
   la_i=0
-  while [ "$la_i" -lt 10 ] && [ "$(foreground_app_id)" != "$1" ]; do sleep 1; la_i=$((la_i+1)); done
-  if [ "$(foreground_app_id)" = "$1" ]; then
-    log_line "boot-restart: $1 back in front after $la_i s"
-    # The teardown crash report of the restart lands ~3 s after it (see home_back_after_restart).
+  while [ "$la_i" -lt 10 ] && [ "$(foreground_app_id)" != "$la_app" ]; do sleep 1; la_i=$((la_i+1)); done
+  if [ "$(foreground_app_id)" = "$la_app" ]; then
+    log_line "boot landing: $la_app back in front after $la_i s"
+    if [ "${2:-}" = restart ]; then sleep 3; disarm_restart_crashes "$reports_before"; fi
+    return 0
+  fi
+  log_line "boot landing: $la_app did not come back"
+  [ "$la_legacy" = yes ] || LANDING_UNACCEPTED=1
+  if [ "$la_legacy" = yes ]; then
+    if [ "${2:-}" = restart ]; then home_back_after_restart; else kill_home_app; relaunch_home; fi
+  elif [ "${2:-}" = restart ]; then
     sleep 3
     disarm_restart_crashes "$reports_before"
-    return 0
   fi
-  log_line "boot-restart: $1 did not come back, Home instead"
-  home_back_after_restart
 }
 
-verb_boot_restart() {
-  # The boot hook's step after boot-bind. The compositor's first start of a boot is stock and is restarted
-  # once to read the shadow module. That restart used to follow the whole of apply's preparation (staging,
-  # mounts, helper, preload: 30 s of it, at uptime 55 s on 2026-10-25 17:51), and the panel showed the last
-  # input until then. boot-bind has just verified the set and written the env file, so the restart comes
-  # first, and apply finds a compositor that has the module and does the rest without one.
-  # Only a set that is on, only a boot-bind that went the whole way (it leaves BOOT_PENDING, the env file
-  # and the assets bind); anything else is apply's, as before. Never fatal: a restart that fails is left
-  # for apply to repeat.
-  if ! take_mutation_lock; then
-    emit_error "another apply or revert is still running"
-    return 1
-  fi
-  if [ "${LUMA_BOOT:-0}" != 1 ]; then
-    emit_error "boot-restart is the boot hook's step; use restart"
-    return 1
-  fi
-  br_why=""
-  if [ ! -f "$BOOT_PENDING" ]; then br_why="boot-bind did not verify the set"
-  elif ! surface_start_uptime >/dev/null 2>&1; then br_why="no compositor running"
-  elif compositor_has_shadow; then br_why="the compositor has the module already"
-  elif ! all_binds_live || ! env_live || [ ! -d "$SHADOW_ROOT" ]; then br_why="the module, env file or assets bind is not in place"
-  else
-    # The power state can still be a step behind the panel at ~20 s into a boot; a set that stays in
-    # standby past STANDBY_WAIT is a boot into standby, which apply handles.
-    br_w=0
-    while ! panel_is_active && [ "$br_w" -lt "$STANDBY_WAIT" ]; do sleep 1; br_w=$((br_w+1)); done
-    panel_is_active || br_why="the set is not on"
-  fi
-  if [ -n "$br_why" ]; then
-    log_line "boot-restart: left to apply ($br_why)"
-    printf '{"ok":true,"restarted":false,"reason":"%s"}\n' "$br_why"
-    return 0
-  fi
-  br_land=$(boot_landing_app)
-  br_up=$(uptime_s)
-  # Home's first request for weather and news finds the helper, as it does in apply's order.
-  helper_start || true
-  marker=$(wc -l < "$MSGLOG" 2>/dev/null | tr -d ' '); [ -n "$marker" ] || marker=0
-  if ! restart_surface; then
-    log_line "boot-restart: the compositor did not come back active, left to apply"
-    printf '{"ok":true,"restarted":false,"reason":"restart failed"}\n'
-    return 0
-  fi
-  log_line "boot-restart: compositor restarted at uptime $br_up s to read the shadow module"
-  if [ -n "$br_land" ]; then land_on_app "$br_land"; else home_back_after_restart; fi
-  if sed -n "$((marker+1)),\$p" "$MSGLOG" 2>/dev/null | grep -qa 'shader compilation failed'; then
-    log_line "boot-restart: shader compilation failure detected post-restart, auto-reverting"
-    rm -f "$VERIFIED"
-    do_revert_internal
-    ntfy_notify "$DISPLAY_NAME boot restart failed: shader compilation error, auto-reverted to stock"
-    emit_error "shader compilation failed; auto-reverted to stock"
-    return 1
-  fi
-  printf '{"ok":true,"restarted":true,"at":%s,"landed":"%s"}\n' "$br_up" "${br_land:-home}"
-  return 0
-}
+
 
 # ------------------------------------------------------------------- status
 
 surfaces_json() {
-  # The registry of what LumaTV has taken over and what each one falls back to. One entry per
-  # switch; `on` is read from the same flag or state the verb itself uses, never from a copy.
-  b() { if "$@"; then printf true; else printf false; fi; }
-  hs=$(homestub_json); hs_state=$(printf '%s' "$hs" | sed -n 's/.*"state":"\([a-z]*\)".*/\1/p')
   hp=$(helper_json); hp_on=false; case "$hp" in *'"running":true'*) hp_on=true ;; esac
-  printf '['
-  printf '{"id":"home","on":%s,"state":"%s","fallback":"LG'"'"'s Home: hold Home 650 ms, the guard, or `homestub off`"},' "$( [ "$hs_state" = stub ] || [ "$hs_state" = trial ] && echo true || echo false )" "$hs_state"
-  printf '{"id":"quicksettings","on":%s,"fallback":"`systemui off` puts the stock entry back in configd"},' "$(b test -f "$SYSTEMUI_ON")"
-  printf '{"id":"settings-theme","on":%s,"fallback":"`webglass off` unmounts the overlays"},' "$(b test -f "$WEBGLASS_ON")"
-  printf '{"id":"store","on":%s,"fallback":"`store off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s Content Store returns exactly"},' "$(b test -f "$STORE_ON")"
-  printf '{"id":"inputcommon","on":%s,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s input banners return"},' "$(b test -f "$INPUTCOMMON_ON")"
-  printf '{"id":"voice","on":%s,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s Search app returns"},' "$(b test -f "$VOICE_ON")"
-  printf '{"id":"keys","on":%s,"fallback":"`keys off` unmounts the overlay and restarts the keyboard server; a reboot or revert clears it and LG'"'"'s keys return"},' "$(b test -f "$KEYS_ON")"
-  printf '{"id":"keyboard","on":%s,"fallback":"`keyboard off` rebuilds the shadow module with LG'"'"'s own keyboard view; revert drops the module"},' "$(b test -f "$KEYBOARD_ON")"
-  printf '{"id":"keyboard-luma","on":%s,"fallback":"`keyboard lg` takes the flag away; LG'"'"'s keyboard serves the next field, and already does while the shell is not live or its keyboard does not come up"},' "$(b test -f "$KEYBOARD_LUMA")"
-  printf '{"id":"cover","on":%s,"fallback":"`cover off` rebuilds the shadow module without the patched CoverUI; revert drops the module"},' "$(b test -f "$COVER_ON")"
-  printf '{"id":"splash","on":%s,"fallback":"`splash off` rebuilds the shadow module with LG'"'"'s own splash and spinner views; revert drops the module"},' "$(b test -f "$SPLASH_ON")"
-  printf '{"id":"standbyscreen","on":%s,"fallback":"`standbyscreen on` puts back the Always Ready mode that was set; Settings > Home & look > Standby has the same switch"},' "$( [ "$(get_general_setting lifeOnScreenMode)" = off ] && echo true || echo false )"
-  printf '{"id":"notifications","on":%s,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG'"'"'s file"},' "$(b test -f "$NOTI_ON")"
-  printf '{"id":"logos","on":%s,"fallback":"`logo off`; a logo that will not load answers tvpowerd at once"},' "$(b test -f "$LOGO_ON")"
-  printf '{"id":"helper","on":%s,"fallback":"Home draws the last saved weather and news; `helper stop`"},' "$hp_on"
-  printf '{"id":"preload","on":%s,"fallback":"`preload off` restores LG'"'"'s list from preload.orig"},' "$(b test -f "$PRELOAD_STATE")"
-  printf '{"id":"compositor","on":%s,"fallback":"the supervisor falls back by itself; `compositor off`, revert, or hold Home"}' "$(b comp_live)"
-  printf ']'
+  native_on=false; comp_live && native_on=true
+  preload_on=false; [ -f "$PRELOAD_STATE" ] && preload_on=true
+  standby_off=false; [ "$(get_general_setting lifeOnScreenMode)" = off ] && standby_off=true
+  printf '[{"id":"standbyscreen","on":%s,"fallback":"standbyscreen on"},{"id":"helper","on":%s,"fallback":"helper stop"},{"id":"preload","on":%s,"fallback":"preload off"},{"id":"compositor","on":%s,"fallback":"compositor off or supervisor recovery"}]' "$standby_off" "$hp_on" "$preload_on" "$native_on"
 }
 
 verb_surfaces() {
@@ -3515,15 +2368,11 @@ verb_surfaces() {
 }
 
 verb_status() {
-  ensure_config
+  [ "${MAINTENANCE_ACCESS:-write}" = read ] || ensure_config
   version=$(get_version); [ -n "$version" ] || version="0.0.0"
   mounts=$(count_mounts)
-  # Applied means both halves are in place: Home's assets bound, and a
-  # starting compositor pointed at our module. Mount count alone stopped
-  # being the answer when the compositor moved off a bind onto the import
-  # path. "live" is whether the compositor running right now has it.
-  if [ "$mounts" -gt 0 ] && env_live && [ -d "$SHADOW_ROOT" ]; then applied=true; else applied=false; fi
-  if compositor_has_shadow; then live=true; else live=false; fi
+  applied=false; live=false
+  if comp_live; then applied=true; live=true; fi
   if [ -L "$AUTOSTART_LINK" ]; then persist=true; else persist=false; fi
   if early_hook_live; then early=true; else early=false; fi
   fps=$(cfg_get_bool fps); [ "$fps" = "true" ] && fps=true || fps=false
@@ -3562,11 +2411,9 @@ install_early_hook() {
     cat <<'SHIM'
 if [ ! -e "$ONCE" ]; then
   : > "$ONCE" 2>/dev/null
-  if /bin/grep -q '"persist"[[:space:]]*:[[:space:]]*true' "$STATE/config.json" 2>/dev/null; then
-    if [ -x "$APPDIR/tools/autostart.sh" ]; then
-      PATH=/usr/sbin:/usr/bin:/sbin:/bin \
-        /usr/bin/setsid "$APPDIR/tools/autostart.sh" --worker </dev/null >/dev/null 2>&1 &
-    fi
+  if [ -x "$APPDIR/tools/autostart.sh" ]; then
+    PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+      /usr/bin/setsid "$APPDIR/tools/autostart.sh" --worker </dev/null >/dev/null 2>&1 &
   fi
 fi
 exec /bin/grep "$@"
@@ -3676,9 +2523,7 @@ remove_legacy_app() {
 }
 
 migrate_legacy() {
-  # Returns 1 only when the data could not be moved; every later step is
-  # logged and skipped on failure, because the data is already in place and
-  # apply puts the rest right.
+  # Leave the migration marker in place when owned UI changes cannot be removed.
   if [ -f "$MIGRATING" ]; then
     from="$STATE"
   elif [ "$LEGACY_STATE" != "$STATE" ] && [ -d "$LEGACY_STATE" ] && [ ! -L "$LEGACY_STATE" ] && [ ! -e "$STATE" ]; then
@@ -3686,10 +2531,6 @@ migrate_legacy() {
   else
     return 0
   fi
-
-  # The overlay mounts over the settings apps name the old data dir as their
-  # upper layer. Unmounted before the move and mounted again after it.
-  [ -f "$from/.webglass-on" ] && webglass_set off
 
   if [ "$from" = "$LEGACY_STATE" ]; then
     # Wait out an apply or revert of the old tool, and keep new ones out, for
@@ -3702,8 +2543,28 @@ migrate_legacy() {
       return 1
     fi
     : > "$LEGACY_STATE/.migrating"
+  fi
+
+  # Unmount only our old web overlays before moving their upper directories.
+  if [ -f "$from/.webglass-on" ]; then
+    for migration_app in $(webglass_apps); do
+      if ! stock_ui_unmount_overlay "/usr/palm/applications/$migration_app" "$from/webapps/$migration_app/upper"; then
+        [ "$from" != "$LEGACY_STATE" ] || exec 8>&-
+        return 1
+      fi
+    done
+  fi
+  if [ -f "$from/.systemui-on" ]; then
+    migration_status=$(timeout 5 python3 "$SYSTEMUI_TOOL" status </dev/null 2>/dev/null) || { [ "$from" != "$LEGACY_STATE" ] || exec 8>&-; return 1; }
+    migration_path=$(printf '%s' "$migration_status" | python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1], ""))' "$QS_APP" 2>/dev/null) || { [ "$from" != "$LEGACY_STATE" ] || exec 8>&-; return 1; }
+    case "$migration_path" in
+      "file://$LEGACY_STATE/systemui/"*|"file://$STATE/systemui/"*)
+        timeout 5 python3 "$SYSTEMUI_TOOL" off "$QS_APP" </dev/null >/dev/null 2>&1 || { [ "$from" != "$LEGACY_STATE" ] || exec 8>&-; return 1; } ;;
+    esac
+  fi
+
+  if [ "$from" = "$LEGACY_STATE" ]; then
     if ! mv "$LEGACY_STATE" "$STATE" 2>/dev/null; then
-      rm -f "$LEGACY_STATE/.migrating"
       exec 8>&-
       printf '%s migrate: could not move to %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$STATE" >> "$LEGACY_STATE/log" 2>/dev/null
       return 1
@@ -3712,10 +2573,8 @@ migrate_legacy() {
   fi
   log_line "migrate: data now in $STATE"
 
-  # Everything derived from the old names is rebuilt by apply: the staged QML
-  # directory, the key-filter copy, the settings-app stylesheet copy and the
-  # patched Quick Settings tree (its marker comment changed with the name).
-  rm -rf "$LUMA_STAGE" "$LUMA_STAGE.next" "$SYSTEMUI_STAGE" 2>/dev/null
+  # Keep staged system UI files until owned redirects have been restored.
+  rm -rf "$LUMA_STAGE" "$LUMA_STAGE.next" 2>/dev/null
   rm -f "$KEYFILTER_DIR/$LEGACY_KEYFILTER" "$VERIFIED" 2>/dev/null
   for f in "$WEBGLASS_STAGE"/*/upper/webOSUserScripts/"$LEGACY_CSS"; do
     [ -e "$f" ] && rm -f "$f"
@@ -3736,13 +2595,9 @@ migrate_legacy() {
     persist_enable || log_line "migrate: boot hook could not be re-created"
   fi
 
-  # configd still holds the old data dir in the key filter's path and in the
-  # Quick Settings entry.
-  if [ -f "$ENV_FILE" ]; then
-    keyfilter_set add || log_line "migrate: could not register the key filter with configd"
-  fi
-  [ -f "$SYSTEMUI_ON" ] && { systemui_set on || log_line "migrate: could not point Quick Settings at the staged tree"; }
-  [ -f "$WEBGLASS_ON" ] && { webglass_set on || log_line "migrate: could not mount the settings-app stylesheet"; }
+  # Remove the retired Home handlers, including entries pointing at the old data dir.
+  log_stderr python3 "$KEYFILTER_TOOL" remove "$KEYFILTER_HANDLER" "$KEYFILTER_DIR/$SHORT_ID.js" < /dev/null \
+    || log_line "migrate: could not remove the legacy key filter from configd"
 
   remove_legacy_app "$LEGACY_FRAME_APP"
   remove_legacy_app "$LEGACY_APP"
@@ -3753,28 +2608,7 @@ migrate_legacy() {
 
 # ---------------------------------------------------------------------- fps
 
-verb_fps() {
-  action="${1:-}"
-  case "$action" in
-    on) val=true ;;
-    off) val=false ;;
-    *) emit_error "fps requires on or off"; return 1 ;;
-  esac
-  set_cfg_bool fps "$val"
-  # The overlay is a property in the staged QML, so flipping it is a re-apply:
-  # apply sees the staged set change, rebinds once per distinct target, takes
-  # the mutation lock, and runs the shader verification. The old inline
-  # version bound both QML paths - the same inode - and stacked two mounts.
-  if [ "$(count_mounts)" -gt 0 ]; then
-    if ! verb_apply >/dev/null; then
-      emit_error "fps set, but re-apply failed; see log"
-      return 1
-    fi
-  fi
-  log_line "fps: set to $val"
-  printf '{"ok":true,"fps":%s}\n' "$val"
-  return 0
-}
+
 
 # ------------------------------------------------------------------ restart
 
@@ -3963,14 +2797,12 @@ verb_ntfy() {
 verb_log() {
   n="${1:-}"
   case "$n" in ''|*[!0-9]*) n=20 ;; esac
-  mkdir -p "$STATE" 2>/dev/null
-  touch "$LOGFILE" 2>/dev/null
   out=""
   while IFS= read -r line || [ -n "$line" ]; do
     esc=$(json_escape "$line")
     if [ -z "$out" ]; then out="\"$esc\""; else out="$out,\"$esc\""; fi
   done <<LGEOF
-$(tail -n "$n" "$LOGFILE" 2>/dev/null)
+$(python3 "$LOG_TOOL" read lumatv-tool "$n" 2>/dev/null)
 LGEOF
   printf '{"ok":true,"lines":[%s]}\n' "$out"
   return 0
@@ -3986,17 +2818,107 @@ verb_version() {
 
 # ------------------------------------------------------------------- dispatch
 
+maintenance_present() {
+  [ -e "$STATE/maintenance" ] || [ -L "$STATE/maintenance" ]
+}
+
+maintenance_human_stop() {
+  maintenance_present || return 0
+  # A durable veto survives power loss. Failure must not swallow an emergency.
+  python3 - "$STATE" <<'PY'
+import os, sys
+try:
+    d = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    s = os.fstat(d)
+    if s.st_uid != 0 or s.st_mode & 0o022:
+        raise OSError("unsafe state directory")
+    try:
+        os.mkdir("maintenance-human-stop", 0o700, dir_fd=d)
+    except FileExistsError:
+        pass
+    os.fsync(d)
+    os.close(d)
+except OSError:
+    sys.exit(1)
+PY
+}
+
+maintenance_guard() {
+  maintenance_present || return 0
+  case "$MAINTENANCE_ACCESS" in
+    read) return 0 ;;
+    emergency) maintenance_human_stop; return 0 ;;
+  esac
+  emit_error "maintenance is incomplete; activation is blocked"
+  return 1
+}
+
+# Classify before migration: reads and emergencies must not create or migrate
+# configuration while an interrupted installation is waiting for recovery.
+MAINTENANCE_ACCESS=write
+case "$VERB:${2:-}" in
+  wake:status|wake:) MAINTENANCE_ACCESS=read ;;
+  wake:off) MAINTENANCE_ACCESS=emergency ;;
+  status:|surfaces:|version:|log:*|theme:get|theme:|layout:get|layout:|layout:check|compositor:check|stock-ui-restore:)
+    MAINTENANCE_ACCESS=read ;;
+  helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:)
+    MAINTENANCE_ACCESS=read ;;
+  revert:|persist:off|compositor:off|homestub:escape|homestub:off|helper:stop|capture:stop|vplane:stop)
+    MAINTENANCE_ACCESS=emergency ;;
+esac
+maintenance_guard || exit 1
+
+native_storage_guard() {
+  storage_guard "$STATE" "$FONTS_SRC" "$AVATARS_SRC" "$THEME_SRC" "$WALL_SRC" \
+    "$HELPER_SRC" "$JPEG_SRC" "$CAPTURE_SRC" "$CAPTURE_ROLE" "$STATE/helper.json"
+}
+case "$VERB:${2:-}" in
+  compositor:on|compositor-boot:*)
+    native_storage_guard || { emit_error "$STORAGE_WHY"; exit 1; } ;;
+esac
+
+if [ "$MAINTENANCE_ACCESS" = write ]; then
 case "$VERB" in
-  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|store|inputcommon|keyboard|voice|keys|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot|cover|splash|standbyscreen)
+  persist|standby|ntfy|theme|layout|helper|capture|inputs|vplane|feeder|gfn|wallpaper|transitions|preload|wake|compositor|compositor-boot|standbyscreen)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
+    take_mutation_lock || { emit_error "another mutation is in progress"; exit 1; }
     if ! migrate_legacy; then
-      emit_error "could not move the previous data dir to $STATE; see $LEGACY_STATE/log"
+      emit_error "could not safely migrate the previous data dir to $STATE"
       exit 1
     fi
     ensure_config
+    exec 9>&-
+    maintenance_guard || exit 1
     ;;
 esac
+fi
+
+app_storage_guard() {
+  app_ipk=$1; app_dest=$2
+  STORAGE_WHY="app package size unavailable"
+  app_size=$(python3 - "$app_ipk" <<'PY'
+import subprocess, sys, tarfile
+try:
+    proc = subprocess.Popen(["ar", "p", sys.argv[1], "data.tar.gz"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    total = count = 0
+    with tarfile.open(fileobj=proc.stdout, mode="r|gz") as archive:
+        for item in archive:
+            total += (item.size + 1023) // 1024 + 4
+            count += 1
+    while proc.stdout.read(65536):
+        pass
+    if proc.wait() or not count:
+        raise ValueError("invalid package")
+    print(total, count)
+except (OSError, ValueError, tarfile.TarError):
+    sys.exit(1)
+PY
+  ) || return 1
+  app_kib=${app_size% *}; app_entries=${app_size#* }
+  STORAGE_EXTRA_KIB="$app_kib" STORAGE_EXTRA_INODES="$app_entries" storage_guard "$app_dest" "$app_ipk" || return 1
+  STORAGE_EXTRA_KIB="$app_kib" STORAGE_EXTRA_INODES="$app_entries" storage_guard /tmp "$app_ipk"
+}
 
 install_frame_app() {
   # The frame app ships as an ipk inside the payload and is installed through the
@@ -4007,6 +2929,7 @@ install_frame_app() {
   shipped=$(ar p "$FRAME_IPK" control.tar.gz 2>/dev/null | tar -xzO control 2>/dev/null | sed -n 's/^Version: //p')
   installed=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$FRAME_DIR/appinfo.json" 2>/dev/null)
   [ -n "$shipped" ] && [ "$shipped" = "$installed" ] && return 0
+  app_storage_guard "$FRAME_IPK" "$FRAME_DIR" || { log_line "frame app update deferred: $STORAGE_WHY"; return 0; }
   cp -f "$FRAME_IPK" /tmp/$SHORT_ID-frame.ipk 2>/dev/null || return 0
   out=$(luna-send -n 3 -f luna://com.webos.appInstallService/dev/install "{\"id\":\"$FRAME_APP\",\"ipkUrl\":\"/tmp/$SHORT_ID-frame.ipk\",\"subscribe\":true}" 2>&1 | tr -d '\n')
   i=0; while [ "$i" -lt 20 ]; do
@@ -4021,11 +2944,24 @@ install_frame_app() {
   rm -f /tmp/$SHORT_ID-frame.ipk
 }
 
+
+native_start() {
+  stage_theme || log_line "native startup: theme staging failed"
+  helper_start || true
+  capture_start || true
+  if vplane_installed; then vplane_start || true; fi
+  [ ! -f "$PRELOAD_STATE" ] || log_stderr python3 "$PRELOAD_TOOL" on "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null
+  return 0
+}
+
 verb_theme() {
   # theme get | theme set '<json>': the companion app's and the Home popovers' way to edit
   # theme.json. The Home layer polls the file, so a set is live within 2 s and nothing
   # here restarts.
-  [ -f "$THEME_DIR/theme.json" ] || stage_theme
+  if [ ! -f "$THEME_DIR/theme.json" ]; then
+    [ "$MAINTENANCE_ACCESS" != read ] || { emit_error "theme has not been staged"; return 1; }
+    stage_theme
+  fi
   case "$1" in
     get) python3 "$THEME_TOOL" "$THEME_DIR/theme.json" get < /dev/null ;;
     set) [ -n "$2" ] || { emit_error "theme set needs a JSON object"; return 1; }
@@ -4039,7 +2975,10 @@ verb_layout() {
   # layout get | check '<json>' | put '<json>' | set '<json>' | reset: the owner's Home layout (layout.json), by the same rules as the
   # layout editor on Home (tools/layout.py). The Home layer polls the file, so a change is live within 2 s and nothing here restarts. No
   # copy of the file it replaces is kept: `layout reset` is the way back to the shipped layout, and `put` of the layout wanted any other.
-  [ -f "$THEME_DIR/layout.json" ] || stage_theme
+  if [ ! -f "$THEME_DIR/layout.json" ]; then
+    [ "$MAINTENANCE_ACCESS" != read ] || { emit_error "layout has not been staged"; return 1; }
+    stage_theme
+  fi
   case "$1" in
     get|reset) python3 "$LAYOUT_TOOL" "$THEME_DIR/layout.json" "$1" < /dev/null ;;
     check|put|set) [ -n "$2" ] || { emit_error "layout $1 needs a JSON object"; return 1; }
@@ -4050,13 +2989,8 @@ verb_layout() {
 
 case "$VERB" in
   status) verb_status; exit $? ;;
-  apply) verb_apply; exit $? ;;
-  boot-bind) verb_boot_bind; exit $? ;;
-  boot-restart) verb_boot_restart; exit $? ;;
-  boot-ok) verb_boot_ok; exit $? ;;
-  revert) verb_revert; exit $? ;;
+  stock-ui-restore) verb_stock_ui_restore; exit $? ;;
   persist) verb_persist "${2:-}"; exit $? ;;
-  fps) verb_fps "${2:-}"; exit $? ;;
   restart) verb_restart; exit $? ;;
   helper) verb_helper "${2:-status}"; exit $? ;;
   capture) verb_capture "${2:-status}"; exit $? ;;
@@ -4067,31 +3001,18 @@ case "$VERB" in
   wallpaper) verb_wallpaper "${2:-status}"; exit $? ;;
   transitions) verb_transitions "${2:-status}"; exit $? ;;
   preload) verb_preload "${2:-status}"; exit $? ;;
-  logo) verb_logo "${2:-status}"; exit $? ;;
-  notifications) verb_notifications "${2:-status}"; exit $? ;;
+  wake) shift; [ "$#" -gt 0 ] || set -- status; verb_wake "$@"; exit $? ;;
   surfaces) verb_surfaces; exit $? ;;
-  compositor) verb_compositor "${2:-status}"; exit $? ;;
-  compositor-boot) verb_compositor_boot; exit $? ;;
+  compositor) verb_compositor "${2:-status}" "${3:-}"; exit $? ;;
+  compositor-boot) if [ "${2:-}" = activate ]; then verb_compositor_boot_activate "${3:-}"; else verb_compositor_boot; fi; exit $? ;;
   standby) verb_standby "${2:-}"; exit $? ;;
   ntfy) verb_ntfy "${2:-}" "${3:-}"; exit $? ;;
   log) verb_log "${2:-}"; exit $? ;;
   theme) verb_theme "${2:-get}" "${3:-}"; exit $? ;;
   layout) verb_layout "${2:-get}" "${3:-}"; exit $? ;;
-  systemui) verb_systemui "${2:-status}"; exit $? ;;
-  webglass) verb_webglass "${2:-status}"; exit $? ;;
-  inputcommon) verb_inputcommon "${2:-status}"; exit $? ;;
   updateblock) verb_updateblock "${2:-status}"; exit $? ;;
   openapps) verb_openapps "${2:-status}"; exit $? ;;
-  voice) verb_voice "${2:-status}"; exit $? ;;
-  keys) verb_keys "${2:-status}"; exit $? ;;
-  store) verb_store "${2:-status}" "${3:-}"; exit $? ;;
-  keyboard) verb_keyboard "${2:-status}"; exit $? ;;
-  cover) verb_cover "${2:-status}"; exit $? ;;
-  splash) verb_splash "${2:-status}"; exit $? ;;
   standbyscreen) verb_standbyscreen "${2:-status}"; exit $? ;;
-  homestub) verb_homestub "${2:-status}"; exit $? ;;
-  homestub-boot) verb_homestub_boot; exit $? ;;
-  homestub-watch) verb_homestub_watch; exit $? ;;
   version) verb_version; exit $? ;;
   *) emit_error "unknown verb: $VERB"; exit 1 ;;
 esac

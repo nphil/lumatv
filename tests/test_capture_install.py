@@ -177,16 +177,7 @@ class EndToEnd(Base):
             data += conn.recv(204 - len(data))
         self.assertEqual(data[:4], b"AMB1")
         conn.close()
-        end = time.time() + 3
-        log = os.path.join(self.state, "capture.log")
-        def text():
-            if not os.path.exists(log):
-                return ""
-            with open(log) as f:
-                return f.read()
-        while time.time() < end and "capture ended" not in text():
-            time.sleep(0.05)
-        self.assertIn("capture ended (the helper no longer wants a picture)", text())
+        self.assertFalse(os.path.exists(os.path.join(self.state, "capture.log")))
 
 
 if __name__ == "__main__":

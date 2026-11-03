@@ -137,6 +137,12 @@ impl Service {
         }
 
         let mut threads: Vec<(&'static str, JoinHandle<()>)> = Vec::new();
+        {
+            let logging_ctx = ctx.clone();
+            threads.push(("logging", thread::Builder::new().name("logging".into()).stack_size(128 * 1024).spawn(move || crate::logging::run(logging_ctx))?));
+            let native_ctx = ctx.clone();
+            threads.push(("logging-native", thread::Builder::new().name("logging-native".into()).stack_size(128 * 1024).spawn(move || crate::logging_native::run(native_ctx))?));
+        }
 
         // The screen watcher tells both runners, ambient light and the frame-rate watcher when the panel goes on or off.
         let notify: Arc<dyn Fn() + Send + Sync> = {

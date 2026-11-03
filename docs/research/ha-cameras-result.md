@@ -265,7 +265,7 @@ WebRTC (not needed: the relay reaches the same restream without DTLS/SRTP).
 Receiver muted through Home Assistant where sound could play; stop at the first failure and send back what is named.
 
 1. `cameras.enabled: true`, helper restarted: `curl -s 127.0.0.1:18731/v1/cameras` says `paired: true`, `state: "waiting"`, `port: 6054`;
-   `log-helper` has `cameras: the bridge listens at <lan ip>:6054`; from the workstation `avahi-browse -rt _lumashow._tcp` shows `lumatv-<six>`
+   `tools/logrelay.py read cameras 50` shows `cameras: the bridge listens at <lan ip>:6054`; from the workstation `avahi-browse -rt _lumashow._tcp` shows `lumatv-<six>`
    with `modules` ending `camera_events`.
 2. Home Assistant discovers *LumaTV* (LumaShow integration) and connects with the ESPHome key: `/v1/cameras` `state: "connected"`, the TV's
    device page in Home Assistant shows *Connected*; `curl .../v1/state/cameras` lists the shared cameras with their `kinds` and no address.

@@ -70,33 +70,37 @@ fn a_gear_tap_asks_for_quick_settings_and_no_app_sees_the_key() {
     let mut server = Server::start();
     let mut a = app(&mut server, "Player", "org.test.player");
     let t = Instant::now();
-    let (launched, said) = server.eval(move |s| {
+    let (shows, launched) = server.eval(move |s| {
+        s.shell_rust_open(0, "test".into()).unwrap();
+        s.shell_rust.kinds = vec!["quick".into()];
+        s.shell_rust_handle(Msg::Connected);
+        s.shell_rust_handle(Msg::Ui { can: Some(vec!["quick".into()]), wants: None, live: None, state: None });
         tap(s, KEY_MENU, t, 90);
-        (launches(s), journal_has(s, "input: gear tap: Quick Settings has no window of its own here yet, launching com.palm.app.settings"))
+        (s.shell_rust.events().into_iter().filter(|e| e["topic"] == "show" && e["data"]["kind"] == "quick" && e["data"]["warm"] != true).count(), launches(s))
     });
-    assert_eq!(launched, vec!["com.palm.app.settings"]);
-    assert!(said);
+    assert_eq!(shows, 1);
+    assert!(launched.is_empty());
     a.client.roundtrip();
     assert!(a.client.state.keys.is_empty(), "the gear is the compositor's: {:?}", a.client.state.keys);
 }
 
 #[test]
 fn three_gear_taps_in_three_seconds_never_open_lgs_hidden_av_reset_menu() {
-    // LG's `tvhotkey` (`mute-hidden-action`) was launched by the third tap: its items are in LumaTV's Settings now, and every tap is the
-    // quick panel's (LG's Settings app stands in while no shell shows it).
+    // LG used the third tap to launch its hidden AV-reset menu.
     let mut server = Server::start();
     let mut a = app(&mut server, "Player", "org.test.player");
     let t = Instant::now();
-    let (launched, tvhotkey, said) = server.eval(move |s| {
+    let (launched, tvhotkey, said, unavailable) = server.eval(move |s| {
         let mut at = t;
         for _ in 0..4 {
             tap(s, KEY_MENU, at, 70);
             at += Duration::from_millis(800);
         }
-        (launches(s), app_manager_calls(s).iter().any(|(_, p)| p["id"] == "com.webos.app.tvhotkey" || p["params"]["activateType"] == "mute-hidden-action"), journal_has(s, "AV reset"))
+        (launches(s), app_manager_calls(s).iter().any(|(_, p)| p["id"] == "com.webos.app.tvhotkey" || p["params"]["activateType"] == "mute-hidden-action"), journal_has(s, "AV reset"), journal_has(s, "input: gear tap: Quick Settings cannot be shown now, nothing opened"))
     });
-    assert_eq!(launched, vec!["com.palm.app.settings"; 4]);
+    assert!(launched.is_empty());
     assert!(!tvhotkey && !said);
+    assert!(unavailable);
     a.client.roundtrip();
     assert!(a.client.state.keys.is_empty(), "no tap reaches the app");
 }
@@ -112,8 +116,10 @@ fn gear_hold_server(choice: Option<&str>, tag: &str) -> (Server, std::path::Path
     let d = dir.clone();
     server.eval(move |s| {
         s.keys = Keys::new(&Config { data_dir: d, ..Config::default() });
-        s.shell_handle(Msg::Connected);
-        s.shell_handle(Msg::Ui { can: Some(vec!["quick".into(), "settings".into(), "drawer".into()]), wants: None, live: None, state: None });
+        s.shell_rust_open(0, "test".into()).unwrap();
+        s.shell_rust.kinds = vec!["quick".into(), "settings".into(), "drawer".into()];
+        s.shell_rust_handle(Msg::Connected);
+        s.shell_rust_handle(Msg::Ui { can: Some(vec!["quick".into(), "settings".into(), "drawer".into()]), wants: None, live: None, state: None });
     });
     (server, dir)
 }
@@ -125,7 +131,7 @@ fn hold_gear(server: &Server, t: Instant) -> (Vec<String>, Vec<(String, Value)>,
         s.poll_holds_at(t + Duration::from_millis(900));
         s.poll_holds_at(t + Duration::from_millis(1050));
         s.key_event_at(SeatId(0), KEY_MENU, false, false, t + Duration::from_millis(1400));
-        let shows = s.shell.recorded.iter().filter(|e| e["topic"] == "show" && e["data"]["warm"] != json!(true)).map(|e| e["data"]["kind"].as_str().unwrap_or("").to_string()).collect();
+        let shows = s.shell_rust.events().iter().filter(|e| e["topic"] == "show" && e["data"]["warm"] != json!(true)).map(|e| e["data"]["kind"].as_str().unwrap_or("").to_string()).collect();
         (shows, app_manager_calls(s), s.journal.iter().filter(|l| l.contains("gear held")).cloned().collect())
     })
 }
@@ -171,20 +177,20 @@ fn a_hold_the_shell_cannot_show_opens_nothing_of_lgs() {
 }
 
 #[test]
-fn input_is_a_picker_on_a_tap_and_the_hub_on_a_hold() {
+fn unavailable_picker_does_not_open_an_alternate_but_a_hold_opens_the_hub() {
     let mut server = Server::start();
     let mut a = app(&mut server, "Player", "org.test.player");
     let t = Instant::now();
     let (launched, said_tap, said_hold) = server.eval(move |s| {
         let end = tap(s, KEY_VIDEO_NEXT, t, 120);
-        let said_tap = journal_has(s, "input: Input tap: the input picker has no window of its own here yet");
+        let said_tap = journal_has(s, "input: Input tap: the input picker cannot be shown now, nothing opened");
         let t2 = end + Duration::from_secs(1);
         s.key_event_at(SeatId(0), KEY_VIDEO_NEXT, true, false, t2);
         s.poll_holds_at(t2 + Duration::from_millis(1100));
         s.key_event_at(SeatId(0), KEY_VIDEO_NEXT, false, false, t2 + Duration::from_millis(1300));
         (launches(s), said_tap, journal_has(s, "input: Input held: the Home Hub, launching com.webos.app.homeconnect"))
     });
-    assert_eq!(launched, vec!["com.webos.app.homeconnect", "com.webos.app.homeconnect"], "one launch for the tap, one for the hold");
+    assert_eq!(launched, vec!["com.webos.app.homeconnect"], "only the hold opens the Hub");
     assert!(said_tap && said_hold);
     a.client.roundtrip();
     assert!(a.client.state.keys.is_empty());
@@ -196,9 +202,11 @@ fn with_the_shells_picker_input_acts_on_its_press_and_a_hold_still_opens_the_hub
     let mut a = app(&mut server, "Player", "org.test.player");
     let t = Instant::now();
     let (at_press, at_release, hub_after_hold) = server.eval(move |s| {
-        s.shell_handle(Msg::Connected);
-        s.shell_handle(Msg::Ui { can: Some(vec!["picker".into()]), wants: None, live: None, state: None });
-        let shows = |s: &State| s.shell.recorded.iter().filter(|e| e["topic"] == "show").count();
+        s.shell_rust_open(0, "test".into()).unwrap();
+        s.shell_rust.kinds = vec!["picker".into()];
+        s.shell_rust_handle(Msg::Connected);
+        s.shell_rust_handle(Msg::Ui { can: Some(vec!["picker".into()]), wants: None, live: None, state: None });
+        let shows = |s: &State| s.shell_rust.events().iter().filter(|e| e["topic"] == "show").count();
         let seat = SeatId(0);
         s.key_event_at(seat, KEY_VIDEO_NEXT, true, false, t);
         let at_press = (shows(s), journal_has(s, "input: Input tap: the input picker -> LumaTV's input picker"), launches(s));

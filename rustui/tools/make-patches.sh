@@ -27,6 +27,13 @@ for file in "$base"/render/src/*.rs "$base"/render/src/*/*.rs; do
   (cd "$base/render/src" && diff -u --label "a/$name" --label "b/$name" "$name" "$here/render/src/$name") >"$out" || true
   echo "patches/$(basename "$out")"
 done
+# The private planner has no upstream file for the loop above to compare.
+name=backdrop/plan.rs
+if [ ! -f "$base/render/src/$name" ]; then
+  out="$here/patches/lumatv-backdrop-plan.patch"
+  diff -u --label /dev/null --label "b/$name" /dev/null "$here/render/src/$name" >"$out" || true
+  echo "patches/$(basename "$out")"
+fi
 # the ui crate (lumashow-ui/): the same, one patch a changed file, in patches/ui/
 ubase=$base/ui
 mkdir -p "$ubase"

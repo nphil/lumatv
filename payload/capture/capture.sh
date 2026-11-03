@@ -5,7 +5,7 @@
 #
 #   capture.sh install BIN ROLE STATE   stage BIN as STATE/bin/lumatv-capture, write its LS2 role from the template ROLE and the
 #                                       manifest that names it, rescan
-#   capture.sh start   STATE SOCKET     start it (idempotent); log STATE/capture.log, pid STATE/capture.pid
+#   capture.sh start   STATE SOCKET     start it (idempotent); diagnostics go to the RAM collector, pid STATE/capture.pid
 #   capture.sh stop    STATE
 #   capture.sh remove  STATE            stop it, delete the manifest, the role and the staged binary, rescan
 #   capture.sh status  STATE            one JSON line
@@ -83,13 +83,12 @@ start_cmd() {
   exe="$state/bin/lumatv-capture"
   [ -x "$exe" ] || { echo "capture: not installed" >&2; return 1; }
   [ -n "$(running_pid "$state")" ] && return 0
-  [ "$(wc -c < "$state/capture.log" 2>/dev/null || echo 0)" -gt 262144 ] && mv -f "$state/capture.log" "$state/capture.log.1"
   # 8>&- 9>&-: the daemon must not inherit lumatv's mutation lock (flock on fd 9), or it holds the lock for as long as it
   # runs and every later apply or restart waits 180 s and fails (seen 2026-10-26: the reader of the 00:18 apply held it).
   if command -v setsid >/dev/null 2>&1; then
-    setsid nohup "$exe" -s "$socket" >> "$state/capture.log" 2>&1 < /dev/null 8>&- 9>&- &
+    setsid nohup "$exe" -s "$socket" > /dev/null 2>&1 < /dev/null 8>&- 9>&- &
   else
-    nohup "$exe" -s "$socket" >> "$state/capture.log" 2>&1 < /dev/null 8>&- 9>&- &
+    nohup "$exe" -s "$socket" > /dev/null 2>&1 < /dev/null 8>&- 9>&- &
   fi
   echo $! > "$state/capture.pid"
   return 0

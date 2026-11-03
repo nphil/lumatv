@@ -6,7 +6,7 @@
 
 use super::Kit;
 use compositor_protocol::{Backdrop, Glass, Props, Rect};
-use lumatv_tokens::Radius;
+use lumatv_tokens::{CardGlass, Radius};
 use ui::geometry::Frame;
 use ui::lucent::material::{ControlState, MaterialContext, SmartMaterial};
 use ui::lucent::palette::{PaletteRole, Straight};
@@ -53,7 +53,85 @@ pub fn glass(kit: &Kit, kind: PaneKind, h: f32, over_video: bool) -> Glass {
     } else {
         sheet.premultiply(0.0)
     };
-    Glass { corner_radius: kind.radius(kit, h), tint, backdrop: Backdrop::None, ..pair.rest }
+    decorate(kit, kind, Glass { corner_radius: kind.radius(kit, h), tint, backdrop: Backdrop::None, ..pair.rest }, over_video)
+}
+
+/// Applies the selected surface and independent geometric depth to every pane.
+pub fn decorate(kit: &Kit, kind: PaneKind, mut glass: Glass, over_video: bool) -> Glass {
+    let strength = kit.tokens.glass_strength().clamp(0.0, 1.0);
+    let depth = kit.tokens.depth_scale.max(0.0);
+    if depth == 0.0 {
+        glass.shadows = [None, None];
+        glass.depth = None;
+    } else {
+        for shadow in glass.shadows.iter_mut().flatten() {
+            shadow.offset_y *= depth;
+            shadow.blur *= depth;
+        }
+        if let Some(d) = &mut glass.depth {
+            d.offset *= depth;
+            d.blur *= depth;
+        }
+    }
+    let scale = |c: compositor_protocol::Rgba, k: f32| compositor_protocol::Rgba(
+        (c.0 as f32 * k).round() as u8, (c.1 as f32 * k).round() as u8,
+        (c.2 as f32 * k).round() as u8, (c.3 as f32 * k).round() as u8);
+    match kit.tokens.card_glass {
+        CardGlass::Clear => {
+            glass.edge = scale(glass.edge, strength);
+            glass.highlight = scale(glass.highlight, strength);
+            if let Some(sheen) = &mut glass.sheen { sheen.peak *= strength; sheen.floor *= strength; }
+        }
+        CardGlass::Frosted => {
+            glass.saturation += 0.35 * (1.0 - strength);
+            if let Backdrop::Cached { radius } = &mut glass.backdrop { *radius *= 0.5 + 0.5 * strength; }
+            if glass.backdrop == Backdrop::None && !over_video && strength < 1.0 {
+                // A backdrop-free pane has no blur to vary; its tint is the matte scattering layer.
+                let alpha = glass.tint.3 as f32;
+                let floor = if matches!(kind, PaneKind::Sheet) { 0.88 * 255.0 } else { 0.0 };
+                let next = (alpha * (0.90 + 0.10 * strength)).max(floor).min(alpha);
+                if alpha > 0.0 { glass.tint = scale(glass.tint, next / alpha); }
+            }
+        }
+        CardGlass::Liquid if !over_video && kit.tier != ui::lucent::material::MaterialTier::T0 && glass.backdrop != Backdrop::None => {
+            glass.edge_lens = Some(compositor_protocol::EdgeLens { bevel: 12.0, lens: 24.0 * strength, rim_clear: 0.6 * strength });
+            let colour = glass.tint;
+            let boost = 1.0 + 0.08 * strength;
+            let bottom = compositor_protocol::Rgba(
+                (colour.0 as f32 * boost).min(255.0).round() as u8,
+                (colour.1 as f32 * boost).min(255.0).round() as u8,
+                (colour.2 as f32 * boost).min(255.0).round() as u8,
+                (colour.3 as f32 * boost).min(255.0).round() as u8,
+            );
+            glass.tint_gradient = Some(compositor_protocol::TintGradient { top: colour, bottom });
+        }
+        CardGlass::Glazed => {
+            let minimum = if matches!(kind, PaneKind::Sheet) || over_video { 0.96 } else if kit.mode == ui::lucent::palette::Mode::Dark { 0.62 } else { 0.72 };
+            let sheet = if matches!(kind, PaneKind::Sheet) || over_video {
+                kit.ui.look.theme.roles[PaletteRole::Sheet]
+            } else {
+                let raised = kit.ui.look.theme.roles[PaletteRole::GlassRaised];
+                if kit.mode == ui::lucent::palette::Mode::Dark {
+                    let premultiplied = raised.premultiply(0.0);
+                    Straight { r: premultiplied.0, g: premultiplied.1, b: premultiplied.2, ..raised }
+                } else { raised }
+            };
+            let alpha = (minimum + (1.0 - minimum) * (1.0 - strength) * 0.12).min(1.0);
+            glass.tint = Straight { a: (alpha * 255.0).round() as u8, ..sheet }.premultiply(0.0);
+            let bottom = Straight { a: ((alpha + 0.04 * strength).min(1.0) * 255.0).round() as u8, ..sheet }.premultiply(0.0);
+            glass.tint_gradient = Some(compositor_protocol::TintGradient { top: glass.tint, bottom });
+            glass.highlight = scale(glass.highlight, 0.6 + 0.4 * strength);
+            if let Some(sheen) = &mut glass.sheen { sheen.peak *= strength; sheen.floor *= strength; }
+        }
+        _ => {}
+    }
+    if kit.tier == ui::lucent::material::MaterialTier::T0 {
+        let sheet = kit.ui.look.theme.roles[PaletteRole::Sheet];
+        glass.tint = Straight { a: 255, ..sheet }.premultiply(0.0);
+        glass.tint_gradient = None;
+        glass.edge_lens = None;
+    }
+    glass
 }
 
 pub struct Pane {
@@ -107,5 +185,73 @@ impl Pane {
 
     pub fn over_video(&self) -> bool {
         self.over_video
+    }
+}
+
+#[cfg(test)]
+mod material_tests {
+    use super::*;
+    use crate::kit::testkit;
+    use ui::lucent::palette::Mode;
+
+    #[test]
+    fn material_strength_and_depth_are_independent() {
+        let (_h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        kit.tokens.card_glass = CardGlass::Liquid;
+        let mut base = glass(&kit, PaneKind::Card, 200.0, false);
+        base.backdrop = Backdrop::Cached { radius: 24.0 };
+        kit.tokens.glass_strengths[CardGlass::Liquid.index()] = 0.5;
+        kit.tokens.depth_scale = 0.0;
+        let liquid = decorate(&kit, PaneKind::Card, base, false);
+        assert_eq!(liquid.edge_lens.unwrap().lens, 12.0);
+        assert_eq!(liquid.shadows, [None, None]);
+        assert_eq!(liquid.depth, None);
+        kit.tokens.depth_scale = 1.5;
+        let deeper = decorate(&kit, PaneKind::Card, base, false);
+        assert_eq!(deeper.edge_lens, liquid.edge_lens);
+        assert_eq!(deeper.shadows[0].map(|s| s.offset_y), base.shadows[0].map(|s| s.offset_y * 1.5));
+    }
+
+    #[test]
+    fn glazed_and_video_surfaces_stay_readable() {
+        for mode in [Mode::Dark, Mode::Light] {
+            let (_h, mut kit) = testkit::kit_in(mode, 1.0);
+            kit.tokens.card_glass = CardGlass::Glazed;
+            let card = glass(&kit, PaneKind::Card, 200.0, false);
+            assert!(card.tint.3 >= if mode == Mode::Dark { 158 } else { 183 });
+            let sheet = glass(&kit, PaneKind::Sheet, 200.0, true);
+            assert!(sheet.tint.3 >= 244);
+            assert_eq!(sheet.backdrop, Backdrop::None);
+            assert_eq!(sheet.edge_lens, None);
+        }
+    }
+
+    #[test]
+    fn frosted_matte_changes_without_sampling_video() {
+        let (_h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        kit.tokens.card_glass = CardGlass::Frosted;
+        kit.tokens.glass_strengths[CardGlass::Frosted.index()] = 1.0;
+        let mut base = glass(&kit, PaneKind::Sheet, 200.0, false);
+        base.tint = compositor_protocol::Rgba(40, 40, 40, 255);
+        let full = decorate(&kit, PaneKind::Sheet, base, false);
+        let video = glass(&kit, PaneKind::Sheet, 200.0, true);
+        kit.tokens.glass_strengths[CardGlass::Frosted.index()] = 0.0;
+        let light = decorate(&kit, PaneKind::Sheet, base, false);
+        assert!(light.tint.3 < full.tint.3);
+        assert!(light.tint.3 >= 224);
+        assert_eq!(glass(&kit, PaneKind::Sheet, 200.0, true).tint, video.tint);
+    }
+
+    #[test]
+    fn glazed_keeps_both_depth_shadows() {
+        let (_h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        kit.tokens.card_glass = CardGlass::Glazed;
+        let mut base = glass(&kit, PaneKind::Card, 200.0, false);
+        let shadow = compositor_protocol::Shadow { offset_y: 2.0, blur: 4.0, colour: compositor_protocol::Rgba(0, 0, 0, 30) };
+        base.shadows = [Some(shadow), Some(shadow)];
+        kit.tokens.depth_scale = 1.5;
+        let result = decorate(&kit, PaneKind::Card, base, false);
+        assert_eq!(result.shadows[1].unwrap().offset_y, 3.0);
+        assert_eq!(result.shadows[1].unwrap().blur, 6.0);
     }
 }

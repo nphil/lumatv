@@ -488,11 +488,11 @@ mod tests {
 
     #[test]
     fn a_jpeg_and_a_png_are_decoded_from_the_shipped_files() {
-        let art = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../payload/compositor/lumatv/art/great-wave.jpg")).expect("the shipped print");
+        let art = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../compositor/assets/ui/art/great-wave.jpg")).expect("the shipped print");
         let p = decode(&art).expect("a jpeg");
         assert_eq!((p.width, p.height), (1280, 860));
         assert!(p.rgba.chunks_exact(4).all(|px| px[3] == 255));
-        let icon = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../payload/compositor/lumatv/icons/lucide/bell.png")).expect("an icon");
+        let icon = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../compositor/assets/ui/icons/lucide/bell.png")).expect("an icon");
         let q = decode(&icon).expect("a png");
         assert_eq!((q.width, q.height), (64, 64));
         assert!(q.rgba.chunks_exact(4).any(|px| px[3] == 255) && q.rgba.chunks_exact(4).any(|px| px[3] == 0));

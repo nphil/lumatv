@@ -1,176 +1,249 @@
-//! Text typed on the TV for one of the shell's own screens (a Wi-Fi password, a name, an address): a sheet along the bottom with the field and
-//! the keyboard of Home's search (`home/search.rs` holds the keys, the case and the symbols; the sheet in Home types a name or a search, this
-//! types for a screen that asked). The owner of the field asks with [`Entry::open`] and is told one of two things: the text, when Done is
-//! pressed (or Enter on a keyboard), or that the person backed out. Nothing else leaves the sheet, and the text is never in an event or a
-//! log: it goes back to the one that asked, once.
-//!
-//! Keys: the arrows move over the keys, OK types the key, the number keys type their digit, Back cancels. A password shows a bullet for each
-//! character but the last, so a slip can be seen.
+//! Shell-owned text entry uses the same Lucent keys as app text fields. Drafts stay here until the owner receives Save or Cancel.
+//! Passwords are fully masked; neither views used for diagnostics nor Debug output contain an entered value.
 
+use super::ime::{self, Gate, Kind, Layout, LayoutId, Move};
 use super::life::Life;
 use super::{K, Out, Typed};
-use crate::home::search::{Search, SearchOut};
+use std::rc::Rc;
+use unicode_segmentation::UnicodeSegmentation;
 
-/// The most characters a field takes: the longest thing typed here is a Wi-Fi passphrase (63), and a field is one line.
-pub const MAX_CHARS: usize = 128;
-/// The key the focus starts on: `t`, as in Home's search.
-const START: usize = 14;
-/// Keys in the grid: ten across for four rows, then `?123`, space and Done.
-pub const KEYS: usize = 43;
+/// New input is bounded, but an existing longer value is never silently truncated on opening it.
+pub const MAX_CHARS: usize = 4096;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct View {
-    pub prompt: String,
-    /// The text as it is shown (bullets for a password).
-    pub shown: String,
+pub struct View<'a> {
+    pub prompt: &'a str,
+    pub shown: &'a str,
     pub secret: bool,
-    pub shift: bool,
-    pub symbols: bool,
-    pub index: usize,
-    /// How many characters are in the field.
+    /// Byte positions in the displayed (possibly masked) string, always on grapheme boundaries.
+    pub cursor: usize,
+    pub selection: Option<(usize, usize)>,
     pub chars: usize,
-    /// What each of the 43 keys says now (the letters or the marks).
-    pub caps: Vec<&'static str>,
-    pub over_video: bool,
+    pub revision: u64,
+    pub keyboard: ime::View,
 }
 
-#[derive(Default)]
 pub struct Entry {
     pub life: Life,
-    search: Search,
+    prompt: String,
+    text: String,
+    mask: String,
+    boundaries: Vec<usize>,
+    cursor: usize,
+    anchor: Option<usize>,
+    secret: bool,
+    base: Rc<Layout>,
+    symbols: Rc<Layout>,
+    symbol_mode: bool,
+    shift: u8,
     index: usize,
+    column: f32,
+    gate: Gate,
+    revision: u64,
     up: bool,
 }
 
-/// The key under `index` that is nearest to a move: left and right along the row, up and down to the key whose span holds the column.
-fn step(index: usize, k: K) -> usize {
-    let row = if index < 40 { index / 10 } else { 4 };
-    let frame = |i: usize| Search::key_frame(i);
-    match k {
-        K::Left | K::Right => {
-            let d: i32 = if k == K::Left { -1 } else { 1 };
-            let (lo, hi) = if row < 4 { (row * 10, row * 10 + 9) } else { (40, 42) };
-            (index as i32 + d).clamp(lo as i32, hi as i32) as usize
+impl Default for Entry {
+    fn default() -> Self {
+        Self {
+            life: Life::default(), prompt: String::new(), text: String::new(), mask: String::new(), boundaries: vec![0], cursor: 0,
+            anchor: None, secret: false, base: Self::layout(LayoutId::Letters), symbols: Self::layout(LayoutId::Symbols),
+            symbol_mode: false, shift: 0, index: 0, column: 0.0, gate: Gate::default(), revision: 0, up: false,
         }
-        K::Up | K::Down => {
-            let to = if k == K::Up { row as i32 - 1 } else { row as i32 + 1 };
-            if !(0..=4).contains(&to) {
-                return index;
-            }
-            let x = frame(index).x + frame(index).w / 2.0;
-            let range = if to < 4 { to as usize * 10..to as usize * 10 + 10 } else { 40..43 };
-            // the key whose span holds the column; else the nearest centre
-            range
-                .min_by(|a, b| {
-                    let dist = |i: &usize| {
-                        let f = frame(*i);
-                        if x >= f.x && x < f.x + f.w { 0.0 } else { (f.x + f.w / 2.0 - x).abs() }
-                    };
-                    dist(a).total_cmp(&dist(b))
-                })
-                .unwrap_or(index)
-        }
-        _ => index,
     }
 }
 
 impl Entry {
-    pub fn new() -> Self {
-        Self::default()
+    fn layout(id: LayoutId) -> Rc<Layout> {
+        let mut layout = Layout::build(id, ime::ENTER_DONE, false);
+        if let Some(i) = layout.index_of("enter") { layout.keys[i].label = "Save".into(); }
+        if let Some(i) = layout.index_of("hide") { layout.keys[i].icon = Some("x"); }
+        if layout.pad {
+            let full = Layout::build(LayoutId::Letters, ime::ENTER_DONE, false);
+            for (id, row, col) in [("left", 4, 0), ("right", 4, 3), ("hide", 3, 3)] {
+                let mut key = full.keys[full.index_of(id).unwrap()].clone();
+                key.row = row; key.col = col; key.span = 1;
+                if id == "hide" { key.icon = Some("x"); }
+                layout.keys.push(key);
+            }
+            layout.rows = 5;
+        }
+        Rc::new(layout)
     }
 
-    pub fn is_up(&self) -> bool {
-        self.up
+    pub fn new() -> Self { Self::default() }
+    pub fn is_up(&self) -> bool { self.up }
+    pub(crate) fn visual_state(&self) -> (u64, usize, u8, bool, bool) { (self.revision, self.index, self.shift, self.symbol_mode, self.up) }
+
+    pub(crate) fn set_enter_label(&mut self, label: &str) {
+        for layout in [&mut self.base, &mut self.symbols] {
+            let layout = Rc::make_mut(layout);
+            if let Some(i) = layout.index_of("enter") { layout.keys[i].label.clear(); layout.keys[i].label.push_str(label); }
+        }
     }
 
-    /// The field is asked for. `secret` shows the text as bullets.
     pub fn open(&mut self, prompt: &str, text: &str, secret: bool, now: u64) {
-        let text: String = text.chars().take(MAX_CHARS).collect();
-        self.search.open_entry(prompt, &text, now);
-        self.search.secret = secret;
-        self.index = START;
+        self.open_purpose(prompt, text, secret, ime::PURPOSE_NORMAL, now);
+    }
+
+    pub fn open_purpose(&mut self, prompt: &str, text: &str, secret: bool, purpose: u32, _now: u64) {
+        self.prompt.clear(); self.prompt.push_str(prompt);
+        self.text.clear(); self.text.push_str(text);
+        self.secret = secret;
+        let id = LayoutId::for_purpose(purpose);
+        if self.base.id != id { self.base = Self::layout(id); }
+        self.symbol_mode = false;
+        self.shift = ime::initial_shift(purpose, 0);
+        self.index = self.base.home();
+        self.column = self.base.keys[self.index].centre();
+        self.anchor = None;
+        self.refresh_text();
+        self.cursor = self.count();
+        self.gate = Gate::default();
         self.up = true;
+    }
+
+    /// External field replacement keeps keyboard focus and mode, like input from an app or voice.
+    pub fn replace_text(&mut self, text: &str) {
+        if self.text == text { return; }
+        self.text.clear(); self.text.push_str(text);
+        self.anchor = None; self.refresh_text(); self.cursor = self.count();
+    }
+
+    fn count(&self) -> usize { self.boundaries.len() - 1 }
+    fn current(&self) -> &Rc<Layout> { if self.symbol_mode { &self.symbols } else { &self.base } }
+
+    fn refresh_text(&mut self) {
+        self.boundaries.clear();
+        self.boundaries.extend(self.text.grapheme_indices(true).map(|(i, _)| i));
+        self.boundaries.push(self.text.len());
+        self.mask.clear();
+        if self.secret { self.mask.extend(std::iter::repeat_n('•', self.count())); }
+        self.revision = self.revision.wrapping_add(1);
     }
 
     pub fn close(&mut self) {
         self.up = false;
+        self.text.clear(); self.mask.clear();
+        self.boundaries.clear(); self.boundaries.push(0);
+        self.cursor = 0; self.anchor = None;
+        self.revision = self.revision.wrapping_add(1);
     }
 
-    fn typed(&self) -> Out {
-        Out { typed: Some(Typed::Entered(self.search.text.clone())), close: true, ..Out::default() }
+    fn finish(&mut self, save: bool) -> Out {
+        if !self.up { return Out::default(); }
+        let typed = if save { Typed::Entered(std::mem::take(&mut self.text)) } else { Typed::Cancelled };
+        self.close();
+        Out { typed: Some(typed), close: true, ..Out::default() }
     }
 
-    /// OK, or a click, on key `i`.
-    fn press(&mut self, i: usize, now: u64) -> Out {
-        let cap = self.search.key_at(i);
-        let chars = self.search.text.chars().count();
-        // a character key does nothing at the end of the field; the keys that are not characters always act
-        if chars >= MAX_CHARS && !matches!(cap, "\u{232b}" | "\u{21e7}" | "?123" | "Done") {
-            return Out::default();
+    fn selected(&self) -> Option<(usize, usize)> {
+        self.anchor.filter(|a| *a != self.cursor).map(|a| (a.min(self.cursor), a.max(self.cursor)))
+    }
+
+    fn insert(&mut self, value: &str) {
+        let (lo, hi) = self.selected().unwrap_or((self.cursor, self.cursor));
+        let added = value.graphemes(true).count();
+        if self.count() - (hi - lo) + added > MAX_CHARS { return; }
+        let byte = self.boundaries[lo];
+        self.text.replace_range(byte..self.boundaries[hi], value);
+        let end = byte + value.len();
+        self.refresh_text();
+        self.cursor = self.boundaries.partition_point(|b| *b < end).min(self.count());
+        self.anchor = None;
+    }
+
+    fn erase(&mut self, forward: bool) {
+        let (lo, hi) = self.selected().unwrap_or_else(|| {
+            if forward { (self.cursor, (self.cursor + 1).min(self.count())) } else { (self.cursor.saturating_sub(1), self.cursor) }
+        });
+        if lo != hi {
+            self.text.replace_range(self.boundaries[lo]..self.boundaries[hi], "");
+            self.refresh_text();
         }
-        let _ = now;
-        match self.search.press(cap) {
-            SearchOut::Entered(_) => self.typed(),
-            _ => Out::default(),
-        }
+        self.cursor = lo; self.anchor = None;
     }
 
-    pub fn key(&mut self, k: K, now: u64) -> Out {
-        match k {
-            K::Back => Out { typed: Some(Typed::Cancelled), close: true, ..Out::default() },
-            K::Ok => self.press(self.index, now),
-            K::Digit(d) => {
-                let cap = char::from(b'0' + d.min(9));
-                if self.search.text.chars().count() < MAX_CHARS {
-                    self.search.press(&cap.to_string());
-                }
-                Out::default()
+    fn move_cursor(&mut self, right: bool, selecting: bool) {
+        let was_selection = self.selected();
+        if selecting { self.anchor.get_or_insert(self.cursor); }
+        let next = if !selecting && let Some((lo, hi)) = self.selected() { if right { hi } else { lo } }
+            else if right { (self.cursor + 1).min(self.count()) } else { self.cursor.saturating_sub(1) };
+        if !selecting { self.anchor = None; }
+        let moved = self.cursor != next;
+        self.cursor = next;
+        if moved || self.selected() != was_selection { self.revision = self.revision.wrapping_add(1); }
+    }
+
+    fn press(&mut self, i: usize) -> Out {
+        let layout = self.current().clone();
+        let Some(key) = layout.keys.get(i) else { return Out::default() };
+        match key.kind {
+            Kind::Char | Kind::Text => {
+                self.insert(if self.shift > 0 && layout.shiftable { &key.shifted } else { &key.text });
+                if key.letter && self.shift == 1 { self.shift = 0; }
             }
-            k => {
-                self.index = step(self.index, k);
-                Out::default()
+            Kind::Space => self.insert(" "),
+            Kind::Shift => self.shift = (self.shift + 1) % 3,
+            Kind::Mode(to) => {
+                self.symbol_mode = to == LayoutId::Symbols;
+                self.index = self.current().at(key.row, key.col).unwrap_or_else(|| self.current().home());
+                self.column = self.current().keys[self.index].centre();
             }
+            Kind::Backspace => self.erase(false),
+            Kind::Clear => { self.anchor = Some(0); self.cursor = self.count(); self.erase(false); }
+            Kind::Cursor(ime::Dir::Left) => self.move_cursor(false, false),
+            Kind::Cursor(ime::Dir::Right) => self.move_cursor(true, false),
+            Kind::Enter => return self.finish(true),
+            Kind::Hide => return self.finish(false),
+            Kind::Voice => {}
+        }
+        Out::default()
+    }
+
+    /// Complete press/release input: only navigation, deletion and cursor keys repeat; Save and Cancel never do.
+    pub fn input(&mut self, name: &str, down: bool, repeat: bool, now: u64) -> Out {
+        if !self.up || !down { return Out::default(); }
+        let repeats = matches!(name, "up" | "down" | "left" | "right" | "backspace" | "delete")
+            || name == "ok" && self.current().keys.get(self.index).is_some_and(|k| k.repeat);
+        if repeat && !repeats { return Out::default(); }
+        if repeats && !self.gate.pass(name, repeat, now) { return Out::default(); }
+        match name {
+            "backspace" => { self.erase(false); Out::default() }
+            "delete" => { self.erase(true); Out::default() }
+            "enter" => self.finish(true),
+            "home" | "end" => { self.cursor = if name == "home" { 0 } else { self.count() }; self.anchor = None; self.revision = self.revision.wrapping_add(1); Out::default() }
+            "selectall" => { self.anchor = Some(0); self.cursor = self.count(); self.revision = self.revision.wrapping_add(1); Out::default() }
+            "selectleft" | "selectright" => { self.move_cursor(name == "selectright", true); Out::default() }
+            _ => K::parse(name).map_or_else(Out::default, |k| self.key(k, now)),
         }
     }
 
-    /// A click on key `i`: it takes the focus and is typed.
-    pub fn click(&mut self, i: usize, now: u64) -> Out {
-        if i >= KEYS {
-            return Out::default();
-        }
-        self.index = i;
-        self.press(i, now)
+    pub fn key(&mut self, k: K, _now: u64) -> Out {
+        if !self.up { return Out::default(); }
+        let dir = match k {
+            K::Back => return self.finish(false),
+            K::Ok => return self.press(self.index),
+            K::Digit(d) => { let digit = [b'0' + d.min(9)]; self.insert(std::str::from_utf8(&digit).unwrap()); return Out::default(); }
+            K::Up => Move::Up, K::Down => Move::Down, K::Left => Move::Left, K::Right => Move::Right,
+        };
+        (self.index, self.column) = self.current().step(self.index, dir, self.column);
+        Out::default()
     }
 
-    /// A click outside the sheet is Back.
-    pub fn click_outside(&mut self) -> Out {
-        self.key(K::Back, 0)
+    pub fn click(&mut self, i: usize, _now: u64) -> Out {
+        if !self.up || i >= self.current().keys.len() { return Out::default(); }
+        self.index = i; self.column = self.current().keys[i].centre(); self.press(i)
     }
+    pub fn click_outside(&mut self) -> Out { self.finish(false) }
+    pub fn index(&self) -> usize { self.index }
+    pub fn cap(&self, i: usize) -> &str { self.current().label(i, self.shift) }
 
-    pub fn index(&self) -> usize {
-        self.index
-    }
-
-    pub fn cap(&self, i: usize) -> &'static str {
-        self.search.key_at(i)
-    }
-
-    /// Whether the caret is drawn (it blinks after a rest).
-    pub fn caret_on(&self, now: u64) -> bool {
-        self.search.caret_on(now)
-    }
-
-    pub fn view(&self, over_video: bool) -> View {
+    pub fn view(&self, _over_video: bool) -> View<'_> {
+        let at = |i: usize| if self.secret { i * '•'.len_utf8() } else { self.boundaries[i] };
         View {
-            prompt: self.search.prompt.clone(),
-            shown: self.search.shown(),
-            secret: self.search.secret,
-            shift: self.search.shift,
-            symbols: self.search.symbols,
-            index: self.index,
-            chars: self.search.text.chars().count(),
-            caps: (0..KEYS).map(|i| self.search.key_at(i)).collect(),
-            over_video,
+            prompt: &self.prompt, shown: if self.secret { &self.mask } else { &self.text }, secret: self.secret,
+            cursor: at(self.cursor), selection: self.selected().map(|(lo, hi)| (at(lo), at(hi))), chars: self.count(), revision: self.revision,
+            keyboard: ime::View { layout: self.current().clone(), shift: self.shift, focus: self.index, has_text: self.count() > 0, note: String::new(), listening: false },
         }
     }
 }
@@ -178,84 +251,54 @@ impl Entry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn press(e: &mut Entry, id: &str) -> Out { let i = e.current().index_of(id).unwrap(); e.click(i, 0) }
+    fn character(e: &mut Entry, c: &str) { let i = e.current().keys.iter().position(|k| k.text == c).unwrap(); e.click(i, 0); }
 
-    fn type_keys(e: &mut Entry, caps: &[&str]) {
-        for cap in caps {
-            let i = (0..KEYS).find(|i| e.cap(*i) == *cap).unwrap_or_else(|| panic!("no key {cap}"));
-            e.click(i, 0);
-        }
+    #[test]
+    fn editing_unicode_uses_whole_graphemes_and_selection_replaces_in_place() {
+        let mut e = Entry::new(); e.open("Name", "e\u{301}👩🏽‍💻東京", false, 0);
+        press(&mut e, "left"); e.input("backspace", true, false, 0);
+        assert_eq!(e.view(false).shown, "e\u{301}👩🏽‍💻京");
+        e.input("home", true, false, 0); e.input("delete", true, false, 0);
+        assert_eq!(e.view(false).shown, "👩🏽‍💻京");
+        e.input("selectright", true, false, 0); character(&mut e, "a");
+        assert_eq!(e.view(false).shown, "a京");
+        e.input("selectall", true, false, 0); e.key(K::Digit(7), 0);
+        assert_eq!(press(&mut e, "enter").typed, Some(Typed::Entered("7".into())));
+        assert!(press(&mut e, "enter").typed.is_none(), "an answer is delivered once");
     }
 
     #[test]
-    fn the_arrows_move_over_the_keys_the_wide_keys_hold_the_column_and_the_ends_hold() {
-        let mut e = Entry::new();
-        e.open("Wi-Fi password", "", true, 0);
-        assert_eq!(e.cap(e.index()), "t");
-        e.key(K::Left, 0);
-        assert_eq!(e.cap(e.index()), "r");
-        for _ in 0..12 {
-            e.key(K::Left, 0);
-        }
-        assert_eq!(e.index(), 10, "the row's end holds");
-        e.key(K::Up, 0);
-        assert_eq!(e.index(), 0, "the digits are the top row");
-        e.key(K::Up, 0);
-        assert_eq!(e.index(), 0);
-        e.key(K::Down, 0);
-        e.key(K::Down, 0);
-        e.key(K::Down, 0);
-        e.key(K::Down, 0);
-        assert_eq!(e.cap(e.index()), "?123", "the first column's key of the bottom row is the one that spans it");
-        e.key(K::Right, 0);
-        assert_eq!(e.cap(e.index()), "space");
-        e.key(K::Up, 0);
-        assert!((30..40).contains(&e.index()), "Up from the middle of space lands on a key of the row above, near the column it left");
-        let mut f = Entry::new();
-        f.open("", "", false, 0);
-        f.index = 9;
-        f.key(K::Down, 0);
-        f.key(K::Down, 0);
-        f.key(K::Down, 0);
-        f.key(K::Down, 0);
-        assert_eq!(f.cap(f.index()), "Done");
+    fn passwords_never_reveal_the_last_character_or_return_a_draft_on_cancel() {
+        let mut e = Entry::new(); e.open("Password", "A👩🏽‍💻e\u{301}", true, 0);
+        assert_eq!(e.view(false).shown, "•••");
+        character(&mut e, "x"); assert_eq!(e.view(false).shown, "••••");
+        assert_eq!(e.key(K::Back, 0).typed, Some(Typed::Cancelled));
+        assert!(e.view(false).shown.is_empty());
     }
 
     #[test]
-    fn typing_shifts_and_deleting_end_with_done_giving_the_text_once_and_back_gives_nothing() {
-        let mut e = Entry::new();
-        e.open("TV name", "Den", false, 0);
-        type_keys(&mut e, &["\u{232b}", "\u{21e7}", "m", "o"]);
-        e.key(K::Digit(5), 0);
-        let out = e.click(42, 0);
-        assert!(out.close);
-        assert_eq!(out.typed, Some(Typed::Entered("DeMo5".into())), "the delete took the n, the shift made one capital and the number key typed its digit");
-        let mut b = Entry::new();
-        b.open("TV name", "Den", false, 0);
-        type_keys(&mut b, &["x"]);
-        let out = b.key(K::Back, 0);
-        assert!(out.close && out.typed == Some(Typed::Cancelled));
+    fn long_prefills_and_hostname_punctuation_survive_edit_and_save() {
+        let host = format!("{}.{}.{}.{}", "a".repeat(63), "b".repeat(63), "c".repeat(63), "d".repeat(61));
+        let mut e = Entry::new(); e.open_purpose("Server address", &host, false, ime::PURPOSE_URL, 0);
+        assert_eq!(e.count(), 253); assert_eq!(press(&mut e, "enter").typed, Some(Typed::Entered(host)));
+        e.open_purpose("Server address", "", false, ime::PURPOSE_URL, 0);
+        for c in ["n", "a", "s", "-", "1", ".", "l", "a", "n", ":", "5", "1", "4"] { character(&mut e, c); }
+        assert_eq!(press(&mut e, "enter").typed, Some(Typed::Entered("nas-1.lan:514".into())));
+        e.open("Existing", &"x".repeat(MAX_CHARS + 1), false, 0);
+        assert_eq!(e.count(), MAX_CHARS + 1, "opening never truncates existing data");
     }
 
     #[test]
-    fn a_password_shows_bullets_but_the_last_character_and_the_text_is_not_in_what_is_printed() {
-        let mut e = Entry::new();
-        e.open("Wi-Fi password", "", true, 0);
-        type_keys(&mut e, &["a", "b", "c"]);
-        assert_eq!(e.view(false).shown, "\u{2022}\u{2022}c");
-        let out = e.click(42, 0);
-        assert!(!format!("{out:?}").contains("abc"), "{out:?}");
-    }
-
-    #[test]
-    fn a_field_takes_at_most_128_characters_and_the_control_keys_still_act() {
-        let mut e = Entry::new();
-        e.open("Name", &"x".repeat(200), false, 0);
-        assert_eq!(e.view(false).chars, MAX_CHARS, "what was given is cut to the limit");
-        type_keys(&mut e, &["a"]);
-        assert_eq!(e.view(false).chars, MAX_CHARS, "a character at the end of the field is not typed");
-        type_keys(&mut e, &["\u{232b}"]);
-        assert_eq!(e.view(false).chars, MAX_CHARS - 1);
-        type_keys(&mut e, &["a"]);
-        assert_eq!(e.view(false).chars, MAX_CHARS);
+    fn held_delete_repeats_but_save_and_back_do_not_and_new_presses_are_never_lost() {
+        let mut e = Entry::new(); e.open("Name", "abcdef", false, 0);
+        let delete = e.current().index_of("backspace").unwrap(); e.click(delete, 0);
+        e.input("ok", true, false, 10); e.input("ok", true, true, 100); e.input("ok", true, true, 310);
+        assert_eq!(e.view(false).shown, "abc");
+        e.input("ok", true, false, 320); e.input("ok", true, false, 321);
+        assert_eq!(e.view(false).shown, "a");
+        e.index = e.current().index_of("enter").unwrap();
+        assert!(e.input("ok", true, true, 1000).typed.is_none());
+        assert_eq!(e.input("back", true, false, 1001).typed, Some(Typed::Cancelled));
     }
 }

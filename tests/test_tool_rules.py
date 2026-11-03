@@ -85,8 +85,9 @@ class SamIsNeverRestarted(unittest.TestCase):
             open(tile, "w").close()
             script = os.path.join(d, "run.sh")
             with open(script, "w") as f:
-                f.write('NODE="%s"\nTILEICONS="%s"\nSTATE="%s"\nLOGFILE="%s/log"\nREVERT_CHANGED=0\n' % (node, tile, d, d))
+                f.write('NODE="%s"\nTILEICONS="%s"\nSTATE="%s"\nLOG_TOOL="%s/logrelay.py"\nREVERT_CHANGED=0\n' % (node, tile, d, TOOLS))
                 f.write('log_line() { echo "$1" >> "%s/loglines"; }\n' % d)
+                f.write(function("log_stderr"))
                 f.write(m.group(0))
                 f.write('revert_tile_icons\necho "rc=$? changed=$REVERT_CHANGED"\n')
             r = subprocess.run(["sh", script], env=dict(os.environ, PATH=bindir + ":" + os.environ["PATH"]), capture_output=True, text=True, timeout=30)
@@ -453,6 +454,67 @@ class BootRestart(unittest.TestCase):
         out, calls, launched, log, err = self.run_verb(shader=True)
         self.assertIn("auto-reverted to stock", out, err)
         self.assertIn("revert", calls)
+
+
+
+class MaintenanceGuards(unittest.TestCase):
+    def source(self):
+        return ''.join(function(n) for n in ('json_escape', 'emit_error', 'maintenance_present', 'maintenance_human_stop', 'maintenance_guard'))
+
+    def shell(self, source, root):
+        import shlex
+        return subprocess.run(['sh', '-c', 'set -u\nSTATE=' + shlex.quote(root) + '\n' + source], capture_output=True, text=True, timeout=8)
+
+    def test_read_does_not_initialize_and_emergency_sets_durable_veto(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.mkdir(os.path.join(root, 'maintenance'))
+            self.assertEqual(self.shell(self.source() + '\nMAINTENANCE_ACCESS=read\nmaintenance_guard\n', root).returncode, 0)
+            self.assertFalse(os.path.exists(os.path.join(root, 'maintenance-human-stop')))
+            self.assertEqual(self.shell(self.source() + '\nMAINTENANCE_ACCESS=emergency\nmaintenance_guard\n', root).returncode, 0)
+            self.assertTrue(os.path.isdir(os.path.join(root, 'maintenance-human-stop')))
+            code = 'ensure_config() { echo changed > "$STATE/created"; }\ncfg_get_bool() { :; }\ncfg_get_str() { :; }\n' + function('cfg_read_all') + '\nMAINTENANCE_ACCESS=read\ncfg_read_all\n'
+            self.assertEqual(self.shell(code, root).returncode, 0)
+            self.assertFalse(os.path.exists(os.path.join(root, 'created')))
+
+    def test_marker_created_while_waiting_on_real_lock_is_rechecked(self):
+        import fcntl
+        import shlex
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, 'mutate.lock'), 'w') as held:
+                fcntl.flock(held, fcntl.LOCK_EX)
+                code = self.source() + function('take_mutation_lock') + '\nMAINTENANCE_ACCESS=write\nLOCK_WAIT=3\nLOCKFILE="$STATE/mutate.lock"\ntake_mutation_lock\n'
+                p = subprocess.Popen(['sh', '-c', 'set -u\nSTATE='+shlex.quote(root)+'\n'+code], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                time.sleep(.1)
+                os.mkdir(os.path.join(root, 'maintenance'))
+                fcntl.flock(held, fcntl.LOCK_UN)
+                stdout, stderr = p.communicate(timeout=5)
+                self.assertNotEqual(p.returncode, 0, stderr)
+                
+
+    def test_persist_off_and_home_escape_still_work(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.mkdir(os.path.join(root, 'maintenance'))
+            os.mkdir(os.path.join(root, 'compositor'))
+            open(os.path.join(root, 'compositor', 'enabled'), 'w').close()
+            os.symlink('old-hook', os.path.join(root, 'hook'))
+            code = self.source() + function('verb_persist')
+            code += '\nMAINTENANCE_ACCESS=emergency\nAUTOSTART_LINK="$STATE/hook"\nCOMP="$STATE/compositor"\nremove_early_hook() { :; }\nset_cfg_bool() { printf "%s %s" "$1" "$2" > "$STATE/config-write"; }\nlog_line() { :; }\nmaintenance_guard; verb_persist off\n'
+            self.assertEqual(self.shell(code, root).returncode, 0)
+            self.assertFalse(os.path.lexists(os.path.join(root, 'hook')))
+            self.assertFalse(os.path.exists(os.path.join(root, 'compositor', 'enabled')))
+            with open(os.path.join(root, 'config-write')) as f:
+                self.assertEqual(f.read(), 'persist false')
+            code = self.source() + function('take_mutation_lock') + function('homestub_escape')
+            code += '\nMAINTENANCE_ACCESS=write\nLOCK_WAIT=1\nLOCKFILE="$STATE/mutate.lock"\nHS_SKIP="$STATE/skip"\nlog_line() { :; }\nhomestub_drop() { echo "$1" > "$STATE/dropped"; }\nhs_open_home() { :; }\nhomestub_escape\n'
+            import fcntl
+            with open(os.path.join(root, "mutate.lock"), "w") as held:
+                fcntl.flock(held, fcntl.LOCK_EX)
+                self.assertEqual(self.shell(code, root).returncode, 0)
+            self.assertTrue(os.path.exists(os.path.join(root, 'skip')))
+            with open(os.path.join(root, 'dropped')) as f:
+                self.assertEqual(f.read().strip(), 'lg')
+
+    
 
 
 

@@ -94,6 +94,7 @@ impl Dispatch<WlShellSurface, ShellSurfaceData> for State {
                     .and_then(|w| w.set_property("title", &title).then(|| format!("window {}: title = {title} ({:?})", data.window.0, w.kind)));
                 if let Some(l) = line {
                     state.journal(l);
+                    state.refresh_policy_sync();
                 }
             }
             wl_shell_surface::Request::SetClass { class_ } => {

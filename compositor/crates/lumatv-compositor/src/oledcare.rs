@@ -1,27 +1,9 @@
 //! OLED care: what the compositor does so LumaTV's own static screens do not wear the panel (`theme.oledcare`, on unless the theme says `enabled: false`).
 //!
-//! Two things, both on LumaTV's two shell windows (`ShellHome`, `ShellSystem`) and on nothing else: an app's picture, a video and the
-//! moving wallpaper's plane are never moved or dimmed.
+//! The care clock advances on compositor frames and idle ticks; it does not move video planes.
+//! The screensaver controls its own movement and dimming.
 //!
-//! **Orbit.** Both windows are drawn at the same small offset that walks a square ring of `orbitPx` around the origin, one pixel on
-//! one axis per beat (`stepSec`, 30 s): a pixel step of a layer that stays on the screen for minutes is not seen, and the ring is
-//! 8 x `orbitPx` beats long (12 minutes at 3 px). The first beat after the switch is turned on walks from the origin to the ring the
-//! same way, so nothing ever jumps. The beat rides on a frame that is drawn anyway (any window's fresh commit) and, on a screen
-//! at rest, comes [`GRACE_NS`] after it is due: it is drawn by the idle tick the loop already has (`ticker`), no timer of its own, and
-//! its frame does not keep the tick at the panel's rate (`Care::beat_frame`, `Output::quiet_frame`). A beat is counted only while a
-//! shell window is on the screen: the clock stands still while none is, so the time on each position is the time shown, and nothing
-//! costs anything while hidden.
-//!
-//! While the shell's screensaver is up the care stands aside (the saver moves, is mostly black and dims over minutes: [`Care::saver`]).
-//!
-//! **Dim.** Home (the status bar, the clock and the dock stay put for hours on a Home nobody touches, when the saver is off) that has been
-//! still (no key or pointer, and fewer than [`MOVING_PER_S`] commits a second) for `dimAfterMin` is dimmed over `dimOverMin` down to
-//! `dimTo` of its brightness, in steps of one hundredth, each taken at a beat. The first key or pointer movement brings it back at
-//! once (the frame that key changes anyway); a Home that starts moving again (the wallpaper's motion) is bright again, and one that
-//! has just appeared starts bright. The system layer is not dimmed: what it holds for long is a camera's pop-up or a prompt that waits
-//! for an answer, and the compositor cannot tell a still picture from a video there. The dim multiplies the layer's colour, so it
-//! lowers the light of everything Home draws, text included: `dimTo` is not allowed below [`MIN_DIM_TO`], where the palette's
-//! second ink still reads 4.5 : 1 (`tests/test_oledcare.py`).
+//! Orbit walks a square ring of `orbitPx` one pixel per beat. Dimming eases between brightness levels at the same beats.
 //!
 //! **The panel's own light** (`panelDim`, on unless the theme says off; `paneldim.rs`). Home's ease is not drawn while the panel can carry it:
 //! [`Care::dim`] is 1 for Home (so the plane takes it whole) and [`Care::home_want`] is the fraction of the user's OLED pixel brightness the

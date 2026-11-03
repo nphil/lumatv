@@ -88,10 +88,7 @@
   /* ====== Mock Bridge (browser preview only) ====== */
 
   const mockState = {
-    applied: false,
-    mounts: 0,
-    persist: false,
-    fps: false,
+    compositor: { live: false, enabled: false, flag: 'off' },
     standby: 'system',
     ntfy: { enabled: false, url: '' },
     version: '0.3.5',
@@ -123,45 +120,18 @@
       stdoutString = JSON.stringify({
         ok: true,
         version: mockState.version,
-        applied: mockState.applied,
-        mounts: mockState.mounts,
-        persist: mockState.persist,
-        fps: mockState.fps,
+        compositor: mockState.compositor,
         standby: mockState.standby,
         ntfy: mockState.ntfy,
         firmware: mockState.firmware,
         model: mockState.model
       });
-    } else if (cmd.includes('apply')) {
-      mockState.applied = true;
-      mockState.mounts = 3;
-      stdoutString = JSON.stringify({
-        ok: true,
-        applied: true,
-        mounts: 3,
-        took: 25
-      });
-    } else if (cmd.includes('revert')) {
-      mockState.applied = false;
-      mockState.mounts = 0;
-      mockState.persist = false;
-      stdoutString = JSON.stringify({
-        ok: true,
-        applied: false,
-        mounts: 0
-      });
-    } else if (cmd.includes('persist on')) {
-      mockState.persist = true;
-      stdoutString = JSON.stringify({ ok: true, persist: true });
-    } else if (cmd.includes('persist off')) {
-      mockState.persist = false;
-      stdoutString = JSON.stringify({ ok: true, persist: false });
-    } else if (cmd.includes('fps on')) {
-      mockState.fps = true;
-      stdoutString = JSON.stringify({ ok: true, fps: true });
-    } else if (cmd.includes('fps off')) {
-      mockState.fps = false;
-      stdoutString = JSON.stringify({ ok: true, fps: false });
+    } else if (cmd.includes('compositor on')) {
+      mockState.compositor = { live: true, enabled: true, flag: 'persistent' };
+    } else if (cmd.includes('compositor off')) {
+      mockState.compositor = { live: false, enabled: false, flag: 'off' };
+    } else if (cmd.includes('launchDefaultApp')) {
+      stdoutString = JSON.stringify({ returnValue: true });
     } else if (cmd.includes('standby warm')) {
       mockState.standby = 'warm';
       stdoutString = JSON.stringify({ ok: true, standby: 'warm' });
@@ -225,8 +195,6 @@
     wallpaperRows: document.getElementById('wallpaper-rows'),
     wallpaperClose: document.getElementById('wallpaper-close'),
     logClose: document.getElementById('log-close'),
-    togglePersist: document.getElementById('toggle-persist'),
-    toggleFps: document.getElementById('toggle-fps'),
     toggleStandby: document.getElementById('toggle-standby'),
     ntfySub: document.getElementById('ntfy-sub')
   };
@@ -342,15 +310,14 @@
       return;
     }
 
-    dom.statApplied.textContent = state.status.applied ? 'Yes' : 'No';
-    dom.statMounts.textContent = state.status.mounts;
+    const compositor = state.status.compositor;
+    dom.statApplied.textContent = compositor ? (compositor.live ? 'Yes' : 'No') : '?';
+    dom.statMounts.textContent = compositor ? (compositor.flag === 'persistent' ? 'Yes' : 'No') : '?';
     dom.statVersion.textContent = state.status.version;
     dom.statFirmware.textContent = state.status.firmware;
     dom.statModel.textContent = state.status.model;
 
     // Update toggles
-    dom.togglePersist.setAttribute('data-on', state.status.persist ? 'true' : 'false');
-    dom.toggleFps.setAttribute('data-on', state.status.fps ? 'true' : 'false');
     dom.toggleStandby.setAttribute('data-on', state.status.standby === 'warm' ? 'true' : 'false');
     dom.ntfySub.textContent = state.status.ntfy?.enabled ? state.status.ntfy.url : 'off';
   }
@@ -464,13 +431,17 @@
     state.isExecuting = true;
 
     try {
-      // Fire the CLI call; it may take 20-40s and might kill this app's surface
-      const result = await cli('apply');
-      // If we get here, the app survived; refresh status
+      const status = await cli('compositor', 'status');
+      if (status.compositor.live) {
+        const response = await exec('luna-send -n 1 luna://com.webos.applicationManager/launchDefaultApp ' + "'" + JSON.stringify({ category: 'home', params: { launchType: 'homeKey', activateType: 'home' } }) + "'");
+        const result = JSON.parse(response.stdoutString || '{}');
+        if (!result.returnValue) throw new Error(result.errorText || 'Home did not open');
+      } else {
+        await cli('compositor', 'on');
+      }
       await refreshStatus();
-      showError('Applied! The home screen is now {{displayName}}.');
     } catch (err) {
-      showError('Apply failed: ' + err.message);
+      showError('Open failed: ' + err.message);
     } finally {
       state.isExecuting = false;
       closeAllOverlays();
@@ -495,7 +466,7 @@
     document.getElementById('busy-message').textContent = 'Reverting...';
 
     try {
-      await cli('revert');
+      await cli('compositor', 'off');
       await refreshStatus();
       showError('Reverted to stock home screen.');
     } catch (err) {
@@ -508,35 +479,6 @@
     }
   }
 
-  async function onPersistToggle() {
-    if (state.isExecuting) return;
-    state.isExecuting = true;
-
-    const newVal = !state.status.persist;
-    try {
-      await cli('persist', newVal ? 'on' : 'off');
-      await refreshStatus();
-    } catch (err) {
-      showError('Persist toggle failed: ' + err.message);
-    } finally {
-      state.isExecuting = false;
-    }
-  }
-
-  async function onFpsToggle() {
-    if (state.isExecuting) return;
-    state.isExecuting = true;
-
-    const newVal = !state.status.fps;
-    try {
-      await cli('fps', newVal ? 'on' : 'off');
-      await refreshStatus();
-    } catch (err) {
-      showError('FPS toggle failed: ' + err.message);
-    } finally {
-      state.isExecuting = false;
-    }
-  }
 
   async function onStandbyToggle() {
     if (state.isExecuting) return;
@@ -662,8 +604,6 @@
 
   document.getElementById('row-apply').addEventListener('click', onApply);
   document.getElementById('row-revert').addEventListener('click', onRevert);
-  document.getElementById('row-persist').addEventListener('click', onPersistToggle);
-  document.getElementById('row-fps').addEventListener('click', onFpsToggle);
   document.getElementById('row-standby').addEventListener('click', onStandbyToggle);
   document.getElementById('row-ntfy').addEventListener('click', onNtfyOpen);
   document.getElementById('row-wallpaper').addEventListener('click', onWallpaperOpen);

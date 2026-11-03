@@ -1,4 +1,4 @@
-//! Compiles the module's icons (`payload/compositor/lumatv/icons/lucide` and the pictures directly in `icons`) into the program, so the
+//! Compiles the UI icons (`compositor/assets/ui/icons/lucide` and the pictures directly in `icons`) into the program, so the
 //! status bar's glyphs and the weather pictures do not depend on a directory the helper's installer can remove.
 
 use std::fmt::Write;
@@ -17,7 +17,7 @@ fn pngs(dir: &Path, prefix: &str, out: &mut Vec<(String, String)>) {
 }
 
 fn main() {
-    let icons = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../payload/compositor/lumatv/icons");
+    let icons = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../compositor/assets/ui/icons");
     println!("cargo:rerun-if-changed={}", icons.display());
     println!("cargo:rerun-if-changed={}", icons.join("lucide").display());
     let mut files = Vec::new();

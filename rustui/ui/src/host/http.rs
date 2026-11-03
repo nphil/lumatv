@@ -226,7 +226,7 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
             .request("GET", "/v1/state", token.as_deref(), None)
             .ok()
             .and_then(|(status, body)| (status == 200).then(|| serde_json::from_slice::<Value>(&body).ok()).flatten());
-        let Some(state) = state.filter(|s| s.get("ok").and_then(Value::as_bool) == Some(true)) else {
+        let Some(mut state) = state.filter(|s| s.get("ok").and_then(Value::as_bool) == Some(true)) else {
             failures += 1;
             let _ = tx.send(Event::Up(false));
             thread::sleep(Duration::from_millis((2000 * (1u64 << failures.saturating_sub(1).min(3))).min(10_000)));
@@ -235,8 +235,13 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
         failures = 0;
         let boot = state.get("boot").cloned().unwrap_or(Value::Null);
         let mut seq = state.get("seq").and_then(Value::as_u64).unwrap_or(0);
-        let topics_now: Vec<(String, Value)> =
-            state.get("topics").and_then(Value::as_object).map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
+        let mut topics_now: Vec<(String, Value)> =
+            state.get_mut("topics").and_then(Value::as_object_mut).map(|o| std::mem::take(o).into_iter().collect()).unwrap_or_default();
+        if let Some((_, value)) = topics_now.iter_mut().find(|(k, _)| k == "receiver") {
+            if let Some(object) = value.as_object_mut() {
+                object.insert("_hub".into(), serde_json::json!({"boot": boot, "seq": seq}));
+            }
+        }
         // the roster the following poll names plugin topics from: the state's, then every event of `plugins`
         let mut roster = topics_now.iter().find(|(k, _)| k == "plugins").map_or(Value::Null, |(_, v)| v.clone());
         if tx.send(Event::Up(true)).is_err() || tx.send(Event::State(topics_now)).is_err() {
@@ -256,7 +261,7 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
             }
             let began = std::time::Instant::now();
             let answer = link.request("GET", &path, token.as_deref(), None);
-            let doc = match answer {
+            let mut doc = match answer {
                 Ok((200, body)) => serde_json::from_slice::<Value>(&body).unwrap_or(Value::Null),
                 _ => {
                     let _ = tx.send(Event::Up(false));
@@ -273,13 +278,19 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
                 continue 'session;
             }
             seq = doc.get("seq").and_then(Value::as_u64).unwrap_or(seq);
-            let events = doc.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+            let events = doc.get_mut("events").and_then(Value::as_array_mut).map(std::mem::take).unwrap_or_default();
             let n = events.len();
-            for e in events {
+            for mut e in events {
                 let topic = e.get("topic").and_then(Value::as_str).unwrap_or("").to_string();
-                let data = e.get("data").cloned().unwrap_or(Value::Null);
+                let event_seq = e.get("seq").cloned().unwrap_or(Value::Null);
+                let mut data = e.get_mut("data").map(std::mem::take).unwrap_or(Value::Null);
                 if topic == "plugins" {
                     roster = data.clone();
+                }
+                if topic == "receiver" {
+                    if let Some(object) = data.as_object_mut() {
+                        object.insert("_hub".into(), serde_json::json!({"boot": boot, "seq": event_seq}));
+                    }
                 }
                 if tx.send(Event::Topic { topic, data }).is_err() {
                     return;
@@ -365,7 +376,10 @@ mod tests {
                     if n > 1 {
                         thread::sleep(Duration::from_millis(700));
                     }
-                    (200, json!({"ok": true, "boot": 7, "seq": 2 + n, "reset": false, "events": if n > 1 { json!([]) } else { json!([{"topic": "receiver", "data": {"reachable": false}}]) }}))
+                    (
+                        200,
+                        json!({"ok": true, "boot": 7, "seq": 2 + n, "reset": false, "events": if n > 1 { json!([]) } else { json!([{"seq": 2, "topic": "receiver", "data": {"reachable": false}}]) }}),
+                    )
                 } else {
                     (200, json!({"ok": true, "value": {"path": path}}))
                 };
@@ -391,8 +405,8 @@ mod tests {
             seen.push(events.recv_timeout(Duration::from_secs(5)).expect("an event of the feed"));
         }
         assert_eq!(seen[0], Event::Up(true));
-        assert!(matches!(&seen[1], Event::State(t) if t.iter().any(|(k, _)| k == "receiver")));
-        assert_eq!(seen[2], Event::Topic { topic: "receiver".into(), data: json!({"reachable": false}) });
+        assert!(matches!(&seen[1], Event::State(t) if t.iter().any(|(k,v)| k == "receiver" && v["_hub"] == json!({"boot":7,"seq":1}))));
+        assert_eq!(seen[2], Event::Topic { topic: "receiver".into(), data: json!({"reachable":false,"_hub":{"boot":7,"seq":2}}) });
         // asks made one after the other each get their answer, the second on a new connection
         feed.get("/v1/state/receiver", 11);
         feed.get("/v1/state/screen", 12);

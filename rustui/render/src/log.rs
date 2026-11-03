@@ -2,6 +2,7 @@
 
 use crate::clock::now_ns;
 use std::fmt::Display;
+use std::io::Write;
 use std::sync::{LazyLock, OnceLock};
 
 type LogSink = fn(&dyn Display);
@@ -18,6 +19,6 @@ pub fn log(message: impl Display) {
     } else {
         static START: LazyLock<u64> = LazyLock::new(now_ns);
         let ms = now_ns().saturating_sub(*START) / 1_000_000;
-        eprintln!("[{}.{:03}] compositor: {message}", ms / 1000, ms % 1000);
+        let _ = writeln!(std::io::stderr().lock(), "[{}.{:03}] compositor: {message}", ms / 1000, ms % 1000);
     }
 }

@@ -3,7 +3,37 @@
 What `docs/research/rust-shell-plan.md` section 5.4 asked for, built on the host on 2026-10-29. The plan's section 6 holds the
 commands the next TV round runs; `rust-shell-kit.md` is the kit's reference for the screen builders.
 
+## Local appearance extension (2026-11-01)
+
+The local TV materials are Clear, Frosted, Liquid and Glazed. Liquid follows the native Marquee topbar’s outward quadratic edge lens; Glazed follows LumaShow’s dense, palette-bound card and sheet surfaces. Strength is saved separately for each material; Depth alone controls geometric elevation. The shared Lucent language and installed TV are unchanged pending rendered-design approval and separate maintenance authorization.
+
+Settings > Home & look > Themes contains20 light and20 dark variants. Focus previews immediately, confirmation saves, and cancellation restores the last confirmed palette. Catalog roles use composited text contrast; thumbnails composite over their own palette rather than forcing translucent roles opaque. Effective native text scale determines gallery columns. Protocol14 requires matching renderer and client artifacts, not replacement of a frozen legacy payload. Final native-gallery and persistence verification remains pending.
+
+The existing scripted host drains overdue actions before one draw, whereas the native set loop attempts a commit between received messages. Palette coverage requires a rendered frame between choices, not a count of state evaluations. Native fatal diagnostics use the existing Unix datagram log sink; stdout alone does not carry them.
+
+## Current compact toast and audio update (2026-10-31)
+
+The approved source changes are host-native tested, not installed or accepted on the TV. At 1080p the normal toast is 320×66 at x800, y960, with 54 px bottom padding and a 24 px caption; its width spans 320–480 px. A short toast at 200% text is 408×100. The newest toast replaces the current one and resets its deadline; none resurfaces after expiry. LG transient feed 28737 feeds the toast only, not NoteLog subscription, history or unread counts; genuine TV, plugin and AI entries remain.
+
+Settings > Home & look > Layout of pop-ups controls position through `layout.overlays.toast {anchor, dx, dy}`; there is no new setting. A native edit moved x800 to x776 and persisted bottom anchor, dx −0.0154 and dy 0; an actual native process restart read it back at x776.
+
+Original RGBA audio PNG glyphs decode and render left of the number and bar; PCM, unknown formats and mute have no fabricated codec fallback. The existing module path, format mapper, helper path and freshness handling were already in place. Host rendering does not diagnose or verify the missing glyph on the actual TV. Volume receives channel audio through `--push`, not `--luna`; receiver helper `updatedAt` must be fresh Unix milliseconds, and `--helper` injects `Up=true`.
+
+Host Cargo UI: 1,236 passed, 3 ignored. Twenty actual native CLI cases exited 0 with `lint: []`: dark/light at 100%/200%, multiline, long word, replacement 1→0→0, saved top-right/offset, four real formats, PCM/unknown/mute, left/right, and volume plus toast with 16 px clearance. Existing `test_rust_system` / `RustSystem.layout_run` covers Settings. The `test_rust_panels` native drawer fixture retained six genuine plugin entries alongside one toast; a transient-only native drawer had zero entries, one toast and `lint: []`. The original native cache before proof showed three stacked 560×99 toasts, confirming the prior bug. Evidence: `/data/home/tmp/lumatv-ui-proof.68u1vel0`.
+
+The placement suite passed 40 tests after removal of the obsolete toast-equals-card-width assumption. Two additional actual native app/video cases exited 0 with `lint: []`: toast alone and toast with Atmos volume over foreground Netflix (`home=false`). The 320×66 toast at x800, y823 ended at y889, preserving the subtitle band; simultaneous volume was 440×61 at y927, with a 38 px gap. Evidence: `native-video-clearance-proof.json` in the native proof directory. These are host results, not TV installation or acceptance.
+
+The existing build script's ARM command `cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.36 -p lumatv-ui` exited 0 in 100.265 s. Artifact: `rustui/target/aarch64-unknown-linux-gnu/release/lumatv-ui`, SHA256 `d979179ce6ee885bad938c557371c345edf28c8a34f7432e62150940ba61a28c`.
+
+## Hidden shell at host 120 (2026-10-31)
+
+The existing native Qt host with disposable frame counters used the default loaded GPU wallpaper, screen on and refresh 120. Home was foreground at 0.5 s and opaque Marquee at 7 s. In the settled 14–18 s interval Home frameSwapped remained 109, system 8 and wallpaper frameTick 61; `homeCurrent=false`, `hostActive=false` and `idleHold=true` while Home remained mapped. No active Animation or Animator QObjects were found at either sample. Quick panel and Back worked at 19 s, keyboard Right moved g→h at 21 s, and returning Home restored hostActive and keys; exit 0. Evidence: `/data/home/tmp/lumatv-ui-proof.68u1vel0/hidden-shell-120.log` and `hidden-shell-120-command.sh`.
+
+No production Shell fix is justified by this probe; keyboard-dependent Shell must not be killed or paused. This host result does not establish the TV GPU's 4.134 ms slot, all configurations or video wallpaper. One-second frame/status timers do not prove redraws.
+
 ## Resume here
+
+The following phase 0 resume state is historical.
 
 Everything is on `forge/main` (commits `238e5db`, `77f552c`, `d196b64`, `d7eb540`, `258947f`, `74ea0ff`); nothing is in flight
 and nothing is half-built. The default is off: a compositor started without `--shell-rust` (and without a

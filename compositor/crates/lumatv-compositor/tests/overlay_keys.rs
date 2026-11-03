@@ -1,10 +1,9 @@
-//! The overlay cards' OK and Back (`shell.rs` `Msg::Takes`, `State::shell_takes_key`, the hook in `input.rs`): while the shell's system layer shows
-//! cards over an app it asks, by name, for those two keys. They reach it as `syskey` events on the UI channel and the app never sees them;
-//! the arrows, the digits and everything else stay the app's, and the keyboard focus never leaves the app (a layer that wanted the focus would
-//! have taken the arrows too). A release goes where its press went. Time is moved by hand (`key_event_at`), so nothing here sleeps.
+//! Native overlay key routing over the key socket while apps keep keyboard focus.
 
 mod harness;
 
+use std::io::Read;
+use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
 use harness::{Client, Server, Window};
@@ -23,6 +22,8 @@ struct App {
     _win: Window,
     _kb: WlKeyboard,
     _buf: WlBuffer,
+    keys: UnixStream,
+    key_bytes: Vec<u8>,
 }
 
 /// An app with a card, the keyboard focus and a mapped buffer.
@@ -34,28 +35,38 @@ fn app(server: &mut Server) -> App {
     let buf = client.shm_buffer(64, 64, 0xff00_0000);
     client.present(&win.surface, &buf);
     assert!(client.wait_until(WAIT, |s| s.keyboard_enters >= 1), "the card has the focus");
-    App { client, _win: win, _kb: kb, _buf: buf }
+    let (ours, keys) = UnixStream::pair().unwrap();
+    ours.set_nonblocking(true).unwrap();
+    keys.set_nonblocking(true).unwrap();
+    server.eval(move |s| s.shell_rust.adopt_key_socket(ours));
+    App { client, _win: win, _kb: kb, _buf: buf, keys, key_bytes: Vec::new() }
 }
 
 /// The shell client connected and asking for `names`.
 fn takes(server: &Server, names: &[&str]) {
     let names: Vec<String> = names.iter().map(|n| n.to_string()).collect();
     server.eval(move |s| {
-        s.shell_handle(Msg::Connected);
-        s.shell_handle(Msg::Takes(names));
+        s.shell_rust_handle(Msg::Connected);
+        s.shell_rust_handle(Msg::Takes(names));
     });
 }
 
-/// The `syskey` events pushed so far, as (key, down, repeat).
-fn syskeys(server: &Server) -> Vec<(String, bool, bool)> {
-    server.eval(|s| {
-        s.shell
-            .recorded
-            .iter()
-            .filter(|e| e["topic"] == "syskey")
-            .map(|e| (e["data"]["k"].as_str().unwrap_or("").to_string(), e["data"]["d"] == true, e["data"]["r"] == true))
-            .collect()
-    })
+/// Key messages received from the native UI socket.
+fn syskeys(app: &mut App) -> Vec<(String, bool, bool)> {
+    let mut buf = [0; 4096];
+    loop {
+        match app.keys.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => app.key_bytes.extend_from_slice(&buf[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(e) => panic!("key socket: {e}"),
+        }
+    }
+    std::str::from_utf8(&app.key_bytes).unwrap().lines().map(|line| {
+        let event: Value = serde_json::from_str(line).unwrap();
+        let key = &event["key"];
+        (key["k"].as_str().unwrap().to_string(), key["d"] == true, key["r"] == true)
+    }).collect()
 }
 
 fn press(s: &mut State, code: u32, t: Instant) {
@@ -82,7 +93,7 @@ fn ok_and_back_go_to_the_layer_while_it_takes_them_and_the_app_never_sees_them()
         press(s, KEY_PREVIOUS, t + Duration::from_millis(200));
         release(s, KEY_PREVIOUS, t + Duration::from_millis(280));
     });
-    assert_eq!(syskeys(&server), vec![("ok".into(), true, false), ("ok".into(), false, false), ("back".into(), true, false), ("back".into(), false, false)]);
+    assert_eq!(syskeys(&mut a), vec![("ok".into(), true, false), ("ok".into(), false, false), ("back".into(), true, false), ("back".into(), false, false)]);
     assert!(app_keys(&mut a).is_empty(), "the app saw nothing of OK and Back: {:?}", a.client.state.keys);
 }
 
@@ -98,7 +109,7 @@ fn the_arrows_and_the_digits_stay_the_apps_whatever_the_layer_takes() {
             release(s, code, t + Duration::from_millis(i as u64 * 100 + 50));
         }
     });
-    assert!(syskeys(&server).is_empty());
+    assert!(syskeys(&mut a).is_empty());
     let keys = app_keys(&mut a);
     assert_eq!(keys.len(), 10, "five presses and five releases reached the app: {keys:?}");
     assert_eq!(keys[0], (KEY_LEFT, 1));
@@ -123,7 +134,7 @@ fn nothing_is_taken_until_the_layer_asks_and_once_it_lets_go_the_keys_are_the_ap
         press(s, KEY_RIGHT, t + Duration::from_secs(2));
         release(s, KEY_RIGHT, t + Duration::from_millis(2060));
     });
-    assert_eq!(syskeys(&server), vec![("ok".into(), true, false), ("ok".into(), false, false)]);
+    assert_eq!(syskeys(&mut a), vec![("ok".into(), true, false), ("ok".into(), false, false)]);
     let after = app_keys(&mut a);
     assert_eq!(after.len(), 4, "OK was taken, the arrow was not: {after:?}");
     assert_eq!(&after[2..], &[(KEY_RIGHT, 1), (KEY_RIGHT, 0)]);
@@ -132,7 +143,7 @@ fn nothing_is_taken_until_the_layer_asks_and_once_it_lets_go_the_keys_are_the_ap
         press(s, KEY_ENTER, t + Duration::from_secs(3));
         release(s, KEY_ENTER, t + Duration::from_millis(3060));
     });
-    assert_eq!(syskeys(&server).len(), 2, "nothing more once the layer let go");
+    assert_eq!(syskeys(&mut a).len(), 2, "nothing more once the layer let go");
     assert_eq!(app_keys(&mut a).len(), 6);
 }
 
@@ -147,12 +158,12 @@ fn a_held_key_repeats_to_the_layer_and_its_release_follows_it_even_after_the_car
         press(s, KEY_ENTER, t + Duration::from_millis(500));
         press(s, KEY_ENTER, t + Duration::from_millis(600));
         // the last card went while the key was down
-        s.shell_handle(Msg::Takes(Vec::new()));
+        s.shell_rust_handle(Msg::Takes(Vec::new()));
         press(s, KEY_ENTER, t + Duration::from_millis(700));
         release(s, KEY_ENTER, t + Duration::from_millis(800));
     });
     assert_eq!(
-        syskeys(&server),
+        syskeys(&mut a),
         vec![("ok".into(), true, false), ("ok".into(), true, true), ("ok".into(), true, true), ("ok".into(), true, true), ("ok".into(), false, false)]
     );
     assert!(app_keys(&mut a).is_empty(), "the app was given no release of a key it had no press of");
@@ -177,7 +188,7 @@ fn a_press_the_app_already_has_keeps_its_repeats_and_its_release() {
         press(s, KEY_ENTER, t + Duration::from_millis(400));
         release(s, KEY_ENTER, t + Duration::from_millis(900));
     });
-    assert!(syskeys(&server).is_empty(), "a repeat of the app's key is not a press of the layer's");
+    assert!(syskeys(&mut a).is_empty(), "a repeat of the app's key is not a press of the layer's");
     let keys = app_keys(&mut a);
     assert_eq!(keys.last(), Some(&(KEY_ENTER, 0)), "the release reached the app: {keys:?}");
 }
@@ -185,7 +196,7 @@ fn a_press_the_app_already_has_keeps_its_repeats_and_its_release() {
 #[test]
 fn a_press_that_never_got_its_release_is_not_taken_for_a_repeat_for_ever() {
     let mut server = Server::start();
-    let _a = app(&mut server);
+    let mut a = app(&mut server);
     takes(&server, &["ok"]);
     let t = Instant::now();
     server.eval(move |s| {
@@ -194,42 +205,32 @@ fn a_press_that_never_got_its_release_is_not_taken_for_a_repeat_for_ever() {
         press(s, KEY_ENTER, t + Duration::from_secs(10));
         release(s, KEY_ENTER, t + Duration::from_millis(10_050));
     });
-    assert_eq!(syskeys(&server), vec![("ok".into(), true, false), ("ok".into(), true, false), ("ok".into(), false, false)]);
+    assert_eq!(syskeys(&mut a), vec![("ok".into(), true, false), ("ok".into(), true, false), ("ok".into(), false, false)]);
 }
 
 #[test]
-fn a_shell_window_with_the_focus_gets_its_keys_as_ever_and_the_events_are_for_an_app_only() {
+fn native_panel_takes_keys_without_moving_the_app_focus() {
     let mut server = Server::start();
-    let _a = app(&mut server);
-    let mut layer = Client::connect_extra(&mut server);
-    let _kb = layer.seat.get_keyboard(&layer.qh, ());
-    let win = layer.card("_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM", "Layer");
-    win.webos.set_property("appId".into(), "org.nphil.lumatv.shell".into());
-    let buf = layer.shm_buffer(64, 64, 0x8000_0080);
-    layer.present(&win.surface, &buf);
-    assert!(layer.wait_until(WAIT, |s| s.frames_done >= 1), "the layer presented");
-    takes(&server, &["ok", "back"]);
-    // a layer that wants the keys (a panel) has the focus: OK is the panel's, on wl_keyboard
-    server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: None }));
-    assert!(layer.wait_until(WAIT, |s| s.keyboard_enters >= 1), "the layer got the focus");
+    let mut a = app(&mut server);
+    takes(&server, &[]);
+    server.eval(|s| s.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: None }));
     let t = Instant::now();
     server.eval(move |s| {
-        press(s, KEY_ENTER, t);
-        release(s, KEY_ENTER, t + Duration::from_millis(60));
+        press(s, KEY_RIGHT, t);
+        release(s, KEY_RIGHT, t + Duration::from_millis(60));
     });
-    layer.roundtrip();
-    assert_eq!(layer.state.keys, vec![(KEY_ENTER, 1), (KEY_ENTER, 0)]);
-    assert!(syskeys(&server).is_empty(), "while the layer has the focus its keys are not events");
+    assert_eq!(syskeys(&mut a), vec![("right".into(), true, false), ("right".into(), false, false)]);
+    assert!(app_keys(&mut a).is_empty());
 }
 
 #[test]
-fn only_ok_and_back_can_be_asked_for_and_the_report_says_what_was() {
+fn unsupported_and_duplicate_key_names_are_filtered_in_the_report() {
     let server = Server::start();
     takes(&server, &["left", "ok", "ok", "volume", "back"]);
-    let report: Value = server.eval(|s| s.shell_report());
+    let report: Value = server.eval(|s| s.shell_rust_report());
     assert_eq!(report["takes"], json!(["ok", "back"]));
-    server.eval(|s| s.shell_handle(Msg::Takes(Vec::new())));
-    let report: Value = server.eval(|s| s.shell_report());
+    server.eval(|s| s.shell_rust_handle(Msg::Takes(Vec::new())));
+    let report: Value = server.eval(|s| s.shell_rust_report());
     assert_eq!(report["takes"], json!([]));
 }
 
@@ -244,6 +245,6 @@ fn the_keys_the_router_takes_are_never_the_layers() {
         press(s, KEY_MENU, t);
         release(s, KEY_MENU, t + Duration::from_millis(60));
     });
-    assert!(syskeys(&server).is_empty());
+    assert!(syskeys(&mut a).is_empty());
     assert!(app_keys(&mut a).is_empty());
 }

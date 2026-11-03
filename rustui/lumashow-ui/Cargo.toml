@@ -12,7 +12,7 @@ test = false
 doctest = false
 
 [dependencies]
-compositor-protocol = { path = "../../../LumaShow/lumashow/crates/compositor-protocol" }
+compositor-protocol = { path = "../compositor-protocol" }
 fontdue = "0.9"
 libc = "0.2"
 memmap2 = "0.9"

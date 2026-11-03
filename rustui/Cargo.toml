@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["render", "app", "tokens", "ui", "lumashow-ui"]
+members = ["render", "app", "tokens", "ui", "lumashow-ui", "compositor-protocol", "mesh3d"]
 
 [workspace.package]
 edition = "2024"

@@ -1,6 +1,14 @@
 # LumaTV's saver as the only saver: a "no" to tvpower's question
 
-Built, host-tested, and run on the set (TvRound11, 2026-10-26 04:50-05:57, `round9/r11-2026-10-26/saver-own-*`): steps 1-4, 7 and 8 of the TV check pass. tvpower lists the client on both lists; the idle timer's question comes about 176 s after the last key and every 180 s after that, is answered no on both lists, the state stays `Active`, LG's saver is not started, LumaTV's clock is on the panel, a key brings Home back within 0.3 s, and after a power-key standby and wake the next question is answered no as before. Open: the pointer (a hand step), the video saver (needs Nitin's OK) and the memory run. Under LG's compositor LG's Flutter `com.webos.app.screensaver` draws its clock over LumaTV's saver layer in the `Screen Saver` power state (`round8-result.md` row (g)); the saver was drawn on that state, below LG's window. The saver now answers LG's own idle question instead, so LG's saver is never started.
+## Native automatic activation — 2026-11-02
+
+The native compositor consumes `nop/getTimerInfo` and reports `notifyExpireTimer` with the timer type and `status: expired`. Unchanged snapshots retain deadlines; real input and daemon remove/re-add restart them. `once` controls local single-shot behavior; `repeat` controls daemon ownership. LG screenmanager and media vetoes remain authoritative.
+
+Core `bc5a069b` is installed. The native path requires above-app Screensaver classification, exposure, and the saver alongside the retained app in LG’s subscribed foreground list. Stock `power2/turnOnScreen` handles cancellation; the wake key, repeat and release do not reach the app. One real-Wayland regression and 25 related unit checks pass. Actual TV acceptance: automatic approximately180-second activation over idle Marquee’s profile screen, stable exposed LG clock with completed power transition, ordinary Up returning to the unchanged profile screen, then confirmed Active Standby and owned lease release. A stale incomplete older launch was cleared through the stock SAM saver launch, without service restart or reboot.
+
+Proof: `/data/home/tmp/lumatv-saver-idle-20261102/wake/`; previous partial attempts are in adjacent directories. The broader whole-fix audit remains in `docs/PLAN.md`; idle/paused/playing apps, wake/standby, failure recovery and resource use are not universally accepted by one app check. Earlier QML results below are historical.
+
+Built, host-tested, and run on the set (TvRound11, 2026-10-26 04:50-05:57, `round9/r11-2026-10-26/saver-own-*`): steps 1–4, 7 and 8 of the TV check passed. The idle question arrived about 176 seconds after the last key and every 180 seconds thereafter, received a refusal on both client lists, and a key restored Home within 0.3 seconds. These are earlier QML observations, not native acceptance.
 
 ## Resume here
 

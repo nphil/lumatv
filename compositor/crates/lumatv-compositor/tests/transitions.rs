@@ -11,14 +11,13 @@ use harness::{Client, Server, Window};
 use lumatv_compositor::State;
 use lumatv_compositor::output::Image;
 use lumatv_compositor::scene::Hole;
-use lumatv_compositor::window::{SHELL_HOME_TITLE, WindowType};
 use serde_json::json;
 use wayland_client::protocol::wl_buffer::WlBuffer;
 
 const MS: u64 = 1_000_000;
 const HOME_STUB: &str = "com.webos.app.home";
-/// The colours: Home's wallpaper, the first app's picture, the second app's.
-const HOME: u32 = 0xff20_3060;
+// The software renderer does not draw the native engine layer.
+const HOME: u32 = 0xff00_0000;
 const APP_A: u32 = 0xffd0_4040;
 const APP_B: u32 = 0xff40_c060;
 /// Netflix's tile on Home, as the shell would say it.
@@ -27,7 +26,6 @@ const TILE: (i32, i32, i32, i32) = (287, 699, 120, 120);
 struct Rig {
     client: Client,
     stub: Window,
-    _home: Window,
     _bufs: Vec<WlBuffer>,
 }
 
@@ -39,7 +37,7 @@ fn near(a: [u8; 4], want: [u8; 3], tol: u8) -> bool {
     a[3] == 255 && a.iter().zip(want.iter()).all(|(g, w)| g.abs_diff(*w) <= tol)
 }
 
-/// Home as the shell draws it (LumaTV's Home window over SAM's transparent stub card), no ticks of its own, the switch on.
+/// Native Home occupies the engine layer above SAM's transparent Home card.
 fn rig(server: &mut Server, on: bool) -> Rig {
     server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
     let mut client = Client::connect(server);
@@ -47,10 +45,8 @@ fn rig(server: &mut Server, on: bool) -> Rig {
     stub.webos.set_property("appId".into(), HOME_STUB.into());
     let clear = client.shm_buffer(64, 64, 0);
     client.present(&stub.surface, &clear);
-    let home = client.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", SHELL_HOME_TITLE);
-    let wall = client.shm_buffer(1920, 1080, HOME);
-    client.present(&home.surface, &wall);
     client.roundtrip();
+    server.eval(|s| { s.scene.set_home_rust(true); });
     if on {
         server.eval(|s| {
             s.motion.forced = Some(true);
@@ -59,7 +55,7 @@ fn rig(server: &mut Server, on: bool) -> Rig {
             s.tick_at(1_000 * MS);
         });
     }
-    Rig { client, stub, _home: home, _bufs: vec![clear, wall] }
+    Rig { client, stub, _bufs: vec![clear] }
 }
 
 /// An app's card: mapped over Home with a full-screen picture of one colour.
@@ -101,21 +97,20 @@ fn a_launch_is_drawn_from_the_first_frame_as_a_card_growing_out_of_its_tile() {
     assert_eq!(front.as_deref(), Some("com.example.a"));
     assert_eq!(focus.as_deref(), Some("com.example.a"), "the app takes the keys at once");
 
-    // Its first frame already shows it: a quarter of the app over Home at its tile, Home elsewhere unchanged.
+    // The software renderer shows a quarter of the app over its black clear at the tile.
     let t0 = 2_000 * MS;
     let first = tick(&server, t0);
     let centre = first.pixel((TILE.0 + TILE.2 / 2) as u32, (TILE.1 + TILE.3 / 2) as u32);
     let (h, a) = (rgb(HOME), rgb(APP_A));
     let want: Vec<u8> = (0..3).map(|i| (a[i] as f32 * 0.25 + h[i] as f32 * 0.75) as u8).collect();
-    assert!(near(centre, [want[0], want[1], want[2]], 4), "a quarter of the app over Home at the tile: {centre:?} want {want:?}");
-    assert!(near(first.pixel(1700, 200), h, 2), "Home is Home elsewhere");
+    assert!(near(centre, [want[0], want[1], want[2]], 4), "a quarter of the app at the tile: {centre:?} want {want:?}");
+    assert!(near(first.pixel(1700, 200), h, 2), "the clear remains outside the card");
     assert!(state(&server, |s| s.scene.transitions.active() && s.scene.transitions.holds_home()));
 
-    // Halfway the card is a card: opaque at its centre, Home dimmer around it.
+    // Halfway the card is opaque at its centre; Home remains planned beneath it.
     let mid = tick(&server, t0 + 110 * MS);
     assert!(near(mid.pixel(960, 540), a, 2), "the card at the middle of the screen: {:?}", mid.pixel(960, 540));
-    let dim = mid.pixel(1900, 1060);
-    assert!(dim[0] < h[0] && dim[2] < h[2] && dim[0] > h[0] / 3, "Home darkens behind it: {dim:?} against {h:?}");
+    assert!(state(&server, |s| s.scene.transitions.holds_home()), "native Home remains under the card");
 
     // At 220 ms it is the screen, Home gone: the plan is the app alone, drawn as any window (the plane could scan it out directly).
     let end = tick(&server, t0 + 221 * MS);
@@ -137,7 +132,7 @@ fn the_switch_off_is_the_old_cut() {
 }
 
 #[test]
-fn home_takes_the_card_back_into_its_tile_and_the_pointer_is_home_s_not_the_ghost_s() {
+fn home_takes_the_card_back_into_its_tile_without_giving_the_ghost_pointer_input() {
     let mut server = Server::start();
     let mut rig = rig(&mut server, true);
     let (_a, _buf) = app(&mut rig, "A", "com.example.a", APP_A);
@@ -155,23 +150,23 @@ fn home_takes_the_card_back_into_its_tile_and_the_pointer_is_home_s_not_the_ghos
         (
             s.scene.last_plan().items.iter().any(|i| i.ghost),
             s.scene.foreground(&s.surfaces).map(|w| w.app_id().to_string()),
-            s.scene.surface_at(960, 540).map(|(sid, _)| s.scene.window_of(sid).map(|w| s.scene.window(w).unwrap().kind)),
+            s.scene.surface_at(960, 540).and_then(|(sid, _)| s.scene.window_of(sid)).map(|w| s.scene.window(w).unwrap().app_id().to_string()),
         )
     });
     assert!(front_is_home, "the card is a ghost while it goes");
     assert_eq!(focus.as_deref(), Some(HOME_STUB));
-    assert_eq!(hit, Some(Some(WindowType::ShellHome)), "the pointer's surface is Home's, not the card that is going");
+    assert_ne!(hit.as_deref(), Some("com.example.a"), "the outgoing card does not receive pointer input");
     // Home is back in the shell's word at once (it resumes drawing while the card goes)
     assert!(state(&server, |s| s.shell_home_drawn()));
 
-    // 100 ms in, the card is on its way to the tile and still whole, but smaller and darker where Home has begun to show; by 150 ms it has left the middle
+    // The card shrinks toward its tile while the native Home pose brightens.
     let early = tick(&server, t0 + 100 * MS);
     assert!(near(early.pixel(960, 540), rgb(APP_A), 20), "still the card at the middle: {:?}", early.pixel(960, 540));
-    let edge = early.pixel(1900, 1070);
-    assert!(edge[2] > (rgb(HOME)[2] as f32 * 0.55) as u8 && edge[2] < rgb(HOME)[2], "and Home brightening at the edge: {edge:?}");
+    let shade = state(&server, move |s| s.scene.transitions.pose(lumatv_compositor::scene::HOME_RUST, t0 + 100 * MS).unwrap().shade);
+    assert!(shade > 0.0 && shade < 1.0, "Home is brightening: {shade}");
     let mid = tick(&server, t0 + 150 * MS);
     assert!(!near(mid.pixel(960, 540), rgb(APP_A), 40), "the card has left the middle: {:?}", mid.pixel(960, 540));
-    // at 180 ms it is gone: Home, whole, at its own brightness
+    // The software renderer shows its clear once the card has gone.
     let end = tick(&server, t0 + 181 * MS);
     assert!(near(end.pixel(960, 540), rgb(HOME), 1) && near(end.pixel(5, 5), rgb(HOME), 1));
     assert!(state(&server, |s| !s.scene.transitions.active()));
@@ -244,6 +239,10 @@ fn a_card_on_the_video_plane_arrives_on_a_veil_and_the_plane_is_never_shown_blac
     // arrived (220 ms): the hole comes (the compositor's placement) at 100 ms; the veil is held opaque
     state(&server, move |s| s.scene.holes.push(Hole { surface: sid, rect: lumatv_compositor::Rect::new(0, 0, 1920, 1080) }));
     tick(&server, t0 + 100 * MS);
+    assert!(!state(&server, move |s| {
+        let w = s.scene.window_of(sid).unwrap();
+        s.scene.video_hole_visible(w, sid, lumatv_compositor::Rect::new(0, 0, 1920, 1080))
+    }), "the posed veil does not clear video to the screen");
     let held = tick(&server, t0 + 300 * MS);
     assert!(near(held.pixel(960, 540), veil, 1) && near(held.pixel(10, 10), veil, 1), "veil held: {:?}", held.pixel(960, 540));
     // the video has had its 150 ms since the hole came (100 + 150 = 250, and the card has arrived): the frame at 300 ms is where the fade starts (at
@@ -251,14 +250,59 @@ fn a_card_on_the_video_plane_arrives_on_a_veil_and_the_plane_is_never_shown_blac
     let half = tick(&server, t0 + 300 * MS + 90 * MS);
     let h = half.pixel(960, 540);
     assert!((h[3] as i32 - 128).abs() <= 3, "half through the dissolve: {h:?}");
+    assert!(state(&server, move |s| {
+        let w = s.scene.window_of(sid).unwrap();
+        s.scene.video_hole_visible(w, sid, lumatv_compositor::Rect::new(0, 0, 1920, 1080))
+    }), "the partially transparent veil reveals the planned hole");
     assert!(h[0] <= 0x19 / 2 + 2, "premultiplied veil at half");
     let gone = tick(&server, t0 + 300 * MS + 181 * MS);
     assert_eq!(gone.pixel(960, 540), [0, 0, 0, 0], "the plane shows through: a hole, transparent for the display engine");
+    assert!(state(&server, move |s| {
+        let w = s.scene.window_of(sid).unwrap();
+        s.scene.video_hole_visible(w, sid, lumatv_compositor::Rect::new(0, 0, 1920, 1080))
+    }), "the uncovered hole remains visible");
     assert!(state(&server, |s| !s.scene.transitions.active()));
 }
 
 #[test]
-fn a_card_on_the_video_plane_leaves_by_home_dissolving_in_over_it() {
+fn foreground_video_hole_rejects_an_offscreen_transition_pose() {
+    let mut server = Server::start();
+    let mut rig = rig(&mut server, true);
+    state(&server, |s| {
+        s.set_launch_origin(&json!({"appId": "com.example.video", "tile": {"x": 3000, "y": 0, "width": 120, "height": 120}}));
+    });
+    let win = rig.client.card("_WEBOS_WINDOW_TYPE_CARD", "Video");
+    win.webos.set_property("appId".into(), "com.example.video".into());
+    rig.client.roundtrip();
+    let sid = state(&server, |s| s.scene.windows().find(|w| w.app_id() == "com.example.video").unwrap().surface);
+    let hole = lumatv_compositor::Rect::new(0, 0, 1920, 1080);
+    state(&server, move |s| {
+        s.scene.set_video_expected(sid, true);
+        s.scene.holes.push(Hole { surface: sid, rect: hole });
+    });
+    let clear = rig.client.shm_buffer(1920, 1080, 0);
+    rig.client.present(&win.surface, &clear);
+    rig.client.roundtrip();
+    tick(&server, 2_000 * MS);
+    state(&server, move |s| {
+        let w = s.scene.window_of(sid).unwrap();
+        let pose = s.scene.transitions.pose(w, 2_000 * MS).expect("the card is posed");
+        assert!(pose.bounds().intersect(&lumatv_compositor::Rect::new(0, 0, 1920, 1080)).is_empty());
+        assert!(!s.scene.last_plan().items.iter().any(|item| item.surface == sid));
+        assert!(!s.scene.video_hole_visible(w, sid, hole));
+    });
+    tick(&server, 2_300 * MS);
+    tick(&server, 2_500 * MS);
+    tick(&server, 2_800 * MS);
+    tick(&server, 3_000 * MS);
+    assert!(state(&server, move |s| {
+        let w = s.scene.window_of(sid).unwrap();
+        s.scene.video_hole_visible(w, sid, hole)
+    }), "the same hole is visible after the card arrives and its veil clears");
+}
+
+#[test]
+fn a_card_on_the_video_plane_leaves_with_native_home_visible() {
     let mut server = Server::start();
     let mut rig = rig(&mut server, true);
     let win = rig.client.card("_WEBOS_WINDOW_TYPE_CARD", "Hdmi");
@@ -278,14 +322,12 @@ fn a_card_on_the_video_plane_leaves_by_home_dissolving_in_over_it() {
     rig.stub.webos.set_state(3);
     rig.client.roundtrip();
     let t0 = 5_000 * MS;
-    let first = tick(&server, t0);
-    assert_eq!(first.pixel(960, 540), [0, 0, 0, 0], "the first frame is as it was: the plane through the hole");
-    let half = tick(&server, t0 + 90 * MS);
-    let h = half.pixel(960, 540);
-    let home = rgb(HOME);
-    assert!((h[3] as i32 - 128).abs() <= 3 && h[0].abs_diff(home[0] / 2) <= 3, "Home half through over the hole, for the display engine to blend: {h:?}");
-    let end = tick(&server, t0 + 181 * MS);
-    assert!(near(end.pixel(960, 540), home, 1), "Home, whole");
+    tick(&server, t0);
+    assert!(state(&server, |s| s.shell_home_drawn() && !s.scene.last_plan().home_hidden), "native Home covers the departing video");
+    tick(&server, t0 + 90 * MS);
+    assert!(state(&server, |s| s.scene.transitions.active()));
+    tick(&server, t0 + 181 * MS);
+    assert!(state(&server, |s| !s.scene.transitions.active() && s.shell_home_drawn()));
 }
 
 #[test]
@@ -329,7 +371,6 @@ fn turning_the_switch_off_in_the_middle_ends_it_at_once() {
 fn what_home_is_told_follows_the_move_not_the_cut() {
     let mut server = Server::start();
     let mut rig = rig(&mut server, true);
-    state(&server, |s| s.shell.recorded.clear());
     let (_a, _buf) = app(&mut rig, "A", "com.example.a", APP_A);
     state(&server, |s| {
         s.tick_at(2_000 * MS);
@@ -648,41 +689,7 @@ fn the_gl_renderer_draws_an_exiting_apps_last_picture_and_lets_it_go() {
     assert_eq!((skipped, errors), (0, 0));
 }
 
-// ---- renders for the docs (`docs/research/transitions/`): the compositor's own frames of each transition, through the software renderer ----
-
-/// Home as a picture: a dark gradient wallpaper, a status pill, two glass panels and the dock's tiles (Netflix's at `TILE`).
-fn home_picture(x: i32, y: i32) -> u32 {
-    let tiles = [
-        0xfff0_f0f0u32,
-        0xff18_1820,
-        0xffc0_2030,
-        0xff20_2028,
-        0xff30_3038,
-        0xfff0_6010,
-        0xff50_70c0,
-        0xff68_6870,
-        0xffe8_e8e8,
-        0xff80_2040,
-        0xff18_3050,
-        0xff40_4048,
-    ];
-    for (n, c) in tiles.iter().enumerate() {
-        let (col, row) = ((n % 6) as i32, (n / 6) as i32);
-        let (tx, ty) = (TILE.0 + col * 144, TILE.1 + row * 144);
-        if x >= tx && x < tx + 120 && y >= ty && y < ty + 120 {
-            // rounded corners of 22
-            let (dx, dy) = ((x - tx).min(119 - (x - tx)), (y - ty).min(119 - (y - ty)));
-            if dx >= 22 || dy >= 22 || ((22 - dx) * (22 - dx) + (22 - dy) * (22 - dy)) <= 22 * 22 {
-                return *c;
-            }
-        }
-    }
-    let glass = (64..1856).contains(&x) && ((160..590).contains(&y) || (630..1010).contains(&y) || (40..126).contains(&y));
-    let t = y as f32 / 1080.0;
-    let (r, g, b) = (28.0 + 30.0 * (1.0 - t) + 14.0 * (x as f32 / 1920.0), 26.0 + 22.0 * (1.0 - t), 60.0 + 50.0 * (1.0 - t) + 20.0 * (x as f32 / 1920.0));
-    let k = if glass { 0.78 } else { 1.0 };
-    0xff00_0000 | (((r * k) as u32) << 16) | (((g * k) as u32) << 8) | (b * k) as u32
-}
+// Software-rendered transition contact sheets; native engine layers are not present in these images.
 
 /// An app's picture: a dark canvas, a hero banner and a row of posters, so that scale, mask and corner show.
 fn app_picture(x: i32, y: i32, hue: u32) -> u32 {
@@ -750,16 +757,10 @@ fn renders_the_transitions_for_the_docs() {
     let dir = std::path::PathBuf::from(dir);
     std::fs::create_dir_all(&dir).unwrap();
     let write = |name: &str, img: &Image| lumatv_compositor::capture::write_png(&dir.join(name), img).unwrap();
-    let wall = |c: &mut Client| c.shm_pattern(1920, 1080, home_picture);
 
     // launch, then Home pressed, then another app over it: one run, the frames picked out of it
     let mut server = Server::start();
     let mut r = rig(&mut server, true);
-    let home = wall(&mut r.client);
-    r._home.surface.attach(Some(&home), 0, 0);
-    r._home.surface.damage(0, 0, 1920, 1080);
-    r._home.surface.commit();
-    r.client.roundtrip();
     state(&server, |s| {
         s.tick_at(1_500 * MS);
     });
@@ -797,11 +798,6 @@ fn renders_the_transitions_for_the_docs() {
     // a card on the video plane: HDMI arrives on a veil and the plane is dissolved in; then Home dissolves over it
     let mut server = Server::start();
     let mut r = rig(&mut server, true);
-    let home = wall(&mut r.client);
-    r._home.surface.attach(Some(&home), 0, 0);
-    r._home.surface.damage(0, 0, 1920, 1080);
-    r._home.surface.commit();
-    r.client.roundtrip();
     state(&server, |s| {
         s.set_launch_origin(
             &json!({"appId": "com.webos.app.hdmi2", "tile": {"x": TILE.0 + 144 * 4, "y": TILE.1 + 144, "width": 120, "height": 120, "radius": 22}}),
@@ -827,5 +823,5 @@ fn renders_the_transitions_for_the_docs() {
     r.client.roundtrip();
     let dissolve: Vec<Image> = [0u64, 36, 72, 108, 144, 180].iter().map(|ms| tick(&server, 4_000 * MS + ms * MS)).collect();
     write("video-leave.png", &sheet(&dissolve, true));
-    drop((home, pic_a, pic_b, banner));
+    drop((pic_a, pic_b, banner));
 }

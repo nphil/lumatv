@@ -7,6 +7,7 @@ use crate::settings::ctx::{Ctx, Spec, ask, toast};
 use crate::settings::names;
 use crate::settings::page::{Page, Read};
 use crate::settings::row::{Arg, Op, Row, ShellRequest, patch_of, settings};
+use lumatv_tokens::CardGlass;
 use serde_json::{Value, json};
 use std::rc::Rc;
 
@@ -43,6 +44,7 @@ fn theme_seg(id: &str, tab: usize, icon: &str, label: &str, options: &[&str], in
 const MATERIALS: [&str; 3] = ["dark", "light", "auto"];
 const CLOCKS: [&str; 3] = ["analog", "digital", "off"];
 const DEPTHS: [&str; 3] = ["flat", "normal", "deep"];
+const CARD_GLASS: [CardGlass; 4] = [CardGlass::Clear, CardGlass::Frosted, CardGlass::Liquid, CardGlass::Glazed];
 const STYLES: [&str; 3] = ["clock", "art", "off"];
 const ART_EVERY: [u64; 3] = [5, 15, 60];
 const STANDBY_HOURS: [u64; 4] = [0, 2, 4, 8];
@@ -61,17 +63,29 @@ fn rows(c: &Ctx) -> Vec<Row> {
         appearance.detail = if c.light { "Light now" } else { "Dark now" }.into();
     }
     rows.push(appearance);
+    rows.push(Row::link("themes").tab(0).icon("palette").label("Themes").does(vec![Op::Open { page: "themes".into(), arg: Default::default() }]));
     let clock = if c.theme_at("clock.enabled").and_then(Value::as_bool) == Some(false) { "off" } else { c.theme_str("clock.style").unwrap_or("analog") };
     rows.push(theme_seg("clock", 0, "clock", "Clock on Home", &["Analogue", "Digital", "Off"], CLOCKS.iter().position(|m| *m == clock), |i| {
         if i == 2 { json!({"clock": {"enabled": false}}) } else { json!({"clock": {"enabled": true, "style": CLOCKS[i]}}) }
     }));
-    rows.push(theme_toggle(c, ("wallpapermotion", 0, "waves", "Wallpaper motion", ""), "wallpaperMotion.enabled", true));
+    rows.push(Row::link("wallpaper").tab(0).icon("wallpaper").label("Wallpaper").does(vec![Op::Shell(ShellRequest::Wallpaper)]));
     let depth = c.theme_str("depth.level").unwrap_or("normal");
     rows.push(theme_seg("depth", 0, "blend", "Glass depth", &["Flat", "Normal", "Deep"], DEPTHS.iter().position(|m| *m == depth), |i| json!({"depth": {"level": DEPTHS[i]}})));
-    let frosted = c.theme_str("cardGlass") == Some("frosted");
+    let glass = CARD_GLASS.iter().copied().find(|style| Some(style.id()) == c.theme_str("cardGlass")).unwrap_or(CardGlass::Clear);
+    let labels = CARD_GLASS.map(|style| style.label());
     rows.push(
-        theme_seg("cardglass", 0, "layers", "Card glass", &["Clear", "Frosted"], Some(usize::from(frosted)), |i| json!({"cardGlass": if i == 1 { "frosted" } else { "clear" }}))
-            .help("Clear shows the wallpaper through the cards, as LG's own Home does. Frosted is the more opaque glass."),
+        theme_seg("cardglass", 0, "layers", "Glass type", &labels, Some(glass.index()), |i| json!({"cardGlass": CARD_GLASS[i].id()}))
+            .help("Choose the material used by glass surfaces."),
+    );
+    let strength = c.theme_num(&format!("glassStrength.{}", glass.id()), 1.0).clamp(0.0, 1.0);
+    rows.push(
+        Row::slider("glassstrength", 0.0, 100.0, 1.0).tab(0).icon("sliders-vertical").label("Glass strength")
+            .help("Adjust the selected glass material. Each material remembers its own strength.")
+            .num((strength * 100.0).round()).unit("%")
+            .act(move |a| match a {
+                Arg::Value(v) => vec![Op::Patch(json!({"glassStrength": {(glass.id()): v.clamp(0.0, 100.0) / 100.0}}))],
+                _ => Vec::new(),
+            }),
     );
     rows.push(theme_toggle(c, ("transitions", 0, "sparkles", "Smooth transitions", "Apps grow out of their tile and shrink back."), "motion.transitions", false));
     rows.push(popups_row(c));
@@ -146,12 +160,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(c.toggle(Spec::new("general.screenSaverAd").tab(2).icon("star").label("Show ads on LG's screen saver").help("The ads some apps, such as LG Channels, put on LG's screen saver.").lg_shown()));
 
     // ---- Standby
-    let logo = |key: &str| c.theme_at(&format!("logo.{key}")).and_then(Value::as_u64).unwrap_or(1).clamp(1, 3) as usize - 1;
-    rows.push(theme_seg("logoon", 3, "power", "Power-on logo", &["Panes", "Arc", "Name only"], Some(logo("on")), |i| json!({"logo": {"on": i + 1}})));
-    rows.push(theme_seg("logooff", 3, "moon", "Power-off logo", &["Panes", "Arc", "Name only"], Some(logo("off")), |i| json!({"logo": {"off": i + 1}})));
-    // LG's own logo is a different thing from LumaTV's two above: the TV's power service shows it as the TV turns off (LG's menu: "Show LG logo
-    // when turning off the TV", `other.lgLogoDisplay`), so it is its own row, worded as LG's.
-    rows.push(c.toggle(Spec::new("other.lgLogoDisplay").tab(3).icon("tv").label("LG logo").help("LG's own logo, shown by the TV when it turns off. The logos above are LumaTV's.")));
+    rows.push(c.toggle(Spec::new("other.lgLogoDisplay").tab(3).icon("tv").label("LG logo").help("LG's own logo, shown by the TV when it turns off.")));
     let ready = c.lg.has("general.lifeOnScreenMode") && !c.lg.is("general.lifeOnScreenMode", "off");
     let mut always = Row::toggle("alwaysready").tab(3).icon("moon-star").label("Always Ready").help("LG's standby: a wallpaper, the voice and music from a phone while the TV is off. It uses more power than a dark panel.").on(ready).admin();
     always.detail = c.unavailable("general.lifeOnScreenMode", "");
@@ -252,9 +261,30 @@ mod tests {
         assert_eq!(clock.index, Some(1));
         assert_eq!(patch_of_row(clock, Arg::Index(2)), json!({"clock": {"enabled": false}}));
         assert_eq!(patch_of_row(clock, Arg::Index(0)), json!({"clock": {"enabled": true, "style": "analog"}}));
-        assert!(by_id(&r, "wallpapermotion").on, "on where the theme does not say");
+        assert!(matches!(&(by_id(&r, "wallpaper").act.as_ref().unwrap())(Arg::Press)[..], [Op::Shell(ShellRequest::Wallpaper)]));
         assert_eq!(by_id(&r, "depth").index, Some(2));
         assert_eq!(patch_of_row(by_id(&r, "transitions"), Arg::Toggle(true)), json!({"motion": {"transitions": true}}));
+    }
+
+    #[test]
+    fn card_materials_keep_independent_strengths() {
+        let mut w = world();
+        w.theme["glassStrength"] = json!({"clear": 0.2, "frosted": 0.4, "liquid": 0.6, "glazed": 0.8});
+        for (i, style) in CARD_GLASS.iter().copied().enumerate() {
+            w.theme["cardGlass"] = json!(style.id());
+            let r = rows(&w.ctx());
+            let choice = by_id(&r, "cardglass");
+            assert_eq!(choice.index, Some(i));
+            assert_eq!(patch_of_row(choice, Arg::Index(i)), json!({"cardGlass": style.id()}));
+            let slider = by_id(&r, "glassstrength");
+            assert_eq!(slider.num, (i + 1) as f64 * 20.0);
+            let patch = patch_of_row(slider, Arg::Value(35.0));
+            assert_eq!(patch, json!({"glassStrength": {(style.id()): 0.35}}));
+            lumatv_tokens::merge(&mut w.theme, &patch);
+        }
+        assert_eq!(w.theme["glassStrength"], json!({"clear": 0.35, "frosted": 0.35, "liquid": 0.35, "glazed": 0.35}));
+        w.theme["glassStrength"] = json!({});
+        assert_eq!(by_id(&rows(&w.ctx()), "glassstrength").num, 100.0);
     }
 
     #[test]
@@ -298,11 +328,9 @@ mod tests {
     }
 
     #[test]
-    fn the_standby_tab_has_the_logos_and_always_ready_whose_rows_wait_for_it_and_whose_off_flips_in_place() {
+    fn the_standby_tab_has_always_ready_whose_rows_wait_for_it_and_whose_off_flips_in_place() {
         let w = world();
         let r = rows(&w.ctx());
-        assert_eq!((by_id(&r, "logoon").index, by_id(&r, "logooff").index), (Some(1), Some(2)));
-        assert_eq!(patch_of_row(by_id(&r, "logoon"), Arg::Index(2)), json!({"logo": {"on": 3}}));
         let always = by_id(&r, "alwaysready");
         assert!(!always.on && always.admin);
         let on = (always.act.as_ref().unwrap())(Arg::Toggle(true));
@@ -315,14 +343,14 @@ mod tests {
     }
 
     #[test]
-    fn lgs_own_logo_is_one_row_of_its_own_beside_lumatvs_two_and_writes_lgs_key() {
+    fn lgs_logo_is_the_only_logo_control_and_writes_lgs_key() {
         let w = world();
         let r = rows(&w.ctx());
         let lg = by_id(&r, "other.lgLogoDisplay");
         assert_eq!((lg.tab, lg.label.as_str(), lg.on), (3, "LG logo", true));
-        assert!(lg.help.contains("LG's own") && lg.help.contains("LumaTV's"), "it says whose logo it is: {}", lg.help);
+        assert!(lg.help.contains("LG's own"), "it says whose logo it is: {}", lg.help);
         assert!(matches!(&(lg.act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Lg { ds, value, .. }] if ds == "other.lgLogoDisplay" && value == "off"));
-        assert_eq!(r.iter().filter(|x| x.label.to_lowercase().contains("logo")).count(), 3, "LumaTV's power-on and power-off logos and LG's");
+        assert_eq!(r.iter().filter(|x| x.label.to_lowercase().contains("logo")).count(), 1, "only LG's logo control remains");
     }
 
     #[test]

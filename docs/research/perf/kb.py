@@ -15,12 +15,9 @@ Tokens:
   KEYxN@G   N taps, G seconds apart (default 0.35)
   sS        sleep S seconds
   @NAME     trace marker "P:NAME" (a phase boundary for analyse.py) written at this instant
-  !NAME     a luna call from LUNA below, started at this instant without waiting for its answer
-            (a surface that no key opens: a toast, an alert), or a file written to a door from DOOR below (an overlay
-            card: LumaOverlay reads it once a second while an app is in front). When the call returns, the marker
-            "Q:NAME-sent" is written (kb.py waits up to 10 s for it at the end): the time from the
-            "P:" marker to it is luna-send's start, the hub and the service; what the compositor
-            then does is what the surface costs. analyse.py ignores "Q:" markers.
+  !NAME     start a control command or luna call for a surface no key opens; once it returns,
+            write the marker "Q:NAME-sent" (kb.py waits up to 10 s at the end). The time from the
+            "P:" marker includes the command and the service; analyse.py ignores "Q:" markers.
 KEY is UP DOWN LEFT RIGHT OK BACK HOME MENU or an evdev code.
 
     python3 /tmp/kb.py --learn SECONDS
@@ -118,25 +115,9 @@ CTL = {
 }
 
 
-# A card made by hand for the overlay system (docs/research/overlays-result.md): LumaOverlay reads this file once a second while an app is in front,
-# so the card is up within a second of the write. {N} is made different for every call: the same text twice is not shown twice.
-DOOR = {
-    'overlay': ('/tmp/lumatv-overlay',
-                '{"card":{"class":"timer","id":"gate{N}","title":"A timer for the gate {N}","body":"Time is up","source":"The gate","ttl":60}}'),
-}
-
-
-def door(name):
-    path, text = DOOR[name]
-    with open(path, 'w') as f:
-        f.write(text.replace('{N}', str(int(time.time() * 1000) % 1000000)))
-    mark_text('Q:%s-sent' % name)
-
 
 def luna(name):
-    """A `!name` token: a door written, a control command or a luna call spawned; `Q:<name>-sent` is marked when it has returned."""
-    if name in DOOR:
-        return door(name)
+    """A `!name` token: a control command or luna call; mark when it has returned."""
     import subprocess
     n = str(int(time.time() * 1000) % 1000000)
     if name in CTL:

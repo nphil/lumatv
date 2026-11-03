@@ -371,6 +371,33 @@ fn the_link_only_asks_questions() {
 }
 
 #[test]
+fn settings_queries_stop_after_page_interest_expires() {
+    let http = FakeAvr::start();
+    let telnet = FakeTelnet::start();
+    let (rig, _luna) = rig_with(&http, &telnet, "Active", slow());
+    rig.wait_topic("receiver", WAIT, fresh).expect("a reading");
+    assert_eq!(get(rig.addr, "/v1/receiver/settings").status, 200);
+    wait_for("a settings query", || {
+        telnet.received().iter().any(|q| q == "PSTONE CTRL ?")
+    });
+    thread::sleep(Duration::from_secs(6));
+    let count = telnet
+        .received()
+        .iter()
+        .filter(|q| *q == "PSTONE CTRL ?")
+        .count();
+    thread::sleep(Duration::from_secs(2));
+    assert_eq!(
+        telnet
+            .received()
+            .iter()
+            .filter(|q| *q == "PSTONE CTRL ?")
+            .count(),
+        count
+    );
+}
+
+#[test]
 fn a_quiet_receiver_keeps_a_fresh_stamp_without_raising_events() {
     let http = FakeAvr::start();
     let telnet = FakeTelnet::start();

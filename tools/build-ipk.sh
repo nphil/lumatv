@@ -16,7 +16,6 @@ cd "$REPO_ROOT"
 brand_load "$REPO_ROOT/brand.json" || exit 1
 APP_ID="$BRAND_APP_ID"
 SHORT_ID="$BRAND_SHORT_ID"
-QML_MODULE="$BRAND_QML_MODULE"
 
 # Names the sources are checked in under. Installed names follow brand.json;
 # these only say where to find the files, so a rename never touches them.
@@ -56,6 +55,7 @@ assets/extraLargeIcon.png
 assets/splash.png
 tools/$SRC_NAME
 tools/brand.sh
+tools/logrelay.py
 tools/declutter.sh
 payload/declutter/items.txt
 payload/declutter/groups.txt
@@ -71,36 +71,23 @@ frame/appinfo.json
 frame/index.html
 frame/frame.js
 frame/frame.css
-payload/compositor/StarfishFullscreenContainer.qml
-payload/compositor/$SRC_NAME/LumaHome.qml
 payload/keyfilter/$SRC_NAME.js
 payload/webapps/$SRC_NAME.css
-payload/home/home.xml
-payload/home/en.json.sed
 payload/wallpaper/wall_1080.png
 payload/theme/theme.json
 payload/theme/layout.json
+payload/compositor/lumatv/icons/audio
+payload/compositor/lumatv/logo/arc.png
 payload/fonts/Manrope-Regular.ttf
 payload/fonts/Manrope-Medium.ttf
 payload/fonts/Manrope-SemiBold.ttf
 payload/fonts/Manrope-Bold.ttf
 tools/tokens.py
 tools/preload.py
+tools/wake.py
 tools/compositor.sh
-tools/notification_patch.py
 tools/tileicons.js
 tools/systemui.py
-tools/systemui_patch.py
-tools/inputcommon.sh
-tools/inputcommon_patch.py
-tools/voice.sh
-tools/voice_patch.py
-tools/maliit.sh
-tools/maliit_patch.py
-tools/keyboard_patch.py
-tools/volume_patch.py
-tools/cover_patch.py
-tools/splash_patch.py
 tools/store.sh
 tools/store_theme.py
 tools/store_probe.py
@@ -218,12 +205,6 @@ if [ -n "$MISSING" ]; then
     exit 1
 fi
 
-# A QML file that does not compile is a surface that never builds on the TV (Settings once left the panel on a bare wallpaper), and
-# nothing else would say so before the package is on the set. Exit 2 is "PyQt5 missing": that stops the build too, never skips the check.
-python3 tests/qmlhost/compile_all.py || {
-    echo "Error: the compositor QML does not compile (tests/qmlhost/compile_all.py); this package is not built from it." >&2
-    exit 1
-}
 
 # Clean build directory
 BUILD_DIR="./build"
@@ -239,7 +220,7 @@ render() {
             -e "s#{{shortId}}#$SHORT_ID#g" \
             -e "s#{{appId}}#$APP_ID#g" \
             -e "s#{{dataDir}}#$BRAND_DATA_DIR#g" \
-            -e "s#{{qmlModule}}#$QML_MODULE#g" {} +
+            -e "s#{{qmlModule}}#$BRAND_QML_MODULE#g" {} +
     LEFT=$(grep -rIl '{{[A-Za-z]*}}' "$1" 2>/dev/null || true)
     if [ -n "$LEFT" ]; then
         echo "Error: unresolved placeholders in: $LEFT" >&2
@@ -321,21 +302,24 @@ chmod 755 "$DATA_ROOT/tools/$SHORT_ID"
 cp tools/autostart.sh tools/bootcap.sh "$DATA_ROOT/tools/"
 chmod 755 "$DATA_ROOT/tools/autostart.sh" "$DATA_ROOT/tools/bootcap.sh"
 
-# Copy the payload tree as-is: the tool stages directories (compositor QML,
-# theme, fonts) rather than single files.
+# Native UI assets are bundled with the compositor, not the legacy Home tree.
 mkdir -p "$DATA_ROOT/payload"
-cp -R payload/. "$DATA_ROOT/payload/"
+for item in payload/* payload/.[!.]* payload/..?*; do
+    [ -e "$item" ] || [ -L "$item" ] || continue
+    case "$item" in payload/compositor|payload/home) continue ;; esac
+    cp -R "$item" "$DATA_ROOT/payload/"
+done
+mkdir -p "$DATA_ROOT/payload/compositor/$BRAND_QML_MODULE/icons" "$DATA_ROOT/payload/compositor/$BRAND_QML_MODULE/logo"
+cp -R payload/compositor/lumatv/icons/audio "$DATA_ROOT/payload/compositor/$BRAND_QML_MODULE/icons/"
+cp payload/compositor/lumatv/logo/arc.png "$DATA_ROOT/payload/compositor/$BRAND_QML_MODULE/logo/"
 cp tools/brand.sh "$DATA_ROOT/tools/"
+cp tools/logrelay.py "$DATA_ROOT/tools/"
 cp tools/tileicons.js "$DATA_ROOT/tools/"
 cp tools/keyfilter.py "$DATA_ROOT/tools/"
 cp tools/theme.py "$DATA_ROOT/tools/"
 cp tools/layout.py "$DATA_ROOT/tools/"
-cp tools/tokens.py tools/systemui.py tools/systemui_patch.py tools/preload.py tools/compositor.sh tools/notification_patch.py tools/cardapp.sh tools/gfnapp.sh "$DATA_ROOT/tools/"
-# The input banners' restyle, LG's Search app's (voice.sh runs inputcommon.sh for its tree), the keyboard's keys (maliit.sh is its own
-# script: a service restart in place of a process snapshot) and the keyboard's motion (tools/lumatv inputcommon, voice, keys,
-# build_shadow): the tool calls them, and they import notification_patch and tokens, which are shipped above.
-# The volume popup's patch, the startup cover's and the launch splash and spinner's (build_shadow) import notification_patch too.
-cp tools/inputcommon.sh tools/inputcommon_patch.py tools/voice.sh tools/voice_patch.py tools/maliit.sh tools/maliit_patch.py tools/keyboard_patch.py tools/volume_patch.py tools/cover_patch.py tools/splash_patch.py "$DATA_ROOT/tools/"
+cp tools/tokens.py tools/systemui.py tools/preload.py tools/compositor.sh tools/cardapp.sh tools/gfnapp.sh "$DATA_ROOT/tools/"
+cp tools/wake.py "$DATA_ROOT/tools/"
 # LG's Content Store theme (tools/lumatv store): the overlay tool, the builder of the script it mounts (which imports tokens, shipped above)
 # and the probe's receiver and report (`store probe`). The script's sources, payload/store, go out with the rest of payload/ below.
 cp tools/store.sh tools/store_theme.py tools/store_probe.py "$DATA_ROOT/tools/"
@@ -380,7 +364,6 @@ cp "$BUILD_DIR/card-ipk/$APP_ID.card.ipk" "$DATA_ROOT/payload/card/"
 mkdir -p "$DATA_ROOT/payload/gfn"
 cp "gfn/build/${GFN_ID}_${GFN_VERSION}_all.ipk" "$DATA_ROOT/payload/gfn/$APP_ID.gfn.ipk"
 
-place "$DATA_ROOT/payload/compositor/$SRC_NAME" "$DATA_ROOT/payload/compositor/$QML_MODULE"
 place "$DATA_ROOT/payload/keyfilter/$SRC_NAME.js" "$DATA_ROOT/payload/keyfilter/$SHORT_ID.js"
 place "$DATA_ROOT/payload/webapps/$SRC_NAME.css" "$DATA_ROOT/payload/webapps/$SHORT_ID.css"
 render "$DATA_ROOT"
@@ -403,9 +386,8 @@ Package: $APP_ID
 Version: $VERSION
 Architecture: all
 Maintainer: nphil
-Description: Liquid glass home screen for rooted LG webOS TVs
- Reskins the stock LG webOS 10 Home screen with a compositor-level
- liquid glass material, generated abstract wallpaper, and decluttered layout.
+Description: Native liquid glass home screen for rooted LG webOS TVs
+ Draws LumaTV screens with the native compositor and falls back to LG Home.
 EOF
 
 # Create deterministic control.tar.gz

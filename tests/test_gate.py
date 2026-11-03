@@ -61,7 +61,12 @@ class Table(unittest.TestCase):
     def test_find_names_the_unknown(self):
         with self.assertRaisesRegex(ValueError, 'nope'):
             gate.find(['nope'])
-        self.assertEqual([s['name'] for s in gate.find(['home-idle', 'kit-gallery'])], ['home-idle', 'kit-gallery'])
+        self.assertEqual([s['name'] for s in gate.find(['home-idle', 'picker'], values={'INPUT': '241'})], ['home-idle', 'picker'])
+        with self.assertRaisesRegex(ValueError, 'kit-gallery'):
+            gate.find(['kit-gallery'])
+        for name in ('overlay-netflix', 'overlay-hdmi'):
+            with self.assertRaisesRegex(ValueError, 'plugin-broker records.*no card injection'):
+                gate.find([name])
 
     def test_overrides_keep_the_other_thresholds(self):
         s = gate.find(['home-idle'])[0]
@@ -607,7 +612,7 @@ class Edges(unittest.TestCase):
         orig = gate.run_surface
         gate.run_surface = lambda rig_, s, tag, soak, log: {'name': s['name'], 'checks': [], 'log_lines': []}
         try:
-            gate.run_gate(rig, gate.find(names), 3, 't', log=object())
+            gate.run_gate(rig, gate.find(names, values={'INPUT': '241'}), 3, 't', log=object())
         finally:
             gate.run_surface = orig
         return rig
@@ -617,7 +622,7 @@ class Edges(unittest.TestCase):
 
     def test_the_motion_is_off_while_a_still_surface_runs_and_back_as_the_owner_had_it(self):
         # idle Home first (the motion as it is), then two still surfaces: off once, back on at the end
-        rig = self.run_gate(True, ['home-idle', 'quick-settings', 'kit-gallery'])
+        rig = self.run_gate(True, ['home-idle', 'quick-settings', 'picker'])
         self.assertEqual(rig.calls, [self.OFF, self.ON])
         rig = self.run_gate(True, ['quick-settings'])
         self.assertEqual(rig.calls, [self.OFF, self.ON])
@@ -632,7 +637,7 @@ class Edges(unittest.TestCase):
 
     def test_each_switch_is_judged_on_its_own_a_wallpaper_the_owner_stilled_does_not_keep_the_weather_card_drawing(self):
         # round 23: the owner's file had the wallpaper off and said nothing of the weather card, whose sprites drew every refresh through the whole run
-        rig = self.run_gate({'wallpaperMotion.enabled': False, 'weather.animated': None}, ['home-idle', 'quick-settings', 'kit-gallery'])
+        rig = self.run_gate({'wallpaperMotion.enabled': False, 'weather.animated': None}, ['home-idle', 'quick-settings', 'picker'])
         self.assertEqual(rig.calls, [{'weather.animated': False}, {'weather.animated': True}], 'the weather card off once and back as the shipped default has it')
         self.assertTrue(all('wallpaperMotion.enabled' not in c for c in rig.calls), 'the wallpaper is left as the owner had it')
         rig = self.run_gate({'wallpaperMotion.enabled': True, 'weather.animated': False}, ['quick-settings'])

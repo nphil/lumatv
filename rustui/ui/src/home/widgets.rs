@@ -16,14 +16,20 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use ui::components::text::{ellipsise, wrap};
-use ui::components::{Align, Block, Style};
+use ui::components::{Align, Block, Style, plate};
 use ui::geometry::Frame;
-use ui::scene::ImageLayer;
+use ui::scene::{ImageLayer, ShapeLayer};
 use ui::text::Weight;
 
 pub const PAD_SIDE: f32 = 32.0;
 pub const PAD_TOP: f32 = 28.0;
 const HIDDEN: Props = Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) };
+
+// Light card glass can reveal darker wallpaper; use the palette's reading ink
+// for small words instead of a fixed accent tint.
+fn card_accent_text(kit: &Kit) -> Rgba {
+    if kit.mode == ui::lucent::palette::Mode::Light { kit.ui.look.ink() } else { kit.ui.look.accent() }
+}
 
 /// A line of a block: its frame in the content box, its style and its text.
 type Line = (Frame, Style, String);
@@ -454,6 +460,8 @@ pub struct Clock {
     pub block: Words,
     dial: Option<ImageLayer>,
     hands: Option<ImageLayer>,
+    today_mark: Option<(ShapeLayer, f32, f32, f32)>,
+    today_index: Option<u32>,
     plan: Plan,
     analog: bool,
     twelve: bool,
@@ -565,6 +573,15 @@ impl Clock {
             l.0 = Frame::new(l.0.x * k, l.0.y * k, l.0.w * k, l.0.h * k);
         }
         let block = Words::new(kit, Frame::new(0.0, 0.0, w, h), z + 2, lines)?;
+        let today_mark = if kit.mode == ui::lucent::palette::Mode::Light {
+            p.strip.map(|(b, cell)| {
+                let kc = (cell / 48.0).clamp(0.72, 1.17);
+                let width = (14.0 * k).round().max(1.0) as u32;
+                let height = (3.0 * k).round().max(1.0) as u32;
+                let mark = kit.ui.scene.shape(width, height, z + 2, plate::solid(ink, height as f32 / 2.0), HIDDEN);
+                (mark, (b.x + cell / 2.0) * k - width as f32 / 2.0, (b.y + 65.0 * kc) * k, cell * k)
+            })
+        } else { None };
         let p = Plan { dia: p.dia * k, face: Box { x: p.face.x * k, y: p.face.y * k, w: p.face.w * k }, ..p };
         let (dial, hands) = if analog {
             let side = p.dia.max(1.0) as u32;
@@ -576,12 +593,13 @@ impl Clock {
         } else {
             (None, None)
         };
-        Ok(Self { block, dial, hands, plan: p, analog, twelve, second, lines: map, at: HIDDEN, last: None })
+        Ok(Self { block, dial, hands, today_mark, today_index: None, plan: p, analog, twelve, second, lines: map, at: HIDDEN, last: None })
     }
 
     fn show(&mut self, at: Props) {
         self.at = at;
         self.block.set_props(at);
+        self.place_today_mark();
         let fx = self.plan.face.x;
         let fy = self.plan.face.y;
         if let Some(d) = &self.dial {
@@ -589,6 +607,12 @@ impl Clock {
         }
         if let Some(h) = &self.hands {
             h.set(Props { x: at.x + fx, y: at.y + fy, ..at });
+        }
+    }
+
+    fn place_today_mark(&self) {
+        if let (Some((mark, x, y, step)), Some(day)) = (&self.today_mark, self.today_index) {
+            mark.set(Props { x: self.at.x + *x + *step * day as f32, y: self.at.y + *y, ..self.at });
         }
     }
 
@@ -603,7 +627,7 @@ impl Clock {
         let mut changes: Vec<(usize, String, Rgba)> = Vec::new();
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
-        let accent = kit.ui.look.accent();
+        let accent = card_accent_text(kit);
         let (time, ampm) = t.time_words(self.twelve);
         if let Some(i) = self.lines.greet {
             changes.push((i, t.greeting().to_owned(), ink2));
@@ -615,6 +639,8 @@ impl Clock {
             changes.push((i, ampm.to_owned(), ink2));
         }
         if day_changed {
+            self.today_index = Some(t.weekday);
+            self.place_today_mark();
             if let Some(i) = self.lines.weekday {
                 changes.push((i, t.weekday_name().to_owned(), ink));
             }
@@ -677,7 +703,7 @@ impl News {
     fn new(kit: &mut Kit, w: f32, h: f32, z: i32) -> std::io::Result<Self> {
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
-        let accent = kit.ui.look.accent();
+        let accent = card_accent_text(kit);
         let tag_s = role_style(kit, TypeRole::Caption, Some(Weight::SemiBold), accent, Align::Left);
         let src_s = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
         let title_s = role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left);
@@ -719,7 +745,7 @@ impl News {
 
     /// Story `index` of the topic.
     pub fn set(&mut self, kit: &mut Kit, topic: &Value, index: usize, now_ms: u64) {
-        let items: Vec<Value> = topic.pointer("/doc/items").and_then(Value::as_array).cloned().unwrap_or_default();
+        let items = topic.pointer("/doc/items").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
         let index = if items.is_empty() { 0 } else { index % items.len() };
         let key = (topic.pointer("/doc/fetchedAt").map(Value::to_string).unwrap_or_default(), index);
         if self.shown.as_ref() == Some(&key) {
@@ -729,7 +755,7 @@ impl News {
         self.index = index;
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
-        let accent = kit.ui.look.accent();
+        let accent = card_accent_text(kit);
         let mut changes: Vec<(usize, String, Rgba)> = Vec::new();
         match items.get(index) {
             Some(it) => {
@@ -1008,8 +1034,8 @@ impl Cameras {
     }
 
     pub fn set(&mut self, kit: &mut Kit, topic: &Value, stills: &super::stills::Stills, inner: Option<usize>, now_ms: u64) {
-        let cams: Vec<Value> = topic.get("cameras").and_then(Value::as_array).cloned().unwrap_or_default();
-        let state = topic.get("state").and_then(Value::as_str).unwrap_or("unlinked").to_owned();
+        let cams = topic.get("cameras").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        let state = topic.get("state").and_then(Value::as_str).unwrap_or("unlinked");
         let key = format!("{topic}|{inner:?}|{}|{}", stills.revision, now_ms / 60_000);
         if self.shown.as_deref() == Some(key.as_str()) {
             return;
@@ -1017,7 +1043,7 @@ impl Cameras {
         self.shown = Some(key);
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
-        let mut changes: Vec<(usize, String, Rgba)> = vec![(self.head.1, Self::state_words(&state, cams.len()), ink2)];
+        let mut changes: Vec<(usize, String, Rgba)> = vec![(self.head.1, Self::state_words(state, cams.len()), ink2)];
         let mut dots: Vec<(f32, bool)> = Vec::new();
         for (i, (a, b)) in self.rows.iter().enumerate() {
             match cams.get(i) {
@@ -1070,6 +1096,34 @@ impl Cameras {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn card_accent_words_keep_their_role_after_updates() {
+        for mode in [ui::lucent::palette::Mode::Light, ui::lucent::palette::Mode::Dark] {
+            let (h, mut kit) = crate::kit::testkit::kit_in(mode, 1.0);
+            let expected = if mode == ui::lucent::palette::Mode::Light { kit.ui.look.ink() } else { kit.ui.look.accent() };
+            let mut news = News::new(&mut kit, 500.0, 250.0, 1).unwrap();
+            assert_eq!(news.block.lines[news.lines.tag].1.colour, expected);
+            for topic in [serde_json::json!({}), serde_json::json!({"doc": {"fetchedAt": 1, "items": [{"tag": "WORLD"}]}})] {
+                news.set(&mut kit, &topic, 0, 0);
+                assert_eq!(news.block.lines[news.lines.tag].1.colour, expected);
+            }
+            let mut clock = Clock::new(&mut kit, 520.0, 166.0, 1, &serde_json::json!({"clock": {"style": "analog"}}), &serde_json::json!({})).unwrap();
+            let t = Civil { year: 2026, month: 11, day: 1, hour: 12, minute: 0, second: 0, weekday: 0 };
+            clock.tick(&mut kit, &t);
+            assert_eq!(clock.block.lines[clock.lines.strip[0].1].1.colour, expected);
+            for (_, number) in &clock.lines.strip[1..] {
+                assert_eq!(clock.block.lines[*number].1.colour, kit.ui.look.ink());
+            }
+            assert_eq!(clock.today_index, Some(0));
+            assert_eq!(clock.today_mark.is_some(), mode == ui::lucent::palette::Mode::Light);
+            clock.tick(&mut kit, &Civil { day: 2, weekday: 1, ..t });
+            assert_eq!(clock.today_index, Some(1));
+            assert_eq!(clock.block.lines[clock.lines.strip[1].1].1.colour, expected);
+            assert_eq!(clock.block.lines[clock.lines.strip[0].1].1.colour, kit.ui.look.ink());
+            std::mem::forget(h);
+        }
+    }
 
     #[test]
     fn the_clock_plans_the_mocks_boxes_and_the_words_age() {

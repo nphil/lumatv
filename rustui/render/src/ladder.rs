@@ -318,6 +318,7 @@ pub fn rewrite(glass: Glass, level: u8) -> Glass {
         glass = Glass {
             backdrop: Backdrop::None,
             refraction: 0.0,
+            edge_lens: None,
             highlight: Rgba(0, 0, 0, 0),
             sheen: None,
             shadows: [None, None],

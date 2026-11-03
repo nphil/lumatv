@@ -13,10 +13,13 @@ pub const STATUS_LITE_PATH: &str = "/goform/formMainZone_MainZoneXmlStatusLite.x
 /// The path commands are sent to, with the command as the query (`?MV35`). The set's receiver answers `200` with an empty body.
 const COMMAND_PATH: &str = "/goform/formiPhoneAppDirect.xml";
 
-/// The longest reply that is read: the status is a few hundred bytes, so anything near this is not the status.
+/// Status and command replies stay within their original bound; discovery may be larger.
 const MAX_REPLY: usize = 64 * 1024;
+const MAX_DISCOVERY_REPLY: usize = 512 * 1024;
 /// The most the status line and headers may take.
 const MAX_HEAD: usize = 8 * 1024;
+// This receiver returns an empty <rx> to AppCommand requests without a declaration.
+const XML_DECLARATION: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n";
 
 /// Why a status could not be read.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -158,6 +161,57 @@ impl Client {
         parse_status_lite(&text).map_err(ClientError::Parse)
     }
 
+    /// Reads only the explicit UPnP modelName, when this candidate endpoint is available.
+    pub fn model_name(&self) -> Result<Option<String>, ClientError> {
+        let body = match self.get("/goform/Deviceinfo.xml") {
+            Ok(body) => body,
+            Err(ClientError::Http(403)) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let xml = match std::str::from_utf8(&body) {
+            Ok(xml) => xml,
+            Err(_) => return Ok(None),
+        };
+        Ok(parse_model_name(xml).map(str::to_owned))
+    }
+
+    /// Reads current candidate controls and per-zone source availability once.
+    pub fn settings_prerequisites(&self) -> Result<crate::settings::Prerequisites, ClientError> {
+        let deadline = Instant::now() + self.total_timeout;
+        let info = self.optional_request("/goform/Deviceinfo.xml", None, deadline);
+        let basic = self.optional_request(
+            "/goform/AppCommand.xml",
+            Some(crate::prerequisites::BASIC_REQUEST),
+            deadline,
+        );
+        let audyssey = self.optional_request(
+            "/goform/AppCommand0300.xml",
+            Some(crate::prerequisites::AUDYSSEY_REQUEST),
+            deadline,
+        );
+        if info.is_err() && basic.is_err() && audyssey.is_err() {
+            return Err(info.err().unwrap());
+        }
+        Ok(crate::prerequisites::parse(
+            info.ok().flatten().as_deref(),
+            basic.ok().flatten().as_deref(),
+            audyssey.ok().flatten().as_deref(),
+        ))
+    }
+
+    fn optional_request(
+        &self,
+        path: &str,
+        body: Option<&str>,
+        deadline: Instant,
+    ) -> Result<Option<Vec<u8>>, ClientError> {
+        match self.request_until(path, body, deadline) {
+            Ok(body) => Ok(Some(body)),
+            Err(ClientError::Http(403 | 404 | 405)) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Sends one command (`MV35`, `MUON`, ...) and succeeds on any `2xx` reply, with or without a body: the receiver's reply
     /// to a command is empty and its effect shows in the status. A command that is not 2 to 16 characters of `A-Z`, `0-9`
     /// and `?` is refused without connecting, so nothing a caller passes can add to the request line.
@@ -174,7 +228,22 @@ impl Client {
 
     /// The body of `GET path`, at most [`MAX_REPLY`] bytes, within the total deadline.
     fn get(&self, path: &str) -> Result<Vec<u8>, ClientError> {
-        let deadline = Instant::now() + self.total_timeout;
+        self.request(path, None)
+    }
+
+    fn request(&self, path: &str, body: Option<&str>) -> Result<Vec<u8>, ClientError> {
+        self.request_until(path, body, Instant::now() + self.total_timeout)
+    }
+
+    fn request_until(
+        &self,
+        path: &str,
+        body: Option<&str>,
+        deadline: Instant,
+    ) -> Result<Vec<u8>, ClientError> {
+        if Instant::now() >= deadline {
+            return Err(ClientError::Timeout);
+        }
         let mut stream = self.connect(
             self.port,
             self.connect_timeout
@@ -182,10 +251,18 @@ impl Client {
         )?;
         // HTTP/1.0 with a close: the receiver's server is HTTP/1.0 and ends the body by closing, so a 1.0 request can never be
         // answered with chunked framing.
-        let request = format!(
-            "GET {path} HTTP/1.0\r\nHost: {}:{}\r\nUser-Agent: LumaTV\r\nAccept: text/xml\r\nConnection: close\r\n\r\n",
-            self.host, self.port
-        );
+        let request = match body {
+            Some(body) => format!(
+                "POST {path} HTTP/1.0\r\nHost: {}:{}\r\nUser-Agent: LumaTV\r\nAccept: text/xml\r\nContent-Type: text/xml; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{XML_DECLARATION}{body}",
+                self.host,
+                self.port,
+                XML_DECLARATION.len() + body.len()
+            ),
+            None => format!(
+                "GET {path} HTTP/1.0\r\nHost: {}:{}\r\nUser-Agent: LumaTV\r\nAccept: text/xml\r\nConnection: close\r\n\r\n",
+                self.host, self.port
+            ),
+        };
         stream
             .set_write_timeout(Some(
                 deadline
@@ -198,6 +275,11 @@ impl Client {
             .map_err(|e| io_error(&e))?;
 
         let mut raw = Vec::new();
+        let max_reply = if body.is_some() || path == "/goform/Deviceinfo.xml" {
+            MAX_DISCOVERY_REPLY
+        } else {
+            MAX_REPLY
+        };
         let mut chunk = [0u8; 2048];
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
@@ -211,7 +293,7 @@ impl Client {
                 Ok(0) => break,
                 Ok(n) => {
                     raw.extend_from_slice(&chunk[..n]);
-                    if raw.len() > MAX_REPLY {
+                    if raw.len() > max_reply {
                         return Err(ClientError::TooLarge);
                     }
                     if reply_complete(&raw) {
@@ -333,6 +415,10 @@ pub(crate) fn parse_response(raw: &[u8]) -> Result<&[u8], ClientError> {
     }
 }
 
+fn parse_model_name(xml: &str) -> Option<&str> {
+    crate::prerequisites::model_name(xml)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -390,5 +476,27 @@ mod tests {
         assert_eq!(ClientError::Timeout.code(), "timeout");
         assert_eq!(ClientError::Http(403).code(), "http");
         assert_eq!(ClientError::Parse(ParseError::NotStatus).code(), "parse");
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::parse_model_name;
+    #[test]
+    fn model_name_requires_explicit_nonempty_field() {
+        assert_eq!(
+            parse_model_name("<device><modelName> AVR-S760H </modelName></device>"),
+            Some("AVR-S760H")
+        );
+        assert_eq!(
+            parse_model_name("<modelNumber>AVR-S760H</modelNumber>"),
+            None
+        );
+        assert_eq!(parse_model_name("<modelName> </modelName>"), None);
+        assert_eq!(
+            parse_model_name("<modelName><value>AVR-S760H</value></modelName>"),
+            None
+        );
+        assert_eq!(parse_model_name("<modelname>AVR-S760H</modelname>"), None);
     }
 }

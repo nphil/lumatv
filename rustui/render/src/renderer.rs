@@ -285,6 +285,25 @@ fn is_shown(props: &Props) -> bool {
     props.visible && props.opacity > 0.0 && props.scale > 0.0
 }
 
+/// Conservative panel-space extent of the pixels a resolved layer can paint.
+pub(crate) fn painted_extent(panel: &Panel, layer: &Drawn) -> Option<Area> {
+    let props = &layer.props;
+    if !is_shown(props) {
+        return None;
+    }
+    let scissor = match props.clip.map(|clip| panel.scissor(clip)) {
+        Some(None) => return None,
+        Some(rect) => rect,
+        None => None,
+    };
+    let at = placement(layer, props);
+    let extent = panel.quad_of(&at, extent_of(&layer.content, props, (at.width, at.height)));
+    if !panel.is_on_panel(&extent, scissor) {
+        return None;
+    }
+    bounds(&extent, scissor).and_then(|area| damage::intersect(&area, &panel_area_of(panel)))
+}
+
 pub(crate) fn placement(layer: &Drawn, props: &Props) -> Placement {
     Placement {
         x: props.x,
@@ -723,7 +742,7 @@ fn draws_opaque(glass: &compositor_protocol::Glass, sets: &Sets) -> bool {
         Backdrop::Cached { .. } | Backdrop::Live { .. } => true,
         Backdrop::Prepared { id } => sets.has_picture(id),
     };
-    glass.tint.3 == 255 || backdrop
+    glass.tint_gradient.map_or(glass.tint.3 == 255, |g| g.top.3 == 255 && g.bottom.3 == 255) || backdrop
 }
 
 /// Where `layer`, drawn as `props` place it, certainly covers what is below it completely, in panel pixels, and inside
@@ -867,6 +886,10 @@ fn gradient_uniform(angle_deg: f32, width: f32, height: f32) -> [f32; 3] {
 fn pad(scale: f32) -> f32 {
     (1.0 / scale).min(MAX_PAD)
 }
+/// The local painted bounds of a glass layer, including shadow and antialiasing.
+pub fn glass_extent(glass: &compositor_protocol::Glass, size: (f32, f32), scale: f32) -> [f32; 4] {
+    glass::Surfaces::extent(glass, size, pad(scale))
+}
 
 /// The rectangle of a layer that anything of it is drawn in, `[left, top, right, bottom]` in layer pixels: the body,
 /// and the anti-aliased fringe or the shadows around it. One definition, so that what the backdrops are planned from
@@ -885,7 +908,7 @@ fn extent_of(content: &Content, props: &Props, size: (f32, f32)) -> [f32; 4] {
             };
             [-pad, -pad, size.0 + pad, size.1 + pad]
         }
-        Content::Glass(glass) => glass::Surfaces::extent(glass, size, pad(props.scale)),
+        Content::Glass(glass) => glass_extent(glass, size, props.scale),
     }
 }
 
@@ -1010,6 +1033,10 @@ fn under_of(jobs: &[Job], layers: &[Drawn], b: &backdrop::Backdrop) -> Vec<Drawn
 }
 
 impl Renderer {
+    pub(crate) fn painted_extent(&self, layer: &Drawn) -> Option<Area> {
+        painted_extent(&self.panel, layer)
+    }
+
     pub fn new(gl: Gles, panel: Panel) -> io::Result<Self> {
         let started = Instant::now();
         let ndc = [2.0 / panel.width as f32, 2.0 / panel.height as f32];
@@ -1114,35 +1141,32 @@ impl Renderer {
             })
         };
         let glass = |backdrop, depth| {
-            Content::Glass(Glass {
-                corner_radius: 24.0,
-                tint: Rgba(30, 28, 44, 150),
-                edge: Rgba(60, 60, 80, 80),
-                edge_width: 1.0,
-                highlight: Rgba(70, 70, 90, 90),
-                sheen: Some(Sheen {
-                    peak: 0.2,
-                    floor: 0.05,
-                    start: 0.2,
-                    end: 0.8,
+            Content::Glass(Glass { corner_radius: 24.0,
+            tint: Rgba(30, 28, 44, 150),
+            edge: Rgba(60, 60, 80, 80),
+            edge_width: 1.0,
+            highlight: Rgba(70, 70, 90, 90),
+            sheen: Some(Sheen {
+                peak: 0.2,
+                floor: 0.05,
+                start: 0.2,
+                end: 0.8,
+            }),
+            shadows: [
+                Some(Shadow {
+                    offset_y: 8.0,
+                    blur: 24.0,
+                    colour: Rgba(0, 0, 0, 90),
                 }),
-                shadows: [
-                    Some(Shadow {
-                        offset_y: 8.0,
-                        blur: 24.0,
-                        colour: Rgba(0, 0, 0, 90),
-                    }),
-                    Some(Shadow {
-                        offset_y: 2.0,
-                        blur: 6.0,
-                        colour: Rgba(0, 0, 0, 60),
-                    }),
-                ],
-                depth,
-                backdrop,
-                saturation: 1.2,
-                refraction: 6.0,
-            })
+                Some(Shadow {
+                    offset_y: 2.0,
+                    blur: 6.0,
+                    colour: Rgba(0, 0, 0, 60),
+                }),
+            ],
+            depth,
+            backdrop,
+            saturation: 1.2, refraction: 6.0, edge_lens: None, tint_gradient: None, })
         };
         let shape = |radius, fill, border| {
             Content::Shape(Shape {
@@ -1371,6 +1395,19 @@ impl Renderer {
         self.wallpapers.set_look(look);
     }
 
+    /// Home's controls are scoped to its layer; the revision invalidates retained pictures even while paused.
+    pub fn set_silk(&mut self, id: LayerId, silk: wallpapers::Silk) -> bool {
+        let changed = self.wallpapers.set_silk(id, silk);
+        self.stale |= changed;
+        changed
+    }
+
+    pub fn clear_silk(&mut self) -> bool {
+        let changed = self.wallpapers.clear_silk();
+        self.stale |= changed;
+        changed
+    }
+
     pub fn gles(&self) -> &Gles {
         &self.gl
     }
@@ -1441,6 +1478,7 @@ impl Renderer {
                 self.glass.forget(*id);
             }
             Op::Clear => {
+                self.clear_silk();
                 let ids: Vec<LayerId> = self.textures.keys().copied().collect();
                 for id in ids {
                     self.remove(id);
@@ -1715,6 +1753,9 @@ impl Renderer {
         out.clear();
         for layer in layers {
             let mut layer = *layer;
+            if matches!(layer.content, Content::Wallpaper(_)) {
+                layer.version = atlas::mixed(layer.version, self.wallpapers.revision(layer.id));
+            }
             if let (level @ 1.., Content::Glass(glass)) = (self.ladder, layer.content) {
                 let plainer = ladder::rewrite(glass, level);
                 if plainer != glass {
@@ -2018,6 +2059,16 @@ impl Renderer {
             let body = [0.0, 0.0, at.width, at.height];
             bounds(&self.panel.quad_of(&at, body), None).unwrap_or([0; 4])
         };
+        let sample_in = |view: View| -> Area {
+            let at = placement(layer, props_of(layer, view));
+            let lens = match layer.content {
+                Content::Glass(glass) => glass.edge_lens.map_or(0.0, |lens| lens.lens.max(0.0)),
+                _ => 0.0,
+            };
+            if lens == 0.0 { return body_in(view); }
+            let extent = [-lens, -lens, at.width + lens, at.height + lens];
+            bounds(&self.panel.quad_of(&at, extent), None).unwrap_or([0; 4])
+        };
         // A blur is soft, so its picture can be small: with `ideas::HALF_RES` half of the size it was, in each direction (which
         // is one halving less for the blur's chain to make).
         let smaller = |downsample: u8| {
@@ -2059,6 +2110,8 @@ impl Renderer {
                 downsample,
                 body_now: body_in(View::Now),
                 body_rest: body_in(View::Rest),
+                sample_now: sample_in(View::Now),
+                sample_rest: sample_in(View::Rest),
             }),
         }
     }
@@ -2578,7 +2631,7 @@ impl Renderer {
             || self.ladder > 0
             || layers
                 .iter()
-                .any(|l| matches!(l.content, Content::Glyphs(_)))
+                .any(|l| matches!(l.content, Content::Glyphs(_) | Content::Wallpaper(_)))
         {
             self.revise(layers, adapting, &mut revised);
             first.fading = adapting
@@ -3705,6 +3758,7 @@ impl Drawing<'_> {
                         gl,
                         &wallpaper,
                         &wallpapers::Draw {
+                            layer: layer.id,
                             size: (width, height),
                             opacity,
                             origin: {
@@ -3996,22 +4050,19 @@ mod tests {
     fn warming_up_raises_no_error_leaves_no_layer_behind_and_changes_nothing_that_is_drawn_after() {
         use compositor_protocol::{Backdrop, Glass, Rgba, Wallpaper, WallpaperKind};
         let scene = || {
-            let glass = Glass {
-                corner_radius: 20.0,
-                tint: Rgba(30, 28, 44, 150),
-                edge: Rgba(60, 60, 80, 80),
-                edge_width: 1.0,
-                highlight: Rgba(0, 0, 0, 0),
-                sheen: None,
-                shadows: [None, None],
-                depth: None,
-                backdrop: Backdrop::Live {
-                    radius: 20.0,
-                    downsample: 4,
-                },
-                saturation: 1.0,
-                refraction: 0.0,
-            };
+            let glass = Glass { corner_radius: 20.0,
+            tint: Rgba(30, 28, 44, 150),
+            edge: Rgba(60, 60, 80, 80),
+            edge_width: 1.0,
+            highlight: Rgba(0, 0, 0, 0),
+            sheen: None,
+            shadows: [None, None],
+            depth: None,
+            backdrop: Backdrop::Live {
+                radius: 20.0,
+                downsample: 4,
+            },
+            saturation: 1.0, refraction: 0.0, edge_lens: None, tint_gradient: None, };
             vec![
                 drawn(
                     1,

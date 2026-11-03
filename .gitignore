@@ -32,3 +32,11 @@ docs/research/arch/drmplanes
 # Python bytecode, anywhere
 __pycache__/
 *.pyc
+
+# Cargo build output, wherever a crate builds
+target/
+target-*/
+
+# Agent and design-review scratch (multi-MB screenshots)
+.impeccable/
+.omp/

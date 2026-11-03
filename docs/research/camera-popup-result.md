@@ -1,5 +1,13 @@
 # Camera pop-up: live video in the corner
 
+## Current native acceptance — 2026-11-02
+
+Lost Scrypted pairing was replaced with a TV-generated private device credential. Only its public verifier entered the trusted bridge UI; the certificate pin was matched through the trusted HTTPS management endpoint. The new LumaTV Living Room device connects to ten shared cameras. The obsolete LumaTV verifier was removed after live acceptance; the allowlist and master token remain unchanged. Gym is reported offline by Scrypted.
+
+Home Cameras opens the existing native grid/full viewer. Actual DISPLAY captures and advancing feeder counters prove Backyard H265 1920×1080 full-screen live playback (fed95→122), not a still. Back stops the stream and releases its window. The popup preference was explicitly Off; enabling only `scrypted-cameras/popups.on` through the existing settings route restored it. A controlled event showed Plant Room H264 1280×720 live corner video (fed34→57); Back dismissed it. Startup lost=40 remained unchanged between samples: this is not zero-loss/universal smoothness proof. Existing allocator and fallback paths remain; no second viewer/decoder or compositor change.
+
+Temporary test-event configuration was restored byte-for-byte, helper healthy, exact original picture context/backlight restored, actual standby and own lease release verified. Proof: `/data/home/tmp/lumatv-ha-cameras-20261102/`. Current UI/helper pins: `ha-plugin-result.md`. The rounds below are historical, not current ownership or instructions to replay old installs.
+
 ## Resume here
 
 **Done** (all on forge/main; round 22 passed A2, A3 and D1 on `2138070f`: the pop-up's picture is in its box over Home at 26.4 a second of 25, the full view over Home is full screen with no re-placing):

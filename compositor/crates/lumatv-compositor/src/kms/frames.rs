@@ -131,6 +131,8 @@ impl Frames {
             // The pages hold layers that are gone: nothing to stand in from until this frame is composed.
             gl.set_standin_source(None);
         }
+        let standin = gl.prepare_ui_standin(plan);
+        let direct = if standin { None } else { direct };
         gl.plan_ui(&mut tiles)?;
         // The rectangles the last frame stood in for (a buffer the driver was busy with): their real content is owed.
         gl.owed_standins(&mut tiles);
@@ -177,6 +179,7 @@ impl Frames {
                 let page = self.next;
                 let owed = self.ring.frame(page, &tiles);
                 gl.set_target(self.targets[page]);
+                if standin { gl.snapshot_aliased_standin()?; }
                 // What the page owes from the frames before this one is in the page the last frame went into.
                 let mut copied = false;
                 if let Some(last) = self.composed.filter(|&p| p != page && self.page_copy && gl.ui_over_home()) {

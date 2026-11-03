@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-"""Points a system-UI panel's QML entry at a different file, through configd.
-
-The compositor loads Quick Settings, the input picker, the context menu and the
-rest in-process, from whatever `main` the configd object
-com.webos.surfacemanager.systemUIManager gives for each app id. The value is a
-plain file:// URL and the manager subscribes to it, so redirecting one is a
-supported, reversible, reboot-surviving change that writes nothing to /usr.
-
-usage: systemui.py on <appId> <qml path> | off <appId> | status
-Runs on the set (python 3.10). Called by tools/lumatv; see systemui_set.
-"""
+"""Read system UI redirects or restore a stock entry during owned UI recovery."""
 import json
 import subprocess
 import sys
@@ -44,15 +34,12 @@ if mode == "status":
     print(json.dumps({e["id"]: e.get("main") for e in config["appinfo"] if e.get("main")}))
     sys.exit(0)
 
+if mode != "off" or len(sys.argv) != 3:
+    sys.exit("usage: systemui.py off <appId> | status")
 app_id = sys.argv[2]
-if mode == "on":
-    target = "file://" + sys.argv[3]
-elif mode == "off":
-    target = STOCK.get(app_id)
-    if target is None:
-        sys.exit("no stock entry known for " + app_id)
-else:
-    sys.exit("usage: systemui.py on|off|status")
+target = STOCK.get(app_id)
+if target is None:
+    sys.exit("no stock entry known for " + app_id)
 
 found = False
 for entry in config["appinfo"]:

@@ -1,9 +1,7 @@
 #!/bin/sh
-# Copies the LumaShow compositor modules the renderer is made of into render/src/ (and LumaShow's `ui` crate into lumashow-ui/) (they are modules of a binary crate,
-# not a crate, so a path dependency is not possible; the same arrangement as compositor/tools/sync-lumashow.sh). The files
-# are copied verbatim and never edited by hand; the two changes LumaTV needs are patches/*.patch, applied here: a window
-# surface and readback for the GL context (gl.rs), and no gralloc importer, which is the Echo Show's (live.rs). Tests are
-# not copied. Re-run after a LumaShow change.
+# Copies LumaShow renderer modules, UI, protocol and mesh into LumaTV's local crates.
+# LumaTV-specific changes are applied from patches/ so upstream remains untouched.
+# Tests outside the copied modules are retained. Re-run after a LumaShow change.
 set -eu
 src=${LUMASHOW_SRC:-/data/home/LumaShow/lumashow}
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -36,4 +34,20 @@ for patch_file in "$here"/patches/ui/*.patch; do
   [ -f "$patch_file" ] || continue
   (cd "$ui_dst" && git apply -p1 "$patch_file")
 done
+# The TV extends the wire format; keep that change local to its vendored protocol.
+protocol_dst=$here/compositor-protocol
+rm -rf "$protocol_dst"
+mkdir -p "$protocol_dst"
+cp "$src/crates/compositor-protocol/Cargo.toml" "$protocol_dst/"
+cp -r "$src/crates/compositor-protocol/src" "$protocol_dst/src"
+for patch_file in "$here"/patches/protocol/*.patch; do
+  [ -f "$patch_file" ] || continue
+  (cd "$protocol_dst" && git apply -p1 "$patch_file")
+done
+# Mesh types cross the same boundary, so this copy uses the TV protocol too.
+mesh_dst=$here/mesh3d
+rm -rf "$mesh_dst"
+mkdir -p "$mesh_dst"
+cp "$src/crates/mesh3d/Cargo.toml" "$mesh_dst/"
+cp -r "$src/crates/mesh3d/src" "$mesh_dst/src"
 echo "synced from LumaShow $rev"

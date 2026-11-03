@@ -7,7 +7,6 @@ mod harness;
 use harness::{Client, Server, Window};
 use lumatv_compositor::Rect;
 use lumatv_compositor::scene::Hole;
-use lumatv_compositor::window::SHELL_HOME_TITLE;
 use serde_json::json;
 use wayland_client::protocol::wl_buffer::WlBuffer;
 
@@ -26,7 +25,7 @@ struct Rig {
     _bufs: Vec<WlBuffer>,
 }
 
-/// Home (LumaTV's window over SAM's stub card) and Live TV: a card with a banner at the bottom and nothing over the video, a group with its layers.
+/// Native Home and Live TV: a card with a banner at the bottom and nothing over the video, a group with its layers.
 fn rig(server: &mut Server, transitions: bool) -> Rig {
     server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
     let mut client = Client::connect(server);
@@ -34,10 +33,8 @@ fn rig(server: &mut Server, transitions: bool) -> Rig {
     stub.webos.set_property("appId".into(), "com.webos.app.home".into());
     let clear = client.shm_buffer(64, 64, 0);
     client.present(&stub.surface, &clear);
-    let home = client.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", SHELL_HOME_TITLE);
-    let wall = client.shm_buffer(1920, 1080, 0xff20_3060);
-    client.present(&home.surface, &wall);
     client.roundtrip();
+    server.eval(|s| { s.scene.set_home_rust(true); });
     if transitions {
         server.eval(|s| {
             s.motion.forced = Some(true);
@@ -61,7 +58,7 @@ fn rig(server: &mut Server, transitions: bool) -> Rig {
     let ui = client.shm_pattern(1920, 1080, |x, y| if y > 900 && (100..1800).contains(&x) { BANNER } else { 0 });
     client.present(&live.surface, &ui);
     client.roundtrip();
-    Rig { client, stub, _live: live, group, sid, _bufs: vec![clear, wall, ui] }
+    Rig { client, stub, _live: live, group, sid, _bufs: vec![clear, ui] }
 }
 
 /// Live Dmost: its own card, attached to the group's `dmostLayer`, with a picture of one colour that covers `rect`.
@@ -195,16 +192,19 @@ fn a_launch_and_a_leave_of_live_tv_run_every_refresh_with_its_dmost_window_there
     let mut t = leave;
     loop {
         let (items, _, _) = tick(&server, t);
+        if seen.is_empty() {
+            assert!(server.eval(|s| s.scene.transitions.tracks().iter().any(|track| track.window == lumatv_compositor::scene::HOME_RUST)), "native Home participates in the leave");
+        }
         seen.push(items);
         t += REFRESH;
         if !server.eval(|s| s.scene.transitions.active()) || seen.len() > 20 {
             break;
         }
     }
-    // the last frame is the one the track ended in: Home alone
+    // Native Home is rendered by the UI engine, not as a Wayland plan item.
     let (last, moving) = seen.split_last().unwrap();
-    assert_eq!(*last, 1, "Home alone at the end");
-    assert!(moving.iter().all(|&n| n == 2), "the card (a ghost) and Home, Live Dmost not drawn under the card's hole: {seen:?}");
+    assert_eq!(*last, 0, "no Wayland windows over Home at the end");
+    assert!(moving.iter().all(|&n| n == 1), "the card (a ghost), with Live Dmost not drawn under its hole: {seen:?}");
     assert!((11..=13).contains(&seen.len()), "180 ms: {} frames", seen.len());
     assert_eq!(server.eval(|s| s.scene.transitions.stats.late_gaps), 0);
 }

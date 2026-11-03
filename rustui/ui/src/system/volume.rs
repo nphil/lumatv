@@ -20,6 +20,27 @@ use super::format;
 use crate::kit::screen::{Effect, Input, Model};
 use serde_json::{Value, json};
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Subtitles {
+    Unknown,
+    Empty,
+    Bounds { x: f32, y: f32, w: f32, h: f32 },
+}
+
+impl Subtitles {
+    fn from_topic(data: &Value) -> Self {
+        if data.is_null() { return Self::Unknown; }
+        let Some(rect) = data.get("rect") else { return Self::Unknown };
+        if rect.is_null() { return Self::Empty; }
+        let values = ["x", "y", "w", "h"].map(|key| rect.get(key).and_then(Value::as_i64));
+        let [Some(x), Some(y), Some(w), Some(h)] = values else { return Self::Unknown };
+        if x < 0 || y < 0 || w <= 0 || h <= 0 || x > 1920 || y > 1080 || w > 1920 - x || h > 1080 - y {
+            return Self::Unknown;
+        }
+        Self::Bounds { x: x as f32, y: y as f32, w: w as f32, h: h as f32 }
+    }
+}
+
 /// Whose volume is read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
@@ -48,7 +69,7 @@ pub struct View {
     /// The bar is up (the pill, with a source that is decided).
     pub up: bool,
     pub source: Source,
-    /// The level as a whole number, or "" when there is none to show.
+    /// The receiver’s actual level, including half units, or the TV’s integer level; empty while unavailable.
     pub level: String,
     pub fraction: f32,
     pub muted: bool,
@@ -61,6 +82,7 @@ pub struct View {
     /// The places the mark visits, top left corners, in the order of its round.
     pub spots: Vec<(i32, i32)>,
     pub over_video: bool,
+    pub subtitles: Subtitles,
     pub avoid_top_right: bool,
     /// Nothing to read: "Receiver not answering".
     pub offline: bool,
@@ -81,6 +103,7 @@ impl View {
             mark_place: 0,
             spots: Vec::new(),
             over_video: false,
+            subtitles: Subtitles::Unknown,
             avoid_top_right: false,
             offline: false,
         }
@@ -219,6 +242,8 @@ pub struct Volume {
     /// The places of a mark the owner placed (`placement`'s drift), top left corners; none while the mark has its own corners.
     placed: Option<Vec<(i32, i32)>>,
     over_video: bool,
+    foreground: Option<(String, u64)>,
+    subtitles: Subtitles,
     changed: bool,
 }
 
@@ -268,6 +293,8 @@ impl Volume {
             avoid_top_right: false,
             placed: None,
             over_video: false,
+            foreground: None,
+            subtitles: Subtitles::Unknown,
             changed: false,
         }
     }
@@ -375,7 +402,7 @@ impl Volume {
         let (level, fraction) = match source {
             Source::Receiver => {
                 if abs >= 0.0 {
-                    (format!("{}", abs.round() as i64), (abs / 98.0).clamp(0.0, 1.0) as f32)
+                    (format!("{abs}"), (abs / 98.0).clamp(0.0, 1.0) as f32)
                 } else {
                     (String::new(), 0.0)
                 }
@@ -403,6 +430,7 @@ impl Volume {
             mark_place: self.mark_place,
             spots: self.mark_spots(),
             over_video: self.over_video,
+            subtitles: self.subtitles,
             avoid_top_right: self.avoid_top_right,
             offline: self.pill && source == Source::None,
         }
@@ -688,6 +716,32 @@ impl Model for Volume {
             Input::Topic { topic, data } if topic == "foreground" => {
                 let home = data.get("home").and_then(Value::as_bool).unwrap_or(false);
                 self.set_over_video(!home);
+                let identity = data.get("app").and_then(Value::as_str).filter(|s| !s.is_empty())
+                    .zip(data.get("surface").and_then(Value::as_u64).filter(|id| *id > 0 && *id <= u32::MAX as u64))
+                    .map(|(app, surface)| (app.to_owned(), surface));
+                if self.foreground != identity {
+                    self.foreground = identity;
+                    self.subtitles = Subtitles::Unknown;
+                    self.changed = true;
+                }
+            }
+            Input::Topic { topic, data } if topic == "subtitleBounds" => {
+                let matches = self.foreground.as_ref().is_some_and(|(app, surface)| {
+                    data.get("app").and_then(Value::as_str) == Some(app.as_str())
+                        && data.get("surface").and_then(Value::as_u64) == Some(*surface)
+                });
+                let subtitles = if matches { Subtitles::from_topic(data) } else { Subtitles::Unknown };
+                if subtitles != self.subtitles {
+                    self.subtitles = subtitles;
+                    self.changed = true;
+                }
+            }
+            Input::Topic { topic, data } if topic == "channel.up" && data.as_bool() == Some(false) => {
+                self.foreground = None;
+                if self.subtitles != Subtitles::Unknown {
+                    self.subtitles = Subtitles::Unknown;
+                    self.changed = true;
+                }
             }
             Input::Helper { topic, data } if topic == "receiver" => self.take_receiver(data, now, &mut out),
             Input::Helper { topic, data } if topic == "up" => {
@@ -829,6 +883,36 @@ pub fn mark_spots(over_video: bool, avoid_top_right: bool) -> Vec<(i32, i32)> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn subtitle_topic_distinguishes_unknown_empty_and_valid_bounds() {
+        let mut v = Volume::default();
+        let topic = |data| Input::Topic { topic: "subtitleBounds".into(), data };
+        let foreground = |app, surface| Input::Topic { topic: "foreground".into(), data: json!({"app":app,"surface":surface,"home":false}) };
+        v.update(&foreground("player", 7), 0);
+        let rect = json!({"app":"player", "surface": 7, "rect":{"x":100,"y":850,"w":800,"h":90}});
+        v.update(&topic(rect.clone()), 1);
+        assert_eq!(v.view().subtitles, Subtitles::Bounds { x: 100.0, y: 850.0, w: 800.0, h: 90.0 });
+        v.update(&topic(json!({"app":"player", "surface":7, "rect":null})), 2);
+        assert_eq!(v.view().subtitles, Subtitles::Empty);
+        v.update(&topic(json!(null)), 3);
+        assert_eq!(v.view().subtitles, Subtitles::Unknown);
+        v.update(&topic(json!({"app":"player", "surface":7, "rect":{"x":1900,"y":0,"w":100,"h":30}})), 4);
+        assert_eq!(v.view().subtitles, Subtitles::Unknown);
+        v.update(&topic(json!({"app":"player", "surface":7, "rect":null})), 5);
+        v.update(&foreground("other", 8), 6);
+        assert_eq!(v.view().subtitles, Subtitles::Unknown);
+        v.update(&topic(rect), 7);
+        v.update(&topic(json!({"app":"player", "surface":7, "rect":null})), 8);
+        v.update(&topic(json!({"app":"other", "rect":null})), 9);
+        v.update(&topic(json!({"app":"other", "surface":7, "rect":null})), 10);
+        assert_eq!(v.view().subtitles, Subtitles::Unknown);
+        v.update(&topic(json!({"app":"other", "surface":8, "rect":null})), 11);
+        assert_eq!(v.view().subtitles, Subtitles::Empty);
+        v.update(&Input::Topic { topic: "channel.up".into(), data: json!(false) }, 12);
+        v.update(&topic(json!({"app":"other", "surface":8, "rect":null})), 13);
+        assert_eq!(v.view().subtitles, Subtitles::Unknown);
+    }
+
     fn audio(volume: i32, muted: bool, output: &str, cause: &str) -> Input {
         Input::Topic {
             topic: "audio".into(),
@@ -867,6 +951,22 @@ mod tests {
     }
 
     #[test]
+    fn receiver_readouts_preserve_half_units_through_key_and_settlement_transitions() {
+        let mut v = arc(10_000);
+        assert_eq!(v.view().level, "42.5");
+        v.update(&audio(13, false, "external_arc", "volumeUp"), 11_000);
+        assert_eq!(v.view().level, "43");
+        v.update(&audio(14, false, "external_arc", "volumeUp"), 11_300);
+        assert_eq!(v.view().level, "43.5");
+        v.update(&receiver(42.5, false, 11_400), 11_400);
+        assert_eq!(v.view().level, "43.5", "an older reading cannot erase the pending half step");
+        v.update(&Input::Tick, 12_900);
+        assert_eq!(v.view().level, "42.5", "settlement returns to the receiver’s actual value");
+        v.update(&receiver(98.0, false, 13_000), 13_000);
+        assert_eq!(v.view().level, "98");
+    }
+
+    #[test]
     fn a_change_of_the_tvs_volume_puts_the_bar_up_for_the_hold_and_the_first_report_does_not() {
         let mut v = Volume::default();
         let e = v.update(&audio(31, false, "tv_speaker", ""), 1000);
@@ -886,7 +986,6 @@ mod tests {
     fn a_key_moves_the_receivers_level_at_once_and_posts_the_target() {
         let mut v = arc(10_000);
         assert_eq!(v.view().source, Source::Receiver);
-        assert_eq!(v.view().level, "43", "42.5 rounds to a whole number");
         let e = v.update(&audio(13, false, "external_arc", "volumeUp"), 11_000);
         assert_eq!(v.view().level, "43", "one tap is one receiver step: 43.0");
         assert_eq!(v.target(), Some(43.0));
@@ -911,7 +1010,6 @@ mod tests {
         assert_eq!(v.target(), Some(43.5));
         v.update(&Input::Tick, 12_900);
         assert_eq!(v.target(), None, "settleMs after the last key the reading is what is shown");
-        assert_eq!(v.view().level, "43", "the receiver's own 42.5");
     }
 
     #[test]

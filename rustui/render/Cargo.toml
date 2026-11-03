@@ -12,8 +12,9 @@ test = false
 doctest = false
 
 [dependencies]
-compositor-protocol = { path = "../../../LumaShow/lumashow/crates/compositor-protocol" }
+compositor-protocol = { path = "../compositor-protocol" }
 device-profile = { path = "../../../LumaShow/lumashow/crates/device-profile" }
-mesh3d = { path = "../../../LumaShow/lumashow/crates/mesh3d" }
+mesh3d = { path = "../mesh3d" }
 libc = "0.2"
 parking_lot = "0.12"
+serde_json = "1"

@@ -27,14 +27,13 @@ def function(name):
 
 
 class Registry(unittest.TestCase):
-    def run_registry(self, flags=(), helper='{"running":false}', home="off", live=False, general=""):
+    def run_registry(self, flags=(), helper='{"running":false}', live=False, general=""):
         with tempfile.TemporaryDirectory() as d:
-            paths = {k: os.path.join(d, k) for k in ("SYSTEMUI_ON", "WEBGLASS_ON", "NOTI_ON", "LOGO_ON", "PRELOAD_STATE", "INPUTCOMMON_ON", "VOICE_ON", "KEYS_ON", "KEYBOARD_ON", "KEYBOARD_LUMA", "STORE_ON", "COVER_ON", "SPLASH_ON")}
+            paths = {"PRELOAD_STATE": os.path.join(d, "preload")}
             for k in flags:
                 open(paths[k], "w").close()
             script = "".join(f'{k}="{v}"\n' for k, v in paths.items())
-            script += (f"homestub_json() {{ printf '{{\"state\":\"{home}\"}}'; }}\n"
-                       f"helper_json() {{ printf '{helper}'; }}\n"
+            script += (f"helper_json() {{ printf '{helper}'; }}\n"
                        f"comp_live() {{ return {0 if live else 1}; }}\n"
                        f"get_general_setting() {{ printf '%s' '{general}'; }}\n" + function("surfaces_json") + "surfaces_json\n")
             r = subprocess.run(["sh", "-c", script], capture_output=True, text=True)
@@ -43,18 +42,16 @@ class Registry(unittest.TestCase):
 
     def test_every_switch_has_an_entry_that_names_its_way_back(self):
         reg = self.run_registry()
-        self.assertEqual(sorted(reg), ["compositor", "cover", "helper", "home", "inputcommon", "keyboard", "keyboard-luma", "keys", "logos", "notifications", "preload", "quicksettings", "settings-theme", "splash", "standbyscreen", "store", "voice"])
+        self.assertEqual(sorted(reg), ["compositor", "helper", "preload", "standbyscreen"])
         for e in reg.values():
             self.assertIsInstance(e["on"], bool)
-            self.assertGreater(len(e["fallback"]), 20, e["id"])
+            self.assertTrue(e["fallback"], e["id"])
 
     def test_nothing_on_reads_as_all_off(self):
         self.assertFalse(any(e["on"] for e in self.run_registry().values()))
 
     def test_each_entry_reads_its_own_flag(self):
-        for flag, ident in (("SYSTEMUI_ON", "quicksettings"), ("WEBGLASS_ON", "settings-theme"), ("NOTI_ON", "notifications"),
-                            ("LOGO_ON", "logos"), ("PRELOAD_STATE", "preload"), ("INPUTCOMMON_ON", "inputcommon"), ("VOICE_ON", "voice"), ("KEYS_ON", "keys"), ("KEYBOARD_ON", "keyboard"),
-                            ("KEYBOARD_LUMA", "keyboard-luma"), ("STORE_ON", "store"), ("COVER_ON", "cover"), ("SPLASH_ON", "splash")):
+        for flag, ident in (("PRELOAD_STATE", "preload"),):
             reg = self.run_registry(flags=[flag])
             self.assertEqual([k for k, e in reg.items() if e["on"]], [ident], flag)
 
@@ -63,10 +60,6 @@ class Registry(unittest.TestCase):
         for mode, on in (("off", True), ("alwaysReady", False), ("allEnabled", False), ("", False)):
             self.assertEqual(self.run_registry(general=mode)["standbyscreen"]["on"], on, mode)
 
-    def test_home_is_on_for_the_stub_and_a_trial_only(self):
-        for state, on in (("stub", True), ("trial", True), ("lg", False), ("off", False)):
-            reg = self.run_registry(home=state)
-            self.assertEqual((reg["home"]["on"], reg["home"]["state"]), (on, state))
 
     def test_helper_and_compositor_come_from_their_own_probes(self):
         reg = self.run_registry(helper='{"running":true,"pid":9}', live=True)

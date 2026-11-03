@@ -37,6 +37,8 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     tv.put(os.path.join(here, "tv-kms-window.sh"), "/tmp/lumatv/kms-window.sh")
     tv.put(os.path.join(here, "tv-recover-home.sh"), "/tmp/lumatv/recover-home.sh")
+    tv.put(os.path.join(here, "..", "..", "tools", "compositor.sh"), "/tmp/lumatv/compositor.sh")
+    tv.put(os.path.join(here, "..", "..", "tools", "logrelay.py"), "/tmp/lumatv/logrelay.py")
     if what == "restore":
         print(pty("sh /tmp/lumatv/kms-window.sh restore", 180)); return
     tv.tv("rm -rf /tmp/lumatv/out/kms; mkdir -p /tmp/lumatv/out/kms")

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Proposal – Compact toast (not installed)</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  .overlay.toast.compact {
+    top: auto;
+    right: auto;
+    bottom: 54px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: max-content;
+    min-width: 320px;
+    max-width: 480px;
+    height: auto;
+    min-height: 64px;
+    gap: 12px;
+    padding: 16px 20px;
+    background: color-mix(in srgb, var(--pal-canvas) 98%, transparent);
+    box-shadow: var(--shadow-pressed);
+  }
+  .toast.compact .ic { width: 24px; height: 24px; flex: none; }
+  .toast.compact .t {
+    min-width: 0;
+    font-size: 1.5rem;
+    font-weight: 500;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+</style>
+</head>
+<body>
+<div class="home-behind"></div>
+
+<div class="overlay toast compact" role="status">
+  <i data-ic="check"></i>
+  <div class="t">Settings saved</div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

@@ -2,12 +2,22 @@
 
 ## Resume here
 
-Built and proven on the workstation; nothing has run on the TV. Switch: `lumatv keyboard luma` (LumaTV's own) and `lumatv keyboard lg` (LG's
-maliit), default `lg`. It matters only while LumaTV's compositor is live and its shell client is up; under LG's compositor, with the switch off
-or with the shell down, maliit serves every field exactly as before. Next: the TV check below, then Nitin's pick of the look
-(mockups in `docs/mocks/keyboard/`).
+The original broader keyboard task and the immediate native-app replacement task are complete. Actual visual remote input was accepted; FPS and latency were not benchmarked. Toast and audio-format/volume-popup proposals are ready for owner review before implementation.
 
-CHANGELOG line for the main agent: *LumaTV's own on-screen keyboard, off by default (`lumatv keyboard luma`, back with `lumatv keyboard lg`): the
+
+Keyboard acceptance passed on the actual TV without source changes or a build. Existing `lumatv keyboard luma` enabled the persistent `/var/lib/lumatv/.keyboard-luma` flag; Rust keyboard capability was already active. Marquee (`com.beb.plxnative`, its legacy ID) Bazarr address and API-key fields passed typing, Backspace, hide, cancel, reopen and Done; LG Search (`com.webos.app.voice`, `launchMode:vkb`) independently passed typing and Backspace. This is not an FPS or latency benchmark. Final `keyboard-final-state.json` and `keyboard-final-home.png` show TV Active, native Home, IME null and keyboard luma; own counts activations 7, shown 7, texts 6, keys 6, nav 110, failed 0. The compositor was persistent, live, mounted and settled with zero failures; wake enabled/pending null, external_arc and fresh Denon on TV input. TV and AVR were left on. Evidence: `/data/home/tmp/lumatv-wake-install.ms6eh5iv/`.
+
+Final Bazarr connection showed `https://bazarr.nateshome.net`, the saved key masked, Connected, Bazarr 1.6.2, Sonarr 4.0.20.3014 and Radarr 6.4.4.10685. No API key was read, logged or changed. Evidence includes `keyboard-bazarr-final-connection.png`, `keyboard-address-restored.png`, `keyboard-bazarr-key-two-bullets.png`, `keyboard-bazarr-key-one-bullet.png`, `keyboard-bazarr-key-reopened-empty.png`, `keyboard-lg-search-two-g.png`, `keyboard-lg-search-one-g.png` and sanitized key JSON files.
+
+For Marquee, virtual Back hides the keyboard but leaves the edit active; app Back cancels it. Require IME null before reopening with OK, which otherwise commits the draft. API-key drafts reopen empty: a masked two-character draft, one Backspace, virtual Back and app Back reopened empty; empty Done does not write. Nonempty Done persists: never test it on changed real credentials. Normal keyboard navigation uses existing `ctl remote CODE tap`; `ctl key` targets the app and bypasses IME. Actual RIGHT moved focus 0→2 and g→h. LG Search ignored app Back/Home for closing its overlay; existing `closeByAppId` for `com.webos.app.voice` closed it. `own_hide` already emits input_panel_state 0 and intentionally leaves the field active; SDL dismissal is not an established defect. Parse control JSON stdout separately from the known wrong-ELF warning on stderr; never dump raw shell, IME surrounding text or API keys.
+
+
+The Rust compositor’s existing custom keyboard passed actual-TV acceptance on 2026-10-31. `lumatv keyboard luma` is enabled persistently; Marquee Bazarr address/API-key fields and LG Search both passed. Native-app coverage beyond those cases, FPS and latency were not benchmarked.
+
+
+
+
+Historical QML-era release-note draft (not the current Rust acceptance): *LumaTV’s own on-screen keyboard, off by default (`lumatv keyboard luma`, back with `lumatv keyboard lg`): the
 shell client draws it and LumaTV's compositor binds it to the text field, so there is no maliit start-up; layouts follow the field (letters,
 e-mail, url, symbols, number pad), the D-pad wraps and repeats at its own pace, the Magic Remote pointer works, the microphone key asks LG's voice,
 nothing typed is shown or logged, and LG's keyboard stays the fallback.*
@@ -213,7 +223,7 @@ LumaTV's compositor live on `0f2190c`, receiver muted. Steps 1 to 3 of the check
 - `lumatv keyboard lg` again (status `lg`); the gate's `ime` step is the one for it.
 - Not run: steps 4 to 12 (typing, Backspace, a web app's field, the remote's repeat rate, the frame gate markers, voice, the fall-backs), which need the fix on the set.
 
-## TV check (one slot; run in part, see above)
+## Historical QML-era TV check (one slot; run in part, see above)
 
 LumaTV's compositor live, Home in front, receiver muted, evidence to `docs/research/keyboard/tv/` (`log.txt` first, PASS, FAIL or INFO a line).
 `TOOL`, `APP`, `shot` and `kb` as in `lg-restyles-result.md`'s "TV check, overnight round"; `ctl` is the compositor's control socket.

@@ -10,8 +10,8 @@
       "fields": [
         {
           "key": "enabled",
-          "label": "Show the receiver's volume",
-          "help": "Reads the receiver's own level, mute and input while the screen is on.",
+          "label": "Use Denon receiver",
+          "help": "Reads its volume while the screen is on. When HDMI ARC is selected, follows TV power and temporarily uses TV speakers if the receiver cannot turn on.",
           "kind": {"type": "bool"},
           "default": {"type": "bool", "value": true},
           "apply": "on-commit"

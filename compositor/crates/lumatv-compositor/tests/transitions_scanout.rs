@@ -16,14 +16,12 @@ use lumatv_compositor::render::egl::Platform;
 use lumatv_compositor::render::gl::{BufferPath, Gl, TargetId};
 use lumatv_compositor::scene::Plan;
 use lumatv_compositor::surface::Surfaces;
-use lumatv_compositor::window::SHELL_HOME_TITLE;
 use serde_json::json;
 use wayland_client::protocol::wl_buffer::WlBuffer as ClientBuffer;
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
 const MESA: &str = "/usr/lib/x86_64-linux-gnu/libEGL.so.1";
 const MS: u64 = 1_000_000;
-const HOME: u32 = 0xff20_3060;
 const TILE: (i32, i32, i32, i32) = (287, 699, 120, 120);
 
 /// The KMS output without the device: the GL renderer, three pages of its own and the ring's frame logic. `hold_next` makes the next buffer a commit
@@ -107,7 +105,6 @@ fn scan_out(hold_next: Arc<AtomicBool>, release: Arc<AtomicBool>) -> Server {
 struct Rig {
     client: Client,
     stub: Window,
-    _home: Window,
     _bufs: Vec<ClientBuffer>,
 }
 
@@ -118,16 +115,14 @@ fn rig(server: &mut Server) -> Rig {
     stub.webos.set_property("appId".into(), "com.webos.app.home".into());
     let clear = client.shm_buffer(64, 64, 0);
     client.present(&stub.surface, &clear);
-    let home = client.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", SHELL_HOME_TITLE);
-    let wall = client.shm_buffer(1920, 1080, HOME);
-    client.present(&home.surface, &wall);
     client.roundtrip();
+    server.eval(|s| { s.scene.set_home_rust(true); });
     server.eval(|s| {
         s.motion.forced = Some(true);
         s.apply_motion();
         s.set_launch_origin(&json!({"appId": "com.example.a", "tile": {"x": TILE.0, "y": TILE.1, "width": TILE.2, "height": TILE.3, "radius": 22}}));
     });
-    Rig { client, stub, _home: home, _bufs: vec![clear, wall] }
+    Rig { client, stub, _bufs: vec![clear] }
 }
 
 fn tick(server: &Server, ns: u64) -> Image {

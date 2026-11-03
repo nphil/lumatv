@@ -7,6 +7,7 @@ use super::super::arrange::Cat;
 use super::super::env::Env;
 use super::super::hub;
 use crate::host::power::SLEEP_LABELS;
+use crate::settings::names;
 use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,7 +26,7 @@ pub enum Kind {
 /// What an act on a tile does.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Act {
-    Picture,
+    Picture(Vec<(String, bool)>),
     Receiver,
     Sleep,
     Settings(&'static str),
@@ -109,10 +110,16 @@ impl Row {
     pub fn focusable(&self) -> bool {
         self.visible && self.enabled
     }
+
+    pub fn step_index(&self, from: usize, dir: i32) -> Option<usize> {
+        let n = self.options.len();
+        (1..=n).map(|step| (from as i32 + dir * step as i32).rem_euclid(n as i32) as usize).find(|&i| {
+            !matches!(&self.act, Act::Picture(values) if !values.get(i).is_some_and(|(_, active)| *active))
+        })
+    }
 }
 
 pub const MODE_VALUES: [&str; 7] = ["filmMaker", "cinema", "normal", "vivid", "game", "sports", "eco"];
-pub const MODE_NAMES: [&str; 7] = ["Filmmaker", "Cinema", "Standard", "Vivid", "Game", "Sports", "Eco"];
 pub const ENERGY_NAMES: [&str; 5] = ["Auto", "Off", "Minimum", "Medium", "Maximum"];
 pub const ENERGY_VALUES: [&str; 5] = ["auto", "off", "min", "med", "max"];
 /// The en dash a reading shows where the TV has not answered.
@@ -137,11 +144,25 @@ fn brand(rc: Option<&Value>) -> String {
 
 /// The built-in tiles, the plugins' between them and AI access.
 pub fn tiles(env: &Env) -> Vec<Row> {
-    let mut picture = Row::base("picture", Kind::Stepper, "image", "Picture mode", Act::Picture);
+    let current = env.sio.text("picture.pictureMode");
+    let choices = if let Some(list) = env.sio.list("picture.pictureMode") {
+        list.into_iter().filter(|item| item.visible && !item.value.is_empty()).map(|item| (item.value, item.active)).collect::<Vec<_>>()
+    } else if env.sio.desc("picture.pictureMode").is_none() && MODE_VALUES.contains(&current.as_str()) && env.sio.picture_dynamic_range().is_some_and(|range| range.eq_ignore_ascii_case("sdr")) {
+        MODE_VALUES.iter().map(|value| ((*value).to_string(), true)).collect()
+    } else {
+        Vec::new()
+    };
+    let mut picture = Row::base("picture", Kind::Stepper, "image", "Picture mode", Act::Picture(Vec::new()));
     picture.detail = env.inputs.current().map(|e| e.port.clone()).unwrap_or_default();
-    picture.options = MODE_NAMES.iter().map(|s| s.to_string()).collect();
-    picture.enabled = env.sio.has("picture.pictureMode");
-    picture.index = MODE_VALUES.iter().position(|m| *m == env.sio.text("picture.pictureMode"));
+    picture.options = choices.iter().map(|(value, _)| names::picture_mode(value).to_string()).collect();
+    picture.index = choices.iter().position(|(value, _)| *value == current);
+    picture.value = names::picture_mode(&current).to_string();
+    picture.enabled = env.sio.usable("picture.pictureMode") && choices.iter().any(|(_, active)| *active);
+    picture.visible = env.sio.shown("picture.pictureMode");
+    if choices.is_empty() {
+        picture.kind = Kind::Nudge;
+    }
+    picture.act = Act::Picture(choices);
 
     let rc = env.gate.rc();
     let answers = env.gate.fresh();
@@ -309,7 +330,7 @@ mod tests {
         assert!(!r.enabled && r.index.is_none(), "not focusable until the settings service has answered");
         let reads = e.sio.read("picture", &["pictureMode"], None, 0);
         let Some(crate::kit::screen::Effect::Luna { tag, .. }) = reads.first() else { panic!() };
-        e.update(&Input::Luna { tag: *tag, payload: json!({"settings": {"pictureMode": "cinema"}}) }, 1);
+        e.update(&Input::Luna { tag: *tag, payload: json!({"settings": {"pictureMode": "cinema"}, "dimension": {"dynamicRange": "sdr"}}) }, 1);
         e.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.hdmi1"}) }, 2);
         e.inputs.parse(&json!({"devices": [{"appId": "com.webos.app.hdmi1", "label": "Apple TV", "connected": true}]}));
         let r = &tiles(&e)[0];

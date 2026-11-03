@@ -67,17 +67,20 @@ pub struct ExtrasSurface {
     remote: RemoteSurface,
     voice: VoiceSurface,
     frame: FrameSurface,
+    interactive_visible: bool,
 }
 
 impl ExtrasSurface {
     pub fn new() -> Self {
-        Self { splash: Splash::new(z::SPLASH), toast: AccessToast::new(z::TOAST), ask: AccessAsk::new(z::ASK), remote: RemoteSurface::new(z::REMOTE), voice: VoiceSurface::new(z::VOICE), frame: FrameSurface::new(z::FRAME) }
+        Self { splash: Splash::new(z::SPLASH), toast: AccessToast::new(z::TOAST), ask: AccessAsk::new(z::ASK), remote: RemoteSurface::new(z::REMOTE), voice: VoiceSurface::new(z::VOICE), frame: FrameSurface::new(z::FRAME), interactive_visible: false }
     }
 
     /// Whether anything of the extras is on the screen.
     pub fn is_up(&self) -> bool {
         self.splash.is_up() || self.toast.is_up() || self.ask.is_up() || self.remote.is_up() || self.voice.is_up() || self.frame.is_up()
     }
+
+    pub(crate) fn interactive_visible(&self) -> bool { self.interactive_visible }
 
     /// Whether a screen that takes the pointer is up (the pointer is not Home's while it is).
     pub fn has_pointer(&self) -> bool {
@@ -94,28 +97,29 @@ impl ExtrasSurface {
         let mut live = false;
         match self.splash.apply(kit, view.splash.as_ref(), now_ms) {
             Ok(on) => live |= on,
-            Err(e) => return Err(format!("launch screen: {e}")),
+            Err(e) => { self.interactive_visible |= live; return Err(format!("launch screen: {e}")); },
         }
         match self.toast.apply(kit, view.toast.as_ref(), now_ms) {
             Ok(on) => live |= on,
-            Err(e) => return Err(format!("Quick Access toast: {e}")),
+            Err(e) => { self.interactive_visible |= live; return Err(format!("Quick Access toast: {e}")); },
         }
         match self.ask.apply(kit, engine, view.ask.as_ref(), now_ns) {
             Ok(on) => live |= on,
-            Err(e) => return Err(format!("Quick Access question: {e}")),
+            Err(e) => { self.interactive_visible |= live; return Err(format!("Quick Access question: {e}")); },
         }
         match self.remote.apply(kit, engine, view.remote, now_ns) {
             Ok(on) => live |= on,
-            Err(e) => return Err(format!("on-screen remote: {e}")),
+            Err(e) => { self.interactive_visible |= live; return Err(format!("on-screen remote: {e}")); },
         }
         match self.voice.apply(kit, view.voice.as_ref(), view.mic, now_ms) {
             Ok(on) => live |= on,
-            Err(e) => return Err(format!("voice bar: {e}")),
+            Err(e) => { self.interactive_visible |= live || view.voice.is_some() || view.mic; return Err(format!("voice bar: {e}")); },
         }
         match self.frame.apply(kit, view.frame.as_ref(), now_ms) {
             Ok(on) => live |= on,
-            Err(e) => return Err(format!("mini frame: {e}")),
+            Err(e) => { self.interactive_visible |= live; return Err(format!("mini frame: {e}")); },
         }
+        self.interactive_visible = live;
         Ok(live)
     }
 
@@ -214,6 +218,41 @@ mod tests {
 
     fn launching(name: &str, fade: bool) -> View {
         View { splash: Some(SplashView { name: name.into(), icon: "/no/such/icon.png".into(), fade }), ..View::default() }
+    }
+
+    #[test]
+    fn successful_splash_is_reported_when_a_later_toast_cannot_be_allocated() {
+        let mut u = Up::new(Mode::Dark, 1.0);
+        let mut view = launching("Netflix", false);
+        assert!(u.s.splash.apply(&mut u.kit, view.splash.as_ref(), 1000).unwrap());
+        assert!(!u.s.interactive_visible());
+        let count = u.kit.room().layers;
+        let shape = compositor_protocol::Shape { corner_radius: 0.0, fill: compositor_protocol::Fill::Solid(compositor_protocol::Rgba(0, 0, 0, 255)), border_width: 0.0, border: compositor_protocol::Rgba(0, 0, 0, 0) };
+        let blockers: Vec<_> = (0..count).map(|_| u.kit.ui.scene.shape(1, 1, 0, shape, Props::at(0.0, 0.0))).collect();
+        view.toast = Some(crate::system::extras::Toast { digit: "4".into(), title: "Plex".into(), line: "Opening".into() });
+        assert!(u.s.apply(&mut u.kit, &mut u.engine, &view, 1100, 1_100_000_000).is_err());
+        assert!(u.s.interactive_visible(), "the earlier successful splash remains visible");
+        drop(blockers);
+        assert!(u.apply(&View::default(), 1200), "the toast root is still leaving");
+        assert!(u.s.interactive_visible());
+        let due = u.s.due_at().expect("the toast schedules its removal");
+        assert!(u.s.tick(&u.kit, due));
+        assert!(!u.apply(&View::default(), due));
+        assert!(!u.s.interactive_visible());
+    }
+
+    #[test]
+    fn voice_bar_retains_pacing_demand_when_mic_mark_allocation_fails() {
+        let mut u = Up::new(Mode::Dark, 1.0);
+        let view = speaking(VoiceState::Listening, true);
+        assert!(u.s.voice.apply(&mut u.kit, view.voice.as_ref(), false, 1000).unwrap());
+        assert!(!u.s.interactive_visible());
+        let count = u.kit.room().groups;
+        let _blockers: Vec<_> = (0..count).map(|_| u.kit.ui.scene.group(None, compositor_protocol::GroupPose::IDENTITY).unwrap()).collect();
+        let error = u.s.apply(&mut u.kit, &mut u.engine, &view, 1100, 1_100_000_000).expect_err("the mic mark runs out of groups");
+        assert!(error.starts_with("voice bar:"));
+        assert!(u.s.voice.is_up(), "the bar was already shown");
+        assert!(u.s.interactive_visible(), "a failed mic mark must not discard the bar's demand");
     }
 
     #[test]

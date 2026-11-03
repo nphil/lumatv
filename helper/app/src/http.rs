@@ -471,11 +471,7 @@ fn serve_connection(
             body: Vec::new(),
         },
         None => catch_unwind(AssertUnwindSafe(|| handler.handle(&request))).unwrap_or_else(|_| {
-            crate::log_error!(
-                "http: a handler panicked on {} {}",
-                request.method,
-                request.path
-            );
+            crate::log_error!("http: a handler panicked");
             error_response(
                 500,
                 "internal",
@@ -600,36 +596,14 @@ fn guard_lan(request: &Request) -> Option<(Response, &'static str)> {
     None
 }
 
-/// Refusals already written to the log: the first of each kind (and who sent it) is a warning, the rest stay quiet so a page
-/// that keeps trying cannot fill the log. Bounded; when it is full it starts again.
+/// Refusal categories only: request headers and paths can contain credentials.
 static SEEN_REFUSALS: LazyLock<Mutex<HashSet<String>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
-fn note_refusal(code: &str, request: &Request) {
-    let clean = |value: Option<&str>| -> String {
-        value
-            .unwrap_or("-")
-            .chars()
-            .filter(|c| !c.is_control())
-            .take(80)
-            .collect()
-    };
-    let (origin, host) = (
-        clean(request.header("origin")),
-        clean(request.header("host")),
-    );
-    let key = format!("{code} {origin} {host}");
+fn note_refusal(code: &str, _request: &Request) {
     let mut seen = SEEN_REFUSALS.lock();
-    if seen.len() >= 32 {
-        seen.clear();
-    }
-    if seen.insert(key) {
-        crate::log_warn!(
-            "http: refused a request ({code}): Origin {origin}, Host {host}, {} {}",
-            clean(Some(&request.method)),
-            clean(Some(&request.path))
-        );
-    }
+    if seen.len() >= 32 { seen.clear(); }
+    if seen.insert(code.to_owned()) { crate::log_warn!("http: refused a request ({code})"); }
 }
 
 /// Whether a `Host` header names this listener: `localhost` or the address it is bound to, with its port. (A request for any

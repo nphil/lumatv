@@ -8,5 +8,5 @@ description = "LumaTV's one token layer: theme.json (the shipped defaults under 
 
 [dependencies]
 ui = { path = "../lumashow-ui" }
-compositor-protocol = { path = "../../../LumaShow/lumashow/crates/compositor-protocol" }
+compositor-protocol = { path = "../compositor-protocol" }
 serde_json = "1"

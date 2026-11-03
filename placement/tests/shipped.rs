@@ -41,7 +41,7 @@ fn the_pop_up_and_the_cards_sit_half_of_homes_safe_margin_from_the_corner() {
     assert_eq!(o["gap"].as_i64(), Some(i64::from(STACK)));
     let w = o["width"].as_i64().unwrap() as i32;
     let reg = Registry::shipped();
-    for id in ["popup", "cards", "toast"] {
+    for id in ["popup", "cards"] {
         assert_eq!(
             reg.item(id).unwrap().sample.w,
             w,

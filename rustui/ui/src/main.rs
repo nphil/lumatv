@@ -23,7 +23,7 @@ use compositor_protocol::Event as SceneEvent;
 use lumatv_render::host::{Engine, HostConfig};
 use lumatv_render::{Demand, Gles};
 use lumatv_tokens::Tokens;
-use lumatv_ui::host::http::{Event, Feed};
+use lumatv_ui::host::http::{Event, Feed, Outbound};
 use lumatv_ui::host::keys::{self, KeyEvent};
 use lumatv_ui::host::now_ms;
 use lumatv_ui::kit::Kit;
@@ -83,9 +83,9 @@ fn env_path(name: &str) -> Option<PathBuf> {
 fn parse() -> Result<Options, String> {
     let mut o = Options {
         host: false,
-        kinds: std::env::var("LUMATV_UI_KINDS").unwrap_or_else(|_| "osd,toast".into()),
+        kinds: std::env::var("LUMATV_UI_KINDS").unwrap_or_else(|_| "home,osd,settings,toast,cameras,quick,picker,drawer,menu,confirm,switcher,entry,keyboard,alert,saver,capture,cards,popup,layout,ai,banner,displaylab".into()),
         data_dir: env_path("LUMATV_DATA_DIR").unwrap_or_else(|| PathBuf::from("/var/lib/lumatv")),
-        module_dir: env_path("LUMATV_MODULE_DIR").unwrap_or_else(|| PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../payload/compositor/lumatv"))),
+        module_dir: env_path("LUMATV_MODULE_DIR").unwrap_or_else(|| PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../compositor/assets/ui"))),
         shm: env_path("LUMATV_UI_SHM").unwrap_or_else(|| std::env::temp_dir().join("lumatv-ui-shm")),
         system_z: std::env::var("LUMATV_UI_SYSTEM_Z").ok().and_then(|s| s.parse().ok()).unwrap_or(1000),
         text_scale: 1.0,
@@ -187,7 +187,7 @@ fn parse() -> Result<Options, String> {
                 let text = value(&mut args, "--clock")?;
                 o.clock = Some(lumatv_ui::host::clock::parse_local(&text).ok_or("--clock YYYY-MM-DDTHH:MM[:SS]")?);
             }
-            other => return Err(format!("unknown option {other}")),
+            _ => return Err("unknown option".into()),
         }
     }
     Ok(o)
@@ -214,17 +214,61 @@ fn forward<T: Send + 'static>(rx: Receiver<T>, tx: Sender<Msg>, wrap: fn(T) -> M
     });
 }
 
+const LOG_SOCKET: &str = "/tmp/lumatv-log.sock";
+
+struct Packet { bytes: [u8; 4096], len: usize }
+
+impl std::fmt::Write for Packet {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        let mut end = text.len().min(self.bytes.len() - self.len);
+        while !text.is_char_boundary(end) { end -= 1; }
+        self.bytes[self.len..self.len + end].copy_from_slice(&text.as_bytes()[..end]);
+        self.len += end;
+        if end < text.len() { Err(std::fmt::Error) } else { Ok(()) }
+    }
+}
+
+fn diagnostic(priority: u8, args: std::fmt::Arguments<'_>) {
+    use std::fmt::Write as _;
+    use std::os::unix::net::UnixDatagram;
+    use std::sync::OnceLock;
+    static SOCKET: OnceLock<Option<UnixDatagram>> = OnceLock::new();
+    let socket = SOCKET.get_or_init(|| {
+        let socket = UnixDatagram::unbound().ok()?;
+        socket.set_nonblocking(true).ok()?;
+        Some(socket)
+    });
+    if let Some(socket) = socket {
+        let mut packet = Packet { bytes: [0; 4096], len: 0 };
+        let _ = write!(packet, "<{priority}>lumatv-shell-rust: {args}");
+        let _ = socket.send_to(&packet.bytes[..packet.len], LOG_SOCKET);
+    }
+}
+
 struct Log {
+    host: bool,
     file: Option<std::fs::File>,
 }
 
 impl Log {
-    fn line(&mut self, text: &str) {
+    fn host_line(&mut self, text: std::fmt::Arguments<'_>) {
         println!("{text}");
         let _ = io::stdout().flush();
-        if let Some(f) = &mut self.file {
-            let _ = writeln!(f, "{text}");
-        }
+        if let Some(f) = &mut self.file { let _ = writeln!(f, "{text}"); }
+    }
+
+    fn line(&mut self, text: std::fmt::Arguments<'_>) {
+        if self.host { self.host_line(text); }
+        diagnostic(14, text);
+    }
+}
+
+fn route(path: &str) -> &str {
+    path.split('?').next().unwrap_or("")
+}
+fn answer(log: &mut Log, source: &str, event: &Event) {
+    if let Event::Answer { tag, status, .. } = event {
+        log.line(format_args!("[{source}] answer tag={tag} status={status}"));
     }
 }
 
@@ -257,28 +301,36 @@ fn make_shell(o: &Options, scene: Scene) -> io::Result<Shell> {
 }
 
 /// Carries out what the shell asked: the channel's and the helper's requests, the log.
-fn carry(acts: Vec<Act>, channel: Option<&Feed>, helper: Option<&Feed>, log: &mut Log) {
+fn carry(acts: Vec<Act>, channel: Option<&Feed>, helper: Option<&Feed>, log: &mut Log, mut engine: Option<&mut Engine>) {
     for act in acts {
         match act {
             Act::Channel(out) => {
                 if out.path == "/v1/ui" {
-                    log.line(&format!("[report] {}", out.body.as_ref().map_or(String::new(), Value::to_string)));
-                } else if out.path == "/v1/luna" {
-                    log.line(&format!("[luna] {}", out.body.as_ref().map_or(String::new(), Value::to_string)));
-                } else if out.path == "/v1/switcher" {
-                    log.line(&format!("[switcher] {}", out.body.as_ref().map_or(String::new(), Value::to_string)));
+                    if let (Some(engine), Some(state)) = (engine.as_deref_mut(), out.body.as_ref().and_then(|body| body.get("state"))) {
+                        lumatv_render::silk_report::apply(engine, state);
+                    }
+                }
+                if out.path == "/v1/ui" && log.host {
+                    log.host_line(format_args!("[report] {}", out.body.as_ref().unwrap_or(&Value::Null)));
+                }
+                if out.path == "/v1/luna" {
+                    let uri = out.body.as_ref().and_then(|v| v.get("uri")).and_then(Value::as_str).unwrap_or("");
+                    let tag = out.body.as_ref().and_then(|v| v.get("tag")).and_then(Value::as_u64);
+                    log.line(format_args!("[luna] {} tag={tag:?}", route(uri)));
+                } else {
+                    log.line(format_args!("[channel] {} {}", out.method, route(&out.path)));
                 }
                 if let Some(c) = channel {
                     c.request(out);
                 }
             }
             Act::Helper(out) => {
-                log.line(&format!("[helper] {} {} {}", out.method, out.path, out.body.as_ref().map_or(String::new(), Value::to_string)));
+                log.line(format_args!("[helper] {} {} tag={:?}", out.method, route(&out.path), out.tag));
                 if let Some(h) = helper {
                     h.request(out);
                 }
             }
-            Act::Log(line) => log.line(&format!("[log] {line}")),
+            Act::Log(line) => log.line(format_args!("[log] {line}")),
         }
     }
 }
@@ -287,27 +339,45 @@ fn main() {
     let o = match parse() {
         Ok(o) => o,
         Err(e) => {
-            eprintln!("lumatv-ui: {e}");
+            diagnostic(11, format_args!("lumatv-ui: {e}"));
             std::process::exit(2);
         }
     };
     let result = if o.host { run_host(o) } else { run_set(o) };
     if let Err(e) = result {
-        eprintln!("lumatv-ui: {e}");
+        diagnostic(11, format_args!("lumatv-ui: {e}"));
         std::process::exit(1);
+    }
+}
+
+fn confirms_first_commit(first: Option<u64>, event: &SceneEvent) -> bool {
+    matches!(event, SceneEvent::Frame { tag, .. } if first.is_some_and(|first| *tag >= first))
+}
+
+#[cfg(test)]
+mod readiness_tests {
+    use super::*;
+
+    #[test]
+    fn receipt_must_cover_a_successfully_submitted_commit() {
+        let frame = |tag| SceneEvent::Frame { tag, presented_ns: 1, render_us: 0, missed: 0, backdrops: 0, gpu_mhz: 0, captures: 0, uploaded_bytes: 0, quality: 0 };
+        assert!(!confirms_first_commit(None, &frame(10)));
+        assert!(!confirms_first_commit(Some(11), &frame(10)));
+        assert!(confirms_first_commit(Some(11), &frame(11)));
+        assert!(confirms_first_commit(Some(11), &frame(12)));
     }
 }
 
 /// On the set: the engine's socket from the compositor, the channel and the helper over the loopback, the keys over the key socket.
 fn run_set(o: Options) -> io::Result<()> {
-    let mut log = Log { file: None };
+    let mut log = Log { host: false, file: None };
     let fd: RawFd =
         std::env::var("LUMATV_UI_FD").ok().and_then(|s| s.parse().ok()).ok_or_else(|| io::Error::other("LUMATV_UI_FD names the engine's socket"))?;
     // SAFETY: the compositor handed this process the descriptor at its start and nothing else holds it.
     let stream = unsafe { <UnixStream as std::os::fd::FromRawFd>::from_raw_fd(fd) };
     std::fs::create_dir_all(&o.shm)?;
     let (scene, welcome, scene_events) = Scene::over_with(stream, SceneOptions { shm_dir: Some(o.shm.clone()), ..SceneOptions::default() })?;
-    log.line(&format!("engine: {}x{} at {} Hz", welcome.panel_width, welcome.panel_height, welcome.refresh_hz));
+    log.line(format_args!("engine: {}x{} at {} Hz", welcome.panel_width, welcome.panel_height, welcome.refresh_hz));
     let token = o.token_file.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| t.trim().to_string());
     let port = o.port.ok_or_else(|| io::Error::other("LUMATV_SHELL_PORT names the UI channel"))?;
     let (channel, channel_events) = Feed::start("channel", port, token, None)?;
@@ -322,31 +392,59 @@ fn run_set(o: Options) -> io::Result<()> {
         forward(keys, tx.clone(), Msg::Key);
     }
     for line in lumatv_ui::host::buttons::migrate(&o.data_dir) {
-        log.line(&format!("[buttons] {line}"));
+        log.line(format_args!("[buttons] {line}"));
     }
     let mut shell = make_shell(&o, scene)?;
-    carry(shell.start(), Some(&channel), Some(&helper), &mut log);
+    carry(shell.start(), Some(&channel), Some(&helper), &mut log, None);
+    let mut first_commit = None;
+    let mut frame_ready = false;
+    const FRAME_READY_TAG: u64 = u64::MAX;
+    let mut frame_acknowledged = false;
+    let mut frame_in_flight = false;
+    let mut frame_retry_at = Instant::now();
     loop {
         let now = now_ms();
         let timeout = shell.due_at().map_or(Duration::from_secs(5), |due| Duration::from_millis(due.saturating_sub(now).clamp(1, 5000)));
         match rx.recv_timeout(timeout) {
-            Ok(Msg::Scene(ev)) => shell.kit.ui.scene.observe(&ev),
-            Ok(Msg::Channel(ev)) => carry(shell.channel(&ev, now_ms()), Some(&channel), Some(&helper), &mut log),
-            Ok(Msg::Helper(ev)) => carry(shell.helper(&ev, now_ms()), Some(&channel), Some(&helper), &mut log),
+            Ok(Msg::Scene(ev)) => {
+                if !frame_ready && confirms_first_commit(first_commit, &ev) {
+                    frame_ready = true;
+                }
+                shell.kit.ui.scene.observe(&ev);
+            }
+            Ok(Msg::Channel(ev)) => {
+                if matches!(&ev, Event::Up(true)) {
+                    frame_acknowledged = false;
+                }
+                if let Event::Answer { tag: FRAME_READY_TAG, status, .. } = &ev {
+                    frame_in_flight = false;
+                    frame_acknowledged = *status == 200;
+                    frame_retry_at = Instant::now() + Duration::from_secs(5);
+                    continue;
+                }
+                answer(&mut log, "channel", &ev);
+                carry(shell.channel(&ev, now_ms()), Some(&channel), Some(&helper), &mut log, None);
+            }
+            Ok(Msg::Helper(ev)) => { answer(&mut log, "helper", &ev); carry(shell.helper(&ev, now_ms()), Some(&channel), Some(&helper), &mut log, None); }
             Ok(Msg::Key(KeyEvent::Closed)) => return Err(io::Error::other("the compositor closed the key socket")),
-            Ok(Msg::Key(ev)) => carry(shell.key(&ev, now_ms()), Some(&channel), Some(&helper), &mut log),
+            Ok(Msg::Key(ev)) => carry(shell.key(&ev, now_ms()), Some(&channel), Some(&helper), &mut log, None),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err(io::Error::other("every feed ended")),
         }
+        if frame_ready && !frame_acknowledged && !frame_in_flight && Instant::now() >= frame_retry_at {
+            channel.request(Outbound { method: "POST", path: "/v1/frame-ready".into(), body: Some(json!({})), tag: Some(FRAME_READY_TAG) });
+            frame_in_flight = true;
+        }
         if shell.due_at().is_some_and(|due| now_ms() >= due) {
-            carry(shell.tick(now_ms()), Some(&channel), Some(&helper), &mut log);
+            carry(shell.tick(now_ms()), Some(&channel), Some(&helper), &mut log, None);
         }
         if let Some(atlas) = shell.kit.ui.text_atlas() {
             atlas.pump();
         }
         if shell.kit.ui.scene.has_pending() {
             match shell.kit.ui.try_commit() {
-                Ok(_) => {}
+                Ok(Some(tag)) => { if first_commit.is_none() { first_commit = Some(tag); } }
+                Ok(None) => {}
                 Err(e) => return Err(io::Error::other(format!("the engine's socket: {e}"))),
             }
         }
@@ -394,11 +492,11 @@ fn run_host(o: Options) -> io::Result<()> {
     if let Some(ms) = o.clock {
         lumatv_ui::host::set_clock(ms);
     }
-    let mut log = Log { file: o.log.as_ref().and_then(|p| std::fs::File::create(p).ok()) };
+    let mut log = Log { host: true, file: o.log.as_ref().and_then(|p| std::fs::File::create(p).ok()) };
     std::fs::create_dir_all(&o.shm)?;
     let (width, height) = (1920u32, 1080u32);
     let gles = Gles::software_pbuffer(c"libEGL.so.1", width, height)?;
-    log.line(&format!("GL: {}", gles.describe()));
+    log.line(format_args!("GL: {}", gles.describe()));
     let (mut engine, app_end) = Engine::new(
         gles,
         HostConfig {
@@ -456,7 +554,7 @@ fn run_host(o: Options) -> io::Result<()> {
         }
         None => None,
     };
-    carry(shell.start(), channel.as_ref(), helper.as_ref(), &mut log);
+    carry(shell.start(), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine));
 
     // The harness's own time (`--virtual`): a turn of the loop is one refresh, whatever the host's speed. A loaded host (or Mesa at 120 Hz)
     // otherwise folds several refreshes' motion into one frame, which draws more than any frame of the set does.
@@ -503,7 +601,7 @@ fn run_host(o: Options) -> io::Result<()> {
                 "atlas" => json!({"settled": s.kit.ui.glyph_text_settled(), "crowded": s.kit.ui.text_atlas_crowded(), "pictures": s.kit.ui.text_pictures, "fallbacks": s.kit.ui.glyph_text_fallbacks}),
                 _ => s.state(),
             };
-            log.line(&format!("[eval] {v}"));
+            log.host_line(format_args!("[eval] {v}"));
             Vec::new()
         })));
     }
@@ -516,8 +614,8 @@ fn run_host(o: Options) -> io::Result<()> {
             Box::new(move |_, engine, log| {
                 let rows = engine.read_window();
                 match write_png(&path, width, height, &rows) {
-                    Ok(()) => log.line(&format!("shot {}", path.display())),
-                    Err(e) => log.line(&format!("shot {} failed: {e}", path.display())),
+                    Ok(()) => log.line(format_args!("shot {}", path.display())),
+                    Err(e) => log.line(format_args!("shot {} failed: {e}", path.display())),
                 }
                 Vec::new()
             }),
@@ -569,9 +667,9 @@ fn run_host(o: Options) -> io::Result<()> {
         for msg in inbox {
             match msg {
                 Msg::Scene(ev) => shell.kit.ui.scene.observe(&ev),
-                Msg::Channel(ev) => carry(shell.channel(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log),
-                Msg::Helper(ev) => carry(shell.helper(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log),
-                Msg::Key(ev) => carry(shell.key(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log),
+                Msg::Channel(ev) => { answer(&mut log, "channel", &ev); carry(shell.channel(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)); }
+                Msg::Helper(ev) => { answer(&mut log, "helper", &ev); carry(shell.helper(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)); }
+                Msg::Key(ev) => carry(shell.key(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)),
             }
         }
         if closed {
@@ -580,14 +678,14 @@ fn run_host(o: Options) -> io::Result<()> {
         while script.first().is_some_and(|(ms, _)| elapsed(t0) >= *ms) {
             let (_, step) = script.remove(0);
             let acts = step(&mut shell, &mut engine, &mut log);
-            carry(acts, channel.as_ref(), helper.as_ref(), &mut log);
+            carry(acts, channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine));
         }
         while frames_marks.first().is_some_and(|(ms, _)| elapsed(t0) >= *ms) {
             let (_, label) = frames_marks.remove(0);
-            log.line(&format!("[frames] {label} {drawn}"));
+            log.line(format_args!("[frames] {label} {drawn}"));
         }
         if shell.due_at().is_some_and(|due| now_ms() >= due) {
-            carry(shell.tick(now_ms()), channel.as_ref(), helper.as_ref(), &mut log);
+            carry(shell.tick(now_ms()), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine));
         }
         if let Some(atlas) = shell.kit.ui.text_atlas() {
             atlas.pump();
@@ -627,29 +725,27 @@ fn run_host(o: Options) -> io::Result<()> {
             px_total += cost.region_px;
             if cost.mismatch_px > 0 {
                 mismatched += 1;
-                log.line(&format!("[mismatch] frame {drawn} at {} ms: {} px differ from the frame drawn whole", elapsed(t0), cost.mismatch_px));
+                log.line(format_args!("[mismatch] frame {drawn} at {} ms: {} px differ from the frame drawn whole", elapsed(t0), cost.mismatch_px));
             }
             if first_frame_ms.is_none() && drawn > 1 {
                 first_frame_ms = Some(elapsed(t0));
             }
             if o.log.is_some() {
-                log.line(&format!(
-                    "[frame] {drawn} at {} ms: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us backdrops {} ({} us) floor {} px apply {} us{}",
-                    elapsed(t0),
-                    cost.damage_px,
-                    cost.region_px,
-                    cost.rects,
-                    cost.region_px as f64 / 20736.0,
-                    cost.layers,
-                    cost.culled,
-                    cost.cpu_us,
-                    cost.gpu_us,
-                    cost.backdrops,
-                    cost.backdrop_us,
-                    cost.floor_px,
-                    cost.apply_us,
-                    cost.gl_error.map_or(String::new(), |e| format!(" GL error {e:#x}"))
-                ));
+                log.line(format_args!("[frame] {drawn} at {} ms: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us backdrops {} ({} us) floor {} px apply {} us{}",
+                elapsed(t0),
+                cost.damage_px,
+                cost.region_px,
+                cost.rects,
+                cost.region_px as f64 / 20736.0,
+                cost.layers,
+                cost.culled,
+                cost.cpu_us,
+                cost.gpu_us,
+                cost.backdrops,
+                cost.backdrop_us,
+                cost.floor_px,
+                cost.apply_us,
+                cost.gl_error.map_or(String::new(), |e| format!(" GL error {e:#x}"))));
             }
             engine.tidy();
             shell.tidy(now_ns);
@@ -667,15 +763,13 @@ fn run_host(o: Options) -> io::Result<()> {
             lumatv_ui::host::set_virtual_ms(epoch.0 + (vt.get() - epoch.1) / 1_000_000);
         }
     }
-    log.line(&format!(
-        "RESULT frames {drawn} in {:.1} s, gpu mean {} us max {} us, cpu mean {} us, drew {:.1} % of the panel per frame, text pictures {}, glyph fallbacks {}, frames differing from whole {mismatched}",
-        started.elapsed().as_secs_f64(),
-        gpu_total.checked_div(drawn).unwrap_or(0),
-        gpu_max,
-        cpu_total.checked_div(drawn).unwrap_or(0),
-        (px_total as f64 / drawn.max(1) as f64) / 20736.0,
-        shell.kit.ui.text_pictures,
-        shell.kit.ui.glyph_text_fallbacks
-    ));
+    log.line(format_args!("RESULT frames {drawn} in {:.1} s, gpu mean {} us max {} us, cpu mean {} us, drew {:.1} % of the panel per frame, text pictures {}, glyph fallbacks {}, frames differing from whole {mismatched}",
+    started.elapsed().as_secs_f64(),
+    gpu_total.checked_div(drawn).unwrap_or(0),
+    gpu_max,
+    cpu_total.checked_div(drawn).unwrap_or(0),
+    (px_total as f64 / drawn.max(1) as f64) / 20736.0,
+    shell.kit.ui.text_pictures,
+    shell.kit.ui.glyph_text_fallbacks));
     Ok(())
 }

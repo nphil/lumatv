@@ -63,7 +63,15 @@ pub enum Target {
     /// A tab of the page.
     Tab(usize),
     /// A row of the page, at a segment or card, or at a value of a slider.
-    Row { id: String, seg: Option<usize>, value: Option<f64> },
+    Row {
+        id: String,
+        seg: Option<usize>,
+        value: Option<f64>,
+    },
+    PictureCard {
+        index: usize,
+        value: Value,
+    },
     /// The info mark of a row.
     Info(String),
     /// An answer of the question over the page.
@@ -105,6 +113,7 @@ enum Route {
     OwnerGet(String),
     OwnerPost(String),
     Theme,
+    GalleryTheme(Value),
 }
 
 enum Sheet {
@@ -157,6 +166,10 @@ pub struct Model {
     later: Vec<(u64, String, Vec<Op>)>,
     requests: Vec<ShellRequest>,
     theme_file: Option<Value>,
+    theme_preview: Option<Option<Value>>,
+    previewed_theme: Option<Value>,
+    gallery_busy: bool,
+    gallery_queued: Option<Value>,
     hold_ms: u64,
     rev: u64,
     cache: RefCell<Option<RowCache>>,
@@ -202,6 +215,10 @@ impl Model {
             later: Vec::new(),
             requests: Vec::new(),
             theme_file: None,
+            theme_preview: None,
+            previewed_theme: None,
+            gallery_busy: false,
+            gallery_queued: None,
             hold_ms: HOLD_MS,
             rev: 0,
             cache: RefCell::new(None),
@@ -214,6 +231,13 @@ impl Model {
     pub fn set_light(&mut self, light: bool) {
         if self.light != light {
             self.light = light;
+            self.bump();
+        }
+    }
+
+    pub fn set_text_scale(&mut self, scale: f32) {
+        if self.local.get("themes.text_scale").as_f64() != Some(f64::from(scale)) {
+            self.local.set("themes.text_scale", json!(scale));
             self.bump();
         }
     }
@@ -284,6 +308,52 @@ impl Model {
     /// The theme file as it was written after a patch (the shell makes it the look in force and tells [`Model::set_theme`]).
     pub fn take_theme_file(&mut self) -> Option<Value> {
         self.theme_file.take()
+    }
+
+    pub fn take_theme_preview(&mut self) -> Option<Option<Value>> {
+        self.theme_preview.take()
+    }
+
+    fn sync_theme_preview(&mut self) {
+        let patch = if self.open && self.current == "themes" && self.zone == Zone::Page {
+            let st = self.state(&self.current);
+            let rows = self.rows();
+            let marker = match &st.stop {
+                Stop::Row(id) => rows.iter().find(|row| row.id == *id && row.focusable()).and_then(|row| row.cards.get(st.seg)).map(|card| card.icon.as_str()),
+                _ => None,
+            };
+            marker.and_then(|marker| {
+                let mut parts = marker.split(':');
+                if parts.next()? != "theme" {
+                    return None;
+                }
+                let mode = match parts.next()? {
+                    "light" => ui::lucent::palette::Mode::Light,
+                    "dark" => ui::lucent::palette::Mode::Dark,
+                    _ => return None,
+                };
+                let id = parts.next()?;
+                lumatv_tokens::themes::catalog().iter().find(|family| family.id == id).map(|family| family.patch(mode))
+            })
+        } else {
+            None
+        };
+        if patch != self.previewed_theme {
+            self.previewed_theme = patch.clone();
+            self.theme_preview = Some(patch);
+        }
+    }
+
+    fn save_gallery_theme(&mut self, patch: Value, out: &mut Vec<Effect>) {
+        if self.gallery_busy {
+            self.gallery_queued = Some(patch);
+            return;
+        }
+        self.local.set("themes.error", json!(false));
+        self.gallery_busy = true;
+        let tag = self.tags.take();
+        self.routes.insert(tag, Route::GalleryTheme(patch.clone()));
+        out.push(Effect::Theme { tag, patch });
     }
 
     pub fn set_theme(&mut self, theme: Value) {
@@ -410,6 +480,7 @@ impl Model {
             }
         }
         self.bump();
+        self.sync_theme_preview();
         out.push(Effect::Redraw);
         out
     }
@@ -419,6 +490,8 @@ impl Model {
         self.now = now;
         let mut out = Vec::new();
         self.leave(now, &mut out);
+        self.previewed_theme = None;
+        self.theme_preview = Some(None);
         self.open = false;
         self.sheet = None;
         self.timers.clear();
@@ -480,10 +553,14 @@ impl Model {
             let ops = f(&self.ctx(&id, &title, &self.arg));
             self.apply(ops, now, out);
         }
+        self.sync_theme_preview();
     }
 
     /// What a page reads when it is shown, unless it read a moment ago.
     fn read_page(&mut self, id: &str, now: u64, force: bool, out: &mut Vec<Effect>) {
+        if !self.open {
+            return;
+        }
         let Some(idx) = self.page_idx(id) else { return };
         let mut st = self.state(id);
         if !force && st.read_at.is_some_and(|t| now < t + READ_AGAIN_MS) {
@@ -564,7 +641,8 @@ impl Model {
     fn answered_call(&mut self, name: &str, payload: &Value, now: u64, out: &mut Vec<Effect>) {
         self.docs.set(name, payload.clone());
         let ops = {
-            let page = self.page(&self.current);
+            let owner = if name.starts_with("receiver.set:") { "receiver" } else { &self.current };
+            let page = self.page(owner);
             match page.and_then(|p| p.answered.map(|f| (p.id, p.title, f))) {
                 Some((id, title, f)) => f(&self.ctx(id, title, &self.arg), name, payload),
                 None => Vec::new(),
@@ -599,8 +677,25 @@ impl Model {
             Some(Route::Request { name: Some(name) }) => {
                 self.docs.set(&format!("{name}.status"), json!(status));
                 self.answered_call(&name, data, now, out);
+                if name.starts_with("receiver.set:") {
+                    self.docs.remove(&name);
+                    self.docs.remove(&format!("{name}.status"));
+                }
             }
             Some(Route::Theme) if status == 200 => self.theme_file = Some(data.clone()),
+            Some(Route::GalleryTheme(patch)) => {
+                self.gallery_busy = false;
+                if status == 200 {
+                    merge_section(&mut self.theme, &patch);
+                    self.theme_file = Some(data.clone());
+                    self.local.set("themes.error", json!(false));
+                } else {
+                    self.local.set("themes.error", json!(true));
+                }
+                if let Some(next) = self.gallery_queued.take() {
+                    self.save_gallery_theme(next, out);
+                }
+            }
             _ => {}
         }
         self.bump();
@@ -891,6 +986,7 @@ impl Model {
                 self.apply(ops, now, &mut out);
             }
         }
+        self.sync_theme_preview();
         self.bump();
         out.push(Effect::Redraw);
         out
@@ -924,6 +1020,14 @@ impl Model {
                 st.tab = i;
                 self.set_state(&id, st);
                 Vec::new()
+            }
+            Target::PictureCard { index, value } => {
+                let rows = self.rows();
+                let Some(row) = rows.iter().find(|r| r.id == "picture.pictureMode") else { return Vec::new() };
+                if !call(row, Arg::Index(index)).iter().any(|op| matches!(op, Op::Lg { ds, value: v, .. } if ds == "picture.pictureMode" && *v == value)) {
+                    return Vec::new();
+                }
+                self.point(Target::Row { id: "picture.pictureMode".into(), seg: Some(index), value: None }, now, out)
             }
             Target::Row { id: rid, seg, value } => {
                 let id = self.current.clone();
@@ -997,8 +1101,8 @@ impl Model {
     fn apply(&mut self, ops: Vec<Op>, now: u64, out: &mut Vec<Effect>) {
         for op in ops {
             match op {
-                Op::Lg { ds, value, app } => out.extend(self.lg.write(&ds, &value, app.as_deref())),
-                Op::LgMany { category, settings, app } => out.extend(self.lg.write_many(&category, &settings, app.as_deref())),
+                Op::Lg { ds, value, app } => out.extend(self.lg.write(&ds, &value, app.as_deref(), now)),
+                Op::LgMany { category, settings, app } => out.extend(self.lg.write_many(&category, &settings, app.as_deref(), now)),
                 Op::Act { uri, payload } => {
                     let tag = self.tags.take();
                     self.routes.insert(tag, Route::Act);
@@ -1019,6 +1123,18 @@ impl Model {
                 Op::Close(name) => self.close_call(&name, out),
                 Op::Send { name, method, path, body } => {
                     let tag = self.tags.take();
+                    let name = if method == "POST" && path == "/v1/receiver/set" {
+                        name.map(|n| {
+                            let mut state = self.local.get("receiver.write").clone();
+                            if let Some(object) = state.as_object_mut() {
+                                object.insert("token".into(), json!(tag));
+                            }
+                            self.local.set("receiver.write", state);
+                            format!("{n}:{tag}")
+                        })
+                    } else {
+                        name
+                    };
                     self.routes.insert(tag, Route::Request { name });
                     out.push(Effect::Request { tag, method: method.into(), path, body });
                 }
@@ -1037,6 +1153,7 @@ impl Model {
                     self.routes.insert(tag, Route::Theme);
                     out.push(Effect::Theme { tag, patch });
                 }
+                Op::ThemeChoice(patch) => self.save_gallery_theme(patch, out),
                 Op::Set(key, v) => self.local.set(&key, v),
                 Op::Open { page, arg } => self.open_page(&page, arg, now, out),
                 Op::Up => {
@@ -1048,11 +1165,16 @@ impl Model {
                     self.sheet = Some(Sheet::Confirm { ask, index });
                 }
                 Op::Pick(spec) => {
-                    let index = spec.options.iter().position(|o| o.value == spec.current && o.enabled).or_else(|| spec.options.iter().position(|o| o.enabled)).unwrap_or(0);
+                    let index = spec
+                        .options
+                        .iter()
+                        .position(|o| o.value == spec.current && o.enabled)
+                        .or_else(|| spec.options.iter().position(|o| o.enabled))
+                        .unwrap_or(0);
                     self.sheet = Some(Sheet::Pick { spec, index });
                 }
-                Op::Entry { prompt, text, secret, then } => {
-                    self.requests.push(ShellRequest::Text { prompt: prompt.clone(), text: text.clone(), secret });
+                Op::Entry { prompt, text, secret, purpose, then } => {
+                    self.requests.push(ShellRequest::Text { prompt: prompt.clone(), text: text.clone(), secret, purpose });
                     self.sheet = Some(Sheet::Entry { prompt, text, secret, then });
                 }
                 Op::Launch { app, params } => {
@@ -1064,7 +1186,11 @@ impl Model {
                     let id = self.current.clone();
                     self.read_page(&id, now, true, out);
                 }
-                Op::RefreshIn(ms) => self.arm(Timer::Refresh, now + ms),
+                Op::RefreshIn(ms) => {
+                    if self.open {
+                        self.arm(Timer::Refresh, now + ms);
+                    }
+                }
                 Op::Focus(id) => {
                     let (current, rows) = (self.current.clone(), self.rows());
                     let mut st = self.state(&current);
@@ -1205,7 +1331,8 @@ impl Model {
                 title: "Settings".into(),
                 clock: clock_text(self.now),
                 wired: net.pointer("/wired/state").and_then(Value::as_str) == Some("connected"),
-                link: net.pointer("/wifi/state").and_then(Value::as_str) == Some("connected") || net.pointer("/wired/state").and_then(Value::as_str) == Some("connected"),
+                link: net.pointer("/wifi/state").and_then(Value::as_str) == Some("connected")
+                    || net.pointer("/wired/state").and_then(Value::as_str) == Some("connected"),
             },
             rail,
             page,
@@ -1256,14 +1383,14 @@ impl Model {
         })
     }
 
-    /// The glyphs of what the keys do now, as the Magic Remote carries them (no sentence): the way out, and before it the one thing the
-    /// focus does that a person would not guess (a row that moves sideways). OK on a row is never hinted, nor is the rail's. Never a legend
-    /// of every key.
+    /// The remote glyphs show the way out and any action that is not obvious from the focused row.
     fn hints(&self, page: Option<&PageView>, sheet: Option<&SheetView>) -> Vec<Hint> {
         let lr = Hint { keys: vec![(Key::Left, false), (Key::Right, false)], action: Some(Action::Move), label: None };
         let out = |a: Action| Hint::key(Key::Back, a);
         match sheet {
-            Some(SheetView::Confirm { .. } | SheetView::Pick { .. } | SheetView::Entry { .. }) => return vec![Hint::key(Key::Ok, Action::Confirm), out(Action::Close)],
+            Some(SheetView::Confirm { .. } | SheetView::Pick { .. } | SheetView::Entry { .. }) => {
+                return vec![Hint::key(Key::Ok, Action::Confirm), out(Action::Close)];
+            }
             Some(SheetView::Help { .. }) => return vec![out(Action::Close)],
             None => {}
         }
@@ -1271,6 +1398,13 @@ impl Model {
             return vec![out(Action::Close)];
         }
         let page = page.expect("checked");
+        if page.id == "themes" && matches!(page.stop, StopView::Row(_)) {
+            return vec![
+                Hint { keys: vec![(Key::Up, false), (Key::Down, false), (Key::Left, false), (Key::Right, false)], action: None, label: Some("Preview".into()) },
+                Hint::labelled(Key::Ok, "Save"),
+                Hint::labelled(Key::Back, "Cancel"),
+            ];
+        }
         let first = match page.stop {
             StopView::Tabs => Some(lr),
             StopView::Row(_) => {
@@ -1355,13 +1489,18 @@ impl ScreenModel for Model {
             Input::Fetched { tag, status, data } if ours(*tag) => self.fetched(*tag, *status, data, now_ms, &mut out),
             Input::Key { name, down, repeat } => out.extend(self.key(name, *down, *repeat, now_ms)),
             Input::Tick => {
+                let sio_revision = self.lg.revision;
                 out.extend(self.lg.update(&Input::Tick, now_ms));
+                if self.lg.revision != sio_revision {
+                    self.bump();
+                }
                 let (fx, _) = self.power.update(&Input::Tick, now_ms);
                 out.extend(fx);
                 self.timer(now_ms, &mut out);
             }
             _ => {}
         }
+        self.sync_theme_preview();
         if self.rev != rev {
             self.place_focus();
         }
@@ -1379,7 +1518,10 @@ impl ScreenModel for Model {
         if !self.open {
             return None;
         }
-        [self.lg.due_at(), self.power.due_at(), self.timers.iter().map(|(at, _)| *at).min(), self.later.iter().map(|(at, _, _)| *at).min()].into_iter().flatten().min()
+        [self.lg.due_at(), self.power.due_at(), self.timers.iter().map(|(at, _)| *at).min(), self.later.iter().map(|(at, _, _)| *at).min()]
+            .into_iter()
+            .flatten()
+            .min()
     }
 }
 
@@ -1424,11 +1566,12 @@ fn lock(rows: &mut Vec<Row>, who: &Who, tabs: usize) {
         let owner = who.owner_id.clone();
         rows.insert(
             at,
-            Row::action(&format!("lock:switch:{tab}"), "Switch")
-                .label(&format!("Switch to {}", who.owner))
-                .icon("user")
-                .tab(tab)
-                .does(vec![Op::Send { name: None, method: "POST", path: "/v1/profiles/switch".into(), body: Some(json!({"id": owner})) }]),
+            Row::action(&format!("lock:switch:{tab}"), "Switch").label(&format!("Switch to {}", who.owner)).icon("user").tab(tab).does(vec![Op::Send {
+                name: None,
+                method: "POST",
+                path: "/v1/profiles/switch".into(),
+                body: Some(json!({"id": owner})),
+            }]),
         );
     }
 }
@@ -1527,6 +1670,25 @@ fn page_press(st: &mut PageState, rows: &[Row], tabbed: bool, ntabs: usize, k: K
     let Stop::Row(rid) = &st.stop else { return None };
     let i = rows.iter().position(|r| r.id == *rid)?;
     let r = &rows[i];
+    if r.id.starts_with("themes:") {
+        match k {
+            K::Up | K::Down => {
+                let dir = if k == K::Up { -1 } else { 1 };
+                if let Some(next) = step(rows, st.tab, i, dir) {
+                    if rows[next].id.starts_with("themes:") {
+                        let col = st.seg.min(rows[next].count().saturating_sub(1));
+                        enter(st, rows, next);
+                        st.seg = col;
+                    }
+                } else if k == K::Up && tabbed {
+                    st.stop = Stop::Tabs;
+                }
+                return Some(Vec::new());
+            }
+            K::Left if st.seg == 0 => return Some(Vec::new()),
+            _ => {}
+        }
+    }
     match k {
         K::Up => {
             if r.kind == Kind::Cards && st.seg >= r.cols {
@@ -1609,7 +1771,7 @@ fn page_press(st: &mut PageState, rows: &[Row], tabbed: bool, ntabs: usize, k: K
 mod tests {
     use super::*;
     use crate::settings::ctx::Spec;
-    
+
     fn alpha_rows(c: &Ctx) -> Vec<Row> {
         vec![
             c.toggle(Spec::new("test.eye").tab(0).label("Eye comfort").help("A warmer picture for the evening.")),
@@ -1617,7 +1779,15 @@ mod tests {
             c.slider(Spec::new("test.light").tab(0).label("Backlight").range(0.0, 100.0, 1.0)),
             c.toggle(Spec::new("test.gone").tab(0).label("Dimmed")),
             Row::link("child").tab(0).label("Fine Tune").does(vec![Op::Open { page: "kid".into(), arg: PageArg::None }]),
-            Row::action("reset", "Reset").tab(0).label("Reset").danger().does(crate::settings::ctx::ask("rotate-ccw", "Reset?", "Back to LG's.", "Reset", "Cancel", true, vec![Op::Act { uri: "luna://x/reset".into(), payload: json!({}) }])),
+            Row::action("reset", "Reset").tab(0).label("Reset").danger().does(crate::settings::ctx::ask(
+                "rotate-ccw",
+                "Reset?",
+                "Back to LG's.",
+                "Reset",
+                "Cancel",
+                true,
+                vec![Op::Act { uri: "luna://x/reset".into(), payload: json!({}) }],
+            )),
             c.toggle(Spec::new("test.two").tab(1).label("Second tab")),
         ]
     }
@@ -1627,7 +1797,10 @@ mod tests {
     }
 
     fn kid_rows(_: &Ctx) -> Vec<Row> {
-        vec![Row::info("kid:info").label("Info").help("Only info with help"), Row::toggle("kid:t").label("Kid toggle").act(|_| vec![Op::Set("kid".into(), json!(true))])]
+        vec![
+            Row::info("kid:info").label("Info").help("Only info with help"),
+            Row::toggle("kid:t").label("Kid toggle").act(|_| vec![Op::Set("kid".into(), json!(true))]),
+        ]
     }
 
     fn alpha_reads(_: &Ctx) -> Vec<Read> {
@@ -1636,7 +1809,12 @@ mod tests {
 
     fn model() -> Model {
         let pages = vec![
-            Page::new("alpha", "Alpha", "image").rail().tabs(&["One", "Two"]).rows(alpha_rows).reads(alpha_reads).summary(|c| c.lg.opt_text("test.mode").unwrap_or_default()),
+            Page::new("alpha", "Alpha", "image")
+                .rail()
+                .tabs(&["One", "Two"])
+                .rows(alpha_rows)
+                .reads(alpha_reads)
+                .summary(|c| c.lg.opt_text("test.mode").unwrap_or_default()),
             Page::new("beta", "Beta", "volume-2").rail().rows(beta_rows),
             Page::new("kid", "Kid", "sliders").parent("alpha").back("Alpha").rows(kid_rows),
         ];
@@ -1646,13 +1824,74 @@ mod tests {
     }
 
     fn press(m: &mut Model, name: &str, t: u64) -> Vec<Effect> {
-        let mut out = m.update(&Input::Key { name: name.into(), down: true, repeat: false, }, t);
+        let mut out = m.update(&Input::Key { name: name.into(), down: true, repeat: false }, t);
         out.extend(m.update(&Input::Key { name: name.into(), down: false, repeat: false }, t + 20));
         out
     }
 
     fn luna_writes(effects: &[Effect]) -> Vec<(String, Value)> {
-        effects.iter().filter_map(|e| match e { Effect::Luna { uri, payload, .. } if uri.ends_with("setSystemSettings") => Some((uri.clone(), payload.clone())), _ => None }).collect()
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Luna { uri, payload, .. } if uri.ends_with("setSystemSettings") => Some((uri.clone(), payload.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_picture_card_click_does_not_select_a_different_mode_after_reordering() {
+        let mut m = Model::new(vec![crate::settings::pages::picture::page()], json!({}), json!({}));
+        m.lg.learn("picture", &json!({"settings": {"pictureMode": "cinema"}, "dimension": {"pictureMode": "cinema", "dynamicRange": "sdr", "input": "hdmi1"}}));
+        m.lg.learn_desc("picture", &json!({"key": "pictureMode", "values": {"arrayExt": [{"value": "cinema"}, {"value": "filmMaker"}]}}));
+        m.open(Some("picture"), 0);
+        let rendered = m.view();
+        let row = rendered.page.as_ref().unwrap().rows.iter().find(|r| r.id == "picture.pictureMode").unwrap();
+        let ops = call(row, Arg::Index(1));
+        let Op::Lg { value, .. } = &ops[0] else { panic!() };
+        let target = Target::PictureCard { index: 1, value: value.clone() };
+        m.lg.learn_desc("picture", &json!({"key": "pictureMode", "values": {"arrayExt": [{"value": "filmMaker"}, {"value": "cinema"}]}}));
+        m.bump();
+        assert!(luna_writes(&m.click(target, 100)).is_empty());
+        assert_eq!(m.lg.text("picture.pictureMode"), "cinema");
+    }
+
+    #[test]
+    fn settings_redraws_when_picture_mode_timeout_invalidates_cached_rows() {
+        let page = Page::new("picture", "Picture", "image").rail().rows(|c| vec![Row::info("mode").label(&c.lg.text("picture.pictureMode"))]);
+        let mut m = Model::new(vec![page], json!({}), json!({}));
+        let general = m.open(Some("picture"), 0);
+        let tag = |fx: &[Effect]| {
+            fx.iter()
+                .find_map(|e| match e {
+                    Effect::Luna { tag, uri, .. } if uri.contains("getSystemSetting") => Some(*tag),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let general_desc = m.update(&Input::Luna { tag: tag(&general), payload: json!({"settings": {"remotePointer": "on"}}) }, 1);
+        m.update(&Input::Luna { tag: tag(&general_desc), payload: json!({"results": []}) }, 2);
+        let read = m.lg.read("picture", &["pictureMode"], None, 10);
+        let desc = m.update(
+            &Input::Luna {
+                tag: tag(&read),
+                payload: json!({"settings": {"pictureMode": "cinema"}, "dimension": {"pictureMode": "cinema", "dynamicRange": "sdr", "input": "hdmi1"}}),
+            },
+            11,
+        );
+        m.update(&Input::Luna { tag: tag(&desc), payload: json!({"results": []}) }, 12);
+        let write = m.lg.write("picture.pictureMode", &json!("filmMaker"), None, 100);
+        m.bump();
+        let ack_tag = match &write[0] {
+            Effect::Luna { tag, .. } => *tag,
+            _ => panic!(),
+        };
+        let refresh = m.update(&Input::Luna { tag: ack_tag, payload: json!({"returnValue": true}) }, 101);
+        assert!(refresh.iter().any(|e| matches!(e, Effect::Luna { uri, .. } if uri.ends_with("getSystemSettings"))));
+        assert_eq!(m.view().page.unwrap().rows[0].label, "filmMaker");
+        let out = m.update(&Input::Tick, 2101);
+        assert!(out.iter().any(|effect| matches!(effect, Effect::Redraw)));
+        assert_eq!(m.view().page.unwrap().rows[0].label, "");
     }
 
     #[test]
@@ -1667,7 +1906,10 @@ mod tests {
         // the first reads go out one at a time: the net subscription and the pointer, then the page's keys
         let luna: Vec<&Effect> = fx.iter().filter(|e| matches!(e, Effect::Luna { .. })).collect();
         assert!(luna.iter().any(|e| matches!(e, Effect::Luna { uri, subscribe: true, .. } if uri.ends_with("connectionmanager/getStatus"))));
-        assert!(luna.iter().any(|e| matches!(e, Effect::Luna { uri, payload, .. } if uri.ends_with("getSystemSettings") && payload["category"] == "general")), "{luna:?}");
+        assert!(
+            luna.iter().any(|e| matches!(e, Effect::Luna { uri, payload, .. } if uri.ends_with("getSystemSettings") && payload["category"] == "general")),
+            "{luna:?}"
+        );
     }
 
     #[test]
@@ -1889,7 +2131,11 @@ mod tests {
         m.open(None, 0);
         m.click(Target::Info("test.eye".into()), 100);
         assert!(matches!(m.view().sheet, Some(SheetView::Help { ref row, .. }) if row == "test.eye"));
-        assert_eq!((m.zone(), m.view().page.unwrap().focused_row().unwrap().id.as_str()), (Zone::Page, "test.eye"), "a pointer that lands on a row takes the focus as the D-pad would");
+        assert_eq!(
+            (m.zone(), m.view().page.unwrap().focused_row().unwrap().id.as_str()),
+            (Zone::Page, "test.eye"),
+            "a pointer that lands on a row takes the focus as the D-pad would"
+        );
     }
 
     #[test]
@@ -1903,7 +2149,10 @@ mod tests {
         assert_eq!(m.view().page.unwrap().focused_row().unwrap().id, "reset");
         press(&mut m, "ok", 1000);
         let Some(SheetView::Confirm { answers, index, title, .. }) = m.view().sheet else { panic!("a question is up") };
-        assert_eq!((title.as_str(), index, answers.iter().map(|a| (a.label.as_str(), a.danger)).collect::<Vec<_>>()), ("Reset?", 0, vec![("Cancel", false), ("Reset", true)]));
+        assert_eq!(
+            (title.as_str(), index, answers.iter().map(|a| (a.label.as_str(), a.danger)).collect::<Vec<_>>()),
+            ("Reset?", 0, vec![("Cancel", false), ("Reset", true)])
+        );
         // keys go to the question, not the page behind it
         press(&mut m, "up", 1100);
         assert_eq!(m.view().page.unwrap().focused_row().unwrap().id, "reset");
@@ -1920,7 +2169,10 @@ mod tests {
     #[test]
     fn a_profile_that_may_not_change_the_households_settings_sees_them_dimmed_with_the_owners_name_and_a_way_to_switch() {
         let mut m = model();
-        m.topics.set_helper("profiles", json!({"active": "isabel", "owner": "nitin", "canAdmin": false, "profiles": [{"id": "nitin", "name": "Nitin", "owner": true}]}));
+        m.topics.set_helper(
+            "profiles",
+            json!({"active": "isabel", "owner": "nitin", "canAdmin": false, "profiles": [{"id": "nitin", "name": "Nitin", "owner": true}]}),
+        );
         m.open(None, 0);
         press(&mut m, "right", 10);
         let p = m.view().page.unwrap();
@@ -1940,13 +2192,19 @@ mod tests {
         let pages = vec![Page::new("alpha", "Alpha", "image").rail().rows(gamma_rows)];
         let mut m = Model::new(pages, json!({}), json!({}));
         m.lg.learn("test", &json!({"settings": {"gamma": "medium"}}));
-        m.lg.learn_desc("test", &json!({"results": [{"key": "gamma", "values": {"arrayExt": [{"value": "low"}, {"value": "medium"}, {"value": "high2", "active": false}]}}]}));
+        m.lg.learn_desc(
+            "test",
+            &json!({"results": [{"key": "gamma", "values": {"arrayExt": [{"value": "low"}, {"value": "medium"}, {"value": "high2", "active": false}]}}]}),
+        );
         m.open(None, 0);
         press(&mut m, "right", 10);
         press(&mut m, "ok", 100);
         let Some(SheetView::Pick { title, rows, index }) = m.view().sheet else { panic!("the picker is up") };
         assert_eq!((title.as_str(), index), ("Gamma", 1), "the focus starts on the value in force");
-        assert_eq!(rows.iter().map(|r| (r.label.as_str(), r.selected, r.enabled)).collect::<Vec<_>>(), vec![("1.9", false, true), ("2.2", true, true), ("BT.1886", false, false)]);
+        assert_eq!(
+            rows.iter().map(|r| (r.label.as_str(), r.selected, r.enabled)).collect::<Vec<_>>(),
+            vec![("1.9", false, true), ("2.2", true, true), ("BT.1886", false, false)]
+        );
         press(&mut m, "down", 200);
         let Some(SheetView::Pick { index, .. }) = m.view().sheet else { panic!() };
         assert_eq!(index, 1, "the option the TV says is not active is skipped");
@@ -1981,7 +2239,11 @@ mod tests {
         press(&mut m, "right", 10);
         press(&mut m, "down", 100);
         assert_eq!(m.view().page.unwrap().focused_row().unwrap().kind, Kind::Seg);
-        assert_eq!(names(&m), vec![(vec![Key::Left, Key::Right], Some(Action::Move)), (vec![Key::Back], Some(Action::Close))], "a segmented row is moved sideways");
+        assert_eq!(
+            names(&m),
+            vec![(vec![Key::Left, Key::Right], Some(Action::Move)), (vec![Key::Back], Some(Action::Close))],
+            "a segmented row is moved sideways"
+        );
         press(&mut m, "down", 150);
         press(&mut m, "ok", 200);
         for _ in 0..4 {
@@ -2009,7 +2271,13 @@ mod tests {
     fn lg_reads_go_one_at_a_time_and_an_answer_sends_the_next() {
         let mut m = model();
         let fx = m.open(None, 0);
-        let first: Vec<u64> = fx.iter().filter_map(|e| match e { Effect::Luna { tag, uri, .. } if uri.contains("getSystemSetting") => Some(*tag), _ => None }).collect();
+        let first: Vec<u64> = fx
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Luna { tag, uri, .. } if uri.contains("getSystemSetting") => Some(*tag),
+                _ => None,
+            })
+            .collect();
         assert_eq!(first.len(), 1, "one read in flight");
         let fx = m.update(&Input::Luna { tag: first[0], payload: json!({"settings": {"remotePointer": "on"}}) }, 10);
         assert_eq!(fx.iter().filter(|e| matches!(e, Effect::Luna { uri, .. } if uri.contains("getSystemSetting"))).count(), 1, "the answer sends the next");
@@ -2050,5 +2318,182 @@ mod tests {
         assert_eq!(patch, json!({"clock": {"style": "digital"}}));
         m.update(&Input::Fetched { tag, status: 200, data: json!({"clock": {"style": "digital"}}) }, 20);
         assert_eq!(m.take_theme_file(), Some(json!({"clock": {"style": "digital"}})));
+    }
+    #[test]
+    fn gallery_preview_navigation_and_confirmation() {
+        let mut m = Model::new(
+            vec![Page::new("home", "Home", "home").rail(), crate::settings::pages::themes::page()],
+            json!({"palette": {"dark": "existing"}, "clock": {"enabled": true}}),
+            json!({}),
+        );
+        let fx = m.open(Some("themes"), 0);
+        assert!(!fx.iter().any(|e| matches!(e, Effect::Theme { .. })));
+        let first = m.take_theme_preview().flatten().unwrap();
+        assert_eq!(first["material"], "light");
+        press(&mut m, "right", 10);
+        let second = m.take_theme_preview().flatten().unwrap();
+        assert_ne!(first, second);
+        press(&mut m, "down", 20);
+        assert_eq!(m.state("themes").seg, 1);
+        assert_eq!(m.state("themes").stop, Stop::Row("themes:light:1".into()));
+        let preview = m.take_theme_preview().flatten().unwrap();
+        let down = m.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, 30);
+        assert!(!down.iter().any(|e| matches!(e, Effect::Theme { .. })));
+        let fx = m.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 40);
+        let tag = fx
+            .iter()
+            .find_map(|e| match e {
+                Effect::Theme { tag, patch } if *patch == preview => Some(*tag),
+                _ => None,
+            })
+            .unwrap();
+        assert!(m.theme.pointer("/palette/light").is_none());
+        m.update(&Input::Fetched { tag, status: 500, data: json!({}) }, 50);
+        assert!(m.theme.pointer("/palette/light").is_none());
+        assert_eq!(m.local.get("themes.error"), &json!(true));
+        let fx = press(&mut m, "ok", 60);
+        let tag = fx
+            .iter()
+            .find_map(|e| match e {
+                Effect::Theme { tag, .. } => Some(*tag),
+                _ => None,
+            })
+            .unwrap();
+        m.set_theme(json!({"palette": {"dark": "external"}, "clock": {"enabled": false}}));
+        m.update(&Input::Fetched { tag, status: 200, data: preview.clone() }, 90);
+        assert_eq!(m.theme["palette"]["light"], preview["palette"]["light"]);
+        assert_eq!(m.theme["palette"]["dark"], "external");
+        assert_eq!(m.theme["clock"]["enabled"], false);
+        press(&mut m, "back", 100);
+        assert_eq!(m.take_theme_preview(), Some(None));
+    }
+
+    #[test]
+    fn gallery_uses_two_columns_for_large_text_and_does_not_wrap() {
+        let mut m =
+            Model::new(vec![Page::new("home", "Home", "home").rail(), crate::settings::pages::themes::page()], json!({"type": {"scale": 2.0}}), json!({}));
+        m.open(Some("themes"), 0);
+        let rows = m.rows();
+        assert_eq!(rows.iter().filter(|r| r.tab == 0).map(|r| r.cards.len()).sum::<usize>(), 20);
+        assert!(rows.iter().all(|r| r.cards.len() <= 2));
+        press(&mut m, "left", 10);
+        assert_eq!(m.state("themes").seg, 0);
+        press(&mut m, "right", 20);
+        press(&mut m, "right", 30);
+        assert_eq!(m.state("themes").seg, 1);
+        press(&mut m, "down", 40);
+        assert_eq!(m.state("themes").seg, 1);
+    }
+
+    #[test]
+    fn gallery_tab_and_pointer_choose_the_actual_card() {
+        let mut m = Model::new(vec![Page::new("home", "Home", "home").rail(), crate::settings::pages::themes::page()], json!({}), json!({}));
+        m.open(Some("themes"), 0);
+        m.take_theme_preview();
+        m.click(Target::Tab(1), 10);
+        assert_eq!(m.take_theme_preview(), Some(None));
+        press(&mut m, "down", 20);
+        assert_eq!(m.take_theme_preview().flatten().unwrap()["material"], "dark");
+        let fx = m.click(Target::Row { id: "themes:dark:1".into(), seg: Some(2), value: None }, 30);
+        let preview = m.take_theme_preview().flatten().unwrap();
+        assert!(fx.iter().any(|effect| matches!(effect, Effect::Theme { patch, .. } if patch == &preview)));
+        m.close(40);
+        assert_eq!(m.take_theme_preview(), Some(None));
+    }
+
+    #[test]
+    fn late_receiver_reads_do_not_restart_after_close_or_page_change() {
+        let pages = || vec![Page::new("home", "Home", "home").rail(), crate::settings::pages::receiver::page()];
+        for close in [true, false] {
+            let mut m = Model::new(pages(), json!({}), json!({}));
+            let effects = m.open(Some("receiver"), 0);
+            let tag = effects
+                .iter()
+                .find_map(|e| match e {
+                    Effect::Request { tag, path, .. } if path == "/v1/receiver/settings" => Some(*tag),
+                    _ => None,
+                })
+                .expect("receiver read");
+            if close {
+                m.close(10);
+            } else {
+                m.go_to("home", 10, &mut Vec::new());
+            }
+            m.update(&Input::Fetched { tag, status: 200, data: json!({"ok":true,"value":{}}) }, 20);
+            assert_eq!(m.docs.get("receiver")["ok"], true);
+            let effects = m.update(&Input::Tick, 3000);
+            assert!(!effects.iter().any(|e| matches!(e, Effect::Request { path, .. } if path == "/v1/receiver/settings")));
+        }
+    }
+    fn receiver_fixture(session: Value, reachable: bool, result: Value) -> Value {
+        json!({"settingsSession":session,"reachable":reachable,"fresh":reachable,"updatedAt":1000,
+            "settings":{"power":{"support":"supported","value":true,"updatedAt":1000,"writable":true,"pending":null,"result":result,"options":[]}}})
+    }
+    fn receiver_write(m: &mut Model, now: u64) -> u64 {
+        let action = m.rows().iter().find(|r| r.id == "power").unwrap().act.clone().unwrap();
+        let mut effects = Vec::new();
+        m.apply(action(Arg::Toggle(false)), now, &mut effects);
+        effects
+            .iter()
+            .find_map(|e| match e {
+                Effect::Request { tag, path, .. } if path == "/v1/receiver/set" => Some(*tag),
+                _ => None,
+            })
+            .expect("write")
+    }
+    #[test]
+    fn receiver_completion_survives_navigation_close_and_disconnect() {
+        for close in [true, false] {
+            let mut m = Model::new(vec![Page::new("home", "Home", "home").rail(), crate::settings::pages::receiver::page()], json!({}), json!({}));
+            m.topics.helper_up = true;
+            m.topics.set_helper("receiver", receiver_fixture(json!("old"), true, Value::Null));
+            m.open(Some("receiver"), 1000);
+            let tag = receiver_write(&mut m, 1001);
+            if close {
+                m.close(1002);
+            } else {
+                m.go_to("home", 1002, &mut Vec::new());
+            }
+            m.topics.set_helper("receiver", receiver_fixture(Value::Null, false, Value::Null));
+            m.update(&Input::Fetched { tag, status: 202, data: json!({"accepted":true,"requestId":"r1","session":"old"}) }, 1003);
+            assert_eq!(m.local.get("receiver.write")["requestId"], "r1");
+            assert!(!m.docs.has(&format!("receiver.set:power:{tag}")));
+            m.topics.set_helper("receiver", receiver_fixture(json!("new"), true, json!({"requestId":"r1","status":"failed","error":"Disconnected"})));
+            m.open(Some("receiver"), 1004);
+            let rows = m.rows();
+            assert!(rows.iter().any(|r| r.text == "Change failed: Disconnected"));
+            assert!(rows.iter().find(|r| r.id == "power").unwrap().on);
+        }
+    }
+    #[test]
+    fn receiver_rejection_survives_closed_page_and_lost_reachability() {
+        let mut m = Model::new(vec![Page::new("home", "Home", "home").rail(), crate::settings::pages::receiver::page()], json!({}), json!({}));
+        m.topics.helper_up = true;
+        m.topics.set_helper("receiver", receiver_fixture(json!("old"), true, Value::Null));
+        m.open(Some("receiver"), 1000);
+        let tag = receiver_write(&mut m, 1001);
+        m.close(1002);
+        m.topics.set_helper("receiver", receiver_fixture(json!("old"), false, Value::Null));
+        m.update(&Input::Fetched { tag, status: 409, data: json!({"error":{"message":"Busy"}}) }, 1003);
+        assert_eq!(m.local.get("receiver.write")["error"], "Busy");
+        m.open(Some("receiver"), 1004);
+        assert!(m.rows().iter().any(|r| r.text == "Change failed: Busy"));
+    }
+
+    #[test]
+    fn receiver_completion_ignores_older_same_setting_submission() {
+        let mut m = Model::new(vec![Page::new("home", "Home", "home").rail(), crate::settings::pages::receiver::page()], json!({}), json!({}));
+        m.topics.helper_up = true;
+        m.topics.set_helper("receiver", receiver_fixture(json!("same"), true, Value::Null));
+        m.open(Some("receiver"), 1000);
+        let first = receiver_write(&mut m, 1001);
+        m.now = 8000;
+        m.topics.set_helper("receiver",json!({"settingsSession":"same","reachable":true,"fresh":true,"updatedAt":8000,"settings":{"power":{"support":"supported","value":true,"updatedAt":8000,"writable":true,"pending":null,"result":null,"options":[]}}}));
+        let second = receiver_write(&mut m, 8000);
+        assert_ne!(first, second);
+        m.update(&Input::Fetched { tag: first, status: 202, data: json!({"accepted":true,"requestId":"old","session":"same"}) }, 8001);
+        assert!(m.local.get("receiver.write").get("requestId").is_none());
+        m.update(&Input::Fetched { tag: second, status: 202, data: json!({"accepted":true,"requestId":"new","session":"same"}) }, 8002);
+        assert_eq!(m.local.get("receiver.write")["requestId"], "new");
     }
 }

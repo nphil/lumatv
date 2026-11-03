@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Reduces the audio-format marks of the volume bar to one-colour PNGs for the compositor's QML.
 
-    python3 generators/gen-audio-logos.py [--height 112] [--out payload/compositor/lumatv/icons/audio]
+    python3 generators/gen-audio-logos.py [--height 112] [--out compositor/assets/ui/icons/audio]
 
 The sources sit in `generators/audio-logos/` (Wikimedia Commons, for this private build; the marks are their owners' trademarks):
     atmos.svg   File:Logo Dolby Atmos.svg   public domain
@@ -79,7 +79,7 @@ def clear(mask, boxes):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--height", type=int, default=112)
-    ap.add_argument("--out", default=os.path.join(ROOT, "payload", "compositor", "lumatv", "icons", "audio"))
+    ap.add_argument("--out", default=os.path.join(ROOT, "compositor", "assets", "ui", "icons", "audio"))
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     index = {}

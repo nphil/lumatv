@@ -1,0 +1,188 @@
+--- a/glass.rs
++++ b/glass.rs
+@@ -122,7 +122,7 @@
+ pub fn features(glass: &Glass, has_backdrop: bool) -> RimFeatures {
+     RimFeatures {
+         backdrop: has_backdrop,
+-        refraction: has_backdrop && glass.refraction > 0.0,
++        refraction: has_backdrop && (glass.refraction > 0.0 || glass.edge_lens.is_some()),
+         inset: inset_depth(glass).is_some(),
+     }
+ }
+@@ -132,6 +132,7 @@
+ pub struct SurfaceUniforms {
+     pub radius: f32,
+     pub tint: [f32; 4],
++    pub tint_bottom: [f32; 4],
+     pub edge: [f32; 4],
+     pub edge_width: f32,
+     pub highlight: [f32; 4],
+@@ -144,6 +145,7 @@
+     pub saturation: f32,
+     /// How far the backdrop is bent at the edge and over what distance.
+     pub bend: [f32; 2],
++    pub edge_lens: [f32; 3],
+     /// The inset's offset, the width of its soft edge and the corner radius of the blurred shape.
+     pub inset: [f32; 4],
+     pub inset_shade: [f32; 4],
+@@ -184,6 +186,9 @@
+         if glass.refraction > 0.0 {
+             inner = inner.max(bend[1]);
+         }
++        if let Some(lens) = glass.edge_lens {
++            inner = inner.max(lens.bevel.max(0.0));
++        }
+         let (mut inset, mut inset_shade, mut inset_light) = ([0.0; 4], [0.0; 4], [0.0; 4]);
+         if let Some(depth) = inset_depth(glass) {
+             let pad_half = [size.0 / 2.0 - edge_width, size.1 / 2.0 - edge_width];
+@@ -200,7 +205,8 @@
+         }
+         Self {
+             radius,
+-            tint: premultiplied(glass.tint),
++            tint: premultiplied(glass.tint_gradient.map_or(glass.tint, |g| g.top)),
++            tint_bottom: premultiplied(glass.tint_gradient.map_or(glass.tint, |g| g.bottom)),
+             edge,
+             edge_width,
+             highlight: premultiplied(glass.highlight),
+@@ -209,6 +215,7 @@
+             inner: inner + pixel,
+             saturation: glass.saturation,
+             bend,
++            edge_lens: glass.edge_lens.map_or([0.0; 3], |l| [l.bevel.max(0.0), l.lens.max(0.0), l.rim_clear.clamp(0.0, 1.0)]),
+             inset,
+             inset_shade,
+             inset_light,
+@@ -361,6 +368,7 @@
+     size: i32,
+     opacity: i32,
+     tint: i32,
++    tint_bottom: i32,
+     sheen: i32,
+     sheen_k: i32,
+     saturation: i32,
+@@ -377,6 +385,7 @@
+     pixel: i32,
+     opacity: i32,
+     tint: i32,
++    tint_bottom: i32,
+     edge: i32,
+     edge_width: i32,
+     highlight: i32,
+@@ -385,6 +394,7 @@
+     saturation: i32,
+     axes: i32,
+     bend: i32,
++    edge_lens: i32,
+     inset: i32,
+     inset_shade: i32,
+     inset_light: i32,
+@@ -476,6 +486,7 @@
+                     size: at(c"u_size"),
+                     opacity: at(c"u_opacity"),
+                     tint: at(c"u_tint"),
++                    tint_bottom: at(c"u_tint_bottom"),
+                     sheen: at(c"u_sheen"),
+                     sheen_k: at(c"u_sheen_k"),
+                     saturation: at(c"u_saturation"),
+@@ -496,6 +507,7 @@
+                     pixel: at(c"u_pixel"),
+                     opacity: at(c"u_opacity"),
+                     tint: at(c"u_tint"),
++                    tint_bottom: at(c"u_tint_bottom"),
+                     edge: at(c"u_edge"),
+                     edge_width: at(c"u_edge_width"),
+                     highlight: at(c"u_highlight"),
+@@ -504,6 +516,7 @@
+                     saturation: at(c"u_saturation"),
+                     axes: at(c"u_axes"),
+                     bend: at(c"u_bend"),
++                    edge_lens: at(c"u_edge_lens"),
+                     inset: at(c"u_inset"),
+                     inset_shade: at(c"u_inset_shade"),
+                     inset_light: at(c"u_inset_light"),
+@@ -715,6 +728,7 @@
+             gl.uniform2f(core.size, draw.size.0, draw.size.1);
+             gl.uniform1f(core.opacity, draw.opacity);
+             v4(core.tint, uniforms.tint);
++            v4(core.tint_bottom, uniforms.tint_bottom);
+             v4(core.sheen, uniforms.sheen);
+             gl.uniform2f(core.sheen_k, uniforms.sheen_k[0], uniforms.sheen_k[1]);
+             if saturating {
+@@ -750,6 +764,7 @@
+         gl.uniform1f(rim.pixel, 1.0 / draw.scale);
+         gl.uniform1f(rim.opacity, draw.opacity);
+         v4(rim.tint, uniforms.tint);
++        v4(rim.tint_bottom, uniforms.tint_bottom);
+         v4(rim.edge, uniforms.edge);
+         gl.uniform1f(rim.edge_width, uniforms.edge_width);
+         v4(rim.highlight, uniforms.highlight);
+@@ -758,6 +773,7 @@
+         gl.uniform1f(rim.saturation, uniforms.saturation);
+         v4(rim.axes, draw.axes);
+         gl.uniform2f(rim.bend, uniforms.bend[0], uniforms.bend[1]);
++        gl.uniform3f(rim.edge_lens, uniforms.edge_lens[0], uniforms.edge_lens[1], uniforms.edge_lens[2]);
+         v4(rim.inset, uniforms.inset);
+         v4(rim.inset_shade, uniforms.inset_shade);
+         v4(rim.inset_light, uniforms.inset_light);
+@@ -830,19 +846,16 @@
+     use compositor_protocol::{Backdrop, Shadow};
+ 
+     fn bare() -> Glass {
+-        Glass {
+-            corner_radius: 20.0,
+-            tint: Rgba(10, 20, 30, 100),
+-            edge: Rgba(50, 50, 50, 50),
+-            edge_width: 1.0,
+-            highlight: Rgba(0, 0, 0, 0),
+-            sheen: None,
+-            shadows: [None, None],
+-            depth: None,
+-            backdrop: Backdrop::None,
+-            saturation: 1.0,
+-            refraction: 0.0,
+-        }
++        Glass { corner_radius: 20.0,
++        tint: Rgba(10, 20, 30, 100),
++        edge: Rgba(50, 50, 50, 50),
++        edge_width: 1.0,
++        highlight: Rgba(0, 0, 0, 0),
++        sheen: None,
++        shadows: [None, None],
++        depth: None,
++        backdrop: Backdrop::None,
++        saturation: 1.0, refraction: 0.0, edge_lens: None, tint_gradient: None, }
+     }
+ 
+     fn shadow(offset_y: f32, blur: f32) -> Option<Shadow> {
+@@ -1146,19 +1159,16 @@
+ 
+     /// A surface that draws nothing until a test turns something on.
+     fn plain() -> Glass {
+-        Glass {
+-            corner_radius: 0.0,
+-            tint: Rgba(0, 0, 0, 0),
+-            edge: Rgba(0, 0, 0, 0),
+-            edge_width: 0.0,
+-            highlight: Rgba(0, 0, 0, 0),
+-            sheen: None,
+-            shadows: [None, None],
+-            depth: None,
+-            backdrop: Backdrop::None,
+-            saturation: 1.0,
+-            refraction: 0.0,
+-        }
++        Glass { corner_radius: 0.0,
++        tint: Rgba(0, 0, 0, 0),
++        edge: Rgba(0, 0, 0, 0),
++        edge_width: 0.0,
++        highlight: Rgba(0, 0, 0, 0),
++        sheen: None,
++        shadows: [None, None],
++        depth: None,
++        backdrop: Backdrop::None,
++        saturation: 1.0, refraction: 0.0, edge_lens: None, tint_gradient: None, }
+     }
+ 
+     fn solid(colour: Rgba) -> Content {
+

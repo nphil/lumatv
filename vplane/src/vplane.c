@@ -1,16 +1,8 @@
-/* lumatv-vplane: the TV's video decoder as the screen saver's picture, so the GPU is not.
+/* lumatv-vplane: play wallpaper or saver clips through the TV video decoder.
  *
- * A small root service of LumaTV's package (32-bit, because LG's media libraries are). It sits idle on a mailbox (a directory with a
- * request file the shell's QML writes and a status file it writes back: no socket, no bus client, no library loaded, no window) until a
- * `start` request, and then:
- *   - makes a window on LG's compositor (vpl_wl.c) with a video element exported on it, transparent but for what the player draws;
- *   - plays the art mode's prints on that element through NDL DirectMedia (vpl_ndl.c): one clip per print, a key picture followed by
- *     predicted copies of it that the player feeds at the clip's rate and loops (vpl_vpc.c, tools/vplane_clips.py);
- *   - drifts the element a few pixels every few seconds (the art mode's burn-in rule, vpl_plan.c), dims it over the first hour,
- *     changes the print every N minutes through black, and draws the corner clock above the video (vpl_ui.c);
- *   - stops when told, when the requester stops renewing (ttl), when the compositor closes the window, or when something fails: the
- *     window is destroyed first, so the screen is the shell's again at once.
- * Nothing here decides anything about the TV beyond that window. docs/research/videoplane-saver-result.md has the design and the TV steps.
+ * This 32-bit service sits idle on a mailbox until a start request. It creates a window with a video element, feeds the selected clip
+ * through NDL DirectMedia and loops it at the clip rate. Saver requests can also drift, dim and change prints and draw a corner clock.
+ * It destroys the window when stopped, the request expires, the compositor closes it, or playback fails.
  *
  *   lumatv-vplane [-d MAILBOX] [-c CLIPS] [-L NDL_LIB] [-a APP_ID] [-w screensaver|card|overlay|default] [-m KB] [-W WAKE_CMD]
  *   lumatv-vplane -n [-c CLIPS] [-L NDL_LIB]        probe: resolve the library, read the clips, print one JSON line, exit

@@ -32,10 +32,6 @@ impl Paths {
         self.data_dir.join("helper.json")
     }
 
-    /// `log-helper`
-    pub fn log_file(&self) -> PathBuf {
-        self.data_dir.join("log-helper")
-    }
 
     /// `helper.lock`: held (flock) by the running helper, which writes its pid into it.
     pub fn lock_file(&self) -> PathBuf {
@@ -397,15 +393,12 @@ impl Default for Listen {
 pub struct LogConfig {
     /// `error`, `warn`, `info` or `debug`.
     pub level: String,
-    /// The size at which the log file becomes `log-helper.1` and a new one starts.
-    pub max_bytes: u64,
 }
 
 impl Default for LogConfig {
     fn default() -> Self {
         Self {
             level: "info".to_owned(),
-            max_bytes: 256 * 1024,
         }
     }
 }
@@ -1455,7 +1448,6 @@ mod tests {
     #[test]
     fn paths_are_under_the_data_dir() {
         let p = Paths::new("/var/lib/lumatv");
-        assert_eq!(p.log_file(), PathBuf::from("/var/lib/lumatv/log-helper"));
         assert_eq!(
             p.config_file(),
             PathBuf::from("/var/lib/lumatv/helper.json")

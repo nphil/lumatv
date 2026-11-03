@@ -14,13 +14,13 @@ pub mod sheets;
 
 use self::chrome::{Bar, Head, Tabs};
 use self::figure::{FigureArt, FigureGeo};
-use self::layout::Sizes;
+use self::layout::{Sizes, tab_height};
 use self::list::{ListArt, row_of};
 use self::paint::Paint;
 use self::rows::other;
 use self::sheets::Sheets;
 use super::model::Target;
-use super::row::Kind;
+use super::row::{Arg, Kind, Op};
 use super::view::{PageView, SheetView, StopView, View, Zone};
 use crate::kit::focus::{Id, Region, Scope};
 use crate::kit::hint::glyph_side;
@@ -118,6 +118,8 @@ pub struct SettingsSurface {
     buttons: u32,
     /// When the fade out ends and the layers go (ms).
     closing_at: Option<u64>,
+    /// Refresh at the last draw, to finish a fade started before a promotion.
+    refresh_hz: Option<f32>,
     /// The ids of the page's rows in the order the model last gave them, for the pointer's targets.
     row_ids: Vec<String>,
     view: Option<View>,
@@ -127,12 +129,13 @@ pub struct SettingsSurface {
     page_named: Option<(String, u64)>,
     page_made_at: u64,
     page_due: Option<u64>,
+    saved_scroll: Option<(String, f32)>,
 }
 
 impl SettingsSurface {
     /// `system_z` is where stack 1 begins; Settings draws in its own band over it ([`z::SETTINGS`]).
     pub fn new(system_z: i32) -> Self {
-        SettingsSurface { z: system_z + z::SETTINGS, built: None, pointer: Pointer::new(), hover: None, last_xy: (0.0, 0.0), buttons: 0, closing_at: None, row_ids: Vec::new(), view: None, page_shown: None, page_named: None, page_made_at: 0, page_due: None }
+        SettingsSurface { z: system_z + z::SETTINGS, built: None, pointer: Pointer::new(), hover: None, last_xy: (0.0, 0.0), buttons: 0, closing_at: None, refresh_hz: None, row_ids: Vec::new(), view: None, page_shown: None, page_named: None, page_made_at: 0, page_due: None, saved_scroll: None }
     }
 
     pub fn is_up(&self) -> bool {
@@ -141,11 +144,20 @@ impl SettingsSurface {
 
     /// Everything is made again at the next draw (the look or the text size changed).
     pub fn restyle(&mut self) {
-        self.built = None;
+        if let Some(b) = &mut self.built { b.generation = 0; }
         self.page_shown = None;
         self.page_named = None;
         self.page_due = None;
     }
+    /// Glass strength changes neither row content nor geometry.
+    pub fn restyle_glass(&mut self, kit: &Kit) {
+        if let Some(b) = &mut self.built {
+            b.generation = kit.generation();
+            b._rail_pane.restyle(kit, b.over_video);
+            b._page_pane.restyle(kit, b.over_video);
+        }
+    }
+
 
     pub fn due_at(&self) -> Option<u64> {
         [self.closing_at, self.page_due].into_iter().flatten().min()
@@ -228,6 +240,19 @@ impl SettingsSurface {
 
     /// Draws `view` at `now` (ms, the models' clock) and `now_ns` (the engine's clock). Returns whether anything of Settings is on screen.
     pub fn apply(&mut self, kit: &mut Kit, engine: &mut Engine, view: &View, over_video: bool, now: u64, now_ns: u64) -> std::io::Result<bool> {
+        let promoted = self.refresh_hz.is_some_and(|hz| hz < crate::kit::motion::INSTANT_MODAL_HZ)
+            && kit.refresh_hz >= crate::kit::motion::INSTANT_MODAL_HZ;
+        self.refresh_hz = Some(kit.refresh_hz);
+        if promoted && self.built.is_some() {
+            if !view.open {
+                self.closing_at = None;
+                self.drop_all(engine);
+                return Ok(false);
+            }
+            if let Some(b) = &self.built {
+                let _ = b.fade.settle(Some(1.0), Some(0.0), Settle::Timed(MotionToken { duration_ms: 0, ease: Ease::Out }));
+            }
+        }
         if !view.open {
             if let Some(b) = &self.built
                 && self.closing_at.is_none()
@@ -241,17 +266,27 @@ impl SettingsSurface {
             }
             return Ok(self.built.is_some());
         }
-        self.closing_at = None;
+        let reopening = self.closing_at.take().is_some();
         let scale_bits = kit.text_scale.to_bits();
         let needs_build = self.built.as_ref().is_none_or(|b| b.generation != kit.generation() || b.scale_bits != scale_bits || b.over_video != over_video);
         if needs_build {
+            let keep_gallery = view.page.as_ref().is_some_and(|p| p.id == "themes")
+                && self.built.as_ref().is_some_and(|b| b.scale_bits == scale_bits && b.over_video == over_video);
+            let mut gallery = if keep_gallery { self.built.as_mut().and_then(|b| b.list.take()) } else { None };
+            if let Some(list) = &mut gallery { list.reparent_restyle(None, engine)?; }
+            self.saved_scroll = self.built.as_ref().and_then(|b| b.list.as_ref()).map(|l| (l.key().to_string(), l.offset()));
             self.drop_all(engine);
-            let b = self.build(kit, engine, over_video)?;
+            let mut b = self.build(kit, engine, over_video)?;
+            if let Some(list) = &mut gallery { list.reparent_restyle(Some(&b.root), engine)?; }
+            b.list = gallery;
             self.built = Some(b);
             let ms = kit.modal_beat_ms();
             if let Some(b) = &self.built {
                 let _ = b.fade.settle(Some(1.0), if ms == 0 { Some(0.0) } else { None }, Settle::Timed(MotionToken { duration_ms: ms, ease: Ease::Out }));
             }
+        } else if reopening && !promoted && let Some(b) = &self.built {
+            let ms = kit.modal_beat_ms();
+            let _ = b.fade.settle(Some(1.0), if ms == 0 { Some(0.0) } else { None }, Settle::Timed(MotionToken { duration_ms: ms, ease: Ease::Out }));
         }
         self.row_ids = view.page.as_ref().map(|p| p.rows.iter().map(|r| r.id.clone()).collect()).unwrap_or_default();
         let hover = self.hover;
@@ -400,7 +435,7 @@ impl SettingsSurface {
         let head_h = b.head.as_ref().map_or(0.0, |h| h.height);
         // the tabs
         let tabs_y = geo.content.y + head_h + sz.s4;
-        let tab_h = if page.tabs.len() > 1 { sz.target } else { 0.0 };
+        let tab_h = if page.tabs.len() > 1 { tab_height(kit, &sz) } else { 0.0 };
         let after_tabs = if page.tabs.len() > 1 { tabs_y + tab_h + sz.s4 } else { geo.content.y + head_h + sz.s4 };
         if page.tabs.len() > 1 {
             let sig = format!("{}|{}|{}", page.id, page.tabs.join(","), tabs_y);
@@ -448,7 +483,10 @@ impl SettingsSurface {
             if let Some(l) = &mut b.list {
                 l.release(engine);
             }
-            let list = ListArt::new(kit, engine, Some(&b.root), key, (viewport.x, viewport.y), (viewport.w, viewport.h), REGION_PAGE, Scope::BASE, z + 20, list::ROW_ID, false)?;
+            let mut list = ListArt::new(kit, engine, Some(&b.root), key.clone(), (viewport.x, viewport.y), (viewport.w, viewport.h), REGION_PAGE, Scope::BASE, z + 20, list::ROW_ID, false)?;
+            if let Some((saved_key, offset)) = self.saved_scroll.take() {
+                if saved_key == key { list.restore_offset(offset); }
+            }
             b.list = Some(list);
         }
         let stop = match page.stop {
@@ -616,10 +654,18 @@ impl SettingsSurface {
             return Some(Target::Info(row.id.clone()));
         }
         match row.kind {
+            Kind::Cards if row.id == "picture.pictureMode" => {
+                let index = card?;
+                let ops = (row.act.as_ref()?)(Arg::Index(index));
+                ops.into_iter().find_map(|op| match op {
+                    Op::Lg { ds, value, .. } if ds == "picture.pictureMode" => Some(Target::PictureCard { index, value }),
+                    _ => None,
+                })
+            }
             Kind::Cards => Some(Target::Row { id: row.id.clone(), seg: card, value: None }),
             Kind::Seg => {
                 let c = control?;
-                let seg = if c.contains(x, y) { b.list.as_ref()?.art(i).and_then(|_| seg_at(row, c, x)) } else { None };
+                let seg = if c.contains(x, y) { b.list.as_ref()?.art(i).and_then(|art| art.segment_at(x - c.x)) } else { None };
                 Some(Target::Row { id: row.id.clone(), seg: Some(seg.unwrap_or(0)), value: None })
             }
             Kind::Slider => {
@@ -680,15 +726,6 @@ impl SettingsSurface {
     }
 }
 
-/// The segment of a segmented row under `x`: the segments share the control's width.
-fn seg_at(row: &super::row::Row, control: Frame, x: f32) -> Option<usize> {
-    let n = row.options.len();
-    if n == 0 {
-        return None;
-    }
-    let w = control.w / n.min(n) as f32;
-    Some((((x - control.x) / w) as usize).min(n - 1))
-}
 
 fn make_chevron(kit: &mut Kit, paint: &Paint, side: u32, up: bool, z: i32) -> std::io::Result<Option<ImageLayer>> {
     let Some(mut px) = kit.icons.draw("chevron-down", side, paint.ink3) else { return Ok(None) };
@@ -732,7 +769,66 @@ mod tests {
     fn view(zone: Zone) -> View {
         View { open: true, zone, bar: Bar { title: String::new(), clock: String::new(), wired: false, link: false }, rail: Vec::new(), page: None, sheet: None, hints: Vec::new() }
     }
+    #[test]
+    fn settings_promotion_opening_reaches_full_opacity() {
+        for hz in [100.0, 120.0] {
+            let (_h, mut kit) = crate::kit::testkit::kit(1.0);
+            kit.refresh_hz = 60.0;
+            let mut engine = Engine::new(&kit).unwrap();
+            let mut surface = SettingsSurface::new(0);
+            let screen = view(Zone::Rail);
+            let before = kit.ui.scene.now_ns();
+            surface.apply(&mut kit, &mut engine, &screen, false, 1_000, before).unwrap();
+            let fade = &surface.built.as_ref().unwrap().fade;
+            assert!(fade.value_at(before) < 0.001, "manual 60 Hz starts transparent");
+            assert!(fade.value_at(kit.ui.scene.now_ns() + 2_000_000_000) > 0.999, "the opening fade reaches full opacity");
+            kit.refresh_hz = hz;
+            let now_ns = kit.ui.scene.now_ns();
+            surface.apply(&mut kit, &mut engine, &screen, false, 1_010, now_ns).unwrap();
+            assert!(surface.built.as_ref().unwrap().fade.value() > 0.999, "promotion finishes opening immediately");
+        }
+    }
 
+    fn reopen_during_fade(promote: bool) {
+        let (_h, mut kit) = crate::kit::testkit::kit(1.0);
+        kit.refresh_hz = 60.0;
+        let mut engine = Engine::new(&kit).unwrap();
+        let mut surface = SettingsSurface::new(0);
+        let mut screen = view(Zone::Rail);
+        let now_ns = kit.ui.scene.now_ns();
+        assert!(surface.apply(&mut kit, &mut engine, &screen, false, 1_000, now_ns).unwrap());
+        screen.open = false;
+        let now_ns = kit.ui.scene.now_ns();
+        assert!(surface.apply(&mut kit, &mut engine, &screen, false, 1_010, now_ns).unwrap());
+        assert!(surface.closing_at.is_some());
+        let end_ns = kit.ui.scene.now_ns() + 2_000_000_000;
+        assert!(surface.built.as_ref().unwrap().fade.value_at(end_ns) < 0.001, "the closing fade reaches transparent");
+        screen.open = true;
+        let now_ns = kit.ui.scene.now_ns();
+        assert!(surface.apply(&mut kit, &mut engine, &screen, false, 1_020, now_ns).unwrap());
+        if promote {
+            kit.refresh_hz = 120.0;
+            let now_ns = kit.ui.scene.now_ns();
+            assert!(surface.apply(&mut kit, &mut engine, &screen, false, 1_030, now_ns).unwrap());
+        }
+        let built = surface.built.as_ref().unwrap();
+        assert!(surface.closing_at.is_none());
+        let end_ns = kit.ui.scene.now_ns() + 2_000_000_000;
+        assert!(built.fade.value_at(end_ns) > 0.999, "the reopened surface reaches full opacity");
+        if promote {
+            assert!(built.fade.value() > 0.999, "promotion settles the reopened surface immediately");
+        }
+    }
+
+    #[test]
+    fn settings_reopen_during_fade_at_manual_60_reaches_full_opacity() {
+        reopen_during_fade(false);
+    }
+
+    #[test]
+    fn settings_reopen_during_fade_then_promote_reaches_full_opacity() {
+        reopen_during_fade(true);
+    }
     /// Round 22's 120 Hz ring: 60 of a Settings walk's 64 missed refreshes were the steps of the rail, each a page of a hundred layers made and drawn new.
     #[test]
     fn a_page_waits_for_a_rail_that_is_walking_and_not_for_the_first_step_or_a_step_into_the_page() {

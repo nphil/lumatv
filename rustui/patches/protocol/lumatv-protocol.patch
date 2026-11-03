@@ -1,0 +1,47 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -42,7 +42,7 @@
+ /// third variant means another curve), and `Out` is the CSS curve itself, not the cubic it resembles. Version 13 adds `Content::Live`,
+ /// a layer that shows the frames a producer sends to the frame endpoint ([`frames`]) without the app or the compositor copying them.
+ /// The app and the compositor ship together in the signed base, so there is no version-7, -8, -9, -10, -11 or -12 path.
+-pub const PROTOCOL_VERSION: u32 = 13;
++pub const PROTOCOL_VERSION: u32 = 14;
+ 
+ /// Where the compositor listens. Visible at the same path inside the Echo Show's Android chroot.
+ pub const SOCKET_PATH: &str = "/run/lumashow/compositor.sock";
+@@ -320,8 +320,25 @@
+     /// How far, in logical pixels, the backdrop is bent towards the inside at the edge, as through a lens; 0 is
+     /// flat glass. Ignored without a backdrop.
+     pub refraction: f32,
++    /// Outward edge optics, independent of legacy inward refraction.
++    pub edge_lens: Option<EdgeLens>,
++    /// A vertically varying premultiplied tint.
++    pub tint_gradient: Option<TintGradient>,
+ }
+ 
++#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
++pub struct EdgeLens {
++    pub bevel: f32,
++    pub lens: f32,
++    pub rim_clear: f32,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
++pub struct TintGradient {
++    pub top: Rgba,
++    pub bottom: Rgba,
++}
++
+ /// White light along the 135° light axis (`sheen.raised`): alpha `floor` outside `start..end` (fractions of the
+ /// body's diagonal from the upper-left corner) rising to `peak` in the middle of that band.
+ #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+@@ -1117,6 +1134,8 @@
+                     },
+                     saturation: 1.25,
+                     refraction: 6.0,
++                    edge_lens: Some(EdgeLens { bevel: 12.0, lens: 24.0, rim_clear: 0.6 }),
++                    tint_gradient: Some(TintGradient { top: Rgba(3, 4, 5, 30), bottom: Rgba(4, 5, 6, 40) }),
+                 }),
+             },
+             Request::Create {
+

@@ -40,7 +40,7 @@ fn answer_settings(env: &mut Env) {
             json!({"results": []})
         } else {
             match cat.as_str() {
-                "picture" => json!({"category": "picture", "settings": {"pictureMode": "cinema", "backlight": "40", "energySaving": "auto", "eyeComfortMode": "off"}}),
+                "picture" => json!({"category": "picture", "dimension": {"dynamicRange": "sdr"}, "settings": {"pictureMode": "cinema", "backlight": "40", "energySaving": "auto", "eyeComfortMode": "off"}}),
                 "general" => json!({"category": "general", "settings": {"remotePointer": "on"}}),
                 _ => json!({"category": "option", "settings": {"screenOff": "off"}}),
             }
@@ -48,6 +48,129 @@ fn answer_settings(env: &mut Env) {
         calls.extend(env.update(&Input::Luna { tag, payload: answer }, 1).0);
     }
 }
+
+fn sdr_modes(env: &mut Env) {
+    env.sio.learn_desc("picture", &json!({"results": [{"key": "pictureMode", "values": {"arrayExt": [
+        {"value": "filmMaker"}, {"value": "cinema"}, {"value": "normal"}, {"value": "vivid"},
+        {"value": "game"}, {"value": "sports"}, {"value": "eco"}
+    ]}}]}));
+}
+
+fn dolby_modes(env: &mut Env) {
+    env.sio.learn("picture", &json!({"settings": {"pictureMode": "dolbyHdrCinema"}}));
+    env.sio.learn_desc("picture", &json!({"results": [{"key": "pictureMode", "values": {"arrayExt": [
+        {"value": "dolbyHdrCinema"}, {"value": "hiddenMode", "visible": false},
+        {"value": "dolbyHdrGame", "active": false}, {"value": "filmMaker"}
+    ]}}]}));
+}
+
+#[test]
+fn native_picture_modes_step_with_keys_and_pointer_and_reopen_from_readback() {
+    let (mut q, mut env) = rig(true);
+    dolby_modes(&mut env);
+    press(&mut q, &mut env, K::Right);
+    assert_eq!(env.sio.text("picture.pictureMode"), "filmMaker");
+    q.click(Target::Row(0), Some(-1), &mut env, 101);
+    assert_eq!(env.sio.text("picture.pictureMode"), "dolbyHdrCinema");
+    env.sio.learn("picture", &json!({"settings": {"pictureMode": "filmMaker"}}));
+    q.open(&mut env, 200);
+    let row = &q.rows(&env)[0];
+    assert_eq!(row.options[row.index.unwrap()], "Filmmaker");
+}
+
+#[test]
+fn native_picture_popup_keeps_the_displayed_choice_when_the_description_changes() {
+    let (mut q, mut env) = rig(true);
+    dolby_modes(&mut env);
+    press(&mut q, &mut env, K::Ok);
+    let Some(PopupView::Pick { options, .. }) = q.view(&env, 0).popup else { panic!("picture choices") };
+    assert_eq!(options.len(), 3, "hidden mode is omitted, inactive mode remains visible");
+    assert!(options[0].current);
+    env.sio.learn_desc("picture", &json!({"results": [{"key": "pictureMode", "values": {"arrayExt": [
+        {"value": "filmMaker"}, {"value": "dolbyHdrCinema"}
+    ]}}]}));
+    q.click(Target::Option(2), None, &mut env, 101);
+    assert_eq!(env.sio.text("picture.pictureMode"), "filmMaker");
+}
+
+#[test]
+fn inactive_native_picture_mode_cannot_be_selected_in_the_popup() {
+    let (mut q, mut env) = rig(true);
+    dolby_modes(&mut env);
+    press(&mut q, &mut env, K::Ok);
+    let out = q.click(Target::Option(1), None, &mut env, 101);
+    assert!(out.effects.is_empty());
+    assert_eq!(env.sio.text("picture.pictureMode"), "dolbyHdrCinema");
+}
+
+#[test]
+fn missing_current_mode_stays_visible_and_available_choices_remain_selectable() {
+    let (mut q, mut env) = rig(true);
+    env.sio.learn("picture", &json!({"settings": {"pictureMode": "unlistedNative"}, "dimension": {"pictureMode": "unlistedNative", "dynamicRange": "dolbyHdr", "input": "hdmi1"}}));
+    env.sio.learn_desc("picture", &json!({"key": "pictureMode", "values": {"arrayExt": [
+        {"value": "dolbyHdrCinema"}, {"value": "dolbyHdrGame", "active": false}, {"value": "filmMaker"}
+    ]}}));
+    q.open(&mut env, 200);
+    let row = &q.rows(&env)[0];
+    assert_eq!(row.value, "unlistedNative");
+    assert!(row.enabled);
+    press(&mut q, &mut env, K::Ok);
+    q.click(Target::Option(2), None, &mut env, 201);
+    assert_eq!(env.sio.text("picture.pictureMode"), "filmMaker");
+}
+
+#[test]
+fn popup_skips_inactive_and_rechecks_late_native_availability() {
+    let (mut q, mut env) = rig(true);
+    dolby_modes(&mut env);
+    press(&mut q, &mut env, K::Ok);
+    let Some(PopupView::Pick { options, .. }) = q.view(&env, 0).popup else { panic!() };
+    assert!(!options[1].enabled);
+    press(&mut q, &mut env, K::Down);
+    assert!(matches!(q.view(&env, 0).popup, Some(PopupView::Pick { index: 2, .. })));
+    env.sio.learn_desc("picture", &json!({"results": [{"key": "pictureMode", "values": {"arrayExt": [
+        {"value": "filmMaker", "active": false}, {"value": "dolbyHdrCinema"}
+    ]}}]}));
+    assert!(press(&mut q, &mut env, K::Ok).effects.is_empty());
+    assert_eq!(env.sio.text("picture.pictureMode"), "dolbyHdrCinema");
+}
+
+#[test]
+fn unavailable_picture_modes_keep_native_readback_without_inventing_choices() {
+    let (mut q, mut env) = rig(true);
+    env.sio.learn("picture", &json!({"settings": {"pictureMode": "dolbyHdrCinema"}}));
+    q.open(&mut env, 200);
+    let row = &q.rows(&env)[0];
+    assert!(row.options.is_empty());
+    assert_eq!(row.value, "dolbyHdrCinema");
+    assert!(q.click(Target::Row(0), Some(1), &mut env, 201).effects.is_empty());
+    assert_eq!(env.sio.text("picture.pictureMode"), "dolbyHdrCinema");
+}
+
+#[test]
+fn fast_sdr_arrows_keep_working_while_picture_context_refreshes() {
+    let (mut q, mut env) = rig(true);
+    press(&mut q, &mut env, K::Right);
+    let row = &q.rows(&env)[0];
+    assert_eq!(crate::panels::quick_layout::below_text(row).as_deref(), Some("Standard"));
+    press(&mut q, &mut env, K::Right);
+    assert_eq!(env.sio.text("picture.pictureMode"), "vivid");
+}
+
+#[test]
+fn hdr_readback_and_empty_description_never_offer_sdr_fallback() {
+    let (mut q, mut env) = rig(true);
+    env.sio.learn("picture", &json!({"settings": {"pictureMode": "filmMaker"}, "dimension": {"dynamicRange": "dolbyHdr"}}));
+    q.open(&mut env, 200);
+    assert!(q.rows(&env)[0].options.is_empty());
+    assert_eq!(q.rows(&env)[0].value, "Filmmaker");
+    env.sio.learn("picture", &json!({"settings": {"pictureMode": "cinema"}, "dimension": {"dynamicRange": "sdr"}}));
+    env.sio.learn_desc("picture", &json!({"results": [{"key": "pictureMode", "values": {"arrayExt": []}}]}));
+    q.open(&mut env, 300);
+    assert!(q.rows(&env)[0].options.is_empty());
+    assert_eq!(q.rows(&env)[0].value, "Cinema");
+}
+
 
 fn focused(q: &Quick, env: &Env) -> String {
     let rows = q.rows(env);
@@ -146,6 +269,7 @@ fn tiles_that_come_and_go_keep_the_focus_on_the_tile_it_was_on() {
 #[test]
 fn left_and_right_step_a_stepper_through_its_choices_and_wrap_and_the_receiver_nudges_the_tv_volume() {
     let (mut q, mut env) = rig(false);
+    sdr_modes(&mut env);
     // picture mode: cinema (1); Right goes on, Left three times wraps to the last
     let out = press(&mut q, &mut env, K::Right);
     assert_eq!(out.effects.len(), 1);
@@ -195,6 +319,7 @@ fn ok_on_a_stepper_does_nothing_until_the_owner_has_the_cards_on_and_then_opens_
     assert!(press(&mut q, &mut env, K::Ok).effects.is_empty());
     assert!(!q.popup_open());
     let (mut q, mut env) = rig(true);
+    sdr_modes(&mut env);
     press(&mut q, &mut env, K::Ok);
     assert!(q.popup_open());
     let v = q.view(&env, 0);
@@ -251,7 +376,7 @@ fn the_oled_tile_opens_a_slider_whose_keys_move_the_backlight_by_five_and_the_ca
     let Some(PopupView::Slider { value, .. }) = q.view(&env, 0).popup else { panic!() };
     assert_eq!(value, 100.0);
     // the TV says something else (a remote's own key): the card follows once no key has moved it for 800 ms
-    env.sio.write("picture.backlight", &json!(30), None);
+    env.sio.write("picture.backlight", &json!(30), None, 100);
     q.tick(&mut env, 100 + 500);
     let Some(PopupView::Slider { value, .. }) = q.view(&env, 0).popup else { panic!() };
     assert_eq!(value, 100.0, "a key moved it a moment ago");
@@ -511,4 +636,50 @@ fn the_view_says_where_the_panel_sits_and_what_the_head_says() {
     let (q, env) = rig(true);
     let v = q.view(&env, 0);
     assert_eq!(v.hints_foot, vec![Hint::hold(Key::Ok, Action::Edit), Hint::key(Key::Back, Action::Close)]);
+}
+
+#[test]
+fn video_reading_is_joined_to_the_visible_source_and_expires() {
+    let (mut q, mut env) = rig(false);
+    let foreground = |context: &str, app: &str| Input::Topic { topic: "foreground".into(), data: json!({"app":app,"home":false,"video":{"context":context,"app":app}}) };
+    env.update(&foreground("one", "player"), 1);
+    q.sync(&env);
+    let due = q.info_due.unwrap();
+    let request = q.tick(&mut env, due);
+    let tag = request.effects.iter().find_map(|e| match e {
+        Effect::Luna { tag, uri, .. } if uri.ends_with("videooutput/getStatus") => Some(*tag), _ => None,
+    }).unwrap();
+    let answer = Input::Luna { tag, payload: json!({"video":[{"sink":"MAIN","connected":true,"context":"one","appId":"player","width":1920,"height":1080,"frameRate":24}]}) };
+    q.answer(&answer, &mut env, due + 1);
+    assert_eq!(q.view(&env, due + 1).video_info, Some(VideoInfo { width: Some(1920), height: Some(1080), fps: Some(24.0) }));
+    env.update(&foreground("two", "other"), due + 2);
+    q.sync(&env);
+    q.answer(&answer, &mut env, due + 3);
+    assert!(q.view(&env, due + 3).video_info.is_none());
+    let request = q.tick(&mut env, due + 1000);
+    let fresh_tag = request.effects.iter().find_map(|e| match e { Effect::Luna { tag, uri, .. } if uri.ends_with("videooutput/getStatus") => Some(*tag), _ => None }).unwrap();
+    q.answer(&Input::Luna { tag: fresh_tag, payload: json!({"video":[{"sink":"MAIN","connected":true,"context":"two","appId":"other","width":1280,"height":720,"frameRate":30}]}) }, &mut env, due + 1001);
+    assert_eq!(q.view(&env, due + 1001).video_info, Some(VideoInfo { width: Some(1280), height: Some(720), fps: Some(30.0) }));
+    assert!(q.view(&env, due + 4002).video_info.is_none());
+    q.close(&mut env, due + 4003);
+    q.open(&mut env, due + 4004);
+    q.answer(&answer, &mut env, due + 4005);
+    assert!(q.view(&env, due + 4005).video_info.is_none());
+}
+
+#[test]
+fn disconnected_authority_and_mismatched_status_never_supply_video() {
+    let (mut q, mut env) = rig(false);
+    let due = q.info_due.unwrap();
+    assert!(!q.tick(&mut env, due).effects.iter().any(|e| matches!(e, Effect::Luna { uri, .. } if uri.ends_with("videooutput/getStatus"))));
+    env.update(&Input::Topic { topic: "foreground".into(), data: json!({"app":"player","video":{"context":"one","app":"player"}}) }, due + 1);
+    q.sync(&env);
+    let request = q.tick(&mut env, due + 1000);
+    let tag = request.effects.iter().find_map(|e| match e { Effect::Luna { tag, uri, .. } if uri.ends_with("videooutput/getStatus") => Some(*tag), _ => None }).unwrap();
+    q.answer(&Input::Luna { tag, payload: json!({"video":[{"sink":"MAIN","connected":true,"context":"one","appId":"other","width":3840,"height":2160}]}) }, &mut env, due + 1001);
+    assert!(q.view(&env, due + 1001).video_info.is_none());
+    env.update(&Input::Topic { topic: "channel.up".into(), data: json!(false) }, due + 1002);
+    q.sync(&env);
+    q.answer(&Input::Luna { tag, payload: json!({"video":[{"sink":"MAIN","connected":true,"context":"one","appId":"player","width":3840,"height":2160}]}) }, &mut env, due + 1003);
+    assert!(q.view(&env, due + 1003).video_info.is_none());
 }

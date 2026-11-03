@@ -232,6 +232,41 @@ class RustHome(unittest.TestCase):
                     server.server_close()
                     helper.server_close()
 
+    def test_cameras_card_opens_the_native_viewer_and_back_restores_home(self):
+        cases = [("ready", CAMERAS), ("unlinked", {"state": "unlinked", "cameras": []}),
+                 ("offline", {"state": "offline", "reason": "Scrypted does not answer", "cameras": []})]
+
+        for state, topic in cases:
+            with self.subTest(state=state), tempfile.TemporaryDirectory(prefix="home-cameras-") as data:
+                shot = os.path.join(data, "grid.png")
+                steps = [self.k(600, "down", "down"), self.ev(1100), self.k(1200, "ok"),
+                         ["--eval", "1500:state"], ["--eval", "1600:geometry"], ["--snap", "1700:" + shot],
+                         self.k(2000, "back"), ["--eval", "2300:state"]]
+                if state == "ready":
+                    steps += [self.k(2600, "ok"), self.k(3000, "ok"), ["--eval", "3300:state"],
+                              self.k(3500, "ok"), ["--eval", "3800:state"], self.k(4000, "back"),
+                              ["--eval", "4300:state"], self.k(4500, "ok"), self.k(4900, "ok"),
+                              self.k(5300, "back"), ["--eval", "5600:state"]]
+                out, values, _ = self.host(5800 if state == "ready" else 2500, steps, layout=CAMERAS_LAYOUT,
+                                           feeds={"cameras": topic}, data=data, kinds="home,cameras",
+                                           extra=["--helper-port", "1", "--virtual", "--refresh", "24"])
+                self.assertEqual(values[0]["widgetFocusId"], "cameras", out)
+                self.assertEqual(values[1]["cameras"]["screen"]["mode"], "grid", out)
+                self.assertEqual(values[1]["cameras"]["link"], state, out)
+                self.assertEqual(values[2]["cameras"]["base"], "grid", out)
+                self.assertEqual(values[2]["cameras"]["tileCameras"], ["front", "back"] if state == "ready" else [], out)
+                self.assertEqual(values[3]["cameras"]["screen"]["mode"], "", out)
+                self.assertEqual(values[3]["home"]["widgetFocusId"], "cameras", out)
+                if state == "ready":
+                    self.assertEqual(values[4]["cameras"]["screen"]["mode"], "full", out)
+                    self.assertEqual(values[4]["cameras"]["screen"]["camera"], "front", out)
+                    self.assertEqual(values[5]["cameras"]["screen"]["mode"], "grid", out)
+                    self.assertEqual(values[6]["cameras"]["screen"]["mode"], "", out)
+                    self.assertEqual(values[6]["home"]["widgetFocusId"], "cameras", out)
+                    self.assertEqual(values[7]["cameras"]["screen"]["mode"], "", out)
+                    self.assertEqual(values[7]["home"]["widgetFocusId"], "cameras", out)
+
+
     # ---- the layout editor
     def test_the_editor_picks_up_a_card_moves_it_by_the_cell_turns_a_move_down_and_saves_the_owners_layout(self):
         steps = [self.k(600, "down"), self.hold(900, "ok", 900), self.ev(2000),

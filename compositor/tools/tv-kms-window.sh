@@ -22,6 +22,7 @@ CTL="$LD --library-path $LIB $D/bin/lumatv-compositor ctl --runtime-dir $D"
 export XDG_RUNTIME_DIR=$D WAYLAND_DISPLAY=wayland-lumatv LUMATV_LOG=debug
 OUT=$D/out/kms
 
+. "$D/compositor.sh"
 restore() {
     pkill -f 'bin/lumatv-compositor' 2>/dev/null
     pkill -f 'bin/x2cli' 2>/dev/null
@@ -65,13 +66,14 @@ run)
     wait $CLIPID; echo "A: client exit $?"
     n=0; while pgrep -f 'bin/lumatv-compositor' >/dev/null && [ $n -lt 10 ]; do sleep 0.5; n=$((n+1)); done
     pkill -f 'bin/lumatv-compositor' 2>/dev/null; sleep 0.5
+    comp_current_log >> $OUT/a-server.log
     grep -E 'kms:|direct:|egl:|error|warn|summary' $OUT/a-server.log | grep -v 'ld.so.preload' | head -30
     fi
     if want b; then
     # Case B: LG's own client (32-bit libmali, AFBC dma-bufs): the direct scan-out attempt with the client's own layout (modifier
     # 0x0800000000000151, which the plane's list does not name, so the experiment trusts it: --scanout-trust). "scanout: fb N for ..." means the
     # plane took it, "scanout: refused" or "composed" lines say why not (docs/research/scanout-research.md, TV check list b).
-    ( $SRV --renderer kms --driver $BLOB --buffers own --shell off --scanout direct --scanout-trust 0x0800000000000151 --card /dev/dri/card0 --seconds 30 --exit-on-disconnect --capture-dir $OUT/b --capture-every 200 > $OUT/b-server.log 2>&1 & )
+    ( $SRV --renderer kms --driver $BLOB --buffers own --scanout direct --scanout-trust 0x0800000000000151 --card /dev/dri/card0 --seconds 30 --exit-on-disconnect --capture-dir $OUT/b --capture-every 200 > $OUT/b-server.log 2>&1 & )
     n=0; while [ ! -S $D/wayland-lumatv ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n+1)); done
     sleep 0.5
     timeout 30 $D/bin/x2cli $MALI32 --frames 600 --size 1920x1080 --interval 1 --pattern --opaque > $OUT/b-client.log 2>&1 &
@@ -83,6 +85,7 @@ run)
     wait $CLIPID; echo "B: client exit $?"
     n=0; while pgrep -f 'bin/lumatv-compositor' >/dev/null && [ $n -lt 10 ]; do sleep 0.5; n=$((n+1)); done
     pkill -f 'bin/lumatv-compositor' 2>/dev/null; sleep 0.5
+    comp_current_log >> $OUT/b-server.log
     grep -E 'kms:|direct:|scanout|egl:|error|warn|summary' $OUT/b-server.log | grep -v 'ld.so.preload' | head -30
     fi
     if want c; then
@@ -90,7 +93,7 @@ run)
     # asked for the layout the plane takes (WAYLAND_AFBC=0, a window without alpha) and draws the pattern; its buffers go to the primary plane. c-ready: the
     # panel is captured while the frames are direct; `ctl scanout off` composes the same buffers and c2-ready is the panel again. The counters of each
     # state are in c-scanout-*.json ("frames", "refused", "last", "held", "descriptors"), the layout of each buffer in c-server.log ("scanout: fb N for ...").
-    ( $SRV --renderer kms --driver $BLOB --buffers driver --shell off --scanout direct --card /dev/dri/card0 --seconds 60 --exit-on-disconnect > $OUT/c-server.log 2>&1 & )
+    ( $SRV --renderer kms --driver $BLOB --buffers driver --scanout direct --card /dev/dri/card0 --seconds 60 --exit-on-disconnect > $OUT/c-server.log 2>&1 & )
     n=0; while [ ! -S $D/wayland-lumatv ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n+1)); done
     if [ ! -S $D/wayland-lumatv ]; then echo "C: server did not start"; sed -n 1,40p $OUT/c-server.log; exit 1; fi
     sleep 0.5
@@ -112,6 +115,7 @@ run)
     kill $CLIPID 2>/dev/null; wait $CLIPID 2>/dev/null; echo "C: client stopped"
     n=0; while pgrep -f 'bin/lumatv-compositor' >/dev/null && [ $n -lt 10 ]; do sleep 0.5; n=$((n+1)); done
     pkill -f 'bin/lumatv-compositor' 2>/dev/null; sleep 0.5
+    comp_current_log >> $OUT/c-server.log
     grep -E 'kms:|scanout|egl:|error|warn|summary' $OUT/c-server.log | grep -v 'ld.so.preload' | head -40
     fi
     trap - EXIT INT TERM

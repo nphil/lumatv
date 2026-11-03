@@ -68,20 +68,22 @@ pub fn save(path: &Path, url: &str, token: &str) -> Result<HaLink, StoreError> {
         .create(dir)
         .map_err(|e| StoreError(format!("{}: {e}", dir.display())))?;
     // A directory made earlier by something else may be wider than this one wants.
-    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| StoreError(format!("{}: {e}", dir.display())))?;
     let stored = Stored {
         url: link.endpoint.display(),
         token: link.token.expose().to_owned(),
     };
     let bytes = serde_json::to_vec(&stored).map_err(|e| StoreError(e.to_string()))?;
     let tmp = path.with_extension("json.tmp");
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)
+        .map_err(|e| StoreError(format!("{}: {e}", path.display())))?;
     let written = (|| {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&tmp)?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         file.write_all(&bytes)?;
         file.sync_all()?;
         drop(file);
@@ -135,6 +137,34 @@ mod tests {
         assert!(clear(&path));
         assert!(load(&path).unwrap().is_none());
         assert!(!clear(&path));
+    }
+
+    #[test]
+    fn replacement_refuses_unowned_temps_and_keeps_the_old_pair() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("link.json");
+        let tmp = path.with_extension("json.tmp");
+        let target = dir.path().join("target");
+        save(&path, "192.168.1.146", TOKEN).unwrap();
+        std::fs::write(&tmp, "unowned").unwrap();
+        assert!(save(&path, "192.168.1.147", "new-token").is_err());
+        assert_eq!(std::fs::read_to_string(&tmp).unwrap(), "unowned");
+        std::fs::remove_file(&tmp).unwrap();
+        std::fs::write(&target, "untouched").unwrap();
+        std::os::unix::fs::symlink(&target, &tmp).unwrap();
+        assert!(save(&path, "192.168.1.147", "new-token").is_err());
+        assert!(std::fs::symlink_metadata(&tmp).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "untouched");
+        let old = load(&path).unwrap().unwrap();
+        assert_eq!(old.endpoint.display(), "http://192.168.1.146:8123");
+        assert_eq!(old.token.expose(), TOKEN);
+        std::fs::remove_file(&tmp).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        save(&path, "192.168.1.147", "new-token").unwrap();
+        let new = load(&path).unwrap().unwrap();
+        assert_eq!(new.endpoint.display(), "http://192.168.1.147:8123");
+        assert_eq!(new.token.expose(), "new-token");
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }
 
     #[test]

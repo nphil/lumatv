@@ -23,6 +23,68 @@ use serde_json::{Value, json};
 
 /// The refresh without the mode: LG's divider of 2 over the 120 Hz OSD vsync.
 pub const DEFAULT_HZ: u32 = 60;
+
+/// Runtime-only refresh policy; startup selection remains the fallback.
+pub struct Policy {
+    pub default_hz: u32,
+    pub manual: bool,
+    marquee: bool,
+    interactive: bool,
+}
+
+impl Policy {
+    pub fn new(default_hz: u32) -> Self {
+        Self { default_hz, manual: false, marquee: false, interactive: false }
+    }
+
+    fn target(&self) -> u32 {
+        if self.marquee || self.interactive { 120 } else { self.default_hz }
+    }
+}
+
+impl crate::server::state::State {
+    /// Changes the output first, so refusal leaves the effective state unchanged.
+    pub fn refresh_apply(&mut self, hz: u32) -> io::Result<u32> {
+        let hz = self.output.set_refresh(hz)?;
+        self.config.refresh_hz = hz;
+        self.config.tick_ns = period_ns(hz);
+        Ok(hz)
+    }
+
+    fn refresh_votes(&self) -> (bool, bool) {
+        let marquee = self.scene.foreground(&self.surfaces).is_some_and(|w| w.app_id() == "com.beb.plxnative");
+        let interactive = self.shell_rust.connected && self.shell_rust.engine_connected && self.luna_state.power.rendering
+            && self.shell_rust.ui_state.get("interactiveVisible").and_then(Value::as_bool) == Some(true);
+        (marquee, interactive)
+    }
+
+    /// Re-evaluates the combined foreground and interactive UI votes.
+    pub fn refresh_policy_sync(&mut self) {
+        let (marquee, interactive) = self.refresh_votes();
+        self.refresh_policy.marquee = marquee;
+        self.refresh_policy.interactive = interactive;
+        let hz = self.refresh_policy.target();
+        if !self.refresh_policy.manual && hz != self.config.refresh_hz {
+            match self.refresh_apply(hz) {
+                Ok(hz) => {
+                    self.journal(format!("refresh: {hz} Hz (automatic policy)"));
+                    self.shell_sync_topics();
+                },
+                Err(e) => log::warn!("refresh: automatic {hz} Hz refused: {e}"),
+            }
+        }
+    }
+
+    pub fn refresh_auto(&mut self) -> io::Result<u32> {
+        let (marquee, interactive) = self.refresh_votes();
+        let hz = if marquee || interactive { 120 } else { self.refresh_policy.default_hz };
+        let hz = if hz == self.config.refresh_hz { hz } else { self.refresh_apply(hz)? };
+        self.refresh_policy.marquee = marquee;
+        self.refresh_policy.interactive = interactive;
+        self.refresh_policy.manual = false;
+        Ok(hz)
+    }
+}
 /// The OSD's vsync, which the divider divides: 120 a second on this set.
 const OSD_VSYNC_HZ: u32 = 120;
 /// The module parameter that divides the OSD's vsync into page-flip completions.

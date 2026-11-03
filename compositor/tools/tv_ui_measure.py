@@ -167,6 +167,8 @@ def main():
 
         # 3. The measurement window on the set.
         tv.put(os.path.join(here, "tv-ui-measure.sh"), "/tmp/lumatv/ui-measure.sh")
+        tv.put(os.path.join(here, "..", "..", "tools", "compositor.sh"), "/tmp/lumatv/compositor.sh")
+        tv.put(os.path.join(here, "..", "..", "tools", "logrelay.py"), "/tmp/lumatv/logrelay.py")
         o = tv_gate.pty("sh /tmp/lumatv/ui-measure.sh run", 600)
         print(o)
         note("measure: %s" % ("restored LG's compositor" if "restore: surface-manager-daemon started (active)" in o else "CHECK the end state (restore line missing)"))

@@ -15,6 +15,14 @@ use crate::Rect;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SurfaceId(pub u32);
 
+/// Painted subtitle bounds in the client-specified canvas coordinates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SubtitleBounds {
+    pub canvas_width: i32,
+    pub canvas_height: i32,
+    pub rect: Rect,
+}
+
 /// The role a surface took; a surface has at most one for its life (`wl_surface` rules).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
@@ -43,6 +51,7 @@ pub struct Pending {
     pub buffer_damage: Vec<Rect>,
     pub opaque: Option<Option<Vec<Rect>>>,
     pub input: Option<Option<Vec<Rect>>>,
+    pub subtitle_bounds: Option<SubtitleBounds>,
     pub frame_callbacks: Vec<WlCallback>,
     pub scale: Option<i32>,
     pub transform: Option<u32>,
@@ -68,6 +77,9 @@ impl Pending {
         if self.input.is_some() {
             into.input = self.input;
         }
+        if self.subtitle_bounds.is_some() {
+            into.subtitle_bounds = self.subtitle_bounds;
+        }
         into.frame_callbacks.extend(self.frame_callbacks);
         if self.scale.is_some() {
             into.scale = self.scale;
@@ -91,6 +103,8 @@ pub struct Current {
     pub y_invert: bool,
     pub opaque: Option<Vec<Rect>>,
     pub input: Option<Vec<Rect>>,
+    /// None means unknown; a zero-sized rectangle means known empty.
+    pub subtitle_bounds: Option<SubtitleBounds>,
     pub scale: i32,
     pub transform: u32,
     /// Damage since the last presented frame, in surface pixels; `None` means everything.
@@ -115,6 +129,7 @@ pub struct Surface {
     /// A synchronized subsurface's commits accumulate here until the parent commits.
     pub cached: Option<Pending>,
     pub current: Current,
+    pub subtitle_region_live: bool,
     pub children: Vec<SurfaceId>,
     /// Subsurface placement relative to the parent.
     pub position: (i32, i32),
@@ -132,6 +147,7 @@ impl Surface {
             pending: Pending::default(),
             cached: None,
             current: Current { scale: 1, y_invert: true, ..Default::default() },
+            subtitle_region_live: false,
             children: Vec::new(),
             position: (0, 0),
             sync: true,
@@ -158,6 +174,8 @@ impl Surface {
 pub struct CommitEffects {
     /// The surface went from unmapped to mapped (first buffer) or the reverse.
     pub mapped_changed: Option<bool>,
+    /// Placement, buffer dimensions or scaling changed, independently of pixel damage.
+    pub geometry_changed: bool,
     /// A new buffer became current (import it, add damage).
     pub new_buffer: bool,
     pub size: Option<(i32, i32)>,
@@ -269,6 +287,7 @@ impl Surfaces {
         }
         let mut eff = CommitEffects::default();
         let was_mapped = s.current.buffer.is_some();
+        let geometry = (s.position, s.current.size, s.current.scale, s.current.transform);
         if let Some(b) = p.buffer {
             let old = s.current.buffer.take();
             match b {
@@ -303,6 +322,9 @@ impl Surfaces {
         if let Some(i) = p.input {
             s.current.input = i;
         }
+        if let Some(bounds) = p.subtitle_bounds {
+            s.current.subtitle_bounds = Some(bounds);
+        }
         if let Some(sc) = p.scale {
             s.current.scale = sc.max(1);
         }
@@ -312,6 +334,7 @@ impl Surfaces {
         if let Some(pos) = p.sub_position {
             s.position = pos;
         }
+        eff.geometry_changed = geometry != (s.position, s.current.size, s.current.scale, s.current.transform);
         // Damage: surface-local rectangles, buffer damage divided by scale. Any full-surface rectangle, a new
         // buffer of another size or a first buffer means "all".
         let all = eff.new_buffer && (!was_mapped || s.current.damage.is_none());
@@ -335,6 +358,9 @@ impl Surfaces {
         }
         s.current.frame_callbacks.extend(p.frame_callbacks);
         let now_mapped = s.current.buffer.is_some();
+        if was_mapped && !now_mapped {
+            s.current.subtitle_bounds = None;
+        }
         if was_mapped != now_mapped {
             eff.mapped_changed = Some(now_mapped);
         }
