@@ -50,6 +50,8 @@ pub const THEME_TAG: u64 = 310;
 /// The write of what the status bar's settings popover changed (`wallpaperMotion`).
 pub const POPOVER_TAG: u64 = 314;
 pub const LAYOUT_TAG: u64 = 311;
+/// What the shell answers a poll of the theme or the layout with when the file is as it was last read (the HTTP status's meaning).
+pub const NOT_MODIFIED: u16 = 304;
 pub const TINT_TAG: u64 = 312;
 pub const SWITCH_TAG: u64 = 320;
 /// The answer of a control of a smart-home tile (`POST /v1/onhome/act`).
@@ -154,6 +156,9 @@ impl Chip {
 pub struct Home {
     pub theme: Value,
     pub layout: Value,
+    /// Counts the layouts that differ from the one before and the themes whose `clock` or `tiles` do: what the surface's chrome is made from.
+    layout_rev: u64,
+    theme_chrome_rev: u64,
     pub shipped_layout: Value,
     pub layout_text: String,
     pub theme_text: String,
@@ -277,6 +282,8 @@ impl Home {
         let hold_ms = motion.get("holdMs").and_then(Value::as_u64).unwrap_or(700);
         let mut h = Self {
             layout: Value::Null,
+            layout_rev: 0,
+            theme_chrome_rev: 0,
             layout_text: serde_json::to_string(&user_layout).unwrap_or_default(),
             theme_text: String::new(),
             theme_preview: None,
@@ -361,7 +368,7 @@ impl Home {
     /// The merged layout from the owner's file, tidied; the cards and the dock placed.
     pub fn apply_layout(&mut self, user: Value) {
         let merged = merge_over(&self.shipped_layout, &user);
-        self.layout = grid::tidy_layout(&merged);
+        self.set_layout(grid::tidy_layout(&merged));
         for e in self.cards() {
             if !self.widget_ids.contains(&e.id) {
                 self.widget_ids.push(e.id.clone());
@@ -388,12 +395,27 @@ impl Home {
 
     /// Home draws `layout` now (the editor's preview); nothing is written.
     pub fn preview_layout(&mut self, layout: Value) {
-        self.layout = layout;
+        self.set_layout(layout);
         self.register();
         self.dirty = true;
     }
 
+    fn set_layout(&mut self, layout: Value) {
+        if layout != self.layout {
+            self.layout_rev += 1;
+        }
+        self.layout = layout;
+    }
+
+    /// What the surface's chrome (the cards, the clock, the tiles' look) is made from: moves when the layout, or the theme's `clock` or `tiles`, changes.
+    pub fn chrome_rev(&self) -> (u64, u64) {
+        (self.layout_rev, self.theme_chrome_rev)
+    }
+
     pub fn set_theme(&mut self, theme: Value) {
+        if theme.get("clock") != self.theme.get("clock") || theme.get("tiles") != self.theme.get("tiles") {
+            self.theme_chrome_rev += 1;
+        }
         self.theme = theme;
         self.dock.refresh(&self.theme);
         self.rest_ms = self.theme.pointer("/motion/restMs").and_then(Value::as_u64).unwrap_or(150);
@@ -1001,6 +1023,9 @@ impl Home {
             }
             LAYOUT_TAG => {
                 self.poll_outstanding = self.poll_outstanding.saturating_sub(1);
+                if status == NOT_MODIFIED {
+                    return;
+                }
                 let text = if status == 200 { data.to_string() } else { String::new() };
                 if self.editor.is_none() && text != self.layout_text {
                     self.layout_text = text;
@@ -2411,6 +2436,30 @@ mod tests {
         h.update(&Input::Fetched { tag: THEME_TAG, status: 200, data: json!({"clock": {"style": "analog", "other": 2}}) }, 1200);
         assert_eq!(h.theme["clock"]["style"], "preview");
         assert_eq!(h.theme["clock"]["other"], 2);
+    }
+
+    #[test]
+    fn the_chrome_revision_moves_with_the_layout_and_the_themes_clock_and_tiles_only() {
+        let mut h = home();
+        let (layout, theme) = h.chrome_rev();
+        let mut file = h.theme.clone();
+        file["wallpaperMotion"] = json!({"speed": 2});
+        h.set_theme(file.clone());
+        assert_eq!(h.chrome_rev(), (layout, theme), "a key the chrome is not made from");
+        file["clock"] = json!({"style": "restyled"});
+        h.set_theme(file.clone());
+        assert_eq!(h.chrome_rev(), (layout, theme + 1));
+        file["tiles"] = json!({"inset": 3});
+        h.set_theme(file);
+        assert_eq!(h.chrome_rev(), (layout, theme + 2));
+        h.preview_layout(h.layout.clone());
+        assert_eq!(h.chrome_rev().0, layout, "the layout it already has");
+        let mut next = h.layout.clone();
+        next["grid"]["rows"] = json!(20);
+        h.preview_layout(next);
+        assert_eq!(h.chrome_rev().0, layout + 1);
+        h.apply_layout(json!({"grid": {"rows": 18}}));
+        assert_eq!(h.chrome_rev().0, layout + 2);
     }
 
 

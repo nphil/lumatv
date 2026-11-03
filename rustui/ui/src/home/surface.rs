@@ -236,7 +236,8 @@ struct DockSurface {
     pill_for: Option<Id>,
     cols: usize,
     scroll: f32,
-    key: String,
+    /// [`Dock::rev`] and the columns the tiles were made for.
+    key: Option<(u64, usize)>,
     halo_accent: Option<Rgba>,
     halo_at: Option<(f32, f32)>,
 }
@@ -266,8 +267,8 @@ pub struct HomeSurface {
     backdrop: Option<compositor_protocol::BackdropId>,
     last_focus: Option<Id>,
     last_hover: Option<Id>,
-    layout_key: String,
-    theme_key: String,
+    /// [`Home::chrome_rev`] as the chrome was last made.
+    chrome_rev: Option<(u64, u64)>,
     over_video: bool,
     live: bool,
     news_at: u64,
@@ -309,8 +310,7 @@ impl HomeSurface {
             backdrop: None,
             last_focus: None,
             last_hover: None,
-            layout_key: String::new(),
-            theme_key: String::new(),
+            chrome_rev: None,
             over_video: false,
             live: false,
             news_at: 0,
@@ -411,11 +411,8 @@ impl HomeSurface {
             }
         }
         // the chrome, made again when the layout or the theme's own keys change
-        let layout_key = home.layout.to_string();
-        let theme_key = format!("{}|{}", home.theme.get("clock").map(Value::to_string).unwrap_or_default(), home.theme.get("tiles").map(Value::to_string).unwrap_or_default());
-        if rebuild || layout_key != self.layout_key || theme_key != self.theme_key {
-            self.layout_key = layout_key;
-            self.theme_key = theme_key;
+        if rebuild || self.chrome_rev != Some(home.chrome_rev()) {
+            self.chrome_rev = Some(home.chrome_rev());
             self.build_chrome(kit, engine, home)?;
         }
         self.build_status(kit, engine, home)?;
@@ -484,7 +481,7 @@ impl HomeSurface {
         self.last_focus = None;
         self.last_hover = None;
         // the wallpaper's picture is the same in every look: its scrim is restyled, the picture is not decoded again
-        self.layout_key.clear();
+        self.chrome_rev = None;
     }
 
     // ---- the cards and the dock's card
@@ -578,13 +575,13 @@ impl HomeSurface {
         })?;
         let _ = radius;
         engine.flow.scroller(&kit.ui.scene, model::DOCK, &grid, GroupPose::IDENTITY, false, 4000.0).map_err(other)?;
-        Ok(DockSurface { lift, frame, viewport, grid, halo, fade, tiles: Vec::new(), pill, pill_text, pill_for: None, cols: home.dock.cols(), scroll: 0.0, key: String::new(), halo_accent: None, halo_at: None })
+        Ok(DockSurface { lift, frame, viewport, grid, halo, fade, tiles: Vec::new(), pill, pill_text, pill_for: None, cols: home.dock.cols(), scroll: 0.0, key: None, halo_accent: None, halo_at: None })
     }
 
     /// The tiles, made again when the dock's list changes.
     fn build_dock_tiles(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home) -> std::io::Result<()> {
         let Some(d) = &mut self.dock else { return Ok(()) };
-        let key = format!("{}|{}", home.dock.ids().join(","), home.dock.cols());
+        let key = Some((home.dock.rev, home.dock.cols()));
         if key == d.key {
             return Ok(());
         }

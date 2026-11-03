@@ -23,6 +23,10 @@ A failed scan-out page setup frees its dumb buffer, framebuffer and GL objects, 
 Screen recording reads frames through pixel pack buffers a frame behind instead of stalling the loop on the GPU, with the alpha made opaque on the GPU.
 
 Picture-mode labels capitalize Personalized without changing the native mode identifier.
+
+The UI no longer rebuilds its state report for pointer motion that changes nothing, and re-reads the theme and layout files only when their size or time changed.
+
+Home no longer re-serialises its layout and theme on every redraw to see whether the chrome changed, and the Quick panel lays its rows out again only when they change.
 Partial LG picture replies retain the current controls; confirmed input, mode or range changes still invalidate stale values.
 Picture-mode strips keep focused choices visible and align focus and pointer bounds with their rendered cells. OLED pixel brightness uses its own native settings context. Glass-strength changes update existing Settings controls without rebuilding unrelated switches on every key repeat.
 Card focus outlines retain the rendered button geometry while their highlight fades, without lifting or enlarging the outline independently.

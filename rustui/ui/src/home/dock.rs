@@ -50,6 +50,8 @@ pub struct Dock {
     pub scroll_row: usize,
     pub moving: bool,
     move_origin: Option<usize>,
+    /// Counts the changes of the tiles' order or of the id list (a tile moved, the list refreshed); the surface remakes its tiles when it moves.
+    pub rev: u64,
 }
 
 impl Dock {
@@ -158,7 +160,12 @@ impl Dock {
         let mut list = Self::arranged(&self.raw, theme);
         // the tiles are focus ids `DOCK_ID..DOCK_ID + DOCK_MAX`; the next id is the dock card's lift, so a longer list cannot be shown
         list.truncate(super::model::DOCK_MAX as usize);
-        self.points = Self::points_of(&list, theme);
+        let points = Self::points_of(&list, theme);
+        // a title or an icon that changed is carried by the tile's own redraw, not by making the tiles again
+        if points.len() != self.points.len() || points.iter().zip(&self.points).any(|(a, b)| a.id != b.id) {
+            self.rev += 1;
+        }
+        self.points = points;
         self.clamp();
     }
 
@@ -303,6 +310,7 @@ impl Dock {
         {
             let p = self.points.remove(self.index);
             self.points.insert(o, p);
+            self.rev += 1;
             self.index = o;
             self.ensure_visible();
         }
@@ -315,6 +323,7 @@ impl Dock {
         }
         let p = self.points.remove(self.index);
         self.points.insert(j, p);
+        self.rev += 1;
         self.index = j;
         self.ensure_visible();
         true
@@ -425,5 +434,19 @@ mod tests {
         assert_eq!(d.index, 3);
         d.focus(0);
         assert!(!d.begin_move(), "LG's Apps tile stays first");
+    }
+
+    #[test]
+    fn the_revision_moves_when_the_tiles_do_and_not_for_a_new_title() {
+        let mut d = dock(json!({}));
+        let rev = d.rev;
+        d.refresh(&json!({}));
+        d.refresh(&json!({"apps": {"names": {"netflix": "Films"}}}));
+        assert_eq!(d.rev, rev, "the same tiles in the same order");
+        d.index = 1;
+        assert!(d.swap_to(2));
+        assert_eq!(d.rev, rev + 1);
+        d.refresh(&json!({"apps": {"dockHide": ["plex"]}}));
+        assert_eq!(d.rev, rev + 2);
     }
 }

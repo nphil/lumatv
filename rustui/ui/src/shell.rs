@@ -6,6 +6,7 @@
 
 use crate::cameras::app::Config as CamerasConfig;
 use crate::cameras::host::Cameras;
+use crate::home::model::NOT_MODIFIED;
 use crate::home::{Home, HomeSurface};
 use crate::host::http::{Event, Outbound};
 use crate::host::keys::KeyEvent;
@@ -23,7 +24,9 @@ use crate::system::toast_surface::ToastSurface;
 use crate::system::volume::Volume;
 use crate::system::volume_surface::VolumeSurface;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 /// The Settings page the Cameras grid's `Settings` button opens (a page of Home & look).
 const CAMERAS_SETTINGS_PAGE: &str = "cameras";
@@ -208,6 +211,25 @@ pub struct Shell {
     lab_keys: Vec<String>,
     /// Waking presses and their repeats/releases belong to the saver, even after it has gone.
     saver_keys: Vec<(String, u32)>,
+    /// The size and time of each polled file (the theme, the layout) as it was last read: a poll that finds them unchanged reads nothing.
+    polled_files: HashMap<u64, (SystemTime, u64)>,
+    /// The buttons and visibility of the last pointer sample: a sample that changes neither only moves the pointer.
+    pointer_state: Option<(u32, bool)>,
+    /// Set by a pointer sample that only moved: unless it drew or asked for something, the report is as it was.
+    pointer_only: bool,
+    #[cfg(test)]
+    reports_built: u32,
+}
+
+/// How old a polled file's change time must be before the read may be skipped on its account: a file written again within the clock's granularity
+/// keeps its time and, with the same size, would look unchanged.
+const STABLE_AGE: Duration = Duration::from_secs(2);
+
+/// The size and modification time of `path`, when the file is old enough for them to tell a rewrite ([`STABLE_AGE`]).
+fn file_stamp(path: &Path) -> Option<(SystemTime, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let modified = meta.modified().ok()?;
+    (SystemTime::now().duration_since(modified).ok()? >= STABLE_AGE).then_some((modified, meta.len()))
 }
 
 impl Shell {
@@ -259,6 +281,11 @@ impl Shell {
             entry_keys: Vec::new(),
             lab_keys: Vec::new(),
             saver_keys: Vec::new(),
+            polled_files: HashMap::new(),
+            pointer_state: None,
+            pointer_only: false,
+            #[cfg(test)]
+            reports_built: 0,
         })
     }
 
@@ -341,7 +368,20 @@ impl Shell {
             Effect::Channel { path, body } => acts.push(Act::Channel(Outbound { method: "POST", path, body: Some(body), tag: None })),
             Effect::Theme { tag, patch } => self.write_theme(tag, &patch, now, acts),
             Effect::Read { tag, path } => {
-                let (status, data) = match self.file_of(&path).map(std::fs::read) {
+                let full = self.file_of(&path);
+                // the theme and the layout are polled every 2 s: the read, the parse and the comparison are skipped while the file is as it was.
+                // The layout is not skipped while its editor is open (Home leaves what it reads then unused, to be read again when it closes).
+                let watched = tag == crate::home::model::THEME_TAG || tag == crate::home::model::LAYOUT_TAG;
+                let polled = watched && !(tag == crate::home::model::LAYOUT_TAG && self.home.editor.is_some());
+                let stamp = full.as_ref().ok().filter(|_| polled).and_then(|f| file_stamp(f));
+                if stamp.is_some() && self.polled_files.get(&tag) == stamp.as_ref() {
+                    let input = Input::Fetched { tag, status: NOT_MODIFIED, data: Value::Null };
+                    for e in self.home.update(&input, now) {
+                        self.carry(e, now, acts);
+                    }
+                    return;
+                }
+                let (status, data) = match full.map(std::fs::read) {
                     Ok(Ok(bytes)) => match serde_json::from_slice::<Value>(&bytes) {
                         Ok(v) => (200, v),
                         Err(e) => (500, json!({"error": e.to_string()})),
@@ -350,6 +390,12 @@ impl Shell {
                     Ok(Err(e)) => (500, json!({"error": e.to_string()})),
                     Err(e) => (500, json!({"error": e.to_string()})),
                 };
+                if watched {
+                    match stamp {
+                        Some(stamp) if status == 200 => self.polled_files.insert(tag, stamp),
+                        _ => self.polled_files.remove(&tag),
+                    };
+                }
                 self.feed(&Input::Fetched { tag, status, data }, now, acts);
             }
             Effect::Write { path, text } => {
@@ -853,6 +899,7 @@ impl Shell {
                 let now_ns = self.kit.ui.scene.now_ns();
                 // no screen hears a button that was not seen going down, or a button on a hidden pointer
                 let sample = self.pointer_guard.filter(Sample { x: *x, y: *y, buttons: *buttons, visible: *visible });
+                let steady = self.pointer_state.replace((sample.buttons, sample.visible)) == Some((sample.buttons, sample.visible));
                 if self.saver_pointer_down {
                     if !sample.visible || sample.buttons == 0 {
                         self.saver_pointer_down = false;
@@ -898,6 +945,7 @@ impl Shell {
                     }
                 }
                 self.panel_events(now, &mut acts);
+                self.pointer_only = steady;
             }
             KeyEvent::Closed => {}
         }
@@ -1032,6 +1080,8 @@ impl Shell {
                 self.redraw = true;
             }
         }
+        // a pointer that only moved, and drew nothing and asked for nothing, leaves the report as it was
+        let pointer_only = std::mem::take(&mut self.pointer_only) && !self.redraw && acts.is_empty();
         if self.redraw {
             self.redraw = false;
             let mut live = false;
@@ -1142,7 +1192,11 @@ impl Shell {
             let failed = std::mem::take(&mut self.apply_failed_now);
             self.apply_errs.retain(|(src, _)| failed.contains(src));
         }
-        if self.started {
+        if self.started && !pointer_only {
+            #[cfg(test)]
+            {
+                self.reports_built += 1;
+            }
             let report = self.report();
             if self.reported.as_ref() != Some(&report) {
                 self.reported = Some(report.clone());
@@ -2971,5 +3025,72 @@ mod tests {
         assert!(shell.kit.modal_beat_ms() > 0, "back at 60 Hz: the fade is back");
         shell.channel(&Event::State([("refresh".to_string(), json!({"hz": 120}))].into_iter().collect()), 1_700);
         assert_eq!(shell.kit.modal_beat_ms(), 0, "a session that starts at 120 Hz knows it from the state");
+    }
+
+    #[test]
+    fn a_pointer_that_only_moves_does_not_rebuild_the_report_and_never_leaves_it_stale() {
+        let (_h, mut shell) = home_shell("home");
+        let mut at = 2_000;
+        // the pointer shown over nothing, then jittering there
+        shell.key(&KeyEvent::Pointer { x: 5.0, y: 5.0, buttons: 0, visible: true }, at);
+        let built = shell.reports_built;
+        for i in 0..50 {
+            at += 16;
+            shell.key(&KeyEvent::Pointer { x: 5.0 + (i % 7) as f32, y: 5.0, buttons: 0, visible: true }, at);
+        }
+        assert_eq!(shell.reports_built, built, "motion that changed nothing built no report");
+        // a button or the pointer's hiding is more than motion
+        shell.key(&KeyEvent::Pointer { x: 5.0, y: 5.0, buttons: 1, visible: true }, at + 16);
+        shell.key(&KeyEvent::Pointer { x: 5.0, y: 5.0, buttons: 0, visible: true }, at + 32);
+        assert_eq!(shell.reports_built, built + 2);
+        // across the whole screen: whatever the motion did, the report the compositor holds is the one the shell would send now
+        let mut rebuilt = 0;
+        for i in 0..400u32 {
+            at += 16;
+            let before = shell.reports_built;
+            shell.key(&KeyEvent::Pointer { x: ((i * 97) % 1920) as f32, y: ((i * 53) % 1080) as f32, buttons: 0, visible: true }, at);
+            rebuilt += shell.reports_built - before;
+            assert_eq!(shell.reported, Some(shell.report()), "stale after sample {i}");
+        }
+        assert!(rebuilt < 400, "some of the sweep's motion changed nothing: {rebuilt} of 400 built a report");
+    }
+
+    #[test]
+    fn a_theme_file_that_is_as_it_was_is_not_read_again_and_one_that_changed_applies() {
+        use std::fs::File;
+        let (_h, mut shell) = home_shell("home");
+        let dir = std::env::temp_dir().join(format!("lumatv-poll-skip-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("theme")).unwrap();
+        let path = dir.join("theme/theme.json");
+        let base = SystemTime::now();
+        let write = |style: &str, age: u64| {
+            std::fs::write(&path, format!(r#"{{"clock":{{"style":"{style}"}}}}"#)).unwrap();
+            File::options().write(true).open(&path).unwrap().set_modified(base - Duration::from_secs(age)).unwrap();
+        };
+        write("aaaaaa", 3600);
+        shell.dirs(&testkit::module_dir(), &dir);
+        let mut at = 100_000;
+        shell.tick(at);
+        assert_eq!(shell.home.theme["clock"]["style"], "aaaaaa", "the first poll reads it");
+        // the same size and time: not read, so not seen
+        write("bbbbbb", 3600);
+        at += 2_100;
+        shell.tick(at);
+        assert_eq!(shell.home.theme["clock"]["style"], "aaaaaa");
+        // a new time: read and applied
+        write("bbbbbb", 3000);
+        at += 2_100;
+        shell.tick(at);
+        assert_eq!(shell.home.theme["clock"]["style"], "bbbbbb");
+        // written just now, too soon for the time to tell: read at every poll until it has aged
+        write("cccccc", 0);
+        at += 2_100;
+        shell.tick(at);
+        assert_eq!(shell.home.theme["clock"]["style"], "cccccc");
+        write("dddddd", 0);
+        at += 2_100;
+        shell.tick(at);
+        assert_eq!(shell.home.theme["clock"]["style"], "dddddd");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
