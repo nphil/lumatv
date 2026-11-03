@@ -146,14 +146,22 @@ pub struct Outbox {
     pub boot: u64,
 }
 
+/// Topics that are things happening, not state: a client that (re)connects must not be told of them again (a replayed `homekey`
+/// opens the switcher, a replayed `menu.open` or `confirm.ask` raises a dialog nobody asked for), so they are events only and
+/// never in the snapshot `GET /v1/state` answers.
+const ONE_SHOT_TOPICS: &[&str] = &["show", "homekey", "imekey", "luna", "menu.open", "confirm.ask"];
+
 impl Outbox {
     pub(crate) fn push(&mut self, topic: &str, data: Value) -> u64 {
         self.seq += 1;
+        let state = !ONE_SHOT_TOPICS.contains(&topic);
         self.events.push_back((self.seq, topic.to_string(), data.clone()));
         while self.events.len() > EVENTS_KEPT {
             self.events.pop_front();
         }
-        self.topics.insert(topic.to_string(), data);
+        if state {
+            self.topics.insert(topic.to_string(), data);
+        }
         self.seq
     }
 
@@ -716,6 +724,17 @@ mod tests {
         assert_eq!(used + used2, text.len());
         assert!(parse_request(b"GET /v1/state HTTP/1.1\r\nContent-Length: 5\r\n\r\nab").is_none());
         assert!(parse_request(b"GET /v1/state HTTP/1.1\r\nHost").is_none());
+    }
+
+    #[test]
+    fn one_shot_topics_are_events_but_not_state() {
+        let mut o = Outbox { seq: 0, events: VecDeque::new(), topics: BTreeMap::new(), boot: 1 };
+        for topic in ["show", "homekey", "imekey", "luna", "menu.open", "confirm.ask"] {
+            o.push(topic, json!({"n": 1}));
+        }
+        o.push("foreground", json!({"app": "x"}));
+        assert_eq!(o.since(0).unwrap().len(), 7, "all of them reach a client that is following");
+        assert_eq!(o.topics.keys().collect::<Vec<_>>(), ["foreground"], "a client that connects later is given state only");
     }
 
     #[test]
