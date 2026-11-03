@@ -149,7 +149,7 @@ Two shapes were weighed. Both are 64-bit and both reuse the same crates; they di
 | Direct scan-out | an opaque Home window alone goes to the plane whole (built for the QML Home); a system layer over an app forces composition | Home is stack 0 in the page (a tile redraw per tick, under 1 ms targeted); a full-screen opaque app with nothing of stack 1 up goes to the plane directly (`kms/frames.rs`, host-tested) |
 | 120 Hz | the client must make a frame per 8.33 ms callback and the compositor compose it: two pipelines to pace | one pacer (`kms/timing.rs` keyed to 8.33 ms, measured p99 4.85 ms at 120 with the QML shell idle) |
 | Memory | a second EGL context and the driver's own pages (the Rust client measured 132-138 MB RSS); 3 contiguous 1080p buffers (25 MB CMA) | one context; the engine's textures (atlas, wallpaper, cached blur, plates) [INFERENCE: 40-60 MB]; the logic process has no GL (10-25 MB) |
-| Crash isolation | the client dies, the compositor and the apps keep running; the compositor restarts it (backoff 2-32 s, given up after 5 in 10 min) | the logic process dies: its layers go in one frame, the compositor restarts it; a renderer fault is in the compositor's process (mitigations below) |
+| Crash isolation | the client dies, the compositor and the apps keep running; the compositor falls back to stock LG; `ctl shell restart` starts the client again | the logic process dies: its layers go in one frame, the compositor restarts it; a renderer fault is in the compositor's process (mitigations below) |
 | Glass over an app | the panel's window cannot sample the app's buffer (flat colour today, `Lu.flatBackdrop`) | the renderer can sample the page under stack 1 (`Backdrop::Live`), so the quick panel over a composed app gets real glass at the tier's cost; over the video plane neither can |
 | Status | the window path is proven (card app, GFN app, the spike) | host-tested in `compositor/tests/ui*.rs`; `tv_ui_measure.py` written and not run |
 
@@ -290,7 +290,7 @@ same renderer. Not in this plan's sizes beyond level 1.
 ### 2.13 Crash and watchdog behaviour
 
 `lumatv-ui` is supervised by `shell.rs` as `qml-runner` is (spawn, nice 10, `PR_SET_PDEATHSIG` on a long-lived spawn thread,
-backoff, give-up after 5 starts in 10 minutes, `ctl shell restart`); its liveness is the channel's `Seen` plus the
+a client that exits returns the screen to stock; `ctl shell restart`); its liveness is the channel's `Seen` plus the
 engine's commits, so a hung logic process is detected within the beat (3 s) and its layers are dropped with the
 restart. LG's Home stub and the `answering()` rule stay: a shell that is not answering never traps the remote.
 

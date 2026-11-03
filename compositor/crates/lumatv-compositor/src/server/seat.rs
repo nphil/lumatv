@@ -513,15 +513,21 @@ pub fn pointer_button(state: &mut State, pressed: bool) -> bool {
 }
 
 /// Hides the cursor (a navigation key, the timeout, a client's `set_cursor_visibility(0)`): the surface under it
-/// is left, so a hover state does not linger.
+/// is left, so a hover state does not linger. A button the app was told is down is released first: the press has no other end.
 pub fn hide_cursor(state: &mut State) {
     set_cursor_visible(state, false);
     let (x, y) = state.seat.pointer_position;
-    state.seat.button_down = false;
+    let was_down = std::mem::take(&mut state.seat.button_down);
     state.shell_rust_pointer_sample(x, y, false);
     if let Some(old) = state.seat.pointer_focus.take()
         && let Some(res) = state.seat.surfaces.get(&old).cloned()
     {
+        if was_down {
+            let (serial, time) = (state.next_serial(), crate::output::monotonic_ms());
+            for p in of_client(&state.seat.pointers, &res) {
+                p.button(serial, time, BTN_LEFT, wl_pointer::ButtonState::Released);
+            }
+        }
         let serial = state.next_serial();
         for p in of_client(&state.seat.pointers, &res) {
             p.leave(serial, &res);

@@ -15,8 +15,6 @@ use serde_json::{Value, json};
 use crate::State;
 use crate::window::WindowType;
 
-pub(crate) const RESTART_LIMIT: usize = 5;
-pub(crate) const RESTART_WINDOW: Duration = Duration::from_secs(600);
 pub(crate) const NICE: i32 = 10;
 /// Events kept for a client that is behind; one that is further behind is told to read the state again.
 pub(crate) const EVENTS_KEPT: usize = 512;

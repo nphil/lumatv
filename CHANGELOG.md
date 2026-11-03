@@ -34,6 +34,9 @@ The status-bar gear opens Quick Settings. Home & look contains the native Wallpa
 Glass type replaces the Home-specific label. Non-Rose theme wallpapers use curated dark/light shadow, midtone and highlight colors; Rose Pine retains the original wallpaper.
 Home shows at most 60 dock tiles; a longer launch list no longer makes the dock card disappear.
 A live camera feeder that stops reading ends its session and frees the video path instead of blocking it, and a session that fails to start no longer leaves later streams attached to it.
+A button an app was told is down is released when the pointer hides, so a held press no longer sticks.
+The UI's key socket finishes a partly written line before sending the next, so the UI never reads two lines spliced together.
+An idle screen with no video claim or window does no per-frame work for the video-window topic.
 
 The native compositor uses the Rust UI for all shell kinds, with stock LG Home
 as the failure path. Obsolete project QML frontends and restyles are removed;

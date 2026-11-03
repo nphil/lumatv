@@ -1,7 +1,7 @@
 //! Native shell client and its UI channel. The compositor owns rendering while
 //! the supervised client supplies layers and receives input and service events.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::net::TcpListener;
 use std::os::fd::{AsRawFd, RawFd};
@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 use crate::State;
 use crate::shell::{
-    EVENTS_KEPT, Link, LunaTag, Msg, NICE, RESTART_LIMIT, RESTART_WINDOW, Stats, TAKEABLE, TOOK_STALE, TRACE_MARKER, allowed, drain,
+    EVENTS_KEPT, Link, LunaTag, Msg, NICE, Stats, TAKEABLE, TOOK_STALE, TRACE_MARKER, allowed, drain,
     spawn_server, wake, write_token,
 };
 
@@ -52,12 +52,13 @@ pub struct RustShell {
     /// This end of the key socket, while a child has the other.
     keys: Option<UnixStream>,
     keys_refused: bool,
+    /// The unwritten end of a line the key socket took only part of: the next bytes on the socket must be these, or the client reads two lines as one.
+    keys_tail: Vec<u8>,
     child_started: Option<Instant>,
     attach_started: Option<Instant>,
     frame_ready: bool,
     supported: Vec<String>,
     was_standby: bool,
-    starts: VecDeque<Instant>,
     next_start: Option<Instant>,
     last_wait: Option<Instant>,
     pub gave_up: bool,
@@ -102,12 +103,12 @@ impl Default for RustShell {
             socket: None,
             keys: None,
             keys_refused: false,
+            keys_tail: Vec::new(),
             child_started: None,
             attach_started: None,
             frame_ready: false,
             supported: Vec::new(),
             was_standby: false,
-            starts: VecDeque::new(),
             next_start: None,
             last_wait: None,
             gave_up: false,
@@ -177,6 +178,7 @@ impl RustShell {
     /// Supplies the key channel when the client is started externally.
     pub fn adopt_key_socket(&mut self, socket: UnixStream) {
         self.keys = Some(socket);
+        self.keys_tail.clear();
     }
 
     pub fn push(&mut self, topic: &str, data: Value) -> u64 {
@@ -229,13 +231,15 @@ impl RustShell {
         }
     }
 
-    /// One line to the client over the key socket; a client that does not read (its socket full) loses it, and that is said once.
+    /// One line to the client over the key socket. A client that does not read (its socket full) loses the line, and that is said once; a line the
+    /// socket took only part of is finished before anything else goes (`write_line`), so the client never reads a spliced one.
     fn send_line(&mut self, line: &str) -> bool {
         let Some(k) = &mut self.keys else { return false };
-        let mut bytes = line.as_bytes().to_vec();
-        bytes.push(b'\n');
-        match k.write_all(&bytes) {
-            Ok(()) => true,
+        match write_line(k, &mut self.keys_tail, line) {
+            Ok(()) => {
+                self.keys_refused = false;
+                true
+            }
             Err(e) => {
                 if !self.keys_refused {
                     self.keys_refused = true;
@@ -243,6 +247,13 @@ impl RustShell {
                 }
                 false
             }
+        }
+    }
+
+    /// Finishes a line the key socket took only part of, once the client has read; called each tick so that it does not wait for the next key.
+    fn flush_keys(&mut self) {
+        if let Some(k) = &mut self.keys {
+            let _ = flush(k, &mut self.keys_tail);
         }
     }
 
@@ -259,6 +270,46 @@ impl RustShell {
     }
 }
 
+
+/// Writes what is left of a line; a socket that is full leaves the rest in `tail` and says so as `WouldBlock`, a socket that is gone empties it.
+fn flush(w: &mut impl Write, tail: &mut Vec<u8>) -> std::io::Result<()> {
+    while !tail.is_empty() {
+        match w.write(tail) {
+            Ok(0) => {
+                tail.clear();
+                return Err(std::io::ErrorKind::WriteZero.into());
+            }
+            Ok(n) => {
+                tail.drain(..n);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::WouldBlock {
+                    tail.clear();
+                }
+                return Err(e);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// One line on a non-blocking socket. The end of an earlier line that the socket took only part of goes first, and while it cannot, the new line is
+/// dropped; a new line the socket takes only part of keeps its end in `tail` and counts as sent, so that the next line starts on a line boundary.
+fn write_line(w: &mut impl Write, tail: &mut Vec<u8>, line: &str) -> std::io::Result<()> {
+    flush(w, tail)?;
+    tail.extend_from_slice(line.as_bytes());
+    tail.push(b'\n');
+    let whole = tail.len();
+    match flush(w, tail) {
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock && tail.len() == whole => {
+            tail.clear();
+            Err(e)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(()),
+        other => other,
+    }
+}
 
 /// How the client is run. On the set the supervisor starts the compositor as `<lib>/ld-linux-aarch64.so.1 --library-path <lib>
 /// <bin>/lumatv-compositor`, because the 64-bit ELFs name `/lib/ld-linux-aarch64.so.1` as their interpreter and the set's 32-bit
@@ -421,12 +472,6 @@ impl State {
         let Some(launch) = self.shell_rust.launch.clone() else { return };
         let binary = launch.binary.clone();
         let now = Instant::now();
-        self.shell_rust.starts.retain(|t| now.duration_since(*t) < RESTART_WINDOW);
-        if self.shell_rust.starts.len() >= RESTART_LIMIT {
-            self.shell_rust.gave_up = true;
-            self.journal(format!("shell-rust: {RESTART_LIMIT} starts in {} min; returning to stock", RESTART_WINDOW.as_secs() / 60));
-            return;
-        }
         let shm = self.config.runtime_dir.join("ui-shm");
         let socket = match self.shell_rust.socket.take() {
             Some(s) => s,
@@ -487,7 +532,6 @@ impl State {
             }
         };
         let _ = ours.set_nonblocking(true);
-        self.shell_rust.starts.push_back(now);
         let log = crate::childlog::pipe("lumatv-shell-rust", "");
         let mut cmd = launch.command();
         cmd.env_remove("NOTIFY_SOCKET")
@@ -554,6 +598,7 @@ impl State {
                 self.shell_rust.supported.clear();
                 self.shell_rust.next_start = None;
                 self.shell_rust.keys = Some(ours);
+                self.shell_rust.keys_tail.clear();
                 self.shell_rust.keys_refused = false;
                 self.shell_rust.engine_connected = false;
             }
@@ -574,6 +619,7 @@ impl State {
         if self.shell_rust.link.is_none() {
             return false;
         }
+        self.shell_rust.flush_keys();
         let mut new_socket = false;
         if self.shell_rust.last_wait.is_none_or(|t| now.duration_since(t) >= Duration::from_millis(500)) {
             self.shell_rust.last_wait = Some(now);
@@ -588,7 +634,7 @@ impl State {
                 self.shell_rust.gave_up = true;
             }
         }
-        let first = self.shell_rust.starts.is_empty();
+        let first = self.shell_rust.stats.starts == 0;
         if self.shell_rust.child.is_none()
             && !self.shell_rust.gave_up
             && self.shell_rust.next_start.is_some_and(|t| now >= t || (first && self.sam_home_mapped()))
@@ -672,6 +718,7 @@ impl State {
         self.shell_rust.took.clear();
         self.shell_rust.cancelled_early.clear();
         self.shell_rust.keys = None;
+        self.shell_rust.keys_tail.clear();
         self.shell_rust.live = false;
         for t in std::mem::take(&mut self.shell_rust.luna_tags) {
             if t.subscribe {
@@ -700,7 +747,7 @@ impl State {
         }
     }
 
-    /// `ctl shell restart` (and a change of the kinds): ends the client and starts it again, whatever the count.
+    /// `ctl shell restart` (and a change of the kinds): ends the client and starts it again.
     pub fn shell_rust_restart(&mut self) {
         if self.shell_rust.link.is_none() {
             return;
@@ -710,7 +757,6 @@ impl State {
             let _ = c.wait();
         }
         self.shell_rust.child = None;
-        self.shell_rust.starts.clear();
         self.shell_rust.gave_up = false;
         self.shell_rust_client_gone("restart asked for");
         self.shell_rust.next_start = Some(Instant::now());
@@ -2036,5 +2082,53 @@ mod tests {
         absent.shell_rust_handle(Msg::Connected);
         absent.shell_rust_handle(Msg::Ui { can: Some(vec!["keyboard".into()]), wants: None, live: None, state: None });
         assert!(!absent.shell_can("keyboard"));
+    }
+
+    /// A socket that takes `room` more bytes and then reports it is full.
+    struct Narrow {
+        room: usize,
+        got: Vec<u8>,
+    }
+
+    impl Write for Narrow {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.room == 0 {
+                return Err(std::io::ErrorKind::WouldBlock.into());
+            }
+            let n = buf.len().min(self.room);
+            self.room -= n;
+            self.got.extend_from_slice(&buf[..n]);
+            Ok(n)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_line_the_key_socket_took_part_of_is_finished_before_the_next_goes() {
+        let mut sock = Narrow { room: 5, got: Vec::new() };
+        let mut tail = Vec::new();
+        write_line(&mut sock, &mut tail, "{\"key\":1}").expect("part of a line is as good as sent");
+        assert_eq!(sock.got, b"{\"key");
+        // the client has not read: the next line is lost whole, not spliced on
+        assert!(write_line(&mut sock, &mut tail, "{\"key\":2}").is_err());
+        assert_eq!(sock.got, b"{\"key");
+        // it reads: the rest of the first line goes, then lines go whole
+        sock.room = 100;
+        write_line(&mut sock, &mut tail, "{\"key\":3}").unwrap();
+        assert_eq!(String::from_utf8(sock.got).unwrap(), "{\"key\":1}\n{\"key\":3}\n");
+        assert!(tail.is_empty());
+    }
+
+    #[test]
+    fn a_line_the_key_socket_took_none_of_is_dropped_and_the_next_one_goes_whole() {
+        let mut sock = Narrow { room: 0, got: Vec::new() };
+        let mut tail = Vec::new();
+        assert!(write_line(&mut sock, &mut tail, "{\"key\":1}").is_err());
+        assert!(tail.is_empty());
+        sock.room = 100;
+        write_line(&mut sock, &mut tail, "{\"key\":2}").unwrap();
+        assert_eq!(sock.got, b"{\"key\":2}\n");
     }
 }

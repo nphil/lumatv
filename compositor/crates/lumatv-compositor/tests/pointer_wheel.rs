@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use harness::{Client, Server};
 use lumatv_compositor::config::Config;
 use lumatv_compositor::input::Keys;
-use lumatv_compositor::server::seat::{CURSOR_TIMEOUT, PointerShow, remote_motion, wheel_turn};
+use lumatv_compositor::server::seat::{CURSOR_TIMEOUT, PointerShow, hide_cursor, pointer_button, remote_motion, wheel_turn};
 use serde_json::json;
 
 const WAIT: Duration = Duration::from_secs(3);
@@ -359,4 +359,18 @@ fn the_themes_choice_is_read_again_when_the_file_changes_at_most_once_a_second()
         assert_eq!(got, PointerShow::Wheel);
     }
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn hiding_the_pointer_releases_a_button_the_app_was_told_is_down() {
+    let mut server = Server::start();
+    let (mut client, _keep) = pointed(&mut server);
+    server.eval(|s| remote_motion(s, 20, 25));
+    server.eval(wheel_turn);
+    assert!(client.wait_until(WAIT, |s| !s.pointer_enters.is_empty()));
+    assert!(server.eval(|s| pointer_button(s, true)));
+    server.eval(hide_cursor);
+    assert!(client.wait_until(WAIT, |s| s.pointer_leaves >= 1 && s.buttons.len() >= 2));
+    assert_eq!(client.state.buttons, vec![(0x110, 1), (0x110, 0)], "the press is released before the pointer leaves");
+    assert!(!server.eval(|s| s.seat.button_down));
 }

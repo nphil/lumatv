@@ -823,6 +823,9 @@ pub struct Vwin {
     /// The token of the status subscription, once it is made.
     pub status_token: Option<u64>,
     last_topic: Value,
+    /// What the topic was last built from while there was no claim, no video window and nothing being watched: then it is a function of the policy and the
+    /// world alone, so a tick that finds both unchanged has nothing to rebuild.
+    idle_inputs: Option<(Mode, bool, usize, World)>,
     pub stats: Stats,
     /// The claims whose video is on a connected sink somewhere else than they say: since when (so that the sink's answer is read a moment after the
     /// placement and the connection, not at the first frame), how often the placement was made again, and for which rectangle.
@@ -843,6 +846,7 @@ impl Vwin {
             sinks: Sinks::default(),
             status_token: None,
             last_topic: Value::Null,
+            idle_inputs: None,
             stats: Stats::default(),
             watch: std::collections::BTreeMap::new(),
             placed_at: std::collections::BTreeMap::new(),
@@ -882,27 +886,42 @@ impl crate::State {
     /// What the screen holds besides the claims: the exported elements by the kind of window that owns them, and what `videooutputd` says.
     pub fn vwin_world(&self) -> World {
         let mut w = World { standby: !self.luna_state.power.rendering, ..World::default() };
+        // the contexts are only compared with the sinks' own, so nothing is collected while no sink is connected (the tick's case)
+        let sinks = &self.vwin.sinks.video;
+        let any_sink = sinks.iter().any(|s| s.connected);
         let mut known: Vec<&str> = Vec::new();
         let mut ours: Vec<&str> = Vec::new();
         let mut wall: Vec<&str> = Vec::new();
         let now = crate::output::monotonic_ns();
-        for (context, until) in &self.vwin.gone {
-            if *until > now {
-                known.push(context);
-                ours.push(context);
+        if any_sink {
+            for (context, until) in &self.vwin.gone {
+                if *until > now {
+                    known.push(context);
+                    ours.push(context);
+                }
             }
         }
         let front = self.scene.foreground(&self.surfaces).map(|w| w.id);
         for e in self.foreign.exported.values() {
-            known.extend(e.contexts.iter().map(String::as_str));
+            if any_sink {
+                known.extend(e.contexts.iter().map(String::as_str));
+            }
             let window = self.scene.window_of(e.surface).and_then(|id| self.scene.window(id));
             match window.map(|w| w.kind) {
-                Some(WindowType::VideoWindow) => ours.extend(e.contexts.iter().map(String::as_str)),
+                Some(WindowType::VideoWindow) => {
+                    if any_sink {
+                        ours.extend(e.contexts.iter().map(String::as_str));
+                    }
+                }
                 Some(WindowType::Wallpaper) => {
-                    ours.extend(e.contexts.iter().map(String::as_str));
+                    if any_sink {
+                        ours.extend(e.contexts.iter().map(String::as_str));
+                    }
                     if !e.contexts.is_empty() {
                         w.wall = true;
-                        wall.extend(e.contexts.iter().map(String::as_str));
+                        if any_sink {
+                            wall.extend(e.contexts.iter().map(String::as_str));
+                        }
                     }
                 }
                 _ => {
@@ -916,7 +935,6 @@ impl crate::State {
                 }
             }
         }
-        let sinks = &self.vwin.sinks.video;
         w.other_connected = sinks.iter().filter(|s| s.connected && !known.contains(&s.context.as_str())).count() as u32;
         w.both_scalers = sinks.iter().any(|s| s.connected && s.occupied && !ours.contains(&s.context.as_str()));
         w.wall_wide = sinks.iter().any(|s| s.connected && s.occupied && wall.contains(&s.context.as_str()));
@@ -990,13 +1008,22 @@ impl crate::State {
 
     /// Brings the windows and the claims into step: the claims the screen no longer allows end, each claim is bound to the video window that plays it
     /// (by app id; an empty one takes the first window without a claim), that window is drawn with its hole and placement at the claim's rectangle, a window
-    /// without a claim is not, and one nobody ever claimed is closed. Called wherever the world or a claim changed and at each tick; with the switch off
-    /// and nothing to look after it returns at once.
+    /// without a claim is not, and one nobody ever claimed is closed. Called wherever the world or a claim changed and at each tick; with no claim, no
+    /// video window and nothing watched there is nothing to bring into step, and the topic is rebuilt only when the policy or the world changed.
     pub fn vwin_sync(&mut self) {
         let has_windows = self.scene.windows().any(|w| w.kind == WindowType::VideoWindow);
-        if self.vwin.alloc.policy.mode == Mode::Off && self.vwin.alloc.claims().is_empty() && !has_windows {
+        if self.vwin.alloc.claims().is_empty() && !has_windows && self.vwin.watch.is_empty() {
+            let world = self.vwin_world();
+            let policy = &self.vwin.alloc.policy;
+            let inputs = (policy.mode, policy.texture, policy.slots, world);
+            if self.vwin.idle_inputs.as_ref() != Some(&inputs) {
+                let topic = self.vwin_topic_in(&inputs.3);
+                self.vwin.idle_inputs = Some(inputs);
+                self.vwin_publish(topic);
+            }
             return;
         }
+        self.vwin.idle_inputs = None;
         // a claim's video that uses both scalers holds two windows (the status says)
         let wides: Vec<(String, bool)> = self
             .vwin
@@ -1019,7 +1046,13 @@ impl crate::State {
         self.vwin_bind();
         self.vwin_close_unclaimed();
         self.vwin_replace_parked();
-        let topic = self.vwin_topic();
+        let world = self.vwin_world();
+        let topic = self.vwin_topic_in(&world);
+        self.vwin_publish(topic);
+    }
+
+    /// Tells the shell when the topic is not the one it was last given.
+    fn vwin_publish(&mut self, topic: Value) {
         if topic != self.vwin.last_topic {
             self.vwin.last_topic = topic;
             self.shell_sync_topics();
@@ -1140,8 +1173,11 @@ impl crate::State {
 
     /// The claims and the windows as the shell reads them (topic `vwin`).
     pub fn vwin_topic(&self) -> Value {
-        let world = self.vwin_world();
-        let occupied = self.vwin.alloc.occupancy(&world);
+        self.vwin_topic_in(&self.vwin_world())
+    }
+
+    fn vwin_topic_in(&self, world: &World) -> Value {
+        let occupied = self.vwin.alloc.occupancy(world);
         let claims: Vec<Value> = self
             .vwin
             .alloc
@@ -1914,5 +1950,39 @@ mod tests {
         assert!(Kind::Pip.priority() > WALL_PRIORITY);
         assert_eq!(slot_name(0), "main");
         assert_eq!(slot_name(1), "sub");
+    }
+
+    fn idle_state() -> (crate::State, wayland_server::Display<crate::State>) {
+        let display: wayland_server::Display<crate::State> = wayland_server::Display::new().unwrap();
+        let state = crate::State::new(display.handle(), crate::config::Config::default(), Box::new(crate::render::software::Software::new(64, 64)), Box::new(crate::luna::Null::default()));
+        (state, display)
+    }
+
+    #[test]
+    fn a_sync_with_nothing_to_look_after_does_no_work() {
+        let (mut state, _display) = idle_state();
+        for mode in [Mode::Off, Mode::Idle, Mode::Apps] {
+            state.vwin_set_mode(mode);
+            state.vwin_sync();
+            let n = crate::harness::counted(|| {
+                for _ in 0..1000 {
+                    state.vwin_sync();
+                }
+            });
+            assert_eq!(n, 0, "{mode:?}: an unchanged tick allocates nothing");
+        }
+    }
+
+    #[test]
+    fn a_changed_policy_still_reaches_the_topic_without_a_claim() {
+        let (mut state, _display) = idle_state();
+        state.vwin_set_mode(Mode::Idle);
+        assert_eq!(state.vwin.last_topic["mode"], "idle");
+        state.vwin_set_mode(Mode::Off);
+        assert_eq!(state.vwin.last_topic["mode"], "off");
+        state.vwin.alloc.policy.slots = 1;
+        state.vwin_sync();
+        assert_eq!(state.vwin.last_topic, state.vwin_topic());
+        assert_eq!(state.vwin.last_topic["free"], 1);
     }
 }
