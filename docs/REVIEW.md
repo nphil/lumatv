@@ -21,7 +21,7 @@ Docs and mocks (about 4,600 changed files) are not reviewed beyond the claims ch
 |---|---|
 | Repo hygiene | Done |
 | No-TV pass | Done |
-| Fixes (owner chose P1 + P2, 2026-11-03) | LumaTV done; Marquee in progress; GeForce NOW feeder handed to the LumaGame session |
+| Fixes (owner chose P1 + P2, 2026-11-03) | Done, except items 1, 4 (LumaGame session) and 7, 8 (Marquee session) |
 | TV run | Needs a 2-3 hour TV slot |
 | Report | Pending |
 
@@ -89,8 +89,11 @@ Unfinished-work scan: no `todo!`, `unimplemented!`, TODO/FIXME or `dbg!` in ship
 - LumaTV `5fafcfa6`: item 13 (one-shot topics). `10239889`: items 11, 12, 14 (page and GL target leaks; recording reads back through pixel buffers a frame later). Item 14 is verified on Mesa only; check recording on the TV.
 - Items 1 and 4 (feeder C): queued to the LumaGame session's Todo (message sch_wPKBu3I).
 - Items 7 and 8 (Marquee sidecar): handed to the Marquee session, which has uncommitted edits in `sidecar.rs`/`alignment.rs` (message sch_8ubpksM).
-- Items 5, 6, 9 (Marquee): in progress; unfinished work is pushed to Marquee branch `review-fixes-wip` if interrupted.
+- Marquee `1d27905b7`: items 5 and 6 (Opus source failure takes the recovery ladder; the Load budget starts at the Load). `4354e99a9`: item 9 (text fit).
 
-## Resume
+## Next
 
-If this work is interrupted: check `git log origin/main` in both repos and the Marquee branch `review-fixes-wip` for items 5, 6 and 9; the LumaTV todo audit writes to `/data/home/tmp/lumatv-wake-handoff-20261031.B91cpuWy/` (`TODO.md`, original in `TODO.2026-11-03.orig.md`, progress in `TODO-audit-progress.md`). Next after the fixes: update the 40 stale tests listed above, then the TV run (step 3), which must include a recording check for item 14.
+1. Update the 40 stale tests listed under Tests.
+2. TV run (step 3), including a recording check for item 14. None of the fixes after `8f6c04ab` is on the TV yet.
+
+The project todo list was audited the same day: `/data/home/tmp/lumatv-wake-handoff-20261031.B91cpuWy/TODO.md` (66 done items verified against commits and receipts, 11 reopened for a TV check, 10 superseded items dropped; original kept as `TODO.2026-11-03.orig.md`).
