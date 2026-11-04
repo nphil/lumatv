@@ -3,6 +3,7 @@
 
 pub mod apps;
 pub mod buttons;
+pub mod channels;
 pub mod clock;
 pub mod http;
 pub mod inputs;
