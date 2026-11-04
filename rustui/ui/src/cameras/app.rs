@@ -1870,7 +1870,10 @@ impl App {
         } else if thumb {
             Backdrop::Thumb(bubble_key(&c.id))
         } else if self.wants_still(c) {
-            Backdrop::Still(full_key(&c.id))
+            // until the full view's own still has arrived, the grid's tile of the camera (kept in the store) stands in for it: a camera whose
+            // stills are slow to start is dimmed over its last picture, not over black
+            let arrived = |key: String| self.planner.pic(&key).last_at.is_some();
+            Backdrop::Still(if !arrived(full_key(&c.id)) && arrived(tile_key(&c.id)) { tile_key(&c.id) } else { full_key(&c.id) })
         } else {
             Backdrop::None
         };

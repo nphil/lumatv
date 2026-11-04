@@ -201,6 +201,19 @@ fn over_home_the_full_view_asks_for_the_live_stream_shows_pictures_until_it_play
 }
 
 #[test]
+fn the_stills_backdrop_is_the_grids_tile_of_the_camera_until_the_full_views_own_still_arrives() {
+    let mut cs = three();
+    cs["cameras"][1]["prebuffered"] = json!(false);
+    let mut r = Rig::new(cs);
+    let fx = r.app.open_grid(T0);
+    r.pictures(&fx);
+    let fx = r.app.open_full("273", T0 + 10);
+    assert_eq!(r.full().backdrop, Backdrop::Still("tile:273".into()));
+    r.pictures(&fx);
+    assert_eq!(r.full().backdrop, Backdrop::Still("full:273".into()));
+}
+
+#[test]
 fn a_stream_that_is_not_prebuffered_shows_the_stills_and_says_it_opens_in_a_few_seconds() {
     let mut cs = three();
     cs["cameras"][1]["prebuffered"] = json!(false);

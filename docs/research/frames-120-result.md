@@ -61,7 +61,7 @@ TV check list (both gates, pop-ups off):
 
 1. Install forge main at the commit after `1830f537` that keeps the floor and the copies to frames with something over Home, or later; the
    compositor's and ui's md5 equal the build.
-2. Pop-ups off (`popups.on false`), the receiver muted.
+2. The receiver muted (the gate turns pop-ups off and back on itself).
 3. 120 Hz first: `python3 compositor/tools/tv_gate.py --only frames --frames-quick --refresh 120`; `panel_refresh` 119.9 on every surface.
 4. Nothing worse than round 23 (120 Hz): apps-grid and home-widgets 3 or fewer (round 27's old path: 3 and 3), home-dpad 0, quick 0, picker 0, toast 0,
    settings-scroll 9 or fewer (round 23: 41).

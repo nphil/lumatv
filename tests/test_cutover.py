@@ -2070,7 +2070,7 @@ class GateDriver(unittest.TestCase):
         checks = [c for c in self.checks(calls) if not c.startswith("key ")]
         self.assertEqual(checks, [
             self.session(self.first + self.full), "live", "evidence",
-            self.session(self.full), "live frames", "refresh 120 10", "wake reset", "refresh read 10", "refresh 60 5",
+            self.session(self.full), "live frames", "refresh 120 10", "wake reset", "refresh read 10", "refresh auto 5",
             "wake frames", "mem", "callbacks", "cutover disable"])
         divider = [c for c in calls if "fbdev_vsync_cnt_on_flip" in c]
         self.assertEqual(len(divider), 1, "the divider is put back to 2 in the clean-up, once: %s" % calls)
@@ -2080,13 +2080,37 @@ class GateDriver(unittest.TestCase):
         self.assertNotIn("refresh", " ".join(self.checks(calls)))
         self.assertFalse([c for c in calls if "fbdev_vsync_cnt_on_flip" in c])
 
+    def test_a_frame_gate_that_dies_at_120_hz_hands_the_refresh_back_before_LGs_compositor_returns(self):
+        calls, code, _ = self.run_main(argv=("--only", "frames", "--refresh", "120"), crash_on="wake reset")
+        self.assertNotEqual(code, 0)
+        checks = self.checks(calls)
+        self.assertLess(checks.index("refresh auto 1"), checks.index("cutover disable"))
+
+    def test_the_camera_pop_up_setting_is_written_with_the_clients_header_and_read_back_to_restore_it(self):
+        g, stored, posts = self.gate, {"v": True, "version": 4}, []
+
+        def pty(cmd, timeout=600):
+            if "-X POST" in cmd:
+                posts.append(cmd)
+                stored["v"] = '"value": false' not in cmd
+                return '{"ok":true}'
+            return json.dumps({"version": stored["version"], "effective": {"popups.on": {"value": stored["v"]}}})
+        g.pty = pty
+        self.assertIs(g.set_popups(False), True)
+        self.assertIs(g.set_popups(True), False)
+        self.assertEqual(len(posts), 2)
+        self.assertTrue(all("-H 'X-Luma-Client: gate'" in p for p in posts))
+        self.assertIn('"value": false', posts[0])
+        self.assertIs(g.set_popups(False), True)
+        self.assertEqual(len(posts), 3)
+
     def test_the_frame_gate_with_direct_scan_out_switches_it_on_before_the_surfaces_and_reads_it_after(self):
         calls, code, _ = self.run_main(argv=("--only", "frames", "--refresh", "120", "--scanout", "direct"))
         self.assertEqual(code, 0)
         checks = [c for c in self.checks(calls) if not c.startswith("key ")]
         self.assertEqual(checks, [
             self.session(self.first + self.full), "live", "evidence",
-            self.session(self.full), "live frames", "scanout direct", "refresh 120 10", "wake reset", "scanout read", "refresh read 10", "refresh 60 5",
+            self.session(self.full), "live frames", "scanout direct", "refresh 120 10", "wake reset", "scanout read", "refresh read 10", "refresh auto 5",
             "wake frames", "mem", "callbacks", "cutover disable"])
         self.assertEqual(self.gate.frames_scanout, [True], "the gate's files and trace tag carry -scanout")
         # without the switch the gate asks the compositor nothing about it

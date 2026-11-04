@@ -668,7 +668,9 @@ impl Card {
             if cell.x < origin.0 + bounds.x - 1.0 || cell.y < origin.1 + bounds.y - 1.0 || cell.right() > origin.0 + bounds.right() + 1.0 || cell.bottom() > origin.1 + bounds.bottom() + 1.0 {
                 continue;
             }
-            let panel = lint.panel(&format!("{name}.{}", view.key), cell, paint, true);
+            // a camera's picture is under its words: they are read on the plate, whatever the picture is
+            let shown = if view.still.is_some() && view.drawn.as_ref().is_some_and(|d| d.still != 0) { plate_for(kit) } else { paint };
+            let panel = lint.panel(&format!("{name}.{}", view.key), cell, shown, true);
             let g = view.parts.glyph;
             lint.word_at(&format!("{name}.{}.glyph", view.key), Frame::new(cell.x + g.x, cell.y + g.y, g.w, g.h), kit.ui.look.ink2(), g.h as u32, true, Some(panel));
             view.words.lint(kit, lint, &format!("{name}.{}", view.key), (origin.0 - off.0, origin.1 - off.1), Some(panel));
@@ -822,8 +824,38 @@ fn lit_image(kit: &mut Kit, icon: &str, glyph: Frame, cell: (f32, f32), g: u32, 
     Some(LitImage { px, w, h, x: x0, y: y0 })
 }
 
-/// A camera's still across the cell, with a scrim under the words.
-fn paint_still(kit: &Kit, layer: &mut ImageLayer, pic: &Picture, radius: f32) {
+/// The alpha of the theme's canvas colour that keeps both lines of a label readable over any picture (the lint's worst of black, white and
+/// mid grey): the least step that passes, so a dark picture in the light look is not veiled more than it needs.
+fn plate_alpha(kit: &Kit) -> f32 {
+    use crate::kit::lint::{CONTRAST_MUTED, CONTRAST_TEXT, worst_contrast};
+    let c = kit.ui.look.canvas();
+    let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+    (25..=48)
+        .map(|n| n as f32 * 0.02)
+        .find(|&a| {
+            let paint = plate_paint(c, a);
+            worst_contrast(ink, paint) >= CONTRAST_TEXT && worst_contrast(ink2, paint) >= CONTRAST_MUTED
+        })
+        .unwrap_or(0.96)
+}
+
+/// The canvas colour at `a`, premultiplied as the lint composites it.
+fn plate_paint(c: Rgba, a: f32) -> Rgba {
+    let m = |v: u8| (f32::from(v) * a).round() as u8;
+    Rgba(m(c.0), m(c.1), m(c.2), (a * 255.0).round() as u8)
+}
+
+/// What the words of a camera item with a still are read against, for the lint: the plate of the theme's canvas colour over the picture.
+fn plate_for(kit: &Kit) -> Rgba {
+    plate_paint(kit.ui.look.canvas(), plate_alpha(kit))
+}
+
+/// How far above the first line the plate fades in.
+const PLATE_FEATHER: f32 = 28.0;
+
+/// A camera's still across the cell, with a plate of the theme's canvas colour under the words (from `label_top`, the top of the first line,
+/// down) and a scrim that deepens to the foot; the plate is as strong as the lint needs the words to be over any picture.
+fn paint_still(kit: &Kit, layer: &mut ImageLayer, pic: &Picture, radius: f32, label_top: f32) {
     let (w, h) = (layer.width(), layer.height());
     layer.clear();
     let mut fitted = pic.fitted(w, h, Fit::Cover);
@@ -834,10 +866,13 @@ fn paint_still(kit: &Kit, layer: &mut ImageLayer, pic: &Picture, radius: f32) {
     }
     let scrim = kit.ui.look.canvas();
     let rows = (h as f32 * 0.55) as u32;
+    let plate = plate_alpha(kit);
+    let start = (label_top - PLATE_FEATHER).max(0.0);
     let px = layer.pixels_mut();
-    for y in h - rows..h {
-        let t = (y - (h - rows)) as f32 / rows as f32;
-        let a = 0.86 * t * t;
+    for y in (h - rows).min(start as u32)..h {
+        let t = if y >= h - rows { (y - (h - rows)) as f32 / rows as f32 } else { 0.0 };
+        let ramp = ((y as f32 - start) / PLATE_FEATHER).clamp(0.0, 1.0);
+        let a = (0.86 * t * t).max(plate * ramp * ramp * (3.0 - 2.0 * ramp));
         for x in 0..w {
             let i = ((y * w + x) * 4) as usize;
             let cover = f32::from(px[i + 3]) / 255.0;
@@ -925,7 +960,7 @@ fn update_view(cx: &mut Cx, scroller: &Group, view: &mut ItemView, item: &Item, 
             view.still = Some(scene.adopting(scroller, || kit.ui.scene.image(w, h, Z_ART - 1, Props::at(view.rect.x, view.rect.y)))?);
         }
         if let Some(layer) = view.still.as_mut() {
-            paint_still(kit, layer, pic, radius);
+            paint_still(kit, layer, pic, radius, view.parts.main.y.min(view.parts.second.y));
         }
     }
     // the lamp: lit in its own colour, with a glow that follows its level; the change is a fade, and a change of colour goes by the way the
@@ -1039,4 +1074,22 @@ fn press_view(cx: &mut Cx, scroller: &Group, view: &mut ItemView, pressed: bool,
     bar.animate(Props { clip: Some(full), ..Props::at(x, y) }, hold_ms as u32, Ease::Linear);
     view.cue = Some(bar);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kit::lint::{CONTRAST_MUTED, CONTRAST_TEXT, worst_contrast};
+    use crate::kit::testkit;
+
+    #[test]
+    fn a_camera_label_reads_on_its_plate_over_any_picture_in_both_looks() {
+        for mode in [Mode::Dark, Mode::Light] {
+            let (h, kit) = testkit::kit_in(mode, 1.0);
+            let plate = plate_for(&kit);
+            assert!(worst_contrast(kit.ui.look.ink(), plate) >= CONTRAST_TEXT, "{mode:?} name");
+            assert!(worst_contrast(kit.ui.look.ink2(), plate) >= CONTRAST_MUTED, "{mode:?} status");
+            std::mem::forget(h);
+        }
+    }
 }

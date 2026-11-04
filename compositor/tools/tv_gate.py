@@ -23,7 +23,7 @@ runs the quick set, which starts no app and changes a setting only if the owner 
 --refresh 120 runs the surface frame gate in the compositor's refresh test mode (docs/research/ui120-result.md): `gate.sh refresh 120`
 before it (the OSD vblank divider at 1, the pacer at 8.33 ms; a GATE refresh line with the rate measured three ways, Mali busy and the
 temperature at idle Home), the gate's dropped-frame threshold at 10 ms, idle Home measured again after the surfaces, then
-`gate.sh refresh 60` (and once more in the clean-up, whatever happened). `--only frames --refresh 120` is the whole 120 Hz check.
+`gate.sh refresh auto` (and once more in the clean-up, whatever happened: `refresh 60` and `120` leave the compositor's policy manual). `--only frames --refresh 120` is the whole 120 Hz check.
 --scanout direct switches direct scan-out on for the surface frame gate (docs/research/scanout-research.md, TV check list d): `gate.sh scanout direct`
 before it (the compositor's switch on), `gate.sh scanout read` after it (frames
 shown direct and composed, the reason of each composed one); the gate's files and trace tag carry `-scanout`, so the run beside the same gate without
@@ -198,6 +198,26 @@ def frames_check(cycles, load=False, refresh=60, quick=False, scanout=False):
     if load:
         return "GATE frames-load: measured under synthetic background load, the unloaded thresholds say %s: %s (surfaces %s, %d cycles; %s)" % (verdict, detail, surfaces, cycles, out_json)
     return "GATE frames%s: %s %s (surfaces %s, %d cycles; %s)" % (" at %d Hz" % refresh if refresh != 60 else "", verdict, detail, surfaces, cycles, out_json)
+
+HELPER_CAMERAS = "http://127.0.0.1:18731/v1/settings/scrypted-cameras"
+
+def set_popups(value):
+    """Camera pop-ups on or off through the helper's settings route, which refuses a write without the X-Luma-Client header. Returns the
+    value found (None when unreadable), so the caller can put it back; a pop-up's video window re-times the panel, so the frame gate runs with them off."""
+    body = pty("curl -s %s" % HELPER_CAMERAS, 20)
+    try:
+        d = json.loads(body[body.index("{"):body.rindex("}") + 1])
+    except ValueError:
+        print("popups: unreadable settings: %s" % body[:200])
+        return None
+    cur = ((d.get("effective") or {}).get("popups.on") or {}).get("value")
+    if cur is not value:
+        change = json.dumps({"changes": [{"key": "popups.on", "value": {"type": "bool", "value": value}}], "ifVersion": d.get("version", 0)})
+        out = pty("curl -s -X POST -H 'Content-Type: application/json' -H 'X-Luma-Client: gate' -d '%s' %s" % (change, HELPER_CAMERAS), 20)
+        print("popups %s: %s" % ("on" if value else "off", out.strip()[:200]))
+        if '"ok":true' not in out.replace(" ", ""):
+            raise SystemExit("the helper refused the pop-up setting; the frame gate needs pop-ups off")
+    return cur
 
 def wait_ssh(seconds):
     t0 = time.time()
@@ -377,6 +397,8 @@ def main():
         tv.put(VERIFIED_LIST, "/tmp/lumatv/verified.list")
     tv.tv("rm -rf /tmp/lumatv/out/gate; mkdir -p /tmp/lumatv/out/gate")
     lines = []
+    popups_found = None      # camera pop-ups were on when the frame gate turned them off: they are put back
+    refresh_manual = False   # `gate.sh refresh 120` left the compositor's policy manual: it is handed back
     def step(name, cmd, timeout=600):
         out = pty(cmd, timeout)
         print(out)
@@ -492,8 +514,10 @@ def main():
             if a.scanout == "direct":
                 # Enable direct scan-out, then report the compositor's counters.
                 step("scanout", "sh /tmp/lumatv/gate.sh scanout direct", 180)
+            popups_found = set_popups(False)
             if a.refresh != 60:
                 # The switch, then idle Home at the new rate: the rate three ways, the compositor's measure, Mali and the temperature.
+                refresh_manual = True
                 step("refresh", "sh /tmp/lumatv/gate.sh refresh %d 10" % a.refresh, 120)
             print(pty("sh /tmp/lumatv/gate.sh wake reset", 60))
             lines.append(frames_check(a.frames_cycles, refresh=a.refresh, quick=a.frames_quick, scanout=a.scanout == "direct"))
@@ -502,7 +526,8 @@ def main():
             if a.refresh != 60:
                 # Idle Home again after the surfaces, the compositor's measure left running since the switch (it covers the slides), then the mode off: 60 is the gate's resting state.
                 step("refresh", "sh /tmp/lumatv/gate.sh refresh read 10", 120)
-                step("refresh", "sh /tmp/lumatv/gate.sh refresh 60 5", 120)
+                step("refresh", "sh /tmp/lumatv/gate.sh refresh auto 5", 120)
+                refresh_manual = False
             # What the loop's wake-ups cost over the gate, and what the compositor holds in memory after it (reports, not rules).
             step("wake", "sh /tmp/lumatv/gate.sh wake frames", 60)
             step("mem", "sh /tmp/lumatv/gate.sh mem", 60)
@@ -534,6 +559,18 @@ def main():
             safety_step(name, live, step, lambda line: (print(line), lines.append(line)))
             live = session(LATER_SESSION_MINUTES, "after-" + name)
     finally:
+        # `refresh 120` leaves the compositor's policy manual, which keeps Marquee from getting 120 on its own: handed back whatever happened above,
+        # while LumaTV's compositor is still the one running.
+        if refresh_manual:
+            try:
+                print(pty("sh /tmp/lumatv/gate.sh refresh auto 1", 60).strip()[-300:])
+            except Exception as e:
+                print("refresh auto failed: %s" % e)
+        if popups_found is True:
+            try:
+                set_popups(True)
+            except BaseException as e:
+                print("popups restore failed: %s" % e)
         # Whatever happened above, LG's compositor is the live one afterwards with the flag removed (a failed
         # escape would otherwise leave LumaTV's running); --enable-after turns it back on below after a pass.
         try:

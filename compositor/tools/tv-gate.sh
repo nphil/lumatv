@@ -973,16 +973,17 @@ refresh)
     # the display engine's vsync and the OSD's interrupt), the compositor's measure (`read` leaves it running: after the surfaces it then
     # covers them), what refresh the shell client draws for (`ctl shell`, the client's own report), Mali's busy share (the cumulative busy
     # and idle times, as vplane/tools/measure.py reads them) and the SoC's temperature. The divider is confirmed from its file: a kernel
-    # that ignored the write reads 2 at 120.
+    # that ignored the write reads 2 at 120. `60` and `120` leave the compositor's policy manual, which keeps Marquee from getting 120 on its own;
+    # `auto` hands it back (the gate ends on it).
     r_secs=${3:-5}
     DIVIDER=/sys/module/lg1k/parameters/fbdev_vsync_cnt_on_flip
     case "${2:-read}" in
-    60|120|reset)
+    60|120|reset|auto)
         r_set=$(ctl refresh $2)
         if ! echo "$r_set" | grep -q '"ok":true'; then echo "GATE refresh: FAIL $r_set"; exit 1; fi
         sleep 2 ;;
     read) ;;
-    *) echo "GATE refresh: FAIL refresh [60|120|reset|read] [SECS]"; exit 1 ;;
+    *) echo "GATE refresh: FAIL refresh [60|120|auto|reset|read] [SECS]"; exit 1 ;;
     esac
     r_hz=$(ctl refresh | jnum hz)
     r_div=$(tr -d ' \n' < $DIVIDER 2>/dev/null)
