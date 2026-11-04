@@ -615,7 +615,8 @@ impl QuickSurface {
         }
     }
 
-    fn build(kit: &mut Kit, engine: &mut Engine, root_group: &Group, z: i32, view: &View, rows: Vec<RowLayout>, sig: String, info_lines: &[String]) -> std::io::Result<Built> {
+    fn build(kit: &mut Kit, engine: &mut Engine, stage: &Stage, view: &View, rows: Vec<RowLayout>, sig: String, info_lines: &[String]) -> std::io::Result<Built> {
+        let (root_group, z) = (stage.group(), stage.z());
         let scene = kit.ui.scene.clone();
         let sheet = lay::sheet();
         let pad = kit.space(6);
@@ -1001,7 +1002,7 @@ impl QuickSurface {
             self.drop_built(engine);
             // a click on nothing is Back: the whole screen is a focusable under everything else, absent from the keys
             self.stage.backdrop(engine, Target::Backdrop.id(), REGION_LIST);
-            let built = match Self::build(kit, engine, self.stage.group(), self.stage.z(), view, self.row_cache.as_ref().expect("row cache").layouts.clone(), sig, &info_lines) {
+            let built = match Self::build(kit, engine, &self.stage, view, self.row_cache.as_ref().expect("row cache").layouts.clone(), sig, &info_lines) {
                 Ok(built) if !kit.ui.scene.take_overflow() => built,
                 result => {
                     let error = result.err().unwrap_or_else(|| std::io::Error::other("the scene is full: the quick panel could not be drawn whole"));

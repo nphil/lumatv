@@ -183,10 +183,10 @@ mod tests {
         let mut surface = ToastSurface::new(1900, &json!({}), &json!({}));
         let t = toast("Ready", "");
         let bar = Rect { x: 740.0, y: 988.0, w: 440.0, h: 60.0 };
-        surface.apply(&mut kit, &[t.clone()], Some(bar), false).unwrap();
+        surface.apply(&mut kit, std::slice::from_ref(&t), Some(bar), false).unwrap();
         let r = surface.rects()[0];
         assert_eq!(r.y + r.h, bar.y - 16.0);
-        surface.apply(&mut kit, &[t.clone()], None, true).unwrap();
+        surface.apply(&mut kit, std::slice::from_ref(&t), None, true).unwrap();
         assert_eq!(surface.rects()[0].y + surface.rects()[0].h, 889.0);
         surface.apply(&mut kit, &[], None, false).unwrap();
         assert!(surface.rects().is_empty());

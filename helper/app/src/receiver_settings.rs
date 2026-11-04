@@ -739,18 +739,20 @@ mod tests {
         state.observe(1, Reply::Zone2Power(true), now, 7);
         state.observe(1, Reply::Zone2Source(settings::Source::Cd), now, 8);
         assert_eq!(state.document()["bass"]["writable"], false);
-        let mut p = settings::Prerequisites::default();
-        p.tone_available = Some(true);
-        p.tone_enabled = Some(true);
-        p.zone2_present = Some(true);
-        p.main_sources = Some(vec![settings::SourceChoice {
-            id: settings::Source::Tv,
-            name: "TV".into(),
-        }]);
-        p.zone2_sources = Some(vec![settings::SourceChoice {
-            id: settings::Source::Cd,
-            name: "CD".into(),
-        }]);
+        let p = settings::Prerequisites {
+            tone_available: Some(true),
+            tone_enabled: Some(true),
+            zone2_present: Some(true),
+            main_sources: Some(vec![settings::SourceChoice {
+                id: settings::Source::Tv,
+                name: "TV".into(),
+            }]),
+            zone2_sources: Some(vec![settings::SourceChoice {
+                id: settings::Source::Cd,
+                name: "CD".into(),
+            }]),
+            ..Default::default()
+        };
         state.set_prerequisites(Some(p));
         let doc = state.document();
         assert_eq!(doc["bass"]["writable"], true);

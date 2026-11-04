@@ -97,11 +97,9 @@ impl Model for Toasts {
                     self.take(payload, now);
                 }
             }
-            Input::Tick => {
-                if self.current.as_ref().is_some_and(|t| t.expires <= now) {
-                    self.current = None;
-                    self.changed = true;
-                }
+            Input::Tick if self.current.as_ref().is_some_and(|t| t.expires <= now) => {
+                self.current = None;
+                self.changed = true;
             }
             _ => {}
         }

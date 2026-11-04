@@ -112,7 +112,7 @@ pub(crate) fn excerpt(kit: &mut Kit, style: Style, text: &str, cursor: usize, ro
     let available = room - if start > 0 { ellipsis } else { 0.0 } - ellipsis - 6.0;
     let (mut a, mut b) = (caret, cuts.len() - 1);
     while a < b {
-        let mid = (a + b + 1) / 2;
+        let mid = (a + b).div_ceil(2);
         if width_of(kit, style, &text[start..cuts[mid]]) <= available { a = mid; } else { b = mid - 1; }
     }
     let end = cuts[a];

@@ -19,6 +19,8 @@ const BANNER: u32 = 0xff30_3030;
 
 struct Rig {
     client: Client,
+    // Kept alive for every build; only the ui-feature test sets its state.
+    #[cfg_attr(not(feature = "ui"), expect(dead_code))]
     stub: Window,
     _live: Window,
     group: lumatv_wl_protocols::webos_surface_group::client::wl_webos_surface_group::WlWebosSurfaceGroup,

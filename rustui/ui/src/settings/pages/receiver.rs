@@ -179,12 +179,11 @@ impl<'a> Setting<'a> {
                 }
             }
             if let Some(id) = self.local.get("requestId").and_then(Value::as_str) {
-                if let Some(result) = self.d.and_then(|d| d.get("result")) {
-                    if result.get("requestId").and_then(Value::as_str) == Some(id) {
-                        if result.get("status").and_then(Value::as_str) == Some("failed") {
-                            return result.get("error").and_then(Value::as_str).unwrap_or("Change failed").into();
-                        }
-                    }
+                if let Some(result) = self.d.and_then(|d| d.get("result"))
+                    && result.get("requestId").and_then(Value::as_str) == Some(id)
+                    && result.get("status").and_then(Value::as_str) == Some("failed")
+                {
+                    return result.get("error").and_then(Value::as_str).unwrap_or("Change failed").into();
                 }
                 let applied = self
                     .d

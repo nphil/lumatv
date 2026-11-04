@@ -112,8 +112,7 @@ fn raster(pixels: &mut [u8], roles: &Roles) {
             if dx * dx + dy * dy > 49 { continue; }
             let c = if (10..54).contains(&x) && (12..52).contains(&y) {
                 if (16..48).contains(&x) && (18..21).contains(&y) { ink }
-                else if (16..38).contains(&x) && (26..28).contains(&y) { ink2 }
-                else if (16..44).contains(&x) && (33..35).contains(&y) { ink2 }
+                else if ((16..38).contains(&x) && (26..28).contains(&y)) || ((16..44).contains(&x) && (33..35).contains(&y)) { ink2 }
                 else if (16..32).contains(&x) && (41..46).contains(&y) { accent }
                 else { sheet }
             } else { canvas };

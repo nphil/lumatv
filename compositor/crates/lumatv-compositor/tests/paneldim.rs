@@ -160,7 +160,7 @@ fn care_on(s: &mut State) {
 fn an_idle_native_home_dims_the_panel_without_a_wayland_window() {
     let tv = Stand::new(80);
     let mut server = quiet_server(&tv);
-    let _home = home(&mut server);
+    home(&mut server);
     server.eval(|s| {
         care_on(s);
         let t = monotonic_ns();
@@ -183,7 +183,7 @@ fn an_idle_native_home_dims_the_panel_without_a_wayland_window() {
 fn with_nothing_set_in_the_theme_an_idle_home_dims_the_panel_to_the_shipped_level_and_a_key_brings_it_back() {
     let tv = Stand::new(80);
     let mut server = quiet_server(&tv);
-    let _home = home(&mut server);
+    home(&mut server);
     let t = server.eval(|s| {
         assert!(s.scene.care.enabled(), "the care is on until the theme says otherwise");
         // the shipped care: still for 5 minutes, then 10 minutes down to 0.85
@@ -206,7 +206,7 @@ fn with_nothing_set_in_the_theme_an_idle_home_dims_the_panel_to_the_shipped_leve
 fn a_key_puts_the_value_back_and_the_journal_goes() {
     let tv = Stand::new(80);
     let mut server = quiet_server(&tv);
-    let _home = home(&mut server);
+    home(&mut server);
     let t = server.eval(|s| {
         care_on(s);
         let t = run(s, monotonic_ns(), 75_000);
@@ -231,7 +231,7 @@ fn a_key_puts_the_value_back_and_the_journal_goes() {
 fn with_panel_dim_off_the_panel_is_not_asked() {
     let tv = Stand::new(80);
     let mut server = quiet_server(&tv);
-    let _home = home(&mut server);
+    home(&mut server);
     server.eval(|s| {
         care_on(s);
         s.scene.care.settings.paneldim.enabled = false;
@@ -254,7 +254,7 @@ fn a_refused_write_stops_panel_dimming() {
     let tv = Stand::new(80);
     tv.0.lock().refuse = true;
     let mut server = quiet_server(&tv);
-    let _home = home(&mut server);
+    home(&mut server);
     server.eval(|s| {
         care_on(s);
         let t = run(s, monotonic_ns(), 500);
@@ -303,7 +303,7 @@ fn a_video_hole_a_standby_and_the_saver_leaving_each_put_the_value_back() {
     for how in 0..3 {
         let tv = Stand::new(80);
         let mut server = quiet_server(&tv);
-        let _home = home(&mut server);
+        home(&mut server);
         let _video = if how == 0 {
             let mut client = Client::connect(&mut server);
             let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Video");
@@ -341,7 +341,7 @@ fn a_video_hole_a_standby_and_the_saver_leaving_each_put_the_value_back() {
 fn the_rust_shells_saver_is_dimmed_at_its_own_level_when_it_says_it_does_not_draw_that_dim() {
     let tv = Stand::new(80);
     let mut server = quiet_server(&tv);
-    let _home = home(&mut server);
+    home(&mut server);
     server.eval(|s| {
         let t = run(s, monotonic_ns(), 500);
         // a saver that still draws its own dim is not asked of the panel

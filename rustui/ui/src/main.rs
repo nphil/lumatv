@@ -373,20 +373,6 @@ fn confirms_first_commit(first: Option<u64>, event: &SceneEvent) -> bool {
     matches!(event, SceneEvent::Frame { tag, .. } if first.is_some_and(|first| *tag >= first))
 }
 
-#[cfg(test)]
-mod readiness_tests {
-    use super::*;
-
-    #[test]
-    fn receipt_must_cover_a_successfully_submitted_commit() {
-        let frame = |tag| SceneEvent::Frame { tag, presented_ns: 1, render_us: 0, missed: 0, backdrops: 0, gpu_mhz: 0, captures: 0, uploaded_bytes: 0, quality: 0 };
-        assert!(!confirms_first_commit(None, &frame(10)));
-        assert!(!confirms_first_commit(Some(11), &frame(10)));
-        assert!(confirms_first_commit(Some(11), &frame(11)));
-        assert!(confirms_first_commit(Some(11), &frame(12)));
-    }
-}
-
 /// On the set: the engine's socket from the compositor, the channel and the helper over the loopback, the keys over the key socket.
 fn run_set(o: Options) -> io::Result<()> {
     let mut log = Log { host: false, file: None, chatter: Chatter::default() };
@@ -791,4 +777,18 @@ fn run_host(o: Options) -> io::Result<()> {
     shell.kit.ui.text_pictures,
     shell.kit.ui.glyph_text_fallbacks));
     Ok(())
+}
+
+#[cfg(test)]
+mod readiness_tests {
+    use super::*;
+
+    #[test]
+    fn receipt_must_cover_a_successfully_submitted_commit() {
+        let frame = |tag| SceneEvent::Frame { tag, presented_ns: 1, render_us: 0, missed: 0, backdrops: 0, gpu_mhz: 0, captures: 0, uploaded_bytes: 0, quality: 0 };
+        assert!(!confirms_first_commit(None, &frame(10)));
+        assert!(!confirms_first_commit(Some(11), &frame(10)));
+        assert!(confirms_first_commit(Some(11), &frame(11)));
+        assert!(confirms_first_commit(Some(11), &frame(12)));
+    }
 }

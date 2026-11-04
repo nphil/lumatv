@@ -185,7 +185,7 @@ fn mid(rect: &Frame, h: f32) -> f32 {
 
 /// The plate of a focusable: the group the focus lifts and, in it, the lit glass. The focusable is registered by [`RowArt::sync_focus`]
 /// (a row takes the pointer and the focus only where it is whole in view); the lift is the engine's from here.
-fn make_plate(env: &mut Env, id: Id, rect: Frame, lift: bool, scale: f32, rise: f32, radius: f32, strong: bool) -> std::io::Result<ShapeLayer> {
+fn make_plate(env: &mut Env, id: Id, rect: Frame, scale: f32, rise: f32, radius: f32, strong: bool) -> std::io::Result<ShapeLayer> {
     let (w, h) = (rect.w, rect.h);
     let rest = GroupPose { x: rect.x, y: rect.y, pivot_x: w / 2.0, pivot_y: h / 2.0, ..GroupPose::IDENTITY };
     let scene = env.kit.ui.scene.clone();
@@ -194,9 +194,7 @@ fn make_plate(env: &mut Env, id: Id, rect: Frame, lift: bool, scale: f32, rise: 
     let shape = pill(env.paint.wash_focus, if strong { env.paint.ink } else { env.paint.edge_raised }, radius, if strong { 2.0 } else { 1.0 });
     let z = env.z;
     let lit = scene.adopting(&lit_group, || scene.shape(w.round() as u32, h.round() as u32, z + 1, shape, Props::at(0.0, 0.0)));
-    if lift {
-        env.engine.flow.lift(id, Lifted { group, rest, scale, rise, lit: Some(lit_group) });
-    }
+    env.engine.flow.lift(id, Lifted { group, rest, scale, rise, lit: Some(lit_group) });
     Ok(lit)
 }
 
@@ -1062,14 +1060,14 @@ impl RowArt {
         if let Some(s) = self.plate
             && self._lit.is_none()
         {
-            self._lit = Some(make_plate(env, self.id, s.rect, true, s.scale, s.rise, s.radius, false)?);
+            self._lit = Some(make_plate(env, self.id, s.rect, s.scale, s.rise, s.radius, false)?);
         }
         if let Trailing::Cards(cards) = &mut self.trailing {
             for (i, c) in cards.iter_mut().enumerate() {
                 if card == Some(i) && c._lit.is_none() {
                     let scroll = self.strip.as_ref().map_or(env.scroll, |(_, scroll, _)| scroll);
                     let mut card_env = Env { kit: env.kit, engine: env.engine, paint: env.paint, sz: env.sz, scroll, z: env.z, region: env.region, scope: env.scope, origin: env.origin };
-                    c._lit = Some(make_plate(&mut card_env, c.id, c.spec.rect, true, c.spec.scale, c.spec.rise, c.spec.radius, c.icon.starts_with("theme:"))?);
+                    c._lit = Some(make_plate(&mut card_env, c.id, c.spec.rect, c.spec.scale, c.spec.rise, c.spec.radius, c.icon.starts_with("theme:"))?);
                 } else if card != Some(i) && c._lit.is_some() && env.engine.focus.current() != Some(c.id) && env.engine.flow.resting(c.id, now_ns) {
                     c._lit = None;
                     env.engine.flow.drop_lift(c.id);

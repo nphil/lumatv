@@ -124,6 +124,7 @@ pub struct Own {
     pub counts: OwnCounts,
 }
 
+#[derive(Default)]
 pub struct ImeState {
     models: Vec<Model>,
     methods: Vec<Method>,
@@ -139,21 +140,6 @@ pub struct ImeState {
     pub own: Own,
 }
 
-impl Default for ImeState {
-    fn default() -> Self {
-        ImeState {
-            models: Vec::new(),
-            methods: Vec::new(),
-            next: 0,
-            active: None,
-            grab: None,
-            grab_down: Vec::new(),
-            panel: None,
-            counts: Counts::default(),
-            own: Own::default(),
-        }
-    }
-}
 
 
 impl ImeState {

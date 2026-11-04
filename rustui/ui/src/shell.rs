@@ -1718,7 +1718,7 @@ impl Shell {
                 }
                 ShellRequest::Text { prompt, text, secret, purpose } => {
                     let mut out = Vec::new();
-                    if self.panels.ask_text_purpose(&prompt, &text, secret, purpose, &self.kinds, now, &mut out) {
+                    if self.panels.ask_text_purpose(crate::panels::layer::TextAsk { prompt: &prompt, text: &text, secret, purpose }, &self.kinds, now, &mut out) {
                         for e in out {
                             self.carry(e, now, acts);
                         }

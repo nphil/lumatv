@@ -1931,7 +1931,7 @@ mod tests {
         let (status, accepted) = post(false, &session);
         assert_eq!(status, 202);
         let interrupted_id = accepted["requestId"].as_str().unwrap().to_owned();
-        wait_for(|| (fake.writes.lock().unwrap().len() == 5).then(|| json!(true)));
+        wait_for(|| (fake.writes.lock().unwrap().len() == 5).then_some(json!(true)));
         fake.missing_prerequisites.store(true, Ordering::SeqCst);
         fake.disconnect.store(true, Ordering::SeqCst);
         wait_for(|| {

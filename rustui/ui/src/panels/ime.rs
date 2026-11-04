@@ -639,9 +639,11 @@ enum Probe {
     Done,
 }
 
+type LayoutCache = (LayoutId, u32, bool, Rc<Layout>);
+
 pub struct Ime {
     pub life: Life,
-    layout_cache: RefCell<Option<(LayoutId, u32, bool, Rc<Layout>)>>,
+    layout_cache: RefCell<Option<LayoutCache>>,
     field: Field,
     symbols: bool,
     shift: u8,

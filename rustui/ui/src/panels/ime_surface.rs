@@ -370,7 +370,8 @@ impl ImeSurface {
         art.damage(None);
     }
 
-    fn build(&self, kit: &mut Kit, engine: &mut Engine, root: &ui::group::Group, z: i32, v: &View, geo: Geometry, sig: (u64, f32, Option<LayoutId>, f32)) -> std::io::Result<Built> {
+    fn build(&self, kit: &mut Kit, engine: &mut Engine, v: &View, geo: Geometry, sig: (u64, f32, Option<LayoutId>, f32)) -> std::io::Result<Built> {
+        let (root, z) = (self.stage.group(), self.stage.z());
         let scene = kit.ui.scene.clone();
         let t = tones(kit);
         let ink = kit.ui.look.ink();
@@ -441,7 +442,7 @@ impl ImeSurface {
         if self.built.is_none() {
             if let Some(backdrop) = self.backdrop { self.stage.backdrop(engine, backdrop, self.region); }
             let geo = geometry(kit, &v.layout, self.header_height);
-            let built = self.build(kit, engine, self.stage.group(), self.stage.z(), v, geo, sig)?;
+            let built = self.build(kit, engine, v, geo, sig)?;
             if kit.ui.scene.take_overflow() {
                 return Err(std::io::Error::other("the scene is full: the keyboard could not be drawn whole"));
             }

@@ -324,7 +324,7 @@ fn prepare_socket(path: &Path, previous: Option<SocketSignature>) -> io::Result<
 fn valid_record(record: &[u8]) -> bool {
     if record.first() != Some(&b'<') { return false; }
     let Some(end) = record.iter().position(|b| *b == b'>') else { return false; };
-    if end < 2 || end > 4 { return false; }
+    if !(2..=4).contains(&end) { return false; }
     let Ok(pri) = std::str::from_utf8(&record[1..end]).unwrap_or("").parse::<u8>() else { return false; };
     if pri > 191 { return false; }
     let tag = &record[end+1..];

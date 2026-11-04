@@ -105,6 +105,14 @@ fn straight(c: Rgba) -> Value {
     json!({"r": un(c.0), "g": un(c.1), "b": un(c.2), "a": a / 255.0})
 }
 
+/// What a screen of the shell asks the entry sheet to collect.
+pub struct TextAsk<'a> {
+    pub prompt: &'a str,
+    pub text: &'a str,
+    pub secret: bool,
+    pub purpose: u32,
+}
+
 pub struct Panels {
     env: Env,
     quick: Quick,
@@ -448,15 +456,15 @@ impl Panels {
     /// the person backed out) is handed back once by [`Panels::take_typed`]. Returns whether the sheet opened: not without its kind, not over
     /// the switcher.
     pub fn ask_text(&mut self, prompt: &str, text: &str, secret: bool, kinds: &Kinds, now: u64, out: &mut Vec<Effect>) -> bool {
-        self.ask_text_purpose(prompt, text, secret, super::ime::PURPOSE_NORMAL, kinds, now, out)
+        self.ask_text_purpose(TextAsk { prompt, text, secret, purpose: super::ime::PURPOSE_NORMAL }, kinds, now, out)
     }
 
-    pub fn ask_text_purpose(&mut self, prompt: &str, text: &str, secret: bool, purpose: u32, kinds: &Kinds, now: u64, out: &mut Vec<Effect>) -> bool {
+    pub fn ask_text_purpose(&mut self, ask: TextAsk, kinds: &Kinds, now: u64, out: &mut Vec<Effect>) -> bool {
         if !kinds.entry || self.switcher_life.presented() {
             return false;
         }
         self.make_room(Which::Entry, kinds, now, out);
-        self.entry.open_purpose(prompt, text, secret, purpose, now);
+        self.entry.open_purpose(ask.prompt, ask.text, ask.secret, ask.purpose, now);
         self.entry.life.show(now);
         self.idle_due = Some(now + IDLE_MS);
         self.redraw = true;

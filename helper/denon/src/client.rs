@@ -207,7 +207,7 @@ impl Client {
     ) -> Result<Option<Vec<u8>>, ClientError> {
         match self.request_until(path, body, deadline) {
             Ok(body) => Ok(Some(body)),
-            Err(ClientError::Http(403 | 404 | 405)) => Ok(None),
+            Err(ClientError::Http(403..=405)) => Ok(None),
             Err(error) => Err(error),
         }
     }

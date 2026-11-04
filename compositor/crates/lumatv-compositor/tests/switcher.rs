@@ -77,11 +77,12 @@ struct Rig {
 fn rig_home(can: &[&str]) -> Rig {
     let mut server = Server::start();
     shell_up(&mut server, can);
-    let mut apps = Vec::new();
-    apps.push(app(&mut server, "Netflix", "netflix", NETFLIX));
-    apps.push(app(&mut server, "YouTube", "youtube", YOUTUBE));
-    apps.push(app(&mut server, "Plex", "plex", PLEX));
-    apps.push(app(&mut server, "Stub", HOME_STUB, 0xff10_1010));
+    let apps = vec![
+        app(&mut server, "Netflix", "netflix", NETFLIX),
+        app(&mut server, "YouTube", "youtube", YOUTUBE),
+        app(&mut server, "Plex", "plex", PLEX),
+        app(&mut server, "Stub", HOME_STUB, 0xff10_1010),
+    ];
     server.eval(|s| s.luna_notify());
     // from here on time is the test's: the server does not tick on its own
     server.ticking.store(false, Ordering::SeqCst);
@@ -92,11 +93,12 @@ fn rig_home(can: &[&str]) -> Rig {
 fn rig_app(can: &[&str]) -> Rig {
     let mut server = Server::start();
     shell_up(&mut server, can);
-    let mut apps = Vec::new();
-    apps.push(app(&mut server, "Stub", HOME_STUB, 0xff10_1010));
-    apps.push(app(&mut server, "Netflix", "netflix", NETFLIX));
-    apps.push(app(&mut server, "YouTube", "youtube", YOUTUBE));
-    apps.push(app(&mut server, "Plex", "plex", PLEX));
+    let apps = vec![
+        app(&mut server, "Stub", HOME_STUB, 0xff10_1010),
+        app(&mut server, "Netflix", "netflix", NETFLIX),
+        app(&mut server, "YouTube", "youtube", YOUTUBE),
+        app(&mut server, "Plex", "plex", PLEX),
+    ];
     server.eval(|s| s.luna_notify());
     // from here on time is the test's: the server does not tick on its own
     server.ticking.store(false, Ordering::SeqCst);
@@ -219,7 +221,7 @@ fn with_the_switch_off_every_press_is_home_alone() {
     assert_eq!((homes, active), (2, false));
     // or while the shell is not there to draw it
     let mut server = Server::start();
-    let _home = shell_up(&mut server, &["switcher"]);
+    shell_up(&mut server, &["switcher"]);
     let _stub = app(&mut server, "Stub", HOME_STUB, 0xff10_1010);
     let _plex = app(&mut server, "Plex", "plex", PLEX);
     server.ticking.store(false, Ordering::SeqCst);
@@ -302,7 +304,7 @@ fn a_press_on_home_with_apps_open_is_offered_to_the_shell_which_opens_it_and_a_t
 #[test]
 fn with_no_app_open_home_offers_nothing() {
     let mut server = Server::start();
-    let _home = shell_up(&mut server, &["switcher"]);
+    shell_up(&mut server, &["switcher"]);
     let _stub = app(&mut server, "Stub", HOME_STUB, 0xff10_1010);
     server.eval(|s| s.luna_notify());
     server.ticking.store(false, Ordering::SeqCst);
@@ -337,7 +339,7 @@ fn an_app_with_its_picture_on_the_video_plane_is_listed_as_video_and_never_given
 #[test]
 fn inputs_are_video_by_their_ids() {
     let mut server = Server::start();
-    let _home = shell_up(&mut server, &["switcher"]);
+    shell_up(&mut server, &["switcher"]);
     let _hdmi = app(&mut server, "HDMI 2", "com.webos.app.hdmi2", 0xff00_0000);
     let _stub = app(&mut server, "Stub", HOME_STUB, 0xff10_1010);
     server.ticking.store(false, Ordering::SeqCst);
@@ -384,7 +386,7 @@ fn the_pictures_and_the_dim_are_in_the_frame_only_while_it_is_open() {
 #[test]
 fn a_picture_is_the_whole_window_scaled_into_the_card_with_its_corners_rounded() {
     let mut server = Server::start();
-    let _home = shell_up(&mut server, &["switcher"]);
+    shell_up(&mut server, &["switcher"]);
     // left half red, right half blue, 400 by 225
     let _split = app_with(&mut server, "Split", "split", 400, 225, |x, _| if x < 200 { 0xffff_0000 } else { 0xff00_00ff });
     let _stub = app(&mut server, "Stub", HOME_STUB, 0xff10_1010);
@@ -649,7 +651,7 @@ fn the_gl_renderer_draws_the_scrim_and_the_picture_scaled_with_rounded_corners_a
     // SAFETY: nothing else in this process reads the environment while it is set.
     unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
     let mut server = Server::start_with(Box::new(|| Box::new(Gl::new(MESA, Platform::Surfaceless, 1920, 1080, BufferPath::Own, None).unwrap())));
-    let _home = shell_up(&mut server, &["switcher"]);
+    shell_up(&mut server, &["switcher"]);
     // 800 by 450, left half red and right half blue: a quarter-size card is a 2x shrink twice over
     let _split = app_with(&mut server, "Split", "split", 800, 450, |x, _| if x < 400 { 0xffff_0000 } else { 0xff00_00ff });
     let _stub = app(&mut server, "Stub", HOME_STUB, 0xff10_1010);
