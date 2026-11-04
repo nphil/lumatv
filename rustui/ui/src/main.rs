@@ -23,6 +23,7 @@ use compositor_protocol::Event as SceneEvent;
 use lumatv_render::host::{Engine, HostConfig};
 use lumatv_render::{Demand, Gles};
 use lumatv_tokens::Tokens;
+use lumatv_ui::host::chatter::Chatter;
 use lumatv_ui::host::http::{Event, Feed, Outbound};
 use lumatv_ui::host::keys::{self, KeyEvent};
 use lumatv_ui::host::now_ms;
@@ -252,6 +253,7 @@ fn diagnostic(priority: u8, args: std::fmt::Arguments<'_>) {
 struct Log {
     host: bool,
     file: Option<std::fs::File>,
+    chatter: Chatter,
 }
 
 impl Log {
@@ -264,6 +266,16 @@ impl Log {
     fn line(&mut self, text: std::fmt::Arguments<'_>) {
         if self.host { self.host_line(text); }
         diagnostic(14, text);
+    }
+
+    /// A request that repeats: the host's output has every one, the set's RAM log the first few of a minute and a count of the rest.
+    fn repeated(&mut self, key: &str, text: std::fmt::Arguments<'_>) {
+        if self.host { self.host_line(text); }
+        match self.chatter.allow(key, now_ms()) {
+            Some(0) => diagnostic(14, text),
+            Some(held) => diagnostic(14, format_args!("{text} (+{held} not logged)")),
+            None => {}
+        }
     }
 }
 
@@ -325,14 +337,14 @@ fn carry(acts: Vec<Act>, channel: Option<&Feed>, helper: Option<&Feed>, log: &mu
                     let tag = out.body.as_ref().and_then(|v| v.get("tag")).and_then(Value::as_u64);
                     log.line(format_args!("[luna] {} tag={tag:?}", route(uri)));
                 } else {
-                    log.line(format_args!("[channel] {} {}", out.method, route(&out.path)));
+                    log.repeated(&format!("channel {} {}", out.method, route(&out.path)), format_args!("[channel] {} {}", out.method, route(&out.path)));
                 }
                 if let Some(c) = channel {
                     c.request(out);
                 }
             }
             Act::Helper(out) => {
-                log.line(format_args!("[helper] {} {} tag={:?}", out.method, route(&out.path), out.tag));
+                log.repeated(&format!("helper {} {}", out.method, route(&out.path)), format_args!("[helper] {} {} tag={:?}", out.method, route(&out.path), out.tag));
                 if let Some(h) = helper {
                     h.request(out);
                 }
@@ -377,7 +389,7 @@ mod readiness_tests {
 
 /// On the set: the engine's socket from the compositor, the channel and the helper over the loopback, the keys over the key socket.
 fn run_set(o: Options) -> io::Result<()> {
-    let mut log = Log { host: false, file: None };
+    let mut log = Log { host: false, file: None, chatter: Chatter::default() };
     let fd: RawFd =
         std::env::var("LUMATV_UI_FD").ok().and_then(|s| s.parse().ok()).ok_or_else(|| io::Error::other("LUMATV_UI_FD names the engine's socket"))?;
     // SAFETY: the compositor handed this process the descriptor at its start and nothing else holds it.
@@ -499,7 +511,7 @@ fn run_host(o: Options) -> io::Result<()> {
     if let Some(ms) = o.clock {
         lumatv_ui::host::set_clock(ms);
     }
-    let mut log = Log { host: true, file: o.log.as_ref().and_then(|p| std::fs::File::create(p).ok()) };
+    let mut log = Log { host: true, file: o.log.as_ref().and_then(|p| std::fs::File::create(p).ok()), chatter: Chatter::default() };
     std::fs::create_dir_all(&o.shm)?;
     let (width, height) = (1920u32, 1080u32);
     let gles = Gles::software_pbuffer(c"libEGL.so.1", width, height)?;
