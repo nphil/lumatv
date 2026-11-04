@@ -1172,13 +1172,17 @@ impl Guide {
         out
     }
 
+    /// When the guide next has something to do. `tick` does nothing for a closed guide but the panel's own timer, so a fetch must not be
+    /// reported then: `set_page` leaves one owing when the surface is built, with the model's clock at 0, and reported it was due for good, the
+    /// shell ticked and committed Home's poses at full speed, and the compositor drew a frame at every refresh of a Home at rest.
     pub fn due_at(&self) -> Option<u64> {
+        let fetch = self.open.then_some(self.fetch_due).flatten();
         let minute = self.open.then(|| ((self.minute + 1) * MIN) as u64);
         let idle = self.open.then(|| self.last_input + IDLE_MS);
         let retry = self.open.then(|| self.retry.values().min().copied()).flatten();
         let flight = self.open.then(|| self.flight.iter().map(|f| f.at + FLIGHT_MS).min()).flatten();
         let tuning = self.tuning.map(|t| t + TUNE_WAIT_MS);
-        [self.life.due_at(), self.fetch_due, minute, idle, retry, flight, tuning].into_iter().flatten().min()
+        [self.life.due_at(), fetch, minute, idle, retry, flight, tuning].into_iter().flatten().min()
     }
 
     /// What the gate and the harness read.

@@ -576,3 +576,13 @@ fn hundreds_of_channels_and_days_of_listings_cost_a_few_calls_and_the_rows_are_n
     r.tick(FETCH_DEBOUNCE_MS + 1);
     assert!(r.calls().len() <= IN_FLIGHT);
 }
+
+#[test]
+fn a_guide_that_is_not_open_has_nothing_due_whatever_its_surface_has_set() {
+    let mut g = Guide::new();
+    // the surface sets its page when it is built, with the model's clock at 0, whether or not the guide ever opens
+    assert!(g.set_page(Page { rows: 5, span: 2 * HOUR }));
+    assert_eq!(g.due_at(), None, "a closed guide's tick does nothing, so it must not ask for one");
+    g.open(now());
+    assert!(g.due_at().is_some(), "an open one has its fetch, its minute and its idle close");
+}

@@ -3312,4 +3312,34 @@ mod tests {
         assert_eq!(shell.home.theme["clock"]["style"], "dddddd");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// Nitin's cards, every kind the compositor starts the shell with, motion off: once what is due has been done, nothing is due until the
+    /// clock's next second, on Home and behind an app. A timer that is always due (the closed guide's fetch was, at 0) turns the loop at full
+    /// speed and each turn commits Home's poses again, which the compositor draws as a frame at every refresh.
+    #[test]
+    fn a_shell_with_every_kind_and_nitins_cards_asks_for_no_tick_at_rest_on_home_and_behind_an_app() {
+        let (_h, kit) = testkit::kit(1.0);
+        let kinds = "home,osd,settings,toast,cameras,quick,picker,drawer,menu,confirm,switcher,entry,keyboard,alert,saver,capture,cards,popup,layout,ai,banner,displaylab,guide";
+        let theme = json!({"wallpaperMotion": {"enabled": false}, "weather": {"animated": false}});
+        let layout = json!({"grid": {"rows": 16}, "widgets": [
+            {"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 7, "rows": 4},
+            {"id": "home", "type": "homeassistant", "col": 0, "row": 4, "span": 7, "rows": 5, "title": "At home", "hidden": true},
+            {"id": "weather", "type": "weather", "col": 7, "row": 0, "span": 5, "rows": 9},
+            {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7, "tile": 120, "gap": 16, "padY": 40, "fade": 110},
+            {"id": "onhome", "type": "onhome", "col": 0, "row": 4, "span": 7, "rows": 5, "title": "Smart home"}]});
+        let mut shell = Shell::new(kit, Kinds::parse(kinds), 1000, &testkit::module_dir().join("icons/audio"), &theme, &layout).expect("a shell");
+        shell.start();
+        let mut now = crate::host::now_ms();
+        for front in [json!({"app": "com.webos.app.home", "home": true, "covered": false}), json!({"app": "com.webos.app.livetv", "home": false, "covered": true})] {
+            shell.channel(&Event::Topic { topic: "foreground".into(), data: front.clone() }, now);
+            let mut ticks = 0;
+            while shell.due_at().is_some_and(|due| due <= now) {
+                shell.tick(now);
+                ticks += 1;
+                assert!(ticks < 20, "{front}: still due at {now} after {ticks} ticks: {:?}", shell.due_at());
+                now += 8;
+            }
+            assert!(shell.due_at().is_none_or(|due| due > now), "{front}: {:?} at {now}", shell.due_at());
+        }
+    }
 }
