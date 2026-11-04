@@ -1,9 +1,9 @@
 //! LG's own channel banner on Live TV, which the compositor leaves undrawn (`mask.rs` in the compositor) while this one stands in for it.
 //!
-//! `inputcommon` draws LG's banner into Live TV's one picture, over the video. While Live TV is in front and the owner's banners are on, this
-//! claims the banner's place on that picture (`POST /v1/mask`): the compositor blanks it for a hold after a channel key reaches Live TV, and for
-//! a launch, and gives it back the moment the claim is released or this client is gone, so the stock banner returns whenever the UI is not
-//! running. Where LG puts the banner is the setting `option.bannerPosition`.
+//! `inputcommon` draws LG's banner into Live TV's one picture, over the video: a bar and, for a launch and for OK, a "Guide" chip under it. While
+//! Live TV is in front and the owner's banners are on, this claims both places on that picture (`POST /v1/mask`): the compositor blanks them for a
+//! hold after a channel key reaches Live TV, and for a launch, and gives them back the moment the claim is released or this client is gone, so the
+//! stock banner returns whenever the UI is not running. Where LG puts the banner is the setting `option.bannerPosition`.
 
 use super::channel_feed::LAST_TAG;
 use crate::host::channels::LIVE_TV_APP;
@@ -23,19 +23,33 @@ const BAR_W: i32 = 1500;
 const BAR_TOP_LOW: i32 = 562;
 const MARGIN: i32 = 6;
 const SCREEN_W: i32 = 1920;
+/// The "Guide" chip (`DeeplinkView.qml`): a flat grey button LG hangs under the bar for a launch and for OK, not for a channel key. On the set's
+/// pictures of a launch and of the OK banner (2026-11-04) it is x 27 to 251, y 743 to 796 under the default bar (from 562): 225 by 54, 27 in from
+/// the bar's left edge and 25 under its foot. It is a view of its own, outside the bar's rectangle, so the claim of the bar alone left it on the
+/// picture at every launch.
+const CHIP_W: i32 = 225;
+const CHIP_H: i32 = 54;
+const CHIP_DX: i32 = 27;
+const CHIP_DY: i32 = 181;
 /// CH+ and CH-: LG draws its banner when the tuner has answered either.
 const KEYS: [u32; 2] = [402, 403];
 /// LG's banner is up five seconds from when it is drawn (`BannerInterfaces.qml`), and it is drawn when the tuner has answered the key.
 const HOLD_MS: u64 = 6500;
 
-/// The claim for `position` (`lefttop`, `righttop`, `leftbottom`, `rightbottom`; anything else is LG's default, at the left and low).
+/// The claim for `position` (`lefttop`, `righttop`, `leftbottom`, `rightbottom`; anything else is LG's default, at the left and low): the bar, then
+/// the chip under it. The chip goes where the bar goes; at the right the bar is as wide as the channel makes it, which is not known, so the chip's
+/// rectangle runs from where the widest bar would have it to the screen's edge.
 fn claim_body(position: &str) -> Value {
     let top = position.ends_with("top");
     let right = position.starts_with("right");
     let (w, h) = (BAR_W + MARGIN, BAR_H + 2 * MARGIN);
-    let y = if top { 0 } else { BAR_TOP_LOW - MARGIN };
-    let x = if right { SCREEN_W - w } else { 0 };
-    json!({"op": "claim", "app": LIVE_TV_APP, "rects": [{"x": x, "y": y, "w": w, "h": h}], "keys": KEYS, "holdMs": HOLD_MS})
+    let bar_y = if top { 0 } else { BAR_TOP_LOW };
+    let bar_x = if right { SCREEN_W - BAR_W } else { 0 };
+    let (x, y) = ((bar_x - MARGIN).max(0), (bar_y - MARGIN).max(0));
+    let chip_x = bar_x + CHIP_DX - MARGIN;
+    let chip_w = if right { SCREEN_W - chip_x } else { CHIP_W + 2 * MARGIN };
+    let chip = json!({"x": chip_x, "y": bar_y + CHIP_DY - MARGIN, "w": chip_w, "h": CHIP_H + 2 * MARGIN});
+    json!({"op": "claim", "app": LIVE_TV_APP, "rects": [{"x": x, "y": y, "w": w, "h": h}, chip], "keys": KEYS, "holdMs": HOLD_MS})
 }
 
 fn post(body: Value) -> Effect {
@@ -105,9 +119,18 @@ mod tests {
         body.clone()
     }
 
-    fn rect(body: &Value) -> (i64, i64, i64, i64) {
-        let r = &body["rects"][0];
+    fn rect_at(body: &Value, i: usize) -> (i64, i64, i64, i64) {
+        let r = &body["rects"][i];
         (r["x"].as_i64().unwrap(), r["y"].as_i64().unwrap(), r["w"].as_i64().unwrap(), r["h"].as_i64().unwrap())
+    }
+
+    /// The bar's rectangle.
+    fn rect(body: &Value) -> (i64, i64, i64, i64) {
+        rect_at(body, 0)
+    }
+
+    fn inside(inner: (i64, i64, i64, i64), outer: (i64, i64, i64, i64)) -> bool {
+        outer.0 <= inner.0 && outer.1 <= inner.1 && outer.0 + outer.2 >= inner.0 + inner.2 && outer.1 + outer.3 >= inner.1 + inner.3
     }
 
     #[test]
@@ -159,15 +182,43 @@ mod tests {
         assert!(fx.contains(&post(json!({"op": "release"}))) && !m.on());
     }
 
-    /// The geometry is LG's (`GlobalStyle.qml`), the claim never leaves the screen, and the whole bar is in it.
+    /// The geometry is LG's (`GlobalStyle.qml`), no claim leaves the screen, and the whole bar is in the first.
     #[test]
     fn every_claim_covers_the_bar_and_stays_on_the_screen() {
         for p in ["lefttop", "righttop", "leftbottom", "rightbottom", "", "weird"] {
-            let (x, y, w, h) = rect(&claim_body(p));
-            assert!(x >= 0 && y >= 0 && x + w <= 1920 && y + h <= 1080, "{p}");
+            let body = claim_body(p);
+            for i in 0..2 {
+                let (x, y, w, h) = rect_at(&body, i);
+                assert!(x >= 0 && y >= 0 && x + w <= 1920 && y + h <= 1080, "{p}: rectangle {i}");
+            }
             let bar_y = if p.ends_with("top") { 0 } else { 562 };
             let bar_x = if p.starts_with("right") { 1920 - 1500 } else { 0 };
-            assert!(x <= bar_x && y <= bar_y && x + w >= bar_x + 1500 && y + h >= bar_y + 156, "{p}: the bar is inside the claim");
+            assert!(inside((bar_x, bar_y, 1500, 156), rect(&body)), "{p}: the bar is inside the claim");
         }
+    }
+
+    /// The "Guide" chip as the set drew it at a launch and under the OK banner (`G-bg-ok-banner` and `L-launch-e` of the TV session of 2026-11-04): a
+    /// flat grey button at x 27 to 251, y 743 to 796 on the 1920 by 1080 picture, under a bar that starts at 562. It is outside the bar's rectangle, and
+    /// the claim of the bar alone left it on the picture at every launch.
+    const GUIDE_CHIP: (i64, i64, i64, i64) = (27, 743, 225, 54);
+
+    #[test]
+    fn the_guide_chip_lg_hangs_under_its_bar_is_claimed_with_it_and_goes_where_the_bar_goes() {
+        // LG's default is where it was measured; the owner's setting reads `none`
+        for p in ["", "none", "leftbottom", "weird"] {
+            let body = claim_body(p);
+            assert_eq!(body["rects"].as_array().map(Vec::len), Some(2), "{p}: the bar and the chip");
+            let chip = rect_at(&body, 1);
+            assert!(inside(GUIDE_CHIP, chip), "{p}: the chip at {GUIDE_CHIP:?} is in its claim {chip:?}");
+            assert!(chip.2 <= GUIDE_CHIP.2 + 2 * i64::from(MARGIN) && chip.3 <= GUIDE_CHIP.3 + 2 * i64::from(MARGIN), "{p}: the chip and a margin, not the band under the bar: {chip:?}");
+        }
+        // the other places: 181 under the bar's top, 27 in from its left edge, which at the right is anywhere along the bar
+        for (p, bar_x, bar_y) in [("lefttop", 0, 0), ("righttop", 420, 0), ("rightbottom", 420, 562)] {
+            let moved = (bar_x + 27, bar_y + GUIDE_CHIP.1 - 562, GUIDE_CHIP.2, GUIDE_CHIP.3);
+            assert!(inside(moved, rect_at(&claim_body(p), 1)), "{p}: the chip rides with the bar at {moved:?}");
+        }
+        // while Live TV is in front the claim that is made is this one
+        let mut m = LgMask::default();
+        assert!(inside(GUIDE_CHIP, rect_at(&claim_of(&m.engage()), 1)));
     }
 }

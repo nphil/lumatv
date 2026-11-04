@@ -18,6 +18,12 @@ five seconds; on OK, which toggles it with a Guide chip; on INFO as a detail car
 `eventFirstBannerClosed` at 16.803. Its data: `utp.broadcast/getCurrentChannel` (a subscription on the pipeline), `iepg/getChannelInfo`,
 `getCurrentNextEventList`, `utp.channel/getLastChannelId`.
 
+The "Guide" chip is a view of its own, not part of the bar (`DeeplinkView.qml`): a flat grey button drawn into the same surface 25 px under the bar's foot,
+225 by 54, 27 in from the bar's left edge. On the set's captures of 2026-11-04 (`/data/home/tmp/lumatv-tv-20261104b/shots/`) it is x 27 to 251, y 743 to 796 at
+a launch (`L-launch-b` to `L-launch-f`: up from the card's first second, gone by 6.5 s) and with OK's banner (`G-bg-ok-banner`), and in none of the seven
+captures after a CH+ (`C-chup-a` to `g`). The owner's `option.bannerPosition` reads `none` (unset, so LG's default, low left): the chip does not depend on it, it
+rides with the bar. The bar's rectangle (`y 556`, 168 high) ends 19 px above it, which is why the chip showed at every launch with the bar gone.
+
 ## Approach
 
 LumaTV draws its own (`system/channel_feed.rs`, `banner.rs`, `banner_surface.rs`): the station logo from the channel's local PNG, number, name, what is on
@@ -26,18 +32,19 @@ tuner with a subscription to `getLastChannelId` while Live TV is in front and `b
 change, and shows within 700 ms; five seconds for a launch or a change, eight for INFO (a detail with the description). INFO is the UI's while Live TV is in
 front, so LG's INFO card does not open under it.
 
-LG's banner is blanked on Live TV's picture (`compositor/.../mask.rs`, `POST /v1/mask`). The UI claims LG's bar (`system/lg_mask.rs`, placed by the
-position setting); the compositor then leaves the claimed rectangle undrawn, so the video's hole shows there, for 6.5 s from a CH+ or CH- that reaches Live TV,
-from each channel change the tuner reports (a number, Flashback) and from a launch. The blanking starts before LG's banner is drawn: LG draws it about 0.2 s
-after its tune is answered. The claim is released when Live TV leaves the front, `banners.own` goes off, the tuner cannot be followed, or the UI is gone: the
-stock banner returns whenever the UI is not running.
+LG's banner is blanked on Live TV's picture (`compositor/.../mask.rs`, `POST /v1/mask`). The UI claims two rectangles (`system/lg_mask.rs`, placed by the
+position setting): LG's bar and the Guide chip under it. The compositor then leaves the claimed rectangles undrawn, so the video's hole shows there, for 6.5 s
+from a CH+ or CH- that reaches Live TV, from each channel change the tuner reports (a number, Flashback) and from a launch. The blanking starts before LG's
+banner is drawn: LG draws it about 0.2 s after its tune is answered. The claim is released when Live TV leaves the front, `banners.own` goes off, the tuner
+cannot be followed, or the UI is gone: the stock banner returns whenever the UI is not running. At the left the chip's rectangle is the chip and a 6 px margin;
+at the right the bar's width is the channel's, so the rectangle runs from where the widest bar would put the chip to the screen's edge.
 
 Not chosen: covering LG's banner (it is flush at x 0, this one is 64 px in, so the edge shows); `hotelMode/tvlinkOsdDisplay` (hides every banner but also
 consumes the other keys and persists); taking OK and CH+/CH- and tuning here (breaks LG's popups and the keys' other duties); reviving the QML overlay
 (removed with the other restyles).
 
-Limits: the banner LG shows for OK stays LG's. During the 6.5 s after a channel key, anything else LG draws on that bar (a PIN prompt after tuning to a
-blocked channel, a no-signal notice) is blanked too. `banners.own` false gives LG's banner and everything else back.
+Limits: the banner LG shows for OK stays LG's, with its Guide chip. During the 6.5 s after a channel key, anything else LG draws on the bar or at the chip's
+place (a PIN prompt after tuning to a blocked channel, a no-signal notice) is blanked too. `banners.own` false gives LG's banner and everything else back.
 
 ## Renders
 
