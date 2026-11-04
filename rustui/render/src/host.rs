@@ -1218,9 +1218,14 @@ impl Engine {
                     // Nothing over Home: the floor is for what moves over it. Home's own walks drew through it 122 layers and a copy
                     // where round 23 drew 39 straight (0.9 Mpx: 7.5 against 4.2 ms of GPU), and dropped 29 (apps-grid) and 28
                     // (home-widgets) frames at 120 Hz against 3 and 3 (round 27). Home is drawn straight into the page, and the
-                    // floor keeps owing what changed until a frame in which Home stands brings it up to date (`finish`).
-                    floor.direct = true;
-                    floor.behind |= !floor.owed.is_empty();
+                    // floor keeps owing what changed until a frame in which Home stands brings it up to date (`finish`). A page that
+                    // owes nothing is not drawn into, though the compositor calls this for it: counted as drawing Home straight, no frame
+                    // could be the one that brings the floor up to date, and a frame was wanted at every refresh that drew nothing
+                    // ([`Engine::redraw_wanted`]).
+                    if !region.is_empty() {
+                        floor.direct = true;
+                        floor.behind |= !floor.owed.is_empty();
+                    }
                 } else {
                     if floor.target.is_none() {
                         match engine.renderer.gles().new_render_target(engine.window.0, engine.window.1) {

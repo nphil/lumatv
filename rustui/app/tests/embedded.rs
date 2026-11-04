@@ -10,7 +10,7 @@
 use compositor_protocol::{Backdrop, Fill, Glass, Props, Rgba, Shadow, Shape, Sheen};
 use lumatv_render::host::{Engine, HostConfig};
 use lumatv_render::tiles::{Ring, TileSet};
-use lumatv_render::{Gles, RenderTarget};
+use lumatv_render::{Demand, Gles, RenderTarget};
 use lumatv_rustui::rig::{REFRESH_NS, software_gl};
 use std::ffi::CStr;
 use ui::{SceneOptions, Ui};
@@ -241,6 +241,74 @@ fn the_engine_draws_into_a_compositors_pages_between_its_windows_and_leaves_its_
     assert_eq!(frames, 240);
     assert!(partial > 150, "only {partial} of {frames} pages were drawn in part");
     assert_eq!(checked_state, 240);
+    let _ = std::fs::remove_dir_all(&shm);
+}
+
+/// Home alone (nothing of stack 1), drawn as a compositor draws it: it calls `draw_stack(0)` in every frame it draws, with no areas when its
+/// page owes nothing. After Home's last change the floor is brought up to date in a frame of its own and nothing more is wanted; a floor
+/// that stayed behind kept the engine asking for a frame at every refresh, none of which drew anything.
+#[test]
+fn a_home_that_has_stopped_changing_asks_for_no_more_frames() {
+    software_gl();
+    let host = Gles::software_pbuffer(LIB, W, H).expect("a software GL");
+    let pages: Vec<RenderTarget> = (0..3).map(|_| host.new_render_target(W, H).expect("a page")).collect();
+    // SAFETY: the host's context is current on this thread and outlives the engine.
+    let wrapped = unsafe { Gles::current(LIB) }.expect("the current context");
+    let shm = std::env::temp_dir().join(format!("lumatv-embedded-rest-{}", std::process::id()));
+    std::fs::create_dir_all(&shm).expect("a shm dir");
+    let (mut engine, app_end) = Engine::new(
+        wrapped,
+        HostConfig { width: W, height: H, refresh_hz: 60.0, shm_dir: shm.clone(), direct: false, gpu_sync: false, idle_trim: false, pages: 0, reference: false, blit: false, external: true, system_z: 100 },
+    )
+    .expect("an engine in the host's context");
+    let (scene, _welcome, events) = ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(shm.clone()), ..SceneOptions::default() }).expect("a scene");
+    engine.finish_handshake().expect("the handshake");
+    let ui = Ui::new(scene);
+    let _ground = ui.scene.shape(W, H, 0, solid(0.0, 24, 28, 44, 255), Props::at(0.0, 0.0));
+    let hand = ui.scene.shape(90, 90, 2, solid(20.0, 240, 150, 40, 255), Props::at(100.0, 150.0));
+
+    let mut ring = Ring::new(3, W, H);
+    let (mut owed, mut total) = (TileSet::new(W, H), TileSet::new(W, H));
+    let mut now = lumatv_render::now_ns();
+    let (mut drawn, mut last_drawn) = (0usize, vec![0usize; 2]);
+    for step in 0..80usize {
+        // the clock's hand moves at the start of each half
+        if step % 40 == 0 {
+            hand.set(Props::at(100.0 + step as f32 * 5.0, 150.0));
+        }
+        if ui.scene.has_pending() {
+            let _ = ui.try_commit().expect("a commit");
+        }
+        while events.try_recv().is_ok() {}
+        engine.pump().expect("pump");
+        now += REFRESH_NS;
+        // the compositor's own question at each tick (`ui::Ui::wants_frame`)
+        if !(engine.has_commits() || engine.redraw_wanted() || engine.demand() != Demand::Idle) {
+            continue;
+        }
+        engine.plan(now).expect("plan");
+        total.clear();
+        for stack in 0..2 {
+            if let Some(changed) = engine.changed(stack) {
+                total.union(changed);
+            }
+        }
+        let page = drawn % 3;
+        ring.frame(page, &total, &mut owed);
+        let mut areas = Vec::new();
+        owed.rects(&mut areas);
+        engine.draw_stack(0, pages[page].framebuffer, &areas).expect("stack 0");
+        let cost = engine.finish().expect("finish");
+        assert_eq!(cost.gl_error, None, "step {step}: GL error");
+        engine.frame_done(now, &cost);
+        engine.tidy();
+        drawn += 1;
+        last_drawn[step / 40] = step;
+    }
+    assert!(drawn > 0, "the changes were drawn");
+    for (half, last) in last_drawn.iter().enumerate() {
+        assert!(*last < half * 40 + 10, "the last frame of half {half} was at step {last}: a frame was still asked for 10 refreshes after the change");
+    }
     let _ = std::fs::remove_dir_all(&shm);
 }
 
