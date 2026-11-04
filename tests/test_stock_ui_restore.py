@@ -123,7 +123,7 @@ esac
                              ("take_mutation_lock", "hs_mounted_ours", "hs_unmount",
                               "stock_ui_unmount_overlay", "stock_ui_luna_ok", "stock_ui_restore_env",
                               "stock_ui_restore", "verb_stock_ui_restore", "clear_stock_running",
-                              "verb_compositor"))
+                              "verb_compositor", "bd_enabled", "bd_api", "bd_manual_stub"))
         compositor = (ROOT / "tools/compositor.sh").read_text()
         selected += "\n" + "\n".join(function(compositor, name) for name in
                                       ("comp_recovering", "comp_sm_says", "comp_preflight", "comp_switch", "comp_ready"))
@@ -142,6 +142,7 @@ ASSETS="$FAKE/assets"; STOCK_ASSETS="$FAKE/stock-assets"
 ENV_FILE="$FAKE/surface.env"; SHADOW_ROOT="$STATE/shadow"
 STUB_STAGE="$FAKE/stub"; HOME_APP_DIR="$FAKE/home"; HOME_APP_ID=com.webos.app.home
 KEYFILTER_TOOL="$FAKE/keyfilter.py"; KEYFILTER_HANDLER="$FAKE/handler.js"; KEYFILTER_DIR="$FAKE"; SHORT_ID=lumatv
+BD_FLAG="$STATE/boot-direct"
 SYSTEMUI_TOOL="$FAKE/systemui.py"; SYSTEMUI_STAGE="$STATE/systemui"
 QS_APP=quick; LOGO_BOOT_APP=boot; LOGO_OFF_APP=off
 NOTI_STAGE="$STATE/notifications"; NOTI_STOCK="$FAKE/stock"; NOTI_PERSIST="$FAKE/notification.json"

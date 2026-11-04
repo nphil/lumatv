@@ -68,12 +68,52 @@ feeder_update() { echo feeder >> "$CALLS"; }
 app_storage_guard() { STORAGE_WHY=low; [ "$ALLOW" = yes ]; }
 storage_guard() { STORAGE_WHY=low; [ "$ALLOW" = yes ]; }
 log_line() { :; }
+bd_enabled() { return 1; }
 ''' + shell_function('verb_compositor_boot') + '\nverb_compositor_boot\n'
         for allow, expected in (('no', ['native', 'frame']), ('yes', ['native', 'frame', 'gfn', 'feeder'])):
             self.calls.unlink(missing_ok=True)
             self.run_script(script, CALLS=self.calls, ALLOW=allow, GFN_IPK=app,
                             GFN_DIR=app_dir, STATE=self.root, FEEDER_SRC=self.root / 'feeder')
             self.assertEqual(self.calls.read_text().splitlines(), expected)
+
+    def test_boot_direct_stub_that_the_early_step_put_in_is_taken_back_when_lumatv_does_not_start(self):
+        script = '''
+take_mutation_lock() { :; }
+comp_enabled() { [ "${ENABLED:-yes}" = yes ]; }
+native_storage_guard() { echo storage >> "$CALLS"; STORAGE_WHY=low; [ "${STORAGE:-ok}" = ok ]; }
+panel_is_active_standby() { return 1; }
+comp_boot_mount() { echo mount >> "$CALLS"; echo "${MOUNT:-mounted}"; }
+native_start() { echo native >> "$CALLS"; [ "${NATIVE:-ok}" = ok ]; }
+install_frame_app() { :; }
+gfn_current() { return 0; }
+feeder_installed() { return 1; }
+log_line() { :; }
+emit_error() { echo "error $*"; }
+bd_early_undo() { echo undo >> "$CALLS"; }
+''' + shell_function('verb_compositor_boot') + '\nrc=0; verb_compositor_boot >/dev/null || rc=$?; echo "rc $rc" >> "$CALLS"\n'
+        # BD_EARLY_ON=1: the early step (bd_early_boot, from the dispatch) put the stub in before this ran
+        scenarios = (
+            # kept when LumaTV starts
+            ({'BD_EARLY_ON': '1'}, ['storage', 'mount', 'native', 'rc 0']),
+            ({'BD_EARLY_ON': '1', 'MOUNT': 'already'}, ['storage', 'mount', 'native', 'rc 0']),
+            # LumaTV not starting this boot: every way ends with the stub taken back
+            ({'BD_EARLY_ON': '1', 'STORAGE': 'low'}, ['storage', 'undo', 'rc 1']),
+            ({'BD_EARLY_ON': '1', 'NATIVE': 'fail'}, ['storage', 'mount', 'native', 'undo', 'rc 1']),
+            ({'BD_EARLY_ON': '1', 'MOUNT': 'off'}, ['storage', 'mount', 'undo', 'rc 0']),
+            ({'BD_EARLY_ON': '1', 'MOUNT': 'held'}, ['storage', 'mount', 'undo', 'rc 0']),
+            ({'BD_EARLY_ON': '1', 'MOUNT': 'error'}, ['storage', 'mount', 'undo', 'rc 0']),
+            # no stub in (the flag off, a bundle that predates it, a lock that was not free): nothing to take back, as before
+            ({}, ['storage', 'mount', 'native', 'rc 0']),
+            ({'MOUNT': 'error'}, ['storage', 'mount', 'rc 0']),
+            ({'STORAGE': 'low'}, ['storage', 'rc 1']),
+            ({'NATIVE': 'fail'}, ['storage', 'mount', 'native', 'rc 1']),
+            ({'BD_EARLY_ON': '0', 'MOUNT': 'held'}, ['storage', 'mount', 'rc 0']),
+        )
+        for variables, expected in scenarios:
+            with self.subTest(variables=variables):
+                self.calls.unlink(missing_ok=True)
+                self.run_script(script, CALLS=self.calls, STATE=self.root, **variables)
+                self.assertEqual(self.calls.read_text().splitlines(), expected)
 
 
 
@@ -151,9 +191,10 @@ comp_switch() { echo "switch $1" >> "$CALLS"; [ "$1" != off ] || rm -f "$COMP/en
 clear_stock_running() { echo clear >> "$CALLS"; }
 emit_error() { echo "error $*"; }
 log_line() { :; }
-# Boot direct is off unless a scenario says BD=yes; the stand-ins write down what the activation asks of it.
+# Boot direct is off unless a scenario says BD=yes. The stub itself goes in at the start of compositor-boot (its own test below); the
+# activation only adopts it, and these stand-ins write down what it asks.
 bd_enabled() { [ "${BD:-no}" = yes ]; }
-bd_stub_up() { echo bd-stub >> "$CALLS"; [ "${BD_STUB_FAIL:-no}" = no ]; }
+bd_early_in_place() { echo bd-adopt >> "$CALLS"; [ "${BD_INPLACE:-yes}" = yes ]; }
 bd_home_up() { echo bd-home >> "$CALLS"; [ "${BD_HOME_FAIL:-no}" = no ]; }
 bd_finish() { echo bd-finish >> "$CALLS"; }
 bd_fail() { echo "bd-fail $*" >> "$CALLS"; }
@@ -208,23 +249,23 @@ esac
             ({'RESTART_FAIL': 'yes'}, ['mount', 'prepare', 'landing', 'restart native', 'switch off', 'restart stock', 'clear'], False),
             ({'READY': 'no'}, ['mount', 'prepare', 'landing', 'restart native', 'ready', 'switch off', 'restart stock', 'clear'], False),
             ({'FINALIZE_FAIL': 'yes'}, ['mount', 'prepare', 'landing', 'restart native', 'ready', landed, 'finalize'], False),
-            # Boot direct: the Home stub goes in just before the restart and its Home is launched after it; with the flag off (every row
-            # above) the activation asks nothing of it.
-            ({'BD': 'yes'}, ['mount', 'prepare', 'landing', 'bd-stub', 'restart native', 'ready', 'bd-home', 'bd-finish', landed, 'finalize'], True),
+            # Boot direct: the stub that compositor-boot put in stays through the restart and Home is launched as the stub after it; with
+            # the flag off (every row above) the activation asks nothing of it.
+            ({'BD': 'yes'}, ['mount', 'prepare', 'landing', 'bd-adopt', 'restart native', 'ready', 'bd-home', 'bd-finish', landed, 'finalize'], True),
             # A set that is in standby when the compositor is activated gets its Home from bootd at the wake, so the stub's launch is not
             # waited for; a plain activation launches it whatever the panel says.
-            ({'BD': 'yes', 'PANEL': 'standby', 'BOOT_STANDBY': 'true'}, ['mount', 'bd-stub', 'restart native', 'ready', 'bd-finish'], True),
-            ({'BD': 'yes', 'PANEL': 'standby'}, ['mount', 'prepare', 'bd-stub', 'restart native', 'ready', 'bd-home', 'bd-finish', 'finalize'], True),
-            # A stub that does not come up never holds the activation back; a Home that does not start is a fault of the boot.
-            ({'BD': 'yes', 'BD_STUB_FAIL': 'yes'}, ['mount', 'prepare', 'landing', 'bd-stub', 'restart native', 'ready', landed, 'finalize'], True),
+            ({'BD': 'yes', 'PANEL': 'standby', 'BOOT_STANDBY': 'true'}, ['mount', 'bd-adopt', 'restart native', 'ready', 'bd-finish'], True),
+            ({'BD': 'yes', 'PANEL': 'standby'}, ['mount', 'prepare', 'bd-adopt', 'restart native', 'ready', 'bd-home', 'bd-finish', 'finalize'], True),
+            # A boot with no stub in place goes on without; a Home that does not start is a fault of the boot.
+            ({'BD': 'yes', 'BD_INPLACE': 'no'}, ['mount', 'prepare', 'landing', 'bd-adopt', 'restart native', 'ready', landed, 'finalize'], True),
             ({'BD': 'yes', 'BD_HOME_FAIL': 'yes'},
-             ['mount', 'prepare', 'landing', 'bd-stub', 'restart native', 'ready', 'bd-home', 'bd-fail the stub did not start', landed, 'finalize'], True),
+             ['mount', 'prepare', 'landing', 'bd-adopt', 'restart native', 'ready', 'bd-home', 'bd-fail the stub did not start', landed, 'finalize'], True),
             # Every way the activation fails takes the stub back before LG's compositor is restored.
             ({'BD': 'yes', 'RESTART_FAIL': 'yes'},
-             ['mount', 'prepare', 'landing', 'bd-stub', 'restart native', 'bd-abort', 'switch off', 'restart stock', 'clear'], False),
+             ['mount', 'prepare', 'landing', 'bd-adopt', 'restart native', 'bd-abort', 'switch off', 'restart stock', 'clear'], False),
             ({'BD': 'yes', 'READY': 'no'},
-             ['mount', 'prepare', 'landing', 'bd-stub', 'restart native', 'ready', 'bd-abort', 'switch off', 'restart stock', 'clear'], False),
-            # A compositor that is live already, or an activation that is refused, is not given a stub.
+             ['mount', 'prepare', 'landing', 'bd-adopt', 'restart native', 'ready', 'bd-abort', 'switch off', 'restart stock', 'clear'], False),
+            # A compositor that is live already, or an activation that is refused, is left as it is.
             ({'BD': 'yes', 'LIVE': 'yes'}, ['mount', 'prepare', 'ready', 'finalize'], True),
             ({'BD': 'yes', 'RECOVERING': 'yes'}, ['mount', 'prepare'], False),
             ({'BD': 'yes', 'MOUNTED': 'no'}, ['mount', 'prepare'], False),

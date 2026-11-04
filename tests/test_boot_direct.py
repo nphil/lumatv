@@ -48,6 +48,9 @@ case "$uri" in
     if [ -e "$FAKE/running" ]; then echo '{"running":[{"id":"com.webos.app.home","processid":"7"}],"returnValue":true}'
     else echo '{"running":[],"returnValue":true}'; fi ;;
   *applicationManager/getAppInfo)
+    # SAM_DOWN_FOR=N: SAM does not answer for the first N asks (early in a boot)
+    n=$(cat "$FAKE/asked" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$FAKE/asked"
+    if [ "$n" -le "${SAM_DOWN_FOR:-0}" ]; then exit 0; fi
     echo "{\\"appInfo\\":{\\"id\\":\\"com.webos.app.home\\",\\"type\\":\\"$(cat "$FAKE/sam_type" 2>/dev/null || echo flutter)\\"},\\"returnValue\\":true}" ;;
   *applicationManager/getForegroundAppInfo)
     if [ -e "$FAKE/front" ]; then echo '{"appId":"com.webos.app.home","returnValue":true}'
@@ -102,6 +105,7 @@ exit 0
 '''
 
 FAKE_PGREP = '''#!/bin/sh
+[ -e "$FAKE/flutter" ] && echo 812
 [ -e "$FAKE/flutter" ]
 '''
 
@@ -159,9 +163,9 @@ class BootDirectShell(unittest.TestCase):
     # -- running the real functions
 
     def script(self, body, real_stub=False):
-        names = ["bd_enabled", "bd_api", "bd_strikes", "bd_strike", "bd_finish", "bd_fail", "bd_abort", "bd_stub_up",
-                 "bd_home_up", "bd_json", "verb_boot_direct", "verb_home", "home_running", "home_in_front",
-                 "sam_home_type", "json_escape", "emit_error", "hs_stub_in_front", "hs_open_home"]
+        names = ["bd_enabled", "bd_api", "bd_strikes", "bd_strike", "bd_finish", "bd_fail", "bd_abort", "bd_rec", "bd_now", "bd_worker_alive",
+                 "bd_early_in_place", "bd_early_stub", "bd_early_undo", "bd_early_gone", "bd_early_boot", "bd_manual_stub", "bd_home_up", "bd_json", "verb_boot_direct",
+                 "verb_home", "home_running", "home_in_front", "sam_home_type", "json_escape", "emit_error", "hs_stub_in_front", "hs_open_home"]
         if real_stub:
             names += ["homestub_up", "homestub_drop", "hs_mounted_any", "hs_mounted_ours", "hs_stage", "hs_mode_set",
                       "hs_sam_reread", "hs_wait_type", "hs_unmount", "hs_wd_alive", "hs_wd_stop", "kill_home_app", "is_mounted"]
@@ -169,10 +173,12 @@ class BootDirectShell(unittest.TestCase):
 sleep() { :; }
 uptime_s() { echo 42; }
 log_line() { echo "$1" >> "$FAKE/log"; }
-take_mutation_lock() { [ "${LOCK:-ok}" = ok ]; }
+take_mutation_lock() { echo "$LOCK_WAIT" >> "$FAKE/lockwaits"; [ "${LOCK:-ok}" = ok ]; }
 comp_live() { [ "${LIVE:-yes}" = yes ]; }
+comp_enabled() { [ "${ENABLED:-yes}" = yes ]; }
 panel_is_active() { [ "${PANEL:-active}" = active ]; }
 wait_wam_restart() { echo wait_wam >> "$FAKE/calls"; return 1; }
+bd_watch_start() { echo watch >> "$FAKE/calls"; }
 '''
         if not real_stub:
             fakes += '''
@@ -194,8 +200,8 @@ ASSETS="$FAKE/assets"; HS_TRIAL="$FAKE/hs-trial"; HS_ESCAPE="$FAKE/hs-escape"; H
 HS_WD_PID="$FAKE/hs-guard"; HS_MODE="$FAKE/hs-mode"; HS_STAGED=0
 export HOME_APP_DIR STUB_STAGE
 '''
-        shared = constants("HOME_PKILL_PATTERN", "HOME_LAUNCH_URI", "HOME_LAUNCH_PARAMS", "HOME_APP_ID",
-                           "BD_FLAG", "BD_PENDING", "BD_STRIKES", "BD_MAX_STRIKES", "BD_HOME_TRIES")
+        shared = constants("HOME_PKILL_PATTERN", "HOME_LAUNCH_URI", "HOME_LAUNCH_PARAMS", "HOME_APP_ID", "BD_FLAG", "BD_PENDING", "BD_STRIKES",
+                           "BD_MAX_STRIKES", "BD_HOME_TRIES", "BD_WATCH_SECS", "BD_WATCH_MAX") + '\nBD_EARLY="$FAKE/early"\nBD_WORKER_MARK="$FAKE/worker"'
         functions = "\n".join(function(n) for n in names)
         if real_stub:
             functions = functions.replace('mount 2>/dev/null | grep -qF -- " on $1 type "', 'grep -qF -- " on $1 type " "$FAKE/mounts"')
@@ -236,46 +242,163 @@ export HOME_APP_DIR STUB_STAGE
 
     # ------------------------------------------------------------------------------------------- the stub at a boot
 
+    def early(self, **env):
+        """The boot worker's own run of the early step, under LG's compositor."""
+        return self.sh("bd_early_stub", LIVE="no", LUMA_BOOT="1", **env)
+
+    def record(self):
+        path = self.tmp / "early"
+        return dict(line.split("=", 1) for line in path.read_text().splitlines()) if path.exists() else {}
+
     def test_a_bundle_that_predates_boot_direct_gets_no_stub(self):
         self.flag()
         self.api(False)
-        self.assertEqual(self.sh("bd_stub_up").returncode, 1)
+        self.assertEqual(self.early().returncode, 1)
         self.assertEqual(self.called(), [])
         self.assertFalse(self.has("boot-direct.pending"))
         self.assertIn("predates", self.logged())
 
-    def test_a_clean_boot_places_the_stub_and_marks_itself_unfinished_until_home_is_up(self):
+    def test_the_stub_goes_in_first_of_all_and_the_boot_is_marked_unfinished(self):
         self.flag()
-        self.assertEqual(self.sh("bd_stub_up").returncode, 0)
-        self.assertEqual(self.called(), ["homestub_up"])
+        self.assertEqual(self.early().returncode, 0)
+        # the stub, with the watch behind it; nothing else is asked of SAM first
+        self.assertEqual(self.called(), ["homestub_up", "watch"])
         self.assertTrue(self.has("boot-direct.pending"), "a power cut now is found at the next boot")
+        record = self.record()
+        self.assertEqual(set(record), {"start", "flutter_before", "stub"})
+        self.assertEqual(record["flutter_before"], "")
+        for key in ("start", "stub"):
+            self.assertRegex(record[key], r"^\d+\.\d+$", "uptime with the fraction, as LG's own log has it")
+        self.assertLessEqual(float(record["start"]), float(record["stub"]))
+        self.assertEqual(self.sh("bd_early_in_place", LIVE="no").returncode, 0)
         self.assertEqual(self.sh("bd_finish").returncode, 0)
         self.assertFalse(self.has("boot-direct.pending"))
+        self.assertNotEqual(self.sh("bd_early_in_place", LIVE="no").returncode, 0, "a finished boot has nothing in doubt")
+
+    def test_a_flutter_home_that_was_running_before_the_stub_is_on_the_record(self):
+        self.flag()
+        self.sam("flutter", running=True, front=True, flutter=True)
+        self.assertEqual(self.early().returncode, 0)
+        self.assertEqual(self.record()["flutter_before"].split(), ["812"], "what the check of the boot fails on")
 
     def test_a_stub_that_does_not_come_up_leaves_lgs_home_and_no_mark(self):
         self.flag()
-        self.assertEqual(self.sh("bd_stub_up", HS_UP="no").returncode, 1)
+        self.assertEqual(self.early(HS_UP="no").returncode, 1)
+        self.assertEqual(self.called(), ["homestub_up"])
         self.assertFalse(self.has("boot-direct.pending"))
         self.assertFalse(self.has("boot-direct.strikes"), "a mount that failed is not a boot that stopped half way")
         self.assertTrue(self.has("boot-direct"), "the flag stays: the next boot tries again")
+        self.assertEqual(self.record()["failed"], "homestub")
 
     def test_an_unfinished_earlier_boot_costs_a_strike_and_skips_the_stub_once(self):
         self.flag()
         (self.state / "boot-direct.pending").write_text("")
-        self.assertEqual(self.sh("bd_stub_up").returncode, 1)
+        self.assertEqual(self.early().returncode, 1)
         self.assertEqual(self.called(), [], "this boot goes without it")
         self.assertEqual((self.state / "boot-direct.strikes").read_text().strip(), "1")
         self.assertFalse(self.has("boot-direct.pending"))
         self.assertTrue(self.has("boot-direct"))
-        self.assertEqual(self.sh("bd_stub_up").returncode, 0, "and the next boot tries again")
+        self.assertEqual(self.record()["skipped"], "strike")
+        self.assertNotEqual(self.sh("bd_early_in_place", LIVE="no").returncode, 0, "so the activation adopts nothing")
+        self.assertEqual(self.early().returncode, 0, "and the next boot tries again")
 
     def test_two_faults_in_a_row_switch_the_flag_off(self):
         self.flag()
         (self.state / "boot-direct.pending").write_text("")
         (self.state / "boot-direct.strikes").write_text("1\n")
-        self.assertEqual(self.sh("bd_stub_up").returncode, 1)
+        self.assertEqual(self.early().returncode, 1)
         self.assertFalse(self.has("boot-direct"))
         self.assertIn("switched off", self.logged())
+
+    def test_the_workers_second_pass_finds_the_stub_in_place_and_does_not_count_it_as_an_unfinished_boot(self):
+        self.flag()
+        self.assertEqual(self.early().returncode, 0)
+        self.assertEqual(self.early().returncode, 0)
+        self.assertEqual(self.called(), ["homestub_up", "watch"], "nothing is done twice")
+        self.assertFalse(self.has("boot-direct.strikes"))
+
+    def test_only_the_boot_worker_on_a_compositor_that_is_not_live_puts_it_in(self):
+        self.flag()
+        self.assertEqual(self.sh("bd_early_stub", LIVE="no").returncode, 1, "a hand-run compositor-boot is not a boot")
+        self.assertEqual(self.sh("bd_early_stub", LIVE="yes", LUMA_BOOT="1").returncode, 1, "nor is a late call on a live compositor")
+        self.assertEqual(self.called(), [])
+        self.assertFalse(self.has("boot-direct.pending"))
+        self.assertEqual(self.record(), {})
+
+    def test_a_boot_that_does_not_start_lumatv_takes_the_stub_back_and_opens_lgs_home(self):
+        self.flag()
+        self.sam("web", mounted=True)
+        (self.state / "boot-direct.pending").write_text("")
+        self.assertEqual(self.sh("bd_early_undo").returncode, 0)
+        self.assertEqual(self.called(), ["homestub_drop legacy", "hs_open_home"])
+        self.assertFalse(self.has("boot-direct.pending"))
+        self.assertIn("giving LG's Home back", self.logged())
+
+    # ------------------------------------------------------------------------------------------ the early step of the dispatch
+
+    def boot(self, **env):
+        """What the dispatch runs first for the boot worker's `compositor-boot`: the stub, then what it says to the rest of that verb."""
+        return self.sh('bd_early_boot; echo "on=${BD_EARLY_ON:-unset} lockwait=$LOCK_WAIT"', LIVE="no", LUMA_BOOT="1", **env)
+
+    def test_the_early_step_of_the_dispatch_puts_the_stub_in_under_a_short_lock_wait_and_says_so(self):
+        self.flag()
+        result = self.boot()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(result.stdout.split()[-2:], ["on=1", "lockwait=1"], "the caller's wait is back")
+        self.assertEqual(self.called(), ["homestub_up", "watch"])
+        self.assertEqual((self.tmp / "lockwaits").read_text().split(), ["10"], "a lock that is not free in 10 s is not waited for")
+
+    def test_the_early_step_does_nothing_with_the_flag_off_or_the_compositor_not_enabled(self):
+        self.assertEqual(self.boot().stdout.split()[-2:], ["on=0", "lockwait=1"], "no flag file")
+        self.flag()
+        self.assertEqual(self.boot(ENABLED="no").stdout.split()[-2:], ["on=0", "lockwait=1"])
+        self.assertEqual(self.called(), [])
+        self.assertFalse((self.tmp / "lockwaits").exists(), "not even the lock")
+
+    def test_the_early_step_goes_without_the_stub_when_the_lock_is_not_free(self):
+        self.flag()
+        result = self.boot(LOCK="no")
+        self.assertEqual(result.stdout.split()[-2:], ["on=0", "lockwait=1"], "and the wait is put back")
+        self.assertEqual(self.called(), [])
+        self.assertFalse(self.has("boot-direct.pending"))
+        self.assertIn("no stub for this boot", self.logged())
+
+    def test_the_early_step_reports_no_stub_when_the_stub_step_refuses(self):
+        self.flag()
+        (self.state / "boot-direct.pending").write_text("")
+        self.assertEqual(self.boot().stdout.split()[-2:], ["on=0", "lockwait=1"], "an unfinished earlier boot: this one goes without")
+        self.assertEqual(self.boot(HS_UP="no").stdout.split()[-2:], ["on=0", "lockwait=1"], "a stub that does not come up")
+
+    def test_an_exit_before_the_verb_takes_the_stub_back_once(self):
+        self.flag()
+        self.sam("web", mounted=True)
+        (self.state / "boot-direct.pending").write_text("")
+        result = self.sh('BD_EARLY_ON=1; bd_early_gone; bd_early_gone; echo "on=$BD_EARLY_ON"')
+        self.assertEqual(result.stdout.split()[-1], "on=0")
+        self.assertEqual(self.called(), ["homestub_drop legacy", "hs_open_home"], "once")
+        self.assertFalse(self.has("boot-direct.pending"))
+        self.calls.unlink()
+        self.sh("bd_early_gone")
+        self.sh("BD_EARLY_ON=0; bd_early_gone")
+        self.assertEqual(self.called(), [], "no stub of the early step, nothing to take back")
+
+    def test_the_dispatch_runs_the_early_step_first_and_every_exit_before_the_verb_takes_the_stub_back(self):
+        early = SOURCE.index("compositor-boot:) bd_early_boot ;;")
+        end = SOURCE.index("app_storage_guard() {", early)
+        region = "\n".join(l for l in SOURCE[early:end].split("\n") if not l.lstrip().startswith("#"))
+        self.assertLess(early, SOURCE.index("native_storage_guard || {", early), "before the storage guard")
+        self.assertLess(early, SOURCE.index("migrate_legacy", early), "and before the migration")
+        self.assertLess(early, SOURCE.index("ensure_config", early))
+        self.assertEqual(region.count("exit 1"), 4, "the exits between the early step and the verb: the storage guard, the lock, the migration, the guard")
+        self.assertEqual(region.count("bd_early_gone"), 4, "each of them gives the stub back first")
+        for line in region.split("\n"):
+            if "exit 1" in line and "bd_early_gone" not in line:
+                self.assertIn(line.strip(), ("exit 1",), "the migration's own exit, whose block calls it on the line before it")
+        self.assertIn("bd_early_gone\n      emit_error \"could not safely migrate", region)
+        # the verb itself reads what the step did, and does not place a stub of its own
+        verb = SOURCE[SOURCE.index("verb_compositor_boot() {"):SOURCE.index("\n}\n", SOURCE.index("verb_compositor_boot() {"))]
+        self.assertIn("bd_early=${BD_EARLY_ON:-0}", verb)
+        self.assertNotIn("bd_early_stub", verb)
 
     def test_a_boot_that_finishes_clears_the_strikes(self):
         self.flag()
@@ -412,6 +535,102 @@ export HOME_APP_DIR STUB_STAGE
         data = self.verb("verb_home sideways", ok=False)
         self.assertFalse(data["ok"])
 
+    # ------------------------------------------------------------------------------------- the dead man's switch of a boot
+
+    def watch(self, secs="4", before="", **env):
+        # `sleep` ends the wait at once; `before` can change what the loop finds
+        return self.sh("%sBD_WATCH_SECS=%s; verb_boot_direct watch" % (before, secs), **env)
+
+    def test_the_watch_ends_quietly_when_the_boot_finishes(self):
+        self.flag()
+        self.assertEqual(self.watch(LIVE="no").returncode, 0)
+        self.assertEqual(self.called(), [], "no pending mark: nothing is in doubt")
+        (self.state / "boot-direct.pending").write_text("")
+        result = self.watch(before='sleep() { rm -f "$BD_PENDING"; }\n', LIVE="no")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.called(), [], "the boot finished while it waited")
+
+    def test_a_boot_that_does_not_finish_in_time_gives_the_stub_up_and_opens_lgs_home(self):
+        self.flag()
+        self.sam("web", mounted=True)
+        (self.state / "boot-direct.pending").write_text("")
+        self.assertEqual(self.watch(LIVE="no").returncode, 0)
+        self.assertEqual(self.called(), ["homestub_drop legacy", "hs_open_home"])
+        self.assertFalse(self.has("boot-direct.pending"))
+        self.assertEqual((self.state / "boot-direct.strikes").read_text().strip(), "1", "a boot that stopped half way is a fault")
+        self.assertIn("giving LG's Home back", self.logged())
+
+    def test_a_compositor_that_is_live_is_not_taken_from_under_its_boot(self):
+        self.flag()
+        self.sam("web", mounted=True)
+        (self.state / "boot-direct.pending").write_text("")
+        self.assertEqual(self.watch(LIVE="yes").returncode, 0)
+        self.assertEqual(self.called(), [])
+        self.assertTrue(self.has("boot-direct.pending"))
+        self.assertIn("the stub stays", self.logged())
+
+    def test_a_watch_that_cannot_take_the_lock_changes_nothing(self):
+        self.flag()
+        (self.state / "boot-direct.pending").write_text("")
+        self.assertEqual(self.watch(LOCK="no", LIVE="no").returncode, 1)
+        self.assertEqual(self.called(), [])
+        self.assertTrue(self.has("boot-direct.pending"))
+
+    def test_the_watch_waits_on_while_the_boot_worker_is_alive_up_to_its_limit(self):
+        self.flag()
+        self.sam("web", mounted=True)
+        (self.state / "boot-direct.pending").write_text("")
+        count = 'sleep() { echo s >> "$FAKE/sleeps"; }\nBD_WATCH_MAX=12\n'
+        self.assertEqual(self.watch(before=count, LIVE="no").returncode, 0)
+        self.assertEqual((self.tmp / "sleeps").read_text().count("s"), 2, "no worker: the stub is given up at the first limit, 4 s of 2 s waits")
+        self.assertEqual(self.called(), ["homestub_drop legacy", "hs_open_home"])
+
+        (self.tmp / "sleeps").unlink()
+        self.calls.unlink()
+        self.sam("web", mounted=True)
+        (self.state / "boot-direct.pending").write_text("")
+        (self.tmp / "worker").write_text("%d\n" % os.getpid())       # a pid that is alive: the boot worker at its work
+        self.assertEqual(self.watch(before=count, LIVE="no").returncode, 0)
+        self.assertEqual((self.tmp / "sleeps").read_text().count("s"), 6, "a live worker: 12 s of waits, the second limit")
+        self.assertEqual(self.called(), ["homestub_drop legacy", "hs_open_home"])
+
+        # a worker that is done (its mark says so) is no reason to wait
+        (self.tmp / "sleeps").unlink()
+        self.calls.unlink()
+        self.sam("web", mounted=True)
+        (self.state / "boot-direct.pending").write_text("")
+        (self.tmp / "worker").write_text("done\n")
+        self.assertEqual(self.watch(before=count, LIVE="no").returncode, 0)
+        self.assertEqual((self.tmp / "sleeps").read_text().count("s"), 2)
+
+    # --------------------------------------------------------------------------------------- compositor on by hand
+
+    def test_a_compositor_on_by_hand_puts_the_stub_in_before_its_restart_when_the_flag_is_on(self):
+        self.flag()
+        self.assertEqual(self.sh("bd_manual_stub").returncode, 0)
+        self.assertEqual(self.called(), ["homestub_up"])
+        self.assertFalse(self.has("boot-direct.pending"), "this is no boot: no mark, no watch")
+        # flag off, a bundle that predates it, or a stub that does not come up: nothing is held back
+        self.calls.unlink()
+        (self.state / "boot-direct").unlink()
+        self.assertEqual(self.sh("bd_manual_stub").returncode, 0)
+        self.assertEqual(self.called(), [])
+        self.flag()
+        self.api(False)
+        self.assertEqual(self.sh("bd_manual_stub").returncode, 0)
+        self.assertEqual(self.called(), [])
+        self.assertIn("predates", self.logged())
+        self.api()
+        self.assertEqual(self.sh("bd_manual_stub", HS_UP="no").returncode, 0)
+        self.assertEqual(self.called(), ["homestub_up"])
+        self.assertIn("LG's Home stays", self.logged())
+
+    def test_the_stub_goes_in_before_the_restart_in_compositor_on(self):
+        start = SOURCE.index("verb_compositor() {")
+        body = SOURCE[start:SOURCE.index("\n}\n", start)]
+        self.assertIn("(bd_manual_stub)\n          (restart_surface native)", body, "the stub first, then the restart")
+        self.assertEqual(body.count("bd_manual_stub"), 1, "and only on the way to LumaTV's compositor, never on the way back")
+
     # --------------------------------------------------------------------------------------------- home lg / luma
 
     def test_home_lg_takes_the_stub_away_and_opens_lgs_home(self):
@@ -514,6 +733,22 @@ export HOME_APP_DIR STUB_STAGE
         self.assertTrue(data["ok"])
         self.assertFalse(any(c.startswith("mount ") for c in self.called()), "the stub is not mounted twice")
 
+    def test_homestub_up_waits_for_sam_only_when_asked_to(self):
+        self.flag()
+        self.sam("flutter")
+        # SAM does not answer for the first twelve questions: more than the stub's own polling asks
+        self.assertEqual(self.sh("homestub_up", real_stub=True, SAM_DOWN_FOR="12").returncode, 1, "not waited for: the stub is given up")
+        self.assertFalse((self.tmp / "mounted").exists())
+        self.calls.unlink()
+        (self.tmp / "asked").unlink()
+        self.sam("flutter")
+        result = self.sh("HS_SAM_WAIT=20; homestub_up", real_stub=True, SAM_DOWN_FOR="12")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        calls = self.called()
+        self.assertTrue((self.tmp / "mounted").exists())
+        self.assertLess(calls.index("mount %s %s" % (self.state / "homestub", self.tmp / "home")), calls.index("block"),
+                        "the stub is bound at once, and SAM reads it once it answers")
+
     # -------------------------------------------------------------------------------------------------- the wiring
 
     def test_the_verbs_are_dispatched_and_classified_for_the_maintenance_guard(self):
@@ -521,7 +756,7 @@ export HOME_APP_DIR STUB_STAGE
         self.assertIn('home) verb_home "${2:-status}"; exit $? ;;', SOURCE)
         self.assertIn("boot-direct:status|boot-direct:|home:status) MAINTENANCE_ACCESS=read ;;", SOURCE)
         # the ways back to LG's Home are emergencies: they must work while a maintenance veto stands
-        self.assertIn("boot-direct:off|home:lg) MAINTENANCE_ACCESS=emergency ;;", SOURCE)
+        self.assertIn("boot-direct:off|boot-direct:watch|home:lg) MAINTENANCE_ACCESS=emergency ;;", SOURCE)
         self.assertNotIn("home:luma", SOURCE, "putting the stub back is an ordinary write")
 
     def test_the_installer_writes_the_marker_the_tool_looks_for(self):
