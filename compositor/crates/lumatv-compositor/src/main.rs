@@ -469,8 +469,8 @@ fn run(config: Config) -> io::Result<()> {
                         let mut evs: [lumatv_compositor::input::Event; 64] = [lumatv_compositor::input::Event::Key { code: 0, pressed: false }; 64];
                         let mut n = 0;
                         let read = d.drain(|ev| {
-                            // A spun wheel is one turn to the pointer: its notches must not crowd keys out of the buffer.
-                            if ev == lumatv_compositor::input::Event::Wheel && n > 0 && evs[n - 1] == ev {
+                            // A spun wheel is one turn to the pointer: its notches must not crowd keys out of the buffer (turns the other way are another turn).
+                            if matches!(ev, lumatv_compositor::input::Event::Wheel { .. }) && n > 0 && evs[n - 1] == ev {
                                 return;
                             }
                             if n < evs.len() {
@@ -497,8 +497,9 @@ fn run(config: Config) -> io::Result<()> {
                                 lumatv_compositor::input::Event::Motion { x, y } => {
                                     lumatv_compositor::server::seat::remote_motion(&mut state, x, y);
                                 }
-                                lumatv_compositor::input::Event::Wheel => {
+                                lumatv_compositor::input::Event::Wheel { down } => {
                                     lumatv_compositor::server::seat::wheel_turn(&mut state);
+                                    state.shell_rust_wheel_direction(down);
                                 }
                             }
                         }

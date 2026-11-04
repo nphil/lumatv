@@ -160,12 +160,13 @@ const REL_WHEEL_HI_RES: u16 = 11;
 const ABS_X: u16 = 0;
 const ABS_Y: u16 = 1;
 
-/// What a device reports: one key, the pointer's new position in output pixels (once per `SYN_REPORT`), or a notch of the wheel.
+/// What a device reports: one key, the pointer's new position in output pixels (once per `SYN_REPORT`), or a notch of the wheel (`down`: it was
+/// turned towards the person, a scroll down; evdev reports a turn away as positive).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
     Key { code: u32, pressed: bool },
     Motion { x: i32, y: i32 },
-    Wheel,
+    Wheel { down: bool },
 }
 
 /// The range of one absolute axis (`EVIOCGABS`), mapped onto the output.
@@ -276,7 +277,7 @@ impl Device {
                 }
                 match ev.kind {
                     EV_KEY => f(Event::Key { code: ev.code as u32, pressed: ev.value != 0 }),
-                    EV_REL if self.wheel && matches!(ev.code, REL_WHEEL | REL_WHEEL_HI_RES) && ev.value != 0 => f(Event::Wheel),
+                    EV_REL if self.wheel && matches!(ev.code, REL_WHEEL | REL_WHEEL_HI_RES) && ev.value != 0 => f(Event::Wheel { down: ev.value < 0 }),
                     EV_ABS => {
                         if let Some(abs) = self.abs {
                             let (mut x, mut y) = self.pending.unwrap_or(self.last);
@@ -830,8 +831,9 @@ mod wheel_tests {
 
     #[test]
     fn a_notch_of_the_wheel_is_a_wheel_event_and_no_other_relative_axis_is() {
-        assert_eq!(read(&[(EV_REL, REL_WHEEL, 1), (EV_REL, REL_WHEEL, -1), (EV_SYN, 0, 0)], true), vec![Event::Wheel, Event::Wheel]);
-        assert_eq!(read(&[(EV_REL, REL_WHEEL_HI_RES, 120)], true), vec![Event::Wheel]);
+        assert_eq!(read(&[(EV_REL, REL_WHEEL, 1), (EV_REL, REL_WHEEL, -1), (EV_SYN, 0, 0)], true), vec![Event::Wheel { down: false }, Event::Wheel { down: true }], "a turn away is up, a turn towards is down");
+        assert_eq!(read(&[(EV_REL, REL_WHEEL_HI_RES, 120)], true), vec![Event::Wheel { down: false }]);
+        assert_eq!(read(&[(EV_REL, REL_WHEEL_HI_RES, -240)], true), vec![Event::Wheel { down: true }]);
         assert_eq!(
             read(&[(EV_REL, 0, 5), (EV_REL, 1, -5), (EV_REL, 6, 1), (EV_REL, REL_WHEEL, 0)], true),
             vec![],
@@ -839,7 +841,7 @@ mod wheel_tests {
         );
         assert_eq!(
             read(&[(EV_KEY, 28, 1), (EV_REL, REL_WHEEL, 1), (EV_KEY, 28, 0)], true),
-            vec![Event::Key { code: 28, pressed: true }, Event::Wheel, Event::Key { code: 28, pressed: false }]
+            vec![Event::Key { code: 28, pressed: true }, Event::Wheel { down: false }, Event::Key { code: 28, pressed: false }]
         );
     }
 

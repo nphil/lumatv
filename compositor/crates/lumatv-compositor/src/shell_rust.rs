@@ -1159,6 +1159,22 @@ impl State {
         sent
     }
 
+    /// A notch of the wheel with its direction for the Rust client, as the key `wheelup` or `wheeldown` pressed and released at once, under the
+    /// same rules as [`State::shell_rust_wheel`]: only while the client's layer wants the keys and lists that name in its `takes` (Home's
+    /// smart-home card scrolls with it, under the pointer). Returns whether the client got it.
+    pub fn shell_rust_wheel_direction(&mut self, down: bool) -> bool {
+        let name = if down { "wheeldown" } else { "wheelup" };
+        if !self.shell_rust_wants_keys() || !self.shell_rust.takes.iter().any(|n| n == name) {
+            return false;
+        }
+        let sent = self.shell_rust.send_key(name, true, false, 0);
+        self.shell_rust.send_key(name, false, false, 0);
+        if sent {
+            self.keys.delivered += 1;
+        }
+        sent
+    }
+
     /// A pointer sample for the Rust client (the caller decides that it has the pointer: [`State::shell_rust_pointer_sample`]).
     pub fn shell_rust_pointer(&mut self, x: f32, y: f32, buttons: u32, visible: bool) {
         self.shell_rust.send_pointer(x, y, buttons, visible);
@@ -1731,6 +1747,45 @@ mod tests {
         assert_eq!(lines[0], json!({"key": {"k": "wheel", "d": true, "r": false, "seat": 0}}));
         assert_eq!(lines[1], json!({"key": {"k": "wheel", "d": false, "r": false, "seat": 0}}));
         assert_eq!(lines[2..], lines[..2]);
+    }
+
+    #[test]
+    fn a_turn_of_the_wheel_is_wheelup_or_wheeldown_for_the_client_that_lists_that_name_and_only_while_its_layer_wants_the_keys() {
+        let (mut state, _dir) = state_with("home");
+        state.shell_rust_handle(Msg::Connected);
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        ours.set_nonblocking(true).unwrap();
+        state.shell_rust.keys = Some(ours);
+        // Home is in front and wants the keys, but has not asked for the turns: they are the pointer's alone
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: None });
+        assert!(!state.shell_rust_wheel_direction(true) && !state.shell_rust_wheel_direction(false), "not listed");
+        state.shell_rust_handle(Msg::Takes(vec!["wheelup".into(), "wheeldown".into(), "wheelsideways".into()]));
+        assert_eq!(state.shell_rust.takes, vec!["wheelup", "wheeldown"], "both ways are takeable, a name nobody taught is not");
+        assert!(state.shell_rust_wheel_direction(true), "a turn towards the person");
+        assert!(state.shell_rust_wheel_direction(false), "a turn away");
+        // the plain `wheel` is not what a client that lists only the directions hears
+        assert!(!state.shell_rust_wheel());
+        // only one way listed: the other is the pointer's alone
+        state.shell_rust_handle(Msg::Takes(vec!["wheeldown".into()]));
+        assert!(!state.shell_rust_wheel_direction(false));
+        // the layer lets go of the keys: listed or not, the turn is not sent
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(false), live: None, state: None });
+        assert!(!state.shell_rust_wheel_direction(true));
+        let mut reader = theirs;
+        reader.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let mut text = String::new();
+        let mut buf = [0u8; 1024];
+        let keys = |text: &str| -> Vec<Value> { text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|l| l.get("key").is_some()).collect() };
+        while keys(&text).len() < 4 {
+            let n = reader.read(&mut buf).unwrap();
+            text.push_str(std::str::from_utf8(&buf[..n]).unwrap());
+        }
+        let lines = keys(&text);
+        assert_eq!(lines.len(), 4, "two turns, each pressed and released: {text}");
+        assert_eq!(lines[0], json!({"key": {"k": "wheeldown", "d": true, "r": false, "seat": 0}}));
+        assert_eq!(lines[1], json!({"key": {"k": "wheeldown", "d": false, "r": false, "seat": 0}}));
+        assert_eq!(lines[2], json!({"key": {"k": "wheelup", "d": true, "r": false, "seat": 0}}));
+        assert_eq!(lines[3], json!({"key": {"k": "wheelup", "d": false, "r": false, "seat": 0}}));
     }
 
     #[test]

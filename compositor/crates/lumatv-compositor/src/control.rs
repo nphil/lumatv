@@ -289,10 +289,21 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             let rest: Vec<&str> = words.collect();
             state.vwin_ctl(&rest)
         }
-        // wheel: a turn of the Magic Remote's wheel, which shows the pointer where `pointer aim` last put it (`remote.pointerShow`).
+        // wheel [up|down]: a turn of the Magic Remote's wheel, which shows the pointer where `pointer aim` last put it (`remote.pointerShow`); with
+        // a direction it is that way, for the client that scrolls with it.
         "wheel" => {
             let sent = crate::server::seat::wheel_turn(state);
-            json!({"ok": true, "delivered": sent, "visible": state.seat.cursor_visible, "pointer": state.pointer_report()})
+            let way = match words.next() {
+                Some("up") => Some(false),
+                Some("down") => Some(true),
+                _ => None,
+            };
+            let scrolled = way.map(|down| state.shell_rust_wheel_direction(down));
+            let mut reply = json!({"ok": true, "delivered": sent, "visible": state.seat.cursor_visible, "pointer": state.pointer_report()});
+            if let Some(scrolled) = scrolled {
+                reply["scrolled"] = json!(scrolled);
+            }
+            reply
         }
         "click" => {
             // click [press|release|tap]: the remote's OK (KEY_ENTER); while the cursor shows, that is BTN_LEFT.
