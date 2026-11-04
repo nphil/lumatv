@@ -745,6 +745,11 @@ pub mod home_engine {
 
     /// A server whose output has the engine attached, with Home's ground (`ground`, RGB) drawn once; the server does not tick on its own.
     pub fn start(ground: [u8; 3]) -> (Server, HomeEngine) {
+        start_rgba([ground[0], ground[1], ground[2], 255])
+    }
+
+    /// The same with a ground that may be clear: the moving wallpaper's Home has none, the video plane's hole shows where Home draws nothing.
+    pub fn start_rgba(ground: [u8; 4]) -> (Server, HomeEngine) {
         let shm = std::env::temp_dir().join(format!("lumatv-home-engine-{}-{:?}", std::process::id(), std::thread::current().id()));
         std::fs::create_dir_all(&shm).unwrap();
         let dir = shm.clone();
@@ -759,7 +764,7 @@ pub mod home_engine {
         let hangup = app_end.try_clone().unwrap();
         let (scene, _, events) = Scene::over_with(app_end, SceneOptions { shm_dir: Some(shm), ..Default::default() }).unwrap();
         let ui = Ui::new(scene);
-        let fill = Shape { corner_radius: 0.0, fill: Fill::Solid(Rgba(ground[0], ground[1], ground[2], 255)), border_width: 0.0, border: Rgba(0, 0, 0, 0) };
+        let fill = Shape { corner_radius: 0.0, fill: Fill::Solid(Rgba(ground[0], ground[1], ground[2], ground[3])), border_width: 0.0, border: Rgba(0, 0, 0, 0) };
         let layer = ui.scene.shape(1920, 1080, 0, fill, Props::at(0.0, 0.0));
         std::mem::forget(layer);
         let first = ui.try_commit().unwrap().unwrap();

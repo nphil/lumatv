@@ -346,6 +346,7 @@ fn a_player_that_is_not_renewed_takes_its_window_away_by_itself() {
 
 /// A wallpaper clip the stand-in decoder takes: the container (`tools/vplane_clips.py` has the layout) of 1920 x 1080 HEVC access units, the
 /// first a key unit.
+#[cfg(feature = "ui")]
 fn write_wall_clip(path: &std::path::Path, units: u32) {
     let unit = |key: bool| -> Vec<u8> {
         let mut u = vec![0, 0, 0, 1, if key { 0x46 } else { 0x02 }, 0x01];
@@ -369,6 +370,7 @@ fn write_wall_clip(path: &std::path::Path, units: u32) {
 }
 
 /// A clips directory with one wallpaper clip.
+#[cfg(feature = "ui")]
 fn wall_clips(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("vplane-wall-clips-{}-{}", std::process::id(), tag));
     let _ = std::fs::remove_dir_all(&dir);
@@ -379,36 +381,33 @@ fn wall_clips(tag: &str) -> PathBuf {
 
 /// The moving wallpaper: the player's window (type `_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER`) is under LumaTV's Home, its hole is cleared before
 /// the window and so under Home, and Home's own pixels (the glass, the dock) are drawn over it: the pane keeps its alpha, the rest of Home is
-/// transparent so the video shows. An app taking the front ends it at once, from the compositor, whatever the shell has said.
+/// transparent so the video shows. An app taking the front ends it at once, from the compositor, whatever the shell has said. LumaTV's Home is the
+/// engine's layers, not a window (the compositor closes a wallpaper window while the Rust Home is not drawn), so it is the engine's here.
+#[cfg(feature = "ui")]
 #[test]
 fn the_wallpaper_is_a_hole_under_home_and_home_draws_over_it() {
-    if paths().is_none() {
+    use compositor_protocol::{Fill, Props, Rgba, Shape};
+    if paths().is_none() || !harness::home_engine::available() {
         return;
     }
     let _one = ONE_AT_A_TIME.lock();
-    let mut server = Server::start();
+    let (mut server, engine) = harness::home_engine::start_rgba([0, 0, 0, 0]);
+    server.ticking.store(true, std::sync::atomic::Ordering::SeqCst);
     let clips = wall_clips("hole");
     let mut player = Player::spawn_with(&mut server, "screensaver", Some(&clips));
-    // SAM's Home stub (a transparent card), and LumaTV's Home: transparent but for a glass pane (alpha 0x80) and a solid dock
+    // SAM's Home stub (a transparent card), and LumaTV's Home over it: transparent but for a glass pane (alpha 0x80) and a solid dock
     let mut sam = Client::connect_extra(&mut server);
     let stub = sam.card("_WEBOS_WINDOW_TYPE_CARD", "Stub");
     stub.webos.set_property("appId".into(), "com.webos.app.home".into());
     let clear = sam.shm_buffer(1920, 1080, 0);
     sam.present(&stub.surface, &clear);
-    let mut shell = Client::connect_extra(&mut server);
-    let home = shell.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", "Home");
-    let pixel = |x: i32, y: i32| {
-        if (400..1000).contains(&x) && (300..600).contains(&y) {
-            0x8010_2030
-        } else if (100..500).contains(&x) && (900..980).contains(&y) {
-            0xff20_3050
-        } else {
-            0
-        }
-    };
-    let pane = shell.shm_pattern(1920, 1080, pixel);
-    shell.present(&home.surface, &pane);
-    assert!(shell.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1));
+    sam.roundtrip();
+    server.eval(|s| s.scene.set_home_rust(true));
+    let solid = |c: [u8; 4]| Shape { corner_radius: 0.0, fill: Fill::Solid(Rgba(c[0], c[1], c[2], c[3])), border_width: 0.0, border: Rgba(0, 0, 0, 0) };
+    let _pane = engine.ui.scene.shape(600, 300, 10, solid([0x10, 0x20, 0x30, 0x80]), Props::at(400.0, 300.0));
+    let _dock = engine.ui.scene.shape(400, 80, 11, solid([0x20, 0x30, 0x50, 0xff]), Props::at(100.0, 900.0));
+    engine.ui.try_commit().unwrap();
+    assert!(wait_for(Duration::from_secs(5), || server.eval(|s| s.scene.shell_home_shown())), "Home is drawn");
     assert_eq!(server.eval(|s| (s.scene.holes.len(), s.scene.wall_hole())), (0, false), "no wallpaper yet");
 
     player.send("start", json!({"role": "wall", "clip": "wall-test", "ttlMs": 60000}));
