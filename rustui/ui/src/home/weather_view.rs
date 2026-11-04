@@ -15,6 +15,7 @@ use super::model::Home;
 use super::radar_surface::{RadarPage, control};
 use super::surface::{HIDDEN, faded, glass_of};
 use super::weather_art::{self, Cond, Live, Stage};
+use super::weather_sprites::Pal;
 use super::weather_gfx as gfx;
 use super::widgets::{Canvas, Pictures, Words};
 use crate::kit::Kit;
@@ -535,7 +536,7 @@ impl WeatherSurface {
             if run_art {
                 a.step(now);
             } else if a.running() {
-                a.rest();
+                a.pause(now);
             }
         }
         Ok(())
@@ -568,16 +569,16 @@ impl WeatherSurface {
     fn sky(&self, kit: &mut Kit, d: &Data, made: &mut Made, art: bool) -> std::io::Result<()> {
         let Some(cond) = Cond::from_doc(d.doc) else { return Ok(()) };
         let light = kit.mode == Mode::Light;
-        let (rgb, a) = cond.wash(light);
+        let (rgb, a) = cond.wash(&Pal::of(&kit.ui.look.theme.roles, light), light);
         let a = (a * 1.2).min(0.6);
-        let top = Rgba((f32::from(rgb[0]) * a).round() as u8, (f32::from(rgb[1]) * a).round() as u8, (f32::from(rgb[2]) * a).round() as u8, (a * 255.0).round() as u8);
+        let top = Rgba((rgb[0] * a * 255.0).round() as u8, (rgb[1] * a * 255.0).round() as u8, (rgb[2] * a * 255.0).round() as u8, (a * 255.0).round() as u8);
         let shape = Shape { corner_radius: 0.0, fill: Fill::Linear { from: top, to: Rgba(0, 0, 0, 0), angle_deg: 90.0 }, border_width: 0.0, border: Rgba(0, 0, 0, 0) };
         made.sky = Some(kit.ui.scene.shape(1920, 860, self.z, shape, Props::at(0.0, 0.0)));
         if art {
             // what moves is the open sky between the reading and the ten days (and under both): a box of a bit over a thousand pixels across, fading
             // out at its edges, so that the compositor's frames are no more than that (the tint behind it is the whole screen's and still)
             let (ox, oy) = (500.0, 96.0);
-            let st = Stage { w: 1160.0, h: 620.0, hero: (1060.0 - ox, 372.0 - oy), size: 470.0, ground: 600.0, fade: [150.0, 150.0, 50.0, 150.0], shy: 0.2 };
+            let st = Stage { w: 1160.0, h: 620.0, hero: (1060.0 - ox, 372.0 - oy), size: 470.0, ground: 600.0, fade: [150.0, 150.0, 50.0, 150.0], shy: 0.2, card: None };
             made.art = Live::new(kit, cond, st, light, (ox, oy), self.z).ok();
         }
         Ok(())

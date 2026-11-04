@@ -7,6 +7,7 @@
 //! has no detail to lose and the memory falls with the square of the fraction.
 
 use std::f32::consts::{PI, TAU};
+use ui::lucent::palette::{Mode, PaletteRole, Roles};
 
 pub type Rgb = [f32; 3];
 
@@ -14,9 +15,18 @@ pub fn hex(v: u32) -> Rgb {
     [((v >> 16) & 255) as f32 / 255.0, ((v >> 8) & 255) as f32 / 255.0, (v & 255) as f32 / 255.0]
 }
 
-/// The colours (Rosé Pine: Main for the dark look, Dawn for the light; modest, for an OLED panel).
+/// The sky's colours. They come from the roles of the active palette (so that the sky takes after the theme, whichever palette it is and in either look:
+/// the sun is the palette's warning, the rain its positive, the clouds its ink and accent, the storm those darkened towards the canvas), not from a
+/// table of colours of its own. For Rosé Pine they are the ones the sky was drawn with before (`the_sky_takes_its_colours_from_the_palette`).
 #[derive(Clone, Copy)]
 pub struct Pal {
+    /// The roles the rest is made from, which the sky's tints and veils are made from as well.
+    pub ink: Rgb,
+    pub canvas: Rgb,
+    pub accent: Rgb,
+    pub warning: Rgb,
+    pub danger: Rgb,
+    pub info: Rgb,
     pub sun: Rgb,
     pub sun_hi: Rgb,
     pub sun_glow: Rgb,
@@ -40,52 +50,60 @@ pub struct Pal {
 }
 
 impl Pal {
-    pub fn of(light: bool) -> Pal {
-        if light {
-            Pal {
-                sun: hex(0xEA9D34),
-                sun_hi: hex(0xF6C177),
-                sun_glow: hex(0xEA9D34),
-                bloom: hex(0xD7827E),
-                moon: hex(0x907AA9),
-                moon_hi: hex(0xB4A2C9),
-                moon_glow: hex(0x907AA9),
-                cloud_hi: hex(0xFFFFFF),
-                cloud_lo: hex(0xC9C3D6),
-                cloud_rim: 0.9,
-                storm_hi: hex(0x9893A5),
-                storm_lo: hex(0x6E6A86),
-                rain: hex(0x286983),
-                snow: hex(0x56949F),
-                fog: hex(0x797593),
-                bolt: hex(0xEA9D34),
-                star: hex(0x907AA9),
-                flash: hex(0xEA9D34),
-                wind: hex(0x797593),
-            }
-        } else {
-            Pal {
-                sun: hex(0xF6C177),
-                sun_hi: hex(0xFFE3B0),
-                sun_glow: hex(0xF6C177),
-                bloom: hex(0xEB6F92),
-                moon: hex(0xE6E0F0),
-                moon_hi: hex(0xFFFFFF),
-                moon_glow: hex(0xC4A7E7),
-                cloud_hi: hex(0xD9D6EC),
-                cloud_lo: hex(0x8B88A6),
-                cloud_rim: 0.55,
-                storm_hi: hex(0x77738F),
-                storm_lo: hex(0x4A4760),
-                rain: hex(0x9CCFD8),
-                snow: hex(0xE0DEF4),
-                fog: hex(0x9C98B4),
-                bolt: hex(0xF6C177),
-                star: hex(0xE0DEF4),
-                flash: hex(0xE8EDFF),
-                wind: hex(0xC4C0DC),
-            }
+    /// The palette `roles` in the light look (`light`) or the dark one.
+    pub fn of(roles: &Roles, light: bool) -> Pal {
+        let role = |r: PaletteRole| -> Rgb {
+            let c = roles[r];
+            [f32::from(c.r) / 255.0, f32::from(c.g) / 255.0, f32::from(c.b) / 255.0]
+        };
+        let (ink, canvas, accent, warning, danger, info, positive) = (role(PaletteRole::Ink), role(PaletteRole::Canvas), role(PaletteRole::Accent), role(PaletteRole::Warning), role(PaletteRole::Danger), role(PaletteRole::Info), role(PaletteRole::Positive));
+        const WHITE: Rgb = [1.0; 3];
+        // the warning role is a deep brown-amber on a light look (it is the colour of text there); a sun and a flash are lit, so it is brought up to the
+        // brightness of an amber and made a little paler (a bright warning is left as it is)
+        let lit = |c: Rgb| -> Rgb {
+            let s = (0.92 / c[0].max(c[1]).max(c[2]).max(1e-3)).max(1.0);
+            mix3([c[0] * s, c[1] * s, c[2] * s], WHITE, 0.10)
+        };
+        let sun = if light { lit(warning) } else { warning };
+        // the clouds: pale ink with a little accent on a dark look, white on a light one (its glass is light); the storm's are the shade of them
+        let (cloud_hi, cloud_lo) = if light { (WHITE, mix3(WHITE, accent, 0.45)) } else { (mix3(mix3(ink, accent, 0.18), canvas, 0.10), mix3(mix3(ink, accent, 0.35), canvas, 0.40)) };
+        let (storm_hi, storm_lo) = if light { (mix3(mix3(ink, WHITE, 0.52), accent, 0.12), mix3(mix3(ink, WHITE, 0.36), accent, 0.18)) } else { (mix3(cloud_lo, canvas, 0.15), mix3(cloud_lo, canvas, 0.55)) };
+        // (the info role is deep on a light look too, as the colour of text: a flake is lighter)
+        let snow = if light { mix3(info, WHITE, 0.20) } else { mix3(ink, accent, 0.06) };
+        let fog = if light { mix3(mix3(ink, WHITE, 0.45), accent, 0.2) } else { mix3(cloud_lo, ink, 0.2) };
+        Pal {
+            ink,
+            canvas,
+            accent,
+            warning,
+            danger,
+            info,
+            sun,
+            sun_hi: mix3(sun, WHITE, if light { 0.30 } else { 0.40 }),
+            sun_glow: sun,
+            bloom: danger,
+            moon: if light { accent } else { mix3(ink, accent, 0.10) },
+            moon_hi: if light { mix3(accent, WHITE, 0.35) } else { WHITE },
+            moon_glow: if light { accent } else { mix3(mix3(accent, danger, 0.12), WHITE, 0.08) },
+            cloud_hi,
+            cloud_lo,
+            cloud_rim: if light { 0.9 } else { 0.55 },
+            storm_hi,
+            storm_lo,
+            rain: positive,
+            snow,
+            fog,
+            bolt: sun,
+            star: if light { accent } else { snow },
+            flash: if light { sun } else { mix3(WHITE, accent, 0.10) },
+            wind: if light { fog } else { mix3(cloud_hi, accent, 0.12) },
         }
+    }
+
+    /// The default theme's (Rosé Pine) colours in a look, for the pictures that are made without a shell.
+    pub fn standard(light: bool) -> Pal {
+        let mode = if light { Mode::Light } else { Mode::Dark };
+        Pal::of(&ui::lucent::resolve::default_theme(mode).roles, light)
     }
 }
 
@@ -600,4 +618,112 @@ pub fn bolt(c: &Ctx, h_u: f32, flip: bool) -> Raster {
         Some((mix3(hi, lo, ((y - my) / (35.0 * s) * 0.5 + 0.5).clamp(0.0, 1.0)), cov(d)))
     });
     acc.finish(1.0)
+}
+
+/// A strike of lightning across a `w` by `h` pixel box, from the top to the foot: a jagged white-hot line that wanders and forks twice, in the glow it lights
+/// round it. `seed` makes it its own; `lean` (-1 to 1) is which way it forks and drifts.
+pub fn strike(w: u32, h: u32, seed: u32, lean: f32, glow: Rgb) -> Raster {
+    let (wf, hf) = (w as f32, h as f32);
+    let reach = (wf * 0.2).clamp(14.0, 34.0);
+    let n = 13usize;
+    let step = hf / n as f32;
+    let (mid, side) = (wf * 0.5, wf * 0.26);
+    // the path down, each step wandering sideways and being drawn back to the middle
+    let mut path = vec![(mid + side * lean * 0.4, 0.0f32)];
+    for i in 1..=n {
+        let (px, _) = path[i - 1];
+        let dx = (hash(seed + i as u32 * 7) - 0.5) * step * 2.2 + (mid + side * lean * 0.4 - px) * 0.18;
+        path.push(((px + dx).clamp(wf * 0.12, wf * 0.88), step * i as f32 * (0.97 + 0.06 * hash(seed + 400 + i as u32))));
+    }
+    // (from, to, half width): the line, and a fork from a third and from two thirds of the way down, thinner and going the way it leans
+    type Piece = ((f32, f32), (f32, f32), f32);
+    let mut segs: Vec<Piece> = path.windows(2).enumerate().map(|(i, p)| (p[0], p[1], 1.25 - 0.25 * i as f32 / n as f32)).collect();
+    for (k, &from) in [n / 3, 2 * n / 3].iter().enumerate() {
+        let dir = if k == 0 { lean.signum() } else { -lean.signum() };
+        let dir = if dir == 0.0 { 1.0 } else { dir };
+        let mut at = path[from];
+        for j in 0..4usize {
+            let (sx, sy) = (dir * step * (0.55 + 0.5 * hash(seed + 900 + (k * 8 + j) as u32)), step * (0.5 + 0.4 * hash(seed + 950 + (k * 8 + j) as u32)));
+            let to = ((at.0 + sx).clamp(wf * 0.06, wf * 0.94), at.1 + sy);
+            segs.push((at, to, 0.85 - 0.12 * j as f32));
+            at = to;
+        }
+    }
+    // how far outside the line (and its width) each pixel is, from the nearest piece of it
+    let mut e = vec![f32::MAX; (w * h) as usize];
+    for &(a, b, hw) in &segs {
+        let r = reach + hw;
+        let (x0, x1) = (((a.0.min(b.0) - r).floor().max(0.0)) as usize, ((a.0.max(b.0) + r).ceil().max(0.0) as usize).min(w as usize));
+        let (y0, y1) = (((a.1.min(b.1) - r).floor().max(0.0)) as usize, ((a.1.max(b.1) + r).ceil().max(0.0) as usize).min(h as usize));
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let d = seg(x as f32 + 0.5, y as f32 + 0.5, a, b).0 - hw;
+                let q = &mut e[y * w as usize + x];
+                if d < *q {
+                    *q = d;
+                }
+            }
+        }
+    }
+    let (hot, mid_glow, far_glow) = ([1.0, 0.99, 0.95], mix3(glow, [1.0, 1.0, 1.0], 0.45), glow);
+    let mut acc = Acc::new(w, h);
+    acc.paint(acc.whole(), |x, y| {
+        let d = e[y as usize * w as usize + x as usize];
+        if d >= reach {
+            return None;
+        }
+        // back to front: the wide glow, the near glow, the core
+        let layers = [(far_glow, (1.0 - smooth(0.0, reach, d)).powi(2) * 0.30), (mid_glow, (1.0 - smooth(0.0, reach * 0.3, d)).powi(2) * 0.62), (hot, cov(d))];
+        let (mut col, mut a) = ([0.0f32; 3], 0.0f32);
+        for (colour, alpha) in layers {
+            for (v, s) in col.iter_mut().zip(colour) {
+                *v = *v * (1.0 - alpha) + s * alpha;
+            }
+            a = a * (1.0 - alpha) + alpha;
+        }
+        (a > 0.0).then(|| ([col[0] / a, col[1] / a, col[2] / a], a))
+    });
+    acc.finish(1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ui::lucent::palette::Straight;
+
+    /// The default theme's roles with the accent replaced.
+    fn with_accent(mode: Mode, accent: [u8; 3]) -> Roles {
+        let base = ui::lucent::resolve::default_theme(mode).roles;
+        let colours: Vec<Straight> = PaletteRole::ALL.iter().map(|r| if *r == PaletteRole::Accent { Straight { r: accent[0], g: accent[1], b: accent[2], a: 255 } } else { base[*r] }).collect();
+        Roles::new(colours.try_into().expect("twenty roles"))
+    }
+
+    #[test]
+    fn the_sprites_take_their_colours_from_the_palette_and_the_default_theme_comes_out_near_the_colours_they_had() {
+        for light in [false, true] {
+            let mode = if light { Mode::Light } else { Mode::Dark };
+            let (red, green) = (Pal::of(&with_accent(mode, [200, 40, 40]), light), Pal::of(&with_accent(mode, [40, 200, 90]), light));
+            assert_ne!(red.accent, green.accent);
+            assert_ne!(red.cloud_lo, green.cloud_lo, "the clouds carry some of the accent (light: {light})");
+            assert_ne!(red.storm_lo, green.storm_lo, "so does the storm");
+        }
+        // the colours hand-picked for Rose Pine before they were derived, within a tenth of the range in a channel
+        let near = |got: Rgb, want: u32, what: &str| {
+            let w = hex(want);
+            assert!((0..3).all(|i| (got[i] - w[i]).abs() <= 0.10), "{what}: {got:?} against {w:?}");
+        };
+        let (d, l) = (Pal::standard(false), Pal::standard(true));
+        near(d.sun, 0xF6C177, "dark sun");
+        near(d.cloud_hi, 0xD9D6EC, "dark cloud");
+        near(d.cloud_lo, 0x8B88A6, "dark cloud shade");
+        near(d.storm_lo, 0x4A4760, "dark storm");
+        near(d.rain, 0x9CCFD8, "dark rain");
+        near(d.snow, 0xE0DEF4, "dark snow");
+        near(d.flash, 0xE8EDFF, "dark flash");
+        near(l.sun, 0xEA9D34, "light sun");
+        near(l.cloud_lo, 0xC9C3D6, "light cloud shade");
+        near(l.storm_lo, 0x6E6A86, "light storm");
+        near(l.rain, 0x286983, "light rain");
+        near(l.snow, 0x56949F, "light snow");
+    }
 }

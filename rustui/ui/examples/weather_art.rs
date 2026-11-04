@@ -3,6 +3,7 @@
 //! and the sky's wash as the shell lays them, from the same poses the compositor is given.
 
 use lumatv_ui::home::weather_art::{Cond, Sky, Stage, compose, parts};
+use lumatv_ui::home::weather_sprites::Pal;
 
 fn png(path: &str, w: u32, h: u32, rgba: &[u8]) {
     let f = std::fs::File::create(path).unwrap();
@@ -14,14 +15,14 @@ fn png(path: &str, w: u32, h: u32, rgba: &[u8]) {
 
 /// The sky's wash over the ground: its colour at the top, fading to nothing at the foot.
 fn washed(cond: Cond, light: bool, ground: [u8; 4], w: u32, h: u32) -> Vec<u8> {
-    let (rgb, a) = cond.wash(light);
+    let (rgb, a) = cond.wash(&Pal::standard(light), light);
     let mut out = vec![0u8; (w * h * 4) as usize];
     for y in 0..h {
         let f = a * (1.0 - y as f32 / h as f32);
         for x in 0..w {
             let o = ((y * w + x) * 4) as usize;
             for c in 0..3 {
-                out[o + c] = (rgb[c] as f32 * f + ground[c] as f32 * (1.0 - f)).round() as u8;
+                out[o + c] = (rgb[c] * 255.0 * f + ground[c] as f32 * (1.0 - f)).round() as u8;
             }
             out[o + 3] = 255;
         }
@@ -32,7 +33,7 @@ fn washed(cond: Cond, light: bool, ground: [u8; 4], w: u32, h: u32) -> Vec<u8> {
 /// The picture over a wash, by compositing the picture on transparent and then that over the wash.
 fn frame(cond: Cond, st: Stage, light: bool, t: Option<f64>, ground: [u8; 4]) -> Vec<u8> {
     let (w, h) = (st.w as u32, st.h as u32);
-    let p = parts(cond, st, light);
+    let p = parts(cond, st, light, Pal::standard(light));
     let mut img = washed(cond, light, ground, w, h);
     // compose draws over `ground` pixels it is given: give it the wash itself
     let base = img.clone();
@@ -72,7 +73,7 @@ fn main() {
         ("windy-rain", c(Sky::Rain, true, 1, true)),
     ];
     // the card's sky: the hero on the right, where the temperature is not
-    let card = Stage { w: 433.0, h: 244.0, hero: (318.0, 104.0), size: 190.0, ground: 236.0, fade: [14.0, 14.0, 10.0, 30.0], shy: 0.5 };
+    let card = Stage { w: 433.0, h: 244.0, hero: (318.0, 104.0), size: 190.0, ground: 236.0, fade: [14.0, 14.0, 10.0, 30.0], shy: 0.5, card: None };
     let times: [Option<f64>; 4] = [None, Some(3_000.0), Some(9_400.0), Some(21_000.0)];
     let cols = 3usize;
     let rows = list.len().div_ceil(cols);
@@ -115,7 +116,7 @@ fn main() {
         png(&format!("{out}/strip-{name}.png"), w * frames, h, &wide);
     }
     if view {
-        let st = Stage { w: 1160.0, h: 620.0, hero: (560.0, 276.0), size: 470.0, ground: 600.0, fade: [150.0, 150.0, 50.0, 150.0], shy: 0.2 };
+        let st = Stage { w: 1160.0, h: 620.0, hero: (560.0, 276.0), size: 470.0, ground: 600.0, fade: [150.0, 150.0, 50.0, 150.0], shy: 0.2, card: None };
         for name in ["clear-day", "clear-night", "partly-day", "cloudy", "rain", "storm", "snow", "fog"] {
             let cond = list.iter().find(|(n, _)| *n == name).unwrap().1;
             let img = frame(cond, st, light, Some(14_000.0), ground);

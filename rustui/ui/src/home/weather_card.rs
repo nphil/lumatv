@@ -3,14 +3,18 @@
 //! says what is next (rain from four, a watch in force, the sunset), the next hours with their weather and their chance of rain, and, where the
 //! card is tall or wide enough, the week as rows with their range bars.
 //!
-//! The sky is the card's picture ([`super::weather_art`]): a tint over the glass from the top, the sprites the compositor moves, and a hairline
-//! under the reading where the rain lands. The card's words are one block (one layer, glyph quads) and its pictures one image layer painted on
-//! the CPU (icons, bars), so a card costs the compositor a handful of layers besides the sky's.
+//! The sky is the card's picture ([`super::weather_art`]): a tint over the glass from the top (or, beside a week, from the left), the sprites the
+//! compositor moves, and a hairline under the reading where the rain lands. Now and then (a storm's strike, a fall of snow) the weather takes over the
+//! whole card for a few seconds. The card's words are one block (one layer, glyph quads) and its pictures one image layer painted on the CPU (icons,
+//! bars), so a card costs the compositor a handful of layers besides the sky's.
 //!
 //! The plan ([`plan`]) is pure: from the box it has (in the text size's reduction, as the clock does it) and from what data there is (the hours or
-//! not), it decides which of the parts there is room for and where each goes.
+//! not, a temperature of three characters or two), it decides which of the parts there is room for and where each goes: the reading, as large as
+//! the room allows, with the next thing and the hours under it, or beside it when the card is wide; the picture of the sky goes where the reading
+//! is not.
 
-use super::weather_art::{Cond, Live, Stage};
+use super::weather_art::{Card, Cond, Live, Stage};
+use super::weather_sprites::Pal;
 use super::weather_view::{SmartTone, hour_label, kind_of, legible, smart_line};
 use super::widgets::{Canvas, PAD_SIDE, PAD_TOP, Pictures, Words, art, warm};
 use crate::kit::Kit;
@@ -33,6 +37,8 @@ pub struct Data {
     pub hours: bool,
     /// Some of the first of them have a chance of rain worth a bar.
     pub bars: bool,
+    /// The temperature is of three characters or more with its degree ("100\u{b0}", "-12\u{b0}"), so that it is wider than "61\u{b0}".
+    pub wide_temp: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +73,8 @@ struct Hours {
     temp_y: f32,
     temp_px: f32,
     bar: Option<(f32, f32)>,
+    /// How tall the whole strip is.
+    height: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -79,97 +87,254 @@ struct Days {
     day_w: f32,
     icon: f32,
     num_w: f32,
+    /// A range bar between the low and the high: where the week is narrow there is none, and the two numbers stand at the end.
+    bar: bool,
+    /// The low is shown (the very narrow week has the high alone, and no picture of the day either).
+    lo: bool,
+}
+
+/// The box the sky's picture has to itself (in the content box's coordinates, plan units): right of the reading's words and above the cond line.
+#[derive(Clone, Copy, Debug)]
+struct Art {
+    x0: f32,
+    x1: f32,
+    y0: f32,
+    y1: f32,
 }
 
 /// Where everything goes, in the content box at the text size's reduction (the caller scales it up by the text size).
 #[derive(Clone, Debug)]
 struct Plan {
     w: f32,
-    wide: bool,
+    /// The reading has the left of the card and the forecast the right, not the forecast under the reading.
+    split: bool,
     hero_w: f32,
     hero_bottom: f32,
     place: Option<Slot>,
     temp: Slot,
-    cond: Slot,
+    cond: Option<Slot>,
     feels: Option<Slot>,
     smart: Option<Slot>,
     hours: Option<Hours>,
     days: Option<Days>,
+    art: Art,
 }
 
+/// The side of the largest picture of the sky, in pixels.
+const ART_MAX: f32 = 260.0;
+const PLACE_H: f32 = 32.0;
+const COND_H: f32 = 36.0;
+const FEELS_H: f32 = 32.0;
 const SMART_H: f32 = 34.0;
+const SMART_GAP: f32 = 10.0;
+/// Between the reading and what is under it, and between the strips of the forecast.
+const GAP: f32 = 14.0;
+/// Between the reading's column and the forecast's.
+const COL_GAP: f32 = 44.0;
+const HOURS_COMPACT_H: f32 = 92.0;
 const HOURS_H: f32 = 106.0;
 const HOURS_BARS_H: f32 = 146.0;
 const DAY_H: f32 = 46.0;
 
-/// Which parts there is room for in a box of `w` by `h` (logical pixels) and where each goes.
-fn plan(w: f32, h: f32, data: Data) -> Plan {
-    let wide = w >= 620.0;
-    let hero_w = if wide { (w * 0.42).round().clamp(320.0, 430.0) } else { w };
-    // the reading, as large as the height gives and the width lets a "-12°" be
-    let (temp_px, place_on, feels_on) = if h >= 392.0 {
-        (112.0, true, true)
-    } else if h >= 318.0 {
-        (96.0, true, true)
-    } else if h >= 250.0 {
-        (84.0, true, false)
-    } else if h >= 190.0 {
-        (72.0, true, false)
-    } else if h >= 150.0 {
-        (72.0, false, false)
+/// A size of the reading: the temperature's, and which of the place, the condition and how it feels go with it.
+#[derive(Clone, Copy, Debug)]
+struct Tier {
+    temp: f32,
+    place: bool,
+    cond: bool,
+    feels: bool,
+}
+
+impl Tier {
+    const fn new(temp: f32, place: bool, feels: bool) -> Tier {
+        Tier { temp, place, cond: true, feels }
+    }
+
+    fn height(&self) -> f32 {
+        self.temp + 2.0 + if self.place { PLACE_H } else { 0.0 } + if self.cond { COND_H } else { 0.0 } + if self.feels { FEELS_H } else { 0.0 }
+    }
+}
+
+/// The sizes of the reading, the largest first.
+const TIERS: [Tier; 13] = [
+    Tier::new(112.0, true, true),
+    Tier::new(96.0, true, true),
+    Tier::new(96.0, true, false),
+    Tier::new(84.0, true, false),
+    Tier::new(72.0, true, false),
+    Tier::new(72.0, false, false),
+    Tier::new(64.0, false, false),
+    Tier::new(56.0, false, false),
+    Tier::new(48.0, false, false),
+    Tier::new(40.0, false, false),
+    Tier::new(36.0, false, false),
+    Tier { temp: 44.0, place: false, cond: false, feels: false },
+    Tier { temp: 36.0, place: false, cond: false, feels: false },
+];
+
+/// The largest of the first `last + 1` sizes that is no taller than `avail` and has a temperature no wider than `max_temp` allows; the last of them,
+/// made to fit, when none does.
+fn pick(avail: f32, max_temp: f32, last: usize) -> Tier {
+    TIERS[..=last].iter().copied().find(|t| t.height() <= avail && t.temp <= max_temp).unwrap_or(Tier { temp: (avail - 2.0).clamp(24.0, 36.0).min(max_temp).floor(), place: false, cond: false, feels: false })
+}
+
+/// How many columns of hours a strip `bw` wide has.
+fn columns(bw: f32) -> usize {
+    ((bw / 70.0).floor() as usize).min(8)
+}
+
+/// The strip of the next hours in `height` (compact, plain, or tall enough for the bars of the rain, or for larger pictures when it is dry).
+fn hours_strip(x: f32, y: f32, bw: f32, height: f32, data: Data) -> Hours {
+    let n = columns(bw);
+    let col_w = (bw / n as f32).floor();
+    if height >= HOURS_BARS_H {
+        if data.bars {
+            Hours { x, y, col_w, n, icon: 40.0, icon_y: y + 30.0, temp_y: y + 72.0, temp_px: 26.0, bar: Some((y + 112.0, 34.0)), height: HOURS_BARS_H }
+        } else {
+            Hours { x, y, col_w, n, icon: 48.0, icon_y: y + 34.0, temp_y: y + 90.0, temp_px: 30.0, bar: None, height: HOURS_BARS_H }
+        }
+    } else if height >= HOURS_H {
+        Hours { x, y, col_w, n, icon: 40.0, icon_y: y + 30.0, temp_y: y + 72.0, temp_px: 26.0, bar: None, height: HOURS_H }
     } else {
-        (((h - 30.0) * 0.62).clamp(36.0, 64.0), false, false)
+        Hours { x, y, col_w, n, icon: 30.0, icon_y: y + 26.0, temp_y: y + 58.0, temp_px: 26.0, bar: None, height: HOURS_COMPACT_H }
+    }
+}
+
+/// The rows of the week in `rows` rows from `y`, `bw` wide: with the range bars where the week is wide enough to give them room, else the low and the high at
+/// the end, else (a very narrow card) the high alone.
+fn week(x: f32, y: f32, bw: f32, rows: usize) -> Days {
+    if bw >= 330.0 {
+        Days { x, y, w: bw, row_h: DAY_H, rows, day_w: 76.0, icon: 32.0, num_w: 52.0, bar: true, lo: true }
+    } else if bw >= 206.0 {
+        Days { x, y, w: bw, row_h: DAY_H, rows, day_w: 80.0, icon: 30.0, num_w: 46.0, bar: false, lo: true }
+    } else {
+        Days { x, y, w: bw, row_h: DAY_H, rows, day_w: bw - 46.0, icon: 0.0, num_w: 46.0, bar: false, lo: false }
+    }
+}
+
+/// Which parts there is room for in a box of `w` by `h` (logical pixels, in the reduction `k` the text is scaled up by) and where each goes.
+fn plan(w: f32, h: f32, k: f32, data: Data) -> Plan {
+    let em = if data.wide_temp { 2.3 } else { 1.7 };
+    // beside each other when the card is wide and not tall (a tall one has the forecast under the reading, where the width is for the hours and the week)
+    let split = (w >= 620.0 && h < 360.0) || (w >= 500.0 && (90.0..300.0).contains(&h));
+    let hero_w = if split { (w * 0.42).round().clamp(250.0, 430.0) } else { w };
+    // the temperature may be as large as leaves the picture of the sky room beside it: 96 pixels on the screen, and less at a larger text size, which takes
+    // the room (a card of two columns at the largest size has 218 pixels to share)
+    let art_w = 96.0 / k.sqrt() / k;
+    let max_temp = ((hero_w - 12.0 - art_w) / em).floor().max(24.0);
+    let (x0, bw) = if split { (hero_w + COL_GAP, w - hero_w - COL_GAP) } else { (0.0, w) };
+    let can_hours = data.hours && columns(bw) >= 3;
+    // the next thing says itself in no fewer pixels than this, in its shortest way
+    let smart_ok = hero_w >= 150.0;
+    let smart_h = if smart_ok { SMART_H } else { 0.0 };
+    // what is between the next thing and the hours
+    let smart_gap = if smart_ok { SMART_GAP } else { 0.0 };
+
+    // ---- the reading's size, and what is to go under it (or beside it)
+    let (tier, under, hours_h) = if split {
+        // the next thing under the reading when there is room for the smallest reading with it; the hours and the week fill the other column
+        let under = smart_ok && h >= TIERS[10].height() + GAP + SMART_H;
+        let tier = pick(h - if under { SMART_H + GAP } else { 0.0 }, max_temp, 12);
+        let hours_h = if !can_hours || h < HOURS_COMPACT_H { 0.0 } else if h >= HOURS_BARS_H { HOURS_BARS_H } else if h >= HOURS_H { HOURS_H } else { HOURS_COMPACT_H };
+        (tier, under, hours_h)
+    } else {
+        // under the reading, the richest of: the next thing and the hours with their bars, with plain hours, the next thing alone, nothing; the reading
+        // is the largest that leaves them room (and no smaller than each is worth). The bars of the rain (or larger pictures, when it is dry) are worth a
+        // reading of the sizes that go with them; plain hours a reading of 72 and the place, or the largest a narrow card has.
+        let plain_last = if max_temp >= 72.0 { 4 } else { 6 };
+        let options: &[(f32, usize)] = if !can_hours {
+            &[(0.0, 10)]
+        } else if data.bars {
+            &[(HOURS_BARS_H, 3), (HOURS_H, plain_last), (0.0, 10)]
+        } else {
+            &[(HOURS_BARS_H, 1), (HOURS_H, plain_last), (0.0, 10)]
+        };
+        let chosen = options.iter().find_map(|&(hours_h, last)| {
+            let lower = smart_h + if hours_h > 0.0 { smart_gap + hours_h } else { 0.0 } + GAP;
+            let avail = h - lower;
+            TIERS[..=last].iter().copied().find(|t| t.height() <= avail && t.temp <= max_temp).map(|t| (t, true, hours_h))
+        });
+        chosen.unwrap_or_else(|| (pick(h, max_temp, 12), false, 0.0))
     };
-    let temp_px = temp_px.min(((hero_w - 8.0) / 2.1).floor()).max(36.0);
+
+    // ---- the reading
     let mut y = 0.0;
-    let place = place_on.then(|| {
+    let place = tier.place.then(|| {
         let s = slot(0.0, y, hero_w, 30.0, 24.0, Weight::SemiBold, Align::Left);
-        y += 32.0;
+        y += PLACE_H;
         s
     });
-    let temp = slot(0.0, y, hero_w, temp_px, temp_px, Weight::SemiBold, Align::Left);
-    y += temp_px + 2.0;
-    let cond = slot(0.0, y, hero_w, 36.0, if temp_px >= 96.0 { 30.0 } else { 26.0 }, Weight::Medium, Align::Left);
-    y += 36.0;
-    let feels = feels_on.then(|| {
-        let s = slot(0.0, y, hero_w, 32.0, 24.0, Weight::Medium, Align::Left);
-        y += 32.0;
+    let temp = slot(0.0, y, hero_w, tier.temp, tier.temp, Weight::SemiBold, Align::Left);
+    y += tier.temp + 2.0;
+    let cond = tier.cond.then(|| {
+        let s = slot(0.0, y, hero_w, COND_H, if tier.temp >= 96.0 { 30.0 } else { 26.0 }, Weight::Medium, Align::Left);
+        y += COND_H;
+        s
+    });
+    let feels = tier.feels.then(|| {
+        let s = slot(0.0, y, hero_w, FEELS_H, 24.0, Weight::Medium, Align::Left);
+        y += FEELS_H;
         s
     });
     let hero_bottom = y;
-    // under the reading (or beside it, on a wide card): the next thing, the hours and the week, as many as there is room for
-    let (x0, y0, bw, bh) = if wide { (hero_w + 44.0, 0.0, w - hero_w - 44.0, h) } else { (0.0, hero_bottom + 14.0, w, h - hero_bottom - 14.0) };
-    let mut y = y0;
-    let mut left = bh;
+    // the sky's picture is the largest of at most `ART_MAX` pixels the room right of the temperature has, and stays beside it on a card wider than that
+    let x0_art = tier.temp * em + 12.0;
+    let art = Art {
+        x0: x0_art,
+        x1: (hero_w + (if split { -4.0 } else { 20.0 }) / k).min(x0_art + (0.8 * ART_MAX + 8.0) / k),
+        y0: -(PAD_TOP - 14.0) / k,
+        y1: if tier.place { PLACE_H } else { 0.0 } + tier.temp + 2.0 + if tier.cond { 6.0 } else { 0.0 },
+    };
+
+    // ---- the forecast: the next thing, the hours, the week
+    let smart_px = |bw: f32| if bw < 230.0 { 21.0 } else { 26.0 };
     let mut smart = None;
-    if left >= SMART_H {
-        // a card as narrow as the largest text size makes the default one says it a little smaller
-        smart = Some(slot(x0, y, bw, SMART_H, if bw < 230.0 { 21.0 } else { 26.0 }, Weight::SemiBold, Align::Left));
-        y += SMART_H + 10.0;
-        left -= SMART_H + 10.0;
-    }
     let mut hours = None;
-    let n = ((bw / 70.0).floor() as usize).min(8);
-    if data.hours && n >= 3 && smart.is_some() && left >= HOURS_H {
-        let col_w = (bw / n as f32).floor();
-        // with the room for them, the bars of the rain; where there is no rain to show, the same room for larger pictures; tight, the plain strip
-        let (hh, h) = if left >= HOURS_BARS_H {
-            let h = if data.bars {
-                Hours { x: x0, y, col_w, n, icon: 40.0, icon_y: y + 30.0, temp_y: y + 72.0, temp_px: 26.0, bar: Some((y + 112.0, 34.0)) }
-            } else {
-                Hours { x: x0, y, col_w, n, icon: 48.0, icon_y: y + 34.0, temp_y: y + 90.0, temp_px: 30.0, bar: None }
-            };
-            (HOURS_BARS_H, h)
-        } else {
-            (HOURS_H, Hours { x: x0, y, col_w, n, icon: 40.0, icon_y: y + 30.0, temp_y: y + 72.0, temp_px: 26.0, bar: None })
-        };
-        hours = Some(h);
-        y += hh + 14.0;
-        left -= hh + 14.0;
+    let mut days = None;
+    if split {
+        // the left column's room under the reading is shared out round the next thing
+        let extra = if under { ((h - hero_bottom - GAP - SMART_H) * 0.5).clamp(0.0, 24.0).floor() } else { 0.0 };
+        if under {
+            smart = Some(slot(0.0, hero_bottom + GAP + extra, hero_w, SMART_H, smart_px(hero_w), Weight::SemiBold, Align::Left));
+        }
+        let mut y = 0.0;
+        if hours_h > 0.0 {
+            let strip = hours_strip(x0, y, bw, hours_h, data);
+            y += strip.height + GAP;
+            hours = Some(strip);
+        } else if !under && smart_ok && h >= SMART_H && bw >= 150.0 {
+            // no room for the next thing under the reading and no hours: it stands in the other column
+            smart = Some(slot(x0, 0.0, bw, SMART_H, smart_px(bw), Weight::SemiBold, Align::Left));
+            y += SMART_H + SMART_GAP;
+        }
+        let rows = (((h - y) / DAY_H).floor() as usize).min(7);
+        if rows >= 2 {
+            days = Some(week(x0, y, bw, rows));
+        }
+    } else if under {
+        let lead = if smart_ok || hours_h > 0.0 { GAP } else { 0.0 };
+        let base = hero_bottom + GAP + smart_h + if hours_h > 0.0 { smart_gap + hours_h } else { 0.0 };
+        let after = h - base;
+        let rows = if after >= lead + 2.0 * DAY_H { (((after - lead) / DAY_H).floor() as usize).min(7) } else { 0 };
+        let used = if rows >= 2 { lead + rows as f32 * DAY_H } else { 0.0 };
+        // what is left over is shared out between the reading and the rest, so that a card a little taller than the plan needs is not left with a blank foot
+        let extra = ((after - used).max(0.0) * 0.5).clamp(0.0, 24.0).floor();
+        let mut y = hero_bottom + GAP + extra;
+        if smart_ok {
+            // a card as narrow as the largest text size makes the default one says it a little smaller
+            smart = Some(slot(0.0, y, w, SMART_H, smart_px(w), Weight::SemiBold, Align::Left));
+            y += SMART_H + if hours_h > 0.0 { SMART_GAP } else { GAP };
+        }
+        if hours_h > 0.0 {
+            let strip = hours_strip(0.0, y, w, hours_h, data);
+            y += strip.height + GAP;
+            hours = Some(strip);
+        }
+        if rows >= 2 {
+            days = Some(week(0.0, y, w, rows));
+        }
     }
-    let rows = ((left / DAY_H).floor() as usize).min(7);
-    let days = (rows >= 2 && smart.is_some()).then_some(Days { x: x0, y, w: bw, row_h: DAY_H, rows, day_w: 70.0, icon: 32.0, num_w: 52.0 });
-    Plan { w, wide, hero_w, hero_bottom, place, temp, cond, feels, smart, hours, days }
+    Plan { w, split, hero_w, hero_bottom, place, temp, cond, feels, smart, hours, days, art }
 }
 
 /// The text of a line, and whose ink it is in.
@@ -180,13 +345,13 @@ type Change = (usize, String, Ink);
 struct Lines {
     place: Option<usize>,
     temp: usize,
-    cond: usize,
+    cond: Option<usize>,
     feels: Option<usize>,
     smart: Option<usize>,
     /// Per hour: its time and its temperature.
     hours: Vec<(usize, usize)>,
     /// Per day: its name, its low and its high.
-    days: Vec<(usize, usize, usize)>,
+    days: Vec<(usize, Option<usize>, usize)>,
     styles: Vec<Style>,
 }
 
@@ -210,24 +375,60 @@ pub struct Weather {
     z: i32,
 }
 
-/// The card's box in the content box's coordinates: the padding is the card's own, so the sky reaches the card's edges.
-fn sky_box(plan: &Plan, k: f32, w_px: f32) -> Stage {
-    let card_w = w_px + 2.0 * PAD_SIDE;
-    // a wide card has the sky over the reading only; the week beside it is on the plain glass
-    let sky_w = if plan.wide { (PAD_SIDE + plan.hero_w * k + 24.0).min(card_w) } else { card_w };
-    let sky_h = (PAD_TOP + plan.hero_bottom * k + 12.0).round();
-    let size = (sky_h * 0.84).min(sky_w * 0.47).clamp(72.0, 260.0).round();
-    let hero = ((sky_w - size * 0.5 - 8.0).round(), (sky_h * 0.45).round());
-    Stage { w: sky_w, h: sky_h, hero, size, ground: sky_h - 5.0, fade: [14.0, 14.0, 10.0, 26.0], shy: 0.5 }
+/// The sky's box and its hero in the card's coordinates: the padding is the card's own, so the sky reaches the card's edges. The sky is the top of the
+/// card (above the horizon under the reading), or, beside the forecast, the reading's side of it; `radius` is the card's corner radius, which a moment's veils take.
+fn sky_box(plan: &Plan, k: f32, w_px: f32, h_px: f32, radius: f32) -> Stage {
+    let (card_w, card_h) = (w_px + 2.0 * PAD_SIDE, h_px + 2.0 * PAD_TOP);
+    // the forecast beside the reading is on the plain glass: the sky ends in a soft edge before it
+    let sky_w = if plan.split { (PAD_SIDE + (plan.hero_w + COL_GAP - 8.0) * k).min(card_w) } else { card_w };
+    let sky_h = (PAD_TOP + plan.hero_bottom * k + 12.0).round().min(card_h);
+    // the hero is the largest picture the room beside the reading has, on the right of it and as high as the temperature
+    let a = plan.art;
+    let (x0, x1, y0, y1) = (PAD_SIDE + a.x0 * k, PAD_SIDE + a.x1 * k, PAD_TOP + a.y0 * k, PAD_TOP + a.y1 * k);
+    let size = ((x1 - x0) / 0.8).min((y1 - y0) / 0.84).clamp(56.0, 260.0).round();
+    let hero = ((x1 - size * 0.42).round(), ((y0 + y1) / 2.0).round());
+    let fade = [14.0, if plan.split { 48.0 } else { 14.0 }, 10.0, 26.0];
+    Stage { w: sky_w, h: sky_h, hero, size, ground: sky_h - 5.0, fade, shy: 0.5, card: Some(Card { w: card_w, h: card_h, radius }) }
+}
+
+/// The straight (not premultiplied) colour of `c`, which is how the card's canvas takes the colour of a shape it paints.
+fn straight(c: Rgba) -> Rgba {
+    if c.3 == 0 {
+        return c;
+    }
+    let un = |v: u8| (f32::from(v) * 255.0 / f32::from(c.3)).round().min(255.0) as u8;
+    Rgba(un(c.0), un(c.1), un(c.2), c.3)
+}
+
+/// The first of `texts` that fits `room` pixels, else the last, cut with an ellipsis.
+fn fit(kit: &mut Kit, ty: ui::text::Type, texts: &[String], room: f32) -> String {
+    for t in texts {
+        if kit.ui.fonts.measure(t, ty).width <= room {
+            return t.clone();
+        }
+    }
+    ellipsise(&mut kit.ui.fonts, texts.last().map_or("", String::as_str), ty, room)
+}
+
+/// A condition's words and, where the room is too small for them, the shorter ways of saying it (a card two columns wide at the largest text size has
+/// room for a word of seven letters).
+fn cond_texts(cond: &str) -> Vec<String> {
+    let short = match cond {
+        "Thunderstorm" => Some("Storm"),
+        "Partly cloudy" => Some("Partly"),
+        "Mostly clear" => Some("Clear"),
+        _ => None,
+    };
+    std::iter::once(cond).chain(short).map(str::to_owned).collect()
 }
 
 impl Weather {
     pub fn new(kit: &mut Kit, w: f32, h: f32, z: i32, _theme: &Value) -> std::io::Result<Self> {
         let k = kit.text_scale.max(1.0);
         let data = Data::default();
-        let p = plan(w / k, h / k, data);
+        let p = plan(w / k, h / k, k, data);
         let (block, rows, lines) = Self::make(kit, &p, k, w, h, z)?;
-        let stage = sky_box(&p, k, w);
+        let stage = sky_box(&p, k, w, h, kit.tokens.radius(Radius::Card));
         Ok(Self { block, rows, w, h, k, plan: p, data, lines, at: HIDDEN, shown: None, art: None, wash: None, stage, art_waits: false, z })
     }
 
@@ -246,14 +447,16 @@ impl Weather {
         let mut map = Lines::default();
         let push = |kit: &Kit, s: &Slot, lines: &mut Vec<(Frame, Style, String)>| -> usize {
             let st = sized(kit, s);
-            lines.push((Frame::new(s.f.x * k, s.f.y * k, s.f.w * k, s.f.h * k), st, String::new()));
+            lines.push((Frame::new((s.f.x * k).round(), (s.f.y * k).round(), (s.f.w * k).round(), (s.f.h * k).round()), st, String::new()));
             lines.len() - 1
         };
         if let Some(s) = &p.place {
             map.place = Some(push(kit, s, &mut lines));
         }
         map.temp = push(kit, &p.temp, &mut lines);
-        map.cond = push(kit, &p.cond, &mut lines);
+        if let Some(s) = &p.cond {
+            map.cond = Some(push(kit, s, &mut lines));
+        }
         if let Some(s) = &p.feels {
             map.feels = Some(push(kit, s, &mut lines));
         }
@@ -272,7 +475,9 @@ impl Weather {
             for i in 0..d.rows {
                 let y = d.y + i as f32 * d.row_h;
                 let name = push(kit, &slot(d.x, y, d.day_w, d.row_h, 24.0, Weight::Medium, Align::Left), &mut lines);
-                let lo = push(kit, &slot(d.x + d.day_w + d.icon + 10.0, y, d.num_w, d.row_h, 24.0, Weight::Medium, Align::Right), &mut lines);
+                // with the range bar the low is left of it, beside the picture; without it the two numbers stand together at the end
+                let lo_x = if d.bar { d.x + d.day_w + d.icon + 10.0 } else { d.x + d.w - 2.0 * d.num_w };
+                let lo = d.lo.then(|| push(kit, &slot(lo_x, y, d.num_w, d.row_h, 24.0, Weight::Medium, Align::Right), &mut lines));
                 let hi = push(kit, &slot(d.x + d.w - d.num_w, y, d.num_w, d.row_h, 24.0, Weight::Medium, Align::Right), &mut lines);
                 map.days.push((name, lo, hi));
             }
@@ -286,12 +491,12 @@ impl Weather {
 
     /// The card is planned again for what data there is: its words and picture are made anew (the caller is inside the card's `adopting`).
     fn replan(&mut self, kit: &mut Kit, data: Data) -> std::io::Result<()> {
-        let p = plan(self.w / self.k, self.h / self.k, data);
+        let p = plan(self.w / self.k, self.h / self.k, self.k, data);
         let (block, rows, lines) = Self::make(kit, &p, self.k, self.w, self.h, self.z)?;
         self.block = block;
         self.rows = rows;
         self.lines = lines;
-        self.stage = sky_box(&p, self.k, self.w);
+        self.stage = sky_box(&p, self.k, self.w, self.h, kit.tokens.radius(Radius::Card));
         self.plan = p;
         self.data = data;
         self.shown = None;
@@ -319,13 +524,11 @@ impl Weather {
         self.art_waits
     }
 
-    /// Keeps the picture's motion going (`run`) or at rest, for the tick `now`; the tick the next paths are due at, while it moves.
+    /// Keeps the picture's motion going (`run`) or held where it is, for the tick `now`; the tick the next paths are due at, while it moves.
     pub fn animate(&mut self, now: u64, run: bool) -> Option<u64> {
         let a = self.art.as_mut()?;
         if !run {
-            if a.running() {
-                a.rest();
-            }
+            a.pause(now);
             return None;
         }
         Some(a.step(now))
@@ -345,15 +548,17 @@ impl Weather {
         match Cond::from_doc(topic.pointer("/doc").unwrap_or(&Value::Null)) {
             Some(cond) if !self.art.as_ref().is_some_and(|a| a.is(cond, self.stage, light)) => {
                 let origin = (self.at.x - PAD_SIDE, self.at.y - PAD_TOP);
-                self.art = Live::new(kit, cond, self.stage, light, origin, self.z + 1).ok();
-                // the tint behind the sprites: the card's top corners, from the colour of the sky to nothing at the foot of the picture
+                // the tint behind the sprites, under them: from the colour of the sky, in the palette's own, to nothing. Over the reading's top it is the card's
+                // top corners' shape; beside the forecast it fades from the left to nothing before the forecast's side, so that it has no edge on the glass.
                 if !self.wash.as_ref().is_some_and(|(_, c, l)| *c == cond && *l == light) {
-                    let (rgb, a) = cond.wash(light);
-                    let top = Rgba((rgb[0] as f32 * a).round() as u8, (rgb[1] as f32 * a).round() as u8, (rgb[2] as f32 * a).round() as u8, (a * 255.0).round() as u8);
-                    let shape = Shape { corner_radius: kit.tokens.radius(Radius::Card), fill: Fill::Linear { from: top, to: Rgba(0, 0, 0, 0), angle_deg: 90.0 }, border_width: 0.0, border: Rgba(0, 0, 0, 0) };
+                    let (rgb, a) = cond.wash(&Pal::of(&kit.ui.look.theme.roles, light), light);
+                    let top = Rgba((rgb[0] * a * 255.0).round() as u8, (rgb[1] * a * 255.0).round() as u8, (rgb[2] * a * 255.0).round() as u8, (a * 255.0).round() as u8);
+                    let (angle, w, h) = if self.plan.split { (0.0, (self.stage.w + 160.0).min(self.stage.card.map_or(f32::MAX, |c| c.w)), self.stage.card.map_or(self.stage.h, |c| c.h)) } else { (90.0, self.stage.w, self.stage.h + 20.0) };
+                    let shape = Shape { corner_radius: kit.tokens.radius(Radius::Card), fill: Fill::Linear { from: top, to: Rgba(0, 0, 0, 0), angle_deg: angle }, border_width: 0.0, border: Rgba(0, 0, 0, 0) };
                     let props = Props { x: self.at.x - PAD_SIDE, y: self.at.y - PAD_TOP, ..self.at };
-                    self.wash = Some((kit.ui.scene.shape(self.stage.w as u32, (self.stage.h + 20.0) as u32, self.z, shape, props), cond, light));
+                    self.wash = Some((kit.ui.scene.shape(w as u32, h as u32, self.z, shape, props), cond, light));
                 }
+                self.art = Live::new(kit, cond, self.stage, light, origin, self.z + 1).ok();
             }
             None => {
                 self.art = None;
@@ -371,7 +576,12 @@ impl Weather {
             return;
         }
         let hours: Vec<Value> = more.pointer("/doc/hourly").and_then(Value::as_array).cloned().unwrap_or_default();
-        let data = Data { hours: hours.len() >= 4, bars: hours.iter().take(8).any(|h| h.get("rainPct").and_then(Value::as_f64).is_some_and(|p| p >= 15.0)) };
+        let temp_text = topic.pointer("/doc/display/temp").and_then(Value::as_str).unwrap_or("");
+        let data = Data {
+            hours: hours.len() >= 4,
+            bars: hours.iter().take(8).any(|h| h.get("rainPct").and_then(Value::as_f64).is_some_and(|p| p >= 15.0)),
+            wide_temp: temp_text.chars().count() >= 4,
+        };
         if data != self.data && self.replan(kit, data).is_err() {
             return;
         }
@@ -380,35 +590,42 @@ impl Weather {
         let d = doc.get("display").cloned().unwrap_or(Value::Null);
         let s = |k: &str| d.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
         let k = self.k;
-        let l = &self.lines;
         let mut changes: Vec<Change> = Vec::new();
         // the reading: no reading yet means the helper is starting again or not up, which the card says instead of staying empty
         let place = if d.is_null() { "Reconnecting\u{2026}".to_owned() } else { s("place") };
-        if let Some(i) = l.place {
-            changes.push((i, ellipsise(&mut kit.ui.fonts, &place, l.styles[i].ty, self.plan.hero_w * k), Ink::Primary));
+        let hero_room = self.plan.hero_w * k;
+        if let Some(i) = self.lines.place {
+            let ty = self.lines.styles[i].ty;
+            changes.push((i, ellipsise(&mut kit.ui.fonts, &place, ty, hero_room), Ink::Primary));
         }
-        changes.push((l.temp, s("temp"), Ink::Primary));
-        changes.push((l.cond, ellipsise(&mut kit.ui.fonts, &s("cond"), l.styles[l.cond].ty, self.plan.hero_w * k), Ink::Primary));
+        changes.push((self.lines.temp, s("temp"), Ink::Primary));
+        if let Some(i) = self.lines.cond {
+            let ty = self.lines.styles[i].ty;
+            changes.push((i, fit(kit, ty, &cond_texts(&s("cond")), hero_room), Ink::Primary));
+        }
         let days: Vec<Value> = d.get("days").and_then(Value::as_array).cloned().unwrap_or_default();
-        if let Some(i) = l.feels {
-            let feels = doc.pointer("/current/feelsLike").and_then(Value::as_f64).map(|f| format!("Feels like {}\u{b0}", f.round() as i64));
+        if let Some(i) = self.lines.feels {
+            let feels = doc.pointer("/current/feelsLike").and_then(Value::as_f64).map(|f| f.round() as i64);
             let hl = days.first().map(|d0| format!("H {}  L {}", d0.get("hi").and_then(Value::as_str).unwrap_or(""), d0.get("lo").and_then(Value::as_str).unwrap_or("")));
-            let text = match (feels, hl) {
-                (Some(f), Some(h)) => format!("{f}  \u{b7}  {h}"),
-                (Some(t), None) | (None, Some(t)) => t,
-                (None, None) => s("stats").split(" \u{b7} ").next().unwrap_or("").to_owned(),
+            // the whole of it when it fits, else the shorter ways of saying it
+            let texts: Vec<String> = match (feels, hl) {
+                (Some(f), Some(h)) => vec![format!("Feels like {f}\u{b0}  \u{b7}  {h}"), format!("Feels {f}\u{b0}  \u{b7}  {h}"), h.clone(), format!("Feels like {f}\u{b0}")],
+                (Some(f), None) => vec![format!("Feels like {f}\u{b0}")],
+                (None, Some(h)) => vec![h],
+                (None, None) => vec![s("stats").split(" \u{b7} ").next().unwrap_or("").to_owned()],
             };
-            changes.push((i, ellipsise(&mut kit.ui.fonts, &text, l.styles[i].ty, self.plan.hero_w * k), Ink::Secondary));
+            let ty = self.lines.styles[i].ty;
+            changes.push((i, fit(kit, ty, &texts, hero_room), Ink::Secondary));
         }
-        if let Some(i) = l.smart {
+        if let Some(i) = self.lines.smart {
             let (full, short, tone) = smart_line(doc, more.pointer("/doc").unwrap_or(&Value::Null), twelve);
-            let (room, ty) = (self.plan.smart.map_or(0.0, |s| s.f.w) * k, l.styles[i].ty);
+            let (room, ty) = (self.plan.smart.map_or(0.0, |s| s.f.w) * k, self.lines.styles[i].ty);
             // the whole of it when it fits, else the shorter way of saying it, else as much as there is room for
             let text = if kit.ui.fonts.measure(&full, ty).width <= room { full } else { ellipsise(&mut kit.ui.fonts, &short, ty, room) };
             changes.push((i, text, if tone == SmartTone::Warning { Ink::Warning } else { Ink::Accent }));
         }
-        if let Some(hr) = &self.plan.hours {
-            for (i, (t, v)) in l.hours.iter().enumerate() {
+        if self.plan.hours.is_some() {
+            for (i, (t, v)) in self.lines.hours.iter().enumerate() {
                 let (time, temp) = if i == 0 {
                     ("Now".to_owned(), s("temp"))
                 } else {
@@ -418,19 +635,22 @@ impl Weather {
                 changes.push((*t, time, Ink::Secondary));
                 changes.push((*v, temp, Ink::Primary));
             }
-            let _ = hr;
         }
-        for (i, (name, lo, hi)) in l.days.iter().enumerate() {
+        for (i, (name, lo, hi)) in self.lines.days.iter().enumerate() {
             match days.get(i) {
                 Some(dv) => {
                     let ds = |k: &str| dv.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
                     changes.push((*name, ds("day"), Ink::Primary));
-                    changes.push((*lo, ds("lo"), Ink::Secondary));
+                    if let Some(lo) = lo {
+                        changes.push((*lo, ds("lo"), Ink::Secondary));
+                    }
                     changes.push((*hi, ds("hi"), Ink::Primary));
                 }
                 None => {
                     changes.push((*name, String::new(), Ink::Primary));
-                    changes.push((*lo, String::new(), Ink::Primary));
+                    if let Some(lo) = lo {
+                        changes.push((*lo, String::new(), Ink::Primary));
+                    }
                     changes.push((*hi, String::new(), Ink::Primary));
                 }
             }
@@ -457,9 +677,19 @@ impl Weather {
         self.rows.clear();
         let p = &self.plan;
         let mut canvas = Canvas { px: self.rows.pixels_mut(), w, h };
-        // the horizon the rain lands on
-        let line_w = if p.wide { p.hero_w } else { p.w };
-        canvas.rounded(Frame::new(0.0, ((p.hero_bottom + 6.0) * k).round(), line_w * k, 1.0), 0.0, faded(ink, 0.14));
+        // the horizon the rain lands on: a hairline under the reading, where something follows it, that fades out at both ends
+        let below = if p.split { p.smart.is_some_and(|s| s.f.x == 0.0) } else { p.smart.is_some() || p.hours.is_some() || p.days.is_some() };
+        let line_w = ((if p.split { p.hero_w } else { p.w }) * k).round() as u32;
+        let y = ((p.hero_bottom + 6.0) * k).round() as u32;
+        let fade = (24.0 * k).min(line_w as f32 / 2.0).max(1.0);
+        let line = faded(ink, 0.14);
+        if below && y < h {
+            for x in 0..line_w.min(w) {
+                let edge = ((x as f32 + 0.5) / fade).min((line_w as f32 - x as f32 - 0.5) / fade).clamp(0.0, 1.0);
+                let i = ((y * w + x) * 4) as usize;
+                canvas.px[i..i + 4].copy_from_slice(&[(f32::from(line.0) * edge).round() as u8, (f32::from(line.1) * edge).round() as u8, (f32::from(line.2) * edge).round() as u8, (f32::from(line.3) * edge).round() as u8]);
+            }
+        }
         if let Some(hr) = &p.hours {
             let now_kind = doc.pointer("/current/code").and_then(Value::as_i64).zip(doc.pointer("/current/isDay").and_then(Value::as_bool)).map(|(c, d)| kind_of(c, d));
             for i in 0..hr.n {
@@ -473,7 +703,7 @@ impl Weather {
                 if let Some((top, bh)) = hr.bar {
                     let prob = (hv.get("rainPct").and_then(Value::as_f64).unwrap_or(0.0) / 100.0).clamp(0.0, 1.0) as f32;
                     let bw = 18.0 * k;
-                    canvas.rounded(Frame::new(cx - bw / 2.0, top * k, bw, bh * k), bw / 2.0, faded(ink, 0.10));
+                    canvas.rounded(Frame::new(cx - bw / 2.0, top * k, bw, bh * k), bw / 2.0, straight(faded(ink, 0.10)));
                     if prob >= 0.04 {
                         let fh = (bh * k * prob).max(bw * 0.5);
                         canvas.rounded(Frame::new(cx - bw / 2.0, (top + bh) * k - fh, bw, fh), bw / 2.0, if light { faded(accent, 0.9) } else { accent });
@@ -490,13 +720,18 @@ impl Weather {
                     hi_max = hi_max.max(hi);
                 }
             }
-            let track = faded(ink, 0.12);
+            let track = straight(faded(ink, 0.12));
             for (i, dv) in days.iter().enumerate().take(d.rows) {
                 let kind = dv.get("kind").and_then(Value::as_str).unwrap_or("");
                 let y = (d.y + i as f32 * d.row_h) * k;
                 let icon = (d.icon * k).round() as u32;
-                if let Some(pic) = pictures.get_look(&format!("wxbig-{kind}"), light) {
+                if d.icon > 0.0
+                    && let Some(pic) = pictures.get_look(&format!("wxbig-{kind}"), light)
+                {
                     canvas.picture(pic, ((d.x + d.day_w) * k).round() as i32, (y + (d.row_h * k - icon as f32) / 2.0).round() as i32, icon, icon);
+                }
+                if !d.bar {
+                    continue;
                 }
                 // the range bar: the day's span of the week's
                 let bx = (d.x + d.day_w + d.icon + 10.0 + d.num_w + 14.0) * k;
@@ -519,26 +754,61 @@ impl Weather {
 mod tests {
     use super::*;
 
-    fn inside(p: &Plan, h: f32) {
-        let all: Vec<(&str, Slot)> = [("place", p.place), ("temp", Some(p.temp)), ("cond", Some(p.cond)), ("feels", p.feels), ("smart", p.smart)].into_iter().filter_map(|(n, s)| s.map(|s| (n, s))).collect();
+    fn inside(p: &Plan, h: f32, what: &str) {
+        let all: Vec<(&str, Slot)> = [("place", p.place), ("temp", Some(p.temp)), ("cond", p.cond), ("feels", p.feels), ("smart", p.smart)].into_iter().filter_map(|(n, s)| s.map(|s| (n, s))).collect();
         for (n, s) in all {
-            assert!(s.f.x >= 0.0 && s.f.y >= 0.0 && s.f.right() <= p.w + 0.5 && s.f.bottom() <= h + 0.5, "{n} {:?} outside {}x{}", s.f, p.w, h);
+            assert!(s.f.x >= 0.0 && s.f.y >= 0.0 && s.f.right() <= p.w + 0.5 && s.f.bottom() <= h + 0.5, "{what}: {n} {:?} outside {}x{}", s.f, p.w, h);
         }
         if let Some(hr) = &p.hours {
-            let hh = if hr.bar.is_some() || hr.icon > 40.0 { HOURS_BARS_H } else { HOURS_H };
-            assert!(hr.x >= 0.0 && hr.x + hr.n as f32 * hr.col_w <= p.w + 0.5 && hr.y + hh <= h + 0.5, "hours {hr:?} outside {}x{}", p.w, h);
+            assert!(hr.x >= 0.0 && hr.x + hr.n as f32 * hr.col_w <= p.w + 0.5 && hr.y + hr.height <= h + 0.5, "{what}: hours {hr:?} outside {}x{}", p.w, h);
+            assert!(hr.temp_y + hr.temp_px * 1.25 <= hr.y + hr.height + 0.5, "{what}: the hours' temperatures are inside the strip {hr:?}");
         }
         if let Some(d) = &p.days {
-            assert!(d.x >= 0.0 && d.x + d.w <= p.w + 0.5 && d.y + d.rows as f32 * d.row_h <= h + 0.5, "days {d:?} outside {}x{}", p.w, h);
+            assert!(d.x >= 0.0 && d.x + d.w <= p.w + 0.5 && d.y + d.rows as f32 * d.row_h <= h + 0.5, "{what}: days {d:?} outside {}x{}", p.w, h);
         }
     }
 
+    /// The boxes of the parts of a plan, to be checked against one another.
+    fn boxes(p: &Plan) -> Vec<(String, Frame)> {
+        let mut v: Vec<(String, Frame)> = Vec::new();
+        for (n, s) in [("place", p.place), ("temp", Some(p.temp)), ("cond", p.cond), ("feels", p.feels), ("smart", p.smart)] {
+            if let Some(s) = s {
+                v.push((n.to_owned(), s.f));
+            }
+        }
+        if let Some(h) = &p.hours {
+            v.push(("hours".to_owned(), Frame::new(h.x, h.y, h.n as f32 * h.col_w, h.height)));
+        }
+        if let Some(d) = &p.days {
+            v.push(("days".to_owned(), Frame::new(d.x, d.y, d.w, d.rows as f32 * d.row_h)));
+        }
+        v
+    }
+
+    fn data_sets() -> [Data; 5] {
+        [Data::default(), Data { hours: true, bars: false, wide_temp: false }, Data { hours: true, bars: true, wide_temp: false }, Data { hours: true, bars: true, wide_temp: true }, Data { hours: false, bars: false, wide_temp: true }]
+    }
+
     #[test]
-    fn every_part_there_is_room_for_is_inside_the_box_whatever_the_box() {
-        for w in [160.0, 184.0, 246.0, 300.0, 369.0, 500.0, 640.0, 822.0, 1200.0, 1792.0] {
-            for h in [90.0, 130.0, 160.0, 212.0, 260.0, 300.0, 330.0, 424.0, 560.0, 640.0] {
-                for data in [Data::default(), Data { hours: true, bars: false }, Data { hours: true, bars: true }] {
-                    inside(&plan(w, h, data), h);
+    fn every_part_there_is_room_for_is_inside_the_box_and_apart_from_the_others_whatever_the_box_and_the_text_size() {
+        for k in [1.0, 1.5, 2.0] {
+            // the content boxes of every card the grid allows: two to twelve columns of 131 px with 20 between, three to sixteen rows of 37 with 20 between, less the card's padding
+            for cols in 2..=12 {
+                for rows in 3..=16 {
+                    let (w, h) = (f64::from(cols) * 131.0 + f64::from(cols - 1) * 20.0 - 64.0, f64::from(rows) * 37.0 + f64::from(rows - 1) * 20.0 - 56.0);
+                    for data in data_sets() {
+                        let (w, h) = (w as f32 / k, h as f32 / k);
+                        let p = plan(w, h, k, data);
+                        let what = format!("{cols}x{rows} at {k}: {data:?}");
+                        inside(&p, h, &what);
+                        let b = boxes(&p);
+                        for (i, (an, a)) in b.iter().enumerate() {
+                            for (bn, bb) in &b[i + 1..] {
+                                let (ox, oy) = (a.right().min(bb.right()) - a.x.max(bb.x), a.bottom().min(bb.bottom()) - a.y.max(bb.y));
+                                assert!(ox <= 0.5 || oy <= 0.5, "{what}: {an} {a:?} and {bn} {bb:?} overlap ({w}x{h})");
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -546,28 +816,86 @@ mod tests {
 
     #[test]
     fn the_default_card_has_the_reading_the_next_thing_and_the_hours_with_their_rain() {
-        let p = plan(369.0, 424.0, Data { hours: true, bars: true });
+        let p = plan(369.0, 424.0, 1.0, Data { hours: true, bars: true, wide_temp: false });
+        assert!(!p.split);
         assert!(p.place.is_some() && p.feels.is_some() && p.smart.is_some(), "the whole reading and the line that says what is next");
+        assert_eq!(p.temp.px, 112.0);
         let hr = p.hours.expect("the hours");
         assert_eq!(hr.n, 5);
         assert!(hr.bar.is_some(), "with the bars of the rain");
-        let dry = plan(369.0, 424.0, Data { hours: true, bars: false }).hours.expect("the hours");
+        let dry = plan(369.0, 424.0, 1.0, Data { hours: true, bars: false, wide_temp: false }).hours.expect("the hours");
         assert!(dry.bar.is_none() && dry.icon > hr.icon, "with no rain to show, the room is the pictures'");
         assert!(hr.y >= p.hero_bottom, "under the reading");
         assert!(p.days.is_none(), "no room for the week as well: that is the view's");
         // without the hours the week fills the room
-        let p = plan(369.0, 424.0, Data::default());
+        let p = plan(369.0, 424.0, 1.0, Data::default());
         assert!(p.hours.is_none() && p.days.is_some_and(|d| d.rows >= 3));
     }
 
     #[test]
+    fn a_card_a_little_short_of_the_default_trades_the_feels_line_for_the_hours_and_one_shorter_still_keeps_the_next_thing() {
+        let data = Data { hours: true, bars: true, wide_temp: false };
+        // 3 columns by 6 rows: the reading as large as it can be with the next thing under it, no hours
+        let p = plan(369.0, 266.0, 1.0, data);
+        assert!(p.hours.is_none() && p.smart.is_some() && p.feels.is_some() && p.place.is_some(), "{:?}", p.temp);
+        assert!(p.temp.px >= 96.0);
+        // one row more makes room for the hours, and the reading is a size smaller
+        let p = plan(369.0, 323.0, 1.0, data);
+        assert!(p.hours.is_some() && p.smart.is_some());
+        // 3 by 4: the temperature, the condition and the next thing
+        let p = plan(369.0, 152.0, 1.0, data);
+        assert!(p.smart.is_some() && p.cond.is_some() && p.hours.is_none() && p.place.is_none());
+        // 3 by 3: the temperature and the condition
+        let p = plan(369.0, 95.0, 1.0, data);
+        assert!(p.smart.is_none() && p.cond.is_some());
+    }
+
+    #[test]
     fn a_wide_card_has_the_week_beside_the_reading_and_a_small_one_only_the_reading() {
-        let p = plan(822.0, 424.0, Data { hours: true, bars: true });
-        assert!(p.wide && p.hours.is_some_and(|h| h.n >= 5) && p.days.is_some_and(|d| d.rows >= 3));
+        let p = plan(822.0, 324.0, 1.0, Data { hours: true, bars: true, wide_temp: false });
+        assert!(p.split && p.hours.is_some_and(|h| h.n >= 5) && p.days.is_some_and(|d| d.rows >= 3));
         assert!(p.days.is_some_and(|d| d.x >= p.hero_w), "beside the reading, not under it");
-        let p = plan(184.0, 212.0, Data { hours: true, bars: true });
+        assert!(p.smart.is_some_and(|s| s.f.x == 0.0), "the next thing is under the reading");
+        let p = plan(184.0, 212.0, 1.0, Data { hours: true, bars: true, wide_temp: false });
         assert!(p.hours.is_none() && p.days.is_none(), "a card as small as the largest text size makes the default one has the reading");
-        let p = plan(300.0, 120.0, Data::default());
+        let p = plan(300.0, 60.0, 1.0, Data::default());
         assert!(p.place.is_none() && p.feels.is_none() && p.smart.is_none());
+        // a wide short card (6 by 3) has its hours, compact, beside the reading
+        let p = plan(822.0, 95.0, 1.0, Data { hours: true, bars: true, wide_temp: false });
+        assert!(p.split && p.hours.is_some_and(|h| h.height < HOURS_H && h.n >= 5));
+        // a wide tall one has the forecast under the reading, the hours across all of it, and the sky stays beside the temperature
+        let p = plan(822.0, 424.0, 1.0, Data { hours: true, bars: true, wide_temp: false });
+        assert!(!p.split && p.hours.is_some_and(|h| h.n == 8) && p.smart.is_some());
+        assert!(p.art.x1 - p.art.x0 <= 0.8 * ART_MAX + 8.0 + 0.5, "{:?}", p.art);
+    }
+
+    #[test]
+    fn the_picture_of_the_sky_is_beside_the_temperature_not_on_it() {
+        for k in [1.0, 2.0] {
+            for (w, h) in [(218.0, 266.0), (369.0, 424.0), (369.0, 152.0), (520.0, 266.0), (822.0, 437.0)] {
+                for wide in [false, true] {
+                    let (w, h) = (w / k, h / k);
+                    let p = plan(w, h, k, Data { hours: true, bars: true, wide_temp: wide });
+                    let em = if wide { 2.3 } else { 1.7 };
+                    // the free box starts to the right of the widest temperature there can be
+                    assert!(p.art.x0 >= p.temp.px * em, "{w}x{h} at {k}: {:?}", p.art);
+                    assert!(p.art.x1 > p.art.x0 && p.art.y1 > p.art.y0, "{w}x{h} at {k}: a box for it: {:?}", p.art);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_sky_covers_the_reading_and_a_split_card_fades_it_out_before_the_forecast() {
+        let data = Data { hours: true, bars: true, wide_temp: false };
+        let p = plan(369.0, 424.0, 1.0, data);
+        let st = sky_box(&p, 1.0, 369.0, 424.0, 24.0);
+        assert_eq!(st.w, 433.0, "the whole width of the card");
+        assert!(st.h > p.hero_bottom && st.h < 480.0 && st.card.is_some_and(|c| c.w == 433.0 && c.h == 480.0));
+        let p = plan(822.0, 324.0, 1.0, data);
+        let st = sky_box(&p, 1.0, 822.0, 324.0, 24.0);
+        assert!(st.w < 886.0 && st.w >= PAD_SIDE + p.hero_w, "the reading's side");
+        assert!(st.fade[1] >= 48.0, "and it fades out softly at the forecast's side");
+        assert!(st.hero.0 + st.size * 0.42 <= st.w - st.fade[1] + 12.0 && st.hero.0 - st.size * 0.42 >= 0.0, "the hero (what is seen of it, 0.42 of its square each way) is inside it, and clear of the fade but for its last rays");
     }
 }

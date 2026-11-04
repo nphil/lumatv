@@ -1620,7 +1620,9 @@ mod tests {
 
     /// Home with a smart-home card beside the clock, fed `topic` (the helper's `onhome` document).
     fn smart_home(topic: Value) -> Home {
-        let theme = lumatv_tokens::Tokens::shipped().json().clone();
+        // the weather card beside it keeps its sky still: a tick of the sky's sprites is requests of its own, which these tests count the card's by
+        let mut theme = lumatv_tokens::Tokens::shipped().json().clone();
+        lumatv_tokens::merge(&mut theme, &json!({"weather": {"animated": false}}));
         let layout = json!({"grid": {"rows": 16}, "widgets": [{"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 6, "rows": 4}, {"id": "smart", "type": "onhome", "col": 0, "row": 4, "span": 6, "rows": 5, "title": "Smart home"},
                                          {"id": "weather", "type": "weather", "col": 6, "row": 0, "span": 6, "rows": 9},
                                          {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]});

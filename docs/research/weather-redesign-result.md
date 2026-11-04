@@ -15,6 +15,8 @@ If the TV check finds the sky too dear: thin it in `weather_art.rs` (the `few(..
 
 Open questions: none for Nitin. The scene has 256 layers (Home holds 122 with the old sky, up to about 140 with the new); the counts are held by a test (`a_picture_is_few_layers...`).
 
+Round 2 (the last section: every card size, the storm and snow moments, the sky in the theme's palette, one rectangle for a scattered sky) is built and tested; its TV check is owed too.
+
 ## What was wrong
 
 - Card: the picture was a 130 px icon in a corner, the reading and four rows of 20 to 23 px text left the right of the card empty and the bottom unread from the couch; no hours,
@@ -95,3 +97,57 @@ B. The view (OK on the card).
 4. 200 % text on each page: nothing overlaps; the hero drops the facts, the hours show fewer columns, the ten days fewer rows.
 
 C. After a day of use, `ctl shell` room and the shell's memory are what they were at the start (the sky's layers are dropped and made again only when the condition or the look changes).
+
+## Round 2 (2026-11-04): every card size, moments, the sky in the theme's palette
+
+Code: `weather_card.rs` (`plan`), `weather_art.rs` (moments, hold, anchor), `weather_sprites.rs` (`Pal::of`). Frames: `python3 tests/weather_frames.py --bin <release lumatv-ui> --cases rain,storm [--window FROM:TO] [--rest]`,
+a weather-only Home on the host harness at 120 Hz in virtual time (`moment_clock` puts a run where a moment is).
+
+- Sizes: the card is planned for the room it has, at the text size's reduction: thirteen sizes of reading; the next thing under it or in a column of its own; the hours in three heights (compact, plain, with the bars of the
+  rain); the week with range bars only where they have room; a wide short card puts the forecast beside the reading. No part overlaps or leaves its box at any grid size (2 x 3 to 12 x 16) at 100, 150 and 200 % text, and a
+  condition has a shorter word before it is cut ("Storm"). The sky's picture stays beside the temperature, never on it.
+- Blend: the tint behind the sky runs to nothing (down on a stacked card, left to right on a split one), so the glass has no edge where the sky ends. The sky's colours are the theme's palette roles (`Pal::of`): Rosé Pine
+  comes out within a tenth of the old hand-picked colours in each channel; the light look's sun, snow and tints are lifted off its deep text roles.
+- Moments: a thunderstorm (4.8 s) and snow (8 s) take over the whole card, one to three minutes apart (`Schedule`: a hash of the slot, a function of the sky's clock, nothing kept). Storm: a dark veil, heavy rain over the
+  card, two flashes 650 ms apart with a bolt each (never more than two in a second). Snow: a cool veil and big soft flakes drifting across it. A moment's layers (at most ten sprites and two veils, besides the steady sky's 38) are lit only in the
+  moment and are not asked about between moments; ticks come every 50 ms while one is on, 400 ms otherwise.
+- Hold: with Settings, a panel or the screensaver over Home the sky stops on whole pixels with its own clock held and a moment's light out, and nothing is asked of the engine; it goes on from there, a moment coming in over
+  half a second. Under reduced motion it does not move.
+- One rectangle: a clear night, thin clouds and wind are many small things that move apart, and the compositor draws a rectangle for each, every one a pass over all the layers it meets. A veil over the sky's box of
+  four-thousandths of the glass (`Builder::anchor`; no pixel shows it) makes the damage the box, one pass. Rain, snow, fog and the sun already move as one region and have none.
+
+Numbers: layers a frame at p50 / p99 / max on the default 433 x 480 card (the set draws about 80 layers in 8.3 ms, `frames-120-result.md`; est. = 1.5 + 0.085 x layers ms, at the max). Before is `dffa764f`, after this round; a moment
+is measured where it has the card (before, the same window of the old sky). The host's own CPU per frame is the software renderer's and says nothing of the TV's.
+
+| sky | before | after | est. before to after |
+|---|---|---|---|
+| clear night | 115 / 116 / 116 | 34 / 35 / 35 | 11.4 to 4.5 ms |
+| partly cloudy day | 85 / 90 / 90 | 28 / 30 / 30 | 9.2 to 4.1 |
+| windy | 110 / 159 / 159 | 31 / 33 / 33 | 15.0 to 4.3 |
+| overcast | 75 / 80 / 80 | 20 / 20 / 20 | 8.3 to 3.2 |
+| rain | 31 / 51 / 52 | 31 / 33 / 33 | 5.9 to 4.3 |
+| heavy rain | 36 / 50 / 50 | 35 / 38 / 38 | 5.8 to 4.7 |
+| drizzle | 23 / 42 / 42 | 23 / 24 / 24 | 5.1 to 3.5 |
+| clear day, fog | 21 / 23 / 23, 18 / 18 / 18 | the same | 3.5, 3.0 |
+| thunderstorm | 36 / 38 / 38 | 36 / 39 / 39 | 4.8 |
+| snow | 24 / 25 / 25 | 24 / 25 / 25 | 3.6 |
+| storm moment | 37 / 39 / 39 | 45 / 49 / 49 | 4.8 to 5.7 |
+| snow moment | 24 / 25 / 25 | 33 / 33 / 33 | 3.6 to 4.3 |
+
+At rest (the sky's motion off) rain, storm and snow draw 0 layers and 0 px at 1.1 frames a second, as before. The pixels a frame draws grow with the anchor (a night's box, 146 k px, where its many rectangles were 87 k) and
+in a moment (the whole card, 400 k px for a storm); the model above counts layers, which is what the set's frames cost (`frames-120-result.md`), and the TV check below settles it.
+
+Tests: `weather_card::tests` (the plan at every grid size at three text sizes and five data sets: parts inside the box and apart; the default card, a shorter one, a wide one, the picture beside the temperature, the sky
+covering the reading), `weather_art::tests` (moments one to three minutes apart, brief and bounded; the clock alone says when one is on; two flashes at most, never faster; covered, a moment goes dark and asks for nothing,
+and comes back in softly, also at a sky's first step; the anchor is over the box, never seen, never at rest, and only on a scattered sky), `weather_sprites::tests` (the palette's colours), the Home lint at both text sizes.
+
+TV check (round 2, not run: the set was not used; install only a commit that is on `main` and name the hashes):
+
+1. Home in front with a clear night, a partly cloudy day and a windy sky (`ctl` can push a reading): `ctl shell` room, and ring D/L lines for 60 s: the damage is the sky's box (433 x 244) in one rectangle, about 30 layers.
+   If the GPU time per frame is not lower than before, remove the anchor for the skies it does not help (`Builder::anchor`).
+2. `python3 docs/research/perf/gate.py --surfaces quick --tag weather-sky-night` and `weather-sky-rain`: both PASS; the same with a storm moment on (a thunderstorm reading, wait one to three minutes, or start the run where
+   `tests/weather_frames.py` `moment_clock` says): no frame over 8.3 ms in the gate's report while it has the card.
+3. A storm moment and a snow moment by eye: the flash lights the whole glass twice, 650 ms apart, no strobing; the bolts fall between the clouds and the reading; the snow drifts across the whole card and the words stay
+   legible; both fade in and out over seconds; nothing outside the card is lit.
+4. A palette other than Rosé Pine (Settings): the sky's clouds, sun, rain and snow follow it, in the dark look and the light one; the sun is amber in the light look.
+5. Settings or a panel over Home, then back: the sky stops where it was and goes on from there, no jump, no moment starting in the middle; 200 % text: nothing overlaps at 2 x 3 to 12 x 9.

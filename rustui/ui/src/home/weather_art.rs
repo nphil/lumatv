@@ -10,18 +10,29 @@
 //! second or so, and the sun's rays turn by one ring after another taking over from the last. Nothing is drawn, allocated or sent per
 //! frame: a tick is one `Animate` per moving sprite and a commit, two and a half times a second, and when the picture is not seen (an
 //! app over Home, the screensaver, standby, a Home layer over it, reduced motion) there is no tick at all and the sprites rest on whole
-//! pixels.
+//! pixels, the sky's own clock held, so that it goes on from where it was.
+//!
+//! On a card a thunderstorm and snow now and then take over the whole of it for a few seconds (a [`Schedule`], a function of the sky's clock): veils
+//! tint the glass, a sheet and a few sprites of rain or snow cover the card, lightning lights it. They are layers that are lit only in a moment
+//! and are not asked about between moments; while one is on the ticks come every [`FAST_TICK_MS`], which a flash needs. A sky of many small
+//! things that move apart has a veil over its box that nothing sees ([`Builder::anchor`]) so that the compositor draws it in one rectangle.
 //!
 //! The picture is made for a [`Stage`] (a box and where its hero, the sun or moon with its clouds, sits and how large it is) and drawn in
 //! a design square of 200 units round the hero, so the card's small sky and the view's large one are the same picture.
 
 use super::weather_sprites::*;
-use compositor_protocol::{Edges, Props, Rect};
+use compositor_protocol::{Edges, Fill, Props, Rect, Rgba, Shape};
 use serde_json::Value;
 
 /// How often the paths are restated, and how far ahead of now each animation runs, so that a tick that comes late still finds the sprite moving.
 pub const TICK_MS: u64 = 400;
 pub const LEAD_MS: u32 = 500;
+/// While a moment of the weather has the card ([`Schedule`]) its paths are restated this often, each running this far ahead: a flash lasts a few hundred
+/// milliseconds, which a tick of 400 ms would not show.
+pub const FAST_TICK_MS: u64 = 50;
+pub const FAST_LEAD_MS: u32 = 80;
+/// The opacity of a sky's damage anchor ([`Builder::anchor`]): a four-hundredth of the glass, which no pixel of it shows.
+const ANCHOR_ALPHA: f32 = 0.004;
 /// The design square.
 const UNITS: f32 = 200.0;
 
@@ -94,30 +105,101 @@ impl Cond {
         Some(Cond { sky, day, heavy, wind })
     }
 
-    /// The sky's tint over the glass behind it, from the top of the picture (straight RGB and alpha) to nothing at its foot: the mood of the
-    /// weather at a glance from across the room. Modest in both looks, so the glass still reads as glass (and an OLED panel is not lit by it).
-    pub fn wash(&self, light: bool) -> ([u8; 3], f32) {
-        let (rgb, a): ([u8; 3], f32) = match (self.sky, self.day, light) {
-            (Sky::Clear, true, false) => ([0xF6, 0xA8, 0x6B], 0.20),
-            (Sky::Clear, false, false) => ([0x4B, 0x3F, 0x9E], 0.34),
-            (Sky::Partly, true, false) => ([0x8E, 0x86, 0xD6], 0.24),
-            (Sky::Partly, false, false) => ([0x4B, 0x42, 0x95], 0.30),
-            (Sky::Cloudy, _, false) => ([0x6E, 0x6A, 0xA6], 0.28),
-            (Sky::Fog, _, false) => ([0x9A, 0x96, 0xB8], 0.20),
-            (Sky::Drizzle | Sky::Rain, _, false) => ([0x3E, 0x6C, 0x9E], 0.34),
-            (Sky::Storm, _, false) => ([0x2A, 0x2A, 0x6E], 0.46),
-            (Sky::Snow, _, false) => ([0x8C, 0xA2, 0xD8], 0.26),
-            (Sky::Clear, true, true) => ([0xF6, 0xB0, 0x5E], 0.30),
-            (Sky::Clear, false, true) => ([0x90, 0x7A, 0xC9], 0.22),
-            (Sky::Partly, true, true) => ([0xA6, 0xB4, 0xE6], 0.30),
-            (Sky::Partly, false, true) => ([0x90, 0x88, 0xC4], 0.24),
-            (Sky::Cloudy, _, true) => ([0x9C, 0x98, 0xBC], 0.28),
-            (Sky::Fog, _, true) => ([0xB4, 0xB0, 0xC8], 0.30),
-            (Sky::Drizzle | Sky::Rain, _, true) => ([0x6E, 0xA0, 0xC8], 0.34),
-            (Sky::Storm, _, true) => ([0x6E, 0x6A, 0x96], 0.40),
-            (Sky::Snow, _, true) => ([0xA6, 0xC0, 0xE2], 0.32),
+    /// The sky's tint over the glass behind it, from the top of the picture (straight RGB, 0 to 1, and alpha) to nothing at its foot: the mood of the
+    /// weather at a glance from across the room. Made of the palette's roles (`pal`), modest in both looks, so the glass still reads as glass (and an
+    /// OLED panel is not lit by it).
+    pub fn wash(&self, pal: &Pal, light: bool) -> (Rgb, f32) {
+        // the palette's pale roles darkened by `k` and made `s` times as saturated: the deep tints of a night and of a storm
+        let tone = |c: Rgb, k: f32, s: f32| -> Rgb {
+            let c = [c[0] * k, c[1] * k, c[2] * k];
+            let l = 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+            [(l + (c[0] - l) * s).clamp(0.0, 1.0), (l + (c[1] - l) * s).clamp(0.0, 1.0), (l + (c[2] - l) * s).clamp(0.0, 1.0)]
         };
-        (rgb, a)
+        const WHITE: Rgb = [1.0; 3];
+        // the roles are deep on a light look (they are the colours of its text), a tint on its glass is paler
+        let airy = |c: Rgb| mix3(c, WHITE, 0.25);
+        match (self.sky, self.day, light) {
+            (Sky::Clear, true, false) => (mix3(pal.sun, pal.bloom, 0.28), 0.20),
+            (Sky::Clear, false, false) => (tone(pal.accent, 0.45, 2.2), 0.34),
+            (Sky::Partly, true, false) => (tone(pal.accent, 0.85, 1.1), 0.24),
+            (Sky::Partly, false, false) => (tone(pal.accent, 0.45, 2.0), 0.30),
+            (Sky::Cloudy, _, false) => (tone(pal.accent, 0.66, 1.1), 0.28),
+            (Sky::Fog, _, false) => (pal.fog, 0.20),
+            (Sky::Drizzle | Sky::Rain, _, false) => (tone(mix3(pal.info, pal.accent, 0.35), 0.52, 2.8), 0.34),
+            (Sky::Storm, _, false) => (tone(pal.accent, 0.28, 2.6), 0.46),
+            (Sky::Snow, _, false) => (tone(mix3(pal.info, pal.accent, 0.45), 0.88, 1.1), 0.26),
+            (Sky::Clear, true, true) => (mix3(pal.sun, WHITE, 0.12), 0.30),
+            (Sky::Clear, false, true) => (airy(tone(pal.accent, 1.0, 1.4)), 0.22),
+            (Sky::Partly, true, true) => (airy(tone(mix3(pal.info, pal.accent, 0.65), 1.35, 1.2)), 0.30),
+            (Sky::Partly, false, true) => (airy(tone(pal.accent, 1.0, 1.25)), 0.24),
+            (Sky::Cloudy, _, true) => (mix3(pal.accent, WHITE, 0.21), 0.28),
+            (Sky::Fog, _, true) => (mix3(pal.fog, WHITE, 0.35), 0.30),
+            (Sky::Drizzle | Sky::Rain, _, true) => (airy(tone(mix3(pal.info, pal.accent, 0.25), 1.2, 1.5)), 0.34),
+            (Sky::Storm, _, true) => (mix3(pal.storm_lo, pal.accent, 0.4), 0.40),
+            (Sky::Snow, _, true) => (airy(tone(mix3(mix3(pal.info, WHITE, 0.35), pal.accent, 0.5), 1.2, 1.2)), 0.32),
+        }
+    }
+}
+
+// ---- the moments: now and then the weather takes over the whole card
+/// When a moment of the weather takes over the whole card (a storm's strike, a fall of snow): one in every slot of `every_ms`, at a random place in the first
+/// `spread_ms` of the slot (a hash of the slot's number and `seed`), so that two moments are between `every_ms - spread_ms` and `every_ms + spread_ms`
+/// apart and each lasts `length_ms`. Nothing is kept: the schedule is a function of the clock, so a card that is looked at again finds the moment where it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Schedule {
+    pub every_ms: u64,
+    pub spread_ms: u64,
+    pub length_ms: u32,
+    pub seed: u32,
+}
+
+impl Schedule {
+    /// When the moment of slot `slot` starts.
+    pub fn start_of(&self, slot: u64) -> u64 {
+        slot * self.every_ms + (hash(self.seed.wrapping_add((slot as u32).wrapping_mul(7919))) * self.spread_ms as f32) as u64
+    }
+
+    /// How far into a moment `t_ms` is, when it is in one.
+    pub fn phase(&self, t_ms: f64) -> Option<f64> {
+        let slot = (t_ms / self.every_ms as f64).floor();
+        if slot < 0.0 {
+            return None;
+        }
+        let ph = t_ms - self.start_of(slot as u64) as f64;
+        (0.0..f64::from(self.length_ms)).contains(&ph).then_some(ph)
+    }
+}
+
+/// How a part's light follows a moment (0 to 1).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Env {
+    /// Up over `rise` ms from the moment's start, held, down over `fall` ms to its end.
+    Hold { rise: u32, fall: u32 },
+    /// A flash at `at` ms: up in `attack` ms, then down in `decay` ms (quickly at first, then lingering).
+    Flash { at: u32, attack: u32, decay: u32 },
+    /// Lightning's two flashes: the second `gap` ms after the first and `second` (0 to 1) as bright.
+    Double { at: u32, gap: u32, attack: u32, decay: u32, second: f32 },
+}
+
+fn flash(ph: f64, at: u32, attack: u32, decay: u32) -> f32 {
+    let m = ph - f64::from(at);
+    if m <= 0.0 || m >= f64::from(attack + decay) {
+        0.0
+    } else if m < f64::from(attack) {
+        smooth(0.0, 1.0, (m / f64::from(attack)) as f32)
+    } else {
+        (1.0 - ((m - f64::from(attack)) / f64::from(decay)) as f32).powi(2)
+    }
+}
+
+impl Env {
+    /// The envelope `ph` ms into a moment of `len` ms.
+    pub fn at(self, ph: f64, len: f64) -> f32 {
+        match self {
+            Env::Hold { rise, fall } => smooth(0.0, rise as f32, ph as f32) * (1.0 - smooth((len - f64::from(fall)) as f32, len as f32, ph as f32)),
+            Env::Flash { at, attack, decay } => flash(ph, at, attack, decay),
+            Env::Double { at, gap, attack, decay, second } => flash(ph, at, attack, decay).max(second * flash(ph, at + gap, attack, decay)),
+        }
     }
 }
 
@@ -135,6 +217,8 @@ pub enum Wave {
     Ramp { from: f32, to: f32, period_ms: u32, at_ms: u32, width_ms: u32 },
     /// A tent: `peak` where the period's phase is `centre`, falling in a straight line to nothing `half` of a period either side: the rings of the sun's rays taking over from one another.
     Tent { peak: f32, period_ms: u32, centre: f32, half: f32 },
+    /// `peak` times a moment's envelope ([`Schedule`], [`Env`]) while one is on, and nothing between moments.
+    Env { peak: f32, env: Env, sched: Schedule },
 }
 
 impl Wave {
@@ -166,6 +250,7 @@ impl Wave {
                 let d = d.min(1.0 - d);
                 peak * (1.0 - d / half).max(0.0)
             }
+            Wave::Env { peak, env, sched } => sched.phase(t).map_or(0.0, |ph| peak * env.at(ph, f64::from(sched.length_ms))),
         }
     }
 
@@ -201,12 +286,14 @@ pub struct Motion {
     pub scale: Wave,
     /// Added to the base alpha.
     pub alpha: Wave,
+    /// How far the part's clip has grown to its `clip_full` (0 to 1).
+    pub grow: Wave,
     /// Fades the sprite in and out over each period of its saw (a cloud crossing the sky, a streak of wind), so it is never seen to start or be put back.
     pub bump: bool,
 }
 
 impl Motion {
-    pub const STILL: Motion = Motion { x: Wave::Zero, y: Wave::Zero, scale: Wave::Zero, alpha: Wave::Zero, bump: false };
+    pub const STILL: Motion = Motion { x: Wave::Zero, y: Wave::Zero, scale: Wave::Zero, alpha: Wave::Zero, grow: Wave::Zero, bump: false };
 }
 
 pub struct Part {
@@ -221,15 +308,34 @@ pub struct Part {
     pub motion: Motion,
     /// Only this rectangle of the box (box pixels) is drawn, fading out over the edges' widths.
     pub clip: Option<(Rect, Edges)>,
+    /// What the rectangle and its edges grow to as the part's `grow` goes from 0 to 1: the rain that falls under the hero takes the whole card in a moment.
+    pub clip_full: Option<(Rect, Edges)>,
 }
 
-/// Where a part is: position (relative to the box), scale and alpha.
+/// A flat tint over part of the card, a shape with no pixels of its own: a moment's mood and the glass lit by lightning, or the damage anchor of a sky ([`Builder::anchor`]).
+pub struct Veil {
+    pub size: (f32, f32),
+    pub shape: Shape,
+    /// Its opacity is `base` and what `motion.alpha` adds: a moment's envelope, which is nothing at rest and between moments.
+    pub base: f32,
+    pub motion: Motion,
+}
+
+impl Veil {
+    /// Whether it is seen only in a moment.
+    pub fn is_moment(&self) -> bool {
+        matches!(self.motion.alpha, Wave::Env { .. })
+    }
+}
+
+/// Where a part is: position (relative to the box), scale, alpha and how far its clip has grown.
 #[derive(Clone, Copy, Debug)]
 pub struct Pose {
     pub x: f32,
     pub y: f32,
     pub scale: f32,
     pub alpha: f32,
+    pub grow: f32,
 }
 
 impl Part {
@@ -244,12 +350,17 @@ impl Part {
             let f = (t / p as f64 + ph).fract() as f32;
             alpha *= smooth(0.0, 0.2, f) * (1.0 - smooth(0.8, 1.0, f));
         }
-        Pose { x: self.at.0 + m.x.at(t, anchor), y: self.at.1 + m.y.at(t, anchor), scale: self.scale0 * (1.0 + m.scale.at(t, anchor)), alpha }
+        Pose { x: self.at.0 + m.x.at(t, anchor), y: self.at.1 + m.y.at(t, anchor), scale: self.scale0 * (1.0 + m.scale.at(t, anchor)), alpha, grow: m.grow.at(t, anchor).clamp(0.0, 1.0) }
     }
 
     pub fn rest_pose(&self) -> Pose {
         let m = &self.motion;
-        Pose { x: (self.at.0 + m.x.rest()).round(), y: (self.at.1 + m.y.rest()).round(), scale: self.scale0, alpha: if m.bump { self.alpha } else { self.rest_alpha } }
+        Pose { x: (self.at.0 + m.x.rest()).round(), y: (self.at.1 + m.y.rest()).round(), scale: self.scale0, alpha: if m.bump { self.alpha } else { self.rest_alpha }, grow: 0.0 }
+    }
+
+    /// Whether the part is seen only in a moment of the weather (it has no light of its own, only a moment's).
+    pub fn is_moment(&self) -> bool {
+        self.alpha == 0.0 && matches!(self.motion.alpha, Wave::Env { .. })
     }
 
     /// Whether a period of this part's saw ended between the ticks at `before` and `now`: the sprite is put back.
@@ -265,9 +376,21 @@ impl Part {
         }
     }
 
+    /// The rectangle the part is drawn in, and the widths its edges fade over, when its clip has grown by `grow`.
+    pub fn clip_at(&self, grow: f32) -> Option<(Rect, Edges)> {
+        let (r, e) = self.clip?;
+        match self.clip_full {
+            Some((full, fe)) if grow > 0.0 => {
+                let rect = Rect { x: mix(r.x, full.x, grow), y: mix(r.y, full.y, grow), w: mix(r.w, full.w, grow), h: mix(r.h, full.h, grow) };
+                Some((rect, Edges::new(mix(e.left, fe.left, grow), mix(e.right, fe.right, grow), mix(e.top, fe.top, grow), mix(e.bottom, fe.bottom, grow))))
+            }
+            _ => Some((r, e)),
+        }
+    }
+
     pub fn props(&self, p: &Pose, origin: (f32, f32)) -> Props {
         let mut props = Props { opacity: p.alpha, scale: p.scale, ..Props::at(origin.0 + p.x, origin.1 + p.y) };
-        if let Some((r, edges)) = self.clip {
+        if let Some((r, edges)) = self.clip_at(p.grow) {
             props.clip = Some(Rect { x: origin.0 + r.x, y: origin.1 + r.y, w: r.w, h: r.h });
             props.feather = edges;
         }
@@ -289,12 +412,22 @@ pub struct Stage {
     pub fade: [f32; 4],
     /// How much of the width of the window of rain and snow, from its left, they fade in over: they are shy of the words that are on that side.
     pub shy: f32,
+    /// The whole card, whose top left is the box's, when a moment of the weather may take it over (the box is the part of it the sky lives in).
+    pub card: Option<Card>,
+}
+
+/// The card a moment takes over: its size and the radius of its corners.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Card {
+    pub w: f32,
+    pub h: f32,
+    pub radius: f32,
 }
 
 impl Stage {
     /// A square box with the hero in the middle (the examples and the first card's picture).
     pub fn square(side: f32) -> Stage {
-        Stage { w: side, h: side, hero: (side / 2.0, side / 2.0), size: side, ground: (side * 0.94).round(), fade: [side * 0.07, side * 0.07, 0.0, side * 0.11], shy: 0.22 }
+        Stage { w: side, h: side, hero: (side / 2.0, side / 2.0), size: side, ground: (side * 0.94).round(), fade: [side * 0.07, side * 0.07, 0.0, side * 0.11], shy: 0.22, card: None }
     }
 
     fn rect(&self) -> Rect {
@@ -311,6 +444,10 @@ struct Builder {
     c: Ctx,
     st: Stage,
     out: Vec<Part>,
+    /// The veils over the glass, under every sprite.
+    veils: Vec<Veil>,
+    /// When the moments of the weather are, if the card has any.
+    sched: Option<Schedule>,
     /// Where the hero's design square starts in the box.
     origin: (f32, f32),
 }
@@ -331,9 +468,9 @@ fn whole_ticks(ms: f32) -> u32 {
 }
 
 impl Builder {
-    fn new(st: Stage, light: bool) -> Builder {
+    fn new(st: Stage, light: bool, pal: Pal, sched: Option<Schedule>) -> Builder {
         let k = st.size / UNITS;
-        Builder { c: Ctx { light, k, pal: Pal::of(light) }, st, out: Vec::new(), origin: (st.hero.0 - 100.0 * k, st.hero.1 - 100.0 * k) }
+        Builder { c: Ctx { light, k, pal }, st, out: Vec::new(), veils: Vec::new(), sched, origin: (st.hero.0 - 100.0 * k, st.hero.1 - 100.0 * k) }
     }
 
     fn k(&self) -> f32 {
@@ -378,13 +515,13 @@ impl Builder {
     /// A sprite centred on a point of the box, shown `scale0` times as large as its pixels.
     fn add(&mut self, raster: Raster, centre: (f32, f32), alpha: f32, scale0: f32, motion: Motion) {
         let at = self.centred(centre, &raster);
-        self.out.push(Part { raster, at, alpha, rest_alpha: alpha, scale0, motion, clip: None });
+        self.out.push(Part { raster, at, alpha, rest_alpha: alpha, scale0, motion, clip: None, clip_full: None });
     }
 
     /// A sprite that is only seen inside the stage (and fades out towards its edges).
     #[allow(clippy::too_many_arguments)]
     fn add_clipped(&mut self, raster: Raster, at: (f32, f32), alpha: f32, rest_alpha: f32, scale0: f32, motion: Motion, clip: (Rect, Edges)) {
-        self.out.push(Part { raster, at, alpha, rest_alpha, scale0, motion, clip: Some(clip) });
+        self.out.push(Part { raster, at, alpha, rest_alpha, scale0, motion, clip: Some(clip), clip_full: None });
     }
 
     fn whole_stage(&self) -> (Rect, Edges) {
@@ -413,7 +550,7 @@ impl Builder {
             let r = sun_rays(&ring, turn, size, pal.sun, 0.9);
             let m = Motion { alpha: Wave::Tent { peak: 0.82, period_ms: RING_S * 1000, centre: j as f32 / RINGS as f32, half: 1.0 / RINGS as f32 }, ..self.drift(3.0 * size, 2.5 * size) };
             let at = self.centred(centre, &r);
-            self.out.push(Part { raster: r, at, alpha: 0.0, rest_alpha: if j == 0 { 0.82 } else { 0.0 }, scale0: div, motion: m, clip: None });
+            self.out.push(Part { raster: r, at, alpha: 0.0, rest_alpha: if j == 0 { 0.82 } else { 0.0 }, scale0: div, motion: m, clip: None, clip_full: None });
         }
         let d = disc(&self.c, 34.0 * size, pal.sun_hi, pal.sun);
         let m = Motion { scale: self.frac(0.012, 7.0, 0.0), ..self.drift(3.0 * size, 2.5 * size) };
@@ -443,7 +580,9 @@ impl Builder {
         let mut i = 0u32;
         while placed.len() < many && i < 400 {
             i += 1;
-            let (x, y) = (hash(900 + i * 3) * w, hash(901 + i * 3) * h * 0.9);
+            // the sky of a card ends in the words' line of how it feels, which a star behind it would be read as a part of
+            let low = if self.st.card.is_some() { 0.72 } else { 0.9 };
+            let (x, y) = (hash(900 + i * 3) * w, hash(901 + i * 3) * h * low);
             // not on the moon, not on the star before, and thinner over the left (where the temperature is written)
             let thin = x < w * 0.38 && hash(902 + i * 3) < 0.55;
             if thin || (x - hero.0).hypot(y - hero.1) < reach || placed.iter().any(|p| (p.0 - x).hypot(p.1 - y) < 26.0 * k) {
@@ -488,6 +627,9 @@ impl Builder {
         let (hi, lo, rim) = if stormy { (pal.storm_hi, pal.storm_lo, pal.cloud_rim * 0.5) } else { (pal.cloud_hi, pal.cloud_lo, pal.cloud_rim) };
         // a night's clouds are dimmer
         let dim = if night { 0.78 } else { 1.0 };
+        // on a card the clouds cross from a little in from the left, where the reading is, so that what moves is one region (the compositor draws a region in
+        // one pass of the layers it meets, and a full-width band of clouds over a window of rain is five of them)
+        let left = if self.st.card.is_some() { (0.18 * self.st.w).round() } else { 0.0 };
         for cl in list {
             let (div, alpha, speed) = match cl.depth {
                 0 => (2.0f32, 0.40, 5.0f32),
@@ -502,12 +644,13 @@ impl Builder {
             let ctx = self.c.low(div);
             let r = cloud(&ctx, cl.kind, cl.scale, chi, clo, rim);
             let cw = r.w as f32 * div;
-            let travel = self.st.w + cw;
+            let travel = self.st.w - left + cw;
             let period = whole_ticks(travel / (speed * k) * 1000.0);
             let m = Motion { x: Wave::Saw { from: 0.0, to: travel, period_ms: period, phase: cl.phase }, bump: true, ..Motion::STILL };
-            // the sprite is `r.w` wide and shown `div` times as large about its centre, which starts a cloud's width left of the box and ends as far right of it
-            let at = ((-(cw + r.w as f32) / 2.0).round(), (cl.y * self.st.h - r.h as f32 / 2.0).round());
-            let clip = self.whole_stage();
+            // the sprite is `r.w` wide and shown `div` times as large about its centre, which starts a cloud's width left of where the sky starts and ends as far right of the box
+            let at = ((left - (cw + r.w as f32) / 2.0).round(), (cl.y * self.st.h - r.h as f32 / 2.0).round());
+            let (rect, e) = self.whole_stage();
+            let clip = (Rect { x: left, w: rect.w - left, ..rect }, Edges::new(e.left.max(left * 1.2), e.right, e.top, e.bottom));
             self.add_clipped(r, at, alpha * dim, alpha * dim, div, m, clip);
         }
     }
@@ -548,13 +691,14 @@ impl Builder {
     }
 
     /// A sheet of far-off precipitation that slides one period in `period_ms` and is put back (the pattern repeats).
-    fn sheet(&mut self, win: Rect, mut s: Sheet, period_ms: u32, alpha: f32, sway: Wave, edges: Edges) {
+    #[allow(clippy::too_many_arguments)]
+    fn sheet(&mut self, win: Rect, mut s: Sheet, period_ms: u32, alpha: f32, sway: Wave, edges: Edges, boost: Wave) {
         // the sheet covers the window at every offset of the slide: the window, a period more, and what the lead of an animation runs on
         let travel = s.period * (1.0 + LEAD_MS as f32 / period_ms as f32);
         s.height = (win.h + travel).ceil() as u32 + 2;
         let base_y = win.y - (s.height as f32 - win.h);
         let r = sheet(&s);
-        let motion = Motion { y: Wave::Saw { from: 0.0, to: s.period, period_ms, phase: 0.0 }, x: sway, ..Motion::STILL };
+        let motion = Motion { y: Wave::Saw { from: 0.0, to: s.period, period_ms, phase: 0.0 }, x: sway, alpha: boost, ..Motion::STILL };
         self.add_clipped(r, (win.x, base_y), alpha, alpha, 1.0, motion, (win, edges));
     }
 
@@ -617,6 +761,149 @@ impl Builder {
             self.add_clipped(r, at, alpha * (0.7 + 0.3 * big), alpha * (0.7 + 0.3 * big), 1.0, m, (win, edges));
         }
     }
+
+    // ---- a moment: the weather takes over the whole card
+    /// A moment's light on a part: `peak` while the moment is on, shaped by `env`; nothing when the card has no moments.
+    fn lit(&self, peak: f32, env: Env) -> Wave {
+        match self.sched {
+            Some(sched) => Wave::Env { peak, env, sched },
+            None => Wave::Zero,
+        }
+    }
+
+    /// A flat tint over the whole of `card`, seen only in a moment: `colour` at `peak` of its light, from the top (full) to the bottom (a little under half) when `grade`.
+    fn veil(&mut self, card: Card, colour: Rgb, peak: f32, env: Env, grade: bool) {
+        let solid = |a: f32| Rgba((colour[0] * a * 255.0).round() as u8, (colour[1] * a * 255.0).round() as u8, (colour[2] * a * 255.0).round() as u8, (a * 255.0).round() as u8);
+        let fill = if grade { Fill::Linear { from: solid(1.0), to: solid(0.45), angle_deg: 90.0 } } else { Fill::Solid(solid(1.0)) };
+        let shape = Shape { corner_radius: card.radius, fill, border_width: 0.0, border: Rgba(0, 0, 0, 0) };
+        let motion = Motion { alpha: self.lit(peak, env), ..Motion::STILL };
+        self.veils.push(Veil { size: (card.w, card.h), shape, base: 0.0, motion });
+    }
+
+    /// A tint over the sky's box so faint that nothing is seen of it, which the sky never lets rest while it moves. The compositor draws what moved in a frame in the
+    /// rectangles it is cheapest in, and a sky of many small things that move apart (stars, thin clouds, streaks of wind) has a rectangle for each, every one a pass over
+    /// all the layers it meets (a clear night 118 layers a frame, a partly cloudy day 99); with this the damage is the box, one pass over the sky's own layers (about 40).
+    /// The skies that already move as one region (rain, snow, fog, the sun) do not need it.
+    fn anchor(&mut self, cond: Cond) {
+        let scattered = matches!(cond.sky, Sky::Partly | Sky::Cloudy) || (cond.sky == Sky::Clear && !cond.day) || cond.wind;
+        if self.st.card.is_none() || !scattered {
+            return;
+        }
+        let (clear, black) = (Rgba(0, 0, 0, 0), Rgba(0, 0, 0, 255));
+        // from the top to nothing at the foot, so that the box has no edge on the glass
+        let shape = Shape { corner_radius: 0.0, fill: Fill::Linear { from: black, to: clear, angle_deg: 90.0 }, border_width: 0.0, border: clear };
+        let motion = Motion { alpha: Wave::Sine { amp: ANCHOR_ALPHA / 2.0, period_ms: 6_000, phase: 0.0 }, ..Motion::STILL };
+        self.veils.push(Veil { size: (self.st.w, self.st.h), shape, base: ANCHOR_ALPHA, motion });
+    }
+
+    /// A sheet of precipitation near the eye for a moment, over `area` (box pixels): made at half its size and shown twice as large (soft and large, as what is
+    /// near the eye is), sliding one period in `period_ms` and put back, seen only in a moment. `s` is measured in the pixels it is made in.
+    fn moment_sheet(&mut self, area: Rect, mut s: Sheet, period_ms: u32, peak: f32, env: Env, sway: Wave) {
+        let shown_period = 2.0 * s.period;
+        let travel = shown_period * (1.0 + LEAD_MS as f32 / period_ms as f32);
+        s.width = (area.w / 2.0).ceil() as u32 + 8;
+        s.height = ((area.h + travel) / 2.0).ceil() as u32 + 2;
+        let (w, h) = (s.width as f32, s.height as f32);
+        let r = sheet(&s);
+        // shown twice as large about its centre: its top left is half its size in from where it is shown; at the start of its slide its foot is at the area's
+        let (left, top) = (area.x - (2.0 * w - area.w) / 2.0, area.y + area.h - 2.0 * h);
+        let at = ((left + w / 2.0).round(), (top + h / 2.0).round());
+        let motion = Motion { y: Wave::Saw { from: 0.0, to: shown_period, period_ms, phase: 0.0 }, x: sway, alpha: self.lit(peak, env), ..Motion::STILL };
+        self.out.push(Part { raster: r, at, alpha: 0.0, rest_alpha: 0.0, scale0: 2.0, motion, clip: Some((area, Edges::new(18.0, 18.0, 8.0, 14.0))), clip_full: None });
+    }
+
+    /// The moment of a thunderstorm: the glass darkens, heavy rain falls over the whole card, and lightning twice lights it, a strike for each flash.
+    fn storm_moment(&mut self, card: Card) {
+        let (pal, light) = (self.c.pal, self.c.light);
+        let (cw, ch) = (card.w, card.h);
+        let px = Ctx { light, k: 1.0, pal };
+        let whole = (Rect { x: 0.0, y: 0.0, w: cw, h: ch }, Edges::new(10.0, 10.0, 0.0, 0.0));
+        let mood = Env::Hold { rise: 900, fall: 1300 };
+        // two flashes 650 ms apart, the second not so bright: never more than two in a second
+        let flash = Env::Double { at: 1500, gap: 650, attack: 50, decay: 700, second: 0.65 };
+        // lightning is white with a little blue, on a light look as on a dark one (the steady storm's glow is the theme's warning, which a whole card of it is not)
+        let white: Rgb = [1.0; 3];
+        let lightning = if light { mix3(white, pal.info, 0.25) } else { pal.flash };
+        self.veil(card, if light { mix3(pal.storm_lo, pal.accent, 0.25) } else { mix3(pal.storm_lo, pal.canvas, 0.45) }, if light { 0.34 } else { 0.42 }, mood, false);
+        self.veil(card, lightning, 0.40, flash, true);
+        // the glow of the flash over the whole card, brightest where the first strike is
+        let low = px.low(4.0);
+        let g = glow_ellipse(&low, cw * 1.8, ch * 1.5, lightning, 0.7);
+        let at = self.centred((self.st.hero.0, ch * 0.3), &g);
+        let lit = self.lit(1.0, flash);
+        self.add_clipped(g, at, 0.0, 0.0, 4.0, Motion { alpha: lit, ..Motion::STILL }, whole);
+        // the heavy rain: fat soft streaks near the eye over the whole card, and long fast ones
+        let area = Rect { x: 0.0, y: 0.0, w: cw.min(900.0), h: ch };
+        let streaks = ((area.w / 2.0 / 11.0).round() as usize).max(8);
+        self.moment_sheet(area, Sheet { width: 0, height: 0, period: 56.0, streaks, len: (18.0, 32.0), thick: 1.7, lean: 7.0, colour: pal.rain, seed: 91, snow: false, soft: 0.0 }, 380, 0.82, mood, Wave::Zero);
+        // each of these is a layer of the scene's 256, so only the few that read as near the eye (the sheet is the rest of the rain)
+        let n = (3 + (cw / 600.0) as usize).min(5);
+        for i in 0..n {
+            let len = 34.0 + 16.0 * hash(1500 + i as u32 * 3);
+            let r = streak(&px, len, 2.2 + 0.6 * hash(1501 + i as u32 * 3), 8.0 * len / 40.0, pal.rain);
+            let fall = ch + r.h as f32;
+            let x = cw * (i as f32 + 0.1 + 0.8 * hash(1502 + i as u32 * 3)) / n as f32;
+            let period = if hash(1550 + i as u32) < 0.5 { 800 } else { 1_200 };
+            let m = Motion { y: Wave::Saw { from: 0.0, to: fall, period_ms: period, phase: hash(1560 + i as u32 * 3) }, alpha: self.lit(0.9, mood), bump: true, ..Motion::STILL };
+            self.add_clipped(r, (x.round(), -4.0), 0.0, 0.0, 1.0, m, whole);
+        }
+        // a strike for each flash: the first from under the clouds, the second where the reading is (or the forecast, on a wide card)
+        let (hero, size) = (self.st.hero, self.st.size);
+        let top = (hero.1 - 0.12 * size).round().max(0.0);
+        let first = (170u32, (ch * 0.72).min(ch - top - 6.0).max(60.0).round() as u32);
+        let bolt = strike(first.0, first.1, 5, 0.6, lightning);
+        let lit = self.lit(1.0, Env::Flash { at: 1500, attack: 50, decay: 320 });
+        self.add(bolt, ((hero.0 - 0.1 * size).round(), top + first.1 as f32 / 2.0), 0.0, 1.0, Motion { alpha: lit, ..Motion::STILL });
+        let second = (140u32, (ch * 0.52).round() as u32);
+        let bolt = strike(second.0, second.1, 11, -0.6, lightning);
+        let lit = self.lit(0.9, Env::Flash { at: 2150, attack: 50, decay: 300 });
+        let x = if cw < 560.0 { cw * 0.3 } else { cw * 0.68 };
+        self.add(bolt, (x.round(), (ch * 0.04).round() + second.1 as f32 / 2.0), 0.0, 1.0, Motion { alpha: lit, ..Motion::STILL });
+    }
+
+    /// The moment of a snowfall: the glass goes cool and the air fills with big soft flakes that drift across the whole card.
+    fn snow_moment(&mut self, card: Card) {
+        let (pal, light) = (self.c.pal, self.c.light);
+        let (cw, ch) = (card.w, card.h);
+        let px = Ctx { light, k: 1.0, pal };
+        let whole = (Rect { x: 0.0, y: 0.0, w: cw, h: ch }, Edges::new(10.0, 10.0, 0.0, 0.0));
+        let hold = Env::Hold { rise: 1600, fall: 2000 };
+        let white: Rgb = [1.0; 3];
+        let flake_col = if light { mix3(white, pal.info, 0.12) } else { pal.snow };
+        self.veil(card, if light { mix3(pal.info, pal.ink, 0.3) } else { mix3(pal.snow, pal.info, 0.3) }, if light { 0.26 } else { 0.10 }, hold, false);
+        let area = Rect { x: 0.0, y: 0.0, w: cw.min(900.0), h: ch };
+        let streaks = ((area.w / 2.0 / 22.0).round() as usize).max(4);
+        let sway = self.sine(7.0, 7.3, 0.0);
+        self.moment_sheet(area, Sheet { width: 0, height: 0, period: 70.0, streaks, len: (5.0, 11.0), thick: 1.0, lean: 0.0, colour: flake_col, seed: 33, snow: true, soft: 3.0 }, 2_400, 0.8, hold, sway);
+        let n = (4 + (cw / 500.0) as usize).min(7);
+        for i in 0..n {
+            let big = hash(1600 + i as u32 * 3);
+            let r_px = 6.0 + 9.0 * big;
+            let r = flake_sprite(&px, r_px, 0.5 * r_px, flake_col);
+            let fall = ch + r.h as f32;
+            let x = cw * (i as f32 + 0.1 + 0.8 * hash(1602 + i as u32 * 3)) / n as f32;
+            let period = whole_ticks(fall / (55.0 + 40.0 * big) * 1000.0);
+            let m = Motion {
+                y: Wave::Saw { from: 0.0, to: fall, period_ms: period, phase: hash(1610 + i as u32 * 3) },
+                x: Wave::Sine { amp: 12.0 + 18.0 * big, period_ms: 3_600 + (3_000.0 * hash(1620 + i as u32)) as u32, phase: hash(1630 + i as u32) },
+                alpha: self.lit(0.85 * (0.7 + 0.3 * big), hold),
+                bump: true,
+                ..Motion::STILL
+            };
+            let at = (x.round(), (-(r.h as f32) / 2.0).round());
+            self.add_clipped(r, at, 0.0, 0.0, 1.0, m, whole);
+        }
+    }
+
+    /// What a moment adds to the picture of `cond`, if it has moments.
+    fn moment(&mut self, cond: Cond) {
+        let Some(card) = self.st.card.filter(|_| self.sched.is_some()) else { return };
+        match cond.sky {
+            Sky::Storm => self.storm_moment(card),
+            Sky::Snow => self.snow_moment(card),
+            _ => {}
+        }
+    }
 }
 
 /// The sun's rays are made in this many turns across a sixth of a revolution (the ring of twelve repeats every sixth) and take over from
@@ -624,10 +911,31 @@ impl Builder {
 const RINGS: usize = 10;
 const RING_S: u32 = 24;
 
-/// Builds the parts of `cond`, back to front, for `stage`. `light` is the light look.
-pub fn parts(cond: Cond, st: Stage, light: bool) -> Vec<Part> {
-    let mut b = Builder::new(st, light);
-    let pal = b.c.pal;
+/// What a condition is made of: its sprites, back to front, the veils over the glass that go under them, and when its moments are.
+pub struct Picture {
+    pub parts: Vec<Part>,
+    pub veils: Vec<Veil>,
+    pub schedule: Option<Schedule>,
+}
+
+/// When the moments of `cond` are, if it has any: a thunderstorm's strike and a fall of snow, one in every two minutes, one to three minutes apart.
+pub fn schedule_of(cond: Cond) -> Option<Schedule> {
+    match cond.sky {
+        Sky::Storm => Some(Schedule { every_ms: 120_000, spread_ms: 60_000, length_ms: 4_800, seed: 0x57 }),
+        Sky::Snow => Some(Schedule { every_ms: 120_000, spread_ms: 60_000, length_ms: 8_000, seed: 0x5A }),
+        _ => None,
+    }
+}
+
+/// Builds the parts of `cond`, back to front, for `stage`. `light` is the light look and `pal` the palette's colours.
+pub fn parts(cond: Cond, st: Stage, light: bool, pal: Pal) -> Vec<Part> {
+    picture(cond, st, light, pal).parts
+}
+
+/// The whole picture of `cond` for `stage`: its [`parts`], the veils under them and the schedule of its moments.
+pub fn picture(cond: Cond, st: Stage, light: bool, pal: Pal) -> Picture {
+    let sched = st.card.and_then(|_| schedule_of(cond));
+    let mut b = Builder::new(st, light, pal, sched);
     let k = b.k();
     // many things of the sky scale with the box: a stage as wide as the card's is a quarter of a view's
     let wide = (st.w / (UNITS * k)).max(1.0);
@@ -636,6 +944,7 @@ pub fn parts(cond: Cond, st: Stage, light: bool) -> Vec<Part> {
     let (ch, cl) = if storm { (pal.storm_hi, pal.storm_lo) } else { (pal.cloud_hi, pal.cloud_lo) };
     let rim = pal.cloud_rim;
     let night = !cond.day;
+    b.anchor(cond);
 
     if cond.wind {
         // behind everything: the streaks show in the clear sky between the clouds
@@ -755,9 +1064,9 @@ pub fn parts(cond: Cond, st: Stage, light: bool) -> Vec<Part> {
                 let mid_n = [n(34.0), n(26.0), n(19.0)][h];
                 let sw = |b: &Builder, amp: f32, secs: f32| b.sine(amp, secs, 0.0);
                 let sway = sw(&b, 4.0, 7.3);
-                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: (40.0 * ks).round(), streaks: far_n, len: (1.5 * k.max(0.9), 2.9 * k.max(0.9)), thick: 0.8, lean: 0.0, colour: pal.snow, seed: 29, snow: true, soft: 0.0 }, 1_400, 0.55, sway, edges);
+                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: (40.0 * ks).round(), streaks: far_n, len: (1.5 * k.max(0.9), 2.9 * k.max(0.9)), thick: 0.8, lean: 0.0, colour: pal.snow, seed: 29, snow: true, soft: 0.0 }, 1_400, 0.55, sway, edges, b.lit(0.2, Env::Hold { rise: 1600, fall: 2000 }));
                 let sway = sw(&b, 7.0, 6.1);
-                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: (56.0 * ks).round(), streaks: mid_n, len: (3.4 * k.max(0.9), 6.4 * k.max(0.9)), thick: 1.1 * k.max(0.8), lean: 0.0, colour: pal.snow, seed: 11, snow: true, soft: 0.0 }, 1_600, 0.8, sway, edges);
+                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: (56.0 * ks).round(), streaks: mid_n, len: (3.4 * k.max(0.9), 6.4 * k.max(0.9)), thick: 1.1 * k.max(0.8), lean: 0.0, colour: pal.snow, seed: 11, snow: true, soft: 0.0 }, 1_600, 0.8, sway, edges, b.lit(0.15, Env::Hold { rise: 1600, fall: 2000 }));
                 b.near_snow(win, [few(4), few(6), few(8)][h], 0.85, 40);
             } else {
                 let n = |per_px: f32| ((wpx / (per_px * k.min(1.2))).round() as usize).max(4);
@@ -767,8 +1076,9 @@ pub fn parts(cond: Cond, st: Stage, light: bool) -> Vec<Part> {
                 let mid_n = [n(22.0), n(17.0), n(13.0)][h];
                 let (fa, ma) = if drizzle { (0.34, 0.5) } else { ([0.36, 0.42, 0.48][h], [0.52, 0.62, 0.72][h]) };
                 let lean = if cond.wind { 7.0 } else { 4.0 };
-                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: (48.0 * ks).round(), streaks: far_n, len: (7.0 * k, 11.0 * k), thick: 0.95 * k.max(0.85), lean, colour: pal.rain, seed: 5, snow: false, soft: 0.0 }, 340, fa, Wave::Zero, edges);
-                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: (70.0 * ks).round(), streaks: mid_n, len: (12.0 * k, 17.0 * k), thick: 1.4 * k.max(0.9), lean, colour: pal.rain, seed: 17, snow: false, soft: 0.0 }, 260, ma, Wave::Zero, edges);
+                let dense = b.lit(0.22, Env::Hold { rise: 900, fall: 1300 });
+                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: (48.0 * ks).round(), streaks: far_n, len: (7.0 * k, 11.0 * k), thick: 0.95 * k.max(0.85), lean, colour: pal.rain, seed: 5, snow: false, soft: 0.0 }, 340, fa, Wave::Zero, edges, dense);
+                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: (70.0 * ks).round(), streaks: mid_n, len: (12.0 * k, 17.0 * k), thick: 1.4 * k.max(0.9), lean, colour: pal.rain, seed: 17, snow: false, soft: 0.0 }, 260, ma, Wave::Zero, edges, dense);
                 let near_n = if drizzle { few(2) } else { [few(3), few(5), few(7)][h] };
                 b.near_rain(win, near_n, if drizzle { 0.55 } else { 0.9 }, lean, 70);
                 b.splashes(win, if drizzle { few(3) } else { [few(4), few(6), few(8)][h] }, if drizzle { 0.34 } else { 0.5 });
@@ -783,12 +1093,13 @@ pub fn parts(cond: Cond, st: Stage, light: bool) -> Vec<Part> {
                 let bo = bolt(&b.c, 48.0, true);
                 b.add_u(bo, (150.0, 118.0), 0.0, Motion { alpha: Wave::Pulse { peak: 0.9, period_ms: period * 2 + 400, at_ms: at + period + 200, width_ms: 1_200 }, ..Motion::STILL });
             }
+            b.moment(cond);
             let r = cloud(&b.c, 0, scale, ch, cl, rim * if storm { 0.5 } else { 1.0 });
             let m = b.float(10.0, 29.0, 0.0, 2.0, 11.0);
             b.add_u(r, (94.0, cy), 1.0, m);
         }
     }
-    b.out
+    Picture { parts: b.out, veils: b.veils, schedule: sched }
 }
 
 /// Whether anything in `parts` moves.
@@ -829,7 +1140,7 @@ pub fn compose(parts: &[Part], w: u32, h: u32, t: Option<f64>, ground: [u8; 4]) 
                     continue;
                 }
                 let mut fade = 1.0;
-                if let Some((r, e)) = part.clip {
+                if let Some((r, e)) = part.clip_at(pose.grow) {
                     if fx < r.x || fx >= r.x + r.w || fy < r.y || fy >= r.y + r.h {
                         continue;
                     }
@@ -862,7 +1173,25 @@ pub fn compose(parts: &[Part], w: u32, h: u32, t: Option<f64>, ground: [u8; 4]) 
 // ---- the live picture: the parts as image layers in the card's group
 use crate::kit::Kit;
 use compositor_protocol::Ease;
-use ui::scene::ImageLayer;
+use ui::scene::{ImageLayer, ShapeLayer};
+
+/// What a moment that is on when the sky is let go comes in over, so that it is not seen to start in the middle.
+const RESUME_MS: f32 = 500.0;
+
+/// The props of `p` at the sky's time `t` (a saw runs on from `anchor`, a moment's light comes in over [`RESUME_MS`] after the sky was let go at `resumed`).
+fn props_of(p: &Part, origin: (f32, f32), resumed: u64, t: u64, anchor: Option<u64>) -> Props {
+    let mut props = p.props(&p.pose(t as f64, anchor.map(|a| a as f64)), origin);
+    if p.is_moment() {
+        props.opacity *= smooth(0.0, RESUME_MS, t.saturating_sub(resumed) as f32);
+    }
+    props
+}
+
+/// The props of a veil at the sky's time `t`.
+fn veil_props(v: &Veil, origin: (f32, f32), resumed: u64, t: u64) -> Props {
+    let a = (v.base + v.motion.alpha.at(t as f64, None)).clamp(0.0, 1.0) * smooth(0.0, RESUME_MS, t.saturating_sub(resumed) as f32);
+    Props { opacity: a, visible: a > 0.0, ..Props::at(origin.0, origin.1) }
+}
 
 pub struct Live {
     cond: Cond,
@@ -870,17 +1199,33 @@ pub struct Live {
     stage: Stage,
     parts: Vec<Part>,
     layers: Vec<ImageLayer>,
+    veils: Vec<Veil>,
+    veil_layers: Vec<ShapeLayer>,
+    /// Whether a part (a veil) that is seen only in a moment has been left alone since the last moment: it is put where it is before it is moved again.
+    asleep: Vec<bool>,
+    veil_asleep: Vec<bool>,
+    schedule: Option<Schedule>,
     /// The box's top left in the card's space.
     origin: (f32, f32),
     running: bool,
-    /// The tick the paths were last restated at.
+    /// The tick (of the sky's own time) the paths were last restated at.
     last: u64,
+    /// How far the sky's own time is behind the shell's: how long it has been held. It goes on from where it stopped, so that what was held is not seen to jump.
+    shift: u64,
+    /// When (the shell's time) it was held, while it is.
+    held: Option<u64>,
+    /// The sky's time it was last let go at: `u64::MAX` before its first step and after it was put to rest, which the next step makes now, so that a moment that is
+    /// on then is not seen to start in the middle.
+    resumed: u64,
 }
 
 impl Live {
-    /// Makes the layers (the caller is inside the card's `adopting`), at rest.
+    /// Makes the layers (the caller is inside the card's `adopting`), at rest, with the palette's colours.
     pub fn new(kit: &mut Kit, cond: Cond, stage: Stage, light: bool, origin: (f32, f32), z: i32) -> std::io::Result<Live> {
-        let parts = parts(cond, stage, light);
+        let pal = Pal::of(&kit.ui.look.theme.roles, light);
+        let Picture { parts, veils, schedule } = picture(cond, stage, light, pal);
+        // the veils first: they are under every sprite
+        let veil_layers: Vec<ShapeLayer> = veils.iter().map(|v| kit.ui.scene.shape(v.size.0 as u32, v.size.1 as u32, z, v.shape, Props { opacity: 0.0, visible: false, ..Props::at(origin.0, origin.1) })).collect();
         let mut layers = Vec::with_capacity(parts.len());
         for p in &parts {
             let rest = p.rest_pose();
@@ -889,11 +1234,17 @@ impl Live {
             l.damage(None);
             layers.push(l);
         }
-        Ok(Live { cond, light, stage, parts, layers, origin, running: false, last: 0 })
+        let (asleep, veil_asleep) = (vec![true; parts.len()], vec![true; veils.len()]);
+        Ok(Live { cond, light, stage, parts, layers, veils, veil_layers, asleep, veil_asleep, schedule, origin, running: false, last: 0, shift: 0, held: None, resumed: u64::MAX })
     }
 
     pub fn is(&self, cond: Cond, stage: Stage, light: bool) -> bool {
         self.cond == cond && self.light == light && self.stage == stage
+    }
+
+    /// When the moments of the weather are, if this picture has any.
+    pub fn schedule(&self) -> Option<Schedule> {
+        self.schedule
     }
 
     /// Where the card is (its content origin changed): the sprites are put on the new place at rest.
@@ -904,12 +1255,47 @@ impl Live {
         }
     }
 
-    /// Stops the motion and rests every sprite on whole pixels.
+    /// Stops the motion and rests every sprite on whole pixels, at the place the picture is made for (a poster of it).
     pub fn rest(&mut self) {
         self.running = false;
+        self.held = None;
+        self.resumed = u64::MAX;
         for (p, l) in self.parts.iter().zip(&self.layers) {
             l.set(p.props(&p.rest_pose(), self.origin));
         }
+        self.hide_moments();
+    }
+
+    /// Hides what is seen only in a moment, and has it put where it is before it is moved again.
+    fn hide_moments(&mut self) {
+        for l in &self.veil_layers {
+            l.set(Props { opacity: 0.0, visible: false, ..Props::at(self.origin.0, self.origin.1) });
+        }
+        self.asleep.fill(true);
+        self.veil_asleep.fill(true);
+    }
+
+    /// Holds the sky where it is: what moves stops on whole pixels, a moment's light goes out, and the sky's own time stands still until it is stepped
+    /// again, so that it goes on from here and is not seen to jump. Nothing is asked of the engine while it is held.
+    pub fn pause(&mut self, now: u64) {
+        if !self.running {
+            return;
+        }
+        let u = now - self.shift;
+        for (p, l) in self.parts.iter().zip(&self.layers) {
+            if p.motion == Motion::STILL {
+                continue;
+            }
+            let mut pose = p.pose(u as f64, None);
+            (pose.x, pose.y) = (pose.x.round(), pose.y.round());
+            if p.is_moment() {
+                pose.alpha = 0.0;
+            }
+            l.set(p.props(&pose, self.origin));
+        }
+        self.hide_moments();
+        self.running = false;
+        self.held = Some(now);
     }
 
     pub fn running(&self) -> bool {
@@ -921,24 +1307,59 @@ impl Live {
         self.parts.iter().map(|p| p.raster.px.len()).sum()
     }
 
-    /// Restates the paths of the moving sprites for the next [`LEAD_MS`] (once per [`TICK_MS`]); returns when the next is due.
+    /// Restates the paths of the moving sprites for the next stretch (a lead of [`LEAD_MS`] once per [`TICK_MS`], and while a moment is on a lead of
+    /// [`FAST_LEAD_MS`] once per [`FAST_TICK_MS`]); returns when the next is due (in the shell's time).
     pub fn step(&mut self, now: u64) -> u64 {
-        let t = now - now % TICK_MS;
-        if self.running && t == self.last {
-            return t + TICK_MS;
+        if let Some(at) = self.held.take() {
+            self.shift += now.saturating_sub(at);
+            self.resumed = now - self.shift;
         }
-        for (p, l) in self.parts.iter().zip(&self.layers) {
+        let u = now - self.shift;
+        if self.resumed == u64::MAX {
+            self.resumed = u;
+        }
+        let fast = self.schedule.is_some_and(|s| s.phase(u as f64).is_some() || s.phase((u + u64::from(LEAD_MS)) as f64).is_some());
+        let (tick, lead) = if fast { (FAST_TICK_MS, FAST_LEAD_MS) } else { (TICK_MS, LEAD_MS) };
+        let t = u - u % tick;
+        if self.running && t == self.last {
+            return self.shift + t + tick;
+        }
+        let begin = !self.running;
+        let (origin, resumed, last) = (self.origin, self.resumed, self.last);
+        for (i, (p, l)) in self.parts.iter().zip(&self.layers).enumerate() {
             if p.motion == Motion::STILL {
                 continue;
             }
-            if !self.running || p.wrapped(self.last, t) {
-                l.set(p.props(&p.pose(t as f64, None), self.origin));
+            let to = props_of(p, origin, resumed, t + u64::from(lead), Some(t));
+            let here = if p.is_moment() {
+                let here = props_of(p, origin, resumed, t, None);
+                if here.opacity <= 0.0 && to.opacity <= 0.0 {
+                    self.asleep[i] = true;
+                    continue;
+                }
+                (std::mem::replace(&mut self.asleep[i], false) || begin || p.wrapped(last, t)).then_some(here)
+            } else {
+                (begin || p.wrapped(last, t)).then(|| props_of(p, origin, resumed, t, None))
+            };
+            if let Some(here) = here {
+                l.set(here);
             }
-            l.animate(p.props(&p.pose((t + LEAD_MS as u64) as f64, Some(t as f64)), self.origin), LEAD_MS, Ease::Linear);
+            l.animate(to, lead, Ease::Linear);
+        }
+        for (i, (v, l)) in self.veils.iter().zip(&self.veil_layers).enumerate() {
+            let (here, to) = (veil_props(v, origin, resumed, t), veil_props(v, origin, resumed, t + u64::from(lead)));
+            if here.opacity <= 0.0 && to.opacity <= 0.0 {
+                self.veil_asleep[i] = true;
+                continue;
+            }
+            if std::mem::replace(&mut self.veil_asleep[i], false) || begin {
+                l.set(here);
+            }
+            l.animate(to, lead, Ease::Linear);
         }
         self.running = true;
         self.last = t;
-        t + TICK_MS
+        self.shift + t + tick
     }
 }
 
@@ -961,9 +1382,18 @@ mod tests {
         v
     }
 
-    /// The card's sky and the view's, and the box the first card's picture was made in.
+    /// The card's sky and the view's, and the box the first card's picture was made in. The card's sky is the top of a card of 433 by 480, which a moment may take over.
     fn stages() -> [Stage; 3] {
-        [Stage::square(164.0), Stage { w: 433.0, h: 244.0, hero: (318.0, 104.0), size: 190.0, ground: 236.0, fade: [14.0, 14.0, 10.0, 30.0], shy: 0.5 }, Stage { w: 1160.0, h: 620.0, hero: (560.0, 276.0), size: 470.0, ground: 600.0, fade: [150.0, 150.0, 50.0, 150.0], shy: 0.2 }]
+        [
+            Stage::square(164.0),
+            Stage { w: 433.0, h: 244.0, hero: (318.0, 104.0), size: 190.0, ground: 236.0, fade: [14.0, 14.0, 10.0, 30.0], shy: 0.5, card: Some(Card { w: 433.0, h: 480.0, radius: 24.0 }) },
+            Stage { w: 1160.0, h: 620.0, hero: (560.0, 276.0), size: 470.0, ground: 600.0, fade: [150.0, 150.0, 50.0, 150.0], shy: 0.2, card: None },
+        ]
+    }
+
+    /// The parts of a picture made with the default theme's colours.
+    fn parts(cond: Cond, st: Stage, light: bool) -> Vec<Part> {
+        super::parts(cond, st, light, Pal::standard(light))
     }
 
     #[test]
@@ -1019,12 +1449,15 @@ mod tests {
                     _ => (None, None),
                 };
                 let p = parts(cond, st, cond.day);
+                // the layers of a steady sky; a moment's come to them only while it is on (nothing is drawn of a layer that is not shown)
+                let (steady, moment) = (p.iter().filter(|q| !q.is_moment()).count(), p.iter().filter(|q| q.is_moment()).count());
                 if let Some(cap) = layers {
-                    assert!(p.len() <= cap, "{cond:?} at {}: {} layers (at most {cap})", st.w, p.len());
+                    assert!(steady <= cap, "{cond:?} at {}: {steady} layers (at most {cap})", st.w);
+                    assert!(moment <= 10, "{cond:?} at {}: {moment} layers of a moment (at most 10)", st.w);
                 }
                 if let Some(cap) = bytes {
                     let size: usize = p.iter().map(|q| q.raster.px.len()).sum();
-                    assert!(size <= cap, "{cond:?} at {}: {size} bytes", st.w);
+                    assert!(size <= cap, "{cond:?} at {}: {size} bytes (at most {cap})", st.w);
                 }
                 for part in p {
                     let rest = part.rest_pose();
@@ -1066,7 +1499,8 @@ mod tests {
                 assert!(!sheets.is_empty(), "{sky:?} has sheets");
                 for s in sheets {
                     let Wave::Saw { to, period_ms, .. } = s.motion.y else { unreachable!() };
-                    let period = to.round() as usize;
+                    // a sheet made at half its size and shown twice as large repeats every half period of its pixels
+                    let period = (to / s.scale0).round() as usize;
                     let (w, h) = (s.raster.w as usize, s.raster.h as usize);
                     let mut worst = 0i32;
                     for y in 0..h - period {
@@ -1078,9 +1512,12 @@ mod tests {
                     // and it covers its window at every offset of the slide and the lead
                     let travel = to * (1.0 + LEAD_MS as f32 / period_ms as f32);
                     let (clip, _) = s.clip.expect("a sheet is clipped to its window");
-                    assert!(s.at.1 + travel <= clip.y + 0.5, "{sky:?}: at the end of the slide the sheet's top is below the window's");
-                    assert!(s.at.1 + s.raster.h as f32 >= clip.y + clip.h - 0.5, "{sky:?}: at the start of the slide the sheet's bottom is above the window's");
-                    assert!(s.at.0 <= clip.x && s.at.0 + s.raster.w as f32 >= clip.x + clip.w - 0.5, "{sky:?}: the sheet is as wide as its window");
+                    // as the compositor shows it: scaled about its centre
+                    let (sw, sh) = (s.raster.w as f32 * s.scale0, s.raster.h as f32 * s.scale0);
+                    let (left, top) = (s.at.0 + (s.raster.w as f32 - sw) / 2.0, s.at.1 + (s.raster.h as f32 - sh) / 2.0);
+                    assert!(top + travel <= clip.y + 0.5, "{sky:?}: at the end of the slide the sheet's top is below the window's");
+                    assert!(top + sh >= clip.y + clip.h - 0.5, "{sky:?}: at the start of the slide the sheet's bottom is above the window's");
+                    assert!(left <= clip.x + 0.5 && left + sw >= clip.x + clip.w - 0.5, "{sky:?}: the sheet is as wide as its window");
                 }
             }
         }
@@ -1185,6 +1622,178 @@ mod tests {
         assert!(p.iter().any(|q| q.rest_alpha > 0.5 && matches!(q.motion.alpha, Wave::Pulse { .. })));
         assert!(moves(&p));
         assert!(!moves(&[]));
+    }
+
+    const STORM: Cond = Cond { sky: Sky::Storm, day: true, heavy: 2, wind: false };
+    const SNOW: Cond = Cond { sky: Sky::Snow, day: true, heavy: 1, wind: false };
+
+    #[test]
+    fn a_sky_of_small_things_that_move_apart_has_a_tint_over_its_box_that_is_never_seen_and_never_rests() {
+        let st = stages()[1];
+        let anchors = |cond: Cond| -> Vec<Veil> {
+            let Picture { veils, .. } = picture(cond, st, false, Pal::standard(false));
+            veils.into_iter().filter(|v| !v.is_moment()).collect()
+        };
+        for cond in [
+            Cond { sky: Sky::Clear, day: false, heavy: 0, wind: false },
+            Cond { sky: Sky::Partly, day: true, heavy: 1, wind: false },
+            Cond { sky: Sky::Cloudy, day: true, heavy: 1, wind: false },
+            Cond { sky: Sky::Clear, day: true, heavy: 0, wind: true },
+        ] {
+            let found = anchors(cond);
+            assert_eq!(found.len(), 1, "{cond:?}");
+            assert_eq!(found[0].size, (st.w, st.h), "{cond:?}: over the sky's box");
+            for ms in (0..60_000).step_by(250) {
+                let a = found[0].base + found[0].motion.alpha.at(f64::from(ms), None);
+                assert!(a > 0.0 && a <= 0.006, "{cond:?}: always there and never seen: {a} at {ms} ms");
+            }
+        }
+        // what moves as one region already is one rectangle
+        for sky in [Sky::Clear, Sky::Fog, Sky::Drizzle, Sky::Rain, Sky::Storm, Sky::Snow] {
+            assert!(anchors(Cond { sky, day: true, heavy: 1, wind: false }).is_empty(), "{sky:?}");
+        }
+    }
+
+    #[test]
+    fn a_moment_comes_one_to_three_minutes_after_the_last_is_brief_and_is_over_before_the_next() {
+        for cond in [STORM, SNOW] {
+            let s = schedule_of(cond).expect("a thunderstorm and snow have moments");
+            assert!(u64::from(s.length_ms) <= 8_000, "a few seconds");
+            assert!(s.spread_ms + u64::from(s.length_ms) <= s.every_ms, "over before its slot is");
+            let (mut last, mut lit) = (s.start_of(0), 0u64);
+            for slot in 1..5_000u64 {
+                let at = s.start_of(slot);
+                assert!((slot * s.every_ms..=slot * s.every_ms + s.spread_ms).contains(&at), "slot {slot}: {at}");
+                assert!((60_000..=180_000).contains(&(at - last)), "slot {slot}: {} ms after the last", at - last);
+                assert!(last + u64::from(s.length_ms) < at, "never two at once");
+                (last, lit) = (at, lit + u64::from(s.length_ms));
+            }
+            assert!(lit * 100 < 7 * 5_000 * 120_000, "{cond:?}: it has the card for a few hundredths of the time at most");
+        }
+        for sky in [Sky::Clear, Sky::Partly, Sky::Cloudy, Sky::Fog, Sky::Drizzle, Sky::Rain] {
+            assert!(schedule_of(Cond { sky, day: true, heavy: 1, wind: false }).is_none(), "{sky:?} has none");
+        }
+    }
+
+    #[test]
+    fn the_clock_alone_says_when_a_moment_is_on() {
+        let s = schedule_of(STORM).unwrap();
+        // the same hash as tests/weather_frames.py, which puts a measured run where a moment is
+        let at = s.start_of(14_000);
+        assert_eq!(at, 1_680_029_877);
+        assert_eq!(s.phase(at as f64), Some(0.0));
+        assert_eq!(s.phase(at as f64 + 4_799.0), Some(4_799.0));
+        assert_eq!(s.phase(at as f64 + f64::from(s.length_ms)), None);
+        assert_eq!(s.phase(at as f64 - 1.0), None);
+        assert_eq!(s.phase(-5.0), None);
+    }
+
+    /// When (ms into the moment) the light of `wave` goes above a fifth of its peak.
+    fn lights(wave: Wave, s: Schedule) -> Vec<u32> {
+        let Wave::Env { peak, env, .. } = wave else { panic!("a moment's wave: {wave:?}") };
+        let (mut ups, mut last) = (Vec::new(), 0.0);
+        for ms in (0..s.length_ms).step_by(5) {
+            let a = peak * env.at(f64::from(ms), f64::from(s.length_ms));
+            if a >= 0.2 && last < 0.2 {
+                ups.push(ms);
+            }
+            last = a;
+        }
+        ups
+    }
+
+    #[test]
+    fn lightning_lights_the_card_twice_in_a_moment_and_never_faster_than_that_and_snow_comes_and_goes_over_seconds() {
+        for cond in [STORM, SNOW] {
+            let s = schedule_of(cond).unwrap();
+            let Picture { parts, veils, .. } = picture(cond, stages()[1], false, Pal::standard(false));
+            let waves: Vec<Wave> = parts.iter().filter(|q| q.is_moment()).map(|q| q.motion.alpha).chain(veils.iter().filter(|v| v.is_moment()).map(|v| v.motion.alpha)).collect();
+            assert!(!waves.is_empty(), "{cond:?}");
+            for w in waves {
+                let Wave::Env { env, .. } = w else { unreachable!() };
+                match env {
+                    Env::Hold { rise, fall } => assert!(rise >= 800 && fall >= 1_000, "{cond:?}: a moment's mood comes and goes over seconds: {env:?}"),
+                    Env::Flash { .. } | Env::Double { .. } => {
+                        let ups = lights(w, s);
+                        assert!(ups.len() <= 2, "{cond:?}: {ups:?}");
+                        // the guideline for flashing light is three in a second: two is the most it comes to
+                        for (i, &u) in ups.iter().enumerate() {
+                            assert!(ups[i..].iter().filter(|&&v| v < u + 1_000).count() <= 2, "{ups:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// What was asked of the engine about the layers `ids`, as the opacity each was put at or sent to.
+    fn asked(requests: &[compositor_protocol::Request], ids: &[compositor_protocol::LayerId]) -> Vec<(compositor_protocol::LayerId, f32, bool)> {
+        use compositor_protocol::Request;
+        requests
+            .iter()
+            .filter_map(|r| match r {
+                Request::Set { id, props } => Some((*id, props.opacity, props.visible)),
+                Request::Animate { id, to, .. } => Some((*id, to.opacity, to.visible)),
+                _ => None,
+            })
+            .filter(|(id, ..)| ids.contains(id))
+            .collect()
+    }
+
+    /// The layers that are lit only in a moment: its sprites and its veils.
+    fn moment_ids(live: &Live) -> Vec<compositor_protocol::LayerId> {
+        let sprites = live.parts.iter().zip(&live.layers).filter(|(p, _)| p.is_moment()).map(|(_, l)| l.id());
+        sprites.chain(live.veils.iter().zip(&live.veil_layers).filter(|(v, _)| v.is_moment()).map(|(_, l)| l.id())).collect()
+    }
+
+    #[test]
+    fn a_moment_that_is_on_when_the_card_is_covered_goes_dark_and_comes_back_in_softly_and_a_held_sky_asks_for_nothing() {
+        let (mut h, mut kit) = crate::kit::testkit::kit(1.0);
+        let mut live = Live::new(&mut kit, STORM, stages()[1], false, (0.0, 0.0), 10).unwrap();
+        let moment = moment_ids(&live);
+        let steady: Vec<_> = live.parts.iter().zip(&live.layers).filter(|(p, _)| !p.is_moment()).map(|(_, l)| l.id()).collect();
+        assert!(moment.len() >= 4 && !steady.is_empty());
+        let start = live.schedule().unwrap().start_of(10);
+        h.commit();
+
+        // between moments the moment's layers are not asked about at all
+        live.step(start - 30_000);
+        let quiet = h.commit();
+        assert!(asked(&quiet, &moment).is_empty(), "{:?}", asked(&quiet, &moment));
+        assert!(!asked(&quiet, &steady).is_empty(), "the steady sky moves");
+
+        // in the first flash they are lit
+        live.step(start + 1_600);
+        let lit = asked(&h.commit(), &moment);
+        assert!(lit.iter().any(|&(_, a, shown)| a > 0.3 && shown), "{lit:?}");
+
+        // covered: every one of them is dark and hidden, the steady ones stand on whole pixels, and nothing more is asked
+        live.pause(start + 1_700);
+        let held = h.commit();
+        let dark = asked(&held, &moment);
+        assert!(!dark.is_empty() && dark.iter().all(|&(_, a, _)| a == 0.0), "{dark:?}");
+        assert!(h.commit().len() == 1 && h.commit().len() == 1, "only the commit itself");
+
+        // let go again a long time after: the sky goes on from where it was, and the light comes in over half a second
+        live.step(start + 1_700 + 60_000);
+        let back = asked(&h.commit(), &moment);
+        assert!(back.iter().all(|&(_, a, _)| a <= 0.3), "it is not seen to start in the middle: {back:?}");
+
+        // a tick is asked once: stepping again in the same tick asks for nothing
+        live.step(start + 1_700 + 60_000);
+        assert_eq!(h.commit().len(), 1);
+    }
+
+    #[test]
+    fn a_sky_first_stepped_while_a_moment_is_on_brings_it_in_softly() {
+        let (mut h, mut kit) = crate::kit::testkit::kit(1.0);
+        let mut live = Live::new(&mut kit, STORM, stages()[1], false, (0.0, 0.0), 10).unwrap();
+        let moment = moment_ids(&live);
+        let start = live.schedule().unwrap().start_of(10);
+        h.commit();
+        live.step(start + 1_600);
+        let first = asked(&h.commit(), &moment);
+        assert!(!first.is_empty() && first.iter().all(|&(_, a, _)| a <= 0.3), "it is not seen to start in the middle: {first:?}");
     }
 
     /// `cargo test --release -p lumatv-ui --lib weather_art::tests::cost -- --ignored --nocapture`: what a picture costs to make and to move.
