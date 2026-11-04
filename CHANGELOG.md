@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The boot worker activates LumaTV's compositor even when the wake policy's preparation fails, with no landing app, instead of leaving the set on LG's compositor with the mount in place; a power-loss cold boot stopped at that preparation's timed-out `systemctl daemon-reload`. A standby activation that fails because the set was switched on meanwhile is tried once more as an active boot.
+
 The helper's weather prefetch thread checks for a stop every 50 ms instead of every 5 s, so a stop no longer leaves it to the process exit.
 
 The native compositor executes LG idle timers, keeps screensavers above idle apps with the required application-lifecycle notifications, and wakes them through LG’s existing power service without forwarding the wake key into the app. LG playback policy remains authoritative.

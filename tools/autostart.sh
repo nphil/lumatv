@@ -97,35 +97,48 @@ if [ "$1" = "--worker" ]; then
     setsid "$APPDIR/tools/bootcap.sh" "$bc_secs" "/tmp/$BRAND_SHORT_ID-bootcap" </dev/null >/dev/null 2>&1 &
     log "boot capture of ${bc_secs}s started"
   fi
-  cb=$("$CLI" compositor-boot 2>&1); cb_rc=$?
-  log "compositor-boot ($cb_rc): $(echo "$cb" | tr -d '\n' | cut -c1-200)"
-  case "$cb_rc:$cb" in
-    0:*'"compositor":"mounted"'*|0:*'"compositor":"already"'*)
-      case "$cb" in
-        *'"standby":true'*)
-          ca=$(timeout 240 "$CLI" compositor-boot activate standby </dev/null 2>&1); ca_rc=$?
-          log "compositor standby activation ($ca_rc): $(echo "$ca" | tr -d '\n' | cut -c1-200)"
-          if [ "$ca_rc" -eq 0 ]; then echo done > "$WORKER_MARK" 2>/dev/null; else rm -f "$WORKER_MARK" 2>/dev/null; fi
-          ;;
-        *)
-      wc=$(timeout 240 "$CLI" wake boot-check prepare "$LUMATV_WAKE_TOKEN" </dev/null 2>&1); wc_rc=$?
-      log "wake prepare ($wc_rc): $(echo "$wc" | tr -d '\n' | cut -c1-200)"
-      if [ "$wc_rc" -eq 0 ]; then
-        ca=$(timeout 240 "$CLI" compositor-boot activate </dev/null 2>&1); ca_rc=$?
-        log "compositor activation ($ca_rc): $(echo "$ca" | tr -d '\n' | cut -c1-200)"
-        if [ "$ca_rc" -eq 0 ]; then
-          wc=$(timeout 45 "$CLI" wake boot-check finalize "$LUMATV_WAKE_TOKEN" </dev/null 2>&1); wc_rc=$?
-          log "wake finalize ($wc_rc): $(echo "$wc" | tr -d '\n' | cut -c1-200)"
-        else
-          wc_rc=$ca_rc
-        fi
-      fi
-          if [ "$wc_rc" -eq 0 ]; then echo done > "$WORKER_MARK" 2>/dev/null; else rm -f "$WORKER_MARK" 2>/dev/null; fi ;;
-      esac ;;
-    0:*'"compositor":"error"'*) rm -f "$WORKER_MARK" 2>/dev/null ;;
-    0:*) echo done > "$WORKER_MARK" 2>/dev/null ;;
-    *) rm -f "$WORKER_MARK" 2>/dev/null ;;
-  esac
+  # A standby activation that fails (the set was switched on while the worker ran, or a lock or a recovery was in the way)
+  # gets one more pass: compositor-boot decides again and sees the panel as it is by then.
+  boot_pass=0
+  while [ "$boot_pass" -lt 2 ]; do
+    boot_pass=$((boot_pass + 1))
+    boot_retry=no
+    maintenance_clear || exit 0
+    cb=$("$CLI" compositor-boot 2>&1); cb_rc=$?
+    log "compositor-boot ($cb_rc): $(echo "$cb" | tr -d '\n' | cut -c1-200)"
+    case "$cb_rc:$cb" in
+      0:*'"compositor":"mounted"'*|0:*'"compositor":"already"'*)
+        case "$cb" in
+          *'"standby":true'*)
+            ca=$(timeout 240 "$CLI" compositor-boot activate standby </dev/null 2>&1); ca_rc=$?
+            log "compositor standby activation ($ca_rc): $(echo "$ca" | tr -d '\n' | cut -c1-200)"
+            if [ "$ca_rc" -eq 0 ]; then echo done > "$WORKER_MARK" 2>/dev/null; else rm -f "$WORKER_MARK" 2>/dev/null; boot_retry=yes; fi
+            ;;
+          *)
+            wc=$(timeout 240 "$CLI" wake boot-check prepare "$LUMATV_WAKE_TOKEN" </dev/null 2>&1); wc_rc=$?
+            log "wake prepare ($wc_rc): $(echo "$wc" | tr -d '\n' | cut -c1-200)"
+            # The wake policy only chooses the app to land on, so a failed preparation (it rolls itself back) must not hold
+            # the compositor back: it is activated with no landing. Its `systemctl daemon-reload` is cut off at 6 s and ran
+            # longer in the cold boot of 2026-11-03 20:38, which left the set on LG's compositor with LumaTV's mounted.
+            ca=$(timeout 240 "$CLI" compositor-boot activate </dev/null 2>&1); ca_rc=$?
+            log "compositor activation ($ca_rc): $(echo "$ca" | tr -d '\n' | cut -c1-200)"
+            if [ "$ca_rc" -ne 0 ]; then
+              wc_rc=$ca_rc
+            elif [ "$wc_rc" -eq 0 ]; then
+              wc=$(timeout 45 "$CLI" wake boot-check finalize "$LUMATV_WAKE_TOKEN" </dev/null 2>&1); wc_rc=$?
+              log "wake finalize ($wc_rc): $(echo "$wc" | tr -d '\n' | cut -c1-200)"
+            else
+              log "wake preparation failed; compositor activated with no landing"
+              wc_rc=0
+            fi
+            if [ "$wc_rc" -eq 0 ]; then echo done > "$WORKER_MARK" 2>/dev/null; else rm -f "$WORKER_MARK" 2>/dev/null; fi ;;
+        esac ;;
+      0:*'"compositor":"error"'*) rm -f "$WORKER_MARK" 2>/dev/null ;;
+      0:*) echo done > "$WORKER_MARK" 2>/dev/null ;;
+      *) rm -f "$WORKER_MARK" 2>/dev/null ;;
+    esac
+    [ "$boot_retry" = yes ] || break
+  done
   # What this boot's log says about the logo path, kept in $STATE (/var/log/messages rotates; the window's own record,
   # $STATE/logo-events, is written by BootLogo.qml and MasterBrand.qml).
   maintenance_clear || exit 0

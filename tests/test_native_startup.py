@@ -138,7 +138,7 @@ comp_live() { [ "${LIVE:-no}" = yes ]; }
 comp_ready() { echo ready >> "$CALLS"; [ "${READY:-yes}" = yes ] && { [ "${INITIAL_NOT_READY:-no}" = no ] || [ -e "$FAKE/restarted" ]; }; }
 panel_is_active() { [ "${PANEL:-active}" = active ]; }
 panel_is_active_standby() { [ "${PANEL:-active}" = standby ] && [ "${STANDBY_CHANGED:-no}" = no ] && { [ "${WAKE_ON_FAILURE:-no}" = no ] || [ ! -e "$FAKE/restarted" ]; }; }
-boot_landing_app() { echo landing >> "$CALLS"; echo '{"appId":"netflix","params":{}}'; }
+boot_landing_app() { echo landing >> "$CALLS"; if [ "${PREPARE_FAIL:-no}" = yes ]; then echo __wake_skip__; else echo '{"appId":"netflix","params":{}}'; fi; }
 land_on_app() { echo "land $2 $1" >> "$CALLS"; }
 restart_surface() {
   flock -n "$FAKE/lock" -c ':' || { echo locked >> "$CALLS"; return 1; }
@@ -147,13 +147,21 @@ restart_surface() {
   [ "$1" != native ] || touch "$FAKE/restarted"
   [ "$1" = stock ] || [ "${RESTART_FAIL:-no}" = no ]
 }
-comp_switch() { echo "switch $1" >> "$CALLS"; }
+comp_switch() { echo "switch $1" >> "$CALLS"; [ "$1" != off ] || rm -f "$COMP/enabled"; }
 clear_stock_running() { echo clear >> "$CALLS"; }
 emit_error() { echo "error $*"; }
 log_line() { :; }
 ''' + shell_function('verb_compositor_boot_activate') + '''
 case "$*" in
-  compositor-boot) echo mount >> "$CALLS"; printf '{"ok":true,"compositor":"%s","standby":%s}\n' "${MOUNT_RESULT:-mounted}" "${BOOT_STANDBY:-false}" ;;
+  compositor-boot)
+    echo mount >> "$CALLS"
+    standby=${BOOT_STANDBY:-false}
+    # The set was in standby at the first look and switched on by the next one.
+    [ "${BOOT_STANDBY_ONCE:-no}" = no ] || [ ! -e "$FAKE/looked" ] || standby=false
+    touch "$FAKE/looked"
+    result=${MOUNT_RESULT:-mounted}
+    [ -f "$COMP/enabled" ] || result=off
+    printf '{"ok":true,"compositor":"%s","standby":%s}\n' "$result" "$standby" ;;
   'compositor-boot activate') verb_compositor_boot_activate ;;
   'compositor-boot activate standby') verb_compositor_boot_activate standby ;;
   'wake boot-check prepare '*) echo prepare >> "$CALLS"; [ "${PREPARE_FAIL:-no}" = no ] ;;
@@ -161,31 +169,46 @@ case "$*" in
 esac
 ''')
         cli.chmod(0o755)
+        landed = 'land restart {"appId":"netflix","params":{}}'
         scenarios = (
-            ({}, ['mount', 'prepare', 'landing', 'restart native', 'ready', 'land restart {"appId":"netflix","params":{}}', 'finalize'], True),
+            ({}, ['mount', 'prepare', 'landing', 'restart native', 'ready', landed, 'finalize'], True),
             ({'PANEL': 'standby'}, ['mount', 'prepare', 'restart native', 'ready', 'finalize'], True),
             ({'PANEL': 'standby', 'BOOT_STANDBY': 'true', 'PREPARE_FAIL': 'yes'}, ['mount', 'restart native', 'ready'], True),
-            ({'PANEL': 'active', 'BOOT_STANDBY': 'true'}, ['mount'], False),
-            ({'PANEL': 'active', 'BOOT_STANDBY': 'true', 'LIVE': 'yes'}, ['mount', 'ready'], False),
-            ({'PANEL': 'standby', 'BOOT_STANDBY': 'true', 'RESTART_FAIL': 'yes', 'WAKE_ON_FAILURE': 'yes'}, ['mount', 'restart native', 'switch off', 'blocked stock'], False),
-            ({'PANEL': 'unknown', 'PREPARE_FAIL': 'yes'}, ['mount', 'prepare'], False),
+            # Switched on between compositor-boot's look at the panel and the standby activation: the next pass is an active boot.
+            ({'PANEL': 'active', 'BOOT_STANDBY': 'true', 'BOOT_STANDBY_ONCE': 'yes'},
+             ['mount', 'mount', 'prepare', 'landing', 'restart native', 'ready', landed, 'finalize'], True),
+            ({'PANEL': 'active', 'BOOT_STANDBY': 'true', 'BOOT_STANDBY_ONCE': 'yes', 'LIVE': 'yes'},
+             ['mount', 'ready', 'mount', 'prepare', 'ready', 'finalize'], True),
+            # A standby that cannot be activated twice is left alone.
+            ({'PANEL': 'active', 'BOOT_STANDBY': 'true'}, ['mount', 'mount'], False),
+            ({'PANEL': 'active', 'BOOT_STANDBY': 'true', 'LIVE': 'yes'}, ['mount', 'ready', 'mount', 'ready'], False),
+            # A failed standby activation that fell back to LG's compositor leaves nothing for the second pass to do.
+            ({'PANEL': 'standby', 'BOOT_STANDBY': 'true', 'RESTART_FAIL': 'yes', 'WAKE_ON_FAILURE': 'yes'},
+             ['mount', 'restart native', 'switch off', 'blocked stock', 'mount'], True),
+            # The wake preparation only picks the landing: its failure never holds the compositor back.
+            ({'PANEL': 'unknown', 'PREPARE_FAIL': 'yes'}, ['mount', 'prepare', 'restart native', 'ready'], True),
+            ({'PREPARE_FAIL': 'yes'}, ['mount', 'prepare', 'landing', 'restart native', 'ready'], True),
+            ({'PREPARE_FAIL': 'yes', 'LIVE': 'yes'}, ['mount', 'prepare', 'ready'], True),
+            ({'PREPARE_FAIL': 'yes', 'RESTART_FAIL': 'yes'},
+             ['mount', 'prepare', 'landing', 'restart native', 'switch off', 'restart stock', 'clear'], False),
             ({'LIVE': 'yes'}, ['mount', 'prepare', 'ready', 'finalize'], True),
-            ({'LIVE': 'yes', 'INITIAL_NOT_READY': 'yes'}, ['mount', 'prepare', 'ready', 'landing', 'restart native', 'ready', 'land restart {"appId":"netflix","params":{}}', 'finalize'], True),
-            ({'MOUNT_RESULT': 'already'}, ['mount', 'prepare', 'landing', 'restart native', 'ready', 'land restart {"appId":"netflix","params":{}}', 'finalize'], True),
+            ({'LIVE': 'yes', 'INITIAL_NOT_READY': 'yes'}, ['mount', 'prepare', 'ready', 'landing', 'restart native', 'ready', landed, 'finalize'], True),
+            ({'MOUNT_RESULT': 'already'}, ['mount', 'prepare', 'landing', 'restart native', 'ready', landed, 'finalize'], True),
             ({'MOUNT_RESULT': 'held'}, ['mount'], True),
             ({'MOUNT_RESULT': 'error'}, ['mount'], False),
-            ({'PREPARE_FAIL': 'yes'}, ['mount', 'prepare'], False),
             ({'MOUNTED': 'no'}, ['mount', 'prepare'], False),
             ({'RECOVERING': 'yes'}, ['mount', 'prepare'], False),
             ({'RESTART_FAIL': 'yes'}, ['mount', 'prepare', 'landing', 'restart native', 'switch off', 'restart stock', 'clear'], False),
             ({'READY': 'no'}, ['mount', 'prepare', 'landing', 'restart native', 'ready', 'switch off', 'restart stock', 'clear'], False),
-            ({'FINALIZE_FAIL': 'yes'}, ['mount', 'prepare', 'landing', 'restart native', 'ready', 'land restart {"appId":"netflix","params":{}}', 'finalize'], False),
+            ({'FINALIZE_FAIL': 'yes'}, ['mount', 'prepare', 'landing', 'restart native', 'ready', landed, 'finalize'], False),
         )
         for variables, expected, done in scenarios:
             with self.subTest(variables=variables):
                 self.calls.unlink(missing_ok=True)
                 marker.unlink(missing_ok=True)
                 (self.root / 'restarted').unlink(missing_ok=True)
+                (self.root / 'looked').unlink(missing_ok=True)
+                (state / 'compositor/enabled').touch()
                 env = dict(os.environ, FAKE=str(self.root), CALLS=str(self.calls), WORKER_ID=worker_id, **variables)
                 result = subprocess.run(['sh', str(tools / 'autostart.sh'), '--worker'], env=env,
                                         capture_output=True, text=True, timeout=15)

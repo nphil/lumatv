@@ -592,6 +592,14 @@ it would re-enter itself) and launches the worker with a plain PATH. The late
 hook stands down when `/tmp/.lumaglass-worker` names a live pid or the boot
 completed.
 
+The worker never lets the wake preparation decide whether LumaTV starts. `wake boot-check prepare` only
+chooses the app to land on; when it fails (it rolls itself back) the compositor is activated with no
+landing. Its `systemctl daemon-reload` is cut off at 6 s and ran past that in the power-loss cold boot of
+2026-11-03 20:38, which stopped the worker before activation and left the set on LG's compositor with
+LumaTV's mounted. A standby activation that fails because the set was switched on meanwhile gets one more
+pass, as an active boot. A failed preparation leaves the wake policy off (`wake status`: `off`, with
+`failure.json` kept) until it is staged again.
+
 ### Readiness
 
 `systemctl is-active`, the Home process, `NL_HOME_SHOWN` and
