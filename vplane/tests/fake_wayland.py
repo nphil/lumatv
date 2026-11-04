@@ -125,7 +125,7 @@ class Conn:
             self.send(1, 1, struct.pack("<I", args[0]))
         elif iface == "wl_display" and name == "get_registry":
             self.objects[args[0]] = "wl_registry"
-            for i, (g, v) in enumerate(GLOBALS, 1):
+            for i, (g, v) in enumerate(self.server.globals, 1):
                 self.send(args[0], 0, struct.pack("<I", i) + self.string(g) + struct.pack("<I", v))
         elif iface == "wl_compositor" and name == "create_surface":
             self.objects[args[0]] = "wl_surface"
@@ -237,6 +237,7 @@ class FakeCompositor:
         self.video_history = []
         self.hold_window_id = hold_window_id
         self.seat_caps = 3                  # pointer and keyboard
+        self.globals = list(GLOBALS)         # a test takes one away from its own compositor, not from the module's
         self.conns = []
         self.commits = []
         self.running = True
@@ -251,11 +252,12 @@ class FakeCompositor:
         """`commits` are the frames: a commit that only carries the video's rectangle attaches nothing and is not one."""
         if not fresh:
             return
+        arrived = time.monotonic()          # before the copy of the pixels and the lag: a test orders frames against the player's own clock
         if self.lag:
             time.sleep(self.lag)
         got = conn.pixels(surface)
         with self.lock:
-            self.commits.append((time.monotonic(), surface, got))
+            self.commits.append((arrived, surface, got))
         if got is None:
             return
         bid = conn.surfaces[surface]["committed"]
