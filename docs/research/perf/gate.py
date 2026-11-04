@@ -16,6 +16,7 @@ window per marker with analyse.py and checks every window against the thresholds
   burst end after the key        <= 180 ms (opens and closes)
   compositor RSS over N cycles   flat, see rss_growth()
   /var/log/messages              no line matching LOG_FAIL_PATTERNS
+  trace complete                 every window starts inside the trace: no CPU's ring overran first (16 MB each, capture.sh)
 
 A surface whose key is not consumed (no frame in its window) fails. The marker sits at the edge
 the surface acts on: the press by default, the release for `act: 'release'` (LG's Quick Settings
@@ -36,6 +37,8 @@ most SOAK_TRACE_MAX so the ring never overflows. Exit status 0 only when every c
 
 Home must be on screen when the gate starts. The set needs python3 for kb.py; kb.py and
 capture.sh are copied to /tmp on the set at the start, so nothing else has to be installed.
+The gate also measures the panel (the display's vsync interrupts, `DE2VSYNC`) before it starts and stops when it does not run at --refresh: the TV
+re-times it to 100 Hz after a camera popup or a video window, and a run at the wrong rate judges every window by the wrong refresh.
 
 Screens walked with the D-pad and apps launched from Home (`settings-scroll`, `apps-grid`, `home-widgets`, `switcher`, `keyboard`,
 `transitions-netflix`, `transitions-settings`; named with --surfaces, under LumaTV's compositor, Home at rest in front) run on the owner's own Home
@@ -822,9 +825,13 @@ def evaluate_windows(s, report, cycles, lg_compositor=False, lumatv=False):
     opens = [w for w in report['windows'] if w['name'] == f"{s['name']}-open"]
     closes = [w for w in report['windows'] if w['name'] == f"{s['name']}-close"]
     keyed = opens + (closes if s['transition'] else [])
+    # A window whose start the capture's ring lost has no first frame, burst or OSD interrupt to read (analyse.py `trace_from_ms`): it still counts as a
+    # window, `trace_complete` names it, and every check that reads the trace leaves it out. The compositor's own ring (`ring_dropped`) is not the trace's.
+    cut = [w for w in keyed if w.get('trace_from_ms') is not None]
+    read = [w for w in keyed if w.get('trace_from_ms') is None]
     expected = cycles * (2 if s['transition'] else 1)
     # A surface whose first frame is not checked has no key to answer (Home idle): an empty burst there is not a dead key.
-    dead = [w['name'] for w in keyed if w['first_frame_ms'] is None and th['first_frame_ms'] is not None]
+    dead = [w['name'] for w in read if w['first_frame_ms'] is None and th['first_frame_ms'] is not None]
     unmarked = [w['name'] for w in opens if s['delivery'] and w.get('sent_ms') is None and w.get('delivered_ms') is None] if dead else []
     dead_note = ('no frame after the key in ' + ', '.join(dead)) if dead else ''
     if unmarked:
@@ -835,24 +842,29 @@ def evaluate_windows(s, report, cycles, lg_compositor=False, lumatv=False):
     panel = panel_check(report, REFRESH_HZ)
     if panel:
         out.append(panel)
+    if keyed:
+        late = max(max(w['trace_from_ms'] for w in cut), 0.0) if cut else 0.0
+        out.append(check('trace_complete', not cut, len(cut), '== 0',
+                         (f"{len(cut)} of {len(keyed)} windows began before every CPU's events were in the trace (the capture's ring overran: its dump header counts the "
+                          f"events lost); their first frame, burst and OSD interrupt are not read; the trace is whole {late:g} ms after the key at worst") if cut else ''))
 
     if th['first_frame_ms'] is not None:
-        v = _worst([w['first_frame_ms'] for w in keyed]) if not dead else None
-        # a key that found the display's OSD path off waits for it, whatever the surface does (analyse.py `osd_wake_ms`)
-        off = [w['osd_wake_ms'] for w in keyed if w.get('osd_wake_ms') is not None]
+        v = _worst([w['first_frame_ms'] for w in read]) if not dead else None
+        # a key that found the display's OSD path off waits for it, whatever the surface does (analyse.py `osd_wake_ms`, read where the trace is whole)
+        off = [w['osd_wake_ms'] for w in read if w.get('osd_wake_ms') is not None]
         # when the compositor asked the shell for the panel the key opens (its own marker, `Q:<name>-show`): the rest is the shell's
         asked = [w['show_ms'] for w in keyed if w.get('show_ms') is not None]
         notes = ([f'the OSD was off at {len(off)} key(s), on after {max(off):g} ms at worst'] if off else []) + \
                 ([f'the compositor asked the shell {max(asked):g} ms after the key at worst'] if asked else [])
         out.append(check('first_frame_ms', v is not None and v <= th['first_frame_ms'], v, f"<= {th['first_frame_ms']:g}", '; '.join(notes)))
     if th['burst_end_ms'] is not None:
-        ends = [w['burst_end_ms'] for w in keyed]
+        ends = [w['burst_end_ms'] for w in read]
         v = None if any(e is None for e in ends) or not ends else max(ends)
         out.append(check('burst_end_ms', v is not None and v <= th['burst_end_ms'], v, f"<= {th['burst_end_ms']:g}",
-                         'no burst at the key' if v is None else ''))
+                         ('no burst at the key' if read else 'no window with its start in the trace') if v is None else ''))
     if th['p90_render_ms'] is not None or th['p90_window_ms'] is not None:
         pooled, per_window = [], []
-        for w in keyed:
+        for w in read:
             samples = w.get('burst_anim_samples') if s['transition'] else None
             if not samples:
                 samples = w.get('anim_render_samples') or []
@@ -872,8 +884,8 @@ def evaluate_windows(s, report, cycles, lg_compositor=False, lumatv=False):
             out.append(check('p90_window_ms', vw is None or vw < th['p90_window_ms'], vw, f"< {th['p90_window_ms']:g}",
                              'worst single window'))
     if th['dropped'] is not None:
-        v = sum(w.get('dropped_in_motion', w['dropped']) for w in keyed)
-        frames = sum(w.get('anim_frames') or 0 for w in keyed)
+        v = sum(w.get('dropped_in_motion', w['dropped']) for w in read)
+        frames = sum(w.get('anim_frames') or 0 for w in read)
         if lg_compositor and th['dropped'] == 0:
             share = v / frames if frames else 0.0
             out.append(check('dropped_share', share <= LG_COMPOSITOR_DROP_SHARE, round(share, 3), f'<= {LG_COMPOSITOR_DROP_SHARE}',
@@ -886,7 +898,7 @@ def evaluate_windows(s, report, cycles, lg_compositor=False, lumatv=False):
         else:
             out.append(check('dropped', v <= th['dropped'], v, f"<= {th['dropped']}"))
     if th['burst_over20'] is not None:
-        v = sum(w['burst_over20'] for w in keyed)
+        v = sum(w['burst_over20'] for w in read)
         out.append(check('burst_over20', v <= th['burst_over20'], v, f"<= {th['burst_over20']}"))
     return out
 
@@ -1054,7 +1066,8 @@ def jsonable(v):
 
 WINDOW_KEYS = ('name', 'dur_s', 'frames', 'fps', 'over20', 'worst_ms', 'anim_frames', 'dropped', 'dropped_in_motion', 'anim_render_ms',
                'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms', 'sent_ms', 'delivered_ms', 'show_ms', 'osd_wake_ms',
-               'burst_first_render_ms', 'burst_anim_samples', 'burst_app_jobs', 'irq_counts', 'gaps', 'panel_hz', 'drop_ms', 'ring_judged', 'ring_dropped')
+               'burst_first_render_ms', 'burst_anim_samples', 'burst_app_jobs', 'irq_counts', 'gaps', 'panel_hz', 'drop_ms', 'ring_judged', 'ring_dropped',
+               'trace_from_ms')
 
 
 def app_drawn(report, name):
@@ -1145,6 +1158,18 @@ class Rig:
         if 'NO_COMPOSITOR' in out:
             return device, None
         return device, device_open_in(out, device)
+
+    def panel_hz(self, seconds=2):
+        """The refresh the panel runs at now, Hz, from the display's vsync interrupts over `seconds` (`DE2VSYNC` in /proc/interrupts, one a refresh, all on
+        CPU 0); None where the set lists none. `ctl refresh` says what the compositor asked for, not what the TV runs: it re-times the panel to 100 Hz
+        while a camera popup or a video window is up and keeps it there (2026-11-04: 99.9 Hz through a 23 minute run asked at 120)."""
+        rc, out, _ = self.sh("n() { awk '/DE2VSYNC/ { for (i = 2; i <= 5; i++) if ($i ~ /^[0-9]+$/) s += $i; print s + 0 }' /proc/interrupts; }; "
+                             f'a=$(n); sleep {seconds}; echo $a $(n)')
+        try:
+            before, after = (int(x) for x in out.split())
+        except ValueError:
+            return None
+        return (after - before) / seconds
 
     def save_ring(self, name):
         """The compositor's trace ring as it stands (a cycle's own: taken before the next one), into <name>.ring.json beside the trace. The path, or None
@@ -1475,6 +1500,11 @@ def run_gate(rig, surfaces, soak_cycles, tag, log=None, load=None, load_seconds=
     if read is False:
         raise RuntimeError(f'the compositor has not opened {device}, where the gate injects its keys: they would go nowhere and the gate would time the saver; '
                            'run a compositor that opens devices made after its start (the changelog of 2026-11-04), or restart it')
+    hz = rig.panel_hz()
+    if hz is not None and abs(hz - REFRESH_HZ) > PANEL_TOLERANCE * REFRESH_HZ:
+        raise RuntimeError(f'the panel runs at {hz:.1f} Hz and the gate was asked for {REFRESH_HZ:g}: every window would be judged by the wrong refresh. '
+                           'The TV re-times it (to 100 Hz after a camera popup or a video window) and only a 30 or 60 fps video, played for a few seconds, brings the '
+                           'rest back (docs/research/vwin-refresh-result.md); then `gate.sh refresh <hz>`, check DE2VSYNC/s, and start again')
     loaded = False
     if load:
         loaded = rig.load_start(load, load_seconds)

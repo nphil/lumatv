@@ -236,6 +236,11 @@ read from the `full` captures (`/tmp/perf/gate-r11-qp-*`):
   for the 100 ms before the marker, then the time to its return) and the first-frame check names it. Nothing in the overlay can turn the
   path on ahead of the key short of drawing over the picture all the time, which would change what Dolby Vision does with the picture
   [INFERENCE] and is the owner's call; not done.
+- **Correction (2026-11-04): the silence is where the ring began.** `gate-r11-qp-quick-netflix-m0` lost 70514 of 701395 events, and CPU 0, which
+  takes the OSD and vblank interrupts and the flip events, has nothing before 2.29 s (the tap was at 1.1 s: 1171 ms after it);
+  `picker-netflix-m0` lost 172449 and CPU 0 begins at 3.82 s. The silent interrupt, the missing page flips and the first flip at 1479 ms are
+  the loss, not a reading of the display. The same signature on 2026-11-04 was a Home that flipped every 10 ms through it (`docs/HANDOFF.md`).
+  What the first frame over the film costs was not measured by this run.
 - **Services.qml:513** (`SystemUI/Notification/Services.qml`, LG's toast model reading `userData.id` of a toast that has no `userData`)
   fired at each `-netflix` setup's OK, when playback starts, 25 s before the first measured window. Which toast it was is not known: the
   set's log had rotated before it was read. The re-gate tails the toast lines. The Netflix `[CrashReporter] Previous CrashReport ...

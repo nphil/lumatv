@@ -217,23 +217,59 @@ class Parsing(unittest.TestCase):
     def test_an_apps_drawing_inside_a_burst_is_counted(self):
         import tempfile
         import analyse
-        lines = ['  kb.py-100  [001] ....  10.000000: tracing_mark_write: P:x-open',
-                 '  <idle>-0  [002] d...  10.001000: sched_switch: prev_comm=swapper prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=netflix next_pid=500 next_prio=120',
-                 '  <idle>-0  [003] d...  10.001500: sched_switch: prev_comm=swapper prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=surface-manager next_pid=7 next_prio=120',
-                 '  netflix-500  [002] ....  10.150000: mali_job_slots_event: gpu=0 event=16842752 tgid=500 pid=500 job_id=1',
-                 '  netflix-500  [002] ....  10.200000: mali_job_slots_event: gpu=0 event=33619968 tgid=500 pid=500 job_id=1',
-                 '  surface-manager-7  [003] ....  10.210000: mali_job_slots_event: gpu=0 event=16842752 tgid=7 pid=7 job_id=2',
-                 '  surface-manager-7  [003] ....  10.212000: mali_job_slots_event: gpu=0 event=33619968 tgid=7 pid=7 job_id=2',
-                 '  kb.py-100  [001] ....  10.600000: tracing_mark_write: P:x-close',
-                 '  sh-101  [001] ....  11.000000: tracing_mark_write: stop 1']
-        lines += ['  <idle>-0  [000] d.h1  %.6f: drm_vblank_event_delivered: file=0, crtc=0, seq=%d' % (10.0167 + 0.0167 * k, k) for k in range(18)]
+        for comm in ('surface-manager', 'ld-linux-aarch6'):       # LG's compositor, and LumaTV's: its loop's threads are named after its loader
+            lines = ['  kb.py-100  [001] ....  10.000000: tracing_mark_write: P:x-open',
+                     '  <idle>-0  [002] d...  10.001000: sched_switch: prev_comm=swapper prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=netflix next_pid=500 next_prio=120',
+                     f'  <idle>-0  [003] d...  10.001500: sched_switch: prev_comm=swapper prev_pid=0 prev_prio=120 prev_state=R ==> next_comm={comm} next_pid=7 next_prio=120',
+                     '  netflix-500  [002] ....  10.150000: mali_job_slots_event: gpu=0 event=16842752 tgid=500 pid=500 job_id=1',
+                     '  netflix-500  [002] ....  10.200000: mali_job_slots_event: gpu=0 event=33619968 tgid=500 pid=500 job_id=1',
+                     f'  {comm}-7  [003] ....  10.210000: mali_job_slots_event: gpu=0 event=16842752 tgid=7 pid=7 job_id=2',
+                     f'  {comm}-7  [003] ....  10.212000: mali_job_slots_event: gpu=0 event=33619968 tgid=7 pid=7 job_id=2',
+                     '  kb.py-100  [001] ....  10.600000: tracing_mark_write: P:x-close',
+                     '  sh-101  [001] ....  11.000000: tracing_mark_write: stop 1']
+            lines += ['  <idle>-0  [000] d.h1  %.6f: drm_vblank_event_delivered: file=0, crtc=0, seq=%d' % (10.0167 + 0.0167 * k, k) for k in range(18)]
+            with tempfile.NamedTemporaryFile('w', suffix='.trace', delete=False) as f:
+                f.write('\n'.join(sorted(lines, key=lambda ln: float(ln.split(': ')[0].split()[-1]))) + '\n')
+            try:
+                ws = {w['name']: w['burst_app_jobs'] for w in analyse.analyse(f.name, 7)['windows']}
+            finally:
+                os.unlink(f.name)
+            self.assertEqual(ws, {'x-open': 1, 'x-close': 0}, comm)          # the app's job, not the compositor's
+
+    def test_a_ring_that_lost_its_oldest_events_leaves_the_windows_it_began_before_unread(self):
+        # 2026-11-04: CPU 0, where every device interrupt lands, overran its ring and began 2 to 5 s into 27 of 40 captures; the OSD interrupt
+        # "came back" where CPU 0's events began, and the first frame after a key "took" 474 to 1323 ms
+        import tempfile
+        import analyse
+
+        def osd(t):
+            return [f'  <idle>-0  [000] d.h1 {t:.6f}: irq_handler_entry: irq=104 name=osd_irq',
+                    f'  <idle>-0  [000] d.h1 {t + 0.00001:.6f}: irq_handler_exit: irq=104 ret=handled']
+        lines = ['  capture.sh-9  [002] ....  10.000000: tracing_mark_write: start x',
+                 '  kb.py-100  [001] ....  11.000000: tracing_mark_write: P:x-open',
+                 '  kb.py-100  [001] ....  13.000000: tracing_mark_write: P:x-close',
+                 '  sh-101  [001] ....  14.000000: tracing_mark_write: stop 1']
+        for k in range(100):                    # CPU 0's first event is at 12.0 s
+            lines += osd(12.0 + k / 100.0)
+        lines += ['  <idle>-0  [000] d.h1  13.010000: drm_vblank_event_delivered: file=0, crtc=0, seq=1']
         with tempfile.NamedTemporaryFile('w', suffix='.trace', delete=False) as f:
+            f.write('# tracer: nop\n# entries-in-buffer/entries-written: 600/1000   #P:4\n#\n')
             f.write('\n'.join(sorted(lines, key=lambda ln: float(ln.split(': ')[0].split()[-1]))) + '\n')
         try:
-            ws = {w['name']: w['burst_app_jobs'] for w in analyse.analyse(f.name, 7)['windows']}
+            report = analyse.analyse(f.name, 1)
         finally:
             os.unlink(f.name)
-        self.assertEqual(ws, {'x-open': 1, 'x-close': 0})          # the app's job, not the compositor's
+        self.assertEqual((report['events_lost'], report['complete_from_s']), (400, 2.0))
+        opened, closed = report['windows']
+        self.assertEqual((opened['trace_from_ms'], opened['osd_wake_ms'], opened['first_frame_ms']), (1000.0, None, None))
+        self.assertEqual((closed['trace_from_ms'], closed['osd_wake_ms'], closed['first_frame_ms']), (None, None, 10.0))
+
+    def test_a_cpu_that_came_up_in_the_capture_does_not_say_the_ring_lost_anything(self):
+        import analyse
+        ev = [(10.0, 1, 'sched_switch', 1, 'x', ''), (10.0, 2, 'sched_switch', 1, 'x', ''), (12.0, 0, 'irq_handler_entry', 1, 'x', ''),
+              (13.0, 3, 'cpuhp_enter', 1, 'x', '')]
+        self.assertEqual(analyse.complete_from(ev, 5), 12.0)
+        self.assertIsNone(analyse.complete_from(ev, 0), 'a ring that lost nothing is whole from the start')
 
 
 class Rss(unittest.TestCase):
@@ -415,6 +451,22 @@ class Windows(unittest.TestCase):
         self.assertEqual(c['first_frame_ms']['detail'], 'the OSD was off at 1 key(s), on after 1171 ms at worst')
         self.assertEqual(c['burst_end_ms']['detail'], '')
 
+    def test_a_window_whose_start_the_trace_lost_is_named_and_not_read(self):
+        s = gate.find(['quick-settings'])[0]
+        r = report('quick-settings', 3)
+        r['windows'][0].update(first_frame_ms=None, burst_end_ms=None, osd_wake_ms=None, burst_over20=0, trace_from_ms=2200.0)
+        c = {x['name']: x for x in gate.evaluate_windows(s, r, 3)}
+        self.assertEqual(failed(gate.evaluate_windows(s, r, 3)), ['trace_complete'], 'the other five windows are read, the lost one is not a dead key')
+        self.assertEqual(c['trace_complete']['value'], 1)
+        self.assertIn('1 of 6 windows began before every CPU', c['trace_complete']['detail'])
+        self.assertTrue(c['trace_complete']['detail'].endswith('whole 2200 ms after the key at worst'))
+        r['windows'][0]['dropped'] = 7          # what the trace counted of a window it lost the start of is not read ...
+        self.assertEqual(failed(gate.evaluate_windows(s, r, 3)), ['trace_complete'])
+        for w in r['windows']:                  # ... and the compositor's own count is, for every window
+            w.update(ring_dropped=0, ring_judged=5)
+        r['windows'][0]['ring_dropped'] = 1
+        self.assertEqual(failed(gate.evaluate_windows(s, r, 3)), ['dropped', 'trace_complete'])
+
     def test_a_frame_over_20_ms_fails(self):
         self.assertEqual(failed(self.evaluate(over20=1)), ['burst_over20'])
         self.assertEqual(failed(self.evaluate(dropped=1)), ['dropped'])
@@ -589,8 +641,8 @@ class Edges(unittest.TestCase):
         self.assertIn('windows', failed(gate.evaluate_windows(s, r, 3)))
 
     class FakeRig:
-        def __init__(self, motion, age=None, keys=('/dev/input/event10', True)):
-            self.motion, self.calls, self.age, self.woken, self.keys = motion, [], age, False, keys
+        def __init__(self, motion, age=None, keys=('/dev/input/event10', True), hz=None):
+            self.motion, self.calls, self.age, self.woken, self.keys, self.hz = motion, [], age, False, keys, hz
 
         def compositor_age_s(self):
             return self.age
@@ -603,6 +655,9 @@ class Edges(unittest.TestCase):
 
         def keys_read(self):
             return self.keys
+
+        def panel_hz(self):
+            return self.hz
 
         def motion_state(self):
             return dict(self.motion) if isinstance(self.motion, dict) else {path: self.motion for path in gate.MOTION_SWITCHES}
@@ -687,6 +742,30 @@ class Edges(unittest.TestCase):
             self.assertEqual(ran, ['home-idle'] * 2)
         finally:
             gate.run_surface = orig
+
+    def test_the_gate_stops_when_the_panel_does_not_run_at_the_asked_refresh(self):
+        # 2026-11-04: the TV re-timed the panel to 100 Hz for a camera popup, and the gate ran 23 minutes asked for 120
+        orig = gate.run_surface
+        ran = []
+        gate.run_surface = lambda rig_, s, tag, soak, log: ran.append(s['name']) or {'name': s['name'], 'checks': [], 'log_lines': []}
+        try:
+            with patch.object(gate, 'REFRESH_HZ', 120.0):
+                rig = self.FakeRig(False, hz=99.9)
+                with self.assertRaisesRegex(RuntimeError, r'99\.9 Hz'):
+                    gate.run_gate(rig, gate.find(['home-idle']), 3, 't', log=object())
+                self.assertEqual((ran, rig.calls), ([], []), 'no surface ran and nothing was changed on the set')
+                for hz in (119.5, None):        # the asked refresh, or a set that lists no vsync interrupt
+                    gate.run_gate(self.FakeRig(False, hz=hz), gate.find(['home-idle']), 3, 't', log=object())
+            self.assertEqual(ran, ['home-idle'] * 2)
+        finally:
+            gate.run_surface = orig
+
+    def test_the_panel_rate_is_the_vsync_interrupts_counted_over_the_wait(self):
+        rig = object.__new__(gate.Rig)
+        rig.sh = Mock(return_value=(0, '1000 1200\n', ''))
+        self.assertEqual(rig.panel_hz(2), 100.0)
+        rig.sh = Mock(return_value=(0, ' \n', ''))
+        self.assertIsNone(rig.panel_hz(2), 'a set with no DE2VSYNC line')
 
     def test_the_key_device_is_open_when_the_compositors_fds_say_so(self):
         listing = 'lrwx------ 1 root root 64 Nov  4 08:31 21 -> /dev/input/event2\nlrwx------ 1 root root 64 Nov  4 08:31 22 -> /dev/input/event11\n'

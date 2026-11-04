@@ -132,7 +132,8 @@ def renders(runs, lumatv):
     """The (start, end) bursts of the compositor thread that can have rendered a frame: all of LG's, those of 0.3 ms or more of LumaTV's. The wakeups
     stay in the chain as what the render followed (the idle time before it); they are not what it is read from."""
     return [r for r in runs if r[1] - r[0] >= LUMATV_MIN_RENDER_S] if lumatv else runs
-# Processes whose GPU work is the composition itself, not an app's own drawing.
+# Processes whose GPU work is the composition itself, not an app's own drawing. LumaTV's compositor is the loop's own process (`sm_pid`, whose
+# threads are called `ld-linux-aarch6` after its loader), which `analyse()` leaves out by id.
 COMPOSITION_COMMS = ('surface-manager', 'gal_renderd')
 # An app's buffer reaches the screen up to three frames after its GPU job ends.
 APP_QUEUE_S = 0.050
@@ -177,11 +178,45 @@ def loop_pid(ev):
     return None
 
 
+HEADER = re.compile(r'^#\s*entries-in-buffer/entries-written:\s*(\d+)/(\d+)')
+# How far before a window's marker the analysis reads (the OSD interrupt's last 100 ms).
+LOOKBACK_S = 0.1
+
+
+def events_lost(path):
+    """How many events the dump lost. A CPU's ring buffer overwrites its oldest events when it is full, and the dump's header says how many it
+    holds and how many it was given (`entries-in-buffer/entries-written`); 0 for a file with no such header."""
+    with open(path, errors='replace') as f:
+        for line in f:
+            if not line.startswith('#'):
+                break
+            m = HEADER.match(line)
+            if m:
+                return int(m.group(2)) - int(m.group(1))
+    return 0
+
+
+def complete_from(ev, lost):
+    """The time from which the dump has the events of every CPU; None when it lost none. Each CPU has a ring of its own and the oldest events go
+    first, so a CPU that lost some starts later than the rest: CPU 0, where this set's device interrupts all land, was the one (2026-11-04, 26 of
+    41 captures: nothing at all from it for the first 0.1 to 4.8 s, the OSD interrupt included). A CPU that came up during the capture starts
+    with a hot-plug event and says nothing of loss."""
+    if not lost:
+        return None
+    first = {}
+    for t, cpu, name, pid, comm, args in ev:
+        first.setdefault(cpu, (t, name))
+    starts = [t for t, name in first.values() if not name.startswith('cpuhp')]
+    return max(starts) if starts else None
+
+
 def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
     ev = parse(path)
     if not ev:
         sys.exit("empty trace")
     t_start, t_end = ev[0][0], ev[-1][0]
+    lost = events_lost(path)
+    t_complete = complete_from(ev, lost)
 
     # Discover the compositor pid from the DRM events' owner is unreliable
     # (delivery runs in irq context under whatever task was current), so the
@@ -322,8 +357,10 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
     gpu_starts = [g[0] for g in gpu_jobs]
     irqs.sort()
     irq_starts = [i[0] for i in irqs]
-    # The display's OSD interrupt: on this set it stops while Dolby Vision playback has nothing drawn over it, and the first
-    # frame after a key then waits for it to come back (round 11: 1171 ms, the first flip at 1479 ms).
+    # The display's OSD interrupt (`osd_irq`): the first frame after a key cannot come before it. A stretch of the trace with none that begins
+    # with the capture is not the display asleep: CPU 0 has no event of any kind there, the ring lost them (`complete_from`; the windows that
+    # begin there are not read). Round 11 took such a stretch for Dolby Vision keeping the OSD path off (1171 ms: where its ring began), and the
+    # gate for 474 to 1323 ms first frames on 2026-11-04.
     osd = [i[0] for i in irqs if i[4] == 'osd_irq']
     wake.sort()
     wake_ts = [w[0] for w in wake]
@@ -374,7 +411,8 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
 
     report = {'trace': path, 'sm_pid': sm_pid, 'span_s': round(t_end - t_start, 3),
               'frames_total': len(frames), 'vblank_hz': round(len(vblanks) / (t_end - t_start), 2) if vblanks else None,
-              'cpuhp_events': len(cpuhp), 'gpu_pm_events': len(gpu_pm), 'windows': []}
+              'cpuhp_events': len(cpuhp), 'gpu_pm_events': len(gpu_pm), 'events_lost': lost,
+              'complete_from_s': round(t_complete - t_start, 3) if t_complete is not None else None, 'windows': []}
 
     for a, b, nm in windows:
         drop_ms, panel_hz = panel_drop_ms(vblanks, a, b)
@@ -491,7 +529,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
         # burst, which then measures the app as well as the surface (round 16: Netflix at 60 Hz for 2.4 s kept a picker closing's
         # burst going to 944 ms)
         w['burst_app_jobs'] = sum(1 for t0, t1, slot, tg in gpu_jobs
-                                  if bu['frames'] and a - APP_QUEUE_S <= t1 <= bu['last_t'] and comms.get(tg, '') not in COMPOSITION_COMMS)
+                                  if bu['frames'] and a - APP_QUEUE_S <= t1 <= bu['last_t'] and tg != sm_pid and comms.get(tg, '') not in COMPOSITION_COMMS)
         b_rends = sorted(r for (iv, r), t in zip(anim, anim_t) if bu['frames'] and bu['first_t'] < t <= bu['last_t'])
         w['burst_anim_p90_ms'] = round(b_rends[int(0.9 * (len(b_rends) - 1))], 2) if b_rends else None
         w['burst_anim_samples'] = [round(r, 2) for r in b_rends]
@@ -531,19 +569,29 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
             if kctx and x <= kwait.MAX_GAP_MS:
                 g['kwait'] = kctx.frame(g0, g1)
             w['gaps'].append(g)
+        # A window the dump lost the start of (analyse's `complete_from`) has no first frame, burst or OSD interrupt to read: what is left is
+        # whatever the CPUs that kept theirs saw after their rings began again.
+        w['trace_from_ms'] = None
+        if t_complete is not None and a - LOOKBACK_S < t_complete:
+            w['trace_from_ms'] = round((t_complete - a) * 1000.0, 1)
+            w['osd_wake_ms'] = w['first_frame_ms'] = w['burst_end_ms'] = None
+            w['burst_over20'] = w['burst_app_jobs'] = 0
         report['windows'].append(w)
         w['kwait'] = kwait.summarize([g['kwait'] for g in w['gaps'] if 'kwait' in g]) if kctx else None
     return report
 
 
 def fmt(report, top=10):
-    out = [f"trace {report['trace']}  sm_pid {report['sm_pid']}  span {report['span_s']} s  frames {report['frames_total']}  vblank {report['vblank_hz']} Hz  cpuhp {report['cpuhp_events']}  gpu_pm {report['gpu_pm_events']}"]
+    out = [f"trace {report['trace']}  sm_pid {report['sm_pid']}  span {report['span_s']} s  frames {report['frames_total']}  vblank {report['vblank_hz']} Hz  cpuhp {report['cpuhp_events']}  gpu_pm {report['gpu_pm_events']}"
+           + (f"  LOST {report['events_lost']} events: every CPU's from {report['complete_from_s']} s" if report.get('events_lost') else '')]
     for w in report['windows']:
         out.append(f"\n== {w['name']}: {w['dur_s']} s, {w['frames']} frames ({w['fps']} fps), >17 {w['over17']}, >20 {w['over20']}, >33 {w['over33']}, >50 {w['over50']}, worst {w['worst_ms']} ms; vblanks/present {w['vblanks_between_presents']}"
                    + (f"; panel {w['panel_hz']} Hz" if w.get('panel_hz') is not None else ''))
         out.append(f"   animation-driven frames {w['anim_frames']}, dropped {w['dropped']} ({w['dropped_pct']} %), render ms {w['anim_render_ms']}, dropped-frame render {w['dropped_render_ms']}; timer-driven frames {w['timer_frames']}")
         out.append(f"   burst from marker: first frame {w['first_frame_ms']} ms, ends {w['burst_end_ms']} ms, intervals >20 ms {w['burst_over20']}, animated render p90 {w['burst_anim_p90_ms']} ms"
                    + (f"; the OSD was off at the marker, on after {w['osd_wake_ms']} ms" if w.get('osd_wake_ms') is not None else ''))
+        if w.get('trace_from_ms') is not None:
+            out.append(f"   the dump lost the start of this window (every CPU's events from {w['trace_from_ms']} ms after the marker): its first frame, burst and OSD are not read")
         out.append(f"   compositor: run {w['sm_run_ms']} ms, runnable {w['sm_runnable_ms']} ms, max sched latency {w['sm_max_sched_latency_ms']} ms, migrations {w['sm_migrations']}; gpu jobs {w['gpu_jobs']} busy {w['gpu_busy_ms']} ms, pm transitions {w['gpu_pm_transitions']}; cpuhp {w['cpuhp']} reclaim {w['reclaim_events']} cma {w['cma_events']} block {w['block_rq']}")
         out.append(f"   top cpu: {w['top_cpu_ms']}")
         out.append(f"   irqs: {w['irq_counts']}")

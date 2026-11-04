@@ -10,7 +10,10 @@
 # completion the compositor waits on), so the trace counts what the panel
 # received, not what QML thinks it drew. The Qt GPU profiler stays off.
 # "full" adds sched/irq/mali/vmscan/cpuhp events for root-causing gaps;
-# "basic" is the frame events only. Buffer: 8 MB per CPU, ring.
+# "basic" is the frame events only. Buffer: LUMATV_PERF_BUFFER_KB a CPU (default 16 MB), a ring: when it is full the oldest events go, and the
+# dump's header says how many (`entries-in-buffer/entries-written`; analyse.py leaves a window the loss reaches unread). CPU 0 takes every device
+# interrupt of the set, 11k to 33k events a second (2026-11-04, a USB game-controller dongle at 1 kHz, the network, video decode): 8 MB held
+# 8 to 12 s of it, and 26 of 41 captures began without their first 0.1 to 4.8 s.
 # "kwait" is for a long run (the 60 s x1 probe): the frame events, and the scheduler events of the compositor's own threads only,
 # with the block, reclaim, CMA and GPU job events the waits are labelled from; a minute fits the ring where the full set holds 13 s.
 # In "full" and "kwait" a `stacktrace` trigger leaves the kernel stack of each compositor thread that goes to sleep in D state
@@ -37,8 +40,7 @@ vmscan/mm_vmscan_kswapd_wake vmscan/mm_vmscan_kswapd_sleep
 compaction/mm_compaction_begin compaction/mm_compaction_end
 cma/cma_alloc cma/cma_release
 workqueue/workqueue_execute_start workqueue/workqueue_execute_end
-block/block_rq_issue
-power/cpu_idle"
+block/block_rq_issue"
 events_basic="drm/drm_vblank_event_delivered drm/drm_vblank_event"
 events_kwait="drm/drm_vblank_event_delivered drm/drm_vblank_event sched/sched_switch sched/sched_wakeup
 block/block_rq_issue
@@ -102,7 +104,7 @@ case "$1" in
     echo 0 > $T/tracing_on
     echo 0 > $T/events/enable
     echo > $T/trace
-    echo 8192 > $T/buffer_size_kb
+    echo ${LUMATV_PERF_BUFFER_KB:-16384} > $T/buffer_size_kb
     echo local > $T/trace_clock
     case "$mode" in full) ev="$events_full" ;; kwait) ev="$events_kwait" ;; *) ev="$events_basic" ;; esac
     if [ "$mode" = kwait ]; then
