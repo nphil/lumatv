@@ -227,7 +227,7 @@ set). The table below is the summary; SURFACES.md is the source.
 | Volume and mute OSD | Compositor QML (`views/StarfishVolumeView.qml`); shows webOS's own counter | Rebuilt in the overlay layer, over Home, every app and every input; fed by the receiver, else the TV's own volume (below); LG's view patched out of the shadow module (`tools/volume_patch.py`) | Shadow module |
 | Toasts, alerts, PIN, input popups | `SystemUI/Notification`, 38 files | LG's view kept for its contract and data layer, patched into the Luma look with no shadow layers (`lumatv notifications on`, `tools/notification_patch.py`); own visuals later | View swap |
 | Launch splash, spinner, long-press ring | Compositor QML | Rebuilt | Shadow module |
-| Live TV banner, info, no-signal | `inputcommon` QML | Restyled | Overlay mount |
+| Live TV channel banner, INFO | `inputcommon` QML, drawn into Live TV's own picture | Rebuilt in the system layer from LG's tv/channel services (`system/channel_feed.rs`); LG's banner is blanked on Live TV's picture while it stands in (`compositor/mask.rs`) | System UI redirect + compositor mask |
 | On-screen keyboard | maliit QML | Restyled | Overlay mount |
 | Search and voice | `com.webos.app.voice` QML | Restyled or replaced | Overlay mount |
 | Settings | Web app, +93 MB while open | Own Settings (below); LG's app themed only for its deep screens | Launch redirect + web theme |

@@ -13,6 +13,7 @@
 
 use super::banner::{Kind, SPOTS, Spec, View};
 use super::parts::Part;
+use crate::kit::avatar;
 use crate::kit::button::{Button, Place, Spec as ButtonSpec, Tone, faded};
 use crate::kit::focus::{Id, Region, Scope};
 use crate::kit::icon;
@@ -20,7 +21,7 @@ use crate::kit::lint::Lint;
 use crate::kit::pane::{Pane, PaneKind};
 use crate::kit::pointer::{Gesture, Pointer, Sample};
 use crate::kit::text::{Text, role_style, width_of};
-use crate::kit::widgets::{edge, tile};
+use crate::kit::widgets::{Px, edge, tile};
 use crate::kit::{Engine, Kit, wrap};
 use crate::panels::ui::{Arrive, Root};
 use compositor_protocol::{Fill, GroupPose, Props, Rgba, Shape};
@@ -37,6 +38,17 @@ const BASE: u32 = 0x2900_0000;
 const FADE_MS: u32 = 140;
 /// The block of the no-signal screen is dim on purpose: a still frame on an OLED is what the screen must never hold.
 const BLOCK_ALPHA: f32 = 0.62;
+/// The channel banner's measures at 100 % text, in TV pixels: the number tile's side (the logo's plate is as high and 16:9, LG's own logos are
+/// 356 by 200) and how many times as wide as that the tile may grow for a long number or name, the bar's width and least height, how wide it may
+/// grow with the text, what share of it the chips may take and the progress bar's thickness. Everything else of its look (colours, radii, type,
+/// spacing, depth, motion) is the theme's.
+const CHANNEL_TILE: f32 = 104.0;
+const CHANNEL_TILE_GROWS: f32 = 1.8;
+const CHANNEL_WIDTH: f32 = 1240.0;
+const CHANNEL_MAX_WIDTH: f32 = 1792.0;
+const CHANNEL_MIN_HEIGHT: f32 = 148.0;
+const CHANNEL_CHIPS_SHARE: f32 = 0.34;
+const CHANNEL_BAR: f32 = 6.0;
 
 /// Where the pointer can land: a button.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -182,9 +194,11 @@ impl BannerSurface {
         Ok(())
     }
 
-    /// The channel banner: a glass bar at the foot of the screen.
+    /// The channel banner: a glass bar at the foot of the screen: the number and name on a tile, the channel's logo on a plate of its own when
+    /// the channel has one, the programme with its time, what is next and a bar of how much is left (and, for INFO, what it is about), and
+    /// the programme's marks as chips. The measures are the bar's (`CHANNEL_*`), the rest is the theme's.
     fn channel(kit: &mut Kit, z: i32, spec: &Spec, over_video: bool, b: &mut Built) -> std::io::Result<()> {
-        let (s2, s3, s5) = (kit.space(2), kit.space(3), kit.space(5));
+        let (s2, s3, s5, s6) = (kit.space(2), kit.space(3), kit.space(5), kit.space(6));
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
         let number_style = role_style(kit, TypeRole::Title, Some(Weight::SemiBold), ink, Align::Centre);
         let call_style = role_style(kit, TypeRole::Caption, Some(Weight::SemiBold), ink2, Align::Centre);
@@ -193,18 +207,25 @@ impl BannerSurface {
         let next_style = role_style(kit, TypeRole::Caption, None, ink2, Align::Right);
         let chip_style = role_style(kit, TypeRole::Caption, Some(Weight::SemiBold), ink2, Align::Left);
         let (title_h, cap_h, num_h) = (kit.line(TypeRole::Body), kit.line(TypeRole::Caption), kit.line(TypeRole::Title));
-        let tile_side = scaled(kit, 104.0).max(num_h + cap_h + 2.0 * s3);
-        let bar_h = 6.0;
-        let inner_h = title_h + s2 + cap_h + s2 + bar_h;
-        let h = (tile_side.max(inner_h) + 2.0 * s5).max(148.0).ceil();
-        let w = (1240.0 * (1.0 + 0.45 * (kit.text_scale - 1.0))).round().min(1792.0);
+        let tile_side = scaled(kit, CHANNEL_TILE).max(num_h + cap_h + 2.0 * s3);
+        // the number is read whole and the name as far as it goes: the tile widens for them, but only so far
+        let words_w = width_of(kit, number_style, &spec.number).max(width_of(kit, call_style, &spec.call)).ceil() + 2.0 * s2;
+        let tile_w = words_w.clamp(tile_side, (tile_side * CHANNEL_TILE_GROWS).round());
+        let wide = (tile_side * 16.0 / 9.0).round();
+        let logo = (!spec.logo.is_empty()).then(|| avatar::contained(&spec.logo, (wide - 2.0 * s2) as u32, (tile_side - 2.0 * s2) as u32)).flatten();
+        let bar_h = CHANNEL_BAR;
+        let w = (CHANNEL_WIDTH * (1.0 + 0.45 * (kit.text_scale - 1.0)) + (tile_w - tile_side) + if logo.is_some() { wide + s3 } else { 0.0 }).round().min(CHANNEL_MAX_WIDTH);
+        // what the programme is about (INFO): two lines under the bar
+        let detail_lines = if spec.detail.is_empty() { 0 } else { 2 };
+        let inner_h = title_h + s2 + cap_h + s2 + bar_h + if detail_lines > 0 { s2 + detail_lines as f32 * cap_h } else { 0.0 };
+        let h = (tile_side.max(inner_h) + 2.0 * s5).max(CHANNEL_MIN_HEIGHT).ceil();
         let frame = Frame::new(64.0, 1080.0 - 56.0 - h, w, h);
         let paint = kit.ui.look.colour(PaletteRole::Sheet);
         b.parts.push(Part::Pane(Pane::new(kit, frame, z, PaneKind::Card, over_video)));
         b.panels.push(("channel banner".into(), frame, paint, None));
         let cy = frame.y + h / 2.0;
-        // the number and the call sign on a tile
-        let tile_f = Frame::new(frame.x + 22.0, (cy - tile_side / 2.0).round(), tile_side, tile_side);
+        // the number and the name on a tile
+        let tile_f = Frame::new(frame.x + s5, (cy - tile_side / 2.0).round(), tile_w, tile_side);
         let wash = faded(ink, kit.tokens.states.selected_wash);
         let plate_shape = Shape { corner_radius: kit.tokens.radius(Radius::Tile), fill: Fill::Solid(wash), border_width: 1.0, border: edge(kit) };
         b.parts.push(Part::Shape(plate::shape(&kit.ui, tile_f, z + 1, plate_shape)));
@@ -212,17 +233,42 @@ impl BannerSurface {
         b.panels.push(("channel tile".into(), tile_f, wash, Some(0)));
         let block = num_h + cap_h;
         let ny = (tile_f.y + (tile_side - block) / 2.0).round();
-        let number = Text::new(kit, Frame::new(tile_f.x + s2, ny, tile_side - 2.0 * s2, num_h), z + 2, number_style, &spec.number)?;
-        b.words.push(Word { name: "channel number".into(), text: spec.number.clone(), frame: number.frame(), style: number_style, panel: Some(tile_panel) });
-        b.parts.push(Part::Text(number));
-        let call = Text::new(kit, Frame::new(tile_f.x + s2, ny + num_h, tile_side - 2.0 * s2, cap_h), z + 2, call_style, &spec.call)?;
-        b.words.push(Word { name: "channel call".into(), text: spec.call.clone(), frame: call.frame(), style: call_style, panel: Some(tile_panel) });
-        b.parts.push(Part::Text(call));
-        // the chips, from the right edge in
-        let mut chip_right = frame.right() - 28.0;
+        let inner_w = tile_w - 2.0 * s2;
+        let number = wrap::elide(kit, number_style, &spec.number, inner_w);
+        let t = Text::new(kit, Frame::new(tile_f.x + s2, ny, inner_w, num_h), z + 2, number_style, &number)?;
+        b.words.push(Word { name: "channel number".into(), text: number.clone(), frame: t.frame(), style: number_style, panel: Some(tile_panel) });
+        b.parts.push(Part::Text(t));
+        let call = wrap::elide(kit, call_style, &spec.call, inner_w);
+        let t = Text::new(kit, Frame::new(tile_f.x + s2, ny + num_h, inner_w, cap_h), z + 2, call_style, &call)?;
+        b.words.push(Word { name: "channel call".into(), text: call.clone(), frame: t.frame(), style: call_style, panel: Some(tile_panel) });
+        b.parts.push(Part::Text(t));
+        // the logo, whole, on a plate of its own beside the tile (the channel's art is its own: never tinted)
+        let mut left = tile_f.right();
+        let mut logo_frame = Value::Null;
+        if let Some(pic) = logo {
+            let plate_f = Frame::new(tile_f.right() + s3, tile_f.y, wide, tile_side);
+            let mut px = Px::new(wide as u32, tile_side as u32);
+            px.round_rect(Frame::new(0.0, 0.0, wide, tile_side), kit.tokens.radius(Radius::Tile), wash, Some((edge(kit), 1.0)));
+            px.lay(&pic.rgba, pic.width, pic.height, ((wide as u32).saturating_sub(pic.width) / 2) as i32, ((tile_side as u32).saturating_sub(pic.height) / 2) as i32);
+            b.parts.push(Part::Image(px.layer(kit, z + 1, Props::at(plate_f.x, plate_f.y))?));
+            b.glyphs.push(("channel logo".into(), plate_f, tile_side as u32));
+            logo_frame = frame_json(plate_f);
+            left = plate_f.right();
+        }
+        // the chips, from the right edge in: the first of them are kept when there is not room for all (they take a share of the bar, the
+        // programme's words the rest)
+        let mut chip_right = frame.right() - s6;
         let chip_h = (cap_h + s3).ceil();
         let mut chips_left = chip_right;
-        for chip in spec.chips.iter().rev() {
+        let (mut budget, mut kept) = (w * CHANNEL_CHIPS_SHARE, 0);
+        for chip in &spec.chips {
+            budget -= (width_of(kit, chip_style, chip) + 2.0 * s3 + 6.0).ceil() + s2;
+            if budget < 0.0 {
+                break;
+            }
+            kept += 1;
+        }
+        for chip in spec.chips[..kept].iter().rev() {
             let cw = (width_of(kit, chip_style, chip) + 2.0 * s3 + 6.0).ceil();
             let f = Frame::new(chip_right - cw, (cy - chip_h / 2.0).round(), cw, chip_h);
             let shape = Shape { corner_radius: chip_h / 2.0, fill: Fill::Solid(wash), border_width: 0.0, border: Rgba(0, 0, 0, 0) };
@@ -236,7 +282,7 @@ impl BannerSurface {
             chips_left = f.x;
         }
         // the programme, its time and what is next, the bar of how much is left
-        let text_x = tile_f.right() + s5;
+        let text_x = left + s5;
         let text_w = (chips_left - s5 - text_x).max(80.0);
         let col_h = inner_h;
         let top = (cy - col_h / 2.0).round();
@@ -246,11 +292,22 @@ impl BannerSurface {
         b.parts.push(Part::Text(t));
         let sub_y = top + title_h + s2;
         let next_text = if spec.next.is_empty() { String::new() } else { format!("Next \u{b7} {}", spec.next) };
-        let next_w = if next_text.is_empty() { 0.0 } else { width_of(kit, next_style, &next_text).min(text_w * 0.5) };
-        let sub = wrap::elide(kit, sub_style, &spec.sub, (text_w - next_w - if next_w > 0.0 { s5 } else { 0.0 }).max(40.0));
+        // the time of day comes first (its "min left" goes before any of it does); what is next has what that leaves when that is enough to say
+        // something, and is left out when it is not
+        let (mut next_w, mut sub_room) = (0.0, text_w);
+        if !next_text.is_empty() {
+            let range = spec.sub.split(" \u{b7} ").next().unwrap_or_default();
+            let time_w = width_of(kit, sub_style, &format!("{range}\u{2026}")).min(width_of(kit, sub_style, &spec.sub)).ceil();
+            let left = (text_w - s5 - time_w).floor();
+            if left >= width_of(kit, next_style, "Next \u{b7} Wh\u{2026}").ceil() {
+                next_w = width_of(kit, next_style, &next_text).ceil().min(left);
+                sub_room = text_w - s5 - next_w;
+            }
+        }
+        let sub = wrap::elide(kit, sub_style, &spec.sub, sub_room.max(40.0));
         let sub_w = width_of(kit, sub_style, &sub).min(text_w);
         let t = Text::new(kit, Frame::new(text_x, sub_y, sub_w, cap_h), z + 2, sub_style, &sub)?;
-        b.words.push(Word { name: "channel sub".into(), text: sub, frame: t.frame(), style: sub_style, panel: Some(0) });
+        b.words.push(Word { name: "channel sub".into(), text: sub.clone(), frame: t.frame(), style: sub_style, panel: Some(0) });
         b.parts.push(Part::Text(t));
         if next_w > 0.0 {
             let next = wrap::elide(kit, next_style, &next_text, next_w);
@@ -265,7 +322,18 @@ impl BannerSurface {
         if fill_w >= 1.0 {
             b.parts.push(Part::Shape(plate::shape(&kit.ui, Frame::new(text_x, bar_y, fill_w, bar_h), z + 2, plate::solid(ink2, bar_h / 2.0))));
         }
-        b.geometry = json!({"kind": "channel", "bar": frame_json(frame), "tile": frame_json(tile_f), "chips": spec.chips.len(), "progress": spec.progress});
+        // INFO: what the programme is about, two lines at most under the bar
+        let mut detail_shown = 0;
+        if detail_lines > 0 {
+            for (i, line) in wrap::lines(kit, sub_style, &spec.detail, text_w, detail_lines).iter().enumerate() {
+                let t = Text::new(kit, Frame::new(text_x, bar_y + bar_h + s2 + i as f32 * cap_h, text_w, cap_h), z + 2, sub_style, line)?;
+                b.words.push(Word { name: "channel detail".into(), text: line.clone(), frame: t.frame(), style: sub_style, panel: Some(0) });
+                b.parts.push(Part::Text(t));
+                detail_shown += 1;
+            }
+        }
+        b.geometry = json!({"kind": "channel", "bar": frame_json(frame), "tile": frame_json(tile_f), "number": number, "call": call, "sub": sub, "logo": logo_frame,
+                            "chips": kept, "progress": spec.progress, "detail": detail_shown});
         Ok(())
     }
 
@@ -684,5 +752,140 @@ mod tests {
                 assert!(found.is_empty(), "{mode:?} at {scale}: {found:?}");
             }
         }
+    }
+
+    /// A logo as LG keeps them on the set: a 16:9 PNG of 356 by 200 with art on a ground of its own.
+    fn logo_file() -> String {
+        let path = std::env::temp_dir().join(format!("lumatv-banner-logo-{}.png", std::process::id()));
+        let (w, h) = (356u32, 200u32);
+        let mut data = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                let on_letter = (60..300).contains(&x) && (70..130).contains(&y) && (x / 20 + y / 20) % 2 == 0;
+                data.extend_from_slice(if on_letter { &[255, 255, 255, 255] } else { &[200, 40, 60, 255] });
+            }
+        }
+        let mut enc = png::Encoder::new(std::io::BufWriter::new(std::fs::File::create(&path).expect("a file")), w, h);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().expect("a header").write_image_data(&data).expect("the pixels");
+        path.to_string_lossy().into_owned()
+    }
+
+    /// Long words everywhere the channel banner has a place for them.
+    fn long_channel(logo: &str) -> Value {
+        json!({"kind": "channel", "number": "11-12", "call": "Atlanta Channel 2 Action News Weekend Edition", "logo": logo,
+               "title": "Antiques Roadshow Atlanta, Hour 2: a title that runs on and on and on past the end of the line",
+               "sub": "8:00 PM \u{2013} 9:00 PM \u{b7} 23 min left", "progress": 0.62, "next": "Nova: Secrets of the Shining Knight and the Lost Library",
+               "chips": ["TV-PG", "CC", "AD", "Internet"]})
+    }
+
+    #[test]
+    fn the_channel_banner_gives_the_logo_a_plate_of_its_own_beside_the_tile_and_reads_clean_with_long_words_in_both_materials_and_sizes() {
+        let logo = logo_file();
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (_h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).expect("an engine");
+                let mut b = Banner::new(&json!({}));
+                show(&mut b, long_channel(&logo), 1000);
+                let mut s = BannerSurface::new(1000);
+                draw(&mut kit, &mut engine, &mut s, &b, true, 1100);
+                let g = s.geometry();
+                let (bar, tile, plate) = (&g["bar"], &g["tile"], &g["logo"]);
+                assert!(plate.is_object(), "{mode:?} at {scale}: the logo has its plate: {g}");
+                let f = |v: &Value, k: &str| v[k].as_f64().unwrap();
+                assert!(f(plate, "x") >= f(tile, "x") + f(tile, "w"), "{mode:?} at {scale}: beside the tile, not on it: {g}");
+                assert_eq!((f(plate, "y"), f(plate, "h")), (f(tile, "y"), f(tile, "h")), "as high as the tile, on its line");
+                assert!((f(plate, "w") / f(plate, "h") - 16.0 / 9.0).abs() < 0.02, "a 16:9 plate: {g}");
+                assert!(f(plate, "x") + f(plate, "w") <= f(bar, "x") + f(bar, "w"), "inside the bar");
+                assert!(f(bar, "x") >= 64.0 && f(bar, "x") + f(bar, "w") <= 1920.0 - 64.0 && f(bar, "y") + f(bar, "h") <= 1080.0 - 56.0, "64 from the sides and 56 from the foot: {g}");
+                assert!(g["sub"].as_str().is_some_and(|t| t.starts_with("8:00 PM \u{2013} 9:00 PM")), "{mode:?} at {scale}: the time of day is read whole, its minutes left and what is next give way first: {g}");
+                assert!(g["chips"].as_u64().is_some_and(|n| n >= 2 && (scale > 1.0 || n == 4)), "{mode:?} at {scale}: the first marks are kept, and all of them where there is room: {g}");
+                let found = lint_of(&mut kit, &s);
+                assert!(found.is_empty(), "{mode:?} at {scale}: {found:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_logo_that_is_not_there_is_no_plate_and_no_gap_and_what_the_programme_is_about_is_two_lines_at_most() {
+        for scale in [1.0, 2.0] {
+            let (_h, mut kit) = testkit::kit_in(Mode::Dark, scale);
+            let mut engine = Engine::new(&kit).expect("an engine");
+            let mut b = Banner::new(&json!({}));
+            show(&mut b, long_channel("/nowhere/logo.png"), 1000);
+            let mut s = BannerSurface::new(1000);
+            draw(&mut kit, &mut engine, &mut s, &b, true, 1100);
+            assert!(s.geometry()["logo"].is_null(), "a file that is not there leaves no empty plate: {}", s.geometry());
+            let narrow = s.geometry()["bar"]["w"].as_f64().unwrap();
+            let logo = logo_file();
+            show(&mut b, long_channel(&logo), 1200);
+            draw(&mut kit, &mut engine, &mut s, &b, true, 1300);
+            assert!(s.geometry()["bar"]["w"].as_f64().unwrap() >= narrow, "a bar with a logo is as wide or wider, never narrower");
+            // INFO: the description under the bar, cut at two lines
+            let mut spec = long_channel(&logo);
+            spec["info"] = json!(true);
+            spec["detail"] = json!("A long description of the programme that goes on for a good while about the appraisers and the owners and the things they brought to be looked at, and then some more of it, and more again, so that it cannot fit on two lines of the bar.");
+            show(&mut b, spec, 1400);
+            draw(&mut kit, &mut engine, &mut s, &b, true, 1500);
+            assert_eq!(s.geometry()["detail"], 2, "at {scale}: two lines, the rest cut: {}", s.geometry());
+            let found = lint_of(&mut kit, &s);
+            assert!(found.is_empty(), "at {scale}: {found:?}");
+        }
+    }
+
+    #[test]
+    fn the_number_and_name_tile_stays_square_for_short_words_and_widens_so_that_a_long_number_is_read_whole() {
+        for scale in [1.0, 2.0] {
+            let (_h, mut kit) = testkit::kit_in(Mode::Dark, scale);
+            let mut engine = Engine::new(&kit).expect("an engine");
+            let mut b = Banner::new(&json!({}));
+            let mut s = BannerSurface::new(1000);
+            show(&mut b, json!({"kind": "channel", "number": "7", "call": "KABC", "title": "News"}), 1000);
+            draw(&mut kit, &mut engine, &mut s, &b, true, 1100);
+            let g = s.geometry();
+            assert_eq!(g["tile"]["w"], g["tile"]["h"], "at {scale}: a short number and name leave the tile square: {g}");
+            let side = g["tile"]["h"].as_f64().unwrap();
+            show(&mut b, json!({"kind": "channel", "number": "100-12", "call": "Georgia Public Broadcasting Atlanta Multicast", "title": "News"}), 1200);
+            draw(&mut kit, &mut engine, &mut s, &b, true, 1300);
+            let g = s.geometry();
+            let wide = g["tile"]["w"].as_f64().unwrap();
+            assert!(wide > side && wide <= (side * f64::from(CHANNEL_TILE_GROWS)).round(), "at {scale}: wider for what it holds, not without limit: {g}");
+            assert_eq!(g["number"], "100-12", "at {scale}: the number is read whole: {g}");
+            let found = lint_of(&mut kit, &s);
+            assert!(found.is_empty(), "at {scale}: {found:?}");
+        }
+    }
+
+    #[test]
+    fn the_channel_banner_has_no_hard_coded_colour_radius_or_time_it_takes_them_from_the_theme() {
+        let src = include_str!("banner_surface.rs");
+        let from = src.find("    fn channel(").expect("the channel banner");
+        let to = from + src[from..].find("    fn no_signal(").expect("the no-signal screen follows it");
+        for (n, line) in src[from..to].lines().enumerate() {
+            let code = line.split("//").next().unwrap_or("");
+            assert!(!code.contains("0x") && !code.contains('#'), "line {n} of the channel banner writes a colour: {line}");
+            assert!(!code.contains("Rgba(") || code.contains("Rgba(0, 0, 0, 0)"), "line {n} of the channel banner writes a colour of its own: {line}");
+            assert!(!code.contains("Duration") && !code.contains("_ms") && !code.contains("Fill::Linear"), "line {n} of the channel banner writes a time or a gradient: {line}");
+            if let Some(i) = code.find("corner_radius:") {
+                let value = &code[i + "corner_radius:".len()..];
+                assert!(value.trim_start().starts_with("kit.tokens.radius(") || value.trim_start().starts_with("chip_h / 2.0"), "line {n}: a radius is the theme's or a pill's: {line}");
+            }
+        }
+        // and what is drawn follows the theme: the sheet and the inks are the two materials' own
+        let colours: Vec<_> = [Mode::Dark, Mode::Light]
+            .into_iter()
+            .map(|mode| {
+                let (_h, mut kit) = testkit::kit_in(mode, 1.0);
+                let mut engine = Engine::new(&kit).expect("an engine");
+                let mut b = Banner::new(&json!({}));
+                show(&mut b, channel(), 1000);
+                let mut s = BannerSurface::new(1000);
+                draw(&mut kit, &mut engine, &mut s, &b, true, 1100);
+                (kit.ui.look.ink(), kit.ui.look.colour(PaletteRole::Sheet))
+            })
+            .collect();
+        assert_ne!(colours[0], colours[1], "the banner's inks and sheet are the material's, which differ between dark and light");
     }
 }

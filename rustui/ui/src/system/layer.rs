@@ -332,8 +332,8 @@ impl Layer {
     pub fn set_theme(&mut self, theme: &Value, now: u64) -> Vec<Effect> {
         self.capture.set_reduced(theme.pointer("/motion/reduced").and_then(Value::as_bool) == Some(true));
         self.overlay.set_config(theme.get("overlays").unwrap_or(&Value::Null));
-        self.banner.set_theme(theme);
-        let out = self.saver.set_config(saver_config(theme), now);
+        let mut out = self.banner.set_theme(theme, now);
+        out.extend(self.saver.set_config(saver_config(theme), now));
         self.redraw = true;
         out
     }
@@ -814,10 +814,19 @@ impl Layer {
         (kinds.alert && self.alerts.wants()) || (kinds.ai && self.ai.wants()) || (kinds.banner && self.banner.wants()) || (kinds.saver && self.saver.wants_keys()) || (kinds.layout && self.layout_open()) || (kinds.home && self.extras.wants())
     }
 
-    /// The keys the layer takes by name while an app has the focus (the cards' OK and Back).
+    /// The keys the layer takes by name while an app has the focus: the cards' OK and Back, and INFO (Back too while its banner is up) while the
+    /// channel banner follows Live TV.
     pub fn takes(&self, kinds: &Kinds) -> Vec<&'static str> {
         let quiet = !(kinds.alert && self.alerts.wants()) && !(kinds.ai && self.ai.wants()) && !(kinds.banner && self.banner.wants()) && !(kinds.saver && self.saver.wants_keys());
-        if quiet && !self.layout_open() && ((kinds.popup && self.popup.armed_now()) || (kinds.cards && self.overlay.armed())) { vec!["ok", "back"] } else { Vec::new() }
+        let mut keys = if quiet && !self.layout_open() && ((kinds.popup && self.popup.armed_now()) || (kinds.cards && self.overlay.armed())) { vec!["ok", "back"] } else { Vec::new() };
+        if kinds.banner && quiet {
+            for k in self.banner.takes() {
+                if !keys.contains(&k) {
+                    keys.push(k);
+                }
+            }
+        }
+        keys
     }
 
     /// Whether the saver is up: what the compositor's OLED care and the helper's rules read (`state.saver`).

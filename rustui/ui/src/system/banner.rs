@@ -13,6 +13,9 @@
 //! `banner.hide` takes it away), which is what the QML's development door and `showBanner` were. Only a banner with buttons takes the keys (left and
 //! right move, OK picks, Back ends it); the pill and the channel banner take none and go by themselves.
 
+use super::channel_feed::{self, Feed, Raise};
+use super::lg_mask::{self, LgMask};
+use crate::host::channels;
 use crate::host::inputs::{self, Inputs};
 use crate::kit::screen::{Effect, Input};
 use serde_json::{Value, json};
@@ -25,9 +28,12 @@ pub const INPUTS_TAG: u64 = 0x4A00_0001;
 pub const HOME_TAG: u64 = 0x4A00_0002;
 /// How long an input pill waits for the list before it says the port alone.
 const LIST_WAIT_MS: u64 = 1500;
-/// How long a banner is held: the pill and the channel banner four seconds, one with buttons eight, no signal until something is picked.
+/// How long a banner is held: the pill four seconds, no signal until something is picked, one with buttons eight, and the channel banner as LG
+/// holds its own (`BannerInterfaces.qml`: five seconds for a change or a launch), eight for INFO (`channel_feed`).
 const HOLD_PILL_MS: u64 = 4000;
 const HOLD_BUTTONS_MS: u64 = 8000;
+pub const HOLD_CHANNEL_MS: u64 = 5000;
+pub const HOLD_INFO_MS: u64 = 8000;
 /// The no-signal block moves to its next spot this often.
 pub const SPOT_MS: u64 = 60_000;
 /// The spots of the no-signal block, as offsets from the middle of the screen (the mock's first is 180 right and 120 up: `[0, 0]` here is
@@ -100,6 +106,12 @@ pub struct Spec {
     pub progress: f32,
     pub next: String,
     pub chips: Vec<String>,
+    /// The channel's logo: a picture file on the set ("" for a channel with none).
+    pub logo: String,
+    /// What the programme is about, under the title (the INFO banner only).
+    pub detail: String,
+    /// The banner INFO raised: INFO and Back end it.
+    pub info: bool,
     // input
     pub icon: String,
     pub name: String,
@@ -123,6 +135,9 @@ impl Spec {
             progress: 0.0,
             next: String::new(),
             chips: Vec::new(),
+            logo: String::new(),
+            detail: String::new(),
+            info: false,
             icon: String::new(),
             name: String::new(),
             facts: String::new(),
@@ -132,6 +147,11 @@ impl Spec {
             buttons: Vec::new(),
             hold_ms: HOLD_PILL_MS,
         }
+    }
+
+    /// A channel banner with nothing said yet, held as LG holds its own.
+    pub fn channel() -> Spec {
+        Spec { hold_ms: HOLD_CHANNEL_MS, ..Spec::blank(Kind::Channel) }
     }
 
     /// The spec of a JSON document (`{"kind": "input", "icon", "name", "facts", "buttons": bool, "actions": [ids]}`, and the others'); none for a kind
@@ -155,7 +175,10 @@ impl Spec {
                 s.next = text("next");
                 s.progress = v.get("progress").and_then(Value::as_f64).unwrap_or(0.0).clamp(0.0, 1.0) as f32;
                 s.chips = v.get("chips").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).take(6).collect()).unwrap_or_default();
-                s.hold_ms = if s.hold_ms > 0 { s.hold_ms } else { HOLD_PILL_MS };
+                s.logo = text("logo");
+                s.detail = text("detail");
+                s.info = v.get("info").and_then(Value::as_bool) == Some(true);
+                s.hold_ms = if s.hold_ms > 0 { s.hold_ms } else if s.info { HOLD_INFO_MS } else { HOLD_CHANNEL_MS };
             }
             Kind::Input => {
                 s.icon = if text("icon").is_empty() { "cable".to_string() } else { text("icon") };
@@ -241,8 +264,9 @@ pub struct Banner {
     /// The owner's own banners (theme `banners.own`).
     own: bool,
     inputs: Inputs,
-    /// What is in front: an app, not Home, with the screen on.
+    /// What is in front: an app, not Home (`up`), and with the screen on (`front`: what the banners are for).
     app: String,
+    up: bool,
     front: bool,
     screen_on: bool,
     spec: Option<Spec>,
@@ -253,13 +277,17 @@ pub struct Banner {
     spot_at: Option<u64>,
     /// An input came to the front and its pill waits for the list: the app and when it was asked for.
     waiting: Option<(String, u64)>,
+    /// What live TV's channel banner says and when (`channel_feed`).
+    feed: Feed,
+    /// LG's own banner on Live TV, which the compositor leaves undrawn while this one stands in for it (`lg_mask`).
+    lg: LgMask,
     intents: Vec<Intent>,
 }
 
 impl Banner {
     pub fn new(theme: &Value) -> Self {
         let mut b = Self { screen_on: true, ..Self::default() };
-        b.set_theme(theme);
+        let _ = b.set_theme(theme, 0);
         b
     }
 
@@ -292,11 +320,27 @@ impl Banner {
     }
 
     /// The owner's switch (`banners.own`): off, nothing of LumaTV's own shows on its own; a banner that was asked for by its owner always does.
-    pub fn set_theme(&mut self, theme: &Value) {
+    pub fn set_theme(&mut self, theme: &Value, now: u64) -> Vec<Effect> {
         self.own = theme.pointer("/banners/own").and_then(Value::as_bool) == Some(true);
         if !self.own {
             self.waiting = None;
         }
+        let mut out = self.sync_live(now);
+        if !self.own && self.spec.as_ref().is_some_and(|s| s.kind == Kind::Channel) && !self.feed.live() {
+            out.extend(self.hide());
+        }
+        out
+    }
+
+    /// Live TV in front with the owner's banners on is what the channel banner follows the tuner for, and what LG's own banner is blanked for.
+    fn sync_live(&mut self, now: u64) -> Vec<Effect> {
+        let live = self.front && self.own && self.app == channels::LIVE_TV_APP;
+        let was = self.feed.live();
+        let mut out = self.feed.set_live(live, now);
+        if live != was {
+            out.extend(if live { self.lg.engage() } else { self.lg.release() });
+        }
+        out
     }
 
     pub fn up(&self) -> bool {
@@ -327,12 +371,47 @@ impl Banner {
 
     fn hide(&mut self) -> Vec<Effect> {
         self.waiting = None;
+        self.feed.gone();
         if self.spec.take().is_some() {
             self.until = None;
             self.spot_at = None;
             return vec![Effect::Redraw];
         }
         Vec::new()
+    }
+
+    /// What the feed asked of the banner: its effects, the banner it raises or refreshes, the plain pill when the tuner named no channel.
+    fn feed_out(&mut self, out: channel_feed::Out, now: u64) -> Vec<Effect> {
+        let mut fx = out.effects;
+        if out.changed {
+            fx.extend(self.lg.tuned());
+        }
+        match out.raise {
+            Some(Raise::Show(spec)) => fx.extend(self.show(spec, now)),
+            Some(Raise::Refresh(spec)) if self.spec.as_ref().is_some_and(|s| s.kind == Kind::Channel) && self.spec.as_ref() != Some(&spec) => {
+                self.spec = Some(spec);
+                fx.push(Effect::Redraw);
+            }
+            Some(Raise::Refresh(_)) | None => {}
+        }
+        if out.pill && self.spec.is_none() {
+            let spec = Spec::for_input(channels::LIVE_TV_APP, &self.inputs);
+            fx.extend(self.show(spec, now));
+        }
+        fx
+    }
+
+    /// The keys the layer takes by name while an app has the focus: INFO while Live TV is in front with the banners on (so LG's own INFO card
+    /// does not open under this one), and Back while the INFO banner is up (it ends it, as it ends LG's).
+    pub fn takes(&self) -> Vec<&'static str> {
+        let mut keys = Vec::new();
+        if self.feed.live() {
+            keys.push("info");
+            if self.feed.info_up() {
+                keys.push("back");
+            }
+        }
+        keys
     }
 
     /// An input came to the front (a switch, with the owner's banners on): the pill is asked for with the list's word on the device.
@@ -356,33 +435,43 @@ impl Banner {
                 "foreground" => {
                     let app = data.get("app").and_then(Value::as_str).unwrap_or("").to_string();
                     let home = data.get("home").and_then(Value::as_bool).unwrap_or(false);
-                    let front = !home && !app.is_empty() && app != "com.webos.app.home" && self.screen_on;
+                    let up = !home && !app.is_empty() && app != "com.webos.app.home";
+                    let front = up && self.screen_on;
                     let was = (self.front, self.app.clone());
+                    self.up = up;
                     self.front = front;
                     self.app = app.clone();
                     if was == (front, app.clone()) {
                         return Vec::new();
                     }
-                    // what is in front changed: a banner the inputs made goes with the input, and an input that came wants its pill
-                    let mut out = Vec::new();
-                    if self.spec.as_ref().is_some_and(|s| s.kind == Kind::Input) || self.waiting.is_some() || !front {
+                    // what is in front changed: a banner the inputs made goes with the input, and an input that came wants its pill (Live TV's
+                    // is the channel banner, which the feed raises once the tuner names its channel)
+                    let mut out = self.sync_live(now);
+                    let channel_up = self.spec.as_ref().is_some_and(|s| s.kind == Kind::Channel);
+                    if self.spec.as_ref().is_some_and(|s| s.kind == Kind::Input) || self.waiting.is_some() || !front || (channel_up && !self.feed.live()) {
                         out.extend(self.hide());
                     }
-                    if front && self.own && is_input_app(&app) {
+                    if front && self.own && is_input_app(&app) && !self.feed.live() {
                         out.extend(self.input_switched(&app, now));
                     }
                     return out;
                 }
                 "screen" => {
                     self.screen_on = data.get("on").and_then(Value::as_bool) != Some(false);
+                    // with the screen off nothing is in front; Live TV is followed again, and LG's banner blanked, from the moment it is on
+                    self.front = self.up && self.screen_on;
+                    let mut out = self.sync_live(now);
                     if !self.screen_on {
-                        self.front = false;
-                        return self.hide();
+                        out.extend(self.hide());
                     }
+                    return out;
                 }
                 SHOW_TOPIC => {
                     return match Spec::parse(data) {
-                        Some(spec) => self.show(spec, now),
+                        Some(spec) => {
+                            self.feed.gone();
+                            self.show(spec, now)
+                        }
                         None => Vec::new(),
                     };
                 }
@@ -393,9 +482,26 @@ impl Banner {
                 self.inputs.parse(payload);
                 return self.pill_ready(now);
             }
+            Input::Luna { tag, payload } if *tag == lg_mask::POSITION_TAG => return self.lg.position(payload),
+            Input::Luna { tag, payload } if [channel_feed::LAST_TAG, channel_feed::INFO_TAG, channel_feed::NOW_TAG].contains(tag) => {
+                let mut out = self.lg.tuner_answer(*tag, payload);
+                let fed = self.feed.update(input, now);
+                out.extend(self.feed_out(fed, now));
+                return out;
+            }
             Input::Key { name, down: true, repeat } if self.wants() => return self.key(name, *repeat, now),
+            Input::Key { name, down: true, repeat: false } if name == "info" && self.feed.live() => {
+                if self.feed.info_up() {
+                    return self.hide();
+                }
+                let out = self.feed.info_pressed(now);
+                return self.feed_out(out, now);
+            }
+            Input::Key { name, down: true, repeat: false } if name == "back" && self.feed.info_up() => return self.hide(),
             Input::Tick => {
                 let mut out = Vec::new();
+                let fed = self.feed.update(input, now);
+                out.extend(self.feed_out(fed, now));
                 if self.waiting.as_ref().is_some_and(|(_, at)| now >= at + LIST_WAIT_MS) {
                     out.extend(self.pill_ready(now));
                 }
@@ -474,13 +580,13 @@ impl Banner {
     }
 
     pub fn due_at(&self) -> Option<u64> {
-        [self.until, self.spot_at, self.waiting.as_ref().map(|(_, at)| at + LIST_WAIT_MS)].into_iter().flatten().min()
+        [self.until, self.spot_at, self.waiting.as_ref().map(|(_, at)| at + LIST_WAIT_MS), self.feed.due_at()].into_iter().flatten().min()
     }
 
     pub fn state(&self) -> Value {
         match &self.spec {
-            Some(s) => json!({"up": true, "kind": format!("{:?}", s.kind).to_lowercase(), "keys": s.interactive(), "buttons": s.buttons.iter().map(|b| b.id()).collect::<Vec<_>>(), "index": self.index, "spot": self.spot}),
-            None => json!({"up": false}),
+            Some(s) => json!({"up": true, "kind": format!("{:?}", s.kind).to_lowercase(), "keys": s.interactive(), "buttons": s.buttons.iter().map(|b| b.id()).collect::<Vec<_>>(), "index": self.index, "spot": self.spot, "live": self.feed.live(), "info": s.info}),
+            None => json!({"up": false, "live": self.feed.live()}),
         }
     }
 }
@@ -533,9 +639,12 @@ mod tests {
         b.update(&fg("com.webos.app.hdmi3", false), T0 + 6000);
         b.update(&Input::Luna { tag: INPUTS_TAG, payload: list() }, T0 + 6050);
         assert_eq!((spec_of(&b).name.as_str(), spec_of(&b).icon.as_str()), ("HDMI 3", "unplug"), "the port alone, with the list's glyph for a port with nothing on it");
-        // Live TV is one word and the antenna
-        b.update(&fg("com.webos.app.livetv", false), T0 + 7000);
-        b.update(&Input::Luna { tag: INPUTS_TAG, payload: list() }, T0 + 7050);
+        // Live TV is the channel banner's: the plain pill (one word and the antenna) only when the tuner names no channel
+        let fx = b.update(&fg("com.webos.app.livetv", false), T0 + 7000);
+        assert!(fx.iter().any(|e| matches!(e, Effect::Luna { tag: channel_feed::LAST_TAG, subscribe: true, .. })), "the tuner is followed: {fx:?}");
+        assert!(!fx.iter().any(|e| matches!(e, Effect::Luna { tag: INPUTS_TAG, .. })), "no input list is asked for: {fx:?}");
+        assert!(!b.up());
+        b.update(&Input::Tick, T0 + 7000 + channel_feed::NAME_WAIT_MS);
         assert_eq!((spec_of(&b).name.as_str(), spec_of(&b).facts.as_str(), spec_of(&b).icon.as_str()), ("Live TV", "Antenna", "antenna"));
         // the owner's switch off: LG's own banners draw the moment and this draws nothing of itself
         let mut off = Banner::new(&json!({}));
@@ -637,10 +746,149 @@ mod tests {
         assert_eq!((s.number.as_str(), s.call.as_str(), s.title.as_str(), s.next.as_str(), s.progress), ("7", "KABC", "Evening News", "Jeopardy!", 1.0), "the bar is a fraction");
         assert_eq!(s.chips, vec!["1080i", "Stereo", "CC"]);
         assert!(!b.wants());
-        assert_eq!(b.due_at(), Some(T0 + 4000));
+        assert_eq!(b.due_at(), Some(T0 + HOLD_CHANNEL_MS), "LG's five seconds");
         b.update(&Input::Topic { topic: HIDE_TOPIC.into(), data: Value::Null }, T0 + 10);
         assert!(b.update(&Input::Topic { topic: SHOW_TOPIC.into(), data: json!({"kind": "guide"}) }, T0 + 20).is_empty() && !b.up());
         assert!(is_input_app("com.webos.app.hdmi4") && is_input_app("com.webos.app.livetv") && is_input_app("com.webos.app.dp1") && is_input_app("com.webos.app.usbc2"));
         assert!(!is_input_app("com.webos.app.hdmi10") && !is_input_app("com.webos.app.home") && !is_input_app("netflix"));
+    }
+
+    const ID: &str = "1_32_2_1_0_0_0";
+    const OTHER: &str = "1_32_9_1_0_0_0";
+
+    fn tuner(id: &str) -> Input {
+        Input::Luna { tag: channel_feed::LAST_TAG, payload: json!({"returnValue": true, "channelId": id}) }
+    }
+
+    /// What LG says of the channel and of what is on it, the programme on the air at `at` for twenty minutes more.
+    fn answers(id: &str, at: u64) -> [Input; 2] {
+        let stamp = |min: i64| channels::stamp(at as i64 + min * 60_000, 0);
+        let programme = |name: &str, from: i64, to: i64| json!({"channelId": id, "programId": format!("{id}{from}"), "programName": name, "description": "About the programme.", "startTime": stamp(from), "endTime": stamp(to)});
+        [
+            Input::Luna { tag: channel_feed::INFO_TAG, payload: json!({"returnValue": true, "channelList": [{"channelId": id, "channelNumber": channel_feed::number_of(id), "channelName": "WSB-HD", "imgUrl": "", "channelTypeId": 1}]}) },
+            Input::Luna { tag: channel_feed::NOW_TAG, payload: json!({"returnValue": true, "programList": [programme("Evening News", -10, 20), programme("Jeopardy!", 20, 50)]}) },
+        ]
+    }
+
+    fn tune(b: &mut Banner, id: &str, at: u64) {
+        b.update(&tuner(id), at);
+        for (i, a) in answers(id, at).iter().enumerate() {
+            b.update(a, at + 10 * (i as u64 + 1));
+        }
+    }
+
+    fn key(b: &mut Banner, name: &str, at: u64) -> Vec<Effect> {
+        b.update(&Input::Key { name: name.into(), down: true, repeat: false }, at)
+    }
+
+    #[test]
+    fn live_tv_in_front_shows_the_channel_banner_at_a_launch_and_at_every_change_for_five_seconds_and_nothing_with_the_owners_banners_off() {
+        let mut b = on();
+        b.update(&fg("com.webos.app.livetv", false), T0);
+        assert_eq!(b.takes(), vec!["info"], "INFO is the banner's while Live TV is in front");
+        tune(&mut b, ID, T0 + 100);
+        let s = spec_of(&b);
+        assert_eq!((s.kind, s.number.as_str(), s.call.as_str(), s.title.as_str(), s.next.as_str()), (Kind::Channel, "2-1", "WSB-HD", "Evening News", "Jeopardy!"));
+        assert!(!b.wants(), "no key but INFO and Back is the banner's");
+        assert_eq!(b.due_at(), Some(T0 + 120 + HOLD_CHANNEL_MS));
+        assert!(b.update(&Input::Tick, T0 + 120 + HOLD_CHANNEL_MS - 1).is_empty() && b.up());
+        assert_eq!(b.update(&Input::Tick, T0 + 120 + HOLD_CHANNEL_MS), vec![Effect::Redraw]);
+        assert!(!b.up(), "it goes on LG's timing");
+        // the channel goes up: the banner shows again
+        tune(&mut b, OTHER, T0 + 20_000);
+        assert!(b.up() && spec_of(&b).number == "9-1", "the banner of the channel the tuner named");
+        assert!(b.update(&Input::Tick, T0 + 20_000 + HOLD_CHANNEL_MS + 100).contains(&Effect::Redraw) && !b.up());
+        // Live TV leaves: the tuner is let go of, and a banner that is up goes with it
+        tune(&mut b, ID, T0 + 30_000);
+        let fx = b.update(&fg("com.webos.app.home", true), T0 + 31_000);
+        assert!(fx.contains(&Effect::Cancel { tag: channel_feed::LAST_TAG }) && fx.contains(&Effect::Redraw) && !b.up(), "{fx:?}");
+        assert!(b.takes().is_empty());
+        // the owner's banners off: LG's own draws the moment, and nothing of this follows the tuner
+        let mut off = Banner::new(&json!({}));
+        assert!(off.update(&fg("com.webos.app.livetv", false), T0).is_empty() && off.takes().is_empty());
+        // turned on while Live TV is in front: it follows from then; turned off again, it lets go and takes the banner away
+        let fx = off.set_theme(&json!({"banners": {"own": true}}), T0 + 10);
+        assert!(fx.iter().any(|e| matches!(e, Effect::Luna { tag: channel_feed::LAST_TAG, subscribe: true, .. })), "{fx:?}");
+        off.update(&tuner(ID), T0 + 20);
+        let fx = off.set_theme(&json!({}), T0 + 30);
+        assert!(fx.contains(&Effect::Cancel { tag: channel_feed::LAST_TAG }) && off.takes().is_empty());
+    }
+
+    fn mask_ops(fx: &[Effect]) -> Vec<String> {
+        fx.iter()
+            .filter_map(|e| match e {
+                Effect::Channel { path, body } if path == "/v1/mask" => body["op"].as_str().map(str::to_string),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn lgs_own_banner_is_claimed_while_live_tv_is_in_front_and_given_back_when_it_is_not_or_the_tuner_fails() {
+        let mut b = on();
+        let fx = b.update(&fg("com.webos.app.livetv", false), T0);
+        assert_eq!(mask_ops(&fx), ["claim", "engage"], "Live TV in front: LG's banner for a launch is not drawn, nor the ones for a channel key: {fx:?}");
+        let fx = b.update(&tuner(ID), T0 + 10);
+        assert_eq!(mask_ops(&fx), ["engage"], "the tuner named a channel: LG draws its banner for it now, so the blanking runs on from here: {fx:?}");
+        for (i, a) in answers(ID, T0 + 10).iter().enumerate() {
+            assert!(mask_ops(&b.update(a, T0 + 20 + 10 * i as u64)).is_empty(), "the answers of the record and the programmes change nothing of it");
+        }
+        assert!(b.up() && mask_ops(&b.update(&tuner(ID), T0 + 40)).is_empty(), "the same channel named again is no change");
+        let at = Input::Luna { tag: lg_mask::POSITION_TAG, payload: json!({"returnValue": true, "settings": {"bannerPosition": "righttop"}}) };
+        let fx = b.update(&at, T0 + 50);
+        assert!(mask_ops(&fx) == ["claim"] && matches!(&fx[..], [Effect::Channel { body, .. }] if body["rects"][0]["x"] == 414), "the banner is where the owner put it: {fx:?}");
+        let fx = b.update(&Input::Luna { tag: channel_feed::LAST_TAG, payload: json!({"returnValue": false, "errorCode": -106}) }, T0 + 100);
+        assert_eq!(mask_ops(&fx), ["release"], "a tuner that cannot be followed leaves LG's banner alone: {fx:?}");
+        assert!(mask_ops(&b.update(&fg("com.webos.app.home", true), T0 + 200)).is_empty(), "nothing is left to give back");
+        assert_eq!(mask_ops(&b.update(&fg("com.webos.app.livetv", false), T0 + 300)), ["claim", "engage"], "the next visit claims again");
+        assert_eq!(mask_ops(&b.update(&fg("com.webos.app.hdmi1", false), T0 + 400)), ["release"], "another app in front: LG's banner is its own");
+        b.update(&fg("com.webos.app.livetv", false), T0 + 500);
+        assert_eq!(mask_ops(&b.set_theme(&json!({}), T0 + 600)), ["release"], "the owner's banners off: LG's own draws the moment");
+        assert!(mask_ops(&Banner::new(&json!({})).update(&fg("com.webos.app.livetv", false), T0)).is_empty(), "never claimed with the switch off");
+    }
+
+    #[test]
+    fn live_tv_is_let_go_of_with_the_screen_off_and_followed_and_blanked_again_from_the_moment_it_is_on() {
+        let screen = |on: bool| Input::Topic { topic: "screen".into(), data: json!({"on": on}) };
+        let mut b = on();
+        b.update(&fg("com.webos.app.livetv", false), T0);
+        tune(&mut b, ID, T0 + 100);
+        let fx = b.update(&screen(false), T0 + 1_000);
+        assert!(fx.contains(&Effect::Cancel { tag: channel_feed::LAST_TAG }) && mask_ops(&fx) == ["release"] && !b.up() && b.takes().is_empty(), "{fx:?}");
+        let fx = b.update(&screen(true), T0 + 60_000);
+        assert_eq!(mask_ops(&fx), ["claim", "engage"], "LG's banner of the wake is blanked: {fx:?}");
+        assert!(fx.iter().any(|e| matches!(e, Effect::Luna { tag: channel_feed::LAST_TAG, subscribe: true, .. })) && b.takes() == vec!["info"], "the tuner is followed again: {fx:?}");
+        tune(&mut b, ID, T0 + 60_100);
+        assert!(b.up(), "the channel on the wake has its banner, as at a launch");
+        // the screen coming on with Home in front, or with no foreground yet, follows nothing
+        let mut home = on();
+        home.update(&fg("com.webos.app.home", true), T0);
+        assert!(home.update(&screen(false), T0 + 10).is_empty() && home.update(&screen(true), T0 + 20).is_empty());
+    }
+
+    #[test]
+    fn info_shows_the_detail_for_eight_seconds_and_info_or_back_ends_it_and_a_banner_the_owner_raised_is_left_alone() {
+        let mut b = on();
+        b.update(&fg("com.webos.app.livetv", false), T0);
+        assert!(key(&mut b, "info", T0 + 50).is_empty(), "nothing is known of a channel before the tuner names one");
+        tune(&mut b, ID, T0 + 100);
+        let fx = key(&mut b, "info", T0 + 2000);
+        assert!(fx.contains(&Effect::Redraw));
+        let s = spec_of(&b);
+        assert!(s.info && s.detail == "About the programme." && s.hold_ms == HOLD_INFO_MS, "{s:?}");
+        assert_eq!(b.due_at(), Some(T0 + 2000 + HOLD_INFO_MS));
+        assert_eq!(b.takes(), vec!["info", "back"], "Back ends this banner as it ends LG's INFO card");
+        assert_eq!(key(&mut b, "back", T0 + 3000), vec![Effect::Redraw]);
+        assert!(!b.up() && b.takes() == vec!["info"]);
+        key(&mut b, "info", T0 + 4000);
+        assert!(b.up());
+        assert_eq!(key(&mut b, "info", T0 + 4500), vec![Effect::Redraw], "INFO again ends it");
+        assert!(!b.up());
+        // Back with no INFO banner up is LG's: previous channel
+        assert!(key(&mut b, "back", T0 + 5000).is_empty());
+        // a banner the owner of the moment raised is not touched by a late answer of the feed
+        b.update(&Input::Topic { topic: SHOW_TOPIC.into(), data: json!({"kind": "channel", "number": "9", "title": "Raised"}) }, T0 + 6000);
+        let late = answers(ID, T0)[0].clone();
+        assert!(b.update(&late, T0 + 6100).is_empty() && spec_of(&b).title == "Raised");
     }
 }

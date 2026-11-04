@@ -9,14 +9,15 @@ the 8.3 ms of a 120 Hz refresh is about 80 layers. For each window of a walk thi
 frame's estimate, and the work of a frame (that estimate and the time this process took to apply what the frame showed) at its worst and
 at the 99th percentile.
 
-    python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,home-widgets,toast,onhome,guide] [--frames] [--reference]
+    python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,home-widgets,toast,onhome,guide,banner] [--frames] [--reference]
                                  [--bin PATH]
 
 `--frames` lists every frame; `--reference` draws each frame whole as well and counts the frames that differ (the floor and the copies
 must change nothing); `--bin` (or `LUMATV_UI_BIN`) names another `lumatv-ui`. `onhome` is the Smart home card: entered, a switch and a lamp
 toggled, a long scroll, a sensor's history, a lamp's colours changed, and a rest in which no frame may be drawn. `guide` is the channel
 guide over a make-believe set of channels: walked by time and by channel with a held arrow, paged, a programme's sheet opened, the filters
-chosen, a rest, and left.
+chosen, a rest, and left. `banner` is Live TV's channel banner: Live TV comes to the front and the tuner names its channel, then another after the
+banner's five seconds.
 
 The Cameras app is measured by itself (no Home under it) in four walks: `cameras-grid` (eight tiles whose stills come five a second a tile, three of
 them not 16:9, then the focus walked) and `cameras-full` (a portrait doorbell's video in its window with the bars beside it, the chrome fading and
@@ -46,7 +47,7 @@ import rust_home_host as home  # noqa: E402  (Home's make-believe feeds)
 BIN = os.environ.get('LUMATV_UI_BIN') or os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
 FRAME = re.compile(r"^\[frame\] (\d+) at (\d+) ms: damage (\d+) px, drew (\d+) px in (\d+) rects \([\d.]+ %\), layers (\d+) culled \d+ cpu (\d+) us gpu \d+ us"
                    r".*? floor (\d+) px apply (\d+) us", re.M)
-SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast', 'onhome', 'guide']
+SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast', 'onhome', 'guide', 'banner']
 #: when a walk starts: Home has drawn its feeds and rests
 START_MS = 6000
 #: the layers a 120 Hz refresh holds (1.5 ms + 0.085 ms a layer <= 8.3 ms)
@@ -207,6 +208,24 @@ class Walk:
         self.at += ms
 
 
+LIVE_TV = {"app": "com.webos.app.livetv", "home": False, "covered": True}
+#: the tags of the channel banner's three asks (`system/channel_feed.rs`): the tuner's channel, that channel's record, what is on it
+BANNER_TAGS = (0x4A00_0010, 0x4A00_0011, 0x4A00_0012)
+
+
+def banner_answers(w, number, name):
+    """What the tuner and LG's channel and programme services answer when channel `number` (`2-1`) is named, on the clock of now."""
+    import render_rust_banner as rb
+    channel = '1_32_%s_0_0_0' % number.replace('-', '_')
+    now = int(time.time() * 1000)
+    start = now - now % (30 * 60_000)
+    record = {'returnValue': True, 'channelList': [{'channelId': channel, 'channelNumber': number, 'channelName': name, 'channelTypeId': 1}]}
+    listing = {'returnValue': True, 'programList': [rb.programme(channel, 'Evening News', start, start + 60 * 60_000, 'Local and national news.', 'TV-PG'),
+                                                    rb.programme(channel, 'Jeopardy!', start + 60 * 60_000, start + 90 * 60_000, 'What comes next.', 'TV-PG')]}
+    for dt, tag, doc in ((0, BANNER_TAGS[0], {'returnValue': True, 'channelId': channel}), (40, BANNER_TAGS[1], record), (60, BANNER_TAGS[2], listing)):
+        w.args += ['--luna', '%d:%d:%s' % (w.at + dt, tag, json.dumps(doc))]
+
+
 def walk_of(surface):
     """The gate's walk of `surface` (its `open` sequence) from START_MS: a panel opened and closed twice, Settings walked as
     `settings-scroll` walks it, Home's rows as `home-widgets` does."""
@@ -224,6 +243,16 @@ def walk_of(surface):
             w.mark('toast %d' % n)
             w.push('show', {'kind': 'toast', 'n': n, 'page': 'Placement check|A toast for the gate'})
             w.wait(7000)
+    elif surface == 'banner':
+        w.mark('launch')
+        w.push('foreground', LIVE_TV)
+        w.wait(300)
+        banner_answers(w, '2-1', 'WSB-HD')
+        w.wait(6500)
+        w.mark('change')
+        banner_answers(w, '5-1', 'WXIA-HD')
+        w.wait(6500)
+        w.mark('end')
     elif surface == 'settings-scroll':
         # the quick panel's foot (QUICK_PANEL_FOOT), OK on its "All settings", then SETTINGS_PAGE, the rail down, SETTINGS_PAGE, the rail up, Back
         w.at = START_MS - 2200
@@ -429,6 +458,8 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
     # the gate's `still`: the wallpaper's tick and the weather card's sprites off while a surface is measured
     theme.setdefault('wallpaperMotion', {})['enabled'] = False
     theme.setdefault('weather', {})['animated'] = False
+    if surface == 'banner':
+        theme.setdefault('banners', {})['own'] = True
     with open(os.path.join(data, 'theme', 'theme.json'), 'w') as f:
         json.dump(theme, f)
     w = walk_of(surface)
@@ -444,7 +475,7 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
         server = http.server.ThreadingHTTPServer(('127.0.0.1', HELPER_PORT), FakeHelper)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         extra = ['--port', str(HELPER_PORT), '--helper-port', str(HELPER_PORT)]
-    cmd = [binary, '--host', '--virtual', '--refresh', str(refresh), '--kinds', 'osd,toast,home,settings,quick,picker,drawer,menu,confirm' + (',guide' if surface == 'guide' else ''),
+    cmd = [binary, '--host', '--virtual', '--refresh', str(refresh), '--kinds', 'osd,toast,home,settings,quick,picker,drawer,menu,confirm' + (',guide' if surface == 'guide' else '') + (',banner' if surface == 'banner' else ''),
            '--data-dir', data, '--shm', os.path.join(data, 'shm'), '--wait', str(w.at + 500), '--log', log,
            '--module-dir', os.path.join(ROOT, 'compositor', 'assets', 'ui'),
            '--push', '40:refresh:' + json.dumps({"hz": refresh}), '--push', '50:foreground:' + json.dumps(home.HOME),
