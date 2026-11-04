@@ -3,10 +3,9 @@
 //!
 //! A surface describes its view to a [`Lint`]: the panels (a pane, a card, a pill, a button: a rectangle with the colour it paints) and the
 //! words (a text's painted rectangle, its ink, the panel it sits in). [`Lint::findings`] then reports, per fault:
-//!
-//! - `Outside`: words leave their panel by more than a pixel, or the window;
-//! - `Tight`: words closer than 8 px (`space.2`) to the panel's sides or 4 px to its top and bottom;
-//! - `Overlap`: two runs of words on top of each other;
+//! - `Outside`: words leave their panel by more than a pixel, or the window, or the frame they were given to stay in (a cell of a grid);
+//! - `Tight`: words closer than 8 px (`space.2`) to the panel's sides or 4 px to its top and bottom (and to the sides of their own frame);
+//! - `Overlap`: two runs of words on top of each other, or a line (a divider, a rule, a marker) drawn through words;
 //! - `OffCentre`: words in a panel that holds one run (a button, a pill; up to 160 px tall) not centred in it to within 2.5 px;
 //! - `Safe`: a panel outside the safe area its surface is held to;
 //! - `Clipped`: the focused plate at full lift (its rounded rectangle) is cut by a clip of an ancestor group: a list viewport that
@@ -108,6 +107,8 @@ pub struct Word {
     pub panel: Option<usize>,
     /// Where the text layer's box starts on the screen; its glyphs are on whole pixels of the box.
     pub at: (f32, f32),
+    /// The frame the words must stay inside, apart from their panel: the cell of a grid they are the title of.
+    pub within: Option<Frame>,
 }
 
 #[derive(Debug)]
@@ -117,6 +118,8 @@ pub struct Lint {
     panels: Vec<Panel>,
     words: Vec<Word>,
     plates: Vec<(String, Frame, Option<Frame>)>,
+    /// Lines drawn on the page that no words may be on: a divider, a rule of progress, a tick.
+    lines: Vec<(String, Frame)>,
 }
 
 impl Default for Lint {
@@ -168,6 +171,7 @@ impl Lint {
             panels: Vec::new(),
             words: Vec::new(),
             plates: Vec::new(),
+            lines: Vec::new(),
         }
     }
 
@@ -193,7 +197,21 @@ impl Lint {
 
     /// A run of words whose painted rectangle is known; the rectangle's origin is the box's.
     pub fn word_at(&mut self, name: &str, rect: Frame, ink: Rgba, px: u32, muted: bool, panel: Option<usize>) {
-        self.words.push(Word { name: name.to_string(), rect, ink, px, muted, panel, at: (rect.x, rect.y) });
+        self.words.push(Word { name: name.to_string(), rect, ink, px, muted, panel, at: (rect.x, rect.y), within: None });
+    }
+
+    /// A line, a rule or a mark of the page that words must keep off.
+    pub fn line(&mut self, name: &str, rect: Frame) {
+        self.lines.push((name.to_string(), rect));
+    }
+
+    /// [`Lint::word`] for the title of a cell: it must stay inside `within` (the cell, as far as it shows), a space away from its sides.
+    #[allow(clippy::too_many_arguments)]
+    pub fn word_within(&mut self, kit: &mut Kit, name: &str, text: &str, frame: Frame, style: Style, panel: Option<usize>, within: Frame) {
+        self.word(kit, name, text, frame, style, panel);
+        if let Some(w) = self.words.last_mut() {
+            w.within = Some(within);
+        }
     }
 
     /// A run of `text` in `style` drawn in a box `frame` wide (the box the text layer has): its painted rectangle is the measured width
@@ -217,7 +235,7 @@ impl Lint {
         let y = frame.y + (frame.h - line) / 2.0;
         // ink that is not the full reading ink (ink2, ink3, a dimmed row) is muted by design
         let muted = style.colour != kit.ui.look.ink() || style.colour.3 < 230;
-        self.words.push(Word { name: name.to_string(), rect: Frame::new(x, y, shown, line), ink: style.colour, px: style.ty.px, muted, panel, at: layer });
+        self.words.push(Word { name: name.to_string(), rect: Frame::new(x, y, shown, line), ink: style.colour, px: style.ty.px, muted, panel, at: layer, within: None });
     }
 
     /// The focused plate at full lift (`plate`, on the screen) and the clip every group above it makes (`clip`, on the screen).
@@ -273,6 +291,22 @@ impl Lint {
                     || (wc.1 - bc.1).abs() > CENTRE
                 {
                     out.push(finding(Kind::OffCentre, &w.name, format!("centre {:?} against {} {:?}", wc, p.name, bc)));
+                }
+            }
+        }
+        for w in &self.words {
+            let (r, Some(b)) = (&w.rect, w.within) else { continue };
+            if r.x < b.x - TOL || r.y < b.y - TOL || r.right() > b.right() + TOL || r.bottom() > b.bottom() + TOL {
+                out.push(finding(Kind::Outside, &w.name, format!("{:?} leaves its cell {:?}", rect_text(r), rect_text(&b))));
+            } else if r.x < b.x + PAD_X - TOL || r.right() > b.right() - PAD_X + TOL {
+                out.push(finding(Kind::Tight, &w.name, format!("{:?} is crammed against the sides of its cell {:?}", rect_text(r), rect_text(&b))));
+            }
+        }
+        for (name, line) in &self.lines {
+            for w in &self.words {
+                let area = overlap_area(line, &w.rect);
+                if area > 1.0 {
+                    out.push(finding(Kind::Overlap, &w.name, format!("{:?} is crossed by {name} {:?} ({area:.0} px\u{b2})", rect_text(&w.rect), rect_text(line))));
                 }
             }
         }
@@ -367,6 +401,37 @@ mod tests {
         let out = l.findings();
         assert!(out.iter().any(|f| f.kind == Kind::Overlap && f.subject == "a" && f.detail.contains("on top of b")), "{out:?}");
         assert!(!out.iter().any(|f| f.detail.contains("on top of c")), "b ends where c begins: {out:?}");
+    }
+
+    #[test]
+    fn a_line_through_words_is_found_and_one_beside_them_or_above_them_is_not() {
+        let mut l = Lint::new();
+        l.word_at("title", Frame::new(400.0, 300.0, 200.0, 37.0), INK, 26, false, None);
+        l.line("divider", Frame::new(350.0, 290.0, 2.0, 63.0));
+        l.line("rule", Frame::new(400.0, 340.0, 150.0, 3.0));
+        assert_eq!(l.findings(), vec![], "a divider before the words and a rule under them");
+        l.line("now", Frame::new(500.0, 280.0, 2.0, 87.0));
+        let out = l.findings();
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert!(out[0].kind == Kind::Overlap && out[0].subject == "title" && out[0].detail.contains("crossed by now"), "{out:?}");
+    }
+
+    #[test]
+    fn words_that_leave_the_cell_they_are_the_title_of_or_crowd_its_sides_are_found() {
+        let (h, mut kit) = crate::kit::testkit::kit_in(ui::lucent::palette::Mode::Dark, 1.0);
+        let style = crate::kit::text::role_style(&kit, lumatv_tokens::TypeRole::Label, None, INK, Align::Left);
+        // three rows of cells, one under the other
+        let cell = |row: f32| Frame::new(400.0, 200.0 + 100.0 * row, 240.0, 87.0);
+        let mut l = Lint::new();
+        l.word_within(&mut kit, "inside", "Science", Frame::new(412.0, 225.0, 216.0, 37.0), style, None, cell(0.0));
+        assert_eq!(l.findings(), vec![]);
+        l.word_within(&mut kit, "past", "The Extraordinarily Long Documentary", Frame::new(412.0, 325.0, 600.0, 37.0), style, None, cell(1.0));
+        l.word_within(&mut kit, "crowded", "Science", Frame::new(404.0, 425.0, 216.0, 37.0), style, None, cell(2.0));
+        let out = l.findings();
+        assert!(out.iter().any(|f| f.kind == Kind::Outside && f.subject == "past"), "{out:?}");
+        assert!(out.iter().any(|f| f.kind == Kind::Tight && f.subject == "crowded"), "{out:?}");
+        assert!(!out.iter().any(|f| f.subject == "inside"), "{out:?}");
+        std::mem::forget(h);
     }
 
     #[test]

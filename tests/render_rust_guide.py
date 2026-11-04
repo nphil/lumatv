@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Renders the Rust shell's channel guide (`lumatv-ui --host --kinds guide`: the engine in-process on Mesa, as the compositor runs it) against
-the make-believe set of channels and listings the host gives it (`--guide-fixture`), dark and light at 100 % and 200 % text: the grid, the grid
-mid-scroll, a programme's sheet, a row of long titles and a channel with no listings. 1280-wide JPEGs, with the host's layout and contrast lint
-(`--eval lint`) read for each.
+the make-believe set of channels and listings the host gives it (`--guide-fixture`), dark and light at 100, 150 and 200 % text: the grid, rows of
+long titles, the grid mid-scroll, a programme's sheet (over a long title, over no information), a channel with no listings, the edge channels
+of the fixture (a ticker of programmes of 5 to 30 minutes, a long name, no logo; the first and last rows), the chips, a row walked along, and
+a time just after a tick of the ruler. 1280-wide JPEGs and the full-size PNGs, with the host's layout and contrast lint (`--eval lint`) read
+for each.
 
     python3 tests/render_rust_guide.py [--out DIR] [--only dark-100-grid,...] [--list] [--bin PATH]
 
@@ -44,27 +46,54 @@ def first_without_listings(after):
     return next(i for i in range(after + 1, 57) if fnv('1_32_%d_1_0_0_0' % (2 + i)) % 5 == 4)
 
 
+def taps(key, n, gap=40):
+    """`n` presses of `key`, `gap` ms apart, the first at once."""
+    return [(gap if i else 0, key, '') for i in range(n)]
+
+
 def scenes():
-    """name -> (mode, text scale, [(gap before the key in ms, key, how)], settle after the last one in ms)."""
+    """name -> (mode, text scale, [(gap before the key in ms, key, how)], settle after the last one in ms[, the clock])."""
     empty = first_without_listings(5)
-    return {
-        'dark-100-grid': ('dark', 1.0, [], SETTLE),
-        'light-100-grid': ('light', 1.0, [], SETTLE),
-        'dark-200-grid': ('dark', 2.0, [], SETTLE),
-        'light-200-grid': ('light', 2.0, [], SETTLE),
-        # the time moves by a held arrow: the picture is taken in the middle of the spring's flight
-        'dark-100-scroll': ('dark', 1.0, [(0, 'right', ''), (300, 'right', 'repeat'), (100, 'right', 'repeat'), (100, 'right', 'repeat')], 120),
-        'dark-100-sheet': ('dark', 1.0, [(0, 'right', ''), (400, 'info', '')], SETTLE),
-        'light-100-sheet': ('light', 1.0, [(0, 'right', ''), (400, 'info', '')], SETTLE),
-        # the long titles are on the rows of channels 7 and 8 of the fixture; the focus starts on 7
-        'dark-100-long-titles': ('dark', 1.0, [(0, 'down', ''), (300, 'up', '')], SETTLE),
-        'dark-200-long-titles': ('dark', 2.0, [(0, 'down', ''), (300, 'up', '')], SETTLE),
-        'dark-100-empty': ('dark', 1.0, [(300 if i else 0, 'down', '') for i in range(empty - 5)], SETTLE),
-    }
+    out = {}
+    # the screen as it opens, in both looks at the three text sizes the settings offer
+    for mode in ('dark', 'light'):
+        for pct, scale in ((100, 1.0), (150, 1.5), (200, 2.0)):
+            out['%s-%d-grid' % (mode, pct)] = (mode, scale, [], SETTLE)
+    # the long titles are on the rows of channels 7 and 8 of the fixture; the focus starts on 7
+    for mode, pct, scale in (('dark', 100, 1.0), ('dark', 150, 1.5), ('dark', 200, 2.0), ('light', 100, 1.0), ('light', 200, 2.0)):
+        out['%s-%d-long-titles' % (mode, pct)] = (mode, scale, [(0, 'down', ''), (300, 'up', '')], SETTLE)
+    # the time moves by a held arrow: the picture is taken in the middle of the spring's flight
+    for mode, pct, scale in (('dark', 100, 1.0), ('light', 200, 2.0)):
+        out['%s-%d-scroll' % (mode, pct)] = (mode, scale, [(0, 'right', ''), (300, 'right', 'repeat'), (100, 'right', 'repeat'), (100, 'right', 'repeat')], 120)
+    # a programme's sheet: over the grid, over a row with long titles, over a row with no information
+    for mode, pct, scale in (('dark', 100, 1.0), ('light', 100, 1.0), ('dark', 200, 2.0), ('light', 200, 2.0)):
+        out['%s-%d-sheet' % (mode, pct)] = (mode, scale, [(0, 'right', ''), (400, 'info', '')], SETTLE)
+    for pct, scale in ((100, 1.0), (200, 2.0)):
+        out['dark-%d-sheet-long' % pct] = ('dark', scale, [(0, 'down', ''), (400, 'info', '')], SETTLE)
+    out['dark-100-sheet-empty'] = ('dark', 1.0, taps('down', empty - 5, 300) + [(400, 'info', '')], SETTLE)
+    # a row with no listings
+    for pct, scale in ((100, 1.0), (200, 2.0)):
+        out['dark-%d-empty' % pct] = ('dark', scale, taps('down', empty - 5, 300), SETTLE)
+    # the edge channels (fixture.rs): 57 a ticker of programmes of 5 to 30 minutes, 58 a long name, 59 no logo, 60 a wide name and no
+    # listings, 61 (the last row) a ticker with no logo
+    for mode, pct, scale in (('dark', 100, 1.0), ('dark', 200, 2.0), ('light', 100, 1.0)):
+        out['%s-%d-short' % (mode, pct)] = (mode, scale, taps('down', 52) + [(300, 'right', '')], SETTLE)
+    for mode, pct, scale in (('dark', 100, 1.0), ('dark', 150, 1.5), ('dark', 200, 2.0), ('light', 100, 1.0)):
+        out['%s-%d-last' % (mode, pct)] = (mode, scale, taps('down', 60), SETTLE)
+    # the first row, and the chips above it
+    for mode in ('dark', 'light'):
+        out['%s-100-first' % mode] = (mode, 1.0, taps('up', 5), SETTLE)
+    out['dark-100-chips'] = ('dark', 1.0, taps('up', 6), SETTLE)
+    # cells longer than the screen at 200 % text, the focus walked along a row, and a time just after a tick of the ruler
+    out['dark-200-along'] = ('dark', 2.0, taps('right', 3, 300), SETTLE)
+    out['dark-100-along'] = ('dark', 1.0, taps('right', 3, 300), SETTLE)
+    out['dark-100-tick'] = ('dark', 1.0, [], SETTLE, '2026-11-03T21:03')
+    out['dark-100-tick-half'] = ('dark', 1.0, [], SETTLE, '2026-11-03T20:31')
+    return out
 
 
 def render(name, out, binary):
-    mode, scale, keys, settle = scenes()[name]
+    mode, scale, keys, settle, *clock = scenes()[name]
     data = tempfile.mkdtemp(prefix='guiderender-')
     try:
         os.makedirs(os.path.join(data, 'theme'))
@@ -81,7 +110,7 @@ def render(name, out, binary):
         snap = at + settle
         cmd = [binary, '--host', '--virtual', '--refresh', '60', '--kinds', 'osd,toast,guide', '--mode', mode, '--text-scale', str(scale),
                '--data-dir', data, '--shm', os.path.join(data, 'shm'), '--module-dir', os.path.join(ROOT, 'compositor', 'assets', 'ui'),
-               '--clock', CLOCK, '--guide-fixture', logos, '--log', log, '--wait', str(snap + 400),
+               '--clock', clock[0] if clock else CLOCK, '--guide-fixture', logos, '--log', log, '--wait', str(snap + 400),
                '--push', '50:foreground:' + json.dumps({'app': 'com.webos.app.livetv', 'home': False, 'covered': True}),
                '--push', '%d:show:%s' % (OPEN_AT, json.dumps({'kind': 'guide'})),
                '--eval', '%d:lint' % (snap - 50), '--eval', '%d:guide' % (snap - 50), '--snap', '%d:%s' % (snap, png)] + args

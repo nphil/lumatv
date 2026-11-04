@@ -1,6 +1,7 @@
 //! A make-believe channel list and listings, for the host harness (`lumatv-ui --host --guide-fixture DIR`) and the surface's tests: the set's
 //! 57 antenna channels and 459 internet ones, programmes that tile every channel's days, a fifth of the channels with no listings at all (as on
-//! the TV, where most of the internet's have none). Names, titles and logos are invented. It answers the three calls the guide makes of LG's
+//! the TV, where most of the internet's have none), and after the 57 the cases a plain tiling does not make (a ticker of programmes of 5 to
+//! 30 minutes, a long name, no logo; [`EDGES`]). Names, titles and logos are invented. It answers the three calls the guide makes of LG's
 //! services (`iepg/getChannelList`, `iepg/getEventList`, `utp.channel/getLastChannelId`) in the shapes the TV gives them (`host/channels.rs`).
 
 use crate::host::channels as ch;
@@ -52,6 +53,39 @@ const ABOUT: [&str; 4] = [
 
 const RATINGS: [&str; 4] = ["TV-G", "TV-PG", "TV-14", "TV-14"];
 const DURATIONS: [i64; 9] = [30, 30, 30, 45, 60, 60, 60, 90, 120];
+/// What a ticker channel runs: breaks of 5 to 30 minutes, the shortest most often.
+const SHORT_DURATIONS: [i64; 11] = [5, 10, 15, 5, 5, 10, 20, 15, 30, 5, 10];
+const SHORT_TITLES: [&str; 10] = ["Weather", "Headlines", "Traffic And Weather Together", "Markets", "News Brief", "Sports Flash", "Ad Break", "Lotto", "Late Edition", "A"];
+/// The antenna channels that tile the days as the plain set does; the ones after them are [`EDGES`].
+const ANTENNA: usize = 57;
+
+/// What a channel's row holds.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Listings {
+    /// Programmes of 30 to 120 minutes.
+    Tiled,
+    /// Programmes of 5 to 30 minutes.
+    Short,
+    /// No listings at all.
+    None,
+}
+
+/// A channel the real list has and a plain tiling does not make: antenna channel `ANTENNA + i` is `EDGES[i]`.
+struct Edge {
+    number: &'static str,
+    name: &'static str,
+    logo: bool,
+    listings: Listings,
+}
+
+const EDGES: [Edge; 5] = [
+    Edge { number: "59-1", name: "KBRF-HD", logo: true, listings: Listings::Short },
+    Edge { number: "60-1", name: "WSVP-HD Southern Valley Public Television", logo: true, listings: Listings::Tiled },
+    Edge { number: "61-1", name: "KNLG-HD", logo: false, listings: Listings::Tiled },
+    Edge { number: "62-1", name: "WWWWWWWWWWWW-HD", logo: false, listings: Listings::None },
+    Edge { number: "199-99", name: "KMAX-HD", logo: false, listings: Listings::Short },
+];
+
 const SYLLABLES: [&str; 20] = ["AR", "BEN", "CO", "DAL", "EV", "FAR", "GIL", "HAL", "IRV", "JOR", "KEL", "LAN", "MOR", "NEL", "OTT", "PEN", "QUI", "ROS", "SAN", "TAL"];
 
 pub struct Fixture {
@@ -84,7 +118,7 @@ impl Fixture {
             .map(|p| p.display().to_string())
             .collect();
         logos.sort();
-        Self { logos, antenna: 57, internet: 459 }
+        Self { logos, antenna: ANTENNA + EDGES.len(), internet: 459 }
     }
 
     /// A set of `antenna` and `internet` channels (the tests make small ones).
@@ -94,6 +128,12 @@ impl Fixture {
 
     pub fn antenna_id(i: usize) -> String {
         format!("1_32_{}_1_0_0_0", 2 + i)
+    }
+
+    /// The edge case a channel id is, when it is one.
+    fn edge(id: &str) -> Option<&'static Edge> {
+        let at: usize = id.strip_prefix("1_32_")?.split('_').next()?.parse().ok()?;
+        EDGES.get(at.checked_sub(2 + ANTENNA)?)
     }
 
     fn logo(&self, i: usize) -> &str {
@@ -109,8 +149,11 @@ impl Fixture {
         } else {
             (0..self.antenna)
                 .map(|i| {
-                    let name = format!("{}{}-HD", if i % 2 == 0 { "K" } else { "W" }, SYLLABLES[i % SYLLABLES.len()]);
-                    json!({"channelId": Self::antenna_id(i), "channelNumber": format!("{}-1", 2 + i), "channelName": name, "imgUrl": self.logo(i),
+                    let edge = i.checked_sub(ANTENNA).and_then(|e| EDGES.get(e));
+                    let name = edge.map_or_else(|| format!("{}{}-HD", if i % 2 == 0 { "K" } else { "W" }, SYLLABLES[i % SYLLABLES.len()]), |e| e.name.to_string());
+                    let number = edge.map_or_else(|| format!("{}-1", 2 + i), |e| e.number.to_string());
+                    let logo = if edge.is_some_and(|e| !e.logo) { "" } else { self.logo(i) };
+                    json!({"channelId": Self::antenna_id(i), "channelNumber": number, "channelName": name, "imgUrl": logo,
                            "channelMode": "Terrestrial", "channelTypeId": 1, "skipped": false, "Invisible": false})
                 })
                 .collect()
@@ -121,18 +164,21 @@ impl Fixture {
     /// The programmes of `id` that meet `[from, to)`, as `getEventList` gives them, on a clock `offset_s` east of UTC.
     fn programmes(&self, id: &str, from: i64, to: i64, offset_s: i32) -> Vec<Value> {
         let h = fnv(id);
-        if h % 5 == 4 {
+        let edge = Self::edge(id);
+        if edge.map_or(h % 5 == 4, |e| e.listings == Listings::None) {
             return Vec::new();
         }
+        let short = edge.is_some_and(|e| e.listings == Listings::Short);
+        let (durations, titles): (&[i64], &[&str]) = if short { (&SHORT_DURATIONS, &SHORT_TITLES) } else { (&DURATIONS, &TITLES) };
         let mut out = Vec::new();
         let (mut t, mut rng) = (ANCHOR + (h >> 8) as i64 % 4 * 15 * MIN, h);
         while t < to {
             rng = next(rng);
-            let end = t + DURATIONS[(rng >> 33) as usize % DURATIONS.len()] * MIN;
+            let end = t + durations[(rng >> 33) as usize % durations.len()] * MIN;
             if end > from {
                 // the channel the guide opens on and the one under it carry the long title now and then, for the pictures of long titles
                 let long = matches!(id, "1_32_7_1_0_0_0" | "1_32_8_1_0_0_0") && (rng >> 24) % 2 == 0;
-                let title = if long { TITLES[24] } else { TITLES[(rng >> 20) as usize % TITLES.len()] };
+                let title = if long { TITLES[24] } else { titles[(rng >> 20) as usize % titles.len()] };
                 out.push(json!({
                     "channelId": id, "programId": format!("{id}@{t}"), "programName": title, "description": ABOUT[(rng >> 40) as usize % ABOUT.len()],
                     "startTime": ch::stamp(t, 0), "endTime": ch::stamp(end, 0), "localStartTime": ch::stamp(t, offset_s), "localEndTime": ch::stamp(end, offset_s),
@@ -205,5 +251,25 @@ mod tests {
         let programmes = ch::parse_programmes(&events, offset).unwrap();
         assert!(programmes.len() > 40 && programmes.iter().all(|p| p.end > from && p.start < to && p.title.is_ascii()));
         assert!(programmes.iter().any(|p| p.title.len() > 60), "a long title among them");
+    }
+
+    #[test]
+    fn the_edge_channels_follow_the_plain_ones_with_a_ticker_a_long_name_and_no_logo_and_no_listings() {
+        let f = Fixture::new(None);
+        assert_eq!(f.antenna, ANTENNA + EDGES.len());
+        let list = f.channels(false);
+        let channels = list["channelList"].as_array().unwrap();
+        assert_eq!(channels[ANTENNA + 1]["channelName"], EDGES[1].name);
+        let t0 = ANCHOR + 200 * 24 * 60 * MIN;
+        let breaks = f.programmes(&Fixture::antenna_id(ANTENNA), t0, t0 + 6 * 60 * MIN, 0);
+        assert!(breaks.len() > 12 && breaks.iter().all(|p| p["duration"].as_i64().is_some_and(|s| (5 * 60..=30 * 60).contains(&s))), "a ticker of breaks");
+        assert!(f.programmes(&Fixture::antenna_id(ANTENNA + 3), t0, t0 + 6 * 60 * MIN, 0).is_empty(), "a channel with no listings");
+        let plain = f.programmes(&Fixture::antenna_id(1), t0, t0 + 6 * 60 * MIN, 0);
+        assert!(plain.iter().all(|p| p["duration"].as_i64().is_some_and(|s| s >= 30 * 60)), "the plain channels keep their tiling");
+        let mut logos = Fixture::new(None);
+        logos.logos = vec!["/logos/one.png".into()];
+        let with = logos.channels(false);
+        let shown = |i: usize| with["channelList"][i]["imgUrl"].as_str().unwrap().to_string();
+        assert_eq!((shown(ANTENNA), shown(ANTENNA + 2)), ("/logos/one.png".to_string(), String::new()), "a channel of the edge has no logo when it is meant to have none");
     }
 }

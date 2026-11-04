@@ -1,6 +1,7 @@
 //! The guide's surface: what it draws for a set of channels and their listings, that it reads clean in both materials at 100 and 200 percent,
 //! that moving the focus along a row or down the rows makes (almost) no layer, and that hundreds of channels cost no more layers than a few.
 
+use super::cells;
 use super::fixture::Fixture;
 use super::model::{Guide, HOUR, MIN, Target};
 use super::surface::GuideSurface;
@@ -27,6 +28,8 @@ struct Up {
     s: GuideSurface,
     fixture: Fixture,
     t: u64,
+    /// When the guide was opened.
+    t0: u64,
     clock: Rc<Cell<u64>>,
 }
 
@@ -39,11 +42,17 @@ impl Up {
         let read = Rc::clone(&clock);
         kit.ui.scene.set_clock(move || read.get(), 0);
         let engine = Engine::new(&kit).expect("an engine");
-        Up { _h: h, kit, engine, g: Guide::new(), s: GuideSurface::new(60), fixture: Fixture::sized(0, 0), t: NOW, clock }
+        Up { _h: h, kit, engine, g: Guide::new(), s: GuideSurface::new(60), fixture: Fixture::sized(0, 0), t: NOW, t0: NOW, clock }
     }
 
     fn new(mode: Mode, scale: f32, antenna: usize, internet: usize) -> Self {
+        Self::at(mode, scale, antenna, internet, 0)
+    }
+
+    /// A guide opened `later` minutes after [`NOW`].
+    fn at(mode: Mode, scale: f32, antenna: usize, internet: usize, later: u64) -> Self {
         let mut up = Self::bare(mode, scale);
+        (up.t, up.t0) = (NOW + later * MIN as u64, NOW + later * MIN as u64);
         up.fixture = Fixture::sized(antenna, internet);
         let fx = up.g.open(up.t);
         up.answer(fx);
@@ -84,7 +93,7 @@ impl Up {
             self.answer(fx);
             self.apply();
             let moving = self.s.busy(&self.engine, self.ns()) || self.g.due_at().is_some_and(|d| d <= self.t + 200 && d > self.t);
-            if !moving && self.t > NOW + 1500 && self.s.layers() > 0 {
+            if !moving && self.t > self.t0 + 1500 && self.s.layers() > 0 {
                 break;
             }
         }
@@ -356,4 +365,143 @@ fn time_is_asked_for_on_the_broadcasts_clock_and_shown_on_it() {
     assert_eq!(clock_text(t + 55 * MIN, 0), "12:00 AM");
     assert_eq!(day_text(t, 0), "Wed Nov 4");
     assert_eq!(day_text(t + HOUR, 0), "Thu Nov 5");
+}
+
+/// The channels of the fixture that follow its 57 plain ones: a ticker of short programmes, a long name, no logo, no listings, a ticker.
+const PLAIN: usize = 57;
+const EDGES: usize = 5;
+
+impl Up {
+    /// Enough time for the rows on the screen to ask for their programmes and have the answers: the guide looks four times, 80 ms apart.
+    fn look(&mut self) {
+        for _ in 0..4 {
+            self.t += 80;
+            let fx = self.g.update(&Input::Tick, self.t);
+            self.answer(fx);
+            self.apply();
+        }
+    }
+
+    /// `n` presses of `name`, a look after each.
+    fn press(&mut self, name: &str, n: usize) {
+        for _ in 0..n {
+            self.key(name);
+            self.look();
+        }
+    }
+
+    /// CH- until the focus is on the last row, at any size (a page is a few rows fewer than the screen holds), and its programmes are in.
+    fn walk_to_the_last_row(&mut self) {
+        self.keys("chdown", 16);
+        self.settle();
+    }
+}
+
+#[test]
+fn nothing_of_the_grid_is_on_a_word_and_no_word_leaves_its_cell_or_the_plate_the_grid_whatever_the_clock_the_size_the_look_and_the_place() {
+    // the guide opened at the half hour, ten minutes and eleven after it (a cell that begins at the screen's edge, a minute inside it), the
+    // focus walked along a row, down to the edge channels and up to the chips
+    for (mode, scale, later) in [(Mode::Dark, 1.0, 10), (Mode::Dark, 1.0, 0), (Mode::Dark, 1.5, 11), (Mode::Dark, 2.0, 0), (Mode::Dark, 2.0, 9), (Mode::Light, 1.0, 11), (Mode::Light, 1.5, 0), (Mode::Light, 2.0, 10)] {
+        let mut up = Up::at(mode, scale, PLAIN + EDGES, 0, later);
+        let name = format!("{mode:?} at {scale}, opened {later} minutes on");
+        let said = |up: &mut Up, what: &str| assert_eq!(up.lint(), Vec::<String>::new(), "{what}, {name}");
+        said(&mut up, "open");
+        for n in 1..=4 {
+            up.press("right", 1);
+            said(&mut up, &format!("{n} cells along"));
+        }
+        up.press("left", 6);
+        said(&mut up, "back before the opening view");
+        up.press("down", 2);
+        said(&mut up, "two rows down");
+        up.key("info");
+        up.look();
+        said(&mut up, "a sheet");
+        up.key("back");
+        up.walk_to_the_last_row();
+        said(&mut up, "the last page");
+        for n in 1..=3 {
+            up.press("up", 1);
+            up.press("right", 1);
+            said(&mut up, &format!("{n} rows up the edge channels, a cell along"));
+        }
+        up.press("up", 60);
+        assert_eq!(up.g.region(), super::model::Region::Chips);
+        said(&mut up, "the chips");
+    }
+}
+
+#[test]
+fn a_title_is_whole_or_five_letters_and_an_ellipsis_or_not_there_so_a_cell_of_a_few_minutes_says_nothing() {
+    for scale in [1.0, 2.0] {
+        let mut up = Up::new(Mode::Dark, scale, PLAIN + EDGES, 0);
+        up.walk_to_the_last_row();
+        let g = up.geometry();
+        let (gx, gw, ppm) = (g["grid"]["x"].as_f64().unwrap() as f32, g["grid"]["w"].as_f64().unwrap() as f32, g["page"]["ppm"].as_f64().unwrap() as f32);
+        let words = up.s.cell_words();
+        assert!(words.len() > 10, "the last page has words: {words:?}");
+        for (row, text, frame) in &words {
+            let kept = text.trim_end_matches('\u{2026}').chars().count();
+            assert!(text == text.trim() && (!text.ends_with('\u{2026}') || kept >= cells::MIN_CUT), "{text:?} of row {row} is a fragment at {scale}");
+            // the words of a cell the grid does not reach are in the run for a flight, outside it
+            if frame.right() > gx && frame.x < gx + gw {
+                assert!(frame.x >= gx && frame.right() <= gx + gw, "{text:?} of row {row} is inside the grid at {scale}");
+            }
+        }
+        // the ticker's row has cells of five minutes: those are 40 px at 100 %, and no word of the row begins in one that has no room for a word
+        let pad = up.kit.space(3);
+        let (origin, view) = (up.g.origin(), up.g.view());
+        let x_of = |t: i64| gx + ((t - view) as f64 / MIN as f64 * f64::from(ppm)).round() as f32;
+        let id = up.g.channel(PLAIN).unwrap().id.clone();
+        let cells: Vec<_> = up.g.spans(&id, view, view + up.g.page().span).into_iter().map(|s| (x_of(s.start), x_of(s.end))).collect();
+        assert!(cells.len() > 6, "{} cells in the ticker's row, from {origin}", cells.len());
+        for (a, b) in cells.iter().filter(|(a, b)| b - a < 2.0 * pad + 16.0) {
+            assert!(!words.iter().any(|(row, _, f)| *row == PLAIN && f.x >= *a && f.x < *b), "a word in the cell {a}..{b} of {} px at {scale}", b - a);
+        }
+    }
+}
+
+#[test]
+fn a_sheet_is_as_tall_as_what_it_says_and_a_row_with_no_information_has_no_dangling_separator_or_empty_line() {
+    for (mode, scale) in [(Mode::Dark, 1.0), (Mode::Light, 1.0), (Mode::Dark, 2.0), (Mode::Light, 2.0)] {
+        let mut up = Up::new(mode, scale, PLAIN + EDGES, 0);
+        // a programme with a description, then the row of the edge channel that has no listings
+        for (rows_down, what) in [(0, "a programme"), (PLAIN + 3 - 5, "no information")] {
+            if rows_down > 0 {
+                up.press("down", rows_down);
+            }
+            up.key("info");
+            up.look();
+            let g = up.geometry();
+            let (sheet, watch) = (&g["sheet"], &g["watch"]);
+            let (bottom, pad) = (sheet["y"].as_f64().unwrap() + sheet["h"].as_f64().unwrap(), f64::from(up.kit.space(6)));
+            assert_eq!(watch["y"].as_f64().unwrap() + watch["h"].as_f64().unwrap() + pad, bottom, "nothing under the button: {what}, {mode:?} at {scale}");
+            let words = up.s.sheet_words();
+            assert!(words.iter().all(|w| !w.trim_end().ends_with('\u{b7}') && !w.is_empty()), "{words:?}: {what}, {mode:?} at {scale}");
+            if rows_down > 0 {
+                assert_eq!(words, ["62-1 WWWWWWWWWWWW-HD", "No information"], "a row that has none says so and nothing else");
+            }
+            up.key("back");
+            up.look();
+        }
+    }
+}
+
+#[test]
+fn a_channel_with_no_logo_says_its_call_sign_on_its_tile_and_a_name_of_words_its_initials() {
+    use super::surface::monogram;
+    assert_eq!(monogram("WSB-HD"), "WSB");
+    assert_eq!(monogram("WAGA-HD"), "WAGA");
+    assert_eq!(monogram("ION"), "ION");
+    assert_eq!(monogram("Dabl"), "DABL");
+    assert_eq!(monogram("WSVP-HD Southern Valley Public Television"), "WSVP");
+    assert_eq!(monogram("Pluto TV Classic Sitcoms"), "PTCS");
+    assert_eq!(monogram("Pluto TV Classic Sitcoms And More"), "PTCS");
+    assert_eq!(monogram("WWWWWWWWWWWW-HD"), "WWWW");
+    assert_eq!(monogram(""), "");
+    assert_eq!(monogram("-"), "");
+    let up = Up::new(Mode::Dark, 1.0, PLAIN + EDGES, 0);
+    let rail = up.s.rail_words();
+    assert!(rail.iter().any(|(row, w)| *row == 0 && w == "KAR"), "the first channel has no logo in this set: {rail:?}");
+    assert!(rail.iter().any(|(row, w)| *row == 0 && w == "KAR-HD"), "and its name beside the tile: {rail:?}");
 }

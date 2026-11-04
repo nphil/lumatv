@@ -3,11 +3,13 @@
 //!
 //! The grid is cached and moved by the compositor: the rows and the time are scrolled on tracks of the flow engine (the rail and the rows by
 //! one, the cells and the ruler by two more), so a key only retargets a spring and nothing is drawn by the frame. Only the rows on the
-//! screen (and one more each side) have layers: a row is a logo, a text of the number and name, one run of glyph quads with every cell of
-//! the stretch of time round the view (titles, dividers, how far the programme on the air has gone, the line of now) and a lead, the title
-//! of the cell that crosses the left edge, which stays at the edge. The focus is a lit plate lifted by the flow engine, one layer a move.
-//! Everything is drawn from the theme's tokens and the look's roles; nothing here names a colour or a size.
+//! screen (and one more each side) have layers: a row is a logo's tile, a text of the number and name, one run of glyph quads with every cell of
+//! the stretch of time round the view (titles, dividers, how far the programme on the air has gone) and a lead, the title of the cell at the
+//! left edge, which stays at the edge. A title is said in the part of its cell the view shows (`cells`) and no line of the grid runs through
+//! a word. The focus is a lit plate lifted by the flow engine, one layer a move. Everything is drawn from the theme's tokens and the look's
+//! roles; nothing here names a colour or a size.
 
+use super::cells;
 use super::layout::{self, Layout};
 use super::model::{Chip, Filter, Guide, HOUR, MIN, Page, Span, Target};
 use crate::kit::button::{Button, Place, Spec as ButtonSpec, Tone};
@@ -102,13 +104,25 @@ struct Drawn {
     minute: i64,
 }
 
-/// A word as the screen has it, for the lint and the geometry report: its box on the screen at rest, with the grid scrolled to the view.
+/// A word as the screen has it, for the lint and the geometry report: its box on the screen at rest, with the grid scrolled to the view, and
+/// the frame it must stay inside where it has one (the part of its cell the view shows, a logo's tile).
 #[derive(Clone, Debug)]
 struct Said {
     text: String,
     frame: Frame,
     ty: Type,
     colour: Rgba,
+    within: Option<Frame>,
+}
+
+impl Said {
+    fn new(text: String, frame: Frame, ty: Type, colour: Rgba) -> Self {
+        Self { text, frame, ty, colour, within: None }
+    }
+
+    fn within(self, bounds: Frame) -> Self {
+        Self { within: Some(bounds), ..self }
+    }
 }
 
 struct Row {
@@ -125,6 +139,8 @@ struct Row {
     /// The words of the rail, and of the cells and the lead, as drawn.
     rail_words: Vec<Said>,
     words: Vec<Said>,
+    /// The hairlines and rules of the cells, as the screen has them at rest like the words: no word is on one.
+    marks: Vec<Frame>,
 }
 
 struct ChipView {
@@ -148,6 +164,8 @@ struct Ruler {
     layer: TextLayer,
     drawn: Option<(i64, i64, i64)>,
     words: Vec<Said>,
+    /// The ticks and the marker of now, on the screen at rest.
+    marks: Vec<Frame>,
 }
 
 struct Strip {
@@ -181,12 +199,14 @@ struct Chrome {
     sheet: Option<SheetBuilt>,
 }
 
-/// Where the lit plate is: the row and the stretch of time it covers.
+/// Where the lit plate is: the row, the stretch of time it covers and the view it was made for (the plate keeps to the part of the cell the view
+/// shows).
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PlateKey {
     channel: String,
     from: i64,
     to: i64,
+    view: i64,
 }
 
 pub struct GuideSurface {
@@ -300,7 +320,7 @@ impl GuideSurface {
             if chip == Chip::Now {
                 x += s6;
             }
-            let frame = Frame::new(x, lay.head.y + ((lay.head.h - btn_h) / 2.0).floor(), w, btn_h);
+            let frame = Frame::new(x, lay.chips_y, w, btn_h);
             let mut spec = ButtonSpec::new(&label, Tone::Plain).selected(on);
             if on {
                 spec = spec.with_icon("check");
@@ -323,10 +343,10 @@ impl GuideSurface {
         let z = self.z;
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
-        let (s2, s3, s4, s6) = (kit.space(2), kit.space(3), kit.space(4), kit.space(6));
-        let bar_h = (lay.row_h - 2.0 * s2) as u32;
-        // the dividers and the line of now are marks of the cells' runs: handed to the compositor before they are made
-        kit.ui.warm_marks(&[Form::Bar { w: 2, h: bar_h }, Form::Bar { w: 2, h: lay.row_h as u32 }, Form::Rule(1), Form::Disc(10), Form::Bar { w: 2, h: lay.ruler.h as u32 - 4 }]);
+        let (s3, s4, s6) = (kit.space(3), kit.space(4), kit.space(6));
+        let bar_h = (lay.row_h - 2.0 * lay.mark_inset) as u32;
+        // the dividers, the ticks and the marker of now are marks of runs: handed to the compositor before they are made
+        kit.ui.warm_marks(&[Form::Bar { w: lay.hair as u32, h: bar_h }, Form::Rule(1), Form::Disc(lay.knob as u32), Form::Bar { w: lay.hair as u32, h: lay.tick_h as u32 }]);
 
         let root = self.stage.group();
         let root_id = root.id();
@@ -377,7 +397,7 @@ impl GuideSurface {
             groups: Groups { _body: body, rows, grid_clip, grid, _ruler_clip: ruler_clip, _ruler: ruler },
             _title: title,
             chips,
-            ruler: Ruler { layer: ruler_layer, drawn: None, words: Vec::new() },
+            ruler: Ruler { layer: ruler_layer, drawn: None, words: Vec::new(), marks: Vec::new() },
             strip: Strip { _pane: pane, text: strip_text, sig: String::new(), words: Vec::new() },
             _hints: hints,
             rows: Vec::new(),
@@ -471,7 +491,8 @@ impl GuideSurface {
         self.sent = Some(to);
     }
 
-    /// The times over the grid, from half an hour to half an hour, for the stretch of time round the view.
+    /// The times over the grid, from half an hour to half an hour, for the stretch of time round the view: the words and the ticks in the upper
+    /// band, the marker of now (a disc that ends where the grid begins) in the band under it, so that no word is ever on it.
     fn sync_ruler(&mut self, kit: &mut Kit, g: &Guide) -> io::Result<()> {
         let c = self.chrome.as_mut().expect("built");
         let (lay, view, origin) = (&c.lay, g.view(), g.origin());
@@ -485,11 +506,14 @@ impl GuideSurface {
         let (ink, ink2, accent, edge_colour) = (kit.ui.look.ink(), kit.ui.look.ink2(), kit.ui.look.accent(), edge(kit));
         let ty = kit.ty(TypeRole::Caption);
         let line = line_height(ty);
-        let (pad, y) = (kit.space(2), ((lay.ruler.h - line) / 2.0).floor());
+        // a time begins its words where a cell that begins at that time begins its own: a cell's air
+        let (pad, y) = (lay.pad, ((lay.labels_h - line) / 2.0).floor());
         let x0 = lay.x_of(from, origin);
         let offset = lay.offset_of(view, origin);
+        let screen_x = |x: f32| lay.grid.x + x0 + x - offset;
         let mut paint = Paint::default();
         let mut words = Vec::new();
+        let mut marks = Vec::new();
         let half = 30 * MIN;
         let mut t = (from + half - 1).div_euclid(half) * half;
         while t < to {
@@ -499,25 +523,34 @@ impl GuideSurface {
             let text = if at_midnight { day_text(t, g.offset_s()) } else { clock_text(t, g.offset_s()) };
             let colour = if at_midnight { ink } else { ink2 };
             let w = width_of(kit, role_style(kit, TypeRole::Caption, None, colour, Align::Left), &text);
-            // a time the left or the right edge of the grid would cut when the grid is at rest is left out (its tick stays); in a flight the
-            // ones that come and go are cut by the edge as everything is
-            let (a, b) = (x0 + x + pad, x0 + x + pad + w);
+            // The words of a time begin where the words of a cell that begins then begin: a cell's air from the tick, and no nearer the left
+            // edge than the first column's titles. A time whose tick is out of the grid has words only in a flight, outside it; one the right
+            // edge would cut has none when the grid is at rest, and no tick either (a tick alone at the edge says nothing).
+            let at = x0 + x;
+            let a = if at >= offset { (at + pad).max(offset + lay.clear() + pad) } else { at + pad };
+            let b = a + w;
             let cut = |edge: f32| a < edge && b > edge;
-            if !(cut(offset) || cut(offset + lay.grid.w)) {
-                words.push(Said { text: text.clone(), frame: Frame::new(lay.grid.x + x0 + x + pad - offset, lay.ruler.y + y, w, line), ty, colour });
-                paint.text(text, ty, colour, x + pad, y, w);
+            if !((at < offset && b > offset) || cut(offset + lay.grid.w)) {
+                words.push(Said::new(text.clone(), Frame::new(screen_x(a - x0), lay.ruler.y + y, w, line), ty, colour));
+                paint.text(text, ty, colour, a - x0, y, w);
+                // a tick is centred on its time, as the divider under it is
+                let tick = (x - lay.hair / 2.0).floor();
+                paint.marks.push(Mark::bar(tick as i32, 0, lay.hair as u32, lay.tick_h as u32, edge_colour));
+                marks.push(Frame::new(screen_x(tick), lay.ruler.y, lay.hair, lay.tick_h));
             }
-            paint.marks.push(Mark::bar(x as i32, 0, 2, lay.ruler.h as u32 - 4, edge_colour));
             t += half;
         }
         let now_x = lay.x_of(g.now(), origin) - x0;
         if (0.0..=lay.grid.w * 2.0).contains(&now_x) {
-            paint.marks.push(Mark::disc(now_x as i32 - 5, lay.ruler.h as i32 - 12, 10, accent));
+            let at = (now_x - lay.knob / 2.0).floor();
+            paint.marks.push(Mark::disc(at as i32, (lay.ruler.h - lay.knob) as i32, lay.knob as u32, accent));
+            marks.push(Frame::new(screen_x(at), lay.ruler.y + lay.ruler.h - lay.knob, lay.knob, lay.knob));
         }
         c.ruler.layer.draw(&mut kit.ui, &paint.items());
         c.ruler.layer.set_props(Props::at(x0, lay.ruler.y));
         c.ruler.drawn = Some(key);
         c.ruler.words = words;
+        c.ruler.marks = marks;
         Ok(())
     }
 
@@ -572,38 +605,57 @@ impl GuideSurface {
         let z = self.z;
         let c = self.chrome.as_ref().expect("built");
         let y = lay.row_h * index as f32;
-        let s3 = kit.space(3);
-        // the logo on a quiet tile, one layer
+        let s2 = kit.space(2);
+        // the logo on a quiet tile with a hairline edge, one layer; the tile starts where every block of the left edge does
         let (lw, lh) = lay.logo;
+        let tile_y = ((lay.row_h - lh as f32) / 2.0).floor();
         let mut px = Px::new(lw, lh);
-        px.round_rect(Frame::new(0.0, 0.0, lw as f32, lh as f32), kit.tokens.radius(Radius::Control).min(lh as f32 / 2.0), selected_wash(kit), None);
-        if let Some(p) = ch.logo.as_deref().and_then(|file| crate::kit::avatar::contained(file, lw.saturating_sub(8), lh.saturating_sub(8))) {
+        px.round_rect(Frame::new(0.0, 0.0, lw as f32, lh as f32), kit.tokens.radius(Radius::Control).min(lh as f32 / 2.0), selected_wash(kit), Some((edge(kit), 1.0)));
+        let art = ch.logo.as_deref().and_then(|file| crate::kit::avatar::contained(file, lw.saturating_sub(8), lh.saturating_sub(8)));
+        if let Some(p) = &art {
             px.lay(&p.rgba, p.width, p.height, ((lw - p.width) / 2) as i32, ((lh - p.height) / 2) as i32);
         }
-        let at = Props::at(layout::LEFT + s3, y + ((lay.row_h - lh as f32) / 2.0).floor());
-        let logo = scene.adopting(&c.groups.rows, || px.layer(kit, z + 4, at))?;
+        let at = Props::at(layout::LEFT, y + tile_y);
+        let logo = scene.adopting(&c.groups.rows, || px.layer(kit, z + 3, at))?;
 
-        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        // the rail's words stand beside the tile; a channel with no logo says its call sign on the tile
+        let (ink2, ink) = (kit.ui.look.ink2(), kit.ui.look.ink());
         let (num_ty, name_ty) = (kit.ty(TypeRole::Label), kit.ty(TypeRole::Caption));
         let (num_line, name_line) = (line_height(num_ty), line_height(name_ty));
+        let beside = lay.text_x - layout::LEFT;
+        let number = ellipsise(&mut kit.ui.fonts, &ch.number, num_ty, lay.text_w);
         let mut paint = Paint::default();
         let mut said = Vec::new();
         if lay.two_lines {
             let top = ((lay.row_h - num_line - name_line) / 2.0).floor();
             let name = ellipsise(&mut kit.ui.fonts, &ch.name, name_ty, lay.text_w);
-            said.push(Said { text: ch.number.clone(), frame: Frame::new(lay.text_x, y + top, lay.text_w, num_line), ty: num_ty, colour: ink });
-            said.push(Said { text: name.clone(), frame: Frame::new(lay.text_x, y + top + num_line, lay.text_w, name_line), ty: name_ty, colour: ink2 });
-            paint.text(ch.number.clone(), num_ty, ink, 0.0, top, lay.text_w);
-            paint.text(name, name_ty, ink2, 0.0, top + num_line, lay.text_w);
+            said.push(Said::new(number.clone(), Frame::new(lay.text_x, y + top, lay.text_w, num_line), num_ty, ink));
+            said.push(Said::new(name.clone(), Frame::new(lay.text_x, y + top + num_line, lay.text_w, name_line), name_ty, ink2));
+            paint.text(number, num_ty, ink, beside, top, lay.text_w);
+            paint.text(name, name_ty, ink2, beside, top + num_line, lay.text_w);
         } else {
             let top = ((lay.row_h - num_line) / 2.0).floor();
-            said.push(Said { text: ch.number.clone(), frame: Frame::new(lay.text_x, y + top, lay.text_w, num_line), ty: num_ty, colour: ink });
-            paint.text(ch.number.clone(), num_ty, ink, 0.0, top, lay.text_w);
+            said.push(Said::new(number.clone(), Frame::new(lay.text_x, y + top, lay.text_w, num_line), num_ty, ink));
+            paint.text(number, num_ty, ink, beside, top, lay.text_w);
         }
-        let rail = scene.adopting(&c.groups.rows, || text_layer(&mut kit.ui, Frame::new(lay.text_x, y, lay.text_w, lay.row_h), z + 4, &paint))?;
+        if art.is_none() {
+            let style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
+            let mut sign = monogram(&ch.name);
+            while sign.chars().count() > 1 && width_of(kit, style, &sign) > lw as f32 - 2.0 * s2 {
+                sign.pop();
+            }
+            if !sign.is_empty() {
+                let w = width_of(kit, style, &sign);
+                let (mx, my) = (((lw as f32 - w) / 2.0).floor(), tile_y + ((lh as f32 - name_line) / 2.0).floor());
+                said.push(Said::new(sign.clone(), Frame::new(layout::LEFT + mx, y + my, w, name_line), name_ty, ink2).within(Frame::new(layout::LEFT, y + tile_y, lw as f32, lh as f32)));
+                paint.text(sign, name_ty, ink2, mx, my, w);
+            }
+        }
+        let rail_frame = Frame::new(layout::LEFT, y, lay.text_x + lay.text_w - layout::LEFT, lay.row_h);
+        let rail = scene.adopting(&c.groups.rows, || text_layer(&mut kit.ui, rail_frame, z + 4, &paint))?;
         let cells = scene.adopting(&c.groups.grid, || TextLayer::new(&mut kit.ui, Frame::new(0.0, y, lay.grid.w * 2.0, lay.row_h), z + 2, &[]))?;
         let lead = scene.adopting(&c.groups.grid_clip, || TextLayer::new(&mut kit.ui, Frame::new(lay.grid.x, y, lay.grid.w, lay.row_h), z + 3, &[]))?;
-        Ok(Row { index, id: ch.id, _logo: logo, _rail: rail, cells, lead, drawn: None, lead_of: None, lead_wait: false, rail_words: said, words: Vec::new() })
+        Ok(Row { index, id: ch.id, _logo: logo, _rail: rail, cells, lead, drawn: None, lead_of: None, lead_wait: false, rail_words: said, words: Vec::new(), marks: Vec::new() })
     }
 
     /// What the grid says when there is no row: the list is on its way, did not come, or is empty.
@@ -630,7 +682,7 @@ impl GuideSurface {
                 let mut paint = Paint::default();
                 paint.text(w.to_string(), ty, ink2, 0.0, 0.0, width);
                 let layer = scene.adopting(self.stage.group(), || text_layer(&mut kit.ui, frame, self.z + 6, &paint))?;
-                c.empty = Some((w.to_string(), layer, Said { text: w.to_string(), frame, ty, colour: ink2 }));
+                c.empty = Some((w.to_string(), layer, Said::new(w.to_string(), frame, ty, ink2)));
             }
         }
         Ok(())
@@ -655,7 +707,7 @@ impl GuideSurface {
         let (x, mut y) = (lay.strip.x + s4, lay.strip.y + s3);
         let mut add = |kit: &mut Kit, paint: &mut Paint, text: &str, ty: Type, colour: Rgba, line: f32, y: &mut f32| {
             let shown = ellipsise(&mut kit.ui.fonts, text, ty, w);
-            said.push(Said { text: shown.clone(), frame: Frame::new(x, *y, w, line), ty, colour });
+            said.push(Said::new(shown.clone(), Frame::new(x, *y, w, line), ty, colour));
             paint.text(shown, ty, colour, 0.0, *y - (lay.strip.y + s3), w);
             *y += line;
         };
@@ -673,7 +725,9 @@ impl GuideSurface {
         Ok(())
     }
 
-    /// The detail sheet over the page: made when it opens, gone when it closes.
+    /// The detail sheet over the page: made when it opens, gone when it closes. The page behind it is hidden (the scrim that hides, as every
+    /// sheet over words has), so no word of it reads through the sheet or is cut by its edge, and the sheet is as tall as what it says: the
+    /// lines it has, never the lines it might have had.
     fn sync_sheet(&mut self, kit: &mut Kit, engine: &mut Engine, g: &Guide) -> io::Result<()> {
         let c = self.chrome.as_mut().expect("built");
         let want = g.sheet().map(|s| sheet_sig(g, &s));
@@ -692,54 +746,62 @@ impl GuideSurface {
         let (title_line, body_line, cap_line) = (line_height(title_ty), line_height(body_ty), line_height(cap_ty));
         let (s3, s4, s6) = (kit.space(3), kit.space(4), kit.space(6));
         let scale = kit.text_scale.clamp(1.0, 2.0);
-        let w = (960.0 * scale.powf(0.8)).round().clamp(960.0, 1500.0);
+        // a reading measure that grows with the text but never past seven eighths of the safe width
+        let base = 15.0 * kit.tokens.target;
+        let w = (base * scale.powf(0.8)).round().clamp(base, ((layout::RIGHT - layout::LEFT) * 7.0 / 8.0).floor());
         let inner = w - 2.0 * s6;
         let btn_h = Button::height(kit);
-        let room = layout::BOTTOM - layout::TOP - 2.0 * s6;
-        let fixed = 2.0 * s6 + cap_line + s3 + btn_h + s4;
+        let room = layout::BOTTOM - layout::TOP;
         let title = s.main.map_or("No information", |p| p.title.as_str());
         let title_style = role_style(kit, TypeRole::Title, None, ink, Align::Left);
-        let title_lines = wrap::lines(kit, title_style, title, inner, 2);
+        let title_lines = wrap::lines(kit, title_style, title, inner, 3);
         let (when, meta) = sheet_meta(g, &s);
+        let head = if when.is_empty() { sheet_channel(&s) } else { format!("{}  ·  {}", sheet_channel(&s), when) };
         let after: Vec<String> = s.after.iter().take(2).map(|p| format!("{}  {}", clock_text(p.start, g.offset_s()), p.title)).collect();
         let body_style = role_style(kit, TypeRole::Body, None, ink2, Align::Left);
         let text = s.main.map_or("", |p| p.text.as_str());
-        // the height is what the lines need; the description and the programmes after give way before the title does
-        let mut desc_lines = if text.is_empty() { 0 } else { 5 };
-        let mut after_lines = after.len();
-        let height = |d: usize, a: usize| fixed + title_lines.len() as f32 * title_line + cap_line + d as f32 * body_line + a as f32 * cap_line;
-        while height(desc_lines, after_lines) > room && (desc_lines > 0 || after_lines > 0) {
-            if after_lines > 0 {
-                after_lines -= 1;
-            } else {
-                desc_lines -= 1;
+        // the programmes after give way first and then the description's lines, before the title does
+        let meta_h = if meta.is_empty() { 0.0 } else { cap_line };
+        let (mut desc_max, mut after_n) = (if text.is_empty() { 0 } else { 5 }, after.len());
+        let (desc, after_n, h) = loop {
+            let desc = if desc_max > 0 { wrap::lines(kit, body_style, text, inner, desc_max) } else { Vec::new() };
+            let h = (2.0 * s6 + cap_line + title_lines.len() as f32 * title_line + meta_h + desc.len() as f32 * body_line + if after_n > 0 { s3 } else { 0.0 } + after_n as f32 * cap_line + s4 + btn_h).ceil();
+            if h <= room || (desc_max == 0 && after_n == 0) {
+                break (desc, after_n, h);
             }
-        }
-        let h = height(desc_lines, after_lines).ceil();
+            if after_n > 0 {
+                after_n -= 1;
+            } else {
+                desc_max -= 1;
+            }
+        };
         let frame = Frame::new(((1920.0 - w) / 2.0).floor(), ((1080.0 - h) / 2.0).floor(), w, h);
         let mut paint = Paint::default();
         let mut said = Vec::new();
         let (x, mut y) = (frame.x + s6, frame.y + s6);
         let mut put = |kit: &mut Kit, paint: &mut Paint, text: String, ty: Type, colour: Rgba, line: f32, y: &mut f32| {
             let shown = ellipsise(&mut kit.ui.fonts, &text, ty, inner);
-            said.push(Said { text: shown.clone(), frame: Frame::new(x, *y, inner, line), ty, colour });
+            said.push(Said::new(shown.clone(), Frame::new(x, *y, inner, line), ty, colour));
             paint.text(shown, ty, colour, x - frame.x, *y - frame.y, inner);
             *y += line;
         };
-        put(kit, &mut paint, format!("{}  ·  {}", sheet_channel(&s), when), cap_ty, ink2, cap_line, &mut y);
+        put(kit, &mut paint, head, cap_ty, ink2, cap_line, &mut y);
         for l in &title_lines {
             put(kit, &mut paint, l.clone(), title_ty, ink, title_line, &mut y);
         }
-        put(kit, &mut paint, meta, cap_ty, ink2, cap_line, &mut y);
-        if desc_lines > 0 {
-            for l in wrap::lines(kit, body_style, text, inner, desc_lines) {
-                put(kit, &mut paint, l, body_ty, ink2, body_line, &mut y);
-            }
+        if !meta.is_empty() {
+            put(kit, &mut paint, meta, cap_ty, ink2, cap_line, &mut y);
         }
-        for l in after.iter().take(after_lines) {
+        for l in desc {
+            put(kit, &mut paint, l, body_ty, ink2, body_line, &mut y);
+        }
+        if after_n > 0 {
+            y += s3;
+        }
+        for l in after.iter().take(after_n) {
             put(kit, &mut paint, l.clone(), cap_ty, ink2, cap_line, &mut y);
         }
-        let dim = scene.adopting(self.stage.group(), || scrim(kit, z, false));
+        let dim = scene.adopting(self.stage.group(), || scrim(kit, z, true));
         scrim_set(&dim, true);
         let pane = scene.adopting(self.stage.group(), || Pane::new(kit, frame, z + 1, PaneKind::Sheet, false));
         let layer_frame = frame;
@@ -767,7 +829,7 @@ impl GuideSurface {
         if !c.rows.iter().any(|r| r.index == g.row()) {
             return Ok(self.plates.last().map(|(_, p)| p.id));
         }
-        let key = PlateKey { channel: ch.id.clone(), from, to };
+        let key = PlateKey { channel: ch.id.clone(), from, to, view: g.view() };
         if let Some((_, p)) = self.plates.iter().find(|(k, _)| *k == key) {
             return Ok(Some(p.id));
         }
@@ -780,10 +842,13 @@ impl GuideSurface {
         }
         let lay = &c.lay;
         let origin = g.origin();
-        let (x0, x1) = (lay.x_of(from, origin), lay.x_of(to, origin));
-        let inset = kit.space(1);
-        let local = Frame::new(x0, lay.row_h * g.row() as f32 + inset, (x1 - x0 - kit.space(1)).clamp(8.0, 4096.0), lay.row_h - 2.0 * inset);
-        let screen = Frame::new(lay.grid.x + x0 - lay.offset_of(g.view(), origin), lay.grid.y + lay.row_h * (g.row() as f32 - g.top() as f32) + inset, local.w, local.h);
+        let left = lay.offset_of(g.view(), origin);
+        let lifted = plate_frame(lay, g.row(), lay.x_of(from, origin), lay.x_of(to, origin), left);
+        // at rest the plate is what the theme's lift grows to `lifted`, whatever the cell's width, so it never stands on the next cell
+        let scale = Lift::Row.scale(kit);
+        let (w, h) = ((lifted.w / scale).round(), (lifted.h / scale).round());
+        let local = Frame::new((lifted.x + (lifted.w - w) / 2.0).round(), (lifted.y + (lifted.h - h) / 2.0).round(), w, h);
+        let screen = Frame::new(lay.grid.x + local.x - left, lay.grid.y + local.y - lay.row_h * g.top() as f32, w, h);
         self.serial = (self.serial + 1) & 0xFFFF;
         let id = Id(PLATE_BASE + self.serial);
         let spot = Spot { id, screen, local, region: R_GRID, scope: SCOPE, z: self.z + 1 };
@@ -879,7 +944,8 @@ impl GuideSurface {
         }
     }
 
-    /// The frame of the cell at an instant of a row, in the space of the grid's content.
+    /// The plate the cell at an instant of a row has at its full lift, in the space of the grid's content: what the focus and the pointer's
+    /// cue both show.
     fn cell_frame(&self, g: &Guide, row: usize, at: i64) -> Option<Frame> {
         let c = self.chrome.as_ref()?;
         let ch = g.channel(row)?;
@@ -892,8 +958,8 @@ impl GuideSurface {
             }
         };
         let (x0, x1) = (c.lay.x_of(from, g.origin()), c.lay.x_of(to, g.origin()));
-        let inset = 4.0;
-        Some(Frame::new(x0, c.lay.row_h * row as f32 + inset, (x1 - x0).clamp(8.0, 4096.0), c.lay.row_h - 2.0 * inset))
+        let left = c.lay.offset_of(g.view(), g.origin());
+        Some(plate_frame(&c.lay, row, x0, x1, left))
     }
 
     // ------------------------------------------------------------------------------------------------------------------------ reports
@@ -913,21 +979,46 @@ impl GuideSurface {
             "head": f(lay.head), "ruler": f(lay.ruler), "rail": f(lay.rail), "grid": f(lay.grid), "strip": f(lay.strip), "hints": f(lay.hints),
             "chips": c.chips.iter().map(|v| json!({"label": v.label, "on": v.on, "frame": f(v.button.frame())})).collect::<Vec<_>>(),
             "sheet": c.sheet.as_ref().map(|s| f(s.frame)),
+            "watch": c.sheet.as_ref().map(|s| f(s.watch.frame())),
             "focus": engine.focus.current().map(|id| id.0),
             "empty": c.empty.as_ref().map(|(w, ..)| w.as_str()),
         })
     }
 
-    /// Describes what is on the screen to a lint: the page, the words on it and the buttons.
+    /// The words of the cells of the rows (row, words, box), as the screen has them at rest.
+    #[cfg(test)]
+    pub(super) fn cell_words(&self) -> Vec<(usize, String, Frame)> {
+        let Some(c) = &self.chrome else { return Vec::new() };
+        c.rows.iter().flat_map(|r| r.words.iter().map(|w| (r.index, w.text.clone(), w.frame))).collect()
+    }
+
+    /// The words of the rail (row, words): the number, the name, and the call sign on a tile with no logo.
+    #[cfg(test)]
+    pub(super) fn rail_words(&self) -> Vec<(usize, String)> {
+        let Some(c) = &self.chrome else { return Vec::new() };
+        c.rows.iter().flat_map(|r| r.rail_words.iter().map(|w| (r.index, w.text.clone()))).collect()
+    }
+
+    /// The words of the sheet, line by line.
+    #[cfg(test)]
+    pub(super) fn sheet_words(&self) -> Vec<String> {
+        self.chrome.as_ref().and_then(|c| c.sheet.as_ref()).map_or_else(Vec::new, |s| s.words.iter().map(|w| w.text.clone()).collect())
+    }
+
+    /// Describes what is on the screen to a lint: the page, the words on it with the cells they are in, the lines of the grid, the plate of the
+    /// focus and the buttons.
     pub fn feed_lint(&self, kit: &mut Kit, lint: &mut Lint, g: &Guide) {
         let Some(c) = &self.chrome else { return };
         let page = kit.tokens.extra(kit.mode).scrim_hide;
         let base = lint.panel("guide page", Frame::new(0.0, 0.0, 1920.0, 1080.0), page, false);
         let said = |kit: &mut Kit, lint: &mut Lint, name: &str, w: &Said, panel: usize| {
             let style = ui::components::style(w.ty, w.colour, Align::Left);
-            lint.word(kit, name, &w.text, w.frame, style, Some(panel));
+            match w.within {
+                Some(bounds) => lint.word_within(kit, name, &w.text, w.frame, style, Some(panel), bounds),
+                None => lint.word(kit, name, &w.text, w.frame, style, Some(panel)),
+            }
         };
-        // the sheet is over the page and dims it: what is under it is not read
+        // the sheet is over the page, which its scrim hides: what is under it is not read
         if let Some(s) = &c.sheet {
             let sheet = kit.ui.look.colour(ui::lucent::palette::PaletteRole::Sheet);
             let panel = lint.panel_on("sheet", s.frame, sheet, true, base);
@@ -950,17 +1041,39 @@ impl GuideSurface {
                 said(kit, lint, "ruler", w, base);
             }
         }
+        for m in &c.ruler.marks {
+            if m.x >= ruler.x && m.right() <= ruler.right() {
+                lint.line("ruler mark", *m);
+            }
+        }
         let top = g.top() as f32 * c.lay.row_h;
         for r in &c.rows {
-            for (w, rail) in r.rail_words.iter().map(|w| (w, true)).chain(r.words.iter().map(|w| (w, false))) {
-                let at = Said { frame: Frame::new(w.frame.x, body.y + w.frame.y - top, w.frame.w, w.frame.h), ..w.clone() };
-                let rows_ok = at.frame.y >= body.y && at.frame.bottom() <= body.bottom();
-                // a title cut by the edge of the grid is a cell that goes on, not a word out of its place
-                let cols_ok = rail || (at.frame.x >= grid.x && at.frame.right() <= grid.right());
-                if rows_ok && cols_ok {
+            let up = |f: Frame| Frame::new(f.x, body.y + f.y - top, f.w, f.h);
+            for (w, in_the_grid) in r.rail_words.iter().map(|w| (w, false)).chain(r.words.iter().map(|w| (w, true))) {
+                let at = Said { frame: up(w.frame), within: w.within.map(up), ..w.clone() };
+                // the words of a cell the view does not reach are not on the screen at rest (they are in the run for a flight)
+                let reached = !in_the_grid || at.within.is_some_and(|b| b.right() > grid.x && b.x < grid.right());
+                if reached && at.frame.y >= body.y && at.frame.bottom() <= body.bottom() {
                     said(kit, lint, "cell", &at, base);
                 }
             }
+            for m in &r.marks {
+                // a line the grid's edge cuts is a line that goes on: what shows of it is what words must keep off
+                let f = up(*m);
+                let (x0, x1) = (f.x.max(grid.x), f.right().min(grid.right()));
+                if f.y >= body.y && f.bottom() <= body.bottom() && x1 > x0 {
+                    lint.line("cell line", Frame::new(x0, f.y, x1 - x0, f.h));
+                }
+            }
+        }
+        // the plate of the focus, whole inside the grid at its full lift
+        if g.region() == super::model::Region::Grid
+            && let Some((from, to)) = g.focus_extent()
+            && c.rows.iter().any(|r| r.index == g.row())
+        {
+            let (origin, left) = (g.origin(), c.lay.offset_of(g.view(), g.origin()));
+            let f = plate_frame(&c.lay, g.row(), c.lay.x_of(from, origin), c.lay.x_of(to, origin), left);
+            lint.lifted("focus plate", Frame::new(grid.x + f.x - left, body.y + f.y - top, f.w, f.h), Some(grid));
         }
         for w in &c.strip.words {
             said(kit, lint, "strip", w, base);
@@ -1012,38 +1125,66 @@ fn title_of<'a>(s: &Span<'a>) -> Option<(&'a str, bool)> {
     }
 }
 
+/// The plate of the focus on a cell `from..to` of the grid's content at its full lift, when the grid is scrolled to `left`: the cell, kept
+/// `plate_inset` from the divider at each end and from the row's edge, and never nearer the grid's edges than the clearance the view keeps the
+/// focus off them by. It never stands on the next cell and never under the grid's edge, whatever the cell's width.
+fn plate_frame(lay: &Layout, row: usize, from: f32, to: f32, left: f32) -> Frame {
+    let clear = lay.clear();
+    let (a, b) = ((from + lay.plate_inset).max(left + clear), (to - lay.plate_inset).min(left + lay.grid.w - clear));
+    Frame::new(a, lay.row_h * row as f32 + lay.plate_inset, (b - a).max(lay.knob), lay.row_h - 2.0 * lay.plate_inset)
+}
+
+/// The letters a channel's tile says when it has no logo: a call sign (`WSB` of `WSB-HD`) as it is, the initials of a name of several words
+/// (`PTCS` of `Pluto TV Classic Sitcoms`), four at most.
+pub(super) fn monogram(name: &str) -> String {
+    let words: Vec<&str> = name.split([' ', '-']).filter(|w| !w.is_empty()).collect();
+    let Some(first) = words.first() else { return String::new() };
+    let letters: String = if words.len() == 1 || !first.chars().any(char::is_lowercase) {
+        first.chars().filter(|c| c.is_alphanumeric()).collect()
+    } else {
+        words.iter().filter_map(|w| w.chars().find(|c| c.is_alphanumeric())).collect()
+    };
+    letters.to_uppercase().chars().take(4).collect()
+}
+
 /// Draws a row's cells and its lead: one run for every cell of the stretch round the view, and the title of the cell at the left edge. `flying`:
-/// the time is still moving to the view.
+/// the time is still moving to the view. A title is said in the part of its cell the view shows (`cells`); the line of progress of the
+/// programme on the air ends at now, and nothing of the grid runs through a word.
 fn draw_cells(kit: &mut Kit, g: &Guide, lay: &Layout, row: &mut Row, flying: bool) {
     let (origin, view, now) = (g.origin(), g.view(), g.now());
     let span = lay.page().span;
     let (ink, ink2, accent, edge_colour) = (kit.ui.look.ink(), kit.ui.look.ink2(), kit.ui.look.accent(), edge(kit));
-    let (s2, pad) = (kit.space(2), lay.pad);
+    let pad = lay.pad;
     let ty = kit.ty(TypeRole::Label);
     let line = line_height(ty);
     let y_text = ((lay.row_h - line) / 2.0).floor();
     let y_row = lay.row_h * row.index as f32;
-    let min_room = width_of(kit, role_style(kit, TypeRole::Label, None, ink, Align::Left), "Abc");
-    let compose = |kit: &mut Kit, from: i64, to: i64| -> (Paint, f32) {
+    // what the view shows of the content at rest
+    let (left, shown) = (lay.x_of(view, origin), lay.grid.w);
+    // where titles begin is the clearance in from the left edge: the first column's titles begin in one place
+    let screen = cells::Screen { left, right: left + shown, lead: lay.clear() };
+    let say = |kit: &mut Kit, text: &str, room: f32| cells::fit(text, room, &mut |t: &str| kit.ui.fonts.measure(t, ty).width);
+    let (bar_h, rule_y) = (lay.row_h - 2.0 * lay.mark_inset, lay.row_h - lay.mark_inset - lay.rule);
+    let compose = |kit: &mut Kit, from: i64, to: i64| -> (Paint, f32, Vec<Frame>) {
         let mut paint = Paint::default();
         let mut quiet = Paint::default();
         let mut rules = Vec::new();
+        let mut lines = Vec::new();
         let x0 = lay.x_of(from, origin);
-        let bar_h = (lay.row_h - 2.0 * s2) as u32;
         for s in g.spans(&row.id, from, to) {
-            let (sx, ex) = (lay.x_of(s.start.max(from), origin) - x0, lay.x_of(s.end.min(to), origin) - x0);
-            let crossing = s.start < view && s.end > view;
+            let (cs, ce) = (lay.x_of(s.start.max(from), origin), lay.x_of(s.end.min(to), origin));
             if s.start >= from && s.start > origin {
-                paint.marks.push(Mark::bar(sx as i32 - 1, s2 as i32, 2, bar_h, edge_colour));
+                let x = (cs - x0 - lay.hair / 2.0).floor();
+                paint.marks.push(Mark::bar(x as i32, lay.mark_inset as i32, lay.hair as u32, bar_h as u32, edge_colour));
+                lines.push(Frame::new(x, lay.mark_inset, lay.hair, bar_h));
             }
-            let room = ex - sx - 2.0 * pad;
-            if !crossing
-                && room >= min_room
+            if let Some(slot) = cells::slot(cs, ce, screen, pad)
+                && !slot.pinned
                 && let Some((text, is_quiet)) = title_of(&s)
+                && let Some(words) = say(kit, text, slot.room)
             {
-                let shown = ellipsise(&mut kit.ui.fonts, text, ty, room);
                 let (colour, target) = if is_quiet { (ink2, &mut quiet) } else { (ink, &mut paint) };
-                target.text(shown, ty, colour, sx + pad, y_text, room);
+                target.text(words, ty, colour, slot.x - x0, y_text, slot.room);
             }
             if let Some(p) = s.programme.filter(|p| p.airing(now)) {
                 let start = lay.x_of(p.start.max(from), origin) - x0;
@@ -1052,54 +1193,56 @@ fn draw_cells(kit: &mut Kit, g: &Guide, lay: &Layout, row: &mut Row, flying: boo
         }
         paint.runs.append(&mut quiet.runs);
         for (start, done) in rules {
-            let (mut x, mut left) = (start, done);
-            while left > 0.0 {
-                let w = left.min(1000.0);
-                for k in 0..3 {
-                    paint.marks.push(Mark::rule(x as i32, lay.row_h as i32 - s2 as i32 - 3 + k, w as u32, accent));
+            lines.push(Frame::new(start, rule_y, done, lay.rule));
+            let (mut x, mut rest) = (start, done);
+            while rest > 0.0 {
+                let w = rest.min(1000.0);
+                for k in 0..lay.rule as i32 {
+                    paint.marks.push(Mark::rule(x as i32, rule_y as i32 + k, w as u32, accent));
                 }
                 x += w;
-                left -= w;
+                rest -= w;
             }
         }
-        if now >= from && now < to {
-            paint.marks.push(Mark::bar((lay.x_of(now, origin) - x0) as i32 - 1, 0, 2, lay.row_h as u32, accent));
-        }
-        (paint, x0)
+        (paint, x0, lines)
     };
     // too many glyphs for one run: a narrower stretch round the view
     let mut made = None;
     for (before, after) in [(span / 2, span + span / 2), (span / 4, span + span / 4), (0, span)] {
         let (from, to) = ((view - before).max(origin), (view + after).min(g.horizon()));
-        let (paint, x0) = compose(kit, from, to);
+        let (paint, x0, lines) = compose(kit, from, to);
         let fits = paint.quads() <= QUADS;
-        made = Some((paint, x0));
+        made = Some((paint, x0, lines));
         if fits {
             break;
         }
     }
-    let (paint, x0) = made.expect("a stretch");
+    let (paint, x0, lines) = made.expect("a stretch");
     let mut said = Vec::new();
-    let screen_x = |x: f32| lay.grid.x + x - lay.x_of(view, origin);
+    let screen_x = |x: f32| lay.grid.x + x - left;
     for (text, t, colour, x, y, w) in &paint.runs {
-        said.push(Said { text: text.clone(), frame: Frame::new(screen_x(x0 + *x), y_row + *y, *w, line), ty: *t, colour: *colour });
+        // a title's cell, as far as the view shows it: the room it has and the air on both sides
+        let cell = Frame::new(screen_x(x0 + *x - pad), y_row, *w + 2.0 * pad, lay.row_h);
+        said.push(Said::new(text.clone(), Frame::new(screen_x(x0 + *x), y_row + *y, *w, line), *t, *colour).within(cell));
     }
+    row.marks = lines.iter().map(|f| Frame::new(screen_x(x0 + f.x), y_row + f.y, f.w, f.h)).collect();
     row.cells.draw(&mut kit.ui, &paint.items());
     row.cells.set_props(Props::at(x0, y_row));
 
-    // the lead: the title of the cell that crosses the left edge, kept at the edge
+    // the lead: the title of the cell that is crossing the place where titles begin, kept there
     let mut lead = Paint::default();
-    let crossing = g.spans(&row.id, view, view + 1).into_iter().next().filter(|s| s.start < view);
+    let begin = view + lay.span / 100;
+    let crossing = g.spans(&row.id, begin, begin + 1).into_iter().next().filter(|s| s.start < begin);
     if let Some(s) = &crossing
+        && let Some(slot) = cells::slot(lay.x_of(s.start, origin), lay.x_of(s.end, origin), screen, pad)
+        && slot.pinned
         && let Some((text, is_quiet)) = title_of(s)
+        && let Some(words) = say(kit, text, slot.room)
     {
-        let room = lay.x_of(s.end.min(view + span), origin) - lay.x_of(view, origin) - 2.0 * pad;
-        if room >= min_room {
-            let shown = ellipsise(&mut kit.ui.fonts, text, ty, room);
-            let colour = if is_quiet { ink2 } else { ink };
-            said.push(Said { text: shown.clone(), frame: Frame::new(lay.grid.x + pad, y_row + y_text, room, line), ty, colour });
-            lead.text(shown, ty, colour, pad, y_text, room);
-        }
+        let colour = if is_quiet { ink2 } else { ink };
+        let cell = Frame::new(screen_x(slot.x - pad), y_row, slot.room + 2.0 * pad, lay.row_h);
+        said.push(Said::new(words.clone(), Frame::new(screen_x(slot.x), y_row + y_text, slot.room, line), ty, colour).within(cell));
+        lead.text(words, ty, colour, slot.x - left, y_text, slot.room);
     }
     row.lead.draw(&mut kit.ui, &lead.items());
     // The lead is pinned to the edge while the cells under it fly with the time. One that goes on speaking for the same cell stays; one

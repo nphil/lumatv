@@ -92,39 +92,60 @@ opens.
 ## Drawing
 
 The grid is cached and moved by the compositor: the rows, the time and the ruler are scrolled on tracks of the flow engine, so a key
-retargets a spring (260 ms, 120 ms when motion is reduced) and nothing is drawn by the frame. A row is four layers: the logo, the number
-and name, one glyph run holding every cell of the stretch of time round the view (titles, dividers, how far the programme on the air has
-gone, the line of now), and the lead, the title of the cell that crosses the left edge, which stays at the edge. A lead whose cell
-changes while the time flies waits, hidden, until the time stops, so that it never sits on the titles flying under it. Only the rows on
-the screen are held, with a row beside them and the rows the scroll is going to; a jump of more than two screens is a cut. The focus is a
-lit plate lifted by the flow engine, one layer a move. The shell is woken by nothing when a spring stops, so the guide asks to be looked
-at again while there is something to follow (every 8 ms while rows are still to be made, three a frame; every 50 ms while a scroll moves)
-and not at all at rest. Text is glyph quads on whole pixels (no picture of text); colours, glass, radii and type come from the theme's
-tokens, so both looks and every text size follow it live. At 200 % text the rows keep the number alone and the description leaves the strip.
+retargets a spring (260 ms, 120 ms when motion is reduced) and nothing is drawn by the frame. A row is four layers: the logo's tile (a
+channel with no logo says its call sign on it), the number and name, one glyph run holding every cell of the stretch of time round the view
+(titles, dividers, how far the programme on the air has gone), and the lead, the title of the cell at the left edge, which stays at the
+edge. A lead whose cell changes while the time flies waits, hidden, until the time stops, so that it never sits on the titles flying
+under it. Only the rows on the screen are held, with a row beside them and the rows the scroll is going to; a jump of more than two
+screens is a cut. The focus is a lit plate lifted by the flow engine, one layer a move. The shell is woken by nothing when a spring stops,
+so the guide asks to be looked at again while there is something to follow (every 8 ms while rows are still to be made, three a frame;
+every 50 ms while a scroll moves) and not at all at rest. Text is glyph quads on whole pixels (no picture of text); colours, glass, radii
+and type come from the theme's tokens, so both looks and every text size follow it live. At 150 % text and above the rows keep the number
+alone and the description leaves the strip.
+
+Where things sit is a rule of the layout (`layout.rs`, `cells.rs`), not a nudge per case, and every size is a token or follows from one: a
+hairline is half a `space.1`, the rule of progress three quarters of it, the plate keeps `space.1` from its row's edge, the dividers and
+the marker `space.2`, and a cell's air is `space.3` (a test doubles the space tokens and checks the layout follows). The title and the
+chips stand on one baseline; the tiles, the strip and the hints begin at the safe area's left edge. A cell says its title in the part of
+itself the view shows, one air from each end: the whole title, else its first letters and an ellipsis when there are at least five of
+them, else nothing, so a cell of a few minutes is a divider and not a fragment, and no title is cut by the edge of the grid or runs under
+the next cell. The titles of the first column begin in one place, a hundredth of the span in from the edge (the room the focus is kept
+from it by), and the words of the times over them begin there too. Nothing of the grid runs through a word: there is no line of now in the
+rows; the ruler has a band for its words and one under it for the marker of now, a disc where the grid begins, and the programme on the air
+has a rule of progress that ends at now. A time the right edge would cut has neither words nor tick. The lit plate is its cell less
+`space.1` and never nearer an edge than the room. The detail sheet is as tall as what it says (a title of up to three lines, no separator
+with nothing after it) over a page that its scrim hides, so nothing of the page is cut beside it.
 
 Honest states: "Loading channels", "No channels", a service that does not answer says so, a channel with no listings says "No information"
 in its row and its strip, and a channel switch that LG refuses says so and keeps the guide up.
 
 ## Checks
 
-The model, the host and the surface have behaviour tests (`guide::model_tests`, `guide::surface_tests`, `guide::host`, `guide::layout`,
-`host::channels`): what is asked and when, every key, the layer count with 459 channels, that a moving grid is looked at until it has
-stopped and not after, the layout and contrast lint clean in both looks at 100 % and 200 %. `tests/render_rust_guide.py` makes the pictures
-(the lint is read for each) and `tests/host_budget.py --surfaces guide` walks it: opened, a held arrow in time and in channels, CH+ and CH-
-six pages down and up, a programme's sheet, the filters, a rest, closed. `tv-gate.sh rust` opens and closes the guide on the set.
+The model, the host and the surface have behaviour tests (`guide::model_tests`, `guide::surface_tests`, `guide::cells`, `guide::host`,
+`guide::layout`, `host::channels`): what is asked and when, every key, the layer count with 459 channels, that a moving grid is looked at
+until it has stopped and not after, and the layout and contrast lint clean in both looks at 100, 150 and 200 % text, with the guide opened
+at four clocks (a cell that begins at the edge of the screen, one that begins a minute in) and the focus walked along a row, down to the
+fixture's edge channels, up to the chips and into the sheet. The lint (`kit::lint`) knows the cell each title belongs to and the lines of
+the grid: a title that leaves its cell or is crammed against its sides, a divider, a rule, a tick or the marker of now through words,
+and a plate cut by the grid's clip are findings. `guide::cells` holds the title rule to a matrix of cell widths, views and text widths.
+`tests/render_rust_guide.py` makes the pictures (the lint is read for each) and `tests/host_budget.py --surfaces guide` walks it: opened,
+a held arrow in time and in channels, CH+ and CH- six pages down and up, a programme's sheet, the filters, a rest, closed. `tv-gate.sh rust`
+opens and closes the guide on the set.
 
-Frame walk, host harness (the engine in-process, one refresh a frame, over a make-believe set of 57 antenna and 459 internet channels
-with listings for four in five of the antenna's). The GPU time of a frame is the set's estimate from its layers, 1.5 ms and 0.085 ms a
-layer; the work adds the time the process took to apply what the frame showed.
+Frame walk, host harness (the engine in-process, one refresh a frame, over a make-believe set of 62 antenna and 459 internet channels: 57
+plain ones, four in five of them with listings, and 5 edge cases, a ticker of 5 to 30 minute programmes among them). The GPU time of a
+frame is the set's estimate from its layers, 1.5 ms and 0.085 ms a layer; the work adds the time the process took to apply what the frame
+showed.
 
 | | Frames | Most layers drawn in a frame | Work, worst | Work, 99th percentile | Over 8.3 ms |
 |---|---|---|---|---|---|
-| 120 Hz | 2374 | 52 (5.9 ms) | 6.0 ms | 5.3 ms | 0 |
-| 60 Hz | 1206 | 52 (5.9 ms) | 5.9 ms | 5.3 ms | 0 |
+| 120 Hz | 2378 | 52 (5.9 ms) | 5.9 ms | 5.2 ms | 0 |
+| 60 Hz | 1205 | 50 (5.8 ms) | 5.8 ms | 5.2 ms | 0 |
 
-The window with the most is the sheet (52 layers: the page, the sheet and its button over the rows); a held arrow in time draws at most 42
-and in channels 39; a page of CH+ or CH- at most 42. The guide draws nothing by itself at rest; the 1 Hz frames of a rest window are Home's
-own under the page (Home alone draws the same three small frames a second in the same harness).
+The windows with the most are the filters' (52 layers) and the sheet's (50: the page, the sheet and its button over the rows); a held arrow
+in time draws at most 36 and in channels 41; a page of CH+ or CH- at most 43.
+The guide draws nothing by itself at rest; the 1 Hz frames of a rest window are Home's own under the page (Home alone draws the same three
+small frames a second in the same harness).
 
 ## Not yet checked on the TV
 
