@@ -5,22 +5,28 @@ floor, a page copying from the last what it owes from the frames before), one re
 refreshes into one frame), wallpaper motion and the weather card's sprites off as the gate has them.
 
 A frame's GPU time on the set is about 1.5 ms and 0.085 ms for each layer its passes draw (round 23, 604 frames of an idle GPU, R2 0.47):
-the 8.3 ms of a 120 Hz refresh is about 80 layers. For each window of a walk this prints the frames, the most layers a frame drew, and
-that frame's estimate.
+the 8.3 ms of a 120 Hz refresh is about 80 layers. For each window of a walk this prints the frames, the most layers a frame drew, that
+frame's estimate, and the work of a frame (that estimate and the time this process took to apply what the frame showed) at its worst and
+at the 99th percentile.
 
-    python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,home-widgets,toast] [--frames] [--reference]
+    python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,home-widgets,toast,onhome] [--frames] [--reference]
                                  [--bin PATH]
 
 `--frames` lists every frame; `--reference` draws each frame whole as well and counts the frames that differ (the floor and the copies
-must change nothing); `--bin` (or `LUMATV_UI_BIN`) names another `lumatv-ui`."""
+must change nothing); `--bin` (or `LUMATV_UI_BIN`) names another `lumatv-ui`. `onhome` is the Smart home card: entered, a switch and a lamp
+toggled, a long scroll, a sensor's history, a lamp's colours changed, and a rest in which no frame may be drawn."""
 import argparse
+import http.server
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -30,7 +36,7 @@ import rust_home_host as home  # noqa: E402  (Home's make-believe feeds)
 BIN = os.environ.get('LUMATV_UI_BIN') or os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
 FRAME = re.compile(r"^\[frame\] (\d+) at (\d+) ms: damage (\d+) px, drew (\d+) px in (\d+) rects \([\d.]+ %\), layers (\d+) culled \d+ cpu (\d+) us gpu \d+ us"
                    r".*? floor (\d+) px apply (\d+) us", re.M)
-SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast']
+SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast', 'onhome']
 #: when a walk starts: Home has drawn its feeds and rests
 START_MS = 6000
 #: the layers a 120 Hz refresh holds (1.5 ms + 0.085 ms a layer <= 8.3 ms)
@@ -39,6 +45,94 @@ LAYERS_120 = 80
 
 def gpu_ms(layers):
     return 1.5 + 0.085 * layers
+
+
+def work_ms(frame):
+    """What a frame asks: its GPU estimate and the time this process took to apply what it showed."""
+    return gpu_ms(frame[3]) + frame[6] / 1000.0
+
+
+def p99(values):
+    values = sorted(values)
+    return values[min(len(values) - 1, math.ceil(0.99 * len(values)) - 1)] if values else 0.0
+
+
+#: the Smart home card tall (6 of 12 columns, 9 of 16 rows), as the walk finds it beside the weather and the dock
+ONHOME_LAYOUT = {"grid": {"rows": 16}, "widgets": [
+    {"id": "smart", "type": "onhome", "col": 0, "row": 0, "span": 6, "rows": 9, "title": "Smart home"},
+    {"id": "weather", "type": "weather", "col": 6, "row": 0, "span": 6, "rows": 9},
+    {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]}
+HELPER_PORT = 18947
+
+
+def onhome_doc():
+    """The helper's `onhome` topic: a lamp with colours and effects, lamps, switches, sensors, a thermostat and a scene, and enough
+    more to scroll a long way."""
+    def thing(id, name, group, icon, words, tone, can=(), verbs=(), ctl=None):
+        return {"id": id, "name": name, "area": "Home", "group": group, "words": words, "tone": tone, "icon": icon, "available": True,
+                "can": list(can), "verbs": list(verbs), "ctl": ctl or {}}
+
+    def lamp(id, name, on, rgb=None, level=70, effects=()):
+        ctl = {"on": on, "dimmable": True, "brightness": level if on else None, "colour": rgb is not None, "rgb": rgb if on else None, "kelvin": None,
+               "effects": list(effects), "effect": effects[0] if effects else None}
+        return thing('light.' + id, name, 'lights', 'lightbulb', ('On \u00b7 %d%%' % level) if on else 'Off', 'on' if on else 'off', ['toggle'], ['turn_on', 'turn_off', 'toggle'], ctl)
+
+    def switch(id, name, on):
+        return thing('switch.' + id, name, 'switches', 'plug', 'On' if on else 'Off', 'on' if on else 'off', ['toggle'], ['toggle'], {"on": on})
+
+    def number(id, name, value, unit, cls, icon):
+        return thing('sensor.' + id, name, 'sensors', icon, '%g%s' % (value, unit), 'info', ctl={"kind": "number", "value": value, "unit": unit, "class": cls})
+
+    tiles = [lamp('kitchen', 'Kitchen', True, [255, 176, 64], 80, ['None', 'Rainbow', 'Candle', 'Pulse']), lamp('strip', 'TV strip', True, [64, 140, 255], 55), lamp('desk', 'Desk lamp', False),
+             switch('fan', 'Fan', True), switch('heater', 'Heater', False), number('hall', 'Hall', 21.4, '\u00b0C', 'temperature', 'thermometer'),
+             number('hum', 'Humidity', 48, '%', 'humidity', 'droplets'),
+             thing('binary_sensor.door', 'Front door', 'sensors', 'door-closed', 'Closed', 'off', ctl={"kind": "binary", "on": False, "class": "door", "yes": "Open", "no": "Closed"}),
+             thing('climate.t', 'Thermostat', 'climate', 'thermometer', '68\u00b0 \u00b7 Heating to 70\u00b0', 'warn', ['sheet'], ['set_temperature', 'set_hvac_mode'],
+                   {"mode": "heat", "modes": ["off", "heat", "cool"], "current": 68.0, "target": 70.0, "min": 50.0, "max": 90.0, "step": 1.0, "unit": "\u00b0F", "action": "heating"}),
+             thing('scene.movie', 'Movie night', 'scenes', 'sparkles', 'Scene', 'muted', ['run'], ['turn_on'])]
+    tiles += [switch('s%d' % n, 'Socket %d' % n, n % 2 == 0) for n in range(1, 9)]
+    tiles += [number('t%d' % n, 'Room %d' % n, 19 + n / 2, '\u00b0C', 'temperature', 'thermometer') for n in range(1, 9)]
+    return {"state": "connected", "words": "%d things" % len(tiles), "tiles": tiles}
+
+
+class FakeHelper(http.server.BaseHTTPRequestHandler):
+    """The two answers the card asks the helper for in the walk: a sensor's history (a day or the range asked, made up here) and
+    {"ok": true} for what a lamp or a switch is told."""
+
+    def log_message(self, *args):
+        pass
+
+    def reply(self, doc):
+        body = json.dumps(doc).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        # the feeds the harness starts with --port: a state with no topics, and a long poll that has nothing to say
+        if self.path.startswith('/v1/state'):
+            return self.reply({"ok": True, "boot": 1, "seq": 0, "topics": {}})
+        if self.path.startswith('/v1/events'):
+            time.sleep(1.0)
+            return self.reply({"ok": True, "boot": 1, "seq": 0, "events": []})
+        query = dict(part.split('=', 1) for part in self.path.partition('?')[2].split('&') if '=' in part)
+        rng = query.get('range', '24h')
+        span = {'1h': 3600, '6h': 6 * 3600, '24h': 86400, '7d': 7 * 86400, '30d': 30 * 86400}.get(rng, 86400) * 1000
+        now = int(time.time() * 1000)
+        base = {"id": query.get('id', ''), "range": rng, "from": now - span, "to": now, "source": "history"}
+        points = [[now - span + i * span // 120, round(20.5 + 2.2 * math.sin(i / 20.0) + 0.25 * math.sin(i * 1.7), 2)] for i in range(121)]
+        values = [p[1] for p in points]
+        low, high = min(points, key=lambda p: p[1]), max(points, key=lambda p: p[1])
+        self.reply({"history": {**base, "kind": "number", "unit": "\u00b0C", "class": "temperature", "points": points,
+                                "stats": {"min": low[1], "max": high[1], "avg": round(sum(values) / len(values), 2), "min_at": low[0], "max_at": high[0], "now": 21.4, "now_at": now}}})
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get('Content-Length') or 0))
+        self.reply({"ok": True})
+
 
 
 class Walk:
@@ -54,6 +148,11 @@ class Walk:
 
     def key(self, name, how='', at=None):
         self.args += ['--key', '%d:%s%s' % (self.at if at is None else at, name, ':' + how if how else '')]
+
+    def press(self, name):
+        """A key and its release, as OK needs them."""
+        self.key(name)
+        self.key(name, 'up', at=self.at + 40)
 
     def taps(self, name, n, gap):
         for _ in range(n):
@@ -147,6 +246,54 @@ def walk_of(surface):
         w.mark('up to the status bar')
         w.taps('up', 6, 120)
         w.wait(600)
+    elif surface == 'onhome':
+        # HOME_TOP, then into the Smart home card (the first card): a camera is in front; then Kitchen, TV strip, Desk lamp and Fan make a row of four
+        w.at = START_MS - 1500
+        w.taps('up', 8, 100)
+        w.at = START_MS
+        w.mark('enter the card')
+        w.taps('down', 1, 500)
+        w.press('ok')
+        w.wait(1200)
+        w.mark('along a row')
+        w.taps('down', 1, 400)
+        w.taps('right', 3, 300)
+        w.wait(600)
+        w.mark('toggle a switch')
+        w.press('ok')
+        w.wait(1500)
+        w.press('ok')
+        w.wait(1500)
+        w.mark('toggle a lamp')
+        w.taps('left', 3, 300)
+        w.press('ok')
+        w.wait(1500)
+        w.press('ok')
+        w.wait(1500)
+        w.mark('long scroll')
+        w.hold('down', 2500)
+        w.wait(400)
+        w.hold('up', 2500)
+        w.wait(1500)
+        w.mark('sensor history')
+        w.taps('down', 2, 400)
+        w.taps('right', 1, 400)
+        w.press('ok')
+        w.wait(2500)
+        w.taps('right', 1, 1500)
+        w.key('back')
+        w.wait(1500)
+        w.mark('colour sheet')
+        w.taps('up', 1, 400)
+        w.taps('left', 1, 400)
+        w.hold('ok', 1100)
+        w.wait(2200)
+        w.hold('right', 1000)
+        w.wait(800)
+        w.key('back')
+        w.wait(2000)
+        w.mark('rest')
+        w.wait(3000)
     else:
         raise ValueError('no walk for %s' % surface)
     w.mark('end')
@@ -155,7 +302,7 @@ def walk_of(surface):
 
 def run(surface, refresh=120, binary=BIN, reference=False):
     """Runs the walk of `surface`; returns ([(label, [frame, ...]), ...], mismatched frames, the run's output). A frame is
-    (ms, drawn px, rects, layers, floor px, CPU us, of it taking in commits us)."""
+    (ms, drawn px, rects, layers, floor px, CPU us, of it applying commits us)."""
     data = tempfile.mkdtemp(prefix='hostbudget-')
     os.makedirs(os.path.join(data, 'theme'))
     shutil.copy(os.path.join(ROOT, 'compositor', 'assets', 'ui', 'wallpaper', 'wall_1080.png'), os.path.join(data, 'theme', 'wall_1080.png'))
@@ -171,6 +318,14 @@ def run(surface, refresh=120, binary=BIN, reference=False):
     feeds = {"weather": home.weather(), "news": home.news(), "profiles": home.profiles(), "cameras": home.CAMERAS,
              "plugins": {"plugins": [{"id": "home-assistant", "name": "Home Assistant", "state": "connected"}], "firstParty": []},
              "plugin.home-assistant.cards": home.HOME_CARDS}
+    extra, server = [], None
+    if surface == 'onhome':
+        feeds['onhome'] = onhome_doc()
+        with open(os.path.join(data, 'theme', 'layout.json'), 'w') as f:
+            json.dump(ONHOME_LAYOUT, f)
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', HELPER_PORT), FakeHelper)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        extra = ['--port', str(HELPER_PORT), '--helper-port', str(HELPER_PORT)]
     cmd = [binary, '--host', '--virtual', '--refresh', str(refresh), '--kinds', 'osd,toast,home,settings,quick,picker,drawer,menu,confirm',
            '--data-dir', data, '--shm', os.path.join(data, 'shm'), '--wait', str(w.at + 500), '--log', log,
            '--module-dir', os.path.join(ROOT, 'compositor', 'assets', 'ui'),
@@ -178,8 +333,13 @@ def run(surface, refresh=120, binary=BIN, reference=False):
            '--luna', '80:%d:%s' % (home.LP_TAG, json.dumps({"launchPoints": home.launch_points()}))]
     for topic, doc in feeds.items():
         cmd += ['--helper', '100:%s:%s' % (topic, json.dumps(doc))]
-    cmd += w.args + (['--reference'] if reference else [])
-    r = subprocess.run(cmd, env=dict(os.environ, LIBGL_ALWAYS_SOFTWARE='1'), capture_output=True, text=True, timeout=1800)
+    cmd += w.args + extra + (['--reference'] if reference else [])
+    try:
+        r = subprocess.run(cmd, env=dict(os.environ, LIBGL_ALWAYS_SOFTWARE='1'), capture_output=True, text=True, timeout=1800)
+    finally:
+        if server:
+            server.shutdown()
+            server.server_close()
     text = open(log).read() if os.path.exists(log) else ''
     shutil.rmtree(data, ignore_errors=True)
     if r.returncode != 0:
@@ -210,7 +370,9 @@ def main(argv=None):
             most = max((f[3] for f in fs), default=0)
             heavy = sum(1 for f in fs if f[3] > budget)
             over += heavy
-            print('  %-22s %4d frames, most layers %3d (%.1f ms), %d over %d' % (label, len(fs), most, gpu_ms(most), heavy, budget))
+            work = [work_ms(f) for f in fs]
+            drawn = sum(1 for f in fs if f[1] > 0)
+            print('  %-22s %4d frames, %4d drew pixels, most layers %3d (%.1f ms), work max %.1f ms p99 %.1f ms, %d over %d' % (label, len(fs), drawn, most, gpu_ms(most), max(work, default=0.0), p99(work), heavy, budget))
             if a.frames:
                 for f in fs:
                     print('      %6d ms  drew %8d px in %2d rects  layers %3d  floor %8d px  cpu %6d us (commits %6d us)' % f)
