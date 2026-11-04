@@ -18,6 +18,7 @@ mod harness;
 #[cfg(test)]
 mod alloc_tests;
 pub mod afbc;
+pub mod boot_direct;
 pub mod boxdim;
 pub mod buffer;
 pub mod buttons;

@@ -336,6 +336,7 @@ impl State {
         let mut report = self.shell_rust_report();
         report["ok"] = json!(true);
         report["homeDrawn"] = json!(self.shell_home_drawn());
+        report["bootDirect"] = self.boot_direct_report();
         report
     }
 }
