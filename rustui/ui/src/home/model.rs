@@ -2831,17 +2831,16 @@ impl Home {
     }
 
     /// Whether the weather card's picture may move: Home in front with the screen on, no screensaver over it, no layer over the cards, Home not
-    /// calm ([`Home::set_calm`]) and the theme's `weather.animated` and the owner's wallpaper motion not off.
+    /// calm ([`Home::set_calm`]) and the theme's `weather.animated` not off.
     pub fn weather_art_runs(&self) -> bool {
         self.active && self.screen_on && !self.saver_up && self.layer == Layer::None && !self.calm && self.weather_animated()
     }
 
-    /// Whether Home's ambient motion may move the weather card's sprites: the theme's `weather.animated` (default on) and the owner's "Wallpaper motion"
-    /// (`wallpaperMotion.enabled`, default on), the only motion switch the owner has. With it off the sky still drew at every refresh (38 layers, 110 kpx,
-    /// the compositor at 30 % of a core on the set). The frame gate switches both off for the surfaces it measures at rest.
+    /// The theme's `weather.animated` (default on): the weather card's sprites move. The frame gate switches it off with the wallpaper's motion for the
+    /// surfaces it measures at rest (`lumatv theme set '{"weather":{"animated":false}}'`): a card that draws every refresh keeps every flip of the screen
+    /// "after an animating frame" and every burst of frames from ending, whatever the surface under test does.
     fn weather_animated(&self) -> bool {
-        let on = |path: &str| self.theme.pointer(path).and_then(Value::as_bool).unwrap_or(true);
-        on("/weather/animated") && on("/wallpaperMotion/enabled")
+        self.theme.pointer("/weather/animated").and_then(Value::as_bool).unwrap_or(true)
     }
 
     /// Whether the full weather view's picture may move: that view is up, Home in front, the screen on and no screensaver.
@@ -3038,15 +3037,6 @@ mod tests {
         assert!(!h.wallpaper_held(), "the wallpaper's own switch is its own");
         let mut theme = h.theme.clone();
         theme["weather"]["animated"] = json!(true);
-        h.set_theme(theme);
-        assert!(h.weather_art_runs());
-        // the owner's Wallpaper motion rests it too, and the sky's own switch is not the wallpaper's
-        let mut theme = h.theme.clone();
-        theme["wallpaperMotion"]["enabled"] = json!(false);
-        h.set_theme(theme);
-        assert!(!h.weather_art_runs(), "Wallpaper motion off: nothing of Home moves");
-        let mut theme = h.theme.clone();
-        theme["wallpaperMotion"]["enabled"] = json!(true);
         h.set_theme(theme);
         assert!(h.weather_art_runs());
     }
