@@ -1165,7 +1165,21 @@ fn the_timeline_routes_give_the_bridges_own_json_and_pictures_and_its_refusals_i
     );
     assert_eq!(world.get("/v1/cameras/273/recordings?from=a").status, 400);
     assert_eq!(world.get("/v1/cameras/999/recordings").status, 404);
-    assert_eq!(world.bridge.requests().len(), before);
+    // (a request of the helper's own that was already on its way, a retry of the picture above, may land in between: only what the refused asks
+    // would have sent is looked for)
+    let leaked: Vec<String> = world
+        .bridge
+        .requests()
+        .into_iter()
+        .skip(before)
+        .filter(|r| {
+            r.contains("camera=999")
+                || r.contains("from=a")
+                || r.contains("from=5")
+                || (r.contains("/v1/thumbnail") && !r.contains("at="))
+        })
+        .collect();
+    assert!(leaked.is_empty(), "the bridge was asked: {leaked:?}");
     // what the bridge refuses comes with its word and words for the person
     world
         .bridge

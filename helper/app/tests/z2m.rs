@@ -138,7 +138,7 @@ fn read_packet(stream: &mut TcpStream) -> Option<(u8, Vec<u8>)> {
     let mut shift = 0;
     loop {
         let mut b = [0u8; 1];
-        stream.read_exact(&mut b).ok()?;
+        read_rest(stream, &mut b)?;
         len |= usize::from(b[0] & 0x7F) << shift;
         shift += 7;
         if b[0] & 0x80 == 0 {
@@ -146,8 +146,28 @@ fn read_packet(stream: &mut TcpStream) -> Option<(u8, Vec<u8>)> {
         }
     }
     let mut body = vec![0u8; len];
-    stream.read_exact(&mut body).ok()?;
+    read_rest(stream, &mut body)?;
     Some((first[0], body))
+}
+
+/// The rest of a packet whose first byte has come. The socket's short read timeout is for waiting between packets: a client that a busy
+/// machine kept from finishing one for longer than that is not gone.
+fn read_rest(stream: &mut TcpStream, buf: &mut [u8]) -> Option<()> {
+    let deadline = Instant::now() + WAIT;
+    let mut at = 0;
+    while at < buf.len() {
+        match stream.read(&mut buf[at..]) {
+            Ok(0) => return None,
+            Ok(n) => at += n,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) && Instant::now() < deadline => {}
+            Err(_) => return None,
+        }
+    }
+    Some(())
 }
 
 impl Broker {
