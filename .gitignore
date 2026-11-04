@@ -33,9 +33,10 @@ docs/research/arch/drmplanes
 __pycache__/
 *.pyc
 
-# Cargo build output, wherever a crate builds
-target/
-target-*/
+# Cargo build output, wherever a crate builds; no trailing slash so a
+# target symlink to a shared cache is ignored too
+target
+target-*
 
 # Agent and design-review scratch (multi-MB screenshots)
 .impeccable/
