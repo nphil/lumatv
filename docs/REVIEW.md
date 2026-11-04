@@ -93,6 +93,7 @@ Unfinished-work scan: no `todo!`, `unimplemented!`, TODO/FIXME or `dbg!` in ship
 - Marquee `1d27905b7`: items 5 and 6 (Opus source failure takes the recovery ladder; the Load budget starts at the Load). `4354e99a9`: item 9 (text fit).
 
 - LumaTV tests: the 15 stale tests are fixed or deleted (`shell_rust_attach` duplicated `ui_programs`, the transitions video-plane leave `transitions_rust_home`, the legacy refresh title tested a removed type), the OLED-care orbit test is driven by its own clock, the Python tests of retired QML and removed tool verbs are gone, and the suites run on an optimised test profile.
+- LumaTV tests, second pass: the eight slow Python end-to-end files of the Rust shell (`test_rust_*` but Settings) are gone, as the crate's own tests state the same cases; the bell and cameras-card wirings got `shell.rs` tests. The vplane player, wall clip, store theme and Settings lint Python tests run in under about 25 s. The wallpaper-hole compositor test failed because the compositor closes a wallpaper window while the Rust Home is not drawn (the test's Home was a window type removed in `8f6c04ab`), not because of the player; it draws Home as the engine now. Hosts with 64 containers exhaust `fs.inotify.max_user_instances` (128): the video-plane player cannot start there as root.
 
 ## Next
 
