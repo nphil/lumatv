@@ -176,8 +176,10 @@ impl Drop for Rig {
     }
 }
 
-fn composed(page: usize) -> Assignment {
-    Assignment { primary: Source::Page(page), overlay: None, at: (0, 0) }
+/// Whether everything taken so far was a composed page: how many frames Home alone took before the commit depends on when the server's own
+/// first tick fell, so the count is not the contract.
+fn only_composed(taken: &[Assignment]) -> bool {
+    !taken.is_empty() && taken.iter().all(|a| a.overlay.is_none() && matches!(a.primary, Source::Page(_)))
 }
 
 fn direct() -> Assignment {
@@ -206,7 +208,7 @@ fn a_full_screen_window_is_scanned_out_directly_unless_the_ui_shows_something_ov
 
     // Home alone: composed.
     rig.commit();
-    assert_eq!(rig.taken(), [composed(0)]);
+    assert!(only_composed(&rig.taken()), "{:?}", rig.taken());
     assert_eq!(rig.capture().pixel(600, 400), [18, 20, 32, 255]);
 
     // A full-screen opaque card over it: the plane takes the card's buffer, the pages are left as they were.
@@ -247,7 +249,7 @@ fn a_full_screen_window_is_scanned_out_directly_unless_the_ui_shows_something_ov
 fn with_a_ui_ring_the_system_layer_goes_to_the_overlay_over_the_direct_window() {
     let Some(mut rig) = Rig::start("split", true) else { return };
     rig.commit();
-    assert_eq!(rig.taken(), [composed(0)]);
+    assert!(only_composed(&rig.taken()), "{:?}", rig.taken());
     let _client = card_over_home(&mut rig);
     assert_eq!(rig.taken().last(), Some(&direct()));
 

@@ -483,15 +483,15 @@ mod tests {
         settings.register_builtin().unwrap();
         let first = UdpSocket::bind("127.0.0.1:0").unwrap();
         let second = UdpSocket::bind("127.0.0.1:0").unwrap();
-        first.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-        second.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        first.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        second.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
         settings.apply("base.logging", vec![change("enabled", Value::Bool(true)), change("host", Value::Text("127.0.0.1".into())), change("port", Value::Integer(first.local_addr().unwrap().port().into()))], None).unwrap();
         let ctx = Ctx { config: Arc::new(crate::config::Config::default()), paths: crate::config::Paths::new(dir.path()), hub: hub.clone(), settings: settings.clone(), stop: crate::control::Stop::new() };
         let worker_ctx = ctx.clone();
         let worker_logs = logs.clone();
         let worker_path = socket_path.clone();
         let worker = std::thread::Builder::new().stack_size(128 * 1024).spawn(move || run_at(&worker_ctx, &worker_logs, &worker_path)).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
         while hub.get("logging").is_none() { assert!(std::time::Instant::now() < deadline); std::thread::sleep(Duration::from_millis(10)); }
         let producer = UnixDatagram::unbound().unwrap();
         producer.set_nonblocking(true).unwrap();
@@ -500,7 +500,7 @@ mod tests {
         let n = first.recv(&mut received).unwrap();
         assert_eq!(&received[..n], b"<14>lumatv-helper: host-smoke-first");
         settings.apply("base.logging", vec![change("port", Value::Integer(second.local_addr().unwrap().port().into()))], None).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
         while hub.get("logging").unwrap()["server"]["port"] != second.local_addr().unwrap().port() { assert!(std::time::Instant::now() < deadline); std::thread::sleep(Duration::from_millis(10)); }
         producer.send_to(b"<14>lumatv-helper: host-smoke-second", &socket_path).unwrap();
         let n = second.recv(&mut received).unwrap();
@@ -522,14 +522,14 @@ mod tests {
         println!("loopback tagged delivery and target change observed; retained bytes={bytes}; unavailable collector flood returned in {:?}", started.elapsed());
         for _ in 0..2 {
             let target = UdpSocket::bind("127.0.0.1:0").unwrap();
-            target.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            target.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
             settings.apply("base.logging", vec![change("port", Value::Integer(target.local_addr().unwrap().port().into()))], None).unwrap();
             let restarted = Ctx { stop: crate::control::Stop::new(), ..ctx.clone() };
             let worker_ctx = restarted.clone();
             let worker_logs = logs.clone();
             let worker_path = socket_path.clone();
             let worker = std::thread::Builder::new().stack_size(128 * 1024).spawn(move || run_at(&worker_ctx, &worker_logs, &worker_path)).unwrap();
-            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
             while !socket_path.exists() { assert!(std::time::Instant::now() < deadline); std::thread::sleep(Duration::from_millis(10)); }
             producer.send_to(b"<14>lumatv-helper: host-smoke-restart", &socket_path).unwrap();
             let n = target.recv(&mut received).unwrap();

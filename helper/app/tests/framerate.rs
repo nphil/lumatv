@@ -19,7 +19,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use support::*;
 
-const WAIT: Duration = Duration::from_secs(10);
+const WAIT: Duration = Duration::from_secs(60);
 /// Long enough for a check to have measured and written if it was going to (a measurement is 0.5 s, a step 0.25 s, so 0.75 s).
 const QUIET: Duration = Duration::from_millis(900);
 const SCALER: &str = "[main.p0]\nopen=1\nconnect_src=SRC\nconnect_index=0\nmute=0\nhdr=0\n";

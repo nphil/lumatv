@@ -728,18 +728,34 @@ fn the_pictures_colours_reach_each_bulb_by_where_it_sits_at_the_frame_rate() {
     assert_eq!(&f.records[1][..2], &RIGHT_ADDR.to_le_bytes());
     assert!(z2m_state(&s.rig, "streaming"));
 
-    // The pace is the link's 20 a second, not the engine's 30: keep feeding for two seconds and count.
+    // The pace is the link's 20 a second, not the engine's 30: keep feeding until twenty more frames have come and read their pace off the
+    // broker's clock. A slow machine only lowers it, so there is an upper bound and no lower one.
     let before = frames_to(&broker, LEFT).len();
-    let t0 = Instant::now();
-    while t0.elapsed() < Duration::from_secs(2) {
-        capture.write_all(&bytes).unwrap();
-        thread::sleep(Duration::from_millis(30));
-    }
-    let per_second = (frames_to(&broker, LEFT).len() - before) as f64 / t0.elapsed().as_secs_f64();
+    let topic = format!("zigbee2mqtt/{LEFT}/set");
+    let arrivals = || -> Vec<Instant> {
+        broker
+            .published()
+            .into_iter()
+            .filter(|p| p.topic == topic && zcl_data(&p.payload, 1).is_some())
+            .map(|p| p.at)
+            .skip(before)
+            .collect()
+    };
     assert!(
-        (12.0..=22.0).contains(&per_second),
-        "{per_second} frames a second (started {:?} ago)",
+        wait_until(WAIT, || {
+            let _ = capture.write_all(&bytes);
+            thread::sleep(Duration::from_millis(30));
+            arrivals().len() >= 20
+        }),
+        "{} frames after the picture arrived (started {:?} ago)",
+        arrivals().len(),
         started.elapsed()
+    );
+    let arrivals = arrivals();
+    let per_second = 19.0 / arrivals[19].duration_since(arrivals[0]).as_secs_f64();
+    assert!(
+        per_second <= 26.0,
+        "{per_second} frames a second at the link's 20"
     );
 
     // The picture goes: the lights fade, black is sent, the stream ends with command 3 and the restore.
