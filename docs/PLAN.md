@@ -387,6 +387,13 @@ so the same build installs on each.
 - The broker in the helper speaks the same protocol; records become QML
   surfaces in LumaTV: cards on Home, tiles in the quick panel, pages in
   Settings, notifications as LumaTV toasts.
+- Everything a plugin contributes takes after the active theme (Nitin,
+  2026-11-03): the shell draws plugin records only from the theme's tokens
+  (palette, light/dark, glass type and depth, accent), with no colour, radius,
+  material or font taken from the plugin, and a theme change applies live.
+  Plugin data may carry meaning (a bulb's real colour, a chart's values), never
+  styling. Plugins and apps with their own views read the same theme from the
+  helper and follow its changes.
 - Device facts in `welcome` (screen class, input methods: touch, remote,
   pointer, controller) are an additive field, for plugins with their own
   views that must adapt; record-only plugins need nothing per device.
