@@ -379,9 +379,14 @@ impl Ui {
             let sprite = form.sprite();
             let _ = atlas.prepare_sprite_within(
                 sprite,
-                |_| {
-                    let (w, h) = form.size();
-                    (w, h, form.coverage())
+                |strip_w| match form {
+                    // every width of a hairline is cut from one strip as wide as the page: warmed at its own width it would be that
+                    // narrow for every hairline drawn afterwards
+                    Form::Rule(_) => (strip_w, 1, vec![255; strip_w as usize]),
+                    _ => {
+                        let (w, h) = form.size();
+                        (w, h, form.coverage())
+                    }
                 },
                 rows,
             );
