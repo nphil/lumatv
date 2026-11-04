@@ -108,7 +108,7 @@ pub fn words_of(e: &rtsp_client::Error) -> String {
         Kind::Url | Kind::Resolve | Kind::NotLocal => {
             "Scrypted gave a stream address this TV cannot use"
         }
-        Kind::Connect => "Scrypted did not answer for the stream",
+        Kind::Connect => "Scrypted's stream for this camera could not be reached",
         Kind::Io => "The connection to the stream failed",
         Kind::Protocol | Kind::Sdp | Kind::Sps => "Scrypted's stream was not understood",
         Kind::Status => "Scrypted refused the stream",
@@ -1564,12 +1564,17 @@ fn log_end(session: &Session) {
                 if secs > 0.0 { fed as f64 / secs } else { 0.0 },
             );
         }
-        None => crate::log_info!("cameras: live{for_} on camera {camera} ended with no picture shown"),
+        None => crate::log_info!(
+            "cameras: live{for_} on camera {camera} ended with no picture shown after {:.1} s ({fed} taken, {dropped} refused, {lost} lost)",
+            session.began.elapsed().as_secs_f64()
+        ),
     }
 }
 
+/// `why` names no address (`words_of`), so the log may carry it: without it the line says only that a session failed.
 fn fail(inner: &Inner, session: &Session, why: &str) {
-    crate::log_warn!("cameras: live session {} failed", session.id);
+    let camera = session.playing.lock().camera.clone();
+    crate::log_warn!("cameras: live session {} on camera {camera} failed: {why}", session.id);
     inner.update(session.id, |v| {
         v.state = "failed";
         v.reason = why.to_owned();
@@ -1725,6 +1730,11 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                         return false;
                     }
                     loaded = Some(changed);
+                    // the shell fits the video window by the view's size, so the view follows the picture that is on the plane
+                    inner.update(session.id, |v| {
+                        v.width = w;
+                        v.height = h;
+                    });
                     last_pts = -1;
                     next_base = 0;
                     epoch_first = None;

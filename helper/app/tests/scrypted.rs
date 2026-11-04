@@ -1987,6 +1987,68 @@ fn a_stream_that_goes_quiet_ends_with_a_reason_and_a_dead_address_fails_in_words
     v.world.post("/v1/cameras/live/stop", json!({}));
 }
 
+/// The downstairs door (a Ring doorbell, 2026-11-04): Scrypted has one stream for it and no Rebroadcast, so the bridge answers with a one-shot
+/// address on its own machine that nothing else on the LAN can reach: a codec and nothing else known of the video, no prebuffer, and an audio
+/// track with no codec named. The TV's dial is refused at once.
+#[test]
+fn a_doorbell_with_a_one_shot_address_fails_in_words_and_a_refusal_after_it_says_why() {
+    let Some(v) = video(30, false) else { return };
+    v.world.bridge.set_doc(
+        "live",
+        200,
+        json!({"rtsp": "rtsp://127.0.0.1:1", "camera": "274", "quality": "native", "video": {"codec": "h264"}, "audio": {},
+               "prebuffered": false, "expires_in_ms": 25000}),
+    );
+    assert_eq!(
+        v.world
+            .post("/v1/cameras/live", json!({"camera": "274"}))
+            .status,
+        200
+    );
+    let failed = v
+        .world
+        .rig
+        .wait_topic("cameras.live", WAIT, |t| {
+            t["state"] == "failed" && t["camera"] == "274"
+        })
+        .expect("the dial is refused");
+    let reason = failed["reason"].as_str().unwrap();
+    assert_eq!(reason, "Scrypted's stream for this camera could not be reached");
+    assert!(!reason.contains("127.0.0.1") && !reason.contains("rtsp://"), "{reason}");
+    assert_eq!(
+        (failed["width"].as_u64(), failed["height"].as_u64()),
+        (Some(0), Some(0)),
+        "no size is made up for the shell to fit a window by"
+    );
+    assert_eq!(
+        ndl_lines(&v.log, "Load"),
+        0,
+        "no pipeline is loaded for a stream nobody described"
+    );
+    // the next ask is refused by the bridge (Scrypted says the camera is offline): the words the shell shows, and the view says the same
+    v.world.bridge.set_doc("live", 409, json!({"code": "offline"}));
+    let refused = v.world.post("/v1/cameras/live", json!({"camera": "274"}));
+    assert_eq!(refused.status, 409);
+    let body = refused.json();
+    assert_eq!(
+        (
+            body["error"]["code"].as_str(),
+            body["error"]["message"].as_str()
+        ),
+        (Some("offline"), Some("The camera is offline"))
+    );
+    let state = live_state(&v.world);
+    assert_eq!(
+        (
+            state["state"].as_str(),
+            state["camera"].as_str(),
+            state["reason"].as_str()
+        ),
+        (Some("failed"), Some("274"), Some("The camera is offline")),
+        "{state}"
+    );
+}
+
 #[test]
 fn live_is_off_in_words_when_the_switch_is_off_and_without_a_feeder_nothing_starts() {
     let mut world = World::unlinked(
