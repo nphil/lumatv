@@ -92,9 +92,20 @@ pub struct Lift {
 impl Lift {
     #[allow(clippy::too_many_arguments)]
     pub fn new(kit: &mut Kit, engine: &mut Engine, id: Id, frame: Frame, z: i32, kind: PaneKind, scale: f32, rise: f32, over_video: bool) -> std::io::Result<Self> {
+        Self::make(kit, engine, None, id, frame, z, kind, scale, rise, over_video)
+    }
+
+    /// A lift whose group hangs under `parent` (a list that scrolls), at `frame` in the parent's space.
+    #[allow(clippy::too_many_arguments)]
+    pub fn nested(kit: &mut Kit, engine: &mut Engine, parent: &Group, id: Id, frame: Frame, z: i32, kind: PaneKind, scale: f32, rise: f32) -> std::io::Result<Self> {
+        Self::make(kit, engine, Some(parent.id()), id, frame, z, kind, scale, rise, false)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn make(kit: &mut Kit, engine: &mut Engine, parent: Option<ui::group::GroupId>, id: Id, frame: Frame, z: i32, kind: PaneKind, scale: f32, rise: f32, over_video: bool) -> std::io::Result<Self> {
         let other = |e: ui::error::UiError| std::io::Error::other(format!("{e}"));
         let rest = GroupPose { x: frame.x, y: frame.y, pivot_x: frame.w / 2.0, pivot_y: frame.h / 2.0, ..GroupPose::IDENTITY };
-        let group = kit.ui.scene.group(None, rest).map_err(other)?;
+        let group = kit.ui.scene.group(parent, rest).map_err(other)?;
         let lit_group = kit.ui.scene.group(Some(group.id()), GroupPose { opacity: 0.0, ..GroupPose::IDENTITY }).map_err(other)?;
         let (w, h) = (frame.w.round() as u32, frame.h.round() as u32);
         let scene = kit.ui.scene.clone();
@@ -104,9 +115,21 @@ impl Lift {
         Ok(Self { id, pane, lit, frame, rest })
     }
 
-    /// Runs `build` with every layer it makes hanging under the lift's group (`scene` is the kit's scene, cloned so `build` may use the kit).
+    /// Gives the lift a group that does not scale or rise with it: what is made under [`Lift::adopting`] from now on is the card's text, on
+    /// whole pixels at rest and at full lift, while the glass behind it grows.
+    pub fn keep(&self, kit: &Kit, engine: &mut Engine) -> std::io::Result<()> {
+        let other = |e: ui::error::UiError| std::io::Error::other(format!("{e}"));
+        let Some(group) = engine.flow.group(self.id) else { return Ok(()) };
+        let rest = GroupPose { pivot_x: self.frame.w / 2.0, pivot_y: self.frame.h / 2.0, ..GroupPose::IDENTITY };
+        let kept = kit.ui.scene.group(Some(group.id()), rest).map_err(other)?;
+        engine.flow.keep(self.id, kept, rest);
+        Ok(())
+    }
+
+    /// Runs `build` with every layer it makes hanging under the lift's group, or under its kept group when it has one (`scene` is the kit's
+    /// scene, cloned so `build` may use the kit).
     pub fn adopting<R>(&self, engine: &Engine, scene: &ui::scene::Scene, build: impl FnOnce() -> R) -> Option<R> {
-        let group = engine.flow.group(self.id)?;
+        let group = engine.flow.kept(self.id).or_else(|| engine.flow.group(self.id))?;
         Some(scene.adopting(group, build))
     }
 
@@ -260,6 +283,8 @@ pub struct HomeSurface {
     popover: Option<PopoverSurface>,
     weather_view: Option<super::weather_view::WeatherSurface>,
     onhome_sheet: Option<super::onhome::SheetSurface>,
+    history_sheet: Option<super::onhome::sensor_surface::SensorSurface>,
+    colour_sheet: Option<super::onhome::colour_surface::ColourSurface>,
     veil: Option<ShapeLayer>,
     generation: u64,
     text_scale: f32,
@@ -304,6 +329,8 @@ impl HomeSurface {
             popover: None,
             weather_view: None,
             onhome_sheet: None,
+            history_sheet: None,
+            colour_sheet: None,
             veil: None,
             generation: 0,
             text_scale: 0.0,
@@ -417,8 +444,17 @@ impl HomeSurface {
         }
         self.build_status(kit, engine, home)?;
         self.build_dock_tiles(kit, engine, home)?;
-        let camera_rows = self.cards.iter().filter_map(|c| match &c.content { Content::Cameras(camera) => Some(camera), _ => None })
-            .flat_map(|camera| camera.still_rows(&home.cameras)).collect::<Vec<_>>();
+        // the card of smart-home items is laid out by the type the kit measures; the stills it needs are asked for at the size of their cells
+        home.set_onhome_metrics(super::onhome::card::metrics_of(kit));
+        let camera_rows = self
+            .cards
+            .iter()
+            .flat_map(|c| match &c.content {
+                Content::Cameras(camera) => camera.still_rows(&home.cameras),
+                Content::OnHome(card) => home.smart_of(&c.id).map(|s| card.camera_rows(s)).unwrap_or_default(),
+                _ => Vec::new(),
+            })
+            .collect::<Vec<_>>();
         home.stills.configure(&camera_rows);
         self.update_badge(kit, home);
         // The clock's hands, the news slide and the cards' words are kept up to date while Home is in front, and brought up to date by the apply
@@ -476,6 +512,8 @@ impl HomeSurface {
         self.popover = None;
         self.weather_view = None;
         self.onhome_sheet = None;
+        self.history_sheet = None;
+        self.colour_sheet = None;
         self.hover = None;
         self.veil = None;
         self.last_focus = None;
@@ -505,6 +543,10 @@ impl HomeSurface {
             }
             let entry = super::grid::widgets(&home.layout).iter().find(|w| w.get("id").and_then(Value::as_str) == Some(&e.id)).cloned().unwrap_or(Value::Null);
             let lift = Lift::new(kit, engine, focus_id, frame, Z_CARDS, PaneKind::Card, kit.tokens.focus.card_scale, kit.tokens.focus.card_lift, self.over_video)?;
+            // the items' words must stay on whole pixels when the card lifts: they hang under a group that does not scale with it
+            if e.kind == "onhome" {
+                lift.keep(kit, engine)?;
+            }
             let (cw, ch) = ((frame.w - 2.0 * PAD_SIDE).max(10.0), (frame.h - 2.0 * PAD_TOP).max(10.0));
             let scene = kit.ui.scene.clone();
             let mut content = lift.adopting(engine, &scene, || Content::new(kit, &e.kind, cw, ch, Z_CARDS + 2, &home.theme, &entry)).ok_or_else(|| std::io::Error::other("the card's group"))??;
@@ -824,7 +866,12 @@ impl HomeSurface {
                 Content::News(n) => n.set(kit, &home.news, if mine { inner_index.unwrap_or(0) } else { self.news_index }, now),
                 Content::AtHome(a) => a.set(kit, &home.ha_items(), &home.ha_lane(), row, &mut self.pictures),
                 Content::Cameras(cm) => cm.set(kit, &home.cameras, &home.stills, row, now),
-                Content::OnHome(oh) => oh.set(kit, &home.onhome, row, home.onhome_notice(), &mut self.pictures),
+                Content::OnHome(oh) => {
+                    let Some(smart) = home.smart_of(&c.id) else { continue };
+                    let mut cx = super::onhome::card::Cx { kit, engine, lift: &c.lift, pictures: &mut self.pictures, stills: &home.stills, now_ms: now, now_ns: Self::now_ns() };
+                    let view = super::onhome::card::View { smart, topic: &home.onhome, entered: (mine && home.layer == Layer::None) || home.items_editing(&c.id), notice: home.onhome_notice(), hold_ms: home.hold_ms() };
+                    let _ = oh.sync(&mut cx, &view);
+                }
                 Content::Unknown(_) => {}
             }
         }
@@ -1087,6 +1134,31 @@ impl HomeSurface {
             }
             _ => self.onhome_sheet = None,
         }
+        // a sensor's history: made when it opens (another sensor, or another kind of one, is another sheet) and filled when the helper answers
+        match (home.layer == Layer::OnHome, home.history.as_ref().zip(home.sheet_tile())) {
+            (true, Some((sheet, tile))) => {
+                if self.history_sheet.as_ref().is_none_or(|s| !s.is_for(&sheet.id, &tile)) {
+                    self.history_sheet = Some(super::onhome::sensor_surface::SensorSurface::new(kit, sheet, &tile, Z_LAYERS + 40)?);
+                }
+                if let Some(s) = &mut self.history_sheet {
+                    let twelve = home.theme.pointer("/clock/twelveHour").and_then(Value::as_bool) != Some(false);
+                    s.update(kit, sheet, &tile, twelve)?;
+                }
+            }
+            _ => self.history_sheet = None,
+        }
+        // a lamp's colours: made when it opens and again when its rows change (a lamp that loses its colour)
+        match (home.layer == Layer::OnHome, home.colour.as_ref().zip(home.sheet_tile())) {
+            (true, Some((sheet, tile))) => {
+                if self.colour_sheet.as_ref().is_none_or(|s| !s.is_for(&sheet.id, sheet)) {
+                    self.colour_sheet = Some(super::onhome::colour_surface::ColourSurface::new(kit, sheet, &tile, Z_LAYERS + 40)?);
+                }
+                if let Some(s) = &mut self.colour_sheet {
+                    s.update(kit, sheet, &tile, home.onhome_notice())?;
+                }
+            }
+            _ => self.colour_sheet = None,
+        }
         let popover_up = home.layer == Layer::Popover && home.popover_lay.is_some();
         if self.popover.as_ref().is_some_and(|p| !popover_up || !p.is_for(home)) {
             self.popover = None;
@@ -1180,6 +1252,12 @@ impl HomeSurface {
         for c in self.cards.iter().filter(|_| !matches!(home.layer, Layer::Popover | Layer::OnHome)) {
             let p = lint.panel(&c.id, c.frame, paint, true);
             c.content.words().lint(kit, &mut lint, &c.id, (c.frame.x, c.frame.y), Some(p));
+            if let (Content::OnHome(oh), Some(s)) = (&c.content, home.smart_of(&c.id)) {
+                let (g, o) = (&s.plan().grid, s.offset() as f32);
+                let (sx, sy) = g.stride();
+                let off = if g.axis == super::onhome::layout::Axis::Horizontal { (o * sx, 0.0) } else { (0.0, o * sy) };
+                oh.lint(kit, &mut lint, &c.id, c.frame, off, g.bounds(), paint);
+            }
         }
         if let Some(d) = self.dock.as_ref().filter(|_| !matches!(home.layer, Layer::Popover | Layer::OnHome)) {
             let p = lint.panel("dock", d.frame, paint, true);
@@ -1196,6 +1274,12 @@ impl HomeSurface {
             apps.lint(kit, &mut lint);
         }
         if let Some(s) = &self.onhome_sheet {
+            s.lint(kit, &mut lint, paint);
+        }
+        if let Some(s) = &self.history_sheet {
+            s.lint(kit, &mut lint, paint);
+        }
+        if let Some(s) = &self.colour_sheet {
             s.lint(kit, &mut lint, paint);
         }
         if let Some(p) = &self.popover {
@@ -1577,6 +1661,39 @@ mod tests {
         }
     }
 
+    /// A tall smart-home card has made a good many items when the layout editor opens over it, and the scene may hold only so many groups: a
+    /// scene that is over them draws nothing at all, so that Home stayed as it was with the editor open and unseen.
+    #[test]
+    fn the_layout_editor_is_drawn_over_a_tall_smart_home_card() {
+        for mode in [Mode::Dark, Mode::Light] {
+            let (h, mut kit) = testkit::kit_in(mode, 1.0);
+            let mut engine = Engine::new(&kit).expect("an engine");
+            let theme = lumatv_tokens::Tokens::shipped().json().clone();
+            let layout = json!({"grid": {"rows": 16}, "widgets": [{"id": "smart", "type": "onhome", "col": 0, "row": 0, "span": 6, "rows": 9, "title": "Smart home"},
+                                         {"id": "weather", "type": "weather", "col": 6, "row": 0, "span": 6, "rows": 9},
+                                         {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]});
+            let mut home = Home::new(theme, super::super::grid::shipped(), layout);
+            fixtures(&mut home);
+            // the dock of a real TV: two dozen tiles, and the cameras ahead of the things
+            let lps: Vec<Value> = std::iter::once(json!({"id": "com.webos.app.discovery", "title": "Apps", "unmovable": true, "icon": ""}))
+                .chain((0..21).map(|i| json!({"id": format!("app{i}"), "title": format!("App {i}"), "icon": "", "iconColor": "#101010"})))
+                .collect();
+            home.update(&Input::Luna { tag: model::LP_TAG, payload: json!({"launchPoints": lps}) }, 1011);
+            home.update(&Input::Helper { topic: "cameras".into(), data: json!({"state": "connected", "cameras": [{"id": "front", "name": "Front door", "state": "live"}, {"id": "yard", "name": "Back yard", "state": "offline"}]}) }, 1012);
+            home.update(&Input::Helper { topic: "onhome".into(), data: json!({"state": "connected", "words": "30 things", "tiles": smart_tiles(30)}) }, 1010);
+            let mut s = HomeSurface::new(1000);
+            s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+            s.apply(&mut kit, &mut engine, &mut home, 2300).expect("Home drawn");
+            // however many items it holds, the card leaves the groups a layer over it needs (the editor takes about twenty)
+            assert!(kit.room().groups >= 24, "{mode:?}: {} groups left with the card drawn", kit.room().groups);
+            let mut out = Vec::new();
+            home.edit_home("smart", &mut out);
+            s.apply(&mut kit, &mut engine, &mut home, 2400).unwrap_or_else(|e| panic!("{mode:?}: the editor over the card: {e}"));
+            assert!(s.editor.is_some(), "{mode:?}: the editor is drawn");
+            std::mem::forget(h);
+        }
+    }
+
     #[test]
     fn the_sheet_is_drawn_over_a_stepped_back_page_inside_the_screen_and_goes_with_back_at_both_sizes_and_looks() {
         for mode in [Mode::Dark, Mode::Light] {
@@ -1592,11 +1709,19 @@ mod tests {
                     press(&mut home, "down", 1200 + i * 100);
                 }
                 press(&mut home, "ok", 1900);
-                // the thermostat is the fourth tile: two to a row, so right then down
-                for (i, k) in ["right", "down"].into_iter().enumerate() {
-                    press(&mut home, k, 2000 + i as u64 * 100);
+                // the thermostat is the fourth tile: the arrows take it to the front, whatever the layout, and OK opens its sheet
+                let want = home.smart_of("smart").and_then(|s| s.items().iter().position(|i| i.id == "climate.t")).expect("the thermostat");
+                for i in 0..30u64 {
+                    let s = home.smart_of("smart").expect("the card's state");
+                    let cur = s.focused().expect("the card is entered");
+                    if cur == want {
+                        break;
+                    }
+                    let (a, b) = ((s.plan().placed[cur].row, s.plan().placed[cur].col), (s.plan().placed[want].row, s.plan().placed[want].col));
+                    let k = if b.0 > a.0 { "down" } else if b.0 < a.0 { "up" } else if b.1 > a.1 { "right" } else { "left" };
+                    press(&mut home, k, 2000 + i * 100);
                 }
-                press(&mut home, "menu", 2400);
+                press(&mut home, "ok", 5200);
                 assert_eq!(home.layer, Layer::OnHome, "{mode:?} {scale}");
                 let mut s = HomeSurface::new(1000);
                 s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
@@ -1615,6 +1740,185 @@ mod tests {
                 std::mem::forget(h);
             }
         }
+    }
+
+    /// The card entered and the item `id` in front, whatever the layout is: the time after the last key.
+    fn enter_smart_card_at(home: &mut Home, id: &str, at: u64) -> u64 {
+        press(home, "down", 1100);
+        for i in 0..8 {
+            if home.focus.current().and_then(|f| home.widget_of(f)) == Some("smart") {
+                break;
+            }
+            press(home, "down", 1200 + i * 100);
+        }
+        press(home, "ok", at);
+        walk_smart_card_to(home, id, at + 100)
+    }
+
+    fn colour_lamp_tile() -> Value {
+        json!({"id": "light.strip", "name": "TV strip", "area": "Living room", "group": "lights", "words": "On \u{b7} 60%", "tone": "on", "icon": "lightbulb", "available": true, "can": ["toggle"],
+               "verbs": ["turn_on", "turn_off", "toggle", "colour", "brightness", "effect"],
+               "ctl": {"on": true, "dimmable": true, "brightness": 60, "colour": true, "rgb": [255, 0, 128], "kelvin": null, "effect": "Rainbow", "effects": ["None", "Rainbow", "Candle", "Pulse", "Party"]}})
+    }
+
+    /// A sensor's history and a lamp's colours are sheets over a stepped back page: inside the screen, the chart and the colours painted, every
+    /// word readable, and Back takes them away, in either look and at either text size.
+    #[test]
+    fn the_history_and_the_colour_sheets_are_drawn_inside_the_screen_and_read_clean_at_both_sizes_and_looks() {
+        let history = json!({"history": {"id": "sensor.t", "kind": "number", "range": "24h", "from": 1_000_000.0, "to": 87_400_000.0, "unit": "\u{b0}C", "class": "temperature", "source": "history",
+                                         "points": [[1_000_000.0, 20.0], [20_000_000.0, 22.5], [40_000_000.0, 21.0], [87_400_000.0, 22.0]],
+                                         "stats": {"min": 20.0, "max": 22.5, "avg": 21.4, "min_at": 1_000_000.0, "max_at": 20_000_000.0, "now": 22.0, "now_at": 87_400_000.0}}});
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).expect("an engine");
+                // the sensor: OK opens the history, which says it is loading until the helper answers
+                let mut home = smart_home(json!({"state": "connected", "words": "9 things", "tiles": smart_tiles(9)}));
+                let at = enter_smart_card_at(&mut home, "sensor.t", 1900);
+                press(&mut home, "ok", at);
+                assert!(home.layer == Layer::OnHome && home.history.is_some() && home.sheet.is_none(), "{mode:?} {scale}");
+                let mut s = HomeSurface::new(1000);
+                s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                s.apply(&mut kit, &mut engine, &mut home, 2500).expect("the sheet drawn");
+                assert!(s.history_sheet.as_ref().is_some_and(|s| !s.has_picture()), "asking: no chart yet");
+                home.update(&Input::Fetched { tag: super::super::model::HISTORY_TAG, status: 200, data: history.clone() }, 2600);
+                s.apply(&mut kit, &mut engine, &mut home, 2700).expect("the sheet drawn");
+                let sheet = s.history_sheet.as_ref().expect("the history");
+                assert!(sheet.has_picture(), "{mode:?} {scale}: the answer is the chart");
+                let pane = sheet.layout.pane;
+                assert!(pane.x >= 0.0 && pane.y >= 0.0 && pane.right() <= 1920.0 && pane.bottom() <= 1080.0, "{mode:?} {scale}: {pane:?}");
+                let lint = s.lint(&mut kit, &home);
+                let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject.starts_with("sensor sheet")).map(|f| format!("{f:?}")).collect();
+                assert!(bad.is_empty(), "history {mode:?} at {scale}: {}", bad.join("\n"));
+                assert!(lint.words().iter().any(|w| w.name.starts_with("sensor sheet")), "the sheet's words were linted");
+                press(&mut home, "back", 2800);
+                s.apply(&mut kit, &mut engine, &mut home, 2900).expect("Home drawn");
+                assert!(s.history_sheet.is_none(), "Back takes it away");
+                // a lamp with a white (temperature only), and one with colours and effects: a held OK opens the colour sheet
+                for tiles in [smart_tiles(9), json!([colour_lamp_tile(), smart_tiles(1)[0].clone()])] {
+                    let id = tiles[0]["id"].as_str().unwrap().to_owned();
+                    let mut home = smart_home(json!({"state": "connected", "words": "9 things", "tiles": tiles}));
+                    let at = enter_smart_card_at(&mut home, &id, 1900);
+                    home.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, at);
+                    home.update(&Input::Tick, at + 800);
+                    home.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, at + 850);
+                    assert!(home.layer == Layer::OnHome && home.colour.is_some() && home.sheet.is_none(), "{mode:?} {scale} {id}");
+                    s.apply(&mut kit, &mut engine, &mut home, at + 900).expect("the sheet drawn");
+                    let sheet = s.colour_sheet.as_ref().expect("the colours");
+                    let pane = sheet.layout.pane;
+                    assert!(pane.x >= 0.0 && pane.y >= 0.0 && pane.right() <= 1920.0 && pane.bottom() <= 1080.0, "{mode:?} {scale} {id}: {pane:?}");
+                    assert_eq!(sheet.layout.ring.is_some(), id == "light.strip", "a ring of hues only for a lamp that has colours");
+                    let lint = s.lint(&mut kit, &home);
+                    let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject.starts_with("colour sheet")).map(|f| format!("{f:?}")).collect();
+                    assert!(bad.is_empty(), "colours {mode:?} at {scale} {id}: {}", bad.join("\n"));
+                    assert!(lint.words().iter().any(|w| w.name.starts_with("colour sheet")), "the sheet's words were linted");
+                    // turned: the sheet is painted again for what changed (a hue, then the row below it) and reads clean still
+                    for k in ["right", "right", "down", "right", "down", "down", "right"] {
+                        press(&mut home, k, at + 1000);
+                        s.apply(&mut kit, &mut engine, &mut home, at + 1100).expect("the sheet drawn");
+                    }
+                    let lint = s.lint(&mut kit, &home);
+                    let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject.starts_with("colour sheet")).map(|f| format!("{f:?}")).collect();
+                    assert!(bad.is_empty(), "turned: colours {mode:?} at {scale} {id}: {}", bad.join("\n"));
+                    press(&mut home, "back", at + 1200);
+                    s.apply(&mut kit, &mut engine, &mut home, at + 1300).expect("Home drawn");
+                    assert!(s.colour_sheet.is_none(), "Back takes it away");
+                }
+                std::mem::forget(h);
+            }
+        }
+    }
+
+    /// What an `apply` sent to the compositor, without the commit that ends it.
+    fn sent(h: &mut ui::testing::Harness) -> Vec<compositor_protocol::Request> {
+        h.commit().into_iter().filter(|r| !matches!(r, compositor_protocol::Request::Commit { .. })).collect()
+    }
+
+    /// A switch and a lamp are toggled in the step of the key: what changes is sent once, no glass or group of the card is made again (nothing
+    /// is laid out again), and the frames the compositor then runs (the thumb's travel, the lamp's fade, the lift) ask this process for nothing.
+    #[test]
+    fn a_toggle_sends_its_change_once_without_laying_the_card_out_again_and_its_animation_costs_the_client_nothing() {
+        use compositor_protocol::{Content as Made, Request};
+        let (mut h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let fan = json!({"id": "switch.fan", "name": "Fan", "area": "Bedroom", "group": "switches", "words": "On", "tone": "on", "icon": "fan", "available": true, "can": ["toggle"], "verbs": ["toggle"], "ctl": {"on": true}});
+        let mut home = smart_home(json!({"state": "connected", "words": "3 things", "tiles": [fan, smart_tiles(1)[0].clone(), smart_tiles(2)[1].clone()]}));
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        s.apply(&mut kit, &mut engine, &mut home, 2300).expect("Home drawn");
+        h.settle_atlas();
+        s.apply(&mut kit, &mut engine, &mut home, 2350).expect("Home drawn");
+        let at = enter_smart_card_at(&mut home, "switch.fan", 2400);
+        s.apply(&mut kit, &mut engine, &mut home, at).expect("the card entered");
+        h.settle_atlas();
+        s.apply(&mut kit, &mut engine, &mut home, at + 10).expect("the card entered");
+        sent(&mut h);
+        let views = |s: &HomeSurface| s.cards.iter().map(|c| if let Content::OnHome(oh) = &c.content { oh.view_count() } else { 0 }).sum::<usize>();
+        let mut when = at + 1000;
+        for id in ["switch.fan", "light.lamp"] {
+            when = walk_smart_card_to(&mut home, id, when) + 100;
+            // the arrows are drawn as they come: the lift of the item that came to the front is made then, not by the press
+            s.apply(&mut kit, &mut engine, &mut home, when - 50).expect("the focus drawn");
+            h.settle_atlas();
+            sent(&mut h);
+            let before = views(&s);
+            press(&mut home, "ok", when);
+            s.apply(&mut kit, &mut engine, &mut home, when + 40).expect("the toggle drawn");
+            let first = sent(&mut h);
+            let glass = ui::testing::count_requests(&first, |r| matches!(r, Request::Create { content: Made::Glass(_), .. }));
+            let deleted = ui::testing::count_requests(&first, |r| matches!(r, Request::Delete { .. }));
+            assert_eq!((glass, deleted, views(&s)), (0, 0, before), "{id}: the card was not laid out again ({} requests)", first.len());
+            assert!(!first.is_empty(), "{id}: the change is sent");
+            assert!(first.len() < 40, "{id}: only what changed: {} requests", first.len());
+            // the thumb's travel, the lamp's fade and the lift are the compositor's: this process is not woken for a frame of them
+            let due = home.smart_of("smart").and_then(|s| s.due_at());
+            assert!(due.is_none_or(|d| d >= when + 250), "{id}: the card wakes the client at {due:?} for a toggle at {when} ms");
+            assert_eq!(ui::testing::pictures_made(&first), 0, "{id}: no picture is painted again for a toggle");
+            when += 6000;
+        }
+    }
+
+    /// The arrows from where the entered card has the focus to the item `id`: the time after the last key.
+    fn walk_smart_card_to(home: &mut Home, id: &str, at: u64) -> u64 {
+        let want = home.smart_of("smart").and_then(|s| s.items().iter().position(|i| i.id == id)).expect("the item");
+        for i in 0..30u64 {
+            let s = home.smart_of("smart").expect("the card's state");
+            let cur = s.focused().expect("the card is entered");
+            if cur == want {
+                return at + i * 100;
+            }
+            let (a, b) = ((s.plan().placed[cur].row, s.plan().placed[cur].col), (s.plan().placed[want].row, s.plan().placed[want].col));
+            let k = if b.0 > a.0 { "down" } else if b.0 < a.0 { "up" } else if b.1 > a.1 { "right" } else { "left" };
+            press(home, k, at + i * 100);
+        }
+        panic!("the arrows did not reach {id}");
+    }
+
+    /// A switch of the theme (dark to light and back) makes the card again in the new ink, the glass and the one quiet glyph of the heading
+    /// included, leaks no layer, group or track, and reads clean in both.
+    #[test]
+    fn switching_the_theme_makes_the_smart_home_card_again_in_the_new_look_and_leaks_nothing() {
+        let (h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let mut home = smart_home(json!({"state": "connected", "words": "9 things", "tiles": smart_tiles(9)}));
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        s.apply(&mut kit, &mut engine, &mut home, 2300).expect("Home drawn");
+        let at = enter_smart_card_at(&mut home, "light.lamp", 2400);
+        s.apply(&mut kit, &mut engine, &mut home, at).expect("the card entered");
+        let room = |kit: &Kit| (kit.room().layers, kit.room().groups, kit.room().tracks);
+        let dark = room(&kit);
+        for (i, mode) in [Mode::Light, Mode::Dark, Mode::Light].into_iter().enumerate() {
+            kit.retheme(lumatv_tokens::Tokens::shipped(), mode, 1.0);
+            s.apply(&mut kit, &mut engine, &mut home, at + 100 + i as u64 * 100).expect("Home drawn in the new look");
+            let lint = s.lint(&mut kit, &home);
+            let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject.starts_with("smart")).map(|f| format!("{f:?}")).collect();
+            assert!(bad.is_empty(), "{mode:?}: {}", bad.join("\n"));
+            assert!(lint.words().iter().any(|w| w.name.starts_with("smart")), "{mode:?}: the card is drawn");
+            let now = room(&kit);
+            assert!(now.0 + 2 >= dark.0 && now.1 + 2 >= dark.1 && now.2 + 2 >= dark.2, "{mode:?}: layers, groups and tracks left {now:?}, were {dark:?}: something leaked");
+        }
+        std::mem::forget(h);
     }
 
     #[test]

@@ -123,11 +123,19 @@ struct Scroller {
     track: Motion,
 }
 
+/// A group inside a lifted group that does not scale or rise with it: what a card holds that is text, which is drawn on whole pixels and
+/// is soft in a layer that is scaled. It is bound to the lift's track with the inverse pose, so the two cancel at rest and at full lift.
+struct Keep {
+    group: Group,
+    rest: GroupPose,
+}
+
 pub struct Flow {
     pub spec: Spec,
     slots: Vec<Slot>,
     lifts: Vec<(Id, Lifted)>,
     scrollers: Vec<Scroller>,
+    keeps: Vec<(Id, Keep)>,
 }
 
 /// How many focusables may be in flight at once before the oldest is snapped to rest: a held key at the remote's repeat rate (every
@@ -142,7 +150,7 @@ impl Flow {
         for _ in 0..pool.max(2) {
             slots.push(Slot { track: scene.motion(0.0, MotionBounds::range(0.0, 1.0, Units::Progress))?, owner: None });
         }
-        Ok(Self { spec, slots, lifts: Vec::new(), scrollers: Vec::new() })
+        Ok(Self { spec, slots, lifts: Vec::new(), scrollers: Vec::new(), keeps: Vec::new() })
     }
 
     /// Gives `id` a lift; a focusable that has none is focused without motion (a label, a row that only highlights).
@@ -152,8 +160,55 @@ impl Flow {
                 let _ = lifted.bind(&slot.track, self.spec.reduced);
             }
             self.lifts[i].1 = lifted;
+            if let Some(slot) = self.slots.iter().find(|s| s.owner == Some(id)) {
+                let _ = self.bind_keep(id, &slot.track);
+            }
         } else {
             self.lifts.push((id, lifted));
+        }
+    }
+
+    /// Gives the lift of `id` a group whose contents it does not move: `group` hangs under the lifted group, posed at `rest` when the lift is
+    /// at rest.
+    pub fn keep(&mut self, id: Id, group: Group, rest: GroupPose) {
+        self.keeps.retain(|(i, _)| *i != id);
+        self.keeps.push((id, Keep { group, rest }));
+        if let Some(slot) = self.slots.iter().find(|s| s.owner == Some(id)) {
+            let _ = self.bind_keep(id, &slot.track);
+        }
+    }
+
+    /// The group of `id`'s lift that holds what does not lift, when it has one.
+    pub fn kept(&self, id: Id) -> Option<&Group> {
+        self.keeps.iter().find(|(i, _)| *i == id).map(|(_, k)| &k.group)
+    }
+
+    fn bind_keep(&self, id: Id, track: &Motion) -> Result<(), UiError> {
+        let (Some((_, k)), Some(l)) = (self.keeps.iter().find(|(i, _)| *i == id), self.lifted(id)) else { return Ok(()) };
+        if self.spec.reduced {
+            k.group.unbind(PoseProperties::ALL);
+            k.group.set_pose(k.rest);
+            return Ok(());
+        }
+        // the lifted group's world is (T + pivot + s (p - pivot)); the kept group's, with 1/s and a drop of rise/s, brings p back to where it was
+        let inverse = 1.0 / l.scale;
+        k.group.bind(
+            track,
+            PoseBinding {
+                values: [0.0, 1.0],
+                from: k.rest,
+                to: GroupPose { scale: inverse, y: k.rest.y + l.rise * inverse, ..k.rest },
+                properties: PoseProperties::SCALE.union(PoseProperties::TRANSLATION),
+            },
+        )
+    }
+
+    fn unbind_keep(&self, id: Id, at_rest: bool) {
+        if let Some((_, k)) = self.keeps.iter().find(|(i, _)| *i == id) {
+            k.group.unbind(PoseProperties::ALL);
+            if at_rest {
+                k.group.set_pose(k.rest);
+            }
         }
     }
 
@@ -163,7 +218,9 @@ impl Flow {
         if let Some(slot) = self.slots.iter_mut().find(|s| s.owner == Some(id)) {
             slot.owner = None;
             self.lifts[i].1.unbind(false);
+            self.unbind_keep(id, false);
         }
+        self.keeps.retain(|(k, _)| *k != id);
         Some(self.lifts.remove(i).1)
     }
 
@@ -176,6 +233,7 @@ impl Flow {
                 let _ = slot.track.settle(Some(0.0), Some(0.0), Settle::Timed(MotionToken { duration_ms: 0, ease: Ease::Linear }));
             }
             self.lifts.remove(i);
+            self.keeps.retain(|(k, _)| *k != id);
         }
     }
 
@@ -236,14 +294,16 @@ impl Flow {
                 }
             }
         };
-        if let Some(old) = self.slots[i].owner.take()
-            && let Some(l) = self.lifted(old)
-        {
-            l.unbind(true);
+        if let Some(old) = self.slots[i].owner.take() {
+            if let Some(l) = self.lifted(old) {
+                l.unbind(true);
+            }
+            self.unbind_keep(old, true);
         }
         let reduced = self.spec.reduced;
         let track = &self.slots[i].track;
         self.lifted(id).expect("checked above").bind(track, reduced)?;
+        self.bind_keep(id, track)?;
         self.slots[i].owner = Some(id);
         Ok(Some(i))
     }
@@ -285,6 +345,7 @@ impl Flow {
                 if let Some(l) = self.lifted(owner) {
                     l.unbind(true);
                 }
+                self.unbind_keep(owner, true);
                 self.slots[i].owner = None;
             }
         }

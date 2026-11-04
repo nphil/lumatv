@@ -80,13 +80,18 @@ impl Words {
     /// Every line that says something, as the lint takes it: its box on the screen (`origin` is where the block's own origin is) and
     /// the block's layer, which is what the compositor places.
     pub fn lint(&self, kit: &mut Kit, lint: &mut crate::kit::lint::Lint, name: &str, origin: (f32, f32), panel: Option<usize>) {
+        self.lint_by(kit, lint, name, origin, |_| panel);
+    }
+
+    /// [`Words::lint`] with the panel each line (by its index in the block) is read on: a chip's words are read on the chip, not the sheet.
+    pub fn lint_by(&self, kit: &mut Kit, lint: &mut crate::kit::lint::Lint, name: &str, origin: (f32, f32), panel_of: impl Fn(usize) -> Option<usize>) {
         let layer = (origin.0 + self.at.x, origin.1 + self.at.y);
         for (i, ((frame, style), text)) in self.lines.iter().zip(self.texts.iter()).enumerate() {
             if text.is_empty() {
                 continue;
             }
             let f = Frame::new(layer.0 + frame.x, layer.1 + frame.y, frame.w, frame.h);
-            lint.word_on(kit, &format!("{name}.{i}"), text, f, *style, panel, layer);
+            lint.word_on(kit, &format!("{name}.{i}"), text, f, *style, panel_of(i), layer);
         }
     }
 }
@@ -228,7 +233,7 @@ pub enum Content {
     News(News),
     AtHome(AtHome),
     Cameras(Cameras),
-    OnHome(super::onhome::OnHome),
+    OnHome(super::onhome::card::Card),
     Unknown(Words),
 }
 
@@ -241,7 +246,7 @@ impl Content {
             "news" => Content::News(News::new(kit, w, h, z)?),
             "homeassistant" => Content::AtHome(AtHome::new(kit, w, h, z, entry)?),
             "cameras" => Content::Cameras(Cameras::new(kit, w, h, z)?),
-            "onhome" => Content::OnHome(super::onhome::OnHome::new(kit, w, h, z, entry)?),
+            "onhome" => Content::OnHome(super::onhome::card::Card::new(kit, w, h, z, entry)?),
             other => {
                 let ink2 = kit.ui.look.ink2();
                 let s = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
@@ -270,7 +275,7 @@ impl Content {
             Content::News(c) => c.block.is_glyph_run(),
             Content::AtHome(c) => c.block.is_glyph_run(),
             Content::Cameras(c) => c.block.is_glyph_run(),
-            Content::OnHome(c) => c.block.is_glyph_run(),
+            Content::OnHome(c) => c.is_glyph_run(),
             Content::Unknown(b) => b.is_glyph_run(),
         }
     }
@@ -282,7 +287,7 @@ impl Content {
             Content::News(c) => &c.block,
             Content::AtHome(c) => &c.block,
             Content::Cameras(c) => &c.block,
-            Content::OnHome(c) => &c.block,
+            Content::OnHome(c) => &c.heading,
             Content::Unknown(b) => b,
         }
     }

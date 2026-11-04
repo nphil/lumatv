@@ -35,6 +35,8 @@ pub enum Zone {
     Add,
     /// "Save changes?": Keep editing, Save, Discard.
     Ask,
+    /// The items of the chosen smart-home card: the arrows choose one, OK opens its menu (size, place, hide), Back is done.
+    Items,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,6 +44,8 @@ pub enum EditorOut {
     Preview(Value),
     Save(Value),
     Leave(Value),
+    /// The items of the smart-home card with this id are to be arranged: the card takes the keys.
+    Items(String),
 }
 
 pub struct Button {
@@ -152,29 +156,38 @@ impl Editor {
             Zone::Bar => "bar",
             Zone::Add => "add",
             Zone::Ask => "ask",
+            Zone::Items => "items",
         }
+    }
+
+    /// Whether the chosen card is one whose items can be arranged: a smart-home card.
+    pub fn arrangeable(&self) -> bool {
+        self.card().is_some_and(|c| c.kind == "onhome")
     }
 
     /// The bar's buttons, right-aligned in the bar, with their frames on the screen.
     pub fn buttons(&self) -> Vec<Button> {
-        let specs: [(&'static str, &'static str, &'static str, bool, bool, f32); 5] = [
+        let specs: [(&'static str, &'static str, &'static str, bool, bool, f32); 6] = [
             ("add", "Add", "plus", true, false, 150.0),
             ("remove", "Remove", "trash-2", self.can_remove(), false, 196.0),
+            ("items", "Items", "layout-grid", self.arrangeable(), false, 150.0),
             ("undo", "Undo", "undo-2", !self.history.is_empty(), false, 164.0),
             ("cancel", "Cancel", "x", true, false, 184.0),
             ("save", "Save", "check", true, true, 150.0),
         ];
+        // the bar and its buttons grow with the text size, their widths stop at 1.6 so that six of them stay on the bar
         let k = self.scale;
+        let kw = k.min(1.6);
         let gap = 12.0;
-        let total: f32 = specs.iter().map(|s| s.5 * k).sum::<f32>() + gap * 4.0;
+        let total: f32 = specs.iter().map(|s| s.5 * kw).sum::<f32>() + gap * (specs.len() as f32 - 1.0);
         let mut x = 64.0 + 1792.0 - 16.0 - total;
         let bh = (56.0 * k).round();
         let y = BAR_Y + ((self.bar_h() - bh) / 2.0).round();
         specs
             .iter()
             .map(|s| {
-                let b = Button { id: s.0, label: s.1, icon: s.2, enabled: s.3, primary: s.4, frame: Frame::new(x.round(), y, (s.5 * k).round(), bh) };
-                x += s.5 * k + gap;
+                let b = Button { id: s.0, label: s.1, icon: s.2, enabled: s.3, primary: s.4, frame: Frame::new(x.round(), y, (s.5 * kw).round(), bh) };
+                x += s.5 * kw + gap;
                 b
             })
             .collect()
@@ -244,7 +257,7 @@ impl Editor {
             Zone::Bar => Some(Id(BAR_ID + self.bar_index as u32)),
             Zone::Add => Some(Id(ADD_ID + self.add_index as u32)),
             Zone::Ask => Some(Id(ASK_ID + self.ask_index as u32)),
-            Zone::Grid => None,
+            Zone::Grid | Zone::Items => None,
         };
         match current {
             Some(id) => {
@@ -255,7 +268,7 @@ impl Editor {
     }
 
     pub fn unregister(&self, focus: &mut Focus) {
-        for i in 0..5 {
+        for i in 0..self.buttons().len() as u32 {
             focus.unregister(Id(BAR_ID + i));
         }
         for i in 0..grid::ADDABLE.len() as u32 {
@@ -417,6 +430,10 @@ impl Editor {
                 self.add_index = 0;
             }
             "remove" => self.remove_card(now, outs),
+            "items" if self.arrangeable() => {
+                self.zone = Zone::Items;
+                outs.push(EditorOut::Items(self.sel.clone()));
+            }
             "undo" => self.undo(outs),
             "cancel" => self.back(outs),
             "save" => self.save_now(outs),
@@ -482,6 +499,12 @@ impl Editor {
                 _ => {}
             },
             Zone::Grid => self.grid_key(name, dir, now, &mut outs),
+            // the card has the keys (the model sends them there): a key that gets here is not one of its
+            Zone::Items => {
+                if name == "back" {
+                    self.zone = Zone::Bar;
+                }
+            }
         }
         outs
     }
@@ -567,7 +590,7 @@ impl Editor {
     pub fn press_at(&mut self, x: f32, y: f32, focus: &mut Focus, now: u64) -> Vec<EditorOut> {
         let mut outs = Vec::new();
         if let Some(id) = focus.click(x, y) {
-            if let Some(i) = id.0.checked_sub(BAR_ID).filter(|i| *i < 5) {
+            if let Some(i) = id.0.checked_sub(BAR_ID).filter(|i| (*i as usize) < self.buttons().len()) {
                 self.zone = Zone::Bar;
                 self.bar_index = i as usize;
                 let bid = self.buttons()[i as usize].id;
@@ -681,6 +704,7 @@ impl Editor {
     /// The words beside the heading: what OK does now.
     pub fn hint_words(&self) -> String {
         match (self.mode, self.card()) {
+            _ if self.zone == Zone::Items => "Arrows choose \u{b7} OK options \u{b7} Back done".into(),
             (Mode::Select, _) => "OK moves".into(),
             (Mode::Move, Some(c)) => format!("{} \u{d7} {} \u{b7} OK sizes \u{b7} Back undoes", c.span, c.rows),
             (Mode::Resize, Some(c)) => format!("{} \u{d7} {} \u{b7} OK done \u{b7} Back undoes", c.span, c.rows),

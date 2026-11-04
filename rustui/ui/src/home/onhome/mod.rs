@@ -1,46 +1,47 @@
-//! On Home: Home Assistant's shared things as tiles on a card, and the sheet that opens over Home for one of them.
+//! On Home: Home Assistant's shared things as items on a card, and the sheets that open over Home for one of them.
 //!
 //! The helper's `onhome` topic says everything in words (a name, a line of status, a glyph, a tone, what OK does, the numbers a sheet moves;
 //! `helper/app/src/onhome/tile.rs`): this module draws it and turns keys into the helper's `POST /v1/onhome/act` bodies. It knows nothing of
 //! Home Assistant, its attributes or its services, and holds no address or token: the TV is one more LumaShow device to Home Assistant's
 //! integration, which pushes what the owner shared and decides what the TV may do.
 //!
-//! **The card.** A heading, what the link says at its right, and the tiles two to a row on a card wide enough for it (one on a narrow one),
-//! each a glass plate with a tinted disc and a glyph, the name, and a line of status. With no tile the card says why in one chip (not
-//! switched on, not paired, waiting for Home Assistant, nothing shared yet) and OK opens Settings at the page. With tiles OK on the card
-//! enters it: the D-pad moves over the tiles, OK does the tile's one action (switch it, run it; a thermostat, a cover or a thing that is
-//! only shown opens its sheet), a held OK or the Menu key opens the sheet, Back leaves.
+//! **The card** ([`card`], with [`layout`], [`items`], [`parts`], [`smart`]). Items are raised glass mini cards in a grid the card's room
+//! makes: small, wide and large, the owner's choice per item. OK on the card enters it, the D-pad moves between items, OK does the item's one
+//! thing (a lamp or a switch is switched at once, shown before Home Assistant says so; a camera opens the viewer; a sensor opens its
+//! history), a held OK opens a lamp's colour sheet, the Menu key opens the item's own menu (size, place, hide), Back leaves. With no item
+//! the card says why in one plate and OK opens Settings at the page.
 //!
 //! **The sheet** ([`Sheet`], drawn by [`SheetSurface`]): the controls of one tile as rows (a switch, a slider, a mode, an action) with
 //! Left and Right changing the value of the row in front. A slider is sent once the key rests (a held key is one call, not forty), and
 //! what the person set is shown until Home Assistant's own answer is. A refusal comes back in words and is said for a few seconds.
 
-use super::surface::{HIDDEN, faded, glass_of};
-use super::widgets::{Canvas, Pictures, Words};
+pub mod card;
+pub mod chart;
+pub mod colour;
+pub mod colour_surface;
+pub mod items;
+pub mod layout;
+pub mod sensor;
+pub mod sensor_surface;
+pub mod paint;
+pub mod parts;
+pub mod smart;
+
+use super::surface::{faded, glass_of};
+use super::widgets::{Canvas, Words};
 use crate::kit::Kit;
 use crate::kit::pane::PaneKind;
-use crate::kit::picture::{Fit, Picture};
 use crate::kit::text::role_style;
 use compositor_protocol::{Props, Rgba};
 use lumatv_tokens::{Radius, TypeRole};
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use ui::components::text::ellipsise;
-use ui::components::{Align, Style, plate};
+use ui::components::{Align, plate};
 use ui::geometry::Frame;
 use ui::scene::{GlassLayer, ImageLayer, ShapeLayer};
 use ui::text::Weight;
 
 pub const TOPIC: &str = "onhome";
-/// The card's own padding is the surface's (`PAD_SIDE`, `PAD_TOP`); a card this wide or wider has two tiles to a row.
-const TWO_COLUMNS_FROM: f32 = 640.0;
-const GAP: f32 = 12.0;
-const MAX_VISIBLE: usize = 24;
-
-/// Tiles to a row on a card whose content box is `w` wide.
-pub fn cols(w: f32) -> usize {
-    if w >= TWO_COLUMNS_FROM { 2 } else { 1 }
-}
 
 /// The tiles of the topic, as they are listed.
 pub fn tiles(topic: &Value) -> Vec<Value> {
@@ -83,226 +84,6 @@ pub fn note_of(topic: &Value) -> (String, String, &'static str) {
         Some("empty") if topic.get("shared").and_then(Value::as_u64).unwrap_or(0) == 0 => ("Nothing shared yet".into(), "Share some with the TV in Home Assistant".into(), "info"),
         Some("empty") => ("Nothing on Home".into(), "Choose what to show in Settings".into(), "info"),
         Some(_) => (text("words"), text("detail"), "info"),
-    }
-}
-
-fn tone_colour(kit: &Kit, tone: &str) -> Rgba {
-    use ui::lucent::palette::PaletteRole as R;
-    let look = &kit.ui.look;
-    match tone {
-        "on" => look.accent(),
-        "warn" => look.colour(R::Warning),
-        "alert" => look.colour(R::Danger),
-        "ok" => look.colour(R::Positive),
-        "info" | "warning" => look.colour(R::Info),
-        _ => look.ink2(),
-    }
-}
-
-fn glyph(kit: &mut Kit, pictures: &mut Pictures, name: &str, side: u32, colour: Rgba) -> Option<Vec<u8>> {
-    kit.icons.draw(name, side, colour).or_else(|| pictures.get(&format!("base/{name}")).map(|p| p.fitted(side, side, Fit::Contain).rgba))
-}
-
-// ---- the card
-
-/// One tile to paint: where, whether the inner focus is on it, its tone, its glyph and whether its thing is gone.
-struct Drawn {
-    x: f32,
-    y: f32,
-    focused: bool,
-    colour: Rgba,
-    px: Option<Vec<u8>>,
-    gone: bool,
-}
-
-pub struct OnHome {
-    pub block: Words,
-    art: ImageLayer,
-    w: f32,
-    cols: usize,
-    tile_w: f32,
-    tile_h: f32,
-    row_top: f32,
-    rows_in_view: usize,
-    show_title: bool,
-    /// The disc behind a glyph, the glyph, where the words start in a tile and how wide they may be.
-    disc: f32,
-    icon_px: u32,
-    text_x: f32,
-    text_w: f32,
-    label: Style,
-    cap: Style,
-    first_row: usize,
-    /// Per slot in view: the lines of its name and of its status.
-    slots: Vec<(usize, usize)>,
-    heading: (usize, usize),
-    note: (usize, usize),
-    at: Props,
-    shown: Option<String>,
-}
-
-impl OnHome {
-    pub fn new(kit: &mut Kit, w: f32, h: f32, z: i32, entry: &Value) -> std::io::Result<Self> {
-        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
-        let label = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left);
-        let cap = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
-        let cap_r = role_style(kit, TypeRole::Caption, None, ink2, Align::Right);
-        let lh = kit.line(TypeRole::Label);
-        let ch = kit.line(TypeRole::Caption);
-        let cols = cols(w);
-        let tile_w = ((w - GAP * (cols as f32 - 1.0)) / cols as f32).floor();
-        let tile_h = (lh + ch + 16.0).max(64.0 * kit.text_scale).ceil();
-        // a card too low for a heading and a row of tiles gives the room to the tiles (as the QML's lane does)
-        let show_title = h >= lh + 14.0 + tile_h;
-        let row_top = if show_title { lh + 14.0 } else { 0.0 };
-        let rows_in_view = (((h - row_top + GAP) / (tile_h + GAP)).floor().max(0.0) as usize).min(MAX_VISIBLE / cols);
-        // the disc and its glyph grow with the tile, which grows with the text size
-        let disc = (tile_h * 0.62).round().min(64.0);
-        let icon_px = ((disc * 0.6).round() as u32).max(16);
-        let text_x = 14.0 + disc + 12.0;
-        let text_w = (tile_w - text_x - 12.0).max(10.0);
-        let title = entry.get("title").and_then(Value::as_str).unwrap_or("Smart home").to_owned();
-        let mut lines: Vec<(Frame, ui::components::Style, String)> = vec![(Frame::new(0.0, 0.0, w * 0.45, lh), label, title), (Frame::new(w * 0.45, 0.0, w * 0.55, lh), cap_r, String::new())];
-        let mut slots = Vec::new();
-        for s in 0..rows_in_view * cols {
-            let (c, r) = (s % cols, s / cols);
-            let (x, y) = (c as f32 * (tile_w + GAP), row_top + r as f32 * (tile_h + GAP));
-            let top = y + ((tile_h - lh - ch) / 2.0).floor();
-            let a = lines.len();
-            lines.push((Frame::new(x + text_x, top, text_w, lh), label, String::new()));
-            let b = lines.len();
-            lines.push((Frame::new(x + text_x, top + lh, text_w, ch), cap, String::new()));
-            slots.push((a, b));
-        }
-        let note_a = lines.len();
-        lines.push((Frame::new(text_x, row_top + ((tile_h - lh - ch) / 2.0).floor(), w - text_x - 40.0, lh), label, String::new()));
-        let note_b = lines.len();
-        lines.push((Frame::new(text_x, row_top + ((tile_h - lh - ch) / 2.0).floor() + lh, w - text_x - 40.0, ch), cap, String::new()));
-        let block = Words::new(kit, Frame::new(0.0, 0.0, w, h), z + 2, lines)?;
-        let mut art = kit.ui.scene.image(w.max(1.0).round() as u32, h.max(1.0).round() as u32, z + 1, HIDDEN)?;
-        art.clear();
-        art.damage(None);
-        Ok(Self { block, art, w, cols, tile_w, tile_h, row_top, rows_in_view, show_title, disc, icon_px, text_x, text_w, label, cap, first_row: 0, slots, heading: (0, 1), note: (note_a, note_b), at: HIDDEN, shown: None })
-    }
-
-    pub fn show(&mut self, at: Props) {
-        self.at = at;
-        self.block.set_props(at);
-        self.art.set(at);
-    }
-
-    /// How many tiles are in view.
-    pub fn visible(&self) -> usize {
-        self.slots.len()
-    }
-
-    /// The tile `index` of the list is drawn where, when it is in view.
-    fn slot_of(&self, index: usize) -> Option<usize> {
-        let (row, col) = (index / self.cols, index % self.cols);
-        (row >= self.first_row && row < self.first_row + self.rows_in_view).then(|| (row - self.first_row) * self.cols + col)
-    }
-
-    /// The tiles of the topic (`inner` the one the inner focus is on), with the notice the last control left, if one is being said.
-    pub fn set(&mut self, kit: &mut Kit, topic: &Value, inner: Option<usize>, notice: Option<&str>, pictures: &mut Pictures) {
-        let list = tiles(topic);
-        if let Some(i) = inner.filter(|i| *i < list.len() && self.rows_in_view > 0) {
-            let row = i / self.cols;
-            if row < self.first_row {
-                self.first_row = row;
-            } else if row >= self.first_row + self.rows_in_view {
-                self.first_row = row + 1 - self.rows_in_view;
-            }
-        }
-        let rows = list.len().div_ceil(self.cols);
-        self.first_row = self.first_row.min(rows.saturating_sub(self.rows_in_view));
-        let key = format!("{topic}|{inner:?}|{notice:?}|{}", self.first_row);
-        if self.shown.as_deref() == Some(key.as_str()) {
-            return;
-        }
-        self.shown = Some(key);
-        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
-        let mut changes: Vec<(usize, String, Rgba)> = Vec::new();
-        let heading = match (notice, inner.is_some() && !list.is_empty()) {
-            (Some(n), _) => n.to_owned(),
-            (None, true) => "Hold OK for controls".to_owned(),
-            _ => heading_words(topic),
-        };
-        if self.show_title {
-            changes.push((self.heading.1, heading, ink2));
-        } else {
-            changes.push((self.heading.0, String::new(), ink));
-            changes.push((self.heading.1, String::new(), ink2));
-        }
-        let radius = kit.tokens.radius(Radius::Control);
-        let (w, h) = (self.art.width(), self.art.height());
-        let mut drawn: Vec<Drawn> = Vec::new();
-        let mut note_icon: Option<(Rgba, Option<Vec<u8>>)> = None;
-        if list.is_empty() {
-            let (title, sub, tone) = note_of(topic);
-            let colour = tone_colour(kit, tone);
-            let wide = self.w - self.text_x - 40.0;
-            changes.push((self.note.0, ellipsise(&mut kit.ui.fonts, &title, self.label.ty, wide), ink));
-            changes.push((self.note.1, ellipsise(&mut kit.ui.fonts, &sub, self.cap.ty, wide), ink2));
-            note_icon = Some((colour, glyph(kit, pictures, "house-wifi", self.icon_px, colour)));
-            for (a, b) in &self.slots {
-                changes.push((*a, String::new(), ink));
-                changes.push((*b, String::new(), ink2));
-            }
-        } else {
-            changes.push((self.note.0, String::new(), ink));
-            changes.push((self.note.1, String::new(), ink2));
-            for (s, (a, b)) in self.slots.iter().enumerate() {
-                let index = self.first_row * self.cols + s;
-                let Some(t) = list.get(index) else {
-                    changes.push((*a, String::new(), ink));
-                    changes.push((*b, String::new(), ink2));
-                    continue;
-                };
-                let text = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("");
-                let quiet = matches!(text("tone"), "off" | "muted");
-                changes.push((*a, ellipsise(&mut kit.ui.fonts, text("name"), self.label.ty, self.text_w), ink));
-                changes.push((*b, ellipsise(&mut kit.ui.fonts, text("words"), self.cap.ty, self.text_w), if quiet { ink2 } else { ink }));
-                let colour = tone_colour(kit, text("tone"));
-                let (c, r) = (s % self.cols, s / self.cols);
-                let px = glyph(kit, pictures, text("icon"), self.icon_px, colour);
-                drawn.push(Drawn { x: c as f32 * (self.tile_w + GAP), y: self.row_top + r as f32 * (self.tile_h + GAP), focused: inner == Some(index), colour, px, gone: t.get("available").and_then(Value::as_bool) == Some(false) });
-            }
-        }
-        let refs: Vec<(usize, &str, Rgba)> = changes.iter().map(|(i, s, c)| (*i, s.as_str(), *c)).collect();
-        self.block.set_many(kit, &refs);
-        let chevron = if list.is_empty() { kit.icons.draw("chevron-right", 22, ink2) } else { None };
-        let plate_colour = faded(ink, 0.10);
-        let lit = faded(ink, 0.26);
-        self.art.clear();
-        {
-            let mut canvas = Canvas { px: self.art.pixels_mut(), w, h };
-            let (tw, th) = (self.tile_w, self.tile_h);
-            for Drawn { x, y, focused, colour, px, gone } in &drawn {
-                canvas.rounded(Frame::new(*x, *y, tw, th), radius, if *focused { lit } else { plate_colour });
-                canvas.disc(x + 14.0 + self.disc / 2.0, y + th / 2.0, self.disc / 2.0, faded(*colour, if *gone { 0.12 } else { 0.22 }));
-                if let Some(px) = px {
-                    let side = self.icon_px;
-                    let pic = Picture { width: side, height: side, rgba: px.clone() };
-                    canvas.picture(&pic, (x + 14.0 + self.disc / 2.0 - side as f32 / 2.0).round() as i32, (y + th / 2.0 - side as f32 / 2.0).round() as i32, side, side);
-                }
-            }
-            if let Some((colour, px)) = &note_icon {
-                let y = self.row_top;
-                canvas.rounded(Frame::new(0.0, y, self.w, self.tile_h), radius, plate_colour);
-                canvas.disc(14.0 + self.disc / 2.0, y + self.tile_h / 2.0, self.disc / 2.0, faded(*colour, 0.22));
-                if let Some(px) = px {
-                    let side = self.icon_px;
-                    let pic = Picture { width: side, height: side, rgba: px.clone() };
-                    canvas.picture(&pic, (14.0 + self.disc / 2.0 - side as f32 / 2.0).round() as i32, (y + self.tile_h / 2.0 - side as f32 / 2.0).round() as i32, side, side);
-                }
-                if let Some(c) = &chevron {
-                    let pic = Picture { width: 22, height: 22, rgba: c.clone() };
-                    canvas.picture(&pic, self.w as i32 - 22 - 14, (y + (self.tile_h - 22.0) / 2.0).round() as i32, 22, 22);
-                }
-            }
-        }
-        self.art.damage(None);
-        let _ = self.slot_of(0);
     }
 }
 
@@ -856,11 +637,6 @@ mod tests {
     fn thermostat() -> Value {
         json!({"id": "climate.t", "name": "Thermostat", "group": "climate", "words": "68\u{b0}", "can": ["sheet"], "available": true,
                "verbs": ["set_temperature", "set_hvac_mode"], "ctl": {"mode": "heat", "modes": ["off", "heat", "cool"], "current": 68.0, "target": 70.0, "min": 50.0, "max": 90.0, "step": 1.0, "unit": "\u{b0}F", "action": "heating"}})
-    }
-
-    #[test]
-    fn a_card_wide_enough_has_two_tiles_to_a_row_and_a_narrow_one_has_one() {
-        assert_eq!((cols(1000.0), cols(640.0), cols(639.0), cols(300.0)), (2, 2, 1, 1));
     }
 
     #[test]

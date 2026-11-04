@@ -92,6 +92,20 @@ fn post_pick(body: Value) -> Op {
     Op::Send { name: None, method: "POST", path: "/v1/onhome/picks".into(), body: Some(body) }
 }
 
+/// The tiles with each kind together, the kinds in the order they first come and each kind in the owner's order: the card's own order
+/// crosses kinds, and this page lists kinds under their headings.
+fn by_kind(list: Vec<Value>) -> Vec<Value> {
+    let group = |t: &Value| t.get("group").and_then(Value::as_str).unwrap_or("").to_owned();
+    let mut kinds: Vec<String> = Vec::new();
+    for t in &list {
+        let g = group(t);
+        if !kinds.contains(&g) {
+            kinds.push(g);
+        }
+    }
+    kinds.iter().flat_map(|k| list.iter().filter(|t| group(t) == *k)).cloned().collect()
+}
+
 fn rows(c: &Ctx) -> Vec<Row> {
     let mut rows = Vec::new();
     let state = topic(c).get("state").and_then(Value::as_str).unwrap_or("");
@@ -100,7 +114,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     let mut link = Row::info("link").tab(0).icon("house-wifi").label("Home Assistant").help("The LumaShow integration in Home Assistant shares things with the TV and decides which the TV may control. In Home Assistant: Settings, Devices & services, LumaShow, LumaTV, Configure.").value(&words(c));
     link.detail = detail.to_owned();
     rows.push(link);
-    let have = tiles(c);
+    let have = by_kind(tiles(c));
     if have.is_empty() {
         let (title, line) = match state {
             "off" | "unpaired" | "problem" | "waiting" => (words(c), detail.to_owned()),

@@ -565,6 +565,18 @@ impl Shell {
                             self.redraw = true;
                         }
                         crate::home::model::Request::Cameras => acts.push(Act::Log("home asks for cameras".into())),
+                        // a camera item of the smart-home card: the viewer at full size, opened on the picture the card shows of it
+                        crate::home::model::Request::CameraFull(id) if self.kinds.cameras => {
+                            if let Some(pic) = self.home.stills.picture(&id).cloned() {
+                                self.cameras.seed_full(&id, pic);
+                            }
+                            for e in self.cameras.open_full(&id, now) {
+                                self.carry(e, now, acts);
+                            }
+                            self.cameras_asks(now, acts);
+                            self.redraw = true;
+                        }
+                        crate::home::model::Request::CameraFull(_) => acts.push(Act::Log("home asks for a camera".into())),
                     }
                 }
             }
@@ -1290,6 +1302,11 @@ impl Shell {
             }
             if self.home.active {
                 takes.extend(["screenremote", "search"]);
+            }
+            // a smart-home card that has more than it shows scrolls with the turns of the wheel, which the compositor sends with their direction
+            // only to a client that names them
+            if self.home.wheel_scrolls() {
+                takes.extend(["wheelup", "wheeldown"]);
             }
         }
         json!({"can": can, "wants": wants, "takes": takes, "live": self.live, "state": self.state()})

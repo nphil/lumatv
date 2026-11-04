@@ -250,6 +250,18 @@ impl HintRow {
         self.width
     }
 
+    /// The width a row of `hint` in `role` has once made, without making it: for a row that is to end at an edge.
+    pub fn width_of(kit: &mut Kit, hint: &Hint, role: TypeRole) -> f32 {
+        let side = glyph_side(kit, role);
+        let gap = kit.space(2);
+        let names = hint.glyphs().len() as u32;
+        let glyphs = if names > 0 { ((side as f32 + gap).round() as u32 * (names - 1) + side) as f32 } else { 0.0 };
+        match &hint.label {
+            Some(text) => glyphs + if names > 0 { gap } else { 0.0 } + kit.ui.fonts.measure(text, kit.ty(role)).width.ceil() + 2.0,
+            None => glyphs,
+        }
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
