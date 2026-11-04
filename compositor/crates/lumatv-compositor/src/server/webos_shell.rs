@@ -210,7 +210,7 @@ fn send_state(resource: &WlWebosShellSurface, st: ShellState) {
 /// that the group has one more.
 pub fn on_mapped(state: &mut State, wid: WindowId) {
     let Some(w) = state.scene.window(wid) else { return };
-    let (kind, position, has_webos, member) = (w.kind, w.position, w.has_webos_shell, w.in_group);
+    let (kind, position, has_webos, member, guide) = (w.kind, w.position, w.has_webos_shell, w.in_group, w.app_id() == crate::scene::LG_GUIDE_APP);
     if member {
         sync_group_members(state);
         state.luna_notify();
@@ -218,6 +218,9 @@ pub fn on_mapped(state: &mut State, wid: WindowId) {
         settle_cards(state, None);
     } else if kind == WindowType::Screensaver {
         sync_exposed(state);
+    } else if guide {
+        // LG's guide, which LumaTV's own answers for while the UI is there (`lg_guide.rs`); with the UI gone this does nothing and it is drawn
+        state.lg_guide_mapped(wid);
     }
     if !has_webos {
         return;

@@ -693,6 +693,7 @@ impl State {
         self.shell_rust.engine_connected = true;
         self.journal("shell-rust: the client is on the engine; its layers are drawn from here".into());
         self.shell_rust_sync_home();
+        self.shell_rust_sync_guide();
         self.refresh_policy_sync();
         // A report may have arrived before the engine handshake completed.
         self.shell_rust.push("refresh", json!({"hz": self.config.refresh_hz}));
@@ -728,6 +729,7 @@ impl State {
         self.refresh_policy_sync();
         self.shell_rust.can.clear();
         self.shell_rust.takes.clear();
+        self.shell_rust_sync_guide();
         // what the shell blanked of an app's window is the app's own picture again once the shell is gone; the next plan redraws it
         self.scene.mask_op(crate::mask::Op::Release);
         self.shell_rust.took.clear();
@@ -765,6 +767,21 @@ impl State {
             };
             self.journal(format!("shell-rust: Home is {state}"));
             self.shell_sync_topics();
+        }
+    }
+
+    /// LG's guide is held undrawn while the UI is on the engine and lists the guide among what it can show (`lg_guide.rs`). When that starts, a window of
+    /// LG's guide that is up already is answered at once; when it ends (the client is gone) the next plan draws it as it draws any overlay.
+    pub fn shell_rust_sync_guide(&mut self) {
+        let s = &self.shell_rust;
+        let on = s.answers("guide") && s.connected && s.engine_connected && s.can.iter().any(|c| c == "guide");
+        if !self.scene.set_guide_held(on) {
+            return;
+        }
+        self.journal(format!("lg-guide: LG's guide is {}", if on { "held undrawn; LumaTV's guide answers for it" } else { "LG's again: the UI is not there to answer for it" }));
+        crate::server::seat::refocus(self);
+        if on {
+            self.lg_guide_up();
         }
     }
 
@@ -825,6 +842,7 @@ impl State {
                 {
                     self.journal(format!("shell-rust: can show {}", if can.is_empty() { "nothing".to_string() } else { can.join(", ") }));
                     self.shell_rust.can = can;
+                    self.shell_rust_sync_guide();
                 }
                 if let Some(w) = wants
                     && w != self.shell_rust.wants
@@ -1255,6 +1273,7 @@ impl State {
             "can": s.can,
             "wants": s.wants,
             "takes": s.takes,
+            "lgGuideHeld": self.scene.guide_held(),
             "systemLive": s.live,
             "ui": s.ui_state,
             "topics": s.pushed,

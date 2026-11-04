@@ -28,6 +28,10 @@ use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect};
 /// otherwise. The card LumaTV's Home is drawn in place of.
 pub const HOME_APP: &str = "com.webos.app.home";
 
+/// LG's guide (the Guide and List keys, Live TV's menu entry, the banner's Guide button): an Overlay window of this app, which the compositor does
+/// not draw while LumaTV's UI answers for it (`lg_guide.rs`).
+pub const LG_GUIDE_APP: &str = "com.webos.app.livemenu";
+
 /// Native Home is an engine layer, represented in transitions by a synthetic window ID.
 pub const HOME_RUST: WindowId = WindowId(u32::MAX);
 
@@ -560,6 +564,9 @@ pub struct Scene {
     /// The shell's claim on a window's region (`mask.rs`), and where the last plan blanked.
     mask: Option<Mask>,
     last_masks: Vec<PlannedMask>,
+    /// LumaTV's UI answers for LG's guide: its windows are left out of the stack, so they are never drawn, never take the keyboard focus and are never
+    /// under the pointer (`lg_guide.rs`).
+    guide_held: bool,
     plan: Plan,
     /// Whether the last stack built drew LumaTV's Home in the card slot ([`Scene::shell_home_shown`]).
     home_shown: bool,
@@ -785,6 +792,23 @@ impl Scene {
         self.home_rust
     }
 
+    /// LumaTV's UI answers for LG's guide (or no longer does): a window of that app is left out of the stack, or is drawn as any overlay is. Returns
+    /// whether that changed.
+    pub fn set_guide_held(&mut self, on: bool) -> bool {
+        let changed = self.guide_held != on;
+        self.guide_held = on;
+        changed
+    }
+
+    pub fn guide_held(&self) -> bool {
+        self.guide_held
+    }
+
+    /// Whether `w` is a window of LG's guide that the stack leaves out.
+    fn is_held_guide(&self, w: &Window) -> bool {
+        self.guide_held && w.app_id() == LG_GUIDE_APP
+    }
+
     pub fn windows(&self) -> impl Iterator<Item = &Window> {
         self.windows.values()
     }
@@ -968,6 +992,11 @@ impl Scene {
             }
             // The native compositor never displays vendor keyboard windows.
             if w.kind == WindowType::Keyboard {
+                continue;
+            }
+            // LG's guide is answered by LumaTV's own: its window is never in a frame, from its first commit (`lg_guide.rs`). It stays mapped for
+            // SAM and the apps that watch the foreground list, which see what they see of any overlay.
+            if self.is_held_guide(w) {
                 continue;
             }
             // A group member is drawn with its owner (`plan`), and a card that is not in front is none of the stack's: a window that left

@@ -36,6 +36,8 @@ pub struct LunaState {
     /// that never comes must not grow it.
     video_calls: Vec<(u64, String, String)>,
     cover: CoverLaunch,
+    /// LG's guide: the life event subscription and the closes asked of SAM (`lg_guide.rs`).
+    pub(crate) guide: crate::lg_guide::Answer,
 }
 
 
@@ -114,6 +116,7 @@ impl Default for LunaState {
             saver_wake_token: None,
             cover: CoverLaunch::default(),
             video_calls: Vec::new(),
+            guide: crate::lg_guide::Answer::default(),
             muted: false,
         }
     }
@@ -234,6 +237,7 @@ impl State {
         self.luna_state.nooperation.token = Some(token);
         self.luna.send(ToBridge::Outbound(Outbound { token, uri: crate::nooperation::TIMER_INFO.into(),
             payload: json!({"subscribe": true}), subscribe: true }));
+        self.lg_guide_subscribe();
     }
 
     /// An answer to one of the compositor's own calls: tvpower pushes and the audio service's volume state are the
@@ -251,6 +255,9 @@ impl State {
             return;
         }
         if self.cover_answer(ev.token, &ev.payload) { return; }
+        if self.lg_guide_event(ev.token, &ev.payload) {
+            return;
+        }
         if self.panel_answer(ev.token, &ev.payload) {
             return;
         }

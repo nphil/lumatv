@@ -1970,6 +1970,26 @@ mod tests {
     }
 
     #[test]
+    fn the_compositors_show_for_a_launch_of_lgs_guide_opens_the_guide_over_whatever_is_in_front_and_a_second_asks_nothing() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("guide"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).unwrap();
+        shell.start();
+        let front = |app: &str| Event::Topic { topic: "foreground".into(), data: json!({"app": app, "home": false, "covered": true}) };
+        let show = |n| Event::Topic { topic: "show".into(), data: json!({"kind": "guide", "warm": false, "n": n}) };
+        let asks = |acts: &[Act]| acts.iter().filter(|a| matches!(a, Act::Channel(o) if o.path == "/v1/luna")).count();
+        shell.channel(&front("org.test.player"), 1_000);
+        let first = shell.channel(&show(1), 1_100);
+        assert_eq!(shell.state()["guide"]["open"], true, "LG's guide was launched over an app that is not Live TV: this one opens over it");
+        assert!(asks(&first) > 0, "and asks LG's guide service for the channels");
+        let second = shell.channel(&show(2), 1_200);
+        assert!(shell.state()["guide"]["open"] == true && asks(&second) == 0, "a second launch while it is open asks nothing");
+        shell.channel(&front("org.test.player"), 1_300);
+        assert_eq!(shell.state()["guide"]["open"], true, "the app it came over is still in front: it stays");
+        shell.channel(&front("com.webos.app.home"), 2_000);
+        assert_eq!(shell.state()["guide"]["open"], false, "another app coming to the front ends it, as ever");
+    }
+
+    #[test]
     fn loaded_legacy_custom_colours_do_not_claim_the_shipped_palette() {
         let (_h, mut shell) = shell();
         let mut acts = Vec::new();

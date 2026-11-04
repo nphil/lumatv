@@ -57,9 +57,10 @@ impl GuideHost {
         std::mem::take(&mut self.redraw)
     }
 
-    /// What the shell tells the compositor it takes. Live TV in front: the Guide key, which Live TV answers by launching LG's guide (the
-    /// compositor gives the key to the shell only while the shell lists it, so LG's is what opens whenever the shell is not running). Open:
-    /// also the channel rocker, which pages the guide, Info, which opens its sheet, and a turn of the Magic Remote's wheel, which moves a row.
+    /// What the shell tells the compositor it takes. Live TV in front: the Guide key, which Live TV answers by launching LG's guide. The
+    /// compositor answers every launch of LG's guide with this guide (it draws none of LG's, `lg_guide.rs`), so the key is claimed to spare the
+    /// launch; with the shell not running nothing is listed and LG's guide opens as stock. Open: also the channel rocker, which pages the guide,
+    /// Info, which opens its sheet, and a turn of the Magic Remote's wheel, which moves a row.
     pub fn takes(&self) -> Vec<&'static str> {
         if self.model.wants() {
             vec!["chup", "chdown", "info", "wheelup", "wheeldown", "guide"]

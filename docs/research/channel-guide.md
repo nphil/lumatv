@@ -32,14 +32,32 @@ reservations, tuning) is not open.
 
 ## Where it opens
 
-The Guide key is the shell's while Live TV is in front. Live TV answers the key itself: 2 ms after it, `com.webos.app.livetv` asks SAM
-to launch `com.webos.app.livemenu` with `activateType: tvguide` (read off the set, 2026-11-04), and `livemenu` is an Overlay window, so the
-`foreground` topic (which carries cards only) never shows it. The guide therefore lists `guide` in its `takes` while Live TV is in front
-(and while it is open); the compositor then sends the key (`KEY_GUIDE`, 362) to the shell and not to Live TV, and the guide opens over
-the live picture with LG's never launched. With the shell not running nothing is listed and the key is Live TV's, so LG's guide is the
-fallback. List, the Live TV menu and the banner's Guide button launch `livemenu` without this key and stay LG's: the window carries no
-launch parameters, so the Channels and Scheduler tabs cannot be told from the guide. `ctl shell show guide` opens it
-for a check.
+LG's guide is never shown while the shell runs: every way into it opens this one. Each is a launch of `com.webos.app.livemenu`, an Overlay
+window, through SAM (read off the set's QML and logs, 2026-11-04): Live TV's `inputcommon` makes it for the Guide key (`activateType:
+tvguide`, 3 ms after the key), for List, channel list and the Live TV menu key (`channels`), for the OK banner's Guide button (`tvguide`) and
+for the toast that follows an internet channel update (`channels`); the TV Scheduler app's guide button (no parameters) and the user
+guide's try-now links make it too. The parameters reach the app alone: SAM's life events (`getAppLifeEvents`) name the app and carry none,
+and the window carries none. They are not needed. `tvguide` and `channels` are the one guide this is, opened on the channel Live TV is on
+(there is no separate list view), and no caller was found that opens LG's own Scheduler tab. The Scheduler is an app of its own
+(`com.webos.app.scheduler`), which the compositor does not touch. This guide has no scheduler or recordings page, which is a follow-up.
+
+While the shell is on the engine and lists the guide among what it can show, the compositor leaves a `livemenu` window out of the scene
+(`lg_guide.rs`): it is in no frame from its first commit, never has the keyboard focus and is never under the pointer. SAM and the apps that
+watch the foreground list see it as any overlay (`inputcommon` reads its `isLiveMenuEnabled` from it), so a launch runs the flow they know.
+Two things answer the launch. SAM's `launch` event for the app comes 1 to 3 ms after Live TV asked, long before a cold start maps a window
+(2.6 s on the set, and LG's picture-in-picture takes the live picture 0.7 s after that); the compositor asks the shell to show its guide
+(`show guide`, the door `ctl shell show guide` uses) and asks SAM to close the app (`closeByAppId`) then. The window, when it maps, has SAM
+asked again, and the shell asked for its guide if the launch was not heard. A window that maps within 15 s of a launch that was heard belongs to
+it and does not ask the shell again. What SAM does with a close depends on who asks: the app's own (Back) ran `PauseAsPolicy`, the app hides
+and stays in memory; the memory manager's ran `CloseAsPolicy`, a `close` event and a kill timer (the set's SAM log, 2026-11-04). Which it does
+for the compositor's is not known: the journal has SAM's answer (`lg-guide: SAM answered closeByAppId`), SAM's log the handler. LG kills its
+guide and Live TV for memory on this set (15:03 UTC that day), so a cold start is the usual launch.
+
+The Guide key is the shell's as well while Live TV is in front: it lists `guide` in its `takes` (and while it is open), the compositor sends
+the key (`KEY_GUIDE`, 362) to the shell and not to Live TV, and LG's guide is not launched at all: no process to start or wake, no round
+trip through SAM. With the shell not running, not on the engine or not listing the guide (a crash, a restart, the supervisor's fallback to LG's
+compositor, the 10 s Home hold) nothing is held, nothing is asked, and LG's guide opens as stock; a window that was held is drawn from
+the frame the shell is gone. `ctl shell` shows `lgGuideHeld`; `ctl shell show guide` opens the guide for a check.
 
 It closes on Back, on Home, when another app comes to the front, when the screen goes off, and after five minutes without a key or the
 pointer (a still page of bright rows is what the panel should not hold). The quick panel can be opened over it.
@@ -110,8 +128,11 @@ own under the page (Home alone draws the same three small frames a second in the
 
 ## Not yet checked on the TV
 
-- That the Guide key on Live TV opens this guide with no flash of LG's, and that Guide is Live TV's again once another app is in front or the
-  UI is stopped.
+- That each way into LG's guide opens this one with no flash of LG's (the Guide key, List, Live TV's menu entry, the banner's Guide button, the
+  Scheduler app's guide button): `ctl shell` lists `lgGuideHeld: true`; the journal has `lg-guide: LG's guide launched` and SAM's answer to
+  `closeByAppId` (twice for a cold start: at the launch and at the window, if there is one); the live picture does not move (LG's guide attaches
+  its picture-in-picture some 700 ms after its window maps) and the next launch still works. That the Guide key is Live TV's again, and LG's
+  guide stock, once the UI is stopped.
 - That the channel switch (`launch` with `channelChange`) tunes, and that Live TV's banner is quiet afterwards (`type: channels`).
 - The guide over a live picture: the page's dim and the glass of the sheet against video, both looks.
 - The wheel (`wheelup`, `wheeldown`), CH+ and CH- while the guide is up, and that they are Live TV's again once it is closed.

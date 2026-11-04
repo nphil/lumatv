@@ -31,6 +31,7 @@ pub mod im_queue;
 pub mod input;
 pub mod keys;
 pub mod kms;
+pub mod lg_guide;
 pub mod logsink;
 pub mod luna;
 pub mod luna_methods;
