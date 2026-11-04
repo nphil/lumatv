@@ -269,8 +269,8 @@ fn run(config: Config) -> io::Result<()> {
         state.shell_rust.adopt_socket(socket);
     }
     state.shell_rust_start();
-    if state.shell_rust.gave_up {
-        return Err(io::Error::other(state.shell_rust.error.clone().unwrap_or_else(|| "native UI failed to start".into())));
+    if let Some(error) = state.shell_rust_failure("native UI failed to start") {
+        return Err(io::Error::other(error));
     }
     let mut rust_fd = state.shell_rust_fd();
     if let Some(fd) = rust_fd {
@@ -329,8 +329,8 @@ fn run(config: Config) -> io::Result<()> {
         if let Some(error) = state.fatal_error.take() {
             return Err(io::Error::other(error));
         }
-        if state.shell_rust.gave_up {
-            return Err(io::Error::other(state.shell_rust.error.clone().unwrap_or_else(|| "native UI failed".into())));
+        if let Some(error) = state.shell_rust_failure("native UI failed") {
+            return Err(io::Error::other(error));
         }
         if TERM.load(std::sync::atomic::Ordering::Relaxed) && !state.should_exit {
             state.journal("exit: asked to stop (SIGTERM or SIGINT)".into());

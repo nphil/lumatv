@@ -698,6 +698,13 @@ impl State {
         self.shell_rust.push("refresh", json!({"hz": self.config.refresh_hz}));
     }
 
+    /// Why the compositor ends because of the Rust shell: its client gave up (it did not start, exited, stopped answering or never became
+    /// ready), and `default` when no reason was kept. The main loop returns it, which ends the compositor with an error: the supervisor
+    /// falls back to LG's compositor and `recover-home.sh --stock` brings LG's Home back (and drops the Home stub of boot direct).
+    pub fn shell_rust_failure(&self, default: &str) -> Option<String> {
+        self.shell_rust.gave_up.then(|| self.shell_rust.error.clone().unwrap_or_else(|| default.into()))
+    }
+
     fn shell_rust_client_gone(&mut self, why: &str) {
         if self.shell_rust.answers("keyboard") {
             crate::server::ime::own_gone(self);
@@ -1297,6 +1304,38 @@ mod tests {
         state.shell_rust_tick(Instant::now());
         assert!(state.shell_rust.gave_up);
         assert_eq!(state.shell_rust.error.as_deref(), Some("UI stopped polling"));
+        assert_eq!(state.shell_rust_failure("x").as_deref(), Some("UI stopped polling"), "which ends the compositor, and the supervisor falls back");
+    }
+
+    #[test]
+    fn a_client_that_exits_ends_the_compositor_and_one_that_runs_does_not() {
+        let (mut state, _dir) = state_with("home,keyboard");
+        state.shell_rust.launch = Some(Launch { binary: PathBuf::from("unused"), loader: None });
+        assert_eq!(state.shell_rust_failure("x"), None, "nothing is wrong before the client has done anything");
+        state.shell_rust.child = Some(Command::new("sleep").arg("120").spawn().unwrap());
+        state.shell_rust_tick(Instant::now());
+        assert_eq!(state.shell_rust_failure("x"), None, "a client that runs is not a failure");
+        // the client dies (a crash, a kill)
+        let mut child = state.shell_rust.child.take().unwrap();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        state.shell_rust.child = Some(Command::new("true").spawn().unwrap());
+        let mut at = Instant::now();
+        for _ in 0..200 {
+            at += Duration::from_millis(600);
+            state.shell_rust_tick(at);
+            if state.shell_rust.gave_up {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let error = state.shell_rust_failure("x").expect("the client exited");
+        assert!(error.starts_with("client exited"), "{error}");
+        assert!(state.shell_rust.child.is_none() && !state.shell_rust.connected);
+        assert_eq!(state.shell_rust_failure("x").as_deref(), Some(error.as_str()), "and it stays so: nothing restarts the client by itself");
+        // the same with no reason kept
+        state.shell_rust.error = None;
+        assert_eq!(state.shell_rust_failure("native UI failed").as_deref(), Some("native UI failed"));
     }
 
     #[test]

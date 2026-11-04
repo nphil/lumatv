@@ -2,17 +2,24 @@
 //!
 //! `lumatv boot-direct on` writes `<data dir>/boot-direct`: the line `on` and a `tool PATH` line naming itself. While the file is there
 //! the tool keeps the Home stub over LG's Home directory, so what SAM, bootd and the preload manager open as "Home" is a page that
-//! draws nothing and the native Home is what is on the screen. What differs in the compositor, all of it behind that file:
+//! draws nothing and the native Home is what is on the screen. LG's Flutter Home is a fallback only. What differs in the compositor, all of
+//! it behind that file:
 //!
 //! - the Rust shell's client starts with the compositor, not when SAM's Home maps (the stub's launch waits for WebAppMgr, which comes up
 //!   with the compositor);
-//! - a Home key held for [`HOME_HOLD`] asks the tool for LG's real Home (`lumatv home lg`), and the native Home steps aside once LG's
-//!   Home is the front card ([`Phase`]);
-//! - Home or Back there, or another app taking the front, asks for the stub back (`lumatv home luma`);
-//! - the stub in front with no client to draw Home ([`Seen::ui_gone`]) for [`GUARD_AFTER`] is a black screen: LG's Home is asked for.
+//! - a Home key held for [`HOME_HOLD`] (5 s) asks the tool for LG's real Home (`lumatv home lg`), and the native Home steps aside once
+//!   LG's Home is the front card ([`Phase`]). Nothing fires before it: a Home held for less is a Home tap at its release, as ever, and LG's
+//!   own 2.5 s hold (Screen Zoom) lived in the key filters of its Qt compositor, which LumaTV's replaces;
+//! - Home on LG's Home, or another app taking the front, asks for the stub back (`lumatv home luma`). Back is not taken: inside LG's
+//!   Home it is LG's Back;
+//! - with no client to draw Home ([`Seen::ui_gone`]: the Rust shell is not configured, or has given up) and the stub in front for
+//!   [`GUARD_AFTER`], LG's Home is asked for: the stub alone is a black screen.
 //!
-//! The supervisor's own escape (Home held 10 s, a failed start) is not here and does not need this: every way out of LumaTV's
-//! compositor ends in the tool's `stock-ui-restore`, which drops the stub.
+//! A UI client that exits or stops answering ends the compositor (`main.rs`, `shell_rust_failure`), and the supervisor's fallback
+//! (`recover-home.sh --stock`, `stock-ui-restore`) drops the stub and opens LG's Home. LumaTV is back by `lumatv compositor on` or at the
+//! next boot, which put the stub in first and start a new compositor: the guard here is for a compositor that runs with no UI at all. The
+//! supervisor's own escape (Home held 10 s) is its own reader of the remotes and does not depend on this: the hold here fires once at 5 s
+//! and changes nothing the 10 s one needs.
 //!
 //! State only, time is an argument: `input.rs` feeds it the keys and the tick, so every decision is a host test. [`Run`] is the one
 //! place that starts a process.
@@ -28,8 +35,10 @@ use crate::State;
 use crate::input::{Route, code};
 use crate::scene::HOME_APP;
 
-/// A Home key held this long asks for LG's Home (the hold of the remote's other buttons, `keys::HOLD`).
-pub const HOME_HOLD: Duration = crate::keys::HOLD;
+/// A Home key held this long asks for LG's Home. The hold acts once, here. The supervisor's escape to LG's compositor is a hold of 10 s
+/// (`HOLD_HOME_SECS` in `compositor/sm/lumatv-sm.c`) that reads the remotes by itself, so a key still down at 10 s takes the set to LG's
+/// compositor whatever this has done by then.
+pub const HOME_HOLD: Duration = Duration::from_secs(5);
 /// LG's Home asked for and not in front after this long: the native Home stays and nothing more is waited for.
 pub const LG_WAIT: Duration = Duration::from_secs(15);
 /// The stub in front and nothing to draw Home for this long is a black screen: LG's Home is asked for.
@@ -176,8 +185,6 @@ pub struct BootDirect {
     flag: Flag,
     phase: Phase,
     hold: HomeHold,
-    /// A Back taken on LG's Home: its repeats and release are taken too.
-    back_taken: bool,
     /// Since when the stub has been in front with no client to draw Home.
     guard: Option<Instant>,
     run: Run,
@@ -216,7 +223,6 @@ impl BootDirect {
         if before && !self.flag.on {
             self.phase = Phase::Off;
             self.hold = HomeHold::default();
-            self.back_taken = false;
             self.guard = None;
         }
         before != self.flag.on
@@ -254,30 +260,11 @@ impl BootDirect {
         }
         // With no client for LumaTV's Home there is nothing to go back to: the tap is LG's own.
         if self.phase != Phase::Off && !ui_gone {
-            return (true, self.leave("Home"));
+            self.phase = Phase::Off;
+            let note = Some("boot-direct: Home on LG's Home, LumaTV's Home is back".into());
+            return (true, Out { run: Some(Verb::Luma), resync: true, note });
         }
         (false, Out::default())
-    }
-
-    /// Back or Exit at the routing. On LG's Home it is the way back to LumaTV's.
-    pub fn back_key(&mut self, pressed: bool, ui_gone: bool) -> (bool, Out) {
-        if !self.flag.on {
-            return (false, Out::default());
-        }
-        if self.back_taken {
-            self.back_taken = pressed;
-            return (true, Out::default());
-        }
-        if pressed && self.phase == Phase::Shown && !ui_gone {
-            self.back_taken = true;
-            return (true, self.leave("Back"));
-        }
-        (false, Out::default())
-    }
-
-    fn leave(&mut self, why: &str) -> Out {
-        self.phase = Phase::Off;
-        Out { run: Some(Verb::Luma), resync: true, note: Some(format!("boot-direct: {why} on LG's Home, LumaTV's Home is back")) }
     }
 
     /// One look at the screen from the tick.
@@ -420,7 +407,8 @@ pub fn is_lg_home_client(cmd: &str) -> bool {
 }
 
 impl State {
-    /// A Home or Back key at the routing: whether boot direct takes it (`input.rs`). Nothing at all while the flag is off.
+    /// A Home key at the routing: whether boot direct takes it (`input.rs`). Nothing at all while the flag is off. Back and Exit are not
+    /// here: inside LG's Home they are LG's.
     pub(crate) fn boot_direct_key(&mut self, key: u32, pressed: bool, route: Route, now: Instant) -> bool {
         if !self.boot_direct.on() {
             return false;
@@ -430,7 +418,6 @@ impl State {
             code::KEY_HOME | code::KEY_HOMEPAGE | code::KEY_RF_HOME if route == Route::Home || self.boot_direct.phase() == Phase::Shown => {
                 self.boot_direct.home_key(pressed, ui_gone, now)
             }
-            code::KEY_BACK | code::KEY_PREVIOUS | code::KEY_EXIT => self.boot_direct.back_key(pressed, ui_gone),
             _ => return false,
         };
         self.boot_direct_apply(out, now);
@@ -510,6 +497,11 @@ mod tests {
         Seen { home, lg_home, ui_gone: false, screen_on: true }
     }
 
+    /// The stub in front with no client to draw Home, the screen lit.
+    fn blank() -> Seen {
+        Seen { home: true, lg_home: false, ui_gone: true, screen_on: true }
+    }
+
     /// A temp directory of its own per test.
     fn temp(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("lumatv-boot-direct-{}-{name}", std::process::id()));
@@ -531,19 +523,27 @@ mod tests {
     }
 
     #[test]
-    fn the_hold_comes_due_once_after_a_second_and_its_release_is_taken() {
+    fn the_hold_is_five_seconds_and_comes_due_once_and_its_release_is_taken() {
+        assert_eq!(HOME_HOLD, Duration::from_secs(5));
         let t0 = Instant::now();
         let mut h = HomeHold::default();
         assert!(!h.due(t0), "nothing is down");
         h.press(t0);
-        assert!(!h.due(t0 + MS(999)));
-        h.press(t0 + MS(500));
-        assert!(!h.due(t0 + MS(999)), "a repeat does not start the hold again");
-        assert!(h.due(t0 + MS(1000)));
-        assert!(!h.due(t0 + MS(1500)), "once per press");
+        assert!(!h.due(t0 + MS(4999)));
+        for ms in [500, 1500, 2500, 3500, 4500] {
+            h.press(t0 + MS(ms));
+        }
+        assert!(!h.due(t0 + MS(4999)), "a repeat does not start the hold again");
+        // a repeat after a gap of the window's length is a new press, which starts again
+        let mut late = HomeHold::default();
+        late.press(t0);
+        late.press(t0 + REPEAT_WINDOW);
+        assert!(!late.due(t0 + HOME_HOLD) && late.due(t0 + REPEAT_WINDOW + HOME_HOLD));
+        assert!(h.due(t0 + MS(5000)));
+        assert!(!h.due(t0 + MS(7500)), "once per press");
         assert!(h.release(), "the release of a hold that ran");
         assert!(!h.release(), "a release with nothing down");
-        h.press(t0 + MS(5000));
+        h.press(t0 + MS(20_000));
         assert!(!h.release(), "a tap");
     }
 
@@ -552,11 +552,11 @@ mod tests {
         let t0 = Instant::now();
         let mut h = HomeHold::default();
         h.press(t0);
-        assert!(h.due(t0 + MS(1000)));
+        assert!(h.due(t0 + HOME_HOLD));
         // the release was lost; the next press, long after, starts again
-        h.press(t0 + MS(10_000));
-        assert!(!h.due(t0 + MS(10_500)));
-        assert!(h.due(t0 + MS(11_000)));
+        h.press(t0 + MS(20_000));
+        assert!(!h.due(t0 + MS(20_000) + HOME_HOLD - MS(500)));
+        assert!(h.due(t0 + MS(20_000) + HOME_HOLD));
     }
 
     #[test]
@@ -564,25 +564,30 @@ mod tests {
         let t0 = Instant::now();
         let mut b = BootDirect::default();
         assert_eq!(b.home_key(true, false, t0), (false, Out::default()));
-        assert_eq!(b.tick(t0 + MS(5000), &seen(true, false)), Out::default());
-        assert_eq!(b.home_key(false, false, t0 + MS(5000)), (false, Out::default()), "the release is a Home tap as ever");
-        assert_eq!(b.back_key(true, false), (false, Out::default()));
+        assert_eq!(b.tick(t0 + HOME_HOLD * 2, &seen(true, false)), Out::default(), "not even a hold of ten seconds");
+        assert_eq!(b.home_key(false, false, t0 + HOME_HOLD * 2), (false, Out::default()), "the release is a Home tap as ever");
         assert!(!b.hides_home());
     }
 
     #[test]
-    fn a_home_hold_asks_for_lgs_home_and_its_release_is_not_a_home_tap() {
+    fn a_home_hold_of_five_seconds_asks_for_lgs_home_and_nothing_before_it_does() {
         let t0 = Instant::now();
         let mut b = on();
         assert_eq!(b.home_key(true, false, t0), (false, Out::default()));
-        assert_eq!(b.tick(t0 + MS(900), &seen(true, false)).run, None, "a Home tap has not become a hold");
-        let out = b.tick(t0 + MS(1000), &seen(true, false));
+        // 1 s, LG's own 2.5 s hold (Screen Zoom) and 4.9 s: nothing is asked and nothing changes
+        for ms in [1000, 2500, 3000, 4999] {
+            b.home_key(true, false, t0 + MS(ms - 100));
+            assert_eq!(b.tick(t0 + MS(ms), &seen(true, false)), Out::default(), "{ms} ms");
+            assert_eq!(b.phase(), Phase::Off);
+        }
+        let out = b.tick(t0 + HOME_HOLD, &seen(true, false));
         assert_eq!(out.run, Some(Verb::Lg));
         assert!(!out.resync, "the native Home stays until LG's is in front");
         assert!(matches!(b.phase(), Phase::Waiting(_)));
         assert!(!b.hides_home());
-        assert_eq!(b.tick(t0 + MS(1100), &seen(true, false)).run, None, "one ask per hold");
-        assert_eq!(b.home_key(false, false, t0 + MS(1500)), (true, Out::default()), "the release is taken");
+        assert_eq!(b.tick(t0 + HOME_HOLD + MS(100), &seen(true, false)).run, None, "one ask per hold");
+        assert_eq!(b.tick(t0 + MS(10_000), &seen(true, false)).run, None, "and the key still down at 10 s asks for nothing more: that is the supervisor's");
+        assert_eq!(b.home_key(false, false, t0 + MS(10_500)), (true, Out::default()), "the release is taken");
         assert!(matches!(b.phase(), Phase::Waiting(_)), "and does not leave");
     }
 
@@ -593,23 +598,26 @@ mod tests {
         b.home_key(true, false, t0);
         assert_eq!(b.home_key(false, false, t0 + MS(80)), (false, Out::default()));
         assert_eq!(b.tick(t0 + MS(5000), &seen(true, false)).run, None);
+        // a hold that is let go before five seconds is a Home tap too, as it always was
+        b.home_key(true, false, t0 + MS(10_000));
+        assert_eq!(b.home_key(false, false, t0 + MS(14_900)), (false, Out::default()));
     }
 
     #[test]
-    fn lgs_home_in_front_hides_the_native_one_and_home_or_back_returns() {
+    fn lgs_home_in_front_hides_the_native_one_and_home_returns_and_back_is_left_alone() {
         let t0 = Instant::now();
         let mut b = on();
         b.home_key(true, false, t0);
         b.tick(t0 + HOME_HOLD, &seen(true, false));
-        b.home_key(false, false, t0 + MS(1200));
+        b.home_key(false, false, t0 + HOME_HOLD + MS(200));
 
-        let out = b.tick(t0 + MS(2000), &seen(true, true));
+        let out = b.tick(t0 + HOME_HOLD + MS(1000), &seen(true, true));
         assert_eq!(b.phase(), Phase::Shown);
         assert!(out.resync && out.run.is_none());
         assert!(b.hides_home());
 
         // Home
-        let t1 = t0 + MS(5000);
+        let t1 = t0 + MS(20_000);
         assert_eq!(b.home_key(true, false, t1), (true, Out::default()), "LG's Home never sees the press: it would be left with a key down");
         let (taken, out) = b.home_key(false, false, t1 + MS(60));
         assert!(taken);
@@ -617,16 +625,6 @@ mod tests {
         assert!(out.resync);
         assert_eq!(b.phase(), Phase::Off);
         assert!(!b.hides_home());
-
-        // Back: the press leaves, its repeats and release are taken
-        let mut b = on();
-        b.phase = Phase::Shown;
-        let (taken, out) = b.back_key(true, false);
-        assert!(taken && out.run == Some(Verb::Luma) && out.resync);
-        assert_eq!(b.back_key(true, false), (true, Out::default()), "a repeat");
-        assert_eq!(b.back_key(false, false), (true, Out::default()), "the release");
-        assert_eq!(b.back_key(false, false), (false, Out::default()), "and nothing is held after it");
-        assert_eq!(b.back_key(true, false), (false, Out::default()), "a Back in the Off phase is the usual Back");
     }
 
     #[test]
@@ -635,8 +633,8 @@ mod tests {
         let mut b = on();
         b.phase = Phase::Shown;
         b.home_key(true, false, t0);
-        assert_eq!(b.tick(t0 + MS(1500), &seen(true, true)).run, None, "no second hold while LG's Home is shown");
-        let (taken, out) = b.home_key(false, false, t0 + MS(2000));
+        assert_eq!(b.tick(t0 + HOME_HOLD + MS(500), &seen(true, true)).run, None, "no second hold while LG's Home is shown");
+        let (taken, out) = b.home_key(false, false, t0 + HOME_HOLD + MS(1000));
         assert!(taken);
         assert_eq!(out.run, Some(Verb::Luma));
     }
@@ -682,7 +680,6 @@ mod tests {
         b.phase = Phase::Shown;
         assert_eq!(b.home_key(true, true, t0), (false, Out::default()));
         assert_eq!(b.home_key(false, true, t0 + MS(50)), (false, Out::default()), "the Home tap is LG's own");
-        assert_eq!(b.back_key(true, true), (false, Out::default()));
         assert_eq!(b.phase(), Phase::Shown);
         let gone = Seen { ui_gone: true, ..seen(false, false) };
         let out = b.tick(t0 + MS(100), &gone);
@@ -694,36 +691,42 @@ mod tests {
     fn a_stub_that_nothing_draws_over_is_replaced_by_lgs_home_after_the_guard() {
         let t0 = Instant::now();
         let mut b = on();
-        let gone = Seen { home: true, lg_home: false, ui_gone: true, screen_on: true };
-        assert_eq!(b.tick(t0, &gone), Out::default());
-        assert_eq!(b.tick(t0 + GUARD_AFTER - MS(1), &gone), Out::default());
-        let out = b.tick(t0 + GUARD_AFTER, &gone);
+        assert_eq!(b.tick(t0, &blank()), Out::default());
+        assert_eq!(b.tick(t0 + GUARD_AFTER - MS(1), &blank()), Out::default());
+        let out = b.tick(t0 + GUARD_AFTER, &blank());
         assert_eq!(out.run, Some(Verb::Lg));
         assert!(matches!(b.phase(), Phase::Waiting(_)));
 
         // it starts counting again from the moment the stub is in front with no UI
         let mut b = on();
-        assert_eq!(b.tick(t0, &gone), Out::default());
-        assert_eq!(b.tick(t0 + MS(3000), &Seen { home: false, ..gone }), Out::default(), "an app is in front");
-        assert_eq!(b.tick(t0 + MS(3001), &gone), Out::default());
-        assert_eq!(b.tick(t0 + MS(3001) + GUARD_AFTER - MS(1), &gone), Out::default());
-        assert_eq!(b.tick(t0 + MS(3001) + GUARD_AFTER, &gone).run, Some(Verb::Lg));
+        assert_eq!(b.tick(t0, &blank()), Out::default());
+        assert_eq!(b.tick(t0 + MS(3000), &Seen { home: false, ..blank() }), Out::default(), "an app is in front");
+        assert_eq!(b.tick(t0 + MS(3001), &blank()), Out::default());
+        assert_eq!(b.tick(t0 + MS(3001) + GUARD_AFTER - MS(1), &blank()), Out::default());
+        assert_eq!(b.tick(t0 + MS(3001) + GUARD_AFTER, &blank()).run, Some(Verb::Lg));
     }
 
     #[test]
     fn the_guard_does_not_fire_with_the_ui_up_with_lgs_home_in_front_or_with_the_screen_off() {
         let t0 = Instant::now();
-        for s in [
-            Seen { home: true, lg_home: false, ui_gone: false, screen_on: true },
-            Seen { home: true, lg_home: true, ui_gone: true, screen_on: true },
-            Seen { home: true, lg_home: false, ui_gone: true, screen_on: false },
-            Seen { home: false, lg_home: false, ui_gone: true, screen_on: true },
-        ] {
+        for s in [seen(true, false), Seen { lg_home: true, ..blank() }, Seen { screen_on: false, ..blank() }, Seen { home: false, ..blank() }] {
             let mut b = on();
             b.tick(t0, &s);
             assert_eq!(b.tick(t0 + GUARD_AFTER * 3, &s), Out::default(), "{s:?}");
             assert_eq!(b.phase(), Phase::Off);
         }
+    }
+
+    #[test]
+    fn lgs_home_that_the_owner_held_for_stays_until_home_an_app_or_a_flag_off_ends_it() {
+        let t0 = Instant::now();
+        let mut b = on();
+        b.home_key(true, false, t0);
+        b.tick(t0 + HOME_HOLD, &seen(true, false));
+        b.tick(t0 + HOME_HOLD + MS(500), &seen(true, true));
+        assert_eq!(b.phase(), Phase::Shown);
+        assert_eq!(b.tick(t0 + MS(600_000), &seen(true, true)), Out::default(), "ten minutes on: nothing takes it away");
+        assert_eq!(b.phase(), Phase::Shown);
     }
 
     #[test]
@@ -741,14 +744,13 @@ mod tests {
         assert!(!b.poll(t0 + MS(1500)), "rate limited");
 
         b.phase = Phase::Shown;
-        b.back_taken = true;
         b.guard = Some(t0);
         b.hold.press(t0);
         std::fs::remove_file(dir.join(FLAG_FILE)).unwrap();
         assert!(!b.poll(t0 + MS(1900)), "within the second of the last look");
         assert!(b.poll(t0 + MS(2000)), "the file is gone: off");
         assert!(!b.on());
-        assert_eq!((b.phase(), b.back_taken, b.guard, b.hold.down), (Phase::Off, false, None, None));
+        assert_eq!((b.phase(), b.guard, b.hold.down), (Phase::Off, None, None));
         assert!(!b.hides_home());
 
         std::fs::write(dir.join(FLAG_FILE), "off\n").unwrap();
