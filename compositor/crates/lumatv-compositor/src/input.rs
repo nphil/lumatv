@@ -549,6 +549,14 @@ impl State {
         match r {
             Route::Client | Route::Dropped | Route::Back if grabbing && !app_holds => self.grab_key(code, pressed),
             Route::Client => {
+                // The shell's overlay stands in for what the app draws after this key (`mask.rs`): the claimed region of its window is blanked
+                // from the next plan, before the app's own banner is drawn there.
+                if pressed && self.scene.mask_listens(code) {
+                    let app = self.seat.focus.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w)).map(|w| w.app_id().to_string());
+                    if let Some(app) = app {
+                        self.scene.mask_key(&app, code);
+                    }
+                }
                 if seat::send_key(self, seat, code, pressed) {
                     self.keys.delivered += 1;
                 } else {

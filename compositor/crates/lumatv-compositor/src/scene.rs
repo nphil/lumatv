@@ -18,6 +18,7 @@ use backdrop::BackdropSig;
 pub use backdrop::{Backdrop, BackdropSpec, PlannedPreview, PreviewSpec, coverage};
 
 use crate::damage::Tiles;
+use crate::mask::{MAX_RECTS, Mask, Op};
 use crate::surface::{Role, SurfaceId, Surfaces};
 use crate::transition::{FRect, Front, Kind, Party, Pose, Transitions, Visual};
 use crate::window::{Layer, ShellState, Window, WindowId, WindowType};
@@ -177,6 +178,21 @@ pub struct PlannedHole {
     pub before: usize,
     /// A veil over the hole while its card arrives (`transition.rs`): drawn just after the hole's clear and under the card's own pixels.
     pub veil: Option<HoleVeil>,
+}
+
+/// The regions of a window's picture the plan does not draw (`mask.rs`): in output pixels, on the item of the window's surface.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlannedMask {
+    pub window: WindowId,
+    pub surface: SurfaceId,
+    rects: [Rect; MAX_RECTS],
+    len: usize,
+}
+
+impl PlannedMask {
+    pub fn rects(&self) -> &[Rect] {
+        &self.rects[..self.len]
+    }
 }
 
 /// A flat fill where an arriving card's hole is, so the video plane is not what shows (black until it plays) while the card moves in.
@@ -364,6 +380,8 @@ pub struct Plan {
     /// The app switcher's scrim and pictures, drawn before the shell's system layer (`scene/backdrop.rs`); `None` while it is closed.
     pub backdrop: Option<Backdrop>,
     pub holes: Vec<PlannedHole>,
+    /// Where an item's picture is not drawn while the shell's overlay stands in for it ([`Plan::blank_of`]).
+    pub masks: Vec<PlannedMask>,
     pub damage_rects: Vec<Rect>,
     /// Bounds of everything that changed, in output pixels; empty when nothing did.
     pub damage: Rect,
@@ -423,7 +441,7 @@ impl Plan {
             Err(NotSole::Transition)
         } else if self.cursor.is_some() {
             Err(NotSole::Cursor)
-        } else if !self.holes.is_empty() || self.video {
+        } else if !self.holes.is_empty() || !self.masks.is_empty() || self.video {
             Err(NotSole::Video)
         } else if one.dim != 1.0 || (self.home_dim > 0.0 && !self.home_hidden) {
             Err(NotSole::Dimmed)
@@ -447,6 +465,14 @@ impl Plan {
         item.damage.map(|(a, b)| &self.damage_rects[a..b])
     }
 
+    /// The regions of `item`'s picture the renderers leave undrawn (what the shell's overlay stands in for, `mask.rs`); none for almost every item.
+    pub fn blank_of(&self, item: &Item) -> &[Rect] {
+        if item.pose.is_some() {
+            return &[];
+        }
+        self.masks.iter().find(|m| m.window == item.window && m.surface == item.surface).map_or(&[], PlannedMask::rects)
+    }
+
     /// The gain map the renderer multiplies app items with, while one is engaged.
     pub fn gain(&self) -> Option<&crate::boxdim::GainMap> {
         self.gain_on.then_some(&self.gain)
@@ -456,6 +482,7 @@ impl Plan {
         self.items.clear();
         self.backdrop = None;
         self.holes.clear();
+        self.masks.clear();
         self.damage_rects.clear();
         self.damage = Rect::default();
         self.cursor = None;
@@ -530,6 +557,9 @@ pub struct Scene {
     /// Planned holes invalidated by surface mutations since the last plan.
     invalid_video_holes: Vec<SurfaceId>,
     last_holes: Vec<PlannedHole>,
+    /// The shell's claim on a window's region (`mask.rs`), and where the last plan blanked.
+    mask: Option<Mask>,
+    last_masks: Vec<PlannedMask>,
     plan: Plan,
     /// Whether the last stack built drew LumaTV's Home in the card slot ([`Scene::shell_home_shown`]).
     home_shown: bool,
@@ -710,6 +740,39 @@ impl Scene {
         })
     }
 
+    /// The shell's claim, engage or release (`POST /v1/mask`). Returns whether a frame should show it.
+    pub fn mask_op(&mut self, op: Op) -> bool {
+        match op {
+            Op::Claim(mut m) => {
+                let same = self.mask.as_ref().is_some_and(|c| (&c.app, &c.rects, &c.keys, c.hold_ns) == (&m.app, &m.rects, &m.keys, m.hold_ns));
+                if !same {
+                    if let Some(old) = &self.mask {
+                        m.carry(old);
+                    }
+                    self.mask = Some(m);
+                }
+                !same
+            }
+            Op::Engage(ms) => self.mask.as_mut().map(|m| m.engage(ms)).is_some(),
+            Op::Release => self.mask.take().is_some() || !self.last_masks.is_empty(),
+        }
+    }
+
+    /// Whether a press of `code` could start a blanking: a cheap test on the key's way, before its window is looked up.
+    pub fn mask_listens(&self, code: u32) -> bool {
+        self.mask.as_ref().is_some_and(|m| m.listens(code))
+    }
+
+    /// A press of `code` was delivered to a window of `app`: the claim's blanking starts at the next plan.
+    pub fn mask_key(&mut self, app: &str, code: u32) -> bool {
+        self.mask.as_mut().is_some_and(|m| m.key(app, code))
+    }
+
+    /// What `ctl status` says of the shell's claim.
+    pub fn mask_report(&self) -> serde_json::Value {
+        let now_ns = self.plan_ns;
+        self.mask.as_ref().map_or(serde_json::Value::Null, |m| m.report(now_ns))
+    }
 
     /// The Rust shell's Home is on the engine (or no longer is). Returns whether that changed.
     pub fn set_home_rust(&mut self, on: bool) -> bool {
@@ -1442,9 +1505,42 @@ impl Scene {
             }
             self.last_cursor = self.cursor;
         }
+        self.plan_masks(&output, now_ns);
         self.plan_backdrop(surfaces);
         self.plan.damage = self.plan.damage.intersect(&output);
         &self.plan
+    }
+
+    /// Where the claim blanks in this plan: the rectangles on the item of the claimed app's window (not one in a transition, which is posed and
+    /// not drawn where its picture is), and the pixels the blanking moved from or to drawn again.
+    fn plan_masks(&mut self, output: &Rect, now_ns: u64) {
+        if let Some(m) = self.mask.as_mut() {
+            m.step(now_ns);
+            if m.active(now_ns) {
+                for item in self.plan.items.iter().filter(|i| i.pose.is_none() && !i.ghost) {
+                    let Some(w) = self.windows.get(&item.window).filter(|w| w.app_id() == m.app && w.surface == item.surface) else { continue };
+                    let mut blank = PlannedMask { window: w.id, surface: item.surface, rects: [Rect::default(); MAX_RECTS], len: 0 };
+                    for r in &m.rects {
+                        let r = r.translated(item.rect.x, item.rect.y).intersect(&item.rect).intersect(output);
+                        if !r.is_empty() {
+                            blank.rects[blank.len] = r;
+                            blank.len += 1;
+                        }
+                    }
+                    if blank.len > 0 {
+                        self.plan.masks.push(blank);
+                    }
+                }
+            }
+        }
+        if self.plan.masks != self.last_masks {
+            let tiles = self.plan.tiles.as_mut().expect("tiles are made at the start of a plan");
+            for r in self.last_masks.iter().chain(&self.plan.masks).flat_map(PlannedMask::rects) {
+                self.plan.damage = self.plan.damage.union(r);
+                tiles.add(r);
+            }
+            self.last_masks.clone_from(&self.plan.masks);
+        }
     }
 
     /// The last plan, as built by [`Scene::plan`].

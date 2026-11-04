@@ -34,6 +34,7 @@ pub mod kms;
 pub mod logsink;
 pub mod luna;
 pub mod luna_methods;
+pub mod mask;
 pub(crate) mod nooperation;
 pub mod mem;
 pub mod oledcare;

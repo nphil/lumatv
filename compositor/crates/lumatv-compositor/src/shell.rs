@@ -135,6 +135,8 @@ pub enum Msg {
     /// `POST /v1/vwin`: a claim for one of the display's hardware video windows, its move or its release (`vwin::State::vwin_command`); the answer is
     /// the topic `vwin`.
     Vwin(Value),
+    /// `POST /v1/mask`: the shell's claim on a region of an app's window, an engage or a release (`mask.rs`).
+    Mask(Value),
     /// `POST /v1/front {app}`: the app that is running comes back to the front without a launch (`server::webos_shell::front_app`).
     Front(String),
     /// `POST /v1/appkey {app, key}`: a transport key for the app in front (`server::webos_shell::app_key`).
@@ -573,6 +575,10 @@ fn handle_request(req: &Request, token: &str, outbox: &Arc<Mutex<Outbox>>, inbox
         }
         ("POST", "/v1/vwin") => {
             inbox.send(Msg::Vwin(body));
+            Handled::Answer(200, json!({"ok": true}))
+        }
+        ("POST", "/v1/mask") => {
+            inbox.send(Msg::Mask(body));
             Handled::Answer(200, json!({"ok": true}))
         }
         ("POST", "/v1/front") => {

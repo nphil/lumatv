@@ -728,6 +728,8 @@ impl State {
         self.refresh_policy_sync();
         self.shell_rust.can.clear();
         self.shell_rust.takes.clear();
+        // what the shell blanked of an app's window is the app's own picture again once the shell is gone; the next plan redraws it
+        self.scene.mask_op(crate::mask::Op::Release);
         self.shell_rust.took.clear();
         self.shell_rust.cancelled_early.clear();
         self.shell_rust.keys = None;
@@ -930,6 +932,18 @@ impl State {
                 if self.shell_rust.answers("switcher") && self.switcher_op(&body, now) && self.output.draws_on_damage(now) {
                     self.tick();
                     return true;
+                }
+            }
+            Msg::Mask(body) => {
+                self.shell_rust.note_seen(now);
+                match crate::mask::Op::parse(&body) {
+                    Ok(op) => {
+                        if self.scene.mask_op(op) && self.output.draws_on_damage(now) {
+                            self.tick();
+                            return true;
+                        }
+                    }
+                    Err(why) => self.journal(format!("shell-rust: mask refused ({why})")),
                 }
             }
             Msg::Vwin(body) => {

@@ -256,11 +256,16 @@ impl Output for Software {
                     let pixels = &mut self.pixels;
                     // The box dim's map on an app's picture, sampled per pixel as the GL renderer's texture is (`boxdim`).
                     let gain = plan.gain().filter(|_| item.gain);
+                    // what the shell's overlay stands in for (`mask.rs`) is left undrawn
+                    let blank = plan.blank_of(item);
                     shm.pool.with_bytes(|bytes| {
                         for y in clip.y..clip.bottom() {
                             let sy = y - item.rect.y;
                             let row = y as usize * width;
                             for x in clip.x..clip.right() {
+                                if blank.iter().any(|b| b.contains(x, y)) {
+                                    continue;
+                                }
                                 let sx = x - item.rect.x;
                                 if let Some(src) = shm.pixel(bytes, sx, sy) {
                                     let src = if dim < 256 { dimmed(src, dim) } else { src };

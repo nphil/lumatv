@@ -1600,18 +1600,23 @@ impl Gl {
                 drawn = self.draw_pose_item(tex, p, item.dim, y_invert, rects);
             } else {
                 let through_map = gained && item.gain;
+                // what the shell's overlay stands in for (`mask.rs`) is left undrawn: the page holds what was under it, with the video's hole
+                // the video
+                let blank = plan.blank_of(item);
                 for r in rects {
                     let clip = item.rect.intersect(r);
                     if clip.is_empty() {
                         continue;
                     }
-                    self.scissor(&clip);
-                    if through_map {
-                        self.draw_gained(tex, &item.rect, y_invert, item.dim);
-                    } else {
-                        self.draw_quad(tex, &item.rect, y_invert);
-                    }
-                    drawn = true;
+                    crate::mask::cut(clip, blank, &mut |piece| {
+                        self.scissor(&piece);
+                        if through_map {
+                            self.draw_gained(tex, &item.rect, y_invert, item.dim);
+                        } else {
+                            self.draw_quad(tex, &item.rect, y_invert);
+                        }
+                        drawn = true;
+                    });
                 }
             }
             if drawn {
