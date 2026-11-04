@@ -117,15 +117,20 @@ pub struct Ent {
     pub attrs: Map<String, Value>,
 }
 
-const KEPT: [&str; 25] = [
+const KEPT: [&str; 30] = [
     "friendly_name",
     "device_class",
+    "state_class",
     "unit_of_measurement",
     "brightness",
+    "color_mode",
     "color_temp_kelvin",
     "min_color_temp_kelvin",
     "max_color_temp_kelvin",
     "supported_color_modes",
+    "rgb_color",
+    "effect",
+    "effect_list",
     "percentage",
     "percentage_step",
     "current_temperature",
@@ -149,13 +154,14 @@ fn short(text: &str) -> bool {
     text.chars().count() <= 128
 }
 
-/// Whether an attribute is one the tiles use, and plain enough to keep (a short text, a number, a flag, a short list of short words).
+/// Whether an attribute is one the tiles use, and plain enough to keep (a short text, a number, a flag, a short list of short words or of
+/// numbers: a colour is three).
 pub fn keeps(name: &str, value: &Value) -> bool {
     KEPT.contains(&name)
         && match value {
             Value::String(s) => short(s),
             Value::Number(_) | Value::Bool(_) => true,
-            Value::Array(list) => list.len() <= 16 && list.iter().all(|v| v.as_str().is_some_and(|s| s.chars().count() <= 32)),
+            Value::Array(list) => list.len() <= 16 && (list.iter().all(|v| v.as_str().is_some_and(|s| s.chars().count() <= 64)) || list.iter().all(Value::is_number)),
             _ => false,
         }
 }
@@ -175,6 +181,10 @@ impl Ent {
 
     fn list(&self, key: &str) -> Vec<&str> {
         self.attrs.get(key).and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).collect()).unwrap_or_default()
+    }
+
+    fn numbers(&self, key: &str) -> Vec<f64> {
+        self.attrs.get(key).and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_f64).collect()).unwrap_or_default()
     }
 
     pub fn name(&self) -> Option<&str> {
@@ -230,6 +240,27 @@ fn clip(text: &str, max: usize) -> String {
 
 /// The warm and the cool end of a white lamp's slider.
 const KELVIN: (i64, i64) = (2000, 6500);
+
+/// The colour modes that take a colour of their own (a wheel); `color_temp` and `brightness` are the others.
+const COLOUR_MODES: [&str; 5] = ["hs", "rgb", "rgbw", "rgbww", "xy"];
+
+/// What a lamp that says nothing of its colour shows: a warm white.
+const WARM_WHITE: i64 = 3000;
+
+/// The light of a white at `kelvin` as sRGB (Tanner Helland's fit, good from 1000 to 12000 K).
+pub fn kelvin_rgb(kelvin: f64) -> [u8; 3] {
+    let t = kelvin.clamp(1000.0, 12000.0) / 100.0;
+    let r = if t <= 66.0 { 255.0 } else { 329.698_727_446 * (t - 60.0).powf(-0.133_204_759_2) };
+    let g = if t <= 66.0 { 99.470_802_586_1 * t.ln() - 161.119_568_166_1 } else { 288.122_169_528_3 * (t - 60.0).powf(-0.075_514_849_2) };
+    let b = if t >= 66.0 {
+        255.0
+    } else if t <= 19.0 {
+        0.0
+    } else {
+        138.517_731_223_1 * (t - 10.0).ln() - 305.044_792_730_7
+    };
+    [r, g, b].map(|c: f64| c.clamp(0.0, 255.0).round() as u8)
+}
 
 /// What the tile of a thing says: the words, a tone, the glyph, what OK does and the numbers a sheet moves.
 struct Said {
@@ -309,7 +340,34 @@ fn light(e: &Ent) -> Said {
         (true, _, _) => "On".into(),
         _ => "Off".into(),
     };
-    said(words, tone, "lightbulb", vec!["toggle"], json!({"on": on, "dimmable": dimmable, "brightness": if on { level } else { None }, "kelvin": kelvin}))
+    // what the lamp shows: its own colour, else the white it is set to, else a warm white; nothing while it is off
+    let rgb = on.then(|| match e.numbers("rgb_color").as_slice() {
+        [r, g, b] => [*r, *g, *b].map(|c| c.clamp(0.0, 255.0).round() as u8),
+        _ => kelvin_rgb(e.num("color_temp_kelvin").unwrap_or(WARM_WHITE as f64)),
+    });
+    let effects: Vec<&str> = e.list("effect_list").into_iter().filter(|f| !f.is_empty()).take(16).collect();
+    let effect = e.text("effect").filter(|f| !f.eq_ignore_ascii_case("none") && !f.eq_ignore_ascii_case("off"));
+    let ctl = json!({
+        "on": on, "dimmable": dimmable, "brightness": if on { level } else { None }, "kelvin": kelvin,
+        "colour": modes.iter().any(|m| COLOUR_MODES.contains(m)), "rgb": rgb, "effect": effect, "effects": effects,
+    });
+    said(words, tone, "lightbulb", vec!["toggle"], ctl)
+}
+
+/// A sensor is a number, or words: a state that reads as a number, or one whose unit or class says it is one.
+fn sensor_is_number(e: &Ent) -> bool {
+    e.state.parse::<f64>().is_ok_and(f64::is_finite) || (e.gone() && (e.text("unit_of_measurement").is_some() || e.text("state_class").is_some()))
+}
+
+/// What the history of a sensor needs to know of it: its kind (`number`, `binary`, `text`), its unit and what it measures. `None` for
+/// anything that is not a sensor or a binary sensor: nothing else has a history on Home.
+pub fn history_of(id: &str, e: &Ent) -> Option<(&'static str, String, String)> {
+    let class = e.text("device_class").unwrap_or("").to_owned();
+    match domain_of(id)? {
+        "binary_sensor" => Some(("binary", String::new(), class)),
+        "sensor" => Some((if sensor_is_number(e) { "number" } else { "text" }, e.text("unit_of_measurement").unwrap_or("").to_owned(), class)),
+        _ => None,
+    }
 }
 
 fn sensor(e: &Ent) -> Said {
@@ -324,16 +382,20 @@ fn sensor(e: &Ent) -> Said {
         "pressure" | "atmospheric_pressure" => "gauge",
         _ => "activity",
     };
-    if e.gone() {
-        return said("Unavailable", "muted", icon, vec![], json!({}));
-    }
     let unit = e.text("unit_of_measurement").unwrap_or("");
-    let words = match e.state.parse::<f64>() {
-        Ok(v) if v.is_finite() => with_unit(&number(v), unit),
+    let kind = if sensor_is_number(e) { "number" } else { "text" };
+    let value = e.state.parse::<f64>().ok().filter(|v| v.is_finite());
+    // what a sheet of its history needs to say the sensor's own reading large: the number, its unit, what it measures
+    let ctl = json!({"kind": kind, "value": value, "unit": unit, "class": class});
+    if e.gone() {
+        return said("Unavailable", "muted", icon, vec![], ctl);
+    }
+    let words = match value {
+        Some(v) => with_unit(&number(v), unit),
         _ if matches!(class, "timestamp" | "date") => "\u{2014}".into(),
         _ => clip(&title_case(&e.state), 24),
     };
-    said(words, "info", icon, vec![], json!({}))
+    said(words, "info", icon, vec![], ctl)
 }
 
 fn binary(e: &Ent) -> Said {
@@ -371,7 +433,7 @@ fn binary(e: &Ent) -> Said {
         _ => ("On", "Off", "activity", "activity", ""),
     };
     if e.gone() {
-        return said("Unavailable", "muted", icon_off, vec![], json!({}));
+        return said("Unavailable", "muted", icon_off, vec![], json!({"kind": "binary", "on": false, "class": class, "yes": yes, "no": no}));
     }
     let tone = match (on, alert) {
         (true, "alert") => "alert",
@@ -379,7 +441,7 @@ fn binary(e: &Ent) -> Said {
         (true, _) => "on",
         (false, _) => "off",
     };
-    said(if on { yes } else { no }, tone, if on { icon_on } else { icon_off }, vec![], json!({"on": on}))
+    said(if on { yes } else { no }, tone, if on { icon_on } else { icon_off }, vec![], json!({"kind": "binary", "on": on, "class": class, "yes": yes, "no": no}))
 }
 
 fn mode_word(mode: &str) -> String {
@@ -631,6 +693,17 @@ fn whole(value: &Value, lo: f64, hi: f64, why: &'static str) -> Result<i64, Refu
     }
 }
 
+/// A colour as three whole numbers from 0 to 255.
+fn rgb_of(value: &Value) -> Option<[i64; 3]> {
+    let list = value.as_array().filter(|l| l.len() == 3)?;
+    let mut out = [0i64; 3];
+    for (slot, v) in out.iter_mut().zip(list) {
+        let c = v.as_f64().filter(|c| c.is_finite() && (0.0..=255.0).contains(c))?;
+        *slot = c.round() as i64;
+    }
+    Some(out)
+}
+
 fn degrees(value: &Value, e: &Ent, unit: &str) -> Result<f64, Refused> {
     let fahrenheit = temp_unit(unit, e).ends_with('F');
     let lo = e.num("min_temp").unwrap_or(if fahrenheit { 50.0 } else { 10.0 });
@@ -700,6 +773,22 @@ fn planned(id: &str, e: &Ent, unit: &str, verb: &str, value: &Value) -> Result<C
                 return Err(no);
             }
             call("light", "turn_on", &[("color_temp_kelvin", json!(whole(value, KELVIN.0 as f64, KELVIN.1 as f64, "That colour temperature is out of range")?))])
+        }
+        ("light", "colour") => {
+            let modes = e.list("supported_color_modes");
+            if !modes.iter().any(|m| COLOUR_MODES.contains(m)) {
+                return Err(no);
+            }
+            let rgb = rgb_of(value.get("rgb").unwrap_or(value)).ok_or(Refused::Invalid("A colour is three numbers from 0 to 255"))?;
+            call("light", "turn_on", &[("rgb_color", json!(rgb))])
+        }
+        ("light", "effect") => {
+            let name = value.as_str().ok_or(Refused::Invalid("That light has no such effect"))?;
+            // only an effect the lamp lists; the integration passes text of at most 64 characters
+            if name.chars().count() > 64 || !e.list("effect_list").contains(&name) {
+                return Err(Refused::Invalid("That light has no such effect"));
+            }
+            call("light", "turn_on", &[("effect", json!(name))])
         }
         ("switch", "toggle") => call("switch", "toggle", &[]),
         ("switch", "on") => call("switch", "turn_on", &[]),
@@ -847,9 +936,66 @@ mod tests {
 
     #[test]
     fn what_is_kept_of_a_state_is_short_and_plain() {
-        let all = json!({"friendly_name": "Lamp", "brightness": 10, "entity_picture": "/x", "supported_color_modes": ["xy"], "effect_list": ["a"], "hvac_modes": ["off", {"no": 1}], "media_title": "t".repeat(200)});
+        let all = json!({"friendly_name": "Lamp", "brightness": 10, "entity_picture": "/x", "supported_color_modes": ["xy"], "effect_list": ["a"], "rgb_color": [1, 2, 3], "xy_color": [0.1, 0.2],
+                         "hvac_modes": ["off", {"no": 1}], "media_title": "t".repeat(200), "effect": "Rainbow"});
         let k = kept(all.as_object().unwrap());
-        assert_eq!(k.keys().map(String::as_str).collect::<Vec<_>>(), ["brightness", "friendly_name", "supported_color_modes"]);
+        assert_eq!(k.keys().map(String::as_str).collect::<Vec<_>>(), ["brightness", "effect", "effect_list", "friendly_name", "rgb_color", "supported_color_modes"]);
+        assert!(!keeps("rgb_color", &json!([1, "a"])), "a list of two kinds of thing is not kept");
+        assert!(!keeps("rgb_color", &json!({"r": 1})));
+    }
+
+    #[test]
+    fn a_light_says_the_colour_it_shows_and_what_more_it_can_do() {
+        // its own colour; a white's colour from its temperature; a plain lamp's warm white; nothing while off
+        let rgb = live("light.l", &ent("on", json!({"supported_color_modes": ["xy"], "rgb_color": [255, 0, 128], "brightness": 255})));
+        assert_eq!((rgb["ctl"]["rgb"].clone(), rgb["ctl"]["colour"].clone(), rgb["ctl"]["kelvin"].clone()), (json!([255, 0, 128]), json!(true), Value::Null));
+        let white = live("light.l", &ent("on", json!({"supported_color_modes": ["color_temp"], "color_temp_kelvin": 6500})));
+        assert_eq!((white["ctl"]["colour"].clone(), white["ctl"]["rgb"].clone()), (json!(false), json!(kelvin_rgb(6500.0))));
+        let plain = live("light.l", &ent("on", json!({"supported_color_modes": ["onoff"]})));
+        assert_eq!(plain["ctl"]["rgb"], json!(kelvin_rgb(WARM_WHITE as f64)));
+        assert_eq!(live("light.l", &ent("off", json!({"rgb_color": [1, 2, 3]})))["ctl"]["rgb"], Value::Null);
+        let fx = live("light.l", &ent("on", json!({"effect": "Rainbow", "effect_list": ["None", "Rainbow", "Pulse"]})));
+        assert_eq!((fx["ctl"]["effect"].clone(), fx["ctl"]["effects"].clone()), (json!("Rainbow"), json!(["None", "Rainbow", "Pulse"])));
+        assert_eq!(live("light.l", &ent("on", json!({"effect": "None"})))["ctl"]["effect"], Value::Null, "no effect running says nothing");
+    }
+
+    #[test]
+    fn white_is_warm_below_4000_k_and_neutral_around_6500_k() {
+        let [r, g, b] = kelvin_rgb(2700.0);
+        assert!(r == 255 && g > 140 && g < 200 && b > 60 && b < 130, "{r} {g} {b}");
+        let [r, g, b] = kelvin_rgb(6500.0);
+        assert!(r >= 250 && g >= 250 && b >= 250, "{r} {g} {b}");
+        let [r, _, b] = kelvin_rgb(10000.0);
+        assert!(b == 255 && r < 215, "cool white leans blue");
+        assert_eq!(kelvin_rgb(100.0), kelvin_rgb(1000.0), "clamped");
+    }
+
+    #[test]
+    fn a_sensor_says_whether_it_is_a_number_on_off_or_words_and_gives_what_a_sheet_needs() {
+        let t = live("sensor.hall", &ent("21.54", json!({"device_class": "temperature", "unit_of_measurement": "\u{b0}C"})));
+        assert_eq!(t["ctl"], json!({"kind": "number", "value": 21.54, "unit": "\u{b0}C", "class": "temperature"}));
+        let words = live("sensor.mode", &ent("away_mode", json!({})));
+        assert_eq!((words["ctl"]["kind"].clone(), words["ctl"]["value"].clone()), (json!("text"), Value::Null));
+        let gone = live("sensor.hall", &ent("unavailable", json!({"unit_of_measurement": "%", "device_class": "humidity"})));
+        assert_eq!((gone["ctl"]["kind"].clone(), gone["available"].clone()), (json!("number"), json!(false)), "a number that is away is still a number");
+        let door = live("binary_sensor.door", &ent("on", json!({"device_class": "door"})));
+        assert_eq!(door["ctl"], json!({"kind": "binary", "on": true, "class": "door", "yes": "Open", "no": "Closed"}));
+    }
+
+    #[test]
+    fn a_light_is_asked_for_a_colour_and_an_effect_only_when_it_has_them() {
+        let colour = json!({"supported_color_modes": ["rgb", "color_temp"], "effect_list": ["None", "Rainbow"]});
+        let c = plan_of("light.l", "on", colour.clone(), "colour", json!({"rgb": [255, 128.4, 0]})).unwrap();
+        assert_eq!((c.service, c.data["rgb_color"].clone()), ("turn_on", json!([255, 128, 0])));
+        assert_eq!(plan_of("light.l", "on", colour.clone(), "colour", json!([1, 2, 3])).unwrap().data["rgb_color"], json!([1, 2, 3]), "a bare list is a colour too");
+        for bad in [json!({"rgb": [256, 0, 0]}), json!({"rgb": [1, 2]}), json!({"rgb": "red"}), json!({"rgb": [-1, 0, 0]}), json!(null)] {
+            assert!(matches!(plan_of("light.l", "on", colour.clone(), "colour", bad.clone()), Err(Refused::Invalid(_))), "{bad}");
+        }
+        assert_eq!(plan_of("light.l", "on", json!({"supported_color_modes": ["color_temp"]}), "colour", json!([1, 2, 3])), Err(Refused::NotAllowed("That thing has no such control")), "a white lamp has no colour");
+        assert_eq!(plan_of("light.l", "on", colour.clone(), "effect", json!("Rainbow")).unwrap().data["effect"], json!("Rainbow"));
+        assert!(plan_of("light.l", "on", colour.clone(), "effect", json!("Strobe")).is_err(), "only what the lamp lists");
+        assert!(plan_of("light.l", "on", json!({"supported_color_modes": ["rgb"]}), "effect", json!("Rainbow")).is_err(), "a lamp that lists none has none");
+        assert!(plan_of("light.l", "on", colour, "effect", json!("x".repeat(65))).is_err());
     }
 
     fn plan_of(id: &str, state: &str, attrs: Value, verb: &str, value: Value) -> Result<Call, Refused> {
@@ -986,10 +1132,12 @@ mod tests {
     #[test]
     fn a_call_only_carries_the_plain_values_of_its_table() {
         // the values every row can carry, and the keys the lease's own list of call values has (so a call is one the Show would make)
-        let allowed = ["brightness_pct", "color_temp_kelvin", "percentage", "temperature", "target_temp_low", "target_temp_high", "hvac_mode", "position"];
+        let allowed = ["brightness_pct", "color_temp_kelvin", "rgb_color", "effect", "percentage", "temperature", "target_temp_low", "target_temp_high", "hvac_mode", "position"];
         let all = [
             plan_of("light.l", "on", json!({}), "brightness", json!(10)),
             plan_of("light.l", "on", json!({"supported_color_modes": ["color_temp"]}), "kelvin", json!(3000)),
+            plan_of("light.l", "on", json!({"supported_color_modes": ["hs"]}), "colour", json!([1, 2, 3])),
+            plan_of("light.l", "on", json!({"effect_list": ["Pulse"]}), "effect", json!("Pulse")),
             plan_of("fan.f", "on", json!({}), "percentage", json!(10)),
             plan_of("climate.c", "heat", json!({"hvac_modes": ["heat"]}), "hvac_mode", json!("heat")),
             plan_of("climate.c", "heat", json!({}), "range", json!({"low": 60, "high": 70})),

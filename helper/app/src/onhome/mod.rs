@@ -23,6 +23,7 @@
 //! It costs nothing until `onhome.enabled` and a pairing key: no thread of the listener, no socket, no announcement.
 
 mod machine;
+pub mod history;
 pub mod mirror;
 pub mod tile;
 
@@ -54,13 +55,16 @@ pub const TOPIC: &str = "onhome";
 pub const ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/v1/onhome", "On Home: where the link to Home Assistant stands and the tiles, as the topic says"),
     ("GET", "/v1/onhome/shared?q=&area=&group=&offset=&limit=", "what Home Assistant shares with the TV, for the picker"),
-    ("POST", "/v1/onhome/picks", "which of the shared entities Home shows: show, hide, up, down or all (the owner's profile only)"),
+    ("GET", "/v1/onhome/history?id=&range=", "the history of one shown sensor from Home Assistant's recorder (range 1h, 6h, 24h, 7d or 30d): a curve with its extremes and average, on/off bands, or the recent changes"),
+    ("POST", "/v1/onhome/picks", "what Home shows and how: show, hide, move, size, up, down or all (the owner's profile only)"),
     ("POST", "/v1/onhome/act", "one control of one tile: {id, verb, value?}; 409 says why not in words; a lock only locks here, never unlocks"),
     ("POST", "/v1/onhome/unlock", "unlock one lock: the TV's own shell only ({id, token}: the token is in a file only the shell reads, and the peer must be the loopback)"),
 ];
 
 /// How often the looker looks at the switch, the key and the address when nothing happens.
 const LOOK_EVERY: Duration = Duration::from_secs(10);
+/// How long a history that was asked for is served again without asking Home Assistant.
+const HISTORY_KEPT: Duration = Duration::from_secs(60);
 /// How long a control may take in all (the integration answers within 15 s).
 const ACT_WITHIN: Duration = Duration::from_secs(17);
 
@@ -72,13 +76,15 @@ pub struct Deps {
     /// Whether to announce the listener with multicast DNS (a test does not).
     pub announce: bool,
     pub device: DeviceInfo,
+    /// Where a sensor's history is asked: the saved Home Assistant link, the addresses it may be dialled at and the TLS helper.
+    pub history: history::Source,
 }
 
 impl Deps {
     pub fn real(ctx: &Ctx) -> Self {
         let data_dir = ctx.paths.data_dir.clone();
         let key: KeySource = Arc::new(move || crate::ble_store::load(&data_dir).ok().flatten().map(|link| link.key));
-        Self { key, bind: None, announce: true, device: device_info("LumaTV", "LG TV", env!("CARGO_PKG_VERSION")) }
+        Self { key, bind: None, announce: true, device: device_info("LumaTV", "LG TV", env!("CARGO_PKG_VERSION")), history: history::Source::real(ctx) }
     }
 }
 
@@ -118,65 +124,91 @@ fn service_of(device: &DeviceInfo, mac: &str, port: u16) -> mdns::Service {
 
 // -- the owner's list ------------------------------------------------------------------------------------------------------------
 
-/// Which of the shared entities Home shows: `None` is all of them (what is shared is already the owner's choice), a list is the owner's own.
+/// The sizes an item of the card can be given, as the owner's list keeps them.
+pub const SIZES: [&str; 3] = ["small", "wide", "large"];
+
+/// What the owner chose for Home: which of the shared entities it shows and in what order (`None` is all of them, in the order of their
+/// kinds; what is shared is already the owner's choice) and the size each item has on the card.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Picks(pub Option<Vec<String>>);
+pub struct Picks {
+    pub list: Option<Vec<String>>,
+    /// `small`, `wide` or `large` by entity; an entity with none has the size its kind has.
+    pub sizes: BTreeMap<String, String>,
+}
 
 fn picks_file(dir: &std::path::Path) -> PathBuf {
     dir.join("onhome").join("picks.json")
 }
 
 impl Picks {
+    pub fn all() -> Self {
+        Self::default()
+    }
+
     pub fn load(dir: &std::path::Path) -> Self {
-        let Ok(text) = std::fs::read_to_string(picks_file(dir)) else { return Self(None) };
-        let list = serde_json::from_str::<Value>(&text).ok().and_then(|v| v.get("picks").and_then(Value::as_array).cloned());
-        Self(list.map(|l| {
-            let mut out: Vec<String> = Vec::new();
-            for id in l.iter().filter_map(Value::as_str) {
-                if tile::domain_of(id).is_some() && !out.iter().any(|o| o == id) {
-                    out.push(id.to_owned());
+        let Ok(text) = std::fs::read_to_string(picks_file(dir)) else { return Self::all() };
+        let doc = serde_json::from_str::<Value>(&text).ok();
+        let list = doc.as_ref().and_then(|v| v.get("picks").and_then(Value::as_array).cloned());
+        let sizes = doc
+            .as_ref()
+            .and_then(|v| v.get("sizes").and_then(Value::as_object))
+            .map(|m| m.iter().filter(|(id, _)| tile::domain_of(id).is_some()).filter_map(|(id, s)| s.as_str().filter(|s| SIZES.contains(s)).map(|s| (id.clone(), s.to_owned()))).take(2 * MAX_PICKS).collect())
+            .unwrap_or_default();
+        Self {
+            list: list.map(|l| {
+                let mut out: Vec<String> = Vec::new();
+                for id in l.iter().filter_map(Value::as_str) {
+                    if tile::domain_of(id).is_some() && !out.iter().any(|o| o == id) {
+                        out.push(id.to_owned());
+                    }
                 }
-            }
-            out.truncate(MAX_PICKS);
-            out
-        }))
+                out.truncate(MAX_PICKS);
+                out
+            }),
+            sizes,
+        }
     }
 
     fn save(&self, dir: &std::path::Path) -> io::Result<()> {
         let file = picks_file(dir);
-        match &self.0 {
-            None => match std::fs::remove_file(&file) {
+        if self.list.is_none() && self.sizes.is_empty() {
+            return match std::fs::remove_file(&file) {
                 Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
                 _ => Ok(()),
-            },
-            Some(list) => {
-                if let Some(parent) = file.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                let tmp = file.with_extension("json.tmp");
-                std::fs::write(&tmp, json!({"picks": list}).to_string())?;
-                std::fs::rename(tmp, file)
+            };
+        }
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut doc = json!({"sizes": self.sizes});
+        if let (Some(list), Some(m)) = (&self.list, doc.as_object_mut()) {
+            m.insert("picks".into(), json!(list));
+        }
+        let tmp = file.with_extension("json.tmp");
+        std::fs::write(&tmp, doc.to_string())?;
+        std::fs::rename(tmp, file)
+    }
+
+    /// The ids Home shows, in the order Home lists them: the owner's own order when there is a list, else by kind and inside a kind by area
+    /// and name.
+    pub fn shown(&self, mirror: &Mirror) -> Vec<String> {
+        let group_of = |id: &str| tile::domain_of(id).and_then(Group::of_domain).unwrap_or(Group::Sensors);
+        match &self.list {
+            Some(list) => list.iter().take(MAX_PICKS).cloned().collect(),
+            None => {
+                let mut ids: Vec<(Group, String, String, String)> = mirror
+                    .items()
+                    .filter(|(_, item)| !item.minor)
+                    .map(|(id, item)| (group_of(id), item.area.as_deref().and_then(|a| mirror.area_name(a)).unwrap_or("\u{10ffff}").to_lowercase(), item.name.to_lowercase(), id.clone()))
+                    .collect();
+                ids.sort();
+                ids.into_iter().map(|(_, _, _, id)| id).take(MAX_PICKS).collect()
             }
         }
     }
 
-    /// The ids Home shows, in the order Home lists them: by kind, and inside a kind by the owner's order (or, with no list, by area and name).
-    pub fn shown(&self, mirror: &Mirror) -> Vec<String> {
-        let group_of = |id: &str| tile::domain_of(id).and_then(Group::of_domain).unwrap_or(Group::Sensors);
-        let mut ids: Vec<(Group, usize, String, String, String)> = match &self.0 {
-            Some(list) => list.iter().enumerate().map(|(i, id)| (group_of(id), i, String::new(), String::new(), id.clone())).collect(),
-            None => mirror
-                .items()
-                .filter(|(_, item)| !item.minor)
-                .map(|(id, item)| (group_of(id), 0, item.area.as_deref().and_then(|a| mirror.area_name(a)).unwrap_or("\u{10ffff}").to_lowercase(), item.name.to_lowercase(), id.clone()))
-                .collect(),
-        };
-        ids.sort();
-        ids.into_iter().map(|(_, _, _, _, id)| id).take(MAX_PICKS).collect()
-    }
-
     pub fn is_shown(&self, mirror: &Mirror, id: &str) -> bool {
-        match &self.0 {
+        match &self.list {
             Some(list) => list.iter().any(|p| p == id),
             None => mirror.get(id).is_some_and(|i| !i.minor),
         }
@@ -184,7 +216,7 @@ impl Picks {
 
     /// The list made explicit (what is shown now), to be changed.
     fn explicit(&self, mirror: &Mirror) -> Vec<String> {
-        match &self.0 {
+        match &self.list {
             Some(list) => list.clone(),
             None => self.shown(mirror),
         }
@@ -211,6 +243,8 @@ struct Inner {
     /// or a plugin has no way to read it, so none can unlock.
     unlock_token: String,
     state: Mutex<State>,
+    /// The histories asked lately: (entity and range, when, what came back). A sheet that is flipped between ranges costs one dial a range a minute.
+    histories: Mutex<Vec<(String, std::time::Instant, Value)>>,
 }
 
 /// The handle the API and the looker share.
@@ -233,6 +267,7 @@ impl OnHome {
             deps,
             unlock_token,
             state: Mutex::new(State { bridge: None, announced: None, problem: None, picks: Picks::load(&data_dir), known: BTreeMap::new() }),
+            histories: Mutex::new(Vec::new()),
             data_dir,
         });
         let me = Self { inner };
@@ -418,6 +453,31 @@ impl OnHome {
         Ok(self.status())
     }
 
+    /// The history of one sensor that is shared and shown: the kind and the words of its tile decide what is asked, never the caller.
+    pub fn history(&self, id: &str, range: &str) -> Result<Value, Failure> {
+        let inner = &self.inner;
+        let (bridge, picks) = {
+            let state = inner.state.lock();
+            (state.bridge.clone(), state.picks.clone())
+        };
+        let Some(bridge) = bridge else { return Err(Failure::unreachable()) };
+        let found = bridge.with(|sh| sh.mirror.get(id).filter(|_| picks.is_shown(&sh.mirror, id)).and_then(|item| tile::history_of(id, &item.ent)));
+        let Some((kind, unit, class)) = found else { return Err(Failure::from(Refused::NotShown)) };
+        let kind = history::Kind::from_id(kind).ok_or_else(|| Failure::from(Refused::NotShown))?;
+        let key = format!("{id}|{range}");
+        if let Some((_, _, doc)) = inner.histories.lock().iter().find(|(k, at, _)| *k == key && at.elapsed() < HISTORY_KEPT) {
+            return Ok(doc.clone());
+        }
+        let doc = inner.deps.history.ask(id, kind, range, &unit, &class, now_ms()).map_err(|w| Failure { code: w.code, words: w.words })?;
+        let mut kept = inner.histories.lock();
+        kept.retain(|(k, at, _)| *k != key && at.elapsed() < HISTORY_KEPT);
+        kept.push((key, std::time::Instant::now(), doc.clone()));
+        if kept.len() > 16 {
+            kept.remove(0);
+        }
+        Ok(doc)
+    }
+
     /// One control of one tile. Never an unlock: a lock only locks here (`tile::plan`), and a try to unlock or unlatch is refused and written down.
     pub fn act(&self, id: &str, verb: &str, value: &Value) -> Result<(), Failure> {
         let unit = |m: &Mirror| m.temp_unit();
@@ -550,10 +610,30 @@ impl From<Refused> for Failure {
 fn apply_pick(picks: &Picks, mirror: &Mirror, body: &Value) -> Result<Picks, String> {
     let id_of = |key: &str| body.get(key).and_then(Value::as_str);
     if body.get("all").and_then(Value::as_bool) == Some(true) {
-        return Ok(Picks(None));
+        return Ok(Picks { list: None, sizes: picks.sizes.clone() });
+    }
+    // the size of one item: kept beside the list and not part of it, so it holds while the item is hidden and shown again
+    if let Some(id) = id_of("size") {
+        if tile::domain_of(id).is_none() {
+            return Err("that is not something Home can show".into());
+        }
+        let mut sizes = picks.sizes.clone();
+        match body.get("to") {
+            Some(Value::Null) | None => {
+                sizes.remove(id);
+            }
+            Some(Value::String(s)) if SIZES.contains(&s.as_str()) => {
+                if sizes.len() >= 2 * MAX_PICKS && !sizes.contains_key(id) {
+                    return Err("too many sizes are kept".into());
+                }
+                sizes.insert(id.to_owned(), s.clone());
+            }
+            _ => return Err("a size is small, wide or large".into()),
+        }
+        return Ok(Picks { list: picks.list.clone(), sizes });
     }
     // with nothing shared (Home Assistant away) there is no "all of it" to take a thing out of: the list would come out empty
-    if picks.0.is_none() && mirror.is_empty() {
+    if picks.list.is_none() && mirror.is_empty() {
         return Err("Home Assistant is not connected, so there is nothing to choose from".into());
     }
     let mut list = picks.explicit(mirror);
@@ -565,10 +645,19 @@ fn apply_pick(picks: &Picks, mirror: &Mirror, body: &Value) -> Result<Picks, Str
             if list.len() >= MAX_PICKS {
                 return Err(format!("Home shows at most {MAX_PICKS}"));
             }
-            list.push(id.to_owned());
+            // after the last of its own kind when the list has one (it keeps its company), else at the end
+            let group = |i: &str| tile::domain_of(i).and_then(Group::of_domain);
+            let after = list.iter().rposition(|p| group(p) == group(id)).map_or(list.len(), |i| i + 1);
+            list.insert(after, id.to_owned());
         }
     } else if let Some(id) = id_of("hide") {
         list.retain(|p| p != id);
+    } else if let Some(id) = id_of("move") {
+        // to a place of the list: the card's own order, which crosses kinds
+        let Some(at) = list.iter().position(|p| p == id) else { return Err("that is not on Home".into()) };
+        let to = body.get("to").and_then(Value::as_u64).ok_or("move needs the place it goes to")? as usize;
+        let moved = list.remove(at);
+        list.insert(to.min(list.len()), moved);
     } else if let Some((id, down)) = id_of("up").map(|i| (i, false)).or_else(|| id_of("down").map(|i| (i, true))) {
         // the order is among the same kind: a tile does not leave its group
         let group = |i: &str| tile::domain_of(i).and_then(Group::of_domain);
@@ -578,9 +667,9 @@ fn apply_pick(picks: &Picks, mirror: &Mirror, body: &Value) -> Result<Picks, Str
             list.swap(at, to);
         }
     } else {
-        return Err("say show, hide, up, down or all".into());
+        return Err("say show, hide, move, size, up, down or all".into());
     }
-    Ok(Picks(Some(list)))
+    Ok(Picks { list: Some(list), sizes: picks.sizes.clone() })
 }
 
 type Known = BTreeMap<String, (String, Option<String>)>;
@@ -606,20 +695,31 @@ fn view(config: &OnHomeConfig, paired: bool, bridge: Option<&Bridge>, picks: &Pi
     };
     bridge.with(|sh| {
         let mirror = &sh.mirror;
-        let picked = picks.0.clone().map(|l| json!(l));
+        let picked = picks.list.clone().map(|l| json!(l));
+        // the size the owner gave an item on the card, with the tile it belongs to
+        let sized = |mut t: Value| {
+            let id = t["id"].as_str().map(str::to_owned);
+            if let (Some(m), Some(id)) = (t.as_object_mut(), id) {
+                m.insert("size".into(), picks.sizes.get(&id).map_or(Value::Null, |s| json!(s)));
+            }
+            t
+        };
         if sh.client.is_none() {
             // Home Assistant is not connected: the tiles that were there say so, in their own names (the owner's list, else all that was shared)
             let reach = Reach::Waiting("Not reachable");
             let group_of = |id: &str| tile::domain_of(id).and_then(Group::of_domain).unwrap_or(Group::Sensors);
-            let mut ids: Vec<(Group, usize, &String)> = match &picks.0 {
-                Some(list) => list.iter().enumerate().map(|(i, id)| (group_of(id), i, id)).collect(),
-                None => known.keys().map(|id| (group_of(id), 0, id)).collect(),
+            let ids: Vec<&String> = match &picks.list {
+                Some(list) => list.iter().collect(),
+                None => {
+                    let mut all: Vec<(Group, &String)> = known.keys().map(|id| (group_of(id), id)).collect();
+                    all.sort();
+                    all.into_iter().map(|(_, id)| id).collect()
+                }
             };
-            ids.sort();
             let tiles: Vec<Value> = ids
                 .into_iter()
                 .take(MAX_PICKS)
-                .filter_map(|(_, _, id)| known.get(id).map(|(name, area)| tile::tile(id, Some(name), area.as_deref(), None, &[], &[], "", reach)))
+                .filter_map(|id| known.get(id).map(|(name, area)| sized(tile::tile(id, Some(name), area.as_deref(), None, &[], &[], "", reach))))
                 .collect();
             let d = doc("waiting", "Waiting for Home Assistant", "Home Assistant's LumaShow integration has not connected", json!({"tiles": tiles, "picked": picked}));
             return (d, None);
@@ -637,7 +737,7 @@ fn view(config: &OnHomeConfig, paired: bool, bridge: Option<&Bridge>, picks: &Pi
             }
             let ctl: &[String] = if mirror.paused() { &[] } else { item.map_or(&[], |i| &i.ctl) };
             let ctl_pin: &[String] = if mirror.paused() { &[] } else { item.map_or(&[], |i| &i.ctl_pin) };
-            tiles.push(tile::tile(id, name.as_deref().or_else(|| known.get(id).map(|k| k.0.as_str())), area.as_deref(), item.map(|i| &i.ent), ctl, ctl_pin, unit, Reach::Live));
+            tiles.push(sized(tile::tile(id, name.as_deref().or_else(|| known.get(id).map(|k| k.0.as_str())), area.as_deref(), item.map(|i| &i.ent), ctl, ctl_pin, unit, Reach::Live)));
         }
         let shared = mirror.len();
         let (state, words) = match (shared, tiles.len()) {
@@ -666,7 +766,7 @@ fn search(mirror: &Mirror, picks: &Picks, request: &Request) -> Value {
     let limit: usize = request.param("limit").and_then(|v| v.parse().ok()).unwrap_or(30).clamp(1, 64);
     let unit = mirror.temp_unit();
     let shown: std::collections::BTreeSet<String> = picks.shown(mirror).into_iter().collect();
-    let listed = |picks: &Picks, id: &str| match &picks.0 {
+    let listed = |picks: &Picks, id: &str| match &picks.list {
         Some(l) => l.iter().any(|p| p == id),
         None => shown.contains(id),
     };
@@ -740,6 +840,15 @@ pub fn handle(onhome: &OnHome, request: &Request, rest: &[&str]) -> Response {
     match rest {
         [] if get => ok(json!({"onhome": onhome.status()})),
         ["shared"] if get => ok(onhome.shared(request)),
+        ["history"] if get => {
+            let (Some(id), range) = (request.param("id"), request.param("range").unwrap_or("24h")) else {
+                return error_response(400, "bad_request", "id is needed");
+            };
+            match onhome.history(id, range) {
+                Ok(doc) => ok(json!({"history": doc})),
+                Err(r) => error_response(409, r.code, &r.words),
+            }
+        }
         ["picks"] if post => match body() {
             None => error_response(400, "bad_request", "the body is not a JSON object"),
             Some(b) => match onhome.pick(&b) {
@@ -772,7 +881,7 @@ pub fn handle(onhome: &OnHome, request: &Request, rest: &[&str]) -> Response {
                 Err(r) => error_response(409, r.code, &r.words),
             }
         }
-        [] | ["shared"] => error_response(405, "method_not_allowed", "that method is not served here").with_header("Allow", "GET"),
+        [] | ["shared" | "history"] => error_response(405, "method_not_allowed", "that method is not served here").with_header("Allow", "GET"),
         ["picks" | "act" | "unlock"] => error_response(405, "method_not_allowed", "that method is not served here").with_header("Allow", "POST"),
         _ => error_response(404, "not_found", "no such endpoint"),
     }
@@ -793,6 +902,14 @@ pub mod testing {
         onhome.shared(&request)
     }
 
+    /// `GET /v1/onhome/history?id=&range=` as the router would answer it: `(status, document)`.
+    pub fn history_route(onhome: &OnHome, id: &str, range: &str) -> (u16, Value) {
+        let query = vec![("id".to_owned(), id.to_owned()), ("range".to_owned(), range.to_owned())];
+        let request = Request { method: "GET".into(), path: "/v1/onhome/history".into(), query, headers: vec![], body: vec![], peer: std::net::Ipv4Addr::LOCALHOST.into() };
+        let response = handle(onhome, &request, &["history"]);
+        (response.status, serde_json::from_slice(&response.body).unwrap_or(Value::Null))
+    }
+
     /// A route as the router would hand it: `(status, document)`.
     pub fn route(onhome: &OnHome, method: &str, rest: &str, body: Value, peer: &str) -> (u16, Value) {
         let request = Request { method: method.into(), path: format!("/v1/onhome/{rest}"), query: vec![], headers: vec![], body: body.to_string().into_bytes(), peer: peer.parse().expect("an address") };
@@ -801,6 +918,6 @@ pub mod testing {
     }
 
     pub fn keyed_deps(key: Option<[u8; 32]>) -> Deps {
-        Deps { key: Arc::new(move || key), bind: Some(Ipv4Addr::LOCALHOST), announce: false, device: device_info("LumaTV", "LG TV", "test") }
+        Deps { key: Arc::new(move || key), bind: Some(Ipv4Addr::LOCALHOST), announce: false, device: device_info("LumaTV", "LG TV", "test"), history: history::Source { links: Vec::new(), policy: ha_link::endpoint::AddressPolicy::TESTING, tls: None } }
     }
 }
