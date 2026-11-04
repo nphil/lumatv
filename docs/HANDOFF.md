@@ -770,8 +770,9 @@ back in `docs/research/homestub-result.md`.
 - **Do not run `apply` over an SSH command that can time out**: the shell dying
   mid-restart leaves the compositor on whatever it had loaded (a stale module
   that `apply` then calls current). Detach it (`nohup`) and read its output.
-- **Boot direct (built 2026-11-03 behind a flag, not run on the TV).** The stub again, under the Rust shell: SAM's Home is the stub while
-  LumaTV's compositor is live, so Flutter Home never starts, and a Home hold opens LG's. `docs/research/boot-direct.md`.
+- **Boot direct (built 2026-11-03 behind a flag, not run on the TV).** The stub again, under the Rust shell: SAM's Home is the stub from the
+  boot worker's first act while LumaTV's compositor is live, so Flutter Home never starts, and a Home hold of 5 s opens LG's.
+  `docs/research/boot-direct.md`.
 
 ## Tried and dead
 
