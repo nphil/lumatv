@@ -22,7 +22,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
 sys.path.insert(0, os.path.join(HERE, 'qmlhost'))
-BIN = os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
+BIN = os.environ.get('LUMATV_UI_BIN') or os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
 IMG = os.path.join(ROOT, 'docs', 'mocks', 'img')
 NAMES = ['Front Door', 'Backyard', 'Tool Room', 'Back Door', 'Plant Room', 'Bird', 'Office', 'Cat Feeder', 'Garage', 'Driveway', 'Side Gate', 'Attic']
 PICS = ['wall', 'game', 'home', 'still']
@@ -71,6 +71,34 @@ def backdrop_png(name, tmp):
     if not os.path.exists(path):
         Image.open(os.path.join(IMG, name + '.jpg')).convert('RGB').save(path)
     return path
+
+
+def shaped_jpeg(name, shape, size=480):
+    """A mock picture cut to `shape` (width over height, centred) and `size` wide: a doorbell's portrait still, a 4:3 camera's."""
+    from PIL import Image
+    import io
+    im = Image.open(os.path.join(IMG, name + '.jpg')).convert('RGB')
+    w, h = im.size
+    cw, ch = (int(h * shape), h) if w / h > shape else (w, int(w / shape))
+    x, y = (w - cw) // 2, (h - ch) // 2
+    out = io.BytesIO()
+    im.crop((x, y, x + cw, y + ch)).resize((size, int(size / shape))).save(out, 'JPEG', quality=85)
+    return out.getvalue()
+
+
+def video_backdrop(name, shape):
+    """What the video plane shows for a camera of `shape`: the picture fitted into the 1920 by 1080 screen and black around it, as the compositor's
+    video window leaves it. A callable for `Run.backdrop`."""
+    def make(tmp):
+        import io
+        from PIL import Image
+        path = os.path.join(tmp, 'video-%s-%d.png' % (name, int(shape * 1000)))
+        w, h = (1920, int(1920 / shape)) if 1920 / shape <= 1080 else (int(1080 * shape), 1080)
+        screen = Image.new('RGB', (1920, 1080), (0, 0, 0))
+        screen.paste(Image.open(io.BytesIO(shaped_jpeg(name, shape, w))).convert('RGB').resize((w, h)), ((1920 - w) // 2, (1080 - h) // 2))
+        screen.save(path)
+        return path
+    return make
 
 
 def free_port():
@@ -166,7 +194,7 @@ def run(r, pictures=None, helper_setup=None):
     cmd = [BIN, '--host', '--port', str(cport), '--token-file', token_path, '--helper-port', str(hport), '--wait', str(r.wait), '--data-dir', data,
            '--shm', os.path.join(data, 'shm'), '--kinds', r.kinds, '--text-scale', str(r.scale), '--mode', r.mode]
     if r.backdrop:
-        cmd += ['--backdrop', backdrop_png(r.backdrop, data)]
+        cmd += ['--backdrop', r.backdrop(data) if callable(r.backdrop) else backdrop_png(r.backdrop, data)]
     for ms, topic, doc in r.pushes:
         cmd += ['--push', '%d:%s:%s' % (ms, topic, json.dumps(doc, separators=(',', ':')))]
     for ms, topic, doc in r.helpers:
@@ -311,6 +339,47 @@ def scene_full_refused(r):
     return 3800
 
 
+VWIN_CARRIED = {'mode': 'apps', 'slots': 2, 'free': 1, 'apps': 0, 'wall': False, 'claims': [
+    {'id': 'cameras-full', 'kind': 'camera-full', 'state': 'granted', 'reason': '', 'text': '', 'slot': 'main', 'placed': True}]}
+
+#: The front door as the owner has it: a doorbell whose picture is 3:4, 1920 by 2560.
+DOORBELL = {'native': {'codec': 'h264', 'width': 1920, 'height': 2560, 'fps': 15}}
+
+
+def scene_full_doorbell(r, shape=3 / 4, per=DOORBELL, size=(1920, 2560)):
+    """A doorbell's video in the window the compositor placed it in (the plane is the harness's backdrop): the bars beside it are a wash of the
+    camera's picture, which the helper makes small (`frame?w=32&h=18`) and the shell asks for every two seconds."""
+    r.backdrop = video_backdrop('game', shape)
+    full(r, state='playing', per={0: per}, width=size[0], height=size[1], codec='h264', fps=15)
+    r.setup(lambda c, s: s.pictures.update({'300': shaped_jpeg('game', shape)}))
+    r.channel(2400, 'vwin', VWIN_CARRIED)
+    return 4200
+
+
+def scene_full_wide(r):
+    """The same on a 4:3 camera (the back door): the bars are narrower."""
+    return scene_full_doorbell(r, 4 / 3, {'native': {'codec': 'h264', 'width': 2560, 'height': 1920, 'fps': 15}}, (2560, 1920))
+
+
+def scene_full_offline(r):
+    """Scrypted says the camera is offline (the plant room, 2026-11-04): the note says so over the camera's stills and the view asks again by itself."""
+    r.backdrop = 'game'
+    base(r, cameras_topic(8))
+    r.setup(lambda c, s: s.refusals.update({'/v1/cameras/live': (409, 'offline', 'The camera is offline')}))
+    open_grid(r)
+    r.press(1800, 'ok')
+    return 3600
+
+
+def scene_grid_shapes(r):
+    """A doorbell (3:4), a 4:3 camera and a 16:9 one among the tiles: the first two show whole over a wash of themselves, the third covers its tile."""
+    base(r, cameras_topic(8))
+    r.setup(lambda c, s: s.pictures.update({'300': shaped_jpeg('game', 3 / 4), '303': shaped_jpeg('home', 4 / 3), '305': shaped_jpeg('wall', 3 / 4)}))
+    open_grid(r)
+    r.press(2300, 'right')
+    return 3600
+
+
 def scene_strip(r):
     r.backdrop = 'game'
     full(r)
@@ -420,6 +489,7 @@ COMMITTED = 'grid,grid-unlinked,full-failed,full-refused,strip-scrub,events,opti
 SCENES = {
     'grid': scene_grid, 'grid-more': scene_grid_more, 'grid-offline': scene_grid_offline, 'grid-unlinked': scene_grid_unlinked, 'grid-refused': scene_grid_refused,
     'full': scene_full, 'full-start': scene_full_start, 'full-failed': scene_full_failed, 'full-refused': scene_full_refused,
+    'full-doorbell': scene_full_doorbell, 'full-wide': scene_full_wide, 'full-offline': scene_full_offline, 'grid-shapes': scene_grid_shapes,
     'strip': scene_strip, 'strip-scrub': scene_strip_scrub, 'strip-play': scene_strip_play, 'strip-gap': scene_strip_gap,
     'events': scene_events, 'clips': scene_clips, 'events-all': scene_events_all, 'options': scene_options, 'toast': scene_toast,
 }

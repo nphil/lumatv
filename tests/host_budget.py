@@ -14,7 +14,12 @@ at the 99th percentile.
 
 `--frames` lists every frame; `--reference` draws each frame whole as well and counts the frames that differ (the floor and the copies
 must change nothing); `--bin` (or `LUMATV_UI_BIN`) names another `lumatv-ui`. `onhome` is the Smart home card: entered, a switch and a lamp
-toggled, a long scroll, a sensor's history, a lamp's colours changed, and a rest in which no frame may be drawn."""
+toggled, a long scroll, a sensor's history, a lamp's colours changed, and a rest in which no frame may be drawn.
+
+The Cameras app is measured by itself (no Home under it) in four walks: `cameras-grid` (eight tiles whose stills come five a second a tile, three of
+them not 16:9, then the focus walked) and `cameras-full` (a portrait doorbell's video in its window with the bars beside it, the chrome fading and
+coming back), each with the fill of the bars as shipped and as `cameras-grid-nofill` and `cameras-full-nofill` (`theme.cameras.fillBars` off). The
+difference between a walk and its `-nofill` is what the fill costs."""
 import argparse
 import http.server
 import json
@@ -41,6 +46,8 @@ SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast', 'onho
 START_MS = 6000
 #: the layers a 120 Hz refresh holds (1.5 ms + 0.085 ms a layer <= 8.3 ms)
 LAYERS_120 = 80
+#: the Cameras walks, the fill on and off
+CAMERAS = ['cameras-grid', 'cameras-grid-nofill', 'cameras-full', 'cameras-full-nofill']
 
 
 def gpu_ms(layers):
@@ -300,7 +307,54 @@ def walk_of(surface):
     return w
 
 
+def cameras_walk(r, cams, kind):
+    """The steps of a Cameras walk on `r` (a `rust_cameras_scenes.Run`); returns the windows' starts (ms, label) and the end."""
+    if kind == 'grid':
+        cams.base(r, cams.cameras_topic(8))
+        r.setup(lambda c, s: s.pictures.update({'300': cams.shaped_jpeg('game', 3 / 4), '303': cams.shaped_jpeg('home', 4 / 3), '305': cams.shaped_jpeg('wall', 3 / 4)}))
+        cams.open_grid(r, 900)
+        for i in range(6):
+            r.press(8000 + 350 * i, 'right')
+        return [(900, 'open'), (3000, 'stills at rest'), (8000, 'focus walk'), (10300, 'end')]
+    r.backdrop = cams.video_backdrop('game', 3 / 4)
+    cams.full(r, state='playing', per={0: cams.DOORBELL}, width=1920, height=2560, codec='h264', fps=15)
+    r.setup(lambda c, s: s.pictures.update({'300': cams.shaped_jpeg('game', 3 / 4)}))
+    r.channel(2400, 'vwin', cams.VWIN_CARRIED)
+    r.press(9000, 'down')
+    return [(1800, 'open'), (2500, 'video plays'), (4500, 'chrome gone'), (9000, 'a key brings it back'), (10500, 'end')]
+
+
+def run_cameras(surface, refresh, binary, reference):
+    """One Cameras walk (`cameras-grid`, `cameras-full`, with `-nofill`): the same return as `run`."""
+    import rust_cameras_scenes as cams
+    cams.BIN = binary
+    _, kind, *rest = surface.split('-')
+    log = tempfile.mktemp(prefix='hostbudget-cameras-', suffix='.log')
+    extra = ['--virtual', '--refresh', str(refresh), '--log', log]
+    if 'nofill' in rest:
+        extra += ['--theme', json.dumps({'cameras': {'fillBars': False}})]
+    if reference:
+        extra += ['--reference']
+    r = cams.Run(extra=extra)
+    marks = cameras_walk(r, cams, kind)
+    r.wait = marks[-1][0] + 500
+    res = cams.run(r)
+    if res['rc'] != 0:
+        raise RuntimeError('%s: lumatv-ui failed: %s' % (surface, res['out'][-2000:]))
+    text = open(log).read() if os.path.exists(log) else ''
+    os.path.exists(log) and os.remove(log)
+    fr = [(int(m[2]), int(m[4]), int(m[5]), int(m[6]), int(m[8]), int(m[7]), int(m[9])) for m in FRAME.finditer(text)]
+    windows = [(label, [f for f in fr if at <= f[0] < nxt]) for (at, label), (nxt, _) in zip(marks, marks[1:])]
+    return windows, len(re.findall(r"^\[mismatch\]", text, re.M)), text
+
+
 def run(surface, refresh=120, binary=BIN, reference=False):
+    if surface in CAMERAS:
+        return run_cameras(surface, refresh, binary, reference)
+    return run_walk(surface, refresh, binary, reference)
+
+
+def run_walk(surface, refresh=120, binary=BIN, reference=False):
     """Runs the walk of `surface`; returns ([(label, [frame, ...]), ...], mismatched frames, the run's output). A frame is
     (ms, drawn px, rects, layers, floor px, CPU us, of it applying commits us)."""
     data = tempfile.mkdtemp(prefix='hostbudget-')

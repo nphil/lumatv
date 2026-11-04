@@ -90,10 +90,18 @@ playback are then not offered. Over Home the live stream is asked on opening and
   key other than Back only reveals it. A new camera or a close tears the session down off the UI path (`live/stop`).
 - **Failure:** `state: failed` shows a note over a dimmed backdrop: "Can't play this camera", the reason's words, a `Try again` button (OK, which asks again at once: a stream address lives 25 to 60 s, so a retry always asks for a new one), Back closes.
   A recording that ends (`stopped`, "End of recording") asks live again by itself. A stream the bridge ended because the device was removed shows the same note and the grid's state turns to `refused`.
+  **A refused start** (`POST live` answered 409 for the camera shown) is the same note, over the stills, not a toast: a camera Scrypted says is offline reads "This camera is offline", "Looking again every few seconds.",
+  and any other refusal its words from the table below. A refusal that passes (`offline`, `busy`, `timeout`, `unreachable`, `not_ready`, `not_now`, and `upstream_error` twice at most) is asked again by itself after 3 s, 6 s and
+  12 s and then every 30 s, eight times; a stream that drops after it played is asked again the same way ("The stream went quiet. Trying again soon."). A camera that never played is never asked again by itself
+  (a battery doorbell would wake for each ask), and neither is a refusal that is the same next time (`not_supported`, `camera_not_found`, `live_off`). A session another camera held when the start was refused is stopped.
+- **The bars** (`theme.cameras.fillBars`, on): where the picture is not 16:9 (a doorbell's 3:4, a 4:3 camera) and the bars would be 16 px or more, they are a blurred, dimmed copy of the camera's picture
+  (`docs/research/cameras-fill-result.md`). While the video plays in its window the layer is a hole there and the wash is two bars beside it, made from a 32 by 18 picture of the camera (the helper decodes the bridge's
+  320 px still at one eighth) asked for every 2 s, and only with a granted, placed video window (`vwin`): on the plane path nothing of where the video is is known and the bars stay black. A still shows whole over
+  a wash of itself, made from it at most once a second. A grid tile whose picture is not 16:9 within 4 % shows the whole picture over a wash of itself, with the tile's round corners, instead of its middle.
 
 ### Words of a refusal
 
-A refusal of a `POST` (the bridge's `error.code`, passed through by the helper) is a toast of one line for 3 s over the screen it came from; the picture goes on as it was. A code this table lacks shows the helper's own words.
+A refusal of a `POST` (the bridge's `error.code`, passed through by the helper) is a toast of one line for 3 s over the screen it came from; the picture goes on as it was (a refused start of the camera shown is a note, see Failure). A code this table lacks shows the helper's own words.
 
 | Code | Words |
 |---|---|
