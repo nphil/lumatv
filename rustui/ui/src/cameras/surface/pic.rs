@@ -5,12 +5,15 @@
 //! here: a tile's still arrives as a BMP a few hundred pixels wide, and scaling 40 of them a second on the CPU would cost more than the
 //! screen is worth. What the CPU does is cut the picture to the box's shape when the box is to be covered (a portrait camera in a 16:9
 //! tile), copy it into the layer's pixels and round the corners at the size the picture will have on the screen, so the arc comes out at the
-//! theme's radius after the compositor's scale.
+//! theme's radius after the compositor's scale. A picture that is not the box's shape ([`Fill::Washed`]) shows whole, over a wash of itself that
+//! fills the bars (`cameras::wash`): made small, a few kilobytes, scaled up by the compositor, and made again at most once a second.
 
+use crate::cameras::wash::{self, Grade, Tiny};
 use crate::kit::Kit;
 use crate::kit::picture::Picture;
 use compositor_protocol::{Props, Rect};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 use ui::geometry::Frame;
 use ui::group::Group;
 use ui::scene::ImageLayer;
@@ -30,7 +33,7 @@ pub struct PictureStore {
 }
 
 /// How many pictures of each kind are kept: the grid paints the last picture of every camera (16) in its first frame.
-const KEEP: [(&str, usize); 4] = [("tile:", 16), ("full:", 2), ("bubble:", 4), ("card:", 40)];
+const KEEP: [(&str, usize); 5] = [("tile:", 16), ("full:", 2), ("wash:", 2), ("bubble:", 4), ("card:", 40)];
 
 impl PictureStore {
     pub fn new() -> Self {
@@ -121,10 +124,24 @@ pub fn crop_cover(pic: &Picture, aspect: f32) -> Picture {
 /// How a picture fills the box it is shown in.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Fill {
-    /// The box is covered and the overhang is cut (a tile, a card).
+    /// The box is covered and the overhang is cut (a card, a bubble).
     Cover,
-    /// The whole picture shows inside the box (the full view): the rest of the box is what is behind it.
+    /// The whole picture shows inside the box: the rest of the box is what is behind it.
     Contain,
+    /// A tile, or the full view's still: a picture of the box's shape (within [`wash::SAME_SHAPE`]) covers it; any other shows whole, and the bars
+    /// are filled with a wash of it, graded by the `Grade` (a portrait doorbell in a 16:9 tile, a 4:3 camera on the screen).
+    Washed(Grade),
+}
+
+/// The least time between one wash of a layer and the next: the bars are a blur of the picture, and a blur that changes every frame is a flicker.
+pub const WASH_EVERY: Duration = Duration::from_millis(1000);
+
+/// The fill behind a picture that shows whole.
+struct Wash {
+    layer: ImageLayer,
+    made: Instant,
+    /// Screen pixels to a pixel of the wash.
+    d: f32,
 }
 
 /// A picture shown in a box on the screen (in the space of the group it hangs under, or the screen's).
@@ -138,16 +155,23 @@ pub struct PicLayer {
     pub frame: Frame,
     pub radius: f32,
     pub fill: Fill,
+    /// What the picture painted is shown as: `Cover` or `Contain` (`Washed` settles to one of them by the picture's shape).
+    shown_fill: Fill,
     /// The size of the picture in the layer, and the scale it is shown at.
     shown: (u32, u32),
     scale: f32,
     /// The layer is under a group (its props are in that group's space).
     pub grouped: bool,
+    /// The fill behind a picture that shows whole.
+    wash: Option<Wash>,
+    /// The least time between two washes (tests make it nothing).
+    pub wash_every: Duration,
 }
 
 impl PicLayer {
     pub fn new(key: &str, frame: Frame, radius: f32, fill: Fill, z: i32) -> Self {
-        Self { layer: None, key: key.to_string(), rev: 0, z, frame, radius, fill, shown: (0, 0), scale: 1.0, grouped: false }
+        let shown_fill = if fill == Fill::Cover { Fill::Cover } else { Fill::Contain };
+        Self { layer: None, key: key.to_string(), rev: 0, z, frame, radius, fill, shown_fill, shown: (0, 0), scale: 1.0, grouped: false, wash: None, wash_every: WASH_EVERY }
     }
 
     pub fn is_painted(&self) -> bool {
@@ -164,6 +188,16 @@ impl PicLayer {
         self.shown
     }
 
+    /// Whether the picture is shown whole over a wash of itself, for the harness.
+    pub fn washed(&self) -> bool {
+        self.wash.is_some()
+    }
+
+    /// The layers the picture holds (itself and its wash), for the budget.
+    pub fn layers(&self) -> usize {
+        usize::from(self.layer.is_some()) + usize::from(self.wash.is_some())
+    }
+
     /// Paints the store's picture for the key when it is newer than what is shown. `group` is the group the layer hangs under, if any.
     /// Returns whether the layer changed.
     pub fn sync(&mut self, kit: &mut Kit, group: Option<&Group>, store: &PictureStore) -> std::io::Result<bool> {
@@ -171,28 +205,24 @@ impl PicLayer {
         if rev == self.rev && self.layer.is_some() {
             return Ok(false);
         }
-        let cut;
-        let source: &Picture = match self.fill {
-            Fill::Cover => {
-                cut = crop_cover(pic, self.frame.w / self.frame.h.max(1.0));
-                &cut
-            }
-            Fill::Contain => pic,
+        let box_aspect = self.frame.w / self.frame.h.max(1.0);
+        let fill = match self.fill {
+            Fill::Washed(_) if wash::same_shape(pic.width as f32 / pic.height.max(1) as f32, box_aspect) => Fill::Cover,
+            Fill::Washed(_) => Fill::Contain,
+            fixed => fixed,
         };
-        let (w, h) = (source.width, source.height);
-        let scale = match self.fill {
+        let mut cut = (fill == Fill::Cover).then(|| crop_cover(pic, box_aspect));
+        let (w, h) = cut.as_ref().map_or((pic.width, pic.height), |c| (c.width, c.height));
+        let scale = match fill {
             Fill::Cover => (self.frame.w / w as f32).max(self.frame.h / h as f32),
-            Fill::Contain => (self.frame.w / w as f32).min(self.frame.h / h as f32),
+            _ => (self.frame.w / w as f32).min(self.frame.h / h as f32),
         };
-        // the corners are rounded at the size the picture is drawn in, so the arc is the theme's after the scale
-        let mut pixels_pic;
-        let painted: &Picture = if self.radius > 0.5 && self.fill == Fill::Cover {
-            pixels_pic = source.clone();
-            pixels_pic.round_corners(self.radius / scale.max(0.01));
-            &pixels_pic
-        } else {
-            source
-        };
+        // the corners are rounded at the size the picture is drawn in, so the arc is the theme's after the scale; in the cut picture, which is ours
+        if self.radius > 0.5 && matches!(self.fill, Fill::Cover | Fill::Washed(_)) {
+            cut.get_or_insert_with(|| pic.clone()).round_corners(self.radius / scale.max(0.01));
+        }
+        let painted: &Picture = cut.as_ref().unwrap_or(pic);
+        self.shown_fill = fill;
         let at = self.place(w, h, scale);
         if self.layer.as_ref().is_none_or(|l| (l.width(), l.height()) != (w, h)) {
             let made = match group {
@@ -211,7 +241,47 @@ impl PicLayer {
         self.shown = (w, h);
         self.scale = scale;
         self.rev = rev;
+        if let Fill::Washed(grade) = self.fill {
+            self.sync_wash(kit, group, pic, grade, fill == Fill::Contain)?;
+        }
         Ok(true)
+    }
+
+    /// The wash of a picture that shows whole: made small from `pic`, at most once in [`PicLayer::wash_every`], and let go when the picture covers.
+    fn sync_wash(&mut self, kit: &mut Kit, group: Option<&Group>, pic: &Picture, grade: Grade, whole: bool) -> std::io::Result<()> {
+        if !whole {
+            self.wash = None;
+            return Ok(());
+        }
+        if self.wash.as_ref().is_some_and(|w| w.made.elapsed() < self.wash_every) {
+            return Ok(());
+        }
+        let Some(tiny) = Tiny::of(pic, grade) else { return Ok(()) };
+        // one pixel of the wash to 4 of a tile's (8 of the screen's): the corners of a tile are rounded at that size
+        let d = (self.frame.w / 104.0).clamp(2.0, 8.0);
+        let mut made = tiny.region(self.frame, self.frame, d);
+        if self.radius > 0.5 {
+            made.round_corners(self.radius / d);
+        }
+        let (w, h) = (made.width, made.height);
+        let at = self.wash_place(w, h, d);
+        if self.wash.as_ref().is_none_or(|x| (x.layer.width(), x.layer.height()) != (w, h)) {
+            let layer = match group {
+                Some(g) => {
+                    let scene = kit.ui.scene.clone();
+                    scene.adopting(g, || scene.image(w, h, self.z - 1, at))?
+                }
+                None => kit.ui.scene.image(w, h, self.z - 1, at)?,
+            };
+            self.wash = Some(Wash { layer, made: Instant::now(), d });
+        }
+        if let Some(wash) = self.wash.as_mut() {
+            made.paint(&mut wash.layer);
+            wash.layer.set(at);
+            wash.made = Instant::now();
+            wash.d = d;
+        }
+        Ok(())
     }
 
     /// Where the layer goes so that its centre is the box's (a Cover picture), or the box's centre (Contain), at the scale it is shown.
@@ -219,10 +289,18 @@ impl PicLayer {
         let (cx, cy) = self.frame.centre();
         let mut p = Props::at(cx - w as f32 / 2.0, cy - h as f32 / 2.0);
         p.scale = scale;
-        if self.fill == Fill::Cover {
+        if self.shown_fill == Fill::Cover {
             // what overhangs the box is cut: the clip is the box, in the space of the layer's parent
             p.clip = Some(Rect { x: self.frame.x, y: self.frame.y, w: self.frame.w, h: self.frame.h });
         }
+        p
+    }
+
+    /// Where the wash goes: its layer is scaled about its centre, so that its top left lands on the box's; what overhangs is cut by the box.
+    fn wash_place(&self, w: u32, h: u32, d: f32) -> Props {
+        let mut p = Props::at(self.frame.x + w as f32 * d / 2.0 - w as f32 / 2.0, self.frame.y + h as f32 * d / 2.0 - h as f32 / 2.0);
+        p.scale = d;
+        p.clip = Some(Rect { x: self.frame.x, y: self.frame.y, w: self.frame.w, h: self.frame.h });
         p
     }
 
@@ -233,13 +311,21 @@ impl PicLayer {
             let at = self.place(self.shown.0, self.shown.1, self.scale);
             l.set(at);
         }
+        if let Some(w) = &self.wash {
+            w.layer.set(self.wash_place(w.layer.width(), w.layer.height(), w.d));
+        }
     }
 
     /// Hides or shows the layer.
     pub fn set_visible(&self, on: bool) {
+        let opacity = if on { 1.0 } else { 0.0 };
         if let Some(l) = &self.layer {
             let at = self.place(self.shown.0, self.shown.1, self.scale);
-            l.set(Props { visible: on, opacity: if on { 1.0 } else { 0.0 }, ..at });
+            l.set(Props { visible: on, opacity, ..at });
+        }
+        if let Some(w) = &self.wash {
+            let at = self.wash_place(w.layer.width(), w.layer.height(), w.d);
+            w.layer.set(Props { visible: on, opacity, ..at });
         }
     }
 
@@ -250,19 +336,25 @@ impl PicLayer {
     /// Lets the layer go (a picture that is no longer wanted); the next sync makes it again.
     pub fn clear(&mut self) {
         self.layer = None;
+        self.wash = None;
         self.rev = 0;
     }
 
     /// Fades the layer in over `ms` (a picture arriving over a quiet tile).
     pub fn arrive(&self, kit: &Kit, ms: u32) {
-        if let Some(l) = &self.layer {
-            let at = self.place(self.shown.0, self.shown.1, self.scale);
+        let fade = |l: &ImageLayer, at: Props| {
             if ms == 0 || kit.ui.look.duration_ms(ms) == 0 {
                 l.set(at);
             } else {
                 l.set(Props { opacity: 0.0, ..at });
                 l.animate(at, kit.ui.look.duration_ms(ms), compositor_protocol::Ease::Out);
             }
+        };
+        if let Some(w) = &self.wash {
+            fade(&w.layer, self.wash_place(w.layer.width(), w.layer.height(), w.d));
+        }
+        if let Some(l) = &self.layer {
+            fade(l, self.place(self.shown.0, self.shown.1, self.scale));
         }
     }
 }
@@ -367,5 +459,71 @@ mod tests {
         l.sync(&mut kit, None, &store).unwrap();
         assert_eq!(l.size(), (480, 640), "a portrait camera is not cut");
         assert!((l.scale() - 1080.0 / 640.0).abs() < 1e-4, "it fits the height and the black shows beside it");
+    }
+
+    const GRADE: Grade = Grade { gain: 0.7, tint: [18.0, 14.0, 26.0], mix: 0.4, sat: 1.0 };
+
+    #[test]
+    fn a_tall_picture_in_a_tile_shows_whole_over_a_wash_of_itself_and_one_of_the_tiles_shape_covers_it() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let mut store = PictureStore::new();
+        let mut l = PicLayer::new("tile:1", Frame::new(100.0, 200.0, 416.0, 234.0), 22.0, Fill::Washed(GRADE), 5);
+        l.wash_every = Duration::ZERO;
+        // a doorbell, 3:4: the whole of it, not the middle of it
+        store.put("tile:1", pic(360, 480, [200, 60, 20, 255]));
+        assert!(l.sync(&mut kit, None, &store).unwrap());
+        assert_eq!(l.size(), (360, 480));
+        assert!((l.scale() - 234.0 / 480.0).abs() < 1e-4, "it fits the height of the tile");
+        assert!(l.washed() && l.layers() == 2);
+        // the wash covers the tile at one pixel in four: the picture's colour, dimmed and tinted by the grade, with the tile's round corners
+        let wash = l.wash.as_ref().unwrap();
+        assert_eq!((wash.layer.width(), wash.layer.height()), (104, 59));
+        let px = |x: usize, y: usize| wash.layer.pixels()[(y * 104 + x) * 4..(y * 104 + x) * 4 + 4].to_vec();
+        assert_eq!(px(52, 29), [91, 31, 19, 255], "200 * 0.7 * 0.6 + 18 * 0.4 and so on");
+        assert_eq!(px(0, 0), [0, 0, 0, 0], "the corner is round");
+        // a picture of the tile's shape covers it, and the wash is let go
+        store.put("tile:1", pic(480, 270, [10, 20, 30, 255]));
+        assert!(l.sync(&mut kit, None, &store).unwrap());
+        assert_eq!(l.size(), (480, 270));
+        assert!(!l.washed() && l.layers() == 1);
+        // 2688 by 1520 is 16:9 to within a percent: covered too
+        store.put("tile:1", pic(538, 304, [10, 20, 30, 255]));
+        l.sync(&mut kit, None, &store).unwrap();
+        assert!(!l.washed());
+    }
+
+    #[test]
+    fn the_wash_is_made_again_at_most_once_a_second_while_the_picture_itself_is_painted_every_time() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let mut store = PictureStore::new();
+        let mut l = PicLayer::new("tile:1", Frame::new(0.0, 0.0, 416.0, 234.0), 22.0, Fill::Washed(GRADE), 5);
+        store.put("tile:1", pic(360, 480, [200, 60, 20, 255]));
+        l.sync(&mut kit, None, &store).unwrap();
+        let first = l.wash.as_ref().unwrap().layer.pixels().to_vec();
+        store.put("tile:1", pic(360, 480, [20, 60, 200, 255]));
+        assert!(l.sync(&mut kit, None, &store).unwrap(), "the picture is the new one");
+        assert_eq!(l.layer().unwrap().pixels()[(240 * 360 + 180) * 4 + 2], 200);
+        assert_eq!(l.wash.as_ref().unwrap().layer.pixels(), &first[..], "the blur is not made again within a second");
+        l.wash_every = Duration::ZERO;
+        store.put("tile:1", pic(360, 480, [20, 60, 200, 255]));
+        l.sync(&mut kit, None, &store).unwrap();
+        assert_ne!(l.wash.as_ref().unwrap().layer.pixels(), &first[..]);
+    }
+
+    #[test]
+    fn the_full_views_still_of_another_shape_than_the_screen_has_a_wash_and_hides_and_moves_with_the_picture() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let mut store = PictureStore::new();
+        let mut l = PicLayer::new("full:1", Frame::new(0.0, 0.0, 1920.0, 1080.0), 0.0, Fill::Washed(GRADE), 5);
+        store.put("full:1", pic(480, 640, [7, 7, 7, 255]));
+        l.sync(&mut kit, None, &store).unwrap();
+        assert_eq!(l.size(), (480, 640), "a portrait camera is not cut");
+        let wash = l.wash.as_ref().unwrap();
+        assert_eq!((wash.layer.width(), wash.layer.height()), (240, 135), "one pixel in 8 of the screen's");
+        assert_eq!(wash.layer.pixels()[3], 255, "no round corner on the screen's box");
+        l.set_visible(false);
+        l.place_box(Frame::new(0.0, 0.0, 1920.0, 1080.0));
+        l.clear();
+        assert!(!l.washed() && l.layers() == 0);
     }
 }

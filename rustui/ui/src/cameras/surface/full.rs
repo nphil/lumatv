@@ -5,13 +5,14 @@
 //! not prebuffered starts, the hints (glyphs) at the bottom right. It fades out 2.5 s after the last key (180 ms) and in over 120 ms. A camera
 //! that cannot play shows a note over a dimmed picture: the title, the reason and a `Try again` button.
 
-use super::common::{Ink, Parts, scale};
+use super::common::{Ink, Parts, scale, video_grade};
 use super::grid::WordRec;
 use super::pic::{Fill, PicLayer};
 use super::pill::{self, Anchor, Piece};
 use super::{Cx, REGION_FULL, SCOPE_BASE, depth, ids};
 use crate::cameras::app::Target;
-use crate::cameras::view::{Backdrop, FullView, HintView, Note};
+use crate::cameras::view::{Backdrop, FullView, HintView, Note, WashView};
+use crate::cameras::wash::{self, Tiny};
 use crate::kit::button::{Button, Place, Spec, Tone};
 use crate::kit::focus::Id;
 use crate::kit::hint::Key;
@@ -23,7 +24,7 @@ use compositor_protocol::{Props, Rgba};
 use lumatv_tokens::{Radius, TypeRole};
 use ui::components::{Align, plate};
 use ui::geometry::Frame;
-use ui::scene::ShapeLayer;
+use ui::scene::{ImageLayer, ShapeLayer};
 use ui::text::Weight;
 
 /// The chrome fades out over this, and in over this (ms).
@@ -55,6 +56,15 @@ struct NoteUi {
     button: Button,
 }
 
+/// The bars either side of the video window (or above and below it) while the stream plays on a plane: a wash of the camera's last still, drawn only
+/// where the video is not, since the video is under the layer and a layer over it would hide it.
+struct Bars {
+    key: String,
+    rev: u64,
+    around: (i32, i32, i32, i32),
+    layers: Vec<ImageLayer>,
+}
+
 pub struct FullUi {
     ink: Ink,
     sig: String,
@@ -71,6 +81,7 @@ pub struct FullUi {
     hints: Option<Piece2>,
     note: Option<NoteUi>,
     chrome_on: bool,
+    wash: Option<Bars>,
     hole: bool,
 }
 
@@ -101,6 +112,7 @@ impl FullUi {
             hints: None,
             note: None,
             chrome_on: view.chrome,
+            wash: None,
             hole: false,
         };
         me.sync(cx, view)?;
@@ -135,12 +147,14 @@ impl FullUi {
             Backdrop::None => None,
         };
         if want_key != self.still_key {
-            self.still = want_key.as_ref().map(|k| PicLayer::new(k, Frame::new(0.0, 0.0, 1920.0, 1080.0), 0.0, Fill::Contain, cx.at(depth::PICTURE)));
+            let fill = if view.fill { Fill::Washed(video_grade()) } else { Fill::Contain };
+            self.still = want_key.as_ref().map(|k| PicLayer::new(k, Frame::new(0.0, 0.0, 1920.0, 1080.0), 0.0, fill, cx.at(depth::PICTURE)));
             self.still_key = want_key;
         }
         if let Some(p) = &mut self.still {
             p.sync(cx.kit, None, cx.store)?;
         }
+        self.sync_wash(cx, view.wash.as_ref())?;
         if (view.veil - self.veil_alpha).abs() > 0.001 {
             self.veil_alpha = view.veil;
             if view.veil > 0.0 {
@@ -232,6 +246,43 @@ impl FullUi {
             let z = cx.at(depth::CHROME);
             pill::build(cx.kit, "line pill", &pieces, Anchor::BottomLeft { x: 96.0, bottom: 1026.0 }, z, &ink)
         })
+    }
+
+    /// The wash of the bars beside the video window: made from the newest picture the store holds for the view's key, when that or the window changed.
+    fn sync_wash(&mut self, cx: &mut Cx, view: Option<&WashView>) -> std::io::Result<()> {
+        let Some(want) = view else {
+            self.wash = None;
+            return Ok(());
+        };
+        let Some((pic, rev)) = cx.store.get(&want.key) else { return Ok(()) };
+        if self.wash.as_ref().is_some_and(|b| b.key == want.key && b.rev == rev && b.around == want.around) {
+            return Ok(());
+        }
+        let Some(tiny) = Tiny::of(pic, video_grade()) else { return Ok(()) };
+        let screen = Frame::new(0.0, 0.0, 1920.0, 1080.0);
+        let (x, y, w, h) = want.around;
+        let bars = wash::bars(screen, Frame::new(x as f32, y as f32, w as f32, h as f32));
+        // one pixel of the wash to 8 of the screen's: the compositor scales it up, linearly
+        let d = 8.0;
+        let mut old = self.wash.take().map(|b| b.layers).unwrap_or_default().into_iter();
+        let mut layers = Vec::with_capacity(bars.len());
+        for bar in &bars {
+            let made = tiny.region(screen, *bar, d);
+            let (pw, ph) = (made.width, made.height);
+            // scaled about its centre: the layer's top left lands on the bar's, and what overhangs is cut by the bar
+            let mut at = Props::at(bar.x + pw as f32 * d / 2.0 - pw as f32 / 2.0, bar.y + ph as f32 * d / 2.0 - ph as f32 / 2.0);
+            at.scale = d;
+            at.clip = Some(compositor_protocol::Rect { x: bar.x, y: bar.y, w: bar.w, h: bar.h });
+            let mut layer = match old.next().filter(|l| (l.width(), l.height()) == (pw, ph)) {
+                Some(layer) => layer,
+                None => cx.kit.ui.scene.image(pw, ph, cx.at(depth::PICTURE), at)?,
+            };
+            made.paint(&mut layer);
+            layer.set(at);
+            layers.push(layer);
+        }
+        self.wash = Some(Bars { key: want.key.clone(), rev, around: want.around, layers });
+        Ok(())
     }
 
     /// The cue: one glyph in a pill of its own right of the name pill (no words: the glyph is the whole of it).
@@ -353,7 +404,7 @@ impl FullUi {
     /// The layers the full view holds, for the budget.
     pub fn layers(&self) -> usize {
         let pieces: usize = [&self.name, &self.info, &self.line, &self.cue, &self.hints].into_iter().flatten().map(|p| p.parts.layers()).sum();
-        2 + usize::from(self.still.as_ref().is_some_and(|p| p.layer().is_some())) + pieces + self.note.as_ref().map_or(0, |n| n.parts.layers() + n.button.layers())
+        2 + self.still.as_ref().map_or(0, PicLayer::layers) + self.wash.as_ref().map_or(0, |b| b.layers.len()) + pieces + self.note.as_ref().map_or(0, |n| n.parts.layers() + n.button.layers())
     }
 
     /// Whether the chrome is on (faded in).
@@ -398,6 +449,7 @@ mod tests {
     use crate::cameras::app::{App, Config};
     use crate::cameras::surface::pic::PictureStore;
     use crate::cameras::view::Base;
+    use crate::kit::picture::Picture;
     use crate::kit::lint::Lint;
     use crate::kit::screen::{Input, Model};
     use crate::kit::testkit;
@@ -513,5 +565,33 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_hole_beside_a_window_draws_a_wash_in_the_bars_and_nothing_where_the_video_is() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let mut engine = crate::kit::Engine::new(&kit).unwrap();
+        let mut store = PictureStore::new();
+        let mut a = app(1.0);
+        a.open_full("273", 1000);
+        a.update(&live("playing"), 1050);
+        let mut view = full(&a);
+        view.wash = Some(WashView { key: "wash:273".into(), around: (555, 0, 810, 1080) });
+        let mut f = FullUi::build(&mut cx(&mut kit, &mut engine, &store), &view).unwrap();
+        assert!(f.hole && f.wash.is_none(), "no picture to make it from yet: black bars, as before");
+        let without = f.layers();
+        store.put("wash:273", Picture { width: 40, height: 54, rgba: [90, 60, 30, 255].repeat(40 * 54) });
+        f.sync(&mut cx(&mut kit, &mut engine, &store), &view).unwrap();
+        let bars = f.wash.as_ref().expect("the bars");
+        // one bar either side of the window, 555 by 1080 each, made at one pixel in 8
+        assert_eq!(bars.layers.iter().map(|l| (l.width(), l.height())).collect::<Vec<_>>(), [(70, 135), (70, 135)]);
+        assert_eq!(f.layers(), without + 2);
+        // a window that is the whole screen leaves no bar, and no wash at all takes them away
+        view.wash = Some(WashView { key: "wash:273".into(), around: (0, 0, 1920, 1080) });
+        f.sync(&mut cx(&mut kit, &mut engine, &store), &view).unwrap();
+        assert!(f.wash.as_ref().is_some_and(|b| b.layers.is_empty()));
+        view.wash = None;
+        f.sync(&mut cx(&mut kit, &mut engine, &store), &view).unwrap();
+        assert!(f.wash.is_none());
     }
 }

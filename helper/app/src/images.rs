@@ -673,6 +673,9 @@ mod tests {
         assert_eq!(choose_shift(3840, 2160, 1920, 0), 1);
         assert_eq!(choose_shift(3840, 2160, 0, 1080), 1);
         assert_eq!(choose_shift(101, 101, 51, 51), 1);
+        // the blurred fill behind a portrait camera (32 by 18 asked of the bridge's 320 pixel pictures, wide or tall) is decoded at one eighth
+        assert_eq!(choose_shift(320, 180, 32, 18), 3);
+        assert_eq!(choose_shift(320, 426, 32, 18), 3);
     }
 
     #[test]

@@ -7,7 +7,7 @@
 //! 3 px that fades in with the lift and the name in the full ink); the content of the tiles hangs under one group that scrolls on the same
 //! spring when the focus goes to a row that is not shown. Only the rows that show and the row on each side are built.
 
-use super::common::{Ink, Parts, icon_side, scale};
+use super::common::{Ink, Parts, icon_side, scale, tile_grade};
 use super::pic::{Fill, PicLayer};
 use super::pill;
 use super::{Cx, REGION_HEADER, REGION_TILES, SCOPE_BASE, depth, ids};
@@ -416,7 +416,8 @@ impl GridUi {
         let offset = self.top as f32 * self.pitch;
         cx.engine.focus.register(id, self.hit_rect(frame, offset), REGION_TILES, SCOPE_BASE);
         cx.engine.flow.lift(id, Lifted { group: lift, rest, scale: cx.kit.tokens.focus.card_scale, rise: 0.0, lit: Some(lit) });
-        let mut pic = PicLayer::new(&tv.pic, Frame::new(0.0, 0.0, w, h), radius, Fill::Cover, z);
+        let fill = if view.fill { Fill::Washed(tile_grade(cx.kit)) } else { Fill::Cover };
+        let mut pic = PicLayer::new(&tv.pic, Frame::new(0.0, 0.0, w, h), radius, fill, z);
         pic.sync(cx.kit, Some(&body), cx.store)?;
         Ok(TileUi {
             index: i,
@@ -552,7 +553,7 @@ impl GridUi {
         let tiles: usize = self
             .tiles
             .iter()
-            .map(|t| 1 + usize::from(t.pic.layer().is_some()) + usize::from(t.veil.is_some()) + t.words.len() + t._static.len())
+            .map(|t| 1 + t.pic.layers() + usize::from(t.veil.is_some()) + t.words.len() + t._static.len())
             .sum();
         1 + self.header.layers()
             + self.buttons.iter().map(|(b, _)| b.layers()).sum::<usize>()

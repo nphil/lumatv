@@ -13,6 +13,7 @@ pub mod sheet;
 pub mod strip;
 pub mod surface;
 pub mod view;
+pub mod wash;
 pub mod words;
 
 #[cfg(test)]

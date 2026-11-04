@@ -6,7 +6,7 @@
 use super::app::*;
 use super::data::LinkState;
 use super::strip::Item as SItem;
-use super::view::{Backdrop, Base, SheetFocus, Tab, View};
+use super::view::{Backdrop, Base, SheetFocus, Tab, View, WashView};
 use super::words::{Clock, Zone};
 use crate::kit::screen::{Effect, Input, Model};
 use serde_json::{Value, json};
@@ -668,22 +668,214 @@ fn a_recording_that_ends_asks_live_again_by_itself() {
 }
 
 #[test]
-fn a_refusal_shows_its_words_for_three_seconds_and_the_picture_goes_on() {
+fn a_refused_playback_shows_its_words_for_three_seconds_and_the_picture_goes_on() {
+    let mut r = Rig::new(three());
+    r.app.open_full("273", T0);
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    r.at(100);
+    r.press("up");
+    r.at(200);
+    r.press("down");
+    r.press("right");
+    let fx = r.press("ok");
+    let tag = tag_of(&fx, "/v1/cameras/playback");
+    r.at(300);
+    r.answer(tag, 409, json!({"ok": false, "error": {"code": "no_recording", "message": "x"}}));
+    assert_eq!(r.view().toast.as_deref(), Some("No recording at that time"));
+    r.tick(300 + 2999);
+    assert!(r.view().toast.is_some());
+    r.tick(300 + 3000);
+    assert!(r.view().toast.is_none(), "gone after 3 s");
+    assert!(r.full().note.is_none() && r.full().hole, "the picture goes on as it was");
+}
+
+/// Scrypted said the plant room was offline (2026-11-04, 00:26): the view stayed black under "Starting" for good.
+#[test]
+fn a_refused_start_says_why_on_a_note_over_the_stills_and_the_camera_is_asked_for_again_by_itself() {
     let mut r = Rig::new(three());
     let fx = r.app.open_full("273", T0);
     let tag = tag_of(&fx, "/v1/cameras/live");
     r.at(100);
     r.answer(tag, 409, json!({"ok": false, "error": {"code": "offline", "message": "x"}}));
-    assert_eq!(r.view().toast.as_deref(), Some("The camera is offline"));
-    r.tick(3099);
-    assert!(r.view().toast.is_some());
-    r.tick(3100);
-    assert!(r.view().toast.is_none(), "gone after 3 s");
-    // a code the table lacks shows the helper's words; one with no words says nothing
+    let f = r.full();
+    let note = f.note.clone().expect("a note, not a toast");
+    assert_eq!((note.title, note.detail.as_str(), note.button), ("This camera is offline", "Looking again every few seconds.", "Try again"));
+    assert_eq!((f.state.word, f.state.dot), ("Can\u{2019}t play", false));
+    assert!(r.view().toast.is_none());
+    assert!(f.button_focused && matches!(f.backdrop, Backdrop::Still(_)), "the stills, dimmed, behind it");
+    // nothing before 3 s are over; then it is asked for again, and after 6 s once more
+    assert!(live_posts(&r.tick(100 + 2999)).is_empty());
+    let fx = r.tick(100 + 3000);
+    assert_eq!(live_posts(&fx), [json!({"camera": "273"})]);
+    r.answer(tag_of(&fx, "/v1/cameras/live"), 409, json!({"ok": false, "error": {"code": "offline", "message": "x"}}));
+    assert!(r.full().note.is_some(), "the note stays through the ask");
+    assert!(live_posts(&r.tick(100 + 3000 + 5999)).is_empty());
+    let fx = r.tick(100 + 3000 + 6000);
+    assert_eq!(live_posts(&fx).len(), 1, "after 6 s");
+    // the camera is back: a stream is handed out, the note goes, and the video plays
+    r.answer(tag_of(&fx, "/v1/cameras/live"), 200, json!({"ok": true}));
+    assert!(r.full().note.is_none());
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    assert!(r.full().hole);
+    assert!(live_posts(&r.tick(100 + 3000 + 6000 + 600_000)).is_empty(), "nothing more is asked");
+}
+
+#[test]
+fn a_refusal_that_does_not_pass_is_not_asked_again_but_try_again_asks_at_once() {
+    let mut r = Rig::new(three());
+    let fx = r.app.open_full("273", T0);
+    r.answer(tag_of(&fx, "/v1/cameras/live"), 409, json!({"ok": false, "error": {"code": "not_supported", "message": "x"}}));
+    let note = r.full().note.expect("the note");
+    assert_eq!((note.title, note.detail.as_str()), ("Can\u{2019}t play this camera", "No stream fits this TV"));
+    for ms in [3_000, 10_000, 60_000, 600_000] {
+        assert!(live_posts(&r.tick(ms)).is_empty(), "{ms}");
+    }
+    let fx = r.press("ok");
+    assert_eq!(live_posts(&fx), [json!({"camera": "273"})]);
+}
+
+#[test]
+fn a_refusal_gives_up_asking_by_itself_after_eight_tries() {
+    let mut r = Rig::new(three());
+    let mut fx = r.app.open_full("273", T0);
+    let mut at = 0;
+    let mut asked = 0;
+    for _ in 0..400 {
+        let Some(tag) = fx.iter().find_map(|e| match e {
+            Effect::Request { tag, path, .. } if path == "/v1/cameras/live" => Some(*tag),
+            _ => None,
+        }) else {
+            at += 1000;
+            fx = r.tick(at);
+            continue;
+        };
+        asked += 1;
+        r.answer(tag, 409, json!({"ok": false, "error": {"code": "busy", "message": "x"}}));
+        fx = Vec::new();
+    }
+    assert_eq!(asked, 1 + RETRIES, "the ask on opening and eight more, never a ninth");
+}
+
+#[test]
+fn a_refusal_of_another_camera_while_one_plays_ends_the_one_that_plays_and_the_note_is_the_new_cameras() {
+    let mut r = Rig::new(three());
+    r.app.open_full("273", T0);
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    r.at(100);
     let fx = r.press("right");
     let tag = tag_of(&fx, "/v1/cameras/live");
-    r.answer(tag, 409, json!({"ok": false, "error": {"code": "weird", "message": "The bridge said so"}}));
-    assert_eq!(r.view().toast.as_deref(), Some("The bridge said so"));
+    r.at(200);
+    let fx = r.answer(tag, 409, json!({"ok": false, "error": {"code": "offline", "message": "x"}}));
+    assert!(requests(&fx).iter().any(|(m, p, _)| m == "POST" && p == "/v1/cameras/live/stop"), "the camera nobody looks at plays no longer: {fx:?}");
+    let f = r.full();
+    assert_eq!(f.name, "Garden");
+    assert!(f.note.is_some() && !f.hole);
+}
+
+#[test]
+fn a_refusal_for_a_camera_already_left_says_nothing_about_the_one_shown() {
+    let mut r = Rig::new(three());
+    let fx = r.app.open_full("273", T0);
+    let first = tag_of(&fx, "/v1/cameras/live");
+    r.at(100);
+    r.press("right");
+    r.at(150);
+    r.answer(first, 409, json!({"ok": false, "error": {"code": "offline", "message": "x"}}));
+    let f = r.full();
+    assert_eq!(f.name, "Garden");
+    assert!(f.note.is_none() && r.view().toast.is_none(), "{f:?}");
+}
+
+#[test]
+fn a_stream_that_drops_after_it_played_is_asked_again_and_one_that_never_played_is_not() {
+    let mut r = Rig::new(three());
+    r.app.open_full("273", T0);
+    let mut failed = live_topic("273", "live", "failed");
+    failed["reason"] = json!("The stream went quiet");
+    r.helper("cameras.live", live_topic("273", "live", "starting"));
+    r.at(100);
+    r.helper("cameras.live", failed.clone());
+    let note = r.full().note.expect("the note");
+    assert_eq!(note.detail, "The stream went quiet", "no promise of another try");
+    assert!(live_posts(&r.tick(100 + 600_000)).is_empty(), "a camera that never played: a doorbell asked again and again would wake its battery");
+    // it plays, then drops
+    let t = 700_000;
+    r.at(t);
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    assert!(r.full().hole);
+    r.at(t + 1000);
+    r.helper("cameras.live", failed);
+    assert_eq!(r.full().note.expect("the note").detail, "The stream went quiet. Trying again soon.");
+    assert!(live_posts(&r.tick(t + 1000 + 2999)).is_empty());
+    assert_eq!(live_posts(&r.tick(t + 1000 + 3000)), [json!({"camera": "273"})]);
+}
+
+// ---------------------------------------------------------------------------- the fill of the bars
+
+/// Front Door is a doorbell whose picture is 3:4, 1920 by 2560.
+fn portrait() -> Value {
+    json!({"state": "ready", "reason": "", "now_skew_ms": 0, "rev": 1, "cameras": [
+        camera("273", "Front Door", json!({"native": {"codec": "h264", "width": 1920, "height": 2560, "fps": 15}})), camera("274", "Back Door", json!({}))]})
+}
+
+/// The asks for the picture the bars are made from: as small as the helper makes one.
+fn wash_asks(fx: &[Effect]) -> Vec<(u64, String)> {
+    frames(fx).into_iter().filter(|(_, p)| p.contains("w=32&h=18")).collect()
+}
+
+fn portrait_plays(r: &mut Rig) {
+    let mut t = live_topic("273", "live", "playing");
+    t["codec"] = json!("h264");
+    t["width"] = json!(1920);
+    t["height"] = json!(2560);
+    r.helper("cameras.live", t);
+}
+
+#[test]
+fn the_bars_beside_a_portrait_camera_are_filled_from_a_small_picture_and_a_sixteen_by_nine_camera_has_none() {
+    let mut r = Rig::new(portrait());
+    let fx = r.app.open_full("273", T0);
+    let ask = wash_asks(&fx);
+    assert_eq!(ask.iter().map(|(_, p)| p.as_str()).collect::<Vec<_>>(), ["/v1/cameras/273/frame?w=32&h=18"], "asked for from the start, so that it is there with the video");
+    r.at(100);
+    r.answer(ask[0].0, 200, json!({"picture": {"w": 40, "h": 54}}));
+    portrait_plays(&mut r);
+    assert!(r.full().hole);
+    assert_eq!(r.full().wash, None, "no window the compositor placed: nothing says where the video is");
+    r.app.set_window(Window::Carried);
+    assert_eq!(r.full().wash, Some(WashView { key: "wash:273".into(), around: (555, 0, 810, 1080) }));
+    // again every two seconds while it plays, and not before
+    assert!(wash_asks(&r.tick(100 + 1999)).is_empty());
+    assert_eq!(wash_asks(&r.tick(100 + 2000)).len(), 1);
+    // the 16:9 camera next to it: nothing is asked and nothing is drawn
+    r.at(3000);
+    let fx = r.press("right");
+    assert!(wash_asks(&fx).is_empty(), "{fx:?}");
+    r.helper("cameras.live", live_topic("274", "live", "playing"));
+    r.app.set_window(Window::Carried);
+    assert_eq!((r.full().name.as_str(), r.full().hole, r.full().wash), ("Back Door", true, None));
+    assert!(wash_asks(&r.tick(9000)).is_empty());
+}
+
+#[test]
+fn the_fill_is_the_themes_to_switch_off_and_goes_when_the_video_does() {
+    let mut r = Rig::new(portrait());
+    r.app.cfg.fill_bars = false;
+    let fx = r.app.open_full("273", T0);
+    assert!(wash_asks(&fx).is_empty());
+    portrait_plays(&mut r);
+    r.app.set_window(Window::Carried);
+    assert_eq!((r.full().wash, r.full().fill), (None, false), "the stills are shown whole on black as they were");
+    // switched on, the view that has the picture and the window has the bars; when the stream stops it has none, and the asks stop
+    let mut r = Rig::new(portrait());
+    let fx = r.app.open_full("273", T0);
+    r.answer(wash_asks(&fx)[0].0, 200, json!({"picture": {"w": 40, "h": 54}}));
+    portrait_plays(&mut r);
+    r.app.set_window(Window::Carried);
+    assert!(r.full().wash.is_some() && r.full().fill);
+    r.at(500);
+    r.helper("cameras.live", live_topic("273", "live", "stopped"));
+    assert_eq!(r.full().wash, None);
 }
 
 // ---------------------------------------------------------------------------- the strip

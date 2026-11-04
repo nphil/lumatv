@@ -14,6 +14,7 @@ use super::pics::{self, Planner, Want};
 use super::sheet::{self, Action as CardAction, Sheet};
 use super::strip::{self, Ctx, Item as SItem, Out as SOut, Strip};
 use super::view::*;
+use super::wash;
 use super::words::{self, Clock};
 use crate::kit::hint::{Action as HAct, Key as HKey};
 use crate::kit::screen::{Effect, Input, Model};
@@ -33,6 +34,29 @@ pub const FLIGHT: usize = 8;
 pub const FRESH_STILL_MS: u64 = 3000;
 /// The grid's tiles over an app (its video plays behind the grid): no more often than this whatever the owner chose, so that the previews take no frames from it.
 pub const OVER_APP_TILE_MS: u64 = 500;
+/// The picture the wash of the bars is made from is asked for this small (the helper decodes the bridge's 320 pixel JPEG at one eighth: 40 by 23),
+/// and this often while the video plays: under the helper's 3 s of idle, so that the bridge's stream stays the one it had and is not opened for
+/// each ask.
+pub const WASH_W: u32 = 32;
+pub const WASH_H: u32 = 18;
+pub const WASH_EVERY_MS: u64 = 2000;
+/// A camera that cannot play right now is asked again by itself after 3 s, 6 s and 12 s and then every 30 s, this many times (Try again asks more).
+pub const RETRIES: u32 = 8;
+
+fn retry_wait_ms(tries: u32) -> u64 {
+    match tries {
+        0 => 3_000,
+        1 => 6_000,
+        2 => 12_000,
+        _ => 30_000,
+    }
+}
+
+/// The refusals of a live ask that pass by themselves: the camera is offline for a moment, Scrypted is busy, slow, not connected yet or could not
+/// start the stream. Any other (no stream fits this TV, the camera is no longer shared, live is off) is the same the next time.
+fn passes(code: &str) -> bool {
+    matches!(code, "offline" | "busy" | "timeout" | "unreachable" | "not_ready" | "not_now" | "upstream_error")
+}
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -42,6 +66,8 @@ pub struct Config {
     pub live_over_apps: bool,
     /// How long OK is held for the options page (the theme's `motion.holdMs`).
     pub hold_ms: u64,
+    /// `theme.cameras.fillBars`: the bars beside a picture that is not 16:9 are filled with a blurred copy of it (`cameras::wash`).
+    pub fill_bars: bool,
 }
 
 impl Config {
@@ -54,13 +80,14 @@ impl Config {
             clock: Clock { twelve_hour: theme.pointer("/clock/twelveHour").and_then(Value::as_bool).unwrap_or(true), zone: super::words::Zone::system() },
             live_over_apps: theme.pointer("/cameras/liveOverApps").and_then(Value::as_bool).unwrap_or(false),
             hold_ms: u64::from(kit.tokens.motion.hold_ms),
+            fill_bars: theme.pointer("/cameras/fillBars").and_then(Value::as_bool).unwrap_or(true),
         }
     }
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { text_scale: 1.0, clock: Clock::default(), live_over_apps: false, hold_ms: 700 }
+        Self { text_scale: 1.0, clock: Clock::default(), live_over_apps: false, hold_ms: 700, fill_bars: true }
     }
 }
 
@@ -203,7 +230,7 @@ enum Screen {
 #[derive(Clone, Debug)]
 enum Ask {
     Settings,
-    Live { restore: Expect },
+    Live { restore: Expect, camera: String },
     Playback { restore: Expect },
     Pause,
     Recordings { camera: String },
@@ -211,6 +238,22 @@ enum Ask {
     SheetEvents { camera: String },
     SheetClips { camera: String },
     Notify { camera: String },
+}
+
+/// A live ask the helper refused for the camera the full view shows: why, until a stream is handed out.
+#[derive(Clone, Debug)]
+struct Refused {
+    camera: String,
+    code: String,
+    words: String,
+}
+
+/// A camera that cannot play and may soon: when to ask for it again, and how many times that has been done.
+#[derive(Clone, Copy, Debug)]
+struct Retry {
+    tries: u32,
+    /// `u64::MAX` while an ask is out.
+    at: u64,
 }
 
 pub struct App {
@@ -258,6 +301,12 @@ pub struct App {
     pending: Vec<(u64, Ask)>,
     /// The camera the helper was asked to play, and what the person is looking at.
     asked: Option<String>,
+    /// The helper refused the live ask for the camera shown: the full view says why, with the stills behind, until a stream is handed out.
+    refused: Option<Refused>,
+    /// The camera shown cannot play and may soon: it is asked for again by itself.
+    retry: Option<Retry>,
+    /// The camera shown has played live in this view: a failure after that is a drop, not a camera that never worked.
+    played: bool,
     expect: Expect,
     /// Where a recording was asked to start, until the helper says where its picture is.
     commit_hint: Option<i64>,
@@ -305,6 +354,9 @@ impl App {
             planner: Planner::new(),
             pending: Vec::new(),
             asked: None,
+            refused: None,
+            retry: None,
+            played: false,
             expect: Expect::Live,
             commit_hint: None,
             pause_when_playing: false,
@@ -526,6 +578,9 @@ impl App {
         self.ok_down = None;
         self.ok_fired = false;
         self.expect = Expect::Live;
+        self.refused = None;
+        self.retry = None;
+        self.played = false;
         self.dirty = true;
     }
 
@@ -657,11 +712,19 @@ impl App {
                 self.commit_hint = None;
                 self.thumb_pending = false;
                 let restore = Expect::Live;
-                self.ask(Ask::Live { restore }, "POST", "/v1/cameras/live".into(), Some(self.live_body(&id)), fx);
+                self.ask(Ask::Live { restore, camera: id.clone() }, "POST", "/v1/cameras/live".into(), Some(self.live_body(&id)), fx);
             }
             (None, Some(_)) => self.stop_live(fx),
             _ => {}
         }
+    }
+
+    /// The camera shown cannot play: asked again by itself when `may_pass`, after 3 s, 6 s, 12 s and then every 30 s, at most [`RETRIES`] times from
+    /// the last time it played (the count is kept while it keeps failing). Nothing is asked again of a camera whose failure does not pass: a Ring
+    /// doorbell that never played would wake its battery for each ask.
+    fn schedule_retry(&mut self, may_pass: bool) {
+        let tries = self.retry.map_or(0, |r| r.tries);
+        self.retry = (may_pass && tries < RETRIES).then(|| Retry { tries, at: self.now + retry_wait_ms(tries) });
     }
 
     /// Tears the session down off the UI path (`live/stop`).
@@ -875,6 +938,18 @@ impl App {
             self.go_live(fx);
             return;
         }
+        // live that plays ends the failure; a failure after it played is a drop, which passes more often than not
+        if self.expect == Expect::Live {
+            match self.live.state {
+                LiveState::Playing if self.live.mode == LiveMode::Live => {
+                    self.played = true;
+                    self.retry = None;
+                    self.refused = None;
+                }
+                LiveState::Failed if before.state != LiveState::Failed => self.schedule_retry(self.played),
+                _ => {}
+            }
+        }
         if self.pause_when_playing && self.live.is_recording() && self.live.state == LiveState::Playing {
             self.pause_when_playing = false;
             if !self.live.paused {
@@ -925,7 +1000,28 @@ impl App {
                     self.settings = Settings::parse(data);
                 }
             }
-            Ask::Live { restore } | Ask::Playback { restore } => {
+            Ask::Live { restore, camera } => {
+                if status == 200 || status == 202 {
+                    // a stream is handed out: the refusal the full view told of is over, and what follows is the helper's own account of the stream
+                    if self.refused.take().is_some() {
+                        self.dirty = self.viewer_up();
+                    }
+                } else {
+                    // refused: the picture goes on as it was
+                    self.expect = restore;
+                    self.thumb_pending = false;
+                    self.commit_hint = None;
+                    self.pause_when_playing = false;
+                    let words = refusal(data).or_else(|| (status == 0).then(|| words::link_words("offline").to_string()));
+                    if self.is_full() && self.current().is_some_and(|c| c.id == camera) {
+                        let fallback = if status == 0 { "unreachable" } else { "" };
+                        let code = data.pointer("/error/code").and_then(Value::as_str).unwrap_or(fallback).to_string();
+                        self.live_refused(camera, code, words.unwrap_or_default(), fx);
+                    }
+                    // else the person has moved on to another camera: the words would be about one that is no longer there
+                }
+            }
+            Ask::Playback { restore } => {
                 if status != 200 && status != 202 {
                     // refused: the picture goes on as it was
                     self.expect = restore;
@@ -1329,7 +1425,30 @@ impl App {
     }
 
     fn note_up(&self) -> bool {
-        self.is_full() && self.expect == Expect::Live && self.live.state == LiveState::Failed && self.current().is_some_and(|c| self.live.camera == c.id)
+        self.is_full() && self.expect == Expect::Live && (self.topic_failed() || self.refused_now())
+    }
+
+    /// The live session of the camera shown failed (the helper's `cameras.live` says so).
+    fn topic_failed(&self) -> bool {
+        self.live.state == LiveState::Failed && self.current().is_some_and(|c| self.live.camera == c.id)
+    }
+
+    /// The helper refused the ask for the camera shown, and no stream has been handed out since.
+    fn refused_now(&self) -> bool {
+        !self.hole() && self.refused.as_ref().is_some_and(|r| self.current().is_some_and(|c| c.id == r.camera))
+    }
+
+    /// The helper refused the full view's ask for `camera`, the one shown: why, on a note over its stills, and asked again by itself where that may help.
+    fn live_refused(&mut self, camera: String, code: String, words: String, fx: &mut Vec<Effect>) {
+        // a refusal leaves the session that plays as it was: if it is another camera's, nobody is looking at it any more
+        if self.live.camera != camera && matches!(self.live.state, LiveState::Starting | LiveState::Playing) {
+            fx.push(Effect::Post { path: "/v1/cameras/live/stop".into(), body: json!({}) });
+        }
+        // a stream Scrypted could not start is asked for twice more at most: for a camera on a battery each ask is a session on the camera
+        let may_pass = passes(&code) && (code != "upstream_error" || self.retry.is_none_or(|r| r.tries < 2));
+        self.schedule_retry(may_pass);
+        self.refused = Some(Refused { camera, code, words });
+        self.dirty = true;
     }
 
     fn strip_out(&mut self, out: SOut, now: u64, fx: &mut Vec<Effect>) {
@@ -1503,6 +1622,10 @@ impl App {
                     if self.wants_still(c) {
                         out.push(Want::repeating(&full_key(&c.id), &format!("/v1/cameras/{}/frame?w={FULL_W}&h={FULL_H}", sheet::encode(&c.id)), FULL_EVERY_MS));
                     }
+                    // the bars are made from it once the video plays, so it is there with the video; a note over the stills makes its own from them
+                    if self.wash_rect().is_some() && !self.note_up() {
+                        out.push(Want::repeating(&wash_key(&c.id), &format!("/v1/cameras/{}/frame?w={WASH_W}&h={WASH_H}", sheet::encode(&c.id)), WASH_EVERY_MS));
+                    }
                     if let Some(s) = &self.strip {
                         if s.bubble_ready(self.now) {
                             let ctx = self.strip_ctx();
@@ -1610,6 +1733,13 @@ impl App {
                 self.get(Ask::Ticks { camera }, format!("/v1/cameras/{id}/events?from={}&to={}&count=200", window.from, window.to), fx);
             }
         }
+        // a camera that cannot play and may soon is asked for again
+        if let Some(r) = self.retry.filter(|_| self.is_full()) {
+            if now >= r.at && self.note_up() {
+                self.retry = Some(Retry { tries: r.tries + 1, at: u64::MAX });
+                self.ensure_live(true, fx);
+            }
+        }
         if self.is_full() {
             self.ensure_live(false, fx);
         }
@@ -1697,6 +1827,7 @@ impl App {
             layout,
             focus: g.focus,
             hints: self.hints(),
+            fill: self.cfg.fill_bars,
         }
     }
 
@@ -1719,11 +1850,8 @@ impl App {
         let i = self.cams.index_of(&f.camera).unwrap_or(0);
         let n = self.cams.list.len();
         let hole = self.hole();
-        let note = self.note_up().then(|| Note {
-            title: words::FAILED_TITLE,
-            detail: if self.live.reason.trim().is_empty() { "The camera did not start.".to_string() } else { self.live.reason.trim().to_string() },
-            button: words::TRY_AGAIN,
-        });
+        let note = self.note_up().then(|| self.note());
+        let wash = (hole && self.window == Window::Carried).then(|| self.wash_view(c)).flatten();
         let starting = self.can_live(c) && !hole && note.is_none();
         let info = if self.live.camera == c.id && self.live.state == LiveState::Playing && self.asked.as_deref() == Some(&c.id) {
             let s = words::stream_words(self.live.width, self.live.height, &self.live.codec, self.live.fps, self.live.rate);
@@ -1764,12 +1892,44 @@ impl App {
             note,
             hole,
             backdrop,
+            wash,
             veil,
             chrome: f.chrome,
             button_focused: note_up,
             window_cue: self.window == Window::Refused && self.live_claim().is_some(),
             hints: if overlays || note_up { Vec::new() } else { self.hints() },
+            fill: self.cfg.fill_bars,
         })
+    }
+
+    /// The note over a camera that cannot play: why, in the helper's words, and that it is asked for again where that may help.
+    fn note(&self) -> Note {
+        let refused = self.refused.as_ref().filter(|_| self.refused_now());
+        let retrying = self.retry.is_some();
+        if refused.is_some_and(|r| r.code == "offline") {
+            let detail = if retrying { words::OFFLINE_RETRYING } else { words::OFFLINE_GIVEN_UP };
+            return Note { title: words::OFFLINE_TITLE, detail: detail.to_string(), button: words::TRY_AGAIN };
+        }
+        let reason = refused.map_or(self.live.reason.trim(), |r| r.words.trim());
+        let mut detail = if reason.is_empty() { "The camera did not start.".to_string() } else { reason.to_string() };
+        if retrying {
+            detail = format!("{}{} {}", detail, if detail.ends_with('.') { "" } else { "." }, words::RETRYING);
+        }
+        Note { title: words::FAILED_TITLE, detail, button: words::TRY_AGAIN }
+    }
+
+    /// The video window and the picture the wash of the bars beside it is made from: the camera's own wash once it has arrived, until then its
+    /// tile's (the grid had it); nothing when there is none.
+    fn wash_view(&self, c: &data::Camera) -> Option<WashView> {
+        let around = self.wash_rect()?;
+        let key = [wash_key(&c.id), tile_key(&c.id)].into_iter().find(|k| self.planner.pic(k).last_at.is_some())?;
+        Some(WashView { key, around })
+    }
+
+    /// Where the video window is on the screen when its bars are worth filling: the camera plays live and is not the screen's shape.
+    fn wash_rect(&self) -> Option<(i32, i32, i32, i32)> {
+        let rect = self.live_claim()?.rect;
+        (self.cfg.fill_bars && wash::has_bars(rect)).then_some(rect)
     }
 
     fn strip_view(&self, s: &Strip) -> StripView {
@@ -1903,6 +2063,11 @@ pub fn bubble_key(camera: &str) -> String {
     format!("bubble:{camera}")
 }
 
+/// The wash of the bars beside a camera's video: a picture as small as the helper makes one.
+pub fn wash_key(camera: &str) -> String {
+    format!("wash:{camera}")
+}
+
 impl Model for App {
     type View = View;
 
@@ -1950,6 +2115,9 @@ impl Model for App {
         }
         if let Some(d) = self.planner.due_at(&self.wants()) {
             due.push(d);
+        }
+        if let Some(r) = self.retry.filter(|r| r.at != u64::MAX) {
+            due.push(r.at);
         }
         due.into_iter().min().map(|d| d.max(self.now + 1))
     }

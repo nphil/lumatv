@@ -1,12 +1,30 @@
 //! What the Cameras surfaces share: a set of layers that shows and hides as one (with the app's own fade times), the palette they read,
 //! and sizes that follow the person's text size.
 
+use crate::cameras::wash::Grade;
 use crate::kit::Kit;
 use crate::kit::pane::Pane;
 use crate::kit::text::Text;
 use crate::system::parts::{HIDDEN, Part};
 use compositor_protocol::{Ease, Props, Rgba};
 use ui::scene::{ImageLayer, ShapeLayer};
+
+/// How a tile's wash is graded: a dimmed copy of the picture under the theme's own scrim, so that the bars sit in the page the way its glass does
+/// (a dark veil on the dark theme, a pale one on the light).
+pub fn tile_grade(kit: &Kit) -> Grade {
+    let scrim = kit.ui.look.colour(ui::lucent::palette::PaletteRole::Scrim);
+    let alpha = f32::from(scrim.3) / 255.0;
+    // the role is premultiplied: the tint is what is stored over the alpha
+    let tint = |c: u8| if scrim.3 == 0 { 0.0 } else { (f32::from(c) / alpha).min(255.0) };
+    let dark = matches!(kit.mode, ui::lucent::palette::Mode::Dark);
+    Grade { gain: if dark { 0.85 } else { 1.0 }, tint: [tint(scrim.0), tint(scrim.1), tint(scrim.2)], mix: alpha, sat: 1.3 }
+}
+
+/// How the full view's wash is graded: the screen the video is on is dark in both modes, so the bars are a dimmed copy under the ink the view's
+/// veil already is.
+pub fn video_grade() -> Grade {
+    Grade { gain: 0.8, tint: [8.0, 6.0, 16.0], mix: 0.2, sat: 1.3 }
+}
 
 /// The colours the screens paint with, read from the look once per build.
 #[derive(Clone, Copy, Debug)]

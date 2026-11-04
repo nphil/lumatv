@@ -94,6 +94,8 @@ pub struct GridView {
     pub above: Option<String>,
     pub focus: GridFocus,
     pub hints: Vec<HintView>,
+    /// The pictures of another shape than the tile are shown whole over a wash of themselves (`theme.cameras.fillBars`); else they are cut to the tile.
+    pub fill: bool,
 }
 
 /// What the name pill says of the picture: the live dot and "Live", "Starting", "Recorded", "Can't play".
@@ -122,6 +124,15 @@ pub enum Backdrop {
     Thumb(String),
 }
 
+/// The wash of the bars beside the video window while the stream plays on a plane (`cameras::wash`): the key of the picture it is made from, and
+/// where the video is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WashView {
+    pub key: String,
+    /// The video window on the 1920 by 1080 screen (x, y, w, h): the wash is what is left of the screen around it.
+    pub around: (i32, i32, i32, i32),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct FullView {
     pub name: String,
@@ -134,6 +145,10 @@ pub struct FullView {
     /// The layer is transparent over the video plane: nothing of the picture is drawn.
     pub hole: bool,
     pub backdrop: Backdrop,
+    /// The bars beside the video window are filled: the layer is a hole where the video is and a wash of the camera's picture beside it.
+    pub wash: Option<WashView>,
+    /// The still of another shape than the screen is shown whole over a wash of itself (`theme.cameras.fillBars`); else it is shown whole on black.
+    pub fill: bool,
     /// How dark the backdrop is veiled: 0 none, else the alpha of the veil (starting 0.35, failed 0.62).
     pub veil: f32,
     /// The chrome (pills, hints) is up; the surface fades it.

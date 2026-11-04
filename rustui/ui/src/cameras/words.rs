@@ -337,6 +337,12 @@ pub const CANT_PLAY: &str = "Can\u{2019}t play";
 pub const OPENS_SOON: &str = "Opens in a few seconds";
 pub const FAILED_TITLE: &str = "Can\u{2019}t play this camera";
 pub const TRY_AGAIN: &str = "Try again";
+/// The note over a camera that Scrypted says is offline, and what the screen does about it.
+pub const OFFLINE_TITLE: &str = "This camera is offline";
+pub const OFFLINE_RETRYING: &str = "Looking again every few seconds.";
+pub const OFFLINE_GIVEN_UP: &str = "Try again when it is back on.";
+/// After the reason, while the camera is asked for again by itself.
+pub const RETRYING: &str = "Trying again soon.";
 pub const NO_PICTURE: &str = "No picture";
 pub const CONNECTING: &str = "Connecting";
 pub const OFFLINE: &str = "Offline";
