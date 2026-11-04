@@ -359,6 +359,9 @@ fn has_keys(bitmap: &[u8]) -> bool {
 /// How long the directory goes unread when nothing says it changed.
 const RESCAN_NS: u64 = 2_000_000_000;
 
+/// The kernel's list of input devices: `eventN` is a link in it only while a device is registered behind that node.
+const CLASS_DIR: &str = "/sys/class/input";
+
 struct Slot {
     device: Option<Device>,
     seat: seat::SeatId,
@@ -377,6 +380,53 @@ pub struct Scan {
     pub problems: Vec<String>,
 }
 
+/// What one look at a node found.
+pub enum Probe {
+    /// A remote or a keyboard, open.
+    Keys(Box<Device>),
+    /// A device with no keys (a game controller's touchpad and sensors, the Magic Remote's touchpad), by name.
+    NoKeys(String),
+    /// A node that did not open.
+    Failed(io::Error),
+}
+
+/// Looks at one node: opens it and keeps it only if it has keys. A device with none is closed again on the spot, and that close waits for a
+/// grace period of the kernel's RCU (`evdev_release`, about 20 ms of the loop); every open of a node with no device behind it runs `modprobe`
+/// for its numbers (`request_module`, 7 ms and more). [`Inputs::scan`] therefore looks at a node once, not at every look.
+fn probe(path: &str) -> Probe {
+    match Device::open(path) {
+        Ok(d) if d.takes_keys() => Probe::Keys(Box::new(d)),
+        Ok(d) => Probe::NoKeys(d.name.clone()),
+        Err(e) => Probe::Failed(e),
+    }
+}
+
+/// What a node was when it was looked at: the node itself, and the registration of the device behind it (the kernel's link for it names a
+/// new input number whenever a device is made anew). A node that is still the same is not looked at again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Identity {
+    /// Inode, device numbers and change time of the node.
+    node: Option<(u64, u64, i64, i64)>,
+    registration: Option<PathBuf>,
+}
+
+/// A node's identity; `None` when the kernel's list (`class`, when there is one) says that no device is behind it: LG's init makes
+/// `event14` to `event31` whether or not anything is registered there, and a device that is registered later takes one of them over
+/// without the node being made.
+fn identity(path: &Path, class: Option<&Path>) -> Option<Identity> {
+    use std::os::unix::fs::MetadataExt;
+    let registration = match class {
+        None => None,
+        Some(class) => match std::fs::read_link(class.join(path.file_name()?)) {
+            Ok(link) => Some(link),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
+            Err(_) => None,
+        },
+    };
+    let node = std::fs::metadata(path).ok().map(|m| (m.ino(), m.rdev(), m.ctime(), m.ctime_nsec()));
+    Some(Identity { node, registration })
+}
+
 /// Where the compositor reads the set's input from: the `event*` nodes of one directory (`/dev/input` on the set), and the seat each
 /// device's keys go out on (one wl_seat per device, as LG's compositor has them).
 ///
@@ -387,9 +437,13 @@ pub struct Scan {
 /// network keys went nowhere, the idle timer ran out and the saver came up under a gate that thought it was pressing keys.
 pub struct Inputs {
     dir: PathBuf,
+    /// The kernel's list of the devices behind the nodes (`/sys/class/input`), where `dir` is the set's own `/dev/input`.
+    class: Option<PathBuf>,
     slots: Vec<Slot>,
     /// What was said of a node that is left alone, by path, so that a node which stays that way is told once.
     told: HashMap<String, String>,
+    /// The nodes that were looked at and not kept, by path, as they were then: a node that is still the same is not looked at again.
+    judged: HashMap<String, Identity>,
     watch: Option<OwnedFd>,
     /// When the directory is read next (CLOCK_MONOTONIC ns); never before the first scan.
     next_ns: u64,
@@ -397,7 +451,13 @@ pub struct Inputs {
 
 impl Inputs {
     pub fn new(dir: &Path) -> Inputs {
-        Inputs { dir: dir.to_path_buf(), slots: Vec::new(), told: HashMap::new(), watch: None, next_ns: u64::MAX }
+        // The set's own /dev/input has the kernel's list beside it; a directory standing in for it has not.
+        Inputs::listed_by(dir, (dir == Path::new("/dev/input")).then(|| PathBuf::from(CLASS_DIR)))
+    }
+
+    /// [`Inputs::new`] with the kernel's list of the devices given (`None`: every node is looked at).
+    pub fn listed_by(dir: &Path, class: Option<PathBuf>) -> Inputs {
+        Inputs { dir: dir.to_path_buf(), class, slots: Vec::new(), told: HashMap::new(), judged: HashMap::new(), watch: None, next_ns: u64::MAX }
     }
 
     /// Watches the directory for nodes made or changed; the descriptor is for the loop's epoll. `None` when the kernel refuses: the
@@ -441,7 +501,16 @@ impl Inputs {
     /// Opens every remote or keyboard node of the directory that no open device has. A device made anew goes back into the slot, and onto
     /// the seat, of the one that went (the clients that bound that seat hear its keys again); any other gets a slot and a seat from
     /// `new_seat`.
+    ///
+    /// A node is looked at when it is new or has changed, not at every look. The first version of the look opened every node that was not
+    /// open at each of them, every two seconds: the 18 nodes with no device behind them each ran `modprobe` and the 4 of a game controller and
+    /// a touchpad each waited for an RCU grace period when they were closed again, 115 to 178 ms of the loop at every look (2026-11-04).
     pub fn scan(&mut self, now_ns: u64, new_seat: &mut dyn FnMut(&str) -> seat::SeatId) -> Scan {
+        self.scan_with(now_ns, new_seat, &mut probe)
+    }
+
+    /// [`Inputs::scan`] with the look at a node given (the host tests count them).
+    pub fn scan_with(&mut self, now_ns: u64, new_seat: &mut dyn FnMut(&str) -> seat::SeatId, look: &mut dyn FnMut(&str) -> Probe) -> Scan {
         self.next_ns = now_ns.saturating_add(RESCAN_NS);
         let mut out = Scan::default();
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return out };
@@ -452,18 +521,38 @@ impl Inputs {
             .collect();
         paths.sort();
         self.told.retain(|p, _| paths.contains(p));
+        self.judged.retain(|p, _| paths.contains(p));
+        // Without the kernel's list (no `/sys`), every node is looked at once.
+        let class = self.class.clone().filter(|c| c.is_dir());
         for path in paths {
             if self.slots.iter().any(|s| s.device.as_ref().is_some_and(|d| d.path == path)) {
                 continue;
             }
-            let problem = match Device::open(&path) {
-                Ok(d) if d.takes_keys() => {
+            let Some(now) = identity(Path::new(&path), class.as_deref()) else {
+                self.judged.remove(&path);
+                continue;
+            };
+            if self.judged.get(&path) == Some(&now) {
+                continue;
+            }
+            let problem = match look(&path) {
+                Probe::Keys(d) => {
                     self.told.remove(&path);
-                    self.adopt(d, new_seat, &mut out);
+                    self.judged.remove(&path);
+                    self.adopt(*d, new_seat, &mut out);
                     continue;
                 }
-                Ok(d) => format!("input: {path} {:?} has no keys (no remote or keyboard): left alone", d.name),
-                Err(e) => format!("input: {path}: {e}"),
+                Probe::NoKeys(name) => {
+                    self.judged.insert(path.clone(), now);
+                    format!("input: {path} {name:?} has no keys (no remote or keyboard): left alone")
+                }
+                Probe::Failed(e) => {
+                    // "No such device" stays so until the node changes; any other refusal (permissions, memory) is tried again at the next look.
+                    if matches!(e.raw_os_error(), Some(libc::ENXIO | libc::ENODEV)) {
+                        self.judged.insert(path.clone(), now);
+                    }
+                    format!("input: {path}: {e}")
+                }
             };
             if self.told.insert(path, problem.clone()).as_ref() != Some(&problem) {
                 out.problems.push(problem);
@@ -1127,6 +1216,89 @@ mod hotplug_tests {
         inputs.scan(2, &mut seats(&mut made));
         std::os::unix::fs::symlink(dir.0.join("nowhere"), &node).unwrap();
         assert_eq!(inputs.scan(3, &mut seats(&mut made)).problems.len(), 1, "a node that came back is told afresh");
+    }
+
+    /// Registers a device behind `name` in the directory standing in for `/sys/class/input`, as input number `input` (made anew: the same
+    /// name with another number).
+    fn register(class: &Path, name: &str, input: u32) {
+        let link = class.join(name);
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(format!("../../devices/virtual/input/input{input}/{name}"), link).unwrap();
+    }
+
+    /// One look at the directory, answering `found` for every node it opens: the nodes it looked at, by name, and what it told.
+    fn looked_at(inputs: &mut Inputs, at: u64, found: fn(&str) -> Probe) -> (Vec<String>, Vec<String>) {
+        let mut asked = Vec::new();
+        let mut made = 0;
+        let scan = inputs.scan_with(at, &mut seats(&mut made), &mut |path| {
+            asked.push(Path::new(path).file_name().unwrap().to_string_lossy().into_owned());
+            found(path)
+        });
+        (asked, scan.problems)
+    }
+
+    fn a_pad(_: &str) -> Probe {
+        Probe::NoKeys("Wireless Controller".into())
+    }
+
+    fn refused(path: &str) -> Probe {
+        let errno = if path.ends_with("event4") { libc::ENXIO } else { libc::EACCES };
+        Probe::Failed(io::Error::from_raw_os_error(errno))
+    }
+
+    #[test]
+    fn a_node_with_no_device_behind_it_is_not_opened_until_a_device_is_registered_there() {
+        // LG's init makes event14 to event31 with nothing behind them: every open of one runs modprobe (7 ms and more of the loop).
+        let (dir, class) = (Dir::new("stale"), Dir::new("stale-class"));
+        for name in ["event2", "event15", "event16"] {
+            dir.node(name, code::KEY_LEFT);
+        }
+        register(&class.0, "event2", 3);
+        let mut inputs = Inputs::listed_by(&dir.0, Some(class.0.clone()));
+        assert_eq!(looked_at(&mut inputs, 0, a_pad).0, ["event2"], "only the node with a device behind it");
+        assert!(looked_at(&mut inputs, 1, a_pad).0.is_empty(), "and not again");
+
+        // A device takes over a node that was always there: no node is made, the kernel's list is all that says so.
+        register(&class.0, "event15", 4);
+        assert_eq!(looked_at(&mut inputs, 2, a_pad).0, ["event15"]);
+    }
+
+    #[test]
+    fn a_device_with_no_keys_is_looked_at_once_and_again_when_it_is_made_anew() {
+        // Each look at one was an open and a close, and a close waits for a grace period of the kernel's RCU (about 20 ms of the loop).
+        let (dir, class) = (Dir::new("pad"), Dir::new("pad-class"));
+        dir.node("event8", code::KEY_LEFT);
+        register(&class.0, "event8", 5);
+        let mut inputs = Inputs::listed_by(&dir.0, Some(class.0.clone()));
+        let (asked, told) = looked_at(&mut inputs, 0, a_pad);
+        assert_eq!((asked, told.len()), (vec!["event8".to_string()], 1));
+        for at in 1..5 {
+            assert!(looked_at(&mut inputs, at, a_pad).0.is_empty(), "look {at}");
+        }
+        register(&class.0, "event8", 6);
+        assert_eq!(looked_at(&mut inputs, 5, a_pad).0, ["event8"], "the wake made it anew");
+
+        // Without the kernel's list a node is the same until it has been gone from the directory.
+        let plain = Dir::new("pad-plain");
+        plain.node("event9", code::KEY_LEFT);
+        let mut inputs = Inputs::listed_by(&plain.0, None);
+        assert_eq!(looked_at(&mut inputs, 0, a_pad).0, ["event9"]);
+        assert!(looked_at(&mut inputs, 1, a_pad).0.is_empty());
+        std::fs::remove_file(plain.0.join("event9")).unwrap();
+        looked_at(&mut inputs, 2, a_pad);
+        plain.node("event9", code::KEY_RIGHT);
+        assert_eq!(looked_at(&mut inputs, 3, a_pad).0, ["event9"]);
+    }
+
+    #[test]
+    fn a_refusal_of_no_such_device_is_not_asked_again_and_any_other_is() {
+        let dir = Dir::new("refused");
+        dir.node("event4", code::KEY_LEFT);
+        dir.node("event5", code::KEY_LEFT);
+        let mut inputs = Inputs::listed_by(&dir.0, None);
+        let (asked, told) = looked_at(&mut inputs, 0, refused);
+        assert_eq!((asked.len(), told.len()), (2, 2));
+        assert_eq!(looked_at(&mut inputs, 1, refused).0, ["event5"], "permissions may be put right; a missing device waits for its node to change");
     }
 
     #[test]
