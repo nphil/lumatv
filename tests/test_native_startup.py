@@ -151,6 +151,13 @@ comp_switch() { echo "switch $1" >> "$CALLS"; [ "$1" != off ] || rm -f "$COMP/en
 clear_stock_running() { echo clear >> "$CALLS"; }
 emit_error() { echo "error $*"; }
 log_line() { :; }
+# Boot direct is off unless a scenario says BD=yes; the stand-ins write down what the activation asks of it.
+bd_enabled() { [ "${BD:-no}" = yes ]; }
+bd_stub_up() { echo bd-stub >> "$CALLS"; [ "${BD_STUB_FAIL:-no}" = no ]; }
+bd_home_up() { echo bd-home >> "$CALLS"; [ "${BD_HOME_FAIL:-no}" = no ]; }
+bd_finish() { echo bd-finish >> "$CALLS"; }
+bd_fail() { echo "bd-fail $*" >> "$CALLS"; }
+bd_abort() { echo bd-abort >> "$CALLS"; }
 ''' + shell_function('verb_compositor_boot_activate') + '''
 case "$*" in
   compositor-boot)
@@ -201,6 +208,26 @@ esac
             ({'RESTART_FAIL': 'yes'}, ['mount', 'prepare', 'landing', 'restart native', 'switch off', 'restart stock', 'clear'], False),
             ({'READY': 'no'}, ['mount', 'prepare', 'landing', 'restart native', 'ready', 'switch off', 'restart stock', 'clear'], False),
             ({'FINALIZE_FAIL': 'yes'}, ['mount', 'prepare', 'landing', 'restart native', 'ready', landed, 'finalize'], False),
+            # Boot direct: the Home stub goes in just before the restart and its Home is launched after it; with the flag off (every row
+            # above) the activation asks nothing of it.
+            ({'BD': 'yes'}, ['mount', 'prepare', 'landing', 'bd-stub', 'restart native', 'ready', 'bd-home', 'bd-finish', landed, 'finalize'], True),
+            # A set that is in standby when the compositor is activated gets its Home from bootd at the wake, so the stub's launch is not
+            # waited for; a plain activation launches it whatever the panel says.
+            ({'BD': 'yes', 'PANEL': 'standby', 'BOOT_STANDBY': 'true'}, ['mount', 'bd-stub', 'restart native', 'ready', 'bd-finish'], True),
+            ({'BD': 'yes', 'PANEL': 'standby'}, ['mount', 'prepare', 'bd-stub', 'restart native', 'ready', 'bd-home', 'bd-finish', 'finalize'], True),
+            # A stub that does not come up never holds the activation back; a Home that does not start is a fault of the boot.
+            ({'BD': 'yes', 'BD_STUB_FAIL': 'yes'}, ['mount', 'prepare', 'landing', 'bd-stub', 'restart native', 'ready', landed, 'finalize'], True),
+            ({'BD': 'yes', 'BD_HOME_FAIL': 'yes'},
+             ['mount', 'prepare', 'landing', 'bd-stub', 'restart native', 'ready', 'bd-home', 'bd-fail the stub did not start', landed, 'finalize'], True),
+            # Every way the activation fails takes the stub back before LG's compositor is restored.
+            ({'BD': 'yes', 'RESTART_FAIL': 'yes'},
+             ['mount', 'prepare', 'landing', 'bd-stub', 'restart native', 'bd-abort', 'switch off', 'restart stock', 'clear'], False),
+            ({'BD': 'yes', 'READY': 'no'},
+             ['mount', 'prepare', 'landing', 'bd-stub', 'restart native', 'ready', 'bd-abort', 'switch off', 'restart stock', 'clear'], False),
+            # A compositor that is live already, or an activation that is refused, is not given a stub.
+            ({'BD': 'yes', 'LIVE': 'yes'}, ['mount', 'prepare', 'ready', 'finalize'], True),
+            ({'BD': 'yes', 'RECOVERING': 'yes'}, ['mount', 'prepare'], False),
+            ({'BD': 'yes', 'MOUNTED': 'no'}, ['mount', 'prepare'], False),
         )
         for variables, expected, done in scenarios:
             with self.subTest(variables=variables):
