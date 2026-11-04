@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 use std::os::fd::{AsFd, FromRawFd, OwnedFd};
+use std::os::unix::fs::FileExt;
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
@@ -66,6 +67,20 @@ pub fn assert_placements_valid(placements: &[serde_json::Value]) {
         assert!(p.get("context").is_some_and(|c| c.as_str().is_some_and(|c| !c.is_empty())), "no context: {p}");
         assert_eq!(p.get("sourceInput").is_some(), p.get("originalInput").is_some(), "a source goes with its original input, and only with it: {p}");
     }
+}
+
+/// The keysym a client reading `keymap` finds for the Linux key `code`: the symbol written for the key at xkb keycode `code + 8` (a client adds 8 to the
+/// code of a `wl_keyboard.key`), as `0x...` or a keysym name; `None` for a code with no key and a key with no symbol. The keymap is written one key a line.
+pub fn keysym_of(keymap: &str, code: u32) -> Option<String> {
+    let name = keymap.lines().find_map(|l| {
+        let (name, rest) = l.trim().strip_prefix('<')?.split_once('>')?;
+        let number: u32 = rest.trim().strip_prefix('=')?.trim().strip_suffix(';')?.trim().parse().ok()?;
+        (number == code + 8).then(|| name.to_string())
+    })?;
+    keymap.lines().find_map(|l| {
+        let (key, rest) = l.trim().strip_prefix("key <")?.split_once('>')?;
+        (key == name).then(|| rest.split_once('[').and_then(|(_, s)| s.split_once(']')).map(|(s, _)| s.trim().to_string()))?
+    })
 }
 
 type Job = Box<dyn FnOnce(&mut State) + Send>;
@@ -215,6 +230,8 @@ pub struct ClientState {
     pub keys: Vec<(u32, u32)>,
     /// `(wl_keyboard protocol id, key)` per key event, to tell the seats apart.
     pub keys_by_keyboard: Vec<(u32, u32)>,
+    /// The keymap each `wl_keyboard.keymap` carried, in the order the keyboards were bound.
+    pub keymaps: Vec<String>,
     pub pointer_enters: Vec<(f64, f64)>,
     pub pointer_leaves: u32,
     pub motions: Vec<(f64, f64)>,
@@ -512,6 +529,13 @@ impl Dispatch<WlKeyboard, ()> for ClientState {
             Event::Key { key, state: st, .. } => {
                 state.keys.push((key, st.into_result().map(|s| s as u32).unwrap_or(99)));
                 state.keys_by_keyboard.push((kb.id().protocol_id(), key));
+            }
+            Event::Keymap { fd, size, .. } => {
+                // the server's descriptor and this one share an offset that is at the end of the text it wrote
+                let mut text = vec![0u8; size as usize];
+                std::fs::File::from(fd).read_exact_at(&mut text, 0).unwrap();
+                text.truncate(text.iter().position(|b| *b == 0).unwrap_or(text.len()));
+                state.keymaps.push(String::from_utf8(text).unwrap());
             }
             _ => {}
         }

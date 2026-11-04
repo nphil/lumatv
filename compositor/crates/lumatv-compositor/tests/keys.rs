@@ -6,7 +6,7 @@ mod harness;
 
 use std::time::{Duration, Instant};
 
-use harness::{Client, Server, Window};
+use harness::{Client, Server, Window, keysym_of};
 use lumatv_compositor::State;
 use lumatv_compositor::config::Config;
 use lumatv_compositor::input::Keys;
@@ -551,4 +551,74 @@ fn power_requests_standby_and_wake_once_per_press_but_never_toggles_during_a_tra
         }).collect::<Vec<_>>()
     });
     assert_eq!(requests, ["powerOff", "powerOn", "powerOff"]);
+}
+
+const KEY_INFO: u32 = 358;
+const KEY_CHANNELUP: u32 = 402;
+const KEY_CHANNELDOWN: u32 = 403;
+
+/// What a client reading the served keymap finds for each key the remote sends: LG's own symbols, which its apps are written against (the set's
+/// `/usr/share/X11/xkb/symbols/lg_vndr/remotes`, and `qt_keycodes` of `/etc/webos-profile/common/profile_keymap.json`), and the plain keys as they were.
+#[test]
+fn the_served_keymap_gives_every_remote_key_the_symbol_lgs_apps_read() {
+    let mut server = Server::start();
+    let a = app(&mut server, "Player", "org.test.player");
+    let keymap = a.client.state.keymaps.first().expect("the keyboard was served a keymap");
+    for (code, symbol, key) in [
+        (KEY_CHANNELUP, "0x01200021", "CH+"),
+        (KEY_CHANNELDOWN, "0x01200022", "CH-"),
+        (KEY_PREVIOUS, "0x01200003", "Back"),
+        (KEY_EXIT, "0x01200001", "Exit"),
+        (KEY_INFO, "0x01200002", "Info"),
+        (KEY_RED, "0x01200011", "Red"),
+        (KEY_GREEN, "0x01200012", "Green"),
+        (KEY_YELLOW, "0x01200013", "Yellow"),
+        (KEY_BLUE, "0x01200014", "Blue"),
+        (KEY_MENU, "0x01200004", "the gear"),
+        (KEY_VIDEO_NEXT, "0x01200035", "Input"),
+        (KEY_NETFLIX, "0x01200028", "Netflix"),
+        (KEY_AMAZON, "0x01200029", "Prime Video"),
+        (KEY_VOLUMEUP, "0x01000072", "Volume up"),
+        (KEY_VOLUMEDOWN, "0x01000070", "Volume down"),
+        (KEY_MUTE, "0x01000071", "Mute"),
+        (KEY_POWER, "0x01200000", "Power"),
+        (KEY_RF_HOME, "0x01000053", "Home"),
+        (KEY_UP, "Up", "Up"),
+        (KEY_DOWN, "Down", "Down"),
+        (KEY_LEFT, "Left", "Left"),
+        (KEY_RIGHT, "Right", "Right"),
+        (KEY_ENTER, "Return", "OK"),
+        (KEY_1, "1", "1"),
+        (KEY_9, "9", "9"),
+        (KEY_0, "0", "0"),
+    ] {
+        assert_eq!(keysym_of(keymap, code).as_deref(), Some(symbol), "{key} (Linux code {code})");
+    }
+}
+
+/// The text every client compiles: a key is named once, numbered once and given one symbol, and no keycode is above `maximum`.
+#[test]
+fn the_served_keymap_names_every_key_once_and_gives_it_one_symbol() {
+    let lines: Vec<&str> = lumatv_compositor::server::seat::KEYMAP.lines().map(str::trim).collect();
+    let keycodes: Vec<(&str, u32)> = lines
+        .iter()
+        .filter_map(|l| {
+            let (name, rest) = l.strip_prefix('<')?.split_once('>')?;
+            Some((name, rest.trim().strip_prefix('=')?.trim().strip_suffix(';')?.trim().parse().ok()?))
+        })
+        .collect();
+    let mut symbols: Vec<&str> = lines.iter().filter_map(|l| l.strip_prefix("key <")?.split_once('>').map(|(name, _)| name)).collect();
+    let maximum: u32 = lines.iter().find_map(|l| l.strip_prefix("maximum = ")?.strip_suffix(';')?.parse().ok()).expect("the keymap says its maximum");
+    let mut names: Vec<&str> = keycodes.iter().map(|(n, _)| *n).collect();
+    let mut numbers: Vec<u32> = keycodes.iter().map(|(_, c)| *c).collect();
+    let keys = keycodes.len();
+    names.sort_unstable();
+    numbers.sort_unstable();
+    symbols.sort_unstable();
+    names.dedup();
+    numbers.dedup();
+    assert!(keys > 100, "LG's keys are in: {keys}");
+    assert_eq!((names.len(), numbers.len()), (keys, keys), "a name or a number is used twice");
+    assert_eq!(symbols, names, "every key has one symbol and every symbol is a key's");
+    assert!(numbers.first().is_some_and(|c| *c >= 8) && numbers.last().is_some_and(|c| *c <= maximum), "keycodes lie in 8..={maximum}");
 }

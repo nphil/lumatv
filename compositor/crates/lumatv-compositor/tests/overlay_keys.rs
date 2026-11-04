@@ -117,6 +117,23 @@ fn the_arrows_and_the_digits_stay_the_apps_whatever_the_layer_takes() {
 }
 
 #[test]
+fn the_channel_keys_stay_the_apps_whatever_the_layer_takes() {
+    // Live TV changes channel on them, and an app that reads the Linux codes (Marquee) is given them as before
+    let mut server = Server::start();
+    let mut a = app(&mut server);
+    takes(&server, &["ok", "back"]);
+    let t = Instant::now();
+    server.eval(move |s| {
+        for (i, code) in [402, 403].into_iter().enumerate() {
+            press(s, code, t + Duration::from_millis(i as u64 * 100));
+            release(s, code, t + Duration::from_millis(i as u64 * 100 + 50));
+        }
+    });
+    assert!(syskeys(&mut a).is_empty());
+    assert_eq!(app_keys(&mut a), vec![(402, 1), (402, 0), (403, 1), (403, 0)]);
+}
+
+#[test]
 fn nothing_is_taken_until_the_layer_asks_and_once_it_lets_go_the_keys_are_the_apps_again() {
     let mut server = Server::start();
     let mut a = app(&mut server);

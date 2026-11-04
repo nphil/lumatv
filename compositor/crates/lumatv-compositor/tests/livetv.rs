@@ -4,9 +4,10 @@
 
 mod harness;
 
-use harness::{Client, Server, Window};
+use harness::{Client, Server, Window, keysym_of};
 use lumatv_compositor::Rect;
 use lumatv_compositor::scene::Hole;
+use lumatv_compositor::server::seat::SeatId;
 use serde_json::json;
 use wayland_client::protocol::wl_buffer::WlBuffer;
 
@@ -239,4 +240,33 @@ fn a_video_card_whose_hole_never_comes_ends_its_transition_at_the_veils_cap() {
     assert!(!active, "the card is at rest with no veil, no ghost and no track");
     assert_eq!((caps, late), (1, 0));
     let _ = &mut rig;
+}
+
+const KEY_CHANNELUP: u32 = 402;
+const KEY_CHANNELDOWN: u32 = 403;
+
+/// CH+ and CH- on Live TV: the card that owns the group has the keyboard (Live Dmost lies under it), is given both keys whole, and the keymap it was served
+/// gives them the symbols its app changes channel on, `Key_webOS_ChannelUp` and `Key_webOS_ChannelDown` (0x01200021 and 0x01200022). On the set Live TV logged
+/// Qt key 0 for every press (2026-11-03, `/var/log/inputcommon`: `[cpp][pressed] key: 0`) while the keymap named the keys and gave them no symbol.
+#[test]
+fn channel_up_and_down_reach_live_tv_as_the_keys_it_changes_channel_on() {
+    let mut server = Server::start();
+    let mut rig = rig(&mut server, false);
+    let (_d, _dbuf) = dmost(&mut rig, FULL, RED);
+    tick(&server, 2_000 * MS);
+    assert_eq!(server.eval(|s| s.seat.focus), Some(rig.sid), "Live TV's own card has the keys, not Live Dmost under it");
+    let _kb = rig.client.seat.get_keyboard(&rig.client.qh, ());
+    assert!(rig.client.wait_until(std::time::Duration::from_secs(3), |s| s.keyboard_enters >= 1), "Live TV's keyboard has the focus");
+    server.eval(|s| {
+        for code in [KEY_CHANNELUP, KEY_CHANNELDOWN] {
+            s.key_event(SeatId(0), code, true, false);
+            s.key_event(SeatId(0), code, false, false);
+        }
+    });
+    rig.client.roundtrip();
+    assert_eq!(rig.client.state.keys, vec![(KEY_CHANNELUP, 1), (KEY_CHANNELUP, 0), (KEY_CHANNELDOWN, 1), (KEY_CHANNELDOWN, 0)], "both keys reach Live TV");
+    assert_eq!(server.eval(|s| (s.keys.delivered, s.keys.dropped)), (4, 0));
+    let keymap = rig.client.state.keymaps.first().expect("the keyboard was served a keymap");
+    assert_eq!(keysym_of(keymap, KEY_CHANNELUP).as_deref(), Some("0x01200021"), "Key_webOS_ChannelUp");
+    assert_eq!(keysym_of(keymap, KEY_CHANNELDOWN).as_deref(), Some("0x01200022"), "Key_webOS_ChannelDown");
 }

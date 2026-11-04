@@ -108,26 +108,11 @@ pub const BTN_LEFT: u32 = 0x110;
 /// A cursor that has not moved for this long hides (LG's default cursor timeout is in this range).
 pub const CURSOR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// A minimal xkb keymap: evdev codes pass through as keycodes (xkb code = evdev + 8). Covers the keys the remote
-/// sends, including KEY_PREVIOUS (412), which is the remote's Back on this set, and the colour keys. Clients
-/// that want symbols map these themselves (LG's platform plugins do); clients that only want codes ignore it.
-pub const KEYMAP: &str = "xkb_keymap {
-xkb_keycodes \"evdev\" { minimum = 8; maximum = 708;
- <ESC> = 9; <LEFT> = 113; <RIGHT> = 114; <UP> = 111; <DOWN> = 116; <RTRN> = 36; <BKSP> = 22; <SPCE> = 65;
- <AE01> = 10; <AE02> = 11; <AE03> = 12; <AE04> = 13; <AE05> = 14; <AE06> = 15; <AE07> = 16; <AE08> = 17; <AE09> = 18; <AE10> = 19;
- <I166> = 166; <I172> = 172; <I164> = 164; <I420> = 420; <I398> = 398; <I399> = 399; <I400> = 400; <I401> = 401;
- <I402> = 402; <I403> = 403; <I115> = 123; <I114> = 122; <I113> = 121; <I207> = 215; <I119> = 127; <I128> = 136; <I208> = 216; <I168> = 176;
-};
-xkb_types \"basic\" { type \"ONE_LEVEL\" { modifiers = none; level_name[Level1] = \"Any\"; }; };
-xkb_compatibility \"basic\" { };
-xkb_symbols \"basic\" {
- key <ESC> { [ Escape ] }; key <LEFT> { [ Left ] }; key <RIGHT> { [ Right ] }; key <UP> { [ Up ] }; key <DOWN> { [ Down ] };
- key <RTRN> { [ Return ] }; key <BKSP> { [ BackSpace ] }; key <SPCE> { [ space ] };
- key <AE01> { [ 1 ] }; key <AE02> { [ 2 ] }; key <AE03> { [ 3 ] }; key <AE04> { [ 4 ] }; key <AE05> { [ 5 ] };
- key <AE06> { [ 6 ] }; key <AE07> { [ 7 ] }; key <AE08> { [ 8 ] }; key <AE09> { [ 9 ] }; key <AE10> { [ 0 ] };
-};
-};
-";
+/// The keymap every keyboard is served: LG's own for the remote's keys (`QT_WAYLAND_XKB_RULE_NAMES=evdev:lgwebostv:us`), reduced to the plain keys and LG's
+/// `tv` table (`compositor/tools/gen-keymap.py`). A Qt client looks up the Linux code of a key event plus 8 here and reads the keysym as a Qt key; LG's apps
+/// are written against LG's symbols (Live TV changes channel on `Key_webOS_ChannelUp`, 0x01200021). A key with no symbol arrives as Qt key 0 and is
+/// ignored: Live TV logged `[cpp][pressed] key: 0` for every CH+, CH- and Back while this keymap named those keys and gave them no symbol.
+pub const KEYMAP: &str = include_str!("keymap.xkb");
 
 impl GlobalDispatch<WlSeat, SeatId> for State {
     fn bind(state: &mut Self, _handle: &DisplayHandle, client: &Client, resource: New<WlSeat>, seat: &SeatId, data_init: &mut DataInit<'_, Self>) {
