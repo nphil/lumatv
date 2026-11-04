@@ -2,6 +2,10 @@
 
 ## Resume here
 
+**Panel left at 100 Hz after a full view (2026-11-04, host-tested, not yet on the set).** The Ring's full view (25 fps) re-timed the panel and it stayed at 99.9 Hz after the view closed (`lumatv-tv-20261104b/gate/tvs2-120.out.txt`). The compositor now writes `1 60` to `fr_rate` once, 1.5 s after the last video window and source are gone with Home in front and the policy automatic (`refresh.rs` `Retime`); a video that is still playing, or one that returns, holds it back. This is the helper's request made from the compositor, and round 22 measured it ignored with no source: if `osd_irq` stays near 100 after the journal line `refresh: the panel was left at 100 Hz by a video; 120 Hz asked for`, only a playing 30 or 60 fps video restores 120 Hz and this write is to be replaced by one.
+
+TV check: Home at 120 Hz, open the Ring full view, close it with Back. Pass: the journal line above 1.5 s after the view is gone, `osd_irq` about 121 a second, the compositor log `the panel refreshes every 8.33 ms now`; no line while the view is up.
+
 **Round 26 (host-tested, not yet on the set): the full view over a playing app stays over it, on the sub window, and Back finds the video where it was.**
 
 - Cause (round 22 D3, round 25): the full view opened over an app sent Home forward and took the main window with Home's decoder. The media stack gives the

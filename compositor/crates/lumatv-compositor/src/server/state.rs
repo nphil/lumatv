@@ -651,6 +651,7 @@ impl State {
         // The pointer: on the cursor plane when it carries it (no sprite in the frame, no damage for a move), else a sprite in the frame.
         self.pointer_sync();
         self.vwin_sync();
+        self.panel_rate_sync(now_ns);
         self.scene.cursor = if self.seat.cursor_visible && !self.pointer_carried {
             Some(crate::render::cursor::rect_at(self.seat.pointer_position.0, self.seat.pointer_position.1))
         } else {

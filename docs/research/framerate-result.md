@@ -214,8 +214,8 @@ Hold 120 Hz as base: nothing to do while LG's apps play 24/30/60 content; the DE
 What the compositor must and must not do, against what it does:
 
 - Never force a mode change: it commits `ALLOW_MODESET` only before `modeset_done` (`kms/mod.rs:525-534`) and the `lg1k` CRTC
-  ignores the mode anyway. Nothing else to add. It must never write `/proc/lg/de/fr_rate` itself: the helper does that on Home,
-  so the rule lives in one place.
+  ignores the mode anyway. Nothing else to add. It writes `/proc/lg/de/fr_rate` only in `refresh.rs` `panel_rate_sync`: once per episode, with the policy automatic,
+  Home in front and no video window or source (the helper's watcher does the same for Home alone).
 - Its UI clock follows the panel: `kms/timing.rs` keys the pacer to the period the flips measure, re-keyed after four agreeing
   flips, with animations on wall time. That is the right design; two details to put straight: the doc comment names 24 Hz as a
   case ("24 Hz film is the other case"), but on this set 24p film gives a 60 Hz vblank (120 / 2), and the only UI periods that

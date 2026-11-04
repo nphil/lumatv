@@ -366,6 +366,11 @@ pub trait Output {
         Ok(hz)
     }
 
+    /// The period between page flips as the pacer follows it (the panel's refresh over the OSD divider); `None` for an output without a panel.
+    fn flip_period_ns(&self) -> Option<u64> {
+        None
+    }
+
     /// Clear only refresh measurements, without changing output timing.
     fn reset_refresh_measure(&mut self) {}
 
