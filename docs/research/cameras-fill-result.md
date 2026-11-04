@@ -103,13 +103,12 @@ window, the bars beside it), `full-wide` (4:3), `grid-shapes` (a doorbell, a 4:3
    Open a 16:9 camera: no bars, and no `frame?w=32&h=18` in the helper's log.
 3. Frame gate over the portrait full view, fill on and off (`docs/research/perf/gate.py`), and the video check: no frame dropped in motion; YouTube beside it unharmed.
 4. Grid: the portrait tiles show the whole picture over a wash, the others as before; the focus lift and the scroll stay at the gate's numbers.
-5. Downstairs door: "Can't play this camera / Scrypted's stream for this camera could not be reached", the stills dimmed behind; the helper log's line names the reason.
+5. Downstairs door (bridge 0.2.1): the full view plays through the bridge's relay, in about 2 to 5 s when the doorbell is awake. When it is slow or asleep the note ("Scrypted sent no picture in time") shows over the stills, and "Try again" within 20 s joins the start. The tile and the backdrop show a snapshot, a new one a minute. Untested on the set.
 6. Plant room: while Scrypted says it is offline, the note and the retries; when it is back, the video starts without a key.
 7. Cycle the cameras quickly as the owner did and read the helper's log for the sessions that end with no picture (Bird, Office, Backyard): the new line says how long and what the feeder took.
 
 ## Open owner decisions
 
-- Ring (downstairs door): live video needs the bridge to relay a one-shot address on the LAN (its own RTSP server already serves playback); a bridge change and a deploy to Scrypted, so not made.
-  Until then the full view is a note over dimmed pictures; a calmer "pictures only" state (undimmed stills, a small cue, OK trying live again) is possible.
+- Ring (downstairs door): resolved in the bridge, with no new service. The address Scrypted opens for the doorbell is a loopback listener for one client; the bridge (`lumashow-scrypted` main, 0.2.1) is that client, as Scrypted's HomeKit plugin is, and serves the stream on its own RTSP address (its docs, 12.3); its pictures are `takePicture` snapshots (12.5). From the workstation, through that address: first frame 1280x720, H.264 Constrained Baseline, 25 a second; the helper's RTSP client (`rtspplay`) got its first picture 1.1 s after PLAY. The doorbell's own start is Ring's: 0.6 to 3 s, about 10 s, or none within 20 s (5 of 24 starts connected on 2026-11-04). The TV gives up after about 7.5 s (the call's 3.5 s and the 4 s DESCRIBE reply), so a slow start needs "Try again" while the bridge's session still waits (20 s). Open: give the player the stream's description at once, so the TV waits for the picture (8 s) and not for the description (4 s), or a longer reply timeout for relayed live.
 - Plant room: the bridge refuses a camera Scrypted marks offline before it tries its stream; trying anyway would start it through a flap. A bridge change.
 - The doorbells' stream choice (above): the bridge should report the codec of the native stream, or the TV should ask for the camera's own.
