@@ -48,7 +48,7 @@ Helper: `weather.more` carries ten days (`daily[].code, hi, lo`); `weather_ha` f
 
 ## Motion and its cost (the contract is the old one)
 
-The picture moves only while it is seen (Home in front with nothing over the card, the view up), never under reduced motion, nothing is drawn, allocated or sent per frame: every
+The picture moves only while it is seen (Home in front with nothing over the card, the view up), never under reduced motion or with the owner's Wallpaper motion off (theme `weather.animated` is a switch of its own), nothing is drawn, allocated or sent per frame: every
 400 ms the app restates each moving sprite's path (one linear `Animate` of 500 ms); the rays turn by ten rings taking over from one another; crossings fade at their ends and are put
 back unseen; rain and snow far away are sheets that slide one period and are put back; what is near is sprites on their own paths. The frames' damage is the stage (the card's 433 x 244;
 in the view a window of 1,160 x 620 round the hero, the tint is still).
