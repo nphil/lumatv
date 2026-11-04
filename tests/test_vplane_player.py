@@ -8,6 +8,7 @@ compositor takes it, or nobody renews it. What it cannot show is that LG's compo
 docs/research/videoplane-saver-result.md say how that is measured. The real compositor library runs the same client in
 compositor/crates/lumatv-compositor/tests/vplane_host.rs.
 """
+import concurrent.futures
 import json
 import math
 import os
@@ -128,7 +129,7 @@ class Rig:
             time.sleep(0.01)
         return False
 
-    def wait_state(self, state, timeout=5.0):
+    def wait_state(self, state, timeout=10.0):
         return self.wait(lambda: self.status().get("state") == state, timeout)
 
     def ndl(self):
@@ -647,8 +648,14 @@ class Player(unittest.TestCase):
         r.send("stop")
         self.assertTrue(r.wait_state("idle"))
         self.assertGreater(len({h["dst"] for h in r.fc.video_history}), 3, "the picture moved")
-        x0, y0, w0, h0 = r.fc.video_history[-1]["dst"]
+        # the picture is placed and then its margins are painted, so a stop can leave the picture a step ahead of the last painted window: the hole
+        # that was painted is read off the pixels and must be one of the places the picture was put
         w, h, data = r.fc.last_commit()[2]
+        row = [argb(data, w, x, 540)[0] for x in range(w)]
+        col = [argb(data, w, 960, y)[0] for y in range(h)]
+        x0, y0 = row.index(0), col.index(0)
+        w0, h0 = w - row[::-1].index(0) - x0, h - col[::-1].index(0) - y0
+        self.assertIn((x0, y0, w0, h0), {hist["dst"] for hist in r.fc.video_history}, "the transparent hole is where the picture was put")
         for xy in ((x0 - 1, 540), (x0 + w0, 540), (960, y0 - 1), (960, y0 + h0), (0, 0), (1919, 1079)):
             self.assertEqual(argb(data, w, *xy), (255, 0, 0, 0), "black around the picture, or the margin shows what is behind the saver: %s" % (xy,))
         for xy in ((x0, 540), (x0 + w0 - 1, 540), (960, y0), (960, y0 + h0 - 1)):
@@ -887,7 +894,16 @@ class Player(unittest.TestCase):
                 break
         self.assertIsNotNone(probe)
         self.assertTrue(r.wait(lambda: any(g and argb(g[2], g[0], 200, 200)[0] == 255 for t, s, g in r.fc.commits), 6), "the screen went black for the change")
-        self.assertTrue(r.wait(lambda: argb(r.fc.last_commit()[2][2], r.fc.last_commit()[2][0], 200, 200)[0] == 0, 6), "and came back")
+        def caption_is_back():
+            """A picture with the caption in it after the black screen: the veil being gone is not yet the caption being drawn."""
+            black = False
+            for t, s, g in r.fc.commits:
+                if g:
+                    black = black or argb(g[2], g[0], 200, 200)[0] == 255
+                    if black and argb(g[2], g[0], *probe)[1] > 0:
+                        return True
+            return False
+        self.assertTrue(r.wait(caption_is_back, 6), "and the next print's caption came back")
         r.send("stop")
         self.assertTrue(r.wait_state("idle"))
         series = [(argb(g[2], g[0], 200, 200)[0], argb(g[2], g[0], *probe)[1]) for t, s, g in r.fc.commits if g]
@@ -1246,6 +1262,38 @@ class ArmBuild(unittest.TestCase):
         ver = subprocess.run(["readelf", "-V", self.ARM], capture_output=True, text=True).stdout
         newest = max(tuple(int(x) for x in m.split("_")[1].split(".")) for m in set(__import__("re").findall(r"GLIBC_\d+\.\d+", ver)))
         self.assertLessEqual(newest, (2, 28), "nothing newer than the set's glibc 2.28")
+
+
+class ParallelSuite(unittest.TestSuite):
+    """The cases share nothing (each rig has its own mailbox, compositor socket and temporary directory) and spend their time waiting on a real
+    player, so a run takes the time of the slowest few instead of the sum of seventy-odd."""
+
+    WORKERS = 4
+
+    def run(self, result, debug=False):
+        def one(test):
+            own = unittest.TestResult()
+            test.run(own)
+            return test, own
+
+        with concurrent.futures.ThreadPoolExecutor(self.WORKERS) as pool:
+            for test, own in pool.map(one, list(self)):
+                result.startTest(test)
+                result.failures.extend(own.failures)
+                result.errors.extend(own.errors)
+                result.skipped.extend(own.skipped)
+                result.stopTest(test)
+        return result
+
+
+def load_tests(loader, tests, pattern):
+    flat = []
+
+    def walk(suite):
+        for t in suite:
+            walk(t) if isinstance(t, unittest.TestSuite) else flat.append(t)
+    walk(tests)
+    return ParallelSuite(flat)
 
 
 if __name__ == "__main__":

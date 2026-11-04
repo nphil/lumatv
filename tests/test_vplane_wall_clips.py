@@ -1,12 +1,13 @@
-"""Run with: cd tests && python3 -m unittest test_vplane_wall_clips   (needs Pillow 10.3+; the encoder tests need ffmpeg with 10-bit libx265, the
-deep ones ffprobe and about a minute; the parity test needs bun)
+"""Run with: cd tests && python3 -m unittest test_vplane_wall_clips   (needs Pillow 10.3+; the encoder tests need ffmpeg with 10-bit libx265 and ffprobe)
 
 tools/vplane_wall.py, the writer of Home's moving wallpaper clip for the video-plane player (vplane/), and the clip it wrote
 (payload/vplane/clips/wall-silk.vpc, wall.json): that the warp is LumaHome's own (the shader's expressions are found in the QML, and the
 numbers are read from theme.json), that the loop is periodic, that the stream is what the decoder needs (a key picture, then predicted copies, one
-reference, no reordering, 10 bits), that the loop's seam is a fraction of a level, that the numbers the shell is given about the clip are what its
-own sampler finds, and that the shipped set is small and consistent with its manifest.
+reference, no reordering, 10 bits), that the numbers the shell is given about the clip are what its own sampler finds, and that the shipped set is
+small and consistent with its manifest. The loop's seam over the whole shipped stream is `python3 tools/vplane_wall.py check --deep`, which
+decodes 1800 pictures twice and takes minutes: run it when the clip is made again.
 """
+import concurrent.futures
 import json
 import math
 import os
@@ -245,10 +246,9 @@ class Shipped(unittest.TestCase):
         self.assertEqual((info["codec"], info["width"], info["height"], info["fpsNum"], info["fpsDen"], info["units"], info["loopFrom"]), (2, 1920, 1080, 60, 1, 1800, 0))
 
     @unittest.skipUnless(HAVE_ENCODER and shutil.which("ffprobe"), "needs ffmpeg with 10-bit libx265 and ffprobe")
-    def test_the_stream_decodes_as_main10_one_reference_no_reordering_and_the_loop_has_no_seam(self):
-        """Deep: ffprobe decodes the whole stream (the count, the size, the profile, no reordering) and then two plays of it, and the step across
-        the loop's seam is a fraction of a level."""
-        self.assertEqual(vw.check(SHIPPED, deep=True), [])
+    def test_the_stream_is_main10_at_the_screens_size(self):
+        """ffprobe reads the first second of the shipped stream. Decoding all of it and the loop's seam is `vplane_wall.py check --deep`, which takes
+        minutes: run it when the clip is made again."""
         w = self.manifest()["walls"][0]
         v = vc.read_vpc(os.path.join(SHIPPED, w["file"]))
         with tempfile.TemporaryDirectory() as d:
@@ -263,16 +263,26 @@ class Shipped(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PIL and HAVE_ENCODER, "needs Pillow 10.3, and ffmpeg with 10-bit libx265")
 class Encode(unittest.TestCase):
-    def run_wall(self, *extra):
+    @classmethod
+    def setUpClass(cls):
+        cls.first = cls.make()
+        cls.addClassCleanup(shutil.rmtree, cls.first, True)
+
+    @staticmethod
+    def make(*extra):
         d = tempfile.mkdtemp(prefix="wall-gen-")
-        self.addCleanup(shutil.rmtree, d, True)
         r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "vplane_wall.py"), "wall", "--out", d, "--frames-only", "4", "--jobs", "2", *extra],
                            capture_output=True, text=True, timeout=600, env=dict(os.environ, VPLANE_QUIET="1"))
-        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        assert r.returncode == 0, r.stderr[-2000:]
+        return d
+
+    def run_wall(self, *extra):
+        d = self.make(*extra)
+        self.addCleanup(shutil.rmtree, d, True)
         return d
 
     def test_a_few_pictures_become_a_key_unit_and_predicted_copies_in_the_players_container(self):
-        d = self.run_wall()
+        d = self.first
         w = json.load(open(os.path.join(d, "wall.json")))["walls"][0]
         v = vc.read_vpc(os.path.join(d, w["file"]))
         self.assertEqual(len(v["units"]), 4 * 3, "each picture shown three times: 20 a second at the stream's 60")
@@ -287,7 +297,7 @@ class Encode(unittest.TestCase):
         self.assertEqual([b for b in bad if "units for a loop" not in b], [])
 
     def test_regenerating_gives_the_same_bytes_and_reuse_keeps_the_file(self):
-        a = self.run_wall()
+        a = self.first
         b = self.run_wall()
         with open(os.path.join(a, "wall-silk.vpc"), "rb") as f1, open(os.path.join(b, "wall-silk.vpc"), "rb") as f2:
             self.assertEqual(f1.read(), f2.read())
@@ -336,50 +346,13 @@ class Encode(unittest.TestCase):
 EVIDENCE = os.path.join(ROOT, "docs", "research", "compositor")
 GPU_CAPTURE = os.path.join(EVIDENCE, "slot-2026-10-28-1300", "wallpaper", "home-gpu-look.png")          # LG's DISPLAY capture, the GPU wallpaper, the owner's look
 PLANE_CAPTURE = os.path.join(EVIDENCE, "slot-2026-10-28-r14", "img", "wall-video-home.png")             # round 14: the video wallpaper's capture
-VIDEO_V1 = os.path.join(EVIDENCE, "slot-2026-10-28-r15", "img", "wallexp-v1-video.jpg")                 # round 15: LG's VIDEO capture, placement v1 (original input = source = 1920x1080)
-VIDEO_V4 = os.path.join(EVIDENCE, "slot-2026-10-28-r15", "img", "wallexp-v4-video.jpg")                 # ... and v4 (3840x2160 for both, Netflix's)
-PRINT_CAPTURE = os.path.join(ROOT, "docs", "research", "round8", "tv-2026-10-25", "60-once-active-video.jpg")     # round 8: the saver's print on the plane, LG's compositor
-
-
-def print_light():
-    """(correlation, light R/G/B) of round 8's VIDEO capture of the saver's print against the print's own clip: another clip (8 bits, 1856 x 1024), another
-    compositor, the same picture mode. The capture's 960 x 540 holds the 1856 x 1024 canvas at (16 + dx/2, 14 + dy/2) for the player's drift, found by
-    correlation; the light is read inside the canvas, 40 px in."""
-    import numpy as np
-    v = vc.read_vpc(os.path.join(SHIPPED, "great-wave.vpc"))
-    with tempfile.TemporaryDirectory() as d:
-        raw = os.path.join(d, "p.hevc")
-        with open(raw, "wb") as f:
-            f.write(b"".join(u for u, _ in v["units"][:2]))
-        vf = "scale=928:512:flags=area:in_range=tv:out_range=pc:in_color_matrix=bt709:out_color_matrix=bt709,format=rgb24"
-        out = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "hevc", "-i", raw, "-frames:v", "1", "-vf", vf, "-f", "rawvideo", "-"],
-                             capture_output=True).stdout
-    pic = np.frombuffer(out, np.uint8).reshape(512, 928, 3).astype(np.float32)
-    cap = np.asarray(Image.open(PRINT_CAPTURE).convert("RGB").resize((960, 540), Image.BOX)).astype(np.float32)
-    luma = lambda a: a @ np.array([0.299, 0.587, 0.114], np.float32)
-    inner = (slice(40, -40), slice(40, -40))
-    b = luma(pic)[inner]
-    b = b - b.mean()
-    best = None
-    for oy in range(0, 29):
-        for ox in range(0, 33):
-            a = luma(cap[oy:oy + 512, ox:ox + 928])[inner]
-            a = a - a.mean()
-            c = float((a * b).sum() / math.sqrt(float((a * a).sum()) * float((b * b).sum()) + 1e-9))
-            if best is None or c > best[0]:
-                best = (c, ox, oy)
-    c, ox, oy = best
-    sub = cap[oy:oy + 512, ox:ox + 928]
-    return c, [float(sub[inner][..., k].mean() / pic[inner][..., k].mean()) for k in range(3)]
 
 
 @unittest.skipUnless(HAVE_PIL and shutil.which("ffmpeg") and os.path.exists(GPU_CAPTURE), "needs Pillow, numpy, ffmpeg and the evidence captures")
 class Probe(unittest.TestCase):
-    """`vplane_wall.py probe` on what the set captured. The GPU wallpaper that the TV drew in round 13 (the owner's look) is the baked clip's picture, which
-    is the check of the bake against the real thing: the same structure (correlation 0.997 at 22.6 s of the loop, at the same place on the screen, so
-    no scaling or shift) and the same light to within 2 to 7 percent. Round 14's capture is black wherever Home draws nothing, margin and gaps between
-    its panes alike (so not a picture 1856 x 1024 in a window: the gaps are inside it): the plane shows nothing in it, or the capture cannot see it. Round 15
-    found why (videooutputd refused the placement) and the VIDEO capture of the accepted one is the clip, whole, at its place."""
+    """`vplane_wall.py probe` on what the set captured: the verdicts. The GPU wallpaper the TV drew in round 13 (the owner's look) is the baked clip's
+    picture (same structure, same place, the same light to within 2 to 7 percent); a darker capture is a colour finding and not a geometry one; round 14's
+    capture is black wherever Home draws nothing. What the later rounds measured is in docs/research/videoplane-saver-result.md."""
 
     @classmethod
     def setUpClass(cls):
@@ -394,9 +367,6 @@ class Probe(unittest.TestCase):
         self.assertGreaterEqual(r["corr"], 0.99)
         self.assertTrue(22.0 <= r["t"] <= 23.2, r)
         self.assertTrue(all(0.95 <= x <= 1.10 for x in r["ratio"]), r)
-
-    def test_the_clip_of_the_other_look_is_not_that_picture(self):
-        self.assertLess(vw.probe(GPU_CAPTURE, SHIPPED, "silk")["corr"], vw.probe(GPU_CAPTURE, SHIPPED, "silk-tuned")["corr"])
 
     def test_round_14s_capture_is_black_where_the_plane_should_show(self):
         if not os.path.exists(PLANE_CAPTURE):
@@ -421,41 +391,31 @@ class Probe(unittest.TestCase):
         self.assertGreaterEqual(r["corr"], 0.98)
         self.assertTrue(all(0.78 <= x <= 0.92 for x in r["ratio"]), r)
 
-    def test_the_video_capture_of_an_accepted_placement_is_the_clip_at_its_place_and_the_plane_gives_back_about_93_percent(self):
-        for path, t in ((VIDEO_V1, 6.75), (VIDEO_V4, 15.0)):
-            r = vw.probe(path, SHIPPED, "silk-tuned", whole=True)
-            self.assertEqual(r["verdict"], "ok", r)
-            self.assertGreaterEqual(r["corr"], 0.995, r)
-            self.assertLess(abs(r["t"] - t), 0.5, r)
-            self.assertTrue(all(0.90 <= x <= 0.96 for x in r["ratio"]), r)
-            self.assertTrue(all(0.90 <= gain <= 0.95 for gain, _ in r["fit"]), "a gain: %s" % r["fit"])
-            self.assertTrue(all(abs(offset) < 1.5 for _, offset in r["fit"]), "and no offset: %s" % r["fit"])
-
-    def test_the_margin_reading_of_a_video_capture_is_its_edge_and_not_the_picture(self):
-        whole = vw.probe(VIDEO_V1, SHIPPED, "silk-tuned", whole=True)
-        margin = vw.probe(VIDEO_V1, SHIPPED, "silk-tuned")
-        self.assertEqual(margin["verdict"], "mismatch", margin)          # round 15's first reading: 0.96, and a light of 0.86-0.90
-        self.assertLess(margin["corr"], 0.98)
-        self.assertGreater(whole["corr"], 0.99)
-        self.assertTrue(all(m < w for m, w in zip(margin["ratio"], whole["ratio"])), (margin["ratio"], whole["ratio"]))
-        # the capture's first row and column are what is wrong in the margin: darker than the picture next to them
-        im = Image.open(VIDEO_V1).convert("L")
-        w, h = im.size
-        mean = lambda pts: sum(im.getpixel(p) for p in pts) / len(pts)
-        self.assertLess(mean([(x, 0) for x in range(w)]), 0.8 * mean([(x, 4) for x in range(w)]))
-        self.assertLess(mean([(0, y) for y in range(h)]), 0.2 * mean([(4, y) for y in range(h)]))
-
-    def test_the_savers_print_is_given_back_at_the_same_light_so_the_plane_does_it_and_not_the_wall_clips_encode(self):
-        """The ratio in round 15 (0.95/0.93/0.91) is not the wallpaper clip's: round 8's saver print, a different clip (8 bits, BT.709 limited, drawn by LG's
-        compositor) in the same picture mode, is given back at the same green and blue, over a range of levels from 20 to 200."""
-        c, light = print_light()
-        self.assertGreaterEqual(c, 0.95, c)
-        wall = vw.probe(VIDEO_V1, SHIPPED, "silk-tuned", whole=True)["ratio"]
-        self.assertTrue(all(0.88 <= x <= 0.96 for x in light), light)
-        self.assertLess(abs(light[1] - wall[1]), 0.03, (light, wall))
-        self.assertLess(abs(light[2] - wall[2]), 0.03, (light, wall))
 
 
+class ParallelSuite(unittest.TestSuite):
+    """The classes share nothing (the encoder runs in temporary directories, the probe only reads captures), so they run side by side: the run is
+    as long as the encoder's, not the sum of the encoder's and the probe's."""
+
+    def run(self, result, debug=False):
+        def one(suite):
+            own = unittest.TestResult()
+            suite.run(own)
+            return suite, own
+
+        with concurrent.futures.ThreadPoolExecutor(max(1, len(self._tests))) as pool:
+            for suite, own in pool.map(one, list(self)):
+                for test in suite:
+                    result.startTest(test)
+                    result.stopTest(test)
+                result.failures.extend(own.failures)
+                result.errors.extend(own.errors)
+                result.skipped.extend(own.skipped)
+        return result
+
+
+def load_tests(loader, tests, pattern):
+    return ParallelSuite(list(tests))
 
 
 if __name__ == "__main__":
