@@ -17,7 +17,7 @@ must change nothing); `--bin` (or `LUMATV_UI_BIN`) names another `lumatv-ui`. `o
 toggled, a long scroll, a sensor's history, a lamp's colours changed, and a rest in which no frame may be drawn. `guide` is the channel
 guide over a make-believe set of channels: walked by time and by channel with a held arrow, paged, a programme's sheet opened, the filters
 chosen, a rest, and left. `banner` is Live TV's channel banner: Live TV comes to the front and the tuner names its channel, then another after the
-banner's five seconds.
+banner's five seconds, then INFO (the tallest it gets).
 
 The Cameras app is measured by itself (no Home under it) in four walks: `cameras-grid` (eight tiles whose stills come five a second a tile, three of
 them not 16:9, then the focus walked) and `cameras-full` (a portrait doorbell's video in its window with the bars beside it, the chrome fading and
@@ -252,6 +252,9 @@ def walk_of(surface):
         w.mark('change')
         banner_answers(w, '5-1', 'WXIA-HD')
         w.wait(6500)
+        w.mark('info')
+        w.key('info')
+        w.wait(9000)
         w.mark('end')
     elif surface == 'settings-scroll':
         # the quick panel's foot (QUICK_PANEL_FOOT), OK on its "All settings", then SETTINGS_PAGE, the rail down, SETTINGS_PAGE, the rail up, Back

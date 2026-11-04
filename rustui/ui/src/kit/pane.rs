@@ -5,7 +5,7 @@
 //! buffer is not a layer of the engine), so the backdrop is the tint alone until Home is a layer stack of the engine.
 
 use super::Kit;
-use compositor_protocol::{Backdrop, Glass, Props, Rect};
+use compositor_protocol::{Backdrop, Glass, Props, Rect, Rgba, TintGradient};
 use lumatv_tokens::{CardGlass, Radius};
 use ui::geometry::Frame;
 use ui::lucent::material::{ControlState, MaterialContext, SmartMaterial};
@@ -54,6 +54,33 @@ pub fn glass(kit: &Kit, kind: PaneKind, h: f32, over_video: bool) -> Glass {
         sheet.premultiply(0.0)
     };
     decorate(kit, kind, Glass { corner_radius: kind.radius(kit, h), tint, backdrop: Backdrop::None, ..pair.rest }, over_video)
+}
+
+/// How opaque a pane must be over a picture nobody controls, with words on it, for what is behind it not to read through. Lucent's `scrim.hidesMin`
+/// is .97 (`LANGUAGE.md` section 3: a weaker veil lets the words behind it read through); a banner over an ad's print holds to .985: at .97 black
+/// print on white leaves 8 levels in 255 of ghost under the glass, which reads at twice the size, and at .985 it leaves 4, which does not.
+pub const HIDES_MIN: f32 = 0.985;
+
+/// `tint` made as opaque as `alpha` at the least, in the colour it has (it is premultiplied, so its channels grow with its alpha).
+fn opaque_to(tint: Rgba, alpha: u8) -> Rgba {
+    if tint.3 == 0 || tint.3 >= alpha {
+        return tint;
+    }
+    let k = f32::from(alpha) / f32::from(tint.3);
+    let up = |v: u8| (f32::from(v) * k).round().min(f32::from(alpha)) as u8;
+    Rgba(up(tint.0), up(tint.1), up(tint.2), alpha)
+}
+
+/// The glass of a pane over uncontrolled video that has words on it (the channel banner): the pane's own material and the sheet's colour, but no
+/// more see-through than [`HIDES_MIN`] or the theme's hiding scrim (`scrimHide`) lets it be, whichever hides more. The reading alpha of [`glass`]
+/// (0.8 as shipped) is the least that keeps a label's contrast over the worst frame, and lets a busy picture show under the words.
+pub fn reading_glass(kit: &Kit, kind: PaneKind, h: f32) -> Glass {
+    let mut glass = glass(kit, kind, h, true);
+    let scrim = f32::from(kit.tokens.extra(kit.mode).scrim_hide.3) / 255.0;
+    let floor = (HIDES_MIN.max(scrim) * 255.0).round() as u8;
+    glass.tint = opaque_to(glass.tint, floor);
+    glass.tint_gradient = glass.tint_gradient.map(|g| TintGradient { top: opaque_to(g.top, floor), bottom: opaque_to(g.bottom, floor) });
+    glass
 }
 
 /// Applies the selected surface and independent geometric depth to every pane.
@@ -139,6 +166,8 @@ pub struct Pane {
     frame: Frame,
     kind: PaneKind,
     over_video: bool,
+    /// Made by [`Pane::reading`]: restyled as a reading surface, not at the reading alpha.
+    reading: bool,
     /// Only this part of the glass is drawn (logical pixels of the screen): a card with a hole in it is made of several panes of one frame, each
     /// showing a band of it.
     clip: Option<Rect>,
@@ -147,7 +176,13 @@ pub struct Pane {
 impl Pane {
     pub fn new(kit: &Kit, frame: Frame, z: i32, kind: PaneKind, over_video: bool) -> Self {
         let layer = kit.ui.scene.glass(frame.w.round() as u32, frame.h.round() as u32, z, glass(kit, kind, frame.h, over_video), Props::at(frame.x, frame.y));
-        Self { layer, frame, kind, over_video, clip: None }
+        Self { layer, frame, kind, over_video, reading: false, clip: None }
+    }
+
+    /// A pane of `kind` that hides the picture behind it ([`reading_glass`]): for words over video.
+    pub fn reading(kit: &Kit, frame: Frame, z: i32, kind: PaneKind) -> Self {
+        let layer = kit.ui.scene.glass(frame.w.round() as u32, frame.h.round() as u32, z, reading_glass(kit, kind, frame.h), Props::at(frame.x, frame.y));
+        Self { layer, frame, kind, over_video: true, reading: true, clip: None }
     }
 
     /// A pane that shows only the part of its glass inside `clip` (the screen's logical pixels): the other bands of the same frame, side by side, make the
@@ -155,7 +190,7 @@ impl Pane {
     pub fn clipped(kit: &Kit, frame: Frame, z: i32, kind: PaneKind, over_video: bool, clip: Rect) -> Self {
         let at = Props { clip: Some(clip), ..Props::at(frame.x, frame.y) };
         let layer = kit.ui.scene.glass(frame.w.round() as u32, frame.h.round() as u32, z, glass(kit, kind, frame.h, over_video), at);
-        Self { layer, frame, kind, over_video, clip: Some(clip) }
+        Self { layer, frame, kind, over_video, reading: false, clip: Some(clip) }
     }
 
     pub fn layer(&self) -> &GlassLayer {
@@ -180,7 +215,7 @@ impl Pane {
     /// Restyles for a new look or a change of what is under it.
     pub fn restyle(&mut self, kit: &Kit, over_video: bool) {
         self.over_video = over_video;
-        self.layer.restyle(glass(kit, self.kind, self.frame.h, over_video));
+        self.layer.restyle(if self.reading { reading_glass(kit, self.kind, self.frame.h) } else { glass(kit, self.kind, self.frame.h, over_video) });
     }
 
     pub fn over_video(&self) -> bool {
@@ -253,5 +288,27 @@ mod material_tests {
         let result = decorate(&kit, PaneKind::Card, base, false);
         assert_eq!(result.shadows[1].unwrap().offset_y, 3.0);
         assert_eq!(result.shadows[1].unwrap().blur, 6.0);
+    }
+
+    #[test]
+    fn a_reading_pane_hides_the_picture_behind_it_in_every_glass_and_mode_and_keeps_the_sheets_colour() {
+        let hides = (HIDES_MIN * 255.0).round() as u8;
+        for mode in [Mode::Dark, Mode::Light] {
+            for card_glass in [CardGlass::Clear, CardGlass::Frosted, CardGlass::Liquid, CardGlass::Glazed] {
+                let (_h, mut kit) = testkit::kit_in(mode, 1.0);
+                kit.tokens.card_glass = card_glass;
+                let over_video = glass(&kit, PaneKind::Card, 98.0, true);
+                let reading = reading_glass(&kit, PaneKind::Card, 98.0);
+                assert!(reading.tint.3 >= hides, "{mode:?} {card_glass:?}: {:?}", reading.tint);
+                if let Some(g) = reading.tint_gradient {
+                    assert!(g.top.3 >= hides && g.bottom.3 >= hides, "{mode:?} {card_glass:?}: {g:?}");
+                }
+                // the sheet's own colour, only less see-through: premultiplied, the channels stay in step with the alpha
+                let straight = |c: Rgba| [c.0, c.1, c.2].map(|v| f32::from(v) / f32::from(c.3.max(1)));
+                for (a, b) in straight(over_video.tint).into_iter().zip(straight(reading.tint)) {
+                    assert!((a - b).abs() < 0.02, "{mode:?} {card_glass:?}: the colour is the sheet's");
+                }
+            }
+        }
     }
 }

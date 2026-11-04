@@ -6,8 +6,8 @@
 //!   mount and draw the same moment); grown into a bar with Details, Inputs and Picture buttons when a spec asks for them;
 //! - `nosignal`: the black screen of an input with nothing on it: a dim icon, which port, what to do and two buttons (Inputs, Home). It is black on
 //!   purpose, in both materials, and its block hops to another spot every minute: a still frame on an OLED is what the screen must never hold;
-//! - `channel`: the channel banner of live TV (number and call sign, the programme, its time and how much is left, what is next, the signal facts).
-//!   Live TV is rarely used (Nitin, 2026-10-23), so this is the banner only, no guide.
+//! - `channel`: the channel banner of live TV (the logo, number and name, the programme with its time and how much is left; INFO adds what it is about,
+//!   what is next and the signal facts). Live TV is rarely used (Nitin, 2026-10-23), so this is the banner only, no guide.
 //!
 //! A spec comes from the inputs themselves (`foreground`, the pill), or from the owner of the moment as the topic `banner.show` (the spec's JSON,
 //! `banner.hide` takes it away), which is what the QML's development door and `showBanner` were. Only a banner with buttons takes the keys (left and
