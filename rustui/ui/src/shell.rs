@@ -3111,9 +3111,11 @@ mod tests {
         std::fs::create_dir_all(dir.join("theme")).unwrap();
         let path = dir.join("theme/theme.json");
         let base = SystemTime::now();
-        let write = |style: &str, age: u64| {
+        // a negative age is a time ahead of the clock: not yet old enough to tell a rewrite, and a slow test cannot age it
+        let write = |style: &str, age: i64| {
             std::fs::write(&path, format!(r#"{{"clock":{{"style":"{style}"}}}}"#)).unwrap();
-            File::options().write(true).open(&path).unwrap().set_modified(base - Duration::from_secs(age)).unwrap();
+            let time = if age >= 0 { base - Duration::from_secs(age as u64) } else { base + Duration::from_secs(age.unsigned_abs()) };
+            File::options().write(true).open(&path).unwrap().set_modified(time).unwrap();
         };
         write("aaaaaa", 3600);
         shell.dirs(&testkit::module_dir(), &dir);
@@ -3131,11 +3133,11 @@ mod tests {
         shell.tick(at);
         assert_eq!(shell.home.theme["clock"]["style"], "bbbbbb");
         // written just now, too soon for the time to tell: read at every poll until it has aged
-        write("cccccc", 0);
+        write("cccccc", -60);
         at += 2_100;
         shell.tick(at);
         assert_eq!(shell.home.theme["clock"]["style"], "cccccc");
-        write("dddddd", 0);
+        write("dddddd", -60);
         at += 2_100;
         shell.tick(at);
         assert_eq!(shell.home.theme["clock"]["style"], "dddddd");
