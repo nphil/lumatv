@@ -26,17 +26,19 @@ is the normal answer, not a fault.
 | `iepg/getEventList` (`localStartTime`, `localEndTime`, `channelId` list) | programmes of a few channels for a few hours; about 3.7 KB each, `requestField` is not honoured | verified |
 | `utp.channel/getLastChannelId` (`INPUTSOURCE_RF`) | the channel the focus starts on; answers with no live pipeline | verified |
 | `applicationManager/launch` `com.webos.app.livetv` `{id: channelChange, channelId, sender: livemenu, type: channels}` | tune, from LG's `DeepLinkHandler.qml` | **unverified**: it changes the channel |
-| `applicationManager/closeByAppId` `com.webos.app.livemenu` | close LG's guide when the new one answers it | **unverified** |
 
 The compositor's luna allowlist has the five reads and the whole of `applicationManager`; the rest of `iepg` and `utp` (favourites,
 reservations, tuning) is not open.
 
 ## Where it opens
 
-LG's guide is answered, not replaced: when `com.webos.app.livemenu` comes to the front (the `foreground` topic), the guide opens over the
-app it came over and asks LG's to close, so the key chain, the banner's Guide button and the on-screen remote all land in it. LG's guide is
-the fallback while the shell is not running. Which tab LG was asked for is not in the topic, so the Channels tab is answered as well (the
-guide lists every channel with its number, name and logo); the Scheduler is its own app and stays LG's. `ctl shell show guide` opens it
+The Guide key is the shell's while Live TV is in front. Live TV answers the key itself: 2 ms after it, `com.webos.app.livetv` asks SAM
+to launch `com.webos.app.livemenu` with `activateType: tvguide` (read off the set, 2026-11-04), and `livemenu` is an Overlay window, so the
+`foreground` topic (which carries cards only) never shows it. The guide therefore lists `guide` in its `takes` while Live TV is in front
+(and while it is open); the compositor then sends the key (`KEY_GUIDE`, 362) to the shell and not to Live TV, and the guide opens over
+the live picture with LG's never launched. With the shell not running nothing is listed and the key is Live TV's, so LG's guide is the
+fallback. List, the Live TV menu and the banner's Guide button launch `livemenu` without this key and stay LG's: the window carries no
+launch parameters, so the Channels and Scheduler tabs cannot be told from the guide. `ctl shell show guide` opens it
 for a check.
 
 It closes on Back, on Home, when another app comes to the front, when the screen goes off, and after five minutes without a key or the
@@ -108,10 +110,8 @@ own under the page (Home alone draws the same three small frames a second in the
 
 ## Not yet checked on the TV
 
-- That the foreground topic reports `com.webos.app.livemenu` when it comes to the front, and that the guide opens and LG's closes without a
-  visible flash of LG's. List pressed, List held and the banner's Guide button each open it. If the topic does not report it,
-  `ctl shell show guide` still opens the guide, and a remote-button action for it (List to the guide, beside Quick and Settings) is the next
-  entry point.
+- That the Guide key on Live TV opens this guide with no flash of LG's, and that Guide is Live TV's again once another app is in front or the
+  UI is stopped.
 - That the channel switch (`launch` with `channelChange`) tunes, and that Live TV's banner is quiet afterwards (`type: channels`).
 - The guide over a live picture: the page's dim and the glass of the sheet against video, both looks.
 - The wheel (`wheelup`, `wheeldown`), CH+ and CH- while the guide is up, and that they are Live TV's again once it is closed.

@@ -47,6 +47,9 @@ pub mod code {
     pub const KEY_CHANNELUP: u32 = 402;
     pub const KEY_CHANNELDOWN: u32 = 403;
     pub const KEY_INFO: u32 = 358;
+    /// The remote's Guide key (`IR_KEY_GUIDE` in keymap.xkb, 370 - 8). Live TV answers it by launching LG's guide itself, 2 ms after the key
+    /// (`com.webos.app.livetv` asks SAM to launch `com.webos.app.livemenu` with `activateType: tvguide`; read off the set 2026-11-04).
+    pub const KEY_GUIDE: u32 = 362;
     pub const KEY_MUTE: u32 = 113;
     pub const KEY_VOLUMEDOWN: u32 = 114;
     pub const KEY_VOLUMEUP: u32 = 115;

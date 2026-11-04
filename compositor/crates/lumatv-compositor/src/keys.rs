@@ -68,14 +68,15 @@ pub enum Logical {
 }
 
 /// The keys the Rust shell's own screens know by name and the routing has no use for: the microphone key (push to talk), the on-screen remote's and
-/// Search's, and the channel rocker and Info, which the channel guide pages and opens its sheet with. Their codes are not known until the set has
+/// Search's, and the channel rocker, Info and Guide, which the channel guide pages, opens its sheet with, and is opened by (Live TV launches LG's
+/// own guide on the Guide key unless the shell takes it). Their codes are not known until the set has
 /// been read for the first three (no TV access when this was written): `keys.conf` lines `voice N`, `screenremote N` and `search N` teach
 /// them, and the client is sent these names only while it lists them in its `takes` (`shell_rust.rs`), so a mic key that the helper cannot
 /// answer stays LG's.
-pub const SHELL_KEYS: [&str; 6] = ["voice", "screenremote", "search", "chup", "chdown", "info"];
+pub const SHELL_KEYS: [&str; 7] = ["voice", "screenremote", "search", "chup", "chdown", "info", "guide"];
 
-/// The keys of [`SHELL_KEYS`] whose codes are LG's, so nothing has to be taught: the channel rocker and Info.
-const SHELL_BUILT_IN: [(u32, &str); 3] = [(KEY_CHANNELUP, "chup"), (KEY_CHANNELDOWN, "chdown"), (KEY_INFO, "info")];
+/// The keys of [`SHELL_KEYS`] whose codes are LG's, so nothing has to be taught: the channel rocker, Info and Guide.
+const SHELL_BUILT_IN: [(u32, &str); 4] = [(KEY_CHANNELUP, "chup"), (KEY_CHANNELDOWN, "chdown"), (KEY_INFO, "info"), (KEY_GUIDE, "guide")];
 
 /// Which evdev code is which key. The built-in codes are LG's (`tools`: network-input-service's key table; the gear and Input were
 /// also read off this set); a `keys.conf` line `NAME CODE` adds a code for a key (gear, input, netflix, amazon, disneyplus,
@@ -153,7 +154,7 @@ impl KeyTable {
                 (Some(l), _, Some(c), None) => table.extra.push((c, l)),
                 (None, Some(k), Some(c), None) => table.shell.push((c, k)),
                 _ => bad.push(format!(
-                    "line {}: {line:?} is not NAME CODE with a name of gear, input, netflix, amazon, disneyplus, lgchannels, voice, screenremote, search, chup, chdown or info",
+                    "line {}: {line:?} is not NAME CODE with a name of gear, input, netflix, amazon, disneyplus, lgchannels, voice, screenremote, search, chup, chdown, info or guide",
                     n + 1
                 )),
             }
@@ -464,9 +465,9 @@ mod tests {
     }
 
     #[test]
-    fn the_channel_rocker_and_info_are_named_for_the_shell_without_being_taught() {
+    fn the_channel_rocker_info_and_guide_are_named_for_the_shell_without_being_taught() {
         let t = KeyTable::default();
-        assert_eq!((t.shell_name(KEY_CHANNELUP), t.shell_name(KEY_CHANNELDOWN), t.shell_name(KEY_INFO)), (Some("chup"), Some("chdown"), Some("info")));
+        assert_eq!((t.shell_name(KEY_CHANNELUP), t.shell_name(KEY_CHANNELDOWN), t.shell_name(KEY_INFO), t.shell_name(KEY_GUIDE)), (Some("chup"), Some("chdown"), Some("info"), Some("guide")));
         assert!(t.knows(KEY_INFO), "named, so not reported as a code with no name");
         assert_eq!(t.classify(KEY_CHANNELUP), Logical::Other, "the routing has nothing to do for them: the app keeps them unless the shell takes them");
         let (t, bad) = KeyTable::parse("info 1111\n");

@@ -519,7 +519,7 @@ impl Shell {
                 self.carry(e, now, acts);
             }
         }
-        // the channel guide hears the topics (what is in front, LG's own guide opening), the luna answers and the clock here
+        // the channel guide hears the topics (what is in front), the luna answers and the clock here
         if self.kinds.guide && !key_like {
             for e in self.guide.update(input, now) {
                 self.carry(e, now, acts);
@@ -796,7 +796,7 @@ impl Shell {
                 self.redraw = true;
             }
             Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("guide") && self.kinds.guide => {
-                // `ctl shell show guide`: the same door as LG's guide opening (the GUIDE key, Live TV's menu)
+                // `ctl shell show guide`: the same door as the Guide key
                 for e in self.guide.open(now) {
                     self.carry(e, now, &mut acts);
                 }
@@ -879,6 +879,20 @@ impl Shell {
                 for e in self.sys.voice_key(*down, now) {
                     self.carry(e, now, &mut acts);
                 }
+            }
+            self.after(now, &mut acts);
+            return acts;
+        }
+        // the Guide key: claimed from Live TV (the compositor gives it over only while the guide lists it), so LG's guide never launches. It opens the
+        // guide unless something else has the screen; nothing else hears it
+        if let KeyEvent::Key { name, down, repeat, .. } = event
+            && name == "guide"
+        {
+            if self.kinds.guide && *down && !*repeat && !self.system_wants() {
+                for e in self.guide.guide_key(now) {
+                    self.carry(e, now, &mut acts);
+                }
+                self.redraw = true;
             }
             self.after(now, &mut acts);
             return acts;
@@ -1368,8 +1382,9 @@ impl Shell {
             // the wheel's turns switch between the two looks: the compositor has no key for them until it is told they are the shell's
             takes.push("wheel");
         }
-        if self.guide_wants() {
-            // the channel rocker pages the guide and Info opens its sheet: the compositor has names for them but the app (Live TV) has them until told
+        if self.kinds.guide {
+            // the Guide key while Live TV is in front (Live TV would launch LG's guide), and the rest of its keys while it is open: the compositor
+            // has names for them but the app (Live TV) has them until told
             takes.extend(self.guide.takes());
         }
         if self.kinds.home {
@@ -1931,6 +1946,28 @@ mod tests {
         assert_eq!(shell.volume_surface.pane_rect().unwrap().y, raised.y);
     }
 
+
+    #[test]
+    fn the_guide_key_is_listed_while_live_tv_is_in_front_and_opens_the_guide_without_live_tv_seeing_it() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("guide"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).unwrap();
+        shell.start();
+        let front = |app: &str| Event::Topic { topic: "foreground".into(), data: json!({"app": app, "home": false, "covered": true}) };
+        let guide = |down| KeyEvent::Key { name: "guide".into(), down, repeat: false, seat: 0 };
+        shell.channel(&front("org.test.player"), 1_000);
+        assert_eq!(shell.report()["takes"], json!([]), "another app in front: the key is the app's");
+        shell.key(&guide(true), 1_100);
+        assert_eq!(shell.state()["guide"]["open"], false, "a key the compositor should not have sent opens nothing");
+        shell.channel(&front("com.webos.app.livetv"), 2_000);
+        assert_eq!(shell.report()["takes"], json!(["guide"]));
+        shell.key(&guide(true), 2_100);
+        shell.key(&guide(false), 2_160);
+        assert_eq!(shell.state()["guide"]["open"], true);
+        assert!(shell.report()["takes"].as_array().unwrap().iter().any(|k| k == "guide"), "still claimed while it is open");
+        shell.channel(&front("org.test.player"), 3_000);
+        assert_eq!(shell.state()["guide"]["open"], false);
+        assert_eq!(shell.report()["takes"], json!([]));
+    }
 
     #[test]
     fn loaded_legacy_custom_colours_do_not_claim_the_shipped_palette() {

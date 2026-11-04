@@ -45,8 +45,6 @@ pub const CURRENT_URI: &str = "luna://com.webos.service.utp.broadcast/getCurrent
 pub const LAUNCH_URI: &str = "luna://com.webos.applicationManager/launch";
 /// LG's Live TV, which tunes.
 pub const LIVE_TV_APP: &str = "com.webos.app.livetv";
-/// LG's guide (`activateType` `tvguide`, `channels`, `scheduler`), which a LumaTV guide stands in for.
-pub const LG_GUIDE_APP: &str = "com.webos.app.livemenu";
 
 /// The tags of the calls this layer's users make, as a base: a model adds its own offsets.
 pub const TAG_BASE: u64 = 0x4743_0000;

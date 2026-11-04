@@ -57,13 +57,28 @@ impl GuideHost {
         std::mem::take(&mut self.redraw)
     }
 
-    /// What the shell tells the compositor it takes while the guide is up: the channel rocker pages it, Info opens its sheet and a turn of the
-    /// Magic Remote's wheel moves a row.
-    pub fn takes(&self) -> [&'static str; 5] {
-        ["chup", "chdown", "info", "wheelup", "wheeldown"]
+    /// What the shell tells the compositor it takes. Live TV in front: the Guide key, which Live TV answers by launching LG's guide (the
+    /// compositor gives the key to the shell only while the shell lists it, so LG's is what opens whenever the shell is not running). Open:
+    /// also the channel rocker, which pages the guide, Info, which opens its sheet, and a turn of the Magic Remote's wheel, which moves a row.
+    pub fn takes(&self) -> Vec<&'static str> {
+        if self.model.wants() {
+            vec!["chup", "chdown", "info", "wheelup", "wheeldown", "guide"]
+        } else if self.front == ch::LIVE_TV_APP {
+            vec!["guide"]
+        } else {
+            Vec::new()
+        }
     }
 
-    /// The calls the fixture answers go to it; the rest (the tune, the close of LG's guide) go on to the bridge.
+    /// The Guide key opens the guide when it is claimed (Live TV in front, the guide not open). The guide's own key is ignored while it is open.
+    pub fn guide_key(&mut self, now: u64) -> Vec<Effect> {
+        if self.model.wants() || self.front != ch::LIVE_TV_APP {
+            return Vec::new();
+        }
+        self.open(now)
+    }
+
+    /// The calls the fixture answers go to it; the rest (the tune) go on to the bridge.
     fn route(&mut self, fx: Vec<Effect>, now: u64) -> Vec<Effect> {
         self.now = self.now.max(now);
         if !fx.is_empty() {
@@ -98,25 +113,17 @@ impl GuideHost {
         self.route(fx, now)
     }
 
-    /// A topic, a luna answer or the clock for the model. The app in front is kept; LG's own guide coming to the front (the GUIDE key and
-    /// Live TV's menu launch it) is this guide's to answer: it opens, and LG's is closed.
+    /// A topic, a luna answer or the clock for the model. The app in front is kept; another app coming to the front ends the guide.
     pub fn update(&mut self, input: &Input, now: u64) -> Vec<Effect> {
         let mut out = Vec::new();
         if let Input::Topic { topic, data } = input {
             match topic.as_str() {
                 "foreground" => {
                     let app = data.get("app").and_then(Value::as_str).unwrap_or("").to_string();
-                    if app == ch::LG_GUIDE_APP {
-                        if !self.model.is_open() {
-                            out.extend(self.open(now));
-                        }
-                        out.push(Effect::Luna { tag: 0, uri: "luna://com.webos.applicationManager/closeByAppId".into(), payload: json!({"id": ch::LG_GUIDE_APP, "reason": "windowPolicy"}), subscribe: false });
-                    } else {
-                        if self.model.is_open() && app != self.over && !app.is_empty() {
-                            out.extend(self.close("another app came to the front", now));
-                        }
-                        self.front = app;
+                    if self.model.is_open() && app != self.over && !app.is_empty() {
+                        out.extend(self.close("another app came to the front", now));
                     }
+                    self.front = app;
                 }
                 "screen" if data.get("on").and_then(Value::as_bool) == Some(false) && self.model.is_open() => out.extend(self.close("the screen went off", now)),
                 _ => {}
@@ -218,23 +225,22 @@ mod tests {
         Input::Topic { topic: "foreground".into(), data: json!({"app": app, "home": false}) }
     }
 
-    fn closes_lgs(fx: &[Effect]) -> bool {
-        fx.iter().any(|e| matches!(e, Effect::Luna { uri, payload, .. } if uri.ends_with("/closeByAppId") && payload["id"] == ch::LG_GUIDE_APP))
-    }
-
     #[test]
-    fn lgs_guide_coming_to_the_front_opens_this_one_over_the_app_it_came_over_and_asks_lgs_to_close_and_another_app_ends_it() {
+    fn the_guide_key_is_claimed_only_while_live_tv_is_in_front_and_opens_the_guide_over_it_and_another_app_ends_it() {
         let mut h = GuideHost::new(1060);
-        h.update(&front("com.webos.app.livetv"), NOW);
-        assert!(!h.is_open(), "an app in front opens nothing");
-        let fx = h.update(&front(ch::LG_GUIDE_APP), NOW + 1_000);
-        assert!(h.is_open() && closes_lgs(&fx));
-        let fx = h.update(&front(ch::LG_GUIDE_APP), NOW + 1_100);
-        assert!(h.is_open() && closes_lgs(&fx), "LG's that is still there is asked again, and this one is not opened twice");
-        h.update(&front("com.webos.app.livetv"), NOW + 1_500);
+        assert!(h.takes().is_empty(), "nothing is in front yet: the key is LG's");
+        h.update(&front("com.webos.app.home"), NOW);
+        assert!(h.takes().is_empty() && h.guide_key(NOW + 10).is_empty() && !h.is_open(), "Home in front: the key is not claimed and opens nothing");
+        h.update(&front(ch::LIVE_TV_APP), NOW + 500);
+        assert_eq!(h.takes(), ["guide"]);
+        let fx = h.guide_key(NOW + 1_000);
+        assert!(h.is_open() && !fx.is_empty());
+        assert!(h.takes().contains(&"guide") && h.takes().contains(&"chup"), "open: Guide stays claimed, so Live TV never launches LG's, and the rocker pages");
+        assert!(h.guide_key(NOW + 1_100).is_empty() && h.is_open(), "the key while it is open does nothing");
+        h.update(&front(ch::LIVE_TV_APP), NOW + 1_500);
         assert!(h.is_open(), "the app it came over is in front again: it stays");
         h.update(&front("com.beb.plxnative"), NOW + 2_000);
-        assert!(!h.is_open(), "another app ends it");
+        assert!(!h.is_open() && h.takes().is_empty(), "another app ends it and the key is LG's again");
     }
 
     #[test]
@@ -242,7 +248,7 @@ mod tests {
         let mut h = GuideHost::new(1060);
         h.open(NOW);
         assert!(h.wants());
-        assert_eq!(h.takes(), ["chup", "chdown", "info", "wheelup", "wheeldown"]);
+        assert_eq!(h.takes(), ["chup", "chdown", "info", "wheelup", "wheeldown", "guide"]);
         h.update(&Input::Topic { topic: "screen".into(), data: json!({"on": false}) }, NOW + 100);
         assert!(!h.is_open() && !h.wants());
     }

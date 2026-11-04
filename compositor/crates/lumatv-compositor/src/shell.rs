@@ -25,10 +25,10 @@ pub const TRACE_MARKER: &str = "/sys/kernel/debug/tracing/trace_marker";
 /// The keys the system layer may ask to take while an app has the focus (`Msg::Takes`): the overlay cards' OK and Back. The arrows stay the
 /// app's, so a doorbell card never costs the person the film's controls. The Rust shell's Home also names the keys `keys.conf` teaches by name
 /// (`keys::SHELL_KEYS`): the microphone key while the helper can listen, the on-screen remote's and Search's while Home is in front, and the
-/// channel rocker and Info while the channel guide is up. `wheel`, `wheelup` and `wheeldown` are no keys: they name a turn of the Magic
+/// channel rocker and Info while the channel guide is up, and Guide while Live TV is in front. `wheel`, `wheelup` and `wheeldown` are no keys: they name a turn of the Magic
 /// Remote's wheel (`State::shell_rust_wheel`, with its direction `State::shell_rust_wheel_direction`), which the Rust shell's display lab and
 /// Home's smart-home card ask for.
-pub const TAKEABLE: &[&str] = &["ok", "back", "voice", "screenremote", "search", "chup", "chdown", "info", "wheel", "wheelup", "wheeldown"];
+pub const TAKEABLE: &[&str] = &["ok", "back", "voice", "screenremote", "search", "chup", "chdown", "info", "guide", "wheel", "wheelup", "wheeldown"];
 /// A press the layer took whose release has not come for this long was a release lost: the next press is a new one, not a repeat.
 pub(crate) const TOOK_STALE: Duration = Duration::from_secs(3);
 
