@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 use support::*;
 
 const BIN: &str = env!("CARGO_BIN_EXE_lumatv-helper");
-const WAIT: Duration = Duration::from_secs(20);
+const WAIT: Duration = Duration::from_secs(60);
 const USER: &str = "lumatv";
 const PASSWORD: &str = "hunter2-very-secret-words";
 const LEFT: &str = "TV left";

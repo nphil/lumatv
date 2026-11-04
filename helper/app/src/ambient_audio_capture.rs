@@ -263,10 +263,14 @@ mod tests {
         drop(capture);
         assert!(started.elapsed() < Duration::from_secs(5));
         assert_eq!(meter.get(Instant::now()), Features::SILENT);
-        // The group is gone: nothing answers a signal sent to it.
+        // The group is gone: nothing answers a signal sent to it. A child that was killed stays in the group as a zombie until whoever took it
+        // over (the shell's orphan goes to init) reaps it, which a busy host can be slow to do.
+        let deadline = Instant::now() + Duration::from_secs(20);
         // SAFETY: signal 0 only checks whether the group exists.
-        let alive = unsafe { libc::kill(-(pid as libc::pid_t), 0) } == 0;
-        assert!(!alive);
+        while unsafe { libc::kill(-(pid as libc::pid_t), 0) } == 0 {
+            assert!(Instant::now() < deadline, "the group is still there");
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     /// The CPU the reading thread uses for a stream at the speed of sound, in this process (`/proc/self/task`).
