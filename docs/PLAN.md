@@ -1215,8 +1215,9 @@ what it already does.
 - QML disk cache on, cleared on every stage change (Nitin, 2026-10-23).
 - The set is wall-mounted: the strip runs all four edges, the 5 m strip on
   order (Nitin, 2026-10-23).
-- Live TV is rarely used: phase 6 restyles the channel banner only; no
-  guide (Nitin, 2026-10-23).
+- Live TV is rarely used: phase 6 restyles the channel banner; no guide
+  (Nitin, 2026-10-23), until he asked for one (2026-11-03): the Rust shell's
+  channel guide answers LG's guide screen, and LG's stays the fallback.
 - Background preloads: only Netflix stays warm; YouTube (135 MB), LG
   Channels (100 MB) and the web browser (72 MB) are dropped from
   `preloadmanager.supportAppList`, about 307 MB, re-sent at every wake as

@@ -9,29 +9,34 @@ the 8.3 ms of a 120 Hz refresh is about 80 layers. For each window of a walk thi
 frame's estimate, and the work of a frame (that estimate and the time this process took to apply what the frame showed) at its worst and
 at the 99th percentile.
 
-    python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,home-widgets,toast,onhome] [--frames] [--reference]
+    python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,home-widgets,toast,onhome,guide] [--frames] [--reference]
                                  [--bin PATH]
 
 `--frames` lists every frame; `--reference` draws each frame whole as well and counts the frames that differ (the floor and the copies
 must change nothing); `--bin` (or `LUMATV_UI_BIN`) names another `lumatv-ui`. `onhome` is the Smart home card: entered, a switch and a lamp
-toggled, a long scroll, a sensor's history, a lamp's colours changed, and a rest in which no frame may be drawn.
+toggled, a long scroll, a sensor's history, a lamp's colours changed, and a rest in which no frame may be drawn. `guide` is the channel
+guide over a make-believe set of channels: walked by time and by channel with a held arrow, paged, a programme's sheet opened, the filters
+chosen, a rest, and left.
 
 The Cameras app is measured by itself (no Home under it) in four walks: `cameras-grid` (eight tiles whose stills come five a second a tile, three of
 them not 16:9, then the focus walked) and `cameras-full` (a portrait doorbell's video in its window with the bars beside it, the chrome fading and
 coming back), each with the fill of the bars as shipped and as `cameras-grid-nofill` and `cameras-full-nofill` (`theme.cameras.fillBars` off). The
 difference between a walk and its `-nofill` is what the fill costs."""
 import argparse
+import colorsys
 import http.server
 import json
 import math
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -41,7 +46,7 @@ import rust_home_host as home  # noqa: E402  (Home's make-believe feeds)
 BIN = os.environ.get('LUMATV_UI_BIN') or os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
 FRAME = re.compile(r"^\[frame\] (\d+) at (\d+) ms: damage (\d+) px, drew (\d+) px in (\d+) rects \([\d.]+ %\), layers (\d+) culled \d+ cpu (\d+) us gpu \d+ us"
                    r".*? floor (\d+) px apply (\d+) us", re.M)
-SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast', 'onhome']
+SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast', 'onhome', 'guide']
 #: when a walk starts: Home has drawn its feeds and rests
 START_MS = 6000
 #: the layers a 120 Hz refresh holds (1.5 ms + 0.085 ms a layer <= 8.3 ms)
@@ -62,6 +67,27 @@ def work_ms(frame):
 def p99(values):
     values = sorted(values)
     return values[min(len(values) - 1, math.ceil(0.99 * len(values)) - 1)] if values else 0.0
+
+
+def write_logos(folder, n=12):
+    """Twelve invented channel logos for the guide's fixture (356 by 200 PNGs: a rounded plate in a colour of its own with a lighter band)."""
+    os.makedirs(folder, exist_ok=True)
+    w, h, r = 356, 200, 40
+    for i in range(n):
+        red, green, blue = (int(255 * c) for c in colorsys.hsv_to_rgb(i / n, 0.55, 0.95))
+        raw = bytearray()
+        for y in range(h):
+            raw.append(0)
+            for x in range(w):
+                cx, cy = min(max(x, r), w - 1 - r), min(max(y, r), h - 1 - r)
+                inside = (x - cx) ** 2 + (y - cy) ** 2 <= r * r
+                band = 80 < y < 120 and 50 < x < w - 50
+                raw += bytes((255, 255, 255, 235) if inside and band else (red, green, blue, 255) if inside else (0, 0, 0, 0))
+        chunk = lambda kind, data: struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))  # noqa: E731
+        png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(bytes(raw), 6)) + chunk(b'IEND', b'')
+        with open(os.path.join(folder, 'logo%02d.png' % i), 'wb') as f:
+            f.write(png)
+    return folder
 
 
 #: the Smart home card tall (6 of 12 columns, 9 of 16 rows), as the walk finds it beside the weather and the dock
@@ -301,6 +327,44 @@ def walk_of(surface):
         w.wait(2000)
         w.mark('rest')
         w.wait(3000)
+    elif surface == 'guide':
+        # LG's guide opened (`ctl shell show guide`), its programmes arrive, the grid walked by time and by channel (a held arrow), paged with CH+ and
+        # CH-, a programme's sheet opened and left, the filters and Now chosen, and the guide left with Back
+        w.mark('open')
+        w.push('show', {'kind': 'guide'})
+        w.wait(1800)
+        w.mark('by time')
+        w.hold('right', 2600)
+        w.wait(300)
+        w.hold('left', 2600)
+        w.wait(300)
+        w.mark('by channel')
+        w.hold('down', 2600)
+        w.wait(300)
+        w.hold('up', 2600)
+        w.wait(300)
+        w.mark('paging')
+        w.taps('chdown', 6, 280)
+        w.taps('chup', 6, 280)
+        w.wait(300)
+        w.mark('sheet')
+        w.key('info')
+        w.wait(700)
+        w.key('back')
+        w.wait(400)
+        w.mark('filters')
+        w.taps('up', 40, 40)
+        w.taps('right', 2, 260)
+        w.key('ok')
+        w.wait(1200)
+        w.taps('right', 1, 260)
+        w.key('ok')
+        w.wait(900)
+        w.mark('rest')
+        w.wait(2500)
+        w.mark('close')
+        w.key('back')
+        w.wait(1500)
     else:
         raise ValueError('no walk for %s' % surface)
     w.mark('end')
@@ -380,13 +444,15 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
         server = http.server.ThreadingHTTPServer(('127.0.0.1', HELPER_PORT), FakeHelper)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         extra = ['--port', str(HELPER_PORT), '--helper-port', str(HELPER_PORT)]
-    cmd = [binary, '--host', '--virtual', '--refresh', str(refresh), '--kinds', 'osd,toast,home,settings,quick,picker,drawer,menu,confirm',
+    cmd = [binary, '--host', '--virtual', '--refresh', str(refresh), '--kinds', 'osd,toast,home,settings,quick,picker,drawer,menu,confirm' + (',guide' if surface == 'guide' else ''),
            '--data-dir', data, '--shm', os.path.join(data, 'shm'), '--wait', str(w.at + 500), '--log', log,
            '--module-dir', os.path.join(ROOT, 'compositor', 'assets', 'ui'),
            '--push', '40:refresh:' + json.dumps({"hz": refresh}), '--push', '50:foreground:' + json.dumps(home.HOME),
            '--luna', '80:%d:%s' % (home.LP_TAG, json.dumps({"launchPoints": home.launch_points()}))]
     for topic, doc in feeds.items():
         cmd += ['--helper', '100:%s:%s' % (topic, json.dumps(doc))]
+    if surface == 'guide':
+        cmd += ['--guide-fixture', write_logos(os.path.join(data, 'logos'))]
     cmd += w.args + extra + (['--reference'] if reference else [])
     try:
         r = subprocess.run(cmd, env=dict(os.environ, LIBGL_ALWAYS_SOFTWARE='1'), capture_output=True, text=True, timeout=1800)
@@ -430,6 +496,10 @@ def main(argv=None):
             if a.frames:
                 for f in fs:
                     print('      %6d ms  drew %8d px in %2d rects  layers %3d  floor %8d px  cpu %6d us (commits %6d us)' % f)
+        frames = [f for _, fs in windows for f in fs]
+        work = [work_ms(f) for f in frames]
+        print('  all %d frames: most layers %d (%.1f ms), work max %.1f ms p99 %.1f ms' % (len(frames), max((f[3] for f in frames), default=0),
+                                                                                      gpu_ms(max((f[3] for f in frames), default=0)), max(work, default=0.0), p99(work)))
     return 0
 
 

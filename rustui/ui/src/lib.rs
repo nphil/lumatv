@@ -7,6 +7,7 @@
 
 pub mod cameras;
 pub mod embedded;
+pub mod guide;
 pub mod home;
 pub mod host;
 pub mod kit;

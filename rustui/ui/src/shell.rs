@@ -71,6 +71,8 @@ pub struct Kinds {
     pub keyboard: bool,
     /// The display lab: test cards and one setting of the screen's hardware at a time, driven with the remote (opened from Settings > Picture).
     pub displaylab: bool,
+    /// The channel guide: LG's Live TV guide rebuilt (the channels and programmes from LG's own guide service), opened where LG's opens.
+    pub guide: bool,
 }
 
 impl Kinds {
@@ -101,6 +103,7 @@ impl Kinds {
                 "banner" => k.banner = true,
                 "keyboard" => k.keyboard = true,
                 "displaylab" => k.displaylab = true,
+                "guide" => k.guide = true,
                 _ => {}
             }
         }
@@ -131,6 +134,7 @@ impl Kinds {
             (self.banner, "banner"),
             (self.keyboard, "keyboard"),
             (self.displaylab, "displaylab"),
+            (self.guide, "guide"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))
@@ -174,6 +178,8 @@ pub struct Shell {
     settings: SettingsHost,
     /// The display lab: over Settings (it is opened from there) and under the editor and the system layer; it has the keys while it is open.
     lab: crate::lab::host::LabHost,
+    /// The channel guide: LG's Live TV guide in LumaTV's look, over the live picture and under the panels; it has the keys while it is open.
+    guide: crate::guide::host::GuideHost,
     /// The panels: the quick panel, the input picker and the notification drawer.
     panels: Panels,
     /// The press of OK or Back that is being routed was taken by a card (the pop-up's or the overlay queue's): the screens under do not see it.
@@ -209,6 +215,7 @@ pub struct Shell {
     /// The keys whose press the display lab took (their release is the lab's too: the lab may have closed on the press, and no screen under it
     /// is to see a release whose press it never saw).
     lab_keys: Vec<String>,
+    guide_keys: Vec<String>,
     /// Waking presses and their repeats/releases belong to the saver, even after it has gone.
     saver_keys: Vec<(String, u32)>,
     /// The size and time of each polled file (the theme, the layout) as it was last read: a poll that finds them unchanged reads nothing.
@@ -246,6 +253,7 @@ impl Shell {
             // Settings reads the layout as Home has merged and tidied it
             settings: SettingsHost::new(system_z, theme, &home.layout),
             lab: crate::lab::host::LabHost::new(system_z + crate::kit::z::LAB),
+            guide: crate::guide::host::GuideHost::new(system_z + crate::kit::z::GUIDE),
             settings_layout: home.layout_text.clone(),
             theme_base: theme.clone(),
             theme_default_scale: kit.text_scale,
@@ -280,6 +288,7 @@ impl Shell {
             data_dir: None,
             entry_keys: Vec::new(),
             lab_keys: Vec::new(),
+            guide_keys: Vec::new(),
             saver_keys: Vec::new(),
             polled_files: HashMap::new(),
             pointer_state: None,
@@ -510,6 +519,12 @@ impl Shell {
                 self.carry(e, now, acts);
             }
         }
+        // the channel guide hears the topics (what is in front, LG's own guide opening), the luna answers and the clock here
+        if self.kinds.guide && !key_like {
+            for e in self.guide.update(input, now) {
+                self.carry(e, now, acts);
+            }
+        }
         for e in self.panels.update(&self.kinds, input, now) {
             self.carry(e, now, acts);
         }
@@ -646,11 +661,22 @@ impl Shell {
             || (self.kinds.cameras && self.cameras.wants())
             || (self.kinds.settings && self.settings.is_open())
             || self.lab_wants()
+            || self.guide_wants()
     }
 
     /// The display lab is open and has the keys and the pointer: nothing under it hears them.
     fn lab_wants(&self) -> bool {
         self.kinds.displaylab && self.lab.wants()
+    }
+
+    /// The channel guide is open and has the keys and the pointer: nothing under it hears them but a panel opened over it.
+    fn guide_wants(&self) -> bool {
+        self.kinds.guide && self.guide.wants()
+    }
+
+    /// The host harness answers the guide's calls of LG's services itself, with a make-believe set of channels (`--guide-fixture`).
+    pub fn guide_fixture(&mut self, logos: Option<&std::path::Path>) {
+        self.guide.with_fixture(logos);
     }
 
     /// What the panels tell the rest of the shell goes to every model as a topic; "All settings" opens Settings at its page.
@@ -765,6 +791,13 @@ impl Shell {
             Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("displaylab") && self.kinds.displaylab => {
                 // `ctl shell show displaylab`: the same door as Settings' row
                 for e in self.lab.open(now) {
+                    self.carry(e, now, &mut acts);
+                }
+                self.redraw = true;
+            }
+            Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("guide") && self.kinds.guide => {
+                // `ctl shell show guide`: the same door as LG's guide opening (the GUIDE key, Live TV's menu)
+                for e in self.guide.open(now) {
                     self.carry(e, now, &mut acts);
                 }
                 self.redraw = true;
@@ -887,8 +920,23 @@ impl Shell {
                 if !*down && let Some(i) = lab_took {
                     self.lab_keys.remove(i);
                 }
+                // the channel guide has every key while it is open, unless a card, a question, Settings or a panel opened over it has them; and the
+                // release of a key it took (it may have closed on the press, and what is under it is to see neither)
+                let guide_up = self.guide_wants() && !self.sys.wants(&self.kinds) && !self.cards_took && !for_lab && !self.panels.wants(&self.kinds) && !self.settings.is_open();
+                let guide_took = self.guide_keys.iter().position(|k| k == name);
+                let for_guide = guide_up || guide_took.is_some();
+                if *down && guide_up && guide_took.is_none() {
+                    self.guide_keys.push(name.clone());
+                }
+                if !*down && let Some(i) = guide_took {
+                    self.guide_keys.remove(i);
+                }
                 if for_lab {
                     for e in self.lab.key(name, *down, *repeat, &mut self.engine, now) {
+                        self.carry(e, now, &mut acts);
+                    }
+                } else if for_guide {
+                    for e in self.guide.key(name, *down, *repeat, &mut self.engine, now) {
                         self.carry(e, now, &mut acts);
                     }
                 } else if sys_asks {
@@ -899,7 +947,7 @@ impl Shell {
                     self.feed(&Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now, &mut acts);
                 }
                 // a panel has the keys unless a question of the system layer or Settings is over it, or a card took the key (the entry sheet is over Settings)
-                if !self.sys.wants(&self.kinds) && (for_entry || !self.settings.is_open()) && !self.cards_took && !for_lab {
+                if !self.sys.wants(&self.kinds) && (for_entry || !self.settings.is_open()) && !self.cards_took && !for_lab && !for_guide {
                     for e in self.panels.key(&self.kinds, name, *down, *repeat, now) {
                         self.carry(e, now, &mut acts);
                     }
@@ -930,13 +978,19 @@ impl Shell {
                 let (buttons, visible) = (&sample.buttons, &sample.visible);
                 // the layout editor, the AI prompt and the display lab are the whole screen's: nothing under them hears the pointer
                 let lab_up = self.lab_wants();
-                let editor = self.sys.layout_open() || self.sys.ai_up() || lab_up;
+                // the guide is the whole screen's too, but a panel opened over it (the quick panel) and Settings come first
+                let guide_up = self.guide_wants() && !lab_up && !self.panels.wants(&self.kinds) && !(self.kinds.settings && self.settings.is_open());
+                let editor = self.sys.layout_open() || self.sys.ai_up() || lab_up || guide_up;
                 if let Some(target) = self.sys.pointer(&self.kit, &mut self.engine, now_ns, now, sample) {
                     for e in self.sys.press(target) {
                         self.carry(e, now, &mut acts);
                     }
                 } else if lab_up {
                     for e in self.lab.pointer(&self.kit, &mut self.engine, now_ns, sample, now) {
+                        self.carry(e, now, &mut acts);
+                    }
+                } else if guide_up {
+                    for e in self.guide.pointer(&self.kit, &mut self.engine, now_ns, sample, now) {
                         self.carry(e, now, &mut acts);
                     }
                 } else if self.kinds.settings && !self.sys.wants(&self.kinds) && !self.panels.entry_up(&self.kinds) {
@@ -977,6 +1031,7 @@ impl Shell {
         let quiet = !(self.panels.wants(&self.kinds)
             || (self.kinds.settings && self.settings.is_open())
             || (self.kinds.displaylab && self.lab.is_open())
+            || (self.kinds.guide && self.guide.is_open())
             || (self.kinds.cameras && self.cameras.wants())
             || self.sys.saver_up(&self.kinds));
         self.panels.set_quiet(quiet);
@@ -1019,7 +1074,7 @@ impl Shell {
             }
         }
         // what the panels, Settings and the Cameras viewer have up is what the cards and the pop-up wait for
-        let modal = (self.kinds.settings && self.settings.is_open()) || (self.kinds.displaylab && self.lab.is_open());
+        let modal = (self.kinds.settings && self.settings.is_open()) || (self.kinds.displaylab && self.lab.is_open()) || (self.kinds.guide && self.guide.is_open());
         let host_busy = self.panels.wants(&self.kinds) || modal;
         // Home is calm (its wallpaper stands still and its weather rests) while something is over it, until the overlay has been gone a while (not
         // at the start of its fade-out)
@@ -1047,6 +1102,9 @@ impl Shell {
             self.redraw = true;
         }
         if self.kinds.displaylab && self.lab.take_redraw() {
+            self.redraw = true;
+        }
+        if self.kinds.guide && self.guide.take_redraw() {
             self.redraw = true;
         }
         // what the compositor made of the live picture's claim on a video window: the full view follows it
@@ -1199,6 +1257,19 @@ impl Shell {
                     }
                 }
             }
+            if self.kinds.guide {
+                let now_ns = self.kit.ui.scene.now_ns();
+                match self.guide.apply(&mut self.kit, &mut self.engine, now_ns) {
+                    Ok(on) => { live |= on; set_visible(&mut interactive, 64, on); },
+                    // a guide that cannot be seen is not run: it ends, and LG's own is the next press's
+                    Err(e) => {
+                        self.apply_failed("guide", format!("guide: {e}"), acts);
+                        for fx in self.guide.close("it could not be drawn", now) {
+                            self.carry(fx, now, acts);
+                        }
+                    }
+                }
+            }
             self.live = live;
             self.interactive_surfaces = interactive;
             let failed = std::mem::take(&mut self.apply_failed_now);
@@ -1282,17 +1353,24 @@ impl Shell {
         if self.kinds.displaylab {
             can.push("displaylab");
         }
+        if self.kinds.guide {
+            can.push("guide");
+        }
         if self.kinds.toast {
             // not a panel: `ctl shell show toast [TEXT]` raises one by the feed's own path (see `channel`)
             can.push("toast");
         }
         can.extend(self.panels.can(&self.kinds));
         // Home in front wants the keys too: the compositor sends every key of the remote to the layer that wants them
-        let wants = self.sys.wants(&self.kinds) || self.panels.wants(&self.kinds) || (self.kinds.home && self.home.active) || (self.kinds.cameras && self.cameras.wants()) || (self.kinds.settings && self.settings.wants()) || self.lab_wants();
+        let wants = self.sys.wants(&self.kinds) || self.panels.wants(&self.kinds) || (self.kinds.home && self.home.active) || (self.kinds.cameras && self.cameras.wants()) || (self.kinds.settings && self.settings.wants()) || self.lab_wants() || self.guide_wants();
         let mut takes = self.sys.takes(&self.kinds);
         if self.lab_wants() {
             // the wheel's turns switch between the two looks: the compositor has no key for them until it is told they are the shell's
             takes.push("wheel");
+        }
+        if self.guide_wants() {
+            // the channel rocker pages the guide and Info opens its sheet: the compositor has names for them but the app (Live TV) has them until told
+            takes.extend(self.guide.takes());
         }
         if self.kinds.home {
             // the keys the compositor has no name for until it is told they are the shell's: the voice key while the helper can listen, the
@@ -1347,6 +1425,11 @@ impl Shell {
                 s[k] = val.clone();
             }
         }
+        if self.kinds.guide {
+            for (k, val) in self.guide.state().as_object().into_iter().flatten() {
+                s[k] = val.clone();
+            }
+        }
         s["live"] = json!(self.live);
         s["interactiveVisible"] = json!(self.sys.screen_on() && (self.interactive_surfaces != 0 || self.interactive_fades.iter().any(Option::is_some) || self.sys.interactive_visible() || self.panels.interactive_visible()));
         let room = self.kit.room();
@@ -1369,7 +1452,8 @@ impl Shell {
         let cameras = if self.kinds.cameras { self.cameras.due_at() } else { None };
         let settings = if self.kinds.settings { self.settings.due_at() } else { None };
         let lab = if self.kinds.displaylab { self.lab.due_at() } else { None };
-        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, self.vwin.due_at(), self.release_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1]].into_iter().flatten().min()
+        let guide = if self.kinds.guide { self.guide.due_at() } else { None };
+        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, guide, self.vwin.due_at(), self.release_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1]].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {
@@ -1404,6 +1488,11 @@ impl Shell {
                 g[k] = v.clone();
             }
         }
+        if self.kinds.guide {
+            for (k, v) in self.guide.geometry(&self.engine).as_object().into_iter().flatten() {
+                g[k] = v.clone();
+            }
+        }
         g
     }
 
@@ -1422,6 +1511,11 @@ impl Shell {
         // the entry sheet's dim hides the screen it is over: only the sheet is read
         if self.panels.entry_up(&self.kinds) {
             self.panels.feed_lint(&self.kinds, &mut self.kit, &mut lint);
+            return report(lint);
+        }
+        // the channel guide is a full page over everything but the system layer and the panels: while it is open (and no panel is over it) only it is read
+        if self.kinds.guide && self.guide.is_open() && !self.panels.wants(&self.kinds) {
+            self.guide.feed_lint(&mut self.kit, &mut lint);
             return report(lint);
         }
         // the display lab is an opaque page over everything but the system layer: while it is open only it is read
@@ -1464,6 +1558,7 @@ impl Shell {
         self.cameras.restyle(&mut self.engine, self.kit.text_scale);
         if glass_only { self.settings.restyle_glass(&self.kit); } else { self.settings.restyle(); }
         self.lab.restyle(&mut self.engine);
+        self.guide.restyle(&mut self.engine);
         if self.kinds.layout && self.sys.layout_open() {
             let sizes = self.layout_sizes();
             self.sys.set_layout_sizes(sizes);

@@ -36,6 +36,8 @@ use ui::text::{Type, Weight};
 /// stack 1, over the windows). The system layer (the volume display, the toasts, the alerts and cards) is the topmost band,
 /// so a bar or a toast stays over a panel or Settings; each band is a kind's own, 200 deep.
 pub mod z {
+    /// The channel guide (a full page over the live picture): under the panels, so the quick panel can be opened over it.
+    pub const GUIDE: i32 = 60;
     /// The quick panel, the input picker, Quick Access, the drawer, the context menu, confirm, the switcher's chrome.
     pub const PANELS: i32 = 100;
     /// The Cameras app (the grid, the full view, the strip, the sheet): over the panels, under Settings.

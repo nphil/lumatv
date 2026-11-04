@@ -169,12 +169,12 @@ wait_panel() {
 rust_path() {
     case $1 in
         osd) echo ui.osd ;; toast) echo ui.toasts ;; alert) echo ui.alerts ;; saver) echo ui.saver ;; home) echo ui.home.home ;;
-        quick|picker|drawer) echo ui.panels.$1 ;; settings) echo ui.settings.open ;; cameras) echo ui.cameras.screen.mode ;;
+        quick|picker|drawer) echo ui.panels.$1 ;; settings) echo ui.settings.open ;; cameras) echo ui.cameras.screen.mode ;; guide) echo ui.guide.open ;;
     esac
 }
 rust_is_open() {
     case $1 in
-        osd|saver|home|settings) [ "$2" = true ] ;;
+        osd|saver|home|settings|guide) [ "$2" = true ] ;;
         toast|alert) [ "${2:-0}" -ge 1 ] 2> /dev/null ;;
         quick|picker|drawer) [ "$2" = opening ] || [ "$2" = open ] ;;
         cameras) [ "$2" = grid ] || [ "$2" = full ] ;;
@@ -188,7 +188,7 @@ rust_trigger() {
         toast) ls1 com.webos.notification/createToast '{"message":"LumaTV gate: a toast of the Rust shell","sourceId":"org.nphil.lumatv"}' > /dev/null ;;
         alert) ls1 com.webos.notification/createAlert '{"sourceId":"com.webos.app.home","title":"LumaTV gate","message":"Closed with OK.","showTimeout":false,"buttons":[{"label":"OK"}]}' > /dev/null ;;
         saver) ls1 com.webos.service.tvpower/power2/turnOnScreenSaver '{}' > /dev/null ;;
-        quick|picker|drawer|settings|cameras) ctl shell show "$1" > /dev/null ;;
+        quick|picker|drawer|settings|cameras|guide) ctl shell show "$1" > /dev/null ;;
     esac
 }
 # The way back: the volume key undoing the one pressed, OK on the alert, a key ending the saver, Back (one step each) for a panel or a page.
@@ -197,7 +197,7 @@ rust_close() {
         osd) key_tap 114 ;;
         alert) key_tap 28 ;;
         saver) key_tap 106 ;;
-        quick|picker|drawer|settings|cameras) n=0; while [ $n -lt 4 ]; do key_tap 412; sleep 0.7; rust_is_open "$1" "$(rust_get "$(rust_path "$1")")" || break; n=$((n+1)); done ;;
+        quick|picker|drawer|settings|cameras|guide) n=0; while [ $n -lt 4 ]; do key_tap 412; sleep 0.7; rust_is_open "$1" "$(rust_get "$(rust_path "$1")")" || break; n=$((n+1)); done ;;
     esac
 }
 # Why a kind that is built is not driven here (empty: it is).
@@ -866,7 +866,7 @@ shell)
     if [ -z "$bad" ]; then pass shell "$detail"; else fail shell "$detail"; fi
     ;;
 rust)
-    asked=$(echo "${LUMATV_RUST_KINDS:-home osd toast alert quick picker drawer settings cameras saver menu confirm switcher cards popup capture layout entry keyboard ai banner displaylab}" | tr ',' ' ')
+    asked=$(echo "${LUMATV_RUST_KINDS:-home osd toast alert quick picker drawer settings cameras saver menu confirm switcher cards popup capture layout entry keyboard ai banner displaylab guide}" | tr ',' ' ')
     home; sleep 3
     k0=$(rust_kinds_on)
     ctl shell > $OUT/rust-start.json

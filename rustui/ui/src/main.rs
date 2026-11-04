@@ -65,6 +65,8 @@ struct Options {
     snaps: Vec<(u64, PathBuf)>,
     frames: Vec<(u64, String)>,
     backdrop: Option<PathBuf>,
+    /// Host runs: the channel guide's calls of LG's services are answered with a make-believe set of channels (the PNGs of this folder are the logos).
+    guide_fixture: Option<PathBuf>,
     theme: Option<Value>,
     log: Option<PathBuf>,
     clock: Option<u64>,
@@ -83,7 +85,7 @@ fn env_path(name: &str) -> Option<PathBuf> {
 fn parse() -> Result<Options, String> {
     let mut o = Options {
         host: false,
-        kinds: std::env::var("LUMATV_UI_KINDS").unwrap_or_else(|_| "home,osd,settings,toast,cameras,quick,picker,drawer,menu,confirm,switcher,entry,keyboard,alert,saver,capture,cards,popup,layout,ai,banner,displaylab".into()),
+        kinds: std::env::var("LUMATV_UI_KINDS").unwrap_or_else(|_| "home,osd,settings,toast,cameras,quick,picker,drawer,menu,confirm,switcher,entry,keyboard,alert,saver,capture,cards,popup,layout,ai,banner,displaylab,guide".into()),
         data_dir: env_path("LUMATV_DATA_DIR").unwrap_or_else(|| PathBuf::from("/var/lib/lumatv")),
         module_dir: env_path("LUMATV_MODULE_DIR").unwrap_or_else(|| PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../compositor/assets/ui"))),
         shm: env_path("LUMATV_UI_SHM").unwrap_or_else(|| std::env::temp_dir().join("lumatv-ui-shm")),
@@ -102,6 +104,7 @@ fn parse() -> Result<Options, String> {
         snaps: Vec::new(),
         frames: Vec::new(),
         backdrop: None,
+        guide_fixture: None,
         theme: None,
         log: None,
         clock: None,
@@ -179,6 +182,7 @@ fn parse() -> Result<Options, String> {
                 }
             }
             "--backdrop" => o.backdrop = Some(PathBuf::from(value(&mut args, "--backdrop")?)),
+            "--guide-fixture" => o.guide_fixture = Some(PathBuf::from(value(&mut args, "--guide-fixture")?)),
             "--theme" => o.theme = Some(serde_json::from_str(&value(&mut args, "--theme")?).map_err(|e| format!("--theme: {e}"))?),
             "--log" => o.log = Some(PathBuf::from(value(&mut args, "--log")?)),
             "--refresh" => o.refresh_hz = value(&mut args, "--refresh")?.parse::<f32>().ok().filter(|hz| (24.0..=240.0).contains(hz)).ok_or("--refresh HZ (24 to 240)")?,
@@ -297,6 +301,9 @@ fn make_shell(o: &Options, scene: Scene) -> io::Result<Shell> {
     let kit = Kit::new(scene, tokens, mode, MaterialTier::T1, o.text_scale)?;
     let mut shell = Shell::new(kit, Kinds::parse(&o.kinds), o.system_z, &o.module_dir.join("icons/audio"), &theme, &layout)?;
     shell.dirs(&o.module_dir, &o.data_dir);
+    if let Some(logos) = &o.guide_fixture {
+        shell.guide_fixture(Some(logos));
+    }
     Ok(shell)
 }
 
