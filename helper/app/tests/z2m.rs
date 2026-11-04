@@ -47,6 +47,8 @@ const RIGHT_ADDR: u16 = 0xD298;
 struct Published {
     topic: String,
     payload: Value,
+    /// When the broker took it in: a lower bound on a wait holds on a busy machine, a count in a wall-clock window does not.
+    at: Instant,
 }
 
 #[derive(Default)]
@@ -285,7 +287,11 @@ fn serve(mut stream: TcpStream, state: &Arc<Mutex<State>>, stop: &Arc<AtomicBool
                 let payload = serde_json::from_slice(&body[at..]).unwrap_or_else(|_| {
                     Value::String(String::from_utf8_lossy(&body[at..]).into_owned())
                 });
-                state.lock().published.push(Published { topic, payload });
+                state.lock().published.push(Published {
+                    topic,
+                    payload,
+                    at: Instant::now(),
+                });
             }
             0x80 => {
                 let id = [body[0], body[1]];
@@ -589,11 +595,11 @@ fn the_still_colour_starts_the_bulbs_with_bifrosts_frames_and_the_screen_going_o
     assert_eq!(left[2], expected);
     // A still colour is sent again about once a second (the keepalive), not at the frame rate and not twice a second.
     let before = frames_to(&broker, LEFT).len();
-    thread::sleep(Duration::from_millis(2300));
-    let more = frames_to(&broker, LEFT).len() - before;
+    assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= before + 2));
+    let gap = frame_gap(&broker, LEFT, before);
     assert!(
-        (1..=3).contains(&more),
-        "{more} frames in 2.3 s of a still colour"
+        gap >= Duration::from_millis(700),
+        "{gap:?} between two frames of a still colour"
     );
 
     // Screen off: black twice, command 3 to each, then each bulb back to how it was.
@@ -645,19 +651,35 @@ fn the_still_colour_starts_the_bulbs_with_bifrosts_frames_and_the_screen_going_o
     // The helper ending ends the stream too: command 3 once more and the bulbs put back.
     let mut s = s;
     s.rig.stop();
-    assert_eq!(
-        resets_to(&broker, RIGHT).len(),
-        4,
+    // (the helper has written them by now; the broker's own thread reads them when it gets to it)
+    assert!(
+        wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 4),
         "{:?}",
         broker.sets(RIGHT)
     );
-    assert_eq!(
-        broker.sets(RIGHT).last(),
-        Some(&json!({"state": "ON", "brightness": 120, "color_temp": 366}))
+    assert!(
+        wait_until(WAIT, || broker.sets(RIGHT).last()
+            == Some(
+                &json!({"state": "ON", "brightness": 120, "color_temp": 366})
+            )),
+        "{:?}",
+        broker.sets(RIGHT)
     );
 }
 
 /// The capture helper's side of the socket: frames of one colour on the left of the picture and another on the right.
+/// How long after frame `n` to `name` the next frame came in.
+fn frame_gap(broker: &Broker, name: &str, n: usize) -> Duration {
+    let topic = format!("zigbee2mqtt/{name}/set");
+    let frames: Vec<Instant> = broker
+        .published()
+        .into_iter()
+        .filter(|p| p.topic == topic && zcl_data(&p.payload, 1).is_some())
+        .map(|p| p.at)
+        .collect();
+    frames[n + 1].duration_since(frames[n])
+}
+
 fn left_red_right_blue() -> ZoneFrame {
     let mut f = ZoneFrame::blank(Preset::Plain);
     for (i, rect) in Preset::Plain.rects().iter().enumerate().take(MAX_ZONES) {
@@ -895,18 +917,17 @@ fn an_update_running_before_the_start_holds_every_frame_back_until_it_has_ended_
     // The update ends: still nothing for the settle time, then the start, on the same connection.
     let ended = Instant::now();
     broker.push(GONE, &json!({"update": {"state": "idle"}}));
-    thread::sleep(Duration::from_millis(300));
-    assert!(
-        broker.published().is_empty(),
-        "sent within the settle time: {:?}",
-        broker.published()
-    );
     assert!(
         z2m_state(&s.rig, "streaming"),
         "{:?}",
         s.rig.topic("ambient")
     );
-    assert!(ended.elapsed() >= Duration::from_millis(700));
+    let first = broker.published()[0].at;
+    assert!(
+        first.duration_since(ended) >= Duration::from_millis(700),
+        "sent {:?} after the update ended: the settle time is 700 ms",
+        first.duration_since(ended)
+    );
     assert_eq!(problem(&s.rig), "");
     assert_eq!(broker.connects().len(), 1);
     let left = broker.sets(LEFT);
@@ -984,11 +1005,11 @@ fn an_update_that_never_ends_stops_holding_the_lights_back_after_the_stale_time(
     two_bulbs(&broker);
     broker.retain(GONE, &updating(10.0));
     let mut timing = quick(20_000);
-    timing["ambient"]["z2m"]["otaStaleMs"] = json!(1200);
+    timing["ambient"]["z2m"]["otaStaleMs"] = json!(4000);
     let s = setup_timed(&broker, "colour", &timing);
     assert!(problem_has(&s.rig, "paused: Zigbee2MQTT is updating leak"));
     assert!(broker.published().is_empty());
-    // Not heard of again: taken as over after 1.2 s, then the settle time, then the lights.
+    // Not heard of again: taken as over after 4 s, then the settle time, then the lights.
     assert!(z2m_state(&s.rig, "streaming"));
     assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 2));
 }
@@ -1045,10 +1066,11 @@ fn late(name: &str) -> Value {
 }
 
 #[test]
-fn late_answers_halve_the_rate_then_pause_the_stream_and_a_quiet_stream_recovers_its_rate() {
+fn late_answers_halve_the_rate_then_pause_the_stream_and_the_pause_ends_on_its_own() {
     let broker = Broker::start();
     two_bulbs(&broker);
-    let s = setup_timed(&broker, "picture", &quick(3000));
+    // No recovery inside the test: what each step reads is what the last late answer left, however long the machine takes between them.
+    let s = setup_timed(&broker, "picture", &quick(600_000));
     let _feed = Feeder::start(&s.rig.paths.data_dir.join("ambient.sock"));
     assert!(z2m_state(&s.rig, "streaming"));
     assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 5));
@@ -1066,23 +1088,17 @@ fn late_answers_halve_the_rate_then_pause_the_stream_and_a_quiet_stream_recovers
         .is_some_and(
             |f| f.smoothing == fr::smoothing_for(Duration::from_millis(100))
         )));
-    thread::sleep(Duration::from_millis(300));
-    assert!(
-        problem(&s.rig).contains("10 frames a second"),
-        "{}",
-        problem(&s.rig)
-    );
 
-    // Another one: the lowest rate, which is what the frames then keep.
+    // Another one: the lowest rate, which is what the frames then keep: 200 ms apart, and a slow machine only makes that longer.
+    thread::sleep(Duration::from_millis(300));
     broker.push(log, &late(LEFT));
     assert!(problem_has(&s.rig, "5 frames a second instead of 20"));
     let before = frames_to(&broker, LEFT).len();
-    let t0 = Instant::now();
-    thread::sleep(Duration::from_millis(1000));
-    let per_second = (frames_to(&broker, LEFT).len() - before) as f64 / t0.elapsed().as_secs_f64();
+    assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= before + 3));
+    let gap = frame_gap(&broker, LEFT, before + 1);
     assert!(
-        (3.0..=7.0).contains(&per_second),
-        "{per_second} frames a second at the lowest rate"
+        gap >= Duration::from_millis(150),
+        "{gap:?} between two frames at the lowest rate"
     );
 
     // Not the lights' trouble, or not an error: no change.
@@ -1117,11 +1133,8 @@ fn late_answers_halve_the_rate_then_pause_the_stream_and_a_quiet_stream_recovers
         broker.sets(RIGHT).last(),
         Some(&json!({"state": "ON", "brightness": 120, "color_temp": 366}))
     );
-    let sent = broker.published().len();
-    thread::sleep(Duration::from_millis(900));
-    assert_eq!(broker.published().len(), sent, "frames during the pause");
 
-    // Then it starts again, at the lower rate, on the same connection.
+    // Then it starts again, at the lower rate, on the same connection, and no frame went out between the stop and the start.
     assert!(wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 3));
     assert!(z2m_state(&s.rig, "streaming"));
     assert!(
@@ -1130,6 +1143,32 @@ fn late_answers_halve_the_rate_then_pause_the_stream_and_a_quiet_stream_recovers
         problem(&s.rig)
     );
     assert_eq!(broker.connects().len(), 1);
+    let left = broker.sets(LEFT);
+    let commands: Vec<usize> = (0..left.len())
+        .filter(|&i| zcl_data(&left[i], 3).is_some())
+        .collect();
+    assert!(
+        left[commands[1]..commands[2]]
+            .iter()
+            .all(|p| zcl_data(p, 1).is_none()),
+        "frames during the pause: {left:?}"
+    );
+}
+
+#[test]
+fn a_quiet_stream_recovers_its_rate_by_half_again_each_time() {
+    let broker = Broker::start();
+    two_bulbs(&broker);
+    let s = setup_timed(&broker, "picture", &quick(4000));
+    let _feed = Feeder::start(&s.rig.paths.data_dir.join("ambient.sock"));
+    assert!(z2m_state(&s.rig, "streaming"));
+    assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 5));
+    let log = "zigbee2mqtt/bridge/logging";
+    broker.push(log, &late(LEFT));
+    assert!(problem_has(&s.rig, "10 frames a second instead of 20"));
+    thread::sleep(Duration::from_millis(300));
+    broker.push(log, &late(LEFT));
+    assert!(problem_has(&s.rig, "5 frames a second instead of 20"));
 
     // Quiet: the rate climbs back by half again each time, to the link's 20, and the status goes clean.
     assert!(

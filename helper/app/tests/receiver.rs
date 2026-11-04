@@ -209,11 +209,12 @@ fn a_forbidden_page_is_an_error_not_a_reading() {
 #[test]
 fn a_nudge_reads_now_instead_of_at_the_next_poll() {
     let avr = FakeAvr::start();
-    // A poll period far longer than the test: only a nudge can make the change show.
+    // A poll period far longer than the test: only a nudge can make the change show. The reading is kept for as long as the test takes: a
+    // test thread starved for seconds by a busy host must not find it hidden (it is hidden 6 s after it was read).
     let (rig, _luna) = rig_with(
         &avr,
         "Active",
-        json!({"pollMs": 20_000, "fastPollMs": 15, "burstMs": 400}),
+        json!({"pollMs": 20_000, "fastPollMs": 15, "burstMs": 400, "hideAfterMs": 600_000}),
     );
     rig.wait_topic("receiver", WAIT, fresh)
         .expect("first reading");
