@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+After Back on an app that is closed with its window (a web app under WAM such as Homebrew Channel, a native app such as Punktfunk that exits) the remote's arrow and OK keys work on Home at once, not after a turn of the wheel. The compositor now publishes what is in front when a window is destroyed, as it does when one is unmapped or minimized; Home was never told it was in front again, so it did not take the keys, and the app manager's foreground list kept the closed app.
+
 The compositor serves LG's own keymap (`evdev:lgwebostv:us`, reduced to the remote's keys and the plain ones) instead of a hand-written one that named CH+, CH-, Back, Info and the colour keys and gave them no symbol: LG's Qt apps (Live TV, the HDMI inputs) took each of them for Qt key 0 and ignored it, so CH+ and CH- never changed the channel. `compositor/tools/gen-keymap.py` regenerates `server/keymap.xkb` from the set's xkb tables.
 
 Home's weather (the card, the weather view and the screensaver) can come from a Home Assistant weather entity instead of the built-in source: Settings > Home & look > Home has a Weather source row and an entity picker, and the ZIP row shows for the built-in source. A failed read keeps the last reading, shown as stale; it never falls back to the built-in source. The radar centres on the place Home Assistant has for home.

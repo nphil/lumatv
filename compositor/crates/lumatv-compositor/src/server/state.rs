@@ -604,20 +604,18 @@ impl State {
             }
         }
         self.destroy_callbacks(gone);
-        let was_card = self.scene.window_of(id).and_then(|wid| self.scene.window(wid)).is_some_and(|w| w.kind.is_card());
-        let was_saver = self.scene.window_of(id).and_then(|wid| self.scene.window(wid)).is_some_and(|w| w.kind == crate::window::WindowType::Screensaver);
+        let window = self.scene.window_of(id).and_then(|wid| self.scene.window(wid)).map(|w| w.kind.is_card());
         self.scene.remove_surface(id);
         super::ime::surface_gone(self, id);
         self.cadence.remove(&id);
         self.foreign.surface_destroyed(id);
-        if was_card {
-            super::webos_shell::on_card_gone(self);
+        match window {
+            Some(was_card) => super::webos_shell::window_gone(self, was_card),
+            None => {
+                self.shell_rust_sync_topics();
+                super::seat::refocus(self);
+            }
         }
-        if was_saver { self.luna_notify(); }
-        if !was_card {
-            self.shell_rust_sync_topics();
-        }
-        super::seat::refocus(self);
     }
 
     /// One frame: plan, draw what changed, present, pay out frame callbacks and buffer releases. A tick over half a

@@ -181,17 +181,15 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                 w.has_webos_shell = false;
             }
         } else {
-            let was_card = state.scene.window(data.window).is_some_and(|w| w.kind.is_card());
-            let was_saver = state.scene.window(data.window).is_some_and(|w| w.kind == WindowType::Screensaver);
+            let window = state.scene.window(data.window).map(|w| w.kind.is_card());
             state.scene.remove_window(data.window);
             if let Some(s) = state.surfaces.get_mut(data.surface) {
                 s.role = Role::None;
             }
-            if was_card {
-                on_card_gone(state);
+            match window {
+                Some(was_card) => window_gone(state, was_card),
+                None => super::seat::refocus(state),
             }
-            if was_saver { state.luna_notify(); }
-            super::seat::refocus(state);
         }
     }
 }
@@ -249,6 +247,19 @@ pub fn group_changed(state: &mut State, card_left: bool) {
 /// A card's surface lost its last buffer, or its window went: the card below comes back.
 pub fn on_card_gone(state: &mut State) {
     settle_cards(state, None);
+}
+
+/// A window is gone: its surface was destroyed, or the roles that made it a window. A card's going brings the one below back, and the keyboard
+/// focus, the app manager's foreground list and the shell's topics follow. An app that Back closes never passes the unmap path (a web app under
+/// WAM destroys its surface with nothing unmapped first, a native app's connection ends), and the shell's Home wants the keys only while the
+/// `foreground` topic says it is in front (`State::shell_rust_wants_keys`): without the publish the remote did nothing on Home after Back until a
+/// turn of the wheel republished the topic (TV, 2026-11-03).
+pub fn window_gone(state: &mut State, was_card: bool) {
+    if was_card {
+        on_card_gone(state);
+    }
+    super::seat::refocus(state);
+    state.luna_notify();
 }
 
 /// Brings the running app `app` back to the front without telling the app manager to launch it again: the card raised the way a card that

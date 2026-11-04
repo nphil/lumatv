@@ -128,15 +128,15 @@ impl Dispatch<WlShellSurface, ShellSurfaceData> for State {
                 w.has_wl_shell = false;
             }
         } else {
-            let was_card = state.scene.window(data.window).is_some_and(|w| w.kind.is_card());
+            let window = state.scene.window(data.window).map(|w| w.kind.is_card());
             state.scene.remove_window(data.window);
             if let Some(s) = state.surfaces.get_mut(data.surface) {
                 s.role = Role::None;
             }
-            if was_card {
-                super::webos_shell::on_card_gone(state);
+            match window {
+                Some(was_card) => super::webos_shell::window_gone(state, was_card),
+                None => super::seat::refocus(state),
             }
-            super::seat::refocus(state);
         }
     }
 }
