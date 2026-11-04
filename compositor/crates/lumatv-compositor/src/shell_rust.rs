@@ -20,7 +20,7 @@ use crate::shell::{
 };
 
 /// The kinds the native shell can provide.
-pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "menu", "confirm", "switcher", "entry", "keyboard", "alert", "saver", "capture", "cards", "popup", "layout", "ai", "banner", "displaylab"];
+pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "menu", "confirm", "switcher", "entry", "keyboard", "alert", "saver", "capture", "cards", "popup", "layout", "ai", "banner", "displaylab", "guide"];
 /// Where the system layer's layers begin in the engine's z: everything the Rust shell draws over the windows is at this or more.
 pub const SYSTEM_Z: i32 = 1000;
 const TOKEN_FILE: &str = "lumatv-ui.token";
@@ -1763,6 +1763,37 @@ mod tests {
         let n = reader.read(&mut buf).unwrap();
         let names: Vec<String> = std::str::from_utf8(&buf[..n]).unwrap().lines().map(|l| serde_json::from_str::<Value>(l).unwrap()["key"]["k"].as_str().unwrap().to_string()).collect();
         assert_eq!(names, vec!["voice", "voice", "search", "voice", "voice"]);
+    }
+
+    #[test]
+    fn the_channel_rocker_and_info_are_the_guides_only_while_it_lists_them_and_the_release_goes_with_the_press() {
+        let (mut state, _dir) = state_with("guide");
+        state.shell_rust_handle(Msg::Connected);
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        ours.set_nonblocking(true).unwrap();
+        state.shell_rust.keys = Some(ours);
+        let seat = crate::server::seat::SeatId(0);
+        let now = Instant::now();
+        let (up, down, info) = (crate::input::code::KEY_CHANNELUP, crate::input::code::KEY_CHANNELDOWN, crate::input::code::KEY_INFO);
+        // the guide is up and wants the keys, but has not listed these: they are Live TV's
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: None });
+        assert!(!state.shell_rust_takes_key(seat, up, true, false, now));
+        state.shell_rust_handle(Msg::Takes(vec!["chup".into(), "chdown".into(), "info".into(), "list".into()]));
+        assert_eq!(state.shell_rust.takes, vec!["chup", "chdown", "info"], "the names are takeable, a name nobody gave is not");
+        for (code, at) in [(up, 10), (down, 20), (info, 30)] {
+            assert!(state.shell_rust_takes_key(seat, code, true, false, now + Duration::from_millis(at)));
+            assert!(state.shell_rust_takes_key(seat, code, false, false, now + Duration::from_millis(at + 5)), "the release goes with the press");
+        }
+        // the guide closes: the layer lets go of the keys and the channel rocker is Live TV's again
+        state.shell_rust_handle(Msg::Takes(Vec::new()));
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(false), live: None, state: None });
+        assert!(!state.shell_rust_takes_key(seat, up, true, false, now + Duration::from_secs(1)));
+        let mut reader = theirs;
+        reader.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let mut buf = [0u8; 2048];
+        let n = reader.read(&mut buf).unwrap();
+        let names: Vec<String> = std::str::from_utf8(&buf[..n]).unwrap().lines().map(|l| serde_json::from_str::<Value>(l).unwrap()["key"]["k"].as_str().unwrap().to_string()).collect();
+        assert_eq!(names, vec!["chup", "chup", "chdown", "chdown", "info", "info"]);
     }
 
     #[test]

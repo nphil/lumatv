@@ -43,6 +43,10 @@ pub mod code {
     pub const KEY_GREEN: u32 = 399;
     pub const KEY_YELLOW: u32 = 400;
     pub const KEY_BLUE: u32 = 401;
+    /// The remote's channel rocker and Info key (LG's table, `network-input-service`; the Info code is `KEY_INFO`).
+    pub const KEY_CHANNELUP: u32 = 402;
+    pub const KEY_CHANNELDOWN: u32 = 403;
+    pub const KEY_INFO: u32 = 358;
     pub const KEY_MUTE: u32 = 113;
     pub const KEY_VOLUMEDOWN: u32 = 114;
     pub const KEY_VOLUMEUP: u32 = 115;

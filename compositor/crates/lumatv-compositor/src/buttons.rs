@@ -15,8 +15,6 @@ use serde_json::Value;
 use crate::input::code::*;
 use crate::keys::{AppKey, KeyTable, Logical, SystemRequest};
 
-const KEY_CHANNELUP: u32 = 402;
-const KEY_CHANNELDOWN: u32 = 403;
 const KEY_LIST: u32 = 787;
 const KEY_MORE: u32 = 994;
 

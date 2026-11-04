@@ -24,9 +24,10 @@ pub(crate) const EVENTS_KEPT: usize = 512;
 pub const TRACE_MARKER: &str = "/sys/kernel/debug/tracing/trace_marker";
 /// The keys the system layer may ask to take while an app has the focus (`Msg::Takes`): the overlay cards' OK and Back. The arrows stay the
 /// app's, so a doorbell card never costs the person the film's controls. The Rust shell's Home also names the keys `keys.conf` teaches by name
-/// (`keys::SHELL_KEYS`): the microphone key while the helper can listen, the on-screen remote's and Search's while Home is in front. `wheel` is
+/// (`keys::SHELL_KEYS`): the microphone key while the helper can listen, the on-screen remote's and Search's while Home is in front, and the
+/// channel rocker and Info while the channel guide is up. `wheel` is
 /// no key: it names a turn of the Magic Remote's wheel (`State::shell_rust_wheel`), which the Rust shell's display lab asks for while it is open.
-pub const TAKEABLE: &[&str] = &["ok", "back", "voice", "screenremote", "search", "wheel"];
+pub const TAKEABLE: &[&str] = &["ok", "back", "voice", "screenremote", "search", "chup", "chdown", "info", "wheel"];
 /// A press the layer took whose release has not come for this long was a release lost: the next press is a new one, not a repeat.
 pub(crate) const TOOK_STALE: Duration = Duration::from_secs(3);
 
@@ -89,6 +90,15 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "com.webos.service.factorymanager/getFactoryOpt",
     "com.webos.service.videooutput/getStatus",
     "com.webos.service.videooutput/reset/resetVideoSettings",
+    // The channel guide's and Live TV banner's reads: the channels and programmes LG's own guide shows (`iepg`) and the channel the tuner was on.
+    // The rest of those services (favourites, reservations, tuning) is not open.
+    "com.webos.service.iepg/getChannelList",
+    "com.webos.service.iepg/getChannelInfo",
+    "com.webos.service.iepg/getEventList",
+    "com.webos.service.iepg/getCurrentEventList",
+    "com.webos.service.iepg/getCurrentNextEventList",
+    "com.webos.service.utp.channel/getLastChannelId",
+    "com.webos.service.utp.broadcast/getCurrentChannel",
 ];
 
 /// Whether the shell may make this call: `luna://<service>/...` with the service on the allowlist (a sub-name such as
@@ -705,6 +715,16 @@ mod tests {
         assert!(!allowed("luna://org.webosbrew.hbchannel.service/exec"));
         assert!(!allowed("luna://org.webosbrew.hbchannel.service/spawn"));
         assert!(!allowed("luna://org.webosbrew.hbchannel.service"));
+    }
+
+    #[test]
+    fn the_guides_reads_are_open_and_the_rest_of_its_services_is_not() {
+        for read in ["getChannelList", "getChannelInfo", "getEventList", "getCurrentEventList", "getCurrentNextEventList"] {
+            assert!(allowed(&format!("luna://com.webos.service.iepg/{read}")), "{read}");
+        }
+        assert!(allowed("luna://com.webos.service.utp.channel/getLastChannelId") && allowed("luna://com.webos.service.utp.broadcast/getCurrentChannel"));
+        assert!(!allowed("luna://com.webos.service.iepg/setFavoriteChannels") && !allowed("luna://com.webos.service.utp.channel/setCurrentChannel"));
+        assert!(!allowed("luna://com.webos.service.iepg") && !allowed("luna://com.webos.service.utp.broadcast/setBroadcastChannel"));
     }
 
     #[test]

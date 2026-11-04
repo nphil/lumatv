@@ -68,10 +68,14 @@ pub enum Logical {
 }
 
 /// The keys the Rust shell's own screens know by name and the routing has no use for: the microphone key (push to talk), the on-screen remote's and
-/// Search's. Their codes are not known until the set has been read (no TV access when this was written): `keys.conf` lines `voice N`,
-/// `screenremote N` and `search N` teach them, and the client is sent these names only while it lists them in its `takes`
-/// (`shell_rust.rs`), so a mic key that the helper cannot answer stays LG's.
-pub const SHELL_KEYS: [&str; 3] = ["voice", "screenremote", "search"];
+/// Search's, and the channel rocker and Info, which the channel guide pages and opens its sheet with. Their codes are not known until the set has
+/// been read for the first three (no TV access when this was written): `keys.conf` lines `voice N`, `screenremote N` and `search N` teach
+/// them, and the client is sent these names only while it lists them in its `takes` (`shell_rust.rs`), so a mic key that the helper cannot
+/// answer stays LG's.
+pub const SHELL_KEYS: [&str; 6] = ["voice", "screenremote", "search", "chup", "chdown", "info"];
+
+/// The keys of [`SHELL_KEYS`] whose codes are LG's, so nothing has to be taught: the channel rocker and Info.
+const SHELL_BUILT_IN: [(u32, &str); 3] = [(KEY_CHANNELUP, "chup"), (KEY_CHANNELDOWN, "chdown"), (KEY_INFO, "info")];
 
 /// Which evdev code is which key. The built-in codes are LG's (`tools`: network-input-service's key table; the gear and Input were
 /// also read off this set); a `keys.conf` line `NAME CODE` adds a code for a key (gear, input, netflix, amazon, disneyplus,
@@ -100,9 +104,10 @@ impl KeyTable {
         }
     }
 
-    /// The name the Rust shell knows this code by, when `keys.conf` taught it one of [`SHELL_KEYS`].
+    /// The name the Rust shell knows this code by: the one `keys.conf` taught it, or a built-in of [`SHELL_KEYS`].
     pub fn shell_name(&self, code: u32) -> Option<&'static str> {
-        self.shell.iter().find(|(c, _)| *c == code).map(|(_, n)| *n)
+        let taught = self.shell.iter().find(|(c, _)| *c == code).map(|(_, n)| *n);
+        taught.or_else(|| SHELL_BUILT_IN.iter().find(|(c, _)| *c == code).map(|(_, n)| *n))
     }
 
     /// The code of an app button: the built-in one, or the one `keys.conf` taught.
@@ -148,7 +153,7 @@ impl KeyTable {
                 (Some(l), _, Some(c), None) => table.extra.push((c, l)),
                 (None, Some(k), Some(c), None) => table.shell.push((c, k)),
                 _ => bad.push(format!(
-                    "line {}: {line:?} is not NAME CODE with a name of gear, input, netflix, amazon, disneyplus, lgchannels, voice, screenremote or search",
+                    "line {}: {line:?} is not NAME CODE with a name of gear, input, netflix, amazon, disneyplus, lgchannels, voice, screenremote, search, chup, chdown or info",
                     n + 1
                 )),
             }
@@ -171,6 +176,7 @@ impl KeyTable {
             .collect();
         out.extend(self.extra.iter().map(|(c, l)| (name(*l).to_string(), *c)));
         out.extend(self.shell.iter().map(|(c, n)| ((*n).to_string(), *c)));
+        out.extend(SHELL_BUILT_IN.iter().map(|(c, n)| ((*n).to_string(), *c)));
         out
     }
 }
@@ -455,6 +461,18 @@ mod tests {
         assert!(named.contains(&("voice".to_string(), 1050)) && named.contains(&("search".to_string(), 217)), "{named:?}");
         let (_, bad) = KeyTable::parse("mic 5\nvoice\nvoice 1 2\n");
         assert_eq!(bad.len(), 3, "{bad:?}");
+    }
+
+    #[test]
+    fn the_channel_rocker_and_info_are_named_for_the_shell_without_being_taught() {
+        let t = KeyTable::default();
+        assert_eq!((t.shell_name(KEY_CHANNELUP), t.shell_name(KEY_CHANNELDOWN), t.shell_name(KEY_INFO)), (Some("chup"), Some("chdown"), Some("info")));
+        assert!(t.knows(KEY_INFO), "named, so not reported as a code with no name");
+        assert_eq!(t.classify(KEY_CHANNELUP), Logical::Other, "the routing has nothing to do for them: the app keeps them unless the shell takes them");
+        let (t, bad) = KeyTable::parse("info 1111\n");
+        assert!(bad.is_empty(), "{bad:?}");
+        assert_eq!((t.shell_name(1111), t.shell_name(KEY_INFO)), (Some("info"), Some("info")), "a taught code is one more, not a replacement");
+        assert!(t.named().contains(&("chdown".to_string(), KEY_CHANNELDOWN)));
     }
 
     #[test]
