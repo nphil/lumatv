@@ -117,6 +117,8 @@ fn the_native_client_reports_audio_and_toasts_and_its_exit_requests_stock_recove
     assert_eq!(unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) }, 0);
     wait_for(&server, "native UI exit", Duration::from_secs(10), |s| s.shell_rust.gave_up);
     wait_for(&server, "the engine detached", Duration::from_secs(10), |s| !s.output.ui_attached());
+    // (the connection's end is a message of its own after the exit is known)
+    wait_for(&server, "the connection closed", Duration::from_secs(10), |s| s.shell_report()["connected"] == json!(false));
     let report = server.eval(|s| s.shell_report());
     assert_eq!(report["stats"]["starts"], 1);
     assert_eq!(report["stats"]["exits"], 1);

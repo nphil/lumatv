@@ -1516,8 +1516,15 @@ mod tests {
         assert!(!rig.bt.state.lock().scanning);
         assert!(rig.told.lock().withdrawn >= 1);
         assert!(rig.runner.active.is_none());
-        assert!(!ha.read(), "Home Assistant's connection is closed");
-        assert!(TcpStream::connect(("127.0.0.1", rig.port)).is_err());
+        // the peer's close and the listener's going reach this side of the loopback when the host gets to it
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while ha.read() || TcpStream::connect(("127.0.0.1", rig.port)).is_ok() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Home Assistant's connection and the listener are closed"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
         assert_eq!(rig.topic()["state"], "off");
     }
 
