@@ -41,7 +41,7 @@ pub struct StartOptions {
     /// What the AI-access module acts through. `None` builds the real ones (the TV's input devices, `luna-send`, the receiver);
     /// a test gives its own so nothing touches a TV.
     pub ai: Option<crate::ai::Deps>,
-    /// Which addresses voice search and the plugins' Home Assistant lease may dial Home Assistant at. `None` is the home network
+    /// Which addresses voice search, the weather and the plugins' Home Assistant lease may dial Home Assistant at. `None` is the home network
     /// and nothing else; a test that runs a fake Home Assistant on the loopback says so.
     pub voice_policy: Option<ha_link::AddressPolicy>,
     /// What the cameras act through. `None` builds the real ones (the home network only, RTSP over TCP, the staged feeder); a test names
@@ -210,7 +210,14 @@ impl Service {
                 )?,
             ));
         }
-        threads.push(("feeds", homefeeds::spawn(&ctx, feeds_rx, fetcher)?));
+        let weather_ha = Arc::new(crate::ha_weather::HaWeather::real(
+            &ctx,
+            voice_policy.unwrap_or(ha_link::AddressPolicy::HOME),
+        ));
+        threads.push((
+            "feeds",
+            homefeeds::spawn(&ctx, feeds_rx, fetcher, weather_ha.clone())?,
+        ));
 
         // AI access: loads its state (off and unpaired when there is none) and binds nothing; the LAN listener exists only while
         // the TV's owner has turned it on with the remote.
@@ -300,6 +307,7 @@ impl Service {
             receiver_tx,
             feeds_tx,
             wx,
+            weather_ha,
         };
         let server = Server::start(
             SocketAddr::new(ip, config.listen.port),

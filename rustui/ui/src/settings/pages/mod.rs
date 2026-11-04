@@ -31,6 +31,7 @@ pub mod support;
 pub mod system;
 pub mod themes;
 pub mod util;
+pub mod weather_source;
 pub mod widgets;
 
 /// Every page: the rail's sections in the rail's order (Privacy and Profiles first, then LG's order), then the pages that hang under one.

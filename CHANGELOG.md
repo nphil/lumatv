@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Home's weather (the card, the weather view and the screensaver) can come from a Home Assistant weather entity instead of the built-in source: Settings > Home & look > Home has a Weather source row and an entity picker, and the ZIP row shows for the built-in source. A failed read keeps the last reading, shown as stale; it never falls back to the built-in source. The radar centres on the place Home Assistant has for home.
+
 The boot worker activates LumaTV's compositor even when the wake policy's preparation fails, with no landing app, instead of leaving the set on LG's compositor with the mount in place; a power-loss cold boot stopped at that preparation's timed-out `systemctl daemon-reload`. A standby activation that fails because the set was switched on meanwhile is tried once more as an active boot.
 
 The helper's weather prefetch thread checks for a stop every 50 ms instead of every 5 s, so a stop no longer leaves it to the process exit.

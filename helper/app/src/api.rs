@@ -65,6 +65,7 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
         "the receiver topic and interest in its settings",
     ),
     ("GET", "/v1/weather", "the weather topic"),
+    ("GET", "/v1/weather/entities", "the Home Assistant weather entities the weather source can use, by name"),
     ("GET", "/v1/news", "the news topic"),
     (
         "GET",
@@ -169,6 +170,8 @@ pub struct Api {
     pub feeds_tx: Sender<homefeeds::Cmd>,
     /// The full weather view's radar and base map (`/v1/wx/...`).
     pub wx: Arc<crate::wxview::WxView>,
+    /// Weather from a Home Assistant entity: the list the Settings picker offers (`/v1/weather/entities`).
+    pub weather_ha: Arc<crate::ha_weather::HaWeather>,
 }
 
 /// A topic name as it may appear in a path or a filter.
@@ -560,6 +563,13 @@ impl Api {
         self.ok(json!({"boot": self.hub.boot(), "seq": batch.seq, "reset": batch.reset, "events": events}))
     }
 
+    fn weather_entities(&self) -> Response {
+        match self.weather_ha.entities() {
+            Ok(list) => self.ok(json!({"entities": list.into_iter().map(|e| json!({"id": e.id, "name": e.name})).collect::<Vec<_>>()})),
+            Err(w) => error_response(if w.code == "no_link" { 409 } else { 502 }, w.code, &w.words),
+        }
+    }
+
     fn refresh(&self, request: &Request) -> Response {
         let body = match body_object(request) {
             Ok(b) => b,
@@ -666,6 +676,7 @@ impl Handler for Api {
                 crate::plugins::routes::handle(&self.plugins, request, rest)
             }
             ["v1", "voice", rest @ ..] => crate::voice::handle(&self.voice, request, rest),
+            ["v1", "weather", "entities"] if get => self.weather_entities(),
             ["v1", "wx", rest @ ..] => self.wx.handle(request, rest),
             ["v1", "onhome", rest @ ..] => {
                 // which of the shared things Home shows is the owner's, as the rest of Home's layout is
@@ -823,6 +834,7 @@ mod tests {
                 receiver_tx,
                 feeds_tx,
                 wx: crate::wxview::WxView::new(Arc::new(NoFetch), dir.path()),
+                weather_ha: Arc::new(crate::ha_weather::HaWeather::new(Vec::new(), ha_link::AddressPolicy::HOME, None)),
             },
             _dir: dir,
             receiver_rx,

@@ -452,6 +452,10 @@ impl SettingsStore {
             units: self
                 .text("base.weather", "units")
                 .unwrap_or_else(|| "fahrenheit".to_owned()),
+            source: self
+                .text("base.weather", "source")
+                .unwrap_or_else(|| "builtin".to_owned()),
+            entity: self.text("base.weather", "entity").unwrap_or_default(),
         }
     }
 
@@ -505,6 +509,10 @@ pub struct WeatherSettings {
     pub zip: String,
     /// `fahrenheit` or `celsius`.
     pub units: String,
+    /// `builtin` or `homeassistant`.
+    pub source: String,
+    /// The Home Assistant `weather.*` entity, used when `source` is `homeassistant`.
+    pub entity: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -532,9 +540,22 @@ fn text_of<'a>(values: &'a Values, key: &str) -> Option<&'a str> {
     }
 }
 
-/// A ZIP is five digits: the geocoding service takes nothing else and the text goes into a URL.
+/// A Home Assistant entity id of the weather domain: `weather.` and a lowercase object id.
+fn weather_entity_ok(entity: &str) -> bool {
+    entity.strip_prefix("weather.").is_some_and(|object| {
+        !object.is_empty() && object.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    })
+}
+
+/// A ZIP is five digits: the geocoding service takes nothing else and the text goes into a URL. The Home Assistant source needs a
+/// weather entity, and one that is saved must be well formed whatever the source is.
 fn weather_rule(values: &Values) -> Result<(), FieldErrors> {
     let mut errors = FieldErrors::default();
+    let entity = text_of(values, "entity").unwrap_or("");
+    let homeassistant = matches!(values.get(&field("source")), Some(Value::Choice(c)) if c.to_string() == "homeassistant");
+    if (homeassistant || !entity.is_empty()) && !weather_entity_ok(entity) {
+        errors.insert(field("entity"), FieldError::refused("choose a Home Assistant weather entity, such as weather.home"));
+    }
     if let Some(zip) = text_of(values, "zip")
         && !(zip.len() == 5 && zip.bytes().all(|b| b.is_ascii_digit()))
     {
@@ -690,7 +711,9 @@ mod tests {
             store.weather(),
             WeatherSettings {
                 zip: "30311".into(),
-                units: "fahrenheit".into()
+                units: "fahrenheit".into(),
+                source: "builtin".into(),
+                entity: String::new()
             }
         );
         assert_eq!(
@@ -802,6 +825,30 @@ mod tests {
         assert_eq!(s.weather().zip, "30311");
         assert!(hub.events_after(Some(0), None, None).events.is_empty());
         assert!(!dir.path().join("base.weather.json").exists());
+    }
+
+    #[test]
+    fn the_home_assistant_source_needs_a_well_formed_weather_entity() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, s) = store(dir.path());
+        let refused = |changes: Vec<SettingChange>| match s.apply("base.weather", changes, None) {
+            Err(ApplyError::Invalid(errors)) => errors.iter().next().map(|(k, _)| k.as_str().to_owned()),
+            other => panic!("accepted: {:?}", other.is_ok()),
+        };
+        assert_eq!(refused(vec![choice("source", "homeassistant")]).as_deref(), Some("entity"), "no entity chosen yet");
+        for bad in ["sensor.temperature", "weather.", "weather.Home", "weather.a b", "home"] {
+            assert_eq!(refused(vec![text("entity", bad)]).as_deref(), Some("entity"), "{bad}");
+        }
+        assert_eq!(s.weather().source, "builtin", "nothing was stored");
+        // the entity first, then the source: each step is valid on its own
+        s.apply("base.weather", vec![text("entity", "weather.pirate_weather")], None).unwrap();
+        s.apply("base.weather", vec![choice("source", "homeassistant")], None).unwrap();
+        let w = s.weather();
+        assert_eq!((w.source.as_str(), w.entity.as_str(), w.zip.as_str()), ("homeassistant", "weather.pirate_weather", "30311"));
+        // a source that is built in does not care about the entity left behind
+        s.apply("base.weather", vec![choice("source", "builtin")], None).unwrap();
+        assert_eq!(s.weather().entity, "weather.pirate_weather");
+        assert!(matches!(s.apply("base.weather", vec![choice("source", "tomorrow")], None), Err(ApplyError::Invalid(_))));
     }
 
     #[test]

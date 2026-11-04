@@ -314,6 +314,21 @@ SCENES += [
     Scene('privacy-ads', 'privacy', routes=PRIVACY_ROUTES, keys=['right', 'up', 'right', 'right', 'down']),
 ]
 
+# ---- Home & look, Home tab: where the weather comes from
+def weather_owner(source, entity=''):
+    return owner_doc([('source', 'choice', source), ('entity', 'text', entity), ('zip', 'text', '30311'), ('units', 'choice', 'fahrenheit')])
+
+
+WEATHER_ENTITIES = {'ok': True, 'entities': [{'id': 'weather.forecast_home', 'name': 'Forecast Home'}, {'id': 'weather.pirate_weather', 'name': 'Pirate Weather'}]}
+TO_HOME = ['up', 'up', 'right']
+WEATHER_BUILTIN = {'GET /v1/settings/base.weather': weather_owner('builtin')}
+WEATHER_HA = {'GET /v1/settings/base.weather': weather_owner('homeassistant', 'weather.pirate_weather'), 'GET /v1/weather/entities': WEATHER_ENTITIES}
+SCENES += [
+    Scene('weather-source', 'look', routes=WEATHER_BUILTIN, keys=TO_HOME + ['down'] * 8),
+    Scene('weather-source-ha', 'look', routes=WEATHER_HA, keys=TO_HOME + ['down'] * 8),
+    Scene('weather-source-picker', 'look', routes=WEATHER_HA, keys=TO_HOME + ['down'] * 8 + ['ok']),
+]
+
 BY_NAME = {s.name: s for s in SCENES}
 
 

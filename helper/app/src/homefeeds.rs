@@ -7,11 +7,17 @@
 //! reading older than that is not shown (`expiresAt`); a changed setting (another ZIP, another source) drops the document for
 //! the old one at once.
 //!
+//! The weather has two sources (`base.weather` `source`): the built-in one (Open-Meteo, by ZIP) and a Home Assistant weather entity
+//! (`ha_weather`). The document's `zip` says which it was made from (`ha:<entity>` for the second), so a document is only ever served for
+//! the source it was made for. A failed Home Assistant read keeps the last good document, which goes stale on its own clock and is
+//! served with the error in the status; it never falls back to the built-in source.
+//!
 //! The topics `weather` and `news` hold `{"doc": <document|null>, "status": {"failures", "error", "lastAttemptAt"}}`. The
 //! documents are the files in the cache directory, byte for byte the same JSON, so QML can read `cache/weather.json` directly
 //! before the helper is up and get the same thing the API serves.
 
 use crate::ctx::Ctx;
+use crate::ha_weather::{self, HaWeather};
 use crate::screen;
 use crate::timeutil::now_ms;
 use fetch::Fetch;
@@ -51,6 +57,12 @@ struct Cfg<K> {
     interval_ms: u64,
 }
 
+/// What a feed is refreshed through: the web, and Home Assistant.
+struct Env<'a> {
+    fetch: &'a dyn Fetch,
+    ha: &'a HaWeather,
+}
+
 /// One kind of feed.
 trait Feed {
     type Key: Clone + PartialEq;
@@ -60,7 +72,7 @@ trait Feed {
     fn cfg(ctx: &Ctx) -> Cfg<Self::Key>;
     fn load(cache: &DocCache, key: &Self::Key, now: u64) -> Option<Self::Doc>;
     fn refresh(
-        fetch: &dyn Fetch,
+        env: &Env,
         key: &Self::Key,
         previous: Option<&Self::Doc>,
         now: u64,
@@ -81,9 +93,14 @@ impl Feed for WeatherFeed {
 
     fn cfg(ctx: &Ctx) -> Cfg<WeatherConfig> {
         let s = ctx.settings.weather();
+        let place = if s.source == "homeassistant" {
+            ha_weather::key_of(&s.entity)
+        } else {
+            s.zip
+        };
         Cfg {
             key: WeatherConfig {
-                zip: s.zip,
+                zip: place,
                 units: Units::parse(&s.units).unwrap_or(Units::Fahrenheit),
             },
             interval_ms: REFRESH_MS,
@@ -95,12 +112,18 @@ impl Feed for WeatherFeed {
     }
 
     fn refresh(
-        fetch: &dyn Fetch,
+        env: &Env,
         key: &WeatherConfig,
         previous: Option<&WeatherDoc>,
         now: u64,
     ) -> Result<WeatherDoc, FeedError> {
-        weather::refresh(fetch, key, previous, now)
+        if let Some(entity) = ha_weather::entity_of(&key.zip) {
+            // One conversation makes both documents; the details feed takes its own from here.
+            let (doc, more) = env.ha.documents(entity, key, now)?;
+            env.ha.park(key, more);
+            return Ok(doc);
+        }
+        weather::refresh(env.fetch, key, previous, now)
     }
 
     fn store(cache: &DocCache, doc: &WeatherDoc) -> std::io::Result<()> {
@@ -132,8 +155,14 @@ impl Feed for WeatherMoreFeed {
         cache.load_weather_more(key, now)
     }
 
-    fn refresh(fetch: &dyn Fetch, key: &WeatherConfig, previous: Option<&MoreDoc>, now: u64) -> Result<MoreDoc, FeedError> {
-        weather_more::refresh(fetch, key, previous, now)
+    fn refresh(env: &Env, key: &WeatherConfig, previous: Option<&MoreDoc>, now: u64) -> Result<MoreDoc, FeedError> {
+        if let Some(entity) = ha_weather::entity_of(&key.zip) {
+            if let Some(more) = env.ha.take_parked(key, previous.map_or(0, |p| p.fetched_at)) {
+                return Ok(more);
+            }
+            return env.ha.documents(entity, key, now).map(|(_, more)| more);
+        }
+        weather_more::refresh(env.fetch, key, previous, now)
     }
 
     fn store(cache: &DocCache, doc: &MoreDoc) -> std::io::Result<()> {
@@ -175,12 +204,12 @@ impl Feed for NewsFeed {
     }
 
     fn refresh(
-        fetch: &dyn Fetch,
+        env: &Env,
         key: &NewsConfig,
         _previous: Option<&NewsDoc>,
         now: u64,
     ) -> Result<NewsDoc, FeedError> {
-        news::refresh(fetch, key, now)
+        news::refresh(env.fetch, key, now)
     }
 
     fn store(cache: &DocCache, doc: &NewsDoc) -> std::io::Result<()> {
@@ -268,14 +297,14 @@ impl<F: Feed> Lane<F> {
         })
     }
 
-    fn attempt(&mut self, fetch: &dyn Fetch, cache: &DocCache) {
+    fn attempt(&mut self, env: &Env, cache: &DocCache) {
         let Some(cfg) = &self.cfg else {
             return;
         };
         let now = now_ms();
         self.force = false;
         self.last_attempt = now;
-        match F::refresh(fetch, &cfg.key, self.doc.as_ref(), now) {
+        match F::refresh(env, &cfg.key, self.doc.as_ref(), now) {
             Ok(mut doc) => {
                 F::set_interval(&mut doc, cfg.interval_ms);
                 if let Err(e) = F::store(cache, &doc) {
@@ -321,15 +350,16 @@ pub fn spawn(
     ctx: &Ctx,
     rx: Receiver<Cmd>,
     fetch: Arc<dyn Fetch>,
+    ha: Arc<HaWeather>,
 ) -> std::io::Result<JoinHandle<()>> {
     let ctx = ctx.clone();
     thread::Builder::new()
         .name("feeds".to_owned())
         .stack_size(512 * 1024)
-        .spawn(move || run(&ctx, &rx, fetch.as_ref()))
+        .spawn(move || run(&ctx, &rx, &Env { fetch: fetch.as_ref(), ha: &ha }))
 }
 
-fn run(ctx: &Ctx, rx: &Receiver<Cmd>, fetch: &dyn Fetch) {
+fn run(ctx: &Ctx, rx: &Receiver<Cmd>, env: &Env) {
     let cache = DocCache::new(ctx.paths.cache_dir());
     let mut weather = Lane::<WeatherFeed>::new();
     let mut news = Lane::<NewsFeed>::new();
@@ -359,11 +389,11 @@ fn run(ctx: &Ctx, rx: &Receiver<Cmd>, fetch: &dyn Fetch) {
         {
             let now = now_ms();
             if (on || weather.force) && now >= weather.due_at() {
-                weather.attempt(fetch, &cache);
+                weather.attempt(env, &cache);
                 weather.publish(ctx);
             }
             if (on || news.force) && now_ms() >= news.due_at() {
-                news.attempt(fetch, &cache);
+                news.attempt(env, &cache);
                 news.publish(ctx);
             }
             // after the weather, so the two are for the same quarter hour (and a weather that failed has not left the details to waste a request)
@@ -373,7 +403,7 @@ fn run(ctx: &Ctx, rx: &Receiver<Cmd>, fetch: &dyn Fetch) {
                 more.doc = Some(MoreDoc::seed(w));
             }
             if (on || more.force) && now_ms() >= more.due_at() && weather.failures == 0 && weather.doc.is_some() {
-                more.attempt(fetch, &cache);
+                more.attempt(env, &cache);
                 more.publish(ctx);
             }
         }

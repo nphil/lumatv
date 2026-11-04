@@ -5,6 +5,7 @@
 
 use crate::settings::ctx::{Ctx, Spec, ask, toast};
 use crate::settings::names;
+use super::weather_source;
 use crate::settings::page::{Page, Read};
 use crate::settings::row::{Arg, Op, Row, ShellRequest, patch_of, settings};
 use lumatv_tokens::CardGlass;
@@ -12,11 +13,12 @@ use serde_json::{Value, json};
 use std::rc::Rc;
 
 pub fn page() -> Page {
-    Page::new("look", "Home & look", "house").rail().tabs(&["Look", "Home", "Screensaver", "Standby"]).reads(reads).rows(rows)
+    Page::new("look", "Home & look", "house").rail().tabs(&["Look", "Home", "Screensaver", "Standby"]).reads(reads).rows(rows).opened(|_| weather_source::opened()).answered(|c, name, _| weather_source::answered(c, name))
 }
 
 fn reads(_: &Ctx) -> Vec<Read> {
     vec![
+        Read::owner("base.weather"),
         Read::lg("general", &["aiNudge", "aiSettingsNudge", "lifeOnScreenMode", "homeAutoLaunch", "homePromotion", "screenSaverAd"]),
         Read::lg("option", &["broadcastInfoNoti", "lifeOnScreenEnergySaving", "lifeOnScreenNotification", "lifeOnScreenUsingMotionSensor", "screenSaverTimer"]),
         Read::lg("other", &["contentRecommendation", "lgLogoDisplay"]),
@@ -99,6 +101,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(theme_toggle(c, ("greeting", 1, "sunrise", "Greeting", "Good morning, afternoon or evening under the digital clock."), "clock.greeting", true));
     let zip = c.theme_str("weather.zip").unwrap_or("your zip code").to_string();
     rows.push(theme_seg("units", 1, "sun-medium", "Temperature", &["\u{b0}F", "\u{b0}C"], Some(usize::from(c.theme_str("weather.units") == Some("celsius"))), |i| json!({"weather": {"units": if i == 1 { "celsius" } else { "fahrenheit" }}})).help(&format!("Weather for {zip}.")));
+    rows.extend(weather_source::rows(c));
     // LG's Home Settings: Power On Screen writes what LG's row writes with it, the input app stays off and the choice is marked the owner's
     let mut power = c.seg(Spec::new("general.homeAutoLaunch").id("poweronscreen").tab(1).icon("power").label("Power On Screen").help("What the TV shows when it is turned on: Home, or the input it was last on.").options(&["Home", "Recent Input"]).values(&["on", "off"]).lg_shown());
     power.act = Some(Rc::new(|a| match a {

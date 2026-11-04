@@ -1,7 +1,7 @@
 {
   "format": 1,
   "owner": "base.weather",
-  "revision": 1,
+  "revision": 2,
   "title": "Weather",
   "sections": [
     {
@@ -9,9 +9,28 @@
       "title": "Weather card",
       "fields": [
         {
+          "key": "source",
+          "label": "Weather source",
+          "help": "Where the weather comes from: the built-in service, or a weather entity in Home Assistant.",
+          "kind": {"type": "choice", "options": {"inline": [
+            {"id": "builtin", "label": "Built-in"},
+            {"id": "homeassistant", "label": "Home Assistant"}
+          ]}},
+          "default": {"type": "choice", "value": "builtin"},
+          "apply": "on-commit"
+        },
+        {
+          "key": "entity",
+          "label": "Weather entity",
+          "help": "The Home Assistant weather entity, such as weather.home. Used when the source is Home Assistant.",
+          "kind": {"type": "text", "max_chars": 255, "secret": false},
+          "default": {"type": "text", "value": ""},
+          "apply": "on-commit"
+        },
+        {
           "key": "zip",
           "label": "ZIP code",
-          "help": "The U.S. ZIP code whose weather the Home card shows.",
+          "help": "The U.S. ZIP code whose weather the Home card shows. Used when the source is Built-in.",
           "kind": {"type": "text", "max_chars": 5, "secret": false},
           "default": {"type": "text", "value": "30311"},
           "apply": "on-commit"

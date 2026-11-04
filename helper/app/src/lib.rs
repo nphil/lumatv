@@ -18,6 +18,7 @@
 //! | [`hue`], [`hue_rest`], [`hue_store`] | ambient light's Hue Entertainment output: the stream thread, the bridge's HTTPS, the saved link |
 //! | [`ambient_z2m`], [`ambient_z2m_frame`], [`ambient_z2m_mqtt`], [`ambient_z2m_store`] | ambient light's Zigbee2MQTT output: Hue entertainment frames over MQTT, no bridge |
 //! | [`ha_store`] | the saved address and token of a Home Assistant link, one private file (voice search's and the plugin lease's) |
+//! | [`ha_weather`] | weather from a Home Assistant weather entity: the reading and forecasts through the saved link, in the card's and the view's documents |
 //! | [`scrypted`], [`live`] | cameras through Scrypted's LumaShow bridge: the link (`scrypted-link`), pinned HTTPS, stills, push events and pop-ups, the Cameras page, the timeline routes; the full view's RTSP stream on the video plane through the GFN feeder |
 //! | [`onhome`] | On Home: what Home Assistant's LumaShow integration shares with the TV (it dials the TV, which holds no token) as tiles on Home, and the controls of those tiles, narrowed to what the TV may do |
 //! | [`voice`] | voice search: the mic key's words as text for the search box, through Home Assistant's Assist pipeline |
@@ -63,6 +64,7 @@ pub mod fetcher;
 pub mod framerate;
 pub mod gfn_boost;
 pub mod ha_store;
+pub mod ha_weather;
 pub mod homefeeds;
 pub mod http;
 pub mod hub;
