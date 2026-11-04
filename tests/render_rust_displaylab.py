@@ -6,7 +6,7 @@ docs/mocks/host-rust/displaylab/ as 1280-wide JPEGs: the intro, each step with t
     python3 tests/render_rust_displaylab.py [--out docs/mocks/host-rust/displaylab] [--only sharpness-strong,results] [--list]
 
 A scene is the keys a person presses from the intro; the picture is taken at the end, with the host's layout and contrast lint
-(`--eval lint`) and the lab's own state. `SCENES` and `play` are what tests/test_rust_displaylab.py uses.
+(`--eval lint`) and the lab's own state.
 """
 import argparse
 import concurrent.futures

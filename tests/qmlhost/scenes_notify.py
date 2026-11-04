@@ -27,9 +27,9 @@ def backdrop(material):
     """Render the native Home behind LG's notification view."""
     if material not in _BACKDROPS:
         sys.path.insert(0, os.path.dirname(HERE))
-        from test_rust_home import RustHome
+        from rust_home_host import RustHome
         path = os.path.join(_DIR, "home-%s.png" % material)
-        host = RustHome(methodName="test_the_shipped_layout_is_drawn_where_it_always_was_and_the_dock_is_the_persons_own")
+        host = RustHome()
         out, _, _ = host.host(3500, [['--snap', '3000:' + path]], mode=material)
         if not os.path.exists(path):
             raise RuntimeError("Home backdrop not rendered: " + out[-400:])

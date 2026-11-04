@@ -1,12 +1,8 @@
 """Run with: cd tests && python3 -m unittest test_rust_settings   (needs rustui/target/debug/lumatv-ui and Mesa; skipped without them)
 
-The pages of the Rust shell's Settings that the second half of the port added (AI access, Home Assistant, Cameras and one camera's kinds)
-against the stand-in of the compositor's UI channel, LG's settings service stood in and the fake helper (`rust_settings_host.py`): what a key
-press sends the helper, and that every page reads clean (the host's layout and contrast lint) in both looks at both text sizes.
-
-AI access is the one where what is NOT sent matters: whatever gives an assistant less goes to the helper at once; whatever gives more
-(access on, a pairing code, a wider level, resuming, a higher limit) opens a plain answer on the TV and sends the helper nothing, because
-the only approval that proves a person (Face ID on the phone) is not connected to this screen.
+The pages of the Rust shell's Settings that the Rust unit tests cannot draw (their documents are the fake helper's and LG's, in
+render_rust_settings.py) read clean to the host's layout and contrast lint, and a focused row is not cut by its list's clip, at the
+larger text in the light look: what a key sends the helper is tested in rustui/ui/src/settings/pages/{ai,privacy,homeassistant,cameras}.rs.
 """
 import concurrent.futures
 import json
@@ -19,165 +15,22 @@ sys.path.insert(0, HERE)
 import render_rust_settings as rr  # noqa: E402
 import rust_settings_host as host  # noqa: E402
 
-
-def scene(name, post=None, keys=None):
-    """A copy of the render scene `name`, answering the POSTs of `post` ({path: payload}) and pressing `keys` instead when given."""
-    s = rr.BY_NAME[name]
-    c = rr.Scene(s.name, s.page, keys if keys is not None else s.keys, dict(s.routes), s.topics, s.theme, s.lg, s.tab, s.layout)
-    for path, payload in (post or {}).items():
-        c.routes['POST ' + path] = payload
-    return c
-
-
-def posts(helper, prefix):
-    return [(p, b) for m, p, b in helper.requests if m == 'POST' and p.startswith(prefix)]
-
-
-def gets(helper, prefix):
-    return [p for m, p, b in helper.requests if m == 'GET' and p.startswith(prefix)]
-
-
-def owner_answer(schema, values):
-    return lambda body: {'ok': True, 'settings': rr.plugin_doc(schema, values, 2)}
+# one scene of each page that has no lint in cargo test: AI access (tabs and the assistants list), Home Assistant, a camera's kinds, Privacy
+PAGES = ['ai', 'ai-assistants', 'homeassistant', 'cameras-notify', 'camera-kinds', 'privacy-prime']
 
 
 @unittest.skipUnless(host.available(), 'needs rustui/target/debug/lumatv-ui and Mesa')
 class RustSettings(unittest.TestCase):
-    def play(self, s, **kw):
-        rc, text, helper, findings, png = rr.play(s, **kw)
-        self.assertEqual(rc, 0, text[-3000:])
-        self.assertEqual(findings, [], findings)
-        return helper
+    def test_the_pages_without_a_cargo_lint_read_clean_with_the_focused_row_whole_at_the_larger_text_in_the_light_look(self):
+        def one(name):
+            rc, text, findings, png = rr.render(rr.BY_NAME[name], 'light', 2.0)
+            return name, rc, findings, png, text
 
-    # ------------------------------------------------------------------------------------------------------------- AI access
-
-    def test_ai_off_goes_to_the_helper_at_once(self):
-        h = self.play(scene('ai', {'/v1/ai/listener': {'ok': True}}, ['right', 'left', 'ok']))
-        self.assertEqual([b for p, b in posts(h, '/v1/ai/listener')], [{'enabled': False}])
-
-    def test_ai_on_is_explained_and_the_helper_is_sent_nothing(self):
-        # Off is in force, the cursor moves to "Home network only" and OK is pressed: the TV answers itself
-        h = self.play(scene('ai-unavailable'))
-        self.assertEqual(posts(h, '/v1/ai'), [])
-        self.assertEqual(gets(h, '/v1/ai/audit') != [], True, 'it still reads the activity')
-
-    def test_a_higher_volume_limit_sends_nothing_and_a_lower_one_is_sent_after_a_quiet_moment(self):
-        h = self.play(scene('ai', {'/v1/ai/limits': {'ok': True}}, ['right', 'down', 'right']))
-        self.assertEqual(posts(h, '/v1/ai'), [], 'a higher limit gives an assistant more')
-        h = self.play(scene('ai', {'/v1/ai/limits': {'ok': True}}, ['right', 'down', 'left']))
-        self.assertEqual([b for p, b in posts(h, '/v1/ai/limits')], [{'maxVolume': 58}])
-
-    def test_a_pause_goes_to_the_helper_and_a_resume_does_not(self):
-        h = self.play(scene('ai-assistants', {'/v1/ai/assistants/a1/pause': {'ok': True}}, ['right', 'up', 'right', 'down', 'ok']))
-        self.assertEqual(len(posts(h, '/v1/ai/assistants/a1/pause')), 1)
-        h = self.play(scene('ai-assistants', {}, ['right', 'up', 'right', 'down', 'down', 'ok']))
-        self.assertEqual(posts(h, '/v1/ai'), [], 'resuming gives an assistant more')
-
-    # ------------------------------------------------------------------------------------------------------------------ Privacy
-
-    def test_a_privacy_switch_flips_in_place_and_sends_prepare_then_apply_with_no_question(self):
-        # the first row, "Block content recognition (ACR) and ads", is on; OK turns it off. ON in the row is `enabled: true` to the helper.
-        h = self.play(scene('privacy-flip'))
-        self.assertEqual([b for p, b in posts(h, '/v1/privacy/prepare')], [{'id': 'ads', 'enabled': False}])
-        self.assertEqual([b for p, b in posts(h, '/v1/privacy/apply')], [{'id': 'ads', 'enabled': False, 'confirmation': 'tok-ads'}])
-
-    def test_the_prime_video_ad_blocker_asks_one_plain_question_and_sends_the_helper_nothing_before_the_answer(self):
-        h = self.play(scene('privacy-prime'))
-        self.assertEqual(posts(h, '/v1/privacy/'), [], 'the question is open and nothing was asked of the helper')
-        h = self.play(scene('privacy-prime-yes'))
-        self.assertEqual([b for p, b in posts(h, '/v1/privacy/prepare')], [{'id': 'amazoff', 'enabled': True}], 'Block ads is the helper\'s on')
-        self.assertEqual([b['id'] for p, b in posts(h, '/v1/privacy/apply')], ['amazoff'])
-
-    def test_a_consent_switch_is_sent_as_the_helper_names_it(self):
-        # What LG may collect: the first row, "Allow content recognition (ACR)", is on; OK turns it off
-        s = scene('privacy-collect', keys=['right', 'up', 'right', 'down', 'ok'])
-        h = self.play(s)
-        self.assertEqual([b for p, b in posts(h, '/v1/privacy/prepare')], [{'id': 'consent.acrAllowed', 'enabled': False}])
-
-    # -------------------------------------------------------------------------------------------------------- Home Assistant
-
-    def test_home_assistant_asks_the_plugin_for_each_list_again_when_the_room_changes_and_a_pick_is_written_to_the_plugins_page(self):
-        s = scene('homeassistant-room', {'/v1/settings/home-assistant': owner_answer(rr.HA_SCHEMA, dict(rr.HA_VALUES, room='kitchen'))}, ['right', 'up', 'right', 'down', 'ok'])
-        h = self.play(s)
-        asked = sorted(p.rsplit('/', 1)[1] for p in gets(h, '/v1/plugins/home-assistant/choices/'))
-        # once when the page opens and once more when the room changes (the lights and the sensors are the room's)
-        self.assertEqual(asked, ['controls', 'controls', 'doorbells', 'doorbells', 'presence', 'presence', 'rooms', 'rooms'])
-        written = posts(h, '/v1/settings/home-assistant')
-        self.assertEqual([b['changes'] for p, b in written], [[{'key': 'room', 'value': {'type': 'choice', 'value': 'kitchen'}}]])
-
-    def test_home_assistant_unlinked_has_only_what_the_owner_does_in_a_shell(self):
-        h = self.play(scene('homeassistant-unlinked'))
-        self.assertEqual(posts(h, '/v1/'), [])
-
-    # -------------------------------------------------------------------------------------------------------------- Cameras
-
-    def test_cameras_asks_for_its_lists_and_one_camera_switches_a_kind_in_the_order_picked(self):
-        keys = ['right', 'up', 'right', 'right', 'right', 'down', 'down', 'ok', 'down', 'ok']
-        # Garage pops up for person, vehicle and motion; the cursor is on Person after the page opens... then moves to Vehicle and switches it off
-        values = dict(rr.CAM_VALUES, **{'notify.garage': ['person', 'motion']})
-        s = scene('camera-kinds', {'/v1/settings/scrypted-cameras': owner_answer(rr.CAM_SCHEMA, values)}, keys)
-        h = self.play(s)
-        asked = sorted(p.rsplit('/', 1)[1] for p in gets(h, '/v1/plugins/scrypted-cameras/choices/'))
-        self.assertEqual(asked, ['cameras', 'kinds'])
-        written = [b['changes'] for p, b in posts(h, '/v1/settings/scrypted-cameras')]
-        self.assertEqual(written, [[{'key': 'notify.garage', 'value': {'type': 'ordered', 'value': ['person', 'motion']}}]])
-
-    # ----------------------------------------------------------------------------------------------------------- the pages read clean
-
-    def test_every_new_page_reads_clean_in_both_looks_at_both_text_sizes(self):
-        names = ['privacy-blocking', 'privacy-prime', 'privacy-held', 'privacy-collect', 'privacy-ads', 'ai', 'ai-assistants', 'ai-allowed', 'ai-unavailable', 'homeassistant', 'homeassistant-room', 'homeassistant-unlinked',
-                 'cameras', 'cameras-notify', 'cameras-video', 'camera-kinds', 'cameras-unlinked']
-        jobs = [(n, mode, scale) for n in names for mode, scale in (('dark', 1.0), ('light', 2.0))]
-
-        def one(job):
-            n, mode, scale = job
-            rc, text, findings, png = rr.render(rr.BY_NAME[n], mode, scale)
-            return job, rc, findings, png, text
-
-        with concurrent.futures.ThreadPoolExecutor(3) as pool:
-            for job, rc, findings, png, text in pool.map(one, jobs):
-                self.assertEqual(rc, 0, '%s\n%s' % (job, text[-1500:]))
-                self.assertIsNotNone(png, job)
-                self.assertEqual(findings, [], '%s: %s' % (job, json.dumps(findings)))
-
-
-    def test_a_focused_row_is_whole_on_every_page_in_both_looks_at_both_text_sizes(self):
-        """The list's clip leaves room for the lift: the host lint finds a focused plate that a clip of an ancestor cuts (`clipped`)."""
-        jobs = [(s.name, mode, scale) for s in rr.SCENES for mode in ('dark', 'light') for scale in (1.0, 2.0)]
-
-        def one(job):
-            n, mode, scale = job
-            rc, text, findings, png = rr.render(rr.BY_NAME[n], mode, scale)
-            return job, rc, [f for f in findings if f['kind'] == 'clipped'], text
-
-        with concurrent.futures.ThreadPoolExecutor(4) as pool:
-            for job, rc, clipped, text in pool.map(one, jobs):
-                self.assertEqual(rc, 0, '%s\n%s' % (job, text[-1500:]))
-                self.assertEqual(clipped, [], '%s: %s' % (job, json.dumps(clipped)))
-
-    # ------------------------------------------------------------------------------------------------------- over a TV's own Home
-
-    def test_settings_inputs_is_drawn_whole_over_a_tvs_full_home_with_every_kind_up(self):
-        """The scene has 96 groups and a TV's Home over a full dock holds 64 of them (the dock's tiles, the cards, the status bar). Settings >
-        Inputs & devices gave every one of its seventeen rows a plate (two groups each) and took 43: the rows past the thirtieth group were never
-        drawn (HDMI 4, Input banner, Show input previews) and the shell logged "settings: at most 96 groups" over and over."""
-        import test_rust_home as th
-        feeds = {'weather': th.weather(), 'news': th.news(), 'plugins': {'plugins': [], 'firstParty': []}, 'profiles': th.profiles(), 'cameras': th.CAMERAS}
-        extra = ['--push', '50:foreground:' + json.dumps(th.HOME), '--luna', '80:%d:%s' % (th.LP_TAG, json.dumps({'launchPoints': th.launch_points()}))]
-        for topic, doc in feeds.items():
-            extra += ['--helper', '100:%s:%s' % (topic, json.dumps(doc))]
-        extra += ['--push', '4000:show:' + json.dumps({'kind': 'settings', 'page': 'inputs'}), '--eval', '3800:state', '--eval', '8000:state', '--eval', '8000:geometry']
-        kinds = 'osd,toast,alert,cards,saver,capture,popup,layout,home,cameras,settings,quick,picker,drawer,menu,confirm,switcher,entry,ai,banner,keyboard,displaylab'
-        rc, text, _, _, _ = host.run(wait=9000, extra=extra, kinds=kinds)
-        self.assertEqual(rc, 0, text[-3000:])
-        before, after, geometry = host.evals(text)[-3:]
-        self.assertLessEqual(before['room']['groups'], 40, 'Home holds what a full dock holds: %s' % before['room'])
-        self.assertNotIn('at most 96 groups', text, 'Settings was drawn in the groups that were left')
-        self.assertEqual(after['settings']['built'], 7, 'every row of the tab is drawn: %s' % after['settings'])
-        self.assertGreaterEqual(after['room']['groups'], 8, 'the page holds a few groups, not one pair for every row: %s' % after['room'])
-        names = [g['name'] for g in geometry['settings']]
-        self.assertIn('row:previews', names)
-        self.assertIn('row:hdmi4', names)
+        with concurrent.futures.ThreadPoolExecutor(len(PAGES)) as pool:
+            for name, rc, findings, png, text in pool.map(one, PAGES):
+                self.assertEqual(rc, 0, '%s\n%s' % (name, text[-1500:]))
+                self.assertIsNotNone(png, name)
+                self.assertEqual(findings, [], '%s: %s' % (name, json.dumps(findings)))
 
 
 if __name__ == '__main__':

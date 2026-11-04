@@ -2465,6 +2465,54 @@ mod tests {
     }
 
     #[test]
+    fn ok_on_the_bell_opens_the_drawer_and_back_closes_it_and_without_the_drawer_kind_nothing_opens() {
+        let (_h, mut shell) = home_shell("home,drawer");
+        key(&mut shell, "right", 2_000);
+        key(&mut shell, "ok", 2_200);
+        assert!(matches!(shell.state()["panels"]["drawer"].as_str(), Some("opening" | "open")), "{}", shell.state()["panels"]);
+        key(&mut shell, "back", 2_600);
+        assert!(matches!(shell.state()["panels"]["drawer"].as_str(), Some("leaving" | "parked")), "{}", shell.state()["panels"]);
+        assert_eq!(shell.state()["home"]["focusLayer"], "statusbar", "Home is where it was left");
+        let (_h2, mut bare) = home_shell("home");
+        key(&mut bare, "right", 2_000);
+        key(&mut bare, "ok", 2_200);
+        assert!(!matches!(bare.state()["panels"]["drawer"].as_str(), Some("opening" | "open")));
+    }
+
+    #[test]
+    fn ok_on_the_cameras_card_opens_the_grid_in_every_link_state_and_back_returns_to_the_card() {
+        let layout = json!({"grid": {"rows": 16}, "widgets": [
+            {"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 4, "rows": 4}, {"id": "cameras", "type": "cameras", "col": 0, "row": 4, "span": 4, "rows": 5},
+            {"id": "news", "type": "news", "col": 4, "row": 0, "span": 5, "rows": 9}, {"id": "weather", "type": "weather", "col": 9, "row": 0, "span": 3, "rows": 9},
+            {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]});
+        let camera = json!({"id": "front", "name": "Front door", "room": "Porch", "online": true, "live": true, "recordings": true, "events": true, "clips": false, "since": 0,
+                            "native": {"codec": "h264", "width": 1920, "height": 1080, "fps": 15}, "prebuffered": true});
+        // the owner's layout is a file in the data directory, which Home reads when it comes to the front
+        let data = std::env::temp_dir().join(format!("lumatv-ui-cameras-card-{}", std::process::id()));
+        std::fs::create_dir_all(data.join("theme")).unwrap();
+        std::fs::write(data.join("theme/layout.json"), layout.to_string()).unwrap();
+        for (link, cameras) in [("ready", vec![camera]), ("unlinked", vec![])] {
+            let (_h, kit) = testkit::kit(1.0);
+            let theme = lumatv_tokens::Tokens::shipped().json().clone();
+            let mut shell = Shell::new(kit, Kinds::parse("home,cameras"), 2000, &testkit::module_dir().join("icons/audio"), &theme, &layout).expect("a shell");
+            shell.dirs(&testkit::module_dir(), &data);
+            shell.start();
+            shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true, "covered": false}) }, 1_000);
+            shell.helper(&Event::Topic { topic: "cameras".into(), data: json!({"state": link, "reason": "", "now_skew_ms": 0, "rev": 1, "cameras": cameras}) }, 1_100);
+            key(&mut shell, "down", 2_000);
+            key(&mut shell, "down", 2_200);
+            assert_eq!(shell.state()["home"]["widgetFocusId"], "cameras", "{link}");
+            key(&mut shell, "ok", 2_400);
+            assert_eq!(shell.state()["cameras"]["screen"]["mode"], "grid", "{link}");
+            assert_eq!(shell.state()["cameras"]["link"], link);
+            key(&mut shell, "back", 2_800);
+            assert_eq!(shell.state()["cameras"]["screen"]["mode"], "", "{link}");
+            assert_eq!(shell.state()["home"]["widgetFocusId"], "cameras", "Home is as it was left: {link}");
+        }
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[test]
     fn while_the_ai_prompt_is_up_no_key_opens_anything_of_homes_extras_and_the_mic_key_is_swallowed() {
         let (_h, kit) = testkit::kit(1.0);
         let theme = lumatv_tokens::Tokens::shipped().json().clone();

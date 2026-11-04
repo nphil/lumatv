@@ -20,7 +20,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
 sys.path.insert(0, HERE)
-import test_rust_home as H  # noqa: E402
+import rust_home_host as H  # noqa: E402
 import rust_settings_host as SH  # noqa: E402
 
 OUT = os.path.join(ROOT, 'docs', 'mocks', 'host-rust', 'home')
@@ -99,7 +99,7 @@ def more(case, now_ms):
 class Runner:
     def __init__(self, binary):
         H.BIN = binary
-        self.t = H.RustHome('runTest')
+        self.t = H.RustHome()
 
     def host(self, wait, steps, case, mode='dark', scale=None, layout=None, feeds=None, extra=()):
         now_ms = int(time.time() * 1000)

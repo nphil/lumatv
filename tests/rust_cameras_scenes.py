@@ -6,8 +6,7 @@ at 100 % and 200 % text, beside the mocks of docs/mocks/cameras-scrypted/.
     python3 tests/rust_cameras_scenes.py [--out docs/mocks/host-rust/cameras] [--only grid,strip] [--modes dark,light] [--scales 1,2]
 
 Each scene is the steps a person takes (the helper's topics, the remote's keys) and the picture at the end of them; the host's own checks
-are returned with it: the layout and contrast lint (`--eval lint`) and where things are (`--eval geometry`). `run_scene` is what
-tests/test_rust_cameras.py calls.
+are returned with it: the layout and contrast lint (`--eval lint`) and where things are (`--eval geometry`).
 """
 import argparse
 import concurrent.futures

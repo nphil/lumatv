@@ -18,8 +18,7 @@
 //!   compositor samples the whole run between texels (bilinear) and every stem is smeared over a neighbour; after the OSD's x2
 //!   scale to the panel that is the softest text on the screen (`docs/research/ui-sharpness-result.md`).
 //!
-//! The pixel check of the finished picture stays with the Python host tests (`tests/test_rust_system.py` reads the renders); this is
-//! the check that needs no picture and runs in `cargo test`.
+//! This is the check that needs no picture and runs in `cargo test`.
 
 use super::Kit;
 use compositor_protocol::Rgba;

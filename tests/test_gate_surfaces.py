@@ -13,7 +13,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "docs", "research", "perf"))
 import gate  # noqa: E402
 import host_budget  # noqa: E402
-import test_rust_home as native_home  # noqa: E402
+import rust_home_host as native_home  # noqa: E402
 
 NEW = ["settings-scroll", "apps-grid", "home-widgets", "switcher", "transitions-netflix", "transitions-settings", "keyboard"]
 WALKS = ["settings-scroll", "apps-grid", "home-widgets", "switcher", "keyboard"]
@@ -444,7 +444,7 @@ class Setups(unittest.TestCase):
 class NativeWalks(unittest.TestCase):
     def replay(self, name):
         walk = host_budget.walk_of(name)
-        runner = native_home.RustHome(methodName="test_the_shipped_layout_is_drawn_where_it_always_was_and_the_dock_is_the_persons_own")
+        runner = native_home.RustHome()
         steps = [walk.args, ['--eval', '%d:state' % (walk.at - 100)]]
         return runner.host(walk.at + 100, steps, kinds='home,settings,quick,picker,drawer,menu,confirm')
 

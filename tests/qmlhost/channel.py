@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The compositor's side of the UI channel, as shell.rs serves it, as a stand-in for the shell clients' offline hosts: shellhost.py
-(the QML client) and tests/test_rust_shell.py (the Rust client, `lumatv-ui --host`). The state and the long poll of events
+(the QML client) and the Rust client (`lumatv-ui --host`). The state and the long poll of events
 (`push` sets a topic), the UI reports (`POST /v1/ui`, printed as `[report] <json>`), the luna calls (`POST /v1/luna`, `[luna]`),
 cancels (`[cancel]`), the keyboard (`[ime]`) and the switcher (`[switcher]`); `--tvpower` answers the screen saver list's
 subscriptions as tvpower does, `--luna-delay` holds each luna call before it is handled.
