@@ -250,6 +250,7 @@ fn run(config: Config) -> io::Result<()> {
     const TAG_UI: u64 = 10;
     const TAG_SHELL_RUST: u64 = 12;
     const TAG_IM: u64 = 13;
+    const TAG_INPUT_DIR: u64 = 14;
     epoll.add(display.backend().poll_fd().as_raw_fd(), TAG_WL)?;
     epoll.add(listener.as_raw_fd(), TAG_LISTEN)?;
     epoll.add(tick.raw_fd(), TAG_TICK)?;
@@ -276,13 +277,23 @@ fn run(config: Config) -> io::Result<()> {
     if let Some(fd) = rust_fd {
         epoll.add(fd, TAG_SHELL_RUST)?;
     }
-    let mut inputs: Vec<Option<lumatv_compositor::input::Device>> =
-        if config.input { lumatv_compositor::input::open_all(&config.input_dir).into_iter().map(Some).collect() } else { Vec::new() };
-    // One wl_seat per device, as LG's compositor has them: a device's keys go out on its own seat.
-    let seats: Vec<lumatv_compositor::server::seat::SeatId> = inputs.iter().flatten().map(|d| state.add_seat(&d.name)).collect();
-    for (i, d) in inputs.iter().enumerate() {
-        if let Some(d) = d {
-            epoll.add(d.fd(), TAG_INPUT | i as u64)?;
+    let mut inputs = lumatv_compositor::input::Inputs::new(&config.input_dir);
+    if config.input {
+        // lginput2 makes its virtual devices anew at every wake from standby: nodes made after the start are opened as they appear. The watch
+        // comes first, so that a node made while the first look is under way is not missed.
+        if let Some(fd) = inputs.watch() {
+            epoll.add(fd, TAG_INPUT_DIR)?;
+        }
+        // One wl_seat per device, as LG's compositor has them: a device's keys go out on its own seat.
+        let found = inputs.scan(monotonic_ns(), &mut |name| state.add_seat(name));
+        for line in &found.lines {
+            log::info!("{line}");
+        }
+        for line in &found.problems {
+            log::warn!("{line}");
+        }
+        for &(i, fd) in &found.opened {
+            epoll.add(fd, TAG_INPUT | i as u64)?;
         }
     }
     // LG's Input Manager queue, where the compositor owns the set's input: lginput2's handshake at each reconnect of the Magic Remote is
@@ -450,6 +461,7 @@ fn run(config: Config) -> io::Result<()> {
                 TAG_IM => {
                     state.im_poll();
                 }
+                TAG_INPUT_DIR => inputs.watched(woke_ns),
                 TAG_CONTROL => {
                     if let Some(l) = &control_listener {
                         while let Ok((s, _)) = l.accept() {
@@ -464,7 +476,7 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 t if t & TAG_INPUT != 0 => {
                     let i = (t & 0xffff_ffff) as usize;
-                    if let Some(Some(d)) = inputs.get_mut(i) {
+                    if let Some(d) = inputs.device(i) {
                         let from_network = d.from_network;
                         let mut evs: [lumatv_compositor::input::Event; 64] = [lumatv_compositor::input::Event::Key { code: 0, pressed: false }; 64];
                         let mut n = 0;
@@ -485,15 +497,17 @@ fn run(config: Config) -> io::Result<()> {
                             }
                         }
                         // A removed device (a remote that went, a virtual one its maker closed) polls readable for good and every read
-                        // fails: it leaves the loop, or the loop spins on it. Its seat stays, for the clients that bound it.
+                        // fails: it leaves the loop, or the loop spins on it. Its seat stays, for the clients that bound it and for the
+                        // device made in its place (`Inputs::scan`).
                         let gone = match read {
                             Err(e) => Some(e.to_string()),
                             Ok(()) if ev.events & (libc::EPOLLHUP | libc::EPOLLERR) as u32 != 0 => Some("hung up".to_string()),
                             Ok(()) => None,
                         };
+                        let seat = inputs.seat(i);
                         for &ev in &evs[..n] {
                             match ev {
-                                lumatv_compositor::input::Event::Key { code, pressed } => state.key_event(seats[i], code, pressed, from_network),
+                                lumatv_compositor::input::Event::Key { code, pressed } => state.key_event(seat, code, pressed, from_network),
                                 lumatv_compositor::input::Event::Motion { x, y } => {
                                     lumatv_compositor::server::seat::remote_motion(&mut state, x, y);
                                 }
@@ -504,7 +518,7 @@ fn run(config: Config) -> io::Result<()> {
                             }
                         }
                         if let Some(why) = gone
-                            && let Some(d) = inputs[i].take()
+                            && let Some(d) = inputs.lose(i)
                         {
                             epoll.del(d.fd());
                             state.journal(format!("input: {} ({}) is gone ({why}); its seat stays, nothing more is read from it", d.name, d.path));
@@ -534,6 +548,20 @@ fn run(config: Config) -> io::Result<()> {
                     }
                 }
                 _ => {}
+            }
+        }
+        // Nodes made since the last look (the directory's watch fired, or two seconds went by): a device lginput2 made anew at a wake is
+        // read from here on.
+        if inputs.due(woke_ns) {
+            let found = inputs.scan(woke_ns, &mut |name| state.add_seat(name));
+            for line in found.lines.into_iter().chain(found.problems) {
+                state.journal(line);
+            }
+            for &(i, fd) in &found.opened {
+                if let Err(e) = epoll.add(fd, TAG_INPUT | i as u64) {
+                    inputs.lose(i);
+                    state.journal(format!("input: slot {i} cannot be waited on ({e}); left alone"));
+                }
             }
         }
         state.drain_client_events(&client_events);

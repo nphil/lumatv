@@ -24,6 +24,9 @@ KEY is UP DOWN LEFT RIGHT OK BACK HOME MENU or an evdev code.
             prints the evdev code and the device of every key pressed on the set's input devices in that time, so the code of a
             key that has none above (the remote's Input key) is read off while someone presses it; it is what gate.py's
             --input-key takes. Nothing is injected.
+
+    python3 /tmp/kb.py --device
+            prints the device the keys are injected into (the gate asks the compositor to have it open). Nothing is injected.
 """
 import os
 import struct
@@ -73,6 +76,10 @@ def learn(seconds):
 
 if sys.argv[1:2] == ['--learn']:
     learn(float(sys.argv[2]) if len(sys.argv) > 2 else 15.0)
+    sys.exit(0)
+
+if sys.argv[1:2] == ['--device']:
+    print(device())
     sys.exit(0)
 
 

@@ -7,10 +7,13 @@
 //! motion moves it while it shows, OK clicks while it shows, a navigation key or 10 s of stillness hides it. Reads are
 //! allocation-free (one fixed buffer per device).
 
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::State;
@@ -249,6 +252,16 @@ impl Device {
         has_abs && !name.contains("Smart Remote") && !name.contains("Network Input")
     }
 
+    /// Whether this is a remote or a keyboard: a device with a key below `BTN_MISC`. A game controller's buttons start at `BTN_SOUTH`
+    /// (0x130) and its touchpad and motion sensors have no keys; its sticks and gyro would move the pointer, so it is the game's alone.
+    /// A node that cannot say (a file standing in for a device) is read.
+    fn takes_keys(&self) -> bool {
+        let mut bits = [0u8; KEY_BITMAP_BYTES];
+        // SAFETY: EVIOCGBIT(EV_KEY, len) writes at most len bytes into the buffer.
+        let n = unsafe { libc::ioctl(self.file.as_raw_fd(), eviocgbit_key(bits.len()), bits.as_mut_ptr()) };
+        n < 0 || has_keys(&bits[..(n as usize).min(bits.len())])
+    }
+
     pub fn fd(&self) -> i32 {
         self.file.as_raw_fd()
     }
@@ -330,28 +343,170 @@ fn absinfo(fd: i32, axis: u16) -> Option<(i32, i32)> {
     if r < 0 { None } else { Some((info[1], info[2])) }
 }
 
-/// Every `event*` of `dir` (`/dev/input` on the set) that opens.
-pub fn open_all(dir: &std::path::Path) -> Vec<Device> {
-    let mut out = Vec::new();
-    let Ok(dir) = std::fs::read_dir(dir) else { return out };
-    let mut paths: Vec<String> = dir.filter_map(|e| e.ok()).map(|e| e.path().to_string_lossy().into_owned()).filter(|p| p.contains("/event")).collect();
-    paths.sort();
-    for p in paths {
-        match Device::open(&p) {
-            Ok(d) => {
-                log::info!(
-                    "input: {} {:?}{}{}",
-                    d.path,
-                    d.name,
-                    if d.from_network { " (network keys)" } else { "" },
-                    d.abs.map(|a| format!(" pointer x {:?} y {:?}", a.x, a.y)).unwrap_or_default()
-                );
-                out.push(d);
-            }
-            Err(e) => log::warn!("input: {p}: {e}"),
-        }
+/// Bytes of a key bitmap (`KEY_CNT` bits).
+const KEY_BITMAP_BYTES: usize = 96;
+
+/// `EVIOCGBIT(EV_KEY, len)` (`_IOC(_IOC_READ, 'E', 0x20 + EV_KEY, len)`): which keys and buttons a device has.
+const fn eviocgbit_key(len: usize) -> libc::c_ulong {
+    ((2u64 << 30) | ((len as u64) << 16) | (b'E' as u64) << 8 | (0x20 + EV_KEY as u64)) as libc::c_ulong
+}
+
+/// Whether a key bitmap (`EVIOCGBIT`) has a key below `BTN_MISC` (0x100), `KEY_RESERVED` aside.
+fn has_keys(bitmap: &[u8]) -> bool {
+    bitmap.iter().take(0x100 / 8).enumerate().any(|(i, &b)| if i == 0 { b & 0xfe != 0 } else { b != 0 })
+}
+
+/// How long the directory goes unread when nothing says it changed.
+const RESCAN_NS: u64 = 2_000_000_000;
+
+struct Slot {
+    device: Option<Device>,
+    seat: seat::SeatId,
+    /// The device's name, which one made anew finds its slot and seat by.
+    name: String,
+}
+
+/// What one [`Inputs::scan`] did.
+#[derive(Default)]
+pub struct Scan {
+    /// The slots a device was opened into, with the descriptor to wait on.
+    pub opened: Vec<(usize, i32)>,
+    /// One line per device opened.
+    pub lines: Vec<String>,
+    /// A node that did not open or is no remote or keyboard, told once for as long as it stays that way.
+    pub problems: Vec<String>,
+}
+
+/// Where the compositor reads the set's input from: the `event*` nodes of one directory (`/dev/input` on the set), and the seat each
+/// device's keys go out on (one wl_seat per device, as LG's compositor has them).
+///
+/// The directory is read when the loop starts and again when it changes ([`Inputs::watch`]), with a look every two seconds as the
+/// back-stop. lginput2 makes its virtual devices (`Smart Remote RCU Input`, where the keys of Home Assistant and the phone apps arrive,
+/// and `LGE Network Input`) anew at every wake from standby, long after the compositor started, and a Bluetooth remote or keyboard
+/// appears when it is paired. A compositor that read only what it found at its start lost them for good: after the first wake its
+/// network keys went nowhere, the idle timer ran out and the saver came up under a gate that thought it was pressing keys.
+pub struct Inputs {
+    dir: PathBuf,
+    slots: Vec<Slot>,
+    /// What was said of a node that is left alone, by path, so that a node which stays that way is told once.
+    told: HashMap<String, String>,
+    watch: Option<OwnedFd>,
+    /// When the directory is read next (CLOCK_MONOTONIC ns); never before the first scan.
+    next_ns: u64,
+}
+
+impl Inputs {
+    pub fn new(dir: &Path) -> Inputs {
+        Inputs { dir: dir.to_path_buf(), slots: Vec::new(), told: HashMap::new(), watch: None, next_ns: u64::MAX }
     }
-    out
+
+    /// Watches the directory for nodes made or changed; the descriptor is for the loop's epoll. `None` when the kernel refuses: the
+    /// two-second look is all there is then.
+    pub fn watch(&mut self) -> Option<i32> {
+        // SAFETY: plain system calls; the descriptor is owned from here on.
+        let fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+        if fd < 0 {
+            log::warn!("input: inotify: {}; new devices are found within {} s", io::Error::last_os_error(), RESCAN_NS / 1_000_000_000);
+            return None;
+        }
+        // SAFETY: `fd` is a descriptor this call just made.
+        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+        let dir = std::ffi::CString::new(self.dir.as_os_str().as_bytes()).ok()?;
+        // SAFETY: `dir` is a NUL-terminated path that lives through the call.
+        let added = unsafe { libc::inotify_add_watch(fd.as_raw_fd(), dir.as_ptr(), libc::IN_CREATE | libc::IN_MOVED_TO | libc::IN_ATTRIB) };
+        if added < 0 {
+            log::warn!("input: watching {}: {}; new devices are found within {} s", self.dir.display(), io::Error::last_os_error(), RESCAN_NS / 1_000_000_000);
+            return None;
+        }
+        let raw = fd.as_raw_fd();
+        self.watch = Some(fd);
+        Some(raw)
+    }
+
+    /// The watch has something to say: what it holds is thrown away (the directory is read whole), and the next look is due now.
+    pub fn watched(&mut self, now_ns: u64) {
+        if let Some(fd) = &self.watch {
+            let mut buf = [0u8; 1024];
+            // SAFETY: reads into a local buffer on a non-blocking descriptor.
+            while unsafe { libc::read(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) } > 0 {}
+        }
+        self.next_ns = now_ns;
+    }
+
+    /// Whether the directory is to be read now.
+    pub fn due(&self, now_ns: u64) -> bool {
+        now_ns >= self.next_ns
+    }
+
+    /// Opens every remote or keyboard node of the directory that no open device has. A device made anew goes back into the slot, and onto
+    /// the seat, of the one that went (the clients that bound that seat hear its keys again); any other gets a slot and a seat from
+    /// `new_seat`.
+    pub fn scan(&mut self, now_ns: u64, new_seat: &mut dyn FnMut(&str) -> seat::SeatId) -> Scan {
+        self.next_ns = now_ns.saturating_add(RESCAN_NS);
+        let mut out = Scan::default();
+        let Ok(entries) = std::fs::read_dir(&self.dir) else { return out };
+        let mut paths: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().as_bytes().starts_with(b"event"))
+            .map(|e| e.path().to_string_lossy().into_owned())
+            .collect();
+        paths.sort();
+        self.told.retain(|p, _| paths.contains(p));
+        for path in paths {
+            if self.slots.iter().any(|s| s.device.as_ref().is_some_and(|d| d.path == path)) {
+                continue;
+            }
+            let problem = match Device::open(&path) {
+                Ok(d) if d.takes_keys() => {
+                    self.told.remove(&path);
+                    self.adopt(d, new_seat, &mut out);
+                    continue;
+                }
+                Ok(d) => format!("input: {path} {:?} has no keys (no remote or keyboard): left alone", d.name),
+                Err(e) => format!("input: {path}: {e}"),
+            };
+            if self.told.insert(path, problem.clone()).as_ref() != Some(&problem) {
+                out.problems.push(problem);
+            }
+        }
+        out
+    }
+
+    fn adopt(&mut self, d: Device, new_seat: &mut dyn FnMut(&str) -> seat::SeatId, out: &mut Scan) {
+        out.lines.push(format!(
+            "input: {} {:?}{}{}",
+            d.path,
+            d.name,
+            if d.from_network { " (network keys)" } else { "" },
+            d.abs.map(|a| format!(" pointer x {:?} y {:?}", a.x, a.y)).unwrap_or_default()
+        ));
+        let fd = d.fd();
+        let i = match self.slots.iter().position(|s| s.device.is_none() && s.name == d.name) {
+            Some(i) => i,
+            None => {
+                self.slots.push(Slot { device: None, seat: new_seat(&d.name), name: d.name.clone() });
+                self.slots.len() - 1
+            }
+        };
+        self.slots[i].device = Some(d);
+        out.opened.push((i, fd));
+    }
+
+    /// The device in slot `i`, while it is open.
+    pub fn device(&mut self, i: usize) -> Option<&mut Device> {
+        self.slots.get_mut(i)?.device.as_mut()
+    }
+
+    /// The seat the keys of slot `i` go out on.
+    pub fn seat(&self, i: usize) -> seat::SeatId {
+        self.slots[i].seat
+    }
+
+    /// The device in slot `i` is gone (it polls hung up for good, or every read fails): out of the loop. Its slot and seat wait for the
+    /// device that is made in its place.
+    pub fn lose(&mut self, i: usize) -> Option<Device> {
+        self.slots.get_mut(i)?.device.take()
+    }
 }
 
 /// The compositor's key state: the Home hold, the remote's own keys (`keys.rs`) and what was delivered.
@@ -875,5 +1030,140 @@ mod wheel_tests {
         ] {
             assert!(!Device::turns_pointer(name, abs), "{name}");
         }
+    }
+}
+
+#[cfg(test)]
+mod hotplug_tests {
+    use super::*;
+
+    /// A directory standing in for `/dev/input`, its nodes files of raw events (the ioctls fail on them, as on a device that does not say).
+    struct Dir(PathBuf);
+
+    impl Dir {
+        fn new(name: &str) -> Dir {
+            let dir = std::env::temp_dir().join(format!("lumatv-hotplug-{}-{name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Dir(dir)
+        }
+
+        /// Makes (or makes anew) the node `name` with a press of `key` waiting on it.
+        fn node(&self, name: &str, key: u32) {
+            let ev = InputEvent { kind: EV_KEY, code: key as u16, value: 1, ..InputEvent::default() };
+            // SAFETY: InputEvent is repr(C) plain data; its bytes are what the kernel writes for one event.
+            let bytes = unsafe { std::slice::from_raw_parts(&ev as *const InputEvent as *const u8, std::mem::size_of::<InputEvent>()) };
+            std::fs::write(self.0.join(name), bytes).unwrap();
+        }
+    }
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// What the loop does with a new device: a seat of its own, counted.
+    fn seats(count: &mut u32) -> impl FnMut(&str) -> seat::SeatId + '_ {
+        move |_| {
+            *count += 1;
+            seat::SeatId(*count)
+        }
+    }
+
+    fn keys(inputs: &mut Inputs, slot: usize) -> Vec<Event> {
+        let mut got = Vec::new();
+        inputs.device(slot).unwrap().drain(|e| got.push(e)).unwrap();
+        got
+    }
+
+    #[test]
+    fn a_device_made_after_the_start_is_opened_and_its_keys_are_read() {
+        let dir = Dir::new("late");
+        dir.node("event2", code::KEY_LEFT);
+        let mut inputs = Inputs::new(&dir.0);
+        let mut made = 0;
+        assert_eq!(inputs.scan(0, &mut seats(&mut made)).opened.len(), 1, "the start finds the one node");
+
+        // lginput2 makes its virtual device after the compositor is up.
+        dir.node("event10", code::KEY_RIGHT);
+        dir.node("mouse0", code::KEY_ENTER);
+        let found = inputs.scan(1, &mut seats(&mut made));
+        assert_eq!(found.opened.iter().map(|o| o.0).collect::<Vec<_>>(), [1], "only the new `event` node");
+        assert_eq!(keys(&mut inputs, 1), [Event::Key { code: code::KEY_RIGHT, pressed: true }]);
+        assert_eq!(inputs.seat(1), seat::SeatId(2), "a seat of its own");
+        assert!(inputs.scan(2, &mut seats(&mut made)).opened.is_empty(), "an open device is not opened again");
+    }
+
+    #[test]
+    fn a_device_made_anew_goes_back_to_the_slot_and_the_seat_of_the_one_that_went() {
+        let dir = Dir::new("anew");
+        dir.node("event10", code::KEY_RIGHT);
+        let mut inputs = Inputs::new(&dir.0);
+        let mut made = 0;
+        inputs.scan(0, &mut seats(&mut made));
+        assert_eq!(keys(&mut inputs, 0).len(), 1);
+
+        // The wake: the old device is gone, and the node is made again.
+        assert!(inputs.lose(0).is_some());
+        assert!(inputs.device(0).is_none());
+        dir.node("event10", code::KEY_LEFT);
+        let found = inputs.scan(1, &mut seats(&mut made));
+        assert_eq!(found.opened.iter().map(|o| o.0).collect::<Vec<_>>(), [0]);
+        assert_eq!(keys(&mut inputs, 0), [Event::Key { code: code::KEY_LEFT, pressed: true }], "its keys arrive again");
+        assert_eq!((made, inputs.seat(0)), (1, seat::SeatId(1)), "no second seat for clients to bind");
+    }
+
+    #[test]
+    fn a_node_that_does_not_open_is_told_once() {
+        let dir = Dir::new("told");
+        let node = dir.0.join("event3");
+        std::os::unix::fs::symlink(dir.0.join("nowhere"), &node).unwrap();
+        let mut inputs = Inputs::new(&dir.0);
+        let mut made = 0;
+        assert_eq!(inputs.scan(0, &mut seats(&mut made)).problems.len(), 1);
+        assert_eq!(inputs.scan(1, &mut seats(&mut made)).problems.len(), 0, "the same trouble is not told again");
+        std::fs::remove_file(&node).unwrap();
+        inputs.scan(2, &mut seats(&mut made));
+        std::os::unix::fs::symlink(dir.0.join("nowhere"), &node).unwrap();
+        assert_eq!(inputs.scan(3, &mut seats(&mut made)).problems.len(), 1, "a node that came back is told afresh");
+    }
+
+    #[test]
+    fn only_a_device_with_keys_below_the_buttons_is_a_remote_or_a_keyboard() {
+        let mut remote = [0u8; KEY_BITMAP_BYTES];
+        remote[(code::KEY_ENTER / 8) as usize] |= 1 << (code::KEY_ENTER % 8);
+        assert!(has_keys(&remote));
+        // A game controller: BTN_SOUTH (0x130) and its neighbours only; its touchpad and motion sensors have no keys at all.
+        let mut controller = [0u8; KEY_BITMAP_BYTES];
+        controller[0x130 / 8] = 0xff;
+        assert!(!has_keys(&controller));
+        assert!(!has_keys(&[0u8; KEY_BITMAP_BYTES]));
+        let mut reserved = [0u8; KEY_BITMAP_BYTES];
+        reserved[0] = 1;
+        assert!(!has_keys(&reserved), "KEY_RESERVED is no key");
+    }
+
+    #[test]
+    fn a_node_made_in_the_directory_wakes_the_watch_and_the_look_is_due_at_once() {
+        let dir = Dir::new("watch");
+        let mut inputs = Inputs::new(&dir.0);
+        assert!(!inputs.due(u64::MAX - 1), "no look before the first");
+        let fd = inputs.watch().expect("inotify");
+        let readable = |fd| {
+            let mut p = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+            // SAFETY: one pollfd, a zero timeout.
+            unsafe { libc::poll(&mut p, 1, 0) == 1 }
+        };
+        let mut made = 0;
+        inputs.scan(100, &mut seats(&mut made));
+        assert!(!readable(fd));
+        assert!(!inputs.due(100 + RESCAN_NS - 1) && inputs.due(100 + RESCAN_NS), "without a word, the directory is read every {RESCAN_NS} ns");
+
+        dir.node("event7", code::KEY_ENTER);
+        assert!(readable(fd), "the node is announced before the call that made it returns");
+        inputs.watched(200);
+        assert!(!readable(fd), "what was announced is taken");
+        assert!(inputs.due(200));
     }
 }

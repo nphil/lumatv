@@ -1063,6 +1063,11 @@ def app_drawn(report, name):
             if w['name'] in (f'{name}-open', f'{name}-close') and w.get('burst_app_jobs')]
 
 
+def device_open_in(listing, device):
+    """Whether an `ls -l /proc/PID/fd` listing has `device` open."""
+    return any(line.rstrip().endswith(f' -> {device}') for line in listing.splitlines())
+
+
 # ------------------------------------------------------------------- the set
 
 class Rig:
@@ -1126,6 +1131,20 @@ class Rig:
             return parse_transitions(out)
         except (ValueError, KeyError, TypeError):
             raise RuntimeError(f'ctl transitions answered {out.strip()[:80]!r}')
+
+    def keys_read(self):
+        """(device, read): the device kb.py writes the gate's keys to, and whether LumaTV's compositor has it open; `read` is None where there is no
+        such compositor or device to ask. A device lginput2 made after the compositor started was never opened: after the set's first wake the keys
+        went nowhere, the saver came up and the gate timed its sweep (2026-11-04: 69 to 819 ms to the first frame, against 1 to 10 on 2026-10-30)."""
+        rc, out, _ = self.sh(f'python3 {KB} --device')
+        device = out.strip()
+        if rc != 0 or not device.startswith('/dev/input/'):
+            return None, None
+        rc, out, _ = self.sh("pids=$(pgrep -f 'bin/[l]umatv-compositor --'); "
+                             "if [ -z \"$pids\" ]; then echo NO_COMPOSITOR; else for p in $pids; do ls -l /proc/$p/fd 2>/dev/null; done; fi")
+        if 'NO_COMPOSITOR' in out:
+            return device, None
+        return device, device_open_in(out, device)
 
     def save_ring(self, name):
         """The compositor's trace ring as it stands (a cycle's own: taken before the next one), into <name>.ring.json beside the trace. The path, or None
@@ -1452,6 +1471,10 @@ def run_gate(rig, surfaces, soak_cycles, tag, log=None, load=None, load_seconds=
     if age is not None and age < COMPOSITOR_SETTLE_S:
         time.sleep(COMPOSITOR_SETTLE_S - age)
     rig.wake()
+    device, read = rig.keys_read()
+    if read is False:
+        raise RuntimeError(f'the compositor has not opened {device}, where the gate injects its keys: they would go nowhere and the gate would time the saver; '
+                           'run a compositor that opens devices made after its start (the changelog of 2026-11-04), or restart it')
     loaded = False
     if load:
         loaded = rig.load_start(load, load_seconds)

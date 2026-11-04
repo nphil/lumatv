@@ -589,8 +589,8 @@ class Edges(unittest.TestCase):
         self.assertIn('windows', failed(gate.evaluate_windows(s, r, 3)))
 
     class FakeRig:
-        def __init__(self, motion, age=None):
-            self.motion, self.calls, self.age, self.woken = motion, [], age, False
+        def __init__(self, motion, age=None, keys=('/dev/input/event10', True)):
+            self.motion, self.calls, self.age, self.woken, self.keys = motion, [], age, False, keys
 
         def compositor_age_s(self):
             return self.age
@@ -600,6 +600,9 @@ class Edges(unittest.TestCase):
 
         def push_tools(self):
             pass
+
+        def keys_read(self):
+            return self.keys
 
         def motion_state(self):
             return dict(self.motion) if isinstance(self.motion, dict) else {path: self.motion for path in gate.MOTION_SWITCHES}
@@ -668,6 +671,36 @@ class Edges(unittest.TestCase):
                 self.assertTrue(rig.woken, "Home's saver was not woken before the first surface")
         finally:
             gate.run_surface = orig
+
+    def test_the_gate_stops_when_the_compositor_does_not_read_the_device_its_keys_go_to(self):
+        # 2026-11-04: lginput2 made the SSAP key device anew at a wake, the compositor never opened it, the keys went nowhere and the gate timed the saver
+        orig = gate.run_surface
+        ran = []
+        gate.run_surface = lambda rig_, s, tag, soak, log: ran.append(s['name']) or {'name': s['name'], 'checks': [], 'log_lines': []}
+        try:
+            rig = self.FakeRig(False, keys=('/dev/input/event10', False))
+            with self.assertRaisesRegex(RuntimeError, 'event10'):
+                gate.run_gate(rig, gate.find(['home-idle']), 3, 't', log=object())
+            self.assertEqual((ran, rig.calls), ([], []), 'no surface ran and nothing was changed on the set')
+            for keys in (('/dev/input/event10', None), (None, None)):       # no LumaTV compositor, or no device to ask about: nothing to say
+                gate.run_gate(self.FakeRig(False, keys=keys), gate.find(['home-idle']), 3, 't', log=object())
+            self.assertEqual(ran, ['home-idle'] * 2)
+        finally:
+            gate.run_surface = orig
+
+    def test_the_key_device_is_open_when_the_compositors_fds_say_so(self):
+        listing = 'lrwx------ 1 root root 64 Nov  4 08:31 21 -> /dev/input/event2\nlrwx------ 1 root root 64 Nov  4 08:31 22 -> /dev/input/event11\n'
+        self.assertTrue(gate.device_open_in(listing, '/dev/input/event2'))
+        self.assertFalse(gate.device_open_in(listing, '/dev/input/event10'))
+        self.assertFalse(gate.device_open_in(listing, '/dev/input/event1'), 'event1 is not event11')
+        rig = object.__new__(gate.Rig)
+        for answers, expected in ((['/dev/input/event10\n', listing + 'l 23 -> /dev/input/event10\n'], ('/dev/input/event10', True)),
+                                  (['/dev/input/event10\n', listing], ('/dev/input/event10', False)),
+                                  (['/dev/input/event10\n', 'NO_COMPOSITOR\n'], ('/dev/input/event10', None))):
+            rig.sh = Mock(side_effect=[(0, a, '') for a in answers])
+            self.assertEqual(rig.keys_read(), expected)
+        rig.sh = Mock(return_value=(1, '', 'no SSAP key device'))
+        self.assertEqual(rig.keys_read(), (None, None), 'no device to ask about')
 
     def test_a_capture_where_the_app_drew_is_measured_again(self):
         s = gate.find(['picker-netflix'], values={'INPUT': '241'})[0]
@@ -802,6 +835,15 @@ class QuickAndPicker(unittest.TestCase):
         r = subprocess.run([sys.executable, kb, '--learn', '0'], capture_output=True, text=True, timeout=30)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout, '')
+
+    def test_kb_names_the_device_it_injects_into_or_says_there_is_none(self):
+        import subprocess
+        kb = os.path.join(os.path.dirname(HERE), 'docs', 'research', 'perf', 'kb.py')
+        r = subprocess.run([sys.executable, kb, '--device'], capture_output=True, text=True, timeout=30)
+        if r.returncode == 0:
+            self.assertRegex(r.stdout, r'^/dev/input/event\d+\n$')
+        else:
+            self.assertIn('no SSAP key device', r.stderr)
 
 
 class LumaTvCompositor(unittest.TestCase):
