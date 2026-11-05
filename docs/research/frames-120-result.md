@@ -4,6 +4,21 @@
 
 On forge main (round 24's engine work):
 
+- **Session 6 on `c7704853`** (120 Hz): quick `burst_over20` 3, settings-scroll 6 drops and 12, home-widgets 4 drops and 9. Two causes, found on the host
+  with the owner's own theme and layout (`tests/host_budget.py --owner <the gate's receipts>`, which also serves the Smart home card's two cameras a still
+  a second and lists the shell's own CPU time a frame, `ui`):
+  - **Camera stills on the UI thread.** Home-idle, home-dpad, home-widgets and quick each had a UI stall of 18-24 ms twice a second, 0.2 s apart, inside
+    their key bursts. A still (a 24-bit BMP at its cell's size) was fitted by a per-pixel sampler at its own size, laid over a cleared layer by a second
+    per-pixel pass, scrimmed in floats and repainted for every camera when either arrived: 13.5 ms of the thread on the host, 14-16 ms a frame. A fit at
+    the picture's own size copies rows, the layer takes the picture as it is, the scrim's rows are hoisted and a cell repaints for its own camera's still:
+    1.1-1.8 ms; no home-widgets frame takes more than 3.4 ms of the thread now.
+  - **The dims in one frame.** The focus entering the cards dimmed the other cards and the dock together, and each page of the ring drew all of it:
+    118 layers a frame on the host, a GPU busy of 13.1 ms on the set at +1.03 s. They step one at a time, three refreshes apart now: 84 layers.
+  Not changed (host numbers on the owner's layout; none of this was run on the set): the dock's own step with the cards settling (101-104 layers for
+  three frames at 'to the dock', 'along the dock' and 'down and up the dock'); a lift's spring counts as settled only within 0.0005 of its travel
+  (`Units::Progress`, `compositor-protocol/src/motion.rs`), so a card whose lift is gone is redrawn whole, 24-53 layers a frame, for about 40 frames after
+  a move (opacity 0.0013 at the 44th); Settings page changes (45-69 layers on the host, 87-120 on the set, 3-9 ms of UI for the rows) and Settings
+  opening (the rail's rows made cold, 5-8 ms of UI on the set); the quick panel's first open (3-6 ms of UI against about 1 at the later ones).
 - `91589d0f` **Home from one picture.** The engine keeps stack 0 (Home) whole in a render target of its own, the floor (`rustui/render/src/host.rs`): a
   frame draws into it what Home changed, and a page gets Home as one copy of it in each rectangle it owes. A panel or Settings moving over a Home that
   stands draws its own layers and one copy, not Home's 70-90 in every pass, and the floor is current whenever Home shows, so an opening's first frames
