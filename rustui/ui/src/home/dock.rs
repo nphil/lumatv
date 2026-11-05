@@ -243,6 +243,25 @@ impl Dock {
         self.row_of(i) == self.scroll_row
     }
 
+    /// The top of tile `i`'s name pill (`pill_h` high, whole pixels, in the card), the tile lifted by `lift`: on the side `label_above` names; when
+    /// that side has no room in the card (a large text size makes the pill tall and the card holds two rows) on the other side, over the
+    /// neighbouring row's near edge; where neither fits, pinned inside the card. `edge` is the margin kept to the card's top and bottom.
+    pub fn label_top(&self, i: usize, pill_h: f32, lift: f32, edge: f32) -> f32 {
+        let top = (self.slot(i).1 - self.scroll_px() as i32) as f32;
+        let above = top - lift - 14.0 - pill_h;
+        let below = top + self.tile as f32 + lift + 6.0;
+        let room = |y: f32| y >= edge && y + pill_h <= self.height as f32 - edge;
+        let (first, other) = if self.label_above(i) { (above, below) } else { (below, above) };
+        let y = if room(first) {
+            first
+        } else if room(other) {
+            other
+        } else {
+            first.clamp(edge, (self.height as f32 - edge - pill_h).max(edge))
+        };
+        y.round()
+    }
+
     // ---- navigation
     pub fn ensure_visible(&mut self) {
         let row = self.row_of(self.index);
@@ -445,6 +464,26 @@ mod tests {
         assert_eq!(d.index, 3);
         d.focus(0);
         assert!(!d.begin_move(), "LG's Apps tile stays first");
+    }
+
+    #[test]
+    fn a_name_goes_where_the_card_has_room_for_it() {
+        let mut d = Dock::default();
+        let list: Vec<Value> = (0..20).map(|i| lp(&format!("app{i}"), "App")).collect();
+        // 392 high: two rows of 120 leave 68 above and below; a 43 pill stands above the top row and below the second
+        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 392);
+        d.set_points(&list, &json!({}));
+        assert_eq!((d.total_rows(), d.scrollable(), d.grid_top()), (2, false, 68));
+        assert_eq!((d.label_top(0, 43.0, 7.0, 2.0), d.label_top(12, 43.0, 7.0, 2.0)), (4.0, 68.0 + 136.0 + 120.0 + 13.0));
+        // 360 high and a 70 pill (200 % text): no room above row 1 or below row 2, so each name stands on the row's other side
+        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 360);
+        for (i, ph) in [(0, 70.0), (12, 70.0), (0, 43.0), (12, 43.0)] {
+            let y = d.label_top(i, ph, 7.0, 2.0);
+            assert!(y >= 2.0 && y + ph <= 358.0, "tile {i}, pill {ph}: {y}");
+        }
+        let top = d.grid_top() as f32;
+        assert!(d.label_top(0, 70.0, 7.0, 2.0) > top + 120.0, "row 1's name falls below its tile");
+        assert!(d.label_top(12, 70.0, 7.0, 2.0) + 70.0 < top + 136.0 + 120.0, "row 2's name rises above its tile");
     }
 
     #[test]

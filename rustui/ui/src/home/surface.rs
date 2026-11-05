@@ -933,15 +933,15 @@ impl HomeSurface {
                     // the name stays on the dock's card: a long one is cut to its width and a pill under a tile at the end of a row is moved in
                     const EDGE: f32 = 8.0;
                     let w = (width_of(kit, style, &title) + 26.0).round().max(40.0).min(d.frame.w - 2.0 * EDGE);
-                    let above = home.dock.label_above(i);
                     let lift = home.dock.tile as f32 * (kit.tokens.focus.tile_scale - 1.0) / 2.0;
-                    // on whole pixels (the lift is 7.2 at a 120 tile): a run between pixels is sampled soft
-                    let y = (if above { sy as f32 - lift - 4.0 - 10.0 - 43.0 } else { sy as f32 + home.dock.tile as f32 + lift - 4.0 + 10.0 } - scroll).round();
+                    // the pill grows with the type (a 43 pill cut a 200 % name) and goes where the card has room for it
+                    let ph = (kit.line(TypeRole::Label) + kit.space(1)).max(43.0).ceil();
+                    let y = home.dock.label_top(i, ph, lift, 2.0);
                     let x = (cx - w / 2.0).round().clamp(EDGE, (d.frame.w - EDGE - w).max(EDGE));
                     let scene = kit.ui.scene.clone();
                     let (pill, text) = scene.adopting(&d.viewport, || {
-                        let pill = kit.ui.scene.glass(w as u32, 43, Z_DOCK + 9, glass_of(kit, PaneKind::Control, 43.0, false, false), Props::at(x, y));
-                        let text = Text::new(kit, Frame::new(x, y, w, 43.0), Z_DOCK + 10, style, &title).map(|mut t| {
+                        let pill = kit.ui.scene.glass(w as u32, ph as u32, Z_DOCK + 9, glass_of(kit, PaneKind::Control, ph, false, false), Props::at(x, y));
+                        let text = Text::new(kit, Frame::new(x, y, w, ph), Z_DOCK + 10, style, &title).map(|mut t| {
                             t.set_props(Props::at(x, y));
                             t
                         });
@@ -2053,7 +2053,8 @@ mod tests {
                     assert!(d.pill_for.is_some(), "{mode:?} {scale}: the name is up");
                     let f = d.pill_text.frame();
                     assert!(f.x >= 0.0 && f.x + f.w <= d.frame.w, "{mode:?} {scale} last={last}: {f:?} on a card {} wide", d.frame.w);
-                    assert_eq!(pill_side(&s, &home), Some(true), "{mode:?} {scale} last={last}: above the top row's tile");
+                    assert!(pill_side(&s, &home).is_some(), "{mode:?} {scale} last={last}: above or below the top row's tile, not over it");
+                    assert!(f.y >= 0.0 && f.y + f.h <= d.frame.h, "{mode:?} {scale} last={last}: {f:?} on a card {} high", d.frame.h);
                     // the words are linted too: the layout lint finds a clipped or crowded name
                     let lint = s.lint(&mut kit, &home);
                     let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject.contains("dock.pill")).map(|f| format!("{f:?}")).collect();
@@ -2092,7 +2093,9 @@ mod tests {
                 assert!(out.contains(&crate::kit::screen::Effect::Redraw), "the rest is drawn");
                 s.apply(&mut kit, &mut engine, &mut home, due).expect("Home drawn");
                 assert_eq!(home.dock.row_of(home.dock.index), 0, "{scale}: the dock's top row has the focus");
-                assert_eq!(pill_side(&s, &home), Some(true), "{scale}, {count} apps: the top row's name is above its tile");
+                if scale == 1.0 {
+                    assert_eq!(pill_side(&s, &home), Some(true), "{scale}, {count} apps: the top row's name is above its tile");
+                }
                 // the name stays on the dock's card
                 let d = s.dock.as_ref().unwrap();
                 let f = d.pill_text.frame();
@@ -2105,7 +2108,12 @@ mod tests {
                     home.update(&Input::Tick, 3300);
                     s.apply(&mut kit, &mut engine, &mut home, 3300).expect("Home drawn");
                     assert_eq!(home.dock.row_of(home.dock.index), 1, "{scale}");
-                    assert_eq!(pill_side(&s, &home), Some(false), "{scale}: the second row's name is below its tile");
+                    let d = s.dock.as_ref().unwrap();
+                    let f = d.pill_text.frame();
+                    assert!(f.y >= 0.0 && f.y + f.h <= d.frame.h, "{scale}: the second row's name {f:?} on a card {} high", d.frame.h);
+                    if scale == 1.0 {
+                        assert_eq!(pill_side(&s, &home), Some(false), "{scale}: the second row's name is below its tile");
+                    }
                 }
                 std::mem::forget(h);
             }
