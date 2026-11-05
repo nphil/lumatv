@@ -45,8 +45,10 @@ impl Calm {
         }
     }
 
-    /// A wake-up for something that may ask for frames at every refresh (an input device, a client, the control socket: every one
-    /// but a page flip landing and a commit of the UI that asked for no frame), at `now_ns`. [`Calm::event`] is called for it as well.
+    /// A wake-up for something that may ask for frames at every refresh (a client, an input device, the control socket: every one but a page flip
+    /// landing and what comes from the UI's side, its commits, its reports over the shell channel and the luna bridge's messages, whose frames
+    /// the engine says when it wants them: [`ui_due_in`](crate::output::Output::ui_due_in) is `None` while one is wanted now or an animation runs), at `now_ns`.
+    /// [`Calm::event`] is called for it as well.
     pub fn busy(&mut self, now_ns: u64) {
         self.last_busy_ns = now_ns;
     }
@@ -55,8 +57,8 @@ impl Calm {
         now_ns.saturating_sub(self.last_event_ns) >= CALM_AFTER_NS && now_ns.saturating_sub(self.last_input_ns) >= INPUT_CALM_AFTER_NS
     }
 
-    /// Calm as far as the frames the UI asks for at times of its own go: the flips of those frames and the commits that ask for none
-    /// are no reason to wake at every refresh, so only a [`Calm::busy`] wake-up (and a key, for a quarter second more) ends it.
+    /// Calm as far as the frames the UI asks for at times of its own go: the flips of those frames and the UI's own wake-ups are no reason to
+    /// wake at every refresh, so only a [`Calm::busy`] wake-up (and a key, for three seconds) ends it.
     pub fn is_calm_between_frames(&self, now_ns: u64) -> bool {
         now_ns.saturating_sub(self.last_busy_ns) >= CALM_AFTER_NS && now_ns.saturating_sub(self.last_input_ns) >= INPUT_CALM_AFTER_NS
     }

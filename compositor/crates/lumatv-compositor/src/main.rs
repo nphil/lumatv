@@ -386,8 +386,13 @@ fn run(config: Config) -> io::Result<()> {
             let watched = tag & TAG_INPUT != 0 && inputs.is_watch((tag & 0xffff_ffff) as usize);
             if tag != TAG_TICK && !watched {
                 tick.calm.event(woke_ns, tag & TAG_INPUT != 0);
-                // (a page flip landing and the UI's commit are not what asks for frames at every refresh: see `Calm::busy`, and TAG_UI below)
-                if tag != TAG_OUTPUT && tag != TAG_UI {
+                // (what asks for frames at every refresh is a client, a key, the control socket: see `Calm::busy`. A page flip landing is not,
+                // nor is the UI engine's commit, its report over the shell channel or a message of the luna bridge: what these ask for the
+                // engine says (`Output::ui_due_in`, which is `None` while a frame is wanted now or an animation runs) and `Tick::rearm` obeys.
+                // A Home with two cameras on it commits a still and reports it twice a second and the sky restates its paths every 0.4 s,
+                // which with a quarter second of calm after each kept the loop at the panel's rate on a Home at rest: 124 ticks a second
+                // for the 24 frames the sky and the wallpaper draw)
+                if !matches!(tag, TAG_OUTPUT | TAG_UI | TAG_SHELL_RUST | TAG_LUNA) {
                     tick.calm.busy(woke_ns);
                 }
                 saw_event = true;
@@ -450,6 +455,8 @@ fn run(config: Config) -> io::Result<()> {
                         epoll.del(fd);
                         state.journal("luna: the bridge closed its socket; nothing more is read from it".into());
                     }
+                    // What a message changed is what the tick waits for now, not what it was armed for before it.
+                    tick.rearm(&state)?;
                 }
                 TAG_UI => {
                     // The UI app committed: taken in now; drawn now on a still screen, else at the tick.
@@ -458,18 +465,16 @@ fn run(config: Config) -> io::Result<()> {
                         handled |= 1 << 9;
                         state.tick();
                     }
-                    // A commit that wants no frame before the step the UI asked for (the sky restating its paths) is no reason to wake
-                    // at every refresh; one that wants a frame is.
-                    if drew || state.output.ui_due_in().is_none() {
-                        tick.calm.busy(woke_ns);
-                    }
+                    // (a frame the commit wants and the screen could not take at once is the next tick's, which `rearm` puts at the next
+                    // refresh while `ui_due_in` is `None`; a commit that wants none before the step the UI asked for, the sky restating its
+                    // paths, leaves the loop asleep)
                     tick.rearm(&state)?;
                 }
                 TAG_SHELL_RUST => {
                     if state.shell_rust_poll() {
                         handled |= 1 << 9;
-                        tick.rearm(&state)?;
                     }
+                    tick.rearm(&state)?;
                 }
                 TAG_IM => {
                     state.im_poll();
