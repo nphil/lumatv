@@ -15,7 +15,7 @@
 //! | `GET /lineup.json` | the TV's antenna channels (`iepg/getChannelList`), one per number: `GuideNumber` `2.4`, `GuideName`, `URL` |
 //! | `GET /lineup.m3u` | the same lineup as an M3U playlist: `tvg-id` and `tvg-chno` are the guide number, the URL is `/auto/v<number>`, `url-tvg` names `/xmltv.xml` |
 //! | `GET /xmltv.xml` | the TV's own broadcast guide (`iepg/getEventList`, a day back to six days ahead, read once per channel and kept 30 minutes) as XMLTV, UTC, channel ids the guide numbers; a channel the TV has no listings for has no programmes |
-//! | `GET /auto/v<number>` | MPEG-TS of that channel: a PAT naming the one program, then its PMT, clock, picture and sound; 503 while busy or the TV is in use; 403 for a protected program; 404 for no such channel |
+//! | `GET /auto/v<number>` | MPEG-TS of that channel: a PAT naming the one program, then its PMT, clock, picture and sound. The client whose stream has the tuner takes it over with its next request; another client gets 503 while it runs, and every client while the TV is in use; 403 for a protected program; 404 for no such channel |
 //! | `GET`/`POST /lineup.post` | 200, nothing to start (the lineup is the TV's) |
 //!
 //! Pieces: [`psi`] reads and writes the transport stream's tables; [`docs`] makes the HDHomeRun documents; [`stream`] holds the lease on the one

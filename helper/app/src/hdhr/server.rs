@@ -226,16 +226,24 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
         ("GET" | "POST", "/lineup.post") => reply(&mut stream, 200, "text/plain", b""),
         ("GET", path) if path.starts_with("/auto/v") => {
             let guide = &path["/auto/v".len()..];
-            match facade.open(guide) {
+            let asked = Instant::now();
+            match facade.open(guide, peer) {
                 Err(f) => {
                     crate::log_info!("hdhr: {peer} asked for {guide}: {}", f.reason());
                     reply(&mut stream, f.status(), "text/plain", f.reason().as_bytes())
                 }
                 Ok(mut program) => {
-                    crate::log_info!("hdhr: {peer} streams {guide}");
+                    // the PAT goes out as soon as the head is written: this is the client's wait for its first byte
+                    crate::log_info!(
+                        "hdhr: {peer} streams {guide} after {:.1} s",
+                        asked.elapsed().as_secs_f64()
+                    );
                     let sent = write!(stream, "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\n\r\n").and_then(|()| program.pump(&mut stream, stop));
                     match sent {
                         Ok(End::Stopped) => crate::log_info!("hdhr: {guide} stopped"),
+                        Ok(End::Replaced) => {
+                            crate::log_info!("hdhr: {guide} gave the tuner to the next request")
+                        }
                         Ok(end) => crate::log_warn!("hdhr: {guide} ended: {end:?}"),
                         Err(e) => crate::log_info!("hdhr: {peer} left {guide}: {e}"),
                     }
