@@ -5,11 +5,17 @@ cameras' streams at once, the first picture of a stream slower than the rest).
 
     python3 tests/camera_popup_host.py renders [--out DIR] [--modes dark,light] [--scales 1,2] [--cameras 8] [--bin PATH]
     python3 tests/camera_popup_host.py first-picture [--cameras 8] [--first-ms 150] [--later-ms 20] [--bin PATH]
+    python3 tests/camera_popup_host.py pill [--out DIR] [--modes dark,light] [--bin PATH]
+    python3 tests/camera_popup_host.py pill-full [--out DIR] [--bin PATH]
+    python3 tests/camera_popup_host.py pill-editor [--out DIR] [--bin PATH]
 
 `renders` writes `camlist-<mode>-<text size>-<closed|growing|open|scrolled>.png` (the focus on the camera button; the list a moment after OK, on its
 way out of the button; at rest; walked down six rows) and prints the layout and contrast lint of the open and the scrolled list.
 `first-picture` opens the list twice, straight after the focus reached the button and after it rested there, and prints each row's first fresh picture
 (milliseconds from the opening), the rate each kind of row was asked at, and what was asked after the list closed.
+`pill` writes the status bar placed at each end of its row and in the middle (with the camera list, notifications or Quick Settings opened from it);
+`pill-full` the same with Full width on (the glass across the whole row, the buttons grouped where the placement puts them); `pill-editor` the
+Layout of pop-ups editor on the status bar with the Full width switch focused.
 """
 import argparse
 import http.server
@@ -124,10 +130,10 @@ def topic(n, offline=()):
     return cams.cameras_topic(n, per={i: {'online': False} for i in offline})
 
 
-def host(binary, mode, scale, wait, steps, stills, n, offline=(), extra=(), theme_extra=None):
+def host(binary, mode, scale, wait, steps, stills, n, offline=(), extra=(), theme_extra=None, kinds=KINDS):
     """One run of the harness with Home in front, `n` cameras and the helper of `stills`; returns the output and the evals."""
     H.BIN = binary
-    out, evals, _ = H.RustHome().host(wait, steps, feeds={"cameras": topic(n, offline)}, mode=mode, scale=scale, theme=dict(STILL, material=mode, **(theme_extra or {})), kinds=KINDS,
+    out, evals, _ = H.RustHome().host(wait, steps, feeds={"cameras": topic(n, offline)}, mode=mode, scale=scale, theme=dict(STILL, material=mode, **(theme_extra or {})), kinds=kinds,
                                       extra=['--clock', CLOCK, '--port', str(stills.server_address[1]), '--helper-port', str(stills.server_address[1]), *extra])
     return out, evals
 
@@ -185,11 +191,32 @@ def renders(binary, out_dir, modes, scales, n):
 POPUPS = {'cameras': 1, 'notifications': 2, 'qs': 3}
 
 
+def pill_shot(binary, stills, out_dir, name, anchor, full, mode, scale, popup):
+    """One render of the bar placed at `anchor` (its glass spread across the row when `full`): the top of Home with the focus on the camera button, or
+    the whole screen with the popup of a button of the bar opened from it, at rest."""
+    from PIL import Image
+    tmp = tempfile.mkdtemp(prefix='pill-')
+    shot = os.path.join(tmp, 'shot.png')
+    steps = [H.RustHome.k(7000, 'right')] if popup is None else [H.RustHome.k(7000, *['right'] * POPUPS[popup])]
+    steps.append(['--snap', '%d:%s' % (8200 if popup is None else 10200, shot)])
+    if popup is not None:
+        steps.append(['--key', '8600:ok', '--key', '8640:ok:up'])
+    placed = {'layout': {'overlays': {'statusbar': dict({'anchor': anchor, 'dx': 0, 'dy': 0}, **({'full': True} if full else {}))}}}
+    for attempt in range(3):
+        host(binary, mode, scale, 8800 if popup is None else 10600, steps, stills, 8, offline=(2,), theme_extra=placed)
+        # a picture taken before Home had drawn (a host under load) is black: the run is made again
+        if os.path.exists(shot) and mean_of(shot) > 5:
+            break
+    image = Image.open(shot).convert('RGB')
+    (image.crop((0, 0, 1920, 340)) if popup is None else image).save(os.path.join(out_dir, name))
+    shutil.rmtree(tmp, ignore_errors=True)
+    print(name)
+
+
 def pills(binary, out_dir, modes):
     """`pill-<left|centre|right>-<mode>.png`: the top of Home with the status bar placed at each end of its row and in the middle, the focus on the
     camera button; and `pill-<left|centre|right>-<mode>-<cameras|notifications|qs>.png`: the popup of a button of the bar opened from it, at rest
     (the camera list at the three places in both looks, the notifications and Quick Settings from the centre in the dark)."""
-    from PIL import Image
     os.makedirs(out_dir, exist_ok=True)
     stills = serving(first_ms=60, later_ms=10)
     places = (('left', 'top-left'), ('centre', 'top'), ('right', 'top-right'))
@@ -200,23 +227,48 @@ def pills(binary, out_dir, modes):
             if mode == 'dark':
                 jobs += [('centre', 'top', 'notifications'), ('centre', 'top', 'qs')]
             for name, anchor, popup in jobs:
-                tmp = tempfile.mkdtemp(prefix='pill-')
-                shot = os.path.join(tmp, 'shot.png')
-                steps = [H.RustHome.k(7000, 'right')] if popup is None else [H.RustHome.k(7000, *['right'] * POPUPS[popup])]
-                steps.append(['--snap', '%d:%s' % (8200 if popup is None else 10200, shot)])
-                if popup is not None:
-                    steps.append(['--key', '8600:ok', '--key', '8640:ok:up'])
-                placed = {'layout': {'overlays': {'statusbar': {'anchor': anchor, 'dx': 0, 'dy': 0}}}}
-                for attempt in range(3):
-                    host(binary, mode, 1.0, 8800 if popup is None else 10600, steps, stills, 8, offline=(2,), theme_extra=placed)
-                    # a picture taken before Home had drawn (a host under load) is black: the run is made again
-                    if os.path.exists(shot) and mean_of(shot) > 5:
-                        break
-                image = Image.open(shot).convert('RGB')
-                out = 'pill-%s-%s%s.png' % (name, mode, '' if popup is None else '-' + popup)
-                (image.crop((0, 0, 1920, 340)) if popup is None else image).save(os.path.join(out_dir, out))
-                shutil.rmtree(tmp, ignore_errors=True)
-                print(out)
+                pill_shot(binary, stills, out_dir, 'pill-%s-%s%s.png' % (name, mode, '' if popup is None else '-' + popup), anchor, False, mode, 1.0, popup)
+    finally:
+        stills.shutdown()
+    return 0
+
+
+def pills_full(binary, out_dir):
+    """With Full width on, the glass across the whole row and the buttons grouped where the placement puts them: `pill-full-<left|centre|right>-dark.png`,
+    `pill-full-centre-light.png`, `pill-full-centre-dark-cameras.png` (the camera list under its button) and `pill-full-centre-dark-200.png` (200 % text)."""
+    os.makedirs(out_dir, exist_ok=True)
+    stills = serving(first_ms=60, later_ms=10)
+    jobs = [('pill-full-left-dark.png', 'top-left', 'dark', 1.0, None), ('pill-full-centre-dark.png', 'top', 'dark', 1.0, None), ('pill-full-right-dark.png', 'top-right', 'dark', 1.0, None),
+            ('pill-full-centre-light.png', 'top', 'light', 1.0, None), ('pill-full-centre-dark-cameras.png', 'top', 'dark', 1.0, 'cameras'), ('pill-full-centre-dark-200.png', 'top', 'dark', 2.0, None)]
+    try:
+        for name, anchor, mode, scale, popup in jobs:
+            pill_shot(binary, stills, out_dir, name, anchor, True, mode, scale, popup)
+    finally:
+        stills.shutdown()
+    return 0
+
+
+def editor_shots(binary, out_dir):
+    """`editor-statusbar-<off|full>-<mode>[-200].png`: the Layout of pop-ups editor on the status bar with the focus on its Full width switch (Down to the
+    buttons, then Left to the first): off in the middle, and on at the left, in the middle and at the right, in both looks and at 200 % text."""
+    from PIL import Image
+    os.makedirs(out_dir, exist_ok=True)
+    stills = serving(first_ms=60, later_ms=10)
+    jobs = [('editor-statusbar-off-dark.png', 'top', False, 'dark', 1.0), ('editor-statusbar-full-dark.png', 'top-left', True, 'dark', 1.0),
+            ('editor-statusbar-full-light.png', 'top', True, 'light', 1.0), ('editor-statusbar-full-dark-200.png', 'top-right', True, 'dark', 2.0)]
+    try:
+        for name, anchor, full, mode, scale in jobs:
+            tmp = tempfile.mkdtemp(prefix='editor-')
+            shot = os.path.join(tmp, 'shot.png')
+            steps = [['--push', '4000:show:' + json.dumps({"kind": "layout", "item": "statusbar"})], H.RustHome.k(5000, 'down', 'left', 'left', 'left'), ['--snap', '6500:' + shot]]
+            placed = {'layout': {'overlays': {'statusbar': {'anchor': anchor, 'dx': 0, 'dy': 0, 'full': full}}}}
+            for attempt in range(3):
+                host(binary, mode, scale, 7000, steps, stills, 8, offline=(2,), theme_extra=placed, kinds=KINDS + ',layout')
+                if os.path.exists(shot) and mean_of(shot) > 5:
+                    break
+            Image.open(shot).convert('RGB').save(os.path.join(out_dir, name))
+            shutil.rmtree(tmp, ignore_errors=True)
+            print(name)
     finally:
         stills.shutdown()
     return 0
@@ -279,7 +331,17 @@ def main(argv=None):
     p.add_argument('--out', default=OUT)
     p.add_argument('--modes', default='dark,light')
     p.add_argument('--bin', default=H.BIN)
+    pf = sub.add_parser('pill-full')
+    pf.add_argument('--out', default=OUT)
+    pf.add_argument('--bin', default=H.BIN)
+    pe = sub.add_parser('pill-editor')
+    pe.add_argument('--out', default=OUT)
+    pe.add_argument('--bin', default=H.BIN)
     a = ap.parse_args(argv)
+    if a.what == 'pill-editor':
+        return editor_shots(a.bin, a.out)
+    if a.what == 'pill-full':
+        return pills_full(a.bin, a.out)
     if a.what == 'pill':
         return pills(a.bin, a.out, a.modes.split(','))
     if a.what == 'renders':

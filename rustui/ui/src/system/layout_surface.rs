@@ -37,6 +37,8 @@ const SCOPE: Scope = Scope(110);
 const REGION: Region = Region(110);
 const W: f32 = 1920.0;
 const H: f32 = 1080.0;
+/// The buttons of the status bar's stand-in, drawn over its glass (which may be as wide as the row, with the buttons where the placement puts them).
+const BUTTONS_PART: &str = "statusbar/buttons";
 
 /// Depths above the surface's base: the picture, the items, what marks them, the panel.
 const Z_GUIDE: i32 = 1;
@@ -58,6 +60,8 @@ struct Word {
 struct Stat {
     sheet: Sheet,
     generation: u64,
+    /// Whether Home's status bar's row is named: not once the status bar's glass covers the row, through which the words would show.
+    words: bool,
 }
 
 /// An item's stand-in: built for one size and moved to wherever the editor puts it.
@@ -169,6 +173,11 @@ impl LayoutSurface {
 
     // ---- the picture and the stand-ins
 
+    /// Whether the picture names Home's status bar's row: it does not while the status bar's glass covers the whole row.
+    fn row_words(view: &View) -> bool {
+        !view.items.iter().any(|i| i.id == "statusbar" && i.glass.w >= view.guides.status_bar.w)
+    }
+
     fn build_stat(&self, kit: &mut Kit, view: &View) -> std::io::Result<Stat> {
         let z = self.z;
         let mut sheet = Sheet::new();
@@ -184,9 +193,11 @@ impl LayoutSurface {
         let bar = rect_frame(&g.status_bar);
         let wash = faded(kit.ui.look.ink(), 0.06);
         sheet.shape(plate::shape(&kit.ui, bar, z + Z_GUIDE, plate::solid(wash, kit.tokens.radius(Radius::Control))), (bar.x, bar.y));
-        let caption = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
-        let line = kit.line(TypeRole::Caption);
-        Self::word(kit, &mut sheet, Frame::new(bar.x + kit.space(6), bar.y + ((bar.h - line) / 2.0).round(), 500.0, line), z + Z_GUIDE + 1, caption, "Home\u{2019}s status bar")?;
+        if Self::row_words(view) {
+            let caption = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
+            let line = kit.line(TypeRole::Caption);
+            Self::word(kit, &mut sheet, Frame::new(bar.x + kit.space(6), bar.y + ((bar.h - line) / 2.0).round(), 500.0, line), z + Z_GUIDE + 1, caption, "Home\u{2019}s status bar")?;
+        }
         // the bottom quarter, where the subtitles and the volume bar's room are, and the subtitles' band
         let quarter = rect_frame(&g.bottom_quarter);
         let danger = kit.ui.look.colour(PaletteRole::Danger);
@@ -197,7 +208,7 @@ impl LayoutSurface {
         let bh = kit.line(TypeRole::Body);
         sheet.text(Text::new(kit, Frame::new(0.0, subs.y + ((subs.h - bh) / 2.0).round(), W, bh), z + Z_GUIDE + 1, centre, "Subtitles")?);
         sheet.show(kit, true);
-        Ok(Stat { sheet, generation: kit.generation() })
+        Ok(Stat { sheet, generation: kit.generation(), words: Self::row_words(view) })
     }
 
     /// A word of a stand-in, cut with an ellipsis where it does not fit its box.
@@ -214,7 +225,9 @@ impl LayoutSurface {
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
         let frame = Frame::new(at.0, at.1, w, h);
         let kind = if matches!(item, "volume" | "mute" | "statusbar") { PaneKind::Pill } else { PaneKind::Card };
-        sheet.pane(Pane::new(kit, frame, z, kind, false));
+        if item != BUTTONS_PART {
+            sheet.pane(Pane::new(kit, frame, z, kind, false));
+        }
         let pad = kit.space(5);
         match item {
             "volume" => {
@@ -247,7 +260,9 @@ impl LayoutSurface {
                     sheet.image(g, (at.0 + ((w - side as f32) / 2.0).round(), at.1 + ((h - side as f32) / 2.0).round()));
                 }
             }
-            "statusbar" => {
+            // the glass only: the buttons are a stand-in of their own over it
+            "statusbar" => {}
+            BUTTONS_PART => {
                 // the pill's buttons as the bar draws them: four glyphs and the profile chip (the real buttons are Home's)
                 let inset = 6.0;
                 let side = (h - 2.0 * inset).max(8.0);
@@ -339,31 +354,43 @@ impl LayoutSurface {
     fn sync_items(&mut self, kit: &mut Kit, view: &View) -> std::io::Result<()> {
         self.items.retain(|s| s.generation == kit.generation());
         for it in &view.items {
-            let size = (it.rect.w, it.rect.h);
-            let at = (it.rect.x as f32, it.rect.y as f32);
-            let z = self.z + Z_ITEM;
-            let k = self.items.iter().position(|s| s.id == it.id);
-            let fresh = match k {
-                Some(k) => self.items[k].size != size,
-                None => true,
-            };
-            if fresh {
-                if let Some(k) = k {
-                    self.items.remove(k);
-                }
-                let sheet = Self::build_standin(kit, z, it.id, size, at)?;
-                self.items.push(Standin { id: it.id, size, generation: kit.generation(), sheet, at, faint: false });
+            // the status bar is its glass, which may span the whole row, and over it its buttons, which are where the placement puts them
+            if it.id == "statusbar" {
+                self.sync_part(kit, it.id, &it.glass, it.waits, view.dragging)?;
+                self.sync_part(kit, BUTTONS_PART, &it.rect, it.waits, view.dragging)?;
+            } else {
+                self.sync_part(kit, it.id, &it.rect, it.waits, view.dragging)?;
             }
-            let s = self.items.iter_mut().find(|s| s.id == it.id).expect("made above");
-            if s.at != at {
-                // while the owner holds it down it follows at once, a key's step glides
-                s.sheet.shift(kit, at.0 - s.at.0, at.1 - s.at.1, view.dragging);
-                s.at = at;
+        }
+        Ok(())
+    }
+
+    /// One stand-in, built for its size and moved to `r`.
+    fn sync_part(&mut self, kit: &mut Kit, id: &'static str, r: &lumatv_placement::Rect, waits: bool, dragging: bool) -> std::io::Result<()> {
+        let size = (r.w, r.h);
+        let at = (r.x as f32, r.y as f32);
+        let z = self.z + Z_ITEM;
+        let k = self.items.iter().position(|s| s.id == id);
+        let fresh = match k {
+            Some(k) => self.items[k].size != size,
+            None => true,
+        };
+        if fresh {
+            if let Some(k) = k {
+                self.items.remove(k);
             }
-            if s.faint != it.waits {
-                s.sheet.set_alpha(if it.waits { 0.4 } else { 1.0 });
-                s.faint = it.waits;
-            }
+            let sheet = Self::build_standin(kit, z, id, size, at)?;
+            self.items.push(Standin { id, size, generation: kit.generation(), sheet, at, faint: false });
+        }
+        let s = self.items.iter_mut().find(|s| s.id == id).expect("made above");
+        if s.at != at {
+            // while the owner holds it down it follows at once, a key's step glides
+            s.sheet.shift(kit, at.0 - s.at.0, at.1 - s.at.1, dragging);
+            s.at = at;
+        }
+        if s.faint != waits {
+            s.sheet.set_alpha(if waits { 0.4 } else { 1.0 });
+            s.faint = waits;
         }
         Ok(())
     }
@@ -392,9 +419,9 @@ impl LayoutSurface {
         let (accent, ink, danger) = (look.accent(), look.ink(), look.colour(PaletteRole::Danger));
         let sel = view.items.iter().find(|i| i.selected);
         let ring = sel.map(|i| {
-            let r = rect_frame(&i.rect);
+            let r = rect_frame(&i.glass);
             let (colour, kind, width) = if i.flagged { (danger, 2u8, 4.0) } else if i.in_hand { (accent, 1, 4.0) } else { (faded(accent, 0.85), 0, 3.0) };
-            let radius = Self::standin_radius(kit, i.id, (i.rect.w, i.rect.h)) + 6.0;
+            let radius = Self::standin_radius(kit, i.id, (i.glass.w, i.glass.h)) + 6.0;
             (Frame::new(r.x - 6.0, r.y - 6.0, r.w + 12.0, r.h + 12.0), kind, colour, width, radius)
         });
         let ghost = view.held_rect.as_ref().zip(sel).map(|(r, i)| {
@@ -406,8 +433,8 @@ impl LayoutSurface {
             (Frame::new(f.x - 4.0, f.y - 4.0, f.w + 8.0, f.h + 8.0), 4u8, faded(if i.selected { accent } else { ink }, 0.45), 2.0, 20.0)
         });
         let hover = self.hover.and_then(|h| view.items.iter().find(|i| i.id == h && !i.selected)).map(|i| {
-            let r = rect_frame(&i.rect);
-            (Frame::new(r.x - 4.0, r.y - 4.0, r.w + 8.0, r.h + 8.0), 5u8, faded(ink, 0.4), 2.0, Self::standin_radius(kit, i.id, (i.rect.w, i.rect.h)) + 4.0)
+            let r = rect_frame(&i.glass);
+            (Frame::new(r.x - 4.0, r.y - 4.0, r.w + 8.0, r.h + 8.0), 5u8, faded(ink, 0.4), 2.0, Self::standin_radius(kit, i.id, (i.glass.w, i.glass.h)) + 4.0)
         });
         let mut deco = std::mem::take(&mut self.deco);
         self.mark(kit, &mut deco.ring, ring);
@@ -443,7 +470,7 @@ impl LayoutSurface {
             self.tag = Some(Tag { id: it.id, generation: kit.generation(), sheet, at: (0.0, 0.0), size: (w, h), words: vec![Word { text: it.title.to_string(), frame: wf, style: label }], frame });
         }
         let t = self.tag.as_mut().expect("made above");
-        let r = rect_frame(&it.rect);
+        let r = rect_frame(&it.glass);
         let x = r.x.clamp(8.0, W - t.size.0 - 8.0);
         let above = r.y - t.size.1 - 10.0;
         let y = if above >= 8.0 { above } else { r.y + r.h + 10.0 };
@@ -494,7 +521,7 @@ impl LayoutSurface {
         inner = inner.max(row);
         let gap = kit.space(3);
         if !view.buttons.is_empty() {
-            let w: f32 = view.buttons.iter().map(|b| Button::width_for(kit, b.label, false)).sum::<f32>() + gap * (view.buttons.len() - 1) as f32;
+            let w: f32 = view.buttons.iter().map(|b| Button::width_for(kit, b.label, b.icon.is_some())).sum::<f32>() + gap * (view.buttons.len() - 1) as f32;
             inner = inner.max(w);
         }
         let w = (inner + 2.0 * pad).max(560.0 * (1.0 + 0.5 * (kit.text_scale - 1.0))).min(1500.0).ceil();
@@ -568,10 +595,12 @@ impl LayoutSurface {
             let bh = Button::height(kit);
             let mut x = spot.0 + pad;
             for (i, b) in view.buttons.iter().enumerate() {
-                let bw = Button::width_for(kit, b.label, false);
+                let bw = Button::width_for(kit, b.label, b.icon.is_some());
                 let tone = if b.primary { Tone::Primary } else { Tone::Plain };
                 let mut spec = Spec::new(b.label, tone);
                 spec.enabled = b.enabled;
+                spec.icon = b.icon;
+                spec.selected = b.selected;
                 let place = Place { id: id(i), frame: Frame::new(x, spot.1 + buttons_y, bw, bh), region: REGION, scope: SCOPE, z: z + 2 };
                 buttons.push(Button::new(kit, engine, place, spec)?);
                 x += bw + gap;
@@ -615,7 +644,7 @@ impl LayoutSurface {
         let spot = (spot.x as f32, spot.y as f32);
         let sig = format!(
             "{:?}",
-            (view.mode, view.heading, &view.subject, &view.notice, view.items.iter().any(|i| i.flagged), view.buttons.iter().map(|b| (b.label, b.enabled)).collect::<Vec<_>>(), spot, kit.generation(), w as i32)
+            (view.mode, view.heading, &view.subject, &view.notice, view.items.iter().any(|i| i.flagged), view.buttons.iter().map(|b| (b.label, b.enabled, b.icon, b.selected)).collect::<Vec<_>>(), spot, kit.generation(), w as i32)
         );
         let changed = self.panel.as_ref().is_none_or(|p| p.sig != sig);
         if changed {
@@ -662,6 +691,9 @@ impl LayoutSurface {
             engine.focus.open_modal(SCOPE);
             self.modal = true;
         }
+        if self.stat.as_ref().is_some_and(|s| s.words != Self::row_words(view)) {
+            self.stat = None;
+        }
         if self.stat.is_none() {
             self.stat = Some(self.build_stat(kit, view)?);
         }
@@ -669,7 +701,7 @@ impl LayoutSurface {
         self.sync_deco(kit, view);
         self.sync_tag(kit, view)?;
         self.sync_panel(kit, engine, view, editor, now_ns)?;
-        self.rects = view.items.iter().map(|i| (i.id, rect_frame(&i.rect))).collect();
+        self.rects = view.items.iter().map(|i| (i.id, rect_frame(&i.glass))).collect();
         self.last = json!({
             "mode": view.mode,
             "focus": view.focus,
@@ -677,7 +709,7 @@ impl LayoutSurface {
             "subject": view.subject,
             "notice": view.notice,
             "customised": view.customised,
-            "items": view.items.iter().map(|i| json!({"id": i.id, "x": i.rect.x, "y": i.rect.y, "w": i.rect.w, "h": i.rect.h, "words": i.words, "selected": i.selected, "inHand": i.in_hand, "waits": i.waits, "custom": i.custom})).collect::<Vec<_>>(),
+            "items": view.items.iter().map(|i| json!({"id": i.id, "x": i.rect.x, "y": i.rect.y, "w": i.rect.w, "h": i.rect.h, "glass": {"x": i.glass.x, "y": i.glass.y, "w": i.glass.w, "h": i.glass.h}, "words": i.words, "selected": i.selected, "inHand": i.in_hand, "waits": i.waits, "custom": i.custom})).collect::<Vec<_>>(),
             "panel": self.panel.as_ref().map(|p| json!({"x": p.frame.x, "y": p.frame.y, "w": p.frame.w, "h": p.frame.h})),
             "buttons": self.panel.as_ref().map(|p| p.buttons.iter().map(|b| { let f = b.frame(); json!({"x": f.x, "y": f.y, "w": f.w, "h": f.h, "label": b.spec().label, "enabled": b.spec().enabled}) }).collect::<Vec<_>>()),
         });
@@ -766,7 +798,7 @@ impl LayoutSurface {
                 }
                 Gesture::Up(None) => {}
                 Gesture::Click(i) => {
-                    if let Some(index) = (0..3).find(|n| id(*n) == i) {
+                    if let Some(index) = (0..self.panel.as_ref().map_or(0, |p| p.buttons.len())).find(|n| id(*n) == i) {
                         out.extend(editor.press_button(index, now_ms));
                     }
                 }
@@ -864,6 +896,7 @@ mod tests {
         s.set("popup", lumatv_placement::Size::new(560, k(469)));
         s.set("cards", lumatv_placement::Size::new(560, k(165)));
         s.set("toast", lumatv_placement::Size::new(560, k(98)));
+        s.set("statusbar", lumatv_placement::Size::new((450.0 * scale) as i32, (60.0 * scale) as i32));
         s
     }
 
@@ -1024,5 +1057,43 @@ mod tests {
         draw(&mut kit, &mut engine, &mut s, &e, 2100);
         let after = rect(s.geometry()["items"].as_array().unwrap().iter().find(|i| i["id"] == "mute").unwrap());
         assert!(after.0 > mute.0 + 200.0 && after.1 > mute.1 + 50.0, "it moved with the pointer: {mute:?} -> {after:?}");
+    }
+
+    #[test]
+    fn full_width_on_the_status_bar_is_a_switch_in_the_panel_and_draws_its_glass_across_the_row_with_the_buttons_where_they_were() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (_h, mut kit, mut engine, mut s, mut e) = rig(mode, scale);
+                e.start(Some("statusbar"));
+                draw(&mut kit, &mut engine, &mut s, &e, 1000);
+                let bar = |g: &Value| g["items"].as_array().unwrap().iter().find(|i| i["id"] == "statusbar").unwrap().clone();
+                let g = s.geometry();
+                let (own, glass) = (rect(&bar(&g)), rect(&bar(&g)["glass"]));
+                assert_eq!(own, glass, "{mode:?} at {scale}: off, the glass is the buttons' own box");
+                assert!(s.stat.as_ref().expect("the picture").words, "{mode:?} at {scale}: the row is named while the glass hugs the buttons");
+                let labels: Vec<&str> = g["buttons"].as_array().unwrap().iter().map(|b| b["label"].as_str().unwrap()).collect();
+                assert_eq!(labels, ["Full width", "Reset this", "Reset all", "Done"], "{mode:?} at {scale}");
+                // a click on the switch spreads the glass over the whole row
+                let b = &g["buttons"][0];
+                let (x, y) = (b["x"].as_f64().unwrap() as f32 + 10.0, b["y"].as_f64().unwrap() as f32 + 10.0);
+                let sample = |buttons| Sample { x, y, buttons, visible: true };
+                s.pointer(&kit, &mut engine, 2 * NS, 2000, sample(0), &mut e);
+                s.pointer(&kit, &mut engine, 3 * NS, 2010, sample(1), &mut e);
+                let out = s.pointer(&kit, &mut engine, 4 * NS, 2020, sample(0), &mut e);
+                assert!(matches!(&out[..], [lumatv_placement::Effect::Save(v)] if v["statusbar"]["full"] == true), "{mode:?} at {scale}: a click on Full width saves it: {out:?}");
+                draw(&mut kit, &mut engine, &mut s, &e, 2100);
+                let g = s.geometry();
+                assert!(!s.stat.as_ref().expect("the picture").words, "{mode:?} at {scale}: and not once the glass covers it, as the words would show through");
+                let (held, spread) = (rect(&bar(&g)), rect(&bar(&g)["glass"]));
+                assert_eq!((spread.0, spread.0 + spread.2, spread.3), (64.0, 1856.0, 60.0 * f64::from(scale)), "{mode:?} at {scale}: the glass spans the safe area's width: {spread:?}");
+                assert_eq!(held, own, "{mode:?} at {scale}: the buttons did not move");
+                assert!(g["subject"].as_str().unwrap().ends_with("full width"), "{}", g["subject"]);
+                // the pointer takes it by the glass where there are no buttons
+                assert!(s.rects.iter().any(|(id, f)| *id == "statusbar" && f.x == 64.0 && f.w == 1792.0), "the glass is what the pointer finds: {:?}", s.rects);
+                let found = lint_of(&mut kit, &s);
+                assert!(found.is_empty(), "{mode:?} at {scale}: {found:?}");
+                assert!(s.layers() < 150, "{}", s.layers());
+            }
+        }
     }
 }

@@ -212,26 +212,49 @@ pub struct Placement {
     pub anchor: Anchor,
     pub dx: f64,
     pub dy: f64,
+    /// The item's glass spans the whole width of its zone (only an item that [`Item::stretch`]es: the status bar's pill); the anchor and the
+    /// offsets then say where its contents sit inside the glass. Left out of a file while it is off.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub full: bool,
 }
 
 impl Placement {
     pub const fn new(anchor: Anchor, dx: f64, dy: f64) -> Self {
-        Self { anchor, dx, dy }
+        Self {
+            anchor,
+            dx,
+            dy,
+            full: false,
+        }
     }
 
-    /// `{"anchor", "dx", "dy"}` as a file or a client writes it: all three, the anchor one of the nine. Whether it suits an item is `Registry::valid`.
+    /// The same place with the glass stretched across the zone, or not.
+    pub const fn with_full(self, full: bool) -> Self {
+        Self { full, ..self }
+    }
+
+    /// `{"anchor", "dx", "dy"}` as a file or a client writes it: all three, the anchor one of the nine, and `"full"` (a boolean) when the glass
+    /// spans the zone. Whether it suits an item is `Registry::valid`.
     pub fn from_json(v: &Value) -> Option<Placement> {
         let o = v.as_object()?;
-        Some(Placement::new(
-            Anchor::parse(o.get("anchor")?.as_str()?)?,
-            o.get("dx")?.as_f64()?,
-            o.get("dy")?.as_f64()?,
-        ))
+        let full = match o.get("full") {
+            None => false,
+            Some(f) => f.as_bool()?,
+        };
+        Some(
+            Placement::new(
+                Anchor::parse(o.get("anchor")?.as_str()?)?,
+                o.get("dx")?.as_f64()?,
+                o.get("dy")?.as_f64()?,
+            )
+            .with_full(full),
+        )
     }
 
     /// The same place to the four decimals a file keeps.
     pub fn same(&self, other: &Placement) -> bool {
         self.anchor == other.anchor
+            && self.full == other.full
             && (self.dx - other.dx).abs() < 0.00005
             && (self.dy - other.dy).abs() < 0.00005
     }
@@ -403,6 +426,9 @@ pub struct Item {
     pub default: Placement,
     /// Its size at 100 % text: what the surfaces are held to, and the stand-in's size when the toolkit does not measure one.
     pub sample: Size,
+    /// Whether its glass may be stretched across the whole width of its zone ([`Placement::full`]), its contents staying where the placement puts
+    /// them: the status bar's pill.
+    pub stretch: bool,
 }
 
 /// The items, in the order an editor offers them.
@@ -419,6 +445,7 @@ pub const ITEMS: [Item; 6] = [
         stacks: None,
         default: Placement::new(Anchor::Bottom, 0.0, 0.0),
         sample: Size::new(440, 60),
+        stretch: false,
     },
     Item {
         id: "mute",
@@ -432,6 +459,7 @@ pub const ITEMS: [Item; 6] = [
         stacks: None,
         default: Placement::new(Anchor::TopLeft, 0.0185, 0.0),
         sample: Size::new(MARK, MARK),
+        stretch: false,
     },
     Item {
         id: "popup",
@@ -445,6 +473,7 @@ pub const ITEMS: [Item; 6] = [
         stacks: None,
         default: Placement::new(Anchor::TopRight, 0.0, 0.0),
         sample: Size::new(560, 469),
+        stretch: false,
     },
     Item {
         id: "cards",
@@ -458,6 +487,7 @@ pub const ITEMS: [Item; 6] = [
         stacks: Some("popup"),
         default: Placement::new(Anchor::TopRight, 0.0, 0.0),
         sample: Size::new(560, 165),
+        stretch: false,
     },
     Item {
         id: "toast",
@@ -471,6 +501,7 @@ pub const ITEMS: [Item; 6] = [
         stacks: Some("volume"),
         default: Placement::new(Anchor::Bottom, 0.0, 0.0),
         sample: Size::new(320, 66),
+        stretch: false,
     },
     Item {
         id: "statusbar",
@@ -484,6 +515,7 @@ pub const ITEMS: [Item; 6] = [
         stacks: None,
         default: Placement::new(Anchor::Top, 0.0, 0.0),
         sample: Size::new(450, 60),
+        stretch: true,
     },
 ];
 
@@ -532,6 +564,7 @@ impl Registry {
     /// Whether `p` is a placement of `it`: an item that lives on edges only takes those, and an offset is a fraction.
     pub fn valid(&self, it: &Item, p: &Placement) -> bool {
         (it.edges.is_empty() || it.edges.contains(&p.anchor))
+            && (it.stretch || !p.full)
             && p.dx.is_finite()
             && p.dy.is_finite()
             && p.dx.abs() <= 1.0
@@ -548,7 +581,7 @@ impl Registry {
                 dx = 0.0;
             }
         }
-        Placement::new(p.anchor, dx, dy)
+        Placement::new(p.anchor, dx, dy).with_full(p.full)
     }
 
     /// The placement in force for `id`: the owner's, else the item's default.
@@ -575,6 +608,14 @@ impl Registry {
     pub fn rect_of(&self, id: &str, user: &User, f: &Frame, size: Size) -> Option<Rect> {
         let p = self.placement_of(id, user)?.placement;
         Some(rect_in(&self.zone_of(id, f), p.fractions(), size))
+    }
+
+    /// Where an item's glass is: its own rectangle, or the zone's whole width at the same height where its placement is `full` (an item that
+    /// `stretch`es). What the glass holds stays in [`Self::rect_of`]'s: the anchor and the offsets say where it sits inside the glass.
+    pub fn glass_of(&self, id: &str, user: &User, f: &Frame, size: Size) -> Option<Rect> {
+        let it = self.item(id)?;
+        let p = self.placement_of(id, user)?.placement;
+        Some(widen(it, &p, f, rect_in(&it.zone.rect(f), p.fractions(), size)))
     }
 
     /// The placement that puts an item at (`fx`, `fy`) of its room: the nearest anchor and the small offsets from it, so a file reads "top
@@ -693,6 +734,7 @@ impl Registry {
                 id: it.id,
                 rect,
                 placement,
+                glass: rect,
                 waits: false,
             });
         }
@@ -714,6 +756,12 @@ impl Registry {
             // beside the window it may not fit the zone: the cards then wait for it to go and an editor draws them faint
             me.waits = beside != me.rect && (beside.y < z.y || beside.bottom() > z.bottom());
             me.rect = beside;
+        }
+        // an item whose glass spans its zone: the glass is the zone's width and `rect` stays where its contents are
+        for l in &mut items {
+            if let Some(it) = self.item(l.id) {
+                l.glass = widen(it, &l.placement, f, l.rect);
+            }
         }
         Layout { items }
     }
@@ -906,7 +954,8 @@ impl Registry {
         } else {
             format!("{}, {}", cap(ROW[by]), COL[bx])
         };
-        text + kept
+        let full = if p.full { ", full width" } else { "" };
+        format!("{text}{kept}{full}")
     }
 
     /// The registry as a client reads it: the items and the constants the rules are made of.
@@ -919,7 +968,7 @@ impl Registry {
                     "id": it.id, "title": it.title, "icon": it.icon, "zone": it.zone.name(),
                     "edges": it.edges.iter().map(|e| e.name()).collect::<Vec<_>>(),
                     "lift": it.lift, "drift": it.drift, "auto": it.auto, "stacks": it.stacks,
-                    "default": it.default, "sample": it.sample,
+                    "default": it.default, "sample": it.sample, "stretch": it.stretch,
                 })
             })
             .collect();
@@ -964,6 +1013,16 @@ pub fn rect_in(z: &Rect, (fx, fy): (f64, f64), size: Size) -> Rect {
         size.w,
         size.h,
     )
+}
+
+/// `own`, or where the item's placement is `full` (and it `stretch`es) the whole width of its zone at `own`'s height: the glass it is drawn on.
+fn widen(it: &Item, p: &Placement, f: &Frame, own: Rect) -> Rect {
+    if it.stretch && p.full {
+        let z = it.zone.rect(f);
+        Rect::new(z.x, own.y, z.w, own.h)
+    } else {
+        own
+    }
 }
 
 // ---- stacking ---------------------------------------------------------------------------------------------------------------------------
@@ -1122,6 +1181,8 @@ pub struct Slide {
 pub struct Laid {
     pub id: &'static str,
     pub rect: Rect,
+    /// The glass: `rect`, or the zone's whole width for an item whose placement is `full`.
+    pub glass: Rect,
     pub placement: Placement,
     /// Beside the window it would leave its zone: it waits for the window to go.
     pub waits: bool,
@@ -1146,13 +1207,13 @@ impl Layout {
         self.get(id).is_some_and(|l| l.waits)
     }
 
-    /// `{id: {"rect", "placement", "waits"}}`.
+    /// `{id: {"rect", "glass", "placement", "waits"}}`.
     pub fn to_json(&self) -> Value {
         let mut map = Map::new();
         for l in &self.items {
             map.insert(
                 l.id.to_string(),
-                json!({"rect": l.rect, "placement": l.placement, "waits": l.waits}),
+                json!({"rect": l.rect, "glass": l.glass, "placement": l.placement, "waits": l.waits}),
             );
         }
         Value::Object(map)

@@ -374,5 +374,9 @@ mod tests {
         assert!(matches!(&a.answers[1].then[..], [Op::Patch(p)] if p == &json!({"layout": {"overlays": {}}})));
         w.theme["layout"] = json!({});
         assert!(!by_id(&popup_rows(&w.ctx()), "reset").enabled, "nothing moved: nothing to reset");
+        w.theme["layout"] = json!({"overlays": {"statusbar": {"anchor": "top", "dx": 0, "dy": 0, "full": true}}});
+        let bar = popup_rows(&w.ctx());
+        assert_eq!(by_id(&bar, "item:statusbar").value, "Top, full width", "the row names where the buttons sit and that the glass spans the row");
+        assert!(by_id(&bar, "reset").enabled, "Full width at the default place is still the owner's to reset");
     }
 }

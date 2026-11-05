@@ -167,7 +167,9 @@ struct StatusItem {
 
 struct StatusBar {
     pane: GlassLayer,
+    /// The glass, and the box the buttons are in: with Full width on the buttons move inside a glass that stays where it is.
     frame: Frame,
+    group: Frame,
     items: Vec<StatusItem>,
     profile_key: String,
 }
@@ -692,9 +694,10 @@ impl HomeSurface {
     fn build_status(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home) -> std::io::Result<()> {
         let pill = home.status_pill();
         let frame = Frame::new(pill.x, pill.y, pill.w, pill.h);
+        let group = home.status_group();
         let profile = home.profile().cloned().unwrap_or(Value::Null);
         let profile_key = format!("{}|{}|{:?}", profile, home.status_items().len(), home.chip());
-        if self.status.as_ref().is_some_and(|s| s.profile_key == profile_key && s.frame == frame) {
+        if self.status.as_ref().is_some_and(|s| s.profile_key == profile_key && s.frame == frame && s.group == group) {
             return Ok(());
         }
         if let Some(s) = self.status.take() {
@@ -758,7 +761,7 @@ impl HomeSurface {
             }).ok_or_else(|| std::io::Error::other("the item's group"))??;
             items.push(StatusItem { id, kind, lift, icon, avatar, name, badge, badge_n: None });
         }
-        self.status = Some(StatusBar { pane, frame, items, profile_key });
+        self.status = Some(StatusBar { pane, frame, group, items, profile_key });
         Ok(())
     }
 

@@ -6,13 +6,13 @@
 //!
 //! | Request | Answer |
 //! |---|---|
-//! | `GET /v1/placement` | `{registry, frame}`: the items (id, title, icon, zone, edges, default, sample size) and the constants of the rules; the frame from Home's shipped numbers |
-//! | `POST /v1/placement/layout` | `{frame, customised, items: {id: {rect, placement, custom, waits, words, slide, lift, spots?}}}` for `{layout?, limit?, user?, sizes?, overApp?, work?: {id, placement}, avoid?: [rect]}` |
+//! | `GET /v1/placement` | `{registry, frame}`: the items (id, title, icon, zone, edges, default, sample size, `stretch`: its glass can span the zone) and the constants of the rules; the frame from Home's shipped numbers |
+//! | `POST /v1/placement/layout` | `{frame, customised, items: {id: {rect, glass, placement, custom, waits, words, slide, lift, spots?}}}` for `{layout?, limit?, user?, sizes?, overApp?, work?: {id, placement}, avoid?: [rect]}` (`glass` is `rect`, or the zone's whole width for a placement with `"full": true`) |
 //! | `POST /v1/placement/editor/open` | `{view, effects, panel?}` for `{layout?, limit?, user?, sizes?, item?, panel?: {w, h}}`: starts the editor on what the owner placed |
 //! | `GET /v1/placement/editor` | the same, as it is now (`?panelW=&panelH=` for the panel's place); 409 `no_editor` when it is not open |
 //! | `POST /v1/placement/editor/key` | `{key: left, right, up, down, ok or back, t?}`: `effects` is `[{save: <layout.overlays>}]` and/or `[{close: true}]` |
 //! | `POST /v1/placement/editor/pointer` | `{phase: down, move or up, item?, x, y, pressed?, t?}` in screen pixels |
-//! | `POST /v1/placement/editor/button` | `{index: 0 Reset this, 1 Reset all, 2 Done, t?}` for a pointer on a button |
+//! | `POST /v1/placement/editor/button` | `{index, t?}` for a pointer on a button: its place in the view's `buttons` (Reset this, Reset all, Done, and before them Full width for the status bar) |
 //! | `POST /v1/placement/editor/sizes` | `{sizes}`: the stand-ins were measured again (text size) |
 //! | `POST /v1/placement/editor/close` | `{closed}` |
 //!
@@ -62,7 +62,7 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     (
         "POST",
         "/v1/placement/editor/button",
-        "a press on one of the editor's buttons: {index: 0 Reset this, 1 Reset all, 2 Done}",
+        "a press on one of the editor's buttons: {index: its place in the view's buttons}",
     ),
     (
         "POST",
@@ -162,7 +162,7 @@ fn layout(body: &Map<String, Value>) -> Response {
     for l in &laid.items {
         let it = reg.item(l.id).expect("a laid-out item is in the registry");
         let mut item = json!({
-            "rect": l.rect, "placement": l.placement, "custom": effective.has(l.id), "waits": l.waits,
+            "rect": l.rect, "glass": l.glass, "placement": l.placement, "custom": effective.has(l.id), "waits": l.waits,
             "words": reg.words(l.id, &effective), "slide": reg.slide_of(l.id, &effective), "lift": reg.lift_over(l.id, &effective, over_app),
         });
         if it.drift > 0 && !reg.is_auto(l.id, &effective) {
@@ -290,10 +290,15 @@ impl Session {
     }
 
     fn button(&self, body: &Map<String, Value>) -> Response {
-        let Some(index) = body.get("index").and_then(Value::as_u64).filter(|i| *i < 3) else {
-            return bad("index is 0 (Reset this), 1 (Reset all) or 2 (Done)");
+        let Some(index) = body.get("index").and_then(Value::as_u64) else {
+            return bad("index is the button's place in the view's buttons");
         };
-        self.with_editor(body, |e, now| Ok(e.press_button(index as usize, now)))
+        self.with_editor(body, |e, now| {
+            if index >= e.button_count() as u64 {
+                return Err(bad("index is the button's place in the view's buttons"));
+            }
+            Ok(e.press_button(index as usize, now))
+        })
     }
 
     fn sizes(&self, body: &Map<String, Value>) -> Response {
@@ -591,5 +596,42 @@ mod tests {
         let (_, b) = post("button", r#"{"index": 2}"#);
         assert_eq!(b["effects"], json!([{"close": true}]));
         assert_eq!(post("close", "").1["closed"], false);
+    }
+
+    #[test]
+    fn the_status_bars_full_width_switch_is_a_fourth_button_and_the_layout_answers_the_glass() {
+        let s = Session::default();
+        let post = |path: &str, body: &str| {
+            call(&s, "POST", &format!("/v1/placement/editor/{path}"), body)
+        };
+        let (_, b) = post("open", r#"{"item": "statusbar"}"#);
+        let labels: Vec<&str> = b["view"]["buttons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(labels, ["Full width", "Reset this", "Reset all", "Done"]);
+        assert_eq!(post("button", r#"{"index": 4}"#).0, 400);
+        let (status, b) = post("button", r#"{"index": 0}"#);
+        assert_eq!(status, 200, "{b}");
+        assert_eq!(
+            b["effects"][0]["save"]["statusbar"],
+            json!({"anchor": "top", "dx": 0.0, "dy": 0.0, "full": true})
+        );
+        let bar = &b["view"]["items"][5];
+        assert_eq!(bar["glass"], json!({"x": 64, "y": 54, "w": 1792, "h": 60}));
+        assert_eq!(bar["rect"]["w"], 450, "what the glass holds is as wide as it was");
+        // the same through the layout call: the buttons at the left end, the glass across the bar
+        let sent = r#"{"user": {"statusbar": {"anchor": "top-left", "dx": 0, "dy": 0, "full": true}}}"#;
+        let (_, l) = call(&s, "POST", "/v1/placement/layout", sent);
+        let items = &l["items"];
+        assert_eq!(
+            items["statusbar"]["glass"],
+            json!({"x": 64, "y": 54, "w": 1792, "h": 60})
+        );
+        assert_eq!(items["statusbar"]["rect"]["x"], 64);
+        assert_eq!(items["statusbar"]["words"], "Top left, full width");
+        assert_eq!(items["popup"]["glass"], items["popup"]["rect"]);
     }
 }

@@ -613,17 +613,32 @@ impl Home {
         out
     }
 
-    /// The pill the status bar's buttons sit in: as wide as they are, `STATUS_INSET` round them, placed along the bar's row by the registry's
-    /// `statusbar` item (`layout.overlays.statusbar` of the theme, read each time: the middle of the screen until the owner moves it).
-    pub fn status_pill(&self) -> ui::geometry::Frame {
+    /// The status bar's two boxes: the one its buttons sit in (as wide as they are, `STATUS_INSET` round them) and the glass behind them. Both are
+    /// placed along the bar's row by the registry's `statusbar` item (`layout.overlays.statusbar` of the theme, read each time: the middle of the
+    /// screen until the owner moves it). With `full` there the glass spreads over the whole row, from the cards' grid's left edge to its right,
+    /// and the buttons stay where the placement puts them inside it.
+    fn status_boxes(&self) -> (ui::geometry::Frame, ui::geometry::Frame) {
         const ITEM: &str = "statusbar";
         let span = self.status_run().last().map_or(0.0, |(x, w)| x + w) + 2.0 * STATUS_INSET;
         let h = self.status_height();
         let frame = lumatv_placement::Frame::from_json(&self.layout, self.theme.pointer("/overlays/limit"));
         let registry = lumatv_placement::Registry::shipped();
         let user = registry.user_from_json(self.theme.pointer("/layout/overlays").unwrap_or(&Value::Null));
-        let at = registry.rect_of(ITEM, &user, &frame, lumatv_placement::Size::new(span.round() as i32, h.round() as i32)).expect("the status bar is an item of the registry");
-        ui::geometry::Frame::new(at.x as f32, at.y as f32, span, h)
+        let size = lumatv_placement::Size::new(span.round() as i32, h.round() as i32);
+        let group = registry.rect_of(ITEM, &user, &frame, size).expect("the status bar is an item of the registry");
+        let glass = registry.glass_of(ITEM, &user, &frame, size).expect("the status bar is an item of the registry");
+        let spread = registry.placement_of(ITEM, &user).is_some_and(|p| p.placement.full);
+        (ui::geometry::Frame::new(group.x as f32, group.y as f32, span, h), ui::geometry::Frame::new(glass.x as f32, glass.y as f32, if spread { glass.w as f32 } else { span }, h))
+    }
+
+    /// The glass the status bar's buttons sit on: as wide as they are, or the whole row of the cards' grid with Full width on.
+    pub fn status_pill(&self) -> ui::geometry::Frame {
+        self.status_boxes().1
+    }
+
+    /// The box the status bar's buttons are in, `STATUS_INSET` round them: where the placement puts them, inside the glass.
+    pub fn status_group(&self) -> ui::geometry::Frame {
+        self.status_boxes().0
     }
 
     /// The row the status bar is in, edge to edge of the safe area: what a popover under a button keeps inside.
@@ -632,12 +647,12 @@ impl Home {
         ui::geometry::Frame::new(sx, sy, 1920.0 - 2.0 * sx, self.status_height())
     }
 
-    /// The status bar's buttons in the pill, one square of the pill's inner height each (the profile chip adds its name): `(x, y, w, h)` in the
+    /// The status bar's buttons in their box, one square of the box's inner height each (the profile chip adds its name): `(x, y, w, h)` in the
     /// order of [`Self::status_items`], which is the order the D-pad walks them in.
     pub fn status_frames(&self) -> Vec<(f32, f32, f32, f32)> {
-        let pill = self.status_pill();
+        let group = self.status_group();
         let item_h = self.status_height() - 2.0 * STATUS_INSET;
-        self.status_run().into_iter().map(|(x, w)| (pill.x + STATUS_INSET + x, pill.y + STATUS_INSET, w, item_h)).collect()
+        self.status_run().into_iter().map(|(x, w)| (group.x + STATUS_INSET + x, group.y + STATUS_INSET, w, item_h)).collect()
     }
 
     /// A button is a square of the pill's inner height; the profile chip adds its name.
@@ -684,9 +699,9 @@ impl Home {
         if let Some(&(x, y, w, h)) = at.and_then(|i| self.status_frames().get(i).copied()).as_ref() {
             return [x, y, w, h];
         }
-        let pill = self.status_pill();
+        let group = self.status_group();
         let side = self.status_height() - 2.0 * STATUS_INSET;
-        [(pill.x + (pill.w - side) / 2.0).round(), pill.y + STATUS_INSET, side, side]
+        [(group.x + (group.w - side) / 2.0).round(), group.y + STATUS_INSET, side, side]
     }
 
     /// The bell: the notification drawer's way in and out.
@@ -3069,11 +3084,11 @@ impl Home {
         std::mem::replace(&mut self.dirty, false)
     }
 
-    /// Where the status bar's pill and buttons are, for the tests and the harness's crops: `{pill: [x, y, w, h], items: [[type, x, y, w, h], ...]}`.
+    /// Where the status bar's glass, the box of its buttons and the buttons are, for the tests and the harness's crops: `{pill: [x, y, w, h], group: [x, y, w, h], items: [[type, x, y, w, h], ...]}`.
     fn status_state(&self) -> Value {
-        let pill = self.status_pill();
+        let (pill, group) = (self.status_pill(), self.status_group());
         let items: Vec<Value> = self.status_items().iter().zip(self.status_frames()).map(|(it, f)| json!([kind_of(it), f.0, f.1, f.2, f.3])).collect();
-        json!({"pill": [pill.x, pill.y, pill.w, pill.h], "items": items})
+        json!({"pill": [pill.x, pill.y, pill.w, pill.h], "group": [group.x, group.y, group.w, group.h], "items": items})
     }
 
     /// What `ctl shell` and the tests read.
@@ -4423,6 +4438,76 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The owner placed the status bar and chose whether its glass spreads across the row (`full`).
+    fn placed_as(h: &mut Home, anchor: &str, dx: f64, full: bool) {
+        let mut theme = h.theme.clone();
+        theme["layout"] = json!({"overlays": {"statusbar": {"anchor": anchor, "dx": dx, "dy": 0, "full": full}}});
+        h.set_theme(theme);
+    }
+
+    #[test]
+    fn full_width_spreads_the_glass_edge_to_edge_of_the_cards_grid_while_the_grouped_buttons_stay_where_the_placement_puts_them() {
+        for scale in [1.0, 2.0] {
+            for (anchor, dx) in PLACES {
+                let tag = format!("{anchor} {dx}, text {scale}");
+                let mut h = home();
+                h.set_text_scale(scale);
+                named(&mut h);
+                h.set_name_width("Nitin".into(), 47.63);
+                let (grid, dock) = (grid::area(&h.drawn_layout()), h.dock_rect().expect("the dock"));
+                assert_eq!((grid.x, grid.w), (dock.x, dock.w), "{tag}: the dock spans the cards' grid");
+                placed_as(&mut h, anchor, dx, false);
+                let (hugging, frames) = (h.status_pill(), h.status_frames());
+                assert_eq!(h.status_group(), hugging, "{tag}: without Full width the glass is the box of the buttons");
+                // read live: the same theme with one more key
+                placed_as(&mut h, anchor, dx, true);
+                let (pill, group, spread) = (h.status_pill(), h.status_group(), h.status_frames());
+                assert_eq!((pill.x, pill.x + pill.w), (grid.x as f32, (grid.x + grid.w) as f32), "{tag}: edge to edge of the cards' grid");
+                assert_eq!((pill.y, pill.h), (hugging.y, hugging.h), "{tag}: in the same row, as tall");
+                assert_eq!((group, &spread), (hugging, &frames), "{tag}: the buttons stay grouped where the placement puts them");
+                assert!(group.x >= pill.x && group.x + group.w <= pill.x + pill.w, "{tag}: the group is inside the glass: {group:?} in {pill:?}");
+                let (within, between) = h.status_gaps;
+                for i in 0..4 {
+                    let gap = spread[i + 1].0 - (spread[i].0 + spread[i].2);
+                    assert_eq!(gap, if i == 3 { between } else { within }, "{tag}: the gaps are the theme's spacing ({i})");
+                }
+                let whole = |v: f32| (v - v.round()).abs() < 1e-4;
+                assert!([pill.x, pill.y, pill.w, pill.h, group.x, group.w].into_iter().all(whole), "{tag}: whole pixels: {pill:?} {group:?}");
+                assert!(spread.iter().all(|f| [f.0, f.1, f.2, f.3].into_iter().all(whole)), "{tag}: {spread:?}");
+                // the focus engine has each button where it is drawn, and every popup grows from its button's laid-out frame
+                for (i, f) in spread.iter().enumerate() {
+                    assert_eq!(h.focus.frame(Id(STATUS_ID + i as u32)).map(|g| (g.x, g.w)), Some((f.0, f.2)), "{tag}: button {i} is registered where it is drawn");
+                }
+                for (kind, got) in [("cameras", h.camera_frame()), ("notifications", h.bell_frame()), ("settings", h.gear_frame()), ("profile", h.chip_frame())] {
+                    let f = spread[h.status_index(kind).expect(kind)];
+                    assert_eq!(got, [f.0, f.1, f.2, f.3], "{tag}: {kind}'s way in is the button as the bar lays it out now");
+                }
+                // the D-pad walks the buttons in the order it always did
+                assert_eq!(h.focus.current(), Some(Id(STATUS_ID)), "{tag}: the focus starts on Search");
+                for i in 1..5u32 {
+                    press(&mut h, "right", 2000 + u64::from(i) * 100);
+                    assert_eq!(h.focus.current(), Some(Id(STATUS_ID + i)), "{tag}: Right {i}");
+                }
+                for i in (0..4u32).rev() {
+                    press(&mut h, "left", 3000 + u64::from(i) * 100);
+                    assert_eq!(h.focus.current(), Some(Id(STATUS_ID + i)), "{tag}: Left to {i}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_glass_follows_the_grids_edges_when_the_layouts_safe_margin_is_not_the_shipped_one() {
+        let mut h = home();
+        named(&mut h);
+        h.set_name_width("Nitin".into(), 47.63);
+        h.apply_layout(json!({"safe": {"x": 100}}));
+        placed_as(&mut h, "top", 0.0, true);
+        let (grid, pill) = (grid::area(&h.drawn_layout()), h.status_pill());
+        assert_eq!((grid.x, grid.w), (100, 1720));
+        assert_eq!((pill.x, pill.x + pill.w), (100.0, 1820.0), "the glass is as wide as the grid is now");
     }
 
     #[test]

@@ -909,6 +909,7 @@ fn a_new_item_joins_with_one_entry_placed_stepped_and_kept_off_the_others_like_t
         stacks: None,
         default: at(Anchor::BottomLeft, 0.0, 0.0),
         sample: Size::new(200, 80),
+        stretch: false,
     };
     let r = reg().with(clock);
     let f = frame();

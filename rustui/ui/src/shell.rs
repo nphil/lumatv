@@ -757,9 +757,10 @@ impl Shell {
         self.volume_surface.sample_sizes(&mut self.kit, &mut sizes);
         sizes.set("toast", lumatv_placement::Size::new(320, self.toast_surface.sample_height(&self.kit).ceil() as i32));
         sizes.set("mute", lumatv_placement::Size::new(64, 64));
-        // the status bar's pill as Home lays it out now: the profile chip's name and the text size make it as wide as it is
-        let pill = self.home.status_pill();
-        sizes.set("statusbar", lumatv_placement::Size::new(pill.w.round() as i32, pill.h.round() as i32));
+        // the box of the status bar's buttons as Home lays it out now: the profile chip's name and the text size make it as wide as it is (the glass
+        // behind it may be the whole row, which is the placement's to say)
+        let group = self.home.status_group();
+        sizes.set("statusbar", lumatv_placement::Size::new(group.w.round() as i32, group.h.round() as i32));
         sizes
     }
 
@@ -2695,8 +2696,9 @@ mod tests {
     fn every_popup_of_the_bar_grows_out_of_its_buttons_laid_out_frame_wherever_the_pill_sits_and_its_body_stays_on_the_screen() {
         let numbers = |v: &Value, what: &str| -> Vec<f64> { v.as_array().unwrap_or_else(|| panic!("{what}: a rectangle, not {v}")).iter().map(|n| n.as_f64().unwrap()).collect() };
         let centre = |r: &[f64]| (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
-        for (anchor, dx) in [("top-left", 0.0), ("top", 0.0), ("top-right", 0.0), ("top", 0.17)] {
-            let placed = json!({"layout": {"overlays": {"statusbar": {"anchor": anchor, "dx": dx, "dy": 0}}}});
+        for (anchor, dx, full) in [("top-left", 0.0, false), ("top", 0.0, false), ("top-right", 0.0, false), ("top", 0.17, false), ("top-left", 0.0, true), ("top", 0.0, true), ("top-right", 0.0, true), ("top", 0.17, true)] {
+            let placed = json!({"layout": {"overlays": {"statusbar": {"anchor": anchor, "dx": dx, "dy": 0, "full": full}}}});
+            let anchor = if full { format!("{anchor} full width") } else { anchor.to_owned() };
             let (_h, mut shell) = home_shell_with("home,drawer,quick,cameras", &placed);
             shell.helper(&Event::Up(true), 1_050);
             shell.helper(&Event::Topic { topic: "profiles".into(), data: profiles_topic() }, 1_100);

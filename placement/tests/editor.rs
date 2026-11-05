@@ -348,3 +348,102 @@ fn an_editor_on_an_empty_registry_takes_every_key_without_falling_over() {
     assert_eq!(pad.taps(&mut e, &[Key::Back]), [Effect::Close]);
     assert_eq!(e.panel_spot(760, 300).y, 390);
 }
+
+fn labels(e: &Editor, now: u64) -> Vec<&'static str> {
+    e.view(now).buttons.iter().map(|b| b.label).collect()
+}
+
+fn glass(e: &Editor, id: &str, now: u64) -> Rect {
+    e.view(now).items.iter().find(|i| i.id == id).unwrap().glass
+}
+
+#[test]
+fn only_the_status_bar_has_a_full_width_switch_and_it_comes_before_the_other_buttons() {
+    let mut e = editor_on(json!({}));
+    for plain in ["volume", "mute", "popup", "cards", "toast"] {
+        e.start(Some(plain));
+        assert_eq!(labels(&e, 0), ["Reset this", "Reset all", "Done"], "{plain}");
+        assert_eq!(e.button_count(), 3);
+        let v = e.view(0);
+        assert!(v.buttons.iter().all(|b| b.icon.is_none() && !b.selected), "{plain}");
+        assert_eq!(glass(&e, plain, 0), rect(&e, plain, 0), "{plain}: its glass is its own rectangle");
+    }
+    e.start(Some("statusbar"));
+    assert_eq!(labels(&e, 0), ["Full width", "Reset this", "Reset all", "Done"]);
+    assert_eq!(e.button_count(), 4);
+    let v = e.view(0);
+    assert!(v.buttons[0].enabled && !v.buttons[0].primary && !v.buttons[0].selected);
+    assert_eq!(v.buttons[0].icon, Some("circle"), "off: an empty mark");
+    assert!(!v.buttons[1].enabled && !v.buttons[2].enabled && v.buttons[3].primary, "nothing placed: nothing to reset, and Done is the primary");
+    // a place the panel does not have does nothing
+    assert!(e.press_button(4, 1).is_empty());
+    e.start(Some("popup"));
+    assert!(e.press_button(3, 1).is_empty(), "the camera window has no fourth button");
+    assert_eq!(e.press_button(2, 1), [Effect::Close]);
+}
+
+#[test]
+fn the_switch_spreads_the_glass_across_the_bar_and_back_without_moving_what_it_holds() {
+    let (mut e, mut pad) = (editor_on(json!({})), Pad::new());
+    e.start(Some("statusbar"));
+    let held = rect(&e, "statusbar", 0);
+    assert_eq!(held, Rect::new(735, 54, 450, 60), "centred along the bar");
+    assert_eq!(glass(&e, "statusbar", 0), held);
+    // Down goes to the buttons, on Done; Left three times reaches Full width, and OK turns it on
+    let out = saved(&pad.taps(&mut e, &[Key::Down, Key::Left, Key::Left, Key::Left, Key::Ok]));
+    assert_eq!(out, json!({"statusbar": {"anchor": "top", "dx": 0.0, "dy": 0.0, "full": true}}));
+    let v = e.view(pad.t);
+    assert_eq!(v.subject, "Status bar  \u{b7}  Top, full width");
+    assert_eq!(glass(&e, "statusbar", pad.t), Rect::new(64, 54, 1792, 60), "the safe area's width in the bar's row");
+    assert_eq!(rect(&e, "statusbar", pad.t), held, "the buttons stay where they were");
+    assert!(v.buttons[0].selected && v.buttons[0].focused && v.buttons[0].icon == Some("circle-check"));
+    assert!(v.buttons[1].enabled, "it is the owner's now: Reset this has something to put back");
+    // OK again: the default place with the glass round its buttons is the default, and nothing is placed
+    let out = saved(&pad.taps(&mut e, &[Key::Ok]));
+    assert_eq!(out, json!({}));
+    assert_eq!(glass(&e, "statusbar", pad.t), held);
+    assert!(!e.view(pad.t).buttons[0].selected && !e.view(pad.t).buttons[1].enabled);
+    // a pointer on the switch does what OK does there
+    let out = saved(&e.press_button(0, pad.t));
+    assert_eq!(out["statusbar"]["full"], json!(true));
+    assert_eq!(e.view(pad.t).focus, "buttons");
+}
+
+#[test]
+fn the_focus_on_the_buttons_falls_back_to_done_for_an_item_that_has_no_such_button() {
+    let (mut e, mut pad) = (editor_on(json!({})), Pad::new());
+    e.start(Some("statusbar"));
+    pad.taps(&mut e, &[Key::Down, Key::Left, Key::Left, Key::Left]);
+    assert!(e.view(pad.t).buttons[0].focused);
+    pad.taps(&mut e, &[Key::Left]);
+    assert!(e.view(pad.t).buttons[0].focused, "the end holds");
+    pad.taps(&mut e, &[Key::Right]);
+    assert!(e.view(pad.t).buttons[1].focused);
+    pad.taps(&mut e, &[Key::Left, Key::Up, Key::Left, Key::Down]);
+    let v = e.view(pad.t);
+    assert_eq!((v.selected, v.focus), ("toast", "buttons"));
+    assert!(v.buttons[2].focused && v.buttons.iter().filter(|b| b.focused).count() == 1, "Done, as the toasts have no Full width");
+}
+
+#[test]
+fn moving_the_status_bar_by_key_or_pointer_keeps_its_glass_spread() {
+    let (mut e, mut pad) = (editor_on(json!({"statusbar": {"anchor": "top", "dx": 0, "dy": 0, "full": true}})), Pad::new());
+    e.start(Some("statusbar"));
+    let before = rect(&e, "statusbar", pad.t);
+    pad.taps(&mut e, &[Key::Ok, Key::Left]);
+    let out = saved(&pad.taps(&mut e, &[Key::Ok]));
+    let p = &out["statusbar"];
+    assert_eq!(p["full"], json!(true), "{out}");
+    assert!(rect(&e, "statusbar", pad.t).x < before.x, "a press of Left moved the buttons");
+    assert_eq!(glass(&e, "statusbar", pad.t), Rect::new(64, 54, 1792, 60), "and the glass stayed across the bar");
+    // the pointer takes it anywhere on the glass, outside the buttons too, and moves the buttons by as far as it goes
+    let at = rect(&e, "statusbar", pad.t);
+    let (px, py) = (200.0, 84.0);
+    assert!(f64::from(at.x) > px + 100.0, "the press is on the glass, left of the buttons");
+    e.pointer_down("statusbar", px, py);
+    e.pointer_move(px + 300.0, py, true, pad.t + 1);
+    let out = saved(&e.pointer_up());
+    assert_eq!(out["statusbar"]["full"], json!(true), "{out}");
+    assert!(rect(&e, "statusbar", pad.t + 2).x > at.x + 200, "the buttons followed the pointer: {at:?} -> {:?}", rect(&e, "statusbar", pad.t + 2));
+    assert_eq!(glass(&e, "statusbar", pad.t + 2), Rect::new(64, 54, 1792, 60));
+}

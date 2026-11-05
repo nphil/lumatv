@@ -21,7 +21,9 @@
 //! ```
 //!
 //! An item with no entry is at its default, which is where it was drawn before the owner could place it. `dx` and `dy` are fractions (-1 to 1)
-//! of the room the item has left in its zone, from the anchor.
+//! of the room the item has left in its zone, from the anchor. An item that `stretch`es (the status bar's pill) also takes `"full": true`: its glass
+//! then spans the whole width of its zone, and the anchor and offsets place what it holds inside the glass (`Registry::glass_of` is the glass,
+//! `rect_of` what it holds).
 
 pub mod editor;
 pub mod model;

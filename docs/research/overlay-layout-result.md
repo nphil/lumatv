@@ -85,7 +85,7 @@ JSON over the helper's loopback API, for a toolkit that cannot link the crate. N
 | `GET /v1/placement/editor` | the same as it is now; 409 `no_editor` when it is not open |
 | `POST /v1/placement/editor/key` `{key, t?}` | `ok`, `back`, `left`, `right`, `up`, `down`; `effects` is `[{save}]`, `[{close}]` or empty |
 | `POST /v1/placement/editor/pointer` `{phase, item?, x, y, pressed?, t?}` | `down`, `move`, `up` |
-| `POST /v1/placement/editor/button`, `/sizes`, `/close` | a press on a button (0 Reset this, 1 Reset all, 2 Done); sizes measured again; close |
+| `POST /v1/placement/editor/button`, `/sizes`, `/close` | a press on a button by its place in the view's `buttons` (Reset this, Reset all, Done; the status bar has Full width before them); sizes measured again; close |
 
 ## Adding an overlay
 

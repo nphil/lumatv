@@ -1,7 +1,8 @@
 //! The status bar's pill is an item of the registry like the volume bar: centred along the top of the screen until the owner moves it, held to the
-//! bar's row, and read from `layout.overlays.statusbar` as the other items are.
+//! bar's row, and read from `layout.overlays.statusbar` as the other items are. Its glass can also span the whole width of the bar's row
+//! (`full`), with the buttons it holds where the placement puts them inside it.
 
-use lumatv_placement::{Anchor, Frame, Placement, Registry, Size, User, ZoneKind};
+use lumatv_placement::{Anchor, Frame, Placement, Rect, Registry, Size, User, ZoneKind};
 use serde_json::json;
 
 const PILL: Size = Size::new(450, 60);
@@ -13,6 +14,70 @@ fn rect(user: &User) -> (i32, i32, i32, i32) {
 
 fn placed(anchor: &str, dx: f64) -> User {
     Registry::shipped().user_from_json(&json!({"statusbar": {"anchor": anchor, "dx": dx, "dy": 0}}))
+}
+
+fn full(anchor: &str, dx: f64) -> User {
+    Registry::shipped().user_from_json(&json!({"statusbar": {"anchor": anchor, "dx": dx, "dy": 0, "full": true}}))
+}
+
+fn glass(user: &User, f: &Frame, size: Size) -> Rect {
+    Registry::shipped().glass_of("statusbar", user, f, size).expect("the status bar is an item")
+}
+
+const PLACES: [(&str, f64); 4] = [("top-left", 0.0), ("top", 0.0), ("top-right", 0.0), ("top", 0.17)];
+
+#[test]
+fn full_width_spreads_the_glass_over_the_bars_row_and_the_buttons_stay_where_the_placement_puts_them() {
+    let f = Frame::default();
+    for (anchor, dx) in PLACES {
+        let (off, on) = (placed(anchor, dx), full(anchor, dx));
+        assert_eq!(rect(&on), rect(&off), "{anchor} {dx}: the group does not move when the glass spreads");
+        let g = glass(&on, &f, PILL);
+        assert_eq!((g.x, g.right(), g.y, g.h), (f.safe_x, 1920 - f.safe_x, f.safe_y, 60), "{anchor} {dx}: the safe area's width, in the bar's row");
+        let r = Registry::shipped().rect_of("statusbar", &on, &f, PILL).unwrap();
+        assert!(g.x <= r.x && r.right() <= g.right(), "{anchor} {dx}: the group is inside the glass");
+        let own = glass(&off, &f, PILL);
+        assert_eq!(own, r, "{anchor} {dx}: not spread, the glass is the group's own rectangle");
+    }
+    // the same at 200 % text, where the pill is as tall as the bar's row grew, and with the margins Home sends
+    let layout = json!({"safe": {"x": 100, "y": 40}, "statusBar": {"height": 120, "gap": 16}});
+    let f = Frame::from_json(&layout, None);
+    let g = glass(&full("top-right", 0.0), &f, Size::new(700, 120));
+    assert_eq!((g.x, g.right(), g.y, g.h), (100, 1820, 40, 120));
+}
+
+#[test]
+fn full_is_stored_beside_the_anchor_and_the_offsets_and_only_the_status_bar_takes_it() {
+    let reg = Registry::shipped();
+    let written = full("top-right", 0.0).to_json();
+    assert_eq!(written, json!({"statusbar": {"anchor": "top-right", "dx": 0.0, "dy": 0.0, "full": true}}));
+    assert_eq!(reg.user_from_json(&written), full("top-right", 0.0), "what is written is read back");
+    // off is not written, so a file of an earlier build reads as it did
+    assert_eq!(placed("top-right", 0.0).to_json(), json!({"statusbar": {"anchor": "top-right", "dx": 0.0, "dy": 0.0}}));
+    // the default place with the glass spread is the owner's, and it is the default again with it off
+    let spread = full("top", 0.0);
+    assert!(spread.has("statusbar") && reg_custom(&spread));
+    assert!(reg.with_placement(&spread, "statusbar", Placement::new(Anchor::Top, 0.0, 0.0)).is_empty());
+    // not a boolean, or an item with no glass to spread: not taken
+    let junk = reg.user_from_json(&json!({
+        "statusbar": {"anchor": "top", "dx": 0, "dy": 0, "full": "yes"},
+        "popup": {"anchor": "top-left", "dx": 0, "dy": 0, "full": true},
+        "volume": {"anchor": "left", "dx": 0, "dy": 0, "full": true},
+    }));
+    assert!(junk.is_empty(), "{:?}", junk.to_json());
+    let d = reg.describe();
+    let stretches: Vec<(&str, bool)> = d["items"].as_array().unwrap().iter().map(|i| (i["id"].as_str().unwrap(), i["stretch"].as_bool().unwrap())).collect();
+    assert_eq!(stretches.iter().filter(|(_, s)| *s).collect::<Vec<_>>(), [&("statusbar", true)]);
+}
+
+#[test]
+fn the_words_say_where_the_buttons_are_and_that_the_glass_is_full() {
+    let words = |u: &User| Registry::shipped().words("statusbar", u);
+    assert_eq!(words(&full("top", 0.0)), "Top, full width");
+    assert_eq!(words(&full("top-left", 0.0)), "Top left, full width");
+    assert_eq!(words(&full("top", 0.1)), "Top, right third, moved, full width");
+    assert_eq!(words(&placed("top-left", 0.0)), "Top left");
+    assert_eq!(words(&User::default()), "Top");
 }
 
 #[test]

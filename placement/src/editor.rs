@@ -27,6 +27,7 @@ const HINT_BAR: &str = "\u{2190} \u{2192} Choose  \u{b7}  OK Do it  \u{b7}  Up I
 const HINT_ITEMS: &str =
     "\u{2190} \u{2192} Choose  \u{b7}  OK Pick up  \u{b7}  Down Buttons  \u{b7}  Back Done";
 const BUTTONS: [&str; 3] = ["Reset this", "Reset all", "Done"];
+const FULL: &str = "Full width";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -84,6 +85,18 @@ enum Focus {
     Bar,
 }
 
+/// What a button of the panel does. An item that stretches has its switch before the others.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Act {
+    Full,
+    ResetThis,
+    ResetAll,
+    Done,
+}
+
+const PLAIN: [Act; 3] = [Act::ResetThis, Act::ResetAll, Act::Done];
+const STRETCH: [Act; 4] = [Act::Full, Act::ResetThis, Act::ResetAll, Act::Done];
+
 pub struct Editor {
     reg: Registry,
     user: User,
@@ -92,7 +105,7 @@ pub struct Editor {
     sel: &'static str,
     mode: Mode,
     focus: Focus,
-    bar: usize,
+    bar: Act,
     /// The placement of the item in the hand, and where it was.
     work: Option<Placement>,
     held: Option<Placement>,
@@ -122,7 +135,7 @@ impl Editor {
             sel,
             mode: Mode::Browse,
             focus: Focus::Items,
-            bar: 2,
+            bar: Act::Done,
             work: None,
             held: None,
             held_foot: None,
@@ -146,7 +159,7 @@ impl Editor {
             .map_or("", |it| it.id);
         self.mode = Mode::Browse;
         self.focus = Focus::Items;
-        self.bar = 2;
+        self.bar = Act::Done;
         self.work = None;
         self.held = None;
         self.held_foot = None;
@@ -338,17 +351,87 @@ impl Editor {
         vec![Effect::Save(self.user.to_json())]
     }
 
-    /// One of the three buttons (0 Reset this, 1 Reset all, 2 Done): what OK does on it, and what a pointer that presses it does.
+    /// Whether the chosen item's glass can be stretched across its zone.
+    fn stretches(&self) -> bool {
+        self.reg.item(self.sel).is_some_and(|it| it.stretch)
+    }
+
+    /// The buttons the panel has for the chosen item.
+    fn acts(&self) -> &'static [Act] {
+        if self.stretches() { &STRETCH } else { &PLAIN }
+    }
+
+    /// Which of `acts` the focus on the buttons is on: Done where it was on a button this item does not have.
+    fn bar_at(&self, acts: &[Act]) -> usize {
+        acts.iter()
+            .position(|a| *a == self.bar)
+            .unwrap_or(acts.len() - 1)
+    }
+
+    fn is_full(&self) -> bool {
+        self.reg
+            .placement_of(self.sel, &self.user)
+            .is_some_and(|p| p.placement.full)
+    }
+
+    /// The glass of an item that stretches is spread across its zone, or drawn about what it holds again.
+    fn toggle_full(&mut self) -> Vec<Effect> {
+        if !self.stretches() {
+            return Vec::new();
+        }
+        let Some(p) = self.reg.placement_of(self.sel, &self.user) else {
+            return Vec::new();
+        };
+        let next = p.placement.with_full(!p.placement.full);
+        self.user = self.reg.with_placement(&self.user, self.sel, next);
+        vec![Effect::Save(self.user.to_json())]
+    }
+
+    fn run(&mut self, act: Act, now: u64) -> Vec<Effect> {
+        match act {
+            Act::Full => self.toggle_full(),
+            Act::ResetThis => self.reset_this(now),
+            Act::ResetAll => self.reset_all(now),
+            Act::Done => vec![Effect::Close],
+        }
+    }
+
+    /// How many buttons the panel has for the chosen item: the places `press_button` takes.
+    pub fn button_count(&self) -> usize {
+        self.acts().len()
+    }
+
+    /// A button of the panel by its place in the view's `buttons` (Reset this, Reset all and Done, and before them the switch of an item that
+    /// stretches): what OK does on it, and what a pointer that presses it does. A place the panel does not have does nothing.
     pub fn press_button(&mut self, index: usize, now: u64) -> Vec<Effect> {
         if self.mode == Mode::Move {
             return Vec::new();
         }
+        let Some(act) = self.acts().get(index).copied() else {
+            return Vec::new();
+        };
         self.focus = Focus::Bar;
-        self.bar = index.min(2);
-        match self.bar {
-            0 => self.reset_this(now),
-            1 => self.reset_all(now),
-            _ => vec![Effect::Close],
+        self.bar = act;
+        self.run(act, now)
+    }
+
+    /// How a button of the panel looks: Reset this is for what the chosen item has placed, Reset all for anything placed, and the switch of an
+    /// item that stretches is a check while its glass spans the zone.
+    fn button_of(&self, act: Act, focused: bool) -> Button {
+        let (label, enabled) = match act {
+            Act::Full => (FULL, true),
+            Act::ResetThis => (BUTTONS[0], self.user.has(self.sel)),
+            Act::ResetAll => (BUTTONS[1], !self.user.is_empty()),
+            Act::Done => (BUTTONS[2], true),
+        };
+        let on = act == Act::Full && self.is_full();
+        Button {
+            label,
+            enabled,
+            focused,
+            primary: act == Act::Done,
+            icon: (act == Act::Full).then_some(if on { "circle-check" } else { "circle" }),
+            selected: on,
         }
     }
 
@@ -370,11 +453,14 @@ impl Editor {
             };
         }
         if self.focus == Focus::Bar {
+            let acts = self.acts();
+            let at = self.bar_at(acts);
+            self.bar = acts[at];
             match key {
-                Key::Left => self.bar = self.bar.saturating_sub(1),
-                Key::Right => self.bar = (self.bar + 1).min(2),
+                Key::Left => self.bar = acts[at.saturating_sub(1)],
+                Key::Right => self.bar = acts[(at + 1).min(acts.len() - 1)],
                 Key::Up | Key::Back => self.focus = Focus::Items,
-                Key::Ok => return self.press_button(self.bar, now),
+                Key::Ok => return self.run(acts[at], now),
                 Key::Down => {}
             }
             return Vec::new();
@@ -478,7 +564,7 @@ impl Editor {
                     if it.waits {
                         continue;
                     }
-                    if r.meets(&it.rect, 16) {
+                    if r.meets(&it.glass, 16) {
                         score += if it.id == self.sel { 100 } else { 1 };
                     }
                 }
@@ -511,6 +597,7 @@ impl Editor {
                     title: it.map_or("", |i| i.title),
                     icon: it.map_or("", |i| i.icon),
                     rect: laid.rect,
+                    glass: laid.glass,
                     placement: laid.placement,
                     custom: effective.has(laid.id),
                     waits: laid.waits,
@@ -547,26 +634,12 @@ impl Editor {
         let f = &self.frame;
         let browse = self.mode == Mode::Browse;
         let buttons = if browse {
-            vec![
-                Button {
-                    label: BUTTONS[0],
-                    enabled: self.user.has(self.sel),
-                    focused: self.focus == Focus::Bar && self.bar == 0,
-                    primary: false,
-                },
-                Button {
-                    label: BUTTONS[1],
-                    enabled: !self.user.is_empty(),
-                    focused: self.focus == Focus::Bar && self.bar == 1,
-                    primary: false,
-                },
-                Button {
-                    label: BUTTONS[2],
-                    enabled: true,
-                    focused: self.focus == Focus::Bar && self.bar == 2,
-                    primary: true,
-                },
-            ]
+            let acts = self.acts();
+            let at = self.bar_at(acts);
+            acts.iter()
+                .enumerate()
+                .map(|(i, act)| self.button_of(*act, self.focus == Focus::Bar && i == at))
+                .collect()
         } else {
             Vec::new()
         };
@@ -648,6 +721,9 @@ pub struct ItemView {
     pub title: &'static str,
     pub icon: &'static str,
     pub rect: Rect,
+    /// The glass: `rect`, or for an item whose glass is stretched (`full`) the zone's whole width at the same height. What the item holds is in
+    /// `rect`.
+    pub glass: Rect,
     pub placement: Placement,
     /// The owner placed it (with the move in the hand, as it would be put down).
     pub custom: bool,
@@ -668,6 +744,10 @@ pub struct Button {
     pub enabled: bool,
     pub focused: bool,
     pub primary: bool,
+    /// A glyph before the label, by its name in the shared set.
+    pub icon: Option<&'static str>,
+    /// A switch that is on: the button looks chosen.
+    pub selected: bool,
 }
 
 /// What the frame keeps clear: the safe area, Home's status bar's row, the bottom quarter (the subtitles are in it).
