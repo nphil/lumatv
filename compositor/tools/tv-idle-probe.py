@@ -106,8 +106,8 @@ def summary_fields(summary):
            "ui_frames": num(r"ui frames (\d+)"), "ui_empty": num(r"ui frames \d+ \(empty (\d+)\)"),
            "px_frame": num(r"px/frame (\d+)"), "changed": num(r"changed (\d+)"), "draws_frame": num(r"draws/frame (\d+)"), "layers_frame": num(r"layers/frame (\d+)"),
            "cpu_mean_us": num(r"cpu (\d+) us/frame"), "refresh_ms": num(r"refresh ([0-9.]+) ms", float)}
-    m = re.search(r"total us: cpu (\d+) place (\d+) plan (\d+) backdrops (\d+) draw (\d+) damage (\d+) apply (\d+)", summary)
-    out["engine"] = dict(zip(("cpu", "place", "plan", "backdrops", "draw", "damage", "apply"), map(int, m.groups()))) if m else None
+    m = re.search(r"total us: cpu (\d+) place (\d+) plan (\d+) backdrops (\d+) draw (\d+) damage (\d+) apply (\d+)(?: scope (\d+) step (\d+) finish (\d+))?", summary)
+    out["engine"] = dict(zip(("cpu", "place", "plan", "backdrops", "draw", "damage", "apply", "scope", "step", "finish"), map(int, (g for g in m.groups() if g is not None)))) if m else None
     if out["engine"] is None and out["ui_frames"] and out["cpu_mean_us"] is not None:
         out["engine_cpu_total_approx"] = out["ui_frames"] * out["cpu_mean_us"]
     return out
@@ -246,8 +246,10 @@ def window(a, b):
     ea, eb = sa.get("engine"), sb.get("engine")
     frames = (sb["ui_frames"] or 0) - (sa["ui_frames"] or 0)
     if ea and eb and frames > 0:
-        us = {k: (eb[k] - ea[k]) / frames for k in eb}
-        us["other"] = us["cpu"] - sum(us[k] for k in ("place", "plan", "backdrops", "draw", "damage", "apply"))
+        us = {k: (eb[k] - ea[k]) / frames for k in eb if k in ea}
+        # `scope` (the compositor's GL state saved and put back round each of the engine's calls), `step` (the scene stepped to the frame's time and its
+        # layers listed) and `finish` are in the builds that count them; `other` is what is left: the renderer's work between the phases
+        us["other"] = us["cpu"] - sum(us[k] for k in us if k != "cpu")
         w["engine_us_per_frame"] = {k: round(v, 1) for k, v in us.items()}
         w["engine_pct"] = round(100.0 * (eb["cpu"] - ea["cpu"]) / 1e6 / dt, 2)
     w["since_start"] = {k: sb[k] for k in ("px_frame", "changed", "draws_frame", "layers_frame") if sb.get(k) is not None}
@@ -351,13 +353,15 @@ def cmd_compare(path_a, path_b):
 SAMPLE = ("uptime 165.2s clients 2 (total 2) surfaces 10 windows 1 requests 204 commits 15 buffers 0 ticks 19700 drawn 19580 callbacks 26 releases 13 skipped 0 gl errors 0 "
           "render last 955 us max 18597 us prepared 3 frame imports 0 held ticks 0 check ok 0 bad 0 unread 0 flips 19536 late 6 lost 26 reached late 9 (over 1 ms 1155, worst 17.2 ms) "
           "direct 0 split 0 odd stamps 4 (0 missed) refresh 8.33 ms (measured 8.3929, changed 1) ui frames 19536 (empty 1) px/frame 217189 changed 202832 draws/frame 51 layers/frame 30 "
-          "cpu 1552 us/frame max 36853 us (total us: cpu 30318000 place 1000 plan 2000 backdrops 3000 draw 4000 damage 5000 apply 6000) gl errors 0")
+          "cpu 1552 us/frame max 36853 us (total us: cpu 30318000 place 1000 plan 2000 backdrops 3000 draw 4000 damage 5000 apply 6000 scope 7000 step 8000 finish 9000) gl errors 0")
 
 
 def selftest():
     f = summary_fields(SAMPLE)
     assert (f["flips"], f["ticks"], f["ui_frames"], f["ui_empty"], f["draws_frame"], f["layers_frame"], f["cpu_mean_us"]) == (19536, 19700, 19536, 1, 51, 30, 1552), f
-    assert f["engine"] == {"cpu": 30318000, "place": 1000, "plan": 2000, "backdrops": 3000, "draw": 4000, "damage": 5000, "apply": 6000}, f
+    assert f["engine"] == {"cpu": 30318000, "place": 1000, "plan": 2000, "backdrops": 3000, "draw": 4000, "damage": 5000, "apply": 6000, "scope": 7000, "step": 8000, "finish": 9000}, f
+    before_scope = summary_fields(SAMPLE.replace(" scope 7000 step 8000 finish 9000", ""))
+    assert "scope" not in before_scope["engine"] and before_scope["engine"]["apply"] == 6000, before_scope
     old = summary_fields(SAMPLE.split(" (total us")[0] + " gl errors 0")
     assert old["engine"] is None and old["engine_cpu_total_approx"] == 19536 * 1552
     assert utime_stime("1234 (ld-linux-aarch6) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14") == (11, 12)
@@ -373,7 +377,7 @@ def selftest():
     a = {"mono": 100.0, "clk_tck": 100, "comp_threads": {"main/1": thread(1000, 200), "mali/2": thread(50, 10)}, "ui_threads": {"ui/9": thread(100, 20, 10)},
          "summary": SAMPLE, "stats": {"passes": 1000, "passUsTotal": 1_000_000, "tickUsTotal": 900_000, "tickPartsUs": [1, 2, 3, 4, 5]},
          "vsync": 0, "osd_irq": 1000, "keys": {"delivered": 2, "foreground": "com.webos.app.home"}, "saver": False, "dvfs": (100, 900), "measure": {"motion": {"intervals": 100}}}
-    later = SAMPLE.replace("flips 19536", "flips 21336").replace("ui frames 19536", "ui frames 21336").replace("ticks 19700", "ticks 21500").replace("cpu 30318000 place 1000 plan 2000 backdrops 3000 draw 4000 damage 5000 apply 6000", "cpu 32118000 place 2000 plan 4000 backdrops 6000 draw 8000 damage 10000 apply 12000")
+    later = SAMPLE.replace("flips 19536", "flips 21336").replace("ui frames 19536", "ui frames 21336").replace("ticks 19700", "ticks 21500").replace("cpu 30318000 place 1000 plan 2000 backdrops 3000 draw 4000 damage 5000 apply 6000", "cpu 32118000 place 2000 plan 4000 backdrops 6000 draw 8000 damage 10000 apply 12000 scope 14000 step 16000 finish 18000")
     b = {"mono": 160.0, "clk_tck": 100, "comp_threads": {"main/1": thread(1180, 260), "mali/2": thread(60, 12)}, "ui_threads": {"ui/9": thread(130, 26, 70)},
          "summary": later, "stats": {"passes": 1000 + 2400, "passUsTotal": 1_000_000 + 1_200_000, "tickUsTotal": 900_000 + 1_000_000, "tickPartsUs": [600_001, 200_002, 3, 4, 5]},
          "vsync": 7200, "osd_irq": 1000 + 7200, "keys": {"delivered": 2, "foreground": "com.webos.app.home"}, "saver": False, "dvfs": (400, 1700), "measure": {"motion": {"intervals": 100}}}
@@ -384,6 +388,7 @@ def selftest():
     assert w["flips_per_s"] == 30.0 and w["osd_irq_per_s"] == 120.0 and w["animating_flip_intervals_per_s"] == 0.0 and w["keys_delivered"] == 0, w
     assert w["loop"]["passes_per_s"] == 40.0 and w["loop"]["busy_pct"] == 2.0 and w["loop"]["tick_parts_pct"]["plan_and_frame"] == 1.0, w["loop"]
     assert w["engine_us_per_frame"]["cpu"] == 1000.0 and w["engine_us_per_frame"]["draw"] == 2.2 and w["engine_pct"] == 3.0, w
+    assert w["engine_us_per_frame"]["scope"] == 3.9 and w["engine_us_per_frame"]["other"] == round(1000.0 - (1000 + 2000 + 3000 + 4000 + 5000 + 6000 + 7000 + 8000 + 9000) / 1800, 1), w
     assert w["mali_busy_pct"] == 27.3
     v = verdicts(w, a, b, "calm")
     assert all(c["ok"] for c in v.values()), v

@@ -9,8 +9,8 @@ the 8.3 ms of a 120 Hz refresh is about 80 layers. For each window of a walk thi
 frame's estimate, and the work of a frame (that estimate and the time this process took to apply what the frame showed) at its worst and
 at the 99th percentile.
 
-    python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,settings-pages,home-widgets,toast,onhome,guide,banner,sky] [--frames] [--reference]
-                                 [--bin PATH] [--owner DIR]
+    python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,settings-pages,home-widgets,toast,onhome,guide,banner,sky,idle] [--frames] [--reference]
+                                 [--bin PATH] [--owner DIR] [--sky KIND]
 
 `--frames` lists every frame, with the CPU time the shell used since the frame before (`ui`, by the thread's own clock, so a loaded host does not
 inflate it); `--reference` draws each frame whole as well and counts
@@ -21,8 +21,10 @@ toggled, a long scroll, a sensor's history, a lamp's colours changed, and a rest
 guide over a make-believe set of channels: walked by time and by channel with a held arrow, paged, a programme's sheet opened, the filters
 chosen, a rest, and left. `banner` is Live TV's channel banner: Live TV comes to the front and the tuner names its channel, then another after the
 banner's five seconds, then INFO (the tallest it gets). `sky` is Home at rest for ten seconds with the weather card's sky moving, which the gate has off:
-the frames a second the sky asks for (each is a flip of the whole screen on the set) and what each one draws. `settings-pages` opens Settings and then names each
-page in turn (`show settings`, 800 ms apart): what each page costs the shell to make and the frames it is drawn in.
+the frames a second the sky asks for (each is a flip of the whole screen on the set) and what each one draws. `idle` is the same with the theme's own wallpaper
+motion left on as well (what the idle gate measures: `compositor/tools/tv-idle-probe.py`); both print where a frame's time goes (the engine's phases, the GL
+calls it made, what asked for it) and `--sky KIND` sets the weather the fixture reports (`sun`, `moon`, `cloud`, `partly`, `fog`, `drizzle`, `rain`, `storm`, `snow`).
+`settings-pages` opens Settings and then names each page in turn (`show settings`, 800 ms apart): what each page costs the shell to make and the frames it is drawn in.
 
 The Cameras app is measured by itself (no Home under it) in four walks: `cameras-grid` (eight tiles whose stills come five a second a tile, three of
 them not 16:9, then the focus walked) and `cameras-full` (a portrait doorbell's video in its window with the bars beside it, the chrome fading and
@@ -52,7 +54,13 @@ import rust_home_host as home  # noqa: E402  (Home's make-believe feeds)
 BIN = os.environ.get('LUMATV_UI_BIN') or os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
 FRAME = re.compile(r"^\[frame\] (\d+) at (\d+) ms: damage (\d+) px, drew (\d+) px in (\d+) rects \([\d.]+ %\), layers (\d+) culled \d+ cpu (\d+) us gpu \d+ us"
                    r".*? floor (\d+) px apply (\d+) us(?: ui (\d+) us)?", re.M)
-SURFACES = ['quick', 'picker', 'settings-scroll', 'settings-pages', 'home-widgets', 'toast', 'onhome', 'guide', 'banner', 'camera-popup', 'weather-zoom', 'sky']
+#: what a frame's line says after the shell's own time (`lumatv-ui --host --log`): the engine's phases, the GL calls (draws/uniforms/programs/binds/states/skipped) and what asked for it
+DETAIL = re.compile(r"^\[frame\] \d+ at (\d+) ms: .*? layers (\d+) culled \d+ cpu (\d+) us.*? ui (\d+) us place (\d+) us plan (\d+) us draw (\d+) us damage (\d+) us step (\d+) us finish (\d+) us scope (\d+) us x(\d+) "
+                    r"calls (\d+)/(\d+)/(\d+)/(\d+)/(\d+)/(\d+) why (\S+) scene (\d+)", re.M)
+DETAIL_FIELDS = ('ms', 'layers', 'cpu', 'ui', 'place', 'plan', 'draw', 'damage', 'step', 'finish', 'scope', 'scopes', 'draws', 'uniforms', 'programs', 'binds', 'states', 'skipped')
+SURFACES = ['quick', 'picker', 'settings-scroll', 'settings-pages', 'home-widgets', 'toast', 'onhome', 'guide', 'banner', 'camera-popup', 'weather-zoom', 'sky', 'idle']
+#: Home at rest with the sky moving: the surfaces `--frames` explains frame by frame
+AT_REST = ('sky', 'idle')
 #: when a walk starts: Home has drawn its feeds and rests
 START_MS = 6000
 #: the layers a 120 Hz refresh holds (1.5 ms + 0.085 ms a layer <= 8.3 ms)
@@ -62,6 +70,8 @@ SETTINGS_PAGES = ('privacy', 'profiles', 'picture', 'sound', 'inputs', 'network'
 #: the owner's own `theme.json` and `layout.json` (`--owner DIR`: the pair the TV gate saves before a run, `before-theme.json` and `before-layout.json`)
 #: in place of the shipped theme and Home's default layout; the glass, the accent and the cards the owner chose are what the set draws
 OWNER = {}
+#: the weather the fixture reports (`--sky`): its `display.nowKind`; the fixture's own is a clear night
+SKY = []
 #: the Cameras walks, the fill on and off
 CAMERAS = ['cameras-grid', 'cameras-grid-nofill', 'cameras-full', 'cameras-full-nofill']
 
@@ -599,7 +609,7 @@ def walk_of(surface):
         w.wait(1200)
         w.key('back')
         w.wait(1200)
-    elif surface == 'sky':
+    elif surface in AT_REST:
         w.mark('sky moving')
         w.wait(10000)
     else:
@@ -663,9 +673,10 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
     shutil.copy(os.path.join(ROOT, 'compositor', 'assets', 'ui', 'wallpaper', 'wall_1080.png'), os.path.join(data, 'theme', 'wall_1080.png'))
     with open(OWNER.get('theme') or os.path.join(ROOT, 'payload', 'theme', 'theme.json')) as f:
         theme = json.load(f)
-    # the gate's `still`: the wallpaper's tick and the weather card's sprites off while a surface is measured (the `sky` walk has the sprites on)
-    theme.setdefault('wallpaperMotion', {})['enabled'] = False
-    theme.setdefault('weather', {})['animated'] = surface == 'sky'
+    # the gate's `still`: the wallpaper's tick and the weather card's sprites off while a surface is measured (`sky` has the sprites on, `idle` the wallpaper as well)
+    if surface != 'idle':
+        theme.setdefault('wallpaperMotion', {})['enabled'] = False
+    theme.setdefault('weather', {})['animated'] = surface in AT_REST
     if surface == 'banner':
         theme.setdefault('banners', {})['own'] = True
     with open(os.path.join(data, 'theme', 'theme.json'), 'w') as f:
@@ -675,6 +686,8 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
     feeds = {"weather": home.weather(), "news": home.news(), "profiles": home.profiles(), "cameras": home.CAMERAS,
              "plugins": {"plugins": [{"id": "home-assistant", "name": "Home Assistant", "state": "connected"}], "firstParty": []},
              "plugin.home-assistant.cards": home.HOME_CARDS}
+    if SKY:
+        feeds['weather']['doc']['display']['nowKind'] = SKY[0]
     if OWNER:
         # the set's Smart home card carries two cameras (`MAX_CAMERAS`), each asked for a still a second
         feeds['cameras'] = dict(home.CAMERAS, cameras=[dict(c, online=True) for c in home.CAMERAS['cameras']])
@@ -705,9 +718,10 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
             cards = json.load(f).get('widgets', [])
         if server is None and any(c.get('type') == 'onhome' for c in cards):
             feeds['onhome'] = onhome_doc()
-            server = http.server.ThreadingHTTPServer(('127.0.0.1', HELPER_PORT), FakeHelper)
+            # a port of its own: another run's helper on the shared one made this one fail to start
+            server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), FakeHelper)
             threading.Thread(target=server.serve_forever, daemon=True).start()
-            extra = ['--port', str(HELPER_PORT), '--helper-port', str(HELPER_PORT)]
+            extra = ['--port', str(server.server_address[1]), '--helper-port', str(server.server_address[1])]
     cmd = [binary, '--host', '--virtual', '--refresh', str(refresh), '--kinds', 'osd,toast,home,settings,quick,picker,drawer,menu,confirm' + (',guide' if surface == 'guide' else '') + (',banner' if surface == 'banner' else '') + (',cameras' if surface == 'camera-popup' else ''),
            '--data-dir', data, '--shm', os.path.join(data, 'shm'), '--wait', str(w.at + 500), '--log', log,
            '--module-dir', os.path.join(ROOT, 'compositor', 'assets', 'ui'),
@@ -735,6 +749,25 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
     return windows, len(re.findall(r"^\[mismatch\]", text, re.M)), text
 
 
+def frame_report(text, seconds):
+    """Where the frames of a walk at rest came from and what they cost: by what asked for the frame (`why`), a second's worth of frames, the engine's phases (the host's own
+    clock: Mesa draws on the CPU, so `draw` and `cpu` here are not the set's), the GL calls a frame made and the layers it drew."""
+    rows = [dict(zip(DETAIL_FIELDS, map(int, m.groups()[:18])), why=m.group(19), scene=int(m.group(20))) for m in DETAIL.finditer(text)]
+    rows = [r for r in rows if r['ms'] >= START_MS]
+    if not rows:
+        return
+    out = ['  %-10s %6s %7s %6s %6s %6s %6s %6s %6s %6s %6s %6s %6s | %6s %6s %6s %6s %6s %6s | %6s %6s' % ('asked by', 'frames', 'a sec', 'layers', 'cpu', 'place', 'plan', 'draw', 'damage', 'step', 'finish', 'scope', 'scopes', 'draws', 'unifs', 'progs', 'binds', 'states', 'skip', 'ui us', 'scene')]
+    for why in sorted({r['why'] for r in rows}) + ['all']:
+        sel = [r for r in rows if why in ('all', r['why'])]
+        mean = lambda key: sum(r[key] for r in sel) / len(sel)  # noqa: E731
+        out.append('  %-10s %6d %7.1f %6.1f %6.0f %6.0f %6.0f %6.0f %6.0f %6.0f %6.0f %6.0f %6.2f | %6.1f %6.1f %6.1f %6.1f %6.1f %6.1f | %6.0f %6.0f' % (
+            why, len(sel), len(sel) / seconds, mean('layers'), mean('cpu'), mean('place'), mean('plan'), mean('draw'), mean('damage'), mean('step'), mean('finish'), mean('scope'), mean('scopes'), mean('draws'), mean('uniforms'),
+            mean('programs'), mean('binds'), mean('states'), mean('skipped'), sum(r['ui'] for r in sel) / len(sel), mean('scene')))
+    out.append('  a second of the window: %.1f frames, the engine %.2f ms, the shell %.2f ms' % (
+        len(rows) / seconds, sum(r['cpu'] for r in rows) / seconds / 1000, sum(r['ui'] for r in rows) / seconds / 1000))
+    print('\n'.join(out))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--refresh', type=int, default=120)
@@ -742,14 +775,17 @@ def main(argv=None):
     ap.add_argument('--frames', action='store_true')
     ap.add_argument('--reference', action='store_true')
     ap.add_argument('--bin', default=BIN)
+    ap.add_argument('--sky', help='the weather the fixture reports: sun, moon, cloud, partly, partly-night, fog, drizzle, rain, storm or snow (default: a clear night)')
     ap.add_argument('--owner', help='a folder holding before-theme.json and before-layout.json (the TV gate\'s receipts): the owner\'s theme and Home layout')
     a = ap.parse_args(argv)
+    if a.sky:
+        SKY.append(a.sky)
     if a.owner:
         OWNER.update({key: os.path.join(a.owner, 'before-%s.json' % key) for key in ('theme', 'layout')})
     budget = LAYERS_120 * 120 // a.refresh
     over = 0
     for surface in a.surfaces.split(','):
-        windows, mismatched, _ = run(surface, a.refresh, a.bin, a.reference)
+        windows, mismatched, text = run(surface, a.refresh, a.bin, a.reference)
         marks = [] if surface in CAMERAS else walk_of(surface).marks
         spans = {label: (nxt - at) / 1000.0 for (at, label), (nxt, _) in zip(marks, marks[1:])}
         worst = max((f[3] for _, fs in windows for f in fs), default=0)
@@ -766,6 +802,8 @@ def main(argv=None):
             if a.frames:
                 for f in fs:
                     print('      %6d ms  drew %8d px in %2d rects  layers %3d  floor %8d px  cpu %6d us (commits %6d us)  ui %6d us' % f)
+        if surface in AT_REST:
+            frame_report(text, (walk_of(surface).marks[1][0] - walk_of(surface).marks[0][0]) / 1000.0)
         frames = [f for _, fs in windows for f in fs]
         work = [work_ms(f) for f in frames]
         print('  all %d frames: most layers %d (%.1f ms), work max %.1f ms p99 %.1f ms' % (len(frames), max((f[3] for f in frames), default=0),
