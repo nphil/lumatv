@@ -37,7 +37,6 @@ pub const SCOPE: Scope = Scope(212);
 const REGION: Region = Region(3000);
 const BASE: u32 = 0x2800_0000;
 const SHEET_W: f32 = quick::SHEET_W;
-const SHEET_Y: f32 = quick::EDGE_Y;
 const SHEET_MIN_H: f32 = 240.0;
 const TILE: f32 = 64.0;
 const TITLE: &str = "Cameras";
@@ -114,14 +113,14 @@ struct Layout {
     empty: Option<Empty>,
 }
 
-fn layout(kit: &mut Kit, v: &View) -> Layout {
+fn layout(kit: &mut Kit, v: &View, place: Frame) -> Layout {
     let (s1, s2, s3, s4, s5, s7) = (kit.space(1), kit.space(2), kit.space(3), kit.space(4), kit.space(5), kit.space(7));
     let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
     let title_style = role_style(kit, TypeRole::Title, Some(Weight::SemiBold), ink, Align::Left);
     let label_style = role_style(kit, TypeRole::Label, None, ink, Align::Left);
     let caption_style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
     let (title_line, label_line, caption_line) = (kit.line(TypeRole::Title), kit.line(TypeRole::Label), kit.line(TypeRole::Caption));
-    let sheet_x = quick::sheet().x;
+    let sheet_x = place.x;
     let head_y = s4;
     let inner_w = SHEET_W - 2.0 * s5;
     // the head: the title and, at the right, how many cameras there are (or what is wrong with the link) while there is room beside the title
@@ -167,7 +166,7 @@ fn layout(kit: &mut Kit, v: &View) -> Layout {
         Some((icon, label, text)) => {
             let col_w = SHEET_W - 2.0 * s7;
             let lines = wrap::lines(kit, role_style(kit, TypeRole::Caption, None, ink2, Align::Centre), text, col_w, 3);
-            let tile_f = Frame::new(sheet_x + s7 + ((col_w - TILE) / 2.0).round(), SHEET_Y + below_head + s7, TILE, TILE);
+            let tile_f = Frame::new(sheet_x + s7 + ((col_w - TILE) / 2.0).round(), place.y + below_head + s7, TILE, TILE);
             let label_f = Frame::new(sheet_x + s7, tile_f.bottom() + s3, col_w, label_line);
             let text_at = Frame::new(sheet_x + s7, label_f.bottom() + s3, col_w, lines.len() as f32 * caption_line);
             let label_text = wrap::elide(kit, role_style(kit, TypeRole::Label, None, ink, Align::Centre), label, col_w);
@@ -178,17 +177,17 @@ fn layout(kit: &mut Kit, v: &View) -> Layout {
             // five rows and a half of the sixth where there are more than five
             let shown = n.min(ROWS_SHOWN);
             let want = shown as f32 * pitch - s1 + if n > ROWS_SHOWN { peek } else { 0.0 };
-            (None, (head_block + want + s4).min(quick::SHEET_H))
+            (None, (head_block + want + s4).min(place.h))
         }
     };
     let flick_h = (sheet_h - head_block - s4).max(1.0);
     let fit = (((flick_h + s1) / pitch).floor() as usize).clamp(1, ROWS_SHOWN.max(1));
     Layout {
-        sheet: Frame::new(sheet_x, SHEET_Y, SHEET_W, sheet_h),
+        sheet: Frame::new(sheet_x, place.y, SHEET_W, sheet_h),
         title_w,
         title_at,
         note,
-        flick: Frame::new(sheet_x + s3, SHEET_Y + head_block, flick_w, flick_h),
+        flick: Frame::new(sheet_x + s3, place.y + head_block, flick_w, flick_h),
         slots,
         row_h,
         pitch,
@@ -389,13 +388,13 @@ impl CameraListSurface {
     }
 
     /// The layout of `v`: its words are measured again only when they or the look changed.
-    fn laid_out(&mut self, kit: &mut Kit, v: &View) -> Layout {
+    fn laid_out(&mut self, kit: &mut Kit, v: &View, place: Frame) -> Layout {
         let names: Vec<(&String, &String)> = v.rows.iter().map(|r| (&r.id, &r.name)).collect();
-        let key = format!("{}|{}|{:?}|{:?}|{:?}", kit.generation(), kit.text_scale, v.note, v.empty, names);
+        let key = format!("{}|{}|{:?}|{:?}|{:?}|{:?}", kit.generation(), kit.text_scale, v.note, v.empty, names, place);
         match &self.laid {
             Some((k, lay)) if *k == key => lay.clone(),
             _ => {
-                let lay = layout(kit, v);
+                let lay = layout(kit, v, place);
                 self.laid = Some((key, lay.clone()));
                 lay
             }
@@ -410,7 +409,9 @@ impl CameraListSurface {
             self.drop_all(engine);
             return Ok(false);
         }
-        let lay = self.laid_out(kit, v);
+        // under the camera button: its middle under the button's, its top just under the pill, kept off the screen's edges
+        let place = quick::dropdown(button, SHEET_W, quick::SHEET_H, kit.space(2));
+        let lay = self.laid_out(kit, v, place);
         // The list grows out of the button and goes back into it. While it is on its way in or out it keeps the rectangles it started with (a
         // change of the sheet's height as a camera comes or goes must not restart the motion); at rest and parked it follows the sheet, and a
         // parked list that opens again is made afresh at the start of its motion.
@@ -684,9 +685,9 @@ mod tests {
         assert!(eight <= f64::from(quick::SHEET_H) && eight < 800.0, "{eight}");
         let u = Up::new(Mode::Dark, 1.0, 8);
         let g = u.geometry();
-        let q = quick::sheet();
-        assert_eq!((g["sheet"]["x"].as_f64().unwrap() as f32, g["sheet"]["y"].as_f64().unwrap() as f32, g["sheet"]["w"].as_f64().unwrap() as f32), (q.x, q.y, q.w));
-        assert_eq!(g["sheet"]["x"].as_f64().unwrap() + g["sheet"]["w"].as_f64().unwrap(), 1880.0, "40 from the right edge");
+        let q = quick::dropdown(BUTTON, quick::SHEET_W, quick::SHEET_H, u.kit.space(2));
+        assert_eq!((g["sheet"]["x"].as_f64().unwrap() as f32, g["sheet"]["y"].as_f64().unwrap() as f32, g["sheet"]["w"].as_f64().unwrap() as f32), (q.x, q.y, q.w), "under the button, its middle under the button's");
+        assert_eq!(g["sheet"]["x"].as_f64().unwrap() + g["sheet"]["w"].as_f64().unwrap() / 2.0, f64::from(BUTTON[0] + BUTTON[2] / 2.0), "centred on the button");
         assert_eq!((g["fit"].clone(), u.engine.focus.modal()), (json!(5), Some(SCOPE)));
         let rows = g["rows"].as_array().unwrap();
         let (a, b) = (&rows[0]["frame"], &rows[1]["frame"]);

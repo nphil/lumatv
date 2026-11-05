@@ -181,31 +181,42 @@ def renders(binary, out_dir, modes, scales, n):
     return 1 if problems else 0
 
 
+#: the popups of the bar, by the number of Rights from Search to their button
+POPUPS = {'cameras': 1, 'notifications': 2, 'qs': 3}
+
+
 def pills(binary, out_dir, modes):
     """`pill-<left|centre|right>-<mode>.png`: the top of Home with the status bar placed at each end of its row and in the middle, the focus on the
-    camera button; and `pill-centre-<mode>-cameras.png`: the camera list opened from the centre, at rest."""
+    camera button; and `pill-<left|centre|right>-<mode>-<cameras|notifications|qs>.png`: the popup of a button of the bar opened from it, at rest
+    (the camera list at the three places in both looks, the notifications and Quick Settings from the centre in the dark)."""
     from PIL import Image
     os.makedirs(out_dir, exist_ok=True)
     stills = serving(first_ms=60, later_ms=10)
+    places = (('left', 'top-left'), ('centre', 'top'), ('right', 'top-right'))
     try:
         for mode in modes:
-            for name, anchor in (('left', 'top-left'), ('centre', 'top'), ('right', 'top-right')):
+            jobs = [(name, anchor, None) for name, anchor in places]
+            jobs += [(name, anchor, 'cameras') for name, anchor in places]
+            if mode == 'dark':
+                jobs += [('centre', 'top', 'notifications'), ('centre', 'top', 'qs')]
+            for name, anchor, popup in jobs:
                 tmp = tempfile.mkdtemp(prefix='pill-')
-                shots = {k: os.path.join(tmp, k + '.png') for k in (('closed', 'open') if name == 'centre' else ('closed',))}
-                steps = [H.RustHome.k(7000, 'right'), ['--snap', '8200:' + shots['closed']]]
-                if name == 'centre':
-                    steps += [['--key', '8600:ok', '--key', '8640:ok:up'], ['--snap', '10200:' + shots['open']]]
+                shot = os.path.join(tmp, 'shot.png')
+                steps = [H.RustHome.k(7000, 'right')] if popup is None else [H.RustHome.k(7000, *['right'] * POPUPS[popup])]
+                steps.append(['--snap', '%d:%s' % (8200 if popup is None else 10200, shot)])
+                if popup is not None:
+                    steps.append(['--key', '8600:ok', '--key', '8640:ok:up'])
                 placed = {'layout': {'overlays': {'statusbar': {'anchor': anchor, 'dx': 0, 'dy': 0}}}}
                 for attempt in range(3):
-                    host(binary, mode, 1.0, 10600 if name == 'centre' else 8800, steps, stills, 8, offline=(2,), theme_extra=placed)
+                    host(binary, mode, 1.0, 8800 if popup is None else 10600, steps, stills, 8, offline=(2,), theme_extra=placed)
                     # a picture taken before Home had drawn (a host under load) is black: the run is made again
-                    if all(os.path.exists(p) and mean_of(p) > 5 for p in shots.values()):
+                    if os.path.exists(shot) and mean_of(shot) > 5:
                         break
-                Image.open(shots['closed']).convert('RGB').crop((0, 0, 1920, 340)).save(os.path.join(out_dir, 'pill-%s-%s.png' % (name, mode)))
-                if name == 'centre':
-                    shutil.copy(shots['open'], os.path.join(out_dir, 'pill-centre-%s-cameras.png' % mode))
+                image = Image.open(shot).convert('RGB')
+                out = 'pill-%s-%s%s.png' % (name, mode, '' if popup is None else '-' + popup)
+                (image.crop((0, 0, 1920, 340)) if popup is None else image).save(os.path.join(out_dir, out))
                 shutil.rmtree(tmp, ignore_errors=True)
-                print('pill-%s-%s.png%s' % (name, mode, ' and the camera list from the centre' if name == 'centre' else ''))
+                print(out)
     finally:
         stills.shutdown()
     return 0

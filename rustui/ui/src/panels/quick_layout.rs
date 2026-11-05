@@ -26,8 +26,28 @@ pub const SHEET_H: f32 = 1080.0 - 2.0 * EDGE_Y;
 /// How far the sheet travels to come in: the edge and its own width.
 pub const TRAVEL: f32 = EDGE_X + SHEET_W;
 
+thread_local! {
+    /// Where the sheet is now: under the button it grew out of ([`dropdown`]), set by the surface before it lays itself out.
+    static SHEET: std::cell::Cell<Option<Frame>> = const { std::cell::Cell::new(None) };
+}
+
+/// The sheet's place now: the shipped one (at the right edge, from the top margin) until a surface says where its button is.
 pub fn sheet() -> Frame {
-    Frame::new(1920.0 - EDGE_X - SHEET_W, EDGE_Y, SHEET_W, SHEET_H)
+    SHEET.with(std::cell::Cell::get).unwrap_or_else(|| Frame::new(1920.0 - EDGE_X - SHEET_W, EDGE_Y, SHEET_W, SHEET_H))
+}
+
+/// The sheet is where `f` is from now on.
+pub fn set_sheet(f: Frame) {
+    SHEET.with(|s| s.set(Some(f)));
+}
+
+/// A sheet of `w` by at most `h` under the button it grows out of (`button`, `[x, y, w, h]`, as the status bar lays it out now): its middle under the
+/// button's middle, its top `gap` under the pill the button is in, and kept `EDGE_X` from the sides (against a side where the button is nearer to it
+/// than half the sheet) and `EDGE_Y` from the foot of the screen (shorter where the room runs out).
+pub fn dropdown(button: [f32; 4], w: f32, h: f32, gap: f32) -> Frame {
+    let top = (button[1] + button[3] + crate::home::model::STATUS_INSET + gap).round();
+    let x = (button[0] + button[2] / 2.0 - w / 2.0).round().clamp(EDGE_X, (1920.0 - EDGE_X - w).max(EDGE_X));
+    Frame::new(x, top, w, h.min(1080.0 - EDGE_Y - top).max(0.0))
 }
 
 /// What sits at a row's right.
@@ -411,10 +431,14 @@ pub fn pad_layout(kit: &Kit, inner: f32, avail: f32) -> PadLayout {
 
 /// The card beside the sheet: 48 px from it, level with the second row of the head. `h` is as tall as its content.
 pub fn popup_x(kit: &Kit) -> f32 {
-    sheet().x - (SHEET_W + kit.space(8) + kit.space(2))
+    let (s, room) = (sheet(), SHEET_W + kit.space(8) + kit.space(2));
+    // at the left of the sheet; at its right where the sheet is against the left margin and the left has no room
+    if s.x - room >= EDGE_X { s.x - room } else { s.right() + kit.space(8) + kit.space(2) }
 }
 
-pub const POPUP_Y: f32 = EDGE_Y + 81.0;
+pub fn popup_y() -> f32 {
+    sheet().y + 81.0
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PopupLayout {
@@ -545,7 +569,7 @@ fn popup_layout_with(kit: &mut Kit, p: &PopupView, text_max: usize) -> PopupLayo
         }
     }
     let h = y + kit.space(5);
-    let frame = Frame::new(popup_x(kit), POPUP_Y, w, h);
+    let frame = Frame::new(popup_x(kit), popup_y(), w, h);
     PopupLayout { frame, title, title_w, value: value.map(|v| (v, value_w)), text, slider, options, body_y, scroll: None }
 }
 

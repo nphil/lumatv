@@ -2696,6 +2696,8 @@ mod tests {
             let (_h, mut shell) = home_shell_with("home,drawer,quick,cameras", &placed);
             shell.helper(&Event::Up(true), 1_050);
             shell.helper(&Event::Topic { topic: "profiles".into(), data: profiles_topic() }, 1_100);
+            let cameras: Vec<Value> = (0..8).map(|i| json!({"id": format!("c{i}"), "name": format!("Camera {i}"), "online": true})).collect();
+            shell.helper(&Event::Topic { topic: "cameras".into(), data: json!({"state": "ready", "cameras": cameras}) }, 1_120);
             let (mut at, mut t) = (0usize, 2_000u64);
             // the four popups in the order of the bar: each from its own button by OK, seen drawn, and sent back with Back
             for (kind, surface) in [("cameras", "cameraList"), ("notifications", "drawer"), ("settings", "quick"), ("profile", "home")] {
@@ -2712,9 +2714,33 @@ mod tests {
                 let g = shell.geometry();
                 let origin = numbers(if kind == "profile" { &g["home"]["pickerOrigin"] } else { &g[surface]["origin"] }, &format!("{kind} at {anchor} {dx}"));
                 assert_eq!(centre(&origin), centre(&[f64::from(b.0), f64::from(b.1), f64::from(b.2), f64::from(b.3)]), "{kind} at {anchor} {dx}: grows out of its button {b:?}, not {origin:?}");
+                // the body is under its button: its middle under the button's (against the screen's margin where the button is near one), below the
+                // pill, and whole on the screen
                 if let Some(sheet) = g[surface].get("sheet").filter(|s| s.is_object()) {
-                    let (x, w) = (sheet["x"].as_f64().unwrap(), sheet["w"].as_f64().unwrap());
-                    assert!(x >= 0.0 && x + w <= 1920.0, "{kind} at {anchor} {dx}: the body stays on the screen: {sheet}");
+                    let n = |k: &str| sheet[k].as_f64().unwrap();
+                    let (x, y, w, h) = (n("x"), n("y"), n("w"), n("h"));
+                    let want = centre(&[f64::from(b.0), f64::from(b.1), f64::from(b.2), f64::from(b.3)]).0;
+                    if want - w / 2.0 < 40.0 {
+                        assert_eq!(x, 40.0, "{kind} at {anchor} {dx}: against the left margin: {sheet}");
+                    } else if want + w / 2.0 > 1880.0 {
+                        assert_eq!(x + w, 1880.0, "{kind} at {anchor} {dx}: against the right margin: {sheet}");
+                    } else {
+                        assert!((x + w / 2.0 - want).abs() <= 0.5, "{kind} at {anchor} {dx}: the body's middle {} is under the button's {want}: {sheet}", x + w / 2.0);
+                    }
+                    let pill = shell.home.status_pill();
+                    assert!(y >= f64::from(pill.y + pill.h), "{kind} at {anchor} {dx}: the body starts under the pill: {sheet}");
+                    assert!(x >= 0.0 && x + w <= 1920.0 && y + h <= 1080.0 - 56.0 + 0.5, "{kind} at {anchor} {dx}: the body is whole on the screen: {sheet}");
+                }
+                // a list taller than the sheet still scrolls with the pill where it is
+                if kind == "cameras" {
+                    for _ in 0..7 {
+                        key(&mut shell, "down", t);
+                        t += 100;
+                    }
+                    let list = shell.geometry()["cameraList"].clone();
+                    assert!(list["offset"].as_f64().unwrap() > 0.0, "{anchor} {dx}: eight cameras scroll in the room under the pill: {list}");
+                    let (window, sheet) = (&list["window"], &list["sheet"]);
+                    assert!(window["y"].as_f64().unwrap() + window["h"].as_f64().unwrap() <= sheet["y"].as_f64().unwrap() + sheet["h"].as_f64().unwrap(), "the column stays on the sheet: {list}");
                 }
                 key(&mut shell, "back", t);
                 t += 600;

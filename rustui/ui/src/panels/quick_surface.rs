@@ -669,7 +669,9 @@ impl QuickSurface {
                 let strip_h = view.strip.as_ref().map_or(0.0, |people| lay::strip_layout(kit, people.len(), inner).h + kit.space(2));
                 let tallest = rows.iter().map(|row| row.h).fold(0.0_f32, f32::max);
                 let outside = foot_y - kit.space(4) - cursor - strip_h - height - kit.space(4) < tallest;
-                let x = if outside { sheet.x - inner - kit.space(2) } else { sheet.x + pad };
+                // the pill of the video's facts at the left of the sheet; at its right where the sheet is against the left margin
+                let left = sheet.x - inner - kit.space(2);
+                let x = if outside { if left >= lay::EDGE_X { left } else { sheet.right() + kit.space(2) } } else { sheet.x + pad };
                 let y = if outside { sheet.y + pad } else { cursor };
                 let frame = Frame::new(x, y, inner, height);
                 let fill = if outside { kit.ui.look.colour(PaletteRole::Sheet) } else { focus_wash(kit) };
@@ -977,6 +979,13 @@ impl QuickSurface {
         }
         // The panel grows out of the gear (Home's status bar says where it is now) and goes back into it. While it is on its way in or out it keeps
         // the rectangles it started with; at rest and parked it follows the gear, and a parked panel that opens again is made afresh.
+        // the sheet is under the gear: its middle under the gear's, its top just under the pill, kept off the screen's edges
+        // (the PIN pad at a large text size needs the sheet's whole height, and keeps the top margin then)
+        let mut place = lay::dropdown(gear, lay::SHEET_W, lay::SHEET_H, kit.space(2));
+        if view.pad.is_some() && kit.text_scale > 1.0 {
+            place = Frame::new(place.x, lay::EDGE_Y, place.w, lay::SHEET_H);
+        }
+        lay::set_sheet(place);
         let sheet = lay::sheet();
         let wanted = Arrive::Grow { from: gear, to: [sheet.x, sheet.y, sheet.w, sheet.h] };
         let arrive = match (phase, self.stage.arrive()) {
@@ -1019,7 +1028,7 @@ impl QuickSurface {
             let sig = layouts.iter().map(RowLayout::signature).collect::<Vec<_>>().join("\n");
             self.row_cache = Some(RowCache { generation, text_scale, width: width_bits, rows: rows.to_vec(), layouts, sig });
         }
-        let sig = Self::signature(kit, view, &self.row_cache.as_ref().expect("row cache").sig, info_lines.len());
+        let sig = format!("{}|{:?}", Self::signature(kit, view, &self.row_cache.as_ref().expect("row cache").sig, info_lines.len()), lay::sheet());
         if self.built.as_ref().is_none_or(|b| b.sig != sig) {
             self.drop_built(engine);
             // a click on nothing is Back: the whole screen is a focusable under everything else, absent from the keys
@@ -1442,7 +1451,7 @@ impl QuickSurface {
             c.feed_lint(kit, lint, "quick clock", Some(sheet), (0.0, 0.0));
         }
         if let Some((_, words, frame)) = &b._info {
-            let parent = if frame.x < lay::sheet().x { lint.panel("quick information pill", *frame, paint, false) } else { sheet };
+            let parent = if frame.x < lay::sheet().x || frame.x >= lay::sheet().right() { lint.panel("quick information pill", *frame, paint, false) } else { sheet };
             words.feed_lint(kit, lint, "quick information", Some(parent), (0.0, 0.0));
         }
         if let Some(list) = &b.list {
@@ -1633,7 +1642,8 @@ mod tests {
     fn the_sheet_is_560_wide_and_forty_pixels_from_the_right_edge_and_holds_the_rows_the_foot_and_the_glyphs() {
         let u = Up::new(Mode::Dark, 1.0, false);
         let g = u.s.geometry(&u.engine);
-        assert_eq!(g["sheet"], json!({"x": 1320.0, "y": 56.0, "w": 560.0, "h": 968.0}));
+        let want = lay::dropdown(QuickSurface::GEAR, lay::SHEET_W, lay::SHEET_H, u.kit.space(2));
+        assert_eq!(g["sheet"], json!({"x": want.x, "y": want.y, "w": want.w, "h": want.h}), "under the gear, against the right margin");
         let rows = g["rows"].as_array().expect("rows");
         assert_eq!(rows.len(), u.q.rows(&u.env).len());
         for r in rows.iter().filter(|r| r["visible"] == true) {

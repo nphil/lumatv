@@ -42,7 +42,6 @@ const REGION_HEAD: Region = Region(2200);
 const REGION_LIST: Region = Region(2201);
 const BASE: u32 = 0x2200_0000;
 const SHEET_W: f32 = quick::SHEET_W;
-const SHEET_Y: f32 = quick::EDGE_Y;
 const SHEET_MIN_H: f32 = 240.0;
 const TILE: f32 = 48.0;
 /// Where Home's bell is with the default layout and no profile name yet (`Home::bell_frame`, which the shell hands to the panels each frame): the
@@ -163,7 +162,7 @@ struct Layout {
     empty: Option<Empty>,
 }
 
-fn layout(kit: &mut Kit, v: &View) -> Layout {
+fn layout(kit: &mut Kit, v: &View, place: Frame) -> Layout {
     let (s1, s2, s3, s4, s5, s7) = (kit.space(1), kit.space(2), kit.space(3), kit.space(4), kit.space(5), kit.space(7));
     let ink = kit.ui.look.ink();
     let ink2 = kit.ui.look.ink2();
@@ -171,7 +170,7 @@ fn layout(kit: &mut Kit, v: &View) -> Layout {
     let label_style = role_style(kit, TypeRole::Label, None, ink, Align::Left);
     let caption_style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
     let (title_line, label_line, caption_line) = (kit.line(TypeRole::Title), kit.line(TypeRole::Label), kit.line(TypeRole::Caption));
-    let sheet_x = quick::sheet().x;
+    let sheet_x = place.x;
     let head_y = s4;
     let inner_w = SHEET_W - 2.0 * s5;
     // the head: the button sits beside the title while both fit on a line, else under it (a large text size)
@@ -258,7 +257,7 @@ fn layout(kit: &mut Kit, v: &View) -> Layout {
     let (empty, body_h) = if v.rows == 0 {
         let col_w = SHEET_W - 2.0 * s7;
         let text = wrap::lines(kit, role_style(kit, TypeRole::Caption, None, ink2, Align::Centre), "What your assistants, plugins and this TV tell you shows here.", col_w, 4);
-        let tile_f = Frame::new(sheet_x + s7 + ((col_w - 64.0) / 2.0).round(), SHEET_Y + below_head + s7, 64.0, 64.0);
+        let tile_f = Frame::new(sheet_x + s7 + ((col_w - 64.0) / 2.0).round(), place.y + below_head + s7, 64.0, 64.0);
         let label = Frame::new(sheet_x + s7, tile_f.bottom() + s3, col_w, label_line);
         let text_at = Frame::new(sheet_x + s7, label.bottom() + s3, col_w, text.len() as f32 * caption_line);
         let col_h = text_at.bottom() - tile_f.y;
@@ -266,9 +265,9 @@ fn layout(kit: &mut Kit, v: &View) -> Layout {
     } else {
         (None, s2 + content_h)
     };
-    let sheet_h = SHEET_MIN_H.max(quick::SHEET_H.min(below_head + body_h + s4));
-    let flick = Frame::new(sheet_x + s3, SHEET_Y + below_head + s2, flick_w, (sheet_h - (below_head + s2) - s4).max(1.0));
-    Layout { sheet: Frame::new(sheet_x, SHEET_Y, SHEET_W, sheet_h), title_w, title_at, clear, flick, slots, content_h, empty }
+    let sheet_h = SHEET_MIN_H.max(place.h.min(below_head + body_h + s4));
+    let flick = Frame::new(sheet_x + s3, place.y + below_head + s2, flick_w, (sheet_h - (below_head + s2) - s4).max(1.0));
+    Layout { sheet: Frame::new(sheet_x, place.y, SHEET_W, sheet_h), title_w, title_at, clear, flick, slots, content_h, empty }
 }
 
 /// The part of `f` that shows in `window`; nothing where none of it does.
@@ -531,7 +530,8 @@ impl DrawerSurface {
             self.drop_all(engine);
             return Ok(false);
         }
-        let lay = layout(kit, v);
+        // under the bell: its middle under the bell's, its top just under the pill, kept off the screen's edges
+        let lay = layout(kit, v, quick::dropdown(bell, SHEET_W, quick::SHEET_H, kit.space(2)));
         // The drawer grows out of the bell and goes back into it. While it is on its way in or out it keeps the rectangles it started with (a
         // change of the sheet's height as the audit arrives must not restart the motion); at rest and parked it follows the sheet, and a
         // parked panel that opens again is made afresh at the start of its motion.
@@ -888,12 +888,12 @@ mod tests {
     fn the_sheet_is_the_quick_panels_560_wide_40_from_the_right_edge_from_the_bars_line_and_as_tall_as_what_it_holds() {
         let u = Up::new(Mode::Dark, 1.0);
         let g = u.s.geometry(&u.engine);
-        let q = quick::sheet();
-        assert_eq!((q.x, q.w), (1320.0, 560.0));
-        assert_eq!((g["sheet"]["x"].as_f64().unwrap() as f32, g["sheet"]["y"].as_f64().unwrap() as f32, g["sheet"]["w"].as_f64().unwrap() as f32), (q.x, q.y, q.w), "the quick panel's place and width");
+        let q = quick::dropdown(BELL, quick::SHEET_W, quick::SHEET_H, u.kit.space(2));
+        assert_eq!((q.x, q.w), (1320.0, 560.0), "under the bell, against the right margin");
+        assert_eq!((g["sheet"]["x"].as_f64().unwrap() as f32, g["sheet"]["y"].as_f64().unwrap() as f32, g["sheet"]["w"].as_f64().unwrap() as f32), (q.x, q.y, q.w), "just under the pill, in the bell's column");
         assert_eq!(g["sheet"]["x"].as_f64().unwrap() + g["sheet"]["w"].as_f64().unwrap(), 1880.0, "40 from the right edge");
         let h = g["sheet"]["h"].as_f64().unwrap();
-        assert!((240.0..=968.0).contains(&h), "{h}");
+        assert!((240.0..=f64::from(q.h)).contains(&h), "{h}");
         assert_eq!(g["empty"], false);
         assert_eq!(u.engine.focus.modal(), Some(SCOPE));
         let e = Up::empty(Mode::Dark, 1.0);
@@ -914,13 +914,14 @@ mod tests {
         let mut many = Up::with(crowded_env(30), Mode::Dark, 1.0);
         many.open_all();
         let g = many.s.geometry(&many.engine);
-        assert_eq!(g["sheet"]["h"], quick::SHEET_H as f64, "many notices fill the quick panel's height and no more");
-        assert_eq!(g["sheet"]["y"], quick::EDGE_Y as f64);
+        let full = quick::dropdown(BELL, quick::SHEET_W, quick::SHEET_H, many.kit.space(2));
+        assert_eq!(g["sheet"]["h"], f64::from(full.h), "many notices fill the room under the pill and no more");
+        assert_eq!(g["sheet"]["y"], f64::from(full.y));
         let (w, s) = (many.s.built.as_ref().unwrap().lay.flick, many.s.built.as_ref().unwrap().lay.sheet);
         assert!(w.bottom() <= s.bottom() && w.y >= s.y, "the column stays on the sheet: {w:?} in {s:?}");
         let mut at200 = Up::with(crowded_env(30), Mode::Dark, 2.0);
         at200.open_all();
-        assert_eq!(at200.s.geometry(&at200.engine)["sheet"]["h"], quick::SHEET_H as f64, "and at 200 % text");
+        assert_eq!(at200.s.geometry(&at200.engine)["sheet"]["h"], f64::from(quick::dropdown(BELL, quick::SHEET_W, quick::SHEET_H, at200.kit.space(2)).h), "and at 200 % text");
     }
 
     #[test]
