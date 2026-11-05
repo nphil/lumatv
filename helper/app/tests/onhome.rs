@@ -557,6 +557,61 @@ fn a_lamp_says_its_colour_and_is_asked_for_a_colour_an_effect_and_a_white_in_the
     assert!(done.is_err() && call.is_none(), "an effect it does not list is not asked");
 }
 
+const OWNER: &str = include_str!("fixtures/owner_entities.json");
+
+/// The owner's own lamps and thermostats (`ha_get_state`, 2026-11-04) shared with the TV with light and climate control allowed.
+fn owners() -> Snapshot {
+    let all: Value = serde_json::from_str(OWNER).unwrap();
+    let entities = all
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(id, _)| id.contains('.'))
+        .map(|(id, v)| {
+            let ctl: &[&str] = match &id[..id.find('.').unwrap()] {
+                "light" => &["turn_on", "turn_off", "toggle"],
+                "fan" => &["turn_on", "turn_off", "toggle", "set_percentage"],
+                _ => &["set_temperature", "set_hvac_mode", "turn_on", "turn_off"],
+            };
+            ent(id, v["attributes"]["friendly_name"].as_str().unwrap(), None, v["state"].as_str().unwrap(), v["attributes"].clone(), ctl)
+        })
+        .collect();
+    Snapshot { rev: 1, part: 0, more: false, policy: Policy::default(), areas: vec![], entities }
+}
+
+#[test]
+fn the_owners_own_bulbs_and_thermostats_come_through_with_their_colour_white_range_effects_and_set_points_and_are_asked_within_their_limits() {
+    let r = rig(true, Some(KEY));
+    let mut it = connect(&r);
+    it.send(&Message::Snapshot(owners())).unwrap();
+    wait_for(&r, "shared", |d| d["shared"] == 11);
+    let doc = r.onhome.status();
+    let hue = tile(&doc, "light.master_bedroom_corner_light");
+    assert_eq!((hue["can"].clone(), hue["ctl"]["mode"].clone(), hue["ctl"]["hs"].clone()), (json!(["toggle"]), json!("white"), json!([30.601, 94.547])));
+    assert_eq!((hue["ctl"]["kelvin"]["min"].clone(), hue["ctl"]["kelvin"]["max"].clone(), hue["ctl"]["effects"].as_array().map(Vec::len)), (json!(2000), json!(6535), Some(20)));
+    assert_eq!(tile(&doc, "light.living_room_floor_lamp")["ctl"]["effects"].as_array().map(Vec::len), Some(111), "a floor lamp's effects are all there");
+    let hall = tile(&doc, "climate.living_room_thermostat");
+    assert_eq!((hall["can"].clone(), hall["ctl"]["humidity"].clone(), hall["ctl"]["low"].clone(), hall["ctl"]["high"].clone()), (json!(["sheet"]), json!(77.0), json!(67.0), json!(76.0)));
+    // a white past the usual 6500 K is the Hue bulb's own, and an effect of the floor lamp's hundred is asked as it is named
+    let (done, call) = act_answered(&r, &mut it, "light.master_bedroom_corner_light", "kelvin", json!(6535), true);
+    assert!(done.is_ok(), "{done:?}");
+    let call = call.expect("a call");
+    assert_eq!((call.verb.as_str(), call.args["color_temp_kelvin"].clone()), ("turn_on", json!(6535)));
+    let (done, call) = act_answered(&r, &mut it, "light.living_room_floor_lamp", "effect", json!("ZDP Trio"), true);
+    assert!(done.is_ok() && call.unwrap().args["effect"] == json!("ZDP Trio"));
+    // a thermostat's set point and its range go to the integration as `set_temperature`, inside the unit's own limits
+    let (done, call) = act_answered(&r, &mut it, "climate.nitin_s_office_ac", "temperature", json!(75.5), true);
+    assert!(done.is_ok(), "{done:?}");
+    let call = call.expect("a call");
+    assert_eq!((call.verb.as_str(), call.args["temperature"].clone()), ("set_temperature", json!(75.5)));
+    let (done, call) = act_answered(&r, &mut it, "climate.living_room_thermostat", "range", json!({"low": 68, "high": 77}), true);
+    assert!(done.is_ok(), "{done:?}");
+    let call = call.expect("a call");
+    assert_eq!((call.verb.as_str(), call.args["target_temp_low"].clone(), call.args["target_temp_high"].clone()), ("set_temperature", json!(68.0), json!(77.0)));
+    let (done, call) = act_answered(&r, &mut it, "climate.nitin_s_office_ac", "temperature", json!(90), true);
+    assert!(done.is_err() && call.is_none(), "past the unit's own 86");
+}
+
 // -- history ---------------------------------------------------------------------------------------------------------------------
 
 mod history_rig {

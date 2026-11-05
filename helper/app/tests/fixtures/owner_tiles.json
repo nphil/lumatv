@@ -1,0 +1,572 @@
+[
+  {
+    "area": "Home",
+    "available": true,
+    "can": [
+      "sheet"
+    ],
+    "ctl": {
+      "action": "idle",
+      "current": 74.0,
+      "high": 76.0,
+      "humidity": 77.0,
+      "humidity_target": 50.0,
+      "low": 67.0,
+      "max": 84.0,
+      "min": 64.0,
+      "mode": "heat_cool",
+      "modes": [
+        "off",
+        "heat",
+        "cool",
+        "heat_cool"
+      ],
+      "step": 1.0,
+      "target": null,
+      "unit": "°F"
+    },
+    "group": "climate",
+    "icon": "thermometer",
+    "id": "climate.living_room_thermostat",
+    "name": "Thermostat",
+    "sensitive": [],
+    "tone": "on",
+    "verbs": [
+      "set_temperature",
+      "set_hvac_mode",
+      "set_preset_mode",
+      "set_fan_mode",
+      "turn_on",
+      "turn_off"
+    ],
+    "words": "74° · 67° to 76°"
+  },
+  {
+    "area": "Home",
+    "available": true,
+    "can": [
+      "sheet"
+    ],
+    "ctl": {
+      "action": "",
+      "current": 75.0,
+      "high": null,
+      "humidity": null,
+      "humidity_target": null,
+      "low": null,
+      "max": 109.0,
+      "min": 66.0,
+      "mode": "off",
+      "modes": [
+        "off",
+        "heat",
+        "cool",
+        "dry"
+      ],
+      "step": 1.0,
+      "target": 72.0,
+      "unit": "°F"
+    },
+    "group": "climate",
+    "icon": "thermometer",
+    "id": "climate.master_bedroom_bedjet",
+    "name": "BedJet",
+    "sensitive": [],
+    "tone": "off",
+    "verbs": [
+      "set_temperature",
+      "set_hvac_mode",
+      "set_preset_mode",
+      "set_fan_mode",
+      "turn_on",
+      "turn_off"
+    ],
+    "words": "Off · 75°"
+  },
+  {
+    "area": "Home",
+    "available": true,
+    "can": [
+      "sheet"
+    ],
+    "ctl": {
+      "action": "",
+      "current": 74.5,
+      "high": null,
+      "humidity": null,
+      "humidity_target": null,
+      "low": null,
+      "max": 86.0,
+      "min": 62.5,
+      "mode": "off",
+      "modes": [
+        "off",
+        "heat_cool",
+        "cool",
+        "heat",
+        "fan_only",
+        "dry"
+      ],
+      "step": 0.5,
+      "target": 74.5,
+      "unit": "°F"
+    },
+    "group": "climate",
+    "icon": "thermometer",
+    "id": "climate.nitin_s_office_ac",
+    "name": "AC",
+    "sensitive": [],
+    "tone": "off",
+    "verbs": [
+      "set_temperature",
+      "set_hvac_mode",
+      "set_preset_mode",
+      "set_fan_mode",
+      "turn_on",
+      "turn_off"
+    ],
+    "words": "Off · 74.5°"
+  },
+  {
+    "area": "Home",
+    "available": true,
+    "can": [
+      "toggle"
+    ],
+    "ctl": {
+      "on": true,
+      "percentage": 50,
+      "step": 10.0
+    },
+    "group": "switches",
+    "icon": "fan",
+    "id": "fan.living_room_vent_fan",
+    "name": "Vent Fan",
+    "sensitive": [],
+    "tone": "on",
+    "verbs": [
+      "turn_on",
+      "turn_off",
+      "toggle",
+      "set_percentage",
+      "set_preset_mode",
+      "oscillate",
+      "increase_speed",
+      "decrease_speed"
+    ],
+    "words": "On · 50%"
+  },
+  {
+    "area": "Home",
+    "available": true,
+    "can": [
+      "toggle"
+    ],
+    "ctl": {
+      "on": false,
+      "percentage": 33,
+      "step": 33.333333333333336
+    },
+    "group": "switches",
+    "icon": "fan",
+    "id": "fan.nitin_s_office_fan",
+    "name": "Fan",
+    "sensitive": [],
+    "tone": "off",
+    "verbs": [
+      "turn_on",
+      "turn_off",
+      "toggle",
+      "set_percentage",
+      "set_preset_mode",
+      "oscillate",
+      "increase_speed",
+      "decrease_speed"
+    ],
+    "words": "Off"
+  },
+  {
+    "area": "Home",
+    "available": true,
+    "can": [
+      "toggle"
+    ],
+    "ctl": {
+      "brightness": null,
+      "colour": true,
+      "dimmable": true,
+      "effect": null,
+      "effects": [
+        "blink",
+        "breathe",
+        "okay",
+        "channel_change",
+        "finish_effect",
+        "stop_effect",
+        "colorloop",
+        "stop_colorloop"
+      ],
+      "hs": null,
+      "kelvin": null,
+      "mode": null,
+      "on": false,
+      "rgb": null
+    },
+    "group": "lights",
+    "icon": "lightbulb",
+    "id": "light.isabel_s_office_nightlight",
+    "name": "Nightlight",
+    "sensitive": [],
+    "tone": "off",
+    "verbs": [
+      "turn_on",
+      "turn_off",
+      "toggle"
+    ],
+    "words": "Off"
+  },
+  {
+    "area": "Home",
+    "available": true,
+    "can": [
+      "toggle"
+    ],
+    "ctl": {
+      "brightness": 44,
+      "colour": false,
+      "dimmable": true,
+      "effect": null,
+      "effects": [],
+      "hs": null,
+      "kelvin": null,
+      "mode": null,
+      "on": true,
+      "rgb": [
+        255,
+        177,
+        110
+      ]
+    },
+    "group": "lights",
+    "icon": "lightbulb",
+    "id": "light.kitchen_lights",
+    "name": "Lights",
+    "sensitive": [],
+    "tone": "on",
+    "verbs": [
+      "turn_on",
+      "turn_off",
+      "toggle"
+    ],
+    "words": "On · 44%"
+  },
+  {
+    "area": "Home",
+    "available": true,
+    "can": [
+      "toggle"
+    ],
+    "ctl": {
+      "brightness": null,
+      "colour": true,
+      "dimmable": true,
+      "effect": null,
+      "effects": [
+        "Dracarys",
+        "Green Reign",
+        "Fire & Blood",
+        "Venus",
+        "Neptune",
+        "Earth B",
+        "Nebula",
+        "Starry Sky",
+        "Meteor",
+        "Milky Way",
+        "Space Walk",
+        "Cosmic Echoes",
+        "Interstellar Voyage",
+        "Vast Cosmos",
+        "Mercury",
+        "Earth",
+        "Mars",
+        "Jupiter",
+        "Saturn",
+        "Uranus",
+        "Dusk",
+        "Desert",
+        "Star",
+        "Water Drop",
+        "Sunset",
+        "Sunrise",
+        "Aurora B",
+        "Aurora C",
+        "Aurora D",
+        "Sunny",
+        "Forest",
+        "Ocean",
+        "Sunset Glow",
+        "Aurora",
+        "Rainbow",
+        "Cornfield",
+        "Glacier",
+        "Bonfire",
+        "Stream",
+        "Cherry blossoms",
+        "Waterfall",
+        "Firefly",
+        "Snowing",
+        "Moonlight",
+        "Ghost",
+        "Christmas B",
+        "Halloween B",
+        "Heartbeat",
+        "New Years",
+        "Christmas",
+        "Candy Cane",
+        "Christmas Bell",
+        "Halloween",
+        "Graveyard",
+        "Easter",
+        "Thanksgiving",
+        "Carnival",
+        "Valentine's Day",
+        "Father's Day",
+        "Mother's Day",
+        "Saint Patrick's Day",
+        "Birthday",
+        "Family Day",
+        "Party",
+        "Dance Party",
+        "Candlelight",
+        "Classic Christmas",
+        "Mother's Hug",
+        "White Light",
+        "Leisure",
+        "Soothing",
+        "Mysterious",
+        "Healing",
+        "Peaceful",
+        "Spritual",
+        "Joyful",
+        "Meditation",
+        "Dreamland",
+        "Gradient",
+        "Breathe",
+        "Twinkle",
+        "Graffiti",
+        "Flow",
+        "Alternate",
+        "Gleam",
+        "Cover",
+        "Colorful",
+        "Crossing",
+        "Sleep",
+        "Yoga",
+        "Colorful Clouds",
+        "Moonlight Sprinkles",
+        "Floating Mist",
+        "Radiance",
+        "Wheat Wave",
+        "Mild",
+        "Meditation (1)",
+        "Refreshing",
+        "Clear Sky",
+        "Moonlit Night",
+        "Fascination",
+        "Spring Tour",
+        "Dreamlike",
+        "Blue Sky & White Clouds",
+        "Dense fog",
+        "Flash",
+        "Gary",
+        "Judy",
+        "Nick",
+        "ZDP Duo",
+        "ZDP Trio"
+      ],
+      "hs": null,
+      "kelvin": {
+        "max": 6500,
+        "min": 2700,
+        "now": null
+      },
+      "mode": null,
+      "on": false,
+      "rgb": null
+    },
+    "group": "lights",
+    "icon": "lightbulb",
+    "id": "light.living_room_floor_lamp",
+    "name": "Floor Lamp",
+    "sensitive": [],
+    "tone": "off",
+    "verbs": [
+      "turn_on",
+      "turn_off",
+      "toggle"
+    ],
+    "words": "Off"
+  },
+  {
+    "area": "Home",
+    "available": true,
+    "can": [
+      "toggle"
+    ],
+    "ctl": {
+      "brightness": 100,
+      "colour": true,
+      "dimmable": true,
+      "effect": "opal",
+      "effects": [
+        "blink",
+        "breathe",
+        "okay",
+        "channel_change",
+        "candle",
+        "fireplace",
+        "colorloop",
+        "sunset",
+        "sunrise",
+        "sparkle",
+        "opal",
+        "glisten",
+        "underwater",
+        "cosmos",
+        "sunbeam",
+        "enchant",
+        "none",
+        "finish_effect",
+        "stop_effect",
+        "stop_hue_effect"
+      ],
+      "hs": [
+        30.601,
+        94.547
+      ],
+      "kelvin": {
+        "max": 6535,
+        "min": 2000,
+        "now": 2000
+      },
+      "mode": "white",
+      "on": true,
+      "rgb": [
+        255,
+        137,
+        14
+      ]
+    },
+    "group": "lights",
+    "icon": "lightbulb",
+    "id": "light.master_bedroom_corner_light",
+    "name": "Corner Light",
+    "sensitive": [],
+    "tone": "on",
+    "verbs": [
+      "turn_on",
+      "turn_off",
+      "toggle"
+    ],
+    "words": "On · 100%"
+  },
+  {
+    "area": "Home",
+    "available": false,
+    "can": [],
+    "ctl": {
+      "brightness": null,
+      "colour": true,
+      "dimmable": true,
+      "effect": null,
+      "effects": [
+        "Bedtime",
+        "Color Burst",
+        "Falling Whites",
+        "Fireworks",
+        "Fireworks and Firecrackers",
+        "Flames",
+        "Forest",
+        "Inner Peace",
+        "Meteor Shower",
+        "Nemo",
+        "Northern Lights",
+        "Paint Splatter",
+        "Pulse Pop Beats",
+        "Radial Sound Bar",
+        "Rhythmic Northern Lights",
+        "Romantic",
+        "Sound Bar",
+        "Streaking Notes"
+      ],
+      "hs": null,
+      "kelvin": {
+        "max": 6500,
+        "min": 1200,
+        "now": null
+      },
+      "mode": null,
+      "on": false,
+      "rgb": null
+    },
+    "group": "lights",
+    "icon": "lightbulb",
+    "id": "light.nitin_s_office_canvas_lights",
+    "name": "Office Canvas Lights",
+    "sensitive": [],
+    "tone": "muted",
+    "verbs": [],
+    "words": "Unavailable"
+  },
+  {
+    "area": "Home",
+    "available": true,
+    "can": [
+      "toggle"
+    ],
+    "ctl": {
+      "brightness": 5,
+      "colour": true,
+      "dimmable": true,
+      "effect": null,
+      "effects": [
+        "off",
+        "Thunderstorm",
+        "Lightning",
+        "Sun and lightning",
+        "Colour cycle",
+        "Mostly sunny",
+        "Partly sunny",
+        "Partly cloudy",
+        "Mostly cloudy",
+        "Full moon",
+        "Half moon",
+        "Crescent moon"
+      ],
+      "hs": [
+        236.941,
+        100.0
+      ],
+      "kelvin": null,
+      "mode": "colour",
+      "on": true,
+      "rgb": [
+        0,
+        13,
+        255
+      ]
+    },
+    "group": "lights",
+    "icon": "lightbulb",
+    "id": "light.plant_room_aquarium_light",
+    "name": "Aquarium Light",
+    "sensitive": [],
+    "tone": "on",
+    "verbs": [
+      "turn_on",
+      "turn_off",
+      "toggle"
+    ],
+    "words": "On · 5%"
+  }
+]

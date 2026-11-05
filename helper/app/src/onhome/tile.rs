@@ -117,7 +117,7 @@ pub struct Ent {
     pub attrs: Map<String, Value>,
 }
 
-const KEPT: [&str; 30] = [
+const KEPT: [&str; 32] = [
     "friendly_name",
     "device_class",
     "state_class",
@@ -129,6 +129,7 @@ const KEPT: [&str; 30] = [
     "max_color_temp_kelvin",
     "supported_color_modes",
     "rgb_color",
+    "hs_color",
     "effect",
     "effect_list",
     "percentage",
@@ -143,6 +144,7 @@ const KEPT: [&str; 30] = [
     "hvac_modes",
     "hvac_action",
     "current_humidity",
+    "humidity",
     "current_position",
     "media_title",
     "media_artist",
@@ -154,14 +156,20 @@ fn short(text: &str) -> bool {
     text.chars().count() <= 128
 }
 
+/// The most effects of a lamp a tile lists (the integration sends at most this many: `lumashow-ha` `attributes.py`; the longest at the owner's has 111).
+pub const EFFECTS_MAX: usize = 128;
+
 /// Whether an attribute is one the tiles use, and plain enough to keep (a short text, a number, a flag, a short list of short words or of
-/// numbers: a colour is three).
+/// numbers: a colour is three; a lamp's effects are the one long list, of names).
 pub fn keeps(name: &str, value: &Value) -> bool {
     KEPT.contains(&name)
         && match value {
             Value::String(s) => short(s),
             Value::Number(_) | Value::Bool(_) => true,
-            Value::Array(list) => list.len() <= 16 && (list.iter().all(|v| v.as_str().is_some_and(|s| s.chars().count() <= 64)) || list.iter().all(Value::is_number)),
+            Value::Array(list) => {
+                let words = list.iter().all(|v| v.as_str().is_some_and(|s| s.chars().count() <= 64));
+                if name == "effect_list" { list.len() <= EFFECTS_MAX && words } else { list.len() <= 16 && (words || list.iter().all(Value::is_number)) }
+            }
             _ => false,
         }
 }
@@ -238,7 +246,7 @@ fn clip(text: &str, max: usize) -> String {
     out
 }
 
-/// The warm and the cool end of a white lamp's slider.
+/// The warm and the cool end of a white lamp's slider when the lamp lists no limits of its own.
 const KELVIN: (i64, i64) = (2000, 6500);
 
 /// The colour modes that take a colour of their own (a wheel); `color_temp` and `brightness` are the others.
@@ -246,6 +254,14 @@ const COLOUR_MODES: [&str; 5] = ["hs", "rgb", "rgbw", "rgbww", "xy"];
 
 /// What a lamp that says nothing of its colour shows: a warm white.
 const WARM_WHITE: i64 = 3000;
+
+/// The ends of a white lamp's slider: the lamp's own limits (the integration sends them), each inside what `turn_on` takes (1000 to 12000 K),
+/// else the usual ones. The owner's own lamps run from 1200 K to 6535 K.
+fn kelvin_range(e: &Ent) -> (i64, i64) {
+    let end = |key: &str, usual: i64| e.num(key).filter(|k| (1000.0..=12000.0).contains(k)).map_or(usual, |k| k.round() as i64);
+    let (lo, hi) = (end("min_color_temp_kelvin", KELVIN.0), end("max_color_temp_kelvin", KELVIN.1));
+    if lo < hi { (lo, hi) } else { KELVIN }
+}
 
 /// The light of a white at `kelvin` as sRGB (Tanner Helland's fit, good from 1000 to 12000 K).
 pub fn kelvin_rgb(kelvin: f64) -> [u8; 3] {
@@ -333,8 +349,8 @@ fn light(e: &Ent) -> Said {
     let modes = e.list("supported_color_modes");
     let dimmable = if modes.is_empty() { e.attrs.contains_key("brightness") } else { modes.iter().any(|m| *m != "onoff") };
     let level = e.num("brightness").map(pct);
-    // the integration sends no range: the usual one for a white lamp, inside what its `turn_on` takes (1000 to 12000)
-    let kelvin = modes.contains(&"color_temp").then(|| json!({"now": e.num("color_temp_kelvin").map(|k| k.round() as i64), "min": KELVIN.0, "max": KELVIN.1}));
+    let (lo, hi) = kelvin_range(e);
+    let kelvin = modes.contains(&"color_temp").then(|| json!({"now": e.num("color_temp_kelvin").map(|k| k.round() as i64), "min": lo, "max": hi}));
     let words = match (on, dimmable, level) {
         (true, true, Some(p)) => format!("On \u{b7} {p}%"),
         (true, _, _) => "On".into(),
@@ -345,11 +361,21 @@ fn light(e: &Ent) -> Said {
         [r, g, b] => [*r, *g, *b].map(|c| c.clamp(0.0, 255.0).round() as u8),
         _ => kelvin_rgb(e.num("color_temp_kelvin").unwrap_or(WARM_WHITE as f64)),
     });
-    let effects: Vec<&str> = e.list("effect_list").into_iter().filter(|f| !f.is_empty()).take(16).collect();
+    // where the colour wheel's marker stands (hue in degrees, saturation in percent), and whether the lamp is showing a colour or a white
+    let hs = on.then(|| match e.numbers("hs_color").as_slice() {
+        [h, s] => Some([h.rem_euclid(360.0), s.clamp(0.0, 100.0)]),
+        _ => None,
+    });
+    let mode = match e.text("color_mode") {
+        Some(m) if COLOUR_MODES.contains(&m) => Some("colour"),
+        Some("color_temp") => Some("white"),
+        _ => None,
+    };
+    let effects: Vec<&str> = e.list("effect_list").into_iter().filter(|f| !f.is_empty()).take(EFFECTS_MAX).collect();
     let effect = e.text("effect").filter(|f| !f.eq_ignore_ascii_case("none") && !f.eq_ignore_ascii_case("off"));
     let ctl = json!({
         "on": on, "dimmable": dimmable, "brightness": if on { level } else { None }, "kelvin": kelvin,
-        "colour": modes.iter().any(|m| COLOUR_MODES.contains(m)), "rgb": rgb, "effect": effect, "effects": effects,
+        "colour": modes.iter().any(|m| COLOUR_MODES.contains(m)), "rgb": rgb, "hs": hs.flatten(), "mode": if on { mode } else { None }, "effect": effect, "effects": effects,
     });
     said(words, tone, "lightbulb", vec!["toggle"], ctl)
 }
@@ -481,6 +507,7 @@ fn climate(e: &Ent, unit: &str) -> Said {
         "mode": e.state, "modes": modes, "current": current, "target": target, "low": low, "high": high,
         "min": e.num("min_temp").unwrap_or(if fahrenheit { 50.0 } else { 10.0 }), "max": e.num("max_temp").unwrap_or(if fahrenheit { 90.0 } else { 32.0 }),
         "step": e.num("target_temp_step").unwrap_or(if fahrenheit { 1.0 } else { 0.5 }), "unit": deg, "action": action,
+        "humidity": e.num("current_humidity"), "humidity_target": e.num("humidity"),
     });
     if e.gone() {
         return said("Unavailable", "muted", "thermometer", vec![], json!({}));
@@ -568,9 +595,9 @@ pub fn tile(id: &str, name: Option<&str>, area: Option<&str>, ent: Option<&Ent>,
     let group = Group::of_domain(domain);
     let name = name.map(str::to_owned).or_else(|| ent.and_then(|e| e.name().map(str::to_owned))).unwrap_or_else(|| id.to_owned());
     let mut tile = json!({"id": id, "name": name, "area": area, "group": group.map(Group::id)});
-    let (words, tone, icon, can, ctl_doc, available) = match (reach, ent) {
-        (Reach::Waiting(why), _) => (why.to_owned(), "muted", say(domain, &Ent::default(), unit).icon, Vec::new(), json!({}), false),
-        (Reach::Live, None) => ("Not shared any more".to_owned(), "muted", say(domain, &Ent::default(), unit).icon, Vec::new(), json!({}), false),
+    let (words, tone, icon, can, ctl_doc, available, denied) = match (reach, ent) {
+        (Reach::Waiting(why), _) => (why.to_owned(), "muted", say(domain, &Ent::default(), unit).icon, Vec::new(), json!({}), false, None),
+        (Reach::Live, None) => ("Not shared any more".to_owned(), "muted", say(domain, &Ent::default(), unit).icon, Vec::new(), json!({}), false, None),
         (Reach::Live, Some(e)) => {
             let mut s = say(domain, e, unit);
             let available = !e.gone();
@@ -578,8 +605,11 @@ pub fn tile(id: &str, name: Option<&str>, area: Option<&str>, ent: Option<&Ent>,
                 s.words = "Unavailable".into();
                 s.tone = "muted";
             }
-            let can: Vec<&'static str> = if available && !barred(domain, id, e) { s.can.into_iter().filter(|v| offered(v, ctl)).collect() } else { Vec::new() };
-            (s.words, s.tone, s.icon, can, s.ctl, available)
+            let (asked, refused) = (!s.can.is_empty(), barred(domain, id, e));
+            let can: Vec<&'static str> = if available && !refused { s.can.into_iter().filter(|v| offered(v, ctl)).collect() } else { Vec::new() };
+            // a thing that has something to press and may not be (Home Assistant allows the TV nothing on it, or the TV never operates it) says why
+            let denied = (available && asked && can.is_empty()).then_some(if refused { NOT_FROM_THE_TV } else { READ_ONLY });
+            (s.words, s.tone, s.icon, can, s.ctl, available, denied)
         }
     };
     // A lock: locking is one press when it is open; when it is locked a press asks whether to unlock (the sheet, with its question first).
@@ -600,6 +630,9 @@ pub fn tile(id: &str, name: Option<&str>, area: Option<&str>, ent: Option<&Ent>,
     map.insert("verbs".into(), json!(if domain == "lock" && available { ctl.iter().filter(|v| *v == "lock").cloned().collect::<Vec<_>>() } else if can.is_empty() { Vec::new() } else { ctl.to_vec() }));
     map.insert("sensitive".into(), json!(if unlockable && available { vec!["unlock"] } else { Vec::new() }));
     map.insert("ctl".into(), ctl_doc);
+    if let Some(why) = denied {
+        map.insert("why".into(), json!(why));
+    }
     tile
 }
 
@@ -660,6 +693,9 @@ impl Refused {
 }
 
 const NOT_FROM_THE_TV: &str = "Doors, alarms and cameras are not operated from the TV";
+
+/// Said of a thing the TV is shown but Home Assistant lets it do nothing to (no control allowed for its kind, or held read-only).
+const READ_ONLY: &str = "Home Assistant does not let the TV control this";
 
 /// Words that make a switch, a script or a scene one the TV does not run: it unlocks, disarms or switches off a camera or an alarm.
 const HUMAN_ONLY: [&str; 11] = ["lock", "unlock", "locks", "disarm", "alarm", "siren", "camera", "cameras", "garage", "gate", "deadbolt"];
@@ -772,7 +808,8 @@ fn planned(id: &str, e: &Ent, unit: &str, verb: &str, value: &Value) -> Result<C
             if !e.list("supported_color_modes").contains(&"color_temp") {
                 return Err(no);
             }
-            call("light", "turn_on", &[("color_temp_kelvin", json!(whole(value, KELVIN.0 as f64, KELVIN.1 as f64, "That colour temperature is out of range")?))])
+            let (lo, hi) = kelvin_range(e);
+            call("light", "turn_on", &[("color_temp_kelvin", json!(whole(value, lo as f64, hi as f64, "That colour temperature is out of range")?))])
         }
         ("light", "colour") => {
             let modes = e.list("supported_color_modes");
@@ -1173,5 +1210,125 @@ mod tests {
         assert_eq!((t["ctl"]["unit"].clone(), t["ctl"]["step"].clone()), (json!("\u{b0}C"), json!(0.5)));
         assert_eq!(plan("climate.t", &c, &all_ctl(), "", "temperature", &json!(22)).unwrap().data["temperature"], json!(22.0));
         assert!(plan("climate.t", &c, &all_ctl(), "", "temperature", &json!(70)).is_err(), "70 is not a room in Celsius");
+    }
+
+    const OWNER: &str = include_str!("../../tests/fixtures/owner_entities.json");
+    const OWNER_TILES: &str = include_str!("../../tests/fixtures/owner_tiles.json");
+
+    /// The owner's own entities as Home Assistant reported them (`ha_get_state`, 2026-11-04), as the entities the helper keeps.
+    fn owner() -> Vec<(String, Ent)> {
+        let all: Value = serde_json::from_str(OWNER).expect("the owner's entities");
+        all.as_object().unwrap().iter().filter(|(id, _)| domain_of(id).is_some()).map(|(id, v)| (id.clone(), ent(v["state"].as_str().unwrap(), Value::Object(kept(v["attributes"].as_object().unwrap()))))).collect()
+    }
+
+    /// What Home Assistant lets the TV do on them once light and climate control are allowed (`lumashow-ha` `policy.py`).
+    fn owner_ctl(id: &str) -> Vec<String> {
+        let verbs: &[&str] = match domain_of(id) {
+            Some("light") => &["turn_on", "turn_off", "toggle"],
+            Some("fan") => &["turn_on", "turn_off", "toggle", "set_percentage", "set_preset_mode", "oscillate", "increase_speed", "decrease_speed"],
+            Some("climate") => &["set_temperature", "set_hvac_mode", "set_preset_mode", "set_fan_mode", "turn_on", "turn_off"],
+            _ => &[],
+        };
+        verbs.iter().map(|v| (*v).to_owned()).collect()
+    }
+
+    fn owner_ent(id: &str) -> Ent {
+        owner().into_iter().find(|(i, _)| i == id).map(|(_, e)| e).expect("an entity of the fixture")
+    }
+
+    fn owner_tile(id: &str) -> Value {
+        tile(id, None, Some("Home"), Some(&owner_ent(id)), &owner_ctl(id), &[], "\u{b0}F", Reach::Live)
+    }
+
+    /// The tiles the card is tested with are the ones the helper makes of the owner's own entities: `tests/fixtures/owner_tiles.json`, which the
+    /// UI's tests read too. `BLESS_OWNER_TILES=1 cargo test` writes it again after a change of what a tile says.
+    #[test]
+    fn the_owners_own_lamps_and_thermostats_make_the_tiles_the_card_is_tested_with() {
+        let tiles = Value::Array(owner().iter().map(|(id, _)| owner_tile(id)).collect());
+        if std::env::var_os("BLESS_OWNER_TILES").is_some() {
+            std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/owner_tiles.json"), serde_json::to_string_pretty(&tiles).unwrap() + "\n").unwrap();
+            return;
+        }
+        assert_eq!(tiles, serde_json::from_str::<Value>(OWNER_TILES).expect("the file"), "BLESS_OWNER_TILES=1 cargo test writes the file again");
+    }
+
+    #[test]
+    fn a_lamp_says_its_hue_whether_it_shows_a_colour_or_a_white_its_own_limits_and_all_of_its_effects() {
+        let hue = owner_tile("light.master_bedroom_corner_light");
+        let c = &hue["ctl"];
+        assert_eq!((c["mode"].clone(), c["hs"].clone(), c["kelvin"].clone()), (json!("white"), json!([30.601, 94.547]), json!({"now": 2000, "min": 2000, "max": 6535})));
+        assert_eq!((c["effect"].clone(), c["effects"].as_array().map(Vec::len), c["colour"].clone()), (json!("opal"), Some(20), json!(true)));
+        // a lamp that is off has no colour, mode or hue to say; its white still has its range, and its effects are all there
+        let floor = owner_tile("light.living_room_floor_lamp");
+        let c = &floor["ctl"];
+        assert_eq!((c["mode"].clone(), c["hs"].clone(), c["rgb"].clone(), c["kelvin"].clone()), (Value::Null, Value::Null, Value::Null, json!({"now": null, "min": 2700, "max": 6500})));
+        assert_eq!(c["effects"].as_array().map(Vec::len), Some(111));
+        let aquarium = owner_tile("light.plant_room_aquarium_light");
+        let c = &aquarium["ctl"];
+        assert_eq!((c["mode"].clone(), c["hs"].clone(), c["kelvin"].clone(), c["effect"].clone()), (json!("colour"), json!([236.941, 100.0]), Value::Null, Value::Null), "an effect that is \"off\" is none");
+        assert_eq!(aquarium["words"], json!("On \u{b7} 5%"));
+        // a lamp that Home Assistant cannot reach has nothing to press or hold
+        let canvas = owner_tile("light.nitin_s_office_canvas_lights");
+        assert_eq!((canvas["available"].clone(), canvas["can"].clone(), canvas["ctl"]["kelvin"].clone()), (json!(false), json!([]), json!({"now": null, "min": 1200, "max": 6500})));
+        // a limit that is no limit (one end alone, upside down, out of what turn_on takes) is not taken
+        for attrs in [json!({"min_color_temp_kelvin": 3000}), json!({"min_color_temp_kelvin": 6000, "max_color_temp_kelvin": 3000}), json!({"min_color_temp_kelvin": 10, "max_color_temp_kelvin": 90000})] {
+            let t = live("light.l", &ent("on", json!({"supported_color_modes": ["color_temp"], "min_color_temp_kelvin": attrs["min_color_temp_kelvin"], "max_color_temp_kelvin": attrs["max_color_temp_kelvin"]})));
+            let (lo, hi) = (t["ctl"]["kelvin"]["min"].as_i64().unwrap(), t["ctl"]["kelvin"]["max"].as_i64().unwrap());
+            assert!(lo < hi && lo >= 1000 && hi <= 12000, "{attrs}: {lo} {hi}");
+        }
+        assert!(keeps("effect_list", &json!(vec!["a"; EFFECTS_MAX])) && !keeps("effect_list", &json!(vec!["a"; EFFECTS_MAX + 1])), "the one list that may be long");
+        assert!(!keeps("hvac_modes", &json!(vec!["a"; 17])) && !keeps("effect_list", &json!(["x".repeat(65)])));
+    }
+
+    #[test]
+    fn a_white_is_asked_for_inside_the_lamps_own_range_and_not_outside_it() {
+        let ask = |id: &str, k: i64| plan(id, &owner_ent(id), &owner_ctl(id), "\u{b0}F", "kelvin", &json!(k));
+        let hue = "light.master_bedroom_corner_light";
+        assert_eq!(ask(hue, 6535).unwrap().data["color_temp_kelvin"], json!(6535), "the Hue bulb's cool end is past the usual 6500");
+        assert_eq!(ask(hue, 2000).unwrap().data["color_temp_kelvin"], json!(2000));
+        assert!(ask(hue, 6536).is_err() && ask(hue, 1999).is_err());
+        // (the Canvas was away when its attributes were read: asked as if it were on)
+        let canvas = "light.nitin_s_office_canvas_lights";
+        let near = Ent { state: "on".into(), ..owner_ent(canvas) };
+        assert_eq!(plan(canvas, &near, &owner_ctl(canvas), "\u{b0}F", "kelvin", &json!(1200)).unwrap().data["color_temp_kelvin"], json!(1200), "the Canvas goes warmer than the usual 2000");
+        assert!(ask("light.living_room_floor_lamp", 2699).is_err() && ask("light.living_room_floor_lamp", 2700).is_ok());
+        // an effect is any of the lamp's own hundred and eleven, and nothing else
+        let floor = "light.living_room_floor_lamp";
+        let effect = |name: &str| plan(floor, &owner_ent(floor), &owner_ctl(floor), "\u{b0}F", "effect", &json!(name));
+        assert_eq!(effect("ZDP Trio").unwrap().data["effect"], json!("ZDP Trio"));
+        assert!(effect("ZDP Quartet").is_err());
+    }
+
+    #[test]
+    fn a_thermostat_says_its_limits_its_step_and_its_humidity_and_is_asked_for_a_set_point_or_a_range_inside_them() {
+        let hall = owner_tile("climate.living_room_thermostat");
+        let c = &hall["ctl"];
+        assert_eq!((hall["words"].as_str(), hall["can"].clone()), (Some("74\u{b0} \u{b7} 67\u{b0} to 76\u{b0}"), json!(["sheet"])));
+        assert_eq!((c["mode"].clone(), c["low"].clone(), c["high"].clone(), c["target"].clone()), (json!("heat_cool"), json!(67.0), json!(76.0), Value::Null));
+        assert_eq!((c["min"].clone(), c["max"].clone(), c["step"].clone(), c["unit"].clone()), (json!(64.0), json!(84.0), json!(1.0), json!("\u{b0}F")));
+        assert_eq!((c["humidity"].clone(), c["humidity_target"].clone(), c["modes"].clone()), (json!(77.0), json!(50.0), json!(["off", "heat", "cool", "heat_cool"])));
+        assert_eq!(owner_tile("climate.nitin_s_office_ac")["ctl"]["step"], json!(0.5));
+        assert!(owner_tile("climate.master_bedroom_bedjet")["ctl"]["humidity"].is_null(), "a thermostat with no humidity says none");
+        let ask = |id: &str, verb: &str, value: Value| plan(id, &owner_ent(id), &owner_ctl(id), "\u{b0}F", verb, &value);
+        let ac = ask("climate.nitin_s_office_ac", "temperature", json!(75.5)).unwrap();
+        assert_eq!((ac.service, ac.data["temperature"].clone()), ("set_temperature", json!(75.5)));
+        assert!(ask("climate.nitin_s_office_ac", "temperature", json!(62.0)).is_err() && ask("climate.nitin_s_office_ac", "temperature", json!(86.5)).is_err(), "inside the unit's own 62.5 to 86");
+        let range = ask("climate.living_room_thermostat", "range", json!({"low": 68, "high": 77})).unwrap();
+        assert_eq!((range.service, range.data["target_temp_low"].clone(), range.data["target_temp_high"].clone()), ("set_temperature", json!(68.0), json!(77.0)));
+        assert_eq!(ask("climate.living_room_thermostat", "hvac_mode", json!("cool")).unwrap().service, "set_hvac_mode");
+        assert!(ask("climate.living_room_thermostat", "hvac_mode", json!("dry")).is_err(), "only a mode the thermostat lists");
+    }
+
+    #[test]
+    fn a_thing_that_may_not_be_switched_says_why_and_one_that_may_says_nothing() {
+        let lamp = ent("on", json!({"supported_color_modes": ["brightness"]}));
+        let said = |id: &str, e: &Ent, ctl: &[String]| tile(id, None, None, Some(e), ctl, &[], "", Reach::Live).get("why").cloned();
+        assert_eq!(said("light.l", &lamp, &[]), Some(json!("Home Assistant does not let the TV control this")), "shown, and no kind of it allowed");
+        assert_eq!(said("fan.f", &ent("off", json!({})), &[]), Some(json!("Home Assistant does not let the TV control this")));
+        assert_eq!(said("climate.hall", &ent("heat", json!({})), &[]), Some(json!("Home Assistant does not let the TV control this")));
+        assert_eq!(said("light.l", &lamp, &all_ctl()), None);
+        assert_eq!(said("switch.garage_door", &ent("off", json!({"friendly_name": "Garage door"})), &all_ctl()), Some(json!(NOT_FROM_THE_TV)), "the TV never operates it, whatever Home Assistant allows");
+        assert_eq!(said("light.l", &ent("unavailable", json!({})), &[]), None, "a thing that is away says that, not this");
+        assert_eq!(said("sensor.t", &ent("21", json!({})), &[]), None, "a sensor has nothing to press");
     }
 }
