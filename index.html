@@ -43,7 +43,7 @@
     <section class="row glass focusable" id="row-apply" tabindex="0" data-role="apply">
       <div class="row-main">
         <span class="row-title">Open {{displayName}}</span>
-        <span class="row-sub">Enable the native compositor or open Home if it is already running</span>
+        <span class="row-sub">Start {{displayName}} if it is not running, then open its Home</span>
       </div>
       <span class="row-chevron">&#8250;</span>
     </section>
@@ -124,7 +124,20 @@
     <div class="overlay-panel glass busy-panel">
       <div class="spinner"></div>
       <h2>Opening {{displayName}}</h2>
-      <p>If the compositor needs to start, the screen will flash and Home will restart. Please wait.</p>
+      <p id="apply-busy-text">If the compositor needs to start, the screen will flash and Home will restart. Please wait.</p>
+    </div>
+  </div>
+
+  <!-- The start failed: the way out is LG's own Home -->
+  <div class="overlay" id="overlay-enter-failed" hidden>
+    <div class="overlay-panel glass danger-panel">
+      <h2>{{displayName}} did not start</h2>
+      <p id="enter-failed-reason"></p>
+      <p>LG's Home is where it was. Back returns to it.</p>
+      <div class="overlay-actions">
+        <button class="overlay-btn focusable" id="enter-retry" tabindex="0" data-role="enter-retry">Try again</button>
+        <button class="overlay-btn focusable" id="enter-lg" tabindex="0" data-role="enter-lg">Open LG's Home</button>
+      </div>
     </div>
   </div>
 
@@ -178,6 +191,7 @@
   <div class="toast" id="toast" hidden></div>
 
 </div>
+<script src="launch.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

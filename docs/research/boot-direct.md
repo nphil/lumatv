@@ -1,12 +1,14 @@
 # Boot direct: LumaTV from the first frame, LG's Flutter Home a fallback only
 
-Built behind a flag that is off by default: `lumatv boot-direct on|off|status`, which writes `/var/lib/lumatv/boot-direct` (the line `on`, and
-a `tool PATH` line naming `tools/lumatv`). With the flag off the boot, the compositor and the keys are what ran on 2026-11-03; the tests that
-pin that are unchanged. **Nothing here has run on the TV.** Host tests: `tests/test_boot_direct.py` (the tool), the rows of
-`tests/test_native_startup.py` (the boot worker's order), `boot_direct.rs` and `tests/boot_direct.rs` in the compositor.
+Built behind a flag that is off by default: `lumatv boot-direct on|off|status`, which writes `/var/lib/lumatv/boot-direct` (the line `on`). With the
+flag off the boot, the compositor and the keys are what ran on 2026-11-03; the tests that pin that are unchanged. **Nothing here has run on the
+TV.** Host tests: `tests/test_boot_direct.py` (the tool, and the escape's part of it), the rows of `tests/test_native_startup.py` (the boot
+worker's order), `tests/test_stock_ui_restore.py`, `tests/test_launcher_app.py`, `boot_direct.rs` and `tests/boot_direct.rs` in the compositor and
+the supervisor's own tests (`compositor/sm/build.sh` runs them).
 
-**The owner's rule:** LG's Flutter Home never starts, not even briefly. It is a fallback in two cases only: LumaTV's Home is gone (it crashed,
-or the UI died), or Home is held for 5 seconds.
+**The owner's rule:** LG's Flutter Home never starts, not even briefly. It is a fallback in two cases only: LumaTV's Home is gone (it crashed, or
+the UI died), or Home is held for 10 seconds, the supervisor's escape. There is no hold of 5 s and no `home lg|luma`: the compositor has no way
+to LG's Home of its own, and the escape is the only one, from outside it.
 
 ## What it does
 
@@ -15,9 +17,11 @@ or the UI died), or Home is held for 5 seconds.
   mount and the restart). Every launcher of Home then opens the stub.
 - It stays through the compositor's restart. The stub's card is Home to SAM, bootd, the wake and the saver; LumaTV's native Home draws over
   it, and its UI starts with the compositor instead of waiting for SAM's Home to map.
-- Home held 5 s opens LG's real Home. Home there, or an app taking the front, puts LumaTV's Home back. Back is LG's own there.
-- Every way out of LumaTV's compositor drops the stub. A boot that stops half way, or a stub that does not start, is a fault; two in a row
-  switch the flag off.
+- Home held 10 s is the one way to LG's Home (d): the supervisor reads the remotes by itself and ends the compositor, the UI and everything else
+  LumaTV started, drops the stub, restores the stock UI and launches LG's Home. It is no fault: the flag stays on. LumaTV is back by a reboot or
+  by the LumaTV app in LG's launcher (`compositor on`).
+- Every other way out of LumaTV's compositor drops the stub as well. A boot that stops half way, or a stub that does not start, is a fault; two
+  in a row switch the flag off. An escape is not one of them.
 
 ## (a) Binding before LG's surface-manager starts, and the windows that stay
 
@@ -84,30 +88,52 @@ Home; the 2026-11-02 saver fix (`saver-own-result.md`) relies on that and holds.
 front (`scene.rs`, `shell_home_drawn`) and its foreground list comes from real windows only. The one difference is the UI client's start: it
 waits for SAM's Home to map (`START_ALONE`, 15 s at most), and a stub's launch waits for WebAppMgr, so with the flag on it starts at once.
 
-## (d) Home held 5 s: LG's Home, and back
+## (d) The escape: Home held 10 s, and the ways back
 
-`boot_direct.rs`, all of it inert while the flag is off.
+The compositor has no hold on Home and no way to LG's Home: Home held for any time is one Home tap at its release, flag on or off
+(`tests/boot_direct.rs`: 12 s, with a tool beside the flag file that is never run), and Back and Exit are LumaTV's own. The owner's decision
+of 2026-11-04 removed the hold of 5 s, `lumatv home lg|luma` and the phases that tracked whose Home was on the screen. LG's own 2.5 s hold (Screen
+Zoom) lived in surface-manager's QML, which the Rust compositor replaces, and has no handler either.
 
-- Home held 5 s runs `lumatv home lg`: the stub is dropped, SAM reads Flutter, Home is launched. The release of the hold is not a Home tap.
-  Before 5 s nothing fires: a Home let go earlier is a Home tap at its release, to LumaTV's Home, as ever (tests: 1 s, 2.5 s, 4.75 s).
-- **LG's own 2.5 s hold (Screen Zoom).** It is `handleSystemKeys` in surface-manager's QML/JS (`KeyEntryPoints.json`), which the Rust compositor
-  replaces (`shell-architecture.md`, option C); the compositor has no handler for it (its only `zoom` is the video window's) and no hold on
-  Home but this one (`keys.rs`: 1 s for the gear, Input, digits and Back; 2 s for Mute). Nothing fires at 2.5 s, and the test pins that.
-- **5 s and the supervisor's 10 s.** The hold acts once, at 5 s. The supervisor's escape (`lumatv-sm`, `HOLD_HOME_SECS` 10) reads the remotes
-  by itself and takes no word from the compositor, so a key still down at 10 s still takes the set to LG's compositor (`stock-ui-held`,
-  `recover-home.sh --stock`, which drops the stub), whatever the 5 s ask has done. Chosen so that the way out never depends on code that can
-  fail. A hold released between 5 s and 10 s leaves LG's Home alone, with LumaTV running; one held on past 10 s leaves LumaTV's compositor
-  until `lumatv compositor on`.
-- While LG's Home is the front card (`com.webos.app.home` whose client is `flutter-client -i com.webos.app.home`, which the stub is not),
-  the native Home is not drawn (`set_home_rust(false)`, the path a dead UI took); the UI's other layers stay over it. LG's Home never sees
-  the Home key: its press and release are taken.
-- Home on LG's Home (also when LG's Home asked for the key itself), or any other app in front, runs `lumatv home luma` and the native Home is
-  drawn again at once, over LG's card, which the tool replaces by the stub within seconds. **Back and Exit are not taken**: inside LG's Home
-  they are LG's own (a test: the same effects with the flag on as off, and a Back that LG's Home asked for is delivered to it). With an app in
-  front the stub is not launched over it: the next Home key opens it.
-- LG's Home that is not in front after 15 s is given up; the native Home was never taken away.
-- The tool runs as a child of the compositor, one at a time, the latest ask after the one that runs, stopped at 120 s, with the supervisor's
-  `NOTIFY_SOCKET` removed. It takes the mutation lock, waiting 10 s.
+**The one way out** is the supervisor's: `lumatv-sm` reads the remotes' evdev nodes itself (`HOLD_HOME_SECS` 10) and takes no word from the
+compositor, so it works with the compositor frozen or blind to its keys. `escape()` in `compositor/sm/lumatv-sm.c`, in this order:
+1. writes `stock-ui-held` (the recovery needs it), `last-fallback` and `escaped`, and the tmpfs mark `/tmp/.lumatv-escaped`; no failure is
+   counted, and the unclean-run marker is forgotten;
+2. ends the compositor (SIGTERM, SIGKILL after 1 s) and the UI;
+3. stops, then kills, every other process that runs from LumaTV's directories (`cleanup_everything`): a program under the data directory
+   `/var/lib/lumatv` (the helper and what it started, the colour reader, the player, the feeder, the bundle's loader), a program under
+   `/media/developer/apps/usr/palm/applications/org.nphil.lumatv*` (the card and GeForce NOW apps), or a script of those given to an interpreter
+   among its first arguments (the tool, the boot worker, a service's own supervising script, which would start again what was only killed).
+   All are stopped before any is killed, with a second look for what was forked meanwhile; identity is by pidfd. LG's programs, the recovery
+   script and other apps match nothing. What was ended goes to `reason.txt` of the evidence bundle (`ended:`): the helper holds the log's
+   collector, and it is among the dead;
+4. restores the vsync divider, saves the bundle (`kind: escape`), starts `recover-home.sh --stock` on its own, drops its mount and execs LG's
+   compositor.
+
+The recovery then runs `lumatv stock-ui-restore`: the stub is unmounted, SAM reads Flutter again, the stub's page is killed, the unfinished
+boot mark `boot-direct.pending` is removed (the strikes are left as they are), then WebAppMgr is restarted and LG's Home launched. Pressed twice
+it does the same: the second hold finds no supervisor to read it, and every step above is a no-op on a second run (tests: the sweep and the whole
+escape in `lumatv-sm.c`; `test_an_escape_leaves_no_stub_no_unfinished_boot_and_the_flag_on` runs the restore twice).
+
+**Not a fault, flag on.** The escape counts no failure (`failures` is as it was), leaves `boot-direct` as it is, and leaves `boot-direct.strikes`
+as it is: it is neither a bad boot nor a good one. `bd_strike` counts nothing while `stock-ui-held` is there, so a boot cut short by the escape
+(the activation's `bd_fail`, the watch's give-up) cannot cost a strike, and the restore has cleared the mark the next boot would have counted.
+
+**The way back, two ways:**
+- *A reboot, cold or warm.* The hold and `escaped` last for the rest of the boot they were made in: nothing starts LumaTV again by itself, the
+  worker's second pass included. The boot worker's first act (`escape_lapse`, before the early step) drops both when the tmpfs mark is gone, which
+  a reboot does (the mark is in `/tmp`, as the worker's own marks are), so the boot comes up on LumaTV with the stub first and no Flutter Home. A
+  hold with no `escaped` is a fault's and stays until `compositor on`.
+- *The LumaTV app in LG's launcher* (`index.html`, `launch.js`, `app.js`; app id unchanged). Opened while LumaTV is not the compositor it runs
+  `compositor on` at once, with no key: the stub goes in before the restart (`bd_manual_stub`), which ends LG's Flutter Home; the restart
+  closes the app's own page, and LumaTV's Home is what comes up. `compositor on` consumes the hold and clears `escaped`. A recovery that is
+  still running ("a recovery of LG's Home is running", about a minute after an escape) is waited for, 3 s at a time up to 120 s; any other
+  refusal is shown with its reason, with "Try again" and "Open LG's Home" (the launch of `com.webos.app.home`), and Back leaves for it. The tool
+  has put LG's compositor and Home back itself wherever it got as far as the restart. Tests: `tests/test_launcher_app.py` (node, the page and
+  the decision against stand-ins).
+
+Marker `boot-direct-api` is 2: the bundle's compositor is the one without the 5 s hold. The tool refuses `boot-direct on` and the early step on
+marker 1, whose compositor would ask a verb that is gone.
 
 ## (e) When LumaTV fails
 
@@ -117,20 +143,21 @@ waits for SAM's Home to map (`START_ALONE`, 15 s at most), and a stub's launch w
   `stock-ui-restore` drops the stub by its identity (unmount, SAM read again, `killApp`) and launches LG's Home. The same for a compositor
   that crashes or hangs, and for Home held 10 s. Tests: `shell_rust_failure` after a client exit and after silence (`shell_rust.rs`); the
   stub's drop in `tests/test_stock_ui_restore.py`; the supervisor's own side is its existing path. A hung UI costs its 75 s of a black or frozen
-  Home first; Home held 5 s opens LG's Home sooner.
-- **LumaTV comes back.** After a fallback the set stays on LG's compositor and LG's Home until the owner runs `lumatv compositor on` (the
-  hold `stock-ui-held` also keeps the next boot's `compositor-boot` from starting it). `compositor on` puts the stub in before its restart:
-  `homestub_up` ends LG's Flutter Home and the restart closes every client, so none lingers (`bd_manual_stub`: tests of its order and of
-  every case where it does nothing). A boot does the same in its first step.
-- **A compositor that runs with no UI** (the Rust shell is not configured) with the stub in front for 5 s asks for LG's Home: the stub alone is
-  a black screen. Home on it is LG's own while there is no UI to go back to. No UI can appear later in a running compositor: the client
-  giving up ends it.
+  Home first; the escape is quicker.
+- **LumaTV comes back.** After a fault's fallback the set stays on LG's compositor and LG's Home until the owner runs `lumatv compositor on` or
+  opens the LumaTV app (the hold `stock-ui-held` also keeps the next boot's `compositor-boot` from starting it; an escape's hold lapses at the
+  next boot instead, (d)). `compositor on` puts the stub in before its restart: `homestub_up` ends LG's Flutter Home and the restart closes
+  every client, so none lingers (`bd_manual_stub`: tests of its order and of every case where it does nothing). A boot does the same in its
+  first step.
+- **A compositor that runs with no UI** (the Rust shell is not configured) with the stub in front is a black screen, and the escape is the way
+  out. No UI can appear later in a running compositor: the client giving up ends it.
 - **A stub that does not start** after the restart (three tries) gives LG's Home back and counts a fault.
 - **LumaTV not starting at a boot** (storage low, firmware not on the verified list, a refused mount, a failed `native_start`, a failed or
   interrupted activation): the stub goes in before those checks, so each of them takes it back and opens LG's Home. `compositor off` ends as
   before (`comp_switch off`).
 - **A boot that stops** (a power cut, a killed worker) leaves nothing but `boot-direct.pending`: the bind mount and SAM's reading are gone at the
-  next boot, which skips the stub and counts a fault. Two faults in a row switch the flag off. A finished boot clears both.
+  next boot, which skips the stub and counts a fault. Two faults in a row switch the flag off. A finished boot clears both. An escape in the
+  middle of a boot is not a stop: the restore clears the mark, and nothing is counted while the hold is there.
 - Deleting the flag file by hand gives the old arrangement at once (native Home over a stub Home) until `boot-direct off` or the next boot.
 
 ## (f) Risks, rollout, rollback
@@ -141,17 +168,19 @@ Risks, all untested on the TV:
    the stub and the check fails.
 3. The stub's launch after the restart races WebAppMgr's (`bd_home_up`, three tries; timing unmeasured).
 4. A preload-manager relaunch of Flutter Home behind the stub (webOS 11.2 report above).
-5. The real remote's Home key: whether it repeats while held (the hold is timed from the first press and tolerates a 2 s gap between repeats,
-   so it works either way), and whether the arrows and OK reach LG's Home while it is shown (the UI is told Home is not drawn, as with an
-   app in front, which is the proven case).
+5. The real remote's Home key at 10 s: the supervisor's reader starts the hold at the first press or repeat and ends it at the release, so it
+   works whether the key repeats or not; the gate's `homekey` did it on a virtual remote, the real one has not run.
 6. Standby, wake and the saver with the stub as Home: the same card in the compositor's eyes, but not run.
-7. `home lg` and `home luma` while the boot worker or another mutation holds the lock: after 10 s the request is dropped and the 15 s wait ends it.
+7. The sweep by directory ends what the owner started by hand from LumaTV's directories too, and a tool or the boot worker in the middle of a
+   step: a SIGKILL, like a power cut, which those steps are built to survive. The helper holds the log's collector, so nothing is logged after
+   the escape but the bundle's `ended:` line.
 8. LG's compositor runs with the stub bound for about 10 s before the restart (longer if the wake preparation times out): a Home opened by
    hand in that time is blank.
 
 Rollout, each stage stopping on a surprise:
 1. Install with the flag off; `check-boot.py` still PASSes (the boot is unchanged).
-2. `boot-direct on` on the live compositor: the stub goes in, no reboot; the 5 s hold, Home, an app from LG's Home, `boot-direct off`.
+2. `boot-direct on` on the live compositor: the stub goes in, no reboot; Home held 10 s (LG's Home, nothing of LumaTV's left), the LumaTV app
+   back, `boot-direct off`.
 3. `boot-direct on`, reboot, `check-boot-direct.py` before touching Home; then a cold power-on the same way.
 4. The crash drill, then a day of use with the flag on, then the saver, a standby and a wake.
 5. Only then a CHANGELOG entry, and the flag's default in the installer.
@@ -166,33 +195,39 @@ Before anything: the code is on `main`, pushed to origin and forge; the installe
 Install, flag off, one lease session:
 1. `sh compositor/tools/build-tv.sh`, then `sh compositor/tools/tv-first-light.sh deploy`.
 2. `tv-first-light.sh cutover disable`, `install`, `probe`, `enable` (the sequence of `cutover-result.md`): `install` writes
-   `/var/lib/lumatv/compositor/boot-direct-api`. The display restarts twice.
-3. `tools/lumatv` as a copy-only install like `step3_install.py` of 2026-11-03 (`.new`, `sh -n`, sha256, atomic `mv`, hashes recorded).
+   `/var/lib/lumatv/compositor/boot-direct-api` (marker 2). The display restarts twice.
+3. `tools/lumatv` and the launcher app's files (`index.html`, `launch.js`, `app.js`, `style.css`) as a copy-only install like `step3_install.py`
+   of 2026-11-03 (`.new`, `sh -n`, sha256, atomic `mv`, hashes recorded).
 4. `lumatv boot-direct status` reads `flag false, api true`; `ls $APP/payload/homestub` shows `appinfo.json index.html icon.png`;
    `check-boot.py --now` PASSes.
 
-Live, no reboot:
-5. `lumatv boot-direct on`: Home stays LumaTV's; status `stub true, sam web, flutter false`; `ctl shell` `bootDirect.on true`.
-6. Owner: press Home briefly several times (LumaTV's Home each time, no LG Home); hold Home about 3 s and let go (the same). Hold Home 5 s and
-   let go at about 7 s: LG's Home appears, LumaTV's is gone. Back inside LG's Home does what Back does there. Home: LumaTV's Home within about
-   1 s; status `stub true` about 3 s later. Again, and open an app from LG's Home, then Home. `lumatv boot-direct off`: the stub is gone.
-   Optional, once: hold Home past 10 s: the supervisor takes the set to LG's compositor (LumaTV is off until `lumatv compositor on`).
-
-Reboot (the boot is clean only until the first Home hold):
-7. `echo 240 > /var/lib/lumatv/bootcap` (frames and `state.txt` of the boot, `tools/bootcap.sh`), `lumatv boot-direct on`, `reboot`.
-8. After 3 min, **before touching Home**: `python3 /data/home/tmp/lumatv-boot-direct-20261103/check-boot-direct.py` (also `--json`). It exits 3
-   if LG's Home was asked for during the boot, and says so.
-9. Repeat 7 and 8 with a cold power-on (off at the remote, then on; or the plug) for the case where bootd may open Home itself. Then step 6.
+The plan (the owner's, 2026-11-04):
+5. Enable the flag: `lumatv boot-direct on`. Home stays LumaTV's; status `stub true, sam web, flutter false`; `ctl shell` `bootDirect.on true`.
+   Home pressed briefly, or held for several seconds and let go, is LumaTV's Home each time.
+6. Hold Home 10 s on the real remote. LG's Home appears and **no LumaTV process is left**:
+   `ls -l /proc/[0-9]*/exe 2>/dev/null | grep -e /var/lib/lumatv/ -e org.nphil.lumatv` prints nothing (the compositor, the UI, the helper, the
+   colour reader, the player and the feeder are gone), `boot-direct status` reads `stub false, flag true, pending false` with the strikes as
+   they were, `stock-ui-held` and `escaped` are there, `failures` is what it was, and the newest crash bundle (`/var/lib/lumatv/crash`) says
+   `kind: escape` and lists what it `ended:`. Holding Home 10 s again on LG's Home changes nothing.
+7. Open the LumaTV app from LG's launcher: back in LumaTV with no key pressed (a recovery that is still running is waited for). `boot-direct
+   status` reads `stub true, sam web, flutter false`, there is no Flutter Home process, `stock-ui-held` and `escaped` are gone.
+8. Reboot: LumaTV, with no Flutter Home. First `echo 240 > /var/lib/lumatv/bootcap` (frames and `state.txt` of the boot, `tools/bootcap.sh`), and
+   hold Home 10 s once more before the `reboot`, so that the boot is the one after an escape: its log has "the escape of an earlier boot has
+   lapsed". After 3 min, **before touching Home**: `python3 /data/home/tmp/lumatv-boot-direct-20261103/check-boot-direct.py` (also `--json`). It
+   exits 3 if LG's Home was asked for during the boot, and says so.
+9. Cold power-cycle (off at the remote, then on; or the plug): the same as 8 without the escape, for the case where bootd may open Home itself.
 
 Crash drill (optional, one counted failure):
 10. `pkill -f lumatv-ui` on the TV: the compositor ends, the supervisor falls back, LG's Home appears with the stub gone
-    (`boot-direct status`: `stub false, flutter true`). `lumatv compositor on`: LumaTV's Home with `stub true, flutter false`.
+    (`boot-direct status`: `stub false, flutter true`) and the hold stays across a reboot. `lumatv compositor on`: LumaTV's Home with
+    `stub true, flutter false`.
 
 Capture: the check's output and JSON, the bootcap frames, `/tmp/.lumatv-boot-direct-early`, the boot's lines from `/tmp/lumatv-logs/current.log`,
-the Unraid syslog from the boot, the installed hashes. `check-boot-direct.py` adds to `check-boot.py`: the early step's record (the stub in,
-nothing of Flutter running before it); no `NL_HOME_SHOWN`, SAM launch of Home before the stub, Flutter Home client or Flutter process at any
-point of the boot; the stub mounted and SAM reading `web`; no fault, strike or mark left; Home in front, drawn by the native UI, LG's Home not
-in front. It prints the native Home's time against 33.5 s and from which second LG's log covers the boot.
+the Unraid syslog from the boot, the `/proc/*/exe` listing before and after step 6, the crash bundle, the installed hashes. `check-boot-direct.py`
+adds to `check-boot.py`: the early step's record (the stub in, nothing of Flutter running before it); no `NL_HOME_SHOWN`, SAM launch of Home
+before the stub, Flutter Home client or Flutter process at any point of the boot; the stub mounted and SAM reading `web`; no fault, strike or
+mark left; Home in front, drawn by the native UI, LG's Home not in front. It prints the native Home's time against 33.5 s and from which second
+LG's log covers the boot.
 
 ## Not built
 

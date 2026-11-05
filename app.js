@@ -130,7 +130,7 @@
       mockState.compositor = { live: true, enabled: true, flag: 'persistent' };
     } else if (cmd.includes('compositor off')) {
       mockState.compositor = { live: false, enabled: false, flag: 'off' };
-    } else if (cmd.includes('launchDefaultApp')) {
+    } else if (cmd.includes('launchDefaultApp') || cmd.includes('applicationManager/launch ')) {
       stdoutString = JSON.stringify({ returnValue: true });
     } else if (cmd.includes('standby warm')) {
       mockState.standby = 'warm';
@@ -179,6 +179,9 @@
     // Overlays
     confirmRevert: document.getElementById('overlay-confirm-revert'),
     applyBusy: document.getElementById('overlay-apply-busy'),
+    applyBusyText: document.getElementById('apply-busy-text'),
+    enterFailed: document.getElementById('overlay-enter-failed'),
+    enterReason: document.getElementById('enter-failed-reason'),
     busy: document.getElementById('overlay-busy'),
     ntfyEditor: document.getElementById('overlay-ntfy'),
     logPanel: document.getElementById('overlay-log'),
@@ -190,6 +193,8 @@
     ntfySave: document.getElementById('ntfy-save'),
     ntfyOff: document.getElementById('ntfy-off'),
     ntfyCancel: document.getElementById('ntfy-cancel'),
+    enterRetry: document.getElementById('enter-retry'),
+    enterLg: document.getElementById('enter-lg'),
     logContent: document.getElementById('log-content'),
     wallpaperPanel: document.getElementById('overlay-wallpaper'),
     wallpaperRows: document.getElementById('wallpaper-rows'),
@@ -200,10 +205,11 @@
   };
 
   const state = {
-    currentMode: 'main', // 'main', 'confirmRevert', 'ntfy', 'log'
+    currentMode: 'main', // 'main', 'confirmRevert', 'ntfy', 'log', 'wallpaper', 'applying', 'enterFailed'
     focusIndex: 0,
     status: null,
-    isExecuting: false
+    isExecuting: false,
+    entered: false
   };
 
   const rows = Array.from(document.querySelectorAll('.row.focusable'));
@@ -224,6 +230,8 @@
       focusable = [dom.logContent, dom.logClose];
     } else if (state.currentMode === 'wallpaper') {
       focusable = Array.from(dom.wallpaperRows.querySelectorAll('.wp-row')).concat([dom.wallpaperClose]);
+    } else if (state.currentMode === 'enterFailed') {
+      focusable = [dom.enterRetry, dom.enterLg];
     }
 
     if (index < 0) index = 0;
@@ -333,6 +341,7 @@
   function closeAllOverlays() {
     dom.confirmRevert.setAttribute('hidden', '');
     dom.applyBusy.setAttribute('hidden', '');
+    dom.enterFailed.setAttribute('hidden', '');
     dom.busy.setAttribute('hidden', '');
     dom.ntfyEditor.setAttribute('hidden', '');
     dom.logPanel.setAttribute('hidden', '');
@@ -423,31 +432,71 @@
 
   /* ====== Row Actions ====== */
 
-  async function onApply() {
+  async function openHome() {
+    const response = await exec('luna-send -n 1 luna://com.webos.applicationManager/launchDefaultApp ' + "'" + JSON.stringify({ category: 'home', params: { launchType: 'homeKey', activateType: 'home' } }) + "'");
+    const result = JSON.parse(response.stdoutString || '{}');
+    if (!result.returnValue) throw new Error(result.errorText || 'Home did not open');
+  }
+
+  const launchDeps = { cli, exec, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now: () => Date.now() };
+
+  function showEnterProgress(phase, reason) {
+    dom.applyBusyText.textContent = phase === 'waiting'
+      ? "Waiting for LG's Home to finish recovering: " + reason
+      : 'If the compositor needs to start, the screen will flash and Home will restart. Please wait.';
+  }
+
+  function showEnterFailed(reason) {
+    closeAllOverlays();
+    dom.enterReason.textContent = reason;
+    dom.enterFailed.removeAttribute('hidden');
+    setFocus(0, 'enterFailed');
+  }
+
+  /**
+   * Opens {{displayName}}: its compositor is started when it is not the compositor (after the escape, say), and its Home comes up. A compositor that
+   * runs already is shown by opening Home when `openIfLive` (the row's own meaning) and left as it is otherwise (the page's start).
+   */
+  async function enterLumaTV(openIfLive) {
     if (state.isExecuting) return;
-
-    state.currentMode = 'applying';
-    dom.applyBusy.removeAttribute('hidden');
     state.isExecuting = true;
-
+    state.currentMode = 'applying';
+    showEnterProgress('starting');
+    dom.applyBusy.removeAttribute('hidden');
     try {
-      const status = await cli('compositor', 'status');
-      if (status.compositor.live) {
-        const response = await exec('luna-send -n 1 luna://com.webos.applicationManager/launchDefaultApp ' + "'" + JSON.stringify({ category: 'home', params: { launchType: 'homeKey', activateType: 'home' } }) + "'");
-        const result = JSON.parse(response.stdoutString || '{}');
-        if (!result.returnValue) throw new Error(result.errorText || 'Home did not open');
-      } else {
-        await cli('compositor', 'on');
+      const result = await LumaLaunch.enter(launchDeps, showEnterProgress);
+      if (result.outcome === 'failed') {
+        showEnterFailed(result.reason);
+        return;
       }
+      if (result.outcome === 'live' && openIfLive) await openHome();
       await refreshStatus();
     } catch (err) {
-      showError('Open failed: ' + err.message);
+      showEnterFailed(err.message);
+      return;
     } finally {
       state.isExecuting = false;
-      closeAllOverlays();
-      state.currentMode = 'main';
-      setFocus(0);
     }
+    closeAllOverlays();
+    state.currentMode = 'main';
+    setFocus(0);
+  }
+
+  /** The failure's way out: LG's own Home. */
+  async function onEnterLg() {
+    try {
+      await LumaLaunch.openLgHome(launchDeps);
+    } catch (err) {
+      showError("LG's Home did not open: " + err.message);
+    }
+  }
+
+  /** Opened from LG's launcher while {{displayName}} is not the compositor (after the escape, or a revert): started once, with no key pressed. */
+  async function enterOnOpen() {
+    if (state.entered) return;
+    state.entered = true;
+    const compositor = state.status && state.status.compositor;
+    if (compositor && !compositor.live) await enterLumaTV(false);
   }
 
   async function onRevert() {
@@ -602,7 +651,7 @@
 
   /* ====== Event Listeners ====== */
 
-  document.getElementById('row-apply').addEventListener('click', onApply);
+  document.getElementById('row-apply').addEventListener('click', () => enterLumaTV(true));
   document.getElementById('row-revert').addEventListener('click', onRevert);
   document.getElementById('row-standby').addEventListener('click', onStandbyToggle);
   document.getElementById('row-ntfy').addEventListener('click', onNtfyOpen);
@@ -618,6 +667,9 @@
   dom.ntfyOff.addEventListener('click', onNtfyOff);
   dom.ntfyCancel.addEventListener('click', onNtfyCancel);
 
+  dom.enterRetry.addEventListener('click', () => enterLumaTV(true));
+  dom.enterLg.addEventListener('click', onEnterLg);
+
   dom.logClose.addEventListener('click', closeLogPanel);
 
   // Handle app suspend/resume for resilient apply flow
@@ -632,15 +684,16 @@
   /* ====== Initialization ====== */
 
   document.addEventListener('DOMContentLoaded', async () => {
-    // On startup, refresh status
+    // On startup, refresh status, and start LumaTV when this is the way back to it
     await refreshStatus();
+    await enterOnOpen();
     // Set initial focus on Apply row
     setFocus(0);
   });
 
   // If DOM is already loaded when script runs
   if (document.readyState !== 'loading') {
-    refreshStatus().then(() => setFocus(0));
+    refreshStatus().then(enterOnOpen).then(() => setFocus(0));
   }
 
 })();

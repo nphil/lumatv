@@ -852,8 +852,9 @@ back in `docs/research/homestub-result.md`.
   mid-restart leaves the compositor on whatever it had loaded (a stale module
   that `apply` then calls current). Detach it (`nohup`) and read its output.
 - **Boot direct (built 2026-11-03 behind a flag, not run on the TV).** The stub again, under the Rust shell: SAM's Home is the stub from the
-  boot worker's first act while LumaTV's compositor is live, so Flutter Home never starts, and a Home hold of 5 s opens LG's.
-  `docs/research/boot-direct.md`.
+  boot worker's first act while LumaTV's compositor is live, so Flutter Home never starts. Home held 10 s is the one way to LG's Home (the
+  supervisor's escape: it ends everything LumaTV started, drops the stub, launches LG's Home, leaves the flag on); a reboot or the LumaTV app in
+  LG's launcher brings LumaTV back. `docs/research/boot-direct.md`.
 
 ## Tried and dead
 

@@ -48,6 +48,7 @@ brand.json
 appinfo.json
 index.html
 app.js
+launch.js
 style.css
 assets/icon.png
 assets/largeIcon.png
@@ -289,6 +290,7 @@ cp brand.json "$DATA_ROOT/"
 cp appinfo.json "$DATA_ROOT/"
 cp index.html "$DATA_ROOT/"
 cp app.js "$DATA_ROOT/"
+cp launch.js "$DATA_ROOT/"
 cp style.css "$DATA_ROOT/"
 cp assets/icon.png "$DATA_ROOT/"
 cp assets/largeIcon.png "$DATA_ROOT/"
