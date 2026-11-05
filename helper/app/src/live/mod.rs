@@ -19,7 +19,8 @@
 //! **Keeping live.** The queue between the two threads holds at most 15 pictures once the stream is caught up; past that it drops to the next
 //! key picture instead of growing. A stream whose pictures run more than 500 ms behind the clock they arrive by is dialled again, once; one
 //! that is quiet for 8 s ends with a reason in words. **Fast stop.** `stop` flags the session and returns: the unload, the RTSP teardown and
-//! the feeder's end happen on the session's own threads, off the caller's path.
+//! the feeder's end happen on the session's own threads, off the caller's path. **A feeder that breaks** under a session (a write refused, its process gone,
+//! its own error) is replaced once, with the pipeline and the picture in hand, and nothing is shown; one that breaks again fails the session.
 //!
 //! The topic `cameras.live` ([`View`]) says where it stands: `{camera, mode (live|playback|clip), state (idle|asking|starting|playing|failed|
 //! stopped), reason, codec, width, height, fps, startedAt, positionMs, rate, fed, dropped, lost, delayMs, window, since, paused, purpose}`. `purpose`
@@ -31,7 +32,7 @@ pub mod gf;
 use parking_lot::{Condvar, Mutex};
 use rtsp_client::{Codec, Frame, Options, Session as Rtsp, Url};
 use serde_json::{Value, json};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
@@ -405,6 +406,33 @@ impl StreamInfo {
     }
 }
 
+/// What streams turned out to be where the bridge declared another size, by camera and declared size. A portrait doorbell's low stream is declared 640x480
+/// and is 480x640: without this the pipeline is loaded for the declared size and again for the real one a moment later, on every start.
+#[derive(Default)]
+struct Sizes(HashMap<(String, u32, u32), (u32, u32)>);
+
+impl Sizes {
+    /// Declared sizes are few (a camera has two or three streams); a camera list that keeps changing does not grow this without end.
+    const MAX: usize = 64;
+
+    fn real(&self, camera: &str, declared: (u32, u32)) -> (u32, u32) {
+        self.0.get(&(camera.to_owned(), declared.0, declared.1)).copied().unwrap_or(declared)
+    }
+
+    fn learn(&mut self, camera: &str, declared: (u32, u32), real: (u32, u32)) {
+        let key = (camera.to_owned(), declared.0, declared.1);
+        if declared == real {
+            // declared right now: an old finding does not hold
+            self.0.remove(&key);
+            return;
+        }
+        if self.0.len() >= Self::MAX && !self.0.contains_key(&key) {
+            self.0.clear();
+        }
+        self.0.insert(key, real);
+    }
+}
+
 enum Item {
     Stream(StreamInfo),
     Unit(Unit),
@@ -670,7 +698,8 @@ enum Lag {
 
 /// A feeder process and its socket; the process is ended when this goes.
 struct Feeder {
-    child: Child,
+    /// `None` only in a test, whose feeder is a thread behind a socket pair.
+    child: Option<Child>,
     socket: PathBuf,
     client: gf::Client,
     window: String,
@@ -727,7 +756,7 @@ impl Feeder {
             _ => (String::new(), true),
         };
         Ok(Self {
-            child,
+            child: Some(child),
             socket,
             client,
             window,
@@ -737,7 +766,23 @@ impl Feeder {
     }
 
     fn alive(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
+        self.child.as_mut().is_none_or(|c| matches!(c.try_wait(), Ok(None)))
+    }
+
+    /// How the feeder's process stands and the last lines it wrote (`feeder.log`, which holds the last run only), for the log when it breaks under a
+    /// session: the helper sees only a refused write, and the process may be going or gone.
+    fn last_words(&mut self, run_dir: &Path) -> String {
+        let status = match self.child.as_mut().map(Child::try_wait) {
+            Some(Ok(Some(status))) => format!("the process ended ({status})"),
+            Some(Ok(None)) => "the process is still there".to_owned(),
+            Some(Err(e)) => format!("the process is unknown ({e})"),
+            None => "no process".to_owned(),
+        };
+        let log = std::fs::read_to_string(run_dir.join("feeder.log")).unwrap_or_default();
+        // the GLib assertion it prints every second while it plays says nothing of why it stopped
+        let mut tail: Vec<&str> = log.lines().rev().filter(|l| !l.trim().is_empty() && !l.contains("GLib-GObject-CRITICAL")).take(3).collect();
+        tail.reverse();
+        format!("{status}, its last lines: {}", if tail.is_empty() { "none".to_owned() } else { tail.join(" | ") })
     }
 }
 
@@ -746,15 +791,17 @@ impl Drop for Feeder {
         let _ = self.client.send_unload();
         // the feeder ends by itself once its connection is gone (--once); a moment, then it is ended
         self.client.close();
-        let deadline = Instant::now() + Duration::from_millis(1500);
-        loop {
-            match self.child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
-                _ => {
-                    let _ = self.child.kill();
-                    let _ = self.child.wait();
-                    break;
+        if let Some(child) = &mut self.child {
+            let deadline = Instant::now() + Duration::from_millis(1500);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+                    _ => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break;
+                    }
                 }
             }
         }
@@ -769,9 +816,13 @@ enum Slot {
     Leased,
 }
 
+/// How a feeder is made (a test makes one behind a socket pair).
+type Spawn = Box<dyn Fn(&FeederSpec, &str) -> Result<Feeder, String> + Send + Sync>;
+
 /// The one feeder, kept between sessions for `idle`.
 struct Pool {
     spec: FeederSpec,
+    spawn: Spawn,
     slot: Mutex<Slot>,
     changed: Condvar,
     reaper: Mutex<Option<JoinHandle<()>>>,
@@ -779,8 +830,13 @@ struct Pool {
 
 impl Pool {
     fn new(spec: FeederSpec) -> Arc<Self> {
+        Self::with_spawn(spec, Box::new(Feeder::start))
+    }
+
+    fn with_spawn(spec: FeederSpec, spawn: Spawn) -> Arc<Self> {
         Arc::new(Self {
             spec,
+            spawn,
             slot: Mutex::new(Slot::Empty),
             changed: Condvar::new(),
             reaper: Mutex::new(None),
@@ -824,7 +880,7 @@ impl Pool {
 
     /// Starts a feeder; the slot is already `Leased`, so nobody else starts one meanwhile.
     fn start_new(self: &Arc<Self>, window: &str) -> Result<Lease, String> {
-        match Feeder::start(&self.spec, window) {
+        match (self.spawn)(&self.spec, window) {
             Ok(feeder) => Ok(Lease {
                 pool: self.clone(),
                 feeder: Some(Box::new(feeder)),
@@ -1047,9 +1103,18 @@ struct Inner {
     session: Mutex<Option<Arc<Session>>>,
     next: AtomicU64,
     publish: Box<dyn Fn(Value) + Send + Sync>,
+    /// What streams turned out to be where the bridge declared another size.
+    sizes: Mutex<Sizes>,
 }
 
 impl Inner {
+    /// What the plan's stream is, for loading the pipeline with: the plan's words, with the size the same declaration turned out to have last time.
+    fn expected(&self, plan: &Plan) -> Option<StreamInfo> {
+        let mut info = stream_of(plan)?;
+        (info.width, info.height) = self.sizes.lock().real(&plan.camera, (info.width, info.height));
+        Some(info)
+    }
+
     fn emit(&self, view: &View) {
         (self.publish)(view.json());
     }
@@ -1089,6 +1154,7 @@ impl Live {
                 session: Mutex::new(None),
                 next: AtomicU64::new(1),
                 publish,
+                sizes: Mutex::new(Sizes::default()),
             }),
         };
         let view = me.view();
@@ -1185,7 +1251,7 @@ impl Live {
         let Some(pool) = self.inner.pool.clone() else {
             return Err("the live path is off (cameras.live)".to_owned());
         };
-        let want = stream_of(&plan);
+        let want = self.inner.expected(&plan);
         let mut current = self.inner.session.lock();
         if let Some(session) = current.as_ref()
             && !session.ended()
@@ -1312,7 +1378,7 @@ impl Live {
             playing.sub = plan.sub;
             playing.purpose.clone_from(&plan.purpose);
             playing.window.clone_from(&plan.window);
-            if let Some(want) = stream_of(&plan) {
+            if let Some(want) = self.inner.expected(&plan) {
                 playing.expect = Some(want);
             }
         }
@@ -1586,11 +1652,16 @@ fn write_session(inner: &Arc<Inner>, pool: &Arc<Pool>, session: &Arc<Session>) {
     write_session_with(inner, pool, session, Answers::start);
 }
 
+/// How many times a feeder that breaks under a session is replaced. Seen on the set: the compositor closes a video window whose claim ended (a stream that
+/// no longer fits it), the feeder goes with its window, and the next session was already handed the process a moment before it went. One new feeder
+/// is the cure for that; one that breaks again is not a cure for anything, and the person is told.
+const RESTARTS: u8 = 1;
+
 fn write_session_with(
     inner: &Arc<Inner>,
     pool: &Arc<Pool>,
     session: &Arc<Session>,
-    start_answers: impl FnOnce(&Feeder, &Arc<Session>) -> Result<Answers, String>,
+    mut start_answers: impl FnMut(&Feeder, &Arc<Session>) -> Result<Answers, String>,
 ) {
     let window_kind = session.playing.lock().window.clone();
     let mut lease = match pool.lease(&window_kind) {
@@ -1601,28 +1672,60 @@ fn write_session_with(
             return;
         }
     };
-    let window = lease
-        .feeder
-        .as_ref()
-        .map(|f| f.window.clone())
-        .unwrap_or_default();
-    session.window.lock().clone_from(&window);
-    inner.update(session.id, |v| v.window = window);
-    let answers = match start_answers(lease.feeder(), session) {
-        Ok(answers) => answers,
-        Err(why) => {
+    let mut restarts = 0;
+    let mut resume = Resume::default();
+    let healthy = loop {
+        let window = lease.feeder().window.clone();
+        session.window.lock().clone_from(&window);
+        inner.update(session.id, |v| v.window = window);
+        let answers = match start_answers(lease.feeder(), session) {
+            Ok(answers) => answers,
+            Err(why) => {
+                fail(inner, session, &why);
+                lease.release(true, false);
+                finish(inner, session);
+                return;
+            }
+        };
+        // what the feeder said before this session began is read past: its answer to this ping is the line
+        let fed = match lease.feeder().client.send_ping(session.id as i64) {
+            Ok(()) => feed(inner, session, &mut lease, std::mem::take(&mut resume)),
+            Err(e) => Fed::Broke(format!("the feeder went: {e}"), std::mem::take(&mut resume)),
+        };
+        // the answers' thread goes first, so that the feeder is not given back with a reader still on its socket
+        drop(answers);
+        let (why, carry) = match fed {
+            Fed::Done(healthy) => break healthy,
+            Fed::Broke(why, carry) => (why, carry),
+        };
+        let again = restarts < RESTARTS && !session.ended();
+        let camera = session.playing.lock().camera.clone();
+        crate::log_warn!(
+            "cameras: the feeder broke under session {} on camera {camera}: {why}; {}{}",
+            session.id,
+            lease.feeder().last_words(&pool.spec.run_dir),
+            if again { "; a new one takes over" } else { "" }
+        );
+        if !again {
             fail(inner, session, &why);
-            lease.release(true, false);
-            finish(inner, session);
-            return;
+            break false;
         }
+        restarts += 1;
+        // what the broken feeder said last is not this session's to act on
+        *session.error.lock() = None;
+        lease.release(false, false);
+        lease = match pool.lease(&window_kind) {
+            Ok(lease) => lease,
+            Err(why) => {
+                fail(inner, session, &why);
+                log_end(session);
+                finish(inner, session);
+                return;
+            }
+        };
+        resume = carry;
     };
-    // what the feeder said before this session began is read past: its answer to this ping is the line
-    let _ = lease.feeder().client.send_ping(session.id as i64);
-    let healthy = feed(inner, session, &mut lease);
     log_end(session);
-    // the answers' thread goes first, so that the feeder is not given back with a reader still on its socket
-    drop(answers);
     lease.release(session.unload.load(Ordering::SeqCst), healthy);
     finish(inner, session);
 }
@@ -1636,18 +1739,38 @@ fn finish(inner: &Inner, session: &Session) {
     }
 }
 
-/// The feeding loop. Returns whether the feeder is still fit to be given back.
-fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
-    let mut loaded: Option<StreamInfo> = None;
-    // the load the bridge's description allows is started before the stream is dialled
+/// What a feeding loop ended with.
+enum Fed {
+    /// The session is over, or it failed for a reason of its own (`fail` has said so): whether the feeder is fit to be given back.
+    Done(bool),
+    /// The feeder broke under the session (a write failed, it is gone, or it said it failed): another can carry on from what is kept.
+    Broke(String, Resume),
+}
+
+/// What a new feeder needs to carry on where a broken one stopped.
+#[derive(Default)]
+struct Resume {
+    /// The pipeline the broken feeder held, or was being loaded with.
+    loaded: Option<StreamInfo>,
+    /// The picture that was in hand when it broke.
+    unit: Option<Unit>,
+}
+
+/// The feeding loop.
+fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: Resume) -> Fed {
+    let went = |e: io::Error| format!("the feeder went: {e}");
     let (expect, ndl_app, texture, sub) = {
         let playing = session.playing.lock();
         (playing.expect, playing.ndl_app.clone(), playing.texture, playing.sub)
     };
-    if let Some(info) = expect {
+    let mut loaded: Option<StreamInfo> = None;
+    let mut pending = resume.unit;
+    // a pipeline just loaded takes a stream from a random access point: what comes before the next one is of no use to it
+    let mut need_key = resume.loaded.is_some();
+    // the load the bridge's description allows is started before the stream is dialled; a new feeder first takes up the pipeline the broken one held
+    if let Some(info) = resume.loaded.or(expect) {
         if let Err(why) = load(lease, info, &ndl_app, texture, sub) {
-            fail(inner, session, &why);
-            return false;
+            return Fed::Broke(why, Resume { loaded: Some(info), unit: pending });
         }
         loaded = Some(info);
     }
@@ -1658,14 +1781,12 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
     let mut last_publish = Instant::now();
     let mut last_second = Instant::now();
     let mut rate_mark = (Instant::now(), 0u64);
-    let mut sent: u64 = 0;
     loop {
         if session.ended() {
-            return true;
+            return Fed::Done(true);
         }
         if let Some(why) = session.error.lock().take() {
-            fail(inner, session, &why);
-            return false;
+            return Fed::Broke(why, Resume { loaded, unit: pending });
         }
         if last_publish.elapsed() >= PUBLISH_EVERY {
             last_publish = Instant::now();
@@ -1678,28 +1799,35 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                 &mut rate_mark,
             );
         }
-        let item = match session.queue.take(PUBLISH_EVERY) {
-            Taken::Item(item) => item,
-            Taken::Nothing => continue,
-            Taken::Closed => return true,
+        let item = match pending.take() {
+            Some(unit) => Item::Unit(unit),
+            None => match session.queue.take(PUBLISH_EVERY) {
+                Taken::Item(item) => item,
+                Taken::Nothing => continue,
+                Taken::Closed => return Fed::Done(true),
+            },
         };
         match item {
             Item::Stream(info) => {
                 // a stream of another codec or size than the pipeline holds loads it again; the same one flushes what the pipeline still
                 // holds of the last stream and goes on, with times that keep rising
                 if !loaded.is_some_and(|l| l.same_pipeline(&info)) {
-                    if lease.loaded {
-                        let _ = lease.feeder().client.send_unload();
+                    if lease.loaded
+                        && let Err(e) = lease.feeder().client.send_unload()
+                    {
+                        return Fed::Broke(went(e), Resume { loaded, unit: None });
                     }
                     if let Err(why) = load(lease, info, &ndl_app, texture, sub) {
-                        fail(inner, session, &why);
-                        return false;
+                        return Fed::Broke(why, Resume { loaded: Some(info), unit: None });
                     }
                     loaded = Some(info);
+                    need_key = false;
                     last_pts = -1;
                     next_base = 0;
                 } else if last_pts >= 0 {
-                    let _ = lease.feeder().client.send_flush();
+                    if let Err(e) = lease.feeder().client.send_flush() {
+                        return Fed::Broke(went(e), Resume { loaded, unit: None });
+                    }
                     next_base = last_pts + 100_000_000;
                 }
                 epoch_first = None;
@@ -1714,6 +1842,12 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
             }
             Item::Unit(unit) => {
                 let Some(info) = loaded else { continue };
+                if need_key {
+                    if !unit.key {
+                        continue;
+                    }
+                    need_key = false;
+                }
                 // a picture whose own parameter set says another size than the pipeline holds: the stream changed under the reader
                 if unit.key
                     && let Some((w, h)) = unit.size
@@ -1724,10 +1858,11 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                         height: h,
                         ..info
                     };
-                    let _ = lease.feeder().client.send_unload();
+                    if let Err(e) = lease.feeder().client.send_unload() {
+                        return Fed::Broke(went(e), Resume { loaded, unit: Some(unit) });
+                    }
                     if let Err(why) = load(lease, changed, &ndl_app, texture, sub) {
-                        fail(inner, session, &why);
-                        return false;
+                        return Fed::Broke(why, Resume { loaded: Some(changed), unit: Some(unit) });
                     }
                     loaded = Some(changed);
                     // the shell fits the video window by the view's size, so the view follows the picture that is on the plane
@@ -1747,20 +1882,10 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                 }
                 last_pts = pts_ns;
                 delay_max = delay_max.max(unit.arrived.elapsed());
-                if let Err(e) = lease
-                    .feeder()
-                    .client
-                    .send_video(pts_ns, unit.key, &unit.data)
-                {
-                    fail(inner, session, &format!("the feeder went: {e}"));
-                    return false;
+                if let Err(e) = lease.feeder().client.send_video(pts_ns, unit.key, &unit.data) {
+                    return Fed::Broke(went(e), Resume { loaded, unit: Some(unit) });
                 }
-                sent += 1;
-                session
-                    .counters
-                    .pts_us
-                    .store(unit.pts_us, Ordering::Relaxed);
-                let _ = sent;
+                session.counters.pts_us.store(unit.pts_us, Ordering::Relaxed);
             }
         }
     }
@@ -1939,6 +2064,10 @@ fn read_once(
         height: stream.info.height,
         fps: stream.info.fps.map_or(plan.fps, |f| f.round() as u32),
     };
+    // what the stream says it is, against what the bridge declared: the next start of this camera and declaration loads the pipeline for the real size
+    if plan.width > 0 && plan.height > 0 && info.width > 0 && info.height > 0 {
+        inner.sizes.lock().learn(&plan.camera, (plan.width, plan.height), (info.width, info.height));
+    }
     if !session.queue.stream(epoch, info) {
         return Ended::Told;
     }
@@ -2366,9 +2495,22 @@ mod tests {
         })
     }
 
-    /// A pool holding one idle "feeder": a process that does nothing, and a socket whose other end is `peer`'s.
-    fn test_pool(dir: &Path, stall: Duration) -> (Arc<Pool>, std::os::unix::net::UnixStream) {
-        let pool = Pool::new(FeederSpec {
+    /// A feeder that is a thread behind a socket pair (no process); `peer` is the process's end of the socket.
+    fn test_feeder(dir: &Path, stall: Duration) -> (Feeder, std::os::unix::net::UnixStream) {
+        let (ours, peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let feeder = Feeder {
+            child: None,
+            socket: dir.join("feeder.sock"),
+            client: gf::Client::from_stream(ours, stall).unwrap(),
+            window: "_Window_Id_1".into(),
+            library: true,
+            kind: "card".into(),
+        };
+        (feeder, peer)
+    }
+
+    fn test_spec(dir: &Path) -> FeederSpec {
+        FeederSpec {
             program: PathBuf::from("unused"),
             window: "card".into(),
             library: String::new(),
@@ -2376,18 +2518,51 @@ mod tests {
             env: Vec::new(),
             run_dir: dir.to_path_buf(),
             idle: Duration::from_secs(60),
-        });
-        let (ours, peer) = std::os::unix::net::UnixStream::pair().unwrap();
-        let feeder = Feeder {
-            child: Command::new("sleep").arg("60").spawn().unwrap(),
-            socket: dir.join("feeder.sock"),
-            client: gf::Client::from_stream(ours, stall).unwrap(),
-            window: "_Window_Id_1".into(),
-            library: true,
-            kind: "card".into(),
-        };
+        }
+    }
+
+    /// A pool holding one idle "feeder": a socket whose other end is `peer`'s.
+    fn test_pool(dir: &Path, stall: Duration) -> (Arc<Pool>, std::os::unix::net::UnixStream) {
+        let pool = Pool::new(test_spec(dir));
+        let (feeder, peer) = test_feeder(dir, stall);
         *pool.slot.lock() = Slot::Idle(Box::new(feeder), Instant::now(), false);
         (pool, peer)
+    }
+
+    /// A pool whose idle feeder is gone (its end of the socket is closed, as a feeder whose window the compositor closed is a moment later) and that
+    /// makes the feeders in `next`, one for each start, then none. The second is how many it has made.
+    fn pool_with_a_gone_feeder(dir: &Path, next: Vec<Feeder>) -> (Arc<Pool>, Arc<std::sync::atomic::AtomicUsize>) {
+        let made = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (counted, spare) = (made.clone(), Mutex::new(next));
+        let pool = Pool::with_spawn(
+            test_spec(dir),
+            Box::new(move |_, _| {
+                counted.fetch_add(1, Ordering::SeqCst);
+                let mut spare = spare.lock();
+                if spare.is_empty() { Err("no feeder to start".to_owned()) } else { Ok(spare.remove(0)) }
+            }),
+        );
+        let (gone, peer) = test_feeder(dir, Duration::from_secs(1));
+        drop(peer);
+        *pool.slot.lock() = Slot::Idle(Box::new(gone), Instant::now(), false);
+        (pool, made)
+    }
+
+    /// The kinds of the messages a feeder's other end receives, as they come.
+    fn listen(mut peer: std::os::unix::net::UnixStream) -> std::sync::mpsc::Receiver<u8> {
+        let (kinds, heard) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            while let Ok((kind, _)) = gf::read_frame(&mut peer) {
+                if kinds.send(kind).is_err() {
+                    break;
+                }
+            }
+        });
+        heard
+    }
+
+    fn quiet_answers() -> Answers {
+        Answers { handle: None, stop: Arc::new(AtomicBool::new(false)), waker: Arc::new(Waker::new().unwrap()) }
     }
 
     /// An `Inner` with one session (id 1) that it holds and whose view is `starting`.
@@ -2399,6 +2574,7 @@ mod tests {
             session: Mutex::new(None),
             next: AtomicU64::new(2),
             publish: Box::new(|_| {}),
+            sizes: Mutex::new(Sizes::default()),
         });
         let session = test_session(1, &inner, SMALL);
         *inner.session.lock() = Some(session.clone());
@@ -2446,5 +2622,129 @@ mod tests {
         let asked = Instant::now();
         assert!(pool.lease("card").is_err());
         assert!(asked.elapsed() < FEEDER_WAIT);
+    }
+
+    /// Runs the session's writer on its own thread, with answers that say nothing.
+    fn run_writer(inner: &Arc<Inner>, pool: &Arc<Pool>, session: &Arc<Session>) -> thread::JoinHandle<()> {
+        let (inner, pool, session) = (inner.clone(), pool.clone(), session.clone());
+        thread::spawn(move || write_session_with(&inner, &pool, &session, |_, _| Ok(quiet_answers())))
+    }
+
+    /// Reads what the feeder is sent until a picture comes: the messages before it.
+    fn until_a_picture(heard: &std::sync::mpsc::Receiver<u8>) -> Vec<u8> {
+        let mut kinds = Vec::new();
+        while !kinds.contains(&gf::VIDEO) {
+            kinds.push(heard.recv_timeout(Duration::from_secs(5)).expect("the feeder is sent a picture"));
+        }
+        kinds
+    }
+
+    #[test]
+    fn a_feeder_that_was_gone_before_the_first_message_is_replaced_and_the_stream_plays_with_no_refusal() {
+        let dir = tempfile::tempdir().unwrap();
+        let (fresh, fresh_peer) = test_feeder(dir.path(), Duration::from_secs(1));
+        let heard = listen(fresh_peer);
+        let (pool, made) = pool_with_a_gone_feeder(dir.path(), vec![fresh]);
+        let (inner, session) = test_inner();
+        session.queue.begin(1);
+        session.queue.settle();
+        assert!(matches!(session.queue.give(1, unit(true, 0, 100)), Give::Done));
+        let writer = run_writer(&inner, &pool, &session);
+        let kinds = until_a_picture(&heard);
+        assert!(kinds.contains(&gf::LOAD), "the new feeder is loaded first: {kinds:?}");
+        assert_eq!(made.load(Ordering::SeqCst), 1);
+        let view = inner.view.lock().1.clone();
+        assert_eq!((view.state, view.reason.as_str()), ("starting", ""), "nothing was shown of it");
+        session.end(true);
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn a_feeder_that_breaks_with_a_picture_in_hand_gives_it_to_the_new_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let (first, mut first_peer) = test_feeder(dir.path(), Duration::from_secs(1));
+        let (second, second_peer) = test_feeder(dir.path(), Duration::from_secs(1));
+        let heard = listen(second_peer);
+        let (pool, made) = pool_with_a_gone_feeder(dir.path(), vec![second]);
+        *pool.slot.lock() = Slot::Idle(Box::new(first), Instant::now(), false);
+        let (inner, session) = test_inner();
+        session.queue.begin(1);
+        session.queue.settle();
+        let writer = run_writer(&inner, &pool, &session);
+        // the first feeder takes the ping and the load (seven messages), then goes: the picture that follows is the first write that finds it gone
+        let (gone, went) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            for _ in 0..7 {
+                gf::read_frame(&mut first_peer).unwrap();
+            }
+            drop(first_peer);
+            gone.send(()).unwrap();
+        });
+        went.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(matches!(session.queue.give(1, unit(true, 0, 100)), Give::Done));
+        let kinds = until_a_picture(&heard);
+        assert!(kinds.contains(&gf::LOAD), "{kinds:?}");
+        assert_eq!(made.load(Ordering::SeqCst), 1);
+        assert_eq!(inner.view.lock().1.state, "starting");
+        session.end(true);
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn a_feeder_that_breaks_again_after_the_replacement_fails_the_session_with_the_cause() {
+        let dir = tempfile::tempdir().unwrap();
+        let (second, second_peer) = test_feeder(dir.path(), Duration::from_secs(1));
+        drop(second_peer);
+        let (pool, made) = pool_with_a_gone_feeder(dir.path(), vec![second]);
+        let (inner, session) = test_inner();
+        write_session_with(&inner, &pool, &session, |_, _| Ok(quiet_answers()));
+        assert_eq!(made.load(Ordering::SeqCst), 1, "one replacement, not a loop");
+        let view = inner.view.lock().1.clone();
+        assert_eq!(view.state, "failed");
+        assert!(view.reason.contains("the feeder went") && view.reason.contains("Broken pipe"), "{}", view.reason);
+        assert!(session.ended() && inner.session.lock().is_none());
+        assert!(matches!(*pool.slot.lock(), Slot::Empty), "the video path is free");
+    }
+
+    #[test]
+    fn a_write_that_failed_says_which_one_in_the_sends_that_follow() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut feeder, peer) = test_feeder(dir.path(), Duration::from_secs(1));
+        drop(peer);
+        let first = feeder.client.send_ping(1).unwrap_err().to_string();
+        let later = feeder.client.send_unload().unwrap_err().to_string();
+        assert!(later.starts_with("an earlier write to the feeder failed") && later.contains(&first), "{later}");
+    }
+
+    #[test]
+    fn a_stream_declared_wrong_is_loaded_for_its_real_size_from_the_next_start() {
+        let (inner, _) = test_inner();
+        let size = |camera: &str, width: u32, height: u32| {
+            let plan = Plan {
+                camera: camera.into(),
+                mode: Mode::Live,
+                url: "rtsp://192.168.1.69:1/abc".into(),
+                codec: "h264".into(),
+                width,
+                height,
+                fps: 0,
+                started_at: 0,
+                rate: 1,
+                ndl_app: String::new(),
+                texture: false,
+                sub: false,
+                purpose: String::new(),
+                window: String::new(),
+                on_end: None,
+            };
+            inner.expected(&plan).map(|i| (i.width, i.height))
+        };
+        assert_eq!(size("104", 640, 480), Some((640, 480)), "nothing is known yet: the declaration");
+        inner.sizes.lock().learn("104", (640, 480), (480, 640));
+        assert_eq!(size("104", 640, 480), Some((480, 640)));
+        assert_eq!(size("103", 640, 480), Some((640, 480)), "another camera's");
+        assert_eq!(size("104", 1920, 2560), Some((1920, 2560)), "another stream of the camera");
+        inner.sizes.lock().learn("104", (640, 480), (640, 480));
+        assert_eq!(size("104", 640, 480), Some((640, 480)), "declared right again");
     }
 }
