@@ -142,7 +142,6 @@
   },
   "weather": {
     "zip": "30311",
-    "units": "fahrenheit",
     "days": 5,
     "animated": true
   },

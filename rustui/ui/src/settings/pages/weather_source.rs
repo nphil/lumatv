@@ -118,6 +118,13 @@ pub fn rows(c: &Ctx) -> Vec<Row> {
     }
 
     let zip = stored(c, "zip");
+    // The unit is the helper's too: its weather feed converts, and the card, the weather view and the screensaver show the feed's numbers.
+    let units = tv(Row::seg("units", &["\u{b0}F", "\u{b0}C"]).icon("sun-medium").label("Temperature").help(&format!("Weather for {zip}.")))
+        .index(Some(usize::from(stored(c, "units") == "celsius")))
+        .act(|a| match a {
+            Arg::Index(i) => vec![Op::Owner { owner: OWNER.into(), key: "units".into(), value: json!(if i == 1 { "celsius" } else { "fahrenheit" }) }],
+            _ => Vec::new(),
+        });
     let mut place = tv(Row::link("wxzip").icon("hash").label("ZIP code").help("Five digits, typed on the keyboard. The U.S. place the built-in weather is for."))
         .visible(!on_ha)
         .value(&zip);
@@ -141,7 +148,7 @@ pub fn rows(c: &Ctx) -> Vec<Row> {
             }),
         },
     ]);
-    vec![source, picker, place]
+    vec![units, source, picker, place]
 }
 
 #[cfg(test)]
@@ -179,6 +186,21 @@ mod tests {
         assert_eq!(*purpose, PURPOSE_DIGITS);
         assert_eq!(owner_writes(&then("10001".into())), vec![("zip".to_string(), json!("10001"))]);
         assert!(matches!(&then("1000".into())[..], [Op::Set(k, v)] if k == BAD_ZIP && v == &json!(true)), "five digits or nothing is written");
+    }
+
+    #[test]
+    fn the_temperature_row_reads_and_writes_the_helpers_unit() {
+        let mut w = world("builtin", "");
+        let r = rows(&w.ctx());
+        assert_eq!(row(&r, "units").index, Some(0));
+        assert_eq!(row(&r, "units").help, "Weather for 30311.");
+        let ops = (row(&r, "units").act.as_ref().unwrap())(Arg::Index(1));
+        assert_eq!(owner_writes(&ops), vec![("units".to_string(), json!("celsius"))]);
+        assert!(ops.iter().all(|o| matches!(o, Op::Owner { .. })), "nothing goes to theme.json");
+        w = world_with(OWNER, &doc(&[("source", "choice", json!("builtin")), ("entity", "text", json!("")), ("zip", "text", json!("10001")), ("units", "choice", json!("celsius"))]));
+        let r = rows(&w.ctx());
+        assert_eq!(row(&r, "units").index, Some(1));
+        assert_eq!(row(&r, "units").help, "Weather for 10001.");
     }
 
     #[test]

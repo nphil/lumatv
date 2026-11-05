@@ -421,6 +421,19 @@ impl SettingsStore {
             .push((owner.to_owned(), Arc::new(listener)));
     }
 
+    /// Takes the temperature unit that older builds kept in theme.json as the weather's, unless one is already stored. `false` when the
+    /// unit could not be taken, so the caller keeps its copy.
+    pub(crate) fn adopt_weather_units(&self, units: &str) -> bool {
+        const OWNER: &str = "base.weather";
+        let stored = self.owners.lock().get(OWNER).is_none_or(|o| o.stored.get("units").is_some());
+        if stored {
+            return true;
+        }
+        let Ok(choice) = units.parse() else { return false };
+        let change = SettingChange { key: field("units"), value: Value::Choice(choice) };
+        self.apply_trusted(OWNER, vec![change]).is_ok()
+    }
+
     pub(crate) fn text(&self, owner: &str, key: &str) -> Option<String> {
         match self.effective(owner)?.get(key)? {
             Value::Text(t) => Some(t.clone()),
@@ -919,6 +932,19 @@ mod tests {
             s.apply("base.news", vec![choice("edition", "bbc")], Some(1))
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn a_unit_from_the_theme_is_adopted_unless_one_is_already_stored() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_hub, s) = store(dir.path());
+        assert!(s.adopt_weather_units("celsius"));
+        assert_eq!(s.weather().units, "celsius");
+        assert!(s.adopt_weather_units("fahrenheit"), "the stored unit stays, and the theme's copy may go");
+        assert_eq!(s.weather().units, "celsius");
+        let other_dir = tempfile::tempdir().unwrap();
+        let (_hub, other) = store(other_dir.path());
+        assert!(!other.adopt_weather_units("kelvin"));
     }
 
     #[test]

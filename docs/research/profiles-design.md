@@ -14,7 +14,7 @@ shared (what every key was before profiles, so a key added by anyone is the hous
 |---|---|
 | look: `wallpaper`, `material`, `dark`, `light`, `accent`, `tint`, `depth`, `saturation`, `wallpaperMotion` (not `source`, `glass`) | picture, sound, network, inputs, receiver, ambient light (LG settings and the helper's settings) |
 | text size: `type` | privacy, AI access, updates, panel care (`oledcare`), screensaver, power-on and power-off logo |
-| cards and rows: the layout file (`layout.json`), `clock`, `news`, `weather.units`, `weather.days` | the weather place (`weather.zip`), remote-key behaviour, `overlays.enabled` and sizes, `cameras.*` |
+| cards and rows: the layout file (`layout.json`), `clock`, `news`, `weather.days` | the weather place (`weather.zip`), remote-key behaviour, `overlays.enabled` and sizes, `cameras.*` |
 | dock apps and order: `apps` (`dockOrder`, `dockHide`, hidden, names), `tiles.icons`, `tiles.plates` | camera options (the helper's `scrypted-cameras`, device-wide) |
 | quick panel tiles, `remote.quickAccess`, `remote.appKeys`, `search`, `motion.reduced`, `layout.overlays`, `overlays.classes` | LG's own launch point list: what is installed, never written for a profile |
 

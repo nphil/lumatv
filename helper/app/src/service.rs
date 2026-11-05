@@ -83,6 +83,7 @@ impl Service {
         settings
             .register_builtin()
             .map_err(|e| other(format!("settings: {e}")))?;
+        crate::profiles::move_legacy_units(&paths.data_dir, |units| settings.adopt_weather_units(units));
         let ctx = Ctx {
             config: config.clone(),
             paths: paths.clone(),

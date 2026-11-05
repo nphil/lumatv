@@ -1168,6 +1168,7 @@ mod tests {
                 assert!(frame.x >= 100.0 && frame.right() <= 1000.0);
                 assert_eq!(env.engine.focus.hit(frame.x + frame.w / 2.0, frame.y + frame.h / 2.0), Some(Id(11 + i as u32)));
                 h.commit();
+                h.flush_urgent();
                 let plate_id = match &art.trailing { Trailing::Cards(cards) => cards[i]._lit.as_ref().unwrap().id(), _ => unreachable!() };
                 for at in [50_000_000, 2_000_000_000] {
                     let layers = flatten(&h.all(), 0, at);

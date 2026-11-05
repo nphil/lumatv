@@ -485,6 +485,34 @@ fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(&read_text(path)?).ok()
 }
 
+/// Moves the temperature unit that older builds kept in theme.json (`weather.units`, a per-profile key the helper never read) to the helper's
+/// own `base.weather` setting, the one the weather feed obeys. The working copy's value is offered to `adopt`; the key is then removed from the
+/// working copy and every profile's theme, unless `adopt` refused it.
+pub fn move_legacy_units(data_dir: &Path, adopt: impl FnOnce(&str) -> bool) {
+    let working = data_dir.join("theme").join("theme.json");
+    let mut files = vec![working.clone()];
+    if let Ok(dir) = fs::read_dir(data_dir.join("profiles")) {
+        files.extend(dir.flatten().map(|e| e.path().join("theme.json")));
+    }
+    let mut docs: Vec<(PathBuf, Value)> = files.into_iter().filter_map(|f| read_json(&f).map(|d| (f, d))).collect();
+    let units = |d: &Value| d.pointer("/weather/units").and_then(Value::as_str).filter(|u| matches!(*u, "celsius" | "fahrenheit")).map(str::to_owned);
+    if let Some(u) = docs.iter().find(|(f, _)| *f == working).and_then(|(_, d)| units(d))
+        && !adopt(&u)
+    {
+        return;
+    }
+    for (file, doc) in &mut docs {
+        let Some(weather) = doc.get_mut("weather").and_then(Value::as_object_mut) else { continue };
+        if weather.remove("units").is_none() {
+            continue;
+        }
+        if weather.is_empty() {
+            doc.as_object_mut().map(|o| o.remove("weather"));
+        }
+        let _ = write_atomic(file, &pretty(doc), 0o644);
+    }
+}
+
 /// A file made whole: written beside it and renamed over it, so a reader sees the old file or the new one.
 fn write_atomic(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
@@ -1687,7 +1715,7 @@ mod tests {
 
     const LEGACY: &str = r##"{
         "wallpaper": "wall_aurora.png", "material": "dark", "accent": "#EB6F92", "clock": {"style": "digital", "twelveHour": false},
-        "wallpaperMotion": {"enabled": true, "amplitude": 7, "source": "video"}, "weather": {"zip": "30311", "units": "celsius"},
+        "wallpaperMotion": {"enabled": true, "amplitude": 7, "source": "video"}, "weather": {"zip": "30311", "days": 5},
         "apps": {"hidden": ["com.webos.app.browser"], "names": {"netflix": "Films"}}, "quickPanel": {"own": true, "tiles": ["sleep", "picture"]},
         "remote": {"numberKeys": true, "recents": true, "quickAccess": {"1": "netflix"}}, "type": {"body": {"size": 34}},
         "oledcare": {"enabled": true, "dimAfterMin": 4}, "screensaver": {"style": "art"}, "layout": {"overlays": {"volume": {"anchor": "right"}}},
@@ -1756,7 +1784,7 @@ mod tests {
             ("wallpaperMotion.amplitude", Side::Profile),
             ("wallpaperMotion.source", Side::Shared),
             ("weather.zip", Side::Shared),
-            ("weather.units", Side::Profile),
+            ("weather.days", Side::Profile),
             ("remote.numberKeys", Side::Shared),
             ("remote.quickAccess.1", Side::Profile),
             ("layout.overlays.volume", Side::Profile),
@@ -1780,7 +1808,7 @@ mod tests {
             json!({"enabled": true, "amplitude": 7})
         );
         assert_eq!(shared["wallpaperMotion"], json!({"source": "video"}));
-        assert_eq!(own["weather"], json!({"units": "celsius"}));
+        assert_eq!(own["weather"], json!({"days": 5}));
         assert_eq!(shared["weather"], json!({"zip": "30311"}));
         assert_eq!(own["quickPanel"], json!({"tiles": ["sleep", "picture"]}));
         assert_eq!(shared["quickPanel"], json!({"own": true}));
@@ -1837,7 +1865,6 @@ mod tests {
             "search",
             "layout",
             "overlays.classes",
-            "weather.units",
             "weather.days",
             "wallpaperMotion.source",
             "wallpaperMotion.glass",
@@ -1866,6 +1893,29 @@ mod tests {
                 "{path} is copied from the owner, so it must be a person's"
             );
         }
+    }
+
+    #[test]
+    fn the_units_older_builds_kept_in_the_theme_move_out_of_every_theme_once_taken() {
+        let r = rig();
+        let theme = json!({"weather": {"zip": "30311", "units": "celsius", "days": 5}});
+        r.set_theme(&theme);
+        r.open();
+        let mut took = None;
+        move_legacy_units(r.p(), |u| {
+            took = Some(u.to_owned());
+            true
+        });
+        assert_eq!(took.as_deref(), Some("celsius"));
+        assert_eq!(r.theme()["weather"], json!({"zip": "30311", "days": 5}));
+        for id in ["nitin", "isabel"] {
+            assert!(r.own(id).pointer("/weather/units").is_none(), "{id}");
+        }
+        move_legacy_units(r.p(), |_| panic!("nothing is left to take"));
+
+        r.set_theme(&theme);
+        move_legacy_units(r.p(), |_| false);
+        assert_eq!(r.theme()["weather"]["units"], "celsius", "a refused unit stays where it is");
     }
 
     #[test]

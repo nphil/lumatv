@@ -99,8 +99,6 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(Row::link("homeassistant").tab(1).icon("house-wifi").label("Home Assistant").value(&super::homeassistant::words(c)).does(vec![Op::Open { page: "homeassistant".into(), arg: Default::default() }]));
     rows.push(Row::link("cameras").tab(1).icon("video").label("Cameras").value(&super::cameras::summary(c)).does(vec![Op::Open { page: "cameras".into(), arg: Default::default() }]));
     rows.push(theme_toggle(c, ("greeting", 1, "sunrise", "Greeting", "Good morning, afternoon or evening under the digital clock."), "clock.greeting", true));
-    let zip = c.theme_str("weather.zip").unwrap_or("your zip code").to_string();
-    rows.push(theme_seg("units", 1, "sun-medium", "Temperature", &["\u{b0}F", "\u{b0}C"], Some(usize::from(c.theme_str("weather.units") == Some("celsius"))), |i| json!({"weather": {"units": if i == 1 { "celsius" } else { "fahrenheit" }}})).help(&format!("Weather for {zip}.")));
     rows.extend(weather_source::rows(c));
     // LG's Home Settings: Power On Screen writes what LG's row writes with it, the input app stays off and the choice is marked the owner's
     let mut power = c.seg(Spec::new("general.homeAutoLaunch").id("poweronscreen").tab(1).icon("power").label("Power On Screen").help("What the TV shows when it is turned on: Home, or the input it was last on.").options(&["Home", "Recent Input"]).values(&["on", "off"]).lg_shown());
@@ -234,7 +232,7 @@ mod tests {
             ],
             &[("option", json!({"results": [{"key": "screenSaverTimer", "values": {"arrayExt": [{"value": "3"}, {"value": "10"}, {"value": "20"}, {"value": "30"}]}}]}))],
         ));
-        w.theme = json!({"material": "auto", "clock": {"style": "digital", "enabled": true, "twelveHour": true}, "screensaver": {"style": "art", "art": {"everyMin": 5, "order": "sequence", "caption": true}, "standbyHours": 4}, "logo": {"on": 2, "off": 3}, "weather": {"zip": "30311", "units": "celsius"}, "depth": {"level": "deep"}});
+        w.theme = json!({"material": "auto", "clock": {"style": "digital", "enabled": true, "twelveHour": true}, "screensaver": {"style": "art", "art": {"everyMin": 5, "order": "sequence", "caption": true}, "standbyHours": 4}, "logo": {"on": 2, "off": 3}, "depth": {"level": "deep"}});
         w.layout = json!({"widgets": [{"type": "clock"}, {"type": "weather", "hidden": true}, {"type": "dock"}, {"type": "news"}]});
         w
     }
@@ -295,8 +293,6 @@ mod tests {
         let w = world();
         let r = rows(&w.ctx());
         assert_eq!(by_id(&r, "widgets").value, "2 shown", "the dock and a hidden card are not counted");
-        assert_eq!(by_id(&r, "units").index, Some(1));
-        assert_eq!(by_id(&r, "units").help, "Weather for 30311.");
         let power = by_id(&r, "poweronscreen");
         assert_eq!(power.index, Some(0));
         let ops = (power.act.as_ref().unwrap())(Arg::Index(1));
