@@ -3,7 +3,7 @@
 //! LG's kernel sets the panel's rate from the frame rate the decoder reports for the main window's picture (`_vsc_check_fr`,
 //! `v4l2_vsc_event.c`): 25, 50 and 100 fps give 100 Hz, every other rate 120 Hz, and the panel stays at 100 Hz after the window closes
 //! until another video's first picture. The decoder's rate is chosen in `vrate.c` from the stream's own (the sequence parameter set's
-//! VUI timing) and the container's (the NDL pipeline sets none); only with neither does it use the intervals of the pictures' times,
+//! VUI timing) and the container's (neither the ES player nor NDL's pipeline sets one); only with neither does it use the intervals of the pictures' times,
 //! and the pace the pictures arrive at is never read. The rate the video sink is told (`setVideoData.frameRate`) is the decoder's.
 //! A camera whose parameter set says 25 therefore takes the panel to 100 Hz at its first picture, however the pictures are paced
 //! (`docs/research/vwin-refresh-result.md`).

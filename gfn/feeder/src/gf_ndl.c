@@ -339,6 +339,7 @@ const gf_pipe_ops gf_ndl_ops = {
 
 const gf_pipe_ops *gf_pipe_named(const char *name) {
     if (!name || !*name || !strcmp(name, "ndl")) return &gf_ndl_ops;
+    if (!strcmp(name, "es")) return &gf_es_ops;
     if (!strcmp(name, "smp")) return &gf_smp_ops;
     return NULL;
 }

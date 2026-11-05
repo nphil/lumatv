@@ -95,10 +95,12 @@ struct feeder {
      * (the wallpaper's player does the same with Home's id, vplane.c). Empty: `app_id`. */
     const char *ndl_app;
     char ndl_app_buf[128];
-    /* The driver the next load uses (`--pipe`, or GF_PIPE from the engine): NDL for the cloud game, the starfish pipeline for a video beside an app's
-     * (gf_pipe.h); and the sink that load asks for (`--sink`, GF_SINK): "" the main window, "sub_video" the sub window beside an app's video. */
+    /* The driver the next load uses (`--pipe`, or GF_PIPE from the engine): NDL for the cloud game, the ES player for a video that is no game (a camera's),
+     * the starfish pipeline for a video beside an app's (gf_pipe.h); the sink that load asks for (`--sink`, GF_SINK): "" the main window, "sub_video" the
+     * sub window beside an app's video; and the ES player's `lowDelayMode` (`--low-delay`, 1 as NDL's own load says). */
     const gf_pipe_ops *next_ops;
     char sink[16];
+    int low_delay;
     const char *ui_home;        /* the installed app's directory: the 64-bit UI is started from it and owns the window */
     pid_t ui_pid;
     /* SAM's side (gf_sam.c): started when SAM launched the app (no arguments, or its launch object) or with --sam. `chan` is this end of
@@ -575,10 +577,11 @@ static void write_tex_stats(struct feeder *f) {
     f->tex.wall_prev_ns = now;
 }
 
-/* The pipeline the next load runs in: the driver `next_ops` names, its library opened once and kept (`ndl` at start-up, `smp` here). */
+/* The pipeline the next load runs in: the driver `next_ops` names, its library opened once and kept (`ndl` at start-up, the starfish one, which `es` and
+ * `smp` share, here). */
 static int choose_pipe(struct feeder *f, char *err, size_t cap) {
     const gf_pipe_ops *ops = f->next_ops ? f->next_ops : &gf_ndl_ops;
-    gf_pipe **slot = ops == &gf_smp_ops ? &f->smp : &f->ndl;
+    gf_pipe **slot = ops == &gf_ndl_ops ? &f->ndl : &f->smp;
     if (!*slot && ops->open_lib(slot, ops == &gf_ndl_ops ? f->lib : NULL, err, cap) != 0) return -1;
     f->ops = ops;
     f->pipe = *slot;
@@ -607,7 +610,7 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
             use.audio = GF_AUDIO_PCM_S16LE;
         }
         const char *ndl_app = f->ndl_app && f->ndl_app[0] ? f->ndl_app : f->app_id;
-        gf_pipe_opts opts = {.sink = f->sink};
+        gf_pipe_opts opts = {.sink = f->sink, .low_delay = f->low_delay};
         int rc = f->ops->start(f->pipe, ndl_app, f->window_id, &use, &opts, err, cap);
         if (rc == 0) break;
         f->ops->stop(f->pipe);
@@ -1476,7 +1479,9 @@ static void usage(void) {
             "         [--texture WxH] [--swdec-lib DIR] (the picture is decoded here and painted into the window's buffers at that size; DIR holds libavcodec-lumatv)\n"
             "       | --serve SOCKET [--once]\n"
             "  common: [-w card|overlay|default|screensaver|video] [--window-id ID] [--window-id-file F] [--no-window] [-a APP_ID] [--ndl-app APP_ID] [-L NDL_LIB] [-e first|after]\n"
-            "          [--pipe ndl|smp] (the library a load runs in: NDL, the cloud game's, or the starfish pipeline an app's own video has)\n"
+            "          [--pipe ndl|es|smp] (the library a load runs in: NDL, the cloud game's, which tells the TV the video is a game; the ES player NDL loads, told a video;\n"
+            "           or the starfish pipeline an app's own video has)\n"
+            "          [--low-delay 0|1] (the ES player's lowDelayMode, 1 as NDL's own load says)\n"
             "          [--sink main|sub_video] (the sink the load asks for: the sub window beside an app's video needs --pipe smp and the app on the foreground list)\n"
             "  serve: [--ui-home DIR] starts DIR/bin64/lumatv-gfn-app through DIR/gfx64/launch.sh (SAM mode does this from the app's own directory);\n"
             "         [--sam] registers with SAM (no arguments, or SAM's launch object as the one argument, means serve with --sam)\n");
@@ -1494,6 +1499,7 @@ int main(int argc, char **argv) {
     f.height = 2160;
     f.fps = 120;
     f.drop_threshold = -1;
+    f.low_delay = 1;
     f.pts_unit = GF_PTS_NS;
     f.full_wait_ms = 8;
     f.export_first = 1;
@@ -1567,7 +1573,8 @@ int main(int argc, char **argv) {
         } else if (!strcmp(a, "--sink") && v) {
             snprintf(f.sink, sizeof f.sink, "%s", argv[++i]);
             if (!strcmp(f.sink, "main")) f.sink[0] = 0;
-        } else if (!strcmp(a, "-e") && v) f.export_first = strcmp(argv[++i], "after") != 0;
+        } else if (!strcmp(a, "--low-delay") && v) f.low_delay = atoi(argv[++i]) != 0;
+        else if (!strcmp(a, "-e") && v) f.export_first = strcmp(argv[++i], "after") != 0;
         else if (!strcmp(a, "--sam")) f.sam_mode = 1;
         else if (a[0] == '{') {
             /* SAM starts a version 2 native app as `<main> '<json>'` (gf_sam.h) */

@@ -1,6 +1,6 @@
 //! Cameras through Scrypted, end to end on the host: the whole helper (its loopback API, its hub, the plugin broker with the Cameras page)
 //! against a fake LumaShow bridge over real TLS with a pinned certificate (`support::bridge`), a fake RTSP camera (`rtsp_client::fake`) and,
-//! where it is built (`sh gfn/feeder/build.sh`), the real feeder with the fake NDL library. Nothing leaves the loopback.
+//! where it is built (`sh gfn/feeder/build.sh`), the real feeder with the fake starfish and NDL libraries. Nothing leaves the loopback.
 //!
 //! What is shown: nothing runs until the link is made; a linked TV connects and lists the cameras; a wrong pin sends nothing; a removed device is
 //! refused; an event pops up through the policy (and only through it); stills come from one stream a camera and stop when nobody asks; the
@@ -1294,7 +1294,8 @@ fn host_feeder() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
     (program.is_file() && library.is_file()).then_some((program, library))
 }
 
-fn ndl_lines(log: &std::path::Path, what: &str) -> usize {
+/// How many lines of what the fake pipeline libraries logged hold `what`: the starfish library's, whose ES player a camera's view loads, and NDL's, in one file.
+fn pipeline_lines(log: &std::path::Path, what: &str) -> usize {
     std::fs::read_to_string(log)
         .unwrap_or_default()
         .lines()
@@ -1304,32 +1305,33 @@ fn ndl_lines(log: &std::path::Path, what: &str) -> usize {
 
 struct Video {
     world: World,
+    /// What the fake libraries logged (`FAKE_SMP_LOG`, `FAKE_NDL_LOG`): a line a call.
     log: std::path::PathBuf,
-    /// Every access unit the fake NDL library took (`FAKE_NDL_VIDEO_DUMP`).
+    /// Every video unit the fake libraries took (`FAKE_SMP_VIDEO_DUMP`, `FAKE_NDL_VIDEO_DUMP`).
     dump: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }
 
-/// A linked helper whose live path is the real host feeder on the fake NDL, with `idle` seconds of feeder idle.
-fn video(idle: u32, verbose: bool) -> Option<Video> {
+/// A linked helper whose live path is the real host feeder on the fake starfish library (the ES player a camera's view loads) and the fake NDL, with `idle` seconds
+/// of feeder idle.
+fn video(idle: u32) -> Option<Video> {
     let Some((program, library)) = host_feeder() else {
         eprintln!("skipped: the host feeder is not built (sh gfn/feeder/build.sh)");
         return None;
     };
     let dir = tempfile::tempdir().unwrap();
-    let log = dir.path().join("ndl.log");
+    let log = dir.path().join("pipeline.log");
     let dump = dir.path().join("video.bin");
-    let mut env = vec![
+    let env = vec![
         ("FAKE_NDL_LOG".to_owned(), log.display().to_string()),
+        ("FAKE_SMP_LOG".to_owned(), log.display().to_string()),
         ("FAKE_NDL_VIDEO_DUMP".to_owned(), dump.display().to_string()),
+        ("FAKE_SMP_VIDEO_DUMP".to_owned(), dump.display().to_string()),
         (
             "LD_LIBRARY_PATH".to_owned(),
             library.parent().unwrap().display().to_string(),
         ),
     ];
-    if verbose {
-        env.push(("FAKE_NDL_VERBOSE".to_owned(), "1".to_owned()));
-    }
     let mut deps = lumatv_helper::scrypted::testing::deps();
     deps.dial = Some(loopback_dial());
     deps.feeder = Some(lumatv_helper::live::FeederSpec {
@@ -1361,8 +1363,8 @@ fn live_state(world: &World) -> Value {
 const SPS_25: &str = "6742c01ed900a02ff97011000003000100000300320f162e48";
 const SPS_25_AS_30: &str = "6742c01ed900a02ff970110000030001000003003c0f162e48";
 
-/// Plays a stream whose parameter set is `sps` through the live path for a while and returns the bytes the fake NDL library took of it, or `None` where
-/// the host's fake library is older than `FAKE_NDL_VIDEO_DUMP` (`sh gfn/feeder/build.sh`).
+/// Plays a stream whose parameter set is `sps` through the live path for a while and returns the bytes the fake ES player took of it, or `None` where
+/// the host's fake library is older than `FAKE_SMP_VIDEO_DUMP` (`sh gfn/feeder/build.sh`).
 fn decoder_got(v: &Video, sps: Vec<u8>, fps: u32) -> Option<Vec<u8>> {
     let cam = camera_of(sps.clone(), fps, gop_of(&sps, 30), |_| {});
     v.world.bridge.set_rtsp("273", &cam.url());
@@ -1370,14 +1372,14 @@ fn decoder_got(v: &Video, sps: Vec<u8>, fps: u32) -> Option<Vec<u8>> {
     assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
     assert!(
         wait_until(WAIT, || live_state(&v.world)["fed"].as_u64().unwrap_or(0) >= 20),
-        "{:?} / ndl: {}",
+        "{:?} / pipeline: {}",
         live_state(&v.world),
         std::fs::read_to_string(&v.log).unwrap_or_default()
     );
     assert_eq!(v.world.post("/v1/cameras/live/stop", json!({})).status, 200);
     let got = std::fs::read(&v.dump).unwrap_or_default();
     if got.is_empty() {
-        eprintln!("skipped: the host's fake NDL library does not dump video (sh gfn/feeder/build.sh)");
+        eprintln!("skipped: the host's fake starfish library does not dump video (sh gfn/feeder/build.sh)");
         return None;
     }
     Some(got)
@@ -1389,7 +1391,7 @@ fn has(haystack: &[u8], needle: &[u8]) -> bool {
 
 #[test]
 fn a_camera_that_says_25_fps_is_given_to_the_decoder_as_30_and_nothing_else_of_the_picture_changes() {
-    let Some(v) = video(1, false) else { return };
+    let Some(v) = video(1) else { return };
     let Some(got) = decoder_got(&v, hex(SPS_25), 25) else { return };
     assert!(has(&got, &hex(SPS_25_AS_30)), "the decoder is given the set that says 30");
     assert!(!has(&got, &hex(SPS_25)), "and never the camera's own");
@@ -1398,14 +1400,14 @@ fn a_camera_that_says_25_fps_is_given_to_the_decoder_as_30_and_nothing_else_of_t
 
 #[test]
 fn a_camera_that_says_15_fps_is_given_to_the_decoder_as_it_is() {
-    let Some(v) = video(1, false) else { return };
+    let Some(v) = video(1) else { return };
     let Some(got) = decoder_got(&v, sps(), 15) else { return };
     assert!(has(&got, &sps()), "the camera's own set, byte for byte");
 }
 
 #[test]
 fn live_starts_at_once_plays_on_the_video_plane_and_stops_clean() {
-    let Some(v) = video(1, true) else { return };
+    let Some(v) = video(1) else { return };
     let cam = camera(30, gop(30), |_| {});
     v.world.bridge.set_rtsp("273", &cam.url());
     let started = Instant::now();
@@ -1428,7 +1430,7 @@ fn live_starts_at_once_plays_on_the_video_plane_and_stops_clean() {
         .wait_topic("cameras.live", WAIT, |t| t["state"] == "playing")
         .unwrap_or_else(|| {
             panic!(
-                "never playing: {:?} / ndl: {}",
+                "never playing: {:?} / pipeline: {}",
                 live_state(&v.world),
                 std::fs::read_to_string(&v.log).unwrap_or_default()
             )
@@ -1462,12 +1464,14 @@ fn live_starts_at_once_plays_on_the_video_plane_and_stops_clean() {
         .find(|r| r == "POST /v1/live");
     assert!(body.is_some());
     assert_eq!(
-        ndl_lines(&v.log, "VIOLATION"),
+        pipeline_lines(&v.log, "VIOLATION"),
         0,
         "{}",
         std::fs::read_to_string(&v.log).unwrap_or_default()
     );
-    assert!(ndl_lines(&v.log, "Load") >= 1);
+    // the full view loads the ES player and tells it a video, not a game, so the TV keeps the picture mode its owner set (docs/research/vwin-refresh-result.md)
+    assert!(pipeline_lines(&v.log, "\"mediaTransportType\":\"DIRECTMEDIA-ES-PLAYER\"") >= 1, "{}", std::fs::read_to_string(&v.log).unwrap_or_default());
+    assert_eq!(pipeline_lines(&v.log, "isGameMode"), 0);
     // Back: the state says stopped at once and the pipeline unloads off this path
     let stopped_at = Instant::now();
     let stop = v.world.post("/v1/cameras/live/stop", json!({}));
@@ -1479,7 +1483,7 @@ fn live_starts_at_once_plays_on_the_video_plane_and_stops_clean() {
     );
     assert_eq!(live_state(&v.world)["state"], "stopped");
     assert!(
-        wait_until(WAIT, || ndl_lines(&v.log, "Unload") >= 1),
+        wait_until(WAIT, || pipeline_lines(&v.log, "Unload") >= 1),
         "{}",
         std::fs::read_to_string(&v.log).unwrap_or_default()
     );
@@ -1501,12 +1505,12 @@ fn live_starts_at_once_plays_on_the_video_plane_and_stops_clean() {
                 .ends_with(".sock"))),
         "the feeder's socket is gone"
     );
-    assert_eq!(ndl_lines(&v.log, "VIOLATION"), 0);
+    assert_eq!(pipeline_lines(&v.log, "VIOLATION"), 0);
 }
 
 #[test]
 fn switching_cameras_replaces_the_session_and_a_refused_start_leaves_the_one_that_plays() {
-    let Some(v) = video(30, false) else { return };
+    let Some(v) = video(30) else { return };
     let a = camera(30, gop(30), |_| {});
     let b = camera(30, gop(30), |_| {});
     v.world.bridge.set_rtsp("273", &a.url());
@@ -1542,7 +1546,7 @@ fn switching_cameras_replaces_the_session_and_a_refused_start_leaves_the_one_tha
         "{state}"
     );
     // Right: the second camera, a new session on the same feeder
-    let before = ndl_lines(&v.log, "Load");
+    let before = pipeline_lines(&v.log, "Load");
     assert_eq!(
         v.world
             .post("/v1/cameras/live", json!({"camera": "274"}))
@@ -1563,11 +1567,11 @@ fn switching_cameras_replaces_the_session_and_a_refused_start_leaves_the_one_tha
         "the old stream is torn down"
     );
     assert!(
-        ndl_lines(&v.log, "Load") > before,
+        pipeline_lines(&v.log, "Load") > before,
         "the pipeline was loaded again for the other camera"
     );
     assert_eq!(
-        ndl_lines(&v.log, "VIOLATION"),
+        pipeline_lines(&v.log, "VIOLATION"),
         0,
         "{}",
         std::fs::read_to_string(&v.log).unwrap_or_default()
@@ -1594,7 +1598,7 @@ fn switching_cameras_replaces_the_session_and_a_refused_start_leaves_the_one_tha
 
 #[test]
 fn a_recording_plays_from_the_asked_moment_pauses_where_it_is_and_plays_on_from_there() {
-    let Some(v) = video(30, false) else { return };
+    let Some(v) = video(30) else { return };
     let cam = camera(30, gop(600), |_| {});
     v.world.bridge.set_rtsp("273", &cam.url());
     let at = v.world.bridge.now() - 600_000;
@@ -1659,7 +1663,7 @@ fn a_recording_plays_from_the_asked_moment_pauses_where_it_is_and_plays_on_from_
         "the position does not run while paused"
     );
     // Play: dialled again where it stopped
-    let loads = ndl_lines(&v.log, "Load");
+    let loads = pipeline_lines(&v.log, "Load");
     assert_eq!(
         v.world
             .post("/v1/cameras/live/pause", json!({"paused": false}))
@@ -1677,7 +1681,7 @@ fn a_recording_plays_from_the_asked_moment_pauses_where_it_is_and_plays_on_from_
         .expect("plays on");
     assert!(resumed["positionMs"].as_i64().unwrap() >= frozen);
     assert_eq!(
-        ndl_lines(&v.log, "Load"),
+        pipeline_lines(&v.log, "Load"),
         loads,
         "the same pipeline went on: the picture was never dropped"
     );
@@ -1706,7 +1710,7 @@ fn a_recording_plays_from_the_asked_moment_pauses_where_it_is_and_plays_on_from_
         400
     );
     assert_eq!(
-        ndl_lines(&v.log, "VIOLATION"),
+        pipeline_lines(&v.log, "VIOLATION"),
         0,
         "{}",
         std::fs::read_to_string(&v.log).unwrap_or_default()
@@ -1715,27 +1719,27 @@ fn a_recording_plays_from_the_asked_moment_pauses_where_it_is_and_plays_on_from_
 
 #[test]
 fn the_full_views_recording_plays_where_its_live_does_and_play_goes_on_there_on_the_same_pipeline() {
-    let Some(v) = video(30, false) else { return };
+    let Some(v) = video(30) else { return };
     let cam = camera(30, gop(600), |_| {});
     v.world.bridge.set_rtsp("273", &cam.url());
     // live, as the full view asks for it on a video window of the display
     let reply = v.world.post("/v1/cameras/live", json!({"camera": "273", "for": "full", "window": "main"}));
     assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
     v.world.rig.wait_topic("cameras.live", WAIT, |t| t["mode"] == "live" && t["state"] == "playing").expect("live plays");
-    let loads = ndl_lines(&v.log, "Load");
+    let loads = pipeline_lines(&v.log, "Load");
     assert!(loads >= 1);
     // a recording from the strip names the same window: the same feeder, the same pipeline, the picture on the plane never dropped
     let at = v.world.bridge.now() - 600_000;
     let reply = v.world.post("/v1/cameras/playback", json!({"camera": "273", "at": at, "window": "main"}));
     assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
     v.world.rig.wait_topic("cameras.live", WAIT, |t| t["mode"] == "playback" && t["state"] == "playing").expect("the recording plays");
-    assert_eq!(ndl_lines(&v.log, "Load"), loads, "the seek reused the pipeline");
+    assert_eq!(pipeline_lines(&v.log, "Load"), loads, "the seek reused the pipeline");
     // Pause, then Play: dialled again where it stopped, in the window it was in
     assert_eq!(v.world.post("/v1/cameras/live/pause", json!({"paused": true})).status, 200);
     assert!(wait_until(WAIT, || v.world.bridge.requests_matching("POST /v1/playback/stop") >= 1), "the bridge's session is given back");
     assert_eq!(v.world.post("/v1/cameras/live/pause", json!({"paused": false})).status, 200);
     v.world.rig.wait_topic("cameras.live", WAIT, |t| t["paused"] == false && t["mode"] == "playback" && t["state"] == "playing").expect("plays on");
-    assert_eq!(ndl_lines(&v.log, "Load"), loads, "Play went on in the same window and pipeline");
+    assert_eq!(pipeline_lines(&v.log, "Load"), loads, "Play went on in the same window and pipeline");
     // the decoder was opened for Home, the app LG's video path connects a window's video for
     let feeder_log = std::fs::read_to_string(v._dir.path().join("feeder.log")).unwrap_or_default();
     assert!(feeder_log.contains("ndl app com.webos.app.home"), "{feeder_log}");
@@ -1745,9 +1749,9 @@ fn the_full_views_recording_plays_where_its_live_does_and_play_goes_on_there_on_
     // without the word (the compositor has no video windows) a recording plays as it did before: in the configured window, with another feeder and its own load
     let reply = v.world.post("/v1/cameras/playback", json!({"camera": "273", "at": at}));
     assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
-    assert!(wait_until(WAIT, || ndl_lines(&v.log, "Load") > loads), "another window kind: another feeder loads its own pipeline");
+    assert!(wait_until(WAIT, || pipeline_lines(&v.log, "Load") > loads), "another window kind: another feeder loads its own pipeline");
     v.world.post("/v1/cameras/live/stop", json!({}));
-    assert_eq!(ndl_lines(&v.log, "VIOLATION"), 0, "{}", std::fs::read_to_string(&v.log).unwrap_or_default());
+    assert_eq!(pipeline_lines(&v.log, "VIOLATION"), 0, "{}", std::fs::read_to_string(&v.log).unwrap_or_default());
 }
 
 fn wait_position(v: &Video, check: impl Fn(i64) -> bool) -> Option<i64> {
@@ -1763,7 +1767,7 @@ fn wait_position(v: &Video, check: impl Fn(i64) -> bool) -> Option<i64> {
 #[test]
 fn the_bridge_ending_the_old_recording_for_a_seek_is_not_an_end_of_recording_and_a_refused_seek_says_why()
  {
-    let Some(v) = video(30, false) else { return };
+    let Some(v) = video(30) else { return };
     let first = camera(30, gop(600), |_| {});
     v.world.bridge.set_rtsp("273#playback", &first.url());
     let at = v.world.bridge.now() - 600_000;
@@ -1871,7 +1875,7 @@ fn the_bridge_ending_the_old_recording_for_a_seek_is_not_an_end_of_recording_and
 
 #[test]
 fn a_recording_that_ends_says_so_a_refused_playback_leaves_live_alone_and_a_clip_plays() {
-    let Some(v) = video(30, false) else { return };
+    let Some(v) = video(30) else { return };
     let live = camera(30, gop(300), |_| {});
     let recording = camera(60, gop(40), |script| script.close_after = Some(40));
     v.world.bridge.set_rtsp("273", &live.url());
@@ -1941,7 +1945,7 @@ fn a_recording_that_ends_says_so_a_refused_playback_leaves_live_alone_and_a_clip
         })
         .unwrap_or_else(|| {
             panic!(
-                "live again: {:?} / ndl: {}",
+                "live again: {:?} / pipeline: {}",
                 live_state(&v.world),
                 std::fs::read_to_string(&v.log).unwrap_or_default()
             )
@@ -1999,7 +2003,7 @@ fn a_recording_that_ends_says_so_a_refused_playback_leaves_live_alone_and_a_clip
 
 #[test]
 fn a_stream_that_goes_quiet_ends_with_a_reason_and_a_dead_address_fails_in_words() {
-    let Some(v) = video(30, false) else { return };
+    let Some(v) = video(30) else { return };
     // the camera sends five pictures and stays connected, silent: the stream is over after its quiet time
     let quiet = camera(30, gop(30), |script| script.silent_after = Some(5));
     v.world.bridge.set_rtsp("273", &quiet.url());
@@ -2052,7 +2056,7 @@ fn a_stream_that_goes_quiet_ends_with_a_reason_and_a_dead_address_fails_in_words
 /// track with no codec named. The TV's dial is refused at once.
 #[test]
 fn a_doorbell_with_a_one_shot_address_fails_in_words_and_a_refusal_after_it_says_why() {
-    let Some(v) = video(30, false) else { return };
+    let Some(v) = video(30) else { return };
     v.world.bridge.set_doc(
         "live",
         200,
@@ -2081,7 +2085,7 @@ fn a_doorbell_with_a_one_shot_address_fails_in_words_and_a_refusal_after_it_says
         "no size is made up for the shell to fit a window by"
     );
     assert_eq!(
-        ndl_lines(&v.log, "Load"),
+        pipeline_lines(&v.log, "Load"),
         0,
         "no pipeline is loaded for a stream nobody described"
     );
@@ -2133,7 +2137,7 @@ fn live_is_off_in_words_when_the_switch_is_off_and_without_a_feeder_nothing_star
 
 #[test]
 fn leaving_the_link_while_playing_ends_the_stream_and_the_feeder_goes() {
-    let Some(v) = video(30, false) else { return };
+    let Some(v) = video(30) else { return };
     let cam = camera(30, gop(60), |_| {});
     v.world.bridge.set_rtsp("273", &cam.url());
     assert_eq!(

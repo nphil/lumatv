@@ -49,6 +49,12 @@ HELLO = struct.Struct("<4I32s64s")
 GF = dict(LOAD=1, VIDEO=2, AUDIO=3, FLUSH=4, UNLOAD=5, STATE=6, HDR=7, PING=8, APP=9, TEXTURE=10, PIPE=11, SINK=12, LOADED=16, EVENT=17, ACCEPT=18, DROP=19, STATUS=20, ERROR=21,
           PONG=22, HELLO=23)
 
+# What the set logged (`smp.api LOAD`, TV 2026-10-30) when NDL loaded a 1920x1080 H.264 picture for org.nphil.lumatv.cameras: the load every NDL video has, whose
+# `lowDelayMode` and `videoInfo.isGameMode` NDL says true and no call changes (docs/research/multiview/tv-2026-10-30/luna-e2/messages/messages)
+NDL_LOAD_ON_THE_SET = ('{"args":[{"mediaTransportType":"DIRECTMEDIA-ES-PLAYER","option":{"appId":"org.nphil.lumatv.cameras","lowDelayMode":true,'
+                       '"externalStreamingInfo":{"contents":{"codec":{"video":"H264"},"esInfo":{"videoHeight":1080,"videoWidth":1920,"pauseAtDecodeTime":true,"ptsToDecode":0}}},'
+                       '"adaptiveStreaming":{"maxHeight":1080,"maxFrameRate":60,"maxWidth":1920},"windowId":"_Window_Id_17","videoInfo":{"isGameMode":true}}}]}')
+
 
 def build():
     if os.path.exists(BIN) and os.path.exists(NDL) and os.path.exists(SMP) and os.path.exists(ARM):
@@ -378,6 +384,27 @@ class Play(unittest.TestCase):
         finally:
             r.close()
 
+    def test_a_clip_plays_through_the_es_player_as_a_camera_does_and_low_delay_can_be_left_out(self):
+        """`--pipe es` (the TV probe's clips take the pipeline a camera's view has): the load is the ES player's with no game, `--low-delay 0` says false for the
+        A/B, and NDL is not called."""
+        smp_log = os.path.join(self.tmp, "smp.log")
+        with open(self.clip, "wb") as f:
+            f.write(hevc_stream(6))
+        r = Run(["--play", self.clip, "--size", "320x240", "--fps", "120", "-w", "video", "--pipe", "es", "--low-delay", "0"], env={"FAKE_SMP_LOG": smp_log}).go()
+        try:
+            self.assertEqual(r.proc.returncode, 0, r.err())
+            load = next(json.loads(l[5:]) for l in lines(smp_log) if l.startswith("Load "))
+            option = load["args"][0]["option"]
+            self.assertEqual(load["args"][0]["mediaTransportType"], "DIRECTMEDIA-ES-PLAYER")
+            self.assertIs(option["lowDelayMode"], False)
+            self.assertNotIn("videoInfo", option)
+            self.assertEqual(option["externalStreamingInfo"]["contents"]["codec"], {"video": "H265"})
+            s = r.summary()
+            self.assertEqual((s["units"], s["fed"], s["dropped"], s["error"]), (6, 6, 0, 0))
+            self.assertNotIn("Load", r.ndl_names())
+        finally:
+            r.close()
+
 
 class Client:
     """The engine's end of the socket, in Python."""
@@ -588,6 +615,94 @@ class Serve(unittest.TestCase):
             c.send(GF["UNLOAD"])
             time.sleep(0.3)
             self.assertIn("Load", open(ndl_log).read())
+            c.close()
+            proc.wait(timeout=10)
+            self.assertEqual(proc.returncode, 0)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            err.close()
+            fc.close()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_the_es_player_is_loaded_with_ndls_options_and_no_game(self):
+        """`GF_PIPE es`, a camera's load: LG's ES player is loaded in the starfish library with the options NDL's own load has on the set (`NDL_LOAD_ON_THE_SET`) and
+        without `videoInfo.isGameMode`, so the TV is told a video and not a game. Low delay stays, the ceilings are the codec file's, there is no container rate and no
+        sink; a load that asks for a sink or audio is refused with the reason; NDL sees nothing; the units are taken and the pipeline's events come back."""
+        tmp = tempfile.mkdtemp(prefix="gfn-feeder-es-")
+        sock = os.path.join(tmp, "feed.sock")
+        ndl_log, smp_log = os.path.join(tmp, "ndl.log"), os.path.join(tmp, "smp.log")
+        fc = FakeCompositor()
+        env = dict(os.environ, **fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=ndl_log, FAKE_SMP_LOG=smp_log)
+        err = open(os.path.join(tmp, "feeder.log"), "w")
+        proc = subprocess.Popen([BIN, "--serve", sock, "--once", "-L", NDL, "-w", "video", "-a", "org.nphil.lumatv.cameras", "--stats", os.path.join(tmp, "stats.jsonl")],
+                                env=env, stderr=err, stdout=subprocess.DEVNULL)
+        loads = lambda: [json.loads(l[5:]) for l in open(smp_log).read().splitlines() if l.startswith("Load ")]
+
+        def logged(what, count=1):
+            end = time.time() + 5
+            while time.time() < end:
+                if os.path.exists(smp_log) and open(smp_log).read().count(what) >= count:
+                    return
+                time.sleep(0.01)
+            self.fail("the pipeline's log has no %r #%d" % (what, count))
+
+        try:
+            c = Client(sock)
+            self.assertEqual(c.recv()[0], GF["HELLO"])
+            c.send(GF["PIPE"], b"es")
+            # the ES player takes the main window and a picture only
+            c.send(GF["SINK"], b"sub_video")
+            c.load(codec=1, w=1920, h=1080, fps=25, audio=0, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 0, p)
+            self.assertIn(b"the ES player cannot ask for the sub_video sink", p)
+            c.send(GF["SINK"], b"")
+            c.load(codec=1, w=1920, h=1080, fps=25, audio=1, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 0, p)
+            self.assertIn(b"picture only", p)
+            self.assertFalse(os.path.exists(smp_log) and loads(), "a refused load reached no pipeline")
+            # H.264 at 1920x1080, for the window's own app: NDL's load on the set, with no videoInfo
+            c.load(codec=1, w=1920, h=1080, fps=25, audio=0, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+            t0 = 1_000_000_000
+            for i in range(12):
+                c.send(GF["VIDEO"], MEDIA_HEAD.pack(t0 + i * 40_000_000, 1 if i == 0 else 0) + bytes([0, 0, 0, 1, 0x65]) + bytes(60))
+            accepted, events = 0, []
+            deadline = time.time() + 5
+            while time.time() < deadline and (accepted < 12 or 22 not in events or 26 not in events):
+                t, p = c.recv()
+                if t == GF["ACCEPT"]:
+                    accepted += 1
+                elif t == GF["EVENT"]:
+                    events.append(EVENT.unpack_from(p)[0])
+            self.assertEqual(accepted, 12)
+            self.assertIn(22, events, "LOADCOMPLETED")
+            self.assertIn(26, events, "PLAYING")
+            c.send(GF["UNLOAD"])
+            logged("Unload")
+            first = loads()[0]
+            window = first["args"][0]["option"]["windowId"]
+            self.assertTrue(window.startswith("_Window_Id_"), window)
+            ours = json.loads(json.dumps(first).replace(window, "_Window_Id_17"))
+            self.assertEqual(ours, json.loads(NDL_LOAD_ON_THE_SET.replace(',"videoInfo":{"isGameMode":true}', "")), "NDL's load, minus the game")
+            self.assertNotIn("isGameMode", json.dumps(first))
+            self.assertTrue(first["args"][0]["option"]["lowDelayMode"])
+            self.assertEqual(open(smp_log).read().count('"esData":1'), 12)
+            self.assertNotIn("Load", open(ndl_log).read() if os.path.exists(ndl_log) else "", "NDL saw no load")
+            # H.265 is 120 a second at most (the codec file's), and the app named is the one the load is for
+            c.send(GF["APP"], b"com.webos.app.home")
+            c.load(codec=2, w=3840, h=2160, fps=30, audio=0, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+            c.send(GF["UNLOAD"])
+            logged("Unload", 2)
+            second = loads()[1]["args"][0]["option"]
+            self.assertEqual(second["appId"], "com.webos.app.home")
+            self.assertEqual(second["externalStreamingInfo"]["contents"]["codec"], {"video": "H265"})
+            self.assertEqual(second["adaptiveStreaming"], {"maxHeight": 2160, "maxFrameRate": 120, "maxWidth": 3840})
             c.close()
             proc.wait(timeout=10)
             self.assertEqual(proc.returncode, 0)

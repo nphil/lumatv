@@ -1,5 +1,5 @@
 //! The wire to `lumatv-gfn-feeder` (`gfn/feeder/src/gf_proto.h`): a Unix stream socket of `gf_frame` headers and little-endian structs.
-//! The feeder is the 32-bit process that owns the video window and LG's NDL DirectMedia pipeline; this side loads it with a codec and a
+//! The feeder is the 32-bit process that owns the video window and drives LG's media pipelines (NDL DirectMedia, the ES player, the starfish pipeline); this side loads it with a codec and a
 //! size and sends whole access units with their presentation times. The structs are `#[repr(C)]` mirrors of the header's; the sizes
 //! are asserted so a field added on one side cannot pass unnoticed.
 
@@ -415,8 +415,8 @@ impl Client {
         self.send(APP, app.as_bytes())
     }
 
-    /// The library the next load runs in (`GF_PIPE`): `ndl`, the cloud game's, or `smp`, the starfish pipeline an app's own video has, the one that can take the
-    /// sub window (`gfn/feeder/src/gf_pipe.h`).
+    /// The library the next load runs in (`GF_PIPE`): `ndl`, the cloud game's, whose load tells the TV the video is a game; `es`, the ES player NDL loads, with no game said;
+    /// or `smp`, the starfish pipeline an app's own video has, the one that can take the sub window (`gfn/feeder/src/gf_pipe.h`).
     pub fn send_pipe(&mut self, pipe: &str) -> io::Result<()> {
         self.send(PIPE, pipe.as_bytes())
     }

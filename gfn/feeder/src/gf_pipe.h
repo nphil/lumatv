@@ -1,12 +1,16 @@
-/* The video pipeline the feeder drives: one of two of LG's libraries, loaded at run time and spoken to through one table of calls.
+/* The video pipeline the feeder drives: one of LG's libraries, loaded at run time and spoken to through one table of calls.
  *
- *   ndl  libNDL_directmedia.so.1 (gf_ndl.c): the cloud-game session. Its load is a low-delay game-mode one, and such a pipeline takes the
- *        display's sub scaler for itself (`subScalerOccupied`), so it can only ever be the one video on the screen.
+ *   ndl  libNDL_directmedia.so.1 (gf_ndl.c): the cloud-game session. NDL builds its load, with `lowDelayMode` and `videoInfo.isGameMode` both true and no
+ *        call that changes either (the set logs it as `smp.api LOAD`: docs/research/multiview/tv-2026-10-30/luna-e2/messages/messages). The AV connector
+ *        then tells videooutputd the video is a game, and the TV takes its game picture mode while it plays. Such a pipeline also takes the display's sub
+ *        scaler for itself (`subScalerOccupied`), so it can only ever be the one video on the screen.
+ *   es   libplayerAPIs.so.1 (gf_smp.c): the ES player NDL loads (`DIRECTMEDIA-ES-PLAYER`), loaded here with NDL's options field for field except
+ *        `videoInfo.isGameMode`: a unit is shown when it arrives and the load stays low delay, but it does not say game. What a camera's view uses.
  *   smp  libplayerAPIs.so.1 (gf_smp.c): the pipeline an app's own video has (the C++ class StarfishMediaAPIs, called by its mangled
  *        names). No game mode, so the sub scaler stays free, and its AV connector takes the sink the Multi View state gives it, MAIN or
  *        SUB0: the pipeline that plays beside an app's video (docs/research/multiview-result.md).
  *
- * The events both deliver are PF_EVENT_T of StarfishMediaAPIs.h (NDL passes them through); the ones acted on or counted are named here.
+ * The events they deliver are PF_EVENT_T of StarfishMediaAPIs.h (NDL passes them through); the ones acted on or counted are named here.
  * Events arrive on the libraries' threads and are queued; the descriptor is readable when the queue is not empty: clear it, then drain.
  */
 #ifndef GF_PIPE_H
@@ -27,14 +31,16 @@ enum { GF_PIPE_HAS_HDR = 1, GF_PIPE_HAS_DROP_THRESHOLD = 2, GF_PIPE_HAS_FLUSH = 
 
 typedef struct gf_pipe gf_pipe;     /* a driver's own object */
 
-/* What a load asks of the display beyond the stream (`--sink`, GF_SINK): `sink` is "" for the main window every pipeline gets, "sub_video" for the sub
- * window beside an app's video. Only the starfish pipeline can ask (its load option `avSink.videoSink.type`); NDL refuses such a load. */
+/* What a load asks beyond the stream (`--sink`, GF_SINK; `--low-delay`): `sink` is "" for the main window every pipeline gets, "sub_video" for the sub
+ * window beside an app's video. Only the starfish pipeline can ask (its load option `avSink.videoSink.type`); NDL and the ES player refuse such a load.
+ * `low_delay` is the ES player's `lowDelayMode` (1, as NDL's own load says); the other drivers ignore it. */
 typedef struct gf_pipe_opts {
     const char *sink;
+    int low_delay;
 } gf_pipe_opts;
 
 typedef struct gf_pipe_ops {
-    const char *name;                                                   /* "ndl", "smp" */
+    const char *name;                                                   /* "ndl", "es", "smp" */
     /* dlopen `lib` (NULL or "": the driver's default name), resolve every call, initialise. */
     int (*open_lib)(gf_pipe **out, const char *lib, char *err, size_t cap);
     const char *(*lib_name)(const gf_pipe *p);
@@ -61,9 +67,10 @@ typedef struct gf_pipe_ops {
 } gf_pipe_ops;
 
 extern const gf_pipe_ops gf_ndl_ops;
+extern const gf_pipe_ops gf_es_ops;
 extern const gf_pipe_ops gf_smp_ops;
 
-/* The driver named "ndl" or "smp" ("" and NULL: ndl); NULL for any other word. */
+/* The driver named "ndl", "es" or "smp" ("" and NULL: ndl); NULL for any other word. */
 const gf_pipe_ops *gf_pipe_named(const char *name);
 
 #endif

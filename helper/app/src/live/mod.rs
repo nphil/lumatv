@@ -2,7 +2,7 @@
 //! server (a recording or a clip), through the GFN feeder (`docs/research/scrypted-cameras-design.md` 2.2 and 2.5).
 //!
 //! ```text
-//! Scrypted --RTSP/TCP--> reader (rtsp-client: Annex B access units) --queue--> writer --unix socket--> lumatv-gfn-feeder --> NDL --> video plane
+//! Scrypted --RTSP/TCP--> reader (rtsp-client: Annex B access units) --queue--> writer --unix socket--> lumatv-gfn-feeder --> ES player --> video plane
 //! ```
 //!
 //! The TV never holds a camera's own address or password: the stream address is what the bridge answered, a capability that is never logged
@@ -1575,7 +1575,6 @@ impl Drop for Answers {
     }
 }
 
-/// Loads the pipeline with `info` in the leased feeder, for the app named (empty: the video window's own).
 /// The size of the picture the feeder paints for a texture: the stream's own, scaled down to fit 640x360 (a camera's second stream is that or less; a
 /// larger one is halved by the feeder before it is stretched over the claim's rectangle, which at the UI's 1920x1080 is about the box's own size).
 pub fn texture_size(width: u32, height: u32) -> (u32, u32) {
@@ -1588,6 +1587,15 @@ pub fn texture_size(width: u32, height: u32) -> (u32, u32) {
     (even(f64::from(width)), even(f64::from(height)))
 }
 
+/// The pipeline and the sink a load asks the feeder for. The sub window beside an app's video is the starfish pipeline asking for the sub sink, which only it can. The
+/// main window's is the ES player: NDL's own pipeline, loaded with NDL's options but the game declaration (`gfn/feeder/src/gf_pipe.h`). NDL's own load tells the TV the
+/// video is a game, and the TV takes its game picture mode while it plays, which shifts the colours of every camera view (`docs/research/vwin-refresh-result.md`); the
+/// GeForce NOW stream is a game and keeps NDL.
+fn pipe_for(sub: bool) -> (&'static str, &'static str) {
+    if sub { ("smp", "sub_video") } else { ("es", "") }
+}
+
+/// Loads the pipeline with `info` in the leased feeder, for the app named (empty: the video window's own).
 fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool, sub: bool) -> Result<(), String> {
     let codec = match info.codec {
         Codec::H264 => gf::CODEC_H264,
@@ -1600,9 +1608,9 @@ fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool, sub: 
     let (tw, th) = if texture { texture_size(info.width, info.height) } else { (0, 0) };
     client.send_texture(tw, th).map_err(|e| e.to_string())?;
     client.send_app(ndl_app).map_err(|e| e.to_string())?;
-    // the sub window: the starfish pipeline asking for the sub sink; everything else the NDL session on the main window, as before
-    client.send_pipe(if sub { "smp" } else { "ndl" }).map_err(|e| e.to_string())?;
-    client.send_sink(if sub { "sub_video" } else { "" }).map_err(|e| e.to_string())?;
+    let (pipe, sink) = pipe_for(sub);
+    client.send_pipe(pipe).map_err(|e| e.to_string())?;
+    client.send_sink(sink).map_err(|e| e.to_string())?;
     client
         .send_load(codec, info.width, info.height, info.fps)
         .map_err(|e| e.to_string())?;
@@ -2622,6 +2630,37 @@ mod tests {
     }
 
     const SMALL: StreamInfo = StreamInfo { codec: Codec::H264, width: 640, height: 360, fps: 15 };
+
+    /// What a feeder's other end is sent until the load's `STATE` message: (kind, payload) in order.
+    fn heard_until_the_load(peer: &mut std::os::unix::net::UnixStream) -> Vec<(u8, Vec<u8>)> {
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut heard = Vec::new();
+        loop {
+            let message = gf::read_frame(peer).expect("the feeder is sent the load");
+            let done = message.0 == gf::STATE;
+            heard.push(message);
+            if done {
+                return heard;
+            }
+        }
+    }
+
+    #[test]
+    fn a_main_window_load_asks_for_the_es_player_and_a_sub_window_one_for_the_starfish_pipeline_and_the_sub_sink() {
+        let dir = tempfile::tempdir().unwrap();
+        for (sub, pipe, sink) in [(false, "es", ""), (true, "smp", "sub_video")] {
+            let (pool, mut peer) = test_pool(dir.path(), Duration::from_secs(1));
+            let mut lease = pool.lease("card").unwrap();
+            load(&mut lease, SMALL, "com.webos.app.home", false, sub).unwrap();
+            let heard = heard_until_the_load(&mut peer);
+            let said = |kind: u8| heard.iter().find(|(k, _)| *k == kind).map(|(_, text)| String::from_utf8_lossy(text).into_owned());
+            assert_eq!(said(gf::APP).as_deref(), Some("com.webos.app.home"), "sub {sub}");
+            assert_eq!(said(gf::PIPE).as_deref(), Some(pipe), "sub {sub}");
+            assert_eq!(said(gf::SINK).as_deref(), Some(sink), "sub {sub}");
+            let order: Vec<u8> = heard.iter().map(|(kind, _)| *kind).filter(|kind| [gf::APP, gf::PIPE, gf::SINK, gf::LOAD].contains(kind)).collect();
+            assert_eq!(order, [gf::APP, gf::PIPE, gf::SINK, gf::LOAD], "the pipeline and the sink are named before the load that runs in them (sub {sub})");
+        }
+    }
 
     #[test]
     fn a_session_whose_answers_cannot_be_read_ends_and_is_not_one_a_new_stream_attaches_to() {

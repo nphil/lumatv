@@ -5,12 +5,13 @@
  * the C++11 layout {pointer, length, 16-byte local buffer or capacity}, which is freed with the library's own operator delete when the
  * pointer left the local buffer.
  *
- * The load is a BUFFERSTREAM of raw elementary streams (RAW, provider Chrome, the pair of levels a low-latency client uses), the stream's own
- * size and rate as the ceiling the decoder reserves for, and no game mode: this is the pipeline an app's own video has, and outside a Multi
- * View its AV connector takes the sink the load asks for (`avSink`, MAIN by default; Home's pipeline excepted); the NDL load (gf_ndl.c) is a low-delay
- * game session and such a pipeline occupies the sub scaler for itself. Feeding starts as soon as Load returns: the pipeline prerolls on
- * the first buffers and only then says LOADCOMPLETED, and a Play sent before that is queued, so Play is sent after Load, after the first
- * buffer taken and once more when LOADCOMPLETED has been seen.
+ * Two drivers load it, and differ in the load alone. `smp`: a BUFFERSTREAM of raw elementary streams (RAW, provider Chrome, the pair of levels a
+ * low-latency client uses), the stream's own size and rate as the ceiling the decoder reserves for, and no game mode: this is the pipeline an
+ * app's own video has, and outside a Multi View its AV connector takes the sink the load asks for (`avSink`, MAIN by default; Home's pipeline
+ * excepted). `es`: the ES player NDL loads (DIRECTMEDIA-ES-PLAYER), with NDL's own options except the game declaration, so a unit is shown when it
+ * arrives and the TV is told a video, not a game. The NDL load (gf_ndl.c) is a low-delay game session, and such a pipeline occupies the sub scaler
+ * for itself. Feeding starts as soon as Load returns: the pipeline prerolls on the first buffers and only then says LOADCOMPLETED, and a Play
+ * sent before that is queued, so Play is sent after Load, after the first buffer taken and once more when LOADCOMPLETED has been seen.
  */
 #define _GNU_SOURCE
 #include "gf_pipe.h"
@@ -165,6 +166,32 @@ static int json_safe(const char *s) {
     return 1;
 }
 
+/* What both drivers do with a payload: the object, foreground, the load, then play. `what` says in words what was loaded, for the log and for a refusal. */
+static int starfish_load(struct gf_smp *s, const char *driver, const char *payload, const char *what, const gf_load *l, const char *app_id,
+                         const char *window_id, char *err, size_t cap) {
+    if (!s->obj) {
+        s->obj = calloc(1, OBJ_SIZE);
+        if (!s->obj) {
+            snprintf(err, cap, "out of memory");
+            return -1;
+        }
+        s->ctor(s->obj, NULL);
+    }
+    s->started = 1;
+    s->loaded = s->played_after_load = 0;
+    if (!(s->notify_fg(s->obj) & 1)) gf_say("%s: notifyForeground said no (the pipeline may refuse the load)", driver);
+    if (!(s->load(s->obj, payload, on_event, s) & 1)) {
+        snprintf(s->error, sizeof s->error, "Load refused");
+        snprintf(err, cap, "StarfishMediaAPIs::Load refused the %s load (%s)", driver, what);
+        return GF_PIPE_LOAD_FAILED;
+    }
+    s->play(s->obj);
+    if (l->hdr) gf_say("%s: the HDR metadata is not passed on this pipeline; the stream's own SEI is what the display gets", driver);
+    const char *id = s->media_id ? s->media_id(s->obj) : NULL;
+    gf_say("%s: loaded %s for %s in %s, media id %s", driver, what, app_id, window_id, id ? id : "?");
+    return 0;
+}
+
 static int smp_start(gf_pipe *p, const char *app_id, const char *window_id, const gf_load *l, const gf_pipe_opts *o, char *err, size_t cap) {
     struct gf_smp *s = S(p);
     s->error[0] = 0;
@@ -212,27 +239,49 @@ static int smp_start(gf_pipe *p, const char *app_id, const char *window_id, cons
              "\"srcBufferLevelAudio\":{\"minimum\":1024,\"maximum\":32768},\"srcBufferLevelVideo\":{\"minimum\":1024,\"maximum\":1048576}}},"
              "\"adaptiveStreaming\":{\"audioOnly\":false,\"maxWidth\":%u,\"maxHeight\":%u,\"maxFrameRate\":%u}}}]}",
              app_id, window_id, avsink, codec, l->audio == GF_AUDIO_OPUS ? ",\"audio\":\"OPUS\"" : "", fps, audio, l->width, l->height, fps);
-    if (!s->obj) {
-        s->obj = calloc(1, OBJ_SIZE);
-        if (!s->obj) {
-            snprintf(err, cap, "out of memory");
-            return -1;
-        }
-        s->ctor(s->obj, NULL);
+    char what[160];
+    snprintf(what, sizeof what, "%s %ux%u at %u, audio %u, sink %s", codec, l->width, l->height, fps, l->audio, sink[0] ? sink : "main");
+    return starfish_load(s, "smp", payload, what, l, app_id, window_id, err, cap);
+}
+
+/* The ES player's load: what NDL sends for its own (the set logs it as `smp.api LOAD`: docs/research/multiview/tv-2026-10-30/luna-e2/messages/messages), option
+ * for option, except that `videoInfo.isGameMode` is not there. NDL says it true and `lowDelayMode` true and has no call that changes either; the AV connector tells
+ * videooutputd (`setVideoData` `videoInfo`) and pqcontroller takes the game picture mode while the video plays (`dynamicRange sdrALLM`), with `contentType` `movie` all the
+ * while (the bus, TV 2026-11-05). Whether `lowDelayMode` alone takes it too is not known: `--low-delay 0` says false for a TV probe's A/B. The rest is NDL's: the transport
+ * that shows a unit when it arrives (the ES player has no clock: the PTS is for A/V alignment), no container rate (the decoder's rate is the stream's own, the one
+ * `live::rate` writes), and the ceilings NDL reads from the set's codec capability file (`device_codec_capability_config.json`: 60 a second for H.264 and AV1, 120 for
+ * H.265). Picture only: audio is NDL's load (gf_ndl.c). */
+static int es_start(gf_pipe *p, const char *app_id, const char *window_id, const gf_load *l, const gf_pipe_opts *o, char *err, size_t cap) {
+    struct gf_smp *s = S(p);
+    s->error[0] = 0;
+    const char *codec = l->codec == GF_CODEC_H264 ? "H264" : l->codec == GF_CODEC_H265 ? "H265" : l->codec == GF_CODEC_AV1 ? "AV1" : NULL;
+    if (!codec) {
+        snprintf(err, cap, "codec %u is not one the pipeline takes", l->codec);
+        return -1;
     }
-    s->started = 1;
-    s->loaded = s->played_after_load = 0;
-    if (!(s->notify_fg(s->obj) & 1)) gf_say("smp: notifyForeground said no (the pipeline may refuse the load)");
-    if (!(s->load(s->obj, payload, on_event, s) & 1)) {
-        snprintf(s->error, sizeof s->error, "Load refused");
-        snprintf(err, cap, "StarfishMediaAPIs::Load refused the load (codec %s, %ux%u at %u, audio %u, sink %s)", codec, l->width, l->height, fps, l->audio, sink[0] ? sink : "main");
-        return GF_PIPE_LOAD_FAILED;
+    if (l->audio != GF_AUDIO_NONE) {
+        snprintf(err, cap, "the ES player is loaded for picture only here; NDL takes the audio (--pipe ndl)");
+        return -1;
     }
-    s->play(s->obj);
-    if (l->hdr) gf_say("smp: the HDR metadata is not passed on this pipeline; the stream's own SEI is what the display gets");
-    const char *id = s->media_id ? s->media_id(s->obj) : NULL;
-    gf_say("smp: loaded %s %ux%u at %u for %s in %s, media id %s", codec, l->width, l->height, fps, app_id, window_id, id ? id : "?");
-    return 0;
+    if (o->sink && o->sink[0]) {
+        snprintf(err, cap, "the ES player cannot ask for the %s sink; the starfish pipeline can (--pipe smp)", o->sink);
+        return -1;
+    }
+    if (!json_safe(app_id) || !json_safe(window_id)) {
+        snprintf(err, cap, "the app id or the window id is not a plain string");
+        return -1;
+    }
+    unsigned ceiling = l->codec == GF_CODEC_H265 ? 120 : 60;
+    char payload[800];
+    snprintf(payload, sizeof payload,
+             "{\"args\":[{\"mediaTransportType\":\"DIRECTMEDIA-ES-PLAYER\",\"option\":{\"appId\":\"%s\",\"lowDelayMode\":%s,"
+             "\"externalStreamingInfo\":{\"contents\":{\"codec\":{\"video\":\"%s\"},"
+             "\"esInfo\":{\"videoHeight\":%u,\"videoWidth\":%u,\"pauseAtDecodeTime\":true,\"ptsToDecode\":0}}},"
+             "\"adaptiveStreaming\":{\"maxHeight\":%u,\"maxFrameRate\":%u,\"maxWidth\":%u},\"windowId\":\"%s\"}}]}",
+             app_id, o->low_delay ? "true" : "false", codec, l->height, l->width, l->height, ceiling, l->width, window_id);
+    char what[160];
+    snprintf(what, sizeof what, "%s %ux%u, low delay %d", codec, l->width, l->height, o->low_delay ? 1 : 0);
+    return starfish_load(s, "es", payload, what, l, app_id, window_id, err, cap);
 }
 
 /* Feed's std::string: "Ok" taken, "BufferFull" or "Pending" try again, anything else an error. */
@@ -354,6 +403,30 @@ const gf_pipe_ops gf_smp_ops = {
     .lib_name = smp_lib_name,
     .features = smp_features,
     .start = smp_start,
+    .feed_video = smp_feed_video,
+    .feed_audio = smp_feed_audio,
+    .queued = smp_queued,
+    .audio_avail = smp_audio_avail,
+    .flush = smp_flush,
+    .set_hdr = smp_set_hdr,
+    .set_drop_threshold = smp_set_drop_threshold,
+    .set_state = smp_set_state,
+    .area = smp_area,
+    .stop = smp_stop,
+    .free = smp_free,
+    .event_fd = smp_event_fd,
+    .event_clear = smp_event_clear,
+    .next_event = smp_next_event,
+    .error = smp_error,
+};
+
+/* The same library, object and calls as `smp`: the two differ in the load (`start`) and nothing else. */
+const gf_pipe_ops gf_es_ops = {
+    .name = "es",
+    .open_lib = smp_open_lib,
+    .lib_name = smp_lib_name,
+    .features = smp_features,
+    .start = es_start,
     .feed_video = smp_feed_video,
     .feed_audio = smp_feed_audio,
     .queued = smp_queued,
