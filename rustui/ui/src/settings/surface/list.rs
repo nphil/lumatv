@@ -375,4 +375,64 @@ mod tests {
         list.release(&mut engine);
         drop(list);
     }
+
+    /// Every built switch of `list`: its stored value and where its thumb is at 0, 50 ms and 2 s after the frame.
+    fn switches(h: &mut ui::testing::Harness, list: &ListArt, n: usize) -> Vec<(bool, [f32; 3])> {
+        h.commit();
+        let at = [0, 50_000_000, 2_000_000_000].map(|t| ui::reference::flatten(&h.all(), 0, t));
+        (0..n)
+            .filter_map(|i| list.art(i)?.switch_probe())
+            .map(|(id, on)| (on, at.each_ref().map(|layers| layers.iter().find(|l| l.id == id).expect("the thumb is in the scene").props.x)))
+            .collect()
+    }
+
+    fn assert_still(seen: &[(bool, [f32; 3])], what: &str) {
+        let (on_x, off_x) = (seen.iter().find(|s| s.0).map(|s| s.1[0]), seen.iter().find(|s| !s.0).map(|s| s.1[0]));
+        for (on, x) in seen {
+            assert!(x[0] == x[1] && x[1] == x[2], "{what}: a switch is moving ({x:?})");
+            assert_eq!(Some(x[0]), if *on { on_x } else { off_x }, "{what}: a switch is not where its value says");
+        }
+        if let (Some(on), Some(off)) = (on_x, off_x) {
+            assert!(on > off, "{what}: on sits to the right of off");
+        }
+    }
+
+    #[test]
+    fn a_switch_shows_its_value_at_once_when_scrolled_into_view_made_again_or_a_page_opens_and_glides_only_on_a_change() {
+        let (mut h, mut kit) = testkit::kit(1.0);
+        let mut engine = Engine::new(&kit).unwrap();
+        let paint = Paint::of(&kit);
+        let mut rows: Vec<Row> = (0..40).map(|i| Row::toggle(&format!("t{i}")).label(&format!("Switch {i}")).on(i % 3 != 1)).collect();
+        let new = |kit: &mut Kit, engine: &mut Engine| ListArt::new(kit, engine, None, "test".into(), (0.0, 0.0), (900.0, 400.0), Region(42), Scope::BASE, 0, ROW_ID, false).unwrap();
+        let mut now = 1_000_000;
+        let mut list = new(&mut kit, &mut engine);
+        // the page opens: the first frame already shows the stored values
+        list.apply(&mut kit, &mut engine, paint, &rows, Some(0), None, 0, true, now, false).unwrap();
+        assert_still(&switches(&mut h, &list, rows.len()), "on entering the page");
+        // the focus walks the page down and back, so rows come into reach and leave it
+        for i in (0..rows.len()).chain((0..rows.len()).rev()) {
+            now += 16_000_000;
+            list.apply(&mut kit, &mut engine, paint, &rows, Some(i), None, 0, true, now, false).unwrap();
+            let seen = switches(&mut h, &list, rows.len());
+            assert!(!seen.is_empty());
+            assert_still(&seen, &format!("scrolled to row {i}"));
+        }
+        // a row made again (its words changed) keeps its value
+        for r in &mut rows {
+            r.detail = "unavailable".into();
+        }
+        list.apply(&mut kit, &mut engine, paint, &rows, Some(0), None, 0, true, now, false).unwrap();
+        assert_still(&switches(&mut h, &list, rows.len()), "made again");
+        // another page and back: a new list per page
+        list.release(&mut engine);
+        let mut list = new(&mut kit, &mut engine);
+        list.apply(&mut kit, &mut engine, paint, &rows, Some(0), None, 0, true, now, false).unwrap();
+        assert_still(&switches(&mut h, &list, rows.len()), "on entering the page again");
+        // a real change still glides
+        rows[0].on = !rows[0].on;
+        list.apply(&mut kit, &mut engine, paint, &rows, Some(0), None, 0, true, now + 16_000_000, false).unwrap();
+        let moved = switches(&mut h, &list, rows.len());
+        assert!(moved[0].1[0] != moved[0].1[2], "a changed switch slides");
+        list.release(&mut engine);
+    }
 }

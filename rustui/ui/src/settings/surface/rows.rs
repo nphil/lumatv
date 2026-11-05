@@ -104,7 +104,7 @@ enum Trailing {
     None,
     Toggle { track: ShapeLayer, thumb: ShapeLayer, tick: Option<ImageLayer>, at: (f32, f32), on: Option<bool> },
     Seg { chosen: ShapeLayer, mark: ShapeLayer, focus: ShapeLayer, geom: SegGeom, at: (f32, f32), index: Option<usize>, cursor: Option<usize>, first: usize },
-    Slider { fill: ShapeLayer, thumb: Option<ShapeLayer>, at: (f32, f32), w: f32, thumb_d: f32, shown: Option<f32> },
+    Slider { fill: ShapeLayer, thumb: Option<ShapeLayer>, at: (f32, f32), w: f32, thumb_d: f32, shown: Option<f32>, placed: Option<(f32, f32, f32)> },
     Cards(Vec<CardArt>),
 }
 
@@ -631,7 +631,7 @@ impl RowArt {
                 });
                 self.control = Some(Frame::new(at.0 - rect.x, at.1 - rect.y, w, sz.target));
                 self._plate = Some(track);
-                self.trailing = Trailing::Slider { fill, thumb, at: track_at, w: track_w, thumb_d, shown: None };
+                self.trailing = Trailing::Slider { fill, thumb, at: track_at, w: track_w, thumb_d, shown: None, placed: None };
                 self.draw_trail_text(env, row, &geom)?;
                 let _ = (label_y, local_right);
             }
@@ -868,7 +868,8 @@ impl RowArt {
                     track.reshape(pill(paint.dim(if want { paint.accent } else { paint.track_off }, row.enabled || row.info), CLEAR, th / 2.0, 0.0));
                     thumb.reshape(pill(paint.dim(if want { paint.accent_ink } else { paint.ink }, row.enabled || row.info), paint.edge_raised, d / 2.0, 1.0));
                     let x = if want { at.0 + tw - d - sz.s1 } else { at.0 + sz.s1 };
-                    beat(env.kit, thumb, Props::at(x, at.1 + sz.s1));
+                    // A row made now (scrolled into reach, the page just opened) shows its value as it is; only a change glides.
+                    if on.is_none() { thumb.set(Props::at(x, at.1 + sz.s1)) } else { beat(env.kit, thumb, Props::at(x, at.1 + sz.s1)) }
                     *on = Some(want);
                 }
             }
@@ -912,7 +913,7 @@ impl RowArt {
                 *cursor = want_cursor;
                 *first = new_first;
             }
-            Trailing::Slider { fill, thumb, at, w, thumb_d, shown } => {
+            Trailing::Slider { fill, thumb, at, w, thumb_d, shown, placed } => {
                 let frac = if row.max > row.min { (((row.num - row.min) / (row.max - row.min)) as f32).clamp(0.0, 1.0) } else { 0.0 };
                 let first_time = shown.is_none();
                 let changed = *shown != Some(frac);
@@ -926,7 +927,8 @@ impl RowArt {
                     let tx = at.0 + *w * frac - *thumb_d / 2.0;
                     let ty = rect.y + ((rect.h - *thumb_d) / 2.0).round();
                     let to = Props { scale, ..Props::at(tx, ty) };
-                    if at_once || first_time { t.set(to) } else { env.kit.glide(t, to, Beat::Focus) }
+                    let place = (tx, ty, scale);
+                    if at_once || first_time { t.set(to); *placed = Some(place) } else if *placed != Some(place) { env.kit.glide(t, to, Beat::Focus); *placed = Some(place) }
                 }
                 if changed {
                     let geom = self.geom.clone();
@@ -1086,6 +1088,15 @@ impl RowArt {
                 c._lit = None;
                 engine.flow.drop_lift(c.id);
             }
+        }
+    }
+
+    /// The thumb of a switch row and the value it was last set to show (None for any other row).
+    #[cfg(test)]
+    pub(super) fn switch_probe(&self) -> Option<(compositor_protocol::LayerId, bool)> {
+        match &self.trailing {
+            Trailing::Toggle { thumb, on: Some(on), .. } => Some((thumb.id(), *on)),
+            _ => None,
         }
     }
 }
