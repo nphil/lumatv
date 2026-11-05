@@ -322,6 +322,18 @@ fallback_evidence() {
     printf '%s\n' "$fb"
 }
 
+# What of LumaTV's still runs: a program of its data directory (the one above $STATE) or of one of its app directories. The escape ends all of
+# it (compositor/sm/lumatv-sm.c, cleanup_everything); the scripts that run this gate are not programs of either.
+lumatv_left() {
+    l_data=$(dirname $STATE)
+    for l_p in $PROC/[0-9]*; do
+        l_exe=$(readlink $l_p/exe 2>/dev/null) || continue
+        case "$l_exe" in
+            $l_data/*|/media/developer/apps/usr/palm/applications/org.nphil.lumatv*) printf '%s:%s ' "${l_p#$PROC/}" "${l_exe##*/}" ;;
+        esac
+    done
+}
+
 # ---- the frame rule, as functions the tests source (GATE_LIB=1) ----
 # The client's RESULT line as "frames seconds fps b17 b20 b33 bover worst".
 x1_numbers() {
@@ -1115,7 +1127,8 @@ homeheld)
 homekey)
     # The supervisor's own reader: the virtual remote is made after the compositor started, so the compositor (which
     # opens the event nodes once) never sees it and only the supervisor's rescan can. Home held 12 s on it must end the
-    # session as an escape: recorded as one, not counted as a failure, SAM untouched.
+    # session as an escape: recorded as one, not counted as a failure, SAM untouched, nothing of LumaTV's left running and
+    # no Home stub under LG's Home (the hold and `escaped` stay for the rest of the boot; the next boot lets them lapse).
     if ! is_mounted || [ ! -c /dev/uinput ] || [ ! -f $D/uinput-key.py ]; then
         fail homekey "not live, or no /dev/uinput, or $D/uinput-key.py is missing"
     else
@@ -1132,9 +1145,11 @@ homekey)
         f1=$(cat $STATE/failures 2>/dev/null || echo 0)
         b=$(cap $OUT/homekey.png)
         sam1=$(sam_id)
-        detail="unmounted after $((u/2))s; $fb; recovery $recovery; escaped $esc; failures $f0 -> $f1; panel ${b:-0} bytes; injector exit $injrc; sam $([ "$sam0" = "$sam1" ] && echo unchanged || echo "CHANGED $sam0 -> $sam1")"
+        left=$(lumatv_left)
+        stub=$(stub_mounted)
+        detail="unmounted after $((u/2))s; $fb; recovery $recovery; escaped $esc; failures $f0 -> $f1; panel ${b:-0} bytes; injector exit $injrc; sam $([ "$sam0" = "$sam1" ] && echo unchanged || echo "CHANGED $sam0 -> $sam1"); LumaTV left: ${left:-none}; stub mounts $stub"
         echo "$detail" > $OUT/homekey-result.txt
-        if ! is_mounted && [ "$recovery" = complete ] && [ "$esc" = yes ] && echo "$fb" | grep -q 'hold Home 10 s (supervisor)' && [ "$f0" = "$f1" ] && [ "${b:-0}" -gt 4096 ] && [ "$sam0" = "$sam1" ]; then pass homekey "$detail"; else fail homekey "$detail"; fi
+        if ! is_mounted && [ "$recovery" = complete ] && [ "$esc" = yes ] && echo "$fb" | grep -q 'hold Home 10 s (supervisor)' && [ "$f0" = "$f1" ] && [ "${b:-0}" -gt 4096 ] && [ "$sam0" = "$sam1" ] && [ -z "$left" ] && [ "$stub" = 0 ]; then pass homekey "$detail"; else fail homekey "$detail"; fi
     fi
     ;;
 wd-hang|wd-crash)

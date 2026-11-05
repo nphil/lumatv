@@ -147,9 +147,10 @@ install)
     comp_fw_manifest > $STATE/manifest
     write_bundle_manifest
     echo 3 > $STATE/supervisor-api
-    # 1: this bundle's compositor reads <data dir>/boot-direct (tools/lumatv boot-direct); the tool places the Home stub only on a bundle
-    # that says so.
-    echo 1 > $STATE/boot-direct-api
+    # 2: this bundle's compositor reads <data dir>/boot-direct (tools/lumatv boot-direct) for its UI start only, and its supervisor's escape (Home
+    # held 10 s) is the one way to LG's Home. The tool places the Home stub only on a bundle that says so: marker 1 is the compositor that opened
+    # LG's Home on a Home hold of 5 s, through a tool verb that is gone.
+    echo 2 > $STATE/boot-direct-api
     echo 0 > $STATE/failures
     rm -f $STATE/escaped $STATE/last-fallback $STATE/enabled $STATE/running $STATE/fw-verified $STATE/fw-unverified
     fw=$(comp_fw_check force)

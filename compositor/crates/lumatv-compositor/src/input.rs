@@ -779,11 +779,6 @@ impl State {
             .map(|w| (w.key_mask, w.access_policy("_WEBOS_ACCESS_POLICY_KEYS_BACK"), w.access_policy("_WEBOS_ACCESS_POLICY_KEYS_HOME")))
             .unwrap_or((0, false, false));
         let r = route(code, mask, back, home);
-        // Boot direct (`boot_direct.rs`): a Home hold, and Home or Back on LG's own Home. Nothing here while its flag is off.
-        if self.boot_direct_key(code, pressed, r, now) {
-            self.seat.last_input = "key";
-            return;
-        }
         if matches!(code, code::KEY_HOME | code::KEY_HOMEPAGE | code::KEY_RF_HOME) && !pressed && r == Route::Home {
             self.home_tap(now, from_network, self.shell_hears_home_key());
         }
@@ -876,7 +871,6 @@ impl State {
         if self.shell_rust_tick(now) {
             self.ui_socket_new = true;
         }
-        self.boot_direct_tick(now);
         self.motion_tick(now);
         self.keys.poll_theme(now);
         crate::server::ime::own_tick(self, now);

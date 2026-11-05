@@ -300,14 +300,11 @@ pub struct State {
     pub panel_token: Option<u64>,
     /// `ctl paneldim want X`: a dim asked for by hand, for the TV check and the tests.
     pub panel_want_ctl: Option<f32>,
-    /// Boot direct (`boot_direct`): LumaTV's Home from the first frame with LG's Home out of the way, behind the `boot-direct` file in the data directory.
-    pub boot_direct: crate::boot_direct::BootDirect,
 }
 
 impl State {
     pub fn new(dh: DisplayHandle, config: Config, output: Box<dyn Output>, luna: Box<dyn luna::Bridge>) -> State {
         let keys = crate::input::Keys::new(&config);
-        let boot_direct = crate::boot_direct::BootDirect::new(&config.data_dir);
         let config_vwin = config.vwin;
         let mut scene = Scene::default();
         scene.care = crate::oledcare::Care::new(&config.data_dir);
@@ -327,7 +324,6 @@ impl State {
             luna,
             luna_state: crate::luna_methods::LunaState::default(),
             keys,
-            boot_direct,
             ime: super::ime::ImeState::default(),
             shell_rust: crate::shell_rust::RustShell::default(),
             switcher: crate::switcher::Switcher::default(),

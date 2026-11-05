@@ -282,7 +282,7 @@ class Install(FakeSet):
         st = os.stat(self.lg)
         self.assertEqual(read(self.st("lg-binary")).strip(), "%d %d" % (st.st_size, st.st_mtime))
         self.assertEqual(read(self.st("supervisor-api")).strip(), "3")
-        self.assertEqual(read(self.st("boot-direct-api")).strip(), "1", "the tool places the Home stub only on a bundle that says it reads the flag")
+        self.assertEqual(read(self.st("boot-direct-api")).strip(), "2", "the tool places the Home stub only on a bundle whose compositor has no Home hold of its own")
         self.assertEqual(read(self.st("failures")).strip(), "0")
         manifest = read(self.st("manifest")).split("\n")
         self.assertEqual(manifest[0], "release " + RELEASE.strip())

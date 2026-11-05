@@ -142,7 +142,7 @@ ASSETS="$FAKE/assets"; STOCK_ASSETS="$FAKE/stock-assets"
 ENV_FILE="$FAKE/surface.env"; SHADOW_ROOT="$STATE/shadow"
 STUB_STAGE="$FAKE/stub"; HOME_APP_DIR="$FAKE/home"; HOME_APP_ID=com.webos.app.home
 KEYFILTER_TOOL="$FAKE/keyfilter.py"; KEYFILTER_HANDLER="$FAKE/handler.js"; KEYFILTER_DIR="$FAKE"; SHORT_ID=lumatv
-BD_FLAG="$STATE/boot-direct"
+BD_FLAG="$STATE/boot-direct"; BD_PENDING="$STATE/boot-direct.pending"
 SYSTEMUI_TOOL="$FAKE/systemui.py"; SYSTEMUI_STAGE="$STATE/systemui"
 QS_APP=quick; LOGO_BOOT_APP=boot; LOGO_OFF_APP=off
 NOTI_STAGE="$STATE/notifications"; NOTI_STOCK="$FAKE/stock"; NOTI_PERSIST="$FAKE/notification.json"
@@ -234,6 +234,24 @@ emit_error() { printf '{"ok":false,"error":"%s"}\\n' "$1"; }
         self.assertEqual(self.prefs.read_bytes(), before)
         self.assertTrue((self.comp / "stock-ui-held").exists())
         self.assertIn("/foreign/upper", self.mounts.read_text())
+
+    def test_an_escape_leaves_no_stub_no_unfinished_boot_and_the_flag_on(self):
+        # what the escape's recovery finds: the stub mounted over LG's Home, boot direct on, a boot's stub unfinished and one fault on record
+        (self.tmp / "home-mounted").touch()
+        (self.state / "boot-direct").write_text("on\n")
+        (self.state / "boot-direct.pending").write_text("")
+        (self.state / "boot-direct.strikes").write_text("1\n")
+        for attempt in (1, 2):
+            result = self.restore()
+            self.assertEqual(result.returncode, 0, "%d: %s" % (attempt, result.stdout + result.stderr))
+            self.assertFalse((self.tmp / "home-mounted").exists(), "no stub left under LG's Home")
+            self.assertFalse((self.state / "boot-direct.pending").exists(), "no boot left unfinished to be counted against the next one")
+            self.assertEqual((self.state / "boot-direct").read_text(), "on\n", "the flag survives: the next boot comes up on LumaTV")
+            self.assertEqual((self.state / "boot-direct.strikes").read_text(), "1\n", "the escape is neither a bad boot nor a good one")
+            self.assertTrue((self.comp / "stock-ui-held").exists(), "the hold lapses at the next boot, not here")
+        calls = self.calls_list()
+        self.assertEqual(calls.count("umount " + str(self.tmp / "home")), 1, "pressed twice, the stub is taken out once")
+        self.assertIn("mode lg", calls)
 
     def test_foreign_top_layer_blocks_owned_layer_and_foreign_settings_are_untouched(self):
         self.mount(INPUT, self.state / "inputcommon/upper")

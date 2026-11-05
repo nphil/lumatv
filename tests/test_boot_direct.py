@@ -1,6 +1,7 @@
 """Boot direct's shell side (tools/lumatv): the Home stub's placement around the compositor restart, the strikes that keep a bad boot from
-repeating, `boot-direct on|off|status` and `home lg|luma`. The real functions run under busybox ash, as on the set; the platform (SAM, the
-mounts, WebAppMgr) is a stand-in that models what each call does to it."""
+repeating, `boot-direct on|off|status` and the escape's part (Home held 10 s, the supervisor's own: what it leaves behind and what the next boot
+does with it). The real functions run under busybox ash, as on the set; the platform (SAM, the mounts, WebAppMgr) is a stand-in that models what each
+call does to it."""
 import json
 import os
 from pathlib import Path
@@ -136,9 +137,9 @@ class BootDirectShell(unittest.TestCase):
 
     def api(self, present=True):
         path = self.comp / "boot-direct-api"
-        path.write_text("1\n") if present else path.unlink(missing_ok=True)
+        path.write_text("2\n") if present else path.unlink(missing_ok=True)
 
-    def flag(self, text="on\ntool /app/tools/lumatv\n"):
+    def flag(self, text="on\n"):
         (self.state / "boot-direct").write_text(text)
 
     def has(self, name):
@@ -165,7 +166,7 @@ class BootDirectShell(unittest.TestCase):
     def script(self, body, real_stub=False):
         names = ["bd_enabled", "bd_api", "bd_strikes", "bd_strike", "bd_finish", "bd_fail", "bd_abort", "bd_rec", "bd_now", "bd_worker_alive",
                  "bd_early_in_place", "bd_early_stub", "bd_early_undo", "bd_early_gone", "bd_early_boot", "bd_manual_stub", "bd_home_up", "bd_json", "verb_boot_direct",
-                 "verb_home", "home_running", "home_in_front", "sam_home_type", "json_escape", "emit_error", "hs_stub_in_front", "hs_open_home"]
+                 "escape_lapse", "home_running", "home_in_front", "sam_home_type", "json_escape", "emit_error", "hs_stub_in_front", "hs_open_home"]
         if real_stub:
             names += ["homestub_up", "homestub_drop", "hs_mounted_any", "hs_mounted_ours", "hs_stage", "hs_mode_set",
                       "hs_sam_reread", "hs_wait_type", "hs_unmount", "hs_wd_alive", "hs_wd_stop", "kill_home_app", "is_mounted"]
@@ -201,7 +202,7 @@ HS_WD_PID="$FAKE/hs-guard"; HS_MODE="$FAKE/hs-mode"; HS_STAGED=0
 export HOME_APP_DIR STUB_STAGE
 '''
         shared = constants("HOME_PKILL_PATTERN", "HOME_LAUNCH_URI", "HOME_LAUNCH_PARAMS", "HOME_APP_ID", "BD_FLAG", "BD_PENDING", "BD_STRIKES",
-                           "BD_MAX_STRIKES", "BD_HOME_TRIES", "BD_WATCH_SECS", "BD_WATCH_MAX") + '\nBD_EARLY="$FAKE/early"\nBD_WORKER_MARK="$FAKE/worker"'
+                           "BD_MAX_STRIKES", "BD_HOME_TRIES", "BD_WATCH_SECS", "BD_WATCH_MAX") + '\nBD_EARLY="$FAKE/early"\nBD_WORKER_MARK="$FAKE/worker"\nESCAPE_BOOT="$FAKE/escape-boot"'
         functions = "\n".join(function(n) for n in names)
         if real_stub:
             functions = functions.replace('mount 2>/dev/null | grep -qF -- " on $1 type "', 'grep -qF -- " on $1 type " "$FAKE/mounts"')
@@ -383,7 +384,7 @@ export HOME_APP_DIR STUB_STAGE
         self.assertEqual(self.called(), [], "no stub of the early step, nothing to take back")
 
     def test_the_dispatch_runs_the_early_step_first_and_every_exit_before_the_verb_takes_the_stub_back(self):
-        early = SOURCE.index("compositor-boot:) bd_early_boot ;;")
+        early = SOURCE.index("compositor-boot:) escape_lapse; bd_early_boot ;;")
         end = SOURCE.index("app_storage_guard() {", early)
         region = "\n".join(l for l in SOURCE[early:end].split("\n") if not l.lstrip().startswith("#"))
         self.assertLess(early, SOURCE.index("native_storage_guard || {", early), "before the storage guard")
@@ -464,12 +465,22 @@ export HOME_APP_DIR STUB_STAGE
         self.assertIn("stub's files", data["error"])
         self.assertFalse(self.has("boot-direct"))
 
-    def test_on_writes_the_flag_with_the_tool_and_waits_for_the_next_boot_under_lgs_compositor(self):
+    def test_a_bundle_of_the_earlier_marker_is_refused(self):
+        (self.comp / "boot-direct-api").write_text("1\n")
+        data = self.verb("verb_boot_direct on", ok=False)
+        self.assertIn("predates", data["error"])
+        self.assertFalse(self.has("boot-direct"))
+        self.flag()
+        self.assertEqual(self.early().returncode, 1, "nor does the boot's early step put the stub in under it")
+        self.assertEqual(self.called(), [])
+        self.assertIn("predates", self.logged())
+
+    def test_on_writes_the_bare_flag_and_waits_for_the_next_boot_under_lgs_compositor(self):
         (self.state / "boot-direct.strikes").write_text("1\n")
         (self.state / "boot-direct.pending").write_text("")
         data = self.verb("verb_boot_direct on", LIVE="no")
         self.assertTrue(data["ok"])
-        self.assertEqual((self.state / "boot-direct").read_text(), "on\ntool %s/tools/lumatv\n" % (self.tmp / "app"))
+        self.assertEqual((self.state / "boot-direct").read_text(), "on\n", "no tool line: the compositor runs nothing")
         self.assertEqual(self.called(), [], "the stub would show nothing under LG's compositor")
         self.assertFalse(self.has("boot-direct.strikes") or self.has("boot-direct.pending"), "a fresh start")
         self.assertTrue(data["bootDirect"]["flag"])
@@ -531,8 +542,6 @@ export HOME_APP_DIR STUB_STAGE
 
     def test_a_word_it_does_not_know_is_an_error(self):
         data = self.verb("verb_boot_direct sideways", ok=False)
-        self.assertFalse(data["ok"])
-        data = self.verb("verb_home sideways", ok=False)
         self.assertFalse(data["ok"])
 
     # ------------------------------------------------------------------------------------- the dead man's switch of a boot
@@ -631,76 +640,14 @@ export HOME_APP_DIR STUB_STAGE
         self.assertIn("(bd_manual_stub)\n          (restart_surface native)", body, "the stub first, then the restart")
         self.assertEqual(body.count("bd_manual_stub"), 1, "and only on the way to LumaTV's compositor, never on the way back")
 
-    # --------------------------------------------------------------------------------------------- home lg / luma
-
-    def test_home_lg_takes_the_stub_away_and_opens_lgs_home(self):
-        self.flag()
-        self.sam("web", running=True, front=True, mounted=True)
-        data = self.verb("verb_home lg")
-        self.assertEqual(data, {"ok": True, "home": "lg"})
-        self.assertEqual(self.called(), ["homestub_drop lg", "hs_open_home"])
-        self.assertTrue(self.has("boot-direct"), "the flag is the owner's: a hold does not switch boot direct off")
-
-    def test_home_lg_with_no_stub_still_opens_lgs_home(self):
-        self.sam("flutter", running=True)
-        self.assertTrue(self.verb("verb_home lg")["ok"])
-        self.assertEqual(self.called(), ["homestub_drop lg", "hs_open_home"])
-
-    def test_home_lg_gives_up_on_a_lock_it_cannot_take(self):
-        data = self.verb("verb_home lg", ok=False, LOCK="no")
-        self.assertFalse(data["ok"])
-        self.assertEqual(self.called(), [])
-
-    def test_home_luma_puts_the_stub_back_and_launches_it_where_home_is_in_front(self):
-        self.flag()
-        self.sam("flutter", running=True, front=True, flutter=True)
-        data = self.verb("verb_home luma", LAUNCH_STARTS="1")
-        self.assertEqual(data, {"ok": True, "home": "luma"})
-        self.assertEqual(self.called(), ["homestub_up", "wait_wam", "launch"])
-
-    def test_home_luma_with_an_app_in_front_leaves_the_app_alone(self):
-        self.flag()
-        self.sam("flutter", running=True, front=False, flutter=True)
-        data = self.verb("verb_home luma")
-        self.assertEqual(data, {"ok": True, "home": "luma"})
-        self.assertEqual(self.called(), ["homestub_up"], "Home is not launched over the app: the next Home key opens the stub")
-
-    def test_home_luma_is_refused_without_the_flag_or_a_live_compositor_or_the_lock(self):
-        self.sam("flutter", running=True, front=True)
-        data = self.verb("verb_home luma", ok=False)
-        self.assertIn("off", data["error"])
-        self.flag()
-        data = self.verb("verb_home luma", ok=False, LIVE="no")
-        self.assertIn("not live", data["error"])
-        data = self.verb("verb_home luma", ok=False, LOCK="no")
-        self.assertIn("in progress", data["error"])
-        self.assertEqual(self.called(), [])
-
-    def test_home_luma_that_cannot_place_the_stub_leaves_lgs_home(self):
-        self.flag()
-        self.sam("flutter", running=True, front=True)
-        data = self.verb("verb_home luma", ok=False, HS_UP="no")
-        self.assertFalse(data["ok"])
-        self.assertEqual(self.called(), ["homestub_up"])
-        self.assertTrue(self.has("boot-direct"), "a stub that would not mount is not a reason to switch boot direct off")
-
-    def test_home_luma_whose_stub_never_starts_gives_lgs_home_back_without_a_fault_of_the_boot(self):
-        self.flag()
-        self.sam("flutter", running=True, front=True)
-        data = self.verb("verb_home luma", ok=False, LAUNCH_STARTS="0")
-        self.assertFalse(data["ok"])
-        self.assertEqual(self.called()[-2:], ["homestub_drop legacy", "hs_open_home"])
-        self.assertFalse(self.has("boot-direct.strikes"))
-
     # ------------------------------------------------------ the real stub functions, against a model of SAM and the mounts
 
-    def test_home_lg_and_luma_through_the_real_stub_functions(self):
+    def test_the_real_stub_functions_put_the_stub_in_and_take_it_out(self):
         self.flag()
         self.sam("flutter", running=True, front=True, flutter=True)
         (self.tmp / "mounts").write_text("")
-        # to the stub: LG's Flutter Home is stopped, SAM reads the stub's manifest, Home is launched as the stub
-        data = self.verb("verb_home luma", real_stub=True, LAUNCH_STARTS="1")
-        self.assertEqual(data, {"ok": True, "home": "luma"})
+        # in: LG's Flutter Home is stopped, SAM reads the stub's manifest, Home is launched as the stub
+        self.assertEqual(self.sh("homestub_up && bd_home_up", real_stub=True, LAUNCH_STARTS="1").returncode, 0)
         calls = self.called()
         assets = "mount %s %s" % (self.tmp / "assets", self.tmp / "assets" / "stock")
         stub = "mount %s %s" % (self.state / "homestub", self.tmp / "home")
@@ -712,10 +659,9 @@ export HOME_APP_DIR STUB_STAGE
         self.assertEqual(calls[-1], "launch")
         self.assertEqual((self.tmp / "sam_type").read_text().strip(), "web")
         self.assertEqual((self.state / "homestub" / "appinfo.json").read_text(), "appinfo.json", "staged from the payload")
-        # and to LG's Home: SAM reads Flutter again before the stub's page is stopped, and Home is launched
+        # out, as the escape's recovery does it: SAM reads Flutter again before the stub's page is stopped, and Home is launched
         self.calls.unlink()
-        data = self.verb("verb_home lg", real_stub=True)
-        self.assertEqual(data, {"ok": True, "home": "lg"})
+        self.assertEqual(self.sh("homestub_drop legacy; hs_open_home", real_stub=True).returncode, 0)
         calls = self.called()
         self.assertEqual(calls[0], "umount %s" % (self.tmp / "home"))
         self.assertLess(calls.index("release"), calls.index("killApp"), "the type is back to Flutter before the stub's page goes")
@@ -723,14 +669,13 @@ export HOME_APP_DIR STUB_STAGE
         self.assertEqual((self.tmp / "sam_type").read_text().strip(), "flutter")
         self.assertFalse((self.tmp / "mounted").exists())
 
-    def test_the_real_stub_functions_are_idempotent_for_a_second_luma(self):
+    def test_the_real_stub_functions_are_idempotent(self):
         self.flag()
         self.sam("flutter", running=True, front=True)
-        self.verb("verb_home luma", real_stub=True, LAUNCH_STARTS="1")
+        self.sh("homestub_up && bd_home_up", real_stub=True, LAUNCH_STARTS="1")
         self.calls.unlink()
         self.sam("web", running=True, front=True, mounted=True)
-        data = self.verb("verb_home luma", real_stub=True, LAUNCH_STARTS="1")
-        self.assertTrue(data["ok"])
+        self.assertEqual(self.sh("homestub_up && bd_home_up", real_stub=True, LAUNCH_STARTS="1").returncode, 0)
         self.assertFalse(any(c.startswith("mount ") for c in self.called()), "the stub is not mounted twice")
 
     def test_homestub_up_waits_for_sam_only_when_asked_to(self):
@@ -749,20 +694,95 @@ export HOME_APP_DIR STUB_STAGE
         self.assertLess(calls.index("mount %s %s" % (self.state / "homestub", self.tmp / "home")), calls.index("block"),
                         "the stub is bound at once, and SAM reads it once it answers")
 
-    # -------------------------------------------------------------------------------------------------- the wiring
+    # ------------------------------------------------------------------------------------------------------ the escape
+    #
+    # Home held 10 s is the supervisor's (compositor/sm/lumatv-sm.c, its own tests); the tool's part is what it leaves behind: a hold and
+    # `escaped` for the rest of that boot and no longer, no fault, and no way to LG's Home of its own.
+
+    def dispatch(self, verb, *words):
+        """The tool's last `case` on the verb, with only the error answer made real: a verb that is not there is an unknown one."""
+        return self.sh("VERB=%s\nset -- %s\n%s" % (verb, " ".join((verb,) + words), SOURCE[SOURCE.rfind('\ncase "$VERB" in'):]))
+
+    def test_there_is_no_verb_for_lgs_home_and_no_hold_of_five_seconds(self):
+        for word in ("lg", "luma", "status"):
+            result = self.dispatch("home", word)
+            self.assertEqual(result.returncode, 1, word)
+            self.assertEqual(json.loads(result.stdout.strip().split("\n")[-1]), {"ok": False, "error": "unknown verb: home"})
+        self.assertNotIn("verb_home", SOURCE)
+        self.assertNotIn("home lg", SOURCE)
+        self.assertNotIn("home luma", SOURCE)
 
     def test_the_verbs_are_dispatched_and_classified_for_the_maintenance_guard(self):
         self.assertIn('boot-direct) verb_boot_direct "${2:-status}"; exit $? ;;', SOURCE)
-        self.assertIn('home) verb_home "${2:-status}"; exit $? ;;', SOURCE)
-        self.assertIn("boot-direct:status|boot-direct:|home:status) MAINTENANCE_ACCESS=read ;;", SOURCE)
-        # the ways back to LG's Home are emergencies: they must work while a maintenance veto stands
-        self.assertIn("boot-direct:off|boot-direct:watch|home:lg) MAINTENANCE_ACCESS=emergency ;;", SOURCE)
-        self.assertNotIn("home:luma", SOURCE, "putting the stub back is an ordinary write")
+        self.assertIn("boot-direct:status|boot-direct:) MAINTENANCE_ACCESS=read ;;", SOURCE)
+        # the way back to LG's Home from a boot that did not work out is an emergency: it must work while a maintenance veto stands
+        self.assertIn("boot-direct:off|boot-direct:watch) MAINTENANCE_ACCESS=emergency ;;", SOURCE)
 
     def test_the_installer_writes_the_marker_the_tool_looks_for(self):
         text = (ROOT / "compositor/tools/tv-cutover.sh").read_text()
-        self.assertIn("echo 1 > $STATE/boot-direct-api", text)
+        self.assertIn("echo 2 > $STATE/boot-direct-api", text)
         self.assertIn('"$COMP/boot-direct-api"', SOURCE)
+
+    def escape(self, boot_mark=False, hold=True, escaped=True):
+        if hold:
+            (self.comp / "stock-ui-held").write_text("812:1234:5\n")
+        if escaped:
+            (self.comp / "escaped").write_text("hold Home 10 s (supervisor)")
+        if boot_mark:
+            self.put("escape-boot", "hold Home 10 s (supervisor)")
+
+    def test_an_escape_lapses_at_the_next_boot_and_the_boot_starts_lumatv(self):
+        self.escape()
+        self.assertEqual(self.sh("escape_lapse").returncode, 0)
+        self.assertFalse(self.has("compositor/stock-ui-held") or self.has("compositor/escaped"), "what refuses the boot (comp_boot_decide, decide()) is gone")
+        self.assertIn("lapsed", self.logged())
+        self.assertEqual(self.sh("escape_lapse").returncode, 0, "and doing it again is no harm")
+
+    def test_an_escape_of_this_boot_holds_for_the_rest_of_it(self):
+        self.escape(boot_mark=True)
+        self.assertEqual(self.sh("escape_lapse").returncode, 0)
+        self.assertTrue(self.has("compositor/stock-ui-held") and self.has("compositor/escaped"), "the boot worker's second pass does not start LumaTV again")
+        self.assertEqual(self.logged(), "")
+
+    def test_a_hold_that_a_fault_made_does_not_lapse(self):
+        self.escape(escaped=False)
+        self.assertEqual(self.sh("escape_lapse").returncode, 0)
+        self.assertTrue(self.has("compositor/stock-ui-held"), "a crash holds LumaTV off until `compositor on`")
+        self.assertEqual(self.logged(), "")
+        self.escape(hold=False, escaped=False)
+        self.assertEqual(self.sh("escape_lapse").returncode, 0, "no escape, nothing to do")
+
+    def test_the_boot_worker_lets_the_escape_lapse_before_anything_looks_at_the_hold(self):
+        self.assertIn("compositor-boot:) escape_lapse; bd_early_boot ;;", SOURCE)
+        self.assertLess(SOURCE.index("compositor-boot:) escape_lapse; bd_early_boot ;;"), SOURCE.index("native_storage_guard() {"))
+
+    def test_the_marks_of_the_tool_and_of_the_supervisor_are_the_same_file(self):
+        sm = (ROOT / "compositor/sm/lumatv-sm.c").read_text()
+        self.assertIn('static const char *escape_mark = "/tmp/.lumatv-escaped";', sm)
+        self.assertIn('ESCAPE_BOOT="/tmp/.$SHORT_ID-escaped"', SOURCE, "with the short id lumatv, as brand.json has it")
+
+    def test_a_boot_cut_short_by_an_escape_is_no_fault_while_the_stock_ui_is_held(self):
+        self.flag()
+        self.escape()
+        (self.state / "boot-direct.pending").write_text("")
+        self.sh('bd_fail "the stub did not start"')
+        self.sh('bd_strike "the boot did not finish"')
+        self.assertFalse(self.has("boot-direct.strikes"), "nothing counted")
+        self.assertTrue(self.has("boot-direct"), "the flag stays on: the next boot comes up on LumaTV with it")
+        self.assertIn("no fault counted", self.logged())
+        # a hold gone (a boot that ended in doubt under LumaTV's compositor) counts as ever
+        (self.comp / "stock-ui-held").unlink()
+        self.sh('bd_strike "the boot did not finish"')
+        self.assertEqual((self.state / "boot-direct.strikes").read_text().strip(), "1")
+
+    def test_the_watch_of_an_escaped_boot_counts_nothing(self):
+        self.flag()
+        self.escape()
+        self.sam("web", mounted=True)
+        (self.state / "boot-direct.pending").write_text("")
+        self.assertEqual(self.watch(LIVE="no").returncode, 0)
+        self.assertFalse(self.has("boot-direct.strikes"))
+        self.assertTrue(self.has("boot-direct"))
 
 
 if __name__ == "__main__":

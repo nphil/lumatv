@@ -12,11 +12,14 @@
 //      process becomes LG's compositor in place: nothing is restarted, and SAM is never touched.
 //   2. Supervise. Spawn the 64-bit compositor through its private loader on LG's socket (/tmp/xdg/wayland-0),
 //      heartbeat it over the bridge socket every 500 ms and fall back when it exits, misses two beats, draws frames
-//      the panel never shows (6 s) or leaves no window mapped (45 s) while the set is on. The compositor can ask for
-//      the fallback itself (the hold-Home escape), which also records the escape.
-//   3. Hold Home. Independently of the compositor, read the remotes' evdev nodes: Home held 10 seconds is the escape.
-//      A key already down starts its hold when its device is opened. The way back to LG's works
-//      while the compositor is starting, wedged or blind to its input.
+//      the panel never shows (6 s) or leaves no window mapped (45 s) while the set is on. A fault ends the compositor
+//      and its UI. The compositor can ask for the escape (duty 3) itself.
+//   3. Hold Home. Independently of the compositor, read the remotes' evdev nodes: Home held 10 seconds is the escape,
+//      the owner's one way out of LumaTV (the compositor has no hold of its own). It is no fault, so no failure is
+//      counted, and it ends everything LumaTV started (escape(), cleanup_everything()): the compositor, the UI, the
+//      helper and its companions, the apps and the scripts, all stopped before any is killed. A key already down starts
+//      its hold when its device is opened. The way back to LG's works while the compositor is starting, wedged or
+//      blind to its input.
 //   4. Bridge luna. Register the compositor's bus names, forward every call as a JSON line, send the compositor's
 //      replies (subscriptions kept by token) and make its outbound calls.
 //
@@ -28,10 +31,11 @@
 //                        {"kind":"cancel","token":N}   {"kind":"pong","seq":N}   {"kind":"fallback","reason":R}
 //
 // State files in --state DIR (default /var/lib/lumatv/compositor): enabled (empty or "persistent": every boot;
-// "session <boot id>": this boot only), escaped, failures, fingerprint (recorded by install), verified.list (builds
-// the gate passed on: "fingerprint <hex>" lines), running (written once a start is decided, removed after 120 s
-// healthy or on SIGTERM or a deliberate fallback: a file found at start means the last run was cut short and counts
-// as a failure), last-fallback, sm.log.
+// "session <boot id>": this boot only), escaped (an escape was made: it and the stock UI hold made with it last for
+// this boot, and /tmp/.lumatv-escaped, a tmpfs mark, says which boot; tools/lumatv `escape_lapse` drops both later), failures,
+// fingerprint (recorded by install), verified.list (builds the gate passed on: "fingerprint <hex>" lines), running
+// (written once a start is decided, removed after 120 s healthy or on SIGTERM or a deliberate fallback: a file
+// found at start means the last run was cut short and counts as a failure), last-fallback, sm.log.
 //
 // Build: compositor/sm/build.sh (zig cc, arm-linux-gnueabi glibc 2.28, stub libraries for the link; the set's
 // libraries at run time). Usage: lumatv-sm [--dry-run|--probe] [--state DIR] [--print-fingerprint]
@@ -137,6 +141,13 @@ static const char *runtime_dir = "/tmp/xdg";
 static const char *socket_name = "wayland-0";
 static const char *input_dir = "/dev/input";
 static const char *boot_id_path = "/proc/sys/kernel/random/boot_id";
+// The escape's own mark in tmpfs, which a reboot clears: tools/lumatv (`escape_lapse`) reads an `escaped` without it as one of an earlier boot's.
+static const char *escape_mark = "/tmp/.lumatv-escaped";
+// LumaTV's app directories (the app's own, the card and the GeForce NOW app: `org.nphil.lumatv`, `org.nphil.lumatv.card`, ...), where its programs
+// run from besides the data directory above the state directory. The escape ends what runs from either.
+static const char *apps_dir = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv";
+// What the escape's sweep ended, for the evidence bundle: the helper holds the log's collector, and it is among the dead.
+static char ended_text[1024];
 static bool dry_run = false, probe = false;
 static bool supervising = false;
 static char **saved_argv;
@@ -790,6 +801,7 @@ static void crash_bundle(const char *reason, bool problem, char *name, size_t na
         current_boot_id(boot, sizeof boot);
         fprintf(f, "reason: %s\nkind: %s\ntime: %s\ncompositor uptime: %.0f s\nboot: %s\nfailures: %ld\n", reason, problem ? "problem" : "escape", stamp,
                 mono_now() - started_mono, boot, read_number(path_in_state("failures"), 0));
+        if (ended_text[0]) fprintf(f, "ended: %s\n", ended_text);
         fclose(f);
     }
     snprintf(path, sizeof path, "%s/compositor.log.tail", dir);
@@ -815,6 +827,7 @@ static void crash_bundle(const char *reason, bool problem, char *name, size_t na
 // ---- fallback to LG's compositor ----
 static void release_for_exec(void);
 static void cleanup_owned_ui(void);
+static void cleanup_everything(void);
 static bool reap_within(pid_t pid, int milliseconds) {
     double end = mono_now() + milliseconds / 1000.0;
     for (;;) {
@@ -826,7 +839,8 @@ static bool reap_within(pid_t pid, int milliseconds) {
     }
 }
 
-static void fallback(const char *reason, bool count_failure) {
+// `everything`: the owner's escape, which ends all that LumaTV started and not the compositor and its UI alone.
+static void fallback_with(const char *reason, bool count_failure, bool everything) {
     if (supervising && !dry_run && !probe) {
         struct timespec stamp;
         clock_gettime(CLOCK_MONOTONIC, &stamp);
@@ -848,7 +862,10 @@ static void fallback(const char *reason, bool count_failure) {
         }
         child_pid = 0;
     }
-    if (supervising && !dry_run && !probe) cleanup_owned_ui();
+    if (supervising && !dry_run && !probe) {
+        if (everything) cleanup_everything();
+        else cleanup_owned_ui();
+    }
     if (!dry_run && !probe) restore_vsync_divider();
     if (dry_run || probe) {
         logline("%s: would unmount %s and exec LG's compositor", dry_run ? "dry run" : "probe", lg_binary);
@@ -869,6 +886,23 @@ static void fallback(const char *reason, bool count_failure) {
     execv(lg_binary, saved_argv);
     logline("exec %s: %s", lg_binary, strerror(errno));
     exit(1);
+}
+
+static void fallback(const char *reason, bool count_failure) {
+    fallback_with(reason, count_failure, false);
+}
+
+// The owner's way out, Home held 10 s (or the compositor asking for the same): no fault, so no failure is counted, and the end of everything
+// LumaTV started. `escaped` and the mark in tmpfs say it was this: the stock UI hold lasts for the rest of this boot and no longer
+// (tools/lumatv `escape_lapse`), so a reboot comes back to LumaTV.
+static void mark_escape(const char *reason) {
+    write_text(path_in_state("escaped"), reason);
+    write_text(escape_mark, reason);
+}
+
+static void escape(const char *reason) {
+    mark_escape(reason);
+    fallback_with(reason, false, true);
 }
 
 // ---- a minimal JSON scanner for the bridge's own messages (top-level keys only) ----
@@ -1001,6 +1035,142 @@ static void cleanup_owned_ui(void) {
     if (probe_fd < 0) { logline("pidfd unavailable; skipping UI process signals to avoid PID reuse"); return; }
     close(probe_fd);
     scan_owned_ui("/proc", ui_open_pid, ui_stop_pid, ui_close_pid);
+}
+
+// ---- the escape ends everything LumaTV started ----
+// A fallback ends the compositor and its UI. The owner's escape ends the rest as well: the helper and what it started (its picture decoder, its
+// plugins), the colour reader, the video-plane player, the camera feeder, the card and GeForce NOW apps, and the scripts that start and look
+// after them (the tool, the boot worker, a service's own supervisor, which would only start again a program that was killed). What they have
+// in common is where they run from, and that is all that is looked at: a program under the data directory (the one above the state directory:
+// `bin/` and the bundle's loader, which every 64-bit program of LumaTV's runs under), a program under one of LumaTV's app directories, or a
+// script of those given to an interpreter among its first arguments (`sh SCRIPT`, `sh -c 'SCRIPT args'`, `python3 SCRIPT`). LG's programs, the
+// recovery script (`<state>/bin/recover-home.sh`, which `sh` runs) and other apps match nothing.
+static bool path_under(const char *path, const char *dir) {
+    size_t n = strlen(dir);
+    return n > 0 && !strncmp(path, dir, n) && path[n] == '/';
+}
+
+// A path in `apps_dir` or in a directory that goes on from its name with a dot: the card app is `org.nphil.lumatv.card`.
+static bool in_apps(const char *path) {
+    size_t n = strlen(apps_dir);
+    return !strncmp(path, apps_dir, n) && (path[n] == '/' || path[n] == '.');
+}
+
+enum owned_by { NOT_OWNED, BY_PROGRAM, BY_SCRIPT };
+
+// Whether the process running `exe` with these arguments (NUL separated, `len` bytes) is LumaTV's, and by what; `data` is the data directory.
+// For a script `*script` is where its name is in `cmd`.
+static enum owned_by lumatv_process(const char *data, const char *exe, char *cmd, size_t len, const char **script) {
+    if (path_under(exe, data) || in_apps(exe)) return BY_PROGRAM;
+    const char *arg = cmd;
+    for (int i = 0; i < 3 && arg < cmd + len; i++) {
+        if (i > 0 && in_apps(arg)) { *script = arg; return BY_SCRIPT; }
+        arg += strnlen(arg, (size_t)(cmd + len - arg)) + 1;
+    }
+    return ui_owned_process(exe, cmd, len) ? BY_PROGRAM : NOT_OWNED;
+}
+
+#define MAX_OWNED 256
+struct owned_set {
+    int n;
+    pid_t pid[MAX_OWNED];
+    int handle[MAX_OWNED];
+    char name[MAX_OWNED][40];
+};
+struct proc_ops {
+    int (*open_pid)(pid_t);
+    void (*signal_pid)(int handle, int sig);
+    void (*close_pid)(int handle);
+};
+
+static const char *base_name(const char *path) {
+    const char *slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
+}
+
+// One look at `proc`: each LumaTV process not met yet is stopped, which keeps it (a supervisor above all) from starting anything more, and is
+// kept by its pidfd for the end.
+static void stop_lumatv_processes(const char *proc, const char *data, const struct proc_ops *ops, struct owned_set *set) {
+    DIR *dir = opendir(proc);
+    if (!dir) return;
+    double end = mono_now() + 0.25;
+    struct dirent *ent;
+    int seen = 0;
+    while (seen++ < 8192 && set->n < MAX_OWNED && mono_now() < end && (ent = readdir(dir))) {
+        char *tail;
+        long number = strtol(ent->d_name, &tail, 10);
+        if (!*ent->d_name || *tail || number <= 1 || number > INT32_MAX || number == getpid()) continue;
+        bool known = false;
+        for (int i = 0; i < set->n; i++) if (set->pid[i] == (pid_t)number) known = true;
+        if (known) continue;
+        int handle = ops->open_pid((pid_t)number);
+        if (handle < 0) continue;
+        char path[512], exe[600], cmd[4096];
+        const char *script = NULL;
+        enum owned_by by = NOT_OWNED;
+        snprintf(path, sizeof path, "%s/%s/exe", proc, ent->d_name);
+        ssize_t en = readlink(path, exe, sizeof exe - 1);
+        if (en > 0 && (size_t)en < sizeof exe - 1) {
+            exe[en] = 0;
+            snprintf(path, sizeof path, "%s/%s/cmdline", proc, ent->d_name);
+            ssize_t count = 0;
+            int fd = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+            if (fd >= 0) {
+                count = read(fd, cmd, sizeof cmd);
+                close(fd);
+            }
+            // A command line that did not fit is not read: the program alone still says whose it is.
+            if (count < 0 || (size_t)count >= sizeof cmd) count = 0;
+            by = lumatv_process(data, exe, cmd, (size_t)count, &script);
+        }
+        if (by == NOT_OWNED) { ops->close_pid(handle); continue; }
+        ops->signal_pid(handle, SIGSTOP);
+        set->pid[set->n] = (pid_t)number;
+        set->handle[set->n] = handle;
+        if (by == BY_SCRIPT) snprintf(set->name[set->n], sizeof set->name[0], "%s %s", base_name(exe), base_name(script));
+        else snprintf(set->name[set->n], sizeof set->name[0], "%s", base_name(exe));
+        set->n++;
+    }
+    closedir(dir);
+}
+
+// Everything of LumaTV's in `proc` ends: all of it is stopped first (a look again meets the children forked before their parent was stopped),
+// then all of it is killed, so that nothing is started again between one kill and the next. What it was goes to `summary`. Returns how many.
+static int end_lumatv_processes(const char *proc, const char *data, const struct proc_ops *ops, char *summary, size_t summarysz) {
+    struct owned_set set;
+    set.n = 0;
+    int before = -1;
+    for (int pass = 0; pass < 4 && set.n != before; pass++) {
+        before = set.n;
+        stop_lumatv_processes(proc, data, ops, &set);
+    }
+    size_t used = 0;
+    summary[0] = 0;
+    for (int i = 0; i < set.n; i++) {
+        int w = snprintf(summary + used, summarysz - used, "%s%s %ld", i ? ", " : "", set.name[i], (long)set.pid[i]);
+        if (w > 0 && (size_t)w < summarysz - used) used += (size_t)w;
+        ops->signal_pid(set.handle[i], SIGKILL);
+        ops->close_pid(set.handle[i]);
+    }
+    return set.n;
+}
+
+static void owned_signal_pid(int fd, int sig) {
+    if (syscall(SYS_pidfd_send_signal, fd, sig, NULL, 0) < 0 && errno != ESRCH) logline("pidfd signal %d: %s", sig, strerror(errno));
+}
+
+static const struct proc_ops real_proc_ops = { ui_open_pid, owned_signal_pid, ui_close_pid };
+
+static void cleanup_everything(void) {
+    cleanup_owned_ui();
+    int probe_fd = ui_open_pid(getpid());
+    if (probe_fd < 0) return;
+    close(probe_fd);
+    char data[PATH_MAX], above[700];
+    snprintf(above, sizeof above, "%s/..", state_dir);
+    if (!realpath(above, data)) { logline("escape: no data directory above %s: %s", state_dir, strerror(errno)); return; }
+    int n = end_lumatv_processes("/proc", data, &real_proc_ops, ended_text, sizeof ended_text);
+    logline("escape: %d process(es) of LumaTV's ended in %s and %s", n, data, apps_dir);
 }
 
 static bool json_number(const char *obj, const char *key, unsigned long *out) {
@@ -1254,9 +1424,8 @@ static void handle_line(char *line) {
     } else if (!strcmp(kind, "fallback")) {
         char reason[256] = "requested";
         json_string(line, "reason", reason, sizeof reason);
-        // The escape (hold Home) keeps LG's compositor until the owner re-enables LumaTV from the tool.
-        write_text(path_in_state("escaped"), reason);
-        fallback(reason, false);
+        // The owner's escape asked for by the compositor: the same as Home held 10 s.
+        escape(reason);
     } else {
         logline("bridge: unknown message kind %s", kind);
     }
@@ -1773,8 +1942,7 @@ static gboolean on_home_timer(gpointer data) {
         struct pollfd pending_input = { .fd = inputs[i].fd, .events = POLLIN };
         int ready = poll(&pending_input, 1, 0);
         if (ready != 0) continue; // Process queued releases or a disconnect before deciding.
-        write_text(path_in_state("escaped"), "hold Home 10 s (supervisor)");
-        fallback("hold Home 10 s (supervisor)", false);
+        escape("hold Home 10 s (supervisor)");
     }
     return 1;
 }
@@ -1864,7 +2032,7 @@ static void test_json(void) {
 
 // ---- the decision, the markers, the watchdog, the control socket and the Home hold ----
 static char tdir[256];
-static char made[16][256];
+static char made[32][256];
 static int nmade;
 
 static void put(const char *name, const char *text) {
@@ -2663,6 +2831,211 @@ static void test_crash_bundle(void) {
     log_directory = "/tmp/lumatv-logs";
 }
 
+// ---- the escape: everything LumaTV started ends ----
+static char rootdir[256], apps_buf[300], mark_buf[300];
+
+// A data directory of its own with the state directory in it, and LumaTV's apps in a directory that only starts like it (the apps are not under
+// the data directory on the set: `/var/lib/lumatv`, `/var/lib/lumatv/compositor`, `/media/developer/apps/.../org.nphil.lumatv`): what the sweep
+// looks at exists for this test and no other, and so does the escape's mark, which is never the real one. `tdir` is the state directory.
+static void fresh_root(void) {
+    char p[600], real[PATH_MAX];
+    snprintf(p, sizeof p, "/tmp/lumatv-sm-root-XXXXXX");
+    CHECK(mkdtemp(p) != NULL);
+    CHECK(realpath(p, real) != NULL);
+    snprintf(rootdir, sizeof rootdir, "%s", real);
+    if (nmade < 32) snprintf(made[nmade++], sizeof made[0], "%s", rootdir);
+    snprintf(tdir, sizeof tdir, "%s/compositor", rootdir);
+    state_dir = tdir;
+    mkdir(tdir, 0755);
+    snprintf(p, sizeof p, "%s/bin", tdir); mkdir(p, 0755);
+    snprintf(p, sizeof p, "%s/bin", rootdir); mkdir(p, 0755);
+    snprintf(apps_buf, sizeof apps_buf, "%s-apps/org.nphil.lumatv", rootdir);
+    apps_dir = apps_buf;
+    snprintf(mark_buf, sizeof mark_buf, "%s/escaped-mark", rootdir);
+    escape_mark = mark_buf;
+    snprintf(p, sizeof p, "%s/boot_id", rootdir);
+    put_raw(p, "BOOT-A\n");
+    boot_id_path = strdup(p);
+}
+
+// A process of a fake /proc: the program it runs (the link `exe`, none when `exe` is NULL) and its arguments, which end with a NULL.
+static void fake_process(const char *proc, int pid, const char *exe, ...) {
+    char path[500], args[8192];
+    snprintf(path, sizeof path, "%s/%d", proc, pid);
+    mkdir(path, 0755);
+    snprintf(path, sizeof path, "%s/%d/exe", proc, pid);
+    if (exe) CHECK(symlink(exe, path) == 0);
+    size_t n = 0;
+    va_list ap;
+    va_start(ap, exe);
+    for (const char *a; (a = va_arg(ap, const char *)) != NULL;) n += (size_t)snprintf(args + n, sizeof args - n, "%s", a) + 1;
+    va_end(ap);
+    snprintf(path, sizeof path, "%s/%d/cmdline", proc, pid);
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    CHECK(fd >= 0 && write(fd, args, n) == (ssize_t)n);
+    if (fd >= 0) close(fd);
+}
+
+static char sweep_events[128][24];
+static int sweep_n, sweep_opened, sweep_closed;
+static const char *sweep_proc;
+static int sweep_open(pid_t pid) { sweep_opened++; return (int)pid; }
+static void sweep_close(int handle) { (void)handle; sweep_closed++; }
+static void sweep_signal(int handle, int sig) {
+    if (sweep_n < 128) snprintf(sweep_events[sweep_n++], sizeof sweep_events[0], "%s %d", sig == SIGSTOP ? "STOP" : sig == SIGKILL ? "KILL" : "SIG", handle);
+    // The helper's supervisor had forked its picture decoder before it was stopped: the look after the stops finds it.
+    if (sig == SIGSTOP && handle == 201) {
+        char exe[500];
+        snprintf(exe, sizeof exe, "%s/bin/lumatv-jpeg", rootdir);
+        fake_process(sweep_proc, 211, exe, "lumatv-jpeg", NULL);
+    }
+}
+
+static int sweep_event(const char *what, int pid) {
+    char want[32];
+    snprintf(want, sizeof want, "%s %d", what, pid);
+    for (int i = 0; i < sweep_n; i++) if (!strcmp(sweep_events[i], want)) return i;
+    return -1;
+}
+
+static void test_escape_sweep(void) {
+    fresh_root();
+    char proc[400], exe[500], loader[500], vplane[500], tool[500], wake[500], other[500], recover[500], longarg[5000];
+    snprintf(proc, sizeof proc, "%s/proc", rootdir); CHECK(mkdir(proc, 0755) == 0);
+    sweep_proc = proc;
+    memset(longarg, 'x', sizeof longarg - 1); longarg[sizeof longarg - 1] = 0;
+    snprintf(loader, sizeof loader, "%s/compositor/lib/ld-linux-aarch64.so.1", rootdir);
+    snprintf(vplane, sizeof vplane, "%s/payload/vplane/vplane.sh", apps_dir);
+    snprintf(tool, sizeof tool, "%s/tools/lumatv compositor on", apps_dir);
+    snprintf(wake, sizeof wake, "%s/tools/wake.py", apps_dir);
+    snprintf(recover, sizeof recover, "%s/compositor/bin/recover-home.sh", rootdir);
+    // LumaTV's: the helper's supervisor and service, the colour reader, the compositor under its loader, a service's supervising script, a tool
+    // run through `sh -c`, a script run by python, the card app (an app directory of its own name), and a helper whose command line is too long to read
+    snprintf(exe, sizeof exe, "%s/bin/lumatv-helper", rootdir);
+    fake_process(proc, 201, exe, "lumatv-helper", "start", NULL);
+    fake_process(proc, 202, exe, "lumatv-helper", "run", NULL);
+    fake_process(proc, 210, exe, "lumatv-helper", longarg, NULL);
+    snprintf(exe, sizeof exe, "%s/bin/lumatv-capture", rootdir);
+    fake_process(proc, 203, exe, "lumatv-capture", NULL);
+    fake_process(proc, 204, loader, loader, "--library-path", "lib", "bin/lumatv-compositor", NULL);
+    fake_process(proc, 205, "/bin/busybox", "sh", vplane, "supervise", rootdir, NULL);
+    fake_process(proc, 206, "/bin/busybox", "sh", "-c", tool, NULL);
+    snprintf(exe, sizeof exe, "%s.card/bin/lumatv-card", apps_dir);
+    fake_process(proc, 207, exe, "lumatv-card", NULL);
+    fake_process(proc, 209, "/usr/bin/python3", "python3", wake, "status", NULL);
+    // not LumaTV's: LG's, the recovery script (the data directory is an argument of `sh`, not its program), a program of a directory that only starts
+    // like the data directory's, another app, the init script's link, a process with no program (a kernel thread), the supervisor itself and init
+    fake_process(proc, 301, "/usr/sbin/webapp-mgr", "webapp-mgr", "--webos-wayland", NULL);
+    fake_process(proc, 302, "/bin/busybox", "sh", recover, "--stock", NULL);
+    fake_process(proc, 303, "/usr/bin/python3", "python3", "/opt/other/tool.py", NULL);
+    snprintf(other, sizeof other, "%s-other/bin/helper", rootdir);
+    fake_process(proc, 304, other, "helper", NULL);
+    snprintf(other, sizeof other, "%s-apps/org.nphil.other/bin/app", rootdir);
+    fake_process(proc, 305, other, "app", NULL);
+    fake_process(proc, 306, "/bin/busybox", "sh", "/var/lib/webosbrew/init.d/50-lumatv", NULL);
+    fake_process(proc, 308, NULL, NULL);
+    snprintf(exe, sizeof exe, "%s/bin/lumatv-sm", rootdir);
+    fake_process(proc, (int)getpid(), exe, "lumatv-sm", NULL);
+    fake_process(proc, 1, exe, "init", NULL);
+
+    const struct proc_ops ops = { sweep_open, sweep_signal, sweep_close };
+    char summary[1024];
+    int n = end_lumatv_processes(proc, rootdir, &ops, summary, sizeof summary);
+    const int theirs[] = { 201, 202, 203, 204, 205, 206, 207, 209, 210, 211 };
+    const int not_theirs[] = { 301, 302, 303, 304, 305, 306, 308, 1, (int)getpid() };
+    CHECK(n == 10);
+    int last_stop = -1, first_kill = sweep_n;
+    for (size_t i = 0; i < sizeof theirs / sizeof theirs[0]; i++) {
+        int s = sweep_event("STOP", theirs[i]), k = sweep_event("KILL", theirs[i]);
+        CHECK(s >= 0 && k >= 0);
+        if (s > last_stop) last_stop = s;
+        if (k >= 0 && k < first_kill) first_kill = k;
+    }
+    CHECK(last_stop < first_kill);                                   // nothing is started again between one kill and the next
+    for (size_t i = 0; i < sizeof not_theirs / sizeof not_theirs[0]; i++)
+        CHECK(sweep_event("STOP", not_theirs[i]) < 0 && sweep_event("KILL", not_theirs[i]) < 0);
+    CHECK(sweep_n == 20 && sweep_opened == sweep_closed);
+    CHECK(strstr(summary, "lumatv-helper 201") && strstr(summary, "busybox vplane.sh 205") && strstr(summary, "python3 wake.py 209") &&
+          strstr(summary, "lumatv-card 207") && strstr(summary, "lumatv-jpeg 211"));
+    CHECK(!strstr(summary, "recover-home"));
+
+    // Done twice, nothing is left to end: the processes are gone.
+    char cmd[600];
+    for (size_t i = 0; i < sizeof theirs / sizeof theirs[0]; i++) {
+        snprintf(cmd, sizeof cmd, "rm -rf %s/%d", proc, theirs[i]);
+        CHECK(system(cmd) == 0);
+    }
+    sweep_n = 0;
+    CHECK(end_lumatv_processes(proc, rootdir, &ops, summary, sizeof summary) == 0 && sweep_n == 0 && summary[0] == 0);
+    apps_dir = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv";
+}
+
+// The escape itself, in a process of its own (it ends in the exec of LG's compositor): a supervisor with a compositor of its own, LumaTV's helper a
+// real process of the data directory, a process that is nobody's of LumaTV and a recovery script. All of LumaTV's is dead, the stock hold, `escaped`,
+// the mark and the last fallback are written, no failure is counted, the recovery is started with --stock, and LG's compositor runs.
+static void test_escape_ends_everything(void) {
+    fresh_root();
+    char cmd[1200], path[600], got[256], lg[600];
+    snprintf(cmd, sizeof cmd, "cp \"$(command -v sleep)\" %s/bin/lumatv-helper", rootdir);
+    CHECK(system(cmd) == 0);
+    put("bin/recover-home.sh", "echo \"$@\" > \"$(dirname \"$0\")/recovered\"\n");
+    snprintf(lg, sizeof lg, "%s/lg-compositor", rootdir);
+    put_raw(lg, "#!/bin/sh\necho ran > \"$(dirname \"$0\")/lg-ran\"\n");
+    CHECK(chmod(lg, 0755) == 0);
+    snprintf(path, sizeof path, "%s/bin/lumatv-helper", rootdir);
+    fflush(NULL);
+    pid_t helper = fork();
+    if (helper == 0) { execl(path, "lumatv-helper", "60", (char *)NULL); _exit(127); }
+    pid_t bystander = fork();
+    if (bystander == 0) { for (;;) pause(); }
+    // the helper has to be a program of the data directory before the sweep looks
+    for (int i = 0; i < 400; i++) {
+        char link[64], to[600] = "";
+        snprintf(link, sizeof link, "/proc/%d/exe", (int)helper);
+        ssize_t r = readlink(link, to, sizeof to - 1);
+        if (r > 0 && strstr(to, "lumatv-helper")) break;
+        usleep(5000);
+    }
+    pid_t supervisor = fork();
+    if (supervisor == 0) {
+        char *argv[] = { lg, NULL };
+        saved_argv = argv;
+        lg_binary = lg;
+        supervising = true;
+        started_mono = mono_now();
+        runtime_dir = rootdir;
+        log_directory = rootdir;
+        child_pid = fork();
+        if (child_pid == 0) { for (;;) pause(); }
+        escape("hold Home 10 s (supervisor)");
+        _exit(99);
+    }
+    int status = 0;
+    CHECK(waitpid(supervisor, &status, 0) == supervisor && WIFEXITED(status) && WEXITSTATUS(status) == 0);   // LG's compositor ran and ended
+    CHECK(waitpid(helper, &status, 0) == helper && WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
+    CHECK(kill(bystander, 0) == 0);
+    kill(bystander, SIGKILL);
+    waitpid(bystander, NULL, 0);
+    CHECK(has("stock-ui-held") && has("escaped") && has("last-fallback") && !has("failures"));
+    snprintf(path, sizeof path, "%s/lg-ran", rootdir);
+    CHECK(file_exists(path));
+    CHECK(file_exists(escape_mark));
+    slurp("last-fallback", got, sizeof got);
+    CHECK(!strcmp(got, "hold Home 10 s (supervisor)"));
+    // the recovery runs on its own after the exec: asked for the stock restore
+    for (int i = 0; i < 400 && !has("bin/recovered"); i++) usleep(5000);
+    slurp("bin/recovered", got, sizeof got);
+    CHECK(!strcmp(got, "--stock"));
+    char latest[64], text[1024];
+    snprintf(path, sizeof path, "%s/../crash/latest", tdir);
+    slurp_path(path, latest, sizeof latest);
+    snprintf(path, sizeof path, "%s/../crash/%s/reason.txt", tdir, latest);
+    slurp_path(path, text, sizeof text);
+    CHECK(strstr(text, "kind: escape\n") && strstr(text, "ended: lumatv-helper ") != NULL);
+    escape_mark = "/tmp/.lumatv-escaped";
+    apps_dir = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv";
+}
+
 int main(void) {
     test_json();
     test_decide();
@@ -2675,6 +3048,8 @@ int main(void) {
     test_input_reads();
     test_nonblocking_bridge_and_initctl();
     test_owned_ui_cleanup();
+    test_escape_sweep();
+    test_escape_ends_everything();
     test_bridge_gone();
     test_logs_do_not_touch_old_files();
     test_crash_bundle();

@@ -1272,16 +1272,34 @@ homestub_json() {
     "$hs_cfg" "$hs_state" "$hs_mo" "$hs_st" "$hs_fl" "$hs_left" "$hs_gd" "$hs_bt" "$(hs_strikes)"
 }
 
+# ------------------------------------------------------------------- The escape
+#
+# Home held 10 s is the one way from LumaTV to LG's Home, and it is the supervisor's own (compositor/sm/lumatv-sm.c): it reads the remotes by
+# itself, ends the compositor, the UI and every other process LumaTV started, writes `escaped` beside the stock UI hold and execs LG's
+# compositor, whose recovery (compositor/tools/tv-recover-home.sh --stock) runs stock_ui_restore and launches LG's Home. The owner did it, so
+# it is no fault: no failure is counted and boot direct's flag stays on.
+#
+# The hold and `escaped` last for the rest of that boot (nothing starts LumaTV again by itself, the boot worker included) and no longer. The
+# supervisor also makes ESCAPE_BOOT in tmpfs, which a reboot clears, so an `escaped` found without it was made in an earlier boot and the boot
+# worker's first act drops it with the hold. A hold with no `escaped` is a fault's and stays until `compositor on`.
+ESCAPE_BOOT="/tmp/.$SHORT_ID-escaped"
+
+escape_lapse() {
+  [ -f "$COMP/escaped" ] && [ ! -e "$ESCAPE_BOOT" ] || return 0
+  rm -f "$COMP/stock-ui-held" "$COMP/escaped"
+  log_line "compositor-boot: the escape of an earlier boot has lapsed, LumaTV starts"
+}
+
 # ----------------------------------------------------------------- Boot direct
 #
 # Opt-in, off unless $BD_FLAG exists (docs/research/boot-direct.md). With it SAM's Home is the web stub for as long as LumaTV's compositor
 # is live, and LG's Flutter Home never starts: the stub goes in at the very start of the boot worker's compositor-boot, before bootd's
 # first app, SAM's last_input_handler or the preload manager can open Home, and stays under LG's compositor until the activation
-# restarts it. The compositor reads the same flag: it starts its UI without waiting for SAM's Home to map, opens LG's real Home on a
-# Home hold of 5 s (`home lg`) and asks for the stub back when the owner leaves it (`home luma`). Every way out of LumaTV's compositor
-# already ends in stock_ui_restore, which drops the stub (hs_mounted_ours): the supervisor's fallback through recover-home.sh --stock,
-# and `compositor off`; a boot that never reaches the activation ends in bd_early_undo or the dead man's switch (`boot-direct watch`).
-# The stub is a bind mount and SAM's reading of it: nothing of it survives a reboot.
+# restarts it. The compositor reads the same flag only to start its UI without waiting for SAM's Home to map. There is no way to LG's Home
+# from inside LumaTV but the escape above, which ends in stock_ui_restore and so drops the stub (hs_mounted_ours), as does every other way
+# out of LumaTV's compositor: the supervisor's fallback through recover-home.sh --stock, and `compositor off`; a boot that never reaches
+# the activation ends in bd_early_undo or the dead man's switch (`boot-direct watch`). The stub is a bind mount and SAM's reading of it:
+# nothing of it survives a reboot. `compositor on` (the launcher app's way back) puts it in again before its restart.
 BD_FLAG="$STATE/boot-direct"
 # Written when the stub goes up at a boot and removed when that boot's activation is complete: one found at the next boot means the last
 # one stopped in between (a power cut on a black screen), and that boot goes without the stub. Two in a row switch the flag off.
@@ -1314,8 +1332,9 @@ bd_enabled() {
   [ "$bd_l1" = on ]
 }
 
-# The installed bundle's compositor knows the flag (compositor/tools/tv-cutover.sh install writes this).
-bd_api() { [ -f "$COMP/boot-direct-api" ]; }
+# The installed bundle's compositor is the one that knows only the flag (compositor/tools/tv-cutover.sh install writes this): marker 2. A
+# bundle of marker 1 still opens LG's Home on a Home hold of 5 s, through a verb this tool no longer has.
+bd_api() { [ "$(cat "$COMP/boot-direct-api" 2>/dev/null)" = 2 ]; }
 
 bd_strikes() {
   bd_sn=$(cat "$BD_STRIKES" 2>/dev/null)
@@ -1324,7 +1343,12 @@ bd_strikes() {
 }
 
 bd_strike() {
-  # One more boot that ended with the stub in doubt. At the limit the flag turns itself off.
+  # One more boot that ended with the stub in doubt. At the limit the flag turns itself off. Not while the stock UI is held: the escape or a
+  # fallback has taken the stub away already, and a boot cut short that way is not one that went wrong.
+  if [ -e "$COMP/stock-ui-held" ]; then
+    log_line "boot-direct: no fault counted ($1): the stock UI is held"
+    return 0
+  fi
   bd_sk=$(( $(bd_strikes) + 1 ))
   printf '%s\n' "$bd_sk" > "$BD_STRIKES" 2>/dev/null
   log_line "boot-direct: fault $bd_sk of $BD_MAX_STRIKES ($1)"
@@ -1484,7 +1508,7 @@ verb_boot_direct() {
       [ -f "$STUB_SRC/appinfo.json" ] || { emit_error "the stub's files are missing from this install"; return 1; }
       take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
       rm -f "$BD_PENDING" "$BD_STRIKES"
-      if ! printf 'on\ntool %s\n' "$APPDIR/tools/$SHORT_ID" > "$BD_FLAG.tmp" 2>/dev/null || ! mv -f "$BD_FLAG.tmp" "$BD_FLAG" 2>/dev/null; then
+      if ! printf 'on\n' > "$BD_FLAG.tmp" 2>/dev/null || ! mv -f "$BD_FLAG.tmp" "$BD_FLAG" 2>/dev/null; then
         rm -f "$BD_FLAG.tmp"; emit_error "could not write the flag"; return 1
       fi
       log_line "boot-direct: on"
@@ -1529,42 +1553,6 @@ verb_boot_direct() {
   esac
   return 0
 }
-
-verb_home() {
-  # The compositor's way to LG's Home and back (a Home hold of 5 s, then Home), and the owner's by hand.
-  case "${1:-status}" in
-    lg)
-      LOCK_WAIT=10
-      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
-      log_line "home: LG's Home asked for"
-      homestub_drop lg
-      hs_open_home
-      printf '{"ok":true,"home":"lg"}\n' ;;
-    luma)
-      LOCK_WAIT=10
-      bd_enabled || { emit_error "boot-direct is off"; return 1; }
-      comp_live || { emit_error "LumaTV's compositor is not live; the stub would show nothing"; return 1; }
-      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
-      log_line "home: LumaTV's Home asked for"
-      hm_front=0; home_in_front && hm_front=1
-      homestub_up || { emit_error "the stub did not come up; LG's Home stays"; return 1; }
-      # With an app in front the stub waits for the next launch of Home. With Home in front SAM opens it again within a second or two, as the
-      # stub now; one that does not come is launched here.
-      if [ "$hm_front" = 1 ] && ! bd_home_up; then
-        emit_error "the stub did not start; LG's Home is back"; return 1
-      fi
-      printf '{"ok":true,"home":"luma"}\n' ;;
-    status) printf '{"ok":true,"home":%s}\n' "$(bd_json)" ;;
-    *) emit_error "home: lg, luma or status"; return 1 ;;
-  esac
-  return 0
-}
-
-
-
-
-
-
 
 # ------------------------------------------------------------------- revert
 
@@ -2474,6 +2462,9 @@ stock_ui_restore() {
     fi
   fi
   hs_mode_set lg
+  # The stub is gone and nothing of a boot's stub is in doubt any more: a mark left would be counted against the next boot (bd_early_stub)
+  # and the watch's give-up would open LG's Home a second time. The strikes are not touched: an escape is neither a bad boot nor a good one.
+  rm -f "$BD_PENDING"
   if [ -d "$ASSETS" ] && [ -d "$STOCK_ASSETS" ]; then
     su_i=0
     while [ "$su_i" -lt 8 ] && [ "$(stat -c %d:%i "$STOCK_ASSETS" 2>/dev/null)" = "$(stat -c %d:%i "$ASSETS" 2>/dev/null)" ]; do
@@ -3173,8 +3164,8 @@ MAINTENANCE_ACCESS=write
 case "$VERB:${2:-}" in
   wake:status|wake:) MAINTENANCE_ACCESS=read ;;
   wake:off) MAINTENANCE_ACCESS=emergency ;;
-  boot-direct:status|boot-direct:|home:status) MAINTENANCE_ACCESS=read ;;
-  boot-direct:off|boot-direct:watch|home:lg) MAINTENANCE_ACCESS=emergency ;;
+  boot-direct:status|boot-direct:) MAINTENANCE_ACCESS=read ;;
+  boot-direct:off|boot-direct:watch) MAINTENANCE_ACCESS=emergency ;;
   status:|surfaces:|version:|log:*|theme:get|theme:|layout:get|layout:|layout:check|compositor:check|stock-ui-restore:)
     MAINTENANCE_ACCESS=read ;;
   helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:)
@@ -3184,10 +3175,12 @@ case "$VERB:${2:-}" in
 esac
 maintenance_guard || exit 1
 
-# Boot direct (opt-in, docs/research/boot-direct.md): the boot worker's `compositor-boot` puts the Home stub in before anything below. An
-# exit between here and the verb takes it back (bd_early_gone), or LG's compositor would run on with a blank Home until the watch gives up.
+# The escape of an earlier boot lapses before anything else of this boot looks at the stock UI hold (the lock below refuses while it is
+# held). Boot direct (opt-in, docs/research/boot-direct.md): the boot worker's `compositor-boot` puts the Home stub in before anything
+# below. An exit between here and the verb takes it back (bd_early_gone), or LG's compositor would run on with a blank Home until the
+# watch gives up.
 case "$VERB:${2:-}" in
-  compositor-boot:) bd_early_boot ;;
+  compositor-boot:) escape_lapse; bd_early_boot ;;
 esac
 
 native_storage_guard() {
@@ -3329,7 +3322,6 @@ case "$VERB" in
   compositor) verb_compositor "${2:-status}" "${3:-}"; exit $? ;;
   compositor-boot) if [ "${2:-}" = activate ]; then verb_compositor_boot_activate "${3:-}"; else verb_compositor_boot; fi; exit $? ;;
   boot-direct) verb_boot_direct "${2:-status}"; exit $? ;;
-  home) verb_home "${2:-status}"; exit $? ;;
   standby) verb_standby "${2:-}"; exit $? ;;
   ntfy) verb_ntfy "${2:-}" "${3:-}"; exit $? ;;
   log) verb_log "${2:-}"; exit $? ;;

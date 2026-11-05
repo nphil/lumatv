@@ -449,7 +449,7 @@ impl State {
     /// How long the client's first start waits for SAM's Home to map. Under boot direct there is no wait: SAM's Home is the stub, whose
     /// launch waits for WebAppMgr, which comes up with the compositor, and LumaTV's Home does not need it.
     fn ui_start_wait(&self) -> Duration {
-        if self.boot_direct.on() { Duration::ZERO } else { START_ALONE }
+        if crate::boot_direct::flag_on(&self.config.data_dir) { Duration::ZERO } else { START_ALONE }
     }
 
     /// Opens the channel on `port` with `token` for a client the caller runs itself (the tests, which answer for it).
@@ -752,20 +752,11 @@ impl State {
         self.shell_rust.socket = None;
     }
 
-    /// Synchronize Home visibility with the native engine connection. LumaTV's Home is not drawn while LG's own is what the owner asked for
-    /// (`boot_direct`): the client is up, but its Home gives the screen to LG's card.
+    /// Synchronize Home visibility with the native engine connection.
     pub fn shell_rust_sync_home(&mut self) {
-        let stepped_aside = self.boot_direct.hides_home();
-        let on = self.shell_rust.answers("home") && self.shell_rust.engine_connected && !stepped_aside;
+        let on = self.shell_rust.answers("home") && self.shell_rust.engine_connected;
         if self.scene.set_home_rust(on) {
-            let state = if on {
-                "native"
-            } else if stepped_aside {
-                "stepped aside for LG's Home"
-            } else {
-                "not connected"
-            };
-            self.journal(format!("shell-rust: Home is {state}"));
+            self.journal(format!("shell-rust: Home is {}", if on { "native" } else { "not connected" }));
             self.shell_sync_topics();
         }
     }
@@ -2309,11 +2300,10 @@ mod tests {
         // a directory of its own: `state_with`'s is shared by the tests whose list is as long
         let flag_dir = std::env::temp_dir().join(format!("lumatv-boot-direct-start-{}", std::process::id()));
         std::fs::create_dir_all(&flag_dir).unwrap();
+        state.config.data_dir = flag_dir.clone();
         std::fs::write(flag_dir.join(crate::boot_direct::FLAG_FILE), "on\n").unwrap();
-        state.boot_direct = crate::boot_direct::BootDirect::new(&flag_dir);
         assert_eq!(state.ui_start_wait(), Duration::ZERO, "SAM's Home is the stub, whose launch waits for WebAppMgr: the client does not");
         std::fs::write(flag_dir.join(crate::boot_direct::FLAG_FILE), "off\n").unwrap();
-        state.boot_direct = crate::boot_direct::BootDirect::new(&flag_dir);
         assert_eq!(state.ui_start_wait(), START_ALONE);
         let _ = std::fs::remove_dir_all(flag_dir);
     }
