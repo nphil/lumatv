@@ -1,5 +1,5 @@
 #!/bin/sh
-# On the set, as root (busybox sh): what the weather view costs in memory and whether it gives it all back. NOT RUN ON THE TV YET.
+# On the set, as root (busybox sh): what the weather view costs in memory and whether it gives it all back. 
 #
 #   sh wx-memory-probe.sh [run]     open the radar page, zoom and pan, close it, and judge the samples (the default)
 #   sh wx-memory-probe.sh sample L  one sample now under the label L (what `run` takes four of), appended to $OUT/samples.tsv
@@ -7,7 +7,7 @@
 #
 # Home is in front, the screen on, the view closed. It presses the remote through `lumatv-compositor ctl remote` (codes are the evdev ones the
 # compositor takes: Up 103, Down 108, Left 105, Right 106, OK 28, Back 158), the page's own zoom keys and the Magic Remote's wheel, so what
-# is measured is the path a person takes. Four samples, each of the UI process (`lumatv-rustui`), the compositor and the helper:
+# is measured is the path a person takes. Four samples, each of the UI process (`lumatv-ui`), the compositor and the helper:
 #
 #   baseline  Home, the view closed, 3 s of rest
 #   open      the radar page up for 12 s: the backdrop, the map, the frame on show and the next, the loop playing
@@ -32,13 +32,14 @@
 # Where the 5 s are not enough for the compositor (it trims its heap when it has been quiet for 5 s: `idle.rs`) the closed row is read again
 # 10 s later (`LATE=1`) and the verdict is on the later one, which the summary says.
 #
-# Environment: OUT (/tmp/wxmem), CTL (the compositor binary: /var/lib/lumatv/compositor/bin/lumatv-compositor), PORT (18731, the helper),
+# Environment: OUT (/tmp/wxmem), CTL (the compositor binary: /var/lib/lumatv/compositor/bin/lumatv-compositor), BUNDLE (its dir, whose lib/ld-linux-aarch64.so.1 loads it) and RUNTIME_DIR (/tmp/xdg), PORT (18731, the helper),
 # OPEN_KEYS (the codes from Home to the weather view: "108 106 106 28" = down, right, right, OK onto the weather card), PAGE_KEYS (to the
 # radar page from the view's first: "106"), ZOOM_KEYS (default: Up x4, Down x8, Up x4), CLOSE_KEYS ("158"), WHEEL=0 to leave the wheel out,
 # LATE=1 to read a second closed row 10 s on. The key paths are those of the host render (`tests/render_rust_weather.py`); a Home that
 # opens with the focus elsewhere needs OPEN_KEYS of its own.
 OUT=${OUT:-/tmp/wxmem}
-CTL=${CTL:-/var/lib/lumatv/compositor/bin/lumatv-compositor}
+BUNDLE=${BUNDLE:-/var/lib/lumatv/compositor}
+CTL=${CTL:-$BUNDLE/bin/lumatv-compositor}
 PORT=${PORT:-18731}
 OPEN_KEYS=${OPEN_KEYS:-"108 106 106 28"}
 PAGE_KEYS=${PAGE_KEYS:-"106"}
@@ -46,6 +47,7 @@ ZOOM_KEYS=${ZOOM_KEYS:-"103 103 103 103 108 108 108 108 108 108 108 108 103 103 
 CLOSE_KEYS=${CLOSE_KEYS:-"158"}
 WHEEL=${WHEEL:-1}
 LATE=${LATE:-0}
+RUNTIME_DIR=${RUNTIME_DIR:-/tmp/xdg}
 KIB=1024
 TSV=$OUT/samples.tsv
 
@@ -66,8 +68,8 @@ pid_cmd() {
 kib() { awk -v k="$2:" '$1 == k { print $2; exit }' "/proc/$1/status" 2>/dev/null; }
 pss() { awk '$1 == "Pss:" { print $2; exit }' "/proc/$1/smaps_rollup" 2>/dev/null; }
 
-# The picture files of the UI: count and KiB of its `--shm` directory.
-shm_of() { { tr '\0' '\n' < "/proc/$1/cmdline"; } 2>/dev/null | awk 'p { print; exit } $0 == "--shm" { p = 1 }'; }
+# The picture files of the UI: count and KiB of its shm directory, which the UI is given as LUMATV_UI_SHM in its environment (not as an argument).
+shm_of() { { tr '\0' '\n' < "/proc/$1/environ"; } 2>/dev/null | sed -n 's/^LUMATV_UI_SHM=//p'; }
 layer_files() {
     [ -d "$1" ] || { echo "n/a n/a"; return; }
     ls -l "$1" 2>/dev/null | awk 'NR > 1 && $1 ~ /^-/ { n++; b += $5 } END { printf "%d %d\n", n, b / 1024 }'
@@ -88,15 +90,16 @@ HEADER="label	uptime_s	ui_rss	ui_anon	ui_file	ui_shmem	ui_pss	ui_layer_files	ui_
 
 sample() {
     L=$1
-    ui=$(pid_cmd lumatv-rustui)
+    ui=$(pid_cmd lumatv-ui)
     comp=$(pid_cmd bin/lumatv-compositor)
-    help=$(pid_cmd lumatv-helper)
+    # `lumatv-helper` is a supervisor with a worker under it; the view's memory is the one with the most resident.
+    help=$(for q in $(pidof lumatv-helper); do echo "$(kib "$q" VmRSS) $q"; done | sort -rn | { read -r _ q; echo "$q"; })
     [ -f "$TSV" ] || printf '%s\n' "$HEADER" > "$TSV"
     shm=$(shm_of "$ui")
     set -- $(layer_files "$shm")
     nf=$1 nk=$2
     gpu=$(gpu_kib "$comp" "$L")
-    "$CTL" ctl mem > "$OUT/ctl-mem-$L.json" 2>/dev/null
+    ctl mem > "$OUT/ctl-mem-$L.json" 2>/dev/null
     cp "/proc/$comp/smaps_rollup" "$OUT/comp-smaps_rollup-$L.txt" 2>/dev/null
     cp "/proc/$ui/smaps_rollup" "$OUT/ui-smaps_rollup-$L.txt" 2>/dev/null
     up=$(cut -d' ' -f1 /proc/uptime)
@@ -118,14 +121,24 @@ within() {
     if [ "$2" -le $(( $3 + $4 )) ]; then say "PASS  $1: $2 <= $3 + $4"; else say "FAIL  $1: $2 > $3 + $4"; verdict=1; fi
 }
 
-tap() { "$CTL" ctl remote "$1" tap > /dev/null 2>&1; nap "${2:-0.5}"; }
+# The compositor binary runs from its bundle under the bundle's own loader and libraries, with its runtime dir at $RUNTIME_DIR; CTL is the plain
+# binary (a wrapper that takes `ctl ARGS` also works, and is used as is when the bundle's loader is not there).
+ctl() {
+    if [ -x "$BUNDLE/lib/ld-linux-aarch64.so.1" ]; then
+        "$BUNDLE/lib/ld-linux-aarch64.so.1" --library-path "$BUNDLE/lib" "$CTL" ctl --runtime-dir "$RUNTIME_DIR" "$@"
+    else
+        "$CTL" ctl "$@"
+    fi
+}
+
+tap() { ctl remote "$1" tap > /dev/null 2>&1; nap "${2:-0.5}"; }
 
 run() {
     : > "$OUT/summary.txt"
     rm -f "$TSV"
     p=$(luna-send -n 1 -f luna://com.webos.service.tvpower/power/getPowerState '{}' 2>/dev/null | sed -n 's/.*"state" *: *"\([^"]*\)".*/\1/p' | head -n 1)
     if [ "$p" != Active ]; then say "VERDICT FAIL: power state is '${p:-unknown}', not 'Active'; nothing was pressed"; exit 2; fi
-    [ -n "$(pid_cmd lumatv-rustui)" ] || { say "VERDICT FAIL: no lumatv-rustui process (is LumaTV's own Home up?); nothing was pressed"; exit 2; }
+    [ -n "$(pid_cmd lumatv-ui)" ] || { say "VERDICT FAIL: no lumatv-ui process (is LumaTV's own Home up?); nothing was pressed"; exit 2; }
     [ -x "$CTL" ] || { say "VERDICT FAIL: $CTL is not there (CTL=)"; exit 2; }
     if [ "$(code /v1/wx/state)" != 409 ]; then say "VERDICT FAIL: the helper's weather view is open (or the helper is not answering) before the probe; close it and run again"; exit 2; fi
     say "== weather memory probe $(date) | uptime $(cut -d' ' -f1 /proc/uptime)"
@@ -143,10 +156,10 @@ run() {
     for k in $ZOOM_KEYS; do tap "$k" 0.6; done
     if [ "$WHEEL" = 1 ]; then
         # a zoom about two places of the screen, the pointer shown by the aim; a notch each way at each
-        "$CTL" ctl pointer aim 400 300 > /dev/null 2>&1
-        for i in 1 2 3 4 5 6; do "$CTL" ctl wheel up > /dev/null 2>&1; nap 0.4; done
-        "$CTL" ctl pointer aim 1500 800 > /dev/null 2>&1
-        for i in 1 2 3 4 5 6; do "$CTL" ctl wheel down > /dev/null 2>&1; nap 0.4; done
+        ctl pointer aim 400 300 > /dev/null 2>&1
+        for i in 1 2 3 4 5 6; do ctl wheel up > /dev/null 2>&1; nap 0.4; done
+        ctl pointer aim 1500 800 > /dev/null 2>&1
+        for i in 1 2 3 4 5 6; do ctl wheel down > /dev/null 2>&1; nap 0.4; done
     fi
     nap 4
     sample zoomed

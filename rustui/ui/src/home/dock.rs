@@ -31,6 +31,24 @@ pub fn removable_app(p: &Value) -> bool {
     p.get("removable").and_then(Value::as_bool) == Some(true) && p.get("systemApp").and_then(Value::as_bool) != Some(true) && !protected
 }
 
+/// The launch points with one per HDMI port. A port that has a receiver with a device behind it (eARC on HDMI 2 and an Apple TV on the receiver) is
+/// listed once per CEC device, every one with the id `com.webos.app.hdmi2` and its own `launchPointId` and `PhysicalAddress`; they open the same
+/// input, so the first stays. Other repeated ids (a browser's bookmarks) are different pages and all stay.
+fn one_per_port(list: &[Value]) -> Vec<&Value> {
+    let mut ports: Vec<&str> = Vec::new();
+    list.iter()
+        .filter(|p| {
+            let id = p.get("id").and_then(Value::as_str).unwrap_or("");
+            let port = p.get("lptype").and_then(Value::as_str) == Some("bookmark") && id.strip_prefix("com.webos.app.").is_some_and(|r| r.starts_with("hdmi"));
+            !port || {
+                let new = !ports.contains(&id);
+                ports.push(id);
+                new
+            }
+        })
+        .collect()
+}
+
 pub const APPS_TILE: &str = "com.webos.app.discovery";
 const NEUTRAL: &[&str] = &["#ffffff", "#fff", "#000000", "#000", "#060606", "#1e1e1e"];
 
@@ -129,8 +147,8 @@ impl Dock {
         let apps = theme.get("apps");
         let hide: Vec<&str> = apps.and_then(|a| a.get("dockHide")).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
         let order: Vec<&str> = apps.and_then(|a| a.get("dockOrder")).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
-        let mut list: Vec<(usize, &Value)> = list
-            .iter()
+        let mut list: Vec<(usize, &Value)> = one_per_port(list)
+            .into_iter()
             .filter(|p| p.get("hidden").and_then(Value::as_bool) != Some(true))
             .filter(|p| !hide.contains(&p.get("id").and_then(Value::as_str).unwrap_or("")))
             .enumerate()
@@ -171,7 +189,7 @@ impl Dock {
 
     /// Every launch point LG lists (the library's list), with the theme's names, icons and plates, before the person's dock hiding.
     pub fn all_points(&self, theme: &Value) -> Vec<Point> {
-        let list: Vec<Value> = self.raw.iter().filter(|p| p.get("hidden").and_then(Value::as_bool) != Some(true)).cloned().collect();
+        let list: Vec<Value> = one_per_port(&self.raw).into_iter().filter(|p| p.get("hidden").and_then(Value::as_bool) != Some(true)).cloned().collect();
         Self::points_of(&list, theme)
     }
 
@@ -435,6 +453,18 @@ mod tests {
         assert_eq!(d.points[1].title, "Films");
         assert_eq!(d.accent_for(d.points.get(2), &json!({}), "#9a8cf0"), "#101010");
         assert_eq!(d.accent_for(d.points.get(2), &json!({"accent": "wallpaper"}), "#9a8cf0"), "#9a8cf0");
+    }
+
+    #[test]
+    fn an_hdmi_port_listed_once_per_cec_device_is_one_tile_and_repeated_bookmarks_of_other_apps_stay() {
+        let port = |lp: &str, title: &str| json!({"id": "com.webos.app.hdmi2", "launchPointId": lp, "title": title, "lptype": "bookmark"});
+        let page = |lp: &str| json!({"id": "com.webos.app.browser", "launchPointId": lp, "title": "Page", "lptype": "bookmark"});
+        let mut d = Dock::default();
+        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 392);
+        d.set_points(&[lp("netflix", "Netflix"), port("824972", "AVR-S760H"), port("547811", "Apple TV"), page("1"), page("2")], &json!({}));
+        let shown: Vec<(&str, &str)> = d.points.iter().map(|p| (p.id.as_str(), p.launch_point_id.as_str())).collect();
+        assert_eq!(shown, vec![("netflix", "netflix_default"), ("com.webos.app.hdmi2", "824972"), ("com.webos.app.browser", "1"), ("com.webos.app.browser", "2")]);
+        assert_eq!(d.all_points(&json!({})).len(), 4);
     }
 
     #[test]

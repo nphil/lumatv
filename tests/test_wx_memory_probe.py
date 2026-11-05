@@ -92,6 +92,35 @@ class Verdict(unittest.TestCase):
             self.assertEqual([len(line.split("\t")) for line in lines], [len(COLUMNS)] * 2, lines)
             self.assertEqual(lines[0].split("\t"), COLUMNS)
 
+    def test_the_ui_is_found_by_its_name_and_its_pictures_by_its_environment(self):
+        with tempfile.TemporaryDirectory() as out, tempfile.TemporaryDirectory() as shm:
+            for n in range(3):
+                with open(os.path.join(shm, "layer%d" % n), "wb") as f:
+                    f.write(b"x" * 2048)
+            # a process whose command line names it lumatv-ui, as the set's is
+            ui = subprocess.Popen(["sh", "-c", "sleep 30", "lumatv-ui"], env={"LUMATV_UI_SHM": shm})
+            try:
+                subprocess.run(["sleep", "0.2"])
+                r = subprocess.run(["sh", SCRIPT, "sample", "baseline"], env={**os.environ, "OUT": out, "PORT": "1", "CTL": "/nonexistent"}, capture_output=True, text=True)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                with open(os.path.join(out, "samples.tsv")) as f:
+                    cols = dict(zip(*[l.split("\t") for l in f.read().splitlines()]))
+                self.assertEqual((cols["ui_layer_files"], cols["ui_layer_kib"]), ("3", "6"))
+            finally:
+                ui.kill()
+                ui.wait()
+
+    def test_the_compositor_is_driven_through_its_bundles_loader(self):
+        with tempfile.TemporaryDirectory() as out, tempfile.TemporaryDirectory() as bundle:
+            os.makedirs(os.path.join(bundle, "lib"))
+            loader = os.path.join(bundle, "lib", "ld-linux-aarch64.so.1")
+            with open(loader, "w") as f:
+                f.write('#!/bin/sh\necho "$@" >> "%s/args"\n' % out)
+            os.chmod(loader, 0o755)
+            subprocess.run(["sh", SCRIPT, "sample", "baseline"], env={**os.environ, "OUT": out, "PORT": "1", "BUNDLE": bundle, "RUNTIME_DIR": "/rt"}, capture_output=True, text=True)
+            with open(os.path.join(out, "args")) as f:
+                self.assertEqual(f.read().strip(), "--library-path %s/lib %s/bin/lumatv-compositor ctl --runtime-dir /rt mem" % (bundle, bundle))
+
 
 if __name__ == "__main__":
     unittest.main()
