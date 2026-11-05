@@ -222,6 +222,8 @@ impl Service {
         };
         let ai = crate::ai::Ai::start(&ctx, ai_deps, nudge)?;
 
+        // `base.livetv`, the tuner's old Settings switch, becomes the Live TV Tuner plugin's before the roster is first read.
+        crate::tuner::migrate(&settings, &paths.plugins_dir());
         // Plugins: the manager reads the roster and keeps the broker's socket only while a plugin is switched on.
         let plugins = crate::plugins::Plugins::with_policy(
             &ctx,
@@ -272,9 +274,17 @@ impl Service {
         // On Home: Home Assistant's shared entities, through the integration that dials the TV. Nothing listens until it is switched on and paired.
         let onhome = crate::onhome::OnHome::new(&ctx, onhome_deps.unwrap_or_else(|| crate::onhome::Deps::real(&ctx)));
         threads.push(("onhome", onhome.spawn(&ctx)?));
-        // The antenna tuner as an HDHomeRun for Plex: nothing listens and the tuner is left alone until the owner switches it on in Settings.
-        let hdhr = crate::hdhr::Hdhr::new(&ctx, Arc::new(crate::hdhr::Tv::new(config.hdhr.clone(), config.luna.send.clone())));
-        threads.push(("hdhr", hdhr.spawn()?));
+        // Live TV Tuner: the antenna tuner on the home network, a plugin of the helper's own. Nothing listens and the tuner is left alone
+        // until the owner switches it on in Settings.
+        let tv = lumatuner::webos::Tv::new(
+            config.hdhr.webos(),
+            Arc::new(lumatuner::webos::LunaSend::new(config.luna.send.clone())),
+        );
+        let tuner = Arc::new(lumatuner::Tuner::new(Arc::new(tv), lumatuner::real_clock()));
+        threads.push((
+            "tuner",
+            crate::tuner::spawn(&ctx, plugins.shared().clone(), tuner)?,
+        ));
 
         let privacy = crate::privacy::new(&ctx);
         threads.push(("privacy", crate::privacy::spawn(&ctx, privacy.clone())?));

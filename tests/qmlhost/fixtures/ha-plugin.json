@@ -494,6 +494,17 @@
           "version": "1"
         },
         {
+          "approve": "3bfc18dbd15a6c48253dd5b8ece62eaa85f4c0cdf95e2682125ba363e49e8f8d",
+          "class": "S",
+          "consent": "Shares this TV's antenna tuner on the local network as an HDHomeRun, with a channel playlist and the TV's own guide: devices on the home network can list its channels, watch them and record them. One stream at a time, and the TV's own Live TV always comes first.",
+          "firstParty": true,
+          "id": "live-tv-tuner",
+          "name": "Live TV Tuner",
+          "registered": false,
+          "state": "off",
+          "version": "1"
+        },
+        {
           "class": "S",
           "firstParty": true,
           "id": "news",

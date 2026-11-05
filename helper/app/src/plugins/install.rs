@@ -1,13 +1,14 @@
 //! Switching a plugin on and off, and linking Home Assistant: the owner's acts, done from the command line.
 //!
 //! Installing software on the TV and giving it a key are things only the owner decides (Principle 0): no route of the helper does
-//! either, and nothing in the helper switches a plugin on by itself. The owner runs these at a shell on the TV:
+//! either, and nothing in the helper switches a plugin on by itself. (The helper's own plugins that ask first are switched in Settings,
+//! `routes.rs`: that installs nothing.) The owner runs these at a shell on the TV:
 //!
 //! | Command | What |
 //! |---|---|
 //! | `plugin-consent --id <id>` | what the packaged plugin may do, in plain words, and the approval code of exactly that |
 //! | `plugin-enable --id <id> --approve <code>` | installs the package and switches the plugin on (the code must be the one consent printed) |
-//! | `plugin-disable --id <id>` | switches it off (the program is ended; its files and settings stay) |
+//! | `plugin-disable --id <id>` | switches it off (the program is ended; its files and settings stay); also one of the helper's own |
 //! | `plugin-status` | which plugins are on |
 //! | `ha-link --url <address>` | saves Home Assistant's address and an access token (read from standard input) for the plugins' lease |
 //! | `ha-unlink` | forgets them |
@@ -17,14 +18,14 @@
 //! the TV) and writable by nobody else, gives the plugin the next free user id of the plugins' range, and writes its entry in
 //! `enabled.json` with the approval code and the hash of the program it installed. A running helper is told to read the file again.
 
-use super::roster::{self, Enabled, EnabledFile, approval};
+use super::roster::{self, Enabled, approval};
 use crate::config::{Config, Paths};
 use plugin_api::Manifest;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -126,48 +127,6 @@ pub fn consent(package: &Package) -> Value {
         "approve": approval(m),
         "program": program_hash(package).ok(),
     })
-}
-
-fn read_enabled(paths: &Paths) -> Result<Vec<Enabled>, String> {
-    let file = paths.plugins_dir().join("enabled.json");
-    match std::fs::read(&file) {
-        Ok(bytes) => serde_json::from_slice::<EnabledFile>(&bytes)
-            .map(|f| f.plugins)
-            .map_err(|e| {
-                format!(
-                    "{} is damaged ({e}): fix it or remove it, nothing was changed",
-                    file.display()
-                )
-            }),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(e) => Err(format!("{}: {e}", file.display())),
-    }
-}
-
-fn write_enabled(paths: &Paths, entries: Vec<Enabled>) -> Result<(), String> {
-    let dir = paths.plugins_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let file = dir.join("enabled.json");
-    let tmp = dir.join("enabled.json.tmp");
-    let text =
-        serde_json::to_vec_pretty(&EnabledFile { plugins: entries }).map_err(|e| e.to_string())?;
-    let done = (|| {
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o644)
-            .open(&tmp)?;
-        f.write_all(&text)?;
-        f.sync_all()?;
-        drop(f);
-        std::fs::rename(&tmp, &file)
-    })();
-    if let Err(e) = done {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(format!("{}: {e}", file.display()));
-    }
-    Ok(())
 }
 
 /// Copies a package's files to `to`, each through a temporary file and a rename (the program of a plugin that is running cannot be
@@ -279,10 +238,11 @@ pub fn run_enable(paths: &Paths, config: &Config, from: &Path, approve: &str) ->
         Ok(hash) => hash,
         Err(why) => return failed(1, why),
     };
-    let mut entries = match read_enabled(paths) {
-        Ok(entries) => entries,
+    let mut enabled = match roster::read_file(&paths.plugins_dir()) {
+        Ok(enabled) => enabled,
         Err(why) => return failed(1, why),
     };
+    let entries = &mut enabled.plugins;
     let first = config.plugins.first_uid;
     let taken = |uid: u32| entries.iter().any(|e| e.id != id && e.uid == uid);
     let uid = entries
@@ -303,7 +263,7 @@ pub fn run_enable(paths: &Paths, config: &Config, from: &Path, approve: &str) ->
         approve: want.clone(),
         program: Some(program.clone()),
     });
-    if let Err(why) = write_enabled(paths, entries) {
+    if let Err(why) = roster::write_file(&paths.plugins_dir(), &enabled) {
         return failed(1, why);
     }
     let told = ask_helper(paths, config, "POST", "/v1/plugins/rescan").is_some();
@@ -314,16 +274,18 @@ pub fn run_enable(paths: &Paths, config: &Config, from: &Path, approve: &str) ->
     )
 }
 
-/// `plugin-disable`: switches a plugin off. Its program is ended by the helper; its files and settings stay.
+/// `plugin-disable`: switches a plugin off (one of the helper's own that asks first, too). Its program is ended by the helper; its files and
+/// settings stay.
 pub fn run_disable(paths: &Paths, config: &Config, id: &str) -> Outcome {
-    let mut entries = match read_enabled(paths) {
-        Ok(entries) => entries,
+    let mut enabled = match roster::read_file(&paths.plugins_dir()) {
+        Ok(enabled) => enabled,
         Err(why) => return failed(1, why),
     };
-    let before = entries.len();
-    entries.retain(|e| e.id != id);
-    let was_on = entries.len() != before;
-    if was_on && let Err(why) = write_enabled(paths, entries) {
+    let before = enabled.plugins.len() + enabled.first_party.len();
+    enabled.plugins.retain(|e| e.id != id);
+    enabled.first_party.retain(|a| a.id != id);
+    let was_on = enabled.plugins.len() + enabled.first_party.len() != before;
+    if was_on && let Err(why) = roster::write_file(&paths.plugins_dir(), &enabled) {
         return failed(1, why);
     }
     let told = ask_helper(paths, config, "POST", "/v1/plugins/rescan").is_some();
@@ -335,15 +297,16 @@ pub fn run_disable(paths: &Paths, config: &Config, id: &str) -> Outcome {
 
 /// `plugin-status`: the plugins that are switched on, and what a running helper says of them.
 pub fn run_status(paths: &Paths, config: &Config) -> Outcome {
-    let entries = match read_enabled(paths) {
-        Ok(entries) => entries,
+    let enabled = match roster::read_file(&paths.plugins_dir()) {
+        Ok(enabled) => enabled,
         Err(why) => return failed(1, why),
     };
     let running = ask_helper(paths, config, "GET", "/v1/plugins").map(|(_, doc)| doc);
     (
         0,
         json!({"ok": true,
-               "enabled": entries.iter().map(|e| json!({"id": e.id, "uid": e.uid, "program": e.program})).collect::<Vec<_>>(),
+               "enabled": enabled.plugins.iter().map(|e| json!({"id": e.id, "uid": e.uid, "program": e.program})).collect::<Vec<_>>(),
+               "firstParty": enabled.first_party.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
                "helper": running}),
     )
 }
@@ -573,6 +536,18 @@ mod tests {
     #[test]
     fn switching_on_again_keeps_its_user_and_other_plugins_keep_theirs() {
         let (dir, paths, config) = rig();
+        let tuner = roster::Approved {
+            id: "live-tv-tuner".into(),
+            approve: "c0de".into(),
+        };
+        roster::write_file(
+            &paths.plugins_dir(),
+            &roster::EnabledFile {
+                plugins: Vec::new(),
+                first_party: vec![tuner.clone()],
+            },
+        )
+        .unwrap();
         let from = package(dir.path(), MANIFEST);
         let other = MANIFEST.replace("home-assistant", "other-one");
         let other_from = dir.path().join("other");
@@ -592,15 +567,30 @@ mod tests {
             20000,
             "the same user as before"
         );
-        let listed = read_enabled(&paths).unwrap();
+        let listed = roster::read_file(&paths.plugins_dir()).unwrap();
         assert_eq!(
-            listed.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
+            listed
+                .plugins
+                .iter()
+                .map(|e| e.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["other-one", "home-assistant"]
+        );
+        assert_eq!(
+            listed.first_party,
+            [tuner],
+            "a plugin of the helper's own switched on in Settings stays on"
         );
         // Off: the entry goes, the files stay, the other plugin stays on.
         let (status, doc) = run_disable(&paths, &config, "home-assistant");
         assert_eq!((status, doc["wasOn"].clone()), (0, json!(true)));
-        assert_eq!(read_enabled(&paths).unwrap().len(), 1);
+        assert_eq!(
+            roster::read_file(&paths.plugins_dir())
+                .unwrap()
+                .plugins
+                .len(),
+            1
+        );
         assert!(
             paths
                 .plugins_dir()

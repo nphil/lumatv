@@ -122,8 +122,8 @@ pub struct Config {
     /// Screenshots and screen recordings of the picture LumaTV's compositor composes (`capture.rs`, `compositor/.../screencap`). Off by
     /// default: with `enabled` false the routes refuse and the compositor does nothing; both read this one switch.
     pub capture: CaptureConfig,
-    /// The antenna tuner as an HDHomeRun for Plex (`hdhr/`). Whether it runs is the owner's switch in Settings (`base.livetv`, off by
-    /// default); these are only how.
+    /// The antenna tuner as an HDHomeRun (`tuner.rs`). Whether it runs is the owner's: the Live TV Tuner plugin, off until switched on
+    /// in Settings; these are only how.
     pub hdhr: HdhrConfig,
     /// Pictures of the inputs for the picker (`previews.rs`). Whether any is taken is the owner's switch in Settings (`inputs.previews`
     /// of theme.json, on by default); these are only how.
@@ -177,8 +177,9 @@ impl Default for Config {
     }
 }
 
-/// The antenna tuner as an HDHomeRun (`hdhr/`). Its switch is the owner's, in Settings (`base.livetv`, off by default): with it off no
-/// socket is bound and the tuner is not touched. The listener is a network entrance, so it takes only private networks.
+/// The antenna tuner as an HDHomeRun (`tuner.rs`, over `lumatuner`). Whether it runs is the owner's: the Live TV Tuner plugin, off until
+/// switched on in Settings, and while off no socket is bound and the tuner is not touched. The listener is a network entrance, so it takes
+/// only private networks.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct HdhrConfig {
@@ -201,15 +202,28 @@ pub struct HdhrConfig {
 
 impl Default for HdhrConfig {
     fn default() -> Self {
+        let tv = lumatuner::webos::WebosConfig::default();
         Self {
             port: 5004,
             bind: None,
             allowed_nets: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"].map(str::to_owned).to_vec(),
-            python: "python3".to_owned(),
-            dvb_dir: "/dev/dvb/adapter0".to_owned(),
-            channel: 2,
-            settle_ms: 2000,
+            python: tv.python,
+            dvb_dir: tv.dvb_dir,
+            channel: tv.channel,
+            settle_ms: u64::try_from(tv.settle.as_millis()).unwrap_or(u64::MAX),
             mac_file: "/sys/class/net/eth0/address".to_owned(),
+        }
+    }
+}
+
+impl HdhrConfig {
+    /// Where the TV's tuner and its HAL are, for the engine.
+    pub fn webos(&self) -> lumatuner::webos::WebosConfig {
+        lumatuner::webos::WebosConfig {
+            python: self.python.clone(),
+            dvb_dir: self.dvb_dir.clone(),
+            channel: self.channel,
+            settle: std::time::Duration::from_millis(self.settle_ms),
         }
     }
 }

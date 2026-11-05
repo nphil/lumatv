@@ -547,6 +547,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumatuner"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "log",
+ "parking_lot",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "lumatv-ambient"
 version = "0.1.0"
 dependencies = [
@@ -582,7 +594,9 @@ dependencies = [
  "jpeg-decoder",
  "jpeg-encoder",
  "libc",
+ "log",
  "lumashow-sdk",
+ "lumatuner",
  "lumatv-ambient",
  "lumatv-denon",
  "lumatv-feeds",

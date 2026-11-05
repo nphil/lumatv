@@ -46,8 +46,24 @@ impl Logger {
     }
 }
 static LOGGER: OnceLock<Logger> = OnceLock::new();
-pub fn init(logger: Logger) { let _ = LOGGER.set(logger); }
+/// Also takes what the tuner engine (`lumatuner`) writes through the `log` facade, at the same level; any other crate's records stay out.
+pub fn init(logger: Logger) {
+    let filter = match logger.level { Level::Error => ::log::LevelFilter::Error, Level::Warn => ::log::LevelFilter::Warn, Level::Info => ::log::LevelFilter::Info, Level::Debug => ::log::LevelFilter::Debug };
+    let _ = LOGGER.set(logger);
+    if ::log::set_logger(&ENGINE).is_ok() { ::log::set_max_level(filter); }
+}
 pub fn log(level: Level, message: fmt::Arguments<'_>) { if let Some(logger) = LOGGER.get() { logger.log(level, message); } }
+struct Engine;
+static ENGINE: Engine = Engine;
+impl ::log::Log for Engine {
+    fn enabled(&self, metadata: &::log::Metadata<'_>) -> bool { metadata.target().starts_with("lumatuner") }
+    fn log(&self, record: &::log::Record<'_>) {
+        if !self.enabled(record.metadata()) { return; }
+        let level = match record.level() { ::log::Level::Error => Level::Error, ::log::Level::Warn => Level::Warn, ::log::Level::Info => Level::Info, ::log::Level::Debug | ::log::Level::Trace => Level::Debug };
+        self::log(level, *record.args());
+    }
+    fn flush(&self) {}
+}
 #[macro_export]
 macro_rules! log_error { ($($arg:tt)*) => { $crate::log::log($crate::log::Level::Error, format_args!($($arg)*)) }; }
 #[macro_export]

@@ -23,7 +23,8 @@
 //! does not get to connect (`roster`).
 
 use super::ha::{HaLease, Hold, Scope};
-use super::roster::{Member, Roster};
+use super::local::OptIn;
+use super::roster::{Approved, Member, Roster};
 use crate::hub::Hub;
 use crate::settings::SettingsStore;
 use parking_lot::{Condvar, Mutex};
@@ -155,10 +156,33 @@ struct RosterView {
     members: Vec<(String, String, String, String)>,
     inert: Vec<(String, String)>,
     problem: Option<String>,
-    /// The helper's own plugins (`local.rs`): id, name, version. Listed apart, in the `plugins` topic's `firstParty`.
-    first_party: Vec<(String, String, String)>,
+    /// The helper's own plugins (`local.rs`). Listed apart, in the `plugins` topic's `firstParty`.
+    first_party: Vec<FirstParty>,
+    /// What the last read of `enabled.json` switched on of them.
+    approved: Vec<Approved>,
     /// Why a plugin that is switched on is not running (`runner.rs`), by plugin: what its entry says while it is waiting.
     notes: BTreeMap<String, String>,
+}
+
+/// One of the helper's own plugins, as the `plugins` topic lists it.
+struct FirstParty {
+    id: String,
+    name: String,
+    version: String,
+    /// For one that asks first: its words, their code, whether the owner switched it on, and how it is told of a change.
+    asks: Option<Asks>,
+}
+
+struct Asks {
+    consent: String,
+    approve: String,
+    on: bool,
+    wake: Arc<dyn Fn() + Send + Sync>,
+}
+
+fn approved(list: &[Approved], id: &str, code: &str) -> bool {
+    list.iter()
+        .any(|a| a.id == id && a.approve.eq_ignore_ascii_case(code))
 }
 
 /// What other threads need of a registered connection: where to speak to the plugin, and what waits for an answer.
@@ -396,11 +420,67 @@ impl Shared {
     pub fn add_first_party(&self, id: &str, name: &str, version: &str) {
         {
             let mut view = self.roster.lock();
-            view.first_party.retain(|(known, _, _)| known != id);
-            view.first_party
-                .push((id.to_owned(), name.to_owned(), version.to_owned()));
+            match view.first_party.iter_mut().find(|p| p.id == id) {
+                Some(known) => {
+                    known.name = name.to_owned();
+                    known.version = version.to_owned();
+                }
+                None => view.first_party.push(FirstParty {
+                    id: id.to_owned(),
+                    name: name.to_owned(),
+                    version: version.to_owned(),
+                    asks: None,
+                }),
+            }
         }
         self.publish_plugins();
+    }
+
+    /// Lists a plugin of the helper's own that asks first: off, with its words and their code, until `enabled.json` approves them. `wake`
+    /// is called once now and after each change of that; the plugin reads where it stands with [`Shared::switched_on`].
+    pub fn offer(&self, plugin: &OptIn, wake: Arc<dyn Fn() + Send + Sync>) {
+        let id = plugin.spec.id;
+        let approve = plugin.approval();
+        {
+            let mut view = self.roster.lock();
+            let on = approved(&view.approved, id, &approve);
+            view.first_party.retain(|p| p.id != id);
+            view.first_party.push(FirstParty {
+                id: id.to_owned(),
+                name: plugin.spec.name.to_owned(),
+                version: plugin.spec.version.to_owned(),
+                asks: Some(Asks {
+                    consent: plugin.consent.to_owned(),
+                    approve,
+                    on,
+                    wake: wake.clone(),
+                }),
+            });
+        }
+        self.publish_plugins();
+        wake();
+    }
+
+    /// Whether the owner has switched on `id`, one of the helper's own plugins that ask first, with the words it asks with now.
+    pub fn switched_on(&self, id: &str) -> bool {
+        self.roster
+            .lock()
+            .first_party
+            .iter()
+            .find(|p| p.id == id)
+            .and_then(|p| p.asks.as_ref())
+            .is_some_and(|a| a.on)
+    }
+
+    /// The code of the words `id` asks with, when it is one of the helper's own plugins that ask first.
+    pub fn approval_of(&self, id: &str) -> Option<String> {
+        self.roster
+            .lock()
+            .first_party
+            .iter()
+            .find(|p| p.id == id)
+            .and_then(|p| p.asks.as_ref())
+            .map(|a| a.approve.clone())
     }
 
     /// Says why a plugin that is switched on has no program running (or, with `None`, that nothing is wrong), and publishes it.
@@ -423,9 +503,10 @@ impl Shared {
         self.publish_plugins();
     }
 
-    /// Records what the roster is (and why a plugin is inert) and publishes the `plugins` topic.
+    /// Records what the roster is (and why a plugin is inert) and publishes the `plugins` topic; the helper's own plugins that ask first
+    /// are woken when their approval came or went.
     pub fn set_roster(&self, roster: &Roster, problem: Option<String>) {
-        {
+        let woken: Vec<Arc<dyn Fn() + Send + Sync>> = {
             let mut view = self.roster.lock();
             view.members = roster
                 .members
@@ -445,8 +526,28 @@ impl Shared {
                 .map(|i| (i.id.clone(), i.reason.clone()))
                 .collect();
             view.problem = problem;
-        }
+            view.approved = roster.first_party.clone();
+            let RosterView {
+                first_party,
+                approved: list,
+                ..
+            } = &mut *view;
+            first_party
+                .iter_mut()
+                .filter_map(|p| {
+                    let asks = p.asks.as_mut()?;
+                    let on = approved(list, &p.id, &asks.approve);
+                    (on != asks.on).then(|| {
+                        asks.on = on;
+                        asks.wake.clone()
+                    })
+                })
+                .collect()
+        };
         self.publish_plugins();
+        for wake in woken {
+            wake();
+        }
     }
 
     fn publish_plugins(&self) {
@@ -473,11 +574,20 @@ impl Shared {
         let first_party: Vec<Json> = view
             .first_party
             .iter()
-            .map(|(id, name, version)| {
-                let connected = live.contains(id);
-                json!({"id": id, "name": name, "version": version, "class": "S",
-                       "state": if connected { "connected" } else { "waiting" }, "registered": connected,
-                       "firstParty": true})
+            .map(|p| {
+                let connected = live.contains(&p.id);
+                let state = match &p.asks {
+                    Some(asks) if !asks.on => "off",
+                    _ if connected => "connected",
+                    _ => "waiting",
+                };
+                let mut entry = json!({"id": p.id, "name": p.name, "version": p.version, "class": "S", "state": state,
+                                       "registered": connected, "firstParty": true});
+                if let Some(asks) = &p.asks {
+                    entry["consent"] = json!(asks.consent);
+                    entry["approve"] = json!(asks.approve);
+                }
+                entry
             })
             .collect();
         self.hub.set(

@@ -251,7 +251,6 @@ impl SettingsStore {
                 include_str!("schemas/base.voice.json"),
                 Some(voice_rule as Rule),
             ),
-            (include_str!("schemas/base.livetv.json"), None),
         ] {
             let schema = SettingsSchema::parse(json.as_bytes())
                 .map_err(|e| RegisterError(format!("built-in schema: {e}")))?;
@@ -281,6 +280,39 @@ impl SettingsStore {
                 );
                 (Values::new(), 0)
             }
+        }
+    }
+
+    /// What `owner`'s file holds, registered or not: `None` when it has none.
+    pub fn stored(&self, owner: &str) -> Option<Values> {
+        self.file_of(owner).exists().then(|| self.load(owner).0)
+    }
+
+    /// Moves what an owner the helper no longer has (`from`) stored to the owner that took its place (`to`, not registered yet): the keys
+    /// in `keep`, and only when `to` has no file of its own. `from`'s file is removed once that is done.
+    pub fn carry_over(&self, from: &str, to: &str, keep: &[&str]) -> std::io::Result<()> {
+        let target = self.file_of(to);
+        if !target.exists() {
+            let mut kept = Values::new();
+            for (key, value) in self.load(from).0.iter() {
+                if keep.contains(&key.as_str()) {
+                    kept.insert(key.clone(), value.clone());
+                }
+            }
+            if kept.iter().next().is_some() {
+                let file = StoredFile {
+                    owner: to.to_owned(),
+                    schema_revision: 0,
+                    version: 1,
+                    values: kept,
+                };
+                let bytes = serde_json::to_vec_pretty(&file).map_err(std::io::Error::other)?;
+                lumatv_feeds::cache::atomic_write(&target, &bytes)?;
+            }
+        }
+        match std::fs::remove_file(self.file_of(from)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
         }
     }
 
@@ -496,14 +528,6 @@ impl SettingsStore {
         }
     }
 
-    /// The antenna tuner's settings: off, and named LumaTV, until the owner says otherwise.
-    pub fn livetv(&self) -> LiveTvSettings {
-        LiveTvSettings {
-            enabled: self.flag("base.livetv", "enabled").unwrap_or(false),
-            name: self.text("base.livetv", "name").map(|n| n.trim().to_owned()).filter(|n| !n.is_empty()).unwrap_or_else(|| "LumaTV".to_owned()),
-        }
-    }
-
     /// The receiver client's settings.
     pub fn receiver(&self) -> ReceiverSettings {
         ReceiverSettings {
@@ -524,13 +548,6 @@ pub struct VoiceSettings {
     pub enabled: bool,
     /// An Assist pipeline id; empty is Home Assistant's preferred one.
     pub pipeline: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LiveTvSettings {
-    pub enabled: bool,
-    /// The name Plex lists the tuner by.
-    pub name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -723,7 +740,6 @@ mod tests {
             owners,
             [
                 "base.ambient",
-                "base.livetv",
                 "base.logging",
                 "base.news",
                 "base.receiver",
@@ -1146,7 +1162,7 @@ mod tests {
         .unwrap();
         s.register(schema.clone(), None).unwrap();
         s.apply("hello", vec![text("name", "Nitin")], None).unwrap();
-        assert_eq!(s.owners().len(), 8);
+        assert_eq!(s.owners().len(), 7);
         // An older revision of the same owner is refused; a newer one replaces the page and keeps the values.
         let mut older = schema.clone();
         older.revision = 0;

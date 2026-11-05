@@ -1,18 +1,22 @@
-//! Which plugins may connect: the ones `plugins/enabled.json` lists, each by the user id its process runs as.
+//! Which plugins may connect: the ones `plugins/enabled.json` lists, each by the user id its process runs as; and which of the helper's
+//! own plugins that ask first (`local::OptIn`) the owner switched on.
 //!
 //! A plugin has no name or token on the connection: the kernel says which user is at the other end (`SO_PEERCRED`) and this table
-//! says which plugin that user is. The helper only reads the file. Writing it is switching a plugin on, which installs software on
-//! the TV, so no route of the helper does it (the settings app will, behind the physical remote); the same goes for the manifests.
+//! says which plugin that user is. Switching a plugin on the socket on installs software on the TV, so no route of the helper writes
+//! its entry (the owner's command line does, `install.rs`); the same goes for the manifests. The helper writes only `firstParty`: the
+//! owner's switch of one of its own plugins in Settings (`routes.rs`), which installs nothing.
 //!
 //! ```json
-//! {"plugins": [{"id": "hello", "uid": 20000, "approve": "<sha-256 of the manifest's consent document>", "program": "<sha-256 of the program>"}]}
+//! {"plugins": [{"id": "hello", "uid": 20000, "approve": "<sha-256 of the manifest's consent document>", "program": "<sha-256 of the program>"}],
+//!  "firstParty": [{"id": "live-tv-tuner", "approve": "<sha-256 of its consent>"}]}
 //! ```
 //!
 //! `approve` is what the owner approved: the hash of `Manifest::consent_document` (id, levels, program, arguments, class, leases,
 //! permissions, limits). A manifest changed since then no longer matches and the plugin stays inert; a new display name or version
 //! does not change the document and asks nothing new. `program` (optional) is the hash of the program file that was installed
 //! beside it (`install::enable` writes it): the manifest names a program by path and not by content, so the runner starts only a
-//! file that is that one.
+//! file that is that one. A first-party entry's `approve` is the hash of the words its plugin asks with (`OptIn::approval`): new
+//! words ask again.
 
 use plugin_api::permission::{Lease, Permission, SignalKind};
 use plugin_api::{Manifest, check_id};
@@ -20,7 +24,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 /// One plugin that may connect.
@@ -44,13 +49,18 @@ pub struct Inert {
 pub struct Roster {
     pub members: Vec<Member>,
     pub inert: Vec<Inert>,
+    /// The helper's own plugins the file switches on, each with the code it was approved by: the plugin that offers itself checks it
+    /// against its consent (`session::Shared::offer`).
+    pub first_party: Vec<Approved>,
 }
 
 /// `enabled.json`: the plugins that are switched on.
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EnabledFile {
     pub plugins: Vec<Enabled>,
+    #[serde(default, rename = "firstParty", skip_serializing_if = "Vec::is_empty")]
+    pub first_party: Vec<Approved>,
 }
 
 /// One plugin that is switched on.
@@ -62,6 +72,55 @@ pub struct Enabled {
     pub approve: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<String>,
+}
+
+/// One of the helper's own plugins that the owner switched on, and the code of the consent they approved.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Approved {
+    pub id: String,
+    pub approve: String,
+}
+
+/// `enabled.json` in `dir`: empty when there is none. A file that cannot be read or understood is an error, so that nothing writes over
+/// it.
+pub fn read_file(dir: &Path) -> Result<EnabledFile, String> {
+    let file = dir.join("enabled.json");
+    match std::fs::read(&file) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| {
+            format!(
+                "{} is damaged ({e}): fix it or remove it, nothing was changed",
+                file.display()
+            )
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(EnabledFile::default()),
+        Err(e) => Err(format!("{}: {e}", file.display())),
+    }
+}
+
+/// Writes `enabled.json` in `dir` whole, through a temporary file and a rename: a reader sees the old file or the new one.
+pub fn write_file(dir: &Path, enabled: &EnabledFile) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let file = dir.join("enabled.json");
+    let tmp = dir.join("enabled.json.tmp");
+    let text = serde_json::to_vec_pretty(enabled).map_err(|e| e.to_string())?;
+    let done = (|| {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o644)
+            .open(&tmp)?;
+        f.write_all(&text)?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&tmp, &file)
+    })();
+    if let Err(e) = done {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("{}: {e}", file.display()));
+    }
+    Ok(())
 }
 
 /// Why this TV will not run a plugin with this manifest, in words, or `None`: a level it does not speak, a permission it does not
@@ -160,6 +219,11 @@ impl Roster {
             Err(e) => return (Self::default(), Some(format!("enabled.json: {e}"))),
         };
         let mut roster = Self::default();
+        for approved in listed.first_party {
+            if !roster.first_party.iter().any(|a| a.id == approved.id) {
+                roster.first_party.push(approved);
+            }
+        }
         let mut ids = BTreeSet::new();
         let mut uids = BTreeSet::new();
         for entry in listed.plugins {

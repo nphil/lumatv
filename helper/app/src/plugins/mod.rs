@@ -6,15 +6,15 @@
 //!
 //! | Part | What |
 //! |---|---|
-//! | [`roster`] | which plugins are on (`plugins/enabled.json`, written by the owner's settings flow, never by the helper) and who each is |
+//! | [`roster`] | which plugins are on (`plugins/enabled.json`, written by the owner's command line, and its `firstParty` by Settings) and who each is |
 //! | [`session`] | one plugin's conversation without a socket: checks, topics, settings, actions |
 //! | [`broker`] | the socket, one reader and one writer thread per connection, rate and size limits |
-//! | [`local`] | a plugin of the helper's own, in the same conversation with no socket (the TV's first-party plugins) |
+//! | [`local`] | a plugin of the helper's own, in the same conversation with no socket (the TV's first-party plugins), and one that asks first |
 //! | [`firstparty`] | the helper's first-party plugins: Home's weather, news and clock, and the ambient light tile |
 //! | [`ha`] | the Home Assistant lease: the one connection, held by the plugins that require it, and what each may watch and call |
 //! | [`install`] | switching a plugin on and off and linking Home Assistant: the owner's command line (`plugin-enable`, `ha-link`) |
 //! | [`runner`] | starts the programs of the plugins that are on, as their own users, and again when they stop |
-//! | [`routes`] | `/v1/plugins`: ask a plugin to run an action, page through the choices of its settings, refresh the lease's link |
+//! | [`routes`] | `/v1/plugins`: ask a plugin to run an action, page through the choices of its settings, refresh the lease's link, switch one of the helper's own that asks first |
 //!
 //! [`Plugins`] is the helper's component: a manager thread that reads the roster every `plugins.rescanSeconds` and keeps the
 //! broker (and its socket) only while a plugin is on. With none on, the cost is that sleeping thread.
@@ -44,6 +44,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+/// Why one of the helper's own plugins was not switched.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SwitchError {
+    /// No plugin of the helper's own asks first by that id.
+    NotOffered,
+    /// The code is not the one of the words it asks with now: they changed since they were shown.
+    Consent,
+    /// `enabled.json` could not be read or written, in words.
+    File(String),
+}
 
 struct Wake {
     pending: Mutex<bool>,
@@ -76,6 +87,8 @@ pub struct Plugins {
     rescan: Duration,
     handshake: Duration,
     first_uid: u32,
+    /// One write of `enabled.json` at a time.
+    writing: Mutex<()>,
 }
 
 impl Plugins {
@@ -139,6 +152,7 @@ impl Plugins {
             rescan: Duration::from_secs(cfg.rescan_seconds),
             handshake: Duration::from_secs(cfg.handshake_seconds),
             first_uid: cfg.first_uid,
+            writing: Mutex::new(()),
         })
     }
 
@@ -153,6 +167,30 @@ impl Plugins {
     /// Reads the roster again now (the settings flow calls this after it writes `enabled.json`).
     pub fn rescan(&self) {
         self.wake.notify();
+    }
+
+    /// Switches `id`, one of the helper's own plugins that ask first, as the owner did in Settings: on takes the code of the words the
+    /// owner was shown (`approve`), off takes nothing. `enabled.json`'s `firstParty` keeps it, and the roster is read again.
+    pub fn switch(&self, id: &str, on: bool, approve: Option<&str>) -> Result<(), SwitchError> {
+        let code = self.shared.approval_of(id).ok_or(SwitchError::NotOffered)?;
+        if on && !approve.is_some_and(|a| a.eq_ignore_ascii_case(&code)) {
+            return Err(SwitchError::Consent);
+        }
+        {
+            let _one = self.writing.lock();
+            let mut file = roster::read_file(&self.dir).map_err(SwitchError::File)?;
+            file.first_party.retain(|a| a.id != id);
+            if on {
+                file.first_party.push(roster::Approved {
+                    id: id.to_owned(),
+                    approve: code,
+                });
+            }
+            roster::write_file(&self.dir, &file).map_err(SwitchError::File)?;
+        }
+        crate::log_info!("plugins: {id} switched {} in Settings", if on { "on" } else { "off" });
+        self.rescan();
+        Ok(())
     }
 
     /// Starts the manager thread; it ends when the stop is requested, taking the broker with it.

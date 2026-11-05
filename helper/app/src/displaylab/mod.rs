@@ -75,8 +75,6 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/v1/displaylab/results", "the last run's answers"),
 ];
 
-/// The one client of the lab: the shell's logic process (`rustui/ui/src/host/http.rs` sends it with every request).
-pub const CLIENT: &str = "lumatv-ui";
 /// How often the dead-man looks while a session is open or a restore is pending, and while nothing is.
 const WATCH: Duration = Duration::from_millis(250);
 const IDLE: Duration = Duration::from_secs(2);
@@ -123,7 +121,7 @@ fn from_the_shell(request: &Request) -> Result<(), Response> {
             "the display lab answers the TV's own shell on this machine only",
         ));
     }
-    if request.header(crate::http::CLIENT_HEADER) != Some(CLIENT) {
+    if request.header(crate::http::CLIENT_HEADER) != Some(crate::http::UI_CLIENT) {
         return Err(error_response(
             403,
             "not_the_ui",
@@ -325,7 +323,7 @@ mod tests {
 
     /// A request from the shell.
     fn shell(method: &str, body: &str) -> Request {
-        req(method, body, &[("x-luma-client", CLIENT)])
+        req(method, body, &[("x-luma-client", crate::http::UI_CLIENT)])
     }
 
     fn call(r: &Rig, method: &str, rest: &[&str], body: &str) -> (u16, Value) {
@@ -397,7 +395,10 @@ mod tests {
                 req(
                     "POST",
                     "",
-                    &[("x-luma-client", CLIENT), ("origin", "http://evil.example")],
+                    &[
+                        ("x-luma-client", crate::http::UI_CLIENT),
+                        ("origin", "http://evil.example"),
+                    ],
                 ),
             ),
             (
@@ -405,7 +406,10 @@ mod tests {
                 req(
                     "POST",
                     "",
-                    &[("x-luma-client", CLIENT), ("sec-fetch-site", "cross-site")],
+                    &[
+                        ("x-luma-client", crate::http::UI_CLIENT),
+                        ("sec-fetch-site", "cross-site"),
+                    ],
                 ),
             ),
         ];

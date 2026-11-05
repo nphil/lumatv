@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["app", "feeds", "denon", "privacy", "plugins/home-assistant"]
+members = ["app", "feeds", "denon", "privacy", "tuner", "plugins/home-assistant"]
 
 [workspace.package]
 version = "0.1.0"
@@ -28,6 +28,7 @@ mdns = { path = "../../LumaShow/wt/lumatv/crates/mdns" }
 plugin-home-assistant = { path = "../../LumaShow/wt/lumatv/plugins/home-assistant" }
 
 libc = "0.2"
+log = "0.4"
 parking_lot = "0.12"
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
@@ -43,6 +44,8 @@ lumatv-saver = { path = "../saver" }
 lumatv-denon = { path = "denon" }
 lumatv-feeds = { path = "feeds" }
 lumatv-privacy = { path = "privacy" }
+# The antenna tuner as an HDHomeRun: the engine the helper's Live TV Tuner plugin runs, and a standalone app could.
+lumatuner = { path = "tuner" }
 
 [profile.release]
 opt-level = "s"

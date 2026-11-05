@@ -865,11 +865,15 @@ fn the_fixture_of_the_tvs_screens_is_what_the_plugin_and_the_helper_make() {
     home.until(&format!("plugin.{ID}.facts"), "the summary", |v| {
         v["facts"]["summary"].is_string()
     });
-    // the helper's own plugins connect a moment after the start; the document is of all of them
+    // the helper's own plugins connect a moment after the start (ambient, clock, news, weather and the cameras' page; the tuner, which
+    // asks first, stays off); the document is of all of them
     home.until("plugins", "every first-party plugin connected", |v| {
-        v["firstParty"]
-            .as_array()
-            .is_some_and(|a| !a.is_empty() && a.iter().all(|p| p["state"] == "connected"))
+        let list = v["firstParty"].as_array().cloned().unwrap_or_default();
+        let connected = list.iter().filter(|p| p["state"] == "connected").count();
+        connected == 5
+            && list
+                .iter()
+                .all(|p| matches!(p["state"].as_str(), Some("connected" | "off")))
     });
 
     let page = |provider: &str| {

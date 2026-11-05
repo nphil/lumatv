@@ -36,19 +36,6 @@ pub fn utc_stamp(ms: u64) -> String {
     )
 }
 
-/// `2026,10,25,04,22,00` for Unix milliseconds: the UTC time strings of LG's guide service.
-pub fn lg_stamp(ms: u64) -> String {
-    let secs = i64::try_from(ms / 1000).unwrap_or(i64::MAX / 2);
-    let (year, month, day) = civil_from_days(secs.div_euclid(86_400));
-    let rem = secs.rem_euclid(86_400);
-    format!(
-        "{year:04},{month:02},{day:02},{:02},{:02},{:02}",
-        rem / 3_600,
-        rem % 3_600 / 60,
-        rem % 60
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,7 +51,6 @@ mod tests {
         assert_eq!(utc_stamp(1_709_251_200_000), "2024-03-01T00:00:00Z");
         // 2026-10-25 04:22:00 UTC.
         assert_eq!(utc_stamp(1_792_902_120_000), "2026-10-25T04:22:00Z");
-        assert_eq!(lg_stamp(1_792_902_120_000), "2026,10,25,04,22,00");
     }
 
     #[test]

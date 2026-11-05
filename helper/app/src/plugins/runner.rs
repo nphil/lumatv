@@ -483,7 +483,7 @@ mod tests {
     fn roster(members: Vec<Member>) -> Roster {
         Roster {
             members,
-            inert: Vec::new(),
+            ..Roster::default()
         }
     }
 

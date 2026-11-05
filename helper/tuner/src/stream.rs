@@ -1,13 +1,15 @@
-//! One tuner, one stream at a time: the lineup, the lease on the tuner, and what a stream is (a PAT naming the one program, then that
-//! program's packets). The hardware is behind two small traits so all of it runs in tests with a scripted fake and a fake clock.
+//! One tuner, one stream at a time: the lineup, the lease on the tuner, what a stream is (a PAT naming the one program, then that
+//! program's packets) and what the tuner is doing. The hardware is behind two small traits so all of it runs in tests with a scripted fake
+//! and a fake clock.
 //!
 //! A client counts one tuner, so a new request from the client whose stream has the tuner means it gave that stream up: Plex asks for
 //! the next channel before it closes the last one. That request takes the tuner over: the old stream is told to end, and the TV is let
 //! go before it is tuned again. A stream that is over is only letting go of the TV (a pipeline to close, the channel to put back), so a
 //! request then waits for it too. Another client's running stream keeps the tuner (503).
 
-use super::docs::{self, Entry, Identity};
-use super::psi::{self, PACKET};
+use crate::Status;
+use crate::docs::{self, Entry, Identity};
+use crate::psi::{self, PACKET};
 use parking_lot::{Condvar, Mutex};
 use serde_json::Value;
 use std::io::{self, Write};
@@ -136,14 +138,40 @@ struct Holding {
     over: bool,
 }
 
-/// The one tuner: who holds it, and the wake-up of whoever waits for it to be let go.
-#[derive(Default)]
-struct Lock {
-    held: Mutex<Option<Holding>>,
-    freed: Condvar,
+/// The tuner, held: dropping it frees it and wakes whoever waits for it.
+struct Lease {
+    tuning: Arc<Tuning>,
+    /// Set when another request takes the tuner over.
+    replaced: Arc<AtomicBool>,
 }
 
-impl Lock {
+impl Lease {
+    /// The stream is over: what is left is letting go of the TV, which a new request waits for instead of being refused.
+    fn over(&self) {
+        if let Some(h) = self.tuning.held.lock().as_mut() {
+            h.over = true;
+        }
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        *self.tuning.held.lock() = None;
+        self.tuning.freed.notify_all();
+    }
+}
+
+/// What every facade of one tuner shares: who holds it (a listener started again cannot tune while the last one's stream still lets go)
+/// and the wake-up of whoever waits for it, and what it is doing, with the host's wake-up for a change.
+#[derive(Default)]
+pub(crate) struct Tuning {
+    held: Mutex<Option<Holding>>,
+    freed: Condvar,
+    status: Mutex<Status>,
+    wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+}
+
+impl Tuning {
     /// Takes the tuner for `peer`. A stream of the same client, or one that is over, is told to end and waited for, at most `wait`;
     /// another client's running stream keeps it.
     fn take(self: &Arc<Self>, peer: IpAddr, wait: Duration) -> Result<Lease, Failure> {
@@ -159,7 +187,7 @@ impl Lock {
                         over: false,
                     });
                     return Ok(Lease {
-                        lock: self.clone(),
+                        tuning: self.clone(),
                         replaced,
                     });
                 }
@@ -171,28 +199,76 @@ impl Lock {
             }
         }
     }
-}
 
-/// The tuner, held: dropping it frees it and wakes whoever waits for it.
-struct Lease {
-    lock: Arc<Lock>,
-    /// Set when another request takes the tuner over.
-    replaced: Arc<AtomicBool>,
-}
+    pub(crate) fn status(&self) -> Status {
+        self.status.lock().clone()
+    }
 
-impl Lease {
-    /// The stream is over: what is left is letting go of the TV, which a new request waits for instead of being refused.
-    fn over(&self) {
-        if let Some(h) = self.lock.held.lock().as_mut() {
-            h.over = true;
+    pub(crate) fn on_change(&self, wake: Arc<dyn Fn() + Send + Sync>) {
+        *self.wake.lock() = Some(wake);
+    }
+
+    /// Moves to what `next` makes of the status now (`None`: it stays) and wakes the host when that is a change. The host is woken outside
+    /// the lock and reads the status itself, so wake-ups that cross still leave it with the last one.
+    fn change(&self, next: impl FnOnce(&Status) -> Option<Status>) {
+        let changed = {
+            let mut now = self.status.lock();
+            match next(&now) {
+                Some(status) if status != *now => {
+                    *now = status;
+                    true
+                }
+                _ => false,
+            }
+        };
+        let wake = changed.then(|| self.wake.lock().clone()).flatten();
+        if let Some(wake) = wake {
+            wake();
         }
+    }
+
+    pub(crate) fn serve(&self) {
+        self.change(|now| (*now == Status::Off).then_some(Status::Idle));
+    }
+
+    pub(crate) fn stop(&self) {
+        self.change(|_| Some(Status::Off));
+    }
+
+    /// What the TV said of its own use while no stream of this tuner has the tuner.
+    pub(crate) fn checked(&self, in_use: Option<String>) {
+        self.change(|now| {
+            matches!(now, Status::Idle | Status::Busy(_))
+                .then(|| in_use.map_or(Status::Idle, Status::Busy))
+        });
+    }
+
+    fn refused(&self, why: &str) {
+        self.change(|now| (*now != Status::Off).then(|| Status::Busy(why.to_owned())));
+    }
+
+    fn streaming(&self, entry: &Entry) {
+        self.change(|now| {
+            (*now != Status::Off).then(|| Status::Streaming {
+                guide: entry.guide.clone(),
+                name: entry.name.clone(),
+            })
+        });
     }
 }
 
-impl Drop for Lease {
+/// Says what the tuner does once a stream is over: idle, or busy when the TV taking it back is what ended it. A tuner switched off
+/// meanwhile stays off.
+struct Over {
+    tuning: Arc<Tuning>,
+    then: Status,
+}
+
+impl Drop for Over {
     fn drop(&mut self) {
-        *self.lock.held.lock() = None;
-        self.lock.freed.notify_all();
+        let then = std::mem::replace(&mut self.then, Status::Idle);
+        self.tuning
+            .change(|now| matches!(now, Status::Streaming { .. }).then_some(then));
     }
 }
 
@@ -210,18 +286,24 @@ fn channels_of(tap: &mut dyn Tap, wait: Duration) -> Option<Vec<psi::Channel>> {
     Some(all)
 }
 
-pub struct Facade {
+pub(crate) struct Facade {
     hw: Arc<dyn Hardware>,
-    pub identity: Identity,
+    pub(crate) identity: Identity,
     limits: Limits,
     clock: Clock,
     lineup: Mutex<Option<(Duration, Vec<Entry>)>>,
     guide: Mutex<Option<(Duration, Arc<str>)>>,
-    tuner: Arc<Lock>,
+    tuning: Arc<Tuning>,
 }
 
 impl Facade {
-    pub fn new(hw: Arc<dyn Hardware>, identity: Identity, limits: Limits, clock: Clock) -> Self {
+    pub(crate) fn new(
+        hw: Arc<dyn Hardware>,
+        identity: Identity,
+        limits: Limits,
+        clock: Clock,
+        tuning: Arc<Tuning>,
+    ) -> Self {
         Self {
             hw,
             identity,
@@ -229,12 +311,12 @@ impl Facade {
             clock,
             lineup: Mutex::new(None),
             guide: Mutex::new(None),
-            tuner: Arc::default(),
+            tuning,
         }
     }
 
     /// The TV's antenna channels. Read again after a minute; a TV that does not answer leaves the last list standing.
-    pub fn lineup(&self) -> Result<Vec<Entry>, Failure> {
+    pub(crate) fn lineup(&self) -> Result<Vec<Entry>, Failure> {
         let now = (self.clock)();
         let mut kept = self.lineup.lock();
         if let Some((at, entries)) = kept.as_ref()
@@ -255,7 +337,7 @@ impl Facade {
     /// The XMLTV guide of the lineup, from the TV's own listings, one read per channel. Kept for `guide_ttl`: a client that asks again gets
     /// the same document, and one that asks while it is being read waits for it. A channel the TV cannot answer for is listed without
     /// programmes; only when no channel could be read at all is it a failure (and then the last guide stands, if there is one).
-    pub fn guide(&self) -> Result<Arc<str>, Failure> {
+    pub(crate) fn guide(&self) -> Result<Arc<str>, Failure> {
         let mut kept = self.guide.lock();
         let now = (self.clock)();
         if let Some((at, xml)) = kept.as_ref()
@@ -298,14 +380,15 @@ impl Facade {
 
     /// Takes the tuner for channel `guide` (`2.4`) for the client at `peer`, tunes it and finds the program. Nothing has been sent to the
     /// client yet, so a failure is still an HTTP status.
-    pub fn open(&self, guide: &str, peer: IpAddr) -> Result<Stream, Failure> {
+    pub(crate) fn open(&self, guide: &str, peer: IpAddr) -> Result<Stream, Failure> {
         let entry = self
             .lineup()?
             .into_iter()
             .find(|e| e.guide == guide)
             .ok_or(Failure::UnknownChannel)?;
-        let lease = self.tuner.take(peer, self.limits.release)?;
+        let lease = self.tuning.take(peer, self.limits.release)?;
         if let Some(why) = self.hw.in_use() {
+            self.tuning.refused(&why);
             return Err(Failure::TvInUse(why));
         }
         let mut tap = self.hw.tune(&entry.channel_id)?;
@@ -347,6 +430,7 @@ impl Facade {
             .find(|e| matches!(e.stream_type, 0x02 | 0x1B | 0x24))
             .map_or(pmt.pcr_pid, |e| e.pid);
         tap.start(&pids)?;
+        self.tuning.streaming(&entry);
         Ok(Stream {
             tap,
             hw: self.hw.clone(),
@@ -354,6 +438,10 @@ impl Facade {
             watch,
             limits: self.limits.clone(),
             clock: self.clock.clone(),
+            over: Over {
+                tuning: self.tuning.clone(),
+                then: Status::Idle,
+            },
             lease,
         })
     }
@@ -361,8 +449,8 @@ impl Facade {
 
 /// How a running stream ended (a client that went away is the `io::Error` of `pump`, not one of these).
 #[derive(Debug, PartialEq, Eq)]
-pub enum End {
-    /// Asked to stop (the helper is going down, or the setting went off).
+pub(crate) enum End {
+    /// Asked to stop (the host is going down, or the tuner is no longer shared).
     Stopped,
     /// The same client asked for another channel, or the TV is waited for: the next request has the tuner.
     Replaced,
@@ -373,21 +461,23 @@ pub enum End {
     Failed(Failure),
 }
 
-/// A stream that is tuned and routed, and has not yet written a byte. Fields drop in order: the tap lets go of the TV, then the lease.
-pub struct Stream {
+/// A stream that is tuned and routed, and has not yet written a byte. Fields drop in order: the tap lets go of the TV, the tuner says it is
+/// free, then the lease lets the next request have it (which then says what it streams).
+pub(crate) struct Stream {
     tap: Box<dyn Tap>,
     hw: Arc<dyn Hardware>,
     pat: Vec<u8>,
     watch: u16,
     limits: Limits,
     clock: Clock,
+    over: Over,
     lease: Lease,
 }
 
 impl Stream {
     /// Writes the program until the client goes, `stop` is set, another request takes the tuner or the TV does: a PAT that names only
     /// this program, ten times a second, and the packets as they arrive. However it ends, the stream is over from then on.
-    pub fn pump(&mut self, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<End> {
+    pub(crate) fn pump(&mut self, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<End> {
         let end = self.run(out, stop);
         self.lease.over();
         end
@@ -418,6 +508,7 @@ impl Stream {
             if now.saturating_sub(last_owner) >= lim.owner_every {
                 last_owner = now;
                 if let Some(why) = self.hw.in_use().or_else(|| self.tap.taken()) {
+                    self.over.then = Status::Busy(why.clone());
                     return Ok(End::Preempted(why));
                 }
             }
@@ -632,16 +723,36 @@ pub(crate) mod tests {
         p
     }
 
-    fn facade(fake: &Arc<Fake>, time: &Time) -> Facade {
+    /// The state of a tuner that is served.
+    pub(crate) fn served() -> Arc<Tuning> {
+        let tuning = Arc::new(Tuning::default());
+        tuning.serve();
+        tuning
+    }
+
+    fn facade_with(fake: &Arc<Fake>, time: &Time, limits: Limits) -> Facade {
         Facade::new(
             Arc::new(Shared(fake.clone())),
             Identity {
                 name: "LumaTV".into(),
                 device_id: "0A1B2C3D".into(),
             },
-            Limits::default(),
+            limits,
             time.clock(),
+            served(),
         )
+    }
+
+    fn facade(fake: &Arc<Fake>, time: &Time) -> Facade {
+        facade_with(fake, time, Limits::default())
+    }
+
+    /// Limits under which a running stream asks every second whether the TV has taken the tuner.
+    fn asking_often() -> Limits {
+        Limits {
+            owner_every: Duration::from_secs(1),
+            ..Limits::default()
+        }
     }
 
     pub(crate) fn fake_with(time: &Time, mux: Multiplex, scripted: Vec<Vec<u8>>) -> Arc<Fake> {
@@ -725,7 +836,15 @@ pub(crate) mod tests {
             !first.lease.replaced.load(Ordering::Acquire),
             "the running stream goes on"
         );
+        assert_eq!(
+            f.tuning.status(),
+            Status::Streaming {
+                guide: "2.4".into(),
+                name: "WEST".into()
+            }
+        );
         drop(first);
+        assert_eq!(f.tuning.status(), Status::Idle);
         assert!(f.open("2.1", OTHER).is_ok());
     }
 
@@ -801,6 +920,10 @@ pub(crate) mod tests {
             Some(Failure::TvInUse("Live TV is in front".into()))
         );
         assert!(fake.tuned.lock().is_empty());
+        assert_eq!(
+            f.tuning.status(),
+            Status::Busy("Live TV is in front".into())
+        );
         *fake.owner.lock() = None;
         assert!(
             f.open("2.4", PLEX).is_ok(),
@@ -813,18 +936,7 @@ pub(crate) mod tests {
         let time = Time::default();
         let chunk = [packet(0x61, 0)].concat();
         let fake = fake_with(&time, rf32(&[]), vec![chunk]);
-        let f = Facade::new(
-            Arc::new(Shared(fake.clone())),
-            Identity {
-                name: "LumaTV".into(),
-                device_id: "0A1B2C3D".into(),
-            },
-            Limits {
-                owner_every: Duration::from_secs(1),
-                ..Limits::default()
-            },
-            time.clock(),
-        );
+        let f = facade_with(&fake, &time, asking_often());
         let mut stream = f.open("2.4", PLEX).unwrap();
         *fake.taken.lock() = Some("the TV took the tuner (BROADCAST_STATE_UNREALIZED)".into());
         let end = stream
@@ -841,24 +953,19 @@ pub(crate) mod tests {
         let time = Time::default();
         let chunk = [packet(0x61, 0)].concat();
         let fake = fake_with(&time, rf32(&[]), vec![chunk]);
-        let f = Facade::new(
-            Arc::new(Shared(fake.clone())),
-            Identity {
-                name: "LumaTV".into(),
-                device_id: "0A1B2C3D".into(),
-            },
-            Limits {
-                owner_every: Duration::from_secs(1),
-                ..Limits::default()
-            },
-            time.clock(),
-        );
+        let f = facade_with(&fake, &time, asking_often());
         let mut stream = f.open("2.4", PLEX).unwrap();
         *fake.owner.lock() = Some("Live TV is in front".into());
         let end = stream
             .pump(&mut Vec::new(), &AtomicBool::new(false))
             .unwrap();
         assert_eq!(end, End::Preempted("Live TV is in front".into()));
+        drop(stream);
+        assert_eq!(
+            f.tuning.status(),
+            Status::Busy("Live TV is in front".into()),
+            "over, and the tuner is the TV's"
+        );
     }
 
     #[test]

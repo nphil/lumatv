@@ -1,13 +1,14 @@
-//! The facade's HTTP server: a few GETs on the LAN, one of which does not end. The helper's own server answers whole documents, so a
-//! stream that runs for as long as a recording needs a listener of its own: one thread per connection, no body length, the connection
-//! closed when the program is over (what an HDHomeRun does). Only peers in the allowed networks are answered; the rest are dropped.
+//! The facade's HTTP server: a few GETs on the LAN, one of which does not end. A stream that runs for as long as a recording needs a
+//! listener of its own: one thread per connection, no body length, the connection closed when the program is over (what an HDHomeRun
+//! does). Only peers in the allowed networks are answered; the rest are dropped.
 
-use super::docs;
-use super::stream::{End, Facade};
-use crate::http::Cidr;
+use crate::docs;
+use crate::net::Cidr;
+use crate::stream::{End, Facade};
 use serde_json::Value;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
+use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
@@ -56,8 +57,8 @@ impl Server {
 
     fn shutdown(&mut self) {
         self.stop.store(true, Ordering::Release);
-        let _ = TcpStream::connect_timeout(&self.addr, Duration::from_millis(500));
         if let Some(thread) = self.thread.take() {
+            let _ = TcpStream::connect_timeout(&self.addr, Duration::from_millis(500));
             let _ = thread.join();
         }
     }
@@ -104,6 +105,11 @@ fn accept(listener: &TcpListener, facade: &Arc<Facade>, peers: &[Cidr], stop: &A
             active.fetch_sub(1, Ordering::AcqRel);
         }
     }
+    // A process another thread is starting holds a copy of every descriptor until it runs its program, which kept the port answering
+    // after a drop of the listener (a quarter of the engine's test runs) and would refuse a new listener on the same port. Shutting the
+    // socket down closes it for every copy at once, before the streams are waited for.
+    // SAFETY: the descriptor is the listener's own and open.
+    unsafe { libc::shutdown(listener.as_raw_fd(), libc::SHUT_RDWR) };
     // the streams see the flag within one read; the helper is going down, so a stuck one is not waited for
     let end = Instant::now() + Duration::from_secs(3);
     while active.load(Ordering::Acquire) > 0 && Instant::now() < end {
@@ -229,23 +235,23 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
             let asked = Instant::now();
             match facade.open(guide, peer) {
                 Err(f) => {
-                    crate::log_info!("hdhr: {peer} asked for {guide}: {}", f.reason());
+                    log::info!("tuner: {peer} asked for {guide}: {}", f.reason());
                     reply(&mut stream, f.status(), "text/plain", f.reason().as_bytes())
                 }
                 Ok(mut program) => {
                     // the PAT goes out as soon as the head is written: this is the client's wait for its first byte
-                    crate::log_info!(
-                        "hdhr: {peer} streams {guide} after {:.1} s",
+                    log::info!(
+                        "tuner: {peer} streams {guide} after {:.1} s",
                         asked.elapsed().as_secs_f64()
                     );
                     let sent = write!(stream, "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\n\r\n").and_then(|()| program.pump(&mut stream, stop));
                     match sent {
-                        Ok(End::Stopped) => crate::log_info!("hdhr: {guide} stopped"),
+                        Ok(End::Stopped) => log::info!("tuner: {guide} stopped"),
                         Ok(End::Replaced) => {
-                            crate::log_info!("hdhr: {guide} gave the tuner to the next request")
+                            log::info!("tuner: {guide} gave the tuner to the next request")
                         }
-                        Ok(end) => crate::log_warn!("hdhr: {guide} ended: {end:?}"),
-                        Err(e) => crate::log_info!("hdhr: {peer} left {guide}: {e}"),
+                        Ok(end) => log::warn!("tuner: {guide} ended: {end:?}"),
+                        Err(e) => log::info!("tuner: {peer} left {guide}: {e}"),
                     }
                     Ok(())
                 }
@@ -258,22 +264,22 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
 
 #[cfg(test)]
 mod tests {
-    use super::super::docs::Identity;
-    use super::super::stream::Limits;
-    use super::super::stream::tests::{Time, fake_with, packet, rf32};
     use super::*;
+    use crate::docs::Identity;
+    use crate::stream::Limits;
+    use crate::stream::tests::{Fake, Shared, Time, fake_with, packet, rf32, served};
     use std::net::Ipv4Addr;
 
-    fn start(fake: &Arc<super::super::stream::tests::Fake>, time: &Time, peers: &[&str]) -> Server {
-        let hw = Arc::new(super::super::stream::tests::Shared(fake.clone()));
+    fn start(fake: &Arc<Fake>, time: &Time, peers: &[&str]) -> Server {
         let facade = Facade::new(
-            hw,
+            Arc::new(Shared(fake.clone())),
             Identity {
                 name: "LumaTV".into(),
                 device_id: "0A1B2C3D".into(),
             },
             Limits::default(),
             time.clock(),
+            served(),
         );
         let peers = peers.iter().map(|p| Cidr::parse(p).unwrap()).collect();
         Server::start(

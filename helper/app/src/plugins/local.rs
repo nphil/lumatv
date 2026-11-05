@@ -7,8 +7,9 @@
 //! the code that draws a plugin's, and the contributions are what another Luma device would draw of the same plugin.
 //!
 //! What is different, and nothing else:
-//! - there is no program, user id or `enabled.json` entry: the manifest is in the code and the plugin is always on, so the
-//!   owner's approval (which is about installing software) is not asked of what is part of the helper;
+//! - there is no program, user id or `enabled.json` entry: the manifest is in the code and the plugin is on, so the owner's approval
+//!   (which is about installing software) is not asked of what is part of the helper. A plugin that opens something to the network asks
+//!   first all the same ([`OptIn`]): it is listed, off, with its words, until the owner switches it on in Settings;
 //! - messages are calls, not frames, so a plugin's work is a function call away from the topics it publishes;
 //! - a first-party plugin is listed apart in the `plugins` topic (`firstParty`), and the ids it uses are not free for a plugin
 //!   on the socket ([`FIRST_PARTY_IDS`]).
@@ -19,10 +20,18 @@ use parking_lot::Mutex;
 use plugin_api::Manifest;
 use plugin_api::wire::{Hello, Register, ToBase, ToPlugin};
 use serde_json::{Value as Json, json};
+use sha2::{Digest, Sha256};
 use std::sync::{Arc, Weak};
 
 /// The ids of the plugins the helper carries itself. A plugin on the socket may not take one of them.
-pub const FIRST_PARTY_IDS: &[&str] = &["weather", "news", "clock", "ambient", "scrypted-cameras"];
+pub const FIRST_PARTY_IDS: &[&str] = &[
+    "weather",
+    "news",
+    "clock",
+    "ambient",
+    "scrypted-cameras",
+    "live-tv-tuner",
+];
 
 /// What a first-party plugin is, in the words of a manifest.
 pub struct Spec {
@@ -31,6 +40,22 @@ pub struct Spec {
     pub version: &'static str,
     /// Manifest permissions (`cards`, `tiles`, `notify`, `settings`, `background`).
     pub permissions: &'static [&'static str],
+}
+
+/// A first-party plugin that asks first: it runs only once the owner has switched it on in Settings, approving exactly these words
+/// (`enabled.json`'s `firstParty` keeps the code of them, [`OptIn::approval`]).
+pub struct OptIn {
+    pub spec: Spec,
+    /// What switching it on does, in plain words: what the owner is shown and approves.
+    pub consent: &'static str,
+}
+
+impl OptIn {
+    /// The code of the consent: the hash of the id and the words, so that new words ask again.
+    pub fn approval(&self) -> String {
+        let digest = Sha256::digest(format!("{}\n{}", self.spec.id, self.consent));
+        digest.iter().map(|b| format!("{b:02x}")).collect()
+    }
 }
 
 impl Spec {
