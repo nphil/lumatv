@@ -1425,10 +1425,14 @@ impl Shell {
             if self.home.active {
                 takes.extend(["screenremote", "search"]);
             }
-            // a smart-home card that has more than it shows scrolls with the turns of the wheel, which the compositor sends with their direction
-            // only to a client that names them
-            if self.home.wheel_scrolls() {
+            // a smart-home card that has more than it shows scrolls with the turns of the wheel, and the weather view's map zooms with them; the
+            // compositor sends them with their direction only to a client that names them
+            if self.home.wheel_scrolls() || self.home.radar_takes_keys() {
                 takes.extend(["wheelup", "wheeldown"]);
+            }
+            // the weather view's map zooms with the wheel and steps its loop with the channel keys
+            if self.home.radar_takes_keys() {
+                takes.extend(["chup", "chdown"]);
             }
         }
         json!({"can": can, "wants": wants, "takes": takes, "live": self.live, "state": self.state()})

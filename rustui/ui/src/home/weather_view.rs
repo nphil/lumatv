@@ -1,5 +1,5 @@
-//! The full weather view: OK on the weather card opens it over Home (`Layer::Weather`). Up and Down walk its pages (now, the radar, the details),
-//! Back closes it. It is drawn from the helper's `weather` document (the card's) and `weather.more` (the hours, the ten days, the details of
+//! The full weather view: OK on the weather card opens it over Home (`Layer::Weather`). Right and Left walk its pages (now, the radar, the details)
+//! with a slide the way they go, Back closes it. It is drawn from the helper's `weather` document (the card's) and `weather.more` (the hours, the ten days, the details of
 //! now, the alerts), both kept fresh in the background by the helper, so the page is made from what is already there, with nothing fetched when
 //! it opens.
 //!
@@ -26,11 +26,13 @@ use lumatv_tokens::TypeRole;
 use serde_json::Value;
 use ui::components::{Align, Style, plate, style};
 use ui::geometry::Frame;
+use ui::group::{Group, GroupPose, PoseBinding, PoseProperties};
 use ui::lucent::palette::Mode;
+use ui::motion::{Motion, MotionBounds, Units};
 use ui::scene::{GlassLayer, ImageLayer, ShapeLayer};
 use ui::text::Weight;
 
-/// The pages, in the order Down walks them.
+/// The pages, left to right: Right goes to the next, Left to the one before.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     Now,
@@ -91,20 +93,19 @@ impl WeatherView {
         self.page = Page::Now;
     }
 
-    /// A key of the view; `Done::Close` for Back.
-    pub fn key(&mut self, name: &str, up: bool, down: bool) -> Done {
-        let i = PAGES.iter().position(|p| *p == self.page).unwrap_or(0);
-        match name {
-            "back" => Done::Close,
-            _ if up && i > 0 => {
-                self.page = PAGES[i - 1];
+    /// A key of the view: `step` is -1 for Left, 1 for Right (the pages sit side by side), 0 for any other; `Done::Close` for Back. Up and Down are not
+    /// the view's: the pages fit the screen, so there is nothing for them to scroll, and the radar page takes them for its zoom.
+    pub fn key(&mut self, name: &str, step: i32) -> Done {
+        if name == "back" {
+            return Done::Close;
+        }
+        let i = PAGES.iter().position(|p| *p == self.page).unwrap_or(0) as i32;
+        match usize::try_from(i + step).ok().and_then(|j| PAGES.get(j)).filter(|_| step != 0) {
+            Some(p) => {
+                self.page = *p;
                 Done::Redraw
             }
-            _ if down && i + 1 < PAGES.len() => {
-                self.page = PAGES[i + 1];
-                Done::Redraw
-            }
-            _ => Done::Nothing,
+            None => Done::Nothing,
         }
     }
 }
@@ -374,6 +375,33 @@ struct Made {
     mode: Mode,
 }
 
+/// How far a page slides: the screen's width, so the one that leaves is gone and the one that comes starts out of sight.
+const SLIDE_PX: f32 = 1920.0;
+/// How long after a change of page the page that left is let go (the spring lands within about 270 ms).
+const SLIDE_MAX_MS: u64 = 600;
+
+/// A page and what it is made of, in a group of its own that a track of the compositor slides: the track's value is the group's x, 0 when the page is
+/// the one shown, and so the keys cost the app one request and every frame of the slide costs it nothing.
+struct Slot {
+    page: Page,
+    made: Option<Made>,
+    radar: Option<RadarPage>,
+    track: Motion,
+    /// Last, so that what hangs under it goes first.
+    group: Group,
+}
+
+impl Slot {
+    /// A page whose group is `x` pixels off its place.
+    fn new(kit: &Kit, page: Page, x: f32) -> std::io::Result<Self> {
+        let other = |e: ui::error::UiError| std::io::Error::other(format!("{e}"));
+        let group = kit.ui.scene.group(None, GroupPose::IDENTITY).map_err(other)?;
+        let track = kit.ui.scene.motion(x, MotionBounds::range(-SLIDE_PX, SLIDE_PX, Units::Pixels)).map_err(other)?;
+        group.bind(&track, PoseBinding { values: [0.0, 1.0], from: GroupPose::IDENTITY, to: GroupPose { x: 1.0, ..GroupPose::IDENTITY }, properties: PoseProperties::TRANSLATION }).map_err(other)?;
+        Ok(Self { page, made: None, radar: None, track, group })
+    }
+}
+
 pub struct WeatherSurface {
     _scrim: ShapeLayer,
     _bar: GlassLayer,
@@ -382,8 +410,11 @@ pub struct WeatherSurface {
     title: Text,
     clock: Text,
     dots: Vec<ShapeLayer>,
-    made: Option<Made>,
-    radar: Option<RadarPage>,
+    /// The page shown, and the pages that are sliding out of the way of it.
+    cur: Option<Slot>,
+    leaving: Vec<Slot>,
+    /// When `leaving` is let go.
+    gone_at: u64,
     z: i32,
     /// The bar's words are for this page and clock.
     bar_key: String,
@@ -452,7 +483,7 @@ impl WeatherSurface {
     /// The words of the page that are wider than their boxes.
     #[cfg(test)]
     pub fn cut_words(&self, kit: &mut Kit) -> Vec<String> {
-        let Some(made) = &self.made else { return Vec::new() };
+        let Some(made) = self.cur.as_ref().and_then(|s| s.made.as_ref()) else { return Vec::new() };
         let mut cut: Vec<String> = made.words.iter().flat_map(|w| w.cut(kit)).collect();
         cut.extend(made.cards.iter().flat_map(|c| c._words.cut(kit)));
         cut
@@ -462,7 +493,7 @@ impl WeatherSurface {
         // The theme's scrim hides the page by 97 % only; with a page of open sky and a map, Home's words behind it would show as faint ghosts.
         let Rgba(r, g, b, a) = kit.tokens.extra(kit.mode).scrim_hide;
         let straight = |c: u8| (u16::from(c) * 255 / u16::from(a.max(1))).min(255) as u8;
-        let scrim = kit.ui.scene.shape(1920, 1080, z, plate::solid(Rgba(straight(r), straight(g), straight(b), 255), 0.0), Props::at(0.0, 0.0));
+        let scrim = kit.ui.scene.shape(1920, 1080, z - 1, plate::solid(Rgba(straight(r), straight(g), straight(b), 255), 0.0), Props::at(0.0, 0.0));
         let bar_f = Frame::new(MARGIN, 56.0, WIDTH, 56.0);
         // the bar is above the page, whatever the page draws (the radar's map is over the whole screen)
         let bar = kit.ui.scene.glass(WIDTH as u32, 56, z + 20, glass_of(kit, PaneKind::Pill, 56.0, false, false), Props::at(bar_f.x, bar_f.y));
@@ -475,7 +506,7 @@ impl WeatherSurface {
         let bs = kit.text_scale.clamp(1.0, 1.35);
         let title = Text::new(kit, title_f, z + 22, sty(kit, 28.0 * bs, Weight::SemiBold, ink, Align::Left), "Weather")?;
         let clock = Text::new(kit, clock_f, z + 22, sty(kit, 26.0 * bs, Weight::Medium, ink2, Align::Right), "")?;
-        let mut me = Self { _scrim: scrim, _bar: bar, radar_bar, title, clock, dots: Vec::new(), made: None, radar: None, z, bar_key: String::new() };
+        let mut me = Self { _scrim: scrim, _bar: bar, radar_bar, title, clock, dots: Vec::new(), cur: None, leaving: Vec::new(), gone_at: 0, z, bar_key: String::new() };
         let _ = home;
         for _ in PAGES {
             me.dots.push(kit.ui.scene.shape(14, 14, z + 23, plate::solid(faded(ink2, 0.5), 7.0), HIDDEN));
@@ -483,20 +514,55 @@ impl WeatherSurface {
         Ok(me)
     }
 
+    /// The page shown, how far (px) its group is from its place at `at_ns` by the track's own estimate, and the pages still sliding out.
+    #[cfg(test)]
+    pub fn paging(&self, at_ns: u64) -> Option<(Page, f32, Vec<Page>)> {
+        let cur = self.cur.as_ref()?;
+        Some((cur.page, cur.track.value_at(at_ns), self.leaving.iter().map(|s| s.page).collect()))
+    }
+
+    /// The zoom the map page has taken up, for the tests.
+    #[cfg(test)]
+    pub fn zoom_taken(&self) -> Option<(f32, super::radar_zoom::Pan)> {
+        self.cur.as_ref()?.radar.as_ref()?.zoom_taken()
+    }
+
     /// Whether the picture of the page moves: the same rule as the card's.
     pub fn update(&mut self, kit: &mut Kit, home: &mut Home, pictures: &mut Pictures, now: u64, run_art: bool) -> std::io::Result<()> {
         let page = home.wview.page;
-        // the radar page has layers of its own (a map, a layer for every frame of the loop), made when it is the page and dropped when it is not
+        let scene = kit.ui.scene.clone();
+        let settle = kit.flow_spec().settle();
+        // another page: the one shown goes off the way the keys went and the new one comes in from there, on the focus's spring
+        if self.cur.as_ref().is_some_and(|s| s.page != page) {
+            let old = self.cur.take().expect("checked above");
+            let dir = if PAGES.iter().position(|p| *p == page) > PAGES.iter().position(|p| *p == old.page) { 1.0 } else { -1.0 };
+            let _ = old.track.settle(Some(-dir * SLIDE_PX), None, settle);
+            self.leaving.push(old);
+            let slot = Slot::new(kit, page, dir * SLIDE_PX)?;
+            let _ = slot.track.settle(Some(0.0), None, settle);
+            self.cur = Some(slot);
+            self.gone_at = now + SLIDE_MAX_MS;
+        }
+        if self.cur.is_none() {
+            self.cur = Some(Slot::new(kit, page, 0.0)?);
+        }
+        if now >= self.gone_at {
+            self.leaving.clear();
+        }
+        let mut slot = self.cur.take().expect("made above");
+        // the radar page has layers of its own (a map, a layer for every frame of the loop), made when it is the page and dropped when it leaves
         if page == Page::Radar {
-            self.made = None;
-            if self.radar.is_none() {
-                self.radar = Some(RadarPage::new(kit, self.z + 1)?);
-            }
-            if let Some(r) = &mut self.radar {
-                r.update(kit, home, now, kit.ui.look.reduced_motion)?;
-            }
-        } else {
-            self.radar = None;
+            let reduced = kit.ui.look.reduced_motion;
+            let z = self.z + 1;
+            scene.adopting(&slot.group, || -> std::io::Result<()> {
+                if slot.radar.is_none() {
+                    slot.radar = Some(RadarPage::new(kit, z, &slot.group)?);
+                }
+                if let Some(r) = &mut slot.radar {
+                    r.update(kit, home, now, reduced)?;
+                }
+                Ok(())
+            })?;
         }
         let home: &Home = home;
         let data = Data::new(home);
@@ -513,6 +579,7 @@ impl WeatherSurface {
         }
         let accent = kit.ui.look.accent();
         let ink2 = kit.ui.look.ink2();
+        // the page dots, a row in the bar: the one shown in the accent, the rest in the secondary ink
         let bar_right = MARGIN + WIDTH - 28.0;
         for (i, d) in self.dots.iter().enumerate() {
             let x = bar_right - (PAGES.len() - i) as f32 * 24.0 - 330.0;
@@ -521,30 +588,33 @@ impl WeatherSurface {
             d.set(Props::at(x, 56.0 + 21.0));
         }
         self.radar_bar.set(if page == Page::Radar { Props::at(MARGIN, 56.0) } else { HIDDEN });
-        let key = data.key();
-        if page == Page::Radar {
-            return Ok(());
-        }
-        let need = self.made.as_ref().is_none_or(|m| m.key != key || m.page != page || m.scale != kit.text_scale || m.mode != kit.mode);
-        if need {
-            self.made = None;
-            self.made = Some(self.build(kit, &data, page, pictures, key)?);
-        }
-        if let Some(m) = &mut self.made
-            && let Some(a) = m.art.as_mut()
-        {
-            if run_art {
-                a.step(now);
-            } else if a.running() {
-                a.pause(now);
+        if page != Page::Radar {
+            let key = data.key();
+            let need = slot.made.as_ref().is_none_or(|m| m.key != key || m.page != page || m.scale != kit.text_scale || m.mode != kit.mode);
+            if need {
+                slot.made = None;
+                let made = scene.adopting(&slot.group, || self.build(kit, &data, page, pictures, key))?;
+                slot.made = Some(made);
+            }
+            if let Some(m) = &mut slot.made
+                && let Some(a) = m.art.as_mut()
+            {
+                if run_art {
+                    a.step(now);
+                } else if a.running() {
+                    a.pause(now);
+                }
             }
         }
+        self.cur = Some(slot);
         Ok(())
     }
 
-    /// When the page's picture is next due while it moves.
-    pub fn due_at(&self, now: u64) -> Option<u64> {
-        self.made.as_ref()?.art.as_ref().filter(|a| a.running()).map(|_| now - now % weather_art::TICK_MS + weather_art::TICK_MS)
+    /// When the page's picture is next due while it moves, and when the page that slid away is let go.
+    pub fn due_at(&self, now: u64, run_art: bool) -> Option<u64> {
+        let art = self.cur.as_ref().and_then(|s| s.made.as_ref()).and_then(|m| m.art.as_ref()).filter(|a| a.running() && run_art).map(|_| now - now % weather_art::TICK_MS + weather_art::TICK_MS);
+        let slide = (!self.leaving.is_empty()).then_some(self.gone_at);
+        [art, slide].into_iter().flatten().min()
     }
 
     fn card(&self, kit: &mut Kit, rect: Frame, z: i32, lines: Vec<Line>) -> std::io::Result<Card> {
@@ -1011,17 +1081,18 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn the_keys_walk_the_pages_and_back_closes() {
+    fn right_and_left_walk_the_pages_and_nothing_else_does() {
         let mut v = WeatherView::default();
-        assert_eq!(v.key("up", true, false), Done::Nothing, "the first page has nothing above");
-        assert_eq!(v.key("down", false, true), Done::Redraw);
+        assert_eq!(v.key("left", -1), Done::Nothing, "the first page has none before it");
+        assert_eq!(v.key("down", 0), Done::Nothing, "Down does not page");
+        assert_eq!(v.key("right", 1), Done::Redraw);
         assert_eq!(v.page, Page::Radar);
-        assert_eq!(v.key("down", false, true), Done::Redraw);
+        assert_eq!(v.key("right", 1), Done::Redraw);
         assert_eq!(v.page, Page::Details);
-        assert_eq!(v.key("down", false, true), Done::Nothing, "nor the last below");
-        assert_eq!(v.key("up", true, false), Done::Redraw);
+        assert_eq!(v.key("right", 1), Done::Nothing, "nor the last one after it");
+        assert_eq!(v.key("left", -1), Done::Redraw);
         assert_eq!(v.page, Page::Radar);
-        assert_eq!(v.key("back", false, false), Done::Close);
+        assert_eq!(v.key("back", 0), Done::Close);
         v.open();
         assert_eq!(v.page, Page::Now);
     }

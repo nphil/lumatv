@@ -1,14 +1,18 @@
 //! The weather view's radar page, drawn: the base map as one picture over the whole screen, every frame of the loop as a layer of its own (made
 //! once when it arrives, posed over the square of the map it covers, hidden, and fading out where the radar's coverage ends), the home pin, and
 //! the few controls that float over the map: what is shown (radar or the model's forecast, said in a chip, in the accent for the forecast), the
-//! three views, the time bar with the radar's ticks, the forecast's and the clock's mark, and the legend of the colours. A step of the loop or a
-//! scrub changes two layers' opacity on the compositor's clock; nothing is painted or uploaded for it.
+//! time bar with the radar's ticks, the forecast's and the clock's mark, and the legend of the colours. A step of the loop or a scrub changes two
+//! layers' opacity on the compositor's clock; nothing is painted or uploaded for it.
+//!
+//! The zoom is the compositor's too: the map and the frames hang under one group whose scale (and, for a zoom about the pointer, whose place) is
+//! bound to a motion track, so that a turn of the wheel is one `settle` and the glide to it costs this process no frame ([`super::radar_zoom`]).
 //!
 //! The controls are plates (a colour and an edge), not glass: glass samples the wallpaper's blur, not the map under it.
 
 use super::clock;
 use super::model::Home;
 use super::radar_view::{AHEAD_S, BACK_S, Kind, Level, MAP_H, MAP_W};
+use super::radar_zoom::{Pan, S_MAX, S_MIN, scale_of};
 use super::surface::{HIDDEN, faded};
 use super::weather_gfx as gfx;
 use super::widgets::{Canvas, Words};
@@ -20,12 +24,14 @@ use lumatv_tokens::TypeRole;
 use std::collections::HashMap;
 use ui::components::{Align, Style, plate};
 use ui::geometry::Frame;
+use ui::group::{Group, GroupPose, PoseBinding, PoseProperties};
 use ui::lucent::palette::{Mode, PaletteRole};
+use ui::motion::{Motion, MotionBounds, Units};
 use ui::scene::{ImageLayer, ShapeLayer};
 use ui::text::Weight;
 
 const MARGIN: f32 = 64.0;
-/// The controls: the chips under the view's bar, the legend and the time bar above the foot of the screen (inside the TV's safe area); their sizes are [`Geo`].
+/// The controls: the mode chip under the view's bar, the legend and the time bar above the foot of the screen (inside the TV's safe area); their sizes are [`Geo`].
 const CHIP_Y: f32 = 128.0;
 /// The forecast is drawn lighter than what a radar saw (the same ramp, 78 %).
 const FORECAST_ALPHA: f32 = 0.78;
@@ -97,6 +103,14 @@ pub(super) fn control(kit: &Kit, radius: f32, tint: f32) -> Shape {
 
 pub struct RadarPage {
     z: i32,
+    /// The map and the frames hang under `level`, which sits in `zoom`: the group the track scales. The pin follows the track's move, not its scale.
+    level: Group,
+    zoom: Group,
+    pin_group: Group,
+    track: Motion,
+    /// How the view is moved off the middle as the track's scale changes, and the zoom it is for.
+    pan: Pan,
+    zoom_seen: Option<(u32, Option<(u32, u32)>)>,
     map: Option<ImageLayer>,
     globe: Option<ImageLayer>,
     frames: HashMap<(i64, u32), (ImageLayer, Kind, Props)>,
@@ -108,8 +122,6 @@ pub struct RadarPage {
     // the controls: each a picture (its plate and what is drawn on it) and its words, so that the page costs the scene few layers
     mode_img: ImageLayer,
     mode_words: Words,
-    chips_img: ImageLayer,
-    chip_words: Words,
     bar_img: ImageLayer,
     bar_words: Words,
     thumb: ShapeLayer,
@@ -118,15 +130,12 @@ pub struct RadarPage {
     attribution: Words,
     geo: Geo,
     mode_key: String,
-    chips_key: String,
     bar_key: String,
     words_key: String,
-    level: Option<Level>,
+    shown_level: Option<Level>,
     reduced: bool,
 }
 
-/// The chips' words and their widths at the 100 % text size (the row ends at the margin).
-const CHIP_LABELS: [(&str, f32); 3] = [("1  Local", 156.0), ("2  Region", 176.0), ("3  Globe", 156.0)];
 /// A picture of a control is this much larger than its plate on every side, for the plate's edge and its ring.
 const PAD: f32 = 3.0;
 
@@ -137,8 +146,6 @@ struct Geo {
     /// How much larger than at 100 % the chrome is.
     k: f32,
     chip_h: f32,
-    gap: f32,
-    chip_w: [f32; 3],
     mode_w: f32,
     /// Where the mode's second word starts (the first is the radar, the forecast or the globe).
     mode_caption_x: f32,
@@ -169,7 +176,6 @@ impl Geo {
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
         let label = style_k(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left, k);
         let caption = style_k(kit, TypeRole::Caption, None, ink2, Align::Left, k);
-        let chip_w = CHIP_LABELS.map(|(text, base)| (base * k).max(measured(kit, text, &label) + 44.0 * k));
         let label_w = ["RADAR", "FORECAST", "GLOBE"].iter().map(|t| measured(kit, t, &label)).fold(0.0, f32::max);
         let caption_w = ["what the radar saw", "model, not radar"].iter().map(|t| measured(kit, t, &caption)).fold(0.0, f32::max);
         let mode_caption_x = (190.0 * k).max(26.0 * k + label_w + 24.0 * k);
@@ -180,8 +186,6 @@ impl Geo {
         Self {
             k,
             chip_h: (52.0 * k).round(),
-            gap: 10.0 * k,
-            chip_w,
             mode_w: (440.0 * k).max(mode_caption_x + caption_w + 22.0 * k),
             mode_caption_x,
             bar,
@@ -193,11 +197,6 @@ impl Geo {
         }
     }
 
-    fn chips(&self) -> Frame {
-        let total: f32 = self.chip_w.iter().sum::<f32>() + self.gap * 2.0;
-        Frame::new(MARGIN + 1792.0 - total, CHIP_Y, total, self.chip_h)
-    }
-
     fn mode(&self) -> Frame {
         Frame::new(MARGIN, CHIP_Y, self.mode_w, self.chip_h)
     }
@@ -206,6 +205,16 @@ impl Geo {
     fn now_x(&self) -> f32 {
         self.track_x + self.track_w * BACK_S as f32 / (BACK_S + AHEAD_S) as f32
     }
+}
+
+/// Binds the place of `groups` to `track`: moved off the middle by `pan` at the scale the track is at.
+fn bind_pan(groups: &[&Group], track: &Motion, pan: Pan) -> std::io::Result<()> {
+    let (from, to) = (pan.at(S_MIN), pan.at(S_MAX));
+    for g in groups {
+        let binding = PoseBinding { values: [S_MIN, S_MAX], from: GroupPose { x: from.0, y: from.1, ..GroupPose::IDENTITY }, to: GroupPose { x: to.0, y: to.1, ..GroupPose::IDENTITY }, properties: PoseProperties::TRANSLATION };
+        g.bind(track, binding).map_err(|e| std::io::Error::other(format!("{e}")))?;
+    }
+    Ok(())
 }
 
 /// A control's plate on a picture: the sheet colour mostly opaque over the map, with an edge of the ink (or `ring`, a coloured edge, for what is chosen).
@@ -237,14 +246,29 @@ fn repaint(img: &mut ImageLayer, f: Frame, paint: impl FnOnce(&mut Canvas, Frame
 }
 
 impl RadarPage {
-    pub fn new(kit: &mut Kit, z: i32) -> std::io::Result<Self> {
+    /// `parent` is the group the page hangs under (the view's slide of it).
+    pub fn new(kit: &mut Kit, z: i32, parent: &Group) -> std::io::Result<Self> {
+        let other = |e: ui::error::UiError| std::io::Error::other(format!("{e}"));
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
         let accent = kit.ui.look.accent();
         let g = Geo::new(kit);
         let (k, cap_h) = (g.k, g.cap_h);
-        let pin = kit.ui.scene.shape(14, 14, z + 3, plate::solid(ink, 7.0), Props::at(MAP_W as f32 / 2.0 - 7.0, MAP_H as f32 / 2.0 - 7.0));
-        let pin_ring = kit.ui.scene.shape(30, 30, z + 2, plate::ring(faded(ink, 0.55), 15.0, 2.0), Props::at(MAP_W as f32 / 2.0 - 15.0, MAP_H as f32 / 2.0 - 15.0));
         let (cx, cy) = (MAP_W as f32 / 2.0, MAP_H as f32 / 2.0);
+        // the zoom: the group the map and the frames hang under scales about the middle of the screen on the track, which is the scale itself (1 at the
+        // opening view); the pin keeps its size and follows only the move the zoom makes when it is about somewhere else than the middle
+        let scene = kit.ui.scene.clone();
+        let about_middle = GroupPose { pivot_x: cx, pivot_y: cy, ..GroupPose::IDENTITY };
+        let zoom = scene.group(Some(parent.id()), about_middle).map_err(other)?;
+        let level = scene.group(Some(zoom.id()), about_middle).map_err(other)?;
+        let pin_group = scene.group(Some(parent.id()), GroupPose::IDENTITY).map_err(other)?;
+        let track = scene.motion(1.0, MotionBounds::range(S_MIN, S_MAX, Units::Progress)).map_err(other)?;
+        zoom.bind(&track, PoseBinding { values: [S_MIN, S_MAX], from: GroupPose { scale: S_MIN, ..about_middle }, to: GroupPose { scale: S_MAX, ..about_middle }, properties: PoseProperties::SCALE }).map_err(other)?;
+        bind_pan(&[&zoom, &pin_group], &track, Pan::NONE)?;
+        let (pin, pin_ring) = scene.adopting(&pin_group, || {
+            let pin = kit.ui.scene.shape(14, 14, z + 3, plate::solid(ink, 7.0), Props::at(cx - 7.0, cy - 7.0));
+            let ring = kit.ui.scene.shape(30, 30, z + 2, plate::ring(faded(ink, 0.55), 15.0, 2.0), Props::at(cx - 15.0, cy - 15.0));
+            (pin, ring)
+        });
         let body = kit.line(TypeRole::Body);
         // the place beside the pin, and what is wrong (loading, not available) under it
         let mut place = Words::new(
@@ -270,23 +294,6 @@ impl RadarPage {
             ],
         )?;
         mode_words.set_props(Props::at(mode_f.x, mode_f.y));
-        // the three views, top right
-        let cf = g.chips();
-        let chips_img = control_picture(kit, cf, z + 4, |kit, c, f| {
-            let mut x = f.x;
-            for w in g.chip_w {
-                paint_plate(kit, c, Frame::new(x, f.y, w, g.chip_h), g.chip_h / 2.0, 0.88, None);
-                x += w + g.gap;
-            }
-        })?;
-        let mut lines = Vec::new();
-        let mut x = 0.0;
-        for ((label, _), w) in CHIP_LABELS.iter().zip(g.chip_w) {
-            lines.push((Frame::new(x, 0.0, w, g.chip_h), style_k(kit, TypeRole::Label, Some(Weight::SemiBold), ink2, Align::Centre, k), (*label).to_owned()));
-            x += w + g.gap;
-        }
-        let mut chip_words = Words::new(kit, Frame::new(0.0, 0.0, cf.w, g.chip_h), z + 7, lines)?;
-        chip_words.set_props(Props::at(cf.x, cf.y));
         // the time bar, along the foot
         let bar_img = control_picture(kit, g.bar, z + 4, |kit, c, f| paint_plate(kit, c, f, 30.0 * k, 0.9, None))?;
         let thumb = kit.ui.scene.shape(8, (30.0 * k).round() as u32, z + 8, plate::solid(accent, 4.0), HIDDEN);
@@ -335,6 +342,12 @@ impl RadarPage {
         attribution.set_props(Props::at(MARGIN + 1792.0 - att_w, g.bar.y - cap_h - 14.0));
         Ok(Self {
             z,
+            level,
+            zoom,
+            pin_group,
+            track,
+            pan: Pan::NONE,
+            zoom_seen: None,
             map: None,
             globe: None,
             frames: HashMap::new(),
@@ -344,8 +357,6 @@ impl RadarPage {
             place,
             mode_img,
             mode_words,
-            chips_img,
-            chip_words,
             bar_img,
             bar_words,
             thumb,
@@ -354,10 +365,9 @@ impl RadarPage {
             attribution,
             geo: g,
             mode_key: String::new(),
-            chips_key: String::new(),
             bar_key: String::new(),
             words_key: String::new(),
-            level: None,
+            shown_level: None,
             reduced: false,
         })
     }
@@ -367,7 +377,8 @@ impl RadarPage {
         if p.width != MAP_W || p.height != MAP_H {
             p = p.fitted(MAP_W, MAP_H, crate::kit::picture::Fit::Cover);
         }
-        let mut layer = kit.ui.scene.image(MAP_W, MAP_H, self.z, HIDDEN)?;
+        let scene = kit.ui.scene.clone();
+        let mut layer = scene.adopting(&self.level, || kit.ui.scene.image(MAP_W, MAP_H, self.z, HIDDEN))?;
         p.paint(&mut layer);
         layer.damage(None);
         layer.set(Props::at(0.0, 0.0));
@@ -379,7 +390,8 @@ impl RadarPage {
     fn make_frame(&mut self, kit: &mut Kit, home: &Home, t: i64, rev: u32, p: Picture) -> std::io::Result<()> {
         let r = &home.radar;
         let px = r.frame_px.max(p.width);
-        let mut layer = kit.ui.scene.image(p.width, p.height, self.z + 1, HIDDEN)?;
+        let scene = kit.ui.scene.clone();
+        let mut layer = scene.adopting(&self.level, || kit.ui.scene.image(p.width, p.height, self.z + 1, HIDDEN))?;
         p.paint(&mut layer);
         layer.damage(None);
         let centre = world_of(r.lon, r.lat);
@@ -397,17 +409,21 @@ impl RadarPage {
     pub fn update(&mut self, kit: &mut Kit, home: &mut Home, _now: u64, reduced: bool) -> std::io::Result<()> {
         self.reduced = reduced;
         let level = home.radar.level();
-        if self.level != Some(level) {
-            // another view: the map and the frames are of the other level
-            self.level = Some(level);
+        if self.shown_level != Some(level) {
+            // another view: the map and the frames are of the other level, whose pictures are posed for another zoom, so the group they hang under
+            // is scaled to make them the size of the opening view's
+            self.shown_level = Some(level);
             self.map = None;
             self.frames.clear();
             self.shown = None;
             self.bar_key.clear();
-            self.chips_key.clear();
             self.mode_key.clear();
             self.words_key.clear();
+            let about_middle = GroupPose { pivot_x: MAP_W as f32 / 2.0, pivot_y: MAP_H as f32 / 2.0, ..GroupPose::IDENTITY };
+            self.level.set_pose(GroupPose { scale: scale_of(f32::from(level.map_zoom())).recip(), ..about_middle });
+            self.pin_group.set_pose(GroupPose { visible: level != Level::Globe, ..GroupPose::IDENTITY });
         }
+        self.zoom(kit, home);
         if let Some(p) = home.radar.take_map() {
             self.make_map(kit, p)?;
         }
@@ -437,6 +453,27 @@ impl RadarPage {
         self.show(home);
         self.bar(kit, home);
         Ok(())
+    }
+
+    /// The zoom the page has taken up and how it moves the picture, for the tests.
+    #[cfg(test)]
+    pub fn zoom_taken(&self) -> Option<(f32, Pan)> {
+        self.zoom_seen.map(|(t, _)| (f32::from_bits(t), self.pan))
+    }
+
+    /// The zoom the model is going to, taken up: the track is sent there on the focus's spring (at once under reduced motion, which has a crossfade for
+    /// it), and when the zoom is about a place the picture is moved as it goes so that the place stays where it is.
+    fn zoom(&mut self, kit: &Kit, home: &Home) {
+        let z = home.radar.zoom;
+        let seen = (z.target.to_bits(), z.anchor.map(|(x, y)| (x.to_bits(), y.to_bits())));
+        if self.zoom_seen == Some(seen) {
+            return;
+        }
+        self.zoom_seen = Some(seen);
+        let s0 = self.track.value();
+        self.pan = Pan::new(z.anchor, (MAP_W as f32 / 2.0, MAP_H as f32 / 2.0), s0, self.pan.at(s0));
+        let _ = bind_pan(&[&self.zoom, &self.pin_group], &self.track, self.pan);
+        let _ = self.track.settle(Some(z.scale()), None, kit.flow_spec().settle());
     }
 
     /// The frame shown: the layer before it fades out and this one in (or they swap at once under reduced motion).
@@ -515,14 +552,6 @@ impl RadarPage {
                     } else {
                         gfx::head(c, (bx + 11.0 * k, by), std::f32::consts::FRAC_PI_2, 20.0 * k, 22.0 * k, ink);
                     }
-                } else {
-                    // the pad: four arrows round the OK that zooms
-                    for q in 0..4 {
-                        let a = q as f32 * std::f32::consts::FRAC_PI_2;
-                        let (sa, ca) = (a.sin(), -a.cos());
-                        gfx::head(c, (bx + sa * 26.0 * k, by + ca * 26.0 * k), a, 11.0 * k, 14.0 * k, ink);
-                    }
-                    gfx::arc(c, bx, by, 10.0 * k, 3.0, 0.0, std::f32::consts::TAU, accent);
                 }
             });
         }
@@ -551,7 +580,7 @@ impl RadarPage {
             }
         };
         let detail = if globe { "" } else if r.current().is_some_and(|f| f.kind == Kind::Forecast) { "model, not radar" } else { "what the radar saw" };
-        // the forecast's chip is tinted with the accent, the radar's is plain; the chip of the view that is shown is ringed
+        // the forecast's chip is tinted with the accent, the radar's is plain
         let mode_key = format!("{mode}|{}", u8::from(light));
         if mode_key != self.mode_key {
             self.mode_key = mode_key;
@@ -560,18 +589,6 @@ impl RadarPage {
                 paint_plate(kit, c, f, g.chip_h / 2.0, 0.88, None);
                 if forecast {
                     c.rounded(f, g.chip_h / 2.0, faded(accent, 0.20));
-                }
-            });
-        }
-        let chips_key = format!("{}|{}", r.level() as u8, u8::from(light));
-        if chips_key != self.chips_key {
-            self.chips_key = chips_key;
-            let level = r.level() as usize;
-            repaint(&mut self.chips_img, g.chips(), |c, f| {
-                let mut x = f.x;
-                for (i, w) in g.chip_w.iter().enumerate() {
-                    paint_plate(kit, c, Frame::new(x, f.y, *w, g.chip_h), g.chip_h / 2.0, if i == level { 0.97 } else { 0.88 }, (i == level).then_some(accent));
-                    x += w + g.gap;
                 }
             });
         }
@@ -604,11 +621,8 @@ impl RadarPage {
         let key = format!("{mode}|{line}|{sub}|{detail}|{status}|{attribution}|{place}|{}", r.level() as u8);
         if key != self.words_key {
             self.words_key = key;
-            let level = r.level() as usize;
             self.place.set_many(kit, &[(0, &place, ink), (1, &status, ink)]);
             self.mode_words.set_many(kit, &[(0, mode, mode_colour), (1, detail, ink2)]);
-            let chip: Vec<(usize, &str, Rgba)> = CHIP_LABELS.iter().enumerate().map(|(i, (label, _))| (i, *label, if i == level { ink } else { ink2 })).collect();
-            self.chip_words.set_many(kit, &chip);
             let (left, now_l, right) = if globe { ("", "", "") } else { ("\u{2212}2 h", "Now", "+6 h") };
             let (title, about) = if globe { ("Rain and cloud from space", "NASA rain, about 6 h behind; satellite cloud") } else { ("", "") };
             self.bar_words.set_many(kit, &[(0, &line, ink), (1, &sub, ink2), (2, left, ink2), (3, now_l, ink), (4, right, ink2), (5, title, ink), (6, about, ink2)]);
@@ -665,13 +679,12 @@ mod tests {
             let (h, mut kit) = testkit::kit_in(Mode::Dark, scale);
             let g = Geo::new(&mut kit);
             assert!((1.0..=1.3).contains(&g.k), "{scale}: the chrome grows with the words, but to 1.3 times at most");
-            // the row under the view's bar: what is shown, then the three views, a gap between them and inside the margins
-            assert!(g.mode().right() + 16.0 <= g.chips().x, "{scale}: the mode chip meets the view chips");
-            assert!(g.chips().right() <= MARGIN + 1792.0 + 0.5 && g.mode().x >= MARGIN, "{scale}");
+            // the chip under the view's bar, inside the margins
+            assert!(g.mode().right() <= MARGIN + 1792.0 + 0.5 && g.mode().x >= MARGIN, "{scale}");
             // from the foot up: the bar inside the safe area, the legend above it, and the attribution over the bar clear of the legend's top
             assert!(g.bar.bottom() <= 1016.5, "{scale}: the bar is below the safe area");
             assert!(g.legend.bottom() + 8.0 <= g.bar.y, "{scale}: the legend meets the bar");
-            // the words are in their plates: the chips' words are as tall as the chips allow, the time and what it is fit their boxes, the track starts after them
+            // the words are in their plates: the chip's words are as tall as the chip allows, the time and what it is fit their boxes, the track starts after them
             let body = style_k(&kit, TypeRole::Body, Some(Weight::SemiBold), Rgba(255, 255, 255, 255), Align::Left, g.k);
             let cap = style_k(&kit, TypeRole::Caption, None, Rgba(255, 255, 255, 255), Align::Left, g.k);
             let label = style_k(&kit, TypeRole::Label, Some(Weight::SemiBold), Rgba(255, 255, 255, 255), Align::Left, g.k);
@@ -681,9 +694,6 @@ mod tests {
                 assert!(measured(&mut kit, words, &cap) <= 250.0 * g.k, "{scale}: {words}");
             }
             assert!(g.track_x >= (96.0 + 250.0) * g.k, "{scale}: the track starts under the time");
-            for (text, w) in CHIP_LABELS.iter().map(|(t, _)| *t).zip(g.chip_w) {
-                assert!(measured(&mut kit, text, &label) + 16.0 <= w, "{scale}: {text}");
-            }
             std::mem::forget(h);
         }
     }

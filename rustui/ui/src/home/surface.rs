@@ -1135,7 +1135,7 @@ impl HomeSurface {
         if let Some(w) = &mut self.weather_view {
             let run = home.weather_view_runs() && !kit.ui.look.reduced_motion;
             w.update(kit, home, &mut self.pictures, now, run)?;
-            self.view_art_at = if run { w.due_at(now) } else { None };
+            self.view_art_at = w.due_at(now, run);
         } else {
             self.view_art_at = None;
         }
@@ -1346,6 +1346,7 @@ mod tests {
     use super::*;
     use crate::kit::screen::Input;
     use crate::kit::testkit;
+    use super::super::weather_view::Page;
     use serde_json::json;
 
     #[test]
@@ -1506,7 +1507,7 @@ mod tests {
                 s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
                 for page in 0..3u64 {
                     if page > 0 {
-                        press(&mut home, "down", 2500 + 100 * page);
+                        press(&mut home, "right", 2500 + 100 * page);
                     }
                     s.apply(&mut kit, &mut engine, &mut home, 2600 + 100 * page).expect("the view drawn");
                     let cut = s.weather_view.as_ref().expect("the view is up").cut_words(&mut kit);
@@ -1515,6 +1516,75 @@ mod tests {
                 std::mem::forget(h);
             }
         }
+    }
+
+    #[test]
+    fn a_page_slides_in_from_the_side_the_key_went_and_the_one_it_replaces_is_let_go_when_it_is_out_of_sight() {
+        let (h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let theme = lumatv_tokens::Tokens::shipped().json().clone();
+        let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
+        fixtures(&mut home);
+        weather_page(&mut home);
+        for (i, key) in ["down", "right", "right", "ok"].into_iter().enumerate() {
+            press(&mut home, key, 2000 + 100 * i as u64);
+        }
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        let paging = |s: &HomeSurface, at: u64| s.weather_view.as_ref().and_then(|w| w.paging(at)).expect("the view is up");
+        s.apply(&mut kit, &mut engine, &mut home, 2600).expect("the view drawn");
+        assert_eq!(paging(&s, 0), (Page::Now, 0.0, vec![]), "opened in place, with no slide");
+        // the offset a page comes in from is read at the moment before the key was applied, when the spring has not yet moved it
+        let before = ui::scene::monotonic_ns();
+        press(&mut home, "right", 3000);
+        s.apply(&mut kit, &mut engine, &mut home, 3010).expect("the view drawn");
+        let (page, from, out) = paging(&s, before);
+        assert_eq!((page, out, from), (Page::Radar, vec![Page::Now], 1920.0), "Right brings the next page in from the right");
+        let before = ui::scene::monotonic_ns();
+        press(&mut home, "left", 3100);
+        s.apply(&mut kit, &mut engine, &mut home, 3110).expect("the view drawn");
+        let (page, from, out) = paging(&s, before);
+        assert_eq!((page, out, from), (Page::Now, vec![Page::Now, Page::Radar], -1920.0), "Left brings the one before in from the left");
+        s.apply(&mut kit, &mut engine, &mut home, 3900).expect("the view drawn");
+        assert_eq!(paging(&s, 0).2, vec![], "what slid out is let go");
+        std::mem::forget(h);
+    }
+
+    #[test]
+    fn the_map_takes_up_the_zoom_the_model_asks_for_and_a_zoom_about_the_pointer_moves_the_picture_to_keep_the_place_under_it() {
+        use super::super::radar_zoom::{Z_HOME, Z_MAX, scale_of};
+        let (h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let theme = lumatv_tokens::Tokens::shipped().json().clone();
+        let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
+        fixtures(&mut home);
+        weather_page(&mut home);
+        for (i, key) in ["down", "right", "right", "ok", "right"].into_iter().enumerate() {
+            press(&mut home, key, 2000 + 100 * i as u64);
+        }
+        assert!(home.radar.open, "the map page is up");
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        let taken = |s: &HomeSurface| s.weather_view.as_ref().and_then(|w| w.zoom_taken());
+        s.apply(&mut kit, &mut engine, &mut home, 2600).expect("the view drawn");
+        assert_eq!(taken(&s).map(|t| t.0), Some(Z_HOME), "taken up at the opening view");
+        // a notch about the middle: the target is taken up, and the picture keeps to the middle
+        home.update(&Input::Key { name: "wheelup".into(), down: true, repeat: false }, 2700);
+        s.apply(&mut kit, &mut engine, &mut home, 2710).expect("the view drawn");
+        let (target, pan) = taken(&s).expect("taken up");
+        assert_eq!(target, Z_HOME + 0.25);
+        assert_eq!(pan.at(scale_of(target)), (0.0, 0.0));
+        // a notch with the pointer shown: about it, so the picture is moved the other way from where the pointer is
+        home.update(&Input::Pointer { x: 1500.0, y: 300.0, buttons: 0, visible: true }, 2800);
+        for i in 0..4 {
+            home.update(&Input::Key { name: "wheelup".into(), down: true, repeat: false }, 2900 + i * 10);
+        }
+        s.apply(&mut kit, &mut engine, &mut home, 2950).expect("the view drawn");
+        let (target, pan) = taken(&s).expect("taken up");
+        assert_eq!(target, Z_MAX.min(Z_HOME + 0.25 + 1.0));
+        let (ox, oy) = pan.at(scale_of(target));
+        assert!(ox < 0.0 && oy > 0.0, "the pointer is up and to the right of the middle, so the picture moves down and to the left: {ox} {oy}");
+        std::mem::forget(h);
     }
 
     fn lint_home_with(mode: Mode, scale: f32, layout: Value, hours: bool) -> (Vec<crate::kit::lint::Finding>, usize) {

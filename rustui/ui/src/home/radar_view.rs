@@ -8,6 +8,7 @@
 //!
 //! The frames shown are the window the page wants: two hours of radar and six hours of the model's forecast ahead of it, marked as such.
 
+use super::radar_zoom::{Z_HOME, Z_WIDE, Zoom};
 use crate::kit::picture::{self, Picture};
 use crate::kit::screen::{Effect, Input};
 use serde_json::{Value, json};
@@ -78,6 +79,17 @@ impl Level {
             Level::Wide => 7,
         }
     }
+
+    /// The level whose pictures serve a view at `zoom`: the one whose map is at least as large as the screen shows, so that no edge of it is in view.
+    pub fn at(zoom: f32) -> Level {
+        if zoom >= Z_HOME {
+            Level::Home
+        } else if zoom >= Z_WIDE {
+            Level::Wide
+        } else {
+            Level::Globe
+        }
+    }
 }
 
 #[derive(Default)]
@@ -114,6 +126,8 @@ pub struct Radar {
     map_asked: Option<(Level, bool, u64)>,
     map_complete: bool,
     map_have: bool,
+    /// Where the view is going ([`super::radar_zoom`]); the surface eases the picture there.
+    pub zoom: Zoom,
     /// The globe: where it is seen from (longitude, latitude), its picture, and what was asked.
     pub globe_at: (f64, f64),
     /// How much of the earth is shown: 1, 1.7 or 2.8 times its size.
@@ -142,7 +156,8 @@ impl Radar {
 
     /// The page is opened for a place: the helper starts its engines.
     pub fn open(&mut self, lat: f64, lon: f64, level: Level, dark: bool, now: u64) -> Vec<Effect> {
-        *self = Radar { open: true, level: Some(level), globe_at: (lon, lat.clamp(-70.0, 70.0)), globe_zoom: 1.0, lat, lon, dark, playing: true, next_tag: TAG_FRAME_FIRST, next_poll: now + POLL_LOADING_MS, status: "loading".into(), ..Radar::default() };
+        let zoom = self.zoom;
+        *self = Radar { open: true, level: Some(level), globe_at: (lon, lat.clamp(-70.0, 70.0)), globe_zoom: 1.0, lat, lon, dark, playing: true, zoom, next_tag: TAG_FRAME_FIRST, next_poll: now + POLL_LOADING_MS, status: "loading".into(), ..Radar::default() };
         vec![self.open_request()]
     }
 
@@ -181,11 +196,13 @@ impl Radar {
         out
     }
 
-    /// The globe turned: `dlon` and `dlat` degrees.
-    pub fn turn(&mut self, dlon: f64, dlat: f64, now: u64) -> Vec<Effect> {
-        let (lon, lat) = self.globe_at;
-        self.globe_at = ((lon + dlon + 540.0).rem_euclid(360.0) - 180.0, (lat + dlat).clamp(-70.0, 70.0));
-        self.ask(now)
+    /// Zooms `d` levels (in is positive) about `anchor`, a place on the screen (the pointer's) or none for the middle. The views the helper draws are
+    /// few, so the level that is asked for is the one the zoom is in: a zoom past a level's end asks for the next.
+    pub fn zoom_by(&mut self, d: f32, anchor: Option<(f32, f32)>, now: u64) -> Vec<Effect> {
+        if !self.open || !self.zoom.by(d, anchor) {
+            return Vec::new();
+        }
+        self.set_level(Level::at(self.zoom.target), now)
     }
 
     /// Frames inside the window, oldest first: what the page shows.
@@ -387,17 +404,15 @@ impl Radar {
         true
     }
 
-    /// A key of the page: Left and Right scrub (and hold the loop where it is), OK plays and holds, 1 and 2 are the two views.
+    /// A key of the page: the channel keys step the loop a frame back and ahead (and hold it where it is), OK plays and holds it. The zoom is
+    /// [`Radar::zoom_by`]; Left and Right are the view's pages.
     pub fn key(&mut self, name: &str, now: u64) -> (Vec<Effect>, bool) {
-        if self.level() == Level::Globe && matches!(name, "left" | "right" | "up" | "down" | "ok") {
-            return self.globe_key(name, now);
-        }
         match name {
-            "left" => {
+            "chdown" => {
                 self.playing = false;
                 (Vec::new(), self.step(-1, now))
             }
-            "right" => {
+            "chup" => {
                 self.playing = false;
                 (Vec::new(), self.step(1, now))
             }
@@ -406,29 +421,7 @@ impl Radar {
                 self.step_at = now + STEP_MS;
                 (Vec::new(), true)
             }
-            "1" => (self.set_level(Level::Home, now), true),
-            "2" => (self.set_level(Level::Wide, now), true),
-            "3" => (self.set_level(Level::Globe, now), true),
             _ => (Vec::new(), false),
-        }
-    }
-
-    fn globe_key(&mut self, name: &str, now: u64) -> (Vec<Effect>, bool) {
-        match name {
-            "left" => (self.turn(-20.0, 0.0, now), true),
-            "right" => (self.turn(20.0, 0.0, now), true),
-            "up" => (self.turn(0.0, 12.0, now), true),
-            "down" => (self.turn(0.0, -12.0, now), true),
-            _ => {
-                // OK steps the zoom 1, 1.7, 2.8 and then back to the whole earth turned to home
-                if self.globe_zoom < 2.0 {
-                    self.globe_zoom = if self.globe_zoom < 1.2 { 1.7 } else { 2.8 };
-                } else {
-                    self.globe_zoom = 1.0;
-                    self.globe_at = (self.lon, self.lat.clamp(-70.0, 70.0));
-                }
-                (self.ask(now), true)
-            }
         }
     }
 
@@ -462,6 +455,7 @@ impl Radar {
 
 #[cfg(test)]
 mod tests {
+    use super::super::radar_zoom::{Z_GLOBE, Z_MAX};
     use super::*;
 
     fn state(frames: &[(i64, u64, bool, u64)], have: usize, want: usize) -> Value {
@@ -550,7 +544,7 @@ mod tests {
         r.step(1, 7_000);
         assert_eq!(r.step_at, 7_000 + STEP_MS);
         r.playing = true;
-        let (_, _) = r.key("left", 6_000);
+        let (_, _) = r.key("chdown", 6_000);
         assert!(!r.playing, "a scrub holds the loop");
         let (_, _) = r.key("ok", 6_100);
         assert!(r.playing, "OK plays again");
@@ -568,5 +562,31 @@ mod tests {
         assert_eq!(r.close(), vec![Effect::Post { path: "/v1/wx/close".into(), body: json!({}) }]);
         assert!(!r.open);
         assert!(r.close().is_empty());
+    }
+
+    #[test]
+    fn the_zoom_is_kept_across_the_levels_it_asks_for_and_starts_over_when_the_page_is_left() {
+        let mut r = Radar::default();
+        r.open(33.7, -84.4, Level::Home, false, 0);
+        assert_eq!(r.zoom.target, Z_HOME);
+        assert!(r.zoom_by(0.25, None, 10).is_empty(), "still the opening level: nothing is asked of the helper");
+        let out = r.zoom_by(-1.5, None, 20);
+        assert_eq!((r.level(), r.zoom.target), (Level::Wide, Z_HOME - 1.25));
+        assert!(matches!(&out[0], Effect::Request { body: Some(b), .. } if b["zoom"] == 4), "the wide level is asked for: {out:?}");
+        r.zoom_by(-1.0, None, 30);
+        r.zoom_by(-2.0, None, 40);
+        assert_eq!((r.level(), r.zoom.target), (Level::Globe, Z_HOME - 4.25));
+        assert!(r.zoom_by(-9.0, None, 50).len() <= 2 && r.zoom.target == Z_GLOBE, "clamped at the globe");
+        assert!(r.zoom_by(-1.0, None, 60).is_empty(), "and nothing more is asked there");
+        r.zoom_by(9.0, None, 70);
+        assert_eq!((r.level(), r.zoom.target), (Level::Home, Z_MAX));
+        r.close();
+        assert_eq!(r.zoom.target, Z_HOME);
+        assert!(r.zoom_by(1.0, None, 80).is_empty(), "closed: no zoom");
+    }
+
+    #[test]
+    fn the_level_serves_the_views_whose_edges_it_covers() {
+        assert_eq!([Level::at(Z_MAX), Level::at(Z_HOME), Level::at(8.99), Level::at(Z_WIDE), Level::at(6.99), Level::at(Z_GLOBE)], [Level::Home, Level::Home, Level::Wide, Level::Wide, Level::Globe, Level::Globe]);
     }
 }

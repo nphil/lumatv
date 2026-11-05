@@ -9,6 +9,7 @@ use super::dock::{APPS_TILE, Dock};
 use super::editor::{Editor, EditorOut};
 use super::grid::{self, Entry, Rect};
 use super::picker::{Picker, PickerOut};
+use super::radar_zoom::{KEY_STEP, WHEEL_STEP};
 use super::popover::{self, Done, Popover};
 use super::search::{Search, SearchOut};
 use super::onhome::layout::Metrics;
@@ -1327,11 +1328,7 @@ impl Home {
                 if self.layer == Layer::Picker {
                     self.picker_key(name, None, out);
                     self.redraw(out);
-                } else if self.layer == Layer::Weather {
-                    // the radar page's views are 1 Home, 2 Region, 3 Globe
-                    self.weather_key(name, None, out);
-                    self.redraw(out);
-                } else {
+                } else if self.layer != Layer::Weather {
                     self.digit(d, out);
                 }
             }
@@ -1796,8 +1793,24 @@ impl Home {
         self.active && self.layer == Layer::None && self.smarts.iter().any(|(_, s)| s.plan().max_offset() > 0)
     }
 
-    /// A notch of the wheel: the smart-home card under the pointer scrolls a stride, the other way back.
+    /// Whether the keys of the map page that Home has to ask the compositor for by name are in use: the wheel zooms the map and the channel keys step
+    /// its loop.
+    pub fn radar_takes_keys(&self) -> bool {
+        self.active && self.layer == Layer::Weather && self.wview.page == super::weather_view::Page::Radar
+    }
+
+    /// A notch of the wheel: the smart-home card under the pointer scrolls a stride, the other way back; on the map it zooms, about the pointer when the
+    /// pointer is shown and about the middle of the map when not (a wheel turned towards the viewer zooms out).
     fn wheel(&mut self, down: bool, out: &mut Vec<Effect>) {
+        if self.layer == Layer::Weather {
+            if self.radar_takes_keys() && self.radar.open {
+                let anchor = self.cursor_visible.then_some(self.pointer_at);
+                let by = if down { -WHEEL_STEP } else { WHEEL_STEP };
+                out.extend(self.radar.zoom_by(by, anchor, self.now));
+                self.redraw(out);
+            }
+            return;
+        }
         if self.layer != Layer::None {
             return;
         }
@@ -2593,13 +2606,30 @@ impl Home {
     }
 
     fn weather_key(&mut self, name: &str, dir: Option<Dir>, out: &mut Vec<Effect>) {
-        let globe = self.radar.open && self.radar.level() == super::radar_view::Level::Globe;
-        if self.wview.page == super::weather_view::Page::Radar && (matches!(name, "left" | "right" | "ok" | "1" | "2" | "3") || (globe && matches!(name, "up" | "down"))) {
-            let (fx, _) = self.radar.key(name, self.now);
-            out.extend(fx);
-            return;
+        // Left and Right are the view's pages on every page; on the map the rest of the remote is the map's: Up and Down zoom, OK plays and holds the
+        // loop, the channel keys step it
+        if self.wview.page == super::weather_view::Page::Radar {
+            let zoom = match dir {
+                Some(Dir::Up) => Some(KEY_STEP),
+                Some(Dir::Down) => Some(-KEY_STEP),
+                _ => None,
+            };
+            if let Some(d) = zoom {
+                out.extend(self.radar.zoom_by(d, None, self.now));
+                return;
+            }
+            if matches!(name, "ok" | "chup" | "chdown") {
+                let (fx, _) = self.radar.key(name, self.now);
+                out.extend(fx);
+                return;
+            }
         }
-        if self.wview.key(name, dir == Some(Dir::Up), dir == Some(Dir::Down)) == super::weather_view::Done::Close {
+        let step = match dir {
+            Some(Dir::Left) => -1,
+            Some(Dir::Right) => 1,
+            _ => 0,
+        };
+        if self.wview.key(name, step) == super::weather_view::Done::Close {
             self.close_layer();
         }
         self.sync_radar(out);
@@ -3184,7 +3214,7 @@ mod tests {
     }
 
     #[test]
-    fn ok_on_the_weather_card_opens_the_weather_view_up_and_down_walk_it_and_back_closes() {
+    fn ok_on_the_weather_card_opens_the_weather_view_left_and_right_walk_it_and_back_closes() {
         let mut h = home();
         // down from the status bar to the cards, then right along them to the weather card
         press(&mut h, "down", 1100);
@@ -3200,15 +3230,22 @@ mod tests {
         assert_eq!(h.state()["layer"], "weather");
         assert!(h.weather_view_runs() && !h.weather_art_runs(), "the view's picture moves, the card's under it does not");
         assert_eq!(h.wview.page, super::super::weather_view::Page::Now);
-        press(&mut h, "up", 2100);
-        assert_eq!(h.wview.page, super::super::weather_view::Page::Now, "nothing above the first page");
-        press(&mut h, "down", 2200);
+        press(&mut h, "left", 2100);
+        assert_eq!(h.wview.page, super::super::weather_view::Page::Now, "nothing before the first page");
+        press(&mut h, "down", 2150);
+        assert_eq!(h.wview.page, super::super::weather_view::Page::Now, "Down no longer pages");
+        press(&mut h, "right", 2200);
         assert_eq!(h.wview.page, super::super::weather_view::Page::Radar);
         assert!(h.radar.open || h.weather.pointer("/doc/lat").is_none(), "the helper's radar is asked for when the page comes (with a place to ask for)");
-        press(&mut h, "down", 2250);
+        press(&mut h, "right", 2250);
         assert_eq!(h.wview.page, super::super::weather_view::Page::Details);
         assert!(!h.radar.open, "and let go when the page goes");
-        press(&mut h, "down", 2400);
+        press(&mut h, "right", 2400);
+        assert_eq!(h.wview.page, super::super::weather_view::Page::Details, "nor is there a page after the last");
+        press(&mut h, "down", 2450);
+        press(&mut h, "left", 2460);
+        assert_eq!(h.wview.page, super::super::weather_view::Page::Radar, "Left goes back");
+        press(&mut h, "right", 2470);
         assert_eq!(h.wview.page, super::super::weather_view::Page::Details);
         press(&mut h, "back", 2500);
         assert_eq!(h.layer, Layer::None, "Back closes it");
@@ -3218,6 +3255,69 @@ mod tests {
         assert_eq!(h.wview.page, super::super::weather_view::Page::Now);
         let out = h.update(&Input::Helper { topic: "weather.more".into(), data: json!({"doc": {"hourly": []}}) }, 3100);
         assert!(out.contains(&Effect::Redraw));
+    }
+
+    #[test]
+    fn on_the_map_the_wheel_and_up_and_down_zoom_between_the_whole_earth_and_the_closest_view_and_left_and_right_still_page() {
+        use super::super::radar_zoom::{KEY_STEP, WHEEL_STEP, Z_GLOBE, Z_HOME, Z_MAX};
+        use super::super::weather_view::Page;
+        let mut h = home();
+        h.update(&Input::Helper { topic: "weather".into(), data: json!({"doc": {"lat": 33.75, "lon": -84.39, "display": {"place": "Atlanta"}}}) }, 1002);
+        press(&mut h, "down", 1100);
+        for i in 0..6 {
+            if h.focus.current().and_then(|id| h.widget_of(id)) == Some("weather") {
+                break;
+            }
+            press(&mut h, "right", 1200 + i * 100);
+        }
+        press(&mut h, "ok", 2000);
+        let wheel = |h: &mut Home, name: &str, at: u64| {
+            h.update(&Input::Key { name: name.into(), down: true, repeat: false }, at);
+            h.update(&Input::Key { name: name.into(), down: false, repeat: false }, at + 5);
+        };
+        wheel(&mut h, "wheelup", 2050);
+        assert!(!h.radar.open && h.radar.zoom.target == Z_HOME, "the wheel does nothing off the map");
+        assert!(!h.radar_takes_keys(), "and the compositor is not asked for it there");
+        press(&mut h, "right", 2100);
+        assert_eq!(h.wview.page, Page::Radar);
+        assert!(h.radar.open && h.radar_takes_keys(), "on the map the wheel and the channel keys are Home's");
+        assert!(h.radar.zoom_by(0.0, None, 0).is_empty() && h.radar.zoom.target == Z_HOME, "it opens at the home view");
+        // wheel up zooms in a notch, wheel down out, about the middle of the map with no pointer
+        wheel(&mut h, "wheelup", 2200);
+        assert_eq!((h.radar.zoom.target, h.radar.zoom.anchor), (Z_HOME + WHEEL_STEP, None));
+        wheel(&mut h, "wheeldown", 2300);
+        wheel(&mut h, "wheeldown", 2400);
+        assert_eq!(h.radar.zoom.target, Z_HOME - WHEEL_STEP);
+        // with the pointer shown the zoom is about it
+        h.update(&Input::Pointer { x: 1500.0, y: 300.0, buttons: 0, visible: true }, 2450);
+        wheel(&mut h, "wheelup", 2500);
+        assert_eq!((h.radar.zoom.target, h.radar.zoom.anchor), (Z_HOME, Some((1500.0, 300.0))));
+        // Up and Down zoom the same way, a step each
+        press(&mut h, "up", 2600);
+        assert_eq!((h.radar.zoom.target, h.radar.zoom.anchor), (Z_HOME + KEY_STEP, None));
+        press(&mut h, "down", 2700);
+        assert_eq!(h.radar.zoom.target, Z_HOME);
+        assert_eq!(h.wview.page, Page::Radar, "neither pages");
+        // the ends: no further than the closest view, and no further out than the whole earth
+        for i in 0..20 {
+            wheel(&mut h, "wheelup", 3000 + i * 10);
+        }
+        assert_eq!(h.radar.zoom.target, Z_MAX);
+        wheel(&mut h, "wheelup", 3300);
+        assert_eq!(h.radar.zoom.target, Z_MAX, "the clamp holds");
+        for i in 0..40 {
+            wheel(&mut h, "wheeldown", 4000 + i * 10);
+        }
+        assert_eq!(h.radar.zoom.target, Z_GLOBE);
+        assert_eq!(h.radar.level(), super::super::radar_view::Level::Globe, "all the way out is the globe");
+        wheel(&mut h, "wheeldown", 5000);
+        assert_eq!((h.radar.zoom.target, h.wview.page), (Z_GLOBE, Page::Radar), "and a wheel past it neither zooms nor leaves the page");
+        // the digits are no keys of the view now, and Left and Right page
+        press(&mut h, "3", 5100);
+        assert_eq!(h.radar.zoom.target, Z_GLOBE);
+        press(&mut h, "left", 5200);
+        assert_eq!(h.wview.page, Page::Now);
+        assert!(!h.radar.open && h.radar.zoom.target == Z_HOME, "leaving the map lets its view go: it opens at the home view again");
     }
 
     #[test]

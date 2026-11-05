@@ -47,7 +47,7 @@ import rust_home_host as home  # noqa: E402  (Home's make-believe feeds)
 BIN = os.environ.get('LUMATV_UI_BIN') or os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
 FRAME = re.compile(r"^\[frame\] (\d+) at (\d+) ms: damage (\d+) px, drew (\d+) px in (\d+) rects \([\d.]+ %\), layers (\d+) culled \d+ cpu (\d+) us gpu \d+ us"
                    r".*? floor (\d+) px apply (\d+) us", re.M)
-SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast', 'onhome', 'guide', 'banner', 'camera-popup']
+SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast', 'onhome', 'guide', 'banner', 'camera-popup', 'weather-zoom']
 #: when a walk starts: Home has drawn its feeds and rests
 START_MS = 6000
 #: the layers a 120 Hz refresh holds (1.5 ms + 0.085 ms a layer <= 8.3 ms)
@@ -169,6 +169,66 @@ class FakeHelper(http.server.BaseHTTPRequestHandler):
 
 
 
+def png(w, h, pixel_row):
+    """A PNG of `w` by `h` whose row `y` is `pixel_row(y)` (RGBA bytes, `w` pixels)."""
+    raw = b''.join(b'\x00' + pixel_row(y) for y in range(h))
+    chunk = lambda kind, data: struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))  # noqa: E731
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw, 1)) + chunk(b'IEND', b'')
+
+
+class FakeWx(FakeHelper):
+    """The helper's weather service for the weather view's map (`/v1/wx/...`): a map, a loop of frames and a globe, made up here, at the sizes the
+    helper draws them (1920 by 1080 map, 2048 px frames, a 760 px globe), so that the map's layers weigh what they do on the set."""
+
+    LAT, LON = 33.75, -84.39
+    maps = {}
+    frames = {}
+    zoom = 6
+
+    @classmethod
+    def prepare(cls):
+        cls.maps['map'] = png(1920, 1080, lambda y: bytes((200 - y % 90, 214 - y % 60, 226 - y % 40, 255)) * 1920)
+        cls.maps['globe'] = png(760, 760, lambda y: bytes((30, 70 + y % 80, 140, 255)) * 760)
+        cls.maps['frame'] = png(2048, 2048, lambda y: bytes((60, 170, 190, 150 if 600 < y < 1400 else 0)) * 2048)
+
+    def pic(self, kind):
+        body = self.maps[kind]
+        self.send_response(200)
+        self.send_header('Content-Type', 'image/png')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def state(self):
+        # the frames' times are fixed for a quarter of an hour, as the helper's are: a clock that moved with every ask would make every frame another one
+        now = int(time.time()) // 900 * 900
+        frames = [[now - 7200 + i * 900, 0 if i < 8 else 1, True, 0] for i in range(17)]
+        side = 2048 / (256 * 2 ** (self.zoom + 3))
+        wx, wy = (self.LON + 180) / 360, 0.5 - math.log(math.tan(math.pi / 4 + math.radians(self.LAT) / 2)) / (2 * math.pi)
+        return {"status": "ready", "have": len(frames), "want": len(frames), "frames": frames, "framePx": 2048, "attribution": "fake", "now": now, "newest": now - 300,
+                "extent": {"x0": wx - side / 2, "y0": wy - side / 2, "x1": wx + side / 2, "y1": wy + side / 2}}
+
+    def do_GET(self):
+        path = self.path.partition('?')[0]
+        if path == '/v1/wx/state':
+            return self.reply(self.state())
+        if path == '/v1/wx/map':
+            return self.pic('map')
+        if path == '/v1/wx/frame':
+            return self.pic('frame')
+        if path == '/v1/wx/globe':
+            return self.pic('globe')
+        return super().do_GET()
+
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get('Content-Length') or 0))
+        if self.path == '/v1/wx/open':
+            type(self).zoom = int((json.loads(body or b'{}')).get('zoom') or 6)
+            return self.reply(self.state())
+        self.reply({"ok": True})
+
+
 class Walk:
     """A walk's keys and pushes on the harness's time, and the windows its frames are read in."""
 
@@ -243,6 +303,41 @@ def walk_of(surface):
             w.mark('toast %d' % n)
             w.push('show', {'kind': 'toast', 'n': n, 'page': 'Placement check|A toast for the gate'})
             w.wait(7000)
+    elif surface == 'weather-zoom':
+        # from the status bar down to the weather card and OK on it, Right to the map, the frames loading, then the wheel: in a flick, out a flick to the
+        # globe and back, one notch at a time, and a rest
+        w.mark('open')
+        for name in ('down', 'right', 'right'):
+            w.press(name)
+            w.wait(200)
+        w.press('ok')
+        w.wait(1200)
+        w.mark('map loading')
+        w.press('right')
+        w.wait(9000)
+        w.mark('zoom in')
+        for _ in range(12):
+            w.key('wheelup')
+            w.wait(45)
+        w.wait(1200)
+        w.mark('zoom out to the globe')
+        for _ in range(40):
+            w.key('wheeldown')
+            w.wait(45)
+        w.wait(1500)
+        w.mark('zoom back')
+        for _ in range(30):
+            w.key('wheelup')
+            w.wait(45)
+        w.wait(1500)
+        w.mark('notches')
+        for _ in range(4):
+            w.key('wheelup')
+            w.wait(500)
+        w.wait(1000)
+        w.mark('rest')
+        w.wait(2000)
+        w.mark('end')
     elif surface == 'banner':
         w.mark('launch')
         w.push('foreground', LIVE_TV)
@@ -502,6 +597,14 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
         with open(os.path.join(data, 'theme', 'layout.json'), 'w') as f:
             json.dump(ONHOME_LAYOUT, f)
         server = http.server.ThreadingHTTPServer(('127.0.0.1', HELPER_PORT), FakeHelper)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        extra = ['--port', str(HELPER_PORT), '--helper-port', str(HELPER_PORT)]
+    elif surface == 'weather-zoom':
+        weather = home.weather()
+        weather['doc'].update({"lat": FakeWx.LAT, "lon": FakeWx.LON, "place": "Atlanta"})
+        feeds['weather'] = weather
+        FakeWx.prepare()
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', HELPER_PORT), FakeWx)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         extra = ['--port', str(HELPER_PORT), '--helper-port', str(HELPER_PORT)]
     elif surface == 'camera-popup':

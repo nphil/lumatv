@@ -14,6 +14,7 @@ pub mod onhome;
 pub mod picker;
 pub mod radar_surface;
 pub mod radar_view;
+pub mod radar_zoom;
 pub mod popover;
 pub mod search;
 pub mod stills;

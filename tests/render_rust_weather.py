@@ -160,9 +160,38 @@ def render_view(run, case, mode, scale, tmp, pages=('now', 'details')):
     for p in ('now', 'radar', 'details'):
         if p in pages:
             steps.append(['--snap', '%d:%s' % (t, names[p])])
-        steps.append(H.RustHome.k(t + 300, 'down'))
+        steps.append(H.RustHome.k(t + 300, 'right'))
         t += 3500
     run.host(t + 1500, steps, case, mode=mode, scale=scale)
+    return names
+
+
+def render_paging(run, case, mode, tmp):
+    """Right and Left between the view's pages: each page at rest, and a moment into each slide (the spring takes about 270 ms, so these are at 90, 140
+    and 190 ms after the key). Returns the names in the order of the keys."""
+    steps = [keys_to_card()]
+    names = []
+
+    def snap(ms, name):
+        path = os.path.join(tmp, 'paging-%s.png' % name)
+        names.append((name, path))
+        steps.append(['--snap', '%d:%s' % (ms, path)])
+
+    snap(6000, '1-now')
+    steps.append(H.RustHome.k(6200, 'right'))
+    for d in (90, 140, 190):
+        snap(6200 + d, '2-now-to-radar-%d' % d)
+    snap(7600, '3-radar')
+    steps.append(H.RustHome.k(7800, 'right'))
+    for d in (90, 140, 190):
+        snap(7800 + d, '4-radar-to-details-%d' % d)
+    snap(9200, '5-details')
+    steps.append(H.RustHome.k(9400, 'left'))
+    for d in (90, 140, 190):
+        snap(9400 + d, '6-details-to-radar-%d' % d)
+    snap(10800, '7-radar-again')
+    # on the virtual clock, a frame a refresh at 60 Hz: the slide's moments are then where the times say, not where a loaded host got to
+    run.host(11500, steps, case, mode=mode, extra=['--virtual', '--refresh', '60'])
     return names
 
 
@@ -218,29 +247,24 @@ def thumb_x(path):
     return sum(hits) / len(hits) if hits else None
 
 
-def render_radar(binary, helper, case, mode, scale, tmp, level='1', at=38000):
+def render_radar(binary, helper, case, mode, scale, tmp, at=38000):
     """The radar page: OK on the card, Down to the radar, the frames and the map coming from the helper. The loop plays (a frame in half a second), so
-    the local view is taken many times over one loop and the render picked is the one with the thumb on the Now tick, and one in the forecast: returns
-    (now, forecast); the globe is one picture (forecast is None)."""
+    the view is taken many times over one loop and the render picked is the one with the thumb on the Now tick, and one in the forecast: returns
+    (now, forecast)."""
     SH.BIN = binary
-    many = level == '1'
-    times = [at + i * 1100 for i in range(21)] if many else [at]
-    names = [os.path.join(tmp, 'radar-%s-%s-%s-%s-%02d.png' % (case, mode, scale or 1, level, i)) for i in range(len(times))]
+    times = [at + i * 1100 for i in range(21)]
+    names = [os.path.join(tmp, 'radar-%s-%s-%s-%02d.png' % (case, mode, scale or 1, i)) for i in range(len(times))]
     now_ms = int(time.time() * 1000)
     feeds = {"weather": reading(case, now_ms), "weather.more": more(case, now_ms)}
     # the shell's clock is the real one here, as the helper's is
     extra = ['--push', '50:foreground:' + json.dumps(H.HOME)]
     for topic, doc in feeds.items():
         extra += ['--helper', '100:%s:%s' % (topic, json.dumps(doc))]
-    for step in (keys_to_card(), H.RustHome.k(5000, 'down')):
+    for step in (keys_to_card(), H.RustHome.k(5000, 'right')):
         extra += step
-    if level != '1':
-        extra += H.RustHome.k(at - 4000, level)
     for t, n in zip(times, names):
         extra += ['--snap', '%d:%s' % (t, n)]
     SH.run(wait=times[-1] + 1500, extra=extra, helper=helper, kinds='home', text_scale=scale or 1.0, mode=mode, timeout=400)
-    if not many:
-        return names[0], None
     found = [(thumb_x(n), n) for n in names if os.path.exists(n)]
     found = [(x, n) for x, n in found if x is not None]
     if not found:
@@ -259,6 +283,74 @@ def render_radar(binary, helper, case, mode, scale, tmp, level='1', at=38000):
         return max(wet, key=lambda f: score[f[1]])[1] if wet else min(frames or found, key=lambda f: abs(f[0] - target))[1]
 
     return pick([f for f in found if f[0] <= here + 40], here), pick([f for f in found if f[0] >= here + 150], soon)
+
+
+class FakeWxHelper:
+    """The helper's weather service made up (`host_budget.FakeWx`: a map, a loop of frames and a globe at the sizes the helper draws them), with a map
+    that is a grid of 1 px lines every 96 px and a coarser one every 480, so that a zoom shows as the lines' spacing and the picture's softness. The real
+    helper's radar needs the owner's token and the network; this is what the shell does with the pictures, not what the pictures are."""
+
+    def __init__(self):
+        import host_budget as B
+        B.FakeWx.prepare()
+
+        def row(y):
+            if y % 96 == 0:
+                return bytes((120, 128, 140, 255)) * 1920
+            line = bytearray(bytes((222, 228, 234, 255)) * 1920)
+            for x in range(0, 1920, 96):
+                line[x * 4:x * 4 + 3] = bytes((120, 128, 140)) if x % 480 else bytes((60, 70, 90))
+            return bytes(line)
+        B.FakeWx.maps['map'] = B.png(1920, 1080, row)
+        self.server = B.http.server.ThreadingHTTPServer(('127.0.0.1', 0), B.FakeWx)
+        self.port = self.server.server_address[1]
+
+    def start(self):
+        import threading
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        return self
+
+    def stop(self):
+        pass
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def render_zoom(binary, helper, tmp, mode='dark'):
+    """The map page at four zooms: the opening view, the closest view (two levels in, after a flick of the wheel), the wide view and the whole earth (a flick
+    of the wheel out, which stops at the globe). Returns [(name, path)]."""
+    SH.BIN = binary
+    now_ms = int(time.time() * 1000)
+    feeds = {"weather": reading('rain', now_ms), "weather.more": more('rain', now_ms)}
+    extra = ['--push', '50:foreground:' + json.dumps(H.HOME)]
+    for topic, doc in feeds.items():
+        extra += ['--helper', '100:%s:%s' % (topic, json.dumps(doc))]
+    for step in (keys_to_card(), H.RustHome.k(5000, 'right')):
+        extra += step
+    shots = []
+
+    def wheel(at, name, n):
+        nonlocal extra
+        for i in range(n):
+            extra += ['--key', '%d:%s' % (at + 60 * i, name)]
+
+    def snap(at, name):
+        nonlocal extra
+        path = os.path.join(tmp, 'zoom-%s-%s.png' % (name, mode))
+        shots.append((name, path))
+        extra += ['--snap', '%d:%s' % (at, path)]
+
+    snap(9000, '1-opening-view')
+    wheel(10000, 'wheelup', 8)
+    snap(12500, '2-closest-view')
+    wheel(13500, 'wheeldown', 10)
+    snap(17000, '3-wide-view')
+    wheel(18000, 'wheeldown', 30)
+    snap(23000, '4-whole-earth')
+    SH.run(wait=24500, extra=extra, helper=helper, kinds='home', text_scale=1.0, mode=mode, timeout=700)
+    return shots
 
 
 def echo(path):
@@ -360,7 +452,7 @@ def before_after(out, tmp, base='fd0c9687'):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=OUT)
-    ap.add_argument('--only', default='card,view,radar')
+    ap.add_argument('--only', default='card,view,radar', help='card, view, radar, zoom, paging, sheet')
     ap.add_argument('--bin', default=os.environ.get('LUMATV_BIN', H.BIN))
     ap.add_argument('--jobs', type=int, default=6)
     ap.add_argument('--cases', default=','.join(CASES))
@@ -405,6 +497,20 @@ def main():
                         if os.path.exists(src):
                             jpeg(src, os.path.join(args.out, 'weather-view-%s-%s-%s-text%d.jpg' % (page, c, mode, int(scale * 100))))
                             print('wrote', page, c, mode, scale)
+    if 'zoom' in only:
+        helper = FakeWxHelper()
+        try:
+            for name, src in render_zoom(args.bin, helper, tmp):
+                if os.path.exists(src):
+                    jpeg(src, os.path.join(args.out, 'weather-zoom-%s.jpg' % name))
+                    print('wrote zoom', name)
+        finally:
+            helper.close()
+    if 'paging' in only:
+        for name, src in render_paging(run, 'rain', 'dark', tmp):
+            if os.path.exists(src):
+                jpeg(src, os.path.join(args.out, 'weather-paging-%s.jpg' % name))
+                print('wrote paging', name)
     if 'radar' in only:
         helper = Helper(args.helper_bin, args.helper_port)
         try:
@@ -412,14 +518,12 @@ def main():
                 for scale in [float(s) for s in args.scales.split(',')]:
                     sc = None if scale == 1 else scale
                     for case in args.radar_cases.split(','):
-                        for level in ('1', '3') if (mode == 'dark' and scale == 1) else ('1',):
-                            src, ahead = render_radar(args.bin, helper, case, mode, sc, tmp, level=level, at=args.radar_at)
-                            if os.path.exists(src):
-                                lvl = {'1': 'local', '2': 'region', '3': 'globe'}[level]
-                                jpeg(src, os.path.join(args.out, 'weather-radar-%s-%s-%s-text%d.jpg' % (case, lvl, mode, int(scale * 100))))
-                                print('wrote radar', case, lvl, mode, scale)
-                                if ahead and mode == 'dark' and scale == 1:
-                                    jpeg(ahead, os.path.join(args.out, 'weather-radar-%s-forecast-%s-text%d.jpg' % (case, mode, int(scale * 100))))
+                        src, ahead = render_radar(args.bin, helper, case, mode, sc, tmp, at=args.radar_at)
+                        if os.path.exists(src):
+                            jpeg(src, os.path.join(args.out, 'weather-radar-%s-local-%s-text%d.jpg' % (case, mode, int(scale * 100))))
+                            print('wrote radar', case, mode, scale)
+                            if ahead and mode == 'dark' and scale == 1:
+                                jpeg(ahead, os.path.join(args.out, 'weather-radar-%s-forecast-%s-text%d.jpg' % (case, mode, int(scale * 100))))
         finally:
             helper.close()
     if 'sheet' in only:
