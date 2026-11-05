@@ -1,0 +1,517 @@
+{
+ "channels": [
+  {
+   "callSign": "WSBDT",
+   "affiliateName": "AMERICAN BROADCASTING COMPANY",
+   "affiliateCallSign": "null",
+   "channelId": "19586",
+   "channelNo": "2.1",
+   "events": [
+    {
+     "callSign": "WSBDT",
+     "duration": "60",
+     "startTime": "2026-11-05T18:00:00Z",
+     "endTime": "2026-11-05T19:00:00Z",
+     "thumbnail": "p30687311_b_v13_aa",
+     "channelNo": "2.1",
+     "filter": [
+      "filter-news"
+     ],
+     "seriesId": "SH05918266",
+     "rating": "TV-PG",
+     "flag": [
+      "New"
+     ],
+     "tags": [
+      "Stereo",
+      "CC"
+     ],
+     "program": {
+      "title": "GMA3",
+      "id": "EP059182660362",
+      "tmsId": "EP059182660362",
+      "shortDesc": "Actress Lacey Chabert; Good Housekeeping's 2027 Kitchen Awards; Deals & Steals with Tory Johnson.",
+      "season": "7",
+      "releaseYear": null,
+      "episode": "34",
+      "episodeTitle": null,
+      "seriesId": "SH05918266",
+      "isGeneric": "0"
+     }
+    },
+    {
+     "callSign": "WSBDT",
+     "duration": "60",
+     "startTime": "2026-11-05T19:00:00Z",
+     "endTime": "2026-11-05T20:00:00Z",
+     "thumbnail": "p183893_b_v9_ao",
+     "channelNo": "2.1",
+     "filter": [],
+     "seriesId": "SH00001807",
+     "rating": "TV-14",
+     "flag": [
+      "New"
+     ],
+     "tags": [
+      "Stereo",
+      "CC"
+     ],
+     "program": {
+      "title": "General Hospital",
+      "id": "EP000018078775",
+      "tmsId": "EP000018078775",
+      "shortDesc": "Tracy places her trust in Jason; Sonny tries to tempt Jude; Emma and Gio are suspicious; Alexis pushes back; Serena makes a risky offer.",
+      "season": "64",
+      "releaseYear": null,
+      "episode": "43",
+      "episodeTitle": null,
+      "seriesId": "SH00001807",
+      "isGeneric": "0"
+     }
+    },
+    {
+     "callSign": "WSBDT",
+     "duration": "60",
+     "startTime": "2026-11-05T20:00:00Z",
+     "endTime": "2026-11-05T21:00:00Z",
+     "thumbnail": "p19307790_b_v13_aa",
+     "channelNo": "2.1",
+     "filter": [
+      "filter-news"
+     ],
+     "seriesId": "SH03736264",
+     "rating": null,
+     "flag": [
+      "New"
+     ],
+     "tags": [],
+     "program": {
+      "title": "Channel 2 Action News at 3:00PM",
+      "id": "SH037362640000",
+      "tmsId": "SH037362640000",
+      "shortDesc": "Stay informed with the latest breaking news and headlines.",
+      "season": null,
+      "releaseYear": null,
+      "episode": null,
+      "episodeTitle": null,
+      "seriesId": "SH03736264",
+      "isGeneric": "0"
+     }
+    }
+   ],
+   "id": "195860",
+   "stationGenres": [
+    false
+   ],
+   "stationFilters": [
+    "filter-news"
+   ],
+   "thumbnail": "//zpmc.tmsimg.com/h3/NowShowing/19586/s28708_ll_h15_ac.png?w=55"
+  },
+  {
+   "callSign": "WSBDT2",
+   "affiliateName": "BOUNCE TV",
+   "affiliateCallSign": "null",
+   "channelId": "59472",
+   "channelNo": "2.2",
+   "events": [
+    {
+     "callSign": "WSBDT2",
+     "duration": "60",
+     "startTime": "2026-11-05T18:00:00Z",
+     "endTime": "2026-11-05T19:00:00Z",
+     "thumbnail": "p1130417_e_v4_ab",
+     "channelNo": "2.2",
+     "filter": [],
+     "seriesId": "SH00002213",
+     "rating": "TV-14",
+     "flag": [],
+     "tags": [
+      "Stereo",
+      "CC"
+     ],
+     "program": {
+      "title": "In the Heat of the Night",
+      "id": "EP000022130049",
+      "tmsId": "EP000022130049",
+      "shortDesc": "Chief Gillespie refuses to point out the obvious suspect in the murder of Councilwoman DeLong's sister.",
+      "season": "3",
+      "releaseYear": null,
+      "episode": "21",
+      "episodeTitle": "Citizen Trundel",
+      "seriesId": "SH00002213",
+      "isGeneric": "0"
+     }
+    },
+    {
+     "callSign": "WSBDT2",
+     "duration": "60",
+     "startTime": "2026-11-05T19:00:00Z",
+     "endTime": "2026-11-05T20:00:00Z",
+     "thumbnail": "p1130421_e_v9_ab",
+     "channelNo": "2.2",
+     "filter": [],
+     "seriesId": "SH00002213",
+     "rating": "TV-14",
+     "flag": [],
+     "tags": [
+      "Stereo",
+      "CC"
+     ],
+     "program": {
+      "title": "In the Heat of the Night",
+      "id": "EP000022130053",
+      "tmsId": "EP000022130053",
+      "shortDesc": "Councilwoman DeLong ventures outside Sparta to find the powerful figure responsible for her sister's murder.",
+      "season": "3",
+      "releaseYear": null,
+      "episode": "22",
+      "episodeTitle": "Citizen Trundel",
+      "seriesId": "SH00002213",
+      "isGeneric": "0"
+     }
+    },
+    {
+     "callSign": "WSBDT2",
+     "duration": "60",
+     "startTime": "2026-11-05T20:00:00Z",
+     "endTime": "2026-11-05T21:00:00Z",
+     "thumbnail": "p1130426_e_v9_aa",
+     "channelNo": "2.2",
+     "filter": [],
+     "seriesId": "SH00002213",
+     "rating": "TV-14",
+     "flag": [],
+     "tags": [
+      "Stereo",
+      "CC"
+     ],
+     "program": {
+      "title": "In the Heat of the Night",
+      "id": "EP000022130058",
+      "tmsId": "EP000022130058",
+      "shortDesc": "While in Philadelphia to investigate a former partner's death, Virgil (Howard Rollins) is arrested for the murder of a city cop.",
+      "season": "4",
+      "releaseYear": null,
+      "episode": "1",
+      "episodeTitle": "Brotherly Love",
+      "seriesId": "SH00002213",
+      "isGeneric": "0"
+     }
+    }
+   ],
+   "id": "594721",
+   "stationGenres": [
+    false
+   ],
+   "stationFilters": [],
+   "thumbnail": "//zpmc.tmsimg.com/h3/NowShowing/59472/GNLZZGG003S4G2B.png?w=55"
+  },
+  {
+   "callSign": "WAGADT",
+   "affiliateName": "FOX ENTERTAINMENT",
+   "affiliateCallSign": "null",
+   "channelId": "20430",
+   "channelNo": "5.1",
+   "events": [
+    {
+     "callSign": "WAGADT",
+     "duration": "30",
+     "startTime": "2026-11-05T18:00:00Z",
+     "endTime": "2026-11-05T18:30:00Z",
+     "thumbnail": "p22843461_b_v13_aa",
+     "channelNo": "5.1",
+     "filter": [
+      "filter-talk"
+     ],
+     "seriesId": "SH04436199",
+     "rating": null,
+     "flag": [],
+     "tags": [],
+     "program": {
+      "title": "Portia",
+      "id": "SH044361990000",
+      "tmsId": "SH044361990000",
+      "shortDesc": "A community-minded lifestyle, focusing particularly on the needs of Black women; helps in informing, uplifting and enlightening through conversations about faith, family, health and social issues.",
+      "season": null,
+      "releaseYear": null,
+      "episode": null,
+      "episodeTitle": null,
+      "seriesId": "SH04436199",
+      "isGeneric": "0"
+     }
+    },
+    {
+     "callSign": "WAGADT",
+     "duration": "30",
+     "startTime": "2026-11-05T18:30:00Z",
+     "endTime": "2026-11-05T19:00:00Z",
+     "thumbnail": "p22843461_b_v13_aa",
+     "channelNo": "5.1",
+     "filter": [
+      "filter-talk"
+     ],
+     "seriesId": "SH04436199",
+     "rating": null,
+     "flag": [],
+     "tags": [],
+     "program": {
+      "title": "Portia",
+      "id": "SH044361990000",
+      "tmsId": "SH044361990000",
+      "shortDesc": "A community-minded lifestyle, focusing particularly on the needs of Black women; helps in informing, uplifting and enlightening through conversations about faith, family, health and social issues.",
+      "season": null,
+      "releaseYear": null,
+      "episode": null,
+      "episodeTitle": null,
+      "seriesId": "SH04436199",
+      "isGeneric": "0"
+     }
+    },
+    {
+     "callSign": "WAGADT",
+     "duration": "60",
+     "startTime": "2026-11-05T19:00:00Z",
+     "endTime": "2026-11-05T20:00:00Z",
+     "thumbnail": "p33937659_e_v10_aa",
+     "channelNo": "5.1",
+     "filter": [
+      "filter-news"
+     ],
+     "seriesId": "SH01541844",
+     "rating": "TV-PG",
+     "flag": [
+      "New"
+     ],
+     "tags": [
+      "Stereo",
+      "CC"
+     ],
+     "program": {
+      "title": "TMZ Live",
+      "id": "EP015418443567",
+      "tmsId": "EP015418443567",
+      "shortDesc": "A candid look at how the gossip site operates, bringing viewers into the site's newsroom, where the daily chats take place; viewers present their opinions on the featured topics through social media, phone calls and video chat.",
+      "season": "15",
+      "releaseYear": null,
+      "episode": "44",
+      "episodeTitle": null,
+      "seriesId": "SH01541844",
+      "isGeneric": "0"
+     }
+    }
+   ],
+   "id": "204306",
+   "stationGenres": [
+    false
+   ],
+   "stationFilters": [
+    "filter-talk",
+    "filter-news"
+   ],
+   "thumbnail": "//zpmc.tmsimg.com/h3/NowShowing/20430/s28719_ll_h15_ac.png?w=55"
+  },
+  {
+   "callSign": "WATLDT4",
+   "affiliateName": "NATIONAL BROADCASTING COMPANY",
+   "affiliateCallSign": "null",
+   "channelId": "112400",
+   "channelNo": "11.11",
+   "events": [
+    {
+     "callSign": "WATLDT4",
+     "duration": "60",
+     "startTime": "2026-11-05T18:00:00Z",
+     "endTime": "2026-11-05T19:00:00Z",
+     "thumbnail": "p22712535_b_v13_ad",
+     "channelNo": "11.11",
+     "filter": [
+      "filter-news"
+     ],
+     "seriesId": "SH04409468",
+     "rating": null,
+     "flag": [
+      "New"
+     ],
+     "tags": [
+      "Stereo",
+      "CC"
+     ],
+     "program": {
+      "title": "NBC News Daily",
+      "id": "EP044094681071",
+      "tmsId": "EP044094681071",
+      "shortDesc": "NBC News provides viewers with the latest national and international news; consumer, health and personal finance reporting; up-to-the-minute local news.",
+      "season": null,
+      "releaseYear": null,
+      "episode": "207",
+      "episodeTitle": null,
+      "seriesId": "SH04409468",
+      "isGeneric": "0"
+     }
+    },
+    {
+     "callSign": "WATLDT4",
+     "duration": "60",
+     "startTime": "2026-11-05T19:00:00Z",
+     "endTime": "2026-11-05T20:00:00Z",
+     "thumbnail": "p21805903_b_v13_ae",
+     "channelNo": "11.11",
+     "filter": [
+      "filter-talk"
+     ],
+     "seriesId": "SH04231920",
+     "rating": "TV-PG",
+     "flag": [
+      "New"
+     ],
+     "tags": [
+      "Stereo",
+      "CC"
+     ],
+     "program": {
+      "title": "The Jennifer Hudson Show",
+      "id": "EP042319200717",
+      "tmsId": "EP042319200717",
+      "shortDesc": "Shaboozey (album \"The Outlaw Cherie Lee & Other Western Tales\"); Joey Graziadei (movie \"The Holiday Spark\").",
+      "season": "5",
+      "releaseYear": null,
+      "episode": "39",
+      "episodeTitle": null,
+      "seriesId": "SH04231920",
+      "isGeneric": "0"
+     }
+    },
+    {
+     "callSign": "WATLDT4",
+     "duration": "60",
+     "startTime": "2026-11-05T20:00:00Z",
+     "endTime": "2026-11-05T21:00:00Z",
+     "thumbnail": "p33973696_b_v13_aa",
+     "channelNo": "11.11",
+     "filter": [
+      "filter-news"
+     ],
+     "seriesId": "SH06589484",
+     "rating": null,
+     "flag": [
+      "New"
+     ],
+     "tags": [],
+     "program": {
+      "title": "11Alive News at 3pm",
+      "id": "SH065894840000",
+      "tmsId": "SH065894840000",
+      "shortDesc": "Stay informed with the latest breaking news and headlines.",
+      "season": null,
+      "releaseYear": null,
+      "episode": null,
+      "episodeTitle": null,
+      "seriesId": "SH06589484",
+      "isGeneric": "0"
+     }
+    }
+   ],
+   "id": "11240025",
+   "stationGenres": [
+    false
+   ],
+   "stationFilters": [
+    "filter-news",
+    "filter-talk"
+   ],
+   "thumbnail": "//zpmc.tmsimg.com/h3/NowShowing/112400/s28717_ll_h15_ad.png?w=55"
+  },
+  {
+   "callSign": "WYGACD",
+   "affiliateName": "HOT 97",
+   "affiliateCallSign": "null",
+   "channelId": "68571",
+   "channelNo": "16.1",
+   "events": [
+    {
+     "callSign": "WYGACD",
+     "duration": "60",
+     "startTime": "2026-11-05T18:00:00Z",
+     "endTime": "2026-11-05T19:00:00Z",
+     "thumbnail": "p34313916_b_v13_aa",
+     "channelNo": "16.1",
+     "filter": [],
+     "seriesId": "SH06692195",
+     "rating": null,
+     "flag": [],
+     "tags": [],
+     "program": {
+      "title": "World Wide Wake Up Show",
+      "id": "SH066921950000",
+      "tmsId": "SH066921950000",
+      "shortDesc": null,
+      "season": null,
+      "releaseYear": null,
+      "episode": null,
+      "episodeTitle": null,
+      "seriesId": "SH06692195",
+      "isGeneric": "0"
+     }
+    },
+    {
+     "callSign": "WYGACD",
+     "duration": "30",
+     "startTime": "2026-11-05T19:00:00Z",
+     "endTime": "2026-11-05T19:30:00Z",
+     "thumbnail": "p11856997_b_v13_ac",
+     "channelNo": "16.1",
+     "filter": [],
+     "seriesId": "SH02204190",
+     "rating": null,
+     "flag": [],
+     "tags": [],
+     "program": {
+      "title": "Bridging Cultures",
+      "id": "SH022041900000",
+      "tmsId": "SH022041900000",
+      "shortDesc": "English Professor Kathy Najafi introduces viewers to different cultures around the world.",
+      "season": null,
+      "releaseYear": null,
+      "episode": null,
+      "episodeTitle": null,
+      "seriesId": "SH02204190",
+      "isGeneric": "0"
+     }
+    },
+    {
+     "callSign": "WYGACD",
+     "duration": "30",
+     "startTime": "2026-11-05T19:30:00Z",
+     "endTime": "2026-11-05T20:00:00Z",
+     "thumbnail": "p32036958_b_v13_ab",
+     "channelNo": "16.1",
+     "filter": [],
+     "seriesId": "SH06227896",
+     "rating": null,
+     "flag": [],
+     "tags": [],
+     "program": {
+      "title": "Funk Flex Freestyles",
+      "id": "SH062278960000",
+      "tmsId": "SH062278960000",
+      "shortDesc": null,
+      "season": null,
+      "releaseYear": null,
+      "episode": null,
+      "episodeTitle": null,
+      "seriesId": "SH06227896",
+      "isGeneric": "0"
+     }
+    }
+   ],
+   "id": "6857147",
+   "stationGenres": [
+    false
+   ],
+   "stationFilters": [],
+   "thumbnail": "//zpmc.tmsimg.com/h3/NowShowing/68571/GNLZZGG002N33QP.png?w=55"
+  }
+ ],
+ "headendname": "-"
+}

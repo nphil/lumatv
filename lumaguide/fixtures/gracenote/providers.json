@@ -1,0 +1,108 @@
+{
+ "DSTUTCOffset": "-240",
+ "StdUTCOffset": "-300",
+ "DSTEnd": "2026-11-01T02:00Z",
+ "DSTStart": "2026-03-08T02:00Z",
+ "primetime": "20",
+ "Providers": [
+  {
+   "type": "OTA",
+   "device": "",
+   "lineupId": "USA-lineupId-DEFAULT",
+   "name": "Local Over the Air Broadcast",
+   "location": "",
+   "timezone": "",
+   "isDefaultProvider": "BLANK",
+   "postalCode": "30311",
+   "headendId": "lineupId"
+  },
+  {
+   "type": "CABLE",
+   "device": "X",
+   "lineupId": "USA-GA67017-DEFAULT",
+   "name": "AT&T U-verse TV - Digital",
+   "location": "Atlanta",
+   "timezone": "",
+   "isDefaultProvider": "BLANK",
+   "postalCode": "30311",
+   "headendId": "GA67017"
+  },
+  {
+   "type": "CABLE",
+   "device": "X",
+   "lineupId": "USA-GA67745-DEFAULT",
+   "name": "Xfinity Atlanta - Digital",
+   "location": "Atlanta",
+   "timezone": "",
+   "isDefaultProvider": "BLANK",
+   "postalCode": "30311",
+   "headendId": "GA67745"
+  },
+  {
+   "type": "SATELLITE",
+   "device": "X",
+   "lineupId": "USA-DITV524-DEFAULT",
+   "name": "DIRECTV Atlanta - Satellite",
+   "location": "Atlanta",
+   "timezone": "",
+   "isDefaultProvider": "BLANK",
+   "postalCode": "30311",
+   "headendId": "DITV524"
+  },
+  {
+   "type": "SATELLITE",
+   "device": "X",
+   "lineupId": "USA-DISH524-DEFAULT",
+   "name": "DISH Atlanta - Satellite",
+   "location": "Atlanta",
+   "timezone": "",
+   "isDefaultProvider": "BLANK",
+   "postalCode": "30311",
+   "headendId": "DISH524"
+  },
+  {
+   "type": "SATELLITE",
+   "device": "X",
+   "lineupId": "USA-AFN-DEFAULT",
+   "name": "AFN Satellite - Satellite",
+   "location": "USA",
+   "timezone": "",
+   "isDefaultProvider": "BLANK",
+   "postalCode": "ALL",
+   "headendId": "AFN"
+  },
+  {
+   "type": "SATELLITE",
+   "device": "X",
+   "lineupId": "USA-DITV-DEFAULT",
+   "name": "DIRECTV - Satellite",
+   "location": "USA",
+   "timezone": "",
+   "isDefaultProvider": "BLANK",
+   "postalCode": "ALL",
+   "headendId": "DITV"
+  },
+  {
+   "type": "SATELLITE",
+   "device": "X",
+   "lineupId": "USA-ECHOST-DEFAULT",
+   "name": "DISH Network - Satellite",
+   "location": "USA",
+   "timezone": "",
+   "isDefaultProvider": "BLANK",
+   "postalCode": "ALL",
+   "headendId": "ECHOST"
+  },
+  {
+   "type": "SATELLITE",
+   "device": "X",
+   "lineupId": "USA-GLRYSTR-DEFAULT",
+   "name": "GLORYSTAR - Satellite",
+   "location": "USA",
+   "timezone": "",
+   "isDefaultProvider": "BLANK",
+   "postalCode": "ALL",
+   "headendId": "GLRYSTR"
+  }
+ ]
+}

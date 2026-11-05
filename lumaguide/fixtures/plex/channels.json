@@ -1,0 +1,55 @@
+{
+ "MediaContainer": {
+  "size": 5,
+  "Channel": [
+   {
+    "id": "5fc76c12598c41002dbe1231-5fc705e8a62668002dcef96e",
+    "gridKey": "5fc76c12598c41002dbe1231-5fc705e8a62668002dcef96e",
+    "vcn": "2.1",
+    "isHd": true,
+    "thumb": "https://provider-static.plex.tv/9/epg/channels/logos/gracenote/93af4c02f3056f3a3d19d818cab04128.png",
+    "title": "ABC",
+    "callSign": "WSBDT",
+    "language": "en"
+   },
+   {
+    "id": "5fc76c12598c41002dbe1231-5fc705e74c4901002fec3eb9",
+    "gridKey": "5fc76c12598c41002dbe1231-5fc705e74c4901002fec3eb9",
+    "vcn": "2.2",
+    "thumb": "https://provider-static.plex.tv/a/epg/channels/logos/gracenote/aba3bf5b4f90b40b2aa6b4b033365df9.png",
+    "title": "Bounce TV",
+    "callSign": "WSBDT2",
+    "language": "en"
+   },
+   {
+    "id": "5fc76c12598c41002dbe1231-5fc705fcdd53a6002d8f9399",
+    "gridKey": "5fc76c12598c41002dbe1231-5fc705fcdd53a6002d8f9399",
+    "vcn": "5.1",
+    "isHd": true,
+    "thumb": "https://provider-static.plex.tv/a/epg/channels/logos/gracenote/a411ac45fbc2747c67fa66490295cb8e.png",
+    "title": "FOX",
+    "callSign": "WAGADT",
+    "language": "en"
+   },
+   {
+    "id": "5fc76c12598c41002dbe1231-5fc705eca62668002dcefae7",
+    "gridKey": "5fc76c12598c41002dbe1231-5fc705eca62668002dcefae7",
+    "vcn": "11.11",
+    "isHd": true,
+    "thumb": "https://provider-static.plex.tv/9/epg/channels/logos/gracenote/9783f1d5a331cf0db5dec6fc43e7f108.png",
+    "title": "NBC",
+    "callSign": "WATLDT4",
+    "language": "en"
+   },
+   {
+    "id": "5fc76c12598c41002dbe1231-5fc705e24c4901002fec3d8b",
+    "gridKey": "5fc76c12598c41002dbe1231-5fc705e24c4901002fec3d8b",
+    "vcn": "16.1",
+    "thumb": "https://provider-static.plex.tv/c/epg/channels/logos/gracenote/cf21b962937d39f85badd6b278183e7a.png",
+    "title": "Hot 97",
+    "callSign": "WYGACD",
+    "language": "es"
+   }
+  ]
+ }
+}

@@ -1,0 +1,37 @@
+[
+    {
+        "programID": "EP059182660362",
+        "titles": [{"title120": "GMA3", "titleLanguage": "en"}],
+        "descriptions": {
+            "description1000": [{"descriptionLanguage": "en", "description": "Actress Lacey Chabert; Good Housekeeping's 2027 Kitchen Awards; Deals & Steals with Tory Johnson."}],
+            "description100": [{"descriptionLanguage": "en", "description": "Actress Lacey Chabert; kitchen awards."}]
+        },
+        "showType": "Series",
+        "entityType": "Episode",
+        "md5": "Sy8HEMBPcuiAx3FBukUhKQ"
+    },
+    {
+        "programID": "EP000018078775",
+        "titles": [{"title120": "General Hospital", "titleLanguage": "en"}],
+        "episodeTitle150": "Tracy Places Her Trust",
+        "descriptions": {
+            "description100": [{"descriptionLanguage": "en", "description": "Tracy places her trust in Jason; Sonny tries to tempt Jude."}]
+        },
+        "contentRating": [{"body": "USA Parental Rating", "code": "TV14", "country": "USA"}],
+        "md5": "25DNXVXO192JI7Y9vSW9lQ"
+    },
+    {
+        "programID": "SH037362640000",
+        "titles": [{"title120": "Channel 2 Action News at 3:00PM", "titleLanguage": "en"}],
+        "md5": "A6RCPnx4SjKN3oaZtXxNfw"
+    },
+    {
+        "programID": "EP000022130049",
+        "titles": [{"title120": "In the Heat of the Night", "titleLanguage": "en"}],
+        "episodeTitle150": "Citizen Trundel",
+        "descriptions": {
+            "description1000": [{"descriptionLanguage": "en", "description": "Gillespie and Tibbs pursue a suspect."}]
+        },
+        "md5": "J+AOJ/ofAQdp12Bh3U+C+A"
+    }
+]

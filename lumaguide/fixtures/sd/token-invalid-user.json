@@ -1,0 +1,8 @@
+{
+    "response": "INVALID_USER",
+    "code": 4003,
+    "serverID": "20141201.web",
+    "message": "Invalid user or not an active subscriber.",
+    "datetime": "2026-11-05T17:00:00Z",
+    "serverTime": 1793898000
+}

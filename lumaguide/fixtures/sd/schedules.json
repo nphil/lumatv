@@ -1,0 +1,30 @@
+[
+    {
+        "stationID": "19586",
+        "programs": [
+            {"programID": "EP059182660362", "airDateTime": "2026-11-05T18:00:00Z", "duration": 3600, "md5": "Sy8HEMBPcuiAx3FBukUhKQ", "new": true,
+             "audioProperties": ["stereo", "cc"], "videoProperties": ["hdtv"], "ratings": [{"body": "USA Parental Rating", "code": "TVPG"}]},
+            {"programID": "EP000018078775", "airDateTime": "2026-11-05T19:00:00Z", "duration": 3600, "md5": "25DNXVXO192JI7Y9vSW9lQ", "new": true,
+             "audioProperties": ["stereo", "cc", "dvs"], "videoProperties": ["hdtv"], "ratings": [{"body": "USA Parental Rating", "code": "TV14"}]},
+            {"programID": "SH037362640000", "airDateTime": "2026-11-05T20:00:00Z", "duration": 3600, "md5": "A6RCPnx4SjKN3oaZtXxNfw",
+             "audioProperties": ["stereo"], "videoProperties": ["hdtv"]}
+        ],
+        "metadata": {"modified": "2026-11-05T15:56:02Z", "md5": "UtL+hq0sqtCTZVFrGHZ5sg", "startDate": "2026-11-05"}
+    },
+    {
+        "stationID": "59472",
+        "programs": [
+            {"programID": "EP000022130049", "airDateTime": "2026-11-05T18:00:00Z", "duration": 3600, "md5": "J+AOJ/ofAQdp12Bh3U+C+A",
+             "audioProperties": ["stereo", "cc"], "ratings": [{"body": "USA Parental Rating", "code": "TV14"}]}
+        ],
+        "metadata": {"modified": "2026-11-05T15:56:02Z", "md5": "ZZPts55w9WUP1rMRvKsGDw", "startDate": "2026-11-05"}
+    },
+    {
+        "stationID": "91234",
+        "serverID": "20141201.web",
+        "code": 2201,
+        "response": "STATIONID_DELETED",
+        "programs": [],
+        "metadata": {"code": 2201, "modified": "1970-01-01", "md5": "CAFEDEADBEEFCAFEDEADBE", "isDeleted": true}
+    }
+]

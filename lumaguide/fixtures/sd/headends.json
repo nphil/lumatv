@@ -1,0 +1,26 @@
+[
+    {
+        "headend": "GA67745",
+        "transport": "Cable",
+        "location": "Atlanta",
+        "lineups": [
+            {
+                "name": "Xfinity Atlanta - Digital",
+                "lineup": "USA-GA67745-X",
+                "uri": "/20141201/lineups/USA-GA67745-X"
+            }
+        ]
+    },
+    {
+        "headend": "30311",
+        "transport": "Antenna",
+        "location": "30311",
+        "lineups": [
+            {
+                "name": "Antenna",
+                "lineup": "USA-OTA-30311",
+                "uri": "/20141201/lineups/USA-OTA-30311"
+            }
+        ]
+    }
+]

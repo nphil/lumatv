@@ -1,0 +1,193 @@
+{
+ "MediaContainer": {
+  "size": 10,
+  "Metadata": [
+   {
+    "guid": "plex://episode/6ae51bd7a0b0b2343ec6fec0",
+    "type": "episode",
+    "title": "GMA3",
+    "grandparentTitle": "GMA3",
+    "contentRating": "TV-PG",
+    "summary": "Actress Lacey Chabert; Good Housekeeping's 2027 Kitchen Awards; Deals & Steals with Tory Johnson.",
+    "Media": [
+     {
+      "id": 126,
+      "channelCallSign": "WSBDT",
+      "channelIdentifier": "5fc76c12598c41002dbe1231-5fc705e8a62668002dcef96e",
+      "channelTitle": "2.1 WSBDT (ABC)",
+      "channelVcn": "2.1",
+      "beginsAt": 1793901600,
+      "endsAt": 1793905200
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/6ad3178dcfcff50f54aaa126",
+    "type": "episode",
+    "title": "General Hospital",
+    "grandparentTitle": "General Hospital",
+    "contentRating": "TV-14",
+    "summary": "Tracy places her trust in Jason; Sonny tries to tempt Jude; Emma and Gio are suspicious; Alexis pushes back; Serena makes a risky offer.",
+    "Media": [
+     {
+      "id": 45,
+      "channelCallSign": "WSBDT",
+      "channelIdentifier": "5fc76c12598c41002dbe1231-5fc705e8a62668002dcef96e",
+      "channelTitle": "2.1 WSBDT (ABC)",
+      "channelVcn": "2.1",
+      "beginsAt": 1793905200,
+      "endsAt": 1793908800
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/6ad9af9bfa1ba0e0dfd0104a",
+    "type": "episode",
+    "title": "Channel 2 Action News at 3:00PM",
+    "grandparentTitle": "Channel 2 Action News at 3:00PM",
+    "summary": "Stay informed with the latest breaking news and headlines.",
+    "Media": [
+     {
+      "id": 49,
+      "channelCallSign": "WSBDT",
+      "channelIdentifier": "5fc76c12598c41002dbe1231-5fc705e8a62668002dcef96e",
+      "channelTitle": "2.1 WSBDT (ABC)",
+      "channelVcn": "2.1",
+      "beginsAt": 1793908800,
+      "endsAt": 1793912400
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/5fc6ce90598c41002d9e13fc",
+    "type": "episode",
+    "title": "Citizen Trundel",
+    "grandparentTitle": "In the Heat of the Night",
+    "contentRating": "TV-14",
+    "summary": "Chief Gillespie refuses to point out the obvious suspect in the murder of Councilwoman DeLong's sister.",
+    "Media": [
+     {
+      "id": 204,
+      "channelCallSign": "WSBDT2",
+      "channelIdentifier": "5fc76c12598c41002dbe1231-5fc705e74c4901002fec3eb9",
+      "channelTitle": "2.2 WSBDT2 (Bounce TV)",
+      "channelVcn": "2.2",
+      "beginsAt": 1793901600,
+      "endsAt": 1793905200
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/5fc6ccce06b6f5002d605194",
+    "type": "episode",
+    "title": "Citizen Trundel",
+    "grandparentTitle": "In the Heat of the Night",
+    "contentRating": "TV-14",
+    "summary": "Councilwoman DeLong ventures outside Sparta to find the powerful figure responsible for her sister's murder.",
+    "Media": [
+     {
+      "id": 199,
+      "channelCallSign": "WSBDT2",
+      "channelIdentifier": "5fc76c12598c41002dbe1231-5fc705e74c4901002fec3eb9",
+      "channelTitle": "2.2 WSBDT2 (Bounce TV)",
+      "channelVcn": "2.2",
+      "beginsAt": 1793905200,
+      "endsAt": 1793908800
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/5fc6d237c40548002d4f0237",
+    "type": "episode",
+    "title": "Brotherly Love",
+    "grandparentTitle": "In the Heat of the Night",
+    "contentRating": "TV-14",
+    "summary": "While in Philadelphia to investigate a former partner's death, Virgil (Howard Rollins) is arrested for the murder of a city cop.",
+    "Media": [
+     {
+      "id": 213,
+      "channelCallSign": "WSBDT2",
+      "channelIdentifier": "5fc76c12598c41002dbe1231-5fc705e74c4901002fec3eb9",
+      "channelTitle": "2.2 WSBDT2 (Bounce TV)",
+      "channelVcn": "2.2",
+      "beginsAt": 1793908800,
+      "endsAt": 1793912400
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/6ad9b0497211cbd456ecab15",
+    "type": "episode",
+    "title": "Portia",
+    "grandparentTitle": "Portia",
+    "summary": "A community-minded lifestyle, focusing particularly on the needs of Black women; helps in informing, uplifting and enlightening through conversations about faith, family, health and social issues.",
+    "Media": [
+     {
+      "id": 897,
+      "channelCallSign": "WAGADT",
+      "channelIdentifier": "5fc76c12598c41002dbe1231-5fc705fcdd53a6002d8f9399",
+      "channelTitle": "5.1 WAGADT (FOX)",
+      "channelVcn": "5.1",
+      "beginsAt": 1793901600,
+      "endsAt": 1793903400
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/6ad9b0497211cbd456ecab16",
+    "type": "episode",
+    "title": "Portia",
+    "grandparentTitle": "Portia",
+    "summary": "A community-minded lifestyle, focusing particularly on the needs of Black women; helps in informing, uplifting and enlightening through conversations about faith, family, health and social issues.",
+    "Media": [
+     {
+      "id": 898,
+      "channelCallSign": "WAGADT",
+      "channelIdentifier": "5fc76c12598c41002dbe1231-5fc705fcdd53a6002d8f9399",
+      "channelTitle": "5.1 WAGADT (FOX)",
+      "channelVcn": "5.1",
+      "beginsAt": 1793903400,
+      "endsAt": 1793905200
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/6a8ea56cc5674b03fda80206",
+    "type": "episode",
+    "title": "TMZ Live",
+    "grandparentTitle": "TMZ Live",
+    "contentRating": "TV-PG",
+    "summary": "A candid look at how the gossip site operates, bringing viewers into the site's newsroom, where the daily chats take place; viewers present their opinions on the featured topics through social media, phone calls and video chat.",
+    "Media": [
+     {
+      "id": 886,
+      "channelCallSign": "WAGADT",
+      "channelIdentifier": "5fc76c12598c41002dbe1231-5fc705fcdd53a6002d8f9399",
+      "channelTitle": "5.1 WAGADT (FOX)",
+      "channelVcn": "5.1",
+      "beginsAt": 1793905200,
+      "endsAt": 1793908800
+     }
+    ]
+   },
+   {
+    "guid": "plex://movie/5fc687bd08e69a002d520844",
+    "type": "movie",
+    "title": "The Underworld Story",
+    "contentRating": "TV-PG",
+    "summary": "A newsman (Dan Duryea) aims to prove a maid did not kill a New England publisher's (Herbert Marshall) daughter-in-law.",
+    "Media": [
+     {
+      "id": 994,
+      "channelCallSign": "WAGADT2",
+      "channelIdentifier": "5fc76c12598c41002dbe1231-5fc705fd4c4901002fec42c3",
+      "channelTitle": "5.2 WAGADT2 (Movies!)",
+      "channelVcn": "5.2",
+      "beginsAt": 1793901900,
+      "endsAt": 1793909100
+     }
+    ]
+   }
+  ]
+ }
+}

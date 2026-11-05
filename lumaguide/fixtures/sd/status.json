@@ -1,0 +1,22 @@
+{
+    "account": {
+        "expires": "2027-08-30T22:16:29Z",
+        "accountExpiration": 1819664189,
+        "messages": [],
+        "maxLineups": 4
+    },
+    "lineups": [],
+    "lastDataUpdate": "2026-11-05T16:36:24Z",
+    "notifications": [],
+    "systemStatus": [
+        {
+            "date": "2026-11-01T18:47:00Z",
+            "status": "Online",
+            "message": "No known issues."
+        }
+    ],
+    "serverID": "20141201.web",
+    "datetime": "2026-11-05T17:00:01Z",
+    "code": 0,
+    "tokenExpires": 1793984400
+}

@@ -1,0 +1,44 @@
+{
+ "MediaContainer": {
+  "size": 6,
+  "uuid": "lineup-group://tv.plex.providers.epg.cloud/usa/30311",
+  "Lineup": [
+   {
+    "uuid": "lineup://tv.plex.providers.epg.cloud/5fc76e491f5e19002dfda572#AT%26T%20U-verse%20TV%20%28747%20channels%29",
+    "type": "lineup",
+    "title": "AT&T U-verse TV (747 channels)",
+    "lineupType": 1
+   },
+   {
+    "uuid": "lineup://tv.plex.providers.epg.cloud/5fc7711eeefdbb002d4a2c66#DIRECTV%20Atlanta%20%281036%20channels%29",
+    "type": "lineup",
+    "title": "DIRECTV Atlanta (1036 channels)",
+    "lineupType": 2
+   },
+   {
+    "uuid": "lineup://tv.plex.providers.epg.cloud/657cf1f638169fe9de537c55#DIRECTV%20Atlanta%20%281025%20channels%29",
+    "type": "lineup",
+    "title": "DIRECTV Atlanta (1025 channels)",
+    "lineupType": 2
+   },
+   {
+    "uuid": "lineup://tv.plex.providers.epg.cloud/657c818249da2a48f6dbcbb0#DISH%20Atlanta%20%28910%20channels%29",
+    "type": "lineup",
+    "title": "DISH Atlanta (910 channels)",
+    "lineupType": 2
+   },
+   {
+    "uuid": "lineup://tv.plex.providers.epg.cloud/5fc76c12598c41002dbe1231#Local%20Broadcast%20Listings%20%28156%20channels%29",
+    "type": "lineup",
+    "title": "Local Broadcast Listings (156 channels)",
+    "lineupType": 0
+   },
+   {
+    "uuid": "lineup://tv.plex.providers.epg.cloud/5fc76be7a62668002deb0356#Xfinity%20Atlanta%20%28903%20channels%29",
+    "type": "lineup",
+    "title": "Xfinity Atlanta (903 channels)",
+    "lineupType": 1
+   }
+  ]
+ }
+}

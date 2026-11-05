@@ -1,0 +1,49 @@
+{
+ "MediaContainer": {
+  "size": 1,
+  "Dvr": [
+   {
+    "key": "5",
+    "uuid": "b1a08178-995f-496b-813c-8afaa223ab77",
+    "language": "eng",
+    "lineupTitle": "Local Broadcast Listings (156 channels)",
+    "lineup": "lineup://tv.plex.providers.epg.cloud/5fc76c12598c41002dbe1231#Local%20Broadcast%20Listings%20%28156%20channels%29",
+    "epgIdentifier": "tv.plex.providers.epg.cloud:5",
+    "Device": [
+     {
+      "key": "4",
+      "uuid": "device://tv.plex.grabbers.hdhomerun/77CF7C46",
+      "uri": "http://192.168.1.242:5004",
+      "protocol": "livetv",
+      "status": "alive",
+      "state": "enabled",
+      "make": "Silicondust",
+      "model": "LumaTV",
+      "modelNumber": "HDTC-2US",
+      "tuners": "1",
+      "ChannelMapping": [
+       {
+        "channelKey": "5fc76c12598c41002dbe1231-5fc705e8a62668002dcef96e",
+        "deviceIdentifier": "2.1",
+        "enabled": "1",
+        "lineupIdentifier": "2.1"
+       },
+       {
+        "channelKey": "5fc76c12598c41002dbe1231-5fc705e74c4901002fec3eb9",
+        "deviceIdentifier": "2.2",
+        "enabled": "1",
+        "lineupIdentifier": "2.2"
+       },
+       {
+        "channelKey": "5fc76c12598c41002dbe1231-5fc705e8c8d56d002e06f594",
+        "deviceIdentifier": "2.3",
+        "enabled": "1",
+        "lineupIdentifier": "2.3"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

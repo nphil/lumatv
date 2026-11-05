@@ -1,0 +1,23 @@
+{
+    "map": [
+        {"stationID": "19586", "uhfVhf": 39, "atscMajor": 2, "atscMinor": 1},
+        {"stationID": "59472", "uhfVhf": 39, "atscMajor": 2, "atscMinor": 2},
+        {"stationID": "20430", "uhfVhf": 27, "atscMajor": 5, "atscMinor": 1},
+        {"stationID": "112400", "uhfVhf": 10, "atscMajor": 11, "atscMinor": 11},
+        {"stationID": "68571", "uhfVhf": 22, "atscMajor": 16, "atscMinor": 1},
+        {"stationID": "91234", "uhfVhf": 30, "atscMajor": 66, "atscMinor": 2}
+    ],
+    "stations": [
+        {"stationID": "19586", "name": "WSBDT (WSB-DT)", "callsign": "WSBDT", "affiliate": "ABC", "broadcastLanguage": ["en"]},
+        {"stationID": "59472", "name": "WSBDT2 (WSB-DT2)", "callsign": "WSBDT2", "affiliate": "Bounce TV", "broadcastLanguage": ["en"]},
+        {"stationID": "20430", "name": "WAGADT (WAGA-DT)", "callsign": "WAGADT", "affiliate": "FOX", "broadcastLanguage": ["en"]},
+        {"stationID": "112400", "name": "WATLDT4 (WATL-DT4)", "callsign": "WATLDT4", "affiliate": "NBC", "broadcastLanguage": ["en"]},
+        {"stationID": "68571", "name": "WYGACD (WYGA-CD)", "callsign": "WYGACD", "broadcastLanguage": ["en"]},
+        {"stationID": "91234", "name": "WYGACD2 (WYGA-CD2)", "callsign": "WYGACD2", "broadcastLanguage": ["en"]}
+    ],
+    "metadata": {
+        "lineup": "USA-OTA-30311",
+        "modified": "2026-11-04T18:57:06Z",
+        "transport": "Antenna"
+    }
+}
