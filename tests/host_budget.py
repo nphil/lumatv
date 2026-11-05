@@ -47,7 +47,7 @@ import rust_home_host as home  # noqa: E402  (Home's make-believe feeds)
 BIN = os.environ.get('LUMATV_UI_BIN') or os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
 FRAME = re.compile(r"^\[frame\] (\d+) at (\d+) ms: damage (\d+) px, drew (\d+) px in (\d+) rects \([\d.]+ %\), layers (\d+) culled \d+ cpu (\d+) us gpu \d+ us"
                    r".*? floor (\d+) px apply (\d+) us", re.M)
-SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast', 'onhome', 'guide', 'banner']
+SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast', 'onhome', 'guide', 'banner', 'camera-popup']
 #: when a walk starts: Home has drawn its feeds and rests
 START_MS = 6000
 #: the layers a 120 Hz refresh holds (1.5 ms + 0.085 ms a layer <= 8.3 ms)
@@ -397,6 +397,32 @@ def walk_of(surface):
         w.mark('close')
         w.key('back')
         w.wait(1500)
+    elif surface == 'camera-popup':
+        # HOME_TOP, the focus Right onto the camera button (Search is the bar's first), OK: the list grows out of the button and its stills
+        # come (the make-believe helper of camera_popup_host.py); walked down past its fifth row and up with a held arrow; Back: it goes
+        # back into the button; opened and closed again
+        w.at = START_MS - 1500
+        w.taps('up', 8, 100)
+        w.at = START_MS
+        w.mark('focus the button')
+        w.taps('right', 1, 800)
+        w.mark('grow')
+        w.press('ok')
+        w.wait(1500)
+        w.mark('walk down')
+        w.taps('down', 7, 250)
+        w.wait(600)
+        w.mark('held up')
+        w.hold('up', 1500)
+        w.wait(600)
+        w.mark('close')
+        w.key('back')
+        w.wait(1200)
+        w.mark('again')
+        w.press('ok')
+        w.wait(1200)
+        w.key('back')
+        w.wait(1200)
     else:
         raise ValueError('no walk for %s' % surface)
     w.mark('end')
@@ -478,7 +504,12 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
         server = http.server.ThreadingHTTPServer(('127.0.0.1', HELPER_PORT), FakeHelper)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         extra = ['--port', str(HELPER_PORT), '--helper-port', str(HELPER_PORT)]
-    cmd = [binary, '--host', '--virtual', '--refresh', str(refresh), '--kinds', 'osd,toast,home,settings,quick,picker,drawer,menu,confirm' + (',guide' if surface == 'guide' else '') + (',banner' if surface == 'banner' else ''),
+    elif surface == 'camera-popup':
+        import camera_popup_host as cp
+        feeds['cameras'] = cp.topic(8, offline=(2,))
+        server = cp.serving(first_ms=60, later_ms=10)
+        extra = ['--port', str(server.server_address[1]), '--helper-port', str(server.server_address[1])]
+    cmd = [binary, '--host', '--virtual', '--refresh', str(refresh), '--kinds', 'osd,toast,home,settings,quick,picker,drawer,menu,confirm' + (',guide' if surface == 'guide' else '') + (',banner' if surface == 'banner' else '') + (',cameras' if surface == 'camera-popup' else ''),
            '--data-dir', data, '--shm', os.path.join(data, 'shm'), '--wait', str(w.at + 500), '--log', log,
            '--module-dir', os.path.join(ROOT, 'compositor', 'assets', 'ui'),
            '--push', '40:refresh:' + json.dumps({"hz": refresh}), '--push', '50:foreground:' + json.dumps(home.HOME),
