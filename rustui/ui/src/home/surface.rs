@@ -63,6 +63,13 @@ pub fn glass_of(kit: &Kit, kind: PaneKind, h: f32, lit: bool, over_video: bool) 
     pane::decorate(kit, kind, Glass { corner_radius: base.corner_radius, tint: if over_video { base.tint } else { tint }, edge, backdrop, saturation: kit.tokens.saturation, ..pair.rest }, over_video)
 }
 
+/// The glass of the status bar's pill and of the buttons on it: the material's own, without the light and shade copies of its depth pair (the soft glow
+/// beside every edge, which reads as a second, blurred edge at the size of a button). A button at rest has no shadow of its own either (the pill casts the
+/// one); the focused button keeps the material's, which is part of its lift.
+pub fn status_glass(glass: Glass, shadow: bool) -> Glass {
+    Glass { depth: None, shadows: if shadow { glass.shadows } else { [None, None] }, ..glass }
+}
+
 /// The scale a dock tile lifts to: `scale`, nudged so the lifted tile is an even number of pixels wider than at rest. Its edges, which
 /// grow about the tile's centre, then fall on whole pixels (120 px at 1.12 is 134.4 px, edges at -7.2; 134 px has them at -7).
 pub fn lift_scale(tile: f32, scale: f32) -> f32 {
@@ -686,8 +693,8 @@ impl HomeSurface {
 
     // ---- the status bar
     fn build_status(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home) -> std::io::Result<()> {
-        let (sx, sy) = home.safe();
-        let frame = Frame::new(sx, sy, 1920.0 - 2.0 * sx, home.status_height());
+        let pill = home.status_pill();
+        let frame = Frame::new(pill.x, pill.y, pill.w, pill.h);
         let profile = home.profile().cloned().unwrap_or(Value::Null);
         let profile_key = format!("{}|{}|{:?}", profile, home.status_items().len(), home.chip());
         if self.status.as_ref().is_some_and(|s| s.profile_key == profile_key && s.frame == frame) {
@@ -698,7 +705,7 @@ impl HomeSurface {
                 engine.flow.drop_lift(it.id);
             }
         }
-        let pane = kit.ui.scene.glass(frame.w as u32, frame.h as u32, Z_STATUS, glass_of(kit, PaneKind::Pill, frame.h, false, false), Props::at(frame.x, frame.y));
+        let pane = kit.ui.scene.glass(frame.w as u32, frame.h as u32, Z_STATUS, status_glass(glass_of(kit, PaneKind::Pill, frame.h, false, false), true), Props::at(frame.x, frame.y));
         let mut items = Vec::new();
         let ink = kit.ui.look.ink();
         let frames = home.status_frames();
@@ -706,7 +713,11 @@ impl HomeSurface {
             let Some(&(x, y, w, h)) = frames.get(i) else { break };
             let id = Id(STATUS_ID + i as u32);
             let kind = it.get("type").and_then(Value::as_str).unwrap_or("").to_owned();
-            let lift = Lift::new(kit, engine, id, Frame::new(x, y, w, h), Z_STATUS + 1, PaneKind::Pill, kit.tokens.focus.button_scale, 0.0, false)?;
+            // the glass lifts by a whole number of pixels either side and what is on it does not lift at all, so no glyph, letter or avatar is ever sampled between pixels
+            let lift = Lift::new(kit, engine, id, Frame::new(x, y, w, h), Z_STATUS + 1, PaneKind::Pill, lift_scale(h, kit.tokens.focus.button_scale), 0.0, false)?;
+            lift.keep(kit, engine)?;
+            lift.pane.restyle(status_glass(glass_of(kit, PaneKind::Pill, h, false, false), false));
+            lift.lit.restyle(status_glass(glass_of(kit, PaneKind::Pill, h, true, false), true));
             let scene = kit.ui.scene.clone();
             let (icon, avatar, name, badge) = lift.adopting(engine, &scene, || -> std::io::Result<_> {
                 let mut icon = None;
@@ -732,12 +743,19 @@ impl HomeSurface {
                 } else {
                     let glyph = match kind.as_str() {
                         "notifications" => "bell",
+                        "cameras" => "camera",
                         "settings" => "settings",
                         "search" => "search",
                         other => it.get("icon").and_then(Value::as_str).unwrap_or(other),
                     };
-                    let side = 28u32;
-                    icon = crate::kit::icon::layer(kit, glyph, side, ink, Z_STATUS + 3, Props::at(((w - side as f32) / 2.0).round(), ((h - side as f32) / 2.0).round()))?;
+                    // drawn from its vector source on a whole multiple of Lucide's grid and centred on whole pixels; a glyph the source does not have is the PNG's
+                    icon = match crate::kit::icon::crisp_layer(kit, glyph, ink, Z_STATUS + 3, (w / 2.0, h / 2.0))? {
+                        Some(layer) => Some(layer),
+                        None => {
+                            let side = 28u32;
+                            crate::kit::icon::layer(kit, glyph, side, ink, Z_STATUS + 3, Props::at(((w - side as f32) / 2.0).round(), ((h - side as f32) / 2.0).round()))?
+                        }
+                    };
                 }
                 Ok((icon, avatar, name, badge))
             }).ok_or_else(|| std::io::Error::other("the item's group"))??;
@@ -1721,13 +1739,7 @@ mod tests {
                 let (h, mut kit) = testkit::kit_in(mode, scale);
                 let mut engine = Engine::new(&kit).expect("an engine");
                 let mut home = smart_home(json!({"state": "connected", "words": "9 things", "tiles": smart_tiles(9)}));
-                press(&mut home, "down", 1100);
-                for i in 0..8 {
-                    if home.focus.current().and_then(|id| home.widget_of(id)) == Some("smart") {
-                        break;
-                    }
-                    press(&mut home, "down", 1200 + i * 100);
-                }
+                home.walk_to_card("smart", 1100);
                 press(&mut home, "ok", 1900);
                 // the blinds are the fifth tile: the arrows take them to the front, whatever the layout, and OK opens their sheet (a thermostat has its own)
                 let want = home.smart_of("smart").and_then(|s| s.items().iter().position(|i| i.id == "cover.b")).expect("the blinds");
@@ -1764,13 +1776,7 @@ mod tests {
 
     /// The card entered and the item `id` in front, whatever the layout is: the time after the last key.
     fn enter_smart_card_at(home: &mut Home, id: &str, at: u64) -> u64 {
-        press(home, "down", 1100);
-        for i in 0..8 {
-            if home.focus.current().and_then(|f| home.widget_of(f)) == Some("smart") {
-                break;
-            }
-            press(home, "down", 1200 + i * 100);
-        }
+        home.walk_to_card("smart", 1100);
         press(home, "ok", at);
         walk_smart_card_to(home, id, at + 100)
     }
@@ -2012,13 +2018,7 @@ mod tests {
                 let mut engine = Engine::new(&kit).expect("an engine");
                 let lock = json!({"id": "lock.front", "name": "Front door", "area": "Hall", "group": "locks", "words": "Locked", "tone": "ok", "icon": "lock", "available": true, "can": ["unlock"], "verbs": ["lock"], "sensitive": ["unlock"], "ctl": {"state": "locked"}});
                 let mut home = smart_home(json!({"state": "connected", "words": "1 thing", "tiles": [lock]}));
-                press(&mut home, "down", 1100);
-                for i in 0..8 {
-                    if home.focus.current().and_then(|id| home.widget_of(id)) == Some("smart") {
-                        break;
-                    }
-                    press(&mut home, "down", 1200 + i * 100);
-                }
+                home.walk_to_card("smart", 1100);
                 press(&mut home, "ok", 1900);
                 press(&mut home, "ok", 2000);
                 assert_eq!((home.layer, home.sheet.as_ref().map(|s| s.asking)), (Layer::OnHome, Some(true)), "{mode:?} {scale}");
@@ -2046,6 +2046,9 @@ mod tests {
             let theme = lumatv_tokens::Tokens::shipped().json().clone();
             let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
             fixtures(&mut home);
+            for i in 0..home.status_index("profile").expect("the profile chip") as u64 {
+                press(&mut home, "right", 1500 + i * 100);
+            }
             press(&mut home, "ok", 2000);
             assert_eq!(home.layer, Layer::Picker);
             let mut s = HomeSurface::new(1000);
@@ -2159,7 +2162,7 @@ mod tests {
                 let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), super::super::grid::shipped(), json!({}));
                 fixtures(&mut home);
                 home.update(&Input::Luna { tag: model::LP_TAG, payload: json!({"launchPoints": many[..count]}) }, 1500);
-                for (i, k) in ["down", "down", "down", "right"].into_iter().enumerate() {
+                for (i, k) in ["down", "left", "down", "right"].into_iter().enumerate() {
                     press(&mut home, k, 2000 + i as u64 * 100);
                 }
                 let mut s = HomeSurface::new(1000);
@@ -2287,6 +2290,53 @@ mod tests {
                 let trailing = cw - (name.x + name.w);
                 assert!(trailing >= gap && trailing <= 2.0 * gap, "padding after the name {trailing} against the gap before it {gap}: {mode:?} at {scale}");
                 assert!((name.y + name.h / 2.0 - ch / 2.0).abs() <= 0.5, "the name is on the pill's middle: {name:?}");
+                std::mem::forget(h);
+            }
+        }
+    }
+
+    /// The share of a glyph's ink that is an edge: the pixels that are neither empty nor full, over all the pixels with ink in them.
+    fn edge_share(rgba: &[u8]) -> f32 {
+        let ink = rgba.chunks_exact(4).filter(|p| p[3] > 0).count().max(1);
+        rgba.chunks_exact(4).filter(|p| p[3] > 0 && p[3] < 255).count() as f32 / ink as f32
+    }
+
+    #[test]
+    fn the_status_glyphs_come_from_vectors_on_whole_strokes_and_the_bar_stands_on_whole_pixels_at_both_sizes_and_looks() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).expect("an engine");
+                let theme = lumatv_tokens::Tokens::shipped().json().clone();
+                let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
+                fixtures(&mut home);
+                let mut s = HomeSurface::new(1000);
+                s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                s.apply(&mut kit, &mut engine, &mut home, 2300).expect("Home drawn");
+                let k = crate::kit::vector_icon::multiple(scale);
+                let bar = s.status.as_ref().unwrap();
+                // the pill and every button are on whole pixels
+                let whole = |v: f32| (v - v.round()).abs() < 1e-4;
+                assert!([bar.frame.x, bar.frame.y, bar.frame.w, bar.frame.h].into_iter().all(whole), "{:?}", bar.frame);
+                let ink = kit.ui.look.ink();
+                for item in &bar.items {
+                    let f = item.lift.frame;
+                    assert!([f.x, f.y, f.w, f.h].into_iter().all(whole), "{}: {f:?}", item.kind);
+                    if item.kind == "profile" {
+                        continue;
+                    }
+                    let name = match item.kind.as_str() {
+                        "notifications" => "bell",
+                        "cameras" => "camera",
+                        other => other,
+                    };
+                    let icon = item.icon.as_ref().unwrap_or_else(|| panic!("{} has a glyph", item.kind));
+                    assert_eq!((icon.width(), icon.height()), (24 * k, 24 * k), "{}: a whole multiple of Lucide's grid at {scale}", item.kind);
+                    // against the PNG's glyph taken down to the same box by the area mean: the strokes are steps, not ramps
+                    let soft = kit.icons.draw(name, 24 * k, ink).expect("the png");
+                    let (vector, old) = (edge_share(icon.pixels()), edge_share(&soft));
+                    assert!(vector + 0.15 <= old, "{}: {vector:.2} of the vector glyph's ink is an edge, {old:.2} of the scaled bitmap's ({mode:?} at {scale})", item.kind);
+                }
                 std::mem::forget(h);
             }
         }

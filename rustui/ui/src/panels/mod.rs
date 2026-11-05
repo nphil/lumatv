@@ -6,6 +6,8 @@
 //! The words of a panel are its data's and its state's; a hint is the glyphs of the remote's keys, never a sentence (Lucent).
 
 pub mod arrange;
+pub mod camlist;
+pub mod camlist_surface;
 pub mod clock;
 pub mod confirm;
 pub mod confirm_surface;

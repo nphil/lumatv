@@ -3,8 +3,7 @@
   "safe": { "x": 64, "y": 54 },
   "grid": { "cols": 12, "gutter": 20, "rows": [222, 238, 392] },
   "statusBar": { "height": 60, "gap": 20,
-    "left":  [ { "type": "profile" } ],
-    "right": [ { "type": "notifications" }, { "type": "settings" }, { "type": "search" } ] },
+    "items": [ { "type": "search" }, { "type": "cameras" }, { "type": "notifications" }, { "type": "settings" }, { "type": "profile" } ] },
   "widgets": [
     { "id": "clock",   "type": "clock",         "col": 0, "row": 0, "span": 4, "rows": 1 },
     { "id": "home",    "type": "homeassistant", "col": 0, "row": 1, "span": 4, "rows": 1, "title": "At home" },

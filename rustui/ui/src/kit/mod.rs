@@ -21,6 +21,7 @@ pub mod screen;
 #[cfg(test)]
 pub mod testkit;
 pub mod text;
+pub mod vector_icon;
 pub mod viewport;
 pub mod widgets;
 pub mod wrap;

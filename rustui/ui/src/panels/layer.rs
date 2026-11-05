@@ -13,6 +13,8 @@
 //! The owner of a menu or a dialog opens it with the topic `menu.open` or `confirm.ask` (the spec of `menu.rs`, `confirm.rs`) and is told
 //! what was picked or answered as `menu.picked` or `confirm.answered`.
 
+use super::camlist::CameraList;
+use super::camlist_surface::{CameraListSurface, Target as CameraTarget};
 use super::confirm::{Confirm, Spec as ConfirmSpec};
 use super::confirm_surface::{ConfirmSurface, Target as ConfirmTarget};
 use super::drawer::Drawer;
@@ -58,10 +60,11 @@ pub enum Which {
     Confirm,
     Switcher,
     Entry,
+    Cameras,
 }
 
 impl Which {
-    pub const ALL: [Which; 7] = [Which::Quick, Which::Picker, Which::Drawer, Which::Menu, Which::Confirm, Which::Switcher, Which::Entry];
+    pub const ALL: [Which; 8] = [Which::Quick, Which::Picker, Which::Drawer, Which::Menu, Which::Confirm, Which::Switcher, Which::Entry, Which::Cameras];
     /// The kinds the compositor's `show` asks for (the gear, Input, the long press of the gear): the others open by their owners' topics.
     pub const SHOWN: [Which; 3] = [Which::Quick, Which::Picker, Which::Drawer];
 
@@ -74,6 +77,7 @@ impl Which {
             Which::Confirm => "confirm",
             Which::Switcher => "switcher",
             Which::Entry => "entry",
+            Which::Cameras => "cameras",
         }
     }
 
@@ -90,6 +94,7 @@ impl Which {
             Which::Confirm => kinds.confirm,
             Which::Switcher => kinds.switcher,
             Which::Entry => kinds.entry,
+            Which::Cameras => kinds.cameras,
         }
     }
 }
@@ -123,6 +128,10 @@ pub struct Panels {
     drawer_s: DrawerSurface,
     /// Where the bell is on Home's status bar (`[x, y, w, h]`): the drawer grows out of it and goes back into it.
     bell: [f32; 4],
+    /// Where Home's camera button is (`[x, y, w, h]`): the camera list grows out of it and goes back into it.
+    camera: [f32; 4],
+    camlist: CameraList,
+    camlist_s: CameraListSurface,
     menu: Menu,
     menu_s: MenuSurface,
     confirm: Confirm,
@@ -162,6 +171,9 @@ impl Panels {
             drawer: Drawer::new(),
             drawer_s: DrawerSurface::new(base),
             bell: crate::panels::drawer_surface::BELL,
+            camera: crate::panels::camlist_surface::BUTTON,
+            camlist: CameraList::new(),
+            camlist_s: CameraListSurface::new(base),
             menu: Menu::new(),
             menu_s: MenuSurface::new(base),
             confirm: Confirm::new(),
@@ -194,6 +206,7 @@ impl Panels {
             Which::Confirm => &self.confirm.life,
             Which::Switcher => &self.switcher_life,
             Which::Entry => &self.entry.life,
+            Which::Cameras => &self.camlist.life,
         }
     }
 
@@ -206,6 +219,7 @@ impl Panels {
             Which::Confirm => &mut self.confirm.life,
             Which::Switcher => &mut self.switcher_life,
             Which::Entry => &mut self.entry.life,
+            Which::Cameras => &mut self.camlist.life,
         }
     }
 
@@ -220,6 +234,7 @@ impl Panels {
             Some(Which::Quick) => self.quick_s.sheet(),
             Some(Which::Picker) => self.picker_s.sheet(),
             Some(Which::Drawer) => self.drawer_s.sheet(),
+            Some(Which::Cameras) => self.camlist_s.sheet(),
             _ => None,
         };
         sheet.map(|f| lumatv_placement::Rect::new(f.x as i32, f.y as i32, f.w as i32, f.h as i32)).into_iter().collect()
@@ -282,6 +297,11 @@ impl Panels {
                 }
                 _ => {}
             }
+        }
+        if kinds.cameras {
+            let (effects, changed) = self.camlist.update(input, now);
+            out.extend(effects);
+            self.redraw |= changed;
         }
         if let Input::Topic { topic, data } = input {
             match topic.as_str() {
@@ -419,6 +439,7 @@ impl Panels {
             Which::Quick => self.quick.open(&mut self.env, now),
             Which::Picker => self.picker.open(&mut self.env, now),
             Which::Drawer => self.drawer.open(&self.env, now),
+            Which::Cameras => self.camlist.open(now),
             Which::Menu | Which::Confirm | Which::Switcher | Which::Entry => Out::default(),
         };
         self.run(w, opened, kinds, now, out);
@@ -480,6 +501,7 @@ impl Panels {
             Which::Quick => self.quick.close(&mut self.env, now),
             Which::Picker => self.picker.close(&mut self.env, now),
             Which::Drawer | Which::Switcher => Out::default(),
+            Which::Cameras => self.camlist.close(),
             Which::Menu => {
                 self.menu.close();
                 Out::default()
@@ -578,6 +600,7 @@ impl Panels {
                 self.picker.key(k, &self.env)
             }
             (Which::Drawer, k) => self.drawer.key(k, &self.env),
+            (Which::Cameras, k) => self.camlist.key(k, now),
             (Which::Menu, k) => self.menu.key(k),
             (Which::Confirm, k) => self.confirm.key(k),
             (Which::Switcher, k) => self.switcher.key(k, now),
@@ -592,6 +615,7 @@ impl Panels {
         self.quick_s.on_key(kit, engine);
         self.picker_s.on_key(engine);
         self.drawer_s.on_key(kit, engine);
+        self.camlist_s.on_key(engine);
         self.menu_s.on_key(engine);
         self.confirm_s.on_key(engine);
         self.switcher_s.on_key(engine);
@@ -649,6 +673,11 @@ impl Panels {
                 Some(DrawerTarget::Backdrop) => Out::close(),
                 None => return out,
             },
+            Which::Cameras => match self.camlist_s.pointer(kit, engine, now_ns, s) {
+                Some(CameraTarget::Row(i)) => self.camlist.click(i),
+                Some(CameraTarget::Backdrop) => Out::close(),
+                None => return out,
+            },
             Which::Menu => match self.menu_s.pointer(kit, engine, now_ns, s) {
                 Some((MenuTarget::Row(i), seg)) => self.menu.click(i, seg),
                 Some((MenuTarget::Backdrop, _)) => self.menu.click_outside(),
@@ -684,6 +713,11 @@ impl Panels {
             if matches!(self.life_mut(w).tick(now), Some(Change::Opened | Change::Parked | Change::Drop)) {
                 self.redraw = true;
             }
+        }
+        if kinds.cameras {
+            let (effects, aged) = self.camlist.tick(now);
+            out.extend(effects);
+            self.redraw |= aged;
         }
         if kinds.quick {
             let o = self.quick.tick(&mut self.env, now);
@@ -728,6 +762,9 @@ impl Panels {
         }
         if kinds.picker {
             due = [due, self.picker.due_at()].into_iter().flatten().min();
+        }
+        if kinds.cameras {
+            due = [due, self.camlist.due_at()].into_iter().flatten().min();
         }
         if kinds.quick {
             due = [due, self.quick_s.due_at()].into_iter().flatten().min();
@@ -784,6 +821,16 @@ impl Panels {
                 match self.drawer_s.apply(kit, engine, &view, self.drawer.life.phase(), self.bell, now_ns) {
                     Ok(on) => live |= on && self.drawer.life.visible(),
                     Err(e) => { self.interactive_visible |= live; return Err(format!("notification drawer: {e}")); },
+                }
+            }
+            if kinds.cameras && (self.camlist.life.built() || self.camlist_s.is_up()) {
+                let view = self.camlist.view(!self.env.fg.home, now_ms);
+                match self.camlist_s.apply(kit, engine, &view, self.camlist.life.phase(), self.camera, &self.camlist, now_ns) {
+                    Ok(on) => live |= on && self.camlist.life.visible(),
+                    Err(e) => { self.interactive_visible |= live; return Err(format!("camera list: {e}")); },
+                }
+                if let Some((fit, size)) = self.camlist_s.shape() {
+                    self.camlist.set_shape(fit, size);
                 }
             }
             let over_video = !self.env.fg.home;
@@ -885,6 +932,23 @@ impl Panels {
         self.bell = frame;
     }
 
+    /// Where the camera button is (Home's status bar says): the camera list grows out of it and goes back into it.
+    pub fn set_camera(&mut self, frame: [f32; 4]) {
+        self.camera = frame;
+    }
+
+    /// Whether the focus is on the camera button: resting there, the list's first pictures are asked for so that it opens on them.
+    pub fn camera_focus(&mut self, kinds: &Kinds, on: bool, now: u64) {
+        if kinds.cameras {
+            self.camlist.button_focus(on, now);
+        }
+    }
+
+    /// The newest picture of a camera the list holds: the viewer opens on it.
+    pub fn camera_picture(&self, id: &str) -> Option<crate::kit::picture::Picture> {
+        self.camlist.picture(id).cloned()
+    }
+
     /// Whether Back from the top of Home opens the switcher.
     pub fn recents_on(&self) -> bool {
         self.env.switch_set("recents")
@@ -926,6 +990,9 @@ impl Panels {
         for w in Which::ALL.into_iter().filter(|w| w.on(kinds)) {
             s[w.name()] = json!(format!("{:?}", self.life(w).phase()).to_lowercase());
         }
+        if kinds.cameras {
+            s["cameraList"] = self.camlist.report();
+        }
         if kinds.keyboard {
             s["keyboard"] = self.ime.state();
         }
@@ -947,6 +1014,9 @@ impl Panels {
         }
         if kinds.drawer {
             g["drawer"] = self.drawer_s.geometry(engine);
+        }
+        if kinds.cameras {
+            g["cameraList"] = self.camlist_s.geometry(engine);
         }
         if kinds.menu {
             g["menu"] = self.menu_s.geometry(engine);
@@ -977,6 +1047,9 @@ impl Panels {
         if kinds.drawer {
             self.drawer_s.feed_lint(kit, lint);
         }
+        if kinds.cameras {
+            self.camlist_s.feed_lint(kit, lint);
+        }
         if kinds.menu {
             self.menu_s.feed_lint(kit, lint);
         }
@@ -999,6 +1072,7 @@ impl Panels {
         self.quick_s.restyle(engine);
         self.picker_s.restyle(engine);
         self.drawer_s.restyle(engine);
+        self.camlist_s.restyle(engine);
         self.menu_s.restyle(engine);
         self.confirm_s.restyle(engine);
         self.switcher_s.restyle(engine);

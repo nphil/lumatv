@@ -1824,7 +1824,8 @@ mod tests {
         assert_eq!(merge(&shared, &own), shipped);
         let layout: Value =
             serde_json::from_str(include_str!("../../../payload/theme/layout.json")).unwrap();
-        assert_eq!(layout["statusBar"]["left"][0]["type"], "profile");
+        let bar = layout["statusBar"]["items"].as_array().unwrap();
+        assert_eq!(bar.last().unwrap()["type"], "profile", "the chip ends the status bar");
         // every profile rule that is not a key the owner adds himself is in the shipped file (a rule that names nothing is a typo)
         let added = [
             "tiles.icons",

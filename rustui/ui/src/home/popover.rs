@@ -154,9 +154,9 @@ impl Popover {
         (34.0f32.max(line + 6.0), row, row + 6.0)
     }
 
-    /// Where the panel is and which rows are in view: under the item of the bar it hangs under (a left item hangs from its left edge, a right one
-    /// from its right edge), `bar` the status bar's frame and `item` the item's. A panel taller than the room scrolls its rows with the focus.
-    pub fn layout(&mut self, bar: Frame, item: Frame, left: bool, text_scale: f32) -> Layout {
+    /// Where the panel is and which rows are in view: under the item of the bar it hangs under, from the item's right edge (every item sits at the bar's
+    /// right end), `bar` the status row's frame and `item` the item's. A panel taller than the room scrolls its rows with the focus.
+    pub fn layout(&mut self, bar: Frame, item: Frame, text_scale: f32) -> Layout {
         let (head_h, row_h, pitch) = Self::metrics(text_scale);
         let width = (WIDTH * text_scale.max(1.0)).round().min(bar.w);
         let top = bar.bottom() + GAP;
@@ -168,7 +168,7 @@ impl Popover {
             self.first = self.index + 1 - fit;
         }
         self.first = self.first.min(ROWS.len() - fit);
-        let x = (if left { item.x } else { item.right() - width }).min(bar.right() - width).max(bar.x);
+        let x = (item.right() - width).min(bar.right() - width).max(bar.x);
         let pane = Frame::new(x.round(), top.round(), width, 2.0 * PAD + head_h + HEAD_GAP + fit as f32 * pitch - (pitch - row_h));
         let rows = (self.first..self.first + fit).map(|i| (i, Frame::new(pane.x + PAD, pane.y + PAD + head_h + HEAD_GAP + (i - self.first) as f32 * pitch, pane.w - 2.0 * PAD, row_h))).collect();
         Layout { pane, head: Frame::new(pane.x + PAD, pane.y + PAD, pane.w - 2.0 * PAD, head_h), rows }
@@ -232,10 +232,10 @@ mod tests {
         assert_eq!(p.take_dirty(), Some(json!({"amplitude": 5.0, "speed": 1.1})));
         assert_eq!(p.take_dirty(), None);
         let bar = Frame::new(64.0, 54.0, 1792.0, 60.0);
-        let left = p.layout(bar, Frame::new(70.0, 60.0, 151.0, 48.0), true, 1.0);
-        assert_eq!((left.pane.x, left.pane.y, left.pane.w), (70.0, 122.0, 440.0), "a left item hangs from its left edge, 8 under the bar");
-        let right = p.layout(bar, Frame::new(1744.0, 60.0, 48.0, 48.0), false, 1.0);
-        assert_eq!(right.pane.x + right.pane.w, 1792.0, "a right one from its right edge");
+        let right = p.layout(bar, Frame::new(1744.0, 60.0, 48.0, 48.0), 1.0);
+        assert_eq!((right.pane.x + right.pane.w, right.pane.y), (1792.0, 122.0), "from the item's right edge, 8 under the bar");
+        let wide = p.layout(bar, Frame::new(70.0, 60.0, 48.0, 48.0), 1.0);
+        assert_eq!(wide.pane.x, 64.0, "kept inside the bar's row");
         assert_eq!(right.rows.len(), 13, "all the rows fit at 100 %");
         assert!(right.pane.bottom() <= 1080.0 - 54.0);
     }
@@ -244,13 +244,13 @@ mod tests {
     fn a_panel_taller_than_the_room_scrolls_its_rows_with_the_focus() {
         let mut p = Popover::new(0);
         let bar = Frame::new(64.0, 54.0, 1792.0, 120.0);
-        let l = p.layout(bar, Frame::new(1700.0, 60.0, 96.0, 96.0), false, 2.0);
+        let l = p.layout(bar, Frame::new(1700.0, 60.0, 96.0, 96.0), 2.0);
         assert!(l.rows.len() < 13 && l.rows[0].0 == 0, "{}", l.rows.len());
         assert!(l.pane.bottom() <= 1080.0 - 54.0 + 0.5, "{:?}", l.pane);
         p.index = 12;
-        let l = p.layout(bar, Frame::new(1700.0, 60.0, 96.0, 96.0), false, 2.0);
+        let l = p.layout(bar, Frame::new(1700.0, 60.0, 96.0, 96.0), 2.0);
         assert_eq!(l.rows.last().map(|r| r.0), Some(12), "the last row is in view");
         p.index = 0;
-        assert_eq!(p.layout(bar, Frame::new(1700.0, 60.0, 96.0, 96.0), false, 2.0).rows[0].0, 0);
+        assert_eq!(p.layout(bar, Frame::new(1700.0, 60.0, 96.0, 96.0), 2.0).rows[0].0, 0);
     }
 }

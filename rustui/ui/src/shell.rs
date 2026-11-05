@@ -582,16 +582,19 @@ impl Shell {
                         crate::home::model::Request::Cameras => acts.push(Act::Log("home asks for cameras".into())),
                         // a camera item of the smart-home card: the viewer at full size, opened on the picture the card shows of it
                         crate::home::model::Request::CameraFull(id) if self.kinds.cameras => {
-                            if let Some(pic) = self.home.stills.picture(&id).cloned() {
-                                self.cameras.seed_full(&id, pic);
-                            }
-                            for e in self.cameras.open_full(&id, now) {
-                                self.carry(e, now, acts);
-                            }
-                            self.cameras_asks(now, acts);
-                            self.redraw = true;
+                            let pic = self.home.stills.picture(&id).cloned();
+                            self.open_camera_viewer(&id, pic, now, acts);
                         }
                         crate::home::model::Request::CameraFull(_) => acts.push(Act::Log("home asks for a camera".into())),
+                        // the camera button: the list of every camera grows out of it
+                        crate::home::model::Request::CameraList if self.kinds.cameras => {
+                            let mut out = Vec::new();
+                            self.panels.show(Which::Cameras, false, &self.kinds, now, &mut out);
+                            for e in out {
+                                self.carry(e, now, acts);
+                            }
+                        }
+                        crate::home::model::Request::CameraList => acts.push(Act::Log("home asks for the camera list".into())),
                     }
                 }
             }
@@ -686,6 +689,14 @@ impl Shell {
                 let page = data.get("page").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_string);
                 acts.extend(self.open_settings(page.as_deref(), now));
             }
+            // a row of the camera list: the viewer opens on that camera, on the picture the row shows (the list has closed itself)
+            if topic == "cameralist.open"
+                && self.kinds.cameras
+                && let Some(id) = data.get("camera").and_then(Value::as_str)
+            {
+                let pic = self.panels.camera_picture(id);
+                self.open_camera_viewer(id, pic, now, acts);
+            }
             self.feed(&Input::Topic { topic, data }, now, acts);
         }
         // what was typed goes back, once, to the screen that asked (Settings is the only one that does); it is no topic, so no other model
@@ -703,6 +714,18 @@ impl Shell {
                 self.redraw = true;
             }
         }
+    }
+
+    /// The Cameras viewer at full size on camera `id`, opened on `picture` (what a card or the list shows of it) until its own pictures come.
+    fn open_camera_viewer(&mut self, id: &str, picture: Option<crate::kit::picture::Picture>, now: u64, acts: &mut Vec<Act>) {
+        if let Some(pic) = picture {
+            self.cameras.seed_full(id, pic);
+        }
+        for e in self.cameras.open_full(id, now) {
+            self.carry(e, now, acts);
+        }
+        self.cameras_asks(now, acts);
+        self.redraw = true;
     }
 
     /// Opens Settings, at `page` when one is named: a tile of the quick panel, a card of Home, the compositor's `show`.
@@ -1230,6 +1253,8 @@ impl Shell {
                 self.panels.give_way();
             }
             self.panels.set_bell(self.home.bell_frame());
+            self.panels.set_camera(self.home.camera_frame());
+            self.panels.camera_focus(&self.kinds, self.kinds.home && self.home.camera_focused(), now);
             match self.panels.apply(&self.kinds, &mut self.kit, &mut self.engine, now, now_ns) {
                 Ok(on) => live |= on,
                 Err(e) => self.apply_failed("panels", e.to_string(), acts),

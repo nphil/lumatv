@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Rasterises the Lucide icons the mocks use into white-on-transparent PNGs for the compositor's QML.
 
-    python3 generators/gen-lucide.py [--size 64] [--out compositor/assets/ui/icons/lucide]
+    python3 generators/gen-lucide.py [--size 64] [--out compositor/assets/ui/icons/lucide] [--paths-only]
 
 The icon source is `docs/mocks/icons.js` (Lucide 1.27, ISC licence): 24-grid stroke paths, stroke width
 1.9, round caps and joins, the same icons the approved mocks draw. Each becomes `<name>.png`, 64 px
 square (a 32 px icon on the TV, drawn at twice the pixels so a 1080p panel scaled to 4K stays crisp), white
 on a transparent ground: `kit/LuIcon.qml` multiplies the alpha by the colour it is given, so one file
 serves every colour of both materials. Rendering is Chromium's, headless, on one sheet of all icons.
-`index.json` lists the names; a mock gaining an icon means re-running this. The icons are Lucide's, so the output
+`index.json` lists the names; `paths.json` holds each icon's vector source (the same 24-grid fragments), which the shell draws the status bar's
+glyphs from at the exact pixel size (`rustui/ui/src/kit/vector_icon.rs`); a mock gaining an icon means re-running this. The icons are Lucide's, so the output
 directory also gets `LICENSE`: the package's own file for that version (ISC, with the MIT notice for the icons Lucide
 took from Feather), kept beside this script as `lucide-LICENSE` and copied verbatim.
 """
@@ -51,10 +52,18 @@ def sheet_html(icons, size):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--size", type=int, default=64)
+    ap.add_argument("--paths-only", action="store_true", help="write only paths.json (no Chromium)")
     ap.add_argument("--out", default=os.path.join(ROOT, "compositor", "assets", "ui", "icons", "lucide"))
     a = ap.parse_args()
     icons = load_icons()
     names = sorted(icons)
+    os.makedirs(a.out, exist_ok=True)
+    with open(os.path.join(a.out, "paths.json"), "w", encoding="utf-8") as f:
+        json.dump({n: icons[n] for n in names}, f, separators=(",", ":"))
+        f.write("\n")
+    if a.paths_only:
+        print("%d paths, in %s" % (len(names), os.path.join(a.out, "paths.json")))
+        return 0
     rows = -(-len(names) // COLS)
     with tempfile.TemporaryDirectory() as d:
         html = os.path.join(d, "sheet.html")

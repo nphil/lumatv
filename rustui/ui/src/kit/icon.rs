@@ -3,6 +3,7 @@
 //! draws nothing (`None`), never a stand-in, and a size and colour is drawn once and kept.
 
 use super::Kit;
+use super::vector_icon::{self, Glyph};
 use compositor_protocol::{Props, Rgba};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -23,6 +24,8 @@ pub struct Icons {
     /// `None`: looked for and not there.
     masks: HashMap<String, Option<Mask>>,
     kept: HashMap<(String, u32, [u8; 4]), Vec<u8>>,
+    /// The glyphs drawn from their vector source (`vector_icon`) at a side, and how far each sits from the middle of its box.
+    crisp: HashMap<(String, u32), Option<(Glyph, (i32, i32))>>,
 }
 
 fn read_mask(path: &Path) -> Option<Mask> {
@@ -133,6 +136,21 @@ impl Icons {
         self.kept.insert(key, out.clone());
         Some(out)
     }
+
+    /// The glyph `name` drawn from its vector source at `side` (a whole multiple of Lucide's 24 grid) with the grid's stroke at that size, and how many whole
+    /// pixels it is to be moved to sit optically in the middle of its box; `None` for a name the vector source does not have.
+    pub fn crisp(&mut self, name: &str, side: u32) -> Option<&(Glyph, (i32, i32))> {
+        let key = (name.to_string(), side);
+        if !self.crisp.contains_key(&key) {
+            let k = side as f32 / vector_icon::GRID as f32;
+            let made = vector_icon::draw(name, side, vector_icon::STROKE * k).map(|g| {
+                let at = g.optical_offset();
+                (g, at)
+            });
+            self.crisp.insert(key.clone(), made);
+        }
+        self.crisp.get(&key).and_then(Option::as_ref)
+    }
 }
 
 /// An image layer holding the icon `name` at `side`, in `ink`, at depth `z` and `at`; `Ok(None)` for a name that is not an icon.
@@ -140,6 +158,26 @@ pub fn layer(kit: &mut Kit, name: &str, side: u32, ink: Rgba, z: i32, at: Props)
     let Some(pixels) = kit.icons.draw(name, side, ink) else { return Ok(None) };
     let mut layer = kit.ui.scene.image(side, side, z, at)?;
     layer.pixels_mut().copy_from_slice(&pixels);
+    layer.damage(None);
+    Ok(Some(layer))
+}
+
+/// Where the top left of a glyph `side` wide, moved by `shift`, goes so that it is centred on `centre`, on whole pixels (a centre on a half pixel, which an
+/// odd button has, takes the glyph to the next whole pixel).
+pub fn crisp_origin(centre: (f32, f32), side: u32, shift: (i32, i32)) -> (f32, f32) {
+    let half = side as f32 / 2.0;
+    ((centre.0 - half).round() + shift.0 as f32, (centre.1 - half).round() + shift.1 as f32)
+}
+
+/// An image layer holding the glyph `name` in `ink` at depth `z`, centred on `centre` (in the layer's parent's space), drawn from the vector source at the
+/// whole multiple of Lucide's grid the text size asks for, so that its strokes are whole pixels (`vector_icon`), and placed on whole pixels, moved
+/// within two pixels to sit optically in the middle. `Ok(None)` for a name the vector source does not have.
+pub fn crisp_layer(kit: &mut Kit, name: &str, ink: Rgba, z: i32, centre: (f32, f32)) -> std::io::Result<Option<ImageLayer>> {
+    let side = vector_icon::GRID * vector_icon::multiple(kit.text_scale);
+    let Some((glyph, shift)) = kit.icons.crisp(name, side).map(|(g, at)| (g.tinted(ink), *at)) else { return Ok(None) };
+    let (x, y) = crisp_origin(centre, side, shift);
+    let mut layer = kit.ui.scene.image(side, side, z, Props::at(x, y))?;
+    layer.pixels_mut().copy_from_slice(&glyph);
     layer.damage(None);
     Ok(Some(layer))
 }
@@ -166,6 +204,33 @@ mod tests {
 
     fn module() -> PathBuf {
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../compositor/assets/ui"))
+    }
+
+    #[test]
+    fn a_crisp_glyph_is_centred_on_whole_pixels_whatever_the_centre_is() {
+        assert_eq!(crisp_origin((24.0, 24.0), 24, (0, 0)), (12.0, 12.0));
+        assert_eq!(crisp_origin((54.0, 54.0), 48, (0, 0)), (30.0, 30.0));
+        assert_eq!(crisp_origin((24.0, 24.0), 24, (1, -1)), (13.0, 11.0), "moved by the optical shift");
+        // an odd button has its centre on a half pixel: the glyph goes to a whole one, never between
+        let (x, y) = crisp_origin((31.5, 31.5), 24, (0, 0));
+        assert_eq!((x, y), (20.0, 20.0));
+        for centre in [(30.25, 41.75), (99.5, 12.0)] {
+            let (x, y) = crisp_origin(centre, 48, (0, 0));
+            assert!(x.fract() == 0.0 && y.fract() == 0.0, "{centre:?}");
+        }
+    }
+
+    #[test]
+    fn the_status_glyphs_are_drawn_once_at_a_whole_multiple_of_the_grid_and_kept() {
+        let mut icons = Icons::new(Path::new("/nonexistent"));
+        for name in ["search", "camera", "bell", "settings"] {
+            let (g, (dx, dy)) = icons.crisp(name, 24).cloned().expect(name);
+            assert_eq!(g.side, 24);
+            assert!(dx.abs() <= 1 && dy.abs() <= 1, "{name}: {dx}, {dy}");
+            assert_eq!(icons.crisp(name, 24).map(|(g, _)| g.clone()), Some(g), "the same pixels the second time");
+            assert_eq!(icons.crisp(name, 48).map(|(g, _)| g.side), Some(48));
+        }
+        assert!(icons.crisp("no-such-icon", 24).is_none());
     }
 
     #[test]

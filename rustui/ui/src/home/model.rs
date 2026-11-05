@@ -24,6 +24,30 @@ pub const STATUS: Region = Region(1);
 pub const WIDGETS: Region = Region(2);
 pub const DOCK: Region = Region(3);
 pub const STATUS_ID: u32 = 100;
+/// How far the status bar's buttons are from the pill's ends and edges: half of what the pill is taller than a button, so that every button is concentric with the pill's cap.
+pub const STATUS_INSET: f32 = 6.0;
+
+/// What a button of the status bar is for. The bar reads left to right in this order, and a change of it is a wider gap: the actions the owner
+/// takes, then who is watching. Read-only indicators would come before both; the bar has none (the clock is a card, the network and the receiver
+/// are Quick Settings', the volume and the mute are the overlays').
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Purpose {
+    Action,
+    Identity,
+}
+
+impl Purpose {
+    /// The purpose of the button of layout type `kind`.
+    pub fn of(kind: &str) -> Self {
+        if kind == "profile" { Purpose::Identity } else { Purpose::Action }
+    }
+}
+
+/// The type of a status bar item of the layout (`profile`, `notifications`, `settings`, `search`, `cameras`).
+fn kind_of(item: &Value) -> &str {
+    item.get("type").and_then(Value::as_str).unwrap_or("")
+}
+
 /// The question over Home: the two answers' focus ids and region.
 pub const CONFIRM_ID: u32 = 960;
 pub const CONFIRM_REGION: Region = Region(31);
@@ -137,6 +161,8 @@ pub enum Request {
     /// The camera viewer at full size, for the camera of the cameras topic with this id (OK on a camera item of the smart-home card), opened
     /// on the picture the card shows of it.
     CameraFull(String),
+    /// The camera list that grows out of the status bar's camera button (OK on it): every camera with a small live picture, one of them to open at full size.
+    CameraList,
 }
 
 /// The one thing a view needs that is not read from the model: where the focus is now and whether it has rested.
@@ -299,6 +325,8 @@ pub struct Home {
     /// The width the chip's name takes in its type, measured by the surface (the model has no fonts): the name and text size it was
     /// measured for, and the width. Until then the chip is laid out on an estimate.
     name_width: Option<(String, f32, f32)>,
+    /// How far apart the status bar's buttons are within a purpose and between two: the theme's `space(2)` and `space(5)`.
+    status_gaps: (f32, f32),
     requests: Vec<Request>,
     /// What the extras Home draws around itself are told (an app opens, a digit did something, the remote key, a story opens).
     notes: Vec<Note>,
@@ -311,6 +339,13 @@ fn merge_over(base: &Value, over: &Value) -> Value {
     let mut out = base.clone();
     lumatv_tokens::merge(&mut out, over);
     out
+}
+
+/// How far apart the status bar's buttons are: within a purpose `space(2)`, between two purposes `space(5)` (4, 8, 12, 16, 20, 24, 32, 40 in the shipped
+/// theme), so the rhythm follows the theme's spacing scale.
+fn status_gaps(theme: &Value) -> (f32, f32) {
+    let tokens = lumatv_tokens::Tokens::from_json(theme);
+    (tokens.space(2), tokens.space(5))
 }
 
 impl Home {
@@ -402,6 +437,7 @@ impl Home {
             dirty: true,
             text_scale: 1.0,
             name_width: None,
+            status_gaps: status_gaps(&theme),
             requests: Vec::new(),
             notes: Vec::new(),
             search_pages: Vec::new(),
@@ -465,6 +501,7 @@ impl Home {
         if theme.get("clock") != self.theme.get("clock") || theme.get("tiles") != self.theme.get("tiles") {
             self.theme_chrome_rev += 1;
         }
+        self.status_gaps = status_gaps(&theme);
         self.theme = theme;
         self.dock.refresh(&self.theme);
         self.rest_ms = self.theme.pointer("/motion/restMs").and_then(Value::as_u64).unwrap_or(150);
@@ -502,25 +539,25 @@ impl Home {
         self.dock_entry().map(|d| self.rect(&d))
     }
 
-    /// The status bar's items, left then right, as `{type, icon}` objects.
+    /// The status bar's items in the order they are drawn, left to right, as `{type, icon}` objects: the actions, then who is watching.
     pub fn status_items(&self) -> Vec<Value> {
-        let sb = self.layout.get("statusBar");
-        let mut out: Vec<Value> = sb.and_then(|s| s.get("left")).and_then(Value::as_array).cloned().unwrap_or_default();
-        out.extend(sb.and_then(|s| s.get("right")).and_then(Value::as_array).cloned().unwrap_or_default());
-        out
+        self.layout.pointer("/statusBar/items").and_then(Value::as_array).cloned().unwrap_or_default()
     }
 
-    pub fn left_count(&self) -> usize {
-        self.layout.pointer("/statusBar/left").and_then(Value::as_array).map_or(0, Vec::len)
+    /// The place of the button of type `kind` among the status bar's items (its focus id is `STATUS_ID` plus it).
+    pub fn status_index(&self, kind: &str) -> Option<usize> {
+        self.status_items().iter().position(|it| kind_of(it) == kind)
     }
 
     pub fn safe(&self) -> (f32, f32) {
         (self.layout.pointer("/safe/x").and_then(Value::as_f64).unwrap_or(64.0) as f32, self.layout.pointer("/safe/y").and_then(Value::as_f64).unwrap_or(54.0) as f32)
     }
 
-    /// The bar's height grows with the text size (the layout's 60 at 100 %), as the chip's name does.
+    /// The bar's height grows with the text size (the layout's 60 at 100 %), as the chip's name does. It is an even number of pixels, so that the buttons
+    /// (the pill's height less `STATUS_INSET` either side) are even too, and a glyph or a lift centred on a button has its edges on whole pixels.
     pub fn status_height(&self) -> f32 {
-        (self.layout.pointer("/statusBar/height").and_then(Value::as_f64).unwrap_or(60.0) as f32 * self.text_scale.max(1.0)).round()
+        let h = self.layout.pointer("/statusBar/height").and_then(Value::as_f64).unwrap_or(60.0) as f32 * self.text_scale.max(1.0);
+        (h / 2.0).round() * 2.0
     }
 
     /// The bell's count, from the panels' notification log; true when the badge has to be drawn again.
@@ -556,43 +593,56 @@ impl Home {
         self.widget_ids.get(i).map(String::as_str)
     }
 
-    /// The status bar's buttons sit in a pill at the safe corner: item `i` is `48 + 6` apart, left from 6, right ending 6 in (the same gap as at the left, so every button is concentric with the pill's cap).
-    pub fn status_frames(&self) -> Vec<(f32, f32, f32, f32)> {
-        let (sx, sy) = self.safe();
-        let items = self.status_items();
-        let left = self.left_count();
-        let w = 1920.0 - 2.0 * sx;
-        let h = self.status_height();
-        let item_h = h - 12.0;
+    /// Where each button is along the bar, from the first one's left edge: its offset and its width. Buttons of one purpose are `status_gaps.0`
+    /// apart, a change of purpose `status_gaps.1`.
+    fn status_run(&self) -> Vec<(f32, f32)> {
         let mut out = Vec::new();
-        let mut x = sx + 6.0;
-        for (i, it) in items.iter().enumerate() {
-            let iw = self.status_item_width(it);
-            if i < left {
-                out.push((x, sy + 6.0, iw, item_h));
-                x += iw + 6.0;
+        let mut x = 0.0;
+        let mut before: Option<Purpose> = None;
+        for it in self.status_items() {
+            let purpose = Purpose::of(kind_of(&it));
+            if let Some(b) = before {
+                x += if b == purpose { self.status_gaps.0 } else { self.status_gaps.1 };
             }
-        }
-        let right: Vec<f32> = items.iter().skip(left).map(|it| self.status_item_width(it)).collect();
-        let total: f32 = right.iter().sum::<f32>() + 6.0 * right.len().saturating_sub(1) as f32;
-        let mut rx = sx + w - 6.0 - total;
-        for iw in right {
-            out.push((rx, sy + 6.0, iw, item_h));
-            rx += iw + 6.0;
+            let w = self.status_item_width(&it);
+            out.push((x, w));
+            x += w;
+            before = Some(purpose);
         }
         out
     }
 
+    /// The pill the status bar's buttons sit in: as wide as they are, `STATUS_INSET` round them, its right end at the safe area's.
+    pub fn status_pill(&self) -> ui::geometry::Frame {
+        let (sx, sy) = self.safe();
+        let span = self.status_run().last().map_or(0.0, |(x, w)| x + w) + 2.0 * STATUS_INSET;
+        ui::geometry::Frame::new(1920.0 - sx - span, sy, span, self.status_height())
+    }
+
+    /// The row the status bar is in, edge to edge of the safe area: what a popover under a button keeps inside.
+    pub fn status_row(&self) -> ui::geometry::Frame {
+        let (sx, sy) = self.safe();
+        ui::geometry::Frame::new(sx, sy, 1920.0 - 2.0 * sx, self.status_height())
+    }
+
+    /// The status bar's buttons in the pill, one square of the pill's inner height each (the profile chip adds its name): `(x, y, w, h)` in the
+    /// order of [`Self::status_items`], which is the order the D-pad walks them in.
+    pub fn status_frames(&self) -> Vec<(f32, f32, f32, f32)> {
+        let pill = self.status_pill();
+        let item_h = self.status_height() - 2.0 * STATUS_INSET;
+        self.status_run().into_iter().map(|(x, w)| (pill.x + STATUS_INSET + x, pill.y + STATUS_INSET, w, item_h)).collect()
+    }
+
     /// A button is a square of the pill's inner height; the profile chip adds its name.
     pub fn status_item_width(&self, item: &Value) -> f32 {
-        let h = self.status_height() - 12.0;
-        if item.get("type").and_then(Value::as_str) == Some("profile") { self.chip().width } else { h }
+        let h = self.status_height() - 2.0 * STATUS_INSET;
+        if kind_of(item) == "profile" { self.chip().width } else { h }
     }
 
     /// The profile chip's measures at the status bar's button height.
     pub fn chip(&self) -> Chip {
         let name = self.profile_name();
-        let h = self.status_height() - 12.0;
+        let h = self.status_height() - 2.0 * STATUS_INSET;
         if name.is_empty() {
             return Chip::new(h, None);
         }
@@ -601,7 +651,8 @@ impl Home {
             Some((n, s, w)) if *n == name && (*s - scale).abs() < 0.001 => *w,
             _ => 9.0 * scale * name.chars().count() as f32,
         };
-        Chip::new(h, Some(w))
+        // the measured width is a fraction of a pixel: the chip is as wide as the whole pixels the name needs, so that the pill and every button beside it stand on whole pixels
+        Chip::new(h, Some(w.ceil()))
     }
 
     /// The name the surface has to measure (it has the fonts): the chip's, when no width for it at this text size is held yet.
@@ -619,16 +670,31 @@ impl Home {
         self.dirty = true;
     }
 
-    /// Where the bell is on the status bar (`[x, y, w, h]`), the notification drawer's way in and out. With no bell in the layout, or Home
-    /// not drawn (an app in front, the drawer opened by a key), where it would be: the right end of the bar.
-    pub fn bell_frame(&self) -> [f32; 4] {
-        let at = self.status_items().iter().position(|it| it.get("type").and_then(Value::as_str) == Some("notifications"));
+    /// Where the button of type `kind` is on the status bar (`[x, y, w, h]`), the place a panel grows out of and goes back into. With no such
+    /// button in the layout, or Home not drawn (an app in front, a panel opened by a key), where it would be: the right end of the bar.
+    fn status_frame_of(&self, kind: &str) -> [f32; 4] {
+        let at = self.status_index(kind);
         if let Some(&(x, y, w, h)) = at.and_then(|i| self.status_frames().get(i).copied()).as_ref() {
             return [x, y, w, h];
         }
         let (sx, sy) = self.safe();
-        let side = self.status_height() - 12.0;
-        [1920.0 - sx - 6.0 - side, sy + 6.0, side, side]
+        let side = self.status_height() - 2.0 * STATUS_INSET;
+        [1920.0 - sx - STATUS_INSET - side, sy + STATUS_INSET, side, side]
+    }
+
+    /// The bell: the notification drawer's way in and out.
+    pub fn bell_frame(&self) -> [f32; 4] {
+        self.status_frame_of("notifications")
+    }
+
+    /// The camera button: the camera list's way in and out.
+    pub fn camera_frame(&self) -> [f32; 4] {
+        self.status_frame_of("cameras")
+    }
+
+    /// Whether the focus is on the camera button: the camera list asks for its first pictures once the focus has rested there.
+    pub fn camera_focused(&self) -> bool {
+        self.active && self.layer == Layer::None && self.status_index("cameras").is_some_and(|i| self.focus.current() == Some(Id(STATUS_ID + i as u32)))
     }
 
     // ---- profiles
@@ -1478,6 +1544,7 @@ impl Home {
                     "search" => self.open_search(out),
                     "settings" => self.requests.push(Request::Quick),
                     "notifications" => self.requests.push(Request::Notifications),
+                    "cameras" => self.requests.push(Request::CameraList),
                     _ => {}
                 }
             }
@@ -2458,8 +2525,7 @@ impl Home {
     }
 
     pub fn edit_wallpaper(&mut self, out: &mut Vec<Effect>) {
-        let items = self.status_items();
-        let item = items.iter().position(|item| item.get("type").and_then(Value::as_str) == Some("settings")).unwrap_or(0);
+        let item = self.status_index("settings").unwrap_or(0);
         self.open_popover(item, out);
         self.wallpaper_return_settings = true;
     }
@@ -2468,11 +2534,9 @@ impl Home {
     pub fn popover_layout(&mut self) -> Option<popover::Layout> {
         let item = self.popover.as_ref()?.item;
         let (sx, sy) = self.safe();
-        let bar = ui::geometry::Frame::new(sx, sy, 1920.0 - 2.0 * sx, self.status_height());
         let (x, y, w, h) = self.status_frames().get(item).copied().unwrap_or((sx, sy, 48.0, 48.0));
-        let left = item < self.left_count();
-        let scale = self.text_scale;
-        self.popover.as_mut().map(|p| p.layout(bar, ui::geometry::Frame::new(x, y, w, h), left, scale))
+        let (bar, scale) = (self.status_row(), self.text_scale);
+        self.popover.as_mut().map(|p| p.layout(bar, ui::geometry::Frame::new(x, y, w, h), scale))
     }
 
     fn register_popover(&mut self) {
@@ -2959,6 +3023,13 @@ impl Home {
         std::mem::replace(&mut self.dirty, false)
     }
 
+    /// Where the status bar's pill and buttons are, for the tests and the harness's crops: `{pill: [x, y, w, h], items: [[type, x, y, w, h], ...]}`.
+    fn status_state(&self) -> Value {
+        let pill = self.status_pill();
+        let items: Vec<Value> = self.status_items().iter().zip(self.status_frames()).map(|(it, f)| json!([kind_of(it), f.0, f.1, f.2, f.3])).collect();
+        json!({"pill": [pill.x, pill.y, pill.w, pill.h], "items": items})
+    }
+
     /// What `ctl shell` and the tests read.
     pub fn state(&self) -> Value {
         json!({
@@ -2981,6 +3052,7 @@ impl Home {
             "profile": self.profile_name(),
             "unread": self.unread,
             "cameraFrames": self.stills.revision,
+            "statusBar": self.status_state(),
             "onhome": json!({
                 "tiles": self.onhome_tiles().len(),
                 "items": self.smarts.first().map(|(_, s)| s.items().len()),
@@ -3055,6 +3127,29 @@ mod tests {
         let mut out = h.update(&Input::Key { name: name.into(), down: true, repeat: false }, at);
         out.extend(h.update(&Input::Key { name: name.into(), down: false, repeat: false }, at + 30));
         out
+    }
+
+    impl Home {
+        /// The arrows from where Home opens (the status bar's first button, over the weather card) to the card `widget`: down onto the weather
+        /// card, then left and down as the cards lie.
+        pub(crate) fn walk_to_card(&mut self, widget: &str, at: u64) {
+            for i in 0..8u64 {
+                if self.focus.current().and_then(|id| self.widget_of(id)) == Some(widget) {
+                    return;
+                }
+                let key = if i % 2 == 0 { "down" } else { "left" };
+                self.update(&Input::Key { name: key.into(), down: true, repeat: false }, at + i * 100);
+                self.update(&Input::Key { name: key.into(), down: false, repeat: false }, at + i * 100 + 30);
+            }
+        }
+    }
+
+    /// The arrows from where Home opens to the dock's tile under the home card: down onto the weather card, left past the news card to the
+    /// home card, down.
+    fn to_the_dock_under_the_home_card(h: &mut Home, at: u64) {
+        for (i, key) in ["down", "left", "left", "down"].into_iter().enumerate() {
+            press(h, key, at + i as u64 * 100);
+        }
     }
 
     /// The helper's `plugins` topic as the TV answers it, with the roster of the helper's own plugins and the owner's.
@@ -3157,13 +3252,7 @@ mod tests {
     }
 
     fn into_smart_card(h: &mut Home) {
-        press(h, "down", 1100);
-        for i in 0..8 {
-            if h.focus.current().and_then(|id| h.widget_of(id)) == Some("smart") {
-                break;
-            }
-            press(h, "down", 1200 + i * 100);
-        }
+        h.walk_to_card("smart", 1100);
         assert_eq!(h.focus.current().and_then(|id| h.widget_of(id)), Some("smart"), "the focus reached the smart-home card");
         press(h, "ok", 2000);
         assert_eq!(h.inner.as_deref(), Some("smart"), "OK on the card enters it");
@@ -3733,13 +3822,7 @@ mod tests {
         // with no tile the card has no inner layer: OK opens the page
         let mut h = smart_home(json!([]));
         h.update(&Input::Helper { topic: "onhome".into(), data: json!({"state": "unpaired", "tiles": []}) }, 1100);
-        press(&mut h, "down", 1200);
-        for i in 0..8 {
-            if h.focus.current().and_then(|id| h.widget_of(id)) == Some("smart") {
-                break;
-            }
-            press(&mut h, "down", 1300 + i * 100);
-        }
+        h.walk_to_card("smart", 1200);
         press(&mut h, "ok", 2100);
         assert!(h.inner.is_none());
         assert_eq!(h.take_requests(), vec![Request::SettingsPage("onhome".into())]);
@@ -3838,8 +3921,8 @@ mod tests {
         let mut h = home();
         assert_eq!(h.state()["focusLayer"], "statusbar");
         press(&mut h, "down", 2000);
-        assert_eq!(h.state()["widgetFocusId"], "clock");
-        press(&mut h, "right", 2100);
+        assert_eq!(h.state()["widgetFocusId"], "weather", "down from the bar's first button: the card under it");
+        press(&mut h, "left", 2100);
         assert_eq!(h.state()["widgetFocusId"], "news");
         press(&mut h, "down", 2200);
         assert_eq!(h.state()["focusLayer"], "dock");
@@ -3901,9 +3984,7 @@ mod tests {
     #[test]
     fn ok_on_a_tile_launches_and_a_digit_opens_a_tile_and_apps_opens_the_library() {
         let mut h = home();
-        press(&mut h, "down", 2000);
-        press(&mut h, "down", 2100);
-        press(&mut h, "down", 2200);
+        to_the_dock_under_the_home_card(&mut h, 2000);
         let out = press(&mut h, "ok", 2400);
         assert!(out.iter().any(|e| matches!(e, Effect::Luna { uri, payload, .. } if uri.ends_with("/launch") && payload["id"] == "netflix")));
         let out = press(&mut h, "3", 2600);
@@ -3926,7 +4007,7 @@ mod tests {
         h.update(&Input::Key { name: "ok".into(), down: true, repeat: true }, 3850);
         h.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 3900);
         assert_eq!(h.editor.as_ref().map(|e| e.mode_name()), Some("select"), "the release of the hold picked the card up");
-        assert_eq!(h.editor.as_ref().map(|e| e.sel.as_str()), Some("clock"));
+        assert_eq!(h.editor.as_ref().map(|e| e.sel.as_str()), Some("weather"));
     }
 
     #[test]
@@ -4072,9 +4153,99 @@ mod tests {
         h.set_name_width("Nitin".into(), 50.0);
         assert_eq!(h.name_to_measure(), None);
         let widths: Vec<f32> = h.status_frames().iter().map(|f| f.2).collect();
-        assert_eq!(widths[0], Chip::new(48.0, Some(50.0)).width, "the chip is the first button, as wide as its parts");
+        assert_eq!(widths.last().copied(), Some(Chip::new(48.0, Some(50.0)).width), "the chip is the last button, as wide as its parts");
         h.set_text_scale(2.0);
         assert_eq!(h.name_to_measure().as_deref(), Some("Nitin"), "a text size has its own width");
+    }
+
+    fn named(h: &mut Home) {
+        h.update(&Input::Helper { topic: "profiles".into(), data: json!({"ready": true, "active": "nitin", "owner": "nitin", "canAdmin": true, "switchedAt": 1,
+            "profiles": [{"id": "nitin", "name": "Nitin", "initial": "N", "color": "#A79BF5", "active": true, "locked": false}]}) }, 1500);
+    }
+
+    #[test]
+    fn the_bar_reads_actions_then_who_is_watching_and_the_dpad_walks_it_in_that_order() {
+        let mut h = home();
+        let kinds: Vec<String> = h.status_items().iter().map(|it| kind_of(it).to_owned()).collect();
+        assert_eq!(kinds, ["search", "cameras", "notifications", "settings", "profile"], "finding and watching first, the bell and the gear after, the chip last");
+        let purposes: Vec<Purpose> = kinds.iter().map(|k| Purpose::of(k)).collect();
+        assert_eq!(purposes, [Purpose::Action, Purpose::Action, Purpose::Action, Purpose::Action, Purpose::Identity]);
+        let frames = h.status_frames();
+        assert!(frames.windows(2).all(|w| w[0].0 + w[0].2 < w[1].0), "left to right, no overlap: {frames:?}");
+        // the focus starts on the first and Right steps along the bar in the order it is drawn; Left comes back
+        assert_eq!(h.focus.current(), Some(Id(STATUS_ID)));
+        for i in 1..5u32 {
+            press(&mut h, "right", 2000 + u64::from(i) * 100);
+            assert_eq!(h.focus.current(), Some(Id(STATUS_ID + i)), "Right {i}");
+        }
+        press(&mut h, "right", 2600);
+        assert_eq!(h.focus.current(), Some(Id(STATUS_ID + 4)), "the end of the bar holds");
+        for i in (0..4u32).rev() {
+            press(&mut h, "left", 3000 + u64::from(i) * 100);
+            assert_eq!(h.focus.current(), Some(Id(STATUS_ID + i)), "Left to {i}");
+        }
+    }
+
+    #[test]
+    fn the_gaps_are_the_themes_spacing_inside_a_group_and_between_groups_and_the_pill_hugs_them() {
+        let mut h = home();
+        named(&mut h);
+        h.set_name_width("Nitin".into(), 47.63);
+        let frames = h.status_frames();
+        let pill = h.status_pill();
+        let (within, between) = (h.status_gaps.0, h.status_gaps.1);
+        assert_eq!((within, between), (8.0, 20.0), "space(2) and space(5) of the shipped theme");
+        for i in 0..3 {
+            assert_eq!(frames[i + 1].0 - (frames[i].0 + frames[i].2), within, "buttons {i} and {}", i + 1);
+        }
+        assert_eq!(frames[4].0 - (frames[3].0 + frames[3].2), between, "the chip stands apart from the actions");
+        assert_eq!((frames[0].0 - pill.x, pill.x + pill.w - (frames[4].0 + frames[4].2)), (STATUS_INSET, STATUS_INSET), "concentric with the pill's caps");
+        assert_eq!(pill.x + pill.w, 1856.0, "the pill ends where the safe area does");
+        assert_eq!((frames[0].1 - pill.y, pill.y + pill.h - (frames[0].1 + frames[0].3)), (STATUS_INSET, STATUS_INSET));
+        // a theme with another spacing scale moves the rhythm
+        let mut theme = h.theme.clone();
+        theme["space"] = json!([4, 6, 12, 16, 24, 24, 32, 40]);
+        h.set_theme(theme);
+        let again = h.status_frames();
+        assert_eq!((again[1].0 - (again[0].0 + again[0].2), again[4].0 - (again[3].0 + again[3].2)), (6.0, 24.0));
+    }
+
+    #[test]
+    fn every_edge_of_the_bar_is_on_a_whole_pixel_at_every_text_size_and_name_width() {
+        for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+            for name_width in [38.2, 47.63, 90.9] {
+                let mut h = home();
+                h.set_text_scale(scale);
+                named(&mut h);
+                h.set_name_width("Nitin".into(), name_width);
+                let pill = h.status_pill();
+                let whole = |v: f32| (v - v.round()).abs() < 1e-4;
+                assert!([pill.x, pill.y, pill.w, pill.h].into_iter().all(whole), "pill at {scale} / {name_width}: {pill:?}");
+                for f in h.status_frames() {
+                    assert!([f.0, f.1, f.2, f.3].into_iter().all(whole), "button at {scale} / {name_width}: {f:?}");
+                    assert_eq!(f.3 % 2.0, 0.0, "an even height: a glyph centred on it and a lift grown about it keep whole edges ({f:?})");
+                }
+                let chip = h.chip();
+                assert!([chip.inset, chip.avatar, chip.name_x, chip.width].into_iter().all(whole), "chip at {scale} / {name_width}: {chip:?}");
+                for f in [h.bell_frame(), h.camera_frame()] {
+                    assert!(f.into_iter().all(whole), "{f:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_camera_button_sits_beside_the_bell_and_asks_for_the_camera_list() {
+        let mut h = home();
+        let (bell, camera) = (h.bell_frame(), h.camera_frame());
+        assert_eq!(camera[0] + camera[2] + h.status_gaps.0, bell[0], "next to the bell, a gap of the group's");
+        assert_eq!(bell, crate::panels::drawer_surface::BELL, "where the drawer thinks the bell is until Home says");
+        while h.focus.current() != Some(Id(STATUS_ID + h.status_index("cameras").unwrap() as u32)) {
+            press(&mut h, "right", 2000);
+        }
+        press(&mut h, "ok", 2100);
+        assert_eq!(h.take_requests(), vec![Request::CameraList]);
+        assert!(h.status_frames().len() == h.status_items().len(), "a frame for every button");
     }
 
     #[test]
@@ -4312,9 +4483,7 @@ mod tests {
     #[test]
     fn an_app_that_opens_tells_the_launch_screen_its_name_its_icon_and_where_its_tile_is_grown_by_the_lift_when_the_tile_had_the_focus() {
         let mut h = home();
-        press(&mut h, "down", 2000);
-        press(&mut h, "down", 2100);
-        press(&mut h, "down", 2200);
+        to_the_dock_under_the_home_card(&mut h, 2000);
         assert_eq!(h.focus.current(), Some(Id(DOCK_ID + 1)));
         press(&mut h, "ok", 2400);
         let notes = notes_of(&mut h);
@@ -4478,13 +4647,14 @@ mod tests {
     }
 
     fn gear(h: &mut Home) {
-        for i in 0..4 {
-            if h.focus.current() == Some(Id(STATUS_ID + 2)) {
+        let at = h.status_index("settings").expect("the gear");
+        for i in 0..8 {
+            if h.focus.current() == Some(Id(STATUS_ID + at as u32)) {
                 break;
             }
             press(h, "right", 1500 + i * 100);
         }
-        h.open_popover(2, &mut Vec::new());
+        h.open_popover(at, &mut Vec::new());
     }
 
     #[test]
@@ -4505,7 +4675,7 @@ mod tests {
         assert_eq!(h.theme["wallpaperMotion"]["enabled"], false, "OK on the toggle turns it");
         let out = press(&mut h, "back", 2700);
         assert_eq!(h.layer, Layer::None);
-        assert_eq!(h.focus.current(), Some(Id(STATUS_ID + 2)), "the gear has the focus again");
+        assert_eq!(h.focus.current(), Some(Id(STATUS_ID + h.status_index("settings").unwrap() as u32)), "the gear has the focus again");
         let patch = out.iter().find_map(|e| match e {
             Effect::Theme { tag: POPOVER_TAG, patch } => Some(patch.clone()),
             _ => None,

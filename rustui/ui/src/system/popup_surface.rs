@@ -121,7 +121,7 @@ fn plan(kit: &mut Kit, view: &View, room: f32) -> Plan {
 }
 
 /// A quiet plate with the camera's glyph, for the box while no picture is there.
-fn placeholder(kit: &mut Kit, w: u32, h: u32, radius: f32) -> Picture {
+pub(crate) fn placeholder(kit: &mut Kit, w: u32, h: u32, radius: f32) -> Picture {
     let ink = kit.ui.look.ink();
     let wash = crate::kit::button::faded(ink, 0.10);
     let mut rgba = vec![0u8; (w * h * 4) as usize];
