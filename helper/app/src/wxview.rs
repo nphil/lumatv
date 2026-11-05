@@ -4,64 +4,81 @@
 //!
 //! | route | what |
 //! |---|---|
-//! | `POST /v1/wx/open {lat, lon, zoom?}` | starts the engines for a place (the radar's window is two hours back to six ahead) and answers the state |
-//! | `GET /v1/wx/state` | `{status, have, want, frames: [[time, kind, ready]], extent, framePx, attribution, map}`: kind is 0 observed, 1 forecast, 2 outlook; time is unix seconds |
-//! | `GET /v1/wx/frame?t=&dark=` | the frame at time `t` as a PNG of the rain's colours (`framePx` square, the extent of the state), 202 while it is coming |
-//! | `GET /v1/wx/map?w=&h=&zoom=&dark=` | the base map as a PNG of the size asked, centred on the place (206 while tiles are still coming, with what there is) |
+//! | `POST /v1/wx/open {lat, lon}` | starts the view's engines for a place and answers the state |
+//! | `GET /v1/wx/state` | `{status, why, have, want, frames: [[time, kind, ready, rev]], indexed, newest, attribution, now, centre}`: kind is 0 observed, 1 forecast; time is unix seconds; the frames are those of the window, two hours back to six ahead |
+//! | `GET /v1/wx/pic?k=map\|backdrop\|radar&cx=&cy=&zoom=&w=&h=&dark=&epoch=[&t=]` | a mosaic of the cells that cover the view (`wxpic`): raw premultiplied RGBA and a trailer; 202 while its tiles are coming, 204 when the view has no such picture, 410 when the view has moved on |
 //! | `GET /v1/wx/globe?lon=&lat=&size=&zoom=&dark=` | the globe seen from (lon, lat) as a PNG of `size` px square: NASA's rain (IMERG, about 6 h late) and satellite cloud over the earth, the night side shaded (206 while the textures are still coming) |
-//! | `POST /v1/wx/close` | lets the engines go (their workers end when idle; the pictures kept on disk stay) |
+//! | `POST /v1/wx/close` | lets go of everything the view held: the engines, their caches in memory, the queued fetches |
 //!
-//! The engines keep what they fetched on disk (`<cache>/wx/`): the radar's tiles by address (a layer's address names its time or run, so a
-//! tile is fetched once), the last radar set, the map's vector tiles. Frames are fetched four at a time (`RadarConfig::parallel`), nearest
-//! the clock first. A frame's colours are painted here and cached as the PNG the shell gets, so a frame asked twice is one lookup.
+//! **Held only while the view is.** The engines of a view ([`wxmap::BaseMap`] for the map, [`wxradar::RadarTiles`] for the radar) are made by
+//! `open` and gone at `close` (or after ten minutes without a request), with their caches (`wxmap::CELL_BUDGET`, `wxradar::FIELD_BUDGET`),
+//! their queues and their threads, and the heap is trimmed. What stays is on the disk (`<cache>/wx/`): the radar's tiles by their address
+//! (a layer's address names its time or run, so a tile is fetched once), the map's vector tiles and the cells drawn from them. The
+//! background warming ([`WxView::prefetch`]) makes the engines for a moment every five minutes while the screen is on, fetches the
+//! radar tiles of the opening view and draws and keeps its map cells when they are not on the disk, and lets them go: nothing of it stays in
+//! memory, and opening the view finds its pictures on the disk.
+//!
+//! **Cancelling.** Every picture request carries the shell's view number; one older than the newest seen is refused (410), and the engines
+//! drop the work they had queued for an older one. A fetch already on the wire finishes (the transport cannot call back a child process);
+//! at most `wxvector::PARALLEL` vector tiles (and the engine's own, which the prefetch hands it when it is on the wire) and
+//! `wxradar::WORKERS` radar tiles.
 
 use crate::http::{Request, Response, error_response};
+use crate::wxcache::trim_heap_after_close;
+use crate::wxmap::BaseMap;
+use crate::wxpic::{Kind, PicAnswer, PicQuery, ViewQuery};
+use crate::wxradar::{RadarStats, RadarTiles};
 use fetch::Fetch;
-use map::engine::{MapConfig, MapEngine, MapStatus};
 use map::globe::{CLOUD_H, CLOUD_W, GlobeConfig, GlobeEngine, RAIN_H, RAIN_W, SURFACE_H, SURFACE_W, Surface, class, sun_at};
 use map::radar::engine::unix_now;
 use map::radar::iem::{IemHrrr, IemNexrad};
 use map::radar::outlook::OpenMeteoOutlook;
-use map::radar::{FrameKind, RadarConfig, RadarEngine, RadarLevel, RadarStatus, Ramp, RampTheme, RainViewer, TimelineProvider, TimelineSources, colorize};
-use map::source::OpenFreeMap;
+use map::radar::{RadarProvider, RainViewer, Ramp, RampTheme, TimelineProvider, TimelineSources, colorize};
+use map::source::{OpenFreeMap, TileSource};
 use map::store::DiskCache;
 use map::style::MapPalette;
-use map::webmerc::{GridZoom, LonLat, TILE_PX, View};
+use map::webmerc::LonLat;
 use serde_json::{Value, json};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// The radar's window: the frames this far back and ahead are fetched.
-const BACK_S: i64 = 2 * 3_600;
-const AHEAD_S: i64 = 6 * 3_600;
-/// Frames of colours kept as PNGs, per theme.
-const KEPT_FRAMES: usize = 48;
-/// The map's tiles are 256 px; the base map is drawn at this zoom (a grid zoom counts half levels: zoom 8 is `GridZoom(16)`).
-const MAP_ZOOM_MIN: u8 = 5;
-const MAP_ZOOM_MAX: u8 = 9;
-/// How long the engines stay up with nobody asking (the prefetch asks every five minutes while the screen is on, so they stay up then).
+/// How long the engines stay up with nobody asking.
 const IDLE_CLOSE: Duration = Duration::from_secs(600);
 const PREFETCH_EVERY: Duration = Duration::from_secs(300);
-/// How long a request waits for what it asks for.
-const WAIT_FRAME: Duration = Duration::from_millis(350);
-const WAIT_MAP: Duration = Duration::from_millis(1_500);
+/// The zoom the shell opens the radar page at (`radar_pics::OPEN_ZOOM`): what the background warming draws.
+pub const OPEN_ZOOM: f64 = 9.0;
+/// The screen the warming draws for.
+const SCREEN: (f64, f64) = (1920.0, 1080.0);
+/// How long a picture request waits for its tiles before it answers that they are coming: a tile that is on the disk is there in a few
+/// milliseconds, and the shell's next ask (a tenth of a second later) would be a delay that is not the tiles'.
+const WAIT_PIC: Duration = Duration::from_millis(120);
+/// How long the warming may take, and how long it waits between looks.
+const WARM_FOR: Duration = Duration::from_secs(180);
+const WARM_LOOK: Duration = Duration::from_millis(150);
 
+/// What a view's engines draw from: the base map's vector tiles and the radar's frames.
+type Sources = Box<dyn Fn() -> (Arc<dyn TileSource>, Arc<dyn RadarProvider>) + Send + Sync>;
+
+/// The engines of one view.
 struct Live {
-    radar: RadarEngine,
-    map: MapEngine,
+    radar: Arc<RadarTiles>,
+    map: Arc<BaseMap>,
+    /// The newest view number any request has carried.
+    epoch: Arc<AtomicU64>,
     centre: LonLat,
-    level: RadarLevel,
     last_used: Instant,
-    /// The inflated fields taken from the radar, by time and revision.
-    fields: HashMap<i64, (u32, Arc<[u8]>)>,
-    /// The frames painted, by (time, revision, dark).
-    pngs: HashMap<(i64, u32, bool), Arc<Vec<u8>>>,
-    /// The map's raster tiles taken, by key.
-    tiles: HashMap<map::webmerc::RasterKey, Arc<map::raster::RasterTile>>,
-    palette_dark: Option<bool>,
     globe: Option<GlobeLive>,
+}
+
+impl Live {
+    /// Lets everything the engines hold go.
+    fn close(self) {
+        self.epoch.store(u64::MAX, Ordering::SeqCst);
+        self.radar.close();
+        self.map.close();
+    }
 }
 
 struct GlobeLive {
@@ -72,26 +89,60 @@ struct GlobeLive {
     asked_at: i64,
 }
 
+/// What the service holds, for the tests and the log.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WxStats {
+    pub open: bool,
+    pub radar: RadarStats,
+    pub map: crate::wxmap::BaseStats,
+}
+
 pub struct WxView {
     fetch: Arc<dyn Fetch>,
+    sources: Sources,
+    /// Unix seconds now: the radar's window is counted from it.
+    now: Arc<dyn Fn() -> i64 + Send + Sync>,
     root: PathBuf,
     live: Mutex<Option<Live>>,
 }
 
-fn level_for(zoom: Option<u64>) -> RadarLevel {
-    match zoom {
-        Some(z) if z <= 4 => RadarLevel::WIDE,
-        _ => RadarLevel::REGIONAL,
-    }
-}
-
 impl WxView {
+    /// The service over `fetch` (the production transport), keeping its files under `<root>/wx`.
     pub fn new(fetch: Arc<dyn Fetch>, root: &Path) -> Arc<Self> {
-        Arc::new(Self { fetch, root: root.join("wx"), live: Mutex::new(None) })
+        let root = root.join("wx");
+        // the radar engine's last-set cache of an earlier version
+        let _ = std::fs::remove_dir_all(root.join("radar"));
+        let (tls, dir) = (Arc::clone(&fetch), root.clone());
+        let sources: Sources = Box::new(move || {
+            let now: Arc<dyn Fn() -> i64 + Send + Sync> = Arc::new(unix_now);
+            let tiles = DiskCache::open(dir.join("radar-tiles"), 12 << 20).ok();
+            let timeline = TimelineProvider::new(
+                TimelineSources {
+                    observed: Arc::new(IemNexrad::new(Arc::clone(&tls), Arc::clone(&now)).with_cache(tiles.clone())),
+                    forecast: Arc::new(IemHrrr::new(Arc::clone(&tls)).with_cache(tiles)),
+                    outlook: Arc::new(OpenMeteoOutlook::new(Arc::clone(&tls), Arc::clone(&now))),
+                    elsewhere: Arc::new(RainViewer::new(Arc::clone(&tls))),
+                },
+                now,
+            );
+            let meta = DiskCache::open(dir.join("map-meta"), 64 << 10).ok();
+            (Arc::new(OpenFreeMap::new(Arc::clone(&tls), meta)), Arc::new(timeline))
+        });
+        Self::with_sources(fetch, &root, sources, Arc::new(unix_now))
     }
 
-    /// Keeps the radar's window warm while the screen is on: every five minutes the engines are asked for the place's frames and the base map is drawn
-    /// once, so that opening the view finds them. `place` gives the weather's place (none until there is one) and `screen_on` the screen.
+    /// The service over other sources and clock (a test's), with its files directly under `root`.
+    pub fn with_sources(fetch: Arc<dyn Fetch>, root: &Path, sources: Sources, now: Arc<dyn Fn() -> i64 + Send + Sync>) -> Arc<Self> {
+        Arc::new(Self { fetch, sources, now, root: root.to_path_buf(), live: Mutex::new(None) })
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<Live>> {
+        self.live.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Keeps the view's pictures on the disk while the screen is on: every five minutes the engines are made for a moment, the radar's tiles
+    /// of the opening view are fetched and its map cells drawn if they are not on the disk, and the engines are let go. `place` gives the
+    /// weather's place (none until there is one) and `screen_on` the screen.
     pub fn prefetch(self: &Arc<Self>, place: impl Fn() -> Option<(f64, f64)> + Send + 'static, screen_on: impl Fn() -> bool + Send + 'static, stop: impl Fn() -> bool + Send + 'static) -> std::io::Result<std::thread::JoinHandle<()>> {
         let me = Arc::clone(self);
         std::thread::Builder::new().name("wx-prefetch".into()).stack_size(512 * 1024).spawn(move || {
@@ -110,12 +161,41 @@ impl WxView {
                 }
                 let Some((lat, lon)) = place() else { continue };
                 last = Instant::now();
-                let open = Request { method: "POST".into(), path: "/v1/wx/open".into(), query: Vec::new(), headers: Vec::new(), body: json!({"lat": lat, "lon": lon}).to_string().into_bytes(), peer: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST) };
-                me.open(&open);
-                let map = Request { method: "GET".into(), path: "/v1/wx/map".into(), query: vec![("w".into(), "1920".into()), ("h".into(), "1080".into()), ("zoom".into(), "9".into())], headers: Vec::new(), body: Vec::new(), peer: open.peer };
-                me.map(&map);
+                me.warm(LonLat::new(lon, lat), &stop);
             }
         })
+    }
+
+    /// One round of the warming (see [`WxView::prefetch`]); nothing when the view is up, whose engines have what it needs.
+    pub fn warm(&self, centre: LonLat, stop: &dyn Fn() -> bool) {
+        if self.lock().is_some() {
+            return;
+        }
+        let live = self.build(centre);
+        let w = centre.world();
+        let view = |kind: Kind, t: i64| ViewQuery { kind, cx: w.x, cy: w.y, zoom: OPEN_ZOOM, w: SCREEN.0, h: SCREEN.1, t, dark: true, epoch: 1 };
+        // the map: the cells that are not on the disk, the coarse picture first
+        let maps: Vec<PicQuery> = [Kind::Backdrop, Kind::Map].into_iter().filter_map(|k| view(k, 0).plan()).collect();
+        let mut radar: Vec<PicQuery> = Vec::new();
+        let until = Instant::now() + WARM_FOR;
+        while !stop() && Instant::now() < until {
+            if radar.is_empty() {
+                // the newest observed frame and the one after it: what the page shows first and plays next
+                let state = live.radar.state();
+                let frames: Vec<(i64, i64)> = state["frames"].as_array().map(|a| a.iter().filter_map(|f| Some((f[0].as_i64()?, f[1].as_i64()?))).collect()).unwrap_or_default();
+                if let Some(i) = frames.iter().rposition(|f| f.1 == 0) {
+                    radar = frames[i..frames.len().min(i + 2)].iter().filter_map(|f| view(Kind::Radar, f.0).plan()).collect();
+                }
+            }
+            let radar_done = !radar.is_empty() && radar.iter().all(|q| live.radar.prime(q));
+            let maps_done = maps.iter().all(|q| live.map.prime(q));
+            if radar_done && maps_done {
+                break;
+            }
+            std::thread::sleep(WARM_LOOK);
+        }
+        live.close();
+        trim_heap_after_close();
     }
 
     pub fn handle(&self, request: &Request, rest: &[&str]) -> Response {
@@ -124,8 +204,7 @@ impl WxView {
         match rest {
             ["open"] if post => self.open(request),
             ["state"] if get => self.state(),
-            ["frame"] if get => self.frame(request),
-            ["map"] if get => self.map(request),
+            ["pic"] if get => self.pic(request),
             ["globe"] if get => self.globe(request),
             ["close"] if post => {
                 self.close();
@@ -135,35 +214,12 @@ impl WxView {
         }
     }
 
-    fn build(&self, centre: LonLat, level: RadarLevel) -> Live {
-        let tls = Arc::clone(&self.fetch);
-        let now: Arc<dyn Fn() -> i64 + Send + Sync> = Arc::new(unix_now);
-        let tiles = DiskCache::open(self.root.join("radar-tiles"), 12 << 20).ok();
-        let timeline = TimelineProvider::new(
-            TimelineSources {
-                observed: Arc::new(IemNexrad::new(Arc::clone(&tls), Arc::clone(&now)).with_cache(tiles.clone())),
-                forecast: Arc::new(IemHrrr::new(Arc::clone(&tls)).with_cache(tiles)),
-                outlook: Arc::new(OpenMeteoOutlook::new(Arc::clone(&tls), Arc::clone(&now))),
-                elsewhere: Arc::new(RainViewer::new(Arc::clone(&tls))),
-            },
-            Arc::clone(&now),
-        );
-        let mut radar_cfg = RadarConfig::new(Arc::new(timeline));
-        radar_cfg.cache = DiskCache::open(self.root.join("radar"), 4 << 20).ok();
-        radar_cfg.max_held = 40;
-        let radar = RadarEngine::new(radar_cfg, Arc::new(|| {}));
-        let meta = DiskCache::open(self.root.join("map-meta"), 64 << 10).ok();
-        let mut map_cfg = MapConfig::new(Arc::new(OpenFreeMap::new(Arc::clone(&tls), meta))).for_screen(1920.0, 1080.0);
-        map_cfg.cache_dir = Some(self.root.join("map"));
-        map_cfg.disk_budget = 24 << 20;
-        map_cfg.min_zoom = f64::from(MAP_ZOOM_MIN);
-        map_cfg.max_zoom = f64::from(MAP_ZOOM_MAX);
-        map_cfg.raster_budget = 24 << 20;
-        let map = MapEngine::new(map_cfg, Arc::new(|| {}));
-        let n = unix_now();
-        radar.set_window(Some((n - BACK_S, n + AHEAD_S)));
-        radar.request(centre, level);
-        Live { radar, map, centre, level, last_used: Instant::now(), fields: HashMap::new(), pngs: HashMap::new(), tiles: HashMap::new(), palette_dark: None, globe: None }
+    fn build(&self, centre: LonLat) -> Live {
+        let (source, provider) = (self.sources)();
+        let epoch = Arc::new(AtomicU64::new(0));
+        let radar = Arc::new(RadarTiles::new(provider, centre, Arc::clone(&epoch), Arc::clone(&self.now)));
+        let map = Arc::new(BaseMap::new(source, &self.root, Arc::clone(&epoch)));
+        Live { radar, map, epoch, centre, last_used: Instant::now(), globe: None }
     }
 
     fn open(&self, request: &Request) -> Response {
@@ -175,34 +231,41 @@ impl WxView {
             return error_response(400, "bad_request", "that place is not on the earth");
         }
         let centre = LonLat::new(lon, lat);
-        let level = level_for(body.get("zoom").and_then(Value::as_u64));
-        {
-            let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
+        let replaced = {
+            let mut live = self.lock();
             match live.as_mut() {
-                Some(l) if l.centre == centre && l.level == level => {
+                Some(l) if l.centre == centre => {
                     l.last_used = Instant::now();
-                    let n = unix_now();
-                    l.radar.set_window(Some((n - BACK_S, n + AHEAD_S)));
-                    l.radar.request(centre, level);
+                    l.radar.refresh();
+                    None
                 }
-                _ => *live = Some(self.build(centre, level)),
+                _ => live.replace(self.build(centre)),
             }
+        };
+        if let Some(old) = replaced {
+            old.close();
+            trim_heap_after_close();
         }
         self.state()
     }
 
-    fn close(&self) {
-        let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(l) = live.take() {
-            l.radar.release();
+    /// Lets go of everything the view held.
+    pub fn close(&self) {
+        let taken = self.lock().take();
+        if let Some(l) = taken {
+            l.close();
+            trim_heap_after_close();
         }
     }
 
     /// Runs `f` on the live engines (dropping them first when nobody has asked for ten minutes); `None` before `open`.
     fn with<R>(&self, f: impl FnOnce(&mut Live) -> R) -> Option<R> {
-        let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
+        let mut live = self.lock();
         if live.as_ref().is_some_and(|l| l.last_used.elapsed() > IDLE_CLOSE) {
-            *live = None;
+            if let Some(old) = live.take() {
+                old.close();
+                trim_heap_after_close();
+            }
         }
         let l = live.as_mut()?;
         l.last_used = Instant::now();
@@ -210,49 +273,56 @@ impl WxView {
     }
 
     fn state(&self) -> Response {
-        match self.with(state_json) {
+        match self.with(|l| {
+            let mut v = l.radar.state();
+            v["centre"] = json!({"lon": l.centre.lon, "lat": l.centre.lat});
+            v
+        }) {
             Some(v) => Response::json(200, &v),
             None => error_response(409, "not_open", "the radar has not been opened"),
         }
     }
 
-    /// The frame at `t`, coloured, as a PNG of straight colours.
-    fn frame(&self, request: &Request) -> Response {
-        let dark = request.param("dark") != Some("0");
-        let Some(t) = request.param("t").and_then(|t| t.parse::<i64>().ok()) else {
-            return error_response(400, "bad_request", "t is needed");
+    /// What the view's engines hold, for the tests and the log.
+    pub fn stats(&self) -> WxStats {
+        match self.lock().as_ref() {
+            Some(l) => WxStats { open: true, radar: l.radar.stats(), map: l.map.stats() },
+            None => WxStats::default(),
+        }
+    }
+
+    /// A mosaic of the cells that cover the view (see `wxpic`).
+    fn pic(&self, request: &Request) -> Response {
+        let view = match ViewQuery::parse(request) {
+            Ok(v) => v,
+            Err(why) => return error_response(400, "bad_request", why),
         };
-        let deadline = Instant::now() + WAIT_FRAME;
-        loop {
-            let got = self.with(|l| {
-                take_fields(l);
-                let rev = l.fields.get(&t).map(|f| f.0);
-                match rev {
-                    Some(rev) => {
-                        if let Some(png) = l.pngs.get(&(t, rev, dark)) {
-                            return Some(Arc::clone(png));
-                        }
-                        let field = Arc::clone(&l.fields[&t].1);
-                        let side = usize::from(l.radar.frame_px());
-                        let png = Arc::new(paint_frame(&field, side, dark));
-                        if l.pngs.len() >= KEPT_FRAMES * 2 {
-                            l.pngs.clear();
-                        }
-                        l.pngs.insert((t, rev, dark), Arc::clone(&png));
-                        Some(png)
-                    }
-                    None => {
-                        l.radar.want_fresh(&[t]);
-                        None
-                    }
-                }
-            });
+        // the engines, taken out of the lock: a picture is composed without holding it
+        let Some((map, radar, epoch)) = self.with(|l| (Arc::clone(&l.map), Arc::clone(&l.radar), Arc::clone(&l.epoch))) else {
+            return error_response(409, "not_open", "the radar has not been opened");
+        };
+        // a request of an older view than the newest is refused; a newer one moves the view on, which is what cancels the older work
+        if view.epoch < epoch.fetch_max(view.epoch, Ordering::SeqCst) {
+            return error_response(410, "stale_view", "the view has moved on");
+        }
+        let Some(q) = view.plan() else {
+            return Response { status: 204, headers: Vec::new(), body: Vec::new() };
+        };
+        let began = Instant::now();
+        let answer = loop {
+            let got = match q.kind {
+                Kind::Radar => radar.pic(&q),
+                _ => map.pic(&q),
+            };
             match got {
-                None => return error_response(409, "not_open", "the radar has not been opened"),
-                Some(Some(png)) => return Response { status: 200, headers: vec![("Content-Type", "image/png".into())], body: (*png).clone() },
-                Some(None) if Instant::now() >= deadline => return Response::json(202, &json!({"coming": true})),
-                Some(None) => std::thread::sleep(Duration::from_millis(15)),
+                PicAnswer::Coming { .. } if began.elapsed() < WAIT_PIC => std::thread::sleep(Duration::from_millis(4)),
+                done => break done,
             }
+        };
+        match answer {
+            PicAnswer::Ready(bytes) => Response { status: 200, headers: vec![("Content-Type", "application/octet-stream".into())], body: bytes },
+            PicAnswer::Coming { have, want, failing } => Response::json(202, &json!({"coming": true, "have": have, "want": want, "failing": failing})),
+            PicAnswer::Unknown => error_response(404, "no_frame", "the radar has no frame at that time"),
         }
     }
 
@@ -294,133 +364,6 @@ impl WxView {
             Some((rgba, complete)) => Response { status: if complete { 200 } else { 206 }, headers: vec![("Content-Type", "image/png".into())], body: encode_png(size as u32, size as u32, &rgba) },
         }
     }
-
-    /// The base map: tiles composed into a picture of `w` by `h` centred on the place.
-    fn map(&self, request: &Request) -> Response {
-        let num = |k: &str, d: f64| request.param(k).and_then(|v| v.parse::<f64>().ok()).unwrap_or(d);
-        let (w, h) = (num("w", 1792.0).clamp(64.0, 2048.0) as u32, num("h", 720.0).clamp(64.0, 1200.0) as u32);
-        let zoom = num("zoom", 7.0).round().clamp(f64::from(MAP_ZOOM_MIN), f64::from(MAP_ZOOM_MAX)) as u8;
-        let dark = request.param("dark") != Some("0");
-        let deadline = Instant::now() + WAIT_MAP;
-        loop {
-            let got = self.with(|l| {
-                if l.palette_dark != Some(dark) {
-                    l.map.set_palette(if dark { MapPalette::calm_dark() } else { MapPalette::calm_light() });
-                    l.palette_dark = Some(dark);
-                    l.tiles.clear();
-                }
-                let view = View::new(l.centre.world(), f64::from(zoom), w as f32, h as f32);
-                let keys = view.raster_keys(GridZoom(zoom * 2), 0.0);
-                l.map.want(&keys);
-                for t in l.map.take_ready() {
-                    l.tiles.insert(t.key, t);
-                }
-                let have = keys.iter().filter(|k| l.tiles.contains_key(k)).count();
-                (compose(&view, &keys, &l.tiles, if dark { MapPalette::calm_dark() } else { MapPalette::calm_light() }), have == keys.len(), matches!(l.map.status(), MapStatus::Failed(_) | MapStatus::Offline { .. }))
-            });
-            match got {
-                None => return error_response(409, "not_open", "the radar has not been opened"),
-                Some((rgba, complete, failing)) => {
-                    if complete || failing || Instant::now() >= deadline {
-                        let png = encode_png(w, h, &rgba);
-                        return Response { status: if complete { 200 } else { 206 }, headers: vec![("Content-Type", "image/png".into())], body: png };
-                    }
-                    std::thread::sleep(Duration::from_millis(40));
-                }
-            }
-        }
-    }
-}
-
-/// Takes the inflated fields the worker has for the frames asked (`want_fresh`) into the kept set.
-fn take_fields(l: &mut Live) {
-    for (t, rev, field) in l.radar.take_fresh_revs() {
-        l.fields.insert(t, (rev, field));
-    }
-}
-
-fn state_json(l: &mut Live) -> Value {
-    take_fields(l);
-    let Some(s) = l.radar.state() else {
-        return json!({"status": "loading", "have": 0, "want": 0, "frames": [], "indexed": false});
-    };
-    // a frame whose field was replaced (the model's next run) is fetched and inflated again when asked
-    let frames: Vec<Value> = s
-        .frames
-        .iter()
-        .map(|f| {
-            let kind = match f.kind {
-                FrameKind::Observed => 0,
-                FrameKind::Forecast => 1,
-                FrameKind::Outlook => 2,
-            };
-            json!([f.time_s, kind, f.ready, f.rev])
-        })
-        .collect();
-    let (status, newest, why) = match &s.status {
-        RadarStatus::Loading { .. } => ("loading", None, None),
-        RadarStatus::Ready { newest_s } => ("ready", Some(*newest_s), None),
-        RadarStatus::Stale { newest_s, why } => ("stale", Some(*newest_s), Some(format!("{why:?}"))),
-        RadarStatus::Unavailable { why } => ("unavailable", None, Some(why.clone())),
-    };
-    json!({
-        "status": status, "newest": newest, "why": why, "have": s.have, "want": s.want, "indexed": s.indexed,
-        "frames": frames, "framePx": l.radar.frame_px(), "attribution": s.attribution, "now": unix_now(),
-        "extent": {"x0": s.extent.min.x, "y0": s.extent.min.y, "x1": s.extent.max.x, "y1": s.extent.max.y},
-        "centre": {"lon": l.centre.lon, "lat": l.centre.lat}, "zoom": l.level.zoom,
-    })
-}
-
-/// A field of strengths as the PNG of its colours. The ramp's pixels are premultiplied; a PNG is straight, and the shell premultiplies what it
-/// decodes, so they are made straight here.
-fn paint_frame(field: &[u8], side: usize, dark: bool) -> Vec<u8> {
-    let ramp = Ramp::new(if dark { RampTheme::Dark } else { RampTheme::Light });
-    let mut rgba = colorize(field, &ramp);
-    for px in rgba.chunks_exact_mut(4) {
-        let a = u32::from(px[3]);
-        if a > 0 && a < 255 {
-            for c in &mut px[..3] {
-                *c = ((u32::from(*c) * 255 + a / 2) / a).min(255) as u8;
-            }
-        }
-    }
-    encode_png(side as u32, side as u32, &rgba)
-}
-
-/// The tiles drawn side by side into a picture of the view's size, on the palette's land colour.
-fn compose(view: &View, keys: &[map::webmerc::RasterKey], tiles: &HashMap<map::webmerc::RasterKey, Arc<map::raster::RasterTile>>, palette: MapPalette) -> Vec<u8> {
-    let (w, h) = (view.width as usize, view.height as usize);
-    let mut out = vec![0u8; w * h * 4];
-    let land = palette.water;
-    for px in out.chunks_exact_mut(4) {
-        px.copy_from_slice(&land);
-    }
-    for key in keys {
-        let Some(tile) = tiles.get(key) else { continue };
-        let (sx, sy) = view.to_screen(key.rect().min);
-        let (x0, y0) = (sx.round() as i64, sy.round() as i64);
-        for ty in 0..TILE_PX as i64 {
-            let y = y0 + ty;
-            if y < 0 || y >= h as i64 {
-                continue;
-            }
-            for tx in 0..TILE_PX as i64 {
-                let x = x0 + tx;
-                if x < 0 || x >= w as i64 {
-                    continue;
-                }
-                let s = ((ty * i64::from(TILE_PX) + tx) * 4) as usize;
-                let d = (y as usize * w + x as usize) * 4;
-                // premultiplied over the ground
-                let a = 255 - u32::from(tile.rgba[s + 3]);
-                for c in 0..3 {
-                    out[d + c] = (u32::from(tile.rgba[s + c]) + u32::from(out[d + c]) * a / 255).min(255) as u8;
-                }
-                out[d + 3] = 255;
-            }
-        }
-    }
-    out
 }
 
 /// The globe as seen from (`lon`, `lat`) degrees, orthographic, `size` px square, straight RGBA: the surface's classes in the map's colours, the
@@ -520,56 +463,20 @@ fn encode_png(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wxmap::testing::Water;
+    use crate::wxpic::TRAILER;
+    use crate::wxradar::testing::{Fake, T0};
 
-    #[test]
-    fn a_picture_of_rain_is_a_png_of_the_fields_size_and_nothing_where_it_is_dry() {
-        let mut field = vec![0u8; 16 * 16];
-        field[5 * 16 + 5] = 200;
-        let bytes = paint_frame(&field, 16, true);
-        let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-        let mut reader = decoder.read_info().expect("a png");
-        let mut buf = vec![0; reader.output_buffer_size()];
-        let info = reader.next_frame(&mut buf).expect("a frame");
-        assert_eq!((info.width, info.height), (16, 16));
-        assert_eq!(buf[0..4], [0, 0, 0, 0], "dry is transparent");
-        assert!(buf[(5 * 16 + 5) * 4 + 3] > 0, "rain is not");
+    struct NoFetch;
+
+    impl Fetch for NoFetch {
+        fn get(&self, _: &str, _: fetch::FetchLimits) -> Result<Vec<u8>, fetch::FetchError> {
+            Err(fetch::FetchError::Offline)
+        }
     }
 
-    #[test]
-    fn the_globe_is_a_disc_of_the_asked_size_lit_from_the_sun_with_rain_on_it() {
-        let surface = Surface::bundled();
-        // the sun over Africa: Europe is in the light, the far side of the earth is not
-        let sun = LonLat::new(0.0, 0.0);
-        let lit = render_globe(&surface, None, None, sun, (10.0, 40.0), (120, 1.0), true);
-        let dark_side = render_globe(&surface, None, None, sun, (180.0, 0.0), (120, 1.0), true);
-        assert_eq!(lit.len(), 120 * 120 * 4);
-        assert_eq!(lit[3], 0, "the corner is outside the disc");
-        let mid = (60 * 120 + 60) * 4;
-        assert_eq!(lit[mid + 3], 255);
-        let lum = |v: &[u8]| u32::from(v[mid]) + u32::from(v[mid + 1]) + u32::from(v[mid + 2]);
-        assert!(lum(&lit) > lum(&dark_side), "day is lighter than night: {} {}", lum(&lit), lum(&dark_side));
-        // rain over the middle shows
-        let wet = vec![200u8; RAIN_W * RAIN_H];
-        let rainy = render_globe(&surface, Some(&wet), None, sun, (10.0, 40.0), (120, 1.0), true);
-        assert_ne!(rainy[mid..mid + 3], lit[mid..mid + 3]);
-    }
-
-    #[test]
-    fn the_level_follows_the_zoom_asked() {
-        assert_eq!(level_for(None), RadarLevel::REGIONAL);
-        assert_eq!(level_for(Some(6)), RadarLevel::REGIONAL);
-        assert_eq!(level_for(Some(4)), RadarLevel::WIDE);
-    }
-
-    #[test]
-    fn tiles_are_composed_on_the_view_and_a_missing_tile_leaves_the_ground() {
-        let view = View::new(LonLat::new(-84.39, 33.75).world(), 7.0, 300.0, 200.0);
-        let keys = view.raster_keys(GridZoom(14), 0.0);
-        assert!(!keys.is_empty());
-        let ground = MapPalette::calm_dark().water;
-        let out = compose(&view, &keys, &HashMap::new(), MapPalette::calm_dark());
-        assert_eq!(out.len(), 300 * 200 * 4);
-        assert_eq!(out[0..4], ground);
+    fn service(dir: &Path) -> Arc<WxView> {
+        WxView::with_sources(Arc::new(NoFetch), dir, Box::new(|| (Water::new(0) as Arc<dyn TileSource>, Fake::new(0) as Arc<dyn RadarProvider>)), Arc::new(|| T0 + 120))
     }
 
     fn request(method: &str, path: &str, query: &[(&str, &str)], body: &str) -> Request {
@@ -583,84 +490,144 @@ mod tests {
         }
     }
 
-    /// `cargo test -p lumatv-helper --release --lib wxview::tests::timings -- --ignored --nocapture`: the real network, the host's openssl.
-    #[test]
-    #[ignore]
-    fn timings() {
-        let dir = tempfile::tempdir().unwrap();
-        let tls: Arc<dyn Fetch> = fetch::KeepAlive::new(fetch::TlsFetch::new("/usr/bin/openssl", "/etc/ssl/certs/ca-certificates.crt"));
-        for round in ["cold", "warm"] {
-            // a new service on the same disk each time: what a restart finds
-            let wx = WxView::new(Arc::clone(&tls), dir.path());
-            let t0 = Instant::now();
-            let r = wx.handle(&request("POST", "/v1/wx/open", &[], &format!(r#"{{"lat": {}, "lon": {}}}"#, std::env::var("WX_LAT").unwrap_or("33.75".into()), std::env::var("WX_LON").unwrap_or("-84.39".into()))), &["open"]);
-            assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
-            let (mut first, mut all, mut frames) = (None, None, Vec::new());
-            while t0.elapsed() < Duration::from_secs(60) {
-                let v: Value = serde_json::from_slice(&wx.handle(&request("GET", "/v1/wx/state", &[], ""), &["state"]).body).unwrap();
-                frames = v["frames"].as_array().cloned().unwrap_or_default();
-                let ready = frames.iter().filter(|f| f[2] == true).count();
-                if first.is_none() && ready > 0 {
-                    first = Some(t0.elapsed());
-                }
-                if v["indexed"] == true && v["want"].as_u64().unwrap_or(0) > 0 && v["have"] == v["want"] {
-                    all = Some(t0.elapsed());
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            // the first frame as a picture the shell can draw, and the newest observed
-            let t = frames.iter().find(|f| f[1] == 0).map(|f| f[0].as_i64().unwrap()).unwrap_or(0);
-            let t1 = Instant::now();
-            let frame = wx.handle(&request("GET", "/v1/wx/frame", &[("t", &t.to_string())], ""), &["frame"]);
-            let frame_ms = t1.elapsed();
-            let t2 = Instant::now();
-            let map = wx.handle(&request("GET", "/v1/wx/map", &[("w", "1792"), ("h", "876"), ("zoom", "8")], ""), &["map"]);
-            println!("{round}: first frame {first:?}, all {all:?} ({} frames); a frame as a picture {frame_ms:?} ({} B, {}); the base map {:?} ({} B, {})", frames.len(), frame.body.len(), frame.status, t2.elapsed(), map.body.len(), map.status);
-            if let (Ok(dump), "warm") = (std::env::var("WX_DUMP"), round) {
-                // the pictures the shell would be given, for the host renders of the page (`WX_DUMP=<dir>`)
-                let dir = Path::new(&dump);
-                std::fs::create_dir_all(dir).unwrap();
-                let state: Value = serde_json::from_slice(&wx.handle(&request("GET", "/v1/wx/state", &[], ""), &["state"]).body).unwrap();
-                std::fs::write(dir.join("state.json"), serde_json::to_vec(&state).unwrap()).unwrap();
-                std::fs::write(dir.join("map.png"), &map.body).unwrap();
-                let now = state["now"].as_i64().unwrap();
-                for f in state["frames"].as_array().unwrap().iter().filter(|f| f[2] == true) {
-                    let t = f[0].as_i64().unwrap();
-                    if t < now - BACK_S || t > now + AHEAD_S || f[1] == 2 {
-                        continue;
-                    }
-                    for _ in 0..40 {
-                        let r = wx.handle(&request("GET", "/v1/wx/frame", &[("t", &t.to_string())], ""), &["frame"]);
-                        if r.status == 200 {
-                            std::fs::write(dir.join(format!("frame-{t}.png")), &r.body).unwrap();
-                            break;
-                        }
-                    }
-                }
-            }
-            // the globe: how long until its textures are in, and the picture
-            let t3 = Instant::now();
-            let lon = std::env::var("WX_LON").unwrap_or("-84.39".into());
-            let lat = std::env::var("WX_LAT").unwrap_or("33.75".into());
-            let (mut first_globe, mut last) = (None, None);
-            while t3.elapsed() < Duration::from_secs(40) {
-                let g = wx.handle(&request("GET", "/v1/wx/globe", &[("lon", &lon), ("lat", &lat), ("size", "744")], ""), &["globe"]);
-                first_globe.get_or_insert(t3.elapsed());
-                let done = g.status == 200;
-                last = Some(g);
-                if done {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(150));
-            }
-            if let Some(g) = &last {
-                println!("{round}: globe first picture {first_globe:?}, complete after {:?} (status {}, {} B)", t3.elapsed(), g.status, g.body.len());
-                if let Ok(dump) = std::env::var("WX_DUMP") {
-                    std::fs::write(Path::new(&dump).join(format!("globe-{round}.png")), &g.body).unwrap();
-                }
-            }
-            wx.close();
+    fn open(wx: &WxView) -> Response {
+        wx.handle(&request("POST", "/v1/wx/open", &[], r#"{"lat": 33.75, "lon": -84.39}"#), &["open"])
+    }
+
+    /// Atlanta in world units.
+    const CX: &str = "0.26703";
+    const CY: &str = "0.41163";
+
+    fn pic(wx: &WxView, kind: &str, zoom: &str, epoch: &str, t: i64) -> Response {
+        let t = t.to_string();
+        let mut q = vec![("k", kind), ("cx", CX), ("cy", CY), ("zoom", zoom), ("epoch", epoch)];
+        if kind == "radar" {
+            q.push(("t", &t));
         }
+        wx.handle(&request("GET", "/v1/wx/pic", &q, ""), &["pic"])
+    }
+
+    /// Asks until the picture is there (a 202 is "ask again").
+    fn pic_ready(wx: &WxView, kind: &str, zoom: &str, epoch: &str, t: i64) -> Response {
+        let began = Instant::now();
+        loop {
+            let r = pic(wx, kind, zoom, epoch, t);
+            if r.status != 202 || began.elapsed() > Duration::from_secs(20) {
+                return r;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// The trailer's size and level of a picture.
+    fn trailer(r: &Response) -> (usize, usize, u8) {
+        let t = &r.body[r.body.len() - TRAILER..];
+        assert_eq!(&t[..4], b"WXP2");
+        (u32::from_le_bytes(t[4..8].try_into().unwrap()) as usize, u32::from_le_bytes(t[8..12].try_into().unwrap()) as usize, t[20])
+    }
+
+    #[test]
+    fn a_view_is_opened_asked_for_its_pictures_and_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let wx = service(dir.path());
+        assert_eq!(wx.handle(&request("GET", "/v1/wx/state", &[], ""), &["state"]).status, 409, "not open yet");
+        assert_eq!(open(&wx).status, 200);
+        let began = Instant::now();
+        let state = loop {
+            let v: Value = serde_json::from_slice(&wx.handle(&request("GET", "/v1/wx/state", &[], ""), &["state"]).body).unwrap();
+            if v["indexed"] == true || began.elapsed() > Duration::from_secs(5) {
+                break v;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(state["frames"].as_array().unwrap().len(), 10);
+        assert_eq!(state["centre"]["lat"], 33.75);
+        let map = pic_ready(&wx, "map", "9", "1", 0);
+        assert_eq!(map.status, 200);
+        let (w, h, grid) = trailer(&map);
+        assert_eq!((grid, map.body.len()), (18, w * h * 4 + TRAILER));
+        assert!(w * h >= 1920 * 1080, "a screen of cells: {w} by {h}");
+        let back = pic_ready(&wx, "backdrop", "9", "1", 0);
+        assert_eq!((back.status, trailer(&back).2), (200, 14), "two zoom levels coarser");
+        let rain = pic_ready(&wx, "radar", "9", "1", T0);
+        assert_eq!(rain.status, 200);
+        let (rw, rh, rz) = trailer(&rain);
+        assert_eq!(rz, 6);
+        assert!(rw * rh <= 3 * 2 * 256 * 256, "a frame is a few tiles");
+        let s = wx.stats();
+        assert!(s.open && s.map.cells > 0 && s.radar.tiles > 0, "{s:?}");
+        // closed: everything is let go
+        assert_eq!(wx.handle(&request("POST", "/v1/wx/close", &[], "{}"), &["close"]).status, 200);
+        let s = wx.stats();
+        assert!(!s.open && s.map.bytes == 0 && s.radar.bytes == 0, "{s:?}");
+        assert_eq!(pic(&wx, "map", "9", "2", 0).status, 409);
+    }
+
+    #[test]
+    fn an_older_view_is_refused_and_a_view_without_a_picture_has_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let wx = service(dir.path());
+        open(&wx);
+        let now = pic(&wx, "map", "9", "5", 0);
+        assert!(now.status == 200 || now.status == 202, "{}", now.status);
+        assert_eq!(pic(&wx, "map", "9", "4", 0).status, 410, "an older view");
+        assert_eq!(pic(&wx, "backdrop", "6", "5", 0).status, 204, "no backdrop under zoom 7");
+        assert_eq!(wx.handle(&request("GET", "/v1/wx/pic", &[("k", "map")], ""), &["pic"]).status, 400);
+        // a radar frame the radar has not got
+        let began = Instant::now();
+        while !wx.stats().radar.indexed && began.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(pic(&wx, "radar", "9", "5", T0 + 7).status, 404);
+    }
+
+    #[test]
+    fn opening_for_another_place_makes_the_engines_again_and_the_same_place_keeps_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let wx = service(dir.path());
+        open(&wx);
+        let first = wx.lock().as_ref().map(|l| Arc::as_ptr(&l.map)).unwrap();
+        open(&wx);
+        assert_eq!(wx.lock().as_ref().map(|l| Arc::as_ptr(&l.map)), Some(first));
+        wx.handle(&request("POST", "/v1/wx/open", &[], r#"{"lat": 51.5, "lon": -0.12}"#), &["open"]);
+        assert_ne!(wx.lock().as_ref().map(|l| Arc::as_ptr(&l.map)), Some(first));
+        assert_eq!(wx.handle(&request("POST", "/v1/wx/open", &[], r#"{"lat": 91, "lon": 0}"#), &["open"]).status, 400);
+    }
+
+    #[test]
+    fn the_warming_leaves_nothing_in_memory_and_the_view_that_follows_finds_its_cells_on_the_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let wx = service(dir.path());
+        let centre = LonLat::new(-84.39, 33.75);
+        wx.warm(centre, &|| false);
+        let s = wx.stats();
+        assert!(!s.open, "the engines of the warming are not the view's: {s:?}");
+        let cells = std::fs::read_dir(dir.path().join("map-raster")).unwrap().count();
+        assert!(cells >= 30, "{cells} cells on the disk");
+        // the view at the opening zoom: its cells are read, none drawn
+        open(&wx);
+        let w = centre.world();
+        let (cx, cy) = (w.x.to_string(), w.y.to_string());
+        let q = [("k", "map"), ("cx", cx.as_str()), ("cy", cy.as_str()), ("zoom", "9"), ("epoch", "1")];
+        let began = Instant::now();
+        let r = loop {
+            let r = wx.handle(&request("GET", "/v1/wx/pic", &q, ""), &["pic"]);
+            if r.status != 202 || began.elapsed() > Duration::from_secs(10) {
+                break r;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(r.status, 200);
+        let s = wx.stats();
+        assert_eq!(s.map.engine.rasters, 0, "nothing was drawn for the view");
+        assert!(s.map.disk_hits as usize >= 30, "{s:?}");
+        // a second warming has nothing to draw: the view is up, so it does nothing at all
+        wx.warm(centre, &|| false);
+        wx.close();
+        assert!(!wx.stats().open);
+        // and with the view closed, one more finds every cell on the disk
+        let files = std::fs::read_dir(dir.path().join("map-raster")).unwrap().count();
+        wx.warm(centre, &|| false);
+        assert_eq!(std::fs::read_dir(dir.path().join("map-raster")).unwrap().count(), files, "no cell was drawn again");
     }
 }

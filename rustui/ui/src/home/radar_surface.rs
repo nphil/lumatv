@@ -1,25 +1,28 @@
-//! The weather view's radar page, drawn: the base map as one picture over the whole screen, every frame of the loop as a layer of its own (made
-//! once when it arrives, posed over the square of the map it covers, hidden, and fading out where the radar's coverage ends), the home pin, and
-//! the few controls that float over the map: what is shown (radar or the model's forecast, said in a chip, in the accent for the forecast), the
-//! time bar with the radar's ticks, the forecast's and the clock's mark, and the legend of the colours. A step of the loop or a scrub changes two
-//! layers' opacity on the compositor's clock; nothing is painted or uploaded for it.
+//! The weather view's radar page, drawn: the base map as a picture of the cells that cover the screen (and a coarser one under it), the radar's
+//! frame on show and the one after it as layers of their own (each made once when its picture arrives, posed over the part of the world it
+//! covers, the frame hidden until it is the one shown), the home pin, and the few controls that float over the map: what is shown (radar or the
+//! model's forecast, said in a chip, in the accent for the forecast), the time bar with the radar's ticks, the forecast's and the clock's mark,
+//! and the legend of the colours. A step of the loop or a scrub changes two layers' opacity on the compositor's clock; nothing is painted or
+//! uploaded for it. The pictures are the page's model's to ask for ([`super::radar_pics`]) and the layers of those it lets go are dropped here.
 //!
-//! The zoom is the compositor's too: the map and the frames hang under one group whose scale (and, for a zoom about the pointer, whose place) is
-//! bound to a motion track, so that a turn of the wheel is one `settle` and the glide to it costs this process no frame ([`super::radar_zoom`]).
+//! The zoom is the compositor's too: the pictures hang under one group whose scale (and, for a zoom about the pointer, whose place) is bound to a
+//! motion track, so that a turn of the wheel is one `settle` and the glide to it costs this process no frame ([`super::radar_zoom`]). The pictures
+//! are posed in that group's own space, which is the world at the opening zoom with the place at the middle of the screen, and the view that the
+//! track and the pan come to is told to the model ([`Radar::set_view`]), which asks for the pictures of that view.
 //!
 //! The controls are plates (a colour and an edge), not glass: glass samples the wallpaper's blur, not the map under it.
 
 use super::clock;
 use super::model::Home;
-use super::radar_view::{AHEAD_S, BACK_S, Kind, Level, MAP_H, MAP_W};
-use super::radar_zoom::{Pan, S_MAX, S_MIN, scale_of};
+use super::radar_pics::{self, MapPic, Role, View};
+use super::radar_view::{AHEAD_S, BACK_S, Kind, MAP_H, MAP_W};
+use super::radar_zoom::{Pan, S_MAX, S_MIN, Z_HOME};
 use super::surface::{HIDDEN, faded};
 use super::weather_gfx as gfx;
 use super::widgets::{Canvas, Words};
 use crate::kit::Kit;
-use crate::kit::picture::Picture;
 use crate::kit::text::role_style;
-use compositor_protocol::{Edges, Ease, Fill, Props, Rect, Rgba, Shape};
+use compositor_protocol::{Ease, Fill, Props, Rgba, Shape};
 use lumatv_tokens::TypeRole;
 use std::collections::HashMap;
 use ui::components::{Align, Style, plate};
@@ -36,36 +39,11 @@ const CHIP_Y: f32 = 128.0;
 /// The forecast is drawn lighter than what a radar saw (the same ramp, 78 %).
 const FORECAST_ALPHA: f32 = 0.78;
 const FADE_MS: u32 = 240;
-/// Where a frame's coverage ends, its edge fades out over this many pixels.
-const EDGE_FEATHER: f32 = 72.0;
 
 /// Where a place is in the world's units (Web Mercator, 0 to 1 each way).
 fn world_of(lon: f64, lat: f64) -> (f64, f64) {
     let lat = lat.clamp(-85.05, 85.05).to_radians();
     ((lon + 180.0) / 360.0, 0.5 - ((std::f64::consts::FRAC_PI_4 + lat / 2.0).tan().ln()) / (2.0 * std::f64::consts::PI))
-}
-
-/// The pose of a frame's layer (`px` square) over the map: the square `extent` covers, on a map of `zoom` centred on the place.
-pub fn frame_pose(extent: [f64; 4], centre: (f64, f64), zoom: u8, px: u32, origin: (f32, f32)) -> Props {
-    let k = 256.0 * 2f64.powi(i32::from(zoom));
-    let (w, h) = (f64::from(MAP_W), f64::from(MAP_H));
-    let (x0, y0) = (w / 2.0 + (extent[0] - centre.0) * k, h / 2.0 + (extent[1] - centre.1) * k);
-    let side = (extent[2] - extent[0]) * k;
-    let scale = (side / f64::from(px.max(1))) as f32;
-    // the layer scales about its middle: its top left is where the middle is, less half a layer
-    let (cx, cy) = (x0 + side / 2.0, y0 + side / 2.0);
-    Props { scale, ..Props::at(origin.0 + cx as f32 - px as f32 / 2.0, origin.1 + cy as f32 - px as f32 / 2.0) }
-}
-
-/// What a frame's layer is drawn inside: the screen, and the square the frame covers, which it fades out towards on every side of it that is on
-/// the screen (the radar's coverage ends, and the edge of its data is not drawn as an edge).
-fn frame_clip(at: &Props, layer_px: u32) -> (Rect, Edges) {
-    let side = layer_px as f32 * at.scale;
-    let (cx, cy) = (at.x + layer_px as f32 / 2.0, at.y + layer_px as f32 / 2.0);
-    let (l, t, r, b) = (cx - side / 2.0, cy - side / 2.0, cx + side / 2.0, cy + side / 2.0);
-    let (x0, y0, x1, y1) = (l.max(0.0), t.max(0.0), r.min(MAP_W as f32), b.min(MAP_H as f32));
-    let f = |inside: bool| if inside { EDGE_FEATHER } else { 0.0 };
-    (Rect { x: x0, y: y0, w: (x1 - x0).max(0.0), h: (y1 - y0).max(0.0) }, Edges::new(f(l > 0.5), f(r < MAP_W as f32 - 0.5), f(t > 0.5), f(b < MAP_H as f32 - 0.5)))
 }
 
 /// `10:40 PM`, or `22:40`.
@@ -101,20 +79,33 @@ pub(super) fn control(kit: &Kit, radius: f32, tint: f32) -> Shape {
     Shape { corner_radius: radius, fill: Fill::Solid(faded(sheet, tint)), border_width: 1.0, border: faded(kit.ui.look.ink(), 0.14) }
 }
 
+/// A picture's layer, as the page's model made it known.
+struct PicLayer {
+    layer: ImageLayer,
+    role: Role,
+    /// Whether the frame is the model's forecast (drawn lighter) and not a radar's.
+    kind: Kind,
+    /// Where the layer is in the group's space, at full opacity.
+    at: Props,
+}
+
 pub struct RadarPage {
     z: i32,
-    /// The map and the frames hang under `level`, which sits in `zoom`: the group the track scales. The pin follows the track's move, not its scale.
-    level: Group,
+    /// The pictures hang under `zoom`, the group the track scales. The pin follows the track's move, not its scale.
     zoom: Group,
     pin_group: Group,
     track: Motion,
     /// How the view is moved off the middle as the track's scale changes, and the zoom it is for.
     pan: Pan,
     zoom_seen: Option<(u32, Option<(u32, u32)>)>,
-    map: Option<ImageLayer>,
     globe: Option<ImageLayer>,
-    frames: HashMap<(i64, u32), (ImageLayer, Kind, Props)>,
-    shown: Option<(i64, u32)>,
+    /// The layers of the pictures the model holds, by its number for them.
+    pics: HashMap<u64, PicLayer>,
+    /// The radar frame shown.
+    shown: Option<u64>,
+    /// Whether the coarse map under the map is seen: only while the map does not cover the view (it is drawn over the whole screen, and a layer that
+    /// is not seen costs the graphics chip nothing).
+    backdrop_seen: bool,
     _pin: ShapeLayer,
     _pin_ring: ShapeLayer,
     /// The place by the pin, and what is wrong in the middle of the map.
@@ -132,7 +123,8 @@ pub struct RadarPage {
     mode_key: String,
     bar_key: String,
     words_key: String,
-    shown_level: Option<Level>,
+    /// Whether the globe is what is shown, as the page has taken it up.
+    shown_globe: Option<bool>,
     reduced: bool,
 }
 
@@ -254,12 +246,11 @@ impl RadarPage {
         let g = Geo::new(kit);
         let (k, cap_h) = (g.k, g.cap_h);
         let (cx, cy) = (MAP_W as f32 / 2.0, MAP_H as f32 / 2.0);
-        // the zoom: the group the map and the frames hang under scales about the middle of the screen on the track, which is the scale itself (1 at the
+        // the zoom: the group the pictures hang under scales about the middle of the screen on the track, which is the scale itself (1 at the
         // opening view); the pin keeps its size and follows only the move the zoom makes when it is about somewhere else than the middle
         let scene = kit.ui.scene.clone();
         let about_middle = GroupPose { pivot_x: cx, pivot_y: cy, ..GroupPose::IDENTITY };
         let zoom = scene.group(Some(parent.id()), about_middle).map_err(other)?;
-        let level = scene.group(Some(zoom.id()), about_middle).map_err(other)?;
         let pin_group = scene.group(Some(parent.id()), GroupPose::IDENTITY).map_err(other)?;
         let track = scene.motion(1.0, MotionBounds::range(S_MIN, S_MAX, Units::Progress)).map_err(other)?;
         zoom.bind(&track, PoseBinding { values: [S_MIN, S_MAX], from: GroupPose { scale: S_MIN, ..about_middle }, to: GroupPose { scale: S_MAX, ..about_middle }, properties: PoseProperties::SCALE }).map_err(other)?;
@@ -342,16 +333,15 @@ impl RadarPage {
         attribution.set_props(Props::at(MARGIN + 1792.0 - att_w, g.bar.y - cap_h - 14.0));
         Ok(Self {
             z,
-            level,
             zoom,
             pin_group,
             track,
             pan: Pan::NONE,
             zoom_seen: None,
-            map: None,
             globe: None,
-            frames: HashMap::new(),
+            pics: HashMap::new(),
             shown: None,
+            backdrop_seen: true,
             _pin: pin,
             _pin_ring: pin_ring,
             place,
@@ -367,88 +357,90 @@ impl RadarPage {
             mode_key: String::new(),
             bar_key: String::new(),
             words_key: String::new(),
-            shown_level: None,
+            shown_globe: None,
             reduced: false,
         })
     }
 
-    /// The base map's picture, over the whole screen.
-    fn make_map(&mut self, kit: &mut Kit, mut p: Picture) -> std::io::Result<()> {
-        if p.width != MAP_W || p.height != MAP_H {
-            p = p.fitted(MAP_W, MAP_H, crate::kit::picture::Fit::Cover);
+    /// A picture's layer: made when the picture arrives, posed over the part of the world it covers. The map's pictures fade in over what they
+    /// replace (which the model keeps for that long); a radar frame is hidden until it is the one shown.
+    fn make_pic(&mut self, kit: &mut Kit, home: &Home, p: MapPic) -> std::io::Result<()> {
+        let (w, h) = (p.picture.width, p.picture.height);
+        // under the map, the map, over the map: a picture that is made later is over the ones made before it in its band
+        let band = match p.role {
+            Role::Backdrop => -1,
+            Role::Map => 0,
+            Role::Radar { .. } => 1,
+        };
+        let scene = kit.ui.scene.clone();
+        let mut layer = scene.adopting(&self.zoom, || kit.ui.scene.image(w, h, self.z + band, HIDDEN))?;
+        p.picture.paint(&mut layer);
+        // written once and not touched again: this process need not keep its pages of it (the compositor reads the file)
+        layer.release_resident();
+        let (lon, lat) = (home.radar.lon, home.radar.lat);
+        let (x, y, scale) = radar_pics::placement(p.world, (w, h), world_of(lon, lat), f64::from(Z_HOME));
+        let at = Props { scale, ..Props::at(x, y) };
+        let kind = match p.role {
+            Role::Radar { t, .. } => home.radar.frames.iter().find(|f| f.t == t).map_or(Kind::Observed, |f| f.kind),
+            _ => Kind::Observed,
+        };
+        match p.role {
+            Role::Radar { .. } => layer.set(Props { opacity: 0.0, ..at }),
+            Role::Backdrop => layer.set(if self.backdrop_seen { at } else { HIDDEN }),
+            _ if self.reduced || !self.pics.values().any(|o| o.role == p.role) => layer.set(at),
+            _ => {
+                layer.set(Props { opacity: 0.0, ..at });
+                layer.animate(at, FADE_MS, Ease::Linear);
+            }
         }
-        let scene = kit.ui.scene.clone();
-        let mut layer = scene.adopting(&self.level, || kit.ui.scene.image(MAP_W, MAP_H, self.z, HIDDEN))?;
-        p.paint(&mut layer);
-        layer.damage(None);
-        layer.set(Props::at(0.0, 0.0));
-        self.map = Some(layer);
-        Ok(())
-    }
-
-    /// One frame's layer: made when its picture arrives, hidden until it is the one shown.
-    fn make_frame(&mut self, kit: &mut Kit, home: &Home, t: i64, rev: u32, p: Picture) -> std::io::Result<()> {
-        let r = &home.radar;
-        let px = r.frame_px.max(p.width);
-        let scene = kit.ui.scene.clone();
-        let mut layer = scene.adopting(&self.level, || kit.ui.scene.image(p.width, p.height, self.z + 1, HIDDEN))?;
-        p.paint(&mut layer);
-        layer.damage(None);
-        let centre = world_of(r.lon, r.lat);
-        let mut at = frame_pose(r.extent, centre, r.level().map_zoom(), px, (0.0, 0.0));
-        let (clip, feather) = frame_clip(&at, p.width);
-        at.clip = Some(clip);
-        at.feather = feather;
-        at.opacity = 0.0;
-        layer.set(at);
-        let kind = r.frames.iter().find(|f| f.t == t).map_or(Kind::Observed, |f| f.kind);
-        self.frames.insert((t, rev), (layer, kind, at));
+        self.pics.insert(p.id, PicLayer { layer, role: p.role, kind, at });
         Ok(())
     }
 
     pub fn update(&mut self, kit: &mut Kit, home: &mut Home, _now: u64, reduced: bool) -> std::io::Result<()> {
         self.reduced = reduced;
-        let level = home.radar.level();
-        if self.shown_level != Some(level) {
-            // another view: the map and the frames are of the other level, whose pictures are posed for another zoom, so the group they hang under
-            // is scaled to make them the size of the opening view's
-            self.shown_level = Some(level);
-            self.map = None;
-            self.frames.clear();
-            self.shown = None;
+        let globe = home.radar.globe();
+        if self.shown_globe != Some(globe) {
+            // the earth or the map: the pictures of the map are not seen with the globe (the model lets them go), and the pin is not on it
+            self.shown_globe = Some(globe);
             self.bar_key.clear();
             self.mode_key.clear();
             self.words_key.clear();
-            let about_middle = GroupPose { pivot_x: MAP_W as f32 / 2.0, pivot_y: MAP_H as f32 / 2.0, ..GroupPose::IDENTITY };
-            self.level.set_pose(GroupPose { scale: scale_of(f32::from(level.map_zoom())).recip(), ..about_middle });
-            self.pin_group.set_pose(GroupPose { visible: level != Level::Globe, ..GroupPose::IDENTITY });
+            self.pin_group.set_pose(GroupPose { visible: !globe, ..GroupPose::IDENTITY });
+            if globe {
+                for p in self.pics.values() {
+                    p.layer.set(HIDDEN);
+                }
+            }
         }
         self.zoom(kit, home);
-        if let Some(p) = home.radar.take_map() {
-            self.make_map(kit, p)?;
+        // the layers of the pictures the model let go are dropped before those of the new ones are made
+        for id in home.radar.take_released() {
+            self.pics.remove(&id);
+            if self.shown == Some(id) {
+                self.shown = None;
+            }
+        }
+        for p in home.radar.take_pics() {
+            self.make_pic(kit, home, p)?;
+        }
+        let seen = !globe && !home.radar.map_serves();
+        if seen != self.backdrop_seen {
+            self.backdrop_seen = seen;
+            for p in self.pics.values().filter(|p| p.role == Role::Backdrop) {
+                p.layer.set(if seen { p.at } else { HIDDEN });
+            }
         }
         // the globe: one layer of the helper's picture, centred on the screen, replaced when a new one comes (it turns, or its textures arrive)
         if let Some(p) = home.radar.take_globe() {
             let mut layer = kit.ui.scene.image(p.width, p.height, self.z + 1, HIDDEN)?;
             p.paint(&mut layer);
-            layer.damage(None);
+            layer.release_resident();
             layer.set(Props::at(((MAP_W as f32 - p.width as f32) / 2.0).round(), ((MAP_H as f32 - p.height as f32) / 2.0).round()));
             self.globe = Some(layer);
         }
-        if level != Level::Globe {
+        if !globe {
             self.globe = None;
-        }
-        if let Some(m) = &self.map {
-            m.set(if level == Level::Globe { HIDDEN } else { Props::at(0.0, 0.0) });
-        }
-        for (t, rev, p) in home.radar.take_arrived() {
-            self.make_frame(kit, home, t, rev, p)?;
-        }
-        // frames the helper replaced or the window has left go
-        let r = &home.radar;
-        self.frames.retain(|k, _| r.frames.iter().any(|f| f.t == k.0 && f.rev == k.1) || r.frames.is_empty());
-        if self.shown.is_some_and(|s| !self.frames.contains_key(&s)) {
-            self.shown = None;
         }
         self.show(home);
         self.bar(kit, home);
@@ -461,42 +453,61 @@ impl RadarPage {
         self.zoom_seen.map(|(t, _)| (f32::from_bits(t), self.pan))
     }
 
-    /// The zoom the model is going to, taken up: the track is sent there on the focus's spring (at once under reduced motion, which has a crossfade for
-    /// it), and when the zoom is about a place the picture is moved as it goes so that the place stays where it is.
-    fn zoom(&mut self, kit: &Kit, home: &Home) {
-        let z = home.radar.zoom;
-        let seen = (z.target.to_bits(), z.anchor.map(|(x, y)| (x.to_bits(), y.to_bits())));
-        if self.zoom_seen == Some(seen) {
-            return;
-        }
-        self.zoom_seen = Some(seen);
-        let s0 = self.track.value();
-        self.pan = Pan::new(z.anchor, (MAP_W as f32 / 2.0, MAP_H as f32 / 2.0), s0, self.pan.at(s0));
-        let _ = bind_pan(&[&self.zoom, &self.pin_group], &self.track, self.pan);
-        let _ = self.track.settle(Some(z.scale()), None, kit.flow_spec().settle());
+    /// How many pictures the page has layers for, for the tests.
+    #[cfg(test)]
+    pub fn picture_layers(&self) -> usize {
+        self.pics.len()
     }
 
-    /// The frame shown: the layer before it fades out and this one in (or they swap at once under reduced motion).
+    /// The zoom the model is going to, taken up: the track is sent there on the focus's spring (at once under reduced motion, which has a crossfade for
+    /// it), and when the zoom is about a place the picture is moved as it goes so that the place stays where it is. The view it comes to is told to
+    /// the model, which asks for the pictures of it.
+    fn zoom(&mut self, kit: &Kit, home: &mut Home) {
+        let z = home.radar.zoom;
+        let seen = (z.target.to_bits(), z.anchor.map(|(x, y)| (x.to_bits(), y.to_bits())));
+        if self.zoom_seen != Some(seen) {
+            self.zoom_seen = Some(seen);
+            let s0 = self.track.value();
+            self.pan = Pan::new(z.anchor, (MAP_W as f32 / 2.0, MAP_H as f32 / 2.0), s0, self.pan.at(s0));
+            let _ = bind_pan(&[&self.zoom, &self.pin_group], &self.track, self.pan);
+            let _ = self.track.settle(Some(z.scale()), None, kit.flow_spec().settle());
+        }
+        // the world at the middle of the screen when the track has come to the target: the group's space has the place there at scale 1, and a
+        // point of it that is at the middle at scale `s` is `off / s` from the middle of the group's space
+        let (s, off) = (f64::from(z.scale()), self.pan.at(z.scale()));
+        let k = 256.0 * 2f64.powf(f64::from(Z_HOME));
+        let c = world_of(home.radar.lon, home.radar.lat);
+        home.radar.set_view(View { cx: c.0 - f64::from(off.0) / (s * k), cy: c.1 - f64::from(off.1) / (s * k), zoom: f64::from(z.target) });
+    }
+
+    /// The layer of the newest picture of the radar's frame (`t`, `rev`).
+    fn frame_layer(&self, t: i64, rev: u32) -> Option<u64> {
+        self.pics.iter().filter(|(_, p)| p.role == Role::Radar { t, rev }).map(|(id, _)| *id).max()
+    }
+
+    /// The frame shown: the layer before it fades out and this one in (or they swap at once under reduced motion). A frame whose picture has not
+    /// come yet leaves the one before it on the screen.
     fn show(&mut self, home: &Home) {
-        let want = home.radar.current().map(|f| (f.t, f.rev)).filter(|k| self.frames.contains_key(k)).filter(|_| home.radar.level() != Level::Globe);
+        let globe = home.radar.globe();
+        let want = home.radar.current().and_then(|f| self.frame_layer(f.t, f.rev)).or(self.shown.filter(|id| self.pics.contains_key(id))).filter(|_| !globe);
         if want == self.shown {
             return;
         }
         let pose = |base: Props, kind: Kind, on: bool| Props { opacity: if on { if kind == Kind::Forecast { FORECAST_ALPHA } else { 1.0 } } else { 0.0 }, ..base };
-        if let Some(old) = self.shown.and_then(|k| self.frames.get(&k)) {
-            let to = pose(old.2, old.1, false);
+        if let Some(old) = self.shown.and_then(|id| self.pics.get(&id)) {
+            let to = pose(old.at, old.kind, false);
             if self.reduced {
-                old.0.set(to);
+                old.layer.set(to);
             } else {
-                old.0.animate(to, FADE_MS, Ease::Linear);
+                old.layer.animate(to, FADE_MS, Ease::Linear);
             }
         }
-        if let Some(new) = want.and_then(|k| self.frames.get(&k)) {
-            let to = pose(new.2, new.1, true);
+        if let Some(new) = want.and_then(|id| self.pics.get(&id)) {
+            let to = pose(new.at, new.kind, true);
             if self.reduced {
-                new.0.set(to);
+                new.layer.set(to);
             } else {
-                new.0.animate(to, FADE_MS, Ease::Linear);
+                new.layer.animate(to, FADE_MS, Ease::Linear);
             }
         }
         self.shown = want;
@@ -515,15 +526,15 @@ impl RadarPage {
         let x_of = |t: i64| g.track_x + g.track_w * ((t - t0) as f32 / (t1 - t0).max(1) as f32).clamp(0.0, 1.0);
         // the track sits in the upper half of the bar, its words in the lower, and the thumb (30 px) is as tall as the ticks and the clock's mark are together
         let track_y = g.track_y;
-        let globe = r.level() == Level::Globe;
+        let globe = r.globe();
         // the bar's picture: its plate, the play and pause button (on the globe the pad that turns it), and the track: a tick for every frame of the
-        // window (held ones strong), the radar's in the ink, the forecast's in the accent on a tint of it, and the clock
+        // window (the ones the helper has strong), the radar's in the ink, the forecast's in the accent on a tint of it, and the clock
         let win: Vec<_> = if globe { Vec::new() } else { r.window() };
-        let key = format!("{}|{}|{}|{}|{}", r.now_s / 60, win.iter().map(|f| format!("{}{}", f.t, u8::from(r.holds(f)))).collect::<Vec<_>>().join(","), u8::from(light), u8::from(r.playing), u8::from(globe));
+        let key = format!("{}|{}|{}|{}|{}", r.now_s / 60, win.iter().map(|f| format!("{}{}", f.t, u8::from(f.ready))).collect::<Vec<_>>().join(","), u8::from(light), u8::from(r.playing), u8::from(globe));
         if key != self.bar_key {
             self.bar_key = key;
             let playing = r.playing;
-            let held: Vec<bool> = win.iter().map(|f| r.holds(f)).collect();
+            let held: Vec<bool> = win.iter().map(|f| f.ready).collect();
             repaint(&mut self.bar_img, g.bar, |c, f| {
                 paint_plate(kit, c, f, 30.0 * k, 0.9, None);
                 let at = |x: f32, y: f32| (x + PAD, y + PAD);
@@ -594,11 +605,10 @@ impl RadarPage {
         }
         let status = if globe {
             if r.globe_ready() { String::new() } else { "Loading the globe\u{2026}".to_owned() }
-        } else if r.held().is_empty() {
+        } else if !r.has_any_picture() {
             match r.status.as_str() {
-                _ if !r.reached && r.now_s == 0 => "Loading the radar\u{2026}".to_owned(),
                 "unavailable" => format!("The radar is not available{}", if r.why.is_empty() { String::new() } else { format!(": {}", r.why) }),
-                _ => format!("Loading the radar\u{2026}  {} of {}", r.have, r.want.max(r.have)),
+                _ => "Loading the radar\u{2026}".to_owned(),
             }
         } else if r.status == "stale" {
             format!("Not current: the newest radar is {} old", r.newest_s.map_or("some".into(), |n| span_words(r.now_s - n)))
@@ -618,7 +628,7 @@ impl RadarPage {
             Some(t) => (*t).to_owned(),
             None => ui::components::text::ellipsise(&mut kit.ui.fonts, words[1], att_style.ty, room),
         };
-        let key = format!("{mode}|{line}|{sub}|{detail}|{status}|{attribution}|{place}|{}", r.level() as u8);
+        let key = format!("{mode}|{line}|{sub}|{detail}|{status}|{attribution}|{place}|{}", u8::from(globe));
         if key != self.words_key {
             self.words_key = key;
             self.place.set_many(kit, &[(0, &place, ink), (1, &status, ink)]);
@@ -637,21 +647,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_frame_fades_out_where_its_square_ends_on_the_screen_and_not_at_the_screens_own_edge() {
-        // a square of 400 px in the middle of the screen: it fades on every side
-        let (r, e) = frame_clip(&Props { scale: 1.0, ..Props::at(760.0, 340.0) }, 400);
-        assert_eq!((r.x, r.y, r.w, r.h), (760.0, 340.0, 400.0, 400.0));
-        assert!([e.left, e.right, e.top, e.bottom].iter().all(|f| *f == EDGE_FEATHER));
-        // one that is five times as large covers the screen: the screen's edges are hard
-        let (r, e) = frame_clip(&Props { scale: 5.0, ..Props::at(760.0, 340.0) }, 400);
-        assert_eq!((r.x, r.y, r.w, r.h), (0.0, 0.0, MAP_W as f32, MAP_H as f32));
-        assert_eq!(e, Edges::NONE);
-        // one that ends on the screen's left only fades there
-        let (r, e) = frame_clip(&Props { scale: 5.0, ..Props::at(1260.0, 340.0) }, 400);
-        assert_eq!((r.x, e.left, e.right, e.top), (460.0, EDGE_FEATHER, 0.0, 0.0), "{r:?}");
-    }
-
-    #[test]
     fn the_radars_colours_run_from_light_rain_to_heavy_in_both_looks() {
         for dark in [true, false] {
             let r = ramp(dark);
@@ -661,17 +656,13 @@ mod tests {
     }
 
     #[test]
-    fn a_place_is_where_web_mercator_puts_it_and_a_frame_is_posed_on_the_square_it_covers() {
+    fn a_place_is_where_web_mercator_puts_it() {
         let (x, y) = world_of(0.0, 0.0);
         assert!((x - 0.5).abs() < 1e-9 && (y - 0.5).abs() < 1e-9);
-        // a frame whose square is centred on the place sits on the screen's middle
-        let c = world_of(-84.39, 33.75);
-        let half = 0.01;
-        let pose = frame_pose([c.0 - half, c.1 - half, c.0 + half, c.1 + half], c, 8, 384, (0.0, 0.0));
-        let side = 2.0 * half * 256.0 * 256.0;
-        assert!((pose.x + 192.0 - MAP_W as f32 / 2.0).abs() < 1.0 && (pose.y + 192.0 - MAP_H as f32 / 2.0).abs() < 1.0, "{pose:?}");
-        assert!((pose.scale * 384.0 - side as f32).abs() < 0.5);
+        // north is up: a place north of the equator has a smaller y
+        assert!(world_of(0.0, 40.0).1 < 0.5 && world_of(90.0, 0.0).0 > 0.5);
     }
+
     #[test]
     fn the_chrome_keeps_clear_of_itself_and_of_the_screens_edge_at_either_text_size() {
         use crate::kit::testkit;

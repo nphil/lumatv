@@ -355,6 +355,7 @@ fn carry(acts: Vec<Act>, channel: Option<&Feed>, helper: Option<&Feed>, log: &mu
 }
 
 fn main() {
+    lumatv_ui::host::memory::tune();
     let o = match parse() {
         Ok(o) => o,
         Err(e) => {

@@ -50,3 +50,4 @@ ha-link = { workspace = true, features = ["testing"] }
 ha-bridge = { workspace = true, features = ["testing"] }
 rtsp-client = { workspace = true, features = ["testing"] }
 fetch = { workspace = true, features = ["testing"] }
+map = { workspace = true, features = ["testing"] }

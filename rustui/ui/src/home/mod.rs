@@ -12,6 +12,7 @@ pub mod layers;
 pub mod model;
 pub mod onhome;
 pub mod picker;
+pub mod radar_pics;
 pub mod radar_surface;
 pub mod radar_view;
 pub mod radar_zoom;

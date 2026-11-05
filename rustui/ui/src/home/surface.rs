@@ -1584,6 +1584,14 @@ mod tests {
         assert_eq!(target, Z_MAX.min(Z_HOME + 0.25 + 1.0));
         let (ox, oy) = pan.at(scale_of(target));
         assert!(ox < 0.0 && oy > 0.0, "the pointer is up and to the right of the middle, so the picture moves down and to the left: {ox} {oy}");
+        // the model is told the view the zoom comes to, and the world under the pointer is the one that was under it at the opening view
+        let view = home.radar.view().expect("the surface told the model where the zoom puts the view");
+        let (lon, lat) = (-84.39_f64, 33.75_f64);
+        let place = ((lon + 180.0) / 360.0, 0.5 - ((std::f64::consts::FRAC_PI_4 + lat.to_radians() / 2.0).tan().ln()) / (2.0 * std::f64::consts::PI));
+        let under = |cx: f64, cy: f64, zoom: f64| (cx + (1500.0 - 960.0) / (256.0 * 2f64.powf(zoom)), cy + (300.0 - 540.0) / (256.0 * 2f64.powf(zoom)));
+        let (was, is) = (under(place.0, place.1, f64::from(Z_HOME)), under(view.cx, view.cy, view.zoom));
+        let pixel = 1.0 / (256.0 * 2f64.powf(view.zoom));
+        assert!(view.zoom == f64::from(target) && (was.0 - is.0).abs() < 3.0 * pixel && (was.1 - is.1).abs() < 3.0 * pixel, "{was:?} {is:?} {view:?}");
         std::mem::forget(h);
     }
 

@@ -1,30 +1,27 @@
-//! The weather view's radar page, the model: what the helper's `/v1/wx/...` service says (the frames that exist, which of them are ready,
-//! where the square they show lies on the map), which of its pictures the shell holds, which frame is shown and whether the loop plays.
+//! The weather view's radar page, the model: what the helper's `/v1/wx/...` service says (the frames that exist), which pictures of it the page holds
+//! for the view it is looking at ([`super::radar_pics`]), which frame is shown and whether the loop plays.
 //!
-//! Nothing here draws or decodes on a frame of the screen: the helper fetches, colours and encodes (`helper/app/src/wxview.rs`), this asks
-//! for what the page will show (the frames nearest the clock first, three at a time, the future ones too), decodes a PNG as it arrives
-//! (a few milliseconds, once) and hands the picture to the surface, which makes a layer of it that stays on the graphics chip; a step of
-//! the loop and a scrub are then a change of two layers' opacity, with no copy and no upload.
+//! Nothing here draws or decodes on a frame of the screen: the helper fetches, colours and composes (`helper/app/src/wxview.rs`), this asks for
+//! what the view needs (the map for it, a coarser one under it, the frame on show and the one the loop shows next) and hands the pictures to the
+//! surface, which makes a layer of each that stays on the graphics chip; a step of the loop and a scrub are then a change of two layers' opacity,
+//! with no copy and no upload. The view is the surface's to say ([`Radar::set_view`]: the place at the middle of the screen, which the zoom's
+//! pan moves, and the zoom the compositor is easing to).
 //!
-//! The frames shown are the window the page wants: two hours of radar and six hours of the model's forecast ahead of it, marked as such.
+//! The frames shown are the window the page wants: two hours of radar and six hours of the model's forecast ahead of it, marked as such. The
+//! loop goes over the window; it steps when the next frame's picture is in, which was asked for as the loop went onto the frame before it.
 
-use super::radar_zoom::{Z_HOME, Z_WIDE, Zoom};
+use super::radar_pics::{MapPic, Pics, Role, TAG_FIRST, TAG_LAST, View};
+use super::radar_zoom::{Z_WIDE, Zoom};
 use crate::kit::picture::{self, Picture};
 use crate::kit::screen::{Effect, Input};
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
 
-/// The tags of this page's requests: the open, the state, the map, and a block of frames.
+/// The tags of this page's requests: the open, the state and the globe (the pictures' are [`super::radar_pics`]).
 pub const TAG_OPEN: u64 = 0x5700_0001;
 pub const TAG_STATE: u64 = 0x5700_0002;
-pub const TAG_MAP: u64 = 0x5700_0003;
 pub const TAG_GLOBE: u64 = 0x5700_0004;
-pub const TAG_FRAME_FIRST: u64 = 0x5700_0100;
-pub const TAG_FRAME_LAST: u64 = 0x5700_01ff;
 
-/// Frames asked for at once.
-const IN_FLIGHT: usize = 3;
-/// The state is read this often while frames are coming, and this often once they are all there.
+/// The state is read this often while the radar is loading, and this often once it is ready.
 const POLL_LOADING_MS: u64 = 700;
 const POLL_READY_MS: u64 = 20_000;
 /// A step of the loop, and how long the loop rests on its last frame.
@@ -33,7 +30,7 @@ const END_HOLD_MS: u64 = 1_400;
 /// What of the helper's frames the page shows: this far back and ahead of the clock (seconds).
 pub const BACK_S: i64 = 2 * 3_600;
 pub const AHEAD_S: i64 = 6 * 3_600;
-/// The map the page asks for: the whole screen, in pixels (its zoom is for the two levels below).
+/// The screen the page draws, in pixels.
 pub const MAP_W: u32 = 1920;
 pub const MAP_H: u32 = 1080;
 /// The globe's picture is a square this many pixels on a side (the helper's most is 1024), in the middle of the screen.
@@ -54,48 +51,8 @@ pub struct Frame {
     pub rev: u32,
 }
 
-/// The two views: the region about home (475 km) and the wide one (1,900 km).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Level {
-    Home,
-    Wide,
-    /// The whole earth: not a radar view but the helper's picture of the globe (NASA's rain and cloud).
-    Globe,
-}
-
-impl Level {
-    /// The radar level the helper is asked for, and the zoom of the base map under it.
-    pub fn radar_zoom(self) -> u8 {
-        match self {
-            Level::Home | Level::Globe => 6,
-            Level::Wide => 4,
-        }
-    }
-
-    /// Three zooms more than the radar's, so that the square a radar frame covers (a 2,048 px square on the map) fills a screen of 1920 by 1080.
-    pub fn map_zoom(self) -> u8 {
-        match self {
-            Level::Home | Level::Globe => 9,
-            Level::Wide => 7,
-        }
-    }
-
-    /// The level whose pictures serve a view at `zoom`: the one whose map is at least as large as the screen shows, so that no edge of it is in view.
-    pub fn at(zoom: f32) -> Level {
-        if zoom >= Z_HOME {
-            Level::Home
-        } else if zoom >= Z_WIDE {
-            Level::Wide
-        } else {
-            Level::Globe
-        }
-    }
-}
-
-#[derive(Default)]
 pub struct Radar {
     pub open: bool,
-    pub level: Option<Level>,
     pub lat: f64,
     pub lon: f64,
     pub dark: bool,
@@ -104,9 +61,6 @@ pub struct Radar {
     pub have: usize,
     pub want: usize,
     pub frames: Vec<Frame>,
-    /// The square the frames cover, in world units (0 to 1): left, top, right, bottom.
-    pub extent: [f64; 4],
-    pub frame_px: u32,
     pub attribution: String,
     /// The helper's clock (unix seconds), as of its last answer.
     pub now_s: i64,
@@ -116,21 +70,19 @@ pub struct Radar {
     pub playing: bool,
     /// The frame shown, by time.
     pub cur: Option<i64>,
-    /// Pictures that came and are not yet made into layers, and the base map's.
-    pub arrived: Vec<(i64, u32, Picture)>,
-    pub map: Option<Picture>,
-    /// What the shell holds: (time, revision).
-    loaded: HashSet<(i64, u32)>,
-    inflight: HashMap<u64, (i64, u32)>,
-    retry_at: HashMap<i64, u64>,
-    map_asked: Option<(Level, bool, u64)>,
-    map_complete: bool,
-    map_have: bool,
+    /// The pictures of the view that are held, asked for and on their way ([`super::radar_pics`]).
+    pics: Pics,
+    /// What the surface says the screen will show, and whether the pictures have been asked for it yet.
+    view: Option<View>,
+    view_new: bool,
+    /// A new open is on its way (the helper had let the view go): another is not asked for.
+    reopening: bool,
     /// Where the view is going ([`super::radar_zoom`]); the surface eases the picture there.
     pub zoom: Zoom,
-    /// The globe: where it is seen from (longitude, latitude), its picture, and what was asked.
+    /// The globe shows instead of the map: its picture, where it is seen from (longitude, latitude), how much of the earth is shown (1, 1.7 or
+    /// 2.8 times its size) and what was asked.
+    globe_on: bool,
     pub globe_at: (f64, f64),
-    /// How much of the earth is shown: 1, 1.7 or 2.8 times its size.
     pub globe_zoom: f64,
     pub globe: Option<Picture>,
     globe_asked: Option<((i64, i64), bool, u64)>,
@@ -138,7 +90,42 @@ pub struct Radar {
     globe_asked_at: u64,
     next_poll: u64,
     step_at: u64,
-    next_tag: u64,
+}
+
+impl Default for Radar {
+    fn default() -> Self {
+        Self {
+            open: false,
+            lat: 0.0,
+            lon: 0.0,
+            dark: false,
+            status: String::new(),
+            why: String::new(),
+            have: 0,
+            want: 0,
+            frames: Vec::new(),
+            attribution: String::new(),
+            now_s: 0,
+            newest_s: None,
+            reached: false,
+            playing: false,
+            cur: None,
+            pics: Pics::new(),
+            view: None,
+            view_new: false,
+            reopening: false,
+            zoom: Zoom::default(),
+            globe_on: false,
+            globe_at: (0.0, 0.0),
+            globe_zoom: 1.0,
+            globe: None,
+            globe_asked: None,
+            globe_have: None,
+            globe_asked_at: 0,
+            next_poll: 0,
+            step_at: 0,
+        }
+    }
 }
 
 fn kind_of(n: u64) -> Kind {
@@ -150,22 +137,24 @@ fn kind_of(n: u64) -> Kind {
 }
 
 impl Radar {
-    pub fn level(&self) -> Level {
-        self.level.unwrap_or(Level::Home)
+    /// Whether the earth is what the view shows: zoomed out past where the map's own radar views end.
+    pub fn globe(&self) -> bool {
+        self.zoom.target < Z_WIDE
     }
 
     /// The page is opened for a place: the helper starts its engines.
-    pub fn open(&mut self, lat: f64, lon: f64, level: Level, dark: bool, now: u64) -> Vec<Effect> {
+    pub fn open(&mut self, lat: f64, lon: f64, dark: bool, now: u64) -> Vec<Effect> {
         let zoom = self.zoom;
-        *self = Radar { open: true, level: Some(level), globe_at: (lon, lat.clamp(-70.0, 70.0)), globe_zoom: 1.0, lat, lon, dark, playing: true, zoom, next_tag: TAG_FRAME_FIRST, next_poll: now + POLL_LOADING_MS, status: "loading".into(), ..Radar::default() };
+        *self = Radar { open: true, globe_at: (lon, lat.clamp(-70.0, 70.0)), globe_on: zoom.target < Z_WIDE, lat, lon, dark, playing: true, zoom, next_poll: now + POLL_LOADING_MS, status: "loading".into(), ..Radar::default() };
         vec![self.open_request()]
     }
 
     fn open_request(&self) -> Effect {
-        Effect::Request { tag: TAG_OPEN, method: "POST".into(), path: "/v1/wx/open".into(), body: Some(json!({"lat": self.lat, "lon": self.lon, "zoom": self.level().radar_zoom()})) }
+        Effect::Request { tag: TAG_OPEN, method: "POST".into(), path: "/v1/wx/open".into(), body: Some(json!({"lat": self.lat, "lon": self.lon})) }
     }
 
-    /// The page is left or Home is covered: the helper lets its engines go.
+    /// The page is left or Home is covered: the helper lets its engines go, and every picture, ask and buffer of the page's goes with this (the
+    /// surface's layers go with its page).
     pub fn close(&mut self) -> Vec<Effect> {
         if !self.open {
             return Vec::new();
@@ -174,35 +163,34 @@ impl Radar {
         vec![Effect::Post { path: "/v1/wx/close".into(), body: json!({}) }]
     }
 
-    /// The other view: the same place at the other level (the helper's engines are asked again, the pictures are made again).
-    pub fn set_level(&mut self, level: Level, now: u64) -> Vec<Effect> {
-        if !self.open || self.level() == level {
-            return Vec::new();
-        }
-        let (lat, lon, dark) = (self.lat, self.lon, self.dark);
-        if level == Level::Globe {
-            // the globe is the helper's picture: nothing is asked to start, and the radar's engines are left as they are
-            self.level = Some(level);
-            self.globe = None;
-            self.globe_have = None;
-            self.globe_asked = None;
-            self.globe_at = (lon, lat.clamp(-70.0, 70.0));
-            self.globe_zoom = 1.0;
-            return self.ask(now);
-        }
-        let playing = self.playing;
-        let out = self.open(lat, lon, level, dark, now);
-        self.playing = playing;
-        out
-    }
-
-    /// Zooms `d` levels (in is positive) about `anchor`, a place on the screen (the pointer's) or none for the middle. The views the helper draws are
-    /// few, so the level that is asked for is the one the zoom is in: a zoom past a level's end asks for the next.
+    /// Zooms `d` levels (in is positive) about `anchor`, a place on the screen (the pointer's) or none for the middle. Past the radar's own views
+    /// the earth is shown; the pictures of the map are asked for the view once the surface has said where the zoom puts it.
     pub fn zoom_by(&mut self, d: f32, anchor: Option<(f32, f32)>, now: u64) -> Vec<Effect> {
         if !self.open || !self.zoom.by(d, anchor) {
             return Vec::new();
         }
-        self.set_level(Level::at(self.zoom.target), now)
+        let globe = self.globe();
+        if globe != self.globe_on {
+            self.globe_on = globe;
+            if globe {
+                // the globe is the helper's picture: it is asked for from where the place is
+                self.globe = None;
+                self.globe_have = None;
+                self.globe_asked = None;
+                self.globe_at = (self.lon, self.lat.clamp(-70.0, 70.0));
+                self.globe_zoom = 1.0;
+            }
+        }
+        self.ask(now)
+    }
+
+    /// Where the screen's middle is on the map and the zoom it is eased to: the surface says it whenever it takes up a zoom, so that the pictures
+    /// that are asked for are those of the view that will be there and not those of the view that was. Nothing is asked here: the next tick does.
+    pub fn set_view(&mut self, view: View) {
+        if self.view != Some(view) {
+            self.view = Some(view);
+            self.view_new = true;
+        }
     }
 
     /// Frames inside the window, oldest first: what the page shows.
@@ -211,13 +199,19 @@ impl Radar {
         self.frames.iter().copied().filter(|f| f.kind != Kind::Outlook && f.t >= now - BACK_S && f.t <= now + AHEAD_S).collect()
     }
 
-    /// The frames in the window that the shell holds, oldest first: what a step and a scrub go over.
-    pub fn held(&self) -> Vec<Frame> {
-        self.window().into_iter().filter(|f| self.loaded.contains(&(f.t, f.rev))).collect()
+    /// Whether the picture of the frame is in the page's hands.
+    pub fn has_picture(&self, f: &Frame) -> bool {
+        self.pics.holds(Role::Radar { t: f.t, rev: f.rev })
     }
 
-    pub fn holds(&self, f: &Frame) -> bool {
-        self.loaded.contains(&(f.t, f.rev))
+    /// Whether the map picture held covers what the view shows: the coarser one under it is then not seen.
+    pub fn map_serves(&self) -> bool {
+        self.pics.serves(Role::Map)
+    }
+
+    /// Whether any frame of the radar is in the page's hands.
+    pub fn has_any_picture(&self) -> bool {
+        self.pics.held().iter().any(|(_, role)| matches!(role, Role::Radar { .. }))
     }
 
     /// An answer or a picture of the helper's.
@@ -227,37 +221,25 @@ impl Radar {
         match input {
             Input::Fetched { tag, status, data } if *tag == TAG_OPEN || *tag == TAG_STATE => {
                 self.reached = *status == 200 || self.reached;
+                if *tag == TAG_OPEN {
+                    self.reopening = false;
+                }
                 if *status == 409 && *tag == TAG_STATE {
                     // the helper let the engines go (it restarted, or nobody asked for a while): open again
                     out.push(self.open_request());
+                    self.reopening = true;
                 } else if *status == 200 {
                     changed |= self.take_state(data, now);
                 }
             }
-            Input::Fetched { tag, status, .. } if (TAG_FRAME_FIRST..=TAG_FRAME_LAST).contains(tag) => {
-                // 202: the frame is still coming; asked again soon
-                if let Some((t, _)) = self.inflight.remove(tag) {
-                    self.retry_at.insert(t, now + if *status == 202 { 500 } else { 3_000 });
-                }
-            }
-            Input::Fetched { tag, .. } if *tag == TAG_MAP => {
-                self.map_asked = None;
-            }
-            Input::Bytes { tag, status, bytes } if (TAG_FRAME_FIRST..=TAG_FRAME_LAST).contains(tag) => {
-                if let Some((t, rev)) = self.inflight.remove(tag) {
-                    match (*status == 200).then(|| picture::decode(bytes).ok()).flatten() {
-                        Some(p) => {
-                            self.loaded.insert((t, rev));
-                            self.arrived.push((t, rev, p));
-                            if self.cur.is_none() {
-                                self.cur = Some(t);
-                            }
-                            changed = true;
-                        }
-                        None => {
-                            self.retry_at.insert(t, now + 3_000);
-                        }
-                    }
+            Input::Fetched { tag, .. } | Input::Bytes { tag, .. } if (TAG_FIRST..=TAG_LAST).contains(tag) => {
+                let (fx, c) = self.pics.input(input, now);
+                out.extend(fx);
+                changed |= c;
+                if std::mem::take(&mut self.pics.lost) && !self.reopening {
+                    // the helper no longer has the view
+                    self.reopening = true;
+                    out.push(self.open_request());
                 }
             }
             Input::Fetched { tag, .. } if *tag == TAG_GLOBE => {
@@ -271,18 +253,6 @@ impl Radar {
                             self.globe = Some(p);
                             self.globe_have = Some((key, *status == 200));
                             self.globe_asked_at = now + 1_500;
-                            changed = true;
-                        }
-                    }
-                }
-            }
-            Input::Bytes { tag, status, bytes } if *tag == TAG_MAP => {
-                if let Some((level, dark, _)) = self.map_asked.take() {
-                    if level == self.level() && dark == self.dark && (*status == 200 || *status == 206) {
-                        if let Ok(p) = picture::decode(bytes) {
-                            self.map = Some(p);
-                            self.map_have = true;
-                            self.map_complete = *status == 200;
                             changed = true;
                         }
                     }
@@ -307,30 +277,56 @@ impl Radar {
                     .collect()
             })
             .unwrap_or_default();
-        let ext = |k: &str| v.pointer(&format!("/extent/{k}")).and_then(Value::as_f64).unwrap_or(0.0);
         let before = (self.status.clone(), self.have, self.want, self.frames.len(), self.frames.iter().filter(|f| f.ready).count());
         self.status = status;
         self.why = v.get("why").and_then(Value::as_str).unwrap_or("").to_owned();
         self.have = v.get("have").and_then(Value::as_u64).unwrap_or(0) as usize;
         self.want = v.get("want").and_then(Value::as_u64).unwrap_or(0) as usize;
         self.frames = frames;
-        self.extent = [ext("x0"), ext("y0"), ext("x1"), ext("y1")];
-        self.frame_px = v.get("framePx").and_then(Value::as_u64).unwrap_or(0) as u32;
         self.attribution = v.get("attribution").and_then(Value::as_str).unwrap_or("").to_owned();
         self.now_s = v.get("now").and_then(Value::as_i64).unwrap_or(self.now_s);
         self.newest_s = v.get("newest").and_then(Value::as_i64);
-        // a frame of an older revision is not the one held: it is asked for again, and the held set forgets what the helper replaced
-        let current: HashSet<(i64, u32)> = self.frames.iter().filter(|f| f.ready).map(|f| (f.t, f.rev)).collect();
-        self.loaded.retain(|k| current.contains(k));
-        if self.cur.is_none_or(|c| !self.frames.iter().any(|f| f.t == c)) {
-            self.cur = self.held().last().map(|f| f.t);
+        // the frame shown is the one nearest the clock until the loop or a scrub moves it; one the window has left is replaced the same way
+        if self.cur.is_none_or(|c| !self.window().iter().any(|f| f.t == c)) {
+            let clock = self.now_s;
+            self.cur = self.window().iter().min_by_key(|f| ((f.t - clock).abs(), f.t)).map(|f| f.t);
         }
         let complete = self.want > 0 && self.have >= self.want;
         self.next_poll = now + if complete { POLL_READY_MS } else { POLL_LOADING_MS };
         before != (self.status.clone(), self.have, self.want, self.frames.len(), self.frames.iter().filter(|f| f.ready).count())
     }
 
-    /// The requests that are due: the state, the map, and frames (nearest the clock first, three at a time).
+    /// What the page wants of the helper now, the most wanted first: the map's pictures for the view, the frame on show and the one after it (the
+    /// loop's next step, which is asked for ahead so that a step is a change of opacity and not a wait).
+    fn roles(&self) -> Vec<Role> {
+        let mut roles = vec![Role::Backdrop, Role::Map];
+        let win = self.window();
+        if let Some(i) = self.cur.and_then(|c| win.iter().position(|f| f.t == c)) {
+            let at = |f: &Frame| Role::Radar { t: f.t, rev: f.rev };
+            roles.push(at(&win[i]));
+            if win.len() > 1 {
+                roles.push(at(&win[(i + 1) % win.len()]));
+            }
+        }
+        roles
+    }
+
+    /// The frame after the one shown, in the loop's order.
+    fn next_frame(&self) -> Option<Frame> {
+        let win = self.window();
+        let i = self.cur.and_then(|c| win.iter().position(|f| f.t == c))?;
+        (win.len() > 1).then(|| win[(i + 1) % win.len()])
+    }
+
+    /// The pictures are asked for the view as it is, and let go when they are not wanted.
+    fn sync_pics(&mut self, now: u64) -> Vec<Effect> {
+        self.view_new = false;
+        let view = if self.globe_on || !self.reached { None } else { self.view };
+        let roles = if view.is_some() { self.roles() } else { Vec::new() };
+        self.pics.update(view, &roles, self.dark, now)
+    }
+
+    /// The requests that are due: the state, the globe or the pictures of the map.
     fn ask(&mut self, now: u64) -> Vec<Effect> {
         let mut out = Vec::new();
         if !self.open || !self.reached && self.frames.is_empty() && now < self.next_poll {
@@ -340,81 +336,73 @@ impl Radar {
             self.next_poll = now + POLL_LOADING_MS;
             out.push(Effect::Fetch { tag: TAG_STATE, path: "/v1/wx/state".into() });
         }
-        let level = self.level();
-        let stale_map = self.map_asked.is_none() && (!self.map_have || !self.map_complete);
-        if self.reached && stale_map && now >= self.map_asked.map_or(0, |m| m.2) {
-            self.map_asked = Some((level, self.dark, now));
-            out.push(Effect::Fetch { tag: TAG_MAP, path: format!("/v1/wx/map?w={MAP_W}&h={MAP_H}&zoom={}&dark={}", level.map_zoom(), u8::from(self.dark)) });
-        }
-        if level == Level::Globe && self.reached {
+        out.extend(self.sync_pics(now));
+        if self.globe_on && self.reached {
             let key = ((self.globe_at.0 * 10.0).round() as i64, (self.globe_at.1 * 10.0).round() as i64 + (self.globe_zoom * 1000.0) as i64 * 100_000);
             let wanted = self.globe_asked.is_none() && (self.globe_have.is_none_or(|(k, complete)| k != key || (!complete && now >= self.globe_retry_at())));
             if wanted {
                 self.globe_asked = Some((key, self.dark, now));
                 out.push(Effect::Fetch { tag: TAG_GLOBE, path: format!("/v1/wx/globe?lon={:.1}&lat={:.1}&size={GLOBE_PX}&zoom={:.1}&dark={}", self.globe_at.0, self.globe_at.1, self.globe_zoom, u8::from(self.dark)) });
             }
-            return out;
-        }
-        // frames: the ready ones the shell does not hold, the nearest the clock first
-        let mut want: Vec<Frame> = self.window().into_iter().filter(|f| f.ready && !self.loaded.contains(&(f.t, f.rev)) && !self.inflight.values().any(|v| *v == (f.t, f.rev)) && self.retry_at.get(&f.t).is_none_or(|at| now >= *at)).collect();
-        let clock = self.now_s;
-        want.sort_by_key(|f| (f.t - clock).abs());
-        for f in want {
-            if self.inflight.len() >= IN_FLIGHT {
-                break;
-            }
-            let tag = self.next_tag;
-            self.next_tag = if self.next_tag >= TAG_FRAME_LAST { TAG_FRAME_FIRST } else { self.next_tag + 1 };
-            self.inflight.insert(tag, (f.t, f.rev));
-            out.push(Effect::Fetch { tag, path: format!("/v1/wx/frame?t={}&dark={}", f.t, u8::from(self.dark)) });
         }
         out
     }
 
-    /// Time passed: the polls and the loop's step.
+    /// Time passed: the polls, the pictures' asks and the loop's step.
     pub fn tick(&mut self, now: u64, loops: bool) -> (Vec<Effect>, bool) {
+        if !self.open {
+            return (Vec::new(), false);
+        }
+        let mut out = self.ask(now);
         let mut changed = false;
-        let out = if self.open { self.ask(now) } else { Vec::new() };
-        if self.open && self.playing && loops && now >= self.step_at {
+        // the loop goes on when the picture of the frame after the one shown is in; else it rests on this one until it is
+        if self.playing && loops && now >= self.step_at && self.next_frame().is_some_and(|f| self.has_picture(&f)) {
             changed = self.step(1, now);
+            // the frame after the one now shown is asked for as the loop goes onto it
+            out.extend(self.ask(now));
         }
         (out, changed)
     }
 
-    /// When the next poll or step is due.
+    /// When the next poll, ask or step is due.
     pub fn due_at(&self, loops: bool) -> Option<u64> {
         if !self.open {
             return None;
         }
-        let step = (self.playing && loops && self.held().len() > 1).then_some(self.step_at);
-        [Some(self.next_poll), step].into_iter().flatten().min()
+        let step = (self.playing && loops && self.next_frame().is_some_and(|f| self.has_picture(&f))).then_some(self.step_at);
+        // a view the surface has just said is asked for at once
+        let view = self.view_new.then_some(0);
+        [Some(self.next_poll), step, self.pics.due_at(), view].into_iter().flatten().min()
     }
 
-    /// One frame on (`d` = 1) or back (-1) over the frames held; the loop rests on its last frame before it starts again.
+    /// One frame on (`d` = 1) or back (-1) over the window; the loop rests on its last frame before it starts again.
     pub fn step(&mut self, d: i32, now: u64) -> bool {
-        let held = self.held();
-        if held.len() < 2 {
+        let win = self.window();
+        if win.len() < 2 {
             return false;
         }
-        let i = self.cur.and_then(|c| held.iter().position(|f| f.t == c)).unwrap_or(held.len() - 1) as i32;
-        let n = held.len() as i32;
+        let i = self.cur.and_then(|c| win.iter().position(|f| f.t == c)).unwrap_or(win.len() - 1) as i32;
+        let n = win.len() as i32;
         let j = (i + d).rem_euclid(n);
-        self.cur = Some(held[j as usize].t);
+        self.cur = Some(win[j as usize].t);
         self.step_at = now + if j == n - 1 && d > 0 { STEP_MS + END_HOLD_MS } else { STEP_MS };
         true
     }
 
     /// A key of the page: the channel keys step the loop a frame back and ahead (and hold it where it is), OK plays and holds it. The zoom is
-    /// [`Radar::zoom_by`]; Left and Right are the view's pages.
+    /// [`Radar::zoom_by`]; Left and Right are the view's pages. A frame that was stepped to is asked for as the step is made; the one shown before
+    /// it stays on the screen until its picture is there.
     pub fn key(&mut self, name: &str, now: u64) -> (Vec<Effect>, bool) {
         match name {
             "chdown" => {
                 self.playing = false;
-                (Vec::new(), self.step(-1, now))
+                let changed = self.step(-1, now);
+                (self.ask(now), changed)
             }
             "chup" => {
                 self.playing = false;
-                (Vec::new(), self.step(1, now))
+                let changed = self.step(1, now);
+                (self.ask(now), changed)
             }
             "ok" => {
                 self.playing = !self.playing;
@@ -443,150 +431,185 @@ impl Radar {
         self.globe_asked_at
     }
 
-    /// The pictures the surface has to make layers of.
-    pub fn take_arrived(&mut self) -> Vec<(i64, u32, Picture)> {
-        std::mem::take(&mut self.arrived)
+    /// The pictures that came since the last call: the surface makes a layer of each.
+    pub fn take_pics(&mut self) -> Vec<MapPic> {
+        self.pics.take_pics()
     }
 
-    pub fn take_map(&mut self) -> Option<Picture> {
-        self.map.take()
+    /// The ids of the pictures whose layers the surface drops now.
+    pub fn take_released(&mut self) -> Vec<u64> {
+        self.pics.take_released()
+    }
+
+    /// The view the surface last said, for the tests.
+    #[cfg(test)]
+    pub fn view(&self) -> Option<View> {
+        self.view
+    }
+
+    /// The bytes of pictures in the page's hands, for the tests.
+    pub fn picture_bytes(&self) -> usize {
+        self.pics.bytes()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::radar_zoom::{Z_GLOBE, Z_MAX};
+    use super::super::radar_pics::testing::{answer, tags};
+    use super::super::radar_zoom::{Z_GLOBE, Z_HOME, Z_MAX};
     use super::*;
 
-    fn state(frames: &[(i64, u64, bool, u64)], have: usize, want: usize) -> Value {
-        json!({"status": "loading", "have": have, "want": want, "frames": frames.iter().map(|f| json!([f.0, f.1, f.2, f.3])).collect::<Vec<_>>(),
-               "framePx": 384, "attribution": "x", "now": 10_000, "extent": {"x0": 0.2, "y0": 0.3, "x1": 0.21, "y1": 0.31}, "newest": 9_600})
-    }
+    const HERE: View = View { cx: 0.26703, cy: 0.41163, zoom: 9.0 };
 
-    fn png() -> Vec<u8> {
-        let mut out = Vec::new();
-        let mut enc = png::Encoder::new(&mut out, 2, 2);
-        enc.set_color(png::ColorType::Rgba);
-        enc.set_depth(png::BitDepth::Eight);
-        enc.write_header().unwrap().write_image_data(&[255u8; 16]).unwrap();
-        out
+    fn state(frames: &[(i64, u64, bool, u64)], have: usize, want: usize) -> Value {
+        json!({"status": "ready", "have": have, "want": want, "frames": frames.iter().map(|f| json!([f.0, f.1, f.2, f.3])).collect::<Vec<_>>(),
+               "attribution": "x", "now": 10_000, "newest": 9_600})
     }
 
     fn fetched(r: &mut Radar, v: Value, now: u64) -> Vec<Effect> {
         r.input(&Input::Fetched { tag: TAG_STATE, status: 200, data: v }, now).0
     }
 
-    #[test]
-    fn opening_asks_the_helper_to_start_and_the_state_names_the_frames_to_ask_for_nearest_the_clock_first() {
+    /// A page that is open on a window of `n` frames ten minutes apart, the clock at the newest, and a view the surface has said.
+    fn opened(n: i64) -> Radar {
         let mut r = Radar::default();
-        let out = r.open(33.7, -84.4, Level::Home, true, 1_000);
-        assert!(matches!(&out[0], Effect::Request { tag: TAG_OPEN, method, path, .. } if method == "POST" && path == "/v1/wx/open"));
-        // a day of observed frames and the model's run: only the window is the page's, the ones that are ready are asked for
+        r.open(33.7, -84.4, true, 1_000);
+        let frames: Vec<(i64, u64, bool, u64)> = (0..n).map(|i| (10_000 - (n - 1 - i) * 600, 0, true, 0)).collect();
+        fetched(&mut r, state(&frames, n as usize, n as usize), 1_100);
+        r.set_view(HERE);
+        r
+    }
+
+    /// Asks for what the page wants and answers each at once, as the helper does when it has the picture.
+    fn settle(r: &mut Radar, mut now: u64) -> u64 {
+        let mut asks = tags(&r.tick(now, false).0);
+        while !asks.is_empty() {
+            now += 10;
+            let mut more = Vec::new();
+            for (tag, path) in asks {
+                more.extend(tags(&r.input(&answer(&path, tag), now).0));
+            }
+            asks = more;
+        }
+        now
+    }
+
+    #[test]
+    fn opening_asks_the_helper_to_start_and_the_state_and_a_view_name_what_to_ask_for() {
+        let mut r = Radar::default();
+        let out = r.open(33.7, -84.4, true, 1_000);
+        assert!(matches!(&out[0], Effect::Request { tag: TAG_OPEN, method, path, body: Some(b) } if method == "POST" && path == "/v1/wx/open" && b["lat"] == 33.7), "{out:?}");
+        // a day of observed frames and the model's run: only the window is the page's
         let mut frames: Vec<(i64, u64, bool, u64)> = (0..30).map(|i| (10_000 - 86_400 + i * 2_880, 0, true, 0)).collect();
         frames.extend((0..12).map(|i| (10_000 - 6_000 + i * 600, 0, true, 0)));
         frames.extend((1..=30).map(|i| (10_000 + i * 900, 1, true, 0)));
         frames.extend((1..=4).map(|i| (10_000 + 4 * 86_400 + i * 3_600, 2, true, 0)));
         let out = fetched(&mut r, state(&frames, 5, 40), 1_100);
-        let asked: Vec<&Effect> = out.iter().filter(|e| matches!(e, Effect::Fetch { path, .. } if path.starts_with("/v1/wx/frame"))).collect();
-        assert_eq!(asked.len(), IN_FLIGHT, "three at a time");
-        let first = match asked[0] {
-            Effect::Fetch { path, .. } => path.clone(),
-            _ => unreachable!(),
-        };
-        assert!(first.contains("t=10000") || first.contains("t=10300") || first.contains("t=9700") || first.contains("t=10400") || first.contains("t=10200"), "the nearest the clock first: {first}");
-        assert!(out.iter().any(|e| matches!(e, Effect::Fetch { path, .. } if path.starts_with("/v1/wx/map?w=1920&h=1080&zoom=9&dark=1"))), "and the base map, once");
+        assert!(tags(&out).is_empty(), "no view is said yet: nothing is asked for the map");
+        assert_eq!(r.cur, Some(10_000 - 6_000 + 10 * 600), "the frame shown is the one nearest the clock");
         assert!(r.window().iter().all(|f| f.t >= 10_000 - BACK_S && f.t <= 10_000 + AHEAD_S && f.kind != Kind::Outlook), "the window: two hours back, six ahead, no outlook");
+        r.set_view(HERE);
+        assert_eq!(r.due_at(false), Some(0), "a view that is said is asked for at once");
+        let asks = tags(&r.tick(1_200, false).0);
+        let kinds: Vec<&str> = asks.iter().map(|(_, a)| a.split(&['?', '&'][..]).find_map(|p| p.strip_prefix("k=")).unwrap()).collect();
+        assert_eq!(kinds, ["backdrop", "map", "radar", "radar"], "the map for the view, the one under it, the frame on show and the next");
+        assert!(asks[1].1.contains("zoom=9&w=1920&h=1080&dark=1"), "{}", asks[1].1);
+        assert!(asks[2].1.ends_with("&t=10000"), "the frame nearest the clock: {}", asks[2].1);
+        assert!(r.tick(1_201, false).0.is_empty(), "and once");
     }
 
     #[test]
-    fn a_picture_that_comes_is_decoded_once_held_and_the_next_is_asked_for() {
-        let mut r = Radar::default();
-        r.open(33.7, -84.4, Level::Home, true, 1_000);
-        let frames: Vec<(i64, u64, bool, u64)> = (0..8).map(|i| (10_000 - 1_200 + i * 600, 0, true, 0)).collect();
-        let out = fetched(&mut r, state(&frames, 0, 8), 1_100);
-        let tags: Vec<u64> = out.iter().filter_map(|e| match e { Effect::Fetch { tag, path } if path.starts_with("/v1/wx/frame") => Some(*tag), _ => None }).collect();
-        assert_eq!(tags.len(), 3);
-        let (out, changed) = r.input(&Input::Bytes { tag: tags[0], status: 200, bytes: png() }, 1_200);
-        assert!(changed);
-        assert_eq!(r.held().len(), 1);
-        assert_eq!(r.take_arrived().len(), 1);
-        assert!(r.take_arrived().is_empty(), "handed over once");
-        assert_eq!(out.iter().filter(|e| matches!(e, Effect::Fetch { path, .. } if path.starts_with("/v1/wx/frame"))).count(), 1, "one more takes its place");
-        // a frame that is not a picture is asked for again later, not at once
-        let (_, changed) = r.input(&Input::Bytes { tag: tags[1], status: 200, bytes: b"nope".to_vec() }, 1_300);
-        assert!(!changed);
-        assert_eq!(r.held().len(), 1);
-    }
-
-    #[test]
-    fn the_loop_steps_over_what_is_held_rests_on_its_last_frame_and_a_scrub_holds_it() {
-        let mut r = Radar::default();
-        r.open(33.7, -84.4, Level::Home, true, 0);
-        let frames: Vec<(i64, u64, bool, u64)> = (0..4).map(|i| (10_000 - 1_800 + i * 600, 0, true, 0)).collect();
-        let out = fetched(&mut r, state(&frames, 0, 4), 100);
-        let mut tags: Vec<u64> = out.iter().filter_map(|e| match e { Effect::Fetch { tag, path } if path.starts_with("/v1/wx/frame") => Some(*tag), _ => None }).collect();
-        let mut at = 200;
-        while let Some(tag) = tags.pop() {
-            let (more, _) = r.input(&Input::Bytes { tag, status: 200, bytes: png() }, at);
-            tags.extend(more.iter().filter_map(|e| match e { Effect::Fetch { tag, path } if path.starts_with("/v1/wx/frame") => Some(*tag), _ => None }));
-            at += 10;
-        }
-        assert_eq!(r.held().len(), 4);
-        r.cur = Some(8_200);
-        let order: Vec<i64> = (0..5).map(|i| { r.step(1, 1_000 + i * 10); r.cur.unwrap() }).collect();
-        assert_eq!(order, [8_800, 9_400, 10_000, 8_200, 8_800], "over what is held, round to the oldest again");
-        // the loop rests on its newest frame for longer than a step
-        r.cur = Some(9_400);
-        r.step(1, 5_000);
+    fn the_loop_steps_over_the_window_when_the_next_picture_is_in_and_asks_for_the_one_after_as_it_goes() {
+        let mut r = opened(4);
+        assert_eq!(r.cur, Some(10_000), "nearest the clock");
+        let asks = tags(&r.tick(1_200, true).0);
+        assert_eq!(asks.len(), 4);
+        // the picture of the frame on show comes; the next has not: the loop rests
+        let radar: Vec<&(u64, String)> = asks.iter().filter(|(_, a)| a.contains("k=radar")).collect();
+        let (cur_tag, cur_path) = radar[0].clone();
+        r.input(&answer(&cur_path, cur_tag), 1_250);
+        assert!(r.has_any_picture());
+        assert!(!r.tick(2_000, true).1, "the next picture is not in: it rests where it is");
         assert_eq!(r.cur, Some(10_000));
-        assert!(r.step_at >= 5_000 + STEP_MS + END_HOLD_MS, "rests on the newest");
-        r.cur = Some(8_800);
-        r.step(1, 7_000);
-        assert_eq!(r.step_at, 7_000 + STEP_MS);
+        assert!(r.due_at(true).is_none_or(|d| d > 2_000), "and no tight loop waits for it: {:?}", r.due_at(true));
+        // the next comes: the step is due, goes, and the frame after is asked for
+        let (next_tag, next_path) = radar[1].clone();
+        r.input(&answer(&next_path, next_tag), 2_100);
+        assert!(r.due_at(true).is_some_and(|d| d <= 2_100), "due as soon as it is in");
+        let (fx, changed) = r.tick(2_100, true);
+        assert!(changed, "the loop stepped");
+        assert_eq!(r.cur, Some(10_000 - 1_800), "round to the oldest: the window ends at the clock");
+        assert_eq!(r.step_at, 2_100 + STEP_MS);
+        assert!(tags(&fx).iter().any(|(_, a)| a.contains("k=radar") && a.contains("&t=8800")), "the frame after the one now shown is asked for: {fx:?}");
+        // and it rests on its newest frame for longer than on the rest
+        r.cur = Some(10_000 - 600);
+        r.step(1, 5_000);
+        assert_eq!((r.cur, r.step_at), (Some(10_000), 5_000 + STEP_MS + END_HOLD_MS));
+        // a scrub holds the loop and moves at once; the picture follows
         r.playing = true;
-        let (_, _) = r.key("chdown", 6_000);
-        assert!(!r.playing, "a scrub holds the loop");
-        let (_, _) = r.key("ok", 6_100);
+        let (fx, changed) = r.key("chup", 3_000);
+        assert!(!r.playing && changed && r.cur == Some(10_000 - 1_800), "a scrub holds the loop and moves at once");
+        assert!(tags(&fx).is_empty() || tags(&fx).iter().all(|(_, a)| a.contains("k=radar")));
+        let _ = r.key("ok", 3_100);
         assert!(r.playing, "OK plays again");
     }
 
     #[test]
-    fn a_helper_that_let_the_engines_go_is_asked_to_open_again_and_the_levels_are_two_views() {
-        let mut r = Radar::default();
-        r.open(33.7, -84.4, Level::Home, false, 0);
+    fn a_helper_that_let_the_engines_go_is_asked_to_open_again_once_and_the_view_is_asked_for_again_when_it_has() {
+        let mut r = opened(3);
         let (out, _) = r.input(&Input::Fetched { tag: TAG_STATE, status: 409, data: Value::Null }, 5_000);
         assert!(out.iter().any(|e| matches!(e, Effect::Request { tag: TAG_OPEN, .. })));
-        let out = r.set_level(Level::Wide, 6_000);
-        assert!(matches!(&out[0], Effect::Request { body: Some(b), .. } if b["zoom"] == 4), "{out:?}");
-        assert_eq!(Level::Wide.map_zoom(), 7);
-        assert_eq!(r.close(), vec![Effect::Post { path: "/v1/wx/close".into(), body: json!({}) }]);
-        assert!(!r.open);
-        assert!(r.close().is_empty());
+        // a picture asked for in the meantime is refused the same way: no second open
+        let asks = tags(&out);
+        assert_eq!(asks.len(), 4, "the view was said and is asked for: {out:?}");
+        let (out, _) = r.input(&Input::Fetched { tag: asks[0].0, status: 409, data: Value::Null }, 5_200);
+        assert!(!out.iter().any(|e| matches!(e, Effect::Request { tag: TAG_OPEN, .. })), "{out:?}");
+        let (out, _) = r.input(&Input::Fetched { tag: TAG_OPEN, status: 200, data: state(&[], 0, 0) }, 5_300);
+        assert!(!out.iter().any(|e| matches!(e, Effect::Request { .. })));
+        let (out, _) = r.input(&Input::Fetched { tag: asks[1].0, status: 409, data: Value::Null }, 5_400);
+        assert!(out.iter().any(|e| matches!(e, Effect::Request { tag: TAG_OPEN, .. })), "a later loss is asked for again: {out:?}");
     }
 
     #[test]
-    fn the_zoom_is_kept_across_the_levels_it_asks_for_and_starts_over_when_the_page_is_left() {
+    fn the_zoom_is_kept_and_the_earth_is_what_it_ends_in_and_the_page_starts_over_when_it_is_left() {
         let mut r = Radar::default();
-        r.open(33.7, -84.4, Level::Home, false, 0);
-        assert_eq!(r.zoom.target, Z_HOME);
-        assert!(r.zoom_by(0.25, None, 10).is_empty(), "still the opening level: nothing is asked of the helper");
-        let out = r.zoom_by(-1.5, None, 20);
-        assert_eq!((r.level(), r.zoom.target), (Level::Wide, Z_HOME - 1.25));
-        assert!(matches!(&out[0], Effect::Request { body: Some(b), .. } if b["zoom"] == 4), "the wide level is asked for: {out:?}");
-        r.zoom_by(-1.0, None, 30);
-        r.zoom_by(-2.0, None, 40);
-        assert_eq!((r.level(), r.zoom.target), (Level::Globe, Z_HOME - 4.25));
-        assert!(r.zoom_by(-9.0, None, 50).len() <= 2 && r.zoom.target == Z_GLOBE, "clamped at the globe");
+        r.open(33.7, -84.4, false, 0);
+        assert_eq!((r.zoom.target, r.globe()), (Z_HOME, false));
+        assert!(r.zoom_by(0.25, None, 10).is_empty(), "nothing is asked of the helper for a zoom: the surface says where it goes");
+        let out = r.zoom_by(-2.0, None, 20);
+        assert_eq!((r.zoom.target, r.globe()), (Z_HOME - 1.75, false));
+        assert!(out.is_empty());
+        r.reached = true;
+        let out = r.zoom_by(-1.0, None, 30);
+        assert!(r.globe(), "past the wide view the earth is the picture");
+        assert!(out.iter().any(|e| matches!(e, Effect::Fetch { tag: TAG_GLOBE, .. })), "and it is asked for: {out:?}");
+        assert!(tags(&r.tick(40, false).0).is_empty(), "no map is asked for under it");
+        assert!(r.zoom_by(-9.0, None, 50).len() <= 1 && r.zoom.target == Z_GLOBE, "clamped at the earth");
         assert!(r.zoom_by(-1.0, None, 60).is_empty(), "and nothing more is asked there");
         r.zoom_by(9.0, None, 70);
-        assert_eq!((r.level(), r.zoom.target), (Level::Home, Z_MAX));
+        assert_eq!((r.zoom.target, r.globe()), (Z_MAX, false));
         r.close();
         assert_eq!(r.zoom.target, Z_HOME);
         assert!(r.zoom_by(1.0, None, 80).is_empty(), "closed: no zoom");
     }
 
     #[test]
-    fn the_level_serves_the_views_whose_edges_it_covers() {
-        assert_eq!([Level::at(Z_MAX), Level::at(Z_HOME), Level::at(8.99), Level::at(Z_WIDE), Level::at(6.99), Level::at(Z_GLOBE)], [Level::Home, Level::Home, Level::Wide, Level::Wide, Level::Globe, Level::Globe]);
+    fn closing_lets_the_helper_go_and_frees_every_picture_ask_and_buffer_of_the_page() {
+        let mut r = opened(4);
+        r.reached = true;
+        let now = settle(&mut r, 1_200);
+        assert!(r.picture_bytes() > 0 && r.has_any_picture());
+        // and an ask still in flight
+        r.set_view(View { zoom: 9.6, ..HERE });
+        r.tick(now + 1_000, false);
+        let out = r.close();
+        assert_eq!(out, vec![Effect::Post { path: "/v1/wx/close".into(), body: json!({}) }]);
+        assert!(!r.open && r.picture_bytes() == 0 && !r.has_any_picture());
+        assert!(r.take_pics().is_empty() && r.take_released().is_empty(), "nothing is left to hand over");
+        assert!(r.close().is_empty());
+        assert_eq!(r.due_at(true), None);
+        // an answer that comes after the close is dropped
+        let (fx, changed) = r.input(&Input::Bytes { tag: TAG_FIRST, status: 200, bytes: vec![1, 2, 3] }, now + 2_000);
+        assert!(fx.is_empty() && !changed);
     }
 }

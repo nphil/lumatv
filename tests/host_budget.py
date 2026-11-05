@@ -178,24 +178,61 @@ def png(w, h, pixel_row):
 
 
 class FakeWx(FakeHelper):
-    """The helper's weather service for the weather view's map (`/v1/wx/...`): a map, a loop of frames and a globe, made up here, at the sizes the
-    helper draws them (1920 by 1080 map, 2048 px frames, a 760 px globe), so that the map's layers weigh what they do on the set."""
+    """The helper's weather service for the weather view's map (`/v1/wx/...`): the pictures of a view (`/v1/wx/pic`), a loop of frames and a globe, made up
+    here and cut as the helper cuts them (`helper/app/src/wxpic.rs`: the whole cells of the map's raster grid that cover the screen, raw premultiplied
+    RGBA and a trailer), so that the map's layers weigh what they do on the set."""
 
     LAT, LON = 33.75, -84.39
-    maps = {}
-    frames = {}
-    zoom = 6
+    TRAILER = 64
+    pictures = {}
+    globe = b''
+    # the map's pixels: a callable (y, width) -> one row of premultiplied RGBA; a harness that wants to see the zoom puts a grid here
+    map_row = staticmethod(lambda y, w: bytes((200 - y % 90, 214 - y % 60, 226 - y % 40, 255)) * w)
+    backdrop_row = staticmethod(lambda y, w: bytes((190, 205, 220, 255)) * w)
+    radar_row = staticmethod(lambda y, w: bytes((35, 100, 112, 150) if 0.3 * w < y < 0.7 * w else (0, 0, 0, 0)) * w)
 
     @classmethod
     def prepare(cls):
-        cls.maps['map'] = png(1920, 1080, lambda y: bytes((200 - y % 90, 214 - y % 60, 226 - y % 40, 255)) * 1920)
-        cls.maps['globe'] = png(760, 760, lambda y: bytes((30, 70 + y % 80, 140, 255)) * 760)
-        cls.maps['frame'] = png(2048, 2048, lambda y: bytes((60, 170, 190, 150 if 600 < y < 1400 else 0)) * 2048)
+        cls.pictures = {}
+        cls.globe = png(760, 760, lambda y: bytes((30, 70 + y % 80, 140, 255)) * 760)
 
-    def pic(self, kind):
-        body = self.maps[kind]
+    @staticmethod
+    def half_up(v):
+        return math.floor(v + 0.5)
+
+    @classmethod
+    def cut(cls, kind, cx, cy, zoom):
+        """What the helper cuts for a view: the cells' level code, their size in pixels and the part of the world they cover (left, top, right, bottom)."""
+        grid = min(max(cls.half_up(zoom * 2), 10), 22)
+        if kind == 'radar':
+            level = min(max(cls.half_up(zoom - 3), 2), 7)
+            cell, code = 2.0 ** -level, level
+        else:
+            g = grid - 4 if kind == 'backdrop' else grid
+            cell, code = 2.0 ** (-g / 2), g
+        half = (1920 / 2 / (256 * 2 ** zoom), 1080 / 2 / (256 * 2 ** zoom))
+        span = lambda c, h: (max(math.floor((c - h) / cell), 0), math.floor((c + h) / cell - 1e-9))  # noqa: E731
+        (x0, x1), (y0, y1) = span(cx, half[0]), span(cy, half[1])
+        return code, (x1 - x0 + 1, y1 - y0 + 1), (x0 * cell, y0 * cell, (x1 + 1) * cell, (y1 + 1) * cell)
+
+    @classmethod
+    def picture(cls, kind, cx, cy, zoom):
+        code, (nx, ny), world = cls.cut(kind, cx, cy, zoom)
+        w, h = nx * 256, ny * 256
+        key = (kind, w, h)
+        if key not in cls.pictures:
+            row = {'map': cls.map_row, 'backdrop': cls.backdrop_row, 'radar': cls.radar_row}[kind]
+            cls.pictures[key] = b''.join(row(y, w) for y in range(h))
+        trailer = bytearray(cls.TRAILER)
+        trailer[0:4] = b'WXP2'
+        struct.pack_into('<IIIHH', trailer, 4, w, h, 1, nx * ny, nx * ny)
+        trailer[20] = code
+        struct.pack_into('<4d', trailer, 24, *world)
+        return cls.pictures[key] + bytes(trailer)
+
+    def raw(self, body, kind='application/octet-stream'):
         self.send_response(200)
-        self.send_header('Content-Type', 'image/png')
+        self.send_header('Content-Type', kind)
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Connection', 'close')
         self.end_headers()
@@ -205,27 +242,22 @@ class FakeWx(FakeHelper):
         # the frames' times are fixed for a quarter of an hour, as the helper's are: a clock that moved with every ask would make every frame another one
         now = int(time.time()) // 900 * 900
         frames = [[now - 7200 + i * 900, 0 if i < 8 else 1, True, 0] for i in range(17)]
-        side = 2048 / (256 * 2 ** (self.zoom + 3))
-        wx, wy = (self.LON + 180) / 360, 0.5 - math.log(math.tan(math.pi / 4 + math.radians(self.LAT) / 2)) / (2 * math.pi)
-        return {"status": "ready", "have": len(frames), "want": len(frames), "frames": frames, "framePx": 2048, "attribution": "fake", "now": now, "newest": now - 300,
-                "extent": {"x0": wx - side / 2, "y0": wy - side / 2, "x1": wx + side / 2, "y1": wy + side / 2}}
+        return {"status": "ready", "have": len(frames), "want": len(frames), "frames": frames, "attribution": "fake", "now": now, "newest": now - 300}
 
     def do_GET(self):
-        path = self.path.partition('?')[0]
+        path, _, raw = self.path.partition('?')
         if path == '/v1/wx/state':
             return self.reply(self.state())
-        if path == '/v1/wx/map':
-            return self.pic('map')
-        if path == '/v1/wx/frame':
-            return self.pic('frame')
+        if path == '/v1/wx/pic':
+            q = dict(part.split('=', 1) for part in raw.split('&') if '=' in part)
+            return self.raw(self.picture(q['k'], float(q['cx']), float(q['cy']), float(q['zoom'])))
         if path == '/v1/wx/globe':
-            return self.pic('globe')
+            return self.raw(self.globe, 'image/png')
         return super().do_GET()
 
     def do_POST(self):
-        body = self.rfile.read(int(self.headers.get('Content-Length') or 0))
+        self.rfile.read(int(self.headers.get('Content-Length') or 0))
         if self.path == '/v1/wx/open':
-            type(self).zoom = int((json.loads(body or b'{}')).get('zoom') or 6)
             return self.reply(self.state())
         self.reply({"ok": True})
 

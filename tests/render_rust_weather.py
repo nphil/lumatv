@@ -286,22 +286,22 @@ def render_radar(binary, helper, case, mode, scale, tmp, at=38000):
 
 
 class FakeWxHelper:
-    """The helper's weather service made up (`host_budget.FakeWx`: a map, a loop of frames and a globe at the sizes the helper draws them), with a map
-    that is a grid of 1 px lines every 96 px and a coarser one every 480, so that a zoom shows as the lines' spacing and the picture's softness. The real
+    """The helper's weather service made up (`host_budget.FakeWx`: the pictures of a view cut as the helper cuts them, a loop of frames and a globe), with a
+    map that is a grid of 1 px lines every 96 px and a coarser one every 480, so that a zoom shows as the lines' spacing and the picture's softness. The real
     helper's radar needs the owner's token and the network; this is what the shell does with the pictures, not what the pictures are."""
 
     def __init__(self):
         import host_budget as B
         B.FakeWx.prepare()
 
-        def row(y):
+        def row(y, w):
             if y % 96 == 0:
-                return bytes((120, 128, 140, 255)) * 1920
-            line = bytearray(bytes((222, 228, 234, 255)) * 1920)
-            for x in range(0, 1920, 96):
+                return bytes((120, 128, 140, 255)) * w
+            line = bytearray(bytes((222, 228, 234, 255)) * w)
+            for x in range(0, w, 96):
                 line[x * 4:x * 4 + 3] = bytes((120, 128, 140)) if x % 480 else bytes((60, 70, 90))
             return bytes(line)
-        B.FakeWx.maps['map'] = B.png(1920, 1080, row)
+        B.FakeWx.map_row = staticmethod(row)
         self.server = B.http.server.ThreadingHTTPServer(('127.0.0.1', 0), B.FakeWx)
         self.port = self.server.server_address[1]
 

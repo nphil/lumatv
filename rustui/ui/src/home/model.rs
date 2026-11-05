@@ -2656,7 +2656,7 @@ impl Home {
         if on && !self.radar.open {
             let (lat, lon) = (self.weather.pointer("/doc/lat").and_then(Value::as_f64), self.weather.pointer("/doc/lon").and_then(Value::as_f64));
             if let (Some(lat), Some(lon)) = (lat, lon) {
-                out.extend(self.radar.open(lat, lon, super::radar_view::Level::Home, !self.light, self.now));
+                out.extend(self.radar.open(lat, lon, !self.light, self.now));
             }
         } else if !on && self.radar.open {
             out.extend(self.radar.close());
@@ -3324,7 +3324,7 @@ mod tests {
             wheel(&mut h, "wheeldown", 4000 + i * 10);
         }
         assert_eq!(h.radar.zoom.target, Z_GLOBE);
-        assert_eq!(h.radar.level(), super::super::radar_view::Level::Globe, "all the way out is the globe");
+        assert!(h.radar.globe(), "all the way out is the globe");
         wheel(&mut h, "wheeldown", 5000);
         assert_eq!((h.radar.zoom.target, h.wview.page), (Z_GLOBE, Page::Radar), "and a wheel past it neither zooms nor leaves the page");
         // the digits are no keys of the view now, and Left and Right page

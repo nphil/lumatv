@@ -9,6 +9,7 @@ pub mod clock;
 pub mod http;
 pub mod inputs;
 pub mod keys;
+pub mod memory;
 pub mod net;
 pub mod power;
 pub mod previews;

@@ -1,5 +1,7 @@
 # Weather: the card, the view and the radar redesigned (2026-10-30)
 
+The map's and the radar's pictures are cut and held differently since 2026-11-05 (`GET /v1/wx/pic`, four pictures held, everything freed on close): `weather-map-result.md`. Where this note describes `/v1/wx/map`, `/v1/wx/frame` or a layer for every frame, that note is the current one.
+
 ## Resume here
 
 State: built, tested and pushed to `main` (commit "Weather card, view and radar redesigned"); what is left is the TV check below (Round22) and whatever it finds. Code is in `rustui/ui/src/home/`:
