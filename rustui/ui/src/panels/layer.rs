@@ -387,11 +387,14 @@ impl Panels {
     }
 
     /// Settings is up and takes the room: a panel that is only kept built for its next opening (the gear's panel is parked for four seconds
-    /// after it closes) gives its layers back at once, as it does when another panel opens. One that is shown, or still sliding out, goes
-    /// when it is parked.
-    pub fn give_way(&mut self) {
+    /// after it closes) gives its layers back at once, as it does when another panel opens. One still sliding out goes at once as well when
+    /// Settings came up at once (`at_once`: no fade, from 100 Hz) and covers the slide; a shown one, or one sliding out under Settings' fade,
+    /// goes when it is parked.
+    pub fn give_way(&mut self, at_once: bool) {
         for w in Which::SHOWN {
-            if self.life_mut(w).release().is_some() {
+            let life = self.life_mut(w);
+            let gone = if at_once { life.cut().or_else(|| life.release()) } else { life.release() };
+            if gone.is_some() {
                 self.redraw = true;
             }
         }

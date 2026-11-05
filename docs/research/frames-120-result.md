@@ -4,6 +4,39 @@
 
 On forge main (round 24's engine work):
 
+- **Session 11's gate** (543ba636 on the set, 120 Hz, `/data/home/tmp/lumatv-tv-20261105e/gate/`, rings and traces in `/tmp/perf/gate-tvs11-*`: home-idle,
+  home-dpad and quick passed; settings-scroll 8 dropped and 1 burst interval over a refresh and a fifth, home-widgets 5 dropped with the trace reading 0, and 2).
+  - **home-widgets: the ring's 5 are real, the trace's 0 and its 2 intervals are not.** Up out of the dock into the cards (+4.63 s of the walk in cycles 1
+    and 2; a key later in cycle 3, where they landed in time) drew the first card's dim and the dock's glass put out in the same frames as the lifts:
+    1.78-1.84 Mpx and 63-76 layers, 7.2-8.5 ms of GPU, into the three pages in a row; with the next card's step after them, 2 and 3 landed a refresh late.
+    The trace's `dropped_in_motion` takes a frame for animated only when it follows a commit (`analyse.py`'s chain, written for Qt): the compositor draws a
+    motion's frames ahead of their refresh, and 441 of the first window's 622 frames read as timer frames. The 2 intervals (41.7 ms) were the screen at rest
+    from a motion's last frame to the next key's first, 9 ms after the key: no frame of the same picture fills that now, and a burst chains over it.
+  - **The gate reads both off the ring** (`gate.py`, `ringsum.burst_drops`): `dropped` as before, without the trace's guess beside it, and `burst_over20` as
+    the intervals that follow a flip of a frame with a motion running after it. Session 11 so read: settings-scroll 8 and 1, home-widgets 5 and 0; its
+    `LUMATV_KEEP_UNCHANGED=0` run 8 and 3, 5 and 0; session 10 settings-scroll 3 and 0, home-widgets 0 and 0 (its 6 were still screens).
+  - **settings-scroll**: 3 at the open, one a cycle. OK on the quick panel's "All settings" brings Settings up at once (no fade from 100 Hz) over the panel,
+    whose 110 ms slide out went on under Settings: the panel's 37 layers in every frame (73-109 layers over 0.45-2.07 Mpx, 8.2-13.8 ms), and the dim behind
+    the panel went at the slide's end in a frame of the whole screen (2.07 Mpx, 38 layers, 7.5 ms, a refresh late in cycle 1). 5 in the rail's walk up: 4
+    where the walk, counted from the last page made, made every second step's page in the middle of the rail's motion at the gate's pace (a step every
+    110 ms: 1.1-1.5 Mpx, 46-74 layers, 7.3-10.1 ms), and one the walk's first step's page.
+  - **Fixes.** Home's dock goes dark with its own dim step, and a focus that leaves the dock for the cards is a step: its first frames draw the lifts alone
+    (`home::surface::Dimming`; a move from the status bar or within the cards keeps its first dim, which every move a step cost `onhome` 8 frames over 80
+    layers). A rail walk is the pace of its steps (`SettingsSurface::page_waits`): within 200 ms of the step before, the page waits for the rail to rest
+    120 ms. A panel sliding out goes at once when a Settings with no fade comes up over it (`Life::cut`, `Panels::give_way`).
+  - Host, the owner's theme and layout, 120 Hz; the walks now keep `kb.py`'s pace (a tap held 50 ms before its gap: the gate's steps were 110 ms where the
+    host stepped every 60) and the host's burst reads the frame's `moving` as the gate reads `anim`; base is main with that flag. home-widgets frames over
+    80 layers 12-15 in eight runs -> 9 in six of seven, 12 in one (the dock to the cards: 94-101 layers over 1.78-1.81 Mpx -> 64 over 0.78); settings-scroll
+    from OK's press 14 frames (41-46 layers, the dim's 2.07 Mpx at the end) -> 1 (Settings, 38 layers), pages made in the rail's walks 9 -> 3, most layers
+    67 -> 57; guide 9 -> 6 (the dock's glass); onhome 17 and 17, settings-pages 3-4 both, idle 113-146 and 117-151 (the wallpaper's steps vary run to run),
+    the rest 0 and 0. `burst_over20` 0 on every surface both ways; every frame is the frame drawn whole (`test_frame_budget`).
+  - Not placed by the host: Settings filling the Picture page's rows on the set (24 layers a draw; the host's pages say "Not available"), and the first
+    step's page of a walk that follows Back (made at once, in the motion Back started: cycle 3's +5.92 s).
+  - **TV re-gate**: install main at this commit or later (session 11's chain); pop-ups off, `gate.sh refresh 120`, the panel at 119.9 Hz;
+    `docs/research/perf/gate.py --surfaces S --input-key 241 --cycles 3 --refresh 120` for home-idle, home-dpad, quick, settings-scroll and home-widgets in
+    turn. Pass: burst_over20 0 on all five, dropped 0 on home-dpad, quick and home-widgets and no more than 3 on settings-scroll, first_frame_ms 15 or less.
+    By eye: Settings opened from the quick panel shows no panel behind it; leaving the dock, its glass goes dark a moment after the focus does.
+
 - **Session 10's gate, flips of the same picture** (a559ccb3 on the set, 120 Hz, `/data/home/tmp/lumatv-tv-20261105d/gate/`: home-dpad 1 burst interval over
   20 ms, quick 1 dropped and 2, settings-scroll 3 and 2, home-widgets 0 and 6). `tests/host_budget.py` now reads each window's burst as `analyse.py` does (kept
   frames are no flips) and has the gate's `home-dpad` walk; on the owner's theme and layout the base build has the intervals where the set had them: home-dpad
@@ -23,11 +56,7 @@ On forge main (round 24's engine work):
     layers: home-widgets 18 (the dock's steps, unchanged, and the set's own count there is 0); home-dpad's 106-layer floor update is kept now. Idle Home
     (`idle`, cloud) is 24.2 frames a second either way, none kept: each moves the sky or the wallpaper.
   - Not placed by the host: quick's 1 dropped and settings-scroll's 3 (the compositor's count of flips over 20 ms after a frame of a motion).
-  - **TV re-gate**: install main at this commit or later (session 10's chain, hashes in the handoff); pop-ups off, `gate.sh refresh 120`, the panel at
-    119.9 Hz; `docs/research/perf/gate.py --surfaces S --input-key 241 --cycles 3 --refresh 120` for home-idle, home-dpad, quick, settings-scroll and
-    home-widgets in turn. Pass: burst_over20 0 on all five, dropped 0 on home-dpad and home-widgets and no more than 1 and 3 on quick and settings-scroll,
-    first_frame_ms 15 or less. A surface that reads worse runs once more with `LUMATV_KEEP_UNCHANGED=0`. By eye: Settings opens with its rail row lit; after a
-    walk on Home the dims, the dock tile's name and the clock's second still come.
+  - **TV re-gate**: ran as session 11 (above).
 
 - **Session 7's gate, Settings and Home's cost to the shell's thread** (host numbers on the owner's theme and layout, `tests/host_budget.py --owner`, 120 Hz, the
   least of three runs; nothing of this was run on the set). Most of a Settings frame was the shell's thread, not the rows:

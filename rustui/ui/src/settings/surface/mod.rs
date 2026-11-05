@@ -102,9 +102,10 @@ struct Built {
     over_video: bool,
 }
 
-/// Another step of the rail within this long of the last page made again is a walk of the rail, not a choice of a page: the page waits for the rail to rest. A
+/// A step of the rail within this long of the step before is a walk of the rail, not a choice of a page: the page waits for the rail to rest. A
 /// page is a hundred layers made and drawn new, 10-16 ms of GPU at the set (round 22's 120 Hz ring: 60 of a cycle's 64 missed refreshes were the steps of the
-/// rail, one a 60 ms), and the person is looking at the rail.
+/// rail, one a 60 ms), and the person is looking at the rail. Counted from the last page made, a walk at the gate's pace (a step every 110 ms) made every
+/// second page in the middle of the rail's motion: 1.1-1.5 Mpx frames of 46-74 layers and 7.3-10.1 ms of GPU, 4 of session 11's 8 missed refreshes.
 const RAIL_RAPID_MS: u64 = 200;
 /// How long the rail rests before the page that waited is made.
 const RAIL_REST_MS: u64 = 120;
@@ -145,11 +146,10 @@ pub struct SettingsSurface {
     /// The ids of the page's rows in the order the model last gave them, for the pointer's targets.
     row_ids: Vec<String>,
     view: Option<View>,
-    /// The id of the page on screen, the id of the page the model last named and when it named it, when a page was last made (ms), and when the page that
-    /// waits for the rail to rest is made.
+    /// The id of the page on screen; the id of the page the model last named, when it named it and whether that was a step of a walk (within
+    /// [`RAIL_RAPID_MS`] of naming the one before); and when the page that waits for the rail to rest is made.
     page_shown: Option<String>,
-    page_named: Option<(String, u64)>,
-    page_made_at: u64,
+    page_named: Option<(String, u64, bool)>,
     page_due: Option<u64>,
     /// When the rows that did not fit the budget of a draw are made.
     fill_due: Option<u64>,
@@ -163,7 +163,7 @@ pub struct SettingsSurface {
 impl SettingsSurface {
     /// `system_z` is where stack 1 begins; Settings draws in its own band over it ([`z::SETTINGS`]).
     pub fn new(system_z: i32) -> Self {
-        SettingsSurface { z: system_z + z::SETTINGS, built: None, pointer: Pointer::new(), hover: None, last_xy: (0.0, 0.0), buttons: 0, closing_at: None, refresh_hz: None, row_ids: Vec::new(), view: None, page_shown: None, page_named: None, page_made_at: 0, page_due: None, fill_due: None, room_at: 0, saved_scroll: None, lift_at_once: false }
+        SettingsSurface { z: system_z + z::SETTINGS, built: None, pointer: Pointer::new(), hover: None, last_xy: (0.0, 0.0), buttons: 0, closing_at: None, refresh_hz: None, row_ids: Vec::new(), view: None, page_shown: None, page_named: None, page_due: None, fill_due: None, room_at: 0, saved_scroll: None, lift_at_once: false }
     }
 
     pub fn is_up(&self) -> bool {
@@ -214,15 +214,16 @@ impl SettingsSurface {
         due
     }
 
-    /// Whether the page the model names waits: another page than the one on screen, the rail walking (it has the focus, and it moved on within
-    /// [`RAIL_RAPID_MS`] of the last page made), and not yet at rest for [`RAIL_REST_MS`]. The first step after a rest makes its page at once.
+    /// Whether the page the model names waits: another page than the one on screen, the rail walking (it has the focus, and the page was named within
+    /// [`RAIL_RAPID_MS`] of the one before it), and not yet at rest for [`RAIL_REST_MS`]. The first step after a rest makes its page at once.
     fn page_waits(&mut self, view: &View, page: &PageView, now: u64) -> bool {
-        if self.page_named.as_ref().is_none_or(|(id, _)| *id != page.id) {
-            self.page_named = Some((page.id.clone(), now));
+        if self.page_named.as_ref().is_none_or(|(id, ..)| *id != page.id) {
+            let walking = self.page_named.as_ref().is_some_and(|(_, at, _)| now < at + RAIL_RAPID_MS);
+            self.page_named = Some((page.id.clone(), now, walking));
         }
-        let named_at = self.page_named.as_ref().map_or(now, |(_, t)| *t);
+        let (named_at, walking) = self.page_named.as_ref().map_or((now, false), |(_, at, walking)| (*at, *walking));
         let other = self.page_shown.as_deref().is_some_and(|shown| shown != page.id);
-        if other && view.zone == Zone::Rail && now < self.page_made_at + RAIL_RAPID_MS && now < named_at + RAIL_REST_MS {
+        if other && view.zone == Zone::Rail && walking && now < named_at + RAIL_REST_MS {
             self.page_due = Some(named_at + RAIL_REST_MS);
             return true;
         }
@@ -366,7 +367,6 @@ impl SettingsSurface {
                     self.page(kit, engine, view, page, hover, now_ns)?;
                     if self.page_shown.as_deref() != Some(page.id.as_str()) {
                         self.page_shown = Some(page.id.clone());
-                        self.page_made_at = now;
                     }
                 }
             }
@@ -898,27 +898,29 @@ mod tests {
     fn a_page_waits_for_a_rail_that_is_walking_and_not_for_the_first_step_or_a_step_into_the_page() {
         let mut s = SettingsSurface::new(0);
         s.page_shown = Some("picture".into());
-        s.page_made_at = 1_000;
+        s.page_named = Some(("picture".into(), 1_000, false));
         // the first step after a rest: its page at once
         assert!(!s.page_waits(&view(Zone::Rail), &page("sound"), 1_300));
         s.page_shown = Some("sound".into());
-        s.page_made_at = 1_300;
-        // the steps that follow within 200 ms of it wait for the rail to rest, and each moves the end of the rest on
-        assert!(s.page_waits(&view(Zone::Rail), &page("inputs"), 1_360));
-        assert_eq!(s.page_due, Some(1_360 + RAIL_REST_MS));
-        assert!(s.page_waits(&view(Zone::Rail), &page("network"), 1_420));
-        assert_eq!(s.due_at(), Some(1_420 + RAIL_REST_MS), "a tick of its own for the page");
+        // the steps that follow within 200 ms of the one before wait for the rail to rest, and each moves the end of the rest on: at the gate's
+        // pace (a step every 110 ms) no page is made while the walk goes on, however long it is
+        for (i, id) in ["inputs", "network", "ambient", "home"].into_iter().enumerate() {
+            let at = 1_410 + 110 * i as u64;
+            assert!(s.page_waits(&view(Zone::Rail), &page(id), at), "{id}");
+            assert_eq!(s.page_due, Some(at + RAIL_REST_MS));
+        }
+        assert_eq!(s.due_at(), Some(1_740 + RAIL_REST_MS), "a tick of its own for the page");
         // the rail has rested: the page it came to is made
-        assert!(!s.page_waits(&view(Zone::Rail), &page("network"), 1_420 + RAIL_REST_MS));
+        assert!(!s.page_waits(&view(Zone::Rail), &page("home"), 1_740 + RAIL_REST_MS));
         assert_eq!(s.page_due, None);
-        s.page_shown = Some("network".into());
-        s.page_made_at = 1_540;
-        // a step into the page is a choice of it: at once, and so is any page when the last was made long ago
-        assert!(!s.page_waits(&view(Zone::Page), &page("ambient"), 1_560));
-        assert!(!s.page_waits(&view(Zone::Rail), &page("ambient"), 1_900));
-        // the page on screen is the one named: nothing waits
+        s.page_shown = Some("home".into());
+        // a step into the page is a choice of it: at once, and so is a step of the rail long after the one before
+        assert!(!s.page_waits(&view(Zone::Page), &page("ambient"), 1_900));
         s.page_shown = Some("ambient".into());
-        assert!(!s.page_waits(&view(Zone::Rail), &page("ambient"), 1_950));
+        assert!(!s.page_waits(&view(Zone::Rail), &page("remote"), 2_300));
+        // the page on screen is the one named: nothing waits
+        s.page_shown = Some("remote".into());
+        assert!(!s.page_waits(&view(Zone::Rail), &page("remote"), 2_350));
     }
 
     #[test]

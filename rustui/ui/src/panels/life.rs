@@ -132,6 +132,19 @@ impl Life {
         }
     }
 
+    /// A panel that is sliding out goes now: a sheet over the whole screen came up over it at once (Settings with no fade, from 100 Hz), and the
+    /// slide went on under the sheet's 96 % glass and in its margins. Opened from the quick panel, Settings drew that slide's 110 ms, the panel's
+    /// 37 layers in every frame (66-109 layers on the set while Settings filled in), and the dim behind the panel went at the slide's end in a
+    /// frame of the whole screen of its own (2.07 Mpx, 7.5 ms of GPU on the set, a refresh late).
+    pub fn cut(&mut self) -> Option<Change> {
+        if self.phase != Phase::Leaving {
+            return None;
+        }
+        self.phase = Phase::Gone;
+        self.until = None;
+        Some(Change::Drop)
+    }
+
     /// Everything goes (the screen went off, the shell restarted its look).
     pub fn reset(&mut self) -> Option<Change> {
         let had = self.phase != Phase::Gone;

@@ -1288,9 +1288,9 @@ impl Shell {
             }
             let now_ns = self.kit.ui.scene.now_ns();
             // Settings is the modal kind over everything and needs the room (the scene has 96 groups in all, Home holds 64 of them): a panel
-            // that is only kept built for its next opening goes at once
+            // that is only kept built for its next opening goes at once, and so does one sliding out under a Settings that came up at once
             if self.kinds.settings && self.settings.is_open() {
-                self.panels.give_way();
+                self.panels.give_way(self.kit.modal_beat_ms() == 0);
             }
             self.panels.set_bell(self.home.bell_frame());
             self.panels.set_camera(self.home.camera_frame());
@@ -3386,6 +3386,23 @@ mod tests {
         assert!(!logs.iter().any(|l| l.contains("groups") || l.contains("scene is full")), "{logs:?}");
         assert_eq!(shell.state()["settings"]["built"], 7, "every row of the page is drawn");
         assert!(shell.kit.room().groups >= 4, "{:?}", shell.kit.room());
+    }
+
+    /// Session 11's settings-scroll at 120 Hz: Settings opened from the quick panel came up at once, the panel's slide out went on under it for
+    /// 110 ms, and the dim behind the panel went at the slide's end in a frame of the whole screen, a refresh late. With no fade the panel goes
+    /// as Settings comes; under the fade of 60 Hz it slides out as before.
+    #[test]
+    fn a_panel_sliding_out_goes_at_once_under_a_settings_that_comes_up_at_once() {
+        for (hz, want) in [(120, "gone"), (60, "leaving")] {
+            let (_h, mut shell) = home_shell("quick,settings");
+            shell.channel(&Event::Topic { topic: "refresh".into(), data: json!({"hz": hz}) }, 1_000);
+            shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "quick", "warm": false, "n": 1}) }, 2_000);
+            shell.tick(2_300);
+            key(&mut shell, "back", 2_400);
+            assert_eq!(shell.state()["panels"]["quick"], "leaving");
+            shell.open_settings(Some("inputs"), 2_410);
+            assert_eq!(shell.state()["panels"]["quick"], want, "{hz} Hz");
+        }
     }
 
     /// Round 22's ring at 120 Hz: under Settings Home's GPU wallpaper kept stepping ten times a second and each step owed the whole screen, three
