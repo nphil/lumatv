@@ -19,7 +19,12 @@ On the TV's private address, port 5004 (`hdhr` in `helper.json`: `port`, `bind`,
 | `GET /lineup.json`, `/lineup_status.json` | the TV's antenna channels, one per number, and an antenna that is not scanning |
 | `GET /lineup.m3u` | the same lineup as an M3U playlist; `url-tvg` names the guide |
 | `GET /xmltv.xml` | the TV's own guide, a day back to six days ahead, as XMLTV; with the Guide data plugin on, the online listings laid over it ([guide-data.md](guide-data.md)) |
-| `GET /auto/v<number>` | MPEG-TS of one channel (`/auto/v2.4`) |
+| `GET /auto/v<number>` | MPEG-TS of one channel (`/auto/v2.4`), answered once its first whole picture has come; it starts with the program's PAT and PMT |
+
+A channel that is off the air is refused with 503 and `X-HDHomeRun-Error: 807 No Video Data`: one that does not lock within 3 s, is not
+in its multiplex, or brings no whole picture (an MPEG-2 sequence header, an H.264 SPS or IDR) within 4 s. For 30 minutes after, it is
+left out of the lineup, the playlist and the guide, and refused without tuning. Other refusals name their HDHomeRun error too (801
+unknown channel, 805 tuner in use, 806 tune failed, 811 protected).
 
 ## Players
 

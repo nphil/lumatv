@@ -31,7 +31,7 @@ pub fn crc32(data: &[u8]) -> u32 {
 }
 
 /// A long-form section whose table id is `table_id`, whose length field fits and whose CRC holds: the section itself, trimmed to its length.
-fn checked(section: &[u8], table_id: u8) -> Option<&[u8]> {
+pub(crate) fn checked(section: &[u8], table_id: u8) -> Option<&[u8]> {
     if section.len() < 12 || section[0] != table_id {
         return None;
     }
@@ -172,24 +172,82 @@ pub fn build_pat(tsid: u16, program: u16, pmt_pid: u16) -> Vec<u8> {
     s
 }
 
-/// Makes the packets of one PID that carry a section of at most 183 bytes, with their own continuity counter.
+/// The PID of a transport stream packet.
+pub fn pid_of_packet(packet: &[u8]) -> u16 {
+    pid_of(packet[1], packet[2])
+}
+
+/// Whether a packet of a picture stream holds the start of a picture that decodes on its own: one the multiplexer marks random access, or
+/// one whose payload has an MPEG-2 sequence header (stream type 0x02), an H.264 SPS or IDR slice (0x1B), or an HEVC parameter set or IDR
+/// slice (0x24). A start code split between two packets is not seen; the next picture's is.
+pub fn access_point(packet: &[u8], stream_type: u8) -> bool {
+    let control = (packet[3] >> 4) & 3;
+    let mut at = 4;
+    if control & 2 != 0 {
+        let len = usize::from(packet[4]);
+        if len > 0 && packet[5] & 0x40 != 0 {
+            return true;
+        }
+        at += 1 + len;
+    }
+    if control & 1 == 0 || at >= packet.len() {
+        return false;
+    }
+    packet[at..].windows(4).any(|w| {
+        w[..3] == [0, 0, 1]
+            && match stream_type {
+                0x02 => w[3] == 0xB3,
+                0x1B => matches!(w[3] & 0x1F, 5 | 7),
+                0x24 => matches!((w[3] >> 1) & 0x3F, 19 | 20 | 32 | 33),
+                _ => false,
+            }
+    })
+}
+
+/// Writes the sections of one PID as packets and keeps that PID's continuity count, for the packets it writes and for the ones it is
+/// handed of the same PID.
 #[derive(Debug, Default)]
 pub struct SectionPackets {
     cc: u8,
 }
 
 impl SectionPackets {
-    pub fn packet(&mut self, pid: u16, section: &[u8]) -> [u8; PACKET] {
-        debug_assert!(section.len() <= PACKET - 5);
-        let mut p = [0xFF; PACKET];
-        p[0] = SYNC;
-        p[1] = 0x40 | (pid >> 8) as u8;
-        p[2] = pid as u8;
-        p[3] = 0x10 | self.cc;
-        p[4] = 0;
-        p[5..5 + section.len()].copy_from_slice(section);
-        self.cc = (self.cc + 1) & 0x0F;
-        p
+    /// Appends the packets that carry `section`: the first starts it after a pointer field, the rest go on with it, the last is padded.
+    pub fn write(&mut self, pid: u16, section: &[u8], out: &mut Vec<u8>) {
+        let mut rest = section;
+        let mut first = true;
+        while first || !rest.is_empty() {
+            let mut p = [0xFF; PACKET];
+            p[0] = SYNC;
+            p[1] = if first { 0x40 } else { 0 } | (pid >> 8) as u8;
+            p[2] = pid as u8;
+            p[3] = 0x10 | self.next();
+            let at = if first {
+                p[4] = 0;
+                5
+            } else {
+                4
+            };
+            let n = rest.len().min(PACKET - at);
+            p[at..at + n].copy_from_slice(&rest[..n]);
+            rest = &rest[n..];
+            first = false;
+            out.extend_from_slice(&p);
+        }
+    }
+
+    /// Gives a packet of this PID that came from elsewhere the next count, so the PID's packets read as one unbroken sequence (a packet
+    /// with no payload does not count).
+    pub fn renumber(&mut self, packet: &mut [u8]) {
+        if packet[3] & 0x10 != 0 {
+            packet[3] = (packet[3] & 0xF0) | self.next();
+        }
+    }
+
+    fn next(&mut self) -> u8 {
+        let cc = self.cc;
+        self.cc = (cc + 1) & 0x0F;
+        cc
     }
 }
 
@@ -398,12 +456,68 @@ pub(crate) mod tests {
             })
         );
         let mut p = SectionPackets::default();
-        let a = p.packet(PID_PAT, &s);
-        let b = p.packet(PID_PAT, &s);
+        let mut out = Vec::new();
+        p.write(PID_PAT, &s, &mut out);
+        p.write(PID_PAT, &s, &mut out);
+        let (a, b) = out.split_at(PACKET);
+        assert_eq!(b.len(), PACKET);
         assert_eq!(&a[..5], &[0x47, 0x40, 0x00, 0x10, 0x00]);
         assert_eq!(b[3], 0x11, "the continuity counter goes on");
         assert_eq!(&a[5..5 + s.len()], &s[..]);
         assert!(a[5 + s.len()..].iter().all(|&x| x == 0xFF));
+    }
+
+    #[test]
+    fn a_long_section_goes_on_in_the_next_packet_and_passed_on_packets_keep_the_count() {
+        let tags: Vec<u8> = (0..90).map(|i| 0x50 + i).collect();
+        let s = pmt(4, 0x61, &tags, &[(0x02, 0x61, &[]), (0x81, 0x64, &[])]);
+        assert!(s.len() > PACKET - 5);
+        let mut p = SectionPackets::default();
+        let mut out = Vec::new();
+        p.write(0x60, &s, &mut out);
+        assert_eq!(out.len(), 2 * PACKET);
+        let (a, b) = out.split_at(PACKET);
+        assert_eq!(
+            (a[1], b[1], a[3], b[3]),
+            (0x40, 0x00, 0x10, 0x11),
+            "only the first starts the section"
+        );
+        let carried = [&a[5..], &b[4..]].concat();
+        assert_eq!(parse_pmt(&carried), parse_pmt(&s));
+        let mut theirs = [0x47, 0x40, 0x60, 0x17].to_vec();
+        theirs.resize(PACKET, 0);
+        p.renumber(&mut theirs);
+        assert_eq!(theirs[3], 0x12);
+        let mut no_payload = [0x47, 0x00, 0x60, 0x2C].to_vec();
+        no_payload.resize(PACKET, 0);
+        p.renumber(&mut no_payload);
+        assert_eq!(no_payload[3], 0x2C, "adaptation only: not counted");
+    }
+
+    #[test]
+    fn a_picture_that_decodes_on_its_own_is_told_by_its_start_code_or_its_random_access_mark() {
+        let with = |head: &[u8], payload: &[u8]| {
+            let mut p = [&[SYNC, 0x40, 0x61][..], head, payload].concat();
+            p.resize(PACKET, 0xAB);
+            p
+        };
+        let mpeg2 = |code: u8| with(&[0x10], &[0, 0, 1, 0xE0, 0, 0, 0x80, 0, 0, 0, 0, 1, code]);
+        assert!(access_point(&mpeg2(0xB3), 0x02), "a sequence header");
+        assert!(!access_point(&mpeg2(0x00), 0x02), "a picture alone");
+        let h264 = |nal: u8| with(&[0x10], &[0, 0, 0, 1, 0x09, 0xF0, 0, 0, 0, 1, nal]);
+        assert!(
+            access_point(&h264(0x67), 0x1B) && access_point(&h264(0x65), 0x1B),
+            "an SPS, an IDR slice"
+        );
+        assert!(!access_point(&h264(0x41), 0x1B), "another slice");
+        assert!(
+            access_point(&with(&[0x30, 1, 0x40], &[]), 0x02),
+            "marked random access"
+        );
+        assert!(
+            !access_point(&with(&[0x20, 1, 0x00], &[]), 0x02),
+            "no payload, no mark"
+        );
     }
 
     #[test]

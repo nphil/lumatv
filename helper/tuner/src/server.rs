@@ -4,7 +4,7 @@
 
 use crate::docs;
 use crate::net::Cidr;
-use crate::stream::{End, Facade};
+use crate::stream::{End, Facade, Failure};
 use serde_json::Value;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
@@ -163,6 +163,27 @@ fn plausible(host: &str) -> bool {
 }
 
 fn reply(out: &mut impl Write, status: u16, content_type: &str, body: &[u8]) -> io::Result<()> {
+    answer(out, status, content_type, "", body)
+}
+
+/// A stream that cannot be served: its status, the `X-HDHomeRun-Error` players read the cause from, and the reason in words.
+fn refuse(out: &mut impl Write, f: &Failure) -> io::Result<()> {
+    answer(
+        out,
+        f.status(),
+        "text/plain",
+        &format!("X-HDHomeRun-Error: {}\r\n", f.hdhomerun_error()),
+        f.reason().as_bytes(),
+    )
+}
+
+fn answer(
+    out: &mut impl Write,
+    status: u16,
+    content_type: &str,
+    headers: &str,
+    body: &[u8],
+) -> io::Result<()> {
     let reason = match status {
         200 => "OK",
         403 => "Forbidden",
@@ -173,7 +194,7 @@ fn reply(out: &mut impl Write, status: u16, content_type: &str, body: &[u8]) -> 
     };
     write!(
         out,
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     )?;
     out.write_all(body)?;
@@ -236,12 +257,13 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
             match facade.open(guide, peer) {
                 Err(f) => {
                     log::info!("tuner: {peer} asked for {guide}: {}", f.reason());
-                    reply(&mut stream, f.status(), "text/plain", f.reason().as_bytes())
+                    refuse(&mut stream, &f)
                 }
                 Ok(mut program) => {
-                    // the PAT goes out as soon as the head is written: this is the client's wait for its first byte
+                    // the PAT and the PMT go out as soon as the head is written: this is the client's wait for its first byte
+                    let [tune, tables, picture] = program.took.map(|d| d.as_secs_f64());
                     log::info!(
-                        "tuner: {peer} streams {guide} after {:.1} s",
+                        "tuner: {peer} streams {guide} after {:.1} s (tune {tune:.1}, tables {tables:.1}, picture {picture:.1})",
                         asked.elapsed().as_secs_f64()
                     );
                     let sent = write!(stream, "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\n\r\n").and_then(|()| program.pump(&mut stream, stop));
@@ -267,7 +289,7 @@ mod tests {
     use super::*;
     use crate::docs::Identity;
     use crate::stream::Limits;
-    use crate::stream::tests::{Fake, Shared, Time, fake_with, packet, rf32, served};
+    use crate::stream::tests::{Fake, Shared, Time, fake_with, packet, picture, rf32, served};
     use std::net::Ipv4Addr;
 
     fn start(fake: &Arc<Fake>, time: &Time, peers: &[&str]) -> Server {
@@ -386,7 +408,7 @@ mod tests {
     #[test]
     fn a_stream_is_mpeg_ts_with_no_length_until_the_program_is_over() {
         let time = Time::default();
-        let chunk = [packet(0x61, 0), packet(0x64, 0)].concat();
+        let chunk = [picture(0x61, 0), packet(0x64, 0)].concat();
         let server = start(
             &fake_with(&time, rf32(&[]), vec![chunk.clone()]),
             &time,
@@ -408,15 +430,21 @@ mod tests {
     }
 
     #[test]
-    fn what_cannot_be_served_is_a_status_and_a_reason() {
+    fn what_cannot_be_served_is_a_status_an_hdhomerun_error_and_a_reason() {
         let time = Time::default();
         let fake = fake_with(&time, rf32(&[]), vec![]);
         let server = start(&fake, &time, LOCAL);
         let status = |request: &str| {
             let answer = get(&server, request);
             let (head, body) = split(&answer);
+            let error = head
+                .lines()
+                .find_map(|l| l.strip_prefix("X-HDHomeRun-Error: "))
+                .unwrap_or("")
+                .to_owned();
             (
                 head.lines().next().unwrap().to_owned(),
+                error,
                 String::from_utf8_lossy(body).into_owned(),
             )
         };
@@ -424,6 +452,7 @@ mod tests {
             status("GET /auto/v9.9 HTTP/1.1\r\n\r\n"),
             (
                 "HTTP/1.1 404 Not Found".to_owned(),
+                "801 Unknown Channel".to_owned(),
                 "no such channel".to_owned()
             )
         );
@@ -440,10 +469,21 @@ mod tests {
             status("GET /auto/v2.4 HTTP/1.1\r\n\r\n"),
             (
                 "HTTP/1.1 503 Service Unavailable".to_owned(),
+                "805 All Tuners In Use".to_owned(),
                 "the TV is in use: Live TV is in front".to_owned()
             )
         );
         assert!(fake.tuned.lock().is_empty());
+        *fake.owner.lock() = None;
+        assert_eq!(
+            status("GET /auto/v2.4 HTTP/1.1\r\n\r\n"),
+            (
+                "HTTP/1.1 503 Service Unavailable".to_owned(),
+                "807 No Video Data".to_owned(),
+                "no signal: no picture (2.4 is not on air)".to_owned()
+            ),
+            "a channel that sends no picture"
+        );
     }
 
     #[test]

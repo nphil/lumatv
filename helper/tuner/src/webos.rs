@@ -29,9 +29,11 @@ const BROADCAST: &str = "luna://com.webos.service.utp.broadcast";
 const LIVE_TV: &str = "com.webos.app.livetv";
 /// How long a luna call may take.
 const CALL_WAIT: Duration = Duration::from_secs(10);
-/// How long the frontend gets to lock after `changeChannel`, and to settle on the new multiplex (the previous one's tables are still on
-/// the demux for a moment).
-const LOCK_WAIT: Duration = Duration::from_secs(10);
+/// How long the frontend gets to lock after `changeChannel`, and how often it is asked. Measured on the set on 2026-11-05: every RF channel
+/// that locks (the weak RF 29 too) locked 0.3 to 0.35 s after `changeChannel` answered, the set answers `getSignalStatus` in about 30 ms,
+/// and an RF channel that does not lock (RF 35) reads strength 0 throughout.
+const LOCK_WAIT: Duration = Duration::from_secs(3);
+const LOCK_POLL: Duration = Duration::from_millis(100);
 
 // The ioctls, computed from LG's headers (`include/linux/dvbv5-ext`, `linux/dvb/dmx.h`) and used as measured on the set.
 const DMX_SET_FILTER: i32 = 0x403c_6f2b;
@@ -258,9 +260,6 @@ pub struct WebosConfig {
     /// The DVB adapter's directory, and the demux channel (with its PVR download) the tuner uses: LG's own stack keeps channel 0.
     pub dvb_dir: String,
     pub channel: u8,
-    /// How long the tuner settles after a channel change before the tables are read (the previous multiplex's are on the demux for a
-    /// moment).
-    pub settle: Duration,
 }
 
 impl Default for WebosConfig {
@@ -269,7 +268,6 @@ impl Default for WebosConfig {
             python: "python3".to_owned(),
             dvb_dir: "/dev/dvb/adapter0".to_owned(),
             channel: 2,
-            settle: Duration::from_secs(2),
         }
     }
 }
@@ -353,9 +351,12 @@ impl Inner {
                 return Ok(());
             }
             if Instant::now() >= end {
-                return Err(Failure::NoSignal("the tuner did not lock".to_owned()));
+                return Err(Failure::NoSignal(format!(
+                    "the tuner did not lock (strength {})",
+                    status["signal"]["strength"].as_i64().unwrap_or(0)
+                )));
             }
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(LOCK_POLL);
         }
     }
 
@@ -514,7 +515,6 @@ impl Hardware for Tv {
         inner.change_channel(&id, channel_id)?;
         tuned.moved = true;
         inner.wait_lock(&id)?;
-        thread::sleep(inner.cfg.settle);
         tuned.dvb = Some(Dvb::open(&inner.cfg, seed)?);
         Ok(Box::new(tuned))
     }
@@ -814,7 +814,6 @@ mod tests {
         let tv = Tv::new(
             WebosConfig {
                 dvb_dir: "/nonexistent/dvb".to_owned(),
-                settle: Duration::ZERO,
                 ..WebosConfig::default()
             },
             luna.clone(),

@@ -194,8 +194,6 @@ pub struct HdhrConfig {
     /// The DVB adapter's directory and the demux channel (with its PVR download) the tuner uses: LG's own stack keeps channel 0.
     pub dvb_dir: String,
     pub channel: u8,
-    /// How long the tuner settles after a channel change before the tables are read (the previous multiplex's are on the demux for a moment).
-    pub settle_ms: u64,
     /// Where the TV's own address is read from: the device id Plex keeps is made from it.
     pub mac_file: String,
 }
@@ -210,7 +208,6 @@ impl Default for HdhrConfig {
             python: tv.python,
             dvb_dir: tv.dvb_dir,
             channel: tv.channel,
-            settle_ms: u64::try_from(tv.settle.as_millis()).unwrap_or(u64::MAX),
             mac_file: "/sys/class/net/eth0/address".to_owned(),
         }
     }
@@ -223,7 +220,6 @@ impl HdhrConfig {
             python: self.python.clone(),
             dvb_dir: self.dvb_dir.clone(),
             channel: self.channel,
-            settle: std::time::Duration::from_millis(self.settle_ms),
         }
     }
 }

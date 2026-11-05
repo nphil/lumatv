@@ -22,10 +22,10 @@
 //! |---|---|
 //! | `GET /discover.json` | the device: name, id, `TunerCount` 1, `BaseURL`, `LineupURL` |
 //! | `GET /lineup_status.json` | an antenna, not scanning |
-//! | `GET /lineup.json` | the TV's antenna channels (`iepg/getChannelList`), one per number: `GuideNumber` `2.4`, `GuideName`, `URL` |
+//! | `GET /lineup.json` | the TV's antenna channels (`iepg/getChannelList`), one per number: `GuideNumber` `2.4`, `GuideName`, `URL`; a channel found off the air is left out for 30 minutes |
 //! | `GET /lineup.m3u` | the same lineup as an M3U playlist: `tvg-id` and `tvg-chno` are the guide number, the URL is `/auto/v<number>`, `url-tvg` names `/xmltv.xml` |
 //! | `GET /xmltv.xml` | the TV's own broadcast guide (`iepg/getEventList`, a day back to six days ahead, read once per channel and kept 30 minutes, or until the host's [`Guide`] changes) as XMLTV, UTC, channel ids the guide numbers, or the host's guide made from it when it has one; a channel nobody has listings for has no programmes |
-//! | `GET /auto/v<number>` | MPEG-TS of that channel: a PAT naming the one program, then its PMT, clock, picture and sound. The client whose stream has the tuner takes it over with its next request; another client gets 503 while it runs, and every client while the TV is in use; 403 for a protected program; 404 for no such channel |
+//! | `GET /auto/v<number>` | MPEG-TS of that channel, answered once its first whole picture has come: a PAT naming the one program, its PMT, then its clock, picture and sound. The client whose stream has the tuner takes it over with its next request; another client gets 503 while it runs, and every client while the TV is in use; 503 for a channel off the air (no lock, not in its multiplex, no whole picture within 4 s), at once for 30 minutes after; 403 for a protected program; 404 for no such channel. Each refusal names its HDHomeRun error in `X-HDHomeRun-Error` |
 //! | `GET`/`POST /lineup.post` | 200, nothing to start (the lineup is the TV's) |
 //!
 //! Pieces: [`psi`] reads and writes the transport stream's tables; [`docs`] makes the HDHomeRun documents, the playlist and the guide;
