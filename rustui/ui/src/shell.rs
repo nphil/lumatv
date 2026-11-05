@@ -2362,7 +2362,7 @@ mod tests {
     fn an_app_that_opens_from_home_shows_the_launch_screen_after_the_compositors_wait_and_tells_it_where_the_icon_is_and_it_goes_when_the_app_has_the_front() {
         let (_h, mut shell) = home_shell("home");
         shell.channel(&Event::Topic { topic: "transitions".into(), data: json!({"on": true, "reduced": false}) }, 1_020);
-        for (i, k) in ["down", "down", "down"].into_iter().enumerate() {
+        for (i, k) in ["down", "left", "left", "down"].into_iter().enumerate() {
             key(&mut shell, k, 2_000 + i as u64 * 100);
         }
         let acts = key(&mut shell, "ok", 2_400);
@@ -2413,7 +2413,7 @@ mod tests {
     #[test]
     fn without_the_compositors_transitions_the_launch_screen_is_there_at_once_as_it_always_was() {
         let (_h, mut shell) = home_shell("home");
-        for (i, k) in ["down", "down", "down"].into_iter().enumerate() {
+        for (i, k) in ["down", "left", "left", "down"].into_iter().enumerate() {
             key(&mut shell, k, 2_000 + i as u64 * 100);
         }
         let acts = key(&mut shell, "ok", 2_400);
@@ -2581,7 +2581,7 @@ mod tests {
             if shell.state()["home"]["widgetFocusId"] == "news" {
                 break;
             }
-            key(&mut shell, "right", 2_100 + i * 100);
+            key(&mut shell, "left", 2_100 + i * 100);
         }
         assert_eq!(shell.state()["home"]["widgetFocusId"], "news", "{}", shell.state()["home"]);
         key(&mut shell, "ok", 3_000);
@@ -2662,6 +2662,7 @@ mod tests {
     fn ok_on_the_bell_opens_the_drawer_and_back_closes_it_and_without_the_drawer_kind_nothing_opens() {
         let (_h, mut shell) = home_shell("home,drawer");
         key(&mut shell, "right", 2_000);
+        key(&mut shell, "right", 2_100);
         key(&mut shell, "ok", 2_200);
         assert!(matches!(shell.state()["panels"]["drawer"].as_str(), Some("opening" | "open")), "{}", shell.state()["panels"]);
         key(&mut shell, "back", 2_600);
@@ -2669,6 +2670,7 @@ mod tests {
         assert_eq!(shell.state()["home"]["focusLayer"], "statusbar", "Home is where it was left");
         let (_h2, mut bare) = home_shell("home");
         key(&mut bare, "right", 2_000);
+        key(&mut bare, "right", 2_100);
         key(&mut bare, "ok", 2_200);
         assert!(!matches!(bare.state()["panels"]["drawer"].as_str(), Some("opening" | "open")));
     }
@@ -2693,8 +2695,7 @@ mod tests {
             shell.start();
             shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true, "covered": false}) }, 1_000);
             shell.helper(&Event::Topic { topic: "cameras".into(), data: json!({"state": link, "reason": "", "now_skew_ms": 0, "rev": 1, "cameras": cameras}) }, 1_100);
-            key(&mut shell, "down", 2_000);
-            key(&mut shell, "down", 2_200);
+            shell.home.walk_to_card("cameras", 2_000);
             assert_eq!(shell.state()["home"]["widgetFocusId"], "cameras", "{link}");
             key(&mut shell, "ok", 2_400);
             assert_eq!(shell.state()["cameras"]["screen"]["mode"], "grid", "{link}");

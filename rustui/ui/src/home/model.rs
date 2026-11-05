@@ -3131,15 +3131,24 @@ mod tests {
 
     impl Home {
         /// The arrows from where Home opens (the status bar's first button, over the weather card) to the card `widget`: down onto the weather
-        /// card, then left and down as the cards lie.
+        /// card, then left along the cards, and down where the left runs out.
         pub(crate) fn walk_to_card(&mut self, widget: &str, at: u64) {
-            for i in 0..8u64 {
+            let mut t = at;
+            let mut tap = |h: &mut Home, key: &str| {
+                h.update(&Input::Key { name: key.into(), down: true, repeat: false }, t);
+                h.update(&Input::Key { name: key.into(), down: false, repeat: false }, t + 30);
+                t += 100;
+            };
+            tap(self, "down");
+            for _ in 0..8 {
                 if self.focus.current().and_then(|id| self.widget_of(id)) == Some(widget) {
                     return;
                 }
-                let key = if i % 2 == 0 { "down" } else { "left" };
-                self.update(&Input::Key { name: key.into(), down: true, repeat: false }, at + i * 100);
-                self.update(&Input::Key { name: key.into(), down: false, repeat: false }, at + i * 100 + 30);
+                let before = self.focus.current();
+                tap(self, "left");
+                if self.focus.current() == before {
+                    tap(self, "down");
+                }
             }
         }
     }

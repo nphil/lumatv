@@ -18,6 +18,9 @@ struct Mask {
     alpha: Vec<u8>,
 }
 
+/// A glyph drawn from its vector source and how far it sits from the middle of its box (`None`: the source has no such icon).
+type Crisp = (Glyph, (i32, i32));
+
 #[derive(Default)]
 pub struct Icons {
     dir: Option<PathBuf>,
@@ -25,7 +28,7 @@ pub struct Icons {
     masks: HashMap<String, Option<Mask>>,
     kept: HashMap<(String, u32, [u8; 4]), Vec<u8>>,
     /// The glyphs drawn from their vector source (`vector_icon`) at a side, and how far each sits from the middle of its box.
-    crisp: HashMap<(String, u32), Option<(Glyph, (i32, i32))>>,
+    crisp: HashMap<(String, u32), Option<Crisp>>,
 }
 
 fn read_mask(path: &Path) -> Option<Mask> {
