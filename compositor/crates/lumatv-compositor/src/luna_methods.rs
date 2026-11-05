@@ -128,7 +128,7 @@ impl Default for LunaState {
 
 impl Default for Power {
     fn default() -> Self {
-        Power { state: "unknown".into(), rendering: true, pending: Vec::new() }
+        Power { state: "unknown".into(), sub_state: String::new(), rendering: true, pending: Vec::new() }
     }
 }
 
@@ -137,6 +137,8 @@ impl Default for Power {
 /// same timestamp and `ack: true`.
 pub struct Power {
     pub state: String,
+    /// `sub state` of the same push: `screen saver` while LG's saver is up with `state` still `ACTIVE` (`StarfishScreenSaverView.qml`).
+    pub sub_state: String,
     /// False between "prepare power off" and "prepare power on": nothing is drawn.
     pub rendering: bool,
     /// Rounds answered, for the journal: (round, timestamp, next sub state).
@@ -175,6 +177,26 @@ impl Power {
     pub fn on_state(&mut self, payload: &Value) {
         if let Some(s) = payload.get("state").and_then(Value::as_str) {
             self.state = s.to_string();
+        }
+        if let Some(s) = payload.get("sub state").and_then(Value::as_str) {
+            self.sub_state = s.to_string();
+        }
+    }
+
+    /// LG's saver is the set's state (its window may not be mapped yet).
+    pub fn saver(&self) -> bool {
+        self.sub_state.eq_ignore_ascii_case("screen saver") || self.state.eq_ignore_ascii_case("screen saver")
+    }
+
+    /// What a press of Power asks of tvpower: standby from `ACTIVE` and from LG's saver, the screen on from `POWER OFF`, nothing in
+    /// a transition (`request power on`, ...) or before the first state is known.
+    pub fn key_request(&self) -> Option<&'static str> {
+        if self.state.eq_ignore_ascii_case("active") || self.saver() {
+            Some("powerOff")
+        } else if self.state.eq_ignore_ascii_case("power off") {
+            Some("powerOn")
+        } else {
+            None
         }
     }
 }
@@ -338,10 +360,11 @@ impl State {
         };
         if round == "PowerState" {
             // The standby's timeline: each state tvpower goes through, from the Power key (the rounds below are its asks of the compositor).
-            let was = self.luna_state.power.state.clone();
+            let was = (self.luna_state.power.state.clone(), self.luna_state.power.sub_state.clone());
             self.luna_state.power.on_state(&ev.payload);
-            if self.luna_state.power.state != was {
-                let line = format!("tvpower: the set is {:?} (was {was:?}){}", self.luna_state.power.state, self.since_power_key());
+            let now = (&self.luna_state.power.state, &self.luna_state.power.sub_state);
+            if (now.0, now.1) != (&was.0, &was.1) {
+                let line = format!("tvpower: the set is {:?}/{:?} (was {:?}/{:?}){}", now.0, now.1, was.0, was.1, self.since_power_key());
                 self.journal(line);
             }
             return;
@@ -368,9 +391,10 @@ impl State {
         self.luna_state.power.rendering.then(|| self.luna_state.nooperation.deadline()).flatten()
     }
 
-    /// LG's saver is there: its window is mapped above the app, or tvpower says `Screen Saver` (its window may not be mapped yet).
+    /// LG's saver is there: its window is mapped above the app, or tvpower's sub state says `screen saver` (its window may not be mapped yet;
+    /// `state` stays `ACTIVE` through it).
     pub fn lg_saver_present(&self) -> bool {
-        self.lg_saver_up() || self.luna_state.power.state.to_ascii_lowercase().contains("screen saver")
+        self.lg_saver_up() || self.luna_state.power.saver()
     }
 
     pub fn lg_saver_up(&self) -> bool {

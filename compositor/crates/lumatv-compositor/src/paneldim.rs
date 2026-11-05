@@ -735,9 +735,17 @@ impl State {
 
     /// A key or the pointer (`Scene::input` and the panel).
     pub fn care_input(&mut self) {
+        self.care_input_with(true);
+    }
+
+    /// [`State::care_input`], with or without the wake of LG's saver: the Power key asks for standby and does not wake the screen it is
+    /// about to turn off.
+    pub fn care_input_with(&mut self, wake_saver: bool) {
         let now = crate::output::monotonic_ns();
         self.nooperation_activity();
-        self.wake_lg_saver();
+        if wake_saver {
+            self.wake_lg_saver();
+        }
         self.scene.input(now);
         let call = self.panel.input(now);
         self.panel_send(call);

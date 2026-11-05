@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The Power key goes to standby on its first press while LG's screensaver is up. tvpower keeps `state` at `ACTIVE` through its saver and names it in `sub state` (`screen saver`), which the compositor did not read: the press asked for standby and woke the screen in the same instant, and the key went to the saver's app, which answers a key by waking. The press is now neither given to the saver's app nor a wake, and the journal says when tvpower's sub state changes.
+
 The idle timers and the saver count every device the set has, not only remotes and keyboards. A mouse, a game controller (its buttons, a stick or trigger moved a quarter of its range, the hat) and a phone remote's touchpad or scroll reset the countdown and wake a saver that is up, as a key does; the compositor reads them for that and routes nothing from them, and a controller's motion sensor, whose resting noise would never let the TV idle, is left alone. A notch of the Magic Remote's wheel counts under `remote.pointerShow` `movement` too (with the cursor hidden it counted for nothing). These devices do not keep the loop out of its slow tick.
 
 LG's screensaver can no longer hold the keys for good. A key that finds it up asks tvpower to end it; a call with no answer in 2 s is made again, a refused one (tvpower said "power is busy" in the first checks) is asked again every second without another key, the saver's app is asked to close after 3 s, and after 6 s its window is hidden and the keys reach the app under it. A key that arrives while tvpower says `Screen Saver` and the window is not mapped yet is the saver's too. The OLED care no longer dims, shifts or samples the app under LG's saver.

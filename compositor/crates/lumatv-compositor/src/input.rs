@@ -918,10 +918,15 @@ impl State {
     /// and no layer of the shell takes it, so a press can never be left waiting on the release of an earlier one. The care of the screen (the
     /// panel's brightness put back, the saver's idle clock) hears of it after the key has gone.
     fn power_key(&mut self, seat: seat::SeatId, pressed: bool, now: Instant) {
-        if seat::send_key(self, seat, code::KEY_POWER, pressed) {
-            self.keys.delivered += 1;
-        } else {
-            self.keys.dropped += 1;
+        // With LG's saver up the press is for standby: it is not given to the saver's app, which would answer a key by waking the screen, and
+        // it does not wake the screen either (the saver's wake is for every other key).
+        let saver = self.lg_saver_present();
+        if !saver {
+            if seat::send_key(self, seat, code::KEY_POWER, pressed) {
+                self.keys.delivered += 1;
+            } else {
+                self.keys.dropped += 1;
+            }
         }
         if pressed {
             // A press whose release was lost (the set went to standby under it) must not make the next one look like a repeat.
@@ -936,18 +941,22 @@ impl State {
                 });
                 // The replacement compositor owns both directions of the remote-key handshake. Without an explicit request,
                 // Active hits OFF_BY_KEYTIMEOUT after 8 s, while POWER OFF receives the wake key but stays in active standby.
-                if self.luna_state.power.state.eq_ignore_ascii_case("active") {
-                    self.luna_call("luna://com.webos.service.tvpower/power/powerOff".into(), serde_json::json!({"reason": "remoteKey"}));
-                    self.journal("tvpower: power/powerOff (remoteKey) asked".into());
-                } else if self.luna_state.power.state.eq_ignore_ascii_case("power off") {
-                    self.luna_call("luna://com.webos.service.tvpower/power/powerOn".into(), serde_json::json!({"reason": "remoteKey"}));
-                    self.journal("tvpower: power/powerOn (remoteKey) asked".into());
+                match self.luna_state.power.key_request() {
+                    Some("powerOff") => {
+                        self.luna_call("luna://com.webos.service.tvpower/power/powerOff".into(), serde_json::json!({"reason": "remoteKey"}));
+                        self.journal(if saver { "tvpower: power/powerOff (remoteKey) asked, LG's saver up".into() } else { "tvpower: power/powerOff (remoteKey) asked".into() });
+                    }
+                    Some(_) => {
+                        self.luna_call("luna://com.webos.service.tvpower/power/powerOn".into(), serde_json::json!({"reason": "remoteKey"}));
+                        self.journal("tvpower: power/powerOn (remoteKey) asked".into());
+                    }
+                    None => {}
                 }
             }
         } else {
             self.keys.power_held = false;
         }
-        self.care_input();
+        self.care_input_with(!saver);
         self.seat.last_input = "key";
     }
 
