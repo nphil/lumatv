@@ -338,6 +338,30 @@ fn a_video_hole_a_standby_and_the_saver_leaving_each_put_the_value_back() {
 }
 
 #[test]
+fn a_sink_of_videooutputd_that_is_not_lumatvs_keeps_the_panel_bright_with_the_vwin_switch_off() {
+    let sinks = |app: &str| json!({"video": [{"sink": "MAIN", "connected": true, "context": "c", "appId": app, "zOrder": 0}, {"sink": "SUB0", "connected": false, "zOrder": 1}]});
+    for (app, blocks) in [("youtube.leanback.v4", true), ("com.webos.app.livetv", true), ("org.nphil.lumatv.vplane", false), ("com.webos.app.home", false)] {
+        let tv = Stand::new(80);
+        let mut server = quiet_server(&tv);
+        home(&mut server);
+        let asked = tv.clone();
+        server.eval(move |s| {
+            s.luna_register();
+            assert!(asked.0.lock().sent.iter().any(|(u, _)| u.ends_with("service.videooutput/getStatus")), "the sinks are read whatever the switch says");
+            let t = run(s, monotonic_ns(), 500);
+            s.panel_want_ctl = Some(0.5);
+            let t = run(s, t, 100_000);
+            assert_eq!(s.panel.status()["written"], 40, "{app}");
+            s.vwin_status(&sinks(app));
+            assert_eq!(s.video_playing(), blocks, "{app}");
+            run(s, t, 5_000);
+            assert_eq!(s.panel.status()["dimmed"], !blocks, "{app}");
+        });
+        assert_eq!(tv.value() == 80, blocks, "{app}: the picture's own player dims, an app's video puts the light back");
+    }
+}
+
+#[test]
 fn the_rust_shells_saver_is_dimmed_at_its_own_level_when_it_says_it_does_not_draw_that_dim() {
     let tv = Stand::new(80);
     let mut server = quiet_server(&tv);

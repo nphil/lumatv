@@ -76,6 +76,12 @@ pub struct Saver {
     client: String,
     // what the channel and the helper say
     home_front: bool,
+    /// Something full screen is over Home (the `covered` of the foreground topic).
+    covered: bool,
+    /// A video is on the display (the compositor's `playing` topic: an app's pipeline, a sink of `videooutputd`, one of LumaTV's own windows).
+    video: bool,
+    /// The shell's own live view is up (the Cameras viewer, the camera pop-up): its picture is not the compositor's to see.
+    live_view: bool,
     power_state: String,
     tv_on: bool,
     forced: bool,
@@ -118,6 +124,9 @@ impl Saver {
             cfg,
             client: client.to_string(),
             home_front: false,
+            covered: false,
+            video: false,
+            live_view: false,
             power_state: String::new(),
             tv_on: true,
             forced: false,
@@ -183,6 +192,13 @@ impl Saver {
         self.takes_over() && !self.forced && self.home_front
     }
 
+    /// Whether this saver may draw over what is on the screen: not over a video or a live view of LumaTV's, and not under a cover. It still answers
+    /// tvpower's question no there (LG's saver must not start over them either); it only does not take the screen. LG's confirmed `Screen Saver` state
+    /// is LG's own policy and is drawn whatever this says.
+    fn can_draw(&self) -> bool {
+        !self.covered && !self.video && !self.live_view
+    }
+
     fn active(&self) -> bool {
         !self.cfg.off && (self.forced || self.power_state == "Screen Saver" || self.owned)
     }
@@ -203,6 +219,10 @@ impl Saver {
         match input {
             Input::Topic { topic, data } if topic == "foreground" => {
                 self.home_front = data.get("home").and_then(Value::as_bool) == Some(true);
+                self.covered = data.get("covered").and_then(Value::as_bool) == Some(true);
+            }
+            Input::Topic { topic, data } if topic == "playing" => {
+                self.video = data.get("video").and_then(Value::as_bool) == Some(true);
             }
             // the Home key is the compositor's own and does not come over the key socket: it is told as a topic, and ends the saver
             Input::Topic { topic, .. } if topic == "homekey" && self.up() => self.wake(now, &mut out),
@@ -282,6 +302,16 @@ impl Saver {
             out.push(Effect::Luna { tag: TAG_WAKE, uri: format!("{TVPOWER}/power/turnOnScreen"), payload: json!({}), subscribe: false });
         }
         out.push(Effect::Redraw);
+    }
+
+    /// The shell's own live view (the Cameras viewer, the camera pop-up) came up or went: the saver does not draw over it.
+    pub fn set_live_view(&mut self, on: bool, now: u64) -> Vec<Effect> {
+        let mut out = Vec::new();
+        if self.live_view != on {
+            self.live_view = on;
+            self.settle(now, &mut out);
+        }
+        out
     }
 
     pub fn wake_for_event(&mut self, now: u64) -> Vec<Effect> {
@@ -380,9 +410,13 @@ impl Saver {
         out.push(Effect::Log(format!(
             "[saver] {} asked: {}",
             LISTS[i],
-            if yes { "yes (not ours to draw)" } else { "no (LumaTV's saver draws)" }
+            match (yes, self.can_draw()) {
+                (true, _) => "yes (not ours to draw)",
+                (false, true) => "no (LumaTV's saver draws)",
+                (false, false) => "no (a video or a cover is on the screen: nothing is drawn)",
+            }
         )));
-        if !yes {
+        if !yes && self.can_draw() {
             self.owned = true;
         }
     }
@@ -433,7 +467,7 @@ impl Saver {
     /// After every input: what changed in what is wanted and what is up.
     fn settle(&mut self, now: u64, out: &mut Vec<Effect>) {
         // `owned` ends with the things it depends on
-        if !self.home_front || !self.tv_on || !self.takes_over() {
+        if !self.home_front || !self.tv_on || !self.takes_over() || !self.can_draw() {
             self.owned = false;
         }
         let want = self.want();
@@ -505,6 +539,7 @@ impl Saver {
         // `level` and `carry` are what the compositor reads to dim the panel in the saver's place (`paneldim`): only while the saver says it does not
         // draw the dim itself
         json!({"up": self.up(), "active": self.active(), "owned": self.owned, "forced": self.forced, "level": self.level, "carry": self.panel_carry,
+               "canDraw": self.can_draw(),
                "vote": {"want": self.want(), "registered": self.subs.iter().any(|s| s.live), "power2": self.subs[0].live, "power": self.subs[1].live,
                         "fails": self.subs[0].fails + self.subs[1].fails, "asked": self.asked, "refused": self.refused, "lastRefusal": self.last_refusal}})
     }
@@ -957,5 +992,57 @@ mod tests {
             let v = s.view(t);
             assert!(v.pos.0 >= 96 - 30 && v.pos.1 >= 54 - 20 && v.pos.0 + 900 <= 1920 - 96 + 30 && v.pos.1 + 540 <= 1080 - 54 + 20, "{:?}", v.pos);
         }
+    }
+
+    /// Home in front with the vote on its way: a saver that takes the screen over Home when tvpower asks.
+    fn voting_saver() -> Saver {
+        let mut s = saver();
+        home(&mut s, NOW);
+        s.update(&helper("screen", json!({"on": true, "state": "Active"})), NOW);
+        s
+    }
+
+    #[test]
+    fn tvpowers_question_is_answered_no_but_nothing_is_drawn_over_a_video_a_cover_or_a_live_view() {
+        for blocked in ["video", "covered", "live view"] {
+            let mut s = voting_saver();
+            match blocked {
+                "video" => drop(s.update(&topic("playing", json!({"video": true})), NOW + 1)),
+                "covered" => drop(s.update(&topic("foreground", json!({"app": "", "home": true, "covered": true})), NOW + 1)),
+                _ => drop(s.set_live_view(true, NOW + 1)),
+            }
+            let calls = luna_calls(&question(&mut s, 0, 7, NOW + 2));
+            assert_eq!(calls[0].2["ack"], false, "{blocked}: LG's saver must not start over it either");
+            assert!(!s.up() && s.state()["owned"] == false, "{blocked}: nothing drawn");
+            // it is gone: the next question takes the screen
+            match blocked {
+                "video" => drop(s.update(&topic("playing", json!({"video": false})), NOW + 3)),
+                "covered" => drop(s.update(&topic("foreground", json!({"app": "", "home": true, "covered": false})), NOW + 3)),
+                _ => drop(s.set_live_view(false, NOW + 3)),
+            }
+            question(&mut s, 0, 8, NOW + 4);
+            assert!(s.up(), "{blocked}: the next question takes the screen");
+        }
+    }
+
+    #[test]
+    fn a_saver_that_is_up_ends_when_a_video_or_a_live_view_starts_and_lgs_confirmed_saver_is_not_this_rule() {
+        let mut s = voting_saver();
+        question(&mut s, 0, 7, NOW + 1);
+        assert!(s.up());
+        let fx = s.update(&topic("playing", json!({"video": true})), NOW + 2);
+        assert!(!s.up() && fx.contains(&Effect::Redraw), "a video started under it");
+        assert!(luna_calls(&fx).is_empty(), "it only stops drawing: tvpower is not asked to wake anything");
+        s.update(&topic("playing", json!({"video": false})), NOW + 3);
+        question(&mut s, 0, 8, NOW + 4);
+        assert!(s.up());
+        s.set_live_view(true, NOW + 5);
+        assert!(!s.up(), "the viewer came up");
+        // LG approved a saver over a paused video (its policy): it is drawn whatever the compositor says of video
+        let mut s = saver();
+        s.update(&topic("foreground", json!({"app": "netflix", "home": false, "covered": true})), NOW);
+        s.update(&topic("playing", json!({"video": true})), NOW);
+        s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 1);
+        assert!(s.up(), "LG's confirmed saver is LG's decision");
     }
 }

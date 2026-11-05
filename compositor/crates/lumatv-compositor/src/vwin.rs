@@ -792,6 +792,12 @@ impl Sinks {
         self.video.iter().find(|s| s.connected && contexts.contains(&s.context))
     }
 
+    /// A connected sink that is not LumaTV's own (the wallpaper's, the saver's, a camera's, Home's): an app, an input or LG's own service has a picture on
+    /// the display. The sink holds it while the pipeline is loaded, playing or paused alike.
+    pub fn foreign_connected(&self) -> bool {
+        self.video.iter().any(|s| s.connected && !is_own_app(&s.app))
+    }
+
     pub fn json(&self) -> Value {
         Value::Array(
             self.video
@@ -881,6 +887,11 @@ struct Watch {
     said: bool,
 }
 const STATUS_URI: &str = "luna://com.webos.service.videooutput/getStatus";
+/// Whether a sink's `appId` is LumaTV's: its players (the wallpaper `org.nphil.lumatv.vplane`, the camera views) and its Home, whose picture is not
+/// one for the screen's care to keep off.
+fn is_own_app(app: &str) -> bool {
+    app.starts_with("org.nphil.lumatv") || app == "com.webos.app.home"
+}
 
 impl crate::State {
     /// What the screen holds besides the claims: the exported elements by the kind of window that owns them, and what `videooutputd` says.
@@ -1384,8 +1395,8 @@ impl crate::State {
         }
     }
 
-    /// The switch (`ctl vwin off|idle|apps`, the config at start): every claim of a mode that does not hold ends, and the status of the sinks is read
-    /// while the switch is on.
+    /// The switch (`ctl vwin off|idle|apps`, the config at start): every claim of a mode that does not hold ends. The status of the sinks is read
+    /// whatever the mode: the screen's care and the saver need to know that a video is on the display (`State::video_playing`).
     pub fn vwin_set_mode(&mut self, mode: Mode) {
         let was = self.vwin.alloc.policy.mode;
         self.vwin.alloc.policy.mode = mode;
@@ -1393,25 +1404,29 @@ impl crate::State {
         if was != mode {
             self.journal(format!("vwin: {} (was {})", mode.name(), was.name()));
         }
-        if mode == Mode::Off {
-            if let Some(token) = self.vwin.status_token.take() {
-                self.luna.send(ToBridge::Cancel { token });
-            }
-            self.vwin.sinks = Sinks::default();
-        } else {
-            self.vwin_subscribe();
-        }
+        self.vwin_subscribe();
         self.vwin_sync();
     }
 
-    /// Subscribes to `videooutputd`'s status once (the bridge must be up): the sinks and which of them are connected and use both scalers.
+    /// Subscribes to `videooutputd`'s status once (the bridge must be up): the sinks and which of them are connected and use both scalers. A push
+    /// comes only when a sink changes, so this costs nothing in a frame.
     pub fn vwin_subscribe(&mut self) {
-        if self.vwin.status_token.is_some() || self.vwin.alloc.policy.mode == Mode::Off || !self.luna.is_connected() {
+        if self.vwin.status_token.is_some() || !self.luna.is_connected() {
             return;
         }
         let token = self.luna_token();
         self.vwin.status_token = Some(token);
         self.luna.send(ToBridge::Outbound(Outbound { token, uri: STATUS_URI.into(), payload: json!({"subscribe": true}), subscribe: true }));
+    }
+
+    /// Whether a video is on the display that the screen's care and LumaTV's saver must not cover or dim: an app that exported a video element (a
+    /// pipeline of its own in the plan), one of LumaTV's own windows playing (a claim of the camera pop-up, the full view or a picture-in-picture),
+    /// or a sink `videooutputd` reports connected that is not LumaTV's wallpaper or saver. The sink and the claims do not depend on what an app
+    /// says about itself. A paused video keeps its pipeline and so counts; LG's own policy, which asks tvpower's saver question, is the authority
+    /// on whether a paused picture may be covered.
+    pub fn video_playing(&self) -> bool {
+        let plan = self.scene.last_plan();
+        plan.video || !plan.holes.is_empty() || self.vwin.alloc.granted().next().is_some() || self.vwin.sinks.foreign_connected()
     }
 
     /// A push of the status: the sinks as they are, and the claims judged against them.

@@ -704,8 +704,7 @@ impl State {
     /// shell told whether the panel carries the saver's dim.
     pub fn panel_dim_tick(&mut self, now_ns: u64) {
         let want = self.panel_want();
-        let plan = self.scene.last_plan();
-        let video = plan.video || !plan.holes.is_empty();
+        let video = self.video_playing();
         let block = if !self.luna_state.power.rendering {
             Some(Block::Standby)
         } else if video {
@@ -718,6 +717,8 @@ impl State {
         if self.shell_rust.answers("saver") {
             let carry = self.panel.carries();
             self.shell_rust.push_if_changed("paneldim", json!({"carry": carry}));
+            // The saver does not draw over a video: told apart from the foreground topic, which an app's own video context fills (`State::video_playing`).
+            self.shell_rust.push_if_changed("playing", json!({"video": video}));
         }
         for line in self.panel.take_events() {
             self.journal(line);

@@ -1607,6 +1607,21 @@ mod tests {
     }
 
     #[test]
+    fn native_client_is_told_when_a_video_that_is_not_lumatvs_is_on_the_display() {
+        let (mut state, _dir) = state_with("saver");
+        state.shell_rust_handle(Msg::Connected);
+        let sink = |app: &str| json!({"video": [{"sink": "MAIN", "connected": true, "appId": app}]});
+        state.panel_dim_tick(crate::output::monotonic_ns());
+        assert_eq!(state.shell_rust.topic("playing").unwrap()["video"], false);
+        state.vwin_status(&sink("com.netflix.ninja"));
+        state.panel_dim_tick(crate::output::monotonic_ns());
+        assert_eq!(state.shell_rust.topic("playing").unwrap()["video"], true, "an app's picture");
+        state.vwin_status(&sink("org.nphil.lumatv.vplane"));
+        state.panel_dim_tick(crate::output::monotonic_ns());
+        assert_eq!(state.shell_rust.topic("playing").unwrap()["video"], false, "the wallpaper's is LumaTV's own");
+    }
+
+    #[test]
     fn native_capture_topic_and_dot_follow_the_client() {
         let (mut state, _dir) = state_with("capture");
         state.shell_rust_handle(Msg::Connected);

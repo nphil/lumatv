@@ -216,11 +216,14 @@ impl Layer {
     }
 
     /// Something that is not the layer's has the screen: a panel or Settings is up (`host_busy`), the Cameras app's viewer is up (`viewer_up`).
-    /// The cards and the camera pop-up wait for it (the pop-up steps aside, the cards keep what they hold).
+    /// The cards and the camera pop-up wait for it (the pop-up steps aside, the cards keep what they hold). The saver does not draw over the viewer or
+    /// the pop-up either: they show a live picture.
     pub fn set_host(&mut self, kinds: &Kinds, host_busy: bool, viewer_up: bool, now: u64) -> Vec<Effect> {
         self.host_busy = host_busy;
         self.viewer_up = viewer_up;
-        self.sync_context(kinds, now)
+        let mut out = if kinds.saver { self.saver.set_live_view(viewer_up || (kinds.popup && self.popup.up()), now) } else { Vec::new() };
+        out.extend(self.sync_context(kinds, now));
+        out
     }
 
     /// The facts the cards and the pop-up wait on, given to both.
@@ -983,5 +986,19 @@ mod tests {
         assert_eq!(layer.extras.view().ask, ask);
         assert!(!fx.iter().any(|e| matches!(e, Effect::Post { path, .. } if path == "/v1/cameras/popup/clear")));
         assert!(!layer.take_intents().iter().any(|i| matches!(i, Intent::OpenCamera(_))));
+    }
+
+    #[test]
+    fn the_saver_does_not_take_the_screen_from_the_cameras_viewer() {
+        let mut layer = Layer::new(0, &json!({}), &json!({}));
+        let kinds = Kinds::parse("home,saver,popup,cards,cameras");
+        assert_eq!(layer.saver.state()["canDraw"], true);
+        layer.set_host(&kinds, false, true, 1000);
+        assert_eq!(layer.saver.state()["canDraw"], false, "the viewer shows a live picture");
+        layer.set_host(&kinds, false, false, 1001);
+        assert_eq!(layer.saver.state()["canDraw"], true);
+        // a saver of a build without the kind has nothing to tell
+        layer.set_host(&Kinds::parse("home"), false, true, 1002);
+        assert_eq!(layer.saver.state()["canDraw"], true);
     }
 }
