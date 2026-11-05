@@ -93,7 +93,6 @@ pub struct Lift {
     pub pane: GlassLayer,
     pub lit: GlassLayer,
     pub frame: Frame,
-    pub rest: GroupPose,
 }
 
 impl Lift {
@@ -119,7 +118,7 @@ impl Lift {
         let pane = scene.adopting(&group, || kit.ui.scene.glass(w, h, z, glass_of(kit, kind, frame.h, false, over_video), Props::at(0.0, 0.0)));
         let lit = scene.adopting(&lit_group, || kit.ui.scene.glass(w, h, z + 1, glass_of(kit, kind, frame.h, true, over_video), Props::at(0.0, 0.0)));
         engine.flow.lift(id, Lifted { group, rest, scale, rise, lit: Some(lit_group) });
-        Ok(Self { id, pane, lit, frame, rest })
+        Ok(Self { id, pane, lit, frame })
     }
 
     /// Gives the lift a group that does not scale or rise with it: what is made under [`Lift::adopting`] from now on is the card's text, on
@@ -146,10 +145,8 @@ impl Lift {
     }
 
     /// Poses what the lift does not drive: the opacity (a card dimmed beside the focused one) and whether it shows.
-    pub fn pose(&self, engine: &Engine, opacity: f32, visible: bool) {
-        if let Some(g) = engine.flow.group(self.id) {
-            g.set_pose(GroupPose { opacity, visible, ..self.rest });
-        }
+    pub fn pose(&self, engine: &mut Engine, opacity: f32, visible: bool) {
+        engine.flow.pose(self.id, opacity, visible);
     }
 }
 
