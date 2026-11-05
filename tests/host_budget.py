@@ -10,10 +10,13 @@ frame's estimate, and the work of a frame (that estimate and the time this proce
 at the 99th percentile.
 
     python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,home-widgets,toast,onhome,guide,banner,sky] [--frames] [--reference]
-                                 [--bin PATH]
+                                 [--bin PATH] [--owner DIR]
 
-`--frames` lists every frame; `--reference` draws each frame whole as well and counts the frames that differ (the floor and the copies
-must change nothing); `--bin` (or `LUMATV_UI_BIN`) names another `lumatv-ui`. `onhome` is the Smart home card: entered, a switch and a lamp
+`--frames` lists every frame, with the CPU time the shell used since the frame before (`ui`, by the thread's own clock, so a loaded host does not
+inflate it); `--reference` draws each frame whole as well and counts
+the frames that differ (the floor and the copies must change nothing); `--bin` (or `LUMATV_UI_BIN`) names another `lumatv-ui`. `--owner` takes a
+folder holding `before-theme.json` and `before-layout.json` (what the TV gate saves of the owner's set) and runs the walks on that theme and layout,
+with a still for each of the cameras of a Smart home card every second as the helper makes them. `onhome` is the Smart home card: entered, a switch and a lamp
 toggled, a long scroll, a sensor's history, a lamp's colours changed, and a rest in which no frame may be drawn. `guide` is the channel
 guide over a make-believe set of channels: walked by time and by channel with a held arrow, paged, a programme's sheet opened, the filters
 chosen, a rest, and left. `banner` is Live TV's channel banner: Live TV comes to the front and the tuner names its channel, then another after the
@@ -47,12 +50,15 @@ import rust_home_host as home  # noqa: E402  (Home's make-believe feeds)
 
 BIN = os.environ.get('LUMATV_UI_BIN') or os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
 FRAME = re.compile(r"^\[frame\] (\d+) at (\d+) ms: damage (\d+) px, drew (\d+) px in (\d+) rects \([\d.]+ %\), layers (\d+) culled \d+ cpu (\d+) us gpu \d+ us"
-                   r".*? floor (\d+) px apply (\d+) us", re.M)
+                   r".*? floor (\d+) px apply (\d+) us(?: ui (\d+) us)?", re.M)
 SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast', 'onhome', 'guide', 'banner', 'camera-popup', 'weather-zoom', 'sky']
 #: when a walk starts: Home has drawn its feeds and rests
 START_MS = 6000
 #: the layers a 120 Hz refresh holds (1.5 ms + 0.085 ms a layer <= 8.3 ms)
 LAYERS_120 = 80
+#: the owner's own `theme.json` and `layout.json` (`--owner DIR`: the pair the TV gate saves before a run, `before-theme.json` and `before-layout.json`)
+#: in place of the shipped theme and Home's default layout; the glass, the accent and the cards the owner chose are what the set draws
+OWNER = {}
 #: the Cameras walks, the fill on and off
 CAMERAS = ['cameras-grid', 'cameras-grid-nofill', 'cameras-full', 'cameras-full-nofill']
 
@@ -130,9 +136,24 @@ def onhome_doc():
     return {"state": "connected", "words": "%d things" % len(tiles), "tiles": tiles}
 
 
+#: the stills the make-believe helper has made, by size: the TV's helper answers `GET /v1/cameras/{id}/frame?w=&h=` with a 24-bit BMP of that size
+STILLS = {}
+
+
+def still_bmp(w, h):
+    """A 24-bit BMP of `w` by `h` (a scene's worth of gradients, bottom-up, rows padded to four bytes), as the helper's hardware decoder answers."""
+    if (w, h) not in STILLS:
+        stride = (w * 3 + 3) // 4 * 4
+        base = bytes((i * 5 + (i // 3) * 3) & 255 for i in range(stride + h))
+        rows = b''.join(base[y:y + stride] for y in range(h))
+        head = b'BM' + struct.pack('<IHHI', 54 + len(rows), 0, 0, 54) + struct.pack('<IiiHHIIiiII', 40, w, h, 1, 24, 0, len(rows), 2835, 2835, 0, 0)
+        STILLS[(w, h)] = head + rows
+    return STILLS[(w, h)]
+
+
 class FakeHelper(http.server.BaseHTTPRequestHandler):
-    """The two answers the card asks the helper for in the walk: a sensor's history (a day or the range asked, made up here) and
-    {"ok": true} for what a lamp or a switch is told."""
+    """What the card asks the helper for in the walk: a sensor's history (a day or the range asked, made up here), {"ok": true} for what a lamp
+    or a switch is told, and with `--owner` a camera's still (a BMP of the size asked, as on the set)."""
 
     def log_message(self, *args):
         pass
@@ -146,6 +167,15 @@ class FakeHelper(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def still(self, w, h):
+        body = still_bmp(w, h)
+        self.send_response(200)
+        self.send_header('Content-Type', 'image/bmp')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         # the feeds the harness starts with --port: a state with no topics, and a long poll that has nothing to say
         if self.path.startswith('/v1/state'):
@@ -154,6 +184,8 @@ class FakeHelper(http.server.BaseHTTPRequestHandler):
             time.sleep(1.0)
             return self.reply({"ok": True, "boot": 1, "seq": 0, "events": []})
         query = dict(part.split('=', 1) for part in self.path.partition('?')[2].split('&') if '=' in part)
+        if OWNER and self.path.startswith('/v1/cameras/') and '/frame' in self.path:
+            return self.still(int(query.get('w', 640)), int(query.get('h', 360)))
         rng = query.get('range', '24h')
         span = {'1h': 3600, '6h': 6 * 3600, '24h': 86400, '7d': 7 * 86400, '30d': 30 * 86400}.get(rng, 86400) * 1000
         now = int(time.time() * 1000)
@@ -596,7 +628,7 @@ def run_cameras(surface, refresh, binary, reference):
         raise RuntimeError('%s: lumatv-ui failed: %s' % (surface, res['out'][-2000:]))
     text = open(log).read() if os.path.exists(log) else ''
     os.path.exists(log) and os.remove(log)
-    fr = [(int(m[2]), int(m[4]), int(m[5]), int(m[6]), int(m[8]), int(m[7]), int(m[9])) for m in FRAME.finditer(text)]
+    fr = [(int(m[2]), int(m[4]), int(m[5]), int(m[6]), int(m[8]), int(m[7]), int(m[9]), int(m[10] or 0)) for m in FRAME.finditer(text)]
     windows = [(label, [f for f in fr if at <= f[0] < nxt]) for (at, label), (nxt, _) in zip(marks, marks[1:])]
     return windows, len(re.findall(r"^\[mismatch\]", text, re.M)), text
 
@@ -609,11 +641,11 @@ def run(surface, refresh=120, binary=BIN, reference=False):
 
 def run_walk(surface, refresh=120, binary=BIN, reference=False):
     """Runs the walk of `surface`; returns ([(label, [frame, ...]), ...], mismatched frames, the run's output). A frame is
-    (ms, drawn px, rects, layers, floor px, CPU us, of it applying commits us)."""
+    (ms, drawn px, rects, layers, floor px, CPU us, of it applying commits us, the shell's own us since the frame before)."""
     data = tempfile.mkdtemp(prefix='hostbudget-')
     os.makedirs(os.path.join(data, 'theme'))
     shutil.copy(os.path.join(ROOT, 'compositor', 'assets', 'ui', 'wallpaper', 'wall_1080.png'), os.path.join(data, 'theme', 'wall_1080.png'))
-    with open(os.path.join(ROOT, 'payload', 'theme', 'theme.json')) as f:
+    with open(OWNER.get('theme') or os.path.join(ROOT, 'payload', 'theme', 'theme.json')) as f:
         theme = json.load(f)
     # the gate's `still`: the wallpaper's tick and the weather card's sprites off while a surface is measured (the `sky` walk has the sprites on)
     theme.setdefault('wallpaperMotion', {})['enabled'] = False
@@ -627,6 +659,9 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
     feeds = {"weather": home.weather(), "news": home.news(), "profiles": home.profiles(), "cameras": home.CAMERAS,
              "plugins": {"plugins": [{"id": "home-assistant", "name": "Home Assistant", "state": "connected"}], "firstParty": []},
              "plugin.home-assistant.cards": home.HOME_CARDS}
+    if OWNER:
+        # the set's Smart home card carries two cameras (`MAX_CAMERAS`), each asked for a still a second
+        feeds['cameras'] = dict(home.CAMERAS, cameras=[dict(c, online=True) for c in home.CAMERAS['cameras']])
     extra, server = [], None
     if surface == 'onhome':
         feeds['onhome'] = onhome_doc()
@@ -648,6 +683,15 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
         feeds['cameras'] = cp.topic(8, offline=(2,))
         server = cp.serving(first_ms=60, later_ms=10)
         extra = ['--port', str(server.server_address[1]), '--helper-port', str(server.server_address[1])]
+    if OWNER.get('layout') and surface != 'onhome':
+        shutil.copy(OWNER['layout'], os.path.join(data, 'theme', 'layout.json'))
+        with open(OWNER['layout']) as f:
+            cards = json.load(f).get('widgets', [])
+        if server is None and any(c.get('type') == 'onhome' for c in cards):
+            feeds['onhome'] = onhome_doc()
+            server = http.server.ThreadingHTTPServer(('127.0.0.1', HELPER_PORT), FakeHelper)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            extra = ['--port', str(HELPER_PORT), '--helper-port', str(HELPER_PORT)]
     cmd = [binary, '--host', '--virtual', '--refresh', str(refresh), '--kinds', 'osd,toast,home,settings,quick,picker,drawer,menu,confirm' + (',guide' if surface == 'guide' else '') + (',banner' if surface == 'banner' else '') + (',cameras' if surface == 'camera-popup' else ''),
            '--data-dir', data, '--shm', os.path.join(data, 'shm'), '--wait', str(w.at + 500), '--log', log,
            '--module-dir', os.path.join(ROOT, 'compositor', 'assets', 'ui'),
@@ -668,7 +712,7 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
     shutil.rmtree(data, ignore_errors=True)
     if r.returncode != 0:
         raise RuntimeError('%s: lumatv-ui failed: %s' % (surface, (r.stdout + r.stderr)[-2000:]))
-    fr = [(int(m[2]), int(m[4]), int(m[5]), int(m[6]), int(m[8]), int(m[7]), int(m[9])) for m in FRAME.finditer(text)]
+    fr = [(int(m[2]), int(m[4]), int(m[5]), int(m[6]), int(m[8]), int(m[7]), int(m[9]), int(m[10] or 0)) for m in FRAME.finditer(text)]
     windows = []
     for (at, label), (nxt, _) in zip(w.marks, w.marks[1:]):
         windows.append((label, [f for f in fr if at <= f[0] < nxt]))
@@ -682,7 +726,10 @@ def main(argv=None):
     ap.add_argument('--frames', action='store_true')
     ap.add_argument('--reference', action='store_true')
     ap.add_argument('--bin', default=BIN)
+    ap.add_argument('--owner', help='a folder holding before-theme.json and before-layout.json (the TV gate\'s receipts): the owner\'s theme and Home layout')
     a = ap.parse_args(argv)
+    if a.owner:
+        OWNER.update({key: os.path.join(a.owner, 'before-%s.json' % key) for key in ('theme', 'layout')})
     budget = LAYERS_120 * 120 // a.refresh
     over = 0
     for surface in a.surfaces.split(','):
@@ -702,7 +749,7 @@ def main(argv=None):
             print('  %-22s %4d frames%s, %4d drew pixels, most layers %3d (%.1f ms), work max %.1f ms p99 %.1f ms, %d over %d' % (label, len(fs), rate, drawn, most, gpu_ms(most), max(work, default=0.0), p99(work), heavy, budget))
             if a.frames:
                 for f in fs:
-                    print('      %6d ms  drew %8d px in %2d rects  layers %3d  floor %8d px  cpu %6d us (commits %6d us)' % f)
+                    print('      %6d ms  drew %8d px in %2d rects  layers %3d  floor %8d px  cpu %6d us (commits %6d us)  ui %6d us' % f)
         frames = [f for _, fs in windows for f in fs]
         work = [work_ms(f) for f in frames]
         print('  all %d frames: most layers %d (%.1f ms), work max %.1f ms p99 %.1f ms' % (len(frames), max((f[3] for f in frames), default=0),

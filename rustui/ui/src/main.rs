@@ -209,6 +209,22 @@ enum Msg {
     Scene(SceneEvent),
 }
 
+/// The CPU time this thread has used, in microseconds: what a step cost, without the time a loaded host kept it off the CPU.
+fn thread_cpu_us() -> u64 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid timespec and the thread clock exists on Linux.
+    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    ts.tv_sec as u64 * 1_000_000 + ts.tv_nsec as u64 / 1000
+}
+
+/// Runs `f` and adds the CPU time it took to `us`.
+fn timed<T>(us: &mut u64, f: impl FnOnce() -> T) -> T {
+    let start = thread_cpu_us();
+    let out = f();
+    *us += thread_cpu_us() - start;
+    out
+}
+
 fn forward<T: Send + 'static>(rx: Receiver<T>, tx: Sender<Msg>, wrap: fn(T) -> Msg) {
     std::thread::spawn(move || {
         for ev in rx {
@@ -640,6 +656,8 @@ fn run_host(o: Options) -> io::Result<()> {
     let mut first_frame_ms: Option<u64> = None;
     let mut last_present_ns: u64 = 0;
     let mut pending_frame = true;
+    // what the shell did since the last frame (the keys, pushes and ticks it took in, and the commit it made of them): the UI process's side of a frame
+    let mut ui_us: u64 = 0;
     while elapsed(t0) < o.wait_ms {
         let now = elapsed(t0);
         // the script's next step, the shell's timers and the next frame decide how long to wait
@@ -673,9 +691,9 @@ fn run_host(o: Options) -> io::Result<()> {
         for msg in inbox {
             match msg {
                 Msg::Scene(ev) => shell.kit.ui.scene.observe(&ev),
-                Msg::Channel(ev) => { answer(&mut log, "channel", &ev); carry(shell.channel(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)); }
-                Msg::Helper(ev) => { answer(&mut log, "helper", &ev); carry(shell.helper(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)); }
-                Msg::Key(ev) => carry(shell.key(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)),
+                Msg::Channel(ev) => { answer(&mut log, "channel", &ev); carry(timed(&mut ui_us, || shell.channel(&ev, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)); }
+                Msg::Helper(ev) => { answer(&mut log, "helper", &ev); carry(timed(&mut ui_us, || shell.helper(&ev, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)); }
+                Msg::Key(ev) => carry(timed(&mut ui_us, || shell.key(&ev, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)),
             }
         }
         if closed {
@@ -683,7 +701,7 @@ fn run_host(o: Options) -> io::Result<()> {
         }
         while script.first().is_some_and(|(ms, _)| elapsed(t0) >= *ms) {
             let (_, step) = script.remove(0);
-            let acts = step(&mut shell, &mut engine, &mut log);
+            let acts = timed(&mut ui_us, || step(&mut shell, &mut engine, &mut log));
             carry(acts, channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine));
         }
         while frames_marks.first().is_some_and(|(ms, _)| elapsed(t0) >= *ms) {
@@ -691,13 +709,13 @@ fn run_host(o: Options) -> io::Result<()> {
             log.line(format_args!("[frames] {label} {drawn}"));
         }
         if shell.due_at().is_some_and(|due| now_ms() >= due) {
-            carry(shell.tick(now_ms()), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine));
+            carry(timed(&mut ui_us, || shell.tick(now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine));
         }
         if let Some(atlas) = shell.kit.ui.text_atlas() {
-            atlas.pump();
+            timed(&mut ui_us, || atlas.pump());
         }
         if shell.kit.ui.scene.has_pending() {
-            shell.kit.ui.try_commit()?;
+            timed(&mut ui_us, || shell.kit.ui.try_commit())?;
         }
         if engine.pump()?.closed {
             return Err(io::Error::other("the scene closed"));
@@ -737,7 +755,7 @@ fn run_host(o: Options) -> io::Result<()> {
                 first_frame_ms = Some(elapsed(t0));
             }
             if o.log.is_some() {
-                log.line(format_args!("[frame] {drawn} at {} ms: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us backdrops {} ({} us) floor {} px apply {} us{}",
+                log.line(format_args!("[frame] {drawn} at {} ms: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us backdrops {} ({} us) floor {} px apply {} us ui {ui_us} us{}",
                 elapsed(t0),
                 cost.damage_px,
                 cost.region_px,
@@ -753,6 +771,7 @@ fn run_host(o: Options) -> io::Result<()> {
                 cost.apply_us,
                 cost.gl_error.map_or(String::new(), |e| format!(" GL error {e:#x}"))));
             }
+            ui_us = 0;
             engine.tidy();
             shell.tidy(now_ns);
         } else {
