@@ -787,7 +787,12 @@ impl Plugin {
         let channels = self.guide.channels().len();
         let listed = self.guide.listings().channels();
         let status = self.guide.status();
-        let first_problem = status.iter().find_map(|s| s.problem.clone());
+        // a source that is not set up is passed over: the status is the others', and only when every source is unset its word
+        let asked = status.iter().filter(|s| !s.skipped);
+        let first_problem = asked.clone().find_map(|s| s.problem.clone());
+        let unset = status
+            .iter()
+            .find_map(|s| s.problem.clone().filter(|_| s.skipped));
         facts.insert(
             "status".into(),
             line(if !lumaguide::guide::zip_ok(&settings.zip) {
@@ -798,6 +803,8 @@ impl Plugin {
                 "The TV has no antenna channels: scan for channels first".to_owned()
             } else if listed > 0 {
                 format!("{listed} of {channels} channels have online listings")
+            } else if asked.count() == 0 {
+                unset.unwrap_or_default()
             } else {
                 first_problem.unwrap_or_else(|| "Fetching the listings".to_owned())
             }),
@@ -818,7 +825,16 @@ impl Plugin {
                         words.push_str(&format!(" (not listed: {})", s.unmatched.join(", ")));
                     }
                     if let Some(problem) = &s.problem {
-                        words = format!("{problem}. {words}");
+                        words = if s.skipped {
+                            let mut c = problem.chars();
+                            let typed: String = c
+                                .next()
+                                .map(|f| f.to_lowercase().chain(c).collect())
+                                .unwrap_or_default();
+                            format!("Skipped until set up: {typed}")
+                        } else {
+                            format!("{problem}. {words}")
+                        };
                     }
                     words
                 }
@@ -1035,9 +1051,10 @@ mod tests {
         assert!(data.listings().is_none(), "off: no listings");
         plugins.switch(ID, true, approve().as_deref()).unwrap();
         soon("its page", || ctx.settings.effective(ID).is_some());
+        // Plex first but not set up: passed over, and the next source fills the guide
         let changes = serde_json::from_value(json!([
             {"key": "zip", "value": {"type": "text", "value": "30311"}},
-            {"key": "sources", "value": {"type": "ordered", "value": ["gracenote"]}}]))
+            {"key": "sources", "value": {"type": "ordered", "value": ["plex", "gracenote"]}}]))
         .unwrap();
         ctx.settings.apply(ID, changes, None).unwrap();
         soon("the listings", || {
@@ -1056,7 +1073,10 @@ mod tests {
         );
         assert_eq!(
             (f["plex"].as_str(), f["plex-token"].as_str()),
-            (Some("Not picked"), Some("Not set"))
+            (
+                Some("Skipped until set up: type the Plex server's address"),
+                Some("Not set")
+            )
         );
 
         // the TV's guide and banner ask the API; the tuner's guide lays the listings over the TV's own

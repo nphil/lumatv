@@ -198,6 +198,11 @@ pub struct Limits {
     pub first_picture: Duration,
     /// With slates: how long the tuning slate stands before it says the signal is weak and how strong it is.
     pub weak_after: Duration,
+    /// With slates: how long a channel whose picture's shape is not known yet (never streamed nor checked) holds its first slate for its
+    /// first sequence header, so that the slate is the picture's size and rate from its first frame: Plex restarts its transcode ("Error
+    /// reinitializing filters") when the size changes within a stream. The first whole picture came up to 3.0 s after routing on the set
+    /// on 2026-11-05 (30.1), routing about 0.7 s after the request. A shape still unknown then is the fallback's. At most `weak_after`.
+    pub shape_wait: Duration,
     /// With slates: how long the programme's picture may stop before the slate stands in for it (its packets come every few
     /// milliseconds).
     pub dropout: Duration,
@@ -227,6 +232,7 @@ impl Default for Limits {
             release: Duration::from_secs(5),
             first_picture: Duration::from_secs(5),
             weak_after: Duration::from_secs(8),
+            shape_wait: Duration::from_secs(4),
             dropout: Duration::from_millis(1500),
             loss_weak: 0.2,
             loss_clear: 0.05,

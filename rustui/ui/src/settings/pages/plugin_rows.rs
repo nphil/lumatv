@@ -4,15 +4,19 @@
 //! (the order picked shown as a number), a text a row typed on the keyboard, and what the plugin only says (`read-only`, a line it
 //! published) a row that shows it. A secret is typed too but goes to the plugin alone (`POST /v1/plugins/<id>/secret`), never into the
 //! settings, and its row says only what the plugin says of it: the fact of the field's name, dots as dashes (`plex.token` →
-//! `plex-token`). What the base gives a plugin (`lan.`), a lease and a link are the owner's to give from a shell: shown, never typed. A
-//! kind this TV has no row for is left out, not drawn wrong.
+//! `plex-token`). A note is a line of words, an action a button (`POST /v1/plugins/<id>/actions/<action>`, its answer under
+//! `action:<id>:<action>`), and a list of the plugin's own things (`items`) a row each under the heads of their groups, its line of state
+//! under its name and its switch a toggle (the switch's action with the row's id as its target, the answer under `item:<id>:<key>`).
+//! What the base gives a plugin (`lan.`), a lease and a link are the owner's to give from a shell: shown, never typed. A kind this TV has
+//! no row for is left out, not drawn wrong.
 //!
 //! The lists a plugin makes are asked of the helper (`GET /v1/plugins/<id>/choices/<provider>`) by the page, which keeps each answer under
 //! `choices:<id>:<provider>`; the rows read it from there.
 
 use super::owner::{Field, seg, slider, toggle};
-use crate::settings::ctx::Ctx;
-use crate::settings::row::{Op, Row};
+use crate::panels::hub;
+use crate::settings::ctx::{Ctx, ask};
+use crate::settings::row::{Arg, Op, Row};
 use serde_json::{Value, json};
 use std::rc::Rc;
 
@@ -38,8 +42,12 @@ pub fn providers(plugin: Plugin, schema: &Value) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for (_, f) in fields(plugin, schema) {
         let kind = &f["kind"];
-        if matches!(kind["type"].as_str(), Some("choice" | "ordered-set"))
-            && let Some(p) = kind.pointer("/options/provider").and_then(Value::as_str)
+        let named = match kind["type"].as_str() {
+            Some("choice" | "ordered-set") => kind.pointer("/options/provider"),
+            Some("items") => kind.get("provider"),
+            _ => None,
+        };
+        if let Some(p) = named.and_then(Value::as_str)
             && !out.iter().any(|o| o == p)
         {
             out.push(p.to_string());
@@ -72,7 +80,7 @@ pub fn head(label: &str, help: &str, tab: usize) -> Row {
     if help.is_empty() { Row::head(label, tab) } else { Row::info(&format!("help:{label}")).tab(tab).label(label).help(help) }
 }
 
-/// The rows of one field on `tab`; the page's own kinds (an action, a field it draws its own way) are not here.
+/// The rows of one field on `tab`; the page's own kinds (a field it draws its own way) are not here.
 pub fn field_rows(c: &Ctx, plugin: Plugin, tab: usize, f: &Value, icon: &str) -> Vec<Row> {
     let (key, label, help) = (text(f, "key"), text(f, "label"), text(f, "help"));
     let kind = &f["kind"];
@@ -108,6 +116,9 @@ pub fn field_rows(c: &Ctx, plugin: Plugin, tab: usize, f: &Value, icon: &str) ->
             let now = c.owner(plugin.id).and_then(|o| o.text(key)).filter(|t| !t.is_empty());
             vec![Row::info(key).tab(tab).label(label).value(now.as_deref().unwrap_or("Not set"))]
         }
+        "note" => vec![Row::note(label, tab)],
+        "action" => vec![action_row(plugin, tab, f, icon)],
+        "items" => items(c, plugin, tab, f, icon),
         _ => Vec::new(),
     }
 }
@@ -150,24 +161,10 @@ fn picker(c: &Ctx, plugin: Plugin, tab: usize, f: &Value, field: Field) -> Vec<R
     let options = kind.get("options").cloned().unwrap_or(Value::Null);
     let (state, list, more) = match options.get("inline").and_then(Value::as_array) {
         Some(inline) => ("ready".to_string(), inline.clone(), false),
-        None => {
-            let page = c.docs.get(&format!("choices:{}:{}", plugin.id, text(&options, "provider"))).get("page");
-            match page.filter(|p| !p.is_null()) {
-                Some(p) => (text(p, "state").to_string(), p.get("rows").and_then(Value::as_array).cloned().unwrap_or_default(), p.get("more").and_then(Value::as_bool) == Some(true)),
-                None => ("loading".to_string(), Vec::new(), false),
-            }
-        }
+        None => listed(c, plugin, text(&options, "provider")),
     };
-    if state != "ready" {
-        rows.push(Row::note(
-            match state.as_str() {
-                "loading" => "Loading\u{2026}",
-                "unconfigured" => "Not linked",
-                "offline" => "Offline",
-                _ => "Not loaded",
-            },
-            tab,
-        ));
+    if let Some(why) = unready(&state) {
+        rows.push(Row::note(why, tab));
         return rows;
     }
     if list.is_empty() {
@@ -200,6 +197,83 @@ fn picker(c: &Ctx, plugin: Plugin, tab: usize, f: &Value, field: Field) -> Vec<R
             json!(id)
         };
         rows.push(row.does(vec![Op::Owner { owner: plugin.id.into(), key: key.to_string(), value }]));
+    }
+    if more {
+        rows.push(Row::note(&format!("First {} shown", list.len()), tab));
+    }
+    rows
+}
+
+/// The last page the helper gave of a provider's list: its state, its rows and whether there are more.
+fn listed(c: &Ctx, plugin: Plugin, provider: &str) -> (String, Vec<Value>, bool) {
+    let page = c.docs.get(&format!("choices:{}:{provider}", plugin.id)).get("page");
+    match page.filter(|p| !p.is_null()) {
+        Some(p) => (text(p, "state").to_string(), p.get("rows").and_then(Value::as_array).cloned().unwrap_or_default(), p.get("more").and_then(Value::as_bool) == Some(true)),
+        None => ("loading".to_string(), Vec::new(), false),
+    }
+}
+
+/// What a list that is not ready says in its place.
+fn unready(state: &str) -> Option<&'static str> {
+    match state {
+        "ready" => None,
+        "loading" => Some("Loading\u{2026}"),
+        "unconfigured" => Some("Not linked"),
+        "offline" => Some("Offline"),
+        _ => Some("Not loaded"),
+    }
+}
+
+/// A button that asks the plugin to run one of its actions; one that wants confirming asks first, in the field's words.
+fn action_row(plugin: Plugin, tab: usize, f: &Value, icon: &str) -> Row {
+    let (key, label, help, kind) = (text(f, "key"), text(f, "label"), text(f, "help"), &f["kind"]);
+    let action = text(kind, "action");
+    let verb = Some(text(kind, "verb")).filter(|v| !v.is_empty()).unwrap_or(label);
+    let send = Op::Send { name: Some(format!("action:{}:{action}", plugin.id)), method: "POST", path: format!("/v1/plugins/{}/actions/{action}", plugin.id), body: Some(json!({})) };
+    let ops = match text(kind, "confirmation") {
+        "" | "none" => vec![send],
+        how => ask(icon, &format!("{label}?"), help, verb, "Cancel", how == "destructive", vec![send]),
+    };
+    Row::action(key, verb).tab(tab).icon(icon).label(label).help(help).admin().does(ops)
+}
+
+/// A list of the plugin's own things: a row each, under the head of its group, with its line of state and its switch.
+fn items(c: &Ctx, plugin: Plugin, tab: usize, f: &Value, icon: &str) -> Vec<Row> {
+    let key = text(f, "key");
+    let (state, list, more) = listed(c, plugin, text(&f["kind"], "provider"));
+    if let Some(why) = unready(&state) {
+        return vec![Row::note(why, tab)];
+    }
+    let mut rows = Vec::new();
+    if list.is_empty() {
+        rows.push(Row::note("Nothing here yet", tab));
+    }
+    let mut group = "";
+    for r in &list {
+        if text(r, "group") != group {
+            group = text(r, "group");
+            rows.push(Row::head(group, tab));
+        }
+        let (id, item) = (text(r, "id").to_string(), &r["item"]);
+        let tile: &str = match item.get("tile").and_then(Value::as_str) {
+            Some(t) => hub::icon(t),
+            None => icon,
+        };
+        let status = item.pointer("/status/text").and_then(Value::as_str).unwrap_or(text(r, "detail"));
+        let row = match item.pointer("/switch/action").and_then(Value::as_str) {
+            Some(action) => {
+                let send = Op::Send {
+                    name: Some(format!("item:{}:{key}", plugin.id)),
+                    method: "POST",
+                    path: format!("/v1/plugins/{}/actions/{action}", plugin.id),
+                    body: Some(json!({"target": id})),
+                };
+                let on = item.pointer("/switch/on").and_then(Value::as_bool) == Some(true);
+                Row::toggle(&format!("{key}:{id}")).on(on).admin().act(move |a| if matches!(a, Arg::Toggle(_)) { vec![send.clone()] } else { Vec::new() })
+            }
+            None => Row::info(&format!("{key}:{id}")),
+        };
+        rows.push(row.tab(tab).icon(tile).label(text(r, "label")).detail(status).enabled(r.get("enabled").and_then(Value::as_bool) != Some(false)));
     }
     if more {
         rows.push(Row::note(&format!("First {} shown", list.len()), tab));

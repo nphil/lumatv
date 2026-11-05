@@ -231,6 +231,8 @@ pub struct SourceStatus {
     pub days: usize,
     /// What went wrong last time, or what is still to be typed.
     pub problem: Option<String>,
+    /// The source is not set up (`problem` says what to type): it is passed over, and the next one asked.
+    pub skipped: bool,
 }
 
 pub struct Guide {
@@ -448,6 +450,7 @@ impl Guide {
                         .missing()
                         .map(|m| format!("Type {m}"))
                         .or_else(|| state.and_then(|st| st.error.clone())),
+                    skipped: s.missing().is_some(),
                 }
             })
             .collect()
@@ -751,6 +754,25 @@ mod tests {
             "Citizen Trundel"
         );
         assert_eq!(again.due(), Some(NOW + REFRESH_MS));
+    }
+
+    #[test]
+    fn a_source_not_set_up_is_passed_over_with_a_word_and_the_next_one_fetched() {
+        let store = Arc::new(MemStore::new());
+        let unset = SourceSettings::Plex {
+            address: String::new(),
+            token: String::new(),
+        };
+        let mut g = guide(&store, vec![unset, SourceSettings::Gracenote]);
+        assert_eq!(g.due(), Some(0));
+        assert!(g.refresh(&net(), NOW));
+        assert_eq!(store.keys("gracenote/").len(), 7);
+        let status = g.status();
+        assert_eq!(
+            (status[0].problem.as_deref(), status[0].skipped),
+            (Some("Type the Plex server's address"), true)
+        );
+        assert_eq!((status[1].refreshed, status[1].skipped), (Some(NOW), false));
     }
 
     #[test]

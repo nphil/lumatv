@@ -5,7 +5,9 @@
 use crate::docs;
 use crate::net::Cidr;
 use crate::stream::{Admitted, End, Facade, Failure};
+use parking_lot::Mutex;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::os::fd::AsRawFd;
@@ -20,6 +22,55 @@ const REQUEST_LIMIT: u64 = 8 * 1024;
 const REQUEST_WAIT: Duration = Duration::from_secs(5);
 /// A client that stops reading for this long loses its stream.
 const SEND_WAIT: Duration = Duration::from_secs(10);
+/// How long the refusals of one channel to one peer for one reason are counted before they are logged together.
+const REFUSALS_EVERY: Duration = Duration::from_secs(1);
+
+/// Refusals logged once with how many came: VLC asked again about 25 times in 1.3 s while the tuner was in use (2026-11-05). The first of
+/// each peer, channel and reason is logged at once, the ones after it within [`REFUSALS_EVERY`] as a count once that has passed (at the
+/// next refusal or the next stream's end).
+#[derive(Default)]
+struct Refusals(Mutex<HashMap<Refused, Counted>>);
+
+/// A peer, the channel it asked for and the reason it was refused.
+type Refused = (IpAddr, String, String);
+/// When the first and the last of a second's refusals came, and how many came after the first.
+type Counted = (Instant, Instant, u32);
+
+impl Refusals {
+    /// Counts a refusal; the lines to log.
+    fn refused(&self, peer: IpAddr, guide: &str, reason: String, now: Instant) -> Vec<String> {
+        let mut lines = self.flush(now);
+        let mut counted = self.0.lock();
+        let key = (peer, guide.to_owned(), reason);
+        match counted.get_mut(&key) {
+            Some((_, last, more)) => {
+                *last = now;
+                *more += 1;
+            }
+            None => {
+                lines.push(format!("tuner: {peer} asked for {guide}: {}", key.2));
+                counted.insert(key, (now, now, 0));
+            }
+        }
+        lines
+    }
+
+    /// Forgets the refusals counted for long enough; the lines that say how many more came.
+    fn flush(&self, now: Instant) -> Vec<String> {
+        let mut lines = Vec::new();
+        self.0.lock().retain(|(peer, guide, reason), (first, last, more)| {
+            if now.saturating_duration_since(*first) < REFUSALS_EVERY {
+                return true;
+            }
+            if *more > 0 {
+                let within = last.saturating_duration_since(*first).as_secs_f64();
+                lines.push(format!("tuner: {peer} asked for {guide} {more} more times in {within:.1} s: {reason}"));
+            }
+            false
+        });
+        lines
+    }
+}
 
 pub struct Server {
     addr: SocketAddr,
@@ -72,6 +123,7 @@ impl Drop for Server {
 
 fn accept(listener: &TcpListener, facade: &Arc<Facade>, peers: &[Cidr], stop: &Arc<AtomicBool>) {
     let active = Arc::new(AtomicUsize::new(0));
+    let refusals = Arc::new(Refusals::default());
     for incoming in listener.incoming() {
         if stop.load(Ordering::Acquire) {
             break;
@@ -90,9 +142,9 @@ fn accept(listener: &TcpListener, facade: &Arc<Facade>, peers: &[Cidr], stop: &A
         }
         active.fetch_add(1, Ordering::AcqRel);
         let task = {
-            let (facade, stop, active) = (facade.clone(), stop.clone(), active.clone());
+            let (facade, stop, active, refusals) = (facade.clone(), stop.clone(), active.clone(), refusals.clone());
             move || {
-                serve(stream, peer, &facade, &stop);
+                serve(stream, peer, &facade, &stop, &refusals);
                 active.fetch_sub(1, Ordering::AcqRel);
             }
         };
@@ -205,7 +257,7 @@ fn json(out: &mut impl Write, value: &Value) -> io::Result<()> {
     reply(out, 200, "application/json", value.to_string().as_bytes())
 }
 
-fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool) {
+fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool, refusals: &Refusals) {
     let _ = stream.set_nodelay(true);
     let _ = stream.set_write_timeout(Some(SEND_WAIT));
     let Some(request) = read_request(&stream) else {
@@ -257,7 +309,7 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
             const HEAD: &str = "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\n\r\n";
             let sent = match facade.admit(guide, peer) {
                 Err(f) => {
-                    log::info!("tuner: {peer} asked for {guide}: {}", f.reason());
+                    refusals.refused(peer, guide, f.reason(), Instant::now()).iter().for_each(|l| log::info!("{l}"));
                     return drop(refuse(&mut stream, &f));
                 }
                 Ok(Admitted::Plain(mut program)) => {
@@ -281,6 +333,7 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
                 Ok(end) => log::warn!("tuner: {guide} ended: {end:?}"),
                 Err(e) => log::info!("tuner: {peer} left {guide}: {e}"),
             }
+            refusals.flush(Instant::now()).iter().for_each(|l| log::info!("{l}"));
             Ok(())
         }
         ("GET" | "POST", _) => reply(&mut stream, 404, "text/plain", b"not found"),
@@ -495,5 +548,24 @@ mod tests {
         let time = Time::default();
         let server = start(&fake_with(&time, rf32(&[]), vec![]), &time, &["10.0.0.0/8"]);
         assert!(get(&server, "GET /discover.json HTTP/1.1\r\n\r\n").is_empty());
+    }
+
+    #[test]
+    fn refusals_of_one_channel_to_one_peer_are_logged_once_a_second_with_their_count() {
+        let r = Refusals::default();
+        let (vlc, t0) = (IpAddr::V4(Ipv4Addr::new(192, 168, 1, 50)), Instant::now());
+        let busy = || "all tuners in use".to_owned();
+        assert_eq!(r.refused(vlc, "2.1", busy(), t0), ["tuner: 192.168.1.50 asked for 2.1: all tuners in use"]);
+        for n in 1..25u32 {
+            assert!(r.refused(vlc, "2.1", busy(), t0 + Duration::from_millis(36) * n).is_empty());
+        }
+        assert_eq!(r.refused(vlc, "2.2", busy(), t0 + Duration::from_millis(900)).len(), 1, "another channel is its own");
+        assert_eq!(
+            r.flush(t0 + Duration::from_millis(1_300)),
+            ["tuner: 192.168.1.50 asked for 2.1 24 more times in 0.9 s: all tuners in use"],
+            "2.2's second is not over"
+        );
+        assert!(r.flush(t0 + Duration::from_secs(5)).is_empty(), "2.2 came once: nothing more to say");
+        assert_eq!(r.refused(vlc, "2.1", busy(), t0 + Duration::from_secs(6)).len(), 1, "a new second starts with a line");
     }
 }

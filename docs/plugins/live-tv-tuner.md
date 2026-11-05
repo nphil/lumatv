@@ -27,7 +27,8 @@ client's stream, or the TV's own Live TV), 404 with `801 Unknown Channel`. Witho
 but its tables do not come whole within 8 s, its picture (an MPEG-2 sequence header, an H.264 SPS or IDR) does not within 5 s, or the
 demodulator counts packet errors on it; "not on air" only when the multiplex is clean and its whole tables do not list the channel, or
 it carries none of the channel's picture. Nothing of a refusal is kept but the channel's reception: the next request tunes again.
-Other refusals name their HDHomeRun error too (806 tune failed, 811 protected).
+Other refusals name their HDHomeRun error too (806 tune failed, 811 protected). The helper logs a refusal once a second per client,
+channel and reason, with how many more came (VLC asks again about 20 times a second while the tuner is busy).
 
 ## Messages in the stream
 
@@ -41,12 +42,14 @@ a frozen picture or Plex's Error 16, and a weak channel's stream outlasts a fade
 | no picture 45 s after the request or 2 min after it stopped; no lock; the channel not on the multiplex | `No signal on 16.9`, for 6 s | the end |
 | the TV's own Live TV takes the tuner | `The TV is using its tuner`, for 6 s (the TV has it at once) | the end |
 
-A slate is MPEG-2 in the channel's own size, rate and shape once the channel has been seen (1920x1080 interlaced before), an I
-picture twice a second with skipped pictures between, with silent AC-3 on each of the channel's sounds, drawn in the active theme's
-colours and type. The channel's own packets go on in the same program: its PIDs moved onto the program's (0x101 the picture, 0x102 on
-the sounds), its times onto the slate's clock, its counters carried on. Plex's transcoder drops a stream that appears after the start
-and passes a time jump through, which is why (`docs/research/tuner-slates.md`). A channel whose picture is not MPEG-2 is served without
-slates from its next request on.
+A slate is MPEG-2 in the channel's own size, rate and shape, as its last stream or *Check every channel* saw it (kept in
+`tuner/channels.json`). A channel not seen yet sends nothing until its first sequence header gives the shape (at most 4 s after the
+request, then 1920x1080 interlaced): Plex restarts its transcode ("Error reinitializing filters") when the size changes within a stream.
+A slate is an I picture twice a second with skipped pictures between, with silent AC-3 on each of the channel's sounds, drawn in the
+active theme's colours and type. The channel's own packets go on in the same program: its PIDs moved onto the program's (0x101 the
+picture, 0x102 on the sounds), its times onto the slate's clock, its counters carried on. Plex's transcoder drops a stream that appears
+after the start and passes a time jump through, which is why (`docs/research/tuner-slates.md`). A channel whose picture is not MPEG-2
+is served without slates from its next request on.
 
 ## Players
 

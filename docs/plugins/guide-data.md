@@ -7,7 +7,9 @@ plugin's own words. Like the Live TV Tuner it is a plugin of the helper's own (`
 
 ## Sources
 
-The page picks any of three, in the order they are trusted.
+The page picks any of three, in the order they are trusted. A picked source that is not set up (Plex without an address or token,
+Schedules Direct without its account) is passed over and the next one fetched; its line on the page says it is skipped and what to
+type, and the page's status is the other sources' until every picked source is unset.
 
 | Source | Needs | Reaches | Tradeoff |
 |---|---|---|---|

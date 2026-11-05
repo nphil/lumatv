@@ -2,6 +2,10 @@
 //! programme from its first whole picture on, a slate again whenever the picture stops or breaks up, and a last slate before it ends.
 //! A player shows why it waits instead of failing (Plex's Error 16) or freezing, and a weak channel's stream outlasts a fade.
 //!
+//! The slate is the shape (size, rate, aspect) of the channel's picture, as its last stream or check saw it. A channel not seen yet sends
+//! nothing until its first sequence header gives the shape (at most `shape_wait`), as a size that changes within the stream restarts Plex's
+//! transcode.
+//!
 //! | When | The slate | Then |
 //! |---|---|---|
 //! | the channel is being tuned and its first whole picture waited for | `Tuning 16.9 WXYZ…`, a bar | the programme at that picture |
@@ -40,11 +44,16 @@ struct Show {
     frames: u64,
     tables: Option<Duration>,
     out: Vec<u8>,
+    /// Nothing goes out yet: the channel's shape is waited for.
+    held: bool,
 }
 
 impl Show {
     /// The tables when they are due, the slate's frames due by `now` while it stands in, then out with all of it.
     fn tick(&mut self, now: Duration, every: Duration, w: &mut dyn Write) -> io::Result<()> {
+        if self.held {
+            return Ok(());
+        }
         if self.tables.is_none_or(|t| now.saturating_sub(t) >= every) {
             self.program.tables(&mut self.out);
             self.tables = Some(now);
@@ -240,6 +249,7 @@ impl Facade {
     pub(crate) fn play(&self, slated: Slated, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<End> {
         let Slated { entry, lease, look } = slated;
         let seen = self.tuning.seen(&entry.guide);
+        let held = seen.is_none();
         let format = seen.as_ref().map_or(Format::FALLBACK, |s| s.format);
         let (layout, tsid) = seen.map_or_else(|| (Layout::fallback(1), 1), |s| (s.layout, s.tsid));
         let asked = (self.clock)();
@@ -254,6 +264,7 @@ impl Facade {
                 frames: 0,
                 tables: None,
                 out: Vec::with_capacity(PACKET * 512),
+                held,
             },
             entry,
             look,
@@ -284,6 +295,24 @@ impl Play<'_> {
     fn tick(&mut self, out: &mut dyn Write) -> io::Result<()> {
         let now = self.now();
         self.show.tick(now, self.facade.limits.pat_every, out)
+    }
+
+    /// The slate goes out from now: in the channel's shape and laid out as its program when the first sequence header gave them, else as it
+    /// was made (the fallback's shape).
+    fn unhold(&mut self, shape: Option<(Format, Layout, u16)>) {
+        if let Some((format, layout, tsid)) = shape {
+            self.show.program = Program::new(tsid, layout, &format);
+            self.show.slate = Slate::new(self.look.clone(), &self.entry.guide, &self.entry.name, format);
+        }
+        self.show.anchor = self.now();
+        self.show.frames = 0;
+        self.show.held = false;
+    }
+
+    /// Whether the shape has been waited for long enough.
+    fn held_too_long(&self, now: Duration) -> bool {
+        let lim = &self.facade.limits;
+        self.show.held && now.saturating_sub(self.asked) >= lim.shape_wait.min(lim.weak_after)
     }
 
     fn given_up(&self, stop: &AtomicBool) -> Option<End> {
@@ -353,6 +382,9 @@ impl Play<'_> {
                 self.read_signal();
             }
             let waited = now.saturating_sub(self.asked);
+            if self.held_too_long(now) {
+                self.unhold(None);
+            }
             if waited < lim.weak_after {
                 self.tuning(1, tuned);
             } else {
@@ -390,7 +422,7 @@ impl Play<'_> {
         let mut buf = Vec::with_capacity(PACKET * 512);
         // whether any of the program's packets came at all: a multiplex that brings the others but none of the picture does not carry it
         let mut heard = false;
-        let frame = Duration::from_micros(format.ticks(1) * 100 / 9);
+        let mut frame = Duration::from_micros(format.ticks(1) * 100 / 9);
         loop {
             if let Some(end) = self.given_up(stop) {
                 return Ok(end);
@@ -439,6 +471,22 @@ impl Play<'_> {
                     }
                 }
                 Some(since) => {
+                    if self.show.held {
+                        let shape = buf
+                            .chunks_exact(PACKET)
+                            .filter(|p| psi::pid_of_packet(p) == routes.video && psi::access_point(p, 0x02))
+                            .find_map(|p| Format::of_sequence(&p[4..]));
+                        if let Some(shape) = shape {
+                            format = shape;
+                            frame = Duration::from_micros(format.ticks(1) * 100 / 9);
+                            self.unhold(Some((format, layout.clone(), tsid)));
+                            // the tables and a first frame lead, before the programme can be spliced in below
+                            self.tuning(2, routed);
+                            self.tick(out)?;
+                        } else if self.held_too_long(now) {
+                            self.unhold(None);
+                        }
+                    }
                     let clear = self.pictured.is_some().then_some(lim.loss_clear);
                     if let Some((gathered, rest)) = watch.gate(&buf, now, clear) {
                         let first = &gathered[..PACKET];
@@ -494,6 +542,9 @@ impl Play<'_> {
     fn last(&mut self, says: Says, end: End, out: &mut dyn Write) -> io::Result<End> {
         self.tap = None;
         self.lease.over();
+        if self.show.held {
+            self.unhold(None);
+        }
         log::info!("tuner: {} ends with {says:?}", self.entry.guide);
         if self.show.program.is_live() {
             let format = *self.show.slate.format();
@@ -738,20 +789,28 @@ pub(crate) mod tests {
         String::from_utf8_lossy(&body[at..at + 6]).into_owned()
     }
 
-    #[test]
-    fn a_stream_with_slates_tunes_under_its_slate_then_plays_from_the_first_whole_picture_and_the_slate_stands_in_when_it_stops() {
-        let time = Time::default();
+    /// 2.4's shape, as its pictures' sequence header gives it.
+    const SHAPE: Format = Format { width: 720, height: 480, rate: 4, aspect: 3, progressive: false };
+
+    /// 2.4's pictures: one without a sequence header at 0.6 s, the first whole one at 0.9 s, then one each 33 ms to 2 s, then nothing.
+    fn stops_at_two() -> Vec<(u64, Vec<u8>)> {
         let (mut v, mut a) = (0u8, 0u8);
         let mut chunks = vec![(600, [picture(&mut v, 900_000, false, b"MARK00"), sound(&mut a, 899_000)].concat())];
-        // the first whole picture at 0.9 s, then a picture each 33 ms to 2 s, then nothing
         let mut dts = 1_000_000;
         chunks.push((900, [picture(&mut v, dts, true, b"MARK01"), sound(&mut a, dts + 3003)].concat()));
         for n in 2..36u64 {
             dts += 3003;
             chunks.push((900 + 33 * (n - 1), picture(&mut v, dts, false, format!("MARK{n:02}").as_bytes())));
         }
-        let script = Script::new(&time, chunks);
+        chunks
+    }
+
+    #[test]
+    fn a_stream_with_slates_tunes_under_its_slate_then_plays_from_the_first_whole_picture_and_the_slate_stands_in_when_it_stops() {
+        let time = Time::default();
+        let script = Script::new(&time, stops_at_two());
         let f = facade(&script, quick());
+        f.tuning.saw("2.4", Seen { format: SHAPE, layout: Layout::fallback(1), tsid: 1 });
         let (out, end) = play(&f);
         assert_eq!(end, End::Failed(Failure::WeakSignal("the picture stopped (2.4)".to_owned())));
         let first: Vec<u16> = out.chunks_exact(PACKET).take(2).map(psi::pid_of_packet).collect();
@@ -762,17 +821,33 @@ pub(crate) mod tests {
         let station_at = pics.iter().position(|p| p.0).unwrap();
         // the slate went on while the channel was tuned: 0.9 s of frames at 29.97 a second
         assert!((20..=30).contains(&station_at), "{station_at} slate frames before the programme");
-        assert!(Format::of_sequence(&pics[0].2).is_some_and(|f| f == Format::FALLBACK), "the slate is the shape of a channel not seen yet");
+        assert_eq!(Format::of_sequence(&pics[0].2), Some(SHAPE), "the slate is the shape the channel was seen in");
         assert_eq!(mark(&pics[station_at].2), "MARK01", "the programme starts at its first whole picture, not before");
         assert_eq!(pics[station_at].1, pics[station_at - 1].1 + 3003, "and is decoded a frame after the slate's last");
         let back = station_at + pics[station_at..].iter().position(|p| !p.0).unwrap();
         assert_eq!(mark(&pics[back - 1].2), "MARK34", "every picture of the programme went out but the one it broke off in");
         assert!(pics[back].1 > pics[back - 1].1 + 3003, "the slate after it starts after the last picture shown");
-        assert!(Format::of_sequence(&pics[back].2).is_some_and(|f| (f.width, f.height) == (720, 480)), "now the channel's own shape");
+        assert_eq!(Format::of_sequence(&pics[back].2), Some(SHAPE), "and stays the channel's own shape");
         let health = f.tuning.known()["2.4"].health.clone().unwrap();
         assert_eq!((health.verdict, health.dropouts), (Verdict::Weak, 1));
         assert!(health.picture.is_some_and(|d| d >= Duration::from_millis(900)));
         assert_eq!(script.released.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn a_channel_not_seen_yet_holds_its_first_slate_for_its_shape() {
+        let time = Time::default();
+        let script = Script::new(&time, stops_at_two());
+        let f = facade(&script, quick());
+        let (out, _) = play(&f);
+        let first: Vec<u16> = out.chunks_exact(PACKET).take(2).map(psi::pid_of_packet).collect();
+        assert_eq!(first, [0, PMT], "the tables lead");
+        let pics = pictures(&out);
+        let station_at = pics.iter().position(|p| p.0).unwrap();
+        assert!((1..=3).contains(&station_at), "nothing went out before the sequence header at 0.9 s: {station_at} slate frames");
+        let shapes: Vec<Format> = pics.iter().filter(|p| !p.0).filter_map(|p| Format::of_sequence(&p.2)).collect();
+        assert!(!shapes.is_empty() && shapes.iter().all(|s| *s == SHAPE), "every slate is the channel's shape: {shapes:?}");
+        assert_eq!(f.tuning.seen("2.4").map(|s| s.format), Some(SHAPE));
     }
 
     #[test]
@@ -784,8 +859,10 @@ pub(crate) mod tests {
         assert_eq!(end, End::Failed(Failure::WeakSignal("no packets (2.4, 3 packet errors)".to_owned())));
         let pics = pictures(&out);
         assert!(pics.iter().all(|p| !p.0));
-        // three seconds of waiting and half a second of last word, at 29.97 a second
-        assert!((95..=115).contains(&pics.len()), "{}", pics.len());
+        // the shape waited for until the weak signal is said (1 s), then two seconds of waiting and half a second of last word, at 29.97 a
+        // second, in the fallback's shape
+        assert!((65..=85).contains(&pics.len()), "{}", pics.len());
+        assert_eq!(Format::of_sequence(&pics[0].2), Some(Format::FALLBACK));
         assert_eq!(f.tuning.known()["2.4"].health.as_ref().map(|h| h.verdict), Some(Verdict::NoSignal));
     }
 
