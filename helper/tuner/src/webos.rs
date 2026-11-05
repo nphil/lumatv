@@ -488,9 +488,12 @@ pub fn parse_signal(text: &str) -> Option<Signal> {
 
 impl Hardware for Tv {
     fn signal(&self) -> Option<Signal> {
-        std::fs::read_to_string(DEMOD_STATUS)
-            .ok()
-            .and_then(|t| parse_signal(&t))
+        // LG's handler writes its whole report (482 bytes on 2026-11-05) into the reader's buffer whatever size was asked for: a smaller
+        // read, like the 32-byte first read of `read_to_string`, overruns the buffer (the helper aborted with a corrupted heap, as `dd
+        // bs=32` does). One read into a buffer far larger than the report, and no second read.
+        let mut report = [0u8; 16 * 1024];
+        let n = File::open(DEMOD_STATUS).ok()?.read(&mut report).ok()?;
+        parse_signal(std::str::from_utf8(&report[..n]).ok()?)
     }
 
     fn channel_list(&self) -> Result<Value, Failure> {
