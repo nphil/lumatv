@@ -135,6 +135,16 @@ Findings:
 - A reboot less than two minutes after a compositor start counts as a failure (`the previous run never settled or ended cleanly`) and the second in a row makes the supervisor refuse LumaTV; a test that follows `compositor on` with a reboot has to wait.
 - `ctl journal` keeps 200 lines and does not carry the input-node lines ("(activity only)"); the RAM log does.
 
+## TV session 2026-11-05 (Live TV Tuner, main 7e8b8f43)
+
+Installed 15:37 EST from 7e8b8f43 (origin and forge main) by the standard path; the set stayed in Always Ready, off, throughout. Installed sha256: compositor `6c5ae2575734d606e0c09966967c2aa539658ab4abe35ab866111431d063a0fe`, ui `0db85b2b8c0f5acde8439a60c56349fb2627fb4f00b2b373589129a1d4809413`, sm `65f6ca69eb6da66cbfb139817803d0c1e01b03931fe373894b123c3f64df13da`, helper `817bcb1178c13ef56ec603e1c6e250b0f5e9f12aaecb70ee747c1b0421fe83a1`. Failures 0. Before it the same afternoon: ddfe579c (15:00) and 4ffaba19 (15:29), whose read of the demodulator's report aborted the helper on each refusal.
+
+- Plex's Error 16 on 16.9: its PMT names a picture and a sound that carry no packets, so the tuner sent only tables, Plex's transcoder reconnected for 25 s and the next channel (17.3) was refused as busy behind it. 16.9 is now refused with 503 and 807 in 6.3 to 13.5 s, "not on air" when the demodulator counts no packet errors and "weak signal" otherwise.
+- Plex's API, one client 2.1, 16.9, 17.3, 5.1 (tune request to the client's first HLS segment): 5.9 s, failed at 25.1 s, failed (busy), 9.6 s on 429039de; 3.3 s, refused at 7.1 s, 4.3 s, 4.0 s on 7e8b8f43 (3.9, 6.8, 4.3 and 3.6 s with a 720p video transcode). Plex's log has Error 16 for 16.9 only and no "Invalid frame dimensions" (78 in the 14:03 session from an Android client); `/livetv/sessions` was empty after.
+- Sweep of the 59 channels: 52 good, first byte median 1.81 s (3.27 s on 429039de), every stream PAT then PMT first. RF 29 was weak (145 to 255 packet errors): 16.7, 16.8 and 66.1 refused for tables not whole in 8 s, 16.9 for no picture. RF 35 does not lock.
+- 16.3, 16.4 and 16.9 five times each: 0/5 each on ddfe579c (its 30-minute cache), 4/5, 5/5 and 0/5 on 7e8b8f43. Plex's transcoder at debug level found the stream info 1.5 to 2.5 s after opening 2.1, 17.3, 5.1 and 16.4, with no "Invalid frame dimensions" (1 to 3 a probe on ddfe579c).
+- Not done: the Guide data plugin's switch-on in Settings (30311, Plex then the free listings). Receipts: `/data/home/tmp/lumatv-tv-20261105g/` (not in git).
+
 ## Plex Live TV 2026-11-05 (a559ccb3 installed)
 
 `base.livetv` switched on at 11:08 EST through the helper's settings API, the write Settings' "Share the antenna tuner" makes; the helper is still the installed `3c4259b902888c2ea2d30e7ba44e4e62f6ee0f35bd747b8fc7549540b7e0b4b4`. From BeastNAS, `discover.json` (DeviceID `77CF7C46`) and `lineup.json` (57 channels) answer on the TV's port 5004.

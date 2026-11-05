@@ -108,6 +108,8 @@ The lineup also serves players that are not DVR tuners; with `<tv>` the TV's add
 
 Measured on 2026-11-05 with Plex 1.43.5 on BeastNAS and a559ccb3 on the set: Plex added the device by address and read the 57 channels; its 30311 antenna guide ("Local Broadcast Listings") matched 53, all with listings, and not 35.2, 35.3, 36.4 or 66.1. Plex takes `HDTC-2US` for a transcoding tuner and offers "Transcoder Quality"; the facade cannot transcode and sends the broadcast as is, so the device is set to "Original format". A tune of 2.4 answered in 4.6 s and streamed 82 s: 2.5 MB left the TV in 10 s and Plex cut one HLS segment a second (MPEG-2 720x480, AC-3 stereo, 2.4 Mb/s). Cancelling the grab closed the connection and the helper's pipeline went. Plex's transcoder must be able to write its session folder: no Live TV starts without it.
 
+Measured on 2026-11-05 with 7e8b8f43 over the 59 channels: the first byte came a median 1.81 s after the request (0.93 to 4.27 s; 3.27 s with the 2 s settle the tune had before). Through Plex, from the tune request to a client's first HLS segment, 3.3 to 4.3 s.
+
 ## Risks
 
 - **Contention.** One tuner, and LG's own use wins, at once: opening Live TV unrealizes the helper's pipeline (P3), in standby with the panel off too. A stream moves the TV's last channel (restored at the end of the stream, and by the cleanup of a failed tune). A retune for Plex drops whatever the owner had locked. The helper notices through the foreground app, UMS's list and its own pipeline's state, not through the packets (P3). Plex sees the stream end and keeps a partial recording.
@@ -126,4 +128,3 @@ Measured on 2026-11-05 with Plex 1.43.5 on BeastNAS and a559ccb3 on the set: Ple
 - Sound during a stream (above), and a stream while an app plays video.
 - Two clients on one RF channel: not built (the second is refused).
 - `/lineup.m3u` and `/xmltv.xml` on the set, and in VLC, Jellyfin, Emby, Channels DVR, TiviMate and Kodi: built and tested against the fake only (the `getEventList` shape was read on the set, `channel-guide.md`).
-- Time to first byte for a retune; the probes took about 4 s from `changeChannel` to the first packet.
