@@ -269,7 +269,8 @@ impl Smart {
 
     fn relayout(&mut self) {
         let wanted: Vec<Size> = self.items.iter().map(|i| i.size).collect();
-        self.plan = layout::plan_for(self.content.0, self.content.1, true, &self.metrics, &wanted);
+        // No heading: the owner wants the room for the items; notices are said on the item in front instead.
+        self.plan = layout::plan_for(self.content.0, self.content.1, false, &self.metrics, &wanted);
         if let Some(i) = self.focused() {
             self.off = self.plan.offset_for(i, self.off);
         } else {
