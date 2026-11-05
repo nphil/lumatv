@@ -823,6 +823,200 @@ fn a_stream_that_drops_after_it_played_is_asked_again_and_one_that_never_played_
     assert_eq!(live_posts(&r.tick(t + 1000 + 3000)), [json!({"camera": "273"})]);
 }
 
+// ---------------------------------------------------------------------------- a camera on a battery
+
+/// Back Door, Front Door (on a battery), Garden.
+fn battery_three() -> Value {
+    let mut list = three();
+    list["cameras"][1]["battery"] = json!(true);
+    list["cameras"][1]["prebuffered"] = json!(false);
+    list
+}
+
+fn stops(fx: &[Effect]) -> usize {
+    requests(fx).iter().filter(|(_, p, _)| p == "/v1/cameras/live/stop").count()
+}
+
+#[test]
+fn the_owner_opening_a_camera_on_a_battery_calls_it_with_the_still_and_connecting_and_back_hangs_the_call_up() {
+    let mut r = Rig::new(battery_three());
+    let fx = r.app.open_full("273", T0);
+    assert_eq!(live_posts(&fx), [json!({"camera": "273", "open": true})], "the owner opened it: the helper is told so");
+    let f = r.full();
+    assert_eq!((f.state.word, f.note.is_none(), f.hole), ("Connecting\u{2026}", true, false));
+    assert_eq!(f.line.as_deref(), Some("Waking the camera, up to 45 seconds"));
+    assert!(matches!(f.backdrop, Backdrop::Still(_)), "its latest picture is under the wait: {:?}", f.backdrop);
+    assert!(f.hints.iter().any(|h| h.name == "Back, cancel"), "{:?}", f.hints);
+    // a call that does not connect for a long while is not given up on by the screen
+    let fx = r.tick(40_000);
+    assert!(live_posts(&fx).is_empty() && stops(&fx) == 0);
+    assert_eq!(r.full().state.word, "Connecting\u{2026}");
+
+    // Back cancels: the call is hung up, the camera stays on its still with Connect, and Back again closes
+    r.at(41_000);
+    let fx = r.press("back");
+    assert_eq!(stops(&fx), 1, "{fx:?}");
+    assert!(r.app.viewer_up());
+    let f = r.full();
+    assert_eq!((f.state.word, f.note.as_ref().map(|n| n.button)), ("Picture", Some("Connect")), "{f:?}");
+    assert!(matches!(f.backdrop, Backdrop::Still(_)));
+    // what the helper said of the call it was asked for is not the camera's failure
+    r.helper("cameras.live", live_topic("273", "live", "stopped"));
+    assert_eq!(r.full().note.map(|n| n.button), Some("Connect"));
+    r.at(42_000);
+    r.press("back");
+    assert!(!r.app.viewer_up());
+}
+
+#[test]
+fn a_cancelled_call_that_the_helper_answers_late_leaves_no_failure_on_the_still() {
+    let mut r = Rig::new(battery_three());
+    let fx = r.app.open_full("273", T0);
+    let tag = tag_of(&fx, "/v1/cameras/live");
+    r.at(500);
+    r.press("back");
+    r.at(600);
+    r.answer(tag, 409, json!({"ok": false, "error": {"code": "superseded", "message": "Another stream was asked for meanwhile"}}));
+    let f = r.full();
+    assert_eq!((f.state.word, f.note.map(|n| n.button)), ("Picture", Some("Connect")));
+}
+
+#[test]
+fn connect_on_the_still_calls_the_camera_again_and_a_failure_is_answered_by_the_owner_only() {
+    let mut r = Rig::new(battery_three());
+    r.app.open_full("273", T0);
+    r.at(100);
+    r.press("back");
+    r.at(200);
+    let fx = r.press("ok");
+    assert_eq!(live_posts(&fx), [json!({"camera": "273", "open": true})]);
+    assert_eq!(r.full().state.word, "Connecting\u{2026}");
+    // it plays, drops, and nothing calls it again by itself: every call wakes the camera
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    assert!(r.full().hole);
+    r.at(1000);
+    let mut failed = live_topic("273", "live", "failed");
+    failed["reason"] = json!("Scrypted sent no picture in time");
+    r.helper("cameras.live", failed);
+    let note = r.full().note.expect("the note");
+    assert_eq!(note.detail, "Scrypted sent no picture in time", "no promise of another try");
+    assert!(live_posts(&r.tick(1000 + 600_000)).is_empty());
+    // Try again is the owner's
+    r.at(700_000);
+    assert_eq!(live_posts(&r.press("ok")), [json!({"camera": "273", "open": true})]);
+}
+
+#[test]
+fn no_way_but_the_owner_opening_it_dials_a_camera_on_a_battery() {
+    let posts_since = |r: &mut Rig, fx: Vec<Effect>, ms: &[u64]| -> Vec<Value> {
+        let mut posts = live_posts(&fx);
+        for t in ms {
+            posts.extend(live_posts(&r.tick(*t)));
+        }
+        posts
+    };
+    let rests = |r: &Rig| {
+        let f = r.full();
+        assert_eq!((f.name.as_str(), f.state.word, f.note.as_ref().map(|n| n.button)), ("Front Door", "Picture", Some("Connect")), "{f:?}");
+    };
+
+    // cycling to it from a camera that plays: the one that plays is let go and this one shows its still
+    let mut r = Rig::new(battery_three());
+    r.app.open_full("274", T0);
+    r.helper("cameras.live", live_topic("274", "live", "playing"));
+    r.at(100);
+    let fx = r.press("right");
+    assert_eq!(stops(&fx), 1, "the camera nobody looks at plays no longer");
+    assert!(posts_since(&mut r, fx, &[200, 20_000, 120_000]).is_empty(), "swiping to it dials nothing, however long it is looked at");
+    rests(&r);
+    // and cycling away and back
+    r.at(121_000);
+    r.press("right");
+    r.at(121_100);
+    let fx = r.press("left");
+    assert!(posts_since(&mut r, fx, &[130_000]).is_empty());
+    rests(&r);
+
+    // a pop-up for it turns the view to it, and the card's camera is shown as a still
+    let mut r = Rig::new(battery_three());
+    r.app.open_full("274", T0);
+    r.at(100);
+    let popup = json!({"id": 41, "event": "e41", "camera": "273", "kind": "person", "untilMs": T0 as i64 + 10_000, "at": T0 as i64});
+    let fx = r.helper("cameras.popup", popup);
+    assert!(posts_since(&mut r, fx, &[300, 60_000]).is_empty());
+    rests(&r);
+
+    // the camera it was on is no longer shared and it is the first: the view goes to it, and does not dial it
+    let mut list = battery_three();
+    list["cameras"].as_array_mut().unwrap().remove(0);
+    let mut r = Rig::new(battery_three());
+    r.app.open_full("274", T0);
+    r.at(100);
+    let fx = r.helper("cameras", list);
+    assert!(posts_since(&mut r, fx, &[200, 60_000]).is_empty());
+    rests(&r);
+
+    // the app in front changing, the link coming back, and the clock running: nothing asks
+    let mut r = Rig::new(battery_three());
+    r.app.open_full("274", T0);
+    r.at(100);
+    r.press("right");
+    let mut posts = Vec::new();
+    posts.extend(live_posts(&r.topic("foreground", json!({"app": "com.example.app", "home": false}))));
+    posts.extend(live_posts(&r.topic("foreground", json!({"app": "com.webos.app.home", "home": true}))));
+    let mut down = battery_three();
+    down["state"] = json!("offline");
+    posts.extend(live_posts(&r.helper("cameras", down)));
+    posts.extend(live_posts(&r.helper("cameras", battery_three())));
+    posts.extend(posts_since(&mut r, Vec::new(), &[5_000, 600_000]));
+    assert!(posts.is_empty(), "{posts:?}");
+    rests(&r);
+    // the compositor's claim for a window is not made for it either
+    assert!(r.app.live_claim().is_none());
+
+    // the grid dials nothing; its tile's OK is the owner opening that camera
+    let mut r = Rig::new(battery_three());
+    let fx = r.app.open_grid(T0);
+    assert!(posts_since(&mut r, fx, &[1000, 600_000]).is_empty());
+    r.at(700_000);
+    let fx = r.press("right");
+    assert!(live_posts(&fx).is_empty());
+    let fx = r.press("ok");
+    assert_eq!(live_posts(&fx), [json!({"camera": "273", "open": true})]);
+}
+
+#[test]
+fn a_recording_of_a_camera_on_a_battery_plays_as_any_other_and_live_again_is_the_owners_to_ask_for() {
+    let mut r = Rig::new(battery_three());
+    r.app.open_full("274", T0);
+    r.at(100);
+    r.press("right");
+    r.at(200);
+    // the strip: Up, down to the bar, ten seconds back, OK
+    r.press("up");
+    r.at(300);
+    r.press("down");
+    r.press("right");
+    r.at(400);
+    let fx = r.press("ok");
+    let play: Vec<_> = requests(&fx).into_iter().filter(|(_, p, _)| p == "/v1/cameras/playback").collect();
+    assert_eq!(play.len(), 1, "{fx:?}");
+    r.helper("cameras.live", {
+        let mut v = live_topic("273", "playback", "playing");
+        v["startedAt"] = json!(T0 as i64 - 1000);
+        v["positionMs"] = json!(T0 as i64 - 1000);
+        v
+    });
+    r.at(500);
+    let fx = r.tick(5000);
+    assert_eq!(stops(&fx), 0, "the recording is not let go for want of an opened view");
+    assert!(r.full().hole);
+    // Back from the recording is the owner asking for live
+    r.at(6000);
+    let fx = r.press("back");
+    assert_eq!(live_posts(&fx), [json!({"camera": "273", "open": true})]);
+}
+
 // ---------------------------------------------------------------------------- the fill of the bars
 
 /// Front Door is a doorbell whose picture is 3:4, 1920 by 2560.

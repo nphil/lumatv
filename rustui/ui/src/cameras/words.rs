@@ -337,6 +337,13 @@ pub const CANT_PLAY: &str = "Can\u{2019}t play";
 pub const OPENS_SOON: &str = "Opens in a few seconds";
 pub const FAILED_TITLE: &str = "Can\u{2019}t play this camera";
 pub const TRY_AGAIN: &str = "Try again";
+/// A camera on a battery: its latest picture until the owner connects, and the wait while it wakes (up to 45 s).
+pub const STILL: &str = "Picture";
+pub const WAKING: &str = "Connecting\u{2026}";
+pub const WAKING_LINE: &str = "Waking the camera, up to 45 seconds";
+pub const BATTERY_TITLE: &str = "This camera runs on a battery";
+pub const BATTERY_DETAIL: &str = "Showing its latest picture. Going live wakes the camera and uses its battery.";
+pub const CONNECT: &str = "Connect";
 /// The note over a camera that Scrypted says is offline, and what the screen does about it.
 pub const OFFLINE_TITLE: &str = "This camera is offline";
 pub const OFFLINE_RETRYING: &str = "Looking again every few seconds.";

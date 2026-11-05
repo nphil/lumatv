@@ -9,6 +9,7 @@ parameter sets it hands the feeder (`helper/app/src/live/rate.rs`), so the decod
     tv-camera-rate-probe.py clips --clip25 FILE --clip30 FILE          the decoder's rate and the panel's, from two files that differ only in the rate they say
     tv-camera-rate-probe.py rates --native30 FILE --native60 FILE      H.264 made at 30 and at 60 pictures a second and fed at that pace: the rule this relies on, about 30 s
     tv-camera-rate-probe.py camera [--downs N] [--secs S]              a real camera's full view and Back, from Home (the camera N rows down the Cameras grid)
+    tv-camera-rate-probe.py ring [--downs N] [--secs S]                the Ring door camera on its battery: the full view's time to the first picture, and the panel's rate while it plays (S defaults to 60)
     tv-camera-rate-probe.py all --clip25 FILE --clip30 FILE [--native30 FILE --native60 FILE] [--downs N] [--secs S]
     tv-camera-rate-probe.py selftest                                   the readers on text (runs on the host)
 
@@ -172,6 +173,13 @@ def helper_lines(text):
         if m:
             out["ended"] = {"camera": m.group(1), "first_ms": int(m.group(2)), "pictures": int(m.group(3)), "per_second": float(m.group(5)), "refused": int(m.group(6)), "lost": int(m.group(7))}
     return out
+
+
+def first_picture_after(samples, opened):
+    """Seconds from `opened` (the probe's own monotonic clock) to the first reading with a source on the main window; None when there was none."""
+    for s in video(samples):
+        return round(s["t"] - (opened - T0), 1)
+    return None
 
 
 def in_band(samples, b, minimum=1):
@@ -597,11 +605,14 @@ def stage_picture(res, clip30, pre):
     say("picture verdict:", json.dumps(verdict))
 
 
-def stage_camera(res, downs, secs, pre):
+def stage_camera(res, downs, secs, pre, ring=False):
+    """`ring`: the camera is on a battery. The view waits up to 45 s for its first picture (Ring joins a call 1 to 20 s after it starts, and only about half of them), so the
+    time from OK to the first picture is the result, and the panel's rate is read over the seconds the picture plays."""
+    key = "ring" if ring else "camera"
     dev = pre["key_device"]
     if not pre["ready_for_camera"]:
-        res["camera"] = {"error": "start from 120 Hz, Home in front, no source, the RAM log and the remote's key device there (see read)", "read": pre}
-        say("camera: the set is not ready")
+        res[key] = {"error": "start from 120 Hz, Home in front, no source, the RAM log and the remote's key device there (see read)", "read": pre}
+        say(key + ": the set is not ready")
         return
     log_at = os.path.getsize(RAMLOG)
     messages_at = size_of(MESSAGES)
@@ -638,11 +649,15 @@ def stage_camera(res, downs, secs, pre):
     dec = decoder_reading(view)
     settled = [s for s in video(view) if s["t"] - view[0]["t"] >= 2.0]
     in_family = bool(h["redeclared"]) or dec["codec_fps"] in (25.0, 50.0)
-    res["camera"] = {
+    first = first_picture_after(view, opened)
+    res[key] = {
         "shown": shown, "helper": h, "decoder": dec, "panel_during": [band(s["hz"]) for s in video(view)], "panel_after": [band(s["hz"]) for s in after],
         "picture": picture, "loads": loads,
         "verdict": {
             "stream_seen": h["stream"] is not None,
+            "first_picture_s": first,
+            "first_picture_within_45s": first is not None and first <= 45.0,
+            "helper_first_picture_ms": h["ended"]["first_ms"] if h["ended"] else None,
             "in_family": in_family if h["stream"] else None,
             "redeclared": bool(h["redeclared"]),
             "decoder_reads_what_was_declared": (dec["status_fps"] == float(h["redeclared"]["now"]) and dec["rate_src"] == "CODEC") if h["redeclared"] and dec["samples"] else None,
@@ -660,7 +675,7 @@ def stage_camera(res, downs, secs, pre):
             "eyes_note": "needs eyes: the picture moves smoothly with no stall at the repeats, shows no more lag against the real scene than before, and nothing flashes at the start or at Back",
         },
     }
-    say("camera verdict:", json.dumps(res["camera"]["verdict"]))
+    say(key + " verdict:", json.dumps(res[key]["verdict"]))
 
 
 def finish(res):
@@ -811,18 +826,22 @@ framerate_max      : 120
     assert picture_stage_verdict({"ndl": control, "es": clip(False, True, [load(None)]), "es-no-low-delay": clip(True, False, [load(None, False)])})["low_delay_alone_takes_game"] is True
     assert picture_stage_verdict({"ndl": control, "es": clip(False, True, [load(None)]), "es-no-low-delay": clip(False, True, [load(None, False)])})["low_delay_alone_takes_game"] is False
     assert picture_stage_verdict({"ndl": control, "es": clip(None, None, []), "es-no-low-delay": clip(None, None, [])})["low_delay_alone_takes_game"] is None
+    # the time to the first picture: the first reading with a source on the main window, counted from the OK
+    lit = lambda t, src: {"t": t, "scaler": {"src": src, "source": (None, None)}}
+    assert first_picture_after([lit(11.0, "NONE"), lit(19.5, "NONE"), lit(21.5, "VDEC"), lit(22.0, "VDEC")], T0 + 10.0) == 11.5
+    assert first_picture_after([lit(11.0, "NONE")], T0 + 10.0) is None and first_picture_after([], T0) is None
     print("selftest ok")
 
 
 def main(argv):
     ap = argparse.ArgumentParser(add_help=True, description="TV check of the camera streams' re-declared rate")
-    ap.add_argument("stage", choices=["read", "picture", "clips", "rates", "camera", "all", "selftest"])
+    ap.add_argument("stage", choices=["read", "picture", "clips", "rates", "camera", "ring", "all", "selftest"])
     ap.add_argument("--clip25")
     ap.add_argument("--clip30")
     ap.add_argument("--native30")
     ap.add_argument("--native60")
     ap.add_argument("--downs", type=int, default=2, help="rows down the Cameras grid to the camera (the Ring door camera is two)")
-    ap.add_argument("--secs", type=float, default=16.0, help="seconds of the camera's view that are sampled")
+    ap.add_argument("--secs", type=float, default=None, help="seconds of the camera's view that are sampled (16; 60 for ring, whose first picture may be 45 s away)")
     a = ap.parse_args(argv)
     if a.stage == "selftest":
         selftest()
@@ -844,7 +863,9 @@ def main(argv):
         if a.stage in ("camera", "all") and (a.stage == "camera" or not res.get("clips", {}).get("error")):
             if a.stage == "all":
                 pre = stage_read({})
-            stage_camera(res, a.downs, a.secs, pre)
+            stage_camera(res, a.downs, a.secs or 16.0, pre)
+        if a.stage == "ring":
+            stage_camera(res, a.downs, a.secs or 60.0, pre, ring=True)
     finally:
         finish(res)
         with open(OUT + "/result.json", "w") as f:

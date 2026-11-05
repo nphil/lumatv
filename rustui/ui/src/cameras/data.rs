@@ -78,6 +78,9 @@ pub struct Camera {
     pub since: Option<i64>,
     pub native: Option<Native>,
     pub prebuffered: bool,
+    /// The camera runs on a battery: its live view takes up to 45 s to start and every start drains the battery, so it is dialled only when the owner opens
+    /// its full view; everywhere else it shows stills.
+    pub battery: bool,
 }
 
 impl Camera {
@@ -106,6 +109,7 @@ impl Camera {
             since: int(v, "since").filter(|s| *s > 0),
             native,
             prebuffered: flag(v, "prebuffered", false),
+            battery: flag(v, "battery", false),
         })
     }
 }

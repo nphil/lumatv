@@ -129,6 +129,7 @@ mod tests {
             room: None,
             kind: "camera".into(),
             online: true,
+            battery: false,
             features: vec!["live".into()],
             earliest: None,
             native: streams.iter().find(|s| s.quality == "native").cloned(),

@@ -508,6 +508,54 @@ fn unlinking_with_the_command_does_the_same_within_a_look() {
     assert!(wait_until(WAIT, || world.bridge.events_open() == 0));
 }
 
+// ---- a camera on a battery ---------------------------------------------------------------------------------------------------------
+
+#[test]
+fn a_camera_on_a_battery_is_dialled_only_for_the_full_view_the_owner_opened_and_its_pop_up_shows_stills() {
+    // a feeder that is configured and never started: the live path is on (so a card may offer live video), and nothing plays
+    let dir = tempfile::tempdir().unwrap();
+    let mut deps = lumatv_helper::scrypted::testing::deps();
+    deps.feeder = Some(lumatv_helper::live::default_spec(dir.path(), "card", "", Duration::from_secs(1)));
+    let mut world = World::unlinked(json!({"live": true}), deps);
+    let mut door = FakeBridge::camera("273", "Front Door", "doorbell");
+    door["battery"] = json!(true);
+    world.bridge.set_cameras(vec![door, FakeBridge::camera("274", "Garage", "camera")]);
+    world.link();
+    let topic = world.ready();
+    assert_eq!((topic["cameras"][0]["battery"].clone(), topic["cameras"][1]["battery"].clone()), (json!(true), json!(false)));
+    let code = |reply: Reply| reply.json()["error"]["code"].as_str().unwrap_or_default().to_owned();
+
+    // nothing but the owner opening that camera's full view may start its call: not a pop-up, not a view the screen or a swipe turned to it
+    for body in [
+        json!({"camera": "273"}),
+        json!({"camera": "273", "for": "full", "window": "main"}),
+        json!({"camera": "273", "for": "popup", "window": "main"}),
+        json!({"camera": "273", "for": "popup", "window": "texture", "open": true}),
+        json!({"camera": "273", "quality": "light"}),
+    ] {
+        let reply = world.post("/v1/cameras/live", body.clone());
+        assert_eq!((reply.status, code(reply)), (409, "battery_still_only".to_owned()), "{body}");
+    }
+    assert_eq!(world.bridge.requests_matching("POST /v1/live"), 0, "the camera was never asked for");
+
+    // the opened full view is past the gate and asks the bridge; a camera on the mains never was behind it
+    for body in [json!({"camera": "273", "open": true}), json!({"camera": "273", "for": "full", "window": "main", "open": true}), json!({"camera": "274"})] {
+        let before = world.bridge.requests_matching("POST /v1/live");
+        let reply = world.post("/v1/cameras/live", body.clone());
+        assert_ne!(code(reply), "battery_still_only", "{body}");
+        assert_eq!(world.bridge.requests_matching("POST /v1/live"), before + 1, "{body}");
+    }
+
+    // its pop-up card is stills only
+    assert!(wait_until(WAIT, || world.bridge.events_open() == 1));
+    world.bridge.push_event(world.bridge.event("273", "person", "new"));
+    let popup = world.wait_popup(|_| true).expect("a card");
+    assert_eq!(popup["live"], json!(false), "{popup}");
+    world.bridge.push_event(world.bridge.event("274", "person", "new"));
+    let popup = world.wait_popup(|p| p["camera"] == "274").expect("a card for the garage");
+    assert_eq!(popup["live"], json!(true), "a camera on the mains still offers live video: {popup}");
+}
+
 // ---- events and pop-ups ----------------------------------------------------------------------------------------------------------
 
 #[test]
@@ -1271,7 +1319,7 @@ fn camera_of(sps: Vec<u8>, fps: u32, units: Vec<Vec<u8>>, tweak: impl FnOnce(&mu
 }
 
 fn loopback_dial() -> lumatv_helper::live::Dial {
-    Arc::new(|address| {
+    Arc::new(|address, _patience| {
         let url = rtsp_client::Url::parse(address)?;
         rtsp_client::Session::connect(
             &url,

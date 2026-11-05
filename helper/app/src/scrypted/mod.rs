@@ -429,6 +429,7 @@ impl Inner {
             "room": camera.room,
             "type": camera.kind,
             "online": camera.online,
+            "battery": camera.battery,
             "live": camera.has("live"),
             "stills": camera.has("stills"),
             "recordings": camera.has("recordings"),
@@ -1057,7 +1058,9 @@ impl Inner {
                 if !route.popup {
                     return Some(decision);
                 }
-                let live_ok = self.config.popup_live && self.live.available();
+                // a camera on a battery is not woken for a pop-up: its card shows stills
+                let battery = state.shown.iter().any(|c| c.id == event.camera && c.battery);
+                let live_ok = self.config.popup_live && self.live.available() && !battery;
                 // a window's decoder re-times the panel to its stream's rate: a camera with no calm stream has its pop-up drawn as a texture, never in a window
                 let texture_only = state.shown.iter().find(|c| c.id == event.camera).is_none_or(|c| !popup_stream::window_ok(c));
                 let value = json!({
@@ -1088,6 +1091,7 @@ impl Inner {
                     lasts_ms / 1000,
                     if test { ", a test" } else { "" },
                     match (live_ok, texture_only) {
+                        (false, _) if battery => ", stills only (a camera on a battery)",
                         (false, _) => ", stills only",
                         (true, false) => ", live video where a window is free",
                         (true, true) => ", live video as a texture (no stream the panel keeps its rate with)",

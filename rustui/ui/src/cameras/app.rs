@@ -305,6 +305,9 @@ pub struct App {
     refused: Option<Refused>,
     /// The camera shown cannot play and may soon: it is asked for again by itself.
     retry: Option<Retry>,
+    /// The camera whose live view the owner asked for in this viewing (opened its full view, pressed Connect or Try again). A camera on a battery is dialled
+    /// for no other: a swipe to it, a pop-up that turns the view to it, the screen coming on or a retry timer show its still instead.
+    opened: Option<String>,
     /// The camera shown has played live in this view: a failure after that is a drop, not a camera that never worked.
     played: bool,
     expect: Expect,
@@ -356,6 +359,7 @@ impl App {
             asked: None,
             refused: None,
             retry: None,
+            opened: None,
             played: false,
             expect: Expect::Live,
             commit_hint: None,
@@ -498,10 +502,36 @@ impl App {
 
     /// The call for the full view's live stream: the camera's own at the owner's quality (native by default), up to 4K at its own rate.
     fn live_body(&self, camera: &str) -> Value {
-        match self.window_for(camera) {
+        let mut body = match self.window_for(camera) {
             Some(window) => json!({"camera": camera, "for": "full", "window": window}),
             None => json!({"camera": camera}),
+        };
+        // the helper dials a camera on a battery only for a view the owner opened, and takes the owner's word for it only here
+        if self.cams.get(camera).is_some_and(|c| c.battery) && self.opened.as_deref() == Some(camera) {
+            body["open"] = json!(true);
         }
+        body
+    }
+
+    /// The camera's live view is not dialled: it is on a battery and the owner has not opened it. A recording of it plays as any other.
+    fn held_back(&self, camera: &data::Camera) -> bool {
+        camera.battery && self.expect == Expect::Live && self.opened.as_deref() != Some(camera.id.as_str())
+    }
+
+    /// The full view shows a camera on a battery that nobody has asked to connect: its latest still, and a Connect button.
+    fn resting(&self) -> bool {
+        self.is_full() && self.expect == Expect::Live && self.current().is_some_and(|c| self.can_live(c) && self.held_back(c))
+    }
+
+    /// The owner asked for the camera shown to be dialled (Connect, Try again): a camera on a battery is dialled for this view from now on.
+    fn connect_now(&mut self, fx: &mut Vec<Effect>) {
+        self.opened = self.current().map(|c| c.id.clone());
+        self.ensure_live(true, fx);
+    }
+
+    /// A camera on a battery is being called and has not sent a picture: the still, "Connecting…", and Back hangs the call up.
+    fn connecting(&self, c: &data::Camera) -> bool {
+        c.battery && !self.held_back(c) && self.can_live(c) && self.expect == Expect::Live && !self.hole() && !self.note_up()
     }
 
     /// What the full view's live video asks of the display while it is wanted: the stream the helper was asked for and the rectangle it is
@@ -510,7 +540,7 @@ impl App {
     pub fn live_claim(&self) -> Option<LiveClaim> {
         let Screen::Full(f) = &self.screen else { return None };
         let c = self.cams.get(&f.camera)?;
-        if !self.can_live(c) {
+        if !self.can_live(c) || self.held_back(c) {
             return None;
         }
         if self.shares_screen() {
@@ -580,6 +610,7 @@ impl App {
         self.expect = Expect::Live;
         self.refused = None;
         self.retry = None;
+        self.opened = None;
         self.played = false;
         self.dirty = true;
     }
@@ -611,7 +642,7 @@ impl App {
         let mut fx = Vec::new();
         self.now = now;
         let opening = !self.viewer_up();
-        self.enter_full(camera, true, &mut fx);
+        self.enter_full(camera, true, true, &mut fx);
         if opening {
             self.request_settings(&mut fx);
         }
@@ -628,7 +659,9 @@ impl App {
         fx
     }
 
-    fn enter_full(&mut self, camera: &str, ask_live: bool, fx: &mut Vec<Effect>) {
+    /// `opened`: the owner chose this camera (a tile, a card, the list); else the view came to it (a swipe, a pop-up, the screen), and a camera on a battery
+    /// stays on its still.
+    fn enter_full(&mut self, camera: &str, ask_live: bool, opened: bool, fx: &mut Vec<Effect>) {
         let id = match self.cams.get(camera) {
             Some(c) => c.id.clone(),
             None => match self.cams.list.first() {
@@ -645,6 +678,7 @@ impl App {
         let takes = self.takes_foreground(&id);
         self.beside = self.beside_wanted(&id);
         self.beside_refused = false;
+        self.opened = opened.then(|| id.clone());
         self.screen = Screen::Full(FullState { camera: id, chrome: true, chrome_until: self.now + CHROME_MS });
         if takes {
             self.switched = true;
@@ -703,7 +737,7 @@ impl App {
     /// when live is no longer offered.
     fn ensure_live(&mut self, force: bool, fx: &mut Vec<Effect>) {
         let granted = !self.shares_screen() || self.window_granted();
-        let want = self.current().filter(|c| self.can_live(c) && granted).map(|c| c.id.clone());
+        let want = self.current().filter(|c| self.can_live(c) && granted && !self.held_back(c)).map(|c| c.id.clone());
         match (want, self.asked.clone()) {
             (Some(id), asked) if force || asked.as_deref() != Some(&id) => {
                 self.asked = Some(id.clone());
@@ -724,6 +758,8 @@ impl App {
     /// doorbell that never played would wake its battery for each ask.
     fn schedule_retry(&mut self, may_pass: bool) {
         let tries = self.retry.map_or(0, |r| r.tries);
+        // every ask of a camera on a battery wakes it and drains it: the owner's Try again is the only one
+        let may_pass = may_pass && !self.current().is_some_and(|c| c.battery);
         self.retry = (may_pass && tries < RETRIES).then(|| Retry { tries, at: self.now + retry_wait_ms(tries) });
     }
 
@@ -743,7 +779,7 @@ impl App {
             s.live();
         }
         self.dropped.push("bubble:".into());
-        self.ensure_live(true, fx);
+        self.connect_now(fx);
     }
 
     /// The playhead of a recording: the helper's position, else where it was asked to start.
@@ -900,7 +936,7 @@ impl App {
                     let next = self.cams.list.first().map(|c| c.id.clone());
                     self.stop_live(fx);
                     match next {
-                        Some(id) => self.enter_full(&id, true, fx),
+                        Some(id) => self.enter_full(&id, true, false, fx),
                         None => {
                             self.reset_transient();
                             self.screen = Screen::Grid(GridState { focus: GFocus::Settings, top: 0, back_to: 0 });
@@ -973,7 +1009,7 @@ impl App {
         }
         if let Screen::Full(f) = &self.screen {
             if f.camera != p.camera && self.cams.get(&p.camera).is_some() {
-                self.enter_full(&p.camera, true, fx);
+                self.enter_full(&p.camera, true, false, fx);
             }
         }
     }
@@ -1013,7 +1049,7 @@ impl App {
                     self.commit_hint = None;
                     self.pause_when_playing = false;
                     let words = refusal(data).or_else(|| (status == 0).then(|| words::link_words("offline").to_string()));
-                    if self.is_full() && self.current().is_some_and(|c| c.id == camera) {
+                    if self.is_full() && self.current().is_some_and(|c| c.id == camera) && self.asked.as_deref() == Some(camera.as_str()) {
                         let fallback = if status == 0 { "unreachable" } else { "" };
                         let code = data.pointer("/error/code").and_then(Value::as_str).unwrap_or(fallback).to_string();
                         self.live_refused(camera, code, words.unwrap_or_default(), fx);
@@ -1256,7 +1292,7 @@ impl App {
 
     /// Another camera in the full view: the session of the old one is replaced by the new one's.
     fn switch_to(&mut self, id: &str, fx: &mut Vec<Effect>) {
-        self.enter_full(id, true, fx);
+        self.enter_full(id, true, false, fx);
     }
 
     fn open_sheet_for(&mut self, c: &data::Camera, fx: &mut Vec<Effect>) {
@@ -1291,7 +1327,7 @@ impl App {
             Screen::Grid(g) => match g.focus {
                 GFocus::Tile(i) => {
                     if let Some(c) = self.cams.list.get(i).map(|c| c.id.clone()) {
-                        self.enter_full(&c, true, fx);
+                        self.enter_full(&c, true, true, fx);
                     }
                 }
                 GFocus::Events => {
@@ -1302,7 +1338,7 @@ impl App {
             },
             Screen::Full(_) => {
                 if self.note_up() {
-                    self.ensure_live(true, fx);
+                    self.connect_now(fx);
                 } else if self.cams.list.len() > 1 {
                     let cur = self.current_index().unwrap_or(0);
                     let mut fxx = Vec::new();
@@ -1413,6 +1449,13 @@ impl App {
             self.dirty = true;
             return;
         }
+        if self.current().is_some_and(|c| self.connecting(c)) {
+            // Back hangs the call up; the camera stays on its still, with Connect
+            self.opened = None;
+            self.stop_live(fx);
+            self.dirty = true;
+            return;
+        }
         let (returns, resumes) = (self.switched, self.app_paused);
         self.close_inner(fx);
         if returns {
@@ -1425,7 +1468,7 @@ impl App {
     }
 
     fn note_up(&self) -> bool {
-        self.is_full() && self.expect == Expect::Live && (self.topic_failed() || self.refused_now())
+        self.is_full() && self.expect == Expect::Live && (self.topic_failed() || self.refused_now() || self.resting())
     }
 
     /// The live session of the camera shown failed (the helper's `cameras.live` says so).
@@ -1505,18 +1548,18 @@ impl App {
                 self.sheet = None;
                 self.dropped.push("card:".into());
                 match action {
-                    CardAction::Turn { camera } => self.enter_full(&camera, true, fx),
+                    CardAction::Turn { camera } => self.enter_full(&camera, true, true, fx),
                     CardAction::Play { camera, at } => {
                         let same = self.current().is_some_and(|c| c.id == camera);
                         if from_grid || !same {
-                            self.enter_full(&camera, false, fx);
+                            self.enter_full(&camera, false, false, fx);
                         }
                         self.commit_playback(at, Some(1.0), fx);
                     }
                     CardAction::Clip { camera, clip } => {
                         let same = self.current().is_some_and(|c| c.id == camera);
                         if from_grid || !same {
-                            self.enter_full(&camera, false, fx);
+                            self.enter_full(&camera, false, false, fx);
                         }
                         self.play_clip(&camera, &clip, fx);
                     }
@@ -1573,7 +1616,7 @@ impl App {
                     self.strip_out(out, now, &mut fx);
                 }
             }
-            Target::Retry => self.ensure_live(true, &mut fx),
+            Target::Retry => self.connect_now(&mut fx),
             Target::Backdrop => {}
             Target::Back => self.back(now, &mut fx),
             Target::Tile(i) => {
@@ -1661,7 +1704,8 @@ impl App {
         if self.note_up() {
             return true;
         }
-        !c.prebuffered
+        // a camera on a battery sends nothing before its call is joined: its still is the picture all the while
+        c.battery || !c.prebuffered
     }
 
     fn chrome_holds(&self) -> bool {
@@ -1788,7 +1832,9 @@ impl App {
                 if self.cams.list.len() > 1 {
                     v.push(HintView::new(&[HKey::Ok], Do::Icon("layout-grid"), "OK, all cameras"));
                 }
-                v.push(HintView::new(&[HKey::Back], Do::Kit(HAct::Close), "Back, close"));
+                // a camera on a battery that is being called: Back hangs the call up
+                let cancel = self.connecting(c);
+                v.push(HintView::new(&[HKey::Back], Do::Kit(HAct::Close), if cancel { "Back, cancel" } else { "Back, close" }));
                 v
             }
             Screen::Closed => Vec::new(),
@@ -1832,6 +1878,9 @@ impl App {
     }
 
     fn state_word(&self, c: &data::Camera) -> StateWord {
+        if self.resting() {
+            return StateWord { word: words::STILL, dot: false };
+        }
         if self.note_up() {
             return StateWord { word: words::CANT_PLAY, dot: false };
         }
@@ -1839,7 +1888,7 @@ impl App {
             return if self.expect == Expect::Live { StateWord { word: words::LIVE, dot: true } } else { StateWord { word: words::RECORDED, dot: false } };
         }
         if self.can_live(c) {
-            return StateWord { word: words::STARTING, dot: false };
+            return StateWord { word: if self.connecting(c) { words::WAKING } else { words::STARTING }, dot: false };
         }
         let fresh = self.planner.pic(&full_key(&c.id)).last_at.is_some_and(|t| self.now.saturating_sub(t) < FRESH_STILL_MS * 2);
         if fresh { StateWord { word: words::LIVE, dot: true } } else { StateWord { word: words::STARTING, dot: false } }
@@ -1891,7 +1940,7 @@ impl App {
             position: (n > 1).then(|| words::of(i + 1, n)),
             state: self.state_word(c),
             info,
-            line: (starting && !c.prebuffered).then(|| words::OPENS_SOON.to_string()),
+            line: (starting && !c.prebuffered).then(|| if c.battery { words::WAKING_LINE } else { words::OPENS_SOON }.to_string()),
             note,
             hole,
             backdrop,
@@ -1907,6 +1956,9 @@ impl App {
 
     /// The note over a camera that cannot play: why, in the helper's words, and that it is asked for again where that may help.
     fn note(&self) -> Note {
+        if self.resting() {
+            return Note { title: words::BATTERY_TITLE, detail: words::BATTERY_DETAIL.to_string(), button: words::CONNECT };
+        }
         let refused = self.refused.as_ref().filter(|_| self.refused_now());
         let retrying = self.retry.is_some();
         if refused.is_some_and(|r| r.code == "offline") {

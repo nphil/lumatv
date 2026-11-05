@@ -61,6 +61,9 @@ const QUIET: Duration = Duration::from_secs(8);
 /// Pictures that arrive this far behind the clock the stream was caught up by are a stream to dial again.
 const LAG_MAX_MS: i64 = 500;
 const LAG_FOR: Duration = Duration::from_secs(1);
+/// How long a camera on a battery has to send its first picture. Ring's doorbell joins only about half of the live calls it is given; when it joins, the
+/// camera connects 1 to 20 s after the call (7 to 15 s usually) and the first picture comes about a second later; Ring ends a call nobody joined after 20 s.
+const BATTERY_FIRST_PICTURE: Duration = Duration::from_secs(45);
 /// How often the writer says where the picture is.
 const PUBLISH_EVERY: Duration = Duration::from_millis(250);
 /// How long the ES player has, from the first picture given to it, to take one before the camera is tried on NDL's pipeline. The set takes its first picture in
@@ -103,8 +106,17 @@ pub fn default_spec(data_dir: &Path, window: &str, library: &str, idle: Duration
     }
 }
 
+/// How long a dial waits for the stream's description and its first picture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Patience {
+    /// A camera on the mains: the bridge answers in a few seconds.
+    Normal,
+    /// A camera on a battery: it may take [`BATTERY_FIRST_PICTURE`] to wake and join the call.
+    Battery,
+}
+
 /// How a stream address is dialled (a test dials its fake camera on the loopback).
-pub type Dial = Arc<dyn Fn(&str) -> Result<Rtsp, rtsp_client::Error> + Send + Sync>;
+pub type Dial = Arc<dyn Fn(&str, Patience) -> Result<Rtsp, rtsp_client::Error> + Send + Sync>;
 
 /// What went wrong with a stream, in words that name no address: the client's own messages carry the host and port of the stream, and a
 /// stream's address is a capability that is never shown, logged or published.
@@ -130,15 +142,20 @@ pub fn words_of(e: &rtsp_client::Error) -> String {
 
 /// The real dial: RTSP over TCP to a home-network address.
 pub fn real_dial() -> Dial {
-    Arc::new(|address| {
+    Arc::new(|address, patience| {
         let url = Url::parse(address)?;
+        let (reply_timeout, first_picture_timeout) = match patience {
+            // a camera that sends its parameter sets only with the next key picture (not prebuffered): its interval is up to 4 s
+            Patience::Normal => (Duration::from_secs(4), Duration::from_secs(8)),
+            // the bridge holds the DESCRIBE of a battery camera's call for up to 45 s and then refuses it: its answer comes before this gives up
+            Patience::Battery => (BATTERY_FIRST_PICTURE + Duration::from_secs(5), BATTERY_FIRST_PICTURE),
+        };
         Rtsp::connect(
             &url,
             &Options {
                 connect_timeout: Duration::from_secs(3),
-                reply_timeout: Duration::from_secs(4),
-                // a camera that sends its parameter sets only with the next key picture (not prebuffered): its interval is up to 4 s
-                first_picture_timeout: Duration::from_secs(8),
+                reply_timeout,
+                first_picture_timeout,
                 user_agent: "LumaTV".to_owned(),
                 ..Options::default()
             },
@@ -197,6 +214,10 @@ pub struct Plan {
     /// The window type of the feeder this stream plays in (`video`: the compositor's own video window, played on once a claim is granted to it); empty:
     /// the configured one.
     pub window: String,
+    /// The camera runs on a battery: the dial waits up to [`BATTERY_FIRST_PICTURE`] for the picture, the pipeline is loaded only when the picture's description
+    /// has come (the panel is not held for the wait), a dropped stream is not dialled again (every call wakes the camera), and ending the stream hangs the
+    /// call up at once instead of when the dial gives up.
+    pub battery: bool,
     /// Called once, off the caller's path, when this stream is over for any reason (the bridge is told to end its playback session).
     pub on_end: Option<Box<dyn FnOnce() + Send>>,
 }
@@ -1028,15 +1049,41 @@ struct Counters {
     pts_us: AtomicI64,
 }
 
+/// What tells the bridge that a stream is over (`Plan::on_end`), once, from whichever thread gets there first.
+type End = Box<dyn FnOnce() + Send>;
+
+#[derive(Clone, Default)]
+struct Hangup(Arc<Mutex<Option<End>>>);
+
+impl Hangup {
+    fn new(end: Option<End>) -> Self {
+        Self(Arc::new(Mutex::new(end)))
+    }
+
+    fn call(&self) {
+        let end = self.0.lock().take();
+        if let Some(end) = end {
+            end();
+        }
+    }
+}
+
 struct ReaderHandle {
     stop: Arc<AtomicBool>,
     waker: Arc<Waker>,
+    /// A battery camera's reader may sit for 45 s in a dial that nothing can wake: ending it hangs the call up here, so that the bridge closes the dial's
+    /// connection and the camera's session ends with it.
+    hangup: Option<Hangup>,
 }
 
 impl ReaderHandle {
     fn end(&self) {
         self.stop.store(true, Ordering::SeqCst);
         self.waker.wake();
+        if let Some(hangup) = self.hangup.clone() {
+            // the call is a request to the bridge: off the caller's path
+            let _ = thread::Builder::new().name("cameras-live-hangup".to_owned()).spawn(move || hangup.call());
+        }
     }
 }
 
@@ -1139,6 +1186,12 @@ struct Inner {
 }
 
 impl Inner {
+    /// What the pipeline is loaded with before the stream is dialled: nothing for a camera on a battery, whose picture is up to 45 s away (the pipeline is
+    /// loaded when its description comes, and the panel is not held for the wait).
+    fn preload(&self, plan: &Plan) -> Option<StreamInfo> {
+        if plan.battery { None } else { self.expected(plan) }
+    }
+
     /// What the plan's stream is, for loading the pipeline with: the plan's words, with the size the same declaration turned out to have last time.
     fn expected(&self, plan: &Plan) -> Option<StreamInfo> {
         let mut info = stream_of(plan)?;
@@ -1284,7 +1337,7 @@ impl Live {
         let Some(pool) = self.inner.pool.clone() else {
             return Err("the live path is off (cameras.live)".to_owned());
         };
-        let want = self.inner.expected(&plan);
+        let want = self.inner.preload(&plan);
         let mut current = self.inner.session.lock();
         if let Some(session) = current.as_ref()
             && !session.ended()
@@ -1396,7 +1449,7 @@ impl Live {
     }
 
     /// Starts reading the plan's stream into `session`, in place of the one that is read.
-    fn attach(&self, session: &Arc<Session>, plan: Plan) -> Result<(), String> {
+    fn attach(&self, session: &Arc<Session>, mut plan: Plan) -> Result<(), String> {
         session.detach();
         let epoch = session.epoch.fetch_add(1, Ordering::SeqCst) + 1;
         *session.replaced.lock() = Replaced::No;
@@ -1412,7 +1465,7 @@ impl Live {
             playing.sub = plan.sub;
             playing.purpose.clone_from(&plan.purpose);
             playing.window.clone_from(&plan.window);
-            if let Some(want) = self.inner.expected(&plan) {
+            if let Some(want) = self.inner.preload(&plan) {
                 playing.expect = Some(want);
             }
         }
@@ -1447,15 +1500,17 @@ impl Live {
         self.inner.emit(&view);
         let stop = Arc::new(AtomicBool::new(false));
         let waker = Arc::new(Waker::new().map_err(|e| e.to_string())?);
+        let hangup = Hangup::new(plan.on_end.take());
         *session.reader.lock() = Some(ReaderHandle {
             stop: stop.clone(),
             waker: waker.clone(),
+            hangup: plan.battery.then(|| hangup.clone()),
         });
         let (inner, session2) = (self.inner.clone(), session.clone());
         let spawned = thread::Builder::new()
             .name("cameras-live-rtsp".to_owned())
             .stack_size(256 * 1024)
-            .spawn(move || read_stream(&inner, &session2, plan, epoch, &stop, &waker));
+            .spawn(move || read_stream(&inner, &session2, plan, hangup, epoch, &stop, &waker));
         spawned.map(|_| ()).map_err(|e| e.to_string())
     }
 
@@ -2085,13 +2140,15 @@ enum Ended {
 fn read_stream(
     inner: &Arc<Inner>,
     session: &Arc<Session>,
-    mut plan: Plan,
+    plan: Plan,
+    hangup: Hangup,
     epoch: u64,
     stop: &AtomicBool,
     waker: &Waker,
 ) {
     let mode = plan.mode;
-    let mut redials = u8::from(mode == Mode::Live);
+    // a battery camera is not dialled again: every call wakes it, and the bridge's relay takes one client
+    let mut redials = u8::from(mode == Mode::Live && !plan.battery);
     let outcome = loop {
         let outcome = read_once(inner, session, &plan, epoch, stop, waker);
         // a live stream that fell behind or dropped is dialled again, once
@@ -2109,9 +2166,7 @@ fn read_stream(
     };
     let told = stop.load(Ordering::SeqCst) || session.ended();
     // the stream is over: the bridge is told, so that its playback session is free for the next
-    if let Some(end) = plan.on_end.take() {
-        end();
-    }
+    hangup.call();
     if told || !is_current(session, epoch) {
         return;
     }
@@ -2169,7 +2224,8 @@ fn read_once(
     stop: &AtomicBool,
     waker: &Waker,
 ) -> Ended {
-    let mut rtsp = match (inner.deps.dial)(&plan.url) {
+    let patience = if plan.battery { Patience::Battery } else { Patience::Normal };
+    let mut rtsp = match (inner.deps.dial)(&plan.url, patience) {
         Ok(rtsp) => rtsp,
         Err(e) => {
             return if stop.load(Ordering::SeqCst) {
@@ -2518,6 +2574,7 @@ mod tests {
             sub: false,
             purpose: String::new(),
             window: String::new(),
+            battery: false,
             on_end: None,
         };
         assert_eq!(
@@ -2959,6 +3016,94 @@ mod tests {
     }
 
     #[test]
+    fn a_battery_cameras_es_window_starts_with_its_first_picture_not_with_the_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let (inner, session, pool, heard) = a_session_in_a_pool(dir.path());
+        // nothing is loaded before the stream's description: the camera is still waking
+        session.playing.lock().expect = None;
+        let writer = run_writer(&inner, &pool, &session);
+        assert!(heard.recv_timeout(Duration::from_millis(100)).is_err(), "nothing is loaded while the camera wakes");
+        assert!(session.queue.stream(1, SMALL));
+        assert_eq!(next_load(&heard), "es");
+        // far longer than the ES window with no picture: the camera is not given up on
+        assert!(heard.recv_timeout(Duration::from_millis(350)).is_err(), "no retry on NDL before a picture was given");
+        assert!(matches!(session.queue.give(1, unit(true, 0, 100)), Give::Done));
+        assert_eq!(next_load(&heard), "ndl", "the window ran from the picture");
+        session.end(true);
+        writer.join().unwrap();
+    }
+
+    /// A plan of the sort the full view starts, for camera 273.
+    fn live_plan(battery: bool) -> Plan {
+        Plan {
+            camera: "273".into(),
+            mode: Mode::Live,
+            url: "rtsp://192.168.1.69:1/abc".into(),
+            codec: "h264".into(),
+            width: 1280,
+            height: 720,
+            fps: 25,
+            started_at: 0,
+            rate: 1,
+            ndl_app: String::new(),
+            texture: false,
+            sub: false,
+            purpose: String::new(),
+            window: String::new(),
+            battery,
+            on_end: None,
+        }
+    }
+
+    #[test]
+    fn a_battery_plan_is_dialled_with_a_battery_cameras_patience_and_loads_nothing_before_the_stream_says_what_it_is() {
+        let patience = Arc::new(Mutex::new(Vec::new()));
+        let seen = patience.clone();
+        let dial: Dial = Arc::new(move |_, p| {
+            seen.lock().push(p);
+            Err(Url::parse("nonsense").expect_err("not an address"))
+        });
+        let inner = Arc::new(Inner {
+            deps: Deps { feeder: None, dial },
+            pool: None,
+            view: Mutex::new((1, View::default())),
+            session: Mutex::new(None),
+            next: AtomicU64::new(2),
+            publish: Box::new(|_| {}),
+            sizes: Mutex::new(Sizes::default()),
+            pipes: Mutex::new(Pipes::default()),
+            es_window: ES_FIRST_PICTURE,
+        });
+        let (stop, waker) = (AtomicBool::new(false), Waker::new().unwrap());
+        let session = test_session(1, &inner, SMALL);
+        for battery in [true, false] {
+            assert!(matches!(read_once(&inner, &session, &live_plan(battery), 1, &stop, &waker), Ended::Lost(_)));
+        }
+        assert_eq!(*patience.lock(), [Patience::Battery, Patience::Normal]);
+        assert_eq!(BATTERY_FIRST_PICTURE, Duration::from_secs(45));
+        assert!(inner.preload(&live_plan(true)).is_none(), "the pipeline waits for the description of a camera that is waking");
+        assert!(inner.preload(&live_plan(false)).is_some());
+    }
+
+    #[test]
+    fn ending_a_battery_cameras_reader_hangs_the_call_up_once_without_waiting_for_the_dial() {
+        let (told, heard) = std::sync::mpsc::channel();
+        let hangup = Hangup::new(Some(Box::new(move || told.send(()).unwrap())));
+        let reader = ReaderHandle { stop: Arc::new(AtomicBool::new(false)), waker: Arc::new(Waker::new().unwrap()), hangup: Some(hangup.clone()) };
+        reader.end();
+        heard.recv_timeout(Duration::from_secs(5)).expect("the call is hung up");
+        // the reader that finishes later finds nothing left to say
+        hangup.call();
+        assert!(heard.recv_timeout(Duration::from_millis(100)).is_err());
+        // a camera on the mains keeps what it had: the stream's end is what tells the bridge
+        let (told, heard) = std::sync::mpsc::channel();
+        let reader = ReaderHandle { stop: Arc::new(AtomicBool::new(false)), waker: Arc::new(Waker::new().unwrap()), hangup: None };
+        let _keep = Hangup::new(Some(Box::new(move || told.send(()).unwrap())));
+        reader.end();
+        assert!(heard.recv_timeout(Duration::from_millis(100)).is_err());
+    }
+
+    #[test]
     fn a_feeder_that_breaks_again_after_the_replacement_fails_the_session_with_the_cause() {
         let dir = tempfile::tempdir().unwrap();
         let (second, second_peer) = test_feeder(dir.path(), Duration::from_secs(1));
@@ -3003,6 +3148,7 @@ mod tests {
                 sub: false,
                 purpose: String::new(),
                 window: String::new(),
+                battery: false,
                 on_end: None,
             };
             inner.expected(&plan).map(|i| (i.width, i.height))

@@ -8,7 +8,7 @@
 //! | `GET /v1/cameras/{id}/recordings?from=&to=`, `/events?from=&to=&count=`, `/clips?from=&to=&count=` | the bridge's own JSON for the span |
 //! | `GET /v1/cameras/{id}/thumbnail?at=&w=&h=`, `/clip-thumbnail?clip=&w=&h=` | a picture of a recorded moment or a clip |
 //! | `GET /v1/cameras/events/{event}/thumbnail?w=&h=` | the picture of a pushed event |
-//! | `POST /v1/cameras/live {camera, quality?, for?, popup?, window?}` | starts live; the state is the `cameras.live` topic; a new camera ends the old session. `quality` is `native` (the camera's own stream), `balanced` (`medium`) or `light` (`low`). `for: "popup"` is a camera pop-up's picture, always the camera's low stream whatever `quality` says (`popup_stream.rs`: inside 1280x720 at up to 30, else inside 1920x1088 at up to 20, the streams the panel keeps 120 Hz with; none: `501 no_calm_stream`, and the shell draws the pop-up as a texture instead), in the feeder's `cameras.popupWindow` window, the decoder opened for Home (`cameras.ndlApp`); `window: "sub"` (the compositor granted the sub window beside an app's video) loads it in the starfish pipeline asking for the sub sink; `window: "texture"` is the CPU path, the low stream (up to 720p at 30, H.264); `popup` is the card's id, for the log. `for: "full"` is the Cameras full view on a video window (`window` `main` by default): the camera's own stream, up to 4K at its own rate; with `window: "sub"` (the view beside an app's video, which keeps the main window) the best stream inside the sub window's limits, 1920x1088 at 30, as are the recordings and clips asked with the same `window` |
+//! | `POST /v1/cameras/live {camera, quality?, for?, popup?, window?}` | starts live; the state is the `cameras.live` topic; a new camera ends the old session. `quality` is `native` (the camera's own stream), `balanced` (`medium`) or `light` (`low`). `for: "popup"` is a camera pop-up's picture, always the camera's low stream whatever `quality` says (`popup_stream.rs`: inside 1280x720 at up to 30, else inside 1920x1088 at up to 20, the streams the panel keeps 120 Hz with; none: `501 no_calm_stream`, and the shell draws the pop-up as a texture instead), in the feeder's `cameras.popupWindow` window, the decoder opened for Home (`cameras.ndlApp`); `window: "sub"` (the compositor granted the sub window beside an app's video) loads it in the starfish pipeline asking for the sub sink; `window: "texture"` is the CPU path, the low stream (up to 720p at 30, H.264); `popup` is the card's id, for the log. `for: "full"` is the Cameras full view on a video window (`window` `main` by default): the camera's own stream, up to 4K at its own rate; with `window: "sub"` (the view beside an app's video, which keeps the main window) the best stream inside the sub window's limits, 1920x1088 at 30, as are the recordings and clips asked with the same `window` A camera on a battery (`battery` in the camera's entry) is dialled only for the full view the owner opened (`open: true`; no `for` or `for: "full"`): any other call is `409 battery_still_only`, and the shell shows its stills. Its call is waited for up to 45 s, nothing is loaded before its picture's description has come, and `live/stop` hangs the call up at once. |
 //! | `POST /v1/cameras/playback {camera, at, rate?}` or `{camera, clip}` | starts a recording or a clip |
 //! | `POST /v1/cameras/live/stop` | stops live or playback (the pipeline unloads off this path) |
 //! | `POST /v1/cameras/live/pause {paused}` | holds the picture of a recording (Play dials it again where it stopped) |
@@ -77,6 +77,12 @@ fn quality_of(word: &str) -> Option<&'static str> {
         "light" | "low" => Some("light"),
         _ => None,
     }
+}
+
+/// Whether a live call may dial the camera. A camera on a battery starts a call that wakes it, takes up to 45 s to join and drains it, so it is dialled only
+/// for its own full view, and only when the owner opened that view (`open`): never for a pop-up, a grid, a tile, a list or a view that turned to it by itself.
+fn battery_may_dial(battery: bool, purpose: Option<&str>, opened: bool) -> bool {
+    !battery || (opened && matches!(purpose, None | Some("full")))
 }
 
 /// The window the body names for the Cameras full view's picture on a video window (`main`, `sub`); empty when it names none.
@@ -562,8 +568,10 @@ impl Inner {
             }
         };
         let bridge_ms = asked_at.elapsed().as_millis();
+        // a camera on a battery: its live view is a call that wakes it, and the call is hung up when the view ends or is cancelled
+        let battery = mode == Mode::Live && self.camera(camera).is_some_and(|c| c.battery);
         let end_session = |dial: &bridge::Dial| -> Option<Box<dyn FnOnce() + Send>> {
-            (mode != Mode::Live && !dial.session.is_empty()).then(|| {
+            ((mode != Mode::Live || battery) && !dial.session.is_empty()).then(|| {
                 let (bridge, session) = (bridge.clone(), dial.session.clone());
                 Box::new(move || {
                     let _ = bridge.stop_playback(&session);
@@ -576,6 +584,9 @@ impl Inner {
                 end();
             }
             return refused("superseded", "Another stream was asked for meanwhile");
+        }
+        if battery {
+            crate::log_info!("cameras: camera {camera} runs on a battery: its first picture is waited for up to 45 s");
         }
         if !usage.purpose.is_empty() {
             // the stream's address is a capability and is not here: what the bridge says it is, where it will play, and how long the bridge took to answer
@@ -607,6 +618,7 @@ impl Inner {
             sub: usage.sub,
             purpose: usage.purpose,
             window: usage.window,
+            battery,
             on_end: end_session(&dial),
         };
         self.state.lock().side.clone_from(&usage.side);
@@ -633,7 +645,15 @@ impl Inner {
                 None => return error_response(400, "bad_request", "quality is native, balanced or light"),
             },
         };
-        match body.get("for").and_then(Value::as_str) {
+        let purpose = body.get("for").and_then(Value::as_str);
+        let opened = body.get("open").and_then(Value::as_bool) == Some(true);
+        if self.camera(&camera).is_some_and(|c| !battery_may_dial(c.battery, purpose, opened)) {
+            return refused(
+                "battery_still_only",
+                "This camera runs on a battery: it shows its latest picture, and goes live only when its full view is opened",
+            );
+        }
+        match purpose {
             None => {
                 let listing = self.camera(&camera);
                 self.start_stream(&camera, Mode::Live, |bridge| bridge.live_full(&camera, &quality, listing.as_ref()))

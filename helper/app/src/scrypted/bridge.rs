@@ -385,6 +385,9 @@ pub struct Camera {
     /// `camera` or `doorbell`.
     pub kind: String,
     pub online: bool,
+    /// The camera runs on a battery (the bridge's `battery`: Scrypted says so, or the owner did there). Its live view takes up to 45 s to start and every start
+    /// drains the battery, so only the owner opening that camera's full view dials it; everywhere else it shows stills.
+    pub battery: bool,
     pub features: Vec<String>,
     /// The oldest moment the bridge found a recording at, epoch milliseconds.
     pub earliest: Option<i64>,
@@ -457,6 +460,7 @@ pub fn cameras_of(v: &Value) -> Result<Vec<Camera>, Trouble> {
                     "camera".into()
                 },
                 online: c["online"].as_bool().unwrap_or(true),
+                battery: c["battery"].as_bool().unwrap_or(false),
                 features: c["features"]
                     .as_array()
                     .map(|a| {
@@ -926,6 +930,7 @@ mod tests {
             room: None,
             kind: "doorbell".into(),
             online: true,
+            battery: false,
             features: vec!["live".into()],
             earliest: None,
             native: streams.first().cloned(),
