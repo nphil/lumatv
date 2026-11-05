@@ -31,6 +31,40 @@ pub const LEAD_MS: u32 = 500;
 /// milliseconds, which a tick of 400 ms would not show.
 pub const FAST_TICK_MS: u64 = 50;
 pub const FAST_LEAD_MS: u32 = 80;
+/// One way the compositor may be asked to draw a moving sprite ([`step_for`]): the time between its frames, and the most the sprite may travel (pixels) and
+/// fade (opacity) in that time.
+pub struct Step {
+    pub ms: u32,
+    pub px: f32,
+    pub fade: f32,
+}
+
+/// The steps, from the slowest. The sky is nobody's gesture and every frame of it is a pass over the card's layers and a flip of the whole screen: drawn at
+/// the panel's 120 a second it held the set's compositor at 24.8 % of a core and the UI at 6.8 % on an idle Home (3.1 and 1.9 with the sky off). The limits
+/// are what a frame may move a sprite without the eye taking it for a jump: the soft edge of a cloud a pixel and a half at 15 a second, any sprite four at 30
+/// (a long line of wind overlaps itself) and five at 60 (a streak of rain, 20 to 30 pixels long, is moved a fifth of its length). 66, 33 and 16 ms are 8, 4 and
+/// 2 refreshes of a 120 Hz panel, which the compositor's pacer does not take for a slower panel (it takes 40 and 42 ms for 25 and 24 Hz).
+pub const STEPS: [Step; 3] = [
+    Step { ms: 66, px: 1.5, fade: 0.08 },
+    Step { ms: 33, px: 4.0, fade: 0.15 },
+    Step { ms: 16, px: 5.0, fade: 0.25 },
+];
+
+/// The step ([`STEPS`]) a sprite is drawn at while it goes from `here` to `to` in `lead_ms` (what the compositor draws is that straight line): the longest whose
+/// limits the line keeps, or 0, a frame at every refresh, when it is too fast for the shortest. `size`: the sprite's longer side in pixels, which its edges
+/// travel half of for a change of scale.
+pub fn step_for(here: &Props, to: &Props, size: f32, lead_ms: u32) -> u32 {
+    let clip = match (here.clip, to.clip) {
+        (Some(a), Some(b)) => (a.x - b.x).abs().max((a.y - b.y).abs()).max((a.w - b.w).abs()).max((a.h - b.h).abs()),
+        (None, None) => 0.0,
+        _ => f32::INFINITY,
+    };
+    let px = (to.x - here.x).hypot(to.y - here.y) + (to.scale - here.scale).abs() * size / 2.0 + clip;
+    let fade = (to.opacity - here.opacity).abs();
+    let lead = lead_ms as f32;
+    STEPS.iter().find(|s| px * s.ms as f32 <= s.px * lead && fade * s.ms as f32 <= s.fade * lead).map_or(0, |s| s.ms)
+}
+
 /// The opacity of a sky's damage anchor ([`Builder::anchor`]): a four-hundredth of the glass, which no pixel of it shows.
 const ANCHOR_ALPHA: f32 = 0.004;
 /// The design square.
@@ -1193,6 +1227,32 @@ fn veil_props(v: &Veil, origin: (f32, f32), resumed: u64, t: u64) -> Props {
     Props { opacity: a, visible: a > 0.0, ..Props::at(origin.0, origin.1) }
 }
 
+/// How often the paths are restated at the sky's time `u`, and how far ahead each runs: while a moment is on, and for [`LEAD_MS`] before it, every [`FAST_TICK_MS`].
+fn tick_of(schedule: Option<Schedule>, u: u64) -> (u64, u32) {
+    let fast = schedule.is_some_and(|s| s.phase(u as f64).is_some() || s.phase((u + u64::from(LEAD_MS)) as f64).is_some());
+    if fast { (FAST_TICK_MS, FAST_LEAD_MS) } else { (TICK_MS, LEAD_MS) }
+}
+
+/// The path of `p` for the tick at `t`: where it is, where it goes in `lead` and the step the compositor is asked to draw it at ([`step_for`]). `None`: nothing is
+/// asked of it, it does not move or it is a moment's and nothing lights it.
+fn leg(p: &Part, origin: (f32, f32), resumed: u64, t: u64, lead: u32) -> Option<(Props, Props, u32)> {
+    if p.motion == Motion::STILL {
+        return None;
+    }
+    let (here, to) = (props_of(p, origin, resumed, t, None), props_of(p, origin, resumed, t + u64::from(lead), Some(t)));
+    if p.is_moment() && here.opacity <= 0.0 && to.opacity <= 0.0 {
+        return None;
+    }
+    let size = p.raster.w.max(p.raster.h) as f32 * here.scale;
+    Some((here, to, step_for(&here, &to, size, lead)))
+}
+
+/// [`leg`] for a veil, which only fades.
+fn veil_leg(v: &Veil, origin: (f32, f32), resumed: u64, t: u64, lead: u32) -> Option<(Props, Props, u32)> {
+    let (here, to) = (veil_props(v, origin, resumed, t), veil_props(v, origin, resumed, t + u64::from(lead)));
+    (here.opacity > 0.0 || to.opacity > 0.0).then(|| (here, to, step_for(&here, &to, 0.0, lead)))
+}
+
 pub struct Live {
     cond: Cond,
     light: bool,
@@ -1318,8 +1378,7 @@ impl Live {
         if self.resumed == u64::MAX {
             self.resumed = u;
         }
-        let fast = self.schedule.is_some_and(|s| s.phase(u as f64).is_some() || s.phase((u + u64::from(LEAD_MS)) as f64).is_some());
-        let (tick, lead) = if fast { (FAST_TICK_MS, FAST_LEAD_MS) } else { (TICK_MS, LEAD_MS) };
+        let (tick, lead) = tick_of(self.schedule, u);
         let t = u - u % tick;
         if self.running && t == self.last {
             return self.shift + t + tick;
@@ -1327,35 +1386,25 @@ impl Live {
         let begin = !self.running;
         let (origin, resumed, last) = (self.origin, self.resumed, self.last);
         for (i, (p, l)) in self.parts.iter().zip(&self.layers).enumerate() {
-            if p.motion == Motion::STILL {
+            let Some((here, to, step)) = leg(p, origin, resumed, t, lead) else {
+                self.asleep[i] |= p.is_moment();
                 continue;
-            }
-            let to = props_of(p, origin, resumed, t + u64::from(lead), Some(t));
-            let here = if p.is_moment() {
-                let here = props_of(p, origin, resumed, t, None);
-                if here.opacity <= 0.0 && to.opacity <= 0.0 {
-                    self.asleep[i] = true;
-                    continue;
-                }
-                (std::mem::replace(&mut self.asleep[i], false) || begin || p.wrapped(last, t)).then_some(here)
-            } else {
-                (begin || p.wrapped(last, t)).then(|| props_of(p, origin, resumed, t, None))
             };
-            if let Some(here) = here {
+            let put = if p.is_moment() { std::mem::replace(&mut self.asleep[i], false) || begin || p.wrapped(last, t) } else { begin || p.wrapped(last, t) };
+            if put {
                 l.set(here);
             }
-            l.animate(to, lead, Ease::Linear);
+            l.animate_stepped(to, lead, Ease::Linear, step);
         }
         for (i, (v, l)) in self.veils.iter().zip(&self.veil_layers).enumerate() {
-            let (here, to) = (veil_props(v, origin, resumed, t), veil_props(v, origin, resumed, t + u64::from(lead)));
-            if here.opacity <= 0.0 && to.opacity <= 0.0 {
+            let Some((here, to, step)) = veil_leg(v, origin, resumed, t, lead) else {
                 self.veil_asleep[i] = true;
                 continue;
-            }
+            };
             if std::mem::replace(&mut self.veil_asleep[i], false) || begin {
                 l.set(here);
             }
-            l.animate(to, lead, Ease::Linear);
+            l.animate_stepped(to, lead, Ease::Linear, step);
         }
         self.running = true;
         self.last = t;
@@ -1435,6 +1484,60 @@ mod tests {
                 }
             }
         });
+    }
+
+    /// What a sky asks of the compositor over `secs` of its own time, tick by tick as [`Live::step`] restates its paths: the frames a second it wants (the
+    /// shortest step of what moves in a tick; a frame at every refresh counts as the 120 of the panel) and the share of the time spent at none, each of
+    /// [`STEPS`] and every refresh.
+    fn frames_asked(pic: &Picture, secs: u64) -> (f64, [f64; 5]) {
+        let (mut frames, mut share) = (0.0, [0.0; 5]);
+        let mut u = 0;
+        while u < secs * 1000 {
+            let (tick, lead) = tick_of(pic.schedule, u);
+            let t = u - u % tick;
+            let parts = pic.parts.iter().filter_map(|p| leg(p, (0.0, 0.0), 0, t, lead));
+            let veils = pic.veils.iter().filter_map(|v| veil_leg(v, (0.0, 0.0), 0, t, lead));
+            // the shortest step wins, and 0, a frame at every refresh, is the shortest of all
+            let (hz, slot) = match parts.chain(veils).map(|(_, _, step)| step).min() {
+                None => (0.0, 0),
+                Some(0) => (120.0, 4),
+                Some(ms) => (1000.0 / f64::from(ms), 1 + STEPS.iter().position(|s| s.ms == ms).expect("a step of STEPS")),
+            };
+            frames += hz * tick as f64 / 1000.0;
+            share[slot] += tick as f64 / 1000.0;
+            u += tick;
+        }
+        (frames / secs as f64, share.map(|s| s / secs as f64))
+    }
+
+    /// The frames a second each sky asks for on the card's and the view's stage, from how far its sprites go between frames: the numbers of
+    /// `docs/research/sky-cost-result.md` (`cargo test -p lumatv-ui --lib weather_art::tests::the_sky_asks -- --nocapture` prints them). On the card a calm
+    /// sky wants 15 a second, snow and wind 30, and rain 60: a streak of it moves 4 pixels in a frame at 60 a second and 8.6 at 30.
+    #[test]
+    fn the_sky_asks_for_the_frames_that_how_far_it_moves_needs_and_a_calm_one_needs_few() {
+        let (send, receive) = std::sync::mpsc::channel();
+        each_condition(|cond| {
+            for (n, st) in stages().into_iter().enumerate() {
+                let (rate, share) = frames_asked(&picture(cond, st, !cond.day, Pal::standard(!cond.day)), 600);
+                let row = format!(
+                    "{n} {:?} {} heavy {} wind {:5}: {rate:5.1} a second; time at none {:.2}, 66 ms {:.2}, 33 ms {:.2}, 16 ms {:.2}, every refresh {:.2}",
+                    cond.sky, if cond.day { "day  " } else { "night" }, cond.heavy, cond.wind, share[0], share[1], share[2], share[3], share[4]
+                );
+                send.send(row).expect("the receiver is held until every condition is done");
+                if n == 1 {
+                    let (low, high) = match (cond.sky, cond.wind) {
+                        (Sky::Drizzle | Sky::Rain | Sky::Storm, _) => (60.0, 70.0),
+                        (Sky::Snow, _) | (_, true) => (28.0, 36.0),
+                        _ => (14.0, 20.0),
+                    };
+                    assert!((low..=high).contains(&rate), "{cond:?}: {rate:.1} a second on the card (expected {low} to {high})");
+                }
+            }
+        });
+        drop(send);
+        let mut rows: Vec<String> = receive.iter().collect();
+        rows.sort();
+        eprintln!("{}", rows.join("\n"));
     }
 
     /// One pass over every picture at every size (making them is what costs): what is seen at rest is inside its box, the card's and the view's
