@@ -634,7 +634,10 @@ impl Inner {
             },
         };
         match body.get("for").and_then(Value::as_str) {
-            None => self.start_stream(&camera, Mode::Live, |bridge| bridge.live(&camera, &quality)),
+            None => {
+                let listing = self.camera(&camera);
+                self.start_stream(&camera, Mode::Live, |bridge| bridge.live_full(&camera, &quality, listing.as_ref()))
+            }
             Some("popup") => {
                 if !self.config.popup_live {
                     return refused(
@@ -681,11 +684,12 @@ impl Inner {
                 let usage = self.full_usage(&window, "full view", &quality);
                 // beside an app's video the view is on the sub window, which takes less than the camera's own stream may be
                 let sub = window == "sub";
+                let listing = self.camera(&camera);
                 self.start_stream_for(&camera, Mode::Live, usage, |bridge| {
                     if sub {
                         bridge.live_sub(&camera, &quality)
                     } else {
-                        bridge.live(&camera, &quality)
+                        bridge.live_full(&camera, &quality, listing.as_ref())
                     }
                 })
             }

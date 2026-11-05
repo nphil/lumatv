@@ -176,8 +176,14 @@ pub struct Need {
 }
 
 impl Need {
+    /// Whether the window takes it. A portrait picture (a doorbell's) is as large to a decoder on its side, so it also fits where the same picture turned does:
+    /// 1920x2560 takes the main window as 2560x1920 does. [INFERENCE: the codec file's box is the decoder's size limit, not a rule about orientation; the
+    /// main window decoding a portrait 1920x2560 H.264 picture is not yet checked on the set.] Held to the upright box alone, the full view of the Front
+    /// Door doorbell's main stream ended its own claim for being 2560 high, which closed the window its feeder owns.
     pub fn fits(&self, l: Limits) -> bool {
-        self.w <= l.w && self.h <= l.h && self.fps <= l.fps
+        let upright = self.w <= l.w && self.h <= l.h;
+        let on_its_side = self.h > self.w && self.h <= l.w && self.w <= l.h;
+        (upright || on_its_side) && self.fps <= l.fps
     }
 
     pub fn from_json(v: &Value) -> Option<Need> {
@@ -1940,6 +1946,18 @@ mod tests {
         assert_eq!(a.claim("p").unwrap().state, ClaimState::Preempted(Reason::TooBig));
         assert!(!a.update("p", Some(Rect::new(0, 0, 100, 100)), None), "an ended claim is not moved");
         assert!(!a.update("nobody", None, None));
+    }
+
+    #[test]
+    fn a_portrait_picture_fits_where_the_same_picture_on_its_side_does() {
+        let main = limits(0, Codec::H264);
+        let sub = limits(1, Codec::H264);
+        let fits = |w, h, l| Need { codec: Codec::H264, w, h, fps: 25 }.fits(l);
+        assert!(fits(2560, 1920, main) && fits(1920, 2560, main), "the Front Door doorbell's main stream, upright and on its side");
+        assert!(!fits(2304, 4097, main) && !fits(2305, 4096, main), "one pixel over the turned box");
+        assert!(!fits(2560, 1920, sub) && !fits(1920, 2560, sub), "the sub window's box is 1920x1088");
+        assert!(fits(1080, 1920, sub), "a portrait 1080p picture fits the sub window");
+        assert!(!fits(1920, 2560, Limits { w: 4096, h: 2304, fps: 20 }), "the rate is held as before");
     }
 
     #[test]

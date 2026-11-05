@@ -32,6 +32,28 @@ pub fn accept() -> Value {
     json!({"codecs": ["h264", "h265"], "max_width": 4096, "max_height": 2304, "max_fps": 60})
 }
 
+/// What the full view asks of the bridge at `quality`: [`accept`], turned and trimmed for the stream the camera's listing says that quality is.
+/// The decoder's box is 4096x2304 and a portrait picture takes it on its side (`vwin.rs` `Need::fits`: a doorbell's 1920x2560 main stream is as large to the
+/// window as 2560x1920), but the bridge compares width with width, so the box is turned for a portrait stream. The codec list is left out when the listing
+/// gives the stream no codec: the bridge counts such a stream's fit as unknown and picks a smaller one that does name its codec, which is how the Reolink
+/// doorbells' main streams lost to their 640x480 low ones.
+pub fn accept_full(listing: Option<&Camera>, quality: &str) -> Value {
+    let mut accept = accept();
+    let stream = listing.and_then(|c| c.stream(quality).or_else(|| c.native.as_ref().filter(|_| quality == "native")));
+    let Some(stream) = stream else { return accept };
+    if let Some(limits) = accept.as_object_mut() {
+        if stream.height > stream.width && stream.width > 0 {
+            let (w, h) = (limits["max_width"].clone(), limits["max_height"].clone());
+            limits.insert("max_width".into(), h);
+            limits.insert("max_height".into(), w);
+        }
+        if stream.codec.is_empty() {
+            limits.remove("codecs");
+        }
+    }
+    accept
+}
+
 /// What the display's sub window takes (`vwin.rs` `limits`: 1920x1088 at 30 for H.264 and H.265): the Cameras full view shown beside an app's video
 /// plays inside it, the camera's best stream that fits.
 pub fn accept_sub() -> Value {
@@ -151,10 +173,6 @@ pub fn events_stream(motion: bool) -> Request {
         "/v1/events/stream"
     };
     Request::get(path).accepting("text/event-stream")
-}
-
-pub fn live(camera: &str, quality: &str) -> Request {
-    live_within(camera, quality, accept())
 }
 
 /// `POST /v1/live` for a stream inside `accept`.
@@ -557,8 +575,9 @@ impl Bridge {
         cameras_of(&self.json(&cameras())?)
     }
 
-    pub fn live(&self, camera: &str, quality: &str) -> Result<Dial, Trouble> {
-        dial_of(&self.json(&live(camera, quality))?)
+    /// The full view's live stream: `quality`'s, inside what the decoder takes for the stream the camera's listing says that is ([`accept_full`]).
+    pub fn live_full(&self, camera: &str, quality: &str, listing: Option<&Camera>) -> Result<Dial, Trouble> {
+        self.live_within(camera, quality, accept_full(listing, quality))
     }
 
     /// A stream inside the limits `accept` names (a pop-up's window asks for each calm step in turn, `popup_stream`).
@@ -729,7 +748,7 @@ mod tests {
                 && events_stream(true).path.ends_with("motion")
         );
         assert_eq!(events_stream(false).path, "/v1/events/stream");
-        let live = live("273", "native");
+        let live = live_within("273", "native", accept());
         assert_eq!((live.method, live.path.as_str()), ("POST", "/v1/live"));
         let body: Value = serde_json::from_str(live.json.as_deref().unwrap()).unwrap();
         assert_eq!(body["camera"], "273");
@@ -894,5 +913,47 @@ mod tests {
                 "{shown}"
             );
         }
+    }
+
+    fn listed(streams: &[(&str, &str, u32, u32)]) -> Camera {
+        let streams: Vec<Stream> = streams
+            .iter()
+            .map(|(quality, codec, width, height)| Stream { quality: (*quality).into(), codec: (*codec).into(), width: *width, height: *height, fps: 0.0, prebuffered: true })
+            .collect();
+        Camera {
+            id: "104".into(),
+            name: "Front Door".into(),
+            room: None,
+            kind: "doorbell".into(),
+            online: true,
+            features: vec!["live".into()],
+            earliest: None,
+            native: streams.first().cloned(),
+            streams,
+        }
+    }
+
+    #[test]
+    fn the_full_view_asks_for_the_main_stream_with_the_decoders_box_turned_for_a_portrait_one_and_no_codec_list_for_one_that_names_none() {
+        // the Reolink doorbell as Scrypted lists it: a portrait main stream that names no codec, low streams declared landscape
+        let door = listed(&[("native", "", 1920, 2560), ("balanced", "", 896, 672), ("light", "", 640, 480)]);
+        let main = accept_full(Some(&door), "native");
+        assert_eq!((main["max_width"].clone(), main["max_height"].clone(), main["max_fps"].clone()), (json!(2304), json!(4096), json!(60)));
+        assert!(main.get("codecs").is_none(), "{main}");
+        let body: Value = serde_json::from_str(live_within("104", "native", main).json.as_deref().unwrap()).unwrap();
+        assert_eq!((body["camera"].as_str(), body["quality"].as_str(), body["accept"]["max_height"].clone()), (Some("104"), Some("native"), json!(4096)));
+        // the low stream is landscape: the box stays as it is, and the codec list still goes, as the listing names none for it either
+        let light = accept_full(Some(&door), "light");
+        assert_eq!((light["max_width"].clone(), light["max_height"].clone()), (json!(4096), json!(2304)));
+        assert!(light.get("codecs").is_none());
+        // a camera whose main stream names its codec and is landscape is asked as it always was
+        let wide = listed(&[("native", "h264", 2688, 1520), ("balanced", "h264", 1280, 720)]);
+        assert_eq!(accept_full(Some(&wide), "native"), accept());
+        // nothing listed for the camera or the quality: nothing to turn or trim
+        assert_eq!(accept_full(None, "native"), accept());
+        assert_eq!(accept_full(Some(&wide), "light"), accept());
+        // a size the listing does not know is no reason to turn the box
+        let bare = listed(&[("native", "", 0, 0)]);
+        assert_eq!(accept_full(Some(&bare), "native")["max_width"], json!(4096));
     }
 }
