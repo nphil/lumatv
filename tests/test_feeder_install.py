@@ -237,5 +237,31 @@ class Verb(Script):
         self.assertEqual(self.sh("feeder_update")[0], 0, "an update of a package that has none is nothing")
 
 
+class Bundle(unittest.TestCase):
+    """The set's standard install (compositor/tools/build-tv.sh) carries the feeder: staged in the bundle, hashed, and handed to feeder.sh update."""
+
+    def test_the_bundle_stages_the_feeder_its_libraries_and_script_and_hashes_it(self):
+        with tempfile.TemporaryDirectory(prefix="feeder-bundle-") as tmp:
+            built, out = os.path.join(tmp, "arm"), os.path.join(tmp, "deploy")
+            os.makedirs(os.path.join(built, "lib"))
+            os.makedirs(os.path.join(out, "bin"))
+            for path, text in (("lumatv-gfn-feeder", "feeder"), ("lib/libavcodec-lumatv.so.63", "av"), ("../deploy/bin/lumatv-sm", "sm")):
+                with open(os.path.join(built, path), "w") as f:
+                    f.write(text)
+            done = subprocess.run(["sh", os.path.join(REPO, "compositor", "tools", "stage-feeder.sh"), out],
+                                  env=dict(os.environ, FEEDER_BUILD=built), capture_output=True, text=True, timeout=30)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            for path in ("feeder/lumatv-gfn-feeder", "feeder/lib/libavcodec-lumatv.so.63", "feeder/feeder.sh"):
+                self.assertTrue(os.path.isfile(os.path.join(out, path)), path)
+            with open(os.path.join(out, "HASHES")) as f:
+                self.assertEqual([l.split()[1] for l in f], ["bin/lumatv-sm", "feeder/lumatv-gfn-feeder"])
+
+    def test_build_and_install_call_it(self):
+        with open(os.path.join(REPO, "compositor", "tools", "build-tv.sh")) as f:
+            self.assertIn("stage-feeder.sh", f.read())
+        with open(os.path.join(REPO, "compositor", "tools", "tv-cutover.sh")) as f:
+            self.assertIn("feeder.sh update", f.read())
+
+
 if __name__ == "__main__":
     unittest.main()

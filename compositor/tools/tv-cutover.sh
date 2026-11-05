@@ -121,12 +121,18 @@ install)
     # LG's binary has to be the one at its path: with the mount in place the path shows the supervisor.
     if is_mounted; then echo "LumaTV's compositor is mounted over LG's; run disable first"; exit 1; fi
     [ -d "$D/assets/ui" ] || { echo "deploy first: $D/assets/ui is missing"; exit 1; }
+    [ -f "$D/feeder/lumatv-gfn-feeder" ] || { echo "deploy first: $D/feeder is missing"; exit 1; }
     storage_guard "$STATE" "$D/bin" "$D/lib" "$D/assets/ui" "$D/recover-home.sh" "$D/logrelay.py" "$D/verified.list" || { echo "$STORAGE_WHY"; exit 1; }
     mkdir -p $STATE/bin $STATE/lib
     cp $D/bin/lumatv-compositor $D/bin/lumatv-sm $STATE/bin/
     # The Rust shell (a bundle built with `ui`) is looked for beside the compositor, which the supervisor runs from here; one left by an
     # earlier bundle is not kept when this one has none.
     if [ -f $D/bin/lumatv-ui ]; then cp $D/bin/lumatv-ui $STATE/bin/; else rm -f $STATE/bin/lumatv-ui; fi
+    # The camera feeder lives in the app's data directory, not the bundle's: feeder.sh stages it there when `lumatv feeder install` has been run.
+    if [ -f $D/feeder/lumatv-gfn-feeder ]; then
+        sh $D/feeder/feeder.sh update $D/feeder/lumatv-gfn-feeder "${LUMATV_DATA_DIR:-/var/lib/lumatv}" || { echo "feeder update failed"; exit 1; }
+        echo "feeder: $(sha256sum $D/feeder/lumatv-gfn-feeder | cut -d' ' -f1)"
+    fi
     cp $D/recover-home.sh $STATE/bin/recover-home.sh
     cp $D/logrelay.py $STATE/bin/logrelay.py
     cp $D/lib/* $STATE/lib/

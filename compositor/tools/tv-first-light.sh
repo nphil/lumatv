@@ -42,7 +42,7 @@ case "${1:-help}" in
         ls -la /tmp/lumatv-deploy.tgz
         tv "mkdir -p /tmp/lumatv && rm -rf /tmp/lumatv/bin /tmp/lumatv/lib"
         put /tmp/lumatv-deploy.tgz /tmp/lumatv/deploy.tgz
-        tv "cd /tmp/lumatv && tar xzf deploy.tgz && rm deploy.tgz && chmod +x run.sh bin/* && ls -la bin && grep -E 'MemAvailable|CmaFree' /proc/meminfo"
+        tv "cd /tmp/lumatv && tar xzf deploy.tgz && rm deploy.tgz && chmod +x run.sh bin/* && ls -la bin && cat HASHES && grep -E 'MemAvailable|CmaFree' /proc/meminfo"
         ;;
     run)
         tv "sh /tmp/lumatv/run.sh ${2:-all}"

@@ -12,6 +12,8 @@
 #   hwplanes.sh                                     the hardware-planes steps (tools/tv-hwplanes.sh, driven by tools/tv_hwplanes.py)
 #   mvread.sh                                       the read-only Multi View probes: the media server's files, the media stack's words, the pipelines and sinks (tools/tv-multiview-read.sh)
 #   subwindow.sh                                    the sub-window check beside an app's video (tools/tv-subwindow.sh: the feeder in the starfish pipeline asking for the sub sink)
+#   feeder/                                         the camera feeder (gfn/feeder/, 32-bit) with its decoder libraries and feeder.sh; cutover.sh install updates an installed feeder from it
+#   HASHES                                          SHA-256 of bin/* and the feeder, as built
 #   rustjson.py                                     the gate's reader of `ctl shell` (tools/tv-rustjson.py: the rust check, and the QML client's part of the shell check)
 # The bundle is not committed; tools/tv-first-light.sh deploy copies it to /tmp/lumatv on the set. LUMATV_FEATURES names cargo
 # features for the compositor and defaults to `ui` (the engine host, the Rust shell's bin/lumatv-ui and --ui-demo): the deploy that a
@@ -63,6 +65,8 @@ cp "$here/tools/tv-rustjson.py" "$out/rustjson.py"
 cp "$here/tools/tv-multiview-read.sh" "$out/mvread.sh"
 cp "$here/tools/tv-subwindow.sh" "$out/subwindow.sh"
 cp "$here/../docs/research/arch/wlproto_from_elf.py" "$out/wlproto_from_elf.py"
+sh "$here/tools/stage-feeder.sh" "$out"
 chmod +x "$out/bin/"* "$out/run.sh" "$out/scanout-proof.sh" "$out/hwplanes.sh" "$out/subwindow.sh"
+cat "$out/HASHES"
 du -sh "$out"
 ls -la "$out/bin"
