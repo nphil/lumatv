@@ -30,7 +30,10 @@ pub struct LunaState {
     nooperation: crate::nooperation::Timers,
     /// The audio service's volume subscription, and the mute state it last pushed (what Mute toggles from).
     audio_token: Option<u64>,
-    saver_wake_token: Option<u64>,
+    /// The way out of LG's saver (`saverguard`): the wake call in flight, its escalation.
+    pub(crate) saver: crate::saverguard::SaverGuard,
+    /// The standing subscriptions kept alive (`subwatch`).
+    pub(crate) watches: Vec<crate::subwatch::Watch>,
     pub muted: bool,
     /// The tokens of the video calls (placements, properties, mute) that have not been answered yet: (token, method, context). Capped: an answer
     /// that never comes must not grow it.
@@ -113,7 +116,8 @@ impl Default for LunaState {
             power_tokens: Vec::new(),
             nooperation: crate::nooperation::Timers::default(),
             audio_token: None,
-            saver_wake_token: None,
+            saver: crate::saverguard::SaverGuard::default(),
+            watches: Vec::new(),
             cover: CoverLaunch::default(),
             video_calls: Vec::new(),
             guide: crate::lg_guide::Answer::default(),
@@ -163,6 +167,7 @@ impl Power {
             "PowerOffLogoRequest" => {}
             _ => return None,
         }
+        if self.pending.len() >= 16 { self.pending.remove(0); }
         self.pending.push((round.to_string(), ts.clone(), next));
         Some(power::response(round, ts, true))
     }
@@ -177,6 +182,20 @@ impl Power {
 const HOME_UI_TYPES: [&str; 7] = ["toast", "inputAlert", "alert", "pincodePrompt", "quickSetting", "com.webos.app.voiceagent", "com.webos.app.touchremote"];
 
 const AUDIO: &str = "luna://com.webos.service.audio";
+/// LG's saver app (a Flutter client, `com.webos.app.screensaver`).
+const LG_SAVER_APP: &str = "com.webos.app.screensaver";
+
+/// `ctl status`'s `power`: tvpower's state, LG's idle timers, the standing subscriptions, and the way out of LG's saver.
+impl State {
+    pub fn luna_report(&self) -> Value {
+        json!({
+            "state": self.luna_state.power.state, "rendering": self.luna_state.power.rendering,
+            "lgSaver": {"window": self.lg_saver_up(), "present": self.lg_saver_present(), "guard": self.luna_state.saver.report()},
+            "idleTimers": self.luna_state.nooperation.report(std::time::Instant::now()),
+            "subscriptions": self.luna_state.watches.iter().map(crate::subwatch::Watch::report).collect::<Vec<_>>(),
+        })
+    }
+}
 
 impl State {
     pub(crate) fn luna_token(&mut self) -> u64 {
@@ -220,12 +239,16 @@ impl State {
 
     /// Registers with tvpower and subscribes to the audio service's volume state (call once the bridge is up).
     pub fn luna_register(&mut self) {
-        self.luna_state.saver_wake_token = None;
+        self.luna_state.saver = crate::saverguard::SaverGuard::default();
+        self.luna_state.watches.clear();
+        self.luna_state.power_tokens.clear();
+        let now = std::time::Instant::now();
         let calls = power::register_calls();
         let rounds = ["PreparePowerOff", "PreparePowerOn", "PowerOffLogoRequest", "PowerState"];
         for ((uri, payload), round) in calls.into_iter().zip(rounds) {
             let token = self.luna_token();
             self.luna_state.power_tokens.push((token, round));
+            self.luna_state.watches.push(crate::subwatch::Watch::new(crate::subwatch::What::Power(round), uri.clone(), payload.clone(), token, now));
             self.luna.send(ToBridge::Outbound(Outbound { token, uri, payload, subscribe: true }));
         }
         let token = self.luna_token();
@@ -235,17 +258,46 @@ impl State {
         self.vwin_subscribe();
         let token = self.luna_token();
         self.luna_state.nooperation.token = Some(token);
-        self.luna.send(ToBridge::Outbound(Outbound { token, uri: crate::nooperation::TIMER_INFO.into(),
-            payload: json!({"subscribe": true}), subscribe: true }));
+        let payload = json!({"subscribe": true});
+        self.luna_state.watches.push(crate::subwatch::Watch::new(crate::subwatch::What::Timers, crate::nooperation::TIMER_INFO.into(), payload.clone(), token, now));
+        self.luna.send(ToBridge::Outbound(Outbound { token, uri: crate::nooperation::TIMER_INFO.into(), payload, subscribe: true }));
         self.lg_guide_subscribe();
+    }
+
+    /// Makes again each subscription that was refused, never answered, or is due its refresh (`subwatch`).
+    fn watches_tick(&mut self, now: std::time::Instant) {
+        for i in 0..self.luna_state.watches.len() {
+            if !self.luna_state.watches[i].due(now) { continue; }
+            let old = self.luna_state.watches[i].token;
+            let token = self.luna_token();
+            let w = &mut self.luna_state.watches[i];
+            let (what, uri, payload) = (w.what, w.uri.clone(), w.payload.clone());
+            w.restart(token, now);
+            let restarts = w.restarts;
+            match what {
+                crate::subwatch::What::Power(round) => {
+                    if let Some(entry) = self.luna_state.power_tokens.iter_mut().find(|(t, _)| *t == old) { *entry = (token, round); }
+                }
+                crate::subwatch::What::Timers => self.luna_state.nooperation.token = Some(token),
+            }
+            self.luna.send(ToBridge::Cancel { token: old });
+            if restarts <= 3 || restarts % 20 == 0 {
+                self.journal(format!("luna: {uri} subscribed again (try {restarts})"));
+            }
+            self.luna.send(ToBridge::Outbound(Outbound { token, uri, payload, subscribe: true }));
+        }
     }
 
     /// An answer to one of the compositor's own calls: tvpower pushes and the audio service's volume state are the
     /// ones acted on; the shell's calls are answered to it.
     pub fn luna_event(&mut self, ev: Event) {
-        if self.luna_state.saver_wake_token == Some(ev.token) {
-            self.luna_state.saver_wake_token = None;
-            if ev.payload.get("returnValue").and_then(Value::as_bool) == Some(false) {
+        let now = std::time::Instant::now();
+        for w in &mut self.luna_state.watches {
+            if w.note(ev.token, &ev.payload, now) { break; }
+        }
+        let ok = ev.payload.get("returnValue").and_then(Value::as_bool) != Some(false);
+        if self.luna_state.saver.answered(ev.token, ok) {
+            if !ok {
                 self.journal(format!("screensaver: LG wake refused: {}", ev.payload));
             }
             return;
@@ -316,29 +368,78 @@ impl State {
         self.luna_state.power.rendering.then(|| self.luna_state.nooperation.deadline()).flatten()
     }
 
-    pub(crate) fn lg_saver_up(&self) -> bool {
+    /// LG's saver is there: its window is mapped above the app, or tvpower says `Screen Saver` (its window may not be mapped yet).
+    pub fn lg_saver_present(&self) -> bool {
+        self.lg_saver_up() || self.luna_state.power.state.to_ascii_lowercase().contains("screen saver")
+    }
+
+    pub fn lg_saver_up(&self) -> bool {
         self.scene.windows().any(|w| w.kind == WindowType::Screensaver
             && w.state != crate::window::ShellState::Minimized && w.map_serial > 0
             && self.surfaces.get(w.surface).is_some_and(|s| s.is_mapped()))
     }
 
+    /// LG's saver has the keys: it is there and has not been given up on (`saverguard`).
+    pub fn lg_saver_engaged(&self) -> bool {
+        self.luna_state.saver.holds_keys(self.lg_saver_present())
+    }
+
+    /// A key or the pointer while LG's saver may be up: ask tvpower to end it, and when that does not, close its app and then stop
+    /// swallowing the keys and hide its window (`saverguard`).
     pub(crate) fn wake_lg_saver(&mut self) {
-        if self.luna_state.saver_wake_token.is_some() || !self.lg_saver_up() { return; }
-        let token = self.luna_token();
-        self.luna_state.saver_wake_token = Some(token);
-        self.luna.send(ToBridge::Outbound(Outbound { token,
-            uri: "luna://com.webos.service.tvpower/power2/turnOnScreen".into(),
-            payload: json!({}), subscribe: false }));
+        self.wake_lg_saver_at(std::time::Instant::now());
+    }
+
+    pub fn wake_lg_saver_at(&mut self, now: std::time::Instant) {
+        let step = self.luna_state.saver.input(self.lg_saver_present(), now);
+        self.apply_saver_step(step, now);
+    }
+
+    fn apply_saver_step(&mut self, step: crate::saverguard::Step, now: std::time::Instant) {
+        if step.wake {
+            let token = self.luna_token();
+            self.luna_state.saver.sent(token, now);
+            self.luna.send(ToBridge::Outbound(Outbound { token,
+                uri: "luna://com.webos.service.tvpower/power2/turnOnScreen".into(),
+                payload: json!({}), subscribe: false }));
+        }
+        if step.close {
+            self.journal("screensaver: still up 3 s after a key; its app is asked to close".into());
+            self.close_app(LG_SAVER_APP);
+            self.luna_call("luna://com.webos.applicationManager/closeByAppId".into(), json!({"id": LG_SAVER_APP, "reason": "windowPolicy"}));
+        }
+        if step.abandon {
+            let ids: Vec<_> = self.scene.windows().filter(|w| w.kind == WindowType::Screensaver).map(|w| w.id).collect();
+            for id in ids {
+                if let Some(w) = self.scene.window_mut(id) { w.state = crate::window::ShellState::Minimized; }
+            }
+            crate::server::webos_shell::sync_exposed(self);
+            crate::server::seat::refocus(self);
+            self.luna_notify();
+            self.journal("screensaver: still up 6 s after a key; its window is hidden and the keys go to the app under it".into());
+        }
     }
 
     pub(crate) fn nooperation_activity(&mut self) {
         self.luna_state.nooperation.activity(std::time::Instant::now());
     }
 
-    /// Runs even when no frames are drawn. LG still decides whether media permits the saver.
+    /// Runs even when no frames are drawn: the standing subscriptions kept alive, the end of a saver episode seen, and LG's idle timers
+    /// reported. LG still decides whether media permits the saver.
     pub fn nooperation_tick(&mut self) {
-        if !self.luna_state.power.rendering { return; }
-        let now = std::time::Instant::now();
+        self.nooperation_tick_at(std::time::Instant::now());
+    }
+
+    pub fn nooperation_tick_at(&mut self, now: std::time::Instant) {
+        self.watches_tick(now);
+        let present = self.lg_saver_present();
+        if self.luna_state.power.rendering {
+            let step = self.luna_state.saver.tick(present, now);
+            self.apply_saver_step(step, now);
+        } else {
+            self.luna_state.saver.observe(present);
+            return;
+        }
         while let Some(kind) = self.luna_state.nooperation.expired(now) {
             let payload = json!({"type": kind, "status": "expired"});
             self.luna_call(crate::nooperation::TIMER_EXPIRED.into(), payload);

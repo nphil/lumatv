@@ -71,6 +71,16 @@ impl Timers {
     fn reschedule(&mut self) {
         self.next = self.timers.iter().filter_map(|t| t.due).min();
     }
+
+    /// `ctl status`: what LG's idle timers are and when each is due (a list that is empty on a set whose Screen Saver timer is on says the
+    /// subscription never delivered).
+    pub fn report(&self, now: Instant) -> Value {
+        let timers: Vec<Value> = self.timers.iter().map(|t| serde_json::json!({
+            "type": t.kind, "intervalSec": t.interval.as_secs(), "once": t.once, "repeat": t.repeat,
+            "dueInSec": t.due.map(|d| d.saturating_duration_since(now).as_secs()),
+        })).collect();
+        serde_json::json!({"subscribed": self.token.is_some(), "timers": timers})
+    }
 }
 
 #[cfg(test)]

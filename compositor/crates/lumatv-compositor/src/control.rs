@@ -28,8 +28,10 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             let mut oledcare = state.scene.care.status(now);
             oledcare["boxDim"] = state.scene.boxdim.report(now, &state.scene.care.settings.boxdim);
             oledcare["panelDim"] = state.panel.status();
+            let power = state.luna_report();
             json!({
             "ok": true,
+            "power": power,
             "summary": state.summary(),
             "output": state.output.name(),
             "buffers": format!("{:?}", state.buffer_path()),

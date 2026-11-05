@@ -61,6 +61,37 @@ launch_home() {
     fi
 }
 
+# The panel's OLED pixel brightness a compositor killed under a dim (the saver's) left behind: its journal, paneldim.json, holds the
+# user's value, the value it wrote and the picture mode and input they belong to. The supervisor's SIGKILL of a hung compositor is the case;
+# the helper's watch and a restarted LumaTV do the same, and each puts back only a value that is still the one written, so it is safe in
+# any order. Only the settings service is called.
+PANELDIM_JOURNAL=${LUMATV_PANELDIM_JOURNAL:-/var/lib/lumatv/paneldim.json}
+journal_num() { printf '%s' "$1" | sed -n "s/.*\"$2\":\([0-9][0-9]*\).*/\1/p" 8>&-; }
+journal_str() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" 8>&-; }
+restore_panel() {
+    [ -r "$PANELDIM_JOURNAL" ] || return 0
+    pj=$(cat "$PANELDIM_JOURNAL" 8>&-) || return 0
+    orig=$(journal_num "$pj" orig); written=$(journal_num "$pj" written); cpid=$(journal_num "$pj" pid)
+    [ -n "$orig" ] && [ -n "$written" ] || return 0
+    if [ -n "$cpid" ] && grep -q lumatv-compositor "/proc/$cpid/cmdline" 2>/dev/null; then return 0; fi
+    mode=$(journal_str "$pj" pictureMode); input=$(journal_str "$pj" input)
+    dim=
+    [ -z "$mode" ] || [ -z "$input" ] || dim=",\"dimension\":{\"pictureMode\":\"$mode\",\"input\":\"$input\"}"
+    now=$(bounded 8 luna-send -n 1 luna://com.webos.service.settings/getSystemSettings "{\"category\":\"picture\",\"keys\":[\"backlight\"]$dim}" 2>/dev/null | sed -n 's/.*"backlight"[^0-9]*\([0-9][0-9]*\).*/\1/p')
+    if [ -z "$now" ]; then say "panel brightness not read; the journal stays for the helper"; return 0; fi
+    if [ "$now" != "$written" ]; then
+        rm -f "$PANELDIM_JOURNAL"
+        say "panel brightness is $now, not the $written a dim wrote: left alone"
+        return 0
+    fi
+    if bounded 8 luna-send -n 1 luna://com.webos.service.settings/setSystemSettings "{\"category\":\"picture\",\"settings\":{\"backlight\":\"$orig\"}$dim}" 2>/dev/null | ls_ok; then
+        rm -f "$PANELDIM_JOURNAL"
+        say "panel brightness put back to $orig from the dim's $written"
+    else
+        say "panel brightness not put back; the journal stays for the helper"
+    fi
+}
+
 # Hold the lock through the complete recovery, including visibility checks. A
 # later stock request may run sequentially: an already-listed Home can still be
 # the cached transparent stub and must not bypass the restored stock GUI restart.
@@ -75,6 +106,7 @@ stock_yield
 recovery_pass() {
 if [ "$stock" = 1 ]; then
     generation=$(stock_generation)
+    restore_panel
     n=0
     while has_budget && grep -q ' /usr/bin/surface-manager ' /proc/self/mountinfo 8>&- && [ "$n" -lt 10 ]; do
         pause; n=$((n+1))

@@ -815,7 +815,7 @@ impl State {
         // Told over LG's Input Manager queue that the pointer shows (`im_queue`), lginput2 sends the wheel's press as the mouse button, BTN_LEFT, in
         // place of KEY_ENTER (entries 0 and 185 of its key table). It is the same OK: a click while the pointer shows, the key when it hid first.
         let code = if code == seat::BTN_LEFT { code::KEY_ENTER } else { code };
-        let saver_up = self.lg_saver_up();
+        let saver_up = self.lg_saver_engaged();
         self.care_input();
         if saver_up {
             if pressed {

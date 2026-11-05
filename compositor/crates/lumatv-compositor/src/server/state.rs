@@ -662,11 +662,13 @@ impl State {
         }
         self.panel.settings = self.scene.care.settings.paneldim;
         self.panel.set_bridge(self.luna.is_connected());
+        // LG's own saver over an app is a saver of its own, with its own burn-in care: the app under it is not dimmed, shifted or sampled
+        let lg_saver = self.lg_saver_up();
         let State { scene, surfaces, output, stats, shell_rust, screencap, panel, .. } = self;
         scene.care.refresh(now_ns);
         // while the panel is the one dimming Home, Home is drawn at full brightness (and may go to the plane whole)
         scene.care.panel_carry = panel.carries() || panel.dimmed();
-        scene.care.saver = shell_rust.ui_state.get("saver").and_then(serde_json::Value::as_bool) == Some(true);
+        scene.care.saver = lg_saver || shell_rust.ui_state.get("saver").and_then(serde_json::Value::as_bool) == Some(true);
         scene.boxdim.capturing = screencap.armed();
         // A box dim sample the GPU has finished (`boxdim`): judged before this plan, so what it saw changed is in this frame.
         if scene.boxdim.in_flight() {
