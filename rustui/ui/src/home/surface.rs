@@ -2038,11 +2038,12 @@ mod tests {
                     for (i, k) in ["down", "down", "down"].into_iter().enumerate() {
                         press(&mut home, k, 2000 + i as u64 * 100);
                     }
-                    for n in 0..14 {
-                        press(&mut home, key, 2400 + n * 100);
-                    }
+                    // a tile short of the row's end: one press further would roll over to the next row
                     let cols = home.dock.cols();
                     let want = if last { cols - 1 } else { 0 };
+                    for n in 0..home.dock.index.abs_diff(want) {
+                        press(&mut home, key, 2400 + n as u64 * 100);
+                    }
                     assert_eq!(home.dock.index, want, "{mode:?} {scale}: the end of the row");
                     home.update(&Input::Tick, 4000);
                     let mut s = HomeSurface::new(1000);

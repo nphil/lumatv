@@ -264,6 +264,17 @@ impl Dock {
         true
     }
 
+    /// The tile Left (`dx` -1) or Right (1) rolls over to: past a row's last tile the next row's first, before its first the row above's
+    /// last, so the arrows read the dock like text. `None` away from a row's edge and at the two ends of the dock, where the focus holds.
+    pub fn rolled(&self, dx: i32) -> Option<usize> {
+        let cols = self.cols();
+        match dx {
+            1 if self.index % cols == cols - 1 && self.index + 1 < self.points.len() => Some(self.index + 1),
+            -1 if self.index % cols == 0 && self.index > 0 => Some(self.index - 1),
+            _ => None,
+        }
+    }
+
     /// The tile nearest an x on the dock's top visible row (entering from a card above): the column under `x`.
     pub fn nearest_in_row(&self, x_in_card: f32) -> usize {
         let cols = self.cols();
@@ -434,6 +445,31 @@ mod tests {
         assert_eq!(d.index, 3);
         d.focus(0);
         assert!(!d.begin_move(), "LG's Apps tile stays first");
+    }
+
+    #[test]
+    fn left_and_right_roll_over_between_rows_and_hold_at_the_two_ends_of_the_dock() {
+        let mut d = Dock::default();
+        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 392);
+        let list: Vec<Value> = (0..30).map(|i| lp(&format!("app{i}"), "App")).collect();
+        d.set_points(&list, &json!({}));
+        assert_eq!((d.cols(), d.visible_rows(), d.total_rows()), (12, 2, 3));
+        for (at, dx, to) in [(11, 1, Some(12)), (12, -1, Some(11)), (23, 1, Some(24)), (24, -1, Some(23)), (5, 1, None), (5, -1, None), (29, 1, None), (0, -1, None)] {
+            d.focus(at);
+            assert_eq!(d.rolled(dx), to, "{dx} from {at}");
+        }
+        // a row that ends the list has nothing to roll to
+        d.set_points(&list[..12], &json!({}));
+        d.focus(11);
+        assert_eq!(d.rolled(1), None);
+        // the target is in view once the focus lands on it: the dock's top row follows the focus up and down
+        d.set_points(&list, &json!({}));
+        d.focus(23);
+        d.focus(d.rolled(1).unwrap());
+        assert_eq!((d.row_of(d.index), d.scroll_row), (2, 1));
+        d.focus(12);
+        d.focus(d.rolled(-1).unwrap());
+        assert_eq!((d.row_of(d.index), d.scroll_row), (0, 0));
     }
 
     #[test]

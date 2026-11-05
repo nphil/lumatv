@@ -1410,7 +1410,18 @@ impl Home {
                     self.focus_lowest_card_by_x(x);
                 }
                 (_, Some(d)) => {
-                    if let Moved::To(_, to) = self.focus.step(d)
+                    let roll = match d {
+                        Dir::Left => self.dock.rolled(-1),
+                        Dir::Right => self.dock.rolled(1),
+                        _ => None,
+                    };
+                    if let Some(i) = roll {
+                        // past a row's end the focus goes to the next row's first tile; the dock scrolls to it and the glide eases on the shared flow
+                        self.focus.key();
+                        self.dock.focus(i);
+                        self.register_dock();
+                        self.focus.focus(Id(DOCK_ID + i as u32));
+                    } else if let Moved::To(_, to) = self.focus.step(d)
                         && let Some(i) = Self::dock_index_of(to)
                     {
                         self.dock.focus(i);
@@ -3631,6 +3642,40 @@ mod tests {
         assert_eq!(h.state()["widgetFocusId"], "clock");
         press(&mut h, "up", 2850);
         assert_eq!(h.state()["focusLayer"], "statusbar");
+    }
+
+    #[test]
+    fn right_at_the_end_of_a_dock_row_rolls_over_to_the_next_row_and_left_at_its_start_comes_back() {
+        let mut h = home();
+        let mut lps = vec![json!({"id": APPS_TILE, "title": "Apps", "unmovable": true, "icon": "/a.png"})];
+        lps.extend((1..30).map(|n| json!({"id": format!("app{n}"), "title": format!("App {n}"), "icon": "/a.png", "iconColor": "#101010"})));
+        h.update(&Input::Luna { tag: LP_TAG, payload: json!({"launchPoints": lps}) }, 1100);
+        let cols = h.dock.cols();
+        assert_eq!((cols, h.dock.points.len(), h.dock.visible_rows()), (12, 30, 2));
+        let at = |h: &mut Home, i: usize| {
+            h.dock.focus(i);
+            h.register_dock();
+            h.focus.focus(Id(DOCK_ID + i as u32));
+        };
+        at(&mut h, cols - 1);
+        press(&mut h, "right", 2000);
+        assert_eq!((h.dock.index, h.focus.current()), (cols, Some(Id(DOCK_ID + cols as u32))), "the next row's first tile");
+        press(&mut h, "left", 2100);
+        assert_eq!((h.dock.index, h.focus.current()), (cols - 1, Some(Id(DOCK_ID + cols as u32 - 1))), "the row above's last tile");
+        press(&mut h, "left", 2200);
+        assert_eq!(h.dock.index, cols - 2, "inside a row the arrows are as before");
+        at(&mut h, 0);
+        press(&mut h, "left", 2300);
+        assert_eq!(h.dock.index, 0, "the start of the dock holds");
+        at(&mut h, 29);
+        press(&mut h, "right", 2400);
+        assert_eq!(h.dock.index, 29, "the end of the dock holds");
+        // onto a row that is below the two shown: the dock scrolls to it and the tile is registered inside the card
+        at(&mut h, 2 * cols - 1);
+        press(&mut h, "right", 2500);
+        let (card, tile) = (h.dock_rect().unwrap(), h.focus.frame(Id(DOCK_ID + 2 * cols as u32)).unwrap());
+        assert_eq!((h.dock.index, h.dock.scroll_row), (2 * cols, 1));
+        assert!(tile.y >= card.y as f32 && tile.bottom() <= (card.y + card.h) as f32, "{tile:?} in {card:?}");
     }
 
     #[test]
