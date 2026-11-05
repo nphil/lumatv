@@ -480,7 +480,7 @@ mod tests {
             (
                 "HTTP/1.1 503 Service Unavailable".to_owned(),
                 "807 No Video Data".to_owned(),
-                "no signal: no picture (2.4 is not on air)".to_owned()
+                "no signal: no picture (2.4)".to_owned()
             ),
             "a channel that sends no picture"
         );

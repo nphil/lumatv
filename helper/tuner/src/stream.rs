@@ -131,8 +131,8 @@ pub struct Limits {
     /// Measured on the set on 2026-11-05 over its 59 channels: the first picture packet came 0.1 to 0.7 s after routing, the first whole
     /// picture up to 2.2 s (36.4). An HDHomeRun gives up on a program after 5 s.
     pub first_picture: Duration,
-    /// How long a channel found off the air (no lock, not in its multiplex, no picture) is left out of the lineup and refused at once. A weak
-    /// RF channel comes and goes: 30.1 lost most of its packets at 14:24 that day and none at 14:47.
+    /// How long a channel found off the air (no lock, tables that do not come whole or do not list it, no whole picture) is left out of the
+    /// lineup and refused at once. A weak RF channel comes and goes: 30.1 lost most of its packets at 14:24 that day and none at 14:47.
     pub off_air: Duration,
 }
 
@@ -484,7 +484,7 @@ impl Facade {
         let mut tap = self.hw.tune(&entry.channel_id)?;
         let tuned = (self.clock)();
         let wait = self.limits.section_wait;
-        let no = |what: &str| Failure::NoSignal(format!("{what} ({} is not on air)", entry.guide));
+        let no = |what: &str| Failure::NoSignal(format!("{what} ({})", entry.guide));
         // The tables are read as soon as the frontend has locked. The previous multiplex's could still be on the demux for a moment (not
         // seen on the set on 2026-11-05: the first PAT after the lock was always the new multiplex's), so tables that do not name the
         // channel are read again until `wait` has passed.
@@ -492,12 +492,15 @@ impl Facade {
             if let Some(f) = given_up() {
                 return Err(f);
             }
+            // a table that is not read whole within `wait` is a weak signal (on RF 29 the same afternoon, with the demod counting packet
+            // errors, five 16.x channels' tables did not come whole in 6 s); one read whole without the channel is a multiplex without it
             let found = channels_of(tap.as_mut(), wait)
+                .ok_or("no whole channel table")
                 .and_then(|all| {
                     all.into_iter()
                         .find(|c| (c.major, c.minor) == (entry.major, entry.minor))
+                        .ok_or("the multiplex does not list the channel")
                 })
-                .ok_or("the multiplex does not list the channel")
                 .and_then(|channel| {
                     let pat = tap
                         .section(psi::PID_PAT, psi::TID_PAT, 0, wait)
@@ -1302,14 +1305,25 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_multiplex_that_does_not_carry_the_channel_is_no_signal() {
-        let time = Time::default();
-        let mut mux = rf32(&[]);
-        mux.tvct = vec![tvct(739, &[("WSB-HD", 2, 1, 1, false)])];
-        let fake = fake_with(&time, mux, vec![]);
-        let got = facade(&fake, &time).open("2.4", PLEX).err();
-        assert!(matches!(got, Some(Failure::NoSignal(_))), "{got:?}");
-        assert_eq!(fake.released.load(Ordering::Relaxed), 1);
+    fn a_multiplex_that_does_not_carry_the_channel_or_whose_table_does_not_come_whole_is_no_signal()
+    {
+        for (tables, why) in [
+            (
+                vec![tvct(739, &[("WSB-HD", 2, 1, 1, false)])],
+                "the multiplex does not list the channel (2.4)",
+            ),
+            (vec![], "no whole channel table (2.4)"),
+        ] {
+            let time = Time::default();
+            let mut mux = rf32(&[]);
+            mux.tvct = tables;
+            let fake = fake_with(&time, mux, vec![]);
+            assert_eq!(
+                facade(&fake, &time).open("2.4", PLEX).err(),
+                Some(Failure::NoSignal(why.into()))
+            );
+            assert_eq!(fake.released.load(Ordering::Relaxed), 1);
+        }
     }
 
     #[test]
