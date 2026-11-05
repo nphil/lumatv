@@ -4,7 +4,7 @@ Nitin asked on 2026-11-05 for the TV's own broadcast feed to reach Plex (or some
 
 ## Verdict
 
-**Feasible, and measured: a transport stream of one antenna program was read from the set's kernel while the panel was off.** LG's windowless pipeline retunes the frontend, a second demux channel and a PVR download carry the program, and LG's own HAL supplies the certificate. The TV's own Live TV outranks it and takes the tuner at once. The helper has the facade built behind a setting that is off (`helper/app/src/hdhr/`); it has not yet run on the set.
+**Feasible, and measured: a transport stream of one antenna program was read from the set's kernel while the panel was off.** LG's windowless pipeline retunes the frontend, a second demux channel and a PVR download carry the program, and LG's own HAL supplies the certificate. The TV's own Live TV outranks it and takes the tuner at once. The helper has the facade behind a setting that is off by default (`helper/app/src/hdhr/`); switched on, it served Plex on 2026-11-05 (below, Plex).
 
 | Gate | Result | Evidence |
 |---|---|---|
@@ -102,6 +102,8 @@ Plex (on BeastNAS) reaches the TV on the LAN and the stream goes straight from t
 
 To add it: Settings, "Live TV for Plex", switch "Share the antenna tuner" on (it is off by default; the listener binds the TV's private address, port 5004, private networks only); in Plex, Live TV & DVR, set up, enter `<the TV's address>:5004`, and pick the channels. `hdhr` in `helper.json` holds the rest, all optional: `port` (5004), `bind`, `allowedNets`, `python` (the 32-bit one), `dvbDir`, `channel` (the demux channel, 2: LG's own stack keeps 0), `settleMs` (2000), `macFile`.
 
+Measured on 2026-11-05 with Plex 1.43.5 on BeastNAS and a559ccb3 on the set: Plex added the device by address and read the 57 channels; its 30311 antenna guide ("Local Broadcast Listings") matched 53, all with listings, and not 35.2, 35.3, 36.4 or 66.1. Plex takes `HDTC-2US` for a transcoding tuner and offers "Transcoder Quality"; the facade cannot transcode and sends the broadcast as is, so the device is set to "Original format". A tune of 2.4 answered in 4.6 s and streamed 82 s: 2.5 MB left the TV in 10 s and Plex cut one HLS segment a second (MPEG-2 720x480, AC-3 stereo, 2.4 Mb/s). Cancelling the grab closed the connection and the helper's pipeline went. Plex's transcoder must be able to write its session folder: no Live TV starts without it.
+
 ## Risks
 
 - **Contention.** One tuner, and LG's own use wins, at once: opening Live TV unrealizes the helper's pipeline (P3), in standby with the panel off too. A stream moves the TV's last channel (restored at the end of the stream, and by the cleanup of a failed tune). A retune for Plex drops whatever the owner had locked. The helper notices through the foreground app, UMS's list and its own pipeline's state, not through the packets (P3). Plex sees the stream end and keeps a partial recording.
@@ -115,8 +117,8 @@ To add it: Settings, "Live TV for Plex", switch "Share the antenna tuner" on (it
 
 ## Not yet measured
 
-- The helper's Rust path on the set (ioctls, the held opener, restore); it mirrors `tap.py` and the luna calls above and is tested here against fakes only. Install it from `main` after a release.
-- Plex end to end: add the device, scan, watch live, record, on BeastNAS with a Plex Pass.
+- The restore to another last channel: the one stream through Plex was of the last channel itself.
+- Plex: playback in a Plex app (the run drove Plex's API), a recording, and Plex's handling of the facade's 503 and 403.
 - Sound during a stream (above), and a stream while an app plays video.
 - Two clients on one RF channel: not built (the second is refused).
 - Time to first byte for a retune; the probes took about 4 s from `changeChannel` to the first packet.
