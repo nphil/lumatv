@@ -152,6 +152,29 @@ Findings:
 - The helper's `lumatv-gfn-feeder --serve` stays up while a camera pop-up plays, and `tv-retime-probe.py play` then answers "not ready"; pop-ups off does not remove one already up.
 - Back from a camera's full view returns to Home, not to the Cameras grid.
 
+## TV session 2026-11-05 (overnight, main b1858b27)
+
+Installed 02:42 EST from b1858b27 (on origin and forge main) through `build-tv.sh`, `tv-first-light.sh deploy`, cutover disable/install/probe/enable, `tools/lumatv`, the launcher files and the helper. Installed sha256 (first 8): compositor `df040047`, ui `65b703e4`, sm `65f6ca69`, helper `d5de74e2`, `tools/lumatv` `56899321`. Native stub program built from the tree: `1a9e47e2`. Receipts: `/data/home/tmp/lumatv-tv-20261105a/`. `ctl retime` no longer exists. The TV ends in Active Standby with boot direct on and the web Home stub.
+
+Checks:
+- Install health PASS: live, mounted, persistent, failures 0, settled. `check-boot.py --now` ends FAIL on its boot-line criterion alone (no reboot since the boot began at 23:04).
+- Native Home stub FAIL twice (17 PASS, 1 FAIL, 1 not run, 33 s): `launch-over-app` (a launch of Home over HDMI 2 is not heard by the compositor, front stays HDMI 2), wake NOT RUN (LG's panel refresh due). RSS 52 kB, PSS 40 kB. The web stub is back; no reboot with native was tried.
+- Camera rate PASS on the clips: 25 declared as 30 holds 120 Hz (decoder 30), the unchanged 25 clip goes to 100 Hz and holds it, 30 and 60 fps clips hold 120 Hz (decoder 30 and 60). The real camera (196, 1280x720) was in family in the second run: re-declared, decoder as declared, 120 Hz during and after, 15.1 pictures a second.
+- `isGameMode`: picture mode (read-only poll, about 12 Hz) is filmMaker before and after, and `game` for the whole of every clip and of the camera's full view (colour temperature -50 to 0, gamma high2 to medium, backlight 75 to 90, colour 50 to 55). Gamut stayed `auto` and local dimming `low`.
+- Weather memory probe PASS with `LATE=1` (the verdict is on the row 10 s after close: UI Pss +0.9 MiB, layer files +0, helper worker +0.9 MiB, compositor RSS below baseline). A run without `LATE` failed on compositor RSS alone (203 MB against 186 MB + 8 MB, 5 s after close); the compositor's baseline moved between 147 and 273 MB across runs. GPU KiB not readable.
+- Idle Home, Nitin's profile, 60 s, saver off: compositor 7.17 % and UI 4.36 % of one core (11.5 % together, target 8, FAIL); session 6 baseline 27.8 % and 8.3 %. 24.2 flips a second, panel 119.91 Hz, GPU 13.6 % busy.
+- 120 Hz gate, 3 cycles: home-idle and home-dpad PASS, quick, settings-scroll and home-widgets FAIL as in session 5. Dropped: settings-scroll 10 (5: 6), home-widgets 1 (5: 4); burst over 20 ms: quick 2 (3), settings-scroll 11 (12), home-widgets 15 (9); quick burst end 192.9 ms (176.4).
+- Prime Video (`amazon`) is in the dock. The dock also lists HDMI 2 twice.
+- Standby 03:04, held 16 min, `powerOn` 03:20: Home (LumaTV's) in front, failures 0, `homeDrawn` true. `power/turnOnScreen` answered -102 in Active sub state; the wake did not need it.
+
+Findings (probes on main that do not run on the set as written):
+- `tv-camera-rate-probe.py` imports `statistics`, which the set's python lacks; only `mode()` is used.
+- `wx-memory-probe.sh` looks for a process named `lumatv-rustui` (it is `lumatv-ui`), reads `--shm` from the command line (the UI gets `LUMATV_UI_SHM` in its environment), calls the compositor binary without its loader, and measures the first `lumatv-helper` process, which is the 220 kB supervisor and not the worker.
+- Picking the weather card needs Home's focus on the status bar; after a run the focus stays on the card and the next run opens another card.
+
+Recovery: `lumatv homestub-kind web`, `lumatv boot-direct off`, hold Home 10 s.
+
+
 ## Current maintenance state (2026-10-31 EDT)
 
 The proposals reuse existing Lucent CSS, Manrope and audio assets. Seven 1920×1080 scale-1 renders were inspected in Cody’s visible shared Chromium: `shots/review-toast-dark.png`, `shots/review-toast-light.png`, `shots/review-audio-atmos-dark.png`, `shots/review-audio-dts-dark.png`, `shots/review-audio-dtsx-bright.png`, `shots/review-audio-dolby-light.png` and `shots/review-audio-stereo-dark.png`. Toast proposal is approximately 320×65 px with 24 px text and one bare check, versus the old 520–760×96 px and 27 px title with a 64 px tile. Audio uses original PNG glyphs left of the number and track in one floating group at the existing bottom position. Light/dark and 200% text showed no overlap or overflow; fonts loaded, browser errors were absent and conservative ink-contrast bounds exceeded 7. Evidence: `/data/home/tmp/lumatv-wake-install.ms6eh5iv/review-render-proof.json`. These are illustrations, not TV acceptance or behavior changes.
@@ -1058,25 +1081,3 @@ Prior art worth reading before designing anything new:
   binary from a newer release without owning that set), plus buildroot trees
   and `nsu_emu`, an update-server emulator. Nothing needed for this project,
   but it is where to look when a question is "what changed in firmware X".
-
-## TV session 2026-11-05 (overnight, main b1858b27)
-
-Installed 02:42 EST from b1858b27 (on origin and forge main) through `build-tv.sh`, `tv-first-light.sh deploy`, cutover disable/install/probe/enable, `tools/lumatv`, the launcher files and the helper. Installed sha256 (first 8): compositor `df040047`, ui `65b703e4`, sm `65f6ca69`, helper `d5de74e2`, `tools/lumatv` `56899321`. Native stub program built from the tree: `1a9e47e2`. Receipts: `/data/home/tmp/lumatv-tv-20261105a/`. `ctl retime` no longer exists. The TV ends in Active Standby with boot direct on and the web Home stub.
-
-Checks:
-- Install health PASS: live, mounted, persistent, failures 0, settled. `check-boot.py --now` ends FAIL on its boot-line criterion alone (no reboot since the boot began at 23:04).
-- Native Home stub FAIL twice (17 PASS, 1 FAIL, 1 not run, 33 s): `launch-over-app` (a launch of Home over HDMI 2 is not heard by the compositor, front stays HDMI 2), wake NOT RUN (LG's panel refresh due). RSS 52 kB, PSS 40 kB. The web stub is back; no reboot with native was tried.
-- Camera rate PASS on the clips: 25 declared as 30 holds 120 Hz (decoder 30), the unchanged 25 clip goes to 100 Hz and holds it, 30 and 60 fps clips hold 120 Hz (decoder 30 and 60). The real camera (196, 1280x720) was in family in the second run: re-declared, decoder as declared, 120 Hz during and after, 15.1 pictures a second.
-- `isGameMode`: picture mode (read-only poll, about 12 Hz) is filmMaker before and after, and `game` for the whole of every clip and of the camera's full view (colour temperature -50 to 0, gamma high2 to medium, backlight 75 to 90, colour 50 to 55). Gamut stayed `auto` and local dimming `low`.
-- Weather memory probe PASS with `LATE=1` (the verdict is on the row 10 s after close: UI Pss +0.9 MiB, layer files +0, helper worker +0.9 MiB, compositor RSS below baseline). A run without `LATE` failed on compositor RSS alone (203 MB against 186 MB + 8 MB, 5 s after close); the compositor's baseline moved between 147 and 273 MB across runs. GPU KiB not readable.
-- Idle Home, Nitin's profile, 60 s, saver off: compositor 7.17 % and UI 4.36 % of one core (11.5 % together, target 8, FAIL); session 6 baseline 27.8 % and 8.3 %. 24.2 flips a second, panel 119.91 Hz, GPU 13.6 % busy.
-- 120 Hz gate, 3 cycles: home-idle and home-dpad PASS, quick, settings-scroll and home-widgets FAIL as in session 5. Dropped: settings-scroll 10 (5: 6), home-widgets 1 (5: 4); burst over 20 ms: quick 2 (3), settings-scroll 11 (12), home-widgets 15 (9); quick burst end 192.9 ms (176.4).
-- Prime Video (`amazon`) is in the dock. The dock also lists HDMI 2 twice.
-- Standby 03:04, held 16 min, `powerOn` 03:20: Home (LumaTV's) in front, failures 0, `homeDrawn` true. `power/turnOnScreen` answered -102 in Active sub state; the wake did not need it.
-
-Findings (probes on main that do not run on the set as written):
-- `tv-camera-rate-probe.py` imports `statistics`, which the set's python lacks; only `mode()` is used.
-- `wx-memory-probe.sh` looks for a process named `lumatv-rustui` (it is `lumatv-ui`), reads `--shm` from the command line (the UI gets `LUMATV_UI_SHM` in its environment), calls the compositor binary without its loader, and measures the first `lumatv-helper` process, which is the 220 kB supervisor and not the worker.
-- Picking the weather card needs Home's focus on the status bar; after a run the focus stays on the card and the next run opens another card.
-
-Recovery: `lumatv homestub-kind web`, `lumatv boot-direct off`, hold Home 10 s.
