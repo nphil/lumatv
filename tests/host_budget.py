@@ -10,10 +10,12 @@ frame's estimate, and the work of a frame (that estimate and the time this proce
 at the 99th percentile.
 
 Each window also gets the gate's own reading of the frames its mark starts (`docs/research/perf/analyse.py`, `burst`): they chain while each is
-within 50 ms of the one before, and an interval over a refresh and a fifth inside the chain is a refresh missed (`burst_over20`). A frame that
-changes nothing is not one to it (`kept`: the compositor composes and flips nothing for it). The gate reads a burst from its open and close marks
-only; this reads one from every mark of a walk that is not inside the burst before, which is the stricter reading. A surface ends with the gate's
-verdict at its thresholds: no such interval, and no frame over the layers a refresh holds (the frame a motion would miss, `dropped`).
+within 50 ms of the one before, and an interval over a refresh and a fifth inside the chain that follows a frame with a motion running after it
+(`moving`, the compositor's `anim`) is a refresh missed (`burst_over20`, as `perf/ringsum.py`'s `burst_drops` reads the set's ring). A frame that
+changes nothing is not one to it (`kept`: the compositor composes and flips nothing for it), and after a frame with no motion after it the screen
+rests until the next one. The gate reads a burst from its open and close marks only; this reads one from every mark of a walk that is not inside
+the burst before, which is the stricter reading. A surface ends with the gate's verdict at its thresholds: no such interval, and no frame over the
+layers a refresh holds (the frame a motion would miss, `dropped`). The walks keep `kb.py`'s pace: a tap is held 50 ms before the gap that follows it.
 
     python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,settings-pages,home-widgets,home-dpad,toast,onhome,guide,banner,sky,idle]
                                  [--frames] [--reference] [--bin PATH] [--owner DIR] [--sky KIND]
@@ -75,6 +77,8 @@ START_MS = 6000
 LAYERS_120 = 80
 #: the gate's burst (`analyse.py`): frames chain while each is within this of the one before
 BURST_GAP_MS = 50
+#: how long `kb.py` holds a tap down before the gap after it: the gate's `RIGHTx3@0.12` is a key every 170 ms
+KB_TAP_MS = 50
 #: the pages `settings-pages` names: the rail's sections in its order, then three that hang under them
 SETTINGS_PAGES = ('privacy', 'profiles', 'picture', 'sound', 'inputs', 'network', 'ambient', 'home', 'remote', 'ai', 'system', 'themes', 'widgets', 'about')
 #: the owner's own `theme.json` and `layout.json` (`--owner DIR`: the pair the TV gate saves before a run, `before-theme.json` and `before-layout.json`)
@@ -101,28 +105,29 @@ def p99(values):
 
 
 def frames_of(text):
-    """A run's frames: (ms, drew px, rects, layers, floor px, CPU us, of it applying commits us, the shell's own us since the frame before, kept).
-    A kept frame changed nothing: the compositor composes and flips nothing for it."""
-    return [(int(m[2]), int(m[4]), int(m[5]), int(m[6]), int(m[8]), int(m[7]), int(m[9]), int(m[10] or 0), m[11].endswith(' kept')) for m in FRAME.finditer(text)]
+    """A run's frames: (ms, drew px, rects, layers, floor px, CPU us, of it applying commits us, the shell's own us since the frame before, kept,
+    moving). A kept frame changed nothing: the compositor composes and flips nothing for it. A moving one has a motion running after it."""
+    return [(int(m[2]), int(m[4]), int(m[5]), int(m[6]), int(m[8]), int(m[7]), int(m[9]), int(m[10] or 0), ' kept' in m[11], m[11].endswith(' moving'))
+            for m in FRAME.finditer(text)]
 
 
 def gate_bursts(frames, marks, refresh):
     """The gate's burst from each mark that is not inside the burst before (`analyse.py`'s `burst`, kept frames left out): {label: (the first
-    frame's ms after the mark, the last's, [(ms after the mark, interval ms) of each interval over a refresh and a fifth])}."""
-    shown = [f[0] for f in frames if not f[8]]
+    frame's ms after the mark, the last's, [(ms after the mark, interval ms) of each interval over a refresh and a fifth after a moving frame])}."""
+    shown = [(f[0], f[9]) for f in frames if not f[8]]
     drop = 1.2 * 1000.0 / refresh
     out, end = {}, -1
     for at, label in marks:
         if at <= end:
             continue
-        prev, chain, over = at, [], []
-        for t in (t for t in shown if t >= at):
+        prev, moving, chain, over = at, False, [], []
+        for t, after in (s for s in shown if s[0] >= at):
             if t - prev > BURST_GAP_MS:
                 break
-            if chain and t - prev > drop:
+            if chain and moving and t - prev > drop:
                 over.append((prev - at, t - prev))
             chain.append(t)
-            prev = t
+            prev, moving = t, after
         out[label] = (chain[0] - at if chain else None, chain[-1] - at if chain else None, over)
         end = chain[-1] if chain else at
     return out
@@ -369,6 +374,12 @@ class Walk:
             self.key(name)
             self.at += gap
 
+    def kb(self, name, n=1, gap=0):
+        """`kb.py`'s `KEY` or `KEYxN@G` (G in ms here): each tap held 50 ms, then the gap before the next token."""
+        for _ in range(n):
+            self.key(name)
+            self.at += KB_TAP_MS + gap
+
     def hold(self, name, ms):
         """A held key as the remote sends it: the first repeat after 300 ms, then one every 100 ms."""
         self.key(name)
@@ -468,33 +479,32 @@ def walk_of(surface):
         w.wait(9000)
         w.mark('end')
     elif surface == 'settings-scroll':
-        # the quick panel's foot (QUICK_PANEL_FOOT), OK on its "All settings", then SETTINGS_PAGE, the rail down, SETTINGS_PAGE, the rail up, Back
-        w.at = START_MS - 2200
+        # QUICK_PANEL_FOOT, OK on the panel's "All settings" (pressed 50 ms before the mark and taken at its release, `act: release`), then
+        # SETTINGS_PAGE, the rail down, SETTINGS_PAGE, the rail up, Back
+        w.at = START_MS - 3200
         w.push('show', {'kind': 'quick', 'n': 1})
-        w.wait(1300)
-        w.taps('down', 20, 30)
+        w.wait(KB_TAP_MS + 1300)
+        w.kb('down', 20, 30)
         w.at = START_MS
         w.mark('open')
-        w.key('ok')
-        w.key('ok', 'up', at=w.at + 50)
+        w.key('ok', at=w.at - KB_TAP_MS)
+        w.key('ok', 'up')
         w.wait(600)
         for page in ('picture', 'system'):
             w.mark(page + ' list')
-            w.key('right')
-            w.wait(100)
+            w.kb('right', gap=100)
             w.hold('down', 800)
             w.wait(150)
             w.hold('up', 800)
             w.wait(100)
-            w.key('back')
-            w.wait(150)
+            w.kb('back', gap=150)
             if page == 'picture':
                 w.mark('rail down x8')
-                w.taps('down', 8, 60)
+                w.kb('down', 8, 60)
         w.mark('rail up x9')
-        w.taps('up', 9, 60)
+        w.kb('up', 9, 60)
         w.mark('close')
-        w.key('back')
+        w.kb('back')
         w.wait(1500)
     elif surface == 'settings-pages':
         # Settings opened on the rail's first page, then every page of the rail and a few under it named in turn: each is made new, and the rail moves to its section
@@ -511,29 +521,29 @@ def walk_of(surface):
         w.wait(1500)
     elif surface == 'home-widgets':
         # HOME_TOP first, then the walk: the status bar, the cards, the dock and back up
-        w.at = START_MS - 1500
-        w.taps('up', 8, 100)
-        w.taps('left', 6, 60)
+        w.at = START_MS - 2000
+        w.kb('up', 8, 100)
+        w.kb('left', 6, 60)
         w.at = START_MS
         w.mark('status bar')
-        w.taps('right', 3, 120)
-        w.taps('left', 3, 120)
+        w.kb('right', 3, 120)
+        w.kb('left', 3, 120)
         w.mark('into the cards')
-        w.taps('down', 2, 150)
+        w.kb('down', 2, 150)
         w.mark('across the cards')
-        w.taps('right', 2, 150)
+        w.kb('right', 2, 150)
         w.mark('to the dock')
-        w.taps('down', 1, 150)
+        w.kb('down', 1, 150)
         w.mark('along the dock')
         w.hold('left', 900)
         w.wait(200)
         w.hold('right', 900)
         w.wait(200)
         w.mark('down and up the dock')
-        w.taps('down', 2, 150)
-        w.taps('up', 2, 150)
+        w.kb('down', 2, 150)
+        w.kb('up', 2, 150)
         w.mark('up to the status bar')
-        w.taps('up', 6, 120)
+        w.kb('up', 6, 120)
         w.wait(600)
     elif surface == 'home-dpad':
         # HOME_TOP, then the gate's cycle twice (`RIGHTx8@0.35 LEFTx8@0.35 UP s0.5 DOWN`, a tap 50 ms down then the gap), a second of settle

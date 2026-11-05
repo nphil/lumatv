@@ -47,16 +47,19 @@ class FrameBudget(unittest.TestCase):
 
 
 class GateBursts(unittest.TestCase):
-    def test_a_burst_chains_the_flips_within_50_ms_from_its_mark_and_counts_the_intervals_over_a_refresh_and_a_fifth(self):
-        def frame(ms, kept=False):
-            return (ms, 0, 0, 0, 0, 0, 0, 0, kept)
-        frames = [frame(t) for t in (8, 16, 25, 41, 50)] + [frame(90, kept=True)] + [frame(t) for t in (130, 138, 180, 300)]
+    def test_a_burst_chains_the_flips_within_50_ms_from_its_mark_and_counts_the_intervals_over_a_refresh_and_a_fifth_a_motion_missed(self):
+        def frame(ms, kept=False, moving=True):
+            return (ms, 0, 0, 0, 0, 0, 0, 0, kept, moving)
+        frames = [frame(t) for t in (8, 16, 25, 41)] + [frame(50, moving=False), frame(90, kept=True, moving=False)] + \
+                 [frame(130), frame(138, moving=False), frame(180), frame(300)]
         got = hb.gate_bursts(frames, [(0, 'open'), (30, 'inside'), (125, 'next'), (250, 'end')], 120)
-        # 25 -> 41 is over 10 ms; the kept frame at 90 is no flip, so 50 -> 130 ends the burst
+        # 25 -> 41 is over 10 ms inside a motion; the kept frame at 90 is no flip, so 50 -> 130 ends the burst
         self.assertEqual(got['open'], (8, 50, [(25, 16)]))
         self.assertNotIn('inside', got, 'a mark inside the burst before is read with it')
-        self.assertEqual(got['next'], (5, 55, [(13, 42)]))
+        self.assertEqual(got['next'], (5, 55, []), 'after a frame with no motion after it the screen rests until the next key: no refresh missed')
         self.assertEqual(got['end'], (50, 50, []), 'a first flip 50 ms after the mark is in the burst')
+        frames[7] = frame(138)
+        self.assertEqual(hb.gate_bursts(frames, [(125, 'next')], 120)['next'], (5, 55, [(13, 42)]), 'the same 42 ms inside a motion is a miss')
 
 
 if __name__ == '__main__':

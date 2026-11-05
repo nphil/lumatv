@@ -92,6 +92,26 @@ def motion_drops(flips_, start, end, drop_ms):
     return judged, dropped
 
 
+def burst_drops(flips_, start, drop_ms, gap_ms=50.0):
+    """The intervals over `drop_ms` inside the burst a mark at `start` begins, read as analyse.py's `burst` chains it (flips within `gap_ms` of the
+    one before, the first from the mark), counting only those after the flip of a frame with an animation still running after it. One after a
+    still frame is the screen at rest until the next key's first frame: the compositor flips no frame that changes nothing (`kms::frames`), so
+    such an interval is no refresh missed (session 11's home-widgets: 41.7 ms from a motion's end to the next key's frame, 9 ms after the key).
+    None when the ring does not reach back to `start`."""
+    if not flips_ or flips_[0][0] > start + 0.2:
+        return None
+    prev, moving, chained, over = start, False, 0, 0
+    for t, _, anim in flips_:
+        if t < start:
+            continue
+        gap = (t - prev) * 1000.0
+        if gap > gap_ms:
+            break
+        over += chained > 0 and moving and gap > drop_ms
+        prev, moving, chained = t, anim, chained + 1
+    return over
+
+
 def load(path):
     with open(path) as f:
         return json.load(f)["lines"]

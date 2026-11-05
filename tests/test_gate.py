@@ -1030,6 +1030,17 @@ class RingMotion(unittest.TestCase):
         flips = ringsum.flips(self.lines([(10.0, 16.7, True), (10.017, 16.7, True)]))
         self.assertIsNone(ringsum.motion_drops(flips, 5.0, 11.0, 20.0))
         self.assertIsNone(ringsum.motion_drops([], 0.0, 1.0, 20.0))
+        self.assertIsNone(ringsum.burst_drops(flips, 5.0, 20.0))
+
+    def test_a_burst_counts_the_intervals_a_motion_missed_and_not_a_still_screen_before_the_next_key(self):
+        import ringsum
+        # session 11's home-widgets at 120 Hz: a motion ends (no `anim` after its last frame), the next key's first frame comes 41.7 ms later,
+        # 9 ms after the key; then a heavy frame lands a refresh late inside the next motion
+        flips = ringsum.flips(self.lines([(10.008, 8.3, True), (10.017, 8.3, True), (10.025, 8.3, False), (10.067, 41.7, True),
+                                          (10.075, 8.3, True), (10.092, 16.7, True), (10.100, 8.3, False), (10.200, 100.0, True)]))
+        self.assertEqual(ringsum.burst_drops(flips, 10.0, 10.0), 1, 'the 16.7 inside the motion, not the 41.7 after a still frame')
+        self.assertEqual(ringsum.burst_drops(flips, 10.06, 10.0), 1, 'from a later mark: its own burst')
+        self.assertEqual(ringsum.burst_drops(flips, 10.0, 10.0, gap_ms=40.0), 0, 'the burst ends at an interval over its gap')
 
     def test_the_gate_judges_a_surface_by_the_rings_count_when_every_window_has_one(self):
         s = gate.find(['quick-settings'])[0]
@@ -1038,13 +1049,27 @@ class RingMotion(unittest.TestCase):
             w.update(dropped=9, dropped_in_motion=9, ring_judged=100, ring_dropped=0)
         c = {x['name']: x for x in gate.evaluate_windows(s, r, 3)}
         self.assertTrue(c['dropped']['ok'], c['dropped'])
-        self.assertIn('the trace read 54', c['dropped']['detail'])
+        self.assertEqual(c['dropped']['detail'], "the compositor's own count over 600 flips after a frame of a motion")
         r['windows'][2]['ring_dropped'] = 1
         self.assertEqual(failed(gate.evaluate_windows(s, r, 3)), ['dropped'])
         del r['windows'][3]['ring_dropped']
         c = {x['name']: x for x in gate.evaluate_windows(s, r, 3)}
         self.assertFalse(c['dropped']['ok'], 'a window without the ring: the trace reading for the surface')
         self.assertEqual(c['dropped']['value'], 54)
+
+    def test_the_gate_reads_a_burst_by_the_rings_motion_when_every_window_has_it(self):
+        s = gate.find(['quick-settings'])[0]
+        r = report('quick-settings', 3, over20=2)
+        for w in r['windows']:
+            w['ring_burst_over20'] = 0
+        c = {x['name']: x for x in gate.evaluate_windows(s, r, 3)}
+        self.assertTrue(c['burst_over20']['ok'], c['burst_over20'])
+        self.assertIn('12 with the still screens between keys', c['burst_over20']['detail'])
+        r['windows'][0]['ring_burst_over20'] = 1
+        self.assertEqual(failed(gate.evaluate_windows(s, r, 3)), ['burst_over20'])
+        del r['windows'][1]['ring_burst_over20']
+        c = {x['name']: x for x in gate.evaluate_windows(s, r, 3)}
+        self.assertEqual(c['burst_over20']['value'], 12, 'a window without the ring: the trace reading')
 
     def test_attach_gives_each_window_its_count_and_a_missing_ring_changes_nothing(self):
         import json

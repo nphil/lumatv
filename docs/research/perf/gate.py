@@ -11,7 +11,9 @@ window per marker with analyse.py and checks every window against the thresholds
   animated frames over 20 ms     none inside a running animation under LumaTV's compositor; under
                                  LG's, at most LG_COMPOSITOR_DROP_SHARE of them (`dropped` counts those, and
                                  `burst_over20` the intervals inside the burst a key starts); the
-                                 first animated frame after an idle gap is late by construction
+                                 first animated frame after an idle gap is late by construction.
+                                 Under LumaTV's compositor both are read off its ring: an interval
+                                 after a frame with a motion running after it (a still screen is none)
   first frame after the key      <= 50 ms
   burst end after the key        <= 180 ms (opens and closes)
   compositor RSS over N cycles   flat, see rss_growth()
@@ -891,15 +893,23 @@ def evaluate_windows(s, report, cycles, lg_compositor=False, lumatv=False):
             out.append(check('dropped_share', share <= LG_COMPOSITOR_DROP_SHARE, round(share, 3), f'<= {LG_COMPOSITOR_DROP_SHARE}',
                              f"{v} of {frames} animated frames, LG's compositor floor"))
         elif keyed and all(w.get('ring_dropped') is not None for w in keyed):
-            # LumaTV's compositor says itself which of its frames had a motion running after them: the count is its own
+            # LumaTV's compositor says itself which of its frames had a motion running after them: the count is its own. The trace's
+            # `dropped_in_motion` is not quoted beside it: its chain reads a frame the compositor draws ahead of its refresh as no frame of a
+            # motion (session 11's home-widgets: 5 refreshes missed in the ring, 0 read in the trace)
             ring = sum(w['ring_dropped'] for w in keyed)
             out.append(check('dropped', ring <= th['dropped'], ring, f"<= {th['dropped']}",
-                             f"the compositor's own count over {sum(w['ring_judged'] for w in keyed)} flips after a frame of a motion (the trace read {v})"))
+                             f"the compositor's own count over {sum(w['ring_judged'] for w in keyed)} flips after a frame of a motion"))
         else:
             out.append(check('dropped', v <= th['dropped'], v, f"<= {th['dropped']}"))
     if th['burst_over20'] is not None:
         v = sum(w['burst_over20'] for w in read)
-        out.append(check('burst_over20', v <= th['burst_over20'], v, f"<= {th['burst_over20']}"))
+        if read and all(w.get('ring_burst_over20') is not None for w in read):
+            # an interval after a frame with no motion after it is a still screen until the next key, not a refresh missed
+            ring = sum(w['ring_burst_over20'] for w in read)
+            out.append(check('burst_over20', ring <= th['burst_over20'], ring, f"<= {th['burst_over20']}",
+                             f"after a frame of a motion, by the compositor's flags; {v} with the still screens between keys"))
+        else:
+            out.append(check('burst_over20', v <= th['burst_over20'], v, f"<= {th['burst_over20']}"))
     return out
 
 
@@ -1067,7 +1077,7 @@ def jsonable(v):
 WINDOW_KEYS = ('name', 'dur_s', 'frames', 'fps', 'over20', 'worst_ms', 'anim_frames', 'dropped', 'dropped_in_motion', 'anim_render_ms',
                'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms', 'sent_ms', 'delivered_ms', 'show_ms', 'osd_wake_ms',
                'burst_first_render_ms', 'burst_anim_samples', 'burst_app_jobs', 'irq_counts', 'gaps', 'panel_hz', 'drop_ms', 'ring_judged', 'ring_dropped',
-               'trace_from_ms')
+               'ring_burst_over20', 'trace_from_ms')
 
 
 def app_drawn(report, name):
@@ -1274,16 +1284,22 @@ def read(path):
 
 def attach_ring_motion(report, ring_path):
     """Gives each window of an analysis the compositor's own count of the refreshes its motions missed (`ring_dropped` of `ring_judged` flips, from the
-    ring of the capture's cycle: ringsum.motion_drops). The trace can only guess which frames were animated (a key's response frame, a frame the idle tick
-    drew, the last frame of a motion and the first of the next key all look the same), the compositor knows. A window the ring does not reach gets none."""
+    ring of the capture's cycle: ringsum.motion_drops), and of the intervals of its mark's burst that a motion missed (`ring_burst_over20`:
+    ringsum.burst_drops). The trace can only guess which frames were animated (a key's response frame, a frame the idle tick drew, the last frame
+    of a motion and the first of the next key all look the same, and a frame the compositor draws ahead of its refresh follows no commit), the
+    compositor knows. A window the ring does not reach gets none."""
     try:
         flips = ringsum.flips(ringsum.load(ring_path))
     except (OSError, ValueError, KeyError, TypeError):
         return
     for w in report['windows']:
-        got = ringsum.motion_drops(flips, w['start'], w['start'] + w['dur_s'], w.get('drop_ms') or analyse_drop_ms())
+        drop_ms = w.get('drop_ms') or analyse_drop_ms()
+        got = ringsum.motion_drops(flips, w['start'], w['start'] + w['dur_s'], drop_ms)
         if got is not None:
             w['ring_judged'], w['ring_dropped'] = got
+        over = ringsum.burst_drops(flips, w['start'], drop_ms)
+        if over is not None:
+            w['ring_burst_over20'] = over
 
 
 def analyse_drop_ms():

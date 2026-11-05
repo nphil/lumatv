@@ -141,6 +141,9 @@ pub struct FrameCost {
     /// The frame changed nothing and nothing moves: the host's own pages kept the one on the screen, none was drawn or turned, as the
     /// compositor composes and flips nothing for such a frame (`kms::frames`).
     pub kept: bool,
+    /// A motion runs after the frame (the next is due at the next refresh): what the compositor flags `anim` in its ring, after which a
+    /// refresh with no frame is one the motion missed. After a frame without it the screen rests, and a later frame is no refresh missed.
+    pub moving: bool,
 }
 
 /// What reading the app's requests did.
@@ -1226,6 +1229,7 @@ impl Engine {
             finish_us: spent.finish.as_micros() as u32,
             scopes: spent.scopes,
             kept: false,
+            moving: matches!(self.scene.demand(), Demand::EveryRefresh),
         }
     }
 
