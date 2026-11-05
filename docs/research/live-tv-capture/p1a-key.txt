@@ -1,0 +1,35 @@
+$ cat > /tmp/p1a.py <<'EOF_P1A'
+import ctypes, hashlib, sys
+SENT = 0xA5
+lib = ctypes.CDLL('libhal_lg115x.so.2')
+fn = lib.HAL_PVR_CRYPTO_GetSecureKey
+fn.restype = ctypes.c_int
+fn.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+def call():
+    buf = (ctypes.c_ubyte * 256)(*([SENT] * 256))
+    rc = fn(None, ctypes.addressof(buf))
+    raw = bytes(buf)
+    changed = [i for i, b in enumerate(raw) if b != SENT]
+    return rc, raw, changed
+out = []
+for n in (1, 2):
+    rc, raw, changed = call()
+    key = raw[:16]
+    out.append(key)
+    print('call %d: rc=%d changed_idx=%s beyond16=%s allzero=%s sha256_prefix=%s' % (
+        n, rc, (min(changed), max(changed)) if changed else None, any(i >= 16 for i in changed),
+        key == bytes(16), hashlib.sha256(key).hexdigest()[:8]))
+    sys.stdout.flush()
+print('stable_across_calls=%s' % (out[0] == out[1]))
+EOF_P1A
+n0=$(dmesg | wc -l); timeout 40 python3 /tmp/p1a.py; echo "exit=$?"; dmesg | tail -n +$((n0-3)) | grep -v -E 'aud_clock|demod  |wlan|CPU[0-9]|Detected PIPT' | tail -25; rm -f /tmp/p1a.py
+(exit 0)
+call 1: rc=0 changed_idx=(0, 15) beyond16=False allzero=False sha256_prefix=28129764
+call 2: rc=0 changed_idx=(0, 15) beyond16=False allzero=False sha256_prefix=28129764
+stable_across_calls=True
+exit=0
+[35039.144539] _getMemInfo (0x0) (0xa00000bd700000) (0xbe100000) (0xa00000)
+[35039.216211] ree_kdrv: free private_data
+[35039.216215] ree_kdrv: release(32012)
+[35039.216220] LOGM_Close.667: device closed (1810:0)
+[35039.237446] hdmi20       NOT (02564:02564) __HDMI21_HAL_Rx_MainThread 10564: Warning [2] : Waited Delta(3G) for [5000] msec(C) TMDS[ 1669] State[0x080] TCS[0][0][0][0]/[0][0][0][0]/[0][0][0][0]/[0][0][0][0]. SCDC[0]

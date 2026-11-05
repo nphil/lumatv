@@ -272,6 +272,9 @@ impl Service {
         // On Home: Home Assistant's shared entities, through the integration that dials the TV. Nothing listens until it is switched on and paired.
         let onhome = crate::onhome::OnHome::new(&ctx, onhome_deps.unwrap_or_else(|| crate::onhome::Deps::real(&ctx)));
         threads.push(("onhome", onhome.spawn(&ctx)?));
+        // The antenna tuner as an HDHomeRun for Plex: nothing listens and the tuner is left alone until the owner switches it on in Settings.
+        let hdhr = crate::hdhr::Hdhr::new(&ctx, Arc::new(crate::hdhr::Tv::new(config.hdhr.clone(), config.luna.send.clone())));
+        threads.push(("hdhr", hdhr.spawn()?));
 
         let privacy = crate::privacy::new(&ctx);
         threads.push(("privacy", crate::privacy::spawn(&ctx, privacy.clone())?));

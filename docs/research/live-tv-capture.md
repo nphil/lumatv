@@ -1,28 +1,33 @@
 # Live TV capture: the set's antenna feed into Plex
 
-Nitin asked on 2026-11-05 for the TV's own broadcast feed to reach Plex (or something like it) without switching the TV to it and without new hardware (no HDHomeRun). This note holds the feasibility result, the path, the risks and the probes still to run. Nothing was tuned, recorded or changed on the set and no byte of transport stream has been read; every TV read was read-only, under the lease.
+Nitin asked on 2026-11-05 for the TV's own broadcast feed to reach Plex (or something like it) without switching the TV to it and without new hardware (no HDHomeRun). This note holds the path, what the probes P1a to P3 measured on the set the same day, the risks and what is still unmeasured. The probes ran under the TV lease with Nitin's OK, in Active Standby, with no picture or receiver write.
 
 ## Verdict
 
-**Probably feasible, not yet proven.** The route is LG's kernel DVB/PVR interface, read through a second demux channel, with the tuner steered by LG's own windowless "scan" pipeline. Three assumptions decide it and each takes one probe. LG's own DVR is not a route: it is off on this US set and writes LG's encrypted format.
+**Feasible, and measured: a transport stream of one antenna program was read from the set's kernel while the panel was off.** LG's windowless pipeline retunes the frontend, a second demux channel and a PVR download carry the program, and LG's own HAL supplies the certificate. The TV's own Live TV outranks it and takes the tuner at once. The helper has the facade built behind a setting that is off (`helper/app/src/hdhr/`); it has not yet run on the set.
 
-| Gate | Assumption | Why it may hold | How it fails |
-|---|---|---|---|
-| 1 Tune without a window | a caller that is not LG's Channel Tuning app can open a `purpose: SCAN` broadcast pipeline, retune with `setAtscManualTuning` and keep the lock | LG's app does exactly this with `windowId ""`; the demod is locked now with no pipeline open | `utp` refuses the caller, or drops the pipeline after a timeout |
-| 2 A second demux channel | `demux2` can take the demod's port while LG's stack owns `demux0` | the demod's one port feeds any channel, and the driver leaves a port alone when its config is unchanged; LG's own record-while-watching has to share it [INFERENCE] | `EBUSY`, or LG's channel is reset |
-| 3 PVR download | a root process outside LG's DVR service can pass the PVR cert and read `dvr2` | the cert is `seed XOR table`, documented in LG's GPL header; the table is in `ts-record` and `libhal_lg115x`; the seed is one HAL call | the TEE or the TE MCU refuses a caller that is not LG's. Fallback: PES taps (no cert), remuxed in software |
+| Gate | Result | Evidence |
+|---|---|---|
+| 1 Tune without a window | **Passes, with two conditions.** A caller that is not LG's app can open a `SCAN` pipeline, but `utp` frees the pipeline when the opener's connection goes, so the opener must stay connected (`luna-send -i`). `setAtscManualTuning` alone does not move the frontend; `changeChannel` on the pipeline does, and it moves the TV's last channel, which has to be put back | `p2-open-plain-luna-send.json`, `p2-changechannel.json`, `p2-hold-and-live-tv.json` |
+| 2 A second demux channel | **Passes.** `demux2` took the demod's port with `IN_DEMOD 0, PARALLEL`, the values LG's own channel 0 showed while its pipeline ran; the driver left the port alone, both streamed together, no `EBUSY`, no reset | `p2-changechannel.json`, `p2-hold-and-live-tv.json` |
+| 3 PVR download | **Passes.** The certificate built from the seed key of LG's HAL (called from the set's 32-bit python) was accepted by a root process outside LG's DVR service; `dvr2` then read | `p1a-key.txt`, `p1b-tap.txt` |
 
 One tuner means one RF channel at a time. The 57 antenna channels sit on 10 RF channels, so Plex sees `TunerCount 1`, and the TV's own Live TV outranks Plex.
 
-## Resume here
+## Results
 
-Done: the tuner, demux and PVR inventory from LG's tree and from the set; LG's DVR ruled out; the cert recipe found in LG's code; the windowless tune call found in LG's Channel Tuning app; the Plex side sized.
+| Probe | What ran | Result |
+|---|---|---|
+| P1a key | `HAL_PVR_CRYPTO_GetSecureKey(NULL, buf)` from `libhal_lg115x.so.2`, twice | return 0, 16 bytes written and nothing beyond, not all zero, the same both times and in P1b (SHA-256 prefix `28129764`): a stable device secret |
+| P1b tap | `demux2` input, PAT, virtual channel table, all six PMTs, then `dvr2` with the cert and TS taps on the PMT, the clock and picture PID and the audio, 10 s, on the channel locked at the time | the demod's channel was RF 32 (PAT `tsid 0x02e3`; the table lists 2.1, 2.2, 2.3, 17.3, 2.4, 2.5). Program 2.4: 9,303 units in 10.0 s, first data at once, every sync byte in place, no scrambled packet, no transport error, no continuity gap; `ffprobe` reads MPEG-2 video 720x480 and AC-3 stereo, and the video decodes. No `0x09` or `0xAA` descriptor in any of the six PMTs and no access-controlled channel. The demod stayed `LOCK`; the TE clock-gated again on close |
+| P2 retune | held `SCAN` pipeline, `changeChannel` to RF 27 (`1_27_5_1_0_0_0`, 5.1 WAGA-HD), the tap held 723 s | the demod locked on RF 27 (strength 66 to 71, quality 36 to 99 over three reads), the PAT and table were RF 27's. 562 MB in 723 s (6 Mb/s on average, windows to 10 Mb/s), no scrambled packet, no transport error, no read error, demod `LOCK` throughout. 1,886 continuity gaps in 2.93 million units (0.06 %), in bursts that coincide with the demod's and the TE's packet-error messages and LG's own video decoder counting macroblock errors: RF 27 reaches the set badly at times; RF 32 had none in its 10 s. The tap's python used 3.8 % of one core. The last channel moved to RF 27's and was put back by a `changeChannel`; the channel list (57, same digest) and the panel (Active Standby) were unchanged |
+| P3 contention | `launch com.webos.app.livetv` while the pipeline streamed RF 27, then Live TV changed to RF 32's 2.4, then `closeByAppId` | Live TV came to the front within one poll (2.4 s) **with the panel still in Active Standby**, with its own `tv` and `avconnector` pipelines (level 4). The helper's pipeline left UMS's list and `getBroadcastState` went from `BROADCAST_STATE_RENDERING` to `BROADCAST_STATE_UNREALIZED`, with no error. The tap kept reading, with no error: first RF 27's packets, then RF 32's **on the same PIDs** (WAGA-HD and WSB-HD both use `0x30`, `0x31`, `0x34`, `0x35`), so silence of a PID cannot tell that the tuner moved. On close LG released its filters on `demux0` and the demod went to low power (`UNLOCK`); the tap saw no data for 5.2 s and ended by itself, closing everything. No oops, BUG or call trace in the kernel log |
 
-Open: Gates 1 to 3. **Next: P1a, then P1b (below); both need Nitin's OK** (they open the TE's kernel nodes, and a kernel wedge there ends in a cold boot, as the encoder slot did: `venc-result.md`).
+The end state after the probes: Active Standby, Home in front, no pipeline, last channel `1_32_2_4_0_0_0` (RF 32), `legacy-broadcast-atsc` alive with `frontend0` open, the demod **`UNLOCK`** (it read `LOCK` on RF 32 before the probes; `closeByAppId` on Live TV ended that, and the helper tunes for each stream). Receipts: `live-tv-capture/p1a-key.txt`, `p1b-tap.txt`, `p2-*.json`; the probe is `tap.py` (run on the set with python3: `prefer=<major.minor> require=1 hold=<s> tag=<name>`), the held opener `open-hold.sh`. The 10-second captures stay out of git.
 
 ## Evidence key
 
-`TV:` read on this set (OLED65C4PUA, webOS 10.2.1, kernel 5.4.268-329.ptl4tv.2, `tv.hw.SoCChipType O22N2`) on 2026-11-05, receipts in `live-tv-capture/`. `SRC:` LG's O22 GPL tree (`/data/home/lgtv/research/lgsrc/k/soc_GO/linux-and-kdriver_paluma-5/kdriver`, paths relative to it; webOS 25, newer than the set). `BIN:` strings or disassembly of files copied off the set (kept outside git: `libkadaptor.so.2.0.1` sha256 `ae0e91f0`, `ts-record` `47756a93`, `libhal_lg115x.so.2.0.1` `8a95eed0`). `PUB:` public page. `[INFERENCE]` is untested. Ioctl numbers are computed from the headers, not read off the set.
+`TV:` read on this set (OLED65C4PUA, webOS 10.2.1, kernel 5.4.268-329.ptl4tv.2, `tv.hw.SoCChipType O22N2`) on 2026-11-05, receipts in `live-tv-capture/`. `SRC:` LG's O22 GPL tree (`/data/home/lgtv/research/lgsrc/k/soc_GO/linux-and-kdriver_paluma-5/kdriver`, paths relative to it; webOS 25, newer than the set). `BIN:` strings or disassembly of files copied off the set (kept outside git: `libkadaptor.so.2.0.1` sha256 `ae0e91f0`, `ts-record` `47756a93`, `libhal_lg115x.so.2.0.1` `8a95eed0`). `PUB:` public page. `[INFERENCE]` is untested. Ioctl numbers are computed from the headers; P1b and P2 used them on the set.
 
 ## What the set has
 
@@ -31,19 +36,19 @@ Open: Gates 1 to 3. **Next: P1a, then P1b (below); both need Nitin's OK** (they 
 | RF tuners | **1**: a Silicon Labs Si2178B front end and the SoC's internal ATSC demod, one `/dev/dvb/adapter0/frontend0`. No second tuner, no ATSC 3.0 | TV: `/proc/lxdvb/demux/status` `NUM_OF_TUNER: 1`; modules `si2178b`, `si2178b_atv`, `dvb_si2178b_chip`, `atsc_dtv_soc`, `demod_khal`, `webos_tv`; configd `tv.hw.supportDualTuner`, `supportTripleTuner`, `support2RF`, `supportATSC3`, `tunerless` all false, `supportInternalDTVDemod` true (`20-config-dvr-tuner.txt`, `11-devices-modules.txt`) |
 | Demux channels | 6 SDEC channels: 4 reach `/dev/dvb` as `demux0..3` (= `sdec0c0..c3`, 64 PID and 64 section filters each); the 2 sub channels (one filter each) exist only as `/dev/lg/sdec0c4` and `c5`. 256 PID filters in all. Each `demuxN` pairs with `dvrN`, `caN`, `deliveryN` | SRC: `core/te/sdec/sdec_cfg.c`; TV: `10-nodes.txt` |
 | `delivery0..3` | ATSC 3.0, Japan 4K and CI+ 2.0 baseband only: no use for ATSC 1.0 | SRC: `include/linux/dvbv5-ext/dvbv5-ext-delivery.h` |
-| PVR | 2 download engines (`pvr0dn0/1`) and 2 upload engines (`pvr0up0/1`); a download writes 192-byte packets (188 plus a 4-byte timestamp) into a ring of about 10 MB from the TE's reserved 43 MB shared region | SRC: `core/te/pvr/pvr_cfg.c`, `core/te/te_cfg.c`, `core/te/dvb-core/lxdvb_dvr.c` (`DVR_DN_SHARED_ONLY_BUF_SIZE`) |
-| Demod input | one port, `IN_DEMOD0`, selectable by every channel | SRC: `lxdvb_demux.c` `dmx_ext_source_to_input_cfg` |
-| Who holds what | `legacy-broadcast-atsc` (pid 2255) holds `frontend0` open read-write and `/dev/video2`; nothing holds a demux, dvr, pvr, sdec or te node. All four demux inputs read `None / DISABLE`, no filter, every PVR channel idle, `TE_HW` interrupts 0 since boot | TV: `12-holders.txt`, `32-frontend-holder.txt` (fdinfo flags `02`), `30-lxdvb-demux.txt`, `51-dvr-props.txt`, `14-interrupts.txt` |
+| PVR | 2 download engines (`pvr0dn0/1`) and 2 upload engines (`pvr0up0/1`); a download writes 192-byte units (a 4-byte big-endian 27 MHz timestamp, then the 188-byte packet) into a ring of 9.99 MB | SRC: `core/te/pvr/pvr_cfg.c`, `core/te/dvb-core/lxdvb_dvr.c`; TV: `p1b-tap.txt` (`/proc/lxdvb/dvr/status`) |
+| Demod input | one port, `IN_DEMOD0`, selectable by every channel; LG's channel 0 sets `IN_DEMOD, 0, Parallel` | SRC: `lxdvb_demux.c` `dmx_ext_source_to_input_cfg`; TV: `p2-changechannel.json` (the input rows) |
+| Who holds what | at rest `legacy-broadcast-atsc` (pid 2255) holds `frontend0` open read-write and `/dev/video2`; nothing holds a demux, dvr, pvr, sdec or te node. All four demux inputs read `None / DISABLE`, no filter, every PVR channel idle, `TE_HW` interrupts 0 since boot. While its pipeline runs it also holds `demux0` with video and audio filters | TV: `12-holders.txt`, `32-frontend-holder.txt`, `30-lxdvb-demux.txt`, `51-dvr-props.txt`, `14-interrupts.txt`, `p2-changechannel.json` |
 | Channels | 57 antenna channels on RF 18, 19, 21, 22, 25, 27, 29, 32, 35, 36; the TV scans RF 2 to 69; last channel `1_32_2_4_0_0_0` (RF 32, 581 MHz, 2.4) | TV: `channels-by-rf.txt`, `63-atsc-scan-info.txt`, `40-last-channel.txt` |
 | Load to share with | 3 cores online, 79 % idle; `MemAvailable` 754 MB; `CmaFree` 84 MB; `eth0` 100 Mb/s; `legacy-broadcast-atsc` 12.6 MB resident | TV: `59-baseline.txt` |
 
 ## Does the tuner stay locked while the display shows something else
 
-**The hardware does, and does now.** The demod reads `LOCK`, `VSB`, packet errors 0, BER 0 on three reads (08:29, 08:33, 08:35 EST) with the set in Active Standby, Home in front, no media pipeline (`getActivePipelines`: "pipeline empty") and the TE idle; its IPC interrupt kept counting (458,207 to 475,034 in 12 minutes, about 22 a second). The status does not name the RF channel; the last channel (RF 32) is the likely one [INFERENCE]. LG's stack leaves the frontend tuned after Live TV closes (`56-demod-signal.txt`, `58-demod-signal-2.txt`, `65-final-state.txt`). [INFERENCE: how long it stays so, and whether deeper standby powers it down; not measured.]
+**At rest it did before the probes, not after them.** The demod read `LOCK`, `VSB`, packet errors 0, BER 0 on three reads (08:29, 08:33, 08:35 EST) with the set in Active Standby, Home in front, no media pipeline and the TE idle, on RF 32 (the table P1b read). After P3 force-closed Live TV it read `UNLOCK` in low power; the lock at rest is LG's leftover from earlier use, not something to rely on, so the helper tunes for each stream.
 
 **LG offers no product feature for it on this set.** Live TV's `tv` pipeline belongs to the Live TV window (it claimed `ADTU`, `SDEC`, `VTP` and two `VDEC` in a captured session: `docs/research/multiview/tv-2026-10-30/luna-lgmv-both-playing/ums-pipelines.json`), and "record while watching" is the DVR, which is off (next section).
 
-**LG's middleware does have a windowless tune.** The Channel Tuning app (`com.webos.app.channelsetting`, `main.js` on the set) opens its pipeline with `utp.broadcast/open {"options":{"appId":"com.webos.app.channelsetting","windowId":"","purpose":"SCAN"}}`, tunes with `utp.channel/scan/setAtscManualTuning {"broadcastId":…,"tune":{"sourceType":"INPUTSOURCE_TERRESTRIAL_DIGITAL","physicalNumber":N}}` and ends with `utp.broadcast/close` (BIN: `61-chan-app-luna.txt`). `legacy-broadcast-atsc` lists scan purposes AUTO_SCAN, MANUAL_SCAN, EIT_TOUR, SLU and watch purposes that include "EPG gather" and "section parse" (`strings-legacy-broadcast-atsc.txt`). The manual-tuning screen shows signal bars after the call, so the call locks the tuner [INFERENCE]; whether it keeps the lock with no screen is Gate 1.
+**LG's middleware does have a windowless tune, and it is a full `tv` pipeline.** The Channel Tuning app (`com.webos.app.channelsetting`) opens `utp.broadcast/open {"options":{"appId":"com.webos.app.channelsetting","windowId":"","purpose":"SCAN"}}`, calls `utp.channel/scan/setAtscManualTuning` and, when the RF channel has channels, `utp.broadcast/changeChannel` to one of them (BIN: `61-chan-app-luna.txt`, the app's `main.js`). Run from a root shell: the pipeline lives only as long as the `luna-send` that opened it (`-i` keeps it); `setAtscManualTuning` answers with the channel id and a lock but leaves the frontend where it was; `changeChannel` retunes it, turns the pipeline `WATCH_NORMAL` and `BROADCAST_STATE_RENDERING`, and UMS lists it as a `tv` pipeline of `com.webos.app.channelsetting` at level 6 that claims the TV's decode chain (`ADTU`, `SDEC`, `VTP`, two `VDEC`, `G1_H264`, `G1_MSVC`). The panel does not wake and the volume status does not change.
 
 ## LG's own DVR: no
 
@@ -58,8 +63,8 @@ Open: Gates 1 to 3. **Next: P1a, then P1b (below); both need Nitin's OK** (they 
 
 | Route | What it gives | Verdict |
 |---|---|---|
-| R1 PVR download: `demuxN` PID filters with `DMX_OUT_TS_TAP`, read `dvrN` | the program's own transport packets, ready for a TS server | **Primary.** Gated by the cert (Gate 3). SRC: `lxdvb_demux.c` `set_dvb_filter_attr`, `lxdvb_dvr.c` `dvr_read` |
-| R2 PES taps: `DMX_OUT_TAP` filters read from `demuxN` | PES of each PID, no PVR, no cert | **Fallback.** Needs a software muxer (PES to TS, PCR made from PTS or read from the STC); [INFERENCE: PES headers come through intact] |
+| R1 PVR download: `demuxN` PID filters with `DMX_OUT_TS_TAP`, read `dvrN` | the program's own transport packets, ready for a TS server | **Used, and measured** (P1b, P2). SRC: `lxdvb_demux.c` `set_dvb_filter_attr`, `lxdvb_dvr.c` `dvr_read` |
+| R2 PES taps: `DMX_OUT_TAP` filters read from `demuxN` | PES of each PID, no PVR, no cert | Not needed: the cert passed |
 | R3 SDEC input dump (`SDEC_IOC_DUMP_START`, the TE debug dumps) | the whole input TS | No. The MCU grants dumps by "authority" (`te_get_authority`) and the set has no `te`, `lxdvb`, `pvr` or `sdec` entry in debugfs (`34-debugfs-names.txt`) |
 | R4 `delivery0..3` | ATSC 3.0, Japan 4K and CI+ 2.0 baseband | No: not ATSC 1.0 |
 | R5 the decoded picture (video tap, `/dev/venc`) | pixels | No: needs the display path, which is what Nitin does not want to switch. The encoder route is in `venc-result.md` |
@@ -68,57 +73,50 @@ Open: Gates 1 to 3. **Next: P1a, then P1b (below); both need Nitin's OK** (they 
 
 ## The path
 
-On the TV, as root, in the helper (it already shells out to `luna-send`):
+In the helper (a static 64-bit binary; `luna-send` and the set's 32-bit python are its two helpers):
 
-1. **Key, once.** `HAL_PVR_CRYPTO_GetSecureKey(NULL, buf16)` from `libhal_lg115x.so.2` in a 32-bit process: the set's `python3` 3.10.13 is 32-bit with `_ctypes` (`66-python-ctypes.txt`), so no compiler is needed. `libkadaptor` forwards the call to a secure-element client (`ca_if_func_for_hal_drm_crypto`, command 0xC; the library also carries `TEEC_*` strings) [INFERENCE: a TEE call]. The key is a device secret: kept in memory or a 0600 file under `/var/lib/lumatv`, never in git, logs or receipts.
-2. **Tune.** `utp.broadcast/open` with `purpose "SCAN"` for a `broadcastId`; `utp.channel/scan/setAtscManualTuning` with the RF number from the channel's id (`1_<rf>_<major>_<minor>_…`); `utp.broadcast/getSignalStatus` until strong. Never `saveAtscManualTuning` or `deleteAtscManualTuning`: they edit the channel map.
-3. **Tap.** Open a free `demuxN` (not `demux0`, which LG's pipeline uses) read-write and send `DMX_EXT_S_CTL` (`0x40106f35`) with id 7 and `dmx_ext_source {IN_DEMOD 0, port 0, PARALLEL 1}`, the values of LG's own example. The same TPI config as LG's means the driver does not reset the port (SRC: `te_io.c` `config_tpi` returns 0 when unchanged).
-4. **Learn the program.** Section filters (`DMX_SET_FILTER`, `0x403c6f2b`) on PID 0 for the PAT and the PMT's PID for the PMT; PSIP is on PID `0x1FFB` if names are wanted.
-5. **Open the download.** `/dev/dvb/adapter0/dvrN` read-only (same N), then `PVR_EXT_S_CTL` (`0x40107000`) with id 3, size 32 and the cert `cert[i] = seed[i % 16] XOR table[i]` (table: `include/linux/dvbv5-ext/dvbv5-ext-pvr.h` lines 208-214). LG's `HAL_PVR_OpenDownloadDevice` calls `open`, then `HAL_PVR_CRYPTO_GetSecureKey`, then an `ioctl` (BIN, disassembly). Before the cert, `dvr_read` returns `EIO`.
-6. **Start the PIDs.** One demux fd per PID: `DMX_SET_PES_FILTER` (`0x40146f2c`) with `DMX_IN_FRONTEND`, `DMX_OUT_TS_TAP`, `DMX_PES_OTHER`, `DMX_IMMEDIATE_START`, for PAT, PMT, PCR, video, each audio and, if wanted, `0x1FFB`. Read `dvrN`: 192-byte packets; keep the 188 bytes that begin with `0x47` [INFERENCE: the 4 timestamp bytes come first; the sync byte's offset settles it].
-7. **Serve** the packets as `video/mp2t` over HTTP, to as many clients as ask for programs on that RF channel (one tap, fan out in software).
-8. **Let go.** Close the fds (the driver frees the filters and the download), then `utp.broadcast/close`.
+1. **Key, once per run.** `HAL_PVR_CRYPTO_GetSecureKey(NULL, buf16)` from `libhal_lg115x.so.2` in the set's `python3` (3.10.13, 32-bit, `_ctypes`; the helper is 64-bit and cannot load the library). The key is a device secret: kept in memory, never in git, logs, receipts or a file.
+2. **Tune.** `luna-send -i luna://com.webos.service.utp.broadcast/open {"options":{"appId":"com.webos.app.channelsetting","windowId":"","purpose":"SCAN"}}` and keep it running; read `getLastChannelId`; `changeChannel {broadcastId, channelId}` to the channel's id; `getSignalStatus` until `signal.locked`; wait 2 s (the previous multiplex's tables are on the demux for a moment). Never `saveAtscManualTuning` or `deleteAtscManualTuning`: they edit the channel map.
+3. **Tap.** Open a free `demuxN` (not `demux0`, which LG's pipeline uses) read-write and send `DMX_EXT_S_CTL` (`0x40106f35`) with id 7 and `dmx_ext_source {IN_DEMOD 0, port 0, PARALLEL 1}`.
+4. **Learn the program.** Section filters (`DMX_SET_FILTER`, `0x403c6f2b`, `CHECK_CRC | ONESHOT | IMMEDIATE_START`; the section number is the fifth filter byte) on `0x1FFB` for the virtual channel table (every section), on PID 0 for the PAT, on the PMT's PID for the PMT. Refuse the program when a PMT descriptor is `0x09` or `0xAA` or the table marks the channel access-controlled.
+5. **Open the download.** `/dev/dvb/adapter0/dvrN` read-only (same N), then `PVR_EXT_S_CTL` (`0x40107000`) with id 3, size 32 and the cert `cert[i] = seed[i % 16] XOR table[i]` (table: `include/linux/dvbv5-ext/dvbv5-ext-pvr.h` lines 208-214). Before the cert, `dvr_read` returns `EIO`.
+6. **Start the PIDs.** One demux fd per PID: `DMX_SET_PES_FILTER` (`0x40146f2c`) with `DMX_IN_FRONTEND`, `DMX_OUT_TS_TAP`, `DMX_PES_OTHER`, `DMX_IMMEDIATE_START`, for the PMT, the clock PID and every elementary stream; not for PID 0. Read `dvrN` (non-blocking, `poll`): 192-byte units, the sync byte at offset 4.
+7. **Serve** the 188-byte packets as `video/mp2t` over HTTP: a PAT the helper writes (one program, ten a second) first, then the packets. One tap, one client; a second tuner request is refused (503).
+8. **Let go**, in this order: close the PID fds, the download, set the channel's input to `DMX_EXT_SRC_TYPE_NULL`, `changeChannel` back to the last channel read in step 2, `stop`, `close`, end the opener.
 
-Owner first: the helper refuses (HTTP 503) and releases when `com.webos.app.livetv` is in front or a `tv` pipeline of Live TV appears, and while Live TV runs a stream may share its RF channel without tuning at all (steps 3 to 7 need no tune call).
+Owner first: the helper refuses (503) and ends the stream when `com.webos.app.livetv` is in front or has a pipeline in UMS, or when its own pipeline is no longer `BROADCAST_STATE_RENDERING` (polled every 5 s).
 
 ## Plex
 
-Plex's DVR takes an HDHomeRun-style network tuner. It finds one by IP (Settings, Live TV & DVR, "specify the device's location"), scans its lineup, matches the lineup to Plex's own guide by country and postal code, and then records or streams from the lineup's stream URLs. Recording needs a Plex Pass (`PUB: support.plex.tv/articles/225877347-live-tv-dvr`). The facade is five small endpoints, the set tvhProxy and the other emulators serve (`PUB: github.com/PREngineer/TVHProxy`):
+Plex's DVR takes an HDHomeRun-style network tuner. It finds one by IP (Settings, Live TV & DVR, "specify the device's location"), scans its lineup, matches the lineup to Plex's own guide by country and postal code, and then records or streams from the lineup's stream URLs. Recording needs a Plex Pass (`PUB: support.plex.tv/articles/225877347-live-tv-dvr`). The facade is the five small endpoints the set tvhProxy and the other emulators serve (`PUB: github.com/PREngineer/TVHProxy`); the helper's `hdhr` module serves them:
 
 | Endpoint | Content |
 |---|---|
-| `/discover.json` | `FriendlyName`, `DeviceID`, `BaseURL`, `LineupURL`, `TunerCount 1` |
+| `/discover.json` | `FriendlyName`, `DeviceID` (from the TV's MAC), `ModelNumber HDTC-2US`, `BaseURL` (the host the client used), `LineupURL`, `TunerCount 1` |
 | `/lineup_status.json` | `ScanInProgress 0`, `ScanPossible 1`, `Source "Antenna"` |
-| `/lineup.json` | one entry per channel: `GuideNumber` "2.1", `GuideName`, `URL` to the stream. The source is `iepg/getChannelList` (57 entries, no scan on the TV). Plex refuses a lineup that repeats a channel id (PUB: the tvhProxy README), so the numbers must be unique: the names repeat on RF 29, the numbers do not |
-| the stream URL | `/auto/v<GuideNumber>`: the helper's TS of that program, `503` when the tuner is on another RF channel or Live TV has it |
-| `/device.xml`, SSDP | optional: adding the device by IP does not need them |
+| `/lineup.json` | one entry per antenna channel of `iepg/getChannelList` (57 on the set, none skipped or hidden; a repeated number is listed once): `GuideNumber` "2.4", `GuideName`, `URL` |
+| `/auto/v<GuideNumber>` | the stream above; 404 for no such number, 503 while another stream runs, the TV is in use or there is no signal, 403 for a protected program, 502 when the hardware fails |
+| `/lineup.post` | 200, nothing to start |
 
-The facade lives in the helper: Plex (on BeastNAS) reaches the TV on the LAN and the stream goes straight from the TV to Plex. A 19.4 Mb/s RF channel is a fifth of the TV's 100 Mb/s link. The same stream URL serves Jellyfin, Emby or Tvheadend [INFERENCE: not tried]. Guide data comes from Plex; the TV's own listings (sparse) are not used.
+Plex (on BeastNAS) reaches the TV on the LAN and the stream goes straight from the TV to Plex; a 19.4 Mb/s RF channel is a fifth of the TV's 100 Mb/s link. Guide data comes from Plex; the TV's own listings (sparse) are not used. The same stream URL should serve Jellyfin, Emby or Tvheadend [INFERENCE: not tried].
+
+To add it: Settings, "Live TV for Plex", switch "Share the antenna tuner" on (it is off by default; the listener binds the TV's private address, port 5004, private networks only); in Plex, Live TV & DVR, set up, enter `<the TV's address>:5004`, and pick the channels. `hdhr` in `helper.json` holds the rest, all optional: `port` (5004), `bind`, `allowedNets`, `python` (the 32-bit one), `dvbDir`, `channel` (the demux channel, 2: LG's own stack keeps 0), `settleMs` (2000), `macFile`.
 
 ## Risks
 
-- **Contention.** One tuner, and LG's own use wins. A retune for Plex drops whatever the owner had locked, and LG's Live TV may find the last channel changed [INFERENCE: whether `setAtscManualTuning` moves `getLastChannelId`; P2 reads it before and after]. The UMS would evict a scan pipeline when Live TV opens its `tv` pipeline [INFERENCE]; the helper must notice and stop. Plex sees the stream end and keeps a partial recording.
-- **Wedge.** The TE, SDEC and PVR nodes are kernel interfaces LG's own services use; a bad sequence can hang the engine. The encoder slot wedged the kernel once (`venc-result.md`). Each probe runs with Nitin at the set, the panel off, the lease held, one cert write at most, and fds closed on any `EIO` or `ENODEV`.
-- **DRM and copy flags.** US ATSC 1.0 is sent in the clear; the set has no CableCARD and no ATSC 3.0, whose streams can be encrypted. The cert is LG's check on who may download, not content protection, and the seed comes from LG's own library on the TV. Not yet seen: whether any of the 57 channels' PMTs carries a redistribution-control descriptor (tag `0xAA`); P1b reads them. The seed is device-specific.
-- **CPU, memory, network.** The stream is 2.4 MB/s at most, a few percent of one core [INFERENCE: measure]; the set idles at 79 % with 754 MB free; the TE ring comes from the TE's reserved memory, not the UI's CMA [INFERENCE]; the link is 100 Mb/s. LG's stack already spends about 2 % of a core on the idle tuner (11:41 of CPU time in 9.5 hours, 22 demod interrupts a second); the helper adds nothing while idle.
-- **Power.** The tuner is already running. A stream must keep the set in Active Standby and the panel off: the helper must not wake the screen, and `tvpowerd` must not suspend mid-recording [INFERENCE: `warmOwner` and `registerActiveStandbyRequest` in `HANDOFF.md` are the place to hold it].
-- **Firmware.** The interface is LG's and may change with an update (the set runs webOS 10.2.1, firmware 33.22.52): run P1b again after one.
+- **Contention.** One tuner, and LG's own use wins, at once: opening Live TV unrealizes the helper's pipeline (P3), in standby with the panel off too. A stream moves the TV's last channel (restored at the end of the stream, and by the cleanup of a failed tune). A retune for Plex drops whatever the owner had locked. The helper notices through the foreground app, UMS's list and its own pipeline's state, not through the packets (P3). Plex sees the stream end and keeps a partial recording.
+- **Decoders and sound [INFERENCE, not measured].** The pipeline `changeChannel` makes claims the TV's decode chain and sets video and audio decode filters on `demux0` (P2). Whether it makes sound on the TV or through the Denon's ARC was not checked by ear (the volume status did not change and no ALSA stream ran); another app that needs both video decoders may be refused while a stream runs, or the stream may be evicted.
+- **Wedge.** The TE, SDEC and PVR nodes are kernel interfaces LG's own services use; a bad sequence can hang the engine. The encoder slot wedged the kernel once (`venc-result.md`). Nothing wedged in the probes: the kernel log held driver trace lines only (no oops, BUG or call trace), and the demux input was put back to `None` after each run. A change of firmware can change this: run `tap.py` again after an update (the set runs webOS 10.2.1, firmware 33.22.52).
+- **DRM and copy flags.** US ATSC 1.0 is sent in the clear; the set has no CableCARD and no ATSC 3.0, whose streams can be encrypted. The cert is LG's check on who may download, not content protection. None of the six programs on RF 32 carries a CA or redistribution-control descriptor, nor is any access-controlled; the other RF channels are not read, and the helper refuses a program that carries one.
+- **Reception.** Continuity gaps follow the antenna (RF 27: 0.06 % of the packets over twelve minutes). The helper does not repair them.
+- **CPU, memory, network.** The tap's python used 3.8 % of one core at 6 Mb/s on average; the ring is the kernel's (9.99 MB, about 8 s at 10 Mb/s); the link is 100 Mb/s. The helper adds nothing while the switch is off.
+- **Power.** The probes kept the set in Active Standby and the panel off; a stream does not wake the screen [INFERENCE for the helper: `warmOwner` and `registerActiveStandbyRequest` in `HANDOFF.md` are the place to hold it if `tvpowerd` suspends mid-recording].
 - **Coverage.** The tuner scans RF 2 to 69; stations that move to ATSC 3.0 disappear from the set for good (`supportATSC3` false).
 
-## Effort
+## Not yet measured
 
-Probes P1a to P3: a short slot each (S). The build after they pass: the helper's tuner module (luna calls, the DVB ioctls, a fake DVB device for tests, the HTTP stream, the contention rules) and the facade, with Plex's setup on BeastNAS (M, a feature of the helper's size, not a trial). L if Gate 3 fails and the PES muxer (R2) is needed. The TV side needs the 32-bit key call (python ctypes, nothing to build).
-
-## Next probes (each needs Nitin's OK)
-
-| Probe | Does | Touches | Passes when |
-|---|---|---|---|
-| **P1a** key | in a 32-bit `python3`, `ctypes.CDLL("libhal_lg115x.so.2").HAL_PVR_CRYPTO_GetSecureKey(None, buf)`; prints the key's SHA-256 prefix only | the secure world; no device node | returns 0 and 16 bytes that are not all zero. Fails: the TEE refuses a caller outside LG's services, so R2 |
-| **P1b** tap (no tune, the RF channel locked now: RF 32 if the last channel is it) | `demux2` input, PAT, PMT, then `dvr2` with the cert and TS taps for one program (2.4 if RF 32), 10 s into RAM, then close | `demux2`, `dvr2`, a PVR download, TPI port | PAT and PMT parse; every 188-byte packet starts with `0x47`; no continuity gap on any PID for 10 s; `/proc/lxdvb/demux/status` shows the filters while open and none after; the demod stays `LOCK`; Gates 2 and 3 pass |
-| **P2** retune | `open` `SCAN`, `setAtscManualTuning` to RF 27, `getSignalStatus`, P1b's tap, hold 10 minutes, `close`; read `getLastChannelId` and the demod before and after | the tuner's channel | the demod locks on 27 with no window or sound; P1b passes on 27; the lock holds; `lastChannelId` is unchanged (or is restored); Gate 1 passes |
-| **P3** contention | with P2's pipeline open, Nitin launches Live TV | the screen | Live TV plays; the helper's tap ends cleanly; the pipeline's state is read from `getBroadcastState` |
-| **P4** only if P1a fails | R2: PES taps for 10 s, remuxed on the host, played | `demux2` | `ffprobe` finds no error; audio and video stay in step |
-
-Before P1b: the lease; the panel off; `ls -l /proc/*/fd` shows only LG's `frontend0` holder; the receipts of P1a. Stop at the first `EIO`, `ENODEV` or kernel message from `te`, `sdec`, `pvr` or `lxdvb`.
-
-Decisions for Nitin: OK for P1a and P1b; that the TV's own Live TV outranks Plex; that a Plex Pass is in place.
+- The helper's Rust path on the set (ioctls, the held opener, restore); it mirrors `tap.py` and the luna calls above and is tested here against fakes only. Install it from `main` after a release.
+- Plex end to end: add the device, scan, watch live, record, on BeastNAS with a Plex Pass.
+- Sound during a stream (above), and a stream while an app plays video.
+- Two clients on one RF channel: not built (the second is refused).
+- Time to first byte for a retune; the probes took about 4 s from `changeChannel` to the first packet.

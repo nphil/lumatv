@@ -122,6 +122,9 @@ pub struct Config {
     /// Screenshots and screen recordings of the picture LumaTV's compositor composes (`capture.rs`, `compositor/.../screencap`). Off by
     /// default: with `enabled` false the routes refuse and the compositor does nothing; both read this one switch.
     pub capture: CaptureConfig,
+    /// The antenna tuner as an HDHomeRun for Plex (`hdhr/`). Whether it runs is the owner's switch in Settings (`base.livetv`, off by
+    /// default); these are only how.
+    pub hdhr: HdhrConfig,
     /// Pictures of the inputs for the picker (`previews.rs`). Whether any is taken is the owner's switch in Settings (`inputs.previews`
     /// of theme.json, on by default); these are only how.
     pub previews: PreviewsConfig,
@@ -163,12 +166,50 @@ impl Default for Config {
             cameras: CamerasConfig::default(),
             onhome: OnHomeConfig::default(),
             capture: CaptureConfig::default(),
+            hdhr: HdhrConfig::default(),
             previews: PreviewsConfig::default(),
             display_lab: DisplayLabConfig::default(),
             nice: 10,
             allowed_origins: Vec::new(),
             brand_app_id: None,
             brand_qml_module: None,
+        }
+    }
+}
+
+/// The antenna tuner as an HDHomeRun (`hdhr/`). Its switch is the owner's, in Settings (`base.livetv`, off by default): with it off no
+/// socket is bound and the tuner is not touched. The listener is a network entrance, so it takes only private networks.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct HdhrConfig {
+    /// The TCP port of the LAN listener (the one tvhProxy and the other emulators use); 0 asks the system for one (tests).
+    pub port: u16,
+    /// The LAN address to bind. Unset: the private address of the default route's interface. Never a public address.
+    pub bind: Option<String>,
+    /// Source networks that may connect (CIDR). Private ranges by default; a peer outside them is dropped unanswered.
+    pub allowed_nets: Vec<String>,
+    /// The set's 32-bit python, which loads LG's HAL for the PVR seed key (this binary is 64-bit and cannot).
+    pub python: String,
+    /// The DVB adapter's directory and the demux channel (with its PVR download) the tuner uses: LG's own stack keeps channel 0.
+    pub dvb_dir: String,
+    pub channel: u8,
+    /// How long the tuner settles after a channel change before the tables are read (the previous multiplex's are on the demux for a moment).
+    pub settle_ms: u64,
+    /// Where the TV's own address is read from: the device id Plex keeps is made from it.
+    pub mac_file: String,
+}
+
+impl Default for HdhrConfig {
+    fn default() -> Self {
+        Self {
+            port: 5004,
+            bind: None,
+            allowed_nets: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"].map(str::to_owned).to_vec(),
+            python: "python3".to_owned(),
+            dvb_dir: "/dev/dvb/adapter0".to_owned(),
+            channel: 2,
+            settle_ms: 2000,
+            mac_file: "/sys/class/net/eth0/address".to_owned(),
         }
     }
 }

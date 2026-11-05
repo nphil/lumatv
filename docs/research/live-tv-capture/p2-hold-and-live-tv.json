@@ -1,0 +1,742 @@
+{
+ "pre": {
+  "power": "Active Standby",
+  "fg": "com.webos.app.home",
+  "pipelines": "pipeline empty",
+  "last": "1_32_2_4_0_0_0",
+  "channels": {
+   "n": 57,
+   "sha8": "772c9c8e"
+  }
+ },
+ "open": "{ \"broadcastId\": \"00000051-8a7f-9012-93d7-f23e195ec476\", \"returnValue\": true }",
+ "change": {
+  "reason": "changeChannel",
+  "broadcastId": "00000051-8a7f-9012-93d7-f23e195ec476",
+  "returnValue": true,
+  "nextChannelId": "1_27_5_1_0_0_0"
+ },
+ "lock": {
+  "locked": true,
+  "seen": [
+   [
+    0.4,
+    "{\"locked\":true,\"strength\":66,\"quality\":99,\"signalLevel\":2}",
+    "Demod status = LOCK Packet Error = 0;Frequency Offset= 4812;"
+   ],
+   [
+    2.3,
+    "{\"locked\":true,\"strength\":68,\"quality\":36,\"signalLevel\":3}",
+    "Demod status = LOCK Packet Error = 7;Frequency Offset= 4951;"
+   ],
+   [
+    4.2,
+    "{\"locked\":true,\"strength\":71,\"quality\":68,\"signalLevel\":3}",
+    "Demod status = LOCK Packet Error = 0;Frequency Offset= 5063;"
+   ]
+  ]
+ },
+ "after_tune": {
+  "power": "Active Standby",
+  "fg": "com.webos.app.home",
+  "pipelines": null,
+  "last": "1_27_5_1_0_0_0"
+ },
+ "retune_home": {
+  "reason": "changeChannel",
+  "broadcastId": "00000051-8a7f-9012-93d7-f23e195ec476",
+  "returnValue": true,
+  "nextChannelId": "1_32_2_4_0_0_0"
+ },
+ "stop": {
+  "broadcastId": "00000051-8a7f-9012-93d7-f23e195ec476",
+  "returnValue": true
+ },
+ "close": {
+  "broadcastId": "00000051-8a7f-9012-93d7-f23e195ec476",
+  "returnValue": true
+ },
+ "after_release": {
+  "errorCode": -106,
+  "returnValue": false,
+  "errorText": "No resource: 00000051-8a7f-9012-93d7-f23e195ec476",
+  "subscribed": false
+ },
+ "final": {
+  "power": "Active Standby",
+  "fg": "com.webos.app.home",
+  "pipelines": "pipeline empty",
+  "last": "1_32_2_4_0_0_0",
+  "channels": {
+   "n": 57,
+   "sha8": "772c9c8e"
+  }
+ },
+ "tap": {
+  "pick": {
+   "program": 3,
+   "ch": "5.1",
+   "name": "WAGA-HD"
+  },
+  "capture": {
+   "bytes": 6335232,
+   "seconds": 10.02,
+   "errors": [],
+   "ended": null,
+   "first_data_s": 0.0,
+   "tail_bytes_not_multiple_of_192": 0
+  },
+  "analysis": {
+   "units": 32996,
+   "sync_offset_votes": {
+    "0": 0,
+    "4": 200
+   },
+   "sync_offset": 4,
+   "bad_sync": 0,
+   "per_pid": {
+    "0x0000": 109,
+    "0x0030": 109,
+    "0x0031": 29492,
+    "0x0034": 2182,
+    "0x0035": 1104
+   },
+   "scrambled_packets": 0,
+   "transport_errors": 0,
+   "cc_gaps": 56,
+   "cc_gap_first": [
+    [
+     49,
+     2,
+     4
+    ],
+    [
+     49,
+     4,
+     15
+    ],
+    [
+     49,
+     0,
+     6
+    ],
+    [
+     53,
+     3,
+     5
+    ],
+    [
+     52,
+     14,
+     0
+    ],
+    [
+     0,
+     2,
+     4
+    ]
+   ],
+   "pat_seen": true,
+   "pmt_seen": true,
+   "video_pes_starts": 488,
+   "audio_pes_starts": 86,
+   "pcr_pids": [
+    "0x0031"
+   ],
+   "unexpected_pids": [],
+   "stamp_first_last": [
+    128831235,
+    400692671
+   ]
+  },
+  "hold": {
+   "seconds": 723.2,
+   "bytes": 562313280,
+   "units": 2928715,
+   "bad_sync": 0,
+   "scrambled": 0,
+   "tei": 0,
+   "cc_gaps": 1886,
+   "gap_first": [
+    [
+     16716,
+     49,
+     2,
+     4
+    ],
+    [
+     16717,
+     49,
+     4,
+     15
+    ],
+    [
+     17459,
+     49,
+     0,
+     6
+    ],
+    [
+     17464,
+     53,
+     3,
+     5
+    ],
+    [
+     17523,
+     52,
+     14,
+     0
+    ],
+    [
+     17861,
+     0,
+     2,
+     4
+    ],
+    [
+     17868,
+     48,
+     2,
+     4
+    ],
+    [
+     22306,
+     49,
+     13,
+     9
+    ],
+    [
+     22353,
+     52,
+     2,
+     6
+    ],
+    [
+     23040,
+     49,
+     10,
+     15
+    ],
+    [
+     23054,
+     49,
+     9,
+     13
+    ],
+    [
+     23055,
+     52,
+     11,
+     0
+    ]
+   ],
+   "per_pid": {
+    "0x0000": 9386,
+    "0x0030": 8858,
+    "0x0031": 2627134,
+    "0x0034": 187755,
+    "0x0035": 95582
+   },
+   "read_errors": [],
+   "ended": "no data for 5.2 s",
+   "cpu_s": 27.4
+  }
+ },
+ "p3": {
+  "t_launch": "09:29:42",
+  "before": {
+   "basics": {
+    "power": "Active Standby",
+    "fg": "com.webos.app.home",
+    "pipelines": null,
+    "last": "1_27_5_1_0_0_0"
+   },
+   "bstate": {
+    "conflictResult": "NO_CONFLICT",
+    "returnValue": true,
+    "broadcastId": "00000051-8a7f-9012-93d7-f23e195ec476",
+    "pipelinePurpose": [
+     "WATCH_NORMAL"
+    ],
+    "state": "BROADCAST_STATE_RENDERING",
+    "subscribed": false
+   },
+   "vol": {
+    "ossActivate": false,
+    "volumeLimiter": "none",
+    "maxVolume": 100,
+    "volumeLimitable": false,
+    "activeStatus": true,
+    "soundOutput": "external_arc",
+    "volume": 97,
+    "mode": "normal",
+    "externalDeviceControl": true,
+    "muteStatus": false,
+    "volumeSyncable": false,
+    "adjustVolume": true
+   }
+  },
+  "launch": {
+   "returnValue": true
+  },
+  "launch2": {
+   "returnValue": true
+  },
+  "closeByAppId": {
+   "appId": "com.webos.app.livetv",
+   "returnValue": true
+  },
+  "after_close": {
+   "power": "Active Standby",
+   "fg": "com.webos.app.home",
+   "pipelines": "pipeline empty",
+   "last": "1_32_2_4_0_0_0"
+  },
+  "woke": null,
+  "rows": [
+   {
+    "t": 2.4,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5922"
+   },
+   {
+    "t": 4.8,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5915"
+   },
+   {
+    "t": 7.1,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5905"
+   },
+   {
+    "t": 9.4,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 255 Frequency Offset= 5932"
+   },
+   {
+    "t": 11.7,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5923"
+   },
+   {
+    "t": 14.0,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5932"
+   },
+   {
+    "t": 16.3,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5900"
+   },
+   {
+    "t": 18.6,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5920"
+   },
+   {
+    "t": 20.9,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5976"
+   },
+   {
+    "t": 23.2,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5902"
+   },
+   {
+    "t": 25.5,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5921"
+   },
+   {
+    "t": 27.8,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5909"
+   },
+   {
+    "t": 30.1,
+    "phase": "resume",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_27_5_1_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5924"
+   },
+   {
+    "t": 2.4,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6237"
+   },
+   {
+    "t": 4.7,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6216"
+   },
+   {
+    "t": 7.1,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6244"
+   },
+   {
+    "t": 9.4,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6222"
+   },
+   {
+    "t": 11.7,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6225"
+   },
+   {
+    "t": 14.1,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6235"
+   },
+   {
+    "t": 16.4,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6230"
+   },
+   {
+    "t": 18.8,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6222"
+   },
+   {
+    "t": 21.1,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6223"
+   },
+   {
+    "t": 23.5,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6240"
+   },
+   {
+    "t": 25.8,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6238"
+   },
+   {
+    "t": 28.1,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6228"
+   },
+   {
+    "t": 30.4,
+    "phase": "other-rf",
+    "power": "Active Standby",
+    "fg": "com.webos.app.livetv",
+    "last": "1_32_2_4_0_0_0",
+    "state": "BROADCAST_STATE_UNREALIZED",
+    "pipeline_apps": [
+     "com.webos.app.livetv",
+     "com.webos.app.livetv"
+    ],
+    "pipeline_types": [
+     "avconnector",
+     "tv"
+    ],
+    "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 6234"
+   }
+  ]
+ }
+}

@@ -2063,6 +2063,7 @@ mod tests {
             owners,
             [
                 "base.ambient",
+                "base.livetv",
                 "base.logging",
                 "base.news",
                 "base.receiver",

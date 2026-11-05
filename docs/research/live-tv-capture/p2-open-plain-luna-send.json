@@ -1,0 +1,72 @@
+{
+ "pre": {
+  "power": "Active Standby",
+  "fg": "com.webos.app.home",
+  "pipelines": "pipeline empty",
+  "last": "1_32_2_4_0_0_0",
+  "channels": {
+   "n": 57,
+   "sha8": "772c9c8e"
+  }
+ },
+ "open": {
+  "broadcastId": "00000046-fda8-01fc-bfea-af03879eb30f",
+  "returnValue": true
+ },
+ "after_open": {
+  "basics": {
+   "power": "Active Standby",
+   "fg": "com.webos.app.home",
+   "pipelines": "pipeline empty",
+   "last": "1_32_2_4_0_0_0"
+  },
+  "state": {
+   "errorCode": -106,
+   "returnValue": false,
+   "errorText": "No resource: 00000046-fda8-01fc-bfea-af03879eb30f",
+   "subscribed": false
+  }
+ },
+ "tune": {
+  "errorCode": "ERROR_0006",
+  "returnValue": false,
+  "errorText": "Common - Invalid argument",
+  "broadcastId": "00000046-fda8-01fc-bfea-af03879eb30f"
+ },
+ "lock": {
+  "locked": true,
+  "seen": [
+   [
+    0.6,
+    "{\"errorCode\":-106,\"returnValue\":false,\"errorText\":\"No resource: 00000046-fda8-01fc-bfea-af03879eb30f\",\"subscribed\":false}",
+    "Demod status = LOCK Packet Error = 0;Frequency Offset= 6301;"
+   ],
+   [
+    2.5,
+    "{\"errorCode\":-106,\"returnValue\":false,\"errorText\":\"No resource: 00000046-fda8-01fc-bfea-af03879eb30f\",\"subscribed\":false}",
+    "Demod status = LOCK Packet Error = 0;Frequency Offset= 6298;"
+   ],
+   [
+    4.6,
+    "{\"errorCode\":-106,\"returnValue\":false,\"errorText\":\"No resource: 00000046-fda8-01fc-bfea-af03879eb30f\",\"subscribed\":false}",
+    "Demod status = LOCK Packet Error = 0;Frequency Offset= 6286;"
+   ]
+  ]
+ },
+ "close": {
+  "errorCode": -106,
+  "returnValue": false,
+  "errorText": "No resource: 00000046-fda8-01fc-bfea-af03879eb30f",
+  "subscribed": false
+ },
+ "final": {
+  "power": "Active Standby",
+  "fg": "com.webos.app.home",
+  "pipelines": "pipeline empty",
+  "last": "1_32_2_4_0_0_0",
+  "channels": {
+   "n": 57,
+   "sha8": "772c9c8e"
+  }
+ }
+}

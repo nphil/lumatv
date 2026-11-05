@@ -1,0 +1,202 @@
+{
+ "pre": {
+  "power": "Active Standby",
+  "fg": "com.webos.app.home",
+  "pipelines": "pipeline empty",
+  "last": "1_32_2_4_0_0_0"
+ },
+ "tune": {
+  "disabled": false,
+  "returnValue": true,
+  "broadcastId": "0000004c-1435-7dbe-5e5f-92c369b8cbfe",
+  "mode": "INPUTSOURCE_TERRESTRIAL_DIGITAL",
+  "channelId": "1_27_5_1_0_0_0",
+  "existChmap": true
+ },
+ "changeChannel": {
+  "reason": "changeChannel",
+  "broadcastId": "0000004c-1435-7dbe-5e5f-92c369b8cbfe",
+  "returnValue": true,
+  "nextChannelId": "1_27_5_1_0_0_0"
+ },
+ "vol_before": {
+  "ossActivate": false,
+  "volumeLimiter": "none",
+  "maxVolume": 100,
+  "volumeLimitable": false,
+  "activeStatus": true,
+  "soundOutput": "external_arc",
+  "volume": 97,
+  "mode": "normal",
+  "externalDeviceControl": true,
+  "muteStatus": false,
+  "volumeSyncable": false,
+  "adjustVolume": true
+ },
+ "vol_after": {
+  "ossActivate": false,
+  "volumeLimiter": "none",
+  "maxVolume": 100,
+  "volumeLimitable": false,
+  "activeStatus": true,
+  "soundOutput": "external_arc",
+  "volume": 97,
+  "mode": "normal",
+  "externalDeviceControl": true,
+  "muteStatus": false,
+  "volumeSyncable": false,
+  "adjustVolume": true
+ },
+ "last_before_restore": "1_27_5_1_0_0_0",
+ "restore_change": {
+  "reason": "changeChannel",
+  "broadcastId": "0000004c-1435-7dbe-5e5f-92c369b8cbfe",
+  "returnValue": true,
+  "nextChannelId": "1_32_2_4_0_0_0"
+ },
+ "stop": {
+  "broadcastId": "0000004c-1435-7dbe-5e5f-92c369b8cbfe",
+  "returnValue": true
+ },
+ "close": {
+  "broadcastId": "0000004c-1435-7dbe-5e5f-92c369b8cbfe",
+  "returnValue": true
+ },
+ "final": {
+  "power": "Active Standby",
+  "fg": "com.webos.app.home",
+  "pipelines": "pipeline empty",
+  "last": "1_32_2_4_0_0_0",
+  "channels": {
+   "n": 57,
+   "sha8": "772c9c8e"
+  }
+ },
+ "rows": [
+  {
+   "power": "Active Standby",
+   "fg": "com.webos.app.home",
+   "last": "1_27_5_1_0_0_0",
+   "state": "BROADCAST_STATE_RENDERING",
+   "purpose": [
+    "WATCH_NORMAL"
+   ],
+   "pipeline_apps": [
+    "com.webos.app.channelsetting"
+   ],
+   "demod": "Demod status = LOCK Packet Error = 19 Frequency Offset= 5976"
+  },
+  {
+   "power": "Active Standby",
+   "fg": "com.webos.app.home",
+   "last": "1_27_5_1_0_0_0",
+   "state": "BROADCAST_STATE_RENDERING",
+   "purpose": [
+    "WATCH_NORMAL"
+   ],
+   "pipeline_apps": [
+    "com.webos.app.channelsetting"
+   ],
+   "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5976"
+  },
+  {
+   "power": "Active Standby",
+   "fg": "com.webos.app.home",
+   "last": "1_27_5_1_0_0_0",
+   "state": "BROADCAST_STATE_RENDERING",
+   "purpose": [
+    "WATCH_NORMAL"
+   ],
+   "pipeline_apps": [
+    "com.webos.app.channelsetting"
+   ],
+   "demod": "Demod status = LOCK Packet Error = 31 Frequency Offset= 6007"
+  },
+  {
+   "power": "Active Standby",
+   "fg": "com.webos.app.home",
+   "last": "1_27_5_1_0_0_0",
+   "state": "BROADCAST_STATE_RENDERING",
+   "purpose": [
+    "WATCH_NORMAL"
+   ],
+   "pipeline_apps": [
+    "com.webos.app.channelsetting"
+   ],
+   "demod": "Demod status = LOCK Packet Error = 19 Frequency Offset= 6002"
+  },
+  {
+   "power": "Active Standby",
+   "fg": "com.webos.app.home",
+   "last": "1_27_5_1_0_0_0",
+   "state": "BROADCAST_STATE_RENDERING",
+   "purpose": [
+    "WATCH_NORMAL"
+   ],
+   "pipeline_apps": [
+    "com.webos.app.channelsetting"
+   ],
+   "demod": "Demod status = LOCK Packet Error = 35 Frequency Offset= 5986"
+  },
+  {
+   "power": "Active Standby",
+   "fg": "com.webos.app.home",
+   "last": "1_27_5_1_0_0_0",
+   "state": "BROADCAST_STATE_RENDERING",
+   "purpose": [
+    "WATCH_NORMAL"
+   ],
+   "pipeline_apps": [
+    "com.webos.app.channelsetting"
+   ],
+   "demod": "Demod status = LOCK Packet Error = 0 Frequency Offset= 5986"
+  }
+ ],
+ "tap": {
+  "pick": {
+   "program": 3,
+   "ch": "5.1",
+   "name": "WAGA-HD"
+  },
+  "capture": {
+   "bytes": 8972928,
+   "seconds": 10.02,
+   "errors": [],
+   "ended": null,
+   "first_data_s": 0.0,
+   "tail_bytes_not_multiple_of_192": 0
+  },
+  "analysis": {
+   "units": 46734,
+   "sync_offset_votes": {
+    "0": 0,
+    "4": 200
+   },
+   "sync_offset": 4,
+   "bad_sync": 0,
+   "per_pid": {
+    "0x0000": 134,
+    "0x0030": 134,
+    "0x0031": 42429,
+    "0x0034": 2673,
+    "0x0035": 1364
+   },
+   "scrambled_packets": 0,
+   "transport_errors": 0,
+   "cc_gaps": 0,
+   "cc_gap_first": [],
+   "pat_seen": true,
+   "pmt_seen": true,
+   "video_pes_starts": 591,
+   "audio_pes_starts": 105,
+   "pcr_pids": [
+    "0x0031"
+   ],
+   "unexpected_pids": [],
+   "stamp_first_last": [
+    2488506338,
+    2760333183
+   ]
+  }
+ }
+}

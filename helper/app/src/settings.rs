@@ -251,6 +251,7 @@ impl SettingsStore {
                 include_str!("schemas/base.voice.json"),
                 Some(voice_rule as Rule),
             ),
+            (include_str!("schemas/base.livetv.json"), None),
         ] {
             let schema = SettingsSchema::parse(json.as_bytes())
                 .map_err(|e| RegisterError(format!("built-in schema: {e}")))?;
@@ -495,6 +496,14 @@ impl SettingsStore {
         }
     }
 
+    /// The antenna tuner's settings: off, and named LumaTV, until the owner says otherwise.
+    pub fn livetv(&self) -> LiveTvSettings {
+        LiveTvSettings {
+            enabled: self.flag("base.livetv", "enabled").unwrap_or(false),
+            name: self.text("base.livetv", "name").map(|n| n.trim().to_owned()).filter(|n| !n.is_empty()).unwrap_or_else(|| "LumaTV".to_owned()),
+        }
+    }
+
     /// The receiver client's settings.
     pub fn receiver(&self) -> ReceiverSettings {
         ReceiverSettings {
@@ -515,6 +524,13 @@ pub struct VoiceSettings {
     pub enabled: bool,
     /// An Assist pipeline id; empty is Home Assistant's preferred one.
     pub pipeline: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LiveTvSettings {
+    pub enabled: bool,
+    /// The name Plex lists the tuner by.
+    pub name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -707,6 +723,7 @@ mod tests {
             owners,
             [
                 "base.ambient",
+                "base.livetv",
                 "base.logging",
                 "base.news",
                 "base.receiver",
@@ -1129,7 +1146,7 @@ mod tests {
         .unwrap();
         s.register(schema.clone(), None).unwrap();
         s.apply("hello", vec![text("name", "Nitin")], None).unwrap();
-        assert_eq!(s.owners().len(), 7);
+        assert_eq!(s.owners().len(), 8);
         // An older revision of the same owner is refused; a newer one replaces the page and keeps the values.
         let mut older = schema.clone();
         older.revision = 0;
