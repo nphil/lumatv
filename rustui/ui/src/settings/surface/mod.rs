@@ -108,6 +108,28 @@ struct Built {
 const RAIL_RAPID_MS: u64 = 200;
 /// How long the rail rests before the page that waited is made.
 const RAIL_REST_MS: u64 = 120;
+/// The layers Settings may make in one draw at 120 Hz while it makes the rail or a page new. A frame's GPU time on the set is about 1.5 ms and 0.085 ms for
+/// each layer it draws (`tests/host_budget.py`) and a refresh is 8.3 ms, so a page of 60 to 120 layers is two or three frames of layers, and the rows it
+/// could not make in one are made in the draws of the frames after. The share follows the refresh and is not asked below [`INSTANT_MODAL_HZ`], where
+/// a refresh holds twice as much and the fade covers the making. On the host (the gate's walk of Settings, owner's theme): 24 keeps a frame to 59 layers
+/// and 3.5 ms of the shell's thread, where a page made whole took 69 and 6.7; 16 takes 2.8 ms of the thread, but the draws after the first then cover more
+/// of what is made and reach 62 layers.
+const FILL_LAYERS_120: usize = 24;
+
+/// What one draw may make while a list is first filled, at this refresh: none to limit below 100 Hz.
+fn fill_cap(kit: &Kit) -> Option<usize> {
+    (kit.refresh_hz >= crate::kit::motion::INSTANT_MODAL_HZ).then(|| ((FILL_LAYERS_120 as f32 * 120.0 / kit.refresh_hz).round() as usize).max(1))
+}
+
+/// A refresh and a little more: the rows that did not fit a frame are made for the next.
+fn fill_gap_ms(kit: &Kit) -> u64 {
+    (1000.0 / kit.refresh_hz.max(1.0)).ceil() as u64 + 1
+}
+
+/// What a draw that began with `room_at` layers of room may still make while a list is first filled: its share of one frame's layers less what it has made.
+fn share_left(kit: &Kit, room_at: usize) -> Option<usize> {
+    fill_cap(kit).map(|cap| cap.saturating_sub(room_at.saturating_sub(kit.ui.scene.layer_room())))
+}
 
 pub struct SettingsSurface {
     z: i32,
@@ -129,13 +151,17 @@ pub struct SettingsSurface {
     page_named: Option<(String, u64)>,
     page_made_at: u64,
     page_due: Option<u64>,
+    /// When the rows that did not fit the budget of a draw are made.
+    fill_due: Option<u64>,
+    /// The scene's room for layers when the draw in hand began (`share_left`).
+    room_at: usize,
     saved_scroll: Option<(String, f32)>,
 }
 
 impl SettingsSurface {
     /// `system_z` is where stack 1 begins; Settings draws in its own band over it ([`z::SETTINGS`]).
     pub fn new(system_z: i32) -> Self {
-        SettingsSurface { z: system_z + z::SETTINGS, built: None, pointer: Pointer::new(), hover: None, last_xy: (0.0, 0.0), buttons: 0, closing_at: None, refresh_hz: None, row_ids: Vec::new(), view: None, page_shown: None, page_named: None, page_made_at: 0, page_due: None, saved_scroll: None }
+        SettingsSurface { z: system_z + z::SETTINGS, built: None, pointer: Pointer::new(), hover: None, last_xy: (0.0, 0.0), buttons: 0, closing_at: None, refresh_hz: None, row_ids: Vec::new(), view: None, page_shown: None, page_named: None, page_made_at: 0, page_due: None, fill_due: None, room_at: 0, saved_scroll: None }
     }
 
     pub fn is_up(&self) -> bool {
@@ -160,17 +186,21 @@ impl SettingsSurface {
 
 
     pub fn due_at(&self) -> Option<u64> {
-        [self.closing_at, self.page_due].into_iter().flatten().min()
+        [self.closing_at, self.page_due, self.fill_due].into_iter().flatten().min()
     }
 
-    /// The fade out is over: the layers go. The rail has rested: the page it chose is made.
+    /// The fade out is over: the layers go. The rail has rested: the page it chose is made. A frame has gone by: the rows that did not fit it are made.
     pub fn tick(&mut self, engine: &mut Engine, now: u64) -> bool {
         if self.closing_at.is_some_and(|at| now >= at) {
             self.closing_at = None;
             self.drop_all(engine);
             return true;
         }
-        self.page_tick(now)
+        let fill = self.fill_due.is_some_and(|at| now >= at);
+        if fill {
+            self.fill_due = None;
+        }
+        self.page_tick(now) || fill
     }
 
     /// The rail has rested: the frame that makes the page it chose is asked for, once.
@@ -219,6 +249,7 @@ impl SettingsSurface {
         self.page_shown = None;
         self.page_named = None;
         self.page_due = None;
+        self.fill_due = None;
     }
 
     /// The rectangle of the page's pane and the rail's, for the host's checks of the picture.
@@ -266,6 +297,9 @@ impl SettingsSurface {
             }
             return Ok(self.built.is_some());
         }
+        // what this draw has made so far is the room the scene had at its start less the room it has now
+        let room_at = kit.ui.scene.layer_room();
+        self.room_at = room_at;
         let reopening = self.closing_at.take().is_some();
         let scale_bits = kit.text_scale.to_bits();
         let needs_build = self.built.as_ref().is_none_or(|b| b.generation != kit.generation() || b.scale_bits != scale_bits || b.over_video != over_video);
@@ -318,6 +352,7 @@ impl SettingsSurface {
             b.rail = Some(rl);
         }
         if let Some(rl) = &mut b.rail {
+            rl.budget = share_left(kit, room_at);
             rl.apply(kit, engine, paint, &rail_rows, rail_stop, rail_hover, 0, view.zone == Zone::Rail, now_ns, false)?;
         }
         // the page
@@ -363,6 +398,8 @@ impl SettingsSurface {
         let pick_hover = hover.and_then(|h| row_of(PICK_ID, 64, h)).map(|(i, _)| i);
         let bounds = if matches!(view.sheet, Some(SheetView::Pick { .. })) && b.viewport.h > 0.0 { b.viewport } else { page_rect };
         b.sheets.apply(kit, engine, paint, view.sheet.as_ref(), anchor, bounds, pick_hover, now_ns)?;
+        let waiting = b.rail.as_ref().is_some_and(ListArt::pending) || b.list.as_ref().is_some_and(ListArt::pending);
+        self.fill_due = waiting.then(|| now + fill_gap_ms(kit));
         self.sync_focus(kit, engine, view, now_ns);
         self.view = Some(view.clone());
         Ok(true)
@@ -421,15 +458,20 @@ impl SettingsSurface {
 
     /// The page: its head, its tabs and its rows, made again when what they are made of changed.
     fn page(&mut self, kit: &mut Kit, engine: &mut Engine, view: &View, page: &PageView, hover: Option<Id>, now_ns: u64) -> std::io::Result<()> {
+        let left = share_left(kit, self.room_at);
         let z = self.z;
         let b = self.built.as_mut().expect("built");
         let (sz, paint, geo) = (b.sz, b.paint, b.geo);
         let scene = kit.ui.scene.clone();
+        // what the head, the tabs and the picture make of the draw's layers before the rows
+        let mut made = 0usize;
         // the head
         let head_sig = format!("{}|{}|{}|{:?}|{}", page.title, page.subtitle, page.back.as_deref().unwrap_or(""), page.chip, page.id);
         if b.head.as_ref().is_none_or(|h| h.sig != head_sig) {
             engine.focus.unregister(Id(BACK_ID));
+            let room = kit.ui.scene.layer_room();
             let head = scene.adopting_view(&b.root, || Head::build(kit, engine, &paint, &sz, &geo, page, head_sig.clone(), z + 12))?;
+            made += room.saturating_sub(kit.ui.scene.layer_room());
             b.head = Some(head);
         }
         let head_h = b.head.as_ref().map_or(0.0, |h| h.height);
@@ -440,7 +482,9 @@ impl SettingsSurface {
         if page.tabs.len() > 1 {
             let sig = format!("{}|{}|{}", page.id, page.tabs.join(","), tabs_y);
             if b.tabs.as_ref().is_none_or(|t| t.sig != sig) {
+                let room = kit.ui.scene.layer_room();
                 let tabs = scene.adopting_view(&b.root, || Tabs::build(kit, engine, &paint, &sz, &geo, page, sig, tabs_y, z + 12))?;
+                made += room.saturating_sub(kit.ui.scene.layer_room());
                 b.tabs = Some(tabs);
             }
             if let Some(t) = &mut b.tabs {
@@ -461,7 +505,9 @@ impl SettingsSurface {
                 let sig = format!("{}|{}", page.id, FigureArt::signature(kit, fig, &fg));
                 let b = self.built.as_mut().expect("built");
                 if b.figure.as_ref().is_none_or(|f| f.sig() != sig) {
+                    let room = kit.ui.scene.layer_room();
                     let art = scene.adopting_view(&b.root, || FigureArt::new(kit, &paint, &sz, &b.root, fg, fig, z + 14, sig.clone()))?;
+                    made += room.saturating_sub(kit.ui.scene.layer_room());
                     b.figure = Some(art);
                 }
                 if let Some(f) = &mut b.figure {
@@ -497,6 +543,7 @@ impl SettingsSurface {
         let (hov_row, hov_card) = (hovered.map(|(r, _)| r), hovered.and_then(|(r, c)| c.map(|c| (r, c))));
         let focused = page.active && stop.is_some();
         if let Some(l) = &mut b.list {
+            l.budget = left.map(|cap| cap.saturating_sub(made));
             l.apply(kit, engine, paint, &page.rows, stop, hov_row, page.seg, focused, now_ns, false)?;
             if let Some((r, c)) = hov_card {
                 l.set_card_hover(r, Id(list::id_at(list::ROW_ID, r).0 + 1 + c as u32), true);
@@ -866,5 +913,52 @@ mod tests {
         assert!(s.page_tick(2_000), "the frame that makes the page");
         assert!(!s.page_tick(2_001));
         assert_eq!(s.due_at(), None);
+    }
+
+    /// What the surface has made of its rail and of its page's rows when it has done filling them, the draws that took, and the most layers a draw made.
+    fn filled(hz: f32) -> ((usize, usize), usize, usize) {
+        use crate::settings::row::Row;
+        use crate::settings::view::RailRow;
+        let (_h, mut kit) = crate::kit::testkit::kit(1.0);
+        kit.refresh_hz = hz;
+        let mut engine = Engine::new(&kit).unwrap();
+        let mut surface = SettingsSurface::new(0);
+        let mut screen = view(Zone::Page);
+        screen.rail = (0..9).map(|i| RailRow { id: format!("r{i}"), title: format!("Section {i}"), icon: "settings".into(), summary: "what it holds".into(), selected: i == 0, focused: false, lg: false }).collect();
+        let mut on = page("system");
+        on.rows = (0..14).map(|i| Row::toggle(&format!("t{i}")).label(&format!("Switch {i}"))).collect();
+        on.active = true;
+        on.stop = StopView::Row(0);
+        screen.page = Some(on);
+        let (mut now, mut draws, mut most) = (1_000u64, 0, 0);
+        loop {
+            let layers = kit.ui.scene.live_layers();
+            let now_ns = kit.ui.scene.now_ns();
+            surface.apply(&mut kit, &mut engine, &screen, false, now, now_ns).unwrap();
+            most = most.max(kit.ui.scene.live_layers() - layers);
+            draws += 1;
+            let Some(due) = surface.due_at() else { break };
+            now = due;
+            assert!(surface.tick(&mut engine, now), "a frame is asked for");
+            assert!(draws < 40, "it ends");
+        }
+        let b = surface.built.as_ref().unwrap();
+        ((b.rail.as_ref().unwrap().built(), b.list.as_ref().unwrap().built()), draws, most)
+    }
+
+    #[test]
+    fn from_100_hz_a_rail_and_a_page_made_new_are_made_a_few_layers_to_a_draw_and_end_the_same_as_made_whole() {
+        let (whole, whole_draws, whole_most) = filled(60.0);
+        assert_eq!(whole_draws, 1, "at 60 Hz a draw makes all of it");
+        let (spread, draws, most) = filled(120.0);
+        assert_eq!(spread, whole, "the same rail and rows in the end");
+        assert!(draws > 2, "spread over draws: {draws}");
+        assert!(most < whole_most / 2, "a draw makes far fewer layers than all of them at once ({most} of {whole_most})");
+        let (_h, mut kit) = crate::kit::testkit::kit(1.0);
+        assert_eq!(fill_cap(&kit), None, "no cap at 60 Hz");
+        kit.refresh_hz = 120.0;
+        assert_eq!(fill_cap(&kit), Some(FILL_LAYERS_120));
+        kit.refresh_hz = 240.0;
+        assert_eq!(fill_cap(&kit), Some(FILL_LAYERS_120 / 2), "a share of the refresh");
     }
 }

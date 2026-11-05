@@ -4,6 +4,35 @@
 
 On forge main (round 24's engine work):
 
+- **Session 7's gate, Settings and Home's cost to the shell's thread** (host numbers on the owner's theme and layout, `tests/host_budget.py --owner`, 120 Hz, the
+  least of three runs; nothing of this was run on the set). Most of a Settings frame was the shell's thread, not the rows:
+  - **Home was applied again at every event.** Each key, tick and answer of the helper draws every surface again (`Shell::after`), and Home's cards' contents
+    (`update_contents`: the Smart home card's `sync` 0.7 ms, the weather's `set` 0.27 ms; 0.5-1.3 ms in all) were brought up to date each time, though Home is
+    seen only dimmed through Settings' glass. A page asks for five or six answers at once (the helper's reads), each an `after` of 0.3-1.5 ms: the contents, the
+    report, the panels. Now the contents are brought up to date once a second while Settings, the display lab or the guide covers Home, and at once when the
+    cards are made again or the sheet goes (`HomeSurface::contents_due`); events of the helper that arrive together are taken in turn and drawn once
+    (`Shell::helper_all`, both loops of `main.rs`). A walk's total shell time fell by a third to a half.
+  - **Cold rows.** The first draw of an icon loaded and decoded its PNG mask (36-66 % of a cold row's build, 0.3 ms a row) and each tile rasterised its plate
+    (70 µs): masks are loaded 3 at a time from 2 s after start-up (`Icons::warm`), and plates are kept (`settings/surface/paint.rs`, 32); the same pixels.
+  - **GateDrops' spread, redone.** Its layers a row never limited anything: it counted rows, where `scene.live_layers()` is what a row made. From 100 Hz the rail
+    and a page made new are made 24 layers to a draw (the row in focus, then the rows in view, then the margin), the rest a refresh later
+    (`ListArt::budget`, `SettingsSurface::fill_due`). A draw's layers are not the frame's: a frame draws every layer in its rectangle, so the draws after the
+    first cover what is made already, and with the rail moving as well they merge into one cover (24 of the rail, 8 of the chrome, the rows so far).
+  - **Camera stills** came every second as a frame of their own (24 layers of the floor, 2-3 ms of the shell's thread) in the middle of a panel's slide or a
+    page being made; Home asks for none while something is over it (`calm`, as the wallpaper and the sky do).
+  - The walk of Settings (`settings-scroll`): most layers in a frame 69 -> 59 (frames over 60 in three runs 9 -> 0), most of the shell's thread in a frame 6.7 ->
+    3.5 ms, frames over 3 ms 13 -> 4; a window's total: open 13.6 -> 5.7 ms, picture list 22.9 -> 11.6, system list 27.8 -> 18.5, rail up 19.4 -> 15.1, close 10.8 ->
+    5.8. `settings-pages` (new: each page named in turn): the most layers in a frame 81 -> 53 (inputs 81 -> 51, picture 61 -> 46, sound 64 -> 49), frames over 3 ms
+    26 -> 13. Quick: 37 layers in both (a still that landed in a slide made a 42-layer frame in some runs of the base); the thread over the first open 17.8 -> 9.6 ms.
+    `ui` varies by half between runs on a host with a load of 14: compare the least of several.
+  - **Not changed: home-widgets and the dock** (84, 67, 101, 102, 101, 110 layers). A dock step is the card that lost the focus settling (weather 26 layers, 19 of
+    them its sprites' static pictures, the Smart home card about 20) and the dock's 22 tiles of a plate and an icon each (44), merged by the engine into one pass.
+    No cut found that is not seen or not the engine's: a tile's plate and its icon as one picture at rest (the shape shader's `clamp(0.5 - d, 0, 1)` rounded box
+    and border can be reproduced on the CPU to one level, but the lifted tile needs the plate crisp, so it stays two layers while it is in front); the sprites
+    as one picture while the sky rests (IdleCost's); the lift's settle at 0.005 of its travel instead of 0.0005 (52 frames to 37, 0.03 px of the 6 px rise; the
+    protocol crate is the compositor's as well). Quick's first two frames of a panel are the engine's backdrop capture (12-15 ms of the host's GPU).
+  - Untested on the set: every surface of the gate (settings-scroll, quick, home-widgets), and the real helper's answers, which may come spread out where the
+    host's come together.
 - **Session 6 on `c7704853`** (120 Hz): quick `burst_over20` 3, settings-scroll 6 drops and 12, home-widgets 4 drops and 9. Two causes, found on the host
   with the owner's own theme and layout (`tests/host_budget.py --owner <the gate's receipts>`, which also serves the Smart home card's two cameras a still
   a second and lists the shell's own CPU time a frame, `ui`):

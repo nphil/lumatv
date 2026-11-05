@@ -9,7 +9,7 @@ the 8.3 ms of a 120 Hz refresh is about 80 layers. For each window of a walk thi
 frame's estimate, and the work of a frame (that estimate and the time this process took to apply what the frame showed) at its worst and
 at the 99th percentile.
 
-    python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,home-widgets,toast,onhome,guide,banner,sky] [--frames] [--reference]
+    python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,settings-pages,home-widgets,toast,onhome,guide,banner,sky] [--frames] [--reference]
                                  [--bin PATH] [--owner DIR]
 
 `--frames` lists every frame, with the CPU time the shell used since the frame before (`ui`, by the thread's own clock, so a loaded host does not
@@ -21,7 +21,8 @@ toggled, a long scroll, a sensor's history, a lamp's colours changed, and a rest
 guide over a make-believe set of channels: walked by time and by channel with a held arrow, paged, a programme's sheet opened, the filters
 chosen, a rest, and left. `banner` is Live TV's channel banner: Live TV comes to the front and the tuner names its channel, then another after the
 banner's five seconds, then INFO (the tallest it gets). `sky` is Home at rest for ten seconds with the weather card's sky moving, which the gate has off:
-the frames a second the sky asks for (each is a flip of the whole screen on the set) and what each one draws.
+the frames a second the sky asks for (each is a flip of the whole screen on the set) and what each one draws. `settings-pages` opens Settings and then names each
+page in turn (`show settings`, 800 ms apart): what each page costs the shell to make and the frames it is drawn in.
 
 The Cameras app is measured by itself (no Home under it) in four walks: `cameras-grid` (eight tiles whose stills come five a second a tile, three of
 them not 16:9, then the focus walked) and `cameras-full` (a portrait doorbell's video in its window with the bars beside it, the chrome fading and
@@ -51,11 +52,13 @@ import rust_home_host as home  # noqa: E402  (Home's make-believe feeds)
 BIN = os.environ.get('LUMATV_UI_BIN') or os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
 FRAME = re.compile(r"^\[frame\] (\d+) at (\d+) ms: damage (\d+) px, drew (\d+) px in (\d+) rects \([\d.]+ %\), layers (\d+) culled \d+ cpu (\d+) us gpu \d+ us"
                    r".*? floor (\d+) px apply (\d+) us(?: ui (\d+) us)?", re.M)
-SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast', 'onhome', 'guide', 'banner', 'camera-popup', 'weather-zoom', 'sky']
+SURFACES = ['quick', 'picker', 'settings-scroll', 'settings-pages', 'home-widgets', 'toast', 'onhome', 'guide', 'banner', 'camera-popup', 'weather-zoom', 'sky']
 #: when a walk starts: Home has drawn its feeds and rests
 START_MS = 6000
 #: the layers a 120 Hz refresh holds (1.5 ms + 0.085 ms a layer <= 8.3 ms)
 LAYERS_120 = 80
+#: the pages `settings-pages` names: the rail's sections in its order, then three that hang under them
+SETTINGS_PAGES = ('privacy', 'profiles', 'picture', 'sound', 'inputs', 'network', 'ambient', 'home', 'remote', 'ai', 'system', 'themes', 'widgets', 'about')
 #: the owner's own `theme.json` and `layout.json` (`--owner DIR`: the pair the TV gate saves before a run, `before-theme.json` and `before-layout.json`)
 #: in place of the shipped theme and Home's default layout; the glass, the accent and the cards the owner chose are what the set draws
 OWNER = {}
@@ -445,6 +448,19 @@ def walk_of(surface):
         w.mark('close')
         w.key('back')
         w.wait(1500)
+    elif surface == 'settings-pages':
+        # Settings opened on the rail's first page, then every page of the rail and a few under it named in turn: each is made new, and the rail moves to its section
+        w.at = START_MS
+        w.mark('open')
+        w.push('show', {'kind': 'settings', 'page': SETTINGS_PAGES[0]})
+        w.wait(1000)
+        for page in SETTINGS_PAGES[1:]:
+            w.mark(page)
+            w.push('show', {'kind': 'settings', 'page': page})
+            w.wait(800)
+        w.mark('close')
+        w.key('back')
+        w.wait(1500)
     elif surface == 'home-widgets':
         # HOME_TOP first, then the walk: the status bar, the cards, the dock and back up
         w.at = START_MS - 1500
@@ -746,7 +762,7 @@ def main(argv=None):
             work = [work_ms(f) for f in fs]
             drawn = sum(1 for f in fs if f[1] > 0)
             rate = ' (%.1f a second)' % (len(fs) / spans[label]) if spans.get(label) else ''
-            print('  %-22s %4d frames%s, %4d drew pixels, most layers %3d (%.1f ms), work max %.1f ms p99 %.1f ms, %d over %d' % (label, len(fs), rate, drawn, most, gpu_ms(most), max(work, default=0.0), p99(work), heavy, budget))
+            print('  %-22s %4d frames%s, %4d drew pixels, most layers %3d (%.1f ms), work max %.1f ms p99 %.1f ms, ui max %.1f ms, %d over %d' % (label, len(fs), rate, drawn, most, gpu_ms(most), max(work, default=0.0), p99(work), max((f[7] for f in fs), default=0) / 1000.0, heavy, budget))
             if a.frames:
                 for f in fs:
                     print('      %6d ms  drew %8d px in %2d rects  layers %3d  floor %8d px  cpu %6d us (commits %6d us)  ui %6d us' % f)

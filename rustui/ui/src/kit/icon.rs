@@ -29,6 +29,8 @@ pub struct Icons {
     kept: HashMap<(String, u32, [u8; 4]), Vec<u8>>,
     /// The glyphs drawn from their vector source (`vector_icon`) at a side, and how far each sits from the middle of its box.
     crisp: HashMap<(String, u32), Option<Crisp>>,
+    /// The names of the folder's icons [`Icons::warm`] has not loaded yet, the next one last (`None`: not listed yet).
+    unwarmed: Option<Vec<&'static str>>,
 }
 
 fn read_mask(path: &Path) -> Option<Mask> {
@@ -93,6 +95,23 @@ impl Icons {
     /// The icons of `module_dir` (`<module>/icons/lucide`, else the program's copy); masks are read when first asked for.
     pub fn new(module_dir: &Path) -> Self {
         Self { dir: Some(module_dir.join("icons/lucide")), ..Self::default() }
+    }
+
+    /// Loads up to `n` more of the folder's masks. A screen that draws an icon for the first time reads and decodes its file in the frame that shows
+    /// it (0.2 to 0.6 ms of the host's UI thread each, most of what a cold Settings rail or page costs), so the shell does it in the quiet after it
+    /// starts. Returns whether masks are left to load. The names are those of the program's own copy of the folder.
+    pub fn warm(&mut self, n: usize) -> bool {
+        let names = self.unwarmed.get_or_insert_with(|| {
+            let mut names: Vec<&'static str> = crate::embedded::ICONS.iter().filter_map(|(file, _)| file.strip_prefix("lucide/")?.strip_suffix(".png")).collect();
+            names.reverse();
+            names
+        });
+        let batch: Vec<&'static str> = (0..n).filter_map(|_| names.pop()).collect();
+        let more = !names.is_empty();
+        for name in batch {
+            let _ = self.mask(name);
+        }
+        more
     }
 
     /// Whether `name` is an icon of the folder.
@@ -295,5 +314,23 @@ mod tests {
         ] {
             assert!(icons.has(name), "{name}");
         }
+    }
+
+    #[test]
+    fn warming_loads_every_mask_of_the_folder_a_few_at_a_time_and_draws_the_same_pixels() {
+        let mut cold = Icons::new(&module());
+        let mut warm = Icons::new(&module());
+        let mut calls = 0;
+        while warm.warm(7) {
+            calls += 1;
+            assert!(calls < 200, "it ends");
+        }
+        assert!(calls > 1, "a few at a time, not all in one call");
+        assert!(!warm.warm(7), "nothing is left to load");
+        let loaded = warm.masks.values().filter(|m| m.is_some()).count();
+        let embedded = crate::embedded::ICONS.iter().filter(|(file, _)| file.starts_with("lucide/")).count();
+        assert_eq!(loaded, embedded, "every icon of the folder");
+        let ink = Rgba(200, 100, 50, 255);
+        assert_eq!(warm.draw("bell-ring", 32, ink), cold.draw("bell-ring", 32, ink));
     }
 }

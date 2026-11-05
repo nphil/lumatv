@@ -424,10 +424,12 @@ fn run_set(o: Options) -> io::Result<()> {
     let mut frame_acknowledged = false;
     let mut frame_in_flight = false;
     let mut frame_retry_at = Instant::now();
+    // a message taken while looking for more of the helper's events: it is next
+    let mut carried: Option<Msg> = None;
     loop {
         let now = now_ms();
         let timeout = shell.due_at().map_or(Duration::from_secs(5), |due| Duration::from_millis(due.saturating_sub(now).clamp(1, 5000)));
-        match rx.recv_timeout(timeout) {
+        match carried.take().map_or_else(|| rx.recv_timeout(timeout), Ok) {
             Ok(Msg::Scene(ev)) => {
                 if !frame_ready && confirms_first_commit(first_commit, &ev) {
                     frame_ready = true;
@@ -447,7 +449,24 @@ fn run_set(o: Options) -> io::Result<()> {
                 answer(&mut log, "channel", &ev);
                 carry(shell.channel(&ev, now_ms()), Some(&channel), Some(&helper), &mut log, None);
             }
-            Ok(Msg::Helper(ev)) => { answer(&mut log, "helper", &ev); carry(shell.helper(&ev, now_ms()), Some(&channel), Some(&helper), &mut log, None); }
+            Ok(Msg::Helper(ev)) => {
+                answer(&mut log, "helper", &ev);
+                // the helper's events that are waiting come with it, and are drawn once (`Shell::helper_all`)
+                let mut events = vec![ev];
+                while let Ok(next) = rx.try_recv() {
+                    match next {
+                        Msg::Helper(more) => {
+                            answer(&mut log, "helper", &more);
+                            events.push(more);
+                        }
+                        other => {
+                            carried = Some(other);
+                            break;
+                        }
+                    }
+                }
+                carry(shell.helper_all(&events, now_ms()), Some(&channel), Some(&helper), &mut log, None);
+            }
             Ok(Msg::Key(KeyEvent::Closed)) => return Err(io::Error::other("the compositor closed the key socket")),
             Ok(Msg::Key(ev)) => carry(shell.key(&ev, now_ms()), Some(&channel), Some(&helper), &mut log, None),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
@@ -688,12 +707,23 @@ fn run_host(o: Options) -> io::Result<()> {
                 break;
             }
         }
-        for msg in inbox {
+        // the helper's events that follow one another go to the shell together and are drawn once (`Shell::helper_all`); the rest come in their order
+        let mut helpers: Vec<Event> = Vec::new();
+        for msg in inbox.into_iter().map(Some).chain([None]) {
+            if let Some(Msg::Helper(ev)) = msg {
+                answer(&mut log, "helper", &ev);
+                helpers.push(ev);
+                continue;
+            }
+            if !helpers.is_empty() {
+                let events = std::mem::take(&mut helpers);
+                carry(timed(&mut ui_us, || shell.helper_all(&events, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine));
+            }
             match msg {
-                Msg::Scene(ev) => shell.kit.ui.scene.observe(&ev),
-                Msg::Channel(ev) => { answer(&mut log, "channel", &ev); carry(timed(&mut ui_us, || shell.channel(&ev, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)); }
-                Msg::Helper(ev) => { answer(&mut log, "helper", &ev); carry(timed(&mut ui_us, || shell.helper(&ev, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)); }
-                Msg::Key(ev) => carry(timed(&mut ui_us, || shell.key(&ev, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)),
+                Some(Msg::Scene(ev)) => shell.kit.ui.scene.observe(&ev),
+                Some(Msg::Channel(ev)) => { answer(&mut log, "channel", &ev); carry(timed(&mut ui_us, || shell.channel(&ev, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)); }
+                Some(Msg::Key(ev)) => carry(timed(&mut ui_us, || shell.key(&ev, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)),
+                Some(Msg::Helper(_)) | None => {}
             }
         }
         if closed {

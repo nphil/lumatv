@@ -62,6 +62,15 @@ pub struct ListArt {
     extent: f32,
     /// What the list was made for: a different page, tab or width makes it again.
     key: String,
+    /// The layers the next `apply` may add while the list is first filled (`None`: as many as the rows in reach need; a row is made whole, and at
+    /// least one is made in each). A page made new puts every row of it in one frame, 60 to 120 layers on the set, which a refresh at 120 Hz does not
+    /// hold: the rest are made by the `apply` of the frames after.
+    pub budget: Option<usize>,
+    /// The list has not had every row in reach made yet, and whether rows are waiting for the next `apply`.
+    filling: bool,
+    pending: bool,
+    /// The layers the last `apply` made.
+    made: usize,
 }
 
 /// The clip of the viewport over the rows from `y` for `h`: the window and what a lifted row (or one of its cards) stands out by, so the
@@ -77,13 +86,23 @@ impl ListArt {
         let viewport = scene.group(parent.map(Group::id), GroupPose { x: origin.0, y: origin.1, clip: rect_clip(Reach::lift(kit, Lift::Row, (size.0, 0.0)), size.0, 0.0, size.1), feather: Edges::NONE, ..GroupPose::IDENTITY }).map_err(other)?;
         let rest = GroupPose::IDENTITY;
         let scroll = scene.group(Some(viewport.id()), rest).map_err(other)?;
-        let mut me = ListArt { region, scope, z, id_base, tight, viewport, scroll, origin, size, zone: 0.0, slots: Vec::new(), col: Column::default(), offset: 0.0, extent: 0.0, key };
+        let mut me = ListArt { region, scope, z, id_base, tight, viewport, scroll, origin, size, zone: 0.0, slots: Vec::new(), col: Column::default(), offset: 0.0, extent: 0.0, key, budget: None, filling: true, pending: false, made: 0 };
         me.rescroll(kit, engine, 0.0)?;
         Ok(me)
     }
 
     pub fn key(&self) -> &str {
         &self.key
+    }
+
+    /// Whether rows in reach are still to be made: the next `apply` makes them.
+    pub fn pending(&self) -> bool {
+        self.pending
+    }
+
+    /// The layers the last `apply` made.
+    pub fn made(&self) -> usize {
+        self.made
     }
 
     pub fn offset(&self) -> f32 { self.offset }
@@ -257,21 +276,17 @@ impl ListArt {
         let focus = &kit.tokens.focus;
         let reach = self.slots.iter().filter_map(|s| s.geom.cards.as_ref()).fold(Reach::lift(kit, Lift::Row, (w, tallest)), |r, c| r.and(Reach::of(focus.button_scale, focus.card_lift, (c.card_w, c.card_h))));
         self.viewport.set_clip_feathered(rect_clip(reach, self.size.0, clip_y, clip_h), Edges::NONE);
-        // the rows in reach are built, the ones that left it are given back
+        // the rows that left reach are given back; the rows in reach are made, those the list is first being filled with in the order they are
+        // wanted in (the one the focus is on, the rest of those in view, then the margin), as many as its budget allows
         let margin = 1.5 * sz.row + tallest.min(usable);
         let (lo, hi) = (self.offset - margin, self.offset + usable + margin);
         let origin = (self.origin.0, self.origin.1 + self.zone - self.offset);
+        let mut wanted = Vec::new();
         for i in 0..self.slots.len() {
             let (top, h) = (self.slots[i].top, self.slots[i].geom.h);
             let near = top + h > lo && top < hi;
             if near && self.slots[i].art.is_none() {
-                let row = &rows[i];
-                let geom = self.slots[i].geom.clone();
-                let in_view = whole.contains(&i) || self.col.total <= self.size.1;
-                let mut env = Env { kit, engine, paint, sz, scroll: &self.scroll, z: self.z, region: self.region, scope: self.scope, origin };
-                let art = RowArt::build(&mut env, row, geom, top, w, id_at(self.id_base, i), row.focusable())?;
-                let _ = in_view;
-                self.slots[i].art = Some(art);
+                wanted.push(i);
             } else if !near && self.slots[i].art.is_some() {
                 if let Some(a) = self.slots[i].art.take() {
                     a.release(engine, false);
@@ -279,6 +294,31 @@ impl ListArt {
                 self.slots[i].live = false;
             }
         }
+        let budget = self.budget.filter(|_| self.filling);
+        if budget.is_some() {
+            let (v0, v1) = (self.offset, self.offset + usable);
+            wanted.sort_by_key(|&i| (stop != Some(i), !(self.slots[i].top + self.slots[i].geom.h > v0 && self.slots[i].top < v1), i));
+        }
+        let mut left = budget.unwrap_or(usize::MAX);
+        let (mut made, mut waiting, mut rows_made) = (0usize, false, 0usize);
+        for i in wanted {
+            if left == 0 && rows_made > 0 {
+                waiting = true;
+                continue;
+            }
+            let (top, row) = (self.slots[i].top, &rows[i]);
+            let geom = self.slots[i].geom.clone();
+            let room = kit.ui.scene.layer_room();
+            let mut env = Env { kit, engine, paint, sz, scroll: &self.scroll, z: self.z, region: self.region, scope: self.scope, origin };
+            let art = RowArt::build(&mut env, row, geom, top, w, id_at(self.id_base, i), row.focusable())?;
+            let used = room.saturating_sub(kit.ui.scene.layer_room());
+            (made, left, rows_made) = (made + used, left.saturating_sub(used), rows_made + 1);
+            self.slots[i].art = Some(art);
+        }
+        self.made = made;
+        self.pending = waiting;
+        // a list made before it has rows (the rail, before the model has named them) is not filled yet
+        self.filling &= waiting || self.slots.is_empty();
         // the focus plate (a lift group and a lit group) is made for the row the focus is on and given back once its lift is at rest: a page
         // holds two or three, not one for every row it shows
         for i in 0..self.slots.len() {
@@ -374,6 +414,56 @@ mod tests {
         assert!(!engine.flow.has(Id(ROW_ID + 1)));
         list.release(&mut engine);
         drop(list);
+    }
+
+    #[test]
+    fn a_list_being_filled_makes_the_rows_its_budget_allows_the_focus_first_and_the_rest_at_the_next_apply() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let mut engine = Engine::new(&kit).unwrap();
+        let paint = Paint::of(&kit);
+        let rows: Vec<Row> = (0..12).map(|i| Row::toggle(&format!("t{i}")).label(&format!("Switch {i}"))).collect();
+        let new = |kit: &mut Kit, engine: &mut Engine| ListArt::new(kit, engine, None, "test".into(), (0.0, 0.0), (900.0, 640.0), Region(42), Scope::BASE, 0, ROW_ID, false).unwrap();
+        let apply = |list: &mut ListArt, kit: &mut Kit, engine: &mut Engine, stop: usize| list.apply(kit, engine, paint, &rows, Some(stop), None, 0, true, 1_000_000, false).unwrap();
+
+        // with no budget every row in reach is made at once
+        let mut whole = new(&mut kit, &mut engine);
+        apply(&mut whole, &mut kit, &mut engine, 0);
+        let in_reach = whole.built();
+        assert!(in_reach > 3 && !whole.pending());
+        let per_row = whole.made() / in_reach;
+        assert!(per_row >= 2, "a switch is more than one layer ({per_row})");
+        whole.release(&mut engine);
+
+        // a budget of two rows' layers makes two rows a draw, until every row in reach is made
+        let mut list = new(&mut kit, &mut engine);
+        list.budget = Some(2 * per_row);
+        apply(&mut list, &mut kit, &mut engine, 0);
+        assert_eq!((list.built(), list.made()), (2, 2 * per_row), "two rows of the twelve");
+        assert!(list.pending());
+        let mut draws = 1;
+        while list.pending() {
+            let before = list.built();
+            apply(&mut list, &mut kit, &mut engine, 0);
+            assert!(list.built() > before, "every draw makes a row");
+            draws += 1;
+            assert!(draws < 20);
+        }
+        assert_eq!(list.built(), in_reach, "the rows in reach, as with no budget");
+        // and a list that is filled is made no more by a budget: rows that come into reach as it scrolls are made at once
+        list.budget = Some(1);
+        apply(&mut list, &mut kit, &mut engine, 0);
+        assert!(!list.pending());
+        list.release(&mut engine);
+
+        // the row the focus is on is made first, and the rest of the rows in view after it
+        let mut list = new(&mut kit, &mut engine);
+        list.budget = Some(per_row);
+        apply(&mut list, &mut kit, &mut engine, 3);
+        assert!(list.art(3).is_some(), "the focused row");
+        assert_eq!(list.built(), 1);
+        apply(&mut list, &mut kit, &mut engine, 3);
+        assert!(list.art(0).is_some(), "then the top of the view");
+        list.release(&mut engine);
     }
 
     /// Every built switch of `list`: its stored value and where its thumb is at 0, 50 ms and 2 s after the frame.

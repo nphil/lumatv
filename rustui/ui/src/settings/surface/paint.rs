@@ -102,9 +102,8 @@ fn over(dst: &mut [u8], src: [u8; 4]) {
     }
 }
 
-/// A square tile (`LuTile`): a rounded plate of `fill` with a 1 px `border` (0 alpha for none) and `glyph` (premultiplied pixels of
-/// `glyph_side`) in its middle, as one picture.
-pub fn tile_pixels(side: u32, radius: f32, fill: Rgba, border: Rgba, glyph: Option<(&[u8], u32)>) -> Vec<u8> {
+/// The rounded plate of a tile: `side` square, corner `radius`, `fill` and a 1 px `border` (0 alpha for none).
+fn plate_raster(side: u32, radius: f32, fill: Rgba, border: Rgba) -> Vec<u8> {
     let s = side as usize;
     let mut out = vec![0u8; s * s * 4];
     let sf = side as f32;
@@ -121,6 +120,40 @@ pub fn tile_pixels(side: u32, radius: f32, fill: Rgba, border: Rgba, glyph: Opti
             out[i..i + 4].copy_from_slice(&[px[0].round() as u8, px[1].round() as u8, px[2].round() as u8, px[3].round() as u8]);
         }
     }
+    out
+}
+
+/// The plates made lately, by what makes one: every row of a page has the same plate under its own glyph (a tile's rasterising was 60 to 70 us of
+/// the host's UI thread, a third of a row's making), so each is made once and copied. A few are kept (the accent's, the plain, the dimmed).
+const PLATES_KEPT: usize = 32;
+
+fn plate(side: u32, radius: f32, fill: Rgba, border: Rgba) -> Vec<u8> {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    type Key = (u32, u32, [u8; 4], [u8; 4]);
+    thread_local! {
+        static KEPT: RefCell<HashMap<Key, Vec<u8>>> = RefCell::new(HashMap::new());
+    }
+    let key: Key = (side, radius.to_bits(), [fill.0, fill.1, fill.2, fill.3], [border.0, border.1, border.2, border.3]);
+    KEPT.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        if let Some(px) = kept.get(&key) {
+            return px.clone();
+        }
+        let px = plate_raster(side, radius, fill, border);
+        if kept.len() >= PLATES_KEPT {
+            kept.clear();
+        }
+        kept.insert(key, px.clone());
+        px
+    })
+}
+
+/// A square tile (`LuTile`): a rounded plate of `fill` with a 1 px `border` (0 alpha for none) and `glyph` (premultiplied pixels of
+/// `glyph_side`) in its middle, as one picture.
+pub fn tile_pixels(side: u32, radius: f32, fill: Rgba, border: Rgba, glyph: Option<(&[u8], u32)>) -> Vec<u8> {
+    let s = side as usize;
+    let mut out = plate(side, radius, fill, border);
     if let Some((g, gs)) = glyph {
         let off = (side.saturating_sub(gs) / 2) as usize;
         for gy in 0..gs as usize {
@@ -159,5 +192,18 @@ mod tests {
         let inside = (16 * 32 + 5) * 4;
         assert!(t[on_border] > 150, "{}", t[on_border]);
         assert_eq!(t[inside], 10);
+    }
+
+    #[test]
+    fn a_kept_plate_is_the_same_pixels_as_one_made_again() {
+        let (fill, border) = (Rgba(30, 20, 50, 255), Rgba(40, 40, 40, 40));
+        let made = plate_raster(40, 12.0, fill, border);
+        assert_eq!(plate(40, 12.0, fill, border), made);
+        assert_eq!(plate(40, 12.0, fill, border), made, "and the second time");
+        assert_ne!(plate(40, 12.0, Rgba(31, 20, 50, 255), border), made, "another fill is another plate");
+        let glyph = vec![200u8; 10 * 10 * 4];
+        let tile = tile_pixels(40, 12.0, fill, border, Some((&glyph, 10)));
+        assert_eq!(&tile[..4], &made[..4], "the plate is under the glyph and the same outside it");
+        assert_ne!(tile, made);
     }
 }

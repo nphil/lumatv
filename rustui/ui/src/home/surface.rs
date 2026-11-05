@@ -37,6 +37,8 @@ pub const Z_STATUS: i32 = 40;
 pub const Z_HOVER: i32 = 60;
 pub const Z_LAYERS: i32 = 100;
 pub const Z_VEIL: i32 = 900;
+/// How often the cards' contents are brought up to date while a full-screen sheet covers Home (`HomeSurface::contents_due`).
+const COVERED_CONTENTS_MS: u64 = 1000;
 
 pub use crate::kit::button::faded;
 
@@ -368,6 +370,9 @@ pub struct HomeSurface {
     view_art_at: Option<u64>,
     news_index: usize,
     last_clock_s: u64,
+    /// When the cards' contents were last brought up to date, and whether a full-screen sheet covered Home at the last apply (`contents_due`).
+    contents_at: u64,
+    covered: bool,
     page_hidden: bool,
     dimming: Dimming,
     pub glyph_runs: bool,
@@ -412,6 +417,8 @@ impl HomeSurface {
             view_art_at: None,
             news_index: 0,
             last_clock_s: 0,
+            contents_at: 0,
+            covered: false,
             page_hidden: false,
             dimming: Dimming::default(),
             glyph_runs: true,
@@ -430,7 +437,7 @@ impl HomeSurface {
 
     /// The surface's own timers: the news slide, the clock's second (or minute).
     pub fn tick(&mut self, now: u64) -> bool {
-        now / 1000 != self.last_clock_s
+        (now / 1000 != self.last_clock_s && self.contents_due(now))
             || (self.news_at > 0 && now >= self.news_at)
             || self.art_at.is_some_and(|t| now >= t)
             || self.view_art_at.is_some_and(|t| now >= t)
@@ -440,6 +447,13 @@ impl HomeSurface {
     pub fn due_at(&self) -> Option<u64> {
         let news = if self.cards.iter().any(|c| c.kind == "news") && self.news_at > 0 { Some(self.news_at) } else { None };
         [news, self.art_at, self.view_art_at, self.dimming.due_at()].into_iter().flatten().min()
+    }
+
+    /// Whether the cards' contents are to be brought up to date now: at every apply while Home is seen, and under a full-screen sheet (Settings, the
+    /// display lab, the guide: Home shows dimmed through its glass) once a second and at the news slide. Each change of the sheet drew them again, and
+    /// a page being made changes it at every answer of the helper: 0.7-1.3 ms of the shell's thread apiece on the host, most of it the Smart home card.
+    fn contents_due(&self, now: u64) -> bool {
+        !self.covered || now >= self.contents_at + COVERED_CONTENTS_MS || (self.news_at > 0 && now >= self.news_at)
     }
 
     /// The weather card's picture moves only while the card is seen: Home in front with nothing over the card, the screen on, no screensaver,
@@ -512,6 +526,8 @@ impl HomeSurface {
         // the chrome, made again when the layout or the theme's own keys change
         if rebuild || self.chrome_rev != Some(home.chrome_rev()) {
             self.chrome_rev = Some(home.chrome_rev());
+            // the cards made now have no words yet
+            self.contents_at = 0;
             self.build_chrome(kit, engine, home)?;
         }
         self.build_status(kit, engine, home)?;
@@ -532,7 +548,9 @@ impl HomeSurface {
         // The clock's hands, the news slide and the cards' words are kept up to date while Home is in front, and brought up to date by the apply
         // that finds it in front again: a covered Home that went on doing it sent the engine a damaged picture every second, a composed frame under
         // a playing video for nothing.
-        if home.active {
+        self.covered = home.covered();
+        if home.active && self.contents_due(now) {
+            self.contents_at = now;
             self.update_contents(kit, engine, home, now);
         }
         self.drive_weather(kit, home, now);
@@ -1706,6 +1724,39 @@ mod tests {
         let words = lint.words().len();
         std::mem::forget(h);
         (findings, words)
+    }
+
+    #[test]
+    fn under_a_full_screen_sheet_the_contents_are_brought_up_to_date_once_a_second_and_at_once_when_the_cards_are_made_again_or_the_sheet_goes() {
+        let (h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), super::super::grid::shipped(), json!({}));
+        fixtures(&mut home);
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        let mut apply = |s: &mut HomeSurface, home: &mut Home, at: u64| s.apply(&mut kit, &mut engine, home, at).expect("Home drawn");
+        apply(&mut s, &mut home, 2300);
+        apply(&mut s, &mut home, 2310);
+        assert_eq!(s.contents_at, 2310, "seen: at every apply");
+        home.set_covered(true);
+        apply(&mut s, &mut home, 2320);
+        assert_eq!(s.contents_at, 2310, "covered: not at every apply");
+        // (the sky's own timer asks for frames of its own: what is under test is the clock's second)
+        s.art_at = None;
+        s.view_art_at = None;
+        assert!(!s.contents_due(3050) && !s.tick(3050), "and the clock's second asks for no drawing of Home");
+        assert!(s.contents_due(3320) && s.tick(3320), "until the second is up");
+        apply(&mut s, &mut home, 3320);
+        assert_eq!(s.contents_at, 3320);
+        s.restyle();
+        apply(&mut s, &mut home, 3330);
+        assert_eq!(s.contents_at, 3330, "cards made again have their words at once");
+        apply(&mut s, &mut home, 3340);
+        assert_eq!(s.contents_at, 3330);
+        home.set_covered(false);
+        apply(&mut s, &mut home, 3350);
+        assert_eq!(s.contents_at, 3350, "and when the sheet goes");
+        std::mem::forget(h);
     }
 
     #[test]

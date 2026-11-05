@@ -32,6 +32,10 @@ use std::time::{Duration, SystemTime};
 const CAMERAS_SETTINGS_PAGE: &str = "cameras";
 /// How long Home stays calm after an overlay is gone (the longest fade-out or slide-out is 220 ms).
 const OVERLAY_RELEASE_MS: u64 = 450;
+/// The quiet after the shell starts in which the icons' masks are loaded (`Icons::warm`), how many at a time, and how long between the steps.
+const ICON_WARM_AFTER_MS: u64 = 2_000;
+const ICON_WARM_STEP: usize = 3;
+const ICON_WARM_GAP_MS: u64 = 30;
 
 /// What the shell asks the host to do.
 #[derive(Clone, Debug, PartialEq)]
@@ -206,6 +210,8 @@ pub struct Shell {
     overlay_until: u64,
     /// When Home is next let go, a tick of its own.
     release_at: Option<u64>,
+    /// When the next icon masks are loaded.
+    icons_warm_at: Option<u64>,
     helper_up: bool,
     started: bool,
     /// The data directory (`theme/theme.json` is written under it) and the module's (`icons/`, `art/`).
@@ -283,6 +289,7 @@ impl Shell {
             overlay_up: false,
             overlay_until: 0,
             release_at: None,
+            icons_warm_at: None,
             helper_up: false,
             started: false,
             data_dir: None,
@@ -307,6 +314,7 @@ impl Shell {
     /// there by [`Effect::Theme`]).
     pub fn dirs(&mut self, module: &Path, data: &Path) {
         self.kit.icons = crate::kit::icon::Icons::new(module);
+        self.icons_warm_at = Some(crate::host::now_ms() + ICON_WARM_AFTER_MS);
         self.home_surface.dirs(module, data);
         self.data_dir = Some(data.to_path_buf());
     }
@@ -855,23 +863,31 @@ impl Shell {
 
     /// An event of the helper's API.
     pub fn helper(&mut self, event: &Event, now: u64) -> Vec<Act> {
+        self.helper_all(std::slice::from_ref(event), now)
+    }
+
+    /// Events of the helper's API that came together: taken in order and drawn once, at the end. A page being made asks for five or six answers, and
+    /// each drew Home, the panels and Settings again and built the report: 0.3-1.5 ms of the shell's thread apiece on the host.
+    pub fn helper_all(&mut self, events: &[Event], now: u64) -> Vec<Act> {
         let mut acts = Vec::new();
-        match event {
-            Event::Up(up) => {
-                if *up != self.helper_up {
-                    self.helper_up = *up;
-                    self.feed(&Input::Helper { topic: "up".into(), data: json!(up) }, now, &mut acts);
+        for event in events {
+            match event {
+                Event::Up(up) => {
+                    if *up != self.helper_up {
+                        self.helper_up = *up;
+                        self.feed(&Input::Helper { topic: "up".into(), data: json!(up) }, now, &mut acts);
+                    }
                 }
-            }
-            Event::State(topics) => {
-                for (topic, data) in topics {
-                    self.feed(&Input::Helper { topic: topic.clone(), data: data.clone() }, now, &mut acts);
+                Event::State(topics) => {
+                    for (topic, data) in topics {
+                        self.feed(&Input::Helper { topic: topic.clone(), data: data.clone() }, now, &mut acts);
+                    }
                 }
+                Event::Topic { topic, data } => self.feed(&Input::Helper { topic: topic.clone(), data: data.clone() }, now, &mut acts),
+                // an answer goes to every model, each of which takes the tags it asked with and lets the rest go by
+                Event::Answer { tag, status, body } => self.feed(&Input::Fetched { tag: *tag, status: *status, data: body.clone() }, now, &mut acts),
+                Event::Bytes { tag, status, body } => self.feed(&Input::Bytes { tag: *tag, status: *status, bytes: body.clone() }, now, &mut acts),
             }
-            Event::Topic { topic, data } => self.feed(&Input::Helper { topic: topic.clone(), data: data.clone() }, now, &mut acts),
-            // an answer goes to every model, each of which takes the tags it asked with and lets the rest go by
-            Event::Answer { tag, status, body } => self.feed(&Input::Fetched { tag: *tag, status: *status, data: body.clone() }, now, &mut acts),
-            Event::Bytes { tag, status, body } => self.feed(&Input::Bytes { tag: *tag, status: *status, bytes: body.clone() }, now, &mut acts),
         }
         self.after(now, &mut acts);
         acts
@@ -1064,6 +1080,9 @@ impl Shell {
     /// Time passed: the models' timers and the surfaces' own.
     pub fn tick(&mut self, now: u64) -> Vec<Act> {
         let mut acts = Vec::new();
+        if self.icons_warm_at.is_some_and(|at| now >= at) {
+            self.icons_warm_at = self.kit.icons.warm(ICON_WARM_STEP).then_some(now + ICON_WARM_GAP_MS);
+        }
         if self.glass_restyle_at.is_some_and(|at| now >= at) {
             self.apply_theme_look(now, &mut acts, false);
             self.glass_restyle_at = None;
@@ -1116,6 +1135,9 @@ impl Shell {
         }
         // what the panels, Settings and the Cameras viewer have up is what the cards and the pop-up wait for
         let modal = (self.kinds.settings && self.settings.is_open()) || (self.kinds.displaylab && self.lab.is_open()) || (self.kinds.guide && self.guide.is_open());
+        if self.kinds.home {
+            self.home.set_covered(modal);
+        }
         let host_busy = self.panels.wants(&self.kinds) || modal;
         // Home is calm (its wallpaper stands still and its weather rests) while something is over it, until the overlay has been gone a while (not
         // at the start of its fade-out)
@@ -1502,7 +1524,7 @@ impl Shell {
         let settings = if self.kinds.settings { self.settings.due_at() } else { None };
         let lab = if self.kinds.displaylab { self.lab.due_at() } else { None };
         let guide = if self.kinds.guide { self.guide.due_at() } else { None };
-        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, guide, self.vwin.due_at(), self.release_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1]].into_iter().flatten().min()
+        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, guide, self.vwin.due_at(), self.release_at, self.icons_warm_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1]].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {
@@ -3348,6 +3370,21 @@ mod tests {
         assert!(shell.kit.modal_beat_ms() > 0, "back at 60 Hz: the fade is back");
         shell.channel(&Event::State([("refresh".to_string(), json!({"hz": 120}))].into_iter().collect()), 1_700);
         assert_eq!(shell.kit.modal_beat_ms(), 0, "a session that starts at 120 Hz knows it from the state");
+    }
+
+    #[test]
+    fn helper_events_that_come_together_are_drawn_and_reported_once_and_leave_the_screen_as_one_by_one_would() {
+        let events: Vec<Event> = (1..=4).map(|i| Event::Topic { topic: "weather".into(), data: json!({"doc": {"fetchedAt": i, "display": {"place": "Atlanta", "temp": format!("{}\u{b0}", 60 + i), "cond": "Clear", "days": []}}}) }).collect();
+        let (_a, mut together) = home_shell("home");
+        let (_b, mut apart) = home_shell("home");
+        let (built_together, built_apart) = (together.reports_built, apart.reports_built);
+        together.helper_all(&events, 2_000);
+        for e in &events {
+            apart.helper(e, 2_000);
+        }
+        assert_eq!(together.reports_built, built_together + 1, "four events, one report");
+        assert_eq!(apart.reports_built, built_apart + 4);
+        assert_eq!(together.report(), apart.report(), "the same screen in the end");
     }
 
     #[test]

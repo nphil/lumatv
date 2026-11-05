@@ -302,8 +302,14 @@ pub struct Home {
     /// costs: the GPU wallpaper steps ten times a second and each step owes the whole screen to every page of the ring (round 22's ring at 120 Hz:
     /// three frames of 157 layers, 13-16 ms of GPU each, under Settings), and the weather's sprites make a frame every refresh, which keeps the
     /// compositor drawing in step with the panel for the cheapest frame it has seen (round 22, 60 Hz: the heavy frame a key asks for then misses its
-    /// refresh, and the screen is never quiet for the gate to see a burst end).
+    /// refresh, and the screen is never quiet for the gate to see a burst end). A camera's still is one of them: every second the card is drawn again in
+    /// a frame of its own, 24 layers of the floor and 2-3 ms of the shell's thread on the host with two cameras, in the middle of a panel's slide or a
+    /// page being made.
     calm: bool,
+    /// Settings, the display lab or the guide covers the screen (`Shell::after`): Home is seen only dimmed, through the glass of its sheets. Its
+    /// cards' contents are brought up to date once a second then (`HomeSurface::contents_due`), not at each change of the sheet: a page being made
+    /// asked for them again at each of the helper's answers, 0.7-1.3 ms of the shell's thread apiece on the host.
+    covered: bool,
     pub screen_on: bool,
     pub cursor_visible: bool,
     pub launching: Option<String>,
@@ -420,6 +426,7 @@ impl Home {
             light: false,
             saver_up: false,
             calm: false,
+            covered: false,
             screen_on: true,
             cursor_visible: false,
             launching: None,
@@ -890,13 +897,22 @@ impl Home {
         changed
     }
 
+    /// Whether a full-screen sheet is over Home ([`Home`]'s `covered`).
+    pub fn set_covered(&mut self, covered: bool) {
+        self.covered = covered;
+    }
+
+    pub fn covered(&self) -> bool {
+        self.covered
+    }
+
     /// Whether the GPU wallpaper stands still.
     pub fn wallpaper_held(&self) -> bool {
         self.calm
     }
 
     fn camera_stills_visible(&self) -> bool {
-        self.active && self.screen_on && self.layer == Layer::None && self.cameras.get("state").and_then(Value::as_str) == Some("ready")
+        self.active && self.screen_on && self.layer == Layer::None && !self.calm && self.cameras.get("state").and_then(Value::as_str) == Some("ready")
     }
 
     fn tick(&mut self, out: &mut Vec<Effect>) {
@@ -4044,6 +4060,20 @@ mod tests {
         h.active = true;
         h.cameras = json!({"state": "offline"});
         assert!(!h.camera_stills_visible());
+    }
+
+    #[test]
+    fn camera_stills_pause_while_something_is_over_home_and_come_again_when_it_is_calm_no_more() {
+        let mut h = home();
+        h.cameras = json!({"state": "ready"});
+        h.stills.configure(&[("front".into(), 100, 56, true)]);
+        assert!(h.stills.due_at(h.camera_stills_visible()).is_some(), "a still is asked for");
+        h.set_calm(true);
+        assert!(!h.camera_stills_visible());
+        assert_eq!(h.stills.due_at(h.camera_stills_visible()), None, "nothing is asked for while a panel or Settings is over it");
+        h.set_calm(false);
+        assert!(h.camera_stills_visible());
+        assert!(h.stills.due_at(h.camera_stills_visible()).is_some(), "and the stills come again");
     }
 
     #[test]
