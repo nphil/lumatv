@@ -191,9 +191,9 @@ the same by themselves. If the set cannot be reached: Home held 10 s is the supe
 ## (g) A native stub
 
 The web stub is a WebAppMgr renderer: 32.4 MB resident (PSS 15.3). `lumatv homestub-kind native` puts a program in its place:
-`homestub/homestub.c`, static aarch64, 13,648 bytes, no loader and none of LG's 32-bit libraries. It makes one 1x1 transparent buffer on a
-`wl_webos_shell` surface of type card whose `appId` is `com.webos.app.home`, asks for fullscreen, and sits in `poll()`. Idle on the host build
-of the same source (x86_64, against a stand-in compositor): RSS 40 kB, PSS 32 kB, no CPU. The owner's target was 1 to 2 MB.
+`homestub/homestub.c`, static aarch64, 13,760 bytes, no loader and none of LG's 32-bit libraries. It makes one 1x1 transparent buffer on a
+`wl_webos_shell` surface of type card whose `appId` is `com.webos.app.home`, asks for fullscreen, and sits in `poll()`. On the set (2026-11-05):
+RSS 52 kB, PSS 40 kB, against the owner's target of 1 to 2 MB and the web stub's 32.4 MB.
 
 **Manifest.** `payload/homestub-native/appinfo.json` is the web stub's with `type: native` and `main: lumatv-homestub`; the icon is the web
 stub's. It names no `nativeLifeCycleInterfaceVersion`, asks for no memory and sets no `handlesRelaunch`.
@@ -205,11 +205,27 @@ was given its bus name and answered `{"errorCode":1,"errorText":"invalid status"
 registration. So SAM's relaunch, close and memory reclaim reach the stub as the signals and launches they are, and the program takes
 SIGTERM, SIGINT and SIGHUP as an exit.
 
-**What it does for SAM's lifecycle.**
-- A launch argument naming a preload or a snapshot makes the window and maps nothing: a card with a buffer is at the front in both
-  compositors (`on_mapped`, `tests/homestub_native.rs`), and the preload manager loads Home again whenever it is not running.
-- A newer instance maps first, then asks the older one to go over an abstract socket, so one card stays and the screen is not left to the app
-  below it. SAM ending the old process before it starts the new one is not covered by that (see the first unknown below).
+**What SAM did with it** (the set, 2026-11-05, 16 of 18 checks of the probe passed, the wake not run). SAM listed Home `native`, running, started
+as uid 0 with `/usr/palm/applications/com.webos.app.home/lumatv-homestub {"@system_native_app":true,"nid":"com.webos.app.home"}`. The Home key
+(`launchDefaultApp`, `launchType` `homeKey`) made it end the process and start another, 0.77 s from SAM's launch to the foreground change at the
+audio service. A `luna-send launch` of Home over HDMI 2 did nothing: no new process, no foreground change. A start of Home after the program was
+ended (by `last_input_handler`, or the preload manager) carried no preload hint, so the program mapped at once.
+
+**What the compositor does for it** (`home_stub.rs`; the program says what it is with the window property `lumatv.homeStub`, which LG's Home and
+the web stub do not set, so both are left as they were):
+- The Home key raises the stub's card in the key's own pass (`front_app`) and does not ask SAM, which would end the process and start another.
+  Host: median 6 us from the key to Home in front, worst 210 us over 200 presses (`tests/homestub_native.rs`), against SAM's 0.77 s.
+- SAM's `launch` and `relaunch` life events for Home, which the compositor already subscribes to (`lg_guide.rs`), raise the card: a launch by
+  `luna-send`, the voice service, CEC or `last_input_handler` that SAM does nothing visible for. `preload`, `splash` and the other events, and a
+  `relaunch` that carries `preload`, are no launch. SAM's dump has them as `launch` and `relaunch` with the Home key's parameters.
+- A card the stub covered is held (`Window::held_by_home`): when the stub's card goes (SAM ends it for some launches and starts another), the
+  card below is not brought back for the moments between, and the shell's Home stays on the screen. It comes back by a launch or its own request.
+
+**What the program does for SAM's lifecycle.**
+- A launch argument naming a preload or a snapshot makes the window and maps nothing: a card with a buffer is at the front in both compositors
+  (`on_mapped`). SAM passed none on the set, so this is for a start that carries one.
+- A newer instance maps first, then asks the older one to go over an abstract socket (`LUMATV_HOMESTUB_SINGLE` names it for tests), so one
+  card stays. SAM ends the old process before it starts the new one, so this covers a start by hand.
 - It waits up to 30 s for the compositor's socket and for `wl_webos_shell`, so a launch during a compositor restart needs no WebAppMgr wait
   (`bd_home_up` and `relaunch_home` skip it for this kind). Exit 0 when the compositor closes it, goes away or replaces it; 1 when the card
   cannot be made.
@@ -225,17 +241,16 @@ when the web stub does not start either. `boot-direct status` and `status` repor
 (`check-boot-direct.py`) tests `sam == web` and has to read `native` for this kind.
 
 **Not known until the TV runs it**, each a line of `tools/homestub-native-tv.sh`:
-1. What SAM does with a launch of a running native app that never registered: a new process (the stub replaces the old one, and the app the
-   old card covered shows for as long as SAM takes to start the new one), the same process (nothing reaches it, and the Home key does nothing
-   from an app: the compositor would have to raise Home's mapped card itself when Home is asked for), or an error. `launch`, `home-key` and
-   `launch-over-app` say which.
-2. That SAM starts a system-path native app at all under the jail it picks, and as which uid (`process`).
-3. What reaches a preloaded stub and whether a launch for real maps it (`preload`, `preload-launch`).
+1. That SAM's launch life event for Home reaches the compositor when SAM does nothing else for it: `launch-over-app` says, and names the route
+   (the raise, or SAM's own restart of the stub). The Home key's route and time are `home-key`.
+2. That the app under the stub stays covered when SAM ends the stub and starts another (`restart`: no fullscreen line for it in the journal).
+3. A stub started with an app in front and no launch behind it (a crash, a reclaim, the preload manager) maps at once and takes the front: not
+   guarded, since SAM passes no hint and the compositor has no launch to compare with.
 4. Standby and wake: bootd's launch of Home at a wake (`wake`); the saver over Home (`saver`); no Flutter Home at any point (`flutter`).
 
 **Tests.** `tests/test_homestub_native.py` (the build, the wire against a stand-in compositor, idle, endings, the newest wins, the manifest),
 `compositor/crates/lumatv-compositor/tests/homestub_native.rs` (the real server takes it for Home's card, in front and invisible, a preload
-maps nothing), the kind and drop tests of `tests/test_boot_direct.py` and `tests/test_stock_ui_restore.py`, and
+maps nothing; the Home key, SAM's launch events and a restart with the app under it; the Home key's time), `home_stub.rs`, the kind and drop tests of `tests/test_boot_direct.py` and `tests/test_stock_ui_restore.py`, and
 `tests/test_homestub_native_tv.py` (the probe against a stand-in set).
 
 **Probe.** `sh tools/homestub-native-tv.sh` on the set, in about four minutes, with the web stub in on a live compositor: it swaps to the native
@@ -243,7 +258,8 @@ stub, runs the checks above, and puts the web stub back at the end, on a failed 
 (`--keep` leaves the native stub when every check passed; `--no-app`, `--no-saver`, `--no-wake` skip those; the wake is skipped by itself while
 LG's panel refresh is due, and said so). It writes a receipt directory with SAM's and the compositor's views before and after, the program's
 `/proc` files and the hashes of the tool, program and manifest. Install first, copy only: `tools/lumatv`, `payload/homestub-native/appinfo.json`
-and the program from `sh homestub/build.sh` (`homestub/build/arm64/lumatv-homestub`), the compositor bundle as it is.
+and the program from `sh homestub/build.sh` (`homestub/build/arm64/lumatv-homestub`), and the compositor bundle of the same commit (the raise is in it,
+and an older program does not announce itself).
 
 ## TV test plan
 

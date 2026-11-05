@@ -33,6 +33,32 @@ new_pid() {
   echo $n
 }
 rss() { if flag big_rss; then echo 5120; else echo 124; fi; }
+jlog() { printf '%s\n' "$*" >> "$TV/journal"; }
+# The compositor with the native stub's window in it: it raises the card for the Home key and for SAM's launch event (home_stub.rs). An older
+# compositor, or a program that does not announce itself, leaves both to SAM.
+raises() { [ "$(get kind)" = native ] && ! flag no_announce && ! flag old_compositor; }
+raise_home() {
+  put home_state Fullscreen; put front com.webos.app.home
+  [ -s "$TV/app" ] && put app_state Minimized
+  return 0
+}
+# SAM ends the stub and starts another (the Home key's answer on the set, 2026-11-05)
+restart_home() {
+  put pid "$(new_pid x)"
+  raises && raise_home
+  return 0
+}
+launch_event() {
+  raises || return 0
+  flag launch_event_missed && return 0
+  if [ "$(get front)" = com.webos.app.home ]; then
+    jlog "home: SAM said launch for Home: its card is in front"
+  else
+    jlog "home: SAM said launch for Home: the stub's card raised"
+    jlog "front: com.webos.app.home (window 7) raised to the front, not launched again"
+    raise_home
+  fi
+}
 # Home as SAM starts it: a launch argument that says preload maps nothing and takes no front
 start_home() {
   [ -e "$TV/home_running" ] || : > "$TV/home_running"
@@ -44,10 +70,13 @@ start_home() {
     *) put pid ""; put home_size "1920,1080" ;;
   esac
   : > "$TV/home_mapped"; put home_state Fullscreen; put front com.webos.app.home
+  [ -s "$TV/app" ] && put app_state Minimized
+  return 0
 }
 home_json() {
   state=$(get home_state); [ -e "$TV/home_mapped" ] && m=true || m=false
-  printf '{"appId":"com.webos.app.home","exposed":true,"front":1,"id":2,"inGroup":false,"keyMask":1,"mapped":%s,"position":[0,0],"props":{},"size":[%s],"state":"%s","surface":1,"title":"Home","type":"Card"}' "$m" "$(get home_size)" "${state:-Default}"
+  props='{}'; [ "$(get kind)" = native ] && ! flag no_announce && props='{"lumatv.homeStub":"native"}'
+  printf '{"appId":"com.webos.app.home","exposed":true,"front":1,"id":2,"inGroup":false,"keyMask":1,"mapped":%s,"position":[0,0],"props":%s,"size":[%s],"state":"%s","surface":1,"title":"Home","type":"Card"}' "$m" "$props" "$(get home_size)" "${state:-Default}"
 }
 '''
 
@@ -67,14 +96,20 @@ case "$uri" in
   *applicationManager/launch)
     case "$payload" in
       *com.webos.app.home*)
-        if [ -e "$TV/home_running" ]; then
-          flag launch_restarts && [ "$(get kind)" = native ] && put pid "$(new_pid x)"
-          : > "$TV/home_mapped"; put home_state Fullscreen; put front com.webos.app.home
+        if [ -e "$TV/home_running" ] && [ "$(get kind)" = native ] && [ ! -e "$TV/home_mapped" ]; then
+          # a stub that was started for a preload and maps nothing: the launch has it started again, with no hint (what else would map it)
+          start_home x
+        elif [ -e "$TV/home_running" ]; then
+          # SAM's answer to a launch of the native Home that is running: nothing (the set, 2026-11-05), or the process ended and started again.
+          # The compositor hears the launch event first.
+          launch_event
+          flag launch_restarts && [ "$(get kind)" = native ] && restart_home
+          [ "$(get kind)" = native ] || { : > "$TV/home_mapped"; put home_state Fullscreen; put front com.webos.app.home; }
         else
           flag wake_breaks_home && [ "$(get woke)" = 1 ] && exit 0
           start_home "$payload"
         fi ;;
-      *) put app "$(printf '%s' "$payload" | sed 's/.*"id":"\([^"]*\)".*/\1/')"; put front "$(get app)"; [ -e "$TV/home_mapped" ] && put home_state Minimized ;;
+      *) put app "$(printf '%s' "$payload" | sed 's/.*"id":"\([^"]*\)".*/\1/')"; put app_state Fullscreen; put front "$(get app)"; [ -e "$TV/home_mapped" ] && put home_state Minimized ;;
     esac
     echo '{"returnValue":true}' ;;
   *applicationManager/closeByAppId) put app ""; [ -e "$TV/home_running" ] && { put front com.webos.app.home; put home_state Fullscreen; }; echo '{"returnValue":true}' ;;
@@ -105,12 +140,34 @@ case "$1" in
     printf '{"groups":[],"ok":true,"video":[],"windows":['
     first=1
     if [ -e "$TV/home_running" ]; then home_json; first=0; fi
-    if [ -s "$TV/app" ]; then [ $first = 0 ] && printf ','; printf '{"appId":"%s","exposed":true,"front":2,"id":3,"inGroup":false,"keyMask":1,"mapped":true,"position":[0,0],"props":{},"size":[1920,1080],"state":"Fullscreen","surface":2,"title":"App","type":"Card"}' "$(get app)"; fi
+    if [ -s "$TV/app" ]; then [ $first = 0 ] && printf ','; printf '{"appId":"%s","exposed":true,"front":2,"id":3,"inGroup":false,"keyMask":1,"mapped":true,"position":[0,0],"props":{},"size":[1920,1080],"state":"%s","surface":2,"title":"App","type":"Card"}' "$(get app)" "$(get app_state)"; fi
     printf ']}\n' ;;
   shell) printf '{"ok":true,"saver":%s}\n' "$([ "$(get saver)" = true ] && echo true || echo false)" ;;
+  note) shift; jlog "note: $*"; echo '{"ok":true}' ;;
+  journal)
+    printf '{"lines":['; first=1
+    while IFS= read -r line; do [ $first = 0 ] && printf ','; printf '"%s"' "$line"; first=0; done < "$TV/journal"
+    printf '],"ok":true}\n' ;;
   remote)
     case "$2" in
-      773) flag home_key_dead || { [ -e "$TV/home_running" ] && { put front com.webos.app.home; put home_state Fullscreen; }; } ;;
+      773)
+        flag home_key_dead && exit 0
+        if raises; then
+          if [ "$(get front)" = com.webos.app.home ]; then
+            jlog "input: Home: Home's card is in front, SAM not asked"
+          else
+            jlog "input: Home: the stub's card raised, SAM not asked"
+            jlog "front: com.webos.app.home (window 7) raised to the front, not launched again"
+            raise_home
+          fi
+        else
+          # the Home key goes to SAM, which ended the stub and started another
+          jlog "input: Home: launchDefaultApp"
+          [ "$(get kind)" = native ] && restart_home
+          # the Home that SAM started maps and takes the front (the web stub asks for fullscreen)
+          put front com.webos.app.home; put home_state Fullscreen
+          [ -s "$TV/app" ] && put app_state Minimized
+        fi ;;
       106) put saver false ;;
     esac ;;
 esac
@@ -149,7 +206,12 @@ PKILL = COMMON + r'''
 LOGNAME=pkill-calls
 log "$*"
 case "$*" in
-  *lumatv-homestub*) put pid ""; rm -f "$TV/home_running" "$TV/home_mapped"; put front "" ;;
+  *lumatv-homestub*)
+    put pid ""; rm -f "$TV/home_running" "$TV/home_mapped"; put front ""
+    # the card below comes back unless the compositor holds it (home_stub.rs); an older one journals the promotion
+    if [ -s "$TV/app" ] && { flag old_compositor || flag no_announce || flag restart_flashes; }; then
+      put app_state Fullscreen; put front "$(get app)"; jlog "window 3: fullscreen (the front card)"
+    fi ;;
 esac
 '''
 
@@ -182,10 +244,12 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         (self.tmp / "messages").write_text("")
         # the set as the probe wants it: the web stub in, Home in front, the panel on, LG's refresh not due
         for name, value in (("kind", "web"), ("type", "web"), ("setting", "web"), ("front", "com.webos.app.home"), ("power", "Active"),
-                            ("home_state", "Fullscreen"), ("home_size", "1920,1080"), ("pid", ""), ("app", ""), ("saver", "false")):
+                            ("home_state", "Fullscreen"), ("home_size", "1920,1080"), ("pid", ""), ("app", ""), ("app_state", "Fullscreen"),
+                            ("saver", "false")):
             (self.tv / name).write_text(value)
         (self.tv / "home_running").write_text("")
         (self.tv / "home_mapped").write_text("")
+        (self.tv / "journal").write_text("")
         self.out = self.tmp / "receipt"
 
     def script(self, name, body, raw=False):
@@ -236,10 +300,15 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         result = self.probe()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         for name in ("swap", "sam-type", "running", "process", "window", "foreground", "memory", "launch", "preload", "preload-launch", "app", "home-key",
-                     "launch-over-app", "app-process", "saver", "saver-end", "wake", "flutter", "revert"):
+                     "restart", "launch-over-app", "app-process", "saver", "saver-end", "wake", "flutter", "revert"):
             self.assertIn("PASS", self.line(result, name), name)
         self.assertIn("RSS 124 kB", self.line(result, "memory"))
         self.assertIn("1 pixel", self.line(result, "window"))
+        self.assertIn("announced as the native stub", self.line(result, "window"))
+        self.assertIn("SAM not asked, the same process", self.line(result, "home-key"), "the key's route is named, not just its result")
+        self.assertRegex(self.line(result, "home-key"), r"the whole call took \d+ cs")
+        self.assertIn("raised the stub's card on SAM's life event (SAM said launch)", self.line(result, "launch-over-app"))
+        self.assertIn("stayed covered", self.line(result, "restart"))
         self.assertRegex(self.verdict(result), r"^PROBE: PASS \(\d+ passed, 0 failed, 0 not run\)")
         self.assertEqual(self.switches(), ["homestub-kind native", "homestub-kind web"])
         self.assertEqual((self.state("kind"), self.state("type")), ("web", "web"), "left as it was found")
@@ -297,7 +366,7 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         result = self.probe()
         self.assertEqual(result.returncode, 1)
         self.assertIn("FAIL", self.line(result, "home-key"))
-        self.assertIn("compositor would have to raise", self.line(result, "home-key"), "the line says what to do about it")
+        self.assertIn("did not bring Home back", self.line(result, "home-key"))
         self.assertIn("PASS", self.line(result, "launch-over-app"))
         self.assertIn("PASS", self.line(result, "saver"))
         self.assertIn("PASS", self.line(result, "revert"))
@@ -310,6 +379,49 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("RSS 5120 kB", self.line(result, "memory"))
         self.assertIn("FAIL", self.line(result, "memory"))
+
+    def test_a_compositor_that_leaves_the_key_and_the_launch_to_sam_fails_both_for_that_reason(self):
+        # the set before home_stub.rs: the key made SAM end the stub and start another, a launch did nothing, and the card below came back
+        self.flag("old_compositor")
+        result = self.probe()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("through SAM and not through the compositor's raise", self.line(result, "home-key"))
+        self.assertIn("1 launchDefaultApp line(s)", self.line(result, "home-key"))
+        self.assertIn("FAIL", self.line(result, "launch-over-app"))
+        self.assertIn("SAM's launch event for Home was not heard", self.line(result, "launch-over-app"))
+        self.assertIn("(window 3) was brought to the front", self.line(result, "restart"), "the app under the stub was brought back")
+        self.assertIn("FAIL", self.line(result, "restart"))
+        self.assertEqual(self.state("kind"), "web")
+
+    def test_a_program_that_does_not_announce_itself_fails_the_window_check(self):
+        self.flag("no_announce")
+        result = self.probe()
+        self.assertIn("FAIL", self.line(result, "window"))
+        self.assertIn("no lumatv.homeStub property", self.line(result, "window"))
+        self.assertIn("FAIL", self.line(result, "home-key"), "and nothing is raised for it")
+
+    def test_a_launch_event_that_does_not_come_fails_the_launch_over_an_app_alone(self):
+        self.flag("launch_event_missed")
+        result = self.probe()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("PASS", self.line(result, "home-key"), "the key is the compositor's own")
+        self.assertIn("FAIL", self.line(result, "launch-over-app"))
+        self.assertIn("none, so SAM's launch event for Home was not heard", self.line(result, "launch-over-app"))
+
+    def test_a_sam_that_ends_the_stub_on_a_launch_still_gets_home_back_by_the_raise(self):
+        self.flag("launch_restarts")
+        result = self.probe()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("raised the stub's card on SAM's life event", self.line(result, "launch-over-app"))
+        self.assertRegex(self.line(result, "launch-over-app"), r"stub pid \d+ -> \d+")
+
+    def test_an_app_that_shows_while_the_stub_is_gone_fails_the_restart(self):
+        self.flag("restart_flashes")
+        result = self.probe()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("FAIL", self.line(result, "restart"))
+        self.assertIn("the card the stub covered is not held", self.line(result, "restart"))
+        self.assertIn("PASS", self.line(result, "home-key"))
 
     def test_a_flutter_home_that_starts_is_a_failure_of_its_own(self):
         self.flag("flutter_starts")

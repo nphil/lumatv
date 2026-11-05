@@ -16,8 +16,9 @@
 # Checks, each one line `PROBE name: PASS|FAIL|INFO|NOT RUN detail`: the swap; SAM's type for Home is native; SAM lists Home running; one
 # stub process; the compositor has Home's card, mapped, a card, one pixel; Home is in front; the program's RSS and PSS against the 2 MB target;
 # `luna-send launch` three times (and whether the process was kept or restarted); a preload start of Home, which maps nothing, and the launch
-# after it; an app over Home and the Home key and a launch each bringing Home back; the screensaver over Home; a standby and wake with Home
-# alive after it; LG's Flutter Home never started; the web stub back.
+# after it; an app over Home; the Home key and a luna-send launch each bringing Home back over it, by the compositor's raise of the stub's card
+# (its journal says which route Home took); the stub ended and started again with the app under it kept covered; the screensaver over Home; a
+# standby and wake with Home alive after it; LG's Flutter Home never started; the web stub back.
 # The last line is the verdict and the receipt directory (the log, SAM's and the compositor's views, /proc of the program, the hashes).
 # Exit: 0 every check that ran passed, 1 a check failed (the web stub is back), 2 refused before changing anything.
 #
@@ -72,6 +73,13 @@ running_entry() { ls1 com.webos.applicationManager/running '{}' | flat | grep -o
 sam_type() { ls1 com.webos.applicationManager/getAppInfo "{\"id\":\"$HOME_ID\"}" | tr -d '\n' | sed -n 's/.*"type"[ ]*:[ ]*"\([^"]*\)".*/\1/p'; }
 window_of() { ctl windows | sed 's/{"appId"/\n&/g' | grep "^{\"appId\":\"$1\"" | head -n 1; }
 mapped_of() { window_of "$1" | jbool mapped; }
+state_of() { window_of "$1" | jstr state; }
+# the compositor's own view of Home: its card is the front card (Fullscreen), as against SAM's foreground, which follows it
+home_raised() { [ "$(state_of $HOME_ID)" = Fullscreen ]; }
+uptime_cs() { read -r _u _ < "$PROC/uptime"; echo "${_u%.*}${_u#*.}"; }
+# the compositor's journal after a marker: what its own decisions were (ctl note puts the marker in)
+note() { ctl note "$1" >/dev/null; }
+journal_after() { ctl journal | sed 's/","/\n/g' | awk -v m="note: $1" 'f {print} index($0, m) {f = 1}'; }
 stub_pids() { pgrep -x "$COMM" 2>/dev/null; }
 stub_count() { stub_pids | grep -c .; }
 stub_pid() { stub_pids | head -n 1; }
@@ -194,7 +202,11 @@ if [ -n "$pid" ]; then
 fi
 win=$(window_of $HOME_ID)
 if [ "$(printf '%s' "$win" | jbool mapped)" = true ] && [ "$(printf '%s' "$win" | jstr type)" = Card ] && printf '%s' "$win" | grep -q '"size":\[1,1\]'; then
-    pass window "Home's card is mapped, a Card, 1 pixel, state $(printf '%s' "$win" | jstr state)"
+    if printf '%s' "$win" | grep -q '"lumatv.homeStub":"native"'; then
+        pass window "Home's card is mapped, a Card, 1 pixel, state $(printf '%s' "$win" | jstr state), announced as the native stub (lumatv.homeStub)"
+    else
+        fail window "Home's card does not say it is the native stub (no lumatv.homeStub property: an older program), so the compositor leaves the Home key and the launches to SAM: $(printf '%s' "$win" | cut -c1-300)"
+    fi
 else
     fail window "the compositor's Home window: $(printf '%s' "$win" | cut -c1-300)"
 fi
@@ -259,13 +271,58 @@ if [ "$DO_APP" = 1 ] && [ "$(elapsed)" -lt 200 ]; then
     ls1 com.webos.applicationManager/launch "{\"id\":\"$APP\"}" >/dev/null
     if wait_for 20 'app_in_front' && sleep 2 && ! home_front; then
         pass app "$APP is in front over Home"
-        sp=$(stub_pid)
-        ctl remote 773 tap >/dev/null
-        if wait_for 6 home_front; then pass home-key "the Home key brought Home back over $APP (stub pid $sp -> $(stub_pid))"; else fail home-key "the Home key did not bring Home back: front is '$(fg)' (SAM did not raise the stub on its relaunch: the compositor would have to raise Home's card itself when Home is asked for)"; fi
+        # The Home key: the compositor raises the stub's card in the key's own pass and does not ask SAM, which ended the stub and started another
+        # for it (0.77 s from SAM's launch to the foreground change at the audio service, 2026-11-05).
+        sp=$(stub_pid); note probe-key
+        k0=$(uptime_cs); ctl remote 773 tap >/dev/null; k1=$(uptime_cs)
+        key_log=$(journal_after probe-key)
+        if home_raised && printf '%s' "$key_log" | grep -q 'input: Home: the stub.s card raised, SAM not asked' && [ "$(stub_pid)" = "$sp" ]; then
+            pass home-key "the Home key raised the stub's card in its own pass: Home in front when the ctl call that sent the key returned (the whole call took $(( k1 - k0 )) cs), SAM not asked, the same process (pid $sp)"
+        elif wait_for 6 home_front; then
+            fail home-key "Home came back through SAM and not through the compositor's raise (stub pid $sp -> $(stub_pid), $(printf '%s' "$key_log" | grep -c launchDefaultApp) launchDefaultApp line(s) in the journal): this compositor does not know the stub, or the stub is not announced"
+        else
+            fail home-key "the Home key did not bring Home back: front is '$(fg)'"
+        fi
+        # SAM ends the stub and starts another for some launches: the app under Home's card must not be brought back for the moments between
+        if home_raised && [ "$(elapsed)" -lt 150 ]; then
+            an=$(window_of $APP | jnum id); note probe-restart
+            pkill -x "$COMM" >/dev/null 2>&1
+            wait_for 5 '[ "$(stub_count)" = 0 ]' >/dev/null 2>&1
+            by=SAM
+            if ! wait_for 15 'home_card && home_raised'; then
+                by="a launch (SAM did not start Home by itself in 15 s)"
+                ls1 com.webos.applicationManager/launch "{\"id\":\"$HOME_ID\"}" >/dev/null
+                wait_for 10 'home_card && home_raised' >/dev/null 2>&1
+            fi
+            restart_log=$(journal_after probe-restart)
+            if printf '%s' "$restart_log" | grep -q "window $an: fullscreen (the front card)"; then
+                fail restart "$APP (window $an) was brought to the front while Home's card was gone: the card the stub covered is not held"
+            elif home_card && home_raised; then
+                pass restart "the stub was ended and started again by $by; $APP (window $an) stayed covered, no fullscreen line for it in the journal"
+            else
+                fail restart "Home did not come back after the stub was ended: front is '$(fg)', card $(mapped_of $HOME_ID), $(stub_count) process(es)"
+            fi
+        else
+            skip restart "the stub ended and started again over an app"
+        fi
         ls1 com.webos.applicationManager/launch "{\"id\":\"$APP\"}" >/dev/null
         wait_for 15 'app_in_front' >/dev/null 2>&1; sleep 2
+        # luna-send launch of Home over the app: SAM did nothing for it on the set (no restart, no foreground change), so it is the compositor
+        # that raises the stub's card, on SAM's launch life event for Home
+        sp=$(stub_pid); note probe-launch
         ls1 com.webos.applicationManager/launch "{\"id\":\"$HOME_ID\"}" >/dev/null
-        if wait_for 6 home_front; then pass launch-over-app "luna-send launch Home brought Home back over $APP"; else fail launch-over-app "launch Home did not bring Home back: front is '$(fg)'"; fi
+        if wait_for 6 home_raised; then
+            launch_log=$(journal_after probe-launch)
+            if printf '%s' "$launch_log" | grep -q 'home: SAM said .* for Home: the stub.s card raised'; then
+                pass launch-over-app "luna-send launch Home brought Home back over $APP: the compositor raised the stub's card on SAM's life event ($(printf '%s' "$launch_log" | grep -o 'SAM said [a-z]*' | head -n 1)), stub pid $sp -> $(stub_pid)"
+            else
+                pass launch-over-app "luna-send launch Home brought Home back over $APP, by SAM's own restart of the stub (pid $sp -> $(stub_pid)) and not by the compositor's raise"
+                info launch-over-app "the compositor heard no launch event for Home that raised the card: $(printf '%s' "$launch_log" | grep 'home: SAM' | head -n 2 | tr '\n' ' ')"
+            fi
+        else
+            seen=$(journal_after probe-launch | grep 'home: SAM' | head -n 2 | tr '\n' ' ')
+            fail launch-over-app "launch Home did not bring Home back: front is '$(fg)'; the compositor's lines on it: ${seen:-none, so SAM's launch event for Home was not heard}"
+        fi
         [ "$(stub_count)" = 1 ] && pass app-process "still one $COMM process after the app came and went" || fail app-process "$(stub_count) $COMM processes after the app"
         ls1 com.webos.applicationManager/closeByAppId "{\"id\":\"$APP\"}" >/dev/null
         sleep 2
