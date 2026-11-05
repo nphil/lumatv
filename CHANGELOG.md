@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The Smart home card has no heading; its items take the room. A notice is said on the item in front.
+
 The Temperature row on Home & look now sets the weather's unit. It wrote `weather.units` in theme.json, which nothing read, while the weather feed obeys the helper's `base.weather` `units`; the row now reads and writes that setting (as the ZIP and source rows do), and the helper moves an older `weather.units` out of theme.json and every profile's theme into it at start, unless a unit is already stored. `weather.units` is no longer a per-profile key.
 
 The Power key goes to standby on its first press while LG's screensaver is up. tvpower keeps `state` at `ACTIVE` through its saver and names it in `sub state` (`screen saver`), which the compositor did not read: the press asked for standby and woke the screen in the same instant, and the key went to the saver's app, which answers a key by waking. The press is now neither given to the saver's app nor a wake, and the journal says when tvpower's sub state changes.
