@@ -1,0 +1,20 @@
+{
+  "id": "com.webos.app.home",
+  "version": "1.0.0",
+  "vendor": "LumaTV",
+  "type": "native",
+  "main": "lumatv-homestub",
+  "title": "Home",
+  "icon": "icon.png",
+  "largeIcon": "icon.png",
+  "iconColor": "#000000",
+  "bgColor": "#000000",
+  "transparent": true,
+  "noSplashOnLaunch": true,
+  "disableBackHistoryAPI": true,
+  "visible": false,
+  "class": { "hidden": true },
+  "lockable": false,
+  "supportQuickStart": true,
+  "appCategory": ["home"]
+}

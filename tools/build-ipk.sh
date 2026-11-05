@@ -99,6 +99,8 @@ payload/preload.json
 payload/homestub/appinfo.json
 payload/homestub/index.html
 payload/homestub/icon.png
+payload/homestub-native/appinfo.json
+homestub/build/arm64/lumatv-homestub
 helper/dist/lumatv-helper
 helper/dist/plugins/home-assistant/plugin.json
 helper/dist/plugins/home-assistant/bin/home-assistant
@@ -184,6 +186,12 @@ if [ -n "$MISSING" ]; then
         *gfn/feeder/build/arm/lumatv-gfn-feeder*)
             # Git-ignored like the helper; the cameras' live picture would have no program and the helper would say so in its log only.
             echo "The camera feeder is built by gfn/feeder/build.sh (zig); this package is not built without it." >&2
+            ;;
+    esac
+    case "$MISSING" in
+        *homestub/build/arm64/lumatv-homestub*)
+            # Git-ignored like the helper; without it `lumatv homestub-kind native` would have no program to place and the install would say so only then.
+            echo "The native Home stub is built by homestub/build.sh (zig); this package is not built without it." >&2
             ;;
     esac
     case "$MISSING" in
@@ -358,6 +366,11 @@ chmod 755 "$DATA_ROOT/payload/feeder/lumatv-gfn-feeder" "$DATA_ROOT/payload/feed
 # ... and the decoder libraries of its texture path (FFmpeg's H.264 and H.265 decoders, LGPL, shared: `lib/` beside the program; feeder.sh stages them)
 mkdir -p "$DATA_ROOT/payload/feeder/lib"
 cp gfn/feeder/build/arm/lib/lib*-lumatv.so.* "$DATA_ROOT/payload/feeder/lib/"
+# The native Home stub (docs/research/boot-direct.md, "A native stub"): a static aarch64 program of 13 KB beside its manifest, which the payload
+# tree copy above has put here. `lumatv homestub-kind native` stages both over LG's Home directory; nothing in the package does it by itself.
+mkdir -p "$DATA_ROOT/payload/homestub-native"
+cp homestub/build/arm64/lumatv-homestub "$DATA_ROOT/payload/homestub-native/"
+chmod 755 "$DATA_ROOT/payload/homestub-native/lumatv-homestub"
 mkdir -p "$DATA_ROOT/payload/frame"
 cp "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$DATA_ROOT/payload/frame/"
 mkdir -p "$DATA_ROOT/payload/card"
