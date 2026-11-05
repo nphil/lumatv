@@ -135,6 +135,15 @@ Findings:
 - A reboot less than two minutes after a compositor start counts as a failure (`the previous run never settled or ended cleanly`) and the second in a row makes the supervisor refuse LumaTV; a test that follows `compositor on` with a reboot has to wait.
 - `ctl journal` keeps 200 lines and does not carry the input-node lines ("(activity only)"); the RAM log does.
 
+## TV session 2026-11-05 (idle and 120 Hz gate, main a559ccb3)
+
+Installed 10:02 EST from a559ccb3 (origin and forge main), panel on at Home, Nitin's profile, `base.livetv` untouched (off). Installed sha256: compositor `de6fdce02524bad5df123634c4874466c828c66fa9c83cf52c61c3679063c9ed`, ui `6b0b0be04de5564817cc467914ae9fa477679f7bbfc80d62dcbb6c0e5af9df89`, sm `65f6ca69eb6da66cbfb139817803d0c1e01b03931fe373894b123c3f64df13da`, helper `3c4259b902888c2ea2d30e7ba44e4e62f6ee0f35bd747b8fc7549540b7e0b4b4`, feeder `0f99db547431a44ba558b76d32d63d018d6c299c4d671874e9f7f6710bdb1904` (staged by the install). Failures 0, settled.
+
+- Idle Home, 60 s, 120 Hz: compositor 5.34 % and UI 2.50 % of a core (7.84 % together, target 8; 7.17 + 4.36 = 11.53 % before), 22.8 flips a second, 36.8 ticks a second (1.6 per flip; 5.1 before), 0 flips at every refresh, GPU 11.9 % busy. The weather reading was not available to the probe, so its flips and animating checks read "?".
+- 120 Hz gate, 5 surfaces, 3 cycles: home-idle PASS; home-dpad FAIL (1 burst over 20 ms), quick FAIL (1 dropped, 2 over 20 ms), settings-scroll FAIL (3 dropped, 2 over 20 ms), home-widgets FAIL (0 dropped, 6 over 20 ms). Before: settings-scroll 10 dropped, home-widgets 1, quick failing, home-dpad passing.
+- The first gate start was refused: a 3 s panel reading of 178.7 Hz; a re-reading gave 120.3 Hz and the gate ran.
+- Home screenshot after the run shows nothing wrong. Receipts: `/data/home/tmp/lumatv-tv-20261105d/` (not in git).
+
 ## TV session 2026-11-05 (after midnight, main 1fdaab34)
 
 Installed 23:57 EST from 1fdaab34 (on origin and forge main), panel on at Home, Nitin's profile, through `build-tv.sh`, `tv-first-light.sh deploy`, cutover disable/install/probe/enable, `tools/lumatv`, the launcher files and the helper. Installed sha256: compositor `3ab32dc1c4aeec4af3893258739f170192e04a81829277bf74d1586be6f0eb29`, ui `d22be363708cb134fc643c08497576c1648d3c20c1def2d77fb07b4a8856566a`, sm `65f6ca69eb6da66cbfb139817803d0c1e01b03931fe373894b123c3f64df13da`, helper `9b76a93fdc8df4f9e24ea071508182f52362fb552a687b9db48dddaf873d1eed`, tools/lumatv `56899321dcf6b4f7583ab015a0182a61b5a9d45dc70c3e63187a3dc1d9c347b4`; native stub program `f2820100e25ae3e93049647e339b5b8c4baa81403ce31c5232e56e5db5a8809e`, copied to the set but not kept. Receipts: `/data/home/tmp/lumatv-tv-20261104f/`.
