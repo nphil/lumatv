@@ -249,6 +249,8 @@ struct StatusBar {
     group: Frame,
     items: Vec<StatusItem>,
     profile_key: String,
+    /// Where the pane was last put (`update_layers`): it is put again only when that changes.
+    at: Option<Props>,
 }
 
 /// A card: its lift and its content.
@@ -346,6 +348,8 @@ struct DockSurface {
     key: Option<(u64, usize)>,
     halo_accent: Option<Rgba>,
     halo_at: Option<(f32, f32)>,
+    /// The glass the dock's pane was last given by its dim step (`update_focus`); `None` once something else restyled it.
+    pane_glass: Option<Glass>,
 }
 
 pub struct HomeSurface {
@@ -556,8 +560,9 @@ impl HomeSurface {
             for c in &self.cards {
                 c.lift.set_over_video(kit, PaneKind::Card, hole);
             }
-            if let Some(d) = &self.dock {
+            if let Some(d) = &mut self.dock {
                 d.lift.set_over_video(kit, PaneKind::Card, hole);
+                d.pane_glass = None;
             }
         }
         // the chrome, made again when the layout or the theme's own keys change
@@ -746,7 +751,7 @@ impl HomeSurface {
         })?;
         let _ = radius;
         engine.flow.scroller(&kit.ui.scene, model::DOCK, &grid, GroupPose::IDENTITY, false, 4000.0).map_err(other)?;
-        Ok(DockSurface { lift, frame, viewport, grid, halo, fade, tiles: Vec::new(), pill, pill_text, pill_for: None, cols: home.dock.cols(), scroll: 0.0, key: None, halo_accent: None, halo_at: None })
+        Ok(DockSurface { lift, frame, viewport, grid, halo, fade, tiles: Vec::new(), pill, pill_text, pill_for: None, cols: home.dock.cols(), scroll: 0.0, key: None, halo_accent: None, halo_at: None, pane_glass: None })
     }
 
     /// The tiles, made again when the dock's list changes.
@@ -881,7 +886,7 @@ impl HomeSurface {
             }).ok_or_else(|| std::io::Error::other("the item's group"))??;
             items.push(StatusItem { id, kind, lift, icon, avatar, name, badge, badge_n: None });
         }
-        self.status = Some(StatusBar { pane, frame, group, items, profile_key });
+        self.status = Some(StatusBar { pane, frame, group, items, profile_key, at: None });
         Ok(())
     }
 
@@ -1149,10 +1154,15 @@ impl HomeSurface {
             wants.push(Dim { id: d.lift.id, opacity: if on_cards && !on_dock { 0.92 } else { 1.0 }, visible, lit: on_dock, at_once: on_dock });
         }
         self.dimming.pose(kit.refresh_hz, now, from_dock && !on_dock, &wants, |w| engine.flow.pose(w.id, w.opacity, w.visible));
-        if let Some(d) = &self.dock {
-            // as its step posed it (said at every apply: a dock made again, or restyled for a video behind, has it back)
+        if let Some(d) = &mut self.dock {
+            // as its step posed it (said at every apply: a dock made again, or restyled for a video behind, has it back), restyled only
+            // when that changes: the same glass at every apply made a commit, and a frame, of every apply that changed nothing else
             let lit = self.dimming.lit(d.lift.id).unwrap_or(on_dock);
-            d.lift.pane.restyle(glass_of(kit, PaneKind::Card, d.frame.h, lit, self.over_video));
+            let glass = glass_of(kit, PaneKind::Card, d.frame.h, lit, self.over_video);
+            if d.pane_glass != Some(glass) {
+                d.pane_glass = Some(glass);
+                d.lift.pane.restyle(glass);
+            }
         }
         // the hover cue: a ring on what the pointer is over
         let hover = home.focus.hovered();
@@ -1340,11 +1350,14 @@ impl HomeSurface {
                 d.lift.pose(engine, 1.0, !page_hidden);
             }
         }
-        if let Some(s) = &self.status {
+        if let Some(s) = &mut self.status {
             // the popover hangs under the bar, which stays
             let hidden = (page_hidden && home.layer != Layer::Popover) || home.layer == Layer::Edit || home.layer == Layer::Search;
             let at = Props { opacity: if hidden { 0.0 } else { 1.0 }, visible: !hidden, ..Props::at(s.frame.x, s.frame.y) };
-            s.pane.set(at);
+            if s.at != Some(at) {
+                s.at = Some(at);
+                s.pane.set(at);
+            }
             for it in &s.items {
                 it.lift.pose(engine, 1.0, !hidden);
             }

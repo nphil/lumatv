@@ -12,7 +12,10 @@ is written but its own result file: no key, no setting, no draw.
 What a window gives: the share of one core the compositor and the UI took (user and system apart, and by thread), the two together against the
 target of `TARGET_PCT`, the loop's wake-ups and ticks a second, the flips a second and how many of them were frames at every refresh (`animating`),
 the UI engine's CPU per frame and where the engine spent it, how the compositor's ticks were spent, the GPU's busy share, the panel's refresh and
-what Home was showing (the weather's reading and the theme's sky switch). The expectations of the idle gate with the sky on are in `EXPECT`.
+what Home was showing (the weather's reading and the theme's sky switch). The expectations of the idle gate with the sky on are in `EXPECT`. `budget`
+is every process of LumaTV's: the compositor, the UI, the supervisor (`surface-manager`, the compositor's parent), the helper and what it runs (the
+plugins' programs, the TLS tunnels, the JPEG and camera feeders) and the ambient capture, each with its share of a core (children it reaped counted
+with it), its resident memory and its thread wake-ups a second.
 """
 import json
 import os
@@ -31,15 +34,15 @@ HELPER = "http://127.0.0.1:18731/v1/weather"
 MALI = "/sys/kernel/debug/mali0/dvfs_utilization"
 #: the compositor and the UI together, in percent of one core, with the sky moving (the owner's target, 2026-11-04)
 TARGET_PCT = 8.0
-#: what the idle gate expects of a Home at rest with the sky moving, by the sky's cadence (`weather_art::STEPS`): flips a second (the sky's frames, 15 for a calm
-#: sky, 30 for snow and wind, 60 for rain, and the few a Home at rest draws for itself) and how many of them are frames at every refresh (an ambient motion asks
-#: for none: 120 of 120 before it was paced; a storm's strikes, 4 % of the time, still do)
-EXPECT = {"calm": {"flips_per_s": (12.0, 32.0), "animating_per_s": (0.0, 5.0)},
+#: what the idle gate expects of a Home at rest with the sky moving, by the sky's cadence (`weather_art::STEPS`): flips a second (the sky's frames, 10 to 17 for a
+#: calm sky, whose slow sprites go at the wallpaper's 10, 30 for snow and wind, 60 for rain, and the few a Home at rest draws for itself) and how many of them are
+#: frames at every refresh (an ambient motion asks for none: 120 of 120 before it was paced; a storm's strikes, 4 % of the time, still do)
+EXPECT = {"calm": {"flips_per_s": (8.0, 32.0), "animating_per_s": (0.0, 5.0)},
           "fast": {"flips_per_s": (26.0, 45.0), "animating_per_s": (0.0, 5.0)},
           "rain": {"flips_per_s": (55.0, 80.0), "animating_per_s": (0.0, 8.0)},
           "off": {"flips_per_s": (0.0, 15.0), "animating_per_s": (0.0, 5.0)}}
 #: `weather_art::Cond::from_doc`: snow is drawn at 30 a second, and so is any sky with wind from `WINDY_MPH`; drizzle, rain and storm (the other codes from 51 to
-#: 99) at 60; the rest at 15
+#: 99) at 60; the rest at 10 to 15
 SNOW_CODES = {71, 73, 75, 77, 85, 86}
 WINDY_MPH = 18.0
 CLK_TCK = 100.0
@@ -76,6 +79,18 @@ def ctxt(text):
     v = re.search(r"^voluntary_ctxt_switches:\s*(\d+)", text, re.M)
     n = re.search(r"^nonvoluntary_ctxt_switches:\s*(\d+)", text, re.M)
     return (int(v.group(1)), int(n.group(1))) if v and n else (0, 0)
+
+
+def proc_usage(stat_text, status_text):
+    """What /proc/PID/stat and /proc/PID/status say of a process: user and system ticks, the ticks of the children it reaped, the parent, the
+    user and the resident kB."""
+    f = stat_fields(stat_text)
+    uid = re.search(r"^Uid:\s*(\d+)", status_text, re.M)
+    rss = re.search(r"^VmRSS:\s*(\d+)", status_text, re.M)
+    if len(f) < 15 or not uid:
+        return None
+    return {"ticks": int(f[11]) + int(f[12]), "children": int(f[13]) + int(f[14]), "ppid": int(f[1]), "uid": int(uid.group(1)),
+            "rss_kb": int(rss.group(1)) if rss else 0}
 
 
 def parse_dvfs(text):
@@ -155,11 +170,60 @@ def threads(pid):
     return out
 
 
+#: the processes of the budget besides the compositor and the UI, by command name; and every process of a plugin's user (`plugins.firstUid`, 64 of them)
+BUDGET_COMMS = {"lumatv-helper": "helper", "lumatv-capture": "capture", "lumatv-jpeg": "jpeg", "lumatv-gfn-feed": "feeder"}
+PLUGIN_UIDS = range(20000, 20064)
+
+
+def budget(cp, up):
+    """Every process of LumaTV's, by pid: its role, its usage (`proc_usage`) and the voluntary context switches of all its threads; and the
+    set's other processes (LG's), by pid: the name, the ticks and the resident kB."""
+    procs = {}
+    for d in os.listdir(ROOT + "/proc"):
+        if not d.isdigit():
+            continue
+        pid = int(d)
+        u = proc_usage(read("/proc/%d/stat" % pid), read("/proc/%d/status" % pid))
+        if u is None:
+            continue
+        u["comm"] = read("/proc/%d/comm" % pid).strip()
+        procs[pid] = u
+    helpers = {pid for pid, u in procs.items() if u["comm"] == "lumatv-helper"}
+    sm = procs.get(cp, {}).get("ppid")
+    out, others = {}, {}
+    for pid, u in procs.items():
+        if pid == cp:
+            role = "compositor"
+        elif pid == up:
+            role = "ui"
+        elif pid == sm:
+            role = "sm"
+        elif u["comm"] in BUDGET_COMMS:
+            role = BUDGET_COMMS[u["comm"]]
+        elif u["uid"] in PLUGIN_UIDS:
+            role = "plugin " + u["comm"]
+        elif u["ppid"] in helpers:
+            role = "helper's " + u["comm"]
+        else:
+            others[str(pid)] = {"comm": u["comm"], "ticks": u["ticks"] + u["children"], "rss_kb": u["rss_kb"]}
+            continue
+        try:
+            tasks = os.listdir("%s/proc/%d/task" % (ROOT, pid))
+        except OSError:
+            continue
+        u["role"] = role
+        u["wakeups"] = sum(ctxt(read("/proc/%d/task/%s/status" % (pid, t)))[0] for t in tasks)
+        out[str(pid)] = u
+    return out, others
+
+
 def weather():
     """What the helper says Home's sky shows (the reading's code and whether it is day), and the theme's switches for the sky."""
     out = {"code": None, "day": None, "wind_mph": None, "theme_sky_animated": None, "theme_wallpaper_motion": None}
     try:
         doc = json.load(urllib.request.urlopen(HELPER, timeout=3))
+        # `/v1/weather` answers the topic as `{"value": {"doc": {...}}}`
+        doc = doc.get("value") or doc
         cur = (doc.get("doc") or doc).get("current") or {}
         out["code"], out["day"], out["wind_mph"] = cur.get("code"), cur.get("isDay"), cur.get("windMph")
     except Exception:
@@ -192,6 +256,7 @@ def snapshot():
             s[name + "_threads"] = threads(pid)
         except (OSError, TypeError):
             s[name + "_threads"] = None
+    s["budget"], s["others"] = budget(cp, up)
     return s
 
 
@@ -217,6 +282,35 @@ def share(a, b, dt, hz):
                       "system_pct": round(100.0 * (t["system"] - before["system"]) / hz / dt, 2), "ctxt_per_s": [round(x) for x in switches]}
     return {"pct": round(100.0 * (user + system) / hz / dt, 2), "user_pct": round(100.0 * user / hz / dt, 2), "system_pct": round(100.0 * system / hz / dt, 2),
             "top_threads": dict(sorted(top.items(), key=lambda kv: -kv[1]["pct"]))}
+
+
+def budget_window(a, b, dt, hz):
+    """The budget by role between two readings: share of a core (a process that started in the window counts whole, and what a process reaped is
+    its own), resident MB at the end and thread wake-ups a second; `all` sums them."""
+    roles = {}
+    for pid, u in b.items():
+        before = a.get(pid) if a.get(pid, {}).get("role") == u["role"] else None
+        r = roles.setdefault(u["role"], {"pct": 0.0, "rss_mb": 0.0, "wakeups_per_s": 0.0, "pids": []})
+        r["pct"] += 100.0 * (u["ticks"] + u["children"] - (before["ticks"] + before["children"] if before else 0)) / hz / dt
+        r["rss_mb"] += u["rss_kb"] / 1024.0
+        r["wakeups_per_s"] += (u["wakeups"] - (before["wakeups"] if before else 0)) / dt
+        r["pids"].append(int(pid))
+    total = {k: sum(r[k] for r in roles.values()) for k in ("pct", "rss_mb", "wakeups_per_s")}
+    out = {role: {k: (round(v, 2) if k != "pids" else v) for k, v in r.items()} for role, r in sorted(roles.items(), key=lambda kv: -kv[1]["pct"])}
+    out["all"] = {k: round(v, 2) for k, v in total.items()}
+    return out
+
+
+def others_window(a, b, dt, hz, top=12):
+    """The busiest of the set's other processes between two readings, by name: share of a core and resident MB (the processes of a name summed)."""
+    names = {}
+    for pid, u in b.items():
+        before = a.get(pid) if a.get(pid, {}).get("comm") == u["comm"] else None
+        r = names.setdefault(u["comm"], {"pct": 0.0, "rss_mb": 0.0})
+        r["pct"] += 100.0 * (u["ticks"] - (before["ticks"] if before else 0)) / hz / dt
+        r["rss_mb"] += u["rss_kb"] / 1024.0
+    busiest = sorted(names.items(), key=lambda kv: -kv[1]["pct"])[:top]
+    return {name: {k: round(v, 2) for k, v in r.items()} for name, r in busiest}
 
 
 def window(a, b):
@@ -257,6 +351,9 @@ def window(a, b):
     if da and db and db[0] + db[1] > da[0] + da[1]:
         w["mali_busy_pct"] = round(100.0 * (db[0] - da[0]) / ((db[0] - da[0]) + (db[1] - da[1])), 1)
     w["keys_delivered"] = ((b["keys"].get("delivered") or 0) - (a["keys"].get("delivered") or 0))
+    if a.get("budget") is not None and b.get("budget") is not None:
+        w["budget"] = budget_window(a["budget"], b["budget"], dt, hz)
+        w["others"] = others_window(a["others"], b["others"], dt, hz)
     return w
 
 
@@ -299,6 +396,10 @@ def summary_text(res):
         rows.append(("engine", "%s us a frame, %s %% of a core: %s" % (w["engine_us_per_frame"]["cpu"], w.get("engine_pct"), w["engine_us_per_frame"])))
     if w.get("mali_busy_pct") is not None:
         rows.append(("gpu", "%s %% busy" % w["mali_busy_pct"]))
+    for role, r in (w.get("budget") or {}).items():
+        rows.append(("budget " + role, "%6.2f %% of a core, %6.1f MB resident, %6.1f wake-ups a second" % (r["pct"], r["rss_mb"], r["wakeups_per_s"])))
+    for name, r in (w.get("others") or {}).items():
+        rows.append(("lg " + name, "%6.2f %% of a core, %6.1f MB resident" % (r["pct"], r["rss_mb"])))
     for name, c in res["verdicts"].items():
         rows.append(("check " + name, "%s  %s" % ({True: "PASS", False: "FAIL", None: "?"}[c["ok"]], c["detail"])))
     return table(rows)
@@ -396,6 +497,15 @@ def selftest():
     assert verdicts(w, a, b, "fast")["flips"]["ok"] and verdicts(w, a, b, None)["flips"]["ok"] is None
     text = summary_text({"label": "t", "sky": "calm", "weather": {"code": 0, "theme_sky_animated": True}, "window": w, "verdicts": v})
     assert "together" in text and "PASS" in text
+    # the budget: a helper that took 1.2 s of its own and its children's in a minute, and a JPEG process that started in it
+    u = proc_usage("7 (lumatv-helper) S 1 7 7 0 -1 0 0 0 0 0 300 100 40 10 20 0 3 0 1000", "Name:\tlumatv-helper\nUid:\t0\t0\t0\t0\nVmRSS:\t  2048 kB\n")
+    assert u == {"ticks": 400, "children": 50, "ppid": 1, "uid": 0, "rss_kb": 2048}, u
+    later_u = dict(u, ticks=460, children=110, role="helper", wakeups=700)
+    bw = budget_window({"7": dict(u, role="helper", wakeups=100)}, {"7": later_u, "9": {"ticks": 30, "children": 0, "rss_kb": 1024, "role": "jpeg", "wakeups": 60}}, 60.0, 100)
+    assert bw["helper"]["pct"] == 2.0 and bw["helper"]["wakeups_per_s"] == 10.0 and bw["jpeg"]["pct"] == 0.5 and bw["all"]["rss_mb"] == 3.0, bw
+    ow = others_window({"5": {"comm": "tvservice", "ticks": 100, "rss_kb": 2048}},
+                       {"5": {"comm": "tvservice", "ticks": 160, "rss_kb": 2048}, "6": {"comm": "iepg", "ticks": 6, "rss_kb": 1024}}, 60.0, 100)
+    assert list(ow) == ["tvservice", "iepg"] and ow["tvservice"] == {"pct": 1.0, "rss_mb": 2.0} and ow["iepg"]["pct"] == 0.1, ow
     print("selftest ok")
     return 0
 

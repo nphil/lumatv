@@ -41,10 +41,14 @@ pub struct Step {
 
 /// The steps, from the slowest. The sky is nobody's gesture and every frame of it is a pass over the card's layers and a flip of the whole screen: drawn at
 /// the panel's 120 a second it held the set's compositor at 24.8 % of a core and the UI at 6.8 % on an idle Home (3.1 and 1.9 with the sky off). The limits
-/// are what a frame may move a sprite without the eye taking it for a jump: the soft edge of a cloud a pixel and a half at 15 a second, any sprite four at 30
-/// (a long line of wind overlaps itself) and five at 60 (a streak of rain, 20 to 30 pixels long, is moved a fifth of its length). 66, 33 and 16 ms are 8, 4 and
-/// 2 refreshes of a 120 Hz panel, which the compositor's pacer does not take for a slower panel (it takes 40 and 42 ms for 25 and 24 Hz).
-pub const STEPS: [Step; 3] = [
+/// are what a frame may move a sprite without the eye taking it for a jump: the soft edge of a cloud a pixel and a half at 15 a second or slower, any sprite
+/// four at 30 (a long line of wind overlaps itself) and five at 60 (a streak of rain, 20 to 30 pixels long, is moved a fifth of its length). 100 ms is the
+/// moving wallpaper's own pace at its 10 a second: a sprite that keeps the cloud's limits at it is drawn in the wallpaper's frames, which show the whole sky
+/// where it is, and asks for none between them (idle Home on the host, the owner's layout: 22-23 frames a second with 66 ms the slowest, 13.5 with 100 ms).
+/// 100, 66, 33 and 16 ms are 12, 8, 4 and 2 refreshes of a 120 Hz panel, which the compositor's pacer does not take for a slower panel (it takes 40 and 42 ms
+/// for 25 and 24 Hz).
+pub const STEPS: [Step; 4] = [
+    Step { ms: 100, px: 1.5, fade: 0.08 },
     Step { ms: 66, px: 1.5, fade: 0.08 },
     Step { ms: 33, px: 4.0, fade: 0.15 },
     Step { ms: 16, px: 5.0, fade: 0.25 },
@@ -1489,8 +1493,8 @@ mod tests {
     /// What a sky asks of the compositor over `secs` of its own time, tick by tick as [`Live::step`] restates its paths: the frames a second it wants (the
     /// shortest step of what moves in a tick; a frame at every refresh counts as the 120 of the panel) and the share of the time spent at none, each of
     /// [`STEPS`] and every refresh.
-    fn frames_asked(pic: &Picture, secs: u64) -> (f64, [f64; 5]) {
-        let (mut frames, mut share) = (0.0, [0.0; 5]);
+    fn frames_asked(pic: &Picture, secs: u64) -> (f64, [f64; STEPS.len() + 2]) {
+        let (mut frames, mut share) = (0.0, [0.0; STEPS.len() + 2]);
         let mut u = 0;
         while u < secs * 1000 {
             let (tick, lead) = tick_of(pic.schedule, u);
@@ -1500,7 +1504,7 @@ mod tests {
             // the shortest step wins, and 0, a frame at every refresh, is the shortest of all
             let (hz, slot) = match parts.chain(veils).map(|(_, _, step)| step).min() {
                 None => (0.0, 0),
-                Some(0) => (120.0, 4),
+                Some(0) => (120.0, STEPS.len() + 1),
                 Some(ms) => (1000.0 / f64::from(ms), 1 + STEPS.iter().position(|s| s.ms == ms).expect("a step of STEPS")),
             };
             frames += hz * tick as f64 / 1000.0;
@@ -1512,7 +1516,8 @@ mod tests {
 
     /// The frames a second each sky asks for on the card's and the view's stage, from how far its sprites go between frames: the numbers of
     /// `docs/research/sky-cost-result.md` (`cargo test -p lumatv-ui --lib weather_art::tests::the_sky_asks -- --nocapture` prints them). On the card a calm
-    /// sky wants 15 a second, snow and wind 30, and rain 60: a streak of it moves 4 pixels in a frame at 60 a second and 8.6 at 30.
+    /// sky wants 10 to 17 a second (its slow sprites at the wallpaper's 10), snow and wind 30, and rain 60: a streak of it moves 4 pixels in a frame at 60 a
+    /// second and 8.6 at 30.
     #[test]
     fn the_sky_asks_for_the_frames_that_how_far_it_moves_needs_and_a_calm_one_needs_few() {
         let (send, receive) = std::sync::mpsc::channel();
@@ -1520,15 +1525,16 @@ mod tests {
             for (n, st) in stages().into_iter().enumerate() {
                 let (rate, share) = frames_asked(&picture(cond, st, !cond.day, Pal::standard(!cond.day)), 600);
                 let row = format!(
-                    "{n} {:?} {} heavy {} wind {:5}: {rate:5.1} a second; time at none {:.2}, 66 ms {:.2}, 33 ms {:.2}, 16 ms {:.2}, every refresh {:.2}",
-                    cond.sky, if cond.day { "day  " } else { "night" }, cond.heavy, cond.wind, share[0], share[1], share[2], share[3], share[4]
+                    "{n} {:?} {} heavy {} wind {:5}: {rate:5.1} a second; time at none {:.2}, {}, every refresh {:.2}",
+                    cond.sky, if cond.day { "day  " } else { "night" }, cond.heavy, cond.wind, share[0],
+                    STEPS.iter().zip(&share[1..]).map(|(s, at)| format!("{} ms {at:.2}", s.ms)).collect::<Vec<_>>().join(", "), share[STEPS.len() + 1]
                 );
                 send.send(row).expect("the receiver is held until every condition is done");
                 if n == 1 {
                     let (low, high) = match (cond.sky, cond.wind) {
                         (Sky::Drizzle | Sky::Rain | Sky::Storm, _) => (60.0, 70.0),
                         (Sky::Snow, _) | (_, true) => (28.0, 36.0),
-                        _ => (14.0, 20.0),
+                        _ => (9.5, 17.0),
                     };
                     assert!((low..=high).contains(&rate), "{cond:?}: {rate:.1} a second on the card (expected {low} to {high})");
                 }

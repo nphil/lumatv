@@ -253,7 +253,12 @@ impl Inner {
         let Some(entry) = self.groups.get_mut(id.key()) else {
             return;
         };
-        entry.pose = sanitise(&entry.pose, pose);
+        // The same pose again changes nothing on the compositor, and a commit of nothing else would still cost a frame.
+        let pose = sanitise(&entry.pose, pose);
+        if pose == entry.pose {
+            return;
+        }
+        entry.pose = pose;
         let (wire, pose) = (entry.wire, entry.wire_pose());
         self.batch.push(Request::GroupSet { id: wire, pose });
     }
