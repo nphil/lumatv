@@ -115,6 +115,17 @@ impl Server {
         Server { jobs, thread: Some(thread), stop, ticking, client_stream: Some(client_end), events }
     }
 
+    /// The client end of one more connection of this server, inserted on the server thread: for a program that is handed its socket, as a
+    /// libwayland client is (`WAYLAND_SOCKET`).
+    pub fn extra_stream(&mut self) -> UnixStream {
+        let (server_end, client_end) = UnixStream::pair().unwrap();
+        let events = self.events.clone();
+        self.eval(move |s| {
+            s.dh.insert_client(server_end, Arc::new(ClientHandler { events })).unwrap();
+        });
+        client_end
+    }
+
     /// Runs `f` on the server thread with its state and returns the result.
     pub fn eval<R: Send + 'static>(&self, f: impl FnOnce(&mut State) -> R + Send + 'static) -> R {
         let (tx, rx) = channel();
@@ -294,12 +305,7 @@ impl Client {
     /// Another client of the same server, inserted on the server thread (its events go through the same queue as
     /// the first's, so its disconnect is handled like a real one).
     pub fn connect_extra(server: &mut Server) -> Client {
-        let (server_end, client_end) = UnixStream::pair().unwrap();
-        let events = server.events.clone();
-        server.eval(move |s| {
-            s.dh.insert_client(server_end, Arc::new(ClientHandler { events })).unwrap();
-        });
-        Self::connect_stream(client_end)
+        Self::connect_stream(server.extra_stream())
     }
 
     fn connect_stream(stream: UnixStream) -> Client {

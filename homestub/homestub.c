@@ -284,8 +284,10 @@ static int map_card(int sock, int hidden)
     m_u32(&m, SURFACE);
     if (m_send(sock, &m, -1))
         return -1;
+    /* lumatv.homeStub is what tells the compositor this card is the stub and not LG's Home (compositor/.../home_stub.rs): it raises the
+     * card itself for the Home key and for SAM's launches of Home, which SAM leaves to a native app that never registered with it. */
     static const char *const props[][2] = {
-        { "_WEBOS_WINDOW_TYPE", "_WEBOS_WINDOW_TYPE_CARD" }, { "appId", APP_ID }, { "title", "Home" },
+        { "_WEBOS_WINDOW_TYPE", "_WEBOS_WINDOW_TYPE_CARD" }, { "appId", APP_ID }, { "title", "Home" }, { "lumatv.homeStub", "native" },
     };
     for (size_t i = 0; i < sizeof props / sizeof *props; i++) {
         m_begin(&m, SHELL_SURFACE, 2); /* set_property */
@@ -340,12 +342,20 @@ static int map_card(int sock, int hidden)
 
 /* ---- one card at a time: the newest instance wins ---- */
 
+/* LUMATV_HOMESTUB_SINGLE names the lock instead of SINGLE_NAME: the name is machine-wide, and tests run several stubs at once on one host.
+ * Nothing sets it on the set. */
 static socklen_t single_addr(struct sockaddr_un *a)
 {
+    const char *name = getenv("LUMATV_HOMESTUB_SINGLE");
+    size_t n = name ? strlen(name) : 0;
+    if (n == 0 || n > sizeof a->sun_path - 2) {
+        name = SINGLE_NAME;
+        n = sizeof SINGLE_NAME - 1;
+    }
     memset(a, 0, sizeof *a);
     a->sun_family = AF_UNIX;
-    memcpy(a->sun_path + 1, SINGLE_NAME, sizeof SINGLE_NAME - 1);
-    return (socklen_t)(offsetof(struct sockaddr_un, sun_path) + 1 + sizeof SINGLE_NAME - 1);
+    memcpy(a->sun_path + 1, name, n);
+    return (socklen_t)(offsetof(struct sockaddr_un, sun_path) + 1 + n);
 }
 
 /* Binds the name. Whoever holds it is asked to go by a connection to it, and its end is waited for. The card is mapped before this, so

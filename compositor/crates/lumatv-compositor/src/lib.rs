@@ -27,6 +27,7 @@ pub mod childlog;
 pub mod config;
 pub mod control;
 pub mod damage;
+pub mod home_stub;
 pub mod im_queue;
 pub mod input;
 pub mod keys;

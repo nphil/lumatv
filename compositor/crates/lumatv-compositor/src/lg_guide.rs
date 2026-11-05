@@ -68,8 +68,11 @@ impl State {
             if payload.get("returnValue").and_then(Value::as_bool) == Some(false) {
                 self.luna_state.guide.life = None;
                 self.journal(format!("lg-guide: SAM refused the life event subscription ({payload}); a launch is answered when its window maps"));
-            } else if launches_guide(payload) {
-                self.lg_guide_launched_at(Instant::now());
+            } else {
+                if launches_guide(payload) {
+                    self.lg_guide_launched_at(Instant::now());
+                }
+                self.home_life_event(payload);
             }
             return true;
         }

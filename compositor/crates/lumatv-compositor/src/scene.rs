@@ -864,10 +864,12 @@ impl Scene {
                 // A group member never comes to the front: it is no card (`Window::in_group`).
                 if !w.in_group {
                     w.front = self.map_counter;
+                    w.held_by_home = false;
                 }
             } else {
                 w.map_serial = 0;
                 w.front = 0;
+                w.held_by_home = false;
             }
         }
     }
@@ -919,6 +921,7 @@ impl Scene {
         {
             self.map_counter += 1;
             w.front = self.map_counter;
+            w.held_by_home = false;
             if w.map_serial > 0 {
                 w.map_serial = self.map_counter;
             }

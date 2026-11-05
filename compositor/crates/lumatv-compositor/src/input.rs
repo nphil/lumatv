@@ -1087,6 +1087,9 @@ impl State {
     }
 
     pub(crate) fn home_pressed(&mut self, from_network: bool) {
+        if self.native_home_key(from_network) {
+            return;
+        }
         self.journal(format!("input: Home{}: launchDefaultApp", if from_network { " (network key)" } else { "" }));
         self.luna_call(
             "luna://com.webos.applicationManager/launchDefaultApp".into(),

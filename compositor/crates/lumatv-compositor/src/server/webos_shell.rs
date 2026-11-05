@@ -317,21 +317,31 @@ pub fn app_key(state: &mut State, app: &str, key: &str) -> bool {
 /// it keeps that, and the one below it comes back. A card that never came to the front (a preloaded app's window
 /// before its relaunch, bufferless in state Default) is left as it is. The card that ends up in front is then exposed
 /// and every other card unexposed.
+///
+/// A card the native Home stub's card covered is not brought back by that card's going (`Window::held_by_home`, `home_stub`): SAM ends the
+/// stub and starts it again for some launches, and the shell's Home stays on the screen for the moments between.
 pub fn settle_cards(state: &mut State, except: Option<WindowId>) {
-    if let Some(top) = state.scene.front_card(&state.surfaces, except) {
-        let changes: Vec<(WindowId, ShellState)> = state
+    if let Some(top) = state.scene.front_card(&state.surfaces, except)
+        && !state.scene.window(top).is_some_and(|w| w.held_by_home && w.state == ShellState::Minimized)
+    {
+        let cards: Vec<(WindowId, ShellState)> = state
             .scene
             .windows()
             .filter(|w| w.kind.is_card() && w.front > 0 && Some(w.id) != except)
             .filter(|w| w.map_serial == 0 || state.surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
-            .filter_map(|w| {
-                let wanted = if w.id == top { ShellState::Fullscreen } else { ShellState::Minimized };
-                (w.state != wanted).then_some((w.id, wanted))
-            })
+            .map(|w| (w.id, w.state))
             .collect();
-        for (wid, wanted) in changes {
+        let under_stub = state.scene.window(top).is_some_and(crate::home_stub::is_stub);
+        for (wid, current) in cards {
+            let wanted = if wid == top { ShellState::Fullscreen } else { ShellState::Minimized };
             if let Some(w) = state.scene.window_mut(wid) {
+                if wid != top {
+                    w.held_by_home = under_stub;
+                }
                 w.state = wanted;
+            }
+            if current == wanted {
+                continue;
             }
             if let Some(res) = state.webos_shell_resource(wid) {
                 send_state(&res, wanted);

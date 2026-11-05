@@ -194,11 +194,11 @@ def vm_kb(pid, field="VmRSS"):
             return int(line.split()[1])
 
 
-def single_instance_held():
+def single_instance_held(name):
     """Whether a program listens on the abstract name the stub keeps its one card with (the kernel lists it as @name, state LISTEN)."""
     for line in Path("/proc/net/unix").read_text().splitlines():
         fields = line.split()
-        if fields and fields[-1] == "@lumatv-homestub" and fields[3] == "00010000":
+        if fields and fields[-1] == "@" + name and fields[3] == "00010000":
             return True
     return False
 
@@ -218,6 +218,8 @@ class StubTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="homestub-")
         self.addCleanup(shutil.rmtree, self.tmp, True)
+        # the lock's name is machine-wide: one of its own, so that tests here, the compositor's and a set's own stub never end each other's
+        self.single = "lumatv-homestub-test-" + os.path.basename(self.tmp)
         self.procs = []
         self.addCleanup(self.kill_all)
         self.servers = []
@@ -230,7 +232,7 @@ class StubTest(unittest.TestCase):
 
     def stub(self, binary=HOST, *args, **env):
         cmd = ([QEMU] if binary == ARM64 else []) + [str(binary), *args]
-        proc = subprocess.Popen(cmd, env=dict(PATH=os.environ["PATH"], XDG_RUNTIME_DIR=self.tmp, WAYLAND_DISPLAY="wl-test", **env),
+        proc = subprocess.Popen(cmd, env=dict(PATH=os.environ["PATH"], XDG_RUNTIME_DIR=self.tmp, WAYLAND_DISPLAY="wl-test", LUMATV_HOMESTUB_SINGLE=self.single, **env),
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         self.procs.append(proc)
         return proc
@@ -246,7 +248,7 @@ class StubTest(unittest.TestCase):
         self.assertTrue(server.mapped.wait(3), "the card was not mapped: %r" % server.log)
         # what follows the commit is the idle, once it holds its name: a moment for anything that would end it
         end = time.time() + 3
-        while not single_instance_held() and time.time() < end:
+        while not single_instance_held(self.single) and time.time() < end:
             time.sleep(0.002)
         time.sleep(0.05)
         if proc.poll() is not None:
@@ -264,7 +266,8 @@ class StubTest(unittest.TestCase):
                          "the three it needs, each at version 1 (wl_webos_shell is version 1 on the set) and nothing else")
         self.assertIn(("shell_surface", "wl_surface"), log)
         props = [e[1:] for e in log if e[0] == "property"]
-        self.assertEqual(props, [("_WEBOS_WINDOW_TYPE", "_WEBOS_WINDOW_TYPE_CARD"), ("appId", "com.webos.app.home"), ("title", "Home")])
+        self.assertEqual(props, [("_WEBOS_WINDOW_TYPE", "_WEBOS_WINDOW_TYPE_CARD"), ("appId", "com.webos.app.home"), ("title", "Home"),
+                                 ("lumatv.homeStub", "native")], "the last one tells the compositor this is the stub and not LG's Home")
         # a pixel of zeros in ARGB8888: the pool is four bytes of memory the stub made, the buffer is 1x1 at stride 4 and format 0
         self.assertIn(("pool", 4, 4, b"\0\0\0\0"), log)
         self.assertIn(("buffer", 0, 1, 1, 4, 0), log)
@@ -291,7 +294,7 @@ class StubTest(unittest.TestCase):
                 proc = self.stub(HOST, argument)
                 self.assertTrue(server.wait_for(("shell_surface", "wl_surface")), server.log)
                 end = time.time() + 3
-                while not single_instance_held() and time.time() < end:
+                while not single_instance_held(self.single) and time.time() < end:
                     time.sleep(0.002)
                 time.sleep(0.05)
                 self.assertIsNone(proc.poll(), "it stays, waiting to be launched for real")
@@ -379,7 +382,7 @@ class StubTest(unittest.TestCase):
         self.assertTrue(server.mapped.wait(3), "the newer one is mapped first, so that the card it replaces is not missed")
         self.assertEqual(first.wait(3), 0, "and the older goes when it is asked")
         end = time.time() + 3
-        while not single_instance_held() and time.time() < end:
+        while not single_instance_held(self.single) and time.time() < end:
             time.sleep(0.002)
         self.assertIsNone(second.poll(), "the newer stays")
         # a third replaces the second the same way
