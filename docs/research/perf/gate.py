@@ -335,10 +335,12 @@ SURFACES = [
     # A walk presses no OK inside a screen and no key that changes a value: Settings is entered by the quick panel's "All settings" and moved with
     # Up and Down, which on a row of a page only move focus (Left and Right there would change a slider, so Back leaves a page), the library's OK
     # launches an app and is not pressed, the switcher's Down and OK quit an app and are not pressed.
-    # `settings-scroll`: LumaTV's Settings from the quick panel's "All settings" (timed from the release of OK on it), the Picture page's long list
-    # down and up with a held key, the rail down through every section to System (each Down switches the page beside it), that page's list, the rail
-    # back up to Picture, Back. Settings' rail stays where it was left, so the walk ends on Picture, where the next open starts.
-    {'name': 'settings-scroll', 'default': False, 'act': 'release', 'transition': False,
+    # `settings-scroll`: LumaTV's Settings from the quick panel's "All settings" (timed from the press of OK on it: the panel acts on the press, and
+    # Settings, up at once at 120 Hz with the panel cut under it, is drawn before the release; timed from the release the first frame was the next
+    # key's, 0.6 s on, on 2026-11-05), the Picture page's long list down and up with a held key, the rail down through every section to System (each
+    # Down switches the page beside it), that page's list, the rail back up to Picture, Back. Settings' rail stays where it was left, so the walk ends
+    # on Picture, where the next open starts.
+    {'name': 'settings-scroll', 'default': False, 'transition': False,
      'prep': QUICK_PANEL_FOOT,
      'open': '@settings-scroll-open OK s0.6 ' + SETTINGS_PAGE + ' DOWNx8@0.06 ' + SETTINGS_PAGE + ' UPx9@0.06 BACK',
      'close': '@settings-scroll-close', 'settle_s': 0.6, 'close_settle_s': 0.5,

@@ -4,7 +4,7 @@
 //! | Request | Answer |
 //! |---|---|
 //! | `GET /v1/cameras` | the `cameras` topic's value |
-//! | `GET /v1/cameras/{id}/frame?w=&h=&fps=` | the camera's newest still, never older than 10 s (else `404 no_picture`, or `503 not_connected`); `X-Luma-Camera-Age-Ms`; `fps` (at most 10) asks the bridge's stream for more pictures a second than a tile's pace |
+//! | `GET /v1/cameras/{id}/frame?w=&h=&fps=` | the camera's newest still, never older than 10 s (else `404 no_picture`, or `503 not_connected`); `X-Luma-Camera-Age-Ms`; `fps` (at most 10) is the pace the asker shows the camera at, which its stream keeps while it is the fastest asked (none: the grid's pace) |
 //! | `GET /v1/cameras/{id}/recordings?from=&to=`, `/events?from=&to=&count=`, `/clips?from=&to=&count=` | the bridge's own JSON for the span |
 //! | `GET /v1/cameras/{id}/thumbnail?at=&w=&h=`, `/clip-thumbnail?clip=&w=&h=` | a picture of a recorded moment or a clip |
 //! | `GET /v1/cameras/events/{event}/thumbnail?w=&h=` | the picture of a pushed event |
@@ -302,7 +302,8 @@ impl Inner {
             Ok(size) => size,
             Err(r) => return r,
         };
-        // a pop-up with no video asks for a quicker stream than a tile does (`fps`, at most 10, the bridge's own limit)
+        // the pictures a second the asker shows (`fps`, at most 10, the bridge's own limit): Home's tiles 1, a pop-up with no video more than a tile
+        // of the grid, which names none and gets the grid's pace
         let fps = match int(request, "fps") {
             Ok(n) => u32::try_from(n.unwrap_or(0).clamp(0, 10)).unwrap_or(0),
             Err(r) => return r,

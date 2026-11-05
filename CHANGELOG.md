@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A camera's stills stream goes at the pace its askers show it: Home's tiles ask for one picture a second and no longer keep the stream at the Cameras grid's 5, which had the bridge encode and the helper read four pictures a second a camera that nobody showed. The grid, and a pop-up with no video, still get their own pace while they ask.
+
+The gate times `settings-scroll` from the press of OK on "All settings": the quick panel acts on the press and Settings, up at once at 120 Hz with the panel cut under it, is drawn before the release, so timed from the release its first frame was the next key's.
+
 Idle Home draws fewer frames. Every apply of Home sent the dock's glass, the status bar's pane and its five buttons again, unchanged, so the sky restating its paths (which needs no frame of its own) and applies that changed nothing else each cost a frame; the same pose or glass is no longer sent. A calm sky's slow sprites go at the moving wallpaper's 10 a second under the same limits a frame may move them (a cloud's soft edge a pixel and a half), so they are drawn in the wallpaper's frames instead of in frames of their own between them. On the host with the owner's layout, 22-26 frames a second became 13.5.
 
 A plugin's program now leaves when the helper asks it to (switched off, or the helper stopping) and when its helper is killed. Programs inherited the helper's blocked termination signals, so neither SIGTERM reached them. A Home Assistant plugin left behind by a helper restart took the plugin's connection from the next helper's copy, and that copy from it, several times a second; the helper events (about 50 a second) and Home Assistant connections of each takeover took idle Home from 8 % of a core to 14-18 % and dropped frames at 120 Hz.

@@ -479,7 +479,7 @@ def walk_of(surface):
         w.wait(9000)
         w.mark('end')
     elif surface == 'settings-scroll':
-        # QUICK_PANEL_FOOT, OK on the panel's "All settings" (pressed 50 ms before the mark and taken at its release, `act: release`), then
+        # QUICK_PANEL_FOOT, OK on the panel's "All settings" (the mark at its press, which the panel acts on, as the gate times it), then
         # SETTINGS_PAGE, the rail down, SETTINGS_PAGE, the rail up, Back
         w.at = START_MS - 3200
         w.push('show', {'kind': 'quick', 'n': 1})
@@ -487,8 +487,8 @@ def walk_of(surface):
         w.kb('down', 20, 30)
         w.at = START_MS
         w.mark('open')
-        w.key('ok', at=w.at - KB_TAP_MS)
-        w.key('ok', 'up')
+        w.key('ok')
+        w.key('ok', 'up', at=w.at + KB_TAP_MS)
         w.wait(600)
         for page in ('picture', 'system'):
             w.mark(page + ' list')

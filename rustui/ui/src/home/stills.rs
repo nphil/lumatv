@@ -34,7 +34,8 @@ impl Stills {
         self.wants.clear();
         for (id, w, h, online) in rows {
             if *online && !self.wants.iter().any(|v| v.key == *id) {
-                self.wants.push(Want::repeating(id, &format!("/v1/cameras/{}/frame?w={w}&h={h}", crate::cameras::sheet::encode(id)), 1000));
+                // `fps=1`: the pace a tile shows, so the camera's stream is not kept at the Cameras grid's for it
+                self.wants.push(Want::repeating(id, &format!("/v1/cameras/{}/frame?w={w}&h={h}&fps=1", crate::cameras::sheet::encode(id)), 1000));
             }
         }
         self.pictures.retain(|id, _| rows.iter().any(|r| r.0 == *id));
@@ -99,7 +100,7 @@ mod tests {
         assert_eq!(effects.len(), 1);
         let Effect::Fetch { tag, path } = &effects[0] else { panic!("frame fetch") };
         assert!((FIRST..=LAST).contains(tag));
-        assert_eq!(path, "/v1/cameras/front%2Fdoor/frame?w=100&h=56");
+        assert_eq!(path, "/v1/cameras/front%2Fdoor/frame?w=100&h=56&fps=1");
         assert!(s.update(&Input::Tick, true, 1100).is_empty());
         // An undecodable still is not a picture; the helper is not hammered after a refusal.
         s.update(&Input::Bytes { tag: *tag, status: 200, bytes: b"bad".to_vec() }, true, 1200);

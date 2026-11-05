@@ -51,8 +51,11 @@ struct Slot {
     changed: Condvar,
     last_ask: Mutex<Instant>,
     width: AtomicU32,
-    /// The most pictures a second anybody asked of this camera (0: the grid's pace): a camera pop-up that has no video asks for more than a tile does.
+    /// The most pictures a second anybody asked of this camera with a pace of their own (0: none did): Home's tiles ask for 1, a camera pop-up
+    /// that has no video for more than the grid's.
     fps: AtomicU32,
+    /// When an ask that names no pace (the grid's tiles, at the grid's pace) last came.
+    grid_ask: Mutex<Option<Instant>>,
     running: AtomicBool,
 }
 
@@ -129,9 +132,9 @@ impl Stills {
         slot.latest.lock().clone()
     }
 
-    /// Asks for a camera's picture at about `width` pixels wide, `fps` a second at least where that is more than the grid's pace (0: the grid's): opens
-    /// its stream if none is open, and answers the newest picture that is fresh, waiting up to `wait` for the first one. `Err(busy)` when eight other
-    /// cameras are being served already.
+    /// Asks for a camera's picture at about `width` pixels wide, `fps` pictures a second (0: the grid's pace): opens its stream if none is open, at
+    /// the fastest pace asked of it while it runs, and answers the newest picture that is fresh, waiting up to `wait` for the first one. `Err(busy)`
+    /// when eight other cameras are being served already.
     pub fn ask(&self, camera: &str, width: u32, fps: u32, wait: Duration) -> Result<Option<Picture>, Busy> {
         let slot = {
             let mut slots = self.inner.slots.lock();
@@ -144,6 +147,7 @@ impl Stills {
                         last_ask: Mutex::new(Instant::now()),
                         width: AtomicU32::new(0),
                         fps: AtomicU32::new(0),
+                        grid_ask: Mutex::new(None),
                         running: AtomicBool::new(false),
                     })
                 })
@@ -151,6 +155,9 @@ impl Stills {
         };
         *slot.last_ask.lock() = Instant::now();
         slot.width.fetch_max(bucket(width), Ordering::SeqCst);
+        if fps == 0 {
+            *slot.grid_ask.lock() = Some(Instant::now());
+        }
         slot.fps.fetch_max(fps.min(10), Ordering::SeqCst);
         if !slot.running.swap(true, Ordering::SeqCst) {
             if self.inner.running.load(Ordering::SeqCst) as usize >= MAX_STREAMS {
@@ -199,6 +206,12 @@ fn idle(slot: &Slot) -> bool {
     slot.last_ask.lock().elapsed() >= IDLE
 }
 
+/// The pictures a second a camera's stream is opened at: the fastest pace an asker named, or the grid's while the grid asks too. Home's tiles show one
+/// a second, and their stream at the grid's 5 had the bridge encode and the helper read four pictures a second a camera that nobody showed.
+fn pace(grid_fps: u32, asked: u32, grid_asking: bool) -> u32 {
+    (if grid_asking { grid_fps.max(asked) } else { asked }).clamp(1, 10)
+}
+
 /// One camera's reader: opens the stream, keeps the newest picture, and ends when nobody has asked for three seconds.
 fn read_stills(inner: &Arc<Inner>, camera: &str, slot: &Arc<Slot>, generation: u64) {
     let current = || inner.generation.load(Ordering::SeqCst) == generation;
@@ -208,12 +221,13 @@ fn read_stills(inner: &Arc<Inner>, camera: &str, slot: &Arc<Slot>, generation: u
             thread::sleep(Duration::from_millis(50));
         }
     };
+    let pace_now = || pace(inner.fps.load(Ordering::Relaxed), slot.fps.load(Ordering::SeqCst), slot.grid_ask.lock().is_some_and(|at| at.elapsed() < IDLE));
     while current() && !idle(slot) {
         let Some(bridge) = inner.bridge.lock().clone() else {
             return;
         };
         let width = slot.width.load(Ordering::SeqCst).max(WIDTHS[0]);
-        let fps = inner.fps.load(Ordering::Relaxed).max(slot.fps.load(Ordering::SeqCst)).clamp(1, 10);
+        let fps = pace_now();
         let opened = bridge.open_stills(camera, width, fps);
         let (head, body) = match opened {
             Ok(opened) => opened,
@@ -260,7 +274,7 @@ fn read_stills(inner: &Arc<Inner>, camera: &str, slot: &Arc<Slot>, generation: u
                 Ok(None) | Err(_) => break,
             }
             // a wider picture, or a faster pace, was asked for: the stream is opened again at that
-            if !current() || idle(slot) || slot.width.load(Ordering::SeqCst) > width || slot.fps.load(Ordering::SeqCst) > fps {
+            if !current() || idle(slot) || slot.width.load(Ordering::SeqCst) > width || pace_now() > fps {
                 break;
             }
         }
@@ -291,6 +305,13 @@ mod tests {
             ],
             [320, 320, 480, 480, 640, 1280, 1280, 1280]
         );
+    }
+
+    #[test]
+    fn a_stream_goes_at_the_fastest_pace_asked_and_at_the_grids_only_while_the_grid_asks() {
+        // Home's tiles alone: one a second; the grid's 5 when it asks too; a pop-up's 8 over either
+        assert_eq!([pace(5, 1, false), pace(5, 1, true), pace(5, 8, true), pace(3, 8, false)], [1, 5, 8, 8]);
+        assert_eq!([pace(5, 0, true), pace(5, 0, false), pace(5, 40, false)], [5, 1, 10]);
     }
 
     #[test]
