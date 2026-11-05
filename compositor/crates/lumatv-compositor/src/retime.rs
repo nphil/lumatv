@@ -1,4 +1,4 @@
-//! The panel back at 120 Hz after a 25 or 50 fps video left it at 100: a clip of 30 pictures a second plays on the main window, out of sight.
+//! The panel back at 120 Hz after a 25 or 50 fps video left it at 100: a clip of 30 pictures a second plays on the main window, out of sight, full screen.
 //!
 //! **What sets the rate.** LG's kernel picks the display engine's output rate from the rate of the source on window 0, at a timing change of that window and
 //! at nothing else: `_vsc_check_fr` gives 50 (100 Hz on this panel) for 25 and 50 fps and 60 (120 Hz) for everything else, and the window with no source
@@ -15,8 +15,13 @@
 //! rate: [`CLIP`], black and 830 bytes, declares 30 pictures a second in its SPS, and `lumatv-gfn-feeder --play` loops it in a video window of its own
 //! with the decoder opened for Home (the recipe of `tools/tv-hwplanes.sh feeder`).
 //!
-//! **Out of sight.** The window is placed at [`RECT`] and no hole is cut for it (`Window::vwin_quiet`): the video plane is under every pixel of the UI,
-//! which is opaque there, so nothing of it shows. If the decoder does not connect for a window under the UI, `ctl retime show` cuts the hole.
+//! **Out of sight, and not small.** The window is the whole output and no hole is cut for it (`Window::vwin_quiet`): the video plane is under every pixel of the
+//! UI, which is opaque there, so nothing of it shows. A small window would show nothing either, and is wrong: the TV's picture controller (pqcontroller) treats a
+//! small video window on the main sink as picture-in-graphics and applies colour gamut 0 and local dimming 0 where the owner's Filmmaker Mode has 1 and 1
+//! (`_pq_setAdvCtrlMenu` `CG:0 LD:0` against `ColorGamut=1 LD=1`, a 1440 by 810 window of the 3840 by 2160 panel; windows 2880 wide kept `CG:1 LD:1`, TV
+//! 2026-10-30, `docs/research/multiview/tv-2026-10-30`). The colours of the whole screen shifted while the 480 by 270 pop-up of the 2026-11-04 night played
+//! [INFERENCE: that run logged no pqcontroller lines]. A video of the whole screen, as LG sends it (`fullScreen`), keeps the values. If the decoder does not
+//! connect for a window under the UI, `ctl retime show` cuts a hole for a small one.
 //!
 //! **When.** The flips measure a period that is a fifth to a third over the mode's (`refresh::retimed`), Home is in front, and nothing feeds the main window
 //! for 1.5 s (no live video window, no hardware claim, `connect_src=NONE`). The panel's rate is then read from the OSD interrupt (`osd_irq`),
@@ -54,8 +59,10 @@ const CLIP_FPS: &str = "30";
 pub const APP_ID: &str = "org.nphil.lumatv.retime";
 /// The app the clip's decoder is opened for: videooutputd connects a video only for an app on SAM's foreground list, and Home is where the clip plays.
 const NDL_APP: &str = "com.webos.app.home";
-/// Where the clip is placed, in output pixels (a 128 by 72 window at 16,16 in the UI's space; the panel's are twice that).
-pub const RECT: Rect = Rect::new(16, 16, 128, 72);
+/// Where the clip is placed, in output pixels: the whole output (see the module doc: a smaller window changes the picture).
+pub const RECT: Rect = Rect::new(0, 0, crate::OUTPUT_WIDTH as i32, crate::OUTPUT_HEIGHT as i32);
+/// Where `ctl retime show` places it, with a hole, to see it: 128 by 72 at 16,16 in the UI's space.
+pub const SHOW_RECT: Rect = Rect::new(16, 16, 128, 72);
 /// How long the player runs if nobody ends it first.
 const PLAYER_SECONDS: u32 = 12;
 
@@ -714,6 +721,7 @@ impl crate::State {
             "last": r.last,
             "app": APP_ID,
             "rect": [RECT.x, RECT.y, RECT.w, RECT.h],
+            "showRect": [SHOW_RECT.x, SHOW_RECT.y, SHOW_RECT.w, SHOW_RECT.h],
             "clip": {"bytes": CLIP.len(), "size": CLIP_SIZE, "fps": CLIP_FPS},
         })
     }
@@ -1425,13 +1433,14 @@ mod tests {
         assert!(!r.state.scene.window(id).unwrap().vwin_live);
         assert_eq!(r.state.vwin.alloc.claim("c").unwrap().window, None);
         r.state.vwin_command(&json!({"op": "release", "id": "c"}));
-        // the clip plays: the window is placed at the clip's rectangle, out of the stack, and no hole is cut for it
+        // the clip plays: the window is the whole output, out of the stack, and no hole is cut for it
         assert_eq!(r.state.retime_ctl(&["now"])["ok"], true);
         let w = r.state.scene.window(id).unwrap();
         assert!(w.vwin_quiet && !w.vwin_live && w.vwin_rect == RECT, "{:?}", (w.vwin_quiet, w.vwin_live, w.vwin_rect));
+        assert_eq!((RECT.w, RECT.h), (crate::OUTPUT_WIDTH as i32, crate::OUTPUT_HEIGHT as i32), "not small: the picture controller reads a small window as picture-in-graphics");
         r.state.retime_ctl(&["show"]);
         let w = r.state.scene.window(id).unwrap();
-        assert!(w.vwin_live && !w.vwin_quiet && w.vwin_rect == RECT, "shown, it is a live window with a hole");
+        assert!(w.vwin_live && !w.vwin_quiet && w.vwin_rect == SHOW_RECT, "shown, it is a live small window with a hole");
         r.state.retime_ctl(&["hide"]);
         assert!(r.state.scene.window(id).unwrap().vwin_quiet);
         r.state.retime_ctl(&["stop"]);

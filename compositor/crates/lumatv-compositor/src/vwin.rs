@@ -1225,12 +1225,16 @@ impl crate::State {
         }
     }
 
-    /// The retime clip's window (`retime`) is nobody's claim: while the clip plays it is placed at the clip's rectangle, out of sight (no hole), or with its
-    /// hole when `ctl retime show` asks for the picture to be seen; without the clip it is hidden like a window with no claim.
+    /// The retime clip's window (`retime`) is nobody's claim: while the clip plays it is the whole output, out of sight (no hole), or a small window with its hole
+    /// when `ctl retime show` asks for the picture to be seen; without the clip it is hidden like a window with no claim.
     fn vwin_bind_retime(&mut self, wid: WindowId, surface: crate::surface::SurfaceId) {
         let play = self.retime.machine.playing();
         let (live, quiet) = (play && self.retime.show, play && !self.retime.show);
-        let rect = if play { crate::retime::RECT } else { crate::Rect::default() };
+        let rect = match (play, live) {
+            (false, _) => crate::Rect::default(),
+            (true, true) => crate::retime::SHOW_RECT,
+            (true, false) => crate::retime::RECT,
+        };
         let Some(w) = self.scene.window_mut(wid) else { return };
         let changed = w.vwin_live != live || w.vwin_quiet != quiet || (play && w.vwin_rect != rect);
         w.vwin_live = live;

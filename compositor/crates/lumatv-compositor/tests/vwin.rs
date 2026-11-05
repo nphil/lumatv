@@ -160,7 +160,7 @@ fn home(server: &mut Server) -> Client {
 }
 
 #[test]
-fn the_retime_clips_video_is_placed_under_the_ui_with_no_hole_and_hidden_again_when_the_clip_ends() {
+fn the_retime_clips_video_is_the_whole_output_under_the_ui_with_no_hole_and_hidden_again_when_the_clip_ends() {
     let mut server = Server::start();
     let _home = home(&mut server);
     // the player the compositor starts is a script that waits; the clip is written to a directory of the test's
@@ -192,10 +192,11 @@ fn the_retime_clips_video_is_placed_under_the_ui_with_no_hole_and_hidden_again_w
 
     let reply = server.eval(|s| s.retime_ctl(&["now"]));
     assert_eq!(reply["ok"], true, "{reply}");
-    // placed at the clip's rectangle, in the UI's own pixels, and nothing of the UI is cut away for it or drawn over it
+    // the whole output (the panel's own size, `fullScreen`, as LG sends a full-screen video: a small window makes the TV's picture controller change the
+    // colours), and nothing of the UI is cut away for it or drawn over it
     let p = last_placement(&server, "_ctx_retime");
-    assert_eq!(p["displayOutput"], json!({"x": 16, "y": 16, "width": 128, "height": 72}), "{p}");
-    assert_eq!(p["fullScreen"], false);
+    assert_eq!(p["displayOutput"], json!({"x": 0, "y": 0, "width": 3840, "height": 2160}), "{p}");
+    assert_eq!(p["fullScreen"], true);
     let image = server.eval(drawn);
     assert_eq!(image.pixel(20, 20), RED, "no hole: Home covers the video");
     assert_eq!(image.pixel(5, 5), RED, "and the window is not in the stack");
@@ -203,8 +204,11 @@ fn the_retime_clips_video_is_placed_under_the_ui_with_no_hole_and_hidden_again_w
     let report = server.eval(|s| s.vwin_report());
     assert_eq!((report["windows"][0]["quiet"].as_bool(), report["windows"][0]["live"].as_bool()), (Some(true), Some(false)), "{report}");
 
-    // shown (the escape hatch for a decoder that wants a hole): a live window's hole at the same place
+    // shown (the escape hatch for a decoder that wants a hole): a small live window's hole
     server.eval(|s| s.retime_ctl(&["show"]));
+    let p = last_placement(&server, "_ctx_retime");
+    assert_eq!(p["displayOutput"], json!({"x": 16, "y": 16, "width": 128, "height": 72}), "{p}");
+    assert_eq!(p["fullScreen"], false);
     let image = server.eval(drawn);
     assert_eq!(image.pixel(20, 20), HOLE, "the hole");
     assert_eq!(image.pixel(5, 5), GREEN, "the window is in the stack");
