@@ -4,7 +4,7 @@ Nitin asked on 2026-11-05 for the TV's own broadcast feed to reach Plex (or some
 
 ## Verdict
 
-**Feasible, and measured: a transport stream of one antenna program was read from the set's kernel while the panel was off.** LG's windowless pipeline retunes the frontend, a second demux channel and a PVR download carry the program, and LG's own HAL supplies the certificate. The TV's own Live TV outranks it and takes the tuner at once. The helper has the facade behind a setting that is off by default (`helper/app/src/hdhr/`); switched on, it served Plex on 2026-11-05 (below, Plex).
+**Feasible, and measured: a transport stream of one antenna program was read from the set's kernel while the panel was off.** LG's windowless pipeline retunes the frontend, a second demux channel and a PVR download carry the program, and LG's own HAL supplies the certificate. The TV's own Live TV outranks it and takes the tuner at once. The facade is the `lumatuner` engine (`helper/tuner`), served by the helper's Live TV Tuner plugin, which is off by default (`docs/plugins/live-tv-tuner.md`); switched on, it served Plex on 2026-11-05 (below, Plex).
 
 | Gate | Result | Evidence |
 |---|---|---|
@@ -88,7 +88,7 @@ Owner first: the helper refuses (503) and ends the stream when `com.webos.app.li
 
 ## Plex
 
-Plex's DVR takes an HDHomeRun-style network tuner. It finds one by IP (Settings, Live TV & DVR, "specify the device's location"), scans its lineup, matches the lineup to Plex's own guide by country and postal code, and then records or streams from the lineup's stream URLs. Recording needs a Plex Pass (`PUB: support.plex.tv/articles/225877347-live-tv-dvr`). The facade is the five small endpoints the set tvhProxy and the other emulators serve (`PUB: github.com/PREngineer/TVHProxy`); the helper's `hdhr` module serves them:
+Plex's DVR takes an HDHomeRun-style network tuner. It finds one by IP (Settings, Live TV & DVR, "specify the device's location"), scans its lineup, matches the lineup to Plex's own guide by country and postal code, and then records or streams from the lineup's stream URLs. Recording needs a Plex Pass (`PUB: support.plex.tv/articles/225877347-live-tv-dvr`). The facade is the five small endpoints the set tvhProxy and the other emulators serve (`PUB: github.com/PREngineer/TVHProxy`); `lumatuner` serves them:
 
 | Endpoint | Content |
 |---|---|
@@ -102,7 +102,7 @@ Plex's DVR takes an HDHomeRun-style network tuner. It finds one by IP (Settings,
 
 Plex (on BeastNAS) reaches the TV on the LAN and the stream goes straight from the TV to Plex; a 19.4 Mb/s RF channel is a fifth of the TV's 100 Mb/s link. Guide data comes from Plex; the TV's own listings (sparse) are not used. The same stream URL should serve Jellyfin, Emby or Tvheadend [INFERENCE: not tried].
 
-To add it: Settings, "Live TV for Plex", switch "Share the antenna tuner" on (it is off by default; the listener binds the TV's private address, port 5004, private networks only); in Plex, Live TV & DVR, set up, enter `<the TV's address>:5004`, and pick the channels. `hdhr` in `helper.json` holds the rest, all optional: `port` (5004), `bind`, `allowedNets`, `python` (the 32-bit one), `dvbDir`, `channel` (the demux channel, 2: LG's own stack keeps 0), `settleMs` (2000), `macFile`.
+To add it: Settings, Inputs & devices, Live TV Tuner, switch "Share the antenna tuner" on and approve its words (it is off by default; the listener binds the TV's private address, port 5004, private networks only); in Plex, Live TV & DVR, set up, enter `<the TV's address>:5004`, and pick the channels. `hdhr` in `helper.json` holds the rest, all optional: `port` (5004), `bind`, `allowedNets`, `python` (the 32-bit one), `dvbDir`, `channel` (the demux channel, 2: LG's own stack keeps 0), `settleMs` (2000), `macFile`.
 
 The lineup also serves players that are not DVR tuners; with `<tv>` the TV's address and port, `http://<tv>:5004`: VLC, Media, Open Network Stream, `<tv>/lineup.m3u` (or one channel, `<tv>/auto/v2.4`); Jellyfin, Live TV, add a tuner: HDHomeRun at `<tv>` or M3U Tuner with `<tv>/lineup.m3u`, and an XMLTV guide provider with `<tv>/xmltv.xml`; Emby, Live TV, the same two choices; Channels DVR, Add Source, HDHomeRun at `<tv>`, or Custom Channels with the playlist and `<tv>/xmltv.xml` as its guide; TiviMate, Add Playlist, M3U with `<tv>/lineup.m3u`, then `<tv>/xmltv.xml` as the EPG; Kodi, PVR IPTV Simple Client, M3U play list URL `<tv>/lineup.m3u` and XMLTV URL `<tv>/xmltv.xml`. The TV's own listings are sparse (a handful of channels have any), so a player with its own guide source may do better with that.
 

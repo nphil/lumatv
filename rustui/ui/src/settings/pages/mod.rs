@@ -30,6 +30,7 @@ pub mod sound;
 pub mod support;
 pub mod system;
 pub mod themes;
+pub mod tuner;
 pub mod util;
 pub mod weather_source;
 pub mod widgets;
@@ -84,6 +85,7 @@ pub fn all() -> Vec<Page> {
         sound::usb(),
         receiver::page(),
         inputs::channels(),
+        tuner::page(),
         bluetooth::audio(),
         bluetooth::hid(),
         bluetooth::audio_device(),

@@ -200,6 +200,15 @@ fn rows(c: &Ctx) -> Vec<Row> {
             .help("Channel scrolling, system colour and the interactive service.")
             .does(go("channels")),
     );
+    rows.push(
+        Row::link("tuner")
+            .tab(2)
+            .icon("antenna")
+            .label("Live TV Tuner")
+            .help("Shares the antenna tuner with Plex, Jellyfin, VLC and other players on the home network.")
+            .value(&super::tuner::summary(c))
+            .does(go("tuner")),
+    );
     rows.push(Row::link("bt").tab(2).icon("gamepad-2").label("Bluetooth Devices").does(go("bthid")));
     let done = c.local.flag("inputs.historyDone");
     let mut history = Row::action("history", if done { "Done" } else { "Delete" })
