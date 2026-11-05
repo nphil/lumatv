@@ -41,8 +41,9 @@ pub use resources::{AtlasId, AtlasRect, BackdropId, CaptureSpec, Glyph, GlyphSty
 /// Lucent's (`Ease::{Linear, Out, In, Spring}`: the in-out cubic is gone, the exit curve and the spring's release are new, so the
 /// third variant means another curve), and `Out` is the CSS curve itself, not the cubic it resembles. Version 13 adds `Content::Live`,
 /// a layer that shows the frames a producer sends to the frame endpoint ([`frames`]) without the app or the compositor copying them.
+/// Version 15 gives `Request::Animate` a `step_ms`: an ambient motion asks for a frame at most that often.
 /// The app and the compositor ship together in the signed base, so there is no version-7, -8, -9, -10, -11 or -12 path.
-pub const PROTOCOL_VERSION: u32 = 14;
+pub const PROTOCOL_VERSION: u32 = 15;
 
 /// Where the compositor listens. Visible at the same path inside the Echo Show's Android chroot.
 pub const SOCKET_PATH: &str = "/run/lumashow/compositor.sock";
@@ -645,12 +646,16 @@ pub enum Request {
         id: LayerId,
         props: Props,
     },
-    /// Animates a layer from where it is now to `to`.
+    /// Animates a layer from where it is now to `to`. `step_ms` 0 draws the motion at every refresh, as any motion is drawn. A value
+    /// above 0 is an ambient motion (the weather's clouds and rain): a frame for it is wanted at most every `step_ms`, each frame
+    /// takes the layer to where the motion is at that time, and the screen costs nothing between those frames; frames that
+    /// something else asks for show the motion where it is as well.
     Animate {
         id: LayerId,
         to: Props,
         duration_ms: u32,
         ease: Ease,
+        step_ms: u32,
     },
     Delete {
         id: LayerId,
@@ -1098,6 +1103,7 @@ mod tests {
                 to: Props::at(0.0, 0.0),
                 duration_ms: 240,
                 ease: Ease::Out,
+                step_ms: 33,
             },
             Request::Restyle {
                 id: LayerId(8),

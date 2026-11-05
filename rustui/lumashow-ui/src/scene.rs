@@ -957,12 +957,19 @@ impl Layer {
     }
 
     pub fn animate(&self, to: Props, duration_ms: u32, ease: Ease) {
+        self.animate_stepped(to, duration_ms, ease, 0);
+    }
+
+    /// [`Layer::animate`] as an ambient motion (the weather's sky, which nobody is waiting for): the compositor wants a frame for it at
+    /// most every `step_ms` and draws the layer where the motion is at that time, instead of at every refresh. 0 is `animate`.
+    pub fn animate_stepped(&self, to: Props, duration_ms: u32, ease: Ease, step_ms: u32) {
         self.props.set(to);
         self.scene.inner.borrow_mut().push(Request::Animate {
             id: self.id,
             to,
             duration_ms,
             ease,
+            step_ms,
         });
     }
 

@@ -104,11 +104,13 @@ pub fn flatten(requests: &[Request], begun_ns: u64, at_ns: u64) -> Vec<Flat> {
                     layers[i].going = None;
                 }
             }
+            // (an ambient motion's `step_ms` is how often the compositor draws it: where it is at a time is the same)
             Request::Animate {
                 id,
                 to,
                 duration_ms,
                 ease,
+                ..
             } => {
                 if let Some(i) = at(&mut layers, *id) {
                     // From where the layer is when the animation is asked for: a layer asked twice goes on from where it was.
@@ -492,6 +494,7 @@ mod tests {
                 to: Props::at(100.0, 0.0),
                 duration_ms: 200,
                 ease: Ease::Linear,
+                step_ms: 0,
             },
         ];
         let flat = flatten(&requests, 0, 100 * MS);

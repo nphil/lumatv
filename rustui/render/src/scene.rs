@@ -281,6 +281,7 @@ impl Scene {
                 to,
                 duration_ms,
                 ease,
+                step_ms,
             } => {
                 let version = self.next_version + 1;
                 if let Some(layer) = self.layers.get_mut(id) {
@@ -295,8 +296,9 @@ impl Scene {
                         layer.animation = None;
                     } else {
                         layer.props = from;
-                        layer.animation =
-                            Some(Animation::new(from, *to, now_ns, *duration_ms, *ease));
+                        layer.animation = Some(
+                            Animation::new(from, *to, now_ns, *duration_ms, *ease).stepped(*step_ms),
+                        );
                     }
                 }
             }
@@ -541,11 +543,13 @@ impl Scene {
     }
 
     /// Whether any layer needs a frame at every refresh: an animation is running (whether or not its layer shows: it may
-    /// be moving into sight) or a mesh that shows is orbiting.
+    /// be moving into sight) or a mesh that shows is orbiting. An ambient motion (`Animation::stepped`) is not: it wants a frame
+    /// every so often ([`Scene::demand`]).
     pub fn animating(&self) -> bool {
         self.groups.any_settling()
             || self.layers.values().any(|l| {
-                l.animation.is_some() || (l.orbits(self.ambient) && l.shown_at_rest() && !l.unseen)
+                l.animation.is_some_and(|a| !a.is_paced())
+                    || (l.orbits(self.ambient) && l.shown_at_rest() && !l.unseen)
             })
     }
 
@@ -578,7 +582,9 @@ impl Scene {
     /// When the scene next wants a frame with nothing committed: an animation wants one at every refresh, and so does glass that moved
     /// in a frame that took nothing from the app (see [`Scene::fade`]); glass that moved in one that did wants the frame that brings
     /// its refraction back once it has stood still for [`GLASS_STILL_REFRESHES`] refreshes (a commit that comes sooner takes its
-    /// place: it moves the glass again, or draws it still); and a wallpaper wants its next step.
+    /// place: it moves the glass again, or draws it still); a wallpaper wants its next step; and an ambient motion wants one a step
+    /// after the last frame drawn (whatever that frame was for: it showed the motion where it was), or when it lands if that is
+    /// sooner.
     pub fn demand(&self) -> Demand {
         if self.animating() || self.fading.is_some_and(|f| !f.driven) {
             return Demand::EveryRefresh;
@@ -586,6 +592,15 @@ impl Scene {
         let mut next: Option<u64> = self
             .fading
             .map(|f| f.slot_ns + GLASS_STILL_REFRESHES * self.refresh_period_ns);
+        for animation in self.layers.values().filter_map(|l| l.animation) {
+            if animation.is_paced() {
+                let due = self
+                    .last_now
+                    .saturating_add(animation.step_ns())
+                    .min(animation.ends_at());
+                next = Some(next.map_or(due, |n| n.min(due)));
+            }
+        }
         for layer in self.layers.values().filter(|l| !l.unseen) {
             let Content::Wallpaper(w) = layer.content else {
                 continue;
@@ -757,12 +772,7 @@ mod tests {
         s.apply(&create(1, 0, Props::at(0.0, 0.0)), 0);
         s.apply(&create(2, 0, Props::at(0.0, 0.0)), 0);
         s.apply(
-            &Op::Animate {
-                id: LayerId(1),
-                to: Props::at(50.0, 0.0),
-                duration_ms: 100,
-                ease: Ease::Linear,
-            },
+            &Op::Animate { id: LayerId(1), to: Props::at(50.0, 0.0), duration_ms: 100, ease: Ease::Linear, step_ms: 0 },
             0,
         );
         s.apply(&create(1, 0, Props::at(7.0, 0.0)), 0);
@@ -801,12 +811,7 @@ mod tests {
         let mut s = scene();
         s.apply(&create(1, 0, Props::at(0.0, 0.0)), 0);
         s.apply(
-            &Op::Animate {
-                id: LayerId(1),
-                to: Props::at(100.0, 0.0),
-                duration_ms: 100,
-                ease: Ease::Linear,
-            },
+            &Op::Animate { id: LayerId(1), to: Props::at(100.0, 0.0), duration_ms: 100, ease: Ease::Linear, step_ms: 0 },
             0,
         );
         assert!(s.animating());
@@ -828,12 +833,7 @@ mod tests {
         let mut s = scene();
         s.apply(&create(1, 0, Props::at(0.0, 0.0)), 0);
         s.apply(
-            &Op::Animate {
-                id: LayerId(1),
-                to: Props::at(100.0, 0.0),
-                duration_ms: 100,
-                ease: Ease::Linear,
-            },
+            &Op::Animate { id: LayerId(1), to: Props::at(100.0, 0.0), duration_ms: 100, ease: Ease::Linear, step_ms: 0 },
             1000 * MS,
         );
         let mut out = Vec::new();
@@ -854,21 +854,11 @@ mod tests {
         let mut s = scene();
         s.apply(&create(1, 0, Props::at(0.0, 0.0)), 0);
         s.apply(
-            &Op::Animate {
-                id: LayerId(1),
-                to: Props::at(100.0, 0.0),
-                duration_ms: 100,
-                ease: Ease::Linear,
-            },
+            &Op::Animate { id: LayerId(1), to: Props::at(100.0, 0.0), duration_ms: 100, ease: Ease::Linear, step_ms: 0 },
             0,
         );
         s.apply(
-            &Op::Animate {
-                id: LayerId(1),
-                to: Props::at(0.0, 0.0),
-                duration_ms: 100,
-                ease: Ease::Linear,
-            },
+            &Op::Animate { id: LayerId(1), to: Props::at(0.0, 0.0), duration_ms: 100, ease: Ease::Linear, step_ms: 0 },
             40 * MS,
         );
         let mut out = Vec::new();
@@ -889,6 +879,7 @@ mod tests {
                     to,
                     duration_ms,
                     ease: Ease::Out,
+                    step_ms: 0,
                 },
                 0,
             );
@@ -1002,12 +993,7 @@ mod tests {
             0,
         );
         s.apply(
-            &Op::Animate {
-                id: LayerId(9),
-                to: Props::at(1.0, 1.0),
-                duration_ms: 10,
-                ease: Ease::Linear,
-            },
+            &Op::Animate { id: LayerId(9), to: Props::at(1.0, 1.0), duration_ms: 10, ease: Ease::Linear, step_ms: 0 },
             0,
         );
         assert_eq!(s.len(), 0);
@@ -1147,12 +1133,7 @@ mod tests {
         // An animation does not change what a layer rests as until it lands.
         let before = of(&s, 1);
         s.apply(
-            &Op::Animate {
-                id: LayerId(1),
-                to: Props::at(80.0, 0.0),
-                duration_ms: 100,
-                ease: Ease::Linear,
-            },
+            &Op::Animate { id: LayerId(1), to: Props::at(80.0, 0.0), duration_ms: 100, ease: Ease::Linear, step_ms: 0 },
             10 * MS,
         );
         s.advance(60 * MS);
@@ -1168,12 +1149,7 @@ mod tests {
         // A pointless animation, to where the layer is, changes nothing.
         let landed = of(&s, 1);
         s.apply(
-            &Op::Animate {
-                id: LayerId(1),
-                to: Props::at(80.0, 0.0),
-                duration_ms: 100,
-                ease: Ease::Linear,
-            },
+            &Op::Animate { id: LayerId(1), to: Props::at(80.0, 0.0), duration_ms: 100, ease: Ease::Linear, step_ms: 0 },
             200 * MS,
         );
         assert_eq!(of(&s, 1), landed);
@@ -1184,12 +1160,7 @@ mod tests {
         let mut s = scene();
         s.apply(&create(1, 0, Props::at(10.0, 0.0)), 0);
         s.apply(
-            &Op::Animate {
-                id: LayerId(1),
-                to: Props::at(110.0, 0.0),
-                duration_ms: 100,
-                ease: Ease::Linear,
-            },
+            &Op::Animate { id: LayerId(1), to: Props::at(110.0, 0.0), duration_ms: 100, ease: Ease::Linear, step_ms: 0 },
             0,
         );
         let mut out = Vec::new();
@@ -1323,12 +1294,7 @@ mod tests {
         );
         s.advance(0);
         s.apply(
-            &Op::Animate {
-                id: LayerId(1),
-                to: Props::at(50.0, 0.0),
-                duration_ms: 100,
-                ease: Ease::Linear,
-            },
+            &Op::Animate { id: LayerId(1), to: Props::at(50.0, 0.0), duration_ms: 100, ease: Ease::Linear, step_ms: 0 },
             0,
         );
         s.observe(&[LayerId(1), LayerId(2)]);
@@ -1520,12 +1486,7 @@ mod tests {
         // An animation, with or without glass in motion, is a frame at every refresh.
         s.apply(&create(2, 0, Props::at(0.0, 0.0)), 0);
         s.apply(
-            &Op::Animate {
-                id: LayerId(2),
-                to: Props::at(50.0, 0.0),
-                duration_ms: 300,
-                ease: Ease::Out,
-            },
+            &Op::Animate { id: LayerId(2), to: Props::at(50.0, 0.0), duration_ms: 300, ease: Ease::Out, step_ms: 0 },
             slot,
         );
         s.fade(true, true);
@@ -1622,12 +1583,7 @@ mod tests {
         s.apply(&create(1, 0, Props::at(0.0, 0.0)), 0);
         assert!(!s.moving_after(0));
         s.apply(
-            &Op::Animate {
-                id: LayerId(1),
-                to: Props::at(50.0, 0.0),
-                duration_ms: 100,
-                ease: Ease::Linear,
-            },
+            &Op::Animate { id: LayerId(1), to: Props::at(50.0, 0.0), duration_ms: 100, ease: Ease::Linear, step_ms: 0 },
             0,
         );
         assert!(s.moving_after(50 * MS), "half way");

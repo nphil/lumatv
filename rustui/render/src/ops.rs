@@ -48,11 +48,14 @@ pub enum Op {
         id: LayerId,
         props: Props,
     },
+    /// `step_ms` is 0 for a motion drawn at every refresh, else the least time between the frames the motion asks for
+    /// (`compositor_protocol::Request::Animate`).
     Animate {
         id: LayerId,
         to: Props,
         duration_ms: u32,
         ease: Ease,
+        step_ms: u32,
     },
     Delete {
         id: LayerId,
@@ -301,8 +304,11 @@ impl Transaction {
     /// chunks land in the housekeeping between frames, and the frame that first draws from them is a later commit's, or the one a
     /// reveal that waited for them asks for. Drawing a frame for each would make a page's landing cost a refresh a round trip (the
     /// start's warm is some thirty of them: 16 ms each, past the time the app gives it, and the labels it then mounts are pictures).
+    /// Nor does a commit of nothing but ambient motions (the weather's sky restating its paths): the layers go on from where they are
+    /// on the clock, and the frames for them are the ones their steps ask for.
     pub fn asks_for_frame(&self) -> bool {
-        (self.tag.is_some() && !self.only_atlas_work()) || self.ops.iter().any(Op::wants_frame)
+        (self.tag.is_some() && !self.only_atlas_work() && !self.only_ambient_motion())
+            || self.ops.iter().any(Op::wants_frame)
     }
 
     /// Nothing but a glyph atlas made or chunks of one: what shows nothing by itself. An empty commit is not that (a client may
@@ -313,6 +319,15 @@ impl Transaction {
                 .ops
                 .iter()
                 .all(|op| matches!(op, Op::AtlasCreate { .. } | Op::AtlasUpload { .. }))
+    }
+
+    /// Nothing but motions that ask for a frame at most every so often (`Op::Animate` with a step).
+    fn only_ambient_motion(&self) -> bool {
+        !self.ops.is_empty()
+            && self
+                .ops
+                .iter()
+                .all(|op| matches!(op, Op::Animate { step_ms, .. } if *step_ms > 0))
     }
 }
 

@@ -52,6 +52,8 @@ pub struct Animation {
     start_ns: u64,
     duration_ns: u64,
     curve: Ease,
+    /// The least time between the frames the motion asks for: 0 for a motion drawn at every refresh.
+    step_ns: u64,
 }
 
 impl Animation {
@@ -62,7 +64,30 @@ impl Animation {
             start_ns,
             duration_ns: u64::from(duration_ms) * 1_000_000,
             curve,
+            step_ns: 0,
         }
+    }
+
+    /// The same animation as an ambient motion that asks for a frame at most every `step_ms` (`Request::Animate::step_ms`).
+    pub fn stepped(self, step_ms: u32) -> Self {
+        Self {
+            step_ns: u64::from(step_ms) * 1_000_000,
+            ..self
+        }
+    }
+
+    /// Whether it is an ambient motion: it asks for a frame every [`Animation::step_ns`] and no sooner.
+    pub fn is_paced(&self) -> bool {
+        self.step_ns > 0
+    }
+
+    pub fn step_ns(&self) -> u64 {
+        self.step_ns
+    }
+
+    /// When the animation lands.
+    pub fn ends_at(&self) -> u64 {
+        self.start_ns.saturating_add(self.duration_ns)
     }
 
     pub fn is_done(&self, now_ns: u64) -> bool {

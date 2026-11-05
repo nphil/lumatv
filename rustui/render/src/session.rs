@@ -96,6 +96,9 @@ const MAX_WALLPAPER_SPEED: f32 = 8.0;
 const FOV_RANGE: (f32, f32) = (1.0, 170.0);
 /// A camera that turns faster than this is a mistake, not a look.
 const MAX_ORBIT_DEG_PER_S: f32 = 720.0;
+/// The longest time an ambient motion may ask to go between its frames (`Request::Animate::step_ms`): a longer one is a mistake, and a
+/// motion that is drawn less often than that is not one.
+const MAX_STEP_MS: u32 = 1_000;
 
 /// What handling one request produced.
 #[derive(Debug, Default)]
@@ -311,6 +314,7 @@ impl Session {
                 to,
                 duration_ms,
                 ease,
+                step_ms,
             } => {
                 self.known(id)?;
                 let to = check_props(to)?;
@@ -319,6 +323,7 @@ impl Session {
                     to,
                     duration_ms,
                     ease,
+                    step_ms: step_ms.min(MAX_STEP_MS),
                 });
                 Ok(Done::Nothing)
             }
@@ -1112,6 +1117,7 @@ mod tests {
             to: Props::at(9.0, 6.0),
             duration_ms: 200,
             ease: Ease::Out,
+            step_ms: 0,
         });
         let t = r.commit(4);
         assert_eq!((t.client, t.tag), (7, Some(4)));
@@ -1126,6 +1132,7 @@ mod tests {
                 Op::Set { .. },
                 Op::Animate {
                     duration_ms: 200,
+                    step_ms: 0,
                     ..
                 }
             ]
@@ -1147,6 +1154,7 @@ mod tests {
                 to: Props::at(0.0, 0.0),
                 duration_ms: 10,
                 ease: Ease::Linear,
+                step_ms: 0,
             },
             restyle(3, Content::Shape(shape())),
             ripple(3, 1.0, 1.0),

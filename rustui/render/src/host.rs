@@ -173,6 +173,8 @@ pub struct Engine {
     transparent: bool,
     highest_tag: u64,
     taken_tag: u64,
+    /// The newest commit's tag the app has been told the frame of (`Event::Frame`).
+    told_tag: u64,
     /// Ops taken in since the last frame, applied with the frame (as the render thread applies a wake's batches).
     waiting: Vec<Transaction>,
     idle: Option<Idle>,
@@ -588,6 +590,7 @@ impl Engine {
                 transparent: false,
                 highest_tag: 0,
                 taken_tag: 0,
+                told_tag: 0,
                 waiting: Vec::new(),
                 idle: config.idle_trim.then(|| Idle::from_env(now)),
                 tidy_more: false,
@@ -1353,21 +1356,27 @@ impl Engine {
         }
     }
 
-    /// The frame drawn last reached the screen at `presented_ns`: tells the app (which retires what the commit replaced).
+    /// The frame drawn last reached the screen at `presented_ns`: tells the app (which retires what the commit replaced). A frame that
+    /// shows no commit the app has not been told of (an ambient animation's, a clock's) and had nothing to upload or make says nothing:
+    /// the app learns from a frame which of its commits is on the screen and how long that took, and the UI process woke for each of
+    /// these, at every refresh of a moving sky.
     pub fn frame_done(&mut self, presented_ns: u64, cost: &FrameCost) {
         self.stats.frame(cost.cpu_us.max(cost.gpu_us), 0);
         self.uploaded_bytes = 0;
-        self.send(&Event::Frame {
-            tag: cost.tag,
-            presented_ns,
-            render_us: cost.cpu_us.max(cost.gpu_us),
-            missed: 0,
-            backdrops: cost.backdrops,
-            gpu_mhz: 0,
-            captures: 0,
-            uploaded_bytes: cost.uploaded_bytes,
-            quality: 0,
-        });
+        if cost.tag != self.told_tag || cost.uploaded_bytes > 0 || cost.backdrops > 0 {
+            self.told_tag = cost.tag;
+            self.send(&Event::Frame {
+                tag: cost.tag,
+                presented_ns,
+                render_us: cost.cpu_us.max(cost.gpu_us),
+                missed: 0,
+                backdrops: cost.backdrops,
+                gpu_mhz: 0,
+                captures: 0,
+                uploaded_bytes: cost.uploaded_bytes,
+                quality: 0,
+            });
+        }
         self.forward_events();
     }
 
