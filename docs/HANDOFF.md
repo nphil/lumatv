@@ -190,6 +190,17 @@ Checks, after the feeder update:
 
 `tv-camera-rate-probe.py` still imports `statistics`, which the set's python lacks; a one-function shim in `PYTHONPATH` stood in.
 
+## TV session 2026-11-05 (6be749ee installed)
+
+Installed 06:12 EST from 6be749ee (on origin and forge main; includes 8a0bb604's NDL fallback and f82907e6's feeder staging) by the standard path: `tv-first-light.sh deploy`, then `cutover.sh` disable, install (which now updates the feeder), probe, enable, plus tools/lumatv, the launcher files and the helper. Installed sha256 (first 8): compositor `c2ccb7ab`, ui `71f00561`, sm `65f6ca69`, helper `0f9efe04`, camera feeder `0f99db54` (the same bytes as the previous install; the set's copy matches the bundle's `HASHES`), `tools/lumatv` `56899321`. Receipts: `/data/home/tmp/lumatv-tv-20261105c/`. The web stub stays; the TV ended in Active Standby, boot-direct on (marker 2), failures 0.
+
+- Ring (`tv-camera-rate-probe.py ring`, one try): camera 196 played; the bridge answered in 3.5 s and the first picture came 5.7 s after OK (the helper's own count: 2067 ms after the bridge), 811 pictures in 54.2 s (15 a second), 0 refused, 0 lost. Panel 120 Hz during and after, pictureMode `filmMaker` for all 1721 readings and after Back, display low delay on. The helper logged the view ended after Back and did not dial again. Back during "Connecting..." (before the first picture) was not exercised.
+- Full view of Back Door (103, 2560x1920) and Front Door (104, 1920x2560): first picture 318 and 237 ms, 21.9 and 20.8 pictures a second, 0 refused, `filmMaker` throughout and after, 120 Hz. Both loads were `transportType 283` container ES (the ES player); no NDL fallback line was logged.
+- Camera list popup scrolled to its last row (Downstairs Door Camera, "No picture") and the Smart home card opened and walked: the helper logged no line for camera 196 after the probe's own view.
+- Standby, held 91 s, `powerOn`: LumaTV Home in front, `homeDrawn` true, failures 0, then standby again.
+
+`check-boot.py --now` fails its "worker activated the compositor" line after an install without a reboot (no boot worker line yet); the compositor was live, mounted, persistent with 0 failures.
+
 ## Current maintenance state (2026-10-31 EDT)
 
 The proposals reuse existing Lucent CSS, Manrope and audio assets. Seven 1920×1080 scale-1 renders were inspected in Cody’s visible shared Chromium: `shots/review-toast-dark.png`, `shots/review-toast-light.png`, `shots/review-audio-atmos-dark.png`, `shots/review-audio-dts-dark.png`, `shots/review-audio-dtsx-bright.png`, `shots/review-audio-dolby-light.png` and `shots/review-audio-stereo-dark.png`. Toast proposal is approximately 320×65 px with 24 px text and one bare check, versus the old 520–760×96 px and 27 px title with a 64 px tile. Audio uses original PNG glyphs left of the number and track in one floating group at the existing bottom position. Light/dark and 200% text showed no overlap or overflow; fonts loaded, browser errors were absent and conservative ink-contrast bounds exceeded 7. Evidence: `/data/home/tmp/lumatv-wake-install.ms6eh5iv/review-render-proof.json`. These are illustrations, not TV acceptance or behavior changes.
