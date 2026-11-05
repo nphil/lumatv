@@ -348,12 +348,16 @@ fn a_sink_of_videooutputd_that_is_not_lumatvs_keeps_the_panel_bright_with_the_vw
         server.eval(move |s| {
             s.luna_register();
             assert!(asked.0.lock().sent.iter().any(|(u, _)| u.ends_with("service.videooutput/getStatus")), "the sinks are read whatever the switch says");
+            // the sink's app is the one in front: a sink of an app that is not holds nothing
+            let id = s.scene.create_window(lumatv_compositor::surface::SurfaceId(4242));
+            s.scene.window_mut(id).unwrap().props.insert("appId".into(), app.into());
+            s.scene.raise(id);
             let t = run(s, monotonic_ns(), 500);
             s.panel_want_ctl = Some(0.5);
             let t = run(s, t, 100_000);
             assert_eq!(s.panel.status()["written"], 40, "{app}");
             s.vwin_status(&sinks(app));
-            assert_eq!(s.video_playing(), blocks, "{app}");
+            assert_eq!(s.video_playing(monotonic_ns()), blocks, "{app}");
             run(s, t, 5_000);
             assert_eq!(s.panel.status()["dimmed"], !blocks, "{app}");
         });

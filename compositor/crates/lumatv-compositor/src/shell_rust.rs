@@ -1606,11 +1606,22 @@ mod tests {
         assert_eq!(state.panel_want(), 0.5);
     }
 
+    /// A card of `app` brought to the front.
+    fn front_card(state: &mut State, surface: u32, app: &str) {
+        let id = state.scene.create_window(crate::surface::SurfaceId(surface));
+        state.scene.window_mut(id).unwrap().props.insert("appId".into(), app.into());
+        state.scene.raise(id);
+    }
+
+    fn sink(app: &str) -> Value {
+        json!({"video": [{"sink": "MAIN", "connected": true, "appId": app}]})
+    }
+
     #[test]
     fn native_client_is_told_when_a_video_that_is_not_lumatvs_is_on_the_display() {
         let (mut state, _dir) = state_with("saver");
         state.shell_rust_handle(Msg::Connected);
-        let sink = |app: &str| json!({"video": [{"sink": "MAIN", "connected": true, "appId": app}]});
+        front_card(&mut state, 1, "com.netflix.ninja");
         state.panel_dim_tick(crate::output::monotonic_ns());
         assert_eq!(state.shell_rust.topic("playing").unwrap()["video"], false);
         state.vwin_status(&sink("com.netflix.ninja"));
@@ -1619,6 +1630,43 @@ mod tests {
         state.vwin_status(&sink("org.nphil.lumatv.vplane"));
         state.panel_dim_tick(crate::output::monotonic_ns());
         assert_eq!(state.shell_rust.topic("playing").unwrap()["video"], false, "the wallpaper's is LumaTV's own");
+    }
+
+    #[test]
+    fn a_sink_stops_keeping_the_care_off_when_its_status_and_the_remote_have_been_still_for_45_minutes() {
+        let (mut state, _dir) = state_with("saver");
+        front_card(&mut state, 1, "com.netflix.ninja");
+        let t0 = 1_000 * 1_000_000_000;
+        let min = 60 * 1_000_000_000;
+        state.vwin_status_at(&sink("com.netflix.ninja"), t0);
+        assert!(state.video_playing(t0 + 44 * min));
+        assert!(!state.video_playing(t0 + 45 * min));
+        assert!(state.journal.iter().any(|l| l.contains("com.netflix.ninja") && l.contains("nobody pressed a key for 45 min")), "{:?}", state.journal);
+        // a key starts the 45 minutes again
+        state.vwin_input(t0 + 50 * min);
+        assert!(state.video_playing(t0 + 50 * min));
+        assert!(state.video_playing(t0 + 94 * min));
+        assert!(!state.video_playing(t0 + 95 * min));
+        // a status that changes does too
+        state.vwin_status_at(&json!({"video": [{"sink": "MAIN", "connected": true, "appId": "com.netflix.ninja", "frameRate": 24.0}]}), t0 + 100 * min);
+        assert!(state.video_playing(t0 + 144 * min));
+    }
+
+    #[test]
+    fn a_sink_stops_keeping_the_care_off_when_its_app_is_not_in_the_foreground() {
+        let (mut state, _dir) = state_with("saver");
+        let t0 = 1_000 * 1_000_000_000;
+        state.vwin_status_at(&sink("com.netflix.ninja"), t0);
+        front_card(&mut state, 1, "com.netflix.ninja");
+        assert!(state.video_playing(t0));
+        front_card(&mut state, 2, "com.webos.app.settings");
+        assert!(!state.video_playing(t0));
+        assert!(state.journal.iter().any(|l| l.contains("com.netflix.ninja") && l.contains("not in the foreground")), "{:?}", state.journal);
+        let said = state.journal.len();
+        assert!(!state.video_playing(t0 + 1));
+        assert_eq!(state.journal.len(), said, "said once");
+        front_card(&mut state, 3, "com.netflix.ninja");
+        assert!(state.video_playing(t0 + 2));
     }
 
     #[test]

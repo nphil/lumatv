@@ -792,10 +792,22 @@ impl Sinks {
         self.video.iter().find(|s| s.connected && contexts.contains(&s.context))
     }
 
-    /// A connected sink that is not LumaTV's own (the wallpaper's, the saver's, a camera's, Home's): an app, an input or LG's own service has a picture on
-    /// the display. The sink holds it while the pipeline is loaded, playing or paused alike.
-    pub fn foreign_connected(&self) -> bool {
-        self.video.iter().any(|s| s.connected && !is_own_app(&s.app))
+    /// What the connected sinks that are not LumaTV's own (the wallpaper's, the saver's, a camera's, Home's) say of a picture on the display: an app, an
+    /// input or LG's own service has one. The sink holds it while the pipeline is loaded, playing or paused alike, so it cannot tell paused from playing
+    /// and a sink that outlives its app (a crash, a wallpaper whose `appId` is not LumaTV's) would keep the screen's care off for good. A sink counts only
+    /// while its app is the foreground card (`front`) and its status or the user has moved within [`SINK_STALE_NS`] (`idle_ns`).
+    pub fn veto(&self, front: &str, idle_ns: u64) -> Veto<'_> {
+        let mut waived = None;
+        for s in self.video.iter().filter(|s| s.connected && !is_own_app(&s.app)) {
+            if s.app != front {
+                waived.get_or_insert((Waive::Background, s.app.as_str()));
+            } else if idle_ns >= SINK_STALE_NS {
+                waived = Some((Waive::Stale, s.app.as_str()));
+            } else {
+                return Veto::Holds;
+            }
+        }
+        waived.map_or(Veto::None, |(why, app)| Veto::Waived(why, app))
     }
 
     pub fn json(&self) -> Value {
@@ -810,6 +822,38 @@ impl Sinks {
         )
     }
 }
+
+/// What the foreign sinks of `videooutputd` make of the screen's care (`Sinks::veto`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Veto<'a> {
+    /// No such sink is connected.
+    None,
+    /// A sink of the foreground app, live: the care keeps off.
+    Holds,
+    /// A foreign sink is connected and does not keep the care off, for the reason, and of the app.
+    Waived(Waive, &'a str),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Waive {
+    /// The sink's app is not the foreground card.
+    Background,
+    /// The sink's status has not changed for [`SINK_STALE_NS`] and nobody touched the remote.
+    Stale,
+}
+
+impl Waive {
+    fn why(self) -> &'static str {
+        match self {
+            Waive::Background => "its app is not in the foreground",
+            Waive::Stale => "its status did not change and nobody pressed a key for 45 min",
+        }
+    }
+}
+
+/// How long a foreign sink with an unchanged status and no input keeps the panel dim and the saver off a video. A paused video looks the same as a
+/// stale sink, so this is how long a pause may last before the screen is cared for again.
+pub const SINK_STALE_NS: u64 = 45 * 60 * 1_000_000_000;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Stats {
@@ -828,6 +872,11 @@ pub struct Vwin {
     pub sinks: Sinks,
     /// The token of the status subscription, once it is made.
     pub status_token: Option<u64>,
+    /// When the sinks last changed, and when the user last pressed or moved something (monotonic nanoseconds): the age of a foreign sink's veto.
+    sinks_changed_ns: u64,
+    input_ns: u64,
+    /// The foreign sink that is connected and does not keep the care off, and why: said once, not at every tick.
+    waived: Option<(Waive, String)>,
     last_topic: Value,
     /// What the topic was last built from while there was no claim, no video window and nothing being watched: then it is a function of the policy and the
     /// world alone, so a tick that finds both unchanged has nothing to rebuild.
@@ -851,6 +900,9 @@ impl Vwin {
             alloc: Allocator::new(policy),
             sinks: Sinks::default(),
             status_token: None,
+            sinks_changed_ns: 0,
+            input_ns: 0,
+            waived: None,
             last_topic: Value::Null,
             idle_inputs: None,
             stats: Stats::default(),
@@ -1421,20 +1473,45 @@ impl crate::State {
 
     /// Whether a video is on the display that the screen's care and LumaTV's saver must not cover or dim: an app that exported a video element (a
     /// pipeline of its own in the plan), one of LumaTV's own windows playing (a claim of the camera pop-up, the full view or a picture-in-picture),
-    /// or a sink `videooutputd` reports connected that is not LumaTV's wallpaper or saver. The sink and the claims do not depend on what an app
-    /// says about itself. A paused video keeps its pipeline and so counts; LG's own policy, which asks tvpower's saver question, is the authority
-    /// on whether a paused picture may be covered.
-    pub fn video_playing(&self) -> bool {
+    /// or a sink `videooutputd` reports connected that is not LumaTV's wallpaper or saver, while its app is in the foreground and it is not stale
+    /// (`Sinks::veto`). A paused video keeps its pipeline and so counts, for [`SINK_STALE_NS`] at most; LG's own policy, which asks tvpower's saver
+    /// question, is the authority on whether a paused picture may be covered. `now_ns` is the monotonic clock.
+    pub fn video_playing(&mut self, now_ns: u64) -> bool {
         let plan = self.scene.last_plan();
-        plan.video || !plan.holes.is_empty() || self.vwin.alloc.granted().next().is_some() || self.vwin.sinks.foreign_connected()
+        let own = plan.video || !plan.holes.is_empty() || self.vwin.alloc.granted().next().is_some();
+        let front = self.foreground_app();
+        let idle = now_ns.saturating_sub(self.vwin.sinks_changed_ns.max(self.vwin.input_ns));
+        let (holds, waived) = match self.vwin.sinks.veto(&front, idle) {
+            Veto::Holds => (true, None),
+            Veto::Waived(why, app) => (false, Some((why, app.to_string()))),
+            Veto::None => (false, None),
+        };
+        if waived != self.vwin.waived {
+            if let Some((why, app)) = &waived {
+                let line = format!("vwin: the sink of {app} no longer keeps the panel bright and the saver off: {}", why.why());
+                self.journal(line);
+            }
+            self.vwin.waived = waived;
+        }
+        own || holds
+    }
+
+    /// A key or the pointer moved: a foreign sink's veto starts its [`SINK_STALE_NS`] again.
+    pub fn vwin_input(&mut self, now_ns: u64) {
+        self.vwin.input_ns = now_ns;
     }
 
     /// A push of the status: the sinks as they are, and the claims judged against them.
     pub fn vwin_status(&mut self, payload: &Value) {
+        self.vwin_status_at(payload, crate::output::monotonic_ns());
+    }
+
+    pub fn vwin_status_at(&mut self, payload: &Value, now_ns: u64) {
         if let Some(sinks) = Sinks::parse(payload)
             && sinks != self.vwin.sinks
         {
             self.vwin.sinks = sinks;
+            self.vwin.sinks_changed_ns = now_ns;
             self.vwin_sync();
         }
     }
@@ -1601,6 +1678,24 @@ impl crate::State {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_foreign_sink_vetoes_only_for_its_foreground_app_and_for_45_minutes_without_a_change_or_a_key() {
+        let sink = |app: &str, connected: bool| Sink { name: "MAIN".into(), connected, app: app.into(), ..Sink::default() };
+        let sinks = |video: Vec<Sink>| Sinks { video };
+        let min = 60 * 1_000_000_000;
+        let netflix = || vec![sink("com.netflix.ninja", true)];
+        assert_eq!(sinks(netflix()).veto("com.netflix.ninja", 0), Veto::Holds);
+        assert_eq!(sinks(netflix()).veto("com.netflix.ninja", 45 * min - 1), Veto::Holds);
+        assert_eq!(sinks(netflix()).veto("com.netflix.ninja", 45 * min), Veto::Waived(Waive::Stale, "com.netflix.ninja"));
+        assert_eq!(sinks(netflix()).veto("com.webos.app.home", 0), Veto::Waived(Waive::Background, "com.netflix.ninja"));
+        assert_eq!(sinks(netflix()).veto("", 0), Veto::Waived(Waive::Background, "com.netflix.ninja"), "no foreground card at all");
+        // LumaTV's own sinks and a sink nothing is connected to are not this rule's
+        assert_eq!(sinks(vec![sink("org.nphil.lumatv.vplane", true), sink("com.netflix.ninja", false)]).veto("com.netflix.ninja", 0), Veto::None);
+        // one live sink of the foreground app holds, whatever the others are
+        let two = vec![sink("com.webos.app.livetv", true), sink("com.netflix.ninja", true)];
+        assert_eq!(sinks(two).veto("com.netflix.ninja", 0), Veto::Holds);
+    }
 
     fn policy(mode: Mode) -> Policy {
         Policy { mode, slots: 2, texture: false }

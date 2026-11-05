@@ -704,7 +704,7 @@ impl State {
     /// shell told whether the panel carries the saver's dim.
     pub fn panel_dim_tick(&mut self, now_ns: u64) {
         let want = self.panel_want();
-        let video = self.video_playing();
+        let video = self.video_playing(now_ns);
         let block = if !self.luna_state.power.rendering {
             Some(Block::Standby)
         } else if video {
@@ -744,6 +744,7 @@ impl State {
     pub fn care_input_with(&mut self, wake_saver: bool) {
         let now = crate::output::monotonic_ns();
         self.nooperation_activity();
+        self.vwin_input(now);
         if wake_saver {
             self.wake_lg_saver();
         }
