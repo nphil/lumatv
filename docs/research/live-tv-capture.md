@@ -8,7 +8,7 @@ Nitin asked on 2026-11-05 for the TV's own broadcast feed to reach Plex (or some
 
 | Gate | Assumption | Why it may hold | How it fails |
 |---|---|---|---|
-| 1 Tune without a window | a caller that is not LG's Channel Tuning app can open a `purpose: SCAN` broadcast pipeline, retune with `setAtscManualTuning` and keep the lock | LG's app does exactly this with `windowId ""`; the demod is locked on the last channel now with no pipeline open | `utp` refuses the caller, or drops the pipeline after a timeout |
+| 1 Tune without a window | a caller that is not LG's Channel Tuning app can open a `purpose: SCAN` broadcast pipeline, retune with `setAtscManualTuning` and keep the lock | LG's app does exactly this with `windowId ""`; the demod is locked now with no pipeline open | `utp` refuses the caller, or drops the pipeline after a timeout |
 | 2 A second demux channel | `demux2` can take the demod's port while LG's stack owns `demux0` | the demod's one port feeds any channel, and the driver leaves a port alone when its config is unchanged; LG's own record-while-watching has to share it [INFERENCE] | `EBUSY`, or LG's channel is reset |
 | 3 PVR download | a root process outside LG's DVR service can pass the PVR cert and read `dvr2` | the cert is `seed XOR table`, documented in LG's GPL header; the table is in `ts-record` and `libhal_lg115x`; the seed is one HAL call | the TEE or the TE MCU refuses a caller that is not LG's. Fallback: PES taps (no cert), remuxed in software |
 
@@ -39,7 +39,7 @@ Open: Gates 1 to 3. **Next: P1a, then P1b (below); both need Nitin's OK** (they 
 
 ## Does the tuner stay locked while the display shows something else
 
-**The hardware does, and does now.** The demod reads `LOCK`, `VSB`, packet errors 0, BER 0 on three reads (08:29, 08:33, 08:35 EST) with the set in Active Standby, Home in front, no media pipeline (`getActivePipelines`: "pipeline empty") and the TE idle; its IPC interrupt kept counting (458,207 to 475,034 in 12 minutes, about 22 a second). LG's stack leaves the frontend tuned on the last channel after Live TV closes (`56-demod-signal.txt`, `58-demod-signal-2.txt`, `65-final-state.txt`). [INFERENCE: how long it stays so, and whether deeper standby powers it down; not measured.]
+**The hardware does, and does now.** The demod reads `LOCK`, `VSB`, packet errors 0, BER 0 on three reads (08:29, 08:33, 08:35 EST) with the set in Active Standby, Home in front, no media pipeline (`getActivePipelines`: "pipeline empty") and the TE idle; its IPC interrupt kept counting (458,207 to 475,034 in 12 minutes, about 22 a second). The status does not name the RF channel; the last channel (RF 32) is the likely one [INFERENCE]. LG's stack leaves the frontend tuned after Live TV closes (`56-demod-signal.txt`, `58-demod-signal-2.txt`, `65-final-state.txt`). [INFERENCE: how long it stays so, and whether deeper standby powers it down; not measured.]
 
 **LG offers no product feature for it on this set.** Live TV's `tv` pipeline belongs to the Live TV window (it claimed `ADTU`, `SDEC`, `VTP` and two `VDEC` in a captured session: `docs/research/multiview/tv-2026-10-30/luna-lgmv-both-playing/ums-pipelines.json`), and "record while watching" is the DVR, which is off (next section).
 
@@ -114,7 +114,7 @@ Probes P1a to P3: a short slot each (S). The build after they pass: the helper's
 | Probe | Does | Touches | Passes when |
 |---|---|---|---|
 | **P1a** key | in a 32-bit `python3`, `ctypes.CDLL("libhal_lg115x.so.2").HAL_PVR_CRYPTO_GetSecureKey(None, buf)`; prints the key's SHA-256 prefix only | the secure world; no device node | returns 0 and 16 bytes that are not all zero. Fails: the TEE refuses a caller outside LG's services, so R2 |
-| **P1b** tap (no tune, RF 32 as locked now) | `demux2` input, PAT, PMT, then `dvr2` with the cert and TS taps for the program of 2.4 (or the first PMT's), 10 s into RAM, then close | `demux2`, `dvr2`, a PVR download, TPI port | PAT and PMT parse; every 188-byte packet starts with `0x47`; no continuity gap on any PID for 10 s; `/proc/lxdvb/demux/status` shows the filters while open and none after; the demod stays `LOCK`; Gates 2 and 3 pass |
+| **P1b** tap (no tune, the RF channel locked now: RF 32 if the last channel is it) | `demux2` input, PAT, PMT, then `dvr2` with the cert and TS taps for one program (2.4 if RF 32), 10 s into RAM, then close | `demux2`, `dvr2`, a PVR download, TPI port | PAT and PMT parse; every 188-byte packet starts with `0x47`; no continuity gap on any PID for 10 s; `/proc/lxdvb/demux/status` shows the filters while open and none after; the demod stays `LOCK`; Gates 2 and 3 pass |
 | **P2** retune | `open` `SCAN`, `setAtscManualTuning` to RF 27, `getSignalStatus`, P1b's tap, hold 10 minutes, `close`; read `getLastChannelId` and the demod before and after | the tuner's channel | the demod locks on 27 with no window or sound; P1b passes on 27; the lock holds; `lastChannelId` is unchanged (or is restored); Gate 1 passes |
 | **P3** contention | with P2's pipeline open, Nitin launches Live TV | the screen | Live TV plays; the helper's tap ends cleanly; the pipeline's state is read from `getBroadcastState` |
 | **P4** only if P1a fails | R2: PES taps for 10 s, remuxed on the host, played | `demux2` | `ffprobe` finds no error; audio and video stay in step |
