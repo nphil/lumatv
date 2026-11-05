@@ -60,7 +60,7 @@ covers every launcher seen in the logs: SAM's `last_input_handler`, bootd (`boot
 | `blockSystemApp` left on | persists in `blockedSystemAppList`, and breaks LG's Home as the fallback |
 | `sam-conf-tv.json` `BootTimeApps` | read at ~5 s, before any hook |
 | close Home after it launches | the launch, its CPU and RAM and its shelf calls still happen; bootd and the preload manager launch it again |
-| a native (non-web) stub | SAM's native lifecycle (`registerApp`, roles) is unproven |
+| a native (non-web) stub | built, behind `lumatv homestub-kind native`: (g). Web stays the default until the TV proves it |
 | report Home in front with no Home app | SAM, bootd and the Home key would still start Flutter Home |
 
 Cost of Flutter Home under LumaTV's Home, measured 2026-10-25: RSS 72 MB hidden, 80.5 MB in front (PSS 35.6, 45.6); the stub 32.4 MB (PSS
@@ -188,6 +188,63 @@ Rollout, each stage stopping on a surprise:
 Rollback, one step: `lumatv boot-direct off` (the stub dropped, the flag removed, LG's Home opened if the stub was in front). The faults do
 the same by themselves. If the set cannot be reached: Home held 10 s is the supervisor's stock escape, which drops the stub.
 
+## (g) A native stub
+
+The web stub is a WebAppMgr renderer: 32.4 MB resident (PSS 15.3). `lumatv homestub-kind native` puts a program in its place:
+`homestub/homestub.c`, static aarch64, 13,648 bytes, no loader and none of LG's 32-bit libraries. It makes one 1x1 transparent buffer on a
+`wl_webos_shell` surface of type card whose `appId` is `com.webos.app.home`, asks for fullscreen, and sits in `poll()`. Idle on the host build
+of the same source (x86_64, against a stand-in compositor): RSS 40 kB, PSS 32 kB, no CPU. The owner's target was 1 to 2 MB.
+
+**Manifest.** `payload/homestub-native/appinfo.json` is the web stub's with `type: native` and `main: lumatv-homestub`; the icon is the web
+stub's. It names no `nativeLifeCycleInterfaceVersion`, asks for no memory and sets no `handlesRelaunch`.
+
+**Why it does not register with SAM.** A bus name needs a hub role for the executable; Home's is LG's Flutter client's, and a role is a
+permission grant (`cardapp-result.md`). SAM also refuses `registerApp` from a process it did not start: the GeForce NOW feeder started by hand
+was given its bus name and answered `{"errorCode":1,"errorText":"invalid status"}`, and accepted when SAM started it
+(`gfn/tv-2026-10-26/sam-by-hand.txt`, `sam-clean.txt`). Moonlight and Punktfunk are native apps on this set with no lifecycle version and no
+registration. So SAM's relaunch, close and memory reclaim reach the stub as the signals and launches they are, and the program takes
+SIGTERM, SIGINT and SIGHUP as an exit.
+
+**What it does for SAM's lifecycle.**
+- A launch argument naming a preload or a snapshot makes the window and maps nothing: a card with a buffer is at the front in both
+  compositors (`on_mapped`, `tests/homestub_native.rs`), and the preload manager loads Home again whenever it is not running.
+- A newer instance maps first, then asks the older one to go over an abstract socket, so one card stays and the screen is not left to the app
+  below it. SAM ending the old process before it starts the new one is not covered by that (see the first unknown below).
+- It waits up to 30 s for the compositor's socket and for `wl_webos_shell`, so a launch during a compositor restart needs no WebAppMgr wait
+  (`bd_home_up` and `relaunch_home` skip it for this kind). Exit 0 when the compositor closes it, goes away or replaces it; 1 when the card
+  cannot be made.
+
+**Placement.** The setting is `$STATE/homestub-kind` (`native`, or no file for web); `lumatv homestub-kind [status|web|native]` writes it and,
+on a live compositor with a stub of the other kind in, swaps it and puts the old kind back if the new one does not take. The native stub has
+its own source (`payload/homestub-native`) and stage directory (`$STATE/homestub-native`); which kind is over LG's Home directory is read from
+the mount by device and inode (`hs_kind_mounted`), never from the setting. `homestub_up` places the wanted kind, takes out the other first and ends
+its instance after SAM has read the new manifest; `homestub_drop`, `stock_ui_restore` and `bd_abort` take either kind out by that identity and end
+its instance where it lives (a web page through WebAppMgr, the program by signal, waited for in SAM's list). A native stub that does not start in
+`BD_HOME_TRIES` is replaced by the web stub and the setting goes back to web, so the next boot does not try it again; LG's Home is given back only
+when the web stub does not start either. `boot-direct status` and `status` report the mounted `kind`: the boot check outside the repository
+(`check-boot-direct.py`) tests `sam == web` and has to read `native` for this kind.
+
+**Not known until the TV runs it**, each a line of `tools/homestub-native-tv.sh`:
+1. What SAM does with a launch of a running native app that never registered: a new process (the stub replaces the old one, and the app the
+   old card covered shows for as long as SAM takes to start the new one), the same process (nothing reaches it, and the Home key does nothing
+   from an app: the compositor would have to raise Home's mapped card itself when Home is asked for), or an error. `launch`, `home-key` and
+   `launch-over-app` say which.
+2. That SAM starts a system-path native app at all under the jail it picks, and as which uid (`process`).
+3. What reaches a preloaded stub and whether a launch for real maps it (`preload`, `preload-launch`).
+4. Standby and wake: bootd's launch of Home at a wake (`wake`); the saver over Home (`saver`); no Flutter Home at any point (`flutter`).
+
+**Tests.** `tests/test_homestub_native.py` (the build, the wire against a stand-in compositor, idle, endings, the newest wins, the manifest),
+`compositor/crates/lumatv-compositor/tests/homestub_native.rs` (the real server takes it for Home's card, in front and invisible, a preload
+maps nothing), the kind and drop tests of `tests/test_boot_direct.py` and `tests/test_stock_ui_restore.py`, and
+`tests/test_homestub_native_tv.py` (the probe against a stand-in set).
+
+**Probe.** `sh tools/homestub-native-tv.sh` on the set, in about four minutes, with the web stub in on a live compositor: it swaps to the native
+stub, runs the checks above, and puts the web stub back at the end, on a failed check, on a signal, and from a detached switch if it is killed
+(`--keep` leaves the native stub when every check passed; `--no-app`, `--no-saver`, `--no-wake` skip those; the wake is skipped by itself while
+LG's panel refresh is due, and said so). It writes a receipt directory with SAM's and the compositor's views before and after, the program's
+`/proc` files and the hashes of the tool, program and manifest. Install first, copy only: `tools/lumatv`, `payload/homestub-native/appinfo.json`
+and the program from `sh homestub/build.sh` (`homestub/build/arm64/lumatv-homestub`), the compositor bundle as it is.
+
 ## TV test plan
 
 Before anything: the code is on `main`, pushed to origin and forge; the installed hashes go in the handoff. `tools/autostart.sh` is unchanged.
@@ -231,6 +288,6 @@ LG's log covers the boot.
 
 ## Not built
 
-The worker reorder, the shader disk cache, a stub before the hook (not possible), the preload policy call, a native stub, per-step timing inside
+The worker reorder, the shader disk cache, a stub before the hook (not possible), the preload policy call, per-step timing inside
 `native_start`; `tv-cutover.sh enable` does not place the stub (run `lumatv boot-direct on` after it); the old QML-era `homestub_*` code stays,
-since `stock_ui_restore` and the stub's placement use it.
+since `stock_ui_restore` and the stub's placement use it. The native stub of (g) is built and has not run on the TV.
