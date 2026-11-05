@@ -135,6 +135,23 @@ Findings:
 - A reboot less than two minutes after a compositor start counts as a failure (`the previous run never settled or ended cleanly`) and the second in a row makes the supervisor refuse LumaTV; a test that follows `compositor on` with a reboot has to wait.
 - `ctl journal` keeps 200 lines and does not carry the input-node lines ("(activity only)"); the RAM log does.
 
+## TV session 2026-11-05 (after midnight, main 1fdaab34)
+
+Installed 23:57 EST from 1fdaab34 (on origin and forge main), panel on at Home, Nitin's profile, through `build-tv.sh`, `tv-first-light.sh deploy`, cutover disable/install/probe/enable, `tools/lumatv`, the launcher files and the helper. Installed sha256: compositor `3ab32dc1c4aeec4af3893258739f170192e04a81829277bf74d1586be6f0eb29`, ui `d22be363708cb134fc643c08497576c1648d3c20c1def2d77fb07b4a8856566a`, sm `65f6ca69eb6da66cbfb139817803d0c1e01b03931fe373894b123c3f64df13da`, helper `9b76a93fdc8df4f9e24ea071508182f52362fb552a687b9db48dddaf873d1eed`, tools/lumatv `56899321dcf6b4f7583ab015a0182a61b5a9d45dc70c3e63187a3dc1d9c347b4`; native stub program `f2820100e25ae3e93049647e339b5b8c4baa81403ce31c5232e56e5db5a8809e`, copied to the set but not kept. Receipts: `/data/home/tmp/lumatv-tv-20261104f/`.
+
+Checks:
+- Install health PASS: live, mounted, persistent, failures 0, settled; `check-boot.py --now` PASS.
+- Native Home stub FAIL (16 PASS, 1 FAIL, 1 not run, 32 s): RSS 52 kB and PSS 40 kB against 2 MB (web stub 32.4 MB and 15.3 MB); swap, SAM type, one process, mapped card, Home in front, three launches, preload, the Home key over HDMI 2, the saver and its end, and no Flutter Home all PASS. `launch-over-app` FAILED (a luna-send launch of Home did not bring Home in front within 6 s over HDMI 2). The wake was not run: LG's panel refresh was due. The web stub is back; boot direct stays on (kind web).
+- Retime FAIL (visible). Nitin watched the `restore --clip25` run at 00:10:30: the colour changed, the screen flickered, the colour changed again, then Filmmaker returned. Picture settings polled at about 12 Hz across it: `colorGamut` stayed `auto` and `localDimming` `low` throughout; `pictureMode` went `filmMaker` to `game` twice (the 25 fps claim, then the retime clip; `dynamicRange` `sdr` to `sdrALLM`), with colorTemperature -50 to 0, gamma high2 to medium, backlight 75 to 90, color 50 to 55, and back. A whole-screen clip and a 256x144 clip write the same set of picture rows. The probe's own `pq_no_pig` verdicts do not see this, and its positive control (`detector_works`) came out false. The retime is off.
+- Retime rate: 100 Hz held, then 120 Hz 2.8 to 3.5 s after the release; `play` and `control` kept 120 Hz.
+- Front Door (camera 104) full view right after Back Door's: PASS. The claim was granted at 00:12:50, the first picture came after 159 ms (helper) and 176 ms (UI), main stream 1920x2560 at 25 a second in a 810x1080 window at 555,0, 397 pictures in 16.1 s with 0 lost.
+- Idle Home, Nitin's profile, saver off, 60 s without a key, sky moving (no sky fix in this build): 119.91 flips a second, UI frames 119.91 a second with 0 empty; compositor 27.8 % and UI 8.3 % of one core, load average 14.7.
+- Untested: the native stub's wake, the picture colours of the retime with a different picture mode, the top bar's centring and popup placement, the Smart home card without its heading.
+
+Findings:
+- The helper's `lumatv-gfn-feeder --serve` stays up while a camera pop-up plays, and `tv-retime-probe.py play` then answers "not ready"; pop-ups off does not remove one already up.
+- Back from a camera's full view returns to Home, not to the Cameras grid.
+
 ## Current maintenance state (2026-10-31 EDT)
 
 The proposals reuse existing Lucent CSS, Manrope and audio assets. Seven 1920×1080 scale-1 renders were inspected in Cody’s visible shared Chromium: `shots/review-toast-dark.png`, `shots/review-toast-light.png`, `shots/review-audio-atmos-dark.png`, `shots/review-audio-dts-dark.png`, `shots/review-audio-dtsx-bright.png`, `shots/review-audio-dolby-light.png` and `shots/review-audio-stereo-dark.png`. Toast proposal is approximately 320×65 px with 24 px text and one bare check, versus the old 520–760×96 px and 27 px title with a 64 px tile. Audio uses original PNG glyphs left of the number and track in one floating group at the existing bottom position. Light/dark and 200% text showed no overlap or overflow; fonts loaded, browser errors were absent and conservative ink-contrast bounds exceeded 7. Evidence: `/data/home/tmp/lumatv-wake-install.ms6eh5iv/review-render-proof.json`. These are illustrations, not TV acceptance or behavior changes.
