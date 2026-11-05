@@ -233,6 +233,21 @@ impl Picture {
         let (dw, dh) = ((sw * scale).round().max(1.0), (sh * scale).round().max(1.0));
         let (ox, oy) = (((w as f32 - dw) / 2.0).round(), ((h as f32 - dh) / 2.0).round());
         let mut out = vec![0u8; (w * h * 4) as usize];
+        if scale == 1.0 {
+            // the picture is drawn at its own size (a still asked of the helper at the size of its cell, a cover of the same size): every pixel
+            // is a source pixel, so the rows are copied, centred and cut as the box asks, not sampled
+            let (ox, oy) = (ox as i64, oy as i64);
+            let (x0, x1) = (ox.max(0), (ox + dw as i64).min(i64::from(w)));
+            for y in 0..i64::from(h) {
+                let sy = y - oy;
+                if sy < 0 || sy >= dh as i64 || x1 <= x0 {
+                    continue;
+                }
+                let (to, from, n) = (((y * i64::from(w) + x0) * 4) as usize, ((sy * i64::from(self.width) + x0 - ox) * 4) as usize, ((x1 - x0) * 4) as usize);
+                out[to..to + n].copy_from_slice(&self.rgba[from..from + n]);
+            }
+            return Picture { width: w, height: h, rgba: out };
+        }
         let inv = 1.0 / scale;
         for y in 0..h {
             let dy = y as f32 - oy;
@@ -569,6 +584,31 @@ mod tests {
         assert_eq!(down.at(0, 0)[0], 128, "shrinking takes the mean of the area (half white, half black)");
         let up = p.fitted(16, 8, Fit::Cover);
         assert_eq!((up.width, up.height), (16, 8));
+    }
+
+    #[test]
+    fn a_fit_at_the_pictures_own_size_moves_its_pixels_as_the_sampler_would_without_sampling() {
+        // every pixel different, so a blended one would show
+        let p = Picture { width: 6, height: 4, rgba: (0..24).flat_map(|i| [i as u8 * 10, i as u8, 7, 255]).collect() };
+        assert_eq!(p.fitted(6, 4, Fit::Cover), p, "a box of its own size is the picture");
+        // a box as tall and two narrower: a column cut from each side
+        let cut = p.fitted(4, 4, Fit::Cover);
+        for y in 0..4 {
+            for x in 0..4 {
+                assert_eq!(cut.at(x, y), p.at(x + 1, y));
+                assert_eq!(cut.at(x, y), p.sample((x + 1) as f32, y as f32, (x + 2) as f32, (y + 1) as f32), "the sampler's own answer at this scale");
+            }
+        }
+        // a box as wide and four taller: two clear rows above and below
+        let boxed = p.fitted(6, 8, Fit::Contain);
+        for x in 0..6 {
+            for y in [0, 1, 6, 7] {
+                assert_eq!(boxed.at(x, y), [0, 0, 0, 0]);
+            }
+            for y in 0..4 {
+                assert_eq!(boxed.at(x, y + 2), p.at(x, y));
+            }
+        }
     }
 
     #[test]

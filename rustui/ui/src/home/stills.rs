@@ -14,12 +14,14 @@ pub struct Stills {
     wants: Vec<Want>,
     configured: Vec<(String, u32, u32, bool)>,
     pictures: HashMap<String, Picture>,
+    /// The `revision` at which each camera's picture last arrived: a cell repaints for its own camera's still, not for another's.
+    arrived: HashMap<String, u64>,
     pub revision: u64,
 }
 
 impl Default for Stills {
     fn default() -> Self {
-        Self { planner: Planner::with_tags(FIRST, LAST), wants: Vec::new(), configured: Vec::new(), pictures: HashMap::new(), revision: 0 }
+        Self { planner: Planner::with_tags(FIRST, LAST), wants: Vec::new(), configured: Vec::new(), pictures: HashMap::new(), arrived: HashMap::new(), revision: 0 }
     }
 }
 
@@ -36,10 +38,16 @@ impl Stills {
             }
         }
         self.pictures.retain(|id, _| rows.iter().any(|r| r.0 == *id));
+        self.arrived.retain(|id, _| rows.iter().any(|r| r.0 == *id));
     }
 
     pub fn picture(&self, id: &str) -> Option<&Picture> {
         self.pictures.get(id)
+    }
+
+    /// How many stills had arrived when this camera's last did (0: none yet).
+    pub fn revision_of(&self, id: &str) -> u64 {
+        self.arrived.get(id).copied().unwrap_or(0)
     }
 
     pub fn update(&mut self, input: &Input, visible: bool, now: u64) -> Vec<Effect> {
@@ -55,8 +63,9 @@ impl Stills {
                     let ok = picture.is_some();
                     if let Some(picture) = picture {
                         if self.wants.iter().any(|w| w.key == key) {
-                            self.pictures.insert(key, picture);
                             self.revision += 1;
+                            self.arrived.insert(key.clone(), self.revision);
+                            self.pictures.insert(key, picture);
                             out.push(Effect::Redraw);
                         }
                     }
@@ -125,6 +134,20 @@ mod tests {
         s.configure(&[]);
         assert!(s.picture("front").is_none());
         assert_eq!(s.due_at(true), None);
+    }
+
+    #[test]
+    fn a_still_moves_the_revision_of_its_own_camera_only() {
+        let mut s = Stills::default();
+        s.configure(&[("one".into(), 100, 56, true), ("two".into(), 100, 56, true)]);
+        let tags: Vec<u64> = s.update(&Input::Tick, true, 1000).iter().map(|e| match e { Effect::Fetch { tag, .. } => *tag, _ => panic!("a fetch") }).collect();
+        let bytes = include_bytes!("../../../../assets/icon160.png").to_vec();
+        s.update(&Input::Bytes { tag: tags[1], status: 200, bytes: bytes.clone() }, true, 1100);
+        assert_eq!((s.revision_of("one"), s.revision_of("two")), (0, 1), "the camera whose still came");
+        s.update(&Input::Bytes { tag: tags[0], status: 200, bytes }, true, 1150);
+        assert_eq!((s.revision_of("one"), s.revision_of("two")), (2, 1), "and the other keeps the revision it had");
+        s.configure(&[("two".into(), 100, 56, true)]);
+        assert_eq!(s.revision_of("one"), 0, "a camera the card no longer shows is forgotten");
     }
 
     #[test]

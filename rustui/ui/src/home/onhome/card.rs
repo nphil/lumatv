@@ -857,13 +857,10 @@ const PLATE_FEATHER: f32 = 28.0;
 /// down) and a scrim that deepens to the foot; the plate is as strong as the lint needs the words to be over any picture.
 fn paint_still(kit: &Kit, layer: &mut ImageLayer, pic: &Picture, radius: f32, label_top: f32) {
     let (w, h) = (layer.width(), layer.height());
-    layer.clear();
     let mut fitted = pic.fitted(w, h, Fit::Cover);
     fitted.round_corners(radius);
-    {
-        let mut canvas = Canvas { px: layer.pixels_mut(), w, h };
-        canvas.picture(&fitted, 0, 0, w, h);
-    }
+    // laid over a cleared layer, a premultiplied picture of the layer's own size is the layer's pixels
+    layer.pixels_mut().copy_from_slice(&fitted.rgba);
     let scrim = kit.ui.look.canvas();
     let rows = (h as f32 * 0.55) as u32;
     let plate = plate_alpha(kit);
@@ -873,12 +870,16 @@ fn paint_still(kit: &Kit, layer: &mut ImageLayer, pic: &Picture, radius: f32, la
         let t = if y >= h - rows { (y - (h - rows)) as f32 / rows as f32 } else { 0.0 };
         let ramp = ((y as f32 - start) / PLATE_FEATHER).clamp(0.0, 1.0);
         let a = (0.86 * t * t).max(plate * ramp * ramp * (3.0 - 2.0 * ramp));
-        for x in 0..w {
-            let i = ((y * w + x) * 4) as usize;
-            let cover = f32::from(px[i + 3]) / 255.0;
-            for (k, c) in [scrim.0, scrim.1, scrim.2].into_iter().enumerate() {
-                px[i + k] = (f32::from(px[i + k]) * (1.0 - a) + f32::from(c) * a * cover).round().min(255.0) as u8;
-            }
+        if a <= 0.0 {
+            continue;
+        }
+        let (keep, add) = (1.0 - a, [f32::from(scrim.0) * a, f32::from(scrim.1) * a, f32::from(scrim.2) * a]);
+        // (v + 0.5) cut to a byte is v.round() for these never-negative sums, without a libm call for each channel
+        for p in px[(y * w * 4) as usize..((y + 1) * w * 4) as usize].chunks_exact_mut(4) {
+            let cover = f32::from(p[3]) / 255.0;
+            p[0] = (f32::from(p[0]) * keep + add[0] * cover + 0.5) as u8;
+            p[1] = (f32::from(p[1]) * keep + add[1] * cover + 0.5) as u8;
+            p[2] = (f32::from(p[2]) * keep + add[2] * cover + 0.5) as u8;
         }
     }
     layer.damage(None);
@@ -900,7 +901,7 @@ fn update_view(cx: &mut Cx, scroller: &Group, view: &mut ItemView, item: &Item, 
     let still = camera.and_then(|c| cx.stills.picture(c)).cloned();
     let said = v.notice.filter(|_| v.smart.focus_id() == Some(item.id.as_str()) && v.smart.plan().grid.heading.is_none()).map(str::to_owned);
     let lamp = (item.is_lamp() && item.on && !item.gone).then_some(item.rgb).flatten().map(|c| (c, level));
-    let drawn = Drawn { look, w, h, name: item.name.clone(), words: item.words.clone(), icon: item.icon.clone(), gone: item.gone, on: item.on, tone: item.tone.clone(), still: if still.is_some() { cx.stills.revision } else { 0 }, lamp, said: said.clone() };
+    let drawn = Drawn { look, w, h, name: item.name.clone(), words: item.words.clone(), icon: item.icon.clone(), gone: item.gone, on: item.on, tone: item.tone.clone(), still: camera.filter(|_| still.is_some()).map_or(0, |c| cx.stills.revision_of(c)), lamp, said: said.clone() };
     if view.drawn.as_ref() == Some(&drawn) {
         return Ok(());
     }
