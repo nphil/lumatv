@@ -175,6 +175,21 @@ Findings (probes on main that do not run on the set as written):
 Recovery: `lumatv homestub-kind web`, `lumatv boot-direct off`, hold Home 10 s.
 
 
+## TV session 2026-11-05 (morning, main 29bd61a9)
+
+Installed 04:53 EST from 29bd61a9 (on origin and forge main), by the same steps as the overnight session. Installed sha256 (first 8): compositor `13f13dea`, ui `e3d02d16`, sm `65f6ca69`, helper `03bc584f`, `tools/lumatv` `56899321`, camera feeder `0f99db54` (was `0f720bff`). Receipts: `/data/home/tmp/lumatv-tv-20261105b/`. The web stub stays; the TV ended in Active Standby, boot-direct on, failures 0.
+
+The install steps did not carry the feeder, so the ES pipeline was missing on the set: the first `picture` run played nothing through the ES player (the old feeder prints its usage for `--pipe es`) and still reported the mode kept. The feeder built from main (`gfn/feeder/build.sh`) was staged with `feeder.sh update` into the app payload and `/var/lib/lumatv/bin`; its libraries were left as installed. The feeder is only updated by a package install or the boot-time update, so any install from main needs this step when `gfn/feeder` changed.
+
+Checks, after the feeder update:
+- `tv-camera-rate-probe.py picture`: NDL (control) takes `game`; the ES player, with and without low delay, keeps `filmMaker` (about 10 readings a second) and returns to it, display low delay on, 118 to 122 Hz (120 band) while playing.
+- `camera`: camera 88 (`--downs 0`), 418 pictures in 15.2 s (27.5 a second), 0 refused, 0 lost, `filmMaker` for every one of 304 readings, 120 Hz during and after. Camera 196 (the default `--downs 2`) sent no picture in time in both attempts, so it proved nothing. Before the feeder update, camera 88 took `game` for the whole view with display low delay on.
+- `wx-memory-probe.sh`, as in the repo and without `LATE`: VERDICT PASS (closed UI Pss 29.6 MiB against 31.1 baseline, helper RSS 27.6 MiB against 24.1, compositor RSS 161 MiB against 196).
+- Dock: Prime Video (`amazon`) once, HDMI 2 once (`shots/02-home-dock.png`).
+- Standby, held 91 s, `powerOn`: LumaTV Home in front, `homeDrawn` true, failures 0.
+
+`tv-camera-rate-probe.py` still imports `statistics`, which the set's python lacks; a one-function shim in `PYTHONPATH` stood in.
+
 ## Current maintenance state (2026-10-31 EDT)
 
 The proposals reuse existing Lucent CSS, Manrope and audio assets. Seven 1920×1080 scale-1 renders were inspected in Cody’s visible shared Chromium: `shots/review-toast-dark.png`, `shots/review-toast-light.png`, `shots/review-audio-atmos-dark.png`, `shots/review-audio-dts-dark.png`, `shots/review-audio-dtsx-bright.png`, `shots/review-audio-dolby-light.png` and `shots/review-audio-stereo-dark.png`. Toast proposal is approximately 320×65 px with 24 px text and one bare check, versus the old 520–760×96 px and 27 px title with a 64 px tile. Audio uses original PNG glyphs left of the number and track in one floating group at the existing bottom position. Light/dark and 200% text showed no overlap or overflow; fonts loaded, browser errors were absent and conservative ink-contrast bounds exceeded 7. Evidence: `/data/home/tmp/lumatv-wake-install.ms6eh5iv/review-render-proof.json`. These are illustrations, not TV acceptance or behavior changes.
