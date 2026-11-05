@@ -145,6 +145,15 @@ Installed 15:37 EST from 7e8b8f43 (origin and forge main) by the standard path; 
 - 16.3, 16.4 and 16.9 five times each: 0/5 each on ddfe579c (its 30-minute cache), 4/5, 5/5 and 0/5 on 7e8b8f43. Plex's transcoder at debug level found the stream info 1.5 to 2.5 s after opening 2.1, 17.3, 5.1 and 16.4, with no "Invalid frame dimensions" (1 to 3 a probe on ddfe579c).
 - Not done: the Guide data plugin's switch-on in Settings (30311, Plex then the free listings). Receipts: `/data/home/tmp/lumatv-tv-20261105g/` (not in git).
 
+## Tuner page, slate shape, guide fall-through 2026-11-05 (night, main 65976a62)
+
+fc6cf188 went on the set with IdleRegress's install of de53f401 (17:47: compositor `0f805697`, ui `25ec25dd`, sm `65f6ca69`); 65976a62 replaced only the helper at 18:23 by the standard helper start: helper sha256 `f4ffd934e1d6d2141b9e1dc80dd58fbc4cae2c0ea5d8705d33a8e526053b1674` (was `d254cf9b`). Failures 0, settled; check-boot's activation line is absent after a helper-only restart.
+
+- Live TV Tuner page: the channel list (RF heads, reception line with dB, share lost, dropouts, the lineup switch) and *Check every channel* draw; the check ran over all 59 channels in about 3 min from the button. It calls 34.4-34.7 "No signal" at 27 dB: the check listens only to MPEG-2 pictures, so a channel whose picture is not MPEG-2 reads as no signal.
+- Slates through Plex's API on channels not seen before: 5.1 (720p60) and 2.2 (480p) open with the tuning slate in their own size, 2.1 (seen) too; no "Error reinitializing filters", Error 16 or "Invalid frame dimensions" in Plex's log (two of those errors at 16:39 and 16:49, 2.1 and 16.7 first tunes). Grabs and client sessions stopped and deleted.
+- Guide data with Plex picked first and not set up: the Plex line says it is skipped, the free listings filled 53 of 59. While that fetch ran (25 s) the status showed the last words published, which 65976a62 fixes (covered by the plugin's test; not seen again on the set, as Plex was set up through the API at 18:19 by someone else and left so).
+- Receipts: `/data/home/tmp/lumatv-tunerpolish-20261105/` (not in git).
+
 ## TV session 2026-11-05 (evening, main 55598bc0)
 
 Installed 16:39 EST from 55598bc0 (origin and forge main; d3d50812 above it is a research note) by the standard path; only the helper changed, compositor, ui and sm are the 7e8b8f43 bytes. Installed sha256: compositor `6c5ae2575734d606e0c09966967c2aa539658ab4abe35ab866111431d063a0fe`, ui `0db85b2b8c0f5acde8439a60c56349fb2627fb4f00b2b373589129a1d4809413`, sm `65f6ca69eb6da66cbfb139817803d0c1e01b03931fe373894b123c3f64df13da`, helper `9b5c486b54c1df8ce8dbcb35075dda310810fe679b2e73a8bd57f8324d185244`. Failures 0, settled; the set ended in Always Ready, off, with the Live TV Tuner and Guide data plugins on.
