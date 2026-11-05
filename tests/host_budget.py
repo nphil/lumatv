@@ -9,8 +9,14 @@ the 8.3 ms of a 120 Hz refresh is about 80 layers. For each window of a walk thi
 frame's estimate, and the work of a frame (that estimate and the time this process took to apply what the frame showed) at its worst and
 at the 99th percentile.
 
-    python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,settings-pages,home-widgets,toast,onhome,guide,banner,sky,idle] [--frames] [--reference]
-                                 [--bin PATH] [--owner DIR] [--sky KIND]
+Each window also gets the gate's own reading of the frames its mark starts (`docs/research/perf/analyse.py`, `burst`): they chain while each is
+within 50 ms of the one before, and an interval over a refresh and a fifth inside the chain is a refresh missed (`burst_over20`). A frame that
+changes nothing is not one to it (`kept`: the compositor composes and flips nothing for it). The gate reads a burst from its open and close marks
+only; this reads one from every mark of a walk that is not inside the burst before, which is the stricter reading. A surface ends with the gate's
+verdict at its thresholds: no such interval, and no frame over the layers a refresh holds (the frame a motion would miss, `dropped`).
+
+    python3 tests/host_budget.py [--refresh 120] [--surfaces quick,picker,settings-scroll,settings-pages,home-widgets,home-dpad,toast,onhome,guide,banner,sky,idle]
+                                 [--frames] [--reference] [--bin PATH] [--owner DIR] [--sky KIND]
 
 `--frames` lists every frame, with the CPU time the shell used since the frame before (`ui`, by the thread's own clock, so a loaded host does not
 inflate it); `--reference` draws each frame whole as well and counts
@@ -25,6 +31,8 @@ the frames a second the sky asks for (each is a flip of the whole screen on the 
 motion left on as well (what the idle gate measures: `compositor/tools/tv-idle-probe.py`); both print where a frame's time goes (the engine's phases, the GL
 calls it made, what asked for it) and `--sky KIND` sets the weather the fixture reports (`sun`, `moon`, `cloud`, `partly`, `fog`, `drizzle`, `rain`, `storm`, `snow`).
 `settings-pages` opens Settings and then names each page in turn (`show settings`, 800 ms apart): what each page costs the shell to make and the frames it is drawn in.
+`home-dpad` is the gate's walk of Home with the remote's arrows (`RIGHTx8 LEFTx8 UP DOWN`, taps 400 ms apart as `kb.py` makes them) twice: from the
+status bar's first item, as the set's first cycle of 2026-11-05 walked it, and from the row the first cycle ends on.
 
 The Cameras app is measured by itself (no Home under it) in four walks: `cameras-grid` (eight tiles whose stills come five a second a tile, three of
 them not 16:9, then the focus walked) and `cameras-full` (a portrait doorbell's video in its window with the bars beside it, the chrome fading and
@@ -53,18 +61,20 @@ import rust_home_host as home  # noqa: E402  (Home's make-believe feeds)
 
 BIN = os.environ.get('LUMATV_UI_BIN') or os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
 FRAME = re.compile(r"^\[frame\] (\d+) at (\d+) ms: damage (\d+) px, drew (\d+) px in (\d+) rects \([\d.]+ %\), layers (\d+) culled \d+ cpu (\d+) us gpu \d+ us"
-                   r".*? floor (\d+) px apply (\d+) us(?: ui (\d+) us)?", re.M)
+                   r".*? floor (\d+) px apply (\d+) us(?: ui (\d+) us)?(.*)$", re.M)
 #: what a frame's line says after the shell's own time (`lumatv-ui --host --log`): the engine's phases, the GL calls (draws/uniforms/programs/binds/states/skipped) and what asked for it
 DETAIL = re.compile(r"^\[frame\] \d+ at (\d+) ms: .*? layers (\d+) culled \d+ cpu (\d+) us.*? ui (\d+) us place (\d+) us plan (\d+) us draw (\d+) us damage (\d+) us step (\d+) us finish (\d+) us scope (\d+) us x(\d+) "
                     r"calls (\d+)/(\d+)/(\d+)/(\d+)/(\d+)/(\d+) why (\S+) scene (\d+)", re.M)
 DETAIL_FIELDS = ('ms', 'layers', 'cpu', 'ui', 'place', 'plan', 'draw', 'damage', 'step', 'finish', 'scope', 'scopes', 'draws', 'uniforms', 'programs', 'binds', 'states', 'skipped')
-SURFACES = ['quick', 'picker', 'settings-scroll', 'settings-pages', 'home-widgets', 'toast', 'onhome', 'guide', 'banner', 'camera-popup', 'weather-zoom', 'sky', 'idle']
+SURFACES = ['quick', 'picker', 'settings-scroll', 'settings-pages', 'home-widgets', 'home-dpad', 'toast', 'onhome', 'guide', 'banner', 'camera-popup', 'weather-zoom', 'sky', 'idle']
 #: Home at rest with the sky moving: the surfaces `--frames` explains frame by frame
 AT_REST = ('sky', 'idle')
 #: when a walk starts: Home has drawn its feeds and rests
 START_MS = 6000
 #: the layers a 120 Hz refresh holds (1.5 ms + 0.085 ms a layer <= 8.3 ms)
 LAYERS_120 = 80
+#: the gate's burst (`analyse.py`): frames chain while each is within this of the one before
+BURST_GAP_MS = 50
 #: the pages `settings-pages` names: the rail's sections in its order, then three that hang under them
 SETTINGS_PAGES = ('privacy', 'profiles', 'picture', 'sound', 'inputs', 'network', 'ambient', 'home', 'remote', 'ai', 'system', 'themes', 'widgets', 'about')
 #: the owner's own `theme.json` and `layout.json` (`--owner DIR`: the pair the TV gate saves before a run, `before-theme.json` and `before-layout.json`)
@@ -88,6 +98,34 @@ def work_ms(frame):
 def p99(values):
     values = sorted(values)
     return values[min(len(values) - 1, math.ceil(0.99 * len(values)) - 1)] if values else 0.0
+
+
+def frames_of(text):
+    """A run's frames: (ms, drew px, rects, layers, floor px, CPU us, of it applying commits us, the shell's own us since the frame before, kept).
+    A kept frame changed nothing: the compositor composes and flips nothing for it."""
+    return [(int(m[2]), int(m[4]), int(m[5]), int(m[6]), int(m[8]), int(m[7]), int(m[9]), int(m[10] or 0), m[11].endswith(' kept')) for m in FRAME.finditer(text)]
+
+
+def gate_bursts(frames, marks, refresh):
+    """The gate's burst from each mark that is not inside the burst before (`analyse.py`'s `burst`, kept frames left out): {label: (the first
+    frame's ms after the mark, the last's, [(ms after the mark, interval ms) of each interval over a refresh and a fifth])}."""
+    shown = [f[0] for f in frames if not f[8]]
+    drop = 1.2 * 1000.0 / refresh
+    out, end = {}, -1
+    for at, label in marks:
+        if at <= end:
+            continue
+        prev, chain, over = at, [], []
+        for t in (t for t in shown if t >= at):
+            if t - prev > BURST_GAP_MS:
+                break
+            if chain and t - prev > drop:
+                over.append((prev - at, t - prev))
+            chain.append(t)
+            prev = t
+        out[label] = (chain[0] - at if chain else None, chain[-1] - at if chain else None, over)
+        end = chain[-1] if chain else at
+    return out
 
 
 def write_logos(folder, n=12):
@@ -497,6 +535,21 @@ def walk_of(surface):
         w.mark('up to the status bar')
         w.taps('up', 6, 120)
         w.wait(600)
+    elif surface == 'home-dpad':
+        # HOME_TOP, then the gate's cycle twice (`RIGHTx8@0.35 LEFTx8@0.35 UP s0.5 DOWN`, a tap 50 ms down then the gap), a second of settle
+        # after each open and each close
+        w.at = START_MS - 1500
+        w.taps('up', 8, 100)
+        w.taps('left', 6, 60)
+        w.at = START_MS
+        for n in (1, 2):
+            w.mark('open %d' % n)
+            w.taps('right', 8, 400)
+            w.taps('left', 8, 400)
+            w.taps('up', 1, 550)
+            w.taps('down', 1, 1000)
+            w.mark('close %d' % n)
+            w.wait(1000)
     elif surface == 'onhome':
         # HOME_TOP, then into the Smart home card (the first card): a camera is in front; then Kitchen, TV strip, Desk lamp and Fan make a row of four
         w.at = START_MS - 1500
@@ -654,7 +707,7 @@ def run_cameras(surface, refresh, binary, reference):
         raise RuntimeError('%s: lumatv-ui failed: %s' % (surface, res['out'][-2000:]))
     text = open(log).read() if os.path.exists(log) else ''
     os.path.exists(log) and os.remove(log)
-    fr = [(int(m[2]), int(m[4]), int(m[5]), int(m[6]), int(m[8]), int(m[7]), int(m[9]), int(m[10] or 0)) for m in FRAME.finditer(text)]
+    fr = frames_of(text)
     windows = [(label, [f for f in fr if at <= f[0] < nxt]) for (at, label), (nxt, _) in zip(marks, marks[1:])]
     return windows, len(re.findall(r"^\[mismatch\]", text, re.M)), text
 
@@ -666,8 +719,8 @@ def run(surface, refresh=120, binary=BIN, reference=False):
 
 
 def run_walk(surface, refresh=120, binary=BIN, reference=False):
-    """Runs the walk of `surface`; returns ([(label, [frame, ...]), ...], mismatched frames, the run's output). A frame is
-    (ms, drawn px, rects, layers, floor px, CPU us, of it applying commits us, the shell's own us since the frame before)."""
+    """Runs the walk of `surface`; returns ([(label, [frame, ...]), ...], mismatched frames, the run's output). A frame is as `frames_of`
+    makes it."""
     data = tempfile.mkdtemp(prefix='hostbudget-')
     os.makedirs(os.path.join(data, 'theme'))
     shutil.copy(os.path.join(ROOT, 'compositor', 'assets', 'ui', 'wallpaper', 'wall_1080.png'), os.path.join(data, 'theme', 'wall_1080.png'))
@@ -742,7 +795,7 @@ def run_walk(surface, refresh=120, binary=BIN, reference=False):
     shutil.rmtree(data, ignore_errors=True)
     if r.returncode != 0:
         raise RuntimeError('%s: lumatv-ui failed: %s' % (surface, (r.stdout + r.stderr)[-2000:]))
-    fr = [(int(m[2]), int(m[4]), int(m[5]), int(m[6]), int(m[8]), int(m[7]), int(m[9]), int(m[10] or 0)) for m in FRAME.finditer(text)]
+    fr = frames_of(text)
     windows = []
     for (at, label), (nxt, _) in zip(w.marks, w.marks[1:]):
         windows.append((label, [f for f in fr if at <= f[0] < nxt]))
@@ -783,31 +836,40 @@ def main(argv=None):
     if a.owner:
         OWNER.update({key: os.path.join(a.owner, 'before-%s.json' % key) for key in ('theme', 'layout')})
     budget = LAYERS_120 * 120 // a.refresh
-    over = 0
     for surface in a.surfaces.split(','):
         windows, mismatched, text = run(surface, a.refresh, a.bin, a.reference)
         marks = [] if surface in CAMERAS else walk_of(surface).marks
         spans = {label: (nxt - at) / 1000.0 for (at, label), (nxt, _) in zip(marks, marks[1:])}
+        bursts = gate_bursts(frames_of(text), marks, a.refresh)
         worst = max((f[3] for _, fs in windows for f in fs), default=0)
         print('%s at %d Hz: most layers in a frame %d (%.1f ms)%s' % (surface, a.refresh, worst, gpu_ms(worst),
                                                                     ', %d frames differ from the frame drawn whole' % mismatched if a.reference else ''))
+        heavy = missed = 0
         for label, fs in windows:
             most = max((f[3] for f in fs), default=0)
-            heavy = sum(1 for f in fs if f[3] > budget)
-            over += heavy
+            over = sum(1 for f in fs if f[3] > budget and not f[8])
+            heavy += over
             work = [work_ms(f) for f in fs]
             drawn = sum(1 for f in fs if f[1] > 0)
             rate = ' (%.1f a second)' % (len(fs) / spans[label]) if spans.get(label) else ''
-            print('  %-22s %4d frames%s, %4d drew pixels, most layers %3d (%.1f ms), work max %.1f ms p99 %.1f ms, ui max %.1f ms, %d over %d' % (label, len(fs), rate, drawn, most, gpu_ms(most), max(work, default=0.0), p99(work), max((f[7] for f in fs), default=0) / 1000.0, heavy, budget))
+            kept = sum(1 for f in fs if f[8])
+            print('  %-22s %4d frames%s, %d kept, %4d drew pixels, most layers %3d (%.1f ms), work max %.1f ms p99 %.1f ms, ui max %.1f ms, %d over %d'
+                  % (label, len(fs), rate, kept, drawn, most, gpu_ms(most), max(work, default=0.0), p99(work), max((f[7] for f in fs), default=0) / 1000.0, over, budget))
+            if label in bursts:
+                first, end, intervals = bursts[label]
+                missed += len(intervals)
+                print('  %-22s burst: first frame %s ms, ends %s ms, %d over a refresh and a fifth%s' % ('', first, end, len(intervals), ''.join(' +%d (%d ms)' % i for i in intervals)))
             if a.frames:
                 for f in fs:
-                    print('      %6d ms  drew %8d px in %2d rects  layers %3d  floor %8d px  cpu %6d us (commits %6d us)  ui %6d us' % f)
+                    print('      %6d ms  drew %8d px in %2d rects  layers %3d  floor %8d px  cpu %6d us (commits %6d us)  ui %6d us%s' % (f[:8] + (' kept' if f[8] else '',)))
         if surface in AT_REST:
             frame_report(text, (walk_of(surface).marks[1][0] - walk_of(surface).marks[0][0]) / 1000.0)
         frames = [f for _, fs in windows for f in fs]
         work = [work_ms(f) for f in frames]
         print('  all %d frames: most layers %d (%.1f ms), work max %.1f ms p99 %.1f ms' % (len(frames), max((f[3] for f in frames), default=0),
                                                                                       gpu_ms(max((f[3] for f in frames), default=0)), max(work, default=0.0), p99(work)))
+        if marks:
+            print('  gate: burst_over20 %d (<= 0), frames over %d layers %d (<= 0): %s' % (missed, budget, heavy, 'PASS' if missed == 0 and heavy == 0 else 'FAIL'))
     return 0
 
 

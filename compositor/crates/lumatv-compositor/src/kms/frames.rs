@@ -23,6 +23,14 @@
 //! (10 a second) make such frames; with a ring of three pages every one of them owed the whole screen, 90 layers and 119 draws, for the
 //! change of a sky's box. Copying costs one blit (a pass over the page, with the time for it) and the frame draws what it changed.
 //! `LUMATV_AMBIENT_COPY=0` draws all a page owes in them.
+//!
+//! A frame that changes nothing composes nothing (`Frames::set_still`): no window damage, nothing of the UI changed (Home applied again
+//! with what it had, the focus's rest redrawing the same, a lift's slot freed at its rest pose, the engine's floor brought up to date,
+//! a redraw after work between frames that changed nothing shown), nothing moving after it or after the frame before, and the page on
+//! the screen the last one composed. That page holds the frame already, so no page is drawn or turned and nothing is flipped; the
+//! engine's frame is ended and answered at once. Such commits came 2 to 6 refreshes after a motion's last frame, and each flip of the
+//! same picture was a refresh missed to the 120 Hz gate (session 10: home-widgets 6, home-dpad 1, where the host's walks have them).
+//! `LUMATV_KEEP_UNCHANGED=0` draws and flips them.
 
 use std::io;
 
@@ -33,7 +41,7 @@ use crate::render::gl::{Gl, TargetId};
 use crate::scene::Plan;
 use crate::surface::Surfaces;
 
-use super::assign::{Assignment, Facts, Source, decide};
+use super::assign::{Assignment, Facts, Source, decide, needs_commit};
 
 /// Refreshes a frame must come after the frame before to be calm (`Frames::set_calm`); the engine's host counts the same
 /// (`lumatv_render::host::AMBIENT_COPY_REFRESHES`).
@@ -57,6 +65,12 @@ pub struct Frames {
     /// Calm frames copy too (`LUMATV_AMBIENT_COPY=0` switches it off), and whether the next frame is one (`Frames::set_calm`).
     ambient_copy: bool,
     calm: bool,
+    /// Whether the next frame may compose nothing when it changes nothing (`Frames::set_still`), and whether a motion ran after the frame
+    /// drawn last: the frame after one is drawn whatever it changes, so that a motion's last refresh is a flip like the ones before it.
+    still: bool,
+    moving: bool,
+    /// `LUMATV_KEEP_UNCHANGED=0`: a frame that changes nothing is drawn and flipped, as before.
+    keep: bool,
     copied: Tiles,
     copy_rects: Vec<Rect>,
     width: u32,
@@ -81,6 +95,9 @@ impl Frames {
             page_copy: std::env::var("LUMATV_PAGE_COPY").as_deref() != Ok("0"),
             ambient_copy: std::env::var("LUMATV_AMBIENT_COPY").as_deref() != Ok("0"),
             calm: false,
+            still: false,
+            moving: false,
+            keep: std::env::var("LUMATV_KEEP_UNCHANGED").as_deref() != Ok("0"),
             copied: Tiles::new(width, height),
             copy_rects: Vec::with_capacity(16),
             width,
@@ -99,6 +116,12 @@ impl Frames {
     /// Says whether the next frame is calm: it comes [`AMBIENT_COPY_REFRESHES`] or more after the frame before. It counts for that frame only.
     pub fn set_calm(&mut self, calm: bool) {
         self.calm = calm;
+    }
+
+    /// Says whether the next frame may compose nothing when it changes nothing: no flip is in flight and no frame waits behind one (the
+    /// screen shows the page composed last), and no capture waits for a page. It counts for that frame only.
+    pub fn set_still(&mut self, still: bool) {
+        self.still = still;
     }
 
     /// The page the next composed frame goes into: not on the screen and not in a flip (the ring turns one ahead of both, and a frame that was
@@ -166,6 +189,14 @@ impl Frames {
             output: Rect::new(0, 0, self.width as i32, self.height as i32),
         };
         let assignment = decide(&facts);
+        // (a frame of no motion with the screen showing the page composed last: `set_still`, the module's notes)
+        let still = std::mem::take(&mut self.still) && self.keep && self.composed.is_some() && !self.moving && !standin && !plan.animating && !gl.ui_animating();
+        self.moving = plan.animating || gl.ui_animating();
+        if still && !needs_commit(&assignment, !tiles.is_empty()) {
+            self.calm = false;
+            gl.skip_ui_frame()?;
+            return Ok((Assignment { primary: Source::Off, overlay: None, at: (0, 0) }, RenderStats { items: plan.items.len(), unchanged: true, ..Default::default() }));
+        }
         let stats = match assignment {
             Assignment { primary: Source::Direct(_), overlay: None, .. } => {
                 gl.skip_ui_frame()?;

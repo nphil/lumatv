@@ -71,6 +71,7 @@ impl Output for ScanOut {
         // the device would take the window's buffer whenever the plan allows it
         let direct = plan.sole_fullscreen().map(|_| (FB, (0, 0)));
         self.frames.set_calm(self.calm);
+        self.frames.set_still(true);
         let (assignment, stats) = self.frames.draw(&mut self.gl, plan, surfaces, direct)?;
         self.sources.lock().push(assignment);
         self.drew.lock().push(stats.owed_px);
@@ -449,4 +450,27 @@ fn a_calm_frame_draws_only_what_it_changes_and_its_page_still_holds_the_frame_wh
     let (calm_px, busy_px): (u64, u64) = (calm.iter().sum(), busy.iter().sum());
     // a ring of three pages owes each change three times; copied from the page drawn last, a calm frame draws the change once
     assert!(calm_px * 3 <= busy_px * 2, "calm frames drew {calm_px} px in six, the frames that draw what their pages owe {busy_px}");
+}
+
+#[test]
+fn a_ui_commit_that_changes_nothing_composes_nothing_and_is_answered() {
+    let Some(rig) = Rig::start("unchanged", false) else { return };
+    rig.commit();
+    rig.under.set(Props::at(600.0, 500.0));
+    rig.commit();
+    // Home applied again with what it had (the shell sends a pose it already sent): answered, nothing composed or turned
+    let before = rig.taken();
+    rig.under.set(Props::at(600.0, 500.0));
+    rig.commit();
+    let now = rig.taken();
+    assert_eq!(&now[before.len()..], [Assignment { primary: Source::Off, overlay: None, at: (0, 0) }], "{now:?}");
+    assert_eq!(rig.capture().pixel(650, 550), [90, 200, 90, 255], "the page on the screen holds the frame");
+    // the next change is drawn into the next page, which owes the frames before it as if nothing had come between
+    rig.under.set(Props::at(800.0, 500.0));
+    rig.commit();
+    assert!(matches!(rig.taken().last(), Some(Assignment { primary: Source::Page(_), overlay: None, .. })), "{:?}", rig.taken());
+    let image = rig.capture();
+    assert_eq!(image.pixel(850, 550), [90, 200, 90, 255]);
+    assert_eq!(image.pixel(650, 550), [18, 20, 32, 255], "nothing left where it was");
+    assert_eq!(rig.gl_errors(), 0);
 }

@@ -1,10 +1,11 @@
 //! The weather's sky as the production engine takes it, drawn by Mesa and spoken to in the protocol's own requests (the app's `Layer::animate_stepped` is
 //! `Request::Animate` with a step): an ambient motion asks for a frame a step apart and none at every refresh, a commit that only restates it asks for none,
-//! it is drawn where the motion is at the frame's own time, and the app is told of a frame only when the frame has news for it.
+//! it is drawn where the motion is at the frame's own time, and the app is told of a frame only when the frame has news for it. A frame that changes nothing
+//! keeps the page on the screen, as the compositor's do, except the frame after one of a motion.
 use compositor_protocol::{
     Content, Ease, Event, Fill, LayerId, PROTOCOL_VERSION, Props, Request, Rgba, Shape, read_frame, write_frame,
 };
-use lumatv_render::host::{Engine, HostConfig};
+use lumatv_render::host::{Engine, FrameCost, HostConfig};
 use lumatv_render::{Demand, Gles};
 use std::io;
 use std::os::unix::net::UnixStream;
@@ -70,6 +71,11 @@ impl Rig {
 
     /// A frame at `at_ms`; the `Event::Frame`s the app was sent for it.
     fn frame(&mut self, at_ms: u64) -> usize {
+        self.drawn(at_ms).0
+    }
+
+    /// [`Rig::frame`], with what the frame cost.
+    fn drawn(&mut self, at_ms: u64) -> (usize, FrameCost) {
         let now = T + at_ms * MS;
         let cost = self.engine.draw(now);
         assert_eq!(cost.gl_error, None);
@@ -85,7 +91,7 @@ impl Rig {
                 Err(e) => panic!("{e}"),
             }
         }
-        told
+        (told, cost)
     }
 
     /// Where the square's left edge is in the last frame: the first lit pixel of a row it crosses.
@@ -185,6 +191,35 @@ fn a_step_longer_than_a_second_is_cut_to_a_second() {
     rig.commit();
     rig.take_in(0);
     assert_eq!(rig.engine.demand(), Demand::At(T + 1_000 * MS));
+}
+
+#[test]
+fn a_frame_that_changes_nothing_keeps_the_page_on_the_screen_unless_a_motion_ran_after_the_one_before() {
+    let mut rig = Rig::new();
+    rig.square(1);
+    rig.commit();
+    rig.take_in(0);
+    assert!(!rig.drawn(0).1.kept, "the first frame is drawn");
+    // the shell says again what is shown: the app is told, and the page on the screen is the frame drawn whole
+    rig.send(Request::Set { id: LayerId(1), props: at(0.0) });
+    rig.commit();
+    rig.take_in(20);
+    let (told, cost) = rig.drawn(20);
+    assert_eq!((told, cost.kept, cost.mismatch_px), (1, true, 0));
+    // a hidden layer's motion changes nothing that shows; its frames and the one after them are drawn, the rest are kept
+    let shape = Shape { corner_radius: 0.0, fill: Fill::Solid(Rgba(255, 0, 0, 255)), border_width: 0.0, border: Rgba(0, 0, 0, 0) };
+    rig.send(Request::Create { id: LayerId(2), width: 16, height: 16, z: 1, content: Content::Shape(shape), props: Props { visible: false, ..at(100.0) } });
+    rig.animate(2, 150.0, 30, 0);
+    rig.commit();
+    rig.take_in(40);
+    let kept: Vec<bool> = [40, 48, 56, 64, 72, 80, 88].into_iter().map(|at| rig.drawn(at).1.kept).collect();
+    assert_eq!(kept, [false, false, false, false, false, true, true], "the motion ends at 70 ms, and the frame at 72 is the one after its last");
+    // a change is drawn into the next page, which owes what the frames before it changed
+    rig.send(Request::Set { id: LayerId(1), props: at(40.0) });
+    rig.commit();
+    rig.take_in(90);
+    let cost = rig.drawn(96).1;
+    assert_eq!((cost.kept, cost.mismatch_px, rig.left()), (false, 0, 40));
 }
 
 #[test]

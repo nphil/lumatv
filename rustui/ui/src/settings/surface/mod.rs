@@ -156,12 +156,14 @@ pub struct SettingsSurface {
     /// The scene's room for layers when the draw in hand began (`share_left`).
     room_at: usize,
     saved_scroll: Option<(String, f32)>,
+    /// The focus the next draw sets is lifted at once: Settings was made or came back (as a panel's first focus is, `panels::stage`).
+    lift_at_once: bool,
 }
 
 impl SettingsSurface {
     /// `system_z` is where stack 1 begins; Settings draws in its own band over it ([`z::SETTINGS`]).
     pub fn new(system_z: i32) -> Self {
-        SettingsSurface { z: system_z + z::SETTINGS, built: None, pointer: Pointer::new(), hover: None, last_xy: (0.0, 0.0), buttons: 0, closing_at: None, refresh_hz: None, row_ids: Vec::new(), view: None, page_shown: None, page_named: None, page_made_at: 0, page_due: None, fill_due: None, room_at: 0, saved_scroll: None }
+        SettingsSurface { z: system_z + z::SETTINGS, built: None, pointer: Pointer::new(), hover: None, last_xy: (0.0, 0.0), buttons: 0, closing_at: None, refresh_hz: None, row_ids: Vec::new(), view: None, page_shown: None, page_named: None, page_made_at: 0, page_due: None, fill_due: None, room_at: 0, saved_scroll: None, lift_at_once: false }
     }
 
     pub fn is_up(&self) -> bool {
@@ -314,11 +316,13 @@ impl SettingsSurface {
             if let Some(list) = &mut gallery { list.reparent_restyle(Some(&b.root), engine)?; }
             b.list = gallery;
             self.built = Some(b);
+            self.lift_at_once = true;
             let ms = kit.modal_beat_ms();
             if let Some(b) = &self.built {
                 let _ = b.fade.settle(Some(1.0), if ms == 0 { Some(0.0) } else { None }, Settle::Timed(MotionToken { duration_ms: ms, ease: Ease::Out }));
             }
         } else if reopening && !promoted && let Some(b) = &self.built {
+            self.lift_at_once = true;
             let ms = kit.modal_beat_ms();
             let _ = b.fade.settle(Some(1.0), if ms == 0 { Some(0.0) } else { None }, Settle::Timed(MotionToken { duration_ms: ms, ease: Ease::Out }));
         }
@@ -594,6 +598,19 @@ impl SettingsSurface {
             },
         };
         match target {
+            // Settings made or back with its focus set: the row is lifted with it, as a panel's first focus is, and what was lifted is put at
+            // rest. Left to the spring, the rail's first row lifted for 450 ms (54 frames at 120 Hz) after the sheet was up, and the gate's walk
+            // read the end of it beside its next key as a refresh missed.
+            Some(id) if self.lift_at_once => {
+                let from = engine.focus.current();
+                if from == Some(id) || engine.focus.focus(id) {
+                    self.lift_at_once = false;
+                    if let Some(old) = from.filter(|old| *old != id) {
+                        let _ = engine.flow.snap(old, false, now_ns);
+                    }
+                    let _ = engine.flow.snap(id, true, now_ns);
+                }
+            }
             Some(id) => {
                 if engine.focus.current() != Some(id) {
                     engine.focus(id, now_ns);

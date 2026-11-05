@@ -786,7 +786,7 @@ fn run_host(o: Options) -> io::Result<()> {
                 first_frame_ms = Some(elapsed(t0));
             }
             if o.log.is_some() {
-                log.line(format_args!("[frame] {drawn} at {} ms: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us backdrops {} ({} us) floor {} px apply {} us ui {ui_us} us place {} us plan {} us draw {} us damage {} us step {} us finish {} us scope {} us x{} calls {}/{}/{}/{}/{}/{} why {why} scene {}{}",
+                log.line(format_args!("[frame] {drawn} at {} ms: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us backdrops {} ({} us) floor {} px apply {} us ui {ui_us} us place {} us plan {} us draw {} us damage {} us step {} us finish {} us scope {} us x{} calls {}/{}/{}/{}/{}/{} why {why} scene {}{}{}",
                 elapsed(t0),
                 cost.damage_px,
                 cost.region_px,
@@ -815,7 +815,8 @@ fn run_host(o: Options) -> io::Result<()> {
                 cost.calls.states,
                 cost.calls.skipped,
                 engine.layers(),
-                cost.gl_error.map_or(String::new(), |e| format!(" GL error {e:#x}"))));
+                cost.gl_error.map_or(String::new(), |e| format!(" GL error {e:#x}")),
+                if cost.kept { " kept" } else { "" }));
             }
             ui_us = 0;
             engine.tidy();

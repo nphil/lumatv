@@ -1643,7 +1643,9 @@ impl Output for Kms {
         }
         // (calm: a frame after a gap that has the time for the pass of copying a page's debts from the page drawn last: `frames`)
         let calm = self.last_draw_ns != 0 && now.saturating_sub(self.last_draw_ns) >= frames::AMBIENT_COPY_REFRESHES * self.timing.period_ns();
-        self.last_draw_ns = now;
+        let last_draw_ns = std::mem::replace(&mut self.last_draw_ns, now);
+        // (a frame that changes nothing composes nothing while the screen shows the page composed last: `frames`)
+        let still = !self.pending_flip && self.queued.is_none() && !self.compose_only;
         self.care_draw = false;
         let slot_ns = self.timing.pacer.plan(now).slot_ns;
         // A frame still waiting behind the flip in flight is superseded by this one: its page is drawn again (the
@@ -1677,6 +1679,7 @@ impl Output for Kms {
             self.gl.prune(surfaces, &plan.items);
         }
         self.frames.set_calm(calm);
+        self.frames.set_still(still);
         let (assignment, stats) = self.frames.draw(&mut self.gl, plan, surfaces, direct)?;
         let took_direct = matches!(assignment.primary, Source::Direct(_));
         if took_direct {
@@ -1686,6 +1689,15 @@ impl Output for Kms {
         let shown = verdict.as_ref().ok().filter(|_| took_direct);
         self.scanout.drawn(shown);
         let acquire = shown.is_some_and(|c| c.acquired);
+        if assignment.primary == Source::Off {
+            // Nothing changed: the planes keep what they show, nothing is flipped, and the engine is answered now.
+            self.last_draw_ns = last_draw_ns;
+            #[cfg(feature = "ui")]
+            if let Some(cost) = self.gl.take_ui_frame() {
+                self.gl.ui_presented(now, &cost);
+            }
+            return Ok(stats);
+        }
         if assignment.overlay.is_some() {
             if self.split_frames == 0 {
                 log::info!("kms: first split frame: the window stays on the primary plane, the UI goes to the overlay");

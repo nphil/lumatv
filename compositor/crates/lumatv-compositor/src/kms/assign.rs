@@ -60,10 +60,10 @@ pub fn decide(f: &Facts) -> Assignment {
     }
 }
 
-/// Whether the plan changed anything a commit must carry: a direct frame always does (a new buffer), a composed
-/// frame only when something was drawn.
-pub fn needs_commit(a: &Assignment, drawn: bool) -> bool {
-    matches!(a.primary, Source::Direct(_)) || drawn
+/// Whether the frame changed anything a commit must carry: a direct frame always does (a new buffer), a composed frame only when it changes
+/// something (`frames`: the page on the screen holds one that does not).
+pub fn needs_commit(a: &Assignment, changed: bool) -> bool {
+    matches!(a.primary, Source::Direct(_)) || changed
 }
 
 #[cfg(test)]

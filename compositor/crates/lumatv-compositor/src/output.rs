@@ -87,6 +87,8 @@ pub struct RenderStats {
     /// The UI engine's draw calls and layers in the frame (`FrameCost`): what a Home under an app costs shows here.
     pub ui_draws: u32,
     pub ui_layers: u32,
+    /// The frame changed nothing and composed nothing: the screen holds it already (`kms::frames`). It is no frame drawn.
+    pub unchanged: bool,
 }
 
 pub trait Output {

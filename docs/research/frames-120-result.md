@@ -4,6 +4,31 @@
 
 On forge main (round 24's engine work):
 
+- **Session 10's gate, flips of the same picture** (a559ccb3 on the set, 120 Hz, `/data/home/tmp/lumatv-tv-20261105d/gate/`: home-dpad 1 burst interval over
+  20 ms, quick 1 dropped and 2, settings-scroll 3 and 2, home-widgets 0 and 6). `tests/host_budget.py` now reads each window's burst as `analyse.py` does (kept
+  frames are no flips) and has the gate's `home-dpad` walk; on the owner's theme and layout the base build has the intervals where the set had them: home-dpad
+  +1683 ms in the walk along the status bar (set +1692), settings-scroll +566 (set +566), quick at the slide's end, home-widgets at the walk's end.
+  - **The cause.** Each was a commit that changed nothing, 2 to 6 refreshes after a motion's last frame: Home applied again for the focus's rest (60 ms after a
+    key) or an edge key, a lift's slot freed at its rest pose, the floor brought up to date, a redraw after work between frames that changed nothing shown,
+    the glass's still step. The compositor composed what its page owed and flipped the same picture. Not the loop's sleep (a key keeps the tick at the panel's
+    rate for 3 s, the shell's commit wakes the loop and is drawn at once on a still screen) and not the calm copy (a frame with a motion after it never
+    copies); the set's first frames after a key were 2.4-12.6 ms on the four surfaces with keys.
+  - **A frame that changes nothing composes nothing** (`kms::frames`): no window damage, no change in either stack, no motion after it or after the frame
+    before, no flip in flight or frame waiting, no capture, the screen on the page composed last. The engine's frame is ended and answered at once and it is
+    no frame drawn. `LUMATV_KEEP_UNCHANGED=0` (`surface-manager.env`) draws and flips it as before; the host's own pages do the same (`FrameCost::kept`).
+  - **Settings lifts its focused row at once** when it is made or comes back, as a panel does (`panels::stage`). The rail's first row lifted for 450 ms after
+    the sheet was up, and the walk's next key came 34 ms after its end.
+  - Host, burst intervals over a refresh and a fifth, base / this build / this build with `LUMATV_KEEP_UNCHANGED=0`: home-dpad 1 / 0 / 0, home-widgets 4 / 0 / 2,
+    quick 2 / 0 / 2, settings-scroll 3 / 0 / 2. Every frame is the frame drawn whole (`--reference`); 151 frames of the four walks are kept. Frames over 80
+    layers: home-widgets 18 (the dock's steps, unchanged, and the set's own count there is 0); home-dpad's 106-layer floor update is kept now. Idle Home
+    (`idle`, cloud) is 24.2 frames a second either way, none kept: each moves the sky or the wallpaper.
+  - Not placed by the host: quick's 1 dropped and settings-scroll's 3 (the compositor's count of flips over 20 ms after a frame of a motion).
+  - **TV re-gate**: install main at this commit or later (session 10's chain, hashes in the handoff); pop-ups off, `gate.sh refresh 120`, the panel at
+    119.9 Hz; `docs/research/perf/gate.py --surfaces S --input-key 241 --cycles 3 --refresh 120` for home-idle, home-dpad, quick, settings-scroll and
+    home-widgets in turn. Pass: burst_over20 0 on all five, dropped 0 on home-dpad and home-widgets and no more than 1 and 3 on quick and settings-scroll,
+    first_frame_ms 15 or less. A surface that reads worse runs once more with `LUMATV_KEEP_UNCHANGED=0`. By eye: Settings opens with its rail row lit; after a
+    walk on Home the dims, the dock tile's name and the clock's second still come.
+
 - **Session 7's gate, Settings and Home's cost to the shell's thread** (host numbers on the owner's theme and layout, `tests/host_budget.py --owner`, 120 Hz, the
   least of three runs; nothing of this was run on the set). Most of a Settings frame was the shell's thread, not the rows:
   - **Home was applied again at every event.** Each key, tick and answer of the helper draws every surface again (`Shell::after`), and Home's cards' contents

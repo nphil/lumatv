@@ -711,6 +711,8 @@ impl State {
         });
         if !plan.damage.is_empty() || ui_changed {
             match output.render(plan, surfaces) {
+                // (the UI's commit changed nothing: answered, and nothing drawn: `kms::frames`)
+                Ok(st) if st.unchanged => {}
                 Ok(st) => {
                     drew = true;
                     scene.transitions.drawn(st.posed_waiting == 0);

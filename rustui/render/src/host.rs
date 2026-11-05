@@ -138,6 +138,9 @@ pub struct FrameCost {
     pub finish_us: u32,
     /// How many scopes of the context's state the engine's calls took in the frame (each is some eighty calls into the driver).
     pub scopes: u32,
+    /// The frame changed nothing and nothing moves: the host's own pages kept the one on the screen, none was drawn or turned, as the
+    /// compositor composes and flips nothing for such a frame (`kms::frames`).
+    pub kept: bool,
 }
 
 /// What reading the app's requests did.
@@ -232,6 +235,10 @@ struct External {
     /// between frames is `kms`'s.
     last_frame_ns: Option<u64>,
     period_ns: u64,
+    /// Whether a motion ran after the frame drawn last: the frame after one is drawn whatever it changes, as the compositor's is
+    /// (`kms::frames`). `keep`: a frame that changes nothing keeps the page on the screen (`LUMATV_KEEP_UNCHANGED=0`: it is drawn, as before).
+    moving: bool,
+    keep: bool,
     /// The host's pages also copy what they owe in a calm frame of ambient motion (`AMBIENT_COPY_REFRESHES`), as the compositor's do
     /// (`LUMATV_AMBIENT_COPY=0`: they draw all they owe in it, as before).
     ambient_copy: bool,
@@ -672,6 +679,8 @@ impl Engine {
                     ring: (!config.external).then(|| Ring::new(config.pages.max(1), config.width, config.height)),
                     last_page: None,
                     last_frame_ns: None,
+                    moving: false,
+                    keep: std::env::var("LUMATV_KEEP_UNCHANGED").as_deref() != Ok("0"),
                     period_ns: (1e9 / f64::from(config.refresh_hz)) as u64,
                     ambient_copy: std::env::var("LUMATV_AMBIENT_COPY").as_deref() != Ok("0"),
                     page_copy: std::env::var("LUMATV_PAGE_COPY").as_deref() != Ok("0"),
@@ -1084,8 +1093,6 @@ impl Engine {
         if self.plan(now_ns).is_err() {
             return FrameCost::default();
         }
-        let page = self.next_page;
-        self.next_page = (page + 1) % self.pages.len();
         let (width, height) = self.window;
         let mut changed = TileSet::new(width, height);
         for stack in 0..2 {
@@ -1093,6 +1100,31 @@ impl Engine {
                 changed.union(set);
             }
         }
+        // As the compositor does: a frame that changes nothing, with nothing moving after it or after the frame before, keeps the page on
+        // the screen (`kms::frames`).
+        let moving = matches!(self.scene.demand(), Demand::EveryRefresh);
+        let was_moving = self.external.as_mut().is_some_and(|external| std::mem::replace(&mut external.moving, moving));
+        let on_screen = self.external.as_ref().filter(|external| external.keep).and_then(|external| external.last_page);
+        if let Some(shown) = on_screen.filter(|_| changed.is_empty() && !moving && !was_moving) {
+            if let (Some(reference), Some(external)) = (self.reference, self.external.as_mut())
+                && let Some(planned) = external.planned.as_mut()
+            {
+                let surface = Surface { stack: 0, from: 0, to: self.drawn.len(), transparent: false };
+                self.renderer.draw_planned(planned, &Draw { surface, slot: None, target: reference.framebuffer, areas: None, clear: true });
+            }
+            let mut cost = self.finish().unwrap_or_default();
+            if let Some(reference) = self.reference {
+                self.mismatch = self.compare(&self.pages[shown], &reference);
+                cost.mismatch_px = self.mismatch.map_or(0, |m| m.pixels);
+            }
+            cost.kept = true;
+            if !self.external.as_ref().is_some_and(|external| external.scope) {
+                cost.cpu_us = began.elapsed().as_micros() as u32;
+            }
+            return cost;
+        }
+        let page = self.next_page;
+        self.next_page = (page + 1) % self.pages.len();
         let mut owed = TileSet::new(width, height);
         let mut last = None;
         // As the compositor does: the pages copy what they owe only while something is over Home (`kms::frames`).
@@ -1193,6 +1225,7 @@ impl Engine {
             step_us: spent.step.as_micros() as u32,
             finish_us: spent.finish.as_micros() as u32,
             scopes: spent.scopes,
+            kept: false,
         }
     }
 
