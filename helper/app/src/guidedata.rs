@@ -756,6 +756,8 @@ impl Plugin {
         }
         let now = now_ms() as i64;
         if self.guide.due().is_some_and(|due| due <= now) {
+            // a week of a source took 25 to 60 s on the set: the page says so first, not what it said before the settings changed
+            self.publish();
             let net = (self.net)(self.guide.settings());
             if self.guide.refresh(&*net, now) {
                 crate::log_info!(
@@ -956,6 +958,20 @@ mod tests {
         }
     }
 
+    /// The free listings, noting the page's status as each request goes out.
+    struct Watched(Arc<Hub>, Arc<parking_lot::Mutex<Vec<Json>>>);
+
+    impl Http for Watched {
+        fn send(&self, r: &Request<'_>) -> Result<Response, NetError> {
+            let facts = self
+                .0
+                .get(&format!("plugin.{ID}.facts"))
+                .unwrap_or_default();
+            self.1.lock().push(facts["facts"]["status"].clone());
+            Site.send(r)
+        }
+    }
+
     /// The free listings site, for 2.1 only: an hour-long show at the start of every grid it is asked for.
     struct Site;
 
@@ -1034,7 +1050,11 @@ mod tests {
         let ctx = ctx(dir.path());
         let plugins = Plugins::new(&ctx);
         let data = Arc::new(GuideData::default());
-        let net: MakeNet = Arc::new(|_: &Settings| Arc::new(Site) as Arc<dyn Http>);
+        let said = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let (hub, heard) = (ctx.hub.clone(), said.clone());
+        let net: MakeNet = Arc::new(move |_: &Settings| {
+            Arc::new(Watched(hub.clone(), heard.clone())) as Arc<dyn Http>
+        });
         let threads = [
             plugins.spawn(&ctx).unwrap(),
             spawn_with(
@@ -1060,6 +1080,11 @@ mod tests {
         soon("the listings", || {
             data.listings().is_some_and(|l| l.channels() == 1)
         });
+        assert_eq!(
+            said.lock().first(),
+            Some(&json!("Fetching the listings")),
+            "the page says it fetches before the first request, not the unset source's words"
+        );
         soon("the page says so", || {
             facts(&ctx)["status"] == "1 of 2 channels have online listings"
         });
