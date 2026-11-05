@@ -202,11 +202,20 @@ HOME_LAUNCH_PARAMS='{"id":"com.webos.app.home"}'
 
 # LG's Home retired behind a stub (see "Home stub" below). The stub is a web app
 # with LG's Home's id and category, bound over LG's app directory; the Home
-# assets bind stays where it is, under it.
+# assets bind stays where it is, under it. A native kind of it (homestub/homestub.c,
+# a program of 13 KB: docs/research/boot-direct.md, "A native stub") has a source and
+# a stage directory of its own, so which of the two is over LG's directory is read from
+# the mount, and HS_KIND only says which one the next placement puts in.
 HOME_APP_ID=com.webos.app.home
 HOME_APP_DIR=/usr/palm/applications/$HOME_APP_ID
 STUB_SRC="$APPDIR/payload/homestub"
 STUB_STAGE="$STATE/homestub"
+STUB_NATIVE_SRC="$APPDIR/payload/homestub-native"
+STUB_NATIVE_BIN="$APPDIR/payload/homestub-native/lumatv-homestub"
+STUB_NATIVE_STAGE="$STATE/homestub-native"
+# The program's name in the stage directory and in the process table (a process name is 15 characters at most, and this is 15).
+STUB_NATIVE_COMM=lumatv-homestub
+HS_KIND="$STATE/homestub-kind"
 # tmpfs, so a reboot clears every one of them. The first three are the contract
 # with LumaHome (payload/compositor/lumatv): it rewrites the beat once a second,
 # reads the mode, and the Home key's 650 ms hold writes the request.
@@ -400,8 +409,8 @@ relaunch_home() {
   while [ "$i" -lt 3 ]; do
     [ "${LUMA_BOOT:-0}" = "1" ] || luna-send -n 1 "$SCREEN_ON_URI" '{}' >/dev/null 2>&1
     # A web Home (the stub) launched into a WebAppMgr that is about to close goes
-    # with it, so the launch waits for the new one.
-    if hs_mounted_ours && wait_wam_restart; then sleep 1; fi
+    # with it, so the launch waits for the new one. A native stub has none to wait for.
+    if [ "$(hs_kind_mounted)" = web ] && wait_wam_restart; then sleep 1; fi
     luna-send -n 1 "$HOME_LAUNCH_URI" "$HOME_LAUNCH_PARAMS" >/dev/null 2>&1
     if wait_presenting; then
       log_line "home on panel after $i relaunch attempt(s)"
@@ -964,21 +973,70 @@ hs_mounted_any() {
   grep -qF " $HOME_APP_DIR " /proc/self/mountinfo 2>/dev/null
 }
 
-hs_mounted_ours() {
-  # Same device and inode as the staged copy.
-  [ -d "$STUB_STAGE" ] || return 1
+hs_stage_dir() {
+  # $1 = web | native: where that kind's stub is staged.
+  case "$1" in native) printf '%s' "$STUB_NATIVE_STAGE" ;; *) printf '%s' "$STUB_STAGE" ;; esac
+}
+
+hs_kind_mounted() {
+  # Which stub is over LG's Home directory, web or native, by the device and inode of its staged copy; nothing, and status 1, when neither is.
+  # The mount is the only truth: the setting says what the next placement wants, and a placement can fail half way.
   hs_id=$(stat -c %d:%i "$HOME_APP_DIR" 2>/dev/null)
-  [ -n "$hs_id" ] && [ "$hs_id" = "$(stat -c %d:%i "$STUB_STAGE" 2>/dev/null)" ]
+  [ -n "$hs_id" ] || return 1
+  for hs_k in web native; do
+    hs_sd=$(hs_stage_dir "$hs_k")
+    if [ -d "$hs_sd" ] && [ "$hs_id" = "$(stat -c %d:%i "$hs_sd" 2>/dev/null)" ]; then
+      printf '%s' "$hs_k"
+      return 0
+    fi
+  done
+  return 1
+}
+
+hs_mounted_ours() {
+  hs_kind_mounted >/dev/null
 }
 
 hs_stub_in_front() { hs_mounted_ours && home_in_front; }
 
 hs_open_home() { luna-send -n 1 "$HOME_LAUNCH_URI" "$HOME_LAUNCH_PARAMS" >/dev/null 2>&1; }
 
+hs_kind_setting() {
+  # What the setting file says: native, or web (also when there is no file, or it says anything else).
+  hs_kl=
+  { read -r hs_kl < "$HS_KIND"; } 2>/dev/null
+  if [ "$hs_kl" = native ]; then printf native; else printf web; fi
+}
+
+hs_kind_wanted() {
+  # The kind the next placement puts in: native only where the setting says so and this install has its manifest and program.
+  if [ "$(hs_kind_setting)" = native ] && [ -x "$STUB_NATIVE_BIN" ] && [ -f "$STUB_NATIVE_SRC/appinfo.json" ]; then
+    printf native
+  else
+    printf web
+  fi
+}
+
+hs_kind_set() {
+  # $1 = web | native. Web is the absence of the file: the default is nothing to carry.
+  if [ "$1" = native ]; then
+    printf 'native\n' > "$HS_KIND.tmp" 2>/dev/null && mv -f "$HS_KIND.tmp" "$HS_KIND" 2>/dev/null
+  else
+    rm -f "$HS_KIND" "$HS_KIND.tmp"
+  fi
+}
+
 hs_stage() {
-  # Copied in place, so a mounted stub follows an update. HS_STAGED says the
-  # manifest changed, which SAM only learns of by reading the app again.
+  # $1 = web | native. Copied in place, so a mounted stub follows an update. HS_STAGED says that something changed which is only learned
+  # by asking again: the manifest, which SAM reads when it is made to, and a native stub's program, which a running copy keeps until it ends.
   HS_STAGED=0
+  case "${1:-web}" in
+    native) hs_stage_native ;;
+    *) hs_stage_web ;;
+  esac
+}
+
+hs_stage_web() {
   for hs_f in appinfo.json index.html icon.png; do
     [ -f "$STUB_SRC/$hs_f" ] || return 1
   done
@@ -990,6 +1048,58 @@ hs_stage() {
     fi
   done
   return 0
+}
+
+hs_stage_native() {
+  # The icon is the web stub's: one file, not two copies of it in the package.
+  [ -x "$STUB_NATIVE_BIN" ] && [ -f "$STUB_NATIVE_SRC/appinfo.json" ] && [ -f "$STUB_SRC/icon.png" ] || return 1
+  mkdir -p "$STUB_NATIVE_STAGE" 2>/dev/null || return 1
+  if ! cmp -s "$STUB_NATIVE_SRC/appinfo.json" "$STUB_NATIVE_STAGE/appinfo.json" 2>/dev/null; then
+    cp -f "$STUB_NATIVE_SRC/appinfo.json" "$STUB_NATIVE_STAGE/appinfo.json" 2>/dev/null || return 1
+    HS_STAGED=1
+  fi
+  cmp -s "$STUB_SRC/icon.png" "$STUB_NATIVE_STAGE/icon.png" 2>/dev/null \
+    || cp -f "$STUB_SRC/icon.png" "$STUB_NATIVE_STAGE/icon.png" 2>/dev/null || return 1
+  if ! cmp -s "$STUB_NATIVE_BIN" "$STUB_NATIVE_STAGE/$STUB_NATIVE_COMM" 2>/dev/null; then
+    # A program that runs cannot be written to (ETXTBSY): the new one is renamed over it, and the running one keeps its inode until it ends.
+    if ! { cp -f "$STUB_NATIVE_BIN" "$STUB_NATIVE_STAGE/$STUB_NATIVE_COMM.new" 2>/dev/null \
+           && chmod 755 "$STUB_NATIVE_STAGE/$STUB_NATIVE_COMM.new" 2>/dev/null \
+           && mv -f "$STUB_NATIVE_STAGE/$STUB_NATIVE_COMM.new" "$STUB_NATIVE_STAGE/$STUB_NATIVE_COMM" 2>/dev/null; }; then
+      rm -f "$STUB_NATIVE_STAGE/$STUB_NATIVE_COMM.new"
+      return 1
+    fi
+    HS_STAGED=1
+  fi
+  return 0
+}
+
+hs_native_stop() {
+  # The native stub's process ended with the signal SAM ends a native app with, and SAM's list waited on, so that the launch that follows is
+  # not taken for a relaunch of an app it still lists. 1 when the process outlives a second, harder signal.
+  pkill -x "$STUB_NATIVE_COMM" >/dev/null 2>&1
+  hs_ns=0
+  while pgrep -x "$STUB_NATIVE_COMM" >/dev/null 2>&1 && [ "$hs_ns" -lt 6 ]; do
+    sleep 0.5; hs_ns=$((hs_ns+1))
+  done
+  if pgrep -x "$STUB_NATIVE_COMM" >/dev/null 2>&1; then
+    pkill -9 -x "$STUB_NATIVE_COMM" >/dev/null 2>&1
+    sleep 0.5
+    ! pgrep -x "$STUB_NATIVE_COMM" >/dev/null 2>&1 || return 1
+  fi
+  hs_ns=0
+  while home_running && [ "$hs_ns" -lt 6 ]; do
+    sleep 0.5; hs_ns=$((hs_ns+1))
+  done
+  return 0
+}
+
+hs_stop_instance() {
+  # $1 = web | native: the stub's running instance. SAM keeps it when the type changes under it, so it is ended where it lives: a web stub's
+  # page through WebAppMgr (closeByAppId only sends it to the background), a native stub's program with a signal.
+  case "$1" in
+    web) luna-send -n 1 luna://com.palm.webappmanager/killApp "{\"appId\":\"$HOME_APP_ID\"}" >/dev/null 2>&1 ;;
+    native) hs_native_stop ;;
+  esac
 }
 
 hs_mode_set() {
@@ -1107,20 +1217,40 @@ hs_guard_exit() {
 homestub_up() {
   # LG's Home directory shows the stub, SAM knows it, and LG's own instance, if
   # one started first, is stopped. 0 = in place; anything else left LG's Home.
+  # The kind is the setting's (hs_kind_wanted: web unless native is set and installed). A stub of the other kind that is in is taken out
+  # first, SAM reads the new one once, and the old one's instance is ended after that.
   if hs_mounted_any && ! hs_mounted_ours; then
     log_line "homestub: something else is mounted on $HOME_APP_DIR, not stacking on it"
     return 2
   fi
-  hs_was=0; hs_mounted_ours && hs_was=1
-  hs_stage || { log_line "homestub: the stub's files are missing"; return 1; }
-  if ! hs_mounted_ours; then
+  hs_want=$(hs_kind_wanted)
+  if ! hs_stage "$hs_want"; then
+    if [ "$hs_want" = native ] && log_line "homestub: the native stub could not be staged, the web stub goes in" && hs_stage web; then
+      hs_want=web
+    else
+      log_line "homestub: the stub's files are missing"
+      return 1
+    fi
+  fi
+  hs_have=$(hs_kind_mounted)
+  hs_old=
+  if [ -n "$hs_have" ] && [ "$hs_have" != "$hs_want" ]; then
+    if ! hs_unmount; then
+      log_line "homestub: the $hs_have stub would not come out for the $hs_want one"
+      return 1
+    fi
+    hs_old=$hs_have; hs_have=
+  fi
+  hs_was=0; [ -n "$hs_have" ] && hs_was=1
+  if [ -z "$hs_have" ]; then
     # The assets bind goes first so that it sits under the stub, where LG's Home
     # looks once the stub is gone.
     if ! is_mounted "$STOCK_ASSETS" && [ -d "$ASSETS/i18n" ]; then
       mount --bind "$ASSETS" "$STOCK_ASSETS" >/dev/null 2>&1
     fi
-    if ! mount --bind "$STUB_STAGE" "$HOME_APP_DIR" >/dev/null 2>&1 || ! hs_mounted_ours; then
+    if ! mount --bind "$(hs_stage_dir "$hs_want")" "$HOME_APP_DIR" >/dev/null 2>&1 || ! hs_mounted_ours; then
       log_line "homestub: the bind on $HOME_APP_DIR failed"
+      if [ -n "$hs_old" ]; then homestub_drop legacy; hs_stop_instance "$hs_old"; fi
       return 1
     fi
   fi
@@ -1131,21 +1261,20 @@ homestub_up() {
   while [ -z "$hs_sam" ] && [ "$hs_wi" -lt "${HS_SAM_WAIT:-0}" ]; do
     sleep 1; hs_wi=$((hs_wi+1)); hs_sam=$(sam_home_type)
   done
-  if [ "$hs_sam" != web ] || { [ "$hs_was" = 1 ] && [ "$HS_STAGED" = 1 ]; }; then
-    if ! hs_sam_reread || ! hs_wait_type web; then
-      log_line "homestub: SAM did not take the stub as Home"
+  if [ "$hs_sam" != "$hs_want" ] || { [ "$hs_was" = 1 ] && [ "$HS_STAGED" = 1 ]; }; then
+    if ! hs_sam_reread || ! hs_wait_type "$hs_want"; then
+      log_line "homestub: SAM did not take the $hs_want stub as Home"
       homestub_drop legacy
+      [ -z "$hs_old" ] || hs_stop_instance "$hs_old"
       return 1
     fi
-    # The page that was already running has the old manifest; the next launch
-    # reads the new one.
-    if [ "$hs_sam" = web ]; then
-      luna-send -n 1 luna://com.palm.webappmanager/killApp "{\"appId\":\"$HOME_APP_ID\"}" >/dev/null 2>&1
-    fi
+    # The instance that was already running has the old manifest, or the old
+    # program; the next launch reads the new one.
+    case "$hs_sam" in web|native) hs_stop_instance "$hs_sam" ;; esac
   fi
   kill_home_app
   hs_mode_set stub
-  log_line "homestub: stub in place at uptime $(uptime_s) s"
+  log_line "homestub: $hs_want stub in place at uptime $(uptime_s) s"
   return 0
 }
 
@@ -1157,22 +1286,27 @@ homestub_drop() {
   [ "${HS_IN_GUARD:-0}" = 1 ] || hs_wd_stop
   rm -f "$HS_TRIAL" "$HS_ESCAPE" "$HS_CONFIRM"
   HS_DROPPED=0
-  if hs_mounted_ours; then
+  # Which kind was in is read before it comes out: afterwards the mount cannot say.
+  hs_dk=$(hs_kind_mounted)
+  if [ -n "$hs_dk" ]; then
     HS_DROPPED=1
     hs_unmount || log_line "homestub: the stub is only lazily unmounted"
   fi
-  if [ "$(sam_home_type)" = web ]; then
-    hs_sam_reread
-    hs_wait_type flutter || log_line "homestub: SAM still reports a web Home"
-  fi
+  case "$(sam_home_type)" in
+    web|native)
+      hs_sam_reread
+      hs_wait_type flutter || log_line "homestub: SAM still reports a stub Home" ;;
+  esac
   if ! is_mounted "$STOCK_ASSETS" && [ -d "$ASSETS/i18n" ]; then
     mount --bind "$ASSETS" "$STOCK_ASSETS" >/dev/null 2>&1
   fi
-  # The stub's page goes last. Where it was in front, SAM opens Home again about
-  # a second later, and now the app it opens is LG's.
+  # The stub's instance goes last. Where it was in front, SAM opens Home again
+  # about a second later, and now the app it opens is LG's.
   if [ "$HS_DROPPED" = 1 ]; then
-    luna-send -n 1 luna://com.palm.webappmanager/killApp "{\"appId\":\"$HOME_APP_ID\"}" >/dev/null 2>&1
+    hs_stop_instance "$hs_dk"
     log_line "homestub: LG's Home is back in its directory"
+  elif pgrep -x "$STUB_NATIVE_COMM" >/dev/null 2>&1; then
+    hs_native_stop
   fi
   hs_mode_set "$hs_next"
   return 0
@@ -1255,7 +1389,8 @@ homestub_json() {
     hs_dl=""; { read -r hs_tb hs_dl < "$HS_TRIAL"; } 2>/dev/null
     case "$hs_dl" in ''|*[!0-9]*) hs_left=$HS_TRIAL_SECS ;; *) hs_left=$((hs_dl - $(uptime_s))); [ "$hs_left" -gt 0 ] || hs_left=0 ;; esac
   fi
-  if [ "$hs_mo" = true ] && [ "$hs_st" = web ]; then
+  hs_kd=$(hs_kind_mounted); [ -n "$hs_kd" ] || hs_kd=none
+  if [ "$hs_mo" = true ] && [ "$hs_st" = "$hs_kd" ]; then
     if [ -f "$HS_TRIAL" ]; then hs_state=trial; else hs_state=stub; fi
   elif [ "$hs_cfg" = true ] || [ -f "$HS_TRIAL" ]; then
     hs_state=lg
@@ -1268,8 +1403,8 @@ homestub_json() {
     hs_age=$(( $(date +%s) - $(mtime_epoch "$HS_BEAT") ))
     [ "$hs_age" -le 3 ] && hs_bt=true
   fi
-  printf '{"config":%s,"state":"%s","mounted":%s,"sam":"%s","flutter":%s,"trialLeft":%s,"guard":%s,"beat":%s,"faults":%s}' \
-    "$hs_cfg" "$hs_state" "$hs_mo" "$hs_st" "$hs_fl" "$hs_left" "$hs_gd" "$hs_bt" "$(hs_strikes)"
+  printf '{"config":%s,"state":"%s","mounted":%s,"kind":"%s","sam":"%s","flutter":%s,"trialLeft":%s,"guard":%s,"beat":%s,"faults":%s}' \
+    "$hs_cfg" "$hs_state" "$hs_mo" "$hs_kd" "$hs_st" "$hs_fl" "$hs_left" "$hs_gd" "$hs_bt" "$(hs_strikes)"
 }
 
 # ------------------------------------------------------------------- The escape
@@ -1469,22 +1604,34 @@ bd_early_boot() {
 }
 
 bd_home_up() {
-  # After a compositor restart (or on a live one) with the stub in place. WebAppMgr restarts with the compositor and the stub is a web
-  # app, so SAM's own launch of Home (last_input_handler, about 1.5 s after the compositor is ready) can go into the old one: it is
-  # launched here once WebAppMgr answers, and looked for in SAM's list. A stub that never starts leaves the Home key with nothing to
-  # open, so LG's Home is given back (the caller says whether that is a fault).
+  # After a compositor restart (or on a live one) with the stub in place. A web stub is a WebAppMgr renderer, which restarts with the
+  # compositor, so SAM's own launch of Home (last_input_handler, about 1.5 s after the compositor is ready) can go into the old one: it is
+  # launched here once WebAppMgr answers, and looked for in SAM's list. A native stub has no WebAppMgr to wait for: it waits for the
+  # compositor's socket itself. A stub that never starts leaves the Home key with nothing to open: a native one is replaced by the web
+  # stub, and the setting goes back to web so that the next boot does not try it again; a web one by LG's Home (the caller says whether that
+  # is a fault). Both under the caller's lock, or none, as the give-up below always was.
+  bd_kind=$(hs_kind_mounted)
+  [ -n "$bd_kind" ] || bd_kind=web
   bd_i=0
   while [ "$bd_i" -lt "$BD_HOME_TRIES" ]; do
-    if wait_wam_restart; then sleep 1; fi
+    if [ "$bd_kind" = web ] && wait_wam_restart; then sleep 1; fi
     luna-send -n 1 "$HOME_LAUNCH_URI" "$HOME_LAUNCH_PARAMS" >/dev/null 2>&1
     bd_j=0
     while [ "$bd_j" -lt 8 ] && ! home_running; do sleep 1; bd_j=$((bd_j+1)); done
-    if home_running && [ "$(sam_home_type)" = web ]; then
-      log_line "boot-direct: Home (the stub) running at uptime $(uptime_s) s"
+    if home_running && [ "$(sam_home_type)" = "$bd_kind" ]; then
+      log_line "boot-direct: Home (the $bd_kind stub) running at uptime $(uptime_s) s"
       return 0
     fi
     bd_i=$((bd_i+1))
   done
+  if [ "$bd_kind" = native ]; then
+    log_line "boot-direct: the native stub did not start in $BD_HOME_TRIES tries, the web stub takes its place"
+    hs_kind_set web
+    if homestub_up; then
+      bd_home_up
+      return $?
+    fi
+  fi
   log_line "boot-direct: the stub did not start in $BD_HOME_TRIES tries, giving LG's Home back"
   homestub_drop legacy
   hs_open_home
@@ -1497,8 +1644,9 @@ bd_json() {
   bd_m=false; hs_mounted_ours && bd_m=true
   bd_fl=false; pgrep -f "$HOME_PKILL_PATTERN" >/dev/null 2>&1 && bd_fl=true
   bd_p=false; [ -f "$BD_PENDING" ] && bd_p=true
-  printf '{"flag":%s,"api":%s,"stub":%s,"sam":"%s","flutter":%s,"pending":%s,"strikes":%s}' \
-    "$bd_f" "$bd_a" "$bd_m" "$(sam_home_type)" "$bd_fl" "$bd_p" "$(bd_strikes)"
+  bd_k=$(hs_kind_mounted); [ -n "$bd_k" ] || bd_k=none
+  printf '{"flag":%s,"api":%s,"stub":%s,"kind":"%s","sam":"%s","flutter":%s,"pending":%s,"strikes":%s}' \
+    "$bd_f" "$bd_a" "$bd_m" "$bd_k" "$(sam_home_type)" "$bd_fl" "$bd_p" "$(bd_strikes)"
 }
 
 verb_boot_direct() {
@@ -1550,6 +1698,51 @@ verb_boot_direct() {
       hs_open_home
       bd_strike "the boot did not finish" ;;
     *) emit_error "boot-direct: on, off or status"; return 1 ;;
+  esac
+  return 0
+}
+
+# ----------------------------------------------------------------- The kind of stub
+#
+# `homestub-kind [status|web|native]` says which Home stub the next placement puts in: the web page (the default, the way back) or the
+# native program (docs/research/boot-direct.md, "A native stub"). It is a file of one word beside the boot-direct flag, so it holds across
+# boots; the stub itself is placed by boot-direct as ever. Where a stub of the other kind is in and LumaTV's compositor is live, the new one
+# goes in at once, and when it does not take the stub that was in comes back.
+
+hs_kind_json() {
+  hk_m=$(hs_kind_mounted); [ -n "$hk_m" ] || hk_m=none
+  hk_i=false; [ -x "$STUB_NATIVE_BIN" ] && [ -f "$STUB_NATIVE_SRC/appinfo.json" ] && hk_i=true
+  printf '{"setting":"%s","wanted":"%s","mounted":"%s","sam":"%s","nativeInstalled":%s}' \
+    "$(hs_kind_setting)" "$(hs_kind_wanted)" "$hk_m" "$(sam_home_type)" "$hk_i"
+}
+
+verb_stub_kind() {
+  case "${1:-status}" in
+    status) printf '{"ok":true,"homestubKind":%s}\n' "$(hs_kind_json)" ;;
+    web|native)
+      hk_new=$1
+      if [ "$hk_new" = native ] && { [ ! -x "$STUB_NATIVE_BIN" ] || [ ! -f "$STUB_NATIVE_SRC/appinfo.json" ]; }; then
+        emit_error "this install has no native stub (payload/homestub-native)"; return 1
+      fi
+      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
+      hk_old=$(hs_kind_setting)
+      hk_in=$(hs_kind_mounted)
+      hs_kind_set "$hk_new"
+      log_line "homestub-kind: $hk_new"
+      if [ -n "$hk_in" ] && [ "$hk_in" != "$hk_new" ] && comp_live && panel_is_active; then
+        if ! { homestub_up && bd_home_up && [ "$(hs_kind_mounted)" = "$hk_new" ]; }; then
+          # bd_home_up has put the web stub back itself where a native one did not start; anything else is put back here, and LG's Home
+          # is the last resort of a stub that cannot be put back either.
+          hs_kind_set "$hk_old"
+          if [ "$(hs_kind_mounted)" != "$hk_old" ] && ! { homestub_up && bd_home_up; }; then
+            homestub_drop legacy
+            hs_open_home
+          fi
+          emit_error "the $hk_new stub did not take; the $hk_old setting is back"; return 1
+        fi
+      fi
+      printf '{"ok":true,"homestubKind":%s}\n' "$(hs_kind_json)" ;;
+    *) emit_error "homestub-kind: status, web or native"; return 1 ;;
   esac
   return 0
 }
@@ -2453,13 +2646,22 @@ stock_ui_restore() {
   fi
   su_failed=0
   hs_wd_stop
-  if hs_mounted_ours; then
+  # Whichever stub is over LG's Home directory comes out, by the identity of its staged copy, and its instance ends where it lives.
+  su_kind=$(hs_kind_mounted)
+  if [ -n "$su_kind" ]; then
     hs_unmount || su_failed=1
     if ! hs_mounted_ours; then
       stock_ui_luna_ok luna://com.webos.applicationManager/blockSystemApp "{\"id\":\"$HOME_APP_ID\"}" || su_failed=1
       stock_ui_luna_ok luna://com.webos.applicationManager/releaseBlockSystemApp "{\"id\":\"$HOME_APP_ID\"}" || su_failed=1
-      stock_ui_luna_ok luna://com.palm.webappmanager/killApp "{\"appId\":\"$HOME_APP_ID\"}" || su_failed=1
+      if [ "$su_kind" = native ]; then
+        hs_native_stop || su_failed=1
+      else
+        stock_ui_luna_ok luna://com.palm.webappmanager/killApp "{\"appId\":\"$HOME_APP_ID\"}" || su_failed=1
+      fi
     fi
+  elif pgrep -x "$STUB_NATIVE_COMM" >/dev/null 2>&1; then
+    # a program that outlived its mount (an earlier restore that could not end it) would keep SAM from launching LG's Home
+    hs_native_stop || su_failed=1
   fi
   hs_mode_set lg
   # The stub is gone and nothing of a boot's stub is in doubt any more: a mark left would be counted against the next boot (bd_early_stub)
@@ -3165,6 +3367,8 @@ case "$VERB:${2:-}" in
   wake:status|wake:) MAINTENANCE_ACCESS=read ;;
   wake:off) MAINTENANCE_ACCESS=emergency ;;
   boot-direct:status|boot-direct:) MAINTENANCE_ACCESS=read ;;
+  homestub-kind:status|homestub-kind:) MAINTENANCE_ACCESS=read ;;
+  homestub-kind:web) MAINTENANCE_ACCESS=emergency ;;
   boot-direct:off|boot-direct:watch) MAINTENANCE_ACCESS=emergency ;;
   status:|surfaces:|version:|log:*|theme:get|theme:|layout:get|layout:|layout:check|compositor:check|stock-ui-restore:)
     MAINTENANCE_ACCESS=read ;;
@@ -3322,6 +3526,7 @@ case "$VERB" in
   compositor) verb_compositor "${2:-status}" "${3:-}"; exit $? ;;
   compositor-boot) if [ "${2:-}" = activate ]; then verb_compositor_boot_activate "${3:-}"; else verb_compositor_boot; fi; exit $? ;;
   boot-direct) verb_boot_direct "${2:-status}"; exit $? ;;
+  homestub-kind) verb_stub_kind "${2:-status}"; exit $? ;;
   standby) verb_standby "${2:-}"; exit $? ;;
   ntfy) verb_ntfy "${2:-}" "${3:-}"; exit $? ;;
   log) verb_log "${2:-}"; exit $? ;;

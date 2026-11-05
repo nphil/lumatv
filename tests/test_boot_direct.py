@@ -59,14 +59,17 @@ case "$uri" in
   *applicationManager/blockSystemApp) echo block >> "$FAKE/calls"; echo '{"returnValue":true}' ;;
   *applicationManager/releaseBlockSystemApp)
     echo release >> "$FAKE/calls"
-    # SAM reads the app directory again: the type is whatever is mounted there now
-    if [ -e "$FAKE/mounted" ]; then echo web > "$FAKE/sam_type"; else echo flutter > "$FAKE/sam_type"; fi
+    # SAM reads the app directory again: the type is the kind of stub that is mounted there now (its file says which, web when it says nothing)
+    if [ -e "$FAKE/mounted" ]; then kind=$(cat "$FAKE/mounted"); echo "${kind:-web}" > "$FAKE/sam_type"; else echo flutter > "$FAKE/sam_type"; fi
     echo '{"returnValue":true}' ;;
   *applicationManager/launch)
     echo launch >> "$FAKE/calls"
     n=$(cat "$FAKE/launches" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$FAKE/launches"
-    # LAUNCH_STARTS=N: the Nth launch is the one that starts Home; 0: none does
-    if [ "${LAUNCH_STARTS:-1}" -gt 0 ] && [ "$n" -ge "${LAUNCH_STARTS:-1}" ]; then touch "$FAKE/running"; fi
+    # LAUNCH_STARTS=N: the Nth launch is the one that starts Home; 0: none does. A native Home is a process of its own.
+    if [ "${LAUNCH_STARTS:-1}" -gt 0 ] && [ "$n" -ge "${LAUNCH_STARTS:-1}" ]; then
+      touch "$FAKE/running"
+      [ "$(cat "$FAKE/sam_type" 2>/dev/null)" = native ] && touch "$FAKE/native-proc"
+    fi
     echo '{"returnValue":true}' ;;
   *webappmanager/killApp) echo killApp >> "$FAKE/calls"; rm -f "$FAKE/running"; echo '{"returnValue":true}' ;;
   *webappmanager/listRunningApps) echo '{"returnValue":true}' ;;
@@ -75,10 +78,10 @@ exit 0
 '''
 
 FAKE_MOUNT = '''#!/bin/sh
-# `mount --bind SRC DST` on Home's directory; with no arguments the table, of the assets bind only.
+# `mount --bind SRC DST` on Home's directory; with no arguments the table, of the assets bind only. The kind of stub is what the mount holds.
 if [ "$1" = --bind ]; then
   echo "mount $2 $3" >> "$FAKE/calls"
-  case "$3" in "$HOME_APP_DIR") touch "$FAKE/mounted" ;; esac
+  case "$3" in "$HOME_APP_DIR") case "$2" in "$STUB_NATIVE_STAGE") echo native > "$FAKE/mounted" ;; *) echo web > "$FAKE/mounted" ;; esac ;; esac
   exit 0
 fi
 exit 0
@@ -91,21 +94,26 @@ exit 0
 '''
 
 FAKE_STAT = '''#!/bin/sh
-# The device and inode of the staged stub, which the app directory shows while the stub is mounted over it.
+# The device and inode of a staged stub, which the app directory shows while that stub is mounted over it: one for each kind.
 case "$3" in
-  "$HOME_APP_DIR") if [ -e "$FAKE/mounted" ]; then echo "9:77"; else echo "9:11"; fi ;;
+  "$HOME_APP_DIR") if [ -e "$FAKE/mounted" ]; then [ "$(cat "$FAKE/mounted")" = native ] && echo "9:78" || echo "9:77"; else echo "9:11"; fi ;;
   "$STUB_STAGE") echo "9:77" ;;
+  "$STUB_NATIVE_STAGE") echo "9:78" ;;
   *) exec /usr/bin/stat "$@" ;;
 esac
 '''
 
 FAKE_PKILL = '''#!/bin/sh
 echo "pkill $*" >> "$FAKE/calls"
-rm -f "$FAKE/flutter" "$FAKE/running"
+case "$*" in
+  *lumatv-homestub*) [ "${STUB_WONT_DIE:-0}" = 1 ] || rm -f "$FAKE/native-proc" "$FAKE/running" ;;
+  *) rm -f "$FAKE/flutter" "$FAKE/running" ;;
+esac
 exit 0
 '''
 
 FAKE_PGREP = '''#!/bin/sh
+case "$*" in *lumatv-homestub*) [ -e "$FAKE/native-proc" ]; exit $? ;; esac
 [ -e "$FAKE/flutter" ] && echo 812
 [ -e "$FAKE/flutter" ]
 '''
@@ -120,10 +128,15 @@ class BootDirectShell(unittest.TestCase):
         self.comp = self.state / "compositor"
         self.bin = self.tmp / "bin"
         self.app = self.tmp / "app"
-        for d in (self.comp, self.bin, self.app / "payload" / "homestub", self.tmp / "home", self.tmp / "assets" / "i18n"):
+        for d in (self.comp, self.bin, self.app / "payload" / "homestub", self.app / "payload" / "homestub-native", self.tmp / "home",
+                  self.tmp / "assets" / "i18n"):
             d.mkdir(parents=True)
         for name in ("appinfo.json", "index.html", "icon.png"):
             (self.app / "payload" / "homestub" / name).write_text(name)
+        (self.app / "payload" / "homestub-native" / "appinfo.json").write_text("native appinfo.json")
+        self.native_bin = self.app / "payload" / "homestub-native" / "lumatv-homestub"
+        self.native_bin.write_text("native program")
+        self.native_bin.chmod(0o755)
         self.calls = self.tmp / "calls"
         self.log = self.tmp / "log"
         for name, body in (("luna-send", FAKE_LUNA), ("mount", FAKE_MOUNT), ("umount", FAKE_UMOUNT), ("stat", FAKE_STAT),
@@ -148,12 +161,16 @@ class BootDirectShell(unittest.TestCase):
     def put(self, name, text=""):
         (self.tmp / name).write_text(text)
 
-    def sam(self, type_="flutter", running=False, front=False, flutter=False, mounted=False):
+    def sam(self, type_="flutter", running=False, front=False, flutter=False, mounted=False, native_proc=False):
+        """`mounted` is False, True (the web stub) or the kind that is over LG's Home directory."""
         self.put("sam_type", type_ + "\n")
-        for name, on in (("running", running), ("front", front), ("flutter", flutter), ("mounted", mounted)):
+        for name, on in (("running", running), ("front", front), ("flutter", flutter), ("mounted", mounted), ("native-proc", native_proc)):
             (self.tmp / name).unlink(missing_ok=True)
             if on:
-                self.put(name)
+                self.put(name, mounted if name == "mounted" and isinstance(mounted, str) else "")
+        if mounted:
+            # a stub that is mounted was staged: the stage directory is how the tool tells which one it is
+            (self.state / ("homestub-native" if mounted == "native" else "homestub")).mkdir(exist_ok=True)
 
     def called(self):
         return self.calls.read_text().split("\n")[:-1] if self.calls.exists() else []
@@ -166,10 +183,12 @@ class BootDirectShell(unittest.TestCase):
     def script(self, body, real_stub=False):
         names = ["bd_enabled", "bd_api", "bd_strikes", "bd_strike", "bd_finish", "bd_fail", "bd_abort", "bd_rec", "bd_now", "bd_worker_alive",
                  "bd_early_in_place", "bd_early_stub", "bd_early_undo", "bd_early_gone", "bd_early_boot", "bd_manual_stub", "bd_home_up", "bd_json", "verb_boot_direct",
-                 "escape_lapse", "home_running", "home_in_front", "sam_home_type", "json_escape", "emit_error", "hs_stub_in_front", "hs_open_home"]
+                 "escape_lapse", "home_running", "home_in_front", "sam_home_type", "json_escape", "emit_error", "hs_stub_in_front", "hs_open_home",
+                 "hs_stage_dir", "hs_kind_setting", "hs_kind_wanted", "hs_kind_set", "hs_kind_json", "verb_stub_kind"]
         if real_stub:
-            names += ["homestub_up", "homestub_drop", "hs_mounted_any", "hs_mounted_ours", "hs_stage", "hs_mode_set",
-                      "hs_sam_reread", "hs_wait_type", "hs_unmount", "hs_wd_alive", "hs_wd_stop", "kill_home_app", "is_mounted"]
+            names += ["homestub_up", "homestub_drop", "hs_mounted_any", "hs_mounted_ours", "hs_kind_mounted", "hs_stage", "hs_stage_web", "hs_stage_native",
+                      "hs_mode_set", "hs_sam_reread", "hs_wait_type", "hs_unmount", "hs_wd_alive", "hs_wd_stop", "hs_native_stop", "hs_stop_instance",
+                      "kill_home_app", "is_mounted"]
         fakes = '''
 sleep() { :; }
 uptime_s() { echo 42; }
@@ -184,11 +203,12 @@ bd_watch_start() { echo watch >> "$FAKE/calls"; }
         if not real_stub:
             fakes += '''
 hs_mounted_ours() { [ -e "$FAKE/mounted" ]; }
+hs_kind_mounted() { [ -e "$FAKE/mounted" ] || return 1; hk=$(cat "$FAKE/mounted"); printf '%s' "${hk:-web}"; }
 homestub_up() {
   echo homestub_up >> "$FAKE/calls"
   [ "${HS_UP:-ok}" = ok ] || return 1
-  # the real one stops LG's own instance (kill_home_app): what runs after it is what the launch starts
-  touch "$FAKE/mounted"; echo web > "$FAKE/sam_type"; rm -f "$FAKE/running" "$FAKE/flutter"
+  # the real one stops LG's own instance (kill_home_app): what runs after it is what the launch starts. The kind is the setting's.
+  hk=$(hs_kind_wanted); echo "$hk" > "$FAKE/mounted"; echo "$hk" > "$FAKE/sam_type"; rm -f "$FAKE/running" "$FAKE/flutter" "$FAKE/native-proc"
 }
 homestub_drop() { echo "homestub_drop $1" >> "$FAKE/calls"; rm -f "$FAKE/mounted"; echo flutter > "$FAKE/sam_type"; }
 '''
@@ -199,7 +219,9 @@ STATE="$FAKE/state"; COMP="$STATE/compositor"; APPDIR="$FAKE/app"; SHORT_ID=luma
 HOME_APP_DIR="$FAKE/home"; STUB_SRC="$APPDIR/payload/homestub"; STUB_STAGE="$STATE/homestub"; STOCK_ASSETS="$FAKE/assets/stock"
 ASSETS="$FAKE/assets"; HS_TRIAL="$FAKE/hs-trial"; HS_ESCAPE="$FAKE/hs-escape"; HS_CONFIRM="$FAKE/hs-confirm"
 HS_WD_PID="$FAKE/hs-guard"; HS_MODE="$FAKE/hs-mode"; HS_STAGED=0
-export HOME_APP_DIR STUB_STAGE
+STUB_NATIVE_SRC="$APPDIR/payload/homestub-native"; STUB_NATIVE_BIN="$STUB_NATIVE_SRC/lumatv-homestub"; STUB_NATIVE_STAGE="$STATE/homestub-native"
+STUB_NATIVE_COMM=lumatv-homestub; HS_KIND="$STATE/homestub-kind"
+export HOME_APP_DIR STUB_STAGE STUB_NATIVE_STAGE
 '''
         shared = constants("HOME_PKILL_PATTERN", "HOME_LAUNCH_URI", "HOME_LAUNCH_PARAMS", "HOME_APP_ID", "BD_FLAG", "BD_PENDING", "BD_STRIKES",
                            "BD_MAX_STRIKES", "BD_HOME_TRIES", "BD_WATCH_SECS", "BD_WATCH_MAX") + '\nBD_EARLY="$FAKE/early"\nBD_WORKER_MARK="$FAKE/worker"\nESCAPE_BOOT="$FAKE/escape-boot"'
@@ -533,12 +555,16 @@ export HOME_APP_DIR STUB_STAGE
         self.sam("web", running=True, mounted=True)
         (self.state / "boot-direct.strikes").write_text("1\n")
         data = self.verb("verb_boot_direct status")
-        self.assertEqual(data["bootDirect"], {"flag": True, "api": True, "stub": True, "sam": "web", "flutter": False,
+        self.assertEqual(data["bootDirect"], {"flag": True, "api": True, "stub": True, "kind": "web", "sam": "web", "flutter": False,
                                               "pending": False, "strikes": 1})
         self.assertEqual(self.called(), [])
         self.sam("flutter", running=True, flutter=True)
         data = self.verb("verb_boot_direct")
-        self.assertEqual((data["bootDirect"]["stub"], data["bootDirect"]["sam"], data["bootDirect"]["flutter"]), (False, "flutter", True))
+        self.assertEqual((data["bootDirect"]["stub"], data["bootDirect"]["kind"], data["bootDirect"]["sam"], data["bootDirect"]["flutter"]),
+                         (False, "none", "flutter", True))
+        self.sam("native", running=True, mounted="native")
+        data = self.verb("verb_boot_direct status")
+        self.assertEqual((data["bootDirect"]["stub"], data["bootDirect"]["kind"], data["bootDirect"]["sam"]), (True, "native", "native"))
 
     def test_a_word_it_does_not_know_is_an_error(self):
         data = self.verb("verb_boot_direct sideways", ok=False)
@@ -693,6 +719,251 @@ export HOME_APP_DIR STUB_STAGE
         self.assertTrue((self.tmp / "mounted").exists())
         self.assertLess(calls.index("mount %s %s" % (self.state / "homestub", self.tmp / "home")), calls.index("block"),
                         "the stub is bound at once, and SAM reads it once it answers")
+
+    # -------------------------------------------------------------------------------------- the native kind of stub
+    #
+    # docs/research/boot-direct.md, "A native stub": the same placement with a program in place of the page. Which kind is over LG's Home
+    # directory is read from the mount; the setting file says which one the next placement puts in.
+
+    def native(self, text="native\n"):
+        (self.state / "homestub-kind").write_text(text)
+
+    def sam_type(self):
+        return (self.tmp / "sam_type").read_text().strip()
+
+    def test_the_kind_is_web_unless_the_setting_says_native_and_the_install_has_the_program(self):
+        for text, expected in (("native\n", "native"), ("native", "native"), ("web\n", "web"), ("", "web"), ("Native\n", "web"),
+                               ("nativ\n", "web"), ("\nnative\n", "web"), ("native stub\n", "web")):
+            with self.subTest(text=text):
+                self.native(text)
+                self.assertEqual(self.sh("hs_kind_wanted").stdout, expected)
+        (self.state / "homestub-kind").unlink()
+        self.assertEqual(self.sh("hs_kind_wanted").stdout, "web", "no setting: the default")
+        self.native()
+        self.native_bin.chmod(0o644)
+        self.assertEqual(self.sh("hs_kind_wanted").stdout, "web", "a program that cannot run")
+        self.native_bin.chmod(0o755)
+        (self.app / "payload" / "homestub-native" / "appinfo.json").unlink()
+        self.assertEqual(self.sh("hs_kind_wanted").stdout, "web", "no manifest")
+        (self.app / "payload" / "homestub-native" / "appinfo.json").write_text("native appinfo.json")
+        self.native_bin.unlink()
+        self.assertEqual(self.sh("hs_kind_wanted").stdout, "web", "an install without the program")
+
+    def test_the_native_stub_is_staged_with_the_web_stubs_icon_and_a_program_that_is_renamed_into_place(self):
+        stage = self.state / "homestub-native"
+        result = self.sh('hs_stage native; echo "rc=$? staged=$HS_STAGED"', real_stub=True)
+        self.assertEqual(result.stdout.split()[-2:], ["rc=0", "staged=1"])
+        self.assertEqual((stage / "appinfo.json").read_text(), "native appinfo.json")
+        self.assertEqual((stage / "icon.png").read_text(), "icon.png", "the web stub's: one file in the package, not two")
+        self.assertEqual((stage / "lumatv-homestub").read_text(), "native program")
+        self.assertTrue(os.access(stage / "lumatv-homestub", os.X_OK))
+        self.assertFalse((stage / "lumatv-homestub.new").exists())
+        self.assertEqual(self.sh('hs_stage native; echo "staged=$HS_STAGED"', real_stub=True).stdout.split()[-1], "staged=0", "nothing changed")
+        # a new program: the running one is not written to (a program cannot be, while it runs), the new one is renamed over it
+        inode = (stage / "lumatv-homestub").stat().st_ino
+        self.native_bin.write_text("a newer program")
+        self.assertEqual(self.sh('hs_stage native; echo "staged=$HS_STAGED"', real_stub=True).stdout.split()[-1], "staged=1", "a running copy has to be asked to go")
+        self.assertEqual((stage / "lumatv-homestub").read_text(), "a newer program")
+        self.assertNotEqual((stage / "lumatv-homestub").stat().st_ino, inode)
+        self.assertEqual(sorted(os.listdir(stage)), ["appinfo.json", "icon.png", "lumatv-homestub"])
+        self.native_bin.chmod(0o644)
+        self.assertNotEqual(self.sh("hs_stage native", real_stub=True).returncode, 0, "a program that cannot run is not staged")
+
+    def test_the_native_stub_goes_in_and_out_like_the_web_one(self):
+        self.flag()
+        self.native()
+        self.sam("flutter", running=True, front=True, flutter=True)
+        # in: LG's Flutter Home is stopped, SAM reads the native manifest, Home is launched, and the program is what SAM starts
+        self.assertEqual(self.sh("homestub_up && bd_home_up", real_stub=True, LAUNCH_STARTS="1").returncode, 0)
+        calls = self.called()
+        assets = "mount %s %s" % (self.tmp / "assets", self.tmp / "assets" / "stock")
+        stub = "mount %s %s" % (self.state / "homestub-native", self.tmp / "home")
+        kill = "pkill -f flutter-client -i com.webos.app.home"
+        self.assertLess(calls.index(assets), calls.index(stub), "the assets bind sits under the stub, whichever kind it is")
+        self.assertLess(calls.index(stub), calls.index("block"))
+        self.assertLess(calls.index("block"), calls.index("release"))
+        self.assertLess(calls.index("release"), calls.index(kill))
+        self.assertNotIn("wait_wam", calls, "a native stub has no WebAppMgr to wait for")
+        self.assertEqual(calls[-1], "launch")
+        self.assertEqual(self.sam_type(), "native")
+        self.assertTrue((self.tmp / "native-proc").exists())
+        status = self.verb("verb_boot_direct status")["bootDirect"]
+        self.assertEqual((status["stub"], status["kind"], status["sam"]), (True, "native", "native"))
+        # out, as the escape's recovery does it: SAM reads Flutter again, and then the stub's program is ended, not a page
+        self.calls.unlink()
+        self.assertEqual(self.sh("homestub_drop legacy; hs_open_home", real_stub=True).returncode, 0)
+        calls = self.called()
+        self.assertEqual(calls[0], "umount %s" % (self.tmp / "home"))
+        self.assertLess(calls.index("release"), calls.index("pkill -x lumatv-homestub"), "the type is back to Flutter before the program goes")
+        self.assertNotIn("killApp", calls)
+        self.assertEqual(calls[-1], "launch")
+        self.assertEqual(self.sam_type(), "flutter")
+        self.assertFalse((self.tmp / "mounted").exists() or (self.tmp / "native-proc").exists())
+
+    def test_a_stub_of_the_other_kind_is_taken_out_and_its_instance_ends_after_sam_has_read_the_new_one(self):
+        for was, want, ended in (("web", "native", "killApp"), ("native", "web", "pkill -x lumatv-homestub")):
+            with self.subTest(was=was, want=want):
+                self.calls.unlink(missing_ok=True)
+                self.flag()
+                if want == "native":
+                    self.native()
+                else:
+                    (self.state / "homestub-kind").unlink(missing_ok=True)
+                self.sam(was, running=True, front=True, mounted=was, native_proc=was == "native")
+                self.assertEqual(self.sh("homestub_up", real_stub=True).returncode, 0)
+                calls = self.called()
+                stage = "homestub-native" if want == "native" else "homestub"
+                self.assertEqual(calls[0], "umount %s" % (self.tmp / "home"), "the other kind comes out first")
+                self.assertLess(calls.index("mount %s %s" % (self.state / stage, self.tmp / "home")), calls.index("block"))
+                self.assertEqual((calls.count("block"), calls.count("release")), (1, 1), "SAM reads once, with the new stub in")
+                self.assertLess(calls.index("release"), calls.index(ended), "and the old instance goes after that")
+                self.assertEqual(self.sh("hs_kind_mounted", real_stub=True).stdout, want)
+                self.assertEqual(self.sam_type(), want)
+
+    def test_the_same_kind_again_changes_nothing_and_a_new_program_asks_the_running_one_to_go(self):
+        self.flag()
+        self.native()
+        self.sam("flutter", running=True, front=True, flutter=True)
+        self.sh("homestub_up && bd_home_up", real_stub=True, LAUNCH_STARTS="1")
+        self.calls.unlink()
+        self.sam("native", running=True, front=True, mounted="native", native_proc=True)
+        self.assertEqual(self.sh("homestub_up", real_stub=True).returncode, 0)
+        self.assertEqual([c for c in self.called() if c.startswith(("mount", "umount", "block", "pkill -x"))], [], "nothing is mounted twice or ended")
+        self.native_bin.write_text("a newer program")
+        self.assertEqual(self.sh("homestub_up", real_stub=True).returncode, 0)
+        calls = self.called()
+        self.assertIn("pkill -x lumatv-homestub", calls, "the running copy keeps the old program until it ends")
+        self.assertFalse(any(c.startswith("mount ") for c in calls))
+
+    def test_a_native_stub_whose_files_cannot_be_staged_is_the_web_stub(self):
+        self.flag()
+        self.native()
+        (self.state / "homestub-native").write_text("a file where the stage directory should be")
+        self.sam("flutter", running=True, front=True, flutter=True)
+        self.assertEqual(self.sh("homestub_up", real_stub=True).returncode, 0)
+        self.assertEqual(self.sam_type(), "web")
+        self.assertIn("mount %s %s" % (self.state / "homestub", self.tmp / "home"), self.called())
+        self.assertIn("could not be staged", self.logged())
+
+    def test_a_native_stub_that_never_starts_is_replaced_by_the_web_stub_and_the_setting_goes_back(self):
+        self.flag()
+        self.native()
+        self.sam("flutter", running=True, front=True, flutter=True)
+        self.assertEqual(self.sh("homestub_up", real_stub=True).returncode, 0)
+        self.calls.unlink()
+        # the fourth launch is the first that starts anything: three of the native stub's, none of them waiting for WebAppMgr, then the web stub's
+        self.assertEqual(self.sh("bd_home_up", real_stub=True, LAUNCH_STARTS="4").returncode, 0)
+        calls = self.called()
+        self.assertEqual(calls[:3], ["launch"] * 3)
+        self.assertLess(calls.index("umount %s" % (self.tmp / "home")), calls.index("mount %s %s" % (self.state / "homestub", self.tmp / "home")))
+        self.assertLess(calls.index("release"), calls.index("pkill -x lumatv-homestub"), "the native program that did not take is ended")
+        self.assertEqual(calls[-2:], ["wait_wam", "launch"], "the web stub waits for WebAppMgr as ever")
+        self.assertEqual(self.sam_type(), "web")
+        self.assertFalse(self.has("homestub-kind"), "the next boot does not try the native stub again")
+        self.assertIn("the web stub takes its place", self.logged())
+
+    def test_when_neither_kind_starts_lgs_home_is_given_back(self):
+        self.flag()
+        self.native()
+        self.sam("flutter", running=True, front=True, flutter=True)
+        self.sh("homestub_up", real_stub=True)
+        self.calls.unlink()
+        self.assertEqual(self.sh("bd_home_up", real_stub=True, LAUNCH_STARTS="0").returncode, 1)
+        calls = self.called()
+        self.assertEqual(calls.count("launch"), 3 + 3 + 1, "three of each kind's, and LG's own")
+        self.assertEqual(calls[-1], "launch")
+        self.assertEqual(self.sam_type(), "flutter")
+        self.assertFalse((self.tmp / "mounted").exists() or (self.tmp / "native-proc").exists())
+        self.assertFalse(self.has("homestub-kind"))
+
+    # the verb: homestub-kind
+
+    def test_homestub_kind_status_says_what_is_set_wanted_and_in_place(self):
+        data = self.verb("verb_stub_kind status")["homestubKind"]
+        self.assertEqual(data, {"setting": "web", "wanted": "web", "mounted": "none", "sam": "flutter", "nativeInstalled": True})
+        self.native()
+        self.sam("native", running=True, mounted="native")
+        data = self.verb("verb_stub_kind")["homestubKind"]
+        self.assertEqual(data, {"setting": "native", "wanted": "native", "mounted": "native", "sam": "native", "nativeInstalled": True})
+        self.native_bin.unlink()
+        data = self.verb("verb_stub_kind")["homestubKind"]
+        self.assertEqual((data["setting"], data["wanted"], data["nativeInstalled"]), ("native", "web", False))
+        self.assertEqual(self.called(), [])
+
+    def test_homestub_kind_native_needs_the_program_and_with_no_stub_in_only_writes_the_setting(self):
+        self.native_bin.unlink()
+        data = self.verb("verb_stub_kind native", ok=False)
+        self.assertIn("no native stub", data["error"])
+        self.assertFalse(self.has("homestub-kind"))
+        self.native_bin.write_text("native program")
+        self.native_bin.chmod(0o755)
+        data = self.verb("verb_stub_kind native")
+        self.assertEqual((self.state / "homestub-kind").read_text(), "native\n")
+        self.assertEqual((data["homestubKind"]["setting"], data["homestubKind"]["mounted"]), ("native", "none"))
+        self.assertEqual(self.called(), [], "no stub is in: the next placement is the one that changes")
+        data = self.verb("verb_stub_kind web")
+        self.assertFalse(self.has("homestub-kind"), "web is the absence of the file")
+        self.assertEqual(data["homestubKind"]["setting"], "web")
+
+    def test_homestub_kind_swaps_a_stub_that_is_in_on_a_live_compositor(self):
+        self.flag()
+        self.sam("web", running=True, front=True, mounted="web")
+        data = self.verb("verb_stub_kind native", LIVE="yes", LAUNCH_STARTS="1")
+        self.assertEqual(self.called(), ["homestub_up", "launch"], "native: nothing to wait for")
+        self.assertEqual((data["homestubKind"]["mounted"], data["homestubKind"]["sam"]), ("native", "native"))
+        self.calls.unlink()
+        self.sam("native", running=True, front=True, mounted="native", native_proc=True)
+        data = self.verb("verb_stub_kind web", LIVE="yes", LAUNCH_STARTS="1")
+        self.assertEqual(self.called(), ["homestub_up", "wait_wam", "launch"])
+        self.assertEqual(data["homestubKind"]["mounted"], "web")
+        self.assertFalse(self.has("homestub-kind"))
+
+    def test_homestub_kind_waits_for_a_live_compositor_with_the_panel_on(self):
+        self.flag()
+        for env in ({"LIVE": "no"}, {"LIVE": "yes", "PANEL": "standby"}):
+            with self.subTest(env=env):
+                self.sam("web", running=True, front=True, mounted="web")
+                data = self.verb("verb_stub_kind native", **env)
+                self.assertEqual(self.called(), [], "the stub that is in stays; the setting is for the next placement")
+                self.assertEqual((data["homestubKind"]["setting"], data["homestubKind"]["mounted"]), ("native", "web"))
+                (self.state / "homestub-kind").unlink()
+
+    def test_a_swap_that_does_not_take_puts_the_stub_that_was_in_back(self):
+        self.flag()
+        # the new stub cannot be put in: the old one was never taken out
+        self.sam("web", running=True, front=True, mounted="web")
+        data = self.verb("verb_stub_kind native", ok=False, LIVE="yes", HS_UP="no")
+        self.assertIn("did not take", data["error"])
+        self.assertFalse(self.has("homestub-kind"), "the setting is as it was")
+        self.assertEqual(self.called(), ["homestub_up"])
+        self.assertEqual(self.sh("hs_kind_mounted").stdout, "web")
+        # the native stub goes in and never starts: bd_home_up has put the web stub back and the setting with it
+        self.calls.unlink()
+        self.sam("web", running=True, front=True, mounted="web")
+        data = self.verb("verb_stub_kind native", ok=False, LIVE="yes", LAUNCH_STARTS="4")
+        self.assertIn("did not take", data["error"])
+        self.assertFalse(self.has("homestub-kind"))
+        self.assertEqual(self.called(), ["homestub_up"] + ["launch"] * 3 + ["homestub_up", "wait_wam", "launch"])
+        self.assertEqual(self.sh("hs_kind_mounted").stdout, "web")
+        self.assertEqual(self.sam_type(), "web")
+
+    def test_a_swap_that_cannot_even_put_the_old_stub_back_gives_lgs_home_back(self):
+        self.flag()
+        self.sam("web", running=True, front=True, mounted="web")
+        # whatever is put in never starts: the native stub, then the web one that replaces it, then the web one that is put back
+        data = self.verb("verb_stub_kind native", ok=False, LIVE="yes", LAUNCH_STARTS="0")
+        self.assertIn("did not take", data["error"])
+        calls = self.called()
+        self.assertEqual(calls[-2:], ["homestub_drop legacy", "hs_open_home"], "the last resort")
+        self.assertFalse(self.has("homestub-kind"))
+
+    def test_the_verb_is_dispatched_and_the_way_back_works_under_a_maintenance_veto(self):
+        self.assertIn('homestub-kind) verb_stub_kind "${2:-status}"; exit $? ;;', SOURCE)
+        self.assertIn("homestub-kind:status|homestub-kind:) MAINTENANCE_ACCESS=read ;;", SOURCE)
+        self.assertIn("homestub-kind:web) MAINTENANCE_ACCESS=emergency ;;", SOURCE)
+        self.assertNotIn("homestub-kind:native) MAINTENANCE_ACCESS", SOURCE, "native is a change like any other")
+        data = self.verb("verb_stub_kind sideways", ok=False)
+        self.assertIn("status, web or native", data["error"])
 
     # ------------------------------------------------------------------------------------------------------ the escape
     #

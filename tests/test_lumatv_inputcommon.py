@@ -36,6 +36,8 @@ class NativeInputCutover(unittest.TestCase):
 comp_mounted() { return 1; }
 hs_wd_stop() { :; }
 hs_mounted_ours() { return 1; }
+hs_kind_mounted() { :; }
+pgrep() { return 1; }
 hs_mode_set() { :; }
 webglass_apps() { :; }
 stock_ui_unmount_overlay() {
@@ -52,7 +54,7 @@ emit_error() { printf 'failed\\n'; }
                        KEYFILTER_HANDLER="handler", KEYFILTER_DIR=d, SHORT_ID="lumatv",
                        SYSTEMUI_TOOL="systemui", SYSTEMUI_STAGE=str(root / "systemui"),
                        QS_APP="quick", LOGO_BOOT_APP="boot", LOGO_OFF_APP="off",
-                       NOTI_STAGE=str(root / "noti"), NOTI_PERSIST=str(root / "persist"))
+                       NOTI_STAGE=str(root / "noti"), NOTI_PERSIST=str(root / "persist"), BD_PENDING=str(root / "pending"), STUB_NATIVE_COMM="lumatv-homestub")
             targets = [f"{base}/com.webos.app.{app}/qml"
                        for app in ("inputcommon", "voice")
                        for base in ("/usr/palm/applications", "/usr/share")]

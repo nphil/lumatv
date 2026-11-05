@@ -47,7 +47,7 @@ class StockUiRestore(unittest.TestCase):
         self.calls.write_text("")
         self.status = self.tmp / "status.json"
         self.status.write_text("{}")
-        for directory in ("stub", "home", "assets", "stock-assets"):
+        for directory in ("stub", "stubn", "home", "assets", "stock-assets"):
             (self.tmp / directory).mkdir()
         self.env_file = self.tmp / "surface.env"
         self.notification = self.tmp / "notification.json"
@@ -57,7 +57,16 @@ class StockUiRestore(unittest.TestCase):
         self.command("timeout", '#!/bin/sh\nshift\nexec "$@"\n')
         self.command("mount", '#!/bin/sh\necho mount >> "$FAKE/calls"\ntouch "$FAKE/supervisor-mounted"\n')
         self.command("sleep", "#!/bin/sh\nexit 0\n")
-        self.command("pgrep", "#!/bin/sh\nexit 0\n")
+        # the native stub's process is a file: `pkill -x` ends it unless the fixture says it will not die
+        self.command("pgrep", '''#!/bin/sh
+case "$*" in *-x*lumatv-homestub*) [ -e "$FAKE/native-proc" ]; exit $? ;; esac
+exit 0
+''')
+        self.command("pkill", '''#!/bin/sh
+echo "pkill $*" >> "$FAKE/calls"
+case "$*" in *lumatv-homestub*) [ "${STUB_WONT_DIE:-0}" = 1 ] || rm -f "$FAKE/native-proc" ;; esac
+exit 0
+''')
         self.command("systemctl", '#!/bin/sh\n[ "$1" != show ] || echo 42\nexit 0\n')
         self.command("umount", '''#!/usr/bin/env python3
 import os, pathlib, sys
@@ -88,8 +97,9 @@ if [ "$1" = -Lc ]; then
   exit 0
 fi
 case "$3" in
-  "$FAKE/home") [ -f "$FAKE/home-mounted" ] && { echo home-bind; exit; } ;;
+  "$FAKE/home") [ -f "$FAKE/home-mounted" ] && { [ "$(cat "$FAKE/home-mounted")" = native ] && echo native-bind || echo home-bind; exit; } ;;
   "$FAKE/stub") echo home-bind; exit ;;
+  "$FAKE/stubn") echo native-bind; exit ;;
   "$FAKE/stock-assets") [ -f "$FAKE/assets-mounted" ] && { echo asset-bind; exit; } ;;
   "$FAKE/assets") echo asset-bind; exit ;;
 esac
@@ -120,7 +130,7 @@ esac
 ''' % real_python)
         source = CLI.read_text()
         selected = "\n".join(function(source, name) for name in
-                             ("take_mutation_lock", "hs_mounted_ours", "hs_unmount",
+                             ("take_mutation_lock", "hs_stage_dir", "hs_kind_mounted", "hs_mounted_ours", "hs_unmount", "hs_native_stop", "home_running",
                               "stock_ui_unmount_overlay", "stock_ui_luna_ok", "stock_ui_restore_env",
                               "stock_ui_restore", "verb_stock_ui_restore", "clear_stock_running",
                               "verb_compositor", "bd_enabled", "bd_api", "bd_manual_stub"))
@@ -140,7 +150,8 @@ COMP_LOCK="$FAKE/recovery.lock"; WEBGLASS_STAGE="$STATE/webglass"
 SURFACE_SVC=surface-manager-daemon.service
 ASSETS="$FAKE/assets"; STOCK_ASSETS="$FAKE/stock-assets"
 ENV_FILE="$FAKE/surface.env"; SHADOW_ROOT="$STATE/shadow"
-STUB_STAGE="$FAKE/stub"; HOME_APP_DIR="$FAKE/home"; HOME_APP_ID=com.webos.app.home
+STUB_STAGE="$FAKE/stub"; STUB_NATIVE_STAGE="$FAKE/stubn"; STUB_NATIVE_COMM=lumatv-homestub
+HOME_APP_DIR="$FAKE/home"; HOME_APP_ID=com.webos.app.home
 KEYFILTER_TOOL="$FAKE/keyfilter.py"; KEYFILTER_HANDLER="$FAKE/handler.js"; KEYFILTER_DIR="$FAKE"; SHORT_ID=lumatv
 BD_FLAG="$STATE/boot-direct"; BD_PENDING="$STATE/boot-direct.pending"
 SYSTEMUI_TOOL="$FAKE/systemui.py"; SYSTEMUI_STAGE="$STATE/systemui"
@@ -252,6 +263,56 @@ emit_error() { printf '{"ok":false,"error":"%s"}\\n' "$1"; }
         calls = self.calls_list()
         self.assertEqual(calls.count("umount " + str(self.tmp / "home")), 1, "pressed twice, the stub is taken out once")
         self.assertIn("mode lg", calls)
+
+    def test_a_native_stub_is_dropped_by_its_identity_and_its_program_is_ended_not_a_page(self):
+        # what is over LG's Home directory is the native stub's staged copy: the unmount, SAM reading Flutter again, and then the stub's
+        # process, which SAM would otherwise keep for as long as the type changed under it. WebAppMgr has no page of it to kill.
+        (self.tmp / "home-mounted").write_text("native")
+        (self.tmp / "native-proc").touch()
+        result = self.restore()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout), {"ok": True})
+        calls = self.calls_list()
+        umount = calls.index("umount " + str(self.tmp / "home"))
+        block = next(i for i, c in enumerate(calls) if "blockSystemApp" in c and "releaseBlockSystemApp" not in c)
+        release = next(i for i, c in enumerate(calls) if "releaseBlockSystemApp" in c)
+        kill = calls.index("pkill -x lumatv-homestub")
+        self.assertLess(umount, block)
+        self.assertLess(block, release)
+        self.assertLess(release, kill, "SAM reads Flutter's manifest before the stub's program is ended")
+        self.assertFalse(any("killApp" in c for c in calls))
+        self.assertFalse((self.tmp / "native-proc").exists())
+        self.assertIn("mode lg", calls)
+
+    def test_a_native_stub_that_will_not_die_is_an_incomplete_restore_and_is_killed_harder(self):
+        (self.tmp / "home-mounted").write_text("native")
+        (self.tmp / "native-proc").touch()
+        result = self.restore(STUB_WONT_DIE="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(json.loads(result.stdout)["ok"])
+        self.assertIn("pkill -9 -x lumatv-homestub", self.calls_list())
+        self.assertIn("mode lg", self.calls_list(), "and the rest of the restore goes on")
+
+    def test_a_web_stub_is_ended_through_webappmanager_and_no_process_is_signalled(self):
+        (self.tmp / "home-mounted").write_text("web")
+        result = self.restore()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls_list()
+        self.assertTrue(any("killApp" in c for c in calls))
+        self.assertFalse(any(c.startswith("pkill") for c in calls))
+
+    def test_with_no_stub_over_lgs_home_nothing_is_ended_but_a_program_that_outlived_its_mount(self):
+        result = self.restore()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls_list()
+        self.assertFalse(any("killApp" in c or c.startswith("pkill") or c.startswith("umount " + str(self.tmp / "home")) for c in calls))
+        # a restore that unmounted the stub and could not end its program leaves one: the next restore ends it
+        self.calls.write_text("")
+        (self.tmp / "native-proc").touch()
+        result = self.restore()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("pkill -x lumatv-homestub", self.calls_list())
+        self.assertFalse((self.tmp / "native-proc").exists())
 
     def test_foreign_top_layer_blocks_owned_layer_and_foreign_settings_are_untouched(self):
         self.mount(INPUT, self.state / "inputcommon/upper")
