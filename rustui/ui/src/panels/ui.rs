@@ -40,6 +40,16 @@ pub enum Arrive {
     Container { from: [f32; 4], to: [f32; 4] },
 }
 
+impl Arrive {
+    /// The rectangle the panel grows out of, when it grows out of one: the control that opened it.
+    pub fn origin(&self) -> Option<[f32; 4]> {
+        match self {
+            Arrive::Grow { from, .. } | Arrive::Container { from, .. } => Some(*from),
+            _ => None,
+        }
+    }
+}
+
 /// The group a panel's layers hang under. Its pose follows a motion track from 0 (away) to 1 (rest); the track is the compositor's.
 pub struct Root {
     pub group: Group,

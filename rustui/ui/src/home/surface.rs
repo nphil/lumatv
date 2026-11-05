@@ -1330,6 +1330,7 @@ impl HomeSurface {
             "cards": self.cards.iter().map(|c| json!({"id": c.id, "x": c.frame.x, "y": c.frame.y, "w": c.frame.w, "h": c.frame.h})).collect::<Vec<_>>(),
             "dock": self.dock.as_ref().map(|d| json!({"x": d.frame.x, "y": d.frame.y, "w": d.frame.w, "h": d.frame.h, "tiles": d.tiles.len(), "cols": d.cols})),
             "status": self.status.as_ref().map(|s| s.items.iter().map(|i| json!({"kind": i.kind, "x": i.lift.frame.x, "w": i.lift.frame.w})).collect::<Vec<_>>()),
+            "pickerOrigin": self.picker.as_ref().map(|p| p.origin()),
             "wallpaper": self.wall.is_up(),
             "focus": home.focus.current().map(|i| i.0),
             "glyphRuns": self.glyph_runs,

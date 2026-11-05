@@ -213,7 +213,7 @@ impl LayoutSurface {
         let mut sheet = Sheet::new();
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
         let frame = Frame::new(at.0, at.1, w, h);
-        let kind = if item == "volume" || item == "mute" { PaneKind::Pill } else { PaneKind::Card };
+        let kind = if matches!(item, "volume" | "mute" | "statusbar") { PaneKind::Pill } else { PaneKind::Card };
         sheet.pane(Pane::new(kit, frame, z, kind, false));
         let pad = kit.space(5);
         match item {
@@ -245,6 +245,27 @@ impl LayoutSurface {
                 let side = 32u32;
                 if let Some(g) = icon::layer(kit, "volume-x", side, ink, z + 3, HIDDEN)? {
                     sheet.image(g, (at.0 + ((w - side as f32) / 2.0).round(), at.1 + ((h - side as f32) / 2.0).round()));
+                }
+            }
+            "statusbar" => {
+                // the pill's buttons as the bar draws them: four glyphs and the profile chip (the real buttons are Home's)
+                let inset = 6.0;
+                let side = (h - 2.0 * inset).max(8.0);
+                let glyph = ((side / 2.0).round() as u32).max(8);
+                let gap = kit.space(2);
+                let mut x = at.0 + inset;
+                for name in ["search", "camera", "bell", "settings"] {
+                    if x + side > at.0 + w - inset {
+                        break;
+                    }
+                    if let Some(g) = icon::layer(kit, name, glyph, ink, z + 3, HIDDEN)? {
+                        sheet.image(g, (x + ((side - glyph as f32) / 2.0).round(), at.1 + inset + ((side - glyph as f32) / 2.0).round()));
+                    }
+                    x += side + gap;
+                }
+                let chip = Frame::new(x, at.1 + inset, (at.0 + w - inset - x).max(0.0), side);
+                if chip.w > side / 2.0 {
+                    sheet.shape(plate::shape(&kit.ui, chip, z + 1, plate::solid(faded(ink, 0.12), (side / 2.0).floor())), (chip.x, chip.y));
                 }
             }
             "popup" => {
@@ -312,7 +333,7 @@ impl LayoutSurface {
     }
 
     fn standin_radius(kit: &Kit, item: &str, size: (i32, i32)) -> f32 {
-        if item == "volume" || item == "mute" { (size.0.min(size.1) as f32 / 2.0).floor() } else { kit.tokens.radius(Radius::Card) }
+        if matches!(item, "volume" | "mute" | "statusbar") { (size.0.min(size.1) as f32 / 2.0).floor() } else { kit.tokens.radius(Radius::Card) }
     }
 
     fn sync_items(&mut self, kit: &mut Kit, view: &View) -> std::io::Result<()> {
@@ -881,7 +902,7 @@ mod tests {
                 draw(&mut kit, &mut engine, &mut s, &e, 1000);
                 let g = s.geometry();
                 let items = g["items"].as_array().unwrap();
-                assert_eq!(items.len(), 5, "volume, mute, camera window, notifications, toasts");
+                assert_eq!(items.len(), 6, "volume, mute, camera window, notifications, toasts, status bar");
                 let popup = items.iter().find(|i| i["id"] == "popup").unwrap();
                 assert_eq!((rect(popup).0 + rect(popup).2, rect(popup).1), (1888.0, 32.0), "the camera window flush in its corner at {scale}: {popup}");
                 let panel = rect(&g["panel"]);

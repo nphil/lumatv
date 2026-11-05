@@ -757,6 +757,9 @@ impl Shell {
         self.volume_surface.sample_sizes(&mut self.kit, &mut sizes);
         sizes.set("toast", lumatv_placement::Size::new(320, self.toast_surface.sample_height(&self.kit).ceil() as i32));
         sizes.set("mute", lumatv_placement::Size::new(64, 64));
+        // the status bar's pill as Home lays it out now: the profile chip's name and the text size make it as wide as it is
+        let pill = self.home.status_pill();
+        sizes.set("statusbar", lumatv_placement::Size::new(pill.w.round() as i32, pill.h.round() as i32));
         sizes
     }
 
@@ -1254,6 +1257,7 @@ impl Shell {
             }
             self.panels.set_bell(self.home.bell_frame());
             self.panels.set_camera(self.home.camera_frame());
+            self.panels.set_gear(self.home.gear_frame());
             self.panels.camera_focus(&self.kinds, self.kinds.home && self.home.camera_focused(), now);
             match self.panels.apply(&self.kinds, &mut self.kit, &mut self.engine, now, now_ns) {
                 Ok(on) => live |= on,
@@ -2673,6 +2677,50 @@ mod tests {
         key(&mut bare, "right", 2_100);
         key(&mut bare, "ok", 2_200);
         assert!(!matches!(bare.state()["panels"]["drawer"].as_str(), Some("opening" | "open")));
+    }
+
+    /// What the helper reports of the people of this TV: Who's watching has two tiles.
+    fn profiles_topic() -> Value {
+        let person = |id: &str, name: &str, active: bool| json!({"id": id, "name": name, "initial": &name[..1], "color": "#A79BF5", "avatar": {"kind": "initial"}, "avatarFile": null,
+                                                                  "owner": active, "active": active, "locked": false, "firstRun": false});
+        json!({"ready": true, "active": "nitin", "owner": "nitin", "canAdmin": true, "pickerOnWake": false, "startWith": "last", "max": 6, "switchedAt": 1,
+               "profiles": [person("nitin", "Nitin", true), person("mia", "Mia", false)]})
+    }
+
+    #[test]
+    fn every_popup_of_the_bar_grows_out_of_its_buttons_laid_out_frame_wherever_the_pill_sits_and_its_body_stays_on_the_screen() {
+        let numbers = |v: &Value, what: &str| -> Vec<f64> { v.as_array().unwrap_or_else(|| panic!("{what}: a rectangle, not {v}")).iter().map(|n| n.as_f64().unwrap()).collect() };
+        let centre = |r: &[f64]| (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+        for (anchor, dx) in [("top-left", 0.0), ("top", 0.0), ("top-right", 0.0), ("top", 0.17)] {
+            let placed = json!({"layout": {"overlays": {"statusbar": {"anchor": anchor, "dx": dx, "dy": 0}}}});
+            let (_h, mut shell) = home_shell_with("home,drawer,quick,cameras", &placed);
+            shell.helper(&Event::Up(true), 1_050);
+            shell.helper(&Event::Topic { topic: "profiles".into(), data: profiles_topic() }, 1_100);
+            let (mut at, mut t) = (0usize, 2_000u64);
+            // the four popups in the order of the bar: each from its own button by OK, seen drawn, and sent back with Back
+            for (kind, surface) in [("cameras", "cameraList"), ("notifications", "drawer"), ("settings", "quick"), ("profile", "home")] {
+                let i = shell.home.status_index(kind).expect(kind);
+                for _ in at..i {
+                    key(&mut shell, "right", t);
+                    t += 100;
+                }
+                at = i;
+                // the button where the bar lays it out now
+                let b = shell.home.status_frames()[i];
+                key(&mut shell, "ok", t);
+                t += 400;
+                let g = shell.geometry();
+                let origin = numbers(if kind == "profile" { &g["home"]["pickerOrigin"] } else { &g[surface]["origin"] }, &format!("{kind} at {anchor} {dx}"));
+                assert_eq!(centre(&origin), centre(&[f64::from(b.0), f64::from(b.1), f64::from(b.2), f64::from(b.3)]), "{kind} at {anchor} {dx}: grows out of its button {b:?}, not {origin:?}");
+                if let Some(sheet) = g[surface].get("sheet").filter(|s| s.is_object()) {
+                    let (x, w) = (sheet["x"].as_f64().unwrap(), sheet["w"].as_f64().unwrap());
+                    assert!(x >= 0.0 && x + w <= 1920.0, "{kind} at {anchor} {dx}: the body stays on the screen: {sheet}");
+                }
+                key(&mut shell, "back", t);
+                t += 600;
+                shell.tick(t);
+            }
+        }
     }
 
     #[test]

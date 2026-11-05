@@ -130,6 +130,8 @@ pub struct Panels {
     bell: [f32; 4],
     /// Where Home's camera button is (`[x, y, w, h]`): the camera list grows out of it and goes back into it.
     camera: [f32; 4],
+    /// Where Home's gear is (`[x, y, w, h]`): Quick Settings grows out of it and goes back into it.
+    gear: [f32; 4],
     camlist: CameraList,
     camlist_s: CameraListSurface,
     menu: Menu,
@@ -172,6 +174,7 @@ impl Panels {
             drawer_s: DrawerSurface::new(base),
             bell: crate::panels::drawer_surface::BELL,
             camera: crate::panels::camlist_surface::BUTTON,
+            gear: crate::panels::quick_surface::QuickSurface::GEAR,
             camlist: CameraList::new(),
             camlist_s: CameraListSurface::new(base),
             menu: Menu::new(),
@@ -804,7 +807,7 @@ impl Panels {
         let panels_error = (|| -> Result<(), String> {
             if kinds.quick {
                 let view = self.quick.view(&self.env, now_ms);
-                match self.quick_s.apply(kit, engine, &view, self.quick.life.phase(), now_ms, now_ns) {
+                match self.quick_s.apply_from(kit, engine, &view, self.quick.life.phase(), self.gear, now_ms, now_ns) {
                     Ok(on) => live |= on && self.quick.life.visible(),
                     Err(e) => { self.interactive_visible |= live; return Err(format!("quick panel: {e}")); },
                 }
@@ -935,6 +938,11 @@ impl Panels {
     /// Where the camera button is (Home's status bar says): the camera list grows out of it and goes back into it.
     pub fn set_camera(&mut self, frame: [f32; 4]) {
         self.camera = frame;
+    }
+
+    /// Where the gear is (Home's status bar says): Quick Settings grows out of it and goes back into it.
+    pub fn set_gear(&mut self, frame: [f32; 4]) {
+        self.gear = frame;
     }
 
     /// Whether the focus is on the camera button: resting there, the list's first pictures are asked for so that it opens on them.

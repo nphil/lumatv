@@ -612,11 +612,17 @@ impl Home {
         out
     }
 
-    /// The pill the status bar's buttons sit in: as wide as they are, `STATUS_INSET` round them, its right end at the safe area's.
+    /// The pill the status bar's buttons sit in: as wide as they are, `STATUS_INSET` round them, placed along the bar's row by the registry's
+    /// `statusbar` item (`layout.overlays.statusbar` of the theme, read each time: the middle of the screen until the owner moves it).
     pub fn status_pill(&self) -> ui::geometry::Frame {
-        let (sx, sy) = self.safe();
+        const ITEM: &str = "statusbar";
         let span = self.status_run().last().map_or(0.0, |(x, w)| x + w) + 2.0 * STATUS_INSET;
-        ui::geometry::Frame::new(1920.0 - sx - span, sy, span, self.status_height())
+        let h = self.status_height();
+        let frame = lumatv_placement::Frame::from_json(&self.layout, self.theme.pointer("/overlays/limit"));
+        let registry = lumatv_placement::Registry::shipped();
+        let user = registry.user_from_json(self.theme.pointer("/layout/overlays").unwrap_or(&Value::Null));
+        let at = registry.rect_of(ITEM, &user, &frame, lumatv_placement::Size::new(span.round() as i32, h.round() as i32)).expect("the status bar is an item of the registry");
+        ui::geometry::Frame::new(at.x as f32, at.y as f32, span, h)
     }
 
     /// The row the status bar is in, edge to edge of the safe area: what a popover under a button keeps inside.
@@ -670,16 +676,16 @@ impl Home {
         self.dirty = true;
     }
 
-    /// Where the button of type `kind` is on the status bar (`[x, y, w, h]`), the place a panel grows out of and goes back into. With no such
-    /// button in the layout, or Home not drawn (an app in front, a panel opened by a key), where it would be: the right end of the bar.
+    /// Where the button of type `kind` is on the status bar (`[x, y, w, h]`), as the bar lays it out now: the place a panel grows out of and goes
+    /// back into. With no such button in the layout, the middle of the pill.
     fn status_frame_of(&self, kind: &str) -> [f32; 4] {
         let at = self.status_index(kind);
         if let Some(&(x, y, w, h)) = at.and_then(|i| self.status_frames().get(i).copied()).as_ref() {
             return [x, y, w, h];
         }
-        let (sx, sy) = self.safe();
+        let pill = self.status_pill();
         let side = self.status_height() - 2.0 * STATUS_INSET;
-        [1920.0 - sx - STATUS_INSET - side, sy + STATUS_INSET, side, side]
+        [(pill.x + (pill.w - side) / 2.0).round(), pill.y + STATUS_INSET, side, side]
     }
 
     /// The bell: the notification drawer's way in and out.
@@ -690,6 +696,16 @@ impl Home {
     /// The camera button: the camera list's way in and out.
     pub fn camera_frame(&self) -> [f32; 4] {
         self.status_frame_of("cameras")
+    }
+
+    /// The gear: Quick Settings' way in and out.
+    pub fn gear_frame(&self) -> [f32; 4] {
+        self.status_frame_of("settings")
+    }
+
+    /// The profile chip: the way in and out of Who's watching.
+    pub fn chip_frame(&self) -> [f32; 4] {
+        self.status_frame_of("profile")
     }
 
     /// Whether the focus is on the camera button: the camera list asks for its first pictures once the focus has rested there.
@@ -3930,9 +3946,7 @@ mod tests {
         let mut h = home();
         assert_eq!(h.state()["focusLayer"], "statusbar");
         press(&mut h, "down", 2000);
-        assert_eq!(h.state()["widgetFocusId"], "weather", "down from the bar's first button: the card under it");
-        press(&mut h, "left", 2100);
-        assert_eq!(h.state()["widgetFocusId"], "news");
+        assert_eq!(h.state()["widgetFocusId"], "news", "down from the bar's first button: the card under it, the bar being in the middle of the screen");
         press(&mut h, "down", 2200);
         assert_eq!(h.state()["focusLayer"], "dock");
         assert!(h.dock.index > 0, "the tile under the news card, not the first");
@@ -4016,7 +4030,7 @@ mod tests {
         h.update(&Input::Key { name: "ok".into(), down: true, repeat: true }, 3850);
         h.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 3900);
         assert_eq!(h.editor.as_ref().map(|e| e.mode_name()), Some("select"), "the release of the hold picked the card up");
-        assert_eq!(h.editor.as_ref().map(|e| e.sel.as_str()), Some("weather"));
+        assert_eq!(h.editor.as_ref().map(|e| e.sel.as_str()), Some("news"));
     }
 
     #[test]
@@ -4209,7 +4223,7 @@ mod tests {
         }
         assert_eq!(frames[4].0 - (frames[3].0 + frames[3].2), between, "the chip stands apart from the actions");
         assert_eq!((frames[0].0 - pill.x, pill.x + pill.w - (frames[4].0 + frames[4].2)), (STATUS_INSET, STATUS_INSET), "concentric with the pill's caps");
-        assert_eq!(pill.x + pill.w, 1856.0, "the pill ends where the safe area does");
+        assert!((pill.x + pill.w / 2.0 - 960.0).abs() <= 0.5, "the pill is in the middle of the screen until the owner moves it: {pill:?}");
         assert_eq!((frames[0].1 - pill.y, pill.y + pill.h - (frames[0].1 + frames[0].3)), (STATUS_INSET, STATUS_INSET));
         // a theme with another spacing scale moves the rhythm
         let mut theme = h.theme.clone();
@@ -4248,13 +4262,67 @@ mod tests {
         let mut h = home();
         let (bell, camera) = (h.bell_frame(), h.camera_frame());
         assert_eq!(camera[0] + camera[2] + h.status_gaps.0, bell[0], "next to the bell, a gap of the group's");
-        assert_eq!(bell, crate::panels::drawer_surface::BELL, "where the drawer thinks the bell is until Home says");
         while h.focus.current() != Some(Id(STATUS_ID + h.status_index("cameras").unwrap() as u32)) {
             press(&mut h, "right", 2000);
         }
         press(&mut h, "ok", 2100);
         assert_eq!(h.take_requests(), vec![Request::CameraList]);
         assert!(h.status_frames().len() == h.status_items().len(), "a frame for every button");
+    }
+
+    /// The owner placed the status bar (`layout.overlays.statusbar` of the theme).
+    fn placed(h: &mut Home, anchor: &str, dx: f64) {
+        let mut theme = h.theme.clone();
+        theme["layout"] = json!({"overlays": {"statusbar": {"anchor": anchor, "dx": dx, "dy": 0}}});
+        h.set_theme(theme);
+    }
+
+    const PLACES: [(&str, f64); 5] = [("top-left", 0.0), ("top", 0.0), ("top-right", 0.0), ("top", 0.2), ("top", -0.3)];
+
+    #[test]
+    fn the_status_bar_is_centred_by_default_follows_its_placement_and_keeps_its_buttons_and_their_order() {
+        let mut h = home();
+        named(&mut h);
+        h.set_name_width("Nitin".into(), 47.63);
+        let centre = |h: &Home| h.status_pill().x + h.status_pill().w / 2.0;
+        assert!((centre(&h) - 960.0).abs() <= 0.5, "the middle of the screen until the owner moves it");
+        let order: Vec<&str> = ["search", "cameras", "notifications", "settings", "profile"].to_vec();
+        for (anchor, dx) in PLACES {
+            placed(&mut h, anchor, dx);
+            let pill = h.status_pill();
+            assert!(pill.x >= 64.0 && pill.x + pill.w <= 1856.0 && pill.y == 54.0, "{anchor} {dx}: on the screen, in the safe area: {pill:?}");
+            let frames = h.status_frames();
+            assert!(frames.iter().all(|f| f.0 >= pill.x && f.0 + f.2 <= pill.x + pill.w && f.1 >= pill.y && f.1 + f.3 <= pill.y + pill.h), "{anchor} {dx}: {frames:?} in {pill:?}");
+            assert!(frames.windows(2).all(|w| w[0].0 + w[0].2 < w[1].0), "left to right, no overlap");
+            assert_eq!(order.iter().map(|k| h.status_index(k).unwrap()).collect::<Vec<_>>(), [0, 1, 2, 3, 4], "the D-pad order does not depend on where the pill is");
+            // the focus engine has each button where it is drawn
+            for (i, f) in frames.iter().enumerate() {
+                let got = h.focus.frame(Id(STATUS_ID + i as u32)).map(|g| (g.x, g.w));
+                assert_eq!(got, Some((f.0, f.2)), "{anchor} {dx}: button {i} is registered where it is drawn");
+            }
+        }
+        placed(&mut h, "top-left", 0.0);
+        assert_eq!(h.status_pill().x, 64.0);
+        placed(&mut h, "top-right", 0.0);
+        assert_eq!(h.status_pill().x + h.status_pill().w, 1856.0);
+    }
+
+    #[test]
+    fn every_popups_way_in_is_its_buttons_laid_out_frame_wherever_the_pill_sits_and_at_every_text_size() {
+        for scale in [1.0, 2.0] {
+            let mut h = home();
+            h.set_text_scale(scale);
+            named(&mut h);
+            h.set_name_width("Nitin".into(), 47.63);
+            for (anchor, dx) in PLACES {
+                placed(&mut h, anchor, dx);
+                let frames = h.status_frames();
+                for (kind, got) in [("cameras", h.camera_frame()), ("notifications", h.bell_frame()), ("settings", h.gear_frame()), ("profile", h.chip_frame())] {
+                    let f = frames[h.status_index(kind).expect(kind)];
+                    assert_eq!(got, [f.0, f.1, f.2, f.3], "{kind} at {anchor} {dx}, text {scale}: the button as the bar lays it out now");
+                }
+            }
+        }
     }
 
     #[test]

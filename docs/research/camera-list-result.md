@@ -31,3 +31,9 @@ Nothing here is accepted until it is checked on the set. From Home with cameras 
 3. OK on a row: the viewer opens on that camera. Back returns to Home with the focus on the camera button.
 4. Back in the list: it closes into the button; `ctl shell` reports `panels.cameraList.asking` empty, and the helper's open streams fall to none within 3 s.
 5. The frame gate with the list open and scrolling, and `ctl refresh`: the panel stays at 120 Hz.
+
+## Where the bar sits
+
+The pill is centred along the top by default and is an item of the Layout of pop-ups editor (`layout.overlays.statusbar`: an anchor and an offset along the bar's row; `placement/` zone `bar`, one row high, so it only moves along it). Home reads it from its theme each time it lays the bar out. Every popup of the bar (the camera list, the notification drawer, Quick Settings from the gear, Who's watching from the profile chip) grows out of the frame of its button as that layout gives it when the popup opens: the container transform for the list and the drawer, a grow of the whole panel for Quick Settings and the page of Who's watching. Nothing is estimated per anchor. The bodies keep their places on the screen (the sheets at the right edge's column, the page full screen), so they are never off it; the origin stays on the button wherever the pill is. The status bar neither blocks nor is blocked by the other items in the editor: every pop-up covers it while it is up.
+
+Host check: `tests/camera_popup_host.py pill` renders the pill at left, centre and right in both looks and the list opened from the centre (`pill-*.png`); the shell test `every_popup_of_the_bar_grows_out_of_its_buttons_laid_out_frame_wherever_the_pill_sits_and_its_body_stays_on_the_screen` moves the pill (left, centre, right and a custom offset) and asserts each popup's origin is its button's centre.

@@ -692,10 +692,30 @@ pub struct PickerSurface {
     words: Text,
     pin_key: String,
     z: i32,
+    /// What the page grows out of (the profile chip, where Home's status bar has it when the page opens) and the group that does the growing.
+    origin: [f32; 4],
+    root: Option<crate::panels::ui::Root>,
 }
 
 impl PickerSurface {
+    /// Who's watching grows out of the profile chip and fills the screen.
     pub fn new(kit: &mut Kit, engine: &mut Engine, home: &Home, z: i32) -> std::io::Result<Self> {
+        let origin = home.chip_frame();
+        let mut root = crate::panels::ui::Root::new(kit, crate::panels::ui::Arrive::Grow { from: origin, to: [0.0, 0.0, 1920.0, 1080.0] }, false)?;
+        let scene = kit.ui.scene.clone();
+        let mut me = scene.adopting_view(&root.group, || Self::build(kit, engine, home, z))?;
+        root.show_with(engine.flow.spec.settle());
+        me.origin = origin;
+        me.root = Some(root);
+        Ok(me)
+    }
+
+    /// The rectangle the page grows out of.
+    pub fn origin(&self) -> [f32; 4] {
+        self.origin
+    }
+
+    fn build(kit: &mut Kit, engine: &mut Engine, home: &Home, z: i32) -> std::io::Result<Self> {
         let p = &home.picker;
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
@@ -777,7 +797,7 @@ impl PickerSurface {
         pad_cursor.glass.set(HIDDEN);
         let mut words = Text::new(kit, Frame::new(0.0, 940.0, 1920.0, kit.line(TypeRole::Label)), z + 2, role_style(kit, TypeRole::Label, None, ink2, Align::Centre), "")?;
         words.set_props(HIDDEN);
-        Ok(Self { blur, title, tiles, dots, pad_art, pad_caps, pad_cursor, words, pin_key: String::new(), z })
+        Ok(Self { blur, title, tiles, dots, pad_art, pad_caps, pad_cursor, words, pin_key: String::new(), z, origin: [0.0; 4], root: None })
     }
 
     pub fn update(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, now: u64) -> std::io::Result<()> {

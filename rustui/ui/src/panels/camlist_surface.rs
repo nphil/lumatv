@@ -556,6 +556,7 @@ impl CameraListSurface {
             "focus": engine.focus.current().map(|i| i.0),
             "layers": self.layers(),
             "scope": SCOPE.0,
+            "origin": self.stage.arrive().and_then(|a| a.origin()),
         })
     }
 

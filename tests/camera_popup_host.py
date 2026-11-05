@@ -14,6 +14,7 @@ way out of the button; at rest; walked down six rows) and prints the layout and 
 import argparse
 import http.server
 import io
+import shutil
 import json
 import os
 import sys
@@ -123,10 +124,10 @@ def topic(n, offline=()):
     return cams.cameras_topic(n, per={i: {'online': False} for i in offline})
 
 
-def host(binary, mode, scale, wait, steps, stills, n, offline=(), extra=()):
+def host(binary, mode, scale, wait, steps, stills, n, offline=(), extra=(), theme_extra=None):
     """One run of the harness with Home in front, `n` cameras and the helper of `stills`; returns the output and the evals."""
     H.BIN = binary
-    out, evals, _ = H.RustHome().host(wait, steps, feeds={"cameras": topic(n, offline)}, mode=mode, scale=scale, theme=dict(STILL, material=mode), kinds=KINDS,
+    out, evals, _ = H.RustHome().host(wait, steps, feeds={"cameras": topic(n, offline)}, mode=mode, scale=scale, theme=dict(STILL, material=mode, **(theme_extra or {})), kinds=KINDS,
                                       extra=['--clock', CLOCK, '--port', str(stills.server_address[1]), '--helper-port', str(stills.server_address[1]), *extra])
     return out, evals
 
@@ -178,6 +179,36 @@ def renders(binary, out_dir, modes, scales, n):
     for p in problems:
         print('LINT', p)
     return 1 if problems else 0
+
+
+def pills(binary, out_dir, modes):
+    """`pill-<left|centre|right>-<mode>.png`: the top of Home with the status bar placed at each end of its row and in the middle, the focus on the
+    camera button; and `pill-centre-<mode>-cameras.png`: the camera list opened from the centre, at rest."""
+    from PIL import Image
+    os.makedirs(out_dir, exist_ok=True)
+    stills = serving(first_ms=60, later_ms=10)
+    try:
+        for mode in modes:
+            for name, anchor in (('left', 'top-left'), ('centre', 'top'), ('right', 'top-right')):
+                tmp = tempfile.mkdtemp(prefix='pill-')
+                shots = {k: os.path.join(tmp, k + '.png') for k in (('closed', 'open') if name == 'centre' else ('closed',))}
+                steps = [H.RustHome.k(7000, 'right'), ['--snap', '8200:' + shots['closed']]]
+                if name == 'centre':
+                    steps += [['--key', '8600:ok', '--key', '8640:ok:up'], ['--snap', '10200:' + shots['open']]]
+                placed = {'layout': {'overlays': {'statusbar': {'anchor': anchor, 'dx': 0, 'dy': 0}}}}
+                for attempt in range(3):
+                    host(binary, mode, 1.0, 10600 if name == 'centre' else 8800, steps, stills, 8, offline=(2,), theme_extra=placed)
+                    # a picture taken before Home had drawn (a host under load) is black: the run is made again
+                    if all(os.path.exists(p) and mean_of(p) > 5 for p in shots.values()):
+                        break
+                Image.open(shots['closed']).convert('RGB').crop((0, 0, 1920, 340)).save(os.path.join(out_dir, 'pill-%s-%s.png' % (name, mode)))
+                if name == 'centre':
+                    shutil.copy(shots['open'], os.path.join(out_dir, 'pill-centre-%s-cameras.png' % mode))
+                shutil.rmtree(tmp, ignore_errors=True)
+                print('pill-%s-%s.png%s' % (name, mode, ' and the camera list from the centre' if name == 'centre' else ''))
+    finally:
+        stills.shutdown()
+    return 0
 
 
 def first_picture(binary, n, first_ms, later_ms):
@@ -233,7 +264,13 @@ def main(argv=None):
     f.add_argument('--first-ms', type=int, default=150)
     f.add_argument('--later-ms', type=int, default=20)
     f.add_argument('--bin', default=H.BIN)
+    p = sub.add_parser('pill')
+    p.add_argument('--out', default=OUT)
+    p.add_argument('--modes', default='dark,light')
+    p.add_argument('--bin', default=H.BIN)
     a = ap.parse_args(argv)
+    if a.what == 'pill':
+        return pills(a.bin, a.out, a.modes.split(','))
     if a.what == 'renders':
         return renders(a.bin, a.out, a.modes.split(','), [float(s) for s in a.scales.split(',')], a.cameras)
     return first_picture(a.bin, a.cameras, a.first_ms, a.later_ms)

@@ -399,7 +399,7 @@ mod tests {
         let (status, b) = call(&s, "GET", "/v1/placement", "");
         assert_eq!(status, 200);
         assert_eq!(b["ok"], true);
-        assert_eq!(b["registry"]["items"].as_array().unwrap().len(), 5);
+        assert_eq!(b["registry"]["items"].as_array().unwrap().len(), 6);
         assert_eq!(
             b["frame"],
             json!({"safeX": 64, "safeY": 54, "bar": 60, "top": 134, "limit": 810})

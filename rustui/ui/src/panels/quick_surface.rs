@@ -959,13 +959,35 @@ fn set_cell(cell: &Group, visible: bool, enabled: bool, disabled: f32) {
 impl QuickSurface {
     // ---- applying
 
-    /// Fits the panel to the view and to the phase of its life. Returns whether anything of it is on the screen.
+    /// Where Home's gear is with the shipped layout until the shell says (every frame, before anything is drawn): the panel's way in and out.
+    pub const GEAR: [f32; 4] = [1593.0, 60.0, 48.0, 48.0];
+
+    /// [`QuickSurface::apply_from`] with the gear where the shipped layout has it: what the panel's own tests draw with.
+    #[cfg(test)]
     pub fn apply(&mut self, kit: &mut Kit, engine: &mut Engine, view: &View, phase: Phase, now_ms: u64, now_ns: u64) -> std::io::Result<bool> {
+        self.apply_from(kit, engine, view, phase, Self::GEAR, now_ms, now_ns)
+    }
+
+    /// Fits the panel to the view and to the phase of its life. Returns whether anything of it is on the screen.
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_from(&mut self, kit: &mut Kit, engine: &mut Engine, view: &View, phase: Phase, gear: [f32; 4], now_ms: u64, now_ns: u64) -> std::io::Result<bool> {
         if phase == Phase::Gone {
             self.drop_all(engine);
             return Ok(false);
         }
-        self.stage.ensure(kit, phase, Arrive::Right(lay::TRAVEL), true)?;
+        // The panel grows out of the gear (Home's status bar says where it is now) and goes back into it. While it is on its way in or out it keeps
+        // the rectangles it started with; at rest and parked it follows the gear, and a parked panel that opens again is made afresh.
+        let sheet = lay::sheet();
+        let wanted = Arrive::Grow { from: gear, to: [sheet.x, sheet.y, sheet.w, sheet.h] };
+        let arrive = match (phase, self.stage.arrive()) {
+            (Phase::Leaving, Some(held)) => held,
+            (Phase::Opening, Some(held)) if self.stage.root().is_some_and(super::ui::Root::is_shown) => held,
+            _ => wanted,
+        };
+        if self.stage.needs_root(arrive) {
+            self.drop_built(engine);
+        }
+        self.stage.ensure(kit, phase, arrive, true)?;
         let width = lay::SHEET_W - 2.0 * kit.space(6);
         let info_width = width - 2.0 * kit.space(3);
         let key = (view.info, view.video_info, kit.text_scale.to_bits(), info_width.to_bits());
@@ -1398,6 +1420,7 @@ impl QuickSurface {
             "edit": edit,
             "pad": pad,
             "popup": self.popup.as_ref().map(|p| f(p.layout.frame)),
+            "origin": self.stage.arrive().and_then(|a| a.origin()),
             // the options as the pointer and the keys see them (the ones the window does not show are nowhere), and how far they have moved
             "popupOptions": self.popup.as_ref().map(|p| (0..p.layout.options.len()).map(|k| engine.focus.frame(Target::Option(k).id()).map(f)).collect::<Vec<_>>()),
             "popupOffset": self.popup.as_ref().and_then(|p| p.scroll.as_ref()).map(Scroll::offset),
@@ -1685,7 +1708,9 @@ mod tests {
             assert_eq!(shape.group(), Some(root.id()));
             assert_eq!(built.pane.layer().group(), Some(root.id()));
             let now = u.kit.ui.scene.now_ns();
-            for at in [now, now + 120_000_000, now + 2_000_000_000] {
+            // the sheet and the information hang under one root that grows out of the gear: once it has settled they are side by side
+            {
+                let at = now + 2_000_000_000;
                 let world = root.world_at(at);
                 let a = world.props(&Props::at(pill.x, pill.y), (pill.w, pill.h));
                 let b = world.props(&Props::at(sheet.x, sheet.y), (sheet.w, sheet.h));

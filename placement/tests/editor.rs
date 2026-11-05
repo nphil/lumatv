@@ -88,7 +88,7 @@ fn it_opens_on_the_item_asked_for_with_nothing_in_the_hand() {
     );
     e.start(Some("nothing"));
     assert_eq!(e.view(0).selected, "volume");
-    assert_eq!(v.items.len(), 5);
+    assert_eq!(v.items.len(), 6);
     // every item in its own size, the volume bar as it sits over an app (60 higher), the cards under the window
     let r = |id: &str| rect(&e, id, 0);
     assert_eq!(r("volume"), Rect::new(740, 928, 440, 60));
@@ -105,8 +105,8 @@ fn the_arrows_choose_an_item_and_the_ends_hold() {
     pad.taps(&mut e, &[Key::Right, Key::Right]);
     assert_eq!(e.selected(), "popup");
     pad.taps(&mut e, &[Key::Right, Key::Right, Key::Right, Key::Right]);
-    assert_eq!(e.selected(), "toast");
-    pad.taps(&mut e, &[Key::Left, Key::Up]);
+    assert_eq!(e.selected(), "statusbar", "the cards, the toasts, the status bar, and the end holds");
+    pad.taps(&mut e, &[Key::Left, Key::Left, Key::Up]);
     assert_eq!(e.selected(), "popup");
     for _ in 0..6 {
         pad.taps(&mut e, &[Key::Left]);

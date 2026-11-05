@@ -962,7 +962,7 @@ fn the_registry_describes_itself_for_a_client() {
         .iter()
         .map(|i| i["id"].as_str().unwrap())
         .collect();
-    assert_eq!(ids, ["volume", "mute", "popup", "cards", "toast"]);
+    assert_eq!(ids, ["volume", "mute", "popup", "cards", "toast", "statusbar"]);
     assert_eq!(d["items"][0]["edges"], json!(["left", "bottom", "right"]));
     assert_eq!(d["items"][3]["stacks"], json!("popup"));
     assert_eq!(d["items"][2]["sample"], json!({"w": 560, "h": 469}));

@@ -350,6 +350,9 @@ pub enum ZoneKind {
     /// The camera window's and the cards' column: up in the corner, half of Home's safe margin from the edges (over Home it covers the status bar's
     /// right end while it is up), down to the bottom quarter's top.
     Column,
+    /// Home's status bar's row: from the safe area's left to its right, the bar's height. The pill of buttons is placed along it, and can only be
+    /// moved along it.
+    Bar,
 }
 
 impl ZoneKind {
@@ -359,6 +362,7 @@ impl ZoneKind {
             ZoneKind::Edge => "edge",
             ZoneKind::Toast => "toast",
             ZoneKind::Column => "column",
+            ZoneKind::Bar => "bar",
         }
     }
 
@@ -368,6 +372,7 @@ impl ZoneKind {
             ZoneKind::Edge => Rect::from_edges(f.safe_x, f.top, W - f.safe_x, H - REST),
             ZoneKind::Toast => Rect::from_edges(TOAST, TOAST, W - TOAST, H - f.safe_y.max(TOAST_FOOT)),
             ZoneKind::Column => Rect::from_edges(f.column_inset(), f.column_inset(), W - f.column_inset(), f.limit),
+            ZoneKind::Bar => Rect::from_edges(f.safe_x, f.safe_y, W - f.safe_x, f.safe_y + f.bar),
         }
     }
 }
@@ -401,7 +406,7 @@ pub struct Item {
 }
 
 /// The items, in the order an editor offers them.
-pub const ITEMS: [Item; 5] = [
+pub const ITEMS: [Item; 6] = [
     Item {
         id: "volume",
         title: "Volume bar",
@@ -466,6 +471,19 @@ pub const ITEMS: [Item; 5] = [
         stacks: Some("volume"),
         default: Placement::new(Anchor::Bottom, 0.0, 0.0),
         sample: Size::new(320, 66),
+    },
+    Item {
+        id: "statusbar",
+        title: "Status bar",
+        icon: "layout-grid",
+        zone: ZoneKind::Bar,
+        edges: &[],
+        lift: 0,
+        drift: 0,
+        auto: false,
+        stacks: None,
+        default: Placement::new(Anchor::Top, 0.0, 0.0),
+        sample: Size::new(450, 60),
     },
 ];
 
@@ -702,7 +720,8 @@ impl Registry {
 
     /// The first item that `r` would be on top of: the pair that stack by design are not in each other's way, and neither is what the item
     /// already was on top of where it was picked up (`from`, its rectangle then). A move may never make a new overlap, but it can always leave an
-    /// old one (text at 200 % makes the items taller than the room between them).
+    /// old one (text at 200 % makes the items taller than the room between them). The status bar is in nobody's way and nobody is in its: every
+    /// pop-up covers it while it is up.
     pub fn blocker(
         &self,
         layout: &Layout,
@@ -715,7 +734,7 @@ impl Registry {
             let Some(other) = layout.rect(o.id) else {
                 continue;
             };
-            if o.id == id || me.stacks == Some(o.id) || o.stacks == Some(me.id) {
+            if o.id == id || me.stacks == Some(o.id) || o.stacks == Some(me.id) || me.zone == ZoneKind::Bar || o.zone == ZoneKind::Bar {
                 continue;
             }
             if r.meets(&other, GAP) && !from.is_some_and(|f| f.meets(&other, GAP)) {
