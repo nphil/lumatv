@@ -759,6 +759,7 @@ fn run_host(o: Options) -> io::Result<()> {
             Demand::Idle => false,
         };
         if pending_frame || engine.has_commits() || engine.redraw_wanted() || due {
+            let why = if pending_frame { "first".to_string() } else if engine.has_commits() { format!("commit[{}]", engine.waiting_summary()) } else if engine.redraw_wanted() { "redraw".to_string() } else if matches!(engine.demand(), Demand::EveryRefresh) { "animation".to_string() } else { "step".to_string() };
             pending_frame = false;
             let cost = engine.draw(now_ns);
             engine.gles().finish();
@@ -785,7 +786,7 @@ fn run_host(o: Options) -> io::Result<()> {
                 first_frame_ms = Some(elapsed(t0));
             }
             if o.log.is_some() {
-                log.line(format_args!("[frame] {drawn} at {} ms: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us backdrops {} ({} us) floor {} px apply {} us ui {ui_us} us{}",
+                log.line(format_args!("[frame] {drawn} at {} ms: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us backdrops {} ({} us) floor {} px apply {} us ui {ui_us} us place {} us plan {} us draw {} us damage {} us step {} us finish {} us scope {} us x{} calls {}/{}/{}/{}/{}/{} why {why} scene {}{}",
                 elapsed(t0),
                 cost.damage_px,
                 cost.region_px,
@@ -799,6 +800,21 @@ fn run_host(o: Options) -> io::Result<()> {
                 cost.backdrop_us,
                 cost.floor_px,
                 cost.apply_us,
+                cost.place_us,
+                cost.plan_us,
+                cost.draw_us,
+                cost.damage_us,
+                cost.step_us,
+                cost.finish_us,
+                cost.scope_us,
+                cost.scopes,
+                cost.calls.draws,
+                cost.calls.uniforms,
+                cost.calls.programs,
+                cost.calls.binds,
+                cost.calls.states,
+                cost.calls.skipped,
+                engine.layers(),
                 cost.gl_error.map_or(String::new(), |e| format!(" GL error {e:#x}"))));
             }
             ui_us = 0;

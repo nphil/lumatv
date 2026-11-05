@@ -58,6 +58,11 @@ pub fn tiles(topic: &Value) -> Vec<Value> {
     topic.get("tiles").and_then(Value::as_array).cloned().unwrap_or_default()
 }
 
+/// How many tiles the topic lists (without copying them).
+pub fn tile_count(topic: &Value) -> usize {
+    topic.get("tiles").and_then(Value::as_array).map_or(0, Vec::len)
+}
+
 /// The title of a kind of tile, as the helper's `group` names it.
 pub fn group_title(group: &str) -> &'static str {
     match group {

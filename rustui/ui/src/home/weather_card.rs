@@ -524,6 +524,11 @@ impl Weather {
         self.art_waits
     }
 
+    /// The sky is made and nothing holds it back, so a step of it restates its paths and needs nothing of the card.
+    pub fn art_steady(&self) -> bool {
+        self.art.is_some() && !self.art_waits
+    }
+
     /// Keeps the picture's motion going (`run`) or held where it is, for the tick `now`; the tick the next paths are due at, while it moves.
     pub fn animate(&mut self, now: u64, run: bool) -> Option<u64> {
         let a = self.art.as_mut()?;
@@ -537,6 +542,14 @@ impl Weather {
     /// The sky: its sprites and the tint behind them are made when the condition (or the look, or the box) changes. The caller is inside the card's
     /// `adopting`, so that the layers hang under the card's group.
     pub fn set_art(&mut self, kit: &mut Kit, topic: &Value) {
+        let light = kit.mode == ui::lucent::palette::Mode::Light;
+        let cond = Cond::from_doc(topic.pointer("/doc").unwrap_or(&Value::Null));
+        // a sky that is made for this condition waits for nothing: the clock's new digits unsettle the atlas every second, and a sky that said it
+        // waited then had its next step drawn by a whole apply of Home (`HomeSurface::tick`)
+        if cond.is_some_and(|c| self.art.as_ref().is_some_and(|a| a.is(c, self.stage, light))) {
+            self.art_waits = false;
+            return;
+        }
         // the words first: the sprites' pixels are a few hundred KiB the engine takes in a frame of their own, and the card's glyphs are
         // not to wait behind them (the picture comes on the first apply after the atlas has settled)
         if kit.ui.text_atlas().is_some_and(|a| !a.is_settled()) {
@@ -544,9 +557,8 @@ impl Weather {
             return;
         }
         self.art_waits = false;
-        let light = kit.mode == ui::lucent::palette::Mode::Light;
-        match Cond::from_doc(topic.pointer("/doc").unwrap_or(&Value::Null)) {
-            Some(cond) if !self.art.as_ref().is_some_and(|a| a.is(cond, self.stage, light)) => {
+        match cond {
+            Some(cond) => {
                 let origin = (self.at.x - PAD_SIDE, self.at.y - PAD_TOP);
                 // the tint behind the sprites, under them: from the colour of the sky, in the palette's own, to nothing. Over the reading's top it is the card's
                 // top corners' shape; beside the forecast it fades from the left to nothing before the forecast's side, so that it has no edge on the glass.
@@ -564,7 +576,6 @@ impl Weather {
                 self.art = None;
                 self.wash = None;
             }
-            Some(_) => {}
         }
     }
 

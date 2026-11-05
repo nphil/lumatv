@@ -435,13 +435,33 @@ impl HomeSurface {
         self.generation = 0;
     }
 
-    /// The surface's own timers: the news slide, the clock's second (or minute).
+    /// The surface's own timers that ask for Home to be drawn again: the news slide, the clock's second (or minute), and a sky that is not made yet or
+    /// waits for the atlas (the apply makes it). A sky that is made restates its paths without it ([`HomeSurface::art_due`]).
     pub fn tick(&mut self, now: u64) -> bool {
         (now / 1000 != self.last_clock_s && self.contents_due(now))
             || (self.news_at > 0 && now >= self.news_at)
-            || self.art_at.is_some_and(|t| now >= t)
+            || (self.art_due(now) && !self.sky_steady())
             || self.view_art_at.is_some_and(|t| now >= t)
             || self.dimming.due_at().is_some_and(|t| now >= t)
+    }
+
+    /// The weather card's sky is due to restate its paths (`Live::step`, every 0.4 s): the compositor moves its sprites along them.
+    pub fn art_due(&self, now: u64) -> bool {
+        self.art_at.is_some_and(|t| now >= t)
+    }
+
+    /// Every weather card's sky is made and the atlas is not holding it back.
+    fn sky_steady(&self) -> bool {
+        self.cards.iter().all(|c| match &c.content {
+            Content::Weather(w) => w.art_steady(),
+            _ => true,
+        })
+    }
+
+    /// Restates the sky's paths without drawing Home again: the apply that did it every 0.4 s took 0.6 ms of the host's thread (a tenth of the shell's
+    /// time at rest) to leave the cards, the glass and the dock as they were. Only for a steady sky ([`HomeSurface::tick`] asks the apply for the rest).
+    pub fn step_art(&mut self, kit: &Kit, home: &Home, now: u64) {
+        self.drive_weather(kit, home, now);
     }
 
     pub fn due_at(&self) -> Option<u64> {

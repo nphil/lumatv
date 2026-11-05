@@ -898,7 +898,8 @@ fn update_view(cx: &mut Cx, scroller: &Group, view: &mut ItemView, item: &Item, 
     let (w, h) = (view.rect.w as u32, view.rect.h as u32);
     let level = (item.level * 100.0).round() as u8;
     let camera = items::camera_of(&item.id);
-    let still = camera.and_then(|c| cx.stills.picture(c)).cloned();
+    // (borrowed: a copy of the picture, some 0.7 MB for a camera, made for every apply that found the item as it was, was most of its time)
+    let still = camera.and_then(|c| cx.stills.picture(c));
     let said = v.notice.filter(|_| v.smart.focus_id() == Some(item.id.as_str()) && v.smart.plan().grid.heading.is_none()).map(str::to_owned);
     let lamp = (item.is_lamp() && item.on && !item.gone).then_some(item.rgb).flatten().map(|c| (c, level));
     let drawn = Drawn { look, w, h, name: item.name.clone(), words: item.words.clone(), icon: item.icon.clone(), gone: item.gone, on: item.on, tone: item.tone.clone(), still: camera.filter(|_| still.is_some()).map_or(0, |c| cx.stills.revision_of(c)), lamp, said: said.clone() };

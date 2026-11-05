@@ -200,12 +200,17 @@ impl Chip {
     }
 }
 
+/// The drawn layout of a layout revision and a text scale (its bits).
+type DrawnLayout = ((u64, u32), std::rc::Rc<Value>);
+
 pub struct Home {
     pub theme: Value,
     pub layout: Value,
     /// Counts the layouts that differ from the one before and the themes whose `clock` or `tiles` do: what the surface's chrome is made from.
     layout_rev: u64,
     theme_chrome_rev: u64,
+    /// The layout as it is drawn ([`Home::drawn_layout`]) for the layout revision and text scale it was made at.
+    drawn: std::cell::RefCell<Option<DrawnLayout>>,
     pub shipped_layout: Value,
     pub layout_text: String,
     pub theme_text: String,
@@ -365,6 +370,7 @@ impl Home {
             layout: Value::Null,
             layout_rev: 0,
             theme_chrome_rev: 0,
+            drawn: std::cell::RefCell::new(None),
             layout_text: serde_json::to_string(&user_layout).unwrap_or_default(),
             theme_text: String::new(),
             theme_preview: None,
@@ -534,9 +540,19 @@ impl Home {
         grid::entries(&self.layout).into_iter().find(Entry::is_dock)
     }
 
-    /// The layout as it is drawn: the status bar at the text size's height.
-    fn drawn_layout(&self) -> Value {
-        grid::with_status_height(&self.layout, self.status_height())
+    /// The layout as it is drawn: the status bar at the text size's height. Every card's rectangle is read from it, dozens of times an apply and
+    /// again for each card of the report, and each was a copy of the whole layout (the report took 0.19 ms of the host's thread of which 0.14 ms
+    /// were these); it is made again when the layout, which only `set_layout` changes, or the text size does.
+    fn drawn_layout(&self) -> std::rc::Rc<Value> {
+        let key = (self.layout_rev, self.text_scale.to_bits());
+        if let Some((made, drawn)) = &*self.drawn.borrow()
+            && *made == key
+        {
+            return drawn.clone();
+        }
+        let drawn = std::rc::Rc::new(grid::with_status_height(&self.layout, self.status_height()));
+        *self.drawn.borrow_mut() = Some((key, drawn.clone()));
+        drawn
     }
 
     pub fn rect(&self, e: &Entry) -> Rect {
@@ -549,12 +565,17 @@ impl Home {
 
     /// The status bar's items in the order they are drawn, left to right, as `{type, icon}` objects: the actions, then who is watching.
     pub fn status_items(&self) -> Vec<Value> {
-        self.layout.pointer("/statusBar/items").and_then(Value::as_array).cloned().unwrap_or_default()
+        self.status_item_list().to_vec()
+    }
+
+    /// [`Self::status_items`] without copying them.
+    fn status_item_list(&self) -> &[Value] {
+        self.layout.pointer("/statusBar/items").and_then(Value::as_array).map_or(&[], Vec::as_slice)
     }
 
     /// The place of the button of type `kind` among the status bar's items (its focus id is `STATUS_ID` plus it).
     pub fn status_index(&self, kind: &str) -> Option<usize> {
-        self.status_items().iter().position(|it| kind_of(it) == kind)
+        self.status_item_list().iter().position(|it| kind_of(it) == kind)
     }
 
     pub fn safe(&self) -> (f32, f32) {
@@ -607,12 +628,12 @@ impl Home {
         let mut out = Vec::new();
         let mut x = 0.0;
         let mut before: Option<Purpose> = None;
-        for it in self.status_items() {
-            let purpose = Purpose::of(kind_of(&it));
+        for it in self.status_item_list() {
+            let purpose = Purpose::of(kind_of(it));
             if let Some(b) = before {
                 x += if b == purpose { self.status_gaps.0 } else { self.status_gaps.1 };
             }
-            let w = self.status_item_width(&it);
+            let w = self.status_item_width(it);
             out.push((x, w));
             x += w;
             before = Some(purpose);
@@ -1796,6 +1817,11 @@ impl Home {
     /// The smart-home tiles, as the helper lists them.
     pub fn onhome_tiles(&self) -> Vec<Value> {
         super::onhome::tiles(&self.onhome)
+    }
+
+    /// How many tiles the helper lists: the report counted them by copying all of them, 75 us of the host's thread each time it was built.
+    pub fn onhome_tile_count(&self) -> usize {
+        super::onhome::tile_count(&self.onhome)
     }
 
     /// What the card says of the last control that was refused, while it is said.
@@ -3103,7 +3129,7 @@ impl Home {
     /// Where the status bar's glass, the box of its buttons and the buttons are, for the tests and the harness's crops: `{pill: [x, y, w, h], group: [x, y, w, h], items: [[type, x, y, w, h], ...]}`.
     fn status_state(&self) -> Value {
         let (pill, group) = (self.status_pill(), self.status_group());
-        let items: Vec<Value> = self.status_items().iter().zip(self.status_frames()).map(|(it, f)| json!([kind_of(it), f.0, f.1, f.2, f.3])).collect();
+        let items: Vec<Value> = self.status_item_list().iter().zip(self.status_frames()).map(|(it, f)| json!([kind_of(it), f.0, f.1, f.2, f.3])).collect();
         json!({"pill": [pill.x, pill.y, pill.w, pill.h], "group": [group.x, group.y, group.w, group.h], "items": items})
     }
 
@@ -3131,7 +3157,7 @@ impl Home {
             "cameraFrames": self.stills.revision,
             "statusBar": self.status_state(),
             "onhome": json!({
-                "tiles": self.onhome_tiles().len(),
+                "tiles": self.onhome_tile_count(),
                 "items": self.smarts.first().map(|(_, s)| s.items().len()),
                 "focus": self.smarts.first().and_then(|(_, s)| s.focus_id()),
                 "offset": self.smarts.first().map(|(_, s)| s.offset()),

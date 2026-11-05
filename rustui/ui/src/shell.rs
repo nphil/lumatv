@@ -36,6 +36,8 @@ const OVERLAY_RELEASE_MS: u64 = 450;
 const ICON_WARM_AFTER_MS: u64 = 2_000;
 const ICON_WARM_STEP: usize = 3;
 const ICON_WARM_GAP_MS: u64 = 30;
+/// The longest a quiet tick (one that drew nothing and asked nothing) leaves the report unbuilt.
+const REPORT_HEARTBEAT_MS: u64 = 1000;
 
 /// What the shell asks the host to do.
 #[derive(Clone, Debug, PartialEq)]
@@ -232,6 +234,10 @@ pub struct Shell {
     pointer_only: bool,
     #[cfg(test)]
     reports_built: u32,
+    /// The tick that called `after` asked nothing and drew nothing: its report is the last one's unless something besides the models changed it.
+    quiet_tick: bool,
+    /// When the report was last built (the shell's ms).
+    reported_at: u64,
 }
 
 /// How old a polled file's change time must be before the read may be skipped on its account: a file written again within the clock's granularity
@@ -302,6 +308,8 @@ impl Shell {
             pointer_only: false,
             #[cfg(test)]
             reports_built: 0,
+            quiet_tick: false,
+            reported_at: 0,
         })
     }
 
@@ -1108,8 +1116,12 @@ impl Shell {
         self.panel_events(now, &mut acts);
         // Home behind an app has nothing on the screen to keep up to date: its clock's second hand and its news slide each cost the compositor a
         // composed frame a second under a playing video (the hole wipes what they drew), so they wait for Home to be in front again.
-        if self.kinds.home && self.home.active && self.home_surface.tick(now) {
-            self.redraw = true;
+        if self.kinds.home && self.home.active {
+            if self.home_surface.tick(now) {
+                self.redraw = true;
+            } else if self.home_surface.art_due(now) && !self.redraw {
+                self.home_surface.step_art(&self.kit, &self.home, now);
+            }
         }
         if self.kinds.cameras && self.cameras.surface.tick(now) {
             self.redraw = true;
@@ -1117,6 +1129,7 @@ impl Shell {
         if self.kinds.settings && self.settings.tick(&mut self.engine, now) {
             self.redraw = true;
         }
+        self.quiet_tick = !self.redraw && acts.is_empty();
         self.after(now, &mut acts);
         acts
     }
@@ -1215,6 +1228,7 @@ impl Shell {
         }
         // a pointer that only moved, and drew nothing and asked for nothing, leaves the report as it was
         let pointer_only = std::mem::take(&mut self.pointer_only) && !self.redraw && acts.is_empty();
+        let redrew = self.redraw;
         if self.redraw {
             self.redraw = false;
             let mut live = false;
@@ -1341,11 +1355,15 @@ impl Shell {
             let failed = std::mem::take(&mut self.apply_failed_now);
             self.apply_errs.retain(|(src, _)| failed.contains(src));
         }
-        if self.started && !pointer_only {
+        // a tick that drew nothing and asked nothing (a sky restating its paths) leaves the report as it was, which the sets of a Home at rest
+        // built and compared 11 times a second for 0.18 ms of the host's thread each; a second at most goes by before it is looked at again
+        let quiet = std::mem::take(&mut self.quiet_tick) && !redrew && acts.is_empty() && now.saturating_sub(self.reported_at) < REPORT_HEARTBEAT_MS;
+        if self.started && !pointer_only && !quiet {
             #[cfg(test)]
             {
                 self.reports_built += 1;
             }
+            self.reported_at = now;
             let report = self.report();
             if self.reported.as_ref() != Some(&report) {
                 self.reported = Some(report.clone());
@@ -3270,6 +3288,44 @@ mod tests {
         shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true, "covered": false}) }, 16_000);
         shell.tick(16_050);
         assert!(shell.due_at().is_some_and(|d| d <= 16_050 + crate::home::weather_art::TICK_MS), "Home in front again: it moves");
+    }
+
+    /// The sky restates its paths every 0.4 s, and at rest that was most of the shell's time: a whole apply of Home (0.6 ms of the host's thread, a
+    /// glass, a status bar and five icons sent again to be found the same) and the report built to be found the same. A made sky's step sends its own
+    /// paths and nothing else; the clock's second still draws Home.
+    #[test]
+    fn a_made_skys_restate_sends_its_paths_alone_and_builds_no_report() {
+        let reading = |temp: &str, at: u64| json!({"doc": {"fetchedAt": at, "current": {"code": 63, "isDay": true, "windMph": 4.0}, "display": {"place": "Atlanta", "temp": temp, "cond": "Rain", "stats": "", "nowKind": "rain", "days": []}}});
+        let sent = |h: &mut ui::testing::Harness| h.commit().into_iter().filter(|r| !format!("{r:?}").starts_with("Commit")).collect::<Vec<_>>();
+        let paths_only = |reqs: &[compositor_protocol::Request]| !reqs.is_empty() && reqs.iter().all(|r| matches!(r, compositor_protocol::Request::Animate { .. } | compositor_protocol::Request::Set { .. }));
+        let (mut h, mut shell) = home_shell("home");
+        shell.helper(&Event::Topic { topic: "weather".into(), data: reading("61\u{b0}", 5) }, 1_050);
+        shell.tick(1_100);
+        h.settle_atlas();
+        // the sky not made yet: its first step is the apply's
+        shell.tick(1_150);
+        let due = shell.due_at().expect("rain moves: a tick is due");
+        assert!(due < 1_600, "the step is in the second the clock was drawn in: {due}");
+        sent(&mut h);
+        let built = shell.reports_built;
+        shell.tick(due);
+        let reqs = sent(&mut h);
+        assert!(paths_only(&reqs), "the step's own paths: {reqs:?}");
+        assert_eq!(shell.reports_built, built, "nothing changed: no report is built");
+        // words with glyphs the atlas has not seen leave it unsettled, and a sky that is made does not wait for it
+        shell.helper(&Event::Topic { topic: "weather".into(), data: reading("QZ\u{b0}", 6) }, due + 10);
+        assert!(shell.kit.ui.text_atlas().is_some_and(|a| !a.is_settled()), "the new words are not on the atlas yet");
+        let next = shell.due_at().expect("rain moves: a tick is due");
+        assert!(next < 2_000, "the step is in the same second: {next}");
+        sent(&mut h);
+        let built = shell.reports_built;
+        shell.tick(next);
+        let reqs = sent(&mut h);
+        assert!(paths_only(&reqs), "the step's own paths: {reqs:?}");
+        assert_eq!(shell.reports_built, built, "nothing changed: no report is built");
+        // a second goes by and the clock's hands are drawn: Home is applied
+        shell.tick(2_050);
+        assert!(shell.reports_built > built, "the report is looked at again within the second");
     }
 
     #[test]
