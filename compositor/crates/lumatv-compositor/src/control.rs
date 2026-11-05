@@ -292,6 +292,13 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             let rest: Vec<&str> = words.collect();
             state.vwin_ctl(&rest)
         }
+        // The clip that puts the panel back to 120 Hz after a 25/50 fps video (`retime`): `retime` reads it, `retime on|off` switches it for a run,
+        // `retime now [SECONDS]` plays the clip for a few seconds (up to ten) wherever the panel is (a TV check of the window and the decoder with the rate untouched),
+        // `retime stop` ends it, `retime show|hide` cuts the clip's hole or not.
+        "retime" => {
+            let rest: Vec<&str> = words.collect();
+            state.retime_ctl(&rest)
+        }
         // wheel [up|down]: a turn of the Magic Remote's wheel, which shows the pointer where `pointer aim` last put it (`remote.pointerShow`); with
         // a direction it is that way, for the client that scrolls with it.
         "wheel" => {
@@ -491,7 +498,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks clients commit|early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], paneldim [want X|release], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks clients commit|early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], retime [on|off|now [SECONDS]|stop|show|hide], paneldim [want X|release], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

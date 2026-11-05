@@ -52,6 +52,8 @@ pub struct Config {
     /// Answer lginput2's Input Manager handshake over LG's message queue (`im_queue`) while `--input` is on; `--no-im-queue` leaves the
     /// queue to LG's compositor.
     pub im_queue: bool,
+    /// Play the retime clip when a 25/50 fps video leaves the panel at 100 Hz (`retime`); `--no-retime` leaves it off, `ctl retime on|off` switches it for a run.
+    pub retime: bool,
     /// Exercise the optional system-layer renderer without replacing any TV surfaces.
     pub ui_demo: bool,
     /// Native UI kinds enabled for this run. Empty disables the native client for diagnostics.
@@ -130,6 +132,7 @@ impl Default for Config {
             input: false,
             input_dir: PathBuf::from("/dev/input"),
             im_queue: true,
+            retime: true,
             ui_demo: false,
             shell_rust: Vec::new(),
             data_dir: PathBuf::from("/var/lib/lumatv"),
@@ -172,6 +175,7 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --no-control           no control socket
   --input                read /dev/input/event* and route keys to the focused window (C4)
   --input-dir DIR        read the event* devices of DIR instead of /dev/input
+  --no-retime            do not play the 30 fps clip under Home that puts the panel back to 120 Hz after a 25/50 fps video (`ctl retime`)
   --no-im-queue          leave LG's Input Manager queue (/IM_MQ_WEBOS) alone: with --input the compositor answers lginput2's
                          handshake on it, as LG's compositor did, so a reconnected Magic Remote works at once
   --data-dir DIR         LumaTV's data directory (default /var/lib/lumatv): theme/theme.json holds Settings > Remote's app buttons,
@@ -294,6 +298,7 @@ impl Config {
                 "--input" => c.input = true,
                 "--input-dir" => c.input_dir = PathBuf::from(value()?),
                 "--no-im-queue" => c.im_queue = false,
+                "--no-retime" => c.retime = false,
                 "--data-dir" => c.data_dir = PathBuf::from(value()?),
                 "--ui-demo" => c.ui_demo = true,
                 "--shell-rust" => c.shell_rust = crate::shell_rust::parse_kinds(&value()?),

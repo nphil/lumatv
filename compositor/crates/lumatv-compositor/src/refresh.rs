@@ -30,24 +30,11 @@ pub struct Policy {
     pub manual: bool,
     marquee: bool,
     interactive: bool,
-    pub retime: Retime,
-    /// LG's output-rate request (`DE_IOW_SET_FR_RATE`, the call the kernel itself makes at a video's first frame).
-    pub fr_rate: PathBuf,
-    /// The scaler's status for the main window (`connect_src=NONE` when no video feeds it).
-    pub scaler: PathBuf,
 }
 
 impl Policy {
     pub fn new(default_hz: u32) -> Self {
-        Self {
-            default_hz,
-            manual: false,
-            marquee: false,
-            interactive: false,
-            retime: Retime::default(),
-            fr_rate: PathBuf::from(FR_RATE_PATH),
-            scaler: PathBuf::from(SCALER_PATH),
-        }
+        Self { default_hz, manual: false, marquee: false, interactive: false }
     }
 
     fn target(&self) -> u32 {
@@ -55,60 +42,10 @@ impl Policy {
     }
 }
 
-/// Free run at the 60 family: 120 Hz on this panel (`framerate-result.md`).
-const FR_RATE_PATH: &str = "/proc/lg/de/fr_rate";
-const SCALER_PATH: &str = "/proc/lgtv-driver/scaler/main.p0";
-const SET_120: &[u8] = b"1 60\n";
-/// How long nothing may feed the main window before the rate is asked back: the kernel re-times at a window's first frame and a
-/// closing video's window takes a moment to go.
-const CLEAR_FOR_NS: u64 = 1_500_000_000;
-
 /// The flip period the 25/50 fps family leaves behind: 10.00 ms for 8.33 and 20.00 ms for 16.67, so a fifth to a third over what
-/// the mode asks. A longer one is a film rate, which only a video window causes.
+/// the mode asks. A longer one is a film rate, which only a video window causes. What is done about it is `retime.rs`.
 pub fn retimed(expected_ns: u64, measured_ns: u64) -> bool {
     measured_ns * 10 > expected_ns * 11 && measured_ns * 10 < expected_ns * 13
-}
-
-/// The one write per episode that asks the panel back to 120 Hz. An episode is a stretch with the panel re-timed and no video
-/// feeding the main window; a video that comes back ends it, so a stream that is still playing is never written over, and a
-/// write the firmware ignores (measured with no source and with a 25 fps one, `vwin-refresh-result.md`) is not repeated.
-#[derive(Default)]
-pub struct Retime {
-    clear_since: Option<u64>,
-    written: bool,
-}
-
-impl Retime {
-    /// `stuck`: the panel is held at a re-timed rate. `clear`: Home is in front and no video window or source feeds the main window.
-    /// `true` when the request is due now.
-    pub fn step(&mut self, now_ns: u64, stuck: bool, clear: bool) -> bool {
-        if !(stuck && clear) {
-            *self = Retime::default();
-            return false;
-        }
-        let since = *self.clear_since.get_or_insert(now_ns);
-        if self.written || now_ns.saturating_sub(since) < CLEAR_FOR_NS {
-            return false;
-        }
-        self.written = true;
-        true
-    }
-
-    /// Whether the request went out in this episode.
-    pub fn written(&self) -> bool {
-        self.written
-    }
-}
-
-/// Whether the scaler status says a source feeds the main window; `None` when the text has no such line.
-fn source_connected(status: &str) -> Option<bool> {
-    status.lines().find_map(|l| l.trim().strip_prefix("connect_src=")).map(|s| s.trim() != "NONE")
-}
-
-/// Asks the output for 120 Hz (the 60 family, free run).
-fn write_120(path: &Path) -> io::Result<()> {
-    use std::io::Write;
-    std::fs::OpenOptions::new().write(true).open(path)?.write_all(SET_120)
 }
 
 impl crate::server::state::State {
@@ -118,36 +55,6 @@ impl crate::server::state::State {
         self.config.refresh_hz = hz;
         self.config.tick_ns = period_ns(hz);
         Ok(hz)
-    }
-
-    /// Puts the panel back to 120 Hz after a 25/50 fps video left it at 100: with the refresh policy automatic, Home in front and
-    /// nothing feeding the main window, the request LG's kernel makes at a video's first frame is made once (`Retime`).
-    pub fn panel_rate_sync(&mut self, now_ns: u64) {
-        let flips = self.output.flip_period_ns().filter(|&p| retimed(period_ns(self.config.refresh_hz), p));
-        let stuck = !self.refresh_policy.manual && flips.is_some();
-        let clear = stuck && self.panel_rate_clear(!self.refresh_policy.retime.written());
-        if !self.refresh_policy.retime.step(now_ns, stuck, clear) {
-            return;
-        }
-        // the flips run at the panel's rate over the OSD divider
-        let panel_hz = flips.map_or(0.0, |p| 1e9 / p as f64 * 120.0 / f64::from(self.config.refresh_hz.max(1)));
-        match write_120(&self.refresh_policy.fr_rate) {
-            Ok(()) => self.journal(format!("refresh: the panel was left at {panel_hz:.0} Hz by a video; 120 Hz asked for, no video window left")),
-            Err(e) => log::warn!("refresh: {}: {e}", self.refresh_policy.fr_rate.display()),
-        }
-    }
-
-    /// Screen on, Home in front (the screen at rest also has no card), no video window of ours and, when `read_source`, no source on the
-    /// main window (once the request is made only the cheap checks run, to see a video that ends the episode).
-    fn panel_rate_clear(&self, read_source: bool) -> bool {
-        let home = self.scene.foreground(&self.surfaces).is_none_or(|w| w.app_id() == crate::scene::HOME_APP);
-        let video = self.scene.windows().any(|w| w.kind == crate::window::WindowType::VideoWindow)
-            || self.vwin.alloc.granted().any(|c| !c.texture);
-        if !self.luna_state.power.rendering || !home || video {
-            return false;
-        }
-        let source = read_source.then(|| std::fs::read_to_string(&self.refresh_policy.scaler).ok().and_then(|s| source_connected(&s))).flatten();
-        source != Some(true)
     }
 
     fn refresh_votes(&self) -> (bool, bool) {
@@ -515,38 +422,10 @@ mod tests {
     }
 
     #[test]
-    fn a_panel_left_at_100_hz_is_asked_back_once_no_video_is_left() {
+    fn the_25_and_50_family_is_a_flip_period_a_fifth_to_a_third_over_the_mode() {
         let (p120, p100, p60, p50) = (period_ns(120), 10_000_000, period_ns(60), 20_000_000);
         assert!(retimed(p120, p100) && retimed(p60, p50));
         assert!(!retimed(p120, p120) && !retimed(p60, p60) && !retimed(p120, p60) && !retimed(p120, 41_700_000));
-
-        let s = 1_000_000_000;
-        let mut r = Retime::default();
-        // the Ring's view is still up: nothing is written, however long the panel is at 100
-        assert!(!r.step(0, true, false) && !r.step(10 * s, true, false));
-        // it closes: the request waits for the window to be gone, then goes out once and is not repeated
-        assert!(!r.step(11 * s, true, true) && !r.step(11 * s + CLEAR_FOR_NS - 1, true, true));
-        assert!(r.step(11 * s + CLEAR_FOR_NS, true, true));
-        assert!(r.written() && !r.step(12 * s + CLEAR_FOR_NS, true, true) && !r.step(60 * s, true, true));
-        // a video that comes back ends the episode and is left alone; its end opens the next
-        assert!(!r.step(61 * s, true, false) && !r.written());
-        assert!(!r.step(62 * s, true, true) && r.step(62 * s + CLEAR_FOR_NS, true, true));
-        // the panel back at 120 forgets the episode: a later re-time starts the wait again
-        assert!(!r.step(70 * s, false, true) && !r.written());
-        assert!(!r.step(71 * s, true, true) && r.step(71 * s + CLEAR_FOR_NS, true, true));
-    }
-
-    #[test]
-    fn the_request_is_free_run_at_the_60_family_and_the_source_is_read_from_the_scaler() {
-        let path = temp("fr_rate");
-        assert!(write_120(&path).is_err(), "the file is not created: a host has none");
-        std::fs::write(&path, "").unwrap();
-        write_120(&path).unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "1 60\n");
-        std::fs::remove_file(&path).ok();
-        assert_eq!(source_connected("win0\n connect_src=NONE\n"), Some(false));
-        assert_eq!(source_connected("connect_src=VDEC"), Some(true));
-        assert_eq!(source_connected("nothing"), None);
     }
 
     #[test]

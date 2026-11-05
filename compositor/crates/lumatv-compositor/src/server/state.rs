@@ -230,6 +230,8 @@ pub struct State {
     pub dh: DisplayHandle,
     pub config: Config,
     pub refresh_policy: crate::refresh::Policy,
+    /// The panel back at 120 Hz after a 25/50 fps video (`retime.rs`).
+    pub retime: crate::retime::Controller,
     pub surfaces: Surfaces,
     pub scene: Scene,
     pub output: Box<dyn Output>,
@@ -311,10 +313,12 @@ impl State {
         let motion = crate::transition::ThemeSwitch::new(&config.data_dir);
         let panel_dir = config.data_dir.clone();
         let refresh_policy = crate::refresh::Policy::new(config.refresh_hz);
+        let retime = crate::retime::Controller::new(&config.data_dir, config.retime);
         State {
             dh,
             config,
             refresh_policy,
+            retime,
             surfaces: Surfaces::default(),
             scene,
             output,
