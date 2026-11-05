@@ -494,6 +494,17 @@
           "version": "1"
         },
         {
+          "approve": "a4a46b89c10fa9e1df565a779dce0c297c8aeddbd14f462bea267a87214d16d3",
+          "class": "S",
+          "consent": "Fills the Live TV guide with a week of listings for a zip code, from the sources picked on its page: a Plex server on the home network, Schedules Direct (a paid account) or the free Gracenote listings. The TV asks only those (the Plex server's address, json.schedulesdirect.org, tvlistings.gracenote.com), at most every six hours, and keeps the listings, the Plex token and the Schedules Direct password on the TV.",
+          "firstParty": true,
+          "id": "guide-data",
+          "name": "Guide data",
+          "registered": false,
+          "state": "off",
+          "version": "1"
+        },
+        {
           "approve": "3bfc18dbd15a6c48253dd5b8ece62eaa85f4c0cdf95e2682125ba363e49e8f8d",
           "class": "S",
           "consent": "Shares this TV's antenna tuner on the local network as an HDHomeRun, with a channel playlist and the TV's own guide: devices on the home network can list its channels, watch them and record them. One stream at a time, and the TV's own Live TV always comes first.",

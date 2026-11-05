@@ -3,9 +3,12 @@
 //!
 //! The tuner's channel is followed with `utp.channel/getLastChannelId` (a subscription that needs no pipeline; LG's own channel change
 //! follows the same call), and for a channel that differs from the last one the channel's own record (`iepg/getChannelInfo`: number, name,
-//! logo) and what is on it and next (`iepg/getCurrentNextEventList`) are asked once. The banner waits for both for [`WAIT_MS`] and then
-//! says what it has: the number from the id, "No information" for a programme it was not told of; an answer that comes later refreshes it
-//! without holding it longer. An answer about another channel than the tuner's is dropped.
+//! logo) and what is on it and next (`iepg/getCurrentNextEventList`) are asked once, with the online listings of the hours round now from
+//! the helper's Guide data plugin
+//! (`GET /v1/guide/programmes`), which lie over LG's where they have a programme (`lumaguide::merge`). The banner waits for the record
+//! and LG's programmes for [`WAIT_MS`] and then says what it has: the number from the id, "No information" for a programme it was not
+//! told of; an answer that comes later (the online listings among them) refreshes it without holding it longer. An answer about another
+//! channel than the tuner's is dropped, and a helper whose plugin is off is asked nothing more until Live TV comes to the front again.
 //!
 //! The timing is LG's: a change or a launch is shown for five seconds (`BannerInterfaces.qml`: `hideTimer`, zapping and launching). LG's
 //! INFO card is open for 30 s and is closed with Back; this banner takes no arrow and no pointer, so INFO holds it for eight seconds, and
@@ -24,6 +27,10 @@ pub const LAST_TAG: u64 = 0x4A00_0010;
 pub const INFO_TAG: u64 = 0x4A00_0011;
 /// The one-shot ask for what is on a channel and what is next.
 pub const NOW_TAG: u64 = 0x4A00_0012;
+/// The ask of the helper for the online listings round now.
+pub const ONLINE_TAG: u64 = 0x4A00_0013;
+/// The hours round now the online listings are asked for.
+const ONLINE_SPAN_MS: i64 = 6 * 3_600_000;
 
 /// How long the banner waits for the channel's record and its programmes before it says what it has.
 pub const WAIT_MS: u64 = 700;
@@ -74,7 +81,13 @@ pub struct Feed {
     /// The channel id the tuner last named.
     current: Option<String>,
     channel: Option<Channel>,
+    /// What is drawn: the online programmes over LG's.
     programmes: Vec<Programme>,
+    /// LG's and the online listings' programmes of the channel, as they came.
+    broadcast: Vec<Programme>,
+    online: Vec<Programme>,
+    /// The helper said its Guide data plugin is off.
+    online_off: bool,
     /// When the programmes in hand were asked for.
     asked_at: u64,
     owed: Option<Owed>,
@@ -130,10 +143,21 @@ impl Feed {
 
     fn ask(&mut self, id: &str, now: u64) -> Vec<Effect> {
         self.asked_at = now;
-        vec![
+        let mut out = vec![
             Effect::Luna { tag: INFO_TAG, uri: channels::INFO_URI.into(), payload: channels::info_request(id), subscribe: false },
             Effect::Luna { tag: NOW_TAG, uri: channels::NOW_NEXT_URI.into(), payload: channels::now_next_request(&[id]), subscribe: false },
-        ]
+        ];
+        if !self.online_off {
+            let at = now as i64;
+            let path = format!("{}?channel={id}&from={}&to={}", crate::guide::model::ONLINE_PATH, at - ONLINE_SPAN_MS, at + ONLINE_SPAN_MS);
+            out.push(Effect::Fetch { tag: ONLINE_TAG, path });
+        }
+        out
+    }
+
+    /// The online programmes over LG's.
+    fn lay(&mut self) {
+        self.programmes = lumaguide::merge::over(&self.online, &self.broadcast);
     }
 
     /// The words of the banner as the answers in hand give them.
@@ -213,10 +237,31 @@ impl Feed {
                 if mine.is_empty() && self.owed.is_none() {
                     return Out::default();
                 }
-                self.programmes = mine;
+                self.broadcast = mine;
+                self.lay();
                 if let Some(o) = self.owed.as_mut() {
                     o.programmes = true;
                 }
+                self.ready(now, false)
+            }
+            Input::Fetched { tag, status, data } if *tag == ONLINE_TAG => {
+                if *status != 200 || data.get("on").and_then(Value::as_bool) != Some(true) {
+                    self.online_off = true;
+                    self.online.clear();
+                } else {
+                    let id = self.current.as_deref().unwrap_or_default();
+                    let list: Vec<Programme> = data.get("programmes").and_then(|p| serde_json::from_value(p.clone()).ok()).unwrap_or_default();
+                    let mine: Vec<Programme> = list.iter().filter(|p| p.channel == id).cloned().collect();
+                    if mine.is_empty() && !list.is_empty() {
+                        // the listings of the channel that was left
+                        return Out::default();
+                    }
+                    if let Some(o) = self.owed.as_mut() {
+                        o.programmes |= !mine.is_empty();
+                    }
+                    self.online = mine;
+                }
+                self.lay();
                 self.ready(now, false)
             }
             Input::Tick => {
@@ -244,6 +289,8 @@ impl Feed {
         self.current = Some(id.clone());
         self.channel = None;
         self.programmes.clear();
+        self.broadcast.clear();
+        self.online.clear();
         self.owed = Some(Owed { info_banner: false, until: now + WAIT_MS, channel: false, programmes: false });
         Out { effects: self.ask(&id, now), changed: true, ..Out::default() }
     }
@@ -339,7 +386,7 @@ mod tests {
         shown(f.update(&programmes(ID), NOW));
         assert!(!f.update(&last(ID), NOW + 9000).changed && f.update(&last(ID), NOW + 9000).raise.is_none() && f.update(&last(ID), NOW + 9000).effects.is_empty(), "a push that says the same is nothing");
         let out = f.update(&last(OTHER), NOW + 10_000);
-        assert!(out.changed && out.effects.len() == 2, "the new channel is a change, and its record and programmes are asked for");
+        assert!(out.changed && out.effects.len() == 3, "the new channel is a change, and its record, its programmes and its online listings are asked for");
         f.update(&record(OTHER, "9-1", "WXIA", ""), NOW + 10_050);
         let s = shown(f.update(&programmes(OTHER), NOW + 10_100));
         assert_eq!((s.number.as_str(), s.call.as_str(), s.logo.as_str()), ("9-1", "WXIA", ""), "no logo: no plate, and nothing of the last channel's is left");
@@ -405,6 +452,38 @@ mod tests {
         f.update(&last(ID), NOW + 5100);
         f.update(&record(ID, "2-1", "WSB-HD", ""), NOW + 5100);
         assert_eq!(shown(f.update(&programmes(ID), NOW + 5100)).number, "2-1", "the same channel as before still shows when Live TV comes back");
+    }
+
+    fn online(id: &str, title: &str, from: i64, to: i64) -> Input {
+        let p = json!({"id": format!("ep-{from}"), "channel": id, "title": title, "start": NOW as i64 + from * MIN, "end": NOW as i64 + to * MIN});
+        Input::Fetched { tag: ONLINE_TAG, status: 200, data: json!({"ok": true, "on": true, "programmes": [p]}) }
+    }
+
+    #[test]
+    fn the_online_listings_lie_over_lgs_and_a_helper_whose_plugin_is_off_is_asked_nothing_more() {
+        let mut f = live();
+        let out = f.update(&last(ID), NOW);
+        let asked = out.effects.iter().find_map(|e| if let Effect::Fetch { tag: ONLINE_TAG, path } = e { Some(path.clone()) } else { None });
+        let six = 6 * 3_600_000;
+        assert_eq!(asked, Some(format!("/v1/guide/programmes?channel={ID}&from={}&to={}", NOW as i64 - six, NOW as i64 + six)));
+        f.update(&record(ID, "2-1", "WSB-HD", ""), NOW + 10);
+        // the online listings are enough to say what is on
+        let s = shown(f.update(&online(ID, "Evening News Live", -10, 20), NOW + 20));
+        assert_eq!((s.title.as_str(), s.next.as_str()), ("Evening News Live", ""));
+        // LG's own come later: the online programme wins its time, LG's fill the rest
+        match f.update(&programmes(ID), NOW + 30).raise {
+            Some(Raise::Refresh(s)) => assert_eq!((s.title.as_str(), s.next.as_str()), ("Evening News Live", "Jeopardy!")),
+            other => panic!("{other:?}"),
+        }
+        assert!(f.update(&online(OTHER, "Elsewhere", 0, 30), NOW + 40).raise.is_none(), "the listings of a channel that was left");
+        // switched off: LG's alone, and nothing more is asked
+        let off = Input::Fetched { tag: ONLINE_TAG, status: 200, data: json!({"ok": true, "on": false, "programmes": []}) };
+        match f.update(&off, NOW + 50).raise {
+            Some(Raise::Refresh(s)) => assert_eq!(s.title, "Evening News"),
+            other => panic!("{other:?}"),
+        }
+        let out = f.update(&last(OTHER), NOW + 60);
+        assert!(out.effects.iter().all(|e| matches!(e, Effect::Luna { .. })), "{:?}", out.effects);
     }
 
     #[test]

@@ -62,6 +62,7 @@ pub mod device;
 pub mod displaylab;
 pub mod fetcher;
 pub mod gfn_boost;
+pub mod guidedata;
 pub mod ha_store;
 pub mod ha_weather;
 pub mod homefeeds;

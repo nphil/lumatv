@@ -14,15 +14,15 @@
 //! | [`ha`] | the Home Assistant lease: the one connection, held by the plugins that require it, and what each may watch and call |
 //! | [`install`] | switching a plugin on and off and linking Home Assistant: the owner's command line (`plugin-enable`, `ha-link`) |
 //! | [`runner`] | starts the programs of the plugins that are on, as their own users, and again when they stop |
-//! | [`routes`] | `/v1/plugins`: ask a plugin to run an action, page through the choices of its settings, refresh the lease's link, switch one of the helper's own that asks first |
+//! | [`routes`] | `/v1/plugins`: ask a plugin to run an action, page through the choices of its settings, hand it a secret typed on its page, refresh the lease's link, switch one of the helper's own that asks first |
 //!
 //! [`Plugins`] is the helper's component: a manager thread that reads the roster every `plugins.rescanSeconds` and keeps the
 //! broker (and its socket) only while a plugin is on. With none on, the cost is that sleeping thread.
 //!
-//! Served at level 1: settings page and values (with choice providers), cards, tiles, notifications, facts, the Home Assistant lease
-//! (`lease:ha`, `ha.read`, `ha.call`) and the occupancy signal. Not served (refused in words, and a plugin that asks for them in its
-//! manifest stays inert): timeline sources, secrets of a plugin's own, images and surfaces, network and Bluetooth brokering, and
-//! any call on a lock, an alarm, a camera, a cover or a valve. Plugins run as their own users, but this TV's kernel has no user or
+//! Served at level 1: settings page and values (with choice providers and secret fields), cards, tiles, notifications, facts, the Home
+//! Assistant lease (`lease:ha`, `ha.read`, `ha.call`) and the occupancy signal. Not served (refused in words, and a plugin that asks for
+//! them in its manifest stays inert): timeline sources, images and surfaces, network and Bluetooth brokering, and any call on a lock, an
+//! alarm, a camera, a cover or a valve. Plugins run as their own users, but this TV's kernel has no user or
 //! network namespaces and no seccomp, so the Show's sandbox is not reproduced: only reviewed plugins belong in `enabled.json`.
 
 pub mod broker;

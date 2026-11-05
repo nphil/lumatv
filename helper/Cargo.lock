@@ -536,6 +536,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "lumaguide"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha1",
+]
+
+[[package]]
 name = "lumashow-sdk"
 version = "0.1.0"
 dependencies = [
@@ -595,6 +605,7 @@ dependencies = [
  "jpeg-encoder",
  "libc",
  "log",
+ "lumaguide",
  "lumashow-sdk",
  "lumatuner",
  "lumatv-ambient",
@@ -1113,6 +1124,17 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "sha1"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
 ]
 
 [[package]]

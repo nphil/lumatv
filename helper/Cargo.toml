@@ -46,6 +46,8 @@ lumatv-feeds = { path = "feeds" }
 lumatv-privacy = { path = "privacy" }
 # The antenna tuner as an HDHomeRun: the engine the helper's Live TV Tuner plugin runs, and a standalone app could.
 lumatuner = { path = "tuner" }
+# The Live TV guide from online listings by zip code: the engine the helper's Guide data plugin runs, and the UI lays over LG's guide.
+lumaguide = { path = "../lumaguide" }
 
 [profile.release]
 opt-level = "s"

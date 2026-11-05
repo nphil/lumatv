@@ -16,11 +16,12 @@
 //!
 //! A plugin's settings page is registered in the settings store under its id, so `/v1/settings/<id>` serves it and a change of the
 //! person's reaches the plugin as `settings.apply`. A page's choice providers are served (`Shared::choices`: the helper asks the
-//! plugin a page at a time for whoever asks the API). A plugin that holds the Home Assistant lease (`ha.rs`) has the lease's
-//! three keys of its page (`lease.ha.url`, `lease.ha.token`, `lease.ha.forget`) taken off the page the store serves: the address
-//! and the token are the owner's command line's alone. What this TV does not serve at level 1 (timeline sources, secrets of a
-//! plugin's own, images, surfaces, network, Bluetooth) is refused in words (`not_served`); a plugin that asks for it in its manifest
-//! does not get to connect (`roster`).
+//! plugin a page at a time for whoever asks the API), and so are its secret fields (`Shared::submit_secret`: what the owner typed goes
+//! to the plugin once, as `secret.submit`, and is kept nowhere in the helper). A plugin that holds the Home Assistant lease (`ha.rs`) has
+//! the lease's three keys of its page (`lease.ha.url`, `lease.ha.token`, `lease.ha.forget`) taken off the page the store serves: the
+//! address and the token are the owner's command line's alone. What this TV does not serve at level 1 (timeline sources, images,
+//! surfaces, network, Bluetooth) is refused in words (`not_served`); a plugin that asks for it in its manifest does not get to connect
+//! (`roster`).
 
 use super::ha::{HaLease, Hold, Scope};
 use super::local::OptIn;
@@ -36,8 +37,8 @@ use plugin_api::limits::MESSAGES_PER_S;
 use plugin_api::permission::{Lease, Permission, SignalKind};
 use plugin_api::wire::{
     ActionOutcome, Authority, CardPut, ChoicePage, ChoicesBatch, Hello, Importance, NotifyPost,
-    PresenceWire, Priority, Register, SettingsOutcome, SignalPut, TileWire, ToBase, ToPlugin,
-    Welcome, WelcomeLimits,
+    PresenceWire, Priority, Register, SecretOutcome, SecretSubmit, SettingsOutcome, SignalPut,
+    TileWire, ToBase, ToPlugin, Welcome, WelcomeLimits,
 };
 use serde_json::{Value as Json, json};
 use service_api::UtcInstant;
@@ -199,12 +200,48 @@ pub struct Live {
     providers: Vec<String>,
     /// Questions asked of its providers that wait for an answer: query -> where the answer goes.
     queries: Mutex<BTreeMap<u64, Arc<Query>>>,
+    /// Secrets handed over that wait for the plugin's word: op -> where it goes.
+    secrets: Mutex<BTreeMap<u64, Arc<SecretWait>>>,
 }
 
 /// A page of a provider's choices that somebody waits for.
 struct Query {
     page: Mutex<Option<ChoicePage>>,
     ready: Condvar,
+}
+
+/// The plugin's word on a secret that somebody waits for.
+struct SecretWait {
+    outcome: Mutex<Option<SecretOutcome>>,
+    ready: Condvar,
+}
+
+/// Why a secret did not reach a plugin, or what the plugin said of it.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SecretError {
+    NoSuchPlugin,
+    /// The plugin's page has no secret field of that name.
+    NoSuchField,
+    TooLong,
+    TooMany,
+    Unreachable,
+    Timeout,
+    /// The plugin turned it down, in its words.
+    Rejected(String),
+}
+
+impl SecretError {
+    pub fn words(&self) -> &str {
+        match self {
+            Self::NoSuchPlugin => "that plugin is not connected",
+            Self::NoSuchField => "that plugin's page has no such secret field",
+            Self::TooLong => "that is longer than the field takes",
+            Self::TooMany => "that plugin has too much waiting for it",
+            Self::Unreachable => "that plugin cannot be reached",
+            Self::Timeout => "that plugin did not answer in time",
+            Self::Rejected(why) => why,
+        }
+    }
 }
 
 /// Why a provider's page could not be had.
@@ -368,6 +405,64 @@ impl Shared {
                 live.outlet.poke();
                 Err(ChoicesError::Timeout)
             }
+        }
+    }
+
+    /// Hands `secret`, what the owner typed in the secret field `field` of `plugin`'s page, to the plugin (`secret.submit`) and waits for
+    /// its word (at most the time a question to a plugin has). The helper keeps nothing of it. The caller is a thread of the API.
+    pub fn submit_secret(
+        &self,
+        plugin: &str,
+        field: &str,
+        secret: &str,
+    ) -> Result<(), SecretError> {
+        let live = self
+            .live
+            .lock()
+            .get(plugin)
+            .cloned()
+            .ok_or(SecretError::NoSuchPlugin)?;
+        let max = self
+            .settings
+            .secret_field(plugin, field)
+            .ok_or(SecretError::NoSuchField)?;
+        if secret.chars().count() > usize::from(max) {
+            return Err(SecretError::TooLong);
+        }
+        let op = self.next();
+        let waiting = Arc::new(SecretWait {
+            outcome: Mutex::new(None),
+            ready: Condvar::new(),
+        });
+        {
+            let mut secrets = live.secrets.lock();
+            if secrets.len() >= MAX_OUTSTANDING {
+                return Err(SecretError::TooMany);
+            }
+            secrets.insert(op, waiting.clone());
+        }
+        if !live
+            .outlet
+            .send(ToPlugin::SecretSubmit(SecretSubmit::new(op, field, secret)))
+        {
+            live.secrets.lock().remove(&op);
+            return Err(SecretError::Unreachable);
+        }
+        live.outlet.poke();
+        let deadline = std::time::Instant::now() + self.answer;
+        let mut outcome = waiting.outcome.lock();
+        while outcome.is_none() {
+            if waiting.ready.wait_until(&mut outcome, deadline).timed_out() {
+                break;
+            }
+        }
+        let said = outcome.take();
+        drop(outcome);
+        live.secrets.lock().remove(&op);
+        match said {
+            Some(SecretOutcome::Accepted) => Ok(()),
+            Some(SecretOutcome::Rejected { reason }) => Err(SecretError::Rejected(reason)),
+            None => Err(SecretError::Timeout),
         }
     }
 
@@ -758,23 +853,14 @@ fn page_problem(
         if is_lease && holds {
             continue;
         }
-        match &field.kind {
-            FieldKind::Text { secret: true, .. } => {
-                return Some(format!(
-                    "{key}: secret fields are not served by this TV yet"
-                ));
-            }
-            FieldKind::Action { action, .. } => {
-                if let Some(declared) = declared_actions
-                    && !declared.iter().any(|d| d == action.as_str())
-                {
-                    return Some(format!(
-                        "{key}: the action {} was not declared at registration",
-                        action.as_str()
-                    ));
-                }
-            }
-            _ => {}
+        if let FieldKind::Action { action, .. } = &field.kind
+            && let Some(declared) = declared_actions
+            && !declared.iter().any(|d| d == action.as_str())
+        {
+            return Some(format!(
+                "{key}: the action {} was not declared at registration",
+                action.as_str()
+            ));
         }
     }
     None
@@ -930,6 +1016,7 @@ impl Session {
             ToBase::SettingsPage { schema } => self.settings_page(schema),
             ToBase::SettingsResult { txn, outcome } => self.settings_result(txn, outcome),
             ToBase::ActionResult { op, outcome } => self.action_result(op, outcome),
+            ToBase::SecretResult { op, outcome } => self.secret_result(op, outcome),
             ToBase::CardPut(put) => self.card_put(put),
             ToBase::CardRemove { id } => {
                 if self.cards.remove(&id).is_some() {
@@ -1095,6 +1182,7 @@ impl Session {
             holds,
             providers,
             queries: Mutex::new(BTreeMap::new()),
+            secrets: Mutex::new(BTreeMap::new()),
         });
         {
             // Taking over from an earlier connection of the same plugin and publishing happen together, so that the earlier one's
@@ -1221,6 +1309,23 @@ impl Session {
                 );
             }
         }
+        Reply::nothing()
+    }
+
+    fn secret_result(&mut self, op: u64, outcome: SecretOutcome) -> Reply {
+        let waiting = self
+            .live
+            .as_ref()
+            .and_then(|live| live.secrets.lock().get(&op).cloned());
+        let Some(waiting) = waiting else {
+            return Reply::refused(
+                "secret.result",
+                "unknown_op",
+                format!("no secret.submit {op} is waiting for an answer"),
+            );
+        };
+        *waiting.outcome.lock() = Some(outcome);
+        waiting.ready.notify_all();
         Reply::nothing()
     }
 

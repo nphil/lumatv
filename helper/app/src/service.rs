@@ -275,15 +275,23 @@ impl Service {
         let onhome = crate::onhome::OnHome::new(&ctx, onhome_deps.unwrap_or_else(|| crate::onhome::Deps::real(&ctx)));
         threads.push(("onhome", onhome.spawn(&ctx)?));
         // Live TV Tuner: the antenna tuner on the home network, a plugin of the helper's own. Nothing listens and the tuner is left alone
-        // until the owner switches it on in Settings.
-        let tv = lumatuner::webos::Tv::new(
+        // until the owner switches it on in Settings. Guide data: online listings laid over the TV's own guide, the tuner's `/xmltv.xml`
+        // included, also off until switched on. Both read the TV's channel list through the same luna path.
+        let tv: Arc<dyn lumatuner::Hardware> = Arc::new(lumatuner::webos::Tv::new(
             config.hdhr.webos(),
             Arc::new(lumatuner::webos::LunaSend::new(config.luna.send.clone())),
+        ));
+        let guide = Arc::new(crate::guidedata::GuideData::default());
+        let tuner = Arc::new(
+            lumatuner::Tuner::new(tv.clone(), lumatuner::real_clock()).with_guide(guide.clone()),
         );
-        let tuner = Arc::new(lumatuner::Tuner::new(Arc::new(tv), lumatuner::real_clock()));
         threads.push((
             "tuner",
             crate::tuner::spawn(&ctx, plugins.shared().clone(), tuner)?,
+        ));
+        threads.push((
+            "guide",
+            crate::guidedata::spawn(&ctx, plugins.shared().clone(), tv, guide.clone())?,
         ));
 
         let privacy = crate::privacy::new(&ctx);
@@ -313,6 +321,7 @@ impl Service {
             feeds_tx,
             wx,
             weather_ha,
+            guide,
         };
         let server = Server::start(
             SocketAddr::new(ip, config.listen.port),

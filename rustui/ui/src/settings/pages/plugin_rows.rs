@@ -1,8 +1,11 @@
 //! Rows for a plugin's own settings page, from the schema the helper serves for it (`settings/PluginRows.js`): a plugin never draws, it names
 //! fields, and each device draws them in its own sizes and for its own input. A switch is a toggle, a number a slider, a choice of up to
 //! three answers segments, a longer one or a field whose choices the plugin lists (`{"provider": "rooms"}`) a list of rows with a check
-//! (the order picked shown as a number), and what the plugin only says (`read-only`, a line it published) a row that shows it. A kind this
-//! TV has no row for is left out, not drawn wrong, and an address or a secret is never typed here.
+//! (the order picked shown as a number), a text a row typed on the keyboard, and what the plugin only says (`read-only`, a line it
+//! published) a row that shows it. A secret is typed too but goes to the plugin alone (`POST /v1/plugins/<id>/secret`), never into the
+//! settings, and its row says only what the plugin says of it: the fact of the field's name, dots as dashes (`plex.token` →
+//! `plex-token`). What the base gives a plugin (`lan.`), a lease and a link are the owner's to give from a shell: shown, never typed. A
+//! kind this TV has no row for is left out, not drawn wrong.
 //!
 //! The lists a plugin makes are asked of the helper (`GET /v1/plugins/<id>/choices/<provider>`) by the page, which keeps each answer under
 //! `choices:<id>:<provider>`; the rows read it from there.
@@ -11,6 +14,7 @@ use super::owner::{Field, seg, slider, toggle};
 use crate::settings::ctx::Ctx;
 use crate::settings::row::{Op, Row};
 use serde_json::{Value, json};
+use std::rc::Rc;
 
 /// A plugin whose settings page the helper serves: its id (also its settings owner) and the sections its tabs are, in order.
 #[derive(Clone, Copy)]
@@ -96,13 +100,45 @@ pub fn field_rows(c: &Ctx, plugin: Plugin, tab: usize, f: &Value, icon: &str) ->
             }
             None => picker(c, plugin, tab, f, ours),
         },
-        // Shown, not typed: an address is the owner's to give from a shell.
+        "text" if !given(key) => {
+            let secret = kind.get("secret").and_then(Value::as_bool) == Some(true);
+            vec![if secret { secret_row(c, plugin, tab, f, icon) } else { text_row(c, plugin, tab, f, icon) }]
+        }
         "text" if kind.get("secret").and_then(Value::as_bool) != Some(true) => {
             let now = c.owner(plugin.id).and_then(|o| o.text(key)).filter(|t| !t.is_empty());
             vec![Row::info(key).tab(tab).label(label).value(now.as_deref().unwrap_or("Not set"))]
         }
         _ => Vec::new(),
     }
+}
+
+/// A key whose value is the base's, a lease's or a link's: given from a shell, not typed.
+fn given(key: &str) -> bool {
+    ["lan.", "lease.", "link."].iter().any(|p| key.starts_with(p))
+}
+
+/// A text typed on the keyboard, written as the owner's.
+fn text_row(c: &Ctx, plugin: Plugin, tab: usize, f: &Value, icon: &str) -> Row {
+    let (key, label) = (text(f, "key"), text(f, "label"));
+    let now = c.owner(plugin.id).and_then(|o| o.text(key)).unwrap_or_default();
+    let (owner, k) = (plugin.id.to_string(), key.to_string());
+    let then: Rc<dyn Fn(String) -> Vec<Op>> = Rc::new(move |t| vec![Op::Owner { owner: owner.clone(), key: k.clone(), value: json!(t.trim()) }]);
+    let entry = Op::Entry { prompt: label.into(), text: now.clone(), secret: false, purpose: crate::panels::ime::PURPOSE_NORMAL, then };
+    let shown = if now.is_empty() { "Not set" } else { now.as_str() };
+    Row::link(key).tab(tab).icon(icon).label(label).help(text(f, "help")).value(shown).admin().does(vec![entry])
+}
+
+/// A secret typed on the keyboard and handed to the plugin; the answer comes back under `secret:<id>:<key>`.
+fn secret_row(c: &Ctx, plugin: Plugin, tab: usize, f: &Value, icon: &str) -> Row {
+    let (key, label) = (text(f, "key"), text(f, "label"));
+    let said = fact(c, plugin, &key.replace('.', "-")).filter(|s| !s.is_empty());
+    let (id, k) = (plugin.id, key.to_string());
+    let then: Rc<dyn Fn(String) -> Vec<Op>> = Rc::new(move |t| {
+        let path = format!("/v1/plugins/{id}/secret");
+        vec![Op::Send { name: Some(format!("secret:{id}:{k}")), method: "POST", path, body: Some(json!({"field": k, "secret": t.trim()})) }]
+    });
+    let entry = Op::Entry { prompt: label.into(), text: String::new(), secret: true, purpose: crate::panels::ime::PURPOSE_NORMAL, then };
+    Row::link(key).tab(tab).icon(icon).label(label).help(text(f, "help")).value(said.as_deref().unwrap_or("Not set")).admin().does(vec![entry])
 }
 
 /// One choice, or an ordered set, among what the plugin listed.

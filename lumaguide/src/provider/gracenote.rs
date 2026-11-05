@@ -18,6 +18,7 @@ use crate::net::{Http, Request, encode};
 use crate::time::{HOUR_MS, parse_utc};
 use serde_json::Value;
 
+pub(crate) const HOST: &str = "tvlistings.gracenote.com";
 const SITE: &str = "https://tvlistings.gracenote.com";
 /// The site turns away anything that does not say it is a browser.
 const BROWSER: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
@@ -215,6 +216,11 @@ mod tests {
                 .headers
                 .iter()
                 .any(|(k, v)| k == "User-Agent" && v.starts_with("Mozilla/5.0"))
+        );
+        let origin = crate::net::Origin::of(&seen[0].url).unwrap();
+        assert_eq!(
+            (origin.https, origin.host.as_str()),
+            (true, Source::Gracenote.host().unwrap())
         );
     }
 

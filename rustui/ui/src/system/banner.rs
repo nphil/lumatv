@@ -489,6 +489,10 @@ impl Banner {
                 out.extend(self.feed_out(fed, now));
                 return out;
             }
+            Input::Fetched { tag, .. } if *tag == channel_feed::ONLINE_TAG => {
+                let fed = self.feed.update(input, now);
+                return self.feed_out(fed, now);
+            }
             Input::Key { name, down: true, repeat } if self.wants() => return self.key(name, *repeat, now),
             Input::Key { name, down: true, repeat: false } if name == "info" && self.feed.live() => {
                 if self.feed.info_up() {

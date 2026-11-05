@@ -280,6 +280,7 @@ mod tests {
             Limits::default(),
             time.clock(),
             served(),
+            None,
         );
         let peers = peers.iter().map(|p| Cidr::parse(p).unwrap()).collect();
         Server::start(

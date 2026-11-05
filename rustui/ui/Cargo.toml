@@ -18,6 +18,8 @@ lumatv-tokens = { path = "../tokens" }
 lumatv-render = { path = "../render" }
 lumatv-placement = { path = "../../placement" }
 lumatv-saver = { path = "../../saver" }
+# the guide data model and the merge of online listings over LG's (the Guide data plugin's)
+lumaguide = { path = "../../lumaguide" }
 ui = { path = "../lumashow-ui" }
 compositor-protocol = { path = "../compositor-protocol" }
 serde_json = "1"

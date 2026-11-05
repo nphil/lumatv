@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
 use std::collections::HashMap;
 
+pub(crate) const HOST: &str = "json.schedulesdirect.org";
 const API: &str = "https://json.schedulesdirect.org/20141201";
 /// The service asks for the client's name and version in the user agent.
 const AGENT: &str = concat!("lumaguide/", env!("CARGO_PKG_VERSION"));
@@ -500,6 +501,11 @@ mod tests {
                 .is_some_and(|b| b.contains("\"password\":\"password\""))
         }));
         let headends = seen.iter().find(|s| s.url.contains("/headends")).unwrap();
+        let origin = crate::net::Origin::of(&headends.url).unwrap();
+        assert_eq!(
+            (origin.https, origin.host.as_str()),
+            (true, Source::SchedulesDirect.host().unwrap())
+        );
         assert!(
             headends
                 .headers

@@ -172,6 +172,8 @@ pub struct Api {
     pub wx: Arc<crate::wxview::WxView>,
     /// Weather from a Home Assistant entity: the list the Settings picker offers (`/v1/weather/entities`).
     pub weather_ha: Arc<crate::ha_weather::HaWeather>,
+    /// The Guide data plugin's listings, which the TV's guide and banner lay over LG's (`/v1/guide/...`).
+    pub guide: Arc<crate::guidedata::GuideData>,
 }
 
 /// A topic name as it may appear in a path or a filter.
@@ -451,6 +453,7 @@ impl Api {
             .chain(crate::privacy::ROUTES.iter())
             .chain(crate::scrypted::routes::ROUTES.iter())
             .chain(crate::onhome::ROUTES.iter())
+            .chain(crate::guidedata::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -675,6 +678,7 @@ impl Handler for Api {
             ["v1", "plugins", rest @ ..] => {
                 crate::plugins::routes::handle(&self.plugins, request, rest)
             }
+            ["v1", "guide", rest @ ..] => crate::guidedata::handle(&self.guide, request, rest),
             ["v1", "voice", rest @ ..] => crate::voice::handle(&self.voice, request, rest),
             ["v1", "weather", "entities"] if get => self.weather_entities(),
             ["v1", "wx", rest @ ..] => self.wx.handle(request, rest),
@@ -835,6 +839,7 @@ mod tests {
                 feeds_tx,
                 wx: crate::wxview::WxView::new(Arc::new(NoFetch), dir.path()),
                 weather_ha: Arc::new(crate::ha_weather::HaWeather::new(Vec::new(), ha_link::AddressPolicy::HOME, None)),
+                guide: Arc::default(),
             },
             _dir: dir,
             receiver_rx,
@@ -921,6 +926,7 @@ mod tests {
                 + crate::privacy::ROUTES.len()
                 + crate::scrypted::routes::ROUTES.len()
                 + crate::onhome::ROUTES.len()
+                + crate::guidedata::ROUTES.len()
         );
         assert_eq!(b["helper"]["version"], crate::VERSION);
         assert_eq!(b["boot"], 777);

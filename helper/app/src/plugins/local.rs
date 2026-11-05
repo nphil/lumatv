@@ -31,6 +31,7 @@ pub const FIRST_PARTY_IDS: &[&str] = &[
     "ambient",
     "scrypted-cameras",
     "live-tv-tuner",
+    "guide-data",
 ];
 
 /// What a first-party plugin is, in the words of a manifest.

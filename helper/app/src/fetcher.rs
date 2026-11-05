@@ -241,6 +241,175 @@ impl CurlFetch {
             drop_to: None,
         }
     }
+
+    /// The set's curl as `config` names it, with its CA bundle, run as the unprivileged user when `unprivileged` (and the helper is root).
+    pub fn of(config: &FetchConfig, unprivileged: bool) -> Self {
+        Self {
+            program: sys::which(&config.curl)
+                .map_or_else(|| config.curl.clone(), |p| p.display().to_string()),
+            bundle: find_ca_bundle(config),
+            drop_to: if unprivileged {
+                drop_target(config)
+            } else {
+                None
+            },
+        }
+    }
+
+    /// One request of any method, with headers and a body, and its answer whatever the status (a service may say in its body why it
+    /// said no). The address, the headers and the body reach curl on its standard input, never on its command line, so a token is not
+    /// in the process list. No redirect is followed; `http://` is for an address the caller has checked.
+    pub fn exchange(
+        &self,
+        x: &Exchange<'_>,
+        limits: FetchLimits,
+    ) -> Result<(u16, Vec<u8>), FetchError> {
+        let https = x.url.starts_with("https://");
+        if !https && !x.url.starts_with("http://") {
+            return Err(FetchError::Failed("that is not a web address".to_owned()));
+        }
+        let quoted = |text: &str| {
+            if text.chars().any(char::is_control) {
+                return Err(FetchError::Failed(
+                    "the request holds a character that cannot be sent".to_owned(),
+                ));
+            }
+            Ok(text.replace('\\', "\\\\").replace('"', "\\\""))
+        };
+        let mut config = format!(
+            "url = \"{}\"\nrequest = \"{}\"\nuser-agent = \"LumaTV\"\n",
+            quoted(x.url)?,
+            quoted(x.method)?
+        );
+        for (name, value) in x.headers {
+            config.push_str(&format!(
+                "header = \"{}: {}\"\n",
+                quoted(name)?,
+                quoted(value)?
+            ));
+        }
+        if let Some(body) = x.body {
+            let text = std::str::from_utf8(body)
+                .map_err(|_| FetchError::Failed("the request's body is not text".to_owned()))?;
+            config.push_str(&format!("data-binary = \"{}\"\n", quoted(text)?));
+        }
+        let mut command = Command::new(&self.program);
+        command
+            .args(["--config", "-", "--silent", "--show-error", "--proto"])
+            .arg(if https { "=https" } else { "=http" })
+            .args(["--tlsv1.2", "--connect-timeout", "5", "--max-time"])
+            .arg(limits.total.as_secs().max(1).to_string())
+            .arg("--max-filesize")
+            .arg(limits.max_bytes.to_string())
+            .args(["--write-out", "\n%{http_code}"]);
+        if let Some(bundle) = &self.bundle {
+            command.arg("--cacert").arg(bundle);
+        }
+        self.run(command, Some(config.into_bytes()), limits)
+    }
+
+    /// Runs curl as `command` says, with `input` on its standard input, and reads the body and the status `--write-out` appends.
+    fn run(
+        &self,
+        mut command: Command,
+        input: Option<Vec<u8>>,
+        limits: FetchLimits,
+    ) -> Result<(u16, Vec<u8>), FetchError> {
+        let started = Instant::now();
+        let deadline = started + limits.total;
+        command
+            .stdin(if input.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some((uid, gid)) = self.drop_to {
+            use std::os::unix::process::CommandExt;
+            command.uid(uid).gid(gid);
+        }
+        let mut child = command.spawn().map_err(|e| {
+            let why = format!("could not start curl: {e}");
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                FetchError::Denied(why)
+            } else {
+                FetchError::Failed(why)
+            }
+        })?;
+        let (Some(out), Some(err)) = (child.stdout.take(), child.stderr.take()) else {
+            stop(&mut child);
+            return Err(FetchError::Failed(
+                "curl's output could not be read".to_owned(),
+            ));
+        };
+        // One byte past the cap tells a body that fits from one that does not.
+        let cap = limits.max_bytes.saturating_add(64);
+        let out = read_capped(out, cap);
+        let err = read_capped(err, 4096);
+        if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
+            // curl reads its whole configuration before it connects; a write that fails is a curl that stopped, and its exit says why
+            let _ = std::io::Write::write_all(&mut stdin, &input);
+        }
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if Instant::now() >= deadline + Duration::from_secs(2) => {
+                    stop(&mut child);
+                    return Err(FetchError::Timeout);
+                }
+                // A short nap while a quick answer is likely, a longer one after: no spin for the length of a slow request.
+                Ok(None) => thread::sleep(Duration::from_millis(
+                    if started.elapsed() < Duration::from_millis(300) {
+                        5
+                    } else {
+                        50
+                    },
+                )),
+                Err(e) => {
+                    stop(&mut child);
+                    return Err(FetchError::Failed(format!("could not wait for curl: {e}")));
+                }
+            }
+        };
+        let body = out.join().unwrap_or_default();
+        let stderr = String::from_utf8_lossy(&err.join().unwrap_or_default()).into_owned();
+        // The reader stops at the cap and closes the pipe, which ends a curl that has more to say (by a signal or a write error):
+        // that is a body that is too large, whatever the exit status says.
+        if body.len() >= cap {
+            return Err(FetchError::TooLarge);
+        }
+        if !status.success() {
+            return Err(classify(status.code(), &stderr));
+        }
+        // The body, then "\n" and the three digits of the status that `--write-out` appended.
+        let Some(split) = body.len().checked_sub(4) else {
+            return Err(FetchError::Failed("curl gave no status".to_owned()));
+        };
+        let (content, tail) = body.split_at(split);
+        let code = (tail[0] == b'\n' && tail[1..].iter().all(u8::is_ascii_digit))
+            .then(|| {
+                std::str::from_utf8(&tail[1..])
+                    .ok()
+                    .and_then(|t| t.parse::<u16>().ok())
+            })
+            .flatten()
+            .ok_or_else(|| FetchError::Failed("curl gave no status".to_owned()))?;
+        if content.len() > limits.max_bytes {
+            return Err(FetchError::TooLarge);
+        }
+        Ok((code, content.to_vec()))
+    }
+}
+
+/// What [`CurlFetch::exchange`] sends.
+pub struct Exchange<'a> {
+    /// `GET`, `POST`, `PUT`.
+    pub method: &'a str,
+    pub url: &'a str,
+    pub headers: &'a [(&'a str, &'a str)],
+    /// A JSON body.
+    pub body: Option<&'a [u8]>,
 }
 
 /// Only `https`, no user information, no control or space characters: nothing that could be taken for an option or break the
@@ -311,8 +480,6 @@ fn stop(child: &mut Child) {
 impl Fetch for CurlFetch {
     fn get(&self, url: &str, limits: FetchLimits) -> Result<Vec<u8>, FetchError> {
         check_url(url)?;
-        let started = Instant::now();
-        let deadline = started + limits.total;
         let mut command = Command::new(&self.program);
         command
             .args([
@@ -339,84 +506,12 @@ impl Fetch for CurlFetch {
         if let Some(bundle) = &self.bundle {
             command.arg("--cacert").arg(bundle);
         }
-        command
-            .arg(url)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if let Some((uid, gid)) = self.drop_to {
-            use std::os::unix::process::CommandExt;
-            command.uid(uid).gid(gid);
-        }
-        let mut child = command.spawn().map_err(|e| {
-            let why = format!("could not start curl: {e}");
-            if e.kind() == std::io::ErrorKind::PermissionDenied {
-                FetchError::Denied(why)
-            } else {
-                FetchError::Failed(why)
-            }
-        })?;
-        let (Some(out), Some(err)) = (child.stdout.take(), child.stderr.take()) else {
-            stop(&mut child);
-            return Err(FetchError::Failed(
-                "curl's output could not be read".to_owned(),
-            ));
-        };
-        // One byte past the cap tells a body that fits from one that does not.
-        let cap = limits.max_bytes.saturating_add(64);
-        let out = read_capped(out, cap);
-        let err = read_capped(err, 4096);
-        let status = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break status,
-                Ok(None) if Instant::now() >= deadline + Duration::from_secs(2) => {
-                    stop(&mut child);
-                    return Err(FetchError::Timeout);
-                }
-                // A short nap while a quick answer is likely, a longer one after: no spin for the length of a slow request.
-                Ok(None) => thread::sleep(Duration::from_millis(
-                    if started.elapsed() < Duration::from_millis(300) {
-                        5
-                    } else {
-                        50
-                    },
-                )),
-                Err(e) => {
-                    stop(&mut child);
-                    return Err(FetchError::Failed(format!("could not wait for curl: {e}")));
-                }
-            }
-        };
-        let body = out.join().unwrap_or_default();
-        let stderr = String::from_utf8_lossy(&err.join().unwrap_or_default()).into_owned();
-        // The reader stops at the cap and closes the pipe, which ends a curl that has more to say (by a signal or a write error):
-        // that is a body that is too large, whatever the exit status says.
-        if body.len() >= cap {
-            return Err(FetchError::TooLarge);
-        }
-        if !status.success() {
-            return Err(classify(status.code(), &stderr));
-        }
-        // The body, then "\n" and the three digits of the status that `--write-out` appended.
-        let Some(split) = body.len().checked_sub(4) else {
-            return Err(FetchError::Failed("curl gave no status".to_owned()));
-        };
-        let (content, tail) = body.split_at(split);
-        let code = (tail[0] == b'\n' && tail[1..].iter().all(u8::is_ascii_digit))
-            .then(|| {
-                std::str::from_utf8(&tail[1..])
-                    .ok()
-                    .and_then(|t| t.parse::<u16>().ok())
-            })
-            .flatten()
-            .ok_or_else(|| FetchError::Failed("curl gave no status".to_owned()))?;
+        command.arg(url);
+        let (code, content) = self.run(command, None, limits)?;
         if !(200..300).contains(&code) {
             return Err(FetchError::Http(code));
         }
-        if content.len() > limits.max_bytes {
-            return Err(FetchError::TooLarge);
-        }
-        Ok(content.to_vec())
+        Ok(content)
     }
 }
 
@@ -640,6 +735,53 @@ esac
         assert!(
             matches!(curl.get("https://example.test/ok", limits(2, 1024)), Err(FetchError::Failed(why)) if why.contains("curl"))
         );
+    }
+
+    #[test]
+    fn an_exchange_sends_address_headers_and_body_on_standard_input_and_returns_any_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let (args, input) = (dir.path().join("args"), dir.path().join("stdin"));
+        let program = dir.path().join("curl");
+        std::fs::write(
+            &program,
+            format!(
+                "#!/bin/sh\necho \"$@\" > '{}'\ncat > '{}'\nprintf '{{\"code\":4003}}\\n400'\n",
+                args.display(),
+                input.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        settle(&program);
+        let curl = CurlFetch::new(program.to_str().unwrap(), None);
+        let x = Exchange {
+            method: "POST",
+            url: "https://json.schedulesdirect.org/20141201/token",
+            headers: &[("token", "tk-secret"), ("Content-Type", "application/json")],
+            body: Some(br#"{"username":"n","password":"a\"b"}"#),
+        };
+        let (status, body) = curl.exchange(&x, limits(5, 1024)).unwrap();
+        assert_eq!((status, body.as_slice()), (400, &br#"{"code":4003}"#[..]));
+        let argv = std::fs::read_to_string(&args).unwrap();
+        assert!(
+            !argv.contains("schedulesdirect") && !argv.contains("tk-secret"),
+            "{argv}"
+        );
+        assert!(
+            argv.contains("--config -") && argv.contains("--proto =https"),
+            "{argv}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&input).unwrap(),
+            "url = \"https://json.schedulesdirect.org/20141201/token\"\nrequest = \"POST\"\nuser-agent = \"LumaTV\"\n\
+             header = \"token: tk-secret\"\nheader = \"Content-Type: application/json\"\n\
+             data-binary = \"{\\\"username\\\":\\\"n\\\",\\\"password\\\":\\\"a\\\\\\\"b\\\"}\"\n"
+        );
+        let bad = Exchange {
+            url: "https://x/\n",
+            ..x
+        };
+        assert!(curl.exchange(&bad, limits(5, 1024)).is_err());
     }
 
     fn config(

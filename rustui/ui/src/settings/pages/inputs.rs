@@ -209,6 +209,15 @@ fn rows(c: &Ctx) -> Vec<Row> {
             .value(&super::tuner::summary(c))
             .does(go("tuner")),
     );
+    rows.push(
+        Row::link("guidedata")
+            .tab(2)
+            .icon("tv-minimal")
+            .label("Guide data")
+            .help("Fills the Live TV guide with online listings for a zip code, from Plex, Schedules Direct or free listings.")
+            .value(&super::guide_data::summary(c))
+            .does(go("guidedata")),
+    );
     rows.push(Row::link("bt").tab(2).icon("gamepad-2").label("Bluetooth Devices").does(go("bthid")));
     let done = c.local.flag("inputs.historyDone");
     let mut history = Row::action("history", if done { "Done" } else { "Delete" })

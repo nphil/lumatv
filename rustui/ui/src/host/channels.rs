@@ -119,39 +119,9 @@ impl Channel {
     }
 }
 
-/// One programme of one channel, in epoch milliseconds.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Programme {
-    pub id: String,
-    pub channel: String,
-    pub title: String,
-    /// The episode's own title, when the broadcast gives one.
-    pub subtitle: String,
-    pub text: String,
-    pub start: i64,
-    pub end: i64,
-    /// `TV-14 DL`: the rating and its descriptors, empty when the broadcast gives none.
-    pub rating: String,
-    pub captions: bool,
-    pub described: bool,
-}
-
-impl Programme {
-    pub fn minutes(&self) -> i64 {
-        (self.end - self.start) / 60_000
-    }
-
-    /// Whether the programme is on the air at `now`.
-    pub fn airing(&self, now_ms: i64) -> bool {
-        self.start <= now_ms && now_ms < self.end
-    }
-
-    /// How much of the programme has been broadcast at `now`, 0 to 1.
-    pub fn progress(&self, now_ms: i64) -> f32 {
-        let span = (self.end - self.start).max(1) as f32;
-        ((now_ms - self.start) as f32 / span).clamp(0.0, 1.0)
-    }
-}
+/// One programme of one channel, in epoch milliseconds: the guide data model `lumaguide` makes from online listings too, so the two lists
+/// lie over each other as they are (`lumaguide::merge`).
+pub use lumaguide::Programme;
 
 /// The programme on the air at `now` among `list` (sorted by start), and the one after it.
 pub fn now_next(list: &[Programme], now_ms: i64) -> (Option<&Programme>, Option<&Programme>) {

@@ -21,7 +21,8 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as Json, json};
 use settings_schema::{
-    CapabilityKey, FieldError, FieldErrors, FieldKey, SettingChange, SettingsSchema, Value, Values,
+    CapabilityKey, FieldError, FieldErrors, FieldKey, FieldKind, SettingChange, SettingsSchema,
+    Value, Values,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -355,6 +356,24 @@ impl SettingsStore {
     /// The values that are in force for `owner`.
     pub fn effective(&self, owner: &str) -> Option<Values> {
         self.owners.lock().get(owner).map(Owner::effective)
+    }
+
+    /// The most characters `owner`'s secret field `key` takes, when its page has that field and it is a secret. A secret is never
+    /// stored here: it goes to its owner alone (`plugins::session::Shared::submit_secret`).
+    pub fn secret_field(&self, owner: &str, key: &str) -> Option<u16> {
+        let owners = self.owners.lock();
+        let field = owners
+            .get(owner)?
+            .schema
+            .fields()
+            .find(|f| f.key.as_str() == key)?;
+        match field.kind {
+            FieldKind::Text {
+                max_chars,
+                secret: true,
+            } => Some(max_chars),
+            _ => None,
+        }
     }
 
     /// Applies one transaction: all of `changes` or none. With `expect_version`, only to that version of the owner's values.

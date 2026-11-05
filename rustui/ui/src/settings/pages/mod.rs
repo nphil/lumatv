@@ -11,6 +11,7 @@ pub mod bluetooth;
 pub mod buttons;
 pub mod cameras;
 pub mod capture;
+pub mod guide_data;
 pub mod home;
 pub mod homeassistant;
 pub mod inputs;
@@ -86,6 +87,7 @@ pub fn all() -> Vec<Page> {
         receiver::page(),
         inputs::channels(),
         tuner::page(),
+        guide_data::page(),
         bluetooth::audio(),
         bluetooth::hid(),
         bluetooth::audio_device(),

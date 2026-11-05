@@ -11,6 +11,7 @@
 //! | [`webos::Luna`] | the luna bus [`webos::Tv`] speaks through: a call, and a call that stays connected; [`webos::LunaSend`] runs the set's `luna-send` |
 //! | [`Config`] | the name players show, the device id, the address and port to listen on, the networks that are answered |
 //! | [`Clock`] | monotonic time: [`real_clock`], or a test's that moves only when told |
+//! | [`Guide`] | optional ([`Tuner::with_guide`]): a better guide than the TV's own for `/xmltv.xml`, made from the TV's own listings |
 //! | the `log` facade | what it served and why it refused, under the target `lumatuner` |
 //!
 //! It is a network entrance and the tuner is shared with the TV's own use, so a host serves it only when the owner says so, on a private
@@ -23,7 +24,7 @@
 //! | `GET /lineup_status.json` | an antenna, not scanning |
 //! | `GET /lineup.json` | the TV's antenna channels (`iepg/getChannelList`), one per number: `GuideNumber` `2.4`, `GuideName`, `URL` |
 //! | `GET /lineup.m3u` | the same lineup as an M3U playlist: `tvg-id` and `tvg-chno` are the guide number, the URL is `/auto/v<number>`, `url-tvg` names `/xmltv.xml` |
-//! | `GET /xmltv.xml` | the TV's own broadcast guide (`iepg/getEventList`, a day back to six days ahead, read once per channel and kept 30 minutes) as XMLTV, UTC, channel ids the guide numbers; a channel the TV has no listings for has no programmes |
+//! | `GET /xmltv.xml` | the TV's own broadcast guide (`iepg/getEventList`, a day back to six days ahead, read once per channel and kept 30 minutes, or until the host's [`Guide`] changes) as XMLTV, UTC, channel ids the guide numbers, or the host's guide made from it when it has one; a channel nobody has listings for has no programmes |
 //! | `GET /auto/v<number>` | MPEG-TS of that channel: a PAT naming the one program, then its PMT, clock, picture and sound. The client whose stream has the tuner takes it over with its next request; another client gets 503 while it runs, and every client while the TV is in use; 403 for a protected program; 404 for no such channel |
 //! | `GET`/`POST /lineup.post` | 200, nothing to start (the lineup is the TV's) |
 //!
@@ -39,7 +40,7 @@ pub mod stream;
 pub mod webos;
 
 pub use net::Cidr;
-pub use stream::{Clock, Failure, Hardware, Limits, Tap, real_clock};
+pub use stream::{Clock, Failure, Guide, Hardware, Limits, Tap, real_clock};
 
 use docs::Identity;
 use parking_lot::Mutex;
@@ -98,6 +99,7 @@ pub struct Tuner {
     clock: Clock,
     limits: Limits,
     tuning: Arc<Tuning>,
+    guide: Option<Arc<dyn Guide>>,
     running: Mutex<Option<Running>>,
 }
 
@@ -113,8 +115,15 @@ impl Tuner {
             clock,
             limits,
             tuning: Arc::new(Tuning::default()),
+            guide: None,
             running: Mutex::new(None),
         }
+    }
+
+    /// `/xmltv.xml` is `guide`'s document whenever it has one, the TV's own otherwise.
+    pub fn with_guide(mut self, guide: Arc<dyn Guide>) -> Self {
+        self.guide = Some(guide);
+        self
     }
 
     /// Listens as `config` says. A listener that is up with the same config is kept; one with another is closed first, which ends its
@@ -139,6 +148,7 @@ impl Tuner {
             self.limits.clone(),
             self.clock.clone(),
             self.tuning.clone(),
+            self.guide.clone(),
         );
         let server = server::Server::start(config.addr, Arc::new(facade), config.allowed.clone())
             .inspect_err(|_| self.tuning.stop())?;

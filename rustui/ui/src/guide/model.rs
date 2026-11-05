@@ -12,6 +12,10 @@
 //! programmes of the rows on the screen and a row either side for the hours on the screen, more for the row in focus, a few channels and
 //! at most six hours a call, two calls at a time, after the focus has been still for a moment. A window that came back is kept; a window
 //! that came back empty is an honest "no information", not a call to make again.
+//!
+//! The same windows are asked of the helper's Guide data plugin (`GET /v1/guide/programmes`): online listings for the zip code, which lie
+//! over LG's where they have a programme and leave LG's the gaps (`lumaguide::merge`). A helper whose plugin is off says so, and the guide
+//! asks it nothing more until it opens again.
 
 use crate::host::channels::{self as ch, Channel, Fault, Programme, Source};
 use crate::host::clock;
@@ -30,6 +34,10 @@ pub const TAG_LAST: u64 = ch::TAG_BASE + 3;
 pub const TAG_TUNE: u64 = ch::TAG_BASE + 4;
 /// The tags of the programme calls: this and the next 255.
 pub const TAG_EVENTS: u64 = ch::TAG_BASE + 0x100;
+/// The tags of the online listings' calls to the helper: this and the next 255.
+pub const TAG_ONLINE: u64 = ch::TAG_BASE + 0x200;
+/// Where the helper serves the online listings.
+pub const ONLINE_PATH: &str = "/v1/guide/programmes";
 
 /// How long the focus is still before the programmes of what it moved to are asked for.
 pub const FETCH_DEBOUNCE_MS: u64 = 140;
@@ -181,10 +189,16 @@ pub struct Guide {
     row: usize,
     at: i64,
     sheet: bool,
-    // the programmes
+    // the programmes: LG's as they came, the online listings as they came, and the two laid over each other (what is drawn)
+    broadcast: HashMap<String, Vec<Programme>>,
+    online: HashMap<String, Vec<Programme>>,
     store: HashMap<String, Vec<Programme>>,
     cover: HashMap<String, Vec<(i64, i64)>>,
     flight: Vec<Flight>,
+    /// The online calls on their way, as the luna calls they go with.
+    online_flight: Vec<Flight>,
+    /// The helper said its Guide data plugin is off: nothing is asked of it until the guide opens again.
+    online_off: bool,
     seq: u64,
     fetch_due: Option<u64>,
     retry: HashMap<String, u64>,
@@ -236,9 +250,13 @@ impl Guide {
             row: 0,
             at: 0,
             sheet: false,
+            broadcast: HashMap::new(),
+            online: HashMap::new(),
             store: HashMap::new(),
             cover: HashMap::new(),
             flight: Vec::new(),
+            online_flight: Vec::new(),
+            online_off: false,
             seq: 0,
             fetch_due: None,
             retry: HashMap::new(),
@@ -511,6 +529,8 @@ impl Guide {
         self.top = 0;
         self.row = 0;
         if now.saturating_sub(self.data_at) > STALE_MS {
+            self.broadcast.clear();
+            self.online.clear();
             self.store.clear();
             self.epoch += 1;
             self.cover.clear();
@@ -519,6 +539,8 @@ impl Guide {
         }
         self.data_at = now;
         self.flight.clear();
+        self.online_flight.clear();
+        self.online_off = false;
         self.tuning = None;
         self.tune_fault = false;
         self.last = None;
@@ -546,6 +568,7 @@ impl Guide {
         for f in std::mem::take(&mut self.flight) {
             out.push(Effect::Cancel { tag: f.tag });
         }
+        self.online_flight.clear();
         out
     }
 
@@ -713,11 +736,12 @@ impl Guide {
                     self.offset_s = off;
                 }
                 for id in &f.channels {
-                    let v = self.store.entry(id.clone()).or_default();
+                    let v = self.broadcast.entry(id.clone()).or_default();
                     v.retain(|p| p.end <= f.from || p.start >= f.to);
                     v.extend(list.iter().filter(|p| &p.channel == id).cloned());
                     v.sort_by_key(|p| p.start);
                     v.dedup_by_key(|p| p.start);
+                    self.lay(id);
                     let c = self.cover.entry(id.clone()).or_default();
                     c.push((f.from, f.to));
                     c.sort_unstable();
@@ -742,6 +766,41 @@ impl Guide {
             *self.revs.entry(id.clone()).or_default() += 1;
         }
         self.fetch_due = Some(now);
+    }
+
+    /// The helper's answer to an online call: its programmes for the call's channels and window, or word that its plugin is off (which
+    /// takes back what it gave before).
+    fn on_online(&mut self, tag: u64, status: u16, data: &Value) -> Vec<Effect> {
+        let Some(i) = self.online_flight.iter().position(|f| f.tag == tag) else { return Vec::new() };
+        let f = self.online_flight.remove(i);
+        if status != 200 || data.get("on").and_then(Value::as_bool) != Some(true) {
+            self.online_off = true;
+            let had: Vec<String> = self.online.drain().map(|(id, _)| id).collect();
+            for id in &had {
+                self.lay(id);
+            }
+            return if had.is_empty() { Vec::new() } else { vec![Effect::Redraw] };
+        }
+        let list: Vec<Programme> = data.get("programmes").and_then(|p| serde_json::from_value(p.clone()).ok()).unwrap_or_default();
+        for id in &f.channels {
+            let v = self.online.entry(id.clone()).or_default();
+            v.retain(|p| p.end <= f.from || p.start >= f.to);
+            v.extend(list.iter().filter(|p| &p.channel == id).cloned());
+            v.sort_by_key(|p| p.start);
+            v.dedup_by_key(|p| p.start);
+            self.lay(id);
+        }
+        vec![Effect::Redraw]
+    }
+
+    /// What is drawn of `channel`: the online programmes over LG's.
+    fn lay(&mut self, channel: &str) {
+        let none = Vec::new();
+        let online = self.online.get(channel).unwrap_or(&none);
+        let broadcast = self.broadcast.get(channel).unwrap_or(&none);
+        let laid = lumaguide::merge::over(online, broadcast);
+        self.store.insert(channel.to_string(), laid);
+        *self.revs.entry(channel.to_string()).or_default() += 1;
     }
 
     // ------------------------------------------------------------------------------------------------------------------------ asking
@@ -825,6 +884,15 @@ impl Guide {
             let tag = TAG_EVENTS + self.seq;
             let ids: Vec<&str> = channels.iter().map(String::as_str).collect();
             out.push(Effect::Luna { tag, uri: ch::EVENTS_URI.into(), payload: ch::events_request(&ids, from, to, self.offset_s), subscribe: false });
+            if !self.online_off {
+                let mut path = format!("{ONLINE_PATH}?from={from}&to={to}");
+                for id in &ids {
+                    path.push_str(&format!("&channel={id}"));
+                }
+                out.push(Effect::Fetch { tag: TAG_ONLINE + self.seq, path });
+                self.online_flight.retain(|f| f.tag != TAG_ONLINE + self.seq);
+                self.online_flight.push(Flight { tag: TAG_ONLINE + self.seq, channels: channels.clone(), from, to, at: now });
+            }
             self.flight.push(Flight { tag, channels, from, to, at: now });
         }
         out
@@ -1120,6 +1188,7 @@ impl Guide {
     pub fn update(&mut self, input: &Input, now: u64) -> Vec<Effect> {
         match input {
             Input::Luna { tag, payload } => self.on_luna(*tag, payload, now),
+            Input::Fetched { tag, status, data } if (TAG_ONLINE..TAG_ONLINE + 0x100).contains(tag) => self.on_online(*tag, *status, data),
             Input::Key { name, down, repeat } => self.key(name, *down, *repeat, now),
             Input::Tick => self.tick(now),
             Input::Topic { topic, .. } if topic == "homekey" && self.open => self.close("Home", now),
@@ -1150,6 +1219,7 @@ impl Guide {
             self.data_at = now;
             out.push(Effect::Redraw);
         }
+        self.online_flight.retain(|f| now.saturating_sub(f.at) < FLIGHT_MS);
         let late: Vec<Flight> = self.flight.iter().filter(|f| now.saturating_sub(f.at) >= FLIGHT_MS).cloned().collect();
         if !late.is_empty() {
             self.flight.retain(|f| now.saturating_sub(f.at) < FLIGHT_MS);
@@ -1193,7 +1263,7 @@ impl Guide {
             "region": match self.region { Region::Chips => "chips", Region::Grid => "grid", Region::Sheet => "sheet" },
             "rows": self.rows.len(), "row": self.row, "top": self.top, "channel": c.map(|c| c.id.as_str()), "number": c.map(|c| c.number.as_str()),
             "at": self.at, "view": self.view, "sheet": self.sheet, "inFlight": self.flight.len(), "tuning": self.tuning.is_some(), "tuneFault": self.tune_fault,
-            "held": self.store.values().map(Vec::len).sum::<usize>(),
+            "held": self.store.values().map(Vec::len).sum::<usize>(), "online": self.online.values().map(Vec::len).sum::<usize>(),
         })
     }
 }

@@ -48,6 +48,15 @@ impl Source {
             Source::Gracenote => "Free listings (Gracenote)",
         }
     }
+
+    /// The internet service the source asks, over HTTPS; `None` for Plex, which is the owner's server on the home network.
+    pub fn host(self) -> Option<&'static str> {
+        match self {
+            Source::Plex => None,
+            Source::SchedulesDirect => Some(sd::HOST),
+            Source::Gracenote => Some(gracenote::HOST),
+        }
+    }
 }
 
 /// A lineup of a zip code.

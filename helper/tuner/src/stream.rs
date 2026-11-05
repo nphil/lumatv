@@ -85,6 +85,16 @@ pub trait Tap: Send {
     fn taken(&mut self) -> Option<String>;
 }
 
+/// A guide the host has for `/xmltv.xml` that is better than the TV's own (online listings laid over it): the host decides, per document,
+/// whether it has one.
+pub trait Guide: Send + Sync {
+    /// The XMLTV document for the lineup, given each channel with the TV's own listings for it (`iepg/getEventList`'s reply, `Null` for a
+    /// channel the TV could not answer for); `None` serves the TV's own.
+    fn xmltv(&self, channels: &[(Entry, Value)]) -> Option<String>;
+    /// Changes whenever the documents [`Guide::xmltv`] makes would: a kept document of another revision is made again.
+    fn revision(&self) -> u64;
+}
+
 /// The time the facade waits and counts, one place so a test can set them small.
 #[derive(Clone, Debug)]
 pub struct Limits {
@@ -292,7 +302,10 @@ pub(crate) struct Facade {
     limits: Limits,
     clock: Clock,
     lineup: Mutex<Option<(Duration, Vec<Entry>)>>,
-    guide: Mutex<Option<(Duration, Arc<str>)>>,
+    /// The host's guide, when it has one: `/xmltv.xml` is its document when it gives one.
+    source: Option<Arc<dyn Guide>>,
+    /// The document served, when it was made and from which revision of the host's guide.
+    guide: Mutex<Option<(Duration, u64, Arc<str>)>>,
     tuning: Arc<Tuning>,
 }
 
@@ -303,6 +316,7 @@ impl Facade {
         limits: Limits,
         clock: Clock,
         tuning: Arc<Tuning>,
+        source: Option<Arc<dyn Guide>>,
     ) -> Self {
         Self {
             hw,
@@ -310,6 +324,7 @@ impl Facade {
             limits,
             clock,
             lineup: Mutex::new(None),
+            source,
             guide: Mutex::new(None),
             tuning,
         }
@@ -334,14 +349,17 @@ impl Facade {
         }
     }
 
-    /// The XMLTV guide of the lineup, from the TV's own listings, one read per channel. Kept for `guide_ttl`: a client that asks again gets
-    /// the same document, and one that asks while it is being read waits for it. A channel the TV cannot answer for is listed without
-    /// programmes; only when no channel could be read at all is it a failure (and then the last guide stands, if there is one).
+    /// The XMLTV guide of the lineup, from the TV's own listings, one read per channel, or the host's guide made from them when it has one.
+    /// Kept for `guide_ttl`, or until the host's guide changes: a client that asks again gets the same document, and one that asks while it
+    /// is being read waits for it. A channel the TV cannot answer for is listed without its own programmes; only when no channel could be
+    /// read at all is it a failure (and then the last guide stands, if there is one).
     pub(crate) fn guide(&self) -> Result<Arc<str>, Failure> {
         let mut kept = self.guide.lock();
         let now = (self.clock)();
-        if let Some((at, xml)) = kept.as_ref()
+        let revision = self.source.as_ref().map_or(0, |g| g.revision());
+        if let Some((at, made_from, xml)) = kept.as_ref()
             && now.saturating_sub(*at) < self.limits.guide_ttl
+            && *made_from == revision
         {
             return Ok(xml.clone());
         }
@@ -366,15 +384,20 @@ impl Facade {
                 .collect();
             match first_failure {
                 Some(f) if read == 0 => Err(f),
-                _ => Ok(Arc::<str>::from(docs::xmltv(&channels))),
+                _ => Ok(Arc::<str>::from(
+                    self.source
+                        .as_ref()
+                        .and_then(|g| g.xmltv(&channels))
+                        .unwrap_or_else(|| docs::xmltv(&channels)),
+                )),
             }
         });
         match built {
             Ok(xml) => {
-                *kept = Some((now, xml.clone()));
+                *kept = Some((now, revision, xml.clone()));
                 Ok(xml)
             }
-            Err(f) => kept.as_ref().map(|(_, x)| x.clone()).ok_or(f),
+            Err(f) => kept.as_ref().map(|(_, _, x)| x.clone()).ok_or(f),
         }
     }
 
@@ -731,6 +754,15 @@ pub(crate) mod tests {
     }
 
     fn facade_with(fake: &Arc<Fake>, time: &Time, limits: Limits) -> Facade {
+        facade_guided(fake, time, limits, None)
+    }
+
+    fn facade_guided(
+        fake: &Arc<Fake>,
+        time: &Time,
+        limits: Limits,
+        source: Option<Arc<dyn Guide>>,
+    ) -> Facade {
         Facade::new(
             Arc::new(Shared(fake.clone())),
             Identity {
@@ -740,6 +772,7 @@ pub(crate) mod tests {
             limits,
             time.clock(),
             served(),
+            source,
         )
     }
 
@@ -1063,6 +1096,51 @@ pub(crate) mod tests {
             facade(&fake, &time).guide().err(),
             Some(Failure::Hardware("luna-send gave no answer".into()))
         );
+    }
+
+    /// A host guide that names how many channels it was given, and has a revision a test moves.
+    struct HostGuide {
+        revision: std::sync::atomic::AtomicU64,
+        own: AtomicBool,
+    }
+
+    impl Guide for HostGuide {
+        fn xmltv(&self, channels: &[(Entry, Value)]) -> Option<String> {
+            (!self.own.load(Ordering::Relaxed))
+                .then(|| format!("<tv>{} channels</tv>", channels.len()))
+        }
+
+        fn revision(&self) -> u64 {
+            self.revision.load(Ordering::Relaxed)
+        }
+    }
+
+    #[test]
+    fn the_hosts_guide_is_served_when_it_has_one_and_made_again_when_it_changes() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), vec![]);
+        let host = Arc::new(HostGuide {
+            revision: 1.into(),
+            own: AtomicBool::new(false),
+        });
+        let f = facade_guided(&fake, &time, Limits::default(), Some(host.clone()));
+        assert_eq!(&*f.guide().unwrap(), "<tv>2 channels</tv>");
+        assert_eq!(
+            fake.programmes_asked.lock().len(),
+            2,
+            "the TV's own listings are what it is made from"
+        );
+        f.guide().unwrap();
+        assert_eq!(fake.programmes_asked.lock().len(), 2, "kept");
+        host.own.store(true, Ordering::Relaxed);
+        host.revision.store(2, Ordering::Relaxed);
+        assert!(
+            f.guide()
+                .unwrap()
+                .contains("<title>News on 1_32_2_4_0_0_0</title>"),
+            "no host guide now: the TV's own"
+        );
+        assert_eq!(fake.programmes_asked.lock().len(), 4);
     }
 
     #[test]

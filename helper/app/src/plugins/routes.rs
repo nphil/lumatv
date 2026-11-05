@@ -2,9 +2,9 @@
 //!
 //! What plugins publish is read from the hub (`plugins`, `plugin.<id>.cards`, ...) and their settings pages through
 //! `/v1/settings/<id>`. These routes *ask a connected plugin to run an action it declared* (a tile was tapped, a button of its
-//! page pressed: the UI asks the person first for an action that declared a confirmation), ask the helper to read
-//! `plugins/enabled.json` again, and switch one of the helper's own plugins that ask first, for the TV's own Settings only. No route
-//! switches a plugin on the socket on or off, installs one or changes its permissions.
+//! page pressed: the UI asks the person first for an action that declared a confirmation), hand a plugin what the owner typed in a
+//! secret field of its page, ask the helper to read `plugins/enabled.json` again, and switch one of the helper's own plugins that ask
+//! first, for the TV's own Settings only. No route switches a plugin on the socket on or off, installs one or changes its permissions.
 //!
 //! | Request | Answer |
 //! |---|---|
@@ -14,8 +14,9 @@
 //! | `GET /v1/plugins/{id}/choices/{provider}?offset=&limit=` | a page of the choices one of the plugin's settings fields offers (its room, its lights): `{"state", "rows": [{id, label, detail?}], "more"}`; the helper asks the plugin and waits for its answer |
 //! | `POST /v1/plugins/lease/ha/refresh` | reads the saved Home Assistant link again (`lumatv-helper ha-link` says so after it saves one) |
 //! | `POST /v1/plugins/{id}/switch` `{"on": true, "approve": code}` or `{"on": false}` | one of the helper's own plugins that ask first, switched by the owner in Settings (`X-Luma-Client: lumatv-ui` only): on takes the code of the words its `plugins` entry shows; 404 for no such plugin, 409 when its words changed |
+//! | `POST /v1/plugins/{id}/secret` `{"field": key, "secret": text}` | what the owner typed in a secret field of the plugin's page, handed to the plugin once (`X-Luma-Client: lumatv-ui` only) and kept nowhere in the helper: 200 when the plugin took it, 422 with its words when it did not, 404 for no such plugin or secret field |
 
-use super::session::{ChoicesError, InvokeError};
+use super::session::{ChoicesError, InvokeError, SecretError};
 use super::{Plugins, SwitchError};
 use crate::API_VERSION;
 use crate::http::{CLIENT_HEADER, Request, Response, UI_CLIENT, error_response};
@@ -48,6 +49,11 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
         "POST",
         "/v1/plugins/{id}/switch",
         "switches one of the helper's own plugins that ask first, for the TV's Settings: {\"on\": bool, \"approve\"?: code}",
+    ),
+    (
+        "POST",
+        "/v1/plugins/{id}/secret",
+        "hands a plugin what the owner typed in a secret field of its page, for the TV's Settings: {\"field\": key, \"secret\": text}",
     ),
 ];
 
@@ -166,6 +172,42 @@ pub fn handle(plugins: &Plugins, request: &Request, rest: &[&str]) -> Response {
                     "the code is not the one of the words this plugin asks with now",
                 ),
                 Err(SwitchError::File(why)) => error_response(409, "unavailable", &why),
+            }
+        }
+        [id, "secret"] if post => {
+            if request.header(CLIENT_HEADER) != Some(UI_CLIENT) {
+                return error_response(
+                    403,
+                    "not_the_ui",
+                    "only the TV's own Settings hands a plugin a secret",
+                );
+            }
+            let body = serde_json::from_slice::<Value>(&request.body).unwrap_or(Value::Null);
+            let (Some(field), Some(secret)) = (body["field"].as_str(), body["secret"].as_str())
+            else {
+                return error_response(
+                    400,
+                    "bad_request",
+                    "the body is {\"field\": key, \"secret\": text}",
+                );
+            };
+            if plugin_api::check_id(id).is_err() || !plain_key(field) {
+                return error_response(404, "no_such_field", "no such secret field");
+            }
+            match plugins.shared().submit_secret(id, field, secret) {
+                Ok(()) => {
+                    let mut body = Map::new();
+                    body.insert("field".into(), json!(field));
+                    ok(200, body)
+                }
+                Err(e @ (SecretError::NoSuchPlugin | SecretError::NoSuchField)) => {
+                    error_response(404, "no_such_field", e.words())
+                }
+                Err(e @ (SecretError::Rejected(_) | SecretError::TooLong)) => {
+                    error_response(422, "rejected", e.words())
+                }
+                Err(e @ SecretError::Timeout) => error_response(504, "timeout", e.words()),
+                Err(e) => error_response(409, "unavailable", e.words()),
             }
         }
         [id, "choices", provider] if get => {

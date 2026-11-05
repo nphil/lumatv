@@ -437,6 +437,82 @@ fn an_action_of_the_ui_reaches_the_plugin_and_its_answer_or_its_silence_is_repor
 }
 
 #[test]
+fn a_secret_typed_in_settings_reaches_the_plugin_once_and_its_word_comes_back() {
+    let (rig, socket) = PluginRig::prepare();
+    let rig = PluginRig::start(rig, socket);
+    rig.switch_on("hello", r#""settings","tiles","notify""#);
+    let mut plugin = rig.connect();
+    let mut declaration = serde_json::to_value(register_json()).unwrap();
+    declaration["settings"]["sections"][0]["fields"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"key": "token", "label": "Token", "kind": {"type": "text", "max_chars": 32, "secret": true}, "apply": "on-commit"}));
+    plugin
+        .register(serde_json::from_value(declaration).unwrap())
+        .unwrap();
+    let addr = rig.rig.addr;
+    let from_settings = move |body: &'static str| {
+        std::thread::spawn(move || {
+            http(
+                addr,
+                "POST",
+                "/v1/plugins/hello/secret",
+                &[
+                    ("X-Luma-Client", "lumatv-ui"),
+                    ("Content-Type", "application/json"),
+                ],
+                Some(body),
+            )
+        })
+    };
+    let answer = |plugin: &mut Plugin, outcome: Value| {
+        let (op, field, secret) = next_matching(plugin, |m| match m {
+            ToPlugin::SecretSubmit(s) => Some((s.op, s.field.clone(), s.secret.clone())),
+            _ => None,
+        });
+        plugin
+            .send(&message(
+                json!({"t": "secret.result", "op": op, "outcome": outcome}),
+            ))
+            .unwrap();
+        (field, secret)
+    };
+
+    let sent = from_settings(r#"{"field":"token","secret":"tk-1"}"#);
+    let got = answer(&mut plugin, json!({"type": "accepted"}));
+    assert_eq!(got, ("token".to_owned(), "tk-1".to_owned()));
+    assert_eq!(sent.join().unwrap().status, 200);
+    let kept = std::fs::read_to_string(rig.rig.paths.settings_dir().join("hello.json"))
+        .unwrap_or_default();
+    assert!(!kept.contains("tk-1"), "the helper keeps nothing of it");
+
+    let sent = from_settings(r#"{"field":"token","secret":"x"}"#);
+    answer(
+        &mut plugin,
+        json!({"type": "rejected", "reason": "that is too short to be a token"}),
+    );
+    let refused = sent.join().unwrap();
+    assert_eq!(refused.status, 422);
+    assert_eq!(
+        refused.json()["error"]["message"],
+        "that is too short to be a token"
+    );
+
+    // Only the TV's own Settings hands one over, and only for a secret field of the page.
+    assert_eq!(
+        post(
+            addr,
+            "/v1/plugins/hello/secret",
+            r#"{"field":"token","secret":"x"}"#
+        )
+        .status,
+        403
+    );
+    let not_secret = from_settings(r#"{"field":"name","secret":"x"}"#);
+    assert_eq!(not_secret.join().unwrap().status, 404);
+}
+
+#[test]
 fn a_plugin_cannot_take_more_than_a_plugin_may() {
     let (rig, socket) = PluginRig::prepare();
     let rig = PluginRig::start(rig, socket);
@@ -449,13 +525,8 @@ fn a_plugin_cannot_take_more_than_a_plugin_may() {
         .unwrap();
     assert_eq!(refusal(&mut plugin, "tile.remove").0, "not_registered");
 
-    // A page that wants a secret, a lease, a provider or a timeline source is refused whole, in words.
+    // A page that wants a lease, a provider or a timeline source is refused whole, in words.
     for (what, patch) in [
-        (
-            "secret",
-            json!({"settings": {"format": 1, "owner": "hello", "revision": 1, "title": "Hello", "sections": [{"id": "s", "title": "S", "fields": [
-            {"key": "token", "label": "Token", "kind": {"type": "text", "max_chars": 32, "secret": true}, "default": {"type": "text", "value": ""}, "apply": "on-commit"}]}]}}),
-        ),
         (
             "lease",
             json!({"settings": {"format": 1, "owner": "hello", "revision": 1, "title": "Hello", "sections": [{"id": "s", "title": "S", "fields": [

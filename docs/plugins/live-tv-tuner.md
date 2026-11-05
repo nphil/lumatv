@@ -18,7 +18,7 @@ On the TV's private address, port 5004 (`hdhr` in `helper.json`: `port`, `bind`,
 | `GET /discover.json` | the device: name, id, `TunerCount` 1, `BaseURL`, `LineupURL` |
 | `GET /lineup.json`, `/lineup_status.json` | the TV's antenna channels, one per number, and an antenna that is not scanning |
 | `GET /lineup.m3u` | the same lineup as an M3U playlist; `url-tvg` names the guide |
-| `GET /xmltv.xml` | the TV's own guide, a day back to six days ahead, as XMLTV |
+| `GET /xmltv.xml` | the TV's own guide, a day back to six days ahead, as XMLTV; with the Guide data plugin on, the online listings laid over it ([guide-data.md](guide-data.md)) |
 | `GET /auto/v<number>` | MPEG-TS of one channel (`/auto/v2.4`) |
 
 ## Players

@@ -34,6 +34,7 @@ lumatv-denon.workspace = true
 lumatv-feeds.workspace = true
 lumatv-privacy.workspace = true
 lumatuner.workspace = true
+lumaguide.workspace = true
 log.workspace = true
 libc.workspace = true
 png = "0.17"

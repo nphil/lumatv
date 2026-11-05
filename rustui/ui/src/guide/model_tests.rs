@@ -207,6 +207,46 @@ fn a_call_that_failed_is_left_alone_for_a_while_and_then_tried_again() {
     assert!(ids.iter().any(|c| later.contains(c)), "tried again: {later:?}");
 }
 
+/// The helper's online listings of `channel`: start, end, title.
+fn online(channel: &str, list: &[(&str, &str, &str)]) -> Value {
+    let programmes: Vec<Value> =
+        list.iter().map(|(s, e, title)| json!({"id": format!("on@{s}"), "channel": channel, "title": title, "start": t(s), "end": t(e)})).collect();
+    json!({"ok": true, "on": true, "programmes": programmes})
+}
+
+fn fetches(r: &Rig) -> Vec<(u64, String)> {
+    r.fx.iter().filter_map(|e| if let Effect::Fetch { tag, path } = e { Some((*tag, path.clone())) } else { None }).collect()
+}
+
+#[test]
+fn the_online_listings_go_with_each_call_and_lie_over_lgs_and_a_plugin_that_is_off_is_asked_nothing_more() {
+    let mut r = Rig::with(12, Some(0));
+    let calls = r.settle();
+    let asked = fetches(&r);
+    assert_eq!(asked.len(), calls.len(), "one online call with each of LG's");
+    let chans = Rig::channels_of(&calls[0].2);
+    assert!(asked[0].1.starts_with(ONLINE_PATH) && asked[0].1.contains(&format!("&channel={}", chans[0])), "{}", asked[0].1);
+    let lg = vec![(chans[0].clone(), vec![("2026,11,04,04,00,00", "2026,11,04,05,00,00", "News"), ("2026,11,04,05,00,00", "2026,11,04,06,00,00", "Film")])];
+    r.feed(calls[0].0, events(&lg));
+    let answer = online(&chans[0], &[("2026,11,04,04,00,00", "2026,11,04,05,00,00", "The News Hour")]);
+    r.fx = r.g.update(&Input::Fetched { tag: asked[0].0, status: 200, data: answer }, r.now);
+    assert!(r.fx.contains(&Effect::Redraw));
+    let titles: Vec<&str> = r.g.programmes(&chans[0]).iter().map(|p| p.title.as_str()).collect();
+    assert_eq!(titles, ["The News Hour", "Film"], "the online programme wins its hour, LG's fill the rest");
+
+    // an older helper, or the plugin off: nothing more is asked of it while the guide is open
+    let mut off = Rig::with(12, Some(0));
+    let calls = off.settle();
+    let asked = fetches(&off);
+    off.fx = off.g.update(&Input::Fetched { tag: asked[0].0, status: 404, data: json!({"error": {"message": "no route"}}) }, off.now);
+    for c in &calls {
+        off.feed(c.0, events(&[]));
+    }
+    off.keys("right", 12);
+    assert!(!off.settle().is_empty(), "LG is asked for the hours the focus went to");
+    assert!(fetches(&off).is_empty(), "{:?}", off.fx);
+}
+
 /// Channel 0 has a day of listings round now: 03:30-04:15, 04:15-05:00 (on the air), 05:00-06:00, 06:00-06:30, 06:30-08:00.
 fn with_listings() -> Rig {
     let mut r = Rig::with(12, Some(0));
