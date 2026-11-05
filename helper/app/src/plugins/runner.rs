@@ -395,6 +395,13 @@ impl Runner {
                 }
                 libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
                 libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
+                // A program inherits the signal mask of the thread that starts it, and the helper's threads block the termination
+                // signals (`sys::block_termination_signals`): unblocked here, or neither the runner's SIGTERM nor the one below
+                // reaches it, and a program left by a killed helper takes the plugin's connection from the next helper's copy, and
+                // that copy from it, several times a second.
+                let mut none: libc::sigset_t = std::mem::zeroed();
+                libc::sigemptyset(&mut none);
+                libc::sigprocmask(libc::SIG_SETMASK, &none, std::ptr::null_mut());
                 // If the helper dies without ending its programs (SIGKILL after eight seconds, a crash) they are told to finish,
                 // so none is left to meet the next helper's copy of itself at the broker's door.
                 libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM, 0, 0, 0);
@@ -550,12 +557,11 @@ mod tests {
     #[test]
     fn a_plugin_that_is_switched_off_is_told_to_finish_and_is_ended() {
         let dir = tempfile::tempdir().unwrap();
-        let member = plugin(
-            dir.path(),
-            "polite",
-            "#!/bin/sh\ntrap 'echo told > told.out; exit 0' TERM\necho up > up.out\nwhile :; do sleep 0.1; done\n",
-            my_uid(),
-        );
+        let mut member = plugin(dir.path(), "polite", "", my_uid());
+        // `sleep` keeps the signal mask it is given, as a plugin built on the SDK does (a shell clears it as it starts), and SIGTERM
+        // ends it at once unless the mask holds it back
+        std::fs::copy("/bin/sleep", dir.path().join("plugins/polite/bin/run.sh")).unwrap();
+        member.manifest.run.args = vec!["30".into()];
         // The helper blocks the termination signals in every thread it starts (`sys::block_termination_signals`), and the thread
         // that starts a program is one of them: the program must not inherit that.
         // SAFETY: a signal set made and used in this thread only.
@@ -568,14 +574,16 @@ mod tests {
         };
         let mut runner = Runner::new(dir.path().join("plugins"), shared(dir.path()));
         runner.sync(&roster(vec![member]));
-        assert!(wait(|| data(dir.path(), "polite", "up.out").exists()));
+        assert_eq!(runner.running(), vec!["polite".to_owned()]);
+        let asked = Instant::now();
         runner.sync(&roster(Vec::new()));
         // SAFETY: undoes the block above.
         unsafe { libc::pthread_sigmask(libc::SIG_UNBLOCK, &blocked, std::ptr::null_mut()) };
         assert!(runner.running().is_empty());
         assert!(
-            data(dir.path(), "polite", "told.out").exists(),
-            "SIGTERM reached it, which it asked to hear before it was ended"
+            asked.elapsed() < GRACE,
+            "SIGTERM ended it, not the SIGKILL at the end of the grace: {:?}",
+            asked.elapsed()
         );
     }
 
