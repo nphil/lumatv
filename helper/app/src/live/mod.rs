@@ -28,10 +28,12 @@
 //! previous one's last words.
 
 pub mod gf;
+pub mod rate;
 
 use parking_lot::{Condvar, Mutex};
 use rtsp_client::{Codec, Frame, Options, Session as Rtsp, Url};
 use serde_json::{Value, json};
+use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -1777,6 +1779,9 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
     let mut last_pts: i64 = -1;
     let mut next_base: i64 = 0;
     let mut epoch_first: Option<i64> = None;
+    // a stream on the main window has the rate its parameter sets declare kept off 100 Hz (`rate`); said once for each stream
+    let panel = !texture && !sub;
+    let mut said_rate = false;
     let mut delay_max = Duration::ZERO;
     let mut last_publish = Instant::now();
     let mut last_second = Instant::now();
@@ -1831,6 +1836,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
                     next_base = last_pts + 100_000_000;
                 }
                 epoch_first = None;
+                said_rate = false;
                 inner.update(session.id, |v| {
                     v.codec = codec_word(info.codec).to_owned();
                     v.width = info.width;
@@ -1873,6 +1879,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
                     last_pts = -1;
                     next_base = 0;
                     epoch_first = None;
+                    said_rate = false;
                 }
                 let first = *epoch_first.get_or_insert(unit.pts_us);
                 let mut pts_ns = next_base + (unit.pts_us - first).max(0) * 1000;
@@ -1882,13 +1889,46 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
                 }
                 last_pts = pts_ns;
                 delay_max = delay_max.max(unit.arrived.elapsed());
-                if let Err(e) = lease.feeder().client.send_video(pts_ns, unit.key, &unit.data) {
+                let (data, redeclared) = for_the_feeder(info.codec, panel, &unit);
+                if let Some(said) = redeclared
+                    && !std::mem::replace(&mut said_rate, true)
+                {
+                    log_redeclared(session, said);
+                }
+                if let Err(e) = lease.feeder().client.send_video(pts_ns, unit.key, &data) {
                     return Fed::Broke(went(e), Resume { loaded, unit: Some(unit) });
                 }
                 session.counters.pts_us.store(unit.pts_us, Ordering::Relaxed);
             }
         }
     }
+}
+
+/// What goes to the feeder for a picture: as the camera sent it, but a key picture of a stream on the main window has the rate its parameter
+/// sets declare re-declared when it is one that takes the panel to 100 Hz (`rate::keep_panel_rate`). A texture and the sub window do not reach
+/// the panel's rate.
+fn for_the_feeder(codec: Codec, panel: bool, unit: &Unit) -> (Cow<'_, [u8]>, Option<rate::Redeclared>) {
+    if panel
+        && unit.size.is_some()
+        && let Some((data, said)) = rate::keep_panel_rate(codec, &unit.data)
+    {
+        return (Cow::Owned(data), Some(said));
+    }
+    (Cow::Borrowed(&unit.data), None)
+}
+
+/// One line of the log when a stream's rate was re-declared: what the camera's parameter set said and what the decoder is told.
+fn log_redeclared(session: &Session, said: rate::Redeclared) {
+    let (camera, purpose) = {
+        let playing = session.playing.lock();
+        (playing.camera.clone(), playing.purpose.clone())
+    };
+    let for_ = if purpose.is_empty() { String::new() } else { format!(" for {purpose}") };
+    crate::log_info!(
+        "cameras: live{for_} on camera {camera}: the stream's parameter set says {} pictures a second, which would take the panel to 100 Hz; the decoder is told {}",
+        said.was,
+        said.now
+    );
 }
 
 fn publish_counts(
@@ -2746,5 +2786,29 @@ mod tests {
         assert_eq!(size("104", 1920, 2560), Some((1920, 2560)), "another stream of the camera");
         inner.sizes.lock().learn("104", (640, 480), (640, 480));
         assert_eq!(size("104", 640, 480), Some((640, 480)), "declared right again");
+    }
+
+    #[test]
+    fn only_a_key_picture_of_a_stream_on_the_main_window_has_its_rate_re_declared() {
+        use rtsp_client::depay::START_CODE;
+        let key = |sps: &str| {
+            let mut data = START_CODE.to_vec();
+            data.extend((0..sps.len()).step_by(2).map(|i| u8::from_str_radix(&sps[i..i + 2], 16).unwrap()));
+            data.extend_from_slice(&START_CODE);
+            data.extend_from_slice(&[0x65, 0x88, 0x84, 0x01]);
+            Unit { data, pts_us: 0, key: true, size: Some((640, 360)), arrived: Instant::now() }
+        };
+        // x264's 640x360 baseline set at 25 fps, and at 30
+        let at_25 = key("6742c01ed900a02ff97011000003000100000300320f162e48");
+        let at_30 = key("6742c01ed900a02ff970110000030001000003003c0f162e48");
+        let (data, said) = for_the_feeder(Codec::H264, true, &at_25);
+        assert_eq!(&data[..], &at_30.data[..], "the decoder is told 30");
+        assert_eq!(said, Some(rate::Redeclared { was: 25.0, now: 30 }));
+        // a texture and the sub window do not reach the panel's rate; a picture with no parameter set is not read; 30 needs nothing
+        for (panel, unit) in [(false, &at_25), (true, &Unit { size: None, ..key("6742c01ed900a02ff97011000003000100000300320f162e48") }), (true, &at_30)] {
+            let (data, said) = for_the_feeder(Codec::H264, panel, unit);
+            assert!(matches!(data, Cow::Borrowed(_)) && said.is_none());
+            assert_eq!(&data[..], &unit.data[..]);
+        }
     }
 }

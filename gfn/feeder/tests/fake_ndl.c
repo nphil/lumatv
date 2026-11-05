@@ -6,6 +6,7 @@
  * FAKE_NDL_FAIL=dlinit|init|load|state     that step fails
  * FAKE_NDL_FAIL=opus                       a load that asks for Opus audio fails (the library on the set may refuse it); PCM loads
  * FAKE_NDL_AUDIO_DUMP=FILE                 the bytes of every NDL_DirectAudioPlay are appended to FILE (the PCM the feeder decoded)
+ * FAKE_NDL_VIDEO_DUMP=FILE                 the bytes of every NDL_DirectVideoPlay the library took are appended to FILE (the access units the feeder gave it)
  * FAKE_NDL_NO_PLAYING=1                    the pipeline loads but never says it is playing
  * FAKE_NDL_ERROR_AFTER=N                   an error event after N video units
  * FAKE_NDL_FULL_EVERY=N                    every Nth NDL_DirectVideoPlay says the buffer is full (once; the retry is taken)
@@ -231,6 +232,13 @@ int NDL_DirectVideoPlay(void *buf, unsigned size, long long pts) {
     if (pts <= last_pts) bad("a PTS that does not rise");
     last_pts = pts;
     played++;
+    if (getenv("FAKE_NDL_VIDEO_DUMP")) {
+        FILE *d = fopen(getenv("FAKE_NDL_VIDEO_DUMP"), "ab");
+        if (d) {
+            fwrite(buf, 1, size, d);
+            fclose(d);
+        }
+    }
     recent_ns[recent_i++ % 64] = ns();
     if (foreground) shown++;
     else {

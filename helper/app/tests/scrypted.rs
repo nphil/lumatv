@@ -1247,8 +1247,12 @@ fn pps() -> Vec<u8> {
 }
 
 fn gop(n: usize) -> Vec<Vec<u8>> {
-    let mut first = annexb(&[&sps(), &pps()]);
-    let mut slice = vec![0x65, 0x88, 0x84, 0];
+    gop_of(&sps(), n)
+}
+
+fn gop_of(sps: &[u8], n: usize) -> Vec<Vec<u8>> {
+    let mut first = annexb(&[sps, &pps()]);
+    let mut slice = vec![0x65, 0x88, 0x84, 1];
     slice.extend((0..3000).map(|i| (i % 251) as u8 | 0x10));
     first.extend(annexb(&[&slice]));
     let mut units = vec![first];
@@ -1257,7 +1261,11 @@ fn gop(n: usize) -> Vec<Vec<u8>> {
 }
 
 fn camera(fps: u32, units: Vec<Vec<u8>>, tweak: impl FnOnce(&mut CameraScript)) -> FakeCamera {
-    let mut script = CameraScript::new(Codec::H264, vec![sps(), pps()], units, fps);
+    camera_of(sps(), fps, units, tweak)
+}
+
+fn camera_of(sps: Vec<u8>, fps: u32, units: Vec<Vec<u8>>, tweak: impl FnOnce(&mut CameraScript)) -> FakeCamera {
+    let mut script = CameraScript::new(Codec::H264, vec![sps, pps()], units, fps);
     tweak(&mut script);
     FakeCamera::start(script)
 }
@@ -1297,6 +1305,8 @@ fn ndl_lines(log: &std::path::Path, what: &str) -> usize {
 struct Video {
     world: World,
     log: std::path::PathBuf,
+    /// Every access unit the fake NDL library took (`FAKE_NDL_VIDEO_DUMP`).
+    dump: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }
 
@@ -1308,8 +1318,10 @@ fn video(idle: u32, verbose: bool) -> Option<Video> {
     };
     let dir = tempfile::tempdir().unwrap();
     let log = dir.path().join("ndl.log");
+    let dump = dir.path().join("video.bin");
     let mut env = vec![
         ("FAKE_NDL_LOG".to_owned(), log.display().to_string()),
+        ("FAKE_NDL_VIDEO_DUMP".to_owned(), dump.display().to_string()),
         (
             "LD_LIBRARY_PATH".to_owned(),
             library.parent().unwrap().display().to_string(),
@@ -1335,12 +1347,60 @@ fn video(idle: u32, verbose: bool) -> Option<Video> {
     Some(Video {
         world,
         log,
+        dump,
         _dir: dir,
     })
 }
 
 fn live_state(world: &World) -> Value {
     world.rig.topic("cameras.live").unwrap()
+}
+
+/// x264's 640x360 baseline set at 25 pictures a second (`-r 25`), and the same set with the rate ffmpeg's `h264_metadata=tick_rate=60/1` writes over
+/// it: what the decoder is to be given for a camera that says 25.
+const SPS_25: &str = "6742c01ed900a02ff97011000003000100000300320f162e48";
+const SPS_25_AS_30: &str = "6742c01ed900a02ff970110000030001000003003c0f162e48";
+
+/// Plays a stream whose parameter set is `sps` through the live path for a while and returns the bytes the fake NDL library took of it, or `None` where
+/// the host's fake library is older than `FAKE_NDL_VIDEO_DUMP` (`sh gfn/feeder/build.sh`).
+fn decoder_got(v: &Video, sps: Vec<u8>, fps: u32) -> Option<Vec<u8>> {
+    let cam = camera_of(sps.clone(), fps, gop_of(&sps, 30), |_| {});
+    v.world.bridge.set_rtsp("273", &cam.url());
+    let reply = v.world.post("/v1/cameras/live", json!({"camera": "273"}));
+    assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+    assert!(
+        wait_until(WAIT, || live_state(&v.world)["fed"].as_u64().unwrap_or(0) >= 20),
+        "{:?} / ndl: {}",
+        live_state(&v.world),
+        std::fs::read_to_string(&v.log).unwrap_or_default()
+    );
+    assert_eq!(v.world.post("/v1/cameras/live/stop", json!({})).status, 200);
+    let got = std::fs::read(&v.dump).unwrap_or_default();
+    if got.is_empty() {
+        eprintln!("skipped: the host's fake NDL library does not dump video (sh gfn/feeder/build.sh)");
+        return None;
+    }
+    Some(got)
+}
+
+fn has(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+#[test]
+fn a_camera_that_says_25_fps_is_given_to_the_decoder_as_30_and_nothing_else_of_the_picture_changes() {
+    let Some(v) = video(1, false) else { return };
+    let Some(got) = decoder_got(&v, hex(SPS_25), 25) else { return };
+    assert!(has(&got, &hex(SPS_25_AS_30)), "the decoder is given the set that says 30");
+    assert!(!has(&got, &hex(SPS_25)), "and never the camera's own");
+    assert!(has(&got, &pps()) && has(&got, &[0x65, 0x88, 0x84, 1]), "the rest of the key picture is the camera's");
+}
+
+#[test]
+fn a_camera_that_says_15_fps_is_given_to_the_decoder_as_it_is() {
+    let Some(v) = video(1, false) else { return };
+    let Some(got) = decoder_got(&v, sps(), 15) else { return };
+    assert!(has(&got, &sps()), "the camera's own set, byte for byte");
 }
 
 #[test]

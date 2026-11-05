@@ -12,7 +12,7 @@ The independently reviewed source policy is host-verified and ARM-built, but not
 
 Nine refresh tests, 11 callback tests and two existing native control/capture/ring tests passed. The normal UI-feature production ARM release build completed in 39.75 s; the ARM64 PIE stripped artifact is `/data/home/tmp/lumatv-foreground-pacing-20261031/lumatv-compositor-legacy`, SHA256 `f5c864ae1e869da3e2f60af14faca77ef51664254c8043652dff84a2fbf3463a`. Independent source review is clear. The 904c8 and 9762 candidates were superseded by repairs covering eligibility and legacy title changes.
 
-The later Design finding below overrides earlier optimism: LG Starfish owns native cadence, including 120 or fractional 119.88 Hz and the 100 Hz family for 25/50 content. In round 22 five disconnected `fr_rate` writes failed to restore 100 to 120; only video restored it, and a write with the Ring's 25 fps stream connected failed too (2026-11-04). The compositor returns the panel with a 30 fps clip out of sight (`vwin-refresh-result.md`, `retime.rs`). Divider 1 follows 100 when LG selects that family, not an independent 120 Hz OSD. Optical flash-free transitions are not established.
+The later Design finding below overrides earlier optimism: LG Starfish owns native cadence, including 120 or fractional 119.88 Hz and the 100 Hz family for 25/50 content. In round 22 five disconnected `fr_rate` writes failed to restore 100 to 120; only video restored it, and a write with the Ring's 25 fps stream connected failed too (2026-11-04). A camera stream no longer takes the panel there: the helper declares its 25 or 50 fps as 30 or 60 to the decoder (`vwin-refresh-result.md`). Divider 1 follows 100 when LG selects that family, not an independent 120 Hz OSD. Optical flash-free transitions are not established.
 
 Current native menu routing (source, November 1): `compositor/src/scene.rs:736–780` chooses the newest mapped, non-minimized nongroup card. Overlay, volume, toast, keyboard, ShellSystem and cover windows are not pacing cards (`window.rs:99–147`). Ordinary overlays therefore inherit the underlying card: Marquee selects nominal120, while Home and other cards retain startup base60. The policy is not a universal120 Home/system-menu mode. Numeric control overrides remain sticky; auto restores foreground policy; reset changes measurements only (`control.rs:390–411`).
 
@@ -25,7 +25,7 @@ For causal work, read `scanout-research.md:82–140,178–186,204–222`, `frame
 Done (2026-10-26 morning, offline, no TV): round 11's 50 fps run read sample by sample ("Round 11"): the return to 120 Hz was
 LG's switch at the start of another video (YouTube's Browse-page masthead ad), inside the firmware's start mute that every start
 has, 0.33 s before that video's window was shown. Built on it: the helper put the panel back to 120 Hz on Home after a 25/50 fps
-video (`helper/app/src/framerate.rs`, `898e638`; removed, the write is ignored and the compositor's retime clip replaces it,
+video (`helper/app/src/framerate.rs`, `898e638`; removed, the write is ignored; what replaced it is in
 `vwin-refresh-result.md`); the probe places each switch against the video window instead of counting the start mute as a blank, sees 0.2 s stays, and has the `youtube50home` run (`10aa929`). Open: the
 TV check ("TV check"), with Nitin at the set for the one thing no capture shows (whether a switch blinks the panel itself); the
 GFN 4K120 run; a 25 fps Plex item (Plex's library API answers 401 without a token, and none has been handed).
@@ -48,7 +48,7 @@ measured in round 11 (2026-10-26); the rest are read from source.
 | Home -> 59.94 / 60 fps | 2:2 | none | none | same |
 | Home -> 4K 120 fps (GFN, HFR) | 1:1 | none; DE HFR mode on | none | SRC `vp_kwrap.c:3700-3712`, `vdisp_core.c:1078-1091` |
 | Home -> 25 / 50 fps | 4:4 / 2:2 at 100 Hz | **120 -> 100 Hz** at the first frame | none seen: the switch lands before the window is shown (round 11: at 6.90 s, window shown at 6.97 s, firmware start mute 0.15 s after videooutputd's unmute) | TV `youtube50-20261026-0424`; SRC `v4l2_vsc.c:2436-2463` (40 ms poll), `v4l2_vsc_event.c:2411-2418` |
-| 25/50 fps window closes | stays at 100 Hz, UI at 50 Hz | none | the hold-over: 2.6 s in round 11, until the next video's first frame; on Home the compositor's retime clip puts 120 Hz back | TV round 11 (16.80-19.66 s); SRC `v4l2_vsc_event.c:2220-2221` (`default: return` with no source) |
+| 25/50 fps window closes | stays at 100 Hz, UI at 50 Hz | none | the hold-over: 2.6 s in round 11, until the next video's first frame; nothing puts 120 Hz back with no video (a 30 fps clip does, and changes the picture mode: `vwin-refresh-result.md`) | TV round 11 (16.80-19.66 s); SRC `v4l2_vsc_event.c:2220-2221` (`default: return` with no source) |
 | 25/50 fps, then a 24/30/60 video in the same app | | **100 -> 120 Hz** at the new video's first frame | none seen: inside the firmware's start mute (round 11: switch at 19.69 s, window shown at 20.02 s) | TV `youtube50-20261026-0424` |
 | 30 <-> 60, 24 <-> 60, 25 <-> 50 (adaptive streams, next episode) | | none within a family | none | `_vsc_check_fr` maps both to the same output |
 | Any start after the output was moved by hand (`fr_rate`) | | the previous stream's rate at the connect, the new one at the first frame (about 0.2 s apart) | under videooutputd's mute and the start mute [INFERENCE] | TV: the DE reads the decoder register's last value at a connect (0411: 23.97 then 29.97; 0412: 29.97 then 23.97; 0424: 50.0 then 23.97) |
@@ -207,15 +207,14 @@ What the source says:
 | DRM modes from the compositor | Cosmetic; the CRTC never touches panel timing (`gfn-444-vrr-result.md` (a)) | Harmless, useless | The compositor commits with `ALLOW_MODESET` once and never again (already so) |
 
 Hold 120 Hz as base: nothing to do while LG's apps play 24/30/60 content; the DE comes up at 60 -> 120 at resume
-(`resource_mgr.c:543-544`). The hold-over after 25/50 content is the gap; the compositor's retime clip closes it on Home.
+(`resource_mgr.c:543-544`). The hold-over after an app's 25/50 content is the gap; a camera stream no longer leaves it (`vwin-refresh-result.md`).
 
 ## 4. LumaTV's compositor (C3)
 
 What the compositor must and must not do, against what it does:
 
 - Never force a mode change: it commits `ALLOW_MODESET` only before `modeset_done` (`kms/mod.rs:525-534`) and the `lg1k` CRTC
-  ignores the mode anyway. Nothing else to add. It does not write `/proc/lg/de/fr_rate` (the firmware ignores it): after 25/50 fps video it plays a 30 fps clip
-  out of sight until the panel reads 120 Hz (`retime.rs`).
+  ignores the mode anyway. Nothing else to add. It does not write `/proc/lg/de/fr_rate` (the firmware ignores it).
 - Its UI clock follows the panel: `kms/timing.rs` keys the pacer to the period the flips measure, re-keyed after four agreeing
   flips, with animations on wall time. That is the right design; two details to put straight: the doc comment names 24 Hz as a
   case ("24 Hz film is the other case"), but on this set 24p film gives a 60 Hz vblank (120 / 2), and the only UI periods that
@@ -244,11 +243,12 @@ reduced to a hub this is moot; a future HDMI source should match rate, and the T
 1. **Inside an app: LG's.** The next video's start carries the kernel's own switch, before its window is shown (round 11: 0.33 s
    before). Holding 100 Hz through it is impossible (the kernel sets the rate at every timing change of window 0) and wrong
    (23.976 fps at 100 Hz shows frames for four and five refreshes unevenly). LumaTV writes nothing while an app is in front.
-2. **On Home: the compositor's clip** (`retime.rs`, `vwin-refresh-result.md`). The helper's watcher (`framerate.rs`, `898e638`, removed) counted
+2. **On Home: the camera streams' declared rate** (`vwin-refresh-result.md`). The helper's watcher (`framerate.rs`, `898e638`, removed) counted
    the output (`osd_irq` over 0.5 s), waited until the main window had no source (`connect_src=NONE` in `/proc/lgtv-driver/scaler/main.p0`) and wrote
    `1 60` (free run) to `/proc/lg/de/fr_rate`. On the set the write did nothing: with no source connected it left a 100 Hz output at 100 Hz (round 22,
-   five variants of the request), and with the Ring's stream connected it left 99.9 Hz (2026-11-04); only a playing video put 120 back. The compositor
-   plays a 30 fps clip out of sight until the panel reads 120 Hz.
+   five variants of the request), and with the Ring's stream connected it left 99.9 Hz (2026-11-04); only a playing video put 120 back. A 30 fps clip
+   under Home did, and the TV took it for a game stream and changed the picture mode (2026-11-05), so it was removed. Home's 25 fps comes from the cameras:
+   the helper declares them at 30 in the parameter sets it hands the feeder. An app's own 25/50 video still leaves its hold-over until the next video.
 3. **The price.** The next start after a return applies the 25/50 video's rate at its connect (the decoder register) and its own
    at the first frame: a 120 -> 100 -> 120 pair about 0.2 s long, under videooutputd's mute and the start mute [INFERENCE until
    the TV check].
@@ -263,10 +263,10 @@ bit during a 23.976 <-> 24 slew; LG's pipeline for 1080p120 without `hfrEnabled`
 
 ## TV check (next slot, Nitin at the set)
 
-The retime clip's own check is `compositor/tools/tv-retime-probe.py` (`vwin-refresh-result.md`). What stays for this note: from the repository root, each
+The camera rate's check is `compositor/tools/tv-camera-rate-probe.py` (`vwin-refresh-result.md`). What stays for this note: from the repository root, each
 run mutes the receiver through Home Assistant and puts it back once Home is in front; `--no-standby` keeps the set on between runs.
 
-1. From Home after a 25/50 fps video and the retime: `python3 docs/research/framerate/probe.py --go --run netflix24 --no-standby`: the first start after the
+1. From Home after a 25/50 fps video: `python3 docs/research/framerate/probe.py --go --run netflix24 --no-standby`: the first start after the
    return. Pass: `VERDICT: PASS`; `switches:` none, or `120 -> 100` and `100 -> 120` about 0.2 s apart, both `(start)`; Nitin saw
    no blink on Netflix's loading screen. The pair, or its absence, goes into "Verdicts" (the `fr_rate` row).
 2. Round 11's in-app return, watched: `python3 docs/research/framerate/probe.py --go --run youtube50home --secs 25 --no-standby`
@@ -274,8 +274,7 @@ run mutes the receiver through Home Assistant and puts it back once Home is in f
    `100 -> 120 Hz … (start)`; Nitin watches YouTube's Browse page at that moment. Pass: `VERDICT: PASS`, no blink seen.
 3. The set back in Active Standby (the last run without `--no-standby`, or the power key).
 
-The retime is off by default (`--retime`, `ctl retime on` for a run): on the set a small video window shifted the colours of the whole screen (the picture
-controller's picture-in-graphics state, `vwin-refresh-result.md`), and its clip is a window of the whole output now. A blink at step 1 or 2 is LG's own switch and stays either way.
+A blink at step 1 or 2 is LG's own switch.
 
 Still open after that: `gfn120` (a GFN session started by hand: both HFR switches on, 120 Hz 1:1), and a 25 fps Plex item:
 `plex25after24` picked two 23.976 items in round 11, and the Plex library API (`http://192.168.1.69:32400`) answers 401 without a
