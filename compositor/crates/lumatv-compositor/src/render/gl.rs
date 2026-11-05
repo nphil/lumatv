@@ -161,6 +161,10 @@ pub struct Gl {
     ui_frame: Option<lumatv_render::host::FrameCost>,
     #[cfg(feature = "ui")]
     ui_stats: UiStats,
+    /// How early a tick may come for a step of the engine's that is due (`Ui::wants_frame`): half a refresh, set by the output that knows the
+    /// panel's rate ([`Gl::set_ui_slack`]).
+    #[cfg(feature = "ui")]
+    ui_slack_ns: u64,
     /// The engine's programs, linked once and handed from one engine to the next (`lumatv_render::programs`).
     #[cfg(feature = "ui")]
     ui_programs: std::sync::Arc<lumatv_render::programs::Cache>,
@@ -179,6 +183,8 @@ struct UiStats {
     layers: u64,
     cpu_us: u64,
     cpu_us_max: u32,
+    /// Of `cpu_us`: placing the layers, planning, making backdrops, drawing, working out the damage, taking in commits (`FrameCost`).
+    phases_us: [u64; 6],
     gl_errors: u64,
 }
 
@@ -193,17 +199,23 @@ impl UiStats {
         self.layers += u64::from(cost.layers);
         self.cpu_us += u64::from(cost.cpu_us);
         self.cpu_us_max = self.cpu_us_max.max(cost.cpu_us);
+        for (sum, us) in self.phases_us.iter_mut().zip([cost.place_us, cost.plan_us, cost.backdrop_us, cost.draw_us, cost.damage_us, cost.apply_us]) {
+            *sum += u64::from(us);
+        }
         self.gl_errors += u64::from(cost.gl_error.is_some());
     }
 
-    /// Per-frame means over the frames that drew something, and the CPU's worst frame.
+    /// Per-frame means over the frames that drew something, and the CPU's worst frame; then the totals, in µs since the start, of the CPU
+    /// of all the frames and of the parts of it the engine accounts for (what is left is the engine's stepping of the scene and its changes
+    /// of the context's state): a measurement takes the means of its window from the difference of two readings.
     fn line(&self) -> String {
         if self.frames == 0 {
             return String::new();
         }
         let drew = (self.frames - self.empty).max(1);
+        let [place, plan, backdrops, draw, damage, apply] = self.phases_us;
         format!(
-            "ui frames {} (empty {}) px/frame {} changed {} draws/frame {} layers/frame {} cpu {} us/frame max {} us gl errors {}",
+            "ui frames {} (empty {}) px/frame {} changed {} draws/frame {} layers/frame {} cpu {} us/frame max {} us (total us: cpu {} place {place} plan {plan} backdrops {backdrops} draw {draw} damage {damage} apply {apply}) gl errors {}",
             self.frames,
             self.empty,
             self.region_px / drew,
@@ -212,6 +224,7 @@ impl UiStats {
             self.layers / drew,
             self.cpu_us / self.frames,
             self.cpu_us_max,
+            self.cpu_us,
             self.gl_errors
         )
     }
@@ -336,6 +349,8 @@ impl Gl {
             ui_frame: None,
             #[cfg(feature = "ui")]
             ui_stats: UiStats::default(),
+            #[cfg(feature = "ui")]
+            ui_slack_ns: 0,
             #[cfg(feature = "ui")]
             ui_programs: lumatv_render::programs::Cache::new(),
         })
@@ -525,6 +540,28 @@ impl Gl {
         #[cfg(not(feature = "ui"))]
         {
             false
+        }
+    }
+
+    /// Says how early a tick may come for a step of the engine's that is due: half of the panel's refresh (`Ui::wants_frame`).
+    pub fn set_ui_slack(&mut self, _ns: u64) {
+        #[cfg(feature = "ui")]
+        {
+            self.ui_slack_ns = _ns;
+        }
+    }
+
+    /// How long until the engine wants a frame, when that is a time of its own and it is not yet ([`crate::ui::Ui::due_in`]). `None`
+    /// without an engine, with an animation running, or with a frame due or wanted already.
+    pub fn ui_due_in(&self) -> Option<std::time::Duration> {
+        #[cfg(feature = "ui")]
+        {
+            let ui = self.ui.as_ref()?;
+            ui.due_in(lumatv_render::now_ns(), self.ui_slack_ns).map(std::time::Duration::from_nanos)
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            None
         }
     }
 
@@ -2063,11 +2100,11 @@ impl Output for Gl {
             }
             // With `LUMATV_AHEAD=1`, a large commit (a screen made) is taken in now, in the time to the frame's latch, not in the frame.
             ui.engine().take_in_ahead(now);
-            if ui.wants_frame(now) {
+            if ui.wants_frame(now, self.ui_slack_ns) {
                 return Ok(true);
             }
             ui.idle(now);
-            return Ok(ui.wants_frame(now));
+            return Ok(ui.wants_frame(now, self.ui_slack_ns));
         }
         Ok(false)
     }

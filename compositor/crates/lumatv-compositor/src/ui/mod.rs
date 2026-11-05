@@ -11,7 +11,7 @@
 //! only inside the tiles the page owes, which the ring below says (`Gl::render_rects` and `kms::Kms::render`):
 //!
 //! ```text
-//! if ui.wants_frame(now_ns) || <the windows changed> {               // every tick: Output::ui_needs_frame, else ui.idle
+//! if ui.wants_frame(now_ns, slack_ns) || <the windows changed> {     // every tick: Output::ui_needs_frame, else ui.idle
 //!     let mut tiles = <the windows' damage this frame>;              // Plan::tiles
 //!     ui.plan(now_ns, &mut tiles, home_hidden)?;                     // adds what the two stacks changed (stack 0 not while Home is hidden)
 //!     let owed = ring.frame(page, &tiles);                           // damage::Ring, as for the windows alone
@@ -150,13 +150,14 @@ impl Ui {
     }
 
     /// Whether a frame is due at `now_ns`: commits wait, work between frames changed the picture, an animation runs, or a
-    /// wallpaper's step is due.
-    pub fn wants_frame(&self, now_ns: u64) -> bool {
+    /// wallpaper's or an ambient motion's step is due. A step due within `slack_ns` after `now_ns` is due: the tick is on the panel's
+    /// grid, and a step is drawn by the refresh nearest it.
+    pub fn wants_frame(&self, now_ns: u64, slack_ns: u64) -> bool {
         self.engine.has_commits()
             || self.engine.redraw_wanted()
             || match self.engine.demand() {
                 Demand::EveryRefresh => true,
-                Demand::At(at) => now_ns >= at,
+                Demand::At(at) => now_ns.saturating_add(slack_ns) >= at,
                 Demand::Idle => false,
             }
     }
@@ -180,10 +181,15 @@ impl Ui {
         }
     }
 
-    /// When the engine next wants a frame on its own (a wallpaper's step), if no animation runs.
-    pub fn due_at(&self) -> Option<u64> {
+    /// How long from `now_ns` until the engine wants a frame, when that is a time of its own (a wallpaper's step, an ambient motion's)
+    /// and nothing is due yet: `None` when a frame is due or wanted already, when an animation runs (a frame at every refresh) and
+    /// when nothing is wanted at all. The loop sleeps till then (`ticker`) instead of waking at every refresh to find nothing to draw.
+    pub fn due_in(&self, now_ns: u64, slack_ns: u64) -> Option<u64> {
+        if self.wants_frame(now_ns, slack_ns) {
+            return None;
+        }
         match self.engine.demand() {
-            Demand::At(at) => Some(at),
+            Demand::At(at) => Some(at.saturating_sub(now_ns.saturating_add(slack_ns))),
             Demand::EveryRefresh | Demand::Idle => None,
         }
     }

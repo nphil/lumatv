@@ -44,6 +44,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                 "releases": state.stats.releases, "skipped": state.stats.skipped_items,
                 "renderUsLast": state.stats.render_us_last, "renderUsMax": state.stats.render_us_max, "passUsMax": state.stats.pass_us_max,
                 "prepared": state.stats.prepared, "frameImports": state.stats.frame_imports, "uiDrawn": state.stats.ui_frames,
+                "tickUsTotal": state.stats.tick_us_total, "tickPartsUs": state.stats.tick_parts_us, "passes": state.stats.passes, "passUsTotal": state.stats.pass_us_total,
             },
             "check": {"ok": state.check.ok, "bad": state.check.bad, "unread": state.check.unread},
             "focus": state.seat.focus.map(|s| s.0),

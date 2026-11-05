@@ -1271,6 +1271,12 @@ impl Output for Kms {
                 >= if self.care_draw { IDLE_QUIET_CARE_NS } else { IDLE_QUIET_NS }
     }
 
+    /// Nothing is owed that a tick would have to see to ([`Output::idle_between_frames`]): no frame waiting behind the flip in flight or
+    /// to go out, no driver buffer warming, no stand-in owed. The flip in flight lands as an event and moves the tick itself.
+    fn idle_between_frames(&self) -> bool {
+        !self.held && self.queued.is_none() && self.last_assignment.is_none() && !self.gl.standin_due()
+    }
+
     fn quiet_frame(&mut self) {
         self.care_draw = true;
     }
@@ -1398,10 +1404,16 @@ impl Output for Kms {
         self.gl.ui_set_standin_root(root);
     }
 
-    /// The system UI's requests, and a frame owed to a surface a frame stood in for once its buffer is warm.
+    /// The system UI's requests, and a frame owed to a surface a frame stood in for once its buffer is warm. A step of the UI's a
+    /// half refresh away is due: the tick is on the panel's grid.
     fn ui_needs_frame(&mut self) -> io::Result<bool> {
+        self.gl.set_ui_slack(self.timing.period_ns() / 2);
         // The page probe's time up: a frame puts the ring's page back (`pageprobe`).
         Ok(self.gl.ui_needs_frame()? || self.gl.standin_due() || self.page_probe_due())
+    }
+
+    fn ui_due_in(&self) -> Option<Duration> {
+        self.gl.ui_due_in()
     }
 
     fn ui_fd(&self) -> Option<RawFd> {

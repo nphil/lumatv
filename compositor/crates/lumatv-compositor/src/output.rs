@@ -305,6 +305,19 @@ pub trait Output {
         false
     }
 
+    /// Whether nothing is in flight or owed that a tick would have to see to: no frame queued or waiting, no driver buffer warming, no
+    /// stand-in owed. A flip in flight needs no tick (it lands as an event). What [`Output::idle_ok`] says without its second of quiet: the
+    /// loop may sleep till the next frame the UI asks for at a time of its own ([`Output::ui_due_in`]) instead of waking at every refresh.
+    fn idle_between_frames(&self) -> bool {
+        false
+    }
+
+    /// How long until the system UI wants a frame at a time of its own (an ambient motion's next step, a wallpaper's), when it does not
+    /// yet and no animation of it runs: `None` when a frame is due or wanted, when it animates at every refresh and when it wants none.
+    fn ui_due_in(&self) -> Option<Duration> {
+        None
+    }
+
     /// The frame just drawn was an OLED-care beat alone (`Scene::care_frame`): a still screen's one-pixel step or dim, owed nothing after it. The
     /// output may call the screen at rest once that frame has flipped, rather than a second after it, so the tick stays at its slowed rate.
     fn quiet_frame(&mut self) {}

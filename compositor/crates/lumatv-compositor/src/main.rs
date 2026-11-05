@@ -386,6 +386,10 @@ fn run(config: Config) -> io::Result<()> {
             let watched = tag & TAG_INPUT != 0 && inputs.is_watch((tag & 0xffff_ffff) as usize);
             if tag != TAG_TICK && !watched {
                 tick.calm.event(woke_ns, tag & TAG_INPUT != 0);
+                // (a page flip landing and the UI's commit are not what asks for frames at every refresh: see `Calm::busy`, and TAG_UI below)
+                if tag != TAG_OUTPUT && tag != TAG_UI {
+                    tick.calm.busy(woke_ns);
+                }
                 saw_event = true;
             }
             handled |= 1
@@ -449,11 +453,17 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 TAG_UI => {
                     // The UI app committed: taken in now; drawn now on a still screen, else at the tick.
-                    if state.ui_wake() {
+                    let drew = state.ui_wake();
+                    if drew {
                         handled |= 1 << 9;
                         state.tick();
-                        tick.rearm(&state)?;
                     }
+                    // A commit that wants no frame before the step the UI asked for (the sky restating its paths) is no reason to wake
+                    // at every refresh; one that wants a frame is.
+                    if drew || state.output.ui_due_in().is_none() {
+                        tick.calm.busy(woke_ns);
+                    }
+                    tick.rearm(&state)?;
                 }
                 TAG_SHELL_RUST => {
                     if state.shell_rust_poll() {
@@ -588,6 +598,8 @@ fn run(config: Config) -> io::Result<()> {
         // line says what ran, on the clock the clients' own logs use.
         let spent = woke.elapsed();
         state.stats.pass_us_max = state.stats.pass_us_max.max(spent.as_micros() as u64);
+        state.stats.passes += 1;
+        state.stats.pass_us_total += spent.as_micros() as u64;
         if spent > Duration::from_millis(2) {
             ring::note(format_args!("P {:.1} ms in one pass ({})", spent.as_secs_f64() * 1000.0, handled_names(handled)));
         }

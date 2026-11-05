@@ -103,6 +103,13 @@ pub struct Stats {
     /// The longest the loop was busy in one pass, wake-up to flush, since the start: what holds every client's callbacks and the
     /// supervisor's heartbeat (answered by the loop) back. A frame at 60 Hz is 16,667.
     pub pass_us_max: u64,
+    /// The passes of the loop since the start (a wake-up to its flush) and what they took, in µs: how often the loop woke and for how long.
+    pub passes: u64,
+    pub pass_us_total: u64,
+    /// What the ticks took since the start, in µs, and in which part of the tick ([`State::tick_at`]): the plan and the frame, the
+    /// present (with the box dim), the callbacks, the releases, the rest. A TV measurement splits the loop's CPU with these.
+    pub tick_us_total: u64,
+    pub tick_parts_us: [u64; 5],
 }
 
 #[derive(Debug, Clone)]
@@ -802,6 +809,10 @@ impl State {
         }
         let t_end = Instant::now();
         self.stats.tick_us_last = (t_end - t0).as_micros() as u64;
+        self.stats.tick_us_total += self.stats.tick_us_last;
+        for (sum, part) in self.stats.tick_parts_us.iter_mut().zip([t_rendered - t0, t_presented - t_rendered, t_callbacks - t_presented, t_released - t_callbacks, t_end - t_released]) {
+            *sum += part.as_micros() as u64;
+        }
         // A frame of a transition that came late says in what part and what the loop had been doing: a long tick before it is the loop's own
         // work (a free, an import, a draw); short ones around a long gap are the loop waiting or woken late (the display, the driver, another process).
         if let Some(l) = self.scene.transitions.take_late() {

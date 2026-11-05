@@ -33,6 +33,7 @@ const MIN_ONCE: Duration = Duration::from_micros(500);
 pub struct Calm {
     last_event_ns: u64,
     last_input_ns: u64,
+    last_busy_ns: u64,
 }
 
 impl Calm {
@@ -44,8 +45,20 @@ impl Calm {
         }
     }
 
+    /// A wake-up for something that may ask for frames at every refresh (an input device, a client, the control socket: every one
+    /// but a page flip landing and a commit of the UI that asked for no frame), at `now_ns`. [`Calm::event`] is called for it as well.
+    pub fn busy(&mut self, now_ns: u64) {
+        self.last_busy_ns = now_ns;
+    }
+
     pub fn is_calm(&self, now_ns: u64) -> bool {
         now_ns.saturating_sub(self.last_event_ns) >= CALM_AFTER_NS && now_ns.saturating_sub(self.last_input_ns) >= INPUT_CALM_AFTER_NS
+    }
+
+    /// Calm as far as the frames the UI asks for at times of its own go: the flips of those frames and the commits that ask for none
+    /// are no reason to wake at every refresh, so only a [`Calm::busy`] wake-up (and a key, for a quarter second more) ends it.
+    pub fn is_calm_between_frames(&self, now_ns: u64) -> bool {
+        now_ns.saturating_sub(self.last_busy_ns) >= CALM_AFTER_NS && now_ns.saturating_sub(self.last_input_ns) >= INPUT_CALM_AFTER_NS
     }
 }
 
@@ -151,6 +164,10 @@ impl Tick {
     /// where the output remembers it (a one-shot too), else periodic (re-armed only when the timer was last set as a one-shot or the period
     /// changes, so the periodic timer keeps its phase). In the calm described above the grid latch is one at least `idle_tick_ns` away and
     /// the periodic fallback has that period. The panel's rate is the live config's `tick_ns`: `ctl refresh` changes it.
+    ///
+    /// While the only thing the loop is waiting for is a frame the UI asks for at a time of its own (the weather's sky drawn thirty times a
+    /// second on a panel that refreshes a hundred and twenty), the tick is the grid's latch for that time, at most `idle_tick_ns` away: the
+    /// refreshes between wake the loop for a tick that finds nothing to draw ([`paced_wait`]).
     pub fn rearm(&mut self, state: &State) -> io::Result<()> {
         let tick_ns = state.config.tick_ns;
         let now = Instant::now();
@@ -164,18 +181,41 @@ impl Tick {
                 && !state.scene.transitions.animating(now)
                 && !state.scene.transitions.due_within(now, ns)
         });
-        let latch = state.output.next_frame_at(now).or_else(|| match slow {
-            Some(ns) => state.output.idle_tick_after(now, Duration::from_nanos(ns)),
-            None => state.output.idle_tick_at(now),
+        let paced = slow.is_none().then(|| {
+            let now_ns = monotonic_ns();
+            let owed_nothing = |wait: Duration| {
+                !state.surfaces.any_undrawn()
+                    && state.output.idle_between_frames()
+                    && !state.scene.transitions.animating(now_ns)
+                    && !state.scene.transitions.due_within(now_ns, wait.as_nanos() as u64)
+            };
+            paced_wait(state.config.idle_tick_ns, self.calm.is_calm_between_frames(now_ns), owed_nothing, state.output.ui_due_in())
         });
+        let paced = paced.flatten();
+        let latch = match paced {
+            Some(wait) => state.output.idle_tick_after(now, wait),
+            None => state.output.next_frame_at(now).or_else(|| match slow {
+                Some(ns) => state.output.idle_tick_after(now, Duration::from_nanos(ns)),
+                None => state.output.idle_tick_at(now),
+            }),
+        };
         let latch = latch.map(|at| at.saturating_duration_since(Instant::now()));
-        self.slowed = slow.is_some();
-        match plan(self.paced, self.period_ns, tick_ns, slow, latch) {
+        self.slowed = slow.is_some() || paced.is_some();
+        let slow_ns = slow.or_else(|| paced.map(|wait| wait.as_nanos() as u64));
+        match plan(self.paced, self.period_ns, tick_ns, slow_ns, latch) {
             Plan::Once(d) => self.arm_once(d),
             Plan::Periodic(ns) => self.arm_periodic(ns),
             Plan::Keep => Ok(()),
         }
     }
+}
+
+/// How long the loop may sleep for the frame the UI asks for at a time of its own, `due` from now: that long, but no longer than the slowed
+/// tick `idle_tick_ns` (0 switches the slowdown off), when the loop is calm between frames and owes nothing (`owed_nothing`, asked with
+/// the wait). `None`: the tick stays at the panel's rate.
+pub fn paced_wait(idle_tick_ns: u64, calm_between_frames: bool, owed_nothing: impl FnOnce(Duration) -> bool, due: Option<Duration>) -> Option<Duration> {
+    let wait = due?.min(Duration::from_nanos(idle_tick_ns));
+    (idle_tick_ns > 0 && calm_between_frames && owed_nothing(wait)).then_some(wait)
 }
 
 #[cfg(test)]
@@ -202,6 +242,40 @@ mod tests {
     #[test]
     fn a_loop_that_has_seen_nothing_yet_is_not_held_back_by_the_clock_it_never_read() {
         assert!(Calm::default().is_calm(INPUT_CALM_AFTER_NS), "the epoch's first seconds are not a key's hold");
+    }
+
+    #[test]
+    fn a_page_flip_or_a_commit_that_asks_for_no_frame_does_not_end_the_calm_between_frames() {
+        let mut c = Calm::default();
+        let t0 = 10_000_000_000;
+        // The flip of a frame the UI asked for at a time of its own: any event, no cause to tick at every refresh.
+        c.event(t0, false);
+        assert!(!c.is_calm(t0 + 100_000_000));
+        assert!(c.is_calm_between_frames(t0 + 100_000_000));
+        // A client, the control socket, a commit that wants a frame: the loop is busy for a quarter of a second.
+        c.busy(t0 + 200_000_000);
+        assert!(!c.is_calm_between_frames(t0 + 200_000_000 + CALM_AFTER_NS - 1));
+        assert!(c.is_calm_between_frames(t0 + 200_000_000 + CALM_AFTER_NS));
+        // A key is a hold being measured, as for the other calm.
+        c.event(t0 + 1_000_000_000, true);
+        assert!(!c.is_calm_between_frames(t0 + 1_000_000_000 + CALM_AFTER_NS + 1));
+        assert!(c.is_calm_between_frames(t0 + 1_000_000_000 + INPUT_CALM_AFTER_NS));
+    }
+
+    #[test]
+    fn the_loop_sleeps_for_the_frame_the_ui_wants_but_no_longer_than_the_slowed_tick() {
+        let ms = Duration::from_millis;
+        let owed = |nothing: bool| move |_: Duration| nothing;
+        assert_eq!(paced_wait(IDLE_TICK_NS, true, owed(true), Some(ms(28))), Some(ms(28)), "a step 28 ms away");
+        assert_eq!(paced_wait(IDLE_TICK_NS, true, owed(true), Some(ms(900))), Some(ms(100)), "never past the slowed tick");
+        assert_eq!(paced_wait(IDLE_TICK_NS, true, owed(true), None), None, "nothing is due at a time of its own");
+        assert_eq!(paced_wait(IDLE_TICK_NS, false, owed(true), Some(ms(28))), None, "the loop is busy");
+        assert_eq!(paced_wait(IDLE_TICK_NS, true, owed(false), Some(ms(28))), None, "a frame is owed, a veil is due or a transition runs");
+        assert_eq!(paced_wait(0, true, owed(true), Some(ms(28))), None, "`ctl idle 0` keeps the panel's rate");
+        // what is owed is asked about the wait the loop would sleep, not the step's own distance
+        let mut asked = None;
+        paced_wait(IDLE_TICK_NS, true, |wait| { asked = Some(wait); true }, Some(ms(900)));
+        assert_eq!(asked, Some(ms(100)));
     }
 
     #[test]
