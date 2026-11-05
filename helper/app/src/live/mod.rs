@@ -63,6 +63,9 @@ const LAG_MAX_MS: i64 = 500;
 const LAG_FOR: Duration = Duration::from_secs(1);
 /// How often the writer says where the picture is.
 const PUBLISH_EVERY: Duration = Duration::from_millis(250);
+/// How long the ES player has, from the first picture given to it, to take one before the camera is tried on NDL's pipeline. The set takes its first picture in
+/// well under a second (`first picture after` in the log); a pipeline that has taken none by now is not going to.
+const ES_FIRST_PICTURE: Duration = Duration::from_secs(4);
 
 /// How the feeder is started; `None` leaves the live path off (the pictures' path stays).
 #[derive(Clone, Debug)]
@@ -432,6 +435,26 @@ impl Sizes {
             self.0.clear();
         }
         self.0.insert(key, real);
+    }
+}
+
+/// Which pipeline worked for a camera this run: only a camera the ES player failed on is written down as `ndl`, so that its later opens go straight there.
+#[derive(Default)]
+struct Pipes(HashMap<String, &'static str>);
+
+impl Pipes {
+    /// A camera list that keeps changing does not grow this without end.
+    const MAX: usize = 64;
+
+    fn get(&self, camera: &str) -> Option<&'static str> {
+        self.0.get(camera).copied()
+    }
+
+    fn remember(&mut self, camera: &str, pipe: &'static str) {
+        if self.0.len() >= Self::MAX && !self.0.contains_key(camera) {
+            self.0.clear();
+        }
+        self.0.insert(camera.to_owned(), pipe);
     }
 }
 
@@ -1071,6 +1094,8 @@ struct Session {
     /// Where a recording stands with the bridge's one-playback-session-per-camera rule.
     replaced: Mutex<Replaced>,
     writer: Mutex<Option<JoinHandle<()>>>,
+    /// The pipeline the main window's loads use for this session (`pipe_for`): the camera's remembered one, or `es`; `ndl` once the ES player has failed.
+    pipe: Mutex<Option<&'static str>>,
 }
 
 impl Session {
@@ -1107,6 +1132,10 @@ struct Inner {
     publish: Box<dyn Fn(Value) + Send + Sync>,
     /// What streams turned out to be where the bridge declared another size.
     sizes: Mutex<Sizes>,
+    /// What pipeline worked for each camera.
+    pipes: Mutex<Pipes>,
+    /// How long the ES player has to take its first picture (`ES_FIRST_PICTURE`).
+    es_window: Duration,
 }
 
 impl Inner {
@@ -1157,6 +1186,8 @@ impl Live {
                 next: AtomicU64::new(1),
                 publish,
                 sizes: Mutex::new(Sizes::default()),
+                pipes: Mutex::new(Pipes::default()),
+                es_window: ES_FIRST_PICTURE,
             }),
         };
         let view = me.view();
@@ -1301,6 +1332,7 @@ impl Live {
             first_at: Mutex::new(None),
             replaced: Mutex::new(Replaced::No),
             writer: Mutex::new(None),
+            pipe: Mutex::new(None),
         });
         {
             let mut view = self.inner.view.lock();
@@ -1590,13 +1622,13 @@ pub fn texture_size(width: u32, height: u32) -> (u32, u32) {
 /// The pipeline and the sink a load asks the feeder for. The sub window beside an app's video is the starfish pipeline asking for the sub sink, which only it can. The
 /// main window's is the ES player: NDL's own pipeline, loaded with NDL's options but the game declaration (`gfn/feeder/src/gf_pipe.h`). NDL's own load tells the TV the
 /// video is a game, and the TV takes its game picture mode while it plays, which shifts the colours of every camera view (`docs/research/vwin-refresh-result.md`); the
-/// GeForce NOW stream is a game and keeps NDL.
-fn pipe_for(sub: bool) -> (&'static str, &'static str) {
-    if sub { ("smp", "sub_video") } else { ("es", "") }
+/// GeForce NOW stream is a game and keeps NDL. A camera the ES player has failed on this run (`feed`) is `remembered` as `ndl` and loads there.
+fn pipe_for(sub: bool, remembered: Option<&'static str>) -> &'static str {
+    if sub { "smp" } else { remembered.unwrap_or("es") }
 }
 
-/// Loads the pipeline with `info` in the leased feeder, for the app named (empty: the video window's own).
-fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool, sub: bool) -> Result<(), String> {
+/// Loads the pipeline `pipe` with `info` in the leased feeder, for the app named (empty: the video window's own).
+fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool, sub: bool, pipe: &str) -> Result<(), String> {
     let codec = match info.codec {
         Codec::H264 => gf::CODEC_H264,
         Codec::H265 => gf::CODEC_H265,
@@ -1608,7 +1640,7 @@ fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool, sub: 
     let (tw, th) = if texture { texture_size(info.width, info.height) } else { (0, 0) };
     client.send_texture(tw, th).map_err(|e| e.to_string())?;
     client.send_app(ndl_app).map_err(|e| e.to_string())?;
-    let (pipe, sink) = pipe_for(sub);
+    let sink = if sub { "sub_video" } else { "" };
     client.send_pipe(pipe).map_err(|e| e.to_string())?;
     client.send_sink(sink).map_err(|e| e.to_string())?;
     client
@@ -1766,20 +1798,40 @@ struct Resume {
     unit: Option<Unit>,
 }
 
+/// The ES player has not shown a picture yet, so the camera may still be tried on NDL's pipeline.
+fn es_unproven(session: &Session, pipe: &str, sub: bool) -> bool {
+    pipe == "es" && !sub && session.first_at.lock().is_none()
+}
+
+/// Replaces the ES player's load with NDL's, for the rest of the session. Nothing is shown of it: the view stays `starting`.
+fn fall_back(lease: &mut Lease, session: &Session, info: StreamInfo, ndl_app: &str, texture: bool, why: &str) -> Result<(), String> {
+    let camera = session.playing.lock().camera.clone();
+    crate::log_warn!("cameras: the ES player gave no picture on camera {camera} ({why}); trying NDL's pipeline");
+    *session.pipe.lock() = Some("ndl");
+    if lease.loaded {
+        lease.feeder().client.send_unload().map_err(|e| format!("the feeder went: {e}"))?;
+    }
+    load(lease, info, ndl_app, texture, false, "ndl")
+}
+
 /// The feeding loop.
 fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: Resume) -> Fed {
     let went = |e: io::Error| format!("the feeder went: {e}");
-    let (expect, ndl_app, texture, sub) = {
+    let (expect, ndl_app, texture, sub, camera) = {
         let playing = session.playing.lock();
-        (playing.expect, playing.ndl_app.clone(), playing.texture, playing.sub)
+        (playing.expect, playing.ndl_app.clone(), playing.texture, playing.sub, playing.camera.clone())
     };
+    let mut pipe = *session.pipe.lock().get_or_insert_with(|| pipe_for(sub, inner.pipes.lock().get(&camera)));
+    let mut remembered = false;
+    // when the first picture went to the pipeline just loaded
+    let mut sent_at: Option<Instant> = None;
     let mut loaded: Option<StreamInfo> = None;
     let mut pending = resume.unit;
     // a pipeline just loaded takes a stream from a random access point: what comes before the next one is of no use to it
     let mut need_key = resume.loaded.is_some();
     // the load the bridge's description allows is started before the stream is dialled; a new feeder first takes up the pipeline the broken one held
     if let Some(info) = resume.loaded.or(expect) {
-        if let Err(why) = load(lease, info, &ndl_app, texture, sub) {
+        if let Err(why) = load(lease, info, &ndl_app, texture, sub, pipe) {
             return Fed::Broke(why, Resume { loaded: Some(info), unit: pending });
         }
         loaded = Some(info);
@@ -1798,8 +1850,30 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
         if session.ended() {
             return Fed::Done(true);
         }
-        if let Some(why) = session.error.lock().take() {
-            return Fed::Broke(why, Resume { loaded, unit: pending });
+        if !remembered && !sub && session.first_at.lock().is_some() {
+            inner.pipes.lock().remember(&camera, pipe);
+            remembered = true;
+        }
+        let mut trouble = session.error.lock().take();
+        if trouble.is_none() && es_unproven(session, pipe, sub) && sent_at.is_some_and(|t| t.elapsed() >= inner.es_window) {
+            trouble = Some(format!("no picture taken in {} ms", inner.es_window.as_millis()));
+        }
+        if let Some(why) = trouble {
+            let Some(info) = loaded.filter(|_| es_unproven(session, pipe, sub)) else {
+                return Fed::Broke(why, Resume { loaded, unit: pending });
+            };
+            if let Err(e) = fall_back(lease, session, info, &ndl_app, texture, &why) {
+                return Fed::Broke(e, Resume { loaded: Some(info), unit: pending });
+            }
+            pipe = "ndl";
+            sent_at = None;
+            pending = None;
+            need_key = true;
+            last_pts = -1;
+            next_base = 0;
+            epoch_first = None;
+            said_rate = false;
+            continue;
         }
         if last_publish.elapsed() >= PUBLISH_EVERY {
             last_publish = Instant::now();
@@ -1830,7 +1904,8 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
                     {
                         return Fed::Broke(went(e), Resume { loaded, unit: None });
                     }
-                    if let Err(why) = load(lease, info, &ndl_app, texture, sub) {
+                    sent_at = None;
+                    if let Err(why) = load(lease, info, &ndl_app, texture, sub, pipe) {
                         return Fed::Broke(why, Resume { loaded: Some(info), unit: None });
                     }
                     loaded = Some(info);
@@ -1875,7 +1950,8 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
                     if let Err(e) = lease.feeder().client.send_unload() {
                         return Fed::Broke(went(e), Resume { loaded, unit: Some(unit) });
                     }
-                    if let Err(why) = load(lease, changed, &ndl_app, texture, sub) {
+                    sent_at = None;
+                    if let Err(why) = load(lease, changed, &ndl_app, texture, sub, pipe) {
                         return Fed::Broke(why, Resume { loaded: Some(changed), unit: Some(unit) });
                     }
                     loaded = Some(changed);
@@ -1906,6 +1982,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
                 if let Err(e) = lease.feeder().client.send_video(pts_ns, unit.key, &data) {
                     return Fed::Broke(went(e), Resume { loaded, unit: Some(unit) });
                 }
+                sent_at.get_or_insert_with(Instant::now);
                 session.counters.pts_us.store(unit.pts_us, Ordering::Relaxed);
             }
         }
@@ -2540,6 +2617,7 @@ mod tests {
             first_at: Mutex::new(None),
             replaced: Mutex::new(Replaced::No),
             writer: Mutex::new(None),
+            pipe: Mutex::new(None),
         })
     }
 
@@ -2623,6 +2701,8 @@ mod tests {
             next: AtomicU64::new(2),
             publish: Box::new(|_| {}),
             sizes: Mutex::new(Sizes::default()),
+            pipes: Mutex::new(Pipes::default()),
+            es_window: Duration::from_millis(150),
         });
         let session = test_session(1, &inner, SMALL);
         *inner.session.lock() = Some(session.clone());
@@ -2651,7 +2731,7 @@ mod tests {
         for (sub, pipe, sink) in [(false, "es", ""), (true, "smp", "sub_video")] {
             let (pool, mut peer) = test_pool(dir.path(), Duration::from_secs(1));
             let mut lease = pool.lease("card").unwrap();
-            load(&mut lease, SMALL, "com.webos.app.home", false, sub).unwrap();
+            load(&mut lease, SMALL, "com.webos.app.home", false, sub, pipe_for(sub, None)).unwrap();
             let heard = heard_until_the_load(&mut peer);
             let said = |kind: u8| heard.iter().find(|(k, _)| *k == kind).map(|(_, text)| String::from_utf8_lossy(text).into_owned());
             assert_eq!(said(gf::APP).as_deref(), Some("com.webos.app.home"), "sub {sub}");
@@ -2767,6 +2847,115 @@ mod tests {
         assert_eq!(inner.view.lock().1.state, "starting");
         session.end(true);
         writer.join().unwrap();
+    }
+
+    /// What a feeder's other end receives of the load and the pictures, as (kind, text), as it comes.
+    fn listen_loads(mut peer: std::os::unix::net::UnixStream) -> std::sync::mpsc::Receiver<(u8, String)> {
+        let (frames, heard) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            while let Ok((kind, payload)) = gf::read_frame(&mut peer) {
+                if [gf::PIPE, gf::LOAD, gf::VIDEO].contains(&kind) && frames.send((kind, String::from_utf8_lossy(&payload).into_owned())).is_err() {
+                    break;
+                }
+            }
+        });
+        heard
+    }
+
+    /// The pipeline the feeder is next told to load in, and that it is then sent the load.
+    fn next_load(heard: &std::sync::mpsc::Receiver<(u8, String)>) -> String {
+        let pipe = loop {
+            let (kind, text) = heard.recv_timeout(Duration::from_secs(5)).expect("the feeder is told a pipeline");
+            if kind == gf::PIPE {
+                break text;
+            }
+        };
+        while heard.recv_timeout(Duration::from_secs(5)).expect("the feeder is sent the load").0 != gf::LOAD {}
+        pipe
+    }
+
+    const REFUSED: &str = "the pipeline refused the load: no";
+
+    type Loads = std::sync::mpsc::Receiver<(u8, String)>;
+
+    fn a_session_in_a_pool(dir: &Path) -> (Arc<Inner>, Arc<Session>, Arc<Pool>, Loads) {
+        let (pool, peer) = test_pool(dir, Duration::from_secs(1));
+        let (inner, session) = test_inner();
+        session.queue.begin(1);
+        session.queue.settle();
+        (inner, session, pool, listen_loads(peer))
+    }
+
+    #[test]
+    fn a_refused_es_load_is_retried_on_ndl_with_no_error_and_the_camera_remembers_what_worked() {
+        let dir = tempfile::tempdir().unwrap();
+        let (inner, session, pool, heard) = a_session_in_a_pool(dir.path());
+        let writer = run_writer(&inner, &pool, &session);
+        assert_eq!(next_load(&heard), "es");
+        *session.error.lock() = Some(REFUSED.to_owned());
+        assert_eq!(next_load(&heard), "ndl");
+        assert_eq!(inner.view.lock().1.state, "starting", "the person is shown no error");
+        assert!(inner.pipes.lock().get("273").is_none(), "nothing is remembered before a picture is shown");
+        // the feeder takes a picture: NDL's pipeline is the one that works for this camera
+        *session.first_at.lock() = Some(Instant::now());
+        let asked = Instant::now();
+        while inner.pipes.lock().get("273").is_none() && asked.elapsed() < Duration::from_secs(3) {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(inner.pipes.lock().get("273"), Some("ndl"));
+        session.end(true);
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn an_es_load_that_takes_no_picture_in_its_window_is_retried_on_ndl() {
+        let dir = tempfile::tempdir().unwrap();
+        let (inner, session, pool, heard) = a_session_in_a_pool(dir.path());
+        assert!(matches!(session.queue.give(1, unit(true, 0, 100)), Give::Done));
+        let writer = run_writer(&inner, &pool, &session);
+        assert_eq!(next_load(&heard), "es");
+        assert_eq!(next_load(&heard), "ndl");
+        assert_eq!(inner.view.lock().1.state, "starting");
+        session.end(true);
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn a_camera_that_worked_on_ndl_loads_there_first_and_a_sub_window_never_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let (inner, session, pool, heard) = a_session_in_a_pool(dir.path());
+        inner.pipes.lock().remember("273", "ndl");
+        assert_eq!(pipe_for(true, Some("ndl")), "smp");
+        let writer = run_writer(&inner, &pool, &session);
+        assert_eq!(next_load(&heard), "ndl");
+        session.end(true);
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn a_camera_that_fails_on_ndl_too_shows_the_normal_error_and_does_not_go_back_to_es() {
+        let dir = tempfile::tempdir().unwrap();
+        let (first, first_peer) = test_feeder(dir.path(), Duration::from_secs(1));
+        let (second, second_peer) = test_feeder(dir.path(), Duration::from_secs(1));
+        let (pool, made) = pool_with_a_gone_feeder(dir.path(), vec![second]);
+        *pool.slot.lock() = Slot::Idle(Box::new(first), Instant::now(), false);
+        let (first_heard, second_heard) = (listen_loads(first_peer), listen_loads(second_peer));
+        let (inner, session) = test_inner();
+        session.queue.begin(1);
+        session.queue.settle();
+        let writer = run_writer(&inner, &pool, &session);
+        assert_eq!(next_load(&first_heard), "es");
+        *session.error.lock() = Some(REFUSED.to_owned());
+        assert_eq!(next_load(&first_heard), "ndl");
+        *session.error.lock() = Some(REFUSED.to_owned());
+        assert_eq!(next_load(&second_heard), "ndl", "the replacement feeder does not start on es again");
+        *session.error.lock() = Some(REFUSED.to_owned());
+        writer.join().unwrap();
+        assert_eq!(made.load(Ordering::SeqCst), 1);
+        let view = inner.view.lock().1.clone();
+        assert_eq!(view.state, "failed");
+        assert!(view.reason.contains("refused the load"), "{}", view.reason);
+        assert!(inner.pipes.lock().get("273").is_none());
     }
 
     #[test]
