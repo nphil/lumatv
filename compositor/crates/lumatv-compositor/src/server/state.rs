@@ -237,8 +237,6 @@ pub struct State {
     pub dh: DisplayHandle,
     pub config: Config,
     pub refresh_policy: crate::refresh::Policy,
-    /// The panel back at 120 Hz after a 25/50 fps video (`retime.rs`).
-    pub retime: crate::retime::Controller,
     pub surfaces: Surfaces,
     pub scene: Scene,
     pub output: Box<dyn Output>,
@@ -320,12 +318,10 @@ impl State {
         let motion = crate::transition::ThemeSwitch::new(&config.data_dir);
         let panel_dir = config.data_dir.clone();
         let refresh_policy = crate::refresh::Policy::new(config.refresh_hz);
-        let retime = crate::retime::Controller::new(&config.data_dir, config.retime);
         State {
             dh,
             config,
             refresh_policy,
-            retime,
             surfaces: Surfaces::default(),
             scene,
             output,
@@ -658,7 +654,6 @@ impl State {
         // The pointer: on the cursor plane when it carries it (no sprite in the frame, no damage for a move), else a sprite in the frame.
         self.pointer_sync();
         self.vwin_sync();
-        self.panel_rate_sync(now_ns);
         self.scene.cursor = if self.seat.cursor_visible && !self.pointer_carried {
             Some(crate::render::cursor::rect_at(self.seat.pointer_position.0, self.seat.pointer_position.1))
         } else {

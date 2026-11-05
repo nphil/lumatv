@@ -42,12 +42,6 @@ impl Policy {
     }
 }
 
-/// The flip period the 25/50 fps family leaves behind: 10.00 ms for 8.33 and 20.00 ms for 16.67, so a fifth to a third over what
-/// the mode asks. A longer one is a film rate, which only a video window causes. What is done about it is `retime.rs`.
-pub fn retimed(expected_ns: u64, measured_ns: u64) -> bool {
-    measured_ns * 10 > expected_ns * 11 && measured_ns * 10 < expected_ns * 13
-}
-
 impl crate::server::state::State {
     /// Changes the output first, so refusal leaves the effective state unchanged.
     pub fn refresh_apply(&mut self, hz: u32) -> io::Result<u32> {
@@ -419,13 +413,6 @@ mod tests {
         let p = std::env::temp_dir().join(format!("lumatv-refresh-{}-{name}", std::process::id()));
         let _ = std::fs::remove_file(&p);
         p
-    }
-
-    #[test]
-    fn the_25_and_50_family_is_a_flip_period_a_fifth_to_a_third_over_the_mode() {
-        let (p120, p100, p60, p50) = (period_ns(120), 10_000_000, period_ns(60), 20_000_000);
-        assert!(retimed(p120, p100) && retimed(p60, p50));
-        assert!(!retimed(p120, p120) && !retimed(p60, p60) && !retimed(p120, p60) && !retimed(p120, 41_700_000));
     }
 
     #[test]

@@ -48,7 +48,6 @@ pub mod pacer;
 pub mod pointer;
 pub mod refresh;
 pub mod render;
-pub mod retime;
 pub mod ring;
 pub mod saverguard;
 pub mod scanout;

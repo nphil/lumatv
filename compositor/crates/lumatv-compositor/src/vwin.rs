@@ -1193,11 +1193,6 @@ impl crate::State {
         let windows: Vec<(WindowId, crate::surface::SurfaceId, String)> =
             self.scene.windows().filter(|w| w.kind == WindowType::VideoWindow && !w.vwin_closed).map(|w| (w.id, w.surface, w.app_id().to_string())).collect();
         for (wid, surface, app) in windows {
-            // the retime clip's window is no claim's, and no claim may take it for the first window without one
-            if app == crate::retime::APP_ID {
-                self.vwin_bind_retime(wid, surface);
-                continue;
-            }
             let claim = self
                 .vwin
                 .alloc
@@ -1222,39 +1217,6 @@ impl crate::State {
                 }
                 self.vwin_elements_changed(surface);
             }
-        }
-    }
-
-    /// The retime clip's window (`retime`) is nobody's claim: while the clip plays it is the whole output, out of sight (no hole), or a small window with its hole
-    /// when `ctl retime show` asks for the picture to be seen; without the clip it is hidden like a window with no claim.
-    fn vwin_bind_retime(&mut self, wid: WindowId, surface: crate::surface::SurfaceId) {
-        let play = self.retime.machine.playing();
-        let (live, quiet) = (play && self.retime.show, play && !self.retime.show);
-        let rect = match (play, live) {
-            (false, _) => crate::Rect::default(),
-            (true, true) => crate::retime::SHOW_RECT,
-            (true, false) => crate::retime::RECT,
-        };
-        let Some(w) = self.scene.window_mut(wid) else { return };
-        let changed = w.vwin_live != live || w.vwin_quiet != quiet || (play && w.vwin_rect != rect);
-        w.vwin_live = live;
-        w.vwin_quiet = quiet;
-        w.vwin_texture = false;
-        w.vwin_rect = rect;
-        w.vwin_bound = true;
-        if changed {
-            if play {
-                self.journal(format!(
-                    "vwin: window {} plays the retime clip at {},{} {}x{}{}",
-                    wid.0,
-                    rect.x,
-                    rect.y,
-                    rect.w,
-                    rect.h,
-                    if live { "" } else { ", under the UI" }
-                ));
-            }
-            self.vwin_elements_changed(surface);
         }
     }
 
@@ -1323,7 +1285,7 @@ impl crate::State {
                 .windows()
                 .filter(|w| w.kind == WindowType::VideoWindow)
                 .map(|w| {
-                    json!({"id": w.id.0, "app": w.app_id(), "mapped": w.map_serial > 0, "live": w.vwin_live, "quiet": w.vwin_quiet, "bound": w.vwin_bound, "closed": w.vwin_closed,
+                    json!({"id": w.id.0, "app": w.app_id(), "mapped": w.map_serial > 0, "live": w.vwin_live, "bound": w.vwin_bound, "closed": w.vwin_closed,
                            "rect": [w.vwin_rect.x, w.vwin_rect.y, w.vwin_rect.w, w.vwin_rect.h]})
                 })
                 .collect(),

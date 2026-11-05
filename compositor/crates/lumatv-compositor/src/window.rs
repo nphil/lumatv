@@ -203,9 +203,6 @@ pub struct Window {
     /// The granted claim is a texture (`vwin::Decision::Texture`): the window's own buffer is the picture, drawn stretched over [`Window::vwin_rect`]
     /// instead of a hole to the video plane.
     pub vwin_texture: bool,
-    /// The retime clip's window (`retime`): its element is placed at [`Window::vwin_rect`] with no hole, and the window is not in the stack, so the
-    /// video the display engine holds under the UI is never seen. Never true while `vwin_live` is.
-    pub vwin_quiet: bool,
     /// Where the granted claim puts the picture, in output pixels.
     pub vwin_rect: Rect,
     /// A claim has been bound to the window at least once (the feeder that was told to stay is not a window nobody asked for), and when the window was
@@ -240,7 +237,6 @@ impl Window {
             commits_drawn: 0,
             vwin_live: false,
             vwin_texture: false,
-            vwin_quiet: false,
             vwin_rect: Rect::default(),
             vwin_bound: false,
             vwin_seen_ns: 0,

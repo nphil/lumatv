@@ -400,21 +400,18 @@ impl State {
         let Some(e) = self.foreign.exported.get(window_id) else { return };
         let (surface, mut dest, source, original, contexts) = (e.surface, e.destination, e.source, e.original, e.contexts.clone());
         // A video window of LumaTV's (`vwin`) is where its claim says, whatever rectangle its element asked for (the feeder asks for the whole
-        // screen), and nowhere while it has no granted claim: its element is hidden and has no hole. The retime clip's window (`retime`) is placed
-        // where it says too, but under the UI's own pixels: no hole is cut for it.
-        let mut holed = true;
+        // screen), and nowhere while it has no granted claim: its element is hidden and has no hole.
         if let Some(w) = self.scene.window_of(surface).and_then(|w| self.scene.window(w)).filter(|w| w.kind == crate::window::WindowType::VideoWindow) {
-            dest = if w.vwin_live || w.vwin_quiet { w.vwin_rect } else { Rect::default() };
-            holed = !w.vwin_quiet;
+            dest = if w.vwin_live { w.vwin_rect } else { Rect::default() };
         }
-        let expected = (!contexts.is_empty() && !dest.is_empty() && holed).then_some(Hole { surface, rect: dest });
+        let expected = (!contexts.is_empty() && !dest.is_empty()).then_some(Hole { surface, rect: dest });
         if self.scene.holes.iter().find(|h| h.surface == surface).copied() != expected {
             self.scene.invalidate_video_holes_for_surface(surface, &self.surfaces);
         }
         let out_rect = self.exported_output_rect(surface, dest);
         self.scene.holes.retain(|h| h.surface != surface);
-        if let Some(hole) = expected {
-            self.scene.holes.push(hole);
+        if !contexts.is_empty() && !dest.is_empty() {
+            self.scene.holes.push(Hole { surface, rect: dest });
         }
         self.shell_rust_sync_video();
         for (id, i) in &self.foreign.imported {

@@ -1353,10 +1353,6 @@ impl Output for Kms {
         self.timing.measure = Default::default();
     }
 
-    fn flip_period_ns(&self) -> Option<u64> {
-        Some(self.timing.period_ns())
-    }
-
     fn refresh_report(&self) -> Option<serde_json::Value> {
         let mut r = self.timing.measure.report(self.timing.period_ns());
         r["hz"] = self.refresh_hz.into();
