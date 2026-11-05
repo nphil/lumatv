@@ -12,6 +12,13 @@ use serde_json::{Value, json};
 
 /// The least time between two calls to one lamp while its sheet is being turned.
 pub const SEND_EVERY_MS: u64 = 250;
+/// The integration holds a Show to 10 calls in 10 seconds, whatever they are (`lumashow-ha` protocol §11). The sheet's calls are paced as a bucket of
+/// three that fills one in [`CALL_EVERY_MS`]: at most nine in any ten seconds, so that a key held down on a row, or the pointer dragged round the ring,
+/// is never answered with "too many actions" and leaves room for a switch pressed meanwhile; the lamp follows at a call every 1.5 s, and the latest value
+/// is the one sent.
+pub const CALL_EVERY_MS: u64 = 1500;
+/// How far ahead of that pace the sheet may run: the first three calls of a turn go a quarter of a second apart.
+pub const BURST_MS: u64 = 2 * CALL_EVERY_MS;
 /// How long what the person set is held against what the topic says (the topic answers a moment after the lamp does).
 pub const HOLD_MS: u64 = 2500;
 
@@ -80,6 +87,8 @@ pub struct ColourSheet {
     pub effect: Option<usize>,
     pending: Pending,
     last_sent: Option<u64>,
+    /// When the calls made so far are paid for: the pace's own clock, which a call moves on by [`CALL_EVERY_MS`].
+    paid_until: u64,
     changed_at: u64,
 }
 
@@ -173,6 +182,7 @@ impl ColourSheet {
             effect: None,
             pending: Pending::default(),
             last_sent: None,
+            paid_until: 0,
             changed_at: 0,
         };
         s.read(tile);
@@ -188,16 +198,28 @@ impl ColourSheet {
         if let Some(k) = ctl.pointer("/kelvin/now").and_then(Value::as_f64) {
             self.kelvin = (k as f32).clamp(self.kelvin_range.0, self.kelvin_range.1);
         }
-        let rgb: Option<Vec<u8>> = ctl.get("rgb").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).map(|v| v.clamp(0.0, 255.0).round() as u8).collect());
-        if let Some(c) = rgb.filter(|c| c.len() == 3) {
+        // where the ring's marker stands: the hue and the saturation (in percent) the lamp says, else those of the colour it shows
+        let said = ctl.get("hs").and_then(Value::as_array).and_then(|a| Some((a.first()?.as_f64()? as f32, (a.get(1)?.as_f64()? as f32 / 100.0).clamp(0.0, 1.0))));
+        let shown = ctl.get("rgb").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).map(|v| v.clamp(0.0, 255.0).round() as u8).collect::<Vec<u8>>()).filter(|c| c.len() == 3).map(|c| {
             let (h, s, _) = rgb_to_hsv([c[0], c[1], c[2]]);
-            if self.rows.contains(&Row::Hue) {
-                // the ring keeps its hue for a white (no colour has no hue)
-                if s > 0.02 {
-                    self.hue = h;
-                }
-                self.sat = s;
-                self.mode = Mode::Colour;
+            (h, s)
+        });
+        if self.rows.contains(&Row::Hue)
+            && let Some((h, s)) = said.or(shown)
+        {
+            // the ring keeps its hue for a white (no colour has no hue)
+            if s > 0.02 {
+                self.hue = h.rem_euclid(360.0);
+            }
+            self.sat = s;
+            self.mode = Mode::Colour;
+        }
+        // a lamp that shows a white says so: the ring has no colour to show then, however warm the white is
+        if self.rows.contains(&Row::Hue) {
+            match ctl.get("mode").and_then(Value::as_str) {
+                Some("white") => (self.mode, self.sat) = (Mode::White, 0.0),
+                Some("colour") => self.mode = Mode::Colour,
+                _ => {}
             }
         }
         self.effect = ctl.get("effect").and_then(Value::as_str).and_then(|e| self.effects.iter().position(|x| x == e));
@@ -344,9 +366,16 @@ impl ColourSheet {
         self.step_row(index as i32 - from, now);
     }
 
-    /// The calls that are due: what was changed since the last, one for each thing that changed, once a quarter of a second at most.
+    /// When the next call may be made: a quarter of a second after the last, and no sooner than the pace allows.
+    fn ready_at(&self) -> u64 {
+        let spaced = self.last_sent.map_or(0, |at| at + SEND_EVERY_MS);
+        spaced.max(self.paid_until.saturating_sub(BURST_MS))
+    }
+
+    /// The calls that are due: what was changed since the last, one for each thing that changed, once a quarter of a second at most and at the pace of
+    /// [`CALL_EVERY_MS`] beyond the first three (what waits is sent when the pace allows, and is the latest value then).
     pub fn tick(&mut self, now: u64) -> Vec<Act> {
-        if self.pending.is_empty() || self.last_sent.is_some_and(|at| now < at + SEND_EVERY_MS) {
+        if self.pending.is_empty() || now < self.ready_at() {
             return Vec::new();
         }
         self.last_sent = Some(now);
@@ -366,12 +395,13 @@ impl ColourSheet {
         if let Some(e) = p.effect {
             out.push(act("effect", json!(e)));
         }
+        self.paid_until = self.paid_until.max(now) + CALL_EVERY_MS * out.len() as u64;
         out
     }
 
     /// When the next call is due, if one waits.
     pub fn due_at(&self) -> Option<u64> {
-        (!self.pending.is_empty()).then(|| self.last_sent.map_or(0, |at| at + SEND_EVERY_MS))
+        (!self.pending.is_empty()).then(|| self.ready_at())
     }
 }
 
@@ -528,5 +558,63 @@ mod tests {
         assert_eq!(s.preset, 6);
         s.pick(Row::Effect, 0, 200);
         assert_eq!(s.effect, Some(0));
+    }
+
+    #[test]
+    fn the_sheet_of_the_owners_own_bulbs_shows_the_wheel_the_white_range_and_the_effects_they_say() {
+        use super::super::owner_tile;
+        // a Hue bulb showing a white of 2000 K: the ring has no colour, the warmth track runs over the bulb's own 2000 to 6535 K
+        let tile = owner_tile("light.master_bedroom_corner_light");
+        let hue = ColourSheet::new("light.master_bedroom_corner_light", &tile);
+        assert_eq!(hue.rows, [Row::Hue, Row::Saturation, Row::Brightness, Row::Temperature, Row::Preset, Row::Effect]);
+        assert_eq!((hue.mode, hue.kelvin, hue.kelvin_range, hue.sat), (Mode::White, 2000.0, (2000.0, 6535.0), 0.0));
+        assert!((hue.hue - 30.601).abs() < 0.01, "the ring keeps the hue the bulb says");
+        assert_eq!((hue.effects.len(), hue.effect.map(|e| hue.effects[e].as_str()), hue.level), (20, Some("opal"), 1.0));
+        // a Govee floor lamp that is off: its own white range, all its hundred and eleven effects, the ring and nothing running
+        let floor = ColourSheet::new("light.living_room_floor_lamp", &owner_tile("light.living_room_floor_lamp"));
+        assert_eq!((floor.rows.clone(), floor.kelvin_range, floor.effects.len(), floor.effect), (vec![Row::Hue, Row::Saturation, Row::Brightness, Row::Temperature, Row::Preset, Row::Effect], (2700.0, 6500.0), 111, None));
+        // the aquarium light in blue: its marker is at the hue it says, and the effect "off" is no effect
+        let aquarium = ColourSheet::new("light.plant_room_aquarium_light", &owner_tile("light.plant_room_aquarium_light"));
+        assert_eq!((aquarium.mode, aquarium.effect, aquarium.rows.contains(&Row::Temperature)), (Mode::Colour, None, false));
+        assert!((aquarium.hue - 236.941).abs() < 0.01 && aquarium.sat == 1.0 && (aquarium.level - 0.05).abs() < 1e-5, "{} {} {}", aquarium.hue, aquarium.sat, aquarium.level);
+        // a lamp that only dims has the one row
+        assert_eq!(ColourSheet::new("light.kitchen_lights", &owner_tile("light.kitchen_lights")).rows, [Row::Brightness]);
+        // a bulb that goes from a white to a colour on the topic takes the colour the next time the person lets go
+        let mut s = ColourSheet::new("light.master_bedroom_corner_light", &tile);
+        let mut now = tile.clone();
+        now["ctl"]["mode"] = json!("colour");
+        now["ctl"]["hs"] = json!([120.0, 100.0]);
+        s.sync(&now, HOLD_MS);
+        assert_eq!((s.mode, s.hue, s.sat), (Mode::Colour, 120.0, 1.0));
+    }
+
+    #[test]
+    fn a_key_held_for_half_a_minute_stays_inside_the_integrations_pace_and_the_latest_value_is_sent_as_it_allows() {
+        let mut s = ColourSheet::new("light.strip", &lamp());
+        s.key("down", 0);
+        s.key("down", 0);
+        assert_eq!(s.row(), Some(Row::Brightness));
+        let mut calls: Vec<u64> = Vec::new();
+        for t in (1000..31_000u64).step_by(10) {
+            if t % 40 == 0 {
+                s.key(if (t / 40) % 2 == 0 { "left" } else { "right" }, t);
+            }
+            if !s.tick(t).is_empty() {
+                calls.push(t);
+            }
+        }
+        // the integration refuses an eleventh call in ten seconds: the sheet never makes a tenth, from any call on
+        for t in &calls {
+            let n = calls.iter().filter(|u| **u >= *t && **u < *t + 10_000).count();
+            assert!(n <= 9, "{n} calls in the 10 s from {t}");
+        }
+        assert_eq!(calls[..5], [1000, 1250, 1500, 2500, 4000], "three at once, a quarter of a second apart, then one in 1.5 s");
+        assert!(calls.len() >= 19, "it did not stop sending: {}", calls.len());
+        // what the last key set is on its way, and goes out when the pace allows
+        s.key("right", 31_000);
+        let waits = s.due_at().expect("a value waits");
+        assert_eq!(waits, 31_000, "a second and a half after the call before it");
+        assert!(s.tick(waits - 1).is_empty(), "not before the pace allows");
+        assert_eq!(s.tick(waits).len(), 1);
     }
 }

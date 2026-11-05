@@ -40,6 +40,8 @@ pub enum Out {
     Act { seq: u64, act: Act },
     /// The sheet of controls of a tile.
     Controls(String),
+    /// Words to say for a few seconds: why a press did nothing.
+    Said(String),
     /// The question "Unlock <name>?".
     Unlock(String),
     /// The history of a sensor.
@@ -343,6 +345,7 @@ impl Smart {
             Press::Lock => self.act(&item, "lock", Value::Null, now),
             Press::Unlock => Out::Unlock(item.id),
             Press::Controls => Out::Controls(item.id),
+            Press::Refused => Out::Said(item.why),
             Press::History => Out::History(item.id),
             Press::Camera => Out::Camera(items::camera_of(&item.id).unwrap_or("").to_owned()),
         }

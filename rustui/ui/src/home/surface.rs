@@ -285,6 +285,7 @@ pub struct HomeSurface {
     onhome_sheet: Option<super::onhome::SheetSurface>,
     history_sheet: Option<super::onhome::sensor_surface::SensorSurface>,
     colour_sheet: Option<super::onhome::colour_surface::ColourSurface>,
+    thermostat_sheet: Option<super::onhome::thermostat_surface::ThermostatSurface>,
     veil: Option<ShapeLayer>,
     generation: u64,
     text_scale: f32,
@@ -331,6 +332,7 @@ impl HomeSurface {
             onhome_sheet: None,
             history_sheet: None,
             colour_sheet: None,
+            thermostat_sheet: None,
             veil: None,
             generation: 0,
             text_scale: 0.0,
@@ -514,6 +516,7 @@ impl HomeSurface {
         self.onhome_sheet = None;
         self.history_sheet = None;
         self.colour_sheet = None;
+        self.thermostat_sheet = None;
         self.hover = None;
         self.veil = None;
         self.last_focus = None;
@@ -1159,6 +1162,18 @@ impl HomeSurface {
             }
             _ => self.colour_sheet = None,
         }
+        // a thermostat's set point and modes: made when it opens and again when its shape changes (one that is switched off loses its set point)
+        match (home.layer == Layer::OnHome, home.thermostat.as_ref().zip(home.sheet_tile())) {
+            (true, Some((sheet, tile))) => {
+                if self.thermostat_sheet.as_ref().is_none_or(|s| !s.is_for(&sheet.id, sheet)) {
+                    self.thermostat_sheet = Some(super::onhome::thermostat_surface::ThermostatSurface::new(kit, sheet, &tile, Z_LAYERS + 40)?);
+                }
+                if let Some(s) = &mut self.thermostat_sheet {
+                    s.update(kit, sheet, &tile, home.onhome_notice())?;
+                }
+            }
+            _ => self.thermostat_sheet = None,
+        }
         let popover_up = home.layer == Layer::Popover && home.popover_lay.is_some();
         if self.popover.as_ref().is_some_and(|p| !popover_up || !p.is_for(home)) {
             self.popover = None;
@@ -1280,6 +1295,9 @@ impl HomeSurface {
             s.lint(kit, &mut lint, paint);
         }
         if let Some(s) = &self.colour_sheet {
+            s.lint(kit, &mut lint, paint);
+        }
+        if let Some(s) = &self.thermostat_sheet {
             s.lint(kit, &mut lint, paint);
         }
         if let Some(p) = &self.popover {
@@ -1711,8 +1729,8 @@ mod tests {
                     press(&mut home, "down", 1200 + i * 100);
                 }
                 press(&mut home, "ok", 1900);
-                // the thermostat is the fourth tile: the arrows take it to the front, whatever the layout, and OK opens its sheet
-                let want = home.smart_of("smart").and_then(|s| s.items().iter().position(|i| i.id == "climate.t")).expect("the thermostat");
+                // the blinds are the fifth tile: the arrows take them to the front, whatever the layout, and OK opens their sheet (a thermostat has its own)
+                let want = home.smart_of("smart").and_then(|s| s.items().iter().position(|i| i.id == "cover.b")).expect("the blinds");
                 for i in 0..30u64 {
                     let s = home.smart_of("smart").expect("the card's state");
                     let cur = s.focused().expect("the card is entered");
@@ -1827,6 +1845,69 @@ mod tests {
                     assert!(s.colour_sheet.is_none(), "Back takes it away");
                 }
                 std::mem::forget(h);
+            }
+        }
+    }
+
+    /// The sheets that open for the owner's own bulbs and thermostats (the tiles the helper makes of what Home Assistant reported of them) are
+    /// drawn inside the screen and every word on them is readable, in either look and at either text size, and after the keys have turned them.
+    #[test]
+    fn the_sheets_of_the_owners_own_bulbs_and_thermostats_are_drawn_inside_the_screen_and_read_clean_at_both_sizes_and_looks() {
+        use super::super::onhome::owner_tile;
+        let ids = ["light.master_bedroom_corner_light", "light.living_room_floor_lamp", "climate.living_room_thermostat", "climate.master_bedroom_bedjet"];
+        // (the sheet to open, the text sizes to see it at)
+        let cases: [(&str, &[f32]); 4] = [(ids[0], &[1.0, 2.0]), (ids[1], &[1.0]), (ids[2], &[1.0, 2.0]), (ids[3], &[1.0])];
+        for mode in [Mode::Dark, Mode::Light] {
+            for (id, scales) in cases {
+                for &scale in scales {
+                    let (h, mut kit) = testkit::kit_in(mode, scale);
+                    let mut engine = Engine::new(&kit).expect("an engine");
+                    let tiles: Vec<Value> = ids
+                        .iter()
+                        .map(|i| {
+                            let mut t = owner_tile(i);
+                            // the BedJet as it is while it heats: a set point, and the modes
+                            if *i == "climate.master_bedroom_bedjet" {
+                                t["ctl"]["mode"] = json!("heat");
+                            }
+                            t
+                        })
+                        .collect();
+                    let mut home = smart_home(json!({"state": "connected", "words": "4 things", "tiles": tiles}));
+                    let at = enter_smart_card_at(&mut home, id, 1900);
+                    let lamp = id.starts_with("light.");
+                    if lamp {
+                        home.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, at);
+                        home.update(&Input::Tick, at + 800);
+                        home.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, at + 850);
+                    } else {
+                        press(&mut home, "ok", at);
+                    }
+                    let subject = if lamp { "colour sheet" } else { "thermostat sheet" };
+                    assert!(home.layer == Layer::OnHome && home.sheet.is_none() && (home.colour.is_some() == lamp) && (home.thermostat.is_some() != lamp), "{mode:?} {scale} {id}");
+                    let mut s = HomeSurface::new(1000);
+                    s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                    s.apply(&mut kit, &mut engine, &mut home, at + 900).expect("the sheet drawn");
+                    let pane = if lamp { s.colour_sheet.as_ref().expect("the colours").layout.pane } else { s.thermostat_sheet.as_ref().expect("the thermostat").layout.pane };
+                    assert!(pane.x >= 0.0 && pane.y >= 0.0 && pane.right() <= 1920.0 && pane.bottom() <= 1080.0, "{mode:?} {scale} {id}: {pane:?}");
+                    for turned in [false, true] {
+                        if turned {
+                            // turned: the sheet is painted again for what changed (a value, a row, a chip) and reads clean still
+                            for k in ["right", "down", "right", "up", "left", "down", "down", "right"] {
+                                press(&mut home, k, at + 1000);
+                                s.apply(&mut kit, &mut engine, &mut home, at + 1100).expect("the sheet drawn");
+                            }
+                        }
+                        let lint = s.lint(&mut kit, &home);
+                        let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject.starts_with(subject)).map(|f| format!("{f:?}")).collect();
+                        assert!(bad.is_empty(), "{subject} {mode:?} at {scale} {id} turned {turned}: {}", bad.join("\n"));
+                        assert!(lint.words().iter().any(|w| w.name.starts_with(subject)), "the sheet's words were linted");
+                    }
+                    press(&mut home, "back", at + 1200);
+                    s.apply(&mut kit, &mut engine, &mut home, at + 1300).expect("Home drawn");
+                    assert!(s.colour_sheet.is_none() && s.thermostat_sheet.is_none(), "Back takes it away");
+                    std::mem::forget(h);
+                }
             }
         }
     }

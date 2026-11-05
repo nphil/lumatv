@@ -210,6 +210,8 @@ pub struct Home {
     pub colour: Option<super::onhome::colour::ColourSheet>,
     /// What the pointer holds on the colour sheet while its button is down: the ring or a track, which follows it wherever it goes.
     colour_held: Option<Held>,
+    /// A thermostat's set point and modes, while its sheet is open.
+    pub thermostat: Option<super::onhome::thermostat::ThermostatSheet>,
     /// Where the pointer was last seen, for a turn of the wheel to find what it is over.
     pointer_at: (f32, f32),
     /// One state of the smart-home card for each card of the layout that is one: the items, which is in front, what the person asked for.
@@ -341,6 +343,7 @@ impl Home {
             history: None,
             colour: None,
             colour_held: None,
+            thermostat: None,
             pointer_at: (0.0, 0.0),
             smarts: Vec::new(),
             onhome_metrics: Metrics::nominal(1.0),
@@ -875,6 +878,7 @@ impl Home {
             }
         }
         self.send_colour(out);
+        self.send_thermostat(out);
     }
 
     pub fn due_at(&self) -> Option<u64> {
@@ -916,6 +920,7 @@ impl Home {
             take(sheet.notice.as_ref().map(|(_, until)| *until));
         }
         take(self.colour.as_ref().and_then(|c| c.due_at()));
+        take(self.thermostat.as_ref().and_then(|t| t.due_at()));
         // the clock's minute, and its second hand when the analogue face shows one: only while Home is in front (behind an app nothing shows it)
         if self.active {
             let step = if self.theme.pointer("/clock/style").and_then(Value::as_str) == Some("analog") { 1000 } else { 60_000 };
@@ -1045,6 +1050,9 @@ impl Home {
                         let now = self.now;
                         if let Some(c) = self.colour.as_mut() {
                             c.sync(&tile, now);
+                        }
+                        if let Some(t) = self.thermostat.as_mut() {
+                            t.sync(&tile, now);
                         }
                     }
                 }
@@ -1262,8 +1270,9 @@ impl Home {
                 }
                 self.ok_down_at = Some(self.now);
                 self.ok_held = false;
-                // the item in front is pressed before its press lands: the card shows it in this frame
-                if let Some(wid) = self.onhome_inner() {
+                // the item in front is pressed before its press lands: the card shows it in this frame (a sheet over the card has the keys, and
+                // an OK in it presses nothing under it: the press would outlive the sheet and land on the item it was left on, not the one in front then)
+                if let Some(wid) = self.onhome_inner().filter(|_| self.layer == Layer::None) {
                     let now = self.now;
                     if let Some(s) = self.smart_mut(&wid) {
                         s.press_down(now);
@@ -1685,7 +1694,12 @@ impl Home {
 
     /// The id of the thing whose sheet is open, whatever kind of sheet it is.
     fn sheet_id(&self) -> Option<&str> {
-        self.sheet.as_ref().map(|s| s.id.as_str()).or_else(|| self.history.as_ref().map(|h| h.id.as_str())).or_else(|| self.colour.as_ref().map(|c| c.id.as_str()))
+        self.sheet
+            .as_ref()
+            .map(|s| s.id.as_str())
+            .or_else(|| self.history.as_ref().map(|h| h.id.as_str()))
+            .or_else(|| self.colour.as_ref().map(|c| c.id.as_str()))
+            .or_else(|| self.thermostat.as_ref().map(|t| t.id.as_str()))
     }
 
     /// The tile the open sheet is for, as the topic has it now.
@@ -1849,6 +1863,7 @@ impl Home {
                 out.push(Effect::Request { tag, method: "POST".into(), path: "/v1/onhome/act".into(), body: Some(json!({"id": act.id, "verb": act.verb, "value": act.value})) });
             }
             SmartOut::Controls(id) => self.open_controls(&id, false, out),
+            SmartOut::Said(words) => self.onhome_said = Some((words, self.now + 4000)),
             SmartOut::Unlock(id) => self.open_controls(&id, true, out),
             SmartOut::History(id) => self.open_history(&id, out),
             SmartOut::Colour(id) => self.open_colour(&id, out),
@@ -1860,7 +1875,13 @@ impl Home {
 
     /// The controls of the tile `id` over Home; with `asking` the question "Unlock <name>?" with Cancel in front.
     fn open_controls(&mut self, id: &str, asking: bool, out: &mut Vec<Effect>) {
-        self.sheet = Some(if asking { super::onhome::Sheet::asking(id) } else { super::onhome::Sheet::new(id) });
+        // a thermostat has a sheet of its own: its room, its set point and its modes
+        let tile = self.onhome_tiles().into_iter().find(|t| t.get("id").and_then(Value::as_str) == Some(id));
+        if !asking && let Some(t) = tile.filter(|t| t.get("group").and_then(Value::as_str) == Some("climate") && t.get("available").and_then(Value::as_bool) != Some(false)) {
+            self.thermostat = Some(super::onhome::thermostat::ThermostatSheet::new(id, &t));
+        } else {
+            self.sheet = Some(if asking { super::onhome::Sheet::asking(id) } else { super::onhome::Sheet::new(id) });
+        }
         self.open_layer(Layer::OnHome, SCOPE_ONHOME);
         self.redraw(out);
     }
@@ -1938,9 +1959,59 @@ impl Home {
         }
     }
 
+    fn thermostat_key(&mut self, name: &str, out: &mut Vec<Effect>) {
+        use super::onhome::thermostat::Done;
+        let now = self.now;
+        let Some(t) = self.thermostat.as_mut() else { return };
+        match t.key(name, now) {
+            Done::Close => self.close_layer(),
+            Done::Send(act) => self.send_act(&act, out),
+            Done::Nothing => {}
+        }
+    }
+
+    /// The call of the thermostat sheet that is due: a set point that has rested.
+    fn send_thermostat(&mut self, out: &mut Vec<Effect>) {
+        let now = self.now;
+        if let Some(act) = self.thermostat.as_mut().and_then(|t| t.due(now)) {
+            self.send_act(&act, out);
+        }
+    }
+
+    /// A click on an open thermostat sheet: a step of a set point, or a mode; a click beside the sheet puts it away.
+    fn thermostat_pressed(&mut self, x: f32, y: f32, out: &mut Vec<Effect>) {
+        use super::onhome::thermostat::{Done, Row, ThermostatSheet};
+        use super::onhome::thermostat_surface::{Hit, hit, layout};
+        let now = self.now;
+        let m = self.onhome_metrics;
+        let Some(t) = self.thermostat.as_mut() else { return };
+        let chars = t.modes.iter().map(|m| ThermostatSheet::mode_word(m).chars().count()).max().unwrap_or(0);
+        let lay = layout(&m, &t.shown(), t.modes.len(), chars);
+        match hit(&lay, t, x, y) {
+            Some(Hit::Minus(row)) | Some(Hit::Plus(row)) if row != Row::Mode => {
+                let plus = matches!(hit(&lay, t, x, y), Some(Hit::Plus(_)));
+                // the row is in front, and one step is taken as a key would take it
+                if let Some(i) = t.rows.iter().position(|r| *r == row) {
+                    t.at = i;
+                }
+                t.key(if plus { "right" } else { "left" }, now);
+            }
+            Some(Hit::Chip(i)) => {
+                if let Done::Send(act) = t.choose(i, now) {
+                    self.send_act(&act, out);
+                }
+            }
+            None if !lay.pane.contains(x, y) => self.close_layer(),
+            _ => {}
+        }
+    }
+
     /// A click on an open history or colour sheet: a chip of the range, the ring, a track, a swatch or a chip of the effects; a click beside the
     /// sheet puts it away.
     fn sheet_pressed(&mut self, x: f32, y: f32, out: &mut Vec<Effect>) {
+        if self.thermostat.is_some() {
+            return self.thermostat_pressed(x, y, out);
+        }
         use super::onhome::{colour, colour_surface, sensor_surface};
         let (m, now) = (self.onhome_metrics, self.now);
         if self.history.is_some() {
@@ -2003,6 +2074,9 @@ impl Home {
     }
 
     fn sheet_key(&mut self, name: &str, out: &mut Vec<Effect>) {
+        if self.thermostat.is_some() {
+            return self.thermostat_key(name, out);
+        }
         if self.history.is_some() {
             return self.history_key(name, out);
         }
@@ -2141,6 +2215,7 @@ impl Home {
             self.history = None;
             self.colour = None;
             self.colour_held = None;
+            self.thermostat = None;
         }
         if self.layer == Layer::Popover
             && let Some(p) = self.popover.take()
@@ -2708,7 +2783,7 @@ impl Home {
                 return;
             }
             // a history or a colour sheet: a click is on a chip, the ring, a track or a swatch, and a click beside the sheet puts it away
-            if self.layer == Layer::OnHome && (self.history.is_some() || self.colour.is_some()) {
+            if self.layer == Layer::OnHome && (self.history.is_some() || self.colour.is_some() || self.thermostat.is_some()) {
                 self.sheet_pressed(x, y, out);
                 self.redraw(out);
                 return;
@@ -2912,7 +2987,7 @@ impl Home {
                 "focus": self.smarts.first().and_then(|(_, s)| s.focus_id()),
                 "offset": self.smarts.first().map(|(_, s)| s.offset()),
                 "sheet": self.sheet_id(),
-                "sheetKind": if self.sheet.is_some() { "controls" } else if self.history.is_some() { "history" } else if self.colour.is_some() { "colour" } else { "" },
+                "sheetKind": if self.sheet.is_some() { "controls" } else if self.history.is_some() { "history" } else if self.colour.is_some() { "colour" } else if self.thermostat.is_some() { "thermostat" } else { "" },
                 "notice": self.onhome_notice(),
             }),
             "apps": self.apps.state(),
@@ -3341,6 +3416,151 @@ mod tests {
         // a click beside the sheet is Back
         click(&mut h, (5.0, 5.0), 5000);
         assert_eq!((h.layer, h.colour.is_none()), (Layer::None, true));
+    }
+
+    /// The owner's own tiles (the helper's own words for his real lamps, fans and thermostats: `onhome::owner_tile`) as a card's topic.
+    fn owner(ids: &[&str]) -> Value {
+        Value::Array(ids.iter().map(|id| super::super::onhome::owner_tile(id)).collect())
+    }
+
+    /// OK held as long as a hold is, and let go.
+    fn hold_ok(h: &mut Home, at: u64) -> Vec<Effect> {
+        h.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, at);
+        let out = h.update(&Input::Tick, at + 800);
+        h.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, at + 850);
+        out
+    }
+
+    #[test]
+    fn a_short_ok_on_a_lamp_a_fan_and_a_switch_switches_it_at_once_and_opens_no_menu_and_no_sheet() {
+        let pump = json!({"id": "switch.pump", "name": "Pump", "group": "switches", "words": "Off", "tone": "off", "icon": "power", "available": true, "can": ["toggle"], "verbs": ["turn_on", "turn_off", "toggle"], "ctl": {"on": false}});
+        let mut tiles = owner(&["light.master_bedroom_corner_light", "fan.living_room_vent_fan"]);
+        tiles.as_array_mut().unwrap().push(pump);
+        let mut h = smart_home(tiles);
+        into_smart_card(&mut h);
+        let mut at = 2100;
+        for (id, was) in [("light.master_bedroom_corner_light", true), ("fan.living_room_vent_fan", true), ("switch.pump", false)] {
+            at = go_to_item(&mut h, id, at) + 100;
+            assert_eq!(item_on(&h, id), Some(was), "{id}");
+            let out = press(&mut h, "ok", at);
+            assert_eq!(act_of(&out), Some(json!({"id": id, "verb": "toggle", "value": null})), "{id}: one control, sent in the step of the key");
+            assert_eq!(item_on(&h, id), Some(!was), "{id}: shown switched before Home Assistant has said anything");
+            assert!(h.layer == Layer::None && h.sheet.is_none() && h.history.is_none() && h.colour.is_none() && h.thermostat.is_none(), "{id}: no sheet, no other screen");
+            assert!(h.smart_of("smart").is_some_and(|s| s.arrange.is_none()), "{id}: no item menu");
+            at += 100;
+        }
+    }
+
+    #[test]
+    fn a_held_ok_on_a_colour_bulb_opens_its_colour_sheet_with_the_wheel_the_white_range_and_the_effects_and_switches_nothing() {
+        use super::super::onhome::colour::{Mode as Lit, Row};
+        let mut h = smart_home(owner(&["light.master_bedroom_corner_light", "light.living_room_floor_lamp", "light.kitchen_lights"]));
+        into_smart_card(&mut h);
+        let at = go_to_item(&mut h, "light.master_bedroom_corner_light", 2100) + 100;
+        let out = hold_ok(&mut h, at);
+        assert!(act_of(&out).is_none() && item_on(&h, "light.master_bedroom_corner_light") == Some(true), "a hold is not an OK");
+        assert_eq!((h.layer, h.sheet.is_none(), h.state()["onhome"]["sheetKind"].clone()), (Layer::OnHome, true, json!("colour")), "the colour sheet, not the controls");
+        let c = h.colour.as_ref().expect("the colours");
+        assert_eq!(c.rows, [Row::Hue, Row::Saturation, Row::Brightness, Row::Temperature, Row::Preset, Row::Effect]);
+        assert_eq!((c.kelvin_range, c.effects.len(), c.mode), ((2000.0, 6535.0), 20, Lit::White), "the bulb's own white range and effects, and a white that is showing");
+        assert!((c.hue - 30.601).abs() < 0.01);
+        // Back, and the floor lamp that is off: held, it opens its sheet too, with the hundred and eleven effects
+        press(&mut h, "back", at + 1000);
+        let at = go_to_item(&mut h, "light.living_room_floor_lamp", at + 1100) + 100;
+        hold_ok(&mut h, at);
+        assert_eq!(h.colour.as_ref().map(|c| (c.effects.len(), c.kelvin_range)), Some((111, (2700.0, 6500.0))));
+        press(&mut h, "back", at + 1000);
+        // a lamp that only dims: the sheet has the one row
+        let at = go_to_item(&mut h, "light.kitchen_lights", at + 1100) + 100;
+        hold_ok(&mut h, at);
+        assert_eq!(h.colour.as_ref().map(|c| c.rows.clone()), Some(vec![Row::Brightness]));
+    }
+
+    #[test]
+    fn a_short_ok_on_a_lamp_the_tv_may_not_switch_says_why_and_opens_nothing() {
+        // as the helper makes it while Home Assistant allows the TV no control of lights (what the owner had)
+        let mut tile = super::super::onhome::owner_tile("light.master_bedroom_corner_light");
+        tile["can"] = json!([]);
+        tile["verbs"] = json!([]);
+        tile["why"] = json!("Home Assistant does not let the TV control this");
+        let mut h = smart_home(json!([tile]));
+        into_smart_card(&mut h);
+        let out = press(&mut h, "ok", 2100);
+        assert!(act_of(&out).is_none(), "nothing to send");
+        assert_eq!(h.onhome_notice(), Some("Home Assistant does not let the TV control this"));
+        assert!(h.layer == Layer::None && h.sheet.is_none() && h.colour.is_none(), "and no screen with nothing on it");
+        assert!(h.smart_of("smart").is_some_and(|s| s.arrange.is_none()));
+        hold_ok(&mut h, 2300);
+        assert!(h.layer == Layer::None && h.colour.is_none(), "a hold has nothing under it either");
+        h.update(&Input::Tick, 8000);
+        assert_eq!(h.onhome_notice(), None, "the words go by themselves");
+    }
+
+    #[test]
+    fn ok_on_a_thermostat_opens_its_own_sheet_and_a_step_asks_for_set_temperature_when_it_has_rested_and_a_mode_when_chosen() {
+        use super::super::onhome::thermostat::Row as ThermostatRow;
+        let mut bedjet = super::super::onhome::owner_tile("climate.master_bedroom_bedjet");
+        bedjet["ctl"]["mode"] = json!("heat");
+        let mut h = smart_home(json!([super::super::onhome::owner_tile("climate.living_room_thermostat"), bedjet]));
+        into_smart_card(&mut h);
+        let at = go_to_item(&mut h, "climate.master_bedroom_bedjet", 2100) + 100;
+        let out = press(&mut h, "ok", at);
+        assert!(act_of(&out).is_none(), "opening it asks nothing");
+        assert_eq!((h.layer, h.sheet.is_none(), h.state()["onhome"]["sheetKind"].clone()), (Layer::OnHome, true, json!("thermostat")), "its own sheet, not the rows of the controls");
+        // Right is a step up: nothing goes while it is turned, and one call goes when it has rested (the helper makes it `climate.set_temperature`)
+        assert!(act_of(&press(&mut h, "right", at + 100)).is_none());
+        assert!(act_of(&press(&mut h, "right", at + 150)).is_none());
+        assert!(h.due_at().is_some_and(|d| d <= at + 150 + 300));
+        let out = h.update(&Input::Tick, at + 460);
+        assert_eq!(act_of(&out), Some(json!({"id": "climate.master_bedroom_bedjet", "verb": "temperature", "value": 74.0})), "two steps up from 72");
+        assert!(act_of(&h.update(&Input::Tick, at + 900)).is_none(), "once");
+        // Down to the modes: walking to Cool changes nothing, OK asks for it
+        press(&mut h, "down", at + 1000);
+        assert!(act_of(&press(&mut h, "right", at + 1100)).is_none());
+        let out = press(&mut h, "ok", at + 1200);
+        assert_eq!(act_of(&out), Some(json!({"id": "climate.master_bedroom_bedjet", "verb": "hvac_mode", "value": "cool"})));
+        // Back, and the arrows take the card to the living room's, which holds a range (one end moves, and both go in the call). The OK that chose
+        // the mode pressed nothing under the sheet: this OK opens the item in front now, not the one the sheet was opened on
+        press(&mut h, "back", at + 1300);
+        assert_eq!((h.layer, h.thermostat.is_none()), (Layer::None, true));
+        let at = go_to_item(&mut h, "climate.living_room_thermostat", at + 1400) + 100;
+        press(&mut h, "ok", at);
+        assert_eq!(h.thermostat.as_ref().map(|t| (t.id.as_str(), t.rows.clone())), Some(("climate.living_room_thermostat", vec![ThermostatRow::Low, ThermostatRow::High, ThermostatRow::Mode])), "a low, a high and the modes");
+        press(&mut h, "left", at + 100);
+        let out = h.update(&Input::Tick, at + 500);
+        assert_eq!(act_of(&out), Some(json!({"id": "climate.living_room_thermostat", "verb": "range", "value": {"low": 66.0, "high": 76.0}})));
+        // Home Assistant said no: the card says so in its words, over the sheet
+        h.update(&Input::Fetched { tag: ONHOME_TAG, status: 409, data: json!({"ok": false, "error": {"code": "refused", "message": "Home Assistant does not let the TV do that"}}) }, at + 600);
+        assert_eq!(h.onhome_notice(), Some("Home Assistant does not let the TV do that"));
+    }
+
+    #[test]
+    fn the_pointer_steps_a_set_point_and_picks_a_mode_on_the_thermostat_sheet_and_a_click_beside_it_puts_it_away() {
+        use super::super::onhome::thermostat_surface::{hit, layout};
+        let mut bedjet = super::super::onhome::owner_tile("climate.master_bedroom_bedjet");
+        bedjet["ctl"]["mode"] = json!("heat");
+        let mut h = smart_home(json!([bedjet]));
+        into_smart_card(&mut h);
+        press(&mut h, "ok", 2100);
+        let t = h.thermostat.as_ref().expect("the sheet").clone();
+        let chars = t.modes.iter().map(|m| super::super::onhome::thermostat::ThermostatSheet::mode_word(m).chars().count()).max().unwrap_or(0);
+        let lay = layout(&h.onhome_metrics, &t.shown(), t.modes.len(), chars);
+        let centre = |f: ui::geometry::Frame| (lay.pane.x + f.x + f.w / 2.0, lay.pane.y + f.y + f.h / 2.0);
+        let click = |h: &mut Home, (x, y): (f32, f32), now: u64| {
+            h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, now);
+            let out = h.update(&Input::Pointer { x, y, buttons: 1, visible: true }, now + 10);
+            let mut up = h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, now + 20);
+            up.extend(out);
+            up
+        };
+        assert!(hit(&lay, &t, centre(lay.sets[0].plus).0, centre(lay.sets[0].plus).1).is_some());
+        click(&mut h, centre(lay.sets[0].plus), 3000);
+        let out = h.update(&Input::Tick, 3400);
+        assert_eq!(act_of(&out).map(|b| (b["verb"].clone(), b["value"].clone())), Some((json!("temperature"), json!(73.0))), "a click on the plus is a step up");
+        let out = click(&mut h, centre(lay.chips[2]), 4000);
+        assert_eq!(act_of(&out).map(|b| (b["verb"].clone(), b["value"].clone())), Some((json!("hvac_mode"), json!("cool"))), "a click on a chip chooses the mode");
+        click(&mut h, (5.0, 5.0), 5000);
+        assert_eq!((h.layer, h.thermostat.is_none()), (Layer::None, true), "a click beside the sheet is Back");
     }
 
     #[test]

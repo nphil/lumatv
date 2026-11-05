@@ -60,7 +60,9 @@ itself; there is no outline.
 On, off, pending, unavailable. A toggle shows the new state in the same frame as the key (optimistic), marks the item pending (a dimmed
 glyph is not used; the control keeps moving) and keeps it until the helper answers: a 200 keeps it, a refusal or no answer eases the item
 back and says why in the heading for a few seconds. An unavailable item has dim ink, "Unavailable" and no lift to press. A lamp's colour is
-data; the glyph is darkened in lightness only as far as it needs to reach 3:1 on the glass, the glow stays true.
+data; the glyph is darkened in lightness only as far as it needs to reach 3:1 on the glass, the glow stays true. A short OK on a lamp, a fan,
+a switch or a scene that Home Assistant lets the TV do nothing to (the helper's tile has no `toggle` or `run`, and says why in `why`) sends
+nothing and opens no sheet, which would hold nothing: the heading says why for a few seconds.
 
 ## Sensor sheet
 
@@ -78,9 +80,22 @@ current value.
 ## Colour sheet
 
 Hold OK on a lamp with more than on/off: the colour wheel with a marker, hue and saturation rows, brightness, colour temperature (lamps that
-have it), presets and, when Home Assistant lists them, effects. Left and Right change the row in front, Up and Down move between rows,
-changes reach the lamp at most four times a second while a key is held. The pointer picks on the wheel, the tracks and the presets. A track
-whose end the sheet's ground hides (white on the light sheet) and a preset too near the ground are drawn with a hairline of ink.
+have it), presets and, when Home Assistant lists them, effects. Left and Right change the row in front, Up and Down move between rows. The
+pointer picks on the wheel, the tracks and the presets. A track whose end the sheet's ground hides (white on the light sheet) and a preset too
+near the ground are drawn with a hairline of ink. What the sheet shows is the lamp's own: the marker stands at the hue and saturation it says
+(`hs_color`), a lamp showing a white (`color_mode` `color_temp`) has no colour on the ring, the warmth track runs between the lamp's own limits
+(a Hue bulb's 2000 to 6535 K, a Canvas's 1200 K) and the effect chips are all its effects (a floor lamp lists 111). The integration holds a Show
+to 10 calls in 10 seconds, so the sheet's calls are paced as a bucket of three that fills one in 1.5 s: the first three of a turn go a quarter of
+a second apart, then one in 1.5 s with the latest value (at most nine in any ten seconds).
+
+## Thermostat sheet
+
+OK on a thermostat: the room now (large, with what the thermostat is doing and the humidity it reads), its set point with a step down and a step
+up (two of them, heat to and cool to, for a range), and the modes as chips with the one it is in filled. Up and Down move between the set
+points and the modes, Left and Right step the set point in front by the thermostat's own step (a set point rests 300 ms and is sent once, as
+`temperature` or `range`, which the helper makes `climate.set_temperature`) or walk the chips, and OK chooses the chip the cursor is on
+(`hvac_mode`, `climate.set_hvac_mode`): a mode is not switched in passing. The pointer steps with the buttons and chooses with a chip. A
+thermostat that is off has no set point and shows its mode; one Home Assistant lets the TV do nothing to shows what it reads and says why.
 
 ## Motion
 
@@ -113,7 +128,7 @@ every window fits 16.6 ms. The rest window draws no pixel: the shell's commit on
 
 ## Open
 
-- Effects and the white's range need `effect_list` and the colour-temperature limits from the integration, whose attribute list does not
-  carry them yet; lamp control is switched off in the Home Assistant entry until the owner allows it.
+- Home Assistant must allow the TV to control a kind of thing (*Configure, What the Show may control* in the LumaTV entry: light, fan, climate)
+  or its items are shown and say why they do nothing. Effects, the lamp's white range and its hue need lumashow-ha 0.3.1.
 - History needs the Home Assistant link (`lumatv-helper ha-link`).
 - The wheel's direction follows evdev (a turn away is up); untested on the TV. Nothing here has been checked on the TV.

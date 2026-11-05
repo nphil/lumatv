@@ -11,7 +11,7 @@
 //! history), a held OK opens a lamp's colour sheet, the Menu key opens the item's own menu (size, place, hide), Back leaves. With no item
 //! the card says why in one plate and OK opens Settings at the page.
 //!
-//! **The sheet** ([`Sheet`], drawn by [`SheetSurface`]): the controls of one tile as rows (a switch, a slider, a mode, an action) with
+//! **The sheet** ([`Sheet`], drawn by [`SheetSurface`]): the controls of one tile as rows (a switch, a slider, an action) with
 //! Left and Right changing the value of the row in front. A slider is sent once the key rests (a held key is one call, not forty), and
 //! what the person set is shown until Home Assistant's own answer is. A refusal comes back in words and is said for a few seconds.
 
@@ -26,6 +26,16 @@ pub mod sensor_surface;
 pub mod paint;
 pub mod parts;
 pub mod smart;
+pub mod thermostat;
+pub mod thermostat_surface;
+
+/// The tile of one of the owner's own lamps or thermostats as the helper makes it of the attributes Home Assistant reported
+/// (`helper/app/tests/fixtures/owner_tiles.json`, which the helper's own test writes): what the sheets are tested with is what the helper says.
+#[cfg(test)]
+pub fn owner_tile(id: &str) -> Value {
+    const TILES: &str = include_str!("../../../../../helper/app/tests/fixtures/owner_tiles.json");
+    serde_json::from_str::<Vec<Value>>(TILES).expect("the helper's file").into_iter().find(|t| t["id"] == id).unwrap_or_else(|| panic!("{id} is not in the file"))
+}
 
 use super::surface::{faded, glass_of};
 use super::widgets::{Canvas, Words};
@@ -96,8 +106,6 @@ pub enum Kind {
     Info,
     Toggle,
     Slider { min: f64, max: f64, step: f64, unit: String },
-    /// One of a list, Left and Right walk it.
-    Cycle(Vec<String>),
     Action,
 }
 
@@ -187,38 +195,6 @@ pub fn rows_of(tile: &Value) -> Vec<Row> {
             "scenes" => {
                 if can.contains(&"run") {
                     rows.push(row("run", if domain == "scene" { "Activate" } else { "Run" }, Kind::Action, String::new(), None));
-                }
-            }
-            "climate" => {
-                if let Some(c) = f("current") {
-                    let action = ctl.get("action").and_then(Value::as_str).unwrap_or("");
-                    let unit = ctl.get("unit").and_then(Value::as_str).unwrap_or("\u{b0}");
-                    let said = match action {
-                        "heating" => " \u{b7} Heating",
-                        "cooling" => " \u{b7} Cooling",
-                        _ => "",
-                    };
-                    rows.push(row("now", "In the room", Kind::Info, format!("{}{}{said}", num_text(c), unit.chars().next().filter(|c| *c == '\u{b0}').map_or(String::new(), |c| c.to_string())), None));
-                }
-                let modes: Vec<String> = ctl.get("modes").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
-                if has(&verbs, "set_hvac_mode") && !modes.is_empty() {
-                    let now = ctl.get("mode").and_then(Value::as_str).unwrap_or("");
-                    rows.push(row("mode", "Mode", Kind::Cycle(modes), mode_word(now), None));
-                }
-                if has(&verbs, "set_temperature") {
-                    let (min, max, step) = (f("min").unwrap_or(50.0), f("max").unwrap_or(90.0), f("step").unwrap_or(1.0));
-                    let t = |v: Option<f64>| v.map_or("\u{2014}".into(), |v| format!("{}\u{b0}", num_text(v)));
-                    let off = ctl.get("mode").and_then(Value::as_str) == Some("off");
-                    if let Some(target) = f("target") {
-                        if !off {
-                            rows.push(row("target", "Set to", Kind::Slider { min, max, step, unit: "\u{b0}".into() }, t(Some(target)), Some(target)));
-                        }
-                    } else if let (Some(low), Some(high)) = (f("low"), f("high"))
-                        && !off
-                    {
-                        rows.push(row("low", "Heat to", Kind::Slider { min, max, step, unit: "\u{b0}".into() }, t(Some(low)), Some(low)));
-                        rows.push(row("high", "Cool to", Kind::Slider { min, max, step, unit: "\u{b0}".into() }, t(Some(high)), Some(high)));
-                    }
                 }
             }
             "covers" => {
@@ -422,25 +398,11 @@ impl Sheet {
                     "kelvin" => ("kelvin", json!(v)),
                     "percentage" => ("percentage", json!(v)),
                     "position" => ("position", json!(v)),
-                    "target" => ("temperature", json!(v)),
-                    "low" | "high" => {
-                        let other = |id: &str| rows.iter().find(|r| r.id == id).and_then(|r| r.num).unwrap_or(v);
-                        let (low, high) = if row.id == "low" { (v, other("high")) } else { (other("low"), v) };
-                        ("range", json!({"low": low, "high": high}))
-                    }
                     _ => return Done::Nothing,
                 };
                 self.shown.insert(row.id, (value_text(row, v), v, now + HOLD_SHOWN_MS));
                 self.pending = Some((act(verb, value), now + REST_MS));
                 Done::Nothing
-            }
-            (Kind::Cycle(options), "left" | "right" | "ok") => {
-                let current = tile.pointer("/ctl/mode").and_then(Value::as_str).unwrap_or("");
-                let i = options.iter().position(|o| o == current).unwrap_or(0) as i64;
-                let step = if name == "left" { -1 } else { 1 };
-                let next = &options[(i + step).rem_euclid(options.len() as i64) as usize];
-                self.shown.insert(row.id, (mode_word(next), 0.0, now + HOLD_SHOWN_MS));
-                Done::Send(act("hvac_mode", json!(next)))
             }
             _ => Done::Nothing,
         }
@@ -575,7 +537,7 @@ impl SheetSurface {
         for (i, r) in rows.iter().enumerate() {
             let on = front == Some(i);
             let value = match (&r.kind, on) {
-                (Kind::Slider { .. } | Kind::Cycle(_), true) => format!("\u{2039} {} \u{203a}", r.value),
+                (Kind::Slider { .. }, true) => format!("\u{2039} {} \u{203a}", r.value),
                 (Kind::Action, _) => "\u{203a}".into(),
                 _ => r.value.clone(),
             };
@@ -634,11 +596,6 @@ mod tests {
                "verbs": ["turn_on", "turn_off", "toggle"], "ctl": {"on": on, "dimmable": true, "brightness": brightness, "kelvin": {"now": 3000, "min": 2000, "max": 6500}}})
     }
 
-    fn thermostat() -> Value {
-        json!({"id": "climate.t", "name": "Thermostat", "group": "climate", "words": "68\u{b0}", "can": ["sheet"], "available": true,
-               "verbs": ["set_temperature", "set_hvac_mode"], "ctl": {"mode": "heat", "modes": ["off", "heat", "cool"], "current": 68.0, "target": 70.0, "min": 50.0, "max": 90.0, "step": 1.0, "unit": "\u{b0}F", "action": "heating"}})
-    }
-
     #[test]
     fn a_light_has_power_brightness_and_colour_temperature_and_a_room_that_is_only_read() {
         let rows = rows_of(&light(true, Some(50)));
@@ -684,33 +641,6 @@ mod tests {
             assert_eq!(s.key(k, &tile, 0), Done::Send(Act { id: "light.lamp".into(), verb: "toggle", value: Value::Null }), "{k}");
         }
         assert_eq!(s.key("back", &tile, 0), Done::Close);
-    }
-
-    #[test]
-    fn a_thermostat_walks_its_modes_and_steps_its_set_point() {
-        let tile = thermostat();
-        let rows = rows_of(&tile);
-        assert_eq!(rows.iter().map(|r| (r.id, r.value.as_str())).collect::<Vec<_>>(), [("now", "68\u{b0} \u{b7} Heating"), ("mode", "Heat"), ("target", "70\u{b0}")]);
-        let mut s = Sheet::new("climate.t");
-        assert_eq!(s.key("right", &tile, 0), Done::Send(Act { id: "climate.t".into(), verb: "hvac_mode", value: json!("cool") }));
-        assert_eq!(s.key("left", &tile, 0), Done::Send(Act { id: "climate.t".into(), verb: "hvac_mode", value: json!("off") }));
-        s.key("down", &tile, 10);
-        s.key("right", &tile, 10);
-        assert_eq!(s.due(400), Some(Act { id: "climate.t".into(), verb: "temperature", value: json!(71.0) }));
-        // a heat/cool thermostat has two set points, each sent with the other as it is
-        let mut range = thermostat();
-        range["ctl"]["target"] = Value::Null;
-        range["ctl"]["low"] = json!(66.0);
-        range["ctl"]["high"] = json!(74.0);
-        let mut s = Sheet::new("climate.t");
-        s.key("down", &range, 0);
-        s.key("right", &range, 0);
-        s.key("right", &range, 0);
-        assert_eq!(s.due(1000), Some(Act { id: "climate.t".into(), verb: "range", value: json!({"low": 68.0, "high": 74.0}) }));
-        // off, it has no set point to set
-        let mut off = thermostat();
-        off["ctl"]["mode"] = json!("off");
-        assert_eq!(rows_of(&off).iter().map(|r| r.id).collect::<Vec<_>>(), ["now", "mode"]);
     }
 
     #[test]
@@ -791,7 +721,7 @@ mod tests {
 
     #[test]
     fn no_key_on_any_sheet_makes_an_act_that_unlocks_or_unlatches() {
-        let tiles = [lock("locked", &["unlock"]), lock("unlocked", &["unlock"]), lock("locked", &[]), light(true, Some(50)), thermostat()];
+        let tiles = [lock("locked", &["unlock"]), lock("unlocked", &["unlock"]), lock("locked", &[]), light(true, Some(50)), owner_tile("fan.living_room_vent_fan")];
         for tile in tiles {
             let id = tile["id"].as_str().unwrap().to_owned();
             for asking in [false, true] {

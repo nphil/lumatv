@@ -38,6 +38,9 @@ pub enum Press {
     Unlock,
     /// Opens its controls: a thermostat, a cover; and the words of a thing that is only shown.
     Controls,
+    /// Says why it does nothing: a lamp, a switch, a fan or a scene that Home Assistant lets the TV do nothing to. A press on it opens no sheet,
+    /// which would hold nothing.
+    Refused,
     /// Opens the history of its readings.
     History,
     /// Opens the camera at full size.
@@ -77,6 +80,8 @@ pub struct Item {
     pub rgb: Option<[u8; 3]>,
     /// How bright it is, 0 to 1: the strength of a lamp's glow.
     pub level: f32,
+    /// Why the TV may do nothing to it, in the helper's words (empty when it may).
+    pub why: String,
 }
 
 impl Item {
@@ -123,6 +128,7 @@ pub fn of_tile(tile: &Value) -> Option<Item> {
     let ctl = tile.get("ctl").cloned().unwrap_or(Value::Null);
     let can = strings(tile, "can");
     let verbs = strings(tile, "verbs");
+    let why = text(tile, "why");
     let gone = tile.get("available").and_then(Value::as_bool) == Some(false);
     let has = |v: &str| can.iter().any(|c| c == v);
     let kind = match (group.as_str(), domain) {
@@ -154,6 +160,8 @@ pub fn of_tile(tile: &Value) -> Option<Item> {
         Press::Unlock
     } else if matches!(kind, Kind::Sensor | Kind::Binary) {
         Press::History
+    } else if matches!(kind, Kind::Light | Kind::Switch | Kind::Scene) && !why.is_empty() {
+        Press::Refused
     } else {
         Press::Controls
     };
@@ -189,6 +197,7 @@ pub fn of_tile(tile: &Value) -> Option<Item> {
         hold,
         rgb: rgb.filter(|_| on && !gone),
         level,
+        why,
     })
 }
 
@@ -212,6 +221,7 @@ pub fn of_camera(cam: &Value) -> Option<Item> {
         hold: Hold::Nothing,
         rgb: None,
         level: 1.0,
+        why: String::new(),
     })
 }
 
