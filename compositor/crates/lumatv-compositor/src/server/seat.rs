@@ -396,9 +396,11 @@ pub fn cursor_on(state: &mut State) -> bool {
 pub fn wheel_turn(state: &mut State) -> bool {
     // the Rust client's display lab, while it is open, takes the turn as the key `wheel` (its two looks switch with it)
     state.shell_rust_wheel();
+    // A notch is a person's wherever the pointer is: with the cursor hidden under `remote.pointerShow` `movement` nothing else counts it.
+    state.care_input();
+    state.shell_rust_activity();
     if state.seat.cursor_visible {
         state.seat.cursor_shown_at = Some(std::time::Instant::now());
-        state.care_input();
         return false;
     }
     if state.keys.pointer_show == PointerShow::Wheel {

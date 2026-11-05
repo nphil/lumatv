@@ -381,7 +381,10 @@ fn run(config: Config) -> io::Result<()> {
         let mut saw_event = false;
         for ev in &events[..n] {
             let tag = ev.u64;
-            if tag != TAG_TICK {
+            // A mouse or a game controller that is only watched for activity (`input.rs`) streams events while it is used: they must not
+            // keep the loop out of its slow tick the way a key does.
+            let watched = tag & TAG_INPUT != 0 && inputs.is_watch((tag & 0xffff_ffff) as usize);
+            if tag != TAG_TICK && !watched {
                 tick.calm.event(woke_ns, tag & TAG_INPUT != 0);
                 saw_event = true;
             }
@@ -514,6 +517,10 @@ fn run(config: Config) -> io::Result<()> {
                                 lumatv_compositor::input::Event::Wheel { down } => {
                                     lumatv_compositor::server::seat::wheel_turn(&mut state);
                                     state.shell_rust_wheel_direction(down);
+                                }
+                                lumatv_compositor::input::Event::Activity => {
+                                    state.care_input();
+                                    state.shell_rust_activity();
                                 }
                             }
                         }

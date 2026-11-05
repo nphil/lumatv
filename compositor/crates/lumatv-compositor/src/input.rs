@@ -165,6 +165,9 @@ const REL_WHEEL: u16 = 8;
 const REL_WHEEL_HI_RES: u16 = 11;
 const ABS_X: u16 = 0;
 const ABS_Y: u16 = 1;
+/// Absolute axes a device can have (`ABS_CNT`), and the kernel's property bit of a motion sensor (`INPUT_PROP_ACCELEROMETER`).
+const ABS_COUNT: usize = 0x40;
+const INPUT_PROP_ACCELEROMETER: usize = 6;
 
 /// What a device reports: one key, the pointer's new position in output pixels (once per `SYN_REPORT`), or a notch of the wheel (`down`: it was
 /// turned towards the person, a scroll down; evdev reports a turn away as positive).
@@ -173,6 +176,9 @@ pub enum Event {
     Key { code: u32, pressed: bool },
     Motion { x: i32, y: i32 },
     Wheel { down: bool },
+    /// A person touched a device whose events nobody routes (a mouse, a game controller, a touchpad) or moved a pointer axis that is not the
+    /// Magic Remote's: it counts as input to the idle timers and the saver, and goes no further. At most one per read.
+    Activity,
 }
 
 /// The range of one absolute axis (`EVIOCGABS`), mapped onto the output.
@@ -201,6 +207,9 @@ pub struct Device {
     pub abs: Option<AbsRange>,
     /// Whether a turn of this device's wheel shows the pointer: a Magic Remote (see [`Device::turns_pointer`]).
     wheel: bool,
+    /// A device nobody routes (mouse, game controller, touchpad): its events only count as activity, and it has no seat.
+    watch: bool,
+    abs_activity: AbsActivity,
     file: File,
     buf: [InputEvent; 64],
     /// The position the pending `SYN_REPORT` will report, and the last one reported.
@@ -236,6 +245,8 @@ impl Device {
             name,
             from_network,
             abs,
+            watch: false,
+            abs_activity: AbsActivity::default(),
             file,
             buf: [InputEvent::default(); 64],
             pending: None,
@@ -253,13 +264,23 @@ impl Device {
     }
 
     /// Whether this is a remote or a keyboard: a device with a key below `BTN_MISC`. A game controller's buttons start at `BTN_SOUTH`
-    /// (0x130) and its touchpad and motion sensors have no keys; its sticks and gyro would move the pointer, so it is the game's alone.
-    /// A node that cannot say (a file standing in for a device) is read.
+    /// (0x130) and its touchpad and motion sensors have no keys; its sticks and gyro would move the pointer, so it is the game's alone: it is only
+    /// watched for activity ([`Device::can_watch`]). A node that cannot say (a file standing in for a device) is read.
     fn takes_keys(&self) -> bool {
         let mut bits = [0u8; KEY_BITMAP_BYTES];
         // SAFETY: EVIOCGBIT(EV_KEY, len) writes at most len bytes into the buffer.
         let n = unsafe { libc::ioctl(self.file.as_raw_fd(), eviocgbit_key(bits.len()), bits.as_mut_ptr()) };
         n < 0 || has_keys(&bits[..(n as usize).min(bits.len())])
+    }
+
+    /// Whether a device without keys is read for activity: any but a motion sensor, whose resting noise would never let the TV idle. A node
+    /// that cannot say is read, as for [`Device::takes_keys`].
+    fn can_watch(&self) -> bool {
+        let mut props = [0u8; 4];
+        // SAFETY: EVIOCGPROP(len) writes at most len bytes into the buffer.
+        let n = unsafe { libc::ioctl(self.file.as_raw_fd(), eviocgprop(props.len()), props.as_mut_ptr()) };
+        let sensor = n >= 0 && props[INPUT_PROP_ACCELEROMETER / 8] & (1 << (INPUT_PROP_ACCELEROMETER % 8)) != 0;
+        !sensor && !self.name.contains("Motion Sensors")
     }
 
     pub fn fd(&self) -> i32 {
@@ -275,6 +296,7 @@ impl Device {
     /// Reads what is pending; `f` per key event (repeats are reported as presses) and per pointer motion. An error, or the end of the
     /// file, means the device is gone (a removed evdev node answers `ENODEV` and polls readable for good): the caller stops reading it.
     pub fn drain(&mut self, mut f: impl FnMut(Event)) -> io::Result<()> {
+        let mut active = false;
         loop {
             let size = std::mem::size_of::<InputEvent>();
             // SAFETY: the buffer is a plain array of repr(C) structs; read fills whole events.
@@ -291,9 +313,27 @@ impl Device {
                 if self.monotonic && self.stamp_ns.is_none() && ev.tv_sec != 0 {
                     self.stamp_ns = Some(ev.tv_sec as u64 * 1_000_000_000 + ev.tv_usec as u64 * 1000);
                 }
+                if self.watch {
+                    let fd = self.file.as_raw_fd();
+                    let touched = match ev.kind {
+                        EV_KEY | EV_REL => ev.value != 0,
+                        EV_ABS => self.abs_activity.moved(ev.code, ev.value, || absinfo(fd, ev.code)),
+                        _ => false,
+                    };
+                    if touched && !active {
+                        active = true;
+                        f(Event::Activity);
+                    }
+                    continue;
+                }
                 match ev.kind {
                     EV_KEY => f(Event::Key { code: ev.code as u32, pressed: ev.value != 0 }),
                     EV_REL if self.wheel && matches!(ev.code, REL_WHEEL | REL_WHEEL_HI_RES) && ev.value != 0 => f(Event::Wheel { down: ev.value < 0 }),
+                    // The phone remote's touchpad and scroll (the network devices) and any other relative axis: a person is there.
+                    EV_REL if ev.value != 0 && !active => {
+                        active = true;
+                        f(Event::Activity);
+                    }
                     EV_ABS => {
                         if let Some(abs) = self.abs {
                             let (mut x, mut y) = self.pending.unwrap_or(self.last);
@@ -325,12 +365,48 @@ impl Device {
     }
 }
 
+/// Which absolute-axis reports of a device nobody routes are a person's: a game controller's resting sticks and triggers jitter by a few
+/// units, so an axis counts only when it has moved a quarter of its range from where it last counted (a hat switch, whose range is 2, on
+/// any change). The first report of an axis only sets where it stands.
+#[derive(Default)]
+struct AbsActivity {
+    axes: Vec<Option<(i32, i32)>>,
+}
+
+impl AbsActivity {
+    fn moved(&mut self, axis: u16, value: i32, range: impl FnOnce() -> Option<(i32, i32)>) -> bool {
+        let axis = axis as usize;
+        if axis >= ABS_COUNT {
+            return false;
+        }
+        if self.axes.is_empty() {
+            self.axes = vec![None; ABS_COUNT];
+        }
+        match &mut self.axes[axis] {
+            slot @ None => {
+                *slot = Some((value, range().map_or(0, |(lo, hi)| (hi.saturating_sub(lo)) / 4)));
+                false
+            }
+            Some((anchor, threshold)) if (i64::from(value) - i64::from(*anchor)).abs() > i64::from(*threshold) => {
+                *anchor = value;
+                true
+            }
+            Some(_) => false,
+        }
+    }
+}
+
 /// `EVIOCSCLOCKID` (`_IOW('E', 0xa0, int)`): the clock the kernel stamps this descriptor's events with.
 const EVIOCSCLOCKID: libc::c_ulong = 0x4004_45a0;
 
 const fn eviocgname(len: usize) -> libc::c_ulong {
     // _IOC(_IOC_READ, 'E', 0x06, len)
     ((2u64 << 30) | ((len as u64) << 16) | (b'E' as u64) << 8 | 0x06) as libc::c_ulong
+}
+
+/// `EVIOCGPROP(len)`: the device's property bits (`_IOC(_IOC_READ, 'E', 0x09, len)`).
+const fn eviocgprop(len: usize) -> libc::c_ulong {
+    ((2u64 << 30) | ((len as u64) << 16) | (b'E' as u64) << 8 | 0x09) as libc::c_ulong
 }
 
 /// `EVIOCGABS(axis)`: `(minimum, maximum)` of one absolute axis, `None` when the device has no such axis.
@@ -384,18 +460,25 @@ pub struct Scan {
 pub enum Probe {
     /// A remote or a keyboard, open.
     Keys(Box<Device>),
+    /// A device with no keys that a person can still touch (a mouse, a game controller, a touchpad), open for activity only: no seat, no keys.
+    Watch(Box<Device>),
     /// A device with no keys (a game controller's touchpad and sensors, the Magic Remote's touchpad), by name.
     NoKeys(String),
     /// A node that did not open.
     Failed(io::Error),
 }
 
-/// Looks at one node: opens it and keeps it only if it has keys. A device with none is closed again on the spot, and that close waits for a
-/// grace period of the kernel's RCU (`evdev_release`, about 20 ms of the loop); every open of a node with no device behind it runs `modprobe`
-/// for its numbers (`request_module`, 7 ms and more). [`Inputs::scan`] therefore looks at a node once, not at every look.
+/// Looks at one node: opens it and keeps it if it has keys (a remote or keyboard) or can be touched (watched for activity only). A motion sensor
+/// is closed again on the spot, and that close waits for a grace period of the kernel's RCU (`evdev_release`, about 20 ms of the loop); every
+/// open of a node with no device behind it runs `modprobe` for its numbers (`request_module`, 7 ms and more). [`Inputs::scan`] therefore looks
+/// at a node once, not at every look.
 fn probe(path: &str) -> Probe {
     match Device::open(path) {
         Ok(d) if d.takes_keys() => Probe::Keys(Box::new(d)),
+        Ok(mut d) if d.can_watch() => {
+            d.watch = true;
+            Probe::Watch(Box::new(d))
+        }
         Ok(d) => Probe::NoKeys(d.name.clone()),
         Err(e) => Probe::Failed(e),
     }
@@ -542,9 +625,15 @@ impl Inputs {
                     self.adopt(*d, new_seat, &mut out);
                     continue;
                 }
+                Probe::Watch(d) => {
+                    self.told.remove(&path);
+                    self.judged.remove(&path);
+                    self.adopt(*d, new_seat, &mut out);
+                    continue;
+                }
                 Probe::NoKeys(name) => {
                     self.judged.insert(path.clone(), now);
-                    format!("input: {path} {name:?} has no keys (no remote or keyboard): left alone")
+                    format!("input: {path} {name:?} has no keys and cannot be touched (a motion sensor): left alone")
                 }
                 Probe::Failed(e) => {
                     // "No such device" stays so until the node changes; any other refusal (permissions, memory) is tried again at the next look.
@@ -563,22 +652,30 @@ impl Inputs {
 
     fn adopt(&mut self, d: Device, new_seat: &mut dyn FnMut(&str) -> seat::SeatId, out: &mut Scan) {
         out.lines.push(format!(
-            "input: {} {:?}{}{}",
+            "input: {} {:?}{}{}{}",
             d.path,
             d.name,
             if d.from_network { " (network keys)" } else { "" },
-            d.abs.map(|a| format!(" pointer x {:?} y {:?}", a.x, a.y)).unwrap_or_default()
+            if d.watch { " (activity only)" } else { "" },
+            d.abs.filter(|_| !d.watch).map(|a| format!(" pointer x {:?} y {:?}", a.x, a.y)).unwrap_or_default()
         ));
         let fd = d.fd();
         let i = match self.slots.iter().position(|s| s.device.is_none() && s.name == d.name) {
             Some(i) => i,
             None => {
-                self.slots.push(Slot { device: None, seat: new_seat(&d.name), name: d.name.clone() });
+                // A device that is only watched has no keys to route, so no seat for clients to bind: the shared first one stands in.
+                let seat = if d.watch { seat::SeatId(0) } else { new_seat(&d.name) };
+                self.slots.push(Slot { device: None, seat, name: d.name.clone() });
                 self.slots.len() - 1
             }
         };
         self.slots[i].device = Some(d);
         out.opened.push((i, fd));
+    }
+
+    /// Whether slot `i` is a device that is only watched for activity.
+    pub fn is_watch(&self, i: usize) -> bool {
+        self.slots.get(i).and_then(|s| s.device.as_ref()).is_some_and(|d| d.watch)
     }
 
     /// The device in slot `i`, while it is open.
@@ -1062,7 +1159,17 @@ mod wheel_tests {
 
     /// A file of raw events read as a device (the ioctls fail on it, which a device without absolute axes also answers).
     fn read(events: &[(u16, u16, i32)], wheel: bool) -> Vec<Event> {
-        let path = std::env::temp_dir().join(format!("lumatv-wheel-{}-{}", std::process::id(), events.len()));
+        read_as(events, wheel, false)
+    }
+
+    /// The same for a device that is only watched for activity.
+    fn read_watched(events: &[(u16, u16, i32)]) -> Vec<Event> {
+        read_as(events, false, true)
+    }
+
+    fn read_as(events: &[(u16, u16, i32)], wheel: bool, watch: bool) -> Vec<Event> {
+        static FILES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!("lumatv-wheel-{}-{}", std::process::id(), FILES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
         let mut bytes = Vec::new();
         for &(kind, code, value) in events {
             let ev = InputEvent { kind, code, value, ..InputEvent::default() };
@@ -1072,6 +1179,7 @@ mod wheel_tests {
         std::fs::write(&path, bytes).unwrap();
         let mut device = Device::open(path.to_str().unwrap()).unwrap();
         device.wheel = wheel;
+        device.watch = watch;
         let mut out = Vec::new();
         device.drain(|e| out.push(e)).unwrap();
         let _ = std::fs::remove_file(path);
@@ -1085,9 +1193,12 @@ mod wheel_tests {
         assert_eq!(read(&[(EV_REL, REL_WHEEL_HI_RES, -240)], true), vec![Event::Wheel { down: true }]);
         assert_eq!(
             read(&[(EV_REL, 0, 5), (EV_REL, 1, -5), (EV_REL, 6, 1), (EV_REL, REL_WHEEL, 0)], true),
-            vec![],
-            "pointing and a sideways wheel are not a turn"
+            vec![Event::Activity],
+            "pointing and a sideways wheel are not a turn, but a person's: one activity a read"
         );
+        assert_eq!(read(&[(EV_REL, REL_WHEEL, 0), (EV_REL, 1, 0)], true), vec![], "a report of no movement is nobody's");
+        assert_eq!(read(&[(EV_REL, REL_WHEEL, 1)], false), vec![Event::Activity], "a phone's scroll is activity, no turn of the pointer's wheel");
+        assert_eq!(read(&[(EV_REL, REL_WHEEL, 1), (EV_REL, REL_WHEEL, -1)], false), vec![Event::Activity], "once for the whole read");
         assert_eq!(
             read(&[(EV_KEY, 28, 1), (EV_REL, REL_WHEEL, 1), (EV_KEY, 28, 0)], true),
             vec![Event::Key { code: 28, pressed: true }, Event::Wheel { down: false }, Event::Key { code: 28, pressed: false }]
@@ -1095,11 +1206,39 @@ mod wheel_tests {
     }
 
     #[test]
+    fn a_watched_device_only_counts_a_touch_once_a_read_and_routes_nothing() {
+        assert_eq!(read_watched(&[(EV_KEY, 0x110, 1), (EV_KEY, 0x110, 0), (EV_KEY, 0x130, 1)]), vec![Event::Activity], "a mouse button and a pad button, once");
+        assert_eq!(read_watched(&[(EV_KEY, 0x110, 0)]), vec![], "a release alone is no touch");
+        assert_eq!(read_watched(&[(EV_REL, 0, 3), (EV_REL, REL_WHEEL, 1)]), vec![Event::Activity], "a mouse moved");
+        assert_eq!(read_watched(&[(EV_SYN, 0, 0), (EV_REL, 0, 0)]), vec![]);
+        assert_eq!(read_watched(&[(EV_ABS, ABS_X, 128), (EV_ABS, ABS_Y, 128), (EV_SYN, 0, 0)]), vec![], "a stick's first report only says where it stands: no pointer motion either");
+    }
+
+    #[test]
+    fn a_stick_counts_only_when_it_moves_a_quarter_of_its_range() {
+        let mut axes = AbsActivity::default();
+        let range = || Some((0, 255));
+        assert!(!axes.moved(ABS_X, 128, range), "the first report sets where it stands");
+        for jitter in [126, 131, 129, 124, 140, 128] {
+            assert!(!axes.moved(ABS_X, jitter, range), "rest jitter {jitter}");
+        }
+        assert!(axes.moved(ABS_X, 200, range), "pushed over a quarter of its range");
+        assert!(!axes.moved(ABS_X, 205, range), "counted from where it last counted");
+        assert!(axes.moved(ABS_X, 128, range), "and back");
+        assert!(!axes.moved(ABS_Y, 0, range), "another axis has its own anchor");
+        // a hat switch (range -1..=1) counts on any change; an axis the kernel does not have never counts
+        let hat = || Some((-1, 1));
+        assert!(!axes.moved(0x10, 0, hat));
+        assert!(axes.moved(0x10, -1, hat));
+        assert!(!axes.moved(ABS_COUNT as u16, 5, hat));
+    }
+
+    #[test]
     fn only_the_magic_remotes_wheel_shows_the_pointer() {
         assert_eq!(
             read(&[(EV_REL, REL_WHEEL, 1), (EV_KEY, 28, 1)], false),
-            vec![Event::Key { code: 28, pressed: true }],
-            "a wheel that is not a remote's is no turn"
+            vec![Event::Activity, Event::Key { code: 28, pressed: true }],
+            "a wheel that is not a remote's is no turn of the pointer's"
         );
         for name in ["LGE M-RCU - Builtin [0]", "LGE TONE+ - Builtin [3]", "LGE W-RCU - Builtin [5]", "LGE Simple Premium"] {
             assert!(Device::turns_pointer(name, true), "{name}");
@@ -1282,6 +1421,24 @@ mod hotplug_tests {
         looked_at(&mut inputs, 2, a_pad);
         plain.node("event9", code::KEY_RIGHT);
         assert_eq!(looked_at(&mut inputs, 3, a_pad).0, ["event9"]);
+    }
+
+    #[test]
+    fn a_device_without_keys_that_can_be_touched_is_watched_with_no_seat_of_its_own() {
+        let dir = Dir::new("watch-only");
+        dir.node("event8", 0x110);
+        let mut inputs = Inputs::listed_by(&dir.0, None);
+        let mut made = 0;
+        let found = inputs.scan_with(0, &mut seats(&mut made), &mut |path| {
+            let mut d = Device::open(path).unwrap();
+            d.watch = true;
+            Probe::Watch(Box::new(d))
+        });
+        assert_eq!((found.opened.len(), made, inputs.seat(0), inputs.is_watch(0)), (1, 0, seat::SeatId(0), true), "no seat made for clients to bind");
+        assert!(found.lines[0].ends_with("(activity only)"), "{:?}", found.lines);
+        assert_eq!(keys(&mut inputs, 0), [Event::Activity], "a button of it is a touch, not a key");
+        assert!(inputs.lose(0).is_some());
+        assert!(!inputs.is_watch(0), "a device that is gone watches nothing");
     }
 
     #[test]

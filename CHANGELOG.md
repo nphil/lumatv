@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The idle timers and the saver count every device the set has, not only remotes and keyboards. A mouse, a game controller (its buttons, a stick or trigger moved a quarter of its range, the hat) and a phone remote's touchpad or scroll reset the countdown and wake a saver that is up, as a key does; the compositor reads them for that and routes nothing from them, and a controller's motion sensor, whose resting noise would never let the TV idle, is left alone. A notch of the Magic Remote's wheel counts under `remote.pointerShow` `movement` too (with the cursor hidden it counted for nothing). These devices do not keep the loop out of its slow tick.
+
 A Settings switch shows its value from its first frame. A row made when it scrolled into reach, when a page or category opened, or when its words changed built its thumb at the off end and slid it to the stored value, so an on switch seemed to flick off and back on. A switch now glides only when its value changes; a slider's thumb likewise only moves when its place or lift changes, not at every frame.
 
 Home's dock reads like text: Right on a row's last app goes to the first app of the next row, and Left on a row's first app goes back to the last of the row above. The dock scrolls to the row on its usual spring and the focus stays inside the card. The two ends of the dock hold. A tile's name pill grows with the text size and goes to the side of the tile where the card has room for it (at 200 % text over the neighbouring row's edge), so it is never cut by the card.

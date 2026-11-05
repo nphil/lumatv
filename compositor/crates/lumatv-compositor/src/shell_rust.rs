@@ -1167,6 +1167,15 @@ impl State {
         true
     }
 
+    /// A mouse, game controller or touchpad was used (`input::Event::Activity`): a saver that is up ends as it does on any key. Nothing else
+    /// of the client's is given the touch.
+    pub fn shell_rust_activity(&mut self) {
+        if self.shell_rust.connected && self.shell_rust_saver_up() {
+            self.shell_rust.send_key("any", true, false, 0);
+            self.shell_rust.send_key("any", false, false, 0);
+        }
+    }
+
     /// A turn of the Magic Remote's wheel for the Rust client, as the key `wheel` pressed and released at once. It goes only while the client's layer
     /// wants the keys and lists `wheel` in its `takes` (the display lab switches between its two looks with it); a wheel nobody asked for is the
     /// pointer's alone. Returns whether the client got it.
