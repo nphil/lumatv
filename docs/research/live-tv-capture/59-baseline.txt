@@ -1,0 +1,32 @@
+$ cat /proc/loadavg; cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io 2>&1; grep -E 'MemTotal|MemAvailable|CmaFree|SwapFree' /proc/meminfo; nproc; cat /sys/devices/system/cpu/online; top -bn1 | head -14 | cut -c1-120; df -h /var /tmp 2>&1 | head -5; ip -o addr show eth0 2>&1 | head -2; cat /sys/class/net/eth0/speed 2>&1
+(exit 0)
+13.87 14.03 14.07 2/1062 9122
+some avg10=4.79 avg60=4.44 avg300=4.57 total=2166572234
+some avg10=0.00 avg60=0.00 avg300=0.00 total=6092843
+full avg10=0.00 avg60=0.00 avg300=0.00 total=912547
+some avg10=0.00 avg60=0.00 avg300=0.00 total=20693871
+full avg10=0.00 avg60=0.00 avg300=0.00 total=13663226
+MemTotal:        2030392 kB
+MemAvailable:     772396 kB
+SwapFree:         399232 kB
+CmaFree:           83976 kB
+3
+0-2
+top - 08:34:22 up  9:30,  0 users,  load average: 13.87, 14.03, 14.07
+Tasks: 292 total,   2 running, 289 sleeping,   0 stopped,   1 zombie
+%Cpu(s): 11.9 us,  9.0 sy,  0.0 ni, 79.1 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   1982.8 total,    122.7 free,   1010.5 used,    849.6 buff/cache
+MiB Swap:    600.0 total,    389.9 free,    210.1 used.    754.4 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 1423 root     -21 -19  803548 176440 133844 R  10.5   8.7  11:59.37 ld-linux-+
+ 9127 root      20   0    5820   1256    916 R  10.5   0.1   0:00.06 top
+ 2171 wam       20   0  575452  64360  50036 S   5.3   3.2   0:11.27 WebAppMgr
+ 2255 root      20   0  658672  12628   7256 S   5.3   0.6  11:41.85 legacy-br+
+ 2926 root      20   0  109296   4860   4360 S   5.3   0.2   5:01.46 micomserv+
+ 3065 root       1 -19  138312  13032   5872 S   5.3   0.6   5:47.91 sdx
+ 3735 dbus      20   0   60016   5080   4220 S   5.3   0.3   2:09.29 webos-con+
+Filesystem                Size      Used Available Use% Mounted on
+overlay                 965.9M    446.4M    453.4M  50% /var
+tmpfs                   991.4M    227.6M    763.8M  23% /tmp
+100

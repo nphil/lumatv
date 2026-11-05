@@ -1,0 +1,11 @@
+$ ls -l /etc/umediaserver /etc/umediaserver/external /var/lib/ums/conf 2>&1 | head -40
+(exit 0)
+ls: /etc/umediaserver/external: No such file or directory
+/etc/umediaserver:
+total 22
+-rw-r--r--    1 root     root          5668 Apr  5  2011 device_codec_capability_config.json
+-rw-r--r--    1 root     root          7129 Apr  5  2011 fileschema.js
+-rw-r--r--    1 root     root          9023 Apr  5  2011 umediaserver_resource_config.txt
+
+/var/lib/ums/conf:
+total 0

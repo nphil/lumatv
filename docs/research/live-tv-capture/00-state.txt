@@ -1,0 +1,5 @@
+$ date; uptime; cat /proc/version; grep -o 'tunerless\|profile=[^ ]*' /proc/cmdline | head
+(exit 0)
+Thu Nov  5 08:22:22 EST 2026
+ 08:22:22 up  9:18,  0 users,  load average: 14.48, 14.39, 14.14
+Linux version 5.4.268-329.ptl4tv.2 (oe-user@oe-host) (gcc version 11.4.0 (GCC)) #1 SMP PREEMPT Thu Apr 17 00:21:25 UTC 2025

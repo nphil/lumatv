@@ -1,0 +1,8 @@
+$ /usr/bin/luna-send -n 1 -f luna://com.webos.service.utp.broadcast/getCurrentChannel '{"broadcastId": ""}'
+(exit 0)
+{
+    "errorCode": -106,
+    "returnValue": false,
+    "errorText": "No resource: ",
+    "subscribed": false
+}

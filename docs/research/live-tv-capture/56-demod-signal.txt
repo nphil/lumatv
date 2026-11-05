@@ -1,0 +1,21 @@
+$ cat /proc/lg/demod/signal_status 2>&1 | head -40; echo ---; cat /proc/lg/demod_khal/usage 2>&1 | head -30
+(exit 0)
+*******************************************************
+*****************DEMOD_Debug_TotalInfo*****************
+Demod status	=	LOCK
+OperMode    =       VSB
+Tune Mode   =       Normal
+Channel BW  =       UNKNOWN
+*********************Signal Status*********************
+Packet Error =    0
+BER =             0
+AGC =             625
+MSE =             31
+bMSE =            0
+Const Power	=     21504
+Frequency Offset= 6310
+*******************************************************
+
+---
+* khal demod
+  - init

@@ -1,0 +1,16 @@
+$ which python3; python3 -c "import ctypes,platform,sys;print(sys.version.split()[0], platform.machine(), ctypes.sizeof(ctypes.c_void_p)*8,'bit')" 2>&1; file /usr/bin/python3 2>&1 | head -2; ls /usr/lib/libhal_lg115x.so* /usr/lib/libkadaptor.so* 2>&1 | head; ls /usr/lib/python3*/lib-dynload 2>/dev/null | grep -i ctypes | head -3
+(exit 0)
+/usr/bin/python3
+3.10.13 aarch64 32 bit
+sh: file: not found
+/usr/lib/libhal_lg115x.so
+/usr/lib/libhal_lg115x.so.0
+/usr/lib/libhal_lg115x.so.2
+/usr/lib/libhal_lg115x.so.2.0.1
+/usr/lib/libkadaptor.so
+/usr/lib/libkadaptor.so.0
+/usr/lib/libkadaptor.so.0.1.0
+/usr/lib/libkadaptor.so.2
+/usr/lib/libkadaptor.so.2.0.1
+_ctypes.cpython-310-arm-linux-gnueabi.so
+_ctypes_test.cpython-310-arm-linux-gnueabi.so

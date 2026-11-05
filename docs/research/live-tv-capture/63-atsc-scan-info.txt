@@ -1,0 +1,11 @@
+$ /usr/bin/luna-send -n 1 -f luna://com.webos.service.utp.channel/scan/getAtscScanInfo '{"sourceType": "INPUTSOURCE_TERRESTRIAL_DIGITAL"}'
+(exit 0)
+{
+    "scanInfo": {
+        "startPhysicalNumber": 2,
+        "sourceType": "INPUTSOURCE_TERRESTRIAL_DIGITAL",
+        "endPhysicalNumber": 69
+    },
+    "returnValue": true,
+    "subscribed": false
+}

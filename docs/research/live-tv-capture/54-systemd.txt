@@ -1,0 +1,12 @@
+$ systemctl list-units --no-pager 2>&1 | grep -i -E 'utp|legacy|broadcast|iepg|tsrecord|ts-record|reserv|dmost|gibbips|hybridtv' | cut -c1-170
+(exit 0)
+  audiooutputd.service                                                                                                                                         loaded acti
+  broadcast-conf-downloader.service                                                                                                                            loaded acti
+● broadcast-configd.service                                                                                                                                    loaded fa
+  broadcast-systemui-manager.service                                                                                                                           loaded acti
+  dmost.service                                                                                                                                                loaded acti
+  hybridtv-manager.service                                                                                                                                     loaded acti
+  iepg.service                                                                                                                                                 loaded acti
+  tv-reservation-agent.service                                                                                                                                 loaded acti
+  utp.service                                                                                                                                                  loaded acti
+  videooutputd.service                                                                                                                                         loaded acti

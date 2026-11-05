@@ -1,0 +1,7 @@
+$ /usr/bin/luna-send -n 1 -f luna://com.webos.service.utp.channel/scan/getAutoScanStatus '{}'
+(exit 0)
+{
+    "subscribed": false,
+    "returnValue": true,
+    "autoScanning": false
+}

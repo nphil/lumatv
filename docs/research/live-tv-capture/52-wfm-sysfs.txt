@@ -1,0 +1,15 @@
+$ ls /sys/devices/platform/wfm /sys/devices/platform/wfm/frontend 2>&1; for f in frontend_type tuner_nr tuner_model_name; do echo "== $f: $(cat /sys/devices/platform/wfm/frontend/$f 2>&1)"; done
+(exit 0)
+/sys/devices/platform/wfm:
+atsc_internaldemod_debug  modalias                  subsystem
+driver                    power                     uevent
+driver_override           si2178b_atv_tuner_debug   video4linux
+frontend                  si2178b_tuner_debug
+
+/sys/devices/platform/wfm/frontend:
+adapter_number     debug_mode         set_country        tuner_nr
+atv_dtv_init       debug_module_path  tuner_gpio_table
+debug_level        frontend_type      tuner_model_name
+== frontend_type: 
+== tuner_nr: 
+== tuner_model_name: 

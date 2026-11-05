@@ -1,0 +1,20 @@
+$ words() { if command -v strings >/dev/null 2>&1; then strings -a -n 6 "$1"; else grep -a -o -E '[[:print:]]{6,}' "$1"; fi; }; f=/usr/sbin/utp-atsc; ls -l $f; words $f | grep -E 'tv_bg|TV_BG|Background|background|purpose|Purpose|startRecord|stopRecord|dvrReady|isDvrReady' | sort -u | head -n 60
+(exit 0)
+-r-x------    1 root     root       6232940 Apr  5  2011 /usr/sbin/utp-atsc
+Failed to run startRecord
+Failed to run stopRecord
+_ZN12TVDvrManager10stopRecordERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN7pbnjson6JValueE
+_ZN12TVDvrManager11startRecordERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN7pbnjson6JValueE
+_ZN12TVDvrManager19startRecordInternalERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN7pbnjson6JValueEbPS5_
+_ZN13UtpDvrService13cb_stopRecordEP8LSHandleP9LSMessagePv
+_ZN13UtpDvrService14cb_startRecordEP8LSHandleP9LSMessagePv
+_ZN15TVPlayerManager26stopRecordAndChangeChannelEP9LSMessageN7pbnjson6JValueE
+_ZN19UtpBroadcastService29cb_stopRecordAndChangeChannelEP8LSHandleP9LSMessagePv
+background
+cb_startRecord
+cb_stopRecord
+cb_stopRecordAndChangeChannel
+luna://com.webos.service.utp.dvr/record/stopRecord
+record/stopRecord
+stopRecord
+stopRecordAndChangeChannel

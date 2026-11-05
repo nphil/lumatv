@@ -1,0 +1,16 @@
+$ grep -i -E 'TE_|te_hw|te_mcu|sdec|pvr|demod|dvb|i2c|Si2178|tuner' /proc/interrupts
+(exit 0)
+ 58:       8220          0          0          0     GICv2  58 Level     fe300000.i2c
+ 59:     219466          0          0          0     GICv2  59 Level     fe400000.i2c
+ 60:      44140          0          0          0     GICv2  60 Level     fe500000.i2c
+ 61:          0          0          0          0     GICv2  61 Level     fe600000.i2c
+ 62:          0          0          0          0     GICv2  62 Level     f9000000.i2c
+ 63:     282286          0          0          0     GICv2  63 Level     f9100000.i2c
+ 64:          0          0          0          0     GICv2  64 Level     f9200000.i2c
+ 65:        764          0          0          0     GICv2  65 Level     f9300000.i2c
+ 66:          0          0          0          0     GICv2  66 Level     f9400000.i2c
+ 67:          0          0          0          0     GICv2  67 Level     f9500000.i2c
+112:      19084          0          0          0     GICv2 112 Edge      TE_MCU[0]
+113:      19080          0          0          0     GICv2 113 Edge      TE_MCU[1]
+114:          0          0          0          0     GICv2 114 Edge      TE_HW
+122:     458207          0          0          0     GICv2 122 Level     demod_ipc

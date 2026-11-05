@@ -1,0 +1,24 @@
+$ for f in dvr/status dvr/prop_bw_capa dvr/prop_es_type delivery/param delivery/channel delivery/buffer; do echo "== /proc/lxdvb/$f"; head -c 1800 /proc/lxdvb/$f; done 2>&1
+(exit 0)
+== /proc/lxdvb/dvr/status
+== /proc/lxdvb/dvr/prop_bw_capa
+head: /proc/lxdvb/dvr/prop_bw_capa: No such file or directory
+== /proc/lxdvb/dvr/prop_es_type
+head: /proc/lxdvb/dvr/prop_es_type: No such file or directory
+== /proc/lxdvb/delivery/param
+PARAMETERS
+DELIVERY MODE:UNSET     
+== /proc/lxdvb/delivery/channel
+CHANNEL INFO
+NUM    SRC_TYPE   PORT_NUM   PORT_TYPE TE_INPUT_PORT        TPI
+  0        NONE          0     DISABLE          None    DISABLE
+  1        NONE          0     DISABLE          None    DISABLE
+  2        NONE          0     DISABLE          None    DISABLE
+  3        NONE          0     DISABLE          None    DISABLE
+== /proc/lxdvb/delivery/buffer
+BUFFER INFO
+NUM     STATUS                RANGE   SIZE        USAGE       READ
+  0       IDLE                  N/A    N/A          N/A        N/A
+  1       IDLE                  N/A    N/A          N/A        N/A
+  2       IDLE                  N/A    N/A          N/A        N/A
+  3       IDLE                  N/A    N/A          N/A        N/A

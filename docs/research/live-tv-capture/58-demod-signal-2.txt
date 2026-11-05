@@ -1,0 +1,28 @@
+$ date; cat /proc/lg/demod/signal_status 2>&1 | sed -n 1,16p; grep -E 'TE_HW|TE_MCU|demod_ipc' /proc/interrupts; cat /proc/lxdvb/demux/io | head -8
+(exit 0)
+Thu Nov  5 08:33:35 EST 2026
+*******************************************************
+*****************DEMOD_Debug_TotalInfo*****************
+Demod status	=	LOCK
+OperMode    =       VSB
+Tune Mode   =       Normal
+Channel BW  =       UNKNOWN
+*********************Signal Status*********************
+Packet Error =    0
+BER =             0
+AGC =             688
+MSE =             37
+bMSE =            0
+Const Power	=     21504
+Frequency Offset= 6313
+*******************************************************
+
+112:      19084          0          0     GICv2 112 Edge      TE_MCU[0]
+113:      19080          0          0     GICv2 113 Edge      TE_MCU[1]
+114:          0          0          0     GICv2 114 Edge      TE_HW
+122:     471975          0          0     GICv2 122 Level     demod_ipc
+NUM  SRC_TYPE PORT_NUM PORT_TYPE DVR_IDX TE_INPUT_PORT        TPI
+  0      None        0    Serial      -1          None    DISABLE
+  1      None        0    Serial      -1          None    DISABLE
+  2      None        0    Serial      -1          None    DISABLE
+  3      None        0    Serial      -1          None    DISABLE

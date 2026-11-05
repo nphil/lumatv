@@ -1,0 +1,44 @@
+$ ls -l /dev/dvb/adapter0/ 2>&1; ls -l /dev/lg/ 2>&1 | grep -E 'sdec|pvr|te0|demod|crypto|se0'; ls /sys/class/dvb/ 2>&1
+(exit 0)
+total 0
+crw-------    1 root     root      212,   9 Dec 31  1969 acas0
+crw-------    1 root     root      212,   6 Dec 31  1969 ca0
+crw-------    1 root     root      212,  22 Dec 31  1969 ca1
+crw-------    1 root     root      212,  38 Dec 31  1969 ca2
+crw-------    1 root     root      212,  54 Dec 31  1969 ca3
+crw-------    1 root     root      212,  10 Dec 31  1969 delivery0
+crw-------    1 root     root      212,  26 Dec 31  1969 delivery1
+crw-------    1 root     root      212,  42 Dec 31  1969 delivery2
+crw-------    1 root     root      212,  58 Dec 31  1969 delivery3
+crw-------    1 root     root      212,   4 Dec 31  1969 demux0
+crw-------    1 root     root      212,  20 Dec 31  1969 demux1
+crw-------    1 root     root      212,  36 Dec 31  1969 demux2
+crw-------    1 root     root      212,  52 Dec 31  1969 demux3
+crw-------    1 root     root      212,   5 Dec 31  1969 dvr0
+crw-------    1 root     root      212,  21 Dec 31  1969 dvr1
+crw-------    1 root     root      212,  37 Dec 31  1969 dvr2
+crw-------    1 root     root      212,  53 Dec 31  1969 dvr3
+crw-------    1 root     root      212,   3 Dec 31  2022 frontend0
+crw-------    1 root     root     1147,   0 Dec 31  1969 crypto0
+crwxrwxrwx    1 root     root     1106,   0 Dec 31  1969 demod0
+crwxrwxrwx    1 root     root     1117,   0 Dec 31  1969 pvr0
+crw-------    1 root     root     1117,   3 Dec 31  1969 pvr0dn0
+crw-------    1 root     root     1117,   4 Dec 31  1969 pvr0dn1
+crw-------    1 root     root     1117,   1 Dec 31  1969 pvr0up0
+crw-------    1 root     root     1117,   2 Dec 31  1969 pvr0up1
+crwxrwxrwx    1 root     root      157,   1 Dec 31  2022 pvr1
+crwxrwxrwx    1 root     root      260,   0 Dec 31  2022 pvrsrvkm
+crwxrwxrwx    1 root     root     1118,   0 Dec 31  1969 sdec0
+crw-------    1 root     root     1118,   1 Dec 31  1969 sdec0c0
+crw-------    1 root     root     1118,   2 Dec 31  1969 sdec0c1
+crw-------    1 root     root     1118,   3 Dec 31  1969 sdec0c2
+crw-------    1 root     root     1118,   4 Dec 31  1969 sdec0c3
+crw-------    1 root     root     1118,   5 Dec 31  1969 sdec0c4
+crw-------    1 root     root     1118,   6 Dec 31  1969 sdec0c5
+crwxrwx---    1 root     se       1119,   0 Dec 31  1969 se0
+crwxrwxrwx    1 root     root     1138,   0 Dec 31  1969 te0
+dvb0.acas0      dvb0.delivery0  dvb0.demux1     dvb0.dvr2
+dvb0.ca0        dvb0.delivery1  dvb0.demux2     dvb0.dvr3
+dvb0.ca1        dvb0.delivery2  dvb0.demux3     dvb0.frontend0
+dvb0.ca2        dvb0.delivery3  dvb0.dvr0
+dvb0.ca3        dvb0.demux0     dvb0.dvr1

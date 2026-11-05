@@ -1,0 +1,31 @@
+$ for f in /proc/lgtv-driver/dvb_dvr/*; do echo "== $f"; head -c 600 $f 2>&1; done
+(exit 0)
+== /proc/lgtv-driver/dvb_dvr/prop_bw_capa
+0
+== /proc/lgtv-driver/dvb_dvr/prop_es_type
+0
+== /proc/lgtv-driver/dvb_dvr/status
+down-ch0
+status : idle
+
+up-ch0
+status : idle
+
+down-ch1
+status : idle
+
+up-ch1
+status : idle
+
+down-ch2
+status : idle
+
+up-ch2
+status : idle
+
+down-ch3
+status : idle
+
+up-ch3
+status : idle
+

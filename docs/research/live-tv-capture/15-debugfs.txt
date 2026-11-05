@@ -1,0 +1,45 @@
+$ mount | grep -i -E 'debugfs|tracefs'; ls /sys/kernel/debug 2>&1 | head -40
+(exit 0)
+tracefs on /sys/kernel/tracing type tracefs (rw,nosuid,nodev,noexec,relatime)
+nodev on /sys/kernel/debug type debugfs (rw,relatime)
+tracefs on /sys/kernel/debug/tracing type tracefs (rw,relatime)
+asoc
+bdi
+block
+bluetooth
+cec
+clear_warn_once
+clk
+debug_enabled
+device_component
+devices_deferred
+dma_buf
+dmac
+dri
+dw_spi0
+dynamic_debug
+extfrag
+fault_around_bytes
+gpio
+hid
+ieee80211
+ion
+kprobes
+lru_gen
+lru_gen_full
+mali0
+memblock
+memcg_slabinfo
+mmc0
+opp
+pinctrl
+pm_qos
+pwm
+regmap
+regulator
+sched_debug
+sched_features
+sleep_time
+stmmaceth
+suspend_stats
+swiotlb

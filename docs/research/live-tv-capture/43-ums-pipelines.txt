@@ -1,0 +1,9 @@
+$ /usr/bin/luna-send -n 1 -f luna://com.webos.media/getActivePipelines '{}'
+(exit 0)
+{
+    "errorCode": 0,
+    "returnValue": true,
+    "errorText": "No Error",
+    "data": "pipeline empty",
+    "mediaId": "<anonymous>"
+}

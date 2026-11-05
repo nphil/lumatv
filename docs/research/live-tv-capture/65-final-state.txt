@@ -1,0 +1,11 @@
+$ date; sed -n 3,4p /proc/lg/demod/signal_status; grep -E 'Packet Error|Frequency Offset' /proc/lg/demod/signal_status; grep -c . /proc/lxdvb/demux/filter; for p in /proc/[0-9]*; do pid=${p#/proc/}; for f in $p/fd/*; do t=$(readlink $f 2>/dev/null); case "$t" in /dev/dvb/*|/dev/lg/sdec*|/dev/lg/pvr*|/dev/lg/te0|/dev/lg/demod*) echo "$pid $(cat $p/comm 2>/dev/null) $t";; esac; done; done 2>/dev/null | sort | uniq -c; grep -E 'TE_HW|demod_ipc' /proc/interrupts
+(exit 0)
+Thu Nov  5 08:35:22 EST 2026
+Demod status	=	LOCK
+OperMode    =       VSB
+Packet Error =    0
+Frequency Offset= 6292
+0
+      1 2255 legacy-broadcas /dev/dvb/adapter0/frontend0
+114:          0          0          0     GICv2 114 Edge      TE_HW
+122:     475034          0          0     GICv2 122 Level     demod_ipc

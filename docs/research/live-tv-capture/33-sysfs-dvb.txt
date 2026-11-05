@@ -1,0 +1,32 @@
+$ for d in /sys/class/dvb/dvb0.frontend0 /sys/class/dvb/dvb0.demux0 /sys/class/dvb/dvb0.dvr0; do echo "== $d"; ls $d; cat $d/dev $d/uevent 2>&1 | head -8; readlink $d/device; done
+(exit 0)
+== /sys/class/dvb/dvb0.frontend0
+dev        device     power      subsystem  uevent
+212:3
+MAJOR=212
+MINOR=3
+DEVNAME=dvb/adapter0/frontend0
+DVB_ADAPTER_NUM=0
+DVB_DEVICE_TYPE=frontend
+DVB_DEVICE_NUM=0
+../../../lg1k-dvb
+== /sys/class/dvb/dvb0.demux0
+dev        device     power      subsystem  uevent
+212:4
+MAJOR=212
+MINOR=4
+DEVNAME=dvb/adapter0/demux0
+DVB_ADAPTER_NUM=0
+DVB_DEVICE_TYPE=demux
+DVB_DEVICE_NUM=0
+../../../lg1k-dvb
+== /sys/class/dvb/dvb0.dvr0
+dev        device     power      subsystem  uevent
+212:5
+MAJOR=212
+MINOR=5
+DEVNAME=dvb/adapter0/dvr0
+DVB_ADAPTER_NUM=0
+DVB_DEVICE_TYPE=dvr
+DVB_DEVICE_NUM=0
+../../../lg1k-dvb

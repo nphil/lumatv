@@ -1,0 +1,28 @@
+$ ls -l /proc/lg/demod /proc/lg/demod_khal 2>&1 | head -50
+(exit 0)
+/proc/lg/demod:
+total 0
+-r--r--r--    1 root     root             0 Nov  5 08:29 api
+-r--r--r--    1 root     root             0 Nov  5 08:29 author
+dr-xr-xr-x    4 root     root             0 Nov  5 08:29 chip
+-rw-r--r--    1 root     root             0 Nov  5 08:29 command
+-rw-r--r--    1 root     root             0 Nov  5 08:29 debug
+-rw-r--r--    1 root     root             0 Nov  5 08:29 demod_tune
+-r--r--r--    1 root     root             0 Nov  5 08:29 dump
+-rw-r--r--    1 root     root             0 Nov  5 08:29 fw
+-rw-r--r--    1 root     root             0 Nov  5 08:29 ipc
+-rw-r--r--    1 root     root             0 Nov  5 08:29 jtag
+-rw-r--r--    1 root     root             0 Nov  5 08:29 power_save
+-rw-r--r--    1 root     root             0 Nov  5 08:29 property
+-rw-r--r--    1 root     root             0 Nov  5 08:29 read_register
+-r--r--r--    1 root     root             0 Nov  5 08:29 register_status
+-r--r--r--    1 root     root             0 Nov  5 08:29 signal_status
+-rw-r--r--    1 root     root             0 Nov  5 08:29 test
+-rw-r--r--    1 root     root             0 Nov  5 08:29 trace
+-rw-r--r--    1 root     root             0 Nov  5 08:29 uart
+-rw-r--r--    1 root     root             0 Nov  5 08:29 write_register
+
+/proc/lg/demod_khal:
+total 0
+-rw-r--r--    1 root     root             0 Nov  5 08:29 init
+-r--r--r--    1 root     root             0 Nov  5 08:29 usage

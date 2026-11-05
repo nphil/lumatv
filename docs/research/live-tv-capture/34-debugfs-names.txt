@@ -1,0 +1,8 @@
+$ ls /sys/kernel/debug | tr '\n' ' '; echo; ls /sys/kernel/debug/te* /sys/kernel/debug/lg* /sys/kernel/debug/lxdvb* /sys/kernel/debug/pvr* /sys/kernel/debug/sdec* 2>&1 | head -40
+(exit 0)
+asoc bdi block bluetooth cec clear_warn_once clk debug_enabled device_component devices_deferred dma_buf dmac dri dw_spi0 dynamic_debug extfrag fault_around_bytes gpio hid ieee80211 ion kprobes lru_gen lru_gen_full mali0 memblock memcg_slabinfo mmc0 opp pinctrl pm_qos pwm regmap regulator sched_debug sched_features sleep_time stmmaceth suspend_stats swiotlb tracing usb wakeup_sources 
+ls: /sys/kernel/debug/te*: No such file or directory
+ls: /sys/kernel/debug/lg*: No such file or directory
+ls: /sys/kernel/debug/lxdvb*: No such file or directory
+ls: /sys/kernel/debug/pvr*: No such file or directory
+ls: /sys/kernel/debug/sdec*: No such file or directory

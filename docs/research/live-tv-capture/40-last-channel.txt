@@ -1,0 +1,8 @@
+$ /usr/bin/luna-send -n 1 -f luna://com.webos.service.utp.channel/getLastChannelId '{"sourceType": "INPUTSOURCE_RF"}'
+(exit 0)
+{
+    "subscribed": false,
+    "returnValue": true,
+    "channelId": "1_32_2_4_0_0_0",
+    "mode": "INPUTSOURCE_TERRESTRIAL_DIGITAL"
+}

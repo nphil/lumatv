@@ -1,0 +1,93 @@
+$ words() { if command -v strings >/dev/null 2>&1; then strings -a -n 6 "$1"; else grep -a -o -E '[[:print:]]{6,}' "$1"; fi; }; f=/usr/sbin/legacy-broadcast-atsc; ls -l $f; words $f | grep -E 'Purpose|PURPOSE|/dev/dvb|dvr[0-9%]|frontend|PVR_EXT|SecureKey|Timeshift|TIMESHIFT|Background|BACKGROUND|WatchingNormal|Watching ' | sort -u | head -n 90
+(exit 0)
+-rwxr-xr-x    1 root     root       8343288 Apr  5  2011 /usr/sbin/legacy-broadcast-atsc
+		 Purpose Type: 
+	 purpose : nAllPurposeVal(0x%llx) : nWatchPurpose(0x%x), nRecordPurpose(0x%x), nCapturePurpose(0x%x), nTransmitPurpose(0x%x), nSwitchPurpose(0x%x)
+	%*s * nAllPurposeVal		: 0x%llx
+	%*s * nCapturePurpose		: 0x%x
+	%*s * nRecordPurpose		: 0x%x
+	%*s * nSwitchPurpose		: 0x%x
+	%*s * nTransmitPurpose		: 0x%x
+	%*s * nWatchPurpose		: 0x%x
+	0x15 : Show Timeshift Info.         	
+	subtitlePurpose: %x,
+     Do Pause All Purpose of Prev Request
+     Do Replay All Purpose of Prev Request
+     Do Stop All Purpose of Prev Request
+   nActionType : 0x%llX    nRecordPurpose:%d
+  Watching AUDIO DUAL 
+  Watching AUDIO NORMAL 
+  Watching AUDIO_DESC 
+  Watching EPG GATHER 
+  Watching HFR 
+  Watching I-FRAME 
+  Watching OBJECT_AUDIO 
+  Watching SECTION PARSE 
+  Watching VIDEO NORMAL 
+  Watching ZoomIn 
+ %s,%d lang :  %s, ChStatus.pAudioE[%d].audioPurpose  %d 
+ %s] %d] Fail to Get Pipeline Purpose
+ %s] %d] Fail to Get nPurposeTypeStruct
+ = Purpose Type Struct : 0x%08x%08x 
+ All Purpose 
+ No Purpose 
+ No PurposeType
+ Record Timeshift 
+ Watching 2D Normal 
+ Watching AAC5.1 
+ Watching AUDIO CLIP 
+ Watching AUDIO DUAL 
+ Watching AUDIO NORMAL 
+ Watching AUDIO_DESC 
+ Watching DUAL STREAM 
+ Watching EPG gather 
+ Watching HFR 
+ Watching I-FRAME 
+ Watching Normal 
+ Watching OBJECT AUDIO 
+ Watching UNSET 
+ Watching VIDEO NORMAL 
+ Watching ZoomIn 
+ Watching section parse 
+%dth ALang -> PID : 0x%04x, Stream Type : 0x%02x, audio Type:%d, LangIdx : %d, LangCode : 0x%08x, %c%c%c, dualmono : %d, mix : %d, editorial: %d, aPurpose :%d, heAACLevel : %d, preselId: %d
+%s	  NumPid:%d    PID0:0x%x (%d)	 PID1:0x%x (%d)  nInputType.nAllInputVal:0x%lx  nActionType.nAllPurposeVal:0x%llx
+%s	 nInputType.nAllInputVal:0x%x  nActionType.nAllPurposeVal:0x%x
+%s %d --------------Timeshift Status-----------------
+%s : nInputTypeStruct=0x%08X, nPurposeTypeStruct =0x%08X%08X 
+%s : nInputTypeStruct=0x%08X, nPurposeTypeStruct =0x%08X%08X PipelineID =%s 
+%s :: nInputType =0x%08X, nPurposeType =0x%08X  
+%s :: nInputType =0x%x, nPurposeType =0x%x  
+%s(%d) ( CM_PipeMgrIf_GetInputAndPurposeTypeByPipelineID(pipeID=%s, &srcInfo, &nPurposeType) != TVCO_RESULT_OK )
+%s(%d) <%s> ePipelineStatus=%d, uWatchPurpose=0x%x -> TVIF_CHANNEL_SCREEN_SAVER_UNKNOWN
+%s(%d) <%s> ePipelineStatus=%d, uWatchPurpose=0x%x -> TVIF_EXTERNALINPUT_SCREEN_SAVER_UNKNOWN
+%s(%d) nWatchPurpose == TVCO_PIPELINE_WATCH_PURPOSE_SECTION_PARSE
+%s:%d] Timeshift is already running 
+%s>	OP. MODE : TIMESHIFT
+%s>TTML(%d) - PID [0x%x], Lang [%s:0x%x], Purpose [%d]
+%s>[GN][%s:%d]Purpose has two more types.
+%s>[GN][%s:%d]TIMESHIFT is successfully AWAKED!
+%s>[GN][%s:%d]TIMESHIFT is successfully STARTED!
+%s] Failed to get Input/Purpose type!
+%s] No TV Watch pipeline SrcType(%d) WatchPurpose(0x%x) 
+%s] TVCO_PIPELINE_WATCH_PURPOSE_HFR already exist
+%s] TVCO_PIPELINE_WATCH_PURPOSE_HFR exist
+%s]%d] szRecPipelineID[%s], nSrcType[%d], nRecordPurpose[%d]
+%s]%d]Watching DTV channel
+(%s)(%d)END watchPurpose is not WATCH_PURPOSE_NORMAL.
+(VSM)_CONNECT : Connect (R, %d) (ID: %s) ConnectByApp fail(Purpose=%d)
+(VSM)_CONNECT : Connect (R, %d) (ID: %s) invalid pipelineId(Purpose=%d)
+/dev/dvb/adapter0/ca%d
+/dev/dvb/adapter0/delivery0
+/dev/dvb/adapter0/demux%d
+/dev/dvb/adapter0/dvr
+3. Choose Purpose : [0:AUTO_SCAN, 1:MANUAL_SCAN, 2:EIT_TOUR, 3:SLU] 
+3. Choose Purpose : [0:CAM_PATH, 1:Tuner] 
+3. Choose Purpose : [0:OrigRec, 1:TransRec, 2:Timeshift, 3:Thumbnail, 4:MusicRec] 
+3. Choose Purpose : [0:SCART, 1:2ndTV, 2:CloudDVR, 3:OTA, 4:SSU] 
+3. Choose Purpose : [0:Video] 
+3. Choose Purpose: [0:Normal, 1:DualStream, 2:AD, 3:Iframe, 4:AudioClip, 5:V_Normal, 6:A_Normal, 7:ObjectAudio, 8:ZoomIn, 9:SectionParsing, a:A_Dual, b:EPG_Gather, c:HFR, d:HOST_CONTROL] 
+<%s:%d> [%d] Pipeline ID : %s, nInputType=0x%08x, nPurposeType=0x%08x
+<%s> call DASY_StartTimeshift(%s,AWAKE)
+<%s> call DASY_StartTimeshift(%s,NORMAL)
+<%s> call DASY_StopTimeshift(%s)
+<%s> called DASY_StartTimeshift(%s,AWAKE),ret:%d

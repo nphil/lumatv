@@ -1,0 +1,11 @@
+$ /usr/bin/luna-send -n 1 -f luna://com.webos.applicationManager/getForegroundAppInfo '{}'
+(exit 0)
+{
+    "returnValue": true,
+    "appId": "com.webos.app.home",
+    "appCategory": [
+        "home"
+    ],
+    "processId": "",
+    "windowId": ""
+}

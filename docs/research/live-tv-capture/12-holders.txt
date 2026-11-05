@@ -1,0 +1,4 @@
+$ for p in /proc/[0-9]*; do pid=${p#/proc/}; for f in $p/fd/*; do t=$(readlink $f 2>/dev/null); case "$t" in /dev/dvb/*|/dev/lg/sdec*|/dev/lg/pvr*|/dev/lg/te0|/dev/lg/demod*|/dev/lg/crypto*|/dev/video2) echo "$pid $(cat $p/comm 2>/dev/null) $t";; esac; done; done 2>/dev/null | sort | uniq -c
+(exit 0)
+      1 2255 legacy-broadcas /dev/dvb/adapter0/frontend0
+      1 2255 legacy-broadcas /dev/video2

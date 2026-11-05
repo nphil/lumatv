@@ -1,0 +1,11 @@
+# antenna channels of iepg/getChannelList (channelMode Tuner), grouped by the RF channel in channelId 1_<rf>_<major>_<minor>_...; 57 channels, 10 RF channels
+RF 18 (7): 34-1 WUVG-DT | 34-2 UNM-HD | 34-3 getTV | 34-4 Nosey | 34-5 ShopLC | 34-6 MVSGLD | 34-7 BT2
+RF 19 (6): 17-1 WPCH-TV | 17-4 PCH-SD | 46-1 WANF | 46-2 COZI | 46-3 GRIT | 47-1 TMDO
+RF 21 (1): 30-1 ATLPBS
+RF 22 (5): 63-1 TBN HD | 63-2 Merit | 63-3 Inspire | 63-4 ONTV4U | 63-5 POSITIV
+RF 25 (6): 11-2 Quest | 11-11 WXIA-TV | 36-1 WATL | 36-2 NOSEY | 36-3 Antenna | 36-4 QVC
+RF 27 (6): 5-1 WAGA-HD | 5-2 MOVIES! | 5-3 BUZZR | 5-4 ROAR | 5-5 CATCHY | 5-6 FOX WX
+RF 29 (10): 16-1 WYGA-CD | 16-2 WYGA-CD | 16-3 WYGA-CD | 16-4 WYGA-CD | 16-5 WYGA-CD | 16-6 WYGA-CD | 16-7 WYGA-CD | 16-8 WYGA-CD | 16-9 WYGA-CD | 66-1 WYGA-CD
+RF 32 (6): 2-1 WSB-HD | 2-2 BOUNCE | 2-3 Dabl | 2-4 WEST | 2-5 ION | 17-3 COURT
+RF 35 (3): 35-1 WDTA-LD | 35-2 ESPANOL | 35-3 REFLECT
+RF 36 (7): 69-1 WUPA-HD | 69-2 StartTV | 69-3 COMET | 69-4 MeTV | 69-5 FAVE | 69-6 Charge! | 69-7 H & I

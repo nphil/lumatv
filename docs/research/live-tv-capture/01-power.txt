@@ -1,0 +1,6 @@
+$ /usr/bin/luna-send -n 1 -f luna://com.webos.service.tvpower/power/getPowerState '{}'
+(exit 0)
+{
+    "returnValue": true,
+    "state": "Active Standby"
+}

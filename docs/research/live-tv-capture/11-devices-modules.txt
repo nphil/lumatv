@@ -1,0 +1,13 @@
+$ grep -i -E 'dvb|sdec|pvr|demod|crypto|lxdvb' /proc/devices; echo ---; grep -i -E 'dvb|atsc|si21|webos_tv|demod|sdec|pvr|crypto|lg1k|_te|te_' /proc/modules | cut -c1-120
+(exit 0)
+212 DVB
+---
+si2178b 16384 0 - Live 0xffffffc00942b000 (O)
+si2178b_atv 16384 0 - Live 0xffffffc009423000 (O)
+dvb_si2178b_chip 262144 2 si2178b,si2178b_atv, Live 0xffffffc0093dd000 (PO)
+dvb_silab_adapter 16384 1 dvb_si2178b_chip, Live 0xffffffc0093d5000 (O)
+atsc_dtv_soc 16384 0 - Live 0xffffffc0093cd000 (O)
+atsc_dtv_soc_chip 32768 1 atsc_dtv_soc, Live 0xffffffc0093c1000 (PO)
+dvb_common_adapter 16384 1 dvb_si2178b_chip, Live 0xffffffc0090bf000 (O)
+demod_khal 77824 1 atsc_dtv_soc_chip, Live 0xffffffc0093a0000
+webos_tv 81920 6 si2178b,si2178b_atv,dvb_si2178b_chip,atsc_dtv_soc,atsc_dtv_soc_chip, Live 0xffffffc00938b000 (O)

@@ -1,0 +1,60 @@
+$ for f in status io pcr pid filter param tsh; do echo "== /proc/lxdvb/demux/$f"; head -c 2500 /proc/lxdvb/demux/$f; done 2>&1
+(exit 0)
+== /proc/lxdvb/demux/status
+======================================================
+PARAMETERS
+======================================================
+PLATFORM:     UNKNOWN
+COUNTRY:      UNKNOWN
+MODEL_NO:     0
+NUM_OF_TUNER: 1
+
+======================================================
+DEMUX INPUT STATUS
+======================================================
+NUM  SRC_TYPE PORT_NUM PORT_TYPE DVR_IDX TE_INPUT_PORT        TPI
+  0      None        0    Serial      -1          None    DISABLE
+  1      None        0    Serial      -1          None    DISABLE
+  2      None        0    Serial      -1          None    DISABLE
+  3      None        0    Serial      -1          None    DISABLE
+
+======================================================
+DVB FILTER STATUS
+======================================================
+
+======================================================
+PID FILTER STATUS
+======================================================
+
+======================================================
+PCR STATUS
+======================================================
+NUM EN    PID
+  0  X   NONE
+  1  X   NONE
+  2  X   NONE
+  3  X   NONE
+
+======================================================
+TS HEADER FILTER STATUS
+======================================================
+== /proc/lxdvb/demux/io
+NUM  SRC_TYPE PORT_NUM PORT_TYPE DVR_IDX TE_INPUT_PORT        TPI
+  0      None        0    Serial      -1          None    DISABLE
+  1      None        0    Serial      -1          None    DISABLE
+  2      None        0    Serial      -1          None    DISABLE
+  3      None        0    Serial      -1          None    DISABLE
+== /proc/lxdvb/demux/pcr
+NUM EN    PID
+  0  X   NONE
+  1  X   NONE
+  2  X   NONE
+  3  X   NONE
+== /proc/lxdvb/demux/pid
+== /proc/lxdvb/demux/filter
+== /proc/lxdvb/demux/param
+PLATFORM:     UNKNOWN
+COUNTRY:      UNKNOWN
+MODEL_NO:     0
+NUM_OF_TUNER: 1
+== /proc/lxdvb/demux/tsh
