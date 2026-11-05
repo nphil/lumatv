@@ -12,7 +12,7 @@ The independently reviewed source policy is host-verified and ARM-built, but not
 
 Nine refresh tests, 11 callback tests and two existing native control/capture/ring tests passed. The normal UI-feature production ARM release build completed in 39.75 s; the ARM64 PIE stripped artifact is `/data/home/tmp/lumatv-foreground-pacing-20261031/lumatv-compositor-legacy`, SHA256 `f5c864ae1e869da3e2f60af14faca77ef51664254c8043652dff84a2fbf3463a`. Independent source review is clear. The 904c8 and 9762 candidates were superseded by repairs covering eligibility and legacy title changes.
 
-The later Design finding below overrides earlier optimism: LG Starfish owns native cadence, including 120 or fractional 119.88 Hz and the 100 Hz family for 25/50 content. In round 22 five disconnected `fr_rate` writes failed to restore 100 to 120; only video restored it. Divider 1 follows 100 when LG selects that family, not an independent 120 Hz OSD. Optical flash-free transitions are not established.
+The later Design finding below overrides earlier optimism: LG Starfish owns native cadence, including 120 or fractional 119.88 Hz and the 100 Hz family for 25/50 content. In round 22 five disconnected `fr_rate` writes failed to restore 100 to 120; only video restored it, and a write with the Ring's 25 fps stream connected failed too (2026-11-04). The compositor returns the panel with a 30 fps clip out of sight (`vwin-refresh-result.md`, `retime.rs`). Divider 1 follows 100 when LG selects that family, not an independent 120 Hz OSD. Optical flash-free transitions are not established.
 
 Current native menu routing (source, November 1): `compositor/src/scene.rs:736–780` chooses the newest mapped, non-minimized nongroup card. Overlay, volume, toast, keyboard, ShellSystem and cover windows are not pacing cards (`window.rs:99–147`). Ordinary overlays therefore inherit the underlying card: Marquee selects nominal120, while Home and other cards retain startup base60. The policy is not a universal120 Home/system-menu mode. Numeric control overrides remain sticky; auto restores foreground policy; reset changes measurements only (`control.rs:390–411`).
 
@@ -197,7 +197,7 @@ What the source says:
 
 | Lever | What it does | Safe? | Use |
 |---|---|---|---|
-| `echo <freerun> <50|60> > /proc/lg/de/fr_rate` | The same `DE_IOW_SET_FR_RATE` ioctl the kernel thread issues (SRC `de_proc.c:1231-1240`, usage line `:575`): 50 -> 100 Hz, 60 -> 120 Hz on this panel. Overwritten by the kernel at the next timing change of window 0. | Low: a path LG's own kernel takes at every playback start; no panel-type change; no `/usr` write. [INFERENCE: no blank, same as LG's switch] | Back to 120 Hz on Home once no source is connected (the helper, "Design"). Not before a first frame: the connect applies the decoder register's previous rate whatever was written |
+| `echo <freerun> <50|60> > /proc/lg/de/fr_rate` | The same `DE_IOW_SET_FR_RATE` ioctl the kernel thread issues (SRC `de_proc.c:1231-1240`, usage line `:575`): 50 -> 100 Hz, 60 -> 120 Hz on this panel. Overwritten by the kernel at the next timing change of window 0. | Low: a path LG's own kernel takes at every playback start; no panel-type change; no `/usr` write. [INFERENCE: no blank, same as LG's switch] | None: the firmware ignores it, with no source (round 22, 2026-11-04) and with a source connected (2026-11-04). The way back to 120 Hz is a source's first frame at another rate (`retime.rs`) |
 | `luna://com.webos.service.videooutput` `setVideoData.frameRate` / `hfrEnabled` | Informs pqcontroller (`setPQ.frameRate`) and the pipeline (HFR flag); no display-rate effect | Safe, but not a rate lever | Only through the media pipeline's own load options (`hfrEnabled`) for 1080p120 |
 | settingsservice `picture.realCinema`, `truMotionMode`, `truMotionJudder/Blur` | MEMC cadence (5:5 against interpolation); no rate effect on this set | Safe (user-visible setting) | Keep `realCinema on`, judder 0 for film cadence; LumaTV's Settings already own these keys |
 | `V4L2_CID_EXT_VBE_DISPLAYOUTPUT_5060HZ` on the vbe node | Forces 60 Hz output (HDMI game lag mode); OVI half a no-op here, BE half changes the BE firmware's display mode | Medium risk (BE mode change under a live picture), and the wrong direction | Never |
@@ -207,15 +207,15 @@ What the source says:
 | DRM modes from the compositor | Cosmetic; the CRTC never touches panel timing (`gfn-444-vrr-result.md` (a)) | Harmless, useless | The compositor commits with `ALLOW_MODESET` once and never again (already so) |
 
 Hold 120 Hz as base: nothing to do while LG's apps play 24/30/60 content; the DE comes up at 60 -> 120 at resume
-(`resource_mgr.c:543-544`). The hold-over after 25/50 content is the gap; the helper's write closes it on Home.
+(`resource_mgr.c:543-544`). The hold-over after 25/50 content is the gap; the compositor's retime clip closes it on Home.
 
 ## 4. LumaTV's compositor (C3)
 
 What the compositor must and must not do, against what it does:
 
 - Never force a mode change: it commits `ALLOW_MODESET` only before `modeset_done` (`kms/mod.rs:525-534`) and the `lg1k` CRTC
-  ignores the mode anyway. Nothing else to add. It writes `/proc/lg/de/fr_rate` only in `refresh.rs` `panel_rate_sync`: once per episode, with the policy automatic,
-  Home in front and no video window or source (the helper's watcher does the same for Home alone).
+  ignores the mode anyway. Nothing else to add. It does not write `/proc/lg/de/fr_rate` (the firmware ignores it): after 25/50 fps video it plays a 30 fps clip
+  out of sight until the panel reads 120 Hz (`retime.rs`).
 - Its UI clock follows the panel: `kms/timing.rs` keys the pacer to the period the flips measure, re-keyed after four agreeing
   flips, with animations on wall time. That is the right design; two details to put straight: the doc comment names 24 Hz as a
   case ("24 Hz film is the other case"), but on this set 24p film gives a 60 Hz vblank (120 / 2), and the only UI periods that
@@ -251,9 +251,9 @@ reduced to a hub this is moot; a future HDMI source should match rate, and the T
    window once more, writes `1 60` (free run) to `/proc/lg/de/fr_rate` and counts a third time. The log line is
    `frame rate: Home was left at 100.0 Hz; set back to 120 Hz (119.6 Hz measured)`. Never a write while
    a source is connected, except for a camera stream that plays with Home in front (written once, a second after it plays); nothing at all
-   while the subscription is down. `helper.json` `"frameRate": {"returnOnHome": false}` turns it off. On the set a write with no source
-   connected left a 100 Hz output at 100 Hz (round 22, five variants of the request); only a playing video put 120 back
-   (`vwin-refresh-result.md`).
+   while the subscription is down. `helper.json` `"frameRate": {"returnOnHome": false}` turns it off. On the set the write did nothing: with no source
+   connected it left a 100 Hz output at 100 Hz (round 22, five variants of the request), and with the Ring's stream connected it left 99.9 Hz (2026-11-04);
+   only a playing video put 120 back (`vwin-refresh-result.md`).
 3. **The price.** The next start after a return applies the 25/50 video's rate at its connect (the decoder register) and its own
    at the first frame: a 120 -> 100 -> 120 pair about 0.2 s long, under videooutputd's mute and the start mute [INFERENCE until
    the TV check].
