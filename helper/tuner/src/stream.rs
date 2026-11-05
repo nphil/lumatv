@@ -12,7 +12,6 @@ use crate::docs::{self, Entry, Identity};
 use crate::psi::{self, PACKET};
 use parking_lot::{Condvar, Mutex};
 use serde_json::Value;
-use std::collections::HashMap;
 use std::io::{self, Write};
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -28,8 +27,13 @@ pub enum Failure {
     Busy,
     /// The TV's own use has the tuner: the reason, for the owner's log and the client's body.
     TvInUse(String),
-    /// The tuner locked nothing that carries the channel.
+    /// The tuner did not lock.
     NoSignal(String),
+    /// The tuner locked, but what the channel needs did not come whole in time, or the demodulator counts packet errors on the
+    /// multiplex: the signal, not the station.
+    WeakSignal(String),
+    /// A clean multiplex whose whole tables or packets say the channel is not there.
+    OffAir(String),
     /// The program is scrambled or asks not to be passed on.
     Protected,
     /// The tuner, the demux or the luna call said no.
@@ -41,7 +45,11 @@ impl Failure {
     pub fn status(&self) -> u16 {
         match self {
             Self::UnknownChannel => 404,
-            Self::Busy | Self::TvInUse(_) | Self::NoSignal(_) => 503,
+            Self::Busy
+            | Self::TvInUse(_)
+            | Self::NoSignal(_)
+            | Self::WeakSignal(_)
+            | Self::OffAir(_) => 503,
             Self::Protected => 403,
             Self::Hardware(_) => 502,
         }
@@ -53,6 +61,8 @@ impl Failure {
             Self::Busy => "all tuners in use".to_owned(),
             Self::TvInUse(why) => format!("the TV is in use: {why}"),
             Self::NoSignal(why) => format!("no signal: {why}"),
+            Self::WeakSignal(why) => format!("weak signal: {why}"),
+            Self::OffAir(why) => format!("not on air: {why}"),
             Self::Protected => "the program is protected".to_owned(),
             Self::Hardware(why) => format!("tuner failure: {why}"),
         }
@@ -64,7 +74,7 @@ impl Failure {
             Self::UnknownChannel => "801 Unknown Channel",
             Self::Busy | Self::TvInUse(_) => "805 All Tuners In Use",
             Self::Hardware(_) => "806 Tune Failed",
-            Self::NoSignal(_) => "807 No Video Data",
+            Self::NoSignal(_) | Self::WeakSignal(_) | Self::OffAir(_) => "807 No Video Data",
             Self::Protected => "811 Content Protection Required",
         }
     }
@@ -81,6 +91,21 @@ pub trait Hardware: Send + Sync + 'static {
     /// Tunes LG's `channel_id` and returns the tap of what the antenna carries. Dropping the tap lets everything go: the demux, the
     /// pipeline, and the TV's last channel, which is put back.
     fn tune(&self, channel_id: &str) -> Result<Box<dyn Tap>, Failure>;
+    /// What the demodulator says of the frequency it is tuned to, if the TV says: read, nothing is touched.
+    fn signal(&self) -> Option<Signal> {
+        None
+    }
+}
+
+/// What the TV's demodulator says of the frequency it is tuned to.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Signal {
+    /// It holds a signal.
+    pub locked: bool,
+    /// Signal to noise in dB, when it says.
+    pub snr: Option<f32>,
+    /// The packets it could not correct lately (`Packet Error`, 0 to 255 on the set), when it says: 0 on a clean multiplex.
+    pub errors: Option<u32>,
 }
 
 /// The antenna's multiplex through the demux.
@@ -114,7 +139,10 @@ pub struct Limits {
     pub lineup_ttl: Duration,
     /// How long a built guide is kept: reading it is one luna call per channel.
     pub guide_ttl: Duration,
-    /// How long a table is waited for: the PSIP and the PAT repeat in well under a second on air.
+    /// How long the tables are read before the channel is given up. A clean multiplex gives them within a second (the PAT comes every 100
+    /// ms, the PMT and the virtual channel table every 400 ms at most); a weak one loses whole sections, so they are read again, the
+    /// channel table's sections kept across repeats, until this has passed. On the weak RF 29 on 2026-11-05 they took up to 4.8 s, and
+    /// at times did not come in 6 s.
     pub section_wait: Duration,
     /// How long the program's video (or clock) PID may be silent before the stream ends: the signal is gone. It is not what notices Live TV
     /// taking the tuner: stations use the same PIDs, so the packets of another multiplex look the same (`Tap::taken` and `in_use` notice).
@@ -127,28 +155,24 @@ pub struct Limits {
     pub poll: Duration,
     /// How long a request waits for a stream it took over, or one that is over, to let go of the TV.
     pub release: Duration,
-    /// How long the program's first whole picture may take once the program is routed before the channel is taken to be off the air.
-    /// Measured on the set on 2026-11-05 over its 59 channels: the first picture packet came 0.1 to 0.7 s after routing, the first whole
-    /// picture up to 2.2 s (36.4). An HDHomeRun gives up on a program after 5 s.
+    /// How long the program's first whole picture may take once the program is routed before the channel is given up: the 5 s an
+    /// HDHomeRun gives a program. Measured on the set on 2026-11-05 over its 59 channels: the first picture packet came 0.1 to 0.7 s after
+    /// routing, the first whole picture up to 3.0 s (30.1).
     pub first_picture: Duration,
-    /// How long a channel found off the air (no lock, tables that do not come whole or do not list it, no whole picture) is left out of the
-    /// lineup and refused at once. A weak RF channel comes and goes: 30.1 lost most of its packets at 14:24 that day and none at 14:47.
-    pub off_air: Duration,
 }
 
 impl Default for Limits {
     fn default() -> Self {
         Self {
             lineup_ttl: Duration::from_secs(60),
-            section_wait: Duration::from_secs(6),
+            section_wait: Duration::from_secs(8),
             silence: Duration::from_secs(5),
             owner_every: Duration::from_secs(5),
             pat_every: Duration::from_millis(100),
             poll: Duration::from_millis(200),
             guide_ttl: Duration::from_secs(30 * 60),
             release: Duration::from_secs(5),
-            first_picture: Duration::from_secs(4),
-            off_air: Duration::from_secs(30 * 60),
+            first_picture: Duration::from_secs(5),
         }
     }
 }
@@ -303,18 +327,35 @@ impl Drop for Over {
     }
 }
 
-/// The channels of a multiplex: every section of the virtual channel table (the first says how many there are).
-fn channels_of(tap: &mut dyn Tap, wait: Duration) -> Option<Vec<psi::Channel>> {
-    let first = tap.section(psi::PID_PSIP, psi::TID_TVCT, 0, wait)?;
-    let last = *first.get(7)?;
-    let mut all = psi::parse_tvct(&first)?;
-    for n in 1..=last {
-        all.extend(
-            tap.section(psi::PID_PSIP, psi::TID_TVCT, n, wait)
-                .and_then(|s| psi::parse_tvct(&s))?,
-        );
+/// The channels of a multiplex from its virtual channel table. Sections that come whole go into `have` (the first says how many there are)
+/// and stay there across calls, so on a weak multiplex a repeat only has to bring the sections the last one lost; `None` until all are in.
+fn channels_of(
+    tap: &mut dyn Tap,
+    have: &mut Vec<Option<Vec<u8>>>,
+    wait: Duration,
+) -> Option<Vec<psi::Channel>> {
+    if have.is_empty() {
+        let first = tap.section(psi::PID_PSIP, psi::TID_TVCT, 0, wait)?;
+        *have = vec![None; usize::from(*first.get(7)?) + 1];
+        have[0] = Some(first);
+    }
+    for (n, section) in (0..=u8::MAX).zip(have.iter_mut()) {
+        if section.is_none() {
+            *section = tap.section(psi::PID_PSIP, psi::TID_TVCT, n, wait);
+        }
+    }
+    let mut all = Vec::new();
+    for section in have.iter() {
+        all.extend(psi::parse_tvct(section.as_deref()?)?);
     }
     Some(all)
+}
+
+/// Why the program of a channel was not found: something that did not come whole in time, or something read whole that says it is not
+/// there.
+enum Unfound {
+    Missing(&'static str),
+    Absent(&'static str),
 }
 
 pub(crate) struct Facade {
@@ -327,8 +368,6 @@ pub(crate) struct Facade {
     source: Option<Arc<dyn Guide>>,
     /// The document served, when it was made and from which revision of the host's guide.
     guide: Mutex<Option<(Duration, u64, Arc<str>)>>,
-    /// Channels found off the air, by guide number: when, and why.
-    off_air: Mutex<HashMap<String, (Duration, String)>>,
     tuning: Arc<Tuning>,
 }
 
@@ -349,13 +388,12 @@ impl Facade {
             lineup: Mutex::new(None),
             source,
             guide: Mutex::new(None),
-            off_air: Mutex::new(HashMap::new()),
             tuning,
         }
     }
 
     /// The TV's antenna channels. Read again after a minute; a TV that does not answer leaves the last list standing.
-    fn entries(&self) -> Result<Vec<Entry>, Failure> {
+    pub(crate) fn lineup(&self) -> Result<Vec<Entry>, Failure> {
         let now = (self.clock)();
         let mut kept = self.lineup.lock();
         if let Some((at, entries)) = kept.as_ref()
@@ -371,16 +409,6 @@ impl Facade {
             }
             Err(f) => kept.as_ref().map(|(_, e)| e.clone()).ok_or(f),
         }
-    }
-
-    /// The lineup the documents list: the TV's antenna channels less those found off the air within `off_air`.
-    pub(crate) fn lineup(&self) -> Result<Vec<Entry>, Failure> {
-        let mut entries = self.entries()?;
-        let now = (self.clock)();
-        let mut off = self.off_air.lock();
-        off.retain(|_, (at, _)| now.saturating_sub(*at) < self.limits.off_air);
-        entries.retain(|e| !off.contains_key(&e.guide));
-        Ok(entries)
     }
 
     /// The XMLTV guide of the lineup, from the TV's own listings, one read per channel, or the host's guide made from them when it has one.
@@ -435,41 +463,26 @@ impl Facade {
         }
     }
 
-    /// Takes the tuner for channel `guide` (`2.4`) for the client at `peer`, tunes it, finds the program and waits for its picture.
-    /// Nothing has been sent to the client yet, so a failure is still an HTTP status. A channel found off the air (no lock, not in its
-    /// multiplex, no picture) is left out of the lineup and refused at once for `off_air`, then tried again.
+    /// Takes the tuner for channel `guide` (`2.4`) for the client at `peer`, tunes it, finds the program and waits for its first whole
+    /// picture. Nothing has been sent to the client yet, so a failure is still an HTTP status. Nothing of a failure is kept: the next request
+    /// tunes again.
     pub(crate) fn open(&self, guide: &str, peer: IpAddr) -> Result<Stream, Failure> {
         let entry = self
-            .entries()?
+            .lineup()?
             .into_iter()
             .find(|e| e.guide == guide)
             .ok_or(Failure::UnknownChannel)?;
-        let now = (self.clock)();
-        if let Some((at, why)) = self.off_air.lock().get(guide)
-            && now.saturating_sub(*at) < self.limits.off_air
-        {
-            return Err(Failure::NoSignal(format!(
-                "{why}, {} min ago",
-                now.saturating_sub(*at).as_secs() / 60
-            )));
-        }
         let lease = self.tuning.take(peer, self.limits.release)?;
         if let Some(why) = self.hw.in_use() {
             self.tuning.refused(&why);
             return Err(Failure::TvInUse(why));
         }
-        let found = self.find(&entry, lease);
-        if let Err(Failure::NoSignal(why)) = &found {
-            self.off_air
-                .lock()
-                .insert(entry.guide.clone(), ((self.clock)(), why.clone()));
-        }
-        found
+        self.find(&entry, lease)
     }
 
-    /// Tunes `entry`'s channel, finds its program in the multiplex, routes it and waits for its picture. A request of the same client that
-    /// comes meanwhile takes the tuner over: this one gives up between steps (Plex asks for the next channel while the last is still tuned
-    /// when channels are flipped, and its transcoder asks again for a stream that ended).
+    /// Tunes `entry`'s channel, finds its program in the multiplex, routes it and waits for its first whole picture. A request of the same
+    /// client that comes meanwhile takes the tuner over: this one gives up between steps (Plex asks for the next channel while the last is
+    /// still tuned when channels are flipped, and its transcoder asks again for a stream that ended).
     fn find(&self, entry: &Entry, lease: Lease) -> Result<Stream, Failure> {
         let given_up = || {
             lease
@@ -483,48 +496,27 @@ impl Facade {
         let asked = (self.clock)();
         let mut tap = self.hw.tune(&entry.channel_id)?;
         let tuned = (self.clock)();
-        let wait = self.limits.section_wait;
-        let no = |what: &str| Failure::NoSignal(format!("{what} ({})", entry.guide));
-        // The tables are read as soon as the frontend has locked. The previous multiplex's could still be on the demux for a moment (not
-        // seen on the set on 2026-11-05: the first PAT after the lock was always the new multiplex's), so tables that do not name the
-        // channel are read again until `wait` has passed.
-        let (channel, pat, pmt_pid) = loop {
+        // The tables are read in rounds from the lock on until they name the channel or `section_wait` has passed: a weak multiplex loses
+        // whole sections (on RF 29 on 2026-11-05 they took up to 4.8 s, and at times did not come in 6 s), and the previous multiplex's
+        // could still be on the demux for a moment (not seen on the set: the first PAT after the lock was always the new multiplex's).
+        let mut sections = Vec::new();
+        let mut why = Unfound::Missing("no whole channel table");
+        let (channel, pat, pmt_pid, pmt_section, pmt) = loop {
             if let Some(f) = given_up() {
                 return Err(f);
             }
-            // a table that is not read whole within `wait` is a weak signal (on RF 29 the same afternoon, with the demod counting packet
-            // errors, five 16.x channels' tables did not come whole in 6 s); one read whole without the channel is a multiplex without it
-            let found = channels_of(tap.as_mut(), wait)
-                .ok_or("no whole channel table")
-                .and_then(|all| {
-                    all.into_iter()
-                        .find(|c| (c.major, c.minor) == (entry.major, entry.minor))
-                        .ok_or("the multiplex does not list the channel")
-                })
-                .and_then(|channel| {
-                    let pat = tap
-                        .section(psi::PID_PAT, psi::TID_PAT, 0, wait)
-                        .and_then(|s| psi::parse_pat(&s))
-                        .ok_or("no PAT")?;
-                    let pmt_pid = pat
-                        .programs
-                        .iter()
-                        .find(|p| p.0 == channel.program)
-                        .map(|p| p.1)
-                        .ok_or("the PAT does not list the program")?;
-                    Ok((channel, pat, pmt_pid))
-                });
-            match found {
+            let left = self
+                .limits
+                .section_wait
+                .saturating_sub((self.clock)().saturating_sub(tuned));
+            if left.is_zero() {
+                return Err(self.unfound(entry, why));
+            }
+            match program(tap.as_mut(), entry, &mut sections, left) {
                 Ok(found) => break found,
-                Err(why) if (self.clock)().saturating_sub(tuned) >= wait => return Err(no(why)),
-                Err(_) => {}
+                Err(not) => why = not,
             }
         };
-        let pmt_section = tap
-            .section(pmt_pid, psi::TID_PMT, 0, wait)
-            .and_then(|s| psi::checked(&s, psi::TID_PMT).map(<[u8]>::to_vec))
-            .ok_or_else(|| no("no PMT"))?;
-        let pmt = psi::parse_pmt(&pmt_section).ok_or_else(|| no("no PMT"))?;
         if psi::protected(&pmt, Some(&channel)) {
             return Err(Failure::Protected);
         }
@@ -543,33 +535,40 @@ impl Facade {
         let watch = picture.map_or(pmt.pcr_pid, |(pid, _)| pid);
         tap.start(&pids)?;
         let routed = (self.clock)();
-        // The picture has to come through whole before the client is told yes. A station can list a channel whose PMT names a picture and
-        // a sound that carry no packets (16.9 on 2026-11-05), and a weak RF channel can bring the picture too broken to start (30.1 the same
-        // day, 559 packets lost in 12 s); a player takes either for a stream that has not started yet and keeps asking for it. What comes
-        // meanwhile is kept for the client, which counts those frames too.
+        // The client is told yes once the picture has come through whole, and its stream starts there: a station can list a channel whose
+        // PMT names a picture and a sound that carry no packets (16.9 on 2026-11-05), a weak RF channel can bring the picture too broken to
+        // start (30.1 the same day, 559 continuity gaps in 12 s), and a player takes either for a stream that has not started yet and keeps
+        // asking for it; the pictures before the first whole one only made Plex's transcoder log "Invalid frame dimensions 0x0".
         let whole = |p: &[u8]| {
             psi::pid_of_packet(p) == watch
                 && picture.is_none_or(|(_, stream_type)| psi::access_point(p, stream_type))
         };
         let mut first = Vec::with_capacity(PACKET * 512);
         let mut seen = 0;
-        while !first[seen..].chunks_exact(PACKET).any(whole) {
+        let start = loop {
+            if let Some(at) = first[seen..].chunks_exact(PACKET).position(whole) {
+                break seen + at * PACKET;
+            }
             if let Some(f) = given_up() {
                 return Err(f);
             }
             if (self.clock)().saturating_sub(routed) >= self.limits.first_picture {
-                let broken = first
+                let pictured = first
                     .chunks_exact(PACKET)
                     .any(|p| psi::pid_of_packet(p) == watch);
-                return Err(no(if broken {
-                    "no whole picture"
-                } else {
-                    "no picture"
-                }));
+                return Err(self.unfound(
+                    entry,
+                    match (pictured, first.is_empty()) {
+                        (true, _) => Unfound::Missing("no whole picture"),
+                        (false, true) => Unfound::Missing("no packets"),
+                        (false, false) => Unfound::Absent("no picture"),
+                    },
+                ));
             }
             seen = first.len();
             tap.read(&mut first, self.limits.poll)?;
-        }
+        };
+        first.drain(..start);
         let pictured = (self.clock)();
         self.tuning.streaming(entry);
         Ok(Stream {
@@ -594,6 +593,69 @@ impl Facade {
             lease,
         })
     }
+
+    /// The refusal of a channel whose program was not found: only a clean multiplex (the demodulator counts no packet errors) is taken at
+    /// its word when something read whole says the channel is not there; anything else is the signal.
+    fn unfound(&self, entry: &Entry, why: Unfound) -> Failure {
+        let signal = self.hw.signal();
+        match why {
+            Unfound::Absent(what) if signal.is_some_and(|s| s.locked && s.errors == Some(0)) => {
+                Failure::OffAir(format!("{what} ({})", entry.guide))
+            }
+            Unfound::Absent(what) | Unfound::Missing(what) => {
+                Failure::WeakSignal(match signal.and_then(|s| s.errors) {
+                    Some(errors) => format!("{what} ({}, {errors} packet errors)", entry.guide),
+                    None => format!("{what} ({})", entry.guide),
+                })
+            }
+        }
+    }
+}
+
+/// One round of reading `entry`'s tables within `wait`: its virtual channel (the channel table's sections kept in `sections` across
+/// rounds), the PAT's entry for its program and the program's PMT (its section as read, and what it says).
+fn program(
+    tap: &mut dyn Tap,
+    entry: &Entry,
+    sections: &mut Vec<Option<Vec<u8>>>,
+    wait: Duration,
+) -> Result<(psi::Channel, psi::Pat, u16, Vec<u8>, psi::Pmt), Unfound> {
+    let all = channels_of(tap, sections, wait).ok_or(Unfound::Missing("no whole channel table"))?;
+    let Some(channel) = all
+        .into_iter()
+        .find(|c| (c.major, c.minor) == (entry.major, entry.minor))
+    else {
+        // a table read whole without the channel may be the last multiplex's: the next round reads it new
+        sections.clear();
+        return Err(Unfound::Absent("the multiplex does not list the channel"));
+    };
+    let pat = pat_of(tap, wait).ok_or(Unfound::Missing("no whole PAT"))?;
+    let pmt_pid = pat
+        .programs
+        .iter()
+        .find(|p| p.0 == channel.program)
+        .map(|p| p.1)
+        .ok_or(Unfound::Absent("the PAT does not list the program"))?;
+    let pmt_section = tap
+        .section(pmt_pid, psi::TID_PMT, 0, wait)
+        .and_then(|s| psi::checked(&s, psi::TID_PMT).map(<[u8]>::to_vec))
+        .ok_or(Unfound::Missing("no PMT"))?;
+    let pmt = psi::parse_pmt(&pmt_section).ok_or(Unfound::Missing("no PMT"))?;
+    Ok((channel, pat, pmt_pid, pmt_section, pmt))
+}
+
+/// The whole PAT: every section of it (the first says how many there are), so a program missing from it is missing from the multiplex.
+fn pat_of(tap: &mut dyn Tap, wait: Duration) -> Option<psi::Pat> {
+    let first = tap.section(psi::PID_PAT, psi::TID_PAT, 0, wait)?;
+    let last = *first.get(7)?;
+    let mut pat = psi::parse_pat(&first)?;
+    for n in 1..=last {
+        let more = tap
+            .section(psi::PID_PAT, psi::TID_PAT, n, wait)
+            .and_then(|s| psi::parse_pat(&s))?;
+        pat.programs.extend(more.programs);
+    }
+    Some(pat)
 }
 
 /// How a running stream ended (a client that went away is the `io::Error` of `pump`, not one of these).
@@ -619,7 +681,7 @@ pub(crate) struct Stream {
     pmt_pid: u16,
     /// The program's PMT as read, sent first.
     pmt: Vec<u8>,
-    /// The packets that came while the picture was waited for.
+    /// The packets read since the first whole picture, that picture's first.
     first: Vec<u8>,
     watch: u16,
     /// How long the tune, the tables and the first picture took.
@@ -647,7 +709,7 @@ impl Stream {
             psi::SectionPackets::default(),
         );
         // the PAT and the PMT lead, so a player knows the program from the first packet (the station's PMT comes up to 0.4 s later), then
-        // the packets that came while the picture was waited for; the station's PMT packets go on from the count of the one written here
+        // the first whole picture and what came after it; the station's PMT packets go on from the count of the one written here
         let mut buf = Vec::with_capacity(PACKET * 512);
         pat.write(psi::PID_PAT, &self.pat, &mut buf);
         pmt.write(self.pmt_pid, &self.pmt, &mut buf);
@@ -787,6 +849,11 @@ pub(crate) mod tests {
         programmes_fail: Mutex<Vec<String>>,
         /// A virtual channel table the next read gives instead of the multiplex's own (the last multiplex's, still on the demux).
         stale: Mutex<Option<Vec<u8>>>,
+        /// Sections (`pid`, `table_id`, `section_number`) the next read of each loses, and every section read.
+        lost: Mutex<Vec<(u16, u8, u8)>>,
+        reads: Mutex<Vec<(u16, u8, u8)>>,
+        /// What the demodulator says.
+        signal: Mutex<Option<Signal>>,
     }
 
     impl Fake {
@@ -805,6 +872,9 @@ pub(crate) mod tests {
                 programmes_asked: Mutex::default(),
                 programmes_fail: Mutex::default(),
                 stale: Mutex::default(),
+                lost: Mutex::default(),
+                reads: Mutex::default(),
+                signal: Mutex::default(),
             })
         }
     }
@@ -850,6 +920,10 @@ pub(crate) mod tests {
             self.0.owner.lock().clone()
         }
 
+        fn signal(&self) -> Option<Signal> {
+            *self.0.signal.lock()
+        }
+
         fn tune(&self, channel_id: &str) -> Result<Box<dyn Tap>, Failure> {
             self.0.tuned.lock().push(channel_id.to_owned());
             Ok(Box::new(FakeTap {
@@ -860,7 +934,7 @@ pub(crate) mod tests {
     }
 
     impl Tap for FakeTap {
-        /// A table takes a moment to come round; the first virtual channel table can be the last multiplex's.
+        /// A table takes a moment to come round; the first virtual channel table can be the last multiplex's, and a section can be lost.
         fn section(
             &mut self,
             pid: u16,
@@ -869,6 +943,12 @@ pub(crate) mod tests {
             _wait: Duration,
         ) -> Option<Vec<u8>> {
             self.fake.time.advance(Duration::from_millis(50));
+            self.fake.reads.lock().push((pid, table_id, number));
+            let mut lost = self.fake.lost.lock();
+            if let Some(at) = lost.iter().position(|l| *l == (pid, table_id, number)) {
+                lost.remove(at);
+                return None;
+            }
             let m = &self.fake.mux;
             match (pid, table_id) {
                 (psi::PID_PSIP, psi::TID_TVCT) => self
@@ -981,8 +1061,10 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_stream_is_a_pat_naming_one_program_then_its_pmt_then_that_programs_packets() {
+    fn a_stream_is_a_pat_naming_one_program_then_its_pmt_then_that_programs_packets_from_its_first_whole_picture()
+     {
         let time = Time::default();
+        let before = [packet(0x61, 15), packet(0x64, 15)].concat();
         let chunk = [
             picture(0x61, 0),
             packet(0x64, 0),
@@ -990,7 +1072,7 @@ pub(crate) mod tests {
             packet(0x61, 1),
         ]
         .concat();
-        let fake = fake_with(&time, rf32(&[]), vec![chunk.clone()]);
+        let fake = fake_with(&time, rf32(&[]), vec![[before, chunk.clone()].concat()]);
         let mut stream = facade(&fake, &time).open("2.4", PLEX).unwrap();
         assert_eq!(*fake.tuned.lock(), ["1_32_2_4_0_0_0"]);
         assert_eq!(
@@ -1031,7 +1113,7 @@ pub(crate) mod tests {
         renumbered[2 * PACKET + 3] = 0x11;
         assert_eq!(
             rest, renumbered,
-            "everything the tuner gave, in order, the station's PMT counted on from the one written first"
+            "from the first whole picture on, everything the tuner gave, in order, the station's PMT counted on from the one written first"
         );
         assert!(
             packets.iter().filter(|p| pid(p) == 0).count() > 10,
@@ -1042,47 +1124,60 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_channel_whose_picture_never_comes_is_off_the_air_refused_at_once_and_out_of_the_lineup_for_a_while()
+    fn a_channel_whose_picture_never_comes_is_not_on_air_only_on_a_clean_multiplex_and_is_tuned_again_when_asked_again()
      {
         let time = Time::default();
         let fake = fake_with(&time, rf32(&[]), vec![packet(0x60, 0)]);
         let f = facade(&fake, &time);
-        let failed = f.open("2.4", PLEX).err();
-        assert!(
-            matches!(&failed, Some(Failure::NoSignal(why)) if why.contains("no picture")),
-            "{failed:?}"
+        let clean = Signal {
+            locked: true,
+            snr: Some(30.0),
+            errors: Some(0),
+        };
+        *fake.signal.lock() = Some(clean);
+        assert_eq!(
+            f.open("2.4", PLEX).err(),
+            Some(Failure::OffAir("no picture (2.4)".into()))
         );
         assert_eq!(fake.released.load(Ordering::Relaxed), 1, "the TV is let go");
         assert_eq!(f.tuning.status(), Status::Idle);
-        let listed = || {
-            f.lineup()
-                .unwrap()
-                .into_iter()
-                .map(|e| e.guide)
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(listed(), ["2.1"]);
-        time.advance(Duration::from_secs(60));
-        assert!(matches!(f.open("2.4", PLEX), Err(Failure::NoSignal(_))));
-        assert_eq!(fake.tuned.lock().len(), 1, "refused without tuning again");
-        time.advance(Limits::default().off_air);
-        assert_eq!(listed(), ["2.1", "2.4"]);
-        assert!(f.open("2.4", PLEX).is_err());
-        assert_eq!(fake.tuned.lock().len(), 2, "then tried again");
+        *fake.signal.lock() = Some(Signal {
+            errors: Some(81),
+            ..clean
+        });
+        assert_eq!(
+            f.open("2.4", PLEX).err(),
+            Some(Failure::WeakSignal(
+                "no picture (2.4, 81 packet errors)".into()
+            ))
+        );
+        *fake.signal.lock() = None;
+        assert_eq!(
+            f.open("2.4", PLEX).err(),
+            Some(Failure::WeakSignal("no picture (2.4)".into()))
+        );
+        assert_eq!(fake.tuned.lock().len(), 3, "each request tunes again");
+        assert_eq!(f.lineup().unwrap().len(), 2, "and the lineup keeps it");
     }
 
     #[test]
-    fn a_picture_that_never_comes_through_whole_is_refused() {
+    fn a_picture_that_never_comes_through_whole_is_a_weak_signal_even_on_a_clean_multiplex() {
         let time = Time::default();
         let fake = fake_with(
             &time,
             rf32(&[]),
             vec![[packet(0x61, 0), packet(0x61, 2)].concat()],
         );
-        let failed = facade(&fake, &time).open("2.4", PLEX).err();
-        assert!(
-            matches!(&failed, Some(Failure::NoSignal(why)) if why.contains("no whole picture")),
-            "{failed:?}"
+        *fake.signal.lock() = Some(Signal {
+            locked: true,
+            snr: Some(30.0),
+            errors: Some(0),
+        });
+        assert_eq!(
+            facade(&fake, &time).open("2.4", PLEX).err(),
+            Some(Failure::WeakSignal(
+                "no whole picture (2.4, 0 packet errors)".into()
+            ))
         );
     }
 
@@ -1189,7 +1284,7 @@ pub(crate) mod tests {
             assert!(Instant::now() < end, "nobody asked for the tuner");
             thread::yield_now();
         }
-        let entry = f.entries().unwrap().remove(1);
+        let entry = f.lineup().unwrap().remove(1);
         assert_eq!(f.find(&entry, tuning).err(), Some(Failure::Busy));
         assert_eq!(next.join().unwrap(), Ok(()));
         assert_eq!(
@@ -1282,7 +1377,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_channel_table_in_two_sections_is_read_whole() {
+    fn a_channel_table_in_two_sections_is_read_whole_and_a_lost_section_is_read_again_alone() {
         let time = Time::default();
         let mut mux = rf32(&[]);
         mux.tvct = vec![
@@ -1290,9 +1385,22 @@ pub(crate) mod tests {
             tvct_part(739, 1, 1, &[("WEST", 2, 4, 4, false)]),
         ];
         let fake = fake_with(&time, mux, on_air());
+        fake.lost.lock().push((psi::PID_PSIP, psi::TID_TVCT, 1));
         assert!(
             facade(&fake, &time).open("2.4", PLEX).is_ok(),
             "2.4 is in the second section"
+        );
+        let read: Vec<u8> = fake
+            .reads
+            .lock()
+            .iter()
+            .filter(|r| r.0 == psi::PID_PSIP)
+            .map(|r| r.2)
+            .collect();
+        assert_eq!(
+            read,
+            [0, 1, 1],
+            "the first section is kept while the lost one comes round again"
         );
     }
 
@@ -1305,23 +1413,52 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_multiplex_that_does_not_carry_the_channel_or_whose_table_does_not_come_whole_is_no_signal()
-    {
-        for (tables, why) in [
+    fn a_channel_missing_from_a_clean_multiplex_is_not_on_air_and_otherwise_a_weak_signal() {
+        let clean = Signal {
+            locked: true,
+            snr: Some(30.0),
+            errors: Some(0),
+        };
+        let weak = Signal {
+            errors: Some(12),
+            ..clean
+        };
+        let only_2_1 = || vec![tvct(739, &[("WSB-HD", 2, 1, 1, false)])];
+        let full = rf32(&[]);
+        for (tables, programs, signal, failure) in [
             (
-                vec![tvct(739, &[("WSB-HD", 2, 1, 1, false)])],
-                "the multiplex does not list the channel (2.4)",
+                only_2_1(),
+                full.pat.clone(),
+                clean,
+                Failure::OffAir("the multiplex does not list the channel (2.4)".into()),
             ),
-            (vec![], "no whole channel table (2.4)"),
+            (
+                only_2_1(),
+                full.pat.clone(),
+                weak,
+                Failure::WeakSignal(
+                    "the multiplex does not list the channel (2.4, 12 packet errors)".into(),
+                ),
+            ),
+            (
+                full.tvct.clone(),
+                pat(739, &[(1, 0x30)]),
+                clean,
+                Failure::OffAir("the PAT does not list the program (2.4)".into()),
+            ),
+            (
+                vec![],
+                full.pat.clone(),
+                clean,
+                Failure::WeakSignal("no whole channel table (2.4, 0 packet errors)".into()),
+            ),
         ] {
             let time = Time::default();
             let mut mux = rf32(&[]);
-            mux.tvct = tables;
+            (mux.tvct, mux.pat) = (tables, programs);
             let fake = fake_with(&time, mux, vec![]);
-            assert_eq!(
-                facade(&fake, &time).open("2.4", PLEX).err(),
-                Some(Failure::NoSignal(why.into()))
-            );
+            *fake.signal.lock() = Some(signal);
+            assert_eq!(facade(&fake, &time).open("2.4", PLEX).err(), Some(failure));
             assert_eq!(fake.released.load(Ordering::Relaxed), 1);
         }
     }
@@ -1436,12 +1573,22 @@ pub(crate) mod tests {
                 Failure::Busy,
                 Failure::TvInUse("x".into()),
                 Failure::NoSignal("x".into()),
+                Failure::WeakSignal("x".into()),
+                Failure::OffAir("x".into()),
                 Failure::Protected,
                 Failure::Hardware("x".into())
             ]
             .map(|f| f.status()),
-            [404, 503, 503, 503, 403, 502]
+            [404, 503, 503, 503, 503, 503, 403, 502]
         );
         assert_eq!(Failure::Busy.reason(), "all tuners in use");
+        assert_eq!(
+            Failure::WeakSignal("no PMT (16.4)".into()).reason(),
+            "weak signal: no PMT (16.4)"
+        );
+        assert_eq!(
+            Failure::OffAir("no picture (16.9)".into()).reason(),
+            "not on air: no picture (16.9)"
+        );
     }
 }

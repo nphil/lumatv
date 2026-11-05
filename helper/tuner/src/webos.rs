@@ -13,7 +13,7 @@
 //! program that cannot link LG's 32-bit luna library has.
 
 use crate::psi::{self, UNIT};
-use crate::stream::{Failure, Hardware, Tap};
+use crate::stream::{Failure, Hardware, Signal, Tap};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use std::fs::{File, OpenOptions};
@@ -34,6 +34,8 @@ const CALL_WAIT: Duration = Duration::from_secs(10);
 /// and an RF channel that does not lock (RF 35) reads strength 0 throughout.
 const LOCK_WAIT: Duration = Duration::from_secs(3);
 const LOCK_POLL: Duration = Duration::from_millis(100);
+/// The demodulator's report on the frequency it is tuned to.
+const DEMOD_STATUS: &str = "/proc/lg/demod/signal_status";
 
 // The ioctls, computed from LG's headers (`include/linux/dvbv5-ext`, `linux/dvb/dmx.h`) and used as measured on the set.
 const DMX_SET_FILTER: i32 = 0x403c_6f2b;
@@ -459,7 +461,38 @@ fn unix_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
+/// The signal [`DEMOD_STATUS`] reports: the lock, signal to noise from the demodulator's mean square error against its constellation's
+/// power (8VSB's levels of 1, 3, 5 and 7 average 21, which the set gives as `Const Power` 21504: the MSE's scale of 1024), and the packets
+/// it could not correct. Read on the set on 2026-11-05: RF 32 locked at MSE 25 to 37 (28 to 29 dB) with no packet errors, weak RF 29 at
+/// 225 to 364 (18 to 20 dB) with 21 to 255, RF 35 unlocked at 65535.
+pub fn parse_signal(text: &str) -> Option<Signal> {
+    let field = |name: &str| {
+        text.lines().find_map(|l| {
+            let (k, v) = l.split_once('=')?;
+            (k.trim() == name).then(|| v.trim())
+        })
+    };
+    let locked = field("Demod status")? == "LOCK";
+    let mse: f32 = field("MSE")?.parse().ok()?;
+    let power: f32 = field("Const Power")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(21_504.0);
+    let snr = (locked && mse > 0.0).then(|| 10.0 * (power / mse).log10());
+    let errors = field("Packet Error").and_then(|v| v.parse().ok());
+    Some(Signal {
+        locked,
+        snr,
+        errors,
+    })
+}
+
 impl Hardware for Tv {
+    fn signal(&self) -> Option<Signal> {
+        std::fs::read_to_string(DEMOD_STATUS)
+            .ok()
+            .and_then(|t| parse_signal(&t))
+    }
+
     fn channel_list(&self) -> Result<Value, Failure> {
         self.inner.luna(
             "luna://com.webos.service.iepg/getChannelList",
@@ -745,6 +778,24 @@ mod tests {
             (c[0], c[1], c[16], c[17]),
             (1 ^ 0x6a, 2 ^ 0xb0, 1 ^ 0x21, 2 ^ 0xe1)
         );
+    }
+
+    #[test]
+    fn the_demodulator_s_report_is_a_lock_and_a_signal_to_noise() {
+        // read on the set on 2026-11-05, RF 32 at rest
+        let report = "*****************DEMOD_Debug_TotalInfo*****************\nDemod status\t=\tLOCK\nOperMode    =       VSB\n\
+                      *********************Signal Status*********************\nPacket Error =    0\nBER =             0\nAGC =             625\n\
+                      MSE =             31\nbMSE =            0\nConst Power\t=     21504\nFrequency Offset= 6310\n";
+        let s = parse_signal(report).unwrap();
+        assert!(s.locked);
+        assert!((s.snr.unwrap() - 28.4).abs() < 0.1, "{s:?}");
+        assert_eq!(s.errors, Some(0));
+        let weak = parse_signal(&report.replace("Error =    0", "Error =    81")).unwrap();
+        assert_eq!(weak.errors, Some(81));
+        let none =
+            parse_signal(&report.replace("\tLOCK", "\tUNLOCK").replace("31", "65535")).unwrap();
+        assert_eq!((none.locked, none.snr), (false, None));
+        assert_eq!(parse_signal("no such report"), None);
     }
 
     #[test]
