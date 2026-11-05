@@ -110,6 +110,120 @@ pub fn lineup(entries: &[Entry], base: &str) -> Value {
     )
 }
 
+/// An attribute value of the playlist: the quotes that would end it and the line breaks that would end the entry are out.
+fn m3u_attr(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control())
+        .map(|c| if c == '"' { '\'' } else { c })
+        .collect()
+}
+
+/// `/lineup.m3u`: the lineup as an IPTV playlist (VLC, Kodi, TiviMate, Jellyfin, Emby, Channels DVR). The channel's `tvg-id` is its
+/// guide number, which is also its channel id in [`xmltv`], so a player joins the two by it.
+pub fn m3u(entries: &[Entry], base: &str) -> String {
+    let mut out = format!("#EXTM3U url-tvg=\"{base}/xmltv.xml\"\n");
+    for e in entries {
+        let (guide, name) = (m3u_attr(&e.guide), m3u_attr(&e.name));
+        out.push_str(&format!(
+            "#EXTINF:-1 tvg-id=\"{guide}\" tvg-chno=\"{guide}\" tvg-name=\"{name}\",{guide} {name}\n{base}/auto/v{}\n",
+            e.guide
+        ));
+    }
+    out
+}
+
+/// Text for an XML element or attribute: escaped, and without the characters XML 1.0 cannot carry at all.
+fn xml_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\t' | '\n' | '\r' => out.push(c),
+            c if c < ' ' || c == '\u{FFFE}' || c == '\u{FFFF}' => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// An LG time string (`YYYY,MM,DD,hh,mm,ss`, UTC in `startTime` and `endTime`) as XMLTV writes it.
+fn xmltv_time(text: &str) -> Option<String> {
+    let mut f = text.trim().split(',').map(|p| p.trim().parse::<u32>().ok());
+    let (y, mo, d, h, mi) = (f.next()??, f.next()??, f.next()??, f.next()??, f.next()??);
+    let s = f.next().flatten().unwrap_or(0);
+    if f.next().is_some()
+        || y > 9999
+        || !(1..=12).contains(&mo)
+        || !(1..=31).contains(&d)
+        || h > 23
+        || mi > 59
+        || s > 59
+    {
+        return None;
+    }
+    Some(format!("{y:04}{mo:02}{d:02}{h:02}{mi:02}{s:02} +0000"))
+}
+
+fn text_of<'a>(p: &'a Value, keys: &[&str]) -> &'a str {
+    keys.iter()
+        .filter_map(|k| p[*k].as_str())
+        .map(str::trim)
+        .find(|t| !t.is_empty())
+        .unwrap_or("")
+}
+
+/// `/xmltv.xml`: the TV's own broadcast guide (`iepg/getEventList`, one reply per channel) as XMLTV. Channel ids are the guide numbers of
+/// [`m3u`]; times are UTC. A programme without a title or a readable time is left out, a repeated start is kept once.
+pub fn xmltv(channels: &[(Entry, Value)]) -> String {
+    let mut out = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<tv generator-info-name=\"LumaTV\">\n",
+    );
+    for (e, _) in channels {
+        out.push_str(&format!(
+            "<channel id=\"{}\"><display-name>{}</display-name></channel>\n",
+            xml_text(&e.guide),
+            xml_text(&e.name)
+        ));
+    }
+    for (e, reply) in channels {
+        let mut list: Vec<(String, String, &Value)> = reply["programList"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|p| p["channelId"].as_str().is_none_or(|id| id == e.channel_id))
+            .filter_map(|p| {
+                let start = xmltv_time(p["startTime"].as_str()?)?;
+                let stop = xmltv_time(p["endTime"].as_str()?)?;
+                (stop > start && !text_of(p, &["programName", "programMainTitle"]).is_empty())
+                    .then_some((start, stop, p))
+            })
+            .collect();
+        list.sort_by(|a, b| a.0.cmp(&b.0));
+        list.dedup_by(|b, a| a.0 == b.0);
+        for (start, stop, p) in list {
+            out.push_str(&format!(
+                "<programme start=\"{start}\" stop=\"{stop}\" channel=\"{}\"><title>{}</title>",
+                xml_text(&e.guide),
+                xml_text(text_of(p, &["programName", "programMainTitle"]))
+            ));
+            let sub = text_of(p, &["programSubTitle", "secondaryTitle"]);
+            if !sub.is_empty() {
+                out.push_str(&format!("<sub-title>{}</sub-title>", xml_text(sub)));
+            }
+            let desc = text_of(p, &["description"]);
+            if !desc.is_empty() {
+                out.push_str(&format!("<desc>{}</desc>", xml_text(desc)));
+            }
+            out.push_str("</programme>\n");
+        }
+    }
+    out.push_str("</tv>\n");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,5 +322,65 @@ mod tests {
         );
         assert_eq!(id, device_id(" AA:BB:CC:00:11:22\n"));
         assert_ne!(id, device_id("aa:bb:cc:00:11:23"));
+    }
+
+    fn entry(guide: &str, name: &str, id: &str) -> Entry {
+        Entry {
+            guide: guide.into(),
+            name: name.into(),
+            channel_id: id.into(),
+            major: 0,
+            minor: 0,
+        }
+    }
+
+    #[test]
+    fn the_playlist_has_one_entry_per_channel_and_names_the_guide() {
+        let got = m3u(
+            &[
+                entry("2.1", "WSB-HD", "1_32_2_1_0_0_0"),
+                entry("2.4", "WE \"ST\"\n,", "1_32_2_4_0_0_0"),
+            ],
+            "http://tv:5004",
+        );
+        assert_eq!(
+            got,
+            "#EXTM3U url-tvg=\"http://tv:5004/xmltv.xml\"\n\
+             #EXTINF:-1 tvg-id=\"2.1\" tvg-chno=\"2.1\" tvg-name=\"WSB-HD\",2.1 WSB-HD\n\
+             http://tv:5004/auto/v2.1\n\
+             #EXTINF:-1 tvg-id=\"2.4\" tvg-chno=\"2.4\" tvg-name=\"WE 'ST',\",2.4 WE 'ST',\n\
+             http://tv:5004/auto/v2.4\n"
+        );
+    }
+
+    #[test]
+    fn the_xmltv_guide_is_utc_escaped_and_keyed_by_guide_number() {
+        let wsb = entry("2.1", "WSB & Co", "1_32_2_1_0_0_0");
+        let west = entry("2.4", "WEST", "1_32_2_4_0_0_0");
+        let p = |id: &str, name: &str, start: &str, end: &str| json!({"channelId": id, "programName": name, "startTime": start, "endTime": end});
+        let list = json!({"programList": [
+            {"channelId": "1_32_2_1_0_0_0", "programName": "News <live>", "programSubTitle": "Late", "description": "a & b\u{1}",
+             "startTime": "2026,11,05,23,30,00", "endTime": "2026,11,06,00,00,00"},
+            p("1_32_2_1_0_0_0", "Earlier", "2026,11,05,23,00,00", "2026,11,05,23,30,00"),
+            p("1_32_2_1_0_0_0", "Twice", "2026,11,05,23,00,00", "2026,11,05,23,10,00"),
+            p("1_32_2_1_0_0_0", "", "2026,11,06,00,00,00", "2026,11,06,01,00,00"),
+            p("1_32_2_1_0_0_0", "Backwards", "2026,11,06,02,00,00", "2026,11,06,01,00,00"),
+            p("1_32_2_1_0_0_0", "No time", "soon", "later"),
+            p("1_32_9_9_0_0_0", "Another channel's", "2026,11,06,03,00,00", "2026,11,06,04,00,00"),
+        ]});
+        let got = xmltv(&[
+            (wsb, list),
+            (west, json!({"returnValue": true, "programList": []})),
+        ]);
+        assert_eq!(
+            got,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<tv generator-info-name=\"LumaTV\">\n\
+             <channel id=\"2.1\"><display-name>WSB &amp; Co</display-name></channel>\n\
+             <channel id=\"2.4\"><display-name>WEST</display-name></channel>\n\
+             <programme start=\"20261105230000 +0000\" stop=\"20261105233000 +0000\" channel=\"2.1\"><title>Earlier</title></programme>\n\
+             <programme start=\"20261105233000 +0000\" stop=\"20261106000000 +0000\" channel=\"2.1\"><title>News &lt;live&gt;</title><sub-title>Late</sub-title><desc>a &amp; b</desc></programme>\n\
+             </tv>\n",
+            "sorted by start; the repeated start, the untitled, backwards, unreadable and other channel's programmes are out"
+        );
     }
 }

@@ -204,6 +204,24 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
             Ok(entries) => json(&mut stream, &docs::lineup(&entries, &base)),
             Err(f) => reply(&mut stream, f.status(), "text/plain", f.reason().as_bytes()),
         },
+        ("GET", "/lineup.m3u") => match facade.lineup() {
+            Ok(entries) => reply(
+                &mut stream,
+                200,
+                "audio/x-mpegurl; charset=utf-8",
+                docs::m3u(&entries, &base).as_bytes(),
+            ),
+            Err(f) => reply(&mut stream, f.status(), "text/plain", f.reason().as_bytes()),
+        },
+        ("GET", "/xmltv.xml") => match facade.guide() {
+            Ok(xml) => reply(
+                &mut stream,
+                200,
+                "application/xml; charset=utf-8",
+                xml.as_bytes(),
+            ),
+            Err(f) => reply(&mut stream, f.status(), "text/plain", f.reason().as_bytes()),
+        },
         // Plex asks for a scan; the lineup is the TV's own list, so there is nothing to start
         ("GET" | "POST", "/lineup.post") => reply(&mut stream, 200, "text/plain", b""),
         ("GET", path) if path.starts_with("/auto/v") => {
@@ -314,6 +332,40 @@ mod tests {
             get(&server, "POST /lineup.post?scan=start HTTP/1.1\r\n\r\n")
                 .starts_with(b"HTTP/1.1 200")
         );
+    }
+
+    #[test]
+    fn the_playlist_and_the_guide_follow_the_host_and_join_by_guide_number() {
+        let time = Time::default();
+        let server = start(&fake_with(&time, rf32(&[]), vec![]), &time, LOCAL);
+        let answer = get(
+            &server,
+            "GET /lineup.m3u HTTP/1.1\r\nHost: tv.local:5004\r\n\r\n",
+        );
+        let (head, body) = split(&answer);
+        assert!(
+            head.starts_with("HTTP/1.1 200 OK") && head.contains("audio/x-mpegurl"),
+            "{head}"
+        );
+        let playlist = String::from_utf8_lossy(body);
+        assert_eq!(
+            playlist.lines().take(4).collect::<Vec<_>>(),
+            [
+                "#EXTM3U url-tvg=\"http://tv.local:5004/xmltv.xml\"",
+                "#EXTINF:-1 tvg-id=\"2.1\" tvg-chno=\"2.1\" tvg-name=\"WSB-HD\",2.1 WSB-HD",
+                "http://tv.local:5004/auto/v2.1",
+                "#EXTINF:-1 tvg-id=\"2.4\" tvg-chno=\"2.4\" tvg-name=\"WEST\",2.4 WEST",
+            ]
+        );
+        let answer = get(&server, "GET /xmltv.xml HTTP/1.1\r\nHost: x\r\n\r\n");
+        let (head, body) = split(&answer);
+        assert!(
+            head.starts_with("HTTP/1.1 200 OK") && head.contains("application/xml"),
+            "{head}"
+        );
+        let xml = String::from_utf8_lossy(body);
+        assert!(xml.starts_with("<?xml") && xml.contains("<channel id=\"2.4\">"));
+        assert!(xml.contains("channel=\"2.4\"><title>News on 1_32_2_4_0_0_0</title>"));
     }
 
     #[test]

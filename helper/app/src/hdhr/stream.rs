@@ -54,6 +54,8 @@ impl Failure {
 pub trait Hardware: Send + Sync + 'static {
     /// LG's channel list (`iepg/getChannelList`'s reply).
     fn channel_list(&self) -> Result<Value, Failure>;
+    /// The programmes the TV's guide has for LG's `channel_id` (`iepg/getEventList`'s reply): read only, the tuner is not touched.
+    fn programmes(&self, channel_id: &str) -> Result<Value, Failure>;
     /// Who else has the tuner, if anyone: Live TV in front, or a pipeline of its own.
     fn in_use(&self) -> Option<String>;
     /// Tunes LG's `channel_id` and returns the tap of what the antenna carries. Dropping the tap lets everything go: the demux, the
@@ -80,6 +82,8 @@ pub trait Tap: Send {
 pub struct Limits {
     /// How long a read channel list is kept.
     pub lineup_ttl: Duration,
+    /// How long a built guide is kept: reading it is one luna call per channel.
+    pub guide_ttl: Duration,
     /// How long a table is waited for: the PSIP and the PAT repeat in well under a second on air.
     pub section_wait: Duration,
     /// How long the program's video (or clock) PID may be silent before the stream ends: the signal is gone. It is not what notices Live TV
@@ -102,6 +106,7 @@ impl Default for Limits {
             owner_every: Duration::from_secs(5),
             pat_every: Duration::from_millis(100),
             poll: Duration::from_millis(200),
+            guide_ttl: Duration::from_secs(30 * 60),
         }
     }
 }
@@ -151,6 +156,7 @@ pub struct Facade {
     limits: Limits,
     clock: Clock,
     lineup: Mutex<Option<(Duration, Vec<Entry>)>>,
+    guide: Mutex<Option<(Duration, Arc<str>)>>,
     busy: Arc<AtomicBool>,
 }
 
@@ -162,6 +168,7 @@ impl Facade {
             limits,
             clock,
             lineup: Mutex::new(None),
+            guide: Mutex::new(None),
             busy: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -182,6 +189,50 @@ impl Facade {
                 Ok(entries)
             }
             Err(f) => kept.as_ref().map(|(_, e)| e.clone()).ok_or(f),
+        }
+    }
+
+    /// The XMLTV guide of the lineup, from the TV's own listings, one read per channel. Kept for `guide_ttl`: a client that asks again gets
+    /// the same document, and one that asks while it is being read waits for it. A channel the TV cannot answer for is listed without
+    /// programmes; only when no channel could be read at all is it a failure (and then the last guide stands, if there is one).
+    pub fn guide(&self) -> Result<Arc<str>, Failure> {
+        let mut kept = self.guide.lock();
+        let now = (self.clock)();
+        if let Some((at, xml)) = kept.as_ref()
+            && now.saturating_sub(*at) < self.limits.guide_ttl
+        {
+            return Ok(xml.clone());
+        }
+        let built = self.lineup().and_then(|entries| {
+            let mut first_failure = None;
+            let mut read = 0;
+            let channels: Vec<_> = entries
+                .into_iter()
+                .map(|e| {
+                    let reply = match self.hw.programmes(&e.channel_id) {
+                        Ok(reply) => {
+                            read += 1;
+                            reply
+                        }
+                        Err(f) => {
+                            first_failure.get_or_insert(f);
+                            Value::Null
+                        }
+                    };
+                    (e, reply)
+                })
+                .collect();
+            match first_failure {
+                Some(f) if read == 0 => Err(f),
+                _ => Ok(Arc::<str>::from(docs::xmltv(&channels))),
+            }
+        });
+        match built {
+            Ok(xml) => {
+                *kept = Some((now, xml.clone()));
+                Ok(xml)
+            }
+            Err(f) => kept.as_ref().map(|(_, x)| x.clone()).ok_or(f),
         }
     }
 
@@ -383,6 +434,9 @@ pub(crate) mod tests {
         scripted: Vec<Vec<u8>>,
         lists: AtomicU64,
         list_fails: AtomicBool,
+        /// The channels `programmes` was asked for, and the ones it fails for.
+        programmes_asked: Mutex<Vec<String>>,
+        programmes_fail: Mutex<Vec<String>>,
     }
 
     impl Fake {
@@ -398,6 +452,8 @@ pub(crate) mod tests {
                 scripted,
                 lists: AtomicU64::new(0),
                 list_fails: AtomicBool::new(false),
+                programmes_asked: Mutex::default(),
+                programmes_fail: Mutex::default(),
             })
         }
     }
@@ -419,6 +475,23 @@ pub(crate) mod tests {
             Ok(json!({"channelList": [
                 {"channelId": "1_32_2_1_0_0_0", "channelName": "WSB-HD"},
                 {"channelId": "1_32_2_4_0_0_0", "channelName": "WEST"},
+            ]}))
+        }
+
+        fn programmes(&self, channel_id: &str) -> Result<Value, Failure> {
+            self.0.programmes_asked.lock().push(channel_id.to_owned());
+            if self
+                .0
+                .programmes_fail
+                .lock()
+                .iter()
+                .any(|c| c == channel_id)
+            {
+                return Err(Failure::Hardware("luna-send gave no answer".into()));
+            }
+            Ok(json!({"returnValue": true, "programList": [
+                {"channelId": channel_id, "programName": format!("News on {channel_id}"),
+                 "startTime": "2026,11,05,23,00,00", "endTime": "2026,11,06,00,00,00"},
             ]}))
         }
 
@@ -700,6 +773,43 @@ pub(crate) mod tests {
         let first_boot = facade(&fake, &time);
         assert_eq!(
             first_boot.lineup().err(),
+            Some(Failure::Hardware("luna-send gave no answer".into()))
+        );
+    }
+
+    #[test]
+    fn the_guide_is_read_once_per_channel_and_kept_for_its_ttl() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), vec![]);
+        let f = facade(&fake, &time);
+        let xml = f.guide().unwrap();
+        assert_eq!(
+            *fake.programmes_asked.lock(),
+            ["1_32_2_1_0_0_0", "1_32_2_4_0_0_0"]
+        );
+        assert!(xml.contains("<programme start=\"20261105230000 +0000\" stop=\"20261106000000 +0000\" channel=\"2.4\"><title>News on 1_32_2_4_0_0_0</title>"));
+        time.advance(Duration::from_secs(29 * 60));
+        assert_eq!(f.guide().unwrap(), xml);
+        assert_eq!(fake.programmes_asked.lock().len(), 2);
+        time.advance(Duration::from_secs(2 * 60));
+        f.guide().unwrap();
+        assert_eq!(fake.programmes_asked.lock().len(), 4);
+    }
+
+    #[test]
+    fn a_channel_the_tv_cannot_answer_for_is_listed_bare_and_a_dead_guide_leaves_the_last() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), vec![]);
+        let f = facade(&fake, &time);
+        fake.programmes_fail.lock().push("1_32_2_1_0_0_0".into());
+        let xml = f.guide().unwrap();
+        assert!(xml.contains("<channel id=\"2.1\">") && !xml.contains("channel=\"2.1\""));
+        assert!(xml.contains("channel=\"2.4\"><title>"));
+        fake.programmes_fail.lock().push("1_32_2_4_0_0_0".into());
+        time.advance(Duration::from_secs(31 * 60));
+        assert_eq!(f.guide().unwrap(), xml, "stale is better than nothing");
+        assert_eq!(
+            facade(&fake, &time).guide().err(),
             Some(Failure::Hardware("luna-send gave no answer".into()))
         );
     }

@@ -95,12 +95,16 @@ Plex's DVR takes an HDHomeRun-style network tuner. It finds one by IP (Settings,
 | `/discover.json` | `FriendlyName`, `DeviceID` (from the TV's MAC), `ModelNumber HDTC-2US`, `BaseURL` (the host the client used), `LineupURL`, `TunerCount 1` |
 | `/lineup_status.json` | `ScanInProgress 0`, `ScanPossible 1`, `Source "Antenna"` |
 | `/lineup.json` | one entry per antenna channel of `iepg/getChannelList` (57 on the set, none skipped or hidden; a repeated number is listed once): `GuideNumber` "2.4", `GuideName`, `URL` |
+| `/lineup.m3u` | the lineup as an M3U playlist: `#EXTM3U url-tvg="<base>/xmltv.xml"`, then per channel `#EXTINF:-1 tvg-id="2.4" tvg-chno="2.4" tvg-name="<name>",2.4 <name>` and the `/auto/v2.4` URL |
+| `/xmltv.xml` | XMLTV from the TV's own broadcast guide (`iepg/getEventList`, one read-only call per channel for a day back to six days ahead, kept 30 minutes); channel ids are the guide numbers, times UTC; a channel with no listings has none |
 | `/auto/v<GuideNumber>` | the stream above; 404 for no such number, 503 while another stream runs, the TV is in use or there is no signal, 403 for a protected program, 502 when the hardware fails |
 | `/lineup.post` | 200, nothing to start |
 
 Plex (on BeastNAS) reaches the TV on the LAN and the stream goes straight from the TV to Plex; a 19.4 Mb/s RF channel is a fifth of the TV's 100 Mb/s link. Guide data comes from Plex; the TV's own listings (sparse) are not used. The same stream URL should serve Jellyfin, Emby or Tvheadend [INFERENCE: not tried].
 
 To add it: Settings, "Live TV for Plex", switch "Share the antenna tuner" on (it is off by default; the listener binds the TV's private address, port 5004, private networks only); in Plex, Live TV & DVR, set up, enter `<the TV's address>:5004`, and pick the channels. `hdhr` in `helper.json` holds the rest, all optional: `port` (5004), `bind`, `allowedNets`, `python` (the 32-bit one), `dvbDir`, `channel` (the demux channel, 2: LG's own stack keeps 0), `settleMs` (2000), `macFile`.
+
+The lineup also serves players that are not DVR tuners; with `<tv>` the TV's address and port, `http://<tv>:5004`: VLC, Media, Open Network Stream, `<tv>/lineup.m3u` (or one channel, `<tv>/auto/v2.4`); Jellyfin, Live TV, add a tuner: HDHomeRun at `<tv>` or M3U Tuner with `<tv>/lineup.m3u`, and an XMLTV guide provider with `<tv>/xmltv.xml`; Emby, Live TV, the same two choices; Channels DVR, Add Source, HDHomeRun at `<tv>`, or Custom Channels with the playlist and `<tv>/xmltv.xml` as its guide; TiviMate, Add Playlist, M3U with `<tv>/lineup.m3u`, then `<tv>/xmltv.xml` as the EPG; Kodi, PVR IPTV Simple Client, M3U play list URL `<tv>/lineup.m3u` and XMLTV URL `<tv>/xmltv.xml`. The TV's own listings are sparse (a handful of channels have any), so a player with its own guide source may do better with that.
 
 Measured on 2026-11-05 with Plex 1.43.5 on BeastNAS and a559ccb3 on the set: Plex added the device by address and read the 57 channels; its 30311 antenna guide ("Local Broadcast Listings") matched 53, all with listings, and not 35.2, 35.3, 36.4 or 66.1. Plex takes `HDTC-2US` for a transcoding tuner and offers "Transcoder Quality"; the facade cannot transcode and sends the broadcast as is, so the device is set to "Original format". A tune of 2.4 answered in 4.6 s and streamed 82 s: 2.5 MB left the TV in 10 s and Plex cut one HLS segment a second (MPEG-2 720x480, AC-3 stereo, 2.4 Mb/s). Cancelling the grab closed the connection and the helper's pipeline went. Plex's transcoder must be able to write its session folder: no Live TV starts without it.
 
@@ -121,4 +125,5 @@ Measured on 2026-11-05 with Plex 1.43.5 on BeastNAS and a559ccb3 on the set: Ple
 - Plex: playback in a Plex app (the run drove Plex's API), a recording, and Plex's handling of the facade's 503 and 403.
 - Sound during a stream (above), and a stream while an app plays video.
 - Two clients on one RF channel: not built (the second is refused).
+- `/lineup.m3u` and `/xmltv.xml` on the set, and in VLC, Jellyfin, Emby, Channels DVR, TiviMate and Kodi: built and tested against the fake only (the `getEventList` shape was read on the set, `channel-guide.md`).
 - Time to first byte for a retune; the probes took about 4 s from `changeChannel` to the first packet.

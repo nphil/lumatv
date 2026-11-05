@@ -1,6 +1,7 @@
 //! The antenna tuner as an HDHomeRun: Plex's DVR (or Jellyfin, Emby, Tvheadend) finds the TV by its address, reads the lineup and records or
-//! watches from it, without the TV being switched to Live TV and without a tuner box. Prototype: the stream path was measured on the set
-//! with probes (`docs/research/live-tv-capture.md`), this module has not yet run on it.
+//! watches from it, without the TV being switched to Live TV and without a tuner box. The same lineup is also an IPTV playlist with an XMLTV
+//! guide, for players that take those (VLC, Kodi, TiviMate, Jellyfin, Emby, Channels DVR). The stream path was measured on the set with
+//! probes and through Plex (`docs/research/live-tv-capture.md`).
 //!
 //! It is a network entrance and the tuner is shared with the TV's own use, so both are the owner's: **off by default** (Settings, `base.livetv`),
 //! and while off nothing is bound and the tuner is left alone. On, it listens on the TV's private address (`helper.json`, `hdhr`; never a public
@@ -12,6 +13,8 @@
 //! | `GET /discover.json` | the device: name, id, `TunerCount` 1, `BaseURL`, `LineupURL` |
 //! | `GET /lineup_status.json` | an antenna, not scanning |
 //! | `GET /lineup.json` | the TV's antenna channels (`iepg/getChannelList`), one per number: `GuideNumber` `2.4`, `GuideName`, `URL` |
+//! | `GET /lineup.m3u` | the same lineup as an M3U playlist: `tvg-id` and `tvg-chno` are the guide number, the URL is `/auto/v<number>`, `url-tvg` names `/xmltv.xml` |
+//! | `GET /xmltv.xml` | the TV's own broadcast guide (`iepg/getEventList`, a day back to six days ahead, read once per channel and kept 30 minutes) as XMLTV, UTC, channel ids the guide numbers; a channel the TV has no listings for has no programmes |
 //! | `GET /auto/v<number>` | MPEG-TS of that channel: a PAT naming the one program, then its PMT, clock, picture and sound; 503 while busy or the TV is in use; 403 for a protected program; 404 for no such channel |
 //! | `GET`/`POST /lineup.post` | 200, nothing to start (the lineup is the TV's) |
 //!

@@ -354,11 +354,33 @@ impl Inner {
     }
 }
 
+/// How far before and after now the guide is read. `getEventList` takes the broadcast's wall clock, whose offset from UTC the helper does
+/// not know: the window is asked for as if UTC were that clock, which moves it by at most 14 hours, so a day of margin keeps now inside it.
+const GUIDE_BEFORE_MS: u64 = 24 * 3600 * 1000;
+const GUIDE_AHEAD_MS: u64 = 6 * 24 * 3600 * 1000;
+
+/// The `getEventList` request for one channel's programmes around `now_ms`.
+fn events_request(channel_id: &str, now_ms: u64) -> Value {
+    json!({
+        "dataType": 0,
+        "localStartTime": crate::timeutil::lg_stamp(now_ms.saturating_sub(GUIDE_BEFORE_MS)),
+        "localEndTime": crate::timeutil::lg_stamp(now_ms + GUIDE_AHEAD_MS),
+        "channelId": [channel_id],
+    })
+}
+
 impl Hardware for Tv {
     fn channel_list(&self) -> Result<Value, Failure> {
         self.inner.luna(
             "luna://com.webos.service.iepg/getChannelList",
             &json!({"dataType": 0, "sort": 0, "channelMode": ["Tuner"], "channelGroup": ["All"], "requestField": ["channelId", "channelNumber", "channelName", "skipped", "Invisible"]}),
+        )
+    }
+
+    fn programmes(&self, channel_id: &str) -> Result<Value, Failure> {
+        self.inner.luna(
+            "luna://com.webos.service.iepg/getEventList",
+            &events_request(channel_id, crate::timeutil::now_ms()),
         )
     }
 
@@ -727,6 +749,15 @@ esac"#
             .lines()
             .map(str::to_owned)
             .collect()
+    }
+
+    #[test]
+    fn the_guide_is_asked_for_a_day_before_now_and_six_days_after() {
+        // 2026-11-05 15:00:00 UTC
+        assert_eq!(
+            events_request("1_32_2_1_0_0_0", 1_793_890_800_000),
+            json!({"dataType": 0, "localStartTime": "2026,11,04,15,00,00", "localEndTime": "2026,11,11,15,00,00", "channelId": ["1_32_2_1_0_0_0"]})
+        );
     }
 
     #[test]
