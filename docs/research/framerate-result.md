@@ -274,8 +274,8 @@ run mutes the receiver through Home Assistant and puts it back once Home is in f
    `100 -> 120 Hz … (start)`; Nitin watches YouTube's Browse page at that moment. Pass: `VERDICT: PASS`, no blink seen.
 3. The set back in Active Standby (the last run without `--no-standby`, or the power key).
 
-A blink at the retime itself is Nitin's choice: Home at 120 Hz after 25/50 video, or `--no-retime` (`ctl retime off` for a run). A blink at step 1 or 2 is
-LG's own switch and stays either way.
+The retime is off by default (`--retime`, `ctl retime on` for a run): on the set its clip made the TV switch its picture mode away from Filmmaker Mode while it
+played (`vwin-refresh-result.md`). A blink at step 1 or 2 is LG's own switch and stays either way.
 
 Still open after that: `gfn120` (a GFN session started by hand: both HFR switches on, 120 Hz 1:1), and a 25 fps Plex item:
 `plex25after24` picked two 23.976 items in round 11, and the Plex library API (`http://192.168.1.69:32400`) answers 401 without a

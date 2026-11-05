@@ -18,8 +18,9 @@ on the workstation and put on the set (/tmp/gfn/retime25.h264):
     ffmpeg -f lavfi -i color=c=black:size=640x360:rate=25 -t 1 -c:v libx264 -profile:v high -pix_fmt yuv420p -preset veryslow \\
       -x264-params aud=1:repeat-headers=1:slices=1:bframes=0:keyint=25:scenecut=0:ref=1:force-cfr=1 -bsf:v filter_units=remove_types=6 -f h264 retime25.h264
 
-What it never does: write /proc/lg/de/fr_rate (the write the firmware ignores), launch an app, touch a picture setting, change the vwin mode or leave a claim, a
-player or the clip's `show` switch behind. What decides each verdict is in `result.json` next to its number; a verdict that needs eyes says so (`null`).
+The retime is off by default; `play` and `restore` switch it on (`ctl retime on`) and put it back as it was found. What it never does: write /proc/lg/de/fr_rate (the
+write the firmware ignores), launch an app, touch a picture setting, change the vwin mode or leave a claim, a player or the clip's `show` switch behind. What decides
+each verdict is in `result.json` next to its number; a verdict that needs eyes says so (`null`).
 """
 import json
 import os
@@ -267,7 +268,7 @@ def stage_read(res):
     st = {"retime": r, "foreground": foreground(), "refresh": {k: refresh.get(k) for k in ("hz", "mode")}, "panel_hz": hz,
           "panel_band": band(hz), "scaler": scaler_of(read(SCALER)), "win0": win0_of(read(WIN0)), "players": players(),
           "vwin_mode": ctl("vwin").get("vwin", {}).get("mode"), "player_plays_files": plays}
-    st["ready"] = bool(r.get("enabled") and r.get("playerPresent") and plays and st["foreground"] == HOME and st["scaler"]["src"] == "NONE" and not st["players"])
+    st["ready"] = bool(r.get("playerPresent") and plays and st["foreground"] == HOME and st["scaler"]["src"] == "NONE" and not st["players"])
     res["read"] = st
     say("read:", json.dumps(st))
     return st
@@ -277,13 +278,14 @@ def stage_play(res, secs):
     ctl("retime hide")
     pre = stage_read(res) if "read" not in res else res["read"]
     if not pre["ready"]:
-        res["play"] = {"error": "not ready (the retime on, the player installed, Home in front, no source, no player): see read"}
+        res["play"] = {"error": "not ready (the player installed, Home in front, no source, no player): see read"}
         say("play: not ready")
         return
     log = open(OUT + "/samples.jsonl", "a")
     m = Meter()
     m.look()
     start_band = pre["panel_band"]
+    ctl("retime on")
     now = ctl("retime now 10")
     say("play: ctl retime now ->", json.dumps(now.get("ok")), now.get("error", ""))
     p = {"started": bool(now.get("ok")), "start_band": start_band}
@@ -338,6 +340,7 @@ def stage_restore(res, clip25, manual, wait):
     log = open(OUT + "/samples.jsonl", "a")
     m = Meter()
     m.look()
+    ctl("retime on")
     r = {"provoke": "manual" if manual else "clip25"}
     if not manual:
         if not (clip25 and os.path.exists(clip25) and os.path.exists(FEEDER)):

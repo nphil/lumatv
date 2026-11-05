@@ -173,6 +173,7 @@ fn the_retime_clips_video_is_placed_under_the_ui_with_no_hole_and_hidden_again_w
     let (runtime, scaler) = (dir.clone(), dir.join("no-scaler"));
     server.eval(move |s| {
         s.config.runtime_dir = runtime;
+        s.retime.enabled = true;
         s.retime.program = program;
         s.retime.scaler = scaler;
     });

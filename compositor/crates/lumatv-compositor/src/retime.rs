@@ -469,7 +469,7 @@ impl Drop for Player {
 
 /// What the compositor keeps of the retime.
 pub struct Controller {
-    /// `ctl retime on|off`, `--no-retime`.
+    /// `ctl retime on|off`, `--retime`; off unless asked for.
     pub enabled: bool,
     /// `ctl retime show`: the clip's window gets its hole, to see where it is (and for a decoder that does not connect under the UI).
     pub show: bool,
@@ -1120,7 +1120,7 @@ mod tests {
             }
             let period = Arc::new(AtomicU64::new(period_ns(60)));
             let display: wayland_server::Display<crate::State> = wayland_server::Display::new().unwrap();
-            let config = crate::config::Config { runtime_dir: dir.clone(), ..crate::config::Config::default() };
+            let config = crate::config::Config { runtime_dir: dir.clone(), retime: true, ..crate::config::Config::default() };
             let output = Flips { inner: Software::new(64, 64), period: period.clone() };
             let mut state = crate::State::new(display.handle(), config, Box::new(output), Box::new(crate::luna::Null::default()));
             state.retime.program = dir.join("feeder");
