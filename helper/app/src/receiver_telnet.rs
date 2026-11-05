@@ -500,6 +500,7 @@ fn session(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // one conversation is made of exactly these: the shared state, the link, whom it is for and its generation
 fn converse(
     shared: &Shared,
     tuning: &Tuning,

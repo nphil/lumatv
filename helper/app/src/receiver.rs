@@ -427,6 +427,7 @@ pub fn spawn(ctx: &Ctx, tx: Sender<Cmd>, rx: Receiver<Cmd>) -> std::io::Result<J
         .spawn(move || run(&ctx, tx, &rx))
 }
 
+#[allow(clippy::too_many_arguments)] // the loop's own state, lent to the one place that drains the link's events
 fn drain_link_events(
     link: Option<&Link>,
     poller: &mut Poller<'_>,
