@@ -292,6 +292,17 @@ fn next_clear(words: &[u64], from: usize, to: usize) -> usize {
     to
 }
 
+/// `out` as `count` empty sets, the ones it holds reused: what [`visible`] says of layers none of which can be seen.
+pub fn cleared(width: u32, height: u32, count: usize, out: &mut Vec<TileSet>) {
+    out.truncate(count);
+    for set in out.iter_mut() {
+        set.clear();
+    }
+    while out.len() < count {
+        out.push(TileSet::new(width, height));
+    }
+}
+
 /// What can be seen of each of `layers`, in whole tiles: every tile its `extent` touches that no layer above it covers
 /// completely (a tile is covered when it lies wholly inside one of the `opaque` rectangles of a layer above). The layers are in
 /// drawing order, the last on top. `out` is reused: its sets are made empty first, and there is one for each layer.
@@ -299,13 +310,7 @@ fn next_clear(words: &[u64], from: usize, to: usize) -> usize {
 /// Conservative where it can only draw more: a tile that an opaque layer covers in part is seen, and so is a layer's own rounded
 /// corner next to its cover.
 pub fn visible(width: u32, height: u32, layers: &[(Area, &[Area])], out: &mut Vec<TileSet>) {
-    out.truncate(layers.len());
-    for set in out.iter_mut() {
-        set.clear();
-    }
-    while out.len() < layers.len() {
-        out.push(TileSet::new(width, height));
-    }
+    cleared(width, height, layers.len(), out);
     let mut covered = TileSet::new(width, height);
     for (k, (extent, opaque)) in layers.iter().enumerate().rev() {
         out[k].add(*extent);

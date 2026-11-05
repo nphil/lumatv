@@ -1641,6 +1641,8 @@ impl Output for Kms {
                 self.latch.get().1 as f64 / 1e6
             );
         }
+        // (calm: a frame after a gap that has the time for the pass of copying a page's debts from the page drawn last: `frames`)
+        let calm = self.last_draw_ns != 0 && now.saturating_sub(self.last_draw_ns) >= frames::AMBIENT_COPY_REFRESHES * self.timing.period_ns();
         self.last_draw_ns = now;
         self.care_draw = false;
         let slot_ns = self.timing.pacer.plan(now).slot_ns;
@@ -1674,6 +1676,7 @@ impl Output for Kms {
             // A composed frame retires the textures of buffers that died (`render_rects`); a run of direct frames must too.
             self.gl.prune(surfaces, &plan.items);
         }
+        self.frames.set_calm(calm);
         let (assignment, stats) = self.frames.draw(&mut self.gl, plan, surfaces, direct)?;
         let took_direct = matches!(assignment.primary, Source::Direct(_));
         if took_direct {

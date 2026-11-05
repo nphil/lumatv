@@ -17,6 +17,12 @@
 //! (`Gl::copy_from_page`): a whole-screen change costs one frame of drawing and two copies, not three frames. Otherwise (Home's own
 //! walks) the page draws all it owes: with the copies and the engine's floor, Home's walks dropped 29 (apps-grid) and 28
 //! (home-widgets) frames at 120 Hz against 3 and 3 without (round 27). `LUMATV_PAGE_COPY=0` draws all a page owes always.
+//!
+//! A calm frame copies as well (`Frames::set_calm`): one that comes [`AMBIENT_COPY_REFRESHES`] refreshes or more after the frame before,
+//! while nothing the owner drives is moving (the engine asks for no frame at every refresh). The weather's sky and the wallpaper's steps
+//! (10 a second) make such frames; with a ring of three pages every one of them owed the whole screen, 90 layers and 119 draws, for the
+//! change of a sky's box. Copying costs one blit (a pass over the page, with the time for it) and the frame draws what it changed.
+//! `LUMATV_AMBIENT_COPY=0` draws all a page owes in them.
 
 use std::io;
 
@@ -28,6 +34,10 @@ use crate::scene::Plan;
 use crate::surface::Surfaces;
 
 use super::assign::{Assignment, Facts, Source, decide};
+
+/// Refreshes a frame must come after the frame before to be calm (`Frames::set_calm`); the engine's host counts the same
+/// (`lumatv_render::host::AMBIENT_COPY_REFRESHES`).
+pub const AMBIENT_COPY_REFRESHES: u64 = 3;
 
 pub struct Frames {
     targets: Vec<TargetId>,
@@ -44,6 +54,9 @@ pub struct Frames {
     /// the frames before its own. None after a frame that composed nothing, or a ring or a page forgotten.
     composed: Option<usize>,
     page_copy: bool,
+    /// Calm frames copy too (`LUMATV_AMBIENT_COPY=0` switches it off), and whether the next frame is one (`Frames::set_calm`).
+    ambient_copy: bool,
+    calm: bool,
     copied: Tiles,
     copy_rects: Vec<Rect>,
     width: u32,
@@ -66,6 +79,8 @@ impl Frames {
             last_split: false,
             composed: None,
             page_copy: std::env::var("LUMATV_PAGE_COPY").as_deref() != Ok("0"),
+            ambient_copy: std::env::var("LUMATV_AMBIENT_COPY").as_deref() != Ok("0"),
+            calm: false,
             copied: Tiles::new(width, height),
             copy_rects: Vec::with_capacity(16),
             width,
@@ -79,6 +94,11 @@ impl Frames {
         self.ui_ring = Ring::new(targets.len(), self.width, self.height);
         self.ui_targets = targets;
         self
+    }
+
+    /// Says whether the next frame is calm: it comes [`AMBIENT_COPY_REFRESHES`] or more after the frame before. It counts for that frame only.
+    pub fn set_calm(&mut self, calm: bool) {
+        self.calm = calm;
     }
 
     /// The page the next composed frame goes into: not on the screen and not in a flip (the ring turns one ahead of both, and a frame that was
@@ -182,7 +202,9 @@ impl Frames {
                 if standin { gl.snapshot_aliased_standin()?; }
                 // What the page owes from the frames before this one is in the page the last frame went into.
                 let mut copied = false;
-                if let Some(last) = self.composed.filter(|&p| p != page && self.page_copy && gl.ui_over_home()) {
+                // (a calm frame: nothing of the owner's is moving, and the engine's next frame is not at the next refresh)
+                let calm = std::mem::take(&mut self.calm) && self.ambient_copy && !gl.ui_animating();
+                if let Some(last) = self.composed.filter(|&p| p != page && self.page_copy && (calm || gl.ui_over_home())) {
                     self.copied.clear();
                     self.copied.union(owed);
                     self.copied.subtract(&tiles);

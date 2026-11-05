@@ -36,6 +36,10 @@ struct ScanOut {
     pages: Vec<TargetId>,
     ui_pages: Vec<TargetId>,
     sources: Arc<Mutex<Vec<Assignment>>>,
+    /// Every frame is calm (`Frames::set_calm`), as `Kms` says of a frame that comes three refreshes after the last.
+    calm: bool,
+    /// The pixels each composed frame drew (`RenderStats::owed_px`).
+    drew: Arc<Mutex<Vec<u64>>>,
 }
 
 impl Output for ScanOut {
@@ -66,8 +70,10 @@ impl Output for ScanOut {
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
         // the device would take the window's buffer whenever the plan allows it
         let direct = plan.sole_fullscreen().map(|_| (FB, (0, 0)));
+        self.frames.set_calm(self.calm);
         let (assignment, stats) = self.frames.draw(&mut self.gl, plan, surfaces, direct)?;
         self.sources.lock().push(assignment);
+        self.drew.lock().push(stats.owed_px);
         Ok(stats)
     }
 
@@ -98,6 +104,7 @@ struct Rig {
     ui: Ui,
     events: Receiver<Event>,
     sources: Arc<Mutex<Vec<Assignment>>>,
+    drew: Arc<Mutex<Vec<u64>>>,
     shm: PathBuf,
     under: ShapeLayer,
     osd: ShapeLayer,
@@ -111,6 +118,11 @@ fn hidden() -> Props {
 impl Rig {
     /// `None` without Mesa. `split` gives the output a UI ring (an overlay plane that takes alpha).
     fn start(name: &str, split: bool) -> Option<Rig> {
+        Self::start_with(name, split, false)
+    }
+
+    /// [`Rig::start`] with every frame calm or not (`ScanOut::calm`).
+    fn start_with(name: &str, split: bool, calm: bool) -> Option<Rig> {
         if !Path::new(MESA).exists() {
             eprintln!("skipped: no Mesa at {MESA}");
             return None;
@@ -122,6 +134,8 @@ impl Rig {
         let dir = shm.clone();
         let sources = Arc::new(Mutex::new(Vec::new()));
         let log = sources.clone();
+        let drew = Arc::new(Mutex::new(Vec::new()));
+        let drawn = drew.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         let server = Server::start_with(Box::new(move || {
             let mut gl = Gl::new(MESA, Platform::Surfaceless, 1920, 1080, BufferPath::Own, None).unwrap();
@@ -133,7 +147,7 @@ impl Rig {
             if split {
                 frames = frames.with_ui_pages(ui_pages.clone());
             }
-            Box::new(ScanOut { gl, frames, pages, ui_pages, sources: log })
+            Box::new(ScanOut { gl, frames, pages, ui_pages, sources: log, calm, drew: drawn })
         }));
         let (scene, _, events) = Scene::over_with(rx.recv().unwrap(), SceneOptions { shm_dir: Some(shm.clone()), ..Default::default() }).unwrap();
         let ui = Ui::new(scene);
@@ -141,7 +155,7 @@ impl Rig {
         let ground = ui.scene.shape(1920, 1080, 0, solid(Rgba(18, 20, 32, 255)), Props::at(0.0, 0.0));
         let under = ui.scene.shape(100, 100, 1, solid(Rgba(90, 200, 90, 255)), Props::at(500.0, 500.0));
         let osd = ui.scene.shape(400, 60, 1000, solid(Rgba(245, 245, 255, 255)), hidden());
-        Some(Rig { server, ui, events, sources, shm, under, osd, _ground: ground })
+        Some(Rig { server, ui, events, sources, drew, shm, under, osd, _ground: ground })
     }
 
     /// Commits what is staged and waits for the frame that shows it.
@@ -404,4 +418,35 @@ fn a_page_that_copies_what_it_owes_from_the_last_page_holds_the_frame_whole() {
         }
     }
     assert_eq!(rig.gl_errors(), 0);
+}
+
+/// Steps a layer 160 px a frame across Home, checks every frame holds the layer where it is and nothing where it was, and returns the pixels
+/// each frame drew once the ring is warm.
+fn walk_a_layer(name: &str, calm: bool) -> Option<Vec<u64>> {
+    let rig = Rig::start_with(name, false, calm)?;
+    rig.commit();
+    let place = |step: u32| (100 + step * 160, 500u32);
+    for step in 0..10u32 {
+        let (x, y) = place(step);
+        rig.under.set(Props::at(x as f32, y as f32));
+        rig.commit();
+        let image = rig.capture();
+        assert_eq!(image.pixel(x + 50, y + 50), [90, 200, 90, 255], "{name} step {step}: the layer where it is");
+        for back in 1..=3u32.min(step) {
+            let (bx, by) = place(step - back);
+            assert_eq!(image.pixel(bx + 50, by + 50), [18, 20, 32, 255], "{name} step {step}: nothing left where it was {back} frames before");
+        }
+    }
+    assert_eq!(rig.gl_errors(), 0);
+    let drew = rig.drew.lock().clone();
+    // (the frames of the first commit and the ring's first turn owe the whole screen)
+    Some(drew[drew.len().saturating_sub(6)..].to_vec())
+}
+
+#[test]
+fn a_calm_frame_draws_only_what_it_changes_and_its_page_still_holds_the_frame_whole() {
+    let (Some(calm), Some(busy)) = (walk_a_layer("calm", true), walk_a_layer("busy", false)) else { return };
+    let (calm_px, busy_px): (u64, u64) = (calm.iter().sum(), busy.iter().sum());
+    // a ring of three pages owes each change three times; copied from the page drawn last, a calm frame draws the change once
+    assert!(calm_px * 3 <= busy_px * 2, "calm frames drew {calm_px} px in six, the frames that draw what their pages owe {busy_px}");
 }

@@ -183,8 +183,9 @@ struct UiStats {
     layers: u64,
     cpu_us: u64,
     cpu_us_max: u32,
-    /// Of `cpu_us`: placing the layers, planning, making backdrops, drawing, working out the damage, taking in commits (`FrameCost`).
-    phases_us: [u64; 6],
+    /// Of `cpu_us`: placing the layers, planning, making backdrops, drawing, working out the damage, taking in commits, saving and putting back the
+    /// context's state, stepping the scene, ending the frame (`FrameCost`).
+    phases_us: [u64; 9],
     gl_errors: u64,
 }
 
@@ -199,23 +200,23 @@ impl UiStats {
         self.layers += u64::from(cost.layers);
         self.cpu_us += u64::from(cost.cpu_us);
         self.cpu_us_max = self.cpu_us_max.max(cost.cpu_us);
-        for (sum, us) in self.phases_us.iter_mut().zip([cost.place_us, cost.plan_us, cost.backdrop_us, cost.draw_us, cost.damage_us, cost.apply_us]) {
+        for (sum, us) in self.phases_us.iter_mut().zip([cost.place_us, cost.plan_us, cost.backdrop_us, cost.draw_us, cost.damage_us, cost.apply_us, cost.scope_us, cost.step_us, cost.finish_us]) {
             *sum += u64::from(us);
         }
         self.gl_errors += u64::from(cost.gl_error.is_some());
     }
 
     /// Per-frame means over the frames that drew something, and the CPU's worst frame; then the totals, in µs since the start, of the CPU
-    /// of all the frames and of the parts of it the engine accounts for (what is left is the engine's stepping of the scene and its changes
-    /// of the context's state): a measurement takes the means of its window from the difference of two readings.
+    /// of all the frames and of the parts of it the engine accounts for (what is left is the renderer's own work between them): a measurement
+    /// takes the means of its window from the difference of two readings.
     fn line(&self) -> String {
         if self.frames == 0 {
             return String::new();
         }
         let drew = (self.frames - self.empty).max(1);
-        let [place, plan, backdrops, draw, damage, apply] = self.phases_us;
+        let [place, plan, backdrops, draw, damage, apply, scope, step, finish] = self.phases_us;
         format!(
-            "ui frames {} (empty {}) px/frame {} changed {} draws/frame {} layers/frame {} cpu {} us/frame max {} us (total us: cpu {} place {place} plan {plan} backdrops {backdrops} draw {draw} damage {damage} apply {apply}) gl errors {}",
+            "ui frames {} (empty {}) px/frame {} changed {} draws/frame {} layers/frame {} cpu {} us/frame max {} us (total us: cpu {} place {place} plan {plan} backdrops {backdrops} draw {draw} damage {damage} apply {apply} scope {scope} step {step} finish {finish}) gl errors {}",
             self.frames,
             self.empty,
             self.region_px / drew,

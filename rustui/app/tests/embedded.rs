@@ -312,6 +312,91 @@ fn a_home_that_has_stopped_changing_asks_for_no_more_frames() {
     let _ = std::fs::remove_dir_all(&shm);
 }
 
+/// A frame takes a scope of the compositor's context state (`Gles::enter` and `leave`, some eighty calls into the driver) for each of the engine's
+/// calls that reaches the GL: the stack it draws, and the planning of a frame that has a picture to copy to its texture. A frame that only moves a layer
+/// plans, ends and tidies in no scope: the sky's restating of its paths, a wallpaper's step, a hand that turns.
+#[test]
+fn a_frame_takes_the_contexts_scope_only_for_the_calls_that_reach_the_gl() {
+    software_gl();
+    let host = Gles::software_pbuffer(LIB, W, H).expect("a software GL");
+    let pages: Vec<RenderTarget> = (0..3).map(|_| host.new_render_target(W, H).expect("a page")).collect();
+    // SAFETY: the host's context is current on this thread and outlives the engine.
+    let wrapped = unsafe { Gles::current(LIB) }.expect("the current context");
+    let shm = std::env::temp_dir().join(format!("lumatv-embedded-scopes-{}", std::process::id()));
+    std::fs::create_dir_all(&shm).expect("a shm dir");
+    let (mut engine, app_end) = Engine::new(
+        wrapped,
+        HostConfig { width: W, height: H, refresh_hz: 60.0, shm_dir: shm.clone(), direct: false, gpu_sync: false, idle_trim: false, pages: 0, reference: false, blit: false, external: true, system_z: 100 },
+    )
+    .expect("an engine in the host's context");
+    let (scene, _welcome, events) = ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(shm.clone()), ..SceneOptions::default() }).expect("a scene");
+    engine.finish_handshake().expect("the handshake");
+    let ui = Ui::new(scene);
+    let _ground = ui.scene.shape(W, H, 0, solid(0.0, 24, 28, 44, 255), Props::at(0.0, 0.0));
+    let hand = ui.scene.shape(90, 90, 2, solid(20.0, 240, 150, 40, 255), Props::at(100.0, 150.0));
+    let mut picture = ui.scene.image(64, 64, 3, Props::at(1000.0, 500.0)).expect("a picture layer");
+
+    let mut ring = Ring::new(3, W, H);
+    let (mut owed, mut total) = (TileSet::new(W, H), TileSet::new(W, H));
+    let mut now = lumatv_render::now_ns();
+    let mut scopes = Vec::new();
+    for step in 0..24u32 {
+        // the layers are made in the first frame; after it the hand moves in every frame (nothing for the GL) and the picture is repainted in the
+        // 8th and the 16th (pixels for the GL to copy)
+        if step > 0 {
+            hand.set(Props::at(100.0 + step as f32 * 7.0, 150.0));
+        }
+        if step == 8 || step == 16 {
+            let grey = if step == 8 { 200 } else { 60 };
+            for px in picture.pixels_mut().chunks_exact_mut(4) {
+                px.copy_from_slice(&[grey, grey, grey, 255]);
+            }
+            picture.damage(None);
+        }
+        let _ = ui.try_commit().expect("a commit");
+        while events.try_recv().is_ok() {}
+        // (the commit is on its way over the socket: pump until it is in)
+        for _ in 0..200 {
+            engine.pump().expect("pump");
+            if engine.has_commits() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        now += REFRESH_NS;
+        engine.plan(now).expect("plan");
+        total.clear();
+        for stack in 0..2 {
+            if let Some(changed) = engine.changed(stack) {
+                total.union(changed);
+            }
+        }
+        let page = step as usize % 3;
+        ring.frame(page, &total, &mut owed);
+        let mut areas = Vec::new();
+        owed.rects(&mut areas);
+        engine.draw_stack(0, pages[page].framebuffer, &areas).expect("stack 0");
+        let cost = engine.finish().expect("finish");
+        assert_eq!(cost.gl_error, None, "step {step}: GL error");
+        scopes.push(cost.scopes);
+        engine.frame_done(now, &cost);
+        engine.tidy();
+        if step == 8 || step == 16 {
+            host.bind_framebuffer(pages[page].framebuffer);
+            let rows = host.read_pixels(0, 0, W, H);
+            let at = (520 * W as usize + 1020) * 4;
+            let grey = if step == 8 { 200 } else { 60 };
+            assert_eq!(&rows[at..at + 4], &[grey, grey, grey, 255], "step {step}: the picture's new pixels are on the page");
+        }
+    }
+    assert!(scopes[0] >= 2, "the first frame makes the layers: the planning needs the context, and the drawing ({scopes:?})");
+    for (step, taken) in scopes.iter().enumerate().skip(1) {
+        let expected = if step == 8 || step == 16 { 2 } else { 1 };
+        assert_eq!(*taken, expected, "step {step}: scopes taken, all frames {scopes:?}");
+    }
+    let _ = std::fs::remove_dir_all(&shm);
+}
+
 fn lumatv_rustui_png(path: &std::path::Path, rows: &[u8]) -> std::io::Result<()> {
     let mut rgba = Vec::with_capacity(rows.len());
     // the page is laid out as a scan-out page is: row 0, the first in memory, is the top of the screen

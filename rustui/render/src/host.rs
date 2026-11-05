@@ -116,6 +116,8 @@ pub struct FrameCost {
     pub backdrops: u16,
     pub uploaded_bytes: u32,
     pub draw_calls: u32,
+    /// What the frame asked of the GL (`gl::Calls`), summed over its passes.
+    pub calls: crate::gl::Calls,
     pub gl_error: Option<u32>,
     /// The panel pixels the frame drew, and the passes it drew them in.
     pub region_px: u64,
@@ -128,6 +130,14 @@ pub struct FrameCost {
     pub floor_px: u64,
     /// Of `cpu_us`: taking in the app's commits in the frame (none for a commit taken in ahead, [`Engine::take_in_ahead`]).
     pub apply_us: u32,
+    /// Of `cpu_us`: saving the compositor's GL state and putting it back round each of the engine's calls (`Engine::scoped`), stepping the scene
+    /// to the frame's time and listing its layers, and ending the frame (what it showed is kept, what nothing showed is told to the scene). What
+    /// is left of `cpu_us` after these and the phases above is the renderer's own work between them.
+    pub scope_us: u32,
+    pub step_us: u32,
+    pub finish_us: u32,
+    /// How many scopes of the context's state the engine's calls took in the frame (each is some eighty calls into the driver).
+    pub scopes: u32,
 }
 
 /// What reading the app's requests did.
@@ -218,6 +228,13 @@ struct External {
     ring: Option<Ring>,
     /// The host's page the last frame was drawn into, which holds that frame whole.
     last_page: Option<usize>,
+    /// When the last frame was drawn on the host's own clock (`draw_stacks`), and the panel's refresh: the compositor's own account of the time
+    /// between frames is `kms`'s.
+    last_frame_ns: Option<u64>,
+    period_ns: u64,
+    /// The host's pages also copy what they owe in a calm frame of ambient motion (`AMBIENT_COPY_REFRESHES`), as the compositor's do
+    /// (`LUMATV_AMBIENT_COPY=0`: they draw all they owe in it, as before).
+    ambient_copy: bool,
     /// The host's pages copy from the last one what they owe from the frames before, as the compositor's do (`LUMATV_PAGE_COPY=0`:
     /// they draw it, as before).
     page_copy: bool,
@@ -237,6 +254,52 @@ struct External {
     report: DrawReport,
     /// How long the engine's own calls took in the frame: what the compositor's time between them is not.
     busy: Duration,
+    /// Of `busy`: the GL state saved and put back, the scene stepped, the frame ended (`FrameCost::scope_us`, `step_us`, `finish_us`).
+    spent: Spent,
+    /// The engine's calls run in a scope of the context's state (`Engine::scoped`): always inside a compositor, and in a host that asks
+    /// for it (`LUMATV_SCOPES=1`: a measurement of what the scopes cost).
+    scope: bool,
+    /// A call that needs the context only when there is something for it to do takes no scope when there is none ([`Engine::scoped_when`]),
+    /// unless `LUMATV_LAZY_SCOPES=0` or a call made in the context outside a scope has shown that the engine's account of when it does is wrong.
+    lazy: bool,
+}
+
+/// Where a frame's engine time went besides the renderer's phases.
+#[derive(Clone, Copy, Default)]
+struct Spent {
+    scope: Duration,
+    step: Duration,
+    finish: Duration,
+    /// How many scopes the frame took.
+    scopes: u32,
+}
+
+/// Whether applying `op` leaves the GL alone: the ops that only change what the scene is made of, where a layer is or how it moves, a glyph
+/// run's list and the engine's own hints. A picture's damage is not one (the frame that shows it copies its pixels), and neither are a layer
+/// made or deleted, an atlas, a backdrop, a producer's source or the ideas (a texture, a buffer or a target is made or freed for each).
+fn leaves_gl_alone(op: &Op) -> bool {
+    matches!(
+        op,
+        Op::Set { .. }
+            | Op::Animate { .. }
+            | Op::Restyle { .. }
+            | Op::SetGlyphs { .. }
+            | Op::Ripple { .. }
+            | Op::GroupCreate { .. }
+            | Op::GroupSet { .. }
+            | Op::GroupParent { .. }
+            | Op::GroupBind { .. }
+            | Op::GroupUnbind { .. }
+            | Op::GroupDelete { .. }
+            | Op::Attach { .. }
+            | Op::MotionCreate { .. }
+            | Op::MotionDelete { .. }
+            | Op::MotionDrive { .. }
+            | Op::MotionSettle { .. }
+            | Op::MotionCancel { .. }
+            | Op::HoldGpuClock(_)
+            | Op::Display(_)
+    )
 }
 
 impl External {
@@ -248,6 +311,12 @@ impl External {
         }
     }
 }
+
+/// A frame no motion of the user's drives (a sky, a wallpaper stepping: nothing at every refresh) that comes this many refreshes after the frame
+/// before is calm: the pages copy what they owe from the page drawn last in it, though nothing is over Home, and draw only what it changes
+/// (`kms::frames`, which counts the same). Frames of Home's walks come a refresh apart and draw what they owe, as round 27 found they must at
+/// 120 Hz; a calm frame has the time for a copy and draws a quarter of the layers.
+pub const AMBIENT_COPY_REFRESHES: u64 = 3;
 
 /// The most rectangles a compositor's page is drawn in (`damage::MAX_RECTS` of the compositor): past it the page owes their bounds.
 const COMPOSITOR_RECTS: usize = 12;
@@ -602,6 +671,9 @@ impl Engine {
                     compositor: config.external,
                     ring: (!config.external).then(|| Ring::new(config.pages.max(1), config.width, config.height)),
                     last_page: None,
+                    last_frame_ns: None,
+                    period_ns: (1e9 / f64::from(config.refresh_hz)) as u64,
+                    ambient_copy: std::env::var("LUMATV_AMBIENT_COPY").as_deref() != Ok("0"),
                     page_copy: std::env::var("LUMATV_PAGE_COPY").as_deref() != Ok("0"),
                     merging: TileSet::new(config.width, config.height),
                     system_z: config.system_z,
@@ -610,6 +682,9 @@ impl Engine {
                     split: 0,
                     report: DrawReport::default(),
                     busy: Duration::ZERO,
+                    spent: Spent::default(),
+                    scope: config.external || std::env::var("LUMATV_SCOPES").as_deref() == Ok("1"),
+                    lazy: std::env::var("LUMATV_LAZY_SCOPES").as_deref() != Ok("0"),
                 }),
                 floor,
                 copier: copy,
@@ -653,15 +728,45 @@ impl Engine {
     /// Runs `f`, which draws or makes GL objects, in the compositor's context as the toolkit's: the context's state is saved and
     /// put back round it (an engine that is not inside a compositor owns its context, and `f` just runs).
     fn scoped<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
-        if !self.external.as_ref().is_some_and(|external| external.compositor) {
+        if !self.external.as_ref().is_some_and(|external| external.scope) {
             return f(self);
         }
         let began = Instant::now();
         let saved = self.renderer.gles().enter();
+        let entered = began.elapsed();
         let out = f(self);
+        let leaving = Instant::now();
         self.renderer.gles().leave(&saved);
         if let Some(external) = self.external.as_mut() {
             external.busy += began.elapsed();
+            external.spent.scope += entered + leaving.elapsed();
+            external.spent.scopes += 1;
+        }
+        out
+    }
+
+    /// [`Engine::scoped`] for a call that needs the context only when `gl` says it does. Saving the context's state and putting it back is some
+    /// eighty calls into the driver (`Gles::enter` and `leave`), and a frame at rest takes them for each call of the compositor's (planning,
+    /// two stacks, ending the frame, housekeeping) though planning, ending and housekeeping call the GL only when a picture is to be copied,
+    /// a chunk of an atlas to land, a texture to free or a floor to bring up to date. Without scope the call is checked: if it reached the driver
+    /// all the same, the context's state may be left as the compositor did not leave it, which is said once, and every call takes its scope
+    /// from then on.
+    fn scoped_when<R>(&mut self, gl: bool, f: impl FnOnce(&mut Self) -> R) -> R {
+        if gl || !self.external.as_ref().is_some_and(|external| external.scope && external.lazy) {
+            return self.scoped(f);
+        }
+        let began = Instant::now();
+        let touched = self.renderer.gles().touched();
+        let out = f(self);
+        let wrong = self.renderer.gles().touched() != touched;
+        if let Some(external) = self.external.as_mut() {
+            external.busy += began.elapsed();
+            if wrong {
+                external.lazy = false;
+            }
+        }
+        if wrong {
+            crate::log::log("engine: a call made outside the context's state scope reached the GL; every call takes its scope from now on".to_string());
         }
         out
     }
@@ -752,6 +857,21 @@ impl Engine {
         self.waiting.iter().any(Transaction::asks_for_frame)
     }
 
+    /// What the commits that ask for a frame hold, as `Set x3 Animate x40` (the kinds of their ops and how many of each): for a host that says why a
+    /// frame was drawn.
+    pub fn waiting_summary(&self) -> String {
+        let mut kinds: Vec<(String, usize)> = Vec::new();
+        for op in self.waiting.iter().filter(|t| t.asks_for_frame()).flat_map(|t| &t.ops) {
+            let text = format!("{op:?}");
+            let kind = text.split([' ', '{', '(']).next().unwrap_or("").to_string();
+            match kinds.iter_mut().find(|(k, _)| *k == kind) {
+                Some((_, n)) => *n += 1,
+                None => kinds.push((kind, 1)),
+            }
+        }
+        kinds.iter().map(|(k, n)| format!("{k}x{n}")).collect::<Vec<_>>().join(",")
+    }
+
     /// Commits are waiting, whether or not any asks for a frame.
     pub fn has_waiting(&self) -> bool {
         !self.waiting.is_empty()
@@ -804,7 +924,8 @@ impl Engine {
     /// Housekeeping for at most a couple of milliseconds: the work a frame leaves undone (textures to free and to upload, a chunk
     /// of an atlas, a prepared backdrop). Call it while the GPU has the frame, or when nothing is due.
     pub fn tidy(&mut self) {
-        self.scoped(|engine| {
+        let gl = self.renderer.tidy_pending();
+        self.scoped_when(gl, |engine| {
             let mut done = engine.renderer.tidy(TIDY_BUDGET);
             if !done.more {
                 let made = engine.renderer.prepare(&engine.scene, TIDY_BUDGET);
@@ -858,7 +979,14 @@ impl Engine {
     /// Applies the commits that wait to the scene and the renderer, in order, with no frame for them: what the app staged that
     /// shows nothing by itself (an atlas chunk, a layer made ahead). `draw` does the same for the commits a frame is due for.
     pub fn apply_waiting(&mut self, now_ns: u64) {
-        self.scoped(|engine| engine.apply_commits(now_ns));
+        let gl = self.waiting_touches_gl();
+        self.scoped_when(gl, |engine| engine.apply_commits(now_ns));
+    }
+
+    /// Whether applying the commits that wait can call the GL (or leave a picture to be copied): one of their ops is not among those that
+    /// leave it alone.
+    fn waiting_touches_gl(&self) -> bool {
+        self.waiting.iter().flat_map(|batch| &batch.ops).any(|op| !leaves_gl_alone(op))
     }
 
     fn apply_commits(&mut self, now_ns: u64) {
@@ -973,7 +1101,10 @@ impl Engine {
             if let Some(ring) = external.ring.as_mut() {
                 ring.frame(page, &changed, &mut owed);
             }
-            last = external.last_page.filter(|&p| p != page && external.page_copy && over);
+            let calm = external.ambient_copy
+                && external.last_frame_ns.is_some_and(|at| now_ns.saturating_sub(at) >= AMBIENT_COPY_REFRESHES * external.period_ns)
+                && !matches!(self.scene.demand(), Demand::EveryRefresh);
+            last = external.last_page.filter(|&p| p != page && external.page_copy && (over || calm));
         }
         let mut areas = Vec::new();
         if let (Some(last), Some(copier)) = (last, self.copier.as_ref()) {
@@ -995,7 +1126,10 @@ impl Engine {
         let target = self.pages[page].framebuffer;
         if !areas.is_empty() {
             let _ = self.draw_stack(0, target, &areas);
-            let _ = self.draw_stack(1, target, &areas);
+            // (as the compositor does: no layer over the windows, no pass over them)
+            if self.has_layers(1) {
+                let _ = self.draw_stack(1, target, &areas);
+            }
         }
         if let (Some(reference), Some(external)) = (self.reference, self.external.as_mut())
             && let Some(planned) = external.planned.as_mut()
@@ -1006,6 +1140,7 @@ impl Engine {
         let mut cost = self.finish().unwrap_or_default();
         if let Some(external) = self.external.as_mut() {
             external.last_page = Some(page);
+            external.last_frame_ns = Some(now_ns);
         }
         if let Some(reference) = self.reference {
             self.mismatch = self.compare(&self.pages[page], &reference);
@@ -1017,7 +1152,11 @@ impl Engine {
         cost.region_px = areas.iter().map(crate::damage::pixels).sum();
         cost.rects = areas.len() as u16;
         cost.damage_px = changed.pixels();
-        cost.cpu_us = began.elapsed().as_micros() as u32;
+        // (with the scopes of a compositor's frame, `LUMATV_SCOPES=1`, what the engine's own calls took, as the compositor counts it: not the host's
+        // account of its pages, which the compositor keeps itself)
+        if !self.external.as_ref().is_some_and(|external| external.scope) {
+            cost.cpu_us = began.elapsed().as_micros() as u32;
+        }
         if self.gpu_sync {
             self.renderer.gles().finish();
             cost.gpu_us = began.elapsed().as_micros() as u32;
@@ -1027,6 +1166,7 @@ impl Engine {
 
     fn cost(&mut self, report: &DrawReport, cpu_us: u32, gpu_us: u32) -> FrameCost {
         let (_captures, uploaded) = self.renderer.take_frame_counts();
+        let spent = self.external.as_mut().map(|external| std::mem::take(&mut external.spent)).unwrap_or_default();
         FrameCost {
             tag: self.taken_tag,
             cpu_us,
@@ -1041,6 +1181,7 @@ impl Engine {
             backdrops: report.backdrops,
             uploaded_bytes: uploaded.saturating_add(self.uploaded_bytes),
             draw_calls: report.gl.draws,
+            calls: report.gl,
             gl_error: report.gl_error,
             region_px: report.region_px,
             rects: report.rects,
@@ -1048,6 +1189,10 @@ impl Engine {
             mismatch_px: self.mismatch.map_or(0, |m| m.pixels),
             floor_px: self.floor.as_ref().map_or(0, |floor| floor.drawn_px),
             apply_us: (std::mem::take(&mut self.apply_ns) / 1000) as u32,
+            scope_us: spent.scope.as_micros() as u32,
+            step_us: spent.step.as_micros() as u32,
+            finish_us: spent.finish.as_micros() as u32,
+            scopes: spent.scopes,
         }
     }
 
@@ -1074,14 +1219,17 @@ impl Engine {
         if self.external.as_ref().is_none_or(|external| external.planned.is_some()) {
             return Err(io::Error::other("plan: not an engine inside a compositor, or a frame is already planned"));
         }
-        self.scoped(|engine| {
+        let gl = self.waiting_touches_gl() || self.renderer.plan_touches_gl();
+        self.scoped_when(gl, |engine| {
             engine.ahead = false;
             engine.apply_ns = 0;
             engine.apply_commits(now_ns);
+            let stepping = Instant::now();
             engine.scene.advance(now_ns);
             engine.scene.resolve(now_ns, &mut engine.drawn);
             engine.renderer.set_time(now_ns);
             let Some(external) = engine.external.as_mut() else { return };
+            external.spent.step += stepping.elapsed();
             external.exclusion_dirty = false;
             if let Some((popup, marker)) = external.standin_groups {
                 engine.drawn.retain(|layer| external.z.get(&layer.id).is_none_or(|&z| {
@@ -1278,7 +1426,12 @@ impl Engine {
             return Err(io::Error::other("finish: no frame is planned"));
         };
         let mut report = DrawReport::default();
-        self.scoped(|engine| {
+        // The floor is brought up to date (drawn into) or given back (a target freed) in the frames that say so below; ending the frame
+        // touches the context in no other.
+        let floor_gl = self.floor.as_ref().is_some_and(|floor| {
+            floor.unused >= FLOOR_UNUSED_FRAMES || (floor.behind && !floor.direct && self.home_shown && matches!(self.scene.demand(), Demand::Idle))
+        });
+        self.scoped_when(floor_gl, |engine| {
             // After frames that drew Home straight into the pages, the first frame in which Home shows and stands and nothing waits
             // to move draws what the floor owes (the floor whole, the first time), so that a panel opening over Home only copies it.
             if let Some(floor) = engine.floor.as_mut()
@@ -1310,6 +1463,7 @@ impl Engine {
                     floor.owed.clear();
                 }
             }
+            let ending = Instant::now();
             let left = engine.renderer.finish_frame(planned);
             if let Some(external) = engine.external.as_mut() {
                 external.report.add(&left);
@@ -1319,6 +1473,9 @@ impl Engine {
             engine.renderer.set_shown(&engine.shown);
             engine.scene.observe(engine.renderer.unseen());
             engine.scene.fade(report.fading, true);
+            if let Some(external) = engine.external.as_mut() {
+                external.spent.finish += ending.elapsed();
+            }
             // A floor that has not been drawn from for a while (Home under an app's picture) gives its memory back; the next frame
             // that draws stack 0 makes it again, whole.
             if let Some(floor) = engine.floor.as_mut()

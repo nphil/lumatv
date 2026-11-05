@@ -1567,6 +1567,22 @@ impl Renderer {
         }
     }
 
+    /// Whether planning a frame would call the GL: a picture whose pixels are waiting to be copied to its texture (the frame copies those of
+    /// the layers it shows), or a chunk of a glyph atlas to land. With neither it is the CPU's work alone.
+    pub fn plan_touches_gl(&self) -> bool {
+        self.atlases.pending() || self.textures.values().any(|texture| texture.dirty.is_some())
+    }
+
+    /// Whether [`Renderer::tidy`] or [`Renderer::prepare`] has anything to do: textures to free, pictures to copy ahead of the frame that
+    /// shows them, a chunk of an atlas to land, a source's buffers, a plate of a prepared backdrop to draw.
+    pub fn tidy_pending(&self) -> bool {
+        !self.graveyard.is_empty()
+            || self.textures.values().any(|texture| texture.dirty.is_some() && texture.used != self.frame)
+            || self.atlases.pending()
+            || self.live.busy()
+            || self.sets.due().is_some()
+    }
+
     /// The events the renderer's own work has produced since the last call, for the engine to send to the client.
     pub fn drain_events(&mut self) -> Vec<compositor_protocol::Event> {
         std::mem::take(&mut self.events)
@@ -2948,6 +2964,19 @@ impl Renderer {
         let layers = &frame.layers[..];
         // What of each layer can be seen, in tiles.
         let mut seen = std::mem::take(&mut self.accounts[stack].spare);
+        // A plane with no layer of its own, as it had none the frame before, has nothing to change: what can be seen of every layer in it, now and
+        // then, is empty, and a change of the layers themselves shows in the plane that has them. Only what it keeps for the next frame is made (the
+        // plane over the windows, empty at rest, took 70 us of a frame to say so on the host).
+        let bare = from == to && self.accounts[stack].prev.as_ref().is_some_and(|prev| prev.iter().all(|f| !f.member));
+        if bare {
+            tiles::cleared(width, height, to, &mut seen);
+            self.remember(stack, from..to, &layers[..to], &mut seen, &frame.extents[..to], &frame.revisions[..to]);
+            if memo.len() <= stack {
+                memo.resize(stack + 1, None);
+            }
+            memo[stack] = Some(TileSet::new(width, height));
+            return;
+        }
         let culling = self.culling;
         let pieces: Vec<(Area, &[Area])> = (0..to)
             .map(|layer| match frame.job_of[layer] {

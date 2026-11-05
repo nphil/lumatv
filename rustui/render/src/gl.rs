@@ -424,6 +424,8 @@ pub struct Gles {
     /// The window surface frames are presented on, when the context was made for one ([`Gles::window`]).
     window: Option<EglSurface>,
     calls: Cell<Calls>,
+    /// Every call made into the driver since the context was made, which nothing resets ([`Gles::touched`]).
+    touched: Cell<u64>,
     known: Known,
     on_creating_thread: PhantomData<*const ()>,
     /// Where programs come from before one is linked and go back to when this is dropped (LumaTV: the compositor links the engine's
@@ -780,6 +782,7 @@ impl Gles {
             display,
             window,
             calls: Cell::new(Calls::default()),
+            touched: Cell::new(0),
             known: Known::new(),
             on_creating_thread: PhantomData,
             programs: None,
@@ -895,6 +898,7 @@ impl Gles {
 
     /// A texture over `image`, destroying the image if it cannot be one.
     fn image_texture(&self, image: EglImage) -> io::Result<ImageTexture> {
+        self.touch();
         if image.is_null() {
             return Err(egl_error(&self.egl, "eglCreateImageKHR"));
         }
@@ -962,15 +966,30 @@ impl Gles {
     /// Counts one call (see [`Calls`]).
     #[inline]
     fn count(&self, f: impl FnOnce(&mut Calls)) {
+        self.touch();
         let mut calls = self.calls.get();
         f(&mut calls);
         self.calls.set(calls);
     }
 
+    /// Notes a call into the driver that [`Calls`] does not count (a texture made, a picture copied, a buffer bound).
+    #[inline]
+    fn touch(&self) {
+        self.touched.set(self.touched.get().wrapping_add(1));
+    }
+
+    /// How many calls this has made into the driver since the context was made: a host that lets the toolkit draw outside its state
+    /// scope (`Gles::enter`) checks that none were made.
+    pub fn touched(&self) -> u64 {
+        self.touched.get()
+    }
+
     /// Counts a call that was left out because the state it sets was set already.
     #[inline]
     fn skip(&self) {
-        self.count(|c| c.skipped += 1);
+        let mut calls = self.calls.get();
+        calls.skipped += 1;
+        self.calls.set(calls);
     }
 
     /// What the GL was asked since this was last called (or the context was made).
@@ -1051,6 +1070,7 @@ impl Gles {
 
     /// Sets a uniform array of `values.len() / 4` vectors of four floats, from its first element's `location`.
     pub fn uniform4fv(&self, location: i32, values: &[f32]) {
+        self.touch();
         debug_assert!(!values.is_empty() && values.len() % 4 == 0);
         // SAFETY: see above; `values` holds the whole count of vectors the call reads.
         unsafe { (self.gl.uniform4fv)(location, (values.len() / 4) as i32, values.as_ptr()) }
@@ -1129,12 +1149,14 @@ impl Gles {
 
     /// Hands the queued GL commands to the GPU.
     pub fn flush(&self) {
+        self.touch();
         // SAFETY: see above.
         unsafe { (self.gl.flush)() }
     }
 
     /// Waits until the GPU has done everything handed to it. Only for measuring: a frame never waits.
     pub fn finish(&self) {
+        self.touch();
         // SAFETY: see above.
         unsafe { (self.gl.finish)() }
     }
@@ -1157,6 +1179,7 @@ impl Gles {
     }
 
     pub fn delete_texture(&self, texture: u32) {
+        self.touch();
         self.known.forget_texture(texture);
         // SAFETY: reads one name.
         unsafe { (self.gl.delete_textures)(1, &texture) }
@@ -1182,6 +1205,7 @@ impl Gles {
     /// A texture as [`Gles::new_texture`] makes it, with transparent black in every pixel when `clear` (the driver's memory is
     /// not otherwise anything: a new allocation can be what a process that has gone left in it).
     fn make_texture(&self, width: u32, height: u32, clear: bool) -> u32 {
+        self.touch();
         let mut texture = 0;
         // `vec![0; n]` is the allocator's zeroed memory, not a loop over it.
         let zeros = clear.then(|| vec![0u8; width as usize * height as usize * 4]);
@@ -1276,6 +1300,7 @@ impl Gles {
         row_pixels: u32,
         pixels: *const u8,
     ) {
+        self.touch();
         // SAFETY: the caller guarantees the memory; the rest is plain GL state.
         unsafe {
             (self.gl.pixel_storei)(GL_UNPACK_ROW_LENGTH, row_pixels as i32);
@@ -1299,6 +1324,7 @@ impl Gles {
     /// filter of a glyph that is not on whole pixels reads the texels next to its rectangle, and they must not be
     /// whatever the driver's memory held.
     pub fn new_alpha_texture(&self, width: u32, height: u32) -> u32 {
+        self.touch();
         let zeros = vec![0u8; width as usize * height as usize];
         let mut texture = 0;
         // SAFETY: creates and configures a texture; `zeros` holds the `width * height` bytes the upload reads, one byte
@@ -1333,6 +1359,7 @@ impl Gles {
     /// Copies the coverage `bytes` of a `width` × `height` rectangle, rows packed at `width` bytes, to (`x`, `y`) of the
     /// bound alpha texture (see [`Gles::new_alpha_texture`]), which the rectangle must lie inside.
     pub fn upload_alpha(&self, x: u32, y: u32, width: u32, height: u32, bytes: &[u8]) {
+        self.touch();
         assert!(
             bytes.len() >= width as usize * height as usize,
             "an upload of {width}x{height} coverage bytes is given {}",
@@ -1372,6 +1399,7 @@ impl Gles {
     }
 
     fn make_render_target(&self, width: u32, height: u32) -> io::Result<RenderTarget> {
+        self.touch();
         let texture = self.new_clear_texture(width, height);
         let mut framebuffer = 0u32;
         // SAFETY: creates a framebuffer object and attaches the texture just made; completeness is checked below.
@@ -1407,6 +1435,7 @@ impl Gles {
     }
 
     pub fn delete_render_target(&self, target: RenderTarget) {
+        self.touch();
         self.delete_texture(target.texture);
         // SAFETY: reads one name.
         unsafe { (self.gl.delete_fbo)(1, &target.framebuffer) }
@@ -1427,6 +1456,7 @@ impl Gles {
     /// row after row from the bottom. It waits for the GPU to finish everything drawn: for the tests and screenshots,
     /// never for a frame.
     pub fn read_pixels(&self, x: i32, y: i32, width: u32, height: u32) -> Vec<u8> {
+        self.touch();
         let mut pixels = vec![0u8; width as usize * height as usize * 4];
         // SAFETY: the buffer holds exactly `width * height` RGBA8 pixels, and PACK_ALIGNMENT 4 keeps rows unpadded.
         unsafe {
@@ -1460,6 +1490,7 @@ impl Gles {
 
     /// A buffer of 16-bit vertex indices that is written once: [`Gles::draw_indexed`] draws triangles from it.
     pub fn new_index_buffer(&self, indices: &[u16]) -> u32 {
+        self.touch();
         let mut buffer = 0;
         // SAFETY: creates a buffer and fills it from a slice's pointer and byte length.
         unsafe {
@@ -1489,6 +1520,7 @@ impl Gles {
     /// A buffer for streaming vertex data, with attribute 0 (panel position) and 1 (layer position) set up over
     /// interleaved `[f32; 4]` vertices.
     pub fn new_vertex_buffer(&self) -> u32 {
+        self.touch();
         let mut buffer = 0;
         // SAFETY: creates a buffer and enables two attribute arrays.
         unsafe {
@@ -1503,6 +1535,7 @@ impl Gles {
     /// Makes `buffer` (made by [`Gles::new_vertex_buffer`]) the one draws read from: attribute pointers name the
     /// buffer that was bound when they were set, so drawing from another buffer needs them set again.
     pub fn use_vertex_buffer(&self, buffer: u32) {
+        self.touch();
         // SAFETY: binds a buffer and points two attributes at offsets inside it.
         unsafe {
             (self.gl.bind_buffer)(GL_ARRAY_BUFFER, buffer);
@@ -1561,6 +1594,7 @@ impl Gles {
     /// A linked program for these shaders: one the cache has, or a new one, compiled and linked here and reporting the driver's log on
     /// failure.
     pub fn program(&self, vertex: &CStr, fragment: &CStr) -> io::Result<u32> {
+        self.touch();
         let Some(lease) = &self.programs else {
             return self.link(vertex, fragment);
         };
@@ -1729,6 +1763,7 @@ impl Gles {
             display,
             window: None,
             calls: Cell::new(Calls::default()),
+            touched: Cell::new(0),
             known: Known::new(),
             on_creating_thread: PhantomData,
             programs: None,
