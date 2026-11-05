@@ -13,7 +13,6 @@ use crate::config::{Config, Paths};
 use crate::control::Stop;
 use crate::ctx::Ctx;
 use crate::fetcher;
-use crate::framerate;
 use crate::homefeeds;
 use crate::http::{self, Server};
 use crate::hub::Hub;
@@ -96,7 +95,6 @@ impl Service {
 
         let (receiver_tx, receiver_rx) = mpsc::channel();
         let (feeds_tx, feeds_rx) = mpsc::channel();
-        let (framerate_tx, framerate_rx) = mpsc::channel();
         let (panel_tx, panel_rx) = refreshguard::channel();
         let guard = refreshguard::RefreshGuard::new(
             &ctx,
@@ -105,10 +103,9 @@ impl Service {
 
         // Stopping wakes everything that blocks: the runners on their channels, long polls on the hub.
         {
-            let (r, f, fr, p, hub, a) = (
+            let (r, f, p, hub, a) = (
                 receiver_tx.clone(),
                 feeds_tx.clone(),
-                framerate_tx.clone(),
                 panel_tx.clone(),
                 hub.clone(),
                 ambient.clone(),
@@ -116,7 +113,6 @@ impl Service {
             stop.on_stop(move || {
                 let _ = r.send(receiver::Cmd::Stop);
                 let _ = f.send(homefeeds::Cmd::Stop);
-                let _ = fr.send(framerate::Cmd::Stop);
                 let _ = p.send(refreshguard::Cmd::Stop);
                 hub.close();
                 a.wake();
@@ -144,28 +140,23 @@ impl Service {
             threads.push(("logging-native", thread::Builder::new().name("logging-native".into()).stack_size(128 * 1024).spawn(move || crate::logging_native::run(native_ctx))?));
         }
 
-        // The screen watcher tells both runners, ambient light and the frame-rate watcher when the panel goes on or off.
+        // The screen watcher tells both runners and ambient light when the panel goes on or off.
         let notify: Arc<dyn Fn() + Send + Sync> = {
-            let (r, f, fr, p, a) = (
+            let (r, f, p, a) = (
                 receiver_tx.clone(),
                 feeds_tx.clone(),
-                framerate_tx.clone(),
                 panel_tx.clone(),
                 ambient.clone(),
             );
             Arc::new(move || {
                 let _ = r.send(receiver::Cmd::Wake);
                 let _ = f.send(homefeeds::Cmd::Wake);
-                let _ = fr.send(framerate::Cmd::Wake);
                 let _ = p.send(refreshguard::Cmd::Wake);
                 a.wake();
             })
         };
         if let Some(handle) = screen::spawn(&ctx, notify)? {
             threads.push(("screen", handle));
-        }
-        if let Some(handle) = framerate::spawn(&ctx, framerate_tx, framerate_rx)? {
-            threads.push(("framerate", handle));
         }
         threads.push((
             "receiver",

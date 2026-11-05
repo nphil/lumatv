@@ -19,8 +19,8 @@
 //! which is opaque there, so nothing of it shows. If the decoder does not connect for a window under the UI, `ctl retime show` cuts the hole.
 //!
 //! **When.** The flips measure a period that is a fifth to a third over the mode's (`refresh::retimed`), Home is in front, and nothing feeds the main window
-//! for 1.5 s (no live video window, no hardware claim, `connect_src=NONE`). The panel's rate is then read from the OSD interrupt (`osd_irq`, as the helper
-//! does), because a Home at rest makes no flips to say that it changed: 100 Hz starts the clip, 120 Hz means the flips were old and nothing is played. The
+//! for 1.5 s (no live video window, no hardware claim, `connect_src=NONE`). The panel's rate is then read from the OSD interrupt (`osd_irq`),
+//! because a Home at rest makes no flips to say that it changed: 100 Hz starts the clip, 120 Hz means the flips were old and nothing is played. The
 //! clip ends one second after the panel is back, when Home is left, a video or a claim takes the main window, or the screen goes off, and the player is
 //! ended when it has not moved the panel in 8 s. Two tries an episode, a minute apart; an episode ends with the panel back at its rate or anything else
 //! taking the window. Every step is in the journal (`retime:`), with the player's last words when it fails.
@@ -88,7 +88,7 @@ const SAMPLE_EVERY: u64 = 250 * MS;
 const MIN_SPAN: u64 = 400 * MS;
 /// How long a player that was asked to end has before it is killed.
 const KILL_AFTER: u64 = 2 * S;
-/// A measured rate counts as 100 or 120 Hz within this much (the helper's band).
+/// A measured rate counts as 100 or 120 Hz within this much (119.6 Hz is the 23.976 fps output, phase-locked at 119.88).
 const BAND_HZ: f64 = 3.5;
 
 /// The output-rate band of a measured rate: 100 or 120, or `None` for anything else (a switch in the middle of the count).

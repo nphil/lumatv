@@ -8,7 +8,7 @@
 - Why a clip: the kernel picks the rate at a timing change of window 0 with a source connected (25 and 50 fps give 100 Hz, everything else 120 Hz) and does nothing with no source (`v4l2_vsc_event.c` `_vsc_check_fr`, `default: return`). A write to `/proc/lg/de/fr_rate` asks the same and the firmware ignores it: five variants with no source (round 22), `1 60` with no source (the compositor's, 16 s on) and with the Ring's 25 fps stream connected (the helper's, "wrote 1 60 to fr_rate ... but the output measures 99.9 Hz"). Every return to 120 Hz seen on the set was a source's first frame at another rate: YouTube at 30 and 60 fps, a 20 fps camera pop-up (round 23), and Live TV (`legacy-broadcast-atsc` attached at srv 23538.483 s, the panel at 8.33 ms at 23539.656 s, `lumatv-tv-20261104c/evidence/ramlog-current-1736.log`). The way there was a feeder too: the Ring's stream took the panel to 100 Hz 1.7 s after its decoder connected (32350.815 s, 32352.476 s). A Live TV launch would work and is not used: it shows and plays.
 - The clip: 830 bytes of black H.264 (640 by 360, one IDR and 29 skipped pictures, SPS timing 30 a second), played by `lumatv-gfn-feeder --play` in a `video` window of the app id `org.nphil.lumatv.retime` with the decoder opened for Home, the recipe of `tools/tv-hwplanes.sh feeder`. The window is placed at 16,16, 128 by 72, in no stack and with no hole: the video plane is under every pixel of the UI, so nothing shows, and `plan.video`, the panel dimmer, the switcher and the foreground video list do not see it. `ctl retime show` cuts a hole for it, if the decoder will not connect under the UI.
 - When: refresh policy automatic, Home in front, no live video window, claim or source (`connect_src=NONE`) for 1.5 s, the flips' period over the mode's by a fifth to a third, and `osd_irq` reading 100 Hz (a Home at rest makes no flips). The clip ends one second after `osd_irq` reads 120 Hz, after 8 s with no effect, and at once when Home is left, a video or claim takes the main window, the screen goes off or the refresh is set by hand. At most two tries an episode, a minute apart. Each step is a `retime:` journal line with the player's last words; a missing player is `retime: no player at ...`. `ctl retime [on|off|now [SECONDS]|stop|show|hide]` and `--no-retime`.
-- Not changed: the helper's `framerate.rs` still writes `1 60`, which does nothing.
+- Removed: the helper's `framerate.rs` and its `frameRate.returnOnHome` key. Its `1 60` write did nothing, and a `frameRate` key in `helper.json` is refused now, as any unknown key is.
 
 TV check, `tv-retime-probe.py` on the set as root (it never writes `fr_rate`, launches an app or changes a setting):
 
@@ -142,11 +142,11 @@ card (`server/webos_shell.rs` `front_app`: Home minimized, the card fullscreen, 
   connected [INFERENCE; the next reading tests it].
 - The helper's return-to-120 watcher never fired for a pop-up (Home stays in front, so SAM's foreground subscription says nothing).
 
-**Now in the helper** (`framerate.rs`): the watcher also listens to `cameras.live`. When a camera stream starts to play with Home in front it
-waits 1 s (the kernel re-times at the first frame), measures `osd_irq`, and at 100 Hz writes `1 60` (free run) with the source still connected,
-then measures again. When a stream ends or fails, an ordinary check runs. Log lines: `frame rate: Home measures X Hz with a source connected to
-the main window`, `frame rate: Home was left at X Hz; set back to 120 Hz (Y Hz measured)`. A 25 fps stream at 120 Hz is shown in a 5-5-5-5-4
-cadence, fine for a camera. The check is limited to Home in front, so an app's own 25/50 fps video keeps LG's rate.
+**Was in the helper** (`framerate.rs`, removed 2026-11-04: its `1 60` write did nothing, and `retime.rs` replaces it): the watcher also listened to `cameras.live`.
+When a camera stream started to play with Home in front it waited 1 s (the kernel re-times at the first frame), measured `osd_irq`, and at 100 Hz wrote `1 60`
+(free run) with the source still connected, then measured again. When a stream ended or failed, an ordinary check ran. Log lines: `frame rate: Home measures X Hz
+with a source connected to the main window`, `frame rate: Home was left at X Hz; set back to 120 Hz (Y Hz measured)`. A 25 fps stream at 120 Hz is shown in a
+5-5-5-5-4 cadence, fine for a camera. The check was limited to Home in front, so an app's own 25/50 fps video kept LG's rate.
 
 ## TV check (Round22, after the frames gates)
 

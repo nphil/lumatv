@@ -24,7 +24,6 @@
 //! | [`voice`] | voice search: the mic key's words as text for the search box, through Home Assistant's Assist pipeline |
 //! | [`profiles`] | local profiles (Nitin, Isabel): each person's Home kept apart from the household's settings, the switch, the PINs, the `profiles` topic; the working copy `theme/` stays what the Home layer reads |
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
-//! | [`framerate`] | the panel's rate after 25 or 50 fps video: back to 120 Hz once Home is in front with no video window |
 //! | [`ble`], [`ble_proxy`], [`ble_scan`], [`ble_duty`], [`ble_store`] | the Bluetooth proxy: the TV as a Home Assistant Bluetooth proxy (ESPHome native API) for presence and BLE sensors, through LG's `bluetooth2` scan with the radio's duty limits |
 //! | [`refreshguard`] | LG's panel refresh (the `panel` topic) and the guard that keeps an assistant's wake from cutting a run short, behind `theme.oledcare.refreshGuard` |
 //! | [`paneldim`] | the net under the compositor's panel dim: a journal left by a compositor that died puts the panel's OLED pixel brightness back |
@@ -61,7 +60,6 @@ pub mod ctx;
 pub mod device;
 pub mod displaylab;
 pub mod fetcher;
-pub mod framerate;
 pub mod gfn_boost;
 pub mod ha_store;
 pub mod ha_weather;

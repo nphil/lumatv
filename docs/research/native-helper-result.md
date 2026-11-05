@@ -96,7 +96,6 @@ All keys optional; an unknown key or a bad value stops `start` with the reason (
 | `receiver.pollMs`, `fastPollMs`, `burstMs`, `maxBackoffMs`, `hideAfterMs`, `telnetPort` | 2000, 250, 3000, 30000, 6000, 23 | `pollMs`: telnet re-query period, HTTP fallback period and reconnect backoff base; `fastPollMs`/`burstMs`: fallback burst after a nudge; `telnetPort` 0 turns the telnet link off; `connectTimeoutMs` 1500 and `requestTimeoutMs` 3000 also exist |
 | `fetch.backend`, `fetch.openssl`, `fetch.curl`, `fetch.caBundle`, `fetch.user` | `auto`, `/usr/bin/openssl`, `curl`, first existing of the usual paths, `nobody` | HTTPS transport; `user: null` runs the TLS child as the helper |
 | `luna.send` | `luna-send` | found in `PATH` and then `/usr/bin`, `/usr/sbin`, `/bin`, `/sbin` |
-| `frameRate.returnOnHome` | `true` | after a 25 or 50 fps video left the panel at 100 Hz, put it back to 120 Hz once Home is in front with no video window (`framerate.rs`, `framerate-result.md` "Design"); `false` leaves the rate to LG's kernel |
 | `nice` | 10 | scheduling priority given up |
 | `allowedOrigins` | `[]` | browser origins allowed to call the API (a web app would need `"file://"`) |
 | `cameras.frameHoldMs`, `maxPictureBytes`, `testEvents` | 10000, 4 MiB, `false` | cameras through Scrypted's LumaShow bridge (`scrypted/`, `docs/research/scrypted-helper-result.md`): how long a still counts as a picture, the most a picture may be, whether `POST /v1/cameras/event` works; there is no switch, the link file (`scrypted-link`) turns the cameras on |
@@ -418,24 +417,6 @@ screen off-to-on change the helper reads `<data>/preload.json`, `{"off":["<app i
 (list parsing, calls, a failure in the middle, a hung `luna-send` killed at the deadline, the off-to-on rule on a fake hub) and
 `app/tests/preload.rs` (the whole service, a fake `luna-send`: told at start, again after off and on, nothing after the file is removed).
 Not run on the set.
-
-## Frame rate after 25/50 fps video: `helper/app/src/framerate.rs`
-
-After a 25 or 50 fps video LG's kernel leaves the panel at 100 Hz (the UI at 50 Hz) until the next video's first frame
-(`framerate-result.md` "Round 11"). The helper puts it back to 120 Hz on Home only: SAM's `getForegroundAppInfo` subscription (one
-`luna-send -n 1000000` child, restarted after 5 s doubling to 5 min) says when Home comes to the front, and the screen coming on with
-Home in front counts too. One check then counts `osd_irq` in `/proc/interrupts` over 0.5 s; at 100 Hz it waits until
-`/proc/lgtv-driver/scaler/main.p0` says `connect_src=NONE`, counts again, looks at the window once more, writes `0 60` to
-`/proc/lg/de/fr_rate`, counts a third time and logs `frame rate: ...`. Nothing is written while a source is connected or an app is in
-front; a status file it cannot read turns the check off until the helper restarts. One thread (`framerate`) blocked on its channel
-(woken by the subscription, the screen watcher and the stop); it polls the scaler every 0.25 s only during a check. Off with
-`frameRate.returnOnHome: false`; not started where `/proc/lg/de/fr_rate` is missing (a host). Tests: 13 unit tests (the status
-parsers on the set's own text, the two reply shapes, the check against a fake panel: 120 Hz left alone, the write only after the
-window closed, a source that connects during the last count or just before the write, a write that does not take, a rate in
-neither band, the slower look at a source that stays, a panel that cannot be read) and `app/tests/framerate.rs` (the thread with a
-fake `luna-send` and status files a thread advances at 100 Hz until `0 60` is written: nothing inside an app, one write on Home
-with no source, none while a source stays connected, none with the screen off, a check when it comes on, the child gone at stop).
-Not run on the set ("TV check" in `framerate-result.md`).
 
 ## Seams for later phases
 

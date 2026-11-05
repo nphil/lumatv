@@ -24,9 +24,9 @@ For causal work, read `scanout-research.md:82–140,178–186,204–222`, `frame
 
 Done (2026-10-26 morning, offline, no TV): round 11's 50 fps run read sample by sample ("Round 11"): the return to 120 Hz was
 LG's switch at the start of another video (YouTube's Browse-page masthead ad), inside the firmware's start mute that every start
-has, 0.33 s before that video's window was shown. Built on it: the helper puts the panel back to 120 Hz on Home after a 25/50 fps
-video (`helper/app/src/framerate.rs`, `898e638`); the probe places each switch against the video window instead of counting the
-start mute as a blank, sees 0.2 s stays, keeps the helper's log lines, and has the `youtube50home` run (`10aa929`). Open: the
+has, 0.33 s before that video's window was shown. Built on it: the helper put the panel back to 120 Hz on Home after a 25/50 fps
+video (`helper/app/src/framerate.rs`, `898e638`; removed, the write is ignored and the compositor's retime clip replaces it,
+`vwin-refresh-result.md`); the probe places each switch against the video window instead of counting the start mute as a blank, sees 0.2 s stays, and has the `youtube50home` run (`10aa929`). Open: the
 TV check ("TV check"), with Nitin at the set for the one thing no capture shows (whether a switch blinks the panel itself); the
 GFN 4K120 run; a 25 fps Plex item (Plex's library API answers 401 without a token, and none has been handed).
 
@@ -48,7 +48,7 @@ measured in round 11 (2026-10-26); the rest are read from source.
 | Home -> 59.94 / 60 fps | 2:2 | none | none | same |
 | Home -> 4K 120 fps (GFN, HFR) | 1:1 | none; DE HFR mode on | none | SRC `vp_kwrap.c:3700-3712`, `vdisp_core.c:1078-1091` |
 | Home -> 25 / 50 fps | 4:4 / 2:2 at 100 Hz | **120 -> 100 Hz** at the first frame | none seen: the switch lands before the window is shown (round 11: at 6.90 s, window shown at 6.97 s, firmware start mute 0.15 s after videooutputd's unmute) | TV `youtube50-20261026-0424`; SRC `v4l2_vsc.c:2436-2463` (40 ms poll), `v4l2_vsc_event.c:2411-2418` |
-| 25/50 fps window closes | stays at 100 Hz, UI at 50 Hz | none | the hold-over: 2.6 s in round 11, until the next video's first frame; on Home the helper puts 120 Hz back | TV round 11 (16.80-19.66 s); SRC `v4l2_vsc_event.c:2220-2221` (`default: return` with no source) |
+| 25/50 fps window closes | stays at 100 Hz, UI at 50 Hz | none | the hold-over: 2.6 s in round 11, until the next video's first frame; on Home the compositor's retime clip puts 120 Hz back | TV round 11 (16.80-19.66 s); SRC `v4l2_vsc_event.c:2220-2221` (`default: return` with no source) |
 | 25/50 fps, then a 24/30/60 video in the same app | | **100 -> 120 Hz** at the new video's first frame | none seen: inside the firmware's start mute (round 11: switch at 19.69 s, window shown at 20.02 s) | TV `youtube50-20261026-0424` |
 | 30 <-> 60, 24 <-> 60, 25 <-> 50 (adaptive streams, next episode) | | none within a family | none | `_vsc_check_fr` maps both to the same output |
 | Any start after the output was moved by hand (`fr_rate`) | | the previous stream's rate at the connect, the new one at the first frame (about 0.2 s apart) | under videooutputd's mute and the start mute [INFERENCE] | TV: the DE reads the decoder register's last value at a connect (0411: 23.97 then 29.97; 0412: 29.97 then 23.97; 0424: 50.0 then 23.97) |
@@ -59,7 +59,7 @@ measured in round 11 (2026-10-26); the rest are read from source.
 
 What this means for Nitin's design direction: the panel already stays at 120 Hz for everything but the 25/50 family, and LG's
 switches into and out of that family land at a video's start, before its window is shown (round 11). LumaTV has one thing to add:
-the helper puts the output back to 120 Hz once Home is in front with no video window, so LumaTV's own UI never runs at 50 Hz
+the compositor plays a 30 fps clip out of sight once Home is in front with no video window, so LumaTV's own UI never runs at 50 Hz
 after a 25/50 video ("Design"). A player that writes `fr_rate` before its first frame gains nothing: the kernel applies the decoder
 register's previous rate at the connect and the item's own at its first frame, whatever was written before.
 
@@ -244,16 +244,11 @@ reduced to a hub this is moot; a future HDMI source should match rate, and the T
 1. **Inside an app: LG's.** The next video's start carries the kernel's own switch, before its window is shown (round 11: 0.33 s
    before). Holding 100 Hz through it is impossible (the kernel sets the rate at every timing change of window 0) and wrong
    (23.976 fps at 100 Hz shows frames for four and five refreshes unevenly). LumaTV writes nothing while an app is in front.
-2. **On Home: the helper** (`helper/app/src/framerate.rs`, `898e638`). SAM's `getForegroundAppInfo` subscription says when Home
-   comes to the front; the screen coming on with Home in front counts too. One check then runs: the output is counted (`osd_irq`
-   over 0.5 s); at 100 Hz the helper waits until the main window has no source (`connect_src=NONE` in
-   `/proc/lgtv-driver/scaler/main.p0`, every 0.25 s for 15 s, then every 2 s), counts again with the window closed, looks at the
-   window once more, writes `1 60` (free run) to `/proc/lg/de/fr_rate` and counts a third time. The log line is
-   `frame rate: Home was left at 100.0 Hz; set back to 120 Hz (119.6 Hz measured)`. Never a write while
-   a source is connected, except for a camera stream that plays with Home in front (written once, a second after it plays); nothing at all
-   while the subscription is down. `helper.json` `"frameRate": {"returnOnHome": false}` turns it off. On the set the write did nothing: with no source
-   connected it left a 100 Hz output at 100 Hz (round 22, five variants of the request), and with the Ring's stream connected it left 99.9 Hz (2026-11-04);
-   only a playing video put 120 back (`vwin-refresh-result.md`).
+2. **On Home: the compositor's clip** (`retime.rs`, `vwin-refresh-result.md`). The helper's watcher (`framerate.rs`, `898e638`, removed) counted
+   the output (`osd_irq` over 0.5 s), waited until the main window had no source (`connect_src=NONE` in `/proc/lgtv-driver/scaler/main.p0`) and wrote
+   `1 60` (free run) to `/proc/lg/de/fr_rate`. On the set the write did nothing: with no source connected it left a 100 Hz output at 100 Hz (round 22,
+   five variants of the request), and with the Ring's stream connected it left 99.9 Hz (2026-11-04); only a playing video put 120 back. The compositor
+   plays a 30 fps clip out of sight until the panel reads 120 Hz.
 3. **The price.** The next start after a return applies the 25/50 video's rate at its connect (the decoder register) and its own
    at the first frame: a 120 -> 100 -> 120 pair about 0.2 s long, under videooutputd's mute and the start mute [INFERENCE until
    the TV check].
@@ -268,27 +263,19 @@ bit during a 23.976 <-> 24 slew; LG's pipeline for 1080p120 without `hfrEnabled`
 
 ## TV check (next slot, Nitin at the set)
 
-The helper of `898e638` or later on the set (the next package). From the repository root; each run mutes the receiver through
-Home Assistant, puts it back once Home is in front, and saves the helper's `frame rate:` lines (`helper.txt`); `--no-standby`
-keeps the set on between runs. About 6 minutes.
+The retime clip's own check is `compositor/tools/tv-retime-probe.py` (`vwin-refresh-result.md`). What stays for this note: from the repository root, each
+run mutes the receiver through Home Assistant and puts it back once Home is in front; `--no-standby` keeps the set on between runs.
 
-1. `python3 docs/research/framerate/probe.py --go --run youtube50home --no-standby`: the known 50 fps clip, Home 8 s after the
-   launch, 15 s of Home. Nitin watches the whole screen at the clip's start and for 2 s after Home appears.
-   Pass: `switches:` has `120 -> 100 Hz at … (start)`, then `100 -> 120 Hz at … (no window)` within 1.5 s of the clip's window
-   closing (the `0 at` source rate after the `home` mark); `helper:` has `Home was left at 10x.x Hz … set back to 120 Hz`;
-   `VERDICT: PASS`; OSD vsync 119-120 Hz at the end; Nitin saw no blink at either moment. If the clip's window closed before the
-   `home` mark (YouTube left it 11 s after the launch at the earliest in round 11), run it again.
-2. At once, from Home: `python3 docs/research/framerate/probe.py --go --run netflix24 --no-standby`: the first start after the
+1. From Home after a 25/50 fps video and the retime: `python3 docs/research/framerate/probe.py --go --run netflix24 --no-standby`: the first start after the
    return. Pass: `VERDICT: PASS`; `switches:` none, or `120 -> 100` and `100 -> 120` about 0.2 s apart, both `(start)`; Nitin saw
    no blink on Netflix's loading screen. The pair, or its absence, goes into "Verdicts" (the `fr_rate` row).
-3. Round 11's in-app return, watched: `python3 docs/research/framerate/probe.py --go --run youtube50home --secs 25 --no-standby`
+2. Round 11's in-app return, watched: `python3 docs/research/framerate/probe.py --go --run youtube50home --secs 25 --no-standby`
    (Home 30 s after the launch). When YouTube leaves the clip for its Browse page and starts a preview there, `switches:` has
    `100 -> 120 Hz … (start)`; Nitin watches YouTube's Browse page at that moment. Pass: `VERDICT: PASS`, no blink seen.
-4. The set back in Active Standby (the last run without `--no-standby`, or the power key).
+3. The set back in Active Standby (the last run without `--no-standby`, or the power key).
 
-A blink at step 1 alone is Nitin's choice: Home at 120 Hz after 25/50 video, or no write (`"frameRate": {"returnOnHome": false}`
-in `/var/lib/lumatv/helper.json`, then `lumatv helper stop` and `lumatv helper start`). A blink at step 2 or 3 is LG's own
-switch and stays either way.
+A blink at the retime itself is Nitin's choice: Home at 120 Hz after 25/50 video, or `--no-retime` (`ctl retime off` for a run). A blink at step 1 or 2 is
+LG's own switch and stays either way.
 
 Still open after that: `gfn120` (a GFN session started by hand: both HFR switches on, 120 Hz 1:1), and a 25 fps Plex item:
 `plex25after24` picked two 23.976 items in round 11, and the Plex library API (`http://192.168.1.69:32400`) answers 401 without a

@@ -132,6 +132,19 @@ impl Default for Timing {
 /// Which app SAM has in front (its `getForegroundAppInfo`): a picture in the sub window plays in a pipeline opened for it.
 pub type FrontApp = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
+/// The app in front, from one `getForegroundAppInfo` reply: the application manager's flat shape, or the list of the surface manager's, where the primary
+/// entry counts. An empty id and a refused call are none.
+fn foreground_of(reply: &Value) -> Option<String> {
+    if reply.get("returnValue").and_then(Value::as_bool) == Some(false) {
+        return None;
+    }
+    let entry = match reply.get("foregroundAppInfo").and_then(Value::as_array) {
+        Some(list) => list.iter().find(|e| e.get("primary").and_then(Value::as_bool) == Some(true)).or_else(|| list.first()),
+        None => Some(reply),
+    };
+    entry.and_then(|e| e.get("appId")).and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned)
+}
+
 /// What the module acts through; a test names the loopback, its own feeder and dial, and quick timing.
 pub struct Deps {
     /// Which addresses the link may name and the token may go to: the home network on the set.
@@ -260,7 +273,7 @@ impl Scrypted {
             let luna = crate::refreshguard::LunaSource::new(&ctx.config.luna.send);
             deps.front_app = Some(Arc::new(move || {
                 let reply = luna.call("luna://com.webos.applicationManager/getForegroundAppInfo", "{}").ok()?;
-                crate::framerate::foreground_of(&serde_json::from_str(&reply).ok()?).ok().flatten()
+                foreground_of(&serde_json::from_str(&reply).ok()?)
             }));
         }
         // the feeder: a test's own, else the staged one when the live switch is on
@@ -1191,4 +1204,19 @@ struct Push {
     reader: SseReader<BufReader<http::BodyReader>>,
     last_data: Instant,
     motion: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_front_app_is_read_from_either_reply_shape_and_a_refusal_or_an_empty_id_is_none() {
+        let flat: Value = serde_json::from_str(include_str!("../../tests/fixtures/luna/getForegroundAppInfo-appmanager.json")).unwrap();
+        assert_eq!(foreground_of(&flat).as_deref(), Some("netflix"));
+        let list: Value = serde_json::from_str(include_str!("../../tests/fixtures/luna/getForegroundAppInfo.json")).unwrap();
+        assert_eq!(foreground_of(&list).as_deref(), Some("com.webos.app.home"));
+        assert_eq!(foreground_of(&json!({"returnValue": true, "appId": ""})), None);
+        assert_eq!(foreground_of(&json!({"returnValue": false, "errorText": "Denied"})), None);
+    }
 }

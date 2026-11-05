@@ -1285,8 +1285,8 @@ what it already does.
   100 Hz for the 25/50/100 family, switched at a video's first frame, before
   its window is shown (round 11, 2026-10-26); the 48 Hz case is compiled out.
   Nothing to build for LG's apps. After a 25/50 video the output stays at
-  100 Hz until the next video; the helper puts 120 Hz back once Home is in
-  front with no video window (`helper/app/src/framerate.rs`). No player
+  100 Hz until the next video; the compositor plays a 30 fps clip out of sight to
+  put 120 Hz back once Home is in front with no video window (`retime.rs`). No player
   pre-switches: a connect applies the previous stream's rate anyway.
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
