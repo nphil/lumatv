@@ -19,14 +19,34 @@ On the TV's private address, port 5004 (`hdhr` in `helper.json`: `port`, `bind`,
 | `GET /lineup.json`, `/lineup_status.json` | the TV's antenna channels, one per number, and an antenna that is not scanning |
 | `GET /lineup.m3u` | the same lineup as an M3U playlist; `url-tvg` names the guide |
 | `GET /xmltv.xml` | the TV's own guide, a day back to six days ahead, as XMLTV; with the Guide data plugin on, the online listings laid over it ([guide-data.md](guide-data.md)) |
-| `GET /auto/v<number>` | MPEG-TS of one channel (`/auto/v2.4`), answered once its first whole picture has come; it starts with the program's PAT and PMT, then that picture |
+| `GET /auto/v<number>` | MPEG-TS of one channel (`/auto/v2.4`), starting with the program's PAT and PMT. With the tuner's messages on (the default) it is answered at once and opens with a slate while the channel tunes; otherwise it is answered once the channel's first whole picture has come, and starts with that picture |
 
-A channel that cannot start is refused with 503 and `X-HDHomeRun-Error: 807 No Video Data`, the reason saying which: "no signal" when it
-does not lock within 3 s; "weak signal" when the multiplex locks but its tables do not come whole within 8 s, its picture (an MPEG-2
-sequence header, an H.264 SPS or IDR) does not within 5 s, or the demodulator counts packet errors on it; "not on air" only when the
-multiplex is clean and its whole tables do not list the channel, or it carries none of the channel's picture. Nothing of a refusal is
-kept: the next request tunes again. Other refusals name their HDHomeRun error too (801 unknown channel, 805 tuner in use, 806 tune
-failed, 811 protected).
+A request the tuner cannot take is refused with the HDHomeRun error a player expects: 503 with `805 All Tuners In Use` (another
+client's stream, or the TV's own Live TV), 404 with `801 Unknown Channel`. Without the messages, a channel that cannot start is refused too, with
+`807 No Video Data` and the reason saying which: "no signal" when it does not lock within 3 s; "weak signal" when the multiplex locks
+but its tables do not come whole within 8 s, its picture (an MPEG-2 sequence header, an H.264 SPS or IDR) does not within 5 s, or the
+demodulator counts packet errors on it; "not on air" only when the multiplex is clean and its whole tables do not list the channel, or
+it carries none of the channel's picture. Nothing of a refusal is kept but the channel's reception: the next request tunes again.
+Other refusals name their HDHomeRun error too (806 tune failed, 811 protected).
+
+## Messages in the stream
+
+With the messages on, what the tuner is doing is a picture in the stream itself (a slate), so a player shows it instead of a spinner,
+a frozen picture or Plex's Error 16, and a weak channel's stream outlasts a fade:
+
+| When | The slate says | Then |
+|---|---|---|
+| the channel tunes | `Tuning 16.9 WXYZ…`, with a bar: locked, tables found, picture waited for | the channel, from its first whole picture |
+| no picture after 8 s, the picture stops for 1.5 s, or a second loses a fifth of its packets | `Weak signal on 16.9`, how long it has waited, and the signal as the TV's demodulator reads it | the channel again at its next whole picture, once a second loses at most a twentieth |
+| no picture 45 s after the request or 2 min after it stopped; no lock; the channel not on the multiplex | `No signal on 16.9`, for 6 s | the end |
+| the TV's own Live TV takes the tuner | `The TV is using its tuner`, for 6 s (the TV has it at once) | the end |
+
+A slate is MPEG-2 in the channel's own size, rate and shape once the channel has been seen (1920x1080 interlaced before), an I
+picture twice a second with skipped pictures between, with silent AC-3 on each of the channel's sounds, drawn in the active theme's
+colours and type. The channel's own packets go on in the same program: its PIDs moved onto the program's (0x101 the picture, 0x102 on
+the sounds), its times onto the slate's clock, its counters carried on. Plex's transcoder drops a stream that appears after the start
+and passes a time jump through, which is why (`docs/research/tuner-slates.md`). A channel whose picture is not MPEG-2 is served without
+slates from its next request on.
 
 ## Players
 
@@ -46,8 +66,15 @@ answers; the plugin's page says so.
 
 ## Settings
 
-The page has the switch, where the tuner stands (idle, streaming a channel, or busy while the TV's own Live TV has it), the three addresses
-to give a player, the networks it answers and the name players show. Turning it off asks nothing.
+The page has the switch, where the tuner stands (idle, streaming a channel, busy while the TV's own Live TV has it, or checking
+reception), the three addresses to give a player, the networks it answers, the name players show and the switch for the messages in
+the stream. Turning it off asks nothing.
+
+Its channel list has every antenna channel under its RF channel (the channels that share a signal come in alike), each saying how it
+came in the last time it was watched or checked: good, some glitches, weak or no signal, with the signal in dB, the share of the
+picture lost and the dropouts. A channel switched off there is left out of the lineup, the playlist and the guide players see. *Check
+every channel* tunes each RF channel in turn for a few seconds; a stream asked for meanwhile comes first. The list and the channels
+left out are kept in `tuner/channels.json`.
 
 ## Standalone app
 

@@ -79,6 +79,8 @@ pub struct Es {
     pub stream_type: u8,
     pub pid: u16,
     pub tags: Vec<u8>,
+    /// The descriptor loop as sent (a language, an AC-3 descriptor): what a PMT made for the same stream carries on.
+    pub descriptors: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,13 +89,15 @@ pub struct Pmt {
     pub pcr_pid: u16,
     /// The tags of the program-level descriptors.
     pub tags: Vec<u8>,
+    /// The program-level descriptor loop as sent.
+    pub descriptors: Vec<u8>,
     pub streams: Vec<Es>,
 }
 
 pub fn parse_pmt(section: &[u8]) -> Option<Pmt> {
     let s = checked(section, TID_PMT)?;
     let info = usize::from(u16::from_be_bytes([s[10] & 0x0F, s[11]]));
-    let program_tags = tags(s.get(12..12 + info)?);
+    let program_info = s.get(12..12 + info)?;
     let mut rest = s.get(12 + info..s.len() - 4)?;
     let mut streams = Vec::new();
     while rest.len() >= 5 {
@@ -103,15 +107,37 @@ pub fn parse_pmt(section: &[u8]) -> Option<Pmt> {
             stream_type: rest[0],
             pid: pid_of(rest[1], rest[2]),
             tags: tags(d),
+            descriptors: d.to_vec(),
         });
         rest = &rest[5 + n..];
     }
     Some(Pmt {
         program: u16::from_be_bytes([s[3], s[4]]),
         pcr_pid: pid_of(s[8], s[9]),
-        tags: program_tags,
+        tags: tags(program_info),
+        descriptors: program_info.to_vec(),
         streams,
     })
+}
+
+/// A PMT section of `version`: the program, its clock's PID, its descriptors, and its streams as (type, PID, descriptors).
+pub fn build_pmt(program: u16, version: u8, pcr_pid: u16, descriptors: &[u8], streams: &[(u8, u16, &[u8])]) -> Vec<u8> {
+    let mut s = vec![TID_PMT, 0xB0, 0, (program >> 8) as u8, program as u8, 0xC1 | ((version & 0x1F) << 1), 0, 0];
+    s.extend_from_slice(&(0xE000 | pcr_pid).to_be_bytes());
+    s.extend_from_slice(&(0xF000 | descriptors.len() as u16).to_be_bytes());
+    s.extend_from_slice(descriptors);
+    for (stream_type, pid, d) in streams {
+        s.push(*stream_type);
+        s.extend_from_slice(&(0xE000 | pid).to_be_bytes());
+        s.extend_from_slice(&(0xF000 | d.len() as u16).to_be_bytes());
+        s.extend_from_slice(d);
+    }
+    let len = s.len() - 3 + 4;
+    s[1] = 0xB0 | (len >> 8) as u8;
+    s[2] = len as u8;
+    let crc = crc32(&s);
+    s.extend_from_slice(&crc.to_be_bytes());
+    s
 }
 
 /// One virtual channel of a terrestrial virtual channel table: `2.4` is major 2, minor 4.
@@ -407,6 +433,19 @@ pub(crate) mod tests {
         );
         assert_eq!(got.streams[1].tags, [0x05, 0x81, 0x0A]);
         assert!(!protected(&got, None));
+    }
+
+    #[test]
+    fn a_built_pmt_parses_back_with_the_descriptors_it_was_given() {
+        let language = [0x0A, 4, b'e', b'n', b'g', 0];
+        let registration = [0x05, 4, b'G', b'A', b'9', b'4'];
+        let s = build_pmt(4, 3, 0x101, &registration, &[(0x02, 0x101, &[]), (0x81, 0x102, &language)]);
+        assert_eq!(crc32(&s), 0);
+        let got = parse_pmt(&s).unwrap();
+        assert_eq!((got.program, got.pcr_pid), (4, 0x101));
+        assert_eq!(got.descriptors, registration);
+        assert_eq!(got.streams[1].descriptors, language);
+        assert_eq!(s[5] >> 1 & 0x1F, 3, "the version");
     }
 
     #[test]

@@ -12,6 +12,7 @@
 //! | [`Config`] | the name players show, the device id, the address and port to listen on, the networks that are answered |
 //! | [`Clock`] | monotonic time: [`real_clock`], or a test's that moves only when told |
 //! | [`Guide`] | optional ([`Tuner::with_guide`]): a better guide than the TV's own for `/xmltv.xml`, made from the TV's own listings |
+//! | [`Look`] | optional ([`Tuner::slates`]): the theme slates are drawn in (colours and faces); without one, streams have no slates |
 //! | the `log` facade | what it served and why it refused, under the target `lumatuner` |
 //!
 //! It is a network entrance and the tuner is shared with the TV's own use, so a host serves it only when the owner says so, on a private
@@ -22,28 +23,40 @@
 //! |---|---|
 //! | `GET /discover.json` | the device: name, id, `TunerCount` 1, `BaseURL`, `LineupURL` |
 //! | `GET /lineup_status.json` | an antenna, not scanning |
-//! | `GET /lineup.json` | the TV's antenna channels (`iepg/getChannelList`), one per number: `GuideNumber` `2.4`, `GuideName`, `URL` |
+//! | `GET /lineup.json` | the TV's antenna channels (`iepg/getChannelList`), one per number: `GuideNumber` `2.4`, `GuideName`, `URL`; a channel the owner left out ([`Tuner::hide`]) is not listed |
 //! | `GET /lineup.m3u` | the same lineup as an M3U playlist: `tvg-id` and `tvg-chno` are the guide number, the URL is `/auto/v<number>`, `url-tvg` names `/xmltv.xml` |
 //! | `GET /xmltv.xml` | the TV's own broadcast guide (`iepg/getEventList`, a day back to six days ahead, read once per channel and kept 30 minutes, or until the host's [`Guide`] changes) as XMLTV, UTC, channel ids the guide numbers, or the host's guide made from it when it has one; a channel nobody has listings for has no programmes |
-//! | `GET /auto/v<number>` | MPEG-TS of that channel from its first whole picture: a PAT naming the one program, its PMT, then its clock, picture and sound from that picture on. The client whose stream has the tuner takes it over with its next request; another client gets 503 while it runs, and every client while the TV is in use; 503 for a channel that cannot start, the reason saying which: no signal (no lock), weak signal (a locked multiplex whose tables did not come whole within 8 s or picture within 5 s, or that the demodulator counts packet errors on), not on air (a clean multiplex whose whole tables do not list it, or that carries no packets of its picture); 403 for a protected program; 404 for no such channel. Each refusal names its HDHomeRun error in `X-HDHomeRun-Error`; none is remembered |
+//! | `GET /auto/v<number>` | MPEG-TS of that channel. With slates ([`slated`]): answered at once with a slate while the channel is tuned, then the programme from its first whole picture, a slate whenever its picture stops or breaks up, and a last slate before the end, on one program and one clock of the tuner's own ([`splice`]). Without: from its first whole picture, a PAT naming the one program, its PMT, then its clock, picture and sound from that picture on; 503 for a channel that cannot start, the reason saying which: no signal (no lock), weak signal (a locked multiplex whose tables did not come whole within 8 s or picture within 5 s, or that the demodulator counts packet errors on), not on air (a clean multiplex whose whole tables do not list it, or that carries no packets of its picture); 403 for a protected program. Either way the client whose stream has the tuner takes it over with its next request; another client gets 503 while it runs, and every client while the TV is in use; 404 for no such channel. Each refusal names its HDHomeRun error in `X-HDHomeRun-Error`; none is remembered |
 //! | `GET`/`POST /lineup.post` | 200, nothing to start (the lineup is the TV's) |
 //!
 //! Pieces: [`psi`] reads and writes the transport stream's tables; [`docs`] makes the HDHomeRun documents, the playlist and the guide;
-//! [`stream`] holds the lease on the one tuner and says what a stream is, over two small traits, so it runs in tests on a fake; [`webos`]
-//! is LG's TV (luna and the DVB nodes); `server` is the listener; [`Tuner`] serves it and says what it is doing.
+//! [`stream`] holds the lease on the one tuner and says what a stream is, over two small traits, so it runs in tests on a fake; [`slated`]
+//! is a stream with slates, [`slate`] draws them and [`mpeg2`] codes them, [`splice`] is the program they and the programme share;
+//! [`health`] is what each channel's streams and checks found; [`webos`] is LG's TV (luna, the DVB nodes and the demodulator's reading);
+//! `server` is the listener; [`Tuner`] serves it and says what it is doing.
 
 pub mod docs;
+pub mod health;
+pub mod mpeg2;
 pub mod net;
 pub mod psi;
 mod server;
+pub mod slate;
+pub mod slated;
+pub mod splice;
 pub mod stream;
 pub mod webos;
 
+pub use health::{Health, Reception, Verdict};
 pub use net::Cidr;
+pub use slate::{Look, Type};
 pub use stream::{Clock, Failure, Guide, Hardware, Limits, Signal, Tap, real_clock};
 
 use docs::Identity;
+use health::Seen;
+use mpeg2::Format;
 use parking_lot::Mutex;
+use splice::Layout;
 use std::fmt;
 use std::io;
 use std::net::SocketAddr;
@@ -75,6 +88,8 @@ pub enum Status {
     Streaming { guide: String, name: String },
     /// The TV's own use has the tuner (Live TV in front, or running with the panel off): a stream asked for now is refused.
     Busy(String),
+    /// Every channel's reception is being checked ([`Tuner::check_reception`]): RF channels done, of how many.
+    Checking { done: usize, of: usize },
 }
 
 impl fmt::Display for Status {
@@ -84,12 +99,14 @@ impl fmt::Display for Status {
             Self::Idle => f.write_str("Idle"),
             Self::Streaming { guide, name } => write!(f, "Streaming {guide} {name}"),
             Self::Busy(why) => write!(f, "Busy: {why}"),
+            Self::Checking { done, of } => write!(f, "Checking reception: {done} of {of} frequencies"),
         }
     }
 }
 
 struct Running {
     server: server::Server,
+    facade: Arc<Facade>,
     config: Config,
 }
 
@@ -142,21 +159,22 @@ impl Tuner {
             name: config.name.clone(),
             device_id: config.device_id.clone(),
         };
-        let facade = Facade::new(
+        let facade = Arc::new(Facade::new(
             self.hw.clone(),
             identity,
             self.limits.clone(),
             self.clock.clone(),
             self.tuning.clone(),
             self.guide.clone(),
-        );
-        let server = server::Server::start(config.addr, Arc::new(facade), config.allowed.clone())
+        ));
+        let server = server::Server::start(config.addr, facade.clone(), config.allowed.clone())
             .inspect_err(|_| self.tuning.stop())?;
         let addr = server.local_addr();
         log::info!("tuner: sharing the tuner as {:?} at {addr}", config.name);
         self.tuning.serve();
         *running = Some(Running {
             server,
+            facade,
             config: config.clone(),
         });
         Ok(addr)
@@ -190,9 +208,82 @@ impl Tuner {
         self.status()
     }
 
-    /// `wake` is called after each change of [`Tuner::status`] (it reads the status itself: two changes close together may come as one).
+    /// `wake` is called after each change of [`Tuner::status`] and of a channel's [`Health`] (it reads them itself: two changes close
+    /// together may come as one).
     pub fn on_change(&self, wake: impl Fn() + Send + Sync + 'static) {
         self.tuning.on_change(Arc::new(wake));
+    }
+
+    /// Streams asked for from now on are served with slates drawn in the look `look` gives when each is asked for, or without them when
+    /// it gives none.
+    pub fn slates(&self, look: impl Fn() -> Option<Look> + Send + Sync + 'static) {
+        self.tuning.options.lock().look = Some(Arc::new(look));
+    }
+
+    /// The channels (guide numbers) the owner leaves out of the lineup: the playlist and the documents do not list them.
+    pub fn hide(&self, guides: impl IntoIterator<Item = String>) {
+        self.tuning.options.lock().hidden = guides.into_iter().collect();
+    }
+
+    fn facade(&self) -> Option<Arc<Facade>> {
+        self.running.lock().as_ref().map(|r| r.facade.clone())
+    }
+
+    /// Every antenna channel of the TV, left out of the lineup or not, with how it came in the last time it was streamed or checked. Empty
+    /// while the tuner is not served.
+    pub fn reception(&self) -> Vec<Reception> {
+        let Some(entries) = self.facade().and_then(|f| f.entries().ok()) else {
+            return Vec::new();
+        };
+        let known = self.tuning.known();
+        let hidden = self.tuning.options.lock().hidden.clone();
+        entries
+            .into_iter()
+            .map(|e| {
+                let k = known.get(&e.guide);
+                let seen = k.and_then(|k| k.seen.as_ref());
+                Reception {
+                    rf: docs::parse_channel_id(&e.channel_id).map_or(0, |(rf, _, _)| rf),
+                    hidden: hidden.contains(&e.guide),
+                    health: k.and_then(|k| k.health.clone()),
+                    format: seen.map(|s| s.format),
+                    sounds: seen.map_or(0, |s| s.layout.audio.len()),
+                    guide: e.guide,
+                    name: e.name,
+                }
+            })
+            .collect()
+    }
+
+    /// Gives back what a host kept of a channel from [`Tuner::reception`]: its health, and its picture's format and how many sounds its
+    /// program has, which its next slate takes.
+    pub fn recall(&self, guide: &str, health: Option<Health>, format: Option<Format>, sounds: usize) {
+        if let Some(health) = health {
+            self.tuning.record(guide, health);
+        }
+        if let Some(format) = format {
+            let mut layout = Layout::fallback(1);
+            layout.audio = vec![(0x81, Vec::new()); sounds.clamp(1, splice::MAX_AUDIO)];
+            self.tuning.saw(guide, Seen { format, layout, tsid: 1 });
+        }
+    }
+
+    /// Checks how every channel comes in, one RF channel at a time, on a thread of its own: the status says how far it is, a stream asked
+    /// for meanwhile takes the tuner, and the TV's own use or the tuner no longer being shared stops it. Refused while the tuner is not
+    /// served, streams or checks already.
+    pub fn check_reception(&self) -> Result<(), Failure> {
+        let facade = self.facade().ok_or_else(|| Failure::Hardware("the tuner is not shared".to_owned()))?;
+        if !matches!(self.status(), Status::Idle | Status::Busy(_)) {
+            return Err(Failure::Busy);
+        }
+        std::thread::Builder::new()
+            .name("tuner-check".to_owned())
+            .spawn(move || match facade.check_all() {
+                Ok(n) => log::info!("tuner: checked the reception of {n} channels"),
+                Err(f) => log::info!("tuner: the reception check stopped: {}", f.reason()),
+            })
+            .map(drop)
+            .map_err(|e| Failure::Hardware(e.to_string()))
     }
 }
 

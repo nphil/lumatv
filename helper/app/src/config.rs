@@ -78,6 +78,12 @@ impl Paths {
     pub fn theme_file(&self) -> PathBuf {
         self.data_dir.join("theme").join("theme.json")
     }
+
+    /// `tuner/channels.json`: the antenna channels the owner left out of the Live TV Tuner's lineup, and how each came in last
+    /// (`tuner/channels.rs`).
+    pub fn tuner_channels_file(&self) -> PathBuf {
+        self.data_dir.join("tuner").join("channels.json")
+    }
 }
 
 /// A config problem, in words.

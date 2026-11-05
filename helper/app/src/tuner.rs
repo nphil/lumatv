@@ -10,11 +10,19 @@
 //! those words (`POST /v1/plugins/live-tv-tuner/switch`). While it is off nothing listens and the tuner is left alone. On, it serves the
 //! tuner on the TV's private address (`helper.json` `hdhr`: port, bind, allowedNets and the tuner's nodes) and says where it stands as
 //! facts of its page: the status (idle, streaming a channel, busy while the TV's own Live TV has the tuner), the three addresses a player
-//! takes and the networks it answers. The page's one setting is the name players show; its one action looks at the TV now.
+//! takes and the networks it answers. The page's settings are the name players show and whether streams carry the tuner's messages
+//! (slates in the active theme while a channel tunes, while its signal is too weak for a picture, and when the TV takes its tuner); its
+//! list is every antenna channel with how it came in last and a switch that keeps it in the lineup (`tuner/channels.rs`); its actions
+//! look at the TV now and check every channel's reception.
 //!
 //! **`base.livetv`**, the Settings switch this replaced, is carried over at the start ([`migrate`]): a TV that shared its tuner comes up
 //! with the plugin on (the owner approved sharing the tuner when they turned it on) and the same name.
 
+mod channels;
+mod look;
+
+use channels::Kept;
+use look::Theme;
 use crate::ctx::Ctx;
 use crate::plugins::firstparty::clip;
 use crate::plugins::local::{Handler, Local, OptIn, Spec};
@@ -26,11 +34,11 @@ use plugin_api::wire::ToPlugin;
 use serde_json::{Map, Value as Json, json};
 use settings_schema::{Value as Setting, Values};
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 /// The plugin's id, which is also its settings owner.
 pub const ID: &str = "live-tv-tuner";
@@ -50,6 +58,8 @@ const OLD_OWNER: &str = "base.livetv";
 const DEFAULT_NAME: &str = "LumaTV";
 /// The page's action: look at the TV now (Settings runs it when the page opens).
 const CHECK: &str = "check";
+/// The page's action that checks how every channel comes in.
+const RECEPTION: &str = "reception";
 /// How often a listener that should be up but is not tries again, and how often an up one checks that the TV still has its address and,
 /// while the TV's own use has the tuner, whether it still has.
 const RETRY: Duration = Duration::from_secs(15);
@@ -91,8 +101,10 @@ pub fn migrate(settings: &SettingsStore, plugins_dir: &Path) {
 enum Event {
     /// The owner's switch may have changed: [`Shared::switched_on`] says how it stands.
     Switch,
-    /// The name players show.
-    Name(String),
+    /// The page's values: the name players show, and whether streams carry slates.
+    Settings { name: String, slates: bool },
+    /// The switch of channel `guide`'s row: in the lineup or out of it.
+    Lineup(String),
     /// The engine's status changed.
     Status,
     /// Look at the TV now.
@@ -145,6 +157,11 @@ struct Plugin {
     problem: Option<String>,
     /// The facts last put: an unchanged state is not put again.
     said: Json,
+    /// The slates' look.
+    theme: Arc<Theme>,
+    /// What is kept of the channels, and where.
+    kept: Kept,
+    kept_file: PathBuf,
 }
 
 impl Plugin {
@@ -160,6 +177,10 @@ impl Plugin {
             }
         }
         let mac = std::fs::read_to_string(&cfg.mac_file).unwrap_or_default();
+        let app = ctx.config.brand_app_id.as_deref().unwrap_or("org.nphil.lumatv");
+        let kept_file = ctx.paths.tuner_channels_file();
+        let kept = Kept::read(&kept_file);
+        kept.restore(&tuner);
         Self {
             ctx: ctx.clone(),
             shared,
@@ -172,6 +193,9 @@ impl Plugin {
             allowed,
             problem: None,
             said: Json::Null,
+            theme: Arc::new(Theme::new(ctx.paths.theme_file(), look::fonts_dir(app))),
+            kept,
+            kept_file,
         }
     }
 
@@ -185,11 +209,13 @@ impl Plugin {
             match rx.recv_timeout(wait) {
                 Ok(Event::Stop) | Err(RecvTimeoutError::Disconnected) => break,
                 Ok(Event::Switch) => self.switch(),
-                Ok(Event::Name(name)) => {
+                Ok(Event::Settings { name, slates }) => {
+                    self.slates(slates);
                     self.name = name;
                     self.reconcile();
                 }
-                Ok(Event::Status) => {}
+                Ok(Event::Lineup(guide)) => self.lineup(&guide),
+                Ok(Event::Status) => self.keep(),
                 Ok(Event::Check) => {
                     self.tuner.check();
                 }
@@ -221,16 +247,14 @@ impl Plugin {
                 &self.shared,
                 &OPT_IN.spec,
                 register(),
-                handler(self.tx.clone()),
+                handler(self.tx.clone(), self.tuner.clone()),
             ) {
                 Ok(page) => self.page = Some(page),
                 Err(e) => crate::log_warn!("tuner: the plugin's page was not registered: {e}"),
             }
-            self.name = self
-                .ctx
-                .settings
-                .effective(ID)
-                .map_or_else(|| DEFAULT_NAME.to_owned(), |v| name_of(&v));
+            let values = self.ctx.settings.effective(ID);
+            self.name = values.as_ref().map_or_else(|| DEFAULT_NAME.to_owned(), name_of);
+            self.slates(values.as_ref().is_none_or(slates_of));
         } else {
             self.page = None;
             self.said = Json::Null;
@@ -306,6 +330,43 @@ impl Plugin {
             self.said = said;
         }
     }
+
+    /// Serves streams with slates in the theme's look, or without them.
+    fn slates(&self, on: bool) {
+        if on {
+            let theme = self.theme.clone();
+            self.tuner.slates(move || theme.look());
+        } else {
+            self.tuner.slates(|| None);
+        }
+    }
+
+    /// Keeps what the engine now knows of the channels, and has the page's list asked for again when it changed.
+    fn keep(&mut self) {
+        if self.kept.update(&self.tuner.reception()) {
+            self.save();
+        }
+    }
+
+    /// Puts channel `guide` in the lineup or leaves it out.
+    fn lineup(&mut self, guide: &str) {
+        if !self.kept.hidden.remove(guide) {
+            self.kept.hidden.insert(guide.to_owned());
+        }
+        self.tuner.hide(self.kept.hidden.iter().cloned());
+        self.save();
+    }
+
+    fn save(&self) {
+        if let Err(e) = self.kept.write(&self.kept_file) {
+            crate::log_warn!("tuner: {}: {e}", self.kept_file.display());
+        }
+        if let Some(page) = &self.page
+            && let Err(e) = page.say(json!({"t": "choices.changed", "provider": channels::PROVIDER}))
+        {
+            crate::log_warn!("tuner: the channel list was not renewed: {e}");
+        }
+    }
 }
 
 /// The name in the page's values: trimmed, and the default when there is none.
@@ -316,40 +377,82 @@ fn name_of(values: &Values) -> String {
     }
 }
 
-/// The page, as the schema format writes it: the name players show, and the facts it says.
+/// Whether streams carry slates: on unless the owner switched it off.
+fn slates_of(values: &Values) -> bool {
+    !matches!(values.get("slates"), Some(Setting::Bool(false)))
+}
+
+/// The page, as the schema format writes it: the name players show, the slates' switch, the facts it says and the list of channels.
 fn schema_json() -> Json {
     let fact = |key: &str, label: &str| {
         json!({"key": key, "label": label, "kind": {"type": "read-only", "value": {"capability": format!("plugin.{ID}.{key}")}},
                "apply": "on-commit"})
     };
-    json!({"format": 1, "owner": ID, "revision": 1, "title": OPT_IN.spec.name, "sections": [
+    json!({"format": 1, "owner": ID, "revision": 2, "title": OPT_IN.spec.name, "sections": [
         {"id": "tuner", "title": "Tuner", "fields": [
             fact("status", "Status"),
             {"key": "name", "label": "Name shown in players", "kind": {"type": "text", "max_chars": 40, "secret": false},
              "default": {"type": "text", "value": DEFAULT_NAME}, "apply": "on-commit"},
+            {"key": "slates", "label": "Show tuning and signal messages in the stream",
+             "help": "Players show the channel tuning, a weak signal or the TV taking its tuner in place of a black or frozen picture.",
+             "kind": {"type": "bool"}, "default": {"type": "bool", "value": true}, "apply": "on-commit"},
             fact("networks", "Answers")]},
         {"id": "addresses", "title": "Addresses", "fields": [
             fact("discover", "HDHomeRun (Plex, Jellyfin, Emby, Channels DVR)"),
             fact("playlist", "Playlist (VLC, TiviMate, Kodi)"),
-            fact("guide", "Guide (XMLTV)")]}]})
+            fact("guide", "Guide (XMLTV)")]},
+        {"id": "channels", "title": "Channels", "fields": [
+            {"key": "channels.note", "label": "How each channel came in the last time it was watched or checked. A channel switched off is left out of the lineup players see.",
+             "kind": {"type": "note"}, "apply": "on-commit"},
+            {"key": "reception", "label": "Check every channel", "help": "Tunes each frequency in turn for a few seconds. A stream asked for meanwhile comes first.",
+             "kind": {"type": "action", "action": RECEPTION, "confirmation": "none", "verb": "Check"}, "apply": "on-commit"},
+            {"key": "channels", "label": "Channels", "kind": {"type": "items", "provider": channels::PROVIDER}, "apply": "on-commit"}]}]})
 }
 
 fn register() -> Json {
-    json!({"title": OPT_IN.spec.name, "settings": schema_json(), "actions": [{"key": CHECK, "label": "Check the tuner"}]})
+    json!({"title": OPT_IN.spec.name, "settings": schema_json(),
+           "actions": [{"key": CHECK, "label": "Check the tuner"}, {"key": channels::LINEUP, "label": "In the lineup"}]})
 }
 
-/// Takes the page's answers to the thread: a new name, and the action that looks at the TV.
-fn handler(tx: Sender<Event>) -> Handler {
+/// Answers the page: its list of channels, its actions, and its values (to the thread).
+fn handler(tx: Sender<Event>, tuner: Arc<Tuner>) -> Handler {
     Arc::new(move |local: &Local, message: ToPlugin| match message {
-        ToPlugin::ActionInvoke { op, action, .. } => {
-            let known = action == CHECK;
-            if known {
-                let _ = tx.send(Event::Check);
-            }
-            let _ = local.answer(op, if known { Ok(()) } else { Err("no such action") });
+        ToPlugin::ChoicesQuery {
+            query,
+            generation,
+            provider,
+            offset,
+            limit,
+        } => {
+            let page = if provider == channels::PROVIDER {
+                channels::page(&tuner.reception(), offset, limit, SystemTime::now())
+            } else {
+                json!({"offset": offset, "rows": [], "more": false, "state": "failed"})
+            };
+            let _ = local.say(json!({"t": "choices.batch", "query": query, "generation": generation, "page": page}));
+        }
+        ToPlugin::ActionInvoke {
+            op, action, target, ..
+        } => {
+            let outcome = match (action.as_str(), target) {
+                (CHECK, _) => {
+                    let _ = tx.send(Event::Check);
+                    Ok(())
+                }
+                (channels::LINEUP, Some(guide)) => {
+                    let _ = tx.send(Event::Lineup(guide));
+                    Ok(())
+                }
+                (RECEPTION, _) => tuner.check_reception().map_err(|f| f.reason()),
+                _ => Err("no such action".to_owned()),
+            };
+            let _ = local.answer(op, outcome.as_ref().map(|_| ()).map_err(String::as_str));
         }
         ToPlugin::SettingsApply { txn, values, .. } => {
-            let _ = tx.send(Event::Name(name_of(&values)));
+            let _ = tx.send(Event::Settings {
+                name: name_of(&values),
+                slates: slates_of(&values),
+            });
             let _ = local.say(json!({"t": "settings.result", "txn": txn, "outcome": {"type": "applied", "values": values}}));
         }
         _ => {}

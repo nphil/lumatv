@@ -9,14 +9,18 @@
 
 use crate::Status;
 use crate::docs::{self, Entry, Identity};
+use crate::health::{Health, Known, Seen, Verdict, lost_before};
 use crate::psi::{self, PACKET};
+use crate::slate::Look;
+use crate::slated::Slated;
 use parking_lot::{Condvar, Mutex};
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// Why a stream could not start, or had to end.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,7 +95,7 @@ pub trait Hardware: Send + Sync + 'static {
     /// Tunes LG's `channel_id` and returns the tap of what the antenna carries. Dropping the tap lets everything go: the demux, the
     /// pipeline, and the TV's last channel, which is put back.
     fn tune(&self, channel_id: &str) -> Result<Box<dyn Tap>, Failure>;
-    /// What the demodulator says of the frequency it is tuned to, if the TV says: read, nothing is touched.
+    /// What the demodulator says of the frequency it is tuned to, if the TV says: read, nothing is touched. A slate shows it.
     fn signal(&self) -> Option<Signal> {
         None
     }
@@ -106,6 +110,39 @@ pub struct Signal {
     pub snr: Option<f32>,
     /// The packets it could not correct lately (`Packet Error`, 0 to 255 on the set), when it says: 0 on a clean multiplex.
     pub errors: Option<u32>,
+}
+
+impl Signal {
+    /// How strong the signal is, 0 to 1: from 16 dB, where an ATSC picture starts breaking up, to 30 dB.
+    pub fn strength(&self) -> f32 {
+        match (self.locked, self.snr) {
+            (true, Some(snr)) => ((snr - 16.0) / 14.0).clamp(0.0, 1.0),
+            _ => 0.0,
+        }
+    }
+
+    /// The signal in a word. Measured on the set on 2026-11-05: RF 32 at 28 to 29 dB and RF 25 at 24 dB lost nothing; RF 29 at 18 to 20 dB
+    /// lost up to 4% of its packets; RF 21 at 18 dB once brought no whole picture in 12 s.
+    pub fn quality(&self) -> &'static str {
+        match (self.locked, self.snr) {
+            (false, _) => "none",
+            (true, None) => "locked",
+            (true, Some(s)) if s < 16.0 => "none",
+            (true, Some(s)) if s < 20.0 => "weak",
+            (true, Some(s)) if s < 24.0 => "fair",
+            (true, Some(s)) if s < 28.0 => "good",
+            _ => "excellent",
+        }
+    }
+
+    /// What a person is told: `Signal 18 dB: weak`, or that there is none.
+    pub fn words(&self) -> String {
+        match (self.locked, self.snr) {
+            (false, _) => "No signal on this channel's frequency".to_owned(),
+            (true, None) => "The tuner holds the frequency".to_owned(),
+            (true, Some(snr)) => format!("Signal {snr:.0} dB: {}", self.quality()),
+        }
+    }
 }
 
 /// The antenna's multiplex through the demux.
@@ -159,6 +196,22 @@ pub struct Limits {
     /// HDHomeRun gives a program. Measured on the set on 2026-11-05 over its 59 channels: the first picture packet came 0.1 to 0.7 s after
     /// routing, the first whole picture up to 3.0 s (30.1).
     pub first_picture: Duration,
+    /// With slates: how long the tuning slate stands before it says the signal is weak and how strong it is.
+    pub weak_after: Duration,
+    /// With slates: how long the programme's picture may stop before the slate stands in for it (its packets come every few
+    /// milliseconds).
+    pub dropout: Duration,
+    /// With slates: the share of the picture's packets lost within a second that brings the slate in (a second of 16.1 that lost a
+    /// quarter of them on 2026-11-05 was its last before the signal went), and the share a second may lose for the picture to come back.
+    pub loss_weak: f32,
+    pub loss_clear: f32,
+    /// With slates: how long a channel whose picture has not come is waited for, and one whose picture stopped, before the stream ends.
+    pub give_up_tuning: Duration,
+    pub give_up: Duration,
+    /// With slates: how long the last slate (no signal, the TV using its tuner) stands at the end of the stream.
+    pub last_word: Duration,
+    /// How long a check of every channel listens to the pictures of each RF channel: several of their whole pictures.
+    pub listen: Duration,
 }
 
 impl Default for Limits {
@@ -173,6 +226,14 @@ impl Default for Limits {
             guide_ttl: Duration::from_secs(30 * 60),
             release: Duration::from_secs(5),
             first_picture: Duration::from_secs(5),
+            weak_after: Duration::from_secs(8),
+            dropout: Duration::from_millis(1500),
+            loss_weak: 0.2,
+            loss_clear: 0.05,
+            give_up_tuning: Duration::from_secs(45),
+            give_up: Duration::from_secs(120),
+            last_word: Duration::from_secs(6),
+            listen: Duration::from_secs(3),
         }
     }
 }
@@ -194,15 +255,15 @@ struct Holding {
 }
 
 /// The tuner, held: dropping it frees it and wakes whoever waits for it.
-struct Lease {
+pub(crate) struct Lease {
     tuning: Arc<Tuning>,
     /// Set when another request takes the tuner over.
-    replaced: Arc<AtomicBool>,
+    pub(crate) replaced: Arc<AtomicBool>,
 }
 
 impl Lease {
     /// The stream is over: what is left is letting go of the TV, which a new request waits for instead of being refused.
-    fn over(&self) {
+    pub(crate) fn over(&self) {
         if let Some(h) = self.tuning.held.lock().as_mut() {
             h.over = true;
         }
@@ -217,19 +278,61 @@ impl Drop for Lease {
 }
 
 /// What every facade of one tuner shares: who holds it (a listener started again cannot tune while the last one's stream still lets go)
-/// and the wake-up of whoever waits for it, and what it is doing, with the host's wake-up for a change.
+/// and the wake-up of whoever waits for it, what it is doing, with the host's wake-up for a change, how its streams are served and what it
+/// remembers of each channel.
 #[derive(Default)]
 pub(crate) struct Tuning {
     held: Mutex<Option<Holding>>,
     freed: Condvar,
     status: Mutex<Status>,
     wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    pub(crate) options: Mutex<Options>,
+    known: Mutex<HashMap<String, Known>>,
+}
+
+/// Where a stream's slates get their look: asked once for each request, so a change of the host's theme reaches the next stream; `None`
+/// serves it without slates.
+pub(crate) type LookSource = Arc<dyn Fn() -> Option<Look> + Send + Sync>;
+
+/// How streams are served: with slates or without (no source); and the channels the owner left out of the lineup.
+#[derive(Clone, Default)]
+pub(crate) struct Options {
+    pub(crate) look: Option<LookSource>,
+    pub(crate) hidden: HashSet<String>,
+}
+
+impl Tuning {
+    /// How channel `guide` came in, and the host told.
+    pub(crate) fn record(&self, guide: &str, health: Health) {
+        self.known.lock().entry(guide.to_owned()).or_default().health = Some(health);
+        self.tell();
+    }
+
+    /// What channel `guide`'s picture and program were like.
+    pub(crate) fn saw(&self, guide: &str, seen: Seen) {
+        self.known.lock().entry(guide.to_owned()).or_default().seen = Some(seen);
+    }
+
+    pub(crate) fn seen(&self, guide: &str) -> Option<Seen> {
+        self.known.lock().get(guide).and_then(|k| k.seen.clone())
+    }
+
+    pub(crate) fn known(&self) -> HashMap<String, Known> {
+        self.known.lock().clone()
+    }
+
+    fn tell(&self) {
+        let wake = self.wake.lock().clone();
+        if let Some(wake) = wake {
+            wake();
+        }
+    }
 }
 
 impl Tuning {
     /// Takes the tuner for `peer`. A stream of the same client, or one that is over, is told to end and waited for, at most `wait`;
     /// another client's running stream keeps it.
-    fn take(self: &Arc<Self>, peer: IpAddr, wait: Duration) -> Result<Lease, Failure> {
+    pub(crate) fn take(self: &Arc<Self>, peer: IpAddr, wait: Duration) -> Result<Lease, Failure> {
         let deadline = Instant::now() + wait;
         let mut held = self.held.lock();
         loop {
@@ -265,7 +368,7 @@ impl Tuning {
 
     /// Moves to what `next` makes of the status now (`None`: it stays) and wakes the host when that is a change. The host is woken outside
     /// the lock and reads the status itself, so wake-ups that cross still leave it with the last one.
-    fn change(&self, next: impl FnOnce(&Status) -> Option<Status>) {
+    pub(crate) fn change(&self, next: impl FnOnce(&Status) -> Option<Status>) {
         let changed = {
             let mut now = self.status.lock();
             match next(&now) {
@@ -276,9 +379,8 @@ impl Tuning {
                 _ => false,
             }
         };
-        let wake = changed.then(|| self.wake.lock().clone()).flatten();
-        if let Some(wake) = wake {
-            wake();
+        if changed {
+            self.tell();
         }
     }
 
@@ -298,11 +400,11 @@ impl Tuning {
         });
     }
 
-    fn refused(&self, why: &str) {
+    pub(crate) fn refused(&self, why: &str) {
         self.change(|now| (*now != Status::Off).then(|| Status::Busy(why.to_owned())));
     }
 
-    fn streaming(&self, entry: &Entry) {
+    pub(crate) fn streaming(&self, entry: &Entry) {
         self.change(|now| {
             (*now != Status::Off).then(|| Status::Streaming {
                 guide: entry.guide.clone(),
@@ -314,9 +416,9 @@ impl Tuning {
 
 /// Says what the tuner does once a stream is over: idle, or busy when the TV taking it back is what ended it. A tuner switched off
 /// meanwhile stays off.
-struct Over {
-    tuning: Arc<Tuning>,
-    then: Status,
+pub(crate) struct Over {
+    pub(crate) tuning: Arc<Tuning>,
+    pub(crate) then: Status,
 }
 
 impl Drop for Over {
@@ -329,7 +431,7 @@ impl Drop for Over {
 
 /// The channels of a multiplex from its virtual channel table. Sections that come whole go into `have` (the first says how many there are)
 /// and stay there across calls, so on a weak multiplex a repeat only has to bring the sections the last one lost; `None` until all are in.
-fn channels_of(
+pub(crate) fn channels_of(
     tap: &mut dyn Tap,
     have: &mut Vec<Option<Vec<u8>>>,
     wait: Duration,
@@ -353,22 +455,22 @@ fn channels_of(
 
 /// Why the program of a channel was not found: something that did not come whole in time, or something read whole that says it is not
 /// there.
-enum Unfound {
+pub(crate) enum Unfound {
     Missing(&'static str),
     Absent(&'static str),
 }
 
 pub(crate) struct Facade {
-    hw: Arc<dyn Hardware>,
+    pub(crate) hw: Arc<dyn Hardware>,
     pub(crate) identity: Identity,
-    limits: Limits,
-    clock: Clock,
+    pub(crate) limits: Limits,
+    pub(crate) clock: Clock,
     lineup: Mutex<Option<(Duration, Vec<Entry>)>>,
     /// The host's guide, when it has one: `/xmltv.xml` is its document when it gives one.
     source: Option<Arc<dyn Guide>>,
     /// The document served, when it was made and from which revision of the host's guide.
     guide: Mutex<Option<(Duration, u64, Arc<str>)>>,
-    tuning: Arc<Tuning>,
+    pub(crate) tuning: Arc<Tuning>,
 }
 
 impl Facade {
@@ -393,7 +495,7 @@ impl Facade {
     }
 
     /// The TV's antenna channels. Read again after a minute; a TV that does not answer leaves the last list standing.
-    pub(crate) fn lineup(&self) -> Result<Vec<Entry>, Failure> {
+    pub(crate) fn entries(&self) -> Result<Vec<Entry>, Failure> {
         let now = (self.clock)();
         let mut kept = self.lineup.lock();
         if let Some((at, entries)) = kept.as_ref()
@@ -411,6 +513,13 @@ impl Facade {
         }
     }
 
+    /// The lineup the documents list: the TV's antenna channels less those the owner left out.
+    pub(crate) fn lineup(&self) -> Result<Vec<Entry>, Failure> {
+        let mut entries = self.entries()?;
+        let hidden = &self.tuning.options.lock().hidden;
+        entries.retain(|e| !hidden.contains(&e.guide));
+        Ok(entries)
+    }
     /// The XMLTV guide of the lineup, from the TV's own listings, one read per channel, or the host's guide made from them when it has one.
     /// Kept for `guide_ttl`, or until the host's guide changes: a client that asks again gets the same document, and one that asks while it
     /// is being read waits for it. A channel the TV cannot answer for is listed without its own programmes; only when no channel could be
@@ -463,10 +572,9 @@ impl Facade {
         }
     }
 
-    /// Takes the tuner for channel `guide` (`2.4`) for the client at `peer`, tunes it, finds the program and waits for its first whole
-    /// picture. Nothing has been sent to the client yet, so a failure is still an HTTP status. Nothing of a failure is kept: the next request
-    /// tunes again.
-    pub(crate) fn open(&self, guide: &str, peer: IpAddr) -> Result<Stream, Failure> {
+    /// Takes the tuner for channel `guide` (`2.4`) for the client at `peer`: what a refusal answers is checked here, while nothing has been
+    /// sent to the client and a failure is still an HTTP status.
+    fn take_for(&self, guide: &str, peer: IpAddr) -> Result<(Entry, Lease), Failure> {
         let entry = self
             .lineup()?
             .into_iter()
@@ -477,7 +585,48 @@ impl Facade {
             self.tuning.refused(&why);
             return Err(Failure::TvInUse(why));
         }
-        self.find(&entry, lease)
+        Ok((entry, lease))
+    }
+
+    /// The stream for a request. With the owner's slates on, and a channel whose picture a slate can stand in for (MPEG-2, or not seen
+    /// yet), it is answered at once and tuned while the slate shows ([`Facade::play`]); otherwise it is tuned here and answered from its
+    /// first whole picture, and a channel that cannot start is still an HTTP status. Nothing of a failure is kept but the channel's health:
+    /// the next request tunes again.
+    pub(crate) fn admit(&self, guide: &str, peer: IpAddr) -> Result<Admitted, Failure> {
+        let (entry, lease) = self.take_for(guide, peer)?;
+        let source = self.tuning.options.lock().look.clone();
+        match source.and_then(|look| look()) {
+            Some(look) if self.tuning.seen(guide).is_none_or(|s| s.layout.video_type == 0x02) => {
+                Ok(Admitted::Slated(Slated { entry, lease, look }))
+            }
+            _ => self.found(entry, lease).map(|stream| Admitted::Plain(Box::new(stream))),
+        }
+    }
+
+    /// A request without slates: the tuner taken, the channel tuned, its program found and its first whole picture waited for.
+    #[cfg(test)]
+    pub(crate) fn open(&self, guide: &str, peer: IpAddr) -> Result<Stream, Failure> {
+        let (entry, lease) = self.take_for(guide, peer)?;
+        self.found(entry, lease)
+    }
+
+    fn found(&self, entry: Entry, lease: Lease) -> Result<Stream, Failure> {
+        let found = self.find(&entry, lease);
+        if let Err(Failure::NoSignal(_) | Failure::WeakSignal(_) | Failure::OffAir(_)) = &found {
+            self.tuning.record(
+                &entry.guide,
+                Health {
+                    at: SystemTime::now(),
+                    verdict: Verdict::NoSignal,
+                    signal: None,
+                    lost: 0.0,
+                    picture: None,
+                    dropouts: 0,
+                    checked: false,
+                },
+            );
+        }
+        found
     }
 
     /// Tunes `entry`'s channel, finds its program in the multiplex, routes it and waits for its first whole picture. A request of the same
@@ -586,6 +735,9 @@ impl Facade {
             ],
             limits: self.limits.clone(),
             clock: self.clock.clone(),
+            guide: entry.guide.clone(),
+            cc: None,
+            counted: (0, 0),
             over: Over {
                 tuning: self.tuning.clone(),
                 then: Status::Idle,
@@ -596,7 +748,7 @@ impl Facade {
 
     /// The refusal of a channel whose program was not found: only a clean multiplex (the demodulator counts no packet errors) is taken at
     /// its word when something read whole says the channel is not there; anything else is the signal.
-    fn unfound(&self, entry: &Entry, why: Unfound) -> Failure {
+    pub(crate) fn unfound(&self, entry: &Entry, why: Unfound) -> Failure {
         let signal = self.hw.signal();
         match why {
             Unfound::Absent(what) if signal.is_some_and(|s| s.locked && s.errors == Some(0)) => {
@@ -614,7 +766,7 @@ impl Facade {
 
 /// One round of reading `entry`'s tables within `wait`: its virtual channel (the channel table's sections kept in `sections` across
 /// rounds), the PAT's entry for its program and the program's PMT (its section as read, and what it says).
-fn program(
+pub(crate) fn program(
     tap: &mut dyn Tap,
     entry: &Entry,
     sections: &mut Vec<Option<Vec<u8>>>,
@@ -658,6 +810,12 @@ fn pat_of(tap: &mut dyn Tap, wait: Duration) -> Option<psi::Pat> {
     Some(pat)
 }
 
+/// A request the tuner took: a stream tuned without slates, or one to answer at once with them.
+pub(crate) enum Admitted {
+    Plain(Box<Stream>),
+    Slated(Slated),
+}
+
 /// How a running stream ended (a client that went away is the `io::Error` of `pump`, not one of these).
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum End {
@@ -688,6 +846,10 @@ pub(crate) struct Stream {
     pub(crate) took: [Duration; 3],
     limits: Limits,
     clock: Clock,
+    /// The channel, and its picture's packets that came and that were lost, by continuity count, for its health.
+    guide: String,
+    cc: Option<u8>,
+    counted: (u64, u64),
     over: Over,
     lease: Lease,
 }
@@ -699,6 +861,21 @@ impl Stream {
     pub(crate) fn pump(&mut self, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<End> {
         let end = self.run(out, stop);
         self.lease.over();
+        let (got, lost) = self.counted;
+        let share = if got + lost == 0 { 0.0 } else { lost as f32 / (got + lost) as f32 };
+        let dropouts = u32::from(matches!(end, Ok(End::Silent)));
+        self.over.tuning.record(
+            &self.guide,
+            Health {
+                at: SystemTime::now(),
+                verdict: Verdict::of(true, share, dropouts),
+                signal: None,
+                lost: share,
+                picture: Some(self.took.iter().sum()),
+                dropouts,
+                checked: false,
+            },
+        );
         end
     }
 
@@ -756,7 +933,15 @@ impl Stream {
             let mut pictured = false;
             for p in buf.chunks_exact_mut(PACKET) {
                 match psi::pid_of_packet(p) {
-                    pid if pid == self.watch => pictured = true,
+                    pid if pid == self.watch => {
+                        pictured = true;
+                        if p[3] & 0x10 != 0 {
+                            let cc = p[3] & 0x0F;
+                            self.counted.1 += self.cc.map_or(0, |last| u64::from(lost_before(last, cc)));
+                            self.counted.0 += 1;
+                            self.cc = Some(cc);
+                        }
+                    }
                     pid if pid == self.pmt_pid => pmt.renumber(p),
                     _ => {}
                 }
@@ -782,7 +967,7 @@ pub(crate) mod tests {
     use std::thread;
 
     /// Plex at home, and another client.
-    const PLEX: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 69));
+    pub(crate) const PLEX: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 69));
     const OTHER: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 70));
 
     /// The fake clock: reads wait by moving it, so a test of five silent seconds takes no time.
@@ -795,16 +980,16 @@ pub(crate) mod tests {
             Arc::new(move || Duration::from_millis(ms.load(Ordering::Relaxed)))
         }
 
-        fn advance(&self, by: Duration) {
+        pub(crate) fn advance(&self, by: Duration) {
             self.0.fetch_add(by.as_millis() as u64, Ordering::Relaxed);
         }
     }
 
     #[derive(Clone)]
     pub(crate) struct Multiplex {
-        tvct: Vec<Vec<u8>>,
-        pat: Vec<u8>,
-        pmts: HashMap<u16, Vec<u8>>,
+        pub(crate) tvct: Vec<Vec<u8>>,
+        pub(crate) pat: Vec<u8>,
+        pub(crate) pmts: HashMap<u16, Vec<u8>>,
     }
 
     /// RF 32's multiplex as the set carries it, cut down: 2.1 is program 1 (PMT 0x30), 2.4 is program 4 (PMT 0x60: clock and picture 0x61, AC-3 0x64).

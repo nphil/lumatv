@@ -4,7 +4,7 @@
 
 use crate::docs;
 use crate::net::Cidr;
-use crate::stream::{End, Facade, Failure};
+use crate::stream::{Admitted, End, Facade, Failure};
 use serde_json::Value;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
@@ -254,30 +254,34 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
         ("GET", path) if path.starts_with("/auto/v") => {
             let guide = &path["/auto/v".len()..];
             let asked = Instant::now();
-            match facade.open(guide, peer) {
+            const HEAD: &str = "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\n\r\n";
+            let sent = match facade.admit(guide, peer) {
                 Err(f) => {
                     log::info!("tuner: {peer} asked for {guide}: {}", f.reason());
-                    refuse(&mut stream, &f)
+                    return drop(refuse(&mut stream, &f));
                 }
-                Ok(mut program) => {
+                Ok(Admitted::Plain(mut program)) => {
                     // the PAT and the PMT go out as soon as the head is written: this is the client's wait for its first byte
                     let [tune, tables, picture] = program.took.map(|d| d.as_secs_f64());
                     log::info!(
                         "tuner: {peer} streams {guide} after {:.1} s (tune {tune:.1}, tables {tables:.1}, picture {picture:.1})",
                         asked.elapsed().as_secs_f64()
                     );
-                    let sent = write!(stream, "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\n\r\n").and_then(|()| program.pump(&mut stream, stop));
-                    match sent {
-                        Ok(End::Stopped) => log::info!("tuner: {guide} stopped"),
-                        Ok(End::Replaced) => {
-                            log::info!("tuner: {guide} gave the tuner to the next request")
-                        }
-                        Ok(end) => log::warn!("tuner: {guide} ended: {end:?}"),
-                        Err(e) => log::info!("tuner: {peer} left {guide}: {e}"),
-                    }
-                    Ok(())
+                    write!(stream, "{HEAD}").and_then(|()| program.pump(&mut stream, stop))
                 }
+                Ok(Admitted::Slated(slated)) => {
+                    // answered at once: the slate is the first byte, and the channel is tuned while it shows
+                    log::info!("tuner: {peer} streams {guide} with slates");
+                    write!(stream, "{HEAD}").and_then(|()| facade.play(slated, &mut stream, stop))
+                }
+            };
+            match sent {
+                Ok(End::Stopped) => log::info!("tuner: {guide} stopped"),
+                Ok(End::Replaced) => log::info!("tuner: {guide} gave the tuner to the next request"),
+                Ok(end) => log::warn!("tuner: {guide} ended: {end:?}"),
+                Err(e) => log::info!("tuner: {peer} left {guide}: {e}"),
             }
+            Ok(())
         }
         ("GET" | "POST", _) => reply(&mut stream, 404, "text/plain", b"not found"),
         _ => reply(&mut stream, 405, "text/plain", b"method not allowed"),
