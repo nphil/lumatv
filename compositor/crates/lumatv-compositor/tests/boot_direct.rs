@@ -146,7 +146,12 @@ fn the_report_says_whose_home_is_in_front_and_whether_the_ui_is_there() {
     let mut server = Server::start();
     shell_up(&mut server);
     flag_on(&server);
-    let report = |server: &Server| server.eval(|s| s.shell_report()["bootDirect"].clone());
+    // through `ctl shell`, which is what the boot checks read
+    let report = |server: &Server| {
+        let all: serde_json::Value = serde_json::from_str(&server.eval(|s| lumatv_compositor::control::handle(s, "shell").text())).unwrap();
+        assert!(all["homeDrawn"].is_boolean(), "{all}");
+        all["bootDirect"].clone()
+    };
     let before = report(&server);
     assert_eq!(before["on"], true);
     assert_eq!((before["homeFront"].as_bool(), before["lgHomeFront"].as_bool(), before["uiGone"].as_bool()), (Some(false), Some(false), Some(false)));

@@ -114,7 +114,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             match words.next() {
                 Some("restart") => {
                     state.shell_rust_restart();
-                    state.shell_rust_report()
+                    state.shell_report()
                 }
                 Some("show") => {
                     // shell show KIND [PAGE]: the page is for a kind that has them (`settings privacy`)
@@ -123,7 +123,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                     let taken = state.shell_show_page(kind, false, page);
                     json!({"ok": true, "kind": kind, "page": page, "taken": taken})
                 }
-                None => state.shell_rust_report(),
+                None => state.shell_report(),
                 Some(_) => json!({"ok": false, "error": "shell [restart | show KIND [PAGE]]"}),
             }
         }
