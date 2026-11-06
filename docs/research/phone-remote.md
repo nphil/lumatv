@@ -413,16 +413,16 @@ Each phase is accepted on the TV with its receipt path recorded.
 6. **Letters in the keymap**, if Nitin agrees: letters through `ctl key` first, then phone typing into YouTube, Netflix and Prime Video.
 7. **Marquee:** the embedding, in the Marquee session.
 
-## Decisions for Nitin
+## Decisions (Nitin, 2026-11-06)
 
-1. **Pairing gate:** opening pairing needs OK on the physical remote. Recommended: a paired phone then cannot add another, and nothing on the network can open
-   the window.
-2. **Air mouse:** hold to point (recommended: a phone in the hand is never still) or always on while the Pointer tab shows.
-3. **Letters in the served keymap:** lets the phone type into YouTube, Netflix and Prime Video; USB keyboards would type there too.
-4. **Names:** app `LumaRemote`, bundle `com.nphil.lumaremote`, public repo `nphil/LumaRemoteKit`.
-5. **Install route:** sideloaded like Stashy (free; the store app re-signs it every 7 days (PUB); no broadcast Wake-on-LAN), or a paid developer account
-   (TestFlight, one-year signing, the multicast entitlement for broadcast wake).
-6. **Volume buttons:** the phone's own volume buttons drive the TV's volume while the remote is open.
+1. **Pairing gate:** opening pairing needs OK on the physical remote.
+2. **Air mouse mode:** decided in the Marquee app design. The pointer lives on a separate remote screen in the app; the kit offers both hold-to-point and
+   always-on, and the Marquee session picks the behaviour.
+3. **Letters in the served keymap:** yes. The phone types into YouTube, Netflix and Prime Video; USB keyboards type there too.
+4. **No standalone app:** LumaTV control is part of the Marquee iOS app. `LumaRemoteKit` stays a separate Swift package that Marquee embeds; the thin
+   `LumaRemote` app above is dropped, and Marquee owns the `lumaremote://` pairing link and the QR scan.
+5. **Install route:** sideloaded like Stashy (free, re-signed every 7 days, no broadcast Wake-on-LAN; unicast wake is the fallback to test).
+6. **Volume buttons:** yes, while the remote screen is open.
 
 Untested: all of it. Inferred, not measured: every latency figure; whether Chromium, Qt, Flutter and SDL apps honour version 4 `wl_pointer.axis`; text from the
 phone under LG's keyboard; YouTube, Netflix and Prime Video accepting one key per character; unicast Wake-on-LAN from iOS.
