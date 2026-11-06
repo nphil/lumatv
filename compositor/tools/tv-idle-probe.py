@@ -5,6 +5,9 @@ Run ON THE SET as root with LumaTV's compositor live (`ctl` answers), Home in fr
 is written but its own result file: no key, no setting, no draw.
 
     tv-idle-probe.py run [--secs 60] [--label NAME] [--out DIR]   reads, waits, reads; DIR/NAME.json (default /tmp/lumatv/out/idle/NAME.json) and a summary
+    tv-idle-probe.py event --trigger CMD [--before 20] [--after 40] [--step 5] [--label NAME] [--out DIR]
+                                                                  a reading every STEP s from BEFORE s ahead of the shell command CMD to AFTER s past
+                                                                  it: each window's shares and frames, and when LumaTV was back at its share before
     tv-idle-probe.py read                                         one reading, nothing waited for
     tv-idle-probe.py compare BEFORE.json AFTER.json               two results side by side
     tv-idle-probe.py selftest                                     the readers and the arithmetic on text (runs on the host)
@@ -351,6 +354,8 @@ def window(a, b):
     if da and db and db[0] + db[1] > da[0] + da[1]:
         w["mali_busy_pct"] = round(100.0 * (db[0] - da[0]) / ((db[0] - da[0]) + (db[1] - da[1])), 1)
     w["keys_delivered"] = ((b["keys"].get("delivered") or 0) - (a["keys"].get("delivered") or 0))
+    # Home's own frames come from the engine, not from a client: a commit is another client drawing (a camera pop-up's texture, an app)
+    w["client_commits"] = (b.get("stats") or {}).get("commits", 0) - (a.get("stats") or {}).get("commits", 0)
     if a.get("budget") is not None and b.get("budget") is not None:
         w["budget"] = budget_window(a["budget"], b["budget"], dt, hz)
         w["others"] = others_window(a["others"], b["others"], dt, hz)
@@ -360,8 +365,13 @@ def window(a, b):
 def verdicts(w, a, b, sky):
     """The checks, each with what decided it. `None`: the reading was not there."""
     out = {}
-    out["quiet"] = {"ok": w["keys_delivered"] == 0 and not a.get("saver") and not b.get("saver") and (b["keys"].get("foreground") == "com.webos.app.home"),
-                    "detail": "keys %s, saver %s/%s, foreground %s" % (w["keys_delivered"], a.get("saver"), b.get("saver"), b["keys"].get("foreground"))}
+    # a camera pop-up during the window (its feeder decodes and its texture commits) is not Home at rest: 2026-11-05's 18.8 flips a second under the
+    # glazed glass were one, 253 commits in the window
+    feeder = "feeder" in (w.get("budget") or {})
+    out["quiet"] = {"ok": w["keys_delivered"] == 0 and not a.get("saver") and not b.get("saver") and (b["keys"].get("foreground") == "com.webos.app.home")
+                    and w["client_commits"] == 0 and not feeder,
+                    "detail": "keys %s, saver %s/%s, foreground %s, client commits %s, feeder %s" % (
+                        w["keys_delivered"], a.get("saver"), b.get("saver"), b["keys"].get("foreground"), w["client_commits"], feeder)}
     out["panel_120"] = {"ok": (w.get("panel_vsync_per_s") or 0) > 110, "detail": "vsync %s a second" % w.get("panel_vsync_per_s")}
     exp = EXPECT.get(sky)
     for name, key in (("flips", "flips_per_s"), ("animating", "animating_flip_intervals_per_s")):
@@ -448,6 +458,71 @@ def cmd_compare(path_a, path_b):
     return 0
 
 
+#: an event is over when every window from then on is within this many points of one core of LumaTV's share before it
+BACK_WITHIN_PCT = 1.0
+
+
+def event_rows(readings, t0):
+    """One row a window between consecutive readings: its start and end against the trigger, LumaTV's share of a core in all and by role, the flips
+    and UI frames a second, the client commits, the engine's CPU a frame, and the video windows' claims at its end."""
+    rows = []
+    for a, b in zip(readings, readings[1:]):
+        w = window(a, b)
+        budget = w.get("budget") or {}
+        rows.append({"t": round(a["mono"] - t0, 1), "until": round(b["mono"] - t0, 1),
+                     "lumatv_pct": (budget.get("all") or {}).get("pct"), "comp_pct": (w["comp"] or {}).get("pct"), "ui_pct": (w["ui"] or {}).get("pct"),
+                     "helper_pct": (budget.get("helper") or {}).get("pct", 0.0), "feeder_pct": (budget.get("feeder") or {}).get("pct", 0.0),
+                     "flips_per_s": w["flips_per_s"], "ui_frames_per_s": w["ui_frames_per_s"], "client_commits": w["client_commits"],
+                     "engine_us_per_frame": (w.get("engine_us_per_frame") or {}).get("cpu"), "osd_irq_per_s": w["osd_irq_per_s"],
+                     "comp_wakeups_per_s": (budget.get("compositor") or {}).get("wakeups_per_s"), "vwin": b.get("vwin")})
+    return rows
+
+
+def back_to_baseline(rows, within=BACK_WITHIN_PCT):
+    """LumaTV's mean share in the windows before the trigger, and the start of the first window after it from which every window is within `within`
+    points of that (`None`: not within the readings)."""
+    before = [r["lumatv_pct"] for r in rows if r["until"] <= 0 and r["lumatv_pct"] is not None]
+    if not before:
+        return None, None
+    base = round(sum(before) / len(before), 2)
+    after = [r for r in rows if r["t"] >= 0]
+    for i, r in enumerate(after):
+        if all(x["lumatv_pct"] is not None and x["lumatv_pct"] <= base + within for x in after[i:]):
+            return base, r["t"]
+    return base, None
+
+
+def cmd_event(trigger, before, after, step, label, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
+    say("event %s: a reading every %g s, %g s before the trigger and %g s after" % (label, step, before, after))
+    start = time.monotonic()
+    t0 = start + before
+    readings, proc = [], None
+    for k in range(int(round((before + after) / step)) + 1):
+        time.sleep(max(0.0, start + k * step - time.monotonic()))
+        s = snapshot()
+        s["vwin"] = [{key: c.get(key) for key in ("id", "slot", "texture", "state")} for c in (ctl("vwin").get("claims") or [])]
+        readings.append(s)
+        if proc is None and s["mono"] >= t0 - step / 2:
+            t0 = time.monotonic()
+            proc = subprocess.Popen(trigger, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    out = proc.communicate(timeout=30)[0] if proc else ""
+    rows = event_rows(readings, t0)
+    base, back = back_to_baseline(rows)
+    res = {"label": label, "when": time.strftime("%Y-%m-%d %H:%M:%S"), "trigger": trigger, "trigger_out": out.strip()[-600:], "step_s": step,
+           "baseline_lumatv_pct": base, "back_within_pct": BACK_WITHIN_PCT, "back_to_baseline_s": back, "windows": rows}
+    path = os.path.join(out_dir, label + ".json")
+    with open(path, "w") as f:
+        json.dump(res, f, indent=1)
+    print(table([("t", "LumaTV %  comp %  ui %  helper %  feeder %  flips/s  ui frames/s  commits  engine us  osd_irq/s  claims")] + [
+        ("%+.0f..%+.0f" % (r["t"], r["until"]), "%7s %7s %6s %9s %9s %8s %12s %8s %10s %10s  %s" % (
+            r["lumatv_pct"], r["comp_pct"], r["ui_pct"], r["helper_pct"], r["feeder_pct"], r["flips_per_s"], r["ui_frames_per_s"], r["client_commits"],
+            r["engine_us_per_frame"], r["osd_irq_per_s"], ",".join("%s:%s" % (c["id"], c["slot"]) for c in r["vwin"] or []) or "-")) for r in rows]))
+    say("baseline %s %% of a core; back within %g of it %s" % (base, BACK_WITHIN_PCT, "at %+g s" % back if back is not None else "not within the readings"))
+    say("written", path)
+    return 0
+
+
 # ---- the readers on text -------------------------------------------------------------------------------------------------------------------------------
 
 #: a `ctl status` summary of the set (2026-11-04 19:28, the sky moving at 120 a second) with the totals a newer build prints added
@@ -495,6 +570,8 @@ def selftest():
     assert all(c["ok"] for c in v.values()), v
     assert not verdicts(w, a, b, "rain")["flips"]["ok"], "30 flips a second is not what a sky of rain draws"
     assert verdicts(w, a, b, "fast")["flips"]["ok"] and verdicts(w, a, b, None)["flips"]["ok"] is None
+    popped = dict(w, client_commits=253, budget={"feeder": {"pct": 4.79}})
+    assert not verdicts(popped, a, b, "calm")["quiet"]["ok"], "a camera pop-up's texture drew in the window"
     text = summary_text({"label": "t", "sky": "calm", "weather": {"code": 0, "theme_sky_animated": True}, "window": w, "verdicts": v})
     assert "together" in text and "PASS" in text
     # the budget: a helper that took 1.2 s of its own and its children's in a minute, and a JPEG process that started in it
@@ -506,12 +583,16 @@ def selftest():
     ow = others_window({"5": {"comm": "tvservice", "ticks": 100, "rss_kb": 2048}},
                        {"5": {"comm": "tvservice", "ticks": 160, "rss_kb": 2048}, "6": {"comm": "iepg", "ticks": 6, "rss_kb": 1024}}, 60.0, 100)
     assert list(ow) == ["tvservice", "iepg"] and ow["tvservice"] == {"pct": 1.0, "rss_mb": 2.0} and ow["iepg"]["pct"] == 0.1, ow
+    # an event: 10 % before it, 30 % in its first window, 11.5 then 10.5 and 10.8 after; one window over the line later moves the end past it
+    rows = [{"t": t, "until": t + 5, "lumatv_pct": p} for t, p in ((-10, 9.8), (-5, 10.2), (0, 30.0), (5, 11.5), (10, 10.5), (15, 10.8))]
+    assert back_to_baseline(rows) == (10.0, 10)
+    assert back_to_baseline(rows + [{"t": 20, "until": 25, "lumatv_pct": 11.2}]) == (10.0, None)
     print("selftest ok")
     return 0
 
 
 def main(argv):
-    if not argv or argv[0] not in ("run", "read", "compare", "selftest"):
+    if not argv or argv[0] not in ("run", "event", "read", "compare", "selftest"):
         print(__doc__)
         return 2
     cmd, args = argv[0], argv[1:]
@@ -526,6 +607,8 @@ def main(argv):
         print(json.dumps(snapshot(), indent=1))
         return 0
     label = opt("--label", time.strftime("idle-%H%M%S"))
+    if cmd == "event":
+        return cmd_event(opt("--trigger", ""), float(opt("--before", 20)), float(opt("--after", 40)), float(opt("--step", 5)), label, opt("--out", OUT))
     return cmd_run(float(opt("--secs", 60)), label, opt("--out", OUT))
 
 

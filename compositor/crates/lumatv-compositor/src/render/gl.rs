@@ -430,9 +430,12 @@ impl Gl {
     }
 
     /// Drops the engine (the client is gone or is being restarted): its layers go, and the next frame draws everything without them.
+    /// What it held on the GPU is given back first, in this context (current on the loop's thread), which would keep it otherwise.
     pub fn detach_ui(&mut self) {
         #[cfg(feature = "ui")]
-        if self.ui.take().is_some() {
+        if let Some(mut ui) = self.ui.take() {
+            let held = ui.release();
+            log::info!("ui: the engine gave back {:.1} MB of the GPU's memory", held as f64 / 1_048_576.0);
             self.redraw_all = true;
         }
     }

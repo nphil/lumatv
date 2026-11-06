@@ -98,6 +98,8 @@ from Home:
   the panel to 100 Hz (camera 240, low stream 1280x720 declared 25). With Home in front the shell now claims `texture_only` for the pop-up
   (`system/popup.rs` `claim`: `!app_front`), so no hardware window is ever opened over Home; over an app the claim is as before and gets `SUB0`. The
   helper's fallback (a sub window granted while Home turned out to be in front) is unchanged. The full view is unchanged.
+  Undone 2026-11-06: with the helper declaring 25 fps streams as 30 on the main window (`live::rate`, checked on the set for full views), a
+  pop-up over Home claims a window again, and only a camera with no calm stream claims `texture_only`.
 - The release ~100 ms after a grant when a new card replaced the old one (real events on camera 103): the helper's `cameras.live` topic keeps the last
   words of the previous stream, and the replaced card's own stop made it say `stopped` (or `playing`, then `stopped`) for the same camera right after the
   new card asked; the new card took that for its stream failing, gave up (`Phase::Given`), and the shell let go of the claim while the helper's new

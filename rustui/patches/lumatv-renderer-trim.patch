@@ -1,0 +1,30 @@
+--- a/renderer/trim.rs
++++ b/renderer/trim.rs
+@@ -23,6 +23,7 @@
+ 
+ use super::Renderer;
+ use crate::census::Held;
++use crate::ops::Op;
+ use std::fmt;
+ 
+ /// Frames in a row without a read (`Backdrops::release_idle`) or a surface standing in it (a plate) after which an idle compositor
+@@ -94,4 +95,19 @@
+         }
+         done
+     }
++
++    /// Gives back everything the renderer holds on the GPU but its programs, for a renderer whose client has gone in a context that lives
++    /// on (the compositor's): the client's layers, glyph atlases, meshes and prepared sets as [`Op::Clear`] lets go of them, the graveyard,
++    /// and what [`Renderer::trim`] keeps, every cached backdrop and every plate. A context keeps the names a dropped renderer made: on the
++    /// set each client restart left the compositor 63 MB of GPU memory larger (2026-11-05, five full-screen targets among it). The
++    /// programs go back to the cache when the renderer is dropped.
++    pub fn release(&mut self) {
++        self.apply(&Op::Clear);
++        for name in self.graveyard.drain(..) {
++            self.gl.delete_texture(name);
++        }
++        let _ = self.backdrops.release_idle(&self.gl, 0);
++        self.set_plates(false);
++        self.gl.flush();
++    }
+ }

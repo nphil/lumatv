@@ -183,6 +183,46 @@ fn the_demo_surface_is_drawn_into_the_compositors_pages_as_the_ring_owes_them() 
     let _ = std::fs::remove_dir_all(&shm);
 }
 
+/// A client that goes leaves nothing of its engine on the GPU: the context is the compositor's and lives on, and keeps every name it is
+/// not told to delete (a client restart left 63 MB on the set, 2026-11-05).
+#[test]
+fn the_engine_of_a_client_that_went_gives_back_what_it_held_on_the_gpu() {
+    if !Path::new(MESA).exists() {
+        eprintln!("no Mesa libEGL on this host; skipping");
+        return;
+    }
+    // SAFETY: nothing else in this process reads the environment while it is set.
+    unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
+    let egl = Egl::open(MESA, Platform::Surfaceless).expect("the compositor's EGL");
+    let page = page(&egl);
+    let shm = std::env::temp_dir().join(format!("lumatv-compositor-ui-release-{}", std::process::id()));
+    std::fs::create_dir_all(&shm).expect("a shm dir");
+    // SAFETY: the context is current on this thread and outlives the engine; every call is made here.
+    let (mut ui, app_end) = unsafe { Ui::new(MESA, W, H, SYSTEM_Z, shm.clone(), &lumatv_render::programs::Cache::new()) }.expect("the engine");
+    let mut demo = Demo::new(app_end, &shm).expect("the demo surface");
+    ui.finish_handshake().expect("the handshake");
+    let mut now = lumatv_render_now();
+    let mut all = Tiles::new(W, H);
+    all.fill();
+    let mut r: Vec<Rect> = Vec::new();
+    all.rects(&mut r);
+    for _ in 0..3 {
+        now += 16_666_667;
+        demo.tick(now).expect("the app's tick");
+        ui.pump().expect("pump");
+        let mut tiles = all.clone();
+        ui.plan(now, &mut tiles, false).expect("plan");
+        ui.draw_under(page, &r).expect("stack 0");
+        ui.draw_over(page, &r).expect("stack 1");
+        let cost = ui.finish().expect("finish");
+        ui.presented(now, &cost);
+    }
+    let held = ui.release();
+    assert!(held > 0, "the demo's pictures were on the GPU");
+    assert_eq!(ui.engine().gpu_bytes(), 0, "{held} bytes were held, and some are left");
+    let _ = std::fs::remove_dir_all(&shm);
+}
+
 fn lumatv_render_now() -> u64 {
     lumatv_render::now_ns()
 }

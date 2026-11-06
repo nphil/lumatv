@@ -737,6 +737,26 @@ impl Engine {
         self.renderer.gles()
     }
 
+    /// Gives back what the engine holds on the GPU, for an engine whose client has gone in a context that lives on (the compositor's, which
+    /// keeps every name it is not told to delete): the renderer's ([`Renderer::release`]), the floor's picture and the pages. Call it on the
+    /// context's thread before the engine is dropped; the programs go back to the cache with the renderer.
+    pub fn release(&mut self) {
+        self.scoped(|engine| {
+            engine.renderer.release();
+            let floor = engine.floor.as_mut().and_then(|floor| floor.target.take());
+            for target in floor.into_iter().chain(engine.pages.drain(..)).chain(engine.reference.take()) {
+                engine.renderer.gles().delete_render_target(target);
+            }
+            engine.renderer.gles().flush();
+        });
+    }
+
+    /// What the engine holds on the GPU, in bytes: the renderer's census (`census.rs`) and the floor's picture.
+    pub fn gpu_bytes(&self) -> u64 {
+        let floor = self.floor.as_ref().and_then(|floor| floor.target.as_ref()).map_or(0, |t| u64::from(t.width) * u64::from(t.height) * 4);
+        self.renderer.census().bytes() + floor
+    }
+
     /// Runs `f`, which draws or makes GL objects, in the compositor's context as the toolkit's: the context's state is saved and
     /// put back round it (an engine that is not inside a compositor owns its context, and `f` just runs).
     fn scoped<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {

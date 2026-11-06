@@ -38,6 +38,21 @@ pub fn parse_kinds(list: &str) -> Vec<String> {
     out
 }
 
+/// Removes the files in the client's shared-memory directory, before an engine is attached for a new client. A client removes its layer, mesh and
+/// atlas files as it goes and when it exits, but one that was killed (a shell restart) or crashed leaves them all, and they stay in RAM on the tmpfs:
+/// 446 such files, 38 MB, were there on 2026-11-05 after a day of restarts. Returns how many were removed.
+pub fn clear_client_files(dir: &Path) -> std::io::Result<usize> {
+    let mut removed = 0;
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            std::fs::remove_file(entry.path())?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 
 pub struct RustShell {
     /// The kinds this client answers; empty means it is not run.
@@ -493,6 +508,11 @@ impl State {
                 };
                 if let Err(e) = std::fs::create_dir_all(&shm) {
                     self.journal(format!("shell-rust: {}: {e}", shm.display()));
+                }
+                match clear_client_files(&shm) {
+                    Ok(0) => {}
+                    Ok(n) => self.journal(format!("shell-rust: {n} file(s) the client before left in {} removed", shm.display())),
+                    Err(e) => self.journal(format!("shell-rust: {}: {e}", shm.display())),
                 }
                 match self.output.ui_attach(&driver, SYSTEM_Z, shm.clone()) {
                     Ok(s) => {
@@ -1307,6 +1327,19 @@ mod tests {
         state.shell_rust.kinds = parse_kinds(kinds);
         state.shell_rust.marker = dir.join("marker");
         (state, dir)
+    }
+
+    #[test]
+    fn the_files_a_killed_client_left_go_and_a_directory_stays() {
+        let dir = std::env::temp_dir().join(format!("lumatv-shell-rust-shm-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("kept")).unwrap();
+        for name in ["layer-1.rgba", "layer-7.mesh", "atlas-1-0.a8"] {
+            std::fs::write(dir.join(name), b"x").unwrap();
+        }
+        assert_eq!(clear_client_files(&dir).unwrap(), 3);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        assert_eq!(clear_client_files(&dir).unwrap(), 0);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

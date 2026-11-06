@@ -312,12 +312,12 @@ impl Popup {
         self.expanded.take()
     }
 
-    /// The claim on a video window for the card's picture box, while a card the record says can play live video is up: the shell posts it. With Home in
-    /// front, or for a camera that has only streams that would re-time the panel, it claims a texture (`texture_only`): Home's decoder is on the main
-    /// window, where a 25 a second stream takes the panel to 100 Hz (round 24), so only an app's video leaves the sub window to the card.
+    /// The claim on a video window for the card's picture box, while a card the record says can play live video is up: the shell posts it. A camera whose
+    /// streams would all re-time the panel claims a texture (`texture_only`); any other claims a window over Home as over an app, where the helper plays
+    /// a calm stream whose declared rate keeps the panel at 120 Hz (`live::rate`).
     pub fn claim(&self) -> Option<Value> {
         let capable = self.up && !self.viewer_up && self.current.as_ref().is_some_and(|c| c.live == Some(true));
-        let texture_only = !self.app_front || self.current.as_ref().is_some_and(|c| c.texture_only);
+        let texture_only = self.current.as_ref().is_some_and(|c| c.texture_only);
         self.live.claim(capable, texture_only)
     }
 
@@ -916,13 +916,11 @@ mod tests {
         q.set_picture_rect(Some(BOX));
         q.update(&live_record(46, true), T0);
         assert!(q.claim().unwrap().get("texture_only").is_none());
-        // with Home in front the same record claims a texture too: Home's decoder would be on the main window
+        // with Home in front it is a window claim too
         let mut h = Popup::new();
         h.set_picture_rect(Some(BOX));
         h.update(&live_record(47, true), T0);
-        assert_eq!(h.claim().unwrap()["texture_only"], true);
-        h.set_context(false, true, false, T0 + 10);
-        assert!(h.claim().unwrap().get("texture_only").is_none(), "over an app it is a window claim again");
+        assert!(h.claim().unwrap().get("texture_only").is_none());
     }
 
     #[test]

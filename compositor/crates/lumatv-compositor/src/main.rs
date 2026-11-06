@@ -144,6 +144,11 @@ fn run(config: Config) -> io::Result<()> {
         if !config.shell_rust.is_empty() {
             let shm = config.runtime_dir.join("ui-shm");
             std::fs::create_dir_all(&shm)?;
+            match lumatv_compositor::shell_rust::clear_client_files(&shm) {
+                Ok(0) => {}
+                Ok(n) => log::info!("shell-rust: {n} file(s) an earlier client left in {} removed", shm.display()),
+                Err(e) => log::warn!("shell-rust: {}: {e}", shm.display()),
+            }
             rust_socket = Some(gl.attach_ui(config.driver.as_deref().unwrap(), lumatv_compositor::shell_rust::SYSTEM_Z, shm)?);
         }
         Ok(gl)

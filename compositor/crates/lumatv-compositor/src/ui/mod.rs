@@ -128,6 +128,14 @@ impl Ui {
         &mut self.engine
     }
 
+    /// Gives back what the engine holds on the GPU ([`Engine::release`]), before the engine is dropped for a client that has gone, and
+    /// says how many bytes that was.
+    pub fn release(&mut self) -> u64 {
+        let held = self.engine.gpu_bytes();
+        self.engine.release();
+        held
+    }
+
     /// Applies this frame's caption bounds before the engine plans the UI.
     pub fn set_exclusion(&mut self, area: Option<Rect>) {
         let z = self.system_z;
