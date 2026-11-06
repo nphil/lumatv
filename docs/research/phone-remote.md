@@ -423,6 +423,12 @@ Each phase is accepted on the TV with its receipt path recorded.
    `LumaRemote` app above is dropped, and Marquee owns the `lumaremote://` pairing link and the QR scan.
 5. **Install route:** sideloaded like Stashy (free, re-signed every 7 days, no broadcast Wake-on-LAN; unicast wake is the fallback to test).
 6. **Volume buttons:** yes, while the remote screen is open.
+7. **Keep it separable:** the remote must be easy to lift out of Marquee into its own app later. `LumaRemoteKit` owns everything remote-specific: the
+   protocol, pairing and stored keys, discovery, wake, the air mouse, the trackpad, the keyboard bridge, and the remote screen's SwiftUI views (`LumaRemoteView`,
+   `PairingView`, `TVPicker`). It takes its look from the host's tint and has no Marquee imports. Marquee reaches it only through a small host interface: the
+   tab that shows `LumaRemoteView`, the URL scheme hand-off, and optional hooks such as "play this on the TV". Paired TVs live in the kit's own Keychain group
+   and settings namespace, not in Marquee's. A standalone app is then a thin shell around the same views, and the kit keeps its own CI with
+   `swift test`.
 
 Untested: all of it. Inferred, not measured: every latency figure; whether Chromium, Qt, Flutter and SDL apps honour version 4 `wl_pointer.axis`; text from the
 phone under LG's keyboard; YouTube, Netflix and Prime Video accepting one key per character; unicast Wake-on-LAN from iOS.
