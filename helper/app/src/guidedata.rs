@@ -8,28 +8,31 @@
 //! words.
 //!
 //! **What it may reach** ([`Net`], the base's rule for it): the internet service of each source the owner picked, by name and over
-//! HTTPS only (`tvlistings.gracenote.com`, `json.schedulesdirect.org`), and the Plex server at the address typed, over plain http and
-//! only when it is an address of the home network (`ha_link::AddressPolicy::HOME`, the rule the Home Assistant lease is held to).
+//! HTTPS only (`tvlistings.gracenote.com`, `json.schedulesdirect.org`), and the Plex account's server, over plain http and only when it
+//! is an address of the home network (`ha_link::AddressPolicy::HOME`, the rule the Home Assistant lease is held to).
 //! Whatever the engine asks beyond that is refused before anything is sent.
 //!
-//! **Secrets.** The Plex token and the Schedules Direct password are secret fields of the page: Settings hands each over once
-//! (`secret.submit`), and the plugin keeps it in `guide/secrets.json` (mode 0600) and nowhere else; the page says only whether one is kept.
+//! **Secrets.** The Schedules Direct password is a secret field of the page: Settings hands it over once (`secret.submit`), and the
+//! plugin keeps it in `guide/secrets.json` (mode 0600) and nowhere else; the page says only whether one is kept.
 //!
-//! **The Plex server** is this page's address and token, or, while the page has none, the Photos plugin's (its `lan.plex` address and
-//! the token in its data directory), so a token typed once serves both.
+//! **The Plex server** is the TV's Plex account's (`plex.rs`): the server it signed in with and that server's access token. Nothing of
+//! Plex is typed on this page; it says which server it uses. What the page kept before the account is the account's on the first start
+//! ([`plex_kept`], [`forget_plex`]).
 //!
 //! **Off** asks nothing and keeps no listings: switching off forgets them (the page's settings and secrets stay). **On**, the TV's
 //! antenna channels are read at the start and hourly (one luna call), the engine refreshes each source at most every six hours, and
 //! the page's facts say how each stands. `GET /v1/guide/programmes` serves the online programmes to the TV's guide and banner, which lay
 //! them over LG's.
 
-use crate::config::FetchConfig;
+use crate::config::{FetchConfig, Paths};
 use crate::ctx::Ctx;
 use crate::fetcher::{CurlFetch, Exchange};
 use crate::http::{Request as HttpRequest, Response as HttpResponse, error_response};
 use crate::plugins::firstparty::{clip, clock_words, local_time};
 use crate::plugins::local::{Handler, Local, OptIn, Spec};
 use crate::plugins::session::{MAX_FACT_LINE, Shared};
+use crate::plex::{PlexAccount, Server};
+use crate::settings::SettingsStore;
 use crate::timeutil::now_ms;
 use fetch::{FetchError, FetchLimits};
 use lumaguide::net::Origin;
@@ -72,17 +75,17 @@ pub const OPT_IN: OptIn = OptIn {
 
 const ZIP: &str = "zip";
 const SOURCES: &str = "sources";
-const PLEX_ADDRESS: &str = "plex.address";
-const PLEX_TOKEN: &str = "plex.token";
 const SD_USERNAME: &str = "sd.username";
 const SD_PASSWORD: &str = "sd.password";
 /// The page's action: ask the sources now (the engine still waits an hour after the last try).
 const REFRESH: &str = "refresh";
-/// The Photos plugin: its Plex server is the guide's while this page has none.
-const PHOTOS: &str = "photos";
-const PHOTOS_ADDRESS: &str = "lan.plex";
-/// Plex's own port, when an address is typed without one.
+/// What the page kept of a Plex server before the Plex account: an address it typed, a token in its secrets.
+const PLEX_ADDRESS: &str = "plex.address";
+const PLEX_TOKEN: &str = "plex.token";
+/// Plex's own port, when an address was typed without one.
 const PLEX_PORT: u16 = 32400;
+/// What the page says while the TV is not signed in to Plex and Plex is picked.
+const SIGN_IN: &str = "Sign in to Plex in Settings › Inputs & devices › Plex";
 /// How often the TV's channel list is read again, and again soon when it could not be read.
 const CHANNELS_EVERY: Duration = Duration::from_secs(3600);
 const CHANNELS_RETRY: Duration = Duration::from_secs(300);
@@ -376,13 +379,10 @@ impl Secrets {
     fn put(&self, field: &str, secret: &str) -> Result<(), String> {
         let secret = secret.trim();
         match field {
-            PLEX_TOKEN if !secret.bytes().all(|b| (0x21..=0x7e).contains(&b)) => {
-                return Err("a Plex token is letters and digits, with no space".into());
-            }
             SD_PASSWORD if secret.chars().any(char::is_control) => {
                 return Err("that password has a character it cannot have".into());
             }
-            PLEX_TOKEN | SD_PASSWORD => {}
+            SD_PASSWORD => {}
             _ => return Err("this page has no such field".into()),
         }
         let mut kept = self.kept.lock();
@@ -395,6 +395,15 @@ impl Secrets {
         if let Err(e) = write_private(&self.path, &serde_json::to_vec(&*kept).unwrap_or_default()) {
             *kept = before;
             return Err(format!("it could not be kept ({e})"));
+        }
+        Ok(())
+    }
+
+    /// Forgets `field`, a secret the page no longer has.
+    fn forget(&self, field: &str) -> std::io::Result<()> {
+        let mut kept = self.kept.lock();
+        if kept.remove(field).is_some() {
+            write_private(&self.path, &serde_json::to_vec(&*kept).unwrap_or_default())?;
         }
         Ok(())
     }
@@ -419,14 +428,6 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 // -- the settings ----------------------------------------------------------------------------------------------------------------
 
-/// Where the Plex server the guide uses comes from.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum PlexFrom {
-    Page(String),
-    Photos(String),
-    None,
-}
-
 fn text_of(values: &Values, key: &str) -> String {
     match values.get(key) {
         Some(Setting::Text(t)) => t.trim().to_owned(),
@@ -447,60 +448,44 @@ fn plex_address(typed: &str) -> String {
     }
 }
 
-/// The Photos plugin's Plex server: the address the base keeps for its page and the token in its data directory, when it has both.
-fn photos_plex(ctx: &Ctx) -> Option<(String, String)> {
-    let address = match ctx.settings.stored(PHOTOS)?.get(PHOTOS_ADDRESS)? {
+/// The plugin's files: its secrets and the listings it keeps.
+fn dir_of(paths: &Paths) -> PathBuf {
+    paths.data_dir.join("guide")
+}
+
+/// The Plex server the page kept before the Plex account (`plex::migrate`): its address as `ip:port` and its token, when it has both.
+pub fn plex_kept(paths: &Paths, settings: &SettingsStore) -> Option<(String, String)> {
+    let address = match settings.stored(ID)?.get(PLEX_ADDRESS)? {
         Setting::Text(a) if !a.trim().is_empty() => plex_address(a),
         _ => return None,
     };
-    let token = std::fs::read_to_string(
-        ctx.paths
-            .plugins_dir()
-            .join(PHOTOS)
-            .join("data")
-            .join("token"),
-    )
-    .ok()?;
-    let token = token.trim();
-    (!token.is_empty() && token.bytes().all(|b| (0x21..=0x7e).contains(&b)))
-        .then(|| (address, token.to_owned()))
+    let token = Secrets::open(dir_of(paths).join("secrets.json")).get(PLEX_TOKEN);
+    (!token.is_empty()).then_some((address, token))
 }
 
-/// The engine's settings from the page's values and secrets: the sources in the order picked.
-fn settings_of(
-    values: &Values,
-    secrets: &Secrets,
-    photos: Option<(String, String)>,
-) -> (Settings, PlexFrom) {
+/// Forgets the Plex server the page kept before the Plex account: the address in its settings and the token in its secrets.
+pub fn forget_plex(paths: &Paths, settings: &SettingsStore) {
+    if let Err(e) = settings.take_keys(ID, &[PLEX_ADDRESS]) {
+        crate::log_warn!("guide: the Plex address kept before the Plex account could not be forgotten: {e}");
+    }
+    if let Err(e) = Secrets::open(dir_of(paths).join("secrets.json")).forget(PLEX_TOKEN) {
+        crate::log_warn!("guide: the Plex token kept before the Plex account could not be forgotten: {e}");
+    }
+}
+
+/// The engine's settings from the page's values and secrets and the Plex account's server: the sources in the order picked.
+fn settings_of(values: &Values, secrets: &Secrets, plex: Option<&Server>) -> Settings {
     let order: Vec<String> = match values.get(SOURCES) {
         Some(Setting::Ordered(ids)) => ids.iter().map(ToString::to_string).collect(),
         _ => Vec::new(),
     };
-    let mut plex_from = PlexFrom::None;
     let mut sources = Vec::new();
     for id in order {
         match Source::from_id(&id) {
-            Some(Source::Plex) => {
-                let (address, token) = (
-                    plex_address(&text_of(values, PLEX_ADDRESS)),
-                    secrets.get(PLEX_TOKEN),
-                );
-                let (address, token) = match photos.clone() {
-                    Some((a, t)) if address.is_empty() || token.is_empty() => {
-                        plex_from = PlexFrom::Photos(a.clone());
-                        (a, t)
-                    }
-                    _ => {
-                        plex_from = if address.is_empty() {
-                            PlexFrom::None
-                        } else {
-                            PlexFrom::Page(address.clone())
-                        };
-                        (address, token)
-                    }
-                };
-                sources.push(SourceSettings::Plex { address, token });
-            }
+            Some(Source::Plex) => sources.push(SourceSettings::Plex {
+                address: plex.map(|s| s.address.clone()).unwrap_or_default(),
+                token: plex.map(|s| s.token().to_owned()).unwrap_or_default(),
+            }),
             Some(Source::SchedulesDirect) => sources.push(SourceSettings::SchedulesDirect {
                 username: text_of(values, SD_USERNAME),
                 password: secrets.get(SD_PASSWORD),
@@ -509,13 +494,10 @@ fn settings_of(
             None => {}
         }
     }
-    (
-        Settings {
-            zip: text_of(values, ZIP),
-            sources,
-        },
-        plex_from,
-    )
+    Settings {
+        zip: text_of(values, ZIP),
+        sources,
+    }
 }
 
 /// The page, as the schema format writes it.
@@ -533,7 +515,7 @@ fn schema_json() -> Json {
         .iter()
         .map(|s| json!({"id": s.id(), "label": s.label()}))
         .collect();
-    json!({"format": 1, "owner": ID, "revision": 1, "title": OPT_IN.spec.name, "sections": [
+    json!({"format": 1, "owner": ID, "revision": 2, "title": OPT_IN.spec.name, "sections": [
         {"id": "listings", "title": "Listings", "fields": [
             fact("status", "Status"),
             text(ZIP, "Zip code", "The US zip code whose antenna listings the guide takes, five digits.", 5),
@@ -543,12 +525,7 @@ fn schema_json() -> Json {
              "default": {"type": "ordered", "value": []}, "apply": "on-commit"}]},
         {"id": "plex", "title": "Plex", "fields": [
             fact("plex", "Listings"),
-            fact("plex-server", "Server"),
-            text(PLEX_ADDRESS, "Server address", "Where the Plex server is, for example 192.168.1.69:32400: an address of the home \
-                network, plain http. Its Live TV & DVR has to use the antenna listings of the zip code. Empty uses the Photos plugin's \
-                server.", 64),
-            secret(PLEX_TOKEN, "Plex token", "The server's token (Plex Web, any item, Get Info, View XML: the last part of the \
-                address). It stays on this TV.", 256)]},
+            fact("plex-server", "Server")]},
         {"id": "schedules-direct", "title": "Schedules Direct", "fields": [
             fact("schedules-direct", "Listings"),
             text(SD_USERNAME, "User name", "The Schedules Direct account's user name (schedulesdirect.org, about $35 a year).", 64),
@@ -572,17 +549,20 @@ enum Event {
     Settings(Values),
     /// A secret was kept or forgotten.
     Secret,
+    /// The Plex account's server changed.
+    Plex,
     Refresh,
     Stop,
 }
 
 /// Offers the plugin (off until the owner switches it on) and starts its thread. `hw` is the TV whose channel list the listings are
-/// matched to.
+/// matched to; `plex` the TV's Plex account, whose server is the Plex source's.
 pub fn spawn(
     ctx: &Ctx,
     shared: Arc<Shared>,
     hw: Arc<dyn Hardware>,
     data: Arc<GuideData>,
+    plex: Arc<PlexAccount>,
 ) -> std::io::Result<JoinHandle<()>> {
     let fetch = ctx.config.fetch.clone();
     spawn_with(
@@ -590,6 +570,7 @@ pub fn spawn(
         shared,
         hw,
         data,
+        plex,
         Arc::new(move |s: &Settings| Arc::new(Net::new(&fetch, s)) as Arc<dyn Http>),
     )
 }
@@ -599,6 +580,7 @@ fn spawn_with(
     shared: Arc<Shared>,
     hw: Arc<dyn Hardware>,
     data: Arc<GuideData>,
+    plex: Arc<PlexAccount>,
     net: MakeNet,
 ) -> std::io::Result<JoinHandle<()>> {
     let (tx, rx) = mpsc::channel();
@@ -608,7 +590,13 @@ fn spawn_with(
             let _ = tx.send(Event::Stop);
         });
     }
-    let dir = ctx.paths.data_dir.join("guide");
+    {
+        let tx = tx.clone();
+        plex.on_change(move || {
+            let _ = tx.send(Event::Plex);
+        });
+    }
+    let dir = dir_of(&ctx.paths);
     let mut plugin = Plugin {
         ctx: ctx.clone(),
         shared: shared.clone(),
@@ -618,10 +606,10 @@ fn spawn_with(
         tx: tx.clone(),
         guide: Guide::new(Arc::new(DirStore::new(dir.join("listings"))) as Arc<dyn Store>),
         secrets: Arc::new(Secrets::open(dir.join("secrets.json"))),
+        plex,
         page: None,
         on: false,
         values: Values::new(),
-        plex_from: PlexFrom::None,
         channels_due: None,
         said: Json::Null,
     };
@@ -646,11 +634,11 @@ struct Plugin {
     tx: Sender<Event>,
     guide: Guide,
     secrets: Arc<Secrets>,
+    plex: Arc<PlexAccount>,
     /// Its conversation with the broker's session while it is on: its page, its facts, its action.
     page: Option<Arc<Local>>,
     on: bool,
     values: Values,
-    plex_from: PlexFrom,
     /// When the TV's channels are read next.
     channels_due: Option<Instant>,
     /// The facts last put: unchanged ones are not put again.
@@ -667,7 +655,7 @@ impl Plugin {
                     self.values = values;
                     self.configure();
                 }
-                Ok(Event::Secret) => self.configure(),
+                Ok(Event::Secret | Event::Plex) => self.configure(),
                 Ok(Event::Refresh) => self.guide.refresh_soon(now_ms() as i64),
                 Err(RecvTimeoutError::Timeout) => {}
             }
@@ -729,9 +717,7 @@ impl Plugin {
         if !self.on {
             return;
         }
-        let (settings, plex_from) =
-            settings_of(&self.values, &self.secrets, photos_plex(&self.ctx));
-        self.plex_from = plex_from;
+        let settings = settings_of(&self.values, &self.secrets, self.plex.server().as_ref());
         self.guide.set_settings(settings);
         self.data.set(Some(self.guide.listings()));
     }
@@ -792,9 +778,11 @@ impl Plugin {
         // a source that is not set up is passed over: the status is the others', and only when every source is unset its word
         let asked = status.iter().filter(|s| !s.skipped);
         let first_problem = asked.clone().find_map(|s| s.problem.clone());
-        let unset = status
-            .iter()
-            .find_map(|s| s.problem.clone().filter(|_| s.skipped));
+        // Plex is set up by signing in, not on this page
+        let unset = status.iter().find(|s| s.skipped && s.problem.is_some()).map(|s| match s.source {
+            Source::Plex => SIGN_IN.to_owned(),
+            _ => s.problem.clone().unwrap_or_default(),
+        });
         facts.insert(
             "status".into(),
             line(if !lumaguide::guide::zip_ok(&settings.zip) {
@@ -827,7 +815,9 @@ impl Plugin {
                         words.push_str(&format!(" (not listed: {})", s.unmatched.join(", ")));
                     }
                     if let Some(problem) = &s.problem {
-                        words = if s.skipped {
+                        words = if s.skipped && source == Source::Plex {
+                            "Skipped until the TV is signed in to Plex".to_owned()
+                        } else if s.skipped {
                             let mut c = problem.chars();
                             let typed: String = c
                                 .next()
@@ -845,21 +835,15 @@ impl Plugin {
         }
         facts.insert(
             "plex-server".into(),
-            line(match &self.plex_from {
-                PlexFrom::Page(address) => format!("This page's: {address}"),
-                PlexFrom::Photos(address) => format!("The Photos plugin's: {address}"),
-                PlexFrom::None => "Not set".to_owned(),
+            line(match self.plex.server() {
+                Some(s) if s.name.is_empty() => s.address,
+                Some(s) => format!("{} ({})", s.name, s.address),
+                None => "Not signed in to Plex".to_owned(),
             }),
         );
         // a secret field's row reads the fact of its name, dots as dashes (`plugin_rows` in the TV's Settings)
-        for field in [PLEX_TOKEN, SD_PASSWORD] {
-            let kept = if self.secrets.has(field) {
-                "Kept on this TV"
-            } else {
-                "Not set"
-            };
-            facts.insert(field.replace('.', "-"), json!(kept));
-        }
+        let kept = if self.secrets.has(SD_PASSWORD) { "Kept on this TV" } else { "Not set" };
+        facts.insert(SD_PASSWORD.replace('.', "-"), json!(kept));
         facts
     }
 }
@@ -1055,6 +1039,7 @@ mod tests {
         let net: MakeNet = Arc::new(move |_: &Settings| {
             Arc::new(Watched(hub.clone(), heard.clone())) as Arc<dyn Http>
         });
+        let plex = PlexAccount::fixed(None);
         let threads = [
             plugins.spawn(&ctx).unwrap(),
             spawn_with(
@@ -1062,6 +1047,7 @@ mod tests {
                 plugins.shared().clone(),
                 Arc::new(TwoChannels),
                 data.clone(),
+                plex.clone(),
                 net,
             )
             .unwrap(),
@@ -1097,12 +1083,12 @@ mod tests {
             "{f}"
         );
         assert_eq!(
-            (f["plex"].as_str(), f["plex-token"].as_str()),
-            (
-                Some("Skipped until set up: type the Plex server's address"),
-                Some("Not set")
-            )
+            (f["plex"].as_str(), f["plex-server"].as_str()),
+            (Some("Skipped until the TV is signed in to Plex"), Some("Not signed in to Plex"))
         );
+        // signing the TV in to Plex gives the source the account's server
+        plex.set_server(Some(Server::test("beast", "BeastNAS", "192.168.1.69:32400", "tk-beast")));
+        soon("the account's server", || facts(&ctx)["plex-server"] == "BeastNAS (192.168.1.69:32400)");
 
         // the TV's guide and banner ask the API; the tuner's guide lays the listings over the TV's own
         let now = now_ms() as i64;
@@ -1142,20 +1128,20 @@ mod tests {
 
         // a secret typed in Settings is kept by the plugin alone, privately, and the page says only that it is
         assert_eq!(
-            plugins.shared().submit_secret(ID, PLEX_TOKEN, "tk 1"),
+            plugins.shared().submit_secret(ID, SD_PASSWORD, "pw\u{7}"),
             Err(SecretError::Rejected(
-                "a Plex token is letters and digits, with no space".into()
+                "that password has a character it cannot have".into()
             ))
         );
         plugins
             .shared()
-            .submit_secret(ID, PLEX_TOKEN, "tk-1")
+            .submit_secret(ID, SD_PASSWORD, "pw-1")
             .unwrap();
         assert_eq!(
             plugins.shared().submit_secret(ID, ZIP, "x"),
             Err(SecretError::NoSuchField)
         );
-        soon("kept", || facts(&ctx)["plex-token"] == "Kept on this TV");
+        soon("kept", || facts(&ctx)["sd-password"] == "Kept on this TV");
         let file = dir.path().join("guide/secrets.json");
         assert_eq!(
             std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
@@ -1164,7 +1150,7 @@ mod tests {
         assert!(
             !serde_json::to_string(&facts(&ctx))
                 .unwrap()
-                .contains("tk-1")
+                .contains("pw-1")
         );
 
         plugins.switch(ID, false, None).unwrap();
@@ -1177,8 +1163,8 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(
-            Secrets::open(file).get(PLEX_TOKEN),
-            "tk-1",
+            Secrets::open(file).get(SD_PASSWORD),
+            "pw-1",
             "the secrets stay with the page's settings"
         );
         ctx.stop.request();
@@ -1188,16 +1174,14 @@ mod tests {
     }
 
     #[test]
-    fn the_sources_come_in_the_order_picked_and_plex_is_the_photos_plugins_while_the_page_has_none()
-    {
+    fn the_sources_come_in_the_order_picked_and_plex_is_the_accounts_server() {
         let dir = tempfile::tempdir().unwrap();
-        let ctx = ctx(dir.path());
         let secrets = Secrets::open(dir.path().join("secrets.json"));
         secrets.put(SD_PASSWORD, "pw").unwrap();
         let picked = values(json!({"zip": {"type": "text", "value": " 30311 "},
             "sources": {"type": "ordered", "value": ["schedules-direct", "gracenote", "plex"]},
             "sd.username": {"type": "text", "value": "nitin"}}));
-        let (settings, from) = settings_of(&picked, &secrets, None);
+        let settings = settings_of(&picked, &secrets, None);
         assert_eq!(settings.zip, "30311");
         assert_eq!(
             settings.sources,
@@ -1213,47 +1197,14 @@ mod tests {
                 }
             ]
         );
-        assert_eq!(from, PlexFrom::None);
-
-        // the Photos plugin's server: its address in the base's settings, its token in its data directory
-        std::fs::create_dir_all(ctx.paths.settings_dir()).unwrap();
-        std::fs::write(
-            ctx.paths.settings_dir().join("photos.json"),
-            r#"{"owner": "photos", "schemaRevision": 1, "version": 1, "values": {"lan.plex": {"type": "text", "value": "192.168.1.71"}}}"#,
-        )
-        .unwrap();
-        let data = ctx.paths.plugins_dir().join("photos/data");
-        std::fs::create_dir_all(&data).unwrap();
-        std::fs::write(data.join("token"), "tk-photos\n").unwrap();
-        let photos = photos_plex(&ctx);
+        let server = Server::test("beast", "BeastNAS", "192.168.1.69:32400", "tk-beast");
         assert_eq!(
-            photos,
-            Some(("192.168.1.71:32400".to_owned(), "tk-photos".to_owned()))
-        );
-        let (settings, from) = settings_of(&picked, &secrets, photos.clone());
-        assert_eq!(
-            settings.sources[2],
+            settings_of(&picked, &secrets, Some(&server)).sources[2],
             SourceSettings::Plex {
-                address: "192.168.1.71:32400".into(),
-                token: "tk-photos".into()
+                address: "192.168.1.69:32400".into(),
+                token: "tk-beast".into()
             }
         );
-        assert_eq!(from, PlexFrom::Photos("192.168.1.71:32400".into()));
-
-        // the page's own server, once it has an address and a token
-        secrets.put(PLEX_TOKEN, "tk-page").unwrap();
-        let own = values(
-            json!({"sources": {"type": "ordered", "value": ["plex"]}, "plex.address": {"type": "text", "value": "http://192.168.1.69:32400/"}}),
-        );
-        let (settings, from) = settings_of(&own, &secrets, photos);
-        assert_eq!(
-            settings.sources,
-            [SourceSettings::Plex {
-                address: "192.168.1.69:32400".into(),
-                token: "tk-page".into()
-            }]
-        );
-        assert_eq!(from, PlexFrom::Page("192.168.1.69:32400".into()));
     }
 
     #[test]
@@ -1350,7 +1301,7 @@ mod tests {
         let schema =
             settings_schema::SettingsSchema::parse(schema_json().to_string().as_bytes()).unwrap();
         store.register(schema, None).unwrap();
-        assert_eq!(store.secret_field(ID, PLEX_TOKEN), Some(256));
+        assert_eq!(store.secret_field(ID, SD_PASSWORD), Some(128));
         assert_eq!(store.secret_field(ID, ZIP), None);
         assert!(serde_json::from_value::<plugin_api::wire::Register>(register()).is_ok());
     }

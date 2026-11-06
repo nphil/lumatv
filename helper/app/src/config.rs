@@ -69,6 +69,11 @@ impl Paths {
         self.data_dir.join("scrypted").join("link.json")
     }
 
+    /// `plex/`: the Plex account's `account.json` (its tokens, mode 0600) and this TV's `client-id` (`plex.rs`).
+    pub fn plex_dir(&self) -> PathBuf {
+        self.data_dir.join("plex")
+    }
+
     /// `previews/`: the last picture of each input the picker shows (`previews.rs`), and the index that dates them.
     pub fn previews_dir(&self) -> PathBuf {
         self.data_dir.join("previews")

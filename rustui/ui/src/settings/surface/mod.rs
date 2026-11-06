@@ -5,6 +5,7 @@
 //! thing on the layer beat. The focus is the kit's: the model decides where it is, and the engine's flowing lift shows each move.
 
 pub mod chrome;
+pub mod code;
 pub mod figure;
 pub mod layout;
 pub mod list;

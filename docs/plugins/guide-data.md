@@ -7,13 +7,13 @@ plugin's own words. Like the Live TV Tuner it is a plugin of the helper's own (`
 
 ## Sources
 
-The page picks any of three, in the order they are trusted. A picked source that is not set up (Plex without an address or token,
-Schedules Direct without its account) is passed over and the next one fetched; its line on the page says it is skipped and what to
-type, and the page's status is the other sources' until every picked source is unset.
+The page picks any of three, in the order they are trusted. A picked source that is not set up (Plex while the TV is not signed in to
+Plex, Schedules Direct without its account) is passed over and the next one fetched; its line on the page says it is skipped and why,
+and the page's status is the other sources' until every picked source is unset.
 
 | Source | Needs | Reaches | Tradeoff |
 |---|---|---|---|
-| Plex | a Plex server whose Live TV & DVR uses the zip code's antenna lineup; its address and token, or the Photos plugin's | the server, on the home network, plain http | Plex's own endpoints, unofficial: a server update can change them. Free with the DVR the owner already has. |
+| Plex | a Plex server whose Live TV & DVR uses the zip code's antenna lineup; the TV signed in to Plex | the server, on the home network, plain http | Plex's own endpoints, unofficial: a server update can change them. Free with the DVR the owner already has. |
 | Schedules Direct | an account (schedulesdirect.org, about $35 a year): user name and password | `json.schedulesdirect.org`, https | Official and documented, made for this use; paid. Built against the API's documentation; not yet tried against the live service. |
 | Free listings | nothing | `tvlistings.gracenote.com`, https | No account and no cost, but unofficial and fragile: the grid behind the site's own page, answered only to a browser's `User-Agent`, with no published terms for this use. |
 
@@ -43,11 +43,22 @@ The plugin reaches only the picked services: each one's host over https, and the
   listings and lay the answer over them.
 - The Live TV Tuner's `/xmltv.xml` serves the merged guide while the plugin is on.
 
+## Plex sign-in
+
+The Plex server is the TV's Plex account's, kept by the helper for everything on the TV that uses Plex (`helper/app/src/plex.rs`), not
+typed on this page. Settings › Inputs & devices › Plex shows a four-character code and a QR code of Plex's link page for it
+(`https://plex.tv/link/?pin=CODE`, the address of Plex's own QR code for a PIN; plex.tv/link and the code by hand also work). A phone
+confirms it, the helper asks after the PIN every two seconds until it is linked or expires (15 minutes), then reads the account's name
+and the servers it owns that answer at an address of the home network, and takes the first; the page offers the others. The account's
+token and the server's address and access token are kept in `plex/account.json` (mode 0600), never in a log, topic or setting. Sign out
+ends the sign-in at plex.tv (`DELETE /api/v2/users/signout`) and deletes the file. A Plex address and token this page kept before were
+moved there on the first start. The Photos plugin is handed the same server and token from the Plex page (its `lan.plex` and its token
+field).
+
 ## Secrets
 
-The Plex token and the Schedules Direct password are secret fields: Settings hands each to the plugin once
-(`POST /v1/plugins/guide-data/secret`), the settings never hold it, and the plugin keeps it in `guide/secrets.json` (mode 0600).
-Schedules Direct is sent only the password's SHA-1. While the page has no Plex address, the Photos plugin's server and token are used.
+The Schedules Direct password is a secret field: Settings hands it to the plugin once (`POST /v1/plugins/guide-data/secret`), the
+settings never hold it, and the plugin keeps it in `guide/secrets.json` (mode 0600). Schedules Direct is sent only its SHA-1.
 
 ## Engine
 

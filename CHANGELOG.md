@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The TV signs in to Plex with a code instead of a typed address and token: Settings › Inputs & devices › Plex shows a QR code of Plex's link page with the four-character code beside it, a phone confirms it, and the page says who is signed in and which of the account's servers on the home network the TV uses (a choice when there are several). The sign-in is the helper's, kept in `plex/account.json` (mode 0600), and is the one Guide data's Plex listings and the Photos plugin use; Sign out ends it at plex.tv. Guide data no longer has Plex fields of its own; an address and token it kept are moved to the sign-in on the first start.
+
 Home Assistant asks for the Bluetooth proxy's key instead of dropping the TV. The proxy's Noise hello carried the TV's address as `AA:BB:CC:DD:EE:FF`, of which Home Assistant keeps 16 characters, so a handshake with an old key read as another device and Home Assistant stopped reconnecting. The hello now carries it as ESPHome's firmware does, `aabbccddeeff` (LumaShow `esphome-api` e79794ae).
 
 With no key for 3 s, a commit of the system UI's (a camera's still, the clock's hand) waits for the UI's next step when that is at most 100 ms away, and is drawn in the wallpaper's or the sky's frame instead of one of its own. The helper's idle threads no longer poll: LG's log is read every 250 ms while it is quiet (20 ms while lines come), and the logging worker, the weather view's prefetch and the Prime assets front wait for their event or the stop instead of waking 10-20 times a second.

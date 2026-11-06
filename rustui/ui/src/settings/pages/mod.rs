@@ -21,6 +21,7 @@ pub mod network;
 pub mod onhome;
 pub mod owner;
 pub mod picture;
+pub mod plex;
 pub mod plugin_rows;
 pub mod privacy;
 pub mod profiles;
@@ -88,6 +89,7 @@ pub fn all() -> Vec<Page> {
         inputs::channels(),
         tuner::page(),
         guide_data::page(),
+        plex::page(),
         bluetooth::audio(),
         bluetooth::hid(),
         bluetooth::audio_device(),

@@ -22,6 +22,8 @@ pub struct Paint {
     pub edge_raised: Rgba,
     pub track_off: Rgba,
     pub sheet: Rgba,
+    /// The look's ground: the darker or the lighter of a code's two colours (`code.rs`).
+    pub canvas: Rgba,
     pub scrim: Rgba,
     pub wash_focus: Rgba,
     pub wash_hover: Rgba,
@@ -54,6 +56,7 @@ impl Paint {
             edge_raised: look.colour(PaletteRole::EdgeRaised),
             track_off: look.theme.materials.track_off,
             sheet: look.colour(PaletteRole::Sheet),
+            canvas: look.colour(PaletteRole::Canvas),
             scrim: look.colour(PaletteRole::Scrim),
             wash_focus: faded(ink, st.focus_wash[usize::from(light)]),
             wash_hover: faded(ink, st.hover_wash),

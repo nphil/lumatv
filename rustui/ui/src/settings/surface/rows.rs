@@ -130,6 +130,8 @@ pub struct RowArt {
     _plate: Option<ShapeLayer>,
     _arrows: Vec<ImageLayer>,
     _bars: Vec<ShapeLayer>,
+    /// A code row's QR code.
+    _code: Option<ImageLayer>,
     mark: Option<ImageLayer>,
     trailing: Trailing,
     moment: Moment,
@@ -312,6 +314,7 @@ impl RowArt {
             _plate: None,
             _arrows: Vec::new(),
             _bars: Vec::new(),
+            _code: None,
             mark: None,
             trailing: Trailing::None,
             moment: Moment::default(),
@@ -325,6 +328,7 @@ impl RowArt {
             Kind::Note => art.build_note(env, row)?,
             Kind::Empty => art.build_empty(env, row)?,
             Kind::Figure => art.build_figure(env, row)?,
+            Kind::Code => art.build_code(env, row)?,
             Kind::Cards if row.strip => {
                 let scene = env.kit.ui.scene.clone();
                 let clip = scene.group(Some(env.scroll.id()), GroupPose::IDENTITY).map_err(other)?;
@@ -344,7 +348,7 @@ impl RowArt {
     /// Describes the row's words to the layout lint, as they are placed.
     pub fn feed_lint(&self, kit: &mut Kit, paint: &Paint, sz: &Sizes, row: &Row, placed: Placed, lint: &mut crate::kit::lint::Lint) {
         let Placed { at, panel } = placed;
-        if matches!(self.kind, Kind::Head | Kind::Note | Kind::Empty | Kind::Figure | Kind::Cards) {
+        if matches!(self.kind, Kind::Head | Kind::Note | Kind::Empty | Kind::Figure | Kind::Code | Kind::Cards) {
             return;
         }
         let g = &self.geom;
@@ -447,6 +451,43 @@ impl RowArt {
         let top_y = y + ((tv_h - lines.len() as f32 * line) / 2.0).round();
         let items: Vec<Item> = lines.iter().enumerate().map(|(i, l)| Item::Text(Run { text: l, ty, colour: paint.ink2, x: 0.0, y: i as f32 * line, w: room, align: Align::Left })).collect();
         self._words = Some(make_text(env, Frame::new(tx, top_y, room, lines.len() as f32 * line), z + 4, &items)?);
+        Ok(())
+    }
+
+    /// The QR code of what the row holds at the left, in the look's colours (`code.rs`), and the code itself large beside it with its words
+    /// under it, the block in the middle of the code's height.
+    fn build_code(&mut self, env: &mut Env, row: &Row) -> std::io::Result<()> {
+        let sz = env.sz;
+        let z = env.z;
+        if let Some(qr) = super::code::modules(&row.text) {
+            let (module, side) = super::code::sides(&sz, &qr);
+            let (light, dark) = super::code::inks(&env.paint);
+            let px = super::code::raster(&qr, module, light, dark, env.kit.tokens.radius(Radius::Control));
+            let at = Props::at(self.rect.x + sz.s6, self.rect.y + ((self.rect.h - side as f32) / 2.0).round());
+            let scene = env.kit.ui.scene.clone();
+            let scroll = env.scroll;
+            let mut layer = scene.adopting(scroll, || scene.image(side, side, z + 3, at))?;
+            layer.pixels_mut().copy_from_slice(&px);
+            layer.damage(None);
+            self._code = Some(layer);
+        }
+        let (td, tb) = (env.kit.ty(TypeRole::Display), env.kit.ty(TypeRole::Body));
+        let (ld, lb) = (line_height(td), line_height(tb));
+        let geom = self.geom.clone();
+        let block = geom.label.len() as f32 * ld + sz.s3 + geom.detail.len() as f32 * lb;
+        let mut y = ((self.rect.h - block) / 2.0).round();
+        let mut items = Vec::new();
+        for l in &geom.label {
+            items.push(Item::Text(Run { text: l, ty: td, colour: env.paint.ink, x: 0.0, y, w: geom.text_w, align: Align::Left }));
+            y += ld;
+        }
+        y += sz.s3;
+        for l in &geom.detail {
+            items.push(Item::Text(Run { text: l, ty: tb, colour: env.paint.ink2, x: 0.0, y, w: geom.text_w, align: Align::Left }));
+            y += lb;
+        }
+        let frame = Frame::new(self.rect.x + geom.text_x, self.rect.y, geom.text_w, self.rect.h);
+        self._words = Some(make_text(env, frame, z + 4, &items)?);
         Ok(())
     }
 

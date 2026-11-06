@@ -34,6 +34,8 @@ pub enum Kind {
     Nudge,
     Head,
     Figure,
+    /// A code to scan with a phone (a QR code) and its words.
+    Code,
     Empty,
     Note,
 }
@@ -418,6 +420,17 @@ impl Row {
         r
     }
 
+    /// A QR code of `scan` (an address) with `code` large beside it and `detail` under it (where to type the code instead); shown, never
+    /// focused.
+    pub fn code(id: &str, scan: &str, code: &str, detail: &str, tab: usize) -> Self {
+        let mut r = Self::new(Kind::Code, id);
+        r.text = scan.into();
+        r.label = code.into();
+        r.detail = detail.into();
+        r.tab = tab;
+        r
+    }
+
     /// What a tab has nothing to list: a glyph tile, a title and a line under it.
     pub fn empty(title: &str, text: &str, icon: &str, tab: usize) -> Self {
         let mut r = Self::new(Kind::Empty, &format!("empty:{title}"));
@@ -549,10 +562,10 @@ impl Row {
         self.act(move |_| ops.clone())
     }
 
-    /// The row as PageList's rules take it for the D-pad: shown, not a head, a note, an empty tab or a figure, not a row that only
+    /// The row as PageList's rules take it for the D-pad: shown, not a head, a note, an empty tab, a figure or a code, not a row that only
     /// shows (unless it has help: the focus can reach its info mark), and enabled.
     pub fn focusable(&self) -> bool {
-        self.visible && !matches!(self.kind, Kind::Head | Kind::Note | Kind::Empty | Kind::Figure) && (!self.info || !self.help.is_empty()) && self.enabled
+        self.visible && !matches!(self.kind, Kind::Head | Kind::Note | Kind::Empty | Kind::Figure | Kind::Code) && (!self.info || !self.help.is_empty()) && self.enabled
     }
 
     /// Whether Left and Right mean something on the row (a segmented row, a stepper, cards, a slider, a nudge).

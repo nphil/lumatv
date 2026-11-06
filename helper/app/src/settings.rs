@@ -317,6 +317,31 @@ impl SettingsStore {
         }
     }
 
+    /// Takes `keys` out of what `owner` keeps, once another part of the helper has taken their place (Guide data's Plex server became the
+    /// Plex account's). Its listeners are not told: nothing in force changes.
+    pub(crate) fn take_keys(&self, owner: &str, keys: &[&str]) -> std::io::Result<()> {
+        let path = self.file_of(owner);
+        let Ok(text) = std::fs::read_to_string(&path) else { return Ok(()) };
+        let mut file: StoredFile = serde_json::from_str(&text).map_err(std::io::Error::other)?;
+        let before = file.values.len();
+        for key in keys {
+            file.values.remove(*key);
+        }
+        if file.owner != owner || file.values.len() == before {
+            return Ok(());
+        }
+        file.version += 1;
+        let bytes = serde_json::to_vec_pretty(&file).map_err(std::io::Error::other)?;
+        lumatv_feeds::cache::atomic_write(&path, &bytes)?;
+        if let Some(o) = self.owners.lock().get_mut(owner) {
+            for key in keys {
+                o.stored.remove(*key);
+            }
+            o.version = file.version;
+        }
+        Ok(())
+    }
+
     /// The registered owners.
     pub fn owners(&self) -> Vec<Summary> {
         self.owners

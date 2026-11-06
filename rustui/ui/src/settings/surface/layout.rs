@@ -184,6 +184,17 @@ pub fn measure_row(kit: &mut Kit, row: &Row, w: f32) -> RowGeom {
             g.h = (sz.target * 2.4 * 0.56).round() + sz.s7 + sz.s1;
             return g;
         }
+        // the QR code at the left with the quiet margin in it, the code and the words beside it
+        Kind::Code => {
+            let side = super::code::modules(&row.text).map_or(0.0, |qr| super::code::sides(&sz, &qr).1 as f32);
+            g.text_x = sz.s6 + side + sz.s7;
+            g.text_w = (w - g.text_x - sz.s6).max(60.0);
+            g.label = lines(kit, &row.label, TypeRole::Display, g.text_w, 1);
+            g.detail = lines(kit, &row.detail, TypeRole::Body, g.text_w, 5);
+            let words = kit.line(TypeRole::Display) + sz.s3 + g.detail.len() as f32 * kit.line(TypeRole::Body);
+            g.h = (side.max(words) + 2.0 * sz.s4).ceil();
+            return g;
+        }
         _ => {}
     }
     // a row with words: a tile at the left when it has an icon or a face, the control and the value at the right

@@ -1,10 +1,11 @@
 //! Guide data, a page of Inputs & devices: the helper's plugin that fills the Live TV guide and the channel banner with online listings
 //! for a zip code, laid over the broadcast's own (`helper/app/src/guidedata.rs`). It asks first, in the words of its entry in the `plugins`
 //! topic, as the tuner's page does; off is one press. While it is on, the page draws what the plugin names (`plugin_rows`): the zip code,
-//! the sources in the order they are trusted, Plex's server and token, the Schedules Direct account, and how each source stands. Refresh
-//! fetches the listings again now (`POST /v1/plugins/guide-data/actions/refresh`).
+//! the sources in the order they are trusted, the Plex server (the TV's Plex sign-in's, a row away on the Plex page), the Schedules Direct
+//! account, and how each source stands. Refresh fetches the listings again now (`POST /v1/plugins/guide-data/actions/refresh`).
 
 use super::plugin_rows::{Plugin, fact, field_rows, fields, text};
+use super::util::go;
 use crate::panels::hub;
 use crate::settings::ctx::{Ctx, ask, toast};
 use crate::settings::page::{Page, Read};
@@ -86,8 +87,8 @@ fn icon(key: &str) -> &'static str {
         "status" => "activity",
         "zip" => "hash",
         "plex" | "schedules-direct" | "gracenote" => "tv-minimal",
-        "plex-server" | "plex.address" => "server",
-        "plex.token" | "sd.password" => "key-round",
+        "plex-server" => "server",
+        "sd.password" => "key-round",
         "sd.username" => "user",
         _ => "",
     }
@@ -114,6 +115,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     let refresh = Op::Send { name: Some(REFRESH.into()), method: "POST", path: format!("/v1/plugins/{ID}/actions/refresh"), body: Some(json!({})) };
     let mut section = None;
     for (s, f) in fields(PLUGIN, &o.schema) {
+        let entering = section != Some(s);
         if section.is_some_and(|was| was != s)
             && let Some(title) = o.schema["sections"].as_array().into_iter().flatten().find(|x| text(x, "id") == PLUGIN.sections[s]).map(|x| text(x, "title"))
         {
@@ -121,6 +123,10 @@ fn rows(c: &Ctx) -> Vec<Row> {
         }
         if section.is_none() {
             rows.push(Row::action("refresh", "Refresh now").icon("refresh-cw").label("Listings").admin().does(vec![refresh.clone()]));
+        }
+        // Plex is set up by signing the TV in, on its own page
+        if entering && PLUGIN.sections[s] == "plex" {
+            rows.push(Row::link("plex-account").icon("tv-minimal-play").label("Plex sign-in").value(&super::plex::summary(c)).does(go("plex")));
         }
         section = Some(s);
         rows.extend(field_rows(c, PLUGIN, 0, f, icon(text(f, "key"))));
@@ -141,7 +147,7 @@ mod tests {
             {"id": "listings", "title": "Listings", "fields": [fact("status", "Status"), text("zip", false),
                 {"key": "sources", "label": "Sources", "kind": {"type": "ordered-set", "max_items": 3,
                  "options": {"inline": [{"id": "plex", "label": "Plex"}, {"id": "schedules-direct", "label": "Schedules Direct"}, {"id": "gracenote", "label": "Free listings"}]}}}]},
-            {"id": "plex", "title": "Plex", "fields": [fact("plex", "Listings"), text("plex.address", false), text("plex.token", true)]},
+            {"id": "plex", "title": "Plex", "fields": [fact("plex", "Listings"), fact("plex-server", "Server")]},
             {"id": "schedules-direct", "title": "Schedules Direct", "fields": [text("sd.username", false), text("sd.password", true)]}]})
     }
 
@@ -156,12 +162,14 @@ mod tests {
         if state == "connected" {
             let mut o = crate::settings::src::Owner::new(ID);
             o.take(&json!({"ok": true, "version": 3, "schema": schema(),
-                "effective": {"zip": {"value": "30311"}, "sources": {"value": ["gracenote", "plex"]}, "plex.address": {"value": ""}}}));
+                "effective": {"zip": {"value": "30311"}, "sources": {"value": ["gracenote", "plex"]}}}));
             w.owners.insert(ID.into(), o);
             w.topics.set_helper(
                 &format!("plugin.{ID}.facts"),
-                json!({"facts": {"status": "53 of 57 channels have online listings", "plex": "Updated 2:05 PM: 53 of 57 channels", "plex-token": "Kept on this TV"}}),
+                json!({"facts": {"status": "53 of 57 channels have online listings", "plex": "Updated 2:05 PM: 53 of 57 channels",
+                                 "plex-server": "BeastNAS (192.168.1.69:32400)"}}),
             );
+            w.topics.set_helper("plex.account", json!({"state": "signed-in", "user": "nitin"}));
         }
         w
     }
@@ -185,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn on_the_zip_and_the_sources_are_picked_here_a_secret_goes_to_the_plugin_alone_and_refresh_asks_again() {
+    fn on_the_zip_and_the_sources_are_picked_here_plex_is_the_tvs_sign_in_a_secret_goes_to_the_plugin_alone_and_refresh_asks_again() {
         let w = world("connected");
         let c = w.ctx();
         assert_eq!(chip(&c), Some(("53 of 57 channels have online listings".into(), "positive")));
@@ -196,19 +204,23 @@ mod tests {
         assert_eq!(zip.value, "30311");
         let [Op::Entry { then, secret: false, .. }] = &(zip.act.as_ref().unwrap())(Arg::Press)[..] else { panic!("typed") };
         assert!(matches!(&then(" 10001 ".into())[..], [Op::Owner { owner, key, value }] if owner == ID && key == "zip" && value == &json!("10001")));
-        assert_eq!(row(&r, "plex.address").value, "Not set");
+        // Plex is the TV's sign-in: a row away, never typed here
+        assert_eq!(row(&r, "plex-server").value, "BeastNAS (192.168.1.69:32400)");
+        let account = row(&r, "plex-account");
+        assert_eq!(account.value, "Signed in as nitin");
+        assert!(matches!(&(account.act.as_ref().unwrap())(Arg::Press)[..], [Op::Open { page, .. }] if page == "plex"));
         // a secret goes to the plugin, and the row says only what the plugin says of it
-        assert_eq!((row(&r, "plex.token").value.as_str(), row(&r, "sd.password").value.as_str()), ("Kept on this TV", "Not set"));
-        let [Op::Entry { then, secret: true, text, .. }] = &(row(&r, "plex.token").act.as_ref().unwrap())(Arg::Press)[..] else { panic!("typed") };
+        assert_eq!(row(&r, "sd.password").value, "Not set");
+        let [Op::Entry { then, secret: true, text, .. }] = &(row(&r, "sd.password").act.as_ref().unwrap())(Arg::Press)[..] else { panic!("typed") };
         assert!(text.is_empty(), "a secret is never shown back");
         assert!(
-            matches!(&then("tk".into())[..], [Op::Send { path, body: Some(b), .. }] if path == "/v1/plugins/guide-data/secret" && b == &json!({"field": "plex.token", "secret": "tk"}))
+            matches!(&then("pw".into())[..], [Op::Send { path, body: Some(b), .. }] if path == "/v1/plugins/guide-data/secret" && b == &json!({"field": "sd.password", "secret": "pw"}))
         );
         // the order the sources are trusted in
         assert_eq!((row(&r, "sources:gracenote").value.as_str(), row(&r, "sources:plex").value.as_str()), ("1", "2"));
         assert!(matches!(&(row(&r, "refresh").act.as_ref().unwrap())(Arg::Press)[..], [Op::Send { path, .. }] if path.ends_with("/actions/refresh")));
         assert!(
-            matches!(&answered(&c, "secret:guide-data:plex.token", &json!({"ok": false, "error": {"message": "too long"}}))[..], [Op::Act { payload, .. }] if payload["message"] == "Not kept: too long")
+            matches!(&answered(&c, "secret:guide-data:sd.password", &json!({"ok": false, "error": {"message": "too long"}}))[..], [Op::Act { payload, .. }] if payload["message"] == "Not kept: too long")
         );
     }
 }

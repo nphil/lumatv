@@ -263,6 +263,16 @@ def profiles_topic():
 
 SCENES += [Scene('profiles', 'profiles', topics={'profiles': profiles_topic()}, keys=['right'])]
 
+# ---- Plex: the code to scan while the TV signs in, and the account signed in with two servers to choose from
+PLEX_BEAST = {'id': 'beast', 'name': 'BeastNAS', 'address': '192.168.1.69:32400'}
+PLEX_DEN = {'id': 'den', 'name': 'Den', 'address': '192.168.1.80:32400'}
+SCENES += [
+    Scene('plex-code', 'plex', keys=['right'], topics={'plex.account': {'state': 'code', 'code': 'WBVQ', 'url': 'https://plex.tv/link/?pin=WBVQ',
+                                                                     'expiresAt': 1}}),
+    Scene('plex-signed-in', 'plex', keys=['right'], topics={'plex.account': {'state': 'signed-in', 'user': 'nitin', 'server': PLEX_BEAST,
+                                                                          'servers': [PLEX_BEAST, PLEX_DEN]}}),
+]
+
 # ---- Privacy: the helper's menu (`GET /v1/privacy/menu`), and its two-step change
 HELD = [('option.livePlus', 'Live Plus content recognition', 'off'), ('option.watchedListCollection', 'viewing history collection', 'off'),
         ('option.thirdPartyCookie', 'third-party cookies', 'off'), ('option.dbgLogUpload', 'debug log upload', False), ('option.usageCare', 'usage statistics', False),

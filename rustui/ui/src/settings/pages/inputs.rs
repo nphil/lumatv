@@ -218,6 +218,15 @@ fn rows(c: &Ctx) -> Vec<Row> {
             .value(&super::guide_data::summary(c))
             .does(go("guidedata")),
     );
+    rows.push(
+        Row::link("plex")
+            .tab(2)
+            .icon("tv-minimal-play")
+            .label("Plex")
+            .help("The TV's one sign-in to Plex, by a code scanned with a phone: Guide data's Plex listings and the Photos plugin use it.")
+            .value(&super::plex::summary(c))
+            .does(go("plex")),
+    );
     rows.push(Row::link("bt").tab(2).icon("gamepad-2").label("Bluetooth Devices").does(go("bthid")));
     let done = c.local.flag("inputs.historyDone");
     let mut history = Row::action("history", if done { "Done" } else { "Delete" })

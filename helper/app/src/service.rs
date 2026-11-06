@@ -281,6 +281,15 @@ impl Service {
             config.hdhr.webos(),
             Arc::new(lumatuner::webos::LunaSend::new(config.luna.send.clone())),
         ));
+        // The Plex account: the TV's one sign-in to Plex, whose server Guide data's Plex source and the Photos plugin use. What Guide data
+        // kept of a Plex server before it is the account's first.
+        crate::plex::migrate(&paths, &settings);
+        let (plex, plex_thread) = crate::plex::spawn(
+            &ctx,
+            Arc::new(crate::plex::CurlNet::new(&config.fetch)),
+            crate::plex::Lending { settings: settings.clone(), shared: plugins.shared().clone() },
+        )?;
+        threads.push(("plex", plex_thread));
         let guide = Arc::new(crate::guidedata::GuideData::default());
         let tuner = Arc::new(
             lumatuner::Tuner::new(tv.clone(), lumatuner::real_clock()).with_guide(guide.clone()),
@@ -291,7 +300,7 @@ impl Service {
         ));
         threads.push((
             "guide",
-            crate::guidedata::spawn(&ctx, plugins.shared().clone(), tv, guide.clone())?,
+            crate::guidedata::spawn(&ctx, plugins.shared().clone(), tv, guide.clone(), plex.clone())?,
         ));
 
         let privacy = crate::privacy::new(&ctx);
@@ -322,6 +331,7 @@ impl Service {
             wx,
             weather_ha,
             guide,
+            plex,
         };
         let server = Server::start(
             SocketAddr::new(ip, config.listen.port),

@@ -29,6 +29,8 @@ libc = "0.2"
 unicode-segmentation = "1.12"
 # the grid-fitted glyphs (kit/gridfit.rs): the automatic hinter, in Rust
 skrifa = { version = "0.44", default-features = false, features = ["std"] }
+# the QR code of a sign-in page (Plex's link page for a code): the modules only, drawn by the settings surface in the theme's colours
+qrcodegen = "1.8"
 
 [dev-dependencies]
 ui = { path = "../lumashow-ui", features = ["testing"] }
