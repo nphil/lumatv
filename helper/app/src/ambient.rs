@@ -219,6 +219,8 @@ struct Inner {
     dirty: bool,
     /// The entertainment output, when Zigbee2MQTT is linked or a bridge is linked with an area.
     ent: Option<Ent>,
+    /// Which output's events are heard: `reload_links` counts it up before it starts one.
+    ent_gen: u64,
     /// Why no entertainment output runs although a link was saved: no area chosen, a link that cannot be read, or a second link
     /// that is set aside.
     ent_note: Option<String>,
@@ -284,6 +286,7 @@ impl Ambient {
                 sleeping: false,
                 dirty: true,
                 ent: None,
+                ent_gen: 0,
                 ent_note: None,
                 hue_lights: Vec::new(),
                 hue_frame: None,
@@ -496,10 +499,20 @@ impl Ambient {
     /// Reads the saved links again and starts the entertainment output for them (a running one is ended first): Zigbee2MQTT
     /// when it is linked, else the Hue bridge. The command line asks for this after it changes a link (`POST /v1/ambient/refresh`).
     pub fn reload_links(self: &Arc<Self>) {
+        // What the last output told is forgotten before the next one starts, and the old one is not heard from again: a Zigbee2MQTT
+        // output tells its lights as its thread starts, which can be before this has put it in place, and that word must not be lost.
+        let generation = {
+            let mut g = self.inner.lock();
+            g.ent_gen += 1;
+            g.hue_lights.clear();
+            g.hue_frame = None;
+            g.hue_lit = false;
+            g.ent_gen
+        };
         let weak = Arc::downgrade(self);
         let events: Arc<dyn Fn(Event) + Send + Sync> = Arc::new(move |event| {
             if let Some(ambient) = weak.upgrade() {
-                ambient.ent_event(event);
+                ambient.ent_event(generation, event);
             }
         });
         let data_dir = &self.ctx.paths.data_dir;
@@ -540,9 +553,6 @@ impl Ambient {
             let mut g = self.inner.lock();
             let old = std::mem::replace(&mut g.ent, output);
             g.ent_note = note;
-            g.hue_lights.clear();
-            g.hue_frame = None;
-            g.hue_lit = false;
             g.dirty = true;
             self.publish(&g);
             old
@@ -554,9 +564,12 @@ impl Ambient {
         self.wake.notify_all();
     }
 
-    /// What the entertainment output says, from its own thread.
-    fn ent_event(&self, event: Event) {
+    /// What the entertainment output of `generation` says, from its own thread.
+    fn ent_event(&self, generation: u64, event: Event) {
         let mut g = self.inner.lock();
+        if g.ent_gen != generation {
+            return;
+        }
         if let Event::Lights(lights) = event
             && g.hue_lights != lights
         {
@@ -2285,5 +2298,15 @@ mod tests {
             handle.join().unwrap();
             let _ = std::fs::remove_file(&started);
         }
+    }
+
+    #[test]
+    fn the_current_outputs_lights_are_heard_and_an_old_outputs_are_not() {
+        let r = rig(None);
+        let current = r.ambient.inner.lock().ent_gen;
+        let lights = vec![lumatv_ambient::huestream::channel_light(0, -0.8, 0.5)];
+        r.ambient.ent_event(current, Event::Lights(lights.clone()));
+        r.ambient.ent_event(current - 1, Event::Lights(Vec::new()));
+        assert_eq!(r.ambient.inner.lock().hue_lights, lights);
     }
 }
