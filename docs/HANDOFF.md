@@ -29,6 +29,14 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## HDMI 2's audio decoder after a compositor restart, 2026-11-05 (night, main 7575e89b)
+
+First step of the next session with the TV on and the owner around: restart the compositor (`cutover.sh disable`, then `enable`) with this tool, check `lumatv inputs status` shows no port held and no input app running, then play a film in Marquee. Not done on 2026-11-05: the TV was in Active Standby, and turning it on can wake the receiver and the Apple TV over CEC.
+
+`tools/lumatv` `03ddc6a0` installed 22:35 EST (replaced `56899321`); no restart, nothing launched. Receipts: `/data/home/tmp/lumatv-hdmi2dec-20261105/`.
+
+Cause, from SAM's log and LG's CEC log: `cutover disable` restarted to LG's compositor without ending the input apps, so HDMI 2 in the background died with it (exit 11 at 21:35:40 and 21:43:21) and left `HDMI_PORT2` open. `inputs release` then launched HDMI 2, whose CEC Set Stream Path woke the Apple TV; it answered Active Source and `com.webos.service.eim` launched HDMI 2 again 5.5-5.8 s after the release closed it (21:36:50, 21:44:30). Every restart now ends the input apps first, and `inputs release` is removed; install scripts drop that step.
+
 ## Glazed glass at 120 Hz, the calm commit hold back 2026-11-05 (night, main ed45a97c)
 
 Installed 21:44 EST from ed45a97c (origin and forge main) by the standard path: the compositor bundle only, `lumatv inputs release` after the compositor restart (released: true). Installed sha256: compositor `c676f650ea9d7e82b5c87ccb88587ffc55a68b76a57844570537eb7058993ee5`, ui `67a45a21d18b1d36c3dffd0e92190775a42ce3af5411f7baa80b5539d05380f1`, sm `65f6ca69` (unchanged); helper `cbd18df8` and `tools/lumatv` `56899321` untouched. Replaced: compositor `e9b1702d`, ui `7a81895c`. Receipts: `/data/home/tmp/lumatv-widgets-20261105/` (`session.log`, `gate/` with the rings in `gate/rings/`, `idle-wb-*`).
