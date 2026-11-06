@@ -29,6 +29,15 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Denon receiver plugin 2026-11-06 (main 6e902567)
+
+Main 6e902567 installed at 17:46 EST, the set in Active Standby (`tv-first-light.sh deploy`, cutover disable/install/probe/enable, helper staged in `payload/helper/`, `lumatv helper start`). Installed sha256: helper `4e660ad60eab330477ec0930eeea234d9cf56f4b4618c4491d55664e050e92da`, ui `366a165c5ade44a7ed1dcc0e8f0639c80fb4e9ba27205420903d63a5642d5558`; compositor `1ef99f70` and sm `65f6ca69` unchanged. Replaced: helper `14994b99`, ui `6ec9b73b`. Receipts: `/data/home/tmp/lumatv-plugin-denon-20261106/` (`session.log`, `installed-hashes.json`, `migration.txt`, `checks.json`).
+
+- Migration: `denon-receiver` is approved in `plugins/enabled.json`, its settings hold 192.168.1.93:8080, `base.receiver.json` is gone; the plugin reads `connected` and the receiver topic `enabled`.
+- Switched off: plugin `off`, receiver topic `enabled:false`, the settings page answers 404, no socket to the receiver. Switched on again: `connected`, same address.
+- The receiver was off (-42.0 dB, unmuted, input TV) throughout and was left that way, the plugin on.
+- Untested on the TV: receiver volume steps and key-to-receiver latency (receiver off; not powered on), and the volume keys changing the TV's own volume while off (panel off; host test only).
+
 ## Saver sources follow their plugins 2026-11-06 (main ce52bdf4)
 
 The helper from ce52bdf4 installed at 16:53 EST, the set in Active Standby (staged in `payload/helper/`, `lumatv helper start`); compositor, ui and sm unchanged. Installed sha256: helper `14994b9912877ce9bd635b58265a746b4860952e5f4b755746c4fa70700916bc`. Replaced: helper `203e514b`. Receipts: `/data/home/tmp/lumatv-plugin-saver-20261106/` (`session.log`, `installed-hashes.json`, `*-state.json`, `*-crop.png`).
