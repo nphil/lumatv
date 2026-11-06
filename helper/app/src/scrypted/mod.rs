@@ -840,6 +840,8 @@ impl Inner {
             }
             had
         };
+        // the saver's lines of what the cameras saw last 30 minutes on their own; they go with the cameras
+        crate::saver::forget_cameras(&self.hub);
         if had {
             self.hub.set(POPUP_TOPIC, Value::Null);
             self.hub.set(EVENTS_TOPIC, json!({"events": []}));

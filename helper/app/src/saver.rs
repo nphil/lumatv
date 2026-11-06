@@ -71,6 +71,8 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
 /// A line for the saver's notification area is kept this long, and at most this many.
 const LINE_MS: u64 = 30 * 60 * 1000;
 const MAX_LINES: usize = 6;
+/// The id prefix of a camera event's line.
+const CAMERA_LINE: &str = "camera.";
 /// How long the compositor's answer about the saver is believed.
 const PROBE_MS: u64 = 1000;
 const PROBE_WAIT: Duration = Duration::from_secs(1);
@@ -260,6 +262,19 @@ impl Saver {
         self.publish(hub, now);
     }
 
+    /// Drops the lines whose id starts with `prefix`, and says so on the topic when there were any.
+    fn forget_lines(&self, hub: &Hub, prefix: &str, now: u64) {
+        let dropped = {
+            let mut lines = self.lines.lock();
+            let before = lines.len();
+            lines.retain(|l| !l.id.starts_with(prefix));
+            lines.len() != before
+        };
+        if dropped {
+            self.publish(hub, now);
+        }
+    }
+
     /// What a camera event does while the saver may be up. The class of the pop-up is the doorbell's or the camera's video; a video that is hidden
     /// still leaves what was seen to the `camera.still` class (a dim line, or a wake). `up` is whether the saver is up.
     fn route_camera_at(&self, hub: &Hub, seen: Seen, up: bool, now: u64) -> CameraRoute {
@@ -270,7 +285,7 @@ impl Saver {
             (class, rules.choice(class))
         };
         let line = |class: &str| Line {
-            id: format!("camera.{event}"),
+            id: format!("{CAMERA_LINE}{event}"),
             class: class.to_owned(),
             glyph: kind_glyph(kind).to_owned(),
             title: name.to_owned(),
@@ -447,6 +462,11 @@ pub fn route_camera(hub: &Hub, seen: Seen) -> CameraRoute {
     let now = now_ms();
     let up = SAVER.up(hub, now);
     SAVER.route_camera_at(hub, seen, up, now)
+}
+
+/// The Cameras plugin was switched off or unlinked: what its cameras saw leaves the saver now, not when its lines expire.
+pub fn forget_cameras(hub: &Hub) {
+    SAVER.forget_lines(hub, CAMERA_LINE, now_ms());
 }
 
 /// A plugin's note was posted (the `posted` event of `plugin.<id>.notifications`): applies its class's answer where the helper can (`wake`).
@@ -640,6 +660,15 @@ mod tests {
         assert_eq!(lines.as_array().unwrap().iter().filter(|l| l["id"] == "camera.e8").count(), 1);
         s.publish(&hub, NOW + 20 + LINE_MS);
         assert_eq!(hub.topic_at("saver").1.unwrap()["lines"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn the_cameras_lines_leave_at_once_when_the_plugin_lets_go() {
+        let (s, hub) = (Saver::default(), Hub::new(1));
+        cam(&s, &hub, "person", true);
+        assert_eq!(hub.topic_at("saver").1.unwrap()["lines"].as_array().unwrap().len(), 1);
+        s.forget_lines(&hub, CAMERA_LINE, NOW + 1);
+        assert_eq!(hub.topic_at("saver").1.unwrap()["lines"], json!([]), "gone well before LINE_MS");
     }
 
     #[test]

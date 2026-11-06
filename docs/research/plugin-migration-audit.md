@@ -14,7 +14,7 @@ Core keeps the trusted pieces: the HA token store and link, the weather source, 
 | Denon receiver | receiver.rs, receiver_telnet.rs, receiver_volume.rs, receiver_settings.rs, receiver_sync.rs, ai/receiver_ctl.rs, lumatv_denon crate | Core | Raw telnet and volume pacing | Volume keys, receiver status | base.receiver (enabled, default true); receiver.volumeGapMs, volumeSettleMs, volumeHoldMs, volumeRetries; telnet_port | L | No raw TCP permission at level 2. Needs new permission. |
 | Live TV Tuner (HDHomeRun for Plex) | tuner.rs, tuner/ | First-party plugin `live-tv-tuner`, off until switched on in Settings › Inputs & devices › Live TV Tuner | Inbound HTTP on port 5004 (discover, lineup, auto, xmltv), private networks only | Live TV Tuner page | settings/live-tv-tuner.json; `hdhr` in helper.json | Done | On the TV, switched on. |
 | Guide data | guidedata.rs | First-party plugin `guide-data`, off until switched on in Settings › Inputs & devices › Guide data | Listings fetches (Plex through the shared account, Schedules Direct, Gracenote grid) | Guide data page, Live TV guide and banner | settings/guide-data.json | Done | On the TV, switched on. |
-| Screensaver content | saver.rs, rustui system/saver/, /v1/saver | Core | Screen state, OLED protection | Screensaver, complications | screensaver.style, screensaver.own | M | Accepted on TV 2026-11-02; keep core, move complication sources only. |
+| Screensaver content | saver.rs, rustui system/saver/, /v1/saver | Core; each integration's content follows its plugin: Home Assistant's slots and notices (its cards and notes, read only while it is connected), the weather from its entity (only while `home-assistant` is on), the cameras' lines (dropped when `scrypted-cameras` is switched off or unlinked). Date, clock, built-in weather and the board's posted items are core | Screen state, OLED protection | Screensaver, complications | screensaver.style, screensaver.own | Done | Accepted on TV 2026-11-02. |
 | BLE proxy (HA Bluetooth) | ble.rs, ble_proxy.rs, ble_scan.rs, ble_duty.rs, ble_store.rs | First-party plugin `ble-proxy`, off until switched on in Settings › Inputs & devices › Home Assistant device | ESPHome key and device identity | Home Assistant device page | Device key (secret, not read) | Done | Shares the ESPHome device with TV sensors. On the TV, switched on. |
 | TV sensors | tvsensors.rs | First-party plugin `tv-sensors`, same page as the BLE proxy | Power, screen, app, input, picture mode, tuner signal, SoC readings | Home Assistant device page | None of its own | Done | On the TV, switched on. |
 | Built-in weather (first-party) | wx*.rs, home/weather_card.rs, first-party weather | First-party in helper | No | Weather card | Weather settings | M | Already first-party; changing it changes a working card. |
@@ -28,9 +28,10 @@ Order (lowest risk and highest value first; TV works at each step):
 1. Plex photos: closed 2026-11-06, nothing on the TV to move (row above).
 2. Scrypted cameras: done 2026-11-06, first-party `scrypted-cameras` with Ring inside it (rows above).
 3. Home Assistant: done 2026-11-06, plugin `home-assistant` (rows above). The token store and link stay in core for voice and the ESPHome device, whose BLE proxy and TV sensors keep their own switches. Lamp control stays off until tested.
-4. Screensaver complications: keep core; move only complication sources.
-5. Denon: stays in core until a raw TCP permission exists.
-6. Marquee: out of scope.
+4. Screensaver complications: done 2026-11-06, the saver stays core and its integration sources follow their plugins (row above).
+5. BLE proxy: done 2026-11-06, `ble-proxy` is off on a fresh install; switched off with the TV sensors off, port 6053 closes, the mDNS announcement is withdrawn and the scan ends. With the TV sensors on the device keeps its port and announcement for them, and only the radio is handed back.
+6. Denon: stays in core until a raw TCP permission exists.
+7. Marquee: out of scope.
 
 The status-bar camera button is an item of the shipped layout's status bar (`payload/theme/layout.json`); it is hidden while the plugin is off. No secret values were read.
 
