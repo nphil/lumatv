@@ -154,6 +154,17 @@ Installed 20:11-20:14 EST from bf40856b (origin and forge main) by the standard 
 - ea8f2f49 keeps the account's server in use while a new code shows (bf40856b dropped Guide data's Plex source for that time).
 - Untested: a phone completing a link, Sign out, the Photos handoff (no Photos plugin on the TV). Receipts: `/data/home/tmp/lumatv-plexqr-20261105/` (not in git).
 
+## Antenna meter, Hide broken pictures, H.264 2026-11-05 (night, main f7226459)
+
+Installed 20:15-20:17 EST from f7226459 (origin and forge main; carries 4d01650b) by the standard path, with Nitin's Plex app in front; Plex was relaunched after. Installed sha256: compositor `84a7091bab9a1d56737ff3b601004cfe021f096011e9a9a57bca179d56bedcd6`, ui `4109df20d27000c59b3bb09ac38b44dfe639fe04448c013e90f70c6816351fc3`, sm `65f6ca69eb6da66cbfb139817803d0c1e01b03931fe373894b123c3f64df13da`, helper `aedf49c2d2ab38e2599f373a01621c474bb92257dffb991bfbe1fb8a3b30d949`. Failures 0; check-boot's activation line is absent without a reboot. The helper restart cleared `cameras.testEvents`.
+
+- Antenna meter PASS on the Live TV Tuner page: RF 29 Poor, 17.9 dB, MSE 351, 31 packet errors; RF 27 Good, 34.3 dB, MSE 8, 0 errors (RF 18 27.5 dB and RF 32 31.6 dB also Good). The bar, the word and the best-so-far tick follow the picked channel. On RF 29 the BER reads 16777215, the demodulator's saturated raw value, not a rate.
+- Live TV preemption FAIL, twice: with the meter on RF 29, launching LG's Live TV makes the meter yield ("the TV took the tuner", then "Live TV is in front"), but Live TV stays black: `legacy-broadcast-atsc` disconnects after 275-406 ms and videooutput's MAIN sink is not connected. Live TV launched with the meter stopped plays (VDEC connected).
+- 34.4 PASS: H.264 640x480 59.94 with AC-3 (stream type 0x1b), first byte 1.54 s; the helper logs "34.4's picture is not MPEG-2: it streams without slates".
+- Hide broken pictures stays off by default. Plex's Live TV on 16.1 (RF 29), 60 s each, off/on/off/on: off gave 52 HLS segments, first at 8.5-8.6 s, both times; on gave 0 both times: Plex's grabber left the stream 6.8-8 s after the tune and its transcoder failed to start the session. A direct 15 s stream of 16.1 with it on began at 4.68 s and carried 1.23 Mbit/s.
+- 120 Hz gate, 3 cycles, panel 119.9 Hz: home-widgets FAIL 58 dropped, 34 over 20 ms (82996a22: 64 and 38); quick 2 and 2; settings-scroll 18 and 0. First frame 10.7, 12.5, 6.8 ms. Reverting 82996a22's commit hold did not bring home-widgets back.
+- Receipts: `/data/home/tmp/lumatv-tunersignal-20261105/` (not in git).
+
 ## Tuner page, slate shape, guide fall-through 2026-11-05 (night, main 65976a62)
 
 fc6cf188 went on the set with IdleRegress's install of de53f401 (17:47: compositor `0f805697`, ui `25ec25dd`, sm `65f6ca69`); 65976a62 replaced only the helper at 18:23 by the standard helper start: helper sha256 `f4ffd934e1d6d2141b9e1dc80dd58fbc4cae2c0ea5d8705d33a8e526053b1674` (was `d254cf9b`). Failures 0, settled; check-boot's activation line is absent after a helper-only restart.
