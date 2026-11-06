@@ -259,6 +259,8 @@ pub(crate) struct Inner {
     page: Mutex<Option<Arc<Page>>>,
     /// Numbers the calls that start a stream, so that the last of two quick ones is the one that plays.
     pub(crate) ticket: AtomicU64,
+    /// Pop-up ids start at the helper's start time in ms: the shell outlives a helper restart and skips a record whose id it has shown, so ids
+    /// from 1 again hid the restarted helper's first pop-ups (pop-up 3 of Backyard after an earlier run's pop-up 3, 2026-11-06).
     popup_ids: AtomicU64,
     /// Numbers the test events.
     test_ids: AtomicU64,
@@ -352,7 +354,7 @@ impl Scrypted {
             ),
             page: Mutex::new(None),
             ticket: AtomicU64::new(0),
-            popup_ids: AtomicU64::new(0),
+            popup_ids: AtomicU64::new(crate::timeutil::now_ms()),
             test_ids: AtomicU64::new(0),
             thumbs: Mutex::new(VecDeque::new()),
         });

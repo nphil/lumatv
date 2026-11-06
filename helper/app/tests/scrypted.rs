@@ -752,12 +752,15 @@ fn only_the_kinds_the_owner_picked_pop_up_and_the_defaults_are_a_person_and_a_do
 #[test]
 fn the_same_event_again_waits_for_the_cooldown_a_doorbell_never_does_and_an_update_changes_the_words()
  {
+    let started = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
     let world = linked_world(json!({}));
     assert!(wait_until(WAIT, || world.bridge.events_open() == 1));
     world
         .bridge
         .push_event(world.bridge.event("273", "person", "new"));
     let first = world.wait_popup(|_| true).unwrap();
+    // the shell outlives a helper restart and skips an id it has shown: a new helper's ids are none an earlier one gave
+    assert!(first["id"].as_u64().unwrap() > started, "{first}");
     // the same object gains a name: the words of the same card change, and it is not a new card
     let mut update = world.bridge.event("273", "person", "update");
     update["label"] = json!("Nitin");
