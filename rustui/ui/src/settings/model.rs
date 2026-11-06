@@ -2403,9 +2403,8 @@ mod tests {
 
     #[test]
     fn late_receiver_reads_do_not_restart_after_close_or_page_change() {
-        let pages = || vec![Page::new("home", "Home", "home").rail(), crate::settings::pages::receiver::page()];
         for close in [true, false] {
-            let mut m = Model::new(pages(), json!({}), json!({}));
+            let mut m = receiver_model();
             let effects = m.open(Some("receiver"), 0);
             let tag = effects
                 .iter()
@@ -2424,6 +2423,12 @@ mod tests {
             let effects = m.update(&Input::Tick, 3000);
             assert!(!effects.iter().any(|e| matches!(e, Effect::Request { path, .. } if path == "/v1/receiver/settings")));
         }
+    }
+    /// Settings with the receiver's page, the Denon receiver plugin switched on.
+    fn receiver_model() -> Model {
+        let mut m = Model::new(vec![Page::new("home", "Home", "home").rail(), crate::settings::pages::receiver::page()], json!({}), json!({}));
+        m.topics.set_helper("plugins", json!({"firstParty": [{"id": "denon-receiver", "state": "connected"}]}));
+        m
     }
     fn receiver_fixture(session: Value, reachable: bool, result: Value) -> Value {
         json!({"settingsSession":session,"reachable":reachable,"fresh":reachable,"updatedAt":1000,
@@ -2444,7 +2449,7 @@ mod tests {
     #[test]
     fn receiver_completion_survives_navigation_close_and_disconnect() {
         for close in [true, false] {
-            let mut m = Model::new(vec![Page::new("home", "Home", "home").rail(), crate::settings::pages::receiver::page()], json!({}), json!({}));
+            let mut m = receiver_model();
             m.topics.helper_up = true;
             m.topics.set_helper("receiver", receiver_fixture(json!("old"), true, Value::Null));
             m.open(Some("receiver"), 1000);
@@ -2467,7 +2472,7 @@ mod tests {
     }
     #[test]
     fn receiver_rejection_survives_closed_page_and_lost_reachability() {
-        let mut m = Model::new(vec![Page::new("home", "Home", "home").rail(), crate::settings::pages::receiver::page()], json!({}), json!({}));
+        let mut m = receiver_model();
         m.topics.helper_up = true;
         m.topics.set_helper("receiver", receiver_fixture(json!("old"), true, Value::Null));
         m.open(Some("receiver"), 1000);
@@ -2482,7 +2487,7 @@ mod tests {
 
     #[test]
     fn receiver_completion_ignores_older_same_setting_submission() {
-        let mut m = Model::new(vec![Page::new("home", "Home", "home").rail(), crate::settings::pages::receiver::page()], json!({}), json!({}));
+        let mut m = receiver_model();
         m.topics.helper_up = true;
         m.topics.set_helper("receiver", receiver_fixture(json!("same"), true, Value::Null));
         m.open(Some("receiver"), 1000);

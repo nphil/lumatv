@@ -42,7 +42,6 @@ fn rig(
     before_start: impl FnOnce(&Rig),
 ) -> (Rig, FakeLuna) {
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     let luna = FakeLuna::new(rig.dir.path(), LunaMode::Subscribes, luna_state);
     before_start(&rig);
     rig.start(
@@ -184,7 +183,6 @@ fn with_the_screen_on_it_fetches_saves_and_announces() {
         let mut second = Rig::new();
         // Share the data dir by pointing the new rig's paths at the old one.
         second.paths = rig.paths.clone();
-        receiver_off(&second.paths);
         second.start(
             test_config(json!({"screen": {"source": "luna", "pollMs": 40}, "luna": {"send": luna.program.display().to_string()}})),
             offline.clone(),

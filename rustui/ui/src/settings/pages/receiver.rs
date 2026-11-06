@@ -1,18 +1,31 @@
-//! Receiver settings, shown only from independent, fresh receiver readbacks.
+//! The Denon receiver, a page of Sound: the Denon receiver plugin's switch and address, then the receiver's own settings, shown only from
+//! independent, fresh receiver readbacks.
+//!
+//! The plugin asks first, as the cameras do: off, the page is its switch in the words of its entry in the `plugins` topic, nothing is
+//! read from the receiver and the volume keys change the TV's own volume; off is one press. The address and web port are the plugin's
+//! settings (`denon-receiver`), which exist only while it is on.
 
-use crate::settings::ctx::Ctx;
+use super::plugin_rows::text;
+use crate::panels::hub;
+use crate::panels::ime::{PURPOSE_DIGITS, PURPOSE_NORMAL};
+use crate::settings::ctx::{Ctx, ask, toast};
 use crate::settings::page::{Page, Read};
 use crate::settings::row::{Arg, Card, Op, Row};
 use serde_json::{Value, json};
+use std::rc::Rc;
 
 pub const STALE_MS: f64 = 6000.0;
 const ASK_MS: u64 = 2000;
+const ID: &str = "denon-receiver";
+const TABS: [&str; 5] = ["Receiver", "Sound mode", "Levels", "Audyssey", "Zones & power"];
+/// The name the switch's answer comes back under.
+const SWITCH: &str = "receiver.switch";
 
 pub fn page() -> Page {
     Page::new("receiver", "Receiver", "boom-box")
         .parent("sound")
         .back("Sound")
-        .tabs(&["Sound mode", "Levels", "Audyssey", "Zones & power"])
+        .tabs(&TABS)
         .reads(reads)
         .rows(rows)
         .chip(chip)
@@ -20,11 +33,33 @@ pub fn page() -> Page {
         .answered(answered)
 }
 
-fn reads(_: &Ctx) -> Vec<Read> {
-    vec![Read::Get { name: "receiver", path: "/v1/receiver/settings" }]
+/// The plugin's entry in the `plugins` topic: none from a helper that is not there.
+fn entry<'a>(c: &'a Ctx) -> Option<&'a Value> {
+    hub::plugin_of(c.helper("plugins")?, ID)
+}
+
+fn on(c: &Ctx) -> bool {
+    entry(c).is_some_and(|e| text(e, "state") != "off")
+}
+
+fn turn(on: bool, code: &str) -> Op {
+    let body = if on { json!({"on": true, "approve": code}) } else { json!({"on": false}) };
+    Op::Send { name: Some(SWITCH.into()), method: "POST", path: format!("/v1/plugins/{ID}/switch"), body: Some(body) }
+}
+
+fn reads(c: &Ctx) -> Vec<Read> {
+    if on(c) { vec![Read::owner(ID), Read::Get { name: "receiver", path: "/v1/receiver/settings" }] } else { Vec::new() }
 }
 
 fn answered(c: &Ctx, name: &str, response: &Value) -> Vec<Op> {
+    match name {
+        // switched on or off: the plugin's settings came or went
+        "topic:plugins" => return vec![Op::Refresh],
+        SWITCH if response.get("ok").and_then(Value::as_bool) != Some(true) => {
+            return vec![toast(&format!("Not changed: {}", response.pointer("/error/message").and_then(Value::as_str).unwrap_or("the TV did not answer")))];
+        }
+        _ => {}
+    }
     if name == "receiver" {
         return vec![Op::RefreshIn(ASK_MS)];
     }
@@ -91,6 +126,9 @@ pub fn doc<'a>(c: &'a Ctx<'_>) -> Option<&'a Value> {
 }
 
 fn chip(c: &Ctx) -> Option<(String, &'static str)> {
+    if !on(c) {
+        return Some(("Off".into(), "info"));
+    }
     Some(if doc(c).is_some() { ("Answering".into(), "positive") } else { ("Not answering".into(), "danger") })
 }
 fn subtitle(c: &Ctx) -> String {
@@ -337,6 +375,54 @@ fn level(c: &Ctx, live: Option<&Value>, h: H, key: &'static str) -> Row {
 }
 
 fn rows(c: &Ctx) -> Vec<Row> {
+    let Some(e) = entry(c) else {
+        return (0..TABS.len()).map(|t| Row::empty("Not available", "The TV's helper is not answering.", "boom-box", t)).collect();
+    };
+    let (consent, code) = (text(e, "consent").to_string(), text(e, "approve").to_string());
+    let on = on(c);
+    let mut rows = vec![Row::toggle("use").tab(0).icon("boom-box").label("Denon receiver").help(&consent).on(on).admin().act(move |a| match a {
+        Arg::Toggle(true) => ask("boom-box", "Use the Denon receiver?", &consent, "Turn on", "Cancel", false, vec![turn(true, &code)]),
+        Arg::Toggle(false) => vec![turn(false, "")],
+        _ => Vec::new(),
+    })];
+    if !on {
+        rows.extend((1..TABS.len()).map(|t| Row::empty("The Denon receiver is off", "Switch it on under Receiver.", "power", t)));
+        return rows;
+    }
+    rows.extend(address(c));
+    rows.extend(controls(c));
+    rows
+}
+
+/// The plugin's settings: where the receiver is on the home network.
+fn address(c: &Ctx) -> Vec<Row> {
+    let o = c.owner(ID).filter(|o| o.known);
+    let host = o.and_then(|o| o.text("host")).unwrap_or_default();
+    let port = o.map(|o| (o.num("port", 0.0) as u32).to_string()).unwrap_or_default();
+    let shown = |v: &str| if v.is_empty() || v == "0" { "Not set".to_string() } else { v.to_string() };
+    let write = |key: &'static str, value: Value| vec![Op::Owner { owner: ID.into(), key: key.into(), value }];
+    let mut host_row = Row::link("host").tab(0).icon("network").label("Address").help("The receiver's IP address or name on the home network.").value(&shown(&host)).admin().does(vec![Op::Entry {
+        prompt: "Receiver address".into(),
+        text: host,
+        secret: false,
+        purpose: PURPOSE_NORMAL,
+        then: Rc::new(move |t| write("host", json!(t.trim()))),
+    }]);
+    if let Some(o) = o.filter(|o| !o.problem.is_empty()) {
+        host_row.detail = o.problem.clone();
+    }
+    let port_row = Row::link("port").tab(0).icon("hash").label("Web port").help("Where the receiver answers on the network, 8080 on most Denon models.").value(&shown(&port)).admin().does(vec![Op::Entry {
+        prompt: "Web port".into(),
+        text: port,
+        secret: false,
+        purpose: PURPOSE_DIGITS,
+        then: Rc::new(move |t| t.trim().parse::<u16>().ok().filter(|p| *p > 0).map(|p| write("port", json!(p))).unwrap_or_default()),
+    }]);
+    vec![host_row, port_row]
+}
+
+/// The receiver's own settings, on the tabs after the plugin's.
+fn controls(c: &Ctx) -> Vec<Row> {
     let live = doc(c);
     let mut rows = Vec::new();
     let why = if live.is_none() {
@@ -346,7 +432,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     } else {
         ""
     };
-    rows.push(Row::note(why, 0).visible(!why.is_empty()));
+    rows.push(Row::note(why, 1).visible(!why.is_empty()));
     let local = c.local.get("receiver.write");
     let local_error = local.get("error").and_then(Value::as_str);
     let failure = if live.is_none() { local_error } else { None }.or_else(|| {
@@ -362,50 +448,50 @@ fn rows(c: &Ctx) -> Vec<Row> {
         })
     });
     if let Some(error) = failure {
-        for tab in 0..4 {
+        for tab in 1..TABS.len() {
             let mut note = Row::note(&format!("Change failed: {error}"), tab);
             note.id = format!("receiver.write.failure:{tab}");
             rows.push(note);
         }
     }
-    rows.push(switch(c, live, H("power", 0, "power", "Receiver power", "Turns on with the TV over HDMI-CEC. Off here keeps the TV on."), "power"));
-    rows.push(choice(c, live, H("input", 0, "cable", "Input", "What the receiver plays."), "input", false, 1));
+    rows.push(switch(c, live, H("power", 1, "power", "Receiver power", "Turns on with the TV over HDMI-CEC. Off here keeps the TV on."), "power"));
+    rows.push(choice(c, live, H("input", 1, "cable", "Input", "What the receiver plays."), "input", false, 1));
     let mode_setting = Setting::new(c, live, "soundMode");
     let mode = mode_setting
         .value()
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|v| !v.is_empty() && !v.eq_ignore_ascii_case("unknown") && !v.eq_ignore_ascii_case("unavailable"));
-    rows.push(Row::head(&mode.map(|v| format!("Sound mode · now {v}")).unwrap_or_else(|| "Sound mode".into()), 0));
-    rows.push(choice(c, live, H("modes", 0, "audio-waveform", "Sound mode", ""), "soundMode", false, 2));
-    rows.push(choice(c, live, H("quick", 0, "zap", "Quick Select", "Receiver memories."), "quickSelect", true, 0));
+    rows.push(Row::head(&mode.map(|v| format!("Sound mode · now {v}")).unwrap_or_else(|| "Sound mode".into()), 1));
+    rows.push(choice(c, live, H("modes", 1, "audio-waveform", "Sound mode", ""), "soundMode", false, 2));
+    rows.push(choice(c, live, H("quick", 1, "zap", "Quick Select", "Receiver memories."), "quickSelect", true, 0));
     let absolute = live.and_then(|r| r.get("volumeDisplay")).and_then(Value::as_str) == Some("absolute");
     let (min, max) = if absolute { (0.0, 98.0) } else { (-80.0, 18.0) };
-    let mut volume = Row::slider("volume", min, max, 0.5).tab(1).icon("volume-2").label("Volume");
+    let mut volume = Row::slider("volume", min, max, 0.5).tab(2).icon("volume-2").label("Volume");
     volume.info = true;
     volume.num = live.and_then(|r| r.get(if absolute { "volumeAbs" } else { "volumeDb" })).and_then(Value::as_f64).unwrap_or(0.0);
     volume.value_text = Some(live.and_then(|r| r.get("volumeText")).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("\u{2013}").into());
     rows.push(volume);
-    rows.push(choice(c, live, H("dialog", 1, "mic", "Dialog Enhancer", "Louder voices without louder everything."), "dialog", false, 0));
-    rows.push(switch(c, live, H("subwooferEnabled", 1, "speaker", "Subwoofer adjustment", ""), "subwooferEnabled"));
-    rows.push(level(c, live, H("subwoofer", 1, "speaker", "Subwoofer adjustment level", ""), "subwoofer"));
-    rows.push(switch(c, live, H("toneEnabled", 1, "sliders-vertical", "Tone control", ""), "toneEnabled"));
+    rows.push(choice(c, live, H("dialog", 2, "mic", "Dialog Enhancer", "Louder voices without louder everything."), "dialog", false, 0));
+    rows.push(switch(c, live, H("subwooferEnabled", 2, "speaker", "Subwoofer adjustment", ""), "subwooferEnabled"));
+    rows.push(level(c, live, H("subwoofer", 2, "speaker", "Subwoofer adjustment level", ""), "subwoofer"));
+    rows.push(switch(c, live, H("toneEnabled", 2, "sliders-vertical", "Tone control", ""), "toneEnabled"));
     for (h, key) in
-        [(H("bass", 1, "sliders-vertical", "Bass", "Tone control."), "bass"), (H("treble", 1, "sliders-vertical", "Treble", "Tone control."), "treble")]
+        [(H("bass", 2, "sliders-vertical", "Bass", "Tone control."), "bass"), (H("treble", 2, "sliders-vertical", "Treble", "Tone control."), "treble")]
     {
         rows.push(level(c, live, h, key));
     }
-    rows.push(switch(c, live, H("cinemaeq", 1, "theater", "Cinema EQ", "Softens bright film soundtracks."), "cinemaEq"));
-    rows.push(choice(c, live, H("multeq", 2, "audio-lines", "MultEQ", "Audyssey room correction."), "multEq", false, 0));
-    rows.push(switch(c, live, H("dyneq", 2, "activity", "Dynamic EQ", "Keeps bass and surround full at low volume."), "dynEq"));
-    rows.push(choice(c, live, H("refoffset", 2, "gauge", "Reference level offset", "For Dynamic EQ."), "refOffset", true, 0));
-    rows.push(choice(c, live, H("dynvol", 2, "volume-1", "Dynamic Volume", "Evens out loud adverts and quiet dialogue."), "dynVol", false, 0));
-    rows.push(Row::head("Zone 2", 3));
-    rows.push(switch(c, live, H("zone2power", 3, "power", "Zone 2 power", "The second pair of speakers."), "zone2Power"));
-    rows.push(level(c, live, H("zone2volume", 3, "volume-2", "Zone 2 volume", ""), "zone2Volume"));
-    rows.push(choice(c, live, H("zone2input", 3, "cable", "Zone 2 input", ""), "zone2Input", false, 1));
-    rows.push(Row::head("Power", 3));
-    rows.push(choice(c, live, H("eco", 3, "leaf", "ECO mode", "Less power at low volume."), "eco", false, 0));
+    rows.push(switch(c, live, H("cinemaeq", 2, "theater", "Cinema EQ", "Softens bright film soundtracks."), "cinemaEq"));
+    rows.push(choice(c, live, H("multeq", 3, "audio-lines", "MultEQ", "Audyssey room correction."), "multEq", false, 0));
+    rows.push(switch(c, live, H("dyneq", 3, "activity", "Dynamic EQ", "Keeps bass and surround full at low volume."), "dynEq"));
+    rows.push(choice(c, live, H("refoffset", 3, "gauge", "Reference level offset", "For Dynamic EQ."), "refOffset", true, 0));
+    rows.push(choice(c, live, H("dynvol", 3, "volume-1", "Dynamic Volume", "Evens out loud adverts and quiet dialogue."), "dynVol", false, 0));
+    rows.push(Row::head("Zone 2", 4));
+    rows.push(switch(c, live, H("zone2power", 4, "power", "Zone 2 power", "The second pair of speakers."), "zone2Power"));
+    rows.push(level(c, live, H("zone2volume", 4, "volume-2", "Zone 2 volume", ""), "zone2Volume"));
+    rows.push(choice(c, live, H("zone2input", 4, "cable", "Zone 2 input", ""), "zone2Input", false, 1));
+    rows.push(Row::head("Power", 4));
+    rows.push(choice(c, live, H("eco", 4, "leaf", "ECO mode", "Less power at low volume."), "eco", false, 0));
     rows
 }
 
@@ -426,7 +512,11 @@ mod tests {
             "receiver",
             json!({"host":"one","settingsSession":"session-1","reachable":true,"fresh":true,"updatedAt":NOW-1000,"volumeDb":-34.5,"volumeText":"-34.5 dB","settings":{}}),
         );
+        plugin(&mut w, "connected");
         w
+    }
+    fn plugin(w: &mut World, state: &str) {
+        w.topics.set_helper("plugins", json!({"firstParty": [{"id": ID, "state": state, "consent": "Connects to it.", "approve": "c0de"}]}));
     }
     fn put(w: &mut World, key: &str, d: Value) {
         let mut doc = w.topics.helper("receiver").unwrap().clone();
@@ -576,7 +666,33 @@ mod tests {
         let mut old = w.topics.helper("receiver").unwrap().clone();
         old.as_object_mut().unwrap().remove("settings");
         w.topics.set_helper("receiver", old);
-        assert_eq!(rows(&w.ctx())[0].text, "Receiver settings unavailable");
+        assert_eq!(controls(&w.ctx())[0].text, "Receiver settings unavailable");
+    }
+
+    #[test]
+    fn off_the_page_is_the_plugins_switch_and_nothing_is_read() {
+        let mut w = world();
+        plugin(&mut w, "off");
+        assert!(reads(&w.ctx()).is_empty());
+        let r = rows(&w.ctx());
+        assert!(!row(&r, "use").on);
+        assert_eq!(r.iter().map(|r| r.tab).collect::<Vec<_>>(), [0, 1, 2, 3, 4], "the switch, and a line on each of the receiver's tabs");
+        let [Op::Ask(question)] = &(row(&r, "use").act.as_ref().unwrap())(Arg::Toggle(true))[..] else { panic!("it asks first") };
+        assert_eq!(question.body, "Connects to it.");
+        assert!(matches!(&question.answers[1].then[..], [Op::Send { path, body: Some(b), .. }] if path == "/v1/plugins/denon-receiver/switch" && b == &json!({"on": true, "approve": "c0de"})));
+    }
+
+    #[test]
+    fn on_the_address_is_the_plugins_and_a_port_must_be_one() {
+        let w = world();
+        assert_eq!(reads(&w.ctx()).len(), 2);
+        let r = rows(&w.ctx());
+        assert!(matches!(&(row(&r, "use").act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Send { body: Some(b), .. }] if b == &json!({"on": false})));
+        assert_eq!(row(&r, "power").tab, 1);
+        let typed = (row(&r, "port").act.as_ref().unwrap())(Arg::Press);
+        let [Op::Entry { then, .. }] = &typed[..] else { panic!("the port is typed") };
+        assert!(matches!(&then(" 8080 ".into())[..], [Op::Owner { owner, key, value }] if owner == ID && key == "port" && value == &json!(8080)));
+        assert!(then("0".into()).is_empty() && then("70000".into()).is_empty());
     }
 }
 

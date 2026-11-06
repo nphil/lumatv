@@ -599,6 +599,26 @@ fn the_connection_exists_only_while_the_screen_is_on() {
 }
 
 #[test]
+fn the_connection_exists_only_while_the_plugin_is_on() {
+    let http = FakeAvr::start();
+    let telnet = FakeTelnet::start();
+    let (rig, _luna) = rig_with(&http, &telnet, "Active", json!({"pollMs": 100}));
+    rig.wait_topic("receiver", WAIT, fresh).expect("a reading");
+    assert_eq!(telnet.live(), 1);
+
+    assert_eq!(switch_receiver(rig.addr, false).status, 200);
+    wait_for("the connection to close", || telnet.live() == 0);
+    let (total, hits) = (telnet.total(), http.hits());
+    thread::sleep(Duration::from_millis(400));
+    assert_eq!((telnet.total(), http.hits()), (total, hits), "reached a receiver whose plugin is off");
+
+    assert_eq!(switch_receiver(rig.addr, true).status, 200);
+    rig.wait_topic("receiver", WAIT, |v| v["enabled"] == true && fresh(v))
+        .expect("a reading again");
+    assert_eq!(telnet.live(), 1);
+}
+
+#[test]
 fn a_scale_that_could_not_be_read_is_asked_for_again() {
     let http = FakeAvr::start();
     http.set(|s| s.forbidden = true);
@@ -642,7 +662,7 @@ fn a_new_address_in_the_settings_moves_the_connection() {
         json!({"changes": [{"key": "host", "value": {"type": "text", "value": "127.0.0.2"}}]})
             .to_string();
     assert_eq!(
-        post(rig.addr, "/v1/settings/base.receiver", &body).status,
+        post(rig.addr, "/v1/settings/denon-receiver", &body).status,
         200
     );
     wait_for("the old connection to close", || first.live() == 0);

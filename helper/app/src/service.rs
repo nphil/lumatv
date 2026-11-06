@@ -58,6 +58,8 @@ pub struct Service {
     server: Option<Server>,
     threads: Vec<(&'static str, JoinHandle<()>)>,
     addr: SocketAddr,
+    /// The Denon receiver plugin's switch; the roster holds it only weakly.
+    _receiver_plugin: Arc<crate::receiver_plugin::Denon>,
 }
 
 fn other(message: impl Into<String>) -> std::io::Error {
@@ -121,10 +123,6 @@ impl Service {
         }
         // A changed setting reaches the component that reads it at once.
         {
-            let tx = receiver_tx.clone();
-            wake_on_change(&settings, "base.receiver", &stop, move || {
-                let _ = tx.send(receiver::Cmd::Wake);
-            });
             for owner in ["base.weather", "base.news"] {
                 let tx = feeds_tx.clone();
                 wake_on_change(&settings, owner, &stop, move || {
@@ -215,17 +213,29 @@ impl Service {
 
         // `base.livetv`, the tuner's old Settings switch, becomes the Live TV Tuner plugin's before the roster is first read; a Bluetooth
         // proxy, or cameras, linked before they were plugins become the Bluetooth proxy plugin's and the Cameras plugin's, switched on, and
-        // a TV that used Home Assistant comes up with the Home Assistant plugin switched on.
+        // a TV that used Home Assistant, or the Denon receiver, comes up with that plugin switched on.
         crate::tuner::migrate(&settings, &paths.plugins_dir());
         crate::ble::migrate(&paths.data_dir, &paths.plugins_dir());
         crate::scrypted::migrate(&paths);
         crate::ha_plugin::migrate(&paths, &settings);
+        crate::receiver_plugin::migrate(&settings, &paths.plugins_dir());
         // Plugins: the manager reads the roster and keeps the broker's socket only while a plugin is switched on.
         let plugins = crate::plugins::Plugins::with_policy(
             &ctx,
             voice_policy.unwrap_or(ha_link::AddressPolicy::HOME),
         );
         threads.push(("plugins", plugins.spawn(&ctx)?));
+        // The Denon receiver plugin's switch: the receiver's page, and with it the receiver client, only while it is on.
+        let receiver_plugin = {
+            let tx = receiver_tx.clone();
+            crate::receiver_plugin::Denon::offer(
+                plugins.shared(),
+                settings.clone(),
+                Arc::new(move || {
+                    let _ = tx.send(receiver::Cmd::Wake);
+                }),
+            )
+        };
         threads.push((
             "plugins-1p",
             crate::plugins::firstparty::spawn(&ctx, plugins.shared().clone(), feeds_tx.clone())?,
@@ -388,6 +398,7 @@ impl Service {
                     server: None,
                     threads,
                     addr: SocketAddr::new(ip, 0),
+                    _receiver_plugin: receiver_plugin,
                 };
                 partial.stop();
                 return Err(e);
@@ -401,6 +412,7 @@ impl Service {
             server: Some(server),
             threads,
             addr,
+            _receiver_plugin: receiver_plugin,
         })
     }
 

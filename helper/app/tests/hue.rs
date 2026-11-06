@@ -205,7 +205,6 @@ struct Setup {
 
 fn setup(fake: &Fake, mode: &str, area: Option<&str>) -> Setup {
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     seed_settings(
         &rig.paths,
         "base.ambient",
@@ -462,7 +461,6 @@ fn a_bridge_that_shows_another_certificate_than_the_linked_one_is_sent_nothing()
     // Linked to one bridge, then the address is answered by another (a different certificate, from another authority).
     let first = Fake::start(|pki| pki.good(), false, false);
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     seed_settings(
         &rig.paths,
         "base.ambient",

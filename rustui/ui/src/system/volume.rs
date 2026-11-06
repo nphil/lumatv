@@ -1277,6 +1277,18 @@ mod tests {
     }
 
     #[test]
+    fn with_the_receiver_plugin_off_a_key_is_the_tvs_and_nothing_goes_to_the_receiver() {
+        let mut v = Volume::default();
+        let mut e = v.update(&up(), 1000);
+        e.extend(v.update(&Input::Helper { topic: "receiver".into(), data: json!({"enabled": false, "polling": false, "fresh": false}) }, 1000));
+        e.extend(v.update(&audio(20, false, "external_arc", ""), 1000));
+        e.extend(v.update(&audio(21, false, "external_arc", "volumeUp"), 1100));
+        assert_eq!(v.view().source, Source::Tv);
+        assert_eq!(v.view().level, "21");
+        assert!(!e.iter().any(|e| matches!(e, Effect::Post { path, .. } if path.starts_with("/v1/receiver/"))), "{e:?}");
+    }
+
+    #[test]
     fn a_receiver_that_may_answer_is_waited_for_and_the_tvs_counter_is_shown_only_when_it_does_not() {
         let mut v = Volume::default();
         // the helper comes up with no copy yet: it is asked for one, and answers that it has none

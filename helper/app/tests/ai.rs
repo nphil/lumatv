@@ -41,7 +41,6 @@ fn free_port() -> u16 {
 /// Starts the service with AI access configured to bind the loopback (a private LAN address cannot be assumed on a test host).
 fn start(port: u16) -> AiRig {
     let rig = Rig::new();
-    receiver_off(&rig.paths);
     start_in(rig, port)
 }
 
@@ -273,7 +272,6 @@ fn the_helper_binary_starts_with_ai_access_off_and_nothing_listening() {
         .to_string(),
     )
     .unwrap();
-    receiver_off(&lumatv_helper::config::Paths::new(dir.path()));
     let bin = env!("CARGO_BIN_EXE_lumatv-helper");
     let started = Command::new(bin)
         .args(["start", "--data-dir"])
@@ -322,7 +320,7 @@ fn no_api_path_turns_it_on_and_the_remote_does() {
         "/v1/settings",
         "/v1/settings/ai",
         "/v1/settings/ai.listener",
-        "/v1/settings/base.receiver",
+        "/v1/settings/denon-receiver",
         "/v1/refresh",
     ];
     for path in paths {
@@ -855,7 +853,7 @@ fn what_an_assistant_reaches_over_the_lan_is_mcp_and_pairing_and_nothing_else() 
         ("POST", format!("/v1/ai/assistants/{id}/levels")),
         ("POST", format!("/v1/ai/assistants/{id}/resume")),
         ("DELETE", format!("/v1/ai/assistants/{id}")),
-        ("POST", "/v1/settings/base.receiver".to_owned()),
+        ("POST", "/v1/settings/denon-receiver".to_owned()),
         ("POST", format!("/v1/settings/ai.{id}")),
         ("GET", "/".to_owned()),
         ("GET", "/mcp/../v1/ai".to_owned()),

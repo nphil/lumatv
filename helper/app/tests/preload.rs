@@ -21,7 +21,6 @@ fn calls(path: &Path) -> Vec<String> {
 #[test]
 fn the_listed_apps_are_told_at_start_and_at_every_switch_on_and_a_removed_file_means_nothing() {
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     let dir = rig.dir.path().to_path_buf();
     let (state, log) = (dir.join("state"), dir.join("calls"));
     std::fs::write(&state, "Active").unwrap();

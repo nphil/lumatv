@@ -36,7 +36,6 @@ impl World {
     /// A helper with no link and a bridge that knows no device.
     fn unlinked(cameras: Value, deps: lumatv_helper::scrypted::Deps) -> Self {
         let mut rig = Rig::new();
-        receiver_off(&rig.paths);
         rig.start_cameras(config(cameras), Script::new(), deps);
         Self {
             rig,

@@ -663,26 +663,42 @@ pub fn seed_settings(paths: &Paths, owner: &str, values: Value) {
     std::fs::write(dir.join(format!("{owner}.json")), doc.to_string()).unwrap();
 }
 
-/// Stored values that switch the receiver off, so a test that is not about it never polls anything.
-pub fn receiver_off(paths: &Paths) {
-    seed_settings(
-        paths,
-        "base.receiver",
-        json!({"enabled": {"type": "bool", "value": false}}),
-    );
-}
-
-/// Stored values that point the receiver client at a loopback port.
+/// The Denon receiver plugin switched on as the owner switches it, pointed at a loopback port.
 pub fn receiver_at(paths: &Paths, port: u16) {
+    use lumatv_helper::plugins::roster;
+    use lumatv_helper::receiver_plugin::{ID, OPT_IN};
     seed_settings(
         paths,
-        "base.receiver",
+        ID,
         json!({
-            "enabled": {"type": "bool", "value": true},
             "host": {"type": "text", "value": "127.0.0.1"},
             "port": {"type": "integer", "value": port}
         }),
     );
+    let dir = paths.plugins_dir();
+    let mut file = roster::read_file(&dir).unwrap();
+    file.first_party.push(roster::Approved {
+        id: ID.to_owned(),
+        approve: OPT_IN.approval(),
+    });
+    roster::write_file(&dir, &file).unwrap();
+}
+
+/// Switches the Denon receiver plugin as the TV's Settings does.
+pub fn switch_receiver(addr: SocketAddr, on: bool) -> Reply {
+    use lumatv_helper::receiver_plugin::{ID, OPT_IN};
+    let body = if on {
+        json!({"on": true, "approve": OPT_IN.approval()})
+    } else {
+        json!({"on": false})
+    };
+    http(
+        addr,
+        "POST",
+        &format!("/v1/plugins/{ID}/switch"),
+        &[("X-Luma-Client", "lumatv-ui"), ("Content-Type", "application/json")],
+        Some(&body.to_string()),
+    )
 }
 
 impl Rig {

@@ -412,7 +412,6 @@ fn config(mic: &FakeMic, extra: Value) -> Config {
 /// Starts the service with voice search ready: the setting on, the link saved to `ha`, a microphone chosen.
 fn ready(ha: &FakeHa, extra: Value) -> VoiceRig {
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     let mic = FakeMic::new(rig.dir.path());
     seed_settings(
         &rig.paths,
@@ -541,7 +540,6 @@ fn nothing_is_open_until_the_owner_has_switched_it_on_and_linked_and_a_microphon
 
     // Off (the default): no microphone program, no connection.
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     let mic = FakeMic::new(rig.dir.path());
     voice_store::save(&rig.paths.data_dir, &ha.url(), TOKEN).unwrap();
     rig.start_voice(config(&mic, json!({})), Script::new());
@@ -572,7 +570,6 @@ fn nothing_is_open_until_the_owner_has_switched_it_on_and_linked_and_a_microphon
 
     // On but not linked.
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     let mic = FakeMic::new(rig.dir.path());
     seed_settings(
         &rig.paths,
@@ -596,7 +593,6 @@ fn nothing_is_open_until_the_owner_has_switched_it_on_and_linked_and_a_microphon
 
     // On and linked, but the owner emptied voice.capture: no microphone.
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     seed_settings(
         &rig.paths,
         "base.voice",
@@ -725,7 +721,6 @@ fn an_unreachable_home_assistant_and_a_missing_microphone_are_errors_not_hangs()
         l.local_addr().unwrap()
     };
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     let mic = FakeMic::new(rig.dir.path());
     seed_settings(
         &rig.paths,
@@ -745,7 +740,6 @@ fn an_unreachable_home_assistant_and_a_missing_microphone_are_errors_not_hangs()
     // A microphone program that does not exist.
     let ha = FakeHa::start(TOKEN, Answer::Words("x"));
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     seed_settings(
         &rig.paths,
         "base.voice",
@@ -773,7 +767,6 @@ fn the_token_is_never_dialled_to_an_address_outside_the_home_network() {
     // The service as it runs on the TV: the loopback is not the home network, so the token is not sent.
     let ha = FakeHa::start(TOKEN, Answer::Words("x"));
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     let mic = FakeMic::new(rig.dir.path());
     seed_settings(
         &rig.paths,

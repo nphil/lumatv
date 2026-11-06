@@ -35,6 +35,7 @@ pub const FIRST_PARTY_IDS: &[&str] = &[
     "guide-data",
     "ble-proxy",
     "tv-sensors",
+    "denon-receiver",
 ];
 
 /// What a first-party plugin is, in the words of a manifest.

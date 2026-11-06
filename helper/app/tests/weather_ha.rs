@@ -244,7 +244,6 @@ fn serve(mut stream: TcpStream, shared: &Shared) {
 /// plugin switched on, as a TV whose weather came from Home Assistant before it was a plugin does.
 fn rig(url: &str, before_start: impl FnOnce(&Rig)) -> Rig {
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     seed_settings(
         &rig.paths,
         "base.weather",
@@ -363,7 +362,6 @@ fn the_picker_lists_the_weather_entities_by_name_and_says_why_it_cannot() {
         entities.insert("weather.home".into(), json!({"s": "sunny", "a": {"friendly_name": "Forecast Home"}}));
     }
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     rig.start_voice(test_config(json!({})), Script::new());
     let off = get(rig.addr, "/v1/weather/entities");
     assert_eq!((off.status, off.json()["error"]["code"].clone()), (409, json!("off")));

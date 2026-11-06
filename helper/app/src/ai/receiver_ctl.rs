@@ -1,6 +1,6 @@
 //! The receiver as the AI module acts on it: volume and mute through the Denon's own web interface.
 //!
-//! The address and the on/off switch are read from the `base.receiver` settings at every call, so a change made on the TV
+//! The address, and whether the Denon receiver plugin is switched on, are read from the settings at every call, so a change made on the TV
 //! applies to the next command. Nothing here can reach any other host, and nothing an assistant passes reaches the request
 //! line except through `volume_command` and `mute_command`.
 
@@ -33,7 +33,7 @@ impl DenonControl {
         if !receiver.enabled {
             return Err(ActionError::new(
                 "unavailable",
-                "the receiver is switched off in the TV's settings",
+                crate::receiver_plugin::off_words(),
             ));
         }
         Client::new(receiver.host, receiver.port)
@@ -108,17 +108,18 @@ mod tests {
         (port, handle)
     }
 
-    fn control(dir: &std::path::Path, enabled: bool, port: u16) -> DenonControl {
+    fn control(dir: &std::path::Path, on: bool, port: u16) -> DenonControl {
         let settings_dir = dir.join("settings");
         std::fs::create_dir_all(&settings_dir).unwrap();
-        let doc = json!({"owner": "base.receiver", "schemaRevision": 1, "version": 1, "values": {
-            "enabled": {"type": "bool", "value": enabled},
+        let doc = json!({"owner": crate::receiver_plugin::ID, "schemaRevision": 1, "version": 1, "values": {
             "host": {"type": "text", "value": "127.0.0.1"},
             "port": {"type": "integer", "value": port}
         }});
-        std::fs::write(settings_dir.join("base.receiver.json"), doc.to_string()).unwrap();
+        std::fs::write(settings_dir.join("denon-receiver.json"), doc.to_string()).unwrap();
         let store = SettingsStore::new(&settings_dir, Arc::new(Hub::new(1)));
-        store.register_builtin().unwrap();
+        if on {
+            crate::receiver_plugin::register_page(&store).unwrap();
+        }
         let tuning = ReceiverTuning {
             connect_timeout_ms: 500,
             request_timeout_ms: 1000,
@@ -161,17 +162,14 @@ mod tests {
     }
 
     #[test]
-    fn a_receiver_switched_off_in_the_settings_is_unavailable_and_not_contacted() {
+    fn the_receiver_is_unavailable_and_not_contacted_while_its_plugin_is_off() {
         let dir = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let ctl = control(dir.path(), false, listener.local_addr().unwrap().port());
         let e = ctl.set_mute(false).unwrap_err();
         assert_eq!(e.code, "unavailable");
-        assert_eq!(
-            e.message,
-            "the receiver is switched off in the TV's settings"
-        );
+        assert_eq!(e.message, crate::receiver_plugin::off_words());
         assert_eq!(
             listener.accept().unwrap_err().kind(),
             std::io::ErrorKind::WouldBlock

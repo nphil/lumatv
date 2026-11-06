@@ -1,6 +1,6 @@
 //! The receiver client: the Denon AVR's status as a hub topic, read only while the screen is on.
 //!
-//! One thread. While the screen is off (or the receiver is switched off in the settings) it blocks on its command channel and
+//! One thread. While the screen is off (or the Denon receiver plugin is switched off, `receiver_plugin`) it blocks on its command channel and
 //! does nothing at all: no timer, no connection. While the screen is on it points the telnet link (`receiver_telnet.rs`) at the
 //! receiver: that one held connection delivers every volume, mute, input and power change the moment the receiver makes it, and
 //! its periodic questions keep the reading's stamp moving. Only while the link is down does the thread fall back to reading the
@@ -819,9 +819,10 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
         }
 
         let polling = settings.enabled && screen::is_on(&ctx.hub);
+        let idle = if settings.enabled { "Screen is off" } else { crate::receiver_plugin::off_words() };
         if !polling {
             if was_polling {
-                poller.settings.invalidate("Screen is off");
+                poller.settings.invalidate(idle);
             }
             if was_polling || poller.last_attempt.is_none() {
                 // Stopped polling (or never started): the document says nothing is live.
@@ -844,7 +845,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
             match rx.recv() {
                 Ok(Cmd::Stop) | Err(_) => return,
                 Ok(Cmd::SettingsSet { reply, .. }) => {
-                    let _ = reply.send(SettingsResponse::Unavailable("Screen is off".into()));
+                    let _ = reply.send(SettingsResponse::Unavailable(idle.into()));
                     continue;
                 }
                 Ok(_) => continue,
@@ -1013,7 +1014,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                         let host = settings.host.clone();
                         let port = settings.port;
                         let version = store
-                            .describe("base.receiver")
+                            .describe(crate::receiver_plugin::ID)
                             .and_then(|v| v.get("version").and_then(Value::as_u64));
                         let screen_since =
                             hub.get(screen::TOPIC).and_then(|v| v.get("since").cloned());
@@ -1030,7 +1031,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                                         && current.host == host
                                         && current.port == port
                                         && store
-                                            .describe("base.receiver")
+                                            .describe(crate::receiver_plugin::ID)
                                             .and_then(|v| v.get("version").and_then(Value::as_u64))
                                             == version
                                         && screen::is_on(&hub)
@@ -1180,10 +1181,10 @@ esac
                 dir.path().join("settings"),
                 hub.clone(),
             ));
-            settings.register_builtin().unwrap();
+            crate::receiver_plugin::register_page(&settings).unwrap();
             settings
                 .apply(
-                    "base.receiver",
+                    crate::receiver_plugin::ID,
                     vec![
                         settings_schema::SettingChange {
                             key: "host".parse().unwrap(),
@@ -1744,10 +1745,10 @@ esac
                 dir.path().join("settings"),
                 hub.clone(),
             ));
-            settings.register_builtin().unwrap();
+            crate::receiver_plugin::register_page(&settings).unwrap();
             settings
                 .apply(
-                    "base.receiver",
+                    crate::receiver_plugin::ID,
                     vec![
                         SettingChange {
                             key: "host".parse().unwrap(),
@@ -1883,10 +1884,10 @@ esac
                 dir.path().join("settings"),
                 hub.clone(),
             ));
-            settings.register_builtin().unwrap();
+            crate::receiver_plugin::register_page(&settings).unwrap();
             settings
                 .apply(
-                    "base.receiver",
+                    crate::receiver_plugin::ID,
                     vec![
                         SettingChange {
                             key: "host".parse().unwrap(),
@@ -1922,7 +1923,7 @@ esac
                 "host" => {
                     settings
                         .apply(
-                            "base.receiver",
+                            crate::receiver_plugin::ID,
                             vec![SettingChange {
                                 key: "host".parse().unwrap(),
                                 value: SettingValue::Text("127.0.0.2".into()),
@@ -2005,10 +2006,10 @@ esac
                 dir.path().join("settings"),
                 hub.clone(),
             ));
-            settings.register_builtin().unwrap();
+            crate::receiver_plugin::register_page(&settings).unwrap();
             settings
                 .apply(
-                    "base.receiver",
+                    crate::receiver_plugin::ID,
                     vec![
                         settings_schema::SettingChange {
                             key: "host".parse().unwrap(),

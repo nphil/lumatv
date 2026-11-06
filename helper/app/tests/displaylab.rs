@@ -14,7 +14,6 @@ const SHELL: &[(&str, &str)] = &[
 
 fn start() -> Rig {
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     rig.start(test_config(json!({})), Script::new());
     rig
 }
@@ -159,7 +158,6 @@ fn the_results_of_a_run_are_kept_for_the_next_round() {
 fn a_journal_waits_for_a_start_that_can_reach_the_hardware() {
     // a run that died with a register changed, found by a helper on a machine that cannot reach one: nothing is written, and the journal stays
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     let dir = rig.paths.data_dir.join("displaylab");
     std::fs::create_dir_all(&dir).unwrap();
     let journal = json!({"v": 1, "session": 3, "started_ms": 1, "pid": 1, "targets": {"osd0_vsp": {"orig": 0, "written": 0x0100_0001}}});
@@ -177,7 +175,6 @@ fn a_journal_waits_for_a_start_that_can_reach_the_hardware() {
 #[test]
 fn a_lab_that_is_switched_off_in_the_config_refuses_every_route() {
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     rig.start(
         test_config(json!({"displayLab": {"enabled": false}})),
         Script::new(),

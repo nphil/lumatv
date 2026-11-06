@@ -436,7 +436,6 @@ fn problem_has(rig: &Rig, words: &str) -> bool {
 
 fn setup_timed(broker: &Broker, mode: &str, extra: &Value) -> Setup {
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     seed_settings(
         &rig.paths,
         "base.ambient",

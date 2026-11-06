@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The volume bar against the real receiver, on the set: held keys and taps, with everything on one clock.
 
-    python3 volume_check.py [OUT]           on the set (copied to /tmp; Python 3.10); the receiver is the helper's (`base.receiver`)
+    python3 volume_check.py [OUT]           on the set (copied to /tmp; Python 3.10); the receiver is the Denon receiver plugin's (`denon-receiver`)
     python3 volume_check.py --analyse OUT   anywhere, on a run's files
 
 Five runs of Volume- held 1 s and Volume+ held 0.9 s (the remote's repeat: 300 ms, then every 100 ms), each followed by a
@@ -33,7 +33,7 @@ PLAN = ['poll:10', 's1'] + ['hold:down:1000', 's2.5', 'hold:up:900', 's2.5', 'ex
 
 
 def receiver_address():
-    view = json.load(urllib.request.urlopen(HELPER + '/v1/settings/base.receiver', timeout=5))
+    view = json.load(urllib.request.urlopen(HELPER + '/v1/settings/denon-receiver', timeout=5))
     return '%s:%s' % (view['effective']['host']['value'], view['effective']['port']['value'])
 
 

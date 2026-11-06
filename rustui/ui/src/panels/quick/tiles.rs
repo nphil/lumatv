@@ -168,7 +168,9 @@ pub fn tiles(env: &Env) -> Vec<Row> {
     let answers = env.gate.fresh();
     let mut receiver = Row::base("receiver", Kind::Nudge, "boom-box", &brand(rc), Act::Receiver);
     receiver.detail_lines = 2;
-    receiver.detail = if answers {
+    receiver.detail = if env.gate.disabled() {
+        "Off".into()
+    } else if answers {
         let s = |k: &str| rc.and_then(|r| r.get(k)).and_then(Value::as_str).unwrap_or("").to_string();
         let input = if s("input").is_empty() { "Receiver".to_string() } else { s("input") };
         let mode = s("soundMode");
@@ -350,7 +352,9 @@ mod tests {
         assert_eq!((r.detail.as_str(), r.value.as_str()), ("Not answering", DASH), "six seconds after the last reading the number is gone");
         assert_eq!(r.label, "Denon receiver", "the name is still known");
         e.update(&Input::Helper { topic: "receiver".into(), data: json!({"enabled": false, "reachable": false, "fresh": false}) }, 7100);
-        assert!(!tiles(&e).remove(1).enabled, "a receiver switched off in Settings is not reached");
+        let r = tiles(&e).remove(1);
+        assert!(!r.enabled, "a receiver whose plugin is off is not reached");
+        assert_eq!(r.detail, "Off");
     }
 
     /// The topic as the helper publishes it on the set: `updatedAt` moves without an event, so the copy the panel holds is old by the time it opens.

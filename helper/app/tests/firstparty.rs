@@ -55,11 +55,10 @@ fn action_results(rig: &Rig, plugin: &str) -> Vec<Event> {
 fn weather_news_and_the_clock_are_plugins_of_the_helper_and_follow_the_feeds() {
     let script = Script::internet();
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     rig.start(test_config(json!({})), script.clone());
 
     // Listed apart from the plugins the owner switched on, all connected through the broker's sessions; the Guide data plugin, Home
-    // Assistant, the Live TV Tuner, the Bluetooth proxy, the cameras and the TV sensors, which ask first, listed off.
+    // Assistant, the Live TV Tuner, the Bluetooth proxy, the cameras, the TV sensors and the Denon receiver, which ask first, listed off.
     assert!(
         wait_until(WAIT, || {
             let mut have = first_party(&rig);
@@ -68,6 +67,7 @@ fn weather_news_and_the_clock_are_plugins_of_the_helper_and_follow_the_feeds() {
                 ("ambient".to_owned(), "connected".to_owned()),
                 ("ble-proxy".to_owned(), "off".to_owned()),
                 ("clock".to_owned(), "connected".to_owned()),
+                ("denon-receiver".to_owned(), "off".to_owned()),
                 ("guide-data".to_owned(), "off".to_owned()),
                 ("home-assistant".to_owned(), "off".to_owned()),
                 ("live-tv-tuner".to_owned(), "off".to_owned()),
@@ -172,7 +172,6 @@ fn weather_news_and_the_clock_are_plugins_of_the_helper_and_follow_the_feeds() {
 fn refresh_is_an_action_of_the_plugin_like_any_other_and_asks_the_feeds_to_fetch() {
     let script = Script::internet();
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     rig.start(test_config(json!({})), script.clone());
     rig.wait_topic("plugin.weather.cards", WAIT, |v| items(v) == 1)
         .expect("the weather card");
@@ -214,7 +213,6 @@ fn the_ambient_tile_follows_the_settings_and_a_tap_switches_the_light() {
     strip.set_read_timeout(Some(WAIT)).unwrap();
     let addr = strip.local_addr().unwrap();
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     seed_settings(
         &rig.paths,
         "base.ambient",
@@ -301,7 +299,6 @@ fn the_test_pattern_runs_on_the_strip_when_the_settings_page_asks_and_stops_when
     strip.set_read_timeout(Some(WAIT)).unwrap();
     let addr = strip.local_addr().unwrap();
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     rig.start(
         test_config(
             json!({"ambient": {"wled": {"host": addr.ip().to_string(), "port": addr.port()}}}),
@@ -369,7 +366,6 @@ fn the_cards_are_there_from_what_was_saved_before_any_fetch_and_the_clock_waits_
     const MINUTE: u64 = 60_000;
     let now = now_ms();
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     let luna = FakeLuna::new(rig.dir.path(), LunaMode::Subscribes, "Active Standby");
     let cache = DocCache::new(rig.paths.cache_dir());
     cache

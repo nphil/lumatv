@@ -55,7 +55,6 @@ fn data_dir(extra: Value) -> tempfile::TempDir {
         }
     }
     std::fs::write(dir.path().join("helper.json"), config.to_string()).unwrap();
-    receiver_off(&lumatv_helper::config::Paths::new(dir.path()));
     dir
 }
 

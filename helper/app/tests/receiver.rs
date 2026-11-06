@@ -251,26 +251,75 @@ fn a_nudge_with_the_screen_off_does_nothing() {
     assert_eq!(avr.hits(), 0);
 }
 
+fn switch(rig: &Rig, on: bool) {
+    assert_eq!(switch_receiver(rig.addr, on).status, 200);
+}
+
 #[test]
-fn switching_the_receiver_off_in_the_settings_stops_the_polling() {
+fn switching_the_plugin_off_stops_the_polling_and_takes_the_page_away_until_it_is_on_again() {
     let avr = FakeAvr::start();
     let (rig, _luna) = rig_with(&avr, "Active", json!({}));
     rig.wait_topic("receiver", WAIT, fresh)
         .expect("first reading");
-    let off = r#"{"changes":[{"key":"enabled","value":{"type":"bool","value":false}}]}"#;
-    assert_eq!(
-        post(rig.addr, "/v1/settings/base.receiver", off).status,
-        200
-    );
+    switch(&rig, false);
     let doc = rig
         .wait_topic("receiver", WAIT, |v| v["enabled"] == false)
         .expect("disabled");
     assert_eq!(doc["polling"], false);
     assert_eq!(doc["fresh"], false);
+    assert_eq!(get(rig.addr, "/v1/settings/denon-receiver").status, 404);
     thread::sleep(Duration::from_millis(100));
     let hits = avr.hits();
+    // the routes the volume display, the quick panel and the Receiver page use answer at once and reach nothing
+    let set = post(
+        rig.addr,
+        "/v1/receiver/set",
+        r#"{"setting":"power","value":true,"session":"s"}"#,
+    );
+    assert_eq!(set.status, 503);
+    assert_eq!(
+        set.json()["error"]["message"],
+        lumatv_helper::receiver_plugin::off_words()
+    );
+    assert_eq!(
+        post(rig.addr, "/v1/receiver/volume", r#"{"level":30}"#).status,
+        200
+    );
+    assert_eq!(post(rig.addr, "/v1/receiver/nudge", "").status, 200);
     thread::sleep(Duration::from_millis(300));
     assert_eq!(avr.hits(), hits);
+
+    switch(&rig, true);
+    rig.wait_topic("receiver", WAIT, |v| v["enabled"] == true && fresh(v))
+        .expect("read again, at the address it had");
+    assert!(avr.hits() > hits);
+}
+
+#[test]
+fn a_receiver_set_up_before_the_plugin_is_read_at_once_with_the_plugin_on() {
+    let avr = FakeAvr::start();
+    let mut rig = Rig::new();
+    let luna = FakeLuna::new(rig.dir.path(), LunaMode::Subscribes, "Active");
+    seed_settings(
+        &rig.paths,
+        "base.receiver",
+        json!({"host": {"type": "text", "value": "127.0.0.1"}, "port": {"type": "integer", "value": avr.port}}),
+    );
+    let config = test_config(json!({
+        "screen": {"source": "luna", "pollMs": 40},
+        "luna": {"send": luna.program.display().to_string()},
+    }));
+    rig.start(config, Script::new());
+    rig.wait_topic("receiver", WAIT, fresh)
+        .expect("a reading from the address it had");
+    let plugins = rig.topic("plugins").unwrap();
+    let entry = plugins["firstParty"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == "denon-receiver")
+        .unwrap();
+    assert_eq!(entry["state"], "connected");
 }
 
 #[test]
@@ -287,7 +336,7 @@ fn a_new_address_in_the_settings_repoints_the_client() {
         json!({"changes": [{"key": "port", "value": {"type": "integer", "value": second.port}}]})
             .to_string();
     assert_eq!(
-        post(rig.addr, "/v1/settings/base.receiver", &body).status,
+        post(rig.addr, "/v1/settings/denon-receiver", &body).status,
         200
     );
     let moved = rig
@@ -395,7 +444,7 @@ fn a_held_volume_key_drives_the_receiver_to_the_displays_level_and_it_ends_there
 }
 
 #[test]
-fn a_volume_level_is_not_sent_while_the_screen_is_off_or_the_receiver_switched_off() {
+fn a_volume_level_is_not_sent_while_the_screen_is_off_or_the_plugin_switched_off() {
     let avr = FakeAvr::start();
     let (rig, luna) = rig_with(&avr, "Active Standby", json!({"volumeGapMs": 20}));
     rig.wait_topic("receiver", WAIT, |v| v["polling"] == false)
@@ -409,12 +458,9 @@ fn a_volume_level_is_not_sent_while_the_screen_is_off_or_the_receiver_switched_o
 
     luna.set_state("Active");
     rig.wait_topic("receiver", WAIT, fresh).expect("a reading");
-    let off = r#"{"changes":[{"key":"enabled","value":{"type":"bool","value":false}}]}"#;
-    assert_eq!(
-        post(rig.addr, "/v1/settings/base.receiver", off).status,
-        200
-    );
-    thread::sleep(Duration::from_millis(200));
+    switch(&rig, false);
+    rig.wait_topic("receiver", WAIT, |v| v["enabled"] == false)
+        .expect("disabled");
     assert_eq!(
         post(rig.addr, "/v1/receiver/volume", r#"{"level":40}"#).status,
         200

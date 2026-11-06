@@ -505,6 +505,17 @@
           "version": "1"
         },
         {
+          "approve": "87225aa55abaa40866e871fdd98b0df751b5e97b46ed1f1dc9c6ff16e11ef0b8",
+          "class": "S",
+          "consent": "Connects to the Denon receiver on the home network: the volume keys and the volume bar use the receiver's volume, its power follows the TV over HDMI ARC (with the TV speakers for a while when it cannot turn on), and its sound modes and levels are set in Settings.",
+          "firstParty": true,
+          "id": "denon-receiver",
+          "name": "Denon receiver",
+          "registered": false,
+          "state": "off",
+          "version": "1"
+        },
+        {
           "approve": "a4a46b89c10fa9e1df565a779dce0c297c8aeddbd14f462bea267a87214d16d3",
           "class": "S",
           "consent": "Fills the Live TV guide with a week of listings for a zip code, from the sources picked on its page: a Plex server on the home network, Schedules Direct (a paid account) or the free Gracenote listings. The TV asks only those (the Plex server's address, json.schedulesdirect.org, tvlistings.gracenote.com), at most every six hours, and keeps the listings, the Plex token and the Schedules Direct password on the TV.",

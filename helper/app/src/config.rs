@@ -484,7 +484,7 @@ impl Default for ScreenConfig {
     }
 }
 
-/// How the receiver is read. The address and the on/off switch are settings (`base.receiver`).
+/// How the receiver is read. The address is the Denon receiver plugin's settings (`denon-receiver`), read only while it is switched on.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct ReceiverTuning {

@@ -1783,7 +1783,10 @@ mod tests {
             {"key":"port", "value":{"type":"integer", "value":web_port}}
         ]))
         .unwrap();
-        api.settings.apply("base.receiver", changes, None).unwrap();
+        crate::receiver_plugin::register_page(&api.settings).unwrap();
+        api.settings
+            .apply(crate::receiver_plugin::ID, changes, None)
+            .unwrap();
         api.hub.set(
             "screen",
             json!({"on":true, "source":"assumed", "state":"Active"}),
@@ -2086,7 +2089,6 @@ mod tests {
                 "base.ambient",
                 "base.logging",
                 "base.news",
-                "base.receiver",
                 "base.voice",
                 "base.weather"
             ]

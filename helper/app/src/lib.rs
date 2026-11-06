@@ -87,6 +87,7 @@ pub mod paneldim;
 pub mod privacy;
 pub mod profiles;
 pub mod receiver;
+pub mod receiver_plugin;
 mod receiver_settings;
 pub mod receiver_sync;
 pub mod receiver_telnet;

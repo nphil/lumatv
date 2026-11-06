@@ -91,7 +91,6 @@ impl Home {
     fn new(linked: bool) -> Self {
         let ha = house();
         let mut rig = Rig::new();
-        receiver_off(&rig.paths);
         let dir = rig.paths.plugins_dir();
         std::fs::create_dir_all(dir.join(ID)).unwrap();
         std::fs::write(dir.join(ID).join("plugin.json"), MANIFEST).unwrap();
@@ -793,7 +792,6 @@ fn the_installed_program_runs_as_its_own_user_and_works() {
     assert_eq!(unsafe { libc::geteuid() }, 0, "this test needs root");
     let ha = house();
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     // The plugin runs as another user: every directory down to its program must be one it can enter.
     for dir in [rig.dir.path().to_owned(), rig.paths.data_dir.clone()] {
         std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o755))

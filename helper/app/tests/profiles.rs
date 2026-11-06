@@ -12,7 +12,6 @@ const WAIT: Duration = Duration::from_secs(10);
 /// A TV that has been used: a look of his own, a household setting, a layout.
 fn rig_with_a_home() -> Rig {
     let mut rig = Rig::new();
-    receiver_off(&rig.paths);
     let theme = rig.paths.data_dir.join("theme");
     std::fs::create_dir_all(&theme).unwrap();
     std::fs::write(

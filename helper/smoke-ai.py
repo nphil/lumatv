@@ -286,10 +286,6 @@ class Run:
         if self.fake:
             config["screen"] = {"source": "on"}
             config["luna"] = {"send": self.luna}
-            os.makedirs(os.path.join(self.data, "settings"), exist_ok=True)
-            with open(os.path.join(self.data, "settings", "base.receiver.json"), "w") as f:
-                json.dump({"owner": "base.receiver", "schemaRevision": 1, "version": 1,
-                           "values": {"enabled": {"type": "bool", "value": False}}}, f)
         os.makedirs(self.data, exist_ok=True)
         with open(os.path.join(self.data, "helper.json"), "w") as f:
             json.dump(config, f)

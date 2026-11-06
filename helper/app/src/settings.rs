@@ -234,7 +234,7 @@ impl SettingsStore {
         removed
     }
 
-    /// Registers the helper's own pages: `base.weather`, `base.news` and `base.receiver`.
+    /// Registers the helper's own pages: `base.weather`, `base.news`, `base.logging`, `base.ambient` and `base.voice`.
     pub fn register_builtin(&self) -> Result<(), RegisterError> {
         for (json, rule) in [
             (
@@ -244,10 +244,6 @@ impl SettingsStore {
             (include_str!("schemas/base.news.json"), None),
             (include_str!("schemas/base.logging.json"), Some(logging_rule as Rule)),
             (include_str!("schemas/base.ambient.json"), None),
-            (
-                include_str!("schemas/base.receiver.json"),
-                Some(receiver_rule as Rule),
-            ),
             (
                 include_str!("schemas/base.voice.json"),
                 Some(voice_rule as Rule),
@@ -572,17 +568,26 @@ impl SettingsStore {
         }
     }
 
-    /// The receiver client's settings.
+    /// The receiver client's settings. Its page (`denon-receiver`) is registered exactly while the Denon receiver plugin is switched on
+    /// (`receiver_plugin`), so without it the receiver is off: nothing is read from it or sent to it.
     pub fn receiver(&self) -> ReceiverSettings {
+        let Some(values) = self.effective(crate::receiver_plugin::ID) else {
+            return ReceiverSettings {
+                enabled: false,
+                host: String::new(),
+                port: 0,
+            };
+        };
         ReceiverSettings {
-            enabled: self.flag("base.receiver", "enabled").unwrap_or(true),
-            host: self
-                .text("base.receiver", "host")
-                .unwrap_or_else(|| "192.168.1.93".to_owned()),
-            port: self
-                .integer("base.receiver", "port")
-                .and_then(|n| u16::try_from(n).ok())
-                .unwrap_or(8080),
+            enabled: true,
+            host: match values.get("host") {
+                Some(Value::Text(t)) => t.clone(),
+                _ => "192.168.1.93".to_owned(),
+            },
+            port: match values.get("port") {
+                Some(Value::Integer(n)) => u16::try_from(*n).unwrap_or(8080),
+                _ => 8080,
+            },
         }
     }
 }
@@ -674,7 +679,7 @@ fn logging_rule(values: &Values) -> Result<(), FieldErrors> {
 }
 
 /// An address is a name or an IPv4 number: letters, digits, dots and dashes, as the text goes into a request line.
-fn receiver_rule(values: &Values) -> Result<(), FieldErrors> {
+pub(crate) fn receiver_rule(values: &Values) -> Result<(), FieldErrors> {
     let mut errors = FieldErrors::default();
     if let Some(host) = text_of(values, "host")
         && (host.is_empty()
@@ -786,7 +791,6 @@ mod tests {
                 "base.ambient",
                 "base.logging",
                 "base.news",
-                "base.receiver",
                 "base.voice",
                 "base.weather"
             ]
@@ -811,14 +815,6 @@ mod tests {
             NewsSettings {
                 edition: "bbc".into(),
                 refresh_minutes: 15
-            }
-        );
-        assert_eq!(
-            store.receiver(),
-            ReceiverSettings {
-                enabled: true,
-                host: "192.168.1.93".into(),
-                port: 8080
             }
         );
         assert!(!dir.path().join("base.weather.json").exists());
@@ -957,39 +953,28 @@ mod tests {
             s.apply("base.weather", vec![text("zip", "1234")], None),
             Err(ApplyError::Invalid(_))
         ));
-        assert!(matches!(
-            s.apply("base.receiver", vec![text("host", "evil host/../x")], None),
-            Err(ApplyError::Invalid(_))
-        ));
-        assert!(
-            s.apply("base.receiver", vec![text("host", "avr.local")], None)
-                .is_ok()
-        );
-        assert_eq!(s.receiver().host, "avr.local");
     }
 
     #[test]
     fn a_field_that_another_setting_disables_cannot_change() {
         let dir = tempfile::tempdir().unwrap();
         let (_, s) = store(dir.path());
-        s.apply("base.receiver", vec![flag("enabled", false)], None)
-            .unwrap();
         let Err(ApplyError::Invalid(errors)) =
-            s.apply("base.receiver", vec![int("port", 9000)], None)
+            s.apply("base.voice", vec![text("pipeline", "other")], None)
         else {
             panic!("accepted");
         };
-        assert!(errors.get(&field("port")).is_some());
-        // Turning it on and changing the port in one transaction is judged against the values it leaves.
+        assert!(errors.get(&field("pipeline")).is_some());
+        // Turning it on and changing the pipeline in one transaction is judged against the values it leaves.
         assert!(
             s.apply(
-                "base.receiver",
-                vec![flag("enabled", true), int("port", 9000)],
+                "base.voice",
+                vec![flag("enabled", true), text("pipeline", "other")],
                 None
             )
             .is_ok()
         );
-        assert_eq!(s.receiver().port, 9000);
+        assert_eq!(s.voice().pipeline, "other");
     }
 
     #[test]
@@ -1206,7 +1191,7 @@ mod tests {
         .unwrap();
         s.register(schema.clone(), None).unwrap();
         s.apply("hello", vec![text("name", "Nitin")], None).unwrap();
-        assert_eq!(s.owners().len(), 7);
+        assert_eq!(s.owners().len(), 6);
         // An older revision of the same owner is refused; a newer one replaces the page and keeps the values.
         let mut older = schema.clone();
         older.revision = 0;

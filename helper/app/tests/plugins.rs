@@ -39,7 +39,6 @@ impl PluginRig {
     /// A helper with the broker's socket in the test's directory, scanning for plugins every second.
     fn prepare() -> (Rig, PathBuf) {
         let rig = Rig::new();
-        receiver_off(&rig.paths);
         let socket = rig.dir.path().join("run").join("broker.sock");
         (rig, socket)
     }

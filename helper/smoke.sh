@@ -153,7 +153,6 @@ run_phase() {
   owners=$(get /v1/settings)
   has "GET /v1/settings lists the weather owner" "$owners" '"base.weather"'
   has "GET /v1/settings lists the news owner" "$owners" '"base.news"'
-  has "GET /v1/settings lists the receiver owner" "$owners" '"base.receiver"'
   change=$(post /v1/settings/base.weather '{"changes":[{"key":"units","value":{"type":"choice","value":"celsius"}}]}')
   has "a settings change is accepted" "$change" '"changed":true'
   has "a refused setting says which field" "$(post /v1/settings/base.weather '{"changes":[{"key":"zip","value":{"type":"text","value":"abc"}}]}')" '"zip"'
