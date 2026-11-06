@@ -29,6 +29,24 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Home Assistant plugin 2026-11-06 (main 44458c3d)
+
+The `home-assistant` switch (e22fb982) and the Plex account without its Photos hand-off (44458c3d). Installed 15:23 EST from 44458c3d (origin and forge main) by the standard path: the bundle with cutover `disable`, `install`, `probe`, `enable`, the helper staged in the app's `payload/helper/` and `lumatv helper start`; `tools/lumatv` (`0473b152`) and the packaged Home Assistant program (`56a01d79`) unchanged. Installed sha256: compositor `281a2469e0754d77aa0afc14073541cbe325b281a20319e8bd21cf3f2c00ba99`, ui `e1b629f9334882492640295ccb7c83d4e731e391f9e880d924752db597f584ba`, sm `65f6ca69eb6da66cbfb139817803d0c1e01b03931fe373894b123c3f64df13da` (unchanged), helper `9e400b16dea6a059581a6e97f8da63559025b7256ef445f164278deb0ada7eb3`. Replaced: compositor `0dff2ac1`, ui `c9628a95`, helper `f0413e04`. Receipts: `/data/home/tmp/lumatv-plugin-ha-20261106/` (`session.log` from 15:21, the PNGs named below).
+
+- Migration: the first start approved `home-assistant` in `plugins/enabled.json` and wrote `ha/plugin-migrated`; helper.json (still `onhome.enabled: true`) and `ha/link.json` are unchanged.
+- On (`on-home.png`): the Smart home card with its camera tiles and the Back lamp, Pirate Weather (`ha:weather.pirate_weather`). On Home connected with 46 controllable, the program connected, `ha.link` connected with 1 holder, HA's `binary_sensor.lumatv_connected` on.
+- Off through `POST /v1/plugins/home-assistant/switch` (`off-home-awake.png`): within 4 s nothing listens on 6054, the program has ended, `ha.link` is off with 0 holders and the TV holds no connection to Home Assistant; the weather is the built-in Atlanta (30311); Home has no Smart home card and no alert badge. HA's `binary_sensor.lumatv_connected` went off at the switch. The ESPHome device (BLE proxy and TV sensors) kept its 6053 connection and reported at 15:26:54, after the 15:26:06 switch.
+- On again with the entry's `approve` (`on-again-home.png`): the program connected at once, On Home after 35 s (the integration's redial) with 46 controllable, `ha.link` 1 holder, Pirate Weather and the Smart home card back, `plugin.home-assistant.notifications` holding its 1 alert.
+- Plex (`plex-page.png`): the page says Signed in as nphilip89 with BeastNAS and has no Photos row; `plex.account` is `signed-in`.
+- Left in Active Standby with Home in front, the plugin on, helper.json, `settings/*.json` and the theme files byte-identical to before (enabled.json gained only the `home-assistant` switch), the receiver off at -42.0 dB and unmuted as found (main zone and HEOS muted through HA while the panel was on).
+- Untested: the Settings switch pressed with the remote, the `homeassistant-off` render scene, a doorbell ring, lamp control.
+
+Findings:
+
+- Off, the weather card's hourly strip drew as a black box without icons, in two shots 30 s apart (`off-home-awake.png`, `off-home-awake2.png`: 94 % of the strip black); on again it drew normally. Not yet explained.
+- The bell's alert badge (1 in `on-home.png`) was not drawn after On again, though the topic holds the alert.
+- The `helper.json: onhome.enabled is ignored` warning never reaches the log: `log::log` drops lines before `log::init`, and `Config::load` runs first (`cli.rs`). The Cameras keys' warning is lost the same way.
+
 ## Cameras plugin ends its idle feeder when switched off 2026-11-06 (main 099bfc7e)
 
 Helper-only install from 099bfc7e at 13:59 EST, staged in the app's `payload/helper/` with `lumatv helper stop` and `start`: helper sha256 `f0413e041641d3e03c3db7e9650b183b813c5fba81fc76f5a83cd6426b2f48cd` (was `604f071c`). Receipts: `/data/home/tmp/lumatv-plugin-cameras-20261106/` (`feeder-off.txt`, `session.log` from 13:59).
