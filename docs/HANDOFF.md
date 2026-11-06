@@ -29,6 +29,16 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Home Assistant plugin fixes 2026-11-06 (main a6c0acf9)
+
+Fixes the three findings below. Installed by the standard path, the set in Active Standby: the bundle from ce38b9c6 at 16:25 EST (cutover `disable`, `install`, `probe`, `enable`), then the helper from a6c0acf9 at 16:30 (staged in `payload/helper/`, `lumatv helper start`); a6c0acf9 changes only the helper and the changelog. Installed sha256: compositor `1ef99f702661155ac844a8679cdee94bba215217082b55811ee6e9d0d28d2406`, ui `6ec9b73b13e1ddbadf983d9fea8aabea1c36684a7b58a2199f41c8b691115d4f`, sm `65f6ca69` (unchanged), helper `203e514bd7f680a5acaa63b5ee8ba560e71163c3f268c8b7c3ae23fd23f5d414`. Replaced: compositor `281a2469`, ui `e1b629f9`, helper `9e400b16`. Receipts: `/data/home/tmp/lumatv-plugin-ha-20261106/fixes/` (`session.log`, `installed-hashes.json`, `old-keys-log.txt`, `i-*`, `i-check.png`).
+
+- Black strip: the plugin switched off while the saver was up left the strip black after the saver went (`g-*`, before the fix). The floor draws stack 0 on its own, and an image layer the frame as a whole did not show had no texture yet. With the fix (`i-off-display.png`) the built-in Atlanta strip shows its icons and temperatures after the saver; `ctl pageprobe off` changes nothing.
+- Badge: on again (`i-onagain-display.png`) Pirate Weather is back and the bell shows 1, `ui.home.unread` 1 with the topic holding 1 alert; off, 0 and 0.
+- Warnings: after the helper start the log has `helper.json: cameras.enabled …` and `helper.json: onhome.enabled is ignored …` once each.
+- Left in Active Standby with Home in front, the plugin on, the receiver off at -42.0 dB and unmuted (muted while the panel was on).
+- Untested: the plugin switched on while the saver is up, and the off switch while awake on this build.
+
 ## Home Assistant plugin 2026-11-06 (main 44458c3d)
 
 The `home-assistant` switch (e22fb982) and the Plex account without its Photos hand-off (44458c3d). Installed 15:23 EST from 44458c3d (origin and forge main) by the standard path: the bundle with cutover `disable`, `install`, `probe`, `enable`, the helper staged in the app's `payload/helper/` and `lumatv helper start`; `tools/lumatv` (`0473b152`) and the packaged Home Assistant program (`56a01d79`) unchanged. Installed sha256: compositor `281a2469e0754d77aa0afc14073541cbe325b281a20319e8bd21cf3f2c00ba99`, ui `e1b629f9334882492640295ccb7c83d4e731e391f9e880d924752db597f584ba`, sm `65f6ca69eb6da66cbfb139817803d0c1e01b03931fe373894b123c3f64df13da` (unchanged), helper `9e400b16dea6a059581a6e97f8da63559025b7256ef445f164278deb0ada7eb3`. Replaced: compositor `0dff2ac1`, ui `c9628a95`, helper `f0413e04`. Receipts: `/data/home/tmp/lumatv-plugin-ha-20261106/` (`session.log` from 15:21, the PNGs named below).
@@ -43,9 +53,9 @@ The `home-assistant` switch (e22fb982) and the Plex account without its Photos h
 
 Findings:
 
-- Off, the weather card's hourly strip drew as a black box without icons, in two shots 30 s apart (`off-home-awake.png`, `off-home-awake2.png`: 94 % of the strip black); on again it drew normally. Not yet explained.
-- The bell's alert badge (1 in `on-home.png`) was not drawn after On again, though the topic holds the alert.
-- The `helper.json: onhome.enabled is ignored` warning never reaches the log: `log::log` drops lines before `log::init`, and `Config::load` runs first (`cli.rs`). The Cameras keys' warning is lost the same way.
+- Off, the weather card's hourly strip drew as a black box without icons, in two shots 30 s apart (`off-home-awake.png`, `off-home-awake2.png`: 94 % of the strip black); on again it drew normally. Fixed in ce38b9c6 (above).
+- The bell's alert badge (1 in `on-home.png`) was not drawn after On again, though the topic holds the alert. Fixed in ce38b9c6.
+- The `helper.json: onhome.enabled is ignored` warning never reaches the log: `log::log` drops lines before `log::init`, and `Config::load` runs first (`cli.rs`). The Cameras keys' warning is lost the same way. Fixed in a6c0acf9: records sent before the service's own log collector runs are dropped too, so the lines are said once `Service::start` returns.
 
 ## Cameras plugin ends its idle feeder when switched off 2026-11-06 (main 099bfc7e)
 
