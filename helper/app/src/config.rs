@@ -64,7 +64,7 @@ impl Paths {
     }
 
     /// `scrypted/link.json`: the bridge's address, certificate pin, the TV's own token and its device name (`scrypted::store`; written by
-    /// `scrypted-link`, and the only thing that switches the cameras on).
+    /// `scrypted-link`). The cameras connect only with it and with the Cameras plugin switched on.
     pub fn scrypted_link_file(&self) -> PathBuf {
         self.data_dir.join("scrypted").join("link.json")
     }
@@ -124,8 +124,8 @@ pub struct Config {
     pub voice: VoiceConfig,
     /// Pictures decoded for the shell (`images.rs`): which folders it may ask for, and the decoder that does the work.
     pub images: ImagesConfig,
-    /// Cameras and their event pop-ups through Scrypted's LumaShow bridge (`scrypted/`). Off until the TV is linked (`scrypted-link`):
-    /// with no link nothing connects and no picture is ever fetched; these are only tuning.
+    /// Cameras and their event pop-ups through Scrypted's LumaShow bridge (`scrypted/`). Off until the Cameras plugin is switched on in
+    /// Settings and the TV is linked (`scrypted-link`): until both, nothing connects and no picture is ever fetched; these are only tuning.
     pub cameras: CamerasConfig,
     /// On Home (`onhome/`): Home Assistant's shared entities on Home, through the LumaShow integration that dials the TV. Off until
     /// switched on here, and a pairing key (`ble-link`) must exist; with either missing nothing listens.
@@ -378,7 +378,7 @@ impl Default for PreviewsConfig {
     }
 }
 
-/// The cameras' tuning. There is no switch: the link file (`scrypted-link`) is what turns them on.
+/// The cameras' tuning. The Cameras plugin's switch and the link file (`scrypted-link`) are what turn them on.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct CamerasConfig {

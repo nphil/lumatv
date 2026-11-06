@@ -236,6 +236,10 @@ impl Scrypted {
     pub fn handle(&self, request: &Request, rest: &[&str]) -> Response {
         let inner = &self.inner;
         let (get, post) = (request.method == "GET", request.method == "POST");
+        // switched off, the cameras say so and serve nothing else
+        if !rest.is_empty() && !inner.shared.switched_on(super::options::OWNER) {
+            return error_response(409, "off", "the Cameras plugin is switched off");
+        }
         match rest {
             [] if get => ok(object(json!({"cameras": inner.view()}))),
             ["live"] if post => inner.live_route(request),

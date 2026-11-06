@@ -11,10 +11,13 @@
 //! | [`routes`] | the loopback API under `/v1/cameras` |
 //! | [`crate::live`] | the full view: RTSP from Scrypted (or the bridge's playback) to the GFN feeder and the video plane |
 //!
-//! **Off until linked.** With no link file nothing connects, nothing is fetched, no thread but the manager's slow look at the file exists and
-//! no feeder starts. With a link the TV connects while it is awake (one kept-alive connection for the calls and the push channel) and closes
-//! everything in standby. The link is made by the owner on the TV (`scrypted-link`): no route, setting, plugin or key press can write it,
-//! and the page can only forget it (Principle 0).
+//! **Off until switched on and linked.** The Cameras plugin asks first ([`options::OPT_IN`]): until the owner switches it on in Settings the
+//! `cameras` topic says `off`, the page is not registered, the routes refuse and the manager's thread sleeps until the switch wakes it.
+//! Switched on with no link file nothing connects, nothing is fetched, no thread but the manager's slow look at the file exists and no
+//! feeder starts. With a link the TV connects while it is awake (one kept-alive connection for the calls and the push channel) and closes
+//! everything in standby. Switching it off ends all of that and forgets what was heard; the link and the owner's choices stay. The link
+//! is made by the owner on the TV (`scrypted-link`): no route, setting, plugin or key press can write it, and the page can only forget it
+//! (Principle 0).
 //!
 //! The topics (design 3.4, retained): `cameras` (`state`, `reason`, `now_skew_ms`, `rev`, the cameras the TV shows), `cameras.popup` (the card
 //! the shell shows now, `null` when none), `cameras.live` (the full view's stream, `live::View`) and `cameras.events` (the last thirty pushes).
@@ -39,6 +42,7 @@ use crate::ctx::Ctx;
 use crate::hub::Hub;
 use crate::images::Images;
 use crate::live::{self, Live, Mode};
+use crate::plugins::roster;
 use crate::plugins::session::Shared;
 use crate::screen;
 use crate::settings::SettingsStore;
@@ -53,7 +57,7 @@ use serde_json::{Value, json};
 use sse::{Sse, SseReader};
 use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufReader};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -74,6 +78,8 @@ pub const EVENTS_TOPIC: &str = "cameras.events";
 /// Where the link stands, in the words of design 3.7.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
+    /// The owner has not switched the plugin on.
+    Off,
     Unlinked,
     Connecting,
     Ready,
@@ -88,6 +94,7 @@ pub enum Status {
 impl Status {
     pub fn word(self) -> &'static str {
         match self {
+            Self::Off => "off",
             Self::Unlinked => "unlinked",
             Self::Connecting => "connecting",
             Self::Ready => "ready",
@@ -212,7 +219,9 @@ pub(crate) struct Held {
 }
 
 struct State {
-    /// The link a supervisor is running for (none while unlinked or asleep).
+    /// The plugin is switched on, as the manager last followed the switch.
+    on: bool,
+    /// The link a supervisor is running for (none while off, unlinked or asleep).
     running: Option<Link>,
     /// There is a link file, and the TV is asleep: only a change of the screen is waited for.
     asleep: bool,
@@ -248,6 +257,10 @@ pub(crate) struct Inner {
     paths: Paths,
     pub(crate) config: CamerasConfig,
     deps: Deps,
+    /// The broker's session: the switch is read there, and the page lives there while the plugin is on.
+    shared: Arc<Shared>,
+    /// What the page's handlers act on, kept while the page comes and goes.
+    hooks: Arc<PageHooks>,
     pub(crate) images: Arc<Images>,
     stop: crate::control::Stop,
     state: Mutex<State>,
@@ -275,8 +288,8 @@ pub struct Scrypted {
 }
 
 impl Scrypted {
-    /// Builds the module: the topics exist (unlinked, no popup, idle), the page is registered, and nothing is running. `shared` is the
-    /// plugin broker's, where the Cameras page lives.
+    /// Builds the module: the topics exist (off, no popup, idle), the plugin is offered to the broker's session (`shared`) and nothing is
+    /// running. The manager registers the Cameras page once the owner switches the plugin on.
     pub fn new(ctx: &Ctx, mut deps: Deps, images: Arc<Images>, shared: &Arc<Shared>) -> Self {
         let config = ctx.config.cameras.clone();
         if deps.front_app.is_none() {
@@ -316,75 +329,73 @@ impl Scrypted {
                 hub.set(LIVE_TOPIC, view);
             }),
         );
-        let inner = Arc::new(Inner {
-            hub: ctx.hub.clone(),
-            settings: ctx.settings.clone(),
-            paths: ctx.paths.clone(),
-            config,
-            deps,
-            images,
-            stop: ctx.stop.clone(),
-            state: Mutex::new(State {
-                running: None,
-                identity: None,
-                asleep: false,
-                status: Status::Unlinked,
-                reason: unlinked_words().to_owned(),
-                bridge: None,
-                skew_ms: 0,
-                all: Vec::new(),
-                shown: Vec::new(),
-                rev: 0,
-                events: Ring::default(),
-                popup: None,
-                cooldowns: Cooldowns::default(),
-                last_seq: None,
-                held: None,
-                side: String::new(),
-                learned: HashMap::new(),
-                unlearned: HashMap::new(),
-                learning: false,
-            }),
-            wake: (Mutex::new(()), Condvar::new()),
-            generation: AtomicU64::new(0),
-            live,
-            stills: Stills::new(
-                Duration::from_millis(u64::from(config2.frame_hold_ms)),
-                config2.max_picture_bytes as usize,
-            ),
-            page: Mutex::new(None),
-            ticket: AtomicU64::new(0),
-            popup_ids: AtomicU64::new(crate::timeutil::now_ms()),
-            test_ids: AtomicU64::new(0),
-            thumbs: Mutex::new(VecDeque::new()),
-        });
-        let hooks = {
-            let weak = Arc::downgrade(&inner);
-            Arc::new(PageHooks {
-                all: Mutex::new(Vec::new()),
-                linked: Mutex::new(false),
-                forget: Box::new(move || {
-                    if let Some(inner) = weak.upgrade() {
-                        inner.forget();
-                    }
+        let inner = Arc::new_cyclic(|me: &Weak<Inner>| {
+            let me = me.clone();
+            Inner {
+                hub: ctx.hub.clone(),
+                settings: ctx.settings.clone(),
+                paths: ctx.paths.clone(),
+                config,
+                deps,
+                shared: shared.clone(),
+                hooks: Arc::new(PageHooks {
+                    all: Mutex::new(Vec::new()),
+                    linked: Mutex::new(false),
+                    forget: Box::new(move || {
+                        if let Some(inner) = me.upgrade() {
+                            inner.forget();
+                        }
+                    }),
                 }),
-            })
-        };
-        match Page::start(shared, hooks) {
-            Ok(page) => {
-                page.say_link(unlinked_words(), None);
-                *inner.page.lock() = Some(page);
+                images,
+                stop: ctx.stop.clone(),
+                state: Mutex::new(State {
+                    on: false,
+                    running: None,
+                    identity: None,
+                    asleep: false,
+                    status: Status::Off,
+                    reason: off_words().to_owned(),
+                    bridge: None,
+                    skew_ms: 0,
+                    all: Vec::new(),
+                    shown: Vec::new(),
+                    rev: 0,
+                    events: Ring::default(),
+                    popup: None,
+                    cooldowns: Cooldowns::default(),
+                    last_seq: None,
+                    held: None,
+                    side: String::new(),
+                    learned: HashMap::new(),
+                    unlearned: HashMap::new(),
+                    learning: false,
+                }),
+                wake: (Mutex::new(()), Condvar::new()),
+                generation: AtomicU64::new(0),
+                live,
+                stills: Stills::new(
+                    Duration::from_millis(u64::from(config2.frame_hold_ms)),
+                    config2.max_picture_bytes as usize,
+                ),
+                page: Mutex::new(None),
+                ticket: AtomicU64::new(0),
+                popup_ids: AtomicU64::new(crate::timeutil::now_ms()),
+                test_ids: AtomicU64::new(0),
+                thumbs: Mutex::new(VecDeque::new()),
             }
-            Err(why) => crate::log_warn!("cameras: the settings page was not registered: {why}"),
-        }
-        // the owner's choices change what is shown and how: the manager looks again at once
+        });
+        // the plugin asks first: the manager follows the owner's switch, which wakes it
         {
             let weak = Arc::downgrade(&inner);
-            ctx.settings.on_change(options::OWNER, move || {
-                if let Some(inner) = weak.upgrade() {
-                    inner.options_changed();
-                }
-            });
+            shared.offer(
+                &options::OPT_IN,
+                Arc::new(move || {
+                    if let Some(inner) = weak.upgrade() {
+                        inner.wake();
+                    }
+                }),
+            );
         }
         inner.hub.set(POPUP_TOPIC, Value::Null);
         inner.hub.set(EVENTS_TOPIC, json!({"events": []}));
@@ -392,7 +403,8 @@ impl Scrypted {
         Self { inner }
     }
 
-    /// Starts the manager: it looks at the link file and the screen, and keeps the connection while there is a link and the TV is awake.
+    /// Starts the manager: it follows the owner's switch and, while the plugin is on, looks at the link file and the screen and keeps the
+    /// connection while there is a link and the TV is awake.
     pub fn spawn(&self, ctx: &Ctx) -> io::Result<JoinHandle<()>> {
         let me = self.inner.clone();
         let stop = ctx.stop.clone();
@@ -422,6 +434,55 @@ impl Scrypted {
 
 fn unlinked_words() -> &'static str {
     "Scrypted is not linked: link it from a shell on the TV (lumatv-helper scrypted-link)"
+}
+
+fn off_words() -> &'static str {
+    "The Cameras plugin is off: switch it on in Settings"
+}
+
+/// The marker that the link a TV had before the cameras were a plugin has been carried over (`<data dir>/scrypted/plugin-migrated`).
+const MIGRATED: &str = "plugin-migrated";
+
+/// Carries a link made before the cameras were a plugin over to the plugin, once: a linked TV comes up with the Cameras plugin switched
+/// on (the link file was what turned the cameras on), its link and the owner's choices where they were. From then on the switch is the
+/// owner's: a TV linked later, or switched off, stays as it is. When `enabled.json` cannot be written nothing is marked, to be tried at
+/// the next start.
+pub fn migrate(paths: &Paths) {
+    let link = paths.scrypted_link_file();
+    let Some(dir) = link.parent() else {
+        return;
+    };
+    let marker = dir.join(MIGRATED);
+    if marker.exists() {
+        return;
+    }
+    let linked = link.is_file();
+    if linked {
+        let plugins_dir = paths.plugins_dir();
+        let approved = roster::read_file(&plugins_dir).and_then(|mut file| {
+            file.first_party.retain(|a| a.id != options::OWNER);
+            file.first_party.push(roster::Approved {
+                id: options::OWNER.to_owned(),
+                approve: options::OPT_IN.approval(),
+            });
+            roster::write_file(&plugins_dir, &file)
+        });
+        if let Err(why) = approved {
+            crate::log_warn!(
+                "cameras: the link could not be carried over to the {} plugin: {why}",
+                options::OPT_IN.spec.name
+            );
+            return;
+        }
+    }
+    match std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&marker, b"")) {
+        Ok(()) if linked => crate::log_info!(
+            "cameras: the link was carried over to the {} plugin, on",
+            options::OPT_IN.spec.name
+        ),
+        Ok(()) => {}
+        Err(e) => crate::log_warn!("cameras: {}: {e}", marker.display()),
+    }
 }
 
 impl Inner {
@@ -586,12 +647,20 @@ impl Inner {
         self.wake.1.notify_all();
     }
 
-    /// Sleeps until something asks for a look or the time for one comes.
+    /// Sleeps until something asks for a look or the time for one comes; switched off, until the switch or the stop wakes it.
     fn nap_manager(&self) {
-        let (running, asleep) = {
+        let (on, running, asleep) = {
             let state = self.state.lock();
-            (state.running.is_some(), state.asleep)
+            (state.on, state.running.is_some(), state.asleep)
         };
+        if !on {
+            // the switch is read again under the wake's lock: one flipped since the look found nobody waiting to wake
+            let mut guard = self.wake.0.lock();
+            if !self.stop.is_set() && !self.shared.switched_on(options::OWNER) {
+                self.wake.1.wait(&mut guard);
+            }
+            return;
+        }
         if asleep && !self.stop.is_set() {
             // a TV asleep with a link costs nothing: the hub says the moment the screen changes, and nothing else matters until then
             let seq = self.hub.events_after(None, None, None).seq;
@@ -639,8 +708,11 @@ impl Inner {
         !self.stop.is_set() && self.generation.load(Ordering::SeqCst) == generation
     }
 
-    /// One look: the link file and the screen decide what runs.
+    /// One look: the owner's switch, then the link file and the screen, decide what runs.
     fn look(self: &Arc<Self>) {
+        if !self.follow_switch() {
+            return;
+        }
         let loaded = store::load(&self.paths.scrypted_link_file(), self.deps.policy);
         let awake = screen::is_on(&self.hub);
         let (want, problem) = match loaded {
@@ -685,6 +757,49 @@ impl Inner {
         }
     }
 
+    /// Follows the owner's switch; true while the plugin is on. On registers the page; off ends what runs, forgets what was heard and
+    /// takes the page away. The link file and the owner's choices stay.
+    fn follow_switch(self: &Arc<Self>) -> bool {
+        let on = self.shared.switched_on(options::OWNER);
+        if std::mem::replace(&mut self.state.lock().on, on) == on {
+            return on;
+        }
+        if on {
+            match Page::start(&self.shared, self.hooks.clone()) {
+                Ok(page) => {
+                    page.say_link(unlinked_words(), None);
+                    *self.page.lock() = Some(page);
+                    // the owner's choices change what is shown and how: the manager looks again at once. The page's registration
+                    // dropped the owner's earlier listeners, so this one is added with each page.
+                    let weak = Arc::downgrade(self);
+                    self.settings.on_change(options::OWNER, move || {
+                        if let Some(inner) = weak.upgrade() {
+                            inner.options_changed();
+                        }
+                    });
+                }
+                Err(why) => crate::log_warn!("cameras: the settings page was not registered: {why}"),
+            }
+            {
+                let mut state = self.state.lock();
+                state.status = Status::Unlinked;
+                state.reason = unlinked_words().to_owned();
+            }
+            self.publish();
+        } else {
+            self.teardown(Some("the cameras were switched off"));
+            {
+                let mut state = self.state.lock();
+                state.identity = None;
+                state.asleep = false;
+            }
+            self.settle(Status::Off, off_words(), true);
+            *self.page.lock() = None;
+        }
+        crate::log_info!("cameras: switched {}", if on { "on" } else { "off" });
+        on
+    }
+
     /// Sets the status and its words when they are not those already; `clear` forgets the cameras (there is no link).
     fn settle(&self, status: Status, reason: &str, clear: bool) {
         let changed = {
@@ -701,7 +816,7 @@ impl Inner {
             self.publish();
         }
         if let Some(page) = self.page.lock().as_ref() {
-            *page.hooks().linked.lock() = status != Status::Unlinked;
+            *page.hooks().linked.lock() = !matches!(status, Status::Unlinked | Status::Off);
         }
     }
 
@@ -1304,5 +1419,36 @@ mod tests {
         assert_eq!(foreground_of(&list).as_deref(), Some("com.webos.app.home"));
         assert_eq!(foreground_of(&json!({"returnValue": true, "appId": ""})), None);
         assert_eq!(foreground_of(&json!({"returnValue": false, "errorText": "Denied"})), None);
+    }
+
+    #[test]
+    fn a_link_made_before_the_plugin_switches_it_on_once_and_stays_where_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let approved = |paths: &Paths| {
+            roster::read_file(&paths.plugins_dir())
+                .unwrap()
+                .first_party
+                .iter()
+                .any(|a| a.id == options::OWNER && a.approve == options::OPT_IN.approval())
+        };
+        let link = paths.scrypted_link_file();
+        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::fs::write(&link, b"{\"device\": \"LumaTV\"}").unwrap();
+        migrate(&paths);
+        assert!(approved(&paths));
+        assert_eq!(std::fs::read(&link).unwrap(), b"{\"device\": \"LumaTV\"}");
+        // switched off later by the owner, it stays off
+        roster::write_file(&paths.plugins_dir(), &roster::EnabledFile::default()).unwrap();
+        migrate(&paths);
+        assert!(!approved(&paths));
+        // a TV linked after the plugin came is not switched on by the link
+        let fresh = tempfile::tempdir().unwrap();
+        let paths = Paths::new(fresh.path());
+        migrate(&paths);
+        let link = paths.scrypted_link_file();
+        std::fs::write(&link, b"{}").unwrap();
+        migrate(&paths);
+        assert!(roster::read_file(&paths.plugins_dir()).unwrap().first_party.is_empty());
     }
 }

@@ -4,13 +4,16 @@
 //! quality. The Cameras app's Settings button opens it; the page of one camera's kinds hangs under it and is the same list the app's
 //! hold-OK options page makes (`cameras::options`): the order picked is kept, the defaults are person and doorbell.
 //!
-//! The link itself (the bridge's address and token) is the owner's from a shell on the TV (`lumatv-helper scrypted-link`); this page shows
-//! the state, the name and verifier to type into the bridge, and can forget the link, which only takes access away.
+//! The plugin asks first, as the tuner and the guide data do: off, the page is its switch in the words of its entry in the `plugins`
+//! topic, and every camera surface (the bar's button, the viewer, the pop-ups, the tiles) is gone; off is one press. The link itself (the
+//! bridge's address and token) is the owner's from a shell on the TV (`lumatv-helper scrypted-link`) and outlasts the switch; this page
+//! shows the state, the name and verifier to type into the bridge, and can forget the link, which only takes access away.
 
 use super::plugin_rows::{Plugin, ask_all, fact, field_rows, fields, text};
 use crate::cameras::data::{Cameras, LinkState, default_kinds};
 use crate::cameras::{options, words};
-use crate::settings::ctx::{Ctx, ask};
+use crate::panels::hub;
+use crate::settings::ctx::{Ctx, ask, toast};
 use crate::settings::page::{Page, Read};
 use crate::settings::row::{Arg, Op, PageArg, Row};
 use serde_json::{Value, json};
@@ -20,6 +23,8 @@ const PLUGIN: Plugin = Plugin { id: ID, sections: &["link", "show", "popups", "n
 const TABS: [&str; 5] = ["Scrypted", "Cameras", "Pop-ups", "Notify for", "Video"];
 const NOTIFY: usize = 3;
 const WHERE: &str = "Link Scrypted from a shell on the TV with lumatv-helper scrypted-link.";
+/// The name the switch's answer comes back under.
+const SWITCH: &str = "cameras.switch";
 
 pub fn page() -> Page {
     Page::new("cameras", "Cameras", "video")
@@ -52,6 +57,20 @@ fn cameras(c: &Ctx) -> Cameras {
     c.helper("cameras").map(Cameras::parse).unwrap_or_default()
 }
 
+/// The plugin's entry in the `plugins` topic: none from a helper that is not there.
+fn entry<'a>(c: &'a Ctx) -> Option<&'a Value> {
+    hub::plugin_of(c.helper("plugins")?, ID)
+}
+
+fn on(c: &Ctx) -> bool {
+    entry(c).is_some_and(|e| text(e, "state") != "off")
+}
+
+fn switch(on: bool, code: &str) -> Op {
+    let body = if on { json!({"on": true, "approve": code}) } else { json!({"on": false}) };
+    Op::Send { name: Some(SWITCH.into()), method: "POST", path: format!("/v1/plugins/{ID}/switch"), body: Some(body) }
+}
+
 /// The page's state in words and the tone of its chip.
 fn state_words(c: &Ctx) -> (String, &'static str) {
     let t = cameras(c);
@@ -62,6 +81,7 @@ fn state_words(c: &Ctx) -> (String, &'static str) {
         LinkState::Offline => (words::link_words("offline").into(), "warning"),
         LinkState::Refused => (words::link_words("refused").into(), "danger"),
         LinkState::Untrusted => (words::link_words("untrusted").into(), "danger"),
+        LinkState::Off => ("Off".into(), "info"),
     }
 }
 
@@ -78,8 +98,13 @@ fn chip(c: &Ctx) -> Option<(String, &'static str)> {
     Some(state_words(c))
 }
 
-fn answered(c: &Ctx, name: &str, _: &Value) -> Vec<Op> {
+fn answered(c: &Ctx, name: &str, data: &Value) -> Vec<Op> {
     match name {
+        // switched on or off: the plugin's page came or went
+        "topic:plugins" => vec![Op::Refresh],
+        SWITCH if data.get("ok").and_then(Value::as_bool) != Some(true) => {
+            vec![toast(&format!("Not changed: {}", data.pointer("/error/message").and_then(Value::as_str).unwrap_or("the TV did not answer")))]
+        }
         // the link or the cameras changed: the page's schema may have (a camera has a field of its own)
         "topic:cameras" => {
             let t = cameras(c);
@@ -106,9 +131,23 @@ fn grouped(v: &str) -> String {
 }
 
 fn rows(c: &Ctx) -> Vec<Row> {
+    let Some(e) = entry(c) else {
+        return (0..TABS.len()).map(|t| Row::empty("Not available", "The TV's helper is not answering.", "video", t)).collect();
+    };
+    let (consent, code) = (text(e, "consent").to_string(), text(e, "approve").to_string());
+    let shared = on(c);
+    let mut rows = vec![Row::toggle("use").tab(0).icon("video").label("Scrypted cameras").help(&consent).on(shared).admin().act(move |a| match a {
+        Arg::Toggle(true) => ask("video", "Show the Scrypted cameras?", &consent, "Turn on", "Cancel", false, vec![switch(true, &code)]),
+        Arg::Toggle(false) => vec![switch(false, "")],
+        _ => Vec::new(),
+    })];
+    if !shared {
+        rows.extend((1..TABS.len()).map(|t| Row::empty(words::link_words("off"), "Switch them on under Scrypted.", "power", t)));
+        return rows;
+    }
     let (words, _) = state_words(c);
     let linked = cameras(c).state != LinkState::Unlinked;
-    let mut rows = vec![Row::info("link").tab(0).icon("video").label("Connection").help("Linked from a shell on the TV with lumatv-helper scrypted-link").value(&words)];
+    rows.push(Row::info("link").tab(0).icon("video").label("Connection").help("Linked from a shell on the TV with lumatv-helper scrypted-link").value(&words));
     let tell = "Type this name and verifier into the bridge's Devices in Scrypted. The verifier is a hash; the token never leaves the TV.";
     if linked {
         if let Some(d) = fact(c, PLUGIN, "device").filter(|d| !d.is_empty()) {
@@ -247,6 +286,8 @@ mod tests {
     fn world(state: &str) -> World {
         let mut w = World::new(crate::host::sio::Sio::new(0));
         w.topics.helper_up = true;
+        let entry = json!({"id": ID, "name": "Cameras", "state": if state == "off" { "off" } else { "connected" }, "firstParty": true, "consent": "Shows the cameras.", "approve": "c0de"});
+        w.topics.set_helper("plugins", json!({"plugins": [], "firstParty": [entry]}));
         w.topics.set_helper("cameras", json!({"state": state, "cameras": [{"id": "270", "name": "Front door"}, {"id": "271", "name": "Garage"}]}));
         let mut o = crate::settings::src::Owner::new(ID);
         o.take(&json!({"ok": true, "version": 3, "schema": schema(), "effective": {
@@ -261,6 +302,21 @@ mod tests {
     }
 
     #[test]
+    fn off_the_page_is_one_switch_that_asks_in_the_plugins_words_and_on_it_is_one_press_off() {
+        let w = world("off");
+        assert_eq!((chip(&w.ctx()), summary(&w.ctx())), (Some(("Off".into(), "info")), "Off".to_string()));
+        let r = rows(&w.ctx());
+        assert_eq!(r.iter().filter(|r| r.tab == 0).count(), 1, "the switch alone");
+        assert!(r.iter().filter(|r| r.tab > 0).all(|r| r.kind == Kind::Empty && r.label == "Cameras are off"));
+        let [Op::Ask(question)] = &(row(&r, "use").act.as_ref().unwrap())(Arg::Toggle(true))[..] else { panic!("it asks first") };
+        assert_eq!(question.body, "Shows the cameras.");
+        assert!(matches!(&question.answers[1].then[..], [Op::Send { path, body: Some(b), .. }] if path == "/v1/plugins/scrypted-cameras/switch" && b == &json!({"on": true, "approve": "c0de"})));
+        let r = rows(&world("ready").ctx());
+        assert!(row(&r, "use").on);
+        assert!(matches!(&(row(&r, "use").act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Send { body: Some(b), .. }] if b == &json!({"on": false})));
+    }
+
+    #[test]
     fn the_connection_says_the_state_and_the_cameras_and_the_page_has_nothing_more_while_unlinked() {
         let w = world("ready");
         assert_eq!(chip(&w.ctx()), Some(("Connected \u{b7} 2 cameras".into(), "positive")));
@@ -270,7 +326,7 @@ mod tests {
         let w = world("unlinked");
         let r = rows(&w.ctx());
         assert_eq!(chip(&w.ctx()), Some(("Not linked".into(), "info")));
-        assert!(r.iter().filter(|r| r.tab == 0).count() == 1 && r.iter().filter(|r| r.kind == Kind::Empty).count() == 4);
+        assert!(r.iter().filter(|r| r.tab == 0).count() == 2 && r.iter().filter(|r| r.kind == Kind::Empty).count() == 4, "the switch and the connection");
         assert!(r.iter().any(|r| r.text.contains("scrypted-link")), "says how to link");
         let refused = world("refused");
         assert_eq!(chip(&refused.ctx()), Some(("Scrypted refused this TV".into(), "danger")));

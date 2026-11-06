@@ -723,13 +723,23 @@ impl Rig {
         );
     }
 
-    /// Starts with the cameras acting through the given deps (the loopback, a feeder and dial of the test's, quick timing).
+    /// Starts with the cameras acting through the given deps (the loopback, a feeder and dial of the test's, quick timing), the Cameras
+    /// plugin switched on as the owner switches it.
     pub fn start_cameras(
         &mut self,
         config: Config,
         fetcher: Arc<dyn Fetch>,
         cameras: lumatv_helper::scrypted::Deps,
     ) {
+        use lumatv_helper::plugins::roster;
+        use lumatv_helper::scrypted::options::OPT_IN;
+        let dir = self.paths.plugins_dir();
+        let mut file = roster::read_file(&dir).unwrap();
+        file.first_party.push(roster::Approved {
+            id: OPT_IN.spec.id.to_owned(),
+            approve: OPT_IN.approval(),
+        });
+        roster::write_file(&dir, &file).unwrap();
         self.start_full(config, fetcher, None, None, Some(cameras));
     }
 

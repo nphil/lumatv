@@ -910,6 +910,11 @@ impl App {
 
     fn cameras_changed(&mut self, was_ready: bool, was_n: usize, fx: &mut Vec<Effect>) {
         self.dirty = self.viewer_up();
+        // the Cameras plugin was switched off: the viewer goes with it
+        if self.cams.state == data::LinkState::Off {
+            self.close_inner(fx);
+            return;
+        }
         let n = self.cams.list.len();
         match self.screen.clone() {
             Screen::Grid(mut g) => {
@@ -1861,6 +1866,7 @@ impl App {
             data::LinkState::Unlinked => Empty { icon: "unplug", title: words::link_words("unlinked").to_string() },
             data::LinkState::Connecting => Empty { icon: "unplug", title: words::link_words("connecting").to_string() },
             data::LinkState::Offline => Empty { icon: "unplug", title: words::link_words("offline").to_string() },
+            data::LinkState::Off => Empty { icon: "power", title: words::link_words("off").to_string() },
         });
         GridView {
             count_words: if n == 0 { String::new() } else { words::count(n) },

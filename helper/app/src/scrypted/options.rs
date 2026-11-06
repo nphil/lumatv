@@ -1,5 +1,6 @@
 //! The Cameras page of Settings (design 3.5): a first-party plugin of the helper, `scrypted-cameras`, whose settings page the TV's Settings
-//! draws with the rows it draws any plugin's page with (a switch, a number, a choice, an ordered pick, a read-only line, a button).
+//! draws with the rows it draws any plugin's page with (a switch, a number, a choice, an ordered pick, a read-only line, a button). It asks
+//! first ([`OPT_IN`]): the page is registered only while the owner has the plugin switched on.
 //!
 //! The page is rebuilt, at a higher `revision`, when the camera list changes: the *Notify for* section has one pick of events for each camera
 //! the TV shows (`notify.<id>`), and what the owner picked stays in the settings store when a camera leaves and comes back. A secret or an
@@ -9,7 +10,7 @@
 //! `animal` on by default would be a pop-up a minute).
 
 use super::policy::{DEFAULT_KINDS, KINDS, Rules};
-use crate::plugins::local::{Handler, Local, Spec};
+use crate::plugins::local::{Handler, Local, OptIn, Spec};
 use crate::plugins::session::Shared;
 use parking_lot::Mutex;
 use plugin_api::wire::ToPlugin;
@@ -20,11 +21,16 @@ use std::sync::Arc;
 
 /// The settings owner and the first-party plugin's id.
 pub const OWNER: &str = "scrypted-cameras";
-pub const SPEC: Spec = Spec {
-    id: OWNER,
-    name: "Cameras",
-    version: "1",
-    permissions: &["settings"],
+pub const OPT_IN: OptIn = OptIn {
+    spec: Spec {
+        id: OWNER,
+        name: "Cameras",
+        version: "1",
+        permissions: &["settings"],
+    },
+    consent: "Shows the cameras Scrypted shares with this TV: the camera button and its list, the full view, pop-ups for the events picked \
+              on this page and the camera tiles of the Smart home card. The TV talks only to the Scrypted server it was linked to from a \
+              shell (lumatv-helper scrypted-link), only while the screen is on, and keeps its token on the TV.",
 };
 /// The providers the page's pickers are served by.
 pub const PROVIDER_CAMERAS: &str = "cameras";
@@ -310,7 +316,7 @@ impl Page {
                 _ => {}
             })
         };
-        let local = Local::start(shared, &SPEC, register, handler)?;
+        let local = Local::start(shared, &OPT_IN.spec, register, handler)?;
         let page = Arc::new(Self {
             local,
             hooks,

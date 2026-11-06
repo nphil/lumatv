@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The Scrypted cameras are a first-party plugin, `scrypted-cameras`, off until switched on in Settings › Home & look › Cameras, which asks first as the tuner's page does. Off, the status bar has no camera button, Home no camera card or Smart home camera tiles, and no pop-up shows; the helper neither signs in to the bridge nor reads its events, and its camera routes answer 409 `off`. The link and the page's choices stay. Ring's doorbell, a Scrypted camera, is part of it. A TV linked to Scrypted before keeps its cameras on.
+
 The first wake after a boot into standby (LG's Always Ready reboot) lands on LumaTV's Home again; it fell back to LG's compositor. The boot's compositor restart closes WebAppMgr and nothing starts it in standby, so bootd's launch of Home at the wake went to a WebAppMgr that was only starting, and SAM's preload that followed left the stub hidden with nothing on the panel. A watch started by the activation in standby launches Home again when nothing is in front after the wake.
 
 The Gym camera's pop-up plays at its stream's rate (10.6 pictures a second on the set, against 0.4). Its LIVE555 firmware sends each P picture as one fragment that says SEI with the slice behind a start code, so only the key pictures reached the decoder. LumaShow's `rtsp-client` (291b111e) now splits such a unit and reads each part for its own type.

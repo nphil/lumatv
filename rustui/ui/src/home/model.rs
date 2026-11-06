@@ -468,7 +468,7 @@ impl Home {
     pub fn apply_layout(&mut self, user: Value) {
         let merged = merge_over(&self.shipped_layout, &user);
         self.set_layout(grid::tidy_layout(&merged));
-        for e in self.cards() {
+        for e in self.laid_out() {
             if !self.widget_ids.contains(&e.id) {
                 self.widget_ids.push(e.id.clone());
             }
@@ -531,9 +531,23 @@ impl Home {
         self.theme_preview = preview;
     }
 
-    /// The cards on Home (not the dock, not hidden), in the layout's order.
+    /// The cards on Home (not the dock, not hidden), in the layout's order; the cameras' card only while the Cameras plugin is on.
     pub fn cards(&self) -> Vec<Entry> {
+        let mut cards = self.laid_out();
+        if self.cameras_off() {
+            cards.retain(|e| e.kind != "cameras");
+        }
+        cards
+    }
+
+    /// Every card the layout places (not the dock, not hidden), drawn now or not.
+    fn laid_out(&self) -> Vec<Entry> {
         grid::entries(&self.layout).into_iter().filter(|e| !e.is_dock() && !e.hidden).collect()
+    }
+
+    /// The helper says the Cameras plugin is switched off; no word from it is not off.
+    fn cameras_off(&self) -> bool {
+        self.cameras.get("state").and_then(Value::as_str) == Some("off")
     }
 
     pub fn dock_entry(&self) -> Option<Entry> {
@@ -565,17 +579,23 @@ impl Home {
 
     /// The status bar's items in the order they are drawn, left to right, as `{type, icon}` objects: the actions, then who is watching.
     pub fn status_items(&self) -> Vec<Value> {
-        self.status_item_list().to_vec()
+        self.status_item_list().cloned().collect()
     }
 
-    /// [`Self::status_items`] without copying them.
-    fn status_item_list(&self) -> &[Value] {
-        self.layout.pointer("/statusBar/items").and_then(Value::as_array).map_or(&[], Vec::as_slice)
+    /// [`Self::status_items`] without copying them; the cameras' button only while the Cameras plugin is on.
+    fn status_item_list(&self) -> impl Iterator<Item = &Value> {
+        let cameras_off = self.cameras_off();
+        self.layout
+            .pointer("/statusBar/items")
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice)
+            .iter()
+            .filter(move |it| !(cameras_off && kind_of(it) == "cameras"))
     }
 
     /// The place of the button of type `kind` among the status bar's items (its focus id is `STATUS_ID` plus it).
     pub fn status_index(&self, kind: &str) -> Option<usize> {
-        self.status_item_list().iter().position(|it| kind_of(it) == kind)
+        self.status_item_list().position(|it| kind_of(it) == kind)
     }
 
     pub fn safe(&self) -> (f32, f32) {
@@ -1170,8 +1190,15 @@ impl Home {
                 self.plugins.insert(topic.to_owned(), data.clone());
             }
             "cameras" => {
+                let was_off = self.cameras_off();
                 self.cameras = data.clone();
                 self.feed_smarts();
+                // the Cameras plugin was switched: its status button and its card come or go
+                if self.cameras_off() != was_off {
+                    self.layout_rev += 1;
+                    self.register();
+                    self.redraw(out);
+                }
             }
             "onhome" => {
                 self.onhome = data.clone();
@@ -3129,7 +3156,7 @@ impl Home {
     /// Where the status bar's glass, the box of its buttons and the buttons are, for the tests and the harness's crops: `{pill: [x, y, w, h], group: [x, y, w, h], items: [[type, x, y, w, h], ...]}`.
     fn status_state(&self) -> Value {
         let (pill, group) = (self.status_pill(), self.status_group());
-        let items: Vec<Value> = self.status_item_list().iter().zip(self.status_frames()).map(|(it, f)| json!([kind_of(it), f.0, f.1, f.2, f.3])).collect();
+        let items: Vec<Value> = self.status_item_list().zip(self.status_frames()).map(|(it, f)| json!([kind_of(it), f.0, f.1, f.2, f.3])).collect();
         json!({"pill": [pill.x, pill.y, pill.w, pill.h], "group": [group.x, group.y, group.w, group.h], "items": items})
     }
 
@@ -4402,6 +4429,29 @@ mod tests {
         h.set_theme(theme);
         let again = h.status_frames();
         assert_eq!((again[1].0 - (again[0].0 + again[0].2), again[4].0 - (again[3].0 + again[3].2)), (6.0, 24.0));
+    }
+
+    #[test]
+    fn switched_off_the_cameras_lose_their_button_and_their_card_and_get_them_back_when_switched_on() {
+        let theme = lumatv_tokens::Tokens::shipped().json().clone();
+        let shipped: Value = serde_json::from_str(include_str!("../../../../payload/theme/layout.json")).unwrap();
+        let layout = json!({"grid": {"rows": 16}, "widgets": [{"id": "cams", "type": "cameras", "col": 0, "row": 0, "span": 6, "rows": 4},
+                                         {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]});
+        let mut h = Home::new(theme, shipped, layout);
+        h.start(1000);
+        let kinds = |h: &Home| h.status_items().iter().map(|it| kind_of(it).to_owned()).collect::<Vec<_>>();
+        let cards = |h: &Home| h.cards().into_iter().map(|e| e.id).collect::<Vec<_>>();
+        assert_eq!((kinds(&h)[1].as_str(), cards(&h)), ("cameras", vec!["cams".to_owned()]), "no word from the helper is not off");
+        let rev = h.chrome_rev();
+        h.update(&Input::Helper { topic: "cameras".into(), data: json!({"state": "off", "cameras": []}) }, 1100);
+        assert_eq!(kinds(&h), ["search", "notifications", "settings", "profile"]);
+        assert!(cards(&h).is_empty());
+        let card = h.widget_id("cams").unwrap();
+        assert!(h.focus.frame(card).is_none(), "nothing to reach");
+        assert_ne!(h.chrome_rev(), rev, "the cards are made again");
+        h.update(&Input::Helper { topic: "cameras".into(), data: json!({"state": "unlinked", "cameras": []}) }, 1200);
+        assert_eq!((kinds(&h)[1].as_str(), cards(&h)), ("cameras", vec!["cams".to_owned()]));
+        assert!(h.focus.frame(card).is_some(), "the card is reached by the arrows again");
     }
 
     #[test]

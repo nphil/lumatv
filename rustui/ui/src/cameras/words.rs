@@ -231,6 +231,7 @@ pub fn link_words(state: &str) -> &'static str {
         "refused" => "Scrypted refused this TV",
         "untrusted" => "Can\u{2019}t verify Scrypted",
         "offline" => "Can\u{2019}t reach Scrypted",
+        "off" => "Cameras are off",
         _ => "",
     }
 }

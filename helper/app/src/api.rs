@@ -2085,8 +2085,7 @@ mod tests {
                 "base.news",
                 "base.receiver",
                 "base.voice",
-                "base.weather",
-                "scrypted-cameras"
+                "base.weather"
             ]
         );
 

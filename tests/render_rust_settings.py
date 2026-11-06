@@ -250,7 +250,9 @@ SCENES += [
     Scene('cameras-notify', 'cameras', routes=CAM_ROUTES, topics=CAM_TOPICS, keys=['right', 'up', 'right', 'right', 'right', 'down', 'down']),
     Scene('cameras-video', 'cameras', routes=CAM_ROUTES, topics=CAM_TOPICS, keys=['right', 'up', 'right', 'right', 'right', 'right', 'down']),
     Scene('camera-kinds', 'cameras', routes=CAM_ROUTES, topics=CAM_TOPICS, keys=['right', 'up', 'right', 'right', 'right', 'down', 'down', 'ok', 'down', 'down']),
-    Scene('cameras-unlinked', 'cameras', routes={}, topics={'cameras': {'state': 'unlinked', 'cameras': []}}, keys=['right']),
+    Scene('cameras-unlinked', 'cameras', routes={}, topics={'plugins': CAM_TOPICS['plugins'], 'cameras': {'state': 'unlinked', 'cameras': []}}, keys=['right']),
+    Scene('cameras-off', 'cameras', routes={}, topics={'plugins': {'plugins': [], 'firstParty': [{'id': SC, 'name': 'Cameras', 'state': 'off', 'firstParty': True, 'consent': 'Shows the cameras Scrypted shares with this TV.', 'approve': 'c0de'}]},
+                                                     'cameras': {'state': 'off', 'cameras': []}}, keys=['right']),
 ]
 
 # ---- Profiles: the people with their bundled avatars (the pictures are larger than the tile they sit in)

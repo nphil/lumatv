@@ -865,12 +865,12 @@ fn the_fixture_of_the_tvs_screens_is_what_the_plugin_and_the_helper_make() {
     home.until(&format!("plugin.{ID}.facts"), "the summary", |v| {
         v["facts"]["summary"].is_string()
     });
-    // the helper's own plugins connect a moment after the start (ambient, clock, news, weather and the cameras' page; the guide data and
-    // the tuner, which ask first, stay off); the document is of all of them
+    // the helper's own plugins connect a moment after the start (ambient, clock, news and weather; the guide data, the tuner and the
+    // cameras, which ask first, stay off); the document is of all of them
     home.until("plugins", "every first-party plugin connected", |v| {
         let list = v["firstParty"].as_array().cloned().unwrap_or_default();
         let connected = list.iter().filter(|p| p["state"] == "connected").count();
-        connected == 5
+        connected == 4
             && list
                 .iter()
                 .all(|p| matches!(p["state"].as_str(), Some("connected" | "off")))

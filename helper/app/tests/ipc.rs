@@ -307,7 +307,7 @@ fn a_state_then_events_sequence_loses_nothing() {
 fn settings_over_http() {
     let rig = quiet_rig();
     let list = get(rig.addr, "/v1/settings").json();
-    assert_eq!(list["owners"].as_array().unwrap().len(), 7);
+    assert_eq!(list["owners"].as_array().unwrap().len(), 6);
     let change = r#"{"changes":[{"key":"units","value":{"type":"choice","value":"celsius"}}],"ifVersion":0}"#;
     let applied = post(rig.addr, "/v1/settings/base.weather", change);
     assert_eq!(

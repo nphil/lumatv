@@ -5,12 +5,13 @@
 //! What is shown: nothing runs until the link is made; a linked TV connects and lists the cameras; a wrong pin sends nothing; a removed device is
 //! refused; an event pops up through the policy (and only through it); stills come from one stream a camera and stop when nobody asks; the
 //! timeline routes relay the bridge; live starts fast, switches, refuses without disturbing, pauses and ends in words; forgetting the link ends
-//! everything; the TV's standby closes every connection.
+//! everything; the TV's standby closes every connection; switching the plugin off ends everything, keeps the link and refuses the routes.
 
 mod support;
 
 use ha_link::AddressPolicy;
 use lumatv_helper::scrypted::link::{self, Args};
+use lumatv_helper::scrypted::options::OPT_IN;
 use rtsp_client::Codec;
 use rtsp_client::fake::{FakeCamera, Script as CameraScript, annexb};
 use serde_json::{Value, json};
@@ -116,6 +117,22 @@ impl World {
         self.rig
             .wait_topic("cameras.popup", WAIT, |v| !v.is_null() && check(v))
     }
+
+    /// Switches the Cameras plugin as the TV's Settings does.
+    fn switch(&self, on: bool) -> Reply {
+        let body = if on {
+            json!({"on": true, "approve": OPT_IN.approval()})
+        } else {
+            json!({"on": false})
+        };
+        http(
+            self.rig.addr,
+            "POST",
+            "/v1/plugins/scrypted-cameras/switch",
+            &[("X-Luma-Client", "lumatv-ui"), ("Content-Type", "application/json")],
+            Some(&body.to_string()),
+        )
+    }
 }
 
 fn linked_world(cameras: Value) -> World {
@@ -130,8 +147,7 @@ fn linked_world(cameras: Value) -> World {
 #[test]
 fn nothing_runs_until_the_tv_is_linked_and_the_topics_say_so() {
     let world = World::unlinked(json!({}), lumatv_helper::scrypted::testing::deps());
-    let topic = world.rig.topic("cameras").unwrap();
-    assert_eq!(topic["state"], "unlinked");
+    let topic = world.wait_state("unlinked");
     assert_eq!(topic["cameras"], json!([]));
     assert!(
         topic["reason"].as_str().unwrap().contains("scrypted-link"),
@@ -506,6 +522,37 @@ fn unlinking_with_the_command_does_the_same_within_a_look() {
     assert_eq!((code, out["was"].clone()), (0, json!(true)));
     world.wait_state("unlinked");
     assert!(wait_until(WAIT, || world.bridge.events_open() == 0));
+}
+
+#[test]
+fn switched_off_nothing_runs_or_pops_up_and_the_link_stays_and_switched_on_again_it_all_comes_back() {
+    let world = linked_world(json!({"testEvents": true}));
+    assert!(wait_until(WAIT, || world.bridge.events_open() == 1));
+    assert_eq!(world.get("/v1/cameras/273/frame?w=480&h=270").status, 200);
+    assert_eq!(world.switch(false).status, 200);
+    let topic = world.wait_state("off");
+    assert_eq!(topic["cameras"], json!([]));
+    assert!(wait_until(WAIT, || world.bridge.events_open() == 0
+        && world.bridge.stills_open() == 0));
+    let before = world.bridge.connections();
+    // the routes refuse, so an event pops nothing up; nothing connects
+    let event = world.post("/v1/cameras/event", json!({"camera": "273", "kind": "person"}));
+    assert_eq!(event.status, 409);
+    assert_eq!(world.get("/v1/cameras/273/frame?w=480&h=270").status, 409);
+    std::thread::sleep(Duration::from_millis(400));
+    assert_eq!(world.bridge.connections(), before, "nothing connects while off");
+    assert!(world.popup().is_none());
+    assert_eq!(world.get("/v1/cameras").json()["cameras"]["state"], "off");
+    assert!(world.rig.paths.scrypted_link_file().exists(), "the link stays");
+
+    assert_eq!(world.switch(true).status, 200);
+    world.ready();
+    assert!(wait_until(WAIT, || world.bridge.events_open() == 1));
+    let event = world
+        .post("/v1/cameras/event", json!({"camera": "273", "kind": "person"}))
+        .json();
+    assert_eq!(event["popup"], true, "{event}");
+    assert!(world.wait_popup(|_| true).is_some());
 }
 
 // ---- a camera on a battery ---------------------------------------------------------------------------------------------------------

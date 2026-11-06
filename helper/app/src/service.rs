@@ -223,9 +223,10 @@ impl Service {
         let ai = crate::ai::Ai::start(&ctx, ai_deps, nudge)?;
 
         // `base.livetv`, the tuner's old Settings switch, becomes the Live TV Tuner plugin's before the roster is first read; a Bluetooth
-        // proxy linked before it was a plugin becomes the Bluetooth proxy plugin's, switched on.
+        // proxy, or cameras, linked before they were plugins become the Bluetooth proxy plugin's and the Cameras plugin's, switched on.
         crate::tuner::migrate(&settings, &paths.plugins_dir());
         crate::ble::migrate(&paths.data_dir, &paths.plugins_dir());
+        crate::scrypted::migrate(&paths);
         // Plugins: the manager reads the roster and keeps the broker's socket only while a plugin is switched on.
         let plugins = crate::plugins::Plugins::with_policy(
             &ctx,
@@ -269,7 +270,8 @@ impl Service {
         );
         // The screensaver's rules and slots: the owner's answers are read before anything is delivered.
         crate::saver::open(&ctx);
-        // Cameras through Scrypted's LumaShow bridge: nothing connects until the TV is linked (`scrypted-link`), and nothing while it sleeps.
+        // Cameras through Scrypted's LumaShow bridge, a plugin of the helper's own: nothing runs until it is switched on, nothing connects
+        // until the TV is linked (`scrypted-link`), and nothing while it sleeps.
         let images = Arc::new(crate::images::Images::new(&config, &paths));
         let cameras = crate::scrypted::Scrypted::new(
             &ctx,

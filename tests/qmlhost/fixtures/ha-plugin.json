@@ -536,12 +536,14 @@
           "version": "1"
         },
         {
+          "approve": "19e5b105a20357c137eb87bf3bc954ef81f1fd3344a39f841a7c00c89f5d5c42",
           "class": "S",
+          "consent": "Shows the cameras Scrypted shares with this TV: the camera button and its list, the full view, pop-ups for the events picked on this page and the camera tiles of the Smart home card. The TV talks only to the Scrypted server it was linked to from a shell (lumatv-helper scrypted-link), only while the screen is on, and keeps its token on the TV.",
           "firstParty": true,
           "id": "scrypted-cameras",
           "name": "Cameras",
-          "registered": true,
-          "state": "connected",
+          "registered": false,
+          "state": "off",
           "version": "1"
         },
         {

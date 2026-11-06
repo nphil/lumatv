@@ -28,6 +28,8 @@ pub enum LinkState {
     Offline,
     Refused,
     Untrusted,
+    /// The Cameras plugin is switched off.
+    Off,
 }
 
 impl LinkState {
@@ -38,6 +40,7 @@ impl LinkState {
             "offline" => Self::Offline,
             "refused" => Self::Refused,
             "untrusted" => Self::Untrusted,
+            "off" => Self::Off,
             _ => Self::Unlinked,
         }
     }
@@ -50,6 +53,7 @@ impl LinkState {
             Self::Offline => "offline",
             Self::Refused => "refused",
             Self::Untrusted => "untrusted",
+            Self::Off => "off",
         }
     }
 }
