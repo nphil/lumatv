@@ -29,6 +29,12 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Cameras plugin ends its idle feeder when switched off 2026-11-06 (main 099bfc7e)
+
+Helper-only install from 099bfc7e at 13:59 EST, staged in the app's `payload/helper/` with `lumatv helper stop` and `start`: helper sha256 `f0413e041641d3e03c3db7e9650b183b813c5fba81fc76f5a83cd6426b2f48cd` (was `604f071c`). Receipts: `/data/home/tmp/lumatv-plugin-cameras-20261106/` (`feeder-off.txt`, `session.log` from 13:59).
+
+A camera-103 test pop-up left the idle feeder (pid 15291). The switch off was answered 0.03 s after it was sent, and the feeder was gone 0.03 s after that, at the first look (uptime 21140.30 to 21140.36); it used to stay for `feederIdleSeconds` (120 s). Switched on again: ready with 10 cameras. Left in Active Standby with Home in front, the plugin on, helper.json and the theme files as found, the receiver off at -42.0 dB and unmuted (muted through HA while the panel was on).
+
 ## Cameras plugin 2026-11-06 (main 4f965451)
 
 Installed 13:35 EST from 4f965451 (origin and forge main) by the standard path: the bundle with cutover `disable`, `install`, `probe`, `enable`, the helper staged in the app's `payload/helper/` and `lumatv helper start`; `tools/lumatv` unchanged (`0473b152`). Installed sha256: compositor `0dff2ac17f1f4722211fd718c845efbf91cbad23557b191a5aedcf40bfcbb70f`, ui `c9628a95420670db2eb9b0b8fede2a2a7b2eec4a24fcc4901abaf227f979ce93`, sm `65f6ca69eb6da66cbfb139817803d0c1e01b03931fe373894b123c3f64df13da` (unchanged), helper `604f071cacd09d597e14b5adff6fb327d8bfae86742d20240d20e52b4dfd7ac5`. Replaced: compositor `3dd284cf`, ui `ba13803e`, helper `77544f13`. Receipts: `/data/home/tmp/lumatv-plugin-cameras-20261106/`.
