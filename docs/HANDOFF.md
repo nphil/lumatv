@@ -29,6 +29,16 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Saver sources follow their plugins 2026-11-06 (main ce52bdf4)
+
+The helper from ce52bdf4 installed at 16:53 EST, the set in Active Standby (staged in `payload/helper/`, `lumatv helper start`); compositor, ui and sm unchanged. Installed sha256: helper `14994b9912877ce9bd635b58265a746b4860952e5f4b755746c4fa70700916bc`. Replaced: helper `203e514b`. Receipts: `/data/home/tmp/lumatv-plugin-saver-20261106/` (`session.log`, `installed-hashes.json`, `*-state.json`, `*-crop.png`).
+
+- Saver with every plugin on (`b-saver-all-on`): the date and Home Assistant's alert "Login attempt failed" as a notice; the weather from `weather.pirate_weather`.
+- Home Assistant switched off while the saver was up (`c-saver-ha-off`): the notice is gone within 10 s, the weather's place is the built-in ZIP, no Home Assistant cards or notes are read.
+- Switched on again under the saver (`d-saver-ha-on`): the notice and the entity's weather are back.
+- Left in Active Standby with Home in front, every plugin on, the receiver off at -42.0 dB and unmuted (muted while the panel was on).
+- Untested on the TV: the cameras' saver lines leaving at the Cameras switch (host test only), and the BLE proxy's switch (host tests).
+
 ## Home Assistant plugin fixes 2026-11-06 (main a6c0acf9)
 
 Fixes the three findings below. Installed by the standard path, the set in Active Standby: the bundle from ce38b9c6 at 16:25 EST (cutover `disable`, `install`, `probe`, `enable`), then the helper from a6c0acf9 at 16:30 (staged in `payload/helper/`, `lumatv helper start`); a6c0acf9 changes only the helper and the changelog. Installed sha256: compositor `1ef99f702661155ac844a8679cdee94bba215217082b55811ee6e9d0d28d2406`, ui `6ec9b73b13e1ddbadf983d9fea8aabea1c36684a7b58a2199f41c8b691115d4f`, sm `65f6ca69` (unchanged), helper `203e514bd7f680a5acaa63b5ee8ba560e71163c3f268c8b7c3ae23fd23f5d414`. Replaced: compositor `281a2469`, ui `e1b629f9`, helper `9e400b16`. Receipts: `/data/home/tmp/lumatv-plugin-ha-20261106/fixes/` (`session.log`, `installed-hashes.json`, `old-keys-log.txt`, `i-*`, `i-check.png`).
