@@ -10,11 +10,10 @@
 //! those words (`POST /v1/plugins/live-tv-tuner/switch`). While it is off nothing listens and the tuner is left alone. On, it serves the
 //! tuner on the TV's private address (`helper.json` `hdhr`: port, bind, allowedNets and the tuner's nodes) and says where it stands as
 //! facts of its page: the status (idle, streaming a channel, busy while the TV's own Live TV has the tuner), the three addresses a player
-//! takes and the networks it answers. The page's settings are the name players show, whether streams carry the tuner's messages
-//! (slates in the active theme while a channel tunes, while its signal is too weak for a picture, and when the TV takes its tuner) and
-//! whether a picture broken by a weak signal is held over (smoothing, on streams with slates); its list is every antenna channel with how
-//! it came in last and a switch that keeps it in the lineup (`tuner/channels.rs`); its actions look at the TV now and check every
-//! channel's reception.
+//! takes and the networks it answers. The page's settings are the name players show and whether streams carry the tuner's messages
+//! (slates in the active theme while a channel tunes, while its signal is too weak for a picture, and when the TV takes its tuner); its
+//! list is every antenna channel with how it came in last and a switch that keeps it in the lineup (`tuner/channels.rs`); its actions
+//! look at the TV now and check every channel's reception.
 //!
 //! **The antenna meter** is the page's own (`/v1/tuner/meter`, [`ROUTES`]): Settings starts it on an RF channel or on the frequency the
 //! tuner is on, reads it about once a second while the page is open and stops it when the page closes; the engine lets go of the tuner
@@ -66,8 +65,6 @@ const DEFAULT_NAME: &str = "LumaTV";
 const CHECK: &str = "check";
 /// The page's action that checks how every channel comes in.
 const RECEPTION: &str = "reception";
-/// Whether a picture broken by a weak signal is held over until the owner says otherwise.
-const SMOOTH: bool = false;
 /// How often a listener that should be up but is not tries again, and how often an up one checks that the TV still has its address and,
 /// while the TV's own use has the tuner, whether it still has.
 const RETRY: Duration = Duration::from_secs(15);
@@ -109,8 +106,8 @@ pub fn migrate(settings: &SettingsStore, plugins_dir: &Path) {
 enum Event {
     /// The owner's switch may have changed: [`Shared::switched_on`] says how it stands.
     Switch,
-    /// The page's values: the name players show, whether streams carry slates and whether they hold broken pictures over.
-    Settings { name: String, slates: bool, smooth: bool },
+    /// The page's values: the name players show, and whether streams carry slates.
+    Settings { name: String, slates: bool },
     /// The switch of channel `guide`'s row: in the lineup or out of it.
     Lineup(String),
     /// The engine's status changed.
@@ -217,9 +214,8 @@ impl Plugin {
             match rx.recv_timeout(wait) {
                 Ok(Event::Stop) | Err(RecvTimeoutError::Disconnected) => break,
                 Ok(Event::Switch) => self.switch(),
-                Ok(Event::Settings { name, slates, smooth }) => {
+                Ok(Event::Settings { name, slates }) => {
                     self.slates(slates);
-                    self.tuner.smooth(smooth);
                     self.name = name;
                     self.reconcile();
                 }
@@ -264,7 +260,6 @@ impl Plugin {
             let values = self.ctx.settings.effective(ID);
             self.name = values.as_ref().map_or_else(|| DEFAULT_NAME.to_owned(), name_of);
             self.slates(values.as_ref().is_none_or(slates_of));
-            self.tuner.smooth(values.as_ref().map_or(SMOOTH, smooth_of));
         } else {
             self.page = None;
             self.said = Json::Null;
@@ -392,22 +387,13 @@ fn slates_of(values: &Values) -> bool {
     !matches!(values.get("slates"), Some(Setting::Bool(false)))
 }
 
-/// Whether streams hold a broken picture over: [`SMOOTH`] unless the owner switched it.
-fn smooth_of(values: &Values) -> bool {
-    match values.get("smooth") {
-        Some(Setting::Bool(on)) => *on,
-        _ => SMOOTH,
-    }
-}
-
-/// The page, as the schema format writes it: the name players show, the slates' and smoothing's switches, the facts it says and the list
-/// of channels.
+/// The page, as the schema format writes it: the name players show, the slates' switch, the facts it says and the list of channels.
 fn schema_json() -> Json {
     let fact = |key: &str, label: &str| {
         json!({"key": key, "label": label, "kind": {"type": "read-only", "value": {"capability": format!("plugin.{ID}.{key}")}},
                "apply": "on-commit"})
     };
-    json!({"format": 1, "owner": ID, "revision": 3, "title": OPT_IN.spec.name, "sections": [
+    json!({"format": 1, "owner": ID, "revision": 4, "title": OPT_IN.spec.name, "sections": [
         {"id": "tuner", "title": "Tuner", "fields": [
             fact("status", "Status"),
             {"key": "name", "label": "Name shown in players", "kind": {"type": "text", "max_chars": 40, "secret": false},
@@ -415,9 +401,6 @@ fn schema_json() -> Json {
             {"key": "slates", "label": "Show tuning and signal messages in the stream",
              "help": "Players show the channel tuning, a weak signal or the TV taking its tuner in place of a black or frozen picture.",
              "kind": {"type": "bool"}, "default": {"type": "bool", "value": true}, "apply": "on-commit"},
-            {"key": "smooth", "label": "Hide broken pictures",
-             "help": "When a weak signal breaks the picture, players keep the last whole picture until a clean one comes, in place of blocks and smears; the sound goes on. Works with the messages above switched on.",
-             "kind": {"type": "bool"}, "default": {"type": "bool", "value": SMOOTH}, "apply": "on-commit"},
             fact("networks", "Answers")]},
         {"id": "addresses", "title": "Addresses", "fields": [
             fact("discover", "HDHomeRun (Plex, Jellyfin, Emby, Channels DVR)"),
@@ -474,7 +457,6 @@ fn handler(tx: Sender<Event>, tuner: Arc<Tuner>) -> Handler {
             let _ = tx.send(Event::Settings {
                 name: name_of(&values),
                 slates: slates_of(&values),
-                smooth: smooth_of(&values),
             });
             let _ = local.say(json!({"t": "settings.result", "txn": txn, "outcome": {"type": "applied", "values": values}}));
         }

@@ -292,7 +292,8 @@ fn reading_words(s: &Value) -> String {
         words.push(if e == 1 { "1 packet error".into() } else { format!("{e} packet errors") });
     }
     if let Some(ber) = s["ber"].as_u64() {
-        words.push(format!("BER {ber}"));
+        // LG's demodulator counts bit errors in 24 bits: a full counter (16,777,215, RF 29 on 2026-11-05) is no figure
+        words.push(if ber == 0xFF_FFFF { "BER n/a".into() } else { format!("BER {ber}") });
     }
     words.join(" · ")
 }
@@ -434,11 +435,11 @@ mod tests {
             "on the channel the tuner is on until one is picked"
         );
         w.local.set(METER_ON, json!(true));
-        let signal = |grade: &str, level: f64| json!({"locked": true, "mse": 355, "snr": 17.8, "errors": 81, "ber": 584211, "grade": grade, "level": level});
+        let signal = |grade: &str, level: f64, ber: u64| json!({"locked": true, "mse": 355, "snr": 17.8, "errors": 81, "ber": ber, "grade": grade, "level": level});
         w.docs.set(
             METER,
             json!({"ok": true, "channels": [{"rf": 29, "guides": ["16.1", "16.3"]}, {"rf": 32, "guides": ["2.1"]}],
-                   "meter": {"aim": 29, "rf": 29, "tuned": true, "note": null, "signal": signal("poor", 0.13), "best": signal("fair", 0.4)}}),
+                   "meter": {"aim": 29, "rf": 29, "tuned": true, "note": null, "signal": signal("poor", 0.13, 16_777_215), "best": signal("fair", 0.4, 584_211)}}),
         );
         assert!(
             matches!(&answered(&w.ctx(), METER, &Value::Null)[..], [Op::Later { ms: 1000, then, .. }] if matches!(&then[..], [Op::Send { method: "GET", .. }])),
@@ -452,7 +453,7 @@ mod tests {
         let meter = row(&r, "meter.signal");
         assert_eq!((meter.label.as_str(), meter.value_text.as_deref(), meter.tone), ("Signal on RF 29", Some("Poor"), Tone::Danger));
         assert_eq!((meter.num.round(), meter.mark.map(f64::round)), (13.0, Some(40.0)), "the bar and the best so far");
-        assert_eq!(meter.detail, "17.8 dB · MSE 355 · 81 packet errors · BER 584211");
+        assert_eq!(meter.detail, "17.8 dB · MSE 355 · 81 packet errors · BER n/a", "a full bit error counter is no figure");
         assert_eq!(row(&r, "meter.best").detail, "Fair: 17.8 dB · MSE 355 · 81 packet errors · BER 584211");
         // leaving the page stops it: no reading asked again, and the tuner let go of
         let stop = closed(&w.ctx());

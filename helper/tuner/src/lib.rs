@@ -234,12 +234,6 @@ impl Tuner {
         self.tuning.options.lock().hidden = guides.into_iter().collect();
     }
 
-    /// Whether streams asked for from now on hold a picture broken by a weak signal over ([`splice::Program::smoothing`]): with slates
-    /// only, as it is the slates' program that leaves pictures out.
-    pub fn smooth(&self, on: bool) {
-        self.tuning.options.lock().smooth = on;
-    }
-
     /// Starts the meter that helps aim the antenna ([`meter`]) on RF channel `rf`, or on the frequency the tuner is on (`None`), or moves
     /// it there: a reading about once a second ([`Tuner::aiming`]) until it is stopped, or nobody asked for one for a few seconds.
     /// Refused while the tuner is not shared.

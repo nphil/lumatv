@@ -9,7 +9,7 @@
 //! | When | The slate | Then |
 //! |---|---|---|
 //! | the channel is being tuned and its first whole picture waited for | `Tuning 16.9 WXYZ…`, a bar | the programme at that picture |
-//! | no picture after `weak_after`, or the picture stopped for `dropout`, or a second lost `loss_weak` of its packets, or (smoothing) no clean keyframe for `frozen` | `Weak signal on 16.9`, the signal and the wait | the programme at its next whole picture, once a second has lost at most `loss_clear` |
+//! | no picture after `weak_after`, or the picture stopped for `dropout`, or a second lost `loss_weak` of its packets | `Weak signal on 16.9`, the signal and the wait | the programme at its next whole picture, once a second has lost at most `loss_clear` |
 //! | no picture for `give_up_tuning` (it never came) or `give_up` (it stopped); no lock; not in the multiplex | `No signal on 16.9` for `last_word` | the end |
 //! | the TV's own Live TV takes the tuner | `The TV is using its tuner` for `last_word` | the end; the TV has the tuner at once |
 //!
@@ -239,8 +239,6 @@ struct Play<'a> {
     pictured: Option<Duration>,
     dropouts: u32,
     lost: (u64, u64),
-    /// Since when the programme's picture has stood on its last whole one (smoothing held broken ones back).
-    frozen: Option<Duration>,
     over: Over,
     lease: Lease,
 }
@@ -263,12 +261,11 @@ impl Facade {
         let (layout, tsid) = seen.map_or_else(|| (Layout::fallback(1), 1), |s| (s.layout, s.tsid));
         let asked = (self.clock)();
         self.tuning.streaming(&entry);
-        let smooth = self.tuning.options.lock().smooth;
         let mut play = Play {
             tap: None,
             facade: self,
             show: Show {
-                program: Program::new(tsid, layout, &format).smoothing(smooth),
+                program: Program::new(tsid, layout, &format),
                 slate: Slate::new(look.clone(), &entry.guide, &entry.name, format),
                 anchor: asked,
                 frames: 0,
@@ -284,7 +281,6 @@ impl Facade {
             pictured: None,
             dropouts: 0,
             lost: (0, 0),
-            frozen: None,
             over: Over {
                 tuning: self.tuning.clone(),
                 then: Status::Idle,
@@ -328,7 +324,7 @@ impl Play<'_> {
     /// was made (the fallback's shape).
     fn unhold(&mut self, shape: Option<(Format, Layout, u16)>) {
         if let Some((format, layout, tsid)) = shape {
-            self.show.program = Program::new(tsid, layout, &format).smoothing(self.show.program.smooths());
+            self.show.program = Program::new(tsid, layout, &format);
             self.show.slate = Slate::new(self.look.clone(), &self.entry.guide, &self.entry.name, format);
         }
         self.show.anchor = self.now();
@@ -484,32 +480,20 @@ impl Play<'_> {
                 None => {
                     watch.live(&buf, now);
                     self.show.program.live(&buf, &mut self.show.out);
-                    // with smoothing on: since when the picture has stood on its last whole one, broken ones held back
-                    self.frozen = if self.show.program.frozen() { self.frozen.or(Some(now)) } else { None };
                     let stopped = now.saturating_sub(watch.seen) >= lim.dropout;
                     let broken = watch.last.is_some_and(|(share, lost)| share >= lim.loss_weak && lost >= 10);
-                    let held_over = self.frozen.filter(|t| now.saturating_sub(*t) >= lim.frozen);
-                    if stopped || broken || held_over.is_some() {
-                        let since = match held_over {
-                            _ if stopped => watch.seen,
-                            Some(t) => t,
-                            None => now,
-                        };
+                    if stopped || broken {
+                        let since = if stopped { watch.seen } else { now };
                         self.dropouts += 1;
                         log::info!(
                             "tuner: {} {}; a slate stands in",
                             self.entry.guide,
-                            match () {
-                                _ if stopped => "lost its picture",
-                                _ if broken => "is breaking up",
-                                _ => "has had no whole picture for a while",
-                            }
+                            if stopped { "lost its picture" } else { "is breaking up" }
                         );
                         let mut slate = Slate::new(self.look.clone(), &self.entry.guide, &self.entry.name, format);
                         slate.say(Says::Weak { signal: self.signal, waited: Duration::ZERO });
                         self.show.stand_in(slate, since);
                         watch.restart(now);
-                        self.frozen = None;
                         waiting = Some(since);
                     }
                 }
@@ -807,7 +791,6 @@ pub(crate) mod tests {
             give_up_tuning: Duration::from_secs(3),
             weak_after: Duration::from_secs(1),
             last_word: Duration::from_millis(500),
-            frozen: Duration::from_secs(1),
             ..Limits::default()
         }
     }
@@ -1015,35 +998,6 @@ pub(crate) mod tests {
         assert_eq!(f.lineup().unwrap().iter().map(|e| e.guide.as_str()).collect::<Vec<_>>(), ["2.4"]);
         f.tuning.options.lock().look = Some(Arc::new(|| None));
         assert!(!matches!(f.admit("2.4", PLEX), Ok(Admitted::Slated(_))));
-    }
-
-    #[test]
-    fn with_smoothing_the_programme_stands_on_its_last_whole_picture_and_the_slate_comes_when_no_clean_keyframe_does() {
-        let time = Time::default();
-        let (mut v, mut a) = (0u8, 0u8);
-        let mut chunks = vec![];
-        for n in 0..150u64 {
-            let dts = 1_000_000 + 3003 * n;
-            let mut p = picture(&mut v, dts, n % 15 == 0, format!("MARK{n:03}").as_bytes());
-            // picture 31 loses its second packet, and so does every keyframe from 45 to 120
-            if n == 31 || (n % 15 == 0 && (45..=120).contains(&n)) {
-                p.drain(PACKET..2 * PACKET);
-            }
-            chunks.push((500 + 33 * n, [p, sound(&mut a, dts)].concat()));
-        }
-        let script = Script::new(&time, chunks);
-        let f = facade(&script, Limits { give_up: Duration::from_secs(5), ..quick() });
-        f.tuning.options.lock().smooth = true;
-        let (out, _) = play(&f);
-        let pics = pictures(&out);
-        let runs: Vec<bool> = pics.iter().map(|p| p.0).collect::<Vec<_>>().dedup_by_key_into();
-        assert_eq!(runs, [false, true, false, true, false], "slate, programme, slate, programme, the last slate");
-        let number = |body: &[u8]| -> u64 {
-            let at = body.windows(4).position(|w| w == b"MARK").unwrap();
-            std::str::from_utf8(&body[at + 4..at + 7]).unwrap().parse().unwrap()
-        };
-        let shown: Vec<u64> = pics.iter().filter(|p| p.0).map(|p| number(&p.2)).collect();
-        assert_eq!(shown, (0..=30).chain(135..149).collect::<Vec<_>>(), "on picture 30 until the slate came, back at the first clean keyframe");
     }
 
     #[test]

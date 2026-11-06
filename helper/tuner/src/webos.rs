@@ -2,7 +2,7 @@
 //!
 //! - LG's `utp` frees a broadcast pipeline when the connection that opened it goes, so the pipeline is opened on a luna connection that
 //!   stays up for the stream ([`Luna::open`]); `changeChannel` on that pipeline (not `setAtscManualTuning`, which leaves the frontend where
-//!   it was) moves the frontend and the TV's last channel, and the last channel is put back at the end.
+//!   it was) moves the frontend and the TV's last channel, and the last channel is put back at the end, unless Live TV took the tuner.
 //! - The stream is the kernel's own: a second demux channel (`demux2`) takes the demod's port with the values LG's stack uses, section
 //!   filters read the PSI, and a PVR download (`dvr2`) carries the routed PIDs as 192-byte units (a 4-byte timestamp, then the packet) once
 //!   the download has been certified. The certificate is LG's documented one: the device's seed key (a call into LG's HAL, made in the
@@ -27,6 +27,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const BROADCAST: &str = "luna://com.webos.service.utp.broadcast";
 const LIVE_TV: &str = "com.webos.app.livetv";
+/// The state of a broadcast pipeline that is its opener's: once Live TV opens, LG unrealizes the helper's.
+const RENDERING: &str = "BROADCAST_STATE_RENDERING";
 /// How long a luna call may take.
 const CALL_WAIT: Duration = Duration::from_secs(10);
 /// How long the frontend gets to lock after `changeChannel`, and how often it is asked. Measured on the set on 2026-11-05: every RF channel
@@ -342,6 +344,15 @@ impl Inner {
         .map(|_| ())
     }
 
+    /// The pipeline's state as LG's broadcast service gives it: [`RENDERING`] while it is the helper's.
+    fn state(&self, id: &str) -> Result<String, Failure> {
+        let reply = self.luna(
+            &format!("{BROADCAST}/getBroadcastState"),
+            &json!({"broadcastId": id}),
+        )?;
+        Ok(reply["state"].as_str().unwrap_or("no state").to_owned())
+    }
+
     fn wait_lock(&self, id: &str) -> Result<(), Failure> {
         let end = Instant::now() + LOCK_WAIT;
         loop {
@@ -374,6 +385,32 @@ impl Inner {
             Value::Array(list) => Ok(list),
             reply if reply["returnValue"].as_bool() == Some(true) => Ok(Vec::new()),
             _ => Err(hw(format!("{uri} gave no list"))),
+        }
+    }
+
+    /// The TV's own use of the tuner: Live TV in front, or its pipeline running (with the panel off too); a TV that cannot be asked is
+    /// not known to be free.
+    fn in_use(&self) -> Option<String> {
+        let front = match self.luna(
+            "luna://com.webos.applicationManager/getForegroundAppInfo",
+            &json!({}),
+        ) {
+            Ok(front) => front,
+            Err(f) => return Some(f.reason()),
+        };
+        if front["appId"].as_str() == Some(LIVE_TV) {
+            return Some("Live TV is in front".to_owned());
+        }
+        match self.pipelines() {
+            Ok(list)
+                if list
+                    .iter()
+                    .any(|p| p["currentAppId"].as_str() == Some(LIVE_TV)) =>
+            {
+                Some("Live TV is running".to_owned())
+            }
+            Ok(_) => None,
+            Err(f) => Some(f.reason()),
         }
     }
 
@@ -513,28 +550,7 @@ impl Hardware for Tv {
     }
 
     fn in_use(&self) -> Option<String> {
-        let front = match self.inner.luna(
-            "luna://com.webos.applicationManager/getForegroundAppInfo",
-            &json!({}),
-        ) {
-            Ok(front) => front,
-            Err(f) => return Some(f.reason()),
-        };
-        if front["appId"].as_str() == Some(LIVE_TV) {
-            return Some("Live TV is in front".to_owned());
-        }
-        // Live TV's own pipeline (it unrealizes this one, and runs with the panel off too)
-        match self.inner.pipelines() {
-            Ok(list)
-                if list
-                    .iter()
-                    .any(|p| p["currentAppId"].as_str() == Some(LIVE_TV)) =>
-            {
-                Some("Live TV is running".to_owned())
-            }
-            Ok(_) => None,
-            Err(f) => Some(f.reason()),
-        }
+        self.inner.in_use()
     }
 
     fn tune(&self, channel_id: &str) -> Result<Box<dyn Tap>, Failure> {
@@ -585,7 +601,8 @@ impl Hold for Tuned {
 }
 
 /// A tuned antenna: the pipeline (its connection and id), the channel it moved and the demux tap. Dropping it gives the TV back, in the
-/// order that cannot overflow the download: the tap first, then the channel, then the pipeline, then its connection.
+/// order that cannot overflow the download: the tap first, then the channel, then the pipeline, then its connection; a pipeline the TV
+/// took is only closed.
 struct Tuned {
     inner: Arc<Inner>,
     pipeline: Option<(Held, String)>,
@@ -598,12 +615,19 @@ impl Drop for Tuned {
     fn drop(&mut self) {
         self.dvb = None;
         if let Some((held, id)) = self.pipeline.take() {
-            if self.moved {
-                let _ = self.inner.change_channel(&id, &self.previous);
+            // Measured on the set on 2026-11-05: Live TV opening unrealizes this pipeline (1.1 s after its launch), and a `changeChannel`
+            // on it then realizes it again, taking the tuner and the decoders back: LG's broadcast client dropped 0.4 s after it connected
+            // and Live TV stayed black. `stop` and `close`, or nothing, left Live TV playing. So a pipeline the TV took, or one let go while
+            // Live TV is in front or running, is only closed, and the channel stays the TV's.
+            let ours = self.inner.state(&id).is_ok_and(|s| s == RENDERING) && self.inner.in_use().is_none();
+            if ours {
+                if self.moved {
+                    let _ = self.inner.change_channel(&id, &self.previous);
+                }
+                let _ = self
+                    .inner
+                    .luna(&format!("{BROADCAST}/stop"), &json!({"broadcastId": id}));
             }
-            let _ = self
-                .inner
-                .luna(&format!("{BROADCAST}/stop"), &json!({"broadcastId": id}));
             let _ = self
                 .inner
                 .luna(&format!("{BROADCAST}/close"), &json!({"broadcastId": id}));
@@ -623,15 +647,9 @@ impl Tap for Tuned {
 
     fn taken(&mut self) -> Option<String> {
         let id = &self.pipeline.as_ref()?.1;
-        match self.inner.luna(
-            &format!("{BROADCAST}/getBroadcastState"),
-            &json!({"broadcastId": id}),
-        ) {
-            Ok(state) if state["state"].as_str() == Some("BROADCAST_STATE_RENDERING") => None,
-            Ok(state) => Some(format!(
-                "the TV took the tuner ({})",
-                state["state"].as_str().unwrap_or("no state")
-            )),
+        match self.inner.state(id) {
+            Ok(state) if state == RENDERING => None,
+            Ok(state) => Some(format!("the TV took the tuner ({state})")),
             Err(f) => Some(f.reason()),
         }
     }
@@ -968,6 +986,8 @@ mod tests {
     #[test]
     fn a_tune_that_fails_at_the_demux_puts_back_the_channel_and_closes_the_pipeline() {
         let (tv, luna) = tv();
+        *luna.state.lock() = RENDERING.into();
+        *luna.pipelines.lock() = json!({"returnValue": true, "data": "pipeline empty"});
         let failed = tv.tune("1_27_5_1_0_0_0").err();
         assert!(
             matches!(&failed, Some(Failure::Hardware(why)) if why.contains("demux")),
@@ -991,6 +1011,33 @@ mod tests {
                 && log.last().map(String::as_str) == Some("closed"),
             "moved, put back, stopped, closed, and the connection that keeps the pipeline went last: {log:?}"
         );
+    }
+
+    #[test]
+    fn a_pipeline_the_tv_took_or_is_taking_is_only_closed() {
+        for (state, front) in [("BROADCAST_STATE_UNREALIZED", "com.webos.app.home"), (RENDERING, LIVE_TV)] {
+            let (tv, luna) = tv();
+            *luna.pipelines.lock() = json!({"returnValue": true, "data": "pipeline empty"});
+            let tuned = Tuned {
+                pipeline: Some(tv.inner.open_pipeline().unwrap()),
+                inner: tv.inner.clone(),
+                previous: "1_32_2_4_0_0_0".into(),
+                moved: true,
+                dvb: None,
+            };
+            *luna.state.lock() = state.into();
+            *luna.front.lock() = front.into();
+            drop(tuned);
+            let log = luna.log.lock().clone();
+            assert!(
+                !log.iter().any(|l| l.contains("changeChannel") || l.contains("/stop")),
+                "{state}, {front} in front: Live TV's channel is not moved and nothing is stopped: {log:?}"
+            );
+            assert!(
+                log[log.len() - 2].contains("/close") && log.last().map(String::as_str) == Some("closed"),
+                "{log:?}"
+            );
+        }
     }
 
     /// A fake program; it does nothing when `settle` runs it with `probe`.

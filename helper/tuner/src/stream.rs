@@ -93,7 +93,7 @@ pub trait Hardware: Send + Sync + 'static {
     /// Who else has the tuner, if anyone: Live TV in front, or a pipeline of its own.
     fn in_use(&self) -> Option<String>;
     /// Tunes LG's `channel_id` and returns the tap of what the antenna carries. Dropping the tap lets everything go: the demux, the
-    /// pipeline, and the TV's last channel, which is put back.
+    /// pipeline, and the TV's last channel, which is put back unless the TV's own use has taken the tuner (then it is the TV's).
     fn tune(&self, channel_id: &str) -> Result<Box<dyn Tap>, Failure>;
     /// What the demodulator says of the frequency it is tuned to, if the TV says: read, nothing is touched. A slate shows it.
     fn signal(&self) -> Option<Signal> {
@@ -280,9 +280,6 @@ pub struct Limits {
     pub last_word: Duration,
     /// How long a check of every channel listens to the pictures of each RF channel: several of their whole pictures.
     pub listen: Duration,
-    /// With slates and smoothing: how long the picture may stay on its last whole picture, no clean keyframe having come since, before
-    /// the weak-signal slate stands in for it (a group of pictures is about a second on the stations measured).
-    pub frozen: Duration,
     /// The meter: how often it reads the demodulator, and how long it goes on after a reading was last asked for.
     pub meter_every: Duration,
     pub meter_lease: Duration,
@@ -309,7 +306,6 @@ impl Default for Limits {
             give_up: Duration::from_secs(120),
             last_word: Duration::from_secs(6),
             listen: Duration::from_secs(3),
-            frozen: Duration::from_secs(3),
             meter_every: Duration::from_secs(1),
             meter_lease: Duration::from_secs(5),
         }
@@ -372,12 +368,10 @@ pub(crate) struct Tuning {
 /// serves it without slates.
 pub(crate) type LookSource = Arc<dyn Fn() -> Option<Look> + Send + Sync>;
 
-/// How streams are served: with slates or without (no source), whether a picture broken by a weak signal is held over (`smooth`), and the
-/// channels the owner left out of the lineup.
+/// How streams are served: with slates or without (no source); and the channels the owner left out of the lineup.
 #[derive(Clone, Default)]
 pub(crate) struct Options {
     pub(crate) look: Option<LookSource>,
-    pub(crate) smooth: bool,
     pub(crate) hidden: HashSet<String>,
 }
 
