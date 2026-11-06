@@ -145,6 +145,15 @@ Installed 15:37 EST from 7e8b8f43 (origin and forge main) by the standard path; 
 - 16.3, 16.4 and 16.9 five times each: 0/5 each on ddfe579c (its 30-minute cache), 4/5, 5/5 and 0/5 on 7e8b8f43. Plex's transcoder at debug level found the stream info 1.5 to 2.5 s after opening 2.1, 17.3, 5.1 and 16.4, with no "Invalid frame dimensions" (1 to 3 a probe on ddfe579c).
 - Not done: the Guide data plugin's switch-on in Settings (30311, Plex then the free listings). Receipts: `/data/home/tmp/lumatv-tv-20261105g/` (not in git).
 
+## Plex QR sign-in 2026-11-05 (night, main bf40856b)
+
+Installed 20:11-20:14 EST from bf40856b (origin and forge main) by the standard path, with Nitin's app (`com.beb.plxnative`) in front; it was relaunched after. Installed sha256: compositor `28f9286c9035ddeaf52264a519d72974b4d4635b913ad9bcb4ae904b36fcfb24`, ui `e879bdfad03b098dab4ab83bc2ebba4db37bea567475f00d1b8d3c34dc01181f`, sm `65f6ca69eb6da66cbfb139817803d0c1e01b03931fe373894b123c3f64df13da`, helper `2ed2d64527695c91c63bf85a9ffac09cee02549bc494af2b78c529695869e811`. Failures 0; check-boot's activation line is absent without a reboot. f7226459's helper (aedf49c2) replaced this helper later the same evening.
+
+- Guide data's Plex address and token became the Plex account's on the first start: `plex/account.json` 0600 (keys server, servers, token, user), `guide/secrets.json` empty, no `plex.` key left in `guide-data.json`; the client identifier is PlexConnect's `lumatv-LGwebOSTV`. plex.tv named the account (nphilip89) and its server BeastNAS at 192.168.1.69:32400; Plex also lists the server's Docker bridges (172.17-21.0.1) as local connections, so the address nearest the TV's own is taken. Guide data's page says "BeastNAS (192.168.1.69:32400)".
+- Settings › Inputs & devices › Plex: "Signed in as nphilip89" and the server; Sign in showed code DFTS with a QR code that decodes from the panel capture to `https://plex.tv/link/?pin=DFTS` (Plex's own QR for a PIN carries the same address). The helper's curl children were seen 2 s apart while the code showed; Cancel went back to signed in. No link was completed and Sign out was not run (it would revoke the token).
+- ea8f2f49 keeps the account's server in use while a new code shows (bf40856b dropped Guide data's Plex source for that time).
+- Untested: a phone completing a link, Sign out, the Photos handoff (no Photos plugin on the TV). Receipts: `/data/home/tmp/lumatv-plexqr-20261105/` (not in git).
+
 ## Tuner page, slate shape, guide fall-through 2026-11-05 (night, main 65976a62)
 
 fc6cf188 went on the set with IdleRegress's install of de53f401 (17:47: compositor `0f805697`, ui `25ec25dd`, sm `65f6ca69`); 65976a62 replaced only the helper at 18:23 by the standard helper start: helper sha256 `f4ffd934e1d6d2141b9e1dc80dd58fbc4cae2c0ea5d8705d33a8e526053b1674` (was `d254cf9b`). Failures 0, settled; check-boot's activation line is absent after a helper-only restart.
