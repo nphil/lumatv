@@ -503,6 +503,8 @@ close_input_apps() {
   # tvq-pb-101 until the input is launched and closed again. Measured 2026-10-26: bootd put the last input
   # (hdmi2) in front at 16 s, the boot restart at 37 s took it down, and every Netflix start of that boot
   # failed; a restart with hdmi2 in front left the same port, one with no signal on the input (Start=0) did not.
+  # A restart to LG's compositor (`cutover disable`) leaves it the same way: hdmi2 in the background died with it
+  # (exit 11) and Marquee could not play until the port was released, 2026-11-05.
   # Ended through SAM the app closes the port itself; the wait is for that.
   ci_apps=$(input_apps_running)
   [ -n "$ci_apps" ] || return 0
@@ -544,7 +546,7 @@ restart_surface() {
   i=0; while comp_recovering && [ "$i" -lt 180 ]; do sleep 1; i=$((i+1)); done
   if comp_recovering; then log_line "restart: a recovery of LG's Home is still running, the compositor is not restarted"; return 2; fi
   if [ "${2:-}" = standby ] && ! panel_is_active_standby; then return 2; fi
-  [ "${1:-}" = stock ] || close_input_apps "restart"
+  close_input_apps "restart"
   WAM_STAMP0=$(wam_stamp)
   reports_before=$(snapshot_reports)
   if [ "${1:-}" = native ] && [ -e "$COMP/stock-ui-held" ]; then return 1; fi
@@ -2120,6 +2122,15 @@ verb_inputs() {
       close_input_apps "inputs release"
       case "$ir_front" in ''|"$ir_app") ir_front=$HOME_APP_ID ;; esac
       luna-send -n 1 "$HOME_LAUNCH_URI" "{\"id\":\"$ir_front\"}" >/dev/null 2>&1
+      # The launch wakes the device behind the input through CEC (Set Stream Path); once awake it claims Active Source
+      # and LG's eim launches the input again, which opens the port anew: 5.5 s after the close, both times on
+      # 2026-11-05 (the Apple TV behind HDMI 2). The input that comes back is ended again and the front app put back.
+      ir_i=0
+      while [ "$ir_i" -lt 10 ] && [ -z "$(input_apps_running)" ]; do sleep 1; ir_i=$((ir_i+1)); done
+      if [ -n "$(input_apps_running)" ]; then
+        close_input_apps "inputs release: the input came back when its device woke"
+        luna-send -n 1 "$HOME_LAUNCH_URI" "{\"id\":\"$ir_front\"}" >/dev/null 2>&1
+      fi
       if input_decoder_held >/dev/null; then
         log_line "inputs release: $ir_app launched and closed, the port is still open"
         printf '{"ok":false,"released":false,"reason":"the port is still open after %s was launched and closed","inputs":%s}\n' "$ir_app" "$(inputs_json)"

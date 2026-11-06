@@ -41,7 +41,8 @@ def input_app_ids():
 
 # SAM as far as these functions use it: `running` lists Home and the ids in $d/running; closeByAppId drops the id and, when
 # $d/release exists, closes the held port the way the app's own teardown does; launch puts the app in front (an input app
-# also becomes running); the foreground is $d/fg.
+# also becomes running); the foreground is $d/fg. $d/eim names an input LG's eim launches again (its port open) once,
+# at the next launch of another app: the device the input's launch woke claiming Active Source.
 LUNA = r'''#!/bin/sh
 d="%s"
 case "$3" in
@@ -59,14 +60,21 @@ case "$3" in
     id=$(echo "$4" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
     echo "launch $id" >> "$d/calls"
     echo "$id" > "$d/fg"
-    case "$id" in com.webos.app.hdmi*|com.webos.app.livetv) echo "$id" >> "$d/running" ;; esac
+    case "$id" in
+      com.webos.app.hdmi*|com.webos.app.livetv) echo "$id" >> "$d/running" ;;
+      *) if [ -e "$d/eim" ]; then
+           e=$(cat "$d/eim"); rm "$d/eim"
+           echo "eim launch $e" >> "$d/calls"; echo "$e" >> "$d/running"; echo "$e" > "$d/fg"
+           printf 'AdecPortNum=1\nOpen=1\nConnect=HDMI_PORT2\nStart=1\n' > "$d/adec/adec.p1"
+         fi ;;
+    esac
     echo '{"returnValue":true}' ;;
 esac
 '''
 
 
 class Base(unittest.TestCase):
-    def run_sh(self, body, running=(), port1=None, fg="com.webos.app.home", release=True):
+    def run_sh(self, body, running=(), port1=None, fg="com.webos.app.home", release=True, eim=None):
         """port1: None for a closed port, else the Connect value of an open one."""
         with tempfile.TemporaryDirectory() as d:
             os.mkdir(os.path.join(d, "bin"))
@@ -87,6 +95,9 @@ class Base(unittest.TestCase):
                 f.write(fg + "\n")
             if release:
                 open(os.path.join(d, "release"), "w").close()
+            if eim:
+                with open(os.path.join(d, "eim"), "w") as f:
+                    f.write(eim + "\n")
             script = (
                 'set -u\nd="%s"\nPATH="$d/bin:$PATH"\nADEC_PROC=$d/adec\nSHORT_ID=lumatv\n%s\n'
                 'HOME_LAUNCH_URI=luna://com.webos.applicationManager/launch; HOME_APP_ID=com.webos.app.home\n'
@@ -110,7 +121,7 @@ class Base(unittest.TestCase):
 
 class BeforeTheRestart(Base):
     def test_a_running_input_is_ended_through_sam_before_the_compositor_goes_down(self):
-        r, calls, log = self.run_sh("restart_surface; echo rc=$?\n", running=["com.webos.app.hdmi2"], port1="HDMI_PORT2")
+        r, calls, log = self.run_sh("restart_surface stock; echo rc=$?\n", running=["com.webos.app.hdmi2"], port1="HDMI_PORT2")
         self.assertIn("rc=0", r.stdout, r.stderr)
         self.assertEqual(calls[:2], ["close com.webos.app.hdmi2", "systemctl restart surface-manager-daemon.service"])
         self.assertTrue(any("restart: input app(s) ended through SAM: com.webos.app.hdmi2 (decoder port closed after 0 s)" in l
@@ -159,6 +170,14 @@ class InputsVerb(Base):
         self.assertIn("rc=0", r.stdout)
         self.assertEqual(calls, ["launch com.webos.app.hdmi2", "close com.webos.app.hdmi2", "launch com.webos.app.home"])
         self.assertTrue(any("inputs release: com.webos.app.hdmi2 launched and closed, the port is free" in l for l in log), log)
+
+    def test_an_input_eim_launches_again_after_the_release_is_ended_and_the_front_app_put_back(self):
+        r, calls, log = self.run_sh("verb_inputs release; echo rc=$?\n", port1="HDMI_PORT2", fg="com.beb.plxnative",
+                                    eim="com.webos.app.hdmi2")
+        self.assertIn('"released":true', r.stdout, r.stderr)
+        self.assertIn('"running":[]', r.stdout)
+        self.assertEqual(calls, ["launch com.webos.app.hdmi2", "close com.webos.app.hdmi2", "launch com.beb.plxnative",
+                                 "eim launch com.webos.app.hdmi2", "close com.webos.app.hdmi2", "launch com.beb.plxnative"])
 
     def test_release_with_nothing_held_does_nothing(self):
         r, calls, log = self.run_sh("verb_inputs release\n")
