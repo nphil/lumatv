@@ -1,3 +1,5 @@
+// the planner's own file, compiled into this test: the renderer uses all of it, the test only part
+#[allow(dead_code)]
 #[path = "../src/backdrop/plan.rs"]
 mod backdrop_plan;
 
