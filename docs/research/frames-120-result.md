@@ -4,6 +4,22 @@
 
 On forge main (round 24's engine work):
 
+- **The card glass, 2026-11-05 night** (ed45a97c on the set, owner's theme with the Glazed card glass, `/data/home/tmp/lumatv-widgets-20261105/gate/`, rings in
+  `gate/rings/`: home-widgets 0 dropped and 0 intervals, quick 0 and 0, settings-scroll 2 and 0).
+  - **The drops of 82996a22 and f7226459 (home-widgets 64/38 and 58/34) were the glass, not either commit.** The owner switched the card glass from Liquid to
+    Glazed at 19:29, after de53f401's gate (Liquid, 0/0) and before both. On the host with the owner's layout, f7226459 had 14 frames over 80 layers under
+    Liquid and 86 under Glazed; de53f401's UI 89 under Glazed.
+  - **The cause.** Glazed and Frosted blur the page under each pane (`Backdrop::Cached`, a picture of the layers below at rest) where Clear and Liquid read
+    the wallpaper's prepared set. The dock and the status bar shared the cards' lit glass's picture, which has the cards in it, so every focus that dimmed or
+    lifted a card made it again and drew the dock and the status bar whole: 1.93 Mpx, 95 layers and 300-400 UI draws in the set's frames (the set's GPU
+    time follows the draws, about 0.02 ms each); on the host the status buttons' picture (everything below them) was made again in 88 frames of the walk.
+  - **The fix** (035c5610, `rustui/render/src/backdrop`): a cached picture has no glass surface's shadows in it, so only a glass body drawn since keeps a
+    cached surface from sharing one, and a cached surface shares the earliest picture right on its body (the cards' picture of the wallpaper, for the dock
+    and the status bar); a cached picture's fingerprint is of the layers under a user's body. Host, home-widgets: frames over 80 layers 90 -> 10 (Liquid 10),
+    pictures made 136 -> 42, UI draws 55.1k -> 35.6k (Liquid 31.6k), every frame the frame drawn whole; the dock's top edge loses the cards' blurred spill
+    (8 levels in 255 at most). The calm commit hold (82996a22) is back (ed45a97c) and dropped nothing under Glazed.
+  - Idle Home under Glazed is 11.11 % of a core against 6.10 % under Liquid on the same build (`docs/HANDOFF.md`, this session).
+
 - **Session 11's gate** (543ba636 on the set, 120 Hz, `/data/home/tmp/lumatv-tv-20261105e/gate/`, rings and traces in `/tmp/perf/gate-tvs11-*`: home-idle,
   home-dpad and quick passed; settings-scroll 8 dropped and 1 burst interval over a refresh and a fifth, home-widgets 5 dropped with the trace reading 0, and 2).
   - **home-widgets: the ring's 5 are real, the trace's 0 and its 2 intervals are not.** Up out of the dock into the cards (+4.63 s of the walk in cycles 1

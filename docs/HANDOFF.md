@@ -29,6 +29,15 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Glazed glass at 120 Hz, the calm commit hold back 2026-11-05 (night, main ed45a97c)
+
+Installed 21:44 EST from ed45a97c (origin and forge main) by the standard path: the compositor bundle only, `lumatv inputs release` after the compositor restart (released: true). Installed sha256: compositor `c676f650ea9d7e82b5c87ccb88587ffc55a68b76a57844570537eb7058993ee5`, ui `67a45a21d18b1d36c3dffd0e92190775a42ce3af5411f7baa80b5539d05380f1`, sm `65f6ca69` (unchanged); helper `cbd18df8` and `tools/lumatv` `56899321` untouched. Replaced: compositor `e9b1702d`, ui `7a81895c`. Receipts: `/data/home/tmp/lumatv-widgets-20261105/` (`session.log`, `gate/` with the rings in `gate/rings/`, `idle-wb-*`).
+
+Checks, owner's theme with the Glazed card glass, 120 Hz, 3 cycles each:
+- home-widgets 0 dropped and 0 intervals over 20 ms after a frame of a motion (f7226459 under Glazed: 58 and 34; de53f401 under Liquid: 0 and 0); quick 0 and 0 (2 and 2); settings-scroll 2 and 0 (18 and 0), within the re-gate's allowance of 3. The calm commit hold is back and dropped nothing under Glazed.
+- Idle Home, 60 s, same build: Glazed compositor 7.65 % and UI 3.46 % of a core (11.11 %, 18.8 flips a second), Liquid 3.84 % and 2.26 % (6.10 %, 13.9 flips a second; the glass switched with `theme set` and the theme files put back byte for byte). Under Glazed the idle frames were mostly the moving wallpaper's steps, each the whole screen with 94 layers, about 10 a second (the ring at 22:05); the backdrops' own time per frame fell from 813 µs (82996a22 under Glazed) to 1 µs.
+- The release launched HDMI2, which woke the Apple TV over CEC and came to the front; HDMI2 was closed with `closeByAppId` before the gate and Plex put back in front at the end. A gate run cut off at 21:47 left the pop-ups off, the refresh at 120 and the wallpaper's motion off: all put back, the theme files byte-identical.
+
 ## Live TV over the tuner, BER n/a, Hide broken pictures removed 2026-11-05 (night, main 8454edf4)
 
 Installed 21:36 EST from 8454edf4 (origin and forge main) by the standard path, with `lumatv inputs release` after the compositor restart (released: true). Installed sha256: compositor `e9b1702da714e3abcb1a64e77f2416d95a693f7c4f5a16c319b61f476c4682ff`, ui `7a81895c951fab09fb9563f7f34ba5ed7654b7801d0d29537c364954e1ae5c97`, sm `65f6ca69` (unchanged), helper `cbd18df839b26fa5ecdd33982ea186bce0d2ac79b366646dab7f09e1ea4a305e`, `tools/lumatv` `56899321` (unchanged). Replaced: compositor `898ccab5`, ui `8b3eadd7`, helper `2c537463`. Receipts: `/data/home/tmp/lumatv-tuneryield-20261105/`.
