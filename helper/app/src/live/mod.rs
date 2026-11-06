@@ -1186,8 +1186,8 @@ struct Inner {
     pipes: Mutex<Pipes>,
     /// How long the ES player has to take its first picture (`ES_FIRST_PICTURE`).
     es_window: Duration,
-    /// How long a live stream has to send something before it is dialled again (`FIRST_DATA`).
-    first_data: Duration,
+    /// The reader's clock for a stream's silences: `Instant::now` on the set; a test runs one ahead of it.
+    now: Arc<dyn Fn() -> Instant + Send + Sync>,
 }
 
 impl Inner {
@@ -1246,7 +1246,7 @@ impl Live {
                 sizes: Mutex::new(Sizes::default()),
                 pipes: Mutex::new(Pipes::default()),
                 es_window: ES_FIRST_PICTURE,
-                first_data: FIRST_DATA,
+                now: Arc::new(Instant::now),
             }),
         };
         let view = me.view();
@@ -2167,7 +2167,7 @@ fn read_stream(
     let mut redials = u8::from(mode == Mode::Live && !plan.battery);
     let outcome = loop {
         // only a stream that may be dialled again is given up on after `FIRST_DATA`; the last dial keeps the whole `QUIET`
-        let first_data = (redials > 0).then_some(inner.first_data);
+        let first_data = (redials > 0).then_some(FIRST_DATA);
         let outcome = read_once(inner, session, &plan, epoch, stop, waker, first_data);
         // a live stream that sent nothing, fell behind or dropped is dialled again, once
         if matches!(outcome, Ended::Silent | Ended::Behind | Ended::Lost(_))
@@ -2181,7 +2181,7 @@ fn read_stream(
                     "cameras: live session {} on camera {}: nothing came in {} ms; dialled again",
                     session.id,
                     plan.camera,
-                    inner.first_data.as_millis()
+                    FIRST_DATA.as_millis()
                 );
             }
             // the old connection is closed by now; a moment, so that the sender has let go of it
@@ -2302,7 +2302,7 @@ fn read_once(
         if !waiting.is_empty() {
             continue;
         }
-        let now = Instant::now();
+        let now = (inner.now)();
         if rtsp.keepalive_due(now)
             && let Err(e) = rtsp.send_keepalive()
         {
@@ -2793,7 +2793,7 @@ mod tests {
             sizes: Mutex::new(Sizes::default()),
             pipes: Mutex::new(Pipes::default()),
             es_window: Duration::from_millis(150),
-            first_data: FIRST_DATA,
+            now: Arc::new(Instant::now),
         });
         let session = test_session(1, &inner, SMALL);
         *inner.session.lock() = Some(session.clone());
@@ -3107,7 +3107,7 @@ mod tests {
             sizes: Mutex::new(Sizes::default()),
             pipes: Mutex::new(Pipes::default()),
             es_window: ES_FIRST_PICTURE,
-            first_data: FIRST_DATA,
+            now: Arc::new(Instant::now),
         });
         let (stop, waker) = (AtomicBool::new(false), Waker::new().unwrap());
         let session = test_session(1, &inner, SMALL);
@@ -3145,7 +3145,8 @@ mod tests {
             sizes: Mutex::new(Sizes::default()),
             pipes: Mutex::new(Pipes::default()),
             es_window: ES_FIRST_PICTURE,
-            first_data: Duration::from_millis(100),
+            // `FIRST_DATA` ahead: the first connection, silent from its PLAY, is given up on at once; the second still has 6 s before `QUIET`
+            now: Arc::new(|| Instant::now() + FIRST_DATA),
         });
         let session = test_session(1, &inner, SMALL);
         let plan = Plan { url: camera.url(), ..live_plan(false) };
@@ -3154,17 +3155,15 @@ mod tests {
             let (inner, session, stop, waker) = (inner.clone(), session.clone(), stop.clone(), waker.clone());
             thread::spawn(move || read_stream(&inner, &session, plan, Hangup::new(None), 0, &stop, &waker))
         };
-        let began = Instant::now();
         let got = loop {
-            match session.queue.take(Duration::from_secs(2)) {
+            match session.queue.take(Duration::from_secs(5)) {
                 Taken::Item(Item::Unit(unit)) => break Some(unit),
                 Taken::Item(_) => {}
                 _ => break None,
             }
         };
-        assert!(got.is_some_and(|u| u.key), "the second dial's picture is queued");
+        assert!(got.is_some_and(|u| u.key), "the second dial's picture is queued: the first given up on after `FIRST_DATA`, not `QUIET`");
         assert_eq!(camera.connections(), 2);
-        assert!(began.elapsed() < Duration::from_secs(1), "given up on after `first_data`, not `QUIET`: {:?}", began.elapsed());
         stop.store(true, Ordering::SeqCst);
         waker.wake();
         reader.join().unwrap();
