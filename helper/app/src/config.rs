@@ -157,6 +157,9 @@ pub struct Config {
     /// The brand's QML module (from `brand.json`, set by the command line): where the packaged `art` folder is.
     #[serde(skip)]
     pub brand_qml_module: Option<String>,
+    /// What the file had that is no longer read, in words for the log: said by `open_log` once the log exists (`parse` runs before it).
+    #[serde(skip)]
+    pub old_keys: Vec<String>,
 }
 
 impl Default for Config {
@@ -184,6 +187,7 @@ impl Default for Config {
             allowed_origins: Vec::new(),
             brand_app_id: None,
             brand_qml_module: None,
+            old_keys: Vec::new(),
         }
     }
 }
@@ -863,36 +867,38 @@ const OLD_KEYS: [(&str, &[&str], &str); 2] = [
     ),
 ];
 
-/// The document without the keys of [`OLD_KEYS`], when it had any (and says which in the log); `None` when it had none or is not JSON.
-fn without_old_keys(text: &str) -> Option<serde_json::Value> {
+/// The document without the keys of [`OLD_KEYS`] and a line for the log on each section that had any; `None` when it had none or is
+/// not JSON.
+fn without_old_keys(text: &str) -> Option<(serde_json::Value, Vec<String>)> {
     let mut value: serde_json::Value = serde_json::from_str(text).ok()?;
-    let mut any = false;
+    let mut said = Vec::new();
     for (section, keys, why) in OLD_KEYS {
         let Some(table) = value.get_mut(section).and_then(serde_json::Value::as_object_mut) else {
             continue;
         };
         let dropped: Vec<&str> = keys.iter().copied().filter(|key| table.remove(*key).is_some()).collect();
         if !dropped.is_empty() {
-            any = true;
-            crate::log_warn!("helper.json: {section}.{} {why}", dropped.join(&format!(", {section}.")));
+            said.push(format!("helper.json: {section}.{} {why}", dropped.join(&format!(", {section}."))));
         }
     }
-    any.then_some(value)
+    (!said.is_empty()).then_some((value, said))
 }
 
 impl Config {
     /// Parses a config document and checks what serde cannot. A file written before a switch moved to Settings (the TV's own was
-    /// `{"cameras": {"enabled": true}, "onhome": {"enabled": true}}`) is read all the same: the keys no longer read are dropped, once,
-    /// and are said in the log; a refused config would be a helper that does not start after the update.
+    /// `{"cameras": {"enabled": true}, "onhome": {"enabled": true}}`) is read all the same: the keys no longer read are dropped and
+    /// listed in `old_keys`; a refused config would be a helper that does not start after the update.
     pub fn parse(text: &str) -> Result<Self, ConfigError> {
         let config: Self = match serde_json::from_str(text) {
             Ok(config) => config,
             Err(first) => {
-                let Some(value) = without_old_keys(text) else {
+                let Some((value, said)) = without_old_keys(text) else {
                     return Err(ConfigError(format!("helper.json: {first}")));
                 };
-                serde_json::from_value(value)
-                    .map_err(|e| ConfigError(format!("helper.json: {e}")))?
+                let mut config: Self = serde_json::from_value(value)
+                    .map_err(|e| ConfigError(format!("helper.json: {e}")))?;
+                config.old_keys = said;
+                config
             }
         };
         config.check()?;
@@ -1477,6 +1483,14 @@ mod tests {
     fn a_helper_json_written_before_the_switches_moved_to_settings_is_read_and_its_old_keys_are_ignored() {
         // the file the TV has today
         let config = Config::parse(r#"{"cameras":{"enabled":true},"onhome":{"enabled":true}}"#).unwrap();
+        assert_eq!(
+            config.old_keys,
+            vec![
+                "helper.json: cameras.enabled belonged to the Home Assistant camera path and is ignored (the cameras come through Scrypted now)",
+                "helper.json: onhome.enabled is ignored: On Home follows the Home Assistant plugin's switch in Settings now",
+            ]
+        );
+        assert!(Config::parse("{}").unwrap().old_keys.is_empty());
         assert!(config.cameras.live);
         assert_eq!(
             (config.cameras.frame_hold_ms, config.onhome.port),

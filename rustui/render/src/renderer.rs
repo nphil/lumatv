@@ -3134,6 +3134,26 @@ impl Renderer {
             }
         }
 
+        // The pictures this target draws are up to date before it is drawn. The frame's upload (`draw_frame`) skips what the frame as a
+        // whole hides, but a plane drawn on its own draws its layers whatever covers them on the planes over it, and a host's floor keeps
+        // what it drew: an image layer under the saver had no texture yet, sampled as opaque black, and the floor kept the black.
+        for &k in &members {
+            let layer = &layers[self.jobs[k].layer];
+            let picture = match layer.content {
+                Content::Image => true,
+                Content::Wallpaper(wallpaper) => wallpaper.kind.uses_image(),
+                _ => false,
+            };
+            if picture
+                && sights[k].area().is_some_and(|area| drawn_region.overlaps(&area))
+                && let Some(texture) = self.textures.get_mut(&layer.id)
+                && texture.dirty.is_some()
+            {
+                texture.used = self.frame;
+                upload_timed(&self.gl, texture, report);
+            }
+        }
+
         // Glass that stands still is shown from plates (`ideas::STILL_GLASS`): which surfaces, and whose pictures are made.
         let drawn_groups: Vec<bool> = frame
             .plan

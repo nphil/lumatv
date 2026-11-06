@@ -281,6 +281,9 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
             let events = doc.get_mut("events").and_then(Value::as_array_mut).map(std::mem::take).unwrap_or_default();
             let n = events.len();
             for mut e in events {
+                if !retained(&e) {
+                    continue;
+                }
                 let topic = e.get("topic").and_then(Value::as_str).unwrap_or("").to_string();
                 let event_seq = e.get("seq").cloned().unwrap_or(Value::Null);
                 let mut data = e.get_mut("data").map(std::mem::take).unwrap_or(Value::Null);
@@ -302,6 +305,13 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
             }
         }
     }
+}
+
+/// Whether an event of `/v1/events` carries its topic's new value. Only `changed` does: the helper's other kinds (`posted` with the one
+/// notification a plugin posted, `retired` on settings) are notices on the topic that leave its value as it was. Taken as the value, a
+/// `posted` replaced the plugin's list with one bare item, and the bell counted nothing.
+fn retained(event: &Value) -> bool {
+    event.get("kind").and_then(Value::as_str).is_none_or(|kind| kind == "changed")
 }
 
 fn send_loop(port: u16, token: Option<String>, rx: Receiver<Outbound>, tx: Sender<Event>) {
@@ -342,6 +352,19 @@ mod tests {
         assert_eq!(follow_filter("screen", &Value::Null).as_deref(), Some("screen"), "no roster yet: the base list");
         let many = json!({"plugins": [{"id": "a", "state": "connected"}, {"id": "b", "state": "connected"}, {"id": "c", "state": "connected"}, {"id": "d", "state": "connected"}]});
         assert_eq!(follow_filter("screen,receiver,plugins", &many), None, "past the helper's 16 names: every topic");
+    }
+
+    #[test]
+    fn only_a_changed_event_is_the_topic_value() {
+        let item = json!({"id": "ha-http-login", "receivedAt": 1793996854, "post": {"title": "Login attempt failed"}});
+        let events = [
+            json!({"seq": 177, "kind": "changed", "topic": "plugin.home-assistant.notifications", "data": {"items": [item.clone()]}}),
+            json!({"seq": 179, "kind": "posted", "topic": "plugin.home-assistant.notifications", "data": item}),
+            json!({"seq": 180, "kind": "retired", "topic": "settings", "data": {"owner": "x"}}),
+        ];
+        let kept: Vec<u64> = events.iter().filter(|e| retained(e)).filter_map(|e| e["seq"].as_u64()).collect();
+        assert_eq!(kept, vec![177]);
+        assert!(retained(&json!({"seq": 2, "topic": "receiver", "data": {}})), "an event without a kind is a value");
     }
 
     /// The helper as it is (`helper/app/src/http.rs`): one request a connection, `Connection: close` and the socket shut after the answer,

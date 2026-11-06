@@ -312,6 +312,46 @@ fn a_home_that_has_stopped_changing_asks_for_no_more_frames() {
     let _ = std::fs::remove_dir_all(&shm);
 }
 
+/// A picture made in stack 0 while an opaque layer of stack 1 covers everything (the saver over Home): the frame does not upload it, since
+/// nothing of it shows, but the floor draws stack 0 on its own and keeps what it drew. A picture without its texture sampled as opaque
+/// black in the floor, and Home kept a black box where it was once the saver had gone.
+#[test]
+fn a_picture_made_under_the_saver_is_in_the_floor() {
+    software_gl();
+    let host = Gles::software_pbuffer(LIB, W, H).expect("a software GL");
+    let page = host.new_render_target(W, H).expect("a page");
+    // SAFETY: the host's context is current on this thread and outlives the engine.
+    let wrapped = unsafe { Gles::current(LIB) }.expect("the current context");
+    let shm = std::env::temp_dir().join(format!("lumatv-embedded-saver-{}", std::process::id()));
+    std::fs::create_dir_all(&shm).expect("a shm dir");
+    let (mut engine, app_end) = Engine::new(
+        wrapped,
+        HostConfig { width: W, height: H, refresh_hz: 60.0, shm_dir: shm.clone(), direct: false, gpu_sync: false, idle_trim: false, pages: 0, reference: false, blit: false, external: true, system_z: 100 },
+    )
+    .expect("an engine in the host's context");
+    let (scene, _welcome, events) = ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(shm.clone()), ..SceneOptions::default() }).expect("a scene");
+    engine.finish_handshake().expect("the handshake");
+    let ui = Ui::new(scene);
+    let _ground = ui.scene.shape(W, H, 0, solid(0.0, 24, 28, 44, 255), Props::at(0.0, 0.0));
+    let _saver = ui.scene.shape(W, H, 100, solid(0.0, 0, 0, 0, 255), Props::at(0.0, 0.0));
+    // across the middle row, which is the same row read from either end
+    let mut picture = ui.scene.image(100, 100, 2, Props::at(400.0, 490.0)).expect("a picture");
+    for px in picture.pixels_mut().chunks_exact_mut(4) {
+        px.copy_from_slice(&[200, 40, 40, 255]);
+    }
+    picture.damage(None);
+    let _ = ui.try_commit().expect("a commit");
+    while events.try_recv().is_ok() {}
+    engine.pump().expect("pump");
+    engine.plan(lumatv_render::now_ns()).expect("plan");
+    engine.draw_stack(0, page.framebuffer, &[[0, 0, W as i32, H as i32]]).expect("stack 0");
+    let cost = engine.finish().expect("finish");
+    assert_eq!(cost.gl_error, None);
+    host.bind_framebuffer(page.framebuffer);
+    assert_eq!(host.read_pixels(450, 540, 1, 1), [200, 40, 40, 255], "stack 0 has the picture where the saver covers it");
+    let _ = std::fs::remove_dir_all(&shm);
+}
+
 /// A frame takes a scope of the compositor's context state (`Gles::enter` and `leave`, some eighty calls into the driver) for each of the engine's
 /// calls that reaches the GL: the stack it draws, and the planning of a frame that has a picture to copy to its texture. A frame that only moves a layer
 /// plans, ends and tidies in no scope: the sky's restating of its paths, a wallpaper's step, a hand that turns.

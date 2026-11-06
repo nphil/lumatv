@@ -403,12 +403,16 @@ struct Held {
     owner: u32,
 }
 
-/// Opens the log and makes it the process's. `false` after saying why to the starter.
+/// Opens the log and makes it the process's, then says what the config file had that is no longer read. `false` after saying why
+/// to the starter.
 fn open_log(config: &Config, ready: &mut Option<File>) -> bool {
     let level = Level::parse(&config.log.level).unwrap_or(Level::Info);
     match Logger::new(level) {
         Ok(logger) => {
             log::init(logger);
+            for line in &config.old_keys {
+                crate::log_warn!("{line}");
+            }
             true
         }
         Err(e) => {
