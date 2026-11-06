@@ -2129,6 +2129,7 @@ impl Renderer {
                 sample_now: sample_in(View::Now),
                 sample_rest: sample_in(View::Rest),
             }),
+            body: matches!(layer.content, Content::Glass(_)).then(|| body_in(View::Rest)),
         }
     }
 
@@ -2725,7 +2726,7 @@ impl Renderer {
         });
         let fingerprints: Vec<u64> = plan
             .iter()
-            .map(|b| backdrop::fingerprint(&plan_layers, b.upto, b.radius, b.downsample))
+            .map(|b| backdrop::fingerprint(&plan_layers, b))
             .collect();
         let casts = Casts::of(&plan, layers.len());
         let stale: Vec<bool> = plan
