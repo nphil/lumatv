@@ -139,60 +139,67 @@ synthetic-state instruction executions; all 598 bytes match the live firmware
 image. Downstream timing-table code has a 144 Hz branch. A universal
 display-firmware 120 Hz ceiling is therefore incorrect.
 
-### What is not yet traced
+### VO HFR enable decision (proven offline)
 
-The **VDEC VO (video output) layer** reapplies a 120 Hz presentation cap.
-A 120000 (120 fps × 1000) literal at `0x505a6b0c` is referenced by two code
-paths (`0x505a6dca` in `vdisp_set_frame_rate` and `0x505bca59`). Neither
-path has been disassembled or executed with synthetic state. The plan's 144
-section is therefore a hypothesis about where the cap lives, not a traced
-mechanism.
+The VO HFR enable function at `0x505e242a` sets a flag (bit1 of the output
+descriptor at struct+44) under two conditions:
 
-The VO HFR decision prints `"vo:%p, enable hfr mode (%dx%d) c(%d/%d)
-e(%d/%d)"` comparing current vs expected rate. What triggers HFR enablement
-at 144 is not established.
+1. `vo_force_hfr != 0` — debug force, bypasses all checks
+2. Normal path: resolution > QHD (`w×h > 2764800`) AND fps > 60
+
+For 4K144 (`3840×2160 = 8294400 > 2764800`, `144 > 60`), both checks pass.
+The HFR flag **is already set** for 4K144.
+
+### Where the 120 cap actually is
+
+The 120000 literal at `0x505a6b0c` has zero `l32r` code references — it is
+a value in a data table, not a code literal pool entry. The earlier claim
+that it caps the rate via code at `0x505a6dca` was incorrect; that address
+is also in a data table.
+
+Since the VO HFR flag is set for 4K144, the 120 Hz cap is **downstream**
+of the VO layer, in the DE output timing generator. The DE rate selector
+(proven offline) returns 144 with readiness = 0, but the host-side DE
+output timing setup (`DE_IO_SetFrRate`, `DE_REG_O22_SetFrRate`) may
+configure the panel for 120. The cap is likely in the negotiation between
+the VDEC VO timing report and the DE output configuration.
 
 ### Viable approach (ordered by risk)
 
 **A. PTS / VUI rewriting (lowest risk, no firmware access)**
 
-If the VO rate estimator sees 144 fps from PTS spacing or SPS VUI timing, it
-may enable HFR mode at 144 without any privileged calls. The test fixture
-carries VUI with `num_units_in_tick=1, time_scale=144`. Real GFN NVENC
-streams often omit VUI timing, so the PTS estimator (`esFPS` / `contFPS`)
-determines the rate.
+The TV estimates frame rate from SPS VUI timing or PTS spacing. The test
+fixture carries VUI with `num_units_in_tick=1, time_scale=144`. Real GFN
+NVENC streams often omit VUI timing, so the PTS estimator (`esFPS` /
+`contFPS`) determines the rate. If the feeder rewrites PTS spacing to
+1/144s, the VO estimator may report 144 to the DE, which would then call
+`DE_IO_SetFrRate` with a 144 Hz target.
 
-Test: rewrite PTS spacing to 1/144s in the feeder before NDL Play calls.
-Check whether the VO enables HFR mode and presents at 144.
+**B. DE_IO_SetHighFrameRate + DE_IO_SetFrRate (medium risk)**
 
-**B. VDEC debug parameters via IPC (medium risk)**
+`DE_IO_SetHighFrameRate` sends DE IPC command 0x63. `DE_IO_SetFrRate`
+configures the actual output timing. Both are host-callable through the
+DE driver. The function is gated by a platform model check (model IDs
+9–10); the C4's model ID must be verified.
 
-Set `vdec.vo_force_hfr` and/or `vdec.vdec_force_framerate_num/den` through
-the VDEC proc/IPC debug interface (`te_debug_param_*` kernel functions,
-`/proc/lxipc/vdec/user_command`).
+**C. VDEC debug parameters via IPC (medium risk)**
 
-Before any live test:
-1. Confirm `command_write` accepts `vdec.<name> <value>` syntax
-2. Confirm a read/display command exists to snapshot current values
-3. Trace whether the 120000 literal's readers are reachable from these params
-
-**C. DE SetHighFrameRate IPC (medium risk)**
-
-`DE_IO_SetHighFrameRate` sends DE IPC command 0x63. Gated by platform model
-check (sub 9, cmp 1 → model IDs 9–10 only). Must be called in addition to
-VO HFR since they are independent layers.
+`vdec.vo_force_hfr` forces the VO HFR flag (already set for 4K144, so
+this is redundant unless the normal-path conditions fail at runtime).
+`vdec.vdec_force_framerate_num/den` can override the rate report to the DE.
 
 **Dead ends:**
 - `podi_frame_rate` sysfs — does not exist on the host (Xtensa coprocessor)
 - DE/VDEC firmware binary patches — blocked by firmware signature verification
+- The 120000 literal at `0x505a6b0c` — data table, not code
 
 ### Open prerequisites
 
-1. Disassemble `vdisp_set_frame_rate` and the two 120000-literal readers with
-   synthetic state (same method as `emulate-de-rate-selector.py`)
-2. Confirm GFN negotiates 144 fps (`maxEntitledFps` check only gates above
-   240)
-3. Check what NVENC delivers — VUI timing or PTS-only
+1. Trace what `DE_IO_SetFrRate` / `DE_REG_O22_SetFrRate` configures and
+   whether the DE accepts a 144 Hz timing request from the VO layer
+2. Verify the C4's platform model ID against `DE_IO_SetHighFrameRate`'s
+   model gate (sub 9, cmp 1 → accepts IDs 9 and 10)
+3. Confirm GFN negotiates 144 fps and check NVENC VUI timing presence
 
 ---
 
@@ -215,13 +222,24 @@ exclusive.
 
 4K120 is what GFN delivers today. ForceVRR at 120 fps has no rate conflict.
 
-### VRR register readback (new lead)
+### VRR register readback (proven offline)
 
-The tracking registers (`CC460B50`, `CC400800`, `CC8C00A0`) are in the
-`0xCCxxxxxx` physical address space. `DE_REG_O22_RD` takes host physical
-addresses and can read this space. **Check offline whether `DE_Mmap` or the
-read whitelist permits these addresses.** If so, host-side VRR state readback
-works without the MCU print channel.
+`DE_REG_O22_RD` (`0xffffffc010968000`) has **no address whitelist** for
+`0xCCxxxxxx` addresses. It uses `__ioremap` for any address with 0xCC top
+byte. Small addresses (≤0xFFFF) are auto-prefixed with 0xCC000000.
+
+All three VRR tracking registers are accepted:
+```
+(DE_REG_O22_RD(0xCC460B50) >> 31) & 1  → tracking bit
+DE_REG_O22_RD(0xCC400800) & 1          → ready bit
+(DE_REG_O22_RD(0xCC8C00A0) >> 6) & 1   → internal source bit
+```
+
+This provides host-side VRR state verification without the MCU print
+channel. The reads are non-destructive hardware register accesses via
+`__ioremap`. This must still be verified on the TV (the register may
+return zero if the display engine clock is gated or the register is
+write-only), but the access path is proven.
 
 The ForceVRR debug word is RAM-only — does not persist across standby/reboot.
 Force=0 re-derives ready from upstream state. Restoration target is the BSS
@@ -342,11 +360,14 @@ Accessed through `te_debug_param_*` / VDEC IPC, not sysfs.
 
 ## Open prerequisites (LumaGame must not build on these)
 
-1. VO `vdisp_set_frame_rate` decision — not traced; 144 Hz bypass unqualified
-2. VRR tracking register readback — not verified against `DE_Mmap` whitelist
+1. DE output timing acceptance of 144 Hz — `DE_IO_SetFrRate` /
+   `DE_REG_O22_SetFrRate` not traced; this is where the 120 cap likely lives
+2. VRR tracking register readback — access path proven (no whitelist), but
+   register contents not verified on TV (may be zero if clock-gated)
 3. Panel safe VRR blanking bounds — VRRULIMIT/VRRLLIMIT values unknown
 4. Physical panel scan measurement at any non-120 rate — not independently
    observed
 5. Signed firmware load path — blocks any binary patch approach
 6. `te_debug_param` write path from userspace — not confirmed
 7. Hantro HW Config dump for conclusive 4:4:4 verdict — not captured
+8. C4 platform model ID — must match DE_IO_SetHighFrameRate gate (IDs 9–10)
