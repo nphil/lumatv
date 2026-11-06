@@ -226,6 +226,7 @@ impl Dispatch<WlWebosExported, ExportedData> for State {
             // (another element of the same surface may still be there)
             let still = state.foreign.exported.values().any(|x| x.surface == e.surface);
             state.scene.set_video_expected(e.surface, still);
+            state.luna_notify_video_windows();
         }
         state.vwin_sync();
         state.shell_rust_sync_video();
@@ -414,6 +415,7 @@ impl State {
             self.scene.holes.push(Hole { surface, rect: dest });
         }
         self.shell_rust_sync_video();
+        self.luna_notify_video_windows();
         for (id, i) in &self.foreign.imported {
             if i.window_id == window_id
                 && let Ok(res) = WlWebosImported::from_id(&self.dh, id.clone())

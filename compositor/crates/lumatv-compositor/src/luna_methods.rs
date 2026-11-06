@@ -526,6 +526,25 @@ impl State {
         self.luna.send(ToBridge::Reply(Reply { token: m.token, payload }));
     }
 
+    /// Pushes `getForegroundVideoWindow` to its subscribers when the list changed, as LG's `StarfishForegroundVideoWindowMgr` does on every
+    /// insert, move and removal. LG's screen manager subscribes for its screen-saver policy (`ScreenSaverMgr::updateVideoWindowInfo`); the list
+    /// was pushed only at scene changes and still named an HDMI input's window while Marquee played (2026-11-05).
+    pub fn luna_notify_video_windows(&mut self) {
+        let mut computed = None;
+        for i in 0..self.luna_state.subscriptions.len() {
+            let sub = &self.luna_state.subscriptions[i];
+            if sub.service != "com.webos.surfacemanager" || sub.method != "getForegroundVideoWindow" {
+                continue;
+            }
+            let p = computed.get_or_insert_with(|| json!({"returnValue": true, "foregroundVideoWindow": self.video_windows()})).clone();
+            let sub = &mut self.luna_state.subscriptions[i];
+            if sub.last != p {
+                sub.last = p.clone();
+                self.luna.send(ToBridge::Reply(Reply { token: sub.token, payload: p }));
+            }
+        }
+    }
+
     /// Pushes every subscription whose payload changed. Called after the scene or input state changed. A method is
     /// computed once however many subscribe to it (activitymanager holds 14 `getForegroundAppInfo` subscriptions on
     /// the set), the replies go to the bridge's queue, and one journal line covers a foreground push to all of them.

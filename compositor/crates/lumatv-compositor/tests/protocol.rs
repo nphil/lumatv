@@ -637,6 +637,48 @@ fn foreground_video_uses_subsurface_hole_position_and_current_placement() {
 }
 
 #[test]
+fn the_foreground_video_window_list_is_pushed_when_an_element_is_placed_and_destroyed() {
+    use lumatv_compositor::luna::{Inbound, ToBridge};
+    use serde_json::json;
+    let mut server = Server::start();
+    server.eval(|s| {
+        s.luna_inbound(Inbound {
+            token: 21,
+            service: "com.webos.surfacemanager".into(),
+            method: "getForegroundVideoWindow".into(),
+            payload: json!({"subscribe": true}),
+            subscribe: true,
+            sender: "com.webos.service.screenmanager".into(),
+            cancelled: false,
+        });
+    });
+    let last = |server: &Server| {
+        server.eval(|s| {
+            s.luna.history().iter().rev().find_map(|m| match m {
+                ToBridge::Reply(r) if r.token == 21 => Some(r.payload["foregroundVideoWindow"].clone()),
+                _ => None,
+            })
+        })
+    };
+    let mut client = Client::connect(&mut server);
+    let app = client.card("_WEBOS_WINDOW_TYPE_CARD", "Player");
+    let buf = client.shm_buffer(64, 64, 0xff00_0000);
+    client.present(&app.surface, &buf);
+    let export = client.foreign.export_element(&app.surface, 0, &client.qh, ());
+    client.roundtrip();
+    let import = client.foreign.import_element(client.state.window_ids[0].0.clone(), 0, &client.qh, ());
+    import.attach_punchthrough("ctx-1".into());
+    let (src, letterbox) = (client.region(0, 0, 1920, 818), client.region(0, 131, 1920, 818));
+    export.set_exported_window(&src, &letterbox);
+    client.roundtrip();
+    let shown = last(&server).unwrap();
+    assert_eq!((shown[0]["context"].as_str(), shown[0]["displayOutput"]["y"].as_i64()), (Some("ctx-1"), Some(131)), "{shown}");
+    export.destroy();
+    client.roundtrip();
+    assert_eq!(last(&server).unwrap(), json!([]), "the element is gone");
+}
+
+#[test]
 fn rust_foreground_video_tracks_visible_unambiguous_foreign_context() {
     use serde_json::{Value, json};
     let mut server = Server::start();
