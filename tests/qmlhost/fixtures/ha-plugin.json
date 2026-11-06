@@ -485,6 +485,17 @@
           "version": "1"
         },
         {
+          "approve": "269969e3a5e7d0de8470dc96abe1910021557ff82a06fa82188928bea937c075",
+          "class": "S",
+          "consent": "Lets Home Assistant use this TV as an ESPHome Bluetooth proxy: the TV listens on the home network with the key from ble-link and passes on the Bluetooth advertisements it hears nearby, in short windows that leave the radio to the remote. It only listens: it never connects to a device.",
+          "firstParty": true,
+          "id": "ble-proxy",
+          "name": "Bluetooth proxy",
+          "registered": false,
+          "state": "off",
+          "version": "1"
+        },
+        {
           "class": "S",
           "firstParty": true,
           "id": "clock",
@@ -531,6 +542,17 @@
           "name": "Cameras",
           "registered": true,
           "state": "connected",
+          "version": "1"
+        },
+        {
+          "approve": "7d0c94b0b6d3e104b9841c0a8ffe05d7e565d55ba98a619451a1199fc3c6f960",
+          "class": "S",
+          "consent": "Sends this TV's state to Home Assistant as sensors of its ESPHome device: power and screen, the app in front and its input, the picture mode, the Live TV Tuner and its signal, the chip's temperature, the load and the free memory. Read only: nothing on the TV can be changed through it. It uses the Bluetooth proxy's link (ble-link).",
+          "firstParty": true,
+          "id": "tv-sensors",
+          "name": "TV sensors",
+          "registered": false,
+          "state": "off",
           "version": "1"
         },
         {

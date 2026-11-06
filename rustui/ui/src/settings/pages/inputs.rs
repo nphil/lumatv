@@ -227,6 +227,15 @@ fn rows(c: &Ctx) -> Vec<Row> {
             .value(&super::plex::summary(c))
             .does(go("plex")),
     );
+    rows.push(
+        Row::link("hadevice")
+            .tab(2)
+            .icon("radio")
+            .label("Home Assistant device")
+            .help("Lets Home Assistant use the TV as a Bluetooth proxy, and see its power, app, input, picture mode and tuner as sensors.")
+            .value(&super::ha_device::summary(c))
+            .does(go("hadevice")),
+    );
     rows.push(Row::link("bt").tab(2).icon("gamepad-2").label("Bluetooth Devices").does(go("bthid")));
     let done = c.local.flag("inputs.historyDone");
     let mut history = Row::action("history", if done { "Done" } else { "Delete" })

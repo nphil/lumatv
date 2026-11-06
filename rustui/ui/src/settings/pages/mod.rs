@@ -12,6 +12,7 @@ pub mod buttons;
 pub mod cameras;
 pub mod capture;
 pub mod guide_data;
+pub mod ha_device;
 pub mod home;
 pub mod homeassistant;
 pub mod inputs;
@@ -90,6 +91,7 @@ pub fn all() -> Vec<Page> {
         tuner::page(),
         guide_data::page(),
         plex::page(),
+        ha_device::page(),
         bluetooth::audio(),
         bluetooth::hid(),
         bluetooth::audio_device(),

@@ -222,8 +222,10 @@ impl Service {
         };
         let ai = crate::ai::Ai::start(&ctx, ai_deps, nudge)?;
 
-        // `base.livetv`, the tuner's old Settings switch, becomes the Live TV Tuner plugin's before the roster is first read.
+        // `base.livetv`, the tuner's old Settings switch, becomes the Live TV Tuner plugin's before the roster is first read; a Bluetooth
+        // proxy linked before it was a plugin becomes the Bluetooth proxy plugin's, switched on.
         crate::tuner::migrate(&settings, &paths.plugins_dir());
+        crate::ble::migrate(&paths.data_dir, &paths.plugins_dir());
         // Plugins: the manager reads the roster and keeps the broker's socket only while a plugin is switched on.
         let plugins = crate::plugins::Plugins::with_policy(
             &ctx,
@@ -245,10 +247,15 @@ impl Service {
             "refreshguard",
             refreshguard::spawn(ctx.stop.clone(), guard.clone(), panel_rx)?,
         ));
-        // The Bluetooth proxy: nothing but one idle thread until the owner has linked it (`ble-link`).
+        // The ESPHome device (the Bluetooth proxy and the TV sensors plugins): nothing but one idle thread until the owner has linked it
+        // (`ble-link`) and switched one of them on.
+        let sensor_board = Arc::new(crate::tvsensors::Board::default());
         threads.push((
             "ble",
-            crate::ble::spawn(&ctx, crate::ble::Deps::real(&config.luna.send))?,
+            crate::ble::spawn(
+                &ctx,
+                crate::ble::Deps::real(&config.luna.send, plugins.shared().clone(), sensor_board.clone()),
+            )?,
         ));
 
         let ip: IpAddr = config
@@ -297,6 +304,11 @@ impl Service {
         threads.push((
             "tuner",
             crate::tuner::spawn(&ctx, plugins.shared().clone(), tuner.clone())?,
+        ));
+        // TV sensors: reads nothing until the plugin is on and Home Assistant has subscribed to the device's states.
+        threads.push((
+            "tvsensors",
+            crate::tvsensors::spawn(&ctx, plugins.shared().clone(), sensor_board, tuner.clone(), tv.clone())?,
         ));
         threads.push((
             "guide",

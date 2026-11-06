@@ -25,7 +25,8 @@
 //! | [`tuner`] | Live TV Tuner: the antenna tuner on the home network as an HDHomeRun with a playlist and the TV's guide (the `lumatuner` engine), a plugin of the helper's own that is off until the owner switches it on in Settings; the TV's own Live TV comes first |
 //! | [`profiles`] | local profiles (Nitin, Isabel): each person's Home kept apart from the household's settings, the switch, the PINs, the `profiles` topic; the working copy `theme/` stays what the Home layer reads |
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
-//! | [`ble`], [`ble_proxy`], [`ble_scan`], [`ble_duty`], [`ble_store`] | the Bluetooth proxy: the TV as a Home Assistant Bluetooth proxy (ESPHome native API) for presence and BLE sensors, through LG's `bluetooth2` scan with the radio's duty limits |
+//! | [`ble`], [`ble_proxy`], [`ble_scan`], [`ble_duty`], [`ble_store`] | the TV's ESPHome device: a Home Assistant Bluetooth proxy (ESPHome native API) for presence and BLE sensors, through LG's `bluetooth2` scan with the radio's duty limits, a plugin of the helper's own that is off until the owner switches it on |
+//! | [`tvsensors`] | TV sensors: power, screen, the app in front, its input, picture mode, the Live TV Tuner and its signal, temperature, load and memory as sensors of that device, a plugin of the helper's own, off until switched on |
 //! | [`refreshguard`] | LG's panel refresh (the `panel` topic) and the guard that keeps an assistant's wake from cutting a run short, behind `theme.oledcare.refreshGuard` |
 //! | [`paneldim`] | the net under the compositor's panel dim: a journal left by a compositor that died puts the panel's OLED pixel brightness back |
 //! | [`updateblock`] | whether LG's system updates are blocked (the Homebrew Channel's flag and its `/etc/hosts` block), read only |
@@ -98,6 +99,7 @@ pub mod settings;
 pub mod sys;
 pub mod timeutil;
 pub mod tuner;
+pub mod tvsensors;
 pub mod voice;
 pub mod wxcache;
 pub mod wxmap;

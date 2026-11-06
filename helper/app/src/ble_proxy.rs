@@ -1,4 +1,5 @@
-//! The proxy: what Home Assistant sees of this TV, speaking the ESPHome native API the way LumaShow's `ble-proxy` plugin does.
+//! The proxy: what Home Assistant sees of this TV, speaking the ESPHome native API the way LumaShow's `ble-proxy` plugin does: a
+//! Bluetooth proxy (the Bluetooth proxy plugin) and the TV's sensors (the TV sensors plugin), one ESPHome device.
 //!
 //! No I/O in here: the runner (`ble`) moves bytes between sockets and this, hands it the advertisements LG's service reported
 //! and tells it what the radio is doing. The protocol is `esphome-api`'s (the same crate the Show's plugin is built on: Noise
@@ -7,7 +8,9 @@
 //!
 //! What it is, and is not:
 //!
-//! - **A passive scanner only.** The features it declares are passive scanning, raw advertisements and scanner state and mode.
+//! - **A passive scanner only**, while the Bluetooth proxy plugin is on ([`Proxy::set_bluetooth`]; off, the device declares no
+//!   Bluetooth feature and a subscription to advertisements is ignored). The features it declares are passive scanning, raw
+//!   advertisements and scanner state and mode.
 //!   Not active connections, not pairing, not the cache variants: LG's service keeps the controller, and a connection to a
 //!   sensor is not something to hand a stack that also carries the Magic Remote. A request to connect is answered "not
 //!   connected".
@@ -16,8 +19,12 @@
 //! - **Scanner state is the runner's to tell**: `Running` while a subscriber is there and the duty machine is working (the rests
 //!   between windows are not a stopped scanner), `Failed` when it has given up.
 //! - **The key is the owner's**: a request to change it is answered "no".
+//! - **Sensors are read-only entities** ([`Proxy::set_entities`]): listed when Home Assistant asks, their states sent to every
+//!   connection that subscribed to states, each one only when it changed ([`Proxy::set_reading`]). A change of what the device
+//!   offers (a plugin switched on or off) ends the connections, so Home Assistant connects again and reads the device anew, as it
+//!   does after an ESPHome device restarts with new firmware.
 
-use esphome_api::message::{self as m, Message, feature, scanner};
+use esphome_api::message::{self as m, Fixed32, Float, Message, entity, feature, scanner};
 use esphome_api::session::Server;
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -52,6 +59,140 @@ pub struct Identity {
     pub bluetooth_mac: String,
 }
 
+/// One read-only entity of the device.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Entity {
+    /// What its states are sent under: unique within the device, never zero.
+    pub key: u32,
+    /// What Home Assistant makes its entity id of (`soc_temperature`), unique within the device.
+    pub object_id: &'static str,
+    pub name: &'static str,
+    /// A Material Design icon (`mdi:chip`), or empty for the device class's own.
+    pub icon: &'static str,
+    pub kind: Kind,
+    /// Listed with the device's diagnostics rather than its sensors.
+    pub diagnostic: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Kind {
+    /// A number, kept as a measurement (Home Assistant's long-term statistics).
+    Sensor {
+        unit: &'static str,
+        device_class: &'static str,
+        decimals: i32,
+    },
+    BinarySensor {
+        device_class: &'static str,
+    },
+    Text,
+}
+
+/// An entity's state.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Reading {
+    Number(f32),
+    Flag(bool),
+    Text(String),
+    /// Not known now: Home Assistant shows "unknown".
+    Missing,
+}
+
+impl Entity {
+    fn list_message(&self) -> Message {
+        let (key, category) = (
+            Fixed32(self.key),
+            if self.diagnostic {
+                entity::CATEGORY_DIAGNOSTIC
+            } else {
+                entity::CATEGORY_NONE
+            },
+        );
+        let (object_id, name, icon) = (self.object_id.into(), self.name.into(), self.icon.into());
+        match self.kind {
+            Kind::Sensor {
+                unit,
+                device_class,
+                decimals,
+            } => m::ListEntitiesSensorResponse {
+                object_id,
+                key,
+                name,
+                icon,
+                unit_of_measurement: unit.into(),
+                accuracy_decimals: decimals,
+                device_class: device_class.into(),
+                state_class: entity::STATE_CLASS_MEASUREMENT,
+                entity_category: category,
+                ..Default::default()
+            }
+            .into(),
+            Kind::BinarySensor { device_class } => m::ListEntitiesBinarySensorResponse {
+                object_id,
+                key,
+                name,
+                icon,
+                device_class: device_class.into(),
+                entity_category: category,
+                ..Default::default()
+            }
+            .into(),
+            Kind::Text => m::ListEntitiesTextSensorResponse {
+                object_id,
+                key,
+                name,
+                icon,
+                entity_category: category,
+                ..Default::default()
+            }
+            .into(),
+        }
+    }
+
+    /// `reading` as this entity's state message; a reading of another kind is a missing state.
+    fn state_message(&self, reading: &Reading) -> Message {
+        let key = Fixed32(self.key);
+        match (&self.kind, reading) {
+            (Kind::Sensor { .. }, Reading::Number(v)) => m::SensorStateResponse {
+                key,
+                state: Float::new(*v),
+                missing_state: false,
+            }
+            .into(),
+            (Kind::Sensor { .. }, _) => m::SensorStateResponse {
+                key,
+                missing_state: true,
+                ..Default::default()
+            }
+            .into(),
+            (Kind::BinarySensor { .. }, Reading::Flag(on)) => m::BinarySensorStateResponse {
+                key,
+                state: *on,
+                missing_state: false,
+            }
+            .into(),
+            (Kind::BinarySensor { .. }, _) => m::BinarySensorStateResponse {
+                key,
+                state: false,
+                missing_state: true,
+            }
+            .into(),
+            (Kind::Text, Reading::Text(text)) => m::TextSensorStateResponse {
+                key,
+                state: text.clone(),
+                missing_state: false,
+            }
+            .into(),
+            (Kind::Text, _) => m::TextSensorStateResponse {
+                key,
+                state: String::new(),
+                missing_state: true,
+            }
+            .into(),
+        }
+    }
+}
+
 /// What the runner is told to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -81,6 +222,8 @@ fn api_state(state: ScanState) -> u32 {
 pub struct Status {
     pub clients: usize,
     pub subscribed: bool,
+    /// A connection subscribed to the entities' states.
+    pub states: bool,
     pub advertisements: u64,
     pub dropped: u64,
 }
@@ -90,6 +233,8 @@ struct Client {
     closing: bool,
     /// Bytes written by `server` and not yet taken.
     out: Vec<u8>,
+    /// It subscribed to the entities' states.
+    states: bool,
 }
 
 pub struct Proxy {
@@ -107,6 +252,10 @@ pub struct Proxy {
     actions: VecDeque<Action>,
     advertisements: u64,
     dropped: u64,
+    /// The Bluetooth proxy plugin is on: the device declares and serves the proxy's features.
+    bluetooth: bool,
+    entities: Vec<Entity>,
+    readings: BTreeMap<u32, Reading>,
 }
 
 impl Proxy {
@@ -126,6 +275,9 @@ impl Proxy {
             actions: VecDeque::new(),
             advertisements: 0,
             dropped: 0,
+            bluetooth: true,
+            entities: Vec::new(),
+            readings: BTreeMap::new(),
         }
     }
 
@@ -139,6 +291,63 @@ impl Proxy {
         self.identity = identity;
     }
 
+    /// Whether the device is a Bluetooth proxy (the plugin is on). A change ends the connections: Home Assistant reads the device's
+    /// features once, when it connects.
+    pub fn set_bluetooth(&mut self, on: bool) {
+        if self.bluetooth == on {
+            return;
+        }
+        self.bluetooth = on;
+        self.subscriber = None;
+        self.clear_batch();
+        self.told = None;
+        self.end_all();
+    }
+
+    /// The entities the device lists. A change ends the connections, so Home Assistant lists them again; the readings of entities
+    /// that went are dropped.
+    pub fn set_entities(&mut self, entities: Vec<Entity>) {
+        if self.entities == entities {
+            return;
+        }
+        self.readings
+            .retain(|key, _| entities.iter().any(|e| e.key == *key));
+        self.entities = entities;
+        self.end_all();
+    }
+
+    /// An entity's state: sent to every connection that subscribed to states when it is not the one they were sent last.
+    pub fn set_reading(&mut self, key: u32, reading: Reading) {
+        let Some(entity) = self.entities.iter().find(|e| e.key == key) else {
+            return;
+        };
+        if self.readings.get(&key) == Some(&reading) {
+            return;
+        }
+        let message = entity.state_message(&reading);
+        self.readings.insert(key, reading);
+        let ids: Vec<ConnId> = self
+            .clients
+            .iter()
+            .filter(|(_, c)| c.states)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            self.send(id, message.clone());
+        }
+    }
+
+    /// Whether a connection has subscribed to the entities' states: the only reason to read them.
+    pub fn states_wanted(&self) -> bool {
+        self.clients.values().any(|c| c.states)
+    }
+
+    fn end_all(&mut self) {
+        for id in self.client_ids() {
+            self.refuse(id);
+        }
+    }
+
     /// Replies LG's reader had to drop because the runner was behind.
     pub fn add_dropped(&mut self, count: u64) {
         self.dropped += count;
@@ -148,6 +357,7 @@ impl Proxy {
         Status {
             clients: self.clients.len(),
             subscribed: self.subscriber.is_some(),
+            states: self.states_wanted(),
             advertisements: self.advertisements,
             dropped: self.dropped,
         }
@@ -179,6 +389,7 @@ impl Proxy {
                 server: Server::new(self.key, &self.identity.name, &self.identity.mac, ephemeral),
                 closing: false,
                 out: Vec::new(),
+                states: false,
             },
         );
         Some(id)
@@ -261,6 +472,11 @@ impl Proxy {
 
     // ---- the API's messages --------------------------------------------------------------------------------------------------------
 
+    /// The Bluetooth features the device declares: none while the Bluetooth proxy plugin is off.
+    fn features(&self) -> u32 {
+        if self.bluetooth { FEATURES } else { 0 }
+    }
+
     fn device_info(&self) -> m::DeviceInfoResponse {
         m::DeviceInfoResponse {
             name: self.identity.name.clone(),
@@ -269,7 +485,7 @@ impl Proxy {
             model: "LG webOS TV".into(),
             project_name: "lumatv.ble-proxy".into(),
             project_version: env!("CARGO_PKG_VERSION").into(),
-            bluetooth_proxy_feature_flags: FEATURES,
+            bluetooth_proxy_feature_flags: self.features(),
             manufacturer: "LumaTV".into(),
             friendly_name: self.identity.friendly_name.clone(),
             bluetooth_mac_address: self.identity.bluetooth_mac.clone(),
@@ -301,20 +517,39 @@ impl Proxy {
             Message::DeviceCapabilitiesRequest(_) => self.send(
                 id,
                 m::DeviceCapabilitiesResponse {
-                    bluetooth_feature_flags: FEATURES,
+                    bluetooth_feature_flags: self.features(),
                     bluetooth_mac_address: self.identity.bluetooth_mac.clone(),
                     voice_assistant_feature_flags: 0,
                 },
             ),
-            // No entities, no states, no logs, nothing of Home Assistant's to subscribe to: asked, and nothing to say.
             Message::ListEntitiesRequest(_) => {
+                let list: Vec<Message> = self.entities.iter().map(Entity::list_message).collect();
+                for message in list {
+                    self.send(id, message);
+                }
                 self.send(id, m::ListEntitiesDoneResponse::default());
+            }
+            // What each entity reads now; from then on every change.
+            Message::SubscribeStatesRequest(_) => {
+                if let Some(c) = self.clients.get_mut(&id) {
+                    c.states = true;
+                }
+                let states: Vec<Message> = self
+                    .entities
+                    .iter()
+                    .filter_map(|e| self.readings.get(&e.key).map(|r| e.state_message(r)))
+                    .collect();
+                for message in states {
+                    self.send(id, message);
+                }
             }
             // The key is the owner's to change, with `ble-link` on the TV.
             Message::NoiseEncryptionSetKeyRequest(_) => {
                 self.send(id, m::NoiseEncryptionSetKeyResponse { success: false });
             }
-            Message::SubscribeBluetoothLEAdvertisementsRequest(_) => self.subscribe(id),
+            Message::SubscribeBluetoothLEAdvertisementsRequest(_) if self.bluetooth => {
+                self.subscribe(id)
+            }
             Message::UnsubscribeBluetoothLEAdvertisementsRequest(_) => {
                 if self.subscriber == Some(id) {
                     self.subscriber = None;
@@ -591,6 +826,103 @@ mod tests {
         assert_eq!(
             rig.take(ha),
             vec![Message::ListEntitiesDoneResponse(Default::default())]
+        );
+    }
+
+    fn sensors() -> Vec<Entity> {
+        vec![
+            Entity {
+                key: 1,
+                object_id: "soc_temperature",
+                name: "SoC temperature",
+                icon: "",
+                kind: Kind::Sensor {
+                    unit: "°C",
+                    device_class: "temperature",
+                    decimals: 0,
+                },
+                diagnostic: false,
+            },
+            Entity {
+                key: 2,
+                object_id: "app",
+                name: "App",
+                icon: "mdi:apps",
+                kind: Kind::Text,
+                diagnostic: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn entities_are_listed_their_states_sent_on_subscribing_and_then_only_changes() {
+        let mut rig = Rig::new();
+        rig.proxy.set_entities(sensors());
+        rig.proxy.set_reading(1, Reading::Number(51.0));
+        let ha = rig.connect();
+        rig.say(ha, m::ListEntitiesRequest::default());
+        let listed = rig.take(ha);
+        assert!(matches!(&listed[..], [
+            Message::ListEntitiesSensorResponse(t),
+            Message::ListEntitiesTextSensorResponse(a),
+            Message::ListEntitiesDoneResponse(_),
+        ] if t.key == Fixed32(1) && t.unit_of_measurement == "°C" && t.state_class == entity::STATE_CLASS_MEASUREMENT
+            && a.object_id == "app"));
+        assert!(!rig.proxy.states_wanted());
+        rig.say(ha, m::SubscribeStatesRequest::default());
+        assert!(rig.proxy.states_wanted());
+        // What is known is sent at once; what is not yet read is not.
+        assert_eq!(
+            rig.take(ha),
+            vec![Message::SensorStateResponse(m::SensorStateResponse {
+                key: Fixed32(1),
+                state: Float::new(51.0),
+                missing_state: false,
+            })]
+        );
+        rig.proxy.set_reading(1, Reading::Number(51.0));
+        rig.proxy.set_reading(2, Reading::Text("netflix".into()));
+        rig.proxy.set_reading(2, Reading::Missing);
+        rig.proxy.set_reading(9, Reading::Flag(true));
+        assert_eq!(
+            rig.take(ha),
+            vec![
+                Message::TextSensorStateResponse(m::TextSensorStateResponse {
+                    key: Fixed32(2),
+                    state: "netflix".into(),
+                    missing_state: false,
+                }),
+                Message::TextSensorStateResponse(m::TextSensorStateResponse {
+                    key: Fixed32(2),
+                    state: String::new(),
+                    missing_state: true,
+                }),
+            ],
+            "an unchanged reading and an unknown key send nothing"
+        );
+    }
+
+    #[test]
+    fn without_the_bluetooth_plugin_no_feature_is_declared_and_a_change_of_offer_ends_the_connections()
+     {
+        let mut rig = Rig::new();
+        rig.proxy.set_bluetooth(false);
+        let ha = rig.connect();
+        rig.say(ha, m::DeviceInfoRequest::default());
+        let Some(Message::DeviceInfoResponse(info)) = rig.take(ha).pop() else {
+            panic!("no device info");
+        };
+        assert_eq!(info.bluetooth_proxy_feature_flags, 0);
+        rig.say(ha, m::SubscribeBluetoothLEAdvertisementsRequest::default());
+        assert!(
+            !rig.proxy.wanted(),
+            "a subscription to advertisements is ignored"
+        );
+        rig.proxy.set_entities(sensors());
+        let id = rig.has[ha].0;
+        assert!(
+            rig.proxy.client_closing(id),
+            "Home Assistant reads the device again"
         );
     }
 

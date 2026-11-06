@@ -1,20 +1,25 @@
-//! The Bluetooth proxy's runner: the TV as a Home Assistant Bluetooth proxy for presence and BLE sensors.
+//! The ESPHome device's runner: the TV as a Home Assistant Bluetooth proxy for presence and BLE sensors (the Bluetooth proxy plugin,
+//! [`OPT_IN`]), and as the device of the TV's own sensors (the TV sensors plugin, `tvsensors`).
 //!
 //! One thread. It owns the pieces the others are pure about: the LAN socket Home Assistant connects to ([`ble_proxy`]'s protocol),
 //! the mDNS announcement that lets Home Assistant find it, the radio ([`ble_scan`]: LG's `le/startScan` through `luna-send`) and
 //! the duty machine ([`ble_duty`]) that decides when the radio may be asked. Advertisements go from LG's service through the
 //! proxy to Home Assistant; nothing is stored and no address heard is logged or published.
 //!
-//! **Off is the default and off means nothing**: with no link file (`lumatv-helper ble-link`, run by the TV's owner) there is no
-//! socket, no announcement and no scan, and the thread only looks for the file every ten seconds. With a link:
+//! **Off is the default and off means nothing**: the device exists only while there is a link (`lumatv-helper ble-link`, run by the
+//! TV's owner: the key and the port) and the owner has switched on one of its two plugins in Settings. Without both there is no
+//! socket, no announcement and no scan, and the thread looks for the file every ten seconds and wakes when a switch is flipped. A
+//! TV that was linked before the proxy was a plugin has the Bluetooth proxy switched on once ([`migrate`]). With the device up:
 //!
 //! - the socket exists only once LG's Bluetooth service has answered (the adapter's address is part of what Home Assistant is
 //!   told), binds the TV's own private address (never `0.0.0.0`), serves peers in private networks only and keeps at most four;
 //!   the address is checked every minute, as a DHCP change moves it;
-//! - the radio is asked only while Home Assistant has subscribed to advertisements, and then in windows of the link's length with
-//!   the rests the duty machine owes (see `ble_duty` for the limits and the guards: panel dark, Bluetooth audio up, adapter off);
+//! - the radio is asked only while the Bluetooth proxy plugin is on and Home Assistant has subscribed to advertisements, and then
+//!   in windows of the link's length with the rests the duty machine owes (see `ble_duty` for the limits and the guards: panel
+//!   dark, Bluetooth audio up, adapter off);
 //! - the scan child is killed at the end of every window, on every failure, when nobody is subscribed, when the link is removed,
-//!   and when the helper stops.
+//!   when the plugin is switched off and when the helper stops;
+//! - the TV sensors plugin's readings ([`Board`]) go to the connections that subscribed to states, each only when it changed.
 //!
 //! The hub topic `ble` says where it stands (`state`, how many are connected, how many advertisements went through, the last
 //! problem) and never what was heard.
@@ -24,8 +29,12 @@ use crate::ble_proxy::{ConnId, Identity, Proxy, Random, ScanState};
 use crate::ble_scan::{Bluetooth, Event, LunaBluetooth, Wake};
 use crate::ble_store::{self, BleLink};
 use crate::ctx::Ctx;
+use crate::plugins::local::{Local, OptIn, Spec};
+use crate::plugins::roster;
+use crate::plugins::session::Shared;
 use crate::screen;
 use crate::sys;
+use crate::tvsensors::{self, Board};
 use esphome_api::message::RawAdvertisement;
 use mdns::{Mdns, Service};
 use serde_json::{Value, json};
@@ -33,9 +42,25 @@ use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+/// The Bluetooth proxy plugin's id.
+pub const ID: &str = "ble-proxy";
+pub const OPT_IN: OptIn = OptIn {
+    spec: Spec {
+        id: ID,
+        name: "Bluetooth proxy",
+        version: "1",
+        permissions: &["settings"],
+    },
+    consent: "Lets Home Assistant use this TV as an ESPHome Bluetooth proxy: the TV listens on the home network with the key from \
+              ble-link and passes on the Bluetooth advertisements it hears nearby, in short windows that leave the radio to the remote. \
+              It only listens: it never connects to a device.",
+};
 
 /// The hub topic.
 pub const TOPIC: &str = "ble";
@@ -109,26 +134,158 @@ impl Drop for MdnsAnnouncer {
     }
 }
 
+/// Which of the device's two plugins the owner has switched on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Switched {
+    pub bluetooth: bool,
+    pub sensors: bool,
+}
+
+/// The device's two plugins as the owner sees them: their switches, and their pages while they are on.
+pub trait Plugins: Send {
+    /// Lists both, off until the owner switches them on; `flipped` is called whenever the owner switches one.
+    fn offer(&mut self, flipped: Wake);
+    fn switched(&self) -> Switched;
+    /// What `id`'s page says while it is on; `None` takes the page away. Unchanged facts are not put again.
+    fn page(&mut self, id: &'static str, facts: Option<Vec<(&'static str, String)>>);
+}
+
+/// The real ones: the helper's own plugins, through the broker's sessions.
+pub struct SharedPlugins {
+    shared: Arc<Shared>,
+    pages: HashMap<&'static str, (Arc<Local>, Value)>,
+}
+
+impl SharedPlugins {
+    pub fn new(shared: Arc<Shared>) -> Self {
+        Self {
+            shared,
+            pages: HashMap::new(),
+        }
+    }
+}
+
+impl Plugins for SharedPlugins {
+    fn offer(&mut self, flipped: Wake) {
+        self.shared.offer(&OPT_IN, flipped.clone());
+        self.shared.offer(&tvsensors::OPT_IN, flipped);
+    }
+
+    fn switched(&self) -> Switched {
+        Switched {
+            bluetooth: self.shared.switched_on(ID),
+            sensors: self.shared.switched_on(tvsensors::ID),
+        }
+    }
+
+    fn page(&mut self, id: &'static str, facts: Option<Vec<(&'static str, String)>>) {
+        let Some(facts) = facts else {
+            self.pages.remove(id);
+            return;
+        };
+        let facts: serde_json::Map<String, Value> = facts
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), Value::String(v)))
+            .collect();
+        let said = json!({"t": "facts.put", "facts": facts});
+        if !self.pages.contains_key(id) {
+            let (spec, title) = if id == ID {
+                (&OPT_IN.spec, OPT_IN.spec.name)
+            } else {
+                (&tvsensors::OPT_IN.spec, tvsensors::OPT_IN.spec.name)
+            };
+            match Local::start(
+                &self.shared,
+                spec,
+                json!({"title": title}),
+                Arc::new(|_, _| {}),
+            ) {
+                Ok(local) => {
+                    self.pages.insert(id, (local, Value::Null));
+                }
+                Err(e) => {
+                    crate::log_warn!("ble: the {id} page was not registered: {e}");
+                    return;
+                }
+            }
+        }
+        if let Some((local, last)) = self.pages.get_mut(id)
+            && *last != said
+        {
+            if let Err(e) = local.say(said.clone()) {
+                crate::log_warn!("ble: the {id} page's facts were not put: {e}");
+            }
+            *last = said;
+        }
+    }
+}
+
 /// What the runner acts through.
 pub struct Deps {
     pub bluetooth: Box<dyn Bluetooth>,
     pub announcer: Box<dyn Announcer>,
     /// Where to listen. `None` is the TV's private LAN address; a test names the loopback.
     pub bind: Option<Ipv4Addr>,
+    pub plugins: Box<dyn Plugins>,
+    /// The TV sensors plugin's readings.
+    pub board: Arc<Board>,
 
     pub timing: Timing,
 }
 
 impl Deps {
-    /// The real ones: `luna-send`, the multicast responder, the kernel's random numbers.
-    pub fn real(luna_send: &str) -> Self {
+    /// The real ones: `luna-send`, the multicast responder, the kernel's random numbers, the helper's plugins.
+    pub fn real(luna_send: &str, shared: Arc<Shared>, board: Arc<Board>) -> Self {
         Self {
             bluetooth: Box::new(LunaBluetooth::new(luna_send)),
             announcer: Box::new(MdnsAnnouncer::default()),
             bind: None,
+            plugins: Box::new(SharedPlugins::new(shared)),
+            board,
 
             timing: Timing::default(),
         }
+    }
+}
+
+/// The marker that the link a TV had before the proxy was a plugin has been carried over (`<data dir>/ble/plugin-migrated`).
+const MIGRATED: &str = "plugin-migrated";
+
+/// Carries a link made before the Bluetooth proxy was a plugin over to the plugin, once: a TV that was linked comes up with the
+/// plugin switched on (the owner turned the proxy on when they ran `ble-link`). From then on the switch is the owner's: a TV linked
+/// later, or switched off, stays as it is. When `enabled.json` cannot be written nothing is marked, to be tried at the next start.
+pub fn migrate(data_dir: &Path, plugins_dir: &Path) {
+    let marker = data_dir.join("ble").join(MIGRATED);
+    if marker.exists() {
+        return;
+    }
+    let linked = matches!(ble_store::load(data_dir), Ok(Some(_)));
+    if linked {
+        let approved = roster::read_file(plugins_dir).and_then(|mut file| {
+            file.first_party.retain(|a| a.id != ID);
+            file.first_party.push(roster::Approved {
+                id: ID.to_owned(),
+                approve: OPT_IN.approval(),
+            });
+            roster::write_file(plugins_dir, &file)
+        });
+        if let Err(why) = approved {
+            crate::log_warn!(
+                "ble: the link could not be carried over to the {} plugin: {why}",
+                OPT_IN.spec.name
+            );
+            return;
+        }
+    }
+    let marked =
+        std::fs::create_dir_all(data_dir.join("ble")).and_then(|()| std::fs::write(&marker, b""));
+    match marked {
+        Ok(()) if linked => crate::log_info!(
+            "ble: the link was carried over to the {} plugin, on",
+            OPT_IN.spec.name
+        ),
+        Ok(()) => {}
+        Err(e) => crate::log_warn!("ble: {}: {e}", marker.display()),
     }
 }
 
@@ -264,16 +421,33 @@ struct Runner {
     active: Option<Active>,
     reload_at: Instant,
     published: Option<Value>,
+    /// The owner switched one of the plugins: the link and the switches are looked at again at once.
+    flipped: Arc<AtomicBool>,
+    switched: Switched,
+    /// A usable link file is there (the device may still be off: no plugin on).
+    linked: bool,
     /// A test's clock: the time a turn is given is the time it has, before and after waiting.
     virtual_time: bool,
 }
 
 impl Runner {
-    fn new(ctx: Ctx, deps: Deps, now: Instant) -> io::Result<Self> {
+    fn new(ctx: Ctx, mut deps: Deps, now: Instant) -> io::Result<Self> {
         let wake = Arc::new(WakePipe::new()?);
         {
             let wake = wake.clone();
             ctx.stop.on_stop(move || wake.wake());
+        }
+        let flipped = Arc::new(AtomicBool::new(false));
+        {
+            let (wake, flag) = (wake.clone(), flipped.clone());
+            deps.plugins.offer(Arc::new(move || {
+                flag.store(true, Ordering::Relaxed);
+                wake.wake();
+            }));
+        }
+        {
+            let wake = wake.clone();
+            deps.board.set_wake(Arc::new(move || wake.wake()));
         }
         Ok(Self {
             ctx,
@@ -282,6 +456,9 @@ impl Runner {
             active: None,
             reload_at: now,
             published: None,
+            flipped,
+            switched: Switched::default(),
+            linked: false,
             virtual_time: false,
         })
     }
@@ -293,9 +470,11 @@ impl Runner {
 
     // ---- the link ------------------------------------------------------------------------------------------------------------------
 
-    /// Looks at the link file: a link that came, went or changed rebuilds everything that depends on it.
+    /// Looks at the link file and the plugins' switches: a link that came, went or changed rebuilds everything that depends on it,
+    /// and the device is offered only while one of its plugins is on.
     fn reload(&mut self, now: Instant) {
         self.reload_at = now + self.deps.timing.reload;
+        self.switched = self.deps.plugins.switched();
         let link = match ble_store::load(&self.ctx.paths.data_dir) {
             Ok(link) => link,
             Err(e) => {
@@ -307,10 +486,19 @@ impl Runner {
                 return;
             }
         };
+        self.linked = link.is_some();
+        let link = link.filter(|_| self.switched.bluetooth || self.switched.sensors);
         match (link, self.active.as_ref().map(|a| &a.link)) {
             (None, None) => self.set_off(None),
             (None, Some(_)) => {
-                crate::log_info!("ble: unlinked");
+                crate::log_info!(
+                    "ble: {}",
+                    if self.linked {
+                        "both plugins are off"
+                    } else {
+                        "unlinked"
+                    }
+                );
                 self.teardown();
                 self.set_off(None);
             }
@@ -347,6 +535,23 @@ impl Runner {
                 });
             }
         }
+        self.apply_switches();
+    }
+
+    /// What the device offers follows the switches: the proxy's features, the sensors and what they read.
+    fn apply_switches(&mut self) {
+        let Some(a) = self.active.as_mut() else {
+            return;
+        };
+        a.proxy.set_bluetooth(self.switched.bluetooth);
+        a.proxy.set_entities(if self.switched.sensors {
+            tvsensors::entities()
+        } else {
+            Vec::new()
+        });
+        for (key, reading) in self.deps.board.all() {
+            a.proxy.set_reading(key, reading);
+        }
     }
 
     fn published_error(&self) -> Option<String> {
@@ -366,11 +571,13 @@ impl Runner {
 
     fn set_off(&mut self, error: Option<String>) {
         let value = json!({
-            "state": "off", "listening": null, "clients": 0, "subscribed": false,
+            "state": "off", "listening": null, "clients": 0, "subscribed": false, "statesSubscribed": false,
             "advertisements": 0, "dropped": 0, "windows": 0, "error": error,
+            "bluetooth": self.switched.bluetooth, "sensors": self.switched.sensors,
         });
         self.ctx.hub.set(TOPIC, value.clone());
         self.published = Some(value);
+        self.deps.board.set_wanted(false);
     }
 
     // ---- the socket and the announcement -------------------------------------------------------------------------------------------
@@ -821,6 +1028,9 @@ impl Runner {
             "standby": a.link.standby,
             "hold": if a.duty.is_scanning() { None } else { a.hold.clone() },
             "error": a.error,
+            "statesSubscribed": status.states,
+            "bluetooth": self.switched.bluetooth,
+            "sensors": self.switched.sensors,
         });
         self.ctx.hub.set_ignoring(
             TOPIC,
@@ -828,6 +1038,43 @@ impl Runner {
             &["advertisements", "dropped", "lastWindowHeard"],
         );
         self.published = Some(value);
+    }
+
+    /// The plugins' pages while they are on: where each stands, in words.
+    fn show_pages(&mut self) {
+        let bluetooth = self.switched.bluetooth.then(|| {
+            let status = match &self.active {
+                None if !self.linked => "Not linked: run ble-link on the TV".to_owned(),
+                None => "Starting".to_owned(),
+                Some(a) => match (Self::state_of(a), &a.error, &a.hold) {
+                    (_, Some(error), _) => error.clone(),
+                    ("waiting", ..) => "Waiting for LG's Bluetooth service".to_owned(),
+                    ("listening", ..) => "Waiting for Home Assistant".to_owned(),
+                    ("held", _, Some(hold)) => format!("Paused: {hold}"),
+                    ("failed", ..) => "LG's Bluetooth service refused to scan".to_owned(),
+                    _ => format!(
+                        "Home Assistant is listening: scanning {} s of every {} s",
+                        a.link.scan_seconds,
+                        a.link.scan_seconds + a.link.rest_seconds
+                    ),
+                },
+            };
+            let mut facts = vec![("status", status)];
+            if let Some(b) = self.active.as_ref().and_then(|a| a.bound.as_ref()) {
+                facts.push(("address", b.addr.to_string()));
+            }
+            facts
+        });
+        self.deps.plugins.page(ID, bluetooth);
+        let listening = self
+            .active
+            .as_ref()
+            .is_some_and(|a| a.proxy.states_wanted());
+        let sensors = self
+            .switched
+            .sensors
+            .then(|| tvsensors::facts(self.linked, listening));
+        self.deps.plugins.page(tvsensors::ID, sensors);
     }
 
     // ---- the loop ------------------------------------------------------------------------------------------------------------------
@@ -867,7 +1114,7 @@ impl Runner {
 
     /// One turn: look at the file and the radio, wait up to `max_wait` for a socket or a wake-up, serve what came.
     fn tick(&mut self, now: Instant, max_wait: Duration) {
-        if now >= self.reload_at {
+        if self.flipped.swap(false, Ordering::Relaxed) || now >= self.reload_at {
             self.reload(now);
         }
         self.ensure_listener(now);
@@ -924,10 +1171,19 @@ impl Runner {
         }
         if let Some(a) = self.active.as_mut() {
             a.proxy.handle_timeout(now);
+            for (key, reading) in self.deps.board.take_changed() {
+                a.proxy.set_reading(key, reading);
+            }
         }
         self.drive_radio(now);
         self.service_all();
+        if let Some(a) = &self.active {
+            self.deps
+                .board
+                .set_wanted(self.switched.sensors && a.proxy.states_wanted());
+        }
         self.publish();
+        self.show_pages();
     }
 
     fn finish(&mut self) {
@@ -936,7 +1192,7 @@ impl Runner {
     }
 }
 
-/// Starts the runner. With no link saved it costs this thread and a look at one file every ten seconds.
+/// Starts the runner. With no link saved, or both plugins off, it costs this thread and a look at one file every ten seconds.
 pub fn spawn(ctx: &Ctx, deps: Deps) -> io::Result<JoinHandle<()>> {
     let ctx = ctx.clone();
     let mut runner = Runner::new(ctx, deps, Instant::now())?;
@@ -954,6 +1210,7 @@ pub fn spawn(ctx: &Ctx, deps: Deps) -> io::Result<JoinHandle<()>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ble_proxy::Reading;
     use crate::ble_scan;
     use crate::ble_scan::Heard;
     use crate::ble_scan::fake::FakeBluetooth;
@@ -1054,10 +1311,40 @@ mod tests {
         }
     }
 
+    /// The owner's side of the two plugins: the switches, and what each page says.
+    #[derive(Default)]
+    struct Owner {
+        switched: Switched,
+        flipped: Option<Wake>,
+        pages: HashMap<&'static str, Vec<(&'static str, String)>>,
+    }
+
+    struct FakePlugins(Arc<Mutex<Owner>>);
+
+    impl Plugins for FakePlugins {
+        fn offer(&mut self, flipped: Wake) {
+            self.0.lock().flipped = Some(flipped);
+        }
+
+        fn switched(&self) -> Switched {
+            self.0.lock().switched
+        }
+
+        fn page(&mut self, id: &'static str, facts: Option<Vec<(&'static str, String)>>) {
+            let mut owner = self.0.lock();
+            match facts {
+                Some(facts) => owner.pages.insert(id, facts),
+                None => owner.pages.remove(id),
+            };
+        }
+    }
+
     struct Rig {
         runner: Runner,
         bt: FakeBluetooth,
         told: Arc<Mutex<Told>>,
+        owner: Arc<Mutex<Owner>>,
+        board: Arc<Board>,
         ctx: Ctx,
         dir: tempfile::TempDir,
         now: Instant,
@@ -1089,11 +1376,21 @@ mod tests {
             ctx.hub.set("screen", json!({"on": true}));
             let bt = FakeBluetooth::new();
             let told = Arc::new(Mutex::new(Told::default()));
+            let owner = Arc::new(Mutex::new(Owner {
+                switched: Switched {
+                    bluetooth: true,
+                    sensors: false,
+                },
+                ..Owner::default()
+            }));
+            let board = Arc::new(Board::default());
             let now = Instant::now();
             let deps = Deps {
                 bluetooth: Box::new(bt.clone()),
                 announcer: Box::new(FakeAnnouncer(told.clone())),
                 bind: Some(Ipv4Addr::LOCALHOST),
+                plugins: Box::new(FakePlugins(owner.clone())),
+                board: board.clone(),
                 timing: Timing {
                     reload: Duration::from_secs(10),
                     bind_retry: Duration::from_secs(15),
@@ -1107,11 +1404,23 @@ mod tests {
                 runner,
                 bt,
                 told,
+                owner,
+                board,
                 ctx,
                 dir,
                 now,
                 port: free_port(),
             }
+        }
+
+        /// The owner flips the switches in Settings.
+        fn switch(&mut self, bluetooth: bool, sensors: bool) {
+            let flipped = {
+                let mut owner = self.owner.lock();
+                owner.switched = Switched { bluetooth, sensors };
+                owner.flipped.clone()
+            };
+            flipped.expect("the plugins were offered")();
         }
 
         fn link(&self) -> BleLink {
@@ -1586,5 +1895,111 @@ mod tests {
         rig.runner.finish();
         assert!(!rig.bt.state.lock().scanning);
         assert_eq!(rig.ctx.hub.get(TOPIC).unwrap()["state"], "off");
+    }
+
+    #[test]
+    fn with_both_plugins_off_a_link_opens_nothing_and_a_switch_takes_effect_at_once() {
+        let mut rig = Rig::new();
+        rig.switch(false, false);
+        rig.save(&rig.link());
+        rig.step(Duration::from_secs(11));
+        assert_eq!(rig.topic()["state"], "off");
+        assert!(rig.told.lock().announced.is_empty());
+        assert!(TcpStream::connect(("127.0.0.1", rig.port)).is_err());
+        rig.switch(true, false);
+        rig.step(Duration::ZERO);
+        assert_eq!(rig.topic()["state"], "listening");
+        assert_eq!(
+            rig.owner.lock().pages[ID][0].1,
+            "Waiting for Home Assistant"
+        );
+        let withdrawn = rig.told.lock().withdrawn;
+        rig.switch(false, false);
+        rig.step(Duration::ZERO);
+        assert_eq!(rig.topic()["state"], "off");
+        assert_eq!(
+            rig.told.lock().withdrawn,
+            withdrawn + 1,
+            "the announcement is withdrawn"
+        );
+        assert!(
+            rig.owner.lock().pages.is_empty(),
+            "an off plugin has no page"
+        );
+    }
+
+    #[test]
+    fn the_tv_sensors_reach_home_assistant_without_the_bluetooth_plugin() {
+        let mut rig = Rig::new();
+        rig.switch(false, true);
+        rig.save(&rig.link());
+        rig.step(Duration::ZERO);
+        let mut ha = Ha::connect(rig.port, KEY);
+        ha.send(m::HelloRequest {
+            client_info: "Home Assistant".into(),
+            api_version_major: 1,
+            api_version_minor: 19,
+        });
+        ha.send(m::DeviceInfoRequest::default());
+        ha.send(m::ListEntitiesRequest::default());
+        rig.until("the entities", |_| {
+            ha.read();
+            matches!(ha.inbox.last(), Some(Message::ListEntitiesDoneResponse(_)))
+        });
+        let info = ha.inbox.iter().find_map(|m| match m {
+            Message::DeviceInfoResponse(i) => Some(i.clone()),
+            _ => None,
+        });
+        assert_eq!(info.unwrap().bluetooth_proxy_feature_flags, 0);
+        let listed = ha.inbox.len() - 3;
+        assert_eq!(listed, tvsensors::entities().len());
+        assert!(
+            !rig.board.wanted(),
+            "nothing is read before Home Assistant subscribes"
+        );
+        ha.send(m::SubscribeStatesRequest::default());
+        rig.until("states wanted", |r| {
+            ha.read();
+            r.board.wanted()
+        });
+        let key = tvsensors::entities()[0].key;
+        rig.board.put(key, Reading::Number(61.0));
+        rig.until("the reading", |_| {
+            ha.read();
+            matches!(ha.inbox.last(), Some(Message::SensorStateResponse(s)) if s.key.0 == key && s.state.get() == 61.0)
+        });
+        assert_eq!(rig.topic()["statesSubscribed"], true);
+        assert!(!rig.bt.state.lock().scanning, "the radio is not asked");
+        assert_eq!(
+            rig.owner.lock().pages[tvsensors::ID][0].1,
+            "Sending 10 sensors to Home Assistant"
+        );
+    }
+
+    #[test]
+    fn a_link_made_before_the_plugin_switches_it_on_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugins = dir.path().join("plugins");
+        let approved = || {
+            roster::read_file(&plugins)
+                .unwrap()
+                .first_party
+                .iter()
+                .any(|a| a.id == ID && a.approve == OPT_IN.approval())
+        };
+        ble_store::save(dir.path(), &BleLink::with_key(KEY)).unwrap();
+        migrate(dir.path(), &plugins);
+        assert!(approved());
+        // Switched off later by the owner, it stays off.
+        roster::write_file(&plugins, &roster::EnabledFile::default()).unwrap();
+        migrate(dir.path(), &plugins);
+        assert!(!approved());
+        // A TV linked after the plugin came is not switched on by the link.
+        let fresh = tempfile::tempdir().unwrap();
+        let plugins = fresh.path().join("plugins");
+        migrate(fresh.path(), &plugins);
+        ble_store::save(fresh.path(), &BleLink::with_key(KEY)).unwrap();
+        migrate(fresh.path(), &plugins);
+        assert!(roster::read_file(&plugins).unwrap().first_party.is_empty());
     }
 }

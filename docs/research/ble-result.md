@@ -108,7 +108,8 @@ Not checked, because it needs the set: everything in the next section.
 ## Nitin's steps in Home Assistant
 
 1. Have `lumatv-helper ble-link` run on the TV (Nitin's own act: it opens a port on the home network); it prints the TV's address,
-   the port (6053) and the **key**. Keep the key; it is asked once.
+   the port (6053) and the **key**. Keep the key; it is asked once. Then switch on *Bluetooth proxy* (and, for the TV's own state,
+   *TV sensors*) in Settings › Inputs & devices › Home Assistant device ([docs/plugins/ha-device.md](../plugins/ha-device.md)).
 2. Home Assistant: Settings, Devices & services. "lumatv-ble" should appear under Discovered: Configure, paste the key, Submit. If
    it does not: Add integration, ESPHome, enter the TV's address and port 6053, then the key.
 3. Settings, Devices & services, Bluetooth, Configure: "lumatv-ble" is listed as a scanner (passive). Sensors and trackers
