@@ -1,5 +1,5 @@
 //! The Plex account: this TV's one sign-in to Plex, kept by the helper and used by everything on the TV that talks to a Plex server: the
-//! Guide data plugin's Plex source, the Photos plugin (when the owner hands it the server) and the Live TV Tuner's Plex DVR setup.
+//! Guide data plugin's Plex source and the Live TV Tuner's Plex DVR setup.
 //! It is the base's connection, as the Home Assistant lease is (`plugins/ha.rs`): no plugin signs in by itself, and none is given the
 //! account's token.
 //!
@@ -27,13 +27,11 @@ use crate::config::{FetchConfig, Paths};
 use crate::ctx::Ctx;
 use crate::fetcher::{CurlFetch, Exchange};
 use crate::http::{CLIENT_HEADER, Request, Response, UI_CLIENT, error_response};
-use crate::plugins::session::Shared;
 use crate::settings::SettingsStore;
 use fetch::{FetchError, FetchLimits};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as Json, json};
-use settings_schema::{SettingChange, Value as Setting};
 use std::net::{IpAddr, Ipv4Addr};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
@@ -58,11 +56,6 @@ const RESOURCES: &str = "https://clients.plex.tv/api/v2/resources?includeHttps=1
 const POLL: Duration = Duration::from_secs(2);
 /// The account's name and servers are read again at most this often when Settings opens the page.
 const REFRESH_EVERY_MS: i64 = 60_000;
-/// The Photos plugin: the one plugin of a Plex server the owner hands the account's server to (its `lan.plex` and its `token`).
-pub const PHOTOS: &str = "photos";
-const PHOTOS_ADDRESS: &str = "lan.plex";
-const PHOTOS_TOKEN: &str = "token";
-
 pub const ROUTES: &[(&str, &str, &str)] = &[
     (
         "GET",
@@ -88,11 +81,6 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
         "POST",
         "/v1/plex/server",
         "picks the server the TV uses: {\"id\": the server's id from /v1/plex}",
-    ),
-    (
-        "POST",
-        "/v1/plex/lend",
-        "hands the account's server and its access token to a plugin of a Plex server: {\"plugin\": \"photos\"}",
     ),
     (
         "POST",
@@ -691,7 +679,6 @@ enum Cmd {
     Cancel,
     Refresh,
     Choose(String),
-    Lend(String),
     SignOut,
     Stop,
 }
@@ -747,17 +734,10 @@ impl PlexAccount {
     }
 }
 
-/// Where the account's thread hands the server to a plugin: the settings that hold its `lan.plex` and the session that takes its token.
-pub struct Lending {
-    pub settings: Arc<SettingsStore>,
-    pub shared: Arc<Shared>,
-}
-
 /// Opens the account (its file, its client identifier) and starts its thread; it reaches the network only when asked.
 pub fn spawn(
     ctx: &Ctx,
     net: Arc<dyn Net>,
-    lending: Lending,
 ) -> std::io::Result<(Arc<PlexAccount>, JoinHandle<()>)> {
     let mut machine = Machine::open(ctx.paths.plex_dir())?;
     let (tx, rx) = mpsc::channel();
@@ -783,7 +763,7 @@ pub fn spawn(
                 machine.refresh(&*net, now());
                 publish(&machine, &hub, &held);
             }
-            run(&mut machine, &rx, &*net, &lending, &hub, &held);
+            run(&mut machine, &rx, &*net, &hub, &held);
         })?;
     Ok((account, handle))
 }
@@ -801,7 +781,6 @@ fn run(
     machine: &mut Machine,
     rx: &Receiver<Cmd>,
     net: &dyn Net,
-    lending: &Lending,
     hub: &crate::hub::Hub,
     account: &PlexAccount,
 ) {
@@ -819,54 +798,10 @@ fn run(
             Ok(Cmd::Choose(id)) => {
                 machine.choose(&id);
             }
-            Ok(Cmd::Lend(plugin)) => {
-                if let Some(server) = machine.server() {
-                    machine.problem = lend(lending, &plugin, &server).err();
-                }
-            }
-            Ok(Cmd::SignOut) => {
-                // a plugin given the account's server is taken off it before its token is revoked
-                if let Some(server) = machine.server() {
-                    unlend(lending, PHOTOS, &server);
-                }
-                machine.sign_out(net);
-            }
+            Ok(Cmd::SignOut) => machine.sign_out(net),
             Err(RecvTimeoutError::Timeout) => machine.poll(net, now()),
         }
         publish(machine, hub, account);
-    }
-}
-
-/// `lan.plex` set to `address`.
-fn address_change(address: &str) -> Option<SettingChange> {
-    Some(SettingChange {
-        key: PHOTOS_ADDRESS.parse().ok()?,
-        value: Setting::Text(address.to_owned()),
-    })
-}
-
-/// Hands `server` to `plugin`, as the owner would by typing on its page: its address in the field the base reads (`lan.plex`), its
-/// access token through the plugin's secret field, which the plugin keeps.
-fn lend(lending: &Lending, plugin: &str, server: &Server) -> Result<(), String> {
-    let change = address_change(&server.address).ok_or("the address is not a setting")?;
-    lending
-        .settings
-        .apply_trusted(plugin, vec![change])
-        .map_err(|e| format!("{plugin} did not take the server: {e}"))?;
-    lending
-        .shared
-        .submit_secret(plugin, PHOTOS_TOKEN, server.token())
-        .map_err(|e| format!("{plugin} did not take the token: {}", e.words()))?;
-    crate::log_info!("plex: {plugin} was given the account's server");
-    Ok(())
-}
-
-/// Takes `plugin` off `server` when it is the one it uses.
-fn unlend(lending: &Lending, plugin: &str, server: &Server) {
-    if lending.settings.text(plugin, PHOTOS_ADDRESS).as_deref() == Some(server.address.as_str())
-        && let Some(change) = address_change("")
-    {
-        let _ = lending.settings.apply_trusted(plugin, vec![change]);
     }
 }
 
@@ -944,16 +879,6 @@ pub fn handle(
             Some(id) => Cmd::Choose(id.to_owned()),
             None => {
                 return error_response(400, "bad_request", "the body is {\"id\": a server's id}");
-            }
-        },
-        ["lend"] => match body["plugin"].as_str() {
-            Some(PHOTOS) => Cmd::Lend(PHOTOS.to_owned()),
-            _ => {
-                return error_response(
-                    404,
-                    "no_such_plugin",
-                    "only the Photos plugin is handed the account's server",
-                );
             }
         },
         _ => return error_response(404, "not_found", "no such Plex route"),

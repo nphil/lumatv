@@ -313,13 +313,12 @@ impl Service {
             config.hdhr.webos(),
             Arc::new(lumatuner::webos::LunaSend::new(config.luna.send.clone())),
         ));
-        // The Plex account: the TV's one sign-in to Plex, whose server Guide data's Plex source and the Photos plugin use. What Guide data
-        // kept of a Plex server before it is the account's first.
+        // The Plex account: the TV's one sign-in to Plex, whose server Guide data's Plex source uses. What Guide data kept of a Plex
+        // server before it is the account's first.
         crate::plex::migrate(&paths, &settings);
         let (plex, plex_thread) = crate::plex::spawn(
             &ctx,
             Arc::new(crate::plex::CurlNet::new(&config.fetch)),
-            crate::plex::Lending { settings: settings.clone(), shared: plugins.shared().clone() },
         )?;
         threads.push(("plex", plex_thread));
         let guide = Arc::new(crate::guidedata::GuideData::default());

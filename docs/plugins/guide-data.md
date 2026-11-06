@@ -52,8 +52,7 @@ confirms it, the helper asks after the PIN every two seconds until it is linked 
 and the servers it owns that answer at an address of the home network, and takes the first; the page offers the others. The account's
 token and the server's address and access token are kept in `plex/account.json` (mode 0600), never in a log, topic or setting. Sign out
 ends the sign-in at plex.tv (`DELETE /api/v2/users/signout`) and deletes the file. A Plex address and token this page kept before were
-moved there on the first start. The Photos plugin is handed the same server and token from the Plex page (its `lan.plex` and its token
-field).
+moved there on the first start.
 
 ## Secrets
 

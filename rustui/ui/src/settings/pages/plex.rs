@@ -1,36 +1,28 @@
 //! Plex, a page of Inputs & devices: the TV's Plex account (`helper/app/src/plex.rs`), the one sign-in everything of Plex on the TV uses
-//! (Guide data's Plex listings, the Photos plugin). Signing in is a code, never typing: the page asks the helper for one (`POST
+//! (Guide data's Plex listings). Signing in is a code, never typing: the page asks the helper for one (`POST
 //! /v1/plex/signin`) and shows it with a QR code of Plex's link page for it; a phone confirms it, the helper, asking after it, signs the TV
 //! in, and the page follows the `plex.account` topic. Signed in, it says who, the server the TV uses (a choice when the account has several
 //! on the home network) and what uses it; Sign out ends the TV's sign-in at plex.tv. No token ever reaches the page.
 
 use super::util::go;
-use crate::panels::hub;
 use crate::settings::ctx::{Ctx, ask, toast};
-use crate::settings::page::{Page, Read};
+use crate::settings::page::Page;
 use crate::settings::row::{ChoiceSpec, Op, Pick, Row};
 use serde_json::{Value, json};
 use std::rc::Rc;
 
 /// The helper's topic of the account.
 const TOPIC: &str = "plex.account";
-/// The Photos plugin, which the owner hands the account's server to.
-const PHOTOS: &str = "photos";
 
 pub fn page() -> Page {
     Page::new("plex", "Plex", "tv-minimal-play")
         .parent("inputs")
         .back("Inputs & devices")
-        .reads(reads)
         .rows(rows)
         .summary(summary)
         .chip(chip)
         .opened(opened)
         .answered(answered)
-}
-
-fn reads(_: &Ctx) -> Vec<Read> {
-    vec![Read::owner(PHOTOS)]
 }
 
 fn account<'a>(c: &'a Ctx) -> &'a Value {
@@ -123,9 +115,6 @@ fn rows(c: &Ctx) -> Vec<Row> {
     }
     rows.push(Row::head("Used by", 0));
     rows.push(Row::link("guidedata").icon("tv-minimal").label("Guide data").help("Its Plex listings come from this sign-in's server.").does(go("guidedata")));
-    if let Some(photos) = photos_row(c, a) {
-        rows.push(photos);
-    }
     if text(a, "state") == "signed-in" {
         rows.push(Row::action("signout", "Sign out").icon("log-out").label("Sign out of Plex").danger().admin().does(ask(
             "log-out",
@@ -158,24 +147,6 @@ fn server_row(a: &Value) -> Row {
             }))])
         }
     }
-}
-
-/// Photos, while it runs: whether it uses the account's server, and the button that hands it over.
-fn photos_row(c: &Ctx, a: &Value) -> Option<Row> {
-    let running = c.helper("plugins").and_then(|r| hub::plugin_of(r, PHOTOS)).is_some_and(|p| text(p, "state") == "connected");
-    if !running {
-        return None;
-    }
-    let address = text(&a["server"], "address");
-    let uses = c.owner(PHOTOS).and_then(|o| o.text("lan.plex"));
-    let row = Row::action("photos", "Use this server").icon("image").label("Photos");
-    Some(if address.is_empty() {
-        row.help("Its pictures can come from this sign-in's server once the TV is signed in.").enabled(false)
-    } else if uses.as_deref() == Some(address) {
-        row.detail("Uses this server").enabled(false)
-    } else {
-        row.admin().does(vec![send("plex.lend", "/v1/plex/lend", json!({"plugin": PHOTOS}))])
-    })
 }
 
 #[cfg(test)]
@@ -231,6 +202,5 @@ mod tests {
         assert!((pick.write)("beast").is_empty());
         let [Op::Ask(question)] = &(row(&r, "signout").act.as_ref().unwrap())(Arg::Press)[..] else { panic!("asks first") };
         assert!(matches!(&question.answers[1].then[..], [Op::Send { path, .. }] if path == "/v1/plex/signout"));
-        assert!(r.iter().all(|x| x.id != "photos"), "no Photos row while it does not run");
     }
 }
