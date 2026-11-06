@@ -29,6 +29,17 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Cameras plugin 2026-11-06 (main 4f965451)
+
+Installed 13:35 EST from 4f965451 (origin and forge main) by the standard path: the bundle with cutover `disable`, `install`, `probe`, `enable`, the helper staged in the app's `payload/helper/` and `lumatv helper start`; `tools/lumatv` unchanged (`0473b152`). Installed sha256: compositor `0dff2ac17f1f4722211fd718c845efbf91cbad23557b191a5aedcf40bfcbb70f`, ui `c9628a95420670db2eb9b0b8fede2a2a7b2eec4a24fcc4901abaf227f979ce93`, sm `65f6ca69eb6da66cbfb139817803d0c1e01b03931fe373894b123c3f64df13da` (unchanged), helper `604f071cacd09d597e14b5adff6fb327d8bfae86742d20240d20e52b4dfd7ac5`. Replaced: compositor `3dd284cf`, ui `ba13803e`, helper `77544f13`. Receipts: `/data/home/tmp/lumatv-plugin-cameras-20261106/`.
+
+- Migration: the first start approved `scrypted-cameras` in `plugins/enabled.json` and wrote `scrypted/plugin-migrated`; `link.json` and `settings/scrypted-cameras.json` are unchanged.
+- On: the status bar's camera button and the Smart home card's two camera tiles show. A test pop-up of camera 103 was granted the main window at 1348,145 520x292 (15.1 a second); the full view of camera 88 was granted the main window (26.2 a second, 0 lost).
+- Off through the Settings route: the button and the tiles are gone, `GET /v1/cameras` says `off`, the test event answers 409, the bridge's events stop and no connection to it is left. The feeder kept for the next session ends only when `feederIdleSeconds` (120 s) runs out.
+- On again: ready with 10 cameras, the button is back, and a 103 pop-up played on the main window (15.2 a second). An event that came while LumaTV's saver was up made no pop-up.
+- Left in Active Standby with Home in front, the plugin on, helper.json and the theme files byte-identical to before, the receiver unmuted at 0.38 as found (muted through HA while the panel was on).
+- Untested: a Cameras card on Home (the layout has none), Ring's doorbell event, the `cameras-off` render scene.
+
 ## Backyard's silent starts and the first pop-up after a helper restart 2026-11-06 (main 0e9ee7bc)
 
 Helper-only install from 0e9ee7bc at 09:18 EST: helper sha256 `77544f131ed8e3cf26b222637539b60b80e4485ae4d0731ae3265120c69e42ba` (was `087d4ece`). Receipts: `/data/home/tmp/lumatv-camplane-20261106/` (`session.log` from 09:18, `logs-followup-0918-0941.txt`).
