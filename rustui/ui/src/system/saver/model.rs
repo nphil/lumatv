@@ -2,16 +2,16 @@
 //! `SaverVote.qml`, case for case).
 //!
 //! **When it is up.** `active` is the owner's saver not being off and either a preview (`forced`), LG's power state `Screen Saver` (LG's saver
-//! was started: under LumaTV's compositor this one is drawn above it) or `owned`: tvpower asked, while Home was in front and this saver wanted
-//! to draw, whether LG's saver may start, and the answer was no (the power state stays `Active`, LG's saver is never started). An owned saver is
-//! up only over Home; LG's confirmed saver and previews are up over any foreground app while the TV is on. Ownership ends on a key, a pointer
-//! that moves more than a few pixels, Home no longer in front, the TV switched off or the owner turning the saver off.
+//! was started anyway, before the vote was taken: this one is drawn above it) or `owned`: tvpower asked whether LG's saver may start, the
+//! answer was no (the power state stays `Active`, LG's saver is never started) and nothing on the screen forbids drawing (`can_draw`: a video
+//! of any app, LumaTV's live view, a cover over Home). It is up over Home and over any app alike. Ownership ends on a key, a pointer that moves
+//! more than a few pixels, another app (or Home) coming to the front, a video starting, the TV switched off or the owner turning the saver off.
 //!
-//! **The vote.** While Home is in front and the saver is wanted (`takesOver`: `own` is not false and the style not off) the model is on
-//! tvpower's two screen-saver lists, `/power2` and `/power`, with `registerScreenSaverRequest {clientName, subscribe: true}`, asks again when a
-//! list has not taken it (3 s, five times, then once a minute) and answers each question it hears: no while wanted (and then `owned`), yes
-//! otherwise. Nothing here is a setting of the TV: the subscription is the client's connection, so a shell that is not running leaves LG's saver
-//! as it always was.
+//! **The vote.** While the shell runs, the model is on tvpower's two screen-saver lists, `/power2` and `/power`, with
+//! `registerScreenSaverRequest {clientName, subscribe: true}`, asks again when a list has not taken it (3 s, five times, then once a minute)
+//! and answers every question no: LG's saver never starts under LumaTV, and LumaTV's saver decides for itself. tvpower asks when LG's idle
+//! timer (the owner's Screen Saver Standby Time, run by the compositor) runs out. Nothing here is a setting of the TV: the subscription is the
+//! client's connection, so a shell that is not running (LumaTV stopped, the Home-hold escape) leaves LG's saver as it always was.
 //!
 //! **A key.** Any key while it is up asks the TV to turn the screen on when LG's state is `Screen Saver` (or a preview), and ends the saver when
 //! it is the only one; the key does nothing else. **Standby** after `standbyHours` up (never a wake from standby: the panel is not left on a
@@ -76,7 +76,9 @@ pub struct Saver {
     client: String,
     // what the channel and the helper say
     home_front: bool,
-    /// Something full screen is over Home (the `covered` of the foreground topic).
+    /// The foreground app as the channel last said: a different one ends an owned saver.
+    front: String,
+    /// Something full screen is over Home (the `covered` of the foreground topic; with an app in front it is always true).
     covered: bool,
     /// A video is on the display (the compositor's `playing` topic: an app's pipeline, a sink of `videooutputd`, one of LumaTV's own windows).
     video: bool,
@@ -91,7 +93,6 @@ pub struct Saver {
     voting: bool,
     retry_at: Option<u64>,
     asked: u32,
-    refused: u32,
     answers: u64,
     last_refusal: String,
     // the timeline
@@ -124,6 +125,7 @@ impl Saver {
             cfg,
             client: client.to_string(),
             home_front: false,
+            front: String::new(),
             covered: false,
             video: false,
             live_view: false,
@@ -135,7 +137,6 @@ impl Saver {
             voting: false,
             retry_at: None,
             asked: 0,
-            refused: 0,
             answers: 0,
             last_refusal: String::new(),
             up_since: None,
@@ -184,19 +185,16 @@ impl Saver {
 
     // ---- what is true now -----------------------------------------------------------------------------------------------------------
 
+    /// The owner's saver is on (`style` is not off).
     fn takes_over(&self) -> bool {
-        self.cfg.own && !self.cfg.off
+        !self.cfg.off
     }
 
-    fn want(&self) -> bool {
-        self.takes_over() && !self.forced && self.home_front
-    }
-
-    /// Whether this saver may draw over what is on the screen: not over a video or a live view of LumaTV's, and not under a cover. It still answers
-    /// tvpower's question no there (LG's saver must not start over them either); it only does not take the screen. LG's confirmed `Screen Saver` state
-    /// is LG's own policy and is drawn whatever this says.
+    /// Whether this saver may draw over what is on the screen: not over a video of any app or of LumaTV's, not over a live view of LumaTV's,
+    /// and not over Home under a cover. tvpower's question is answered no there all the same; nothing takes the screen. LG's confirmed
+    /// `Screen Saver` state is drawn whatever this says.
     fn can_draw(&self) -> bool {
-        !self.covered && !self.video && !self.live_view
+        !self.video && !self.live_view && !(self.home_front && self.covered)
     }
 
     fn active(&self) -> bool {
@@ -204,7 +202,7 @@ impl Saver {
     }
 
     pub fn up(&self) -> bool {
-        self.tv_on && self.active() && (self.home_front || self.lg())
+        self.tv_on && self.active()
     }
 
     /// LG's own state is the saver's (a key must ask the TV to turn the screen on), or this is a preview.
@@ -218,7 +216,14 @@ impl Saver {
         let mut out = Vec::new();
         match input {
             Input::Topic { topic, data } if topic == "foreground" => {
-                self.home_front = data.get("home").and_then(Value::as_bool) == Some(true);
+                let home = data.get("home").and_then(Value::as_bool) == Some(true);
+                let app = data.get("app").and_then(Value::as_str).unwrap_or("");
+                // the saver came up over what was in front; something else in front is a new picture
+                if home != self.home_front || app != self.front {
+                    self.owned = false;
+                    self.home_front = home;
+                    self.front = app.to_string();
+                }
                 self.covered = data.get("covered").and_then(Value::as_bool) == Some(true);
             }
             Input::Topic { topic, data } if topic == "playing" => {
@@ -395,28 +400,26 @@ impl Saver {
         let Some(stamp) = stamp else {
             return;
         };
-        let yes = !self.want();
         self.asked += 1;
-        if !yes {
-            self.refused += 1;
-        }
         self.answers += 1;
         out.push(Effect::Luna {
             tag: TAG_ANSWER + self.answers % ANSWER_RING,
             uri: format!("{TVPOWER}{}/responseScreenSaverRequest", LISTS[i]),
-            payload: json!({"clientName": self.client, "timestamp": stamp.clone(), "ack": yes}),
+            payload: json!({"clientName": self.client, "timestamp": stamp.clone(), "ack": false}),
             subscribe: false,
         });
+        let draws = self.takes_over() && self.can_draw();
         out.push(Effect::Log(format!(
-            "[saver] {} asked: {}",
+            "[saver] {} asked over {}: no ({})",
             LISTS[i],
-            match (yes, self.can_draw()) {
-                (true, _) => "yes (not ours to draw)",
-                (false, true) => "no (LumaTV's saver draws)",
-                (false, false) => "no (a video or a cover is on the screen: nothing is drawn)",
+            if self.home_front { "Home" } else { self.front.as_str() },
+            match (self.takes_over(), draws) {
+                (false, _) => "LumaTV's saver is off: nothing is drawn",
+                (true, true) => "LumaTV's saver draws",
+                (true, false) => "a video, a live view or a cover is on the screen: nothing is drawn",
             }
         )));
-        if !yes && self.can_draw() {
+        if draws {
             self.owned = true;
         }
     }
@@ -467,17 +470,12 @@ impl Saver {
     /// After every input: what changed in what is wanted and what is up.
     fn settle(&mut self, now: u64, out: &mut Vec<Effect>) {
         // `owned` ends with the things it depends on
-        if !self.home_front || !self.tv_on || !self.takes_over() || !self.can_draw() {
+        if !self.tv_on || !self.takes_over() || !self.can_draw() {
             self.owned = false;
         }
-        let want = self.want();
-        if want != self.voting {
-            self.voting = want;
-            if want {
-                self.open_vote(now, out);
-            } else {
-                self.close_vote(out);
-            }
+        if !self.voting {
+            self.voting = true;
+            self.open_vote(now, out);
         }
         let up = self.up();
         if up && self.up_since.is_none() {
@@ -540,8 +538,8 @@ impl Saver {
         // draw the dim itself
         json!({"up": self.up(), "active": self.active(), "owned": self.owned, "forced": self.forced, "level": self.level, "carry": self.panel_carry,
                "canDraw": self.can_draw(),
-               "vote": {"want": self.want(), "registered": self.subs.iter().any(|s| s.live), "power2": self.subs[0].live, "power": self.subs[1].live,
-                        "fails": self.subs[0].fails + self.subs[1].fails, "asked": self.asked, "refused": self.refused, "lastRefusal": self.last_refusal}})
+               "vote": {"registered": self.subs.iter().any(|s| s.live), "power2": self.subs[0].live, "power": self.subs[1].live,
+                        "fails": self.subs[0].fails + self.subs[1].fails, "asked": self.asked, "lastRefusal": self.last_refusal}})
     }
 
     /// Whether the saver wants every key (any key wakes it): while it is up.
@@ -590,17 +588,15 @@ mod tests {
     }
 
     #[test]
-    fn native_confirmed_saver_appears_over_apps_only_after_lg_starts_it() {
-        for app in ["com.webos.app.marquee", "com.nvidia.geforcenow", "arbitrary.app"] {
+    fn over_an_app_without_a_video_the_question_is_answered_no_and_lumatvs_saver_takes_the_screen() {
+        for app in ["com.beb.plxnative", "com.nvidia.geforcenow", "arbitrary.app"] {
             let mut s = saver();
-            s.update(&topic("foreground", json!({"app": app, "home": false})), NOW);
+            s.update(&topic("foreground", json!({"app": app, "home": false, "covered": true})), NOW);
             s.update(&helper("screen", json!({"on": true, "state": "Active"})), NOW + 1);
-            assert!(!s.up(), "{app}: active app must remain visible");
-            let calls = luna_calls(&question(&mut s, 0, 7, NOW + 2));
-            assert_eq!(calls[0].2["ack"], true, "{app}: a question is not approval");
-            assert!(!s.up() && s.state()["owned"] == false);
-            let fx = s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 3);
-            assert!(s.up() && s.view(NOW + 3).up && s.wants_keys(), "{app}: LG approved the saver");
+            assert!(!s.up(), "{app}: the app stays visible until tvpower asks");
+            let fx = question(&mut s, 0, 7, NOW + 2);
+            assert_eq!(luna_calls(&fx)[0].2["ack"], false, "{app}: LG's saver never starts");
+            assert!(s.up() && s.view(NOW + 2).up && s.wants_keys() && s.state()["owned"] == true, "{app}: LumaTV's saver is up");
             assert!(fx.contains(&Effect::Redraw));
         }
     }
@@ -635,28 +631,26 @@ mod tests {
     }
 
     #[test]
-    fn app_transition_drops_home_ownership_but_keeps_native_confirmation() {
+    fn another_app_in_front_ends_ownership_but_keeps_lgs_confirmed_state() {
         let mut s = saver();
         home(&mut s, NOW);
         question(&mut s, 0, 1, NOW + 1);
         let fx = s.update(&topic("foreground", json!({"app": "game", "home": false})), NOW + 2);
         assert!(!s.up() && s.state()["owned"] == false && fx.contains(&Effect::Redraw));
-        let fx = s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 3);
-        assert!(s.up() && fx.contains(&Effect::Redraw));
-        home(&mut s, NOW + 4);
-        s.update(&topic("foreground", json!({"app": "game", "home": false})), NOW + 5);
-        assert!(s.up() && s.state()["owned"] == false);
-        s.update(&helper("screen", json!({"on": false, "state": "Screen Saver"})), NOW + 6);
-        assert!(!s.up(), "the TV being off takes precedence over a stale native state");
-        s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 7);
-        assert!(s.up());
-        s.set_config(Config::from_theme(&json!({"screensaver": {"style": "off"}}), false, 90), NOW + 8);
+        question(&mut s, 0, 2, NOW + 3);
+        assert!(s.up(), "the next question takes the screen over the game");
+        s.update(&topic("foreground", json!({"app": "game", "home": false, "covered": true})), NOW + 4);
+        assert!(s.up(), "the same app told again is no new picture");
+        s.update(&topic("foreground", json!({"app": "other", "home": false})), NOW + 5);
         assert!(!s.up());
-        let mut lg = Saver::new(Config::from_theme(&json!({"screensaver": {"own": false}}), false, 90), "c", 1);
-        let fx = lg.update(&topic("foreground", json!({"app": "game", "home": false})), NOW);
-        assert!(luna_calls(&fx).is_empty());
-        lg.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 1);
-        assert!(lg.up() && lg.state()["owned"] == false, "own=false only disables the Home vote");
+        let fx = s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 6);
+        assert!(s.up() && fx.contains(&Effect::Redraw), "LG's saver started before the vote: drawn over");
+        s.update(&helper("screen", json!({"on": false, "state": "Screen Saver"})), NOW + 7);
+        assert!(!s.up(), "the TV being off takes precedence over a stale native state");
+        s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 8);
+        assert!(s.up());
+        s.set_config(Config::from_theme(&json!({"screensaver": {"style": "off"}}), false, 90), NOW + 9);
+        assert!(!s.up());
     }
 
     #[test]
@@ -668,40 +662,26 @@ mod tests {
         assert!(!s.up(), "time alone cannot start the saver");
         effects.extend(s.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 3_600_001));
         effects.extend(s.update(&Input::Key { name: "left".into(), down: true, repeat: false }, NOW + 3_600_002));
-        let calls = luna_calls(&effects);
-        assert_eq!(calls.len(), 1);
-        assert!(calls[0].1.ends_with("/power/turnOnScreen"));
+        assert!(luna_calls(&effects).iter().all(|c| c.1.starts_with(TVPOWER)), "only tvpower is called: {effects:?}");
     }
 
     #[test]
-    fn with_home_in_front_it_is_on_both_of_tvpowers_lists_and_with_an_app_in_front_it_is_on_neither() {
+    fn it_is_on_both_of_tvpowers_lists_whatever_is_in_front_and_stays_on_them() {
         let mut s = saver();
-        assert!(luna_calls(&s.update(&topic("foreground", json!({"app": "netflix", "home": false})), NOW)).is_empty());
-        let fx = home(&mut s, NOW + 1);
-        let calls = luna_calls(&fx);
+        let calls = luna_calls(&s.update(&topic("foreground", json!({"app": "netflix", "home": false})), NOW));
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].1, "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest");
         assert_eq!(calls[1].1, "luna://com.webos.service.tvpower/power/registerScreenSaverRequest");
         assert_eq!(calls[0].2, json!({"clientName": "org.nphil.lumatv", "subscribe": true}));
         assert!(calls.iter().all(|c| c.3), "subscriptions");
-        let fx = s.update(&topic("foreground", json!({"app": "netflix", "home": false})), NOW + 2);
-        assert_eq!(fx.iter().filter(|e| matches!(e, Effect::Cancel { .. })).count(), 2, "left again when Home goes");
+        let mut fx = home(&mut s, NOW + 1);
+        fx.extend(s.update(&topic("foreground", json!({"app": "netflix", "home": false})), NOW + 2));
+        fx.extend(s.set_config(Config::from_theme(&json!({"screensaver": {"style": "off"}}), false, 90), NOW + 3));
+        assert!(luna_calls(&fx).is_empty() && !fx.iter().any(|e| matches!(e, Effect::Cancel { .. })), "{fx:?}");
     }
 
     #[test]
-    fn the_owner_taking_lgs_saver_back_or_turning_it_off_leaves_no_vote() {
-        let mut s = Saver::new(Config::from_theme(&json!({"screensaver": {"own": false}}), false, 90), "c", 1);
-        assert!(luna_calls(&home(&mut s, NOW)).is_empty(), "own: false leaves LG's saver alone");
-        let mut s = Saver::new(Config::from_theme(&json!({"screensaver": {"style": "off"}}), false, 90), "c", 1);
-        assert!(luna_calls(&home(&mut s, NOW)).is_empty());
-        let mut s = saver();
-        home(&mut s, NOW);
-        let fx = s.set_config(Config::from_theme(&json!({"screensaver": {"own": false}}), false, 90), NOW + 5);
-        assert_eq!(fx.iter().filter(|e| matches!(e, Effect::Cancel { .. })).count(), 2, "the switch is read live");
-    }
-
-    #[test]
-    fn a_question_while_wanted_is_answered_no_and_the_saver_is_up_owned_and_a_question_when_not_wanted_is_answered_yes() {
+    fn every_question_is_answered_no_and_with_the_saver_off_nothing_is_drawn() {
         let mut s = saver();
         home(&mut s, NOW);
         let fx = question(&mut s, 0, 77, NOW + 10);
@@ -710,21 +690,18 @@ mod tests {
         assert_eq!(calls[0].1, "luna://com.webos.service.tvpower/power2/responseScreenSaverRequest");
         assert_eq!(calls[0].2, json!({"clientName": "org.nphil.lumatv", "timestamp": 77, "ack": false}), "no: LG's saver is not started");
         assert!(!calls[0].3);
-        assert!(s.up() && s.state()["owned"] == true && s.state()["vote"]["refused"] == 1);
+        assert!(s.up() && s.state()["owned"] == true && s.state()["vote"]["asked"] == 1);
         assert!(fx.contains(&Effect::Redraw));
         // the subscription's own answer has no timestamp and asks nothing
         let mut t = saver();
         home(&mut t, NOW);
         assert!(luna_calls(&t.update(&Input::Luna { tag: TAG_SUB[1], payload: json!({"returnValue": true}) }, NOW + 1)).is_empty());
         assert_eq!(t.state()["vote"]["power"], true);
-        // an app comes to the front: the question that arrives then is yes
-        let mut u = saver();
-        home(&mut u, NOW);
-        u.update(&Input::Luna { tag: TAG_SUB[0], payload: json!({"returnValue": true}) }, NOW + 1);
-        u.update(&topic("foreground", json!({"app": "netflix", "home": false})), NOW + 2);
-        let late = luna_calls(&question(&mut u, 0, 5, NOW + 3));
-        assert_eq!(late[0].2["ack"], true, "not wanted: yes, as if this client were not there");
-        assert!(!u.up());
+        // the owner turned LumaTV's saver off: still no, and nothing is drawn
+        let mut u = Saver::new(Config::from_theme(&json!({"screensaver": {"style": "off"}}), false, 90), "c", 1);
+        u.update(&topic("foreground", json!({"app": "netflix", "home": false})), NOW);
+        assert_eq!(luna_calls(&question(&mut u, 1, 5, NOW + 1))[0].2["ack"], false);
+        assert!(!u.up() && u.state()["owned"] == false);
     }
 
     #[test]
@@ -829,7 +806,7 @@ mod tests {
     }
 
     #[test]
-    fn the_saver_ends_when_home_is_not_in_front_the_tv_goes_off_or_the_owner_turns_it_off_and_a_tv_that_comes_back_asks_again() {
+    fn the_saver_ends_when_an_app_comes_to_the_front_the_tv_goes_off_or_the_owner_turns_it_off_and_a_tv_that_comes_back_asks_again() {
         let mut s = saver();
         home(&mut s, NOW);
         question(&mut s, 0, 1, NOW + 1);
@@ -971,10 +948,10 @@ mod tests {
     }
 
     #[test]
-    fn a_preview_is_up_without_lgs_state_and_needs_no_vote() {
+    fn a_preview_is_up_without_lgs_state() {
         let mut s = saver();
         let fx = s.force(true, NOW);
-        assert!(s.up() && luna_calls(&fx).is_empty());
+        assert!(s.up() && luna_calls(&fx).iter().all(|c| c.3), "only the vote's subscriptions");
         assert!(s.wants_keys());
         let fx = s.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, NOW + 1);
         assert_eq!(luna_calls(&fx).len(), 1, "it asks the TV, as it always did");
@@ -1004,10 +981,14 @@ mod tests {
 
     #[test]
     fn tvpowers_question_is_answered_no_but_nothing_is_drawn_over_a_video_a_cover_or_a_live_view() {
-        for blocked in ["video", "covered", "live view"] {
+        for blocked in ["video", "app video", "covered", "live view"] {
             let mut s = voting_saver();
             match blocked {
                 "video" => drop(s.update(&topic("playing", json!({"video": true})), NOW + 1)),
+                "app video" => {
+                    s.update(&topic("foreground", json!({"app": "com.beb.plxnative", "home": false, "covered": true})), NOW + 1);
+                    s.update(&topic("playing", json!({"video": true})), NOW + 1);
+                }
                 "covered" => drop(s.update(&topic("foreground", json!({"app": "", "home": true, "covered": true})), NOW + 1)),
                 _ => drop(s.set_live_view(true, NOW + 1)),
             }
@@ -1016,7 +997,7 @@ mod tests {
             assert!(!s.up() && s.state()["owned"] == false, "{blocked}: nothing drawn");
             // it is gone: the next question takes the screen
             match blocked {
-                "video" => drop(s.update(&topic("playing", json!({"video": false})), NOW + 3)),
+                "video" | "app video" => drop(s.update(&topic("playing", json!({"video": false})), NOW + 3)),
                 "covered" => drop(s.update(&topic("foreground", json!({"app": "", "home": true, "covered": false})), NOW + 3)),
                 _ => drop(s.set_live_view(false, NOW + 3)),
             }

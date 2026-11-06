@@ -944,11 +944,12 @@ Screensaver [8]:
 - Under LG's compositor LG's saver window is above the fullscreen container,
   so a saver drawn on the `Screen Saver` state is not seen (round 8). The
   saver answers LG's own idle question instead: tvpower asks its screen saver
-  list whether the saver may start, LumaTV is on that list while Home is in
-  front and says no, and the saver draws in the `Active` state with LG's app
-  never started (`docs/research/saver-own-result.md`; no SAM restart, nothing
-  persistent; LG's saver is back whenever LumaTV is not running or
-  `screensaver.own` is false).
+  list whether the saver may start, LumaTV is on that list whatever is in
+  front and always says no, and the saver draws in the `Active` state with
+  LG's app never started, over Home or any app without a video
+  (`docs/research/saver-own-result.md`; no SAM restart, nothing persistent;
+  LG's saver is back whenever LumaTV is not running: tvpower drops a client
+  whose connection ends).
 - Burn-in rules (tv-tools, zzeppieri): mostly black, moving elements, scenes
   45-75 s with 4 s black fades, dim to 60 % over an hour, a clock that drifts
   to a new spot every 60 s; standby after a set number of hours.

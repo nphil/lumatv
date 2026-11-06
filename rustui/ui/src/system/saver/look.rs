@@ -41,8 +41,6 @@ pub const MIN_MOVE: f32 = 420.0;
 pub struct Config {
     /// `style: off`.
     pub off: bool,
-    /// `own`: false leaves LG's saver alone and nothing is voted.
-    pub own: bool,
     pub dim: bool,
     /// The level the saver dims to, of its first.
     pub dim_to: f32,
@@ -71,7 +69,6 @@ impl Config {
         let level = num(s.get("clockLevel"), 0.4).clamp(0.05, 1.0) as f32;
         Config {
             off: s.get("style").and_then(Value::as_str) == Some("off"),
-            own: flag("own"),
             dim: flag("dim"),
             dim_to: (num(s.get("dimTo"), 0.4) as f32).clamp(FLOOR, 1.0),
             dim_over_ms: (num(s.get("dimOverMin"), 20.0).clamp(1.0, 600.0) * 60_000.0) as u64,
@@ -174,13 +171,12 @@ mod tests {
         let c = Config::from_theme(&json!({}), false, 90);
         assert_eq!((c.dim_to, c.dim_over_ms, c.cap), (0.4, 20 * 60_000, 0.38));
         assert_eq!((c.move_every_ms, c.fade_ms, c.shift_every_ms, c.standby_ms), (60_000, 2000, 4000, 4 * 3_600_000));
-        assert!(c.own && c.dim && c.glance && !c.off);
+        assert!(c.dim && c.glance && !c.off);
         assert_eq!(cfg(json!({"clockLevel": 0.9})).cap, PEAK, "a bright theme is held to the cap");
         assert_eq!(cfg(json!({"clockLevel": 0.2})).cap, 0.2, "a dim one is believed");
         assert_eq!(cfg(json!({"clockLevel": 0.0})).cap, 0.05, "and never to nothing");
         assert_eq!(cfg(json!({"dimTo": 0.01})).dim_to, FLOOR, "a clock that cannot be seen is a black screen");
         assert!(cfg(json!({"style": "off"})).off);
-        assert!(!cfg(json!({"own": false})).own);
         assert_eq!(cfg(json!({"clockLevel": "bright", "dimOverMin": null})).cap, 0.38, "a value of the wrong kind is not taken");
         let r = Config::from_theme(&json!({"screensaver": {"fadeMs": 2000}}), true, 90);
         assert_eq!(r.fade_ms, 90, "reduced motion fades in the short time");

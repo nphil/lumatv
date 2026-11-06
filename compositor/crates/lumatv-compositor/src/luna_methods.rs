@@ -449,7 +449,7 @@ impl State {
     }
 
     /// Runs even when no frames are drawn: the standing subscriptions kept alive, the end of a saver episode seen, and LG's idle timers
-    /// reported. LG still decides whether media permits the saver.
+    /// reported. tvpower then asks its screen-saver list, where the shell answers for LumaTV's saver.
     pub fn nooperation_tick(&mut self) {
         self.nooperation_tick_at(std::time::Instant::now());
     }

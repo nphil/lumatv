@@ -717,8 +717,10 @@ impl State {
         if self.shell_rust.answers("saver") {
             let carry = self.panel.carries();
             self.shell_rust.push_if_changed("paneldim", json!({"carry": carry}));
-            // The saver does not draw over a video: told apart from the foreground topic, which an app's own video context fills (`State::video_playing`).
-            self.shell_rust.push_if_changed("playing", json!({"video": video}));
+            // The saver does not draw over a video: told apart from the foreground topic, which an app's own video context fills, and without
+            // the panel's staleness (`State::video_on_screen`).
+            let shown = self.video_on_screen();
+            self.shell_rust.push_if_changed("playing", json!({"video": shown}));
         }
         for line in self.panel.take_events() {
             self.journal(line);

@@ -2326,11 +2326,9 @@ mod tests {
     }
 
     #[test]
-    fn the_saver_votes_when_home_is_in_front_is_up_once_tvpower_asks_and_any_key_ends_it() {
+    fn the_saver_votes_is_up_once_tvpower_asks_and_any_key_ends_it() {
         let (_h, mut shell) = home_shell("home,saver");
-        let acts = shell.tick(1_100);
-        let _ = acts;
-        assert_eq!(shell.state()["saverState"]["vote"]["want"], true, "{}", shell.state()["saverState"]);
+        shell.tick(1_100);
         // tvpower takes both lists, then asks on the first: the answer is no, and the saver is up
         for tag in [0x5359_0010u64, 0x5359_0011] {
             shell.channel(&Event::Topic { topic: "luna".into(), data: json!({"tag": tag, "payload": {"returnValue": true, "subscribed": true}}) }, 1_200);
@@ -3335,6 +3333,10 @@ mod tests {
         let kinds = "home,osd,settings,toast,cameras,quick,picker,drawer,menu,confirm,switcher,entry,keyboard,alert,saver,capture,cards,popup,layout,ai,banner,displaylab";
         let (_h, mut shell) = home_shell(kinds);
         shell.tick(1_100);
+        // tvpower takes the saver's vote, which stays while the app is in front
+        for tag in [0x5359_0010u64, 0x5359_0011] {
+            shell.channel(&Event::Topic { topic: "luna".into(), data: json!({"tag": tag, "payload": {"returnValue": true, "subscribed": true}}) }, 1_200);
+        }
         shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "youtube.leanback.v4", "home": false, "covered": true}) }, 2_500);
         for s in 3..6u64 {
             shell.tick(s * 1000 + 50);

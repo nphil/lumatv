@@ -150,12 +150,10 @@ fn rows(c: &Ctx) -> Vec<Row> {
     standby.help = "The panel turns off after this long in the screensaver.".into();
     standby.enabled = on;
     rows.push(standby);
-    let mut own = theme_toggle(c, ("own", 2, "moon-star", "LumaTV saver", "LumaTV's clock or art shows when the TV is idle on Home."), "screensaver.own", true);
-    own.enabled = on;
-    rows.push(own);
     rows.push(Row::link("during").tab(2).icon("bell").label("During the screensaver").does(vec![Op::Open { page: "duringsaver".into(), arg: Default::default() }]));
-    // LG's own screen saver: its standby time (LG marks the choice as the owner's with the second key) and its ads
-    rows.push(c.choice(Spec::new("option.screenSaverTimer").tab(2).icon("timer").label("Screen Saver Standby Time").help("How long without a key before LG's screen saver starts.").names(SAVER_TIMES).write(|v| {
+    // LG's idle timer: tvpower asks for a screen saver when it runs out, and LumaTV's saver answers (LG marks the choice as the owner's with the
+    // second key); LG's ads show only on LG's own saver, outside LumaTV
+    rows.push(c.choice(Spec::new("option.screenSaverTimer").tab(2).icon("timer").label("Screen Saver Standby Time").help("How long without a key before the screensaver starts.").names(SAVER_TIMES).write(|v| {
         vec![Op::LgMany { category: "option".into(), settings: settings(&[("screenSaverTimer", json!(v)), ("checkChangedScreenSaverTimerByUser", json!("user"))]), app: None }]
     })));
     rows.push(c.toggle(Spec::new("general.screenSaverAd").tab(2).icon("star").label("Show ads on LG's screen saver").help("The ads some apps, such as LG Channels, put on LG's screen saver.").lg_shown()));
@@ -314,7 +312,7 @@ mod tests {
         assert_eq!(by_id(&r, "standbyhours").index, Some(2));
         w.theme["screensaver"]["style"] = json!("off");
         let r = rows(&w.ctx());
-        assert!(!by_id(&r, "dim").enabled && !by_id(&r, "standbyhours").enabled && !by_id(&r, "own").enabled, "nothing to dim or stand by with no saver");
+        assert!(!by_id(&r, "dim").enabled && !by_id(&r, "standbyhours").enabled, "nothing to dim or stand by with no saver");
         assert_eq!(by_id(&r, "during").label, "During the screensaver");
         // LG's saver time goes with the mark that says the owner chose it
         let timer = by_id(&r, "option.screenSaverTimer");

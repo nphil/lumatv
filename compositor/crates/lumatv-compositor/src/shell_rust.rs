@@ -1641,6 +1641,7 @@ mod tests {
         state.vwin_status_at(&sink("com.netflix.ninja"), t0);
         assert!(state.video_playing(t0 + 44 * min));
         assert!(!state.video_playing(t0 + 45 * min));
+        assert!(state.video_on_screen(), "the saver still does not cover it");
         assert!(state.journal.iter().any(|l| l.contains("com.netflix.ninja") && l.contains("nobody pressed a key for 45 min")), "{:?}", state.journal);
         // a key starts the 45 minutes again
         state.vwin_input(t0 + 50 * min);

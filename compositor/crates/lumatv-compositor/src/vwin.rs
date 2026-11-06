@@ -857,7 +857,7 @@ impl Waive {
     }
 }
 
-/// How long a foreign sink with an unchanged status and no input keeps the panel dim and the saver off a video. A paused video looks the same as a
+/// How long a foreign sink with an unchanged status and no input keeps the panel dim off a video. A paused video looks the same as a
 /// stale sink, so this is how long a pause may last before the screen is cared for again.
 pub const SINK_STALE_NS: u64 = 45 * 60 * 1_000_000_000;
 
@@ -1443,14 +1443,12 @@ impl crate::State {
         self.luna.send(ToBridge::Outbound(Outbound { token, uri: STATUS_URI.into(), payload: json!({"subscribe": true}), subscribe: true }));
     }
 
-    /// Whether a video is on the display that the screen's care and LumaTV's saver must not cover or dim: an app that exported a video element (a
-    /// pipeline of its own in the plan), one of LumaTV's own windows playing (a claim of the camera pop-up, the full view or a picture-in-picture),
-    /// or a sink `videooutputd` reports connected that is not LumaTV's wallpaper or saver, while its app is in the foreground and it is not stale
-    /// (`Sinks::veto`). A paused video keeps its pipeline and so counts, for [`SINK_STALE_NS`] at most; LG's own policy, which asks tvpower's saver
-    /// question, is the authority on whether a paused picture may be covered. `now_ns` is the monotonic clock.
+    /// Whether a video is on the display that the screen's care must not dim: an app that exported a video element (a pipeline of its own in the
+    /// plan), one of LumaTV's own windows playing (a claim of the camera pop-up, the full view or a picture-in-picture), or a sink `videooutputd`
+    /// reports connected that is not LumaTV's wallpaper or saver, while its app is in the foreground and it is not stale (`Sinks::veto`). A paused
+    /// video keeps its pipeline and so counts, for [`SINK_STALE_NS`] at most. `now_ns` is the monotonic clock.
     pub fn video_playing(&mut self, now_ns: u64) -> bool {
-        let plan = self.scene.last_plan();
-        let own = plan.video || !plan.holes.is_empty() || self.vwin.alloc.granted().next().is_some();
+        let own = self.own_video();
         let front = self.foreground_app();
         let idle = now_ns.saturating_sub(self.vwin.sinks_changed_ns.max(self.vwin.input_ns));
         let (holds, waived) = match self.vwin.sinks.veto(&front, idle) {
@@ -1460,12 +1458,23 @@ impl crate::State {
         };
         if waived != self.vwin.waived {
             if let Some((why, app)) = &waived {
-                let line = format!("vwin: the sink of {app} no longer keeps the panel bright and the saver off: {}", why.why());
+                let line = format!("vwin: the sink of {app} no longer keeps the panel bright: {}", why.why());
                 self.journal(line);
             }
             self.vwin.waived = waived;
         }
         own || holds
+    }
+
+    /// Whether a video is on the display that LumaTV's saver must not cover: [`State::video_playing`] without the staleness. A film from an HDMI
+    /// player or one watched for an hour without a key is still a film; the panel care, not the saver, looks after a picture that stays still.
+    pub fn video_on_screen(&self) -> bool {
+        self.own_video() || self.vwin.sinks.veto(&self.foreground_app(), 0) == Veto::Holds
+    }
+
+    fn own_video(&self) -> bool {
+        let plan = self.scene.last_plan();
+        plan.video || !plan.holes.is_empty() || self.vwin.alloc.granted().next().is_some()
     }
 
     /// A key or the pointer moved: a foreign sink's veto starts its [`SINK_STALE_NS`] again.
