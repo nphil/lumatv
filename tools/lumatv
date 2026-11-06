@@ -1454,6 +1454,11 @@ BD_EARLY="/tmp/.$SHORT_ID-boot-direct-early"
 BD_WATCH_SECS=180
 BD_WATCH_MAX=900
 BD_WORKER_MARK="/tmp/.$SHORT_ID-worker"
+# How long after a wake from a boot into standby the stub gets to be in front before it is launched again (bd_wake_home): under the
+# supervisor's 45 s with nothing on the panel (WD_BLANK_SECS), after which LG's compositor takes over.
+BD_WAKE_SECS=30
+# Nothing in front this long after the wake and bootd's own launch of Home is taken as lost, whether or not SAM lists Home.
+BD_WAKE_GRACE=8
 
 bd_worker_alive() {
   bd_wp=$(cat "$BD_WORKER_MARK" 2>/dev/null)
@@ -1531,6 +1536,50 @@ bd_early_in_place() {
 bd_watch_start() {
   # Closes the lock descriptors: a child holding them would keep every later mutation waiting for as long as it lives.
   setsid "$APPDIR/tools/$SHORT_ID" boot-direct watch 8>&- 9>&- </dev/null >/dev/null 2>&1 &
+}
+
+bd_wake_start() {
+  # As bd_watch_start: the lock descriptors closed, detached from the boot worker.
+  setsid "$APPDIR/tools/$SHORT_ID" boot-direct wake 8>&- 9>&- </dev/null >/dev/null 2>&1 &
+}
+
+bd_wait_active() {
+  # Blocks until tvpower says Active (the subscription's first answer is the state now). 1 when the subscription ends first. Through a
+  # fifo, so that luna-send is killed at the match rather than living on to its next write.
+  bd_fifo="/tmp/.$SHORT_ID-bd-wake.$$"
+  rm -f "$bd_fifo"; mkfifo "$bd_fifo" 2>/dev/null || return 1
+  luna-send -i luna://com.webos.service.tvpower/power/getPowerState '{"subscribe":true}' > "$bd_fifo" 2>/dev/null &
+  bd_lp=$!
+  grep -q '"state"[[:space:]]*:[[:space:]]*"Active"' < "$bd_fifo"; bd_rc=$?
+  kill "$bd_lp" 2>/dev/null; rm -f "$bd_fifo"
+  return $bd_rc
+}
+
+bd_wake_home() {
+  # After the first wake of a boot into standby. The activation's compositor restart closed WebAppMgr and nothing started it again in
+  # standby, so bootd's launch of Home at the wake goes to a WebAppMgr that is only starting; SAM's preload of Home that follows leaves the
+  # web stub hidden with nothing in front, and the supervisor falls back after 45 s (2026-11-06, after LG's Always Ready reboot). Home is
+  # launched again, with WebAppMgr answering, while nothing is in front.
+  bd_w=0; bd_n=0
+  while [ "$bd_w" -lt "$BD_WAKE_SECS" ]; do
+    bd_fg=$(foreground_app_id)
+    if [ -n "$bd_fg" ]; then
+      [ "$bd_n" -gt 0 ] && log_line "boot-direct: $bd_fg in front after the wake, $bd_n launch(es) of Home"
+      return 0
+    fi
+    if [ "$bd_n" -lt "$BD_HOME_TRIES" ] && { home_running || [ "$bd_w" -ge "$BD_WAKE_GRACE" ]; } \
+       && { [ "$(hs_kind_mounted)" != web ] \
+            || luna-send -n 1 luna://com.palm.webappmanager/listRunningApps '{}' 2>/dev/null | grep -q '"returnValue"[[:space:]]*:[[:space:]]*true'; }; then
+      hs_open_home
+      bd_n=$((bd_n+1))
+      log_line "boot-direct: nothing in front after the wake, Home launched (try $bd_n) at uptime $(uptime_s) s"
+      sleep 4; bd_w=$((bd_w+4))
+      continue
+    fi
+    sleep 1; bd_w=$((bd_w+1))
+  done
+  log_line "boot-direct: nothing in front $BD_WAKE_SECS s after the wake"
+  return 1
 }
 
 bd_early_stub() {
@@ -1699,6 +1748,11 @@ verb_boot_direct() {
       bd_abort
       hs_open_home
       bd_strike "the boot did not finish" ;;
+    wake)
+      # Started by an activation in standby (bd_wake_start): waits for the wake and sees the stub in front after it (bd_wake_home).
+      until bd_wait_active; do sleep 5; done
+      comp_live && hs_mounted_ours || return 0
+      bd_wake_home ;;
     *) emit_error "boot-direct: on, off or status"; return 1 ;;
   esac
   return 0
@@ -2522,8 +2576,8 @@ verb_compositor_boot_activate() {
   fi
   if [ "$restart_rc" -eq 0 ] && comp_ready >/dev/null && [ ! -e "$COMP/stock-ui-held" ]; then
     if [ "$bd_up" = 1 ]; then
-      # A set that is in standby gets its Home from bootd at the wake.
-      if [ "${1:-}" = standby ]; then bd_finish; elif bd_home_up; then bd_finish; else bd_fail "the stub did not start"; fi
+      # A set that is in standby gets its Home from bootd at the wake, which the wake watch makes sure of.
+      if [ "${1:-}" = standby ]; then bd_finish; bd_wake_start; elif bd_home_up; then bd_finish; else bd_fail "the stub did not start"; fi
     fi
     if [ -n "$landing" ] && [ "$landing" != __wake_skip__ ] && panel_is_active; then
       land_on_app "$landing" restart
@@ -3344,7 +3398,7 @@ case "$VERB:${2:-}" in
   boot-direct:status|boot-direct:) MAINTENANCE_ACCESS=read ;;
   homestub-kind:status|homestub-kind:) MAINTENANCE_ACCESS=read ;;
   homestub-kind:web) MAINTENANCE_ACCESS=emergency ;;
-  boot-direct:off|boot-direct:watch) MAINTENANCE_ACCESS=emergency ;;
+  boot-direct:off|boot-direct:watch|boot-direct:wake) MAINTENANCE_ACCESS=emergency ;;
   status:|surfaces:|version:|log:*|theme:get|theme:|layout:get|layout:|layout:check|compositor:check|stock-ui-restore:)
     MAINTENANCE_ACCESS=read ;;
   helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:)

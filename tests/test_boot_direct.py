@@ -55,7 +55,11 @@ case "$uri" in
     echo "{\\"appInfo\\":{\\"id\\":\\"com.webos.app.home\\",\\"type\\":\\"$(cat "$FAKE/sam_type" 2>/dev/null || echo flutter)\\"},\\"returnValue\\":true}" ;;
   *applicationManager/getForegroundAppInfo)
     if [ -e "$FAKE/front" ]; then echo '{"appId":"com.webos.app.home","returnValue":true}'
+    elif [ -e "$FAKE/nothing-front" ]; then echo '{"appId":"","returnValue":true}'
     else echo '{"appId":"netflix","returnValue":true}'; fi ;;
+  *tvpower/power/getPowerState)
+    # the subscription's answers, one state a line of $FAKE/power
+    while read -r s; do echo "{ \\"state\\": \\"$s\\", \\"subscribed\\": true, \\"returnValue\\": true }"; done < "$FAKE/power" ;;
   *applicationManager/blockSystemApp) echo block >> "$FAKE/calls"; echo '{"returnValue":true}' ;;
   *applicationManager/releaseBlockSystemApp)
     echo release >> "$FAKE/calls"
@@ -183,6 +187,7 @@ class BootDirectShell(unittest.TestCase):
     def script(self, body, real_stub=False):
         names = ["bd_enabled", "bd_api", "bd_strikes", "bd_strike", "bd_finish", "bd_fail", "bd_abort", "bd_rec", "bd_now", "bd_worker_alive",
                  "bd_early_in_place", "bd_early_stub", "bd_early_undo", "bd_early_gone", "bd_early_boot", "bd_manual_stub", "bd_home_up", "bd_json", "verb_boot_direct",
+                 "bd_wait_active", "bd_wake_home", "foreground_app_id",
                  "escape_lapse", "home_running", "home_in_front", "sam_home_type", "json_escape", "emit_error", "hs_stub_in_front", "hs_open_home",
                  "hs_stage_dir", "hs_kind_setting", "hs_kind_wanted", "hs_kind_set", "hs_kind_json", "verb_stub_kind"]
         if real_stub:
@@ -224,7 +229,7 @@ STUB_NATIVE_COMM=lumatv-homestub; HS_KIND="$STATE/homestub-kind"
 export HOME_APP_DIR STUB_STAGE STUB_NATIVE_STAGE
 '''
         shared = constants("HOME_PKILL_PATTERN", "HOME_LAUNCH_URI", "HOME_LAUNCH_PARAMS", "HOME_APP_ID", "BD_FLAG", "BD_PENDING", "BD_STRIKES",
-                           "BD_MAX_STRIKES", "BD_HOME_TRIES", "BD_WATCH_SECS", "BD_WATCH_MAX") + '\nBD_EARLY="$FAKE/early"\nBD_WORKER_MARK="$FAKE/worker"\nESCAPE_BOOT="$FAKE/escape-boot"'
+                           "BD_MAX_STRIKES", "BD_HOME_TRIES", "BD_WATCH_SECS", "BD_WATCH_MAX", "BD_WAKE_SECS", "BD_WAKE_GRACE") + '\nBD_EARLY="$FAKE/early"\nBD_WORKER_MARK="$FAKE/worker"\nESCAPE_BOOT="$FAKE/escape-boot"'
         functions = "\n".join(function(n) for n in names)
         if real_stub:
             functions = functions.replace('mount 2>/dev/null | grep -qF -- " on $1 type "', 'grep -qF -- " on $1 type " "$FAKE/mounts"')
@@ -603,6 +608,28 @@ export HOME_APP_DIR STUB_STAGE STUB_NATIVE_STAGE
         self.assertEqual(self.called(), [])
         self.assertTrue(self.has("boot-direct.pending"))
         self.assertIn("the stub stays", self.logged())
+
+    # ------------------------------------------------------------------------- the first wake of a boot into standby
+
+    def wake(self, **env):
+        # the set wakes after a while in standby; a launch of Home brings it in front
+        self.put("power", "Active Standby\nActive\n")
+        return self.sh('hs_open_home() { echo hs_open_home >> "$FAKE/calls"; touch "$FAKE/front"; }\nverb_boot_direct wake', **env)
+
+    def test_a_home_left_as_a_hidden_preload_by_the_wake_is_launched_again(self):
+        self.sam("web", running=True, mounted=True)
+        self.put("nothing-front")
+        self.assertEqual(self.wake().returncode, 0)
+        self.assertEqual(self.called(), ["hs_open_home"])
+        self.assertIn("Home launched (try 1)", self.logged())
+
+    def test_a_wake_that_lands_on_home_or_another_app_launches_nothing(self):
+        for front in ("front", None):
+            with self.subTest(front=front):
+                self.calls.unlink(missing_ok=True)
+                self.sam("web", running=True, mounted=True, front=front == "front")
+                self.assertEqual(self.wake().returncode, 0)
+                self.assertEqual(self.called(), [])
 
     def test_a_watch_that_cannot_take_the_lock_changes_nothing(self):
         self.flag()
@@ -987,7 +1014,7 @@ export HOME_APP_DIR STUB_STAGE STUB_NATIVE_STAGE
         self.assertIn('boot-direct) verb_boot_direct "${2:-status}"; exit $? ;;', SOURCE)
         self.assertIn("boot-direct:status|boot-direct:) MAINTENANCE_ACCESS=read ;;", SOURCE)
         # the way back to LG's Home from a boot that did not work out is an emergency: it must work while a maintenance veto stands
-        self.assertIn("boot-direct:off|boot-direct:watch) MAINTENANCE_ACCESS=emergency ;;", SOURCE)
+        self.assertIn("boot-direct:off|boot-direct:watch|boot-direct:wake) MAINTENANCE_ACCESS=emergency ;;", SOURCE)
 
     def test_the_installer_writes_the_marker_the_tool_looks_for(self):
         text = (ROOT / "compositor/tools/tv-cutover.sh").read_text()
