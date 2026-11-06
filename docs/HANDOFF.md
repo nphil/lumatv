@@ -29,6 +29,16 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Backyard's silent starts and the first pop-up after a helper restart 2026-11-06 (main 0e9ee7bc)
+
+Helper-only install from 0e9ee7bc at 09:18 EST: helper sha256 `77544f131ed8e3cf26b222637539b60b80e4485ae4d0731ae3265120c69e42ba` (was `087d4ece`). Receipts: `/data/home/tmp/lumatv-camplane-20261106/` (`session.log` from 09:18, `logs-followup-0918-0941.txt`).
+
+- A live stream with no data 2 s after its PLAY, before any picture, is dialled once more; the reader is shared by the plane and the texture, so the silence is not the plane's. Backyard stays on the main window.
+- Camera 88 on the set: full view on a claimed main window 10 of 10 (first picture 151 to 164 ms, 10.3 to 13.8 a second); texture 10 of 10 (178 to 330 ms, 10.0 to 13.5); shell pop-ups on the main window 10 of 10 (151 to 190 ms, 10.1 to 13.1). No start went silent in this run, so the redial is proved by its host test only.
+- The 08:56 pop-up with no claim: pop-up ids restarted at 1 with the helper, and the shell, which outlived it, had shown a pop-up 3 before. Ids now start at the helper's start time; the first pop-up after this install showed and played.
+- A live start with no window claim has its feeder closed by the compositor ("no claim was granted for it"): TV checks claim with `vwin claim` first.
+- Left in Active Standby, helper.json as found (test events off).
+
 ## Sizeless cameras' pop-ups on the main window 2026-11-06 (main 87d83650)
 
 Helper-only install from 87d83650 at 08:55 EST by the standard helper start: helper sha256 `087d4ece8998b98d2604790e9a6eff539c7c7ac1f0921e87da6788a0f5dc0ec5` (was `0000c475`), compositor, ui and sm unchanged. Receipts: `/data/home/tmp/lumatv-camplane-20261106/` (`session.log`, `event-popup-*`, `logs-popup-*`, `full-*`, `popup-88-retry.png`).
