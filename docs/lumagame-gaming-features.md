@@ -120,11 +120,13 @@ working:
 3. Write the low-latency values — confirm the set calls succeed
 4. Read back — confirm the new values took effect
 5. Restore saved values — confirm readback matches originals
-6. Measure input lag reduction with an external tool or
-   `DE_IO_SetLatencyMeasure` to confirm the bypass is real
+6. Measure input lag delta with an external latency tester (photodiode or
+   similar). The expected reduction is unknown. The acceptance criterion is
+   the lifecycle itself: read-back, set, read-back, restore, read-back.
 
 If any step fails, record the error and stop — the control ID or device
 path may differ from the disassembly.
+
 ---
 
 ## 2. 4K144 HDR
