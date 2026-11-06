@@ -403,16 +403,12 @@ struct Held {
     owner: u32,
 }
 
-/// Opens the log and makes it the process's, then says what the config file had that is no longer read. `false` after saying why
-/// to the starter.
+/// Opens the log and makes it the process's. `false` after saying why to the starter.
 fn open_log(config: &Config, ready: &mut Option<File>) -> bool {
     let level = Level::parse(&config.log.level).unwrap_or(Level::Info);
     match Logger::new(level) {
         Ok(logger) => {
             log::init(logger);
-            for line in &config.old_keys {
-                crate::log_warn!("{line}");
-            }
             true
         }
         Err(e) => {
@@ -451,7 +447,7 @@ fn take_lock(paths: &Paths, ready: &mut Option<File>) -> Result<File, i32> {
 /// process for `run` and, under the supervisor, in the process it forks for `start`.
 fn serve(
     paths: Paths,
-    config: Config,
+    mut config: Config,
     mut ready: Option<File>,
     held: Option<Held>,
 ) -> i32 {
@@ -488,6 +484,7 @@ fn serve(
         crate::VERSION,
         paths.data_dir.display()
     );
+    let old_keys = std::mem::take(&mut config.old_keys);
     let service = match Service::start(StartOptions {
         paths: paths.clone(),
         config,
@@ -508,6 +505,10 @@ fn serve(
             return 1;
         }
     };
+    // Said only now: the log is collected by the service's own thread, and what a producer sends with no collector is dropped.
+    for line in &old_keys {
+        crate::log_warn!("{line}");
+    }
     let port = service.addr().port();
     let _ = sys::write_info(&mut lock, owner, Some(port), worker);
     report(&mut ready, &Outcome::Listening { pid: owner, port });

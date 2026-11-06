@@ -157,7 +157,7 @@ pub struct Config {
     /// The brand's QML module (from `brand.json`, set by the command line): where the packaged `art` folder is.
     #[serde(skip)]
     pub brand_qml_module: Option<String>,
-    /// What the file had that is no longer read, in words for the log: said by `open_log` once the log exists (`parse` runs before it).
+    /// What the file had that is no longer read, in words for the log: said by `cli::serve` once the service collects the log.
     #[serde(skip)]
     pub old_keys: Vec<String>,
 }
