@@ -139,54 +139,65 @@ synthetic-state instruction executions; all 598 bytes match the live firmware
 image. Downstream timing-table code has a 144 Hz branch. A universal
 display-firmware 120 Hz ceiling is therefore incorrect.
 
-### VO HFR enable decision (proven offline)
+### VO HFR enable decision (inferred from disassembly)
 
 The VO HFR enable function at `0x505e242a` sets a flag (bit1 of the output
 descriptor at struct+44) under two conditions:
 
 1. `vo_force_hfr != 0` — debug force, bypasses all checks
-2. Normal path: resolution > QHD (`w×h > 2764800`) AND fps > 60
+2. Normal path: the product of two instance fields at offsets 24 and 28
+   exceeds 2764800, AND a computed rate value exceeds 60
 
-For 4K144 (`3840×2160 = 8294400 > 2764800`, `144 > 60`), both checks pass.
-The HFR flag **is already set** for 4K144.
+The operands at offsets 24/28 are unidentified. 2764800 equals 1920×1440
+(QHD pixel count), suggesting a resolution threshold, but this is a guess
+from the value — the field names are not established. The rate comparison
+against 60 at `0x505e25a5` is clearer but the rate source field is also
+unidentified. Both conditions are **inferred**, not proven.
 
-### Where the 120 cap actually is
+### Where the 120 cap is (uncertain)
 
 The 120000 literal at `0x505a6b0c` has zero `l32r` code references — it is
-a value in a data table, not a code literal pool entry. The earlier claim
-that it caps the rate via code at `0x505a6dca` was incorrect; that address
-is also in a data table.
+a value in a data table, not a code literal pool entry.
 
-Since the VO HFR flag is set for 4K144, the 120 Hz cap is **downstream**
-of the VO layer, in the DE output timing generator. The DE rate selector
-(proven offline) returns 144 with readiness = 0, but the host-side DE
-output timing setup (`DE_IO_SetFrRate`, `DE_REG_O22_SetFrRate`) may
-configure the panel for 120. The cap is likely in the negotiation between
-the VDEC VO timing report and the DE output configuration.
+The measured evidence points at the **VDEC VO presentation layer**, not the
+DE: the morning report records ~145 frames/s written to VO buffers but only
+~120 selected for presentation, with ~25 dropped per second. This is a
+VO-layer frame selection decision, not a DE output timing problem. The VO
+layer selects which decoded frames to present at each vsync, and the frame
+scheduling/matching code (`vdisp_set_frame_rate`, `vpts_match`) is where
+the 120 selection most likely lives. The exact code path is not yet traced.
 
-### Viable approach (ordered by risk)
+### Viable approach (ordered by priority)
 
-**A. PTS / VUI rewriting (lowest risk, no firmware access)**
+**A. Trace the VO presentation cap (offline, highest priority)**
+
+The measured ~25 drops/s at 4K144 places the cap in the VO frame selection
+code. The `vdisp_set_frame_rate` function and the `vpts_match` duration
+switch at `0x505ca144` decide which decoded frames to present at each
+vsync. Tracing these with synthetic state (same method as
+`emulate-de-rate-selector.py`) would show exactly where 120 is selected.
+The `esFPS` / `contFPS` estimator feeds into this decision.
+
+**B. PTS / VUI rewriting (lowest live-test risk)**
 
 The TV estimates frame rate from SPS VUI timing or PTS spacing. The test
 fixture carries VUI with `num_units_in_tick=1, time_scale=144`. Real GFN
-NVENC streams often omit VUI timing, so the PTS estimator (`esFPS` /
-`contFPS`) determines the rate. If the feeder rewrites PTS spacing to
-1/144s, the VO estimator may report 144 to the DE, which would then call
-`DE_IO_SetFrRate` with a 144 Hz target.
-
-**B. DE_IO_SetHighFrameRate + DE_IO_SetFrRate (medium risk)**
-
-`DE_IO_SetHighFrameRate` sends DE IPC command 0x63. `DE_IO_SetFrRate`
-configures the actual output timing. Both are host-callable through the
-DE driver. The function is gated by a platform model check (model IDs
-9–10); the C4's model ID must be verified.
+NVENC streams often omit VUI timing, so the PTS estimator determines the
+rate. If the feeder rewrites PTS spacing to 1/144s, the VO estimator may
+see 144 and adjust its frame selection accordingly.
 
 **C. VDEC debug parameters via IPC (medium risk)**
 
-`vdec.vo_force_hfr` forces the VO HFR flag (already set for 4K144, so
-this is redundant unless the normal-path conditions fail at runtime).
-`vdec.vdec_force_framerate_num/den` can override the rate report to the DE.
+`vdec.vo_force_hfr` forces the VO HFR flag.
+`vdec.vdec_force_framerate_num/den` can override the rate the VO uses for
+frame selection. If the 120 cap is gated by the estimated rate, forcing
+144 may lift it.
+
+**D. DE_IO_SetHighFrameRate + DE_IO_SetFrRate (medium risk)**
+
+If the DE also needs to be told to scan at 144, these host-callable
+functions configure DE output timing. Gated by a platform model check
+(model IDs 9–10).
 
 **Dead ends:**
 - `podi_frame_rate` sysfs — does not exist on the host (Xtensa coprocessor)
@@ -195,11 +206,10 @@ this is redundant unless the normal-path conditions fail at runtime).
 
 ### Open prerequisites
 
-1. Trace what `DE_IO_SetFrRate` / `DE_REG_O22_SetFrRate` configures and
-   whether the DE accepts a 144 Hz timing request from the VO layer
-2. Verify the C4's platform model ID against `DE_IO_SetHighFrameRate`'s
-   model gate (sub 9, cmp 1 → accepts IDs 9 and 10)
-3. Confirm GFN negotiates 144 fps and check NVENC VUI timing presence
+1. Trace VO `vdisp_set_frame_rate` and `vpts_match` with synthetic state
+   to find the exact 120 selection branch
+2. Confirm GFN negotiates 144 fps and check NVENC VUI timing presence
+3. Verify C4 platform model ID against `DE_IO_SetHighFrameRate` gate
 
 ---
 
