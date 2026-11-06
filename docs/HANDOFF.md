@@ -29,6 +29,18 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Plugin isolation, the Receiver link 2026-11-06 (main 5acdf16a)
+
+Main 5acdf16a installed at 18:30 EST by the standard path; the set was woken from Active Standby for the session and returned to it. Installed sha256: compositor `87ef3b2466b7b25ba2df64610bd288bf7224379dc20a3008ed9e9af338be27f8`, ui `f6c19d64347d8feceaf2466770a9904ad84b73eccee15f6a1fd69e45d3127e3a`, helper `e74688a88d94382784a32669a954d159be177d25b792d2b271f8ef42a9ab356e`; sm `65f6ca69` unchanged. Replaced: compositor `1ef99f70`, ui `366a165c`, helper `4e660ad6`. Receipts: `/data/home/tmp/lumatv-plugin-session-20261106/` (`session.log`, `installed-hashes.json`, `checks.json`, `cycle-*.json`, `idle-*.txt`, `latency*.json`, screenshots).
+
+- Each plugin's thread runs under `plugins::guard`: a panic stops that plugin alone, its switch stays on with "Stopped by an internal error: …" under it, and it retries after 30 s, doubling to 30 min. Not covered: threads a plugin spawns itself, a stack overflow or a panic while unwinding (both still end the helper), and the 32-thread HTTP pool.
+- Every plugin switch (denon-receiver, scrypted-cameras, home-assistant, live-tv-tuner, guide-data, ble-proxy, tv-sensors) was switched off, reached again and switched on with remote keys from Home: gear, All settings, rail, tab, link, switch, then the question's second answer. While the receiver plugin is off, the Sound page shows the Receiver link as "Off" and "Receiver plugin is off" under Receiver volume.
+- Off: the camera tiles and status icon leave Home and `/v1/cameras/event` answers 409 `off` with no pop-up; Home Assistant's card leaves Home and the weather falls back to the ZIP; the tuner's discovery port refuses; the guide settings answer 404; with only the BLE proxy off the TV sensors stay in HA (one 13 ms reconnect at the switch); with TV sensors off their entities have no state in HA. On again, each comes back, with the same HA entity ids.
+- With the receiver plugin off, the volume keys step the receiver over ARC (-42.0 to -41.5 dB and back) and show the bar. With it on, key to bar is 20.8 ms median (n=2, poll bounds 11–21 ms) against 12.6 ms (n=20, f802ddd2). One tap read +0.5, +1.0, then +0.5 dB at the receiver within 0.4 s, ending on the bar's level.
+- Idle Home for 60 s (liquid glass, the IdleFollowups method), before → after: compositor 5.82 → 4.96 % and 182 → 207 MB, ui 3.89 → 3.53 % and 56 → 52 MB, helper 1.21 → 1.05 % and 45 → 34 MB, flips 20.1 → 18.9 a second.
+- No LumaTV crash records or LG crash reports since the first plugin install (13:35); compositor failures 0; helper and compositor not restarted since the install.
+- Left as found: Active Standby with Home in front, every plugin on, theme files byte-identical, the receiver off at -42.0 dB, unmuted, input TV.
+
 ## Denon receiver plugin 2026-11-06 (main 6e902567)
 
 Main 6e902567 installed at 17:46 EST, the set in Active Standby (`tv-first-light.sh deploy`, cutover disable/install/probe/enable, helper staged in `payload/helper/`, `lumatv helper start`). Installed sha256: helper `4e660ad60eab330477ec0930eeea234d9cf56f4b4618c4491d55664e050e92da`, ui `366a165c5ade44a7ed1dcc0e8f0639c80fb4e9ba27205420903d63a5642d5558`; compositor `1ef99f70` and sm `65f6ca69` unchanged. Replaced: helper `14994b99`, ui `6ec9b73b`. Receipts: `/data/home/tmp/lumatv-plugin-denon-20261106/` (`session.log`, `installed-hashes.json`, `migration.txt`, `checks.json`).
