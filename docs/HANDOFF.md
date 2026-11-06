@@ -583,7 +583,8 @@ The supervisor deliberately keeps its `running` marker for the first 120 healthy
   5. Nitin's steps: GFN sign-in, HA token and plugin enable, Bluetooth proxy link, LG
      store check, leak sensor OTA retry, Denon OSD off, Apple TV CEC off.
 - Netflix tvq-pb-101 came from an input app left holding the audio decoder port;
-  `lumatv inputs status|release`, and gate.py now closes the HDMI app it opens.
+  restarts end the input apps first, `lumatv inputs status` shows a held port, and gate.py
+  closes the HDMI app it opens.
 - Backups of uncommitted work: `/data/home/lumatv-backups/wip-*`.
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,

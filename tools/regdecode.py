@@ -407,8 +407,6 @@ def cmd_find(args, headers):
 
 
 def main(argv=None):
-    if hasattr(signal, "SIGPIPE"):
-        signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # `| head` is a normal way to read this
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--kdriver", default=os.environ.get("LG_KDRIVER", DEFAULT_KDRIVER),
                    help="kdriver/ directory of LG's GPL tree (default $LG_KDRIVER, then the research checkout)")
@@ -434,4 +432,7 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    # `| head` is a normal way to read this; set only for the command, as it would kill a process that imports main().
+    if hasattr(signal, "SIGPIPE"):
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     sys.exit(main())

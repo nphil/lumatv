@@ -31,8 +31,11 @@ def key_names(tokens):
 
 
 def walk_of(s):
-    """What a walk does after the key that enters its screen."""
-    return gate.open_tokens(s)[4:] if s["act"] == "release" else s["open"].split()[2 if s["tile"] else 1:]
+    """What a walk does after the key that enters its screen (OK, a tile's number, or a key acted on at its release)."""
+    if s["act"] == "release":
+        return gate.open_tokens(s)[4:]
+    toks = s["open"].split()[1:]
+    return toks[1:] if s["tile"] or toks[0] == "OK" else toks
 
 
 class Table(unittest.TestCase):
@@ -84,9 +87,9 @@ class Table(unittest.TestCase):
     def test_a_screen_that_was_entered_is_left_by_the_walk(self):
         for n in ("settings-scroll", "apps-grid", "switcher"):
             self.assertEqual(key_names(walk_of(surface(n)))[-1], "BACK", n)
-        for n in ("settings-scroll", "switcher"):
-            self.assertEqual(surface(n)["act"], "release", n)               # entered by a key acted on at its release
-        self.assertEqual(surface("apps-grid")["act"], "press")             # a number key is acted on at its press
+        self.assertEqual(surface("switcher")["act"], "release")            # entered by a key acted on at its release
+        for n in ("settings-scroll", "apps-grid"):
+            self.assertEqual(surface(n)["act"], "press", n)                 # the quick panel's OK and a number key are acted on at the press
 
     def test_prep_is_a_window_of_its_own_and_comes_before_the_cycle(self):
         toks = gate.cycle_tokens(surface("settings-scroll"))
@@ -99,9 +102,9 @@ class Table(unittest.TestCase):
             gate.validate([{"name": "x", "prep": "@x-prep UP", "open": "@x-open UP", "close": "@x-close"}])
 
     def test_the_release_entry_keeps_its_walk_inside_the_open_window(self):
-        s = surface("settings-scroll")
+        s = surface("switcher")
         toks = gate.open_tokens(s)
-        self.assertEqual(toks[:4], ["OK+", "s0.05", "@settings-scroll-open", "OK-"])
+        self.assertEqual(toks[:4], ["HOME+", "s0.05", "@switcher-open", "HOME-"])
         self.assertEqual(toks[4:], s["open"].split()[2:])
         for bad in ("@x-open", "@x-open RIGHTx2 UP", "@x-open s1 UP"):
             with self.assertRaises(ValueError):

@@ -7,12 +7,13 @@ use backdrop_plan::{plan, Ask, Layer, Refresh};
 type Area = [i32; 4];
 
 fn plain(id: u32, area: Area) -> Layer {
-    Layer { id: LayerId(id), version: 1, now: Some(area), rest: Some(area), ask: None }
+    Layer { id: LayerId(id), version: 1, now: Some(area), rest: Some(area), ask: None, body: None }
 }
 
 fn glass(id: u32, body: Area, samples: Area) -> Layer {
     Layer {
         ask: Some(Ask { refresh: Refresh::Live, radius: 10.0, downsample: 4, body_now: body, body_rest: body, sample_now: samples, sample_rest: samples }),
+        body: Some(body),
         ..plain(id, body)
     }
 }
