@@ -145,6 +145,17 @@ Installed 15:37 EST from 7e8b8f43 (origin and forge main) by the standard path; 
 - 16.3, 16.4 and 16.9 five times each: 0/5 each on ddfe579c (its 30-minute cache), 4/5, 5/5 and 0/5 on 7e8b8f43. Plex's transcoder at debug level found the stream info 1.5 to 2.5 s after opening 2.1, 17.3, 5.1 and 16.4, with no "Invalid frame dimensions" (1 to 3 a probe on ddfe579c).
 - Not done: the Guide data plugin's switch-on in Settings (30311, Plex then the free listings). Receipts: `/data/home/tmp/lumatv-tv-20261105g/` (not in git).
 
+## Home Assistant device: Bluetooth proxy fix, TV sensors 2026-11-05 (night, main ea8f2f49)
+
+Home Assistant's ESPHome entry "LumaTV Bluetooth" held the key from before the TV's key was made again on 11-02, and the proxy's Noise hello carried a 17-character MAC that aioesphomeapi cuts to 16, so a failed handshake read as another device and Home Assistant stopped reconnecting. e79794ae (LumaShow `esphome-api`) sends ESPHome's 12-hex form; Home Assistant then raised its reauth, which took the TV's key (Nitin's OK). `ble-link --standby` is on. f1cf93b1 makes the proxy and TV sensors plugins (`docs/plugins/ha-device.md`).
+
+Helper-only installs by the standard helper start, compositor `84a7091b`, ui `4109df20` and sm `65f6ca69` unchanged: a6ccf051 at 19:30 EST (helper `4fe35234a3804c274c78df679aa9fd960e35f7fe118873c5761787826d148d77`), then ea8f2f49 at 20:38 EST (helper `2c5374638c33dd2e9510ca2e2f8de919d8e34eb7e1058abfd512001461d8103a`, was `aedf49c2`). The migration switched the Bluetooth proxy plugin on; TV sensors was switched on through the Settings route.
+
+- Home Assistant lists `lumatv-ble (84:A3:29:B9:4D:43)` as a passive ESPHomeScanner: 17 to 28 devices, the freshest under a minute old, with the screen on and in Always Ready (3 windows in 2 min 45 s; advertisements 81 to 168 on a6ccf051, 254 to 292 on ea8f2f49).
+- The ten `*.lumatv_bluetooth_*` entities exist and update: load and memory every 30 s, temperature every 60 s in standby, and power, screen, app, input (HDMI 2 reads "AVR-S760H") and picture mode within a second of a change.
+- Idle cost over 301 s with Home Assistant subscribed: the helper's worker 0.56 % of one core in all; the `ble` thread 11 ticks (0.04 %), `tvsensors` and its two `luna-send` subscriptions 0.
+- Untested on the set: the tuner's signal while a channel streams, and the Settings page (ships with the ui of any main from f1cf93b1). `cargo test --test scrypted` fails 2 live tests on main without this work. Receipts: `/data/home/tmp/lumatv-tvtoha-20261105/` (not in git).
+
 ## Plex QR sign-in 2026-11-05 (night, main bf40856b)
 
 Installed 20:11-20:14 EST from bf40856b (origin and forge main) by the standard path, with Nitin's app (`com.beb.plxnative`) in front; it was relaunched after. Installed sha256: compositor `28f9286c9035ddeaf52264a519d72974b4d4635b913ad9bcb4ae904b36fcfb24`, ui `e879bdfad03b098dab4ab83bc2ebba4db37bea567475f00d1b8d3c34dc01181f`, sm `65f6ca69eb6da66cbfb139817803d0c1e01b03931fe373894b123c3f64df13da`, helper `2ed2d64527695c91c63bf85a9ffac09cee02549bc494af2b78c529695869e811`. Failures 0; check-boot's activation line is absent without a reboot. f7226459's helper (aedf49c2) replaced this helper later the same evening.
