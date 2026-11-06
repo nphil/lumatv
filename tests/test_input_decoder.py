@@ -2,8 +2,9 @@
 
 An input app (HDMI, Live TV) taken down with the compositor while its sound is started leaves the kernel's audio decoder
 port open (/proc/lgtv-driver/audio/adec.p1: Open=1, Connect=HDMI_PORT2) with nobody to close it, and Netflix's sound then
-fails (tvq-pb-101). The tool ends the input apps through SAM before it restarts the compositor, and `lumatv inputs
-release` frees a port left that way. Driven here against a fake luna-send and a fake adec directory.
+fails (tvq-pb-101). The tool ends the input apps through SAM before it restarts the compositor, and never launches an
+input to free a port (the launch wakes the device behind it through CEC). Driven here against a fake luna-send and a fake
+adec directory.
 """
 import json
 import os
@@ -15,7 +16,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOL = os.path.join(os.path.dirname(HERE), "tools", "lumatv")
 
-FUNCS = ("foreground_app_id", "input_apps_running", "input_decoder_held", "close_input_apps", "warn_input_decoder_held",
+FUNCS = ("input_apps_running", "input_decoder_held", "close_input_apps", "warn_input_decoder_held",
          "inputs_json", "verb_inputs", "restart_surface", "home_back_after_restart")
 
 
@@ -40,9 +41,7 @@ def input_app_ids():
 
 
 # SAM as far as these functions use it: `running` lists Home and the ids in $d/running; closeByAppId drops the id and, when
-# $d/release exists, closes the held port the way the app's own teardown does; launch puts the app in front (an input app
-# also becomes running); the foreground is $d/fg. $d/eim names an input LG's eim launches again (its port open) once,
-# at the next launch of another app: the device the input's launch woke claiming Active Source.
+# $d/release exists, closes the held port the way the app's own teardown does; a launch is recorded.
 LUNA = r'''#!/bin/sh
 d="%s"
 case "$3" in
@@ -55,26 +54,13 @@ case "$3" in
     grep -vx "$id" "$d/running" > "$d/running.new" 2>/dev/null; mv "$d/running.new" "$d/running"
     [ -e "$d/release" ] && printf 'AdecPortNum=1\nOpen=0\nConnect=UNKNOWN\nStart=0\n' > "$d/adec/adec.p1"
     echo '{"returnValue":true}' ;;
-  */getForegroundAppInfo) echo "{\"returnValue\":true,\"appId\":\"$(cat "$d/fg")\"}" ;;
-  */launch)
-    id=$(echo "$4" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
-    echo "launch $id" >> "$d/calls"
-    echo "$id" > "$d/fg"
-    case "$id" in
-      com.webos.app.hdmi*|com.webos.app.livetv) echo "$id" >> "$d/running" ;;
-      *) if [ -e "$d/eim" ]; then
-           e=$(cat "$d/eim"); rm "$d/eim"
-           echo "eim launch $e" >> "$d/calls"; echo "$e" >> "$d/running"; echo "$e" > "$d/fg"
-           printf 'AdecPortNum=1\nOpen=1\nConnect=HDMI_PORT2\nStart=1\n' > "$d/adec/adec.p1"
-         fi ;;
-    esac
-    echo '{"returnValue":true}' ;;
+  */launch) echo "launch $4" >> "$d/calls"; echo '{"returnValue":true}' ;;
 esac
 '''
 
 
 class Base(unittest.TestCase):
-    def run_sh(self, body, running=(), port1=None, fg="com.webos.app.home", release=True, eim=None):
+    def run_sh(self, body, running=(), port1=None, release=True):
         """port1: None for a closed port, else the Connect value of an open one."""
         with tempfile.TemporaryDirectory() as d:
             os.mkdir(os.path.join(d, "bin"))
@@ -91,13 +77,8 @@ class Base(unittest.TestCase):
                 f.write("AdecPortNum=1\nOpen=1\nConnect=%s\nStart=1\n" % port1 if port1 else "AdecPortNum=1\nOpen=0\nConnect=UNKNOWN\nStart=0\n")
             with open(os.path.join(d, "running"), "w") as f:
                 f.write("".join(a + "\n" for a in running))
-            with open(os.path.join(d, "fg"), "w") as f:
-                f.write(fg + "\n")
             if release:
                 open(os.path.join(d, "release"), "w").close()
-            if eim:
-                with open(os.path.join(d, "eim"), "w") as f:
-                    f.write(eim + "\n")
             script = (
                 'set -u\nd="%s"\nPATH="$d/bin:$PATH"\nADEC_PROC=$d/adec\nSHORT_ID=lumatv\n%s\n'
                 'HOME_LAUNCH_URI=luna://com.webos.applicationManager/launch; HOME_APP_ID=com.webos.app.home\n'
@@ -146,8 +127,8 @@ class BeforeTheRestart(Base):
 
     def test_a_port_left_open_with_no_input_running_is_logged_after_home_is_back(self):
         r, calls, log = self.run_sh("home_back_after_restart\n", port1="HDMI_PORT2")
-        self.assertTrue(any("still open for HDMI_PORT2 with no input app running" in l and "lumatv inputs release" in l
-                            for l in log), log)
+        self.assertTrue(any("still open for HDMI_PORT2 with no input app running" in l for l in log), log)
+        self.assertFalse(any(c.startswith("launch") for c in calls), calls)
 
     def test_an_open_port_with_its_input_running_is_not_a_leak(self):
         r, calls, log = self.run_sh("home_back_after_restart\n", running=["com.webos.app.hdmi2"], port1="HDMI_PORT2")
@@ -163,38 +144,10 @@ class InputsVerb(Base):
         self.assertEqual(out["inputs"]["running"], [])
         self.assertEqual(out["inputs"]["held"], "HDMI_PORT2")
 
-    def test_release_launches_the_ports_input_closes_it_and_puts_the_front_app_back(self):
-        r, calls, log = self.run_sh("verb_inputs release; echo rc=$?\n", port1="HDMI_PORT2", fg="com.webos.app.home")
-        self.assertIn('"released":true', r.stdout, r.stderr)
-        self.assertIn('"app":"com.webos.app.hdmi2"', r.stdout)
-        self.assertIn("rc=0", r.stdout)
-        self.assertEqual(calls, ["launch com.webos.app.hdmi2", "close com.webos.app.hdmi2", "launch com.webos.app.home"])
-        self.assertTrue(any("inputs release: com.webos.app.hdmi2 launched and closed, the port is free" in l for l in log), log)
-
-    def test_an_input_eim_launches_again_after_the_release_is_ended_and_the_front_app_put_back(self):
-        r, calls, log = self.run_sh("verb_inputs release; echo rc=$?\n", port1="HDMI_PORT2", fg="com.beb.plxnative",
-                                    eim="com.webos.app.hdmi2")
-        self.assertIn('"released":true', r.stdout, r.stderr)
-        self.assertIn('"running":[]', r.stdout)
-        self.assertEqual(calls, ["launch com.webos.app.hdmi2", "close com.webos.app.hdmi2", "launch com.beb.plxnative",
-                                 "eim launch com.webos.app.hdmi2", "close com.webos.app.hdmi2", "launch com.beb.plxnative"])
-
-    def test_release_with_nothing_held_does_nothing(self):
-        r, calls, log = self.run_sh("verb_inputs release\n")
-        self.assertIn('"released":false', r.stdout, r.stderr)
-        self.assertIn("no port held", r.stdout)
+    def test_there_is_no_release_that_launches_an_input(self):
+        r, calls, log = self.run_sh("verb_inputs release; echo rc=$?\n", port1="HDMI_PORT2")
+        self.assertIn("rc=1", r.stdout, r.stderr)
         self.assertEqual(calls, [])
-
-    def test_release_leaves_a_port_its_running_input_owns(self):
-        r, calls, log = self.run_sh("verb_inputs release\n", running=["com.webos.app.hdmi2"], port1="HDMI_PORT2")
-        self.assertIn("owns it", r.stdout, r.stderr)
-        self.assertEqual(calls, [])
-
-    def test_a_release_that_does_not_free_the_port_fails(self):
-        r, calls, log = self.run_sh("verb_inputs release; echo rc=$?\n", port1="HDMI_PORT1", release=False)
-        self.assertIn('"ok":false', r.stdout, r.stderr)
-        self.assertIn("rc=1", r.stdout)
-        self.assertEqual(calls[0], "launch com.webos.app.hdmi1")
 
 
 if __name__ == "__main__":

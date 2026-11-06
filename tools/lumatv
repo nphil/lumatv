@@ -522,7 +522,7 @@ warn_input_decoder_held() {
   # After a restart: a port left open with no input app to release it means the next media app's sound fails.
   wi_c=$(input_decoder_held) || return 0
   [ -z "$(input_apps_running)" ] || return 0
-  log_line "restart: an audio decoder port is still open for $wi_c with no input app running; media apps fail to start sound until \`$SHORT_ID inputs release\` (or the input launched and closed by hand)"
+  log_line "restart: an audio decoder port is still open for $wi_c with no input app running; media apps fail to start sound until that input is opened and left once"
   return 0
 }
 
@@ -2081,7 +2081,7 @@ verb_capture() {
 }
 
 inputs_json() {
-  # The kernel's audio decoder ports and the input apps running: what `inputs release` acts on.
+  # The kernel's audio decoder ports and the input apps running.
   ij_ports=""
   for ij_f in "$ADEC_PROC"/adec.p*; do
     [ -f "$ij_f" ] || continue
@@ -2097,49 +2097,13 @@ inputs_json() {
 }
 
 verb_inputs() {
-  # status: the ports and the input apps running. release: an input's decoder port left open with no input app
-  # to release it (the state close_input_apps prevents) is released the way the owner would by hand: the port's
-  # input app launched through SAM and closed again. Launching the input the receiver is on switches the receiver
-  # through CEC (seen 2026-10-26: HDMI 2, the eARC port, cleared the receiver's mute), so this is the owner's
-  # command, never apply's.
+  # The ports and the input apps running. Nothing here frees a port: the only way found is to launch the port's input
+  # and close it, and that launch wakes the device behind the input through CEC (Set Stream Path), which then claims
+  # Active Source and LG's eim opens the input again with the port (5.5 s after the close, the Apple TV behind HDMI 2,
+  # 2026-11-05). close_input_apps before every restart keeps the port from being left open.
   case "${1:-status}" in
     status) printf '{"ok":true,"inputs":%s}\n' "$(inputs_json)" ;;
-    release)
-      ir_c=$(input_decoder_held) || { printf '{"ok":true,"released":false,"reason":"no port held","inputs":%s}\n' "$(inputs_json)"; return 0; }
-      if [ -n "$(input_apps_running)" ]; then
-        printf '{"ok":true,"released":false,"reason":"an input app is running and owns it","inputs":%s}\n' "$(inputs_json)"
-        return 0
-      fi
-      case "$ir_c" in
-        HDMI_PORT*) ir_app="com.webos.app.hdmi${ir_c#HDMI_PORT}" ;;
-        *) ir_app="com.webos.app.livetv" ;;
-      esac
-      ir_front=$(foreground_app_id)
-      luna-send -n 1 "$HOME_LAUNCH_URI" "{\"id\":\"$ir_app\"}" >/dev/null 2>&1
-      ir_i=0
-      while [ "$ir_i" -lt 10 ] && [ "$(foreground_app_id)" != "$ir_app" ]; do sleep 1; ir_i=$((ir_i+1)); done
-      sleep 2
-      close_input_apps "inputs release"
-      case "$ir_front" in ''|"$ir_app") ir_front=$HOME_APP_ID ;; esac
-      luna-send -n 1 "$HOME_LAUNCH_URI" "{\"id\":\"$ir_front\"}" >/dev/null 2>&1
-      # The launch wakes the device behind the input through CEC (Set Stream Path); once awake it claims Active Source
-      # and LG's eim launches the input again, which opens the port anew: 5.5 s after the close, both times on
-      # 2026-11-05 (the Apple TV behind HDMI 2). The input that comes back is ended again and the front app put back.
-      ir_i=0
-      while [ "$ir_i" -lt 10 ] && [ -z "$(input_apps_running)" ]; do sleep 1; ir_i=$((ir_i+1)); done
-      if [ -n "$(input_apps_running)" ]; then
-        close_input_apps "inputs release: the input came back when its device woke"
-        luna-send -n 1 "$HOME_LAUNCH_URI" "{\"id\":\"$ir_front\"}" >/dev/null 2>&1
-      fi
-      if input_decoder_held >/dev/null; then
-        log_line "inputs release: $ir_app launched and closed, the port is still open"
-        printf '{"ok":false,"released":false,"reason":"the port is still open after %s was launched and closed","inputs":%s}\n' "$ir_app" "$(inputs_json)"
-        return 1
-      fi
-      log_line "inputs release: $ir_app launched and closed, the port is free"
-      printf '{"ok":true,"released":true,"app":"%s","inputs":%s}\n' "$ir_app" "$(inputs_json)"
-      ;;
-    *) emit_error "inputs: status or release"; return 1 ;;
+    *) emit_error "inputs: status"; return 1 ;;
   esac
   return 0
 }
