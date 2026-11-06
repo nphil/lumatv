@@ -29,6 +29,17 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Camera pop-ups over Home, the UI engine's memory at a restart 2026-11-06 (night, main 75acf6f9)
+
+Installed by the standard path from b6a00593 at 00:14 EST: compositor `3dd284cf`, ui `ba13803e`, sm `65f6ca69` (unchanged); the helper from 75acf6f9 at 00:30, `46895c9c`. Full sha256s in `session.log` of the receipts, `/data/home/tmp/lumatv-idlefollowups-20261106/` (`idle-post-*`, `event-post-*`, `mem-*`).
+
+- Pop-ups over Home claim the main window. Camera 103: granted it, h264 640x480, first picture after 1.06 s, 15.1 pictures a second, the panel at 120 Hz; LumaTV took 15 to 17 % of a core during the 12 s pop-up against 11.9 % before, back within 1 % at +29.9 s. Cameras 88 and 168 list no stream size: with the size read from the stream (b6a00593) they went to the main window, where 88's H.265 stream showed no picture in 8 s and 168's four in 11 s, so 75acf6f9 takes that out and they stay textures. Camera 196 (battery) shows stills.
+- Glass at rest on one build, 60 s with no other client drawing: Liquid 10.2 % of a core (16.4 flips a second), Glazed 9.8 % (14.1), Frosted 9.6 % (15.5). WidgetsBisect's Glazed window (11.1 %, 18.8 flips) had a camera pop-up drawn as a texture in it: the feeder at 4.8 % and 253 client commits. `tv-idle-probe.py` fails such a window now.
+- A toast on a rested Home is back within 1 % of the 12.3 % before at +24.9 s, the time it shows; nothing stays after it.
+- Each UI client restart left 63 MB of GPU memory in the compositor (f802ddd2: VmRSS 265 to 333 MB, Mali native 186 to 248 MB). The engine now gives back 31 to 47 MB at each restart: after three, VmRSS 164 to 173 MB and Mali native 94 to 95 MB (193 and 116 MB fresh). Each start removes about 70 files the client before left in `/tmp/xdg/ui-shm` (580 files, 63 MB after a day). The compositor wakes 253 to 287 times a second at rest, its loop about 55 of them, the rest Mali's GPU threads.
+- Left in Active Standby with the theme files byte-identical (cardGlass Liquid, as found at 23:28), pop-ups on, helper.json as found, the receiver unmuted at 38.0.
+- Untested: a real camera event over an app; a pop-up of camera 88 or 168 on the texture path with this build.
+
 ## HDMI 2's audio decoder after a compositor restart, 2026-11-05 (night, main 7575e89b)
 
 Done 22:53-22:58 in the volume bar session below, the TV woken from standby for it: after the compositor restart `lumatv inputs status` held no port with no input app running, and a Marquee film played. The receiver was on at 38.0 after the wake and went to standby with the set at the end.
