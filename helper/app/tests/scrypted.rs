@@ -648,39 +648,6 @@ fn a_camera_with_no_calm_stream_pops_up_as_a_texture_and_one_with_a_low_stream_i
 }
 
 #[test]
-fn a_camera_that_lists_no_size_has_its_pop_up_stream_read_from_the_stream_once_and_its_pop_up_plays_in_a_window() {
-    // camera 88 as Scrypted lists it (a generic RTSP camera): no stream says a codec, size or rate, nor does the bridge's answer
-    let fake = camera(15, gop(15), |_| {});
-    let dir = tempfile::tempdir().unwrap();
-    let mut deps = lumatv_helper::scrypted::testing::deps();
-    deps.feeder = Some(lumatv_helper::live::default_spec(dir.path(), "card", "", Duration::from_secs(1)));
-    deps.dial = Some(loopback_dial());
-    let mut world = World::unlinked(json!({"live": true}), deps);
-    let mut backyard = FakeBridge::camera("88", "Backyard", "camera");
-    backyard["native"] = Value::Null;
-    backyard["streams"] = json!([{"quality": "native", "prebuffered": false}, {"quality": "balanced", "prebuffered": true}]);
-    world.bridge.set_cameras(vec![backyard, FakeBridge::camera("274", "Garage", "camera")]);
-    world.bridge.set_rtsp("88", &fake.url());
-    world.bridge.set_live_video("88", json!({}));
-    world.link();
-    let list = world
-        .rig
-        .wait_topic("cameras", WAIT, |t| t["cameras"].as_array().is_some_and(|c| c.iter().any(|c| c["id"] == "88" && c["popupVideo"] == "window")))
-        .expect("the pop-up's stream read from the stream itself");
-    assert_eq!(list["cameras"][0]["popupStream"], json!({"codec": "h264", "width": 640, "height": 360, "fps": 15.0}), "its parameter set's");
-    assert!(world.rig.topic("cameras").unwrap()["cameras"][1]["popupStream"].is_null(), "a camera the bridge describes is never dialled for it");
-    assert!(wait_until(WAIT, || world.bridge.events_open() == 1));
-    world.bridge.push_event(world.bridge.event("88", "person", "new"));
-    let popup = world.wait_popup(|p| p["camera"] == "88").expect("a card for 88");
-    assert_eq!(popup["textureOnly"], false, "a window, not the compositor's texture");
-    assert_eq!(world.bridge.requests_matching("POST /v1/live"), 1, "read once");
-    // the window's ask takes the small step's stream, judged by what was read
-    let reply = world.post("/v1/cameras/live", json!({"camera": "88", "for": "popup", "window": "main", "popup": popup["id"]}));
-    assert_ne!(reply.json()["error"]["code"], "no_calm_stream", "{:?}", reply.json());
-    assert_eq!(world.bridge.requests_matching("POST /v1/live"), 2);
-}
-
-#[test]
 fn only_the_kinds_the_owner_picked_pop_up_and_the_defaults_are_a_person_and_a_doorbell() {
     let world = linked_world(json!({}));
     assert!(wait_until(WAIT, || world.bridge.events_open() == 1));

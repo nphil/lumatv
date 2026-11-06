@@ -4,12 +4,10 @@
 //! 100 Hz, and a rate request does not bring it back (`docs/research/compositor/slot-2026-10-30-r23`). On the set the panel kept 120 Hz for 640x480 at 10,
 //! 1280x720 declared at 25 and streams declared at 20. So a pop-up's window takes only a *calm* stream, one of those two kinds, and asks the bridge for it by
 //! limits (`accept`: the bridge never picks a stream outside them): the camera's low stream (the bridge's `light`: Scrypted's low-resolution destination,
-//! else the smallest stream that fits) inside 1280x720 at up to 30, else inside 1920x1088 at up to 20. A camera that lists no stream with a size (a generic
-//! RTSP camera in Scrypted) has its pop-up's stream read from the stream itself once ([`learn`]: its description's or first picture's parameter set), and
-//! that is judged in place of the size the bridge did not give. A camera with no calm stream has its pop-up drawn as a texture (the compositor's CPU
-//! path, which the panel never sees); the full view keeps the camera's own stream and is not decided here.
+//! else the smallest stream that fits) inside 1280x720 at up to 30, else inside 1920x1088 at up to 20. A camera with no such stream has its pop-up drawn
+//! as a texture (the compositor's CPU path, which the panel never sees); the full view keeps the camera's own stream and is not decided here.
 
-use super::bridge::{Camera, Dial, Stream, Trouble};
+use super::bridge::{Camera, Dial, Trouble};
 use serde_json::{Value, json};
 
 /// A picture this size or smaller is calm at any rate up to [`SMALL_MAX_FPS`] (720p at 25 kept 120 Hz on the set).
@@ -37,38 +35,14 @@ fn codec_ok(codec: &str) -> bool {
     matches!(codec, "" | "h264" | "h265")
 }
 
-/// Whether the camera has a stream a window can play calmly, by what the bridge last said of its streams or what was read from its pop-up's stream. No
-/// description is no: the pop-up is then a texture, which cannot touch the panel whatever the stream turns out to be.
+/// Whether the camera has a stream a window can play calmly, by what the bridge last said of its streams. No description is no: the pop-up is then a texture,
+/// which cannot touch the panel whatever the stream turns out to be.
 pub fn window_ok(camera: &Camera) -> bool {
     camera
         .streams
         .iter()
         .chain(camera.native.iter())
-        .chain(camera.learned.iter())
         .any(|s| codec_ok(&s.codec) && calm(s.width, s.height, s.fps))
-}
-
-/// Whether the pop-up's stream is to be read from the stream itself: an online camera on the mains with live video whose listing gives no stream a size,
-/// and nothing read yet. A camera on a battery is never dialled for it.
-pub fn to_learn(camera: &Camera) -> bool {
-    camera.online
-        && !camera.battery
-        && camera.has("live")
-        && camera.learned.is_none()
-        && !camera.streams.iter().chain(camera.native.iter()).any(|s| s.width > 0 && s.height > 0)
-}
-
-/// What a dial is judged by: its own codec, size and rate, or for one that gives no size, what was read from the camera's pop-up stream.
-fn judged(dial: &Dial, learned: Option<&Stream>) -> (String, u32, u32, f64) {
-    match learned {
-        Some(s) if dial.width == 0 || dial.height == 0 => (
-            if dial.codec.is_empty() { s.codec.clone() } else { dial.codec.clone() },
-            s.width,
-            s.height,
-            if dial.fps > 0 { f64::from(dial.fps) } else { s.fps },
-        ),
-        _ => (dial.codec.clone(), dial.width, dial.height, f64::from(dial.fps)),
-    }
 }
 
 /// The two kinds of calm stream, asked for in this order.
@@ -104,28 +78,31 @@ fn nothing_calm() -> Trouble {
     Trouble::Bridge { status: 501, code: NO_CALM.to_owned() }
 }
 
-/// The camera's low stream for a window: `ask` is the bridge's live call for the stream inside a step's limits, `learned` what was read from the camera's
-/// pop-up stream (it stands in for a size the answer does not give). The steps are tried in order; a step with no stream (the bridge's `501`) or an
-/// answer that is not calm after all (a bridge that does not know `accept`) goes on to the next; any other refusal ends it. With nothing calm the answer
-/// is [`NO_CALM`]. Each step's outcome is logged, the chosen stream last.
-pub fn ask_window(camera: &str, learned: Option<&Stream>, mut ask: impl FnMut(Step) -> Result<Dial, Trouble>) -> Result<(Dial, Step), Trouble> {
+/// The camera's low stream for a window: `ask` is the bridge's live call for the stream inside a step's limits. The steps are tried in order; a step with no
+/// stream (the bridge's `501`) or an answer that is not calm after all (a bridge that does not know `accept`) goes on to the next; any other refusal ends it.
+/// With nothing calm the answer is [`NO_CALM`]. Each step's outcome is logged, the chosen stream last.
+pub fn ask_window(camera: &str, mut ask: impl FnMut(Step) -> Result<Dial, Trouble>) -> Result<(Dial, Step), Trouble> {
     for step in STEPS {
         match ask(step) {
-            Ok(dial) => {
-                let (codec, width, height, fps) = judged(&dial, learned);
-                let read = if dial.width == 0 && learned.is_some() { ", as read from the stream" } else { "" };
-                if codec_ok(&codec) && calm(width, height, fps) {
-                    crate::log_info!(
-                        "cameras: pop-up stream for camera {camera}: the low stream {codec} {width}x{height} at {fps} a second{read}, {}",
-                        step.words()
-                    );
-                    return Ok((dial, step));
-                }
+            Ok(dial) if codec_ok(&dial.codec) && calm(dial.width, dial.height, f64::from(dial.fps)) => {
                 crate::log_info!(
-                    "cameras: pop-up stream for camera {camera}: {codec} {width}x{height} at {fps} a second{read} is not one the panel keeps its rate with ({} asked for)",
+                    "cameras: pop-up stream for camera {camera}: the low stream {} {}x{} at {} a second, {}",
+                    dial.codec,
+                    dial.width,
+                    dial.height,
+                    dial.fps,
                     step.words()
                 );
+                return Ok((dial, step));
             }
+            Ok(dial) => crate::log_info!(
+                "cameras: pop-up stream for camera {camera}: {} {}x{} at {} a second is not one the panel keeps its rate with ({} asked for)",
+                dial.codec,
+                dial.width,
+                dial.height,
+                dial.fps,
+                step.words()
+            ),
             Err(Trouble::Bridge { status: 501, .. }) => {
                 crate::log_info!("cameras: pop-up stream for camera {camera}: no stream {}", step.words());
             }
@@ -136,38 +113,10 @@ pub fn ask_window(camera: &str, learned: Option<&Stream>, mut ask: impl FnMut(St
     Err(nothing_calm())
 }
 
-/// Reads what the camera's pop-up stream is from the stream itself: the stream the bridge answers the pop-up's first ask with (its small step, else its
-/// slow one) is dialled by `read`, which gives its codec, size and rate (0 where its parameter set says none) and hangs up.
-pub fn learn(
-    mut ask: impl FnMut(Step) -> Result<Dial, Trouble>,
-    read: impl FnOnce(&str) -> Result<(String, u32, u32, f64), String>,
-) -> Result<Stream, String> {
-    let mut dial = None;
-    for step in STEPS {
-        match ask(step) {
-            Ok(d) => {
-                dial = Some(d);
-                break;
-            }
-            Err(Trouble::Bridge { status: 501, .. }) => {}
-            Err(other) => return Err(other.words()),
-        }
-    }
-    let dial = dial.ok_or_else(|| "the bridge has no stream inside the pop-up's limits".to_owned())?;
-    let (codec, width, height, fps) = read(&dial.rtsp)?;
-    Ok(Stream {
-        quality: "light".to_owned(),
-        codec: if codec.is_empty() { dial.codec } else { codec },
-        width,
-        height,
-        fps,
-        prebuffered: dial.prebuffered,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scrypted::bridge::Stream;
 
     fn stream(quality: &str, codec: &str, w: u32, h: u32, fps: f64) -> Stream {
         Stream { quality: quality.into(), codec: codec.into(), width: w, height: h, fps, prebuffered: false }
@@ -185,7 +134,6 @@ mod tests {
             earliest: None,
             native: streams.iter().find(|s| s.quality == "native").cloned(),
             streams,
-            learned: None,
         }
     }
 
@@ -224,25 +172,9 @@ mod tests {
     }
 
     #[test]
-    fn a_camera_that_lists_no_size_is_read_once_and_what_was_read_decides_its_window() {
-        // camera 88 as the bridge lists it: two streams, no codec, size or rate
-        let mut backyard = camera(vec![stream("native", "", 0, 0, 0.0), stream("balanced", "", 0, 0, 0.0)]);
-        assert!(to_learn(&backyard) && !window_ok(&backyard));
-        backyard.learned = Some(stream("light", "h265", 768, 432, 0.0));
-        assert!(!to_learn(&backyard), "read once");
-        assert!(window_ok(&backyard), "a small picture at a rate it does not say is calm");
-        backyard.learned = Some(stream("light", "h264", 1920, 1080, 0.0));
-        assert!(!window_ok(&backyard), "1080p at a rate nobody said is not");
-        let mut ring = camera(vec![stream("native", "h264", 0, 0, 0.0)]);
-        ring.battery = true;
-        assert!(!to_learn(&ring), "a camera on a battery is never dialled for it");
-        assert!(!to_learn(&camera(vec![stream("native", "h264", 1920, 1080, 25.0)])), "the listing says the size");
-    }
-
-    #[test]
     fn the_small_step_comes_first_and_its_stream_is_taken() {
         let mut asked = Vec::new();
-        let (d, step) = ask_window("1", None, |s| {
+        let (d, step) = ask_window("1", |s| {
             asked.push(s);
             Ok(dial("h264", 640, 360, 15))
         })
@@ -251,40 +183,9 @@ mod tests {
     }
 
     #[test]
-    fn an_answer_with_no_size_is_judged_by_what_was_read_from_the_stream() {
-        let read = stream("light", "h265", 768, 432, 0.0);
-        let (d, step) = ask_window("88", Some(&read), |_| Ok(dial("", 0, 0, 0))).unwrap();
-        assert_eq!((step, d.width), (Step::Small, 0), "the pipeline is still loaded with the stream's own size");
-        assert_eq!(ask_window("88", None, |_| Ok(dial("", 0, 0, 0))).unwrap_err().code(), NO_CALM, "nothing read: not calm");
-        let too_big = stream("light", "h264", 1920, 1080, 0.0);
-        assert_eq!(ask_window("88", Some(&too_big), |_| Ok(dial("", 0, 0, 0))).unwrap_err().code(), NO_CALM);
-        assert_eq!(ask_window("240", Some(&read), |_| Ok(dial("h264", 1920, 1080, 25))).unwrap_err().code(), NO_CALM, "a size the bridge gave stands");
-    }
-
-    #[test]
-    fn learning_reads_the_stream_the_first_step_that_has_one_answers_with() {
-        let mut asked = Vec::new();
-        let learned = learn(
-            |s| {
-                asked.push(s);
-                if s == Step::Small { Err(Trouble::Bridge { status: 501, code: "not_supported".into() }) } else { Ok(dial("", 0, 0, 0)) }
-            },
-            |url| {
-                assert_eq!(url, "rtsp://x:1/p");
-                Ok(("h265".into(), 768, 432, 0.0))
-            },
-        )
-        .unwrap();
-        assert_eq!((asked, learned.codec.as_str(), learned.width, learned.height), (vec![Step::Small, Step::Slow], "h265", 768, 432));
-        let offline = learn(|_| Err(Trouble::Bridge { status: 409, code: "offline".into() }), |_| unreachable!("nothing to read"));
-        assert!(offline.is_err());
-        assert_eq!(learn(|_| Ok(dial("", 0, 0, 0)), |_| Err("no picture in time".into())).unwrap_err(), "no picture in time");
-    }
-
-    #[test]
     fn a_step_with_no_stream_falls_to_the_next_and_a_camera_with_neither_is_refused() {
         let mut asked = Vec::new();
-        let (d, step) = ask_window("1", None, |s| {
+        let (d, step) = ask_window("1", |s| {
             asked.push(s);
             if s == Step::Small { Err(Trouble::Bridge { status: 501, code: "not_supported".into() }) } else { Ok(dial("h264", 1920, 1080, 20)) }
         })
@@ -292,7 +193,7 @@ mod tests {
         assert_eq!((step, d.fps, asked), (Step::Slow, 20, vec![Step::Small, Step::Slow]));
 
         let mut asked = 0;
-        let refused = ask_window("1", None, |_| {
+        let refused = ask_window("1", |_| {
             asked += 1;
             Err(Trouble::Bridge { status: 501, code: "not_supported".into() })
         })
@@ -303,14 +204,14 @@ mod tests {
     #[test]
     fn a_bridge_that_ignores_the_limits_is_not_believed() {
         // a stream of 1080p at 25 comes back for both steps: neither is calm, so neither plays
-        let refused = ask_window("1", None, |_| Ok(dial("h264", 1920, 1080, 25))).unwrap_err();
+        let refused = ask_window("1", |_| Ok(dial("h264", 1920, 1080, 25))).unwrap_err();
         assert_eq!(refused.code(), NO_CALM);
     }
 
     #[test]
     fn any_other_refusal_ends_it_at_once() {
         let mut asked = 0;
-        let refused = ask_window("1", None, |_| {
+        let refused = ask_window("1", |_| {
             asked += 1;
             Err(Trouble::Bridge { status: 409, code: "offline".into() })
         })
