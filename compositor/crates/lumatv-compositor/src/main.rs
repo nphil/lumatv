@@ -397,6 +397,8 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 saw_event = true;
             }
+            // before the UI is asked for a frame: a key ends the calm in which its commits wait for the next step
+            state.output.ui_set_calm(tick.calm.is_calm_between_frames(woke_ns));
             handled |= 1
                 << (if tag & TAG_INPUT != 0 {
                     7

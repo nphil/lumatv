@@ -198,7 +198,7 @@ impl Service {
                         let hub = hub.clone();
                         move || screen::is_on(&hub)
                     },
-                    move || stop.is_set(),
+                    stop,
                 )?,
             ));
         }

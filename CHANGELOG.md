@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+With no key for 3 s, a commit of the system UI's (a camera's still, the clock's hand) waits for the UI's next step when that is at most 100 ms away, and is drawn in the wallpaper's or the sky's frame instead of one of its own. The helper's idle threads no longer poll: LG's log is read every 250 ms while it is quiet (20 ms while lines come), and the logging worker, the weather view's prefetch and the Prime assets front wait for their event or the stop instead of waking 10-20 times a second.
+
 A camera's stills stream goes at the pace its askers show it: Home's tiles ask for one picture a second and no longer keep the stream at the Cameras grid's 5, which had the bridge encode and the helper read four pictures a second a camera that nobody showed. The grid, and a pop-up with no video, still get their own pace while they ask.
 
 The gate times `settings-scroll` from the press of OK on "All settings": the quick panel acts on the press and Settings, up at once at 120 Hz with the panel cut under it, is drawn before the release, so timed from the release its first frame was the next key's.

@@ -237,6 +237,8 @@ pub fn disable(paths: &Paths) -> Result<(), String> {
 
 pub struct Front {
     stop: Arc<AtomicBool>,
+    /// Where the listener is: a connection to it wakes its blocked accept to see the stop.
+    address: SocketAddr,
     thread: Option<JoinHandle<()>>,
     routes: Arc<Mutex<BTreeMap<String, Value>>>,
 }
@@ -251,7 +253,8 @@ impl Front {
         }
         let listener = TcpListener::bind(addr)
             .map_err(|e| format!("Another program is using the port Prime Video ads need: {e}"))?;
-        listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+        // accept blocks (polled every 50 ms, it woke the helper 20 times a second for a request that comes with an ad); Drop wakes it
+        let address = listener.local_addr().map_err(|e| e.to_string())?;
         let stop = Arc::new(AtomicBool::new(false));
         let routes = Arc::new(Mutex::new(BTreeMap::new()));
         let s = stop.clone();
@@ -263,6 +266,9 @@ impl Front {
                 while !s.load(Ordering::Acquire) {
                     match listener.accept() {
                         Ok((socket, _)) => {
+                            if s.load(Ordering::Acquire) {
+                                break;
+                            }
                             if active.load(Ordering::Acquire) >= 4 {
                                 drop(socket);
                                 continue;
@@ -283,9 +289,7 @@ impl Front {
                                 active.fetch_sub(1, Ordering::AcqRel);
                             }
                         }
-                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(50))
-                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                         Err(_) => break,
                     }
                 }
@@ -293,6 +297,7 @@ impl Front {
             .map_err(|e| e.to_string())?;
         Ok(Self {
             stop,
+            address,
             thread: Some(thread),
             routes,
         })
@@ -304,6 +309,7 @@ impl Front {
 impl Drop for Front {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
+        let _ = std::net::TcpStream::connect_timeout(&self.address, Duration::from_secs(1));
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }

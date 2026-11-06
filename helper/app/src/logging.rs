@@ -159,14 +159,21 @@ pub(crate) fn run_at(ctx: &Ctx, dir: &Path, socket_path: &Path) -> io::Result<()
     write_socket_marker(&mut lock, &socket_cleanup)?;
     let _socket_cleanup = socket_cleanup;
     socket_buffer(&input)?;
-    input.set_read_timeout(Some(Duration::from_millis(100)))?;
+    // a settings change and the stop wake the read with an empty datagram (`wake`): no 100 ms poll for them
+    input.set_read_timeout(Some(Duration::from_secs(2)))?;
     let mut retained = Retained::in_directory(directory)?;
     let mut applied = None;
     let mut output = None;
     let mut record = [0u8; RECORD_LIMIT];
     let changed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
     let notify = changed.clone();
-    ctx.settings.on_change("base.logging", move || notify.store(true, std::sync::atomic::Ordering::Release));
+    let woken = socket_path.to_owned();
+    ctx.settings.on_change("base.logging", move || {
+        notify.store(true, std::sync::atomic::Ordering::Release);
+        wake(&woken);
+    });
+    let woken = socket_path.to_owned();
+    ctx.stop.on_stop(move || wake(&woken));
     while !ctx.stop.is_set() {
         if changed.swap(false, std::sync::atomic::Ordering::AcqRel) {
         let enabled = ctx.settings.flag("base.logging", "enabled").unwrap_or(false);
@@ -206,6 +213,14 @@ pub(crate) fn run_at(ctx: &Ctx, dir: &Path, socket_path: &Path) -> io::Result<()
         }
     }
     Ok(())
+}
+
+/// Wakes the worker's read on its socket: an empty datagram is no record.
+fn wake(socket_path: &Path) {
+    if let Ok(socket) = UnixDatagram::unbound() {
+        let _ = socket.set_nonblocking(true);
+        let _ = socket.send_to(&[], socket_path);
+    }
 }
 
 #[allow(unsafe_code)]

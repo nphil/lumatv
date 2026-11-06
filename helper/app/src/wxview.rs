@@ -143,25 +143,18 @@ impl WxView {
     /// Keeps the view's pictures on the disk while the screen is on: every five minutes the engines are made for a moment, the radar's tiles
     /// of the opening view are fetched and its map cells drawn if they are not on the disk, and the engines are let go. `place` gives the
     /// weather's place (none until there is one) and `screen_on` the screen.
-    pub fn prefetch(self: &Arc<Self>, place: impl Fn() -> Option<(f64, f64)> + Send + 'static, screen_on: impl Fn() -> bool + Send + 'static, stop: impl Fn() -> bool + Send + 'static) -> std::io::Result<std::thread::JoinHandle<()>> {
+    pub fn prefetch(self: &Arc<Self>, place: impl Fn() -> Option<(f64, f64)> + Send + 'static, screen_on: impl Fn() -> bool + Send + 'static, stop: crate::control::Stop) -> std::io::Result<std::thread::JoinHandle<()>> {
         let me = Arc::clone(self);
         std::thread::Builder::new().name("wx-prefetch".into()).stack_size(512 * 1024).spawn(move || {
             let mut last = Instant::now().checked_sub(PREFETCH_EVERY).unwrap_or_else(Instant::now);
-            while !stop() {
-                // in slices: one sleep of five seconds outlasts the four the service gives its threads to stop
-                let wake = Instant::now() + Duration::from_secs(5);
-                while Instant::now() < wake && !stop() {
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-                if stop() {
-                    break;
-                }
+            // five seconds a wait, which the stop ends at once (polled in 50 ms slices, it woke the helper 20 times a second)
+            while !stop.sleep(Duration::from_secs(5)) {
                 if last.elapsed() < PREFETCH_EVERY || !screen_on() {
                     continue;
                 }
                 let Some((lat, lon)) = place() else { continue };
                 last = Instant::now();
-                me.warm(LonLat::new(lon, lat), &stop);
+                me.warm(LonLat::new(lon, lat), &|| stop.is_set());
             }
         })
     }

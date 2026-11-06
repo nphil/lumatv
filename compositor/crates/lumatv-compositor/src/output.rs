@@ -211,6 +211,9 @@ pub trait Output {
     /// Applies the Rust Home state snapshot to its UI engine.
     fn ui_state(&mut self, _state: &serde_json::Value) -> bool { false }
 
+    /// Whether the loop is calm (`Calm::is_calm_between_frames`): the system UI's commits may wait for its next step.
+    fn ui_set_calm(&mut self, _calm: bool) {}
+
     /// Protects caption pixels from the system popup in the next frame.
     fn ui_set_exclusion(&mut self, _area: Option<crate::Rect>) {}
 

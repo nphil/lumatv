@@ -27,7 +27,9 @@ impl Stdlog {
         let offset = if initial { file.seek(SeekFrom::End(0))? } else { 0 };
         Ok(Self { file, inode, offset, line: [0; 4096], used: 0, truncated: false })
     }
-    fn tick(&mut self, path: &Path, socket: &UnixDatagram, state: &mut State) -> io::Result<()> {
+    /// Forwards what LG's log gained since the last tick; `Ok(true)` when it gained something.
+    fn tick(&mut self, path: &Path, socket: &UnixDatagram, state: &mut State) -> io::Result<bool> {
+        let mut read = false;
         let mut bytes = [0u8; 4096];
         for _ in 0..4 {
             let n = self.file.read(&mut bytes)?;
@@ -44,6 +46,7 @@ impl Stdlog {
                 }
                 break;
             }
+            read = true;
             self.offset += n as u64;
             for &byte in &bytes[..n] {
                 if byte == b'\n' {
@@ -55,7 +58,7 @@ impl Stdlog {
                 } else { self.truncated = true; }
             }
         }
-        Ok(())
+        Ok(read)
     }
 }
 fn send(socket: &UnixDatagram, prefix: &[u8], payload: &[u8], state: &mut State) {
@@ -79,12 +82,14 @@ fn kernel_record(record: &[u8]) -> Option<(u8, u64, &[u8])> {
     let sequence = fields.next()?.parse().ok()?;
     Some((priority, sequence, &record[semicolon+1..]))
 }
-fn kernel_tick(file: &mut File, last: &mut Option<u64>, socket: &UnixDatagram, state: &mut State) -> io::Result<()> {
+fn kernel_tick(file: &mut File, last: &mut Option<u64>, socket: &UnixDatagram, state: &mut State) -> io::Result<bool> {
+    let mut read = false;
     let mut record = [0u8; 8192];
     for _ in 0..4 {
         match file.read(&mut record) {
             Ok(0) => break,
             Ok(n) => {
+                read = true;
                 let Some((priority, sequence, payload)) = kernel_record(&record[..n]) else { state.gaps = state.gaps.saturating_add(1); continue; };
                 if last.is_some_and(|previous| sequence != previous + 1) { state.gaps = state.gaps.saturating_add(1); }
                 *last = Some(sequence);
@@ -98,7 +103,7 @@ fn kernel_tick(file: &mut File, last: &mut Option<u64>, socket: &UnixDatagram, s
             Err(error) => return Err(error),
         }
     }
-    Ok(())
+    Ok(read)
 }
 
 pub fn run(ctx: Ctx) {
@@ -124,17 +129,19 @@ pub fn run(ctx: Ctx) {
             }
             retry = Instant::now() + Duration::from_secs(5);
         }
+        let mut read = false;
         if let Some(reader) = lg.as_mut() {
-            if let Err(error) = reader.tick(path, &socket, &mut lg_state) { lg_state.failed(error); lg = None; publish = Instant::now(); }
+            match reader.tick(path, &socket, &mut lg_state) { Ok(got) => read |= got, Err(error) => { lg_state.failed(error); lg = None; publish = Instant::now(); } }
         }
         if let Some(reader) = kernel.as_mut() {
-            if let Err(error) = kernel_tick(reader, &mut last_sequence, &socket, &mut kernel_state) { kernel_state.failed(error); kernel = None; publish = Instant::now(); }
+            match kernel_tick(reader, &mut last_sequence, &socket, &mut kernel_state) { Ok(got) => read |= got, Err(error) => { kernel_state.failed(error); kernel = None; publish = Instant::now(); } }
         }
         if Instant::now() >= publish {
             ctx.hub.set("loggingSources", serde_json::json!({"lgStdlog":lg_state.json(),"criticalKernel":kernel_state.json(),"kernelSeverityMax":4,"startsAtEnd":true,"lgCoverage":"accepted stdlog only; compressed rotations are not replayed"}));
             publish = Instant::now() + Duration::from_secs(5);
         }
-        if ctx.stop.sleep(Duration::from_millis(20)) { break; }
+        // 20 ms while lines arrive, 250 ms when none did: a quiet log no longer wakes the helper 50 times a second
+        if ctx.stop.sleep(Duration::from_millis(if read { 20 } else { 250 })) { break; }
     }
 }
 
