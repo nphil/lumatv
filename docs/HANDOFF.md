@@ -29,6 +29,20 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Live TV over the tuner, BER n/a, Hide broken pictures removed 2026-11-05 (night, main 8454edf4)
+
+Installed 21:36 EST from 8454edf4 (origin and forge main) by the standard path, with `lumatv inputs release` after the compositor restart (released: true). Installed sha256: compositor `e9b1702da714e3abcb1a64e77f2416d95a693f7c4f5a16c319b61f476c4682ff`, ui `7a81895c951fab09fb9563f7f34ba5ed7654b7801d0d29537c364954e1ae5c97`, sm `65f6ca69` (unchanged), helper `cbd18df839b26fa5ecdd33982ea186bce0d2ac79b366646dab7f09e1ea4a305e`, `tools/lumatv` `56899321` (unchanged). Replaced: compositor `898ccab5`, ui `8b3eadd7`, helper `2c537463`. Receipts: `/data/home/tmp/lumatv-tuneryield-20261105/`.
+
+Checks:
+- The cause, with luna alone and a SCAN pipeline held on 16.1: LG unrealized the pipeline 1.0-1.1 s after Live TV's launch; a `changeChannel` on it then made it `RENDERING` again and Live TV's video never connected (LG's broadcast client left after 419 ms). `stop` and `close`, `close` alone, or leaving the pipeline alone kept Live TV playing.
+- Live TV over the meter: PASS on RF 32 (picture) and RF 29 (Live TV up with LG's own "No Signal" at 17.8 dB); the meter read "the TV took the tuner", then "Live TV is in front"; main video connected to Live TV for the 12.5 s watched.
+- Live TV over a stream of 2.1: PASS, picture within 2.3 s of the launch and for the 14 s watched; the stream ended with "The TV is using its tuner" and `Preempted("Live TV is in front")`.
+- Plex on 2.1 through this helper: 42 segments in 45 s, the first at 3.1 s, the programme 1.0 s after the request.
+- Hide broken pictures through Plex on 16.1, a Plex session per run: off and on 52 segments each with identical output, as 16.1's tables never came (31-255 packet errors) and every other RF channel read none; the earlier 0 segments with it on came from one Plex session id reused across runs. Removed.
+- The meter on RF 29 shows `BER n/a` for LG's full count; the page has no Hide broken pictures row.
+- After the release `com.webos.app.hdmi2` came back in the background and holds `HDMI_PORT2` (as it did before the install).
+- Untested: Live TV over a reception check, and Live TV opened with the panel off.
+
 ## TV session 2026-11-05 (night, main 65df7ada: screensaver)
 
 Installed 21:00 EST through `tv-first-light.sh deploy` and cutover `disable`, `install`, `probe`, `enable`. Installed sha256: compositor `898ccab5a1bfa855cf86aba826bd44823789082f288362f9ec58448e56961a84`, ui `8b3eadd74eb437e6c91ff3fbc22db8f9de648334b510ab11d48fbbfd4cfabe83`, sm `65f6ca69` (unchanged); helper and `tools/lumatv` untouched. Receipts: `/data/home/tmp/lumatv-saver-veto-20261105/`.
