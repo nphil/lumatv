@@ -1193,9 +1193,11 @@ impl Worker {
     /// rate pauses the stream.
     fn busy(&mut self, now: Instant) {
         if self.live.is_none()
-            || self
-                .last_cut
-                .is_some_and(|t| now < t + Duration::from_millis(self.pacing.busy_cut_gap_ms))
+            || !new_cut(
+                self.last_cut,
+                now,
+                Duration::from_millis(self.pacing.busy_cut_gap_ms),
+            )
         {
             return;
         }
@@ -1228,6 +1230,11 @@ impl Worker {
         self.recover_at = Some(now + self.recover());
         self.rate_changed();
     }
+}
+
+/// Whether a late answer at `now` is a new event: late answers within `gap` of the last cut are the one event.
+fn new_cut(last_cut: Option<Instant>, now: Instant, gap: Duration) -> bool {
+    last_cut.is_none_or(|t| now >= t + gap)
 }
 
 #[cfg(test)]
@@ -1335,5 +1342,14 @@ mod tests {
             "Publish 'set' 'state' to 'plug' failed: 'Error: no ack'"
         ));
         assert!(!late("Update of 'TV left' at 5%"));
+    }
+
+    #[test]
+    fn a_late_answer_within_the_cut_gap_is_the_same_event() {
+        let (t, gap) = (Instant::now(), Duration::from_millis(150));
+        assert!(new_cut(None, t, gap));
+        assert!(!new_cut(Some(t), t, gap), "two lights late in one moment");
+        assert!(!new_cut(Some(t), t + gap - Duration::from_millis(1), gap));
+        assert!(new_cut(Some(t), t + gap, gap));
     }
 }

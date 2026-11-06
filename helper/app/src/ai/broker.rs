@@ -648,7 +648,7 @@ impl Authenticator for Broker {
 #[cfg(test)]
 mod tests {
     use super::super::gate::fake::FakeKeys;
-    use super::super::gate::{GateConfig, approval_for_tests as approval};
+    use super::super::gate::{GateConfig, Now, PROMPT_TOPIC, approval_for_tests as approval};
     use super::super::levels::Levels;
     use super::super::types::{AppInfo, ForegroundApp, InputInfo, MediaKey};
     use super::*;
@@ -659,6 +659,8 @@ mod tests {
 
     const IR: &str = "LGE RCU";
     const PEER: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 9));
+    const PROMPT_TTL_MS: u64 = 200;
+    const MIN_DISPLAY_MS: u64 = 30;
 
     #[derive(Default)]
     struct FakeTv {
@@ -805,17 +807,23 @@ mod tests {
             let now = now.clone();
             Arc::new(move || now.load(Ordering::SeqCst))
         };
+        // The gate reads the same fake time: a prompt is armed and expires only when a test moves `now`.
+        let gate_now: Now = {
+            let (now, start, at) = (now.clone(), Instant::now(), now.load(Ordering::SeqCst));
+            Arc::new(move || start + Duration::from_millis(now.load(Ordering::SeqCst) - at))
+        };
         let store = Store::load(dir.path().join("ai"), settings, clock.clone());
-        let keys = Arc::new(FakeKeys::default());
-        let gate = Gate::new(
+        let keys = Arc::new(FakeKeys::with_clock(gate_now.clone()));
+        let gate = Gate::with_clock(
             keys.clone(),
             hub.clone(),
             GateConfig {
-                prompt_ttl: Duration::from_millis(200),
-                min_display: Duration::from_millis(30),
+                prompt_ttl: Duration::from_millis(PROMPT_TTL_MS),
+                min_display: Duration::from_millis(MIN_DISPLAY_MS),
                 slice: Duration::from_millis(10),
                 ..GateConfig::default()
             },
+            gate_now,
         );
         let audit = Audit::open(dir.path().join("audit"), hub.clone());
         let tv = Arc::new(FakeTv::default());
@@ -880,24 +888,47 @@ mod tests {
             self.broker.call_tool(&self.who, PEER, name, &args)
         }
 
-        /// Calls on a thread, waits for the prompt to be on the hub, then does `answer` with the fake remote.
+        /// Calls on a thread, waits for the prompt to be on the hub, then does `answer`: with the fake remote, the fake clock or both.
         fn ask_and(
             &self,
             name: &'static str,
             args: Value,
-            answer: impl FnOnce(&FakeKeys),
+            answer: impl FnOnce(&Self),
         ) -> ToolOutcome {
             let broker = self.broker.clone();
             let who = self.who.clone();
             let worker = thread::spawn(move || broker.call_tool(&who, PEER, name, &args));
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while self.hub.get("ai.prompt").is_none_or(|v| v.is_null()) && Instant::now() < deadline
-            {
-                thread::sleep(Duration::from_millis(5));
-            }
-            thread::sleep(Duration::from_millis(60));
-            answer(&self.keys);
+            self.wait_prompt();
+            answer(self);
             worker.join().unwrap()
+        }
+
+        /// A call whose prompt nobody answers.
+        fn unanswered(&self, name: &'static str, args: Value) -> ToolOutcome {
+            self.ask_and(name, args, |r| r.advance(PROMPT_TTL_MS))
+        }
+
+        /// A press of `code` on the IR remote once the prompt is armed.
+        fn press(&self, code: u16) {
+            self.advance(MIN_DISPLAY_MS);
+            self.keys.tap(IR, code);
+        }
+
+        fn advance(&self, ms: u64) {
+            self.now.fetch_add(ms, Ordering::SeqCst);
+        }
+
+        fn wait_prompt(&self) {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                let (seq, prompt) = self.hub.topic_at(PROMPT_TOPIC);
+                if prompt.is_some_and(|p| !p.is_null()) {
+                    return;
+                }
+                assert!(Instant::now() < deadline, "no prompt");
+                self.hub
+                    .wait_events(Some(seq), None, None, Duration::from_secs(1));
+            }
         }
 
         fn last_audit(&self) -> Value {
@@ -949,11 +980,7 @@ mod tests {
 
     #[test]
     fn the_permission_matrix_never_always_and_ask() {
-        // a prompt that nobody answers costs its whole life, and that is the gate's, not the tool's: one tool of each group goes through it
-        let mut waited = Vec::new();
         for (name, args, group) in samples() {
-            let wait_out = !waited.contains(&group);
-            waited.push(group);
             // Never: refused, not listed, nothing acted on, no prompt.
             let r = rig();
             r.all(Level::Never);
@@ -982,7 +1009,7 @@ mod tests {
             // Ask: a physical OK runs it.
             let r = rig();
             r.all(Level::Ask);
-            let outcome = r.ask_and(name, args.clone(), |k| k.tap(IR, 28));
+            let outcome = r.ask_and(name, args.clone(), |r| r.press(28));
             assert!(is_ok(&outcome), "{name} ask+OK: {outcome:?}");
             assert_eq!(r.keys.opens(), 1, "{name}");
             if group != Group::State {
@@ -993,7 +1020,7 @@ mod tests {
             // Ask: Back refuses, pauses the assistant, and nothing is done.
             let r = rig();
             r.all(Level::Ask);
-            let outcome = r.ask_and(name, args.clone(), |k| k.tap(IR, 412));
+            let outcome = r.ask_and(name, args.clone(), |r| r.press(412));
             assert_eq!(code_of(&outcome), "denied", "{name}");
             assert_eq!(acted(&r), 0, "{name}");
             assert_eq!(
@@ -1003,13 +1030,10 @@ mod tests {
             );
             assert_eq!(r.last_audit()["outcome"], "denied");
 
-            if !wait_out {
-                continue;
-            }
             // Ask: nobody answers -> refused, not paused.
             let r = rig();
             r.all(Level::Ask);
-            let outcome = r.call(name, args.clone());
+            let outcome = r.unanswered(name, args.clone());
             assert_eq!(code_of(&outcome), "expired", "{name}");
             assert_eq!(acted(&r), 0, "{name}");
             assert_eq!(
@@ -1021,9 +1045,12 @@ mod tests {
             // Ask: an OK from the network device never runs it.
             let r = rig();
             r.all(Level::Ask);
-            let outcome = r.ask_and(name, args.clone(), |k| {
-                k.tap("Smart Remote RCU Input", 28);
-                k.tap("LGE Network Input", 28);
+            let outcome = r.ask_and(name, args.clone(), |r| {
+                r.advance(MIN_DISPLAY_MS);
+                r.keys.tap("Smart Remote RCU Input", 28);
+                r.keys.tap("LGE Network Input", 28);
+                r.keys.wait_read();
+                r.advance(PROMPT_TTL_MS);
             });
             assert_eq!(code_of(&outcome), "expired", "{name}");
             assert_eq!(acted(&r), 0, "{name}");
@@ -1045,12 +1072,12 @@ mod tests {
         assert!(is_ok(&r.call("receiver_set_mute", json!({"muted": false}))));
         assert_eq!(r.keys.opens(), 0);
         assert_eq!(
-            code_of(&r.call("tv_launch_app", json!({"app_id": "netflix"}))),
+            code_of(&r.unanswered("tv_launch_app", json!({"app_id": "netflix"}))),
             "expired"
         );
         assert_eq!(r.keys.opens(), 1);
         r.now.fetch_add(60_000, Ordering::SeqCst);
-        assert_eq!(code_of(&r.call("tv_standby", json!({}))), "expired");
+        assert_eq!(code_of(&r.unanswered("tv_standby", json!({}))), "expired");
         assert_eq!(r.keys.opens(), 2);
     }
 
@@ -1073,7 +1100,7 @@ mod tests {
         let r = rig();
         r.all(Level::Ask);
         assert_eq!(
-            code_of(&r.ask_and("tv_standby", json!({}), |k| k.tap(IR, 412))),
+            code_of(&r.ask_and("tv_standby", json!({}), |r| r.press(412))),
             "denied"
         );
         assert_eq!(code_of(&r.call("tv_standby", json!({}))), "paused");
@@ -1085,11 +1112,11 @@ mod tests {
     fn an_unanswered_prompt_makes_the_assistant_wait_before_asking_again() {
         let r = rig();
         r.all(Level::Ask);
-        assert_eq!(code_of(&r.call("tv_standby", json!({}))), "expired");
+        assert_eq!(code_of(&r.unanswered("tv_standby", json!({}))), "expired");
         assert_eq!(code_of(&r.call("tv_standby", json!({}))), "cooldown");
         assert_eq!(r.keys.opens(), 1);
         r.now.fetch_add(10_001, Ordering::SeqCst);
-        assert_eq!(code_of(&r.call("tv_standby", json!({}))), "expired");
+        assert_eq!(code_of(&r.unanswered("tv_standby", json!({}))), "expired");
         assert_eq!(r.keys.opens(), 2);
     }
 
@@ -1097,17 +1124,12 @@ mod tests {
     fn a_second_request_while_a_prompt_is_open_is_busy() {
         let r = rig();
         r.all(Level::Ask);
-        let broker = r.broker.clone();
-        let who = r.who.clone();
-        let first = thread::spawn(move || broker.call_tool(&who, PEER, "tv_standby", &json!({})));
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while r.hub.get("ai.prompt").is_none_or(|v| v.is_null()) && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(5));
-        }
-        let second = r.call("tv_media_key", json!({"key": "stop"}));
-        assert_eq!(code_of(&second), "busy");
-        r.keys.tap(IR, 412);
-        first.join().unwrap();
+        let outcome = r.ask_and("tv_standby", json!({}), |r| {
+            let second = r.call("tv_media_key", json!({"key": "stop"}));
+            assert_eq!(code_of(&second), "busy");
+            r.press(412);
+        });
+        assert_eq!(code_of(&outcome), "denied");
         assert_eq!(acted(&r), 0);
     }
 
@@ -1115,28 +1137,19 @@ mod tests {
     fn the_prompt_says_what_the_tv_calls_things_and_carries_the_assistants_reason_apart() {
         let r = rig();
         r.all(Level::Ask);
-        let broker = r.broker.clone();
-        let who = r.who.clone();
-        let worker = thread::spawn(move || {
-            broker.call_tool(
-                &who,
-                PEER,
-                "tv_launch_app",
-                &json!({"app_id": "netflix", "reason": "Nitin asked for a movie"}),
-            )
-        });
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while r.hub.get("ai.prompt").is_none_or(|v| v.is_null()) && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(5));
-        }
-        let prompt = r.hub.get("ai.prompt").unwrap();
-        assert_eq!(prompt["title"], "Open Netflix");
-        assert_eq!(prompt["assistant"], json!({"id": r.who.id, "name": "Cody"}));
-        assert_eq!(prompt["reason"], "Nitin asked for a movie");
-        assert_eq!(prompt["kind"], "call");
-        thread::sleep(Duration::from_millis(60));
-        r.keys.tap(IR, 28);
-        assert!(is_ok(&worker.join().unwrap()));
+        let outcome = r.ask_and(
+            "tv_launch_app",
+            json!({"app_id": "netflix", "reason": "Nitin asked for a movie"}),
+            |r| {
+                let prompt = r.hub.get(PROMPT_TOPIC).unwrap();
+                assert_eq!(prompt["title"], "Open Netflix");
+                assert_eq!(prompt["assistant"], json!({"id": r.who.id, "name": "Cody"}));
+                assert_eq!(prompt["reason"], "Nitin asked for a movie");
+                assert_eq!(prompt["kind"], "call");
+                r.press(28);
+            },
+        );
+        assert!(is_ok(&outcome));
         assert_eq!(r.tv.acted(), ["launch netflix"]);
     }
 
@@ -1415,10 +1428,9 @@ mod tests {
     fn being_unpaired_while_a_prompt_is_answered_still_stops_the_action() {
         let r = rig();
         r.all(Level::Ask);
-        let who = r.who.id.clone();
-        let outcome = r.ask_and("tv_standby", json!({}), |k| {
-            r.store.revoke(&who);
-            k.tap(IR, 28);
+        let outcome = r.ask_and("tv_standby", json!({}), |r| {
+            r.store.revoke(&r.who.id);
+            r.press(28);
         });
         assert_eq!(code_of(&outcome), "unauthorized");
         assert_eq!(acted(&r), 0);

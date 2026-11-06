@@ -9,7 +9,7 @@ the bridge would accept one.
 The config: cert, key (PEM files), dir (where the logs go), udp_port, app_key, app_id, client_key (32 hex), area (UUID), name,
 channels ([{"channel_id", "x", "y", "z"}]), link_button (true: the registration succeeds at once).
 
-Prints the HTTPS port on its first line, then reads commands on stdin, one per line:
+Prints the HTTPS port on its first line, then reads commands on stdin, one per line, and prints `done` once each has taken effect:
     press                  the link button is pressed (the registration succeeds from now on)
     takeover <app id>      another application starts streaming to the area (the DTLS side goes away)
     release                ... and lets go
@@ -67,18 +67,28 @@ def area():
     return out
 
 
+def udp_bound(port):
+    want = ":%04X" % port
+    with open("/proc/net/udp") as f:
+        return any(line.split()[1].endswith(want) for line in list(f)[1:])
+
+
 def start_dtls():
     stop_dtls()
     out = open(cfg["dir"] + "/dtls.out", "ab")
     err = open(cfg["dir"] + "/dtls.err", "ab")
-    state["dtls"] = subprocess.Popen(
+    p = subprocess.Popen(
         [
             "openssl", "s_server", "-dtls1_2", "-accept", "127.0.0.1:%d" % cfg["udp_port"], "-nocert",
             "-psk", cfg["client_key"], "-psk_identity", cfg["app_id"], "-cipher", "PSK-AES128-GCM-SHA256",
         ],
         stdin=subprocess.PIPE, stdout=out, stderr=err,
     )
-    time.sleep(0.3)
+    state["dtls"] = p
+    # the start is answered once the stream endpoint listens, as a bridge's is: a client that connects at once is not refused
+    deadline = time.time() + 20
+    while not udp_bound(cfg["udp_port"]) and p.poll() is None and time.time() < deadline:
+        time.sleep(0.01)
 
 
 def stop_dtls():
@@ -188,6 +198,7 @@ def commands():
                     p.stdin.flush()
             elif word[0] == "hold":
                 state["hold"] = True
+        print("done", flush=True)
     stop_dtls()
     sys.exit(0)
 

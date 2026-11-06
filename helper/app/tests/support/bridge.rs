@@ -696,6 +696,19 @@ fn stream_events(
     req: &Req,
     killed: u64,
 ) -> std::io::Result<()> {
+    let resume = req
+        .headers
+        .get("last-event-id")
+        .and_then(|v| v.parse::<u64>().ok());
+    // where the channel starts is read before it counts as open: an event pushed once a test sees it open is sent on it
+    let (reset, mut sent) = {
+        let events = state.events.lock();
+        match resume {
+            None => (false, events.last().map_or(0, |(s, _)| *s)),
+            Some(id) if events.iter().any(|(s, _)| *s == id) => (false, id),
+            Some(_) => (true, events.last().map_or(0, |(s, _)| *s)),
+        }
+    };
     state.events_open.fetch_add(1, Ordering::SeqCst);
     state.events_total.fetch_add(1, Ordering::SeqCst);
     state
@@ -704,19 +717,7 @@ fn stream_events(
         .push(req.headers.get("last-event-id").cloned());
     let result = (|| {
         out.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n")?;
-        let resume = req
-            .headers
-            .get("last-event-id")
-            .and_then(|v| v.parse::<u64>().ok());
         // an id the bridge does not keep any more is said first: the client starts from now
-        let (reset, mut sent) = {
-            let events = state.events.lock();
-            match resume {
-                None => (false, events.last().map_or(0, |(s, _)| *s)),
-                Some(id) if events.iter().any(|(s, _)| *s == id) => (false, id),
-                Some(_) => (true, events.last().map_or(0, |(s, _)| *s)),
-            }
-        };
         if reset {
             chunk(out, b"event: reset\ndata: {\"seq\": 0}\n\n")?;
         }

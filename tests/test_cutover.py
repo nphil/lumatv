@@ -162,6 +162,9 @@ class FakeSet(unittest.TestCase):
         shutil.copy(LIB, os.path.join(self.dep, "compositor.sh"))
         shutil.copy(os.path.join(ROOT, "tools", "logrelay.py"), os.path.join(self.dep, "logrelay.py"))
         shutil.copytree(os.path.join(ROOT, "compositor", "assets", "ui"), os.path.join(self.dep, "assets", "ui"))
+        # What compositor/tools/stage-feeder.sh puts in a bundle; no feeder is installed in the fake data directory, so the update stages nothing.
+        write(os.path.join(self.dep, "feeder", "lumatv-gfn-feeder"), "the feeder\n", 0o755)
+        shutil.copy(os.path.join(ROOT, "payload", "feeder", "feeder.sh"), os.path.join(self.dep, "feeder", "feeder.sh"))
         app = os.path.join(d, "app")
         os.makedirs(os.path.join(app, "tools"))
         for name in ("brand.sh", "compositor.sh"):
@@ -208,7 +211,7 @@ exec "$REAL_PYTHON" "$@"
                         LUMATV_STATE=self.state, LUMATV_D=self.dep, LUMATV_LG=self.lg, LUMATV_MOUNTINFO=os.path.join(d, "mountinfo"),
                         LUMATV_RECOVER_LOCK=os.path.join(d, "recover.lock"), LUMATV_OUT=self.out,
                         COMP_RELEASE=self.release, COMP_FW_LIBS="\n".join(self.libs), COMP_BOOT_ID=os.path.join(d, "boot_id"),
-                        LUMATV_SAFETY_MINUTE="1", LUMATV_TOOL=cli_path, REAL_PYTHON=sys.executable,
+                        LUMATV_SAFETY_MINUTE="1", LUMATV_TOOL=cli_path, REAL_PYTHON=sys.executable, LUMATV_DATA_DIR=os.path.join(d, "data"),
                         COMP_LG=self.lg, COMP_MOUNTINFO=os.path.join(d, "mountinfo"), COMP_LOCK=os.path.join(d, "recover.lock"))
 
     def tearDown(self):

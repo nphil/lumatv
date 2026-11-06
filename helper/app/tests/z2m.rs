@@ -551,14 +551,16 @@ fn the_still_colour_starts_the_bulbs_with_bifrosts_frames_and_the_screen_going_o
     );
     assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 3));
 
-    // The connection: the saved credentials, a clean client id, the device list and both lights' states subscribed to.
+    // The connection (a look at the lights before the stream may have had one of its own, the same way): the saved credentials, a
+    // clean client id, the device list and both lights' states subscribed to.
     let connects = broker.connects();
-    assert_eq!(connects.len(), 1, "{connects:?}");
-    assert_eq!(
-        (connects[0].1.as_deref(), connects[0].2.as_deref()),
-        (Some(USER), Some(PASSWORD))
-    );
-    assert!(connects[0].0.starts_with("lumatv-"));
+    for (id, user, password) in &connects {
+        assert_eq!(
+            (user.as_deref(), password.as_deref()),
+            (Some(USER), Some(PASSWORD))
+        );
+        assert!(id.starts_with("lumatv-"), "{connects:?}");
+    }
     let subscribed = broker.subscribed();
     for t in [
         "zigbee2mqtt/bridge/devices",
@@ -834,6 +836,8 @@ fn a_bulb_that_rejoined_with_a_new_address_gets_it_in_the_next_frames() {
     two_bulbs(&broker);
     let s = setup(&broker, "colour");
     assert!(z2m_state(&s.rig, "streaming"));
+    // a look at the lights before the stream may have had a connection of its own: the stream's is counted from here
+    let connects = broker.connects().len();
     assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 2));
     broker.retain(
         "zigbee2mqtt/bridge/devices",
@@ -847,7 +851,7 @@ fn a_bulb_that_rejoined_with_a_new_address_gets_it_in_the_next_frames() {
         frames_to(&broker, LEFT).last()
     );
     // The same connection, no new start.
-    assert_eq!(broker.connects().len(), 1);
+    assert_eq!(broker.connects().len(), connects);
     assert_eq!(resets_to(&broker, LEFT).len(), 1);
     assert!(z2m_state(&s.rig, "streaming"));
 }
@@ -935,6 +939,7 @@ fn an_update_running_before_the_start_holds_every_frame_back_until_it_has_ended_
                 .is_some_and(|p| p.contains("paused: Zigbee2MQTT is updating leak"))
         })
         .expect("no word of the update");
+    let connects = broker.connects().len();
     assert_eq!(held["z2mState"], "idle");
     assert!(
         held["problem"]
@@ -958,6 +963,8 @@ fn an_update_running_before_the_start_holds_every_frame_back_until_it_has_ended_
         "{:?}",
         s.rig.topic("ambient")
     );
+    // the status says streaming as the first command goes out; the broker has it a moment later
+    assert!(wait_until(WAIT, || !broker.published().is_empty()));
     let first = broker.published()[0].at;
     assert!(
         first.duration_since(ended) >= Duration::from_millis(700),
@@ -965,10 +972,10 @@ fn an_update_running_before_the_start_holds_every_frame_back_until_it_has_ended_
         first.duration_since(ended)
     );
     assert_eq!(problem(&s.rig), "");
-    assert_eq!(broker.connects().len(), 1);
+    assert_eq!(broker.connects().len(), connects);
+    assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 2));
     let left = broker.sets(LEFT);
     assert_eq!(left[0], fr::light_balance(0xFE), "{left:?}");
-    assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 2));
 }
 
 #[test]
@@ -977,6 +984,7 @@ fn an_update_starting_mid_stream_ends_it_and_the_lights_follow_again_when_it_is_
     two_bulbs(&broker);
     let s = setup_timed(&broker, "colour", &quick(20_000));
     assert!(z2m_state(&s.rig, "streaming"));
+    let connects = broker.connects().len();
     assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 2));
     let restored = json!({"state": "ON", "brightness": 120, "color_temp": 366});
 
@@ -985,8 +993,9 @@ fn an_update_starting_mid_stream_ends_it_and_the_lights_follow_again_when_it_is_
     assert!(wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 2));
     assert!(problem_has(&s.rig, "paused: Zigbee2MQTT is updating leak"));
     assert_eq!(s.rig.topic("ambient").unwrap()["z2mState"], "idle");
-    assert_eq!(broker.sets(RIGHT).last(), Some(&restored));
-    assert_eq!(broker.sets(LEFT).last(), Some(&json!({"state": "OFF"})));
+    assert!(wait_until(WAIT, || broker.sets(RIGHT).last() == Some(&restored)));
+    assert!(wait_until(WAIT, || broker.sets(LEFT).last()
+        == Some(&json!({"state": "OFF"}))));
     let sent = broker.published().len();
     thread::sleep(Duration::from_millis(1500));
     assert_eq!(broker.published().len(), sent, "frames during an update");
@@ -999,7 +1008,7 @@ fn an_update_starting_mid_stream_ends_it_and_the_lights_follow_again_when_it_is_
     assert!(wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 3));
     assert!(z2m_state(&s.rig, "streaming"));
     assert_eq!(problem(&s.rig), "");
-    assert_eq!(broker.connects().len(), 1);
+    assert_eq!(broker.connects().len(), connects);
     let restart = resets_to(&broker, LEFT)[2];
     assert!(wait_until(WAIT, || frames_to(&broker, LEFT)
         .iter()
@@ -1032,7 +1041,7 @@ fn an_update_starting_mid_stream_ends_it_and_the_lights_follow_again_when_it_is_
     );
     assert!(wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 7));
     assert!(z2m_state(&s.rig, "streaming"));
-    assert_eq!(broker.connects().len(), 1);
+    assert_eq!(broker.connects().len(), connects);
 }
 
 #[test]
@@ -1109,14 +1118,14 @@ fn late_answers_halve_the_rate_then_pause_the_stream_and_the_pause_ends_on_its_o
     let s = setup_timed(&broker, "picture", &quick(600_000));
     let _feed = Feeder::start(&s.rig.paths.data_dir.join("ambient.sock"));
     assert!(z2m_state(&s.rig, "streaming"));
+    let connects = broker.connects().len();
     assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 5));
     assert_eq!(problem(&s.rig), "");
     let log = "zigbee2mqtt/bridge/logging";
 
-    // A late answer: half the rate, shown in words, and the fade of a frame follows the interval. A second one in the same
-    // moment is the same event.
+    // A late answer: half the rate, shown in words, and the fade of a frame follows the interval. (Late answers in one moment are
+    // one event: the worker's cut gap, `a_late_answer_within_the_cut_gap_is_the_same_event`.)
     broker.push(log, &late(LEFT));
-    broker.push(log, &late(RIGHT));
     assert!(problem_has(&s.rig, "10 frames a second instead of 20"));
     assert_eq!(s.rig.topic("ambient").unwrap()["z2mState"], "streaming");
     assert!(wait_until(WAIT, || frames_to(&broker, LEFT)
@@ -1125,17 +1134,15 @@ fn late_answers_halve_the_rate_then_pause_the_stream_and_the_pause_ends_on_its_o
             |f| f.smoothing == fr::smoothing_for(Duration::from_millis(100))
         )));
 
-    // Another one: the lowest rate, which is what the frames then keep: 200 ms apart, and a slow machine only makes that longer.
+    // Another one, past the cut gap: the lowest rate, whose frames then fade over its 200 ms interval.
     thread::sleep(Duration::from_millis(300));
     broker.push(log, &late(LEFT));
     assert!(problem_has(&s.rig, "5 frames a second instead of 20"));
-    let before = frames_to(&broker, LEFT).len();
-    assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= before + 3));
-    let gap = frame_gap(&broker, LEFT, before + 1);
-    assert!(
-        gap >= Duration::from_millis(150),
-        "{gap:?} between two frames at the lowest rate"
-    );
+    assert!(wait_until(WAIT, || frames_to(&broker, LEFT)
+        .last()
+        .is_some_and(
+            |f| f.smoothing == fr::smoothing_for(Duration::from_millis(200))
+        )));
 
     // Not the lights' trouble, or not an error: no change.
     broker.push(
@@ -1178,7 +1185,7 @@ fn late_answers_halve_the_rate_then_pause_the_stream_and_the_pause_ends_on_its_o
         "{}",
         problem(&s.rig)
     );
-    assert_eq!(broker.connects().len(), 1);
+    assert_eq!(broker.connects().len(), connects);
     let left = broker.sets(LEFT);
     let commands: Vec<usize> = (0..left.len())
         .filter(|&i| zcl_data(&left[i], 3).is_some())

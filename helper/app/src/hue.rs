@@ -233,7 +233,7 @@ struct Pass {
 impl Worker {
     /// The least time between two updates.
     fn interval(&self) -> Duration {
-        Duration::from_millis(1000 / u64::from(self.link.fps.max(1)))
+        interval(self.link.fps)
     }
 
     fn run(mut self) {
@@ -426,11 +426,7 @@ impl Worker {
                 return self.lost(&e.to_string());
             }
         }
-        let since = live
-            .sent_at
-            .map_or(Duration::MAX, |t| now.saturating_duration_since(t));
-        // A new frame goes out as soon as the pace allows; the last one goes again when nothing new has come for a second.
-        let send = (since >= interval && self.pending) || since >= KEEPALIVE;
+        let send = send_due(live.sent_at, now, interval, self.pending);
         let Some(frame) = self.last_frame.as_ref().filter(|_| send) else {
             return;
         };
@@ -545,5 +541,51 @@ impl Worker {
         if let Err(e) = stopped {
             crate::log_warn!("hue: stopping the area: {e}");
         }
+    }
+}
+
+fn interval(fps: u8) -> Duration {
+    Duration::from_millis(1000 / u64::from(fps.max(1)))
+}
+
+/// Whether the last frame goes out at `now`: a new one as soon as the pace allows, the same one again when nothing new has come for a second.
+fn send_due(sent_at: Option<Instant>, now: Instant, interval: Duration, pending: bool) -> bool {
+    let since = sent_at.map_or(Duration::MAX, |t| now.saturating_duration_since(t));
+    (since >= interval && pending) || since >= KEEPALIVE
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hue_store::DEFAULT_FPS;
+
+    /// When frames go out over `ms` of a fake clock, with a new frame every 10 ms (`fresh`) or none after the first.
+    fn sends(ms: u64, fresh: bool) -> Vec<u64> {
+        let start = Instant::now();
+        let (mut sent, mut sent_at, mut pending) = (Vec::new(), None, true);
+        for t in (0..ms).step_by(10) {
+            let now = start + Duration::from_millis(t);
+            pending |= fresh;
+            if send_due(sent_at, now, interval(DEFAULT_FPS), pending) {
+                sent.push(t);
+                sent_at = Some(now);
+                pending = false;
+            }
+        }
+        sent
+    }
+
+    #[test]
+    fn the_stream_is_paced_to_bifrosts_default_of_twenty_updates_a_second() {
+        let sent = sends(4000, true);
+        let per_second: Vec<usize> = (0..4)
+            .map(|s| sent.iter().filter(|t| **t / 1000 == s).count())
+            .collect();
+        assert_eq!(per_second, [20; 4], "{sent:?}");
+    }
+
+    #[test]
+    fn a_still_picture_is_sent_again_each_second() {
+        assert_eq!(sends(3500, false), [0, 1000, 2000, 3000]);
     }
 }

@@ -34,6 +34,9 @@ use std::time::{Duration, Instant};
 /// The hub topic of the open prompt.
 pub const PROMPT_TOPIC: &str = "ai.prompt";
 
+/// The gate's clock: when a prompt was shown, armed and expires. `Instant::now` on the set; tests move a fake one.
+pub type Now = Arc<dyn Fn() -> Instant + Send + Sync>;
+
 /// How the gate reads the remote.
 #[derive(Clone, Debug)]
 pub struct GateConfig {
@@ -179,15 +182,26 @@ pub struct Gate {
     keys: Arc<dyn KeySource>,
     hub: Arc<Hub>,
     config: GateConfig,
+    now: Now,
     current: Mutex<Option<Current>>,
 }
 
 impl Gate {
     pub fn new(keys: Arc<dyn KeySource>, hub: Arc<Hub>, config: GateConfig) -> Arc<Self> {
+        Self::with_clock(keys, hub, config, Arc::new(Instant::now))
+    }
+
+    pub fn with_clock(
+        keys: Arc<dyn KeySource>,
+        hub: Arc<Hub>,
+        config: GateConfig,
+        now: Now,
+    ) -> Arc<Self> {
         Arc::new(Self {
             keys,
             hub,
             config,
+            now,
             current: Mutex::new(None),
         })
     }
@@ -236,7 +250,7 @@ impl Gate {
             id
         };
         let session = self.keys.open();
-        let shown_at = Instant::now();
+        let shown_at = (self.now)();
         let expires_at = shown_at + self.config.prompt_ttl;
         let shown_ms = now_ms();
         let doc = json!({
@@ -305,7 +319,7 @@ impl Pending {
             if self.gate.is_cancelled(&self.id) {
                 break Decision::Cancelled;
             }
-            let now = Instant::now();
+            let now = (self.gate.now)();
             if now >= self.expires_at {
                 break Decision::Expired;
             }
@@ -382,22 +396,37 @@ pub(crate) fn approval_for_tests() -> GateApproval {
 #[cfg(test)]
 pub(crate) mod fake {
     use super::super::types::{KeyEvent, KeySession, KeySource};
-    use parking_lot::Mutex;
+    use super::Now;
+    use parking_lot::{Condvar, Mutex};
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::mpsc::{Receiver, Sender, channel};
     use std::time::{Duration, Instant};
+
+    /// Events sent, and events a session handed to the gate.
+    type Seen = Arc<(Mutex<(usize, usize)>, Condvar)>;
 
     #[derive(Default)]
     pub struct FakeKeys {
         sender: Mutex<Option<Sender<KeyEvent>>>,
         pub opens: AtomicUsize,
+        now: Option<Now>,
+        seen: Seen,
     }
 
-    struct Session(Receiver<KeyEvent>);
+    struct Session {
+        rx: Receiver<KeyEvent>,
+        seen: Seen,
+    }
 
     impl KeySession for Session {
         fn next(&mut self, timeout: Duration) -> Option<KeyEvent> {
-            self.0.recv_timeout(timeout).ok()
+            let event = self.rx.recv_timeout(timeout).ok();
+            if event.is_some() {
+                self.seen.0.lock().1 += 1;
+                self.seen.1.notify_all();
+            }
+            event
         }
     }
 
@@ -406,18 +435,30 @@ pub(crate) mod fake {
             let (tx, rx) = channel();
             *self.sender.lock() = Some(tx);
             self.opens.fetch_add(1, Ordering::SeqCst);
-            Box::new(Session(rx))
+            Box::new(Session {
+                rx,
+                seen: self.seen.clone(),
+            })
         }
     }
 
     impl FakeKeys {
+        /// Keys stamped by `now`, the gate's own fake clock.
+        pub fn with_clock(now: Now) -> Self {
+            Self {
+                now: Some(now),
+                ..Self::default()
+            }
+        }
+
         pub fn send(&self, device: &str, code: u16, value: i32) {
             if let Some(tx) = self.sender.lock().as_ref() {
+                self.seen.0.lock().0 += 1;
                 let _ = tx.send(KeyEvent {
                     device: device.to_owned(),
                     code,
                     value,
-                    at: Instant::now(),
+                    at: self.now.as_ref().map_or_else(Instant::now, |now| now()),
                 });
             }
         }
@@ -425,8 +466,22 @@ pub(crate) mod fake {
         /// A press and a release of `code` on `device`, as a person's tap.
         pub fn tap(&self, device: &str, code: u16) {
             self.send(device, code, 1);
-            std::thread::sleep(Duration::from_millis(5));
             self.send(device, code, 0);
+        }
+
+        /// Returns when the gate has read every key sent.
+        pub fn wait_read(&self) {
+            let mut seen = self.seen.0.lock();
+            while seen.1 < seen.0 {
+                assert!(
+                    !self
+                        .seen
+                        .1
+                        .wait_for(&mut seen, Duration::from_secs(10))
+                        .timed_out(),
+                    "the gate stopped reading keys"
+                );
+            }
         }
 
         pub fn opens(&self) -> usize {

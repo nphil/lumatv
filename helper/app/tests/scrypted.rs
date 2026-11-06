@@ -1333,13 +1333,37 @@ fn loopback_dial() -> lumatv_helper::live::Dial {
     })
 }
 
-fn host_feeder() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../gfn/feeder/build/host");
+/// The host feeder and its fake NDL, built again (gfn/feeder/build.sh, once a run) when a file under the feeder's src/ or tests/ is newer than
+/// it, as tests/test_gfn_feeder.py does: a build left from older sources plays the way those sources did, and the fake ES player
+/// (libplayerAPIs.so.1) is new since 2026-10-26. Without zig the video tests are skipped.
+static HOST_FEEDER: std::sync::LazyLock<Option<(std::path::PathBuf, std::path::PathBuf)>> = std::sync::LazyLock::new(|| {
+    let feeder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../gfn/feeder");
+    let root = feeder.join("build/host");
     let (program, library) = (
         root.join("lumatv-gfn-feeder"),
         root.join("libNDL_directmedia.so.1"),
     );
-    (program.is_file() && library.is_file()).then_some((program, library))
+    let modified = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    let newest = ["src", "tests"]
+        .iter()
+        .filter_map(|d| std::fs::read_dir(feeder.join(d)).ok())
+        .flatten()
+        .filter_map(|e| modified(&e.ok()?.path()))
+        .max();
+    let current = library.is_file()
+        && root.join("libplayerAPIs.so.1").is_file()
+        && modified(&program).is_some_and(|built| newest.is_none_or(|n| built >= n));
+    let built = current
+        || std::process::Command::new("sh")
+            .arg(feeder.join("build.sh"))
+            .stdout(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+    built.then_some((program, library))
+});
+
+fn host_feeder() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    HOST_FEEDER.clone()
 }
 
 /// How many lines of what the fake pipeline libraries logged hold `what`: the starfish library's, whose ES player a camera's view loads, and NDL's, in one file.

@@ -112,11 +112,24 @@ struct Shared {
     epoch: Arc<AtomicU64>,
     disk: Option<DiskCache>,
     st: Mutex<State>,
+    #[cfg(test)]
+    probe: Arc<testing::Probe>,
 }
 
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, State> {
         self.st.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[cfg(not(test))]
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+
+    /// The tests' clock moves only when they move it.
+    #[cfg(test)]
+    fn now(&self) -> Instant {
+        self.probe.now()
     }
 }
 
@@ -199,7 +212,25 @@ impl BaseMap {
         cfg.min_zoom = 5.0;
         cfg.max_zoom = 11.0;
         let st = State { dark: None, lru: ByteLru::new(CELL_BUDGET), wants: Vec::new(), union: Vec::new(), persist: VecDeque::new(), persister: false, closed: false, disk_hits: 0 };
-        let shared = Shared { engine: MapEngine::new(cfg, Arc::new(|| {})), prefetch, source, epoch, disk: DiskCache::open(root.join("map-raster"), DISK_BUDGET).ok(), st: Mutex::new(st) };
+        #[cfg(test)]
+        let probe = Arc::new(testing::Probe::new());
+        #[cfg(test)]
+        let waker: map::Waker = {
+            let probe = Arc::clone(&probe);
+            Arc::new(move || probe.woke())
+        };
+        #[cfg(not(test))]
+        let waker: map::Waker = Arc::new(|| {});
+        let shared = Shared {
+            engine: MapEngine::new(cfg, waker),
+            prefetch,
+            source,
+            epoch,
+            disk: DiskCache::open(root.join("map-raster"), DISK_BUDGET).ok(),
+            st: Mutex::new(st),
+            #[cfg(test)]
+            probe,
+        };
         Self { shared: Arc::new(shared) }
     }
 
@@ -244,7 +275,7 @@ impl BaseMap {
     /// to forget what the engine counts as handed over, so that a cell it still has is handed over again.
     fn rewant(&self, st: &mut State) {
         let current = self.shared.epoch.load(Ordering::Relaxed);
-        let now = Instant::now();
+        let now = self.shared.now();
         st.wants.retain(|w| w.epoch >= current && now.duration_since(w.asked) < WANT_FOR);
         let mut order: Vec<&Want> = st.wants.iter().collect();
         order.sort_by_key(|w| w.id.0);
@@ -327,7 +358,7 @@ impl BaseMap {
         let tag = self.tag(q.dark);
         self.take_ready(&mut st, tag);
         let id = PicId(q.zoom, q.x0, q.y0, q.x1, q.y1);
-        let now = Instant::now();
+        let now = shared.now();
         let at = match st.wants.iter().position(|w| w.id == id) {
             Some(i) => {
                 // asked again: what it lacks may be in the cache by now
@@ -412,6 +443,20 @@ impl BaseMap {
         self.shared.engine.take_ready();
         self.shared.prefetch.close();
     }
+
+    #[cfg(test)]
+    fn probe(&self) -> &testing::Probe {
+        &self.shared.probe
+    }
+
+    /// Returns when the drawn cells are all on the disk.
+    #[cfg(test)]
+    fn wait_settled(&self) {
+        let mut st = self.shared.lock();
+        while !st.persist.is_empty() || st.persister {
+            st = self.shared.probe.settled.wait(st).unwrap_or_else(|e| e.into_inner());
+        }
+    }
 }
 
 impl Drop for BaseMap {
@@ -430,6 +475,8 @@ fn persist(shared: &Shared) {
                 Some(n) if !st.closed => n,
                 _ => {
                     st.persister = false;
+                    #[cfg(test)]
+                    shared.probe.settled.notify_all();
                     return;
                 }
             }
@@ -475,9 +522,54 @@ pub(crate) mod testing {
     use map::mvt::{GeomType, Layer, Point, Value, VectorTile};
     use map::source::{FakeSource, SourceError, TileSource};
     use map::webmerc::TileKey;
+    use parking_lot::{Condvar, Mutex};
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Condvar, Mutex};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
+
+    /// How long a test waits for a thread before it says which one never came.
+    const PATIENCE: Duration = Duration::from_secs(20);
+
+    /// The base map's test clock (it moves only when a test moves it), and what its threads did.
+    pub struct Probe {
+        start: Instant,
+        ahead: Mutex<Duration>,
+        /// How often the engine's waker was called.
+        woken: Mutex<u64>,
+        wake: Condvar,
+        /// Told when the cell writer ends (under the base map's own lock).
+        pub(super) settled: std::sync::Condvar,
+    }
+
+    impl Probe {
+        pub(super) fn new() -> Self {
+            Self { start: Instant::now(), ahead: Mutex::new(Duration::ZERO), woken: Mutex::new(0), wake: Condvar::new(), settled: std::sync::Condvar::new() }
+        }
+
+        pub(super) fn now(&self) -> Instant {
+            self.start + *self.ahead.lock()
+        }
+
+        pub fn advance(&self, by: Duration) {
+            *self.ahead.lock() += by;
+        }
+
+        pub(super) fn woke(&self) {
+            *self.woken.lock() += 1;
+            self.wake.notify_all();
+        }
+
+        pub fn woken(&self) -> u64 {
+            *self.woken.lock()
+        }
+
+        /// Returns once the engine has had news for the page since it had been woken `seen` times.
+        pub fn wait_woken(&self, seen: u64) {
+            let mut woken = self.woken.lock();
+            let waited = self.wake.wait_while_for(&mut woken, |w| *w <= seen, PATIENCE);
+            assert!(!waited.timed_out(), "the engine had nothing more for the page");
+        }
+    }
 
     /// A vector tile that is all water.
     pub fn water() -> Vec<u8> {
@@ -524,31 +616,36 @@ pub(crate) mod testing {
     /// A source whose tiles are held back until [`Gated::release`]: a fetch that is on the wire stays there, whatever the time.
     pub struct Gated {
         inner: Arc<FakeSource>,
-        open: Mutex<bool>,
-        opened: Condvar,
-        /// The fetches that began.
-        pub began: AtomicUsize,
+        /// Open, and how many fetches began.
+        state: Mutex<(bool, usize)>,
+        changed: Condvar,
     }
 
     impl Gated {
         pub fn new(inner: Arc<FakeSource>) -> Arc<Self> {
-            Arc::new(Self { inner, open: Mutex::new(false), opened: Condvar::new(), began: AtomicUsize::new(0) })
+            Arc::new(Self { inner, state: Mutex::new((false, 0)), changed: Condvar::new() })
         }
 
         pub fn release(&self) {
-            *self.open.lock().unwrap() = true;
-            self.opened.notify_all();
+            self.state.lock().0 = true;
+            self.changed.notify_all();
+        }
+
+        /// Returns once a fetch is on the wire.
+        pub fn wait_began(&self) {
+            let mut state = self.state.lock();
+            let waited = self.changed.wait_while_for(&mut state, |s| s.1 == 0, PATIENCE);
+            assert!(!waited.timed_out(), "no fetch began");
         }
     }
 
     impl TileSource for Gated {
         fn fetch(&self, key: TileKey) -> Result<Vec<u8>, SourceError> {
-            self.began.fetch_add(1, Ordering::SeqCst);
-            let mut open = self.open.lock().unwrap();
-            while !*open {
-                open = self.opened.wait(open).unwrap();
-            }
-            drop(open);
+            let mut state = self.state.lock();
+            state.1 += 1;
+            self.changed.notify_all();
+            self.changed.wait_while(&mut state, |s| !s.0);
+            drop(state);
             self.inner.fetch(key)
         }
 
@@ -584,11 +681,12 @@ mod tests {
         PicQuery { kind: Kind::Map, zoom: 16, x0: cells.0, y0: cells.1, x1: cells.2, y1: cells.3, t: 0, dark, epoch }
     }
 
+    /// Asks until the picture is there, waiting between asks for the engine's news.
     fn until_ready(m: &BaseMap, q: &PicQuery) -> PicAnswer {
-        let t = Instant::now();
         loop {
+            let seen = m.probe().woken();
             match m.pic(q) {
-                PicAnswer::Coming { .. } if t.elapsed() < Duration::from_secs(10) => std::thread::sleep(Duration::from_millis(5)),
+                PicAnswer::Coming { .. } => m.probe().wait_woken(seen),
                 other => return other,
             }
         }
@@ -633,24 +731,20 @@ mod tests {
         let src = source();
         let (m, _) = map_in(dir.path(), &src);
         // 8 by 9 = 72 cells: more than the 64 that fit
-        let q = query((72, 98, 79, 106), 1, true);
-        assert!(matches!(until_ready(&m, &q), PicAnswer::Ready(_)));
+        assert!(matches!(until_ready(&m, &query((72, 98, 79, 106), 1, true)), PicAnswer::Ready(_)));
         let s = m.stats();
         assert!(s.bytes <= CELL_BUDGET && s.cells <= 64, "{s:?}");
-        // the drawing is written to the disk at low priority: wait for it, then ask again with nothing in memory
-        let t = Instant::now();
-        while m.stats().queued_for_disk > 0 && t.elapsed() < Duration::from_secs(10) {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        std::thread::sleep(Duration::from_millis(200));
-        let drawn = m.stats().engine.rasters;
+        // the drawing is written to the disk at low priority (a queue of 64, so the 72 above may lose some): four cells, written, are
+        // read back by a map that has nothing in memory
+        let q = query((85, 105, 86, 106), 1, true);
+        assert!(matches!(until_ready(&m, &q), PicAnswer::Ready(_)));
+        m.wait_settled();
         m.close();
         drop(m);
         let (again, _) = map_in(dir.path(), &src);
         let PicAnswer::Ready(_) = until_ready(&again, &q) else { panic!("a picture") };
         let s = again.stats();
-        assert_eq!(s.engine.rasters, 0, "nothing was drawn again ({drawn} the first time)");
-        assert!(s.disk_hits >= 60, "{s:?}");
+        assert_eq!((s.engine.rasters, s.disk_hits), (0, 4), "{s:?}");
     }
 
     #[test]
@@ -674,10 +768,7 @@ mod tests {
         // 12 cells: the first tile is on the wire (the others wait for it, as a source that has to learn where its tiles are would have them) when the
         // view moves on to a cell of its own
         assert!(matches!(m.pic(&query((72, 98, 75, 100), 1, true)), PicAnswer::Coming { .. }));
-        let began = Instant::now();
-        while gated.began.load(Ordering::SeqCst) == 0 && began.elapsed() < Duration::from_secs(10) {
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        gated.wait_began();
         epoch.fetch_max(2, Ordering::SeqCst);
         let q2 = query((85, 105, 85, 105), 2, true);
         assert!(matches!(m.pic(&q2), PicAnswer::Coming { .. }));
@@ -700,15 +791,19 @@ mod tests {
         src.fail_tile(TileKey::new(8, 76, 100).unwrap(), Some(map::source::SourceError::Offline));
         let (m, _) = map_in(dir.path(), &src);
         let q = query((75, 100, 77, 100), 1, true);
-        let t = Instant::now();
-        let p = loop {
+        // the two cells there are drawn; the picture waits for the third
+        loop {
+            let seen = m.probe().woken();
             match m.pic(&q) {
-                PicAnswer::Ready(p) => break p,
-                _ if t.elapsed() > Duration::from_secs(10) => panic!("no picture"),
-                _ => std::thread::sleep(Duration::from_millis(50)),
+                PicAnswer::Coming { have: 2, .. } => break,
+                PicAnswer::Coming { .. } => m.probe().wait_woken(seen),
+                other => panic!("{other:?} before the time"),
             }
-        };
-        assert!(t.elapsed() >= PARTIAL_AFTER, "not before the time");
+        }
+        m.probe().advance(PARTIAL_AFTER - Duration::from_millis(1));
+        assert!(matches!(m.pic(&q), PicAnswer::Coming { have: 2, .. }), "not before the time");
+        m.probe().advance(Duration::from_millis(1));
+        let PicAnswer::Ready(p) = m.pic(&q) else { panic!("no picture after the time") };
         assert_eq!(p[p.len() - TRAILER + 12], 0, "marked as not complete");
         assert_eq!(u16::from_le_bytes(p[p.len() - TRAILER + 16..p.len() - TRAILER + 18].try_into().unwrap()), 2, "two of three");
     }

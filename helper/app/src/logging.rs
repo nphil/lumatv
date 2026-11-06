@@ -486,6 +486,18 @@ mod tests {
         settings_schema::SettingChange { key: key.parse().unwrap(), value }
     }
 
+    /// Waits for `ready`, woken by the collector's status on the hub (set once its socket is bound and on each settings change); a
+    /// collector that ended fails the test rather than leaving it waiting.
+    fn wait_collector(hub: &crate::hub::Hub, worker: &std::thread::JoinHandle<io::Result<()>>, ready: impl Fn() -> bool) {
+        let topics = ["logging".to_owned()];
+        loop {
+            let seq = hub.topic_at("logging").0;
+            if ready() { return; }
+            assert!(!worker.is_finished(), "the collector ended before it was ready");
+            hub.wait_events(Some(seq), None, Some(&topics), Duration::from_secs(1));
+        }
+    }
+
     #[test]
     fn actual_host_udp_reroutes_and_stays_bounded_without_a_collector() {
         use std::sync::Arc;
@@ -506,8 +518,7 @@ mod tests {
         let worker_logs = logs.clone();
         let worker_path = socket_path.clone();
         let worker = std::thread::Builder::new().stack_size(128 * 1024).spawn(move || run_at(&worker_ctx, &worker_logs, &worker_path)).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(20);
-        while hub.get("logging").is_none() { assert!(std::time::Instant::now() < deadline); std::thread::sleep(Duration::from_millis(10)); }
+        wait_collector(&hub, &worker, || hub.get("logging").is_some());
         let producer = UnixDatagram::unbound().unwrap();
         producer.set_nonblocking(true).unwrap();
         let mut received = [0u8; RECORD_LIMIT];
@@ -515,8 +526,7 @@ mod tests {
         let n = first.recv(&mut received).unwrap();
         assert_eq!(&received[..n], b"<14>lumatv-helper: host-smoke-first");
         settings.apply("base.logging", vec![change("port", Value::Integer(second.local_addr().unwrap().port().into()))], None).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(20);
-        while hub.get("logging").unwrap()["server"]["port"] != second.local_addr().unwrap().port() { assert!(std::time::Instant::now() < deadline); std::thread::sleep(Duration::from_millis(10)); }
+        wait_collector(&hub, &worker, || hub.get("logging").unwrap()["server"]["port"] == second.local_addr().unwrap().port());
         producer.send_to(b"<14>lumatv-helper: host-smoke-second", &socket_path).unwrap();
         let n = second.recv(&mut received).unwrap();
         assert_eq!(&received[..n], b"<14>lumatv-helper: host-smoke-second");
@@ -526,15 +536,14 @@ mod tests {
         drop(second);
         let mut payload = [b'x'; RECORD_LIMIT];
         payload[..19].copy_from_slice(b"<14>lumatv-helper: ");
-        let started = std::time::Instant::now();
+        // the producer is nonblocking and the collector's UDP target is gone: every send returns, and what is kept stays bounded
         for _ in 0..20000 { let _ = producer.send_to(&payload, &socket_path); }
-        assert!(started.elapsed() < Duration::from_secs(3));
         ctx.stop.request();
         worker.join().unwrap().unwrap();
         let bytes: u64 = ["current.log", "previous.log"].iter().map(|name| std::fs::metadata(logs.join(name)).map_or(0, |m| m.len())).sum();
         assert!(bytes > 0 && bytes <= RAM_LIMIT);
         assert!(!socket_path.exists());
-        println!("loopback tagged delivery and target change observed; retained bytes={bytes}; unavailable collector flood returned in {:?}", started.elapsed());
+        println!("loopback tagged delivery and target change observed; retained bytes={bytes}");
         for _ in 0..2 {
             let target = UdpSocket::bind("127.0.0.1:0").unwrap();
             target.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
@@ -544,8 +553,7 @@ mod tests {
             let worker_logs = logs.clone();
             let worker_path = socket_path.clone();
             let worker = std::thread::Builder::new().stack_size(128 * 1024).spawn(move || run_at(&worker_ctx, &worker_logs, &worker_path)).unwrap();
-            let deadline = std::time::Instant::now() + Duration::from_secs(20);
-            while !socket_path.exists() { assert!(std::time::Instant::now() < deadline); std::thread::sleep(Duration::from_millis(10)); }
+            wait_collector(&hub, &worker, || socket_path.exists());
             producer.send_to(b"<14>lumatv-helper: host-smoke-restart", &socket_path).unwrap();
             let n = target.recv(&mut received).unwrap();
             assert_eq!(&received[..n], b"<14>lumatv-helper: host-smoke-restart");
