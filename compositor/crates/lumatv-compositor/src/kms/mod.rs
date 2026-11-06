@@ -1392,10 +1392,6 @@ impl Output for Kms {
         self.gl.ui_state(state)
     }
 
-    fn ui_set_calm(&mut self, calm: bool) {
-        self.gl.set_ui_calm(calm);
-    }
-
     fn ui_set_exclusion(&mut self, area: Option<crate::Rect>) {
         self.gl.ui_set_exclusion(area);
     }

@@ -552,14 +552,6 @@ impl Gl {
         }
     }
 
-    /// Says whether the loop is calm: a calm UI's commits wait for its next step (`Ui::set_calm`).
-    pub fn set_ui_calm(&mut self, _calm: bool) {
-        #[cfg(feature = "ui")]
-        if let Some(ui) = &mut self.ui {
-            ui.set_calm(_calm);
-        }
-    }
-
     /// How long until the engine wants a frame, when that is a time of its own and it is not yet ([`crate::ui::Ui::due_in`]). `None`
     /// without an engine, with an animation running, or with a frame due or wanted already.
     pub fn ui_due_in(&self) -> Option<std::time::Duration> {
@@ -2040,10 +2032,6 @@ impl Output for Gl {
 
     fn warming(&mut self) -> bool {
         Gl::warming(self)
-    }
-
-    fn ui_set_calm(&mut self, calm: bool) {
-        self.set_ui_calm(calm);
     }
 
     fn ui_set_exclusion(&mut self, area: Option<Rect>) {

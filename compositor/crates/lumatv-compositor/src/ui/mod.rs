@@ -53,17 +53,12 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// How far ahead the engine's next step may be for a calm commit to wait for it ([`Ui::set_calm`]): the moving wallpaper's and the
-/// calm sky's step.
-const COMMIT_HOLD_NS: u64 = 100_000_000;
-
 /// The engine, and the scratch the compositor's tiles are turned into the engine's areas with.
 pub struct Ui {
     engine: Engine,
     system_z: i32,
     scratch: Vec<[i32; 4]>,
     areas: Vec<[i32; 4]>,
-    calm: bool,
 }
 
 /// Adds every tile of `set` to `into` (the engine's tiles are the compositor's: 16 px from the output's corner).
@@ -106,7 +101,7 @@ impl Ui {
                 system_z,
             },
         )?;
-        Ok((Self { engine, system_z, scratch: Vec::new(), areas: Vec::new(), calm: false }, app))
+        Ok((Self { engine, system_z, scratch: Vec::new(), areas: Vec::new() }, app))
     }
 
     pub fn finish_handshake(&mut self) -> io::Result<()> {
@@ -154,30 +149,17 @@ impl Ui {
         self.engine.fd()
     }
 
-    /// Whether the loop is calm (no key for 3 s, nothing busy: `Calm::is_calm_between_frames`). A calm commit waits for the engine's
-    /// next step when that is at most `COMMIT_HOLD_NS` away, so a camera's still or the clock's hand is drawn in the wallpaper's or the
-    /// sky's frame instead of a frame of its own between them (on Home at rest, 3 of 13.5 frames a second on the host on 2026-11-05).
-    pub fn set_calm(&mut self, calm: bool) {
-        self.calm = calm;
-    }
-
-    /// Whether a frame is due at `now_ns`: commits wait (and are not held for the next step, `set_calm`), work between frames changed
-    /// the picture, an animation runs, or a wallpaper's or an ambient motion's step is due. A step due within `slack_ns` after `now_ns`
-    /// is due: the tick is on the panel's grid, and a step is drawn by the refresh nearest it.
+    /// Whether a frame is due at `now_ns`: commits wait, work between frames changed the picture, an animation runs, or a
+    /// wallpaper's or an ambient motion's step is due. A step due within `slack_ns` after `now_ns` is due: the tick is on the panel's
+    /// grid, and a step is drawn by the refresh nearest it.
     pub fn wants_frame(&self, now_ns: u64, slack_ns: u64) -> bool {
-        let demand = self.engine.demand();
-        (self.engine.has_commits() && !Self::holds_commits(self.calm, demand, now_ns, slack_ns))
+        self.engine.has_commits()
             || self.engine.redraw_wanted()
-            || match demand {
+            || match self.engine.demand() {
                 Demand::EveryRefresh => true,
                 Demand::At(at) => now_ns.saturating_add(slack_ns) >= at,
                 Demand::Idle => false,
             }
-    }
-
-    /// Whether commits wait for the engine's next step: calm, and a step at most `COMMIT_HOLD_NS` ahead (a step due now draws them).
-    fn holds_commits(calm: bool, demand: Demand, now_ns: u64, slack_ns: u64) -> bool {
-        calm && matches!(demand, Demand::At(at) if at <= now_ns.saturating_add(slack_ns).saturating_add(COMMIT_HOLD_NS))
     }
 
     /// Whether an animation of the engine runs, so that the frame after this one is due at the next refresh (the demand at every refresh).
@@ -290,20 +272,5 @@ impl Ui {
     /// The pages may not hold what the account says (a lost frame, a resize): the next frame changes everything.
     pub fn forget(&mut self) {
         self.engine.forget();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_calm_commit_waits_for_a_step_at_most_a_tenth_of_a_second_away() {
-        let (now, slack) = (1_000_000_000, 4_000_000);
-        assert!(Ui::holds_commits(true, Demand::At(now + 90_000_000), now, slack));
-        assert!(!Ui::holds_commits(false, Demand::At(now + 90_000_000), now, slack), "a key ends the calm: drawn at once");
-        assert!(!Ui::holds_commits(true, Demand::At(now + 200_000_000), now, slack), "the clock's next second is too far");
-        assert!(!Ui::holds_commits(true, Demand::Idle, now, slack), "nothing moves: drawn at once");
-        assert!(!Ui::holds_commits(true, Demand::EveryRefresh, now, slack));
     }
 }
