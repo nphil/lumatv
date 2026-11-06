@@ -676,9 +676,11 @@ impl Inner {
                 };
                 // a pop-up is always the camera's low stream, whatever quality the owner chose for the full view. The texture path is decoded on the CPU, so
                 // the bridge's low stream inside what it takes is all it needs. A window's decoder sets the panel's rate (1080p at 25 takes 120 Hz to 100 Hz), so
-                // its stream must be a calm one (`popup_stream`); a camera without one is refused, and the shell draws that pop-up as a texture
+                // its stream must be a calm one (`popup_stream`), judged by what was read from the stream where the bridge gives no size; a camera without one
+                // is refused, and the shell draws that pop-up as a texture
                 let texture = window == "texture";
                 let quality = "light".to_owned();
+                let learned = self.camera(&camera).and_then(|c| c.learned);
                 let usage = Usage {
                     purpose,
                     ndl_app: ndl_app_for(&self.config.ndl_app),
@@ -692,7 +694,7 @@ impl Inner {
                     if texture {
                         bridge.live_low(&camera, &quality)
                     } else {
-                        popup_stream::ask_window(&camera, |step| bridge.live_within(&camera, &quality, step.accept())).map(|(dial, _)| dial)
+                        popup_stream::ask_window(&camera, learned.as_ref(), |step| bridge.live_within(&camera, &quality, step.accept())).map(|(dial, _)| dial)
                     }
                 })
             }

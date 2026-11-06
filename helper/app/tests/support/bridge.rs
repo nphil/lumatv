@@ -37,6 +37,8 @@ pub struct Shared {
     cameras: Mutex<Value>,
     features: Mutex<Value>,
     rtsp: Mutex<HashMap<String, String>>,
+    /// What `live` says of a camera's video, where a test set it (else 640x360 at 15).
+    live_video: Mutex<HashMap<String, Value>>,
     docs: Mutex<HashMap<String, (u16, Value)>>,
     failures: Mutex<Vec<(String, u16, String)>>,
     requests: Mutex<Vec<String>>,
@@ -92,6 +94,7 @@ impl FakeBridge {
                 json!({"cameras": 1, "recordings": 1, "live": 1, "stills": 1, "stream": 1, "event_thumbnails": 1, "devices": 1}),
             ),
             rtsp: Mutex::new(HashMap::new()),
+            live_video: Mutex::new(HashMap::new()),
             docs: Mutex::new(HashMap::new()),
             failures: Mutex::new(Vec::new()),
             requests: Mutex::new(Vec::new()),
@@ -196,6 +199,11 @@ impl FakeBridge {
             .rtsp
             .lock()
             .insert(camera.to_owned(), url.to_owned());
+    }
+
+    /// What `live` says of the camera's video (a generic RTSP camera's bridge says nothing: `{}`).
+    pub fn set_live_video(&self, camera: &str, video: Value) {
+        self.shared.live_video.lock().insert(camera.to_owned(), video);
     }
 
     /// What a route answers (`recordings`, `events`, `clips`, `thumbnail`, `clip-thumbnail`, `event-thumbnail`), instead of its default.
@@ -612,10 +620,11 @@ fn answer(out: &mut Conn, state: &Arc<Shared>, req: &Req, keep: bool) -> std::io
             let Some(url) = state.rtsp.lock().get(&camera).cloned() else {
                 return write_error(out, 404, "camera_not_found", keep);
             };
+            let video = state.live_video.lock().get(&camera).cloned().unwrap_or_else(|| json!({"codec": "h264", "width": 640, "height": 360, "fps": 15}));
             write_json(
                 out,
                 200,
-                &json!({"rtsp": url, "camera": camera, "quality": body["quality"], "video": {"codec": "h264", "width": 640, "height": 360, "fps": 15},
+                &json!({"rtsp": url, "camera": camera, "quality": body["quality"], "video": video,
                         "audio": null, "prebuffered": true, "expires_in_ms": 60000, "accept_seen": body["accept"]}),
                 keep,
             )

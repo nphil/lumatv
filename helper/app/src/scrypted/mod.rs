@@ -51,7 +51,7 @@ use parking_lot::{Condvar, Mutex};
 use policy::{Cooldowns, Decision, Seen};
 use serde_json::{Value, json};
 use sse::{Sse, SseReader};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufReader};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -62,6 +62,8 @@ use store::Link;
 
 /// How long the manager sleeps while the TV is asleep with a link, if the screen does not change (it looks again then, and sleeps on).
 const ASLEEP_WAIT: Duration = Duration::from_secs(30);
+/// A camera whose pop-up stream could not be read is tried again after this long.
+const LEARN_AGAIN: Duration = Duration::from_secs(600);
 
 /// The retained topics.
 pub const TOPIC: &str = "cameras";
@@ -232,6 +234,12 @@ struct State {
     held: Option<Held>,
     /// The window of the stream that plays (`main`, `sub`), when the Cameras full view asked for it on a video window; empty for any other stream.
     side: String,
+    /// What each camera's pop-up stream was read to be, where the listing gives no stream a size (`popup_stream::learn`); kept for the helper's life.
+    learned: HashMap<String, bridge::Stream>,
+    /// The cameras whose stream could not be read, and when: tried again after [`LEARN_AGAIN`].
+    unlearned: HashMap<String, Instant>,
+    /// A thread reads streams now.
+    learning: bool,
 }
 
 pub(crate) struct Inner {
@@ -331,6 +339,9 @@ impl Scrypted {
                 last_seq: None,
                 held: None,
                 side: String::new(),
+                learned: HashMap::new(),
+                unlearned: HashMap::new(),
+                learning: false,
             }),
             wake: (Mutex::new(()), Condvar::new()),
             generation: AtomicU64::new(0),
@@ -442,8 +453,10 @@ impl Inner {
                 .iter()
                 .map(|s| json!({"quality": s.quality, "codec": s.codec, "width": s.width, "height": s.height, "fps": s.fps, "prebuffered": s.prebuffered}))
                 .collect::<Vec<_>>(),
-            // where this camera's pop-up plays: a window (it has a stream the panel keeps its rate with) or the compositor's texture
-            "popupVideo": if popup_stream::window_ok(camera) { "window" } else { "texture" },
+            // where this camera's pop-up plays: a window (it has a stream the panel keeps its rate with), the compositor's texture, or stills for a camera
+            // on a battery, which is never woken for one
+            "popupVideo": if camera.battery { "stills" } else if popup_stream::window_ok(camera) { "window" } else { "texture" },
+            "popupStream": camera.learned.as_ref().map(|s| json!({"codec": s.codec, "width": s.width, "height": s.height, "fps": s.fps})),
             "prebuffered": prebuffered,
         })
     }
@@ -509,7 +522,10 @@ impl Inner {
         let options = self.options();
         let (changed, names, ids) = {
             let mut state = self.state.lock();
-            let shown = Self::shown_of(&state.all, &options.show);
+            let mut shown = Self::shown_of(&state.all, &options.show);
+            for camera in &mut shown {
+                camera.learned = state.learned.get(&camera.id).cloned();
+            }
             let before: Vec<Value> = state.shown.iter().map(Self::camera_json).collect();
             let after: Vec<Value> = shown.iter().map(Self::camera_json).collect();
             let changed = before != after;
@@ -827,6 +843,7 @@ impl Inner {
                         break;
                     }
                     self.ready(&bridge, &health, cameras, skew);
+                    self.learn_popup_streams(generation, &bridge);
                     let ended = self.serve(generation, &bridge, &health);
                     if !self.current(generation) {
                         break;
@@ -892,6 +909,68 @@ impl Inner {
         self.stills.set_fps(options::grid_fps(&self.options().grid));
         self.apply_cameras(cameras);
         self.publish();
+    }
+
+    /// Reads, on a thread of its own and one camera after another, the pop-up stream of each shown camera whose listing gives no stream a size
+    /// (`popup_stream::to_learn`), and publishes what was read. Nothing is read with live pop-ups off; a stream that could not be read waits
+    /// [`LEARN_AGAIN`].
+    fn learn_popup_streams(self: &Arc<Self>, generation: u64, bridge: &Bridge) {
+        if !self.config.popup_live || !self.live.available() {
+            return;
+        }
+        let todo: Vec<String> = {
+            let mut state = self.state.lock();
+            if state.learning {
+                return;
+            }
+            let todo: Vec<String> = state
+                .shown
+                .iter()
+                .filter(|c| popup_stream::to_learn(c) && state.unlearned.get(&c.id).is_none_or(|at| at.elapsed() >= LEARN_AGAIN))
+                .map(|c| c.id.clone())
+                .collect();
+            if todo.is_empty() {
+                return;
+            }
+            state.learning = true;
+            todo
+        };
+        let (me, bridge) = (self.clone(), bridge.clone());
+        let spawned = thread::Builder::new()
+            .name("cameras-learn".to_owned())
+            .stack_size(http::TLS_STACK)
+            .spawn(move || {
+                for camera in todo {
+                    if !me.current(generation) {
+                        break;
+                    }
+                    let read = popup_stream::learn(|step| bridge.live_within(&camera, "light", step.accept()), |address| me.live.probe(address));
+                    let mut state = me.state.lock();
+                    match read {
+                        Ok(stream) => {
+                            crate::log_info!(
+                                "cameras: pop-up stream for camera {camera} read from the stream: {} {}x{} at {} a second",
+                                stream.codec,
+                                stream.width,
+                                stream.height,
+                                stream.fps
+                            );
+                            state.unlearned.remove(&camera);
+                            state.learned.insert(camera, stream);
+                        }
+                        Err(why) => {
+                            crate::log_info!("cameras: pop-up stream for camera {camera} not read: {why}");
+                            state.unlearned.insert(camera, Instant::now());
+                        }
+                    }
+                }
+                me.state.lock().learning = false;
+                me.rebuild_shown();
+            });
+        if let Err(e) = spawned {
+            crate::log_warn!("cameras: the pop-up stream reader did not start: {e}");
+            self.state.lock().learning = false;
+        }
     }
 
     /// Holds the connection: reads the push channel, asks for the camera list and the clock now and then. Returns when the generation is
@@ -977,6 +1056,7 @@ impl Inner {
                     self.state.lock().skew_ms = skew;
                     self.apply_cameras(cameras);
                     self.publish();
+                    self.learn_popup_streams(generation, bridge);
                 }
             }
         }

@@ -393,6 +393,8 @@ pub struct Camera {
     pub earliest: Option<i64>,
     pub native: Option<Stream>,
     pub streams: Vec<Stream>,
+    /// The pop-up's stream as the helper read it from the stream itself, for a camera whose listing gives no stream a size (`popup_stream::learn`).
+    pub learned: Option<Stream>,
 }
 
 impl Camera {
@@ -472,6 +474,7 @@ pub fn cameras_of(v: &Value) -> Result<Vec<Camera>, Trouble> {
                 earliest: c["earliest"].as_i64(),
                 native,
                 streams,
+                learned: None,
                 id,
             })
         })
@@ -935,6 +938,7 @@ mod tests {
             earliest: None,
             native: streams.first().cloned(),
             streams,
+            learned: None,
         }
     }
 

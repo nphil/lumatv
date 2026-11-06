@@ -1528,6 +1528,14 @@ impl Live {
         Ok(())
     }
 
+    /// What a stream is by its own description, or its first picture's parameter set when the description carries none: its codec, size and rate (0
+    /// where the set says none). The stream is dialled as a view of a camera on the mains is, and hung up at once.
+    pub fn probe(&self, address: &str) -> Result<(String, u32, u32, f64), String> {
+        let rtsp = (self.inner.deps.dial)(address, Patience::Normal).map_err(|e| words_of(&e))?;
+        let stream = rtsp.stream();
+        Ok((codec_word(stream.codec).to_owned(), stream.info.width, stream.info.height, stream.info.fps.map_or(0.0, f64::from)))
+    }
+
     /// `POST /v1/cameras/live/stop`, the viewer closing, the link going: nothing waits here. A view that is still `asking` is settled too
     /// (the answer to that ask is refused by the ticket), and a view reset while its session lived on goes back to being the session's.
     pub fn stop(&self, why: &str) {
