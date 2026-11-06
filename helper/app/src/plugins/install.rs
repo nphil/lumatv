@@ -7,7 +7,7 @@
 //! | Command | What |
 //! |---|---|
 //! | `plugin-consent --id <id>` | what the packaged plugin may do, in plain words, and the approval code of exactly that |
-//! | `plugin-enable --id <id> --approve <code>` | installs the package and switches the plugin on (the code must be the one consent printed) |
+//! | `plugin-enable --id <id> --approve <code>` | installs the package and switches the plugin on (the code must be the one consent printed); `home-assistant`'s program runs only while its switch in Settings is on too |
 //! | `plugin-disable --id <id>` | switches it off (the program is ended; its files and settings stay); also one of the helper's own |
 //! | `plugin-status` | which plugins are on |
 //! | `ha-link --url <address>` | saves Home Assistant's address and an access token (read from standard input) for the plugins' lease |
@@ -501,7 +501,13 @@ mod tests {
         assert_eq!(listed["plugins"][0]["id"], "home-assistant");
         assert_eq!(listed["plugins"][0]["approve"], code(MANIFEST));
         assert_eq!(listed["plugins"][0]["program"], doc["program"]);
-        // The roster the helper reads accepts it as the owner's.
+        // The roster the helper reads accepts it as the owner's, once the plugin's switch in Settings is on.
+        let mut file = roster::read_file(&paths.plugins_dir()).unwrap();
+        file.first_party.push(roster::Approved {
+            id: crate::ha_plugin::ID.into(),
+            approve: crate::ha_plugin::OPT_IN.approval(),
+        });
+        roster::write_file(&paths.plugins_dir(), &file).unwrap();
         let (roster, problem) = roster::Roster::load(&paths.plugins_dir(), 20000);
         assert!(problem.is_none() && roster.inert.is_empty(), "{roster:?}");
         assert_eq!(roster.members.len(), 1);

@@ -227,6 +227,11 @@ impl Roster {
         let mut ids = BTreeSet::new();
         let mut uids = BTreeSet::new();
         for entry in listed.plugins {
+            // The packaged Home Assistant program is on the roster only while the Home Assistant plugin is switched on as well
+            // (`ha_plugin`): off, it is stopped and refused as a plugin taken off the list is, and its cards, alerts and hold on the lease go.
+            if entry.id == crate::ha_plugin::ID && !crate::ha_plugin::approved(&roster.first_party) {
+                continue;
+            }
             let mut inert = |reason: String| {
                 roster.inert.push(Inert {
                     id: entry.id.clone(),
@@ -542,5 +547,25 @@ mod tests {
         assert_eq!(approval(&a), approval(&renamed));
         assert_ne!(approval(&a), approval(&other_program));
         assert_eq!(approval(&a).len(), 64);
+    }
+
+    #[test]
+    fn the_packaged_home_assistant_program_is_on_the_roster_only_while_its_plugin_is_switched_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = crate::ha_plugin::ID;
+        let approve = install(dir.path(), id, &manifest_text(id, r#""cards""#, ""));
+        let write = |first_party: &str| {
+            let plugins = format!(r#"[{{"id":"{id}","uid":20000,"approve":"{approve}"}}]"#);
+            std::fs::write(dir.path().join("enabled.json"), format!(r#"{{"plugins":{plugins},"firstParty":[{first_party}]}}"#)).unwrap();
+        };
+        let load = || Roster::load(dir.path(), plugin_api::PLUGIN_UID_BASE).0;
+        write("");
+        let off = load();
+        assert!(off.members.is_empty() && off.inert.is_empty(), "{:?}", off.inert);
+        write(&format!(r#"{{"id":"{id}","approve":"{}"}}"#, crate::ha_plugin::OPT_IN.approval()));
+        assert_eq!(load().by_uid(20000).map(|m| m.id.as_str()), Some(id));
+        // approved with words it no longer asks with is off
+        write(&format!(r#"{{"id":"{id}","approve":"{}"}}"#, "0".repeat(64)));
+        assert!(load().members.is_empty());
     }
 }

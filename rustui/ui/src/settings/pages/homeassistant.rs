@@ -6,17 +6,23 @@
 //! What is not here, on purpose: the address and the access token. They are the owner's alone, given from a shell on the TV
 //! (`lumatv-helper ha-link`, the token on standard input) so that no key press, no route of the helper and no plugin can set either. This
 //! page shows the address and whether a token is kept, and can forget them: that only ever takes access away.
+//!
+//! The plugin asks first, as the cameras do: off, the page is its switch in the words of its entry under `firstParty` in the `plugins`
+//! topic, and the Smart home card, the At home card's room and doorbell, Home Assistant's alerts and the weather's entity are gone; off is
+//! one press. The link outlasts the switch: the TV's voice and its ESPHome device use it whatever the switch says.
 
 use crate::panels::hub;
-use super::plugin_rows::{Plugin, ask_all, field_rows, fields};
-use crate::settings::ctx::{Ctx, ask};
+use super::plugin_rows::{Plugin, ask_all, field_rows, fields, text};
+use crate::settings::ctx::{Ctx, ask, toast};
 use crate::settings::page::{Page, Read};
-use crate::settings::row::{Op, Row};
+use crate::settings::row::{Arg, Op, Row};
 use serde_json::{Value, json};
 
 const ID: &str = "home-assistant";
 /// The sections the plugin declares, in the order the tabs are (a section it does not declare leaves its tab with a line saying so).
 const PLUGIN: Plugin = Plugin { id: ID, sections: &["connection", "room", "doorbell", "presence", "notifications"] };
+/// The name the switch's answer comes back under.
+const SWITCH: &str = "homeassistant.switch";
 
 pub fn page() -> Page {
     Page::new("homeassistant", "Home Assistant", "house-wifi")
@@ -49,6 +55,17 @@ pub fn words(c: &Ctx) -> String {
     hub::ha_words(c.helper("plugins").unwrap_or(&Value::Null), c.helper("ha.link").unwrap_or(&Value::Null)).into()
 }
 
+/// The plugin's switch: its entry under `firstParty` (the program's own, under `plugins`, has no words to approve). None from a helper
+/// that is not there.
+fn switch_entry<'a>(c: &'a Ctx) -> Option<&'a Value> {
+    c.helper("plugins")?.get("firstParty")?.as_array()?.iter().find(|p| p.get("id").and_then(Value::as_str) == Some(ID))
+}
+
+fn switch(on: bool, code: &str) -> Op {
+    let body = if on { json!({"on": true, "approve": code}) } else { json!({"on": false}) };
+    Op::Send { name: Some(SWITCH.into()), method: "POST", path: format!("/v1/plugins/{ID}/switch"), body: Some(body) }
+}
+
 fn chip(c: &Ctx) -> Option<(String, &'static str)> {
     let tone = match state(c).as_str() {
         "connected" => "positive",
@@ -59,10 +76,13 @@ fn chip(c: &Ctx) -> Option<(String, &'static str)> {
     Some((words(c), tone))
 }
 
-fn answered(c: &Ctx, name: &str, _: &Value) -> Vec<Op> {
+fn answered(c: &Ctx, name: &str, data: &Value) -> Vec<Op> {
     match name {
         // the link or the plugin came or went: the page's schema may have appeared or gone
         "topic:plugins" | "topic:ha.link" => vec![Op::Refresh],
+        SWITCH if data.get("ok").and_then(Value::as_bool) != Some(true) => {
+            vec![toast(&format!("Not changed: {}", data.pointer("/error/message").and_then(Value::as_str).unwrap_or("the TV did not answer")))]
+        }
         // The lists are asked again when the page is opened, when the link comes up and when the room changes (the lights and the
         // sensors are the room's); the last answer stays until the next.
         "owner:home-assistant" => {
@@ -85,6 +105,20 @@ fn link<'a>(c: &'a Ctx, key: &str) -> Option<&'a Value> {
 }
 
 fn rows(c: &Ctx) -> Vec<Row> {
+    let Some(e) = switch_entry(c) else {
+        return (0..PLUGIN.sections.len()).map(|t| Row::empty("Not available", "The TV's helper is not answering.", "house-wifi", t)).collect();
+    };
+    let (consent, code) = (text(e, "consent").to_string(), text(e, "approve").to_string());
+    let on = text(e, "state") != "off";
+    let mut rows = vec![Row::toggle("use").tab(0).icon("house-wifi").label("Home Assistant").help(&consent).on(on).admin().act(move |a| match a {
+        Arg::Toggle(true) => ask("house-wifi", "Use Home Assistant?", &consent, "Turn on", "Cancel", false, vec![switch(true, &code)]),
+        Arg::Toggle(false) => vec![switch(false, "")],
+        _ => Vec::new(),
+    })];
+    if !on {
+        rows.extend((1..PLUGIN.sections.len()).map(|t| Row::empty("Home Assistant is off", "Switch it on under Connection.", "power", t)));
+        return rows;
+    }
     let token = link(c, "token").is_some_and(|t| t.as_bool() != Some(false));
     let mut own = vec![
         Row::link("onhome").tab(0).icon("house-wifi").label("On Home").help("The lights, sensors and devices Home Assistant shares with this TV, on Home's Smart home card. Shared and controlled from Home Assistant's LumaShow integration").value(&super::onhome::words(c)).does(vec![Op::Open { page: "onhome".into(), arg: crate::settings::row::PageArg::None }]),
@@ -111,7 +145,8 @@ fn rows(c: &Ctx) -> Vec<Row> {
     let Some(o) = c.owner(ID).filter(|o| o.known) else {
         // no page from the plugin yet: the first tab only, the others say why
         own.extend((1..PLUGIN.sections.len()).map(|t| Row::empty("Not available yet", &format!("{} is set once Home Assistant is linked and the plugin is running.", ["", "The room", "The doorbell", "Presence", "Alerts"][t]), "house-wifi", t)));
-        return own;
+        rows.extend(own);
+        return rows;
     };
     let mut first = Vec::new();
     let mut rest = Vec::new();
@@ -124,9 +159,10 @@ fn rows(c: &Ctx) -> Vec<Row> {
             rest.push(Row::empty("Nothing to set", "The plugin has no settings for this.", "house-wifi", t));
         }
     }
-    first.extend(own);
-    first.extend(rest);
-    first
+    rows.extend(first);
+    rows.extend(own);
+    rows.extend(rest);
+    rows
 }
 
 /// A glyph for the fields the plugin names; the rest have none (the QML rows have none either).
@@ -144,7 +180,6 @@ fn icon(key: &str) -> &'static str {
 mod tests {
     use super::*;
     use crate::settings::ctx::fixtures::World;
-    use crate::settings::row::Arg;
 
     fn schema() -> Value {
         json!({"sections": [
@@ -161,7 +196,8 @@ mod tests {
     fn world(link: &str) -> World {
         let mut w = World::new(crate::host::sio::Sio::new(0));
         w.topics.helper_up = true;
-        w.topics.set_helper("plugins", json!({"plugins": [{"id": "home-assistant", "state": "connected"}], "firstParty": []}));
+        let entry = json!({"id": ID, "name": "Home Assistant", "state": "on", "firstParty": true, "consent": "Shows what Home Assistant shares.", "approve": "c0de"});
+        w.topics.set_helper("plugins", json!({"plugins": [{"id": "home-assistant", "state": "connected"}], "firstParty": [entry]}));
         w.topics.set_helper("ha.link", json!({"state": link, "address": "http://ha.local:8123", "token": true}));
         let mut o = crate::settings::src::Owner::new(ID);
         o.take(&json!({"ok": true, "version": 1, "schema": schema(), "effective": {
@@ -239,7 +275,7 @@ mod tests {
         let mut w = world("connected");
         w.owners.clear();
         let r = rows(&w.ctx());
-        assert!(r.iter().filter(|r| r.tab == 0).all(|r| matches!(r.id.as_str(), "address" | "token" | "forget" | "onhome")));
+        assert!(r.iter().filter(|r| r.tab == 0).all(|r| matches!(r.id.as_str(), "use" | "address" | "token" | "forget" | "onhome")));
         assert_eq!(r.iter().filter(|r| r.kind == crate::settings::row::Kind::Empty).count(), 4);
     }
 
@@ -254,5 +290,23 @@ mod tests {
         w.topics.set_helper("ha.link", json!({"state": "offline"}));
         assert_eq!(answered(&w.ctx(), "owner:home-assistant", &Value::Null).len(), 3, "the key and two lists");
         assert!(matches!(&answered(&w.ctx(), "topic:ha.link", &Value::Null)[..], [Op::Refresh]));
+    }
+
+    #[test]
+    fn off_the_page_is_its_switch_that_asks_in_the_plugins_words_and_on_it_is_one_press_off() {
+        let mut w = world("connected");
+        let entry = json!({"id": ID, "name": "Home Assistant", "state": "off", "firstParty": true, "consent": "Shows what Home Assistant shares.", "approve": "c0de"});
+        w.topics.set_helper("plugins", json!({"plugins": [], "firstParty": [entry]}));
+        assert_eq!(chip(&w.ctx()), Some(("Not switched on".into(), "info")));
+        let r = rows(&w.ctx());
+        assert_eq!(r.iter().filter(|r| r.tab == 0).count(), 1, "the switch alone");
+        assert!(r.iter().filter(|r| r.tab > 0).all(|r| r.kind == crate::settings::row::Kind::Empty && r.label == "Home Assistant is off"));
+        let [Op::Ask(question)] = &(row(&r, "use").act.as_ref().unwrap())(Arg::Toggle(true))[..] else { panic!("it asks first") };
+        assert_eq!(question.body, "Shows what Home Assistant shares.");
+        assert!(matches!(&question.answers[1].then[..], [Op::Send { path, body: Some(b), .. }] if path == "/v1/plugins/home-assistant/switch" && b == &json!({"on": true, "approve": "c0de"})));
+        assert_eq!(answered(&w.ctx(), SWITCH, &json!({"ok": false, "error": {"message": "enabled.json: denied"}})).len(), 1, "a refused switch says why");
+        let r = rows(&world("connected").ctx());
+        assert!(row(&r, "use").on);
+        assert!(matches!(&(row(&r, "use").act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Send { body: Some(b), .. }] if b == &json!({"on": false})));
     }
 }

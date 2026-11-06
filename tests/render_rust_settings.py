@@ -209,13 +209,22 @@ HA_ROUTES = {
     'GET /v1/plugins/home-assistant/choices/doorbells': choices([{'id': 'event.front_doorbell', 'label': 'Front doorbell'}, {'id': 'event.back_door', 'label': 'Back door'}]),
     'GET /v1/plugins/home-assistant/choices/presence': choices([]),
 }
-HA_TOPICS = {'plugins': {'plugins': [{'id': HA, 'name': 'Home Assistant', 'state': 'connected'}], 'firstParty': []},
+HA_CONSENT = 'Shows what Home Assistant shares with this TV: the Smart home card and its sheets, the room and doorbell of the At home card and Home Assistant\'s alerts.'
+
+
+def ha_switch(state):
+    return {'id': HA, 'name': 'Home Assistant', 'state': state, 'firstParty': True, 'consent': HA_CONSENT, 'approve': 'c0de'}
+
+
+HA_TOPICS = {'plugins': {'plugins': [{'id': HA, 'name': 'Home Assistant', 'state': 'connected'}], 'firstParty': [ha_switch('on')]},
              'ha.link': {'state': 'connected', 'address': 'http://homeassistant.local:8123', 'token': True},
              'plugin.home-assistant.facts': {'facts': {'link': 'Connected', 'summary': 'Living room: 3 lights on'}}}
 SCENES += [
     Scene('homeassistant', 'homeassistant', routes=HA_ROUTES, topics=HA_TOPICS, keys=['right', 'down']),
     Scene('homeassistant-room', 'homeassistant', routes=HA_ROUTES, topics=HA_TOPICS, keys=['right', 'up', 'right', 'down', 'down']),
     Scene('homeassistant-unlinked', 'homeassistant', routes={}, topics=dict(HA_TOPICS, **{'ha.link': {'state': 'off'}}), keys=['right', 'down']),
+    Scene('homeassistant-off', 'homeassistant', routes={}, topics={'plugins': {'plugins': [], 'firstParty': [ha_switch('off')]}, 'ha.link': HA_TOPICS['ha.link']},
+          keys=['right']),
 ]
 
 SC = 'scrypted-cameras'

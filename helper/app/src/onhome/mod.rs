@@ -20,7 +20,8 @@
 //! | `POST /v1/onhome/picks` | the owner's list: `{"show": id}`, `{"hide": id}`, `{"up": id}`, `{"down": id}`, `{"all": true}` (owner only) |
 //! | `POST /v1/onhome/act` | `{"id", "verb", "value"?}`: one control of one tile (`tile::plan` says which are possible) |
 //!
-//! It costs nothing until `onhome.enabled` and a pairing key: no thread of the listener, no socket, no announcement.
+//! It costs nothing until the Home Assistant plugin is switched on (`ha_plugin`) and a pairing key is there: no listener, no socket, no
+//! announcement, and the routes but the topic's refuse. Off, the looker sleeps until the switch wakes it.
 
 mod machine;
 pub mod history;
@@ -30,14 +31,16 @@ pub mod tile;
 use crate::API_VERSION;
 use crate::config::OnHomeConfig;
 use crate::ctx::Ctx;
+use crate::ha_plugin;
 use crate::http::{Request, Response, error_response};
 use crate::hub::Hub;
+use crate::plugins::session::Shared;
 use crate::sys;
 use crate::timeutil::now_ms;
 use ha_bridge::wire::{DeviceInfo, Display, Has};
 use machine::{Bridge, Call, Config as BridgeConfig, KeySource};
 use mirror::Mirror;
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::io;
@@ -83,6 +86,7 @@ pub struct Deps {
 impl Deps {
     pub fn real(ctx: &Ctx) -> Self {
         let data_dir = ctx.paths.data_dir.clone();
+        // The pairing key is only read: the BLE proxy and the TV sensors own it and run on their own switches, whatever this plugin's.
         let key: KeySource = Arc::new(move || crate::ble_store::load(&data_dir).ok().flatten().map(|link| link.key));
         Self { key, bind: None, announce: true, device: device_info("LumaTV", "LG TV", env!("CARGO_PKG_VERSION")), history: history::Source::real(ctx) }
     }
@@ -245,6 +249,11 @@ struct Inner {
     state: Mutex<State>,
     /// The histories asked lately: (entity and range, when, what came back). A sheet that is flipped between ranges costs one dial a range a minute.
     histories: Mutex<Vec<(String, std::time::Instant, Value)>>,
+    /// The plugin's switch.
+    shared: Arc<Shared>,
+    /// Set by [`OnHome::wake`]: the switch moved or the helper stops.
+    woken: Mutex<bool>,
+    wake: Condvar,
 }
 
 /// The handle the API and the looker share.
@@ -254,7 +263,7 @@ pub struct OnHome {
 }
 
 impl OnHome {
-    pub fn new(ctx: &Ctx, deps: Deps) -> Self {
+    pub fn new(ctx: &Ctx, deps: Deps, shared: &Arc<Shared>) -> Self {
         let data_dir = ctx.paths.data_dir.clone();
         let unlock_token = new_token();
         if let Err(e) = write_shell_file(&data_dir, &unlock_token) {
@@ -268,6 +277,9 @@ impl OnHome {
             unlock_token,
             state: Mutex::new(State { bridge: None, announced: None, problem: None, picks: Picks::load(&data_dir), known: BTreeMap::new() }),
             histories: Mutex::new(Vec::new()),
+            shared: shared.clone(),
+            woken: Mutex::new(false),
+            wake: Condvar::new(),
             data_dir,
         });
         let me = Self { inner };
@@ -278,10 +290,11 @@ impl OnHome {
     pub fn spawn(&self, ctx: &Ctx) -> io::Result<JoinHandle<()>> {
         let me = self.clone();
         let stop = ctx.stop.clone();
+        stop.on_stop(self.waker());
         thread::Builder::new().name("onhome".to_owned()).stack_size(256 * 1024).spawn(move || {
             loop {
                 me.look();
-                if stop.sleep(LOOK_EVERY) {
+                if me.nap(&stop) {
                     break;
                 }
             }
@@ -289,11 +302,47 @@ impl OnHome {
         })
     }
 
+    /// Has the looker look now: the plugin was switched, or the helper stops.
+    fn wake(&self) {
+        *self.inner.woken.lock() = true;
+        self.inner.wake.notify_all();
+    }
+
+    /// What the plugin's switch wakes the looker with. It holds On Home weakly: the switch is kept by `Shared`, which On Home holds.
+    pub fn waker(&self) -> impl Fn() + Send + Sync + 'static {
+        let weak = Arc::downgrade(&self.inner);
+        move || {
+            if let Some(inner) = weak.upgrade() {
+                Self { inner }.wake();
+            }
+        }
+    }
+
+    /// Sleeps until the next look: `LOOK_EVERY`, or, switched off, until the switch or the stop wakes it. True once the stop is asked.
+    fn nap(&self, stop: &crate::control::Stop) -> bool {
+        let on = self.on();
+        let mut woken = self.inner.woken.lock();
+        if !*woken && !stop.is_set() {
+            if on {
+                self.inner.wake.wait_for(&mut woken, LOOK_EVERY);
+            } else {
+                self.inner.wake.wait(&mut woken);
+            }
+        }
+        *woken = false;
+        stop.is_set()
+    }
+
+    /// Whether the Home Assistant plugin is switched on.
+    fn on(&self) -> bool {
+        self.inner.shared.switched_on(ha_plugin::ID)
+    }
+
     /// One look: what should run runs, and the topic says where it stands.
     pub fn look(&self) {
         let inner = &self.inner;
         let key = (inner.deps.key)();
-        let want = inner.config.enabled && key.is_some();
+        let want = self.on() && key.is_some();
         // a listener that stops is told so after the lock is let go: its last word is a change of the topic, which reads the state
         let mut stopped = None;
         {
@@ -412,7 +461,7 @@ impl OnHome {
         let bridge = state.bridge.clone();
         let picks = state.picks.clone();
         let problem = state.problem.clone();
-        let (view, known) = view(&inner.config, key.is_some(), bridge.as_deref(), &picks, &state.known, problem.as_deref());
+        let (view, known) = view(self.on(), key.is_some(), bridge.as_deref(), &picks, &state.known, problem.as_deref());
         if let Some(known) = known {
             state.known = known;
         }
@@ -675,7 +724,7 @@ fn apply_pick(picks: &Picks, mirror: &Mirror, body: &Value) -> Result<Picks, Str
 type Known = BTreeMap<String, (String, Option<String>)>;
 
 /// The document: pure over what the listener holds, so a test reads it without a socket. The second answer is the names to remember.
-fn view(config: &OnHomeConfig, paired: bool, bridge: Option<&Bridge>, picks: &Picks, known: &Known, problem: Option<&str>) -> (Value, Option<Known>) {
+fn view(on: bool, paired: bool, bridge: Option<&Bridge>, picks: &Picks, known: &Known, problem: Option<&str>) -> (Value, Option<Known>) {
     let doc = |state: &str, words: &str, detail: &str, extra: Value| {
         let mut d = json!({"state": state, "words": words, "detail": detail, "at": now_ms(), "tiles": [], "shared": 0, "controllable": 0, "paused": false, "picked": null});
         if let (Some(m), Some(e)) = (d.as_object_mut(), extra.as_object()) {
@@ -683,8 +732,8 @@ fn view(config: &OnHomeConfig, paired: bool, bridge: Option<&Bridge>, picks: &Pi
         }
         d
     };
-    if !config.enabled {
-        return (doc("off", "Not switched on", "Set onhome.enabled in helper.json", json!({})), None);
+    if !on {
+        return (doc("off", "Not switched on", ha_plugin::off_words(), json!({})), None);
     }
     if !paired {
         return (doc("unpaired", "Not paired", "Pair the TV with Home Assistant first (lumatv-helper ble-link)", json!({})), None);
@@ -837,6 +886,9 @@ pub fn handle(onhome: &OnHome, request: &Request, rest: &[&str]) -> Response {
     let get = request.method == "GET";
     let post = request.method == "POST";
     let body = || serde_json::from_slice::<Value>(&request.body).ok().filter(Value::is_object);
+    if !rest.is_empty() && !onhome.on() {
+        return error_response(409, "off", "the Home Assistant plugin is switched off");
+    }
     match rest {
         [] if get => ok(json!({"onhome": onhome.status()})),
         ["shared"] if get => ok(onhome.shared(request)),

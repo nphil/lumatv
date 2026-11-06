@@ -58,8 +58,8 @@ fn weather_news_and_the_clock_are_plugins_of_the_helper_and_follow_the_feeds() {
     receiver_off(&rig.paths);
     rig.start(test_config(json!({})), script.clone());
 
-    // Listed apart from the plugins the owner switched on, all connected through the broker's sessions; the Guide data plugin, the
-    // Live TV Tuner, the Bluetooth proxy, the cameras and the TV sensors, which ask first, listed off.
+    // Listed apart from the plugins the owner switched on, all connected through the broker's sessions; the Guide data plugin, Home
+    // Assistant, the Live TV Tuner, the Bluetooth proxy, the cameras and the TV sensors, which ask first, listed off.
     assert!(
         wait_until(WAIT, || {
             let mut have = first_party(&rig);
@@ -69,6 +69,7 @@ fn weather_news_and_the_clock_are_plugins_of_the_helper_and_follow_the_feeds() {
                 ("ble-proxy".to_owned(), "off".to_owned()),
                 ("clock".to_owned(), "connected".to_owned()),
                 ("guide-data".to_owned(), "off".to_owned()),
+                ("home-assistant".to_owned(), "off".to_owned()),
                 ("live-tv-tuner".to_owned(), "off".to_owned()),
                 ("news".to_owned(), "connected".to_owned()),
                 ("scrypted-cameras".to_owned(), "off".to_owned()),

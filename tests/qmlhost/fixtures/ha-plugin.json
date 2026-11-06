@@ -516,6 +516,17 @@
           "version": "1"
         },
         {
+          "approve": "ce5385998ea8141cfe06ffb8513a2d3e7e64444e5d77dc2ddcdcc2bc1ebbcb96",
+          "class": "S",
+          "consent": "Shows what Home Assistant shares with this TV: the Smart home card and its sheets, the room and doorbell of the At home card and Home Assistant's alerts, and lets the weather come from a Home Assistant weather entity. Home Assistant's LumaShow integration connects to the TV on port 6054. The TV uses the Home Assistant link made from a shell (lumatv-helper ha-link) and keeps its token on the TV.",
+          "firstParty": true,
+          "id": "home-assistant",
+          "name": "Home Assistant",
+          "registered": false,
+          "state": "on",
+          "version": "1"
+        },
+        {
           "approve": "3bfc18dbd15a6c48253dd5b8ece62eaa85f4c0cdf95e2682125ba363e49e8f8d",
           "class": "S",
           "consent": "Shares this TV's antenna tuner on the local network as an HDHomeRun, with a channel playlist and the TV's own guide: devices on the home network can list its channels, watch them and record them. One stream at a time, and the TV's own Live TV always comes first.",

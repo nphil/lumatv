@@ -8,9 +8,11 @@
 //! the old one at once.
 //!
 //! The weather has two sources (`base.weather` `source`): the built-in one (Open-Meteo, by ZIP) and a Home Assistant weather entity
-//! (`ha_weather`). The document's `zip` says which it was made from (`ha:<entity>` for the second), so a document is only ever served for
-//! the source it was made for. A failed Home Assistant read keeps the last good document, which goes stale on its own clock and is
-//! served with the error in the status; it never falls back to the built-in source.
+//! (`ha_weather`), which is used only while the Home Assistant plugin is switched on (`ha_plugin`): off, the card is the built-in
+//! source's whatever the setting says, and the entity's comes back with the switch. The document's `zip` says which it was made from
+//! (`ha:<entity>` for the second), so a document is only ever served for the source it was made for. A failed Home Assistant read keeps
+//! the last good document, which goes stale on its own clock and is served with the error in the status; it never falls back to the
+//! built-in source.
 //!
 //! The topics `weather` and `news` hold `{"doc": <document|null>, "status": {"failures", "error", "lastAttemptAt"}}`. The
 //! documents are the files in the cache directory, byte for byte the same JSON, so QML can read `cache/weather.json` directly
@@ -19,6 +21,7 @@
 use crate::ctx::Ctx;
 use crate::ha_weather::{self, HaWeather};
 use crate::screen;
+use crate::settings::WeatherSettings;
 use crate::timeutil::now_ms;
 use fetch::Fetch;
 use lumatv_feeds::cache::{self, DocCache, FUTURE_SKEW_MS};
@@ -61,6 +64,8 @@ struct Cfg<K> {
 struct Env<'a> {
     fetch: &'a dyn Fetch,
     ha: &'a HaWeather,
+    /// Whether the Home Assistant plugin is switched on.
+    ha_on: &'a dyn Fn() -> bool,
 }
 
 /// One kind of feed.
@@ -69,7 +74,7 @@ trait Feed {
     type Doc: Clone + Serialize;
     const TOPIC: &'static str;
     const NAME: &'static str;
-    fn cfg(ctx: &Ctx) -> Cfg<Self::Key>;
+    fn cfg(ctx: &Ctx, env: &Env) -> Cfg<Self::Key>;
     fn load(cache: &DocCache, key: &Self::Key, now: u64) -> Option<Self::Doc>;
     fn refresh(
         env: &Env,
@@ -91,16 +96,11 @@ impl Feed for WeatherFeed {
     const TOPIC: &'static str = WEATHER_TOPIC;
     const NAME: &'static str = "weather";
 
-    fn cfg(ctx: &Ctx) -> Cfg<WeatherConfig> {
+    fn cfg(ctx: &Ctx, env: &Env) -> Cfg<WeatherConfig> {
         let s = ctx.settings.weather();
-        let place = if s.source == "homeassistant" {
-            ha_weather::key_of(&s.entity)
-        } else {
-            s.zip
-        };
         Cfg {
             key: WeatherConfig {
-                zip: place,
+                zip: place(&s, (env.ha_on)()),
                 units: Units::parse(&s.units).unwrap_or(Units::Fahrenheit),
             },
             interval_ms: REFRESH_MS,
@@ -147,8 +147,8 @@ impl Feed for WeatherMoreFeed {
     const TOPIC: &'static str = WEATHER_MORE_TOPIC;
     const NAME: &'static str = "weather details";
 
-    fn cfg(ctx: &Ctx) -> Cfg<WeatherConfig> {
-        WeatherFeed::cfg(ctx)
+    fn cfg(ctx: &Ctx, env: &Env) -> Cfg<WeatherConfig> {
+        WeatherFeed::cfg(ctx, env)
     }
 
     fn load(cache: &DocCache, key: &WeatherConfig, now: u64) -> Option<MoreDoc> {
@@ -186,7 +186,7 @@ impl Feed for NewsFeed {
     const TOPIC: &'static str = NEWS_TOPIC;
     const NAME: &'static str = "news";
 
-    fn cfg(ctx: &Ctx) -> Cfg<NewsConfig> {
+    fn cfg(ctx: &Ctx, _env: &Env) -> Cfg<NewsConfig> {
         let s = ctx.settings.news();
         let mut key = NewsConfig::standard();
         if s.edition == "nyt" {
@@ -250,8 +250,8 @@ impl<F: Feed> Lane<F> {
 
     /// Re-reads the settings. When what identifies the document changed (or at the first call) the saved document for the new
     /// key is taken instead, or none. Returns whether the topic needs publishing.
-    fn sync(&mut self, ctx: &Ctx, cache: &DocCache) -> bool {
-        let cfg = F::cfg(ctx);
+    fn sync(&mut self, ctx: &Ctx, env: &Env, cache: &DocCache) -> bool {
+        let cfg = F::cfg(ctx, env);
         let changed = self.cfg.as_ref().map(|c| &c.key) != Some(&cfg.key);
         if changed {
             self.doc = F::load(cache, &cfg.key, now_ms());
@@ -345,18 +345,35 @@ impl<F: Feed> Lane<F> {
     }
 }
 
-/// Starts the feeds thread.
+/// What the weather is made for: the Home Assistant entity's key while it is the source and the plugin is switched on, the ZIP otherwise.
+fn place(s: &WeatherSettings, ha_on: bool) -> String {
+    if ha_on && s.source == "homeassistant" {
+        ha_weather::key_of(&s.entity)
+    } else {
+        s.zip.clone()
+    }
+}
+
+/// Starts the feeds thread. `ha_on` says whether the Home Assistant plugin is switched on.
 pub fn spawn(
     ctx: &Ctx,
     rx: Receiver<Cmd>,
     fetch: Arc<dyn Fetch>,
     ha: Arc<HaWeather>,
+    ha_on: Arc<dyn Fn() -> bool + Send + Sync>,
 ) -> std::io::Result<JoinHandle<()>> {
     let ctx = ctx.clone();
     thread::Builder::new()
         .name("feeds".to_owned())
         .stack_size(512 * 1024)
-        .spawn(move || run(&ctx, &rx, &Env { fetch: fetch.as_ref(), ha: &ha }))
+        .spawn(move || {
+            let env = Env {
+                fetch: fetch.as_ref(),
+                ha: &ha,
+                ha_on: ha_on.as_ref(),
+            };
+            run(&ctx, &rx, &env)
+        })
 }
 
 fn run(ctx: &Ctx, rx: &Receiver<Cmd>, env: &Env) {
@@ -365,9 +382,9 @@ fn run(ctx: &Ctx, rx: &Receiver<Cmd>, env: &Env) {
     let mut news = Lane::<NewsFeed>::new();
     let mut more = Lane::<WeatherMoreFeed>::new();
     // Saved first: what is on disk goes out now, before the screen is known and before any network.
-    weather.sync(ctx, &cache);
-    news.sync(ctx, &cache);
-    more.sync(ctx, &cache);
+    weather.sync(ctx, env, &cache);
+    news.sync(ctx, env, &cache);
+    more.sync(ctx, env, &cache);
     weather.publish(ctx);
     news.publish(ctx);
     more.publish(ctx);
@@ -375,13 +392,13 @@ fn run(ctx: &Ctx, rx: &Receiver<Cmd>, env: &Env) {
         if ctx.stop.is_set() {
             return;
         }
-        if weather.sync(ctx, &cache) {
+        if weather.sync(ctx, env, &cache) {
             weather.publish(ctx);
         }
-        if news.sync(ctx, &cache) {
+        if news.sync(ctx, env, &cache) {
             news.publish(ctx);
         }
-        if more.sync(ctx, &cache) {
+        if more.sync(ctx, env, &cache) {
             more.publish(ctx);
         }
         let on = screen::is_on(&ctx.hub);
@@ -427,5 +444,23 @@ fn run(ctx: &Ctx, rx: &Receiver<Cmd>, env: &Env) {
             }
             Ok(Cmd::Wake) | Err(RecvTimeoutError::Timeout) => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_entity_is_the_weathers_place_only_while_the_plugin_is_on() {
+        let s = |source: &str| WeatherSettings {
+            zip: "30311".into(),
+            units: "fahrenheit".into(),
+            source: source.into(),
+            entity: "weather.pirate_weather".into(),
+        };
+        assert_eq!(place(&s("homeassistant"), true), "ha:weather.pirate_weather");
+        assert_eq!(place(&s("homeassistant"), false), "30311");
+        assert_eq!(place(&s("builtin"), true), "30311");
     }
 }

@@ -1,9 +1,10 @@
 //! Home's weather from a Home Assistant weather entity, end to end: the real service, the saved Home Assistant link and a stub Home
 //! Assistant that speaks the few WebSocket commands the source uses over real TCP.
 //!
-//! What these hold the source to: the entity's documents are served in place of the built-in ones and come back with the setting; a
-//! failed read keeps the last good document, stale, with the error, and never reaches for the built-in source; the Settings picker's list
-//! is the instance's weather entities by name.
+//! What these hold the source to: the entity's documents are served in place of the built-in ones and come back with the setting, and
+//! with the Home Assistant plugin's switch; switched off, the built-in source's are served whatever the setting says; a failed read keeps
+//! the last good document, stale, with the error, and never reaches for the built-in source; the Settings picker's list is the instance's
+//! weather entities by name, and is refused while the plugin is off.
 
 mod support;
 
@@ -11,6 +12,7 @@ use ha_link::ws;
 use lumatv_feeds::cache::DocCache;
 use lumatv_feeds::weather::{Units, WeatherConfig};
 use lumatv_feeds::weather_ha;
+use lumatv_helper::ha_plugin::OPT_IN;
 use lumatv_helper::timeutil::now_ms;
 use lumatv_helper::voice_store;
 use parking_lot::Mutex;
@@ -238,7 +240,8 @@ fn serve(mut stream: TcpStream, shared: &Shared) {
 
 // ------------------------------------------------------------------------------------------------------------------------- the rig
 
-/// A service whose weather source is the stub's `ENTITY`, the Home Assistant link saved to `url`.
+/// A service whose weather source is the stub's `ENTITY`, the Home Assistant link saved to `url`. It comes up with the Home Assistant
+/// plugin switched on, as a TV whose weather came from Home Assistant before it was a plugin does.
 fn rig(url: &str, before_start: impl FnOnce(&Rig)) -> Rig {
     let mut rig = Rig::new();
     receiver_off(&rig.paths);
@@ -261,6 +264,18 @@ fn has_doc(v: &Value) -> bool {
 fn dead_url() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     format!("http://{}", listener.local_addr().unwrap())
+}
+
+/// Switches the Home Assistant plugin as the TV's Settings does.
+fn switch(rig: &Rig, on: bool) -> Reply {
+    let body = if on { json!({"on": true, "approve": OPT_IN.approval()}) } else { json!({"on": false}) };
+    http(
+        rig.addr,
+        "POST",
+        "/v1/plugins/home-assistant/switch",
+        &[("X-Luma-Client", "lumatv-ui"), ("Content-Type", "application/json")],
+        Some(&body.to_string()),
+    )
 }
 
 // -------------------------------------------------------------------------------------------------------------------------- tests
@@ -308,6 +323,19 @@ fn a_failed_read_keeps_the_last_good_document_stale_with_the_error_and_does_not_
 }
 
 #[test]
+fn switched_off_the_built_in_source_serves_the_card_and_the_entity_comes_back_with_the_switch() {
+    let ha = StubHa::start();
+    let rig = rig(&ha.url(), |_| {});
+    let entity = |v: &Value| v["doc"]["zip"] == "ha:weather.pirate_weather";
+    rig.wait_topic("weather", WAIT, entity).expect("the entity's weather");
+    assert_eq!(switch(&rig, false).status, 200);
+    let builtin = rig.wait_topic("weather", WAIT, |v| v["doc"]["zip"] == "30311").expect("the built-in reading");
+    assert_eq!(builtin["doc"]["place"], "Atlanta");
+    assert_eq!(switch(&rig, true).status, 200);
+    rig.wait_topic("weather", WAIT, entity).expect("the entity's weather again");
+}
+
+#[test]
 fn a_saved_reading_is_served_stale_while_home_assistant_cannot_be_reached() {
     let now = now_ms();
     let rig = rig(&dead_url(), |rig| {
@@ -337,6 +365,9 @@ fn the_picker_lists_the_weather_entities_by_name_and_says_why_it_cannot() {
     let mut rig = Rig::new();
     receiver_off(&rig.paths);
     rig.start_voice(test_config(json!({})), Script::new());
+    let off = get(rig.addr, "/v1/weather/entities");
+    assert_eq!((off.status, off.json()["error"]["code"].clone()), (409, json!("off")));
+    assert_eq!(switch(&rig, true).status, 200);
     let unlinked = get(rig.addr, "/v1/weather/entities");
     assert_eq!(unlinked.status, 409);
     assert_eq!(unlinked.json()["error"]["code"], "no_link");

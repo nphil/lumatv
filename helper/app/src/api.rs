@@ -573,6 +573,9 @@ impl Api {
     }
 
     fn weather_entities(&self) -> Response {
+        if !self.plugins.shared().switched_on(crate::ha_plugin::ID) {
+            return error_response(409, "off", crate::ha_plugin::off_words());
+        }
         match self.weather_ha.entities() {
             Ok(list) => self.ok(json!({"entities": list.into_iter().map(|e| json!({"id": e.id, "name": e.name})).collect::<Vec<_>>()})),
             Err(w) => error_response(if w.code == "no_link" { 409 } else { 502 }, w.code, &w.words),
@@ -832,7 +835,7 @@ mod tests {
                     images.clone(),
                     plugins.shared(),
                 ),
-                onhome: crate::onhome::OnHome::new(&ctx, crate::onhome::testing::deps()),
+                onhome: crate::onhome::OnHome::new(&ctx, crate::onhome::testing::deps(), plugins.shared()),
                 images,
                 plugins,
                 capture: crate::capture::Capture::new(&ctx.config.capture),

@@ -531,12 +531,12 @@ impl Home {
         self.theme_preview = preview;
     }
 
-    /// The cards on Home (not the dock, not hidden), in the layout's order; the cameras' card only while the Cameras plugin is on.
+    /// The cards on Home (not the dock, not hidden), in the layout's order; the cameras' card only while the Cameras plugin is on, the Smart home
+    /// and At home cards only while the Home Assistant plugin is.
     pub fn cards(&self) -> Vec<Entry> {
         let mut cards = self.laid_out();
-        if self.cameras_off() {
-            cards.retain(|e| e.kind != "cameras");
-        }
+        let (cameras_off, ha_off) = (self.cameras_off(), self.ha_off());
+        cards.retain(|e| !(cameras_off && e.kind == "cameras") && !(ha_off && matches!(e.kind.as_str(), "onhome" | "homeassistant")));
         cards
     }
 
@@ -548,6 +548,12 @@ impl Home {
     /// The helper says the Cameras plugin is switched off; no word from it is not off.
     fn cameras_off(&self) -> bool {
         self.cameras.get("state").and_then(Value::as_str) == Some("off")
+    }
+
+    /// The helper says the Home Assistant plugin is switched off (its switch, under `firstParty` in `plugins`); no word from it is not off.
+    fn ha_off(&self) -> bool {
+        let list = self.plugins.get("plugins").and_then(|p| p.get("firstParty")).and_then(Value::as_array);
+        list.into_iter().flatten().any(|p| p.get("id").and_then(Value::as_str) == Some(hub::HA) && p.get("state").and_then(Value::as_str) == Some("off"))
     }
 
     pub fn dock_entry(&self) -> Option<Entry> {
@@ -1184,7 +1190,14 @@ impl Home {
             }
             "news" => self.news = data.clone(),
             "plugins" | "ha.link" => {
+                let was_off = self.ha_off();
                 self.plugins.insert(topic.to_owned(), data.clone());
+                // the Home Assistant plugin was switched: its cards come or go
+                if self.ha_off() != was_off {
+                    self.layout_rev += 1;
+                    self.register();
+                    self.redraw(out);
+                }
             }
             t if t.starts_with("plugin.") && t.ends_with(".cards") => {
                 self.plugins.insert(topic.to_owned(), data.clone());
@@ -4451,6 +4464,29 @@ mod tests {
         assert_ne!(h.chrome_rev(), rev, "the cards are made again");
         h.update(&Input::Helper { topic: "cameras".into(), data: json!({"state": "unlinked", "cameras": []}) }, 1200);
         assert_eq!((kinds(&h)[1].as_str(), cards(&h)), ("cameras", vec!["cams".to_owned()]));
+        assert!(h.focus.frame(card).is_some(), "the card is reached by the arrows again");
+    }
+
+    #[test]
+    fn switched_off_home_assistant_loses_its_cards_and_gets_them_back_when_switched_on() {
+        let theme = lumatv_tokens::Tokens::shipped().json().clone();
+        let shipped: Value = serde_json::from_str(include_str!("../../../../payload/theme/layout.json")).unwrap();
+        let layout = json!({"grid": {"rows": 16}, "widgets": [{"id": "smart", "type": "onhome", "col": 0, "row": 0, "span": 6, "rows": 4},
+                                         {"id": "athome", "type": "homeassistant", "col": 6, "row": 0, "span": 6, "rows": 4},
+                                         {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]});
+        let mut h = Home::new(theme, shipped, layout);
+        h.start(1000);
+        let cards = |h: &Home| h.cards().into_iter().map(|e| e.id).collect::<Vec<_>>();
+        assert_eq!(cards(&h), ["smart", "athome"], "no word from the helper is not off");
+        let switch = |state: &str| json!({"plugins": [], "firstParty": [{"id": "home-assistant", "state": state, "firstParty": true}]});
+        let rev = h.chrome_rev();
+        h.update(&Input::Helper { topic: "plugins".into(), data: switch("off") }, 1100);
+        assert!(cards(&h).is_empty());
+        let card = h.widget_id("smart").unwrap();
+        assert!(h.focus.frame(card).is_none(), "nothing to reach");
+        assert_ne!(h.chrome_rev(), rev, "the cards are made again");
+        h.update(&Input::Helper { topic: "plugins".into(), data: switch("on") }, 1200);
+        assert_eq!(cards(&h), ["smart", "athome"]);
         assert!(h.focus.frame(card).is_some(), "the card is reached by the arrows again");
     }
 

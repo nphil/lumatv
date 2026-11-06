@@ -5,11 +5,13 @@
 
 use ha_bridge::fake::FakeIntegration;
 use ha_bridge::wire::{AreaRec, CallResult, EntityRec, Message, Policy, Snapshot, StateRec, Update};
-use lumatv_helper::config::{Config, OnHomeConfig, Paths};
+use lumatv_helper::config::{Config, Paths};
 use lumatv_helper::control::Stop;
 use lumatv_helper::ctx::Ctx;
+use lumatv_helper::ha_plugin;
 use lumatv_helper::hub::Hub;
 use lumatv_helper::onhome::{OnHome, testing};
+use lumatv_helper::plugins::{roster, session};
 use lumatv_helper::settings::SettingsStore;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -22,16 +24,31 @@ struct Rig {
     _dir: tempfile::TempDir,
     ctx: Ctx,
     onhome: OnHome,
+    switch: Arc<session::Shared>,
 }
 
-fn rig(enabled: bool, key: Option<[u8; 32]>) -> Rig {
+/// The Home Assistant plugin's switch, as `enabled.json` has it.
+fn switch(ctx: &Ctx, on: bool) -> Arc<session::Shared> {
+    let shared = session::Shared::new(ctx.hub.clone(), ctx.settings.clone(), Duration::from_secs(1), Arc::new(|| 0));
+    shared.offer(&ha_plugin::OPT_IN, Arc::new(|| {}));
+    set(&shared, on);
+    shared
+}
+
+fn set(shared: &session::Shared, on: bool) {
+    let approved = roster::Approved { id: ha_plugin::ID.into(), approve: ha_plugin::OPT_IN.approval() };
+    shared.set_roster(&roster::Roster { first_party: if on { vec![approved] } else { Vec::new() }, ..roster::Roster::default() }, None);
+}
+
+fn rig(on: bool, key: Option<[u8; 32]>) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let hub = Arc::new(Hub::new(1));
     let settings = Arc::new(SettingsStore::new(dir.path().join("settings"), hub.clone()));
-    let config = Config { onhome: OnHomeConfig { enabled, port: 0 }, ..Config::default() };
+    let config = Config { onhome: lumatv_helper::config::OnHomeConfig { port: 0 }, ..Config::default() };
     let ctx = Ctx { config: Arc::new(config), paths: Paths::new(dir.path()), hub, settings, stop: Stop::new() };
-    let onhome = OnHome::new(&ctx, testing::keyed_deps(key));
-    Rig { _dir: dir, ctx, onhome }
+    let switch = switch(&ctx, on);
+    let onhome = OnHome::new(&ctx, testing::keyed_deps(key), &switch);
+    Rig { _dir: dir, ctx, onhome, switch }
 }
 
 fn ent(id: &str, name: &str, area: Option<&str>, state: &str, attrs: Value, ctl: &[&str]) -> EntityRec {
@@ -95,7 +112,19 @@ fn nothing_listens_until_it_is_switched_on_and_paired() {
     let off = rig(false, Some(KEY));
     off.onhome.look();
     assert!(off.onhome.local_addr().is_none());
-    assert_eq!(off.ctx.hub.get("onhome").unwrap()["state"], "off");
+    let doc = off.ctx.hub.get("onhome").unwrap();
+    assert_eq!((doc["state"].as_str(), doc["detail"].as_str()), (Some("off"), Some(ha_plugin::off_words())));
+    // off, only the topic is served
+    let act = json!({"id": "light.kitchen_main", "verb": "toggle"});
+    assert_eq!(testing::route(&off.onhome, "POST", "act", act, "127.0.0.1").0, 409);
+    assert_eq!(testing::history_route(&off.onhome, "sensor.hall_temperature", "24h").0, 409);
+    // the switch is read at every look: on, it listens; off again, it stops
+    set(&off.switch, true);
+    off.onhome.look();
+    assert!(off.onhome.local_addr().is_some());
+    set(&off.switch, false);
+    off.onhome.look();
+    assert!(off.onhome.local_addr().is_none());
     let unpaired = rig(true, None);
     unpaired.onhome.look();
     assert!(unpaired.onhome.local_addr().is_none());
@@ -809,7 +838,7 @@ fn linked(ha: Option<&history_rig::FakeHa>) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let hub = Arc::new(Hub::new(1));
     let settings = Arc::new(SettingsStore::new(dir.path().join("settings"), hub.clone()));
-    let config = Config { onhome: OnHomeConfig { enabled: true, port: 0 }, ..Config::default() };
+    let config = Config { onhome: lumatv_helper::config::OnHomeConfig { port: 0 }, ..Config::default() };
     let paths = Paths::new(dir.path());
     if let Some(ha) = ha {
         lumatv_helper::ha_store::save(&paths.ha_link_file(), &ha.url(), HA_TOKEN).expect("a link");
@@ -817,8 +846,9 @@ fn linked(ha: Option<&history_rig::FakeHa>) -> Rig {
     let ctx = Ctx { config: Arc::new(config), paths: paths.clone(), hub, settings, stop: Stop::new() };
     let mut deps = testing::keyed_deps(Some(KEY));
     deps.history.links = vec![paths.ha_link_file()];
-    let onhome = OnHome::new(&ctx, deps);
-    Rig { _dir: dir, ctx, onhome }
+    let switch = switch(&ctx, true);
+    let onhome = OnHome::new(&ctx, deps, &switch);
+    Rig { _dir: dir, ctx, onhome, switch }
 }
 
 fn sensors() -> Snapshot {

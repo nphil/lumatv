@@ -135,6 +135,10 @@ impl Plugins {
             }));
         }
         shared.set_lease(lease.clone());
+        // The roster is read once here as well, so a plugin of the helper's own knows its switch from the moment it is offered: the
+        // weather of a TV whose Home Assistant plugin is on would otherwise start from the built-in source.
+        let (roster, problem) = Roster::load(&ctx.paths.plugins_dir(), cfg.first_uid);
+        shared.set_roster(&roster, problem);
         let wake = Arc::new(Wake {
             pending: Mutex::new(false),
             changed: Condvar::new(),

@@ -3,13 +3,15 @@
 //! plugin and is told where the lease is; lights, scenes and a room's card appear in the topics the TV draws from; a tap on a tile
 //! becomes a service call on Home Assistant; a doorbell ring and one of Home Assistant's own notifications arrive as a card and
 //! notifications; a page's pickers are answered by the plugin through the choices route; the token reaches nothing the TV draws or
-//! says; a token Home Assistant refuses is not tried again until the owner saves a link; forgetting deletes it; and a plugin
-//! that asks to call a door is not switched on.
+//! says; a token Home Assistant refuses is not tried again until the owner saves a link; forgetting deletes it; a plugin that asks to
+//! call a door is not switched on; and the Home Assistant plugin's switch takes the program, its cards and its hold on the lease away and
+//! back.
 
 mod support;
 
 use ha_link::fake::{FakeEntity, FakeHa};
 use lumashow_sdk::Config as SdkConfig;
+use lumatv_helper::ha_plugin::OPT_IN;
 use lumatv_helper::ha_store;
 use plugin_api::Manifest;
 use serde_json::{Value, json};
@@ -98,7 +100,7 @@ impl Home {
         );
         std::fs::write(
             dir.join("enabled.json"),
-            json!({"plugins": [{"id": ID, "uid": my_uid(), "approve": approve}]}).to_string(),
+            json!({"plugins": [{"id": ID, "uid": my_uid(), "approve": approve}], "firstParty": [switched_on()]}).to_string(),
         )
         .unwrap();
         if linked {
@@ -160,6 +162,18 @@ impl Home {
         assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
     }
 
+    /// Switches the Home Assistant plugin as the TV's Settings does.
+    fn switch(&self, on: bool) -> Reply {
+        let body = if on { json!({"on": true, "approve": OPT_IN.approval()}) } else { json!({"on": false}) };
+        http(
+            self.rig.addr,
+            "POST",
+            &format!("/v1/plugins/{ID}/switch"),
+            &[("X-Luma-Client", "lumatv-ui"), ("Content-Type", "application/json")],
+            Some(&body.to_string()),
+        )
+    }
+
     fn items(&self, topic: &str) -> Vec<Value> {
         self.topic(topic)["items"]
             .as_array()
@@ -186,6 +200,15 @@ impl Drop for Home {
 
 fn connected(v: &Value) -> bool {
     v["state"] == "connected"
+}
+
+/// The Home Assistant plugin's switch, on, as `enabled.json` keeps it: the packaged program runs only with it.
+fn switched_on() -> Value {
+    json!({"id": ID, "approve": OPT_IN.approval()})
+}
+
+fn has_items(v: &Value) -> bool {
+    v["items"].as_array().is_some_and(|t| !t.is_empty())
 }
 
 #[test]
@@ -689,7 +712,8 @@ fn a_plugin_that_asks_to_call_a_door_is_not_switched_on() {
         std::fs::write(dir.join(ID).join("plugin.json"), &text).unwrap();
         std::fs::write(
             dir.join("enabled.json"),
-            json!({"plugins": [{"id": ID, "uid": 20000, "approve": lumatv_helper::plugins::roster::approval(&manifest)}]}).to_string(),
+            json!({"plugins": [{"id": ID, "uid": 20000, "approve": lumatv_helper::plugins::roster::approval(&manifest)}], "firstParty": [switched_on()]})
+                .to_string(),
         )
         .unwrap();
         let (roster, problem) = lumatv_helper::plugins::roster::Roster::load(&dir, 20000);
@@ -700,6 +724,30 @@ fn a_plugin_that_asks_to_call_a_door_is_not_switched_on() {
             roster.inert
         );
     }
+}
+
+#[test]
+fn switched_off_the_program_goes_with_its_cards_and_its_hold_on_the_lease_and_switched_on_it_comes_back() {
+    let mut home = Home::new(true);
+    home.run_plugin();
+    home.until("ha.link", "a connected lease", connected);
+    home.choose_room();
+    home.until(&format!("plugin.{ID}.tiles"), "tiles", has_items);
+    home.until(&format!("plugin.{ID}.cards"), "the room's card", has_items);
+    assert_eq!(home.switch(false).status, 200);
+    home.until(&format!("plugin.{ID}.tiles"), "no tiles", |v| !has_items(v));
+    home.until(&format!("plugin.{ID}.cards"), "no cards", |v| !has_items(v));
+    home.until("ha.link", "no holder", |v| v["holders"] == 0);
+    let roster = home.until("plugins", "the switch off", |v| {
+        v["firstParty"].as_array().is_some_and(|l| l.iter().any(|p| p["id"] == ID && p["state"] == "off"))
+    });
+    assert!(roster["plugins"].as_array().is_none_or(|l| l.iter().all(|p| p["id"] != ID)), "{roster}");
+    // the broker told the program to finish; the runner starts it again on the TV, the test does here
+    assert!(wait_until(WAIT, || home.plugin.as_ref().is_some_and(JoinHandle::is_finished)), "the program was told to finish");
+    assert_eq!(home.switch(true).status, 200);
+    home.run_plugin();
+    home.until(&format!("plugin.{ID}.tiles"), "the tiles again", has_items);
+    home.until("ha.link", "the lease again", connected);
 }
 
 /// The program that `lumatv-plugin-home-assistant` builds, in the workspace's target directory (and built if it is not there yet).
@@ -866,14 +914,14 @@ fn the_fixture_of_the_tvs_screens_is_what_the_plugin_and_the_helper_make() {
         v["facts"]["summary"].is_string()
     });
     // the helper's own plugins connect a moment after the start (ambient, clock, news and weather; the guide data, the tuner and the
-    // cameras, which ask first, stay off); the document is of all of them
+    // cameras, which ask first, stay off; the Home Assistant plugin's switch is on); the document is of all of them
     home.until("plugins", "every first-party plugin connected", |v| {
         let list = v["firstParty"].as_array().cloned().unwrap_or_default();
         let connected = list.iter().filter(|p| p["state"] == "connected").count();
         connected == 4
             && list
                 .iter()
-                .all(|p| matches!(p["state"].as_str(), Some("connected" | "off")))
+                .all(|p| matches!(p["state"].as_str(), Some("connected" | "off" | "on")))
     });
 
     let page = |provider: &str| {

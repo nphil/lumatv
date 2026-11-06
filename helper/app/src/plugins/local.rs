@@ -23,7 +23,8 @@ use serde_json::{Value as Json, json};
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Weak};
 
-/// The ids of the plugins the helper carries itself. A plugin on the socket may not take one of them.
+/// The ids of the plugins the helper carries itself. A plugin on the socket may not take one of them. The Home Assistant plugin's
+/// switch (`ha_plugin`) is not here: its id is the packaged `home-assistant` program's, which must keep it.
 pub const FIRST_PARTY_IDS: &[&str] = &[
     "weather",
     "news",

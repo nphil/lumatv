@@ -202,15 +202,6 @@ impl Service {
                 )?,
             ));
         }
-        let weather_ha = Arc::new(crate::ha_weather::HaWeather::real(
-            &ctx,
-            voice_policy.unwrap_or(ha_link::AddressPolicy::HOME),
-        ));
-        threads.push((
-            "feeds",
-            homefeeds::spawn(&ctx, feeds_rx, fetcher, weather_ha.clone())?,
-        ));
-
         // AI access: loads its state (off and unpaired when there is none) and binds nothing; the LAN listener exists only while
         // the TV's owner has turned it on with the remote.
         let ai_deps = ai_deps.unwrap_or_else(|| real_ai_deps(&config, &settings, &guard));
@@ -223,10 +214,12 @@ impl Service {
         let ai = crate::ai::Ai::start(&ctx, ai_deps, nudge)?;
 
         // `base.livetv`, the tuner's old Settings switch, becomes the Live TV Tuner plugin's before the roster is first read; a Bluetooth
-        // proxy, or cameras, linked before they were plugins become the Bluetooth proxy plugin's and the Cameras plugin's, switched on.
+        // proxy, or cameras, linked before they were plugins become the Bluetooth proxy plugin's and the Cameras plugin's, switched on, and
+        // a TV that used Home Assistant comes up with the Home Assistant plugin switched on.
         crate::tuner::migrate(&settings, &paths.plugins_dir());
         crate::ble::migrate(&paths.data_dir, &paths.plugins_dir());
         crate::scrypted::migrate(&paths);
+        crate::ha_plugin::migrate(&paths, &settings);
         // Plugins: the manager reads the roster and keeps the broker's socket only while a plugin is switched on.
         let plugins = crate::plugins::Plugins::with_policy(
             &ctx,
@@ -236,6 +229,39 @@ impl Service {
         threads.push((
             "plugins-1p",
             crate::plugins::firstparty::spawn(&ctx, plugins.shared().clone(), feeds_tx.clone())?,
+        ));
+        // On Home: Home Assistant's shared entities, through the integration that dials the TV. Nothing listens until the Home Assistant
+        // plugin is switched on and the TV is paired.
+        let onhome = crate::onhome::OnHome::new(
+            &ctx,
+            onhome_deps.unwrap_or_else(|| crate::onhome::Deps::real(&ctx)),
+            plugins.shared(),
+        );
+        // The Home Assistant plugin's switch, offered before the weather starts so a TV whose plugin is on never starts from the built-in
+        // source: On Home and the weather look again when it moves; the packaged program follows it through the roster.
+        {
+            let (onhome, feeds) = (onhome.waker(), feeds_tx.clone());
+            plugins.shared().offer(
+                &crate::ha_plugin::OPT_IN,
+                Arc::new(move || {
+                    onhome();
+                    let _ = feeds.send(homefeeds::Cmd::Wake);
+                }),
+            );
+        }
+        threads.push(("onhome", onhome.spawn(&ctx)?));
+        // Home's weather and news; the weather comes from Home Assistant only while its plugin is switched on.
+        let weather_ha = Arc::new(crate::ha_weather::HaWeather::real(
+            &ctx,
+            voice_policy.unwrap_or(ha_link::AddressPolicy::HOME),
+        ));
+        let ha_on: Arc<dyn Fn() -> bool + Send + Sync> = {
+            let shared = plugins.shared().clone();
+            Arc::new(move || shared.switched_on(crate::ha_plugin::ID))
+        };
+        threads.push((
+            "feeds",
+            homefeeds::spawn(&ctx, feeds_rx, fetcher, weather_ha.clone(), ha_on)?,
         ));
         threads.push(("preload", preload::spawn(&ctx)?));
         threads.push(("updateblock", crate::updateblock::spawn(&ctx)?));
@@ -280,9 +306,6 @@ impl Service {
             plugins.shared(),
         );
         threads.push(("scrypted", cameras.spawn(&ctx)?));
-        // On Home: Home Assistant's shared entities, through the integration that dials the TV. Nothing listens until it is switched on and paired.
-        let onhome = crate::onhome::OnHome::new(&ctx, onhome_deps.unwrap_or_else(|| crate::onhome::Deps::real(&ctx)));
-        threads.push(("onhome", onhome.spawn(&ctx)?));
         // Live TV Tuner: the antenna tuner on the home network, a plugin of the helper's own. Nothing listens and the tuner is left alone
         // until the owner switches it on in Settings. Guide data: online listings laid over the TV's own guide, the tuner's `/xmltv.xml`
         // included, also off until switched on. Both read the TV's channel list through the same luna path.

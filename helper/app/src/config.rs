@@ -127,8 +127,8 @@ pub struct Config {
     /// Cameras and their event pop-ups through Scrypted's LumaShow bridge (`scrypted/`). Off until the Cameras plugin is switched on in
     /// Settings and the TV is linked (`scrypted-link`): until both, nothing connects and no picture is ever fetched; these are only tuning.
     pub cameras: CamerasConfig,
-    /// On Home (`onhome/`): Home Assistant's shared entities on Home, through the LumaShow integration that dials the TV. Off until
-    /// switched on here, and a pairing key (`ble-link`) must exist; with either missing nothing listens.
+    /// On Home (`onhome/`): Home Assistant's shared entities on Home, through the LumaShow integration that dials the TV. Nothing listens
+    /// until the Home Assistant plugin is switched on in Settings and a pairing key (`ble-link`) exists.
     pub onhome: OnHomeConfig,
     /// Screenshots and screen recordings of the picture LumaTV's compositor composes (`capture.rs`, `compositor/.../screencap`). Off by
     /// default: with `enabled` false the routes refuse and the compositor does nothing; both read this one switch.
@@ -235,18 +235,18 @@ impl HdhrConfig {
     }
 }
 
-/// On Home's switch and port. The listener is a network entrance, so it is the owner's: it exists only with `enabled` and a pairing key.
+/// On Home's port. The listener is a network entrance, so it is the owner's: it exists only while the Home Assistant plugin is switched on
+/// and a pairing key is there.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct OnHomeConfig {
-    pub enabled: bool,
     /// The TCP port the integration dials (the protocol's 6054; 0 takes a free one, for tests).
     pub port: u16,
 }
 
 impl Default for OnHomeConfig {
     fn default() -> Self {
-        Self { enabled: false, port: 6054 }
+        Self { port: 6054 }
     }
 }
 
@@ -849,43 +849,46 @@ pub const CA_BUNDLE_CANDIDATES: [&str; 5] = [
     "/etc/ssl/ca-bundle.pem",
 ];
 
-/// The keys of `cameras` the Home Assistant camera path had and the Scrypted cameras do not.
-const OLD_CAMERAS_KEYS: [&str; 6] = [
-    "enabled",
-    "port",
-    "relay",
-    "popupKinds",
-    "popupSeconds",
-    "cooldownSeconds",
+/// Keys an older `helper.json` has that this one no longer reads, by section, with why each is ignored.
+const OLD_KEYS: [(&str, &[&str], &str); 2] = [
+    (
+        "cameras",
+        &["enabled", "port", "relay", "popupKinds", "popupSeconds", "cooldownSeconds"],
+        "belonged to the Home Assistant camera path and is ignored (the cameras come through Scrypted now)",
+    ),
+    (
+        "onhome",
+        &["enabled"],
+        "is ignored: On Home follows the Home Assistant plugin's switch in Settings now",
+    ),
 ];
 
-/// The document without the old `cameras` keys, when it had any (and says which in the log); `None` when it had none or is not JSON.
-fn without_old_cameras_keys(text: &str) -> Option<serde_json::Value> {
+/// The document without the keys of [`OLD_KEYS`], when it had any (and says which in the log); `None` when it had none or is not JSON.
+fn without_old_keys(text: &str) -> Option<serde_json::Value> {
     let mut value: serde_json::Value = serde_json::from_str(text).ok()?;
-    let cameras = value.get_mut("cameras")?.as_object_mut()?;
-    let dropped: Vec<&str> = OLD_CAMERAS_KEYS
-        .into_iter()
-        .filter(|key| cameras.remove(*key).is_some())
-        .collect();
-    if dropped.is_empty() {
-        return None;
+    let mut any = false;
+    for (section, keys, why) in OLD_KEYS {
+        let Some(table) = value.get_mut(section).and_then(serde_json::Value::as_object_mut) else {
+            continue;
+        };
+        let dropped: Vec<&str> = keys.iter().copied().filter(|key| table.remove(*key).is_some()).collect();
+        if !dropped.is_empty() {
+            any = true;
+            crate::log_warn!("helper.json: {section}.{} {why}", dropped.join(&format!(", {section}.")));
+        }
     }
-    crate::log_warn!(
-        "helper.json: cameras.{} belonged to the Home Assistant camera path and is ignored (the cameras come through Scrypted now)",
-        dropped.join(", cameras.")
-    );
-    Some(value)
+    any.then_some(value)
 }
 
 impl Config {
-    /// Parses a config document and checks what serde cannot. A file written for the Home Assistant camera path (the TV's own was
-    /// `{"cameras": {"enabled": true}}`) is read all the same: the keys that path had are dropped, once, and are said in the log; a refused
-    /// config would be a helper that does not start after the update.
+    /// Parses a config document and checks what serde cannot. A file written before a switch moved to Settings (the TV's own was
+    /// `{"cameras": {"enabled": true}, "onhome": {"enabled": true}}`) is read all the same: the keys no longer read are dropped, once,
+    /// and are said in the log; a refused config would be a helper that does not start after the update.
     pub fn parse(text: &str) -> Result<Self, ConfigError> {
         let config: Self = match serde_json::from_str(text) {
             Ok(config) => config,
             Err(first) => {
-                let Some(value) = without_old_cameras_keys(text) else {
+                let Some(value) = without_old_keys(text) else {
                     return Err(ConfigError(format!("helper.json: {first}")));
                 };
                 serde_json::from_value(value)
@@ -1471,23 +1474,24 @@ mod tests {
     }
 
     #[test]
-    fn a_helper_json_of_the_home_assistant_camera_path_is_read_and_its_old_keys_are_ignored() {
+    fn a_helper_json_written_before_the_switches_moved_to_settings_is_read_and_its_old_keys_are_ignored() {
         // the file the TV has today
-        let config = Config::parse(r#"{"cameras":{"enabled":true}}"#).unwrap();
+        let config = Config::parse(r#"{"cameras":{"enabled":true},"onhome":{"enabled":true}}"#).unwrap();
         assert!(config.cameras.live);
         assert_eq!(
-            config.cameras.frame_hold_ms,
-            Config::default().cameras.frame_hold_ms
+            (config.cameras.frame_hold_ms, config.onhome.port),
+            (Config::default().cameras.frame_hold_ms, 6054)
         );
         // every old key, beside one that is still there
         let config = Config::parse(
-            r#"{"cameras":{"enabled":true,"port":8123,"relay":{"x":1},"popupKinds":["person"],"popupSeconds":12,"cooldownSeconds":30,"frameHoldMs":5000}}"#,
+            r#"{"cameras":{"enabled":true,"port":8123,"relay":{"x":1},"popupKinds":["person"],"popupSeconds":12,"cooldownSeconds":30,"frameHoldMs":5000},"onhome":{"enabled":false,"port":7000}}"#,
         )
         .unwrap();
-        assert_eq!(config.cameras.frame_hold_ms, 5000);
+        assert_eq!((config.cameras.frame_hold_ms, config.onhome.port), (5000, 7000));
         // what never was a key is still refused, with or without the old ones
         assert!(Config::parse(r#"{"cameras":{"bogus":1}}"#).is_err());
         assert!(Config::parse(r#"{"cameras":{"enabled":true,"bogus":1}}"#).is_err());
+        assert!(Config::parse(r#"{"onhome":{"enabled":true,"bogus":1}}"#).is_err());
         assert!(Config::parse(r#"{"enabled":true}"#).is_err());
     }
 

@@ -670,9 +670,13 @@ impl Shared {
             .first_party
             .iter()
             .map(|p| {
-                let connected = live.contains(&p.id);
+                // A switch over a program that is not the helper's own (the Home Assistant plugin's is the packaged `home-assistant`, listed
+                // under `plugins` with its own state) is only `on`: as `connected` too, that program's cards would be counted twice.
+                let switch_only = p.asks.is_some() && !super::local::FIRST_PARTY_IDS.contains(&p.id.as_str());
+                let connected = !switch_only && live.contains(&p.id);
                 let state = match &p.asks {
                     Some(asks) if !asks.on => "off",
+                    _ if switch_only => "on",
                     _ if connected => "connected",
                     _ => "waiting",
                 };
