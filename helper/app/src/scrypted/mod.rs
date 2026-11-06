@@ -765,6 +765,7 @@ impl Inner {
             return on;
         }
         if on {
+            self.live.keep_feeder(true);
             match Page::start(&self.shared, self.hooks.clone()) {
                 Ok(page) => {
                     page.say_link(unlinked_words(), None);
@@ -787,6 +788,8 @@ impl Inner {
             }
             self.publish();
         } else {
+            // set before the session ends, so its feeder is not parked for `feederIdleSeconds` after the switch
+            self.live.keep_feeder(false);
             self.teardown(Some("the cameras were switched off"));
             {
                 let mut state = self.state.lock();

@@ -875,6 +875,8 @@ struct Pool {
     slot: Mutex<Slot>,
     changed: Condvar,
     reaper: Mutex<Option<JoinHandle<()>>>,
+    /// Off: no feeder is kept between sessions, whatever `spec.idle` says. Written and read under `slot`'s lock.
+    keep: AtomicBool,
 }
 
 impl Pool {
@@ -889,6 +891,7 @@ impl Pool {
             slot: Mutex::new(Slot::Empty),
             changed: Condvar::new(),
             reaper: Mutex::new(None),
+            keep: AtomicBool::new(true),
         })
     }
 
@@ -944,15 +947,33 @@ impl Pool {
     }
 
     fn give_back(self: &Arc<Self>, feeder: Box<Feeder>, loaded: bool) {
-        if self.spec.idle.is_zero() {
+        let mut slot = self.slot.lock();
+        if self.spec.idle.is_zero() || !self.keep.load(Ordering::SeqCst) {
+            *slot = Slot::Empty;
+            drop(slot);
             drop(feeder);
-            *self.slot.lock() = Slot::Empty;
             self.changed.notify_all();
             return;
         }
-        *self.slot.lock() = Slot::Idle(feeder, Instant::now(), loaded);
+        *slot = Slot::Idle(feeder, Instant::now(), loaded);
+        drop(slot);
         self.changed.notify_all();
         self.ensure_reaper();
+    }
+
+    /// Off ends the idle feeder now, and a session's feeder ends with the session until it is on again.
+    fn keep(&self, keep: bool) {
+        let old = {
+            let mut slot = self.slot.lock();
+            self.keep.store(keep, Ordering::SeqCst);
+            if keep || !matches!(*slot, Slot::Idle(..)) {
+                return;
+            }
+            std::mem::replace(&mut *slot, Slot::Empty)
+        };
+        // ended off the lock: it waits for the process
+        drop(old);
+        self.changed.notify_all();
     }
 
     /// One thread, started when a feeder is first parked, ends the feeder that nobody took within `idle`.
@@ -1567,6 +1588,13 @@ impl Live {
         };
         if let Some(view) = view {
             self.inner.emit(&view);
+        }
+    }
+
+    /// Off (the Cameras plugin switched off): no feeder is kept between sessions, and the idle one ends now.
+    pub fn keep_feeder(&self, keep: bool) {
+        if let Some(pool) = &self.inner.pool {
+            pool.keep(keep);
         }
     }
 }
@@ -2743,6 +2771,24 @@ mod tests {
         let (feeder, peer) = test_feeder(dir, stall);
         *pool.slot.lock() = Slot::Idle(Box::new(feeder), Instant::now(), false);
         (pool, peer)
+    }
+
+    #[test]
+    fn switched_off_the_pool_ends_its_idle_feeder_and_keeps_none_until_on_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pool, _peer) = test_pool(dir.path(), Duration::from_secs(1));
+        pool.keep(false);
+        assert!(matches!(*pool.slot.lock(), Slot::Empty), "the idle feeder ends at once");
+        let given_back = |pool: &Arc<Pool>| {
+            let (feeder, peer) = test_feeder(dir.path(), Duration::from_secs(1));
+            Lease { pool: pool.clone(), feeder: Some(Box::new(feeder)), loaded: false }.release(false, true);
+            peer
+        };
+        let _off = given_back(&pool);
+        assert!(matches!(*pool.slot.lock(), Slot::Empty), "a session's feeder ends with it while off");
+        pool.keep(true);
+        let _on = given_back(&pool);
+        assert!(matches!(*pool.slot.lock(), Slot::Idle(..)), "on again, it is kept for the next session");
     }
 
     /// A pool whose idle feeder is gone (its end of the socket is closed, as a feeder whose window the compositor closed is a moment later) and that
