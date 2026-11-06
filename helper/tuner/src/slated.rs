@@ -9,7 +9,7 @@
 //! | When | The slate | Then |
 //! |---|---|---|
 //! | the channel is being tuned and its first whole picture waited for | `Tuning 16.9 WXYZ…`, a bar | the programme at that picture |
-//! | no picture after `weak_after`, or the picture stopped for `dropout`, or a second lost `loss_weak` of its packets | `Weak signal on 16.9`, the signal and the wait | the programme at its next whole picture, once a second has lost at most `loss_clear` |
+//! | no picture after `weak_after`, or the picture stopped for `dropout`, or a second lost `loss_weak` of its packets, or (smoothing) no clean keyframe for `frozen` | `Weak signal on 16.9`, the signal and the wait | the programme at its next whole picture, once a second has lost at most `loss_clear` |
 //! | no picture for `give_up_tuning` (it never came) or `give_up` (it stopped); no lock; not in the multiplex | `No signal on 16.9` for `last_word` | the end |
 //! | the TV's own Live TV takes the tuner | `The TV is using its tuner` for `last_word` | the end; the TV has the tuner at once |
 //!
@@ -23,7 +23,7 @@ use crate::mpeg2::Format;
 use crate::psi::{self, PACKET};
 use crate::slate::{Look, Says, Slate};
 use crate::splice::{Layout, Program, Routes};
-use crate::stream::{End, Facade, Failure, Lease, Over, Signal, Tap, Unfound, program};
+use crate::stream::{End, Facade, Failure, Found, Lease, Over, Signal, Tap, Unfound, program};
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
@@ -239,8 +239,17 @@ struct Play<'a> {
     pictured: Option<Duration>,
     dropouts: u32,
     lost: (u64, u64),
+    /// Since when the programme's picture has stood on its last whole one (smoothing held broken ones back).
+    frozen: Option<Duration>,
     over: Over,
     lease: Lease,
+}
+
+/// How [`Play::run`] came out: the stream is over, or the channel's picture is not one a slate can stand in for and nothing has gone
+/// out yet, so the request goes on as a stream without slates from the tables read.
+enum Ran {
+    Over(End),
+    Plain { tap: Box<dyn Tap>, found: Found, tuned: Duration },
 }
 
 impl Facade {
@@ -254,11 +263,12 @@ impl Facade {
         let (layout, tsid) = seen.map_or_else(|| (Layout::fallback(1), 1), |s| (s.layout, s.tsid));
         let asked = (self.clock)();
         self.tuning.streaming(&entry);
+        let smooth = self.tuning.options.lock().smooth;
         let mut play = Play {
             tap: None,
             facade: self,
             show: Show {
-                program: Program::new(tsid, layout, &format),
+                program: Program::new(tsid, layout, &format).smoothing(smooth),
                 slate: Slate::new(look.clone(), &entry.guide, &entry.name, format),
                 anchor: asked,
                 frames: 0,
@@ -274,13 +284,30 @@ impl Facade {
             pictured: None,
             dropouts: 0,
             lost: (0, 0),
+            frozen: None,
             over: Over {
                 tuning: self.tuning.clone(),
                 then: Status::Idle,
             },
             lease,
         };
-        let end = play.run(out, stop);
+        let end = match play.run(out, stop) {
+            Ok(Ran::Plain { tap, found, tuned }) => {
+                let Play { entry, lease, over, asked, .. } = play;
+                // the stream says what it streams again once its picture has come
+                drop(over);
+                log::info!("tuner: {}'s picture is not MPEG-2: it streams without slates", entry.guide);
+                return match self.route(&entry, tap, found, lease, (asked, tuned)) {
+                    Ok(mut stream) => stream.pump(out, stop),
+                    Err(failure) => {
+                        self.not_found(&entry.guide, &failure);
+                        Ok(End::Failed(failure))
+                    }
+                };
+            }
+            Ok(Ran::Over(end)) => Ok(end),
+            Err(e) => Err(e),
+        };
         play.lease.over();
         play.record();
         end
@@ -301,7 +328,7 @@ impl Play<'_> {
     /// was made (the fallback's shape).
     fn unhold(&mut self, shape: Option<(Format, Layout, u16)>) {
         if let Some((format, layout, tsid)) = shape {
-            self.show.program = Program::new(tsid, layout, &format);
+            self.show.program = Program::new(tsid, layout, &format).smoothing(self.show.program.smooths());
             self.show.slate = Slate::new(self.look.clone(), &self.entry.guide, &self.entry.name, format);
         }
         self.show.anchor = self.now();
@@ -337,7 +364,7 @@ impl Play<'_> {
         }
     }
 
-    fn run(&mut self, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<End> {
+    fn run(&mut self, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<Ran> {
         let f = self.facade;
         let lim = &f.limits;
         self.tuning(0, self.asked);
@@ -346,9 +373,9 @@ impl Play<'_> {
             Ok(tap) => tap,
             Err(why @ Failure::NoSignal(_)) => {
                 self.read_signal();
-                return self.last(Says::NoSignal, End::Failed(why), out);
+                return self.last(Says::NoSignal, End::Failed(why), out).map(Ran::Over);
             }
-            Err(why) => return self.last(Says::Failed, End::Failed(why), out),
+            Err(why) => return self.last(Says::Failed, End::Failed(why), out).map(Ran::Over),
         };
         let tuned = self.now();
         self.tuning(1, tuned);
@@ -359,12 +386,12 @@ impl Play<'_> {
         let try_for = lim.section_wait.min(Duration::from_secs(1));
         let mut last_signal = tuned;
         let mut sections = Vec::new();
-        let (channel, pat, pmt) = loop {
+        let found = loop {
             if let Some(end) = self.given_up(stop) {
-                return Ok(end);
+                return Ok(Ran::Over(end));
             }
             let now = match program(tap.as_mut(), &self.entry, &mut sections, try_for) {
-                Ok((channel, pat, _, _, pmt)) => break (channel, pat, pmt),
+                Ok(found) => break found,
                 Err(why) => {
                     let now = self.now();
                     let absent = matches!(why, Unfound::Absent(_));
@@ -372,7 +399,7 @@ impl Play<'_> {
                         // the tuner stays where it is while the demodulator is read for the reason
                         self.tap = Some(tap);
                         let failure = f.unfound(&self.entry, why);
-                        return self.last(Says::NoSignal, End::Failed(failure), out);
+                        return self.last(Says::NoSignal, End::Failed(failure), out).map(Ran::Over);
                     }
                     now
                 }
@@ -392,20 +419,24 @@ impl Play<'_> {
             }
             self.tick(out)?;
         };
-        if psi::protected(&pmt, Some(&channel)) {
-            return self.last(Says::Protected, End::Failed(Failure::Protected), out);
+        if psi::protected(&found.pmt, Some(&found.channel)) {
+            return self.last(Says::Protected, End::Failed(Failure::Protected), out).map(Ran::Over);
         }
-        let Some((layout, routes)) = Layout::of(&pmt).filter(|(l, _)| l.video_type == 0x02) else {
-            // a slate is MPEG-2: a channel whose picture is not (or which has none) is served without slates from its next request on
-            let layout = Layout::of(&pmt).map_or_else(|| Layout { video_type: 0, ..Layout::fallback(pmt.program) }, |(l, _)| l);
-            f.tuning.saw(&self.entry.guide, Seen { format: *self.show.slate.format(), layout, tsid: pat.tsid });
-            return self.last(Says::Failed, End::Failed(Failure::Hardware("the picture is not MPEG-2".to_owned())), out);
+        let Some((layout, routes)) = Layout::of(&found.pmt).filter(|(l, _)| l.video_type == 0x02) else {
+            // a slate is MPEG-2: a channel whose picture is not (H.264, HEVC) or which has none is served without slates, at once while
+            // nothing has gone out yet (its shape was being waited for), else from its next request on
+            let layout = Layout::of(&found.pmt).map_or_else(|| Layout { video_type: 0, ..Layout::fallback(found.pmt.program) }, |(l, _)| l);
+            f.tuning.saw(&self.entry.guide, Seen { format: *self.show.slate.format(), layout, tsid: found.pat.tsid });
+            if self.show.held {
+                return Ok(Ran::Plain { tap, found, tuned });
+            }
+            return self.last(Says::Failed, End::Failed(Failure::Hardware("the picture is not MPEG-2".to_owned())), out).map(Ran::Over);
         };
         if let Err(why) = tap.start(&routes.pids()) {
-            return self.last(Says::Failed, End::Failed(why), out);
+            return self.last(Says::Failed, End::Failed(why), out).map(Ran::Over);
         }
         self.tap = Some(tap);
-        self.stream(layout, routes, pat.tsid, out, stop)
+        self.stream(layout, routes, found.pat.tsid, out, stop).map(Ran::Over)
     }
 
     /// The program is routed: the programme in turns with the slate until the end.
@@ -453,20 +484,32 @@ impl Play<'_> {
                 None => {
                     watch.live(&buf, now);
                     self.show.program.live(&buf, &mut self.show.out);
+                    // with smoothing on: since when the picture has stood on its last whole one, broken ones held back
+                    self.frozen = if self.show.program.frozen() { self.frozen.or(Some(now)) } else { None };
                     let stopped = now.saturating_sub(watch.seen) >= lim.dropout;
                     let broken = watch.last.is_some_and(|(share, lost)| share >= lim.loss_weak && lost >= 10);
-                    if stopped || broken {
-                        let since = if stopped { watch.seen } else { now };
+                    let held_over = self.frozen.filter(|t| now.saturating_sub(*t) >= lim.frozen);
+                    if stopped || broken || held_over.is_some() {
+                        let since = match held_over {
+                            _ if stopped => watch.seen,
+                            Some(t) => t,
+                            None => now,
+                        };
                         self.dropouts += 1;
                         log::info!(
                             "tuner: {} {}; a slate stands in",
                             self.entry.guide,
-                            if stopped { "lost its picture" } else { "is breaking up" }
+                            match () {
+                                _ if stopped => "lost its picture",
+                                _ if broken => "is breaking up",
+                                _ => "has had no whole picture for a while",
+                            }
                         );
                         let mut slate = Slate::new(self.look.clone(), &self.entry.guide, &self.entry.name, format);
                         slate.say(Says::Weak { signal: self.signal, waited: Duration::ZERO });
                         self.show.stand_in(slate, since);
                         watch.restart(now);
+                        self.frozen = None;
                         waiting = Some(since);
                     }
                 }
@@ -585,6 +628,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::docs::Identity;
     use crate::slate::tests::look;
+    use crate::psi::tests::pmt;
     use crate::splice::{AUDIO, PMT, VIDEO, head, write_stamp};
     use crate::stream::tests::{Multiplex, PLEX, Time, rf32, served};
     use crate::stream::{Admitted, Hardware, Limits};
@@ -609,9 +653,13 @@ pub(crate) mod tests {
 
     impl Script {
         pub(crate) fn new(time: &Time, chunks: Vec<(u64, Vec<u8>)>) -> Arc<Self> {
+            Self::with_mux(time, rf32(&[]), chunks)
+        }
+
+        pub(crate) fn with_mux(time: &Time, mux: Multiplex, chunks: Vec<(u64, Vec<u8>)>) -> Arc<Self> {
             Arc::new(Self {
                 time: time.clone(),
-                mux: rf32(&[]),
+                mux,
                 chunks: Mutex::new(chunks.into_iter().map(|(ms, c)| (Duration::from_millis(ms), c)).collect()),
                 tables_from: Duration::ZERO,
                 taken_at: None,
@@ -650,7 +698,7 @@ pub(crate) mod tests {
         }
 
         fn signal(&self) -> Option<Signal> {
-            Some(Signal { locked: true, snr: Some(18.0), errors: Some(3) })
+            Some(Signal { locked: true, mse: Some(340), snr: Some(18.0), errors: Some(3), ber: Some(400_000) })
         }
     }
 
@@ -754,7 +802,33 @@ pub(crate) mod tests {
 
     /// Limits a test runs through in a few seconds of its clock.
     fn quick() -> Limits {
-        Limits { give_up: Duration::from_secs(2), give_up_tuning: Duration::from_secs(3), weak_after: Duration::from_secs(1), last_word: Duration::from_millis(500), ..Limits::default() }
+        Limits {
+            give_up: Duration::from_secs(2),
+            give_up_tuning: Duration::from_secs(3),
+            weak_after: Duration::from_secs(1),
+            last_word: Duration::from_millis(500),
+            frozen: Duration::from_secs(1),
+            ..Limits::default()
+        }
+    }
+
+    /// RF 32 with 2.4's picture in H.264.
+    pub(crate) fn h264_mux() -> Multiplex {
+        let mut mux = rf32(&[]);
+        mux.pmts.insert(0x60, pmt(4, 0x61, &[], &[(0x1B, 0x61, &[]), (0x81, 0x64, &[])]));
+        mux
+    }
+
+    /// An H.264 access unit marked `mark`: an IDR picture led by its sequence parameter set, or another picture.
+    pub(crate) fn avc(idr: bool, mark: &[u8]) -> Vec<u8> {
+        let mut body = vec![0, 0, 0, 1, 0x09, 0xF0];
+        if idr {
+            body.extend([0, 0, 0, 1, 0x67, 0x64, 0, 0x28, 0, 0, 0, 1, 0x68, 0xEE, 0, 0, 0, 1, 0x65, 0x88]);
+        } else {
+            body.extend([0, 0, 0, 1, 0x41, 0x9A]);
+        }
+        body.extend_from_slice(mark);
+        body
     }
 
     fn play(f: &Facade) -> (Vec<u8>, End) {
@@ -941,5 +1015,54 @@ pub(crate) mod tests {
         assert_eq!(f.lineup().unwrap().iter().map(|e| e.guide.as_str()).collect::<Vec<_>>(), ["2.4"]);
         f.tuning.options.lock().look = Some(Arc::new(|| None));
         assert!(!matches!(f.admit("2.4", PLEX), Ok(Admitted::Slated(_))));
+    }
+
+    #[test]
+    fn with_smoothing_the_programme_stands_on_its_last_whole_picture_and_the_slate_comes_when_no_clean_keyframe_does() {
+        let time = Time::default();
+        let (mut v, mut a) = (0u8, 0u8);
+        let mut chunks = vec![];
+        for n in 0..150u64 {
+            let dts = 1_000_000 + 3003 * n;
+            let mut p = picture(&mut v, dts, n % 15 == 0, format!("MARK{n:03}").as_bytes());
+            // picture 31 loses its second packet, and so does every keyframe from 45 to 120
+            if n == 31 || (n % 15 == 0 && (45..=120).contains(&n)) {
+                p.drain(PACKET..2 * PACKET);
+            }
+            chunks.push((500 + 33 * n, [p, sound(&mut a, dts)].concat()));
+        }
+        let script = Script::new(&time, chunks);
+        let f = facade(&script, Limits { give_up: Duration::from_secs(5), ..quick() });
+        f.tuning.options.lock().smooth = true;
+        let (out, _) = play(&f);
+        let pics = pictures(&out);
+        let runs: Vec<bool> = pics.iter().map(|p| p.0).collect::<Vec<_>>().dedup_by_key_into();
+        assert_eq!(runs, [false, true, false, true, false], "slate, programme, slate, programme, the last slate");
+        let number = |body: &[u8]| -> u64 {
+            let at = body.windows(4).position(|w| w == b"MARK").unwrap();
+            std::str::from_utf8(&body[at + 4..at + 7]).unwrap().parse().unwrap()
+        };
+        let shown: Vec<u64> = pics.iter().filter(|p| p.0).map(|p| number(&p.2)).collect();
+        assert_eq!(shown, (0..=30).chain(135..149).collect::<Vec<_>>(), "on picture 30 until the slate came, back at the first clean keyframe");
+    }
+
+    #[test]
+    fn a_channel_whose_picture_is_h264_streams_without_slates_from_its_first_idr_picture() {
+        let time = Time::default();
+        let (mut v, mut a) = (0u8, 0u8);
+        let mut chunks = vec![(500, [pes(0x61, &mut v, 1_003_003, Some(1_000_000), &avc(false, b"MARKH0")), sound(&mut a, 1_000_000)].concat())];
+        for n in 1..4u64 {
+            let picture = pes(0x61, &mut v, 1_003_003 + 3003 * n, Some(1_000_000 + 3003 * n), &avc(n == 1, format!("MARKH{n}").as_bytes()));
+            chunks.push((500 + 33 * n, picture));
+        }
+        let script = Script::with_mux(&time, h264_mux(), chunks);
+        let f = facade(&script, quick());
+        let (out, end) = play(&f);
+        assert_eq!(end, End::Silent, "a stream without slates ends when its picture stops");
+        let pat = psi::parse_pat(&out[5..PACKET]).unwrap();
+        assert_eq!(pat.programs, [(4, 0x60)], "the station's own program, not the slates'");
+        let text = String::from_utf8_lossy(&out);
+        assert!(text.contains("MARKH1") && !text.contains("MARKH0"), "from its first IDR picture on");
+        assert_eq!(f.tuning.seen("2.4").map(|s| s.layout.video_type), Some(0x1B));
     }
 }

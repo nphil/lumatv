@@ -32,11 +32,12 @@
 //! Pieces: [`psi`] reads and writes the transport stream's tables; [`docs`] makes the HDHomeRun documents, the playlist and the guide;
 //! [`stream`] holds the lease on the one tuner and says what a stream is, over two small traits, so it runs in tests on a fake; [`slated`]
 //! is a stream with slates, [`slate`] draws them and [`mpeg2`] codes them, [`splice`] is the program they and the programme share;
-//! [`health`] is what each channel's streams and checks found; [`webos`] is LG's TV (luna, the DVB nodes and the demodulator's reading);
-//! `server` is the listener; [`Tuner`] serves it and says what it is doing.
+//! [`health`] is what each channel's streams and checks found; [`meter`] is the reading that helps aim the antenna; [`webos`] is LG's TV
+//! (luna, the DVB nodes and the demodulator's reading); `server` is the listener; [`Tuner`] serves it and says what it is doing.
 
 pub mod docs;
 pub mod health;
+pub mod meter;
 pub mod mpeg2;
 pub mod net;
 pub mod psi;
@@ -48,12 +49,14 @@ pub mod stream;
 pub mod webos;
 
 pub use health::{Health, Reception, Verdict};
+pub use meter::Reading;
 pub use net::Cidr;
 pub use slate::{Look, Type};
-pub use stream::{Clock, Failure, Guide, Hardware, Limits, Signal, Tap, real_clock};
+pub use stream::{Clock, Failure, Grade, Guide, Hardware, Hold, Limits, Signal, Tap, real_clock};
 
 use docs::Identity;
 use health::Seen;
+use meter::Meter;
 use mpeg2::Format;
 use parking_lot::Mutex;
 use splice::Layout;
@@ -90,6 +93,8 @@ pub enum Status {
     Busy(String),
     /// Every channel's reception is being checked ([`Tuner::check_reception`]): RF channels done, of how many.
     Checking { done: usize, of: usize },
+    /// The meter holds the tuner on an RF channel ([`Tuner::aim`]); anything asked for takes it.
+    Aiming { rf: u8 },
 }
 
 impl fmt::Display for Status {
@@ -100,6 +105,7 @@ impl fmt::Display for Status {
             Self::Streaming { guide, name } => write!(f, "Streaming {guide} {name}"),
             Self::Busy(why) => write!(f, "Busy: {why}"),
             Self::Checking { done, of } => write!(f, "Checking reception: {done} of {of} frequencies"),
+            Self::Aiming { rf } => write!(f, "Measuring the signal on RF {rf}"),
         }
     }
 }
@@ -118,6 +124,7 @@ pub struct Tuner {
     tuning: Arc<Tuning>,
     guide: Option<Arc<dyn Guide>>,
     running: Mutex<Option<Running>>,
+    meter: Arc<Meter>,
 }
 
 impl Tuner {
@@ -134,6 +141,7 @@ impl Tuner {
             tuning: Arc::new(Tuning::default()),
             guide: None,
             running: Mutex::new(None),
+            meter: Arc::default(),
         }
     }
 
@@ -180,7 +188,7 @@ impl Tuner {
         Ok(addr)
     }
 
-    /// Closes the listener and ends its stream; the TV is given back as the stream lets go.
+    /// Closes the listener and ends its stream and the meter; the TV is given back as they let go.
     pub fn stop(&self) {
         let running = self.running.lock().take();
         if let Some(r) = running {
@@ -188,6 +196,7 @@ impl Tuner {
             r.server.stop();
         }
         self.tuning.stop();
+        self.meter.stop();
     }
 
     /// Where it listens, while it is served.
@@ -225,6 +234,36 @@ impl Tuner {
         self.tuning.options.lock().hidden = guides.into_iter().collect();
     }
 
+    /// Whether streams asked for from now on hold a picture broken by a weak signal over ([`splice::Program::smoothing`]): with slates
+    /// only, as it is the slates' program that leaves pictures out.
+    pub fn smooth(&self, on: bool) {
+        self.tuning.options.lock().smooth = on;
+    }
+
+    /// Starts the meter that helps aim the antenna ([`meter`]) on RF channel `rf`, or on the frequency the tuner is on (`None`), or moves
+    /// it there: a reading about once a second ([`Tuner::aiming`]) until it is stopped, or nobody asked for one for a few seconds.
+    /// Refused while the tuner is not shared.
+    pub fn aim(&self, rf: Option<u8>) -> Result<(), Failure> {
+        let facade = self.facade().ok_or_else(|| Failure::Hardware("the tuner is not shared".to_owned()))?;
+        self.meter.aim(facade, rf);
+        Ok(())
+    }
+
+    /// The meter's latest reading while it runs; asking keeps it running.
+    pub fn aiming(&self) -> Option<Reading> {
+        self.meter.reading((self.clock)())
+    }
+
+    /// The meter's best reading starts over from its next one.
+    pub fn aim_afresh(&self) {
+        self.meter.fresh();
+    }
+
+    /// Stops the meter: the tuner is let go of at once.
+    pub fn stop_aiming(&self) {
+        self.meter.stop();
+    }
+
     fn facade(&self) -> Option<Arc<Facade>> {
         self.running.lock().as_ref().map(|r| r.facade.clone())
     }
@@ -246,7 +285,8 @@ impl Tuner {
                     rf: docs::parse_channel_id(&e.channel_id).map_or(0, |(rf, _, _)| rf),
                     hidden: hidden.contains(&e.guide),
                     health: k.and_then(|k| k.health.clone()),
-                    format: seen.map(|s| s.format),
+                    format: seen.filter(|s| s.layout.video_type == 0x02).map(|s| s.format),
+                    video: seen.map(|s| s.layout.video_type),
                     sounds: seen.map_or(0, |s| s.layout.audio.len()),
                     guide: e.guide,
                     name: e.name,
@@ -255,25 +295,28 @@ impl Tuner {
             .collect()
     }
 
-    /// Gives back what a host kept of a channel from [`Tuner::reception`]: its health, and its picture's format and how many sounds its
-    /// program has, which its next slate takes.
-    pub fn recall(&self, guide: &str, health: Option<Health>, format: Option<Format>, sounds: usize) {
+    /// Gives back what a host kept of a channel from [`Tuner::reception`]: its health, its picture's stream type and, for an MPEG-2
+    /// picture, its format and how many sounds its program has, which its next slate takes (a picture of another type is streamed
+    /// without slates).
+    pub fn recall(&self, guide: &str, health: Option<Health>, format: Option<Format>, sounds: usize, video: Option<u8>) {
         if let Some(health) = health {
             self.tuning.record(guide, health);
         }
-        if let Some(format) = format {
+        let video = video.unwrap_or(0x02);
+        if format.is_some() || video != 0x02 {
             let mut layout = Layout::fallback(1);
+            layout.video_type = video;
             layout.audio = vec![(0x81, Vec::new()); sounds.clamp(1, splice::MAX_AUDIO)];
-            self.tuning.saw(guide, Seen { format, layout, tsid: 1 });
+            self.tuning.saw(guide, Seen { format: format.unwrap_or(Format::FALLBACK), layout, tsid: 1 });
         }
     }
 
     /// Checks how every channel comes in, one RF channel at a time, on a thread of its own: the status says how far it is, a stream asked
-    /// for meanwhile takes the tuner, and the TV's own use or the tuner no longer being shared stops it. Refused while the tuner is not
-    /// served, streams or checks already.
+    /// for meanwhile takes the tuner, and the TV's own use or the tuner no longer being shared stops it. It takes the tuner from the meter.
+    /// Refused while the tuner is not served, streams or checks already.
     pub fn check_reception(&self) -> Result<(), Failure> {
         let facade = self.facade().ok_or_else(|| Failure::Hardware("the tuner is not shared".to_owned()))?;
-        if !matches!(self.status(), Status::Idle | Status::Busy(_)) {
+        if !matches!(self.status(), Status::Idle | Status::Busy(_) | Status::Aiming { .. }) {
             return Err(Failure::Busy);
         }
         std::thread::Builder::new()
@@ -369,5 +412,29 @@ mod tests {
             "Idle",
             "and in words: Off, Idle, Streaming 2.4 WEST, Busy: <why>"
         );
+    }
+
+    #[test]
+    fn the_meter_runs_while_readings_are_asked_for_and_lets_go_of_the_tuner_when_they_stop() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), vec![]);
+        let limits = Limits { meter_every: std::time::Duration::from_millis(2), ..Limits::default() };
+        let tuner = Tuner::with_limits(Arc::new(Shared(fake.clone())), time.clock(), limits);
+        assert!(tuner.aim(Some(32)).is_err(), "not shared, not aimed");
+        tuner.serve(&config("LumaTV")).unwrap();
+        tuner.aim(Some(32)).unwrap();
+        let soon = |done: &dyn Fn() -> bool| {
+            (0..1000).any(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                done()
+            })
+        };
+        assert!(soon(&|| tuner.aiming().is_some_and(|r| r.tuned)));
+        assert_eq!(tuner.status(), Status::Aiming { rf: 32 });
+        // nobody asks for six seconds: the page went away without a word
+        time.advance(std::time::Duration::from_secs(6));
+        assert!(soon(&|| fake.released.load(Ordering::Relaxed) == 1));
+        assert!(soon(&|| tuner.aiming().is_none()));
+        assert_eq!(tuner.status(), Status::Idle);
     }
 }

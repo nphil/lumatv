@@ -176,6 +176,8 @@ pub struct Api {
     pub guide: Arc<crate::guidedata::GuideData>,
     /// The TV's Plex account: the sign-in by code and the server everything of Plex uses (`/v1/plex/...`, the `plex.account` topic).
     pub plex: Arc<crate::plex::PlexAccount>,
+    /// The Live TV Tuner's engine, for its page's antenna meter (`/v1/tuner/...`).
+    pub tuner: Arc<lumatuner::Tuner>,
 }
 
 /// A topic name as it may appear in a path or a filter.
@@ -457,6 +459,7 @@ impl Api {
             .chain(crate::onhome::ROUTES.iter())
             .chain(crate::guidedata::ROUTES.iter())
             .chain(crate::plex::ROUTES.iter())
+            .chain(crate::tuner::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -683,6 +686,7 @@ impl Handler for Api {
             }
             ["v1", "guide", rest @ ..] => crate::guidedata::handle(&self.guide, request, rest),
             ["v1", "plex", rest @ ..] => crate::plex::handle(&self.plex, &self.hub, request, rest, self.profiles.require_owner()),
+            ["v1", "tuner", rest @ ..] => crate::tuner::handle(&self.tuner, request, rest),
             ["v1", "voice", rest @ ..] => crate::voice::handle(&self.voice, request, rest),
             ["v1", "weather", "entities"] if get => self.weather_entities(),
             ["v1", "wx", rest @ ..] => self.wx.handle(request, rest),
@@ -845,6 +849,7 @@ mod tests {
                 weather_ha: Arc::new(crate::ha_weather::HaWeather::new(Vec::new(), ha_link::AddressPolicy::HOME, None)),
                 guide: Arc::default(),
                 plex: crate::plex::PlexAccount::fixed(None),
+                tuner: Arc::new(lumatuner::Tuner::new(Arc::new(crate::tuner::tests::NoTv), lumatuner::real_clock())),
             },
             _dir: dir,
             receiver_rx,
@@ -933,6 +938,7 @@ mod tests {
                 + crate::onhome::ROUTES.len()
                 + crate::guidedata::ROUTES.len()
                 + crate::plex::ROUTES.len()
+                + crate::tuner::ROUTES.len()
         );
         assert_eq!(b["helper"]["version"], crate::VERSION);
         assert_eq!(b["boot"], 777);

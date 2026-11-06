@@ -16,7 +16,7 @@ use crate::kit::focus::{Id, Region, Scope};
 use crate::kit::glyph;
 use crate::kit::motion::Beat;
 use crate::kit::{Engine, Kit, Lifted, icon};
-use crate::settings::row::{Face, Kind, Row};
+use crate::settings::row::{Face, Kind, Row, Tone};
 use compositor_protocol::{Edges, Fill, GroupPose, Props, Rect, Rgba, Shape};
 use lumatv_tokens::{Radius, TypeRole};
 use ui::components::Align;
@@ -104,7 +104,7 @@ enum Trailing {
     None,
     Toggle { track: ShapeLayer, thumb: ShapeLayer, tick: Option<ImageLayer>, at: (f32, f32), on: Option<bool> },
     Seg { chosen: ShapeLayer, mark: ShapeLayer, focus: ShapeLayer, geom: SegGeom, at: (f32, f32), index: Option<usize>, cursor: Option<usize>, first: usize },
-    Slider { fill: ShapeLayer, thumb: Option<ShapeLayer>, at: (f32, f32), w: f32, thumb_d: f32, shown: Option<f32>, placed: Option<(f32, f32, f32)> },
+    Slider { fill: ShapeLayer, thumb: Option<ShapeLayer>, mark: Option<ShapeLayer>, at: (f32, f32), w: f32, thumb_d: f32, shown: Option<(f32, Option<f32>, Option<String>)>, placed: Option<(f32, f32, f32)> },
     Cards(Vec<CardArt>),
 }
 
@@ -152,7 +152,7 @@ pub fn signature(row: &Row) -> String {
     let value = if row.kind == Kind::Slider { String::new() } else { row.value.clone() };
     let own = if row.kind == Kind::Value { format!("{}", row.selected) } else { String::new() };
     format!(
-        "{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}",
+        "{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{:?}|{}",
         row.kind,
         row.icon,
         row.label,
@@ -173,7 +173,9 @@ pub fn signature(row: &Row) -> String {
         row.unit,
         own,
         row.zones,
-        face
+        face,
+        row.tone,
+        row.mark.is_some()
     )
 }
 
@@ -665,14 +667,25 @@ impl RowArt {
                 let track_w = w - thumb_d;
                 let track_at = (at.0 + thumb_d / 2.0, at.1 + ((sz.target - th) / 2.0).round());
                 let track = make_shape(env, track_w, th, z + 3, pill(paint.track_off, CLEAR, th / 2.0, 0.0), Props::at(track_at.0, track_at.1));
-                let fill = make_shape(env, track_w, th, z + 4, pill(paint.accent, CLEAR, th / 2.0, 0.0), Props::at(track_at.0, track_at.1));
+                let tone = match row.tone {
+                    Tone::Accent => paint.accent,
+                    Tone::Positive => paint.positive,
+                    Tone::Warning => paint.warning,
+                    Tone::Danger => paint.danger,
+                };
+                let fill = make_shape(env, track_w, th, z + 4, pill(tone, CLEAR, th / 2.0, 0.0), Props::at(track_at.0, track_at.1));
                 let thumb = (!row.info).then(|| {
                     let dy = at.1 + ((sz.target - thumb_d) / 2.0).round();
                     make_shape(env, thumb_d, thumb_d, z + 5, pill(paint.ink, paint.edge_raised, thumb_d / 2.0, 1.0), Props::at(at.0, dy))
                 });
+                // a meter's best so far: an upright tick across the track, in the ink
+                let mark = row.mark.map(|_| {
+                    let (mw, mh) = (sz.s1.max(2.0), th + 2.0 * sz.s2);
+                    make_shape(env, mw, mh, z + 5, pill(paint.ink, CLEAR, mw / 2.0, 0.0), HIDDEN)
+                });
                 self.control = Some(Frame::new(at.0 - rect.x, at.1 - rect.y, w, sz.target));
                 self._plate = Some(track);
-                self.trailing = Trailing::Slider { fill, thumb, at: track_at, w: track_w, thumb_d, shown: None, placed: None };
+                self.trailing = Trailing::Slider { fill, thumb, mark, at: track_at, w: track_w, thumb_d, shown: None, placed: None };
                 self.draw_trail_text(env, row, &geom)?;
                 let _ = (label_y, local_right);
             }
@@ -954,15 +967,25 @@ impl RowArt {
                 *cursor = want_cursor;
                 *first = new_first;
             }
-            Trailing::Slider { fill, thumb, at, w, thumb_d, shown, placed } => {
-                let frac = if row.max > row.min { (((row.num - row.min) / (row.max - row.min)) as f32).clamp(0.0, 1.0) } else { 0.0 };
+            Trailing::Slider { fill, thumb, mark, at, w, thumb_d, shown, placed } => {
+                let frac_of = |v: f64| if row.max > row.min { (((v - row.min) / (row.max - row.min)) as f32).clamp(0.0, 1.0) } else { 0.0 };
+                let frac = frac_of(row.num);
+                let marked = row.mark.map(frac_of);
                 let first_time = shown.is_none();
-                let changed = *shown != Some(frac);
+                let now = (frac, marked, row.value_text.clone());
+                let changed = shown.as_ref() != Some(&now);
                 let scale = if moment.focused { env.kit.tokens.focus.button_scale } else { 1.0 };
                 if changed {
                     let fw = (*w * frac).round();
                     fill.set(Props { clip: Some(Rect { x: at.0, y: at.1, w: fw, h: sz.s3 }), ..Props::at(at.0, at.1) });
-                    *shown = Some(frac);
+                    if let Some(m) = mark {
+                        let mw = sz.s1.max(2.0);
+                        match marked {
+                            Some(f) => m.set(Props::at((at.0 + *w * f - mw / 2.0).round(), at.1 - sz.s2)),
+                            None => m.set(HIDDEN),
+                        }
+                    }
+                    *shown = Some(now);
                 }
                 if let Some(t) = thumb {
                     let tx = at.0 + *w * frac - *thumb_d / 2.0;

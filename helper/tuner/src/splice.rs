@@ -5,7 +5,13 @@
 //! drops any that appear later, so the slate and the programme share PIDs; and its grab copies timestamps, so the programme's are moved onto
 //! the slate's clock at every splice instead of jumping. The station's continuity counters go on from the slate's, so a packet lost on
 //! the air still shows as lost downstream; a packet left out here does not.
+//!
+//! With smoothing ([`Program::smoothing`]) a picture that lost packets on the air is left out whole, and so is every picture after it up
+//! to the next clean keyframe (a lone broken B picture excepted): the player holds the last whole picture, decoded clean, instead of
+//! the damage spreading through the group of pictures, and the sound goes on. Times are not moved, so nothing waits for anything: a
+//! picture goes on as soon as it is whole, as without smoothing, and a stream that loses nothing goes out byte for byte the same.
 
+use crate::health::lost_before;
 use crate::mpeg2::Format;
 use crate::psi::{self, PACKET};
 
@@ -231,6 +237,19 @@ fn picture_type(payload: &[u8]) -> Option<u8> {
     payload.get(at + 5).map(|b| (b >> 3) & 7)
 }
 
+/// The start of a picture's PES payload, from its first packets: far enough for its sequence header with both matrices, its GOP header
+/// and its picture header.
+fn lead(packets: &[[u8; PACKET]]) -> Vec<u8> {
+    let mut lead = Vec::with_capacity(4 * PACKET);
+    for (i, p) in packets.iter().take(4).enumerate() {
+        let at = if i == 0 { head(p).map(|h| h.payload) } else { payload_at(p) };
+        if let Some(at) = at.filter(|&at| at < PACKET) {
+            lead.extend_from_slice(&p[at..]);
+        }
+    }
+    lead
+}
+
 /// Whether the GOP whose header is in `payload` is closed (its first B pictures need nothing before it).
 fn closed_gop(payload: &[u8]) -> bool {
     payload
@@ -259,6 +278,8 @@ pub struct Program {
     last_pcr: Option<u64>,
     /// The duration of one picture.
     frame: u64,
+    /// A picture broken on the way is held back ([`Program::smoothing`]).
+    smooth: bool,
     live: Option<Live>,
 }
 
@@ -278,6 +299,11 @@ struct Live {
     leading_b: bool,
     /// Each sound's last PES passed on, for where a slate's silence goes on after it.
     audio_last: Vec<Option<LastSound>>,
+    /// With smoothing: the station's last continuity count on the picture, whether the picture's PES on its way lost packets (or carries
+    /// one marked in error), and whether the pictures are held back until the next clean keyframe.
+    picture_cc: Option<u8>,
+    broken: bool,
+    frozen: bool,
 }
 
 /// A sound's last PES: its PTS, its length in bytes, and the time a byte of it holds, from the PES before; and, when its AC-3 frames
@@ -368,8 +394,26 @@ impl Program {
             shown: start,
             last_pcr: None,
             frame: format.ticks(1),
+            smooth: false,
             live: None,
         }
+    }
+
+    /// With `on`, a picture of the programme that lost packets on the way (or carries one the demodulator marked in error) is held back,
+    /// and so is every picture after it until the next clean keyframe, unless it is a B picture, which nothing predicts from: the player
+    /// stays on the last whole picture instead of showing the damage spread, and the sound goes on.
+    pub fn smoothing(mut self, on: bool) -> Self {
+        self.smooth = on;
+        self
+    }
+
+    /// Whether the programme's pictures are being held back until its next clean keyframe.
+    pub fn frozen(&self) -> bool {
+        self.live.as_ref().is_some_and(|l| l.frozen)
+    }
+
+    pub fn smooths(&self) -> bool {
+        self.smooth
     }
 
     pub fn layout(&self) -> &Layout {
@@ -397,7 +441,7 @@ impl Program {
         write_stamp(&mut pes, 9, dts);
         pes.extend_from_slice(es);
         if self.layout.clock_apart {
-            self.clock_packet(pcr, out);
+            self.clock_packet(CLOCK, pcr, out);
             self.packetize(VIDEO, &pes, None, out);
         } else {
             self.packetize(VIDEO, &pes, Some(pcr), out);
@@ -485,6 +529,9 @@ impl Program {
             held: Default::default(),
             leading_b: !closed_gop(&payload),
             audio_last: vec![None; sounds],
+            picture_cc: None,
+            broken: false,
+            frozen: false,
         });
     }
 
@@ -494,7 +541,8 @@ impl Program {
 
     /// Passes the station's packets in `packets` on as the program's (`splice_in` first): the program's PIDs, the counters carried on, the
     /// times moved; the rest is left out. Each PES goes on once the next one on its PID starts. A sound's PES that would start before the
-    /// slate's silence has ended is left out whole, and so are the B pictures that lead an open GOP.
+    /// slate's silence has ended is left out whole, and so are the B pictures that lead an open GOP; with smoothing, so are the broken
+    /// pictures and those that predict from them.
     pub fn live(&mut self, packets: &[u8], out: &mut Vec<u8>) {
         let Some(mut live) = self.live.take() else {
             return;
@@ -505,11 +553,27 @@ impl Program {
             };
             let s = slot(pid);
             let mut p: [u8; PACKET] = p.try_into().expect("a whole packet");
+            // a picture packet the demodulator marked in error, or one lost before this one, breaks the picture on its way (at a head, the
+            // one that ends here: what was lost was its end, or pictures whole)
+            let marked = self.smooth && pid == VIDEO && p[1] & 0x80 != 0;
+            if self.smooth && pid == VIDEO {
+                if marked {
+                    live.broken = true;
+                } else if p[3] & 0x10 != 0 {
+                    let cc = p[3] & 0x0F;
+                    live.broken |= live.picture_cc.is_some_and(|last| lost_before(last, cc) > 0);
+                    live.picture_cc = Some(cc);
+                }
+            }
             p[1] = (p[1] & 0xE0) | (pid >> 8) as u8;
             p[2] = pid as u8;
             if let Some(h) = head(&p) {
                 // the PES before it on its PID is whole
-                self.pass(&mut live, s, out);
+                let next = h.dts.or(h.pts).map(|(_, v)| add(v, live.offset));
+                self.pass(&mut live, s, next, out);
+                if pid == VIDEO {
+                    live.broken = marked;
+                }
                 live.dropping[s] = false;
                 let mut stamps = [h.pts, h.dts];
                 for (at, v) in stamps.iter_mut().flatten() {
@@ -557,17 +621,28 @@ impl Program {
             live.held[s].packets.push(p);
             if pid == CLOCK {
                 // the clock's own packets carry no PES
-                self.pass(&mut live, s, out);
+                self.pass(&mut live, s, None, out);
             }
         }
         self.live = Some(live);
     }
 
     /// Passes the PES held on slot `s` on: its counters carried on from the program's, and what it moves on (a picture's times, a
-    /// sound's, the silence that fills up to the first sound after a slate).
-    fn pass(&mut self, live: &mut Live, s: usize, out: &mut Vec<u8>) {
+    /// sound's, the silence that fills up to the first sound after a slate). `next` is the decoding time of the PES that starts after it.
+    /// A picture smoothing holds back leaves only its clock.
+    fn pass(&mut self, live: &mut Live, s: usize, next: Option<u64>, out: &mut Vec<u8>) {
         let held = std::mem::take(&mut live.held[s]);
         if held.packets.is_empty() {
+            return;
+        }
+        if s == 0 && self.smooth && !self.keep_picture(live, &held, next) {
+            // the counters close up over it from the next picture that goes on
+            live.delta[0] = None;
+            for p in &held.packets {
+                if let Some(base) = pcr(p) {
+                    self.clock_packet(VIDEO, base, out);
+                }
+            }
             return;
         }
         match held.stamps {
@@ -640,13 +715,43 @@ impl Program {
         }
     }
 
-    /// A packet of the clock alone, on the clock's own PID.
-    fn clock_packet(&mut self, pcr: u64, out: &mut Vec<u8>) {
+    /// With smoothing: whether the picture whose PES is `held` goes on, `next` being the decoding time of the picture after it. A
+    /// broken picture is held back, and every picture after it until a clean keyframe (an I picture led by a sequence header), unless it
+    /// is a B picture that the next one follows by less than two pictures' time: nothing predicts from a B picture, and no other picture
+    /// was lost whole with it.
+    fn keep_picture(&self, live: &mut Live, held: &Held, next: Option<u64>) -> bool {
+        let lead = lead(&held.packets);
+        let kind = picture_type(&lead);
+        if live.frozen {
+            let keyframe = kind == Some(1) && lead.windows(4).any(|w| w == [0, 0, 1, 0xB3]);
+            if live.broken || !keyframe {
+                return false;
+            }
+            // an open GOP's leading B pictures predict from pictures held back
+            live.frozen = false;
+            live.leading_b = !closed_gop(&lead);
+            return true;
+        }
+        if !live.broken {
+            return true;
+        }
+        let dts = match held.stamps {
+            Some(Stamps::Picture { dts, pts }) => dts.or(pts),
+            _ => None,
+        };
+        let alone = kind == Some(3) && dts.zip(next).is_some_and(|(d, n)| (1..(self.frame * 7 / 4) as i64).contains(&diff(n, d)));
+        live.frozen = !alone;
+        false
+    }
+
+    /// A packet of the clock alone on `pid` (the clock's own PID, or the picture's while a picture is held back): it carries the last
+    /// continuity count.
+    fn clock_packet(&mut self, pid: u16, pcr: u64, out: &mut Vec<u8>) {
         let mut p = [0xFF; PACKET];
         p[0] = 0x47;
-        p[1] = (CLOCK >> 8) as u8;
-        p[2] = CLOCK as u8;
-        p[3] = 0x20 | (self.cc[1].wrapping_sub(1) & 0x0F);
+        p[1] = (pid >> 8) as u8;
+        p[2] = pid as u8;
+        p[3] = 0x20 | (self.cc[slot(pid)].wrapping_sub(1) & 0x0F);
         p[4] = 183;
         p[5] = 0x10;
         write_pcr(&mut p, pcr);
@@ -978,5 +1083,78 @@ mod tests {
         assert_eq!(routes.pids(), [0x31, 0x34, 0x1FF0]);
         let none = psi::parse_pmt(&psi::build_pmt(1, 0, 0x34, &[], &[(0x81, 0x34, &[])])).unwrap();
         assert!(Layout::of(&none).is_none(), "no picture, no slate");
+    }
+
+    /// A station's picture of `kind` (1 I, 2 P, 3 B) at decoding time `dts`, marked `MK<mark>`, in one packet counted `cc`: an I picture
+    /// is led by a sequence header and an open GOP's header, a B picture is shown when it is decoded.
+    fn station_picture(cc: u8, dts: u64, kind: u8, mark: u8) -> [u8; PACKET] {
+        let mut body = Vec::new();
+        if kind == 1 {
+            body.extend([0, 0, 1, 0xB3, 0x2D, 0x01, 0xE0, 0x34, 0xFF, 0xFF, 0xE0, 0x18, 0, 0, 1, 0xB8, 0, 8, 0, 0]);
+        }
+        body.extend([0, 0, 1, 0x00, 0, kind << 3, 0xFF, 0xF8, b'M', b'K', mark]);
+        let stamps = if kind == 3 { (dts, None) } else { (dts + 3003, Some(dts)) };
+        station(0x31, cc, Some(stamps), &body)
+    }
+
+    fn mark_of(q: &[u8]) -> Option<u8> {
+        q.windows(3).find(|w| w[..2] == *b"MK").map(|w| w[2])
+    }
+
+    /// A closed keyframe at 2,000,000 marked 0, then a picture every 3003 of each kind given (`true`: a packet of it lost on the air), each
+    /// with a sound: the station's packets.
+    fn group(kinds: &[(u8, bool)]) -> Vec<[u8; PACKET]> {
+        let mut key = station_picture(0, 2_000_000, 1, 0);
+        let at = key.windows(4).position(|w| w == [0, 0, 1, 0xB8]).unwrap();
+        key[at + 7] = 0x40;
+        let (mut all, mut cc) = (vec![key], 1u8);
+        for (n, &(kind, lost)) in (1u8..).zip(kinds) {
+            all.push(station_picture(cc, 2_000_000 + 3003 * u64::from(n), kind, n));
+            cc = (cc + if lost { 2 } else { 1 }) & 0x0F;
+            all.push(station(0x34, (n - 1) & 0x0F, Some((2_000_000 + 3003 * u64::from(n - 1), None)), &[0x0b, 0x77]));
+        }
+        all
+    }
+
+    fn smoothed(on: bool, station: &[[u8; PACKET]]) -> (Program, Vec<[u8; PACKET]>) {
+        let (layout, routes) = Layout::of(&station_pmt()).unwrap();
+        let mut p = Program::new(1, layout.clone(), &SD).smoothing(on);
+        p.splice_in(layout, routes, &station[0], &SD);
+        let mut out = Vec::new();
+        p.live(&station.concat(), &mut out);
+        (p, packets(&out))
+    }
+
+    #[test]
+    fn smoothing_leaves_a_stream_that_lost_nothing_as_it_was() {
+        let station = group(&[(2, false), (3, false), (3, false), (2, false), (1, false), (3, false), (2, false)]);
+        assert_eq!(smoothed(true, &station).1, smoothed(false, &station).1);
+    }
+
+    #[test]
+    fn smoothing_holds_back_a_broken_picture_and_what_predicts_from_it_until_a_clean_keyframe() {
+        // P, B broken, P, P broken, B, I of an open GOP, B, P, B, B, P
+        let kinds = [(2, false), (3, true), (2, false), (2, true), (3, false), (1, false), (3, false), (2, false), (3, false), (3, false), (2, false)];
+        let mut station = group(&kinds);
+        // B picture 5, held back, carries the clock
+        let five = station.iter().position(|q| mark_of(q) == Some(5)).unwrap();
+        let b5 = &mut station[five];
+        b5.copy_within(4..PACKET - 8, 12);
+        b5[3] = 0x30 | (b5[3] & 0x0F);
+        b5[4] = 7;
+        b5[5] = 0x10;
+        write_pcr(b5, 1_990_000);
+        let (p, out) = smoothed(true, &station);
+        let video: Vec<&[u8; PACKET]> = out.iter().filter(|q| psi::pid_of_packet(&q[..]) == VIDEO).collect();
+        let shown: Vec<u8> = video.iter().filter_map(|q| mark_of(&q[..])).collect();
+        assert_eq!(shown, [0, 1, 3, 6, 8, 9, 10], "B 2 alone; P 4 up to keyframe 6, and B 7 leading its open GOP; 11 is on its way");
+        let counted: Vec<u8> = video.iter().filter(|q| q[3] & 0x10 != 0).map(|q| q[3] & 0x0F).collect();
+        assert!(counted.windows(2).all(|w| w[1] == (w[0] + 1) & 0x0F), "no gap shows downstream: {counted:?}");
+        let clock = video.iter().find(|q| q[3] & 0x30 == 0x20).expect("the held picture's clock went on alone");
+        assert_eq!(pcr(&clock[..]), Some(1_990_000 + 900_000 - 2_000_000), "moved as the programme's times are");
+        assert_eq!(out.iter().filter(|q| psi::pid_of_packet(&q[..]) == AUDIO).count(), 10, "every sound went on");
+        assert!(!p.frozen());
+        let (_, plain) = smoothed(false, &station);
+        assert_eq!(plain.iter().filter_map(|q| (psi::pid_of_packet(&q[..]) == VIDEO).then(|| mark_of(&q[..])).flatten()).count(), 11, "without smoothing all go on");
     }
 }

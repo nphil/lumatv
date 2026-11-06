@@ -13,7 +13,7 @@
 //! program that cannot link LG's 32-bit luna library has.
 
 use crate::psi::{self, UNIT};
-use crate::stream::{Failure, Hardware, Signal, Tap};
+use crate::stream::{Failure, Hardware, Hold, Signal, Tap};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use std::fs::{File, OpenOptions};
@@ -461,10 +461,11 @@ fn unix_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
-/// The signal [`DEMOD_STATUS`] reports: the lock, signal to noise from the demodulator's mean square error against its constellation's
-/// power (8VSB's levels of 1, 3, 5 and 7 average 21, which the set gives as `Const Power` 21504: the MSE's scale of 1024), and the packets
-/// it could not correct. Read on the set on 2026-11-05: RF 32 locked at MSE 25 to 37 (28 to 29 dB) with no packet errors, weak RF 29 at
-/// 225 to 364 (18 to 20 dB) with 21 to 255, RF 35 unlocked at 65535.
+/// The signal [`DEMOD_STATUS`] reports: the lock, the demodulator's mean square error against its constellation and the signal to noise
+/// it makes against the constellation's power (8VSB's levels of 1, 3, 5 and 7 average 21, which the set gives as `Const Power` 21504:
+/// the MSE's scale of 1024), the packets it could not correct and the bit errors it corrected. Read on the set on 2026-11-05: RF 32 locked
+/// at MSE 25 to 37 (28 to 29 dB) with no packet errors and BER 0, weak RF 29 at 225 to 365 (18 to 20 dB) with 21 to 255 and BER 320,000
+/// to 585,000, RF 35 unlocked at 65535.
 pub fn parse_signal(text: &str) -> Option<Signal> {
     let field = |name: &str| {
         text.lines().find_map(|l| {
@@ -473,16 +474,17 @@ pub fn parse_signal(text: &str) -> Option<Signal> {
         })
     };
     let locked = field("Demod status")? == "LOCK";
-    let mse: f32 = field("MSE")?.parse().ok()?;
+    let mse: u32 = field("MSE")?.parse().ok()?;
     let power: f32 = field("Const Power")
         .and_then(|v| v.parse().ok())
         .unwrap_or(21_504.0);
-    let snr = (locked && mse > 0.0).then(|| 10.0 * (power / mse).log10());
-    let errors = field("Packet Error").and_then(|v| v.parse().ok());
+    let snr = (locked && mse > 0).then(|| 10.0 * (power / mse as f32).log10());
     Some(Signal {
         locked,
+        mse: locked.then_some(mse),
         snr,
-        errors,
+        errors: field("Packet Error").and_then(|v| v.parse().ok()),
+        ber: field("BER").and_then(|v| v.parse().ok()),
     })
 }
 
@@ -553,6 +555,32 @@ impl Hardware for Tv {
         inner.wait_lock(&id)?;
         tuned.dvb = Some(Dvb::open(&inner.cfg, seed)?);
         Ok(Box::new(tuned))
+    }
+
+    fn hold(&self, channel_id: &str) -> Result<Box<dyn Hold>, Failure> {
+        let inner = self.inner.clone();
+        let previous = inner.last_channel()?;
+        let (held, id) = inner.open_pipeline()?;
+        let mut tuned = Tuned {
+            inner: inner.clone(),
+            pipeline: Some((held, id.clone())),
+            previous,
+            moved: false,
+            dvb: None,
+        };
+        inner.change_channel(&id, channel_id)?;
+        tuned.moved = true;
+        Ok(Box::new(tuned))
+    }
+
+    fn tuned_to(&self) -> Option<String> {
+        self.inner.last_channel().ok()
+    }
+}
+
+impl Hold for Tuned {
+    fn taken(&mut self) -> Option<String> {
+        Tap::taken(self)
     }
 }
 
@@ -784,7 +812,7 @@ mod tests {
     }
 
     #[test]
-    fn the_demodulator_s_report_is_a_lock_and_a_signal_to_noise() {
+    fn the_demodulator_s_report_is_a_lock_a_signal_to_noise_and_its_errors() {
         // read on the set on 2026-11-05, RF 32 at rest
         let report = "*****************DEMOD_Debug_TotalInfo*****************\nDemod status\t=\tLOCK\nOperMode    =       VSB\n\
                       *********************Signal Status*********************\nPacket Error =    0\nBER =             0\nAGC =             625\n\
@@ -792,12 +820,14 @@ mod tests {
         let s = parse_signal(report).unwrap();
         assert!(s.locked);
         assert!((s.snr.unwrap() - 28.4).abs() < 0.1, "{s:?}");
-        assert_eq!(s.errors, Some(0));
-        let weak = parse_signal(&report.replace("Error =    0", "Error =    81")).unwrap();
-        assert_eq!(weak.errors, Some(81));
+        assert_eq!((s.mse, s.errors, s.ber), (Some(31), Some(0), Some(0)));
+        // RF 29 the same day
+        let weak = parse_signal(&report.replace("Error =    0", "Error =    81").replace("BER =             0", "BER = 584211").replace("31\nbMSE", "355\nbMSE"))
+            .unwrap();
+        assert_eq!((weak.mse, weak.errors, weak.ber), (Some(355), Some(81), Some(584_211)));
         let none =
             parse_signal(&report.replace("\tLOCK", "\tUNLOCK").replace("31", "65535")).unwrap();
-        assert_eq!((none.locked, none.snr), (false, None));
+        assert_eq!((none.locked, none.snr, none.mse), (false, None, None));
         assert_eq!(parse_signal("no such report"), None);
     }
 
@@ -922,15 +952,15 @@ mod tests {
             dvb: None,
         };
         *luna.state.lock() = "BROADCAST_STATE_RENDERING".into();
-        assert_eq!(tuned.taken(), None);
+        assert_eq!(Tap::taken(&mut tuned), None);
         *luna.state.lock() = "BROADCAST_STATE_UNREALIZED".into();
         assert_eq!(
-            tuned.taken(),
+            Tap::taken(&mut tuned),
             Some("the TV took the tuner (BROADCAST_STATE_UNREALIZED)".to_owned())
         );
         luna.down.store(true, Ordering::Relaxed);
         assert!(
-            tuned.taken().is_some(),
+            Tap::taken(&mut tuned).is_some(),
             "a pipeline that cannot be asked about is gone"
         );
     }

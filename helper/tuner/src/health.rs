@@ -94,15 +94,17 @@ pub struct Reception {
     pub rf: u8,
     pub hidden: bool,
     pub health: Option<Health>,
-    /// Its picture's format and how many sounds its program has, once seen: what a host keeps to give back with [`crate::Tuner::recall`].
+    /// Its picture's format and how many sounds its program has, once seen, and its picture's stream type (0x02 MPEG-2, 0x1B H.264):
+    /// what a host keeps to give back with [`crate::Tuner::recall`]. The format is an MPEG-2 picture's only.
     pub format: Option<Format>,
+    pub video: Option<u8>,
     pub sounds: usize,
 }
 
-/// The picture packets of one channel while a check listens: how many came and how many were lost, by continuity count, and when the
-/// first whole picture came.
-#[derive(Default)]
+/// The picture packets of one channel while a check listens: its stream type, how many came and how many were lost, by continuity count,
+/// and when the first whole picture came (for MPEG-2, with the shape its sequence header gives).
 struct Listened {
+    stream_type: u8,
     got: u32,
     lost: u32,
     cc: Option<u8>,
@@ -187,10 +189,9 @@ impl Facade {
                     .and_then(|c| pat.programs.iter().find(|p| p.0 == c.program))
                     .and_then(|p| tap.section(p.1, psi::TID_PMT, 0, wait))
                     .and_then(|s| psi::parse_pmt(&s));
-                if let Some((layout, routes)) = pmt.as_ref().and_then(Layout::of)
-                    && layout.video_type == 0x02
-                {
-                    pictures.insert(routes.video, (i, Listened::default()));
+                if let Some((layout, routes)) = pmt.as_ref().and_then(Layout::of) {
+                    let listened = Listened { stream_type: layout.video_type, got: 0, lost: 0, cc: None, whole: None, format: None };
+                    pictures.insert(routes.video, (i, listened));
                     layouts[i] = Some((layout, pat.tsid));
                 }
             }
@@ -216,9 +217,11 @@ impl Facade {
                     l.lost += l.cc.map_or(0, |last| lost_before(last, cc));
                     l.cc = Some(cc);
                     l.got += 1;
-                    if l.whole.is_none() && psi::access_point(p, 0x02) {
+                    if l.whole.is_none() && psi::access_point(p, l.stream_type) {
                         l.whole = Some(now.saturating_sub(started));
-                        l.format = Format::of_sequence(&p[4..]);
+                        if l.stream_type == 0x02 {
+                            l.format = Format::of_sequence(&p[4..]);
+                        }
                     }
                 }
             }
@@ -227,11 +230,40 @@ impl Facade {
         drop(tap);
         for (i, e) in group.iter().enumerate() {
             let listened = pictures.values().find(|(at, _)| *at == i).map(|(_, l)| l);
-            if let (Some(format), Some((layout, tsid))) = (listened.and_then(|l| l.format), layouts[i].take()) {
+            // what the channel's next stream is like: an MPEG-2 picture's shape for its slate; another picture streams without slates
+            let format = listened.filter(|l| l.whole.is_some()).and_then(|l| if l.stream_type == 0x02 { l.format } else { Some(Format::FALLBACK) });
+            if let (Some(format), Some((layout, tsid))) = (format, layouts[i].take()) {
                 self.tuning.saw(&e.guide, Seen { format, layout, tsid });
             }
             record(e, listened, signal);
         }
         group.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::docs::Identity;
+    use crate::slated::tests::{Script, Tv, avc, h264_mux, pes};
+    use crate::stream::Limits;
+    use crate::stream::tests::{Time, served};
+    use std::sync::Arc;
+
+    #[test]
+    fn a_check_hears_an_h264_picture_as_it_hears_an_mpeg2_one() {
+        let time = Time::default();
+        let (mut a, mut b) = (0u8, 0u8);
+        let mpeg2 = [0, 0, 1, 0xB3, 0x2D, 0x01, 0xE0, 0x34, 0xFF, 0xFF, 0xE0, 0x18];
+        let chunks = vec![(400, [pes(0x31, &mut a, 1_003_003, Some(1_000_000), &mpeg2), pes(0x61, &mut b, 1_003_003, Some(1_000_000), &avc(true, b""))].concat())];
+        let script = Script::with_mux(&time, h264_mux(), chunks);
+        let identity = Identity { name: "LumaTV".into(), device_id: "0A1B2C3D".into() };
+        let f = Facade::new(Arc::new(Tv(script)), identity, Limits::default(), time.clock(), served(), None);
+        assert_eq!(f.check_all(), Ok(2));
+        let known = f.tuning.known();
+        let verdict = |g: &str| known[g].health.as_ref().map(|h| h.verdict);
+        assert_eq!((verdict("2.1"), verdict("2.4")), (Some(Verdict::Good), Some(Verdict::Good)));
+        let kind = |g: &str| known[g].seen.as_ref().map(|s| s.layout.video_type);
+        assert_eq!((kind("2.1"), kind("2.4")), (Some(0x02), Some(0x1B)), "2.4's next stream goes without slates");
     }
 }

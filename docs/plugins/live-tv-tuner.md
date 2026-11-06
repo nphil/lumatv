@@ -49,7 +49,15 @@ A slate is an I picture twice a second with skipped pictures between, with silen
 active theme's colours and type. The channel's own packets go on in the same program: its PIDs moved onto the program's (0x101 the
 picture, 0x102 on the sounds), its times onto the slate's clock, its counters carried on. Plex's transcoder drops a stream that appears
 after the start and passes a time jump through, which is why (`docs/research/tuner-slates.md`). A channel whose picture is not MPEG-2
-is served without slates from its next request on.
+(H.264, HEVC) is served without slates, from its first IDR picture: at once when it was not seen yet (nothing has gone out while its
+shape was waited for), and from the start of every stream once its type is known.
+
+With *Hide broken pictures* on (off by default), a picture that lost packets on the air is left out whole, and so is every picture
+after it up to the next clean keyframe, unless it is a lone B picture (nothing predicts from one, and the next picture followed it
+within two pictures' time, so none was lost whole with it). The player holds the last whole picture, decoded clean, instead of the
+blocks and smears spreading through the group of pictures; the sound goes on, and the picture's clock goes on in packets of its own.
+When no clean keyframe comes for 3 s the weak-signal slate stands in. A picture goes out as soon as it is whole, as without it, so it
+adds no delay, and a stream that loses nothing is sent byte for byte the same.
 
 ## Players
 
@@ -69,15 +77,24 @@ answers; the plugin's page says so.
 
 ## Settings
 
-The page has the switch, where the tuner stands (idle, streaming a channel, busy while the TV's own Live TV has it, or checking
-reception), the three addresses to give a player, the networks it answers, the name players show and the switch for the messages in
-the stream. Turning it off asks nothing.
+The page has the switch, where the tuner stands (idle, streaming a channel, busy while the TV's own Live TV has it, checking reception
+or measuring a channel for the meter), the three addresses to give a player, the networks it answers, the name players show and the
+switches for the messages in the stream and for hiding broken pictures. Turning it off asks nothing.
+
+Its antenna meter reads the TV's demodulator about once a second while the page is open, of an RF channel picked (the helper tunes its
+first channel) or of the one the tuner is on: a bar of the signal to noise from 16 to 30 dB in the verdict's colour, a tick at the best
+reading since the channel was picked, and the lock, MSE, dB, packet errors and BER. Good is no packet errors at 23 dB or more, Fair a
+few or less margin, Poor 20 or more packet errors a reading or under 19 dB. The meter tunes only a free tuner and gives it up at once to
+a stream, a reception check or the TV's own Live TV, then reads the channel they tuned and says why; it lets go when the page closes,
+and 5 s after the page last asked for a reading. The page asks the helper for it on loopback (`GET`/`POST /v1/tuner/meter`, `POST
+/v1/tuner/meter/best` and `/stop`, the TV's Settings only).
 
 Its channel list has every antenna channel under its RF channel (the channels that share a signal come in alike), each saying how it
 came in the last time it was watched or checked: good, some glitches, weak or no signal, with the signal in dB, the share of the
 picture lost and the dropouts. A channel switched off there is left out of the lineup, the playlist and the guide players see. *Check
-every channel* tunes each RF channel in turn for a few seconds; a stream asked for meanwhile comes first. The list and the channels
-left out are kept in `tuner/channels.json`.
+every channel* tunes each RF channel in turn for a few seconds and listens for each channel's MPEG-2, H.264 or HEVC picture; a stream
+asked for meanwhile comes first. The list, the channels left out and each channel's picture type and shape are kept in
+`tuner/channels.json`.
 
 ## Standalone app
 

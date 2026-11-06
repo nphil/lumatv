@@ -18,6 +18,9 @@ pub struct Paint {
     pub danger: Rgba,
     /// The danger colour as words: pushed away from the material until it reads (`Lu.dangerInk`).
     pub danger_ink: Rgba,
+    /// The verdicts' colours of a meter: good and so-so (bad is `danger`).
+    pub positive: Rgba,
+    pub warning: Rgba,
     pub edge: Rgba,
     pub edge_raised: Rgba,
     pub track_off: Rgba,
@@ -52,6 +55,8 @@ impl Paint {
             accent_ink: look.accent_ink(),
             danger,
             danger_ink: if light { scaled(danger, 1.0 / 3.2) } else { scaled(danger, 1.25) },
+            positive: look.colour(PaletteRole::Positive),
+            warning: look.colour(PaletteRole::Warning),
             edge: look.colour(PaletteRole::Edge),
             edge_raised: look.colour(PaletteRole::EdgeRaised),
             track_off: look.theme.materials.track_off,

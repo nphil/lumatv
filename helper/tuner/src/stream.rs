@@ -99,6 +99,17 @@ pub trait Hardware: Send + Sync + 'static {
     fn signal(&self) -> Option<Signal> {
         None
     }
+    /// Moves the tuner to LG's `channel_id` for the meter and keeps it there: nothing is routed and the lock is not waited for, so a
+    /// frequency that does not lock is read too. Dropping the hold lets go as a tap does: the pipeline, and the TV's last channel, which
+    /// is put back.
+    fn hold(&self, channel_id: &str) -> Result<Box<dyn Hold>, Failure> {
+        let _ = channel_id;
+        Err(Failure::Hardware("this TV's tuner cannot be held on a channel".to_owned()))
+    }
+    /// LG's channel the tuner was last moved to (the TV's last channel): what the demodulator reads while nothing of this tuner has it.
+    fn tuned_to(&self) -> Option<String> {
+        None
+    }
 }
 
 /// What the TV's demodulator says of the frequency it is tuned to.
@@ -106,10 +117,38 @@ pub trait Hardware: Send + Sync + 'static {
 pub struct Signal {
     /// It holds a signal.
     pub locked: bool,
+    /// Its mean square error against the constellation (`MSE`) while it holds a signal: lower is cleaner. Read on the set on 2026-11-05:
+    /// 23 to 37 on clean multiplexes, 345 to 365 on RF 29.
+    pub mse: Option<u32>,
     /// Signal to noise in dB, when it says.
     pub snr: Option<f32>,
     /// The packets it could not correct lately (`Packet Error`, 0 to 255 on the set), when it says: 0 on a clean multiplex.
     pub errors: Option<u32>,
+    /// The bit errors it counted lately (`BER`), when it says: 0 on a clean multiplex, 320,000 to 585,000 on RF 29.
+    pub ber: Option<u32>,
+}
+
+/// How a signal would show a picture, for someone aiming the antenna.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Grade {
+    /// No lock.
+    None,
+    /// Packets lost every second: a picture that breaks up.
+    Poor,
+    /// A picture with little to spare: a few packets lost, or no margin left.
+    Fair,
+    Good,
+}
+
+impl Grade {
+    pub fn word(&self) -> &'static str {
+        match self {
+            Self::None => "No signal",
+            Self::Poor => "Poor",
+            Self::Fair => "Fair",
+            Self::Good => "Good",
+        }
+    }
 }
 
 impl Signal {
@@ -135,6 +174,24 @@ impl Signal {
         }
     }
 
+    /// The meter's verdict: good is no packet errors at 23 dB or more (clean multiplexes read 28 to 30 dB on the set); fair is a few
+    /// errors, or none with less margin; poor is 20 or more a reading, or under 19 dB (RF 29 read 81 to 255 at 17.8 dB on 2026-11-05).
+    pub fn grade(&self) -> Grade {
+        let errors = self.errors.unwrap_or(0);
+        let snr = self.snr.unwrap_or(f32::MAX);
+        match () {
+            _ if !self.locked => Grade::None,
+            _ if errors >= 20 || snr < 19.0 => Grade::Poor,
+            _ if errors > 0 || snr < 23.0 => Grade::Fair,
+            _ => Grade::Good,
+        }
+    }
+
+    /// Whether this reading is better than `other`: its grade first, then its strength.
+    pub fn better_than(&self, other: &Signal) -> bool {
+        (self.grade(), self.strength()) > (other.grade(), other.strength())
+    }
+
     /// What a person is told: `Signal 18 dB: weak`, or that there is none.
     pub fn words(&self) -> String {
         match (self.locked, self.snr) {
@@ -143,6 +200,12 @@ impl Signal {
             (true, Some(snr)) => format!("Signal {snr:.0} dB: {}", self.quality()),
         }
     }
+}
+
+/// The tuner held on a channel for the meter ([`Hardware::hold`]).
+pub trait Hold: Send {
+    /// Whether the TV has taken the tuner from it, and why.
+    fn taken(&mut self) -> Option<String>;
 }
 
 /// The antenna's multiplex through the demux.
@@ -217,6 +280,12 @@ pub struct Limits {
     pub last_word: Duration,
     /// How long a check of every channel listens to the pictures of each RF channel: several of their whole pictures.
     pub listen: Duration,
+    /// With slates and smoothing: how long the picture may stay on its last whole picture, no clean keyframe having come since, before
+    /// the weak-signal slate stands in for it (a group of pictures is about a second on the stations measured).
+    pub frozen: Duration,
+    /// The meter: how often it reads the demodulator, and how long it goes on after a reading was last asked for.
+    pub meter_every: Duration,
+    pub meter_lease: Duration,
 }
 
 impl Default for Limits {
@@ -240,6 +309,9 @@ impl Default for Limits {
             give_up: Duration::from_secs(120),
             last_word: Duration::from_secs(6),
             listen: Duration::from_secs(3),
+            frozen: Duration::from_secs(3),
+            meter_every: Duration::from_secs(1),
+            meter_lease: Duration::from_secs(5),
         }
     }
 }
@@ -300,10 +372,12 @@ pub(crate) struct Tuning {
 /// serves it without slates.
 pub(crate) type LookSource = Arc<dyn Fn() -> Option<Look> + Send + Sync>;
 
-/// How streams are served: with slates or without (no source); and the channels the owner left out of the lineup.
+/// How streams are served: with slates or without (no source), whether a picture broken by a weak signal is held over (`smooth`), and the
+/// channels the owner left out of the lineup.
 #[derive(Clone, Default)]
 pub(crate) struct Options {
     pub(crate) look: Option<LookSource>,
+    pub(crate) smooth: bool,
     pub(crate) hidden: HashSet<String>,
 }
 
@@ -618,9 +692,17 @@ impl Facade {
 
     fn found(&self, entry: Entry, lease: Lease) -> Result<Stream, Failure> {
         let found = self.find(&entry, lease);
-        if let Err(Failure::NoSignal(_) | Failure::WeakSignal(_) | Failure::OffAir(_)) = &found {
+        if let Err(f) = &found {
+            self.not_found(&entry.guide, f);
+        }
+        found
+    }
+
+    /// A channel that could not start for its signal or its station is recorded as having no signal; the next request tunes again.
+    pub(crate) fn not_found(&self, guide: &str, failure: &Failure) {
+        if matches!(failure, Failure::NoSignal(_) | Failure::WeakSignal(_) | Failure::OffAir(_)) {
             self.tuning.record(
-                &entry.guide,
+                guide,
                 Health {
                     at: SystemTime::now(),
                     verdict: Verdict::NoSignal,
@@ -632,7 +714,6 @@ impl Facade {
                 },
             );
         }
-        found
     }
 
     /// Tunes `entry`'s channel, finds its program in the multiplex, routes it and waits for its first whole picture. A request of the same
@@ -656,7 +737,7 @@ impl Facade {
         // could still be on the demux for a moment (not seen on the set: the first PAT after the lock was always the new multiplex's).
         let mut sections = Vec::new();
         let mut why = Unfound::Missing("no whole channel table");
-        let (channel, pat, pmt_pid, pmt_section, pmt) = loop {
+        let found = loop {
             if let Some(f) = given_up() {
                 return Err(f);
             }
@@ -672,9 +753,29 @@ impl Facade {
                 Err(not) => why = not,
             }
         };
-        if psi::protected(&pmt, Some(&channel)) {
+        if psi::protected(&found.pmt, Some(&found.channel)) {
             return Err(Failure::Protected);
         }
+        self.route(entry, tap, found, lease, (asked, tuned))
+    }
+
+    /// Routes the program `found` on `tap` and waits for its first whole picture: the stream without slates from there. `tuned` is when
+    /// the stream was asked for and when the tuner locked.
+    pub(crate) fn route(
+        &self,
+        entry: &Entry,
+        mut tap: Box<dyn Tap>,
+        found: Found,
+        lease: Lease,
+        (asked, tuned): (Duration, Duration),
+    ) -> Result<Stream, Failure> {
+        let given_up = || {
+            lease
+                .replaced
+                .load(Ordering::Acquire)
+                .then_some(Failure::Busy)
+        };
+        let Found { channel, pat, pmt_pid, pmt_section, pmt } = found;
         let mut pids: Vec<u16> = [pmt_pid, pmt.pcr_pid]
             .into_iter()
             .chain(pmt.streams.iter().map(|e| e.pid))
@@ -770,14 +871,23 @@ impl Facade {
     }
 }
 
+/// A channel's program as its tables say: its virtual channel, the PAT, the PMT's PID and section as read, and what the PMT says.
+pub(crate) struct Found {
+    pub(crate) channel: psi::Channel,
+    pub(crate) pat: psi::Pat,
+    pub(crate) pmt_pid: u16,
+    pub(crate) pmt_section: Vec<u8>,
+    pub(crate) pmt: psi::Pmt,
+}
+
 /// One round of reading `entry`'s tables within `wait`: its virtual channel (the channel table's sections kept in `sections` across
-/// rounds), the PAT's entry for its program and the program's PMT (its section as read, and what it says).
+/// rounds), the PAT's entry for its program and the program's PMT.
 pub(crate) fn program(
     tap: &mut dyn Tap,
     entry: &Entry,
     sections: &mut Vec<Option<Vec<u8>>>,
     wait: Duration,
-) -> Result<(psi::Channel, psi::Pat, u16, Vec<u8>, psi::Pmt), Unfound> {
+) -> Result<Found, Unfound> {
     let all = channels_of(tap, sections, wait).ok_or(Unfound::Missing("no whole channel table"))?;
     let Some(channel) = all
         .into_iter()
@@ -799,7 +909,7 @@ pub(crate) fn program(
         .and_then(|s| psi::checked(&s, psi::TID_PMT).map(<[u8]>::to_vec))
         .ok_or(Unfound::Missing("no PMT"))?;
     let pmt = psi::parse_pmt(&pmt_section).ok_or(Unfound::Missing("no PMT"))?;
-    Ok((channel, pat, pmt_pid, pmt_section, pmt))
+    Ok(Found { channel, pat, pmt_pid, pmt_section, pmt })
 }
 
 /// The whole PAT: every section of it (the first says how many there are), so a program missing from it is missing from the multiplex.
@@ -1028,10 +1138,10 @@ pub(crate) mod tests {
         time: Time,
         mux: Multiplex,
         pub(crate) owner: Mutex<Option<String>>,
-        taken: Mutex<Option<String>>,
+        pub(crate) taken: Mutex<Option<String>>,
         pub(crate) tuned: Mutex<Vec<String>>,
         started: Mutex<Vec<Vec<u16>>>,
-        released: AtomicU64,
+        pub(crate) released: AtomicU64,
         scripted: Vec<Vec<u8>>,
         lists: AtomicU64,
         list_fails: AtomicBool,
@@ -1044,7 +1154,10 @@ pub(crate) mod tests {
         lost: Mutex<Vec<(u16, u8, u8)>>,
         reads: Mutex<Vec<(u16, u8, u8)>>,
         /// What the demodulator says.
-        signal: Mutex<Option<Signal>>,
+        pub(crate) signal: Mutex<Option<Signal>>,
+        /// The channels held for the meter, and the TV's last channel.
+        pub(crate) held: Mutex<Vec<String>>,
+        pub(crate) last: Mutex<Option<String>>,
     }
 
     impl Fake {
@@ -1066,6 +1179,8 @@ pub(crate) mod tests {
                 lost: Mutex::default(),
                 reads: Mutex::default(),
                 signal: Mutex::default(),
+                held: Mutex::default(),
+                last: Mutex::default(),
             })
         }
     }
@@ -1122,7 +1237,28 @@ pub(crate) mod tests {
                 queue: self.0.scripted.iter().cloned().collect(),
             }))
         }
+
+        fn hold(&self, channel_id: &str) -> Result<Box<dyn Hold>, Failure> {
+            self.0.held.lock().push(channel_id.to_owned());
+            Ok(Box::new(FakeTap {
+                fake: self.0.clone(),
+                queue: VecDeque::new(),
+            }))
+        }
+
+        fn tuned_to(&self) -> Option<String> {
+            self.0.last.lock().clone()
+        }
     }
+
+    impl Hold for FakeTap {
+        fn taken(&mut self) -> Option<String> {
+            self.fake.taken.lock().clone()
+        }
+    }
+
+    /// A clean multiplex's reading.
+    pub(crate) const CLEAN: Signal = Signal { locked: true, mse: Some(22), snr: Some(30.0), errors: Some(0), ber: Some(0) };
 
     impl Tap for FakeTap {
         /// A table takes a moment to come round; the first virtual channel table can be the last multiplex's, and a section can be lost.
@@ -1320,11 +1456,7 @@ pub(crate) mod tests {
         let time = Time::default();
         let fake = fake_with(&time, rf32(&[]), vec![packet(0x60, 0)]);
         let f = facade(&fake, &time);
-        let clean = Signal {
-            locked: true,
-            snr: Some(30.0),
-            errors: Some(0),
-        };
+        let clean = CLEAN;
         *fake.signal.lock() = Some(clean);
         assert_eq!(
             f.open("2.4", PLEX).err(),
@@ -1359,11 +1491,7 @@ pub(crate) mod tests {
             rf32(&[]),
             vec![[packet(0x61, 0), packet(0x61, 2)].concat()],
         );
-        *fake.signal.lock() = Some(Signal {
-            locked: true,
-            snr: Some(30.0),
-            errors: Some(0),
-        });
+        *fake.signal.lock() = Some(CLEAN);
         assert_eq!(
             facade(&fake, &time).open("2.4", PLEX).err(),
             Some(Failure::WeakSignal(
@@ -1605,11 +1733,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_channel_missing_from_a_clean_multiplex_is_not_on_air_and_otherwise_a_weak_signal() {
-        let clean = Signal {
-            locked: true,
-            snr: Some(30.0),
-            errors: Some(0),
-        };
+        let clean = CLEAN;
         let weak = Signal {
             errors: Some(12),
             ..clean
@@ -1781,5 +1905,14 @@ pub(crate) mod tests {
             Failure::OffAir("no picture (16.9)".into()).reason(),
             "not on air: no picture (16.9)"
         );
+    }
+
+    #[test]
+    fn the_meter_grades_a_reading_by_its_lost_packets_and_its_margin() {
+        let fair = Signal { mse: Some(141), snr: Some(21.8), ..CLEAN };
+        let rf29 = Signal { mse: Some(355), snr: Some(17.8), errors: Some(81), ber: Some(584_211), ..CLEAN };
+        let unlocked = Signal { locked: false, mse: None, snr: None, ..CLEAN };
+        assert_eq!([CLEAN, fair, rf29, unlocked].map(|s| s.grade()), [Grade::Good, Grade::Fair, Grade::Poor, Grade::None]);
+        assert!(CLEAN.better_than(&fair) && fair.better_than(&rf29) && !rf29.better_than(&fair));
     }
 }

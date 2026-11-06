@@ -467,7 +467,7 @@ pub(crate) mod tests {
     #[test]
     fn the_signal_and_the_wait_are_said() {
         let w = Says::Weak {
-            signal: Some(Signal { locked: true, snr: Some(18.2), errors: Some(0) }),
+            signal: Some(Signal { locked: true, mse: Some(325), snr: Some(18.2), errors: Some(0), ber: Some(0) }),
             waited: Duration::from_secs(75),
         }
         .words("16.9", "WXYZ", &look());

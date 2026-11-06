@@ -8,13 +8,19 @@
 //! tuner reads as busy. The channel list is asked for once the page's schema is in, again when the plugin's facts change (a check moves on
 //! a frequency, a stream starts or ends) and after a channel's switch. The TV answers only while it is on or in Always Ready (LG's
 //! `general.lifeOnScreenMode`, read here and never written): with Always Ready off, a TV switched off sleeps, and the page says so.
+//!
+//! The antenna meter, under the tuner's own rows, reads the demodulator about once a second while the page is open (`/v1/tuner/meter`):
+//! of an RF channel picked, which the helper tunes when the tuner is free and lets go of when anything else wants it, or of the one the
+//! tuner is on. Its bar is the signal to noise in the verdict's colour, with a tick at the best reading since the channel was picked, so
+//! the antenna can be moved and compared; its line says the numbers. Leaving the page stops it, and so does the helper when the page
+//! stops asking.
 
 use super::plugin_rows::{Plugin, ask_all, field_rows, fields, text};
 use super::util::go;
 use crate::panels::hub;
 use crate::settings::ctx::{Ctx, ask, toast};
 use crate::settings::page::{Page, Read};
-use crate::settings::row::{Arg, Op, Row};
+use crate::settings::row::{Arg, Op, Row, Tone};
 use serde_json::{Value, json};
 
 const ID: &str = "live-tv-tuner";
@@ -26,6 +32,11 @@ const CHECK_ALL: &str = "action:live-tv-tuner:reception";
 const LINEUP: &str = "item:live-tv-tuner:channels";
 /// The name the switch's answer comes back under.
 const SWITCH: &str = "tuner.switch";
+/// The meter's answers, and the page's own state: whether it reads, and the RF channel picked (none: the one the tuner is on).
+const METER: &str = "tuner.meter";
+const METER_ON: &str = "meter.on";
+const METER_RF: &str = "meter.rf";
+const METER_HELP: &str = "Move the antenna and watch the bar: longer is better, and the tick is the best so far. Good is a clean picture with room to spare, Fair a picture with little margin, Poor one that breaks up. MSE is the noise the TV measures (lower is better), packet errors are what it could not repair.";
 /// LG's Always Ready: `off`, or how much of it is on.
 const ALWAYS_READY: &str = "general.lifeOnScreenMode";
 const WHEN: &str = "Players reach the tuner while the TV is on, or off in Always Ready. With Always Ready off, a TV switched off sleeps and nothing answers.";
@@ -39,6 +50,7 @@ pub fn page() -> Page {
         .summary(summary)
         .chip(chip)
         .opened(opened)
+        .closed(closed)
         .answered(answered)
 }
 
@@ -78,8 +90,24 @@ fn opened(c: &Ctx) -> Vec<Op> {
     let mut ops = vec![Op::Set(ASKED.into(), json!(false))];
     if on(c) {
         ops.push(Op::Send { name: None, method: "POST", path: format!("/v1/plugins/{ID}/actions/check"), body: Some(json!({})) });
+        ops.push(Op::Set(METER_ON.into(), json!(true)));
+        ops.push(aim(c.local.get(METER_RF).as_u64()));
     }
     ops
+}
+
+/// Leaving the page stops the meter: no reading is asked for again, and the helper lets go of the tuner now.
+fn closed(_: &Ctx) -> Vec<Op> {
+    vec![
+        Op::Set(METER_ON.into(), json!(false)),
+        Op::Later { key: "meter".into(), ms: 0, then: Vec::new() },
+        Op::Send { name: None, method: "POST", path: "/v1/tuner/meter/stop".into(), body: None },
+    ]
+}
+
+/// The meter on RF channel `rf`, or on the one the tuner is on.
+fn aim(rf: Option<u64>) -> Op {
+    Op::Send { name: Some(METER.into()), method: "POST", path: "/v1/tuner/meter".into(), body: Some(json!({"rf": rf})) }
 }
 
 /// The channel list asked for again after a moment of quiet: a check that moves on several frequencies asks once.
@@ -92,7 +120,12 @@ fn answered(c: &Ctx, name: &str, data: &Value) -> Vec<Op> {
     let ok = data.get("ok").and_then(Value::as_bool) == Some(true);
     let why = || data.pointer("/error/message").and_then(Value::as_str).unwrap_or("the TV did not answer").to_string();
     match name {
-        // switched on or off: the plugin's page came or went
+        // a reading came: the next one in a second, while the page is open and the tuner shared
+        METER if c.local.flag(METER_ON) && on(c) => {
+            vec![Op::Later { key: "meter".into(), ms: 1000, then: vec![Op::Send { name: Some(METER.into()), method: "GET", path: "/v1/tuner/meter".into(), body: None }] }]
+        }
+        // switched on or off: the plugin's page came or went, and the meter starts with it
+        "topic:plugins" if on(c) && !c.local.flag(METER_ON) => vec![Op::Refresh, Op::Set(METER_ON.into(), json!(true)), aim(c.local.get(METER_RF).as_u64())],
         "topic:plugins" => vec![Op::Refresh],
         SWITCH if !ok => vec![toast(&format!("Not changed: {}", why()))],
         "owner:live-tv-tuner" if on(c) && !c.local.flag(ASKED) => match c.owner(ID).filter(|o| o.known) {
@@ -161,12 +194,107 @@ fn rows(c: &Ctx) -> Vec<Row> {
         if section.is_some_and(|was| was != s)
             && let Some(title) = o.schema["sections"].as_array().into_iter().flatten().find(|x| text(x, "id") == PLUGIN.sections[s]).map(|x| text(x, "title"))
         {
+            if section == Some(0) {
+                rows.extend(meter_rows(c));
+            }
             rows.push(Row::head(title, 0));
         }
         section = Some(s);
         rows.extend(field_rows(c, PLUGIN, 0, f, icon(text(f, "key"))));
     }
     rows
+}
+
+/// The antenna meter: the channel it reads, its bar with the verdict and the best so far, and the best's numbers with a way to start
+/// over.
+fn meter_rows(c: &Ctx) -> Vec<Row> {
+    let doc = c.docs.get(METER);
+    let rfs: Vec<(u64, Vec<&str>)> = doc["channels"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|x| Some((x["rf"].as_u64()?, x["guides"].as_array()?.iter().filter_map(Value::as_str).collect())))
+        .collect();
+    let picked = c.local.get(METER_RF).as_u64();
+    let mut options = vec!["Current".to_owned()];
+    options.extend(rfs.iter().map(|(rf, _)| format!("RF {rf}")));
+    let index = picked.and_then(|p| rfs.iter().position(|(rf, _)| *rf == p)).map_or(0, |i| i + 1);
+    let choices: Vec<u64> = rfs.iter().map(|(rf, _)| *rf).collect();
+    let mut pick = Row::stepper("meter.rf", &options).icon("antenna").label("Channel to measure").index(Some(index)).act(move |a| match a {
+        Arg::Index(i) => {
+            let rf = i.checked_sub(1).and_then(|i| choices.get(i).copied());
+            vec![Op::Set(METER_RF.into(), json!(rf)), aim(rf)]
+        }
+        _ => Vec::new(),
+    });
+    pick.detail = match rfs.iter().find(|(rf, _)| Some(*rf) == picked) {
+        Some((_, guides)) => format!("Channels {}", guides.join(", ")),
+        None => "The frequency the tuner is on now".into(),
+    };
+    let m = &doc["meter"];
+    let s = &m["signal"];
+    let (word, tone) = verdict(s);
+    let mut meter = Row::slider("meter.signal", 0.0, 100.0, 1.0)
+        .icon("gauge")
+        .label(&match m["rf"].as_u64() {
+            Some(rf) => format!("Signal on RF {rf}"),
+            None => "Signal".into(),
+        })
+        .help(METER_HELP)
+        .tone(tone)
+        .mark(m["best"]["level"].as_f64().map(|l| l * 100.0))
+        .num(s["level"].as_f64().unwrap_or(0.0) * 100.0)
+        .value_text(if m.is_null() { "\u{2026}" } else { word });
+    meter.info = true;
+    let numbers = if s.is_null() { "The TV gives no reading".to_owned() } else { reading_words(s) };
+    meter.detail = match (&m["note"], m.is_null()) {
+        (_, true) => doc.pointer("/error/message").and_then(Value::as_str).map_or("Measuring\u{2026}".into(), |why| format!("Not measuring: {why}")),
+        // why the reading is not of the channel picked: the label names the one it is of
+        (Value::String(note), _) => format!("{note} · {numbers}"),
+        _ => numbers,
+    };
+    let mut best = Row::action("meter.best", "Start over").icon("rotate-ccw").label("Best so far").does(vec![Op::Send {
+        name: Some(METER.into()),
+        method: "POST",
+        path: "/v1/tuner/meter/best".into(),
+        body: None,
+    }]);
+    best.detail = match &m["best"] {
+        Value::Null => "Nothing yet".into(),
+        b => format!("{}: {}", verdict(b).0, reading_words(b)),
+    };
+    vec![Row::head("Antenna signal", 0), pick, meter, best]
+}
+
+/// A reading's verdict in a word and its colour.
+fn verdict(s: &Value) -> (&'static str, Tone) {
+    match s["grade"].as_str() {
+        Some("good") => ("Good", Tone::Positive),
+        Some("fair") => ("Fair", Tone::Warning),
+        Some("poor") => ("Poor", Tone::Danger),
+        _ => ("No signal", Tone::Danger),
+    }
+}
+
+/// A reading's numbers: its signal to noise and the demodulator's noise, the packets it could not repair and its bit errors.
+fn reading_words(s: &Value) -> String {
+    if s["locked"] != true {
+        return "No lock: nothing comes in on this frequency".into();
+    }
+    let mut words = Vec::new();
+    if let Some(snr) = s["snr"].as_f64() {
+        words.push(format!("{snr:.1} dB"));
+    }
+    if let Some(mse) = s["mse"].as_u64() {
+        words.push(format!("MSE {mse}"));
+    }
+    if let Some(e) = s["errors"].as_u64() {
+        words.push(if e == 1 { "1 packet error".into() } else { format!("{e} packet errors") });
+    }
+    if let Some(ber) = s["ber"].as_u64() {
+        words.push(format!("BER {ber}"));
+    }
+    words.join(" · ")
 }
 
 #[cfg(test)]
@@ -242,7 +370,7 @@ mod tests {
         assert_eq!(row(&r, "name").value, "Den");
         assert!(r.iter().any(|x| x.kind == Kind::Head && x.text == "Addresses"));
         assert!(matches!(&(row(&r, "share").act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Send { body: Some(b), .. }] if b == &json!({"on": false})));
-        assert!(matches!(&opened(&c)[..], [Op::Set(..), Op::Send { path, .. }] if path.ends_with("/actions/check")), "opening looks at the TV");
+        assert!(matches!(&opened(&c)[..], [Op::Set(..), Op::Send { path, .. }, ..] if path.ends_with("/actions/check")), "opening looks at the TV");
         assert!(
             matches!(&answered(&c, SWITCH, &json!({"ok": false, "error": {"message": "the words changed"}}))[..], [Op::Act { payload, .. }] if payload["message"] == "Not changed: the words changed")
         );
@@ -276,7 +404,7 @@ mod tests {
         );
         let r = rows(&w.ctx());
         let heads: Vec<&str> = r.iter().filter(|x| x.kind == Kind::Head).map(|x| x.text.as_str()).collect();
-        assert_eq!(heads, ["Addresses", "Channels", "RF 29", "RF 32"]);
+        assert_eq!(heads, ["Antenna signal", "Addresses", "Channels", "RF 29", "RF 32"]);
         let weak = row(&r, "channels:16.7");
         assert!(weak.kind == Kind::Toggle && weak.on && weak.detail == "Weak · 18 dB · 32% lost" && weak.label == "16.7 W29" && weak.icon == "antenna");
         assert!(!row(&r, "channels:16.9").on);
@@ -294,5 +422,43 @@ mod tests {
             matches!(&(check.act.as_ref().unwrap())(Arg::Press)[..], [Op::Send { name: Some(n), path, .. }] if n == CHECK_ALL && path.ends_with("/actions/reception"))
         );
         assert!(r.iter().any(|x| x.kind == Kind::Note && x.text == "How each channel came in."));
+    }
+
+    #[test]
+    fn the_meter_reads_once_a_second_while_the_page_is_open_and_draws_the_verdict_and_the_best_so_far() {
+        let mut w = world("connected", "allEnabled");
+        let start = opened(&w.ctx());
+        assert!(start.iter().any(|o| matches!(o, Op::Set(k, v) if k == METER_ON && v == &json!(true))));
+        assert!(
+            start.iter().any(|o| matches!(o, Op::Send { name: Some(n), method: "POST", path, body: Some(b) } if n == METER && path == "/v1/tuner/meter" && b == &json!({"rf": null}))),
+            "on the channel the tuner is on until one is picked"
+        );
+        w.local.set(METER_ON, json!(true));
+        let signal = |grade: &str, level: f64| json!({"locked": true, "mse": 355, "snr": 17.8, "errors": 81, "ber": 584211, "grade": grade, "level": level});
+        w.docs.set(
+            METER,
+            json!({"ok": true, "channels": [{"rf": 29, "guides": ["16.1", "16.3"]}, {"rf": 32, "guides": ["2.1"]}],
+                   "meter": {"aim": 29, "rf": 29, "tuned": true, "note": null, "signal": signal("poor", 0.13), "best": signal("fair", 0.4)}}),
+        );
+        assert!(
+            matches!(&answered(&w.ctx(), METER, &Value::Null)[..], [Op::Later { ms: 1000, then, .. }] if matches!(&then[..], [Op::Send { method: "GET", .. }])),
+            "the next reading in a second"
+        );
+        w.local.set(METER_RF, json!(29));
+        let r = rows(&w.ctx());
+        let pick = row(&r, "meter.rf");
+        assert_eq!((pick.options.clone(), pick.index, pick.detail.as_str()), (vec!["Current".into(), "RF 29".into(), "RF 32".into()], Some(1), "Channels 16.1, 16.3"));
+        assert!(matches!(&(pick.act.as_ref().unwrap())(Arg::Index(2))[..], [Op::Set(_, v), Op::Send { body: Some(b), .. }] if v == &json!(32) && b == &json!({"rf": 32})));
+        let meter = row(&r, "meter.signal");
+        assert_eq!((meter.label.as_str(), meter.value_text.as_deref(), meter.tone), ("Signal on RF 29", Some("Poor"), Tone::Danger));
+        assert_eq!((meter.num.round(), meter.mark.map(f64::round)), (13.0, Some(40.0)), "the bar and the best so far");
+        assert_eq!(meter.detail, "17.8 dB · MSE 355 · 81 packet errors · BER 584211");
+        assert_eq!(row(&r, "meter.best").detail, "Fair: 17.8 dB · MSE 355 · 81 packet errors · BER 584211");
+        // leaving the page stops it: no reading asked again, and the tuner let go of
+        let stop = closed(&w.ctx());
+        assert!(stop.iter().any(|o| matches!(o, Op::Later { key, then, .. } if key == "meter" && then.is_empty())));
+        assert!(stop.iter().any(|o| matches!(o, Op::Send { path, .. } if path == "/v1/tuner/meter/stop")));
+        w.local.set(METER_ON, json!(false));
+        assert!(answered(&w.ctx(), METER, &Value::Null).is_empty(), "an answer after the page closed asks nothing more");
     }
 }

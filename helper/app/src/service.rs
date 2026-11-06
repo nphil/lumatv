@@ -296,7 +296,7 @@ impl Service {
         );
         threads.push((
             "tuner",
-            crate::tuner::spawn(&ctx, plugins.shared().clone(), tuner)?,
+            crate::tuner::spawn(&ctx, plugins.shared().clone(), tuner.clone())?,
         ));
         threads.push((
             "guide",
@@ -332,6 +332,7 @@ impl Service {
             weather_ha,
             guide,
             plex,
+            tuner,
         };
         let server = Server::start(
             SocketAddr::new(ip, config.listen.port),

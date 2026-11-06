@@ -36,7 +36,8 @@ impl Kept {
         tuner.hide(self.hidden.iter().cloned());
         for (guide, kept) in &self.channels {
             let sounds = kept["sounds"].as_u64().map_or(1, |n| n as usize);
-            tuner.recall(guide, health_of(&kept["health"]), format_of(&kept["format"]), sounds);
+            let video = kept["video"].as_u64().and_then(|v| u8::try_from(v).ok());
+            tuner.recall(guide, health_of(&kept["health"]), format_of(&kept["format"]), sounds, video);
         }
     }
 
@@ -48,7 +49,7 @@ impl Kept {
         }
         let channels: Map<String, Json> = reception
             .iter()
-            .filter(|r| r.health.is_some() || r.format.is_some())
+            .filter(|r| r.health.is_some() || r.format.is_some() || r.video.is_some())
             .map(|r| {
                 let mut kept = Map::new();
                 if let Some(h) = &r.health {
@@ -56,6 +57,9 @@ impl Kept {
                 }
                 if let Some(f) = &r.format {
                     kept.insert("format".to_owned(), json!({"width": f.width, "height": f.height, "rate": f.rate, "aspect": f.aspect, "progressive": f.progressive}));
+                }
+                if let Some(v) = r.video {
+                    kept.insert("video".to_owned(), json!(v));
                     kept.insert("sounds".to_owned(), json!(r.sounds));
                 }
                 (r.guide.clone(), Json::Object(kept))
@@ -88,7 +92,7 @@ fn health_json(h: &Health) -> Json {
     let at = h.at.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
     let mut doc = json!({"at": at, "verdict": verdict_word(h.verdict), "lost": h.lost, "dropouts": h.dropouts, "checked": h.checked});
     if let Some(s) = &h.signal {
-        doc["signal"] = json!({"locked": s.locked, "snr": s.snr, "errors": s.errors});
+        doc["signal"] = json!({"locked": s.locked, "mse": s.mse, "snr": s.snr, "errors": s.errors, "ber": s.ber});
     }
     if let Some(p) = h.picture {
         doc["pictureMs"] = json!(p.as_millis() as u64);
@@ -106,8 +110,10 @@ fn health_of(doc: &Json) -> Option<Health> {
     };
     let signal = doc.get("signal").filter(|s| s.is_object()).map(|s| Signal {
         locked: s["locked"].as_bool().unwrap_or(false),
+        mse: s["mse"].as_u64().map(|v| v as u32),
         snr: s["snr"].as_f64().map(|v| v as f32),
         errors: s["errors"].as_u64().map(|v| v as u32),
+        ber: s["ber"].as_u64().map(|v| v as u32),
     });
     Some(Health {
         at: UNIX_EPOCH + Duration::from_millis(doc["at"].as_u64()?),
@@ -213,6 +219,7 @@ mod tests {
             hidden: false,
             health,
             format: None,
+            video: None,
             sounds: 0,
         }
     }
@@ -223,7 +230,7 @@ mod tests {
         let weak = Health {
             at: now - Duration::from_secs(12 * 60),
             verdict: Verdict::Weak,
-            signal: Some(Signal { locked: true, snr: Some(18.4), errors: Some(3) }),
+            signal: Some(Signal { locked: true, mse: Some(310), snr: Some(18.4), errors: Some(3), ber: Some(41_000) }),
             lost: 0.04,
             picture: Some(Duration::from_millis(2100)),
             dropouts: 2,
@@ -254,7 +261,7 @@ mod tests {
         let health = Health {
             at,
             verdict: Verdict::Glitchy,
-            signal: Some(Signal { locked: true, snr: Some(24.5), errors: None }),
+            signal: Some(Signal { locked: true, mse: Some(76), snr: Some(24.5), errors: None, ber: None }),
             lost: 0.005,
             picture: Some(Duration::from_millis(900)),
             dropouts: 0,
@@ -265,8 +272,11 @@ mod tests {
         assert!(kept.hidden.is_empty());
         let mut seen = reception("2.1", 32, Some(health.clone()));
         seen.format = Some(format);
+        seen.video = Some(0x02);
         seen.sounds = 2;
-        assert!(kept.update(&[seen.clone(), reception("2.2", 32, None)]));
+        let mut avc = reception("34.4", 34, None);
+        avc.video = Some(0x1B);
+        assert!(kept.update(&[seen.clone(), avc, reception("2.2", 32, None)]));
         assert!(!kept.update(&[]), "a tuner that is not serving lists nothing, and that forgets nothing");
         kept.hidden.insert("2.2".to_owned());
         kept.write(&path).unwrap();
@@ -275,6 +285,7 @@ mod tests {
         let doc = &back.channels["2.1"];
         assert_eq!(health_of(&doc["health"]), Some(health));
         assert_eq!((format_of(&doc["format"]), doc["sounds"].as_u64()), (Some(format), Some(2)));
+        assert_eq!((back.channels["34.4"]["video"].as_u64(), format_of(&back.channels["34.4"]["format"])), (Some(0x1B), None), "an H.264 picture is kept as one");
         let mut back = back;
         assert!(back.update(&[reception("2.2", 32, None)]));
         assert!(back.channels.is_empty());

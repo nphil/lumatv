@@ -40,6 +40,16 @@ pub enum Kind {
     Note,
 }
 
+/// The colour of a slider's fill: the accent, or a verdict's (a meter's bar), from the theme's tokens.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Tone {
+    #[default]
+    Accent,
+    Positive,
+    Warning,
+    Danger,
+}
+
 /// One card of a row of cards (the mode choosers).
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Card {
@@ -292,6 +302,9 @@ pub struct Row {
     pub num: f64,
     pub value_text: Option<String>,
     pub unit: String,
+    /// A slider's fill colour, and a tick on its track at this value (a meter's best so far).
+    pub tone: Tone,
+    pub mark: Option<f64>,
     pub cards: Vec<Card>,
     pub cols: usize,
     pub strip: bool,
@@ -342,6 +355,8 @@ impl Row {
             num: 0.0,
             value_text: None,
             unit: String::new(),
+            tone: Tone::Accent,
+            mark: None,
             cards: Vec::new(),
             cols: 4,
             strip: false,
@@ -544,6 +559,16 @@ impl Row {
 
     pub fn unit(mut self, unit: &str) -> Self {
         self.unit = unit.into();
+        self
+    }
+
+    pub fn tone(mut self, tone: Tone) -> Self {
+        self.tone = tone;
+        self
+    }
+
+    pub fn mark(mut self, mark: Option<f64>) -> Self {
+        self.mark = mark;
         self
     }
 
