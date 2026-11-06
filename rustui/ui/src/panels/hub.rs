@@ -164,6 +164,12 @@ pub fn plugin_of<'a>(roster: &'a Value, id: &str) -> Option<&'a Value> {
     list("plugins").chain(list("firstParty")).find(|p| p.get("id").and_then(Value::as_str) == Some(id))
 }
 
+/// What stopped one of the helper's own plugins while it is switched on (its entry says `failed`): its switch row says it underneath.
+pub fn failure(entry: &Value) -> Option<&str> {
+    entry.get("state").and_then(Value::as_str).filter(|s| *s == "failed")?;
+    entry.get("reason").and_then(Value::as_str)
+}
+
 /// Where Home Assistant stands, in one word (`PluginHub.haState`): `off` (the plugin is switched off, or its program is not), `inert`
 /// (switched on but this TV will not run it), `waiting` (its program is not up), then what the helper's lease (`ha.link`, `Null` before the
 /// helper has said) says: `unlinked`, `refused`, `offline`, `connecting` or `connected`. The program is listed under `plugins` only while

@@ -100,7 +100,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     };
     let (consent, code) = (text(e, "consent").to_string(), text(e, "approve").to_string());
     let shared = on(c);
-    let mut rows = vec![Row::toggle("use").icon("tv-minimal").label("Online listings").help(&consent).on(shared).admin().act(move |a| match a {
+    let mut rows = vec![Row::toggle("use").icon("tv-minimal").label("Online listings").help(&consent).on(shared).detail(hub::failure(e).unwrap_or_default()).admin().act(move |a| match a {
         Arg::Toggle(true) => ask("tv-minimal", "Fill the guide from online listings?", &consent, "Turn on", "Cancel", false, vec![switch(true, &code)]),
         Arg::Toggle(false) => vec![switch(false, "")],
         _ => Vec::new(),

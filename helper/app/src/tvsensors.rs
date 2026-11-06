@@ -217,7 +217,7 @@ const PICTURE_PAYLOAD: &str = r#"{"category":"picture","keys":["pictureMode"],"s
 const INPUTS_URI: &str = "luna://com.webos.service.eim/getAllInputStatus";
 const LIVE_TV: &str = "com.webos.app.livetv";
 
-/// Starts the sampler. With the plugin off, or nobody listening, it is one thread waiting on the hub.
+/// Starts the sampler. With the plugin off, or nobody listening, it is one thread waiting on the hub. A panic starts a new sampler.
 pub fn spawn(
     ctx: &Ctx,
     shared: Arc<Shared>,
@@ -226,23 +226,20 @@ pub fn spawn(
     hw: Arc<dyn Hardware>,
 ) -> std::io::Result<JoinHandle<()>> {
     let ctx = ctx.clone();
-    thread::Builder::new()
-        .name("tvsensors".to_owned())
-        .stack_size(256 * 1024)
-        .spawn(move || {
-            Sampler {
-                luna: ctx.config.luna.send.clone(),
-                ctx,
-                shared,
-                board,
-                tuner,
-                hw,
-                follows: Vec::new(),
-                next_sample: None,
-                follow_retry: None,
-            }
-            .run();
-        })
+    crate::plugins::guard::spawn("tvsensors", 256 * 1024, shared.clone(), &[ID], ctx.stop.clone(), move |_| {
+        Sampler {
+            luna: ctx.config.luna.send.clone(),
+            ctx: ctx.clone(),
+            shared: shared.clone(),
+            board: board.clone(),
+            tuner: tuner.clone(),
+            hw: hw.clone(),
+            follows: Vec::new(),
+            next_sample: None,
+            follow_retry: None,
+        }
+        .run();
+    })
 }
 
 struct Sampler {

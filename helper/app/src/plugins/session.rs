@@ -6,7 +6,7 @@
 //!
 //! | Topic | Value |
 //! |---|---|
-//! | `plugins` | `{"plugins": [{id, name, version, class, state: "connected" \| "waiting" \| "inert", registered, reason?}], "problem"}` |
+//! | `plugins` | `{"plugins": [{id, name, version, class, state: "connected" \| "waiting" \| "inert", registered, reason?}], "firstParty": [{id, …, state: "off" \| "on" \| "connected" \| "waiting" \| "failed", reason?}], "problem"}` |
 //! | `plugin.<id>.cards` | `{"items": [{id, revision, createdAt, expiresAt, card}]}`, `card` is the plugin's `card.put` |
 //! | `plugin.<id>.tiles` | `{"items": [<tile.put>]}` |
 //! | `plugin.<id>.notifications` | `{"items": [{id, channel, channelTitle, channelIcon, revision, receivedAt, expiresAt, post}]}`; events `posted` and `ended` |
@@ -142,6 +142,8 @@ pub struct Shared {
     lease: Mutex<Option<Arc<HaLease>>>,
     /// What plugins last said of the room's occupancy, by plugin (see `Session::signal_put`).
     signals: Mutex<BTreeMap<String, Occupancy>>,
+    /// Wakes the guards of the helper's own plugins that panicked (`guard.rs`): the owner turned a switch, or the helper stops.
+    retry: Condvar,
 }
 
 /// One plugin's statement about whether somebody is in the room, and when it stops holding.
@@ -172,6 +174,8 @@ struct FirstParty {
     version: String,
     /// For one that asks first: its words, their code, whether the owner switched it on, and how it is told of a change.
     asks: Option<Asks>,
+    /// What stopped it (a panic of its thread, or of following its switch), until it starts again or the owner turns its switch.
+    failure: Option<String>,
 }
 
 struct Asks {
@@ -314,6 +318,7 @@ impl Shared {
             device: Mutex::new(None),
             lease: Mutex::new(None),
             signals: Mutex::new(BTreeMap::new()),
+            retry: Condvar::new(),
         })
     }
 
@@ -525,6 +530,7 @@ impl Shared {
                     name: name.to_owned(),
                     version: version.to_owned(),
                     asks: None,
+                    failure: None,
                 }),
             }
         }
@@ -550,10 +556,11 @@ impl Shared {
                     on,
                     wake: wake.clone(),
                 }),
+                failure: None,
             });
         }
         self.publish_plugins();
-        wake();
+        self.wake_guarded(id, &*wake);
     }
 
     /// Whether the owner has switched on `id`, one of the helper's own plugins that ask first, with the words it asks with now.
@@ -601,7 +608,7 @@ impl Shared {
     /// Records what the roster is (and why a plugin is inert) and publishes the `plugins` topic; the helper's own plugins that ask first
     /// are woken when their approval came or went.
     pub fn set_roster(&self, roster: &Roster, problem: Option<String>) {
-        let woken: Vec<Arc<dyn Fn() + Send + Sync>> = {
+        let woken: Vec<(String, Arc<dyn Fn() + Send + Sync>)> = {
             let mut view = self.roster.lock();
             view.members = roster
                 .members
@@ -634,15 +641,85 @@ impl Shared {
                     let on = approved(list, &p.id, &asks.approve);
                     (on != asks.on).then(|| {
                         asks.on = on;
-                        asks.wake.clone()
+                        // the owner turning the switch is the way to try again
+                        p.failure = None;
+                        (p.id.clone(), asks.wake.clone())
                     })
                 })
                 .collect()
         };
         self.publish_plugins();
-        for wake in woken {
-            wake();
+        if !woken.is_empty() {
+            self.wake_guards();
         }
+        for (id, wake) in woken {
+            self.wake_guarded(&id, &*wake);
+        }
+    }
+
+    /// Tells `id` that its switch moved. A panic there is that plugin's alone: the manager's thread, and with it the broker, the Home
+    /// Assistant link and the other switches, goes on.
+    fn wake_guarded(&self, id: &str, wake: &(dyn Fn() + Send + Sync)) {
+        if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(wake)) {
+            let what = super::guard::message(&*panic);
+            crate::log_error!("plugins: {id} panicked following its switch ({what})");
+            self.fail(&[id], &super::guard::words(&what));
+        }
+    }
+
+    /// Records that the helper's own plugins `ids` stopped, in `words`, and publishes it: their entries say `failed` while switched on.
+    pub fn fail(&self, ids: &[&str], words: &str) {
+        {
+            let mut view = self.roster.lock();
+            for p in view
+                .first_party
+                .iter_mut()
+                .filter(|p| ids.contains(&p.id.as_str()))
+            {
+                p.failure = Some(words.to_owned());
+            }
+        }
+        self.publish_plugins();
+    }
+
+    /// Forgets what stopped `ids`: they start again.
+    pub fn recover(&self, ids: &[&str]) {
+        let mut cleared = false;
+        {
+            let mut view = self.roster.lock();
+            for p in view
+                .first_party
+                .iter_mut()
+                .filter(|p| ids.contains(&p.id.as_str()))
+            {
+                cleared |= p.failure.take().is_some();
+            }
+        }
+        if cleared {
+            self.publish_plugins();
+        }
+    }
+
+    /// Waits up to `pause` while every one of `ids` stays failed: the owner turning one's switch ends the wait, and so does the stop.
+    /// True once the stop is requested.
+    pub fn wait_retry(&self, ids: &[&str], stop: &crate::control::Stop, pause: Duration) -> bool {
+        let until = std::time::Instant::now() + pause;
+        let mut view = self.roster.lock();
+        while !stop.is_set()
+            && ids.iter().all(|id| {
+                view.first_party
+                    .iter()
+                    .any(|p| p.id == *id && p.failure.is_some())
+            })
+            && !self.retry.wait_until(&mut view, until).timed_out()
+        {}
+        stop.is_set()
+    }
+
+    /// Wakes whatever waits in [`Shared::wait_retry`] to look again.
+    pub fn wake_guards(&self) {
+        let _view = self.roster.lock();
+        self.retry.notify_all();
     }
 
     fn publish_plugins(&self) {
@@ -676,6 +753,7 @@ impl Shared {
                 let connected = !switch_only && live.contains(&p.id);
                 let state = match &p.asks {
                     Some(asks) if !asks.on => "off",
+                    _ if p.failure.is_some() => "failed",
                     _ if switch_only => "on",
                     _ if connected => "connected",
                     _ => "waiting",
@@ -685,6 +763,9 @@ impl Shared {
                 if let Some(asks) = &p.asks {
                     entry["consent"] = json!(asks.consent);
                     entry["approve"] = json!(asks.approve);
+                }
+                if state == "failed" {
+                    entry["reason"] = json!(p.failure);
                 }
                 entry
             })

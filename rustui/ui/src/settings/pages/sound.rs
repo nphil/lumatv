@@ -222,19 +222,25 @@ fn rows(c: &Ctx) -> Vec<Row> {
                 .help("Where the TV's sound goes. Bluetooth speakers are paired on their own page."),
         ),
     );
+    // Always shown: the receiver plugin's switch is on its page, and must stay reachable whatever the sound out is.
+    let rx_off = super::receiver::off(c);
     rows.push(
         Row::link("receiver")
             .tab(0)
             .icon("boom-box")
             .label("Receiver")
             .help("The receiver's own volume, input and sound modes.")
-            .visible(to_rx)
+            .value(if rx_off { "Off" } else { "" })
             .does(go("receiver")),
     );
     let level = rc.and_then(|r| r.get("volumeAbs")).and_then(Value::as_f64);
     let mut volume = Row::slider("rcvolume", 0.0, 98.0, 0.5).tab(0).icon("volume-2").label("Receiver volume");
     volume.info = true;
-    volume.detail = if rc.is_some() { String::new() } else { "Receiver not answering".into() };
+    volume.detail = match (rc.is_some(), rx_off) {
+        (true, _) => String::new(),
+        (false, true) => "Receiver plugin is off".into(),
+        (false, false) => "Receiver not answering".into(),
+    };
     volume.num = level.unwrap_or(0.0);
     volume.value_text = Some(level.map_or("\u{2013}".into(), |v| format!("{v}")));
     rows.push(volume);
@@ -690,7 +696,7 @@ mod tests {
         let r = rows(&w.ctx());
         assert_eq!(summary(&w.ctx()), "TV speakers");
         assert!(by_id(&r, "sound.audioBalance").enabled && by_id(&r, "equalizer").enabled);
-        assert!(!by_id(&r, "receiver").visible && by_id(&r, "tvtoo").detail == "Needs the receiver" && !by_id(&r, "tvtoo").enabled);
+        assert!(by_id(&r, "tvtoo").detail == "Needs the receiver" && !by_id(&r, "tvtoo").enabled);
         assert!(by_id(&r, "sound.soundMode").enabled && !by_id(&r, "note:Sound is on the receiver.").visible);
         let w = tv("external_arc", "standard");
         let r = rows(&w.ctx());
@@ -764,6 +770,18 @@ mod tests {
         let r = rows(&w.ctx());
         assert_eq!(by_id(&r, "rcvolume").value_text.as_deref(), Some("\u{2013}"));
         assert_eq!(by_id(&r, "rcvolume").detail, "Receiver not answering");
+    }
+
+    #[test]
+    fn with_the_receiver_plugin_off_its_page_stays_reachable_and_the_volume_says_why_it_is_empty() {
+        let mut w = tv("tv_speaker", "standard");
+        w.topics.set_helper("plugins", json!({"firstParty": [{"id": "denon-receiver", "state": "off"}]}));
+        w.topics.set_helper("receiver", json!({"enabled": false, "reachable": false, "fresh": false}));
+        let r = rows(&w.ctx());
+        let link = by_id(&r, "receiver");
+        assert!(link.visible && link.value == "Off", "the way to its switch, with the sound on the TV speakers");
+        assert!(matches!(&(link.act.as_ref().unwrap())(Arg::Press)[..], [Op::Open { page, .. }] if page == "receiver"));
+        assert_eq!(by_id(&r, "rcvolume").detail, "Receiver plugin is off");
     }
 
     #[test]

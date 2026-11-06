@@ -110,7 +110,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     };
     let (consent, code) = (text(e, "consent").to_string(), text(e, "approve").to_string());
     let on = text(e, "state") != "off";
-    let mut rows = vec![Row::toggle("use").tab(0).icon("house-wifi").label("Home Assistant").help(&consent).on(on).admin().act(move |a| match a {
+    let mut rows = vec![Row::toggle("use").tab(0).icon("house-wifi").label("Home Assistant").help(&consent).on(on).detail(hub::failure(e).unwrap_or_default()).admin().act(move |a| match a {
         Arg::Toggle(true) => ask("house-wifi", "Use Home Assistant?", &consent, "Turn on", "Cancel", false, vec![switch(true, &code)]),
         Arg::Toggle(false) => vec![switch(false, "")],
         _ => Vec::new(),

@@ -1805,7 +1805,8 @@ mod tests {
             stop: crate::control::Stop::new(),
         };
         let tx = api.receiver_tx.clone();
-        let receiver = receiver::spawn(&ctx, tx.clone(), receiver_rx).unwrap();
+        let receiver =
+            receiver::spawn(&ctx, api.plugins.shared().clone(), tx.clone(), receiver_rx).unwrap();
         let server = crate::http::Server::start(
             "127.0.0.1:0".parse().unwrap(),
             Arc::new(api),

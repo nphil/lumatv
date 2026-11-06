@@ -48,7 +48,7 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::Duration;
 use tile::{GROUPS, Group, MAX_PICKS, Reach, Refused};
 
@@ -287,19 +287,27 @@ impl OnHome {
         me
     }
 
+    /// Starts the looker, guarded as the Home Assistant plugin's: after a panic it looks again.
     pub fn spawn(&self, ctx: &Ctx) -> io::Result<JoinHandle<()>> {
         let me = self.clone();
         let stop = ctx.stop.clone();
         stop.on_stop(self.waker());
-        thread::Builder::new().name("onhome".to_owned()).stack_size(256 * 1024).spawn(move || {
-            loop {
-                me.look();
-                if me.nap(&stop) {
-                    break;
+        crate::plugins::guard::spawn(
+            "onhome",
+            256 * 1024,
+            self.inner.shared.clone(),
+            &[crate::ha_plugin::ID],
+            ctx.stop.clone(),
+            move |_| {
+                loop {
+                    me.look();
+                    if me.nap(&stop) {
+                        break;
+                    }
                 }
-            }
-            me.shut_down();
-        })
+                me.shut_down();
+            },
+        )
     }
 
     /// Has the looker look now: the plugin was switched, or the helper stops.

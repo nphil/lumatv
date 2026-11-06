@@ -42,7 +42,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime};
 
 /// The plugin's id, which is also its settings owner.
@@ -117,8 +117,8 @@ enum Event {
     Stop,
 }
 
-/// Offers the plugin (off until the owner switches it on) and starts the thread that serves `tuner` while it is on. The thread ends when
-/// the stop is requested, closing the listener.
+/// Offers the plugin (off until the owner switches it on) and starts the thread that serves `tuner` while it is on, guarded: a panic
+/// stops this plugin alone. The thread ends when the stop is requested, closing the listener.
 pub fn spawn(ctx: &Ctx, shared: Arc<Shared>, tuner: Arc<Tuner>) -> std::io::Result<JoinHandle<()>> {
     let (tx, rx) = mpsc::channel();
     {
@@ -140,10 +140,12 @@ pub fn spawn(ctx: &Ctx, shared: Arc<Shared>, tuner: Arc<Tuner>) -> std::io::Resu
             let _ = tx.send(Event::Switch);
         }),
     );
-    thread::Builder::new()
-        .name("tuner".to_owned())
-        .stack_size(256 * 1024)
-        .spawn(move || plugin.run(&rx))
+    crate::plugins::guard::spawn("tuner", 256 * 1024, shared, &[ID], ctx.stop.clone(), move |again| {
+        if again {
+            plugin.follow_afresh();
+        }
+        plugin.run(&rx)
+    })
 }
 
 /// The plugin's state, held by its thread.
@@ -202,6 +204,12 @@ impl Plugin {
             kept,
             kept_file,
         }
+    }
+
+    /// After a panic: follows the switch from scratch, the page and the listener being as the panic left them.
+    fn follow_afresh(&mut self) {
+        self.on = !self.shared.switched_on(ID);
+        self.switch();
     }
 
     fn run(&mut self, rx: &Receiver<Event>) {
@@ -627,7 +635,7 @@ pub(crate) mod tests {
         let end = Instant::now() + Duration::from_secs(5);
         while !done() {
             assert!(Instant::now() < end, "{what}");
-            thread::sleep(Duration::from_millis(5));
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 

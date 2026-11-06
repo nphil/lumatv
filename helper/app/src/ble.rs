@@ -45,7 +45,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 /// The Bluetooth proxy plugin's id.
@@ -1190,21 +1190,28 @@ impl Runner {
         self.teardown();
         self.set_off(None);
     }
+
+    /// After a panic: what was linked and listening is dropped, and built again from the file and the switches at once.
+    fn afresh(&mut self, now: Instant) {
+        self.teardown();
+        self.reload_at = now;
+    }
 }
 
-/// Starts the runner. With no link saved, or both plugins off, it costs this thread and a look at one file every ten seconds.
-pub fn spawn(ctx: &Ctx, deps: Deps) -> io::Result<JoinHandle<()>> {
+/// Starts the runner, guarded: a panic stops the device's two plugins alone, and they start again. With no link saved, or both plugins
+/// off, it costs this thread and a look at one file every ten seconds.
+pub fn spawn(ctx: &Ctx, deps: Deps, shared: Arc<Shared>) -> io::Result<JoinHandle<()>> {
     let ctx = ctx.clone();
-    let mut runner = Runner::new(ctx, deps, Instant::now())?;
-    thread::Builder::new()
-        .name("ble".to_owned())
-        .stack_size(256 * 1024)
-        .spawn(move || {
-            while !runner.ctx.stop.is_set() {
-                runner.tick(Instant::now(), Duration::from_secs(3600));
-            }
-            runner.finish();
-        })
+    let mut runner = Runner::new(ctx.clone(), deps, Instant::now())?;
+    crate::plugins::guard::spawn("ble", 256 * 1024, shared, &[ID, tvsensors::ID], ctx.stop, move |again| {
+        if again {
+            runner.afresh(Instant::now());
+        }
+        while !runner.ctx.stop.is_set() {
+            runner.tick(Instant::now(), Duration::from_secs(3600));
+        }
+        runner.finish();
+    })
 }
 
 #[cfg(test)]

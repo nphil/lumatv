@@ -87,7 +87,7 @@ struct Tile {
     pill: Group,
 }
 
-const TILES: [(&str, Icon, &str); 24] = [
+const TILES: [(&str, Icon, &str); 23] = [
     ("Live TV", Icon::Play, "#2a5bd7"),
     ("Netflix", Icon::Play, "#c0141c"),
     ("YouTube", Icon::Play, "#d62b2b"),
@@ -96,7 +96,6 @@ const TILES: [(&str, Icon, &str); 24] = [
     ("Prime Video", Icon::Play, "#0d6fb8"),
     ("Spotify", Icon::Speaker, "#1db954"),
     ("Home Assistant", Icon::HomeAssistant, "#18bcf2"),
-    ("Photos", Icon::StillCamera, "#7b4fd1"),
     ("Camera", Icon::Camera, "#3d3a4a"),
     ("Calendar", Icon::Calendar, "#e6513f"),
     ("Messages", Icon::Message, "#2fb55c"),

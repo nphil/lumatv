@@ -71,7 +71,7 @@ fn plugin_rows(c: &Ctx, plugin: Plugin, icon: &'static str, label: &str, questio
     };
     let (consent, code, id) = (text(e, "consent").to_string(), text(e, "approve").to_string(), plugin.id);
     let lit = on(c, id);
-    let mut rows = vec![Row::toggle(id).icon(icon).label(label).help(&consent).on(lit).admin().act(move |a| match a {
+    let mut rows = vec![Row::toggle(id).icon(icon).label(label).help(&consent).on(lit).detail(hub::failure(e).unwrap_or_default()).admin().act(move |a| match a {
         Arg::Toggle(true) => ask(icon, question, &consent, "Turn on", "Cancel", false, vec![switch(id, true, &code)]),
         Arg::Toggle(false) => vec![switch(id, false, "")],
         _ => Vec::new(),

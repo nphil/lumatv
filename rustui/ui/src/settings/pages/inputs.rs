@@ -223,7 +223,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
             .tab(2)
             .icon("tv-minimal-play")
             .label("Plex")
-            .help("The TV's one sign-in to Plex, by a code scanned with a phone: Guide data's Plex listings and the Photos plugin use it.")
+            .help("The TV's one sign-in to Plex, by a code scanned with a phone: Guide data's Plex listings use it.")
             .value(&super::plex::summary(c))
             .does(go("plex")),
     );

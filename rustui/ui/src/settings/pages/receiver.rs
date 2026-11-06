@@ -42,6 +42,11 @@ fn on(c: &Ctx) -> bool {
     entry(c).is_some_and(|e| text(e, "state") != "off")
 }
 
+/// The plugin is switched off: known to be, not merely unknown as with no helper.
+pub fn off(c: &Ctx) -> bool {
+    entry(c).is_some_and(|e| text(e, "state") == "off")
+}
+
 fn turn(on: bool, code: &str) -> Op {
     let body = if on { json!({"on": true, "approve": code}) } else { json!({"on": false}) };
     Op::Send { name: Some(SWITCH.into()), method: "POST", path: format!("/v1/plugins/{ID}/switch"), body: Some(body) }
@@ -380,7 +385,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     };
     let (consent, code) = (text(e, "consent").to_string(), text(e, "approve").to_string());
     let on = on(c);
-    let mut rows = vec![Row::toggle("use").tab(0).icon("boom-box").label("Denon receiver").help(&consent).on(on).admin().act(move |a| match a {
+    let mut rows = vec![Row::toggle("use").tab(0).icon("boom-box").label("Denon receiver").help(&consent).on(on).detail(hub::failure(e).unwrap_or_default()).admin().act(move |a| match a {
         Arg::Toggle(true) => ask("boom-box", "Use the Denon receiver?", &consent, "Turn on", "Cancel", false, vec![turn(true, &code)]),
         Arg::Toggle(false) => vec![turn(false, "")],
         _ => Vec::new(),
@@ -680,6 +685,20 @@ mod tests {
         let [Op::Ask(question)] = &(row(&r, "use").act.as_ref().unwrap())(Arg::Toggle(true))[..] else { panic!("it asks first") };
         assert_eq!(question.body, "Connects to it.");
         assert!(matches!(&question.answers[1].then[..], [Op::Send { path, body: Some(b), .. }] if path == "/v1/plugins/denon-receiver/switch" && b == &json!({"on": true, "approve": "c0de"})));
+    }
+
+    #[test]
+    fn a_plugin_stopped_by_an_error_keeps_its_switch_on_and_says_why_under_it() {
+        let mut w = world();
+        w.topics.set_helper(
+            "plugins",
+            json!({"firstParty": [{"id": ID, "state": "failed", "reason": "Stopped by an internal error: boom", "consent": "Connects to it.", "approve": "c0de"}]}),
+        );
+        let r = rows(&w.ctx());
+        assert!(row(&r, "use").on, "turning it off and on again is how to restart it");
+        assert_eq!(row(&r, "use").detail, "Stopped by an internal error: boom");
+        plugin(&mut w, "connected");
+        assert!(row(&rows(&w.ctx()), "use").detail.is_empty());
     }
 
     #[test]

@@ -19,6 +19,7 @@
 
 use crate::ctx::Ctx;
 use crate::hub::Hub;
+use crate::plugins::session::Shared;
 use crate::receiver_settings::SettingsState;
 use crate::receiver_telnet::{Event, Link, QUERY_GAP, Target, Tuning};
 use crate::receiver_volume::VolumeDriver;
@@ -26,6 +27,7 @@ use crate::screen;
 use crate::timeutil::now_ms;
 use lumatv_denon::{Client, ClientError, Power, Status, VolumeDisplay};
 use serde_json::{Map, Value, json};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -425,13 +427,23 @@ fn start_link(ctx: &Ctx, tx: Sender<Cmd>) -> Option<Link> {
 }
 
 /// Starts the receiver thread. Commands arrive on `rx`; the sender side is wired to the screen watcher, the API and the stop.
-/// `tx` is the same channel's sender, for the telnet link to wake the thread with.
-pub fn spawn(ctx: &Ctx, tx: Sender<Cmd>, rx: Receiver<Cmd>) -> std::io::Result<JoinHandle<()>> {
+/// `tx` is the same channel's sender, for the telnet link to wake the thread with. Guarded as the Denon receiver plugin's: after a panic
+/// it starts again with a new client and volume driver.
+pub fn spawn(
+    ctx: &Ctx,
+    shared: Arc<Shared>,
+    tx: Sender<Cmd>,
+    rx: Receiver<Cmd>,
+) -> std::io::Result<JoinHandle<()>> {
     let ctx = ctx.clone();
-    thread::Builder::new()
-        .name("receiver".to_owned())
-        .stack_size(256 * 1024)
-        .spawn(move || run(&ctx, tx, &rx))
+    crate::plugins::guard::spawn(
+        "receiver",
+        256 * 1024,
+        shared,
+        &[crate::receiver_plugin::ID],
+        ctx.stop.clone(),
+        move |_| run(&ctx, tx.clone(), &rx),
+    )
 }
 
 #[allow(clippy::too_many_arguments)] // the loop's own state, lent to the one place that drains the link's events
@@ -1101,6 +1113,17 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
 mod tests {
     use super::*;
     use lumatv_denon::Power;
+
+    /// The receiver's thread, guarded under a plugin session of its own.
+    fn spawn(ctx: &Ctx, tx: Sender<Cmd>, rx: Receiver<Cmd>) -> std::io::Result<JoinHandle<()>> {
+        let shared = Shared::new(
+            ctx.hub.clone(),
+            ctx.settings.clone(),
+            Duration::from_secs(1),
+            Arc::new(now_ms),
+        );
+        super::spawn(ctx, shared, tx, rx)
+    }
 
     struct RecoveryRig {
         dir: tempfile::TempDir,

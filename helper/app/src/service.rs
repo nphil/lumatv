@@ -157,10 +157,6 @@ impl Service {
         if let Some(handle) = screen::spawn(&ctx, notify)? {
             threads.push(("screen", handle));
         }
-        threads.push((
-            "receiver",
-            receiver::spawn(&ctx, receiver_tx.clone(), receiver_rx)?,
-        ));
         threads.push(("ambient", ambient.spawn()?));
         let (fetcher, fetch_backend) = match fetcher {
             Some(injected) => (injected, json!({"backend": "injected"})),
@@ -237,6 +233,10 @@ impl Service {
             )
         };
         threads.push((
+            "receiver",
+            receiver::spawn(&ctx, plugins.shared().clone(), receiver_tx.clone(), receiver_rx)?,
+        ));
+        threads.push((
             "plugins-1p",
             crate::plugins::firstparty::spawn(&ctx, plugins.shared().clone(), feeds_tx.clone())?,
         ));
@@ -292,6 +292,7 @@ impl Service {
             crate::ble::spawn(
                 &ctx,
                 crate::ble::Deps::real(&config.luna.send, plugins.shared().clone(), sensor_board.clone()),
+                plugins.shared().clone(),
             )?,
         ));
 

@@ -55,7 +55,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 /// The plugin's id, which is also its settings owner.
@@ -84,8 +84,8 @@ const PLEX_ADDRESS: &str = "plex.address";
 const PLEX_TOKEN: &str = "plex.token";
 /// Plex's own port, when an address was typed without one.
 const PLEX_PORT: u16 = 32400;
-/// What the page says while the TV is not signed in to Plex and Plex is picked.
-const SIGN_IN: &str = "Sign in to Plex in Settings › Inputs & devices › Plex";
+/// What the page says, as the status and as the Plex source's line, while Plex is picked and the TV is not signed in to Plex.
+const SIGN_IN: &str = "Sign in to Plex for listings";
 /// How often the TV's channel list is read again, and again soon when it could not be read.
 const CHANNELS_EVERY: Duration = Duration::from_secs(3600);
 const CHANNELS_RETRY: Duration = Duration::from_secs(300);
@@ -619,10 +619,12 @@ fn spawn_with(
             let _ = tx.send(Event::Switch);
         }),
     );
-    thread::Builder::new()
-        .name("guide".to_owned())
-        .stack_size(256 * 1024)
-        .spawn(move || plugin.run(&rx))
+    crate::plugins::guard::spawn("guide", 256 * 1024, shared, &[ID], ctx.stop.clone(), move |again| {
+        if again {
+            plugin.follow_afresh();
+        }
+        plugin.run(&rx)
+    })
 }
 
 struct Plugin {
@@ -646,6 +648,12 @@ struct Plugin {
 }
 
 impl Plugin {
+    /// After a panic: follows the switch from scratch, the page and the listings being as the panic left them.
+    fn follow_afresh(&mut self) {
+        self.on = !self.shared.switched_on(ID);
+        self.switch();
+    }
+
     fn run(&mut self, rx: &Receiver<Event>) {
         loop {
             match rx.recv_timeout(self.sleep()) {
@@ -816,7 +824,7 @@ impl Plugin {
                     }
                     if let Some(problem) = &s.problem {
                         words = if s.skipped && source == Source::Plex {
-                            "Skipped until the TV is signed in to Plex".to_owned()
+                            SIGN_IN.to_owned()
                         } else if s.skipped {
                             let mut c = problem.chars();
                             let typed: String = c
@@ -1013,7 +1021,7 @@ mod tests {
         let end = Instant::now() + Duration::from_secs(5);
         while !done() {
             assert!(Instant::now() < end, "{what}");
-            thread::sleep(Duration::from_millis(5));
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 
@@ -1084,7 +1092,7 @@ mod tests {
         );
         assert_eq!(
             (f["plex"].as_str(), f["plex-server"].as_str()),
-            (Some("Skipped until the TV is signed in to Plex"), Some("Not signed in to Plex"))
+            (Some(SIGN_IN), Some("Not signed in to Plex"))
         );
         // signing the TV in to Plex gives the source the account's server
         plex.set_server(Some(Server::test("beast", "BeastNAS", "192.168.1.69:32400", "tk-beast")));

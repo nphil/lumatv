@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A first-party plugin that panics stops alone. Each plugin's thread, and what the manager runs when a switch is turned, runs under a guard: a panic marks the plugin `failed` in `/v1/state/plugins`, with a `reason` that Settings shows under its switch, and the plugin starts again after 30 s, doubling up to 30 min while it keeps failing, or at once when its switch is turned. Before, the panic ended that plugin's thread for good while its switch still read on, and one on the manager's thread stopped every switch. A stack overflow, or a second panic during unwinding, still ends the helper.
+
+Settings › Sound always lists Receiver, reading Off while the plugin is off. It was listed only while the sound went to the receiver, so with the sound on the TV speakers the plugin's switch could not be reached. With the plugin off, the receiver's volume line says that the plugin is off rather than that the receiver is not answering.
+
+Guide data reads "Sign in to Plex for listings" while the TV is not signed in to Plex, as its status when Plex is the only source and as Plex's line when other sources run without it.
+
+The toolkit's demo Home (`lumatv-rustui`) no longer has a Photos tile; the Photos plugin is gone.
+
 The Denon receiver is a first-party plugin, `denon-receiver`, off until switched on in Settings › Sound › Receiver, which asks first as the Cameras page does; its address and web port are on the page's first tab. Off, the helper neither holds the telnet connection nor polls the receiver, the assistant's receiver control answers that the plugin is off, and the volume keys change the TV's own volume. `base.receiver` and its `enabled` setting are gone: a TV that used the receiver keeps it on with the same address.
 
 The Scrypted cameras are a first-party plugin, `scrypted-cameras`, off until switched on in Settings › Home & look › Cameras, which asks first as the tuner's page does. Off, the status bar has no camera button, Home no camera card or Smart home camera tiles, and no pop-up shows; the helper neither signs in to the bridge nor reads its events, and its camera routes answer 409 `off`. The link and the page's choices stay. Ring's doorbell, a Scrypted camera, is part of it. A TV linked to Scrypted before keeps its cameras on.

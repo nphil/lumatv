@@ -404,7 +404,7 @@ impl Scrypted {
     }
 
     /// Starts the manager: it follows the owner's switch and, while the plugin is on, looks at the link file and the screen and keeps the
-    /// connection while there is a link and the TV is awake.
+    /// connection while there is a link and the TV is awake. Guarded: after a panic it looks again from what is running.
     pub fn spawn(&self, ctx: &Ctx) -> io::Result<JoinHandle<()>> {
         let me = self.inner.clone();
         let stop = ctx.stop.clone();
@@ -413,17 +413,21 @@ impl Scrypted {
             ctx.stop.on_stop(move || me.wake());
         }
         // the page's plugin session is spoken to from here: its message handler has big frames in an unoptimised build
-        thread::Builder::new()
-            .name("scrypted".to_owned())
-            .stack_size(http::TLS_STACK)
-            .spawn(move || {
+        crate::plugins::guard::spawn(
+            "scrypted",
+            http::TLS_STACK,
+            self.inner.shared.clone(),
+            &[options::OWNER],
+            ctx.stop.clone(),
+            move |_| {
                 while !stop.is_set() {
                     me.look();
                     me.nap_manager();
                 }
                 me.teardown(None);
                 me.live.stop("the helper stopped");
-            })
+            },
+        )
     }
 
     /// `GET /v1/cameras`: the topic's value, now.

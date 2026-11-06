@@ -11,6 +11,7 @@
 //! | [`broker`] | the socket, one reader and one writer thread per connection, rate and size limits |
 //! | [`local`] | a plugin of the helper's own, in the same conversation with no socket (the TV's first-party plugins), and one that asks first |
 //! | [`firstparty`] | the helper's first-party plugins: Home's weather, news and clock, and the ambient light tile |
+//! | [`guard`] | a plugin of the helper's own that panics fails alone: its switch says why, and it starts again |
 //! | [`ha`] | the Home Assistant lease: the one connection, held by the plugins that require it, and what each may watch and call |
 //! | [`install`] | switching a plugin on and off and linking Home Assistant: the owner's command line (`plugin-enable`, `ha-link`) |
 //! | [`runner`] | starts the programs of the plugins that are on, as their own users, and again when they stop |
@@ -27,6 +28,7 @@
 
 pub mod broker;
 pub mod firstparty;
+pub mod guard;
 pub mod ha;
 pub mod install;
 pub mod local;
