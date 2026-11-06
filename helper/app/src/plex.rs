@@ -287,11 +287,13 @@ impl Net for CurlNet {
 /// How the sign-in stands.
 enum Link {
     Out,
-    /// A PIN is shown: its id, its four characters and when it expires.
+    /// A PIN is shown: its id, its four characters and when it expires, and the account signed in before, which stays in use until the
+    /// code is linked.
     Code {
         pin: u64,
         code: String,
         expires_ms: i64,
+        kept: Option<Account>,
     },
     In(Account),
 }
@@ -377,16 +379,25 @@ impl Machine {
             .unwrap_or(900)
             .clamp(60, 3600);
         crate::log_info!("plex: a sign-in code is shown, for {lasts} s");
+        let kept = match std::mem::replace(&mut self.link, Link::Out) {
+            Link::In(account) => Some(account),
+            Link::Code { kept, .. } => kept,
+            Link::Out => None,
+        };
         self.link = Link::Code {
             pin: id,
             code: code.to_owned(),
             expires_ms: now_ms + lasts * 1000,
+            kept,
         };
     }
 
+    /// Gives up the code shown; the account signed in before, if any, is the one in force.
     fn cancel(&mut self) {
-        if matches!(self.link, Link::Code { .. }) {
-            self.link = load_account(&self.dir).map_or(Link::Out, Link::In);
+        if matches!(self.link, Link::Code { .. })
+            && let Link::Code { kept, .. } = std::mem::replace(&mut self.link, Link::Out)
+        {
+            self.link = kept.map_or(Link::Out, Link::In);
             self.problem = None;
         }
     }
@@ -427,7 +438,7 @@ impl Machine {
     }
 
     fn expired(&mut self) {
-        self.link = load_account(&self.dir).map_or(Link::Out, Link::In);
+        self.cancel();
         self.problem = Some("The code expired before it was linked: ask for a new one".into());
     }
 
@@ -578,7 +589,11 @@ impl Machine {
     /// The server in use and its token, for what uses it.
     fn server(&self) -> Option<Server> {
         match &self.link {
-            Link::In(account) => account.server().cloned(),
+            Link::In(account)
+            | Link::Code {
+                kept: Some(account),
+                ..
+            } => account.server().cloned(),
             _ => None,
         }
     }
@@ -1123,6 +1138,24 @@ mod tests {
             std::fs::read_to_string(dir.path().join("plex/client-id")).unwrap(),
             id,
             "the same device every time"
+        );
+
+        // a new code while signed in: the server stays in use until the code is linked, and Cancel keeps the account
+        m.sign_in(&Plex::answers(&[(201, PIN)]), 0);
+        assert_eq!(
+            (m.view()["state"].as_str(), m.server().map(|s| s.name)),
+            (Some("code"), Some("Den".into()))
+        );
+        m.cancel();
+        assert_eq!(
+            (m.view()["state"].as_str(), m.server().map(|s| s.name)),
+            (Some("signed-in"), Some("Den".into()))
+        );
+        m.cancel();
+        assert_eq!(
+            m.view()["state"],
+            "signed-in",
+            "Cancel with no code shown changes nothing"
         );
     }
 
