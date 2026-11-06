@@ -29,6 +29,16 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Sizeless cameras' pop-ups on the main window 2026-11-06 (main 87d83650)
+
+Helper-only install from 87d83650 at 08:55 EST by the standard helper start: helper sha256 `087d4ece8998b98d2604790e9a6eff539c7c7ac1f0921e87da6788a0f5dc0ec5` (was `0000c475`), compositor, ui and sm unchanged. Receipts: `/data/home/tmp/lumatv-camplane-20261106/` (`session.log`, `event-popup-*`, `logs-popup-*`, `full-*`, `popup-88-retry.png`).
+
+- The helper read both sizeless streams at its start (88: h265 768x432, 168: h264 640x360) and the cameras topic says `popupVideo: window` for 88, 103 and 168, `stills` for 196.
+- Test pop-ups on Home, each granted the main window at 1348,145 520x292: 88 at 11.0 and 11.4 pictures a second (first after 153 ms), 168 at 11.4 (208 ms), 103 at 15.0 (2.18 s). The panel stayed at 119.5 to 120.2 Hz; the compositor flipped 10 to 17 times a second during each.
+- Full view on the main window, 88's light stream: 8 of 10 starts at 11.3 to 13.8 pictures a second; in 2 the stream sent no data for 8 s after it opened ("went quiet"), so the decoder never had a picture. The H.265 decoder is not the limit.
+- The first test pop-up of 88 (08:56, Home on the profile picker after the saver) was posted but the shell made no window claim and no live session started; the two after it played. Not explained.
+- Left in Active Standby, helper.json as found (test events off).
+
 ## Camera pop-ups over Home, the UI engine's memory at a restart 2026-11-06 (night, main 75acf6f9)
 
 Installed by the standard path from b6a00593 at 00:14 EST: compositor `3dd284cf`, ui `ba13803e`, sm `65f6ca69` (unchanged); the helper from 75acf6f9 at 00:30, `46895c9c`. Full sha256s in `session.log` of the receipts, `/data/home/tmp/lumatv-idlefollowups-20261106/` (`idle-post-*`, `event-post-*`, `mem-*`).
