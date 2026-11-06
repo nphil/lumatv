@@ -5,12 +5,15 @@
 //! Whose volume it shows: the receiver's own level (the helper's `receiver` topic, the Denon's push) while the sound leaves over
 //! HDMI ARC or optical and the Denon answers; the TV's own (the audio service) while the TV's speakers, headphones or Bluetooth
 //! are the output or the receiver is off, unreachable or switched off. A reading that is not in date is never shown; a key after a
-//! quiet spell waits `decide_ms` for a receiver that may answer before the TV's counter is shown.
+//! quiet spell waits `decide_ms` for a receiver that may answer before the TV's counter is shown; the key counts from the copy it
+//! found, which only aged, and its answer shows and goes out once the helper's newest copy is in date.
 //!
 //! The number is the target and the receiver is driven to it: a tap is one receiver step (0.5); a held key moves the target by time
 //! (`rate_start` steps a second, rising by `rate_accel` a second to `rate_max`), never past the receiver's limit; the target is
-//! posted to the helper at most every `send_ms` (`POST /v1/receiver/volume`), and the bar keeps it until the receiver reports that
-//! level or `settle_ms` has passed since the last key.
+//! posted to the helper at most every `send_ms` (`POST /v1/receiver/volume`). The bar keeps it while the receiver's reports catch
+//! up: one from before the last post, or of any other level, is an echo of an older level or a CEC step the helper overrides. Once
+//! the keys stop it gives way to the receiver's reading `quiet_ms` after a report of the target with nothing else since, or
+//! `settle_ms` after the last key whatever the receiver says; a change made at the receiver shows then.
 //!
 //! It opens on a change the audio service reports and on a new receiver reading, for `hold_ms` after the last. While the sound is
 //! muted a small mark stays at the top and moves every `hop_ms` (a still mark is what an OLED must not hold), holding still while
@@ -168,6 +171,7 @@ pub struct Timing {
     pub hop_ms: u64,
     pub grace_ms: u64,
     pub settle_ms: u64,
+    pub quiet_ms: u64,
     pub hold_gap_ms: u64,
     pub send_ms: u64,
     pub rate_start: f64,
@@ -185,6 +189,7 @@ impl Default for Timing {
             hop_ms: 10000,
             grace_ms: 1500,
             settle_ms: 1500,
+            quiet_ms: 500,
             hold_gap_ms: 200,
             send_ms: 100,
             rate_start: 6.0,
@@ -223,6 +228,8 @@ pub struct Volume {
     sent_abs: f64,
     sent_at: u64,
     settle_due: Option<u64>,
+    /// When the receiver reported the target after the last post, with nothing else since.
+    confirmed_at: Option<u64>,
     hold_due: Option<u64>,
     send_due: Option<u64>,
     // the display
@@ -277,6 +284,7 @@ impl Volume {
             sent_abs: -1.0,
             sent_at: 0,
             settle_due: None,
+            confirmed_at: None,
             hold_due: None,
             send_due: None,
             pill: false,
@@ -332,6 +340,12 @@ impl Volume {
             && self.rc_bool("enabled") != Some(false)
             && self.rc_bool("reachable") != Some(false)
             && self.rc_str("power") != "standby"
+    }
+
+    /// A key may be counted from this copy: it says the receiver is on, fresh and reachable, though its stamp may have aged because
+    /// nothing changed since (the helper raises no event then). The answer is shown and posted once a copy in date confirms the level.
+    fn countable(&self) -> bool {
+        !self.tv_output() && self.receiver_may() && self.rc_bool("reachable") == Some(true) && self.rc_bool("fresh") == Some(true) && self.read_abs() >= 0.0
     }
 
     pub fn source(&self) -> Source {
@@ -461,23 +475,45 @@ impl Volume {
 
     fn end_keyed(&mut self) {
         self.keyed = false;
+        self.opt_abs = -1.0;
+        self.opt_mute = -1;
         self.sent_abs = -1.0;
         self.settle_due = None;
+        self.confirmed_at = None;
         self.changed = true;
     }
 
-    /// The receiver's reading says what the keys made it: the bar takes the reading from here.
-    fn confirm(&mut self) {
-        if !self.keyed || self.rc.is_none() || self.hold_due.is_some() {
+    /// A reading while the bar shows the keys' answer. It confirms the answer when it says the target and the mute were reached
+    /// after the last post (a reading from before the post is an echo of an older level or a step the post overrides, whatever it
+    /// says); any other level after a confirmation is a late step the helper corrects, and the confirmation waits for that.
+    fn confirm(&mut self, now: u64) {
+        if !self.keyed || self.rc.is_none() {
             return;
         }
-        if self.opt_abs >= 0.0 && (self.read_abs() - self.opt_abs).abs() >= 0.25 {
-            return;
+        let level = self.opt_abs < 0.0 || (self.read_abs() - self.opt_abs).abs() < 0.25;
+        let mute = self.opt_mute < 0 || self.rc_bool("mute").unwrap_or(false) == (self.opt_mute == 1);
+        let stamp = self.rc_f64("updatedAt").unwrap_or(0.0);
+        if !(level && mute) {
+            self.confirmed_at = None;
+        } else if self.confirmed_at.is_none() && (self.sent_abs < 0.0 || stamp >= self.sent_at as f64) {
+            self.confirmed_at = Some(now);
         }
-        if self.opt_mute >= 0 && self.rc_bool("mute").unwrap_or(false) != (self.opt_mute == 1) {
-            return;
+    }
+
+    /// When a confirmation lets the keys' answer go: `quiet_ms` after it, once the keys have stopped and the target is posted.
+    fn quiet_due(&self) -> Option<u64> {
+        if self.hold_due.is_some() || self.send_due.is_some() {
+            return None;
         }
-        self.end_keyed();
+        self.confirmed_at.map(|at| at + self.timing.quiet_ms)
+    }
+
+    /// The bar gives the keys' answer up for the receiver's reading at the quiet after a confirmation, or `settle_ms` after the last
+    /// key whatever the receiver said.
+    fn settle(&mut self, now: u64) {
+        if self.keyed && [self.quiet_due(), self.settle_due].into_iter().flatten().any(|t| now >= t) {
+            self.end_keyed();
+        }
     }
 
     /// How many receiver steps this report is worth: one for a tap; for a report of a held key the time since the last times the rate.
@@ -505,7 +541,11 @@ impl Volume {
         if base >= 0.0 && (up || down) {
             let dir = if up { 1 } else { -1 };
             let next = base + dir as f64 * self.steps(now, dir) * self.timing.receiver_step;
-            self.opt_abs = if up { next.min(self.limit().max(base)) } else { next.max(0.0) };
+            let target = if up { next.min(self.limit().max(base)) } else { next.max(0.0) };
+            if target != self.opt_abs {
+                self.opt_abs = target;
+                self.confirmed_at = None;
+            }
             self.last_key_at = now;
             self.last_dir = dir;
             self.hold_due = Some(now + self.timing.hold_gap_ms);
@@ -582,7 +622,9 @@ impl Volume {
                 self.ask(out);
             }
         }
-        if self.via_receiver() {
+        // a copy that only aged (the helper raises no event while nothing changes) counts the key; the answer shows and goes out when
+        // the newest copy, asked for above, confirms where the receiver is
+        if self.via_receiver() || self.countable() {
             self.key(now, out);
         }
         out.push(Effect::Log(format!("[VolumeOsd] cue: the bar {}", if self.pill { "is up" } else { "appears now" })));
@@ -618,7 +660,7 @@ impl Volume {
     }
 
     /// A reading that is in date: a change of level or of mute against the last one shows the bar, while it is the receiver that is read.
-    fn read(&mut self, now: u64) {
+    fn read(&mut self, now: u64, out: &mut Vec<Effect>) {
         self.deciding = false;
         self.decide_due = None;
         let next_key = format!("{}|{}", self.read_abs(), self.rc_bool("mute").unwrap_or(false));
@@ -628,7 +670,8 @@ impl Volume {
         self.level_key = next_key;
         self.muted_rx = self.rc_bool("mute").unwrap_or(false);
         self.grace_due = None;
-        self.confirm();
+        self.confirm(now);
+        self.send(now, out);
         self.changed = true;
     }
 
@@ -638,7 +681,7 @@ impl Volume {
         self.rc_at = now;
         self.evaluate(now);
         if self.fresh() {
-            self.read(now);
+            self.read(now, out);
         } else if was_fresh && self.muted_rx {
             self.grace_due = Some(now + self.timing.grace_ms);
         }
@@ -750,7 +793,7 @@ impl Model for Volume {
                     self.helper_up = up;
                     self.evaluate(now);
                     if self.fresh() {
-                        self.read(now);
+                        self.read(now, &mut out);
                     }
                     self.ask_newest(now, &mut out);
                     self.changed = true;
@@ -758,15 +801,18 @@ impl Model for Volume {
             }
             Input::Fetched { tag, status, data } if *tag == CONFIRM_TAG => {
                 self.asking = false;
+                let stamp = |doc: &Value| doc.get("updatedAt").and_then(Value::as_f64).unwrap_or(0.0);
+                // an answer the event stream has already overtaken (asked before the newest event, answered after it) is not news
                 if *status == 200
                     && let Some(value) = data.get("value")
                     && !value.is_null()
+                    && self.rc.as_ref().is_none_or(|rc| stamp(value) >= stamp(rc))
                 {
                     self.rc = Some(value.clone());
                     self.rc_at = now;
                     self.evaluate(now);
                     if self.fresh() {
-                        self.read(now);
+                        self.read(now, &mut out);
                     }
                 }
             }
@@ -798,15 +844,12 @@ impl Model for Volume {
                     self.hold_due = None;
                     self.held_since = 0;
                     self.owed = 0.0;
-                    self.confirm();
-                }
-                if self.settle_due.is_some_and(|t| now >= t) {
-                    self.end_keyed();
                 }
                 if self.send_due.is_some_and(|t| now >= t) {
                     self.send_due = None;
                     self.send(now, &mut out);
                 }
+                self.settle(now);
                 if self.grace_due.is_some_and(|t| now >= t) {
                     self.grace_due = None;
                     if !self.fresh() {
@@ -852,10 +895,21 @@ impl Model for Volume {
     }
 
     fn due_at(&self) -> Option<u64> {
-        [self.expiry, self.hide_due, self.decide_due, self.hold_due, self.settle_due, self.send_due, self.grace_due, self.ask_due, self.hop_due]
-            .into_iter()
-            .flatten()
-            .min()
+        [
+            self.expiry,
+            self.hide_due,
+            self.decide_due,
+            self.hold_due,
+            self.settle_due,
+            self.send_due,
+            self.quiet_due(),
+            self.grace_due,
+            self.ask_due,
+            self.hop_due,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 }
 
@@ -920,11 +974,12 @@ mod tests {
         }
     }
 
+    fn doc(abs: f64, mute: bool, at: u64) -> Value {
+        json!({"power": "on", "enabled": true, "reachable": true, "fresh": true, "updatedAt": at, "volumeAbs": abs, "mute": mute, "volumeMax": 98, "soundMode": "DOLBY ATMOS", "signal": "Dolby Atmos - DD+"})
+    }
+
     fn receiver(abs: f64, mute: bool, at: u64) -> Input {
-        Input::Helper {
-            topic: "receiver".into(),
-            data: json!({"power": "on", "enabled": true, "reachable": true, "fresh": true, "updatedAt": at, "volumeAbs": abs, "mute": mute, "volumeMax": 98, "soundMode": "DOLBY ATMOS", "signal": "Dolby Atmos - DD+"}),
-        }
+        Input::Helper { topic: "receiver".into(), data: doc(abs, mute, at) }
     }
 
     fn up() -> Input {
@@ -943,9 +998,13 @@ mod tests {
 
     /// A receiver at 42.5 with the sound going to it, read at `t0`.
     fn arc(t0: u64) -> Volume {
+        arc_at(42.5, t0)
+    }
+
+    fn arc_at(level: f64, t0: u64) -> Volume {
         let mut v = Volume::default();
         v.update(&up(), t0);
-        v.update(&receiver(42.5, false, t0), t0);
+        v.update(&receiver(level, false, t0), t0);
         v.update(&audio(12, false, "external_arc", ""), t0);
         v
     }
@@ -995,9 +1054,11 @@ mod tests {
         v.update(&receiver(42.5, false, 11_050), 11_050);
         assert_eq!(v.target(), Some(43.0));
         assert_eq!(v.view().level, "43");
-        // the receiver reaches the target once the hold gap is over: the reading is taken
+        // the receiver reaches the target after the post and stays there for the quiet: the reading is taken
         v.update(&Input::Tick, 11_250);
         v.update(&receiver(43.0, false, 11_600), 11_600);
+        assert_eq!(v.target(), Some(43.0), "kept while a late step could still land");
+        v.update(&Input::Tick, 12_100);
         assert_eq!(v.target(), None, "confirmed by the reading");
         assert_eq!(v.view().level, "43");
     }
@@ -1010,6 +1071,141 @@ mod tests {
         assert_eq!(v.target(), Some(43.5));
         v.update(&Input::Tick, 12_900);
         assert_eq!(v.target(), None, "settleMs after the last key the reading is what is shown");
+    }
+
+    /// Plays `events` into the model with its own ticks between them until `until`; the level shown after each step.
+    fn play(v: &mut Volume, events: &[(u64, Input)], until: u64) -> Vec<(u64, f64)> {
+        let (mut shown, mut i, mut last) = (Vec::new(), 0, 0);
+        loop {
+            let event = events.get(i).map(|e| e.0);
+            let Some(t) = [event, v.due_at()].into_iter().flatten().min().filter(|t| *t <= until) else { break };
+            let t = t.max(last);
+            if event.is_some_and(|e| e <= t) {
+                v.update(&events[i].1, t);
+                i += 1;
+            } else {
+                v.update(&Input::Tick, t);
+            }
+            last = t;
+            shown.push((t, v.view().level.parse().unwrap_or(-1.0)));
+        }
+        shown
+    }
+
+    /// A one-second hold recorded on the set (2026-11-05, `docs/research/volume-osd-result.md`): the receiver's level before, the
+    /// direction, the remote's press and repeats (ms; the key is let go at 1000) and what the receiver reported (ms as the helper
+    /// stamped it, level). Its own CEC steps land up to 300 ms after the last key, often after it reported the bar's last level.
+    /// The bar of the time showed 36 then 36.5, 40 then 39.5, and 35.5 then 36 after three of them.
+    struct Hold {
+        start: f64,
+        dir: i32,
+        keys: Vec<u64>,
+        reports: Vec<(u64, f64)>,
+    }
+
+    fn recorded_holds() -> Vec<Hold> {
+        let slow: Vec<u64> = [0].into_iter().chain((300..=900).step_by(100)).collect();
+        let fast: Vec<u64> = [0].into_iter().chain((300..=980).step_by(40)).collect();
+        vec![
+            Hold {
+                start: 39.5,
+                dir: -1,
+                keys: slow.clone(),
+                reports: vec![
+                    (141, 39.0),
+                    (479, 38.5),
+                    (730, 38.0),
+                    (779, 37.5),
+                    (846, 37.0),
+                    (991, 36.5),
+                    (1069, 37.0),
+                    (1135, 36.5),
+                    (1173, 36.0),
+                    (1355, 36.5),
+                ],
+            },
+            Hold {
+                start: 36.5,
+                dir: 1,
+                keys: slow,
+                reports: vec![(48, 37.0), (179, 37.5), (599, 38.0), (838, 38.5), (1038, 39.0), (1078, 39.5), (1194, 40.0), (1351, 39.5)],
+            },
+            Hold {
+                start: 39.5,
+                dir: -1,
+                keys: fast.clone(),
+                reports: vec![(45, 39.0), (182, 38.5), (536, 38.0), (595, 37.5), (896, 37.0), (1018, 36.5), (1184, 36.0), (1271, 35.5), (1450, 36.0)],
+            },
+            Hold {
+                start: 36.0,
+                dir: 1,
+                keys: fast,
+                reports: vec![
+                    (62, 36.5),
+                    (119, 37.0),
+                    (565, 37.5),
+                    (723, 38.0),
+                    (823, 38.5),
+                    (913, 39.0),
+                    (1130, 39.5),
+                    (1166, 39.0),
+                    (1331, 40.0),
+                    (1435, 39.5),
+                ],
+            },
+        ]
+    }
+
+    #[test]
+    fn the_recorded_holds_never_step_back_after_the_release_and_end_on_the_receivers_level() {
+        for hold in recorded_holds() {
+            let t0 = 100_000;
+            let mut v = arc_at(hold.start, t0 - 3000);
+            let cause = if hold.dir > 0 { "volumeUp" } else { "volumeDown" };
+            // the audio service's report of a key comes 8 ms after it (key to the helper's post: 8 to 11 ms)
+            let mut events: Vec<(u64, Input)> = hold.keys.iter().map(|k| (t0 + k + 8, audio(20, false, "external_arc", cause))).collect();
+            events.extend(hold.reports.iter().map(|&(t, level)| (t0 + t, receiver(level, false, t0 + t))));
+            events.sort_by_key(|e| e.0);
+            let shown = play(&mut v, &events, t0 + 5000);
+            let after: Vec<f64> = shown.iter().filter(|s| s.0 >= t0 + 1000).map(|s| s.1).collect();
+            assert!(after.windows(2).all(|w| (w[1] - w[0]) * f64::from(hold.dir) >= 0.0), "stepped back after the release: {shown:?}");
+            let last = hold.reports.last().unwrap().1;
+            assert_eq!(after.last().copied(), Some(last), "ends on the receiver's level: {shown:?}");
+            assert_eq!(v.target(), None);
+        }
+    }
+
+    #[test]
+    fn echoes_of_earlier_levels_and_an_answer_the_events_overtook_never_show() {
+        let mut v = arc(10_000);
+        v.update(&audio(13, false, "external_arc", "volumeUp"), 11_000);
+        v.update(&audio(14, false, "external_arc", "volumeUp"), 11_300);
+        let events = [
+            (11_350, receiver(43.0, false, 11_350)),
+            (11_400, receiver(43.5, false, 11_400)),
+            // the answer to a confirmation asked before the last event, with the copy that event replaced
+            (11_420, Input::Fetched { tag: CONFIRM_TAG, status: 200, data: json!({"value": doc(43.0, false, 11_350)}) }),
+        ];
+        let shown = play(&mut v, &events, 14_000);
+        assert!(shown.iter().all(|s| s.1 == 43.5), "{shown:?}");
+        assert_eq!(v.target(), None, "the receiver's 43.5 is what is shown now");
+    }
+
+    #[test]
+    fn a_change_made_at_the_receiver_shows_once_the_keys_settle_and_at_once_without_them() {
+        let mut v = arc(10_000);
+        v.update(&audio(13, false, "external_arc", "volumeUp"), 11_000);
+        v.update(&receiver(43.0, false, 11_100), 11_100);
+        // the Denon's own remote while the keys' answer is up: kept back until the settle
+        let shown = play(&mut v, &[(11_200, receiver(47.0, false, 11_200))], 12_400);
+        assert!(shown.iter().all(|s| s.1 == 43.0), "{shown:?}");
+        play(&mut v, &[], 12_600);
+        assert_eq!(v.view().level, "47");
+        v.update(&Input::Tick, 16_000);
+        assert!(!v.view().up);
+        v.update(&receiver(45.0, false, 16_500), 16_500);
+        assert_eq!(v.view().level, "45", "with no keys a change shows at once");
+        assert!(v.view().up);
     }
 
     #[test]
@@ -1100,15 +1296,17 @@ mod tests {
         v.update(&Input::Tick, 10_400);
         assert_eq!(v.view().source, Source::Tv, "decideMs later the TV's counter");
         assert!(v.view().up);
-        // and when it does answer in time, its level is what is shown
+        // and when it does answer in time, the key counts from its level: shown and posted at once
         let mut w = Volume::default();
         w.update(&up(), 10_000);
         w.update(&receiver(40.0, false, 1_000), 10_000);
-        w.update(&audio(12, false, "external_arc", "volumeUp"), 10_100);
+        let e = w.update(&audio(12, false, "external_arc", "volumeUp"), 10_100);
         assert_eq!(w.view().source, Source::Wait);
-        w.update(&Input::Fetched { tag: CONFIRM_TAG, status: 200, data: json!({"value": {"power": "on", "enabled": true, "reachable": true, "fresh": true, "updatedAt": 10_150, "volumeAbs": 40.0, "mute": false}}) }, 10_200);
+        assert!(posts(&e).is_empty(), "nothing goes out on an aged copy");
+        let e = w.update(&Input::Fetched { tag: CONFIRM_TAG, status: 200, data: json!({"value": {"power": "on", "enabled": true, "reachable": true, "fresh": true, "updatedAt": 10_150, "volumeAbs": 40.0, "mute": false}}) }, 10_200);
         assert_eq!(w.view().source, Source::Receiver);
-        assert_eq!(w.view().level, "40");
+        assert_eq!(w.view().level, "40.5");
+        assert_eq!(posts(&e), vec![40.5]);
     }
 
     #[test]

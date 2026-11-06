@@ -198,6 +198,13 @@ impl Poller<'_> {
         }
     }
 
+    /// The receiver's level on the panel's 0 to 98 scale, from the newest reading.
+    fn level(&self) -> Option<f64> {
+        self.last_ok
+            .as_ref()
+            .and_then(|r| r.status.volume_absolute())
+    }
+
     /// Takes a reading from the telnet link in: it counts as a successful attempt and moves the stamp, whether or not the
     /// receiver said anything new.
     fn accept(
@@ -915,6 +922,9 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
         {
             poller.poll(client);
             poller.publish(&ctx.hub, settings.enabled, &settings.host, true);
+            if let (Some(driver), Some(level)) = (&driver, poller.level()) {
+                driver.heard(level);
+            }
             let burst = burst_until.is_some_and(|b| Instant::now() < b);
             let base = Duration::from_millis(tuning.poll_ms);
             let wait = if burst {
@@ -1074,6 +1084,9 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                     tuning.telnet_port,
                 );
                 poller.publish(&ctx.hub, settings.enabled, &settings.host, true);
+                if let (Some(driver), Some(level)) = (&driver, poller.level()) {
+                    driver.heard(level);
+                }
             }
             Err(RecvTimeoutError::Timeout) => {
                 // Publishing again lets a reading that passed its age turn `fresh: false` at once.

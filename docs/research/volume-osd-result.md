@@ -53,16 +53,24 @@ second one (a test fails if they do). The display takes no key and no focus.
   rounded to a whole number whatever the Denon's display is set to: no decimals, no unit), not webOS's counter, which moves by one per key (31, 32, 31 on Volume+,
   Volume-) and says nothing of the Denon. With the TV's speakers, headphones or Bluetooth as the output, or with the receiver off, unreachable or
   switched off in Settings, the TV's own volume (`LS.audioService.volume` of 100). Nothing on the bar says which of the two it is. A receiver that
-  may answer and has not yet (a key after minutes of quiet) is waited for 250 ms; the TV's counter is shown only if it does not.
+  may answer and has not yet (a key after minutes of quiet) is waited for 250 ms; the TV's counter is shown only if it does not. A key in that wait
+  counts from the level of the display's aged copy and shows once the answer comes, so the first press of a hold after a quiet spell is a step too.
 - **The key answers first, and the receiver follows the number**: the bar appears on the key's own frame (no fade in, 150 ms out) with the level as a target. A tap
   moves it one receiver step (0.5, as read on the set: 42.5 to 43 to 42.5); a held key moves it by time, not by repeat: 6 steps a second, 4 more each second held,
   at most 16, never past the receiver's own limit (`volumeMax`, from its `MVMAX`). LG's audio service passes each of the 25 repeats a second on over CEC and the
   Denon takes them slower and drops the rest, so a count per repeat ran ahead of the receiver and jumped back at release (Nitin, 2026-10-28). The target is posted
   to the helper at most every 100 ms (`POST /v1/receiver/volume`); `receiver_volume.rs` sends it as an absolute `MVxx`/`MVxx5` over the web port, one command in
-  100 ms at most and only the newest level, so the receiver follows the display whatever the CEC steps do, and reads it once 400 ms after the last command to correct a
-  CEC step that landed late (up to 3 times). The bar keeps the target while the keys come and after the last one until the receiver reports that level
-  (then the reading is taken, the same number) or `settleMs` (1.5 s) has passed (then the reading is taken, whatever it is); an older reading never moves it back. Nothing
-  heavy runs on a press: no blur is rebuilt, hidden text is not laid out (the format mark and the glyph are `visible` only when used), the fill animates for 100 ms.
+  100 ms at most and only the newest level; a command that fails goes again.
+- **Late CEC steps** (measured on the set, 2026-11-05: four 1 s holds and six taps, keys, posts, commands and the topic on one clock): the key reaches the helper
+  8 to 11 ms after it is pressed and the receiver reports the level sent about 40 ms later, but the Denon takes the key's own CEC step 120 to 300 ms after
+  it, usually after the level sent. Each tap overshot by one step until the helper's read-back 400 ms later, and a hold's last steps landed up to 300 ms after
+  the release, after the receiver had reported the bar's last level. The bar took the reading at that report, so three of the four holds showed the late step
+  and then the correction: 36 then 36.5 after a hold down, 40 then 39.5 after a hold up. The bar now keeps the target until the receiver has reported it after
+  the last post with nothing else for 500 ms (`quietMs`), or 1.5 s (`settleMs`) after the last key whatever the receiver says; a report from before the last
+  post, or of another level, never shows meanwhile, and a change made at the receiver shows after it. The helper hears every reading: another level within
+  1.5 s of the last one asked (`volumeHoldMs`), after the receiver reported that one, is a late step, sent back once no level has been asked for 400 ms
+  (`volumeSettleMs`; sooner, a hold's next level only overtakes it), at most 3 times; a level never reported is read back after 400 ms. Nothing heavy runs on a
+  press: no blur is rebuilt, hidden text is not laid out (the format mark and the glyph are `visible` only when used), the fill animates for 100 ms.
   Offline, from the audio service's report to the next presented frame: see `volume_sheet.py --latency`.
 - **Mute**: the number gives way to a slashed speaker and the bar is dimmed; no word. From the receiver's `MU` push or, with no receiver, the TV's mute
   (and at once from the key when the TV's `cause` says mute). Then a 64 px bubble with a slashed speaker stays while the sound is
@@ -119,8 +127,9 @@ and `rc.signal` are absent and the text is hidden.
    `onVolumeUpdated, volume view is not available` once per press and `[VolumeOsd] cue: the bar appears now` within a few ms of it, the receiver ends where
    it began. Over Plex and HDMI 2 the picture shows through the bar and the number reads.
 3. Hold Volume+ for about three seconds (receiver muted or low first). Pass: the number climbs at a steady, gently rising pace (about 3 a second at the start, 8 at
-   the most) and the Denon's own display keeps up with it; at release the number holds, the Denon reaches it within about half a second and the bar takes
-   its reading (`/v1/receiver`, `volumeAbs`) with no step back. Holding past the receiver's limit stops the number at the limit.
+   the most) and the Denon's own display keeps up with it; at release the number holds and never steps back, the Denon ends on it (a late CEC step is put
+   back within about half a second) and the bar takes its reading (`/v1/receiver`, `volumeAbs`), the same number. Holding past the receiver's limit stops
+   the number at the limit.
 4. Mute at Home (then unmute at Home, with apps closed first). Pass: the number becomes a slashed speaker with a dim bar, no word; after the hold a 64 px
    bubble stays in a top corner and has moved to another place within ten seconds; unmuting removes it; LG's bubble never shows.
 5. Format: with the helper that publishes `soundMode` and `signal`, play something with a known format on the Denon and check the mark against the Denon's front display.

@@ -502,8 +502,10 @@ pub struct ReceiverTuning {
     pub telnet_port: u16,
     /// The shortest time between two volume commands to the receiver (the display's level is sent coalesced: 100 ms is 10 a second).
     pub volume_gap_ms: u64,
-    /// How long the level has to be quiet before the receiver is read once to see that it took it, and corrected if it did not.
+    /// How long the level has to be quiet before the receiver is read once to see that it took it, or a late CEC step is corrected.
     pub volume_settle_ms: u64,
+    /// How long after the last level asked a report of another one is a late CEC step to correct rather than the receiver's own change.
+    pub volume_hold_ms: u64,
     /// The most corrections after one level.
     pub volume_retries: u32,
 }
@@ -521,6 +523,7 @@ impl Default for ReceiverTuning {
             telnet_port: lumatv_denon::telnet::DEFAULT_TELNET_PORT,
             volume_gap_ms: 100,
             volume_settle_ms: 400,
+            volume_hold_ms: 1_500,
             volume_retries: 3,
         }
     }
@@ -934,6 +937,7 @@ impl Config {
             ),
             ("receiver.volumeGapMs", self.receiver.volume_gap_ms),
             ("receiver.volumeSettleMs", self.receiver.volume_settle_ms),
+            ("receiver.volumeHoldMs", self.receiver.volume_hold_ms),
         ] {
             if value == 0 {
                 return err(&format!("{name} must be above 0"));
