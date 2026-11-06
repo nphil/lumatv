@@ -29,6 +29,16 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## TV session 2026-11-05 (night, main 65df7ada: screensaver)
+
+Installed 21:00 EST through `tv-first-light.sh deploy` and cutover `disable`, `install`, `probe`, `enable`. Installed sha256: compositor `898ccab5a1bfa855cf86aba826bd44823789082f288362f9ec58448e56961a84`, ui `8b3eadd74eb437e6c91ff3fbc22db8f9de648334b510ab11d48fbbfd4cfabe83`, sm `65f6ca69` (unchanged); helper and `tools/lumatv` untouched. Receipts: `/data/home/tmp/lumatv-saver-veto-20261105/`.
+
+Checks:
+- tvpower's request (`power2/turnOnScreenSaver` by hand) over Marquee playing a letterboxed film (1920x818 at y 131): both lists asked, LumaTV answered no, power state stayed `Active`, LG's saver app not launched, nothing drawn. Over Marquee's Home with no video: LumaTV's clock up, Up ended it.
+- LG's screen manager now receives Marquee's video window (`fullScreen: false`); it still does not hold the screen-saver timer back for it (165 to 115 s with no key), so outside LumaTV LG's saver still starts over a letterboxed Marquee film unless Marquee answers tvpower itself.
+- Each compositor restart left `HDMI_PORT2`'s audio decoder held and Marquee's playback failed ("could not start the video stream") until `lumatv inputs release`.
+- Untested: the real 3-minute idle timer running out (only the hand-made request), the hold-Home escape restoring LG's saver (tvpower was seen dropping a client whose connection ended).
+
 ## TV session 2026-11-04 (main 0c1d3ae5)
 
 Installed 08:32 EST with `compositor/tools/build-tv.sh`, `tv-first-light.sh deploy` and cutover `disable`, `install`, `probe`, `enable`; `tools/lumatv` and the helper went in as copied files (`lumatv helper start` swaps the helper). `install.py` and `tv-install.sh` (`/data/home/tmp/lumatv-install/`) are stale: they run `lumatv apply`, which no longer exists, and `cutover install` without `disable`; the set's app directory already equalled the 0c1d3ae5 package apart from those two files. Boot-direct stays off (`flag false, api true`).
