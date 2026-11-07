@@ -29,6 +29,17 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Morning install, 2026-11-07 (main 1dd11322)
+
+Main 1dd11322's helper installed at 09:40 EST by the standard helper path, the set woken from Active Standby into Netflix and put back there at 09:56, the receiver muted while on and left off, unmuted, at -37.0 dB. Installed sha256: helper `5232eb4fbd8340039f10d14cf56e3c00028b7c834102a44850cc399fbb1ca0bb` (replaced `568e66d6`); compositor `e4a5f6dc`, ui `9e491f5d`, sm `65f6ca69` and lumatv-jpeg unchanged. Receipts: `/data/home/tmp/lumatv-morning-20261107/`.
+
+- Tuner slate, ffmpeg from the server on 2.1 and 5.1: not faster. The video PES now carries its length (30034 and 31038 bytes) and is whole 3 ms after the first byte, but the first picture still comes 0.55 to 0.81 s after it (0.59 to 0.66 s before). FFmpeg's MPEG video parser ends a picture only at the next picture's start code, and the helper sends the slate's second picture 0.54 to 0.80 s after the first. `tuner/`.
+- Tuner refusals: six asks for 2.1 from a second peer while the first held 5.1 logged "all tuners in use" once and then "asked for 2.1 5 more times in 0.8 s"; 5.1 kept streaming. `tuner/refusal.json`.
+- Camera resume, Backyard, 3 rounds of 20 s: the picture stood 2.30, 0.71 and 0.70 s at the hand-off to live. The end is seen 250 ms after the recording's last picture; live's first picture follows about 0.45 s later. In round 1 the end reached the full view 2.0 s after it was seen [INFERENCE: `read_stream` waits for the bridge's answer to `/v1/playback/stop` before it publishes "stopped"]. Backyard's live stream also froze 3.8 to 4.0 s at a time, one picture per key picture, while its RTP lost packets: 257 to 478 lost and 12 to 17 pictures a second per view, against 0 lost and 24.9 a second overnight; the live path is unchanged since then. `camera/`.
+- Self-heal: `ui.refusals` 0, no "compositor refused:" or "scene is full" lines, compositor failures 0.
+- Untested: the visual checks (dock focus rollover, Settings toggles, Home & look Temperature row, category fly-in, idle Home dim, audio glyphs beside the volume bar), the 120 Hz frame gate, the weather card, the cameras cycle, the Smart home sheets, the 15-app soak and the focus-dim screenshot. The weather card's storm and snow moments have no ctl hook.
+
+
 ## Overnight install, 2026-11-07 (main 6fd2a63d)
 
 Main 6fd2a63d installed at 00:50 EST by the standard path, the set woken from Active Standby with Netflix in front. It carries the format badge waiting for the real size and a recording ending where its window does (6fd2a63d). Installed sha256: compositor `e4a5f6dcc192c0324cd3de74a91b2767f4df5358460755f25fad6e62706d4365`, ui `9e491f5dd6f40be1511b51f3f83e4a9167caa233f0cfea33e7983c403c2d5e31`, helper `568e66d64fea027c13863c05a0a9ef8afa3e8c64b751b578acb6d6c6294eb4d9`; sm `65f6ca69`, lumatv-jpeg `8b6d65a8` and `tools/lumatv` `0473b152` unchanged. Replaced: compositor `66c65cc6`, ui `35eb2e98`, helper `e26b0377`. Receipts: `/data/home/tmp/lumatv-overnight-20261107/`.
