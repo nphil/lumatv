@@ -12,7 +12,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -228,9 +228,10 @@ pub struct Device {
 impl Device {
     pub fn open(path: &str) -> io::Result<Device> {
         // Read and write: a write is a report injected into the device ([`Device::centre_pinned_sticks`]). A writable open just for that
-        // would cost a grace period of the kernel's RCU at its close ([`probe`]). A node that refuses writing is read.
+        // would cost a grace period of the kernel's RCU at its close ([`probe`]). A node that refuses writing is read, and so is a FIFO: one
+        // standing in for a device would be held open by its own write end and never hang up when its writer goes.
         let open = |write| OpenOptions::new().read(true).write(write).custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC).open(path);
-        let file = open(true).or_else(|_| open(false))?;
+        let file = if std::fs::metadata(path)?.file_type().is_fifo() { open(false)? } else { open(true).or_else(|_| open(false))? };
         let mut name = [0u8; 128];
         // SAFETY: EVIOCGNAME(len) writes at most len bytes into the buffer.
         let n = unsafe { libc::ioctl(file.as_raw_fd(), eviocgname(name.len()), name.as_mut_ptr()) };
