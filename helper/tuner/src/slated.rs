@@ -49,7 +49,7 @@ struct Show {
 }
 
 impl Show {
-    /// The tables when they are due, the slate's frames due by `now` while it stands in, then out with all of it.
+    /// The tables when they are due, the slate's frames due by `now` and the one after while it stands in, then out with all of it.
     fn tick(&mut self, now: Duration, every: Duration, w: &mut dyn Write) -> io::Result<()> {
         if self.held {
             return Ok(());
@@ -59,7 +59,9 @@ impl Show {
             self.tables = Some(now);
         }
         if !self.program.is_live() {
-            while self.due(self.frames) <= now {
+            // A frame ahead: FFmpeg's MPEG video parser ends a picture only when the next one starts, and the frame after the first is
+            // otherwise held up by the tune (0.54 to 0.80 s on the set, 2026-11-07), so the player's first picture with it.
+            while self.due(self.frames.saturating_sub(1)) <= now {
                 self.frame();
             }
         }
@@ -889,6 +891,35 @@ pub(crate) mod tests {
         assert_eq!((health.verdict, health.dropouts), (Verdict::Weak, 1));
         assert!(health.picture.is_some_and(|d| d >= Duration::from_millis(900)));
         assert_eq!(script.released.load(Ordering::Relaxed), 1);
+    }
+
+    /// Each write on its own, as a player reads them.
+    #[derive(Default)]
+    struct Writes(Vec<Vec<u8>>);
+
+    impl Write for Writes {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.push(buf.to_vec());
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn the_first_slate_picture_goes_out_with_the_next_so_a_parser_ends_it_before_the_tune() {
+        let time = Time::default();
+        let script = Script::new(&time, stops_at_two());
+        let f = facade(&script, quick());
+        f.tuning.saw("2.4", Seen { format: SHAPE, layout: Layout::fallback(1), tsid: 1 });
+        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX) else {
+            panic!("not slated");
+        };
+        let mut out = Writes::default();
+        f.play(s, &mut out, &AtomicBool::new(false)).unwrap();
+        assert_eq!(pictures(&out.0[0]).len(), 2, "the first write, before the tune's 300 ms, holds two slate pictures");
     }
 
     #[test]
