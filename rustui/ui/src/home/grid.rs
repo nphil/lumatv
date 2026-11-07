@@ -171,7 +171,7 @@ pub fn hidden_of(layout: &Value, kind: &str) -> bool {
     entries(layout).iter().any(|e| e.kind == kind && e.hidden)
 }
 
-fn grid(layout: &Value) -> (i64, i64) {
+pub fn grid(layout: &Value) -> (i64, i64) {
     let g = layout.get("grid");
     (num(g.and_then(|g| g.get("cols")), 12).max(1), num(g.and_then(|g| g.get("gutter")), 20))
 }
