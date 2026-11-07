@@ -469,7 +469,7 @@ mod tests {
     }
 
     fn service(dir: &Path) -> Arc<WxView> {
-        WxView::with_sources(Arc::new(NoFetch), dir, Box::new(|| (Water::new(0) as Arc<dyn TileSource>, Fake::new(0) as Arc<dyn RadarProvider>)), Arc::new(|| T0 + 120))
+        WxView::with_sources(Arc::new(NoFetch), dir, Box::new(|| (Water::new() as Arc<dyn TileSource>, Fake::new(0) as Arc<dyn RadarProvider>)), Arc::new(|| T0 + 120))
     }
 
     fn request(method: &str, path: &str, query: &[(&str, &str)], body: &str) -> Request {

@@ -444,6 +444,12 @@ impl BaseMap {
         self.shared.prefetch.close();
     }
 
+    /// Returns once the map's engine has asked for a vector tile.
+    #[cfg(test)]
+    fn wait_engine_asked(&self) {
+        self.shared.prefetch.wait_asked();
+    }
+
     #[cfg(test)]
     fn probe(&self) -> &testing::Probe {
         &self.shared.probe
@@ -528,7 +534,7 @@ pub(crate) mod testing {
     use std::time::{Duration, Instant};
 
     /// How long a test waits for a thread before it says which one never came.
-    const PATIENCE: Duration = Duration::from_secs(20);
+    pub(crate) const PATIENCE: Duration = Duration::from_secs(20);
 
     /// The base map's test clock (it moves only when a test moves it), and what its threads did.
     pub struct Probe {
@@ -579,28 +585,74 @@ pub(crate) mod testing {
         VectorTile { layers: vec![layer] }.encode()
     }
 
-    /// A source whose every tile, at any zoom, is water: for the tests that go about the map.
+    /// What is on the wire of a [`Water`], and how many of its fetches may finish.
+    struct Flow {
+        /// `None`: every fetch finishes at once; `Some(n)`: a fetch is held on the wire until it is let go, `n` at a time.
+        open: Option<usize>,
+        active: usize,
+    }
+
+    /// A source whose every tile, at any zoom, is water: for the tests that go about the map. [`Water::held`] keeps a fetch on the wire until the test
+    /// lets it go, so that what is on the wire at a moment does not depend on how fast the threads run.
     pub struct Water {
         pub calls: AtomicUsize,
         /// The most requests that were on the wire at once.
         pub peak: AtomicUsize,
-        active: AtomicUsize,
-        pub slow: Duration,
+        flow: Mutex<Flow>,
+        changed: Condvar,
     }
 
     impl Water {
-        pub fn new(slow_ms: u64) -> Arc<Self> {
-            Arc::new(Self { calls: AtomicUsize::new(0), peak: AtomicUsize::new(0), active: AtomicUsize::new(0), slow: Duration::from_millis(slow_ms) })
+        pub fn new() -> Arc<Self> {
+            Self::with(None)
+        }
+
+        pub fn held() -> Arc<Self> {
+            Self::with(Some(0))
+        }
+
+        fn with(open: Option<usize>) -> Arc<Self> {
+            Arc::new(Self { calls: AtomicUsize::new(0), peak: AtomicUsize::new(0), flow: Mutex::new(Flow { open, active: 0 }), changed: Condvar::new() })
+        }
+
+        /// Lets `n` of the held fetches finish.
+        pub fn release(&self, n: usize) {
+            if let Some(open) = &mut self.flow.lock().open {
+                *open += n;
+            }
+            self.changed.notify_all();
+        }
+
+        /// Lets every fetch finish, those held and those to come.
+        pub fn release_all(&self) {
+            self.flow.lock().open = None;
+            self.changed.notify_all();
+        }
+
+        /// Returns once `n` fetches are on the wire.
+        pub fn wait_active(&self, n: usize) {
+            let mut flow = self.flow.lock();
+            let waited = self.changed.wait_while_for(&mut flow, |f| f.active < n, PATIENCE);
+            assert!(!waited.timed_out(), "{n} fetches never were on the wire");
         }
     }
 
     impl TileSource for Water {
         fn fetch(&self, _: TileKey) -> Result<Vec<u8>, SourceError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            let now = self.active.fetch_add(1, Ordering::SeqCst) + 1;
-            self.peak.fetch_max(now, Ordering::SeqCst);
-            std::thread::sleep(self.slow);
-            self.active.fetch_sub(1, Ordering::SeqCst);
+            let mut flow = self.flow.lock();
+            flow.active += 1;
+            self.peak.fetch_max(flow.active, Ordering::SeqCst);
+            self.changed.notify_all();
+            let waited = self.changed.wait_while_for(&mut flow, |f| f.open == Some(0), PATIENCE);
+            flow.active -= 1;
+            if waited.timed_out() {
+                return Err(SourceError::Other("the test never let the fetch go".to_owned()));
+            }
+            if let Some(open) = &mut flow.open {
+                *open -= 1;
+            }
+            self.changed.notify_all();
             Ok(water())
         }
 
@@ -769,6 +821,9 @@ mod tests {
         // view moves on to a cell of its own
         assert!(matches!(m.pic(&query((72, 98, 75, 100), 1, true)), PicAnswer::Coming { .. }));
         gated.wait_began();
+        // the engine holds that tile once it has asked for it: a view that moves before then would leave the tile on the wire to be dropped when it lands, and the
+        // engine would fetch it again
+        m.wait_engine_asked();
         epoch.fetch_max(2, Ordering::SeqCst);
         let q2 = query((85, 105, 85, 105), 2, true);
         assert!(matches!(m.pic(&q2), PicAnswer::Coming { .. }));

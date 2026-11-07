@@ -47,6 +47,8 @@ struct State {
     threads: usize,
     closed: bool,
     fetched: u64,
+    /// How often the engine asked for a tile.
+    asked: u64,
 }
 
 pub struct Prefetch {
@@ -66,12 +68,13 @@ pub struct PrefetchStats {
     pub ready: usize,
     pub threads: usize,
     pub fetched: u64,
+    pub asked: u64,
 }
 
 impl Prefetch {
     /// A prefetch over `inner`; `disk` is the engine's cache directory (`<root>/map`), whose files the engine reads before it asks for a tile.
     pub fn new(inner: Arc<dyn TileSource>, disk: Option<DiskCache>) -> Arc<Self> {
-        Arc::new(Self { inner, disk, st: Mutex::new(State { wanted: HashSet::new(), queue: VecDeque::new(), active: HashSet::new(), ready: HashMap::new(), taken: VecDeque::new(), waiting: None, threads: 0, closed: false, fetched: 0 }), wake: Condvar::new() })
+        Arc::new(Self { inner, disk, st: Mutex::new(State { wanted: HashSet::new(), queue: VecDeque::new(), active: HashSet::new(), ready: HashMap::new(), taken: VecDeque::new(), waiting: None, threads: 0, closed: false, fetched: 0, asked: 0 }), wake: Condvar::new() })
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -158,7 +161,15 @@ impl Prefetch {
     /// What is held, for the tests and the log.
     pub fn stats(&self) -> PrefetchStats {
         let st = self.lock();
-        PrefetchStats { queued: st.queue.len(), active: st.active.len(), ready: st.ready.len(), threads: st.threads, fetched: st.fetched }
+        PrefetchStats { queued: st.queue.len(), active: st.active.len(), ready: st.ready.len(), threads: st.threads, fetched: st.fetched, asked: st.asked }
+    }
+
+    /// Returns once the engine has asked for a tile: whether it waits for the one on the wire or gets it itself, it holds that tile from then on.
+    #[cfg(test)]
+    pub fn wait_asked(&self) {
+        let st = self.lock();
+        let (_held, waited) = self.wake.wait_timeout_while(st, crate::wxmap::testing::PATIENCE, |s| s.asked == 0).unwrap_or_else(|e| e.into_inner());
+        assert!(!waited.timed_out(), "the engine never asked for a tile");
     }
 
     /// Ends the threads and frees what was fetched.
@@ -178,6 +189,9 @@ impl Prefetch {
 impl TileSource for Prefetch {
     fn fetch(&self, key: TileKey) -> Result<Vec<u8>, SourceError> {
         let mut st = self.lock();
+        st.asked += 1;
+        #[cfg(test)]
+        self.wake.notify_all();
         loop {
             if st.closed {
                 st.waiting = None;
@@ -254,7 +268,7 @@ mod tests {
         let began = Instant::now();
         loop {
             let s = p.stats();
-            if until(&s) || began.elapsed() > Duration::from_secs(5) {
+            if until(&s) || began.elapsed() > Duration::from_secs(20) {
                 return s;
             }
             std::thread::sleep(Duration::from_millis(5));
@@ -263,32 +277,36 @@ mod tests {
 
     #[test]
     fn tiles_come_four_at_a_time_and_the_engine_is_handed_each_as_it_asks() {
-        let water = Water::new(60);
+        let water = Water::held();
         let p = Prefetch::new(water.clone(), None);
-        let began = Instant::now();
         p.want(&keys(8));
+        // the first tile goes alone; with it fetched, every thread is on the wire and the rest of the tiles wait for one to come back
+        water.wait_active(1);
+        water.release(1);
+        water.wait_active(PARALLEL);
+        let s = p.stats();
+        assert_eq!((s.active, s.queued), (PARALLEL, 3), "four on the wire at once, no more: {s:?}");
+        water.release_all();
         // the engine takes them in its order, as its worker does
         for k in keys(8) {
             assert!(p.fetch(k).is_ok());
         }
-        // eight tiles of 60 ms, four at a time: two rounds, and a engine that asked one by one would have taken eight
-        assert!(began.elapsed() < Duration::from_millis(330), "{:?}", began.elapsed());
         assert_eq!(water.calls.load(std::sync::atomic::Ordering::SeqCst), 8, "each tile once");
-        assert_eq!(water.peak.load(std::sync::atomic::Ordering::SeqCst), PARALLEL, "four on the wire at once, no more");
+        assert_eq!(water.peak.load(std::sync::atomic::Ordering::SeqCst), PARALLEL, "never more than four on the wire");
     }
 
     #[test]
     fn a_tile_that_is_not_wanted_is_fetched_by_the_engine_itself() {
-        let water = Water::new(0);
+        let water = Water::new();
         let p = Prefetch::new(water.clone(), None);
         assert!(p.fetch(keys(1)[0]).is_ok());
         assert_eq!(water.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
-        assert_eq!(p.stats(), PrefetchStats { fetched: 1, ..PrefetchStats::default() }, "nothing is held for it");
+        assert_eq!(p.stats(), PrefetchStats { fetched: 1, asked: 1, ..PrefetchStats::default() }, "nothing is held for it");
     }
 
     #[test]
     fn a_tile_the_engine_asked_for_before_it_was_wanted_is_one_request_and_not_two() {
-        let water = Water::new(80);
+        let water = Water::held();
         let p = Prefetch::new(water.clone(), None);
         let k = keys(1)[0];
         let engine = {
@@ -296,11 +314,9 @@ mod tests {
             std::thread::spawn(move || p.fetch(k))
         };
         // the tile is on the wire (the engine's own request) when the page says it wants it
-        let began = Instant::now();
-        while water.calls.load(std::sync::atomic::Ordering::SeqCst) == 0 && began.elapsed() < Duration::from_secs(5) {
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        water.wait_active(1);
         p.want(&[k]);
+        water.release_all();
         assert!(engine.join().unwrap().is_ok());
         assert_eq!(water.calls.load(std::sync::atomic::Ordering::SeqCst), 1, "one request");
         assert_eq!((p.stats().queued, p.stats().ready), (0, 0));
@@ -308,17 +324,22 @@ mod tests {
 
     #[test]
     fn a_new_wanted_set_drops_what_has_not_begun_and_frees_what_is_not_wanted() {
-        let water = Water::new(80);
+        let water = Water::held();
         let p = Prefetch::new(water.clone(), None);
         p.want(&keys(12));
-        std::thread::sleep(Duration::from_millis(30));
-        // four are on the wire; the view moves to two tiles of its own
+        // the first tile goes alone; with it fetched, four are on the wire
+        water.wait_active(1);
+        water.release(1);
+        water.wait_active(PARALLEL);
+        // the view moves to two tiles of its own
         let others: Vec<TileKey> = (0..2).map(|i| TileKey::new(9, 300 + i, 300).unwrap()).collect();
         p.want(&others);
+        assert_eq!(p.stats().ready, 0, "the first tile is no longer wanted and is freed");
+        water.release_all();
         let s = settle(&p, |s| s.ready == 2 && s.active == 0);
         assert_eq!((s.queued, s.ready), (0, 2), "{s:?}");
         let calls = water.calls.load(std::sync::atomic::Ordering::SeqCst);
-        assert!(calls <= PARALLEL + 2, "{calls} tiles were fetched: the four on the wire and the two now wanted, none of the eight queued");
+        assert_eq!(calls, 1 + PARALLEL + 2, "the first, the four on the wire and the two now wanted, none of the seven queued");
         // a place the page has left is freed
         p.want(&[]);
         assert_eq!(p.stats().ready, 0);
@@ -326,14 +347,12 @@ mod tests {
 
     #[test]
     fn what_waits_for_the_engine_is_bounded() {
-        let water = Water::new(0);
+        let water = Water::new();
         let p = Prefetch::new(water.clone(), None);
         p.want(&keys(40));
+        // a tile is begun only while the fetched and the on the wire are fewer than the bound, so the twelfth to arrive is the last
         let s = settle(&p, |s| s.ready >= BUFFERED);
-        std::thread::sleep(Duration::from_millis(100));
-        let s2 = p.stats();
-        assert_eq!(s.ready, BUFFERED);
-        assert_eq!((s2.ready, s2.queued), (BUFFERED, 40 - BUFFERED), "the rest waits in the queue until the engine takes some: {s2:?}");
+        assert_eq!((s.ready, s.active, s.queued), (BUFFERED, 0, 40 - BUFFERED), "the rest waits in the queue until the engine takes some: {s:?}");
         // the engine takes one: the next is fetched
         assert!(p.fetch(keys(40)[0]).is_ok());
         let s3 = settle(&p, |s| s.fetched as usize > BUFFERED);
@@ -344,7 +363,7 @@ mod tests {
     fn a_tile_the_engines_own_disk_has_is_not_fetched() {
         let dir = tempfile::tempdir().unwrap();
         let disk = DiskCache::open(dir.path(), 1 << 20).unwrap();
-        let water = Water::new(0);
+        let water = Water::new();
         let p = Prefetch::new(water.clone(), Some(disk.clone()));
         let k = keys(3);
         // the name the engine gives a tile under the source's id
@@ -358,7 +377,7 @@ mod tests {
 
     #[test]
     fn closing_frees_the_tiles_and_ends_the_threads() {
-        let water = Water::new(0);
+        let water = Water::new();
         let p = Prefetch::new(water, None);
         p.want(&keys(6));
         settle(&p, |s| s.ready == 6);
