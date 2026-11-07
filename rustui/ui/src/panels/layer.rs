@@ -400,6 +400,16 @@ impl Panels {
         }
     }
 
+    /// Settings opens over a panel the compositor showed (the gear's long press comes 1.6 s after its tap opened the quick panel): the
+    /// panel closes, as it does for another panel, so it neither keeps the keys nor holds its groups under Settings.
+    pub fn close_shown(&mut self, kinds: &Kinds, now: u64, out: &mut Vec<Effect>) {
+        for w in Which::SHOWN {
+            if self.life(w).presented() {
+                self.hide(w, now, kinds, out);
+            }
+        }
+    }
+
     fn on_show(&mut self, kinds: &Kinds, data: &Value, now: u64, out: &mut Vec<Effect>) {
         let n = data.get("n").and_then(Value::as_u64).unwrap_or(0);
         if n != 0 && n <= self.last_show {

@@ -766,13 +766,25 @@ impl Shell {
     pub fn open_settings(&mut self, page: Option<&str>, now: u64) -> Vec<Act> {
         let mut acts = Vec::new();
         if self.kinds.settings {
-            for e in self.settings.open(page, now) {
-                self.carry(e, now, &mut acts);
-            }
-            self.redraw = true;
+            self.settings_open(page, now, &mut acts);
             self.after(now, &mut acts);
         }
         acts
+    }
+
+    /// Settings comes up over a panel the compositor showed, and that panel closes.
+    fn settings_open(&mut self, page: Option<&str>, now: u64, acts: &mut Vec<Act>) {
+        if !self.settings.is_open() {
+            let mut out = Vec::new();
+            self.panels.close_shown(&self.kinds, now, &mut out);
+            for e in out {
+                self.carry(e, now, acts);
+            }
+        }
+        for e in self.settings.open(page, now) {
+            self.carry(e, now, acts);
+        }
+        self.redraw = true;
     }
 
     /// Opens the overlay layout editor on `item` (a registry id: `volume`, `mute`, `popup`, `cards`, `toast`, `format`; the first when it is none) over
@@ -840,11 +852,7 @@ impl Shell {
                 }
             }
             Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("settings") && self.kinds.settings => {
-                let page = data.get("page").and_then(Value::as_str);
-                for e in self.settings.open(page, now) {
-                    self.carry(e, now, &mut acts);
-                }
-                self.redraw = true;
+                self.settings_open(data.get("page").and_then(Value::as_str), now, &mut acts);
             }
             Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("layout") && self.kinds.layout => {
                 // `ctl shell show layout ITEM` names the item as the page
@@ -3467,6 +3475,27 @@ mod tests {
         assert!(!logs.iter().any(|l| l.contains("groups") || l.contains("scene is full")), "{logs:?}");
         assert_eq!(shell.state()["settings"]["built"], 7, "every row of the page is drawn");
         assert!(shell.kit.room().groups >= 4, "{:?}", shell.kit.room());
+    }
+
+    /// 2026-11-07 18:27 on the set: the gear's tap opened the quick panel and its long press 1.6 s later opened Settings through the compositor's
+    /// `show`. The panel stayed open under Settings with its layers and groups, Settings ran out of the scene ("at most 96 groups", the cards
+    /// "scene is full") and its focus plate and profile chip went until the self-heal made them again; Back then closed Settings and the panel.
+    #[test]
+    fn settings_shown_over_the_open_quick_panel_closes_the_panel_and_draws_the_whole_page() {
+        let (_h, mut shell) = home_shell("quick,settings");
+        let used = 96 - shell.kit.room().groups;
+        let scene = shell.kit.ui.scene.clone();
+        let _full_dock: Vec<_> = (0..64usize.saturating_sub(used)).map(|_| scene.group(None, compositor_protocol::GroupPose::IDENTITY).expect("a group")).collect();
+        shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "quick", "warm": false, "n": 1}) }, 2_000);
+        shell.tick(2_300);
+        assert_eq!(shell.state()["panels"]["quick"], "open");
+        let mut acts = shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "settings", "page": "inputs", "n": 2}) }, 3_600);
+        acts.extend(shell.tick(3_610));
+        assert!(matches!(shell.state()["panels"]["quick"].as_str(), Some("leaving" | "gone")), "{}", shell.state()["panels"]);
+        acts.extend(shell.tick(4_200));
+        let logs: Vec<&String> = acts.iter().filter_map(|a| if let Act::Log(l) = a { Some(l) } else { None }).collect();
+        assert!(!logs.iter().any(|l| l.contains("groups") || l.contains("scene is full")), "{logs:?}");
+        assert_eq!(shell.state()["settings"]["built"], 7, "every row of the page is drawn");
     }
 
     /// Session 11's settings-scroll at 120 Hz: Settings opened from the quick panel came up at once, the panel's slide out went on under it for

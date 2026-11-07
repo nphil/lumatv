@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Settings opened by the gear's long press closes the quick panel its tap opened 1.6 s before. The panel stayed open under Settings with its layers and groups, so Settings ran out of the scene's 96 groups: its focus plate and the profile chip went until the self-heal drew them again (TV, 2026-11-07 18:27, 17 "scene is full" lines). The compositor's `show settings` and the quick panel's own tile now open Settings the same way.
+
 With the tuner's messages on, a request for a Live TV tuner in use gets 6 s of a slate saying who has it ("Tuner busy: Plex is recording Jeopardy! on 2.1 WSB-HD", "in use by VLC", or the TV's own Live TV) instead of a bare 503 `805 All Tuners In Use`; without the messages it is still 503. `GET /status.json` names the client holding the tuner (address, name, channel, since) or `null`.
 
 The camera pop-up takes the shape of its camera's picture. Its picture box was 520 by 292 for every camera, so the video plane stretched a portrait camera (the Front Door's 480 by 640 stream) to 16:9. The box now has the shape of the stream as decoded, and before that of the camera's known size so the card does not jump: 330 by 440 for 3:4, 520 by 292 for 16:9, in a card 360 to 560 wide in the same corner.
