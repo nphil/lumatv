@@ -1,5 +1,9 @@
 # Pad guard: the 2.4 GHz controller receiver usable for games, invisible to Netflix when the pad is off (PadGuard)
 
+Superseded 2026-11-06. The guard was installed by hand into `/var/lib/webosbrew`, which was made anew on 2026-10-30, so it was gone from
+then on and Netflix scrolled left again with the pad off. The compositor now centres the sticks of a pad that has not reported
+(`compositor/crates/lumatv-compositor/src/input.rs`, `Device::centre_pinned_sticks`); the daemon and its tests are removed.
+
 ## Resume here
 
 Built, host-tested (24 tests) and installed on the set on 2026-10-25; verified with Nitin switching the pad on and off. Pad on: the

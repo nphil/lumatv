@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
@@ -165,6 +165,8 @@ const REL_WHEEL: u16 = 8;
 const REL_WHEEL_HI_RES: u16 = 11;
 const ABS_X: u16 = 0;
 const ABS_Y: u16 = 1;
+/// A game controller's sticks: `ABS_X`, `ABS_Y`, `ABS_RX`, `ABS_RY`.
+const STICKS: [u16; 4] = [0x00, 0x01, 0x03, 0x04];
 /// Absolute axes a device can have (`ABS_CNT`), and the kernel's property bit of a motion sensor (`INPUT_PROP_ACCELEROMETER`).
 const ABS_COUNT: usize = 0x40;
 const INPUT_PROP_ACCELEROMETER: usize = 6;
@@ -219,11 +221,16 @@ pub struct Device {
     /// how long the loop took to wake for a key (`wake`).
     monotonic: bool,
     stamp_ns: Option<u64>,
+    /// Whether its sticks were found at the ends of their ranges and centred ([`Device::centre_pinned_sticks`]).
+    centred: bool,
 }
 
 impl Device {
     pub fn open(path: &str) -> io::Result<Device> {
-        let file = OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC).open(path)?;
+        // Read and write: a write is a report injected into the device ([`Device::centre_pinned_sticks`]). A writable open just for that
+        // would cost a grace period of the kernel's RCU at its close ([`probe`]). A node that refuses writing is read.
+        let open = |write| OpenOptions::new().read(true).write(write).custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC).open(path);
+        let file = open(true).or_else(|_| open(false))?;
         let mut name = [0u8; 128];
         // SAFETY: EVIOCGNAME(len) writes at most len bytes into the buffer.
         let n = unsafe { libc::ioctl(file.as_raw_fd(), eviocgname(name.len()), name.as_mut_ptr()) };
@@ -252,6 +259,7 @@ impl Device {
             pending: None,
             last: (-1, -1),
             monotonic,
+            centred: false,
             stamp_ns: None,
         })
     }
@@ -285,6 +293,26 @@ impl Device {
 
     pub fn fd(&self) -> i32 {
         self.file.as_raw_fd()
+    }
+
+    /// Centres the sticks of a game controller that has not reported since its node was made. The 2.4 GHz receiver (054c:09cc) keeps its
+    /// nodes while its pad is off, with every axis at the kernel's initial 0, which on a 0..255 stick is held up-left; LG's compositor reads
+    /// the node and Netflix scrolled left by itself (2026-11-06). The centre goes in as the device's own report, so the kernel's value, every
+    /// reader that has the node open and every later open see the sticks at rest, and the pad's first real report replaces it. A grab would
+    /// not do: it stops only events, which a pad that is off does not send, and it would refuse the GeForce NOW reader's grab.
+    fn centre_pinned_sticks(&mut self) -> io::Result<bool> {
+        let fd = self.fd();
+        self.centre(&STICKS.map(|axis| abs_state(fd, axis)))
+    }
+
+    /// Writes the centring report for these sticks (`(value, minimum, maximum)` each), when they are pinned ([`centring_report`]).
+    fn centre(&mut self, sticks: &[Option<(i32, i32, i32)>; 4]) -> io::Result<bool> {
+        let Some(report) = centring_report(sticks) else { return Ok(false) };
+        // SAFETY: InputEvent is repr(C) plain data; its bytes are what the kernel takes for one event.
+        let bytes = unsafe { std::slice::from_raw_parts(report.as_ptr().cast::<u8>(), std::mem::size_of_val(&report)) };
+        self.file.write_all(bytes)?;
+        self.centred = true;
+        Ok(true)
     }
 
     /// The kernel's stamp (CLOCK_MONOTONIC ns) of the first event of the last read, once; `None` when the device could not be set to a
@@ -411,12 +439,33 @@ const fn eviocgprop(len: usize) -> libc::c_ulong {
 
 /// `EVIOCGABS(axis)`: `(minimum, maximum)` of one absolute axis, `None` when the device has no such axis.
 fn absinfo(fd: i32, axis: u16) -> Option<(i32, i32)> {
+    abs_state(fd, axis).map(|(_, min, max)| (min, max))
+}
+
+/// `EVIOCGABS(axis)`: `(value, minimum, maximum)` of one absolute axis, `None` when the device has no such axis.
+fn abs_state(fd: i32, axis: u16) -> Option<(i32, i32, i32)> {
     // struct input_absinfo { value, minimum, maximum, fuzz, flat, resolution }: six i32.
     let mut info = [0i32; 6];
     let req = ((2u64 << 30) | ((std::mem::size_of_val(&info) as u64) << 16) | (b'E' as u64) << 8 | (0x40 + axis as u64)) as libc::c_ulong;
     // SAFETY: the kernel writes exactly the struct into the buffer.
     let r = unsafe { libc::ioctl(fd, req, info.as_mut_ptr()) };
-    if r < 0 { None } else { Some((info[1], info[2])) }
+    if r < 0 { None } else { Some((info[0], info[1], info[2])) }
+}
+
+/// The report that puts a game controller's sticks ([`STICKS`], `(value, minimum, maximum)` each) at their centres, when every one stands at
+/// an end of its range: the pad has not reported (a live stick at rest is near its centre, and nobody holds both sticks hard into a corner as
+/// the pad appears). `None` for a device without all four, or with one off the ends (an Xbox pad at rest reads 0 of -32768..32767).
+fn centring_report(sticks: &[Option<(i32, i32, i32)>; 4]) -> Option<[InputEvent; 5]> {
+    let mut report = [InputEvent { kind: EV_SYN, ..InputEvent::default() }; 5];
+    for (event, (stick, &axis)) in report.iter_mut().zip(sticks.iter().zip(&STICKS)) {
+        let (value, min, max) = (*stick)?;
+        if max <= min || (value != min && value != max) {
+            return None;
+        }
+        let centre = (i64::from(min) + (i64::from(max) - i64::from(min) + 1) / 2) as i32;
+        *event = InputEvent { kind: EV_ABS, code: axis, value: centre, ..InputEvent::default() };
+    }
+    Some(report)
 }
 
 /// Bytes of a key bitmap (`KEY_CNT` bits).
@@ -477,6 +526,9 @@ fn probe(path: &str) -> Probe {
         Ok(d) if d.takes_keys() => Probe::Keys(Box::new(d)),
         Ok(mut d) if d.can_watch() => {
             d.watch = true;
+            if let Err(e) = d.centre_pinned_sticks() {
+                log::warn!("input: {path}: centring sticks pinned at their ends: {e}");
+            }
             Probe::Watch(Box::new(d))
         }
         Ok(d) => Probe::NoKeys(d.name.clone()),
@@ -652,11 +704,12 @@ impl Inputs {
 
     fn adopt(&mut self, d: Device, new_seat: &mut dyn FnMut(&str) -> seat::SeatId, out: &mut Scan) {
         out.lines.push(format!(
-            "input: {} {:?}{}{}{}",
+            "input: {} {:?}{}{}{}{}",
             d.path,
             d.name,
             if d.from_network { " (network keys)" } else { "" },
             if d.watch { " (activity only)" } else { "" },
+            if d.centred { " (sticks at the ends of their ranges, no report yet: centred)" } else { "" },
             d.abs.filter(|_| !d.watch).map(|a| format!(" pointer x {:?} y {:?}", a.x, a.y)).unwrap_or_default()
         ));
         let fd = d.fd();
@@ -1264,6 +1317,50 @@ mod wheel_tests {
         ] {
             assert!(!Device::turns_pointer(name, abs), "{name}");
         }
+    }
+}
+
+#[cfg(test)]
+mod pinned_pad_tests {
+    use super::*;
+
+    fn events(report: &[InputEvent]) -> Vec<(u16, u16, i32)> {
+        report.iter().map(|e| (e.kind, e.code, e.value)).collect()
+    }
+
+    #[test]
+    fn a_pad_that_has_not_reported_gets_its_sticks_centred_and_a_live_one_is_not_written_to() {
+        let path = std::env::temp_dir().join(format!("lumatv-pinned-{}", std::process::id()));
+        std::fs::write(&path, b"").unwrap();
+        let mut pad = Device::open(path.to_str().unwrap()).unwrap();
+        let at_rest = [Some((128, 0, 255)), Some((126, 0, 255)), Some((127, 0, 255)), Some((129, 0, 255))];
+        assert!(!pad.centre(&at_rest).unwrap());
+        assert!(!pad.centred);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 0, "a live pad is left alone");
+        // The receiver with its pad off (2026-11-06): every stick at the kernel's initial 0 of 0..255.
+        assert!(pad.centre(&[Some((0, 0, 255)); 4]).unwrap());
+        assert!(pad.centred);
+        let bytes = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let size = std::mem::size_of::<InputEvent>();
+        let written: Vec<InputEvent> = bytes
+            .chunks_exact(size)
+            // SAFETY: each chunk is one InputEvent's bytes, as written; read_unaligned copes with the Vec's alignment.
+            .map(|c| unsafe { std::ptr::read_unaligned(c.as_ptr().cast::<InputEvent>()) })
+            .collect();
+        assert_eq!(bytes.len(), 5 * size);
+        assert_eq!(events(&written), vec![(EV_ABS, 0, 128), (EV_ABS, 1, 128), (EV_ABS, 3, 128), (EV_ABS, 4, 128), (EV_SYN, 0, 0)]);
+    }
+
+    #[test]
+    fn only_sticks_all_at_their_ends_are_pinned() {
+        let ends = [Some((255, 0, 255)), Some((0, 0, 255)), Some((-32768, -32768, 32767)), Some((32767, -32768, 32767))];
+        assert_eq!(events(&centring_report(&ends).unwrap())[..4], [(EV_ABS, 0, 128), (EV_ABS, 1, 128), (EV_ABS, 3, 0), (EV_ABS, 4, 0)]);
+        let one_live = [Some((0, 0, 255)), Some((0, 0, 255)), Some((130, 0, 255)), Some((0, 0, 255))];
+        assert!(centring_report(&one_live).is_none(), "one stick off its ends: the pad has reported");
+        assert!(centring_report(&[Some((0, -32768, 32767)); 4]).is_none(), "an Xbox pad at rest");
+        assert!(centring_report(&[Some((0, 0, 1919)), Some((0, 0, 1079)), None, None]).is_none(), "a touchpad has no second stick");
+        assert!(centring_report(&[Some((0, 0, 0)); 4]).is_none(), "no range");
     }
 }
 
