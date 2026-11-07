@@ -1482,7 +1482,7 @@ fn the_hints_are_glyphs_for_the_keys_that_do_something() {
 }
 
 #[test]
-fn ok_holds_live_at_once_as_a_recording_from_its_edge_plays_on_from_there_and_back_closes() {
+fn ok_holds_live_on_its_last_picture_plays_on_as_the_recording_from_there_and_back_closes() {
     let mut r = Rig::new(three());
     r.app.open_full("273", T0);
     r.helper("cameras.live", live_topic("273", "live", "playing"));
@@ -1490,31 +1490,44 @@ fn ok_holds_live_at_once_as_a_recording_from_its_edge_plays_on_from_there_and_ba
     assert!(!r.full().chrome, "the chrome has gone over the video");
     r.at(3000);
     let fx = r.press("ok");
-    let pb: Vec<Value> = requests(&fx).into_iter().filter(|(_, p, _)| p == "/v1/cameras/playback").map(|(_, _, b)| b).collect();
-    assert_eq!(pb.len(), 1, "the first OK holds, the chrome hidden or not: {fx:?}");
-    assert_eq!(pb[0]["camera"], "273");
+    assert!(requests(&fx).iter().all(|(_, p, _)| p != "/v1/cameras/playback"), "nothing is dialled to hold it: {fx:?}");
+    assert!(requests(&fx).iter().any(|(_, p, b)| p == "/v1/cameras/live/pause" && b["paused"] == json!(true)), "{fx:?}");
     let f = r.full();
-    assert!(f.paused && f.chrome);
+    assert!(f.paused && f.chrome && f.hole, "the held picture is the one on the plane");
     assert_eq!(f.state.word, "Paused");
     assert!(f.hints.iter().any(|h| h.name == "OK, play"));
-    // the recording plays and is held at its first picture
-    r.at(3100);
-    let fx = r.helper("cameras.live", live_topic("273", "playback", "playing"));
-    assert!(requests(&fx).iter().any(|(_, p, b)| p == "/v1/cameras/live/pause" && b["paused"] == json!(true)), "{fx:?}");
-    let mut held = live_topic("273", "playback", "playing");
+    let mut held = live_topic("273", "live", "playing");
     held["paused"] = json!(true);
     r.helper("cameras.live", held);
-    assert!(r.full().paused);
-    // OK plays on from there
+    assert!(r.full().paused && r.full().hole);
+    // OK plays on as the recording from there
     r.at(3200);
     let fx = r.press("ok");
     assert!(requests(&fx).iter().any(|(_, p, b)| p == "/v1/cameras/live/pause" && b["paused"] == json!(false)), "{fx:?}");
     r.helper("cameras.live", live_topic("273", "playback", "playing"));
-    assert!(!r.full().paused);
+    let f = r.full();
+    assert!(!f.paused && f.hole);
     // Back closes: the hold was part of watching live
     r.at(3300);
     r.press("back");
     assert!(!r.app.viewer_up());
+}
+
+#[test]
+fn held_live_whose_recording_is_refused_goes_live_again() {
+    let mut r = Rig::new(three());
+    r.app.open_full("273", T0);
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    r.at(100);
+    r.press("ok");
+    let mut held = live_topic("273", "live", "playing");
+    held["paused"] = json!(true);
+    r.helper("cameras.live", held);
+    r.at(200);
+    let fx = r.press("ok");
+    let fx = r.answer(tag_of(&fx, "/live/pause"), 409, json!({"error": {"code": "no_recording", "message": "Nothing was recorded then"}}));
+    assert_eq!(live_posts(&fx), [json!({"camera": "273"})]);
+    assert!(!r.full().paused);
 }
 
 #[test]

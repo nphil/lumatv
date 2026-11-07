@@ -32,7 +32,7 @@ The Home Assistant camera path is gone from the helper.
 | `cameras.live` | `paused`; `startedAt` and `positionMs` are `null` while live; `reason` never carries an address |
 | `GET /v1/cameras/{id}/frame` | 200 only for a still newer than `cameras.frameHoldMs` (10 s), else `404 no_picture`, `503 not_connected` or `503 busy` (nine cameras at once); the first ask waits up to 700 ms for a first picture |
 | `POST .../live`, `.../playback` | the bridge is asked first and a refusal is `409 {error: {code, message}}` with its word, leaving the running session alone; the last of two quick calls plays (`superseded`) |
-| `POST /v1/cameras/live/pause {paused}` | holds a recording (the dial ends, the picture stays, `positionMs` freezes); `false` dials again at the held position and rate; live answers `409 not_playback` |
+| `POST /v1/cameras/live/pause {paused}` | holds live or a recording (the dial ends, the picture stays, `positionMs` freezes); `false` dials the recording at the rate it had, 500 ms before the key picture the held one was decoded from (live by the TV's clock of its soonest picture, plus the bridge's skew) |
 | `POST /v1/plugins/scrypted-cameras/actions/forget` | deletes the file and clears every topic at once |
 | `POST /v1/cameras/event {camera, kind}` | only with `cameras.testEvents: true`, else `403` |
 

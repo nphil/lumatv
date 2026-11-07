@@ -89,7 +89,7 @@ playback are then not offered. Over Home the live stream is asked on opening and
 - **Keys with the chrome up:** Left and Right the previous and next camera (wrapping); OK pauses and resumes; Up the strip, or the sheet for a camera that does not record (the strip's controls row opens the sheet
   otherwise); Down the grid; Back, in order: a playback from the strip or the sheet goes live, else the view closes. With the chrome hidden OK acts at once and any other key but Back only reveals it. A new camera or a
   close tears the session down off the UI path (`live/stop`).
-- **OK, pause:** live of a camera that records is held as a recording from 2 s behind the live edge, paused at its first picture; OK again plays on from there, behind live. Live of a camera that does not record
+- **OK, pause:** live of a camera that records is held on its last picture (`live/pause`, no new dial); OK again plays on as the recording from the key picture that picture was decoded from, behind live. Live of a camera that does not record
   cannot be held: it stops and the camera's newest still stands (asked once, `held:` key) until OK asks for live again. A playback pauses and resumes. While held a `pause` badge sits in the middle of the picture
   and stays when the chrome fades.
 - **Failure:** `state: failed` shows a note over a dimmed backdrop: "Can't play this camera", the reason's words, a `Try again` button (OK, which asks again at once: a stream address lives 25 to 60 s, so a retry always asks for a new one), Back closes.

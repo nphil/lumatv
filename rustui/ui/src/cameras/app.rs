@@ -232,7 +232,8 @@ enum Ask {
     Settings,
     Live { restore: Expect, camera: String },
     Playback { restore: Expect },
-    Pause,
+    /// `live`: live was held, or held live plays on as a recording.
+    Pause { live: bool, paused: bool },
     Recordings { camera: String },
     Ticks { camera: String },
     SheetEvents { camera: String },
@@ -313,9 +314,9 @@ pub struct App {
     expect: Expect,
     /// Where a recording was asked to start, until the helper says where its picture is.
     commit_hint: Option<i64>,
-    /// A recording started from the live edge to hold it: paused as soon as it plays.
-    pause_when_playing: bool,
-    /// OK held live as a recording from its live edge: Back closes the view rather than going live first.
+    /// OK asked the helper to hold the picture, and its view does not say it is held yet.
+    hold_asked: bool,
+    /// OK held live on its last picture, or plays it on as the recording from there: Back closes the view rather than going live first.
     timeshift: bool,
     /// OK held the live view of a camera that does not record: live is stopped and its newest still stands still until OK asks for live again.
     frozen: bool,
@@ -367,7 +368,7 @@ impl App {
             played: false,
             expect: Expect::Live,
             commit_hint: None,
-            pause_when_playing: false,
+            hold_asked: false,
             timeshift: false,
             frozen: false,
             thumb_pending: false,
@@ -533,6 +534,7 @@ impl App {
     fn connect_now(&mut self, fx: &mut Vec<Effect>) {
         self.thaw();
         self.timeshift = false;
+        self.hold_asked = false;
         self.opened = self.current().map(|c| c.id.clone());
         self.ensure_live(true, fx);
     }
@@ -617,7 +619,7 @@ impl App {
         self.sheet = None;
         self.options = None;
         self.commit_hint = None;
-        self.pause_when_playing = false;
+        self.hold_asked = false;
         self.timeshift = false;
         self.thaw();
         self.thumb_pending = false;
@@ -787,7 +789,7 @@ impl App {
         self.expect = Expect::Live;
         self.commit_hint = None;
         self.thumb_pending = false;
-        self.pause_when_playing = false;
+        self.hold_asked = false;
     }
 
     fn go_live(&mut self, fx: &mut Vec<Effect>) {
@@ -814,6 +816,7 @@ impl App {
     fn commit_playback(&mut self, at: i64, rate: Option<f32>, fx: &mut Vec<Effect>) {
         let Some(camera) = self.current().map(|c| c.id.clone()) else { return };
         self.timeshift = false;
+        self.hold_asked = false;
         let rate = rate.unwrap_or_else(|| self.strip.as_ref().map_or(1.0, Strip::rate_value));
         let mut body = json!({"camera": camera, "at": at});
         if let Some(window) = self.window_for(&camera) {
@@ -837,6 +840,7 @@ impl App {
     fn play_clip(&mut self, camera: &str, clip: &str, fx: &mut Vec<Effect>) {
         let restore = self.expect;
         self.timeshift = false;
+        self.hold_asked = false;
         let mut body = json!({"camera": camera, "clip": clip});
         if let Some(window) = self.window_for(camera) {
             body["window"] = json!(window);
@@ -849,26 +853,22 @@ impl App {
     }
 
     fn toggle_pause(&mut self, fx: &mut Vec<Effect>) {
-        if self.expect == Expect::Recording {
-            let paused = !self.live.paused;
-            self.ask(Ask::Pause, "POST", "/v1/cameras/live/pause".into(), Some(json!({"paused": paused})), fx);
-        } else {
-            // live cannot be held: a recording from the live edge, held at its first picture
-            let at = self.bridge_now() - 2000;
-            self.pause_when_playing = true;
-            self.commit_playback(at, None, fx);
+        let paused = !self.paused();
+        let live = self.expect == Expect::Live;
+        self.ask(Ask::Pause { live, paused }, "POST", "/v1/cameras/live/pause".into(), Some(json!({"paused": paused})), fx);
+        self.hold_asked = paused;
+        if live && !paused {
+            // the helper dials the recording from the key picture the held one was decoded from
+            self.expect = Expect::Recording;
         }
     }
 
-    /// OK on the full view: a playback is held or plays on. Live is held as a recording from its live edge where the camera records (OK again plays on
-    /// from there, behind live), else as its newest still with live stopped (OK again goes back to live).
+    /// OK on the full view: a playback is held or plays on. Live is held on its last picture where the camera records (OK again plays on as the
+    /// recording from there, behind live), else as its newest still with live stopped (OK again goes back to live).
     fn pause_or_resume(&mut self, fx: &mut Vec<Effect>) {
         let Some(c) = self.current().cloned() else { return };
         if self.frozen {
             self.connect_now(fx);
-        } else if self.expect == Expect::Recording && self.pause_when_playing {
-            // OK again before the hold took: it plays on
-            self.pause_when_playing = false;
         } else if self.expect == Expect::Recording {
             self.toggle_pause(fx);
         } else if !self.can_hold(&c) {
@@ -889,9 +889,9 @@ impl App {
         self.expect == Expect::Recording || self.frozen || (self.can_live(c) && !self.held_back(c))
     }
 
-    /// The picture is held: a paused recording, one about to be held, or live stopped on a still.
+    /// The picture is held: a paused recording or live, one about to be held, or live stopped on a still.
     fn paused(&self) -> bool {
-        self.frozen || (self.expect == Expect::Recording && (self.pause_when_playing || self.live.paused))
+        self.frozen || self.hold_asked || ((self.expect == Expect::Recording || self.timeshift) && self.live.paused)
     }
 
     // ------------------------------------------------------------------ topics and answers
@@ -1043,11 +1043,8 @@ impl App {
                 _ => {}
             }
         }
-        if self.pause_when_playing && self.live.is_recording() && self.live.state == LiveState::Playing {
-            self.pause_when_playing = false;
-            if !self.live.paused {
-                self.ask(Ask::Pause, "POST", "/v1/cameras/live/pause".into(), Some(json!({"paused": true})), fx);
-            }
+        if self.hold_asked && self.live.paused {
+            self.hold_asked = false;
         }
         if self.live.is_recording() && self.live.state == LiveState::Playing && self.expect == Expect::Recording {
             self.thumb_pending = false;
@@ -1104,7 +1101,7 @@ impl App {
                     self.expect = restore;
                     self.thumb_pending = false;
                     self.commit_hint = None;
-                    self.pause_when_playing = false;
+                    self.hold_asked = false;
                     let words = refusal(data).or_else(|| (status == 0).then(|| words::link_words("offline").to_string()));
                     if self.is_full() && self.current().is_some_and(|c| c.id == camera) && self.asked.as_deref() == Some(camera.as_str()) {
                         let fallback = if status == 0 { "unreachable" } else { "" };
@@ -1120,14 +1117,21 @@ impl App {
                     self.expect = restore;
                     self.thumb_pending = false;
                     self.commit_hint = None;
-                    self.pause_when_playing = false;
+                    self.hold_asked = false;
                     let words = refusal(data).or_else(|| (status == 0).then(|| words::link_words("offline").to_string()));
                     self.say(words);
                 }
             }
-            Ask::Pause => {
-                if status == 409 {
-                    self.say(refusal(data));
+            Ask::Pause { live, paused } => {
+                if status != 200 {
+                    self.hold_asked = false;
+                    self.say(refusal(data).or_else(|| (status == 0).then(|| words::link_words("offline").to_string())));
+                    if live && !paused {
+                        // the recording of the held moment did not come: live again
+                        self.go_live(fx);
+                    } else if live {
+                        self.timeshift = false;
+                    }
                 }
             }
             Ask::Recordings { camera } => {

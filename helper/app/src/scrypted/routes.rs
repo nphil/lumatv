@@ -11,7 +11,7 @@
 //! | `POST /v1/cameras/live {camera, quality?, for?, popup?, window?}` | starts live; the state is the `cameras.live` topic; a new camera ends the old session. `quality` is `native` (the camera's own stream), `balanced` (`medium`) or `light` (`low`). `for: "popup"` is a camera pop-up's picture, always the camera's low stream whatever `quality` says (`popup_stream.rs`: inside 1280x720 at up to 30, else inside 1920x1088 at up to 20, the streams the panel keeps 120 Hz with; none: `501 no_calm_stream`, and the shell draws the pop-up as a texture instead), in the feeder's `cameras.popupWindow` window, the decoder opened for Home (`cameras.ndlApp`); `window: "sub"` (the compositor granted the sub window beside an app's video) loads it in the starfish pipeline asking for the sub sink; `window: "texture"` is the CPU path, the low stream (up to 720p at 30, H.264); `popup` is the card's id, for the log. `for: "full"` is the Cameras full view on a video window (`window` `main` by default): the camera's own stream, up to 4K at its own rate; with `window: "sub"` (the view beside an app's video, which keeps the main window) the best stream inside the sub window's limits, 1920x1088 at 30, as are the recordings and clips asked with the same `window` A camera on a battery (`battery` in the camera's entry) is dialled only for the full view the owner opened (`open: true`; no `for` or `for: "full"`): any other call is `409 battery_still_only`, and the shell shows its stills. Its call is waited for up to 45 s, nothing is loaded before its picture's description has come, and `live/stop` hangs the call up at once. |
 //! | `POST /v1/cameras/playback {camera, at, rate?}` or `{camera, clip}` | starts a recording or a clip |
 //! | `POST /v1/cameras/live/stop` | stops live or playback (the pipeline unloads off this path) |
-//! | `POST /v1/cameras/live/pause {paused}` | holds the picture of a recording (Play dials it again where it stopped) |
+//! | `POST /v1/cameras/live/pause {paused}` | holds the picture of live or a recording; Play dials the recording from the key picture the held one was decoded from |
 //! | `POST /v1/cameras/popup/clear` | the pop-up is dismissed (every reader sees it go) |
 //! | `POST /v1/cameras/event {camera, kind}` | a test event through the policy (only with `cameras.testEvents`) |
 //!
@@ -153,7 +153,7 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     (
         "POST",
         "/v1/cameras/live/pause",
-        "holds or resumes a recording: {\"paused\": bool}",
+        "holds live or a recording, or plays the recording on: {\"paused\": bool}",
     ),
     ("POST", "/v1/cameras/popup/clear", "dismisses the pop-up"),
     (
@@ -781,27 +781,26 @@ impl Inner {
             return error_response(400, "bad_request", "paused is true or false");
         };
         if paused {
-            let view = self.live.view();
-            let Some((camera, mode)) = self.live.current() else {
+            let Some((camera, _)) = self.live.current() else {
                 return refused("not_playback", "Nothing is playing");
             };
-            if mode == Mode::Live {
-                return refused("not_playback", "Live video cannot be paused");
-            }
-            if let Err(why) = self.live.pause() {
-                return refused("not_playback", &why);
-            }
+            let (mode, from) = match self.live.pause() {
+                Ok(held) => held,
+                Err(why) => return refused("not_playback", &why),
+            };
             let side = self.state.lock().side.clone();
+            // held live plays on as the recording of that moment; its pictures are dated by this TV's clock, the recording by the bridge's
+            let (mode, at) = if mode == Mode::Live { (Mode::Playback, from + self.skew_ms()) } else { (mode, from) };
             self.set_held(Some(Held {
                 camera,
                 mode,
-                at: view.position_ms.unwrap_or(0),
-                rate: view.rate,
+                at,
+                rate: self.live.view().rate,
                 side,
             }));
             return ok(object(json!({"live": self.live.view().json()})));
         }
-        // Play: the recording is dialled again where it stopped
+        // Play: the recording is dialled again from the key picture the held one was decoded from
         let Some(held) = self.held() else {
             return refused("not_paused", "Nothing is paused");
         };

@@ -1071,6 +1071,59 @@ struct Counters {
     lost: AtomicU64,
     /// The newest picture's time in its stream (microseconds), and the epoch it belongs to.
     pts_us: AtomicI64,
+    /// The newest key picture fed, by its time in its stream (microseconds; -1: none yet of this stream). A held picture plays on from it.
+    key_pts_us: AtomicI64,
+    /// This TV's clock (milliseconds) at time 0 of the stream: the soonest any picture fed arrived after its time (`i64::MAX`: none yet).
+    /// Pictures handed over from a prebuffer arrive late, so the soonest dates the stream best.
+    clock_ms: AtomicI64,
+}
+
+impl Counters {
+    fn new() -> Self {
+        Self {
+            fed: AtomicU64::new(0),
+            dropped: AtomicU64::new(0),
+            lost: AtomicU64::new(0),
+            pts_us: AtomicI64::new(0),
+            key_pts_us: AtomicI64::new(-1),
+            clock_ms: AtomicI64::new(i64::MAX),
+        }
+    }
+
+    /// A new stream: its pictures have times of their own.
+    fn restart(&self) {
+        self.key_pts_us.store(-1, Ordering::Relaxed);
+        self.clock_ms.store(i64::MAX, Ordering::Relaxed);
+    }
+
+    /// A picture went to the feeder. Its time is stored last: a reader that sees it sees the rest.
+    fn fed(&self, unit: &Unit) {
+        if unit.key {
+            self.key_pts_us.store(unit.pts_us, Ordering::Relaxed);
+        }
+        let arrived_ms = crate::timeutil::now_ms() as i64 - unit.arrived.elapsed().as_millis() as i64;
+        self.clock_ms.fetch_min(arrived_ms - unit.pts_us / 1000, Ordering::Relaxed);
+        self.pts_us.store(unit.pts_us, Ordering::Release);
+    }
+}
+
+/// How far before its key picture a held picture plays on from. Asked even a moment late, a recording begins at the next key picture, after
+/// the held one; the clock that dates live pictures (their soonest arrival) runs behind the camera's by the network's delay.
+const RESUME_LEAD_MS: i64 = 500;
+
+/// Where a held picture plays on from: the key picture its decoding began at, [`RESUME_LEAD_MS`] early, by the recording's clock, or for
+/// live by this TV's. A recording with nothing on the plane yet plays on from where it was asked to start; live with nothing has no place.
+fn resume_point(playing: &Playing, key_pts_us: i64, clock_ms: i64) -> Option<i64> {
+    let key_ms = (key_pts_us >= 0).then_some(key_pts_us / 1000);
+    match playing.mode {
+        Mode::Live => {
+            let key_ms = key_ms?;
+            (clock_ms != i64::MAX).then(|| clock_ms + key_ms - RESUME_LEAD_MS)
+        }
+        Mode::Playback | Mode::Clip => {
+            Some(key_ms.map_or(playing.started_at, |k| playing.started_at + k * i64::from(playing.rate) - RESUME_LEAD_MS))
+        }
+    }
 }
 
 /// What tells the bridge that a stream is over (`Plan::on_end`), once, from whichever thread gets there first.
@@ -1383,12 +1436,7 @@ impl Live {
             id,
             inner: Arc::downgrade(&self.inner),
             queue: Arc::new(Queue::new()),
-            counters: Arc::new(Counters {
-                fed: AtomicU64::new(0),
-                dropped: AtomicU64::new(0),
-                lost: AtomicU64::new(0),
-                pts_us: AtomicI64::new(0),
-            }),
+            counters: Arc::new(Counters::new()),
             stop: AtomicBool::new(false),
             unload: AtomicBool::new(true),
             error: Mutex::new(None),
@@ -1481,6 +1529,7 @@ impl Live {
         let epoch = session.epoch.fetch_add(1, Ordering::SeqCst) + 1;
         *session.replaced.lock() = Replaced::No;
         session.queue.begin(epoch);
+        session.counters.restart();
         session.awaiting.store(true, Ordering::SeqCst);
         {
             let mut playing = session.playing.lock();
@@ -1541,18 +1590,26 @@ impl Live {
         spawned.map(|_| ()).map_err(|e| e.to_string())
     }
 
-    /// Stops reading a recording and keeps the last picture on the plane (`paused` in the view); the module asks again where it stopped
-    /// to play on.
-    pub fn pause(&self) -> Result<(), String> {
+    /// Stops reading the stream and keeps its last picture on the plane (`paused` in the view): the newest the decoder was given, whole, in a
+    /// run that began at a key picture. Answers the mode that played and where it plays on from ([`resume_point`]); the module dials the
+    /// recording there to play on.
+    pub fn pause(&self) -> Result<(Mode, i64), String> {
         let Some(session) = self.inner.session.lock().clone() else {
             return Err("nothing is playing".to_owned());
         };
-        if session.ended() || session.playing.lock().mode == Mode::Live {
-            return Err("only a recording can be paused".to_owned());
+        if session.ended() {
+            return Err("nothing is playing".to_owned());
         }
+        let (mode, from) = {
+            let playing = session.playing.lock();
+            let counters = &session.counters;
+            let key = counters.key_pts_us.load(Ordering::Relaxed);
+            (playing.mode, resume_point(&playing, key, counters.clock_ms.load(Ordering::Relaxed)))
+        };
+        let from = from.ok_or_else(|| "nothing is on the picture yet".to_owned())?;
         session.detach();
         self.inner.update(session.id, |v| v.paused = true);
-        Ok(())
+        Ok((mode, from))
     }
 
     /// What a stream is by its own description, or its first picture's parameter set when the description carries none: its codec, size and rate (0
@@ -2006,7 +2063,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
                         return Fed::Broke(why, Resume { loaded: Some(info), unit: None });
                     }
                     loaded = Some(info);
-                    need_key = false;
+                    need_key = true;
                     last_pts = -1;
                     next_base = 0;
                 } else if last_pts >= 0 {
@@ -2014,7 +2071,10 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
                         return Fed::Broke(went(e), Resume { loaded, unit: None });
                     }
                     next_base = last_pts + 100_000_000;
+                    // the flushed decoder holds no picture to refer to
+                    need_key = true;
                 }
+                session.counters.restart();
                 epoch_first = None;
                 said_rate = false;
                 inner.update(session.id, |v| {
@@ -2080,7 +2140,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
                     return Fed::Broke(went(e), Resume { loaded, unit: Some(unit) });
                 }
                 sent_at.get_or_insert_with(Instant::now);
-                session.counters.pts_us.store(unit.pts_us, Ordering::Relaxed);
+                session.counters.fed(&unit);
             }
         }
     }
@@ -2706,12 +2766,7 @@ mod tests {
             id,
             inner: Arc::downgrade(inner),
             queue: Arc::new(Queue::new()),
-            counters: Arc::new(Counters {
-                fed: AtomicU64::new(0),
-                dropped: AtomicU64::new(0),
-                lost: AtomicU64::new(0),
-                pts_us: AtomicI64::new(0),
-            }),
+            counters: Arc::new(Counters::new()),
             stop: AtomicBool::new(false),
             unload: AtomicBool::new(true),
             error: Mutex::new(None),
@@ -3067,6 +3122,57 @@ mod tests {
         assert_eq!(next_load(&heard), "ndl");
         session.end(true);
         writer.join().unwrap();
+    }
+
+    #[test]
+    fn a_stream_of_another_codec_reloads_the_decoder_from_a_key_picture_and_held_live_plays_on_from_that_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pool, mut peer) = test_pool(dir.path(), Duration::from_secs(1));
+        let (inner, session) = test_inner();
+        inner.pipes.lock().remember("273", "ndl");
+        session.queue.begin(1);
+        session.queue.settle();
+        let (frames, heard) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            while let Ok((kind, payload)) = gf::read_frame(&mut peer) {
+                if [gf::LOAD, gf::UNLOAD, gf::FLUSH, gf::VIDEO].contains(&kind) && frames.send((kind, payload)).is_err() {
+                    break;
+                }
+            }
+        });
+        let writer = run_writer(&inner, &pool, &session);
+        // loaded for H.264, the stream is H.265, and a picture that refers to one before it comes ahead of its key picture
+        assert!(session.queue.stream(1, StreamInfo { codec: Codec::H265, ..SMALL }));
+        let wall = crate::timeutil::now_ms() as i64;
+        for u in [unit(false, 0, 100), unit(true, 40_000, 100), unit(false, 80_000, 100)] {
+            assert!(matches!(session.queue.give(1, u), Give::Done));
+        }
+        let mut sent = Vec::new();
+        while sent.iter().filter(|(kind, _)| *kind == gf::VIDEO).count() < 2 {
+            sent.push(heard.recv_timeout(Duration::from_secs(5)).expect("the feeder is sent the pictures"));
+        }
+        let kinds: Vec<u8> = sent.iter().map(|(kind, _)| *kind).collect();
+        assert_eq!(kinds, [gf::LOAD, gf::UNLOAD, gf::LOAD, gf::VIDEO, gf::VIDEO]);
+        assert_eq!(sent[2].1[..4], gf::CODEC_H265.to_ne_bytes());
+        assert_eq!(sent[3..].iter().map(|(_, head)| head[8]).collect::<Vec<_>>(), [1, 0], "the new decoder's first picture is the key picture");
+        while session.counters.pts_us.load(Ordering::Acquire) != 80_000 {
+            thread::yield_now();
+        }
+        // every picture arrived as it was given, so the one at 80 ms dates time 0 at `wall` - 80; the key picture is at 40 ms
+        let (mode, from) = Live { inner: inner.clone() }.pause().unwrap();
+        assert_eq!(mode, Mode::Live);
+        assert!((from - (wall - 80 + 40 - RESUME_LEAD_MS)).abs() <= 5, "{from} for {wall}");
+        assert!(inner.view.lock().1.paused);
+        session.end(true);
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn a_held_recording_plays_on_from_its_key_picture_by_its_rate_or_from_its_start_when_nothing_was_shown() {
+        let playing = Playing { mode: Mode::Playback, started_at: 1_000_000, rate: 2, ..test_session(1, &test_inner().0, SMALL).playing.lock().clone() };
+        assert_eq!(resume_point(&playing, 3_000_000, i64::MAX), Some(1_006_000 - RESUME_LEAD_MS));
+        assert_eq!(resume_point(&playing, -1, i64::MAX), Some(1_000_000));
+        assert_eq!(resume_point(&Playing { mode: Mode::Live, ..playing }, 3_000_000, i64::MAX), None, "live with no picture dated");
     }
 
     #[test]

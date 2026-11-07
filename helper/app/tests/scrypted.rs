@@ -1839,7 +1839,7 @@ fn a_recording_plays_from_the_asked_moment_pauses_where_it_is_and_plays_on_from_
         loads,
         "the same pipeline went on: the picture was never dropped"
     );
-    // live cannot be paused, and nothing paused cannot be resumed
+    // live is held on its last picture and plays on as the recording of that moment; nothing paused cannot be resumed
     v.world.post("/v1/cameras/live", json!({"camera": "273"}));
     v.world
         .rig
@@ -1847,12 +1847,36 @@ fn a_recording_plays_from_the_asked_moment_pauses_where_it_is_and_plays_on_from_
             t["mode"] == "live" && t["state"] == "playing"
         })
         .expect("back to live on the same pipeline");
+    let held = v
+        .world
+        .post("/v1/cameras/live/pause", json!({"paused": true}))
+        .json();
+    assert_eq!(
+        (held["live"]["mode"].as_str(), held["live"]["paused"].clone()),
+        (Some("live"), json!(true))
+    );
+    let playbacks = || {
+        v.world
+            .bridge
+            .requests()
+            .iter()
+            .filter(|r| r.as_str() == "POST /v1/playback")
+            .count()
+    };
+    let before = playbacks();
     assert_eq!(
         v.world
-            .post("/v1/cameras/live/pause", json!({"paused": true}))
-            .json()["error"]["code"],
-        "not_playback"
+            .post("/v1/cameras/live/pause", json!({"paused": false}))
+            .status,
+        200
     );
+    assert_eq!(playbacks(), before + 1, "dialled once, as a recording");
+    v.world
+        .rig
+        .wait_topic("cameras.live", WAIT, |t| {
+            t["mode"] == "playback" && t["paused"] == false
+        })
+        .expect("plays on as the recording");
     assert_eq!(
         v.world
             .post("/v1/cameras/live/pause", json!({"paused": false}))
