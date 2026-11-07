@@ -19,6 +19,8 @@ use crate::system::alert::ALERT_TAG;
 use crate::panels::Typed;
 use crate::panels::layer::{Panels, Which};
 use crate::system::layer::Layer;
+use crate::system::badge::Formats;
+use crate::system::badge_surface::{BadgeSurface, SAMPLE};
 use crate::system::toast::{FEED_TAG, Toasts};
 use crate::system::toast_surface::ToastSurface;
 use crate::system::volume::Volume;
@@ -160,6 +162,9 @@ pub struct Shell {
     volume_surface: VolumeSurface,
     toasts: Toasts,
     toast_surface: ToastSurface,
+    /// The format badge (the size, dynamic range and sound of the picture in front, as marks): under the `toast` kind.
+    formats: Formats,
+    badge_surface: BadgeSurface,
     /// The system layer's kinds that sit over everything: the alerts, the cards, the pop-up, the capture mark, the saver.
     sys: Layer,
     home: Home,
@@ -202,10 +207,10 @@ pub struct Shell {
     apply_errs: Vec<(&'static str, String)>,
     apply_failed_now: Vec<&'static str>,
     live: bool,
-    // Last successful draws: volume, toast, Home, cameras, Settings, display lab.
+    // Last successful draws: volume, toast, Home, cameras, Settings, display lab, format badge.
     interactive_surfaces: u8,
-    // Volume and toast keep voting through the fades started by their surfaces.
-    interactive_fades: [Option<u64>; 2],
+    // Volume, toast and the format badge keep voting through the fades started by their surfaces.
+    interactive_fades: [Option<u64>; 3],
     redraw: bool,
     /// The refusals the surfaces have drawn since (`Scene::refusals`), and when a new one may next be drawn for.
     refusals_seen: u64,
@@ -257,8 +262,10 @@ fn file_stamp(path: &Path) -> Option<(SystemTime, u64)> {
 }
 
 impl Shell {
-    /// `icons` is the module's `icons/audio` directory; `theme` the merged theme and `layout` Home's layout, for the placements.
-    pub fn new(kit: Kit, kinds: Kinds, system_z: i32, icons: &Path, theme: &Value, layout: &Value) -> std::io::Result<Self> {
+    /// `icons` is the module's `icons/audio` directory (the format badge's marks are in `icons/video` beside it); `theme` the merged theme and
+    /// `layout` Home's layout, for the placements.
+    pub fn new(mut kit: Kit, kinds: Kinds, system_z: i32, icons: &Path, theme: &Value, layout: &Value) -> std::io::Result<Self> {
+        kit.marks = crate::kit::logo::load_all(&icons.with_file_name("video"), &crate::kit::logo::VIDEO_MARKS);
         let engine = Engine::new(&kit).map_err(|e| std::io::Error::other(format!("{e}")))?;
         let home = Home::new(theme.clone(), crate::home::grid::shipped(), layout.clone());
         Ok(Self {
@@ -266,6 +273,8 @@ impl Shell {
             volume_surface: VolumeSurface::new(system_z + crate::kit::z::SYSTEM, icons, theme, layout),
             toasts: Toasts::new(),
             toast_surface: ToastSurface::new(system_z + crate::kit::z::SYSTEM + 10, theme, layout),
+            formats: Formats::new(),
+            badge_surface: BadgeSurface::new(system_z + crate::kit::z::SYSTEM + 14, theme, layout),
             sys: Layer::new(system_z + crate::kit::z::SYSTEM, theme, layout),
             // Settings reads the layout as Home has merged and tidied it
             settings: SettingsHost::new(system_z, theme, &home.layout),
@@ -295,7 +304,7 @@ impl Shell {
             apply_failed_now: Vec::new(),
             live: false,
             interactive_surfaces: 0,
-            interactive_fades: [None; 2],
+            interactive_fades: [None; 3],
             redraw: false,
             refusals_seen: 0,
             refusal_redraw_at: 0,
@@ -339,7 +348,8 @@ impl Shell {
         self.started = true;
         let mut acts = Vec::new();
         if self.kinds.toast {
-            for e in self.toasts.subscribe() {
+            let effects = [self.toasts.subscribe(), self.formats.subscribe()].concat();
+            for e in effects {
                 self.carry(e, crate::host::now_ms(), &mut acts);
             }
         }
@@ -529,7 +539,8 @@ impl Shell {
             }
         }
         if self.kinds.toast {
-            for e in self.toasts.update(input, now) {
+            let effects = [self.toasts.update(input, now), self.formats.update(input, now)].concat();
+            for e in effects {
                 self.carry(e, now, acts);
             }
         }
@@ -764,7 +775,7 @@ impl Shell {
         acts
     }
 
-    /// Opens the overlay layout editor on `item` (a registry id: `volume`, `mute`, `popup`, `cards`, `toast`; the first when it is none) over
+    /// Opens the overlay layout editor on `item` (a registry id: `volume`, `mute`, `popup`, `cards`, `toast`, `format`; the first when it is none) over
     /// whatever is up, Settings included: the editor is its own screen above it (Settings' row, the compositor's `show`).
     pub fn open_layout(&mut self, item: Option<&str>, now: u64) -> Vec<Act> {
         let mut acts = Vec::new();
@@ -779,6 +790,7 @@ impl Shell {
         self.sys.sample_sizes(&mut self.kit, &mut sizes);
         self.volume_surface.sample_sizes(&mut self.kit, &mut sizes);
         sizes.set("toast", lumatv_placement::Size::new(320, self.toast_surface.sample_height(&self.kit).ceil() as i32));
+        sizes.set("format", BadgeSurface::sample_size(&self.kit));
         sizes.set("mute", lumatv_placement::Size::new(64, 64));
         // the box of the status bar's buttons as Home lays it out now: the profile chip's name and the text size make it as wide as it is (the glass
         // behind it may be the whole row, which is the placement's to say)
@@ -862,9 +874,17 @@ impl Shell {
             Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("toast") && self.kinds.toast => {
                 // `ctl shell show toast [TEXT]`: a toast through the feed's own path, to check where toasts sit without LG's createToast. In TEXT an
                 // underscore is a space and a bar a line break (the first line is the title, the rest the body); it stays up 8 s.
-                let text = data.get("page").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("Test_toast|Raised_by_ctl_shell_show_toast");
-                let payload = json!({"sourceId": "lumatv", "message": text.replace('_', " ").replace('|', "\n"), "timeout": 8});
-                self.feed(&Input::Luna { tag: FEED_TAG, payload }, now, &mut acts);
+                let page = data.get("page").and_then(Value::as_str).filter(|t| !t.is_empty());
+                if let Some(names) = page.and_then(|p| if p == "format" { Some("") } else { p.strip_prefix("format:") }) {
+                    // `format[:MARKS]`: the format badge with these marks (comma separated, `kit::logo::VIDEO_MARKS`), a 4K Dolby Vision film with
+                    // Atmos when none are named
+                    let marks: Vec<&'static str> = names.split(',').filter_map(|n| crate::kit::logo::VIDEO_MARKS.into_iter().find(|m| *m == n.trim())).collect();
+                    self.formats.show_marks(if marks.is_empty() { SAMPLE.to_vec() } else { marks }, now);
+                } else {
+                    let text = page.unwrap_or("Test_toast|Raised_by_ctl_shell_show_toast");
+                    let payload = json!({"sourceId": "lumatv", "message": text.replace('_', " ").replace('|', "\n"), "timeout": 8});
+                    self.feed(&Input::Luna { tag: FEED_TAG, payload }, now, &mut acts);
+                }
                 self.redraw = true;
             }
             Event::Topic { topic, data } => {
@@ -1294,6 +1314,24 @@ impl Shell {
                 Ok(on) => live |= on,
                 Err(e) => self.apply_failed("system", e.to_string(), acts),
             }
+            if self.kinds.toast {
+                // after the system layer has placed this frame's pop-up and cards: the badge steps aside from them, the volume bar and a toast
+                let mut up = self.sys.avoid(&self.kinds);
+                up.extend(self.volume_surface.rects());
+                up.extend(self.toast_surface.rects().iter().map(|r| lumatv_placement::Rect::new(r.x as i32, r.y as i32, r.w.ceil() as i32, r.h.ceil() as i32)));
+                match self.badge_surface.apply(&mut self.kit, self.formats.view().as_ref(), &up, self.sys.app_front()) {
+                    Ok(on) => {
+                        live |= on;
+                        if on { self.interactive_fades[2] = None; }
+                        else if interactive & 128 != 0 {
+                            let ms = u64::from(self.kit.beat_ms(crate::kit::motion::Beat::Layer));
+                            self.interactive_fades[2] = (ms != 0).then_some(now.saturating_add(ms));
+                        }
+                        set_visible(&mut interactive, 128, on);
+                    },
+                    Err(e) => self.apply_failed("format", format!("format badge: {e}"), acts),
+                }
+            }
             // the pop-up's picture box is known once the card is drawn: its claim on a video window is made now, not with the next input
             if self.kinds.popup {
                 for e in self.vwin.want(&self.vwin_wants(), now) {
@@ -1503,6 +1541,7 @@ impl Shell {
         }
         if self.kinds.toast {
             s["toasts"] = self.toasts.state();
+            s["format"] = self.formats.state();
         }
         for (k, val) in self.sys.state(&self.kinds).as_object().into_iter().flatten() {
             s[k] = val.clone();
@@ -1548,7 +1587,7 @@ impl Shell {
             due = [due, self.volume.due_at(), self.volume_surface.due_at()].into_iter().flatten().min();
         }
         if self.kinds.toast {
-            due = [due, self.toasts.due_at()].into_iter().flatten().min();
+            due = [due, self.toasts.due_at(), self.formats.due_at()].into_iter().flatten().min();
         }
         if self.kinds.home {
             due = [due, self.home.due_at(), self.home.active.then(|| self.home_surface.due_at()).flatten()].into_iter().flatten().min();
@@ -1558,7 +1597,7 @@ impl Shell {
         let lab = if self.kinds.displaylab { self.lab.due_at() } else { None };
         let guide = if self.kinds.guide { self.guide.due_at() } else { None };
         let refused = (self.kit.ui.scene.refusals() != self.refusals_seen).then_some(self.refusal_redraw_at);
-        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, guide, self.vwin.due_at(), self.release_at, self.icons_warm_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1], refused].into_iter().flatten().min()
+        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, guide, self.vwin.due_at(), self.release_at, self.icons_warm_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1], self.interactive_fades[2], refused].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {
@@ -1570,6 +1609,7 @@ impl Shell {
         let mut g = json!({
             "osd": self.volume_surface.pane_rect().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})),
             "toasts": self.toast_surface.rects().iter().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})).collect::<Vec<_>>(),
+            "format": self.badge_surface.rects().iter().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})).collect::<Vec<_>>(),
         });
         for (k, v) in self.sys.geometry(&self.kinds, &self.kit, &self.engine).as_object().into_iter().flatten() {
             g[k] = v.clone();
@@ -1657,6 +1697,7 @@ impl Shell {
     fn restyle_surfaces(&mut self, glass_only: bool) {
         self.volume_surface.restyle();
         self.toast_surface.restyle();
+        self.badge_surface.restyle();
         self.sys.restyle(&mut self.engine);
         self.panels.restyle(&mut self.engine);
         self.home_surface.restyle();
@@ -1866,6 +1907,7 @@ impl Shell {
         let user = lumatv_placement::Registry::shipped().user_from_json(theme.pointer("/layout/overlays").unwrap_or(&Value::Null));
         self.volume_surface.set_user(user.clone());
         self.toast_surface.set_user(user.clone());
+        self.badge_surface.set_user(user.clone());
         self.sys.set_user(user);
     }
 
@@ -3382,6 +3424,24 @@ mod tests {
         let mut other = Shell::new(kit, Kinds::parse("osd"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
         other.start();
         assert!(!other.report()["can"].as_array().unwrap().iter().any(|c| c == "toast"));
+    }
+
+    #[test]
+    fn the_format_badge_is_raised_by_the_show_topic_at_the_top_right_under_the_bar_and_leaves_after_five_seconds() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("osd,toast"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
+        shell.start();
+        shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "toast", "n": 1, "page": "format:uhd,dolby-vision,atmos"}) }, 1_000);
+        assert_eq!((shell.state()["format"].clone(), shell.state()["toasts"].clone()), (json!(3), json!(0)), "three marks, and no toast");
+        assert!(shell.is_live(), "and it is drawn");
+        let at = shell.geometry()["format"].as_array().unwrap().clone();
+        let edge = |k: &str| at[0][k].as_f64().unwrap();
+        assert_eq!((at.len(), edge("x") + edge("w"), edge("y")), (1, 1856.0, 134.0), "flush with the content zone's top right: {at:?}");
+        shell.tick(5_900);
+        assert_eq!(shell.state()["format"], 3, "it stays up for 5 s");
+        shell.tick(6_100);
+        assert_eq!(shell.state()["format"], 0);
+        assert!(shell.geometry()["format"].as_array().unwrap().is_empty());
     }
 
     /// A TV's Home over a full dock holds 64 of the scene's 96 groups, and the gear's panel, closed a moment ago, is kept built for four seconds

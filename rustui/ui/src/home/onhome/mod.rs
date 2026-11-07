@@ -37,7 +37,8 @@ pub fn owner_tile(id: &str) -> Value {
     serde_json::from_str::<Vec<Value>>(TILES).expect("the helper's file").into_iter().find(|t| t["id"] == id).unwrap_or_else(|| panic!("{id} is not in the file"))
 }
 
-use super::surface::{faded, glass_of};
+use super::surface::faded;
+use crate::kit::pane::glass_of;
 use super::widgets::{Canvas, Words};
 use crate::kit::Kit;
 use crate::kit::pane::PaneKind;

@@ -90,6 +90,11 @@ class Table(unittest.TestCase):
         alert = gate.find(['alert'])[0]
         self.assertEqual(gate.cycle_tokens(alert)[-1], 's2.5', 'a surface that gives no close_settle_s waits as long after the close as after the open')
 
+    def test_the_format_badge_closes_as_its_timer_takes_it(self):
+        s = gate.find(['format'])[0]
+        self.assertEqual(gate.cycle_tokens(s), ['@format-open', '!format', 's5', '@format-close', 's0.8'])
+        self.assertEqual(gate.plan_full(s, 3), [1, 1, 1])
+
     def test_the_toast_is_raised_by_the_compositors_control_socket_with_a_text_of_its_own(self):
         # kb.py cannot be imported without the set's key device: read what it sends. LG's createToast stalled the set for 20 minutes
         # in round 26: the gate raises LumaTV's toast through `ctl shell show toast`.

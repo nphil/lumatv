@@ -404,7 +404,7 @@ mod tests {
         let (status, b) = call(&s, "GET", "/v1/placement", "");
         assert_eq!(status, 200);
         assert_eq!(b["ok"], true);
-        assert_eq!(b["registry"]["items"].as_array().unwrap().len(), 6);
+        assert_eq!(b["registry"]["items"].as_array().unwrap().len(), 7);
         assert_eq!(
             b["frame"],
             json!({"safeX": 64, "safeY": 54, "bar": 60, "top": 134, "limit": 810})
@@ -619,7 +619,7 @@ mod tests {
             b["effects"][0]["save"]["statusbar"],
             json!({"anchor": "top", "dx": 0.0, "dy": 0.0, "full": true})
         );
-        let bar = &b["view"]["items"][5];
+        let bar = &b["view"]["items"][6];
         assert_eq!(bar["glass"], json!({"x": 64, "y": 54, "w": 1792, "h": 60}));
         assert_eq!(bar["rect"]["w"], 450, "what the glass holds is as wide as it was");
         // the same through the layout call: the buttons at the left end, the glass across the bar

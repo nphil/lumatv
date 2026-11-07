@@ -9,7 +9,7 @@
 use super::colour::{ColourSheet, Mode, Preset, Row, hsv_to_rgb};
 use super::layout::Metrics;
 use super::{card, paint};
-use crate::home::surface::glass_of;
+use crate::kit::pane::glass_of;
 use crate::home::widgets::{Canvas, Words};
 use crate::kit::Kit;
 use crate::kit::button::faded;

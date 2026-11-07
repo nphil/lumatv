@@ -429,10 +429,13 @@ pub struct Item {
     /// Whether its glass may be stretched across the whole width of its zone ([`Placement::full`]), its contents staying where the placement puts
     /// them: the status bar's pill.
     pub stretch: bool,
+    /// Whether it steps aside at its showing from the other items that are up (the format badge, a few seconds long, goes beside the camera
+    /// window, the cards, the volume bar and the mute mark), so where it is placed is never refused for them, nor theirs for it.
+    pub yields: bool,
 }
 
 /// The items, in the order an editor offers them.
-pub const ITEMS: [Item; 6] = [
+pub const ITEMS: [Item; 7] = [
     Item {
         id: "volume",
         title: "Volume bar",
@@ -446,6 +449,7 @@ pub const ITEMS: [Item; 6] = [
         default: Placement::new(Anchor::Bottom, 0.0, 0.0),
         sample: Size::new(440, 60),
         stretch: false,
+        yields: false,
     },
     Item {
         id: "mute",
@@ -460,6 +464,7 @@ pub const ITEMS: [Item; 6] = [
         default: Placement::new(Anchor::TopLeft, 0.0185, 0.0),
         sample: Size::new(MARK, MARK),
         stretch: false,
+        yields: false,
     },
     Item {
         id: "popup",
@@ -474,6 +479,7 @@ pub const ITEMS: [Item; 6] = [
         default: Placement::new(Anchor::TopRight, 0.0, 0.0),
         sample: Size::new(560, 469),
         stretch: false,
+        yields: false,
     },
     Item {
         id: "cards",
@@ -488,6 +494,7 @@ pub const ITEMS: [Item; 6] = [
         default: Placement::new(Anchor::TopRight, 0.0, 0.0),
         sample: Size::new(560, 165),
         stretch: false,
+        yields: false,
     },
     Item {
         id: "toast",
@@ -502,6 +509,22 @@ pub const ITEMS: [Item; 6] = [
         default: Placement::new(Anchor::Bottom, 0.0, 0.0),
         sample: Size::new(320, 66),
         stretch: false,
+        yields: false,
+    },
+    Item {
+        id: "format",
+        title: "Format badge",
+        icon: "film",
+        zone: ZoneKind::Content,
+        edges: &[],
+        lift: 0,
+        drift: 0,
+        auto: false,
+        stacks: None,
+        default: Placement::new(Anchor::TopRight, 0.0, 0.0),
+        sample: Size::new(392, 60),
+        stretch: false,
+        yields: true,
     },
     Item {
         id: "statusbar",
@@ -516,6 +539,7 @@ pub const ITEMS: [Item; 6] = [
         default: Placement::new(Anchor::Top, 0.0, 0.0),
         sample: Size::new(450, 60),
         stretch: true,
+        yields: false,
     },
 ];
 
@@ -769,7 +793,7 @@ impl Registry {
     /// The first item that `r` would be on top of: the pair that stack by design are not in each other's way, and neither is what the item
     /// already was on top of where it was picked up (`from`, its rectangle then). A move may never make a new overlap, but it can always leave an
     /// old one (text at 200 % makes the items taller than the room between them). The status bar is in nobody's way and nobody is in its: every
-    /// pop-up covers it while it is up.
+    /// pop-up covers it while it is up. An item that yields ([`Item::yields`]) is in nobody's way either: it steps aside when it shows.
     pub fn blocker(
         &self,
         layout: &Layout,
@@ -782,7 +806,7 @@ impl Registry {
             let Some(other) = layout.rect(o.id) else {
                 continue;
             };
-            if o.id == id || me.stacks == Some(o.id) || o.stacks == Some(me.id) || me.zone == ZoneKind::Bar || o.zone == ZoneKind::Bar {
+            if o.id == id || me.stacks == Some(o.id) || o.stacks == Some(me.id) || me.zone == ZoneKind::Bar || o.zone == ZoneKind::Bar || me.yields || o.yields {
                 continue;
             }
             if r.meets(&other, GAP) && !from.is_some_and(|f| f.meets(&other, GAP)) {
@@ -968,7 +992,7 @@ impl Registry {
                     "id": it.id, "title": it.title, "icon": it.icon, "zone": it.zone.name(),
                     "edges": it.edges.iter().map(|e| e.name()).collect::<Vec<_>>(),
                     "lift": it.lift, "drift": it.drift, "auto": it.auto, "stacks": it.stacks,
-                    "default": it.default, "sample": it.sample, "stretch": it.stretch,
+                    "default": it.default, "sample": it.sample, "stretch": it.stretch, "yields": it.yields,
                 })
             })
             .collect();
@@ -1055,6 +1079,29 @@ pub fn stack_beside(ref_: Option<&Rect>, r: Rect, gap: i32, down: bool) -> Rect 
         ),
         _ => r,
     }
+}
+
+/// Where an item that yields ([`Item::yields`]) shows: at `r`, or, where it would meet one of `up` (what is up: the camera window, the cards,
+/// the volume bar), the nearest place beside one of them, `gap` away, that is inside `zone` and clear of them all. None while there is no such
+/// place.
+pub fn step_aside(r: Rect, up: &[Rect], zone: &Rect, gap: i32) -> Option<Rect> {
+    let clear = |c: &Rect| {
+        c.x >= zone.x && c.y >= zone.y && c.right() <= zone.right() && c.bottom() <= zone.bottom() && !up.iter().any(|o| o.meets(c, gap))
+    };
+    if !up.iter().any(|o| o.meets(&r, gap)) {
+        return Some(r);
+    }
+    up.iter()
+        .flat_map(|o| {
+            [
+                Rect::new(o.x - gap - r.w, r.y, r.w, r.h),
+                Rect::new(o.right() + gap, r.y, r.w, r.h),
+                Rect::new(r.x, o.y - gap - r.h, r.w, r.h),
+                Rect::new(r.x, o.bottom() + gap, r.w, r.h),
+            ]
+        })
+        .filter(clear)
+        .min_by_key(|c| (c.x - r.x).abs() + (c.y - r.y).abs())
 }
 
 /// The height a column of cards may be, beside a window that is up or with the zone to itself.

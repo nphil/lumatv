@@ -13,18 +13,17 @@ use super::wallpaper::{self, WallpaperSurface};
 use super::widgets::{Content, PAD_SIDE, PAD_TOP, Pictures};
 use crate::kit::flow::Lifted;
 use crate::kit::mend::Mend;
-use crate::kit::pane::{self, PaneKind};
+use crate::kit::pane::{PaneKind, glass_of};
 use crate::kit::picture::{self, Fit, Picture};
 use crate::kit::text::{Text, role_style, width_of};
 use crate::kit::{Engine, Id, Kit};
-use compositor_protocol::{Backdrop, Glass, GroupPose, Props, Rgba, Shape};
+use compositor_protocol::{Glass, GroupPose, Props, Rgba, Shape};
 use lumatv_tokens::{Radius, TypeRole};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use ui::components::{Align, plate};
 use ui::geometry::Frame;
 use ui::group::Group;
-use ui::lucent::material::{ControlState, MaterialContext, SmartMaterial};
 use ui::lucent::palette::{Mode, PaletteRole};
 use ui::scene::{GlassLayer, ImageLayer, ShapeLayer};
 use ui::text::Weight;
@@ -42,29 +41,6 @@ pub const Z_VEIL: i32 = 900;
 const COVERED_CONTENTS_MS: u64 = 1000;
 
 pub use crate::kit::button::faded;
-
-/// The Lucent glass of a card or a control over the wallpaper: the material's recipe with the wallpaper's cached blur behind it (stack
-/// 0 is a layer stack of the engine, so the backdrop is real), the tint at the theme's `glass`; `lit` is the focused recipe.
-pub fn glass_of(kit: &Kit, kind: PaneKind, h: f32, lit: bool, over_video: bool) -> Glass {
-    let role = match kind {
-        PaneKind::Sheet => SmartMaterial::Overlay,
-        PaneKind::Card | PaneKind::Pill | PaneKind::Strip => SmartMaterial::Card,
-        PaneKind::Control => SmartMaterial::Button,
-    };
-    let state = ControlState { focus_visible: lit, ..ControlState::default() };
-    let pair = kit.ui.look.material(role, &state, MaterialContext::Independent);
-    let base = pane::glass(kit, kind, h, over_video);
-    // The `clear` card glass shows the picture's own blur where Home has made it (the QML Home's look: the glass samples the picture, the page's scrim is not
-    // under it); `frosted` shows the page below, scrim and all.
-    let backdrop = match (over_video || kit.tier == ui::lucent::material::MaterialTier::T0, kit.wall_backdrop, kind) {
-        (true, ..) => Backdrop::None,
-        (false, Some(id), PaneKind::Card | PaneKind::Pill | PaneKind::Strip | PaneKind::Control) => Backdrop::Prepared { id },
-        _ => Backdrop::Cached { radius: kit.tokens.blur },
-    };
-    let tint = if lit { kit.ui.look.colour(PaletteRole::GlassRaised) } else { kit.ui.look.colour(PaletteRole::Glass) };
-    let edge = if lit { kit.tokens.extra(kit.mode).glass_focus_edge } else { kit.ui.look.colour(PaletteRole::Edge) };
-    pane::decorate(kit, kind, Glass { corner_radius: base.corner_radius, tint: if over_video { base.tint } else { tint }, edge, backdrop, saturation: kit.tokens.saturation, ..pair.rest }, over_video)
-}
 
 /// The glass of the status bar's pill and of the buttons on it: the material's own, without the light and shade copies of its depth pair (the soft glow
 /// beside every edge, which reads as a second, blurred edge at the size of a button). A button at rest has no shadow of its own either (the pill casts the

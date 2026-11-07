@@ -13,7 +13,8 @@
 use super::clock;
 use super::model::Home;
 use super::radar_surface::{RadarPage, control};
-use super::surface::{HIDDEN, faded, glass_of};
+use super::surface::{HIDDEN, faded};
+use crate::kit::pane::glass_of;
 use super::weather_art::{self, Cond, Live, Stage};
 use super::weather_sprites::Pal;
 use super::weather_gfx as gfx;

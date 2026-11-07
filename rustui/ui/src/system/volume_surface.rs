@@ -8,6 +8,7 @@
 use super::volume::{Source, Subtitles, View};
 use crate::kit::Kit;
 use crate::kit::glyph;
+use crate::kit::logo::{self, LogoArt};
 use crate::kit::motion::Beat;
 use crate::kit::pane::{Pane, PaneKind};
 use crate::kit::text::{Text, role_style, widest};
@@ -25,61 +26,9 @@ const GLYPH: u32 = 32;
 const BAR_MIN: f32 = 140.0;
 const MARK: f32 = 64.0;
 
-/// The format marks (`icons/audio`), black on transparent, read once and tinted per look.
-struct LogoArt {
-    name: &'static str,
-    width: u32,
-    height: u32,
-    alpha: Vec<u8>,
-}
-
-fn load_logo(dir: &std::path::Path, name: &'static str) -> Option<LogoArt> {
-    let file = std::fs::File::open(dir.join(format!("{name}.png"))).ok()?;
-    let decoder = png::Decoder::new(std::io::BufReader::new(file));
-    let mut reader = decoder.read_info().ok()?;
-    let mut buf = vec![0; reader.output_buffer_size()];
-    let info = reader.next_frame(&mut buf).ok()?;
-    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
-        return None;
-    }
-    let alpha = buf[..info.buffer_size()].chunks_exact(4).map(|p| p[3]).collect();
-    Some(LogoArt { name, width: info.width, height: info.height, alpha })
-}
-
-impl LogoArt {
-    /// The mark `h` pixels high (its width by its aspect, at most `max_w`), in `ink`, box-filtered.
-    fn render(&self, h: u32, max_w: f32, ink: Rgba) -> (u32, u32, Vec<u8>) {
-        let aspect = self.width as f32 / self.height.max(1) as f32;
-        let h = (h as f32).min(max_w / aspect).round().max(1.0) as u32;
-        let w = (h as f32 * aspect).round().max(1.0) as u32;
-        let mut out = vec![0u8; (w * h * 4) as usize];
-        for y in 0..h {
-            let (sy0, sy1) = ((y * self.height / h) as usize, (((y + 1) * self.height).div_ceil(h) as usize).min(self.height as usize));
-            for x in 0..w {
-                let (sx0, sx1) = ((x * self.width / w) as usize, (((x + 1) * self.width).div_ceil(w) as usize).min(self.width as usize));
-                let mut sum = 0u32;
-                let mut n = 0u32;
-                for sy in sy0..sy1.max(sy0 + 1) {
-                    for sx in sx0..sx1.max(sx0 + 1) {
-                        sum += u32::from(self.alpha[sy * self.width as usize + sx]);
-                        n += 1;
-                    }
-                }
-                let a = sum / n.max(1);
-                let i = ((y * w + x) * 4) as usize;
-                out[i] = (u32::from(ink.0) * a / 255) as u8;
-                out[i + 1] = (u32::from(ink.1) * a / 255) as u8;
-                out[i + 2] = (u32::from(ink.2) * a / 255) as u8;
-                out[i + 3] = (u32::from(ink.3) * a / 255) as u8;
-            }
-        }
-        (w, h, out)
-    }
-}
-
 /// What the pane holds, as laid out for one width.
 struct Built {
-    key: (u32, u32, bool, String, u64),
+    key: (u32, u32, bool, String, u64, Option<compositor_protocol::BackdropId>),
     pane: Pane,
     number: Text,
     muted: ImageLayer,
@@ -131,7 +80,7 @@ impl VolumeSurface {
         let registry = Registry::shipped().clone();
         let user = registry.user_from_json(theme.pointer("/layout/overlays").unwrap_or(&Value::Null));
         let frame = PlacementFrame::from_json(layout, theme.pointer("/overlays/limit"));
-        let logos = ["atmos", "dolby", "dtsx", "dts"].into_iter().filter_map(|n| load_logo(icons, n)).collect();
+        let logos = logo::load_all(icons, &["atmos", "dolby", "dtsx", "dts"]);
         let edge = registry.placement_of("volume", &user).map_or(Anchor::Bottom, |p| p.placement.anchor);
         Self { z, logos, registry, user, frame, built: None, mark: None, shown: false, raised: 0.0, last: None, edge }
     }
@@ -271,7 +220,7 @@ impl VolumeSurface {
         let gap = kit.space(5);
         let ink = kit.ui.look.ink();
         let hidden = Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) };
-        let pane = Pane::new(kit, Frame::new(0.0, 0.0, pw, ph), z, PaneKind::Pill, view.over_video);
+        let pane = Pane::themed(kit, Frame::new(0.0, 0.0, pw, ph), z, PaneKind::Pill, view.over_video);
         pane.layer().set(hidden);
         let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, if vertical { Align::Centre } else { Align::Right });
         let line = kit.line(TypeRole::Label);
@@ -339,7 +288,7 @@ impl VolumeSurface {
         )?;
         offline.set_props(hidden);
         Ok(Built {
-            key: (pw as u32, ph as u32, view.over_video, view.logo.clone(), kit.generation()),
+            key: (pw as u32, ph as u32, view.over_video, view.logo.clone(), kit.generation(), kit.wall_backdrop),
             pane,
             number,
             muted,
@@ -364,13 +313,13 @@ impl VolumeSurface {
         let (w, h, _, _, _) = self.measure(kit, view);
         let base = self.place(w, h, view.over_video);
         let (pw, ph) = if self.vertical() { (h, w) } else { (w, h) };
-        let glass = crate::kit::pane::glass(kit, PaneKind::Pill, ph, view.over_video);
+        let glass = crate::kit::pane::glass_of(kit, PaneKind::Pill, ph, false, view.over_video);
         let extent = lumatv_render::renderer::glass_extent(&glass, (pw.round(), ph.round()), 1.0);
         let at = if view.up { self.avoid_subtitles(base, view, kit.space(2), extent) } else { None };
         let blocked = view.up && at.is_none();
         if let Some(at) = at {
             let (pw, ph) = if self.vertical() { (h, w) } else { (w, h) };
-            let key = (pw as u32, ph as u32, view.over_video, view.logo.clone(), kit.generation());
+            let key = (pw as u32, ph as u32, view.over_video, view.logo.clone(), kit.generation(), kit.wall_backdrop);
             if self.built.as_ref().is_none_or(|b| b.key != key) {
                 let built = self.build(kit, view)?;
                 self.built = Some(built);
@@ -465,9 +414,9 @@ impl VolumeSurface {
 
     fn apply_mark(&mut self, kit: &mut Kit, view: &View, now: u64) -> std::io::Result<()> {
         if view.mark_up {
-            if self.mark.as_ref().is_none_or(|m| m.pane.over_video() != view.over_video) {
+            if self.mark.as_ref().is_none_or(|m| m.pane.over_video() != view.over_video || !m.pane.current(kit)) {
                 let hidden = Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) };
-                let pane = Pane::new(kit, Frame::new(0.0, 0.0, MARK, MARK), self.z + 4, PaneKind::Pill, view.over_video);
+                let pane = Pane::themed(kit, Frame::new(0.0, 0.0, MARK, MARK), self.z + 4, PaneKind::Pill, view.over_video);
                 pane.layer().set(hidden);
                 let mut icon = kit.ui.scene.image(GLYPH, GLYPH, self.z + 5, hidden)?;
                 glyph::draw("volume-x", GLYPH, kit.ui.look.ink(), icon.pixels_mut());
@@ -533,6 +482,13 @@ impl VolumeSurface {
         })
     }
 
+    /// What of the display is up, in whole pixels: the bar and the mute mark (what the format badge keeps clear of).
+    pub fn rects(&self) -> Vec<lumatv_placement::Rect> {
+        let mark = self.mark.as_ref().filter(|m| m.shown).map(|m| m.pane.frame());
+        let bar = self.built.as_ref().filter(|_| self.shown).map(|b| b.pane.frame());
+        [bar, mark].into_iter().flatten().map(|f| lumatv_placement::Rect::new(f.x.floor() as i32, f.y.floor() as i32, f.w.ceil() as i32, f.h.ceil() as i32)).collect()
+    }
+
     pub fn is_up(&self) -> bool {
         self.shown
     }
@@ -574,7 +530,7 @@ mod tests {
         view.subtitles = Subtitles::Bounds { x: base.x, y: base.y + base.h - 10.0, w: base.w, h: 60.0 };
         surface.apply(&mut kit, &view, 1).unwrap();
         let raised = surface.pane_rect().unwrap();
-        let glass = crate::kit::pane::glass(&kit, PaneKind::Pill, base.h, true);
+        let glass = crate::kit::pane::glass_of(&kit, PaneKind::Pill, base.h, false, true);
         let extent = lumatv_render::renderer::glass_extent(&glass, (base.w, base.h), 1.0);
         assert_eq!(raised.y, base.y - (10.0 + gap + extent[3] - base.h).ceil());
         view.subtitles = Subtitles::Empty;

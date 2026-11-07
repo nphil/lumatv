@@ -5,6 +5,8 @@ pub mod ai;
 pub mod ai_surface;
 pub mod alert;
 pub mod alert_surface;
+pub mod badge;
+pub mod badge_surface;
 pub mod banner;
 pub mod banner_surface;
 pub mod capture;

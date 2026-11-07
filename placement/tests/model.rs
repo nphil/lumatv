@@ -6,7 +6,7 @@ use lumatv_placement::motion::{STOPS, axis, pixels};
 use lumatv_placement::above_subtitles;
 use lumatv_placement::{
     Anchor, Dir, Frame, Item, Layout, Placement, Point, Press, Rect, Registry, Size, Sizes, User,
-    ZoneKind, column_room,
+    ZoneKind, column_room, step_aside,
 };
 use serde_json::{Value, json};
 
@@ -910,6 +910,7 @@ fn a_new_item_joins_with_one_entry_placed_stepped_and_kept_off_the_others_like_t
         default: at(Anchor::BottomLeft, 0.0, 0.0),
         sample: Size::new(200, 80),
         stretch: false,
+        yields: false,
     };
     let r = reg().with(clock);
     let f = frame();
@@ -963,7 +964,7 @@ fn the_registry_describes_itself_for_a_client() {
         .iter()
         .map(|i| i["id"].as_str().unwrap())
         .collect();
-    assert_eq!(ids, ["volume", "mute", "popup", "cards", "toast", "statusbar"]);
+    assert_eq!(ids, ["volume", "mute", "popup", "cards", "toast", "format", "statusbar"]);
     assert_eq!(d["items"][0]["edges"], json!(["left", "bottom", "right"]));
     assert_eq!(d["items"][3]["stacks"], json!("popup"));
     assert_eq!(d["items"][2]["sample"], json!({"w": 560, "h": 469}));
@@ -988,4 +989,22 @@ fn sizes_are_read_from_json_per_item_and_per_edge() {
     assert_eq!(s.at(volume, Anchor::Bottom), Size::new(440, 60));
     assert_eq!(s.at(volume, Anchor::Right), volume.sample); // not measured: its sample's
     assert_eq!(s.at(toast, Anchor::TopRight), toast.sample);
+}
+
+#[test]
+fn the_format_badge_sits_under_the_status_bar_at_the_top_right_and_steps_aside_from_what_is_up() {
+    let f = frame();
+    let zone = reg().zone_of("format", &f);
+    let r = reg().rect_of("format", &User::default(), &f, Size::new(392, 60)).unwrap();
+    assert_eq!((r.right(), r.y), (zone.right(), 134), "flush with the content zone's top right, under the status bar's row");
+    assert!(reg().item("format").unwrap().yields, "in nobody's way in the editor");
+    assert_eq!(step_aside(r, &[], &zone, GAP), Some(r));
+    let popup = reg().rect_of("popup", &User::default(), &f, Size::new(560, 469)).unwrap();
+    let volume = Rect::new(r.x - 100, r.y + 20, 440, 60);
+    for up in [vec![popup], vec![volume], vec![popup, volume]] {
+        let moved = step_aside(r, &up, &zone, GAP).unwrap();
+        assert!(up.iter().all(|o| !o.meets(&moved, GAP)), "{moved:?} clear of {up:?}");
+        assert!(moved.x >= zone.x && moved.y >= zone.y && moved.right() <= zone.right() && moved.bottom() <= zone.bottom());
+    }
+    assert_eq!(step_aside(r, &[zone], &zone, GAP), None, "no room: it does not show");
 }

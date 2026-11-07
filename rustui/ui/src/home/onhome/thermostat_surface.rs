@@ -9,7 +9,7 @@
 use super::layout::Metrics;
 use super::thermostat::{Row, ThermostatSheet};
 use super::{card, paint};
-use crate::home::surface::glass_of;
+use crate::kit::pane::glass_of;
 use crate::home::widgets::{Canvas, Words};
 use crate::kit::Kit;
 use crate::kit::pane::PaneKind;

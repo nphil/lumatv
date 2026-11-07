@@ -9,7 +9,7 @@ use super::layout::Metrics;
 use super::sensor::{Doc, Load, RANGES, SensorSheet};
 use super::{card, num_text};
 use crate::home::clock;
-use crate::home::surface::glass_of;
+use crate::kit::pane::glass_of;
 use crate::home::widgets::{Words, ago};
 use crate::kit::Kit;
 use crate::kit::button::faded;

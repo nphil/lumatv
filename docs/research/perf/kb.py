@@ -119,6 +119,8 @@ LUNA = {
 # text of one still up replaces it in place, and nothing then changes on the screen for the gate to time.
 CTL = {
     'toast': ['shell', 'show', 'toast', 'A_toast_for_the_gate_{N}|Placement_check'],
+    # the format badge of a 4K Dolby Vision film with Atmos
+    'format': ['shell', 'show', 'toast', 'format:uhd,dolby-vision,atmos'],
 }
 
 

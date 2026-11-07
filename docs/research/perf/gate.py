@@ -405,6 +405,11 @@ SURFACES = [
     {'name': 'toast', 'default': False, 'delivery': True,
      'open': '@toast-open !toast', 'close': '@toast-close', 'settle_s': 7, 'close_settle_s': 0.5, 'transition': False,
      'thresholds': {'burst_end_ms': 300.0}},
+    # The format badge (`!format`: `ctl shell show toast format:...`) slides in on the same layer beat and leaves by its own 5 s timer,
+    # so the close marker falls as it leaves and the close window holds that exit.
+    {'name': 'format', 'default': False, 'delivery': True,
+     'open': '@format-open !format', 'close': '@format-close', 'settle_s': 5, 'close_settle_s': 0.8, 'transition': False,
+     'thresholds': {'burst_end_ms': 300.0}},
     {'name': 'alert', 'default': False, 'delivery': True,
      'open': '@alert-open !alert', 'close': '@alert-close OK', 'settle_s': 2.5},
 ]

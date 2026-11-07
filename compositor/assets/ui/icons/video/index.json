@@ -1,0 +1,42 @@
+{
+ "atmos": {
+  "height": 112,
+  "width": 512
+ },
+ "dolby-vision": {
+  "height": 112,
+  "width": 504
+ },
+ "fhd": {
+  "height": 112,
+  "width": 196
+ },
+ "hd": {
+  "height": 112,
+  "width": 140
+ },
+ "hdr": {
+  "height": 112,
+  "width": 208
+ },
+ "hdr10": {
+  "height": 112,
+  "width": 324
+ },
+ "hdr10plus": {
+  "height": 112,
+  "width": 384
+ },
+ "hlg": {
+  "height": 112,
+  "width": 200
+ },
+ "sdr": {
+  "height": 112,
+  "width": 204
+ },
+ "uhd": {
+  "height": 112,
+  "width": 128
+ }
+}

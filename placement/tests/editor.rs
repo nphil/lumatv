@@ -88,7 +88,7 @@ fn it_opens_on_the_item_asked_for_with_nothing_in_the_hand() {
     );
     e.start(Some("nothing"));
     assert_eq!(e.view(0).selected, "volume");
-    assert_eq!(v.items.len(), 6);
+    assert_eq!(v.items.len(), 7);
     // every item in its own size, the volume bar as it sits over an app (60 higher), the cards under the window
     let r = |id: &str| rect(&e, id, 0);
     assert_eq!(r("volume"), Rect::new(740, 928, 440, 60));
@@ -104,9 +104,9 @@ fn the_arrows_choose_an_item_and_the_ends_hold() {
     let (mut e, mut pad) = (editor_on(json!({})), Pad::new());
     pad.taps(&mut e, &[Key::Right, Key::Right]);
     assert_eq!(e.selected(), "popup");
-    pad.taps(&mut e, &[Key::Right, Key::Right, Key::Right, Key::Right]);
-    assert_eq!(e.selected(), "statusbar", "the cards, the toasts, the status bar, and the end holds");
-    pad.taps(&mut e, &[Key::Left, Key::Left, Key::Up]);
+    pad.taps(&mut e, &[Key::Right; 5]);
+    assert_eq!(e.selected(), "statusbar", "the cards, the toasts, the format badge, the status bar, and the end holds");
+    pad.taps(&mut e, &[Key::Left, Key::Left, Key::Left, Key::Up]);
     assert_eq!(e.selected(), "popup");
     for _ in 0..6 {
         pad.taps(&mut e, &[Key::Left]);
@@ -419,7 +419,7 @@ fn the_focus_on_the_buttons_falls_back_to_done_for_an_item_that_has_no_such_butt
     assert!(e.view(pad.t).buttons[0].focused, "the end holds");
     pad.taps(&mut e, &[Key::Right]);
     assert!(e.view(pad.t).buttons[1].focused);
-    pad.taps(&mut e, &[Key::Left, Key::Up, Key::Left, Key::Down]);
+    pad.taps(&mut e, &[Key::Left, Key::Up, Key::Left, Key::Left, Key::Down]);
     let v = e.view(pad.t);
     assert_eq!((v.selected, v.focus), ("toast", "buttons"));
     assert!(v.buttons[2].focused && v.buttons.iter().filter(|b| b.focused).count() == 1, "Done, as the toasts have no Full width");

@@ -1243,6 +1243,9 @@ elif cmd == "shell" and rest[:1] == ["show"]:
             ui["settings"]["open"] = True
         elif kind == "cameras":
             ui["cameras"]["screen"]["mode"] = "grid"
+        elif kind == "toast" and rest[2:3] and rest[2].startswith("format"):
+            ui["format"] = 3
+            r["format_ttl"] = 4
         rust_drew()
     out({"ok": True, "kind": kind, "taken": kind in rust_built(r)})
 elif cmd == "shell":
@@ -1252,6 +1255,10 @@ elif cmd == "shell":
         r["toast_ttl"] -= 1
         if r["toast_ttl"] == 0:
             r["ui"]["toasts"] = 0
+    if r.get("format_ttl", 0) > 0:
+        r["format_ttl"] -= 1
+        if r["format_ttl"] == 0:
+            r["ui"]["format"] = 0
     built = [] if cfg.get("rust_no_ui") else rust_built(r)
     ui = dict(r["ui"], kinds=built)
     if cfg.get("native"):
@@ -1718,7 +1725,7 @@ class GateRustKinds(FakeSet):
         return json.loads(read(os.path.join(self.tmp.name, "sim.json")))["rust"]["kinds"]
 
     def test_declared_kinds_are_shown_and_closed_without_changing_configuration(self):
-        kinds = ["home", "osd", "toast", "quick", "settings"]
+        kinds = ["home", "osd", "toast", "format", "quick", "settings"]
         out = self.rust(" ".join(kinds))
         self.assertIn("GATE rust: PASS", out)
         self.assertEqual(len(self.found()), 22)

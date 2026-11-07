@@ -224,7 +224,7 @@ impl LayoutSurface {
         let mut sheet = Sheet::new();
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
         let frame = Frame::new(at.0, at.1, w, h);
-        let kind = if matches!(item, "volume" | "mute" | "statusbar") { PaneKind::Pill } else { PaneKind::Card };
+        let kind = if matches!(item, "volume" | "mute" | "statusbar" | "format") { PaneKind::Pill } else { PaneKind::Card };
         if item != BUTTONS_PART {
             sheet.pane(Pane::new(kit, frame, z, kind, false));
         }
@@ -259,6 +259,11 @@ impl LayoutSurface {
                 if let Some(g) = icon::layer(kit, "volume-x", side, ink, z + 3, HIDDEN)? {
                     sheet.image(g, (at.0 + ((w - side as f32) / 2.0).round(), at.1 + ((h - side as f32) / 2.0).round()));
                 }
+            }
+            "format" => {
+                let (marks, _) = crate::system::badge_surface::draw_marks(kit, &crate::system::badge_surface::SAMPLE, z + 3, HIDDEN)?;
+                let spot = (at.0 + ((w - marks.width() as f32) / 2.0).round(), at.1 + ((h - marks.height() as f32) / 2.0).round());
+                sheet.image(marks, spot);
             }
             // the glass only: the buttons are a stand-in of their own over it
             "statusbar" => {}
@@ -348,7 +353,7 @@ impl LayoutSurface {
     }
 
     fn standin_radius(kit: &Kit, item: &str, size: (i32, i32)) -> f32 {
-        if matches!(item, "volume" | "mute" | "statusbar") { (size.0.min(size.1) as f32 / 2.0).floor() } else { kit.tokens.radius(Radius::Card) }
+        if matches!(item, "volume" | "mute" | "statusbar" | "format") { (size.0.min(size.1) as f32 / 2.0).floor() } else { kit.tokens.radius(Radius::Card) }
     }
 
     fn sync_items(&mut self, kit: &mut Kit, view: &View) -> std::io::Result<()> {
@@ -896,6 +901,7 @@ mod tests {
         s.set("popup", lumatv_placement::Size::new(560, k(469)));
         s.set("cards", lumatv_placement::Size::new(560, k(165)));
         s.set("toast", lumatv_placement::Size::new(560, k(98)));
+        s.set("format", lumatv_placement::Size::new(k(392), k(60)));
         s.set("statusbar", lumatv_placement::Size::new((450.0 * scale) as i32, (60.0 * scale) as i32));
         s
     }
@@ -935,7 +941,7 @@ mod tests {
                 draw(&mut kit, &mut engine, &mut s, &e, 1000);
                 let g = s.geometry();
                 let items = g["items"].as_array().unwrap();
-                assert_eq!(items.len(), 6, "volume, mute, camera window, notifications, toasts, status bar");
+                assert_eq!(items.len(), 7, "volume, mute, camera window, notifications, toasts, format badge, status bar");
                 let popup = items.iter().find(|i| i["id"] == "popup").unwrap();
                 assert_eq!((rect(popup).0 + rect(popup).2, rect(popup).1), (1888.0, 32.0), "the camera window flush in its corner at {scale}: {popup}");
                 let panel = rect(&g["panel"]);

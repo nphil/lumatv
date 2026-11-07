@@ -361,7 +361,7 @@ mod tests {
         assert_eq!(p[0].label, "Edit in preview");
         assert!(matches!(&(p[0].act.as_ref().unwrap())(Arg::Press)[..], [Op::Shell(ShellRequest::Layout { item: None })]));
         let ids: Vec<&str> = p.iter().filter(|x| x.id.starts_with("item:")).map(|x| x.id.as_str()).collect();
-        assert_eq!(ids, vec!["item:volume", "item:mute", "item:popup", "item:cards", "item:toast", "item:statusbar"]);
+        assert_eq!(ids, vec!["item:volume", "item:mute", "item:popup", "item:cards", "item:toast", "item:format", "item:statusbar"]);
         let volume = by_id(&p, "item:volume");
         assert!(volume.value.contains("moved") || volume.value.contains("Left"), "{}", volume.value);
         assert!(matches!(&(volume.act.as_ref().unwrap())(Arg::Press)[..], [Op::Shell(ShellRequest::Layout { item: Some(i) })] if i == "volume"));

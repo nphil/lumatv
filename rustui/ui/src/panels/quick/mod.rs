@@ -8,7 +8,7 @@
 //! This is the model: what is focused, what a key does, what the rows say. The surface draws [`Quick::view`].
 
 pub mod tiles;
-mod info;
+pub(crate) mod info;
 pub use info::Display as DisplayInfo;
 
 use super::arrange;

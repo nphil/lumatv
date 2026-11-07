@@ -1,6 +1,7 @@
 //! The toasts' model (`panels/Notify.qml` of the QML shell, the toast part; the mock `docs/mocks/07-toast`): LG's toast feed
-//! (`luna://com.webos.notification/getToastNotification`, subscribed) drawn by LumaTV under its own compositor. Nothing is filtered
-//! or delayed: the newest toast replaces the current one and expires after its own timeout (LG's 5 s by default).
+//! (`luna://com.webos.notification/getToastNotification`, subscribed) drawn by LumaTV under its own compositor. Nothing is delayed: the
+//! newest toast replaces the current one and expires after its own timeout (LG's 5 s by default). LG's announcements of a picture's or a
+//! sound's format are the format badge's ([`super::badge`]), not toasts.
 //! A toast never takes a key or the focus.
 
 use crate::kit::screen::{Effect, Input, Model};
@@ -46,20 +47,14 @@ impl Toasts {
     }
 
     fn take(&mut self, m: &Value, now: u64) {
-        let text = m.get("message").and_then(Value::as_str).unwrap_or("");
-        let text: String = {
-            let mut t = text.to_string();
-            for br in ["<br/>", "<br />", "<br>", "<BR>", "<BR/>"] {
-                t = t.replace(br, "\n");
-            }
-            t.trim().to_string()
-        };
-        if text.is_empty() {
+        if super::badge::announced(m).is_some() {
             return;
         }
-        let mut lines = text.split('\n');
-        let title = lines.next().unwrap_or("").trim().to_string();
-        let body = lines.map(str::trim).collect::<Vec<_>>().join("\n");
+        let lines = plain_lines(m.get("message").and_then(Value::as_str).unwrap_or(""));
+        let Some((title, body)) = lines.split_first() else {
+            return;
+        };
+        let (title, body) = (title.clone(), body.join("\n"));
         let icon = m.get("iconPath").and_then(Value::as_str).unwrap_or("").to_string();
         let own = icon.is_empty() || {
             let file = icon.rsplit('/').next().unwrap_or("").to_lowercase();
@@ -84,6 +79,30 @@ impl Toasts {
     pub fn state(&self) -> Value {
         json!(self.len())
     }
+}
+
+/// The lines of a toast's message: LG's `<br>` breaks it, its other markup (`<font size="1">`) is dropped and its text kept.
+pub fn plain_lines(message: &str) -> Vec<String> {
+    let mut text = String::with_capacity(message.len());
+    let mut rest = message;
+    while let Some(i) = rest.find('<') {
+        text.push_str(&rest[..i]);
+        let tag = &rest[i..];
+        match tag.find('>') {
+            Some(j) if tag[1..].starts_with(|c: char| c.is_ascii_alphabetic() || c == '/') => {
+                if tag[1..j].trim_end_matches('/').trim().eq_ignore_ascii_case("br") {
+                    text.push('\n');
+                }
+                rest = &tag[j + 1..];
+            }
+            _ => {
+                text.push('<');
+                rest = &tag[1..];
+            }
+        }
+    }
+    text.push_str(rest);
+    text.split('\n').map(str::trim).filter(|l| !l.is_empty()).map(str::to_owned).collect()
 }
 
 impl Model for Toasts {
@@ -172,5 +191,16 @@ mod tests {
         assert_eq!(t.view()[0].icon, "");
         t.update(&Input::Luna { tag: FEED_TAG, payload: json!({"message": "B", "iconPath": "/media/app/icon.png"}) }, 2);
         assert_eq!(t.view()[0].icon, "/media/app/icon.png");
+    }
+
+    #[test]
+    fn markup_is_dropped_and_lgs_announcements_are_the_badges() {
+        let mut t = Toasts::new();
+        let audio = |message: &str| Input::Luna { tag: FEED_TAG, payload: json!({"sourceId": "com.webos.service.audio", "message": message}) };
+        assert!(t.update(&audio("Dolby Vision<br>Dolby Atmos<br><font size=\"1\">via Audio Device</font>"), 1).is_empty());
+        assert!(t.is_empty());
+        t.update(&audio("Turn Dolby Atmos on<br/><font size=\"1\">in Sound</font> <b>now</b>"), 2);
+        assert_eq!((t.view()[0].title.as_str(), t.view()[0].body.as_str()), ("Turn Dolby Atmos on", "in Sound now"));
+        assert_eq!(plain_lines("a < b<BR />c"), ["a < b", "c"]);
     }
 }

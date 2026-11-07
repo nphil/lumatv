@@ -72,7 +72,7 @@ LATER_SESSION_MINUTES = 6
 APPS_PASS_SECONDS = 45
 RUST_KIND_MINUTES = 2
 # The kinds the rust check drives by default (tools/tv-gate.sh: LUMATV_RUST_KINDS unset).
-RUST_KINDS_ALL = 22
+RUST_KINDS_ALL = 24
 # The video check (tools/tv-gate.sh `video`): one app's run is its wait for the film, the 5 s settle, the three captures, the sampled seconds (--video-seconds) and
 # six overlays of about 15 s each, with a minute for the launch and the close.
 VIDEO_APPS_ALL = ["youtube", "netflix", "plex"]
@@ -83,7 +83,7 @@ CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "apps", "ke
 # The surface frame gate (docs/research/perf/gate.py) under LumaTV's compositor: LumaTV's own surfaces, drawn by the shell client. A regular round
 # runs the quick set (--frames-quick): the original four and the walks that press nothing but the D-pad on Home, Settings and the library. The
 # The full set also starts apps and changes the app switcher and transitions settings temporarily.
-FRAMES_SURFACES_QUICK = "home-dpad,quick,picker,toast,settings-scroll,apps-grid,home-widgets"
+FRAMES_SURFACES_QUICK = "home-dpad,quick,picker,toast,format,settings-scroll,apps-grid,home-widgets"
 FRAMES_SURFACES = FRAMES_SURFACES_QUICK + ",switcher,transitions-netflix,transitions-settings,keyboard"
 FRAMES_QUICK_SESSION_MINUTES = 30
 FRAMES_SESSION_MINUTES = 60

@@ -18,6 +18,8 @@ pub struct Video {
     pub width: Option<u64>,
     pub height: Option<u64>,
     pub fps: Option<f64>,
+    /// `videoInfo.hdrType` as videooutputd names it (`none`, `HDR10`, `HLG`, `DolbyVision`, ...).
+    pub hdr: Option<String>,
 }
 
 /// Only one connected MAIN is unambiguous. Unknown HDR is intentionally not inferred.
@@ -33,7 +35,8 @@ pub fn video(doc: &Value) -> Option<Video> {
     let width = v.get("width").and_then(Value::as_u64).filter(|n| *n > 0);
     let height = v.get("height").and_then(Value::as_u64).filter(|n| *n > 0);
     let fps = v.get("frameRate").and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0);
-    Some(Video { context, app, width, height, fps })
+    let hdr = v.pointer("/videoInfo/hdrType").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+    Some(Video { context, app, width, height, fps, hdr })
 }
 
 #[derive(Clone, Copy)]

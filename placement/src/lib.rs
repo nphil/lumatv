@@ -32,6 +32,6 @@ pub mod motion;
 pub use editor::{Editor, Effect, Key, View};
 pub use model::{
     Anchor, Frame, ITEMS, Item, Laid, Layout, Placed, Placement, Point, Rect, Registry, Size,
-    Sizes, Slide, User, ZoneKind, above_subtitles, column_room, stack_beside,
+    Sizes, Slide, User, ZoneKind, above_subtitles, column_room, stack_beside, step_aside,
 };
 pub use motion::{Dir, Press, Step};

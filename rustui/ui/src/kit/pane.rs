@@ -2,10 +2,11 @@
 //! radii, drawn by the compositor. The material comes from the toolkit's resolver (the mode's edge, lip and shadow), the radius
 //! from the theme. Over an app's picture a pane lets the picture through down to the theme's `readingAlpha`, the least that keeps
 //! the ink readable against the worst frame; the picture is never sampled there (the video plane cannot be, and a window's
-//! buffer is not a layer of the engine), so the backdrop is the tint alone until Home is a layer stack of the engine.
+//! buffer is not a layer of the engine), so the backdrop is the tint alone. Over Home the shared glass ([`glass_of`]) samples the
+//! wallpaper as Home's cards do.
 
 use super::Kit;
-use compositor_protocol::{Backdrop, Glass, Props, Rect, Rgba, TintGradient};
+use compositor_protocol::{Backdrop, BackdropId, Glass, Props, Rect, Rgba, TintGradient};
 use lumatv_tokens::{CardGlass, Radius};
 use ui::geometry::Frame;
 use ui::lucent::material::{ControlState, MaterialContext, SmartMaterial};
@@ -54,6 +55,31 @@ pub fn glass(kit: &Kit, kind: PaneKind, h: f32, over_video: bool) -> Glass {
         sheet.premultiply(0.0)
     };
     decorate(kit, kind, Glass { corner_radius: kind.radius(kit, h), tint, backdrop: Backdrop::None, ..pair.rest }, over_video)
+}
+
+/// The theme's glass, the one Home's cards have: the material's recipe with the wallpaper's prepared blur behind it (or the cached blur where
+/// there is none), the theme's glass type and depth, the tint at the theme's `glass`; `lit` is the focused recipe. Over an app's picture it is
+/// [`glass`]'s reading tint with no backdrop. Every pane that floats over Home or an app takes it, so a change of glass type or depth reaches all
+/// of them at once.
+pub fn glass_of(kit: &Kit, kind: PaneKind, h: f32, lit: bool, over_video: bool) -> Glass {
+    let role = match kind {
+        PaneKind::Sheet => SmartMaterial::Overlay,
+        PaneKind::Card | PaneKind::Pill | PaneKind::Strip => SmartMaterial::Card,
+        PaneKind::Control => SmartMaterial::Button,
+    };
+    let state = ControlState { focus_visible: lit, ..ControlState::default() };
+    let pair = kit.ui.look.material(role, &state, MaterialContext::Independent);
+    let base = glass(kit, kind, h, over_video);
+    // The `clear` card glass shows the picture's own blur where Home has made it (the QML Home's look: the glass samples the picture, the page's scrim is not
+    // under it); `frosted` shows the page below, scrim and all.
+    let backdrop = match (over_video || kit.tier == ui::lucent::material::MaterialTier::T0, kit.wall_backdrop, kind) {
+        (true, ..) => Backdrop::None,
+        (false, Some(id), PaneKind::Card | PaneKind::Pill | PaneKind::Strip | PaneKind::Control) => Backdrop::Prepared { id },
+        _ => Backdrop::Cached { radius: kit.tokens.blur },
+    };
+    let tint = if lit { kit.ui.look.colour(PaletteRole::GlassRaised) } else { kit.ui.look.colour(PaletteRole::Glass) };
+    let edge = if lit { kit.tokens.extra(kit.mode).glass_focus_edge } else { kit.ui.look.colour(PaletteRole::Edge) };
+    decorate(kit, kind, Glass { corner_radius: base.corner_radius, tint: if over_video { base.tint } else { tint }, edge, backdrop, saturation: kit.tokens.saturation, ..pair.rest }, over_video)
 }
 
 /// How opaque a pane must be over a picture nobody controls, with words on it, for what is behind it not to read through. Lucent's `scrim.hidesMin`
@@ -161,13 +187,25 @@ pub fn decorate(kit: &Kit, kind: PaneKind, mut glass: Glass, over_video: bool) -
     glass
 }
 
+/// Which glass a pane is restyled to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Recipe {
+    /// [`glass`]: the sheet's colour, no backdrop.
+    Plain,
+    /// [`reading_glass`]: words over video.
+    Reading,
+    /// [`glass_of`]: the theme's glass, Home's.
+    Themed,
+}
+
 pub struct Pane {
     layer: GlassLayer,
     frame: Frame,
     kind: PaneKind,
     over_video: bool,
-    /// Made by [`Pane::reading`]: restyled as a reading surface, not at the reading alpha.
-    reading: bool,
+    recipe: Recipe,
+    /// The wallpaper's blur a [`Recipe::Themed`] pane was made over: the pane is made again when Home prepares another.
+    wall: Option<BackdropId>,
     /// Only this part of the glass is drawn (logical pixels of the screen): a card with a hole in it is made of several panes of one frame, each
     /// showing a band of it.
     clip: Option<Rect>,
@@ -176,13 +214,19 @@ pub struct Pane {
 impl Pane {
     pub fn new(kit: &Kit, frame: Frame, z: i32, kind: PaneKind, over_video: bool) -> Self {
         let layer = kit.ui.scene.glass(frame.w.round() as u32, frame.h.round() as u32, z, glass(kit, kind, frame.h, over_video), Props::at(frame.x, frame.y));
-        Self { layer, frame, kind, over_video, reading: false, clip: None }
+        Self { layer, frame, kind, over_video, recipe: Recipe::Plain, wall: None, clip: None }
+    }
+
+    /// A pane of the theme's glass ([`glass_of`]): what Home's cards are made of, for a pane that floats over Home or an app.
+    pub fn themed(kit: &Kit, frame: Frame, z: i32, kind: PaneKind, over_video: bool) -> Self {
+        let layer = kit.ui.scene.glass(frame.w.round() as u32, frame.h.round() as u32, z, glass_of(kit, kind, frame.h, false, over_video), Props::at(frame.x, frame.y));
+        Self { layer, frame, kind, over_video, recipe: Recipe::Themed, wall: kit.wall_backdrop, clip: None }
     }
 
     /// A pane of `kind` that hides the picture behind it ([`reading_glass`]): for words over video.
     pub fn reading(kit: &Kit, frame: Frame, z: i32, kind: PaneKind) -> Self {
         let layer = kit.ui.scene.glass(frame.w.round() as u32, frame.h.round() as u32, z, reading_glass(kit, kind, frame.h), Props::at(frame.x, frame.y));
-        Self { layer, frame, kind, over_video: true, reading: true, clip: None }
+        Self { layer, frame, kind, over_video: true, recipe: Recipe::Reading, wall: None, clip: None }
     }
 
     /// A pane that shows only the part of its glass inside `clip` (the screen's logical pixels): the other bands of the same frame, side by side, make the
@@ -190,7 +234,7 @@ impl Pane {
     pub fn clipped(kit: &Kit, frame: Frame, z: i32, kind: PaneKind, over_video: bool, clip: Rect) -> Self {
         let at = Props { clip: Some(clip), ..Props::at(frame.x, frame.y) };
         let layer = kit.ui.scene.glass(frame.w.round() as u32, frame.h.round() as u32, z, glass(kit, kind, frame.h, over_video), at);
-        Self { layer, frame, kind, over_video, reading: false, clip: Some(clip) }
+        Self { layer, frame, kind, over_video, recipe: Recipe::Plain, wall: None, clip: Some(clip) }
     }
 
     pub fn layer(&self) -> &GlassLayer {
@@ -215,7 +259,18 @@ impl Pane {
     /// Restyles for a new look or a change of what is under it.
     pub fn restyle(&mut self, kit: &Kit, over_video: bool) {
         self.over_video = over_video;
-        self.layer.restyle(if self.reading { reading_glass(kit, self.kind, self.frame.h) } else { glass(kit, self.kind, self.frame.h, over_video) });
+        self.wall = kit.wall_backdrop;
+        self.layer.restyle(match self.recipe {
+            Recipe::Plain => glass(kit, self.kind, self.frame.h, over_video),
+            Recipe::Reading => reading_glass(kit, self.kind, self.frame.h),
+            Recipe::Themed => glass_of(kit, self.kind, self.frame.h, false, over_video),
+        });
+    }
+
+    /// Whether the pane's glass is still what [`Pane::restyle`] would make: a themed pane over Home samples the wallpaper's blur, which Home
+    /// prepares again when the wallpaper changes.
+    pub fn current(&self, kit: &Kit) -> bool {
+        self.recipe != Recipe::Themed || self.over_video || self.wall == kit.wall_backdrop
     }
 
     pub fn over_video(&self) -> bool {

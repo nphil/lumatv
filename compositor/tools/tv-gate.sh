@@ -155,7 +155,8 @@ shell_json() { ctl shell | python3 $RUSTJSON; }
 RUST_OPEN=${LUMATV_RUST_OPEN_WAIT:-10}
 rust_get() { ctl shell | python3 $RUSTJSON "$1"; }
 rust_kinds_on() { rust_get kinds; }
-rust_answers() { [ "$(rust_get ready)" = true ] && case ",$(rust_get ui.kinds)," in *",$1,"*) return 0 ;; esac; return 1; }
+# The format badge is the toast kind's.
+rust_answers() { ak=$1; [ "$ak" = format ] && ak=toast; [ "$(rust_get ready)" = true ] && case ",$(rust_get ui.kinds)," in *",$ak,"*) return 0 ;; esac; return 1; }
 wait_panel() {
     n=0
     while [ "$n" -lt "$3" ]; do
@@ -168,14 +169,14 @@ wait_panel() {
 # Where each kind says it is shown (a path of `ctl shell`) and what that reading must be. A panel's phase is opening, open, closing, parked or gone.
 rust_path() {
     case $1 in
-        osd) echo ui.osd ;; toast) echo ui.toasts ;; alert) echo ui.alerts ;; saver) echo ui.saver ;; home) echo ui.home.home ;;
+        osd) echo ui.osd ;; toast) echo ui.toasts ;; format) echo ui.format ;; alert) echo ui.alerts ;; saver) echo ui.saver ;; home) echo ui.home.home ;;
         quick|picker|drawer) echo ui.panels.$1 ;; settings) echo ui.settings.open ;; cameras) echo ui.cameras.screen.mode ;; guide) echo ui.guide.open ;;
     esac
 }
 rust_is_open() {
     case $1 in
         osd|saver|home|settings|guide) [ "$2" = true ] ;;
-        toast|alert) [ "${2:-0}" -ge 1 ] 2> /dev/null ;;
+        toast|alert|format) [ "${2:-0}" -ge 1 ] 2> /dev/null ;;
         quick|picker|drawer) [ "$2" = opening ] || [ "$2" = open ] ;;
         cameras) [ "$2" = grid ] || [ "$2" = full ] ;;
         *) return 1 ;;
@@ -186,6 +187,7 @@ rust_trigger() {
     case $1 in
         osd) key_tap 115 ;;
         toast) ls1 com.webos.notification/createToast '{"message":"LumaTV gate: a toast of the Rust shell","sourceId":"org.nphil.lumatv"}' > /dev/null ;;
+        format) ctl shell show toast format:uhd,dolby-vision,atmos > /dev/null ;;
         alert) ls1 com.webos.notification/createAlert '{"sourceId":"com.webos.app.home","title":"LumaTV gate","message":"Closed with OK.","showTimeout":false,"buttons":[{"label":"OK"}]}' > /dev/null ;;
         saver) ls1 com.webos.service.tvpower/power2/turnOnScreenSaver '{}' > /dev/null ;;
         quick|picker|drawer|settings|cameras|guide) ctl shell show "$1" > /dev/null ;;
@@ -878,7 +880,7 @@ shell)
     if [ -z "$bad" ]; then pass shell "$detail"; else fail shell "$detail"; fi
     ;;
 rust)
-    asked=$(echo "${LUMATV_RUST_KINDS:-home osd toast alert quick picker drawer settings cameras saver menu confirm switcher cards popup capture layout entry keyboard ai banner displaylab guide}" | tr ',' ' ')
+    asked=$(echo "${LUMATV_RUST_KINDS:-home osd toast format alert quick picker drawer settings cameras saver menu confirm switcher cards popup capture layout entry keyboard ai banner displaylab guide}" | tr ',' ' ')
     home; sleep 3
     k0=$(rust_kinds_on)
     ctl shell > $OUT/rust-start.json
