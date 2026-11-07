@@ -28,6 +28,17 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Batch2 install, 2026-11-07 (main ca5da42c)
+
+Main ca5da42c's helper installed at 10:30 EST by the standard helper path; the set was taken from Active Standby, put back into Netflix and Active Standby at 10:47, the receiver left off, unmuted, at -37.0 dB. Installed sha256: helper `1971c3e01ba8dc378abaa959d09e20932c4ef24a335cf37ff0770c9f469698a5` (replaced `5232eb4f`); compositor `e4a5f6dc`, ui `9e491f5d`, sm `65f6ca69` unchanged. Receipts: `/data/home/tmp/lumatv-batch2-20261107/`.
+
+- Tuner slate, ffmpeg from the server: accepted. With the next two slate pictures sent behind the first, the first picture comes 0.010 to 0.022 s after the first byte on 2.1 and 5.1, three runs each (0.46 to 0.58 s before). `tuner/`.
+- Visual: dock focus rollover, the Home & look Temperature row and Settings toggles (no replay after scrolling) accepted; idle Home went to the dimmed clock saver after the 5 minute timeout, panel 75 to 67. Settings category fly-in untested: a 1.3 s screenshot cannot catch the motion. `visual/`.
+- 120 Hz frame gate: fails 6 of 7. Quick settings passes; Home d-pad first frame 773 ms, Settings scroll and the Apps grid 2 frames over 20 ms, keyboard 112 over, picker burst end 194 ms (limit 180), Home widgets 15 over. `gate/b2-*.json`.
+- Weather card (HA source, units, hour labels), the full camera viewer (Backyard, Bird and Office live in 0.08 to 0.5 s, all filling the frame, no failure lines), and the thermostat and colour sheets accepted. Sensor history untested: no sensor tile on the card. `visual/`, `camera/`.
+- Soak: 14 of 15 dock apps came to the front in 0.5 to 3.4 s and closed; Apple TV ran but made no window. Compositor failures 0, helper pid unchanged, no helper failure lines. `soak/result.json`.
+- Self-heal: ui.refusals 0, no `compositor refused:` or `scene is full` lines. Home widgets focus-dim screenshot: `visual/home-widgets-focus-dim-inside.png`.
+
 
 ## Morning install, 2026-11-07 (main 1dd11322)
 
