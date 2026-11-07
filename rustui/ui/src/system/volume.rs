@@ -232,6 +232,9 @@ pub struct Volume {
     confirmed_at: Option<u64>,
     hold_due: Option<u64>,
     send_due: Option<u64>,
+    /// The compositor's number of the newest volume key counted here (`volumeAck`): a key it gave the display alone and does not hear
+    /// back about goes to the audio service.
+    ack: u64,
     // the display
     pill: bool,
     hide_due: Option<u64>,
@@ -287,6 +290,7 @@ impl Volume {
             confirmed_at: None,
             hold_due: None,
             send_due: None,
+            ack: 0,
             pill: false,
             hide_due: None,
             deciding: false,
@@ -346,6 +350,13 @@ impl Volume {
     /// nothing changed since (the helper raises no event then). The answer is shown and posted once a copy in date confirms the level.
     fn countable(&self) -> bool {
         !self.tv_output() && self.receiver_may() && self.rc_bool("reachable") == Some(true) && self.rc_bool("fresh") == Some(true) && self.read_abs() >= 0.0
+    }
+
+    /// Volume+ and Volume- are the receiver's alone (`volumeKeys` for the compositor): the bar sets its level, and the audio service,
+    /// whose CEC step would land on top of that level, is not told of them. Not while the TV or the receiver is muted: the service's
+    /// key clears the mute on both.
+    fn takes_keys(&self) -> bool {
+        self.enabled && self.tv.arc() && !self.tv.muted && self.countable() && self.rc_bool("mute") != Some(true)
     }
 
     pub fn source(&self) -> Source {
@@ -605,9 +616,11 @@ impl Volume {
     }
 
     /// The audio service reported a change: the bar now. If the receiver may be the one that changed, the helper is asked to read it.
-    fn cue(&mut self, now: u64, out: &mut Vec<Effect>) {
+    /// `counts`: the change may be a key to count (not one the compositor gave back to the service, whose step the receiver takes on
+    /// its own). `true` when a key was counted.
+    fn cue(&mut self, now: u64, counts: bool, out: &mut Vec<Effect>) -> bool {
         if !self.enabled {
-            return;
+            return false;
         }
         if !self.tv_output() && self.receiver_may() {
             self.deciding = !self.receiver_on();
@@ -624,11 +637,13 @@ impl Volume {
         }
         // a copy that only aged (the helper raises no event while nothing changes) counts the key; the answer shows and goes out when
         // the newest copy, asked for above, confirms where the receiver is
-        if self.via_receiver() || self.countable() {
+        let counted = counts && (self.via_receiver() || self.countable());
+        if counted {
             self.key(now, out);
         }
         out.push(Effect::Log(format!("[VolumeOsd] cue: the bar {}", if self.pill { "is up" } else { "appears now" })));
         self.show(now);
+        counted
     }
 
     // ---- the receiver's reading and its age
@@ -735,7 +750,8 @@ impl Volume {
     /// The state for the compositor's gate (`ctl shell`'s `ui.osd`).
     pub fn state(&self) -> Value {
         let v = self.view();
-        json!({"osd": v.up, "source": v.source.name(), "level": v.level, "muted": v.muted, "mark": v.mark_up, "markPlace": v.mark_place, "logo": v.logo, "target": self.target()})
+        let keys = if self.takes_keys() { "receiver" } else { "tv" };
+        json!({"osd": v.up, "source": v.source.name(), "level": v.level, "muted": v.muted, "mark": v.mark_up, "markPlace": v.mark_place, "logo": v.logo, "target": self.target(), "volumeKeys": keys, "volumeAck": self.ack})
     }
 }
 
@@ -749,7 +765,10 @@ impl Model for Volume {
             Input::Topic { topic, data } if topic == "audio" => {
                 let was_muted = self.tv.muted;
                 if self.tv.apply(data) {
-                    self.cue(now, &mut out);
+                    let counted = self.cue(now, data.get("keyReturned").is_none(), &mut out);
+                    if counted && let Some(n) = data.get("key").and_then(Value::as_u64) {
+                        self.ack = n;
+                    }
                 }
                 if self.tv.muted != was_muted {
                     self.mute_key(now);
@@ -1061,6 +1080,52 @@ mod tests {
         v.update(&Input::Tick, 12_100);
         assert_eq!(v.target(), None, "confirmed by the reading");
         assert_eq!(v.view().level, "43");
+    }
+
+    #[test]
+    fn the_keys_are_the_receivers_while_it_is_on_and_unmuted_and_their_report_alone_steps_it() {
+        let keys = |v: &Volume| v.state()["volumeKeys"].as_str().unwrap_or("").to_string();
+        let mut v = arc(10_000);
+        assert_eq!(keys(&v), "receiver");
+        // the compositor's report of a key the audio service never had: the TV's volume stays, the cause says which key
+        let e = v.update(&audio(12, false, "external_arc", "volumeUp"), 11_000);
+        assert_eq!((v.target(), posts(&e)), (Some(43.0), vec![43.0]));
+        // held: every repeat reports the same volume and the level rises with the time held
+        let mut sent = Vec::new();
+        for t in (11_050..=12_000).step_by(50) {
+            sent.extend(posts(&v.update(&audio(12, false, "external_arc", "volumeUp"), t)));
+        }
+        assert!(v.target() >= Some(45.0) && sent.len() >= 4, "{:?} {sent:?}", v.target());
+        // a copy that only aged still knows the level
+        v.update(&Input::Tick, 30_000);
+        assert_eq!(keys(&v), "receiver");
+        v.update(&receiver(42.5, true, 30_100), 30_100);
+        assert_eq!(keys(&v), "tv", "the receiver is muted: the service's key unmutes it");
+        v.update(&receiver(42.5, false, 30_200), 30_200);
+        v.update(&audio(12, true, "external_arc", ""), 30_300);
+        assert_eq!(keys(&v), "tv", "the TV is muted");
+        v.update(&audio(12, false, "tv_speaker", ""), 30_400);
+        assert_eq!(keys(&v), "tv", "the sound is the TV's own");
+    }
+
+    #[test]
+    fn a_numbered_key_is_answered_once_counted_and_one_given_back_to_the_service_is_not_counted_again() {
+        let ack = |v: &Volume| v.state()["volumeAck"].as_u64();
+        let report = |extra: Value| {
+            let mut data = json!({"volumeStatus": {"volume": 12, "muteStatus": false, "soundOutput": "external_arc", "maxVolume": 100, "cause": "volumeUp"}});
+            data.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            Input::Topic { topic: "audio".into(), data }
+        };
+        let mut v = arc(10_000);
+        let e = v.update(&report(json!({"key": 7})), 11_000);
+        assert_eq!((ack(&v), posts(&e)), (Some(7), vec![43.0]));
+        // the service steps the receiver itself for a key the compositor gave back
+        let e = v.update(&report(json!({"keyReturned": 8})), 11_500);
+        assert_eq!((ack(&v), posts(&e)), (Some(7), vec![]));
+        // with the helper gone the key is not counted, so not answered, and the compositor gives it to the service
+        v.update(&Input::Helper { topic: "up".into(), data: json!(false) }, 12_000);
+        v.update(&report(json!({"key": 9})), 12_100);
+        assert_eq!(ack(&v), Some(7));
     }
 
     #[test]

@@ -66,6 +66,7 @@ pub mod transition;
 /// LumaTV's UI engine drawing into the compositor's pages (feature `ui`, `rustui/`).
 #[cfg(feature = "ui")]
 pub mod ui;
+pub mod volumekeys;
 pub mod vwin;
 pub mod wake;
 pub mod window;

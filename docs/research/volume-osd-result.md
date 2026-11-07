@@ -72,6 +72,16 @@ second one (a test fails if they do). The display takes no key and no focus.
   (`volumeSettleMs`; sooner, a hold's next level only overtakes it), at most 3 times; a level never reported is read back after 400 ms. Nothing heavy runs on a
   press: no blur is rebuilt, hidden text is not laid out (the format mark and the glyph are `visible` only when used), the fill animates for 100 ms.
   Offline, from the audio service's report to the next presented frame: see `volume_sheet.py --latency`.
+- **The receiver's volume keys are the display's alone** (2026-11-06): the read-back put the late step back but never stopped it. All 12 taps of a check
+  reached the bar's level 47 to 116 ms after the key, then LG's CEC step took the Denon one step past it 110 to 270 ms after the key, and the helper put it
+  back 450 to 680 ms after (`/data/home/tmp/lumatv-regress-20261106/vc-on/`). The display now says in its report when the receiver takes the keys
+  (`volumeKeys: "receiver"`: the sound over ARC or optical, the receiver on and answering with a known level, neither the TV nor the receiver muted), and
+  while it does the compositor gives Volume+ and Volume- and their repeats to the display alone, numbered, in the form of the audio service's report, and
+  never calls the service: no CEC step goes out, and the level posted is the only one. The display answers with the newest number it counted
+  (`volumeAck`); a key it has not answered within 250 ms (the display hangs, or the helper or the receiver plugin went away under it) goes to the service
+  after all, and the service's report of it names the key (`keyReturned`) so the display shows it without counting it again. Mute stays the service's,
+  and so does a volume key while either side is muted: the service's key clears the mute on the TV and the receiver, and that one key can still
+  overshoot until the read-back.
 - **Mute**: the number gives way to a slashed speaker and the bar is dimmed; no word. From the receiver's `MU` push or, with no receiver, the TV's mute
   (and at once from the key when the TV's `cause` says mute). Then a 64 px bubble with a slashed speaker stays while the sound is
   muted, over an app in the top corners (x 96 from either edge, y 134 below the status bar, or 94 px further in and down; never the lower third, where Netflix draws

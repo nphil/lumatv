@@ -29,7 +29,11 @@ pub struct LunaState {
     power_tokens: Vec<(u64, &'static str)>,
     nooperation: crate::nooperation::Timers,
     /// The audio service's volume subscription, and the mute state it last pushed (what Mute toggles from).
-    audio_token: Option<u64>,
+    pub(crate) audio_token: Option<u64>,
+    /// The `volumeStatus` the audio service last pushed: the form a volume key the display takes is reported in.
+    audio_status: Option<Value>,
+    /// Who has Volume+ and Volume- (`volumekeys`): the keys given to the display and not answered, the service's open press.
+    pub(crate) volume_keys: crate::volumekeys::VolumeKeys,
     /// The way out of LG's saver (`saverguard`): the wake call in flight, its escalation.
     pub(crate) saver: crate::saverguard::SaverGuard,
     /// The standing subscriptions kept alive (`subwatch`).
@@ -116,6 +120,8 @@ impl Default for LunaState {
             power_tokens: Vec::new(),
             nooperation: crate::nooperation::Timers::default(),
             audio_token: None,
+            audio_status: None,
+            volume_keys: crate::volumekeys::VolumeKeys::default(),
             saver: crate::saverguard::SaverGuard::default(),
             watches: Vec::new(),
             cover: CoverLaunch::default(),
@@ -348,7 +354,19 @@ impl State {
             if let Some(m) = ev.payload.pointer("/volumeStatus/muteStatus").and_then(Value::as_bool) {
                 self.luna_state.muted = m;
             }
-            self.shell_audio(&ev.payload);
+            if let Some(status) = ev.payload.get("volumeStatus").filter(|s| s.is_object()) {
+                self.luna_state.audio_status = Some(status.clone());
+            }
+            // the service's report of a press the display left unanswered names that key, so a display that was only late counts it once
+            let press = matches!(ev.payload.pointer("/volumeStatus/cause").and_then(Value::as_str), Some("volumeUp" | "volumeDown"));
+            match press.then(|| self.luna_state.volume_keys.report(std::time::Instant::now())).flatten() {
+                Some(key) => {
+                    let mut payload = ev.payload;
+                    payload["keyReturned"] = json!(key);
+                    self.shell_audio(&payload);
+                }
+                None => self.shell_audio(&ev.payload),
+            }
             return;
         }
         if self.shell_luna_event(ev.token, &ev.payload) {
@@ -387,8 +405,11 @@ impl State {
         }
     }
 
+    /// When the loop's tick (`nooperation_tick`) is next due: LG's idle timers while the screen is drawn, and a volume key the display has
+    /// not answered (`volumekeys`) at any time.
     pub fn nooperation_deadline(&self) -> Option<std::time::Instant> {
-        self.luna_state.power.rendering.then(|| self.luna_state.nooperation.deadline()).flatten()
+        let timers = self.luna_state.power.rendering.then(|| self.luna_state.nooperation.deadline()).flatten();
+        timers.into_iter().chain(self.luna_state.volume_keys.deadline()).min()
     }
 
     /// LG's saver is there: its window is mapped above the app, or tvpower's sub state says `screen saver` (its window may not be mapped yet;
@@ -448,13 +469,17 @@ impl State {
         self.luna_state.nooperation.activity(std::time::Instant::now());
     }
 
-    /// Runs even when no frames are drawn: the standing subscriptions kept alive, the end of a saver episode seen, and LG's idle timers
-    /// reported. tvpower then asks its screen-saver list, where the shell answers for LumaTV's saver.
+    /// Runs even when no frames are drawn: the volume keys the display left unanswered given to the audio service, the standing
+    /// subscriptions kept alive, the end of a saver episode seen, and LG's idle timers reported. tvpower then asks its screen-saver list,
+    /// where the shell answers for LumaTV's saver.
     pub fn nooperation_tick(&mut self) {
         self.nooperation_tick_at(std::time::Instant::now());
     }
 
     pub fn nooperation_tick_at(&mut self, now: std::time::Instant) {
+        for call in self.luna_state.volume_keys.due(now) {
+            self.volume_call(call);
+        }
         self.watches_tick(now);
         let present = self.lg_saver_present();
         if self.luna_state.power.rendering {
@@ -474,21 +499,70 @@ impl State {
     /// URIs and the `{}`/`{"mute":…}` payloads are its strings) do them: up or down on every press and key repeat,
     /// `volumeKeeping` on release, Mute toggled on release from the state the audio service last pushed. With the
     /// receiver on ARC the service passes the steps on over CEC (PLAN: Receiver).
+    ///
+    /// While the volume display says the receiver takes the volume keys, Volume+ and Volume- and their repeats go to the display
+    /// alone, numbered and reported as the audio service would report them, and come back to the service when the display does not
+    /// answer (`volumekeys`). Mute stays the service's, and so does a volume key while the TV is muted: the service's key clears the
+    /// mute on the TV and the receiver.
     pub fn system_key(&mut self, code: u32, pressed: bool) {
         use crate::input::code::{KEY_MUTE, KEY_VOLUMEDOWN, KEY_VOLUMEUP};
-        let (method, payload) = match (code, pressed) {
-            (KEY_VOLUMEUP, true) => ("master/volumeUp", json!({})),
-            (KEY_VOLUMEDOWN, true) => ("master/volumeDown", json!({})),
-            (KEY_VOLUMEUP | KEY_VOLUMEDOWN, false) => ("volumeKeeping", json!({})),
+        use crate::volumekeys::Call;
+        match (code, pressed) {
+            (KEY_VOLUMEUP | KEY_VOLUMEDOWN, true) => {
+                let up = code == KEY_VOLUMEUP;
+                if let Some(mut report) = self.volume_key_report(up) {
+                    report["key"] = json!(self.luna_state.volume_keys.to_display(up, std::time::Instant::now()));
+                    self.shell_audio(&report);
+                } else {
+                    self.luna_state.volume_keys.to_service();
+                    self.volume_call(Call::Press(up));
+                }
+            }
+            (KEY_VOLUMEUP | KEY_VOLUMEDOWN, false) => {
+                if let Some(call) = self.luna_state.volume_keys.release() {
+                    self.volume_call(call);
+                }
+            }
             (KEY_MUTE, false) => {
                 self.luna_state.muted = !self.luna_state.muted;
-                ("master/muteVolume", json!({"mute": self.luna_state.muted}))
+                self.audio_call("master/muteVolume", json!({"mute": self.luna_state.muted}));
             }
             _ => return,
+        }
+        self.keys.delivered += 1;
+    }
+
+    /// The display counted the volume keys up to `ack` (its `volumeAck`).
+    pub(crate) fn volume_answered(&mut self, ack: u64) {
+        if let Some(call) = self.luna_state.volume_keys.answered(ack) {
+            self.volume_call(call);
+        }
+    }
+
+    fn volume_call(&mut self, call: crate::volumekeys::Call) {
+        use crate::volumekeys::Call;
+        let method = match call {
+            Call::Press(true) => "master/volumeUp",
+            Call::Press(false) => "master/volumeDown",
+            Call::Release => "volumeKeeping",
         };
+        self.audio_call(method, json!({}));
+    }
+
+    fn audio_call(&mut self, method: &str, payload: Value) {
         let token = self.luna_token();
         self.luna.send(ToBridge::Outbound(Outbound { token, uri: format!("{AUDIO}/{method}"), payload, subscribe: false }));
-        self.keys.delivered += 1;
+    }
+
+    /// The audio service's report of a volume key, for the display to answer: only while the display says the receiver takes the keys,
+    /// the TV is not muted and the service has reported once (the output, the mute and the volume come from that report).
+    fn volume_key_report(&self, up: bool) -> Option<Value> {
+        if self.luna_state.muted || self.shell_rust.ui_state.get("volumeKeys").and_then(Value::as_str) != Some("receiver") {
+            return None;
+        }
+        let mut status = self.luna_state.audio_status.clone()?;
+        status["cause"] = json!(if up { "volumeUp" } else { "volumeDown" });
+        Some(json!({"volumeStatus": status}))
     }
 
     /// A call to one of the compositor's bus names.

@@ -867,6 +867,9 @@ impl State {
                         self.shell_rust.supported = kinds.iter().filter_map(Value::as_str).map(str::to_owned).collect();
                     }
                     let changed = self.output.ui_state(&s);
+                    if let Some(ack) = s.get("volumeAck").and_then(Value::as_u64) {
+                        self.volume_answered(ack);
+                    }
                     self.shell_rust.ui_state = s;
                     changed
                 } else {
@@ -1581,6 +1584,56 @@ mod tests {
         assert!(state.shell_luna_event(rust_token, &json!({"message": "Remote battery low"})));
         assert_eq!(state.shell_rust.topic("luna").unwrap()["tag"], 9);
         assert!(state.journal.iter().any(|l| l.contains("shell-rust: toast delivered")));
+    }
+
+    #[test]
+    fn a_volume_key_goes_to_the_display_alone_while_it_answers_and_back_to_the_audio_service_when_it_does_not() {
+        use crate::input::code::{KEY_MUTE, KEY_VOLUMEUP};
+        const UP: &str = "luna://com.webos.service.audio/master/volumeUp";
+        const KEEP: &str = "luna://com.webos.service.audio/volumeKeeping";
+        let (mut state, _dir) = state_with("osd");
+        state.shell_rust_handle(Msg::Connected);
+        state.luna_state.audio_token = Some(77);
+        let audio = |cause: &str| crate::luna::Event {
+            token: 77,
+            payload: json!({"volumeStatus": {"volume": 12, "muteStatus": false, "soundOutput": "external_arc", "cause": cause}}),
+        };
+        state.luna_event(audio(""));
+        let calls = |state: &State| {
+            crate::luna::Bridge::sent(&*state.luna).into_iter().map(|(uri, _)| uri).filter(|u| u.starts_with("luna://com.webos.service.audio/")).collect::<Vec<_>>()
+        };
+        let ui = |state: &mut State, s: Value| state.shell_rust_handle(Msg::Ui { can: None, wants: None, live: None, state: Some(s) });
+        let later = |d: std::time::Duration| std::time::Instant::now() + d;
+        let n = calls(&state).len();
+        // until the display says otherwise the keys are the audio service's, which steps the receiver over CEC
+        state.system_key(KEY_VOLUMEUP, true);
+        state.system_key(KEY_VOLUMEUP, false);
+        assert_eq!(calls(&state)[n..], [UP, KEEP]);
+        ui(&mut state, json!({"volumeKeys": "receiver"}));
+        for _ in 0..3 {
+            state.system_key(KEY_VOLUMEUP, true);
+        }
+        state.system_key(KEY_VOLUMEUP, false);
+        let report = state.shell_rust.topic("audio").unwrap().clone();
+        assert_eq!((report["key"].as_u64(), report["volumeStatus"]["cause"].as_str(), report["volumeStatus"]["volume"].as_i64()), (Some(3), Some("volumeUp"), Some(12)));
+        ui(&mut state, json!({"volumeKeys": "receiver", "volumeAck": 3}));
+        state.nooperation_tick_at(later(std::time::Duration::from_secs(1)));
+        assert_eq!(calls(&state).len(), n + 2, "keys the display answered and their release reach it only: {:?}", calls(&state));
+        // a display that stops answering (it hangs, or the helper or the receiver plugin went away under it) gives the key back
+        state.system_key(KEY_VOLUMEUP, true);
+        state.system_key(KEY_VOLUMEUP, false);
+        assert_eq!(calls(&state).len(), n + 2, "the release waits for the key before it");
+        state.nooperation_tick_at(later(crate::volumekeys::ANSWER_WAIT));
+        assert_eq!(calls(&state)[n + 2..], [UP, KEEP]);
+        state.luna_event(audio("volumeUp"));
+        assert_eq!(state.shell_rust.topic("audio").unwrap()["keyReturned"], 4, "the service's report names the key it was given back");
+        state.system_key(KEY_MUTE, true);
+        state.system_key(KEY_MUTE, false);
+        assert_eq!(calls(&state)[n + 4..], ["luna://com.webos.service.audio/master/muteVolume"], "Mute stays the service's");
+        // muted, a volume key is the service's again: its key clears the mute on the TV and the receiver
+        state.system_key(KEY_VOLUMEUP, true);
+        state.system_key(KEY_VOLUMEUP, false);
+        assert_eq!(calls(&state)[n + 5..], [UP, KEEP]);
     }
 
     #[test]
