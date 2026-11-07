@@ -29,6 +29,20 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Overnight install, 2026-11-07 (main 6fd2a63d)
+
+Main 6fd2a63d installed at 00:50 EST by the standard path, the set woken from Active Standby with Netflix in front. It carries the format badge waiting for the real size and a recording ending where its window does (6fd2a63d). Installed sha256: compositor `e4a5f6dcc192c0324cd3de74a91b2767f4df5358460755f25fad6e62706d4365`, ui `9e491f5dd6f40be1511b51f3f83e4a9167caa233f0cfea33e7983c403c2d5e31`, helper `568e66d64fea027c13863c05a0a9ef8afa3e8c64b751b578acb6d6c6294eb4d9`; sm `65f6ca69`, lumatv-jpeg `8b6d65a8` and `tools/lumatv` `0473b152` unchanged. Replaced: compositor `66c65cc6`, ui `35eb2e98`, helper `e26b0377`. Receipts: `/data/home/tmp/lumatv-overnight-20261107/`.
+
+- Live TV, 69-6 (704x480 interlaced): the badge shows SDR alone, for 3.0 s.
+- Cameras, Backyard (88), two rounds of OK hold, about 3 s, then Play, watched 20 s: both played the recording and went on into live about 7 s after Play, 0 failures. Round 2 ran the recording to 7.1 s and was live 0.5 s later; in round 1 the recording ran dry 4.6 s after Play and the picture stood about 2.3 s (between 1.9 and 2.8 s) before live.
+- Settings: the focus plate on the rail and the profile chip beside the title.
+- Self-heal: `ui.refusals` 0; no `compositor refused:` or `scene is full` lines.
+- Left as found: Active Standby with Netflix in front, the receiver off at -37.0 dB, unmuted, compositor failures 0.
+
+Open: the early hand-off to live does not fire when the bridge runs out of recording before the window's end. Live starts about 7 s after Play in both rounds whatever the recording did, so a recording that runs dry earlier leaves the picture standing until then.
+
+The receiver ignored `MUON` on the HTTP command page (200, still unmuted); telnet on port 23 muted it.
+
 ## Follow-up install, 2026-11-06 (main c80e8555)
 
 Main c80e8555 installed at 23:35 EST by the standard path, the set woken from Active Standby with Netflix in front, which was relaunched afterwards. It carries the format badge's glyph marks (595cd907), OK holding live on its last whole picture (c155115d), Home widgets saying a width of its own (7c0acb07) and the map tests (c80e8555). Installed sha256: compositor `66c65cc64ddc476f823bd8cc310c5b652b486644001e52c95bded859df3a7e03`, ui `35eb2e98fc2ba111094baa36222e5b2724de7670a0d242956e7954acb62cc1c8`, helper `e26b037794a2d4a73f0e9e8703238a70a1b2171712838fb7aa40bc14ee432b9d`; sm `65f6ca69`, lumatv-jpeg `8b6d65a8` and `tools/lumatv` `0473b152` unchanged. Replaced: compositor `d60bff98`, ui `440a800c`, helper `f042de19`. Receipts: `/data/home/tmp/lumatv-followup-20261106/` (`session.log`, `installed-hashes.json`, `as-found.json`, `as-left.json`, `format/`, `toast/`, `camera/`, `widgets/`, `selfheal.json`, `gate/`; rollback copies in `backup/`).
