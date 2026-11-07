@@ -336,6 +336,16 @@ impl Service {
         let tuner = Arc::new(
             lumatuner::Tuner::new(tv.clone(), lumatuner::real_clock()).with_guide(guide.clone()),
         );
+        // The account's Plex server goes by "Plex" in the tuner's /status.json and on a refused request's slate.
+        let name_plex = {
+            let (plex, tuner) = (plex.clone(), tuner.clone());
+            move || {
+                let ip = plex.server().and_then(|s| s.address.parse::<std::net::SocketAddr>().ok()).map(|a| a.ip());
+                tuner.name_peers(ip.map(|ip| (ip, "Plex".to_owned())));
+            }
+        };
+        name_plex();
+        plex.on_change(name_plex);
         threads.push((
             "tuner",
             crate::tuner::spawn(&ctx, plugins.shared().clone(), tuner.clone())?,

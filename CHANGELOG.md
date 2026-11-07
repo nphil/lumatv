@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+With the tuner's messages on, a request for a Live TV tuner in use gets 6 s of a slate saying who has it ("Tuner busy: Plex is recording Jeopardy! on 2.1 WSB-HD", "in use by VLC", or the TV's own Live TV) instead of a bare 503 `805 All Tuners In Use`; without the messages it is still 503. `GET /status.json` names the client holding the tuner (address, name, channel, since) or `null`.
+
 The camera pop-up takes the shape of its camera's picture. Its picture box was 520 by 292 for every camera, so the video plane stretched a portrait camera (the Front Door's 480 by 640 stream) to 16:9. The box now has the shape of the stream as decoded, and before that of the camera's known size so the card does not jump: 330 by 440 for 3:4, 520 by 292 for 16:9, in a card 360 to 560 wide in the same corner.
 
 The dock's top row names its focused app above the icon again on a card with no room to spare (7 of 16 grid rows, 379 px), and the bottom row below it. Since 18956f0b a name that would cross the card's top edge by 2 px went under the icon, over the second row; it is now pinned to the edge on its own side while it still clears the lifted tile.

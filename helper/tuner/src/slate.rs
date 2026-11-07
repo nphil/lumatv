@@ -72,6 +72,8 @@ pub enum Says {
     NoSignal,
     /// The TV's own Live TV took the tuner; the stream ends.
     TvInUse,
+    /// A request refused for a tuner in use: who has it (the line under "Tuner busy"), or `None` for the TV's own use.
+    Busy(Option<String>),
     /// The program asks not to be passed on; the stream ends.
     Protected,
     /// The tuner said no; the stream ends.
@@ -117,6 +119,11 @@ impl Says {
             Self::TvInUse => plain(
                 "The TV is using its tuner".to_owned(),
                 format!("Live TV on the TV comes first, so {guide} stopped"),
+            ),
+            Self::Busy(Some(line)) => plain("Tuner busy".to_owned(), line.clone()),
+            Self::Busy(None) => plain(
+                "The TV is using its tuner".to_owned(),
+                "Live TV on the TV comes first".to_owned(),
             ),
             Self::Protected => plain(
                 format!("{guide} can't be shared"),

@@ -175,6 +175,21 @@ fn text_of<'a>(p: &'a Value, keys: &[&str]) -> &'a str {
         .unwrap_or("")
 }
 
+/// The title of the programme on `channel_id` at `now` (an LG time string) in its `iepg/getEventList` reply.
+pub(crate) fn showing(reply: &Value, channel_id: &str, now: &str) -> Option<String> {
+    let now = xmltv_time(now)?;
+    reply["programList"]
+        .as_array()?
+        .iter()
+        .filter(|p| p["channelId"].as_str().is_none_or(|id| id == channel_id))
+        .find(|p| {
+            let time = |key: &str| p[key].as_str().and_then(xmltv_time);
+            time("startTime").is_some_and(|s| s <= now) && time("endTime").is_some_and(|e| now < e)
+        })
+        .map(|p| text_of(p, &["programName", "programMainTitle"]).to_owned())
+        .filter(|t| !t.is_empty())
+}
+
 /// `/xmltv.xml`: the TV's own broadcast guide (`iepg/getEventList`, one reply per channel) as XMLTV. Channel ids are the guide numbers of
 /// [`m3u`]; times are UTC. A programme without a title or a readable time is left out, a repeated start is kept once.
 pub fn xmltv(channels: &[(Entry, Value)]) -> String {
@@ -382,5 +397,18 @@ mod tests {
              </tv>\n",
             "sorted by start; the repeated start, the untitled, backwards, unreadable and other channel's programmes are out"
         );
+    }
+
+    #[test]
+    fn the_programme_showing_is_the_one_whose_hour_holds_now() {
+        let p = |id: &str, name: &str, start: &str, end: &str| json!({"channelId": id, "programName": name, "startTime": start, "endTime": end});
+        let list = json!({"programList": [
+            p("1_32_2_1_0_0_0", "Earlier", "2026,11,05,23,00,00", "2026,11,05,23,30,00"),
+            p("1_32_9_9_0_0_0", "Elsewhere", "2026,11,05,23,30,00", "2026,11,06,00,00,00"),
+            p("1_32_2_1_0_0_0", "News", "2026,11,05,23,30,00", "2026,11,06,00,00,00"),
+        ]});
+        let at = |now: &str| showing(&list, "1_32_2_1_0_0_0", now);
+        assert_eq!(at("2026,11,05,23,30,00").as_deref(), Some("News"));
+        assert_eq!(at("2026,11,06,00,00,00"), None, "ended");
     }
 }

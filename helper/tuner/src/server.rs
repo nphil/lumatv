@@ -173,9 +173,10 @@ struct Request {
     method: String,
     path: String,
     host: Option<String>,
+    agent: Option<String>,
 }
 
-/// The request line and the Host header; a request that is not read whole within a moment, or is not HTTP, is nothing.
+/// The request line, the Host header and the User-Agent; a request that is not read whole within a moment, or is not HTTP, is nothing.
 fn read_request(stream: &TcpStream) -> Option<Request> {
     stream.set_read_timeout(Some(REQUEST_WAIT)).ok()?;
     let mut lines = BufReader::new(stream.take(REQUEST_LIMIT)).lines();
@@ -185,16 +186,19 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
     if !version.starts_with("HTTP/1.") {
         return None;
     }
-    let mut host = None;
+    let (mut host, mut agent) = (None, None);
     for line in lines {
         let line = line.ok()?;
         if line.is_empty() {
             break;
         }
-        if let Some((name, value)) = line.split_once(':')
-            && name.trim().eq_ignore_ascii_case("host")
-        {
-            host = Some(value.trim().to_owned());
+        if let Some((name, value)) = line.split_once(':') {
+            let name = name.trim();
+            if name.eq_ignore_ascii_case("host") {
+                host = Some(value.trim().to_owned());
+            } else if name.eq_ignore_ascii_case("user-agent") {
+                agent = Some(value.trim().chars().take(200).collect());
+            }
         }
     }
     let path = target.split('?').next().unwrap_or(target).to_owned();
@@ -202,6 +206,7 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
         method: method.to_owned(),
         path,
         host,
+        agent,
     })
 }
 
@@ -279,6 +284,7 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
     let _ = match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/discover.json") => json(&mut stream, &docs::discover(&facade.identity, &base)),
         ("GET", "/lineup_status.json") => json(&mut stream, &docs::lineup_status()),
+        ("GET", "/status.json") => json(&mut stream, &facade.status_doc()),
         ("GET", "/lineup.json") => match facade.lineup() {
             Ok(entries) => json(&mut stream, &docs::lineup(&entries, &base)),
             Err(f) => reply(&mut stream, f.status(), "text/plain", f.reason().as_bytes()),
@@ -307,10 +313,18 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
             let guide = &path["/auto/v".len()..];
             let asked = Instant::now();
             const HEAD: &str = "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\n\r\n";
-            let sent = match facade.admit(guide, peer) {
+            let sent = match facade.admit(guide, peer, request.agent.as_deref()) {
                 Err(f) => {
                     refusals.refused(peer, guide, f.reason(), Instant::now()).iter().for_each(|l| log::info!("{l}"));
                     return drop(refuse(&mut stream, &f));
+                }
+                Ok(Admitted::Refused(refusal)) => {
+                    refusals
+                        .refused(peer, guide, refusal.failure.reason(), Instant::now())
+                        .iter()
+                        .for_each(|l| log::info!("{l}"));
+                    let _ = write!(stream, "{HEAD}").and_then(|()| facade.refuse(refusal, &mut stream, stop));
+                    return;
                 }
                 Ok(Admitted::Plain(mut program)) => {
                     // the PAT and the PMT go out as soon as the head is written: this is the client's wait for its first byte
@@ -541,6 +555,54 @@ mod tests {
             ),
             "a channel that sends nothing"
         );
+    }
+
+    #[test]
+    fn a_tuner_in_use_is_a_short_slate_with_slates_on_else_503_and_status_json_names_its_holder() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), vec![]);
+        let tuning = served();
+        let limits = Limits { last_word: Duration::from_millis(150), ..Limits::default() };
+        let facade = Facade::new(
+            Arc::new(Shared(fake.clone())),
+            Identity { name: "LumaTV".into(), device_id: "0A1B2C3D".into() },
+            limits,
+            time.clock(),
+            tuning.clone(),
+            None,
+        );
+        let peers = vec![Cidr::parse("127.0.0.0/8").unwrap()];
+        let server = Server::start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), Arc::new(facade), peers).unwrap();
+        let status = || serde_json::from_slice::<Value>(split(&get(&server, "GET /status.json HTTP/1.1\r\n\r\n")).1).unwrap();
+        assert_eq!(status(), serde_json::json!({"holder": null}));
+
+        let plex = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 69));
+        let lease = tuning.take(plex, Duration::ZERO).unwrap();
+        lease.claim(crate::stream::Claim {
+            peer: plex,
+            agent: Some("PlexMediaServer/1.41".into()),
+            guide: "2.1".into(),
+            name: "WSB-HD".into(),
+            channel_id: "1_32_2_1_0_0_0".into(),
+            since_ms: 1_794_000_000_000,
+        });
+        assert_eq!(
+            status(),
+            serde_json::json!({"holder": {"ip": "192.168.1.69", "name": "Plex", "channel": "2.1", "channelName": "WSB-HD", "since": 1_794_000_000_000u64}})
+        );
+
+        let (head, _) = split(&get(&server, "GET /auto/v2.4 HTTP/1.1\r\n\r\n"));
+        assert!(head.starts_with("HTTP/1.1 503") && head.contains("805 All Tuners In Use"), "without slates: {head}");
+
+        tuning.options.lock().look = Some(Arc::new(|| Some(crate::slate::tests::look())));
+        let answer = get(&server, "GET /auto/v2.4 HTTP/1.1\r\n\r\n");
+        let (head, body) = split(&answer);
+        assert!(head.starts_with("HTTP/1.0 200 OK") && head.contains("video/mp2t"), "{head}");
+        assert!(body.len() > 188 * 10 && body.len() % 188 == 0 && body[0] == 0x47, "a slate, then the end");
+        assert!(fake.tuned.lock().is_empty(), "the tuner is not touched");
+
+        drop(lease);
+        assert_eq!(status(), serde_json::json!({"holder": null}));
     }
 
     #[test]

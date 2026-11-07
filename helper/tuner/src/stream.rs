@@ -11,7 +11,7 @@ use crate::Status;
 use crate::docs::{self, Entry, Identity};
 use crate::health::{Health, Known, Seen, Verdict, lost_before};
 use crate::psi::{self, PACKET};
-use crate::slate::Look;
+use crate::slate::{Look, Says};
 use crate::slated::Slated;
 use parking_lot::{Condvar, Mutex};
 use serde_json::Value;
@@ -320,12 +320,26 @@ pub fn real_clock() -> Clock {
     Arc::new(move || start.elapsed())
 }
 
-/// Who has the tuner: the client whose stream it is, the flag that ends that stream, and whether the stream is over and only letting go
-/// of the TV.
+/// Who has the tuner: the client whose stream it is, the flag that ends that stream, whether the stream is over and only letting go
+/// of the TV, and what the stream is (none for the meter and the reception check).
 struct Holding {
     peer: IpAddr,
     replaced: Arc<AtomicBool>,
     over: bool,
+    claim: Option<Claim>,
+}
+
+/// A client's stream that has the tuner, as `/status.json` and a refused request's slate say it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Claim {
+    pub(crate) peer: IpAddr,
+    /// The request's `User-Agent`.
+    pub(crate) agent: Option<String>,
+    pub(crate) guide: String,
+    pub(crate) name: String,
+    pub(crate) channel_id: String,
+    /// Unix milliseconds.
+    pub(crate) since_ms: u64,
 }
 
 /// The tuner, held: dropping it frees it and wakes whoever waits for it.
@@ -340,6 +354,12 @@ impl Lease {
     pub(crate) fn over(&self) {
         if let Some(h) = self.tuning.held.lock().as_mut() {
             h.over = true;
+        }
+    }
+
+    pub(crate) fn claim(&self, claim: Claim) {
+        if let Some(h) = self.tuning.held.lock().as_mut() {
+            h.claim = Some(claim);
         }
     }
 }
@@ -368,11 +388,13 @@ pub(crate) struct Tuning {
 /// serves it without slates.
 pub(crate) type LookSource = Arc<dyn Fn() -> Option<Look> + Send + Sync>;
 
-/// How streams are served: with slates or without (no source); and the channels the owner left out of the lineup.
+/// How streams are served: with slates or without (no source); the channels the owner left out of the lineup; and the names of clients
+/// the host knows by their address (its Plex server).
 #[derive(Clone, Default)]
 pub(crate) struct Options {
     pub(crate) look: Option<LookSource>,
     pub(crate) hidden: HashSet<String>,
+    pub(crate) names: HashMap<IpAddr, String>,
 }
 
 impl Tuning {
@@ -417,6 +439,7 @@ impl Tuning {
                         peer,
                         replaced: replaced.clone(),
                         over: false,
+                        claim: None,
                     });
                     return Ok(Lease {
                         tuning: self.clone(),
@@ -430,6 +453,11 @@ impl Tuning {
                 return Err(Failure::Busy);
             }
         }
+    }
+
+    /// The client's stream that has the tuner, if one has it and is not letting go of it.
+    pub(crate) fn holder(&self) -> Option<Claim> {
+        self.held.lock().as_ref().filter(|h| !h.over).and_then(|h| h.claim.clone())
     }
 
     pub(crate) fn status(&self) -> Status {
@@ -646,41 +674,87 @@ impl Facade {
         }
     }
 
-    /// Takes the tuner for channel `guide` (`2.4`) for the client at `peer`: what a refusal answers is checked here, while nothing has been
-    /// sent to the client and a failure is still an HTTP status.
-    fn take_for(&self, guide: &str, peer: IpAddr) -> Result<(Entry, Lease), Failure> {
-        let entry = self
-            .lineup()?
+    fn entry(&self, guide: &str) -> Result<Entry, Failure> {
+        self.lineup()?
             .into_iter()
             .find(|e| e.guide == guide)
-            .ok_or(Failure::UnknownChannel)?;
+            .ok_or(Failure::UnknownChannel)
+    }
+
+    /// Takes the tuner for `entry` for the client at `peer`: what a refusal answers is checked here, while nothing has been sent to the
+    /// client and a failure is still an HTTP status.
+    fn take_for(&self, entry: &Entry, peer: IpAddr, agent: Option<&str>) -> Result<Lease, Failure> {
         let lease = self.tuning.take(peer, self.limits.release)?;
         if let Some(why) = self.hw.in_use() {
             self.tuning.refused(&why);
             return Err(Failure::TvInUse(why));
         }
-        Ok((entry, lease))
+        lease.claim(Claim {
+            peer,
+            agent: agent.map(str::to_owned),
+            guide: entry.guide.clone(),
+            name: entry.name.clone(),
+            channel_id: entry.channel_id.clone(),
+            since_ms: crate::webos::unix_ms(),
+        });
+        Ok(lease)
     }
 
     /// The stream for a request. With the owner's slates on, and a channel whose picture a slate can stand in for (MPEG-2, or not seen
-    /// yet), it is answered at once and tuned while the slate shows ([`Facade::play`]); otherwise it is tuned here and answered from its
-    /// first whole picture, and a channel that cannot start is still an HTTP status. Nothing of a failure is kept but the channel's health:
-    /// the next request tunes again.
-    pub(crate) fn admit(&self, guide: &str, peer: IpAddr) -> Result<Admitted, Failure> {
-        let (entry, lease) = self.take_for(guide, peer)?;
+    /// yet), it is answered at once and tuned while the slate shows ([`Facade::play`]), and a tuner in use is answered with a short slate
+    /// that says who has it ([`Facade::refuse`]); otherwise it is tuned here and answered from its first whole picture, and a channel that
+    /// cannot start is still an HTTP status. Nothing of a failure is kept but the channel's health: the next request tunes again.
+    pub(crate) fn admit(&self, guide: &str, peer: IpAddr, agent: Option<&str>) -> Result<Admitted, Failure> {
+        let entry = self.entry(guide)?;
         let source = self.tuning.options.lock().look.clone();
-        match source.and_then(|look| look()) {
-            Some(look) if self.tuning.seen(guide).is_none_or(|s| s.layout.video_type == 0x02) => {
-                Ok(Admitted::Slated(Slated { entry, lease, look }))
+        let look = source
+            .and_then(|look| look())
+            .filter(|_| self.tuning.seen(guide).is_none_or(|s| s.layout.video_type == 0x02));
+        match (self.take_for(&entry, peer, agent), look) {
+            (Ok(lease), Some(look)) => Ok(Admitted::Slated(Slated { entry, lease, look })),
+            (Ok(lease), None) => self.found(entry, lease).map(|stream| Admitted::Plain(Box::new(stream))),
+            (Err(failure @ (Failure::Busy | Failure::TvInUse(_))), Some(look)) => {
+                let says = Says::Busy(matches!(failure, Failure::Busy).then(|| self.busy_line()));
+                Ok(Admitted::Refused(Refusal { entry, look, says, failure }))
             }
-            _ => self.found(entry, lease).map(|stream| Admitted::Plain(Box::new(stream))),
+            (Err(failure), _) => Err(failure),
         }
+    }
+
+    /// What a refused request's slate says of the client whose stream has the tuner.
+    fn busy_line(&self) -> String {
+        let Some(claim) = self.tuning.holder() else {
+            return "In use by another player".to_owned();
+        };
+        let names = self.tuning.options.lock().names.clone();
+        let who = client_name(&claim, &names);
+        let programme = (who.as_deref() == Some("Plex"))
+            .then(|| self.hw.programmes(&claim.channel_id).ok())
+            .flatten()
+            .and_then(|reply| docs::showing(&reply, &claim.channel_id, &crate::webos::lg_stamp(crate::webos::unix_ms())));
+        busy_line(&claim, who.as_deref(), programme.as_deref())
+    }
+
+    /// `/status.json`: the client whose stream has the tuner, or `null` while none has it. Nothing is asked of the TV.
+    pub(crate) fn status_doc(&self) -> Value {
+        let names = self.tuning.options.lock().names.clone();
+        let holder = self.tuning.holder().map(|c| {
+            serde_json::json!({
+                "ip": c.peer.to_string(),
+                "name": client_name(&c, &names),
+                "channel": c.guide,
+                "channelName": c.name,
+                "since": c.since_ms,
+            })
+        });
+        serde_json::json!({ "holder": holder })
     }
 
     /// A request without slates: the tuner taken, the channel tuned, its program found and its first whole picture waited for.
     #[cfg(test)]
     pub(crate) fn open(&self, guide: &str, peer: IpAddr) -> Result<Stream, Failure> {
-        let (entry, lease) = self.take_for(guide, peer)?;
+        let entry = self.entry(guide)?;
+        let lease = self.take_for(&entry, peer, None)?;
         self.found(entry, lease)
     }
 
@@ -920,10 +994,43 @@ fn pat_of(tap: &mut dyn Tap, wait: Duration) -> Option<psi::Pat> {
     Some(pat)
 }
 
-/// A request the tuner took: a stream tuned without slates, or one to answer at once with them.
+/// A request the tuner took: a stream tuned without slates, or one to answer at once with them; or one it refused while slates are on.
 pub(crate) enum Admitted {
     Plain(Box<Stream>),
     Slated(Slated),
+    Refused(Refusal),
+}
+
+/// A request for a tuner in use, answered with a few seconds of a slate in the channel's shape that says who has it, instead of 503.
+pub(crate) struct Refusal {
+    pub(crate) entry: Entry,
+    pub(crate) look: Look,
+    pub(crate) says: Says,
+    pub(crate) failure: Failure,
+}
+
+/// What a client is called: the name the host knows its address by, `Plex` for a Plex user agent, else its user agent's product.
+pub(crate) fn client_name(claim: &Claim, names: &HashMap<IpAddr, String>) -> Option<String> {
+    if let Some(name) = names.get(&claim.peer) {
+        return Some(name.clone());
+    }
+    let agent = claim.agent.as_deref()?.trim();
+    if agent.to_ascii_lowercase().contains("plex") {
+        return Some("Plex".to_owned());
+    }
+    let product = agent.split(['/', ' ']).next().unwrap_or("");
+    (!product.is_empty()).then(|| product.chars().take(40).collect())
+}
+
+/// The line under "Tuner busy": Plex recording what the guide shows on the channel, else the client by name or address.
+pub(crate) fn busy_line(claim: &Claim, who: Option<&str>, programme: Option<&str>) -> String {
+    let channel = format!("{} {}", claim.guide, claim.name);
+    match (who, programme) {
+        (Some("Plex"), Some(title)) => format!("Plex is recording {title} on {channel}"),
+        (Some("Plex"), None) => format!("Plex is recording {channel}"),
+        (Some(who), _) => format!("In use by {who}"),
+        (None, _) => format!("In use by {}", claim.peer),
+    }
 }
 
 /// How a running stream ended (a client that went away is the `io::Error` of `pump`, not one of these).
@@ -1908,5 +2015,26 @@ pub(crate) mod tests {
         let unlocked = Signal { locked: false, mse: None, snr: None, ..CLEAN };
         assert_eq!([CLEAN, fair, rf29, unlocked].map(|s| s.grade()), [Grade::Good, Grade::Fair, Grade::Poor, Grade::None]);
         assert!(CLEAN.better_than(&fair) && fair.better_than(&rf29) && !rf29.better_than(&fair));
+    }
+
+    #[test]
+    fn a_refused_request_is_told_who_has_the_tuner() {
+        let claim = |agent: Option<&str>| Claim {
+            peer: OTHER,
+            agent: agent.map(str::to_owned),
+            guide: "2.1".into(),
+            name: "WSB-HD".into(),
+            channel_id: "1_32_2_1_0_0_0".into(),
+            since_ms: 0,
+        };
+        let line = |agent: Option<&str>, names: &HashMap<IpAddr, String>, programme: Option<&str>| {
+            let c = claim(agent);
+            busy_line(&c, client_name(&c, names).as_deref(), programme)
+        };
+        let none = HashMap::new();
+        assert_eq!(line(Some("PlexMediaServer/1.41"), &none, Some("Jeopardy!")), "Plex is recording Jeopardy! on 2.1 WSB-HD");
+        assert_eq!(line(Some("Lavf/60.3"), &HashMap::from([(OTHER, "Plex".into())]), None), "Plex is recording 2.1 WSB-HD");
+        assert_eq!(line(Some("VLC/3.0.20 LibVLC/3.0.20"), &none, None), "In use by VLC");
+        assert_eq!(line(None, &none, None), "In use by 192.168.1.70");
     }
 }

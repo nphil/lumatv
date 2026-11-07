@@ -18,11 +18,14 @@ On the TV's private address, port 5004 (`hdhr` in `helper.json`: `port`, `bind`,
 | `GET /discover.json` | the device: name, id, `TunerCount` 1, `BaseURL`, `LineupURL` |
 | `GET /lineup.json`, `/lineup_status.json` | the TV's antenna channels, one per number, and an antenna that is not scanning |
 | `GET /lineup.m3u` | the same lineup as an M3U playlist; `url-tvg` names the guide |
+| `GET /status.json` | who has the tuner, without tuning or asking the TV: `{"holder": {"ip", "name", "channel", "channelName", "since"}}` (`name` is `Plex` for the signed-in Plex server's address or a Plex user agent, else the user agent's product; `since` in Unix ms), or `{"holder": null}` while no client's stream has it |
 | `GET /xmltv.xml` | the TV's own guide, a day back to six days ahead, as XMLTV; with the Guide data plugin on, the online listings laid over it ([guide-data.md](guide-data.md)) |
 | `GET /auto/v<number>` | MPEG-TS of one channel (`/auto/v2.4`), starting with the program's PAT and PMT. With the tuner's messages on (the default) it is answered at once and opens with a slate while the channel tunes; otherwise it is answered once the channel's first whole picture has come, and starts with that picture |
 
 A request the tuner cannot take is refused with the HDHomeRun error a player expects: 503 with `805 All Tuners In Use` (another
-client's stream, or the TV's own Live TV), 404 with `801 Unknown Channel`. Without the messages, a channel that cannot start is refused too, with
+client's stream, or the TV's own Live TV), 404 with `801 Unknown Channel`. With the messages on, a tuner in use is answered with 200
+and 6 s of a slate in the channel's shape instead of 503, then the end: `Tuner busy: Plex is recording <programme> on <channel>` (the
+TV's guide title when it has one), `Tuner busy: in use by <client>`, or `The TV is using its tuner`. Without the messages, a channel that cannot start is refused too, with
 `807 No Video Data` and the reason saying which: "no signal" when it does not lock within 3 s; "weak signal" when the multiplex locks
 but its tables do not come whole within 8 s, its picture (an MPEG-2 sequence header, an H.264 SPS or IDR) does not within 5 s, or the
 demodulator counts packet errors on it; "not on air" only when the multiplex is clean and its whole tables do not list the channel, or

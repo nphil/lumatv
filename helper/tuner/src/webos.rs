@@ -462,7 +462,7 @@ const GUIDE_BEFORE_MS: u64 = 24 * 3600 * 1000;
 const GUIDE_AHEAD_MS: u64 = 6 * 24 * 3600 * 1000;
 
 /// `2026,10,25,04,22,00` for Unix milliseconds: the UTC time strings of LG's guide service.
-fn lg_stamp(ms: u64) -> String {
+pub(crate) fn lg_stamp(ms: u64) -> String {
     let secs = i64::try_from(ms / 1000).unwrap_or(i64::MAX / 2);
     // Howard Hinnant's `civil_from_days`
     let z = secs.div_euclid(86_400) + 719_468;
@@ -492,7 +492,7 @@ fn events_request(channel_id: &str, now_ms: u64) -> Value {
     })
 }
 
-fn unix_ms() -> u64 {
+pub(crate) fn unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))

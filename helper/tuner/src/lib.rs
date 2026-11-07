@@ -23,10 +23,11 @@
 //! |---|---|
 //! | `GET /discover.json` | the device: name, id, `TunerCount` 1, `BaseURL`, `LineupURL` |
 //! | `GET /lineup_status.json` | an antenna, not scanning |
+//! | `GET /status.json` | who has the tuner, nothing tuned or asked of the TV: `{"holder": {"ip", "name", "channel", "channelName", "since"}}` for a client's stream (`name` as the host knows its address, `Plex` by user agent, else its user agent's product; `since` Unix ms), `{"holder": null}` while no client's stream has it |
 //! | `GET /lineup.json` | the TV's antenna channels (`iepg/getChannelList`), one per number: `GuideNumber` `2.4`, `GuideName`, `URL`; a channel the owner left out ([`Tuner::hide`]) is not listed |
 //! | `GET /lineup.m3u` | the same lineup as an M3U playlist: `tvg-id` and `tvg-chno` are the guide number, the URL is `/auto/v<number>`, `url-tvg` names `/xmltv.xml` |
 //! | `GET /xmltv.xml` | the TV's own broadcast guide (`iepg/getEventList`, a day back to six days ahead, read once per channel and kept 30 minutes, or until the host's [`Guide`] changes) as XMLTV, UTC, channel ids the guide numbers, or the host's guide made from it when it has one; a channel nobody has listings for has no programmes |
-//! | `GET /auto/v<number>` | MPEG-TS of that channel. With slates ([`slated`]): answered at once with a slate while the channel is tuned, then the programme from its first whole picture, a slate whenever its picture stops or breaks up, and a last slate before the end, on one program and one clock of the tuner's own ([`splice`]). Without: from its first whole picture, a PAT naming the one program, its PMT, then its clock, picture and sound from that picture on; 503 for a channel that cannot start, the reason saying which: no signal (no lock), weak signal (a locked multiplex whose tables did not come whole within 8 s or picture within 5 s, or that the demodulator counts packet errors on), not on air (a clean multiplex whose whole tables do not list it, or that carries no packets of its picture); 403 for a protected program. Either way the client whose stream has the tuner takes it over with its next request; another client gets 503 while it runs, and every client while the TV is in use; 404 for no such channel. Each refusal names its HDHomeRun error in `X-HDHomeRun-Error`; none is remembered |
+//! | `GET /auto/v<number>` | MPEG-TS of that channel. With slates ([`slated`]): answered at once with a slate while the channel is tuned, then the programme from its first whole picture, a slate whenever its picture stops or breaks up, and a last slate before the end, on one program and one clock of the tuner's own ([`splice`]). Without: from its first whole picture, a PAT naming the one program, its PMT, then its clock, picture and sound from that picture on; 503 for a channel that cannot start, the reason saying which: no signal (no lock), weak signal (a locked multiplex whose tables did not come whole within 8 s or picture within 5 s, or that the demodulator counts packet errors on), not on air (a clean multiplex whose whole tables do not list it, or that carries no packets of its picture); 403 for a protected program. Either way the client whose stream has the tuner takes it over with its next request; another client gets 503 while it runs, and every client while the TV is in use (with slates: 200 and `last_word` of a slate saying who has it, `Tuner busy: Plex is recording …` or `The TV is using its tuner`, then the end); 404 for no such channel. Each refusal names its HDHomeRun error in `X-HDHomeRun-Error`; none is remembered |
 //! | `GET`/`POST /lineup.post` | 200, nothing to start (the lineup is the TV's) |
 //!
 //! Pieces: [`psi`] reads and writes the transport stream's tables; [`docs`] makes the HDHomeRun documents, the playlist and the guide;
@@ -232,6 +233,11 @@ impl Tuner {
     /// The channels (guide numbers) the owner leaves out of the lineup: the playlist and the documents do not list them.
     pub fn hide(&self, guides: impl IntoIterator<Item = String>) {
         self.tuning.options.lock().hidden = guides.into_iter().collect();
+    }
+
+    /// The names clients at these addresses go by in `/status.json` and on a refused request's slate (the host's Plex server).
+    pub fn name_peers(&self, names: impl IntoIterator<Item = (std::net::IpAddr, String)>) {
+        self.tuning.options.lock().names = names.into_iter().collect();
     }
 
     /// Starts the meter that helps aim the antenna ([`meter`]) on RF channel `rf`, or on the frequency the tuner is on (`None`), or moves

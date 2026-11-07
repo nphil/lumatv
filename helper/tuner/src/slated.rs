@@ -13,8 +13,8 @@
 //! | no picture for `give_up_tuning` (it never came) or `give_up` (it stopped); no lock; not in the multiplex | `No signal on 16.9` for `last_word` | the end |
 //! | the TV's own Live TV takes the tuner | `The TV is using its tuner` for `last_word` | the end; the TV has the tuner at once |
 //!
-//! What cannot be taken at all is still a status, as an HDHomeRun answers and as a player needs to give its tuner up: another client's
-//! stream and the TV in use (503), no such channel (404).
+//! A tuner in use (another client's stream, or the TV's own Live TV) is answered with `last_word` of a slate that says who has it
+//! (`Tuner busy`, `Plex is recording …`) and then the end, where an HDHomeRun answers 503. No such channel is still 404.
 
 use crate::Status;
 use crate::docs::Entry;
@@ -23,10 +23,10 @@ use crate::mpeg2::Format;
 use crate::psi::{self, PACKET};
 use crate::slate::{Look, Says, Slate};
 use crate::splice::{Layout, Program, Routes};
-use crate::stream::{End, Facade, Failure, Found, Lease, Over, Signal, Tap, Unfound, program};
+use crate::stream::{End, Facade, Failure, Found, Lease, Over, Refusal, Signal, Tap, Unfound, program};
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 /// A request that has the tuner, to be answered with slates.
 pub(crate) struct Slated {
@@ -313,6 +313,33 @@ impl Facade {
         play.lease.over();
         play.record();
         end
+    }
+
+    /// Answers a request refused for a tuner in use with `last_word` of a slate that says who has it, in the channel's shape and laid
+    /// out as its program (the fallback's for a channel not seen yet), sent as it is due, then ends: a player shows why instead of an
+    /// error, and asks again later. The tuner is not touched.
+    pub(crate) fn refuse(&self, refusal: Refusal, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<()> {
+        let Refusal { entry, look, says, .. } = refusal;
+        let seen = self.tuning.seen(&entry.guide);
+        let format = seen.as_ref().map_or(Format::FALLBACK, |s| s.format);
+        let (layout, tsid) = seen.map_or_else(|| (Layout::fallback(1), 1), |s| (s.layout, s.tsid));
+        let mut slate = Slate::new(look, &entry.guide, &entry.name, format);
+        slate.say(says);
+        let mut show = Show {
+            program: Program::new(tsid, layout, &format),
+            slate,
+            anchor: Duration::ZERO,
+            frames: 0,
+            tables: None,
+            out: Vec::with_capacity(PACKET * 512),
+            held: false,
+        };
+        let start = Instant::now();
+        while start.elapsed() < self.limits.last_word && !stop.load(Ordering::Acquire) {
+            show.tick(start.elapsed(), self.limits.pat_every, out)?;
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        Ok(())
     }
 }
 
@@ -821,7 +848,7 @@ pub(crate) mod tests {
     }
 
     fn play(f: &Facade) -> (Vec<u8>, End) {
-        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX) else {
+        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None) else {
             panic!("not slated");
         };
         let mut out = Vec::new();
@@ -918,7 +945,7 @@ pub(crate) mod tests {
         let script = Script::new(&time, stops_at_two());
         let f = facade(&script, quick());
         f.tuning.saw("2.4", Seen { format: SHAPE, layout: Layout::fallback(1), tsid: 1 });
-        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX) else {
+        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None) else {
             panic!("not slated");
         };
         let mut out = Writes::default();
@@ -1032,7 +1059,7 @@ pub(crate) mod tests {
         f.tuning.options.lock().hidden = ["2.1".to_owned()].into();
         assert_eq!(f.lineup().unwrap().iter().map(|e| e.guide.as_str()).collect::<Vec<_>>(), ["2.4"]);
         f.tuning.options.lock().look = Some(Arc::new(|| None));
-        assert!(!matches!(f.admit("2.4", PLEX), Ok(Admitted::Slated(_))));
+        assert!(!matches!(f.admit("2.4", PLEX, None), Ok(Admitted::Slated(_))));
     }
 
     #[test]
