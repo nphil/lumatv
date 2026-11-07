@@ -190,7 +190,8 @@ static size_t hw_planes(const struct hwgeo *g, uint32_t w, uint32_t h, const uin
 
 struct jinfo {
     uint32_t width, height;
-    int hw; /* 0, or the status the hardware path would answer for this file (JP_E_UNSUPPORTED) */
+    int hw;         /* 0, or the status the hardware path would answer for this file (JP_E_UNSUPPORTED) */
+    int hsub, vsub; /* the chroma is subsampled across (4:2:2, 4:2:0) or down (4:2:4, 4:2:0) */
 };
 
 /* Reads the frame header: the dimensions, and whether the block takes the file (it decodes baseline, extended-sequential and
@@ -228,7 +229,11 @@ static int jpeg_probe(const uint8_t *p, size_t n, struct jinfo *ji) {
             unsigned h0 = s[7] >> 4, v0 = s[7] & 15;
             for (int c = 1; c < 3; c++)
                 if (s[6 + 3 * c + 1] != 0x11) return 0;
-            if ((h0 == 1 || h0 == 2) && (v0 == 1 || v0 == 2)) ji->hw = 0;
+            if ((h0 == 1 || h0 == 2) && (v0 == 1 || v0 == 2)) {
+                ji->hw = 0;
+                ji->hsub = h0 == 2;
+                ji->vsub = v0 == 2;
+            }
             return 0;
         }
         i += len;
@@ -250,12 +255,21 @@ static uint32_t ceil_shift(uint32_t v, unsigned s) {
     return (v + (1u << s) - 1) >> s;
 }
 
+/* The kernel checks the block's chroma plane against the scaled side rounded down and halved exactly, while the block rounds
+ * the half up: an odd side along a subsampled axis fails every time and logs two error lines ("C plane should be 16200, but
+ * 16320" for 4:2:0 at 240x135, 1920x1080 at 1/8). Measured on the set for odd heights (240x135, 160x213, 60x45, 60x33);
+ * widths are taken to behave the same. libjpeg decodes those. */
+static int hw_takes_scale(const struct jinfo *ji, unsigned shift) {
+    return !((ji->hsub && (ji->width >> shift) & 1) || (ji->vsub && (ji->height >> shift) & 1));
+}
+
 /* The hardware path: the library's buffer and the planes in it. `dump`: where to write the buffer before it is converted (the TV
  * slot's comparison), or NULL. On JP_OK `*buf` is the library's buffer (free() it) and `im` points into it. */
 static int hw_decode(const uint8_t *jpeg, size_t n, const struct jinfo *ji, unsigned shift, unsigned flags, uint32_t ow, uint32_t oh,
                      const char *dump, struct result *r, uint8_t **buf, struct yuv_image *im) {
     int rc;
     if (ji->hw) return ji->hw;
+    if (!hw_takes_scale(ji, shift)) return JP_E_UNSUPPORTED;
     if ((rc = open_device())) return rc;
 
     /* DILE reads the dimensions only to size the buffer it allocates: (w >> shift) * (h >> shift) * 3. The hardware rounds the
@@ -605,7 +619,8 @@ static int bench(const char *file, int count, unsigned shift, int fmt, const cha
         say("%s: not a JPEG file (status %d)", file, rc);
         return 1;
     }
-    printf("file=%s bytes=%ld width=%u height=%u block_takes_it=%d shift=%u count=%d convert=%s path=%s\n", file, n, ji.width, ji.height, ji.hw == 0,
+    printf("file=%s bytes=%ld width=%u height=%u block_takes_it=%d shift=%u count=%d convert=%s path=%s\n", file, n, ji.width, ji.height,
+           ji.hw == 0 && hw_takes_scale(&ji, shift),
            shift, count, convert_impl(), (flags & JP_FLAG_CPU) ? "cpu" : (flags & JP_FLAG_HW_ONLY) ? "hardware" : "hardware, then cpu");
     uint32_t *dec = calloc((size_t)count, 4), *conv = calloc((size_t)count, 4), *wall = calloc((size_t)count, 4);
     long irq0 = jpg_irqs(), cma0 = read_kv("/proc/meminfo", "CmaFree:"), cma_min = cma0;

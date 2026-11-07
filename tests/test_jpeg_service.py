@@ -208,20 +208,34 @@ class Service(unittest.TestCase):
         for semi in ("0", "1"):
             _, s = self.start(FAKE_JPEG_SEMI=semi)
             for kind in ("444", "422", "224", "420", "gray"):
+                # odd sides where the chroma is whole; even ones at every scale where it is subsampled (the block's own rule)
+                w, h = (304, 208) if kind in ("422", "224", "420") else (301, 203)
                 for shift in range(4):
                     with self.subTest(semi=semi, kind=kind, shift=shift):
-                        r = self.request(s, sample_file(301, 203, kind), RGBA, shift)
-                        self.check_rgba(r, 301, 203, shift, kind)
-                        r = self.request(s, sample_file(301, 203, kind), NV12, shift)
-                        self.check_nv12(r, 301, 203, shift, kind)
+                        r = self.request(s, sample_file(w, h, kind), RGBA, shift)
+                        self.check_rgba(r, w, h, shift, kind)
+                        r = self.request(s, sample_file(w, h, kind), NV12, shift)
+                        self.check_nv12(r, w, h, shift, kind)
 
     def test_even_and_tiny_sizes(self):
         _, s = self.start()
-        for w, h in ((16, 16), (17, 33), (64, 48), (1920, 1080)):
-            for kind in ("420", "444"):
-                with self.subTest(w=w, h=h, kind=kind):
-                    r = self.request(s, sample_file(w, h, kind), RGBA, 3 if w > 100 else 0)
-                    self.check_rgba(r, w, h, 3 if w > 100 else 0, kind)
+        for w, h, kind in ((16, 16, "420"), (18, 34, "420"), (64, 48, "420"), (1920, 1072, "420"), (16, 16, "444"), (17, 33, "444"), (64, 48, "444"), (1920, 1080, "444")):
+            with self.subTest(w=w, h=h, kind=kind):
+                r = self.request(s, sample_file(w, h, kind), RGBA, 3 if w > 100 else 0)
+                self.check_rgba(r, w, h, 3 if w > 100 else 0, kind)
+
+    def test_an_odd_scaled_side_along_subsampled_chroma_goes_to_libjpeg_without_the_block(self):
+        # the set's kernel fails these and logs two lines a picture: 4:2:0 1920x1080 at 1/8 is 240x135, a portrait camera 320x426 at 1/2 is 160x213
+        _, s = self.start()
+        for w, h, kind, shift in ((1920, 1080, "420", 3), (320, 426, "420", 1), (97, 64, "422", 0), (64, 61, "224", 0)):
+            with self.subTest(w=w, h=h, kind=kind, shift=shift):
+                self.assertEqual(self.request(s, sample_file(w, h, kind), RGBA, shift)["status"], E_UNSUPPORTED)
+        self.assertEqual(self.lib_calls(), [])
+        for w, h, kind, shift in ((1920, 1080, "422", 3), (97, 64, "224", 0), (97, 61, "444", 0)):
+            with self.subTest("the block takes", w=w, h=h, kind=kind):
+                self.check_rgba(self.request(s, sample_file(w, h, kind), RGBA, shift), w, h, shift, kind)
+        r = self.request(s, self.photo(96, 270), RGBA, 3, hw_only=False)
+        self.assertEqual((r["status"], r["width"], r["height"], r["flags"]), (OK, 12, 34, RFLAG_CPU | E_UNSUPPORTED << 8))
 
     def test_bgra_order_and_studio_range_and_swapped_chroma(self):
         _, s = self.start()
@@ -244,24 +258,24 @@ class Service(unittest.TestCase):
     def test_the_buffers_row_and_plane_alignment_is_a_flag(self):
         _, s = self.start("-A", "64", "-B", "16", FAKE_JPEG_ALIGN="64", FAKE_JPEG_VALIGN="16")
         for kind in ("420", "444", "422"):
-            r = self.request(s, sample_file(301, 203, kind), RGBA, 1)
-            self.check_rgba(r, 301, 203, 1, kind)
+            r = self.request(s, sample_file(301, 205, kind), RGBA, 1)
+            self.check_rgba(r, 301, 205, 1, kind)
         # the same buffer read with the wrong alignment is wrong, not a crash
         _, s = self.start(FAKE_JPEG_ALIGN="64", FAKE_JPEG_VALIGN="16")
-        r = self.request(s, sample_file(301, 203, "420"), RGBA, 1)
+        r = self.request(s, sample_file(301, 205, "420"), RGBA, 1)
         self.assertEqual(r["status"], OK)
         with self.assertRaises(AssertionError):
-            self.check_rgba(r, 301, 203, 1, "420")
+            self.check_rgba(r, 301, 205, 1, "420")
 
     def test_a_padded_or_floored_hardware_size_is_cropped_to_the_pictures(self):
         _, s = self.start(FAKE_JPEG_PAD="1")
-        r = self.request(s, sample_file(301, 203, "420"), RGBA, 1)
+        r = self.request(s, sample_file(301, 205, "420"), RGBA, 1)
         self.assertEqual((r["hw_w"], r["hw_h"]), (160, 112))
-        self.check_rgba(r, 301, 203, 1, "420")
-        self.check_nv12(self.request(s, sample_file(301, 203, "420"), NV12, 1), 301, 203, 1, "420")
+        self.check_rgba(r, 301, 205, 1, "420")
+        self.check_nv12(self.request(s, sample_file(301, 205, "420"), NV12, 1), 301, 205, 1, "420")
         _, s = self.start(FAKE_JPEG_FLOOR="1")
-        r = self.request(s, sample_file(301, 203, "420"), RGBA, 1)
-        self.assertEqual((r["status"], r["width"], r["height"]), (OK, 150, 101))
+        r = self.request(s, sample_file(301, 205, "420"), RGBA, 1)
+        self.assertEqual((r["status"], r["width"], r["height"]), (OK, 150, 102))
 
     # -- what is refused ------------------------------------------------------------------------------------------------------
 
@@ -336,7 +350,7 @@ class Service(unittest.TestCase):
         # a layout that needs more than the library allocated: the fake refuses like a hardware that cannot write it; and a
         # service told a bigger alignment than the library used refuses a buffer that is too small for it
         _, s = self.start("-A", "4096", "-B", "4096")
-        self.assertEqual(self.request(s, sample_file(301, 203, "420"))["status"], E_OUTPUT)
+        self.assertEqual(self.request(s, sample_file(304, 208, "420"))["status"], E_OUTPUT)
 
     # -- the device -----------------------------------------------------------------------------------------------------------
 
@@ -445,14 +459,15 @@ class Service(unittest.TestCase):
         for kind, kw in (("420", {}), ("422", {}), ("444", {}), ("gray", {"gray": True}), ("420 progressive", {"progressive": True})):
             for shift in range(4):
                 with self.subTest(kind=kind, shift=shift):
-                    data = self.photo(203, 131, kind.split()[0] if kind != "gray" else "420", **kw)
+                    w, h = (203, 131) if kind in ("444", "gray") else (208, 144)  # an odd subsampled side has its own reason
+                    data = self.photo(w, h, kind.split()[0] if kind != "gray" else "420", **kw)
                     r = self.request(s, data, RGBA, shift, hw_only=False)
                     self.assertEqual(r["status"], OK)
                     self.assertEqual(r["flags"], RFLAG_CPU | E_NO_LIBRARY << 8)
                     self.assertLess(self.mean_error(r, self.pil_rgba(data, shift)), 1.5)
 
     def test_every_hardware_failure_falls_back_to_the_same_picture(self):
-        data = self.photo(150, 100)
+        data = self.photo(152, 100)
         want = self.pil_rgba(data, 1)
         for env, why in (({"FAKE_JPEG_OPEN_FAIL": "1"}, E_OPEN), ({"FAKE_JPEG_DECODE_FAIL": "1"}, E_DECODE), ({"FAKE_JPEG_BAD_FORMAT": "1"}, E_OUTPUT)):
             with self.subTest(why=why):
@@ -537,7 +552,7 @@ class Service(unittest.TestCase):
         for kind in ("420", "444", "gray"):
             r = self.request(mine, sample_file(97, 61, kind), RGBA, 1)
             self.check_rgba(r, 97, 61, 1, kind)
-        self.check_nv12(self.request(mine, sample_file(97, 61, "420"), NV12, 0), 97, 61, 0, "420")
+        self.check_nv12(self.request(mine, sample_file(98, 62, "420"), NV12, 0), 98, 62, 0, "420")
         mine.close()
         self.assertEqual(p.wait(30), 0)
 
