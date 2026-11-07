@@ -349,6 +349,111 @@ struct Fallback {
     retry_at: Instant,
 }
 
+/// What the receiver was last heard to be, for [`Keeper`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Seen {
+    /// Nothing to go on: no reading yet, or the plugin cannot act (off, no address, the TV's output not set to the receiver).
+    Unknown,
+    /// Two reads in a row failed: the receiver lost power or left the network.
+    Unreachable,
+    /// It answered off.
+    Standby,
+    /// It answered on; `tv`: on the TV input.
+    On { tv: bool },
+}
+
+/// What [`Keeper::observe`] asks of the receiver thread.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Steps {
+    power_on: bool,
+    tv_input: bool,
+    speakers: bool,
+}
+
+/// The wake's own power command (`sync_power`) has this long before the keeper acts.
+const KEEP_GRACE: Duration = Duration::from_secs(5);
+const KEEP_BACKOFF_MAX: Duration = Duration::from_secs(30);
+
+/// While the screen is on the receiver is kept on and on the TV input, and while it cannot be the TV plays on its own speakers
+/// (`speakers`; the fallback's restore switches back once the receiver reads on). The wake's power command (`sync_power`) is the only
+/// one at a screen edge; this covers the rest of the screen-on time: a wake whose command did not take, a power cut, a receiver
+/// switched off by hand.
+///
+/// A receiver that goes off after it was on while the screen is on (by hand, or its own auto standby) gets one power command in that
+/// screen-on time; when it goes off again it is left off. One that is unreachable and comes back is turned on again.
+struct Keeper {
+    screen_on: bool,
+    /// Read on since the screen came on (or since it was last unreachable).
+    seen_on: bool,
+    /// Went off after it was read on.
+    hand_off: bool,
+    /// The one power command for a receiver switched off by hand is spent.
+    reasserted: bool,
+    /// A power command went and the receiver has not read on since: its input is set once it does.
+    powering: bool,
+    next_try: Instant,
+    backoff: Duration,
+}
+
+impl Keeper {
+    fn new(now: Instant) -> Self {
+        Self { screen_on: false, seen_on: false, hand_off: false, reasserted: false, powering: false, next_try: now, backoff: KEEP_GRACE }
+    }
+
+    /// A new screen-on time starts with nothing spent.
+    fn restart(&mut self, now: Instant) {
+        *self = Self { screen_on: true, next_try: now + KEEP_GRACE, ..Self::new(now) };
+    }
+
+    /// When the keeper wants to look again, if it waits for a try.
+    fn due(&self, now: Instant) -> Option<Instant> {
+        (self.screen_on && !self.seen_on && self.next_try > now).then_some(self.next_try)
+    }
+
+    fn observe(&mut self, now: Instant, screen_on: bool, seen: Seen) -> Steps {
+        if !screen_on {
+            self.screen_on = false;
+            return Steps::default();
+        }
+        if !self.screen_on {
+            self.restart(now);
+        }
+        let mut steps = Steps::default();
+        match seen {
+            Seen::Unknown => {}
+            Seen::On { tv } => {
+                steps.tv_input = self.powering && !tv;
+                self.seen_on = true;
+                self.powering = false;
+                self.backoff = KEEP_GRACE;
+            }
+            Seen::Unreachable | Seen::Standby if now < self.next_try => {}
+            Seen::Unreachable => {
+                // a power cut is no one's choice: when it answers again it is turned on
+                self.seen_on = false;
+                self.hand_off = false;
+                self.powering = false;
+                steps.speakers = true;
+            }
+            Seen::Standby => {
+                if self.seen_on {
+                    self.seen_on = false;
+                    self.hand_off = true;
+                }
+                steps.speakers = self.powering || (self.hand_off && self.reasserted);
+                if !self.hand_off || !self.reasserted {
+                    self.reasserted |= self.hand_off;
+                    steps.power_on = true;
+                    self.powering = true;
+                    self.next_try = now + self.backoff;
+                    self.backoff = (self.backoff * 2).min(KEEP_BACKOFF_MAX);
+                }
+            }
+        }
+        steps
+    }
+}
+
 // CEC remains primary for standby. A still-on receiver gets one backup command.
 fn sync_power(
     ctx: &Ctx,
@@ -608,6 +713,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
     let mut reconcile_since = Instant::now();
     let mut reconcile_at = Instant::now();
     let mut wake_on: Option<(Client, Instant)> = None;
+    let mut keeper = Keeper::new(Instant::now());
     loop {
         if ctx.stop.is_set() {
             return;
@@ -691,10 +797,12 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                 reconcile = true;
                 reconcile_since = Instant::now();
                 reconcile_at = Instant::now();
+                keeper.restart(Instant::now());
                 if let Some(owned) = &mut fallback {
                     owned.since = Instant::now();
                 }
             } else {
+                keeper.observe(Instant::now(), false, Seen::Unknown);
                 if let Some(link) = &link {
                     link.set_target(None);
                 }
@@ -751,8 +859,10 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
             continue;
         }
         let state = output_sub.as_ref().map(|s| s.state()).filter(|s| s.valid);
+        let mut kept = false;
         if let Some(transition) = actual_screen(&ctx.hub).filter(|s| s.0) {
             if let Some(state) = state.filter(|s| s.preference.is_some()) {
+                kept = true;
                 let desired = state.preference.unwrap();
                 let authorized = || {
                     same_transition(ctx, transition, &settings.host, settings.port)
@@ -824,10 +934,59 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                         }
                     }
                 }
+                let hide = Duration::from_millis(tuning.hide_after_ms);
+                let seen = if poller.failures >= 2 {
+                    Seen::Unreachable
+                } else {
+                    match poller.last_ok.as_ref().filter(|r| r.at.elapsed() <= hide).map(|r| &r.status) {
+                        Some(s) if s.power == Power::On => Seen::On { tv: s.input.as_deref() == Some("TV") },
+                        Some(s) if s.power == Power::Standby => Seen::Standby,
+                        _ => Seen::Unknown,
+                    }
+                };
+                let steps = keeper.observe(Instant::now(), true, seen);
+                if steps != Steps::default() {
+                    let power_client = Client::new(settings.host.clone(), settings.port).with_timeouts(
+                        Duration::from_millis(tuning.connect_timeout_ms),
+                        Duration::from_millis(tuning.request_timeout_ms),
+                    );
+                    if steps.power_on && authorized() {
+                        crate::log_info!("receiver: the screen is on and the receiver is off: power on");
+                        if let Err(e) = power_client.send_command("ZMON") {
+                            crate::log_warn!("receiver: power on: {e}");
+                        }
+                    }
+                    if steps.tv_input && authorized() {
+                        crate::log_info!("receiver: on after the power command: the TV input");
+                        if let Err(e) = power_client.send_command("SITV") {
+                            crate::log_warn!("receiver: TV input: {e}");
+                        }
+                    }
+                    if steps.speakers && fallback.is_none() {
+                        let why = if seen == Seen::Unreachable { "does not answer" } else { "stays off" };
+                        crate::log_info!("receiver: the receiver {why}: the TV's own speakers");
+                        let result = crate::receiver_sync::set_temporary(&ctx.config.luna.send, "tv_speaker", &authorized);
+                        if result != crate::receiver_sync::RouteResult::NotAttempted {
+                            fallback = Some(Fallback {
+                                desired,
+                                generation: state.generation,
+                                since: Instant::now(),
+                                host: settings.host.clone(),
+                                port: settings.port,
+                                retry_at: Instant::now(),
+                            });
+                            reconcile = false;
+                        }
+                    }
+                }
             } else if state.is_some() {
                 fallback = None;
                 reconcile = false;
             }
+        }
+        if !kept {
+            let screen_on = actual_screen(&ctx.hub).is_some_and(|s| s.0);
+            keeper.observe(Instant::now(), screen_on, Seen::Unknown);
         }
 
         let polling = settings.enabled && screen::is_on(&ctx.hub);
@@ -981,6 +1140,9 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                 wake_at = soonest(wake_at, owned.retry_at);
             }
         }
+        if let Some(due) = keeper.due(Instant::now()) {
+            wake_at = soonest(wake_at, due);
+        }
         if http_active {
             wake_at = soonest(wake_at, next_poll);
         }
@@ -1113,6 +1275,58 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
 mod tests {
     use super::*;
     use lumatv_denon::Power;
+
+    /// A screen-on time that started at `t0`, past the wake's grace.
+    fn kept(t0: Instant) -> (Keeper, Instant) {
+        let mut k = Keeper::new(t0);
+        assert_eq!(k.observe(t0, true, Seen::Standby), Steps::default(), "the wake's own command has the first 5 s");
+        (k, t0 + KEEP_GRACE)
+    }
+
+    #[test]
+    fn the_screen_on_with_the_receiver_off_turns_it_on_and_to_the_tv_input() {
+        let (mut k, t) = kept(Instant::now());
+        assert_eq!(k.observe(t, true, Seen::Standby), Steps { power_on: true, ..Steps::default() });
+        assert_eq!(k.due(t), Some(t + KEEP_GRACE), "the next try backs off");
+        assert_eq!(k.observe(t + Duration::from_secs(1), true, Seen::Standby), Steps::default());
+        assert_eq!(k.observe(t + KEEP_GRACE, true, Seen::Standby), Steps { power_on: true, speakers: true, ..Steps::default() }, "still off: the TV's speakers meanwhile");
+        assert_eq!(k.due(t + KEEP_GRACE), Some(t + KEEP_GRACE * 3));
+        assert_eq!(k.observe(t + KEEP_GRACE * 3, true, Seen::On { tv: false }), Steps { tv_input: true, ..Steps::default() });
+        assert_eq!(k.observe(t + KEEP_GRACE * 3, true, Seen::On { tv: false }), Steps::default(), "the input once, after its own power command");
+    }
+
+    #[test]
+    fn an_unreachable_receiver_gives_the_tv_speakers_and_is_turned_on_when_it_answers_again() {
+        let (mut k, t) = kept(Instant::now());
+        k.observe(t, true, Seen::On { tv: true });
+        assert_eq!(k.observe(t, true, Seen::Unreachable), Steps { speakers: true, ..Steps::default() });
+        assert_eq!(k.observe(t, true, Seen::Standby), Steps { power_on: true, ..Steps::default() }, "back after a power cut: on again");
+        // on: the fallback's restore takes the TV back to the receiver
+        assert_eq!(k.observe(t, true, Seen::On { tv: true }), Steps::default());
+    }
+
+    #[test]
+    fn a_receiver_switched_off_by_hand_is_turned_on_once_and_then_left_off() {
+        let (mut k, t) = kept(Instant::now());
+        k.observe(t, true, Seen::On { tv: true });
+        assert_eq!(k.observe(t, true, Seen::Standby), Steps { power_on: true, ..Steps::default() });
+        k.observe(t, true, Seen::On { tv: true });
+        let later = t + KEEP_BACKOFF_MAX;
+        assert_eq!(k.observe(later, true, Seen::Standby), Steps { speakers: true, ..Steps::default() });
+        assert_eq!(k.observe(later + KEEP_BACKOFF_MAX, true, Seen::Standby), Steps { speakers: true, ..Steps::default() });
+    }
+
+    #[test]
+    fn the_tv_in_standby_never_powers_the_receiver_on() {
+        let (mut k, t) = kept(Instant::now());
+        assert_eq!(k.observe(t, false, Seen::Standby), Steps::default());
+        assert_eq!(k.observe(t + KEEP_BACKOFF_MAX, false, Seen::Unreachable), Steps::default());
+        assert_eq!(k.due(t), None);
+        // the next screen-on time has its grace again, and its hand-off command
+        let wake = t + KEEP_BACKOFF_MAX;
+        assert_eq!(k.observe(wake, true, Seen::Standby), Steps::default());
+        assert!(k.observe(wake + KEEP_GRACE, true, Seen::Standby).power_on);
+    }
 
     /// The receiver's thread, guarded under a plugin session of its own.
     fn spawn(ctx: &Ctx, tx: Sender<Cmd>, rx: Receiver<Cmd>) -> std::io::Result<JoinHandle<()>> {

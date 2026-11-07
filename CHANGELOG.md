@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+With the Denon receiver plugin on, the receiver is kept on for the whole time the screen is on, not only at the wake. The wake's one power command was all there was, and it was lost when it failed or came before the sound-output subscription answered, so the receiver stayed off and the TV played on its own speakers through four wakes (2026-11-07, 11:42 to 18:27). From 5 s after the wake a receiver read as off is turned on (backing off 5 s to 30 s) and set to the TV input; one that cannot be reached, or stays off, moves the TV to its own speakers until it reads on again, and one back after a power cut is turned on. A receiver switched off by hand while the screen is on is turned on once, then left off. Standby is unchanged. `docs/plugins/denon-receiver.md`.
+
 Settings opened by the gear's long press closes the quick panel its tap opened 1.6 s before. The panel stayed open under Settings with its layers and groups, so Settings ran out of the scene's 96 groups: its focus plate and the profile chip went until the self-heal drew them again (TV, 2026-11-07 18:27, 17 "scene is full" lines). The compositor's `show settings` and the quick panel's own tile now open Settings the same way.
 
 With the tuner's messages on, a request for a Live TV tuner in use gets 6 s of a slate saying who has it ("Tuner busy: Plex is recording Jeopardy! on 2.1 WSB-HD", "in use by VLC", or the TV's own Live TV) instead of a bare 503 `805 All Tuners In Use`; without the messages it is still 503. `GET /status.json` names the client holding the tuner (address, name, channel, since) or `null`.
