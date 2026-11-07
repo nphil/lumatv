@@ -28,6 +28,14 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Tuner busy slate install, 2026-11-07 (main f5f3a2b4)
+
+Main f5f3a2b4 installed at 15:43 EST by the standard compositor cutover and helper path, with the owner watching: a LumaTV toast before each step, the receiver and input left alone, Home in front before and after. Installed sha256: compositor `6b18d2ddbf25f8267438525f458aeb250b2afd81c513a0354e9107444ed4a23b` (unchanged), ui `e9cc2bb27541ff5b0907062d967bd78c0fc287a0f071cd2961a34dafd74e347e` (replaced `8eb3c7f1`), sm `65f6ca69` (unchanged), helper `a977eee76c42013602bb45e766e7e951bd2f55c7e04842ec8e721a4e0775efe2` (replaced `f08140a1`). Left on, at Home, receiver off and unmuted at -37.0 dB, test events off. Receipts: `/data/home/tmp/lumatv-smooth3-20261107/`.
+
+- Dock titles accepted: the top row's above its icon, the bottom row's below. `visual/dock-*.png`.
+- Camera pop-ups accepted, one test event each with test events switched off again after: Front Door portrait at 330x440, Back Door landscape at 520x390, both on the main video window. `visual/popup-*.png`, `session.log` (camaspect lines).
+- Tuner busy slate accepted: with BeastNAS holding 2.1, a request from another address got 200 and 6.02 s of MPEG-2 1280x720 with two AC-3 tracks reading "Tuner busy / Plex is recording College Football: Alabama Crimson Tide at LSU Tigers on 2.1 WSB-HD", then the end. `/status.json` named the holder (`192.168.1.69`, `Plex`, 2.1 WSB-HD) while held and `{"holder": null}` before and after. A second request from the holder's own address takes the tuner over instead, as before. `tuner/`.
+
 ## Batch2 install, 2026-11-07 (main ca5da42c)
 
 Main ca5da42c's helper installed at 10:30 EST by the standard helper path; the set was taken from Active Standby, put back into Netflix and Active Standby at 10:47, the receiver left off, unmuted, at -37.0 dB. Installed sha256: helper `1971c3e01ba8dc378abaa959d09e20932c4ef24a335cf37ff0770c9f469698a5` (replaced `5232eb4f`); compositor `e4a5f6dc`, ui `9e491f5d`, sm `65f6ca69` unchanged. Receipts: `/data/home/tmp/lumatv-batch2-20261107/`.
