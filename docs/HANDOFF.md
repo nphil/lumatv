@@ -29,6 +29,15 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Switched-off controller centred, 2026-11-06 (main f606415f, not installed)
+
+Compositor change only (`input.rs`): a game controller whose four stick axes all sit at an end of their ranges when the compositor opens it gets a centred report written into its node. Read on the set at 21:13 to 21:23, before the change: the receiver (054c:09cc, `usb 8-1`, device 035) with its pad off since 18:56, `event9` at LX=LY=RX=RY=0 of 0..255, no reports on `event9` or `hidraw0`; `event9` held by `surface-manager` and the compositor only; `/var/lib/webosbrew` made anew 2026-10-30 21:00, so `50-padguard` and `padguard.py` are gone and no `/tmp/padguard.log` exists. Pending: the combined install.
+
+TV check after the install:
+- With the pad off, the compositor's log has `input: /dev/input/eventN "...Wireless Controller" (activity only) (sticks at the ends of their ranges, no report yet: centred)`, and `EVIOCGABS` on that node reads 128 for ABS_X, ABS_Y, ABS_RX, ABS_RY.
+- Netflix in front, the pad connected but off: no scrolling for 60 s.
+- The pad switched on: Netflix navigates with it normally, and a GeForce NOW stream still takes the pad (`gfn-pad` logs no `grab refused`).
+
 ## Plugin isolation, the Receiver link 2026-11-06 (main 5acdf16a)
 
 Main 5acdf16a installed at 18:30 EST by the standard path; the set was woken from Active Standby for the session and returned to it. Installed sha256: compositor `87ef3b2466b7b25ba2df64610bd288bf7224379dc20a3008ed9e9af338be27f8`, ui `f6c19d64347d8feceaf2466770a9904ad84b73eccee15f6a1fd69e45d3127e3a`, helper `e74688a88d94382784a32669a954d159be177d25b792d2b271f8ef42a9ab356e`; sm `65f6ca69` unchanged. Replaced: compositor `1ef99f70`, ui `366a165c`, helper `4e660ad6`. Receipts: `/data/home/tmp/lumatv-plugin-session-20261106/` (`session.log`, `installed-hashes.json`, `checks.json`, `cycle-*.json`, `idle-*.txt`, `latency*.json`, screenshots).
