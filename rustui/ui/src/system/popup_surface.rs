@@ -1,8 +1,10 @@
-//! The camera pop-up drawn (`panels/Cameras.qml`'s card, the mock `docs/mocks/cameras/popup`, spec "The pop-up"): a glass card 560 wide, flush in the
-//! corner the placement crate gives the camera window (`layout.overlays.popup`; top right by default, ending where Home's status bar does), with the
-//! camera's name and what was seen in the head, the picture (a still, 520 by 292 at 100 % text, giving height back, never under 120, where the type is
-//! large so the card ends above the zone's bottom) and the picture's state and the keys in the foot. Nothing is drawn in the picture box until a
-//! picture arrives but a quiet plate with the camera's glyph, so the card never shows an empty hole.
+//! The camera pop-up drawn (`panels/Cameras.qml`'s card, the mock `docs/mocks/cameras/popup`, spec "The pop-up"): a glass card flush in the corner the
+//! placement crate gives the camera window (`layout.overlays.popup`; top right by default, ending where Home's status bar does), with the camera's name
+//! and what was seen in the head, the picture and the picture's state and the keys in the foot. The picture box takes the shape of the camera's picture
+//! (`View::shape`) so that the video plane under it shows it unstretched: 520 by 292 for a 16:9 camera at 100 % text, 330 by 440 for a 3:4 one, and the
+//! card is as wide as its box (560 at most, 360 at least); where the type is large it gives height back, keeping its shape, never under 120, so the card
+//! ends above the zone's bottom. Nothing is drawn in the picture box until a picture arrives but a quiet plate with the camera's glyph, so the card never
+//! shows an empty hole.
 //!
 //! **The picture box is a hole in the glass.** The card's glass is four bands of one pane (above the box, below it and at each side), so that the box is
 //! clear: the live video (`popup_live.rs`) plays on the display's video plane under it and shows through. The box's four corners are masks in the glass's
@@ -31,7 +33,32 @@ use ui::geometry::Frame;
 use ui::lucent::palette::PaletteRole;
 use ui::text::Weight;
 
-pub const WIDTH: f32 = 560.0;
+/// The widest card: a picture of 16:9 or wider is 520 across in it.
+const WIDTH: f32 = 560.0;
+/// The narrowest card, so that the head and the keys have room: a picture narrower than the card's inside is centred in it.
+const MIN_WIDTH: f32 = 360.0;
+/// The tallest picture box: a 3:4 camera's is 330 by 440, about the area of the 16:9 one's 520 by 292.
+const MAX_PICTURE_H: f32 = 440.0;
+/// The shortest picture box, where the type is large.
+const MIN_PICTURE_H: f32 = 120.0;
+
+/// The picture box of a picture `aspect` (width over height) wide at most `max_w` by `max_h`: as large as fits, in the picture's own shape, so that the
+/// video plane under the box shows it unstretched. Even sides, as the decoders like them.
+fn picture_box(aspect: f32, max_w: f32, max_h: f32) -> (f32, f32) {
+    let even = |v: f32| ((v / 2.0).floor() * 2.0).max(2.0);
+    if max_w / aspect <= max_h {
+        (even(max_w), even(max_w / aspect))
+    } else {
+        let h = even(max_h);
+        (((h * aspect / 2.0).round() * 2.0).clamp(2.0, even(max_w)), h)
+    }
+}
+
+/// The width over the height of a picture `shape` (16:9 when it is not known).
+fn aspect_of(shape: Option<(u32, u32)>) -> f32 {
+    shape.filter(|(w, h)| *w > 0 && *h > 0).map_or(16.0 / 9.0, |(w, h)| w as f32 / h as f32)
+}
+
 /// The head's glyph: 36 at 100 % text, growing with the type but not as fast.
 fn glyph_px(kit: &Kit) -> f32 {
     (36.0 * (1.0 + 0.6 * (kit.text_scale - 1.0))).round()
@@ -43,6 +70,7 @@ const FACES: [Face; 4] = [Face::Connecting, Face::EventPicture, Face::Live, Face
 
 /// Everything about the card that does not change while the same words are on it.
 struct Plan {
+    width: f32,
     height: f32,
     pad: f32,
     name: (Frame, String, Style),
@@ -61,7 +89,11 @@ fn hints_of(can_expand: bool) -> Vec<Hint> {
 /// The card as it is laid out for `view`, with `room` the height from the card's top to the bottom of its zone.
 fn plan(kit: &mut Kit, view: &View, room: f32) -> Plan {
     let pad = kit.space(5);
-    let inner = WIDTH - 2.0 * pad;
+    // the card hugs the picture box at its largest; a box that the room makes smaller is centred in it
+    let aspect = aspect_of(view.shape);
+    let (box_w, box_h) = picture_box(aspect, WIDTH - 2.0 * pad.round(), MAX_PICTURE_H);
+    let width = (box_w + 2.0 * pad.round()).clamp(MIN_WIDTH, WIDTH);
+    let inner = width - 2.0 * pad;
     let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
     let name_style = role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left);
     let what_style = role_style(kit, TypeRole::Label, None, ink2, Align::Left);
@@ -90,10 +122,9 @@ fn plan(kit: &mut Kit, view: &View, room: f32) -> Plan {
     } else {
         line + kit.space(1) + if stacked { hints.len() as f32 * hint_h + hints.len().saturating_sub(1) as f32 * kit.space(1) } else { hint_h }
     };
-    // 292: an even height, as the decoders like it; where the head and the foot grow the picture gives up height, never below 120
-    let natural = (inner * 9.0 / 16.0).floor();
+    // where the head and the foot grow the picture gives up height, keeping its shape, never below 120
     let spare = room - (2.0 * pad + head_h + 2.0 * kit.space(3) + foot_h);
-    let prev_h = natural.min(((spare as i32) >> 1 << 1) as f32).max(120.0);
+    let (pic_w, prev_h) = if box_h > spare { picture_box(aspect, box_w, spare.max(MIN_PICTURE_H)) } else { (box_w, box_h) };
     let pic_y = (pad + head_h + kit.space(3)).round();
     let foot_y = pic_y + prev_h + kit.space(3);
     let mut placed = Vec::new();
@@ -108,11 +139,12 @@ fn plan(kit: &mut Kit, view: &View, room: f32) -> Plan {
     }
     let what_frames = what.into_iter().enumerate().map(|(i, t)| (Frame::new(text_x, pad + nh + kit.space(1) + i as f32 * wh, text_w, wh), t, what_style)).collect();
     Plan {
+        width,
         height: foot_y + foot_h + pad,
         pad,
         name: (Frame::new(text_x, pad, text_w, nh), name, name_style),
         what: what_frames,
-        picture: Frame::new(pad.round(), pic_y, WIDTH - 2.0 * pad.round(), prev_h),
+        picture: Frame::new(pad.round() + ((width - 2.0 * pad.round() - pic_w) / 2.0).round(), pic_y, pic_w, prev_h),
         state: (Frame::new(pad + DOT + kit.space(2), foot_y, state_w - DOT - kit.space(2), line), caption),
         dot: (pad, foot_y + ((line - DOT) / 2.0).round()),
         hints: placed,
@@ -224,7 +256,7 @@ impl PopupSurface {
     /// The card's size for `view` at the kit's text size, and the picture box the stills are asked for at.
     pub fn measure(&self, kit: &mut Kit, view: &View) -> (Size, (u32, u32)) {
         let p = plan(kit, view, self.room());
-        (Size::new(WIDTH as i32, p.height.ceil() as i32), (p.picture.w as u32, p.picture.h as u32))
+        (Size::new(p.width as i32, p.height.ceil() as i32), (p.picture.w as u32, p.picture.h as u32))
     }
 
     /// Where the card is.
@@ -261,7 +293,7 @@ impl PopupSurface {
         }
         let (size, _) = self.measure(kit, view);
         let rect = self.rect(size);
-        let sig = format!("{:?}", (&view.camera, &view.name, &view.what, &view.age, view.icon, view.can_expand, rect.x, rect.y, size.h));
+        let sig = format!("{:?}", (&view.camera, &view.name, &view.what, &view.age, view.icon, view.can_expand, view.shape, rect.x, rect.y, size.w, size.h));
         let came = self.current.is_none();
         if self.current.as_ref().is_some_and(|c| c.sig != sig) {
             self.current = None;
@@ -320,7 +352,7 @@ impl PopupSurface {
     }
 
     fn build(kit: &mut Kit, z: i32, view: &View, p: &Plan, at: (f32, f32), sig: String, over_video: bool) -> std::io::Result<Built> {
-        let frame = Frame::new(at.0, at.1, WIDTH, p.height);
+        let frame = Frame::new(at.0, at.1, p.width, p.height);
         let mut sheet = Sheet::new();
         // the glass is four bands of one pane, clear where the picture box is (a hole the video plays through), and the box's corners are masks
         let pic = Frame::new(at.0 + p.picture.x, at.1 + p.picture.y, p.picture.w, p.picture.h);
@@ -499,6 +531,37 @@ mod tests {
         let mut lint = Lint::new();
         s.feed_lint(kit, &mut lint);
         lint.findings().iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn the_picture_box_takes_the_cameras_shape_and_the_card_stays_in_its_corner_and_bounds() {
+        for scale in [1.0, 2.0] {
+            let (_h, mut kit) = testkit::kit(scale);
+            for (shape, portrait, at_100) in [((480, 640), true, (370.0, 330.0, 440.0)), ((1920, 1080), false, (560.0, 520.0, 292.0))] {
+                let mut s = PopupSurface::new(1090, &json!({}), &layout());
+                let mut v = up(true).view();
+                v.shape = Some(shape);
+                s.apply(&mut kit, &v, None, 0, false, 1000).unwrap();
+                let g = s.geometry();
+                let n = |v: &Value| v.as_f64().unwrap();
+                let (x, y, w, h) = (n(&g["x"]), n(&g["y"]), n(&g["w"]), n(&g["h"]));
+                let (px, py, pw, ph) = (n(&g["picture"]["x"]), n(&g["picture"]["y"]), n(&g["picture"]["w"]), n(&g["picture"]["h"]));
+                let ratio = f64::from(shape.0) / f64::from(shape.1);
+                assert!((pw - ph * ratio).abs() <= 2.0 * ratio.max(1.0), "{shape:?} at {scale}: the picture's own shape, {pw}x{ph}");
+                assert_eq!(ph > pw, portrait, "{g}");
+                assert!(pw <= 520.0 && (120.0..=440.0).contains(&ph) && (360.0..=560.0).contains(&w), "{shape:?} at {scale}: {g}");
+                assert!(px > x && px + pw < x + w && py + ph < y + h, "the box is inside the card: {g}");
+                assert_eq!((x + w, y), (1888.0, 32.0), "flush in its corner: {g}");
+                assert!(y + h <= 810.0, "ends above the zone's bottom: {g}");
+                if scale == 1.0 {
+                    assert_eq!((w, pw, ph), at_100, "{g}");
+                }
+                let (cx, cy, cw, ch) = s.picture_rect().unwrap();
+                assert_eq!((f64::from(cx), f64::from(cy), f64::from(cw), f64::from(ch)), (px, py, pw, ph), "the video's claim is the box");
+                let found = lint_of(&mut kit, &s);
+                assert!(found.is_empty(), "{shape:?} at {scale}: {found:?}");
+            }
+        }
     }
 
     #[test]

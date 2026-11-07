@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The camera pop-up takes the shape of its camera's picture. Its picture box was 520 by 292 for every camera, so the video plane stretched a portrait camera (the Front Door's 480 by 640 stream) to 16:9. The box now has the shape of the stream as decoded, and before that of the camera's known size so the card does not jump: 330 by 440 for 3:4, 520 by 292 for 16:9, in a card 360 to 560 wide in the same corner.
+
 The dock's top row names its focused app above the icon again on a card with no room to spare (7 of 16 grid rows, 379 px), and the bottom row below it. Since 18956f0b a name that would cross the card's top edge by 2 px went under the icon, over the second row; it is now pinned to the edge on its own side while it still clears the lifted tile.
 
 The first frame of a screen the UI makes starts when its commit arrives. It started at the time the pacer had set from the cheap frames before it, and the Apps grid's first frame (45 layers over the whole screen, 9.1 ms to the GPU's end) missed its refresh at 120 Hz: the apps-grid gate failed 3 of 3 runs with 2-4 dropped frames. Waiting commits of 64 operations or more now start their frame at once, unless a drawn frame already waits behind the flip in flight; the gate passed 3 of 3 with none dropped.

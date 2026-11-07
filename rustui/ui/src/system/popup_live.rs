@@ -58,13 +58,26 @@ pub struct Stream {
     pub fed_fps: f32,
     /// What the stream was asked for (`pop-up 41`); empty from a helper that does not say.
     pub purpose: String,
+    /// The size of the picture the decoder is fed (the helper follows a change of size in the stream); 0 before it is known.
+    pub width: u32,
+    pub height: u32,
 }
 
 impl Stream {
     pub fn parse(data: &Value) -> Stream {
         let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("").to_string();
         let num = |k: &str| data.get(k).and_then(Value::as_f64).unwrap_or(0.0) as f32;
-        Stream { camera: text("camera"), mode: text("mode"), state: text("state"), fps: num("fps"), fed_fps: num("fedFps"), purpose: text("purpose") }
+        let size = |k: &str| data.get(k).and_then(Value::as_u64).unwrap_or(0) as u32;
+        Stream {
+            camera: text("camera"),
+            mode: text("mode"),
+            state: text("state"),
+            fps: num("fps"),
+            fed_fps: num("fedFps"),
+            purpose: text("purpose"),
+            width: size("width"),
+            height: size("height"),
+        }
     }
 }
 
@@ -149,6 +162,13 @@ impl Live {
     /// Given up for this card: the stills are the picture.
     pub fn given(&self) -> bool {
         self.phase == Phase::Given
+    }
+
+    /// The size of this card's stream as decoded, once the helper says it: the shape the picture box takes.
+    pub fn size(&self) -> Option<(u32, u32)> {
+        let s = &self.stream;
+        let ours = !self.camera.is_empty() && s.camera == self.camera && s.mode == "live" && (s.purpose.is_empty() || s.purpose == self.purpose());
+        (ours && s.width > 0 && s.height > 0).then_some((s.width, s.height))
     }
 
     /// The claim the shell posts for the card's picture box, while a card that can play live video is up and has not given up. `texture_only`: the camera's

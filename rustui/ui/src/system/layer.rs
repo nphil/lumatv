@@ -543,6 +543,7 @@ impl Layer {
             can_expand: true,
             armed: true,
             video: false,
+            shape: None,
         };
         let (size, _) = self.popup_surface.measure(kit, &view);
         sizes.set("popup", size);

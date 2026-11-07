@@ -155,6 +155,9 @@ pub struct View {
     pub armed: bool,
     /// The picture box is a hole over the video plane (the live video is what shows there), not a picture of the shell's.
     pub video: bool,
+    /// The camera's picture size (width, height), which the picture box takes the shape of: the stream as decoded once the helper says it, before that
+    /// the camera's main stream (`cameras` topic, `native`), so that the card does not change shape when the video comes. `None`: 16:9.
+    pub shape: Option<(u32, u32)>,
 }
 
 /// What the card asks of the shell besides effects.
@@ -183,6 +186,8 @@ pub struct Popup {
     can_expand: bool,
     planner: Planner,
     size: (u32, u32),
+    /// Each camera's main stream size, from the `cameras` topic: the card's shape before its stream says one.
+    natives: HashMap<String, (u32, u32)>,
     wants: Vec<Want>,
     pictures: HashMap<&'static str, Picture>,
     /// The card's picture when OK opened the full view of its camera: the view's first one ([`Popup::take_expanded`]).
@@ -254,6 +259,7 @@ impl Popup {
             can_expand: false,
             planner: Planner::with_tags(FIRST, LAST),
             size: PICTURE,
+            natives: HashMap::new(),
             wants: Vec::new(),
             pictures: HashMap::new(),
             expanded: None,
@@ -356,7 +362,13 @@ impl Popup {
         } else {
             Face::Connecting
         };
-        View { up: self.up, camera, name, icon, what, age, face, can_expand: self.can_expand, armed: self.armed(self.clock), video }
+        View { up: self.up, camera, name, icon, what, age, face, can_expand: self.can_expand, armed: self.armed(self.clock), video, shape: self.shape() }
+    }
+
+    /// The picture's size the card is shaped by (see [`View::shape`]).
+    fn shape(&self) -> Option<(u32, u32)> {
+        let camera = self.current.as_ref()?.camera.as_str();
+        self.live.size().or_else(|| self.natives.get(camera).copied())
     }
 
     /// The keys OK and Back are the card's: it is up and has been for 600 ms.
@@ -493,6 +505,20 @@ impl Popup {
         match input {
             Input::Helper { topic, data } if topic == "cameras" => {
                 self.skew_ms = data.get("now_skew_ms").and_then(Value::as_i64).unwrap_or(0);
+                if let Some(list) = data.get("cameras").and_then(Value::as_array) {
+                    let before = self.shape();
+                    self.natives = list
+                        .iter()
+                        .filter_map(|c| {
+                            let n = c.get("native")?;
+                            let side = |k: &str| n.get(k).and_then(Value::as_u64).filter(|v| *v > 0).map(|v| v as u32);
+                            Some((text(c, "id"), (side("width")?, side("height")?)))
+                        })
+                        .collect();
+                    if self.up && self.shape() != before {
+                        out.push(Effect::Redraw);
+                    }
+                }
             }
             Input::Helper { topic, data } if topic == "cameras.popup" => {
                 self.topic = Record::parse(data);
@@ -513,7 +539,11 @@ impl Popup {
             }
             Input::Helper { topic, data } if topic == "cameras.live" => {
                 if self.up {
+                    let before = self.shape();
                     out.extend(self.live.topic(data, now));
+                    if self.shape() != before {
+                        out.push(Effect::Redraw);
+                    }
                 }
             }
             Input::Bytes { tag, status, bytes } if (FIRST..=LAST).contains(tag) => {
@@ -668,6 +698,23 @@ mod tests {
         // the same record read again is not a new pop-up
         p.update(&record(41, "person", T0 + 10_000), T0 + 10_001);
         assert!(!p.up());
+    }
+
+    #[test]
+    fn the_card_is_shaped_by_the_cameras_size_and_then_by_its_stream_as_decoded() {
+        let mut p = Popup::new();
+        let cams = json!({"cameras": [{"id": "275", "native": {"codec": "h264", "width": 1536, "height": 2048, "fps": 15}}, {"id": "276"}]});
+        p.update(&Input::Helper { topic: "cameras".into(), data: cams }, T0);
+        p.update(&record(41, "person", T0 + 10_000), T0);
+        assert_eq!(p.view().shape, Some((1536, 2048)), "the camera's known size before the stream says one");
+        let live = json!({"camera": "275", "mode": "live", "state": "playing", "width": 480, "height": 640, "fps": 15});
+        let fx = p.update(&Input::Helper { topic: "cameras.live".into(), data: live }, T0 + 100);
+        assert_eq!(p.view().shape, Some((480, 640)), "the stream as decoded");
+        assert!(fx.contains(&Effect::Redraw));
+        // another camera's stream says nothing of this card's shape
+        let other = json!({"camera": "276", "mode": "live", "state": "playing", "width": 1920, "height": 1080, "fps": 15});
+        p.update(&Input::Helper { topic: "cameras.live".into(), data: other }, T0 + 200);
+        assert_eq!(p.view().shape, Some((1536, 2048)));
     }
 
     #[test]
