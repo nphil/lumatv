@@ -14,6 +14,7 @@ use super::paint::{Paint, tile_pixels};
 use crate::kit::button::faded;
 use crate::kit::focus::{Id, Region, Scope};
 use crate::kit::glyph;
+use crate::kit::mend::Mend;
 use crate::kit::motion::Beat;
 use crate::kit::{Engine, Kit, Lifted, icon};
 use crate::settings::row::{Face, Kind, Row, Tone};
@@ -91,6 +92,8 @@ pub struct CardArt {
     hovered: bool,
     base: ShapeLayer,
     _lit: Option<ShapeLayer>,
+    /// Whether the plate came through whole (see [`RowArt::ensure_plates`]).
+    mend: Mend,
     spec: PlateSpec,
     glyph: Option<ImageLayer>,
     _thumbnail: Option<thumbnails::Lease>,
@@ -120,6 +123,8 @@ pub struct RowArt {
     focusable: bool,
     last: Row,
     _lit: Option<ShapeLayer>,
+    /// Whether the plate came through whole (see [`RowArt::ensure_plates`]).
+    mend: Mend,
     plate: Option<PlateSpec>,
     selected_wash: Option<ShapeLayer>,
     hover_wash: Option<ShapeLayer>,
@@ -306,6 +311,7 @@ impl RowArt {
             focusable,
             last: row.clone(),
             _lit: None,
+            mend: Mend::default(),
             plate: None,
             selected_wash: None,
             hover_wash: None,
@@ -859,7 +865,7 @@ impl RowArt {
             }
             let text = make_text(env, Frame::new(rect.x + tx, rect.y, tw, rect.h), env.z + 4, &items)?;
             self.cards.push((id, rect));
-            cards.push(CardArt { id, frame: rect, icon: c.icon.clone(), face_free: c.face.is_none(), glyph_at, normal_shape, hover_shape, selected_shape, hovered: false, base, _lit: None, spec, glyph, _thumbnail: thumbnail, check, selected: None, _text: text });
+            cards.push(CardArt { id, frame: rect, icon: c.icon.clone(), face_free: c.face.is_none(), glyph_at, normal_shape, hover_shape, selected_shape, hovered: false, base, _lit: None, mend: Mend::default(), spec, glyph, _thumbnail: thumbnail, check, selected: None, _text: text });
         }
         self.trailing = Trailing::Cards(cards);
         Ok(())
@@ -1118,19 +1124,23 @@ impl RowArt {
         self.lift_ids().into_iter().all(|id| engine.flow.resting(id, at_ns))
     }
 
-    /// Makes the plates the row has none of: the row's own, or one for each card. The focus is about to come to the row.
+    /// Makes the plates the row has none of: the row's own, or one for each card. The focus is about to come to the row. A plate kept
+    /// from before is made again when the compositor refused any of it, since nothing else would.
     pub fn ensure_plates(&mut self, env: &mut Env, card: Option<usize>, now_ns: u64) -> std::io::Result<()> {
         if !self.focusable {
             return Ok(());
         }
+        let now_ms = now_ns / 1_000_000;
         if let Some(s) = self.plate
-            && self._lit.is_none()
+            && (self._lit.is_none() || self.mend.due(&env.kit.ui.scene, now_ms))
         {
+            self.mend.watch(&env.kit.ui.scene);
             self._lit = Some(make_plate(env, self.id, s.rect, s.scale, s.rise, s.radius, false)?);
         }
         if let Trailing::Cards(cards) = &mut self.trailing {
             for (i, c) in cards.iter_mut().enumerate() {
-                if card == Some(i) && c._lit.is_none() {
+                if card == Some(i) && (c._lit.is_none() || c.mend.due(&env.kit.ui.scene, now_ms)) {
+                    c.mend.watch(&env.kit.ui.scene);
                     let scroll = self.strip.as_ref().map_or(env.scroll, |(_, scroll, _)| scroll);
                     let mut card_env = Env { kit: env.kit, engine: env.engine, paint: env.paint, sz: env.sz, scroll, z: env.z, region: env.region, scope: env.scope, origin: env.origin };
                     c._lit = Some(make_plate(&mut card_env, c.id, c.spec.rect, c.spec.scale, c.spec.rise, c.spec.radius, c.icon.starts_with("theme:"))?);
@@ -1254,6 +1264,35 @@ mod tests {
                 art.drop_plates(env.engine);
             }
         }
+    }
+
+    #[test]
+    fn a_focus_plate_the_compositor_refused_is_made_again_on_the_next_frame_and_one_it_took_is_kept() {
+        use compositor_protocol::{Event, Request};
+        let tag = |sent: &[Request]| sent.iter().find_map(|r| match r { Request::Commit { tag } => Some(*tag), _ => None }).expect("a commit");
+        let (mut h, mut kit) = crate::kit::testkit::kit(1.0);
+        let mut engine = Engine::new(&kit).unwrap();
+        let sz = Sizes::of(&kit);
+        let paint = Paint::of(&kit);
+        let scroll = kit.ui.scene.group(None, GroupPose::IDENTITY).unwrap();
+        let row = Row::link("row");
+        let geom = super::super::layout::measure_row(&mut kit, &row, 900.0);
+        let mut env = Env { kit: &mut kit, engine: &mut engine, paint, sz, scroll: &scroll, z: 0, region: Region(2), scope: Scope::BASE, origin: (0.0, 0.0) };
+        let mut art = RowArt::build(&mut env, &row, geom, 0.0, 900.0, Id(10), true).unwrap();
+        let plate = |art: &RowArt| art._lit.as_ref().expect("the plate").id();
+        art.ensure_plates(&mut env, None, 0).unwrap();
+        let first = plate(&art);
+        let sent = h.commit();
+        // the compositor refuses it, which it says before it shows the commit
+        env.kit.ui.scene.observe(&Event::Error { message: "more than 256 layers".into() });
+        env.kit.ui.scene.shown(tag(&sent));
+        art.ensure_plates(&mut env, None, 16_000_000).unwrap();
+        let second = plate(&art);
+        let sent = h.commit();
+        assert!(second != first && sent.iter().any(|r| matches!(r, Request::Create { id, .. } if *id == second)), "made again and sent");
+        env.kit.ui.scene.shown(tag(&sent));
+        art.ensure_plates(&mut env, None, 32_000_000).unwrap();
+        assert_eq!(plate(&art), second, "it came through: kept");
     }
 
     #[test]

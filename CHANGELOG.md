@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A layer made a picture in place (a label's text fallback) and dropped before the commit is deleted on the compositor. The drop took back the staged create and sent no delete, so the compositor kept the old layer and its count crept above the UI's until, at its ceiling of 256, it refused layers the UI took as made. Refusals are logged once per kind as `compositor refused:` and counted in the state's `refusals`; they no longer read as a full scene. Parts made once and kept are made again after a refusal, at once and then after 1 s doubling to 32 s: the status bar with the profile chip, Home's focus plates and the Settings focus plates, which otherwise stayed missing until the UI restarted. A group's pose after an unbind is sent even when it matches the estimate, since a compositor that took the commit late holds the track short of rest.
+
 OK pauses and resumes the camera full view. Live of a camera that records is held as a recording from the live edge and plays on from there; live of one that does not record stops on its newest still until OK goes live again; a playback pauses and plays. While held, a pause badge sits in the middle of the picture and the name pill reads "Paused". All cameras moved from OK to Down; Up opens the timeline, or the events and clips for a camera that does not record. Back still closes.
 
 Camera stills whose scaled size has an odd side along subsampled chroma (a 4:2:0 1920x1080 still at 1/8 is 240x135) go straight to libjpeg. The TV's JPEG block failed every one of them and logged two kernel error lines each time, hundreds an hour while the camera tiles polled; the picture already came from libjpeg after the failure.

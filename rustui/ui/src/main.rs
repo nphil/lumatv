@@ -304,6 +304,23 @@ fn answer(log: &mut Log, source: &str, event: &Event) {
     }
 }
 
+/// A request the compositor refused: what is on the screen may be missing a part. Refusals of one kind come in runs, so they are
+/// counted under their text with the numbers taken out.
+fn refused(log: &mut Log, event: &SceneEvent) {
+    let SceneEvent::Error { message } = event else {
+        return;
+    };
+    let mut kind = String::with_capacity(message.len());
+    for c in message.chars() {
+        if !c.is_ascii_digit() {
+            kind.push(c);
+        } else if !kind.ends_with('#') {
+            kind.push('#');
+        }
+    }
+    log.repeated(&kind, format_args!("compositor refused: {message}"));
+}
+
 /// The theme and Home's layout from the data directory, with `--theme` merged over.
 fn theme_and_layout(o: &Options) -> (Tokens, Value, Value) {
     let mut user = std::fs::read(o.data_dir.join("theme/theme.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
@@ -435,6 +452,7 @@ fn run_set(o: Options) -> io::Result<()> {
                     frame_ready = true;
                 }
                 shell.kit.ui.scene.observe(&ev);
+                refused(&mut log, &ev);
             }
             Ok(Msg::Channel(ev)) => {
                 if matches!(&ev, Event::Up(true)) {
@@ -720,7 +738,10 @@ fn run_host(o: Options) -> io::Result<()> {
                 carry(timed(&mut ui_us, || shell.helper_all(&events, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine));
             }
             match msg {
-                Some(Msg::Scene(ev)) => shell.kit.ui.scene.observe(&ev),
+                Some(Msg::Scene(ev)) => {
+                    shell.kit.ui.scene.observe(&ev);
+                    refused(&mut log, &ev);
+                }
                 Some(Msg::Channel(ev)) => { answer(&mut log, "channel", &ev); carry(timed(&mut ui_us, || shell.channel(&ev, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)); }
                 Some(Msg::Key(ev)) => carry(timed(&mut ui_us, || shell.key(&ev, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine)),
                 Some(Msg::Helper(_)) | None => {}

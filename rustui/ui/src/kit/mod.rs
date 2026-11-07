@@ -13,6 +13,7 @@ pub mod gridfit;
 pub mod hint;
 pub mod icon;
 pub mod lint;
+pub mod mend;
 pub mod motion;
 pub mod pane;
 pub mod picture;

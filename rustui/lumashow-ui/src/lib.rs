@@ -47,6 +47,6 @@ pub use motion::{
 };
 pub use scene::{
     GlassLayer, ImageLayer, Layer, LiveLayer, MeshLayer, Scene, SceneOptions, ShapeLayer, Wake,
-    WallpaperLayer, Welcome, monotonic_ns,
+    WallpaperLayer, Watch, Welcome, monotonic_ns,
 };
 pub use text::{Canvas, Extent, Fonts, GlyphMetrics, Type, Weight};

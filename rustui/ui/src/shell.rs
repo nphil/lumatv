@@ -38,6 +38,8 @@ const ICON_WARM_STEP: usize = 3;
 const ICON_WARM_GAP_MS: u64 = 30;
 /// The longest a quiet tick (one that drew nothing and asked nothing) leaves the report unbuilt.
 const REPORT_HEARTBEAT_MS: u64 = 1000;
+/// The least time between two drawings for a refusal: a scene at its ceiling refuses what each drawing asks.
+const REFUSAL_REDRAW_GAP_MS: u64 = 1000;
 
 /// What the shell asks the host to do.
 #[derive(Clone, Debug, PartialEq)]
@@ -205,6 +207,9 @@ pub struct Shell {
     // Volume and toast keep voting through the fades started by their surfaces.
     interactive_fades: [Option<u64>; 2],
     redraw: bool,
+    /// The refusals the surfaces have drawn since (`Scene::refusals`), and when a new one may next be drawn for.
+    refusals_seen: u64,
+    refusal_redraw_at: u64,
     /// Whether any overlay (Settings, the display lab, a panel) was up at the last look, and until when Home counts it as over it, in ms (`u64::MAX`
     /// while it is up): Home is let go [`OVERLAY_RELEASE_MS`] after the event that finds the overlay gone, past its fade-out or slide-out, which a
     /// release in the middle of would make a frame of the whole stack at.
@@ -292,6 +297,8 @@ impl Shell {
             interactive_surfaces: 0,
             interactive_fades: [None; 2],
             redraw: false,
+            refusals_seen: 0,
+            refusal_redraw_at: 0,
             overlay_up: false,
             overlay_until: 0,
             release_at: None,
@@ -1226,6 +1233,13 @@ impl Shell {
                 self.redraw = true;
             }
         }
+        // a refusal may have left a part a surface keeps unmade: drawing makes it again (`kit::mend`)
+        let refusals = self.kit.ui.scene.refusals();
+        if refusals != self.refusals_seen && now >= self.refusal_redraw_at {
+            self.refusals_seen = refusals;
+            self.refusal_redraw_at = now + REFUSAL_REDRAW_GAP_MS;
+            self.redraw = true;
+        }
         // a pointer that only moved, and drew nothing and asked for nothing, leaves the report as it was
         let pointer_only = std::mem::take(&mut self.pointer_only) && !self.redraw && acts.is_empty();
         let redrew = self.redraw;
@@ -1523,6 +1537,7 @@ impl Shell {
         s["interactiveVisible"] = json!(self.sys.screen_on() && (self.interactive_surfaces != 0 || self.interactive_fades.iter().any(Option::is_some) || self.sys.interactive_visible() || self.panels.interactive_visible()));
         let room = self.kit.room();
         s["room"] = json!({"layers": room.layers, "groups": room.groups, "tracks": room.tracks});
+        s["refusals"] = json!(self.kit.ui.scene.refusals());
         s
     }
 
@@ -1542,7 +1557,8 @@ impl Shell {
         let settings = if self.kinds.settings { self.settings.due_at() } else { None };
         let lab = if self.kinds.displaylab { self.lab.due_at() } else { None };
         let guide = if self.kinds.guide { self.guide.due_at() } else { None };
-        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, guide, self.vwin.due_at(), self.release_at, self.icons_warm_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1]].into_iter().flatten().min()
+        let refused = (self.kit.ui.scene.refusals() != self.refusals_seen).then_some(self.refusal_redraw_at);
+        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, guide, self.vwin.due_at(), self.release_at, self.icons_warm_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1], refused].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {

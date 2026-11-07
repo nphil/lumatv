@@ -12,6 +12,7 @@ use super::model::{self, Home, Layer, STATUS_ID, WIDGET_ID};
 use super::wallpaper::{self, WallpaperSurface};
 use super::widgets::{Content, PAD_SIDE, PAD_TOP, Pictures};
 use crate::kit::flow::Lifted;
+use crate::kit::mend::Mend;
 use crate::kit::pane::{self, PaneKind};
 use crate::kit::picture::{self, Fit, Picture};
 use crate::kit::text::{Text, role_style, width_of};
@@ -251,6 +252,8 @@ struct StatusBar {
     profile_key: String,
     /// Where the pane was last put (`update_layers`): it is put again only when that changes.
     at: Option<Props>,
+    /// Whether the bar came through whole: it is made again when not, since nothing else would (the chip is made last).
+    mend: Mend,
 }
 
 /// A card: its lift and its content.
@@ -382,6 +385,8 @@ pub struct HomeSurface {
     last_hover: Option<Id>,
     /// [`Home::chrome_rev`] as the chrome was last made.
     chrome_rev: Option<(u64, u64)>,
+    /// Whether the chrome (the cards and the dock with their focus plates) came through whole.
+    chrome_mend: Mend,
     over_video: bool,
     live: bool,
     news_at: u64,
@@ -431,6 +436,7 @@ impl HomeSurface {
             last_focus: None,
             last_hover: None,
             chrome_rev: None,
+            chrome_mend: Mend::default(),
             over_video: false,
             live: false,
             news_at: 0,
@@ -565,14 +571,15 @@ impl HomeSurface {
                 d.pane_glass = None;
             }
         }
-        // the chrome, made again when the layout or the theme's own keys change
-        if rebuild || self.chrome_rev != Some(home.chrome_rev()) {
+        // the chrome, made again when the layout or the theme's own keys change, or when it did not come through whole
+        if rebuild || self.chrome_rev != Some(home.chrome_rev()) || self.chrome_mend.due(&kit.ui.scene, now) {
             self.chrome_rev = Some(home.chrome_rev());
             // the cards made now have no words yet
             self.contents_at = 0;
+            self.chrome_mend.watch(&kit.ui.scene);
             self.build_chrome(kit, engine, home)?;
         }
-        self.build_status(kit, engine, home)?;
+        self.build_status(kit, engine, home, now)?;
         self.build_dock_tiles(kit, engine, home)?;
         // the card of smart-home items is laid out by the type the kit measures; the stills it needs are asked for at the size of their cells
         home.set_onhome_metrics(super::onhome::card::metrics_of(kit));
@@ -816,15 +823,18 @@ impl HomeSurface {
     }
 
     // ---- the status bar
-    fn build_status(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home) -> std::io::Result<()> {
+    fn build_status(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, now: u64) -> std::io::Result<()> {
         let pill = home.status_pill();
         let frame = Frame::new(pill.x, pill.y, pill.w, pill.h);
         let group = home.status_group();
         let profile = home.profile().cloned().unwrap_or(Value::Null);
         let profile_key = format!("{}|{}|{:?}", profile, home.status_items().len(), home.chip());
-        if self.status.as_ref().is_some_and(|s| s.profile_key == profile_key && s.frame == frame && s.group == group) {
+        let mend = self.status.as_mut().is_some_and(|s| s.mend.due(&kit.ui.scene, now));
+        if !mend && self.status.as_ref().is_some_and(|s| s.profile_key == profile_key && s.frame == frame && s.group == group) {
             return Ok(());
         }
+        let mut mend = self.status.as_ref().map(|s| s.mend).unwrap_or_default();
+        mend.watch(&kit.ui.scene);
         if let Some(s) = self.status.take() {
             for it in s.items {
                 engine.flow.drop_lift(it.id);
@@ -886,7 +896,7 @@ impl HomeSurface {
             }).ok_or_else(|| std::io::Error::other("the item's group"))??;
             items.push(StatusItem { id, kind, lift, icon, avatar, name, badge, badge_n: None });
         }
-        self.status = Some(StatusBar { pane, frame, group, items, profile_key, at: None });
+        self.status = Some(StatusBar { pane, frame, group, items, profile_key, at: None, mend });
         Ok(())
     }
 
@@ -2582,6 +2592,38 @@ mod tests {
                 std::mem::forget(h);
             }
         }
+    }
+
+    #[test]
+    fn a_profile_chip_the_compositor_refused_is_made_again_on_the_next_frame_and_one_it_took_is_kept() {
+        use compositor_protocol::{Event, Request};
+        let tag = |sent: &[Request]| sent.iter().find_map(|r| match r { Request::Commit { tag } => Some(*tag), _ => None }).expect("a commit");
+        let (mut h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), super::super::grid::shipped(), json!({}));
+        fixtures(&mut home);
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        let chip = |s: &HomeSurface| {
+            let item = s.status.as_ref().unwrap().items.iter().find(|i| i.kind == "profile").expect("the chip");
+            [item.avatar.as_ref().expect("the avatar").id(), item.name.as_ref().expect("the name").layer().id()]
+        };
+        s.apply(&mut kit, &mut engine, &mut home, 2300).expect("Home drawn");
+        let first = chip(&s);
+        let sent = h.commit();
+        // the compositor refuses the chip (the profile item is made last), which it says before it shows the commit
+        kit.ui.scene.observe(&Event::Error { message: "more than 256 layers".into() });
+        kit.ui.scene.shown(tag(&sent));
+        s.apply(&mut kit, &mut engine, &mut home, 2316).expect("Home drawn");
+        let second = chip(&s);
+        let sent = h.commit();
+        for (old, new) in first.into_iter().zip(second) {
+            assert!(new != old && sent.iter().any(|r| matches!(r, Request::Create { id, .. } if *id == new)), "made again and sent");
+        }
+        kit.ui.scene.shown(tag(&sent));
+        s.apply(&mut kit, &mut engine, &mut home, 2332).expect("Home drawn");
+        assert_eq!(chip(&s), second, "it came through: kept");
+        std::mem::forget(h);
     }
 
     /// The share of a glyph's ink that is an edge: the pixels that are neither empty nor full, over all the pixels with ink in them.

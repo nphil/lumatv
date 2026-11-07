@@ -57,6 +57,9 @@ pub(crate) struct GroupEntry {
     /// Hidden and unhittable, whatever `pose.visible` says.
     inert: bool,
     bound: [Option<Bound>; 3],
+    /// An unbind left the compositor's group at its track's value, which `pose` only estimates: a compositor that took the commit
+    /// late holds a value short of it. The next pose is sent even when it is the same.
+    estimated: bool,
     /// What hangs under the group: groups, layers, prepared sets. The compositor's group goes when this is 0 and the handle is gone.
     pub(crate) members: u32,
     /// The `Group` handle is alive.
@@ -84,6 +87,7 @@ impl GroupEntry {
             }
         }
         if !freed.is_empty() {
+            self.estimated = true;
             batch.push(Request::GroupUnbind {
                 id: self.wire,
                 properties: freed,
@@ -234,6 +238,7 @@ impl Inner {
             pose,
             inert: false,
             bound: [None; 3],
+            estimated: false,
             members: 0,
             handle: true,
         };
@@ -255,10 +260,11 @@ impl Inner {
         };
         // The same pose again changes nothing on the compositor, and a commit of nothing else would still cost a frame.
         let pose = sanitise(&entry.pose, pose);
-        if pose == entry.pose {
+        if pose == entry.pose && !entry.estimated {
             return;
         }
         entry.pose = pose;
+        entry.estimated = false;
         let (wire, pose) = (entry.wire, entry.wire_pose());
         self.batch.push(Request::GroupSet { id: wire, pose });
     }
@@ -288,6 +294,7 @@ impl Inner {
             return;
         }
         entry.inert = inert;
+        entry.estimated = false;
         let (wire, pose) = (entry.wire, entry.wire_pose());
         self.batch.push(Request::GroupSet { id: wire, pose });
     }
@@ -352,6 +359,7 @@ impl Inner {
         }
         let entry = self.groups.get_mut(id.key()).expect("looked up above");
         entry.pose = pose;
+        entry.estimated = true;
         let mut mask = PoseProperties::NONE;
         for ((slot, freed), property) in entry.bound.iter_mut().zip(freed).zip(PROPERTIES) {
             if freed {
@@ -1343,6 +1351,48 @@ mod tests {
         g.set_inert(false);
         scene.try_commit().unwrap();
         assert!(matches!(&drain(&mut comp)[0], Request::GroupSet { pose, .. } if pose.visible));
+    }
+
+    #[test]
+    fn the_pose_after_an_unbind_is_sent_even_when_the_estimate_has_it_already() {
+        let (scene, mut comp, _events) = connect(SceneOptions::default());
+        at_time(&scene).set(0);
+        let unlit = GroupPose {
+            opacity: 0.0,
+            ..pose(0.0, 0.0)
+        };
+        let track = scene
+            .motion(1.0, MotionBounds::range(0.0, 1.0, Units::Progress))
+            .unwrap();
+        let lit = scene.group(None, unlit).unwrap();
+        lit.bind(
+            &track,
+            PoseBinding {
+                values: [0.0, 1.0],
+                from: pose(0.0, 0.0),
+                to: unlit,
+                properties: PoseProperties::OPACITY,
+            },
+        )
+        .unwrap();
+        scene.try_commit().unwrap();
+        drain(&mut comp);
+        // The track is at rest by the estimate; a compositor that took the commit late is short of it.
+        lit.unbind(PoseProperties::ALL);
+        lit.set_pose(unlit);
+        scene.try_commit().unwrap();
+        let sent = drain(&mut comp);
+        assert!(
+            matches!(sent.as_slice(), [Request::GroupUnbind { .. }, Request::GroupSet { pose, .. }, ..] if *pose == unlit),
+            "{sent:?}"
+        );
+        lit.set_pose(unlit);
+        scene.try_commit().unwrap();
+        let sent = drain(&mut comp);
+        assert!(
+            !sent.iter().any(|r| matches!(r, Request::GroupSet { .. })),
+            "{sent:?}"
+        );
     }
 
     #[test]

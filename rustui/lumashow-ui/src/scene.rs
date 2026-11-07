@@ -132,9 +132,17 @@ pub(crate) struct Inner {
     pub(crate) live_layers: usize,
     /// Layers whose creation was held back at the ceiling: nothing is ever sent for them, and the compositor never hears of them.
     refused: BTreeSet<LayerId>,
-    /// A creation was held back (or the compositor refused a request) since the app last asked: what is on the screen may be
-    /// missing a layer (see [`Scene::take_overflow`]).
+    /// Layers the compositor holds that the batch makes again in place (`Layer::become_picture`). Dropped before the commit, such a
+    /// layer still has its delete sent: the staged `Create` only replaces a layer the compositor already has.
+    remade: Vec<LayerId>,
+    /// Since the app last asked, something being built could not be made: a creation held back at the ceiling, or
+    /// [`Scene::note_refusal`] (see [`Scene::take_overflow`]).
     overflowed: bool,
+    /// Every refusal so far: a creation held back, a picture that could not be made, a request the compositor answered with
+    /// `Event::Error`. What [`Scene::came_through`] compares.
+    refusals: u64,
+    /// The latest commit the compositor has shown.
+    shown_tag: u64,
     /// The compositor said it can draw `SmoothFirst::Full` (`Welcome::smooth_first_full`).
     smooth_first_full: bool,
 }
@@ -158,8 +166,9 @@ impl Inner {
     /// A layer is dropped. The compositor is told to delete it, unless it has never heard of it, because the layer was
     /// made since the last commit: then everything staged for it is taken back, and the compositor never sees a layer
     /// whose picture is gone by the time it looks (it opens the file when it handles the `Create`, and would refuse
-    /// it, and every request that follows for a layer that does not exist). A layer a prepared set captures stays until
-    /// the set is deleted.
+    /// it, and every request that follows for a layer that does not exist). A layer made again in place since the last commit
+    /// has what is staged for it taken back too, and is deleted: the compositor still holds what it was before. A layer a
+    /// prepared set captures stays until the set is deleted.
     pub(crate) fn delete_layer(&mut self, id: LayerId) {
         if self.pins.iter().any(|(pinned, n)| *pinned == id && *n > 0) {
             self.deferred.push(id);
@@ -169,13 +178,21 @@ impl Inner {
             return;
         }
         self.live_layers = self.live_layers.saturating_sub(1);
-        let unheard_of = self
+        let remade = match self.remade.iter().position(|r| *r == id) {
+            Some(at) => {
+                self.remade.swap_remove(at);
+                true
+            }
+            None => false,
+        };
+        let staged = self
             .batch
             .iter()
             .any(|r| matches!(r, Request::Create { id: made, .. } if *made == id));
-        if unheard_of {
+        if staged {
             self.batch.retain(|r| layer_of(r) != Some(id));
-        } else {
+        }
+        if remade || !staged {
             self.batch.push(Request::Delete { id });
         }
     }
@@ -239,7 +256,7 @@ impl Inner {
         });
     }
 
-    /// Hands the staged requests' vectors back to the pool and empties the batch.
+    /// Hands the staged requests' vectors back to the pool and empties the batch: the batch has been sent.
     fn recycle_batch(&mut self) {
         for request in self.batch.drain(..) {
             if let Request::SetGlyphs { mut glyphs, .. } = request {
@@ -247,6 +264,7 @@ impl Inner {
                 self.glyph_pool.push(glyphs);
             }
         }
+        self.remade.clear();
     }
 
     /// Sends an urgent request, and whatever else the socket will take. The writer's error is the connection's.
@@ -309,6 +327,15 @@ pub struct Welcome {
     pub refresh_hz: f32,
     /// The compositor can draw `SmoothFirst::Full`: Settings offers the level only while this is true.
     pub smooth_first_full: bool,
+}
+
+/// A build to be held to what the compositor makes of it ([`Scene::watch`], [`Scene::came_through`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Watch {
+    /// The commit that sends what is built next.
+    tag: u64,
+    /// The refusals counted before it.
+    refusals: u64,
 }
 
 #[derive(Clone)]
@@ -456,7 +483,10 @@ impl Scene {
             nest: None,
             live_layers: 0,
             refused: BTreeSet::new(),
+            remade: Vec::new(),
             overflowed: false,
+            refusals: 0,
+            shown_tag: 0,
             smooth_first_full: welcome.smooth_first_full,
         };
         Ok((
@@ -626,6 +656,7 @@ impl Scene {
             } => {
                 inner.lead.presented(*tag, *presented_ns);
                 inner.remove_retired(*tag);
+                inner.shown_tag = inner.shown_tag.max(*tag);
             }
             Event::Motion {
                 id,
@@ -643,8 +674,9 @@ impl Scene {
             Event::BackdropFrozen { id, generation } => {
                 inner.observe_backdrop_frozen(*id, *generation)
             }
-            // A request the compositor refused leaves something unmade: the same news as a layer held back here.
-            Event::Error { .. } => inner.overflowed = true,
+            // A refusal arrives after the build it was part of has been checked, so it is no news for the build being made now
+            // (`take_overflow`): it is counted for whoever watches theirs (`came_through`).
+            Event::Error { .. } => inner.refusals += 1,
             Event::AtlasUploaded {
                 id,
                 slot,
@@ -657,7 +689,9 @@ impl Scene {
     /// The compositor has shown the commit `tag` (an `Event::Frame` says so): it has been through every request up to that
     /// commit, so the files of layers that ended by then are of no more use to it. [`Scene::observe`] does this for a frame.
     pub fn shown(&self, tag: u64) {
-        self.inner.borrow_mut().remove_retired(tag);
+        let mut inner = self.inner.borrow_mut();
+        inner.remove_retired(tag);
+        inner.shown_tag = inner.shown_tag.max(tag);
     }
 
     /// How long after a request is made the screen shows it, as measured on the commits so far (and a documented constant
@@ -752,6 +786,7 @@ impl Scene {
                 // nothing, and whoever builds is told (`take_overflow`) that what it built is not whole.
                 inner.refused.insert(id);
                 inner.overflowed = true;
+                inner.refusals += 1;
             } else {
                 inner.live_layers += 1;
                 inner.push(Request::Create {
@@ -790,15 +825,48 @@ impl Scene {
         MAX_DRAWABLE_NODES.saturating_sub(self.live_layers())
     }
 
-    /// Whether, since the last call, a layer could not be made because the ceiling was reached, or the compositor refused a request
-    /// ([`Scene::note_refusal`]): what was built then is not whole and must be taken back or made again, never shown.
+    /// Whether, since the last call, a layer could not be made because the ceiling was reached, or something drawn could not be
+    /// made whole ([`Scene::note_refusal`]): what was built then is not whole and must be taken back or made again, never shown.
+    /// What the compositor refuses later is counted instead ([`Scene::came_through`]).
     pub fn take_overflow(&self) -> bool {
         std::mem::take(&mut self.inner.borrow_mut().overflowed)
     }
 
-    /// The compositor refused a request (`Event::Error`): the same as a layer that could not be made.
+    /// Something drawn could not be made whole (a picture with no file for its pixels): the same as a layer that could not be made.
     pub fn note_refusal(&self) {
-        self.inner.borrow_mut().overflowed = true;
+        let mut inner = self.inner.borrow_mut();
+        inner.overflowed = true;
+        inner.refusals += 1;
+    }
+
+    /// Every refusal so far (see [`Scene::came_through`]): a host that sees the count move draws again, so that whoever watches a
+    /// build of theirs can make it again.
+    pub fn refusals(&self) -> u64 {
+        self.inner.borrow().refusals
+    }
+
+    /// Taken just before a build, for [`Scene::came_through`] to say whether the build reached the screen whole.
+    pub fn watch(&self) -> Watch {
+        let inner = self.inner.borrow();
+        Watch {
+            tag: inner.next_tag,
+            refusals: inner.refusals,
+        }
+    }
+
+    /// Whether what was built since `watch` was taken reached the screen whole: `Some(false)` once anything has been refused
+    /// since (held back here, or refused by the compositor, which answers a request before it shows the commit that carried it),
+    /// `Some(true)` once the compositor has shown the commit that sent the build and refused nothing, `None` until then.
+    /// Refusals are not told apart by layer: a build that came through whole may be told it did not, never the other way round.
+    pub fn came_through(&self, watch: Watch) -> Option<bool> {
+        let inner = self.inner.borrow();
+        if inner.refusals != watch.refusals {
+            Some(false)
+        } else if inner.shown_tag >= watch.tag {
+            Some(true)
+        } else {
+            None
+        }
     }
 
     /// Runs `build` with every layer it makes hanging under `group` from the moment it is made, with the props it was made with
@@ -1009,8 +1077,9 @@ impl Layer {
     /// puts it above the layers of its depth made before, forgets its group and an animation it was in, which is why the layer is
     /// made where the animation ends) with the pixels of a file made for it, and, for a layer under a group, the `Attach` that puts
     /// it back there with the props it had; what was staged for the old content (quads, palette) is taken back. The count of live
-    /// layers does not change, and a layer that was held back at the ceiling stays one: nothing is sent for it. This handle is
-    /// spent: drop it, which deletes nothing. With `Err` (no file for the pixels) nothing has changed.
+    /// layers does not change, and a layer that was held back at the ceiling stays one: nothing is sent for it. A picture dropped
+    /// before the commit deletes the layer the compositor holds. This handle is spent: drop it, which deletes nothing. With `Err`
+    /// (no file for the pixels) nothing has changed.
     pub(crate) fn become_picture(
         &mut self,
         width: u32,
@@ -1030,6 +1099,14 @@ impl Layer {
         {
             let mut inner = self.scene.inner.borrow_mut();
             inner.unstage_glyphs(self.id);
+            let known = !inner.refused.contains(&self.id)
+                && !inner
+                    .batch
+                    .iter()
+                    .any(|r| matches!(r, Request::Create { id: made, .. } if *made == self.id));
+            if known {
+                inner.remade.push(self.id);
+            }
             inner.push(Request::Create {
                 id: self.id,
                 width,
@@ -1541,6 +1618,7 @@ mod tests {
         extra.animate(Props::at(9.0, 9.0), 100, Ease::Out);
         assert!(scene.take_overflow());
         assert!(!scene.take_overflow(), "told once");
+        assert_eq!(scene.refusals(), 1, "and counted");
         scene.try_commit().unwrap();
         let sent = batch();
         assert_eq!(sent.len(), MAX_DRAWABLE_NODES, "{} sent", sent.len());
@@ -1689,6 +1767,57 @@ mod tests {
         assert_eq!(batch(), vec![Request::Delete { id }]);
         scene.shown(tag);
         assert!(!file.exists());
+    }
+
+    #[test]
+    fn a_layer_made_a_picture_in_place_and_dropped_before_the_commit_is_deleted_at_the_compositor() {
+        let dir = tempdir();
+        let (scene, mut batch) = fake_compositor_in(Some(dir.clone()));
+        let ShapeLayer { mut layer } = scene.shape(100, 50, 2, shape(), Props::at(10.0, 20.0));
+        let id = layer.id();
+        scene.try_commit().unwrap();
+        batch();
+        let live = scene.live_layers();
+        let picture = layer.become_picture(80, 40, 2).unwrap();
+        drop(layer);
+        // The staged `Create` only replaced what the compositor holds: taken back, the old layer is still to be deleted.
+        drop(picture);
+        scene.try_commit().unwrap();
+        assert_eq!(batch(), vec![Request::Delete { id }]);
+        assert_eq!(scene.live_layers(), live - 1);
+    }
+
+    #[test]
+    fn a_build_comes_through_once_its_commit_is_shown_and_not_when_anything_is_refused_before() {
+        let (scene, mut batch) = fake_compositor();
+        let watch = scene.watch();
+        let _card = scene.shape(10, 10, 0, shape(), Props::at(0.0, 0.0));
+        let tag = scene.try_commit().unwrap().get();
+        batch();
+        assert_eq!(scene.came_through(watch), None, "sent, not yet shown");
+        scene.shown(tag);
+        assert_eq!(scene.came_through(watch), Some(true));
+        // The compositor answers a request it refuses before it shows the commit that carried it.
+        let watch = scene.watch();
+        let _chip = scene.shape(10, 10, 0, shape(), Props::at(0.0, 0.0));
+        let tag = scene.try_commit().unwrap().get();
+        batch();
+        scene.observe(&Event::Error {
+            message: "more than 256 layers".into(),
+        });
+        assert!(
+            !scene.take_overflow(),
+            "no news for the build being made now"
+        );
+        scene.shown(tag);
+        assert_eq!(
+            (scene.came_through(watch), scene.refusals()),
+            (Some(false), 1)
+        );
+        // Something drawn that could not be made whole counts at once.
+        let watch = scene.watch();
+        scene.note_refusal();
+        assert_eq!(scene.came_through(watch), Some(false));
     }
 
     #[test]
