@@ -14,7 +14,9 @@ to the ink and scaled to `--height` px tall: 4x the 28 px the bar draws it at, s
 crisp. Rendering of the SVGs is Chromium's, headless. `index.json` lists each key with its width and height in px.
 
 The video set's sources sit in `generators/video-logos/`: LumaTV's own simplified marks in `currentColor`, the words as outlines of
-the pinned Manrope (`generators/fonts/`), on a frame 112 units tall (caps from 20 to the baseline at 92, the double-D from 8 to 104).
+the pinned Manrope 700 (`generators/fonts/`), on a frame 112 units tall (caps from 20 to the baseline at 92, the double-D from 8 to 104).
+The Dolby marks stack a small DOLBY (800, caps 8 to 40) over VISION or ATMOS (caps 52 to 104) beside the double-D, so a badge with
+both stays short: on one line the words made it 561 px at 28 px marks, stacked 306.
 They keep the frame's height, so the marks of a badge share caps and baseline, and are drawn at exactly 8x and box-filtered down, so
 the caps' edges fall on whole pixels at 112, 56 and 28 px; their widths are whole multiples of 4 px, so at 56 and 28 px every column
 of the result is two or four of the master's.

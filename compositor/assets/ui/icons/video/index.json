@@ -1,11 +1,11 @@
 {
  "atmos": {
   "height": 112,
-  "width": 512
+  "width": 408
  },
  "dolby-vision": {
   "height": 112,
-  "width": 504
+  "width": 400
  },
  "fhd": {
   "height": 112,
