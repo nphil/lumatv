@@ -57,13 +57,13 @@ fn change(layout: Value) -> Op {
     Op::Shell(ShellRequest::HomeLayout(layout))
 }
 
-/// 0 Off, 1 Small, 2 Half, 3 Wide; a width that is none of the three has no mark.
-fn size_index(e: Option<&Entry>) -> Option<usize> {
-    let e = match e {
-        Some(e) if !e.hidden => e,
-        _ => return Some(0),
-    };
-    SIZES.iter().position(|s| s.0 == grid::size_of(e)).map(|i| i + 1)
+/// 0 Off, 1 Small, 2 Half, 3 Wide. A width of its own (one set on Home, such as 7 or 5 of the 12) is marked as the narrowest size that
+/// holds it, else Wide, so every card shown has a mark.
+fn size_index(e: Option<&Entry>) -> usize {
+    match e {
+        Some(e) if !e.hidden => SIZES.iter().position(|s| s.2 >= e.span).unwrap_or(SIZES.len() - 1) + 1,
+        _ => 0,
+    }
 }
 
 /// A size chosen for a card (`choose`): Off hides it; the others bring it back (a type with no card is added) and set its width.
@@ -137,7 +137,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     for (id, kind) in &items {
         let icon = grid::type_of(kind).map_or("layout-grid", |t| t.icon);
         let (lay, rid, rkind) = (layout.clone(), id.clone(), kind.clone());
-        let mut r = Row::seg(&format!("w:{id}"), &["Off", "Small", "Half", "Wide"]).tab(0).icon(icon).label(&title_of(layout, id, kind)).index(size_index(grid::find(layout, id).as_ref())).act(move |a| match a {
+        let mut r = Row::seg(&format!("w:{id}"), &["Off", "Small", "Half", "Wide"]).tab(0).icon(icon).label(&title_of(layout, id, kind)).index(Some(size_index(grid::find(layout, id).as_ref()))).act(move |a| match a {
             Arg::Index(i) => choose(&lay, &rid, &rkind, i),
             _ => Vec::new(),
         });
@@ -198,13 +198,31 @@ mod tests {
         for e in &shipped_cards {
             let row = row(&r, &format!("w:{}", e.id));
             assert_eq!((row.kind, row.tab, row.options.len()), (Kind::Seg, 0, 4));
-            assert_eq!(row.index, size_index(Some(e)), "{}", e.id);
+            assert_eq!(row.index, Some(size_index(Some(e))), "{}", e.id);
         }
         assert!(!row(&r, "reset").enabled, "the shipped layout has nothing to reset");
         assert_eq!(summary(&c), format!("{} shown", shipped_cards.iter().filter(|e| !e.hidden).count()));
         let order = grid::order(&w.layout);
         assert_eq!(r.iter().filter(|x| x.tab == 1).count(), order.len(), "one nudge row per card shown");
         assert_eq!(row(&r, &format!("n:{}", order[0])).value, format!("1 of {}", order.len()));
+    }
+
+    #[test]
+    fn a_width_set_on_home_is_marked_as_the_size_that_holds_it_and_a_card_not_shown_as_off() {
+        // the owner's layout on the set (2026-11-06): Clock and Smart home 7 of the 12 columns, Weather 5, At home hidden, no News or Cameras
+        let mut w = world();
+        w.layout = grid::tidy_layout(&json!({"grid": {"rows": 16}, "widgets": [
+            {"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 7, "rows": 4},
+            {"id": "home", "type": "homeassistant", "col": 0, "row": 4, "span": 7, "rows": 5, "hidden": true},
+            {"id": "weather", "type": "weather", "col": 7, "row": 0, "span": 5, "rows": 9},
+            {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7},
+            {"id": "onhome", "type": "onhome", "col": 0, "row": 4, "span": 7, "rows": 5}]}));
+        let r = rows(&w.ctx());
+        let marks: Vec<(&str, Option<usize>)> = r.iter().filter(|x| x.tab == 0 && x.kind == Kind::Seg && x.id != "reset").map(|x| (x.label.as_str(), x.index)).collect();
+        assert_eq!(marks, [("Clock", Some(3)), ("At home", Some(0)), ("Weather", Some(2)), ("Smart home", Some(3)), ("News", Some(0)), ("Cameras", Some(0))]);
+        let narrow = Entry { span: 3, ..grid::find(&w.layout, "clock").unwrap() };
+        let full = Entry { span: 12, ..narrow.clone() };
+        assert_eq!((size_index(Some(&narrow)), size_index(Some(&full))), (1, 3));
     }
 
     #[test]
