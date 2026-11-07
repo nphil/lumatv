@@ -261,22 +261,20 @@ impl Dock {
         self.row_of(i) == self.scroll_row
     }
 
-    /// The top of tile `i`'s name pill (`pill_h` high, whole pixels, in the card), the tile lifted by `lift`: on the side `label_above` names; when
-    /// that side has no room in the card (a large text size makes the pill tall and the card holds two rows) on the other side, over the
-    /// neighbouring row's near edge; where neither fits, pinned inside the card. `edge` is the margin kept to the card's top and bottom.
+    /// The top of tile `i`'s name pill (`pill_h` high, whole pixels, in the card), the tile lifted by `lift`: on the side `label_above` names, moved
+    /// into the card when it would cross the card's edge, as long as it still clears the lifted tile; when it cannot (a large text size makes the
+    /// pill tall and the card holds two rows) on the other side, over the neighbouring row's near edge; where neither fits, pinned inside the card
+    /// on its own side. `edge` is the margin kept to the card's top and bottom.
     pub fn label_top(&self, i: usize, pill_h: f32, lift: f32, edge: f32) -> f32 {
         let top = (self.slot(i).1 - self.scroll_px() as i32) as f32;
-        let above = top - lift - 14.0 - pill_h;
-        let below = top + self.tile as f32 + lift + 6.0;
-        let room = |y: f32| y >= edge && y + pill_h <= self.height as f32 - edge;
-        let (first, other) = if self.label_above(i) { (above, below) } else { (below, above) };
-        let y = if room(first) {
-            first
-        } else if room(other) {
-            other
-        } else {
-            first.clamp(edge, (self.height as f32 - edge - pill_h).max(edge))
-        };
+        let pin = |y: f32| y.clamp(edge, (self.height as f32 - edge - pill_h).max(edge));
+        // A dock 7 of 16 grid rows high on a 1080 screen is 379 px: two rows leave 62 above the first, and the pill at its 14 px gap would start at -2.
+        let above = pin(top - lift - 14.0 - pill_h);
+        let below = pin(top + self.tile as f32 + lift + 6.0);
+        let clears_above = above + pill_h <= top - lift;
+        let clears_below = below >= top + self.tile as f32 + lift;
+        let (first, other) = if self.label_above(i) { ((above, clears_above), (below, clears_below)) } else { ((below, clears_below), (above, clears_above)) };
+        let y = if first.1 || !other.1 { first.0 } else { other.0 };
         y.round()
     }
 
@@ -514,6 +512,20 @@ mod tests {
         let top = d.grid_top() as f32;
         assert!(d.label_top(0, 70.0, 7.0, 2.0) > top + 120.0, "row 1's name falls below its tile");
         assert!(d.label_top(12, 70.0, 7.0, 2.0) + 70.0 < top + 136.0 + 120.0, "row 2's name rises above its tile");
+    }
+
+    #[test]
+    fn the_top_rows_name_stands_above_it_and_the_last_rows_below_it_on_a_card_with_no_room_to_spare() {
+        let mut d = Dock::default();
+        // the owner's dock: 7 of 16 grid rows, 379 high, so the top row's pill at its usual gap would start 2 px over the card's edge
+        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 379);
+        d.set_points(&(0..20).map(|i| lp(&format!("app{i}"), "App")).collect::<Vec<_>>(), &json!({}));
+        assert_eq!((d.total_rows(), d.grid_top()), (2, 62));
+        let lift = 7.2;
+        let (first, last) = (d.label_top(0, 43.0, lift, 2.0), d.label_top(19, 43.0, lift, 2.0));
+        assert_eq!(first, 2.0, "pinned to the card's edge");
+        assert!(first + 43.0 <= 62.0 - lift, "row 1's name is above its lifted tile: {first}");
+        assert!(last >= 62.0 + 136.0 + 120.0 + lift && last + 43.0 <= 377.0, "row 2's name is below its lifted tile: {last}");
     }
 
     #[test]
