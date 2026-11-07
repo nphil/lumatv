@@ -79,6 +79,8 @@ pub struct FullUi {
     /// A glyph beside the name: the compositor gave the live picture no video window, so it is on the plane (or in stills).
     cue: Option<Piece2>,
     hints: Option<Piece2>,
+    /// OK held the picture: a badge in the middle that stays while the chrome fades.
+    paused: Option<Piece2>,
     note: Option<NoteUi>,
     chrome_on: bool,
     wash: Option<Bars>,
@@ -110,6 +112,7 @@ impl FullUi {
             line: None,
             cue: None,
             hints: None,
+            paused: None,
             note: None,
             chrome_on: view.chrome,
             wash: None,
@@ -170,6 +173,7 @@ impl FullUi {
         self.sync_line(cx, view)?;
         self.sync_cue(cx, view)?;
         self.sync_hints(cx, view)?;
+        self.sync_paused(cx, view)?;
         self.sync_note(cx, view)?;
         // the fade
         if view.chrome != self.chrome_on {
@@ -309,6 +313,16 @@ impl FullUi {
         })
     }
 
+    /// The paused badge: the glyph alone, as the cue (the name pill says "Paused").
+    fn sync_paused(&mut self, cx: &mut Cx, view: &FullView) -> std::io::Result<()> {
+        let ink = self.ink;
+        Self::piece(cx, &mut self.paused, view.paused.then(|| "paused".to_string()), true, move |cx| {
+            let pieces = [Piece::Icon { name: "pause", base: 32.0, ink: ink.ink }];
+            let z = cx.at(depth::CHROME);
+            pill::build(cx.kit, "paused pill", &pieces, Anchor::Centre { cx: 960.0, cy: 540.0 }, z, &ink)
+        })
+    }
+
     fn sync_note(&mut self, cx: &mut Cx, view: &FullView) -> std::io::Result<()> {
         let sig = view.note.as_ref().map(|n| format!("{}|{}|{}", n.title, n.detail, cx.kit.text_scale));
         if self.note.as_ref().map(|n| n.sig.clone()) == sig {
@@ -403,7 +417,7 @@ impl FullUi {
 
     /// The layers the full view holds, for the budget.
     pub fn layers(&self) -> usize {
-        let pieces: usize = [&self.name, &self.info, &self.line, &self.cue, &self.hints].into_iter().flatten().map(|p| p.parts.layers()).sum();
+        let pieces: usize = [&self.name, &self.info, &self.line, &self.cue, &self.hints, &self.paused].into_iter().flatten().map(|p| p.parts.layers()).sum();
         2 + self.still.as_ref().map_or(0, PicLayer::layers) + self.wash.as_ref().map_or(0, |b| b.layers.len()) + pieces + self.note.as_ref().map_or(0, |n| n.parts.layers() + n.button.layers())
     }
 
@@ -415,7 +429,7 @@ impl FullUi {
     /// The pills and the note as drawn, for the harness and the lint.
     pub fn rects(&self) -> Vec<(&'static str, Frame)> {
         let mut v = Vec::new();
-        for (name, p) in [("name", &self.name), ("info", &self.info), ("line", &self.line), ("cue", &self.cue), ("hints", &self.hints)] {
+        for (name, p) in [("name", &self.name), ("info", &self.info), ("line", &self.line), ("cue", &self.cue), ("hints", &self.hints), ("paused", &self.paused)] {
             if let Some(p) = p {
                 v.push((name, p.drawn.frame));
             }
@@ -427,7 +441,7 @@ impl FullUi {
     }
 
     pub fn feed_lint(&self, kit: &mut crate::kit::Kit, lint: &mut crate::kit::lint::Lint) {
-        for p in [&self.name, &self.info, &self.line, &self.cue, &self.hints].into_iter().flatten() {
+        for p in [&self.name, &self.info, &self.line, &self.cue, &self.hints, &self.paused].into_iter().flatten() {
             let panel = lint.panel(p.drawn.words.first().map_or("pill", |w| w.name.split(' ').next().unwrap_or("pill")), p.drawn.frame, p.drawn.paint, true);
             for w in &p.drawn.words {
                 lint.word(kit, &w.name, &w.text, w.frame, w.style, Some(panel));
@@ -555,8 +569,12 @@ mod tests {
                     let mut a = app(scale);
                     a.open_full("273", 1000);
                     a.update(&live(state), 1050);
-                    let mut f = FullUi::build(&mut cx(&mut kit, &mut engine, &store), &full(&a)).unwrap();
-                    f.sync(&mut cx(&mut kit, &mut engine, &store), &full(&a)).unwrap();
+                    let mut view = full(&a);
+                    // the paused badge reads clean over a picture too
+                    view.paused = state == "playing";
+                    let mut f = FullUi::build(&mut cx(&mut kit, &mut engine, &store), &view).unwrap();
+                    f.sync(&mut cx(&mut kit, &mut engine, &store), &view).unwrap();
+                    assert_eq!(f.rects().iter().any(|(n, _)| *n == "paused"), view.paused);
                     let mut lint = Lint::new().with_safe(Frame::new(96.0, 54.0, 1728.0, 972.0));
                     f.feed_lint(&mut kit, &mut lint);
                     let findings: Vec<String> = lint.findings().iter().map(|x| x.to_string()).collect();

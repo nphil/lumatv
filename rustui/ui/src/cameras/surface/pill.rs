@@ -34,6 +34,7 @@ pub enum Anchor {
     BottomLeft { x: f32, bottom: f32 },
     BottomRight { right: f32, bottom: f32 },
     BottomCentre { cx: f32, bottom: f32 },
+    Centre { cx: f32, cy: f32 },
 }
 
 /// A run of words as the pill drew it, for the lint.
@@ -165,6 +166,7 @@ pub fn build(kit: &mut Kit, name: &str, pieces: &[Piece], anchor: Anchor, z: i32
         Anchor::BottomLeft { x, bottom } => (x, bottom - h),
         Anchor::BottomRight { right, bottom } => (right - w, bottom - h),
         Anchor::BottomCentre { cx, bottom } => ((cx - w / 2.0).round(), bottom - h),
+        Anchor::Centre { cx, cy } => ((cx - w / 2.0).round(), (cy - h / 2.0).round()),
     };
     let frame = Frame::new(x, y, w, h);
     let mut parts = Parts::new();

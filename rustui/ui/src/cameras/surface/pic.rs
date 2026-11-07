@@ -33,7 +33,7 @@ pub struct PictureStore {
 }
 
 /// How many pictures of each kind are kept: the grid paints the last picture of every camera (16) in its first frame.
-const KEEP: [(&str, usize); 5] = [("tile:", 16), ("full:", 2), ("wash:", 2), ("bubble:", 4), ("card:", 40)];
+const KEEP: [(&str, usize); 6] = [("tile:", 16), ("full:", 2), ("wash:", 2), ("bubble:", 4), ("card:", 40), ("held:", 1)];
 
 impl PictureStore {
     pub fn new() -> Self {

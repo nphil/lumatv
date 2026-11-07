@@ -161,6 +161,8 @@ pub struct FullView {
     pub button_focused: bool,
     /// The compositor refused the live picture a video window or took it back: a glyph beside the name says the picture is on the plane.
     pub window_cue: bool,
+    /// OK held the picture (and no strip shows its own play button): the paused badge stays up while the chrome fades.
+    pub paused: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -334,6 +334,7 @@ pub fn refusal(code: &str, helper_words: &str) -> Option<String> {
 pub const LIVE: &str = "Live";
 pub const STARTING: &str = "Starting";
 pub const RECORDED: &str = "Recorded";
+pub const PAUSED: &str = "Paused";
 pub const CANT_PLAY: &str = "Can\u{2019}t play";
 pub const OPENS_SOON: &str = "Opens in a few seconds";
 pub const FAILED_TITLE: &str = "Can\u{2019}t play this camera";

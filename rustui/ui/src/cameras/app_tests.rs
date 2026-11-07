@@ -382,11 +382,11 @@ fn a_refused_video_window_keeps_the_plane_path_and_says_so_with_a_glyph_and_a_wi
 // ---------------------------------------------------------------------------- the grid
 
 #[test]
-fn ok_in_the_full_view_goes_to_the_grid_which_asks_for_pictures_of_the_tile_size_and_stops_the_stream() {
+fn down_in_the_full_view_goes_to_the_grid_which_asks_for_pictures_of_the_tile_size_and_stops_the_stream() {
     let mut r = Rig::new(three());
     r.app.open_full("273", T0);
     r.at(100);
-    let fx = r.press("ok");
+    let fx = r.press("down");
     assert!(requests(&fx).iter().any(|(_, p, _)| p == "/v1/cameras/live/stop"), "the grid is stills");
     let g = r.grid();
     assert_eq!((g.layout.cols, g.layout.tile_w, g.layout.tile_h), (2, 624, 352), "three cameras: 2 x 2 at 624 x 352");
@@ -1094,6 +1094,13 @@ fn open_strip(r: &mut Rig) -> Vec<Effect> {
     r.press("up")
 }
 
+/// The sheet of a camera that records: Up to the strip, Down to its controls and Down again.
+fn open_sheet(r: &mut Rig) -> Vec<Effect> {
+    open_strip(r);
+    r.press("down");
+    r.press("down")
+}
+
 #[test]
 fn up_opens_the_strip_which_reads_the_recordings_and_the_events_of_its_window() {
     let mut r = Rig::new(three());
@@ -1254,12 +1261,9 @@ fn the_controls_row_goes_live_hops_and_down_opens_the_sheet() {
 // ---------------------------------------------------------------------------- the sheet
 
 #[test]
-fn down_opens_the_camera_sheet_which_lists_events_newest_first_and_ok_plays_three_seconds_before() {
+fn the_camera_sheet_lists_events_newest_first_and_ok_plays_three_seconds_before() {
     let mut r = Rig::new(three());
-    r.app.open_full("273", T0);
-    r.helper("cameras.live", live_topic("273", "live", "playing"));
-    r.at(100);
-    let fx = r.press("down");
+    let fx = open_sheet(&mut r);
     let at1 = T0 as i64 - 6 * MIN;
     let at2 = T0 as i64 - 39 * MIN;
     let events = r.answer(tag_of(&fx, "/events?"), 200, json!({"events": [{"at": at2, "kind": "doorbell", "label": "doorbell"}, {"at": at1, "kind": "person", "label": "person"}]}));
@@ -1282,10 +1286,7 @@ fn down_opens_the_camera_sheet_which_lists_events_newest_first_and_ok_plays_thre
 #[test]
 fn the_clips_tab_reads_the_clips_and_ok_plays_a_clip_by_its_id() {
     let mut r = Rig::new(three());
-    r.app.open_full("273", T0);
-    r.helper("cameras.live", live_topic("273", "live", "playing"));
-    r.at(100);
-    let fx = r.press("down");
+    let fx = open_sheet(&mut r);
     r.answer(tag_of(&fx, "/events?"), 200, json!({"events": []}));
     assert_eq!(r.view().sheet.unwrap().empty.as_deref(), Some("No events"));
     r.at(200);
@@ -1308,10 +1309,7 @@ fn the_clips_tab_reads_the_clips_and_ok_plays_a_clip_by_its_id() {
 #[test]
 fn back_closes_the_sheet_and_the_view_stays() {
     let mut r = Rig::new(three());
-    r.app.open_full("273", T0);
-    r.helper("cameras.live", live_topic("273", "live", "playing"));
-    r.at(100);
-    r.press("down");
+    open_sheet(&mut r);
     r.at(200);
     r.press("back");
     assert!(r.view().sheet.is_none());
@@ -1469,7 +1467,7 @@ fn the_hints_are_glyphs_for_the_keys_that_do_something() {
     let mut r = Rig::new(cs);
     r.app.open_full("273", T0);
     let names: Vec<String> = r.full().hints.iter().map(|h| h.name.clone()).collect();
-    assert_eq!(names, ["Left and Right, next camera", "OK, all cameras", "Back, close"], "no strip or sheet for a camera that has neither");
+    assert_eq!(names, ["Left and Right, next camera", "OK, pause", "Down, all cameras", "Back, close"], "no strip or sheet for a camera that has neither");
     let mut r = Rig::new(three());
     r.app.open_full("273", T0);
     assert_eq!(r.full().hints.len(), 5);
@@ -1477,10 +1475,86 @@ fn the_hints_are_glyphs_for_the_keys_that_do_something() {
     single.app.open_full("273", T0);
     assert_eq!(single.full().position, None, "no \"1 of 1\"");
     let names: Vec<String> = single.full().hints.iter().map(|h| h.name.clone()).collect();
-    assert_eq!(names, ["Up, timeline", "Down, events and clips", "Back, close"]);
+    assert_eq!(names, ["OK, pause", "Up, timeline", "Back, close"]);
     r.app.open_grid(T0);
     let g = r.grid();
     assert_eq!(g.hints.iter().map(|h| h.name.as_str()).collect::<Vec<_>>(), ["OK, expand", "Hold OK, options", "Back, close"]);
+}
+
+#[test]
+fn ok_holds_live_at_once_as_a_recording_from_its_edge_plays_on_from_there_and_back_closes() {
+    let mut r = Rig::new(three());
+    r.app.open_full("273", T0);
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    r.tick(100 + 2500);
+    assert!(!r.full().chrome, "the chrome has gone over the video");
+    r.at(3000);
+    let fx = r.press("ok");
+    let pb: Vec<Value> = requests(&fx).into_iter().filter(|(_, p, _)| p == "/v1/cameras/playback").map(|(_, _, b)| b).collect();
+    assert_eq!(pb.len(), 1, "the first OK holds, the chrome hidden or not: {fx:?}");
+    assert_eq!(pb[0]["camera"], "273");
+    let f = r.full();
+    assert!(f.paused && f.chrome);
+    assert_eq!(f.state.word, "Paused");
+    assert!(f.hints.iter().any(|h| h.name == "OK, play"));
+    // the recording plays and is held at its first picture
+    r.at(3100);
+    let fx = r.helper("cameras.live", live_topic("273", "playback", "playing"));
+    assert!(requests(&fx).iter().any(|(_, p, b)| p == "/v1/cameras/live/pause" && b["paused"] == json!(true)), "{fx:?}");
+    let mut held = live_topic("273", "playback", "playing");
+    held["paused"] = json!(true);
+    r.helper("cameras.live", held);
+    assert!(r.full().paused);
+    // OK plays on from there
+    r.at(3200);
+    let fx = r.press("ok");
+    assert!(requests(&fx).iter().any(|(_, p, b)| p == "/v1/cameras/live/pause" && b["paused"] == json!(false)), "{fx:?}");
+    r.helper("cameras.live", live_topic("273", "playback", "playing"));
+    assert!(!r.full().paused);
+    // Back closes: the hold was part of watching live
+    r.at(3300);
+    r.press("back");
+    assert!(!r.app.viewer_up());
+}
+
+#[test]
+fn ok_holds_a_camera_that_does_not_record_on_its_newest_still_and_ok_again_goes_live() {
+    let mut cs = three();
+    cs["cameras"][1]["recordings"] = json!(false);
+    let mut r = Rig::new(cs);
+    r.app.open_full("273", T0);
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    r.at(100);
+    let fx = r.press("ok");
+    assert!(requests(&fx).iter().any(|(_, p, _)| p == "/v1/cameras/live/stop"), "live cannot be held: it stops");
+    let held = frames(&fx);
+    assert_eq!(held.len(), 1, "the newest still, asked once: {fx:?}");
+    r.answer(held[0].0, 200, json!({"picture": {"w": 10, "h": 10}}));
+    let f = r.full();
+    assert!(f.paused && !f.hole);
+    assert_eq!(f.backdrop, Backdrop::Still("held:273".into()));
+    assert_eq!((f.veil, f.state.word), (0.0, "Paused"));
+    assert!(r.app.live_claim().is_none());
+    assert!(frames(&r.tick(10_100)).is_empty(), "the still stands");
+    r.at(10_200);
+    let fx = r.press("ok");
+    assert_eq!(live_posts(&fx).len(), 1);
+    assert!(!r.full().paused);
+    assert!(r.app.take_dropped().contains(&"held:".to_string()));
+}
+
+#[test]
+fn up_opens_the_events_and_clips_of_a_camera_that_does_not_record() {
+    let mut cs = three();
+    cs["cameras"][1]["recordings"] = json!(false);
+    let mut r = Rig::new(cs);
+    r.app.open_full("273", T0);
+    r.at(100);
+    let fx = r.press("up");
+    assert!(r.view().strip.is_none());
+    assert_eq!(r.view().sheet.expect("the events and clips").title, "Front Door");
+    assert!(fetches(&fx).iter().any(|(_, p)| p.starts_with("/v1/cameras/273/events?")));
+    assert!(r.full().hints.is_empty(), "the sheet is up");
 }
 
 #[test]
@@ -1736,10 +1810,7 @@ fn the_grids_tiles_over_an_app_are_asked_for_no_more_than_twice_a_second_and_ove
 #[test]
 fn a_recording_and_a_clip_are_asked_for_in_the_window_the_live_view_has_and_in_none_where_there_is_no_claim() {
     let events = |r: &mut Rig| {
-        r.app.open_full("273", T0);
-        r.helper("cameras.live", live_topic("273", "live", "playing"));
-        r.at(100);
-        let fx = r.press("down");
+        let fx = open_sheet(r);
         let at = T0 as i64 - 6 * MIN;
         r.answer(tag_of(&fx, "/events?"), 200, json!({"events": [{"at": at, "kind": "person", "label": "person"}]}));
         r.at(300);
@@ -1755,10 +1826,7 @@ fn a_recording_and_a_clip_are_asked_for_in_the_window_the_live_view_has_and_in_n
     // ... a clip too
     let mut r = Rig::new(three());
     r.app.set_vwin_on(true);
-    r.app.open_full("273", T0);
-    r.helper("cameras.live", live_topic("273", "live", "playing"));
-    r.at(100);
-    let fx = r.press("down");
+    let fx = open_sheet(&mut r);
     r.answer(tag_of(&fx, "/events?"), 200, json!({"events": []}));
     r.at(200);
     r.press("up");

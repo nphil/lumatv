@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+OK pauses and resumes the camera full view. Live of a camera that records is held as a recording from the live edge and plays on from there; live of one that does not record stops on its newest still until OK goes live again; a playback pauses and plays. While held, a pause badge sits in the middle of the picture and the name pill reads "Paused". All cameras moved from OK to Down; Up opens the timeline, or the events and clips for a camera that does not record. Back still closes.
+
 Camera stills whose scaled size has an odd side along subsampled chroma (a 4:2:0 1920x1080 still at 1/8 is 240x135) go straight to libjpeg. The TV's JPEG block failed every one of them and logged two kernel error lines each time, hundreds an hour while the camera tiles polled; the picture already came from libjpeg after the failure.
 
 A first-party plugin that panics stops alone. Each plugin's thread, and what the manager runs when a switch is turned, runs under a guard: a panic marks the plugin `failed` in `/v1/state/plugins`, with a `reason` that Settings shows under its switch, and the plugin starts again after 30 s, doubling up to 30 min while it keeps failing, or at once when its switch is turned. Before, the panic ended that plugin's thread for good while its switch still read on, and one on the manager's thread stopped every switch. A stack overflow, or a second panic during unwinding, still ends the helper.

@@ -315,6 +315,10 @@ pub struct App {
     commit_hint: Option<i64>,
     /// A recording started from the live edge to hold it: paused as soon as it plays.
     pause_when_playing: bool,
+    /// OK held live as a recording from its live edge: Back closes the view rather than going live first.
+    timeshift: bool,
+    /// OK held the live view of a camera that does not record: live is stopped and its newest still stands still until OK asks for live again.
+    frozen: bool,
     /// A playback is asked for and not playing yet: the picture area shows the cursor's thumbnail.
     thumb_pending: bool,
     ok_down: Option<u64>,
@@ -364,6 +368,8 @@ impl App {
             expect: Expect::Live,
             commit_hint: None,
             pause_when_playing: false,
+            timeshift: false,
+            frozen: false,
             thumb_pending: false,
             ok_down: None,
             ok_fired: false,
@@ -523,15 +529,23 @@ impl App {
         self.is_full() && self.expect == Expect::Live && self.current().is_some_and(|c| self.can_live(c) && self.held_back(c))
     }
 
-    /// The owner asked for the camera shown to be dialled (Connect, Try again): a camera on a battery is dialled for this view from now on.
+    /// The owner asked for the camera shown to be dialled (Connect, Try again, OK on a held picture): a camera on a battery is dialled for this view from now on.
     fn connect_now(&mut self, fx: &mut Vec<Effect>) {
+        self.thaw();
+        self.timeshift = false;
         self.opened = self.current().map(|c| c.id.clone());
         self.ensure_live(true, fx);
     }
 
+    fn thaw(&mut self) {
+        if std::mem::take(&mut self.frozen) {
+            self.dropped.push("held:".into());
+        }
+    }
+
     /// A camera on a battery is being called and has not sent a picture: the still, "Connecting…", and Back hangs the call up.
     fn connecting(&self, c: &data::Camera) -> bool {
-        c.battery && !self.held_back(c) && self.can_live(c) && self.expect == Expect::Live && !self.hole() && !self.note_up()
+        c.battery && !self.held_back(c) && self.can_live(c) && self.expect == Expect::Live && !self.frozen && !self.hole() && !self.note_up()
     }
 
     /// What the full view's live video asks of the display while it is wanted: the stream the helper was asked for and the rectangle it is
@@ -540,7 +554,7 @@ impl App {
     pub fn live_claim(&self) -> Option<LiveClaim> {
         let Screen::Full(f) = &self.screen else { return None };
         let c = self.cams.get(&f.camera)?;
-        if !self.can_live(c) || self.held_back(c) {
+        if !self.can_live(c) || self.held_back(c) || self.frozen {
             return None;
         }
         if self.shares_screen() {
@@ -604,6 +618,8 @@ impl App {
         self.options = None;
         self.commit_hint = None;
         self.pause_when_playing = false;
+        self.timeshift = false;
+        self.thaw();
         self.thumb_pending = false;
         self.ok_down = None;
         self.ok_fired = false;
@@ -615,7 +631,7 @@ impl App {
         self.dirty = true;
     }
 
-    /// The grid of every camera (the quick panel's tile, the full view's OK, `ctl shell show cameras`).
+    /// The grid of every camera (the quick panel's tile, the full view's Down, `ctl shell show cameras`).
     pub fn open_grid(&mut self, now: u64) -> Vec<Effect> {
         let mut fx = Vec::new();
         self.now = now;
@@ -737,7 +753,7 @@ impl App {
     /// when live is no longer offered.
     fn ensure_live(&mut self, force: bool, fx: &mut Vec<Effect>) {
         let granted = !self.shares_screen() || self.window_granted();
-        let want = self.current().filter(|c| self.can_live(c) && granted && !self.held_back(c)).map(|c| c.id.clone());
+        let want = self.current().filter(|c| self.can_live(c) && granted && !self.held_back(c) && !self.frozen).map(|c| c.id.clone());
         match (want, self.asked.clone()) {
             (Some(id), asked) if force || asked.as_deref() != Some(&id) => {
                 self.asked = Some(id.clone());
@@ -797,6 +813,7 @@ impl App {
 
     fn commit_playback(&mut self, at: i64, rate: Option<f32>, fx: &mut Vec<Effect>) {
         let Some(camera) = self.current().map(|c| c.id.clone()) else { return };
+        self.timeshift = false;
         let rate = rate.unwrap_or_else(|| self.strip.as_ref().map_or(1.0, Strip::rate_value));
         let mut body = json!({"camera": camera, "at": at});
         if let Some(window) = self.window_for(&camera) {
@@ -819,6 +836,7 @@ impl App {
 
     fn play_clip(&mut self, camera: &str, clip: &str, fx: &mut Vec<Effect>) {
         let restore = self.expect;
+        self.timeshift = false;
         let mut body = json!({"camera": camera, "clip": clip});
         if let Some(window) = self.window_for(camera) {
             body["window"] = json!(window);
@@ -840,6 +858,40 @@ impl App {
             self.pause_when_playing = true;
             self.commit_playback(at, None, fx);
         }
+    }
+
+    /// OK on the full view: a playback is held or plays on. Live is held as a recording from its live edge where the camera records (OK again plays on
+    /// from there, behind live), else as its newest still with live stopped (OK again goes back to live).
+    fn pause_or_resume(&mut self, fx: &mut Vec<Effect>) {
+        let Some(c) = self.current().cloned() else { return };
+        if self.frozen {
+            self.connect_now(fx);
+        } else if self.expect == Expect::Recording && self.pause_when_playing {
+            // OK again before the hold took: it plays on
+            self.pause_when_playing = false;
+        } else if self.expect == Expect::Recording {
+            self.toggle_pause(fx);
+        } else if !self.can_hold(&c) {
+            return;
+        } else if c.recordings {
+            self.toggle_pause(fx);
+            self.timeshift = true;
+        } else {
+            self.stop_live(fx);
+            self.retry = None;
+            self.frozen = true;
+        }
+        self.dirty = true;
+    }
+
+    /// OK can hold the picture: a playback, a held still, or live of the camera shown offered and dialled.
+    fn can_hold(&self, c: &data::Camera) -> bool {
+        self.expect == Expect::Recording || self.frozen || (self.can_live(c) && !self.held_back(c))
+    }
+
+    /// The picture is held: a paused recording, one about to be held, or live stopped on a still.
+    fn paused(&self) -> bool {
+        self.frozen || (self.expect == Expect::Recording && (self.pause_when_playing || self.live.paused))
     }
 
     // ------------------------------------------------------------------ topics and answers
@@ -1163,7 +1215,13 @@ impl App {
                         self.ok_fired = false;
                     }
                 } else if self.ok_down.take().is_some() && !self.ok_fired {
-                    self.reveal_or(now, fx, |app, fx| app.ok(now, fx));
+                    if self.is_full() && self.strip.is_none() && self.sheet.is_none() && self.options.is_none() {
+                        // OK holds the picture: a pause that only brought the chrome back would miss the moment
+                        self.show_chrome(now);
+                        self.ok(now, fx);
+                    } else {
+                        self.reveal_or(now, fx, |app, fx| app.ok(now, fx));
+                    }
                 }
             }
             ("back", _) if down && !repeat => self.back(now, fx),
@@ -1281,15 +1339,21 @@ impl App {
                 self.switch_to(&id, fx);
             }
             Dir::Up => {
-                if let Some(c) = self.current().cloned().filter(|c| c.recordings && self.live_on()) {
-                    self.strip = Some(Strip::new(c.since));
-                    self.dirty = true;
+                // the timeline where the camera records (its controls row opens the events), else the events and clips
+                if let Some(c) = self.current().cloned().filter(|_| self.live_on()) {
+                    if c.recordings {
+                        self.strip = Some(Strip::new(c.since));
+                        self.dirty = true;
+                    } else if c.events || c.clips {
+                        self.open_sheet_for(&c, fx);
+                    }
                 }
             }
-            Dir::Down => {
-                if let Some(c) = self.current().cloned().filter(|c| (c.events || c.clips) && self.live_on()) {
-                    self.open_sheet_for(&c, fx);
-                }
+            Dir::Down if n > 1 => {
+                self.stop_live(fx);
+                let layout = self.layout();
+                self.screen = Screen::Grid(GridState { focus: GFocus::Tile(i), top: layout.top_for(0, i), back_to: i });
+                self.reset_transient();
             }
             _ => {}
         }
@@ -1344,14 +1408,8 @@ impl App {
             Screen::Full(_) => {
                 if self.note_up() {
                     self.connect_now(fx);
-                } else if self.cams.list.len() > 1 {
-                    let cur = self.current_index().unwrap_or(0);
-                    let mut fxx = Vec::new();
-                    self.stop_live(&mut fxx);
-                    fx.extend(fxx);
-                    let layout = self.layout();
-                    self.screen = Screen::Grid(GridState { focus: GFocus::Tile(cur), top: layout.top_for(0, cur), back_to: cur });
-                    self.reset_transient();
+                } else {
+                    self.pause_or_resume(fx);
                 }
             }
             Screen::Closed => {}
@@ -1449,7 +1507,8 @@ impl App {
             self.dirty = true;
             return;
         }
-        if self.is_full() && self.expect == Expect::Recording {
+        // a playback from the timeline goes live first; a hold made with OK is part of watching live, and Back closes
+        if self.is_full() && self.expect == Expect::Recording && !self.timeshift {
             self.go_live(fx);
             self.dirty = true;
             return;
@@ -1667,8 +1726,12 @@ impl App {
             }
             Screen::Full(f) => {
                 if let Some(c) = self.cams.get(&f.camera) {
-                    if self.wants_still(c) {
-                        out.push(Want::repeating(&full_key(&c.id), &format!("/v1/cameras/{}/frame?w={FULL_W}&h={FULL_H}", sheet::encode(&c.id)), FULL_EVERY_MS));
+                    let still = format!("/v1/cameras/{}/frame?w={FULL_W}&h={FULL_H}", sheet::encode(&c.id));
+                    if self.frozen {
+                        // asked once, under its own key: the newest still at the moment OK was pressed, not a repeat of one fetched before
+                        out.push(Want::once(&held_key(&c.id), &still));
+                    } else if self.wants_still(c) {
+                        out.push(Want::repeating(&full_key(&c.id), &still, FULL_EVERY_MS));
                     }
                     // the bars are made from it once the video plays, so it is there with the video; a note over the stills makes its own from them
                     if self.wash_rect().is_some() && !self.note_up() {
@@ -1828,14 +1891,21 @@ impl App {
                 if self.cams.list.len() > 1 {
                     v.push(HintView::new(&[HKey::Left, HKey::Right], Do::Icon("video"), "Left and Right, next camera"));
                 }
+                if self.can_hold(c) {
+                    let (icon, name) = match (self.paused(), self.frozen) {
+                        (false, _) => ("pause", "OK, pause"),
+                        (true, false) => ("play", "OK, play"),
+                        (true, true) => ("play", "OK, live"),
+                    };
+                    v.push(HintView::new(&[HKey::Ok], Do::Icon(icon), name));
+                }
                 if c.recordings && self.live_on() {
                     v.push(HintView::new(&[HKey::Up], Do::Icon("history"), "Up, timeline"));
-                }
-                if (c.events || c.clips) && self.live_on() {
-                    v.push(HintView::new(&[HKey::Down], Do::Icon("list-video"), "Down, events and clips"));
+                } else if (c.events || c.clips) && self.live_on() {
+                    v.push(HintView::new(&[HKey::Up], Do::Icon("list-video"), "Up, events and clips"));
                 }
                 if self.cams.list.len() > 1 {
-                    v.push(HintView::new(&[HKey::Ok], Do::Icon("layout-grid"), "OK, all cameras"));
+                    v.push(HintView::new(&[HKey::Down], Do::Icon("layout-grid"), "Down, all cameras"));
                 }
                 // a camera on a battery that is being called: Back hangs the call up
                 let cancel = self.connecting(c);
@@ -1890,6 +1960,9 @@ impl App {
         if self.note_up() {
             return StateWord { word: words::CANT_PLAY, dot: false };
         }
+        if self.paused() {
+            return StateWord { word: words::PAUSED, dot: false };
+        }
         if self.hole() {
             return if self.expect == Expect::Live { StateWord { word: words::LIVE, dot: true } } else { StateWord { word: words::RECORDED, dot: false } };
         }
@@ -1907,7 +1980,7 @@ impl App {
         let hole = self.hole();
         let note = self.note_up().then(|| self.note());
         let wash = (hole && self.window == Window::Carried).then(|| self.wash_view(c)).flatten();
-        let starting = self.can_live(c) && !hole && note.is_none();
+        let starting = self.can_live(c) && !hole && note.is_none() && !self.frozen;
         let info = if self.live.camera == c.id && self.live.state == LiveState::Playing && self.asked.as_deref() == Some(&c.id) {
             let s = words::stream_words(self.live.width, self.live.height, &self.live.codec, self.live.fps, self.live.rate);
             (!s.is_empty()).then_some(s)
@@ -1920,15 +1993,19 @@ impl App {
             None
         };
         let thumb = self.thumb_pending && self.commit_hint.is_some() && self.planner.pic(&bubble_key(&c.id)).last_at.is_some();
+        let arrived = |key: &str| self.planner.pic(key).last_at.is_some();
         let backdrop = if hole {
             Backdrop::None
         } else if thumb {
             Backdrop::Thumb(bubble_key(&c.id))
+        } else if self.frozen {
+            // the held still, and until it arrives the newest the view or the grid had
+            let keys = [held_key(&c.id), full_key(&c.id), tile_key(&c.id)];
+            Backdrop::Still(keys.iter().find(|k| arrived(k)).unwrap_or(&keys[0]).clone())
         } else if self.wants_still(c) {
             // until the full view's own still has arrived, the grid's tile of the camera (kept in the store) stands in for it: a camera whose
             // stills are slow to start is dimmed over its last picture, not over black
-            let arrived = |key: String| self.planner.pic(&key).last_at.is_some();
-            Backdrop::Still(if !arrived(full_key(&c.id)) && arrived(tile_key(&c.id)) { tile_key(&c.id) } else { full_key(&c.id) })
+            Backdrop::Still(if !arrived(&full_key(&c.id)) && arrived(&tile_key(&c.id)) { tile_key(&c.id) } else { full_key(&c.id) })
         } else {
             Backdrop::None
         };
@@ -1956,6 +2033,8 @@ impl App {
             button_focused: note_up,
             window_cue: self.window == Window::Refused && self.live_claim().is_some(),
             hints: if overlays || note_up { Vec::new() } else { self.hints() },
+            // the strip shows its own play button
+            paused: self.paused() && !overlays,
             fill: self.cfg.fill_bars,
         })
     }
@@ -2127,6 +2206,11 @@ pub fn bubble_key(camera: &str) -> String {
 /// The wash of the bars beside a camera's video: a picture as small as the helper makes one.
 pub fn wash_key(camera: &str) -> String {
     format!("wash:{camera}")
+}
+
+/// The still a held live view of a camera that does not record stands on.
+pub fn held_key(camera: &str) -> String {
+    format!("held:{camera}")
 }
 
 impl Model for App {

@@ -82,12 +82,16 @@ The camera on the whole screen, fitted. The picture is a hole (the layer is tran
 when an app is in front, it is stills (1280 by 720, the next ask 125 ms after the last). Over an app live video is offered only when `theme.cameras.liveOverApps` is true (check C12); the strip, the sheet and
 playback are then not offered. Over Home the live stream is asked on opening and at every switch (`POST live {camera}`; the answer is the `cameras.live` topic).
 
-- **Name pill**, top left: `video`, the name, the state (the live dot and "Live", "Starting", "Recorded", "Can't play"), "2 of 8". **Info pill**, top right: `3840×2160 · H.265 · 15 fps` from the stream (`native` until it plays); a member the stream does not give is left out, and with none the pill is not drawn.
+- **Name pill**, top left: `video`, the name, the state (the live dot and "Live", "Starting", "Recorded", "Paused", "Can't play"), "2 of 8". **Info pill**, top right: `3840×2160 · H.265 · 15 fps` from the stream (`native` until it plays); a member the stream does not give is left out, and with none the pill is not drawn.
   A stream that is not prebuffered says "Opens in a few seconds" while it starts. While starting and failing and when stills only, a stills backdrop shows (4 a second); a prebuffered start is black until it plays.
-- **Hints**, bottom right, only when the strip and the sheet are closed: Left and Right `video` (when there is more than one camera), Up `history` (when the camera records and live video is on), Down `list-video` (when it has
-  events or clips and live video is on), OK `layout-grid` (more than one camera), Back `close`.
-- **Keys with the chrome up:** Left and Right the previous and next camera (wrapping); Up the strip; Down the sheet; OK the grid; Back, in order: a playback goes live, else the view closes. With the chrome hidden a
-  key other than Back only reveals it. A new camera or a close tears the session down off the UI path (`live/stop`).
+- **Hints**, bottom right, only when the strip and the sheet are closed: Left and Right `video` (when there is more than one camera), OK `pause` or `play` (when live is offered or a recording plays), Up `history` (when the camera
+  records and live video is on) or else `list-video` (when it has events or clips), Down `layout-grid` (more than one camera), Back `close`.
+- **Keys with the chrome up:** Left and Right the previous and next camera (wrapping); OK pauses and resumes; Up the strip, or the sheet for a camera that does not record (the strip's controls row opens the sheet
+  otherwise); Down the grid; Back, in order: a playback from the strip or the sheet goes live, else the view closes. With the chrome hidden OK acts at once and any other key but Back only reveals it. A new camera or a
+  close tears the session down off the UI path (`live/stop`).
+- **OK, pause:** live of a camera that records is held as a recording from 2 s behind the live edge, paused at its first picture; OK again plays on from there, behind live. Live of a camera that does not record
+  cannot be held: it stops and the camera's newest still stands (asked once, `held:` key) until OK asks for live again. A playback pauses and resumes. While held a `pause` badge sits in the middle of the picture
+  and stays when the chrome fades.
 - **Failure:** `state: failed` shows a note over a dimmed backdrop: "Can't play this camera", the reason's words, a `Try again` button (OK, which asks again at once: a stream address lives 25 to 60 s, so a retry always asks for a new one), Back closes.
   A recording that ends (`stopped`, "End of recording") asks live again by itself. A stream the bridge ended because the device was removed shows the same note and the grid's state turns to `refused`.
   **A refused start** (`POST live` answered 409 for the camera shown) is the same note, over the stills, not a toast: a camera Scrypted says is offline reads "This camera is offline", "Looking again every few seconds.",
