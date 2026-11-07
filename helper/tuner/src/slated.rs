@@ -35,6 +35,9 @@ pub(crate) struct Slated {
     pub(crate) look: Look,
 }
 
+/// How many of the slate's frames go out before they are due (see [`Show::tick`]).
+const AHEAD: u64 = 2;
+
 /// What goes out: the program, the slate that stands in for its picture, and when that slate's frames are due.
 struct Show {
     program: Program,
@@ -49,7 +52,7 @@ struct Show {
 }
 
 impl Show {
-    /// The tables when they are due, the slate's frames due by `now` and the one after while it stands in, then out with all of it.
+    /// The tables when they are due, the slate's frames due by `now` and the two after while it stands in, then out with all of it.
     fn tick(&mut self, now: Duration, every: Duration, w: &mut dyn Write) -> io::Result<()> {
         if self.held {
             return Ok(());
@@ -59,9 +62,10 @@ impl Show {
             self.tables = Some(now);
         }
         if !self.program.is_live() {
-            // A frame ahead: FFmpeg's MPEG video parser ends a picture only when the next one starts, and the frame after the first is
-            // otherwise held up by the tune (0.54 to 0.80 s on the set, 2026-11-07), so the player's first picture with it.
-            while self.due(self.frames.saturating_sub(1)) <= now {
+            // Two frames ahead: FFmpeg's MPEG video parser ends a picture only when the next one starts, and its decoder shows a
+            // reference picture only once the next one is decoded, so the first is seen when the third starts. The tune held the second
+            // and third back 0.4 to 0.8 s on the set (2026-11-07), and the first picture with them.
+            while self.due(self.frames.saturating_sub(AHEAD)) <= now {
                 self.frame();
             }
         }
@@ -909,7 +913,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_first_slate_picture_goes_out_with_the_next_so_a_parser_ends_it_before_the_tune() {
+    fn the_first_slate_picture_goes_out_with_the_two_after_it_so_ffmpeg_shows_it_before_the_tune() {
         let time = Time::default();
         let script = Script::new(&time, stops_at_two());
         let f = facade(&script, quick());
@@ -919,7 +923,7 @@ pub(crate) mod tests {
         };
         let mut out = Writes::default();
         f.play(s, &mut out, &AtomicBool::new(false)).unwrap();
-        assert_eq!(pictures(&out.0[0]).len(), 2, "the first write, before the tune's 300 ms, holds two slate pictures");
+        assert_eq!(pictures(&out.0[0]).len(), 3, "the first write, before the tune's 300 ms, holds three slate pictures");
     }
 
     #[test]
