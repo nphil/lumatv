@@ -558,6 +558,8 @@ impl Inner {
         let ticket = self.ticket.fetch_add(1, Ordering::SeqCst) + 1;
         self.live.asking(camera, mode, &usage.purpose);
         let asked_at = std::time::Instant::now();
+        // a recording's window ends at the moment it is asked for, by the bridge's clock
+        let ends_by = (mode == Mode::Playback).then(|| now_ms() as i64 + self.skew_ms());
         let dial = match ask(&bridge) {
             Ok(dial) => dial,
             Err(t) => {
@@ -618,6 +620,7 @@ impl Inner {
             fps: dial.fps,
             started_at: dial.started_at,
             rate: dial.rate,
+            ends_by,
             ndl_app: usage.ndl_app,
             texture: usage.texture,
             sub: usage.sub,

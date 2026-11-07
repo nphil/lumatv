@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A recording played on from a camera hold goes live within a second of its end. The bridge ends a recording at the moment it was asked for and leaves its stream open, so the picture stood on its last frame until the 8 s quiet limit failed the session. A recording that goes 400 ms without a picture within 3 s of that moment is now over, and the full view asks for live at once.
+
+The format badge no longer says FHD for a smaller picture. videooutputd first reports a new video as 1920x1080 with no frame rate or video info; that size is ignored, and a later size replaces the one before even when it has no mark (Live TV's 704x480 channels read SDR alone).
+
 OK on a camera's live view holds the picture that is on the screen, whole. It used to dial a recording 2 s behind live and stop on its first picture; a bridge that re-encoded that recording began it between key pictures, so the held picture could be half green and blocky. Play now dials the recording from the key picture the held one was decoded from, 500 ms early, and a paused recording plays on the same way. A stream of another codec reloads the decoder and, like a flushed one, starts it at a key picture.
 
 Settings › Home widgets says the width of a card set on Home to a width other than Small, Half or Wide (4, 6 or 8 of the 12 columns): the row reads "7 of 12 columns" under its name and marks no size, where it showed a blank tray. A size pressed still sets that size.

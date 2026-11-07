@@ -280,15 +280,18 @@ impl Formats {
             return if self.audio_tag.is_some() { self.follow_audio(None) } else { Vec::new() };
         };
         self.present = true;
-        let size = v.width.zip(v.height).and_then(|(w, h)| size_mark(w, h));
+        // videooutputd's first status of a new video is a placeholder 1920x1080 with no frame rate and no video info (Live TV's 704x480 69-6,
+        // 2026-11-06): a size counts once the rate or the video info comes with it, and then replaces the one before, none below 720 lines included
+        let settled = v.fps.is_some() || v.hdr.is_some();
+        let size = v.width.zip(v.height).filter(|_| settled).map(|(w, h)| size_mark(w, h));
         let refresh = v.fps.map(refresh_mark);
         let range = v.hdr.as_deref().map(range_mark);
         let input = is_external_input(&v.app);
         if self.shown.as_deref() != Some(v.context.as_str()) {
-            // a new picture, shown once its size is known
-            if size.is_none() {
+            // a new picture, shown once its size has settled
+            let Some(size) = size else {
                 return Vec::new();
-            }
+            };
             let effects = self.follow_audio(input.then_some(v.context.as_str()));
             self.shown = Some(v.context);
             (self.size, self.refresh, self.range, self.range_announced, self.sound, self.channels) = (size, refresh.flatten(), range, false, None, None);
@@ -298,7 +301,9 @@ impl Formats {
         // the same picture: a stream's ramp to another size, or its range known late, changes the badge while it is up; an input's source
         // switching its signal (a console to 120 Hz, a player to HDR for a film) is news of its own
         let before = self.marks();
-        self.size = size.or(self.size);
+        if let Some(size) = size {
+            self.size = size;
+        }
         self.refresh = refresh.unwrap_or(self.refresh);
         if !self.range_announced {
             self.range = range.or(self.range);
@@ -443,6 +448,26 @@ mod tests {
         f.update(&Input::Tick, 1200 + SHOW_MS);
         f.update(&status("yt", "youtube.leanback.v4", 1920, 1080, "HDR10"), 7000);
         assert_eq!(f.view(), None, "a ramp after the badge went is not shown");
+    }
+
+    #[test]
+    fn live_tvs_placeholder_size_is_not_shown_and_a_later_size_replaces_the_one_before() {
+        // videooutputd's MAIN sink tuning Live TV to 69-6 (2026-11-06, `livetv-videooutput.txt`)
+        let ctx = "5f43b00E5b861F74Ea8BebADAB60Bab";
+        let main = |m: Value| Input::Luna { tag: STATUS_TAG, payload: json!({"returnValue": true, "video": [m, {"sink": "SUB0", "connected": false}]}) };
+        let tv = |w: u64, h: u64, fps: u64, info: Value| {
+            main(json!({"sink": "MAIN", "connected": true, "context": ctx, "appId": LIVE_TV_APP, "width": w, "height": h, "frameRate": fps, "videoInfo": info}))
+        };
+        let mut f = Formats::new();
+        f.update(&main(json!({"sink": "MAIN", "connected": false, "context": "unknown", "appId": "unknown", "width": 0, "height": 0})), 0);
+        f.update(&tv(1920, 1080, 0, Value::Null), 100);
+        f.update(&tv(0, 0, 0, json!({"hdrType": "none"})), 200);
+        assert_eq!(f.view(), None, "the placeholder 1920x1080 is not shown");
+        f.update(&tv(704, 480, 29, json!({"hdrType": "none"})), 300);
+        assert_eq!(marks(&f), ["sdr"]);
+        f.update(&tv(1280, 720, 29, json!({"hdrType": "none"})), 400);
+        f.update(&tv(704, 480, 29, json!({"hdrType": "none"})), 500);
+        assert_eq!(marks(&f), ["sdr"], "a size below 720 lines replaces HD");
     }
 
     #[test]
