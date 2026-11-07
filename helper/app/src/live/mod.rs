@@ -59,10 +59,14 @@ const HOLD: Duration = Duration::from_millis(150);
 /// A stream with nothing for this long is over.
 const QUIET: Duration = Duration::from_secs(8);
 /// A recording whose window ends where it was asked for: the bridge stops sending there and leaves the connection open (round 5, 2026-11-06:
-/// the position stood 7.7 s in, 0.25 s before the dial, and `QUIET` held the last picture for 8 s). A recording within [`RECORDING_END_MARGIN_MS`]
-/// of that moment that sends nothing for [`RECORDING_END_GAP`] is over; the margin covers the clock skew and the last key picture.
+/// the position stood 7.7 s in, 0.25 s before the dial, and `QUIET` held the last picture for 8 s). A recording whose last picture is within
+/// [`RECORDING_END_MARGIN_MS`] of that moment is over once no picture has come for [`RECORDING_END_GAP`], whatever else the connection still
+/// carries (2026-11-07, round 1: its last picture 0.6 s before the dial, the picture stood 2.3 s while the end waited for the connection to go
+/// quiet); the margin covers the clock skew and the last key picture.
 const RECORDING_END_MARGIN_MS: i64 = 3000;
-const RECORDING_END_GAP: Duration = Duration::from_millis(400);
+/// Longer than the longest gap between a camera's pictures (the Front Door camera's 160 ms), and short enough that live, which the full view
+/// asks for when the recording ends, can follow within 0.5 s of the last picture.
+const RECORDING_END_GAP: Duration = Duration::from_millis(250);
 /// A live stream that sends nothing for this long after its PLAY, before any picture, is dialled again. Backyard's stream through Scrypted's
 /// Rebroadcast (2026-11-06) sent nothing at all in 2 of 10 starts, and the start right after each played; a stream that is up sends within 0.2 s.
 const FIRST_DATA: Duration = Duration::from_secs(2);
@@ -2377,9 +2381,8 @@ fn read_once(
     let mut lag = LagWatch::new();
     let mut frames: Vec<Frame> = Vec::new();
     let mut waiting: VecDeque<Unit> = VecDeque::new();
-    let mut pictured = false;
-    // the last picture read is within the margin of the recording's window end
-    let mut at_end = false;
+    // the recording's position at the last picture read, and when that came by the session's clock
+    let mut last: Option<(i64, Instant)> = None;
     loop {
         if stop.load(Ordering::SeqCst) || session.ended() {
             return Ended::Told;
@@ -2405,20 +2408,33 @@ fn read_once(
         {
             return Ended::Lost(words_of(&e));
         }
-        if at_end && rtsp.stalled(now, RECORDING_END_GAP) {
+        // a recording whose last picture is near its window's end: when it is over, and how far before that end the picture was
+        let over_at = last.and_then(|(position, at)| {
+            plan.ends_by
+                .filter(|end| position >= end - RECORDING_END_MARGIN_MS)
+                .map(|end| (at + RECORDING_END_GAP, end - position))
+        });
+        if let Some((at, short)) = over_at
+            && now >= at
+        {
+            crate::log_info!(
+                "cameras: the recording on camera {} is over: no picture for {} ms, the last {} ms before its window's end",
+                plan.camera,
+                RECORDING_END_GAP.as_millis(),
+                short.max(0)
+            );
             return Ended::End;
         }
         if rtsp.stalled(now, QUIET) {
             return Ended::Quiet;
         }
-        if !pictured && first_data.is_some_and(|limit| rtsp.stalled(now, limit)) {
+        if last.is_none() && first_data.is_some_and(|limit| rtsp.stalled(now, limit)) {
             return Ended::Silent;
         }
         let until_keepalive = rtsp.keepalive_at().saturating_duration_since(now);
-        let most = if at_end {
-            RECORDING_END_GAP / 2
-        } else {
-            first_data.filter(|_| !pictured).map_or(Duration::from_millis(500), |limit| limit.min(Duration::from_millis(500)))
+        let most = match over_at {
+            Some((at, _)) => at.saturating_duration_since(now),
+            None => first_data.filter(|_| last.is_none()).map_or(Duration::from_millis(500), |limit| limit.min(Duration::from_millis(500))),
         };
         if !waker.wait(rtsp.fd(), until_keepalive.min(most)) {
             continue;
@@ -2426,11 +2442,10 @@ fn read_once(
         frames.clear();
         let read = rtsp.read(&mut frames);
         let arrived = Instant::now();
+        if let Some(frame) = frames.last() {
+            last = Some((plan.started_at + frame.pts_us / 1000 * i64::from(plan.rate), (inner.now)()));
+        }
         for frame in frames.drain(..) {
-            pictured = true;
-            at_end = plan
-                .ends_by
-                .is_some_and(|end| plan.started_at + frame.pts_us / 1000 * i64::from(plan.rate) >= end - RECORDING_END_MARGIN_MS);
             match lag.note(arrived, frame.pts_us) {
                 Lag::Settled => session.queue.settle(),
                 Lag::Behind => return Ended::Behind,
@@ -3344,22 +3359,27 @@ mod tests {
     }
 
     #[test]
-    fn a_recording_quiet_where_its_window_ends_is_over_at_once_and_quiet_long_before_it_is_a_stall() {
+    fn a_recording_with_no_picture_near_its_windows_end_is_over_after_the_gap_whatever_still_comes_and_far_from_it_is_a_stall() {
         use rtsp_client::fake::{FakeCamera, Script, annexb};
         let hex = |s: &str| (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect::<Vec<u8>>();
         let (sps, pps) = (hex("6742c016d900a02ff970110000030001000003001e0f162e48"), hex("68cb83cb20"));
         let mut key = annexb(&[&sps, &pps]);
         key.extend(annexb(&[&[0x65, 0x88, 0x84, 1]]));
         // three pictures 33 ms apart, then nothing on a connection left open, as the bridge leaves a recording at its window's end
-        let mut script = Script::new(Codec::H264, vec![sps, pps], vec![key], 30);
+        let mut script = Script::new(Codec::H264, vec![sps.clone(), pps.clone()], vec![key.clone()], 30);
         script.silent_after = Some(3);
-        let camera = FakeCamera::start(script);
+        let silent = FakeCamera::start(script);
+        // three pictures, then units with no picture in them (access unit delimiters) 33 ms apart: a connection that is never quiet
+        let mut units = vec![key; 3];
+        units.resize(300, annexb(&[&[0x09, 0xf0]]));
+        let chatty = FakeCamera::start(Script::new(Codec::H264, vec![sps, pps], units, 30));
         let dial: Dial = Arc::new(|address, _| {
             Rtsp::connect(&Url::parse(address)?, &Options { loopback: true, reply_timeout: Duration::from_secs(2), ..Options::default() })
         });
-        // the reader's clock, moved on by the test once the pictures are in
+        // the reader's clock: stopped at the run's start and moved on by the test alone, so that whatever the connection carries is fresh by it
+        let start = Arc::new(Mutex::new(Instant::now()));
         let ahead = Arc::new(AtomicU64::new(0));
-        let clock = ahead.clone();
+        let (at, by) = (start.clone(), ahead.clone());
         let inner = Arc::new(Inner {
             deps: Deps { feeder: None, dial },
             pool: None,
@@ -3370,16 +3390,20 @@ mod tests {
             sizes: Mutex::new(Sizes::default()),
             pipes: Mutex::new(Pipes::default()),
             es_window: ES_FIRST_PICTURE,
-            now: Arc::new(move || Instant::now() + Duration::from_millis(clock.load(Ordering::SeqCst))),
+            now: Arc::new(move || *at.lock() + Duration::from_millis(by.load(Ordering::SeqCst))),
         });
-        let run = |ends_by: i64, quiet: Duration| {
+        // reads `camera`'s recording, its window ending at `ends_by`; once its three pictures are in, the clock is moved on to each of `steps`
+        // in turn, the reader still reading 50 ms after each but the last. What it ended with within 2 s of the last, if anything
+        let run = |camera: &FakeCamera, ends_by: i64, steps: &[Duration]| {
+            *start.lock() = Instant::now();
             ahead.store(0, Ordering::SeqCst);
             let session = test_session(1, &inner, SMALL);
             let plan = Plan { url: camera.url(), mode: Mode::Playback, started_at: 1_000_000, ends_by: Some(ends_by), ..live_plan(false) };
             let (stop, waker) = (AtomicBool::new(false), Waker::new().unwrap());
+            let (done, ended) = std::sync::mpsc::channel();
             thread::scope(|s| {
                 let (inner, session, stop, waker) = (&inner, &session, &stop, &waker);
-                let reader = s.spawn(move || read_once(inner, session, &plan, 0, stop, waker, None));
+                s.spawn(move || done.send(read_once(inner, session, &plan, 0, stop, waker, None)));
                 let mut pictures = 0;
                 while pictures < 3 {
                     match session.queue.take(Duration::from_secs(5)) {
@@ -3388,16 +3412,26 @@ mod tests {
                         _ => panic!("the recording's pictures are queued"),
                     }
                 }
-                ahead.store(quiet.as_millis() as u64, Ordering::SeqCst);
+                let (last, before) = steps.split_last().expect("a step");
+                for step in before {
+                    ahead.store(step.as_millis() as u64, Ordering::SeqCst);
+                    waker.wake();
+                    assert!(ended.recv_timeout(Duration::from_millis(50)).is_err(), "still reading {step:?} after the last picture");
+                }
+                ahead.store(last.as_millis() as u64, Ordering::SeqCst);
                 waker.wake();
-                reader.join().unwrap()
+                let outcome = ended.recv_timeout(Duration::from_secs(2)).ok();
+                stop.store(true, Ordering::SeqCst);
+                waker.wake();
+                outcome
             })
         };
-        // round 5: the window ended 250 ms after the last picture
-        let asked = Instant::now();
-        assert!(matches!(run(1_000_066 + 250, RECORDING_END_GAP), Ended::End));
-        assert!(asked.elapsed() < Duration::from_secs(1), "over within a second of the dial, pictures included");
-        assert!(matches!(run(1_000_066 + 60_000, QUIET), Ended::Quiet), "a minute before its end the recording only stalled");
+        // round 1, 2026-11-07: the last picture 0.63 s before the window's end, and the connection not quiet after it
+        let short = RECORDING_END_GAP - Duration::from_millis(1);
+        assert!(matches!(run(&chatty, 1_000_066 + 630, &[short, RECORDING_END_GAP]), Some(Ended::End)));
+        // the connection's own clock is the real one, by which the pictures came after the run's start: a second over `QUIET` is past them
+        let quiet = QUIET + Duration::from_secs(1);
+        assert!(matches!(run(&silent, 1_000_066 + 60_000, &[quiet]), Some(Ended::Quiet)), "a minute before its end the recording only stalled");
     }
 
     #[test]

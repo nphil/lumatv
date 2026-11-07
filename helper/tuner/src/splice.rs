@@ -396,6 +396,11 @@ impl Program {
         pes[9] = 0x20;
         write_stamp(&mut pes, 9, dts);
         pes.extend_from_slice(es);
+        // FFmpeg's mpegts demuxer holds a video PES of length 0 until the next one starts; with its length it hands the picture on at
+        // its last byte. 0 stays for a picture too long to say, which only video may send.
+        if let Ok(len) = u16::try_from(pes.len() - 6) {
+            pes[4..6].copy_from_slice(&len.to_be_bytes());
+        }
         if self.layout.clock_apart {
             self.clock_packet(pcr, out);
             self.packetize(VIDEO, &pes, None, out);
@@ -770,6 +775,22 @@ mod tests {
         let audio = all[first];
         let h = head(&audio[..]).unwrap();
         assert_eq!(&audio[h.payload..h.payload + 2], &[0x0b, 0x77], "an AC-3 frame");
+    }
+
+    #[test]
+    fn a_slate_picture_says_its_length_unless_it_is_too_long_to_say() {
+        let mut p = Program::new(1, Layout::fallback(3), &SD);
+        // the length the PES head says, and the bytes the PES has after it
+        let mut lengths = |es: &[u8]| {
+            let mut out = Vec::new();
+            p.slate_frame(es, &mut out);
+            let video: Vec<_> = packets(&out).into_iter().filter(|q| psi::pid_of_packet(&q[..]) == VIDEO).collect();
+            let at = payload_at(&video[0]).unwrap();
+            let rest: usize = video[1..].iter().map(|q| PACKET - payload_at(&q[..]).unwrap()).sum();
+            (u16::from_be_bytes([video[0][at + 4], video[0][at + 5]]), PACKET - at - 6 + rest)
+        };
+        assert_eq!(lengths(&[0, 0, 1, 0xB3, 1, 2, 3]), (8 + 7, 8 + 7));
+        assert_eq!(lengths(&vec![0; 70_000]), (0, 8 + 70_000));
     }
 
     #[test]

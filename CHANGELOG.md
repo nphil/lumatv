@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-A recording played on from a camera hold goes live within a second of its end. The bridge ends a recording at the moment it was asked for and leaves its stream open, so the picture stood on its last frame until the 8 s quiet limit failed the session. A recording that goes 400 ms without a picture within 3 s of that moment is now over, and the full view asks for live at once.
+A recording played on from a camera hold hands over to live 250 ms after its last picture. The bridge ends a recording at the moment it was asked for and leaves its stream open, so the picture stood on its last frame until the 8 s quiet limit failed the session; a recording that ran out of pictures shortly before that moment stood about 2.3 s, as its stream was not yet quiet. A recording whose last picture is within 3 s of that moment is now over once 250 ms pass without another, whatever its stream still carries, and the full view asks for live at once.
+
+The Live TV Tuner's slate pictures carry their length. Their video packets said none, and FFmpeg's demuxer, Plex's too, holds such a packet until the next one starts, which put 0.5 to 0.6 s before a stream's first visible picture.
 
 The format badge no longer says FHD for a smaller picture. videooutputd first reports a new video as 1920x1080 with no frame rate or video info; that size is ignored, and a later size replaces the one before even when it has no mark (Live TV's 704x480 channels read SDR alone).
 
