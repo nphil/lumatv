@@ -29,14 +29,23 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
-## Switched-off controller centred, 2026-11-06 (main f606415f, not installed)
+## Combined install, 2026-11-06 (main 43e68615)
 
-Compositor change only (`input.rs`): a game controller whose four stick axes all sit at an end of their ranges when the compositor opens it gets a centred report written into its node. Read on the set at 21:13 to 21:23, before the change: the receiver (054c:09cc, `usb 8-1`, device 035) with its pad off since 18:56, `event9` at LX=LY=RX=RY=0 of 0..255, no reports on `event9` or `hidraw0`; `event9` held by `surface-manager` and the compositor only; `/var/lib/webosbrew` made anew 2026-10-30 21:00, so `50-padguard` and `padguard.py` are gone and no `/tmp/padguard.log` exists. Pending: the combined install.
+Main 43e68615 installed at 22:15 EST by the standard path over Live TV, which was relaunched in front afterwards. It carries the volume fix (90229a84), the highlight self-heal (191cbbe0), the switched-off controller (f606415f, below), the camera OK pause (a98bf5df) and the format badge (3dfcfb8a, 43e68615). Installed sha256: compositor `d60bff985665f1b03b3bcb1a193868ddc9db6e5a42f19d29eafaaa49ab0f16ca`, ui `440a800c9c2647e2f87a52365291a4d9d6ce04b692d246e295d66e09155cfa26`, helper `f042de1921cdf35a142ab61b92bc098f1e7258c206b39c29fff84ba1c9e0a66b`; sm `65f6ca69` and lumatv-jpeg `8b6d65a8` unchanged. Replaced: compositor `87ef3b24`, ui `f6c19d64`, helper `e74688a8`. The app's leftover `payload/padguard/` was removed; `50-padguard` is absent. Receipts: `/data/home/tmp/lumatv-combined-20261106/` (`session.log`, `installed-hashes.json`, `as-found.json`, `as-left.json`, `selfheal/`, `vc-fix/`, `vc-lat/`, `pad/`, `camera/`, `format/`, `gate/`; rollback copies in `backup/`).
 
-TV check after the install:
-- With the pad off, the compositor's log has `input: /dev/input/eventN "...Wireless Controller" (activity only) (sticks at the ends of their ranges, no report yet: centred)`, and `EVIOCGABS` on that node reads 128 for ABS_X, ABS_Y, ABS_RX, ABS_RY.
-- Netflix in front, the pad connected but off: no scrolling for 60 s.
-- The pad switched on: Netflix navigates with it normally, and a GeForce NOW stream still takes the pad (`gfn-pad` logs no `grab refused`).
+- Self-heal: Home, then Settings › Home & look › Home widgets (Show and Order) and back with remote keys: `ui.refusals` 0 throughout and no `compositor refused:` or `scene is full` lines; the profile chip, focus plates and row plates drew on every page.
+- Volume, receiver plugin on: three taps down, two up, a 2 s hold and mute twice moved the receiver with no overshoot; the bar matched all six, CEC sent no volume steps (two mute), and the bar showed mute and its release. Key to bar 9.2 ms median, 12.6 ms max (n=10), against 12.6 ms (n=20, f802ddd2) and 10.0 ms (n=12) before the fix.
+- Controller, pad off: the compositor logged `event9` "sticks at the ends of their ranges, no report yet: centred", and `EVIOCGABS` reads 128 on ABS_X, ABS_Y, ABS_RX and ABS_RY (0 before the install). With Netflix in front for 60 s the node gave no reports and nothing scrolled.
+- Cameras: OK holds the full view with the pause badge centred and "Paused" in the pill; OK again plays on (Backyard, which records: from the hold, "Recorded"; Bird, which does not: back to live). Down opens all cameras on the camera shown and Back closes; when the controls have hidden, the first Down only brings them back. No `HW jpg fail` in the log or dmesg.
+- Backyard's first hold showed a broken picture, its lower half green, then blocks on playing on; the helper logged that recording as H.264 with 50 pictures lost. A second hold got H.265, lost none and drew clean.
+- Format badge: `show toast format:uhd,dolby-vision,atmos` over Home drew "4K · Dolby Vision · Dolby Atmos" at the top right and left within 6 s; Netflix's Meridian page (its preview in Dolby Vision, 3840×2160) showed "4K · Dolby Vision" 10 s after launch; Live TV showed "FHD · SDR". `gate.sh rust` format: PASS (first 110 ms, drawn +61, GL errors 0). 120 Hz frames gate, format, 3 cycles: PASS (first frame 11.2 ms, burst end 236 ms, p90 render 1.87 ms, none dropped).
+- After the Dolby Vision page `DE2VSYNC` ran at 240 a second while `osd_irq` stayed at 120, so gate.py's panel check refused to start; a few seconds of Live TV brought `DE2VSYNC` back to 120.
+- Untested: the pad switched on (Netflix navigation with it, GeForce NOW taking it); a Dolby Vision film played, beyond its preview.
+- Left as found: Live TV in front, every plugin on, the receiver on at -37.0 dB, unmuted, input TV, the theme and profile files byte-identical, compositor failures 0.
+
+## Switched-off controller centred, 2026-11-06 (main f606415f, installed with 43e68615)
+
+Compositor change only (`input.rs`): a game controller whose four stick axes all sit at an end of their ranges when the compositor opens it gets a centred report written into its node. Read on the set at 21:13 to 21:23, before the change: the receiver (054c:09cc, `usb 8-1`, device 035) with its pad off since 18:56, `event9` at LX=LY=RX=RY=0 of 0..255, no reports on `event9` or `hidraw0`; `event9` held by `surface-manager` and the compositor only; `/var/lib/webosbrew` made anew 2026-10-30 21:00, so `50-padguard` and `padguard.py` are gone and no `/tmp/padguard.log` exists. TV check: the combined install above.
 
 ## Plugin isolation, the Receiver link 2026-11-06 (main 5acdf16a)
 
