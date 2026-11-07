@@ -1,11 +1,55 @@
 {
+ "120hz": {
+  "height": 112,
+  "width": 276
+ },
+ "144hz": {
+  "height": 112,
+  "width": 272
+ },
+ "5.1": {
+  "height": 112,
+  "width": 184
+ },
+ "7.1": {
+  "height": 112,
+  "width": 180
+ },
  "atmos": {
   "height": 112,
-  "width": 408
+  "width": 380
+ },
+ "dolby-audio": {
+  "height": 112,
+  "width": 352
+ },
+ "dolby-digital": {
+  "height": 112,
+  "width": 400
+ },
+ "dolby-digital-plus": {
+  "height": 112,
+  "width": 436
+ },
+ "dolby-truehd": {
+  "height": 112,
+  "width": 416
  },
  "dolby-vision": {
   "height": 112,
-  "width": 400
+  "width": 364
+ },
+ "dts": {
+  "height": 112,
+  "width": 196
+ },
+ "dts-hd": {
+  "height": 112,
+  "width": 340
+ },
+ "dtsx": {
+  "height": 112,
+  "width": 280
  },
  "fhd": {
   "height": 112,
@@ -13,23 +57,27 @@
  },
  "hd": {
   "height": 112,
-  "width": 140
+  "width": 152
  },
  "hdr": {
   "height": 112,
-  "width": 208
+  "width": 204
  },
  "hdr10": {
   "height": 112,
-  "width": 324
+  "width": 292
  },
  "hdr10plus": {
   "height": 112,
-  "width": 384
+  "width": 336
  },
  "hlg": {
   "height": 112,
   "width": 200
+ },
+ "pcm": {
+  "height": 112,
+  "width": 216
  },
  "sdr": {
   "height": 112,
@@ -37,6 +85,6 @@
  },
  "uhd": {
   "height": 112,
-  "width": 128
+  "width": 144
  }
 }

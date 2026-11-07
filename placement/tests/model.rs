@@ -1,7 +1,7 @@
 //! The model, one rule a test: anchors and offsets in fractions of the room an item has, the zones, the defaults (where every item was before the
 //! owner could place it), stepping with the arrows, the volume bar's edges, stacking, overlaps, the mute mark's drift.
 
-use lumatv_placement::model::{GAP, STACK, TOAST_FOOT};
+use lumatv_placement::model::{CORNER, GAP, STACK, TOAST_FOOT};
 use lumatv_placement::motion::{STOPS, axis, pixels};
 use lumatv_placement::above_subtitles;
 use lumatv_placement::{
@@ -141,6 +141,7 @@ fn the_zones_follow_homes_content_area() {
     }
     assert_eq!(r.zone_of("toast", &f).bottom(), 1080 - TOAST_FOOT);
     assert_eq!(ZoneKind::Content.name(), "content");
+    assert_eq!(ZoneKind::Corner.name(), "corner");
     assert_eq!(ZoneKind::Column.name(), "column");
 }
 
@@ -992,11 +993,13 @@ fn sizes_are_read_from_json_per_item_and_per_edge() {
 }
 
 #[test]
-fn the_format_badge_sits_under_the_status_bar_at_the_top_right_and_steps_aside_from_what_is_up() {
+fn the_format_badge_sits_in_the_top_right_corner_and_steps_aside_from_what_is_up() {
     let f = frame();
     let zone = reg().zone_of("format", &f);
-    let r = reg().rect_of("format", &User::default(), &f, Size::new(392, 60)).unwrap();
-    assert_eq!((r.right(), r.y), (zone.right(), 134), "flush with the content zone's top right, under the status bar's row");
+    let r = reg().rect_of("format", &User::default(), &f, Size::new(280, 44)).unwrap();
+    assert_eq!((r.right(), r.y), (1920 - CORNER, CORNER), "in the corner, inside the safe area");
+    let custom = reg().user_from_json(&json!({"format": {"anchor": "bottom-left", "dx": 0.0, "dy": 0.0}}));
+    assert_ne!(reg().rect_of("format", &custom, &f, Size::new(280, 44)), Some(r), "a place of the owner's own is kept");
     assert!(reg().item("format").unwrap().yields, "in nobody's way in the editor");
     assert_eq!(step_aside(r, &[], &zone, GAP), Some(r));
     let popup = reg().rect_of("popup", &User::default(), &f, Size::new(560, 469)).unwrap();

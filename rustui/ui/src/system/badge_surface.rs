@@ -1,6 +1,6 @@
-//! The format badge drawn: one pill of the theme's glass with the picture's marks side by side in the look's ink, at the owner's place for
-//! `format` (the top right of the content zone, under the status bar's row, by default). It steps aside from what is up (the pop-up, the cards,
-//! the volume bar and the mute mark, a toast) and stays down while there is no room clear of them.
+//! The format badge drawn: one compact pill of the theme's glass with the picture's marks side by side in the look's ink, at the owner's
+//! place for `format` (the screen's top right corner, inside the safe area, by default). It fades in and out where it rests, steps aside
+//! from what is up (the pop-up, the cards, the volume bar and the mute mark, a toast) and stays down while there is no room clear of them.
 
 use super::badge::Badge;
 use crate::kit::Kit;
@@ -13,18 +13,14 @@ use serde_json::Value;
 use ui::geometry::Frame;
 use ui::scene::ImageLayer;
 
-/// How far the badge travels in from its edge.
-const TRAVEL: f32 = 24.0;
-/// The volume bar's least height: the two pills are one family.
-const MIN_HEIGHT: f32 = 56.0;
 /// What the placement editor's stand-in shows: a 4K Dolby Vision film with Atmos.
 pub const SAMPLE: [&str; 3] = ["uhd", "dolby-vision", "atmos"];
 
-/// The marks' height, the pane's side pads, the gap between marks and the pane's height, all whole pixels.
+/// The marks' height, the pane's side pads, the gap between marks and the pane's height, all whole pixels: the marks at the label's size
+/// with the smallest pads that still read as a pill.
 fn metrics(kit: &Kit) -> (u32, f32, f32, f32) {
     let mark_h = (kit.ty(TypeRole::Label).px as f32 * 1.08).round();
-    let h = (kit.line(TypeRole::Label).max(mark_h).ceil() + 2.0 * kit.space(3)).max(MIN_HEIGHT);
-    (mark_h as u32, kit.space(5), kit.space(4), h)
+    (mark_h as u32, kit.space(4), kit.space(3), mark_h + 2.0 * kit.space(2))
 }
 
 /// The pane's size for `marks` (the ones the kit has art for).
@@ -133,11 +129,8 @@ impl BadgeSurface {
         let pane_at = Props::at(x, y);
         let marks_at = Props::at(x + b.inset.0, y + b.inset.1);
         if !b.visible && !continuing {
-            let from = self.registry.slide_of("format", &self.user);
-            let travel = if kit.ui.look.reduced_motion { 0.0 } else { TRAVEL };
-            let by = (from.x as f32 * travel, from.y as f32 * travel);
-            kit.arrive_from(b.pane.layer(), pane_at, by, Beat::Layer);
-            kit.arrive_from(&b.marks, marks_at, by, Beat::Layer);
+            kit.arrive(b.pane.layer(), pane_at, Beat::Layer, false);
+            kit.arrive(&b.marks, marks_at, Beat::Layer, false);
         } else if !b.visible {
             b.pane.layer().set(pane_at);
             b.marks.set(marks_at);
@@ -197,14 +190,14 @@ mod tests {
     }
 
     #[test]
-    fn the_badge_sits_top_right_under_the_status_bar_and_steps_aside_from_what_is_up() {
+    fn the_badge_sits_in_the_top_right_corner_and_steps_aside_from_what_is_up() {
         let (_h, mut kit) = with_marks(Mode::Dark);
         let mut s = BadgeSurface::new(Z, &json!({}), &json!({}));
         assert!(s.apply(&mut kit, Some(&badge(1)), &[], false).unwrap());
         let r = s.rects()[0];
         let zone = s.registry.zone_of("format", &s.frame);
-        assert_eq!((r.x + r.w, r.y), ((zone.x + zone.w) as f32, zone.y as f32), "flush with the content zone's top right");
-        assert!(r.y >= 134.0, "below the status bar's row");
+        assert_eq!((r.x + r.w, r.y), ((zone.x + zone.w) as f32, zone.y as f32), "flush with the corner zone's top right");
+        assert_eq!((r.x + r.w, r.y, r.h), (1880.0, 40.0, 44.0), "a compact pill 40 px in from the top and the right");
         assert_eq!([r.x, r.y, r.w, r.h].map(f32::fract), [0.0; 4], "whole pixels");
         // the pop-up at its corner and the volume bar under the badge: it moves to the nearest place clear of both, inside its zone
         let popup = PlacedRect::new(1888 - 560, 32, 560, 469);

@@ -13,12 +13,10 @@ colour it is given, so a mark follows the ink of the look), cleared of its (R) a
 to the ink and scaled to `--height` px tall: 4x the 28 px the bar draws it at, so a 1080p surface scaled to 4K and text at 200 % stay
 crisp. Rendering of the SVGs is Chromium's, headless. `index.json` lists each key with its width and height in px.
 
-The video set's sources sit in `generators/video-logos/`: LumaTV's own simplified marks in `currentColor`, the words as outlines of
-the pinned Manrope 700 (`generators/fonts/`), on a frame 112 units tall (caps from 20 to the baseline at 92, the double-D from 8 to 104).
-The Dolby marks stack a small DOLBY (800, caps 8 to 40) over VISION or ATMOS (caps 52 to 104) beside the double-D, so a badge with
-both stays short: on one line the words made it 561 px at 28 px marks, stacked 306.
-They keep the frame's height, so the marks of a badge share caps and baseline, and are drawn at exactly 8x and box-filtered down, so
-the caps' edges fall on whole pixels at 112, 56 and 28 px; their widths are whole multiples of 4 px, so at 56 and 28 px every column
+The video set's sources sit in `generators/video-logos/`, written by `generators/gen-video-marks.py`: LumaTV's own simplified marks in
+`currentColor` on a frame 112 units tall (a format's name in a rounded frame from 8 to 104, Dolby's double-D beside DOLBY over its kind).
+They keep the frame's height, so the marks of a badge share their top and foot, and are drawn at exactly 8x and box-filtered down, so
+the frames' edges fall on whole pixels at 112, 56 and 28 px; their widths are whole multiples of 4 px, so at 56 and 28 px every column
 of the result is two or four of the master's.
 """
 import argparse
@@ -43,7 +41,8 @@ AUDIO = {
     "dtsx": ("dtsx.png", []),
 }
 VIDEO = {key: (key + ".svg", []) for key in
-         ["uhd", "fhd", "hd", "dolby-vision", "hdr10plus", "hdr10", "hlg", "hdr", "sdr", "atmos"]}
+         ["uhd", "fhd", "hd", "120hz", "144hz", "dolby-vision", "hdr10plus", "hdr10", "hlg", "hdr", "sdr", "atmos", "dolby-digital-plus",
+          "dolby-digital", "dolby-truehd", "dolby-audio", "dtsx", "dts-hd", "dts", "pcm", "5.1", "7.1"]}
 # set -> (source directory, marks, whether they keep their frame's height)
 SETS = {
     "audio": (os.path.join(HERE, "audio-logos"), AUDIO, False),

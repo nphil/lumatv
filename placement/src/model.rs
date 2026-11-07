@@ -33,6 +33,9 @@ pub const REST: i32 = 32;
 pub const TOAST: i32 = 24;
 /// The air a toast keeps under it at the foot of the screen: 5 % of the height, the TV-safe margin (Lucent `safe.y`).
 pub const TOAST_FOOT: i32 = 54;
+/// The format badge's inset from the screen's top and right edges: in the corner, inside the TV-safe area (Nitin: "much closer to the
+/// top-right corner").
+pub const CORNER: i32 = 40;
 /// The mute mark: the TV's smallest target.
 pub const MARK: i32 = 64;
 /// The mark moves this far, four places of a square, so a panel never holds one still mark.
@@ -376,6 +379,8 @@ pub enum ZoneKind {
     /// Home's status bar's row: from the safe area's left to its right, the bar's height. The pill of buttons is placed along it, and can only be
     /// moved along it.
     Bar,
+    /// The screen's top right corner inside the safe area: from `CORNER` in at the top and the sides, down to the bottom quarter's top.
+    Corner,
 }
 
 impl ZoneKind {
@@ -386,6 +391,7 @@ impl ZoneKind {
             ZoneKind::Toast => "toast",
             ZoneKind::Column => "column",
             ZoneKind::Bar => "bar",
+            ZoneKind::Corner => "corner",
         }
     }
 
@@ -396,6 +402,7 @@ impl ZoneKind {
             ZoneKind::Toast => Rect::from_edges(TOAST, TOAST, W - TOAST, H - f.safe_y.max(TOAST_FOOT)),
             ZoneKind::Column => Rect::from_edges(f.column_inset(), f.column_inset(), W - f.column_inset(), f.limit),
             ZoneKind::Bar => Rect::from_edges(f.safe_x, f.safe_y, W - f.safe_x, f.safe_y + f.bar),
+            ZoneKind::Corner => Rect::from_edges(CORNER, CORNER, W - CORNER, f.limit),
         }
     }
 }
@@ -515,14 +522,14 @@ pub const ITEMS: [Item; 7] = [
         id: "format",
         title: "Format badge",
         icon: "film",
-        zone: ZoneKind::Content,
+        zone: ZoneKind::Corner,
         edges: &[],
         lift: 0,
         drift: 0,
         auto: false,
         stacks: None,
         default: Placement::new(Anchor::TopRight, 0.0, 0.0),
-        sample: Size::new(392, 60),
+        sample: Size::new(278, 44),
         stretch: false,
         yields: true,
     },

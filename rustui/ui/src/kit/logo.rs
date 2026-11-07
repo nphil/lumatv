@@ -5,7 +5,10 @@ use compositor_protocol::Rgba;
 use std::path::Path;
 
 /// The marks of the format badge, in `icons/video` (`generators/gen-audio-logos.py --set video`).
-pub const VIDEO_MARKS: [&str; 10] = ["uhd", "fhd", "hd", "dolby-vision", "hdr10plus", "hdr10", "hlg", "hdr", "sdr", "atmos"];
+pub const VIDEO_MARKS: [&str; 22] = [
+    "uhd", "fhd", "hd", "120hz", "144hz", "dolby-vision", "hdr10plus", "hdr10", "hlg", "hdr", "sdr", "atmos", "dolby-digital-plus",
+    "dolby-digital", "dolby-truehd", "dolby-audio", "dtsx", "dts-hd", "dts", "pcm", "5.1", "7.1",
+];
 
 pub struct LogoArt {
     pub name: &'static str,

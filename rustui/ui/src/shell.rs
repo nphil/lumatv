@@ -3427,7 +3427,7 @@ mod tests {
     }
 
     #[test]
-    fn the_format_badge_is_raised_by_the_show_topic_at_the_top_right_under_the_bar_and_leaves_after_five_seconds() {
+    fn the_format_badge_is_raised_by_the_show_topic_in_the_top_right_corner_and_leaves_after_three_seconds() {
         let (_h, kit) = testkit::kit(1.0);
         let mut shell = Shell::new(kit, Kinds::parse("osd,toast"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
         shell.start();
@@ -3436,10 +3436,10 @@ mod tests {
         assert!(shell.is_live(), "and it is drawn");
         let at = shell.geometry()["format"].as_array().unwrap().clone();
         let edge = |k: &str| at[0][k].as_f64().unwrap();
-        assert_eq!((at.len(), edge("x") + edge("w"), edge("y")), (1, 1856.0, 134.0), "flush with the content zone's top right: {at:?}");
-        shell.tick(5_900);
-        assert_eq!(shell.state()["format"], 3, "it stays up for 5 s");
-        shell.tick(6_100);
+        assert_eq!((at.len(), edge("x") + edge("w"), edge("y")), (1, 1880.0, 40.0), "40 px in from the top right corner: {at:?}");
+        shell.tick(3_900);
+        assert_eq!(shell.state()["format"], 3, "it stays up for 3 s");
+        shell.tick(4_100);
         assert_eq!(shell.state()["format"], 0);
         assert!(shell.geometry()["format"].as_array().unwrap().is_empty());
     }
