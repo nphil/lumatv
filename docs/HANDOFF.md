@@ -29,6 +29,24 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
 
+## Follow-up install, 2026-11-06 (main c80e8555)
+
+Main c80e8555 installed at 23:35 EST by the standard path, the set woken from Active Standby with Netflix in front, which was relaunched afterwards. It carries the format badge's glyph marks (595cd907), OK holding live on its last whole picture (c155115d), Home widgets saying a width of its own (7c0acb07) and the map tests (c80e8555). Installed sha256: compositor `66c65cc64ddc476f823bd8cc310c5b652b486644001e52c95bded859df3a7e03`, ui `35eb2e98fc2ba111094baa36222e5b2724de7670a0d242956e7954acb62cc1c8`, helper `e26b037794a2d4a73f0e9e8703238a70a1b2171712838fb7aa40bc14ee432b9d`; sm `65f6ca69`, lumatv-jpeg `8b6d65a8` and `tools/lumatv` `0473b152` unchanged. Replaced: compositor `d60bff98`, ui `440a800c`, helper `f042de19`. Receipts: `/data/home/tmp/lumatv-followup-20261106/` (`session.log`, `installed-hashes.json`, `as-found.json`, `as-left.json`, `format/`, `toast/`, `camera/`, `widgets/`, `selfheal.json`, `gate/`; rollback copies in `backup/`).
+
+- Format badge over Home, `show toast format:` with `uhd,dolby-vision,atmos`, `fhd,sdr,pcm`, `hd,hdr10,dts,5.1` and `uhd,120hz,hdr10plus,dolby-truehd,7.1`: one pill 44 px high, 40 px in from the top and the right (278, 210, 274 and 418 px wide), glyph marks and the Dolby logos, up for 2.97 to 3.02 s. Live TV (69-6) showed FHD and SDR in the same place for 3.1 s.
+- Toast `Recording saved|Front door`: a 320 by 100 pill at the bottom centre with a Home card's glass (fill 55,50,70 against the clock card's 52,47,69) and text as sharp as the card's (99th-percentile edge step 0.967 against 0.958).
+- Cameras, Backyard (88), five rounds: OK held within 0.09 s on a clean picture each time (no green, unchanged 3 s later); OK again played on as the recording (H.265) after 0.47 to 1.25 s with 0 pictures lost.
+- Settings › Home & look › Home widgets › Show: the Show and Order labels draw; Clock and Smart home read "7 of 12 columns" and Weather "5 of 12 columns", with no size lit.
+- Self-heal: `ui.refusals` 0 throughout; no `compositor refused:` or `scene is full` lines in the RAM log, `compositor.log` or `shell-rust.log`.
+- `gate.sh rust` format: PASS (first 90 ms, drawn +43, GL errors 0). 120 Hz frames gate, format, 3 cycles: PASS (panel 119.9 Hz, first frame 11.8 ms, burst end 237 ms, p90 render 1.67 ms, none dropped).
+- Untested: an HDMI input's sound line (no HDMI source is connected; HDMI 2 is the receiver).
+- Left as found: Active Standby with Netflix in front, every plugin on, the receiver off at -37.0 dB, unmuted, input TV, the theme and profile files byte-identical, compositor failures 0.
+
+Findings:
+
+- Live TV's 69-6 is 704x480 interlaced, yet the badge said FHD. videooutputd's first status for the new video reports 1920x1080 with frame rate 0 and no video info, and `size.or(self.size)` in `badge.rs` keeps that FHD when the real size arrives, which below 720 lines has no mark.
+- Played on from a hold, the recording stops near the moment Play dialled it. Round 5 (held 6.1 s): the position stopped 7.7 s in, at 23:45:02.26 on the bridge's clock, against the dial at 23:45:02.51 on the set's; the picture stood for about 9 s, the helper ended the session ("the stream went quiet", 18.1 s after the dial) and the view went live 19.5 s after Play. Round 4 ended the same way, 16.3 s after the dial; rounds 1 to 3 were closed within 10 s of it. [INFERENCE] The bridge's recording ends at the time it is asked for rather than running on into live.
+
 ## Combined install, 2026-11-06 (main 43e68615)
 
 Main 43e68615 installed at 22:15 EST by the standard path over Live TV, which was relaunched in front afterwards. It carries the volume fix (90229a84), the highlight self-heal (191cbbe0), the switched-off controller (f606415f, below), the camera OK pause (a98bf5df) and the format badge (3dfcfb8a, 43e68615). Installed sha256: compositor `d60bff985665f1b03b3bcb1a193868ddc9db6e5a42f19d29eafaaa49ab0f16ca`, ui `440a800c9c2647e2f87a52365291a4d9d6ce04b692d246e295d66e09155cfa26`, helper `f042de1921cdf35a142ab61b92bc098f1e7258c206b39c29fff84ba1c9e0a66b`; sm `65f6ca69` and lumatv-jpeg `8b6d65a8` unchanged. Replaced: compositor `87ef3b24`, ui `f6c19d64`, helper `e74688a8`. The app's leftover `payload/padguard/` was removed; `50-padguard` is absent. Receipts: `/data/home/tmp/lumatv-combined-20261106/` (`session.log`, `installed-hashes.json`, `as-found.json`, `as-left.json`, `selfheal/`, `vc-fix/`, `vc-lat/`, `pad/`, `camera/`, `format/`, `gate/`; rollback copies in `backup/`).
