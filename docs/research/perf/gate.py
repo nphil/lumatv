@@ -40,7 +40,9 @@ most SOAK_TRACE_MAX so the ring never overflows. Exit status 0 only when every c
 Home must be on screen when the gate starts. The set needs python3 for kb.py; kb.py and
 capture.sh are copied to /tmp on the set at the start, so nothing else has to be installed.
 The gate also measures the panel (the display's vsync interrupts, `DE2VSYNC`) before it starts and stops when it does not run at --refresh: the TV
-re-times it to 100 Hz after a camera popup or a video window, and a run at the wrong rate judges every window by the wrong refresh.
+re-times it to 100 Hz after a camera popup or a video window, and a run at the wrong rate judges every window by the wrong refresh. Under LumaTV's
+compositor it also stops when the bundle's `ctl` in /tmp/lumatv does not answer, when the app switcher is up after its wake, and, with --refresh other
+than 60, when the compositor's refresh is not held at it (see unfit()).
 
 Screens walked with the D-pad and apps launched from Home (`settings-scroll`, `apps-grid`, `home-widgets`, `switcher`, `keyboard`,
 `transitions-netflix`, `transitions-settings`; named with --surfaces, under LumaTV's compositor, Home at rest in front) run on the owner's own Home
@@ -206,13 +208,16 @@ SWITCHES = {
 }
 NUMBER_KEYS = {'number-keys': True, 'quick-access': False}      # what a surface that presses a dock tile's number key switches (see QUICK_PANEL_FOOT's note)
 
+# The compositor's control tool, from the bundle (LOADGEN's loader and library path). /tmp/lumatv/bin and lib are gone after a reboot until the
+# bundle is deployed again: then neither the ring below nor `gate.sh refresh` can be had (unfit()).
+CTL = '/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib /tmp/lumatv/bin/lumatv-compositor ctl --runtime-dir /tmp/xdg'
 # The compositor's own account of its transitions (`ctl transitions`, docs/research/transitions-result.md): the counters a surface that launches an app
-# reads before and after its measured cycles. The tool is the one the bundle carries (LOADGEN's loader and library path).
-CTL_TRANSITIONS = '/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib /tmp/lumatv/bin/lumatv-compositor ctl --runtime-dir /tmp/xdg transitions'
+# reads before and after its measured cycles.
+CTL_TRANSITIONS = CTL + ' transitions'
 # The compositor's trace ring (`ctl ring N`, src/ring.rs): a line a frame drawn (`D`: render time, owed pixels, UI draws and layers), a line a flip (`L`: the
 # draw's cost to the GPU's finish, what the pacer made of it). The gate keeps the ring of every cycle it measures (<name>.ring.json beside the trace) and
 # prints its numbers (ringsum.py); the ring (768 KiB of text) holds about 50 s of the busiest frames at 60 Hz and 25 s at 120.
-CTL_RING = CTL_TRANSITIONS.rsplit(' ', 1)[0] + ' ring'
+CTL_RING = CTL + ' ring'
 RING_LINES = 8000
 
 # A page of LumaTV's Settings from its rail: Right enters it, Down held (the remote's own repeat: a move at the press and one every 100 ms from 300 ms on, 6 in 800 ms) and Up held walk its list, Back
@@ -1202,6 +1207,20 @@ class Rig:
             f.write(out)
         return path
 
+    def lumatv_state(self):
+        """{'refresh': ..., 'switcher': ...}: the compositor's `ctl refresh` and `ctl switcher` answers, each None when the bundle's ctl gave no JSON;
+        None under LG's compositor, which has neither."""
+        if self.lg_compositor():
+            return None
+        state = {}
+        for word in ('refresh', 'switcher'):
+            rc, out, _ = self.sh(f'{CTL} {word}', timeout=30)
+            try:
+                state[word] = json.loads(out[out.index('{'):]) if rc == 0 else None
+            except ValueError:
+                state[word] = None
+        return state
+
     def set_motion(self, changes):
         """Switches Home's own motion by theme path ({'weather.animated': False}); Home reads the file every 2 s, so wait 3."""
         patch = {}
@@ -1235,9 +1254,15 @@ class Rig:
 
     def wake(self):
         """Home's screensaver and idle dim take the first key, which wakes them and does nothing else: the first gear tap of a run after
-        5 minutes of quiet opened no panel (round 16). One Back, eaten by the saver or harmless on a Home with nothing open, first."""
+        5 minutes of quiet opened no panel (round 16). One Back, eaten by the saver or harmless on a Home with nothing open, first. With the
+        owner's "Recent apps on Back" (theme `remote.recents`) on and an app running, Back from the top of Home opens the app switcher, which
+        then takes every key of the run; a second Back closes it."""
         self.sh(f'python3 {KB} BACK')
         time.sleep(2)
+        state = self.lumatv_state()
+        if state and (state.get('switcher') or {}).get('open'):
+            self.sh(f'python3 {KB} BACK')
+            time.sleep(1)
 
     def capture(self, name, mode):
         self.set.capture(name, mode)
@@ -1511,6 +1536,28 @@ def kwait_lines(results, per_surface=12):
     return '\n'.join(out)
 
 
+def unfit(state, hz):
+    """Why LumaTV's compositor is in no state to be measured, None when it is or when there is nothing to ask (`state` None: LG's compositor). `state` is
+    Rig.lumatv_state()'s; `hz` the refresh the gate was asked for. On 2026-11-07 two runs failed six surfaces of seven on states like these: /tmp/lumatv
+    without the bundle after a reboot (no ring, and `gate.sh refresh 120` had failed, so the automatic policy moved the panel between 60 and 120), then
+    the wake's Back opening the app switcher over Netflix, which took Home's keys (a first frame 352 ms after the key: the clock's next second)."""
+    if state is None:
+        return None
+    refresh, switcher = state.get('refresh'), state.get('switcher')
+    if refresh is None or switcher is None:
+        return ("the compositor's ctl from /tmp/lumatv did not answer (bin and lib are gone after a reboot until the bundle is deployed again): the ring "
+                'cannot be read, so dropped frames would be judged from the trace alone, and `gate.sh refresh` cannot have set the refresh; deploy the bundle, '
+                'or link /tmp/lumatv/bin and lib to the installed one, and start again')
+    if switcher.get('open'):
+        apps = ', '.join(map(str, switcher.get('apps') or []))
+        return (f'the app switcher is up (over {apps or "no app"}) after the wake closed it: it takes the keys, and the surfaces would walk its cards; '
+                'close the switcher and start again')
+    if hz != 60 and (refresh.get('mode') != 'manual' or refresh.get('hz') != hz):
+        return (f"the compositor's refresh is {refresh.get('mode')} at {refresh.get('hz')} Hz and the gate was asked for {hz:g}: the automatic policy moves "
+                f'between 60 and 120 with what is on screen; `gate.sh refresh {hz:g}` first')
+    return None
+
+
 def run_gate(rig, surfaces, soak_cycles, tag, log=None, load=None, load_seconds=3600):
     rig.push_tools()
     log = log or LogWatch(rig)
@@ -1523,6 +1570,9 @@ def run_gate(rig, surfaces, soak_cycles, tag, log=None, load=None, load_seconds=
     if read is False:
         raise RuntimeError(f'the compositor has not opened {device}, where the gate injects its keys: they would go nowhere and the gate would time the saver; '
                            'run a compositor that opens devices made after its start (the changelog of 2026-11-04), or restart it')
+    why = unfit(rig.lumatv_state(), REFRESH_HZ)
+    if why:
+        raise RuntimeError(why)
     hz = rig.panel_hz()
     if hz is not None and abs(hz - REFRESH_HZ) > PANEL_TOLERANCE * REFRESH_HZ:
         raise RuntimeError(f'the panel runs at {hz:.1f} Hz and the gate was asked for {REFRESH_HZ:g}: every window would be judged by the wrong refresh. '

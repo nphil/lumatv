@@ -223,6 +223,7 @@ class FrameGate(unittest.TestCase):
         rig.motion_state.return_value = {path: None for path in gate.MOTION_SWITCHES}
         rig.keys_read.return_value = (None, None)
         rig.panel_hz.return_value = None
+        rig.lumatv_state.return_value = None
         rig.load_start.return_value = started
         rig.load_stop.return_value = summary
         return rig

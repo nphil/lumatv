@@ -646,8 +646,8 @@ class Edges(unittest.TestCase):
         self.assertIn('windows', failed(gate.evaluate_windows(s, r, 3)))
 
     class FakeRig:
-        def __init__(self, motion, age=None, keys=('/dev/input/event10', True), hz=None):
-            self.motion, self.calls, self.age, self.woken, self.keys, self.hz = motion, [], age, False, keys, hz
+        def __init__(self, motion, age=None, keys=('/dev/input/event10', True), hz=None, state=None):
+            self.motion, self.calls, self.age, self.woken, self.keys, self.hz, self.state = motion, [], age, False, keys, hz, state
 
         def compositor_age_s(self):
             return self.age
@@ -663,6 +663,9 @@ class Edges(unittest.TestCase):
 
         def panel_hz(self):
             return self.hz
+
+        def lumatv_state(self):
+            return self.state
 
         def motion_state(self):
             return dict(self.motion) if isinstance(self.motion, dict) else {path: self.motion for path in gate.MOTION_SWITCHES}
@@ -764,6 +767,47 @@ class Edges(unittest.TestCase):
             self.assertEqual(ran, ['home-idle'] * 2)
         finally:
             gate.run_surface = orig
+
+    FIT = {'refresh': {'hz': 120, 'mode': 'manual', 'default_hz': 60}, 'switcher': {'open': False, 'phase': 'Closed', 'apps': []}}
+
+    def test_the_gate_stops_when_the_switcher_took_the_keys(self):
+        # 2026-11-07: the wake's Back opened the app switcher over Netflix and Home's first frame was the clock's next second, 352 ms after the key
+        orig = gate.run_surface
+        ran = []
+        gate.run_surface = lambda rig_, s, tag, soak, log: ran.append(s['name']) or {'name': s['name'], 'checks': [], 'log_lines': []}
+        try:
+            rig = self.FakeRig(False, state=dict(self.FIT, switcher={'open': True, 'phase': 'Open', 'apps': ['netflix']}))
+            with self.assertRaisesRegex(RuntimeError, 'switcher is up \\(over netflix\\)'):
+                gate.run_gate(rig, gate.find(['home-idle']), 3, 't', log=object())
+            self.assertEqual((ran, rig.calls), ([], []), 'no surface ran and nothing was changed on the set')
+            gate.run_gate(self.FakeRig(False, state=self.FIT), gate.find(['home-idle']), 3, 't', log=object())
+            self.assertEqual(ran, ['home-idle'])
+        finally:
+            gate.run_surface = orig
+
+    def test_a_compositor_without_its_ctl_or_off_the_asked_refresh_is_unfit(self):
+        self.assertIsNone(gate.unfit(None, 120), "LG's compositor: nothing to ask")
+        self.assertIsNone(gate.unfit(self.FIT, 120))
+        self.assertIn('did not answer', gate.unfit({'refresh': None, 'switcher': None}, 120), 'no bundle in /tmp/lumatv after a reboot')
+        auto = dict(self.FIT, refresh={'hz': 120, 'mode': 'auto', 'default_hz': 60})
+        self.assertIn('auto at 120 Hz', gate.unfit(auto, 120), 'the policy holds 120 only while something moves')
+        self.assertIsNone(gate.unfit(auto, 60), 'at 60 the gate asks for no refresh of its own')
+
+    def test_the_compositor_state_is_read_past_what_ctl_prints_before_its_answer(self):
+        rig = object.__new__(gate.Rig)
+        answers = {'pgrep': (0, '123\n', ''), 'refresh': (0, 'note\n{"hz":120,"mode":"manual","default_hz":60}\n', ''), 'switcher': (1, '', 'no socket')}
+        rig.sh = Mock(side_effect=lambda cmd, timeout=120: answers[next(k for k in answers if k in cmd)])
+        self.assertEqual(rig.lumatv_state(), {'refresh': {'hz': 120, 'mode': 'manual', 'default_hz': 60}, 'switcher': None})
+
+    def test_the_wake_closes_the_switcher_its_back_opened(self):
+        # 2026-11-07: with the owner's recents switch on and Netflix running, the wake's Back opened the switcher and home-dpad walked its cards
+        for up, backs in ((True, 2), (False, 1)):
+            rig = object.__new__(gate.Rig)
+            rig.sh = Mock(return_value=(0, '', ''))
+            rig.lumatv_state = Mock(return_value=dict(self.FIT, switcher={'open': up, 'phase': 'Open' if up else 'Closed', 'apps': ['netflix']}))
+            with patch('gate.time.sleep'):
+                rig.wake()
+            self.assertEqual([c.args[0].endswith(' BACK') for c in rig.sh.call_args_list], [True] * backs)
 
     def test_the_panel_rate_is_the_vsync_interrupts_counted_over_the_wait(self):
         rig = object.__new__(gate.Rig)
