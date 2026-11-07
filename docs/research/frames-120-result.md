@@ -4,6 +4,12 @@
 
 On forge main (round 24's engine work):
 
+- **Apps grid's first frame, 2026-11-07** (`/data/home/tmp/lumatv-smooth3-20261107/gate/`, rings `/tmp/perf/gate-{pb,c87,expA}-apps-grid-*`): the
+  apps-grid drops read in 6e47df5a's rings at 120 Hz were the frame that takes in the grid's commit (45 layers over 2.07 Mpx: 4.5 ms of the loop, then
+  3.4 ms of GPU), started at the pacer's latch 1.6-4.5 ms after the commit arrived and done 0.4 ms past its refresh. 6e47df5a and 87ef3b24 failed 3 of 3
+  (2-4 and 1-3 dropped). The compositor now starts a frame at once for waiting commits of `AHEAD_OPS` or more (`kms::next_frame_at`,
+  `Engine::large_commit_waiting`): 3 of 3 passed, the grid's frame at 10.2 ms to GPU done still on its refresh. `Pacer::reshaped` stays unused: the
+  latch's per-slot lead would carry its early start into the frames after.
 - **The card glass, 2026-11-05 night** (ed45a97c on the set, owner's theme with the Glazed card glass, `/data/home/tmp/lumatv-widgets-20261105/gate/`, rings in
   `gate/rings/`: home-widgets 0 dropped and 0 intervals, quick 0 and 0, settings-scroll 2 and 0).
   - **The drops of 82996a22 and f7226459 (home-widgets 64/38 and 58/34) were the glass, not either commit.** The owner switched the card glass from Liquid to

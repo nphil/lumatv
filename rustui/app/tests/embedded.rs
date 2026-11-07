@@ -437,6 +437,48 @@ fn a_frame_takes_the_contexts_scope_only_for_the_calls_that_reach_the_gl() {
     let _ = std::fs::remove_dir_all(&shm);
 }
 
+/// A screen made in one commit (a layer made for each of 64 tiles) waits as a large commit, which the compositor draws at once rather than at the
+/// latch it set from the cheap frames before (`Engine::large_commit_waiting`); the frame takes it in. A step of a motion is not one.
+#[test]
+fn a_screen_made_waits_as_a_large_commit_and_a_step_of_a_motion_does_not() {
+    software_gl();
+    let _host = Gles::software_pbuffer(LIB, 64, 64).expect("a software GL");
+    // SAFETY: the host's context is current on this thread and outlives the engine.
+    let wrapped = unsafe { Gles::current(LIB) }.expect("the current context");
+    let shm = std::env::temp_dir().join(format!("lumatv-embedded-large-{}", std::process::id()));
+    std::fs::create_dir_all(&shm).expect("a shm dir");
+    let (mut engine, app_end) = Engine::new(
+        wrapped,
+        HostConfig { width: 64, height: 64, refresh_hz: 60.0, shm_dir: shm.clone(), direct: false, gpu_sync: false, idle_trim: false, pages: 0, reference: false, blit: false, external: true, system_z: 100 },
+    )
+    .expect("an engine in the host's context");
+    let (scene, _welcome, events) = ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(shm.clone()), ..SceneOptions::default() }).expect("a scene");
+    engine.finish_handshake().expect("the handshake");
+    let ui = Ui::new(scene);
+    let commit = |engine: &mut Engine| {
+        let _ = ui.try_commit().expect("a commit");
+        while events.try_recv().is_ok() {}
+        // (the commit is on its way over the socket: pump until it is in)
+        for _ in 0..200 {
+            engine.pump().expect("pump");
+            if engine.has_commits() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(engine.has_commits(), "the commit arrived");
+    };
+    let tiles: Vec<_> = (0..64).map(|i| ui.scene.shape(8, 8, 1, solid(0.0, 200, 200, 200, 255), Props::at((i % 8) as f32 * 8.0, (i / 8) as f32 * 8.0))).collect();
+    commit(&mut engine);
+    assert!(engine.large_commit_waiting(), "64 layers made");
+    engine.plan(lumatv_render::now_ns()).expect("plan");
+    assert!(!engine.large_commit_waiting(), "the frame took the commit in");
+    tiles[0].set(Props::at(4.0, 4.0));
+    commit(&mut engine);
+    assert!(!engine.large_commit_waiting(), "a layer moved");
+    let _ = std::fs::remove_dir_all(&shm);
+}
+
 fn lumatv_rustui_png(path: &std::path::Path, rows: &[u8]) -> std::io::Result<()> {
     let mut rgba = Vec::with_capacity(rows.len());
     // the page is laid out as a scan-out page is: row 0, the first in memory, is the top of the screen

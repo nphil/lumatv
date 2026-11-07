@@ -577,6 +577,18 @@ impl Gl {
         }
     }
 
+    /// Whether the engine has large commits waiting and a frame is due for them ([`crate::ui::Ui::large_commit_due`]).
+    pub fn ui_large_commit_due(&self) -> bool {
+        #[cfg(feature = "ui")]
+        {
+            self.ui.as_ref().is_some_and(|ui| ui.large_commit_due(lumatv_render::now_ns(), self.ui_slack_ns))
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            false
+        }
+    }
+
     /// The rectangles a page owes as the planned UI frame is cheapest drawn in ([`crate::ui::Ui::merge`]): covers of some of them,
     /// holding all they did and apart from one another, where one pass over the engine's layers costs less than a pass each.
     /// Without an engine they stay as they are. Meaningful after `plan_ui`.

@@ -1211,6 +1211,15 @@ impl Output for Kms {
         if !self.flowing(now_ns) {
             return None;
         }
+        // A screen the UI makes is drawn when its commit arrives, not at a latch set from the cheap frames before it: the Apps
+        // grid's first frame (45 layers over the whole screen) took 9.0 ms to GPU done against a 9.1 ms lead and lost a refresh in
+        // each gate run on 2026-11-07, with its commit 1.6-4.5 ms ahead of that latch. Not while a drawn frame waits for its flip.
+        if self.queued.is_none() && self.last_assignment.is_none() && self.gl.ui_large_commit_due() {
+            if self.trace_left > 0 {
+                log::info!("trace: next tick now (a large UI commit waits)");
+            }
+            return Some(now);
+        }
         let latch = self.timing.pacer.latch_at(now_ns);
         // The latch as a lead before the refresh it aims at, moved later by at most a step per slot; a call for the
         // same slot keeps the lead it settled on.

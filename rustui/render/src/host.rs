@@ -218,8 +218,9 @@ pub struct Engine {
     home_shown: bool,
 }
 
-/// A waiting commit of at least this many operations is taken in ahead of its frame ([`Engine::take_in_ahead`]). Settings made at its
-/// opening is several hundred (about 100 layers, each made, styled and placed); a frame of a motion is a handful.
+/// Waiting commits of at least this many operations are large ([`Engine::large_commit_waiting`]): the compositor starts their frame
+/// at once, and takes them in ahead of it with `LUMATV_AHEAD=1` ([`Engine::take_in_ahead`]). Settings made at its opening is several
+/// hundred (about 100 layers, each made, styled and placed); a frame of a motion is a handful.
 const AHEAD_OPS: usize = 64;
 
 /// Frames, counting the last with something over Home, in which the floor and the pages' copies stay in use: the frame that takes
@@ -930,14 +931,19 @@ impl Engine {
             || (self.floor.as_ref().is_some_and(|floor| floor.behind) && self.home_shown && matches!(self.scene.demand(), Demand::Idle))
     }
 
+    /// The waiting commits are large ([`AHEAD_OPS`] ops or more): a screen made, not a step of a motion. The frame that takes
+    /// them in costs what the frames before it did not.
+    pub fn large_commit_waiting(&self) -> bool {
+        self.waiting.iter().map(|batch| batch.ops.len()).sum::<usize>() >= AHEAD_OPS
+    }
+
     /// Takes in now the waiting commits when they are large ([`AHEAD_OPS`]), so that the frame that shows them does not: the
     /// frame after a key that makes a screen (Settings, about 100 layers) spent 7.0-7.2 ms of the compositor's loop at the set
     /// with 2.8-3.0 ms of drawing, at a latch the pacer had set from the cheap frames before it (8.8 ms before the refresh), and
     /// missed its refresh (round 26, 60 Hz). Taken in when the commit arrives, the work is done in the time to the latch. The
     /// next frame is due for it ([`Engine::redraw_wanted`]); its motion starts from when it was taken in. Whether it took them.
     pub fn take_in_ahead(&mut self, now_ns: u64) -> bool {
-        let ops: usize = self.waiting.iter().map(|batch| batch.ops.len()).sum();
-        if !self.take_ahead || ops < AHEAD_OPS {
+        if !self.take_ahead || !self.large_commit_waiting() {
             return false;
         }
         self.scoped(|engine| {

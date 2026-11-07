@@ -188,6 +188,11 @@ impl Ui {
         calm && matches!(demand, Demand::At(at) if at <= now_ns.saturating_add(slack_ns).saturating_add(COMMIT_HOLD_NS))
     }
 
+    /// Whether a frame is due at `now_ns` ([`Ui::wants_frame`]) for large waiting commits (`Engine::large_commit_waiting`): a screen made.
+    pub fn large_commit_due(&self, now_ns: u64, slack_ns: u64) -> bool {
+        self.engine.large_commit_waiting() && self.wants_frame(now_ns, slack_ns)
+    }
+
     /// Whether an animation of the engine runs, so that the frame after this one is due at the next refresh (the demand at every refresh).
     pub fn animating(&self) -> bool {
         matches!(self.engine.demand(), Demand::EveryRefresh)
