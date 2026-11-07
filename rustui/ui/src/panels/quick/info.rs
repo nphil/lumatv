@@ -130,6 +130,7 @@ fn read_interrupts(mut reader: impl std::io::Read, buffer: &mut [u8]) -> Option<
     }
 }
 fn worker(rx: mpsc::Receiver<Command>, output: Arc<Mutex<Published>>) {
+    crate::host::priority::background();
     let mut active = None;
     let mut rate = Rate::default();
     let mut buffer = vec![0u8; 256 * 1024];

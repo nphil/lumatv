@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The shell's UI runs ahead of plugins. The compositor starts the UI client at nice -10 (it ran at the helper's nice 10, level with every plugin); its threads that serve the helper lower themselves to nice 10. The helper's bulk work, the guide's fetches, the weather map's tiles, the tuner's streams and plugin processes, runs SCHED_BATCH. A burst of the helper's topics wakes the UI once and hands it each topic's latest value, where every event used to be queued and drawn in turn.
+
 A recording played on from a camera hold hands over to live 250 ms after its last picture. The bridge ends a recording at the moment it was asked for and leaves its stream open, so the picture stood on its last frame until the 8 s quiet limit failed the session; a recording that ran out of pictures shortly before that moment stood about 2.3 s, as its stream was not yet quiet. A recording whose last picture is within 3 s of that moment is now over once 250 ms pass without another, whatever its stream still carries, and the full view asks for live at once.
 
 The Live TV Tuner's first slate picture reaches a player at once. Its video packets said no length, and FFmpeg's demuxer, Plex's too, holds such a packet until the next one starts; they now carry it. FFmpeg's MPEG video parser also ends a picture only when the next one starts, and its decoder shows a reference picture only once the next one is decoded, while the slate's second and third pictures waited for the tune (0.4 to 0.8 s); slate pictures now go out two frames ahead.

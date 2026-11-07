@@ -620,6 +620,7 @@ fn spawn_with(
         }),
     );
     crate::plugins::guard::spawn("guide", 256 * 1024, shared, &[ID], ctx.stop.clone(), move |again| {
+        crate::sys::bulk_thread();
         if again {
             plugin.follow_afresh();
         }

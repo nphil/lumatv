@@ -1,6 +1,9 @@
 //! The Rust shell's HTTP client (`rustui/ui/src/host/http.rs`, compiled in here as it is) against the helper's real server and its
 //! `Host` check and write guard: a client that leaves the port off `Host` is refused 403 `host_not_allowed`, and a write without `X-Luma-Client` 403 too; Home came up empty that way.
 
+// `ui_http`'s helper threads lower themselves through it (`super::priority`)
+#[path = "../../../rustui/ui/src/host/priority.rs"]
+mod priority;
 #[allow(dead_code, clippy::duplicate_mod)]
 #[path = "../../../rustui/ui/src/host/http.rs"]
 mod ui_http;

@@ -132,15 +132,6 @@ fn tile_centre(z: u8, x: u32, y: u32) -> LonLat {
     World::new((f64::from(x) + 0.5) / n, (f64::from(y) + 0.5) / n).lonlat()
 }
 
-/// Lowers the calling thread to nice 10, so that the shell and the compositor run first. Best effort.
-fn lower_priority() {
-    // SAFETY: `gettid` and `setpriority` take and return plain integers and touch no memory of ours; a refusal is ignored.
-    unsafe {
-        let tid = libc::gettid() as libc::id_t;
-        libc::setpriority(libc::PRIO_PROCESS, tid, 10);
-    }
-}
-
 fn kind_code(kind: FrameKind) -> u8 {
     match kind {
         FrameKind::Observed => 0,
@@ -182,7 +173,7 @@ impl RadarTiles {
         }
         let shared = Arc::clone(&self.shared);
         let spawned = std::thread::Builder::new().name("wx-index".into()).stack_size(512 * 1024).spawn(move || {
-            lower_priority();
+            crate::sys::bulk_thread();
             let got = shared.provider.index_for(shared.centre, RadarLevel::REGIONAL);
             let mut st = shared.lock();
             st.refreshing = false;
@@ -356,7 +347,7 @@ impl Drop for RadarTiles {
 }
 
 fn work(shared: &Arc<Shared>) {
-    lower_priority();
+    crate::sys::bulk_thread();
     loop {
         let task = {
             let mut st = shared.lock();

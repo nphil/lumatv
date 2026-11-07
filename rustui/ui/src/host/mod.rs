@@ -12,6 +12,7 @@ pub mod keys;
 pub mod memory;
 pub mod net;
 pub mod power;
+pub mod priority;
 pub mod previews;
 pub mod receiver;
 pub mod sio;

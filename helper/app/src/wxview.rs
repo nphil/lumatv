@@ -146,6 +146,7 @@ impl WxView {
     pub fn prefetch(self: &Arc<Self>, place: impl Fn() -> Option<(f64, f64)> + Send + 'static, screen_on: impl Fn() -> bool + Send + 'static, stop: crate::control::Stop) -> std::io::Result<std::thread::JoinHandle<()>> {
         let me = Arc::clone(self);
         std::thread::Builder::new().name("wx-prefetch".into()).stack_size(512 * 1024).spawn(move || {
+            crate::sys::bulk_thread();
             let mut last = Instant::now().checked_sub(PREFETCH_EVERY).unwrap_or_else(Instant::now);
             // five seconds a wait, which the stop ends at once (polled in 50 ms slices, it woke the helper 20 times a second)
             while !stop.sleep(Duration::from_secs(5)) {

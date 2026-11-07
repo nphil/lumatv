@@ -225,8 +225,12 @@ fn timed<T>(us: &mut u64, f: impl FnOnce() -> T) -> T {
     out
 }
 
-fn forward<T: Send + 'static>(rx: Receiver<T>, tx: Sender<Msg>, wrap: fn(T) -> Msg) {
+/// Moves a feed's events onto the loop's channel. The helper's forwarder runs where the helper's feed does (`host::priority`).
+fn forward<T: Send + 'static>(rx: Receiver<T>, tx: Sender<Msg>, wrap: fn(T) -> Msg, background: bool) {
     std::thread::spawn(move || {
+        if background {
+            lumatv_ui::host::priority::background();
+        }
         for ev in rx {
             if tx.send(wrap(ev)).is_err() {
                 break;
@@ -422,13 +426,13 @@ fn run_set(o: Options) -> io::Result<()> {
     let (channel, channel_events) = Feed::start("channel", port, token, None)?;
     let (helper, helper_events) = Feed::start_following("helper", o.helper_port, None, HELPER_TOPICS)?;
     let (tx, rx) = mpsc::channel::<Msg>();
-    forward(scene_events, tx.clone(), Msg::Scene);
-    forward(channel_events, tx.clone(), Msg::Channel);
-    forward(helper_events, tx.clone(), Msg::Helper);
+    forward(scene_events, tx.clone(), Msg::Scene, false);
+    forward(channel_events, tx.clone(), Msg::Channel, false);
+    forward(helper_events, tx.clone(), Msg::Helper, true);
     if let Some(kfd) = std::env::var("LUMATV_UI_KEYS_FD").ok().and_then(|s| s.parse::<RawFd>().ok()) {
         // SAFETY: as for the engine's socket.
         let keys = unsafe { keys::listen(kfd) }?;
-        forward(keys, tx.clone(), Msg::Key);
+        forward(keys, tx.clone(), Msg::Key, false);
     }
     for line in lumatv_ui::host::buttons::migrate(&o.data_dir) {
         log.line(format_args!("[buttons] {line}"));
@@ -468,20 +472,20 @@ fn run_set(o: Options) -> io::Result<()> {
                 carry(shell.channel(&ev, now_ms()), Some(&channel), Some(&helper), &mut log, None);
             }
             Ok(Msg::Helper(ev)) => {
-                answer(&mut log, "helper", &ev);
-                // the helper's events that are waiting come with it, and are drawn once (`Shell::helper_all`)
-                let mut events = vec![ev];
+                // the helper's events that are waiting come with it, its topics as their latest values, and are drawn once (`Shell::helper_all`)
+                let mut events = Vec::new();
+                helper.expand(ev, &mut events);
                 while let Ok(next) = rx.try_recv() {
                     match next {
-                        Msg::Helper(more) => {
-                            answer(&mut log, "helper", &more);
-                            events.push(more);
-                        }
+                        Msg::Helper(more) => helper.expand(more, &mut events),
                         other => {
                             carried = Some(other);
                             break;
                         }
                     }
+                }
+                for ev in &events {
+                    answer(&mut log, "helper", ev);
                 }
                 carry(shell.helper_all(&events, now_ms()), Some(&channel), Some(&helper), &mut log, None);
             }
@@ -595,12 +599,12 @@ fn run_host(o: Options) -> io::Result<()> {
         None => None,
     };
     let (tx, rx) = mpsc::channel::<Msg>();
-    forward(scene_events, tx.clone(), Msg::Scene);
+    forward(scene_events, tx.clone(), Msg::Scene, false);
     let channel = match o.port {
         Some(port) => {
             let token = o.token_file.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| t.trim().to_string());
             let (feed, events) = Feed::start("channel", port, token, None)?;
-            forward(events, tx.clone(), Msg::Channel);
+            forward(events, tx.clone(), Msg::Channel, false);
             Some(feed)
         }
         None => None,
@@ -608,7 +612,7 @@ fn run_host(o: Options) -> io::Result<()> {
     let helper = match o.port {
         Some(_) => {
             let (feed, events) = Feed::start_following("helper", o.helper_port, None, HELPER_TOPICS)?;
-            forward(events, tx.clone(), Msg::Helper);
+            forward(events, tx.clone(), Msg::Helper, true);
             Some(feed)
         }
         None => None,
@@ -729,12 +733,17 @@ fn run_host(o: Options) -> io::Result<()> {
         let mut helpers: Vec<Event> = Vec::new();
         for msg in inbox.into_iter().map(Some).chain([None]) {
             if let Some(Msg::Helper(ev)) = msg {
-                answer(&mut log, "helper", &ev);
-                helpers.push(ev);
+                match &helper {
+                    Some(feed) => feed.expand(ev, &mut helpers),
+                    None => helpers.push(ev),
+                }
                 continue;
             }
             if !helpers.is_empty() {
                 let events = std::mem::take(&mut helpers);
+                for ev in &events {
+                    answer(&mut log, "helper", ev);
+                }
                 carry(timed(&mut ui_us, || shell.helper_all(&events, now_ms())), channel.as_ref(), helper.as_ref(), &mut log, Some(&mut engine));
             }
             match msg {

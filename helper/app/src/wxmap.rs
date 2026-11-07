@@ -191,14 +191,6 @@ fn decode(bytes: &[u8]) -> Option<Vec<u8>> {
     (rgba.len() == CELL_BYTES).then_some(rgba)
 }
 
-fn lower_priority() {
-    // SAFETY: `gettid` and `setpriority` take and return plain integers and touch no memory of ours; a refusal is ignored.
-    unsafe {
-        let tid = libc::gettid() as libc::id_t;
-        libc::setpriority(libc::PRIO_PROCESS, tid, 10);
-    }
-}
-
 impl BaseMap {
     /// The base map over `source`, keeping its files under `root` (`<root>/map` for the vector tiles, `<root>/map-raster` for the cells).
     pub fn new(source: Arc<dyn TileSource>, root: &Path, epoch: Arc<AtomicU64>) -> Self {
@@ -473,7 +465,7 @@ impl Drop for BaseMap {
 
 /// Writes the drawn cells to the disk, one at a time at low priority, until there are none.
 fn persist(shared: &Shared) {
-    lower_priority();
+    crate::sys::bulk_thread();
     loop {
         let next = {
             let mut st = shared.lock();

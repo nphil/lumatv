@@ -890,7 +890,8 @@ impl Shell {
             Event::Topic { topic, data } => {
                 self.feed(&Input::Topic { topic: topic.clone(), data: data.clone() }, now, &mut acts);
             }
-            Event::Answer { .. } | Event::Bytes { .. } => {}
+            // only the helper's feed holds its events back (`Feed::expand`)
+            Event::Answer { .. } | Event::Bytes { .. } | Event::Waiting => {}
         }
         self.after(now, &mut acts);
         acts
@@ -922,6 +923,8 @@ impl Shell {
                 // an answer goes to every model, each of which takes the tags it asked with and lets the rest go by
                 Event::Answer { tag, status, body } => self.feed(&Input::Fetched { tag: *tag, status: *status, data: body.clone() }, now, &mut acts),
                 Event::Bytes { tag, status, body } => self.feed(&Input::Bytes { tag: *tag, status: *status, bytes: body.clone() }, now, &mut acts),
+                // the loop hands its feed's events over expanded (`Feed::expand`)
+                Event::Waiting => {}
             }
         }
         self.after(now, &mut acts);

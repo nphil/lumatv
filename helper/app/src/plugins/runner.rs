@@ -376,7 +376,9 @@ impl Runner {
         unsafe {
             command.pre_exec(move || {
                 libc::setsid();
+                // below the shell and the compositor, and no wake-up of it preempts them (`sys::bulk_thread`)
                 libc::setpriority(libc::PRIO_PROCESS as _, 0, 10);
+                libc::sched_setscheduler(0, libc::SCHED_BATCH, &std::mem::zeroed::<libc::sched_param>());
                 // The address space is a ceiling that catches a runaway, not the class's memory budget: stacks and the allocator
                 // reserve far more than a plugin touches.
                 set_limit(libc::RLIMIT_AS as u32, address_space);

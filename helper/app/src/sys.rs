@@ -249,6 +249,20 @@ pub fn lower_priority(increment: i32) {
     }
 }
 
+/// Puts the calling thread in SCHED_BATCH at nice 10 or lower: bulk work no frame waits for (the guide's fetches, the weather map's tiles,
+/// the tuner's streams). A batch thread never preempts the thread running where it wakes, so a burst of it does not cut into the UI's or
+/// the compositor's slice; the threads it starts inherit both. Best effort.
+pub fn bulk_thread() {
+    // SAFETY: `gettid`, `getpriority`, `sched_setscheduler` and `setpriority` take plain integers and a parameter on our stack (zeroed:
+    // musl's sched_param has private fields, so no struct literal; priority 0 is what SCHED_BATCH takes).
+    unsafe {
+        let tid = libc::gettid() as libc::id_t;
+        let nice = libc::getpriority(libc::PRIO_PROCESS, tid).max(10);
+        libc::sched_setscheduler(0, libc::SCHED_BATCH, &std::mem::zeroed::<libc::sched_param>());
+        libc::setpriority(libc::PRIO_PROCESS, tid, nice);
+    }
+}
+
 /// Blocks the termination signals in the calling thread, so threads started after this inherit the mask and the signals are
 /// delivered only to [`wait_termination`].
 pub fn block_termination_signals() {

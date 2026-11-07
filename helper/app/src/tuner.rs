@@ -140,7 +140,9 @@ pub fn spawn(ctx: &Ctx, shared: Arc<Shared>, tuner: Arc<Tuner>) -> std::io::Resu
             let _ = tx.send(Event::Switch);
         }),
     );
+    // the tuner's listener and its streams' threads start from this one and inherit its class
     crate::plugins::guard::spawn("tuner", 256 * 1024, shared, &[ID], ctx.stop.clone(), move |again| {
+        crate::sys::bulk_thread();
         if again {
             plugin.follow_afresh();
         }

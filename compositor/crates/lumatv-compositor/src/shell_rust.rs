@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 use crate::State;
 use crate::shell::{
-    EVENTS_KEPT, Link, LunaTag, Msg, NICE, Stats, TAKEABLE, TOOK_STALE, TRACE_MARKER, allowed, drain,
+    EVENTS_KEPT, Link, LunaTag, Msg, Stats, TAKEABLE, TOOK_STALE, TRACE_MARKER, UI_NICE, allowed, drain,
     spawn_server, wake, write_token,
 };
 
@@ -609,7 +609,7 @@ impl State {
                     if libc::getppid() != parent {
                         return Err(std::io::Error::other("compositor exited during UI launch"));
                     }
-                    libc::setpriority(libc::PRIO_PROCESS, 0, NICE);
+                    libc::setpriority(libc::PRIO_PROCESS, 0, UI_NICE);
                     Ok(())
                 });
             }

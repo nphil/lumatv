@@ -373,6 +373,30 @@ The compositor's userspace is 32-bit and stays that way; the helper does not
 change rendering cost. News and weather parsing does not justify it on its
 own: measured at 0-1 ms per feed on the compositor thread.
 
+## Priority: the UI over plugins
+
+The rule (Nitin, 2026-11-07): the UI and the compositor's render path always
+come first and stay smooth whatever plugins do. On the set:
+
+- The compositor's frame loop is SCHED_FIFO 20 and the Mali blob's submission
+  threads FIFO 19 (`compositor/.../sched.rs`); its screen capture, recording
+  and UI compiles run at nice 10.
+- The UI client (`lumatv-ui`) runs at nice -10, ahead of LG's time-shared
+  daemons and of the helper. It is not real-time: a real-time client ran ahead
+  of the Mali blob's threads and the kernel's workers and cost refreshes.
+  Its threads that serve the helper (the feed's poll and requests, their
+  forwarder) and the display sync lower themselves to nice 10
+  (`rustui/ui/src/host/priority.rs`); the key reader and the compositor's
+  events stay at -10.
+- The helper and every plugin run at nice 10. Bulk work no frame waits for
+  runs SCHED_BATCH, which never preempts the thread it wakes beside: the
+  guide's fetches, the weather map's tiles and prefetch, the tuner's listener
+  and streams (`helper/app/src/sys.rs` `bulk_thread`), and plugin processes.
+- The UI never waits on the helper. Requests and the poll run on their own
+  threads, which parse the JSON; the helper's topics reach the UI loop as
+  their latest values, one wake-up for a burst however long, drawn once
+  (`rustui/ui/src/host/http.rs` `Pending`).
+
 ## Plugins
 
 LumaTV hosts LumaShow's plugins, so one plugin package runs on every Luma

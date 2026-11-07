@@ -15,7 +15,10 @@ use serde_json::{Value, json};
 use crate::State;
 use crate::window::WindowType;
 
-pub(crate) const NICE: i32 = 10;
+/// The UI client's nice value: it turns keys into the frames the loop draws, so it runs ahead of LG's time-shared daemons (nice 0) and of
+/// the helper and its plugins (nice 10), and its threads that wait on the helper lower themselves (`rustui/ui/src/host/priority.rs`). Not
+/// SCHED_FIFO: a real-time client runs ahead of the Mali blob's submission threads and every kernel worker (`sched.rs`).
+pub(crate) const UI_NICE: i32 = -10;
 /// Events kept for a client that is behind; one that is further behind is told to read the state again.
 pub(crate) const EVENTS_KEPT: usize = 512;
 /// The kernel's trace buffer. The frame gate's captures (`docs/research/perf/capture.sh`) read their markers from it; the compositor

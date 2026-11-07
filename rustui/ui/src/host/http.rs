@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
@@ -24,6 +25,8 @@ pub enum Event {
     Answer { tag: u64, status: u16, body: Value },
     /// The answer to a request made with a tag whose body is not JSON (a still, a thumbnail: `kit::picture::decode`).
     Bytes { tag: u64, status: u16, body: Vec<u8> },
+    /// The helper's feed has a state or topics waiting ([`Feed::start_following`]); [`Feed::expand`] takes them.
+    Waiting,
 }
 
 /// A request the loop asks for.
@@ -180,28 +183,42 @@ impl Link {
 /// A feed: the requests it makes for the loop; its events come on the receiver [`Feed::start`] returns beside it.
 pub struct Feed {
     requests: Sender<Outbound>,
+    /// The helper's feed keeps its state and topics here until the loop takes them; the channel's go to the loop one by one.
+    pending: Option<Arc<Mutex<Pending>>>,
 }
 
 impl Feed {
     /// Starts the poller and the requester for `port` (always `127.0.0.1`); `token` goes in `X-Luma-Token`; `topics` narrows the poll to
     /// those topics (the helper's `topics=`), `None` takes them all.
     pub fn start(name: &'static str, port: u16, token: Option<String>, topics: Option<String>) -> io::Result<(Self, Receiver<Event>)> {
-        Self::spawn(name, port, token, Topics::Fixed(topics))
+        Self::spawn(name, port, token, Topics::Fixed(topics), false)
     }
 
-    /// The helper's feed: `base` (a comma list) and the topics of every connected plugin, as the QML client's poll names them.
+    /// The helper's feed: `base` (a comma list) and the topics of every connected plugin, as the QML client's poll names them. Its topics
+    /// reach the loop as their latest values ([`Pending`]), and its threads run at [`super::priority::BACKGROUND_NICE`]: what plugins
+    /// send never takes the loop's core or keeps it from a key.
     pub fn start_following(name: &'static str, port: u16, token: Option<String>, base: &'static str) -> io::Result<(Self, Receiver<Event>)> {
-        Self::spawn(name, port, token, Topics::Follow(base))
+        Self::spawn(name, port, token, Topics::Follow(base), true)
     }
 
-    fn spawn(name: &'static str, port: u16, token: Option<String>, topics: Topics) -> io::Result<(Self, Receiver<Event>)> {
+    fn spawn(name: &'static str, port: u16, token: Option<String>, topics: Topics, helper: bool) -> io::Result<(Self, Receiver<Event>)> {
         let (etx, events) = channel();
         let (requests, rrx) = channel::<Outbound>();
-        let poll_tx = etx.clone();
-        let poll_token = token.clone();
-        thread::Builder::new().name(format!("{name}-poll")).spawn(move || poll_loop(port, poll_token, topics, poll_tx))?;
-        thread::Builder::new().name(format!("{name}-send")).spawn(move || send_loop(port, token, rrx, etx))?;
-        Ok((Self { requests }, events))
+        let pending = helper.then(Arc::default);
+        let (poll_tx, poll_token, poll_pending) = (etx.clone(), token.clone(), pending.clone());
+        thread::Builder::new().name(format!("{name}-poll")).spawn(move || {
+            if helper {
+                super::priority::background();
+            }
+            poll_loop(port, poll_token, topics, poll_tx, poll_pending.as_deref())
+        })?;
+        thread::Builder::new().name(format!("{name}-send")).spawn(move || {
+            if helper {
+                super::priority::background();
+            }
+            send_loop(port, token, rrx, etx)
+        })?;
+        Ok((Self { requests, pending }, events))
     }
 
     /// Asks for a request; it goes out in order with the others.
@@ -216,9 +233,54 @@ impl Feed {
     pub fn get(&self, path: &str, tag: u64) {
         self.request(Outbound { method: "GET", path: path.to_string(), body: None, tag: Some(tag) });
     }
+
+    /// `ev` as the loop applies it, added to `out`: [`Event::Waiting`] is the state and topics waiting, any other event itself.
+    pub fn expand(&self, ev: Event, out: &mut Vec<Event>) {
+        match ev {
+            Event::Waiting => {
+                if let Some(pending) = &self.pending {
+                    pending.lock().unwrap_or_else(PoisonError::into_inner).take(out);
+                }
+            }
+            ev => out.push(ev),
+        }
+    }
 }
 
-fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>) {
+/// What the helper's poll has for the loop and the loop has not taken, in order: its sessions' changes (`Up`, a new session's `State`) and,
+/// between them, the latest value of each topic in the order of their last change. However long the loop is busy and however many events a
+/// burst brings (a plugin's tiles a few times a second, every camera's motion at once), the loop is woken once and takes one value a topic
+/// a session. Every value the poll keeps is its topic's whole value (`retained`), so the latest stands for those before it.
+#[derive(Default)]
+struct Pending {
+    events: Vec<Event>,
+    /// An [`Event::Waiting`] is on its way to the loop.
+    woken: bool,
+}
+
+impl Pending {
+    fn take(&mut self, out: &mut Vec<Event>) {
+        self.woken = false;
+        out.append(&mut self.events);
+    }
+}
+
+/// Hands the loop an event of the poll: on the channel, or (the helper's feed) into `pending`, with an [`Event::Waiting`] when none is on
+/// its way. A topic's value replaces its last since the session's last change. False when the loop is gone.
+fn deliver(tx: &Sender<Event>, pending: Option<&Mutex<Pending>>, ev: Event) -> bool {
+    let Some(pending) = pending else { return tx.send(ev).is_ok() };
+    let mut p = pending.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Event::Topic { topic, .. } = &ev {
+        let last = p.events.iter().rposition(|e| !matches!(e, Event::Topic { topic: t, .. } if t != topic));
+        if let Some(i) = last.filter(|&i| matches!(p.events[i], Event::Topic { .. })) {
+            p.events.remove(i);
+        }
+    }
+    p.events.push(ev);
+    std::mem::replace(&mut p.woken, true) || tx.send(Event::Waiting).is_ok()
+}
+
+fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>, pending: Option<&Mutex<Pending>>) {
     let mut failures = 0u32;
     'session: loop {
         let mut link = Link::new(port, Duration::from_secs(35));
@@ -228,7 +290,7 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
             .and_then(|(status, body)| (status == 200).then(|| serde_json::from_slice::<Value>(&body).ok()).flatten());
         let Some(mut state) = state.filter(|s| s.get("ok").and_then(Value::as_bool) == Some(true)) else {
             failures += 1;
-            let _ = tx.send(Event::Up(false));
+            let _ = deliver(&tx, pending, Event::Up(false));
             thread::sleep(Duration::from_millis((2000 * (1u64 << failures.saturating_sub(1).min(3))).min(10_000)));
             continue;
         };
@@ -244,7 +306,7 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
         }
         // the roster the following poll names plugin topics from: the state's, then every event of `plugins`
         let mut roster = topics_now.iter().find(|(k, _)| k == "plugins").map_or(Value::Null, |(_, v)| v.clone());
-        if tx.send(Event::Up(true)).is_err() || tx.send(Event::State(topics_now)).is_err() {
+        if !deliver(&tx, pending, Event::Up(true)) || !deliver(&tx, pending, Event::State(topics_now)) {
             return;
         }
         loop {
@@ -264,13 +326,13 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
             let mut doc = match answer {
                 Ok((200, body)) => serde_json::from_slice::<Value>(&body).unwrap_or(Value::Null),
                 _ => {
-                    let _ = tx.send(Event::Up(false));
+                    let _ = deliver(&tx, pending, Event::Up(false));
                     thread::sleep(Duration::from_secs(2));
                     continue 'session;
                 }
             };
             if doc.get("ok").and_then(Value::as_bool) != Some(true) {
-                let _ = tx.send(Event::Up(false));
+                let _ = deliver(&tx, pending, Event::Up(false));
                 thread::sleep(Duration::from_secs(2));
                 continue 'session;
             }
@@ -295,7 +357,7 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
                         object.insert("_hub".into(), serde_json::json!({"boot": boot, "seq": event_seq}));
                     }
                 }
-                if tx.send(Event::Topic { topic, data }).is_err() {
+                if !deliver(&tx, pending, Event::Topic { topic, data }) {
                     return;
                 }
             }
@@ -415,6 +477,35 @@ mod tests {
     }
 
     #[test]
+    fn a_burst_of_the_helpers_topics_wakes_the_loop_once_with_the_latest_value_of_each() {
+        let (tx, rx) = channel();
+        let feed = Feed { requests: channel().0, pending: Some(Arc::default()) };
+        let pending = feed.pending.as_deref();
+        let topic = |name: &str, data: Value| Event::Topic { topic: name.into(), data };
+        let state = || Event::State(vec![("screen".into(), json!({"on": true}))]);
+        assert!(deliver(&tx, pending, Event::Up(true)));
+        assert!(deliver(&tx, pending, state()));
+        for i in 0..4 {
+            assert!(deliver(&tx, pending, topic("plugin.cameras.tiles", json!(i))));
+            assert!(deliver(&tx, pending, topic("screen", json!({"on": i % 2 == 0}))));
+        }
+        assert!(deliver(&tx, pending, topic("plugin.cameras.tiles", json!("last"))));
+        assert_eq!(rx.try_iter().collect::<Vec<_>>(), vec![Event::Waiting], "one wake-up for the whole burst");
+        let mut out = Vec::new();
+        feed.expand(Event::Waiting, &mut out);
+        let latest = vec![Event::Up(true), state(), topic("screen", json!({"on": false})), topic("plugin.cameras.tiles", json!("last"))];
+        assert_eq!(out, latest, "in the order of their last change");
+        // what comes after the loop took them wakes it again; a session's end and start keep their places among the topics
+        for ev in [topic("screen", json!(1)), Event::Up(false), Event::Up(true), state(), topic("screen", json!(2)), topic("screen", json!(3))] {
+            assert!(deliver(&tx, pending, ev));
+        }
+        assert_eq!(rx.try_iter().collect::<Vec<_>>(), vec![Event::Waiting]);
+        out.clear();
+        feed.expand(Event::Waiting, &mut out);
+        assert_eq!(out, vec![topic("screen", json!(1)), Event::Up(false), Event::Up(true), state(), topic("screen", json!(3))]);
+    }
+
+    #[test]
     fn a_helper_that_closes_after_every_answer_is_followed_without_the_feed_ever_saying_it_is_down() {
         let (tx, rx) = std::sync::mpsc::channel();
         let served = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -425,7 +516,7 @@ mod tests {
         let mut seen = Vec::new();
         // the state, then the first poll's news, then a long poll that has none: three requests on three connections
         while seen.len() < 3 {
-            seen.push(events.recv_timeout(Duration::from_secs(5)).expect("an event of the feed"));
+            feed.expand(events.recv_timeout(Duration::from_secs(5)).expect("an event of the feed"), &mut seen);
         }
         assert_eq!(seen[0], Event::Up(true));
         assert!(matches!(&seen[1], Event::State(t) if t.iter().any(|(k,v)| k == "receiver" && v["_hub"] == json!({"boot":7,"seq":1}))));

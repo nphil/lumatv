@@ -119,7 +119,7 @@ impl Prefetch {
     }
 
     fn work(self: Arc<Self>) {
-        lower_priority();
+        crate::sys::bulk_thread();
         loop {
             let key = {
                 let mut st = self.lock();
@@ -243,14 +243,6 @@ impl TileSource for Prefetch {
 impl Drop for Prefetch {
     fn drop(&mut self) {
         self.close();
-    }
-}
-
-fn lower_priority() {
-    // SAFETY: `gettid` and `setpriority` take and return plain integers and touch no memory of ours; a refusal is ignored.
-    unsafe {
-        let tid = libc::gettid() as libc::id_t;
-        libc::setpriority(libc::PRIO_PROCESS, tid, 10);
     }
 }
 
