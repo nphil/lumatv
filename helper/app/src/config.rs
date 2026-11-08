@@ -89,6 +89,12 @@ impl Paths {
     pub fn tuner_channels_file(&self) -> PathBuf {
         self.data_dir.join("tuner").join("channels.json")
     }
+
+    /// `receiver-output.json`: the receiver output the TV is kept on, remembered across LG's own switches to its speakers
+    /// (`receiver_sync.rs`).
+    pub fn receiver_output_file(&self) -> PathBuf {
+        self.data_dir.join("receiver-output.json")
+    }
 }
 
 /// A config problem, in words.
@@ -499,6 +505,9 @@ pub struct ReceiverTuning {
     pub max_backoff_ms: u64,
     /// A reading older than this is hidden rather than shown (the plan's 6 s).
     pub hide_after_ms: u64,
+    /// How long the receiver has to come on after a power command before it is sent again (doubling up to `maxBackoffMs`) while
+    /// the screen is on and the receiver reads off.
+    pub power_on_ms: u64,
     pub connect_timeout_ms: u64,
     pub request_timeout_ms: u64,
     /// The receiver's telnet port, held open for pushed changes while the screen is on. The HTTP reads are then only the
@@ -522,6 +531,7 @@ impl Default for ReceiverTuning {
             burst_ms: 3_000,
             max_backoff_ms: 30_000,
             hide_after_ms: 6_000,
+            power_on_ms: 5_000,
             connect_timeout_ms: 1_500,
             request_timeout_ms: 3_000,
             telnet_port: lumatv_denon::telnet::DEFAULT_TELNET_PORT,
@@ -936,6 +946,7 @@ impl Config {
             ("receiver.fastPollMs", self.receiver.fast_poll_ms),
             ("receiver.maxBackoffMs", self.receiver.max_backoff_ms),
             ("receiver.hideAfterMs", self.receiver.hide_after_ms),
+            ("receiver.powerOnMs", self.receiver.power_on_ms),
             (
                 "receiver.connectTimeoutMs",
                 self.receiver.connect_timeout_ms,

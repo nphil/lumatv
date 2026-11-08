@@ -84,7 +84,7 @@ The engine accepts at most 256 layers and 96 groups (`rustui/render/src/session.
 
 ## Receiver keeper
 
-With `denon-receiver` on and the TV's saved sound output on the receiver (`external_arc` or `tv_speaker_external_arc`), the helper keeps the receiver on for the whole time the screen is on (3ad4ab98; `helper/app/src/receiver.rs`, `Keeper`). Wake sends `ZMON`; from 5 s after it a receiver read as off is powered on again (backoff 5 to 30 s) and set to `SITV` once it reads on; switched off by hand it gets one more `ZMON`. Unreachable or still off, the live route moves to the TV speakers until it reads on. Nothing powers it on while the screen is off. See `plugins/denon-receiver.md`.
+With `denon-receiver` on and the receiver as the TV's sound output, the helper keeps the receiver on for the whole time the screen is on (`helper/app/src/receiver.rs`, `Keeper`). The output it keeps is remembered in `<data>/receiver-output.json` (`receiver_sync::Intent`), because LG saves `tv_speaker` itself about 1 s after the receiver leaves ARC: a `tv_speaker` saved while the receiver is not on keeps the receiver, one saved after it has read on for `hideAfterMs` releases it. A wake, or a helper start with the screen on, sends `ZMON` to a receiver not read as on; from `powerOnMs` (5 s) after a power command a receiver read as off is powered on again (backoff to `maxBackoffMs`, 30 s, for as long as the screen is on) and set to `SITV` once it reads on; switched off by hand it gets one more `ZMON`. Unreachable or still off, the live route moves to the TV speakers until it reads on. Nothing powers it on while the screen is off. LG's CEC wakes the receiver only when its last output was ARC (`Last ARC(1)` in the TV syslog). See `docs/plugins/denon-receiver.md`.
 
 ## Tuner
 

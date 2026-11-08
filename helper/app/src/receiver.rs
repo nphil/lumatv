@@ -21,6 +21,7 @@ use crate::ctx::Ctx;
 use crate::hub::Hub;
 use crate::plugins::session::Shared;
 use crate::receiver_settings::SettingsState;
+use crate::receiver_sync::{Intent, Saved};
 use crate::receiver_telnet::{Event, Link, QUERY_GAP, Target, Tuning};
 use crate::receiver_volume::VolumeDriver;
 use crate::screen;
@@ -96,6 +97,8 @@ struct Poller<'a> {
     /// The last attempt: `None` before any, `Some(None)` it worked, `Some(Some(error))` it failed.
     last_attempt: Option<Option<ClientError>>,
     failures: u32,
+    /// Since when every reading has said on: a change of the TV's sound output in that time is the owner's (`receiver_sync::Intent`).
+    on_since: Option<Instant>,
     /// The scale the receiver's panel shows, as last read over HTTP.
     display: VolumeDisplay,
     /// The sound mode and the input signal's words as the telnet link last heard them, raw (`DOLBY AUDIO-DSUR`, `PCM ZERO`).
@@ -172,6 +175,7 @@ impl Poller<'_> {
         match client.status() {
             Ok(status) => {
                 self.learn_display(&status);
+                self.note_power(&status.power, Instant::now());
                 if self.failures > 0 || self.last_attempt.is_none() {
                     crate::log_info!("receiver: reading {}:{}", client.host(), client.port());
                 }
@@ -188,6 +192,7 @@ impl Poller<'_> {
                     crate::log_warn!("receiver: {}:{}: {e}", client.host(), client.port());
                 }
                 self.failures = self.failures.saturating_add(1);
+                self.on_since = None;
                 self.last_attempt = Some(Some(e));
             }
         }
@@ -198,6 +203,10 @@ impl Poller<'_> {
         if status.volume_display != VolumeDisplay::Unknown {
             self.display = status.volume_display.clone();
         }
+    }
+
+    fn note_power(&mut self, power: &Power, at: Instant) {
+        self.on_since = (*power == Power::On).then(|| self.on_since.unwrap_or(at));
     }
 
     /// The receiver's level on the panel's 0 to 98 scale, from the newest reading.
@@ -219,6 +228,7 @@ impl Poller<'_> {
         max_volume: Option<f64>,
     ) {
         status.volume_display = self.display.clone();
+        self.note_power(&status.power, at);
         self.failures = 0;
         self.last_attempt = Some(None);
         self.last_ok = Some(Reading { status, at, at_ms });
@@ -370,10 +380,6 @@ struct Steps {
     speakers: bool,
 }
 
-/// The wake's own power command (`sync_power`) has this long before the keeper acts.
-const KEEP_GRACE: Duration = Duration::from_secs(5);
-const KEEP_BACKOFF_MAX: Duration = Duration::from_secs(30);
-
 /// While the screen is on the receiver is kept on and on the TV input, and while it cannot be the TV plays on its own speakers
 /// (`speakers`; the fallback's restore switches back once the receiver reads on). The wake's power command (`sync_power`) is the only
 /// one at a screen edge; this covers the rest of the screen-on time: a wake whose command did not take, a power cut, a receiver
@@ -393,16 +399,39 @@ struct Keeper {
     powering: bool,
     next_try: Instant,
     backoff: Duration,
+    /// How long a power command has before the next one (`receiver.powerOnMs`; the wake's own command, `sync_power`, has it too),
+    /// and the most the wait doubles to (`receiver.maxBackoffMs`).
+    grace: Duration,
+    backoff_max: Duration,
 }
 
 impl Keeper {
-    fn new(now: Instant) -> Self {
-        Self { screen_on: false, seen_on: false, hand_off: false, reasserted: false, powering: false, next_try: now, backoff: KEEP_GRACE }
+    fn new(now: Instant, grace: Duration, backoff_max: Duration) -> Self {
+        Self {
+            screen_on: false,
+            seen_on: false,
+            hand_off: false,
+            reasserted: false,
+            powering: false,
+            next_try: now,
+            backoff: grace,
+            grace,
+            backoff_max: backoff_max.max(grace),
+        }
     }
 
     /// A new screen-on time starts with nothing spent.
     fn restart(&mut self, now: Instant) {
-        *self = Self { screen_on: true, next_try: now + KEEP_GRACE, ..Self::new(now) };
+        *self = Self {
+            screen_on: true,
+            next_try: now + self.grace,
+            ..Self::new(now, self.grace, self.backoff_max)
+        };
+    }
+
+    /// The wake's own power command went: the input is set once the receiver reads on.
+    fn powered(&mut self) {
+        self.powering = true;
     }
 
     /// When the keeper wants to look again, if it waits for a try.
@@ -425,7 +454,7 @@ impl Keeper {
                 steps.tv_input = self.powering && !tv;
                 self.seen_on = true;
                 self.powering = false;
-                self.backoff = KEEP_GRACE;
+                self.backoff = self.grace;
             }
             Seen::Unreachable | Seen::Standby if now < self.next_try => {}
             Seen::Unreachable => {
@@ -446,12 +475,22 @@ impl Keeper {
                     steps.power_on = true;
                     self.powering = true;
                     self.next_try = now + self.backoff;
-                    self.backoff = (self.backoff * 2).min(KEEP_BACKOFF_MAX);
+                    self.backoff = (self.backoff * 2).min(self.backoff_max);
                 }
             }
         }
         steps
     }
+}
+
+/// What [`sync_power`] did at a screen edge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Edge {
+    /// The receiver already was as the screen now is: on after a wake, in standby after a standby.
+    Already,
+    /// The power command went. `confirmed`: after a wake the receiver read on within `receiver.requestTimeoutMs`; after a standby
+    /// it accepted the command.
+    Sent { confirmed: bool },
 }
 
 // CEC remains primary for standby. A still-on receiver gets one backup command.
@@ -460,25 +499,40 @@ fn sync_power(
     transition: (bool, u64),
     client: &Client,
     authorized: &dyn Fn() -> bool,
-) -> Option<bool> {
+) -> Option<Edge> {
     let current = || same_transition(ctx, transition, client.host(), client.port()) && authorized();
     if !current() {
         return None;
     }
-    let status = client.status().ok().map(|s| s.power);
-    let command = match (transition.0, status) {
-        (true, Some(Power::On)) | (false, Some(Power::Standby)) => {
-            return current().then_some(true);
-        }
-        (true, _) => "ZMON",
-        (false, _) => "ZMOFF",
+    let (want, command, screen) = if transition.0 {
+        (Power::On, "ZMON", "came on")
+    } else {
+        (Power::Standby, "ZMOFF", "went off")
     };
+    match client.status() {
+        Ok(status) if status.power == want => {
+            crate::log_info!("receiver: the screen {screen}; the receiver reads {}", want.word());
+            return current().then_some(Edge::Already);
+        }
+        Ok(status) => crate::log_info!(
+            "receiver: the screen {screen}; the receiver reads {}: {command}",
+            status.power.word()
+        ),
+        Err(e) => {
+            crate::log_info!("receiver: the screen {screen}; the receiver does not answer ({e}): {command}");
+        }
+    }
     if !current() {
         return None;
     }
-    let sent = client.send_command(command).is_ok();
+    let sent = client.send_command(command);
+    if let Err(e) = &sent {
+        crate::log_warn!("receiver: {command}: {e}");
+    }
     if !transition.0 {
-        return current().then_some(sent);
+        return current().then_some(Edge::Sent {
+            confirmed: sent.is_ok(),
+        });
     }
     // A lost command reply does not prove the AVR stayed off. Confirm before
     // replacing ARC, including when the HTTP command timed out or failed.
@@ -494,7 +548,7 @@ fn sync_power(
             remaining,
         );
         if probe.status().is_ok_and(|status| status.power == Power::On) {
-            return current().then_some(true);
+            return current().then_some(Edge::Sent { confirmed: true });
         }
         let remaining = end.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
@@ -502,7 +556,7 @@ fn sync_power(
         }
         thread::sleep(Duration::from_millis(150).min(remaining));
     }
-    current().then_some(false)
+    current().then_some(Edge::Sent { confirmed: false })
 }
 
 /// Starts the telnet link, or nothing when `receiver.telnetPort` is 0 (or the thread cannot start: HTTP then does all of it).
@@ -684,6 +738,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
         last_ok: None,
         last_attempt: None,
         failures: 0,
+        on_since: None,
         display: VolumeDisplay::Unknown,
         mode: None,
         signal: None,
@@ -713,7 +768,19 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
     let mut reconcile_since = Instant::now();
     let mut reconcile_at = Instant::now();
     let mut wake_on: Option<(Client, Instant)> = None;
-    let mut keeper = Keeper::new(Instant::now());
+    let mut keeper = Keeper::new(
+        Instant::now(),
+        Duration::from_millis(tuning.power_on_ms),
+        Duration::from_millis(tuning.max_backoff_ms),
+    );
+    let intent_file = ctx.paths.receiver_output_file();
+    let mut intent = Intent::load(&intent_file);
+    crate::log_info!(
+        "receiver: remembered sound output: {}",
+        intent.output.unwrap_or("not the receiver")
+    );
+    // The subscription generation the intent has taken in, `None` until the current subscription's snapshot is.
+    let mut classified: Option<u64> = None;
     loop {
         if ctx.stop.is_set() {
             return;
@@ -734,6 +801,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
         {
             output_sub =
                 crate::receiver_sync::Subscription::start(&ctx.config.luna.send, tx.clone()).ok();
+            classified = None;
             let until = Instant::now() + Duration::from_secs(4);
             while output_sub.as_ref().is_some_and(|s| !s.state().valid)
                 && Instant::now() < until
@@ -753,16 +821,11 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                 }
                 thread::sleep(Duration::from_millis(20));
             }
-            if let Some(state) = output_sub.as_ref().map(|s| s.state()).filter(|s| s.valid) {
+            if output_sub.as_ref().is_some_and(|s| s.state().valid) {
                 // A fresh subscribed snapshot is authoritative after disconnect;
                 // no consumed wake power attempt is replayed.
                 if let Some(owned) = &mut fallback {
-                    if state.preference == Some(owned.desired) {
-                        owned.generation = state.generation;
-                        owned.since = Instant::now();
-                    } else {
-                        fallback = None;
-                    }
+                    owned.since = Instant::now();
                 }
                 reconcile = true;
                 reconcile_since = Instant::now();
@@ -772,22 +835,54 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
             }
             next_subscription = Instant::now() + Duration::from_millis(500);
         }
-        if let Some(owned) = &fallback {
-            let revoked = output_sub
-                .as_ref()
-                .map(|s| s.state())
-                .filter(|s| s.valid)
-                .is_some_and(|s| {
-                    s.generation != owned.generation || s.preference != Some(owned.desired)
-                });
-            if revoked
+        if let Some(state) = output_sub.as_ref().map(|s| s.state()).filter(|s| s.valid)
+            && classified != Some(state.generation)
+        {
+            let written = classified.is_some();
+            classified = Some(state.generation);
+            let before = intent.output;
+            // LG saves tv_speaker itself when the receiver leaves ARC; the owner's choice is one made while it is on.
+            let chosen = || {
+                actual_screen(&ctx.hub).is_some_and(|s| s.0)
+                    && poller.on_since.is_some_and(|since| {
+                        since.elapsed() >= Duration::from_millis(tuning.hide_after_ms)
+                    })
+                    && Client::new(settings.host.clone(), settings.port)
+                        .with_timeouts(
+                            Duration::from_millis(tuning.connect_timeout_ms),
+                            Duration::from_millis(tuning.request_timeout_ms),
+                        )
+                        .status()
+                        .is_ok_and(|status| status.power == Power::On)
+            };
+            if intent.observe(state.saved, written, chosen) {
+                if let Err(e) = intent.store(&intent_file) {
+                    crate::log_warn!("receiver: {}: {e}", intent_file.display());
+                }
+                match (state.saved, intent.output) {
+                    (Saved::Speaker, Some(output)) => crate::log_info!(
+                        "receiver: tv_speaker saved while the receiver is not on: kept on {output}"
+                    ),
+                    (_, Some(output)) if before != Some(output) => crate::log_info!(
+                        "receiver: the TV's sound output is {output}: the receiver is kept on with the screen"
+                    ),
+                    (saved, None) if before.is_some() => crate::log_info!(
+                        "receiver: the TV's sound output is {}: the receiver is left alone",
+                        saved.name()
+                    ),
+                    _ => {}
+                }
+            }
+        }
+        if let Some(owned) = &fallback
+            && (intent.generation != owned.generation
+                || intent.output != Some(owned.desired)
                 || !settings.enabled
                 || settings.host != owned.host
-                || settings.port != owned.port
-            {
-                fallback = None;
-                reconcile = false;
-            }
+                || settings.port != owned.port)
+        {
+            fallback = None;
+            reconcile = false;
         }
         if let Some(transition) =
             new_transition(&mut last_actual, actual_screen(&ctx.hub), &ctx.hub)
@@ -811,66 +906,92 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                 probe_at = None;
             }
             if settings.enabled && !settings.host.is_empty() {
-                let state = output_sub.as_ref().map(|s| s.state());
-                if let Some(state) = state.filter(|s| s.valid && s.preference.is_some()) {
-                    let generation = state.generation;
-                    let desired = state.preference.unwrap();
-                    let authorized = || {
-                        output_sub.as_ref().is_some_and(|s| {
-                            let state = s.state();
-                            state.valid
-                                && state.generation == generation
-                                && state.preference == Some(desired)
-                        })
-                    };
-                    let power_client = Client::new(settings.host.clone(), settings.port)
-                        .with_timeouts(
-                            Duration::from_millis(tuning.connect_timeout_ms),
-                            Duration::from_millis(tuning.request_timeout_ms),
-                        );
-                    let outcome = sync_power(ctx, transition, &power_client, &authorized);
-                    if transition.0 && outcome == Some(true) {
-                        wake_on = Some((power_client, Instant::now()));
-                    }
-                    if transition.0 && outcome == Some(false) {
-                        let current = || {
-                            authorized()
-                                && same_transition(ctx, transition, &settings.host, settings.port)
+                let screen = if transition.0 { "came on" } else { "went off" };
+                let generation =
+                    classified.filter(|_| output_sub.as_ref().is_some_and(|s| s.state().valid));
+                match (generation, intent.output) {
+                    (None, _) => crate::log_info!(
+                        "receiver: the screen {screen}; the TV's sound output is not known yet"
+                    ),
+                    (Some(_), None) => crate::log_info!(
+                        "receiver: the screen {screen}; the TV's sound output is not the receiver: left alone"
+                    ),
+                    (Some(generation), Some(desired)) => {
+                        let authorized = || {
+                            output_sub.as_ref().is_some_and(|s| {
+                                let state = s.state();
+                                state.valid && state.generation == generation
+                            })
                         };
-                        let result = crate::receiver_sync::set_temporary(
-                            &ctx.config.luna.send,
-                            "tv_speaker",
-                            &current,
-                        );
-                        if result != crate::receiver_sync::RouteResult::NotAttempted {
-                            fallback = Some(Fallback {
-                                desired,
-                                generation,
-                                since: Instant::now(),
-                                host: settings.host.clone(),
-                                port: settings.port,
-                                retry_at: Instant::now(),
-                            });
-                            reconcile = false;
+                        let power_client = Client::new(settings.host.clone(), settings.port)
+                            .with_timeouts(
+                                Duration::from_millis(tuning.connect_timeout_ms),
+                                Duration::from_millis(tuning.request_timeout_ms),
+                            );
+                        let outcome = sync_power(ctx, transition, &power_client, &authorized);
+                        match outcome {
+                            // a standby's backup command is all there is to it
+                            _ if !transition.0 => {}
+                            Some(Edge::Already) => wake_on = Some((power_client, Instant::now())),
+                            Some(Edge::Sent { confirmed: true }) => {
+                                crate::log_info!("receiver: on");
+                                keeper.powered();
+                                wake_on = Some((power_client, Instant::now()));
+                            }
+                            Some(Edge::Sent { confirmed: false }) => {
+                                crate::log_info!(
+                                    "receiver: not on within {} ms: the TV's own speakers meanwhile",
+                                    tuning.request_timeout_ms
+                                );
+                                keeper.powered();
+                                let current = || {
+                                    authorized()
+                                        && same_transition(
+                                            ctx,
+                                            transition,
+                                            &settings.host,
+                                            settings.port,
+                                        )
+                                };
+                                let result = crate::receiver_sync::set_temporary(
+                                    &ctx.config.luna.send,
+                                    "tv_speaker",
+                                    &current,
+                                );
+                                if result != crate::receiver_sync::RouteResult::NotAttempted {
+                                    fallback = Some(Fallback {
+                                        desired,
+                                        generation: intent.generation,
+                                        since: Instant::now(),
+                                        host: settings.host.clone(),
+                                        port: settings.port,
+                                        retry_at: Instant::now(),
+                                    });
+                                    reconcile = false;
+                                }
+                            }
+                            None => crate::log_info!(
+                                "receiver: superseded: the screen, the settings or the sound output changed meanwhile"
+                            ),
                         }
                     }
                 }
             }
             continue;
         }
-        let state = output_sub.as_ref().map(|s| s.state()).filter(|s| s.valid);
+        let state = output_sub
+            .as_ref()
+            .map(|s| s.state())
+            .filter(|s| s.valid && classified == Some(s.generation));
         let mut kept = false;
         if let Some(transition) = actual_screen(&ctx.hub).filter(|s| s.0) {
-            if let Some(state) = state.filter(|s| s.preference.is_some()) {
+            if let (Some(state), Some(desired)) = (state, intent.output) {
                 kept = true;
-                let desired = state.preference.unwrap();
                 let authorized = || {
                     same_transition(ctx, transition, &settings.host, settings.port)
                         && output_sub.as_ref().is_some_and(|s| {
                             let now = s.state();
-                            now.valid
-                                && now.generation == state.generation
-                                && now.preference == state.preference
+                            now.valid && now.generation == state.generation
                         })
                 };
                 if fallback.is_none()
@@ -888,7 +1009,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                         Some(true) => {
                             fallback = Some(Fallback {
                                 desired,
-                                generation: state.generation,
+                                generation: intent.generation,
                                 since: reconcile_since,
                                 host: settings.host.clone(),
                                 port: settings.port,
@@ -925,6 +1046,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                                 &authorized,
                             ) == crate::receiver_sync::RouteResult::Confirmed
                         {
+                            crate::log_info!("receiver: on again: back to {}", owned.desired);
                             fallback = None;
                             reconcile = false;
                         } else {
@@ -938,23 +1060,37 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                 let seen = if poller.failures >= 2 {
                     Seen::Unreachable
                 } else {
-                    match poller.last_ok.as_ref().filter(|r| r.at.elapsed() <= hide).map(|r| &r.status) {
-                        Some(s) if s.power == Power::On => Seen::On { tv: s.input.as_deref() == Some("TV") },
+                    match poller
+                        .last_ok
+                        .as_ref()
+                        .filter(|r| r.at.elapsed() <= hide)
+                        .map(|r| &r.status)
+                    {
+                        Some(s) if s.power == Power::On => Seen::On {
+                            tv: s.input.as_deref() == Some("TV"),
+                        },
                         Some(s) if s.power == Power::Standby => Seen::Standby,
                         _ => Seen::Unknown,
                     }
                 };
                 let steps = keeper.observe(Instant::now(), true, seen);
                 if steps != Steps::default() {
-                    let power_client = Client::new(settings.host.clone(), settings.port).with_timeouts(
-                        Duration::from_millis(tuning.connect_timeout_ms),
-                        Duration::from_millis(tuning.request_timeout_ms),
-                    );
+                    let power_client = Client::new(settings.host.clone(), settings.port)
+                        .with_timeouts(
+                            Duration::from_millis(tuning.connect_timeout_ms),
+                            Duration::from_millis(tuning.request_timeout_ms),
+                        );
                     if steps.power_on && authorized() {
-                        crate::log_info!("receiver: the screen is on and the receiver is off: power on");
+                        crate::log_info!(
+                            "receiver: the screen is on and the receiver is off: power on"
+                        );
                         if let Err(e) = power_client.send_command("ZMON") {
                             crate::log_warn!("receiver: power on: {e}");
                         }
+                        // LG may have moved its output to the speakers meanwhile: checked again once it reads on.
+                        reconcile = true;
+                        reconcile_since = Instant::now();
+                        reconcile_at = Instant::now();
                     }
                     if steps.tv_input && authorized() {
                         crate::log_info!("receiver: on after the power command: the TV input");
@@ -963,13 +1099,21 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                         }
                     }
                     if steps.speakers && fallback.is_none() {
-                        let why = if seen == Seen::Unreachable { "does not answer" } else { "stays off" };
+                        let why = if seen == Seen::Unreachable {
+                            "does not answer"
+                        } else {
+                            "stays off"
+                        };
                         crate::log_info!("receiver: the receiver {why}: the TV's own speakers");
-                        let result = crate::receiver_sync::set_temporary(&ctx.config.luna.send, "tv_speaker", &authorized);
+                        let result = crate::receiver_sync::set_temporary(
+                            &ctx.config.luna.send,
+                            "tv_speaker",
+                            &authorized,
+                        );
                         if result != crate::receiver_sync::RouteResult::NotAttempted {
                             fallback = Some(Fallback {
                                 desired,
-                                generation: state.generation,
+                                generation: intent.generation,
                                 since: Instant::now(),
                                 host: settings.host.clone(),
                                 port: settings.port,
@@ -1005,6 +1149,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
             was_polling = false;
             poller.last_attempt = None;
             poller.failures = 0;
+            poller.on_since = None;
             // No connection while the screen is off.
             if let Some(link) = &link {
                 link.set_target(None);
@@ -1048,6 +1193,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
             poller.max_volume = None;
             poller.last_attempt = None;
             poller.failures = 0;
+            poller.on_since = None;
             poller.display = VolumeDisplay::Unknown;
             next_poll = Instant::now();
             if link_state == LinkState::Up {
@@ -1276,23 +1422,37 @@ mod tests {
     use super::*;
     use lumatv_denon::Power;
 
+    /// `receiver.powerOnMs` and `receiver.maxBackoffMs` as shipped.
+    const GRACE: Duration = Duration::from_secs(5);
+    const MAX: Duration = Duration::from_secs(30);
+
     /// A screen-on time that started at `t0`, past the wake's grace.
     fn kept(t0: Instant) -> (Keeper, Instant) {
-        let mut k = Keeper::new(t0);
+        let mut k = Keeper::new(t0, GRACE, MAX);
         assert_eq!(k.observe(t0, true, Seen::Standby), Steps::default(), "the wake's own command has the first 5 s");
-        (k, t0 + KEEP_GRACE)
+        (k, t0 + GRACE)
     }
 
     #[test]
     fn the_screen_on_with_the_receiver_off_turns_it_on_and_to_the_tv_input() {
         let (mut k, t) = kept(Instant::now());
         assert_eq!(k.observe(t, true, Seen::Standby), Steps { power_on: true, ..Steps::default() });
-        assert_eq!(k.due(t), Some(t + KEEP_GRACE), "the next try backs off");
+        assert_eq!(k.due(t), Some(t + GRACE), "the next try backs off");
         assert_eq!(k.observe(t + Duration::from_secs(1), true, Seen::Standby), Steps::default());
-        assert_eq!(k.observe(t + KEEP_GRACE, true, Seen::Standby), Steps { power_on: true, speakers: true, ..Steps::default() }, "still off: the TV's speakers meanwhile");
-        assert_eq!(k.due(t + KEEP_GRACE), Some(t + KEEP_GRACE * 3));
-        assert_eq!(k.observe(t + KEEP_GRACE * 3, true, Seen::On { tv: false }), Steps { tv_input: true, ..Steps::default() });
-        assert_eq!(k.observe(t + KEEP_GRACE * 3, true, Seen::On { tv: false }), Steps::default(), "the input once, after its own power command");
+        assert_eq!(k.observe(t + GRACE, true, Seen::Standby), Steps { power_on: true, speakers: true, ..Steps::default() }, "still off: the TV's speakers meanwhile");
+        assert_eq!(k.due(t + GRACE), Some(t + GRACE * 3));
+        assert_eq!(k.observe(t + GRACE * 3, true, Seen::On { tv: false }), Steps { tv_input: true, ..Steps::default() });
+        assert_eq!(k.observe(t + GRACE * 3, true, Seen::On { tv: false }), Steps::default(), "the input once, after its own power command");
+    }
+
+    #[test]
+    fn a_receiver_that_stays_off_is_tried_every_30_s_at_most_for_as_long_as_the_screen_is_on() {
+        let (mut k, mut t) = kept(Instant::now());
+        for wait in [5, 10, 20, 30, 30] {
+            assert!(k.observe(t, true, Seen::Standby).power_on);
+            t += Duration::from_secs(wait);
+            assert_eq!(k.due(t - Duration::from_secs(1)), Some(t));
+        }
     }
 
     #[test]
@@ -1311,21 +1471,21 @@ mod tests {
         k.observe(t, true, Seen::On { tv: true });
         assert_eq!(k.observe(t, true, Seen::Standby), Steps { power_on: true, ..Steps::default() });
         k.observe(t, true, Seen::On { tv: true });
-        let later = t + KEEP_BACKOFF_MAX;
+        let later = t + MAX;
         assert_eq!(k.observe(later, true, Seen::Standby), Steps { speakers: true, ..Steps::default() });
-        assert_eq!(k.observe(later + KEEP_BACKOFF_MAX, true, Seen::Standby), Steps { speakers: true, ..Steps::default() });
+        assert_eq!(k.observe(later + MAX, true, Seen::Standby), Steps { speakers: true, ..Steps::default() });
     }
 
     #[test]
     fn the_tv_in_standby_never_powers_the_receiver_on() {
         let (mut k, t) = kept(Instant::now());
         assert_eq!(k.observe(t, false, Seen::Standby), Steps::default());
-        assert_eq!(k.observe(t + KEEP_BACKOFF_MAX, false, Seen::Unreachable), Steps::default());
+        assert_eq!(k.observe(t + MAX, false, Seen::Unreachable), Steps::default());
         assert_eq!(k.due(t), None);
         // the next screen-on time has its grace again, and its hand-off command
-        let wake = t + KEEP_BACKOFF_MAX;
+        let wake = t + MAX;
         assert_eq!(k.observe(wake, true, Seen::Standby), Steps::default());
-        assert!(k.observe(wake + KEEP_GRACE, true, Seen::Standby).power_on);
+        assert!(k.observe(wake + GRACE, true, Seen::Standby).power_on);
     }
 
     /// The receiver's thread, guarded under a plugin session of its own.
@@ -1372,6 +1532,13 @@ mod tests {
             for fault in faults {
                 std::fs::write(dir.path().join(fault), "").unwrap();
             }
+            if faults.contains(&"remembered-arc") {
+                std::fs::write(
+                    dir.path().join("receiver-output.json"),
+                    r#"{"output":"external_arc","saved":"external_arc"}"#,
+                )
+                .unwrap();
+            }
             std::fs::write(dir.path().join("preference"), saved).unwrap();
             std::fs::write(dir.path().join("route"), route).unwrap();
             std::fs::write(dir.path().join("calls"), "").unwrap();
@@ -1384,6 +1551,11 @@ case "$3" in
     printf '{"returnValue":true,"subscribed":true,"settings":{"soundOutput":"%s"}}\n' "$(cat preference)"
     while :; do
       if [ -e disconnect ]; then rm disconnect; echo malformed; exit 0; fi
+      if [ -e write ]; then
+        mv write preference
+        echo saved-write >> calls
+        printf '{"returnValue":true,"settings":{"soundOutput":"%s"}}\n' "$(cat preference)"
+      fi
       sleep 0.02
     done ;;
   */soundSettings/setSoundOut)
@@ -1444,6 +1616,9 @@ esac
             config.receiver.max_backoff_ms = 100;
             config.receiver.connect_timeout_ms = 100;
             config.receiver.request_timeout_ms = 150;
+            if faults.contains(&"quick-power-on") {
+                config.receiver.power_on_ms = 100;
+            }
             let ctx = Ctx {
                 config: Arc::new(config),
                 paths: crate::config::Paths::new(dir.path()),
@@ -1514,6 +1689,8 @@ esac
             let stopped = server_stop.clone();
             let received = requests.clone();
             let rapid_cycle = faults.contains(&"rapid-cycle");
+            let zmon_powers = faults.contains(&"zmon-powers");
+            let root = dir.path().to_owned();
             let server = thread::spawn(move || {
                 while !stopped.load(Ordering::Relaxed) {
                     let (mut stream, _) = match listener.accept() {
@@ -1524,6 +1701,10 @@ esac
                         }
                         Err(e) => panic!("{e}"),
                     };
+                    if root.join("unreachable").exists() {
+                        // closed unanswered: the receiver lost power or left the network
+                        continue;
+                    }
                     stream
                         .set_read_timeout(Some(Duration::from_secs(2)))
                         .unwrap();
@@ -1546,6 +1727,9 @@ esac
                     }
                     if request.contains("?ZMOFF") {
                         powered.store(false, Ordering::Relaxed);
+                    }
+                    if zmon_powers && request.contains("?ZMON") {
+                        powered.store(true, Ordering::Relaxed);
                     }
                     let body = if request.contains("formiPhoneAppDirect") {
                         String::new()
@@ -1595,6 +1779,16 @@ esac
         }
         fn flag(&self, name: &str) {
             std::fs::write(self.dir.path().join(name), "").unwrap();
+        }
+        /// LG saving `soundOutput`, as its subscription reports it.
+        fn save(&self, output: &str) {
+            let staged = self.dir.path().join("write.tmp");
+            std::fs::write(&staged, output).unwrap();
+            std::fs::rename(staged, self.dir.path().join("write")).unwrap();
+        }
+        fn remembered(&self) -> Value {
+            let text = std::fs::read(self.dir.path().join("receiver-output.json")).unwrap();
+            serde_json::from_slice(&text).unwrap()
         }
         fn wait(&self, condition: impl Fn() -> bool) {
             let until = Instant::now() + Duration::from_secs(5);
@@ -1790,6 +1984,59 @@ esac
     }
 
     #[test]
+    fn a_cold_start_after_lg_saved_its_speakers_turns_the_receiver_on_to_the_tv_and_back_to_arc() {
+        // Booted with the receiver off: LG saved tv_speaker, the helper remembers ARC.
+        let rig = RecoveryRig::new(
+            "tv_speaker",
+            "tv_speaker",
+            false,
+            None,
+            &["remembered-arc", "zmon-powers"],
+        );
+        rig.wait(|| {
+            rig.route() == "external_arc"
+                && rig.requests.lock().iter().any(|r| r.contains("?SITV"))
+        });
+        let sent = |command: &str| {
+            rig.requests
+                .lock()
+                .iter()
+                .filter(|r| r.contains(command))
+                .count()
+        };
+        assert_eq!((sent("?ZMON"), sent("?SITV")), (1, 1));
+        assert_eq!(rig.remembered()["output"], "external_arc");
+    }
+
+    #[test]
+    fn an_http_only_receiver_off_the_network_gives_the_speakers_and_comes_back_on_to_the_tv() {
+        use std::sync::atomic::Ordering;
+        let rig = RecoveryRig::new(
+            "external_arc",
+            "external_arc",
+            true,
+            None,
+            &["quick-power-on", "zmon-powers"],
+        );
+        rig.wait(|| rig.count("audio") >= 1);
+        rig.flag("unreachable");
+        rig.wait(|| rig.route() == "tv_speaker");
+        // LG saves its speakers about a second after the receiver leaves ARC
+        rig.save("tv_speaker");
+        rig.wait(|| rig.remembered()["saved"] == "tv_speaker");
+        assert_eq!(rig.remembered()["output"], "external_arc");
+        // back on the network before it is on
+        rig.power.store(false, Ordering::Relaxed);
+        std::fs::remove_file(rig.dir.path().join("unreachable")).unwrap();
+        rig.wait(|| {
+            rig.route() == "external_arc"
+                && rig.requests.lock().iter().any(|r| r.contains("?SITV"))
+        });
+        assert!(rig.requests.lock().iter().any(|r| r.contains("?ZMON")));
+        assert_eq!(rig.remembered()["output"], "external_arc");
+    }
+
+    #[test]
     fn saver_to_active_during_status_or_command_is_not_a_power_cancellation() {
         for request in [0, 1] {
             let rig = RecoveryRig::new("external_arc", "external_arc", false, Some(request), &[]);
@@ -1932,7 +2179,7 @@ esac
         );
     }
     #[test]
-    fn temporary_fallback_survives_standby_and_respects_selection() {
+    fn temporary_fallback_survives_standby_and_lg_saving_its_speakers_but_not_another_output() {
         use settings_schema::{SettingChange, Value as SettingValue};
         use std::io::{Read, Write};
         use std::net::TcpListener;
@@ -1942,7 +2189,11 @@ esac
             atomic::{AtomicBool, Ordering},
             mpsc,
         };
-        for explicit_selection in [false, true] {
+        for (saved, restored) in [
+            (None, true),
+            (Some("tv_speaker"), true),
+            (Some("external_optical"), false),
+        ] {
             let dir = tempfile::tempdir().unwrap();
             let script = dir.path().join("luna-send");
             let calls = dir.path().join("calls");
@@ -2032,10 +2283,10 @@ esac
             tx.send(Cmd::Wake).unwrap();
             wait_for(&|| hub.get(TOPIC).is_some_and(|v| v["polling"] == false));
             let mut events = std::fs::OpenOptions::new().write(true).open(&fifo).unwrap();
-            if explicit_selection {
+            if let Some(saved) = saved {
                 writeln!(
                     events,
-                    "{{\"returnValue\":true,\"settings\":{{\"soundOutput\":\"tv_speaker\"}}}}"
+                    "{{\"returnValue\":true,\"settings\":{{\"soundOutput\":\"{saved}\"}}}}"
                 )
                 .unwrap();
                 thread::sleep(Duration::from_millis(100));
@@ -2066,18 +2317,15 @@ esac
                 json!({"on":true,"state":"Active","source":"luna-subscribe","since":3}),
             );
             tx.send(Cmd::Wake).unwrap();
-            if explicit_selection {
-                thread::sleep(Duration::from_millis(500));
-            } else {
+            if restored {
                 wait_for(&|| {
                     std::fs::read_to_string(&calls).is_ok_and(|s| s.contains("external_arc"))
                 });
+            } else {
+                thread::sleep(Duration::from_millis(500));
             }
             let records = std::fs::read_to_string(&calls).unwrap();
-            assert_eq!(
-                records.lines().count(),
-                if explicit_selection { 1 } else { 2 }
-            );
+            assert_eq!(records.lines().count(), if restored { 2 } else { 1 });
             assert!(records.lines().all(|line| {
                 let value = serde_json::from_str::<Value>(line).unwrap();
                 value.get("store").is_none() && value.get("soundOut").is_some()
@@ -2316,7 +2564,9 @@ esac
             let started = Instant::now();
             assert_eq!(
                 sync_power(&ctx, (true, 1), &client, &|| true),
-                Some(powers_on)
+                Some(Edge::Sent {
+                    confirmed: powers_on
+                })
             );
             assert!(started.elapsed() < Duration::from_secs(2));
             stop.store(true, Ordering::Relaxed);
