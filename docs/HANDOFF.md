@@ -31,6 +31,14 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Receiver kept on after LG saves its speakers, 2026-11-08 (main 81ab0161, ready, not installed)
+
+LG saves `soundOutput` `tv_speaker` about a second after the receiver leaves ARC while the screen is on (the TV's syslog, 2026-11-07 22:07:28 and 22:15:09). The plugin took that saved value for the owner's choice, so no wake, start or keeper sent a power command and nothing was logged. LG's own CEC wakes the receiver only while its saved output is ARC (`Last ARC(1)` at 12:28 woke it, `Last ARC(0)` at 09:51 did not). 81ab0161 remembers the receiver output in `receiver-output.json` through LG's own switch, treats a start with the screen on as a wake, and keeps retrying every `receiver.powerOnMs` (5 s), doubling to `maxBackoffMs` (30 s), while the screen is on.
+
+The receiver's settings, read over HTTP and left unchanged: Network Control Always On, HDMI Control On, ARC On, TV Audio Switching On, Power Off Control All, Auto Standby, ECO and Power Saving off.
+
+Not installed: the TV was in use (Active) from 13:38 to 15:10. The prebuilt helper `3f14761a` (replaces `3d57f9ba`; compositor, ui, sm and tools/lumatv stay f4c0ffa8's), its install and the wake, standby-while-on and cold-start checks are in `/data/home/tmp/lumatv-ready-20261108/`. Untested on the TV: all of it, and a real power cut.
+
 ## Watch-bug fixes install, 2026-11-07 (main f4c0ffa8)
 
 Main f4c0ffa8 installed at 22:05 EST from the prebuilt bundle in Active Standby by the standard compositor cutover and helper path; left in Active Standby. Installed sha256 prefixes: compositor `5150771a` (replaced `6b18d2dd`), ui `abb8d680` (replaced `e9cc2bb2`), sm `65f6ca69` (unchanged), helper `3d57f9ba` (replaced `a977eee7`). Brings the Settings-over-quick-panel fix (96797d97), the receiver keeper (3ad4ab98) and pop-ups without a hardware video window over a foreground app (f4c0ffa8). Untested on the TV: all three. Receipts: `/data/home/tmp/lumatv-smooth3-20261107/session.log`, bundle and rollback binaries `/data/home/tmp/lumatv-ready-20261107/`.
