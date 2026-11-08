@@ -74,9 +74,9 @@ A preview takes the best stream that stays smooth where it plays, and takes noth
 
 | Path | Where | Stream | Picture |
 |---|---|---|---|
-| Video window, main or sub | Home, idle apps (the compositor granted the claim) | the camera's own, inside 1920x1088 at 30 (`accept_popup`) | live video at the camera's rate |
-| Texture / CPU (MultiView's, `slot: "texture"`) | no hardware window | the low stream, H.264 up to 1280x720 at 30 (`accept_low`, quality `light`) | live, drawn by the compositor into the claim's rectangle; the hole needs no sink |
-| Stills | over a playing app (`app-video`, `no-window`) | stills at the box's size | 8 a second (`&fps=8`) |
+| Video window, main or sub | Home or LumaTV in front (the compositor granted the claim) | the camera's own, inside 1920x1088 at 30 (`accept_popup`) | live video at the camera's rate |
+| Texture / CPU (MultiView's, `slot: "texture"`) | no hardware window; always with another app in front (`app-front`: Netflix, YouTube, Live TV, an input), which may start a video that needs the decoder | the low stream, H.264 up to 1280x720 at 30 (`accept_low`, quality `light`) | live, drawn by the compositor into the claim's rectangle; the hole needs no sink |
+| Stills | over a playing app (`app-video`, `no-window`), or another app in front with textures off (`app-front`) | stills at the box's size | 8 a second (`&fps=8`) |
 | Stills, heavy | an app holds both scalers (`both-scalers`: a game at 120 Hz, 4K video) | stills | 4 a second (`&fps=4`) |
 
 The grid's tiles (and so the picker's) keep the owner's pace over Home (Smooth 125, Balanced 200, Light 333 ms) and are asked for no more than twice a second over an app (`OVER_APP_TILE_MS` 500). The helper takes `quality` (`native`, `balanced`/`medium`, `light`/`low`) on `POST /v1/cameras/live`, and `window: "texture"` on `for: "popup"`.

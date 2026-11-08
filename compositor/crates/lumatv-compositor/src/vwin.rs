@@ -259,6 +259,9 @@ pub enum Reason {
     Higher,
     /// The claim asked for a texture and no window (`Request::texture_only`).
     TextureOnly,
+    /// An app that is neither Home nor LumaTV's is the card in front: it may start a video at any moment, and a pop-up holding a window then has its
+    /// decoder taken by LG's policy (`World::app_front`).
+    AppFront,
 }
 
 impl Reason {
@@ -272,6 +275,7 @@ impl Reason {
             Reason::Standby => "standby",
             Reason::Higher => "higher",
             Reason::TextureOnly => "texture-only",
+            Reason::AppFront => "app-front",
         }
     }
 
@@ -285,6 +289,7 @@ impl Reason {
             Reason::Standby => "the screen is off",
             Reason::Higher => "a more important video took the window",
             Reason::TextureOnly => "the claim asked for no window: its stream would re-time the panel",
+            Reason::AppFront => "an app is in front and may start its video",
         }
     }
 }
@@ -398,6 +403,8 @@ pub struct World {
     pub wall: bool,
     /// ... and its video uses both scalers.
     pub wall_wide: bool,
+    /// The card in front is an app's that is neither Home nor LumaTV's: it plays, or may start to (Netflix, YouTube, Live TV, an input).
+    pub app_front: bool,
     /// The screen is off.
     pub standby: bool,
 }
@@ -598,6 +605,11 @@ impl Allocator {
         if let Some(reason) = self.gate(world) {
             return Decision::Denied(reason, None);
         }
+        // TV 2026-11-07: a pop-up granted the sub window while Netflix browsed; Netflix's 4K Dolby Vision title then failed (errorCode 600) when LG's
+        // policy took the decoder back, and the pop-up's feeder failed the same way
+        if req.kind == Kind::CameraPopup && world.app_front {
+            return Decision::Denied(Reason::AppFront, None);
+        }
         let occ = self.occupancy(world);
         let prio = req.kind.priority();
         let fits = |slot: usize| req.need.is_none_or(|n| n.fits(limits(slot, n.codec)));
@@ -696,6 +708,18 @@ impl Allocator {
                 ended.push(self.claims[i].id.clone());
             }
             return ended;
+        }
+        // an app came to the front: a pop-up gives its window back before that app starts a video (its claim is asked again and is a texture)
+        if world.app_front {
+            order.retain(|&i| {
+                let c = &mut self.claims[i];
+                if c.kind != Kind::CameraPopup {
+                    return true;
+                }
+                c.state = ClaimState::Preempted(Reason::AppFront);
+                ended.push(c.id.clone());
+                false
+            });
         }
         // more holders than windows: the lowest claims give theirs up. The wallpaper is not counted: a claim outranks it, and the grant that took its window
         // had it closed (the decoder is still there for the moment its process takes to go).
@@ -970,7 +994,9 @@ impl crate::State {
                 }
             }
         }
-        let front = self.scene.foreground(&self.surfaces).map(|w| w.id);
+        let front_window = self.scene.foreground(&self.surfaces);
+        w.app_front = front_window.is_some_and(|f| !is_own_app(f.app_id()));
+        let front = front_window.map(|f| f.id);
         for e in self.foreign.exported.values() {
             if any_sink {
                 known.extend(e.contexts.iter().map(String::as_str));
@@ -2012,6 +2038,25 @@ mod tests {
         ended.sort();
         assert_eq!(ended, ["pop", "x"]);
         assert_eq!(a.request(&playing, req("y", Kind::CameraPopup, None)), Decision::Denied(Reason::Off, None));
+    }
+
+    #[test]
+    fn a_popup_over_an_app_in_front_takes_no_window_and_gives_one_back_when_an_app_comes_to_the_front() {
+        let netflix = World { app_front: true, ..World::default() };
+        let mut a = Allocator::new(texture_policy(Mode::Apps));
+        // every window is free and nothing plays yet: the pop-up is still a texture, the full view still a window
+        assert!(matches!(a.request(&netflix, req("pop", Kind::CameraPopup, None)), Decision::Texture { because: Reason::AppFront, .. }));
+        assert!(granted(&a.request(&netflix, req("full", Kind::CameraFull, need(Codec::H264, 1920, 1080, 30)))).is_some());
+        // with textures off it is denied (stills), never a window
+        a.policy.texture = false;
+        assert_eq!(a.request(&netflix, req("pop", Kind::CameraPopup, None)), Decision::Denied(Reason::AppFront, None));
+        // over Home it is a window; an app coming to the front takes it back, and the full view keeps its own
+        let mut a = Allocator::new(texture_policy(Mode::Apps));
+        assert_eq!(granted(&a.request(&World::default(), req("pop", Kind::CameraPopup, None))), Some((0, vec![])));
+        a.request(&World::default(), req("full", Kind::CameraFull, None));
+        assert!(a.settle(&World::default()).is_empty());
+        assert_eq!(a.settle(&netflix), ["pop"]);
+        assert_eq!(a.claim("pop").unwrap().state, ClaimState::Preempted(Reason::AppFront));
     }
 
     #[test]

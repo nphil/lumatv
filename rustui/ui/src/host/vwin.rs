@@ -34,9 +34,9 @@ pub enum Grant {
     Asked,
     /// A window is the claim's: `slot` is `main`, `sub` (or `win2`, `win3` where the display has them), `placed` says its window is bound and drawing the hole.
     Granted { slot: String, placed: bool },
-    /// Refused: `reason` is one of `off`, `app-video`, `both-scalers`, `no-window`, `too-big`, `standby`, and `text` says it in words.
+    /// Refused: `reason` is one of `off`, `app-video`, `app-front`, `both-scalers`, `no-window`, `too-big`, `standby`, and `text` says it in words.
     Denied { reason: String, text: String },
-    /// Granted and then taken back: `higher` (a more important picture), `app-video`, `both-scalers`, `too-big`, `standby`, `no-window`.
+    /// Granted and then taken back: `higher` (a more important picture), `app-video`, `app-front`, `both-scalers`, `too-big`, `standby`, `no-window`.
     Preempted { reason: String, text: String },
 }
 

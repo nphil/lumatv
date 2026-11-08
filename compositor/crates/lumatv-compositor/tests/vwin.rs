@@ -56,6 +56,17 @@ fn app(server: &mut Server, title: &str, argb: u32) -> Client {
     client
 }
 
+/// LG's Home card in one colour, full screen: with it in front a pop-up may have a window (another app in front leaves it a texture or stills).
+fn home(server: &mut Server, argb: u32) -> Client {
+    let mut client = Client::connect_extra(server);
+    let win = client.card_as(CARD, "Home", "com.webos.app.home");
+    let buf = client.shm_buffer(1920, 1080, argb);
+    client.present(&win.surface, &buf);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 1), "Home presented");
+    std::mem::forget((win, buf));
+    client
+}
+
 /// What the feeder opens: a video window that is transparent everywhere (the video is the plane's, under the hole) but for a green marker at its corner,
 /// so that a test can tell whether the window is in the stack; with its element and the pipeline's punch-through.
 struct Feeder {
@@ -107,7 +118,7 @@ fn last_placement(server: &Server, ctx: &'static str) -> Value {
 #[test]
 fn a_granted_claim_shows_its_window_with_a_hole_and_places_the_video_at_the_claims_rectangle() {
     let mut server = Server::start();
-    let _app = app(&mut server, "App", 0xffff_0000);
+    let _home = home(&mut server, 0xffff_0000);
     set_mode(&server, Mode::Apps);
     let feeder = feeder(&mut server, "Cameras", "_ctx_cam");
     // no claim: the window is not in the stack, nothing is placed
@@ -122,7 +133,7 @@ fn a_granted_claim_shows_its_window_with_a_hole_and_places_the_video_at_the_clai
     assert_eq!(image.pixel(5, 5), GREEN, "the window is in the stack from the grant");
     assert_eq!(image.pixel(1300, 60), HOLE, "the hole's first pixel");
     assert_eq!(image.pixel(1859, 374), HOLE, "and its last");
-    assert_eq!(image.pixel(1299, 60), RED, "outside it, the app under the transparent window");
+    assert_eq!(image.pixel(1299, 60), RED, "outside it, Home under the transparent window");
     assert_eq!(image.pixel(1860, 200), RED);
     // the video is asked for in the UI's own pixels, which videooutputd scales to the panel (TV 2026-10-30: LG sends 12,273 944x531 and it applies 24,546 1888x1062;
     // a request in the panel's pixels was applied twice as large)
@@ -151,14 +162,14 @@ fn a_granted_claim_shows_its_window_with_a_hole_and_places_the_video_at_the_clai
 #[test]
 fn a_moved_claim_moves_the_hole_and_the_placement() {
     let mut server = Server::start();
-    let _app = app(&mut server, "App", 0xffff_0000);
+    let _home = home(&mut server, 0xffff_0000);
     set_mode(&server, Mode::Apps);
     let _feeder = feeder(&mut server, "Cameras", "_ctx_cam");
     ask(&server, claim("cam", "camera-popup", "org.test.cameras", POPUP));
     let reply = ask(&server, json!({"op": "move", "id": "cam", "rect": {"x": 100, "y": 500, "w": 480, "h": 270}}));
     assert_eq!(reply["ok"], true, "{reply}");
     let image = server.eval(drawn);
-    assert_eq!(image.pixel(1500, 200), RED, "the old place is the app's again");
+    assert_eq!(image.pixel(1500, 200), RED, "the old place is Home's again");
     assert_eq!(image.pixel(300, 600), HOLE, "the new one is the hole");
     assert_eq!(last_placement(&server, "_ctx_cam")["displayOutput"], json!({"x": 100, "y": 500, "width": 480, "height": 270}));
     // a rectangle that leaves the output, or a claim that was never made, is answered and changes nothing
@@ -258,10 +269,10 @@ fn apps_mode_gives_the_second_window_beside_an_app_unless_its_video_uses_both_sc
             {"sink": "SUB0", "connected": false, "context": "", "zOrder": 1, "videoInfo": {}}]})
     };
     server.eval(move |s| s.vwin_status(&sinks(true)));
-    let reply = ask(&server, claim("cam", "camera-popup", "org.test.cameras", POPUP));
+    let reply = ask(&server, claim("cam", "pip", "org.test.cameras", POPUP));
     assert_eq!(state_of(&reply), ("denied".to_string(), "both-scalers".to_string()), "{reply}");
     server.eval(move |s| s.vwin_status(&sinks(false)));
-    let reply = ask(&server, claim("cam", "camera-popup", "org.test.cameras", POPUP));
+    let reply = ask(&server, claim("cam", "pip", "org.test.cameras", POPUP));
     assert_eq!(state_of(&reply), ("granted".to_string(), String::new()), "{reply}");
     assert_eq!(reply["claim"]["slot"], "sub");
     assert_eq!(reply["claim"]["limits"], json!({"w": 1920, "h": 1088, "fps": 30}), "the sub window's limits");
@@ -403,7 +414,7 @@ fn the_foreground_list_stays_the_front_cards_while_a_claim_holds_the_sub_window(
         {"sink": "MAIN", "connected": true, "context": "_ctx_app", "appId": "netflix", "zOrder": 0, "width": 1920, "height": 1080, "frameRate": 30, "videoInfo": {}},
         {"sink": "SUB0", "connected": false, "context": "", "zOrder": 1, "videoInfo": {}}]});
     server.eval(move |s| s.vwin_status(&status));
-    let reply = ask(&server, claim("cam", "camera-popup", "org.test.cameras", POPUP));
+    let reply = ask(&server, claim("cam", "pip", "org.test.cameras", POPUP));
     assert_eq!(reply["claim"]["slot"], "sub", "{reply}");
     assert_eq!(foreground(&server), before);
     let r = server.eval(|s| s.vwin_ctl(&["fg", "org.test.sub"]));
@@ -472,7 +483,7 @@ fn ctl_page_layout_is_refused_where_there_are_no_pages_or_the_holes_would_lose_t
 fn the_shell_asks_through_its_channel_and_reads_the_answer_in_the_topic() {
     let mut server = Server::start();
     server.eval(|s| { s.shell_rust_open(0, "test".into()).unwrap(); s.shell_rust_handle(Msg::Connected); });
-    let _app = app(&mut server, "App", 0xffff_0000);
+    let _home = home(&mut server, 0xffff_0000);
     set_mode(&server, Mode::Apps);
     let _feeder = feeder(&mut server, "Cameras", "_ctx_cam");
     server.eval(|s| s.shell_rust_handle(Msg::Vwin(claim("cam", "camera-popup", "org.test.cameras", POPUP))));
@@ -525,13 +536,14 @@ fn an_element_nobody_plays_on_denies_idle_mode_only_in_the_window_in_front_and_n
     assert_eq!((r["world"]["appElements"].as_i64(), r["world"]["appPlaying"].as_i64()), (Some(1), Some(0)), "{r}");
     let counted: Vec<_> = r["elements"].as_array().unwrap().iter().filter(|e| e["counted"] == true).map(|e| e["app"].clone()).collect();
     assert_eq!(counted, [json!("org.test.player")], "{r}");
-    assert_eq!(r["claims"][0]["reason"], "app-video", "the granted claim ended: {r}");
+    assert_eq!(r["claims"][0]["reason"], "app-front", "the granted claim ended as the card came, before its element: {r}");
     assert_eq!(state_of(&ask(&server, claim("over", "camera-popup", "", POPUP))), ("denied".to_string(), "app-video".to_string()));
-    // another card comes to the front: the player's idle element is behind it and holds no decoder
+    // another card comes to the front: the player's idle element is behind it and holds no decoder, and the pop-up is kept off the windows only
+    // because an app is in front
     let (_other, _ow, _ob) = card_of(&mut server, "Other", "org.test.other");
     let r = server.eval(|s| s.vwin_report());
     assert_eq!(r["world"]["appElements"], 0, "{r}");
-    assert_eq!(state_of(&ask(&server, claim("after", "camera-popup", "", POPUP))).0, "granted");
+    assert_eq!(state_of(&ask(&server, claim("after", "camera-popup", "", POPUP))), ("denied".to_string(), "app-front".to_string()));
     std::mem::forget((hw, hb, pw, pb, _home_el, _player_el));
 }
 

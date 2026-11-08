@@ -319,8 +319,8 @@ impl Popup {
     }
 
     /// The claim on a video window for the card's picture box, while a card the record says can play live video is up: the shell posts it. A camera whose
-    /// streams would all re-time the panel claims a texture (`texture_only`); any other claims a window over Home as over an app, where the helper plays
-    /// a calm stream whose declared rate keeps the panel at 120 Hz (`live::rate`).
+    /// streams would all re-time the panel claims a texture (`texture_only`); any other claims a window, where the helper plays a calm stream whose declared
+    /// rate keeps the panel at 120 Hz (`live::rate`). With another app in front the compositor answers a texture or stills (`app-front`), never a window.
     pub fn claim(&self) -> Option<Value> {
         let capable = self.up && !self.viewer_up && self.current.as_ref().is_some_and(|c| c.live == Some(true));
         let texture_only = self.current.as_ref().is_some_and(|c| c.texture_only);
