@@ -28,6 +28,10 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Watch-bug fixes install, 2026-11-07 (main f4c0ffa8)
+
+Main f4c0ffa8 installed at 22:05 EST from the prebuilt bundle in Active Standby by the standard compositor cutover and helper path; left in Active Standby. Installed sha256 prefixes: compositor `5150771a` (replaced `6b18d2dd`), ui `abb8d680` (replaced `e9cc2bb2`), sm `65f6ca69` (unchanged), helper `3d57f9ba` (replaced `a977eee7`). Brings the Settings-over-quick-panel fix (96797d97), the receiver keeper (3ad4ab98) and pop-ups without a hardware video window over a foreground app (f4c0ffa8). Untested on the TV: all three. Receipts: `/data/home/tmp/lumatv-smooth3-20261107/session.log`, bundle and rollback binaries `/data/home/tmp/lumatv-ready-20261107/`.
+
 ## Tuner busy slate install, 2026-11-07 (main f5f3a2b4)
 
 Main f5f3a2b4 installed at 15:43 EST by the standard compositor cutover and helper path, with the owner watching: a LumaTV toast before each step, the receiver and input left alone, Home in front before and after. Installed sha256: compositor `6b18d2ddbf25f8267438525f458aeb250b2afd81c513a0354e9107444ed4a23b` (unchanged), ui `e9cc2bb27541ff5b0907062d967bd78c0fc287a0f071cd2961a34dafd74e347e` (replaced `8eb3c7f1`), sm `65f6ca69` (unchanged), helper `a977eee76c42013602bb45e766e7e951bd2f55c7e04842ec8e721a4e0775efe2` (replaced `f08140a1`). Left on, at Home, receiver off and unmuted at -37.0 dB, test events off. Receipts: `/data/home/tmp/lumatv-smooth3-20261107/`.
