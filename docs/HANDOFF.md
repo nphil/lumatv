@@ -6,6 +6,9 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
+Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
+and the standing rules; this file is the dated record behind it.
+
 ## Bounded remote logging
 
 `base.logging` owns `enabled` (false), `host` (empty), and `port` (514). The About > Logging page edits those schema-backed values. Addresses are bare IPs or DNS names, not URLs or host:port pairs. Invalid updates leave the stored configuration unchanged. `GET /v1/logging` uses the standard topic envelope; `active` means the UDP worker is configured, never that a collector received a packet.

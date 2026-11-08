@@ -211,6 +211,10 @@ To release a new version:
 3. Commit and tag: `git tag v0.2.0 && git push --tags`
 4. The release workflow creates the GitHub Release and updates `repo.json` automatically
 
+`docs/AGENTS.md` is the entry point for an agent or new contributor: the component
+map, build quirks, install and rollback path, TV access, the frame gate and the
+operational rules learned on the set.
+
 `docs/HANDOFF.md` is the engineering record: the measured boot and standby
 mechanisms on the reference set, what was tried and why it is dead, and how
 to measure again. `docs/research/` holds the survey of other rooted-webOS
