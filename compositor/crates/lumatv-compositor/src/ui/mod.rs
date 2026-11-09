@@ -152,9 +152,9 @@ impl Ui {
         self.engine.set_standin_groups(suppressed.then_some(((z + 800, z + 804), (z + 804, z + 806))));
     }
 
-    /// Reads what the app has sent. `true` when the app has closed its end.
-    pub fn pump(&mut self) -> io::Result<bool> {
-        Ok(self.engine.pump()?.closed)
+    /// Reads what the app has sent ([`Engine::pump`]): how many commits it took in, and whether the app has closed its end.
+    pub fn pump(&mut self) -> io::Result<lumatv_render::host::Pumped> {
+        self.engine.pump()
     }
 
     /// The app's socket, for the compositor's poll set: a commit wakes the loop instead of waiting for the tick.

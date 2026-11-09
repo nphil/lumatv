@@ -910,6 +910,11 @@ impl Engine {
         !self.waiting.is_empty()
     }
 
+    /// The ops the waiting commits hold, and how many of them start a motion (`Op::Animate`): for a host's record of what arrived.
+    pub fn waiting_ops(&self) -> (usize, usize) {
+        self.waiting.iter().flat_map(|t| &t.ops).fold((0, 0), |(all, motions), op| (all + 1, motions + usize::from(matches!(op, Op::Animate { .. }))))
+    }
+
     /// The engine's end of the app's socket, for a host that polls it (a commit then wakes the host's loop). `None` until the
     /// handshake is finished.
     pub fn fd(&self) -> Option<std::os::fd::RawFd> {

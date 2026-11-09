@@ -165,6 +165,9 @@ pub struct Gl {
     /// panel's rate ([`Gl::set_ui_slack`]).
     #[cfg(feature = "ui")]
     ui_slack_ns: u64,
+    /// What the last pump took in: commits, and the ops and motions then waiting ([`Gl::take_ui_arrival`]).
+    #[cfg(feature = "ui")]
+    ui_arrival: Option<(u32, usize, usize)>,
     /// The engine's programs, linked once and handed from one engine to the next (`lumatv_render::programs`).
     #[cfg(feature = "ui")]
     ui_programs: std::sync::Arc<lumatv_render::programs::Cache>,
@@ -352,6 +355,8 @@ impl Gl {
             ui_stats: UiStats::default(),
             #[cfg(feature = "ui")]
             ui_slack_ns: 0,
+            #[cfg(feature = "ui")]
+            ui_arrival: None,
             #[cfg(feature = "ui")]
             ui_programs: lumatv_render::programs::Cache::new(),
         })
@@ -586,6 +591,18 @@ impl Gl {
         #[cfg(not(feature = "ui"))]
         {
             false
+        }
+    }
+
+    /// The commits the last [`Output::ui_needs_frame`] took in, with the ops and motions then waiting (`Engine::waiting_ops`), once.
+    pub fn take_ui_arrival(&mut self) -> Option<(u32, usize, usize)> {
+        #[cfg(feature = "ui")]
+        {
+            self.ui_arrival.take()
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            None
         }
     }
 
@@ -2119,12 +2136,17 @@ impl Output for Gl {
         #[cfg(feature = "ui")]
         if let Some(ui) = &mut self.ui {
             let now = lumatv_render::now_ns();
-            if ui.pump()? {
+            let pumped = ui.pump()?;
+            if pumped.closed {
                 // The app is gone, and its layers with it: the next frame draws everything without them.
                 log::error!("system UI: the app closed its socket; its layers are dropped");
                 self.ui = None;
                 self.redraw_all = true;
                 return Ok(true);
+            }
+            if pumped.commits > 0 {
+                let (ops, motions) = ui.engine().waiting_ops();
+                self.ui_arrival = Some((pumped.commits, ops, motions));
             }
             // With `LUMATV_AHEAD=1`, a large commit (a screen made) is taken in now, in the time to the frame's latch, not in the frame.
             ui.engine().take_in_ahead(now);

@@ -1438,7 +1438,22 @@ impl Output for Kms {
     fn ui_needs_frame(&mut self) -> io::Result<bool> {
         self.gl.set_ui_slack(self.timing.period_ns() / 2);
         // The page probe's time up: a frame puts the ring's page back (`pageprobe`).
-        Ok(self.gl.ui_needs_frame()? || self.gl.standin_due() || self.page_probe_due())
+        let wants = self.gl.ui_needs_frame()? || self.gl.standin_due() || self.page_probe_due();
+        // Where a commit of the UI's lands against the flip in flight and the pacer's run: the first moving frame after a still
+        // screen starts only after the flip before it (HANDOFF, 2026-11-09).
+        if let Some((commits, ops, motions)) = self.gl.take_ui_arrival() {
+            let now_ns = self.now_ns();
+            crate::ring_note!(
+                "U {commits} commits ({ops} ops, {motions} motions) at {:.4}: wanted {}, flip {} ({:.1} ms), queued {}, flowing {}",
+                now_ns as f64 / 1e9,
+                u8::from(wants),
+                u8::from(self.pending_flip),
+                now_ns.saturating_sub(self.committed_ns) as f64 / 1e6,
+                u8::from(self.queued.is_some() || self.last_assignment.is_some()),
+                u8::from(self.flowing(now_ns))
+            );
+        }
+        Ok(wants)
     }
 
     fn ui_due_in(&self) -> Option<Duration> {
