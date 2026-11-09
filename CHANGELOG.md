@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Quick Settings over an app stands against the right edge for the screen's whole height (40 px from the top, right and bottom) on reading glass; on Home it still drops from the gear. The full-width "Video … · Display sync" pill is now small chips under the title: size (4K, 1080p or the exact size), frame rate, refresh with a sync glyph, VRR, and the format badge's HDR/Dolby Vision mark. For HDMI inputs the readings come from the same service as LG's Game Optimizer (`utp.extinputs` `getVideoInfo`/`getVRRInfo`); it does not answer for apps, which keep `videooutput`.
+
 Do Not Disturb holds camera pop-ups, plugin notes and toasts from outside senders (Home Assistant's `notify` among them); volume, input, receiver and LG's or LumaTV's own feedback still show. It is a Quick Settings tile with a card of durations (until turned off, 1 hour, 2 hours, until 07:00) and a minus-in-a-circle mark in the status bar with the time left. A held OK on a camera pop-up opens a snooze sheet: this camera or all camera alerts, for 15 minutes, 1 hour, 4 hours or until 07:00; OK, OK snoozes this camera for an hour. What was held is a "Do Not Disturb" group in the notification drawer, newest 20. "Let doorbell through" in Settings is on by default. The helper owns the gate and keeps its state across restarts. `docs/dnd.md`.
 
 The camera pop-up's glass hides what is under it. At the sheet's own alpha (.91) a Home card's words read through the pop-up's controls; it now has the channel banner's reading glass (at least .985) over Home as over an app.

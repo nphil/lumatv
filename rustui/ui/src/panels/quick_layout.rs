@@ -9,7 +9,7 @@
 //! else on a line of its own under them. Words wrap and the row grows: nothing is cut off, at any text size.
 
 use super::quick::tiles::{Kind, Row};
-use super::quick::{PopupView, View};
+use super::quick::{DisplayInfo, PopupView, VideoInfo, View};
 use crate::kit::text::{role_style, width_of};
 use crate::kit::widgets::{Chip, Stepper, Toggle};
 use crate::kit::wrap;
@@ -48,6 +48,129 @@ pub fn dropdown(button: [f32; 4], w: f32, h: f32, gap: f32) -> Frame {
     let top = (button[1] + button[3] + crate::home::model::STATUS_INSET + gap).round();
     let x = (button[0] + button[2] / 2.0 - w / 2.0).round().clamp(EDGE_X, (1920.0 - EDGE_X - w).max(EDGE_X));
     Frame::new(x, top, w, h.min(1080.0 - EDGE_Y - top).max(0.0))
+}
+
+/// A sheet `w` wide over an app, where no status bar is on the screen: against the right edge and the screen's whole height, `inset` (the
+/// theme's spacing step) from the top, the right and the bottom alike.
+pub fn flush_right(w: f32, inset: f32) -> Frame {
+    Frame::new(1920.0 - inset - w, inset, w, 1080.0 - 2.0 * inset)
+}
+
+/// The Lucide icon of the display's sync chip.
+pub const SYNC_ICON: &str = "refresh-cw";
+
+/// What one chip of the signal line under the head shows.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ChipFace {
+    Text(String),
+    /// The display's refresh, after the sync glyph.
+    Sync(String),
+    /// One of the format badge's marks (`kit::logo::VIDEO_MARKS`): the dynamic range.
+    Mark(&'static str),
+}
+
+/// The signal's chips in the order they read: the picture's size, its frame rate, the display's refresh (and VRR on an input), its range.
+pub fn signal_faces(video: Option<VideoInfo>, display: DisplayInfo) -> Vec<ChipFace> {
+    let mut faces = Vec::new();
+    if let Some(v) = video {
+        if let (Some(w), Some(h)) = (v.width, v.height) {
+            faces.push(ChipFace::Text(size_words(w, h)));
+        }
+        if let Some(fps) = v.fps {
+            let number = format!("{fps:.3}");
+            faces.push(ChipFace::Text(format!("{} fps", number.trim_end_matches('0').trim_end_matches('.'))));
+        }
+    }
+    match display {
+        DisplayInfo::Hz(hz) => faces.push(ChipFace::Sync(format!("{hz} Hz"))),
+        DisplayInfo::Measuring => faces.push(ChipFace::Sync("Measuring".into())),
+        DisplayInfo::Unavailable => {}
+    }
+    if let Some(v) = video {
+        if v.vrr {
+            faces.push(ChipFace::Text("VRR".into()));
+        }
+        if let Some(range) = v.range.filter(|r| *r != "sdr") {
+            faces.push(ChipFace::Mark(range));
+        }
+    }
+    faces
+}
+
+/// The usual sizes by their names, any other as it is.
+fn size_words(w: u64, h: u64) -> String {
+    match (w, h) {
+        (7680, 4320) => "8K".into(),
+        (3840 | 4096, 2160) => "4K".into(),
+        (2560, 1440) => "1440p".into(),
+        (1920, 1080) => "1080p".into(),
+        (1280, 720) => "720p".into(),
+        (720, 576) => "576p".into(),
+        (720 | 640, 480) => "480p".into(),
+        _ => format!("{w}×{h}"),
+    }
+}
+
+/// A range mark's words, for a kit without the mark's art.
+fn mark_words(mark: &str) -> &'static str {
+    match mark {
+        "dolby-vision" => "Dolby Vision",
+        "hdr10plus" => "HDR10+",
+        "hdr10" => "HDR10",
+        "hlg" => "HLG",
+        _ => "HDR",
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SignalChip {
+    pub face: ChipFace,
+    /// Relative to the line's corner.
+    pub frame: Frame,
+}
+
+/// The signal line: small chips side by side, on as many lines as `inner` needs, at least one (the room is kept while the readings come).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SignalLayout {
+    pub chips: Vec<SignalChip>,
+    pub lines: usize,
+    pub h: f32,
+    /// The chip's height, its side pad, a mark's height and the sync glyph's side.
+    pub chip_h: f32,
+    pub pad_x: f32,
+    pub mark_h: u32,
+    pub glyph: u32,
+}
+
+pub fn signal_layout(kit: &mut Kit, faces: &[ChipFace], inner: f32) -> SignalLayout {
+    let style = role_style(kit, TypeRole::Caption, None, kit.ui.look.ink(), Align::Left);
+    let (s1, gap, pad_x) = (kit.space(1), kit.space(2), kit.space(3));
+    let chip_h = kit.line(TypeRole::Caption) + 2.0 * s1;
+    let mark_h = (kit.ty(TypeRole::Caption).px as f32 * 1.08).round() as u32;
+    let glyph = crate::kit::hint::glyph_side(kit, TypeRole::Caption);
+    let (mut x, mut line, mut chips) = (0.0_f32, 0usize, Vec::new());
+    for face in faces {
+        let face = match face {
+            ChipFace::Mark(m) if !kit.marks.iter().any(|a| a.name == *m) => ChipFace::Text(mark_words(m).into()),
+            f => f.clone(),
+        };
+        let body = match &face {
+            ChipFace::Text(t) => width_of(kit, style, t),
+            ChipFace::Sync(t) => {
+                let icon = if kit.icons.has(SYNC_ICON) { glyph as f32 + s1 } else { 0.0 };
+                icon + width_of(kit, style, t)
+            }
+            ChipFace::Mark(m) => kit.marks.iter().find(|a| a.name == *m).map_or(0, |a| a.width_at(mark_h)) as f32,
+        };
+        let w = (body + 2.0 * pad_x).ceil().min(inner);
+        if x > 0.0 && x + w > inner {
+            (x, line) = (0.0, line + 1);
+        }
+        chips.push(SignalChip { face, frame: Frame::new(x, line as f32 * (chip_h + gap), w, chip_h) });
+        x += w + gap;
+    }
+    let lines = line + 1;
+    SignalLayout { chips, lines, h: lines as f32 * chip_h + (lines - 1) as f32 * gap, chip_h, pad_x, mark_h, glyph }
 }
 
 /// What sits at a row's right.

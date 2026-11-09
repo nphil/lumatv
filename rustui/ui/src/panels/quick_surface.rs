@@ -11,8 +11,7 @@
 use super::life::Phase;
 use super::quick::tiles::Row;
 use super::quick::{EditView, Focus, PadView, Person, PopupView, Target, View};
-use super::quick::{DisplayInfo, VideoInfo};
-use super::quick_layout::{self as lay, PopupLayout, RowLayout, Trail};
+use super::quick_layout::{self as lay, ChipFace, PopupLayout, RowLayout, SignalLayout, Trail};
 use super::stage::{Stage, Touch};
 use super::ui::{Arrive, Line, Scroll, WordLine, Words, hints_width};
 use crate::kit::avatar::{self, Who};
@@ -38,7 +37,6 @@ use ui::geometry::Frame;
 use ui::group::Group;
 use ui::lucent::palette::PaletteRole;
 use ui::scene::{ImageLayer, ShapeLayer};
-use std::sync::Arc;
 use ui::text::Weight;
 
 pub const SCOPE: Scope = Scope(200);
@@ -173,16 +171,32 @@ struct Head {
 
 struct Built {
     sig: String,
-    pane: Pane,
+    _pane: Pane,
     head: Head,
     strip: Vec<StripCell>,
     list: Option<ListParts>,
     edit: Option<EditParts>,
     pad: Option<PadParts>,
     foot: Option<Foot>,
-    _info: Option<(ShapeLayer, Words, Frame)>,
-    over_video: bool,
+    signal: Option<Signal>,
 }
+
+/// The signal line's chips under the head, made again on their own when what they say changes (the measured refresh, a stream's ramp).
+struct Signal {
+    at: (f32, f32),
+    faces: Vec<ChipFace>,
+    chips: Vec<SignalParts>,
+}
+
+struct SignalParts {
+    _plate: ShapeLayer,
+    /// The words and the part of the chip they are centred in (beside the sync glyph).
+    words: Option<(Words, Frame)>,
+    _art: Option<ImageLayer>,
+}
+
+/// The kit's generation, the text size and the chips' faces.
+type SignalKey = (u64, u32, Vec<ChipFace>);
 
 struct PickRow {
     plate: Plate,
@@ -213,10 +227,6 @@ struct PopupBuilt {
     _marks: Vec<Words>,
     _icons: Vec<ImageLayer>,
 }
-struct InfoCache {
-    key: (DisplayInfo, Option<VideoInfo>, u32, u32),
-    lines: Arc<Vec<String>>,
-}
 
 /// The rows as they were measured and wrapped, for the data and the kit they were measured with: the rows are laid out again only when one of those changes.
 struct RowCache {
@@ -239,7 +249,8 @@ pub struct QuickSurface {
     popup_hover: Hover,
     popup_modal: bool,
     shake_due: Option<(u64, usize)>,
-    info_cache: Option<InfoCache>,
+    /// The signal line as last laid out, for the kit's generation, the text size and the chips it says: measured again only when one changes.
+    signal_layout: Option<(SignalKey, SignalLayout)>,
     row_cache: Option<RowCache>,
 }
 
@@ -250,7 +261,7 @@ fn person_who(p: &Person) -> Who {
 impl QuickSurface {
     /// `z` is the panels' band base.
     pub fn new(z: i32) -> Self {
-        Self { stage: Stage::new(z, SCOPE), built: None, popup: None, popup_hover: Hover::new(z + 24), popup_modal: false, shake_due: None, info_cache: None, row_cache: None }
+        Self { stage: Stage::new(z, SCOPE), built: None, popup: None, popup_hover: Hover::new(z + 24), popup_modal: false, shake_due: None, signal_layout: None, row_cache: None }
     }
 
     pub fn is_up(&self) -> bool {
@@ -264,7 +275,7 @@ impl QuickSurface {
 
     // ---- building
 
-    fn signature(kit: &mut Kit, v: &View, rows: &str, info_lines: usize) -> String {
+    fn signature(kit: &mut Kit, v: &View, rows: &str, signal_lines: usize) -> String {
         let strip: Vec<String> = v.strip.iter().flatten().map(|p| format!("{}/{}/{}/{}/{:?}", p.id, p.name, p.active, p.locked, p.avatar_file)).collect();
         let edit: Vec<String> = v.edit.iter().flat_map(|e| e.rows.iter().map(|r| format!("{}/{}/{}/{}", r.id, r.label, r.detail, r.icon))).collect();
         let head = lay::head_layout(kit, v, lay::SHEET_W - 2.0 * kit.space(6));
@@ -281,7 +292,7 @@ impl QuickSurface {
             head.title,
             head.below,
             v.pad.as_ref().map(|p| p.pin.name.clone()),
-            info_lines
+            signal_lines
         )
     }
 
@@ -615,7 +626,7 @@ impl QuickSurface {
         }
     }
 
-    fn build(kit: &mut Kit, engine: &mut Engine, stage: &Stage, view: &View, rows: Vec<RowLayout>, sig: String, info_lines: &[String]) -> std::io::Result<Built> {
+    fn build(kit: &mut Kit, engine: &mut Engine, stage: &Stage, view: &View, rows: Vec<RowLayout>, sig: String, signal_h: f32) -> std::io::Result<Built> {
         let (root_group, z) = (stage.group(), stage.z());
         let scene = kit.ui.scene.clone();
         let sheet = lay::sheet();
@@ -624,7 +635,8 @@ impl QuickSurface {
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
         scene.adopting_view(root_group, || -> std::io::Result<Built> {
-            let pane = Pane::new(kit, sheet, z + 1, PaneKind::Sheet, view.over_video);
+            // over an app the sheet is reading glass: the app's words under it must not read through the rows
+            let pane = if view.over_video { Pane::reading(kit, sheet, z + 1, PaneKind::Sheet) } else { Pane::new(kit, sheet, z + 1, PaneKind::Sheet, false) };
             // ---- the head
             let hl = lay::head_layout(kit, view, inner);
             let title_lines: Vec<WordLine> = hl.title.iter().map(|t| WordLine::new(t, TypeRole::Title, ink).weight(Weight::SemiBold)).collect();
@@ -652,34 +664,21 @@ impl QuickSurface {
             let mut cursor = sheet.y + pad + head_h + kit.space(4);
             let sheet_bottom = sheet.y + sheet.h - pad;
             let (mut strip, mut list, mut edit, mut pad_parts, mut foot) = (Vec::new(), None, None, None, None);
-            let mut info = None;
+            let mut signal = None;
             if let Some(p) = &view.pad {
                 let parts = Self::build_pad(kit, engine, root_group, p, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?;
                 pad_parts = Some(parts);
             } else if let Some(e) = view.edit.as_ref().filter(|_| view.editing) {
                 edit = Some(Self::build_edit(kit, engine, root_group, e, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?);
             } else {
-                let inset = kit.space(3);
-                let lines = info_lines;
-                let height = lines.len() as f32 * kit.line(TypeRole::Caption) + 2.0 * inset;
+                // the signal line under the head: its chips are made by `apply_signal`
+                let at = (sheet.x + pad, sheet.y + pad + head_h + kit.space(2));
+                signal = Some(Signal { at, faces: Vec::new(), chips: Vec::new() });
+                cursor = at.1 + signal_h + kit.space(4);
                 let btn_h = Button::height(kit);
                 let hints_h = if view.hints_foot.is_empty() { 0.0 } else { kit.line(TypeRole::Caption) };
                 let foot_h = btn_h + if hints_h > 0.0 { hints_h + kit.space(2) } else { 0.0 };
                 let foot_y = sheet_bottom - foot_h;
-                let strip_h = view.strip.as_ref().map_or(0.0, |people| lay::strip_layout(kit, people.len(), inner).h + kit.space(2));
-                let tallest = rows.iter().map(|row| row.h).fold(0.0_f32, f32::max);
-                let outside = foot_y - kit.space(4) - cursor - strip_h - height - kit.space(4) < tallest;
-                // the pill of the video's facts at the left of the sheet; at its right where the sheet is against the left margin
-                let left = sheet.x - inner - kit.space(2);
-                let x = if outside { if left >= lay::EDGE_X { left } else { sheet.right() + kit.space(2) } } else { sheet.x + pad };
-                let y = if outside { sheet.y + pad } else { cursor };
-                let frame = Frame::new(x, y, inner, height);
-                let fill = if outside { kit.ui.look.colour(PaletteRole::Sheet) } else { focus_wash(kit) };
-                let shape = plate::shape(&kit.ui, frame, z + 2, Shape { corner_radius: height / 2.0, fill: Fill::Solid(fill), border_width: 0.0, border: lit_edge(kit) });
-                let words: Vec<WordLine> = lines.iter().map(|s| WordLine::new(s, TypeRole::Caption, ink)).collect();
-                let text = Words::new(kit, frame.x + inset, frame.y + inset, frame.w - 2.0 * inset, z + 3, &words)?;
-                info = Some((shape, text, frame));
-                if !outside { cursor += height + kit.space(4); }
                 // the foot: "All settings" and what the keys do
                 let place =
                     Place { id: Target::Foot.id(), frame: Frame::new(sheet.x + pad, foot_y, inner, btn_h), region: REGION_FOOT, scope: SCOPE, z: z + 3 };
@@ -706,7 +705,7 @@ impl QuickSurface {
                 let window = Frame::new(sheet.x + pad, cursor, inner, (foot_y - kit.space(4) - cursor).max(1.0));
                 list = Some(Self::build_list(kit, engine, root_group, &view.rows, rows, window, z)?);
             }
-            Ok(Built { sig, pane, head, strip, list, edit, pad: pad_parts, foot, over_video: view.over_video, _info: info })
+            Ok(Built { sig, _pane: pane, head, strip, list, edit, pad: pad_parts, foot, signal })
         })
     }
 
@@ -726,16 +725,10 @@ impl QuickSurface {
         }
     }
 
-    fn build_popup(kit: &mut Kit, engine: &mut Engine, root_group: &Group, z: i32, p: &PopupView, sig: String, avoid: Option<Frame>) -> std::io::Result<PopupBuilt> {
+    fn build_popup(kit: &mut Kit, engine: &mut Engine, root_group: &Group, z: i32, p: &PopupView, sig: String) -> std::io::Result<PopupBuilt> {
         let scene = kit.ui.scene.clone();
         let z = z + 20;
-        let mut layout = lay::popup_layout(kit, p);
-        if let Some(info) = avoid {
-            let x = layout.frame.x.min(info.x - kit.space(2) - layout.frame.w);
-            let dx = x - layout.frame.x;
-            layout.frame.x = x;
-            if let Some(scroll) = &mut layout.scroll { scroll.window.x += dx; }
-        }
+        let layout = lay::popup_layout(kit, p);
         let group = scene.group(Some(root_group.id()), GroupPose::IDENTITY).map_err(other)?;
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
@@ -948,7 +941,7 @@ impl QuickSurface {
     }
 
     pub fn restyle(&mut self, engine: &mut Engine) {
-        self.info_cache = None;
+        self.signal_layout = None;
         self.row_cache = None;
         self.drop_all(engine);
     }
@@ -977,17 +970,19 @@ impl QuickSurface {
             self.drop_all(engine);
             return Ok(false);
         }
-        // The panel grows out of the gear (Home's status bar says where it is now) and goes back into it. While it is on its way in or out it keeps
-        // the rectangles it started with; at rest and parked it follows the gear, and a parked panel that opens again is made afresh.
-        // the sheet is under the gear: its middle under the gear's, its top just under the pill, kept off the screen's edges
+        // On Home the panel grows out of the gear (the status bar says where it is now) and goes back into it; while it is on its way in or out it
+        // keeps the rectangles it started with, and at rest it follows the gear. Over an app there is no status bar: the sheet stands against
+        // the right edge for the screen's whole height and slides in from there.
+        let inset = kit.space(8);
+        let mut place = if view.over_video { lay::flush_right(lay::SHEET_W, inset) } else { lay::dropdown(gear, lay::SHEET_W, lay::SHEET_H, kit.space(2)) };
         // (the PIN pad at a large text size needs the sheet's whole height, and keeps the top margin then)
-        let mut place = lay::dropdown(gear, lay::SHEET_W, lay::SHEET_H, kit.space(2));
-        if view.pad.is_some() && kit.text_scale > 1.0 {
+        if !view.over_video && view.pad.is_some() && kit.text_scale > 1.0 {
             place = Frame::new(place.x, lay::EDGE_Y, place.w, lay::SHEET_H);
         }
         lay::set_sheet(place);
         let sheet = lay::sheet();
-        let wanted = Arrive::Grow { from: gear, to: [sheet.x, sheet.y, sheet.w, sheet.h] };
+        let wanted =
+            if view.over_video { Arrive::Right(inset + lay::SHEET_W) } else { Arrive::Grow { from: gear, to: [sheet.x, sheet.y, sheet.w, sheet.h] } };
         let arrive = match (phase, self.stage.arrive()) {
             (Phase::Leaving, Some(held)) => held,
             (Phase::Opening, Some(held)) if self.stage.root().is_some_and(super::ui::Root::is_shown) => held,
@@ -998,29 +993,13 @@ impl QuickSurface {
         }
         self.stage.ensure(kit, phase, arrive, true)?;
         let width = lay::SHEET_W - 2.0 * kit.space(6);
-        let info_width = width - 2.0 * kit.space(3);
-        let key = (view.info, view.video_info, kit.text_scale.to_bits(), info_width.to_bits());
-        if self.info_cache.as_ref().is_none_or(|cached| cached.key != key) {
-            let display = match view.info {
-                DisplayInfo::Hz(hz) => format!("~{hz} Hz"),
-                DisplayInfo::Measuring => "Measuring".into(),
-                DisplayInfo::Unavailable => "Unavailable".into(),
-            };
-            let video = view.video_info.map(|v| {
-                let mut parts = Vec::new();
-                if let (Some(width), Some(height)) = (v.width, v.height) { parts.push(format!("{width}×{height}")); }
-                if let Some(fps) = v.fps {
-                    let number = format!("{fps:.3}");
-                    parts.push(format!("{} fps", number.trim_end_matches('0').trim_end_matches('.')));
-                }
-                if parts.is_empty() { "Unknown".into() } else { parts.join("  ") }
-            }).unwrap_or_else(|| "Unknown".into());
-            let text = format!("Video  {video}   ·   Display sync  {display}");
-            let style = role_style(kit, TypeRole::Caption, None, kit.ui.look.ink(), Align::Left);
-            let lines = Arc::new(wrap::lines(kit, style, &text, info_width, 4));
-            self.info_cache = Some(InfoCache { key, lines });
+        let faces = lay::signal_faces(view.video_info, view.info);
+        let key = (kit.generation(), kit.text_scale.to_bits(), faces);
+        if self.signal_layout.as_ref().is_none_or(|(cached, _)| *cached != key) {
+            let layout = lay::signal_layout(kit, &key.2, width);
+            self.signal_layout = Some((key, layout));
         }
-        let info_lines = Arc::clone(&self.info_cache.as_ref().expect("information cache").lines);
+        let signal = self.signal_layout.as_ref().expect("signal layout").1.clone();
         let rows: &[Row] = if view.editing || view.pad.is_some() { &[] } else { &view.rows };
         let (generation, text_scale, width_bits) = (kit.generation(), kit.text_scale.to_bits(), width.to_bits());
         if !self.row_cache.as_ref().is_some_and(|c| (c.generation, c.text_scale, c.width) == (generation, text_scale, width_bits) && c.rows == rows) {
@@ -1028,12 +1007,12 @@ impl QuickSurface {
             let sig = layouts.iter().map(RowLayout::signature).collect::<Vec<_>>().join("\n");
             self.row_cache = Some(RowCache { generation, text_scale, width: width_bits, rows: rows.to_vec(), layouts, sig });
         }
-        let sig = format!("{}|{:?}", Self::signature(kit, view, &self.row_cache.as_ref().expect("row cache").sig, info_lines.len()), lay::sheet());
+        let sig = format!("{}|{:?}", Self::signature(kit, view, &self.row_cache.as_ref().expect("row cache").sig, signal.lines), lay::sheet());
         if self.built.as_ref().is_none_or(|b| b.sig != sig) {
             self.drop_built(engine);
             // a click on nothing is Back: the whole screen is a focusable under everything else, absent from the keys
             self.stage.backdrop(engine, Target::Backdrop.id(), REGION_LIST);
-            let built = match Self::build(kit, engine, &self.stage, view, self.row_cache.as_ref().expect("row cache").layouts.clone(), sig, &info_lines) {
+            let built = match Self::build(kit, engine, &self.stage, view, self.row_cache.as_ref().expect("row cache").layouts.clone(), sig, signal.h) {
                 Ok(built) if !kit.ui.scene.take_overflow() => built,
                 result => {
                     let error = result.err().unwrap_or_else(|| std::io::Error::other("the scene is full: the quick panel could not be drawn whole"));
@@ -1046,12 +1025,16 @@ impl QuickSurface {
             // the focused row of what was just made is lifted at once, not flown to
             self.stage.refocus();
         }
+        // the chips follow the readings while the panel is up; a panel on its way out or parked keeps what it showed
+        if let Some(b) = self.built.as_mut().filter(|_| matches!(phase, Phase::Opening | Phase::Open)) {
+            Self::apply_signal(kit, self.stage.group(), self.stage.z(), b, &signal)?;
+        }
         self.apply_popup(kit, engine, view, phase)?;
         if phase == Phase::Parked {
             self.drop_popup(engine);
         }
         if self.stage.phase(kit, engine, phase) {
-            self.update(kit, engine, view, &info_lines, now_ms, now_ns)?;
+            self.update(kit, engine, view, now_ms, now_ns)?;
         }
         Ok(true)
     }
@@ -1064,11 +1047,10 @@ impl QuickSurface {
             }
             return Ok(());
         };
-        let avoid = self.built.as_ref().and_then(|b| b._info.as_ref()).map(|(_, _, frame)| *frame).filter(|f| f.x < lay::sheet().x);
-        let sig = format!("{}:{:?}", Self::popup_signature(kit, p), avoid);
+        let sig = Self::popup_signature(kit, p);
         if self.popup.as_ref().is_none_or(|c| c.sig != sig) {
             self.drop_popup(engine);
-            let built = match Self::build_popup(kit, engine, self.stage.group(), self.stage.z(), p, sig, avoid) {
+            let built = match Self::build_popup(kit, engine, self.stage.group(), self.stage.z(), p, sig) {
                 Ok(built) if !kit.ui.scene.take_overflow() => built,
                 result => {
                     let error = result.err().unwrap_or_else(|| std::io::Error::other("the scene is full: the card could not be drawn whole"));
@@ -1093,6 +1075,58 @@ impl QuickSurface {
         Ok(())
     }
 
+    /// The signal line's chips, made again when what they say changes.
+    fn apply_signal(kit: &mut Kit, root_group: &Group, z: i32, b: &mut Built, layout: &SignalLayout) -> std::io::Result<()> {
+        let Some(s) = b.signal.as_mut() else { return Ok(()) };
+        let faces: Vec<ChipFace> = layout.chips.iter().map(|c| c.face.clone()).collect();
+        if s.faces == faces {
+            return Ok(());
+        }
+        s.chips.clear();
+        let scene = kit.ui.scene.clone();
+        let (ink, at, pad) = (kit.ui.look.ink(), s.at, layout.pad_x);
+        let text_y = |kit: &Kit, f: Frame| f.y + ((f.h - kit.line(TypeRole::Caption)) / 2.0).round();
+        s.chips = scene.adopting_view(root_group, || -> std::io::Result<Vec<SignalParts>> {
+            let mut out = Vec::with_capacity(layout.chips.len());
+            for c in &layout.chips {
+                let frame = Frame::new(at.0 + c.frame.x, at.1 + c.frame.y, c.frame.w, c.frame.h);
+                let shape = Shape { corner_radius: frame.h / 2.0, fill: Fill::Solid(focus_wash(kit)), border_width: 0.0, border: lit_edge(kit) };
+                let plate = plate::shape(&kit.ui, frame, z + 2, shape);
+                let caption = |kit: &mut Kit, x: f32, t: &str| -> std::io::Result<(Words, Frame)> {
+                    let words = Words::new(kit, x, text_y(kit, frame), frame.right() - pad - x, z + 3, &[WordLine::new(t, TypeRole::Caption, ink)])?;
+                    Ok((words, Frame::new(x - pad, frame.y, frame.right() - x + pad, frame.h)))
+                };
+                let (words, art) = match &c.face {
+                    ChipFace::Text(t) => (Some(caption(kit, frame.x + pad, t)?), None),
+                    ChipFace::Sync(t) => {
+                        let g = layout.glyph;
+                        let icon = icon::layer(kit, lay::SYNC_ICON, g, ink, z + 3, Props::at(frame.x + pad, frame.y + ((frame.h - g as f32) / 2.0).round()))?;
+                        let x = frame.x + pad + if icon.is_some() { g as f32 + kit.space(1) } else { 0.0 };
+                        (Some(caption(kit, x, t)?), icon)
+                    }
+                    ChipFace::Mark(m) => {
+                        let art = match kit.marks.iter().find(|a| a.name == *m) {
+                            Some(a) if layout.mark_h > 0 => {
+                                let (w, h, pixels) = a.render(layout.mark_h, f32::MAX, ink);
+                                let props = Props::at(frame.x + pad, frame.y + ((frame.h - h as f32) / 2.0).round());
+                                let mut layer = kit.ui.scene.image(w, h, z + 3, props)?;
+                                layer.pixels_mut().copy_from_slice(&pixels);
+                                layer.damage(None);
+                                Some(layer)
+                            }
+                            _ => None,
+                        };
+                        (None, art)
+                    }
+                };
+                out.push(SignalParts { _plate: plate, words, _art: art });
+            }
+            Ok(out)
+        })?;
+        s.faces = faces;
+        Ok(())
+    }
+
     fn focus_id(view: &View) -> Option<Id> {
         match view.focus.as_ref()? {
             Focus::Strip(i) => Some(Target::Strip(*i).id()),
@@ -1106,24 +1140,17 @@ impl QuickSurface {
     }
 
     /// What changes without changing the layout, and the focus.
-    fn update(&mut self, kit: &mut Kit, engine: &mut Engine, view: &View, info_lines: &[String], now_ms: u64, now_ns: u64) -> std::io::Result<()> {
+    fn update(&mut self, kit: &mut Kit, engine: &mut Engine, view: &View, now_ms: u64, now_ns: u64) -> std::io::Result<()> {
         let focus_row = if let Some(Focus::Row(i)) = view.focus { Some(i) } else { None };
         let disabled = kit.tokens.states.disabled_opacity;
         let z = self.stage.z();
         let mut shake = None;
         if let Some(i) = focus_row { self.reveal_row(engine, i, now_ms); }
         if let Some(b) = self.built.as_mut() {
-            if b.over_video != view.over_video {
-                b.pane.restyle(kit, view.over_video);
-                b.over_video = view.over_video;
-            }
             if let Some(c) = b.head.clock.as_mut()
                 && !view.clock.is_empty()
             {
                 c.set(kit, 0, &view.clock);
-            }
-            if let Some((_, words, _)) = b._info.as_mut() {
-                for (i, line) in info_lines.iter().enumerate() { words.set(kit, i, line); }
             }
             if let Some(list) = b.list.as_mut() {
                 let (low, high) = list.scroll.swept(engine, now_ns);
@@ -1401,7 +1428,9 @@ impl QuickSurface {
             + strip
             + pad
             + foot
-            + b._info.as_ref().map_or(0, |(_, text, _)| 1 + text.layers())
+            + b.signal.as_ref().map_or(0, |s| {
+                s.chips.iter().map(|c| 1 + c.words.as_ref().map_or(0, |(w, _)| w.layers()) + usize::from(c._art.is_some())).sum::<usize>()
+            })
             + usize::from(self.stage.has_scrim())
     }
 
@@ -1450,9 +1479,11 @@ impl QuickSurface {
         if let Some(c) = &b.head.clock {
             c.feed_lint(kit, lint, "quick clock", Some(sheet), (0.0, 0.0));
         }
-        if let Some((_, words, frame)) = &b._info {
-            let parent = if frame.x < lay::sheet().x || frame.x >= lay::sheet().right() { lint.panel("quick information pill", *frame, paint, false) } else { sheet };
-            words.feed_lint(kit, lint, "quick information", Some(parent), (0.0, 0.0));
+        for c in b.signal.iter().flat_map(|s| &s.chips) {
+            if let Some((words, well)) = &c.words {
+                let chip = lint.panel("quick signal chip", *well, paint, false);
+                words.feed_lint(kit, lint, "quick signal", Some(chip), (0.0, 0.0));
+            }
         }
         if let Some(list) = &b.list {
             let offset = list.scroll.offset();
@@ -1536,7 +1567,7 @@ mod tests {
     use crate::kit::testkit;
     use crate::panels::K;
     use crate::panels::env::Env;
-    use crate::panels::quick::Quick;
+    use crate::panels::quick::{DisplayInfo, Quick, VideoInfo};
     use crate::panels::quick::tests::{feed, press, rig, two_people};
     use ui::lucent::palette::Mode;
 
@@ -1639,11 +1670,11 @@ mod tests {
     }
 
     #[test]
-    fn the_sheet_is_560_wide_and_forty_pixels_from_the_right_edge_and_holds_the_rows_the_foot_and_the_glyphs() {
-        let u = Up::new(Mode::Dark, 1.0, false);
+    fn over_an_app_the_sheet_stands_flush_right_and_on_home_it_drops_from_the_gear() {
+        let mut u = Up::new(Mode::Dark, 1.0, false);
         let g = u.s.geometry(&u.engine);
-        let want = lay::dropdown(QuickSurface::GEAR, lay::SHEET_W, lay::SHEET_H, u.kit.space(2));
-        assert_eq!(g["sheet"], json!({"x": want.x, "y": want.y, "w": want.w, "h": want.h}), "under the gear, against the right margin");
+        let inset = u.kit.space(8);
+        assert_eq!(g["sheet"], json!({"x": 1920.0 - inset - lay::SHEET_W, "y": inset, "w": lay::SHEET_W, "h": 1080.0 - 2.0 * inset}), "over an app");
         let rows = g["rows"].as_array().expect("rows");
         assert_eq!(rows.len(), u.q.rows(&u.env).len());
         for r in rows.iter().filter(|r| r["visible"] == true) {
@@ -1653,6 +1684,10 @@ mod tests {
         assert!(g["foot"]["y"].as_f64().unwrap() > rows[0]["frame"]["y"].as_f64().unwrap(), "All settings is under the rows");
         assert_eq!(g["scope"], 200);
         assert_eq!(u.engine.focus.modal(), Some(SCOPE), "the panel takes the keys while it is up");
+        u.env.fg.home = true;
+        u.apply();
+        let want = lay::dropdown(QuickSurface::GEAR, lay::SHEET_W, lay::SHEET_H, u.kit.space(2));
+        assert_eq!(u.s.geometry(&u.engine)["sheet"], json!({"x": want.x, "y": want.y, "w": want.w, "h": want.h}), "on Home, under the gear");
     }
 
     #[test]
@@ -1686,75 +1721,45 @@ mod tests {
     }
 
     #[test]
-    fn video_information_keeps_clear_of_the_header_and_rows_at_both_text_sizes() {
+    fn the_signal_chips_sit_under_the_head_above_the_rows_at_both_text_sizes() {
         for mode in [Mode::Dark, Mode::Light] {
             for scale in [1.0, 2.0] {
                 let mut u = Up::new(mode, scale, false);
                 let mut view = u.q.view(&u.env, u.t);
                 view.info = DisplayInfo::Hz(120);
-                view.video_info = Some(VideoInfo { width: Some(3840), height: Some(2160), fps: Some(59.94) });
+                view.video_info = Some(VideoInfo { width: Some(3840), height: Some(2160), fps: Some(59.94), range: Some("hdr10"), vrr: false });
                 u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t, u.t * 1_000_000).unwrap();
                 let b = u.s.built.as_ref().unwrap();
-                let pill = b._info.as_ref().unwrap().2;
-                let list = b.list.as_ref().unwrap().scroll.window();
-                assert!(pill.y + pill.h <= list.y || pill.x + pill.w <= list.x, "{mode:?} {scale}");
+                let s = b.signal.as_ref().unwrap();
+                assert_eq!(&s.faces[..3], &[ChipFace::Text("4K".into()), ChipFace::Text("59.94 fps".into()), ChipFace::Sync("120 Hz".into())]);
+                assert!(matches!(&s.faces[3], ChipFace::Mark("hdr10") | ChipFace::Text(_)), "{:?}", s.faces);
+                let (sheet, list) = (lay::sheet(), b.list.as_ref().unwrap().scroll.window());
+                for c in &u.s.signal_layout.as_ref().unwrap().1.chips {
+                    let f = Frame::new(s.at.0 + c.frame.x, s.at.1 + c.frame.y, c.frame.w, c.frame.h);
+                    assert!(f.x >= sheet.x && f.right() <= sheet.right() && f.y > sheet.y && f.y + f.h <= list.y, "{mode:?} {scale}: {f:?}");
+                }
                 assert!(u.lint().is_empty(), "{mode:?} {scale}: {:?}", u.lint());
             }
         }
     }
-    #[test]
-    fn enlarged_information_moves_with_the_sheet_and_stays_adjacent_in_world_space() {
-        use compositor_protocol::Props;
-        for mode in [Mode::Dark, Mode::Light] {
-            let mut u = Up::new(mode, 2.0, false);
-            let mut view = u.q.view(&u.env, u.t);
-            view.info = DisplayInfo::Hz(120);
-            view.video_info = Some(VideoInfo { width: Some(3840), height: Some(2160), fps: Some(59.94) });
-            u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t, u.t * 1_000_000).unwrap();
-            let built = u.s.built.as_ref().unwrap();
-            let (shape, _, pill) = built._info.as_ref().unwrap();
-            let sheet = built.pane.frame();
-            let root = u.s.stage.group();
-            assert_eq!(shape.group(), Some(root.id()));
-            assert_eq!(built.pane.layer().group(), Some(root.id()));
-            let now = u.kit.ui.scene.now_ns();
-            // the sheet and the information hang under one root that grows out of the gear: once it has settled they are side by side
-            {
-                let at = now + 2_000_000_000;
-                let world = root.world_at(at);
-                let a = world.props(&Props::at(pill.x, pill.y), (pill.w, pill.h));
-                let b = world.props(&Props::at(sheet.x, sheet.y), (sheet.w, sheet.h));
-                let gap = b.x - (a.x + pill.w);
-                assert!((0.0..=u.kit.space(2) + 0.5).contains(&gap), "{mode:?} at {at}: pill is adjacent to the sheet, gap {gap}");
-                if at == now + 2_000_000_000 {
-                    assert!(a.x >= 0.0 && a.y >= 0.0 && a.x + pill.w <= 1920.0 && a.y + pill.h <= 1080.0, "{mode:?}: visible pill {a:?}");
-                    assert!(b.x > 1000.0, "the sheet remains right-anchored: {b:?}");
-                }
-            }
-        }
-    }
 
 
     #[test]
-    fn information_layout_is_reused_until_the_displayed_value_changes() {
+    fn a_new_reading_redraws_the_chips_and_not_the_sheet() {
         let mut u = Up::new(Mode::Dark, 1.0, false);
         let mut view = u.q.view(&u.env, u.t);
         view.info = DisplayInfo::Hz(120);
+        view.video_info = Some(VideoInfo { width: Some(1920), height: Some(1080), fps: Some(23.976), ..VideoInfo::default() });
         u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t, u.t * 1_000_000).unwrap();
-        let cached = Arc::clone(&u.s.info_cache.as_ref().unwrap().lines);
-        assert!(cached.iter().any(|line| line.contains("Unknown")));
-        u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t + 1, (u.t + 1) * 1_000_000).unwrap();
-        assert!(Arc::ptr_eq(&cached, &u.s.info_cache.as_ref().unwrap().lines));
+        let sig = u.s.built.as_ref().unwrap().sig.clone();
         view.info = DisplayInfo::Hz(60);
-        u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t + 2, (u.t + 2) * 1_000_000).unwrap();
-        assert!(!Arc::ptr_eq(&cached, &u.s.info_cache.as_ref().unwrap().lines));
-        assert!(u.s.info_cache.as_ref().unwrap().lines.iter().any(|line| line.contains("~60 Hz")));
-        view.video_info = Some(VideoInfo { width: Some(1920), height: Some(1080), fps: Some(23.976) });
-        u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t + 3, (u.t + 3) * 1_000_000).unwrap();
-        let lines = &u.s.info_cache.as_ref().unwrap().lines;
-        assert!(lines.iter().any(|line| line.contains("1920×1080")));
-        assert!(lines.iter().any(|line| line.contains("23.976 fps")));
-        assert!(!lines.iter().any(|line| line.contains("HDR")));
+        u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t + 1, (u.t + 1) * 1_000_000).unwrap();
+        let b = u.s.built.as_ref().unwrap();
+        assert_eq!(b.sig, sig, "the sheet is kept");
+        assert_eq!(
+            b.signal.as_ref().unwrap().faces,
+            [ChipFace::Text("1080p".into()), ChipFace::Text("23.976 fps".into()), ChipFace::Sync("60 Hz".into())]
+        );
     }
 
     #[test]
@@ -1819,13 +1824,12 @@ mod tests {
         view.focus = Some(Focus::Option(0));
         let phase = u.q.life.phase();
         u.s.apply(&mut u.kit, &mut u.engine, &view, phase, u.t, u.t * 1_000_000).expect("drawn");
-        let info = u.s.built.as_ref().unwrap()._info.as_ref().unwrap().2;
         let popup = u.s.popup.as_ref().unwrap();
-        let card = popup.layout.frame;
+        let (card, sheet) = (popup.layout.frame, lay::sheet());
         let at = u.kit.ui.scene.now_ns() + 2_000_000_000;
-        let info_world = u.s.stage.group().world_at(at).props(&Props::at(info.x, info.y), (info.w, info.h));
+        let sheet_world = u.s.stage.group().world_at(at).props(&Props::at(sheet.x, sheet.y), (sheet.w, sheet.h));
         let card_world = popup._group.as_ref().unwrap().world_at(at).props(&Props::at(card.x, card.y), (card.w, card.h));
-        assert!(card_world.x >= 0.0 && card_world.x + card.w <= info_world.x, "card and information remain visible and separate");
+        assert!(card_world.x >= 0.0 && card_world.x + card.w <= sheet_world.x, "the card is beside the sheet, whole");
         let g = u.s.geometry(&u.engine);
         let (top, bottom) = (g["popup"]["y"].as_f64().unwrap(), g["popup"]["y"].as_f64().unwrap() + g["popup"]["h"].as_f64().unwrap());
         assert!(top >= 54.0 - 0.5 && bottom <= 1080.0 - 54.0 + 0.5, "the card stays inside the safe area: {top}..{bottom}");

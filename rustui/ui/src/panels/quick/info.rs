@@ -39,6 +39,30 @@ pub fn video(doc: &Value) -> Option<Video> {
     Some(Video { context, app, width, height, fps, hdr })
 }
 
+/// utp.extinputs' `getVideoInfo` for an input's pipeline (`videoInfo.video`), what LG's Game Optimizer reads: the signal's size and range.
+/// The pipeline is videooutputd's context for the input's picture; a broadcast that is not an input's answers `returnValue: false`.
+pub fn input_video(doc: &Value, context: &str, app: &str) -> Option<Video> {
+    if doc.get("returnValue").and_then(Value::as_bool) == Some(false) { return None; }
+    let v = doc.pointer("/videoInfo/video")?;
+    let width = v.get("width").and_then(Value::as_u64).filter(|n| *n > 0);
+    let height = v.get("height").and_then(Value::as_u64).filter(|n| *n > 0);
+    let hdr = v.get("hdrType").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+    Some(Video { context: context.to_owned(), app: app.to_owned(), width, height, fps: None, hdr })
+}
+
+/// utp.extinputs' `getVRRInfo` (`vrrInfo`), the Game Optimizer's frame rate and VRR state for an input.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Vrr { pub fps: Option<f64>, pub on: bool }
+
+pub fn input_vrr(doc: &Value) -> Option<Vrr> {
+    if doc.get("returnValue").and_then(Value::as_bool) == Some(false) { return None; }
+    let v = doc.get("vrrInfo")?;
+    let fps = v.get("frameRate").and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0);
+    // the Game Optimizer's own default is "off"
+    let on = v.get("vrrType").and_then(Value::as_str).is_some_and(|t| !t.is_empty() && !t.eq_ignore_ascii_case("off"));
+    Some(Vrr { fps, on })
+}
+
 #[derive(Clone, Copy)]
 struct Published { epoch: u64, at: Instant, value: Display }
 enum Command { Active(u64), Inactive }
@@ -195,5 +219,14 @@ mod tests {
         let placement_only = json!({"video":[{"sink":"MAIN","connected":true,"context":"ctx","appId":"app","width":0,"height":0,"frameRate":0,"displayOutput":{"width":3840,"height":2160},"hdr":true}]});
         let unreported = video(&placement_only).unwrap();
         assert_eq!((unreported.width, unreported.height, unreported.fps), (None, None, None));
+    }
+    #[test]
+    fn an_inputs_signal_is_read_as_the_game_optimizer_reads_it() {
+        let v = input_video(&json!({"videoInfo":{"video":{"width":3840,"height":2160,"hdrType":"HDR10"}}}), "pipe", "com.webos.app.hdmi2").unwrap();
+        assert_eq!((v.context.as_str(), v.width, v.height, v.hdr.as_deref()), ("pipe", Some(3840), Some(2160), Some("HDR10")));
+        assert_eq!(input_video(&json!({"returnValue":false,"errorCode":-106}), "pipe", "app"), None);
+        assert_eq!(input_vrr(&json!({"vrrInfo":{"frameRate":119.88,"vrrType":"Gsync"}})), Some(Vrr { fps: Some(119.88), on: true }));
+        assert_eq!(input_vrr(&json!({"vrrInfo":{"frameRate":60,"vrrType":"off"}})), Some(Vrr { fps: Some(60.0), on: false }));
+        assert_eq!(input_vrr(&json!({"returnValue":false})), None);
     }
 }

@@ -146,12 +146,12 @@ fn codec_mark(codec: &str) -> Option<&'static str> {
 }
 
 /// An HDMI, DisplayPort or USB-C input: utp.extinputs knows its sound. Live TV's tuner is not one.
-fn is_external_input(app: &str) -> bool {
+pub(crate) fn is_external_input(app: &str) -> bool {
     is_input_app(app) && app != LIVE_TV_APP
 }
 
 /// The mark of videooutputd's `hdrType` (`none`, `HDR10`, `HLG`, `DolbyVision`; a name it may use that is none of them is HDR).
-fn range_mark(hdr: &str) -> &'static str {
+pub(crate) fn range_mark(hdr: &str) -> &'static str {
     let h: String = hdr.to_ascii_lowercase().chars().filter(|c| !matches!(c, ' ' | '_' | '-')).collect();
     if h.contains("dolby") || h.contains("vision") {
         "dolby-vision"

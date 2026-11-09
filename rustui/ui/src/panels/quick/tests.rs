@@ -673,7 +673,7 @@ fn video_reading_is_joined_to_the_visible_source_and_expires() {
     }).unwrap();
     let answer = Input::Luna { tag, payload: json!({"video":[{"sink":"MAIN","connected":true,"context":"one","appId":"player","width":1920,"height":1080,"frameRate":24}]}) };
     q.answer(&answer, &mut env, due + 1);
-    assert_eq!(q.view(&env, due + 1).video_info, Some(VideoInfo { width: Some(1920), height: Some(1080), fps: Some(24.0) }));
+    assert_eq!(q.view(&env, due + 1).video_info, Some(VideoInfo { width: Some(1920), height: Some(1080), fps: Some(24.0), ..VideoInfo::default() }));
     env.update(&foreground("two", "other"), due + 2);
     q.sync(&env);
     q.answer(&answer, &mut env, due + 3);
@@ -681,12 +681,31 @@ fn video_reading_is_joined_to_the_visible_source_and_expires() {
     let request = q.tick(&mut env, due + 1000);
     let fresh_tag = request.effects.iter().find_map(|e| match e { Effect::Luna { tag, uri, .. } if uri.ends_with("videooutput/getStatus") => Some(*tag), _ => None }).unwrap();
     q.answer(&Input::Luna { tag: fresh_tag, payload: json!({"video":[{"sink":"MAIN","connected":true,"context":"two","appId":"other","width":1280,"height":720,"frameRate":30}]}) }, &mut env, due + 1001);
-    assert_eq!(q.view(&env, due + 1001).video_info, Some(VideoInfo { width: Some(1280), height: Some(720), fps: Some(30.0) }));
+    assert_eq!(q.view(&env, due + 1001).video_info, Some(VideoInfo { width: Some(1280), height: Some(720), fps: Some(30.0), ..VideoInfo::default() }));
     assert!(q.view(&env, due + 4002).video_info.is_none());
     q.close(&mut env, due + 4003);
     q.open(&mut env, due + 4004);
     q.answer(&answer, &mut env, due + 4005);
     assert!(q.view(&env, due + 4005).video_info.is_none());
+}
+
+#[test]
+fn an_inputs_signal_comes_from_the_game_optimizers_service_for_its_pipeline() {
+    let (mut q, mut env) = rig(false);
+    let app = "com.webos.app.hdmi2";
+    env.update(&Input::Topic { topic: "foreground".into(), data: json!({"app":app,"home":false,"video":{"context":"pipe","app":app}}) }, 1);
+    q.sync(&env);
+    let due = q.info_due.unwrap();
+    let asked: Vec<(u64, String, Value)> = q
+        .tick(&mut env, due)
+        .effects
+        .into_iter()
+        .filter_map(|e| match e { Effect::Luna { tag, uri, payload, .. } if uri.contains("utp.extinputs") => Some((tag, uri, payload)), _ => None })
+        .collect();
+    assert_eq!(asked.iter().map(|(_, u, p)| (u.rsplit('/').next().unwrap().to_owned(), p["pipelineId"].clone())).collect::<Vec<_>>(), vec![("getVideoInfo".into(), json!("pipe")), ("getVRRInfo".into(), json!("pipe"))]);
+    q.answer(&Input::Luna { tag: asked[1].0, payload: json!({"vrrInfo":{"frameRate":119.88,"vrrType":"Gsync"}}) }, &mut env, due + 1);
+    q.answer(&Input::Luna { tag: asked[0].0, payload: json!({"videoInfo":{"video":{"width":3840,"height":2160,"hdrType":"HDR10"}}}) }, &mut env, due + 2);
+    assert_eq!(q.view(&env, due + 2).video_info, Some(VideoInfo { width: Some(3840), height: Some(2160), fps: Some(119.88), range: Some("hdr10"), vrr: true }));
 }
 
 #[test]

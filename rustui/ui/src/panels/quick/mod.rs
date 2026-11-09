@@ -202,8 +202,9 @@ pub struct PadView {
     pub pin: pin::View,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct VideoInfo { pub width: Option<u64>, pub height: Option<u64>, pub fps: Option<f64> }
+/// The signal in front as the panel's head shows it: `range` is the format badge's mark of its dynamic range, `vrr` an input's VRR.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct VideoInfo { pub width: Option<u64>, pub height: Option<u64>, pub fps: Option<f64>, pub range: Option<&'static str>, pub vrr: bool }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct View {
@@ -249,6 +250,8 @@ pub struct Quick {
     info_tag: u64,
     info_answered: Option<u64>,
     video: Option<info::Video>,
+    /// An input's frame rate and VRR (utp.extinputs' `getVRRInfo`), asked with its size under `info_tag | VRR_TAG`.
+    vrr: Option<info::Vrr>,
     info_authority: Option<(String, String)>,
     monitor: info::Monitor,
     pub hold: Hold,
@@ -262,6 +265,8 @@ impl Default for Quick {
 
 /// How long after it opens the panel waits to ask the TV for its readings: after the slide and the burst of frames the key started.
 pub const READ_AFTER_MS: u64 = 200;
+/// Marks the answer of an input's `getVRRInfo`, asked beside its `getVideoInfo` under the same `info_tag`.
+const VRR_TAG: u64 = 1 << 40;
 
 impl Quick {
     pub fn new() -> Self {
@@ -287,6 +292,7 @@ impl Quick {
             info_tag: 0x5A00_0000,
             info_answered: None,
             video: None,
+            vrr: None,
             info_authority: None,
             monitor: info::Monitor::default(),
             hold: Hold::default(),
@@ -350,7 +356,7 @@ impl Quick {
         self.sync_focus_id(&rows);
         self.read_due = Some(now + u64::from(self.life.enter_ms) + READ_AFTER_MS);
         self.clock_due = Some(now + 15_000);
-        self.video = None;
+        (self.video, self.vrr) = (None, None);
         self.info_authority = env.screen_on.then(|| env.fg.video.clone()).flatten();
         self.info_answered = None;
         self.info_tag = self.info_tag.wrapping_add(1);
@@ -369,7 +375,7 @@ impl Quick {
         self.clock_due = None;
         self.info_due = None;
         self.info_answered = None;
-        self.video = None;
+        (self.video, self.vrr) = (None, None);
         self.info_authority = None;
         self.monitor.set_active(false);
         self.hold.clear();
@@ -392,7 +398,7 @@ impl Quick {
                 self.info_authority = authority.cloned();
                 self.info_tag = self.info_tag.wrapping_add(1);
                 self.info_answered = None;
-                self.video = None;
+                (self.video, self.vrr) = (None, None);
                 self.monitor.reset();
             }
             self.monitor.set_active(env.screen_on);
@@ -966,14 +972,22 @@ impl Quick {
         let mut out = Out::default();
         if self.info_answered.is_some_and(|at| now.saturating_sub(at) > 3_000) {
             self.info_answered = None;
-            self.video = None;
+            (self.video, self.vrr) = (None, None);
             self.monitor.reset();
         }
         if self.info_due.is_some_and(|d| now >= d) {
             self.info_due = Some(now + 1_000);
-            if env.screen_on && self.info_authority.is_some() {
+            if let Some((context, app)) = self.info_authority.as_ref().filter(|_| env.screen_on) {
                 self.info_tag = self.info_tag.wrapping_add(1);
-                out.effects.push(Effect::Luna { tag: self.info_tag, uri: "luna://com.webos.service.videooutput/getStatus".into(), payload: json!({}), subscribe: false });
+                // an input's signal comes from where LG's Game Optimizer reads it, its pipeline being the picture's context; an app's from
+                // videooutputd (utp.extinputs answers "no active broadcast" for an app's video)
+                if crate::system::badge::is_external_input(app) {
+                    let at = json!({"pipelineId": context});
+                    out.effects.push(Effect::Luna { tag: self.info_tag, uri: "luna://com.webos.service.utp.extinputs/getVideoInfo".into(), payload: at.clone(), subscribe: false });
+                    out.effects.push(Effect::Luna { tag: self.info_tag | VRR_TAG, uri: "luna://com.webos.service.utp.extinputs/getVRRInfo".into(), payload: at, subscribe: false });
+                } else {
+                    out.effects.push(Effect::Luna { tag: self.info_tag, uri: "luna://com.webos.service.videooutput/getStatus".into(), payload: json!({}), subscribe: false });
+                }
             }
             out.effects.push(Effect::Redraw);
         }
@@ -1018,8 +1032,16 @@ impl Quick {
     /// What the helper answered to the panel's requests: the capture's state after a command, the profile switch (and its PIN).
     pub fn answer(&mut self, input: &Input, env: &mut Env, now: u64) -> Out {
         if let Input::Luna { tag, payload } = input {
+            if self.info_due.is_some() && *tag == self.info_tag | VRR_TAG {
+                self.vrr = info::input_vrr(payload);
+                return Out::effects(vec![Effect::Redraw]);
+            }
             if self.info_due.is_some() && *tag == self.info_tag {
-                let next = info::video(payload).filter(|v| env.screen_on && self.info_authority.as_ref().is_some_and(|(context, app)| v.context == *context && v.app == *app) && self.info_authority == env.fg.video);
+                let read = match &self.info_authority {
+                    Some((context, app)) if crate::system::badge::is_external_input(app) => info::input_video(payload, context, app),
+                    _ => info::video(payload),
+                };
+                let next = read.filter(|v| env.screen_on && self.info_authority.as_ref().is_some_and(|(context, app)| v.context == *context && v.app == *app) && self.info_authority == env.fg.video);
                 if self.video.as_ref().map(|v| (&v.context, &v.app)) != next.as_ref().map(|v| (&v.context, &v.app)) {
                     self.monitor.reset();
                 }
@@ -1136,7 +1158,13 @@ impl Quick {
             title: if editing { "Edit tiles".into() } else { "Quick settings".into() },
             clock: clock_text,
             info: self.monitor.snapshot(),
-            video_info: self.video.as_ref().filter(|v| env.screen_on && self.info_due.is_some() && self.info_authority.as_ref().is_some_and(|(context, app)| v.context == *context && v.app == *app) && self.info_authority == env.fg.video && self.info_answered.is_some_and(|at| now.saturating_sub(at) <= 3_000)).map(|v| VideoInfo { width: v.width, height: v.height, fps: v.fps }),
+            video_info: self.video.as_ref().filter(|v| env.screen_on && self.info_due.is_some() && self.info_authority.as_ref().is_some_and(|(context, app)| v.context == *context && v.app == *app) && self.info_authority == env.fg.video && self.info_answered.is_some_and(|at| now.saturating_sub(at) <= 3_000)).map(|v| VideoInfo {
+                width: v.width,
+                height: v.height,
+                fps: v.fps.or(self.vrr.and_then(|r| r.fps)),
+                range: v.hdr.as_deref().map(crate::system::badge::range_mark),
+                vrr: self.vrr.is_some_and(|r| r.on),
+            }),
             hints_head: head,
             hints_foot: if env.popups_on() {
                 let dnd = !editing && self.popup.is_none() && self.zone == Zone::List && self.stop.and_then(|s| rows.get(s)).is_some_and(|r| matches!(r.act, Act::Dnd(_)));
