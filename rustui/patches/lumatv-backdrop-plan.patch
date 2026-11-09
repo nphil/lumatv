@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/backdrop/plan.rs
-@@ -0,0 +1,144 @@
+@@ -0,0 +1,155 @@
 +use compositor_protocol::LayerId;
 +
 +/// A rectangle of panel pixels, `[left, top, right, bottom]`.
@@ -81,6 +81,9 @@
 +    pub now: Option<Area>,
 +    pub rest: Option<Area>,
 +    pub ask: Option<Ask>,
++    /// A glass surface's body at rest, whatever its backdrop; `None` for any other layer. A cached picture has no glass
++    /// surface's shadows in it (see the top of `backdrop.rs`), so under a cached backdrop only this of the glass is in the way.
++    pub body: Option<Area>,
 +}
 +
 +/// One blurred picture a frame needs.
@@ -110,10 +113,11 @@
 +            Refresh::Live => grown(&body, reach(ask.radius, ask.downsample), &panel),
 +            Refresh::Cached => panel,
 +        };
-+        // The latest backdrop of the same kind that nothing drawn since would show on the surface's body. What a surface
-+        // that shares it has around its body, its shadows, is no obstacle: it is cast into the picture (see `Backdrop`),
-+        // where the others' bodies see it through the glass. Only its body can be in the way.
-+        let shared = out.iter_mut().rev().find(|b| {
++        // A backdrop of the same kind that nothing drawn since would show on the surface's body. What a surface that shares
++        // it has around its body, its shadows, is no obstacle: it is cast into the picture (see `Backdrop`), where the others'
++        // bodies see it through the glass. Only its body can be in the way. Under a cached backdrop, which has no glass
++        // surface's shadows in it, the same holds for every glass surface drawn since.
++        let shares = |b: &Backdrop| {
 +            (b.refresh, b.radius, b.downsample) == (ask.refresh, ask.radius, ask.downsample)
 +                && layers[b.upto..index].iter().enumerate().all(|(k, below)| {
 +                    let shared_body = b
@@ -123,11 +127,18 @@
 +                        .flatten();
 +                    let footprint = shared_body.or(match ask.refresh {
 +                        Refresh::Live => below.now,
-+                        Refresh::Cached => below.rest,
++                        Refresh::Cached => below.rest.and(below.body.or(below.rest)),
 +                    });
 +                    footprint.is_none_or(|f| !overlaps(&f, &body))
 +                })
-+        });
++        };
++        // A live picture is the latest that serves; a cached one the earliest, which is of the fewest layers below and so
++        // made again least often (Home's dock and status bar beside its cards: the latest had the cards in it, and every
++        // focus that dimmed a card drew the dock whole again).
++        let shared = match ask.refresh {
++            Refresh::Live => out.iter_mut().rev().find(|b| shares(b)),
++            Refresh::Cached => out.iter_mut().find(|b| shares(b)),
++        };
 +        match shared {
 +            Some(backdrop) => {
 +                backdrop.area = union(&backdrop.area, &area);
@@ -145,4 +156,3 @@
 +    }
 +    out
 +}
-

@@ -1,15 +1,17 @@
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -42,7 +42,7 @@
+@@ -41,8 +41,9 @@
+ /// Lucent's (`Ease::{Linear, Out, In, Spring}`: the in-out cubic is gone, the exit curve and the spring's release are new, so the
  /// third variant means another curve), and `Out` is the CSS curve itself, not the cubic it resembles. Version 13 adds `Content::Live`,
  /// a layer that shows the frames a producer sends to the frame endpoint ([`frames`]) without the app or the compositor copying them.
++/// Version 15 gives `Request::Animate` a `step_ms`: an ambient motion asks for a frame at most that often.
  /// The app and the compositor ship together in the signed base, so there is no version-7, -8, -9, -10, -11 or -12 path.
 -pub const PROTOCOL_VERSION: u32 = 13;
-+pub const PROTOCOL_VERSION: u32 = 14;
++pub const PROTOCOL_VERSION: u32 = 15;
  
  /// Where the compositor listens. Visible at the same path inside the Echo Show's Android chroot.
  pub const SOCKET_PATH: &str = "/run/lumashow/compositor.sock";
-@@ -320,8 +320,25 @@
+@@ -320,6 +321,23 @@
      /// How far, in logical pixels, the backdrop is bent towards the inside at the edge, as through a lens; 0 is
      /// flat glass. Ignored without a backdrop.
      pub refraction: f32,
@@ -17,8 +19,8 @@
 +    pub edge_lens: Option<EdgeLens>,
 +    /// A vertically varying premultiplied tint.
 +    pub tint_gradient: Option<TintGradient>,
- }
- 
++}
++
 +#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 +pub struct EdgeLens {
 +    pub bevel: f32,
@@ -30,12 +32,36 @@
 +pub struct TintGradient {
 +    pub top: Rgba,
 +    pub bottom: Rgba,
-+}
-+
+ }
+ 
  /// White light along the 135° light axis (`sheen.raised`): alpha `floor` outside `start..end` (fractions of the
- /// body's diagonal from the upper-left corner) rising to `peak` in the middle of that band.
- #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-@@ -1117,6 +1134,8 @@
+@@ -628,12 +646,16 @@
+         id: LayerId,
+         props: Props,
+     },
+-    /// Animates a layer from where it is now to `to`.
++    /// Animates a layer from where it is now to `to`. `step_ms` 0 draws the motion at every refresh, as any motion is drawn. A value
++    /// above 0 is an ambient motion (the weather's clouds and rain): a frame for it is wanted at most every `step_ms`, each frame
++    /// takes the layer to where the motion is at that time, and the screen costs nothing between those frames; frames that
++    /// something else asks for show the motion where it is as well.
+     Animate {
+         id: LayerId,
+         to: Props,
+         duration_ms: u32,
+         ease: Ease,
++        step_ms: u32,
+     },
+     Delete {
+         id: LayerId,
+@@ -1081,6 +1103,7 @@
+                 to: Props::at(0.0, 0.0),
+                 duration_ms: 240,
+                 ease: Ease::Out,
++                step_ms: 33,
+             },
+             Request::Restyle {
+                 id: LayerId(8),
+@@ -1117,6 +1140,8 @@
                      },
                      saturation: 1.25,
                      refraction: 6.0,
@@ -44,4 +70,3 @@
                  }),
              },
              Request::Create {
-

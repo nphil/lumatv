@@ -1,6 +1,6 @@
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -6,8 +6,13 @@
+@@ -6,6 +6,11 @@
  publish = false
  description = "The app side of the compositor: layers the app owns, groups, motion tracks, prepared backdrops and glyph atlases, a nonblocking submission writer"
  
@@ -12,5 +12,3 @@
  [dependencies]
  compositor-protocol = { path = "../compositor-protocol" }
  fontdue = "0.9"
- libc = "0.2"
- memmap2 = "0.9"

@@ -80,4 +80,3 @@
  #endif
  
      if (u_sheen.x + u_sheen.y > 0.0) {
-

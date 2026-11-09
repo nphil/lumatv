@@ -30,4 +30,3 @@
              drawn(3, (300, 160), content, Props::at(50.0, 20.0))
          };
          let live = glass(Backdrop::Live {
-

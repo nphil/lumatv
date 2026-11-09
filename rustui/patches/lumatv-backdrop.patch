@@ -1,12 +1,31 @@
 --- a/backdrop.rs
 +++ b/backdrop.rs
-@@ -33,138 +33,8 @@
+@@ -15,11 +15,14 @@
+ //! shadows together, before any of their bodies are drawn. A live picture has them in it, so that each body sees its
+ //! neighbours' shadows through the glass (CSS: a surface's own shadow is never under its body, and a neighbour's is); a
+ //! cached one does not, which is what keeps it from being taken again whenever one of the surfaces moves. Four cards
+-//! side by side with the shadows Lucent gives them make one picture and not four.
++//! side by side with the shadows Lucent gives them make one picture and not four. Nor does a cached picture have any other
++//! glass surface's shadows in it, so only a glass body drawn since keeps a cached surface from sharing it, and a cached
++//! surface shares the earliest picture it can: the one of the fewest layers below.
+ //!
+ //! **Keeping it.** A `Live` backdrop is made again every frame the glass is drawn, of the layers as they are
+ //! drawn now. A `Cached` one is made of the layers at rest (no animation running, wallpapers still) and only again
+-//! when a layer below changes what it is or where it rests: a fingerprint of the layers below decides.
++//! when a layer under one of its surfaces' bodies changes what it is or where it rests: a fingerprint of those layers
++//! decides.
+ //!
+ //! This file holds the pure parts: which backdrops a frame needs (`plan`), when a cached one is out of date
+ //! (`fingerprint`) and how the blur chain is set (`BlurPlan`).
+@@ -33,143 +36,16 @@
  use std::collections::HashMap;
  use std::io;
  
 -/// A rectangle of panel pixels, `[left, top, right, bottom]`.
 -pub type Area = [i32; 4];
--
++mod plan;
++pub use self::plan::{Area, Ask, Backdrop, Layer, Refresh, overlaps, plan};
+ 
 -pub fn overlaps(a: &Area, b: &Area) -> bool {
 -    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
 -}
@@ -136,21 +155,164 @@
 -    }
 -    out
 -}
-+mod plan;
-+pub use self::plan::{Area, Ask, Backdrop, Layer, Refresh, overlaps, plan};
+-
+-/// A number that stands for the layers below `upto`, at rest, and the blur: it is the same until one of them is
+-/// created, deleted, restyled, damaged or set somewhere else, and it does not change while one is animated or a
+-/// wallpaper moves. The surfaces that share a cached picture are not part of it: their shadows are drawn over it.
+-pub fn fingerprint(layers: &[Layer], upto: usize, radius: f32, downsample: u8) -> u64 {
++/// A number that stands for what the users of a cached picture show of it: the layers below `backdrop.upto` at rest that
++/// are under a user's body, and the blur. It is the same until one of them is created, deleted, restyled, damaged or set
++/// somewhere else, and it does not change while one is animated or a wallpaper moves. A layer below that is under no body
++/// is left out: it is in the picture only as far as the blur spreads it past a body's edge, as the layers a shared picture
++/// leaves out are (`plan`), and a picture made again for it drew every surface on it whole (Home's status bar for every
++/// card that dimmed). The surfaces that share a cached picture are not part of it: their shadows are drawn over it.
++pub fn fingerprint(layers: &[Layer], backdrop: &Backdrop) -> u64 {
+     const PRIME: u64 = 0x0000_0100_0000_01b3;
+     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+     let mut mix = |value: u64| {
+@@ -178,14 +54,21 @@
+             hash = hash.wrapping_mul(PRIME);
+         }
+     };
+-    for layer in &layers[..upto] {
+-        if layer.rest.is_some() {
++    let under_a_body = |rest: &Area| {
++        backdrop.users.iter().any(|&user| {
++            layers[user]
++                .ask
++                .is_some_and(|ask| overlaps(rest, &ask.sample_rest))
++        })
++    };
++    for layer in &layers[..backdrop.upto] {
++        if layer.rest.is_some_and(|rest| under_a_body(&rest)) {
+             mix(u64::from(layer.id.0));
+             mix(layer.version);
+         }
+     }
+-    mix(u64::from(radius.to_bits()));
+-    mix(u64::from(downsample));
++    mix(u64::from(backdrop.radius.to_bits()));
++    mix(u64::from(backdrop.downsample));
+     hash
+ }
  
- /// A number that stands for the layers below `upto`, at rest, and the blur: it is the same until one of them is
- /// created, deleted, restyled, damaged or set somewhere else, and it does not change while one is animated or a
-@@ -909,6 +779,8 @@
+@@ -898,6 +781,7 @@
+             now: Some(area),
+             rest: Some(area),
+             ask: None,
++            body: None,
+         }
+     }
+ 
+@@ -909,7 +793,10 @@
                  downsample,
                  body_now: body,
                  body_rest: body,
 +                sample_now: body,
 +                sample_rest: body,
              }),
++            body: Some(body),
              ..plain(id, 1, body)
          }
-@@ -1271,19 +1143,16 @@
+     }
+@@ -1063,36 +950,67 @@
+     }
+ 
+     #[test]
+-    fn the_fingerprint_follows_what_is_below_and_ignores_animation_and_what_is_above() {
++    fn a_cached_surface_shares_the_earliest_picture_right_on_its_body_and_glass_shadows_are_not_in_the_way() {
++        // Home: a card, its lit glass over it (whose shadow reaches past the card's bottom edge), its contents, and the dock
++        // below it. The dock shares the card's picture (the wallpaper alone), not the lit glass's (which has the card in it).
++        let lit = Layer {
++            now: Some([10, 10, 130, 140]),
++            rest: Some([10, 10, 130, 140]),
++            ..glass(3, [20, 20, 120, 100], Refresh::Cached, 30.0, 4)
++        };
++        let layers = [
++            plain(1, 1, PANEL),
++            glass(2, [20, 20, 120, 100], Refresh::Cached, 30.0, 4),
++            lit,
++            plain(4, 1, [30, 30, 110, 90]),
++            glass(5, [20, 130, 300, 200], Refresh::Cached, 30.0, 4),
++        ];
++        let backdrops = plan(&layers, PANEL, reach);
++        let shape: Vec<(usize, Vec<usize>)> = backdrops.iter().map(|b| (b.upto, b.users.clone())).collect();
++        assert_eq!(shape, vec![(1, vec![1, 4]), (2, vec![2])]);
++    }
++
++    #[test]
++    fn the_fingerprint_follows_what_is_under_a_body_and_ignores_animation_and_what_is_above() {
+         let base = [
+             plain(1, 1, PANEL),
+             plain(2, 4, [10, 10, 50, 50]),
+-            plain(3, 9, [60, 60, 90, 90]),
++            plain(3, 6, [300, 300, 340, 340]),
++            glass(4, [0, 0, 100, 100], Refresh::Cached, 30.0, 4),
++            plain(5, 9, [60, 60, 90, 90]),
+         ];
+-        let same = fingerprint(&base, 2, 30.0, 4);
+-        assert_eq!(fingerprint(&base, 2, 30.0, 4), same);
++        let fp = |layers: &[Layer]| {
++            let backdrops = plan(layers, PANEL, reach);
++            assert_eq!(backdrops.len(), 1);
++            fingerprint(layers, &backdrops[0])
++        };
++        let same = fp(&base);
++        assert_eq!(fp(&base), same);
+         // The layer above the backdrop changes: not this backdrop's business.
+         let mut above = base;
+-        above[2].version = 10;
+-        assert_eq!(fingerprint(&above, 2, 30.0, 4), same);
++        above[4].version = 10;
++        assert_eq!(fp(&above), same);
+         // A layer below is animated: where it is drawn now changes, what it is and where it rests do not.
+         let mut moving = base;
+         moving[1].now = Some([200, 200, 240, 240]);
+-        assert_eq!(fingerprint(&moving, 2, 30.0, 4), same);
+-        // A layer below is restyled, damaged or set: its version moved.
++        assert_eq!(fp(&moving), same);
++        // A layer under the body is restyled, damaged or set: its version moved.
+         let mut changed = base;
+         changed[1].version = 5;
+-        assert_ne!(fingerprint(&changed, 2, 30.0, 4), same);
++        assert_ne!(fp(&changed), same);
++        // One below that no body is over changes: the surface shows nothing of it but the blur's spread past its edge.
++        let mut aside = base;
++        aside[2].version = 7;
++        assert_eq!(fp(&aside), same);
++        // It comes to rest under the body.
++        aside[2].rest = Some([20, 20, 40, 40]);
++        assert_ne!(fp(&aside), same);
+         // One is created or deleted below.
+-        assert_ne!(fingerprint(&base, 3, 30.0, 4), same);
+-        let deleted = [base[0], base[2]];
+-        assert_ne!(
+-            fingerprint(&deleted, 1, 30.0, 4),
+-            fingerprint(&base, 2, 30.0, 4)
+-        );
++        assert_ne!(fp(&[base[0], base[2], base[3], base[4]]), same);
+         // The blur is part of it.
+-        assert_ne!(fingerprint(&base, 2, 20.0, 4), same);
+-        assert_ne!(fingerprint(&base, 2, 30.0, 8), same);
++        let backdrop = &plan(&base, PANEL, reach)[0];
++        assert_ne!(fingerprint(&base, &Backdrop { radius: 20.0, ..backdrop.clone() }), same);
++        assert_ne!(fingerprint(&base, &Backdrop { downsample: 8, ..backdrop.clone() }), same);
+         // A layer not shown at rest is not part of the picture.
+         let mut hidden = base;
+         hidden[1].rest = None;
+@@ -1100,10 +1018,7 @@
+         let mut hidden_other = base;
+         hidden_other[1].rest = None;
+         hidden_other[1].version = 78;
+-        assert_eq!(
+-            fingerprint(&hidden, 2, 30.0, 4),
+-            fingerprint(&hidden_other, 2, 30.0, 4)
+-        );
++        assert_eq!(fp(&hidden), fp(&hidden_other));
+     }
+ 
+     /// The blur of the chain measured in two dimensions with the shader's own diagonal taps: a single bright texel goes
+@@ -1271,19 +1186,16 @@
  
      /// Glass that shows its backdrop and nothing else.
      fn clear_glass(backdrop: Ask_) -> Glass {
@@ -180,4 +342,3 @@
      }
  
      fn glass_layer(id: u32, glass: Glass, size: (u32, u32), at: (f32, f32)) -> crate::scene::Drawn {
-
