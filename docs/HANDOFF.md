@@ -31,6 +31,12 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Quick Settings flush right and signal chips install, 2026-11-08 (main bcda7804, installed 22:29 EST)
+
+Installed with the TV Active and Netflix in front (owner-approved interruption), by the standard compositor cutover and helper path; Netflix relaunched after, lease released. Installed sha256 prefixes: compositor `06313632` (replaced `108414af`), ui `c3f161dd` (replaced `8ba48ab2`), sm `65f6ca69` (unchanged), helper `d40ed35e` (replaced `a0d0c3d1`), `tools/lumatv` `0473b152` (unchanged). Gates at bcda7804: uitest, comptest, helpertest, release. Receipts: `/data/home/tmp/lumatv-ready-bcda7804/`.
+
+Accepted on the TV (`visual/qs-over-netflix-bcda7804.png` in `/data/home/tmp/lumatv-smooth3-20261107/`): over Netflix's profile picker the sheet stands 40 px from the top, right and bottom for the screen's height, and the signal line is one sync chip (`96 Hz`) under the title. Untested on the TV: the size, frame-rate and range chips during playback, an HDMI input's Game Optimizer readings and VRR chip, the Home dropdown after this change.
+
 ## Do Not Disturb and camera snoozes install, 2026-11-08 (main 9f6414cc, installed 21:06 EST)
 
 Installed with the TV Active and Netflix in front (owner-approved interruption), by the standard compositor cutover and helper path; Netflix relaunched after, receiver left on at -23.5 dB, DND off, no snoozes, test events off, lease released. Installed sha256 prefixes: compositor `108414af` (replaced `5150771a`), ui `8ba48ab2` (replaced `abb8d680`), sm `65f6ca69` (unchanged), helper `a0d0c3d1` (replaced `3f14761a`). Gates at 9f6414cc: uitest, helpertest, comptest (816 passed), release.
