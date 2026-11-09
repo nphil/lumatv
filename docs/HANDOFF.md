@@ -31,7 +31,9 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
-## Receiver kept on after LG saves its speakers, 2026-11-08 (main 81ab0161, ready, not installed)
+## Receiver kept on after LG saves its speakers, 2026-11-08 (main 81ab0161, installed 20:05 EST)
+
+Helper `3f14761a` (replaced `3d57f9ba`) installed at 20:05 EST with the TV Active and Netflix in front; helper restart only, no compositor cutover, Netflix stayed in front, receiver left on at -19.0 dB. Compositor `5150771a`, ui `abb8d680`, sm `65f6ca69` unchanged. The keeper logged at start: sound output `external_arc`, receiver kept on with the screen. Tests A/B/C not yet run. Receipts: `/data/home/tmp/lumatv-ready-20261108/`.
 
 LG saves `soundOutput` `tv_speaker` about a second after the receiver leaves ARC while the screen is on (the TV's syslog, 2026-11-07 22:07:28 and 22:15:09). The plugin took that saved value for the owner's choice, so no wake, start or keeper sent a power command and nothing was logged. LG's own CEC wakes the receiver only while its saved output is ARC (`Last ARC(1)` at 12:28 woke it, `Last ARC(0)` at 09:51 did not). 81ab0161 remembers the receiver output in `receiver-output.json` through LG's own switch, treats a start with the screen on as a wake, and keeps retrying every `receiver.powerOnMs` (5 s), doubling to `maxBackoffMs` (30 s), while the screen is on.
 
