@@ -26,11 +26,14 @@
 //!
 //! A frame that changes nothing composes nothing (`Frames::set_still`): no window damage, nothing of the UI changed (Home applied again
 //! with what it had, the focus's rest redrawing the same, a lift's slot freed at its rest pose, the engine's floor brought up to date,
-//! a redraw after work between frames that changed nothing shown), nothing moving after it or after the frame before, and the page on
-//! the screen the last one composed. That page holds the frame already, so no page is drawn or turned and nothing is flipped; the
-//! engine's frame is ended and answered at once. Such commits came 2 to 6 refreshes after a motion's last frame, and each flip of the
-//! same picture was a refresh missed to the 120 Hz gate (session 10: home-widgets 6, home-dpad 1, where the host's walks have them).
-//! `LUMATV_KEEP_UNCHANGED=0` draws and flips them.
+//! a redraw after work between frames that changed nothing shown), nothing moving after the frame before, and the page on the screen
+//! the last one composed. That page holds the frame already, so no page is drawn or turned and nothing is flipped; the engine's frame
+//! is ended and answered at once. Such commits came 2 to 6 refreshes after a motion's last frame, and each flip of the same picture
+//! was a refresh missed to the 120 Hz gate (session 10: home-widgets 6, home-dpad 1, where the host's walks have them).
+//! A motion's first frame is one too: the engine starts a motion when its commit is taken in, so the frame drawn then shows the
+//! motion at its start, the picture already on the screen. Flipped, it began the motion a refresh before the first frame that moved
+//! (820992 px, 8 ms to GPU done), which then went out at the refresh after the next: 3 of the 4 refreshes Home's d-pad missed on
+//! 2026-11-09 (the ring's `U` lines). `LUMATV_KEEP_UNCHANGED=0` draws and flips them.
 
 use std::io;
 
@@ -66,7 +69,8 @@ pub struct Frames {
     ambient_copy: bool,
     calm: bool,
     /// Whether the next frame may compose nothing when it changes nothing (`Frames::set_still`), and whether a motion ran after the frame
-    /// drawn last: the frame after one is drawn whatever it changes, so that a motion's last refresh is a flip like the ones before it.
+    /// drawn last: the frame after one is drawn whatever it changes, so that a motion's last refresh is a flip like the ones before it
+    /// ([`keeps_unchanged`]).
     still: bool,
     moving: bool,
     /// `LUMATV_KEEP_UNCHANGED=0`: a frame that changes nothing is drawn and flipped, as before.
@@ -189,8 +193,8 @@ impl Frames {
             output: Rect::new(0, 0, self.width as i32, self.height as i32),
         };
         let assignment = decide(&facts);
-        // (a frame of no motion with the screen showing the page composed last: `set_still`, the module's notes)
-        let still = std::mem::take(&mut self.still) && self.keep && self.composed.is_some() && !self.moving && !standin && !plan.animating && !gl.ui_animating();
+        // (a frame with the screen showing the page composed last and no motion before it: `set_still`, the module's notes)
+        let still = keeps_unchanged(std::mem::take(&mut self.still) && self.keep && self.composed.is_some() && !standin, self.moving);
         self.moving = plan.animating || gl.ui_animating();
         if still && !needs_commit(&assignment, !tiles.is_empty()) {
             self.calm = false;
@@ -254,5 +258,24 @@ impl Frames {
             }
         };
         Ok((assignment, stats))
+    }
+}
+
+/// Whether a frame that changes nothing may compose nothing: it `may` (no flip in flight, no frame waiting, the screen showing the page
+/// composed last, no stand-in owed), and no motion ran after the frame before (`moved`). A motion that starts with this frame does not
+/// count: its first frame shows the picture on the screen; the frame after it is drawn and flipped whatever it changes.
+fn keeps_unchanged(may: bool, moved: bool) -> bool {
+    may && !moved
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keeps_unchanged;
+
+    #[test]
+    fn a_motions_unchanged_first_frame_is_kept_and_the_frame_after_a_motion_is_flipped() {
+        assert!(keeps_unchanged(true, false), "nothing moved before it: kept, whether or not a motion starts with it");
+        assert!(!keeps_unchanged(true, true), "a motion ran after the frame before: drawn and flipped");
+        assert!(!keeps_unchanged(false, false));
     }
 }
