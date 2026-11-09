@@ -8,8 +8,10 @@ description = "LumaShow's compositor renderer, session and scene as a library (v
 
 [lib]
 # The vendored modules' unit tests are LumaShow's and are not copied (tools/sync-lumashow.sh); this crate's tests are in tests/.
+# No target builds the library under cfg(test): a lib is a bench by default, which `--all-targets` would compile.
 test = false
 doctest = false
+bench = false
 
 [dependencies]
 compositor-protocol = { path = "../compositor-protocol" }

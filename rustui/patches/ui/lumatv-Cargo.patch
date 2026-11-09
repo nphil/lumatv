@@ -1,13 +1,15 @@
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -6,6 +6,11 @@
+@@ -6,6 +6,13 @@
  publish = false
  description = "The app side of the compositor: layers the app owns, groups, motion tracks, prepared backdrops and glyph atlases, a nonblocking submission writer"
  
 +[lib]
 +# LumaShow's unit tests are LumaShow's and are not copied (tools/sync-lumashow.sh); the TV kit's tests are in lumatv-ui.
++# No target builds the library under cfg(test): a lib is a bench by default, which `--all-targets` would compile.
 +test = false
 +doctest = false
++bench = false
 +
  [dependencies]
  compositor-protocol = { path = "../compositor-protocol" }
