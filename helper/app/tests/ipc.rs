@@ -55,6 +55,7 @@ fn health_discovery_and_state_answer_over_tcp() {
             + lumatv_helper::tuner::ROUTES.len()
             + lumatv_helper::plex::ROUTES.len()
             + lumatv_helper::dnd::ROUTES.len()
+            + lumatv_helper::phone_remote::ROUTES.len()
     );
 
     let state = get(rig.addr, "/v1/state").json();
