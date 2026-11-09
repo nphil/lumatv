@@ -143,8 +143,24 @@ fn a_pin_is_asked_over_http_and_the_wrong_one_is_counted() {
         .status,
         200
     );
-    let topic = rig.topic("profiles").unwrap().to_string();
-    assert!(!topic.contains("2468") && !topic.contains("hash") && !topic.contains("salt"));
+    let topic = rig.topic("profiles").unwrap();
+    let text = topic.to_string();
+    assert!(
+        !text.contains("hash") && !text.contains("salt") && !holds(&topic, "2468"),
+        "{text}"
+    );
+}
+
+/// Whether `secret` is a key, string or number of `v`, whole. Never a search of the text: `switchedAt` is a time in milliseconds and can
+/// hold any four digits.
+fn holds(v: &Value, secret: &str) -> bool {
+    match v {
+        Value::Object(m) => m.iter().any(|(k, x)| k == secret || holds(x, secret)),
+        Value::Array(a) => a.iter().any(|x| holds(x, secret)),
+        Value::String(s) => s == secret,
+        Value::Number(n) => n.to_string() == secret,
+        _ => false,
+    }
 }
 
 #[test]

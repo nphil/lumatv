@@ -1776,6 +1776,18 @@ mod tests {
         serde_json::from_str(LEGACY).unwrap()
     }
 
+    /// Whether `secret` is a key, string or number of `v`, whole. Never a search of the text: `created` and `switchedAt` are times in
+    /// milliseconds and can hold any four digits.
+    fn holds(v: &Value, secret: &str) -> bool {
+        match v {
+            Value::Object(m) => m.iter().any(|(k, x)| k == secret || holds(x, secret)),
+            Value::Array(a) => a.iter().any(|x| holds(x, secret)),
+            Value::String(s) => s == secret,
+            Value::Number(n) => n.to_string() == secret,
+            _ => false,
+        }
+    }
+
     #[test]
     fn the_scope_table_names_a_key_by_its_longest_prefix_and_defaults_to_the_household() {
         let s = Scope::load();
@@ -2483,7 +2495,7 @@ mod tests {
         let mut s = r.open();
         s.set_pin("isabel", Some("4821"), None).unwrap();
         let file = fs::read_to_string(r.p().join("profiles/isabel/profile.json")).unwrap();
-        assert!(!file.contains("4821"));
+        assert!(!holds(&serde_json::from_str(&file).unwrap(), "4821"));
         let rec: Record = serde_json::from_str(&file).unwrap();
         let pin = rec.pin.unwrap();
         assert!(pin.check("4821") && !pin.check("4822") && !pin.check("48") && !pin.check(""));
@@ -2492,12 +2504,13 @@ mod tests {
             pin.hash,
             "another salt, another hash"
         );
-        let view = s.view().to_string();
+        let view = s.view();
+        let text = view.to_string();
         assert!(
-            !view.contains(&pin.hash)
-                && !view.contains(&pin.salt)
-                && !view.contains("4821")
-                && !view.contains("\"pin\"")
+            !text.contains(&pin.hash)
+                && !text.contains(&pin.salt)
+                && !text.contains("\"pin\"")
+                && !holds(&view, "4821")
         );
         assert_eq!(s.view()["profiles"][1]["locked"], true);
         assert_eq!(
@@ -2936,8 +2949,9 @@ mod tests {
             ),
             (Some("pin_locked"), Some(30))
         );
-        let topic = p.hub.get(TOPIC).unwrap().to_string();
-        assert!(!topic.contains("salt") && !topic.contains("hash") && !topic.contains("2468"));
+        let topic = p.hub.get(TOPIC).unwrap();
+        let text = topic.to_string();
+        assert!(!text.contains("salt") && !text.contains("hash") && !holds(&topic, "2468"));
         let (s, v) = call(
             &p,
             "POST",
