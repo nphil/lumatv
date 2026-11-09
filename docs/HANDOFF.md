@@ -31,6 +31,20 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Unchanged first frame of a motion kept, 2026-11-09 (main 6f9df990, installed 04:17 EST)
+
+Installed with the TV Active and the receiver muted (owner-approved, overnight), by the standard compositor cutover, in three steps: ui `114db6bb` (8dedc9a6, replaced `ee06b4fe`) at 03:39; compositor `0970cd28` (99ee6a4c, replaced `d3389603`) and ui `862b4cbf` (99ee6a4c, which also carries the phone remote 26099d23; replaced `114db6bb`) at 03:57; compositor `63a10300` (6f9df990, replaced `0970cd28`) at 04:17. Helper `7cf3523c` and sm `65f6ca69` unchanged. Receipts: `/data/home/tmp/lumatv-smooth5-20261109/` (`session.log`, `gate/`, `pop-after.json`, `rel/installed-*.json`, `phoneremote-plugin-off.png`).
+
+Camera pop-up on 8dedc9a6, one test event per camera, seconds to the picture and to live video in the pop-up (752ab5f9 before): Front Door 0.12 and 4.15 (0.86, 2.48), Back Door 0.18 and 3.65 (0.80, 5.31), Plant Room 0.09 and 0.44 (0.27, 0.67), Backyard 0.07 and 0.46 (0.07, 0.73). Front and Back Door sit on "Connecting" for 2.05 s before their video. The input picker passed three runs (first frames 31, 33, 30 ms). The Apps grid under load, three runs, still fails follow-up (b): first frame up to 1442, 1256 and 290 ms (752ab5f9: 524, 230, 112), 0 drops.
+
+Follow-up (a). The ring now has a `U` line per UI commit taken in (99ee6a4c): its arrival, ops and motions, whether a frame was wanted, the time since the last flip, and the queued and flowing state. With it, the d-pad's motion-start drop is the UI's first commit after a key: it starts its motions at progress 0, so the frame drawn from it owes 0 px yet was flipped as a frame of the motion, and the first moving frame, which misses the next refresh, counted as a drop. 6f9df990 keeps such an unchanged frame on screen without a flip when nothing moved before it (`kms/frames.rs`, `keeps_unchanged`). The picture and the time of the first moving frame are the same as before; the gate no longer counts an identical picture's flip as a motion frame.
+
+Frame gate at 120 Hz, nine cycles per surface, dropped frames. No load: Home d-pad 2 on 99ee6a4c, then 1, 0 and 0 in three runs on 6f9df990; Home widgets 0 and 0. The one d-pad drop came on the first key after the install, whose commit carried 654 ops and took a 12 ms tick to plan; that cycle's first frame took 813 ms, and the third run's first cycle 65 ms (limit 50), so two of the three d-pad runs fail on first frame. Under plugin load (the tuner streaming about 10.5 Mbit/s, camera test pop-ups, a guide refresh): Home d-pad 1 (752ab5f9: 3), Home widgets 2 with one burst over 20 ms, then a pass (752ab5f9: 1). The widgets drops fall where a camera pop-up claims or releases the video window, with frames taking 13 ms to GPU done.
+
+Settings > Remote & pointer > Phone remote opens with the plugin off and reads "Not available": the installed helper predates the phone remote. Nothing was enabled or paired.
+
+Left in Active Standby, receiver in standby and unmuted, test events off, lease released.
+
 ## Home motion without frames drawn over waiting ones, 2026-11-09 (main 752ab5f9, installed 02:06 EST)
 
 Installed with the TV Active and the receiver muted (owner-approved, overnight), by the standard compositor cutover and the helper path. Installed sha256 prefixes: compositor `d3389603` (replaced `301583e6`), ui `ee06b4fe` (replaced `e516e5dd`), helper `7cf3523c` (replaced `5848b62d`); sm `65f6ca69` and `tools/lumatv` `0473b152` unchanged. The ui and helper also carry `6938bc32` (the camera pop-up opens on a kept picture). Receipts: `/data/home/tmp/lumatv-smooth4-20261109/` (`session.log`, `gate/`, `rings/`, `rel/installed-752ab5f9.json`).
