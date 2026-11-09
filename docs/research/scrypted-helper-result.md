@@ -17,7 +17,7 @@ The Home Assistant camera path is gone from the helper.
   A refused or untrusted link is tried again every 30 s, an offline one after 1, 2, 4, 8, 16, 30 s.
 - **Live** (`live/`): `POST /v1/cameras/live` asks the bridge for the stream, then the session thread leases the GFN feeder, loads the pipeline with what the bridge says the stream is
   while the RTSP reader dials, holds the first pictures 150 ms and starts at the last random access point, so the catch-up from Scrypted's prebuffer is at most one key interval. The
-  feeder process is kept 120 s after the last stream (`cameras.feederIdleSeconds`) and ends with the helper's connection (`--once`). A seek, a pause and the return to live of the same
+  feeder process is kept 1800 s after the last stream (`cameras.feederIdleSeconds`) and ends with the helper's connection (`--once`). A seek, a pause and the return to live of the same
   camera reuse the pipeline and the picture on the plane; another camera or size loads again. Stop returns at once and unloads, tears RTSP down and tells the bridge off the caller's path.
   The queue holds 15 pictures once caught up and drops to the next key picture past that; a stream behind by more than 500 ms for a second is dialled again once; quiet for 8 s ends the session in words.
 - **Pop-ups.** The push channel (`GET /v1/events/stream`, resumed with `Last-Event-ID`) feeds `cameras.events` (the last 30, as sent, plus `seq`) and the policy of
@@ -40,7 +40,7 @@ Playback position is `started_at + stream time x rate` `[INFERENCE: check C10]`.
 
 ## Config
 
-`cameras.live` (now `true`: the link is the switch), `feeder`, `feederWindow`, `feederLibrary`, `feederIdleSeconds` (120), `frameHoldMs` (10000), `maxPictureBytes`, `testEvents` (`false`).
+`cameras.live` (now `true`: the link is the switch), `feeder`, `feederWindow`, `feederLibrary`, `feederIdleSeconds` (1800), `frameHoldMs` (10000), `maxPictureBytes`, `testEvents` (`false`).
 Removed: `enabled`, `port`, `relay`, `popupKinds`, `popupSeconds`, `cooldownSeconds` (an old `helper.json` that sets one, such as the TV's `{"cameras": {"enabled": true}}`, is read all the same: they are ignored and one log line says so; any other unknown key is still refused).
 The Cameras page is the first-party plugin `scrypted-cameras` (page rebuilt at a higher revision when the shown cameras change; `notify.<id>` values stay when a camera leaves).
 

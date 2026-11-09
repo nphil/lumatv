@@ -99,7 +99,7 @@ All keys optional; an unknown key or a bad value stops `start` with the reason (
 | `nice` | 10 | scheduling priority given up |
 | `allowedOrigins` | `[]` | browser origins allowed to call the API (a web app would need `"file://"`) |
 | `cameras.frameHoldMs`, `maxPictureBytes`, `testEvents` | 10000, 4 MiB, `false` | cameras through Scrypted's LumaShow bridge (`scrypted/`, `docs/research/scrypted-helper-result.md`): how long a still counts as a picture, the most a picture may be, whether `POST /v1/cameras/event` works; there is no switch, the link file (`scrypted-link`) turns the cameras on |
-| `cameras.live`, `feeder`, `feederWindow`, `feederLibrary`, `feederIdleSeconds` | `true`, `<data>/bin/lumatv-gfn-feeder`, `card`, the feeder's default, 120 | the live path (`live/`): the full view's RTSP stream from Scrypted on the video plane through the GFN feeder, which is kept this many seconds after the last stream; off: pictures only |
+| `cameras.live`, `feeder`, `feederWindow`, `feederLibrary`, `feederIdleSeconds` | `true`, `<data>/bin/lumatv-gfn-feeder`, `card`, the feeder's default, 1800 | the live path (`live/`): the full view's RTSP stream from Scrypted on the video plane through the GFN feeder, which is kept this many seconds after the last stream; off: pictures only |
 
 ## The API (v1)
 

@@ -407,7 +407,8 @@ pub struct CamerasConfig {
     pub feeder_window: String,
     /// The NDL library the feeder loads (`-L`); empty for its default.
     pub feeder_library: String,
-    /// How long the feeder process is kept after the last stream, so that the next open skips its start (0: it ends with the stream).
+    /// How long the feeder process is kept after the last stream, so that the next open skips its start (0: it ends with the stream). Parked it holds no
+    /// pipeline and 18 MB (VmRSS, of 830 MB free); a pop-up's first picture came 150 to 200 ms after a start on a kept feeder, 330 to 520 ms on a new one.
     pub feeder_idle_seconds: u32,
     /// The window type the feeder owns for a camera pop-up: `video`, the compositor's own video window (`--vwin`), played on once a claim is granted for the
     /// card's picture; the full view's is `feeder_window`.
@@ -431,7 +432,7 @@ impl Default for CamerasConfig {
             feeder: String::new(),
             feeder_window: "card".to_owned(),
             feeder_library: String::new(),
-            feeder_idle_seconds: 120,
+            feeder_idle_seconds: 1800,
             popup_window: "video".to_owned(),
             ndl_app: "auto".to_owned(),
             popup_live: true,
