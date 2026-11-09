@@ -26,8 +26,7 @@ texture over Home), the weather redesign (moving sky, ten days, full-screen rada
 smart home tiles (locks unlock only at the remote), and Marquee 0.9.3 subtitles.
 
 Open: an unexplained reboot during the camera full view over YouTube (round 26; pop-ups
-are off until it is understood); HDMI picture-in-picture on SUB0; the focus-dim cost of
-Home's widgets at 120 Hz.
+are off until it is understood); HDMI picture-in-picture on SUB0.
 
 Completed after the wake fix (owner priority, 2026-10-31):
 the existing custom keyboard passed actual-TV checks in Marquee’s Bazarr address

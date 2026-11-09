@@ -123,84 +123,9 @@ impl Lift {
         self.lit.restyle(glass_of(kit, kind, self.frame.h, true, over_video));
     }
 
-    /// Poses what the lift does not drive: the opacity (a card dimmed beside the focused one) and whether it shows.
+    /// Poses what the lift does not drive: its opacity and whether it shows.
     pub fn pose(&self, engine: &mut Engine, opacity: f32, visible: bool) {
         engine.flow.pose(self.id, opacity, visible);
-    }
-}
-
-/// What a card, or the dock, is to be posed at: its opacity, whether it shows and whether its glass is lit (the dock's, while the focus is on
-/// it; a card's lift lights its own). `at_once` is for what the focus is on, which is never seen dim.
-struct Dim {
-    id: Id,
-    opacity: f32,
-    visible: bool,
-    lit: bool,
-    at_once: bool,
-}
-
-/// The poses the cards and the dock were last given, and the step that the rest wait for. Home alone is drawn straight into each page of the
-/// compositor's ring, so a pose changes what every page owes: the cards and the dock dimmed together (the focus entering the cards) were a change of
-/// 1.6 Mpx drawn for three frames in a row, 118 layers a frame on the host, and a GPU busy of 13.1 ms against a refresh of 8.3 ms on the TV. One step
-/// in turn, three refreshes apart (each page has drawn the one before), is a change of one card or the dock a frame: 35 to 60 layers.
-///
-/// The dock's glass goes dark with the dock's own step, and a focus that leaves the dock for the cards is a step: its first frames draw the lifts
-/// alone. The dock's glass put out as the focus left it, beside the first card's dim, made those frames a cover of the dock, the cards and the lifts
-/// at both ends of the screen (1.78-1.84 Mpx and 63-76 layers on the set, 7.2-8.5 ms of GPU: session 11's home-widgets misses; 94-101 layers on the
-/// host, 83-101 with the glass alone stepped), and the dock's dim a step later drew it again. A move within the cards or from the status bar keeps
-/// its first dim with the lifts' first frame, which the lifts have not grown into yet (`onhome` on the host, every move a step: the move into the
-/// card drew 1 frame over 80 layers more, and each sheet opening over Home 3 more).
-#[derive(Default)]
-struct Dimming {
-    posed: Vec<(Id, f32, bool, bool)>,
-    /// When the last step was taken (ms), and how long the next waits for it.
-    stepped_at: u64,
-    spell: u64,
-    /// Whether a step waits.
-    waiting: bool,
-}
-
-impl Dimming {
-    /// Poses what differs from what was posed, one step to a spell: what the focus is on, what is posed for the first time and what shows or
-    /// hides go at once, the rest in the order given, each a spell after the last (and after now, when `step`).
-    fn pose(&mut self, refresh_hz: f32, now: u64, step: bool, wants: &[Dim], mut set: impl FnMut(&Dim)) {
-        self.spell = (3000.0 / refresh_hz.max(1.0)).ceil() as u64 + 1;
-        self.posed.retain(|(id, ..)| wants.iter().any(|w| w.id == *id));
-        self.waiting = false;
-        if step {
-            self.stepped_at = now;
-        }
-        let mut order: Vec<&Dim> = wants.iter().collect();
-        order.sort_by_key(|w| !w.at_once);
-        for w in order {
-            let at = self.posed.iter().position(|(id, ..)| *id == w.id);
-            let was = at.map(|i| (self.posed[i].1, self.posed[i].2, self.posed[i].3));
-            if was == Some((w.opacity, w.visible, w.lit)) {
-                continue;
-            }
-            let now_or_never = w.at_once || was.is_none_or(|(_, visible, _)| visible != w.visible);
-            if !now_or_never && now < self.stepped_at + self.spell {
-                self.waiting = true;
-                continue;
-            }
-            set(w);
-            match at {
-                Some(i) => self.posed[i] = (w.id, w.opacity, w.visible, w.lit),
-                None => self.posed.push((w.id, w.opacity, w.visible, w.lit)),
-            }
-            if was.is_some() {
-                self.stepped_at = now;
-            }
-        }
-    }
-
-    fn due_at(&self) -> Option<u64> {
-        self.waiting.then_some(self.stepped_at + self.spell)
-    }
-
-    /// Whether `id`'s glass was last posed lit.
-    fn lit(&self, id: Id) -> Option<bool> {
-        self.posed.iter().find(|p| p.0 == id).map(|p| p.3)
     }
 }
 
@@ -349,7 +274,7 @@ struct DockSurface {
     arts: Vec<IconArt>,
     halo_accent: Option<Rgba>,
     halo_at: Option<(f32, f32)>,
-    /// The glass the dock's pane was last given by its dim step (`update_focus`); `None` once something else restyled it.
+    /// The glass the dock's pane was last given (`update_focus`); `None` once something else restyled it.
     pane_glass: Option<Glass>,
 }
 
@@ -400,7 +325,6 @@ pub struct HomeSurface {
     /// Whether the dock's tiles are let go: Home is hidden under a full kind, or a panel over it needs their groups ([`HomeSurface::set_shed`]).
     shed: bool,
     page_hidden: bool,
-    dimming: Dimming,
     pub glyph_runs: bool,
 }
 
@@ -448,7 +372,6 @@ impl HomeSurface {
             covered: false,
             shed: false,
             page_hidden: false,
-            dimming: Dimming::default(),
             glyph_runs: true,
         }
     }
@@ -495,7 +418,6 @@ impl HomeSurface {
             || (self.news_at > 0 && now >= self.news_at)
             || (self.art_due(now) && !self.sky_steady())
             || self.view_art_at.is_some_and(|t| now >= t)
-            || self.dimming.due_at().is_some_and(|t| now >= t)
     }
 
     /// The weather card's sky is due to restate its paths (`Live::step`, every 0.4 s): the compositor moves its sprites along them.
@@ -519,7 +441,7 @@ impl HomeSurface {
 
     pub fn due_at(&self) -> Option<u64> {
         let news = if self.cards.iter().any(|c| c.kind == "news") && self.news_at > 0 { Some(self.news_at) } else { None };
-        [news, self.art_at, self.view_art_at, self.dimming.due_at()].into_iter().flatten().min()
+        [news, self.art_at, self.view_art_at].into_iter().flatten().min()
     }
 
     /// Whether the cards' contents are to be brought up to date now: at every apply while Home is seen, and under a full-screen sheet (Settings, the
@@ -636,7 +558,7 @@ impl HomeSurface {
         }
         self.drive_weather(kit, home, now);
         self.update_dock(kit, engine, home, now_ns);
-        self.update_focus(kit, engine, home, now, now_ns);
+        self.update_focus(kit, engine, home, now_ns);
         home.set_motion_reduced(kit.ui.look.reduced_motion);
         self.update_layers(kit, engine, home, now)?;
         // the question's answers are focusables of Home's model once it is drawn
@@ -650,7 +572,6 @@ impl HomeSurface {
     }
 
     fn teardown(&mut self, engine: &mut Engine) {
-        self.dimming.posed.clear();
         for c in self.cards.drain(..) {
             engine.flow.drop_lift(c.focus_id);
         }
@@ -1256,7 +1177,7 @@ impl HomeSurface {
     }
 
     // ---- the focus
-    fn update_focus(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, now: u64, now_ns: u64) {
+    fn update_focus(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, now_ns: u64) {
         let current = if home.layer == Layer::None || home.layer == Layer::Edit { home.focus.current() } else { None };
         let shown = match home.layer {
             Layer::None => current,
@@ -1264,26 +1185,16 @@ impl HomeSurface {
         };
         let is_dock = |id: Id| id.0 >= model::DOCK_ID && id.0 < model::DOCK_ID + model::DOCK_MAX;
         let moved = shown != self.last_focus;
-        // (a focus that left the dock for Home's own rows: `Dimming`)
-        let from_dock = moved && home.layer == Layer::None && self.last_focus.is_some_and(is_dock);
         if moved {
             let _ = engine.flow.go(self.last_focus, shown, now_ns);
             self.last_focus = shown;
         }
-        // the cards not focused dim while one is, and the dock beside them
-        let on_cards = current.is_some_and(|id| home.widget_of(id).is_some());
         let on_dock = current.is_some_and(is_dock);
-        let visible = home.layer != Layer::Popover;
-        let mut wants: Vec<Dim> = self.cards.iter().map(|c| Dim { id: c.lift.id, opacity: if on_cards && Some(c.focus_id) != current { 0.86 } else { 1.0 }, visible, lit: false, at_once: Some(c.focus_id) == current }).collect();
-        if let Some(d) = &self.dock {
-            wants.push(Dim { id: d.lift.id, opacity: if on_cards && !on_dock { 0.92 } else { 1.0 }, visible, lit: on_dock, at_once: on_dock });
-        }
-        self.dimming.pose(kit.refresh_hz, now, from_dock && !on_dock, &wants, |w| engine.flow.pose(w.id, w.opacity, w.visible));
         if let Some(d) = &mut self.dock {
-            // as its step posed it (said at every apply: a dock made again, or restyled for a video behind, has it back), restyled only
-            // when that changes: the same glass at every apply made a commit, and a frame, of every apply that changed nothing else
-            let lit = self.dimming.lit(d.lift.id).unwrap_or(on_dock);
-            let glass = glass_of(kit, PaneKind::Card, d.frame.h, lit, self.over_video);
+            // the dock's glass is lit while the focus is on it (the cards' own lifts light theirs); said at every apply (a dock made again, or
+            // restyled for a video behind, has it back), restyled only when that changes: the same glass at every apply made a commit, and a
+            // frame, of every apply that changed nothing else
+            let glass = glass_of(kit, PaneKind::Card, d.frame.h, on_dock, self.over_video);
             if d.pane_glass != Some(glass) {
                 d.pane_glass = Some(glass);
                 d.lift.pane.restyle(glass);
@@ -1626,43 +1537,6 @@ mod tests {
     use crate::kit::testkit;
     use super::super::weather_view::Page;
     use serde_json::json;
-
-    #[test]
-    fn the_cards_and_the_dock_dim_one_a_spell_apart_with_the_docks_glass_and_what_the_focus_is_on_goes_at_once() {
-        let dim = |id: u32, opacity: f32, at_once: bool| Dim { id: Id(id), opacity, visible: true, lit: false, at_once };
-        let dock = |opacity: f32, lit: bool| Dim { id: Id(9), opacity, visible: true, lit, at_once: lit };
-        let mut d = Dimming::default();
-        let mut posed: Vec<(u32, f32, bool)> = Vec::new();
-        let mut pose = |d: &mut Dimming, now: u64, step: bool, wants: &[Dim]| {
-            posed.clear();
-            d.pose(120.0, now, step, wants, |w| posed.push((w.id.0, w.opacity, w.lit)));
-            posed.clone()
-        };
-        assert_eq!(pose(&mut d, 1000, false, &[dim(1, 1.0, false), dim(2, 1.0, false), dock(1.0, true)]).len(), 3, "what is posed for the first time is posed together");
-        // the focus leaves the dock for card 1, a step: the lifts first, then card 2 and the dock a spell (26 ms at 120 Hz) apart, the dock's glass
-        // going dark with the dock's own step
-        let in_card_1 = [dim(1, 1.0, true), dim(2, 0.86, false), dock(0.92, false)];
-        assert!(pose(&mut d, 1100, true, &in_card_1).is_empty(), "leaving the dock is a step");
-        assert_eq!(d.due_at(), Some(1126));
-        assert!(pose(&mut d, 1110, false, &in_card_1).is_empty(), "the next waits for the spell");
-        assert_eq!(pose(&mut d, 1126, false, &in_card_1), [(2, 0.86, false)]);
-        assert_eq!(d.lit(Id(9)), Some(true), "the dock's glass is lit until its step");
-        assert_eq!(pose(&mut d, 1152, false, &in_card_1), [(9, 0.92, false)]);
-        assert_eq!(d.due_at(), None, "nothing waits once every pose is made");
-        // the focus moves to card 2: it is bright at once, card 1 dims a spell later
-        let in_card_2 = [dim(1, 0.86, false), dim(2, 1.0, true), dock(0.92, false)];
-        assert_eq!(pose(&mut d, 1300, false, &in_card_2), [(2, 1.0, false)]);
-        assert_eq!(d.due_at(), Some(1326));
-        assert_eq!(pose(&mut d, 1326, false, &in_card_2), [(1, 0.86, false)]);
-        // back to the dock: it is lit and bright at once, the cards come back a spell apart
-        let on_dock = [dim(1, 1.0, false), dim(2, 1.0, false), dock(1.0, true)];
-        assert_eq!(pose(&mut d, 1500, false, &on_dock), [(9, 1.0, true)]);
-        assert_eq!(pose(&mut d, 1526, false, &on_dock), [(1, 1.0, false)]);
-        // the focus on the status bar, then down into card 1, no step: the first dim goes with the move
-        let on_bar = [dim(1, 1.0, false), dim(2, 1.0, false), dock(1.0, false)];
-        pose(&mut d, 1600, false, &on_bar);
-        assert_eq!(pose(&mut d, 1700, false, &[dim(1, 1.0, true), dim(2, 0.86, false), dock(0.92, false)]), [(2, 0.86, false)]);
-    }
 
     #[test]
     fn auto_returns_to_cached_source_mode_after_preview_and_threshold_change() {

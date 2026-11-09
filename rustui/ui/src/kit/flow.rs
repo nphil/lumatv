@@ -261,7 +261,7 @@ impl Flow {
         self.lifted(id).map(|l| &l.group)
     }
 
-    /// Poses what the lift does not drive: `id`'s opacity (a card dimmed beside the focused one) and whether it shows. The rest pose takes
+    /// Poses what the lift does not drive: `id`'s opacity and whether it shows. The rest pose takes
     /// them too, because a lift that comes to rest is posed at it (`tidy`, a slot taken for another focusable): without them the group would
     /// pop back to full and shown, and stay so until the next pose.
     pub fn pose(&mut self, id: Id, opacity: f32, visible: bool) {
@@ -472,13 +472,13 @@ mod tests {
 
     const MS: u64 = 1_000_000;
     const FRAME_NS: u64 = 8_333_333;
-    const DIM: f32 = 0.86;
+    const POSED: f32 = 0.86;
 
-    /// A card the focus has left is dimmed beside the focused one; its lift is handed back when its spring has come to rest (the
-    /// compositor reports the settle, `tidy` frees the slot). Between those two the drawn card must not leave its dim: the hand-back
+    /// A card the focus has left is posed at a lower opacity; its lift is handed back when its spring has come to rest (the
+    /// compositor reports the settle, `tidy` frees the slot). Between those two the drawn card must not leave its pose: the hand-back
     /// poses it at rest, which was full opacity until the next pose.
     #[test]
-    fn a_dimmed_card_the_focus_left_is_dimmed_in_every_frame_through_the_hand_back_of_its_lift() {
+    fn a_card_posed_at_a_lower_opacity_keeps_it_in_every_frame_through_the_hand_back_of_its_lift() {
         let h = ui::testing::harness();
         let clock = Rc::new(Cell::new(1_000_000_000u64));
         let c = Rc::clone(&clock);
@@ -493,7 +493,7 @@ mod tests {
         flow.go(None, Some(Id(0)), clock.get()).expect("the first focus");
         clock.set(clock.get() + 400 * MS);
         flow.go(Some(Id(0)), Some(Id(1)), clock.get()).expect("the focus moves on");
-        flow.pose(Id(0), DIM, true);
+        flow.pose(Id(0), POSED, true);
         flow.pose(Id(1), 1.0, true);
         let slot = flow.slots.iter().position(|s| s.owner == Some(Id(0))).expect("the left card's slot");
 
@@ -511,7 +511,7 @@ mod tests {
             }
             flow.tidy(clock.get());
             let world = flow.group(Id(0)).expect("the left card").world_at(at);
-            assert_eq!((world.opacity, world.visible), (DIM, true), "frame {f} ({} ms): the left card is drawn at {} and shown {}", (at - start) / MS, world.opacity, world.visible);
+            assert_eq!((world.opacity, world.visible), (POSED, true), "frame {f} ({} ms): the left card is drawn at {} and shown {}", (at - start) / MS, world.opacity, world.visible);
         }
         let at = handed_back.expect("the spring lands within the second");
         assert!(at > 20, "the spring takes its time: landed at frame {at}");

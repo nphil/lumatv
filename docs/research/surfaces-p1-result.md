@@ -47,8 +47,8 @@ What changed, in `payload/keyfilter/lumatv.js`, `payload/compositor/lumatv/` and
   A held OK and a picked-up tile are cleared when Home is hidden or shown.
 - Focus rest: the highlight (tint, edge, sheen, rim) follows every key press at once; lift,
   scale and shadow depth animate only after the focused item has rested `motion.restMs` (150 ms)
-  and drop at once when it leaves. The name pill and the dim of unfocused cards follow the
-  same rule; the dock's accent glow moves with the highlight. `FocusLift.qml` is the shared
+  and drop at once when it leaves. The name pill follows the same rule; the dock's accent glow
+  moves with the highlight. The dim of unfocused cards this note once described is gone (`frames-120-result.md`). `FocusLift.qml` is the shared
   piece; `Glass.qml` takes `focusMix` (highlight) and `liftMix` (shadow depth) separately.
 
 Checked on the set:

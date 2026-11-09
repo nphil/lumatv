@@ -43,7 +43,7 @@ On forge main (round 24's engine work):
     where the walk, counted from the last page made, made every second step's page in the middle of the rail's motion at the gate's pace (a step every
     110 ms: 1.1-1.5 Mpx, 46-74 layers, 7.3-10.1 ms), and one the walk's first step's page.
   - **Fixes.** Home's dock goes dark with its own dim step, and a focus that leaves the dock for the cards is a step: its first frames draw the lifts alone
-    (`home::surface::Dimming`; a move from the status bar or within the cards keeps its first dim, which every move a step cost `onhome` 8 frames over 80
+    (`home::surface::Dimming`, removed with the dims on 2026-11-09; a move from the status bar or within the cards keeps its first dim, which every move a step cost `onhome` 8 frames over 80
     layers). A rail walk is the pace of its steps (`SettingsSurface::page_waits`): within 200 ms of the step before, the page waits for the rail to rest
     120 ms. A panel sliding out goes at once when a Settings with no fade comes up over it (`Life::cut`, `Panels::give_way`).
   - Host, the owner's theme and layout, 120 Hz; the walks now keep `kb.py`'s pace (a tap held 50 ms before its gap: the gate's steps were 110 ms where the
@@ -118,7 +118,8 @@ On forge main (round 24's engine work):
     the picture's own size copies rows, the layer takes the picture as it is, the scrim's rows are hoisted and a cell repaints for its own camera's still:
     1.1-1.8 ms; no home-widgets frame takes more than 3.4 ms of the thread now.
   - **The dims in one frame.** The focus entering the cards dimmed the other cards and the dock together, and each page of the ring drew all of it:
-    118 layers a frame on the host, a GPU busy of 13.1 ms on the set at +1.03 s. They step one at a time, three refreshes apart now: 84 layers.
+    118 layers a frame on the host, a GPU busy of 13.1 ms on the set at +1.03 s. Stepping them one at a time, three refreshes apart, made it 84 layers.
+    The dims were then removed outright (2026-11-09): measured on the set they were nearly invisible (cards 0-2 %, dock -12 %).
   Not changed (host numbers on the owner's layout; none of this was run on the set): the dock's own step with the cards settling (101-104 layers for
   three frames at 'to the dock', 'along the dock' and 'down and up the dock'); a lift's spring counts as settled only within 0.0005 of its travel
   (`Units::Progress`, `compositor-protocol/src/motion.rs`), so a card whose lift is gone is redrawn whole, 24-53 layers a frame, for about 40 frames after
