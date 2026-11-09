@@ -162,6 +162,8 @@ pub struct Spec {
     pub cols: usize,
     pub cards: Vec<Card>,
     pub write: Option<Rc<super::row::Writer>>,
+    /// The value a choice shows and marks as current when the key's own is known to lag behind what is in force (the sound out).
+    pub in_force: Option<String>,
 }
 
 impl Spec {
@@ -191,7 +193,13 @@ impl Spec {
             cols: 4,
             cards: Vec::new(),
             write: None,
+            in_force: None,
         }
+    }
+
+    pub fn in_force(mut self, value: &str) -> Self {
+        self.in_force = Some(value.into());
+        self
     }
 
     pub fn id(mut self, id: &str) -> Self {
@@ -411,8 +419,8 @@ impl Ctx<'_> {
         let mut o = o;
         o.shown = true;
         let mut r = self.base(Row::link(&o.row_id()), &o);
-        r.value = if self.lg.has(&o.ds) { names::name(o.names, &self.lg.opt_text(&o.ds).unwrap_or_default()) } else { String::new() };
-        let current = self.lg.opt_text(&o.ds).unwrap_or_default();
+        let current = o.in_force.clone().unwrap_or_else(|| self.lg.opt_text(&o.ds).unwrap_or_default());
+        r.value = if self.lg.has(&o.ds) { names::name(o.names, &current) } else { String::new() };
         r.act(move |_| {
             let (ds, app) = (o.ds.clone(), o.app.clone());
             let custom = o.write.clone();

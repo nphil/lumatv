@@ -86,8 +86,11 @@ pub fn to_receiver(out: &str) -> bool {
     out == "external_arc" || out == "tv_speaker_external_arc"
 }
 
+/// The way out in force: the audio service's word (`volumeStatus.soundOutput`, pushed with every volume state) before the setting's, which
+/// LG rewrites to `tv_speaker` about a second after the receiver leaves ARC while the route stays `external_arc`.
 fn output(c: &Ctx) -> String {
-    c.lg.opt_text("sound.soundOutput").unwrap_or_default()
+    let live = c.topics.channel("audio").and_then(|a| a.pointer("/volumeStatus/soundOutput")).and_then(Value::as_str).filter(|o| !o.is_empty());
+    live.map(str::to_string).unwrap_or_else(|| c.lg.opt_text("sound.soundOutput").unwrap_or_default())
 }
 
 fn mode(c: &Ctx) -> String {
@@ -219,6 +222,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
                 .label("Sound out")
                 .names(names::SOUND_OUTPUT)
                 .values(&OUTPUT_VALUES)
+                .in_force(&out)
                 .help("Where the TV's sound goes. Bluetooth speakers are paired on their own page."),
         ),
     );
@@ -709,6 +713,19 @@ mod tests {
         assert_eq!(by_id(&r, "soundmode").detail, "Not used with the receiver");
         let ops = (by_id(&r, "tvtoo").act.as_ref().unwrap())(Arg::Toggle(true));
         assert!(matches!(&ops[..], [Op::Lg { ds, value, .. }] if ds == "sound.soundOutput" && value == "tv_speaker_external_arc"));
+    }
+
+    #[test]
+    fn the_route_the_tv_reports_beats_the_saved_setting() {
+        // LG saves tv_speaker about a second after the receiver leaves ARC while the route stays external_arc
+        let mut w = tv("tv_speaker", "standard");
+        w.topics.set_channel("audio", json!({"volumeStatus": {"soundOutput": "external_arc"}}));
+        let r = rows(&w.ctx());
+        assert_eq!(summary(&w.ctx()), "Receiver");
+        assert_eq!(by_id(&r, "sound.soundOutput").value, names::name(names::SOUND_OUTPUT, "external_arc"));
+        assert!(!by_id(&r, "sound.audioBalance").enabled, "the rows follow the route too");
+        let ops = (by_id(&r, "sound.soundOutput").act.as_ref().unwrap())(Arg::Press);
+        assert!(matches!(&ops[..], [Op::Pick(p)] if p.current == "external_arc"));
     }
 
     #[test]

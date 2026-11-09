@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Settings › Sound shows the output the TV reports in use (the receiver over ARC) instead of LG's saved setting, which stayed on TV speakers while the sound went to the receiver. The Sound row's summary and the page's choice follow the reported route.
+
 The scene's ceilings are 512 layers, 256 groups and 64 motion tracks, up from 256, 96 and 32. Home with Quick Settings and Settings reached the old 96 groups, and Quick Settings came up empty or rows of Settings went undrawn; the busiest screens now use 178 layers, 68 groups and 13 tracks. A group or track that does not exist costs nothing per frame and the compositor's maps keep their size. The log line for a build that did not fit says which ceiling it met and what is left of each.
 
 A phone can be the TV's remote: the Phone remote plugin, off until switched on in Settings › Remote & pointer › Phone remote. A paired phone on the home network moves the pointer, clicks and scrolls, presses the remote's keys, types into the text boxes LumaTV's keyboard serves and runs LumaTV's actions (Home, Quick Settings, the guide, a channel, an app, the receiver's volume, power). Pairing shows a one-time code and its QR code after OK on the physical remote; the page lists the paired phones, each with Forget. Sessions are encrypted (Noise NNpsk0 with a key per phone) and the TV listens only on its private address, port 18733. Opening one camera's pop-up from the phone is not implemented yet. `docs/plugins/phone-remote.md`.
