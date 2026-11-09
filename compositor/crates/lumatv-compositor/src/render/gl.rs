@@ -1361,15 +1361,18 @@ impl Gl {
         if let Some(page) = page.filter(|p| p.0 < self.targets.len() && *p != self.current) {
             self.draw_quad(self.targets[page.0].tex, &full, false);
         }
-        // The pose program's first use compiles and links its pipeline in the driver: paid here (a quad of a texture and of a flat colour,
-        // through a mask), not by the first transition. A corner of the target only; the clear below puts it back.
+        // The pose program's and the switcher's first uses compile and link their pipelines in the driver: paid here (a quad of a texture
+        // and of a flat colour, through a mask, and a picture), not by the first transition or opening. A corner of the target only; the
+        // clear below puts it back.
         let corner = FRect::new(0.0, 0.0, 64.0, 36.0);
         self.use_xf();
         self.scissor(&Rect::new(0, 0, 64, 36));
         self.draw_posed(tex, &corner, &corner, 8.0, 0.5, 0.8, true, None);
         self.draw_posed(tex, &corner, &corner, 8.0, 0.5, 1.0, true, Some([0.1, 0.1, 0.1]));
+        self.warm_previews(tex, &Rect::new(0, 0, 64, 36));
         self.use_plain();
         self.scissor(&full);
+        let a = &self.egl.api;
         // SAFETY: the texture was made above; the clear puts the target back to black; glFinish waits for the GPU.
         unsafe {
             (a.glClearColor)(0.0, 0.0, 0.0, 1.0);

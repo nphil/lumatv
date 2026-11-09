@@ -105,6 +105,24 @@ impl Gl {
         self.restore_target();
     }
 
+    /// Links the switcher's program and draws `tex` through it into `corner` (`Gl::warm_up`): paid at the first opening, it held the
+    /// loop 22.8 ms in one pass on the set (8 ms running, 10 ms asleep in the driver), two frames late; later openings took 2.5 ms.
+    pub(super) fn warm_previews(&mut self, tex: GLuint, corner: &Rect) {
+        let Some(p) = self.preview_program() else { return };
+        let (pid, a_pos, a_uv, u_tex, u_color, u_a) = (p.id, p.a_pos, p.a_uv, p.u_tex, p.u_color, p.u_a);
+        let a = &self.egl.api;
+        // SAFETY: state calls on the current context with this renderer's program.
+        unsafe {
+            (a.glUseProgram)(pid);
+            (a.glUniform1i)(u_tex, 0);
+            (a.glUniform4f)(u_color, 0.0, 0.0, 0.0, -1.0);
+            (a.glUniform4f)(u_a, 1.0, 8.0, corner.w as f32, corner.h as f32);
+        }
+        self.quad(a_pos, a_uv, tex, corner, true);
+        // SAFETY: as above.
+        unsafe { (self.egl.api.glUseProgram)(self.program) };
+    }
+
     /// Puts the current target back as the frame draws into it, after something else was drawn.
     pub(super) fn restore_target(&self) {
         let a = &self.egl.api;
