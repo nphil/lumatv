@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+An idle Home dims after 3 minutes and the screensaver comes after 5; LG's idle timer brought the saver at 3 minutes, before Home's own dim at 5. Each wait is a Settings row, 1 minute to 3 hours or Off: Dim the screen after (System › OLED care › LumaTV panel care) and Screensaver after (Home & look › Screensaver), which replaces LG's Screen Saver Standby Time (3 to 30 minutes only). The compositor runs LG's screen-saver timer at LumaTV's wait and writes nothing of LG's. A dim set at or after the screensaver does not happen first. The TV's auto power off timers are unchanged.
+
 Apple TV opens at once with the lean declutter profile on. The profile stubbed Apple's MFi service, which the app's LG provisioning calls at every start, so the app waited 50 s and opened on a "reboot required" alert. The service is kept; it runs only when called.
 
 The camera pop-up owns OK from the moment it appears. A held OK within 0.6 s of it showing opened Home's edit mode; it now reaches the pop-up's menu, with the press, its repeats and the release all the pop-up's. Cards keep their 0.6 s arming.

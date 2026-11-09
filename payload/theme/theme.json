@@ -185,6 +185,7 @@
   },
   "screensaver": {
     "style": "clock",
+    "afterMin": 5,
     "dim": true,
     "glance": true,
     "art": { "everyMin": 15, "order": "shuffle", "caption": true },
@@ -204,7 +205,7 @@
     "enabled": true,
     "orbitPx": 3,
     "stepSec": 30,
-    "dimAfterMin": 5,
+    "dimAfterMin": 3,
     "dimOverMin": 10,
     "dimTo": 0.85,
     "appDim": false,

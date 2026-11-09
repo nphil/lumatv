@@ -73,7 +73,7 @@ Lighting Color) exists in the bundle for other models and is not shown.
 | LG item | LumaTV |
 |---|---|
 | General › System › Home Settings: Home Promotion, Content Recommendation, Home Animation, Recent Input, Power On Screen | Replaced by LumaTV Home: wallpaper, dynamic tint, clock style, widgets, dock order, wallpaper slideshow |
-| General › System › Additional Settings › Screen Saver Settings, Screen Saver Standby Time, Screen Saver Promotion | Screensaver rows |
+| General › System › Additional Settings › Screen Saver Settings, Screen Saver Standby Time, Screen Saver Promotion | Screensaver rows; Standby Time is LumaTV's Screensaver after (1 min to 3 h, or Off) |
 | General › Always Ready, Always-on Off Time | Standby look row |
 | Standby Light, "Show LG logo when turning on" (`other.lgLogoDisplay`) | Boot look rows |
 

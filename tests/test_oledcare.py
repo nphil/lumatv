@@ -65,13 +65,16 @@ class OledCare(unittest.TestCase):
         care = self.theme["oledcare"]
         for key, _ in SWITCHES:
             self.assertIs(care[key], key in ON_BY_DEFAULT, "%s: on only where ON_BY_DEFAULT says (the care and the panel dim); the app and box features are off until their TV checks pass" % key)
-        m = re.search(r"Settings \{\s*enabled: true,\s*radius: (\d+),\s*step_ns: (\d+) \* SEC,\s*dim_after_ns: (\d+) \* 60 \* SEC,\s*"
+        m = re.search(r"Settings \{\s*enabled: true,\s*radius: (\d+),\s*step_ns: (\d+) \* SEC,\s*dim_after_ns: Some\((\d+) \* 60 \* SEC\),\s*"
                       r"dim_over_ns: (\d+) \* 60 \* SEC,\s*dim_floor: ([0-9.]+),\s*app_dim: false,\s*app_shift: false,\s*app_after_ns: (\d+) \* 60 \* SEC,\s*"
                       r"app_floor: ([0-9.]+),", self.rust)
         self.assertTrue(m, "the Default of Settings")
         radius, step, after, over_, floor, app_after, app_floor = int(m[1]), int(m[2]), int(m[3]), int(m[4]), float(m[5]), int(m[6]), float(m[7])
         self.assertEqual((care["orbitPx"], care["stepSec"], care["dimAfterMin"], care["dimOverMin"], care["dimTo"], care["appDimAfterMin"], care["appDimTo"]),
                          (radius, step, after, over_, floor, app_after, app_floor))
+        saver = re.search(r"saver_after_ns: Some\((\d+) \* 60 \* SEC\),", self.rust)
+        self.assertTrue(saver and '"/screensaver/afterMin"' in self.rust, "the compositor runs the screensaver's wait")
+        self.assertEqual(self.theme["screensaver"]["afterMin"], int(saver[1]))
 
     def test_the_orbit_stays_within_a_few_pixels_and_a_step_is_slow(self):
         care = self.theme["oledcare"]

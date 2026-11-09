@@ -169,6 +169,27 @@ fn a_key_or_any_other_input_pushes_the_idle_deadline_out() {
     });
 }
 
+#[test]
+fn the_saver_comes_at_the_settings_wait_not_at_lgs_and_never_when_off() {
+    let server = Server::start();
+    server.eval(|s| {
+        s.luna_register();
+        let token = outbound(s, "/getTimerInfo")[0].1;
+        let timers = json!({"returnValue": true, "timers": [{"type": "[TIMER]ScreenSaver:180", "interval": 180, "once": false, "repeat": true}]});
+        s.luna_event(Event { token, payload: timers });
+        let t0 = Instant::now();
+        s.scene.care.settings.saver_after_ns = Some(60_000_000_000);
+        s.nooperation_tick_at(t0 + Duration::from_secs(59));
+        assert_eq!(calls_to(s, "/notifyExpireTimer"), 0);
+        s.nooperation_tick_at(t0 + Duration::from_secs(60));
+        assert_eq!(calls_to(s, "/notifyExpireTimer"), 1, "the Settings minute");
+        s.scene.care.settings.saver_after_ns = None;
+        s.nooperation_tick_at(t0 + Duration::from_secs(3600));
+        assert_eq!(calls_to(s, "/notifyExpireTimer"), 1, "Off");
+        assert_eq!(calls_to(s, "/setSystemSettings"), 0, "LG's own saver and power-off settings are left as they are");
+    });
+}
+
 fn calls_to(s: &State, tail: &str) -> usize {
     s.luna_sent().iter().filter(|(u, _)| u.ends_with(tail)).count()
 }

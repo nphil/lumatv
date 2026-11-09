@@ -9,8 +9,8 @@
 //!
 //! **The vote.** While the shell runs, the model is on tvpower's two screen-saver lists, `/power2` and `/power`, with
 //! `registerScreenSaverRequest {clientName, subscribe: true}`, asks again when a list has not taken it (3 s, five times, then once a minute)
-//! and answers every question no: LG's saver never starts under LumaTV, and LumaTV's saver decides for itself. tvpower asks when LG's idle
-//! timer (the owner's Screen Saver Standby Time, run by the compositor) runs out. Nothing here is a setting of the TV: the subscription is the
+//! and answers every question no: LG's saver never starts under LumaTV, and LumaTV's saver decides for itself. tvpower asks when LG's
+//! screen-saver idle timer runs out, which the compositor runs at the owner's Screensaver after (`screensaver.afterMin`). Nothing here is a setting of the TV: the subscription is the
 //! client's connection, so a shell that is not running (LumaTV stopped, the Home-hold escape) leaves LG's saver as it always was.
 //!
 //! **A key.** Any key while it is up asks the TV to turn the screen on when LG's state is `Screen Saver` (or a preview), and ends the saver when

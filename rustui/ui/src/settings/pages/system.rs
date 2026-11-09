@@ -2,9 +2,10 @@
 //! rest of LG's Settings is; five tabs. Keys and categories are the ones LG's own Settings app uses. TV information, the software update,
 //! privacy, self-diagnosis and reset are the Support page, the locks' state the Safety page; what is left in LG's app (the account, the
 //! apps, the channel lists) is behind the one row that opens it. The OLED care tab holds LG's own panel care and, under a head of its own,
-//! LumaTV's (the theme's `oledcare` keys, read by the compositor within two seconds; the care and the panel dim are on, the rest are off until their TV checks have passed).
+//! LumaTV's (the theme's `oledcare` keys, read by the compositor within two seconds; the care and the panel dim are on, the rest are off until their TV checks have passed),
+//! with when an idle Home dims. The screensaver's wait is on Home & look's Screensaver tab; LG's auto power off stays on Time & power.
 
-use super::util::{atsc3, atsc3_read, panel_hours, panel_reads, panel_shown};
+use super::util::{DIM_AFTER_MIN, atsc3, atsc3_read, idle_wait, idle_wait_row, idle_wait_text, panel_hours, panel_reads, panel_shown, saver_wait, waits};
 use crate::host::power::SLEEP_LABELS;
 use crate::settings::calendar::{self, Field, MONTHS};
 use crate::settings::ctx::{Ctx, Spec, lg_launch, toast};
@@ -62,14 +63,32 @@ fn timer_text(c: &Ctx, which: &str) -> String {
 /// The switches of `oledcare` that are on when the theme does not say (the compositor's own defaults, `paneldim::Settings`).
 const CARE_ON_BY_DEFAULT: &[&str] = &["enabled", "panelDim"];
 
-/// One of LumaTV's panel-care switches (the theme's `oledcare`).
+/// Whether one of LumaTV's panel-care switches (the theme's `oledcare`) is on.
+fn care_on(c: &Ctx, key: &str) -> bool {
+    c.theme_at("oledcare").and_then(|o| o.get(key)).and_then(Value::as_bool).unwrap_or(CARE_ON_BY_DEFAULT.contains(&key))
+}
+
+/// One of LumaTV's panel-care switches.
 fn care(c: &Ctx, key: &str, icon: &str, label: &str, help: &str) -> Row {
+    let on = care_on(c, key);
     let key = key.to_string();
-    let on = c.theme_at("oledcare").and_then(|o| o.get(&key)).and_then(Value::as_bool).unwrap_or(CARE_ON_BY_DEFAULT.contains(&key.as_str()));
     Row::toggle(&format!("care:{key}")).tab(2).icon(icon).label(label).help(help).on(on).act(move |a| match a {
         Arg::Toggle(v) => vec![Op::Patch(patch_of(&format!("oledcare.{key}"), json!(v)))],
         _ => Vec::new(),
     })
+}
+
+/// When an idle Home dims (`oledcare.dimAfterMin`): with the care on, and before the screensaver; set at or after the screensaver's wait,
+/// the screensaver comes first and Home does not dim.
+fn dim_after(c: &Ctx) -> Row {
+    let help = "An idle Home dims a little after this long without a key. Any key brings it back.";
+    let row = idle_wait_row(c, ("care:dimAfterMin", 2, "timer", "Dim the screen after", help), "oledcare.dimAfterMin", DIM_AFTER_MIN);
+    let mut row = waits(row, care_on(c, "enabled"), "Turn Protect LumaTV screens on");
+    let (dim, saver) = (idle_wait(c, "oledcare.dimAfterMin", DIM_AFTER_MIN), saver_wait(c));
+    if row.enabled && dim > 0 && saver > 0 && dim >= saver {
+        row.detail = format!("The screensaver comes first, after {}", idle_wait_text(saver));
+    }
+    row
 }
 
 fn go(page: &str) -> Vec<Op> {
@@ -137,6 +156,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(c.toggle(Spec::new("other.oledCareRecommendation").tab(2).icon("lightbulb").label("Suggest picture care settings").help("Suggests a picture setting for eye strain or the room, from how the TV is watched.").lg_shown()));
     rows.push(Row::head("LumaTV panel care", 2));
     rows.push(care(c, "enabled", "shield-check", "Protect LumaTV screens", "Moves LumaTV's own screens a pixel now and then and dims Home when it sits idle."));
+    rows.push(dim_after(c));
     rows.push(care(c, "appDim", "sun-medium", "Dim still apps", "Dims an app a little when its picture has not changed for a few minutes. Video and any key bring it back."));
     rows.push(care(c, "appShift", "waves", "Shift still apps", "Slowly moves an app's picture a few pixels while it sits still. A key or video puts it back."));
     rows.push(care(c, "boxDim", "sun-dim", "Dim bright still areas", "Dims only the bright parts of a picture that stays still, such as menu boxes. Video is never touched."));
@@ -407,7 +427,7 @@ mod tests {
         let mut w = world();
         let r = rows(&w.ctx());
         let tab2: Vec<&str> = r.iter().filter(|x| x.tab == 2).map(|x| x.id.as_str()).collect();
-        assert_eq!(tab2, vec!["panelhours", "picture.screenShift", "picture.logoLuminanceAdjust", "other.oledCareMode", "pixelcleaning", "other.oledCareRecommendation", "head:LumaTV panel care", "care:enabled", "care:appDim", "care:appShift", "care:boxDim", "care:panelDim", "care:refreshGuard", "panelrefresh"]);
+        assert_eq!(tab2, vec!["panelhours", "picture.screenShift", "picture.logoLuminanceAdjust", "other.oledCareMode", "pixelcleaning", "other.oledCareRecommendation", "head:LumaTV panel care", "care:enabled", "care:dimAfterMin", "care:appDim", "care:appShift", "care:boxDim", "care:panelDim", "care:refreshGuard", "panelrefresh"]);
         assert!(by_id(&r, "care:enabled").on && !by_id(&r, "care:appDim").on && !by_id(&r, "care:appShift").on, "an absent key is off");
         assert!(by_id(&r, "care:panelDim").on, "but the panel dim is on while the theme says nothing: the compositor's own default");
         let ops = (by_id(&r, "care:panelDim").act.as_ref().unwrap())(Arg::Toggle(false));
@@ -422,6 +442,31 @@ mod tests {
         assert_eq!(by_id(&r, "panelhours").value, "100 h");
         assert_eq!(by_id(&r, "panelrefresh").value, "last run 3 h ago, 12 runs");
         assert!(by_id(&r, "panelrefresh").visible);
+    }
+
+    #[test]
+    fn homes_dim_comes_before_the_screensaver_or_not_at_all_and_is_kept_apart_from_lgs_auto_power_off() {
+        let mut w = world();
+        let r = rows(&w.ctx());
+        let dim = by_id(&r, "care:dimAfterMin");
+        assert_eq!((dim.label.as_str(), dim.value.as_str(), dim.detail.as_str(), dim.enabled), ("Dim the screen after", "3 minutes", "", true));
+        let ops = (dim.act.as_ref().unwrap())(Arg::Press);
+        let [Op::Pick(spec)] = &ops[..] else { panic!("{ops:?}") };
+        assert!(matches!(&(spec.write)("10")[..], [Op::Patch(p)] if p == &json!({"oledcare": {"dimAfterMin": 10}})));
+        // LG's auto power off is Time & power's, on LG's keys; the idle timers write the theme only
+        assert_eq!((by_id(&r, "time.automaticStandBy").tab, by_id(&r, "time.noOperationAutoOff").tab), (1, 0));
+        w.theme = json!({"oledcare": {"enabled": true, "dimAfterMin": 10}, "screensaver": {"afterMin": 5}});
+        assert_eq!(by_id(&rows(&w.ctx()), "care:dimAfterMin").detail, "The screensaver comes first, after 5 minutes");
+        for saver in [json!({"afterMin": 0}), json!({"afterMin": 5, "style": "off"})] {
+            w.theme = json!({"oledcare": {"enabled": true, "dimAfterMin": 10}, "screensaver": saver});
+            assert_eq!(by_id(&rows(&w.ctx()), "care:dimAfterMin").detail, "", "no screensaver: the dim comes");
+        }
+        w.theme = json!({"oledcare": {"enabled": true, "dimAfterMin": 0}});
+        assert_eq!(by_id(&rows(&w.ctx()), "care:dimAfterMin").value, "Off");
+        w.theme = json!({"oledcare": {"enabled": false}});
+        let r = rows(&w.ctx());
+        let dim = by_id(&r, "care:dimAfterMin");
+        assert_eq!((dim.enabled, dim.detail.as_str()), (false, "Turn Protect LumaTV screens on"));
     }
 
     #[test]

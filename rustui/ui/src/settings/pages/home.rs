@@ -1,10 +1,11 @@
 //! Home & look (`settings/PageLook.qml`, `docs/mocks/30-settings-home`): the theme's few knobs a person changes from the sofa
 //! (`theme.json`, the file `lumatv theme set` and Home's popovers write: a row writes a patch that applies at once and is saved), in four
-//! tabs; the rows that are the TV's own settings (Home Settings and AI Recommendation on Home, LG's screen saver on Screensaver, Always
+//! tabs; the rows that are the TV's own settings (Home Settings and AI Recommendation on Home, LG's screen saver ads on Screensaver, Always
 //! Ready on Standby) go through LG's service on LG's keys. The layout of the pop-ups has its own page, the screensaver's sources too.
 
 use crate::settings::ctx::{Ctx, Spec, ask, toast};
 use crate::settings::names;
+use super::util::{SAVER_AFTER_MIN, idle_wait_row};
 use super::weather_source;
 use crate::settings::page::{Page, Read};
 use crate::settings::row::{Arg, Op, Row, ShellRequest, patch_of, settings};
@@ -20,7 +21,7 @@ fn reads(_: &Ctx) -> Vec<Read> {
     vec![
         Read::owner("base.weather"),
         Read::lg("general", &["aiNudge", "aiSettingsNudge", "lifeOnScreenMode", "homeAutoLaunch", "homePromotion", "screenSaverAd"]),
-        Read::lg("option", &["broadcastInfoNoti", "lifeOnScreenEnergySaving", "lifeOnScreenNotification", "lifeOnScreenUsingMotionSensor", "screenSaverTimer"]),
+        Read::lg("option", &["broadcastInfoNoti", "lifeOnScreenEnergySaving", "lifeOnScreenNotification", "lifeOnScreenUsingMotionSensor"]),
         Read::lg("other", &["contentRecommendation", "lgLogoDisplay"]),
     ]
 }
@@ -124,6 +125,11 @@ fn rows(c: &Ctx) -> Vec<Row> {
     saver.help = "Starts after a while with no key. It moves, so the panel never holds one picture.".into();
     rows.push(saver);
     let on = style != "off";
+    // no key for this long brings the screensaver: the compositor runs LG's screen-saver timer at this wait (`nooperation`), as LG's own
+    // choice offers only 3, 10, 20 or 30 minutes
+    let mut after = idle_wait_row(c, ("saverafter", 2, "timer", "Screensaver after", "How long without a key before the screensaver starts."), "screensaver.afterMin", SAVER_AFTER_MIN);
+    after.enabled = on;
+    rows.push(after);
     let mut dim = theme_seg("dim", 2, "gauge", "Dim over time", &["On", "Off"], Some(usize::from(c.theme_at("screensaver.dim").and_then(Value::as_bool) == Some(false))), |i| json!({"screensaver": {"dim": i == 0}}));
     dim.help = "Dims to 60 % over the first hour, gentle on the panel.".into();
     dim.enabled = on;
@@ -156,11 +162,6 @@ fn rows(c: &Ctx) -> Vec<Row> {
     standby.enabled = on;
     rows.push(standby);
     rows.push(Row::link("during").tab(2).icon("bell").label("During the screensaver").does(vec![Op::Open { page: "duringsaver".into(), arg: Default::default() }]));
-    // LG's idle timer: tvpower asks for a screen saver when it runs out, and LumaTV's saver answers (LG marks the choice as the owner's with the
-    // second key); LG's ads show only on LG's own saver, outside LumaTV
-    rows.push(c.choice(Spec::new("option.screenSaverTimer").tab(2).icon("timer").label("Screen Saver Standby Time").help("How long without a key before the screensaver starts.").names(SAVER_TIMES).write(|v| {
-        vec![Op::LgMany { category: "option".into(), settings: settings(&[("screenSaverTimer", json!(v)), ("checkChangedScreenSaverTimerByUser", json!("user"))]), app: None }]
-    })));
     rows.push(c.toggle(Spec::new("general.screenSaverAd").tab(2).icon("star").label("Show ads on LG's screen saver").help("The ads some apps, such as LG Channels, put on LG's screen saver.").lg_shown()));
 
     // ---- Standby
@@ -186,7 +187,6 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows
 }
 
-const SAVER_TIMES: names::Table = &[("3", "3 minutes"), ("10", "10 minutes"), ("20", "20 minutes"), ("30", "30 minutes")];
 const AUTO_OFF: names::Table = &[("auto", "Auto"), ("off", "Off")];
 
 /// Where the pop-ups sit (`placement`): the volume bar, the mute mark, the camera window, the cards and the toasts, placed by the owner on
@@ -230,10 +230,10 @@ mod tests {
         let mut w = World::new(lg_with(
             &[
                 ("general", json!({"settings": {"homeAutoLaunch": "on", "homePromotion": "off", "lifeOnScreenMode": "off", "screenSaverAd": "off", "aiNudge": "off", "aiSettingsNudge": "off"}})),
-                ("option", json!({"settings": {"screenSaverTimer": "10", "lifeOnScreenEnergySaving": "auto", "lifeOnScreenNotification": "true", "lifeOnScreenUsingMotionSensor": "true", "broadcastInfoNoti": "off"}, "errorKey": []})),
+                ("option", json!({"settings": {"lifeOnScreenEnergySaving": "auto", "lifeOnScreenNotification": "true", "lifeOnScreenUsingMotionSensor": "true", "broadcastInfoNoti": "off"}, "errorKey": []})),
                 ("other", json!({"settings": {"contentRecommendation": "off", "lgLogoDisplay": "on"}})),
             ],
-            &[("option", json!({"results": [{"key": "screenSaverTimer", "values": {"arrayExt": [{"value": "3"}, {"value": "10"}, {"value": "20"}, {"value": "30"}]}}]}))],
+            &[],
         ));
         w.theme = json!({"material": "auto", "clock": {"style": "digital", "enabled": true, "twelveHour": true}, "screensaver": {"style": "art", "art": {"everyMin": 5, "order": "sequence", "caption": true}, "standbyHours": 4}, "logo": {"on": 2, "off": 3}, "depth": {"level": "deep"}});
         w.layout = json!({"widgets": [{"type": "clock"}, {"type": "weather", "hidden": true}, {"type": "dock"}, {"type": "news"}]});
@@ -328,16 +328,14 @@ mod tests {
         assert_eq!(by_id(&r, "standbyhours").index, Some(2));
         w.theme["screensaver"]["style"] = json!("off");
         let r = rows(&w.ctx());
-        assert!(!by_id(&r, "dim").enabled && !by_id(&r, "standbyhours").enabled, "nothing to dim or stand by with no saver");
+        assert!(!by_id(&r, "dim").enabled && !by_id(&r, "standbyhours").enabled && !by_id(&r, "saverafter").enabled, "nothing to dim, wait for or stand by with no saver");
         assert_eq!(by_id(&r, "during").label, "During the screensaver");
-        // LG's saver time goes with the mark that says the owner chose it
-        let timer = by_id(&r, "option.screenSaverTimer");
-        assert_eq!(timer.value, "10 minutes");
-        let ops = (timer.act.as_ref().unwrap())(Arg::Press);
-        let [Op::Pick(spec)] = &ops[..] else { panic!() };
-        let written = (spec.write)("20");
-        let [Op::LgMany { settings, .. }] = &written[..] else { panic!() };
-        assert_eq!((settings["screenSaverTimer"].as_str(), settings["checkChangedScreenSaverTimerByUser"].as_str()), (Some("20"), Some("user")));
+        // the wait is LumaTV's, on the theme: LG's own choice (3 to 30 minutes) is not shown
+        let after = by_id(&r, "saverafter");
+        assert_eq!((after.tab, after.label.as_str(), after.value.as_str()), (2, "Screensaver after", "5 minutes"));
+        assert!(!r.iter().any(|x| x.id == "option.screenSaverTimer"));
+        let [Op::Pick(spec)] = &(after.act.as_ref().unwrap())(Arg::Press)[..] else { panic!() };
+        assert!(matches!(&(spec.write)("15")[..], [Op::Patch(p)] if p == &json!({"screensaver": {"afterMin": 15}})));
     }
 
     #[test]

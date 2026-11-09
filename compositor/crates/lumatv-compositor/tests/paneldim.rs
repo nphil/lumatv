@@ -151,7 +151,7 @@ fn care_on(s: &mut State) {
     let c = &mut s.scene.care.settings;
     c.enabled = true;
     c.radius = 0;
-    c.dim_after_ns = SEC;
+    c.dim_after_ns = Some(SEC);
     c.dim_over_ns = SEC;
     c.dim_floor = 0.8;
 }

@@ -477,6 +477,8 @@ impl State {
     }
 
     pub fn nooperation_tick_at(&mut self, now: std::time::Instant) {
+        // the screen-saver timer's wait: the Settings choice (`screensaver.afterMin`) the care reads from the theme
+        self.luna_state.nooperation.set_saver_after(self.scene.care.settings.saver_after_ns.map(std::time::Duration::from_nanos));
         for call in self.luna_state.volume_keys.due(now) {
             self.volume_call(call);
         }

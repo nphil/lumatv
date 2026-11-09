@@ -406,7 +406,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Home Settings: Wallpaper | option.homeWallPaper | opt1, opt2, opt3 | - | cannot: LumaTV Home has its own wallpaper (Home & look › Look) |
 | Home Animation | general.homeEffect | on, off; hidden now | - | cannot: LG Home's motion; LumaTV Home has its own motion settings |
 | Standby Light | option.standByLight | on, off | - | cannot: the C4 has no standby light; LG hides it |
-| Screen Saver Settings: Screen Saver Promotion, Standby Time | general.screenSaverAd, option.screenSaverTimer (3, 10, 20, 30 min) | on, off | Home & look › Screensaver | built — LG's two rows, named as LG names them; the choice of the time is written with `checkChangedScreenSaverTimerByUser` user, as LG's is |
+| Screen Saver Settings: Screen Saver Promotion, Standby Time | general.screenSaverAd, option.screenSaverTimer (3, 10, 20, 30 min) | on, off | Home & look › Screensaver | built — Screen Saver Promotion as LG names it; Standby Time is LumaTV's Screensaver after (`screensaver.afterMin`: 1, 3, 5, 10, 15, 30 min, 1 h, 3 h, Off), which the compositor runs LG's screen-saver timer at; `option.screenSaverTimer` is not written |
 | Pointer Options: Tracking Speed, Pointer Size | option.pointerSpeed, option.pointerSize | slow, normal, fast | Remote & pointer | covered |
 | Live Plus, Live Promotion | option.livePlus, option.livePromotion | on, off | System › Support › Privacy | built — with the other consent rows; LG writes Live Plus at once, LumaTV asks before it turns on (it is consent); Live Promotion waits for Live Plus, as LG's does |
 | Settings Help | option.helpOnSettings | on, off | - | cannot: LG's help box; LumaTV's own help sheet replaces it |

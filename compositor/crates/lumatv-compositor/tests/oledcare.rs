@@ -40,7 +40,7 @@ fn native_home_is_idle_without_a_wayland_window_and_a_key_restores_its_panel_lev
     server.eval(|s| {
         s.scene.set_home_rust(true);
         s.scene.care.settings.enabled = true;
-        s.scene.care.settings.dim_after_ns = SEC;
+        s.scene.care.settings.dim_after_ns = Some(SEC);
         s.scene.care.settings.dim_over_ns = SEC;
         s.scene.care.settings.dim_floor = 0.8;
         let mut t = monotonic_ns();

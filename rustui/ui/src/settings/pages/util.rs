@@ -1,11 +1,13 @@
-//! What several pages ask the TV the same way: whether it has an ATSC 3.0 tuner, the panel's hours, a row that waits for another.
+//! What several pages ask the TV the same way: whether it has an ATSC 3.0 tuner, the panel's hours, a row that waits for another; and
+//! the rows of the idle timers.
 
 use crate::host::inputs::Inputs;
 use crate::host::net::Net;
 use crate::settings::ctx::Ctx;
 use crate::settings::page::Read;
-use crate::settings::row::{Op, PageArg, Row};
+use crate::settings::row::{ChoiceSpec, Op, PageArg, Pick, Row, patch_of};
 use serde_json::{Value, json};
+use std::rc::Rc;
 
 /// Opens another page (`host.openPage(id)`).
 pub fn go(page: &str) -> Vec<Op> {
@@ -90,6 +92,55 @@ pub fn waits(mut row: Row, ready: bool, why: &str) -> Row {
     row
 }
 
+/// The choices of the idle timers' rows in minutes, Off (0) last: the waits the compositor runs (`oledcare::Settings::from_theme`).
+pub const IDLE_WAITS: [u64; 9] = [1, 3, 5, 10, 15, 30, 60, 180, 0];
+/// The compositor's waits while the theme does not say: Home dims after 3 minutes (`oledcare.dimAfterMin`), the screensaver comes after 5
+/// (`screensaver.afterMin`).
+pub const DIM_AFTER_MIN: u64 = 3;
+pub const SAVER_AFTER_MIN: u64 = 5;
+
+/// "Off", "1 minute", "10 minutes", "1 hour", "3 hours".
+pub fn idle_wait_text(min: u64) -> String {
+    match min {
+        0 => "Off".into(),
+        1 => "1 minute".into(),
+        60 => "1 hour".into(),
+        m if m % 60 == 0 => format!("{} hours", m / 60),
+        m => format!("{m} minutes"),
+    }
+}
+
+/// The minutes of an idle timer written at `path` in the theme, `default` while it is not: 0 is Off, the rest held to the choices' range
+/// as the compositor holds it.
+pub fn idle_wait(c: &Ctx, path: &str, default: u64) -> u64 {
+    match c.theme_at(path).and_then(Value::as_f64).filter(|v| v.is_finite()) {
+        None => default,
+        Some(v) if v <= 0.0 => 0,
+        Some(v) => v.clamp(1.0, 180.0).round() as u64,
+    }
+}
+
+/// When the screensaver comes, in minutes: 0 (never) with its wait Off or its style Off, as the compositor reads them.
+pub fn saver_wait(c: &Ctx) -> u64 {
+    if c.theme_str("screensaver.style") == Some("off") { 0 } else { idle_wait(c, "screensaver.afterMin", SAVER_AFTER_MIN) }
+}
+
+/// An idle timer's row (id, tab, icon, label, help) on the theme's `path`: a picker of [`IDLE_WAITS`] whose pick is a patch of that one key.
+pub fn idle_wait_row(c: &Ctx, row: (&str, usize, &str, &str, &str), path: &str, default: u64) -> Row {
+    let (id, tab, icon, label, help) = row;
+    let min = idle_wait(c, path, default);
+    let path = path.to_string();
+    Row::link(id).tab(tab).icon(icon).label(label).help(help).value(&idle_wait_text(min)).does(vec![Op::Pick(Rc::new(ChoiceSpec {
+        title: label.into(),
+        options: IDLE_WAITS.iter().map(|m| Pick::new(&m.to_string(), &idle_wait_text(*m))).collect(),
+        current: min.to_string(),
+        write: Box::new(move |v| match v.parse::<u64>() {
+            Ok(m) if m != min => vec![Op::Patch(patch_of(&path, json!(m)))],
+            _ => Vec::new(),
+        }),
+    }))])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,5 +168,26 @@ mod tests {
         assert!(atsc3(&w.ctx()));
         w.docs.set("atsc3", json!({"configs": {"system.supportATSC3tuner": false}}));
         assert!(!atsc3(&w.ctx()));
+    }
+
+    #[test]
+    fn an_idle_timer_offers_a_minute_to_three_hours_and_off_and_writes_only_its_theme_key() {
+        let mut w = World::new(crate::host::sio::Sio::new(0));
+        let row = |w: &World| idle_wait_row(&w.ctx(), ("saver", 2, "timer", "Screensaver after", ""), "screensaver.afterMin", 5);
+        let r = row(&w);
+        assert_eq!(r.value, "5 minutes", "the compositor's default while the theme says nothing");
+        let ops = (r.act.as_ref().unwrap())(crate::settings::row::Arg::Press);
+        let [Op::Pick(spec)] = &ops[..] else { panic!("{ops:?}") };
+        assert_eq!(spec.options.iter().map(|o| o.label.as_str()).collect::<Vec<_>>(), ["1 minute", "3 minutes", "5 minutes", "10 minutes", "15 minutes", "30 minutes", "1 hour", "3 hours", "Off"]);
+        assert_eq!((spec.title.as_str(), spec.current.as_str()), ("Screensaver after", "5"));
+        assert!((spec.write)("5").is_empty(), "the wait in force is not written again");
+        for (v, m) in [("1", 1), ("180", 180), ("0", 0)] {
+            let written = (spec.write)(v);
+            assert!(matches!(&written[..], [Op::Patch(p)] if p == &json!({"screensaver": {"afterMin": m}})), "a patch of the one key and nothing of LG's: {written:?}");
+        }
+        w.theme = json!({"screensaver": {"afterMin": 0}});
+        assert_eq!(row(&w).value, "Off");
+        w.theme = json!({"screensaver": {"afterMin": 600}});
+        assert_eq!(row(&w).value, "3 hours", "held where the compositor holds it");
     }
 }

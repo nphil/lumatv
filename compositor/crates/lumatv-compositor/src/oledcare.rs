@@ -53,8 +53,8 @@ pub struct Settings {
     pub radius: i32,
     /// Time between two beats.
     pub step_ns: u64,
-    /// Still for this long before the dim begins.
-    pub dim_after_ns: u64,
+    /// Still for this long before Home's dim begins (`dimAfterMin`, a Settings choice); `None` (0, Off): no dim.
+    pub dim_after_ns: Option<u64>,
     /// The dim goes from full to `dim_floor` over this long.
     pub dim_over_ns: u64,
     /// The brightness the dim ends at, [`MIN_DIM_TO`] to 1 (1: no dim).
@@ -71,6 +71,9 @@ pub struct Settings {
     pub boxdim: crate::boxdim::Settings,
     /// `panelDim` and its tuning key (`paneldim.rs`): the whole-screen dims go to the panel's own light.
     pub paneldim: crate::paneldim::Settings,
+    /// `screensaver.afterMin`, a Settings choice: no key for this long brings the screensaver (the compositor runs LG's screen-saver timer
+    /// at it, `nooperation`); `None` (0, Off, or the screensaver's style Off): never. Home's dim fits before it ([`Settings::home_dim`]).
+    pub saver_after_ns: Option<u64>,
 }
 
 impl Default for Settings {
@@ -79,7 +82,7 @@ impl Default for Settings {
             enabled: true,
             radius: 3,
             step_ns: 30 * SEC,
-            dim_after_ns: 5 * 60 * SEC,
+            dim_after_ns: Some(3 * 60 * SEC),
             dim_over_ns: 10 * 60 * SEC,
             dim_floor: 0.85,
             app_dim: false,
@@ -88,24 +91,37 @@ impl Default for Settings {
             app_floor: 0.75,
             boxdim: crate::boxdim::Settings::default(),
             paneldim: crate::paneldim::Settings::default(),
+            saver_after_ns: Some(5 * 60 * SEC),
         }
     }
 }
 
 const SEC: u64 = 1_000_000_000;
 
+/// A wait of the idle timers' Settings rows (`dimAfterMin`, `screensaver.afterMin`) in minutes: 0 or less is Off, the rest is held to 1
+/// minute to 3 hours, the range of the rows' choices.
+fn idle_wait(min: f64) -> Option<u64> {
+    (min > 0.0).then(|| (min.clamp(1.0, 180.0) * 60.0 * SEC as f64) as u64)
+}
+
 impl Settings {
     /// The `oledcare` object of a theme: `enabled`, `orbitPx`, `stepSec`, `dimAfterMin`, `dimOverMin`, `dimTo`, `appDim`, `appShift`,
-    /// `appDimAfterMin`, `appDimTo`. Out-of-range numbers are clamped, wrong types are the shipped value.
+    /// `appDimAfterMin`, `appDimTo`; and `screensaver.afterMin` (no screensaver with `screensaver.style` off). Out-of-range numbers are
+    /// clamped, wrong types are the shipped value.
     pub fn from_theme(theme: &Value) -> Settings {
         let d = Settings::default();
-        let Some(o) = theme.get("oledcare").and_then(Value::as_object) else { return d };
+        let saver_after_ns = if theme.pointer("/screensaver/style").and_then(Value::as_str) == Some("off") {
+            None
+        } else {
+            theme.pointer("/screensaver/afterMin").and_then(Value::as_f64).filter(|v| v.is_finite()).map_or(d.saver_after_ns, idle_wait)
+        };
+        let Some(o) = theme.get("oledcare").and_then(Value::as_object) else { return Settings { saver_after_ns, ..d } };
         let num = |k: &str| o.get(k).and_then(Value::as_f64).filter(|v| v.is_finite());
         Settings {
             enabled: o.get("enabled").and_then(Value::as_bool).unwrap_or(d.enabled),
             radius: num("orbitPx").map_or(d.radius, |v| v.round().clamp(0.0, 4.0) as i32),
             step_ns: num("stepSec").map_or(d.step_ns, |v| (v.clamp(10.0, 600.0) * SEC as f64) as u64),
-            dim_after_ns: num("dimAfterMin").map_or(d.dim_after_ns, |v| (v.clamp(1.0, 120.0) * 60.0 * SEC as f64) as u64),
+            dim_after_ns: num("dimAfterMin").map_or(d.dim_after_ns, idle_wait),
             dim_over_ns: num("dimOverMin").map_or(d.dim_over_ns, |v| (v.clamp(1.0, 240.0) * 60.0 * SEC as f64) as u64),
             dim_floor: num("dimTo").map_or(d.dim_floor, |v| (v as f32).clamp(MIN_DIM_TO, 1.0)),
             app_dim: o.get("appDim").and_then(Value::as_bool).unwrap_or(d.app_dim),
@@ -114,6 +130,18 @@ impl Settings {
             app_floor: num("appDimTo").map_or(d.app_floor, |v| (v as f32).clamp(MIN_APP_DIM_TO, 1.0)),
             boxdim: crate::boxdim::Settings::from_object(o),
             paneldim: crate::paneldim::Settings::from_object(o),
+            saver_after_ns,
+        }
+    }
+
+    /// When an idle Home's dim begins and how long it eases: `dim_after_ns` over `dim_over_ns`, cut to end when the screensaver comes, so
+    /// the dim shows before it. `None` with the dim Off or set at or after the saver: the saver is first, and the care stands aside under it.
+    pub fn home_dim(&self) -> Option<(u64, u64)> {
+        let after = self.dim_after_ns?;
+        match self.saver_after_ns {
+            Some(saver) if saver <= after => None,
+            Some(saver) => Some((after, self.dim_over_ns.min(saver - after))),
+            None => Some((after, self.dim_over_ns)),
         }
     }
 }
@@ -288,6 +316,8 @@ impl Care {
             "homeWant": self.home_want(),
             // how long Home has been still: a count that stays near 0 on an idle Home says something keeps resetting it (a key, the pointer, commits)
             "homeStillSec": if self.layers[0].shown { now_ns.saturating_sub(self.layers[0].still_since_ns) / SEC } else { 0 },
+            // when an idle Home's dim begins and how long it eases (null: Off, or the screensaver comes first)
+            "homeDim": self.settings.home_dim().map(|(after, over)| serde_json::json!({"afterSec": after / SEC, "overSec": over / SEC})),
             "beats": self.beats,
             "appDim": {"enabled": self.settings.app_dim, "level": self.app_dim(), "to": self.settings.app_floor, "afterMin": self.settings.app_after_ns / (60 * SEC)},
             "appShift": {"enabled": self.settings.app_shift, "offset": [a.0, a.1]},
@@ -494,7 +524,7 @@ impl Care {
             }
             l.commits = commits;
             l.looked_ns = now_ns;
-            let level = dim_level(now_ns.saturating_sub(l.still_since_ns), s.dim_after_ns, s.dim_over_ns, s.dim_floor);
+            let level = s.home_dim().map_or(1.0, |(after, over)| dim_level(now_ns.saturating_sub(l.still_since_ns), after, over, s.dim_floor));
             if level != l.level {
                 l.level = level;
                 // drawn only when the panel is not the one dimming
@@ -545,11 +575,50 @@ mod tests {
         assert_eq!(Settings::from_theme(&json!({})), Settings::default());
         assert!(Settings::default().enabled, "an idle Home dims without anyone having turned the care on");
         assert!(!Settings::from_theme(&json!({"oledcare": {"enabled": false}})).enabled);
-        let s = Settings::from_theme(&json!({"oledcare": {"enabled": true, "orbitPx": 9, "stepSec": 1, "dimAfterMin": 3, "dimOverMin": 20, "dimTo": 0.1}}));
-        assert_eq!((s.enabled, s.radius, s.step_ns, s.dim_after_ns, s.dim_over_ns), (true, 4, 10 * SEC, 3 * MIN, 20 * MIN));
+        let s = Settings::from_theme(&json!({"oledcare": {"enabled": true, "orbitPx": 9, "stepSec": 1, "dimAfterMin": 2, "dimOverMin": 20, "dimTo": 0.1}}));
+        assert_eq!((s.enabled, s.radius, s.step_ns, s.dim_after_ns, s.dim_over_ns), (true, 4, 10 * SEC, Some(2 * MIN), 20 * MIN));
         assert_eq!(s.dim_floor, MIN_DIM_TO, "a dim too deep for the text to read is held at its floor");
         let wrong = Settings::from_theme(&json!({"oledcare": {"enabled": "yes", "orbitPx": "big", "dimTo": null}}));
         assert_eq!(wrong, Settings::default());
+    }
+
+    #[test]
+    fn the_idle_waits_are_the_settings_choices_and_zero_is_off() {
+        let d = Settings::default();
+        assert_eq!((d.dim_after_ns, d.saver_after_ns), (Some(3 * MIN), Some(5 * MIN)), "the dim at 3 minutes, the saver at 5");
+        let of = |dim: Value, saver: Value| Settings::from_theme(&json!({"oledcare": {"dimAfterMin": dim}, "screensaver": {"afterMin": saver}}));
+        let s = of(json!(1), json!(180));
+        assert_eq!((s.dim_after_ns, s.saver_after_ns), (Some(MIN), Some(180 * MIN)), "the shortest and the longest choice");
+        let s = of(json!(0), json!(0));
+        assert_eq!((s.dim_after_ns, s.saver_after_ns), (None, None), "Off");
+        let s = of(json!(0.2), json!(1000));
+        assert_eq!((s.dim_after_ns, s.saver_after_ns), (Some(MIN), Some(180 * MIN)), "held to the rows' range");
+        assert_eq!(Settings::from_theme(&json!({"screensaver": {"afterMin": 10}})).saver_after_ns, Some(10 * MIN), "with no oledcare block too");
+        assert_eq!(Settings::from_theme(&json!({"screensaver": {"afterMin": 10, "style": "off"}})).saver_after_ns, None, "no screensaver at all");
+    }
+
+    #[test]
+    fn home_dims_before_the_saver_or_not_at_all() {
+        let with = |dim, saver| Settings { dim_after_ns: dim, saver_after_ns: saver, ..Settings::default() }.home_dim();
+        assert_eq!(Settings::default().home_dim(), Some((3 * MIN, 2 * MIN)), "from 3 minutes, down by the saver's 5");
+        assert_eq!(with(Some(MIN), None), Some((MIN, 10 * MIN)), "no saver: the whole ease");
+        assert_eq!(with(None, Some(5 * MIN)), None, "Off");
+        assert_eq!(with(Some(5 * MIN), Some(5 * MIN)), None, "at the saver");
+        assert_eq!(with(Some(10 * MIN), Some(5 * MIN)), None, "after it");
+        // a still Home follows it: bright until 3 minutes, at the floor by the saver's 5; never dimmed with the dim Off
+        for (dim, at_saver) in [(Some(3 * MIN), 0.85), (None, 1.0)] {
+            let mut c = on();
+            c.settings.dim_after_ns = dim;
+            let start = 10 * SEC;
+            let mut t = start;
+            c.step(t, [Some(0), None], false);
+            while t < start + 5 * MIN {
+                t += 30 * SEC + GRACE_NS;
+                c.step(t, [Some(0), None], false);
+                if t < start + 3 * MIN { assert_eq!(c.home_want(), 1.0); }
+            }
+            assert_eq!(c.home_want(), at_saver, "dim {dim:?}");
+        }
     }
 
     #[test]
@@ -643,7 +712,7 @@ mod tests {
     #[test]
     fn a_still_home_dims_in_steps_a_moving_one_and_a_key_bring_it_back_and_the_system_layer_never_dims() {
         let mut c = on();
-        c.settings.dim_after_ns = 2 * MIN;
+        c.settings.dim_after_ns = Some(2 * MIN);
         c.settings.dim_over_ns = 10 * MIN;
         c.settings.dim_floor = 0.8;
         let mut t = 10 * SEC;
@@ -679,7 +748,7 @@ mod tests {
     #[test]
     fn the_care_stands_aside_while_the_saver_is_up() {
         let mut c = on();
-        c.settings.dim_after_ns = MIN;
+        c.settings.dim_after_ns = Some(MIN);
         c.settings.dim_floor = 0.8;
         let mut t = 10 * SEC;
         c.step(t, [Some(0), None], false);
@@ -707,7 +776,7 @@ mod tests {
     #[test]
     fn a_home_that_appears_starts_bright_and_switching_off_puts_everything_back() {
         let mut c = on();
-        c.settings.dim_after_ns = MIN;
+        c.settings.dim_after_ns = Some(MIN);
         let mut t = 10 * SEC;
         c.step(t, [Some(0), None], false);
         for _ in 0..60 {

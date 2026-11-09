@@ -181,7 +181,7 @@ fn native_home_dim_covers_wallpaper_hole_below_home_and_system_ui() {
         care.enabled = true;
         care.paneldim.enabled = false;
         care.radius = 0;
-        care.dim_after_ns = 1_000_000_000;
+        care.dim_after_ns = Some(1_000_000_000);
         care.dim_over_ns = 1_000_000_000;
         care.dim_floor = 0.8;
         s.tick_at(t);
