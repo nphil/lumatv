@@ -31,6 +31,12 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Phone remote helper installed, plugin off, 2026-11-09 (main da90a3e8, installed 05:12 EST)
+
+Helper-only install of main da90a3e8: `lumatv-helper` 92dbac9c (replaced 7cf3523c; installed at `payload/helper` and `/var/lib/lumatv/bin`). Compositor 63a10300, ui 862b4cbf, sm 65f6ca69 and `tools/lumatv` 0473b152 are unchanged. Two stale tests were fixed on the way: the HA fixture lacked the phone-remote entry (036205986) and the `ipc` endpoint count lacked its routes (da90a3e8); `helper/build.sh test` and the release build pass at da90a3e8. The plugin runner's root test needs a world-traversable `TMPDIR`, not a 0700 scratch dir.
+
+On the set: `/v1/phone-remote` answers `on:false`, the `plugins` topic lists `phone-remote` as `off`, nothing listens on 18733, and Settings > Remote & pointer > Phone remote opens (receipt `/data/home/tmp/lumatv-smooth5-20261109/phoneremote-installed.png`). Not tested: enabling the plugin and pairing. Left as found: Home in front, receiver unmuted and in standby, Active Standby, lease released. Rollback copy: `/data/home/tmp/lumatv-smooth5-20261109/rm/backup/`.
+
 ## Unchanged first frame of a motion kept, 2026-11-09 (main 6f9df990, installed 04:17 EST)
 
 Installed with the TV Active and the receiver muted (owner-approved, overnight), by the standard compositor cutover, in three steps: ui `114db6bb` (8dedc9a6, replaced `ee06b4fe`) at 03:39; compositor `0970cd28` (99ee6a4c, replaced `d3389603`) and ui `862b4cbf` (99ee6a4c, which also carries the phone remote 26099d23; replaced `114db6bb`) at 03:57; compositor `63a10300` (6f9df990, replaced `0970cd28`) at 04:17. Helper `7cf3523c` and sm `65f6ca69` unchanged. Receipts: `/data/home/tmp/lumatv-smooth5-20261109/` (`session.log`, `gate/`, `pop-after.json`, `rel/installed-*.json`, `phoneremote-plugin-off.png`).
