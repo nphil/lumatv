@@ -31,6 +31,12 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Camera streams: one set, no duplicates, 2026-11-09 (ScryptedBridge dbacd9e, deployed 09:13 EST, no TV install)
+
+The Reolink doors' RTMP streams declare no codec, so a pop-up's codec list skipped their prebuffered `sub.bcs` and the bridge dialled the unbuffered RTSP preview (3.7-7 s). The bridge now fills a missing codec from Rebroadcast's `prebuffer:detectedCodec` and, between streams of one size, prefers the prebuffered one (ScryptedBridge 0.2.6, 744 tests). The morning's `RTSP h264Preview_01_sub` in `prebuffer:enabledStreams` on Front Door 104 and Back Door 103 is out again; the settings before are in `/data/home/tmp/lumatv-cleanstreams-20261109/scrypted-before.json`.
+
+Pop-up (light) is the smallest prebuffered stream and full view (native) the largest the set decodes, with no transcode: doors `sub.bcs` 640x480 and `main.bcs` 2560x1920 / 1920x2560, Plant Room 1280x720 and 2688x1520, Bird 640x360 and 1080p, Tool Room 640x360 and 1440p, Office `sub.bcs` and 4K H.265, Gym Stream 2 and Stream 1, Cat Feeder 720p and 1080p, Backyard Stream 2 and Stream 1 (both H.265; Stream 1 is held open by NVR recording). Downstairs Door (Ring) has no live prebuffer and shows stills. The doors' `ext.bcs` stays prebuffered: it is the Medium quality of the full view and Back Door's HomeKit remote stream. Pop-up to live: Front 0.71, Back 0.42, Plant Room 0.44, Backyard 0.43 s, Bird, Tool Room, Gym and Cat Feeder 0.42-0.45, Office 0.54 s (morning: doors 0.48-0.99, Plant Room 0.46). Back Door full view: 2560x1920 H.264 live 0.16 s after OK; Backyard full view H.265 live 0.17 s. Not tested: Office 4K full view, Ring live.
+
 ## Phone remote helper installed, plugin off, 2026-11-09 (main da90a3e8, installed 05:12 EST)
 
 Helper-only install of main da90a3e8: `lumatv-helper` 92dbac9c (replaced 7cf3523c; installed at `payload/helper` and `/var/lib/lumatv/bin`). Compositor 63a10300, ui 862b4cbf, sm 65f6ca69 and `tools/lumatv` 0473b152 are unchanged. Two stale tests were fixed on the way: the HA fixture lacked the phone-remote entry (036205986) and the `ipc` endpoint count lacked its routes (da90a3e8); `helper/build.sh test` and the release build pass at da90a3e8. The plugin runner's root test needs a world-traversable `TMPDIR`, not a 0700 scratch dir.
