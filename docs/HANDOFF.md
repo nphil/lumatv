@@ -31,6 +31,16 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Scene ceilings raised, 2026-11-09 (main 890cc3e8, installed 13:11 EST)
+
+A client may now hold 512 layers, 256 groups and 64 motion tracks (were 256, 96 and 32), so Settings over Quick Settings over Home no longer runs out of groups. A frame still walks only the layers and groups there are, and the compositor's maps stay reserved for 112 groups and 56 tracks.
+
+Installed by the standard cutover with Home in front and the receiver as found (on, TV input, -30.0 dB, unmuted): ui `55c1832c` (replaced `fd666b15`), compositor `6cded4b2` (replaced `63a10300`); sm `65f6ca69` and helper `92dbac9c` unchanged. On the set Quick Settings draws whole, Phone remote takes focus and opens on OK, the pop-up layout editor draws whole, and no `at most`, `scene is full` or `more than N` line was logged from 13:10:30 to 13:43:52. The most a walk through Home, Quick Settings, Settings > Remote & pointer > Phone remote and the layout editor held: 176 layers, 68 groups and 13 tracks, with Quick Settings up; Home at rest 97, 44 and 10; no refusals.
+
+Frame gate at 120 Hz, the old build then the new, same scenarios, dropped frames / bursts over 20 ms. No load: Home d-pad 0/0 twice on both; Home widgets 0/0 twice, then 0/0 and 1/1. Under plugin load: Home d-pad 0/0 on both; Home widgets 0/0 and 2/1, then 2/1; a second load run 0/0 on both; Apps grid in three runs 2/1, 2/0 and 0/0, then 1/1, 1/1 and 3/1 (first frame about 1450 ms on both, follow-up (b)). Input picker three runs with no drops on both; the new build's third failed on burst end (183 ms against 180). p90 render per run 1.64-2.87 ms, mean 2.07 (old 1.71-3.09, mean 2.41). The drops are within the old build's spread between identical runs (0-2) and render did not rise, so the build stays.
+
+Anonymous memory after the gates: compositor 43.2 MiB (old 41.8), ui 33.5-34.5 MiB (old 36.6-36.7); the two together hold 1.0-1.6 MiB less by Pss. Before the gates the compositor held 36.7 MiB (old 36.6). Not tested on the set: a wake from standby. Receipts and the rollback copies of `fd666b15` and `63a10300`: `/data/home/tmp/lumatv-sceneroom-20261109/` (`session.log`, `gate/`, `walk-*.json`, `rel/installed-890cc3e8.json`, `rel/backup/`, `A-quick.png`, `A-phone-opened.png`, `A-layout.png`).
+
 ## Quick Settings and Settings with room after a wake, 2026-11-09 (main 5ef54774, installed 11:28 EST)
 
 After the 09:40 wake Quick Settings opened empty and Settings > Remote & pointer could not focus Phone remote; both logged `at most 96 groups`. Home's 16-tile dock kept a lit group per tile at rest (a sixth of the client's 96), and with the smart-home card's lifts and the wake's picker too few groups were left for a panel. The dock now lights only the focused tile; under Settings, the cameras' viewer or any full kind the dock and the smart-home card let their groups go until the kind leaves, and a panel short of room is drawn whole once they do, never as an empty sheet.
