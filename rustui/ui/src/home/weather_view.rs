@@ -350,6 +350,15 @@ impl<'a> Data<'a> {
         format!("{}\u{b0}", v.round() as i64)
     }
 
+    /// The four readings under the hero, each as the page shows it: an en dash for one the feed does not carry, never a blank.
+    fn facts(&self) -> [(&'static str, String); 4] {
+        let wind = self.num("/current/windMph").map(|v| format!("{} mph{}", v.round() as i64, self.more_num("/now/windDeg").map(|dg| format!(" {}", compass(dg))).unwrap_or_default()));
+        let hum = self.num("/current/humidity").map(|v| format!("{}%", v.round() as i64));
+        let uv = self.more_num("/now/uvIndex").map(|u| format!("{} {}", u.round() as i64, uv_word(u)));
+        let rain = self.more.pointer("/daily/0/rainPct").and_then(Value::as_f64).map(|p| format!("{}%", p.round() as i64));
+        [("WIND", wind), ("HUMIDITY", hum), ("UV INDEX", uv), ("RAIN TODAY", rain)].map(|(label, v)| (label, v.unwrap_or_else(|| NONE.to_owned())))
+    }
+
     /// A key that tells the page when to be made again.
     fn key(&self) -> String {
         format!("{}|{}|{}", self.doc.get("fetchedAt").map(Value::to_string).unwrap_or_default(), self.more.get("fetchedAt").map(Value::to_string).unwrap_or_default(), self.twelve)
@@ -420,6 +429,9 @@ pub struct WeatherSurface {
     /// The bar's words are for this page and clock.
     bar_key: String,
 }
+
+/// What stands for a reading that is not known.
+const NONE: &str = "\u{2013}";
 
 const MARGIN: f32 = 64.0;
 const TOP: f32 = 140.0;
@@ -686,12 +698,8 @@ impl WeatherSurface {
         lines.push((Frame::new(8.0, y, 780.0, sp * 1.35), sty(kit, sp, Weight::SemiBold, legible(if tone == SmartTone::Warning { warn } else { accent }, ink, light), Align::Left), smart));
         y += sp * 1.35 + 26.0;
         if flow.facts {
-            let wind = d.num("/current/windMph").map(|v| format!("{} mph{}", v.round() as i64, d.more_num("/now/windDeg").map(|dg| format!(" {}", compass(dg))).unwrap_or_default())).unwrap_or_default();
-            let hum = d.num("/current/humidity").map(|v| format!("{}%", v.round() as i64)).unwrap_or_default();
-            let uv = d.more_num("/now/uvIndex").map(|u| format!("{} {}", u.round() as i64, uv_word(u))).unwrap_or_default();
-            let rain = d.more.pointer("/daily/0/rainPct").and_then(Value::as_f64).map(|p| format!("{}%", p.round() as i64)).unwrap_or_default();
             let (lp, vp) = (24.0 * s, 34.0 * s);
-            for (i, (label, value)) in [("WIND", wind), ("HUMIDITY", hum), ("UV INDEX", uv), ("RAIN TODAY", rain)].into_iter().enumerate() {
+            for (i, (label, value)) in d.facts().into_iter().enumerate() {
                 let x = 8.0 + i as f32 * 222.0;
                 lines.push((Frame::new(x, y, 216.0, lp * 1.3), sty(kit, lp, Weight::SemiBold, ink2, Align::Left), label.to_owned()));
                 lines.push((Frame::new(x, y + lp * 1.3 + 2.0, 216.0, vp * 1.3), sty(kit, vp, Weight::Medium, ink, Align::Left), value));
@@ -876,6 +884,8 @@ impl WeatherSurface {
             Sun(Option<f32>, i32),
             Humidity(f32),
             Pressure(f32),
+            /// Nothing to draw: the tile has no reading.
+            Blank,
         }
         let temp = d.num("/current/temp").unwrap_or(0.0);
         let feels = d.num("/current/feelsLike");
@@ -899,16 +909,16 @@ impl WeatherSurface {
         // a tile: its column, row and span, its label, its value, its sub line (the whole of it, then shorter ways) and what it draws
         type Tile<'a> = (usize, usize, usize, &'a str, String, Vec<String>, Draw);
         let mut tiles: Vec<Tile> = Vec::new();
-        tiles.push((0, 0, 1, "FEELS LIKE", feels.map(|v| d.deg(v)).unwrap_or_default(), feels_note, Draw::Feels(temp as f32, feels.unwrap_or(temp) as f32, day_lo, day_hi)));
-        let wind = wind_mph.map(|v| format!("{} mph{}", v.round() as i64, d.more_num("/now/windDeg").map(|dg| format!(" {}", compass(dg))).unwrap_or_default())).unwrap_or_default();
+        tiles.push((0, 0, 1, "FEELS LIKE", feels.map(|v| d.deg(v)).unwrap_or_else(|| NONE.into()), feels_note, Draw::Feels(temp as f32, feels.unwrap_or(temp) as f32, day_lo, day_hi)));
+        let wind = d.facts()[0].1.clone();
         let gust = d.more_num("/now/gustMph").map(|g| format!("Gusts {} mph", g.round() as i64)).unwrap_or_default();
         tiles.push((1, 0, 1, "WIND", wind, vec![gust], Draw::Wind(d.more_num("/now/windDeg").unwrap_or(0.0) as f32)));
         let uv = d.more_num("/now/uvIndex");
-        tiles.push((2, 0, 1, "UV INDEX", uv.map(|u| format!("{}", u.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), vec![uv.map(|u| uv_word(u).to_owned()).unwrap_or_default()], Draw::Uv(uv.unwrap_or(0.0) as f32)));
+        tiles.push((2, 0, 1, "UV INDEX", uv.map(|u| format!("{}", u.round() as i64)).unwrap_or_else(|| NONE.into()), vec![uv.map(|u| uv_word(u).to_owned()).unwrap_or_default()], Draw::Uv(uv.unwrap_or(0.0) as f32)));
         let rain = d.more.pointer("/daily/0/rainPct").and_then(Value::as_f64);
         let amount = d.more.pointer("/daily/0/rainIn").and_then(Value::as_f64).map(&w_in).unwrap_or_default();
         let chances: Vec<f32> = d.hours().iter().take(24).map(|h| h.get("rainPct").and_then(Value::as_f64).unwrap_or(0.0) as f32).collect();
-        tiles.push((3, 0, 1, "RAIN TODAY", rain.map(|p| format!("{}%", p.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), vec![if amount.is_empty() { String::new() } else { format!("{amount} expected") }], Draw::Rain(chances)));
+        tiles.push((3, 0, 1, "RAIN TODAY", rain.map(|p| format!("{}%", p.round() as i64)).unwrap_or_else(|| NONE.into()), vec![if amount.is_empty() { String::new() } else { format!("{amount} expected") }], Draw::Rain(chances)));
         let rise = d.more.pointer("/daily/0/sunrise").and_then(Value::as_str).filter(|t| t.len() >= 16);
         let set = d.more.pointer("/daily/0/sunset").and_then(Value::as_str).filter(|t| t.len() >= 16);
         let now_t = d.doc.pointer("/current/time").and_then(Value::as_str).and_then(minutes);
@@ -918,13 +928,18 @@ impl WeatherSurface {
             _ => (None, 0),
         };
         let daylight = if daylen > 0 { format!("{} h {} min of daylight", daylen / 60, daylen % 60) } else { String::new() };
-        tiles.push((0, 1, 2, "SUNRISE AND SUNSET", String::new(), vec![daylight], Draw::Sun(dayfrac, daylen)));
+        // a feed with no sunrise or sunset (Home Assistant's weather entities) leaves the tile a dash and a line saying so, not an empty arc
+        tiles.push(if rise.is_none() && set.is_none() {
+            (0, 1, 2, "SUNRISE AND SUNSET", NONE.into(), vec!["Not reported".into()], Draw::Blank)
+        } else {
+            (0, 1, 2, "SUNRISE AND SUNSET", String::new(), vec![daylight], Draw::Sun(dayfrac, daylen))
+        });
         let hum = d.num("/current/humidity");
         let cloud = d.more_num("/now/cloudPct").map(|c| format!("Cloud cover {}%", c.round() as i64)).unwrap_or_default();
-        tiles.push((2, 1, 1, "HUMIDITY", hum.map(|v| format!("{}%", v.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), vec![cloud], Draw::Humidity(hum.unwrap_or(0.0) as f32)));
+        tiles.push((2, 1, 1, "HUMIDITY", hum.map(|v| format!("{}%", v.round() as i64)).unwrap_or_else(|| NONE.into()), vec![cloud], Draw::Humidity(hum.unwrap_or(0.0) as f32)));
         let pressure = d.more_num("/now/pressureHpa");
         let vis = d.more_num("/now/visibilityM").map(|m| if metric { format!("Visibility {} mi", (m / 1609.34).round() as i64) } else { format!("Visibility {} km", (m / 1000.0).round() as i64) }).unwrap_or_default();
-        let p_text = pressure.map(|p| if metric { format!("{:.2} inHg", p * 0.029_53) } else { format!("{} hPa", p.round() as i64) }).unwrap_or_else(|| "\u{2013}".into());
+        let p_text = pressure.map(|p| if metric { format!("{:.2} inHg", p * 0.029_53) } else { format!("{} hPa", p.round() as i64) }).unwrap_or_else(|| NONE.into());
         tiles.push((3, 1, 1, "PRESSURE", p_text, vec![vis], Draw::Pressure(pressure.unwrap_or(1013.0) as f32)));
 
         for (col, row, span, label, value, sub, draw) in tiles {
@@ -968,8 +983,16 @@ impl WeatherSurface {
                         let x_of = |v: f32| g.x + 24.0 + (g.w - 48.0) * (v - lo) / (hi - lo).max(1.0);
                         let (xa, xf) = (x_of(*a), x_of(*f));
                         let mid = g.y + g.h / 2.0;
-                        extra.push((Frame::new(xa - 90.0, mid - 20.0 - sh, 180.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Centre), format!("Actual {}", d.deg(f64::from(*a)))));
-                        extra.push((Frame::new(xf - 90.0, mid + 22.0, 180.0, sh), sty(kit, 24.0 * s, Weight::SemiBold, ink, Align::Centre), format!("Feels {}", d.deg(f64::from(*f)))));
+                        // each label is centred on its dot, kept inside the tile and cut or shortened to the room it has
+                        let mut mark = |kit: &mut Kit, x: f32, y: f32, weight: Weight, colour: Rgba, word: &str, v: f32| {
+                            let style = sty(kit, 24.0 * s, weight, colour, Align::Centre);
+                            let room = (180.0 * s.max(1.0)).min(g.w * 0.7);
+                            let text = fit(kit, &style, &[format!("{word} {}", d.deg(f64::from(v))), d.deg(f64::from(v))], room);
+                            let left = (x - room / 2.0).clamp(g.x, g.right() - room);
+                            extra.push((Frame::new(left, y, room, sh), style, text));
+                        };
+                        mark(kit, xa, mid - 20.0 - sh, Weight::Medium, ink2, "Actual", *a);
+                        mark(kit, xf, mid + 22.0, Weight::SemiBold, ink, "Feels", *f);
                         if s <= 1.2 {
                             extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Left), d.deg(f64::from(*lo))));
                             extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Right), d.deg(f64::from(*hi))));
@@ -979,12 +1002,12 @@ impl WeatherSurface {
                         extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Left), "Now".to_owned()));
                         extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Right), "24 h".to_owned()));
                     }
-                    _ => {}
+                    Draw::Wind(_) | Draw::Humidity(_) | Draw::Blank => {}
                 }
             }
             lines.extend(extra);
             made.cards.push(self.card(kit, rect, z, lines)?);
-            if g.h < 60.0 {
+            if g.h < 60.0 || matches!(draw, Draw::Blank) {
                 continue;
             }
             let img = picture(kit, rect, z + 3, |c| match draw {
@@ -1041,6 +1064,7 @@ impl WeatherSurface {
                         c.disc(sx, sy, 11.0, Rgba(246, 193, 119, 255));
                     }
                 }
+                Draw::Blank => {}
                 Draw::Humidity(v) => {
                     let (cx, cy, r) = (g.x + g.w / 2.0, g.y + g.h / 2.0, (g.w.min(g.h) / 2.0 - 8.0).max(24.0));
                     let (a0, sweep) = (-0.75 * std::f32::consts::PI, 1.5 * std::f32::consts::PI);
@@ -1147,6 +1171,18 @@ mod tests {
         // no hours: how it is out
         let (full, short, _) = smart_line(&doc(0, true), &json!({}), true);
         assert_eq!((full.as_str(), short.as_str()), ("53% humidity  \u{b7}  6 mph wind", "53%  \u{b7}  6 mph"));
+    }
+
+    #[test]
+    fn a_reading_the_feed_lacks_is_a_dash_not_a_blank() {
+        let (doc, more) = (json!({"current": {"windMph": 11.4, "humidity": 33.0}}), json!({"now": {"windDeg": 315.0}, "daily": [{"rainPct": 0.0}]}));
+        let d = Data { doc: &doc, more: &more, twelve: true, fahrenheit: true };
+        let facts = d.facts();
+        assert_eq!(facts.clone().map(|(_, v)| v), ["11 mph NW", "33%", NONE, "0%"]);
+        assert_eq!(facts[2].0, "UV INDEX");
+        let (doc, more) = (Value::Null, Value::Null);
+        let d = Data { doc: &doc, more: &more, twelve: true, fahrenheit: true };
+        assert!(d.facts().iter().all(|(_, v)| v == NONE));
     }
 
     #[test]

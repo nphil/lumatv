@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The weather view shows a dash for any reading the feed lacks (UV index was blank on page 1), an unreported sunrise is a dash tile without an arc, and the Actual and Feels labels shorten to fit their tile at any text size.
+
 Settings › Sound shows the output the TV reports in use (the receiver over ARC) instead of LG's saved setting, which stayed on TV speakers while the sound went to the receiver. The Sound row's summary and the page's choice follow the reported route.
 
 The scene's ceilings are 512 layers, 256 groups and 64 motion tracks, up from 256, 96 and 32. Home with Quick Settings and Settings reached the old 96 groups, and Quick Settings came up empty or rows of Settings went undrawn; the busiest screens now use 178 layers, 68 groups and 13 tracks. A group or track that does not exist costs nothing per frame and the compositor's maps keep their size. The log line for a build that did not fit says which ceiling it met and what is left of each.
