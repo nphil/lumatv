@@ -400,6 +400,7 @@
           "channelIcon": "base.icons/home",
           "channelTitle": "Home Assistant",
           "expiresAt": null,
+          "held": false,
           "id": "ha-battery",
           "post": {
             "body": "Door sensor is at 5 %",
@@ -417,6 +418,7 @@
           "channelIcon": "base.icons/doorbell",
           "channelTitle": "Doorbell",
           "expiresAt": 0,
+          "held": false,
           "id": "ring-1",
           "post": {
             "actions": [

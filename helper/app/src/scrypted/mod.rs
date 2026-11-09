@@ -1259,6 +1259,18 @@ impl Inner {
                     event.label.clone()
                 };
                 let name = if name.is_empty() { event.name.clone() } else { name };
+                // Do Not Disturb and the owner's snoozes (`dnd.rs`): a held pop-up is never published; its event is kept as missed
+                let gate = crate::dnd::admit_camera(&self.hub, &event.camera, event.kind == "doorbell", &label, &name);
+                if gate != crate::dnd::Gate::Pass {
+                    crate::log_info!(
+                        "cameras: {} on {name} (camera {}, event {}) makes no pop-up: {}",
+                        event.kind,
+                        event.camera,
+                        event.id,
+                        if gate == crate::dnd::Gate::Dnd { "Do Not Disturb is on" } else { "it is snoozed" }
+                    );
+                    return Some(Decision::Held(policy::Held::Quiet));
+                }
                 // the screensaver's rules (`saver.rs`): while it is up a camera's video may be kept out, shown over it, or woken for
                 let route = crate::saver::route_camera(&self.hub, crate::saver::Seen { kind: &event.kind, name: &name, label: &label, event: &event.id });
                 if !route.popup {
@@ -1343,6 +1355,7 @@ impl Inner {
                         policy::Held::End => "the object left",
                         policy::Held::Cooldown => "the same kind popped up a moment ago",
                         policy::Held::Old => "it happened too long ago",
+                        policy::Held::Quiet => "Do Not Disturb or a snooze",
                     }
                 );
             }

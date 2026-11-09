@@ -61,6 +61,7 @@ pub mod crash;
 pub mod ctx;
 pub mod device;
 pub mod displaylab;
+pub mod dnd;
 pub mod fetcher;
 pub mod gfn_boost;
 pub mod guidedata;

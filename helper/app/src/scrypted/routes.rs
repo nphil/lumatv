@@ -875,6 +875,7 @@ impl Inner {
                 Why::End => "end",
                 Why::Cooldown => "cooldown",
                 Why::Old => "old",
+                Why::Quiet => "dnd",
             }}))),
             None => error_response(
                 404,

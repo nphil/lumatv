@@ -883,6 +883,8 @@ struct NoteEntry {
     received: i64,
     expires: Option<i64>,
     post: NotifyPost,
+    /// Do Not Disturb or a snooze held it (`dnd.rs`): it is listed and nothing announces it.
+    held: bool,
 }
 
 pub struct Session {
@@ -1532,19 +1534,28 @@ impl Session {
         {
             return Reply::refused("notify.post", "invalid", e);
         }
-        let entry = NoteEntry {
+        let mut entry = NoteEntry {
             revision,
             received: now,
             expires: post.expires_in_secs.map(|s| now + i64::from(s)),
             post,
+            held: false,
         };
-        let event = note_json(&entry, &self.channels);
+        entry.held = crate::dnd::holds_note(
+            &self.shared.hub,
+            self.id(),
+            &note_json(&entry, &self.channels),
+            self.shared.now_ms(),
+        );
+        let (event, held) = (note_json(&entry, &self.channels), entry.held);
         self.notes.insert(entry.post.id.clone(), entry);
         self.publish_notes();
-        crate::saver::note_posted(&self.shared.hub, self.id(), &event);
-        self.shared
-            .hub
-            .emit(&topic(self.id(), "notifications"), "posted", event);
+        if !held {
+            crate::saver::note_posted(&self.shared.hub, self.id(), &event);
+            self.shared
+                .hub
+                .emit(&topic(self.id(), "notifications"), "posted", event);
+        }
         Reply::nothing()
     }
 
@@ -1767,7 +1778,7 @@ fn note_json(n: &NoteEntry, channels: &[(String, String, String)]) -> Json {
     let channel = channels.iter().find(|(id, _, _)| *id == n.post.channel);
     json!({"id": n.post.id, "channel": n.post.channel, "channelTitle": channel.map(|c| c.1.as_str()),
            "channelIcon": channel.map(|c| c.2.as_str()), "revision": n.revision,
-           "receivedAt": n.received, "expiresAt": n.expires, "post": n.post})
+           "receivedAt": n.received, "expiresAt": n.expires, "held": n.held, "post": n.post})
 }
 
 impl Drop for Session {

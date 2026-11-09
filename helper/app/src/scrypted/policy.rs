@@ -74,6 +74,8 @@ pub enum Held {
     Cooldown,
     /// It happened too long ago to be news.
     Old,
+    /// Do Not Disturb or a snooze held it (`dnd.rs`).
+    Quiet,
 }
 
 /// What an event comes to.

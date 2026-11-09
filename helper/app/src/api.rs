@@ -453,6 +453,7 @@ impl Api {
             .chain(crate::placement::ROUTES.iter())
             .chain(crate::displaylab::ROUTES.iter())
             .chain(crate::saver::ROUTES.iter())
+            .chain(crate::dnd::ROUTES.iter())
             .chain(crate::profiles::ROUTES.iter())
             .chain(crate::privacy::ROUTES.iter())
             .chain(crate::scrypted::routes::ROUTES.iter())
@@ -726,6 +727,7 @@ impl Handler for Api {
                 }
                 crate::saver::handle(&self.hub, request, rest)
             }
+            ["v1", "dnd", rest @ ..] => crate::dnd::handle(&self.hub, request, rest),
             ["v1", "profiles", rest @ ..] => self.profiles.handle(request, rest),
             ["v1", "privacy", rest @ ..] => {
                 crate::privacy::handle(&self.privacy, request, rest, self.profiles.can_admin())
@@ -935,6 +937,7 @@ mod tests {
                 + crate::placement::ROUTES.len()
                 + crate::displaylab::ROUTES.len()
                 + crate::saver::ROUTES.len()
+                + crate::dnd::ROUTES.len()
                 + crate::profiles::ROUTES.len()
                 + crate::privacy::ROUTES.len()
                 + crate::scrypted::routes::ROUTES.len()
