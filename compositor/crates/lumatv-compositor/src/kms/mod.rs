@@ -294,6 +294,22 @@ const IDLE_TYPICAL_CAP_NS: u64 = 6_000_000;
 /// slowest recent pipeline and its slack: one slow frame leaving the window moves it 3-4 ms later at once, and the
 /// client's swaps (its buffer releases, one per tick) showed that as gaps of 20.7 and 20.9 ms on the tenth gate.
 const LATCH_STEP_NS: u64 = 1_000_000;
+/// How long after its commit a flip that has not reported is taken as lost ([`Kms::flip_overdue`]).
+const FLIP_OVERDUE_NS: u64 = 250_000_000;
+
+/// When the next frame may be drawn while one drawn earlier waits behind the flip in flight (`waiting`; that flip was committed at
+/// `committed_ns`): only once that flip is overdue. Its landing commits the waiting frame and re-arms the tick at the pacer's latch, so
+/// with a flip that reports this deadline never fires. `None` while nothing waits: the latch decides.
+///
+/// A frame drawn over the waiting one was planned a refresh after it and threw it away, so the refresh the waiting frame was for showed
+/// nothing new, and the GPU drew two frames for one. One frame of 10.7 ms among the pacer's last eight puts the latch of the next
+/// refresh before the flip in flight lands at 120 Hz; from there the tick drew every 3-4 ms, the extra GPU work made the frames slower
+/// and the latch earlier still. Home's d-pad gate dropped 87 frames with no load on 2026-11-09, and 92 % of the refreshes missed in
+/// its rings had more than one frame drawn.
+fn after_waiting_frame(waiting: bool, committed_ns: u64) -> Option<u64> {
+    waiting.then_some(committed_ns + FLIP_OVERDUE_NS)
+}
+
 /// How long nothing may have been drawn or flipped before the output calls the screen at rest (`Output::idle_ok`): a frame owed by something
 /// that is not an event (a stand-in, a warm) is drawn within a few refreshes, so a second without one is a still screen.
 const IDLE_QUIET_NS: u64 = 1_000_000_000;
@@ -931,7 +947,7 @@ impl Kms {
     }
 
     fn flip_overdue(&mut self) -> bool {
-        if self.pending_flip && self.now_ns().saturating_sub(self.committed_ns) > 250_000_000 {
+        if self.pending_flip && self.now_ns().saturating_sub(self.committed_ns) >= FLIP_OVERDUE_NS {
             log::warn!("kms: no page-flip event 250 ms after the commit; going on without it");
             self.pending_flip = false;
             return true;
@@ -1202,12 +1218,16 @@ impl Output for Kms {
     /// The pacer's latch while a run of frames is on (start late, aim early, one frame per refresh). Between
     /// runs the fixed tick rules: the latch would be in the past then (the slot timeline stops with the last
     /// drawn frame) and re-arming at it spun the loop at 2000 ticks/s in the first TV run. A held frame (a driver
-    /// buffer warming) is tried again in half a millisecond, run or no run.
+    /// buffer warming) is tried again in half a millisecond, run or no run. A frame waiting behind the flip in
+    /// flight is not drawn over ([`after_waiting_frame`]), run or no run.
     fn next_frame_at(&self, now: Instant) -> Option<Instant> {
         if self.held {
             return Some(now + Duration::from_micros(500));
         }
         let now_ns = self.now_ns();
+        if let Some(at) = after_waiting_frame(self.queued.is_some(), self.committed_ns) {
+            return Some(now + Duration::from_nanos(at.saturating_sub(now_ns)));
+        }
         if !self.flowing(now_ns) {
             return None;
         }
@@ -1661,9 +1681,9 @@ impl Output for Kms {
         let still = !self.pending_flip && self.queued.is_none() && !self.compose_only;
         self.care_draw = false;
         let slot_ns = self.timing.pacer.plan(now).slot_ns;
-        // A frame still waiting behind the flip in flight is superseded by this one: its page is drawn again (the
-        // ring owes it the damage since its own drawing) and it never goes out. Pages: one scanning out, one whose
-        // flip is pending, one drawn into (a waiting frame's, or the next).
+        // A frame still waiting behind a flip that never reported (`after_waiting_frame`) is superseded by this one: its page is
+        // drawn again (the ring owes it the damage since its own drawing) and it never goes out. Pages: one scanning out, one
+        // whose flip is pending, one drawn into (a waiting frame's, or the next).
         // A superseded frame's content was due as long as it waited: the oldest of the two is this frame's (a frame of
         // no new commit counts as due since the last flip).
         let mut content_ns = plan.content_ns;
@@ -1824,5 +1844,17 @@ impl Drop for Kms {
         }
         let _ = self.card.destroy_property_blob(self.mode_blob);
         let _ = self.card.release_master_lock();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_frame_waiting_behind_the_flip_in_flight_is_not_drawn_over_until_that_flip_is_overdue() {
+        let committed = 5_000_000_000;
+        assert_eq!(after_waiting_frame(true, committed), Some(committed + FLIP_OVERDUE_NS));
+        assert_eq!(after_waiting_frame(false, committed), None, "nothing waits: the pacer's latch decides");
     }
 }
