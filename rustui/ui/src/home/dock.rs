@@ -310,6 +310,13 @@ impl Dock {
         }
     }
 
+    /// The tile Down moves to: the one directly below, or when the row beneath is shorter, that row's last tile (the nearest to the left).
+    /// `None` on the last row, where the focus holds.
+    pub fn below(&self) -> Option<usize> {
+        let cols = self.cols();
+        (self.row_of(self.index) + 1 < self.total_rows()).then(|| (self.index + cols).min(self.points.len() - 1))
+    }
+
     /// The tile nearest an x on the dock's top visible row (entering from a card above): the column under `x`.
     pub fn nearest_in_row(&self, x_in_card: f32) -> usize {
         let cols = self.cols();
@@ -551,6 +558,24 @@ mod tests {
         d.focus(12);
         d.focus(d.rolled(-1).unwrap());
         assert_eq!((d.row_of(d.index), d.scroll_row), (0, 0));
+    }
+
+    #[test]
+    fn down_lands_below_or_on_the_last_tile_of_a_shorter_row() {
+        let mut d = Dock::default();
+        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 392);
+        d.set_points(&(0..16).map(|i| lp(&format!("app{i}"), "App")).collect::<Vec<_>>(), &json!({}));
+        assert_eq!(d.cols(), 12);
+        for (at, to) in [(1, Some(13)), (2, Some(14)), (3, Some(15)), (4, Some(15)), (7, Some(15)), (11, Some(15)), (12, None), (15, None)] {
+            d.focus(at);
+            assert_eq!(d.below(), to, "Down from {at}");
+        }
+        // three rows, the last short: the middle row is full, so Down from it goes straight down or to the last tile
+        d.set_points(&(0..30).map(|i| lp(&format!("app{i}"), "App")).collect::<Vec<_>>(), &json!({}));
+        for (at, to) in [(3, Some(15)), (14, Some(26)), (20, Some(29)), (29, None)] {
+            d.focus(at);
+            assert_eq!(d.below(), to, "Down from {at}");
+        }
     }
 
     #[test]

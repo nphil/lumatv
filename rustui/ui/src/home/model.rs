@@ -1674,10 +1674,11 @@ impl Home {
                     let roll = match d {
                         Dir::Left => self.dock.rolled(-1),
                         Dir::Right => self.dock.rolled(1),
+                        Dir::Down => self.dock.below(),
                         _ => None,
                     };
                     if let Some(i) = roll {
-                        // past a row's end the focus goes to the next row's first tile; the dock scrolls to it and the glide eases on the shared flow
+                        // past a row's end the focus goes to the next row's first tile, and Down from a column with nothing below to the row's last tile; the dock scrolls to it and the glide eases on the shared flow
                         self.focus.key();
                         self.dock.focus(i);
                         self.register_dock();
