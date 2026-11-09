@@ -357,6 +357,10 @@ impl Service {
             "tvsensors",
             crate::tvsensors::spawn(&ctx, plugins.shared().clone(), sensor_board, tuner.clone(), tv.clone())?,
         ));
+        // The phone remote: nothing listens until the owner switches it on.
+        let phone_remote = crate::phone_remote::PhoneRemote::new(hub.clone(), plugins.shared().clone(), ai.clone());
+        let phone_deps = crate::phone_remote::Deps { tv: tv.clone(), cameras: cameras.clone(), receiver: receiver_tx.clone() };
+        threads.push(("phone-remote", phone_remote.spawn(&ctx, phone_deps)?));
         threads.push((
             "guide",
             crate::guidedata::spawn(&ctx, plugins.shared().clone(), tv, guide.clone(), plex.clone())?,
@@ -392,6 +396,7 @@ impl Service {
             guide,
             plex,
             tuner,
+            phone_remote,
         };
         let server = Server::start(
             SocketAddr::new(ip, config.listen.port),

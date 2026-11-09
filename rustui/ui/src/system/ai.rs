@@ -61,18 +61,23 @@ impl Prompt {
             "resume" => "play",
             "raise_level" => "sliders-horizontal",
             "raise_volume" | "raise_limit" => "volume-2",
+            "pair_phone" => "smartphone",
             _ => "circle-help",
         }
     }
 
-    /// The line over the title: who asks, and that it came through AI access.
+    /// The line over the title: who asks, and that it came through AI access (the phone remote's pairing comes through the same prompt).
     pub fn from_line(&self) -> String {
-        if self.who.is_empty() { "AI access".to_string() } else { format!("{} is asking \u{b7} through AI access", self.who) }
+        match (self.kind.as_str(), self.who.is_empty()) {
+            ("pair_phone", _) => "Phone remote".to_string(),
+            (_, true) => "AI access".to_string(),
+            (_, false) => format!("{} is asking \u{b7} through AI access", self.who),
+        }
     }
 
     /// The same line without the words that only say how it came, for a header with little room.
     pub fn from_short(&self) -> String {
-        if self.who.is_empty() { "AI access".to_string() } else { format!("{} is asking", self.who) }
+        if self.who.is_empty() { self.from_line() } else { format!("{} is asking", self.who) }
     }
 
     /// The label over the assistant's reason, which is the assistant's and not the helper's.
@@ -185,6 +190,8 @@ mod tests {
         a.update(&topic(doc("pair", None, "", T0 + 5_000)), T0 + 5_000);
         let v = a.view(T0 + 5_000).unwrap();
         assert_eq!((v.prompt.from_line().as_str(), v.prompt.icon()), ("AI access", "key-round"));
+        let phone = Prompt::parse(&json!({"id": "p", "kind": "pair_phone"})).unwrap();
+        assert_eq!((phone.from_line().as_str(), phone.from_short().as_str(), phone.icon()), ("Phone remote", "Phone remote", "smartphone"), "the phone remote's pairing says so");
         assert_eq!(a.state()["up"], true);
         // the topic going null takes it away
         assert_eq!(a.update(&topic(Value::Null), T0 + 6_000), vec![Effect::Redraw]);

@@ -1,0 +1,17 @@
+[package]
+name = "lumaremote"
+description = "A phone as the remote of a TV on the home network: pairing by a code the TV shows, a Noise session for keys, text and actions, encrypted pointer datagrams, and a test client. The engine, with no host in it"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+esphome-api.workspace = true
+log.workspace = true
+ring.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

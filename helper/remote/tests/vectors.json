@@ -1,0 +1,630 @@
+{
+  "datagrams": {
+    "items": [
+      {
+        "direction": 0,
+        "header": "4c5201010403020101000000",
+        "kind": 1,
+        "nonce": "4c5200000100000000000000",
+        "packet": "4c52010104030201010000009b02cb714d2fa3c8051fdf9622eef57b4ef6f2c1e17aec55764ec60be573cf4f5b42290d22b85ab7",
+        "plain": "20000000f0ffffff00000000000000000101000001000000",
+        "seq": 1
+      },
+      {
+        "direction": 0,
+        "header": "4c5201020403020102000000",
+        "kind": 2,
+        "nonce": "4c5200000200000000000000",
+        "packet": "4c520102040302010200000020e70f798602a714ec21b721bab7d6dba23c150fefe9725b6c8f3edb",
+        "plain": "07000000d202964900000000",
+        "seq": 2
+      },
+      {
+        "direction": 1,
+        "header": "4c5201030403020101000000",
+        "kind": 3,
+        "nonce": "4c5201000100000000000000",
+        "packet": "4c52010304030201010000004ea82fcb70a838df83c60d32660fe65fd85dd01a1685cbf2777432306281cd9a",
+        "plain": "07000000d202964900000000fa000000",
+        "seq": 1
+      }
+    ],
+    "key": "4242424242424242424242424242424242424242424242424242424242424242",
+    "session": 16909060
+  },
+  "handshakes": [
+    {
+      "frames": [
+        {
+          "frame": "6900869ba4db44f01af097d5af6f9b1b07c941bd9c1aa3c5f8421ea3e1e97e4e842c5552f277f0ae8e16d3d8f10b3e263c1a4b8c9cc869f0f23f0987d88f22309df8abb0659190b4a31c5f48d1388471cc740020cfcdb6ee8ae8de7ef5feb83bfed9d58cd4a64073c7a022",
+          "from": "phone",
+          "json": "{\"t\":\"hello\",\"name\":\"Test phone\",\"model\":\"iPhone17,1\",\"app\":\"LumaRemote 1.0\",\"kit\":\"1.0\"}"
+        },
+        {
+          "frame": "9a01f44b0d33154a2d295dd532e12bb3f095f502e010b57095fa7da587e788a39194c88aeb7649273b46c3193fa47e95ef6e8c0c7a8a5ab3ccbbed21ef83c30be86aefb2a6ab295faeb0fe8e9f0eb8bc4f12c96dded2614cc2a726c942421e0c29f3e73d8c142b9b9e995fe951130ecdcf1941541d92db3b8dc339332b85c7190f28dc2e5c72034e655ed8b731ba5e0b91af2f7c6d3cf475b5bfe80facba8f46ab9d8f8f66a83fee6af366dfa77dd1b5d5e73be75f4c0558ecb52cfbeafb81b0109d8b405f8e6601fea5d50c071a92c18bbcffb49c00773e43764d28255d2608b19b7183ef9c1683e868efdc357cdf80330a06e23252f7070996dd01b8b0b0cff2a3355da5fd911b988a45541480b34c9e55c0a08f0f2383ab288f34f6cf272300404bfdbcd15ecb1342c1a6438dcbf933b756a33de61ac52f64143aa4d7739b12d2186a53116d8e3d93f1eaa50a3c1120ef0d3788396639287f72bd22c7a377149fa7a99387e747db8d7b78cbdff32f1dbe94bc345922395e1e7ff7dc02c9a45ed88bcedd7a6778a92cb505773443792df8d0ea1420fa37e98861f2",
+          "from": "tv",
+          "json": "{\"t\":\"welcome\",\"v\":1,\"device\":\"0123456789abcdef\",\"tv\":{\"id\":\"0a010203040506ff\",\"name\":\"LG C4\",\"mac\":\"74:c1:7e:bd:ae:30\",\"accent\":\"#5b8cff\"},\"udp\":{\"session\":16909060,\"key\":\"QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=\"},\"state\":{\"power\":\"on\",\"fg\":\"\",\"ime\":{\"active\":false},\"volume\":{\"via\":\"receiver\",\"level\":40,\"max\":98,\"muted\":false},\"acts\":[\"home\",\"quick\",\"input\",\"launch\",\"volume\",\"power\"]}}"
+        },
+        {
+          "frame": "2e00e2da15116b54b309253ac6044af9e69011253bfbe6e3cf89bfe6ade0923e6f9ac2d424fbc22c477b4f5e5cf5a7d9",
+          "from": "phone",
+          "json": "{\"t\":\"key\",\"k\":\"ok\",\"a\":\"tap\"}"
+        },
+        {
+          "frame": "36005febffa4a5f0175800bd2598203bf2814b585ffa0db6c3848f3990e4921692187ab96ea70568410b8f6824dc27940eecfcccec6f017a",
+          "from": "tv",
+          "json": "{\"t\":\"state\",\"fg\":\"com.beb.plxnative\"}"
+        }
+      ],
+      "message1": "79a631eede1bf9c98f12032cdeadd0e7a079398fc786b88cc846ec89af85a51a0a64d8a61b7aab93f7d97ba55b567d8f",
+      "message2": "493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531de4b4466c503ed4d8a740cb394b37b8e4",
+      "mode": "session",
+      "phone_ephemeral": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "preamble": "4c524d540101",
+      "psk": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "tv_ephemeral": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"
+    },
+    {
+      "frames": [
+        {
+          "frame": "5c0069dad9200b7170630ee911c495e4300b7feadcfec9a2bc17ab9443d10eda09d6c1d969aa9742835c9581aeebca24cd8dbf6ec29ae160c89e868434abb30869fec220462bd0b3cfdf30fc7169e9837e7cae2db7590dec081afe823ac3",
+          "from": "phone",
+          "json": "{\"t\":\"pair\",\"name\":\"Test phone\",\"model\":\"iPhone17,1\",\"app\":\"LumaRemote 1.0\"}"
+        },
+        {
+          "frame": "b700b9b80d3788d040086611e325388038dd6304ec494e1f789dfa8d1774527e3e895ad81c9679bcf4a2c218b3778f956bbaaca34ce1f0353b35830240d0edd8382afb9e67dcefd2e589d2b1fe3a39fb8485b785ccc594e6b0fe27bf27d1619369f8881ec5c8733cb670f4f60ecbaaa0f0824174e398dfabdc8192493b6f8c62dd324670e09f4ac4d2002c9e9c9d6c910c8871b435e6e39d5ff9a8c214e9b0b233b26f9092090f7fe9028812d589f03e55a1c6643a16719ada",
+          "from": "tv",
+          "json": "{\"t\":\"paired\",\"device\":\"0123456789abcdef\",\"key\":\"ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=\",\"tv\":{\"id\":\"0a010203040506ff\",\"name\":\"LG C4\",\"mac\":\"74:c1:7e:bd:ae:30\"}}"
+        }
+      ],
+      "message1": "79a631eede1bf9c98f12032cdeadd0e7a079398fc786b88cc846ec89af85a51a3e61034b041e9e3580547fac3a222f1d",
+      "message2": "493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531d07ee7dcff8d1dfdda4ceef0fe8b1e60c",
+      "mode": "pair",
+      "phone_ephemeral": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "preamble": "4c524d540102",
+      "psk": "39bd4a6478116d1ded2e43ae8ab876ad238ee67681710a648e651f904ba9dc5f",
+      "tv_ephemeral": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"
+    }
+  ],
+  "pairing": [
+    {
+      "code": "K7WDX2AB",
+      "display": "K7WD-X2AB",
+      "key": "39bd4a6478116d1ded2e43ae8ab876ad238ee67681710a648e651f904ba9dc5f",
+      "tv": "0a010203040506ff",
+      "typed": "k7wd-x2ab"
+    },
+    {
+      "code": "23456789",
+      "display": "2345-6789",
+      "key": "bb9f069a09f0f5fbbf521989c1c2fb34b2ab44933bb5bf3d08c4bece091c8ef2",
+      "tv": "0000000000000000",
+      "typed": "2345 6789"
+    },
+    {
+      "code": "ZZZZZZZZ",
+      "display": "ZZZZ-ZZZZ",
+      "key": "3587021b707cea505a1728c982f09a46c6e6b6dbcb9de5c15e434caeed3f7ee4",
+      "tv": "ffffffffffffffff",
+      "typed": "ZZZZ-ZZZZ"
+    }
+  ],
+  "pointer": [
+    {
+      "name": "click-drag",
+      "start": {
+        "buttons": 0,
+        "centre": 0,
+        "flags": 0,
+        "left": 0,
+        "right": 0,
+        "scroll_x": 0,
+        "scroll_y": 0,
+        "x": 0,
+        "y": 0
+      },
+      "steps": [
+        {
+          "events": [
+            {
+              "e": "engaged",
+              "on": true
+            }
+          ],
+          "plain": "000000000000000000000000000000000000000001000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 1,
+            "left": 0,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "events": [
+            {
+              "dx": 160,
+              "dy": 80,
+              "e": "move"
+            }
+          ],
+          "plain": "a00000005000000000000000000000000000000001000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 1,
+            "left": 0,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 160,
+            "y": 80
+          }
+        },
+        {
+          "events": [
+            {
+              "button": "left",
+              "e": "press"
+            }
+          ],
+          "plain": "a00000005000000000000000000000000101000001000000",
+          "totals": {
+            "buttons": 1,
+            "centre": 0,
+            "flags": 1,
+            "left": 1,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 160,
+            "y": 80
+          }
+        },
+        {
+          "events": [
+            {
+              "dx": 320,
+              "dy": 0,
+              "e": "move"
+            }
+          ],
+          "plain": "e00100005000000000000000000000000101000001000000",
+          "totals": {
+            "buttons": 1,
+            "centre": 0,
+            "flags": 1,
+            "left": 1,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "events": [
+            {
+              "button": "left",
+              "e": "release"
+            }
+          ],
+          "plain": "e00100005000000000000000000000000001000001000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 1,
+            "left": 1,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "events": [
+            {
+              "button": "left",
+              "e": "click"
+            }
+          ],
+          "plain": "e00100005000000000000000000000000002000001000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 1,
+            "left": 2,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "events": [
+            {
+              "e": "centre"
+            }
+          ],
+          "plain": "e00100005000000000000000000000000002000101000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 1,
+            "flags": 1,
+            "left": 2,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "events": [
+            {
+              "e": "engaged",
+              "on": false
+            }
+          ],
+          "plain": "e00100005000000000000000000000000002000100000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 1,
+            "flags": 0,
+            "left": 2,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 480,
+            "y": 80
+          }
+        }
+      ]
+    },
+    {
+      "name": "scroll-right-button",
+      "start": {
+        "buttons": 0,
+        "centre": 0,
+        "flags": 0,
+        "left": 0,
+        "right": 0,
+        "scroll_x": 0,
+        "scroll_y": 0,
+        "x": 0,
+        "y": 0
+      },
+      "steps": [
+        {
+          "events": [
+            {
+              "e": "engaged",
+              "on": true
+            }
+          ],
+          "plain": "000000000000000000000000000000000000000003000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 3,
+            "left": 0,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "events": [
+            {
+              "dx": 0,
+              "dy": 320,
+              "e": "scroll"
+            }
+          ],
+          "plain": "000000000000000000000000400100000000000003000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 3,
+            "left": 0,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 320,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "events": [
+            {
+              "dx": -48,
+              "dy": 0,
+              "e": "scroll"
+            }
+          ],
+          "plain": "0000000000000000d0ffffff400100000000000003000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 3,
+            "left": 0,
+            "right": 0,
+            "scroll_x": -48,
+            "scroll_y": 320,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "events": [],
+          "plain": "0000000000000000d0ffffff400100000000000001000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 1,
+            "left": 0,
+            "right": 0,
+            "scroll_x": -48,
+            "scroll_y": 320,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "events": [
+            {
+              "button": "right",
+              "e": "click"
+            }
+          ],
+          "plain": "0000000000000000d0ffffff400100000000010001000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 1,
+            "left": 0,
+            "right": 1,
+            "scroll_x": -48,
+            "scroll_y": 320,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "events": [
+            {
+              "button": "right",
+              "e": "press"
+            }
+          ],
+          "plain": "0000000000000000d0ffffff400100000200020001000000",
+          "totals": {
+            "buttons": 2,
+            "centre": 0,
+            "flags": 1,
+            "left": 0,
+            "right": 2,
+            "scroll_x": -48,
+            "scroll_y": 320,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "events": [
+            {
+              "button": "right",
+              "e": "release"
+            }
+          ],
+          "plain": "0000000000000000d0ffffff400100000000020001000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 1,
+            "left": 0,
+            "right": 2,
+            "scroll_x": -48,
+            "scroll_y": 320,
+            "x": 0,
+            "y": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrap",
+      "start": {
+        "buttons": 0,
+        "centre": 255,
+        "flags": 1,
+        "left": 254,
+        "right": 0,
+        "scroll_x": 0,
+        "scroll_y": 2147483647,
+        "x": 2147483047,
+        "y": -2147483048
+      },
+      "steps": [
+        {
+          "events": [
+            {
+              "e": "centre"
+            },
+            {
+              "dx": 1600,
+              "dy": -1600,
+              "e": "move"
+            },
+            {
+              "dx": 0,
+              "dy": 64,
+              "e": "scroll"
+            },
+            {
+              "button": "left",
+              "e": "click"
+            },
+            {
+              "button": "left",
+              "e": "click"
+            }
+          ],
+          "plain": "e703008018fcff7f000000003f0000800000000001000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 1,
+            "left": 0,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": -2147483585,
+            "x": -2147482649,
+            "y": 2147482648
+          }
+        }
+      ]
+    },
+    {
+      "name": "lost",
+      "start": {
+        "buttons": 0,
+        "centre": 0,
+        "flags": 0,
+        "left": 0,
+        "right": 0,
+        "scroll_x": 0,
+        "scroll_y": 0,
+        "x": 0,
+        "y": 0
+      },
+      "steps": [
+        {
+          "events": [
+            {
+              "e": "engaged",
+              "on": true
+            },
+            {
+              "dx": 64,
+              "dy": 0,
+              "e": "move"
+            }
+          ],
+          "plain": "400000000000000000000000000000000000000001000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 1,
+            "left": 0,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 64,
+            "y": 0
+          }
+        },
+        {
+          "lost": true,
+          "plain": "800000000000000000000000000000000001000001000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 1,
+            "left": 1,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 128,
+            "y": 0
+          }
+        },
+        {
+          "events": [
+            {
+              "dx": 128,
+              "dy": 0,
+              "e": "move"
+            },
+            {
+              "button": "left",
+              "e": "click"
+            },
+            {
+              "button": "left",
+              "e": "press"
+            }
+          ],
+          "plain": "c00000000000000000000000000000000102000001000000",
+          "totals": {
+            "buttons": 1,
+            "centre": 0,
+            "flags": 1,
+            "left": 2,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 192,
+            "y": 0
+          }
+        },
+        {
+          "lost": true,
+          "plain": "c00000000000000000000000000000000002000001000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 1,
+            "left": 2,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 192,
+            "y": 0
+          }
+        },
+        {
+          "events": [
+            {
+              "button": "left",
+              "e": "release"
+            },
+            {
+              "e": "engaged",
+              "on": false
+            }
+          ],
+          "plain": "c00000000000000000000000000000000002000000000000",
+          "totals": {
+            "buttons": 0,
+            "centre": 0,
+            "flags": 0,
+            "left": 2,
+            "right": 0,
+            "scroll_x": 0,
+            "scroll_y": 0,
+            "x": 192,
+            "y": 0
+          }
+        }
+      ]
+    }
+  ],
+  "refused": [
+    "K7WDX2A",
+    "K7WDX2ABC",
+    "K7WDX2A1",
+    "K7WDX2AO",
+    "K7WDX2AI",
+    "K7WD_X2AB"
+  ],
+  "version": 1
+}

@@ -162,6 +162,13 @@ fn rows(c: &Ctx) -> Vec<Row> {
             }),
         c.seg(Spec::new("option.pointerSpeed").tab(0).icon("gauge").label("Pointer speed").options(&["Slow", "Normal", "Fast"]).values(&["slow", "normal", "fast"])),
         c.seg(Spec::new("option.pointerSize").tab(0).icon("scan-eye").label("Pointer size").options(&["Small", "Medium", "Large"]).values(&["small", "medium", "large"])),
+        Row::link("phoneremote")
+            .tab(0)
+            .icon("smartphone")
+            .label("Phone remote")
+            .help("A paired phone on the home network as the pointer, the remote's keys and a keyboard.")
+            .value(&super::phone_remote::summary(c))
+            .does(super::util::go("phoneremote")),
         Row::info("holdhome").tab(1).icon("house").label("Hold Home for LG's Home").value("Always on").help("Press and hold Home for 650 ms to open LG's own Home if LumaTV misbehaves."),
         remote_toggle(c, "numberkeys", "hash", "Number keys open dock tiles", "1 opens the first tile on the dock, 2 the second, and so on.", "numberKeys", true),
         Row::seg("gearhold", &["Settings", "Notifications", "Nothing"])
@@ -318,7 +325,7 @@ mod tests {
         assert_eq!(summary(&c), "Pointer on");
         let r = rows(&c);
         let tab0: Vec<&str> = r.iter().filter(|x| x.tab == 0).map(|x| x.id.as_str()).collect();
-        assert_eq!(tab0, vec!["general.remotePointer", "pointershow", "option.pointerSpeed", "option.pointerSize"]);
+        assert_eq!(tab0, vec!["general.remotePointer", "pointershow", "option.pointerSpeed", "option.pointerSize", "phoneremote"]);
         assert!(row(&r, "general.remotePointer").on);
         assert_eq!(row(&r, "option.pointerSpeed").index, Some(1));
         let hold = row(&r, "holdhome");

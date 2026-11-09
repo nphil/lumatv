@@ -498,6 +498,59 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
     Reply::Now(reply.to_string())
 }
 
+/// Answers one command line from a client of the socket. `phone` marks whether that client is a paired phone's session: the helper's
+/// phone-remote plugin says `phone session on` on its own connection while a paired phone is in session, and only such a connection may
+/// type into the active field. The mark goes with the connection. Typed text is never journalled or answered back.
+pub fn handle_from(state: &mut State, phone: &mut bool, line: &str) -> Reply {
+    let mut words = line.split_whitespace();
+    if words.next() != Some("phone") {
+        return handle(state, line);
+    }
+    let reply = match (words.next(), words.next(), words.next()) {
+        (Some("session"), Some(on @ ("on" | "off")), None) => {
+            *phone = on == "on";
+            json!({"ok": true, "session": *phone})
+        }
+        (Some("text" | "edit"), _, _) if !*phone => json!({"ok": false, "error": "no phone session on this connection"}),
+        (Some("text"), Some(b64), None) => match base64(b64).and_then(|b| String::from_utf8(b).ok()).filter(|t| !t.is_empty() && t.len() <= 1024) {
+            Some(text) => json!({"ok": true, "field": crate::server::ime::phone_text(state, &text)}),
+            None => json!({"ok": false, "error": "phone text: base64 of 1 to 1024 bytes of UTF-8"}),
+        },
+        (Some("edit"), Some(op), times) => match times.map_or(Ok(1), str::parse::<u16>) {
+            Ok(times @ 1..=256) => match crate::server::ime::phone_edit(state, op, times) {
+                Some(field) => json!({"ok": true, "field": field}),
+                None => json!({"ok": false, "error": "phone edit backspace|enter|tab|left|right|up|down|clear|hide|show [N]"}),
+            },
+            _ => json!({"ok": false, "error": "phone edit OP N: N from 1 to 256"}),
+        },
+        _ => json!({"ok": false, "error": "phone session on|off | phone text BASE64 | phone edit OP [N]"}),
+    };
+    Reply::Now(reply.to_string())
+}
+
+/// Standard base64 (RFC 4648, padding optional): typed text has spaces, and a command is words.
+fn base64(s: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(s.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0);
+    for c in s.trim_end_matches('=').bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        };
+        acc = (acc << 6 | u32::from(v)) & 0xfff;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
+}
+
 /// How a command is answered: at once, or by a job that runs on a thread of its own with the client's socket (a PNG
 /// of the output takes a few hundred milliseconds to encode on the set, which the loop cannot spend).
 pub enum Reply {

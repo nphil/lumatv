@@ -27,6 +27,7 @@ rtsp-client.workspace = true
 rustls.workspace = true
 esphome-api.workspace = true
 mdns.workspace = true
+lumaremote.workspace = true
 lumatv-ambient.workspace = true
 lumatv-placement.workspace = true
 lumatv-saver.workspace = true

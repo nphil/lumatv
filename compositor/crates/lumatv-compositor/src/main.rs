@@ -495,7 +495,7 @@ fn run(config: Config) -> io::Result<()> {
                             let tag = TAG_CONTROL_CLIENT | next_control;
                             next_control += 1;
                             epoll.add(s.as_raw_fd(), tag)?;
-                            control_clients.push(ControlClient { tag, stream: s, line: Vec::new() });
+                            control_clients.push(ControlClient { tag, stream: s, line: Vec::new(), phone: false });
                         }
                     }
                 }
@@ -557,7 +557,7 @@ fn run(config: Config) -> io::Result<()> {
                 t if t & TAG_CONTROL_CLIENT != 0 => {
                     if let Some(pos) = control_clients.iter().position(|c| c.tag == tag) {
                         let done = match control_clients[pos].read() {
-                            Ok(Some(line)) => match control::handle(&mut state, line.trim()) {
+                            Ok(Some(line)) => match control::handle_from(&mut state, &mut control_clients[pos].phone, line.trim()) {
                                 control::Reply::Now(reply) => !control_clients[pos].answer(&reply),
                                 // The job and the socket go to a thread; the loop is done with this client.
                                 control::Reply::Later(job) => {
@@ -749,6 +749,8 @@ struct ControlClient {
     tag: u64,
     stream: UnixStream,
     line: Vec<u8>,
+    /// The helper's phone-remote plugin said a paired phone is in session on this connection (`ctl phone session on`).
+    phone: bool,
 }
 
 impl ControlClient {

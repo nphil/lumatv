@@ -144,6 +144,8 @@ pub enum PromptKind {
     WidenLevels,
     Resume,
     RaiseLimit,
+    /// The phone remote's pairing window.
+    PairPhone,
 }
 
 impl PromptKind {
@@ -155,6 +157,7 @@ impl PromptKind {
             Self::WidenLevels => "widen_levels",
             Self::Resume => "resume",
             Self::RaiseLimit => "raise_limit",
+            Self::PairPhone => "pair_phone",
         }
     }
 }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["app", "feeds", "denon", "privacy", "tuner", "plugins/home-assistant"]
+members = ["app", "feeds", "denon", "privacy", "tuner", "remote", "plugins/home-assistant"]
 
 [workspace.package]
 version = "0.1.0"
@@ -39,6 +39,8 @@ tempfile = "3"
 # TLS (the Scrypted bridge, `app/src/scrypted/tls.rs`: the one certificate the owner pinned is the only trust): the `ring` provider is what the GFN
 # engine already builds for this target; no certificate store, no aws-lc (cmake), no logging.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# The phone remote's pairing KDF, datagram AEAD and randomness: the same `ring` rustls already builds.
+ring = "0.17"
 
 lumatv-ambient = { path = "../ambient" }
 lumatv-placement = { path = "../placement" }
@@ -50,9 +52,15 @@ lumatv-privacy = { path = "privacy" }
 lumatuner = { path = "tuner" }
 # The Live TV guide from online listings by zip code: the engine the helper's Guide data plugin runs, and the UI lays over LG's guide.
 lumaguide = { path = "../lumaguide" }
+# The phone remote: pairing, the Noise session and pointer datagrams; the engine the helper's Phone remote plugin runs.
+lumaremote = { path = "remote" }
 
 [profile.release]
 opt-level = "s"
 lto = "fat"
 codegen-units = 1
 strip = true
+
+# The phone remote's pairing key is 131,072 rounds of PBKDF2: 0.37 s in an unoptimised `ring`, which every pairing test pays twice.
+[profile.dev.package.ring]
+opt-level = 3

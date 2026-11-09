@@ -155,18 +155,9 @@ Code split, keeping the engine free of LumaTV dependencies:
   `firstParty` roster entry), listener and sessions, the pairing window and gate prompt, the device store, the mDNS record, the compositor link and the action
   mapping. Consent text: "Lets paired phones control this TV over the home network: the pointer, the remote's keys, typing into text boxes and LumaTV's
   actions. While on, the TV listens on port 18733."
-- **Compositor `phone` verbs**, over one persistent connection the helper opens as `capture.rs` does:
-
-| Verb | Effect | Built on |
-|---|---|---|
-| `phone link` | the compositor pushes `ime`, `fg`, `power` and `volume` event lines on this connection | persistent clients (`main.rs`) |
-| `phone move DX DY [@T]`, `phone centre`, `phone pointer on\|off` | relative motion in 1/16 px with the helper's arrival stamp; centre (960, 540); keep shown or hide | `seat::pointer_motion`, `set_cursor_visible` |
-| `phone button left\|right down\|up` | clicks and drags | `seat::pointer_button`, `shell_rust_pointer_button` |
-| `phone scroll DX DY` | app scrolling, shell wheel steps | a new `wl_pointer.axis`, `shell_rust_wheel_direction` |
-| `phone key CODE tap\|hold\|down\|up` | as the remote, on seat 0; a held key repeats at the remote's pace, measured on the TV | `key_event` |
-| `phone text BASE64`, `phone edit OP [N]` | text and edits into the field, the shell's Entry, or keys | `own_text`, `own_key`, `own_clear`, `own_hide`, opened up |
-| `phone request KIND [ARG]` | the actions below | `SystemRequest`, `shell_show`, a new `Tune` request |
-| `phone stats` | hop latency and counts | the `wake` stamps |
+- **Compositor verbs**, over one persistent connection the helper opens as `capture.rs` does. As built, the pointer and keys reuse the control socket's
+  `pointer`, `click`, `wheel` and `remote` verbs, and the new ones are `phone session on|off`, `phone text BASE64` and `phone edit OP [N]`
+  ([`docs/plugins/phone-remote.md`](../plugins/phone-remote.md)).
 
 - **Rust shell:** the Entry panel applies `phonetext` and reports its field kind. Settings gains **Remote & pointer › Phone remote**, built like
   `rustui/ui/src/settings/pages/ai.rs` from existing rows, so it takes the theme's tokens: the plugin switch with its consent text; "Pair a phone" (gate prompt,

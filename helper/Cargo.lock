@@ -600,6 +600,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumaremote"
+version = "0.1.0"
+dependencies = [
+ "esphome-api",
+ "log",
+ "ring",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "lumashow-sdk"
 version = "0.1.0"
 dependencies = [
@@ -661,6 +672,7 @@ dependencies = [
  "libc",
  "log",
  "lumaguide",
+ "lumaremote",
  "lumashow-sdk",
  "lumatuner",
  "lumatv-ambient",

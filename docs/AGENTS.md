@@ -96,6 +96,10 @@ With `denon-receiver` on and the receiver as the TV's sound output, the helper k
 
 `live-tv-tuner` (docs in `plugins/live-tv-tuner.md`) serves a one-tuner HDHomeRun on port 5004, private networks only. With its messages on, a request for a tuner in use is answered 200 with 6 s of a slate naming the holder (Plex recording a programme, another client, or the TV's own Live TV), then ends; with them off it is 503 `805`. `GET /status.json` names the holder (`ip`, `name`, `channel`, `channelName`, `since`) or `{"holder": null}` without tuning. A request from the same client address as the current holder takes the tuner over (the earlier stream is told to end); another client's running stream keeps it (`helper/tuner/src/stream.rs`, `Tuning::take`).
 
+## Phone remote
+
+`phone-remote` (docs in `plugins/phone-remote.md`, engine crate `lumaremote` in `helper/remote`) listens on port 18733 of the private address while on. The compositor's `phone text` and `phone edit` work only inside `phone session on`, which the helper holds only while the plugin is on and a paired phone's session is live; keep that gate when adding verbs. Pairing opens only through the AI gate's `pair_phone` prompt (OK on the physical remote), and its routes take writes only from the TV's own UI (`X-Luma-Client: lumatv-ui`). `lumaremote vectors` regenerates `helper/remote/tests/vectors.json`, which the Swift kit also runs.
+
 ## Test events
 
 `POST /v1/cameras/event` fires a test pop-up only with `cameras.testEvents` in `/var/lib/lumatv/helper.json`; otherwise it answers 403 `test_events_off`. Tests that turn it on must put `helper.json` back as found, restart the helper (`tools/lumatv helper stop`, `helper start`), clear the pop-up (`POST /v1/cameras/popup/clear`) and confirm a test event is refused. Leaving it on makes pop-ups appear unprompted and spoils the next frame-gate run.

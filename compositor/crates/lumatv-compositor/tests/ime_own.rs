@@ -475,3 +475,39 @@ fn the_rust_client_that_answers_the_keyboard_is_told_the_field_and_the_keys_and_
 
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// One line on a control connection whose phone mark is `phone`: the answer, and the mark after it.
+fn phone_ctl(server: &Server, phone: bool, line: &'static str) -> (Value, bool) {
+    server.eval(move |s| {
+        let mut phone = phone;
+        let reply = lumatv_compositor::control::handle_from(s, &mut phone, line).text();
+        (serde_json::from_str(&reply).unwrap(), phone)
+    })
+}
+
+#[test]
+fn only_a_paired_phones_connection_types_into_the_field_and_the_text_is_never_journalled() {
+    let (mut server, dir) = setup(true);
+    assert_eq!(phone_ctl(&server, false, "phone text WnE5").0["ok"], false, "no session on the connection: nothing is typed");
+    assert_eq!(phone_ctl(&server, false, "phone session on"), (json!({"ok": true, "session": true}), true));
+    assert_eq!(phone_ctl(&server, true, "phone text WnE5").0, json!({"ok": true, "field": false}), "no field is active");
+
+    let mut a = app(&mut server, "Search");
+    open_field(&mut server, &mut a, 0, 0, 0);
+    for line in ["phone text WnE5", "phone edit backspace 2", "phone edit enter", "phone edit clear"] {
+        assert_eq!(phone_ctl(&server, true, line).0, json!({"ok": true, "field": true}), "{line}");
+    }
+    assert!(a.client.wait_until(WAIT, |s| s.ime.keysyms.len() >= 6 && !s.ime.deletes.is_empty()));
+    let log = &a.client.state.ime;
+    assert_eq!(log.commits, ["Zq9"]);
+    assert_eq!(log.keysyms, [(0xff08, 1), (0xff08, 0), (0xff08, 1), (0xff08, 0), (0xff0d, 1), (0xff0d, 0)]);
+    assert_eq!(log.deletes, [(-3, 3)]);
+
+    assert_eq!(phone_ctl(&server, true, "phone session off"), (json!({"ok": true, "session": false}), false));
+    for (phone, line) in [(false, "phone edit enter"), (true, "phone text !!"), (true, "phone edit paste"), (true, "phone edit backspace 300")] {
+        assert_eq!(phone_ctl(&server, phone, line).0["ok"], false, "{line}");
+    }
+    let journal = server.eval(|s| lumatv_compositor::control::handle(s, "journal").text());
+    assert!(!journal.contains("Zq9"), "typed text is never journalled");
+    let _ = std::fs::remove_dir_all(dir);
+}

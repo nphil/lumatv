@@ -80,6 +80,7 @@ pub mod log;
 pub mod logging;
 pub mod logging_native;
 pub mod placement;
+pub mod phone_remote;
 pub mod plex;
 pub mod plugins;
 pub mod preload;

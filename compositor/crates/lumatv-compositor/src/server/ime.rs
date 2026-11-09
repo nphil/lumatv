@@ -996,6 +996,31 @@ pub fn own_op(state: &mut State, body: &serde_json::Value) {
     }
 }
 
+/// Text a paired phone typed (`ctl phone text`): the active field's `commit_string`, as if the shell's keyboard typed it. `false` when no
+/// field is active. Nothing of the text is journalled.
+pub fn phone_text(state: &mut State, text: &str) -> bool {
+    let Some(mid) = own_active(state) else { return false };
+    own_text(state, mid, text);
+    true
+}
+
+/// An edit a paired phone made (`ctl phone edit`) on the active field: a key (`backspace`, `enter`, `tab`, the arrows) pressed `times`
+/// times, `clear`, or `hide` or `show` the shell's keyboard. `Some(false)` when no field is active, `None` for an op it does not know.
+pub fn phone_edit(state: &mut State, op: &str, times: u16) -> Option<bool> {
+    let key = keysym_of(op);
+    if key.is_none() && !matches!(op, "clear" | "hide" | "show") {
+        return None;
+    }
+    let Some(mid) = own_active(state) else { return Some(false) };
+    match (key, op) {
+        (Some(sym), _) => (0..times.max(1)).for_each(|_| own_key(state, mid, sym)),
+        (None, "clear") => own_clear(state, mid),
+        (None, "hide") => own_hide(state, mid),
+        _ => own_show(state, mid),
+    }
+    Some(true)
+}
+
 /// A key of the remote taken by the keyboard that is up: the shell hears it as an `imekey` event, with whether it is the remote's repeat.
 fn own_nav(state: &mut State, code: u32, pressed: bool, repeat: bool) {
     let Some(name) = own_key_name(code) else { return };

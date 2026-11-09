@@ -178,6 +178,8 @@ pub struct Api {
     pub plex: Arc<crate::plex::PlexAccount>,
     /// The Live TV Tuner's engine, for its page's antenna meter (`/v1/tuner/...`).
     pub tuner: Arc<lumatuner::Tuner>,
+    /// The phone remote plugin: its pairing window and paired phones (`/v1/phone-remote/...`).
+    pub phone_remote: Arc<crate::phone_remote::PhoneRemote>,
 }
 
 /// A topic name as it may appear in a path or a filter.
@@ -461,6 +463,7 @@ impl Api {
             .chain(crate::guidedata::ROUTES.iter())
             .chain(crate::plex::ROUTES.iter())
             .chain(crate::tuner::ROUTES.iter())
+            .chain(crate::phone_remote::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -691,6 +694,7 @@ impl Handler for Api {
             ["v1", "guide", rest @ ..] => crate::guidedata::handle(&self.guide, request, rest),
             ["v1", "plex", rest @ ..] => crate::plex::handle(&self.plex, &self.hub, request, rest, self.profiles.require_owner()),
             ["v1", "tuner", rest @ ..] => crate::tuner::handle(&self.tuner, request, rest),
+            ["v1", "phone-remote", rest @ ..] => crate::phone_remote::handle(&self.phone_remote, request, rest),
             ["v1", "voice", rest @ ..] => crate::voice::handle(&self.voice, request, rest),
             ["v1", "weather", "entities"] if get => self.weather_entities(),
             ["v1", "wx", rest @ ..] => self.wx.handle(request, rest),
@@ -824,6 +828,7 @@ mod tests {
             crate::ai::Ai::start(&ctx, crate::ai::testing::inert_deps(), Arc::new(|| {})).unwrap();
         let plugins = crate::plugins::Plugins::new(&ctx);
         let images = Arc::new(crate::images::Images::new(&ctx.config, &ctx.paths));
+        let phone_remote = crate::phone_remote::PhoneRemote::new(hub.clone(), plugins.shared().clone(), ai.clone());
         Rig {
             api: Api {
                 hub,
@@ -855,6 +860,7 @@ mod tests {
                 guide: Arc::default(),
                 plex: crate::plex::PlexAccount::fixed(None),
                 tuner: Arc::new(lumatuner::Tuner::new(Arc::new(crate::tuner::tests::NoTv), lumatuner::real_clock())),
+                phone_remote,
             },
             _dir: dir,
             receiver_rx,
@@ -945,6 +951,7 @@ mod tests {
                 + crate::guidedata::ROUTES.len()
                 + crate::plex::ROUTES.len()
                 + crate::tuner::ROUTES.len()
+                + crate::phone_remote::ROUTES.len()
         );
         assert_eq!(b["helper"]["version"], crate::VERSION);
         assert_eq!(b["boot"], 777);

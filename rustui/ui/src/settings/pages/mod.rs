@@ -23,6 +23,7 @@ pub mod onhome;
 pub mod owner;
 pub mod picture;
 pub mod plex;
+pub mod phone_remote;
 pub mod plugin_rows;
 pub mod privacy;
 pub mod profiles;
@@ -64,6 +65,7 @@ pub fn all() -> Vec<Page> {
         cameras::notify(),
         saver::page(),
         remote::app_key(),
+        phone_remote::page(),
         buttons::button(),
         system::clock(),
         system::timer_on(),

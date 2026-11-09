@@ -331,6 +331,20 @@ impl Ai {
         )
     }
 
+    /// Asks (on the TV) to open the phone remote's pairing window: `open` runs once a physical remote approves.
+    pub fn pair_phone(&self, open: impl FnOnce() + Send + 'static) -> Result<Action, Refusal> {
+        self.gated(
+            PromptSpec {
+                kind: PromptKind::PairPhone,
+                assistant: None,
+                title: "Pair a phone?".to_owned(),
+                detail: "A one-time code will be shown on this screen. The phone that enters it can control this TV. Press OK to show it, Back to cancel.".to_owned(),
+                reason: None,
+            },
+            move |_| open(),
+        )
+    }
+
     pub fn cancel_pairing(&self) -> bool {
         self.store.close_pairing()
     }

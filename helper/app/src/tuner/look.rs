@@ -40,16 +40,45 @@ impl Theme {
         {
             return look.clone();
         }
-        let mut theme: Value = serde_json::from_str(SHIPPED).expect("the shipped theme is JSON");
-        if let Some(own) = std::fs::read(&self.owner).ok().and_then(|b| serde_json::from_slice(&b).ok()) {
-            merge(&mut theme, own);
-        }
-        let look = look_of(&theme, &self.fonts);
+        let look = look_of(&active(&self.owner), &self.fonts);
         if look.is_none() {
             crate::log_warn!("tuner: no slates: the theme's faces are not in {}", self.fonts.display());
         }
         *made = Some((stamp, look.clone()));
         look
+    }
+}
+
+/// The theme in force: the shipped one with the owner's file over it.
+fn active(owner: &Path) -> Value {
+    let mut theme: Value = serde_json::from_str(SHIPPED).expect("the shipped theme is JSON");
+    if let Some(own) = std::fs::read(owner).ok().and_then(|b| serde_json::from_slice(&b).ok()) {
+        merge(&mut theme, own);
+    }
+    theme
+}
+
+/// The theme's accent, `#rrggbb` over its canvas: the colour a phone remote takes after.
+pub fn accent(owner: &Path) -> Option<String> {
+    let [r, g, b] = Roles::of(&active(owner))?.get("accent")?;
+    Some(format!("#{r:02x}{g:02x}{b:02x}"))
+}
+
+/// The theme's colour roles as drawn: a role with opacity is drawn over the canvas.
+struct Roles<'a> {
+    roles: &'a Value,
+    canvas: [u8; 3],
+}
+
+impl<'a> Roles<'a> {
+    fn of(theme: &'a Value) -> Option<Self> {
+        let roles = &theme[if theme["material"] == "light" { "light" } else { "dark" }];
+        Some(Self { roles, canvas: colour(roles["canvas"].as_str()?)?.1 })
+    }
+
+    fn get(&self, name: &str) -> Option<[u8; 3]> {
+        let (alpha, rgb) = colour(self.roles[name].as_str()?)?;
+        Some(std::array::from_fn(|i| (f32::from(rgb[i]) * alpha + f32::from(self.canvas[i]) * (1.0 - alpha)).round() as u8))
     }
 }
 
@@ -78,13 +107,8 @@ fn colour(text: &str) -> Option<(f32, [u8; 3])> {
 }
 
 fn look_of(theme: &Value, fonts: &Path) -> Option<Look> {
-    let roles = &theme[if theme["material"] == "light" { "light" } else { "dark" }];
-    let canvas = colour(roles["canvas"].as_str()?)?.1;
-    // a role with opacity is drawn over the canvas
-    let role = |name: &str| {
-        let (alpha, rgb) = colour(roles[name].as_str()?)?;
-        Some(std::array::from_fn(|i| (f32::from(rgb[i]) * alpha + f32::from(canvas[i]) * (1.0 - alpha)).round() as u8))
-    };
+    let roles = Roles::of(theme)?;
+    let (canvas, role) = (roles.canvas, |name: &str| roles.get(name));
     let face = |role: &str| {
         let spec = &theme["type"][role];
         let weight = spec["weight"].as_str().unwrap_or("medium");
@@ -129,6 +153,7 @@ mod tests {
         std::fs::write(&owner, r##"{"dark": {"accent": "#102030"}, "type": {"display": {"size": 80}}}"##).unwrap();
         let own = theme.look().unwrap();
         assert_eq!((own.accent, own.ink, own.headline.size), ([0x10, 0x20, 0x30], shipped.ink, 80.0));
+        assert_eq!(accent(&owner).as_deref(), Some("#102030"));
         std::fs::write(&owner, r##"{"material": "light"}"##).unwrap();
         let file = std::fs::File::options().write(true).open(&owner).unwrap();
         file.set_modified(SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();

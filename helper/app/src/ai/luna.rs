@@ -134,7 +134,7 @@ impl LunaTv {
 
     /// Runs `luna-send -n 1 <uri> <payload>` and returns the first JSON value it prints. `returnValue: false` is a `failed`
     /// with the TV's own error text; no JSON at all is `unavailable`; a child that does not finish in time is killed.
-    fn call(&self, uri: &str, payload: &Value) -> Result<Value, ActionError> {
+    pub(crate) fn call(&self, uri: &str, payload: &Value) -> Result<Value, ActionError> {
         let program =
             crate::sys::which(&self.program).unwrap_or_else(|| PathBuf::from(&self.program));
         let body = serde_json::to_string(payload)

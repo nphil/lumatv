@@ -23,7 +23,7 @@
 //! with the plugin on (the owner approved sharing the tuner when they turned it on) and the same name.
 
 mod channels;
-mod look;
+pub(crate) mod look;
 
 use channels::Kept;
 use look::Theme;
