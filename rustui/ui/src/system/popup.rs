@@ -36,8 +36,6 @@ use std::collections::HashMap;
 
 /// A card meant to be seen is not taken for less than this.
 const MIN_MS: i64 = 500;
-/// The keys are the card's only after this.
-pub const ARM_MS: u64 = 600;
 /// The card looks again for its turn this often while it waits.
 const WAIT_MS: u64 = 500;
 /// The age's words are made again this often.
@@ -169,8 +167,6 @@ pub struct View {
     pub can_expand: bool,
     /// OK held asks for the snooze sheet.
     pub can_snooze: bool,
-    /// Whether the keys are the card's yet.
-    pub armed: bool,
     /// The picture box is a hole over the video plane (the live video is what shows there), not a picture of the shell's.
     pub video: bool,
     /// The camera's picture size (width, height), which the picture box takes the shape of: the stream as decoded once the helper says it, before that
@@ -391,23 +387,13 @@ impl Popup {
         };
         let video = self.up && self.live.video(self.clock);
         let face = self.face(self.clock, video);
-        View { up: self.up, camera, name, icon, what, age, face, can_expand: self.can_expand, can_snooze: self.can_snooze, armed: self.armed(self.clock), video, shape: self.shape() }
+        View { up: self.up, camera, name, icon, what, age, face, can_expand: self.can_expand, can_snooze: self.can_snooze, video, shape: self.shape() }
     }
 
     /// The picture's size the card is shaped by (see [`View::shape`]).
     fn shape(&self) -> Option<(u32, u32)> {
         let camera = self.current.as_ref()?.camera.as_str();
         self.live.size().or_else(|| self.natives.get(camera).copied())
-    }
-
-    /// The keys OK and Back are the card's: it is up and has been for 600 ms.
-    pub fn armed(&self, now: u64) -> bool {
-        self.up && now.saturating_sub(self.arrived_at) >= ARM_MS
-    }
-
-    /// [`Popup::armed`] at the time of the last input.
-    pub fn armed_now(&self) -> bool {
-        self.armed(self.clock)
     }
 
     fn due(&self, wall: u64) -> Option<&Record> {
@@ -697,7 +683,7 @@ impl Popup {
                     }
                 }
             }
-            Input::Key { name, down: true, repeat: false } if self.armed(now) => match name.as_str() {
+            Input::Key { name, down: true, repeat: false } if self.up => match name.as_str() {
                 // where a hold snoozes, OK is decided on its release
                 "ok" if self.can_snooze => self.ok.press(now, HOLD_MS),
                 "ok" => self.ok(&mut out),
@@ -715,14 +701,13 @@ impl Popup {
 
     pub fn due_at(&self) -> Option<u64> {
         let pics = if self.up { self.planner.due_at(&self.wants) } else { None };
-        let arm = if self.up && !self.armed(self.clock) { Some(self.arrived_at + ARM_MS) } else { None };
         let live = if self.up { self.live.due_at(self.clock) } else { None };
         // the stills turn quick when no window was answered in time
         let quick = (self.up && self.current.as_ref().is_some_and(|c| c.live == Some(true)) && self.live.window() == Window::Unclaimed && !self.stills_quick(self.clock))
             .then_some(self.arrived_at + QUICK_AFTER_MS);
         // the box says `Connecting` from 2 s
         let connecting = (self.up && self.clock < self.arrived_at + CONNECTING_MS).then_some(self.arrived_at + CONNECTING_MS);
-        [self.ends_at, self.waiting_at, self.ago_at, pics, arm, live, quick, connecting, self.ok.due_at()].into_iter().flatten().min()
+        [self.ends_at, self.waiting_at, self.ago_at, pics, live, quick, connecting, self.ok.due_at()].into_iter().flatten().min()
     }
 
     pub fn state(&self) -> Value {
@@ -730,7 +715,7 @@ impl Popup {
             Some(c) if self.up => {
                 let face = self.face(self.clock, self.live.video(self.clock));
                 let since = |at: u64| at.saturating_sub(self.arrived_at);
-                json!({"up": true, "camera": c.camera, "kind": c.kind, "id": c.id, "armed": self.armed(self.clock), "live": self.live.state(self.clock),
+                json!({"up": true, "camera": c.camera, "kind": c.kind, "id": c.id, "live": self.live.state(self.clock),
                     "face": format!("{face:?}"), "picture": self.picture_at.map(|p| p.1), "pictureMs": self.picture_at.map(|p| since(p.0)), "liveMs": self.video_at.map(since)})
             }
             _ => json!({"up": false}),
@@ -907,17 +892,13 @@ mod tests {
     }
 
     #[test]
-    fn the_keys_are_the_cards_only_after_600_ms_ok_clears_and_asks_for_the_full_view_back_clears() {
+    fn the_keys_are_the_cards_from_the_moment_it_is_up_ok_clears_and_asks_for_the_full_view_back_clears() {
         let mut p = Popup::new();
         p.set_can_expand(true);
         p.update(&record(8, "person", T0 + 30_000), T0);
         p.take_intents();
-        assert!(!p.armed(T0 + 599));
-        p.update(&key("ok"), T0 + 599);
-        assert!(p.up(), "a press made as it came was the app's");
-        assert!(p.armed(T0 + 600));
-        let fx = p.update(&key("ok"), T0 + 700);
-        assert!(!p.up());
+        let fx = p.update(&key("ok"), T0 + 1);
+        assert!(!p.up(), "OK is the card's as soon as it is up");
         assert_eq!(posted(&fx), vec!["/v1/cameras/popup/clear".to_string()]);
         assert_eq!(p.take_intents(), vec![Intent::Expand("275".into())]);
         p.update(&record(9, "person", T0 + 30_000), T0 + 800);

@@ -444,7 +444,7 @@ impl Layer {
         // the pop-up and the cards: a key that answers an alert or wakes the saver was not meant for them
         let key_theirs = !matches!(input, Input::Key { .. }) || !(alert_has_keys || saver_has_keys);
         // the camera card is above the cards: a key it takes is not theirs
-        let popup_had = kinds.popup && self.popup.armed(now);
+        let popup_had = kinds.popup && self.popup.up();
         if kinds.popup && key_theirs {
             out.extend(self.popup.update(input, now));
         }
@@ -489,9 +489,9 @@ impl Layer {
         out
     }
 
-    /// Whether this key event is a card's: OK or Back while the top card (the camera pop-up first) has been up long enough for the keys to be its,
+    /// Whether this key event is a card's: OK or Back while the camera pop-up (its from its first moment) or a card that has been up long enough for the keys to be its,
     /// and the release and the repeats of a press a card took. The shell does not hand such a key to the screens under the cards.
-    pub fn takes_key(&mut self, kinds: &Kinds, input: &Input, now: u64) -> bool {
+    pub fn takes_key(&mut self, kinds: &Kinds, input: &Input) -> bool {
         let Input::Key { name, down, repeat } = input else { return false };
         if name != "ok" && name != "back" {
             return false;
@@ -505,7 +505,7 @@ impl Layer {
         if !*down || *repeat {
             return false;
         }
-        let yes = !self.layout_open() && !(self.alerts.wants() && kinds.alert) && !(kinds.ai && self.ai.wants()) && !(kinds.saver && self.saver.wants_keys()) && ((kinds.popup && self.popup.armed(now)) || (kinds.cards && self.overlay.armed()));
+        let yes = !self.layout_open() && !(self.alerts.wants() && kinds.alert) && !(kinds.ai && self.ai.wants()) && !(kinds.saver && self.saver.wants_keys()) && ((kinds.popup && self.popup.up()) || (kinds.cards && self.overlay.armed()));
         if yes {
             self.taken.push(name.clone());
         }
@@ -553,7 +553,6 @@ impl Layer {
             face: super::popup::Face::Live,
             can_expand: true,
             can_snooze: true,
-            armed: true,
             video: false,
             shape: None,
         };
@@ -834,7 +833,7 @@ impl Layer {
     /// channel banner follows Live TV.
     pub fn takes(&self, kinds: &Kinds) -> Vec<&'static str> {
         let quiet = !(kinds.alert && self.alerts.wants()) && !(kinds.ai && self.ai.wants()) && !(kinds.banner && self.banner.wants()) && !(kinds.saver && self.saver.wants_keys());
-        let mut keys = if quiet && !self.layout_open() && ((kinds.popup && self.popup.armed_now()) || (kinds.cards && self.overlay.armed())) { vec!["ok", "back"] } else { Vec::new() };
+        let mut keys = if quiet && !self.layout_open() && ((kinds.popup && self.popup.up()) || (kinds.cards && self.overlay.armed())) { vec!["ok", "back"] } else { Vec::new() };
         if kinds.banner && quiet {
             for k in self.banner.takes() {
                 if !keys.contains(&k) {
@@ -989,7 +988,7 @@ mod tests {
         layer.extras.note(super::super::extras::Note::Ask { digit: "1".into(), picks: vec![] }, 1000);
         layer.popup.set_can_expand(true);
         layer.popup.update(&Input::Helper { topic: "cameras.popup".into(), data: json!({"id": 8, "camera": "275", "kind": "person", "at": 1000, "untilMs": 30000}) }, 1000);
-        assert!(layer.popup.armed(1700));
+        assert!(layer.popup.up());
         layer.saver.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "game", "home": false}) }, 1700);
         layer.saver.update(&Input::Helper { topic: "screen".into(), data: json!({"on": true, "state": "Screen Saver"}) }, 1701);
         assert!(layer.saver.up());
@@ -999,6 +998,24 @@ mod tests {
         assert_eq!(layer.extras.view().ask, ask);
         assert!(!fx.iter().any(|e| matches!(e, Effect::Post { path, .. } if path == "/v1/cameras/popup/clear")));
         assert!(!layer.take_intents().iter().any(|i| matches!(i, Intent::OpenCamera(_))));
+    }
+
+    #[test]
+    fn a_held_ok_is_the_popups_from_its_first_moment_and_a_press_that_began_before_it_stays_homes() {
+        let ok = |down, repeat| Input::Key { name: "ok".into(), down, repeat };
+        let mut layer = Layer::new(0, &json!({}), &json!({}));
+        let kinds = Kinds::parse("home,popup,cards");
+        let record = |id: u64| Input::Helper { topic: "cameras.popup".into(), data: json!({"id": id, "camera": "275", "kind": "person", "at": 1000, "untilMs": 30000}) };
+        // an OK that went down before the card came is Home's, with its repeats and its release
+        assert!(!layer.takes_key(&kinds, &ok(true, false)));
+        layer.popup.update(&record(8), 1000);
+        assert!(layer.popup.up());
+        assert!(!layer.takes_key(&kinds, &ok(true, true)) && !layer.takes_key(&kinds, &ok(false, false)));
+        // one that goes down 100 ms after it came is the card's: press, repeats and release, and nothing of it reaches Home
+        assert!(layer.takes_key(&kinds, &ok(true, false)));
+        assert!(layer.takes_key(&kinds, &ok(true, true)) && layer.takes_key(&kinds, &ok(true, true)));
+        assert!(layer.takes_key(&kinds, &ok(false, false)));
+        assert!(!layer.takes_key(&kinds, &ok(true, true)), "a repeat after the release belongs to no press the card took");
     }
 
     #[test]

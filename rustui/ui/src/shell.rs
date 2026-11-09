@@ -1047,7 +1047,7 @@ impl Shell {
                 }
                 // a card that has been up long enough takes OK and Back, and the press' release and repeats: nothing under it sees them
                 let key_input = Input::Key { name: name.clone(), down: *down, repeat: *repeat };
-                self.cards_took = self.sys.takes_key(&self.kinds, &key_input, now);
+                self.cards_took = self.sys.takes_key(&self.kinds, &key_input);
                 // a question of the system layer (an alert, a PIN prompt) has the keys before Settings does
                 let sys_asks = self.settings.is_open() && self.sys.wants(&self.kinds);
                 // the entry sheet is over Settings and takes every key while it is up, and the release of a key it took (Settings acts on a

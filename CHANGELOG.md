@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The camera pop-up owns OK from the moment it appears. A held OK within 0.6 s of it showing opened Home's edit mode; it now reaches the pop-up's menu, with the press, its repeats and the release all the pop-up's. Cards keep their 0.6 s arming.
+
 The weather view shows a dash for any reading the feed lacks (UV index was blank on page 1), an unreported sunrise is a dash tile without an arc, and the Actual and Feels labels shorten to fit their tile at any text size.
 
 Settings › Sound shows the output the TV reports in use (the receiver over ARC) instead of LG's saved setting, which stayed on TV speakers while the sound went to the receiver. The Sound row's summary and the page's choice follow the reported route.
