@@ -31,6 +31,12 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Do Not Disturb and camera snoozes install, 2026-11-08 (main 9f6414cc, installed 21:06 EST)
+
+Installed with the TV Active and Netflix in front (owner-approved interruption), by the standard compositor cutover and helper path; Netflix relaunched after, receiver left on at -23.5 dB, DND off, no snoozes, test events off, lease released. Installed sha256 prefixes: compositor `108414af` (replaced `5150771a`), ui `8ba48ab2` (replaced `abb8d680`), sm `65f6ca69` (unchanged), helper `a0d0c3d1` (replaced `3f14761a`). Gates at 9f6414cc: uitest, helpertest, comptest (816 passed), release.
+
+Accepted on the TV (`dnd-check.json`, `dnd-check-run2.json`, `visual/dnd-*.png` in `/data/home/tmp/lumatv-smooth3-20261107/`): a Front Door test event with DND on is held (`held: dnd`) and recorded as missed; with DND off it shows (over the screensaver as its event line); a camera snooze holds the next event from that camera; the status bar shows the circle-minus mark with `1h`, and the bell-off mark for a snooze only. An event held by DND still arms that camera's per-kind cooldown, so a repeat of the same kind within the cooldown after DND ends shows nothing. Untested on the TV: the Quick Settings tile and duration card by remote, the pop-up's Snooze key and sheet by remote, held LG-feed toasts, the doorbell switch, receiver Tests B and C.
+
 ## Receiver kept on after LG saves its speakers, 2026-11-08 (main 81ab0161, installed 20:05 EST)
 
 Helper `3f14761a` (replaced `3d57f9ba`) installed at 20:05 EST with the TV Active and Netflix in front; helper restart only, no compositor cutover, Netflix stayed in front, receiver left on at -19.0 dB. Compositor `5150771a`, ui `abb8d680`, sm `65f6ca69` unchanged. The keeper logged at start: sound output `external_arc`, receiver kept on with the screen. Tests A/B/C not yet run. Receipts: `/data/home/tmp/lumatv-ready-20261108/`.
