@@ -11,9 +11,11 @@
 //!   and asks for the full view of its camera; Back clears it. Where the snooze sheet is this process's, OK is decided on its release and OK
 //!   held 700 ms asks for the sheet ([`Intent::Snooze`]); the card steps aside under it and a snooze picked there ends it ([`Popup::snoozed`]).
 //!   While the viewer is up there is no card.
-//! - **Picture:** the event's own (`/v1/cameras/events/<event>/thumbnail`, once) at once, then the camera's stills (`.../frame`), the next ask 250 ms after
-//!   the last arrived. `Live` once a still is on screen; `Event picture` while only the event's is; `Connecting` before any; `No picture`
-//!   after two refused still asks with none shown.
+//! - **Picture:** the picture the helper keeps of the camera (`.../frame?cached=1`, once, whatever its age) at once, the event's own
+//!   (`/v1/cameras/events/<event>/thumbnail`, once) and the camera's stills (`.../frame`), the next ask 250 ms after the last arrived; the best shown is a
+//!   still, else the event's, else the kept one. The box says nothing for its first 2 s while video is coming or no fresh picture is there, then
+//!   `Connecting`; `Live` while the video plays (or, with no video coming, once a still is on screen); `Event picture` while only the event's is;
+//!   `No picture` after two refused still asks with none shown.
 //! - **Live video** (the record says `live`): the card asks the compositor for a video window for its picture box (`Popup::claim`, kind `camera-popup`, which the
 //!   shell posts) and asks the helper for the stream only once that window is granted (`popup_live.rs`): a decoder is never started beside an app's video the
 //!   compositor did not allow. The picture box is a hole over the plane once the stream plays, the claim is carried and videooutputd lists the video on a
@@ -46,6 +48,8 @@ const STILL_MS: u64 = 250;
 const QUICK_MS: u64 = 125;
 /// ... and while an app holds both scalers (a game at 120 Hz, 4K video) quieter still, so as not to take frames from it.
 const QUIET_MS: u64 = 250;
+/// The picture box says `Connecting` only once its video (or, with none coming, its first still) is this late.
+const CONNECTING_MS: u64 = 2_000;
 /// A card that can play live video has this long to be answered about its window before its stills quicken (a compositor with the switch off answers
 /// "off", which asks for no more than the stills).
 const QUICK_AFTER_MS: u64 = 1_500;
@@ -130,6 +134,8 @@ impl Record {
 /// What the picture box says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Face {
+    /// The first 2 s: the kept or the event's picture, or the plate, with no words.
+    Quiet,
     Connecting,
     EventPicture,
     Live,
@@ -139,6 +145,7 @@ pub enum Face {
 impl Face {
     pub fn words(self) -> &'static str {
         match self {
+            Face::Quiet => "",
             Face::Connecting => "Connecting",
             Face::EventPicture => "Event picture",
             Face::Live => "Live",
@@ -215,8 +222,12 @@ pub struct Popup {
     intents: Vec<Intent>,
     /// The live video's claim and stream (`popup_live.rs`).
     live: Live,
-    /// Whether the picture box was a hole at the last look: a change is drawn.
+    /// Whether the picture box was a hole, and what it said, at the last look: a change is drawn.
     was_video: bool,
+    was_face: Face,
+    /// When the first picture came and which it was, and when the video became the picture (for `state`).
+    picture_at: Option<(u64, &'static str)>,
+    video_at: Option<u64>,
     /// The time of the last input: what the words' age is read at.
     clock: u64,
 }
@@ -285,6 +296,9 @@ impl Popup {
             revision: 0,
             live: Live::new(),
             was_video: false,
+            was_face: Face::Quiet,
+            picture_at: None,
+            video_at: None,
             intents: Vec::new(),
             clock: 0,
         }
@@ -331,9 +345,9 @@ impl Popup {
         std::mem::take(&mut self.intents)
     }
 
-    /// The picture to draw: the still when there is one, else the event's.
+    /// The picture to draw: the still when there is one, else the event's, else the kept one.
     pub fn best(&self) -> Option<&Picture> {
-        self.pictures.get("still").or_else(|| self.pictures.get("event"))
+        self.pictures.get("still").or_else(|| self.pictures.get("event")).or_else(|| self.pictures.get("cached"))
     }
 
     /// The picture the card had when OK opened the full view of its camera, once: the view opens on it, and the video replaces it when it plays.
@@ -376,15 +390,7 @@ impl Popup {
             None => (String::new(), String::new(), String::new(), String::new(), "camera"),
         };
         let video = self.up && self.live.video(self.clock);
-        let face = if video || self.pictures.contains_key("still") {
-            Face::Live
-        } else if self.pictures.contains_key("event") {
-            Face::EventPicture
-        } else if self.planner.pic("still").refused > 1 {
-            Face::NoPicture
-        } else {
-            Face::Connecting
-        };
+        let face = self.face(self.clock, video);
         View { up: self.up, camera, name, icon, what, age, face, can_expand: self.can_expand, can_snooze: self.can_snooze, armed: self.armed(self.clock), video, shape: self.shape() }
     }
 
@@ -433,6 +439,9 @@ impl Popup {
         self.intents.push(Intent::Shown(t.kind.clone()));
         self.live.begin(&t.camera, t.card_id());
         self.was_video = false;
+        self.was_face = Face::Quiet;
+        self.picture_at = None;
+        self.video_at = None;
         self.current = Some(t);
         self.up = true;
         self.pictures.clear();
@@ -518,6 +527,27 @@ impl Popup {
         }
     }
 
+    /// What the picture box says (see [`Face`]).
+    fn face(&self, now: u64, video: bool) -> Face {
+        let late = now >= self.arrived_at + CONNECTING_MS;
+        let coming = self.current.as_ref().is_some_and(|c| c.live == Some(true)) && !self.live.given() && self.live.window() != Window::Refused;
+        if video {
+            Face::Live
+        } else if coming {
+            if late { Face::Connecting } else { Face::Quiet }
+        } else if self.pictures.contains_key("still") {
+            Face::Live
+        } else if self.pictures.contains_key("event") {
+            Face::EventPicture
+        } else if self.planner.pic("still").refused > 1 {
+            Face::NoPicture
+        } else if late {
+            Face::Connecting
+        } else {
+            Face::Quiet
+        }
+    }
+
     fn plan(&mut self, now: u64, out: &mut Vec<Effect>) {
         if let Some(c) = &self.current
             && self.up
@@ -526,6 +556,10 @@ impl Popup {
             let mut wants = Vec::new();
             // the stills stop while the video is the picture
             if !self.live.video(now) {
+                // the kept picture is in the helper's memory, so it is asked for beside the others and answered at once
+                if !self.pictures.contains_key("still") && !self.pictures.contains_key("cached") {
+                    wants.push(Want::once("cached", &format!("/v1/cameras/{cam}/frame?w={}&h={}&cached=1", self.size.0, self.size.1)));
+                }
                 let (every, pace) = match (self.stills_quick(now), self.heavy) {
                     (true, true) => (QUIET_MS, "&fps=4"),
                     (true, false) => (QUICK_MS, "&fps=8"),
@@ -537,18 +571,26 @@ impl Popup {
                 wants.push(Want::once("event", &format!("/v1/cameras/events/{}/thumbnail?w={}&h={}", encode(&c.event), self.size.0, self.size.1)));
             }
             self.wants = wants;
-            out.extend(self.planner.plan(&self.wants, now, 2));
+            out.extend(self.planner.plan(&self.wants, now, 3));
         }
     }
 
-    /// After a change of what the live video is: the picture box turns into a hole or back (a draw), and the stills follow.
+    /// After a change of what the live video is: the picture box turns into a hole or back (a draw), and the stills follow. A change of what the
+    /// box says (`Connecting` at 2 s) is drawn too.
     fn settle(&mut self, now: u64, out: &mut Vec<Effect>) {
         let video = self.up && self.live.video(now);
+        let face = self.face(now, video);
         if video != self.was_video {
             self.was_video = video;
             self.revision += 1;
+            if video && self.video_at.is_none() {
+                self.video_at = Some(now);
+            }
+            out.push(Effect::Redraw);
+        } else if face != self.was_face {
             out.push(Effect::Redraw);
         }
+        self.was_face = face;
         self.plan(now, out);
     }
 
@@ -606,7 +648,13 @@ impl Popup {
                     if let Some(p) = decoded
                         && self.up
                     {
-                        self.pictures.insert(if key == "event" { "event" } else { "still" }, p);
+                        let key = match key.as_str() {
+                            "event" => "event",
+                            "cached" => "cached",
+                            _ => "still",
+                        };
+                        self.picture_at.get_or_insert((now, key));
+                        self.pictures.insert(key, p);
                         self.revision += 1;
                     }
                     self.planner.arrived(*tag, *status, ok, now);
@@ -672,12 +720,19 @@ impl Popup {
         // the stills turn quick when no window was answered in time
         let quick = (self.up && self.current.as_ref().is_some_and(|c| c.live == Some(true)) && self.live.window() == Window::Unclaimed && !self.stills_quick(self.clock))
             .then_some(self.arrived_at + QUICK_AFTER_MS);
-        [self.ends_at, self.waiting_at, self.ago_at, pics, arm, live, quick, self.ok.due_at()].into_iter().flatten().min()
+        // the box says `Connecting` from 2 s
+        let connecting = (self.up && self.clock < self.arrived_at + CONNECTING_MS).then_some(self.arrived_at + CONNECTING_MS);
+        [self.ends_at, self.waiting_at, self.ago_at, pics, arm, live, quick, connecting, self.ok.due_at()].into_iter().flatten().min()
     }
 
     pub fn state(&self) -> Value {
         match &self.current {
-            Some(c) if self.up => json!({"up": true, "camera": c.camera, "kind": c.kind, "id": c.id, "armed": self.armed(self.clock), "live": self.live.state(self.clock)}),
+            Some(c) if self.up => {
+                let face = self.face(self.clock, self.live.video(self.clock));
+                let since = |at: u64| at.saturating_sub(self.arrived_at);
+                json!({"up": true, "camera": c.camera, "kind": c.kind, "id": c.id, "armed": self.armed(self.clock), "live": self.live.state(self.clock),
+                    "face": format!("{face:?}"), "picture": self.picture_at.map(|p| p.1), "pictureMs": self.picture_at.map(|p| since(p.0)), "liveMs": self.video_at.map(since)})
+            }
             _ => json!({"up": false}),
         }
     }
@@ -897,31 +952,36 @@ mod tests {
     }
 
     #[test]
-    fn the_picture_box_says_connecting_then_the_event_picture_then_live_and_no_picture_after_two_refusals() {
+    fn the_box_shows_the_kept_picture_at_once_then_the_events_then_the_stills_and_no_picture_after_two_refusals() {
         let mut p = Popup::new();
         let fx = p.update(&record(13, "person", T0 + 30_000), T0);
         let asked = fetches(&fx);
-        assert_eq!(asked.len(), 2, "the still and the event's own picture");
-        let still = asked.iter().find(|f| f.1 == "/v1/cameras/275/frame?w=520&h=292").expect("the still at the spec's size").0;
-        let event = asked.iter().find(|f| f.1 == "/v1/cameras/events/e13/thumbnail?w=520&h=292").expect("the event's picture").0;
-        assert_eq!(p.view().face, Face::Connecting);
+        assert_eq!(asked.len(), 3, "the kept picture, the still and the event's own picture");
+        let tag = |path: &str| asked.iter().find(|f| f.1 == path).expect(path).0;
+        let (kept, still, event) = (tag("/v1/cameras/275/frame?w=520&h=292&cached=1"), tag("/v1/cameras/275/frame?w=520&h=292"), tag("/v1/cameras/events/e13/thumbnail?w=520&h=292"));
+        assert_eq!(p.view().face, Face::Quiet);
+        p.update(&Input::Bytes { tag: kept, status: 200, bytes: bmp() }, T0 + 30);
+        assert!(p.best().is_some());
+        assert_eq!(p.view().face, Face::Quiet, "a kept picture is not called live");
         p.update(&Input::Bytes { tag: event, status: 200, bytes: bmp() }, T0 + 100);
         assert_eq!(p.view().face, Face::EventPicture);
         p.update(&Input::Bytes { tag: still, status: 200, bytes: bmp() }, T0 + 200);
         assert_eq!(p.view().face, Face::Live);
-        assert!(p.best().is_some());
-        // the next still is asked 250 ms after this one arrived
+        assert_eq!((p.state()["picture"].as_str(), p.state()["pictureMs"].as_u64()), (Some("cached"), Some(30)));
+        // the next still is asked 250 ms after this one arrived, and the kept picture no more
         assert_eq!(p.due_at(), Some(T0 + 450));
         let fx = p.update(&Input::Tick, T0 + 450);
-        assert!(fetches(&fx).iter().any(|(_, path)| path.contains("frame")));
+        assert_eq!(fetches(&fx).into_iter().map(|f| f.1).collect::<Vec<_>>(), vec!["/v1/cameras/275/frame?w=520&h=292".to_string()]);
         // a refusal with none shown
         let mut q = Popup::new();
         let fx = q.update(&record(14, "person", T0 + 30_000), T0);
-        let tag = fetches(&fx).into_iter().find(|f| f.1.contains("frame")).unwrap().0;
+        let tag = still_asks(&fx)[0].clone();
+        let tag = fetches(&fx).into_iter().find(|f| f.1 == tag).unwrap().0;
         q.update(&Input::Fetched { tag, status: 404, data: json!({"error": "no_picture"}) }, T0 + 100);
-        assert_eq!(q.view().face, Face::Connecting, "one refusal is not yet an answer");
+        assert_eq!(q.view().face, Face::Quiet, "one refusal is not yet an answer");
         let fx = q.update(&Input::Tick, T0 + 1_000);
-        let tag = fetches(&fx).into_iter().find(|f| f.1.contains("frame")).unwrap().0;
+        let tag = still_asks(&fx)[0].clone();
+        let tag = fetches(&fx).into_iter().find(|f| f.1 == tag).unwrap().0;
         q.update(&Input::Fetched { tag, status: 404, data: Value::Null }, T0 + 1_100);
         assert_eq!(q.view().face, Face::NoPicture);
     }
@@ -963,7 +1023,7 @@ mod tests {
     }
 
     fn still_asks(fx: &[Effect]) -> Vec<String> {
-        fetches(fx).into_iter().map(|f| f.1).filter(|p| p.contains("/frame?")).collect()
+        fetches(fx).into_iter().map(|f| f.1).filter(|p| p.contains("/frame?") && !p.contains("cached=1")).collect()
     }
 
     #[test]
@@ -978,6 +1038,7 @@ mod tests {
         assert_eq!(claim["rect"], json!({"x": 1316, "y": 200, "w": 520, "h": 292}));
         // the stills are the picture meanwhile, at the pace of a card that waits
         assert_eq!(still_asks(&fx), vec!["/v1/cameras/275/frame?w=520&h=292".to_string()]);
+        assert!(fetches(&fx).iter().any(|f| f.1.ends_with("&cached=1")), "and the kept picture beside them");
 
         let fx = p.set_window(Window::Waiting, "main", false, T0 + 60);
         assert_eq!(live_asks(&fx), vec![json!({"camera": "275", "for": "popup", "window": "main", "popup": 41})]);
@@ -986,6 +1047,7 @@ mod tests {
         p.update(&stream("playing"), T0 + 700);
         p.set_window(Window::Carried, "main", true, T0 + 710);
         assert!(!p.view().video, "the stills stay under the hole for the handoff");
+        assert_eq!(p.view().face, Face::Quiet, "nothing is said while the video is on time");
         assert_eq!(p.due_at().map(|t| t <= T0 + 700 + super::super::popup_live::HANDOFF_MS), Some(true), "the handoff is due");
         let fx = p.update(&Input::Tick, T0 + 700 + super::super::popup_live::HANDOFF_MS);
         assert!(p.view().video, "the picture box is a hole now");
@@ -994,7 +1056,24 @@ mod tests {
         // the stills are asked for no more while the video is the picture
         let fx = p.update(&Input::Tick, T0 + 5_000);
         assert!(still_asks(&fx).is_empty(), "{fx:?}");
-        assert_eq!(p.state()["live"]["video"], true);
+        assert_eq!((p.state()["live"]["video"].as_bool(), p.state()["liveMs"].as_u64()), (Some(true), Some(700 + super::super::popup_live::HANDOFF_MS)));
+    }
+
+    #[test]
+    fn a_card_whose_video_is_late_says_connecting_from_two_seconds_and_live_once_it_plays() {
+        let mut p = Popup::new();
+        p.set_context(false, true, false, T0);
+        p.set_picture_rect(Some(BOX));
+        p.update(&live_record(42, true), T0);
+        p.set_window(Window::Waiting, "main", false, T0 + 60);
+        assert_eq!(p.due_at().map(|t| t <= T0 + 2_000), Some(true));
+        let fx = p.update(&Input::Tick, T0 + 2_000);
+        assert_eq!(p.view().face, Face::Connecting);
+        assert!(fx.iter().any(|e| matches!(e, Effect::Redraw)), "the words are drawn as they change");
+        p.update(&stream("playing"), T0 + 2_500);
+        p.set_window(Window::Carried, "main", true, T0 + 2_510);
+        p.update(&Input::Tick, T0 + 2_500 + super::super::popup_live::HANDOFF_MS);
+        assert_eq!(p.view().face, Face::Live);
     }
 
     #[test]

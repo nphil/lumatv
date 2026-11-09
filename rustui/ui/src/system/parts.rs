@@ -152,6 +152,17 @@ impl Sheet {
         }
     }
 
+    /// Takes part `i` out of its rest place: it fades out over the layer beat when the sheet is shown.
+    pub fn leave_part(&mut self, kit: &Kit, i: usize) {
+        if let Some((part, rest)) = self.parts.get_mut(i) {
+            let from = *rest;
+            *rest = Props { opacity: 0.0, visible: false, ..from };
+            if self.shown {
+                kit.leave(part.layer(), Props { opacity: from.opacity * self.alpha, ..from }, Beat::Layer);
+            }
+        }
+    }
+
     /// Shows every part at its rest place: fading in over the layer beat, or at once.
     pub fn show(&mut self, kit: &Kit, at_once: bool) {
         for (part, at) in &self.parts {

@@ -66,7 +66,7 @@ fn glyph_px(kit: &Kit) -> f32 {
 const DOT: f32 = 12.0;
 /// The card fades; it does not slide (see the module's note on the clipped glass).
 const SLIDE: f32 = 0.0;
-const FACES: [Face; 4] = [Face::Connecting, Face::EventPicture, Face::Live, Face::NoPicture];
+const FACES: [Face; 5] = [Face::Quiet, Face::Connecting, Face::EventPicture, Face::Live, Face::NoPicture];
 
 /// Everything about the card that does not change while the same words are on it.
 struct Plan {
@@ -309,11 +309,15 @@ impl PopupSurface {
             self.current = Some(built);
         }
         let b = self.current.as_mut().expect("built above");
-        // the picture box: a hole over the video plane while the stream is the picture, else the best picture there is, else the plate
+        // the picture box: a hole over the video plane while the stream is the picture (the picture fades out over it as it comes, so the change from
+        // the still to the video is a crossfade), else the best picture there is, else the plate
         if b.video != view.video {
             b.video = view.video;
-            let rest = b.picture_rest;
-            b.sheet.move_part(b.picture, if view.video { Props { opacity: 0.0, visible: false, ..rest } } else { rest });
+            if view.video {
+                b.sheet.leave_part(kit, b.picture);
+            } else {
+                b.sheet.move_part(b.picture, b.picture_rest);
+            }
             b.painted = None;
         }
         if !view.video && b.painted != Some((revision, view.face)) {
@@ -611,7 +615,7 @@ mod tests {
     #[test]
     fn the_picture_box_is_a_hole_while_the_video_is_the_picture_and_the_card_has_the_same_layers_either_way() {
         for scale in [1.0, 2.0] {
-            let (_h, mut kit) = testkit::kit(scale);
+            let (mut harness, mut kit) = testkit::kit(scale);
             let mut s = PopupSurface::new(1090, &json!({}), &layout());
             let p = up(true);
             s.apply(&mut kit, &p.view(), None, 0, 1000).unwrap();
@@ -627,7 +631,10 @@ mod tests {
             let mut v = p.view();
             v.video = true;
             v.face = Face::Live;
+            harness.commit();
             s.apply(&mut kit, &v, None, 1, 1100).unwrap();
+            let faded = harness.commit().iter().any(|r| matches!(r, compositor_protocol::Request::Animate { to, duration_ms, .. } if to.opacity == 0.0 && !to.visible && *duration_ms > 0));
+            assert!(faded, "the picture fades out over the video as it comes");
             let b = s.current.as_ref().unwrap();
             assert!(b.video && !b.sheet.at(b.picture).unwrap().visible, "the picture is taken out of the box: the video shows through");
             assert_eq!(s.geometry()["video"], true);
@@ -677,7 +684,7 @@ mod tests {
         let mut s = PopupSurface::new(1090, &json!({}), &layout());
         let mut p = up(true);
         s.apply(&mut kit, &p.view(), None, 0, 1000).unwrap();
-        assert_eq!(s.geometry()["face"], "Connecting");
+        assert_eq!(s.geometry()["face"], "", "nothing is said at first");
         let still = crate::kit::picture::Picture { width: 4, height: 4, rgba: vec![200; 64] };
         p.set_can_expand(true);
         let mut v = p.view();

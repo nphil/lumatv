@@ -1170,7 +1170,8 @@ fn a_grid_of_asks_costs_one_stream_a_camera_the_newest_picture_is_served_and_the
     assert_eq!(world.bridge.stills_open(), 1);
     // a second camera is a second stream, at the width the tile asked for
     assert_eq!(world.get("/v1/cameras/274/frame?w=900&h=506").status, 200);
-    assert_eq!(world.bridge.stills_open(), 2);
+    // the picture the helper keeps of 274 answers at once; its stream opens beside it
+    assert!(support::wait_until(Duration::from_secs(2), || world.bridge.stills_open() == 2));
     let queries = world.bridge.stills_queries();
     assert!(
         queries.contains(&"camera=273&w=480&fps=5".to_owned()),
@@ -1212,15 +1213,30 @@ fn a_still_older_than_the_hold_is_no_picture_and_never_a_stale_one() {
 }
 
 #[test]
+fn a_pop_up_starts_with_the_picture_kept_of_its_camera_at_once_and_a_camera_on_a_battery_is_not_woken_for_one() {
+    let mut world = World::unlinked(json!({}), lumatv_helper::scrypted::testing::deps());
+    let mut door = FakeBridge::camera("273", "Front Door", "doorbell");
+    door["battery"] = json!(true);
+    world.bridge.set_cameras(vec![door, FakeBridge::camera("274", "Garage", "camera")]);
+    world.link();
+    world.ready();
+    assert!(support::wait_until(Duration::from_secs(5), || world.get("/v1/cameras/274/frame?w=480&h=270&cached=1").status == 200));
+    assert_eq!(world.bridge.requests_matching("GET /v1/still?camera=274"), 1);
+    assert_eq!(world.bridge.requests_matching("GET /v1/still?camera=273"), 0, "a camera on a battery is not woken");
+    assert_eq!(world.get("/v1/cameras/273/frame?cached=1").json()["error"]["code"], "no_picture");
+    assert_eq!(world.bridge.stills_total(), 0, "a kept picture opens no stream");
+}
+
+#[test]
 fn the_grid_setting_sets_the_streams_rate() {
     let world = linked_world(json!({}));
     world.settings(json!([{"key": "video.grid", "value": {"type": "choice", "value": "smooth"}}]));
     assert_eq!(world.get("/v1/cameras/273/frame?w=480&h=270").status, 200);
     assert!(
-        world
+        support::wait_until(Duration::from_secs(2), || world
             .bridge
             .stills_queries()
-            .contains(&"camera=273&w=480&fps=8".to_owned()),
+            .contains(&"camera=273&w=480&fps=8".to_owned())),
         "{:?}",
         world.bridge.stills_queries()
     );

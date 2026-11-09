@@ -4,7 +4,7 @@
 //! | Request | Answer |
 //! |---|---|
 //! | `GET /v1/cameras` | the `cameras` topic's value |
-//! | `GET /v1/cameras/{id}/frame?w=&h=&fps=` | the camera's newest still, never older than 10 s (else `404 no_picture`, or `503 not_connected`); `X-Luma-Camera-Age-Ms`; `fps` (at most 10) is the pace the asker shows the camera at, which its stream keeps while it is the fastest asked (none: the grid's pace) |
+//! | `GET /v1/cameras/{id}/frame?w=&h=&fps=&cached=` | the camera's newest still, never older than 10 s (else `404 no_picture`, or `503 not_connected`); `X-Luma-Camera-Age-Ms`; `fps` (at most 10) is the pace the asker shows the camera at, which its stream keeps while it is the fastest asked (none: the grid's pace); `cached=1` answers at once the newest picture held, whatever its age, and opens no stream |
 //! | `GET /v1/cameras/{id}/recordings?from=&to=`, `/events?from=&to=&count=`, `/clips?from=&to=&count=` | the bridge's own JSON for the span |
 //! | `GET /v1/cameras/{id}/thumbnail?at=&w=&h=`, `/clip-thumbnail?clip=&w=&h=` | a picture of a recorded moment or a clip |
 //! | `GET /v1/cameras/events/{event}/thumbnail?w=&h=` | the picture of a pushed event |
@@ -325,10 +325,12 @@ impl Inner {
         if self.bridge().is_err() {
             return self.not_connected();
         }
-        let picture = match self
-            .stills
-            .ask(id, if w == 0 { 480 } else { w }, fps, FIRST_STILL)
-        {
+        let asked = if request.param("cached") == Some("1") {
+            Ok(self.stills.latest(id))
+        } else {
+            self.stills.ask(id, if w == 0 { 480 } else { w }, fps, FIRST_STILL)
+        };
+        let picture = match asked {
             Ok(Some(picture)) => picture,
             Ok(None) => {
                 return error_response(404, "no_picture", "no picture of this camera just now");

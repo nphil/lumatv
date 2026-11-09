@@ -132,27 +132,37 @@ impl Stills {
         slot.latest.lock().clone()
     }
 
+    /// Keeps `jpeg` as a camera's newest picture, unless its stream runs (whose pictures are newer).
+    pub fn keep(&self, camera: &str, jpeg: Vec<u8>) {
+        let slot = self.slot(camera);
+        if !slot.running.load(Ordering::SeqCst) {
+            *slot.latest.lock() = Some(Picture { jpeg: Arc::new(jpeg), captured_at: None, taken: Instant::now() });
+        }
+    }
+
+    fn slot(&self, camera: &str) -> Arc<Slot> {
+        let mut slots = self.inner.slots.lock();
+        slots
+            .entry(camera.to_owned())
+            .or_insert_with(|| {
+                Arc::new(Slot {
+                    latest: Mutex::new(None),
+                    changed: Condvar::new(),
+                    last_ask: Mutex::new(Instant::now()),
+                    width: AtomicU32::new(0),
+                    fps: AtomicU32::new(0),
+                    grid_ask: Mutex::new(None),
+                    running: AtomicBool::new(false),
+                })
+            })
+            .clone()
+    }
+
     /// Asks for a camera's picture at about `width` pixels wide, `fps` pictures a second (0: the grid's pace): opens its stream if none is open, at
     /// the fastest pace asked of it while it runs, and answers the newest picture that is fresh, waiting up to `wait` for the first one. `Err(busy)`
     /// when eight other cameras are being served already.
     pub fn ask(&self, camera: &str, width: u32, fps: u32, wait: Duration) -> Result<Option<Picture>, Busy> {
-        let slot = {
-            let mut slots = self.inner.slots.lock();
-            slots
-                .entry(camera.to_owned())
-                .or_insert_with(|| {
-                    Arc::new(Slot {
-                        latest: Mutex::new(None),
-                        changed: Condvar::new(),
-                        last_ask: Mutex::new(Instant::now()),
-                        width: AtomicU32::new(0),
-                        fps: AtomicU32::new(0),
-                        grid_ask: Mutex::new(None),
-                        running: AtomicBool::new(false),
-                    })
-                })
-                .clone()
-        };
+        let slot = self.slot(camera);
         *slot.last_ask.lock() = Instant::now();
         slot.width.fetch_max(bucket(width), Ordering::SeqCst);
         if fps == 0 {

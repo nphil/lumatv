@@ -68,6 +68,8 @@ use store::Link;
 const ASLEEP_WAIT: Duration = Duration::from_secs(30);
 /// A camera whose pop-up stream could not be read is tried again after this long.
 const LEARN_AGAIN: Duration = Duration::from_secs(600);
+/// A pop-up's first picture is the one the helper keeps of its camera, taken again when it is older than this.
+const KEEP_AGAIN: Duration = Duration::from_secs(600);
 
 /// The retained topics.
 pub const TOPIC: &str = "cameras";
@@ -249,6 +251,10 @@ struct State {
     unlearned: HashMap<String, Instant>,
     /// A thread reads streams now.
     learning: bool,
+    /// The cameras whose picture could not be taken, and when: tried again after [`KEEP_AGAIN`].
+    unkept: HashMap<String, Instant>,
+    /// A thread takes the pictures a pop-up starts with now.
+    keeping: bool,
 }
 
 pub(crate) struct Inner {
@@ -370,6 +376,8 @@ impl Scrypted {
                     learned: HashMap::new(),
                     unlearned: HashMap::new(),
                     learning: false,
+                    unkept: HashMap::new(),
+                    keeping: false,
                 }),
                 wake: (Mutex::new(()), Condvar::new()),
                 generation: AtomicU64::new(0),
@@ -970,6 +978,7 @@ impl Inner {
                     }
                     self.ready(&bridge, &health, cameras, skew);
                     self.learn_popup_streams(generation, &bridge);
+                    self.keep_pictures(generation, &bridge);
                     let ended = self.serve(generation, &bridge, &health);
                     if !self.current(generation) {
                         break;
@@ -1099,6 +1108,66 @@ impl Inner {
         }
     }
 
+    /// Takes, on a thread of its own and one camera after another, a picture of each shown camera that pops up, is online and on mains power and has
+    /// none newer than [`KEEP_AGAIN`] (nor failed within it): a pop-up shows it the moment it comes, while the live video or the stills start (a
+    /// stream's first picture takes 0.5 to 4 s). A camera on a battery is not woken for it. The pictures go when the TV sleeps or the link does.
+    fn keep_pictures(self: &Arc<Self>, generation: u64, bridge: &Bridge) {
+        let options = self.options();
+        let todo: Vec<(String, u32, u32)> = {
+            let mut state = self.state.lock();
+            if state.keeping {
+                return;
+            }
+            let todo: Vec<(String, u32, u32)> = state
+                .shown
+                .iter()
+                .filter(|c| c.online && !c.battery && !options.notify_for(&c.id).is_empty())
+                .filter(|c| state.unkept.get(&c.id).is_none_or(|at| at.elapsed() >= KEEP_AGAIN))
+                .filter(|c| self.stills.latest(&c.id).is_none_or(|p| p.age() >= KEEP_AGAIN))
+                .map(|c| {
+                    // 640 wide in the camera's own shape, which the pop-up's box takes
+                    let h = c.native.as_ref().filter(|s| s.width > 0 && s.height > 0).map_or(360, |s| 640 * s.height / s.width);
+                    (c.id.clone(), 640, h)
+                })
+                .collect();
+            if todo.is_empty() {
+                return;
+            }
+            state.keeping = true;
+            todo
+        };
+        let (me, bridge) = (self.clone(), bridge.clone());
+        let spawned = thread::Builder::new()
+            .name("cameras-keep".to_owned())
+            .stack_size(http::TLS_STACK)
+            .spawn(move || {
+                for (camera, w, h) in todo {
+                    if !me.current(generation) {
+                        break;
+                    }
+                    let taken = bridge.picture(&bridge::still(&camera, w, h));
+                    if !me.current(generation) {
+                        break;
+                    }
+                    match taken {
+                        Ok(jpeg) => {
+                            me.state.lock().unkept.remove(&camera);
+                            me.stills.keep(&camera, jpeg);
+                        }
+                        Err(why) => {
+                            crate::log_info!("cameras: no picture of camera {camera} kept for its pop-up: {}", why.words());
+                            me.state.lock().unkept.insert(camera, Instant::now());
+                        }
+                    }
+                }
+                me.state.lock().keeping = false;
+            });
+        if let Err(e) = spawned {
+            crate::log_warn!("cameras: the pop-up picture keeper did not start: {e}");
+            self.state.lock().keeping = false;
+        }
+    }
+
     /// Holds the connection: reads the push channel, asks for the camera list and the clock now and then. Returns when the generation is
     /// over (`Ok`) or the bridge went (`Err`, and the supervisor connects again).
     fn serve(
@@ -1183,6 +1252,7 @@ impl Inner {
                     self.apply_cameras(cameras);
                     self.publish();
                     self.learn_popup_streams(generation, bridge);
+                    self.keep_pictures(generation, bridge);
                 }
             }
         }
