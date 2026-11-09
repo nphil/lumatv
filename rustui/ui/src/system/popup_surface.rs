@@ -212,7 +212,6 @@ struct Word {
 struct Built {
     sig: String,
     generation: u64,
-    over_video: bool,
     sheet: Sheet,
     frame: Frame,
     paint: Rgba,
@@ -269,9 +268,9 @@ impl PopupSurface {
     }
 
     /// Draws `view`. Returns whether anything of it is on the screen.
-    pub fn apply(&mut self, kit: &mut Kit, view: &View, picture: Option<&Picture>, revision: u64, over_video: bool, now_ms: u64) -> std::io::Result<bool> {
+    pub fn apply(&mut self, kit: &mut Kit, view: &View, picture: Option<&Picture>, revision: u64, now_ms: u64) -> std::io::Result<bool> {
         if let Some(c) = &self.current
-            && (c.generation != kit.generation() || c.over_video != over_video)
+            && c.generation != kit.generation()
         {
             self.current = None;
         }
@@ -304,7 +303,7 @@ impl PopupSurface {
         }
         if self.current.is_none() {
             let p = plan(kit, view, self.room());
-            let mut built = Self::build(kit, self.z, view, &p, (rect.x as f32, rect.y as f32), sig, over_video)?;
+            let mut built = Self::build(kit, self.z, view, &p, (rect.x as f32, rect.y as f32), sig)?;
             let slide = if kit.ui.look.reduced_motion { 0.0 } else { SLIDE };
             built.sheet.slide_in(kit, slide, !came);
             self.current = Some(built);
@@ -355,10 +354,12 @@ impl PopupSurface {
         Ok(true)
     }
 
-    fn build(kit: &mut Kit, z: i32, view: &View, p: &Plan, at: (f32, f32), sig: String, over_video: bool) -> std::io::Result<Built> {
+    fn build(kit: &mut Kit, z: i32, view: &View, p: &Plan, at: (f32, f32), sig: String) -> std::io::Result<Built> {
         let frame = Frame::new(at.0, at.1, p.width, p.height);
         let mut sheet = Sheet::new();
-        // the glass is four bands of one pane, clear where the picture box is (a hole the video plays through), and the box's corners are masks
+        // the glass is four bands of one pane, clear where the picture box is (a hole the video plays through), and the box's corners are masks.
+        // It is reading glass over Home as over an app: the card's own words sit on it, and a Home card's words under it would read through the
+        // sheet's own alpha.
         let pic = Frame::new(at.0 + p.picture.x, at.1 + p.picture.y, p.picture.w, p.picture.h);
         let reach = 64.0;
         let (left, top, right, bottom) = (frame.x - reach, frame.y - reach, frame.x + frame.w + reach, frame.y + frame.h + reach);
@@ -368,11 +369,11 @@ impl PopupSurface {
             Rect { x: left, y: pic.y, w: pic.x - left, h: pic.h },
             Rect { x: pic.x + pic.w, y: pic.y, w: right - pic.x - pic.w, h: pic.h },
         ] {
-            sheet.pane(Pane::clipped(kit, frame, z, PaneKind::Card, over_video, clip));
+            sheet.pane(Pane::reading_clipped(kit, frame, z, PaneKind::Card, clip));
         }
         let radius = kit.tokens.radius(Radius::Tile).min(pic.w / 2.0).min(pic.h / 2.0).ceil();
         if radius >= 1.0 {
-            let tint = pane::glass(kit, PaneKind::Card, frame.h, over_video).tint;
+            let tint = pane::reading_glass(kit, PaneKind::Card, frame.h).tint;
             let r = radius as u32;
             for corner in 0..4u32 {
                 let cx = if corner & 1 == 1 { pic.x + pic.w - radius } else { pic.x };
@@ -424,7 +425,6 @@ impl PopupSurface {
         Ok(Built {
             sig,
             generation: kit.generation(),
-            over_video,
             sheet,
             frame,
             paint,
@@ -545,7 +545,7 @@ mod tests {
                 let mut s = PopupSurface::new(1090, &json!({}), &layout());
                 let mut v = up(true).view();
                 v.shape = Some(shape);
-                s.apply(&mut kit, &v, None, 0, false, 1000).unwrap();
+                s.apply(&mut kit, &v, None, 0, 1000).unwrap();
                 let g = s.geometry();
                 let n = |v: &Value| v.as_f64().unwrap();
                 let (x, y, w, h) = (n(&g["x"]), n(&g["y"]), n(&g["w"]), n(&g["h"]));
@@ -575,7 +575,7 @@ mod tests {
                 let (_h, mut kit) = testkit::kit_in(mode, scale);
                 let mut s = PopupSurface::new(1090, &json!({}), &layout());
                 let p = up(true);
-                assert!(s.apply(&mut kit, &p.view(), None, 0, false, 1000).unwrap());
+                assert!(s.apply(&mut kit, &p.view(), None, 0, 1000).unwrap());
                 let g = s.geometry();
                 assert_eq!(g["x"].as_f64().unwrap() + g["w"].as_f64().unwrap(), 1888.0, "half of Home's safe margin from the right edge: {g}");
                 assert_eq!(g["y"].as_f64().unwrap(), 32.0);
@@ -601,7 +601,7 @@ mod tests {
             let theme = json!({"layout": {"overlays": user.to_json()}});
             let mut s = PopupSurface::new(1090, &theme, &layout());
             let p = up(false);
-            s.apply(&mut kit, &p.view(), None, 0, false, 1000).unwrap();
+            s.apply(&mut kit, &p.view(), None, 0, 1000).unwrap();
             let g = s.geometry();
             assert_eq!(g["x"].as_f64().unwrap(), 32.0, "flush left at {scale}: {g}");
             assert_eq!(g["y"].as_f64().unwrap() + g["h"].as_f64().unwrap(), 810.0, "flush at the zone's bottom at {scale}: {g}");
@@ -614,7 +614,7 @@ mod tests {
             let (_h, mut kit) = testkit::kit(scale);
             let mut s = PopupSurface::new(1090, &json!({}), &layout());
             let p = up(true);
-            s.apply(&mut kit, &p.view(), None, 0, false, 1000).unwrap();
+            s.apply(&mut kit, &p.view(), None, 0, 1000).unwrap();
             let layers = s.layers();
             let (x, y, w, h) = s.picture_rect().expect("the card is up");
             let g = s.geometry();
@@ -627,7 +627,7 @@ mod tests {
             let mut v = p.view();
             v.video = true;
             v.face = Face::Live;
-            s.apply(&mut kit, &v, None, 1, false, 1100).unwrap();
+            s.apply(&mut kit, &v, None, 1, 1100).unwrap();
             let b = s.current.as_ref().unwrap();
             assert!(b.video && !b.sheet.at(b.picture).unwrap().visible, "the picture is taken out of the box: the video shows through");
             assert_eq!(s.geometry()["video"], true);
@@ -635,14 +635,14 @@ mod tests {
             assert!(lint_of(&mut kit, &s).is_empty(), "at {scale}");
             // the video goes: the shell's picture is back
             v.video = false;
-            s.apply(&mut kit, &v, None, 2, false, 1200).unwrap();
+            s.apply(&mut kit, &v, None, 2, 1200).unwrap();
             let b = s.current.as_ref().unwrap();
             assert!(!b.video && b.sheet.at(b.picture).unwrap().visible);
             // and the card leaves with its plate in the box, not the display behind it
             v.video = true;
-            s.apply(&mut kit, &v, None, 3, false, 1300).unwrap();
+            s.apply(&mut kit, &v, None, 3, 1300).unwrap();
             v.up = false;
-            s.apply(&mut kit, &v, None, 4, false, 1400).unwrap();
+            s.apply(&mut kit, &v, None, 4, 1400).unwrap();
             assert!(!s.is_up() && s.layers() > 0, "it fades out: its layers are kept until it has");
             assert!(s.tick(10_000));
         }
@@ -676,19 +676,31 @@ mod tests {
         let (_h, mut kit) = testkit::kit(1.0);
         let mut s = PopupSurface::new(1090, &json!({}), &layout());
         let mut p = up(true);
-        s.apply(&mut kit, &p.view(), None, 0, false, 1000).unwrap();
+        s.apply(&mut kit, &p.view(), None, 0, 1000).unwrap();
         assert_eq!(s.geometry()["face"], "Connecting");
         let still = crate::kit::picture::Picture { width: 4, height: 4, rgba: vec![200; 64] };
         p.set_can_expand(true);
         let mut v = p.view();
         v.face = Face::Live;
-        s.apply(&mut kit, &v, Some(&still), 1, false, 1100).unwrap();
+        s.apply(&mut kit, &v, Some(&still), 1, 1100).unwrap();
         assert_eq!(s.geometry()["face"], "Live");
         assert!(lint_of(&mut kit, &s).is_empty());
         v.up = false;
-        s.apply(&mut kit, &v, None, 2, false, 2000).unwrap();
+        s.apply(&mut kit, &v, None, 2, 2000).unwrap();
         assert!(!s.is_up() && s.frame().is_none());
         assert!(s.tick(10_000));
         assert_eq!(s.layers(), 0, "nothing hidden is kept");
+    }
+
+    #[test]
+    fn the_glass_hides_the_words_under_it_over_home() {
+        let (mut h, mut kit) = testkit::kit(1.0);
+        let mut s = PopupSurface::new(1090, &json!({}), &layout());
+        s.apply(&mut kit, &up(true).view(), None, 0, 1000).unwrap();
+        h.commit();
+        let hides = (pane::HIDES_MIN * 255.0).round() as u8;
+        let tints: Vec<u8> = h.layers().into_iter().filter_map(|l| match l.1 { compositor_protocol::Content::Glass(g) => Some(g.tint.3), _ => None }).collect();
+        assert_eq!(tints.len(), 4, "four bands of one pane: {tints:?}");
+        assert!(tints.iter().all(|a| *a >= hides), "{tints:?}");
     }
 }

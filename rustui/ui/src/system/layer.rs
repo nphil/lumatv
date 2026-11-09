@@ -670,7 +670,7 @@ impl Layer {
                 let (_, picture) = self.popup_surface.measure(kit, &view);
                 self.popup.set_picture_size(picture.0, picture.1);
             }
-            match self.popup_surface.apply(kit, &view, self.popup.best(), self.popup.revision, over, now_ms) {
+            match self.popup_surface.apply(kit, &view, self.popup.best(), self.popup.revision, now_ms) {
                 Ok(on) => live |= on,
                 Err(e) => { self.interactive_visible |= interactive; return Err(format!("camera pop-up: {e}")); },
             }

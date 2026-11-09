@@ -97,9 +97,10 @@ fn opaque_to(tint: Rgba, alpha: u8) -> Rgba {
     Rgba(up(tint.0), up(tint.1), up(tint.2), alpha)
 }
 
-/// The glass of a pane over uncontrolled video that has words on it (the channel banner): the pane's own material and the sheet's colour, but no
-/// more see-through than [`HIDES_MIN`] or the theme's hiding scrim (`scrimHide`) lets it be, whichever hides more. The reading alpha of [`glass`]
-/// (0.8 as shipped) is the least that keeps a label's contrast over the worst frame, and lets a busy picture show under the words.
+/// The glass of a pane with words on it over words or a picture that must not read through it (the channel banner over video, the camera pop-up
+/// over Home or an app): the pane's own material and the sheet's colour, but no more see-through than [`HIDES_MIN`] or the theme's hiding scrim
+/// (`scrimHide`) lets it be, whichever hides more. The reading alpha of [`glass`] (0.8 as shipped) is the least that keeps a label's contrast over
+/// the worst frame, and lets a busy picture show under the words.
 pub fn reading_glass(kit: &Kit, kind: PaneKind, h: f32) -> Glass {
     let mut glass = glass(kit, kind, h, true);
     let scrim = f32::from(kit.tokens.extra(kit.mode).scrim_hide.3) / 255.0;
@@ -229,12 +230,12 @@ impl Pane {
         Self { layer, frame, kind, over_video: true, recipe: Recipe::Reading, wall: None, clip: None }
     }
 
-    /// A pane that shows only the part of its glass inside `clip` (the screen's logical pixels): the other bands of the same frame, side by side, make the
-    /// glass whole but for what they leave out (the hole a video plays through).
-    pub fn clipped(kit: &Kit, frame: Frame, z: i32, kind: PaneKind, over_video: bool, clip: Rect) -> Self {
+    /// A [`Pane::reading`] pane that shows only the part of its glass inside `clip` (the screen's logical pixels): the other bands of the same frame,
+    /// side by side, make the glass whole but for what they leave out (the hole a video plays through).
+    pub fn reading_clipped(kit: &Kit, frame: Frame, z: i32, kind: PaneKind, clip: Rect) -> Self {
         let at = Props { clip: Some(clip), ..Props::at(frame.x, frame.y) };
-        let layer = kit.ui.scene.glass(frame.w.round() as u32, frame.h.round() as u32, z, glass(kit, kind, frame.h, over_video), at);
-        Self { layer, frame, kind, over_video, recipe: Recipe::Plain, wall: None, clip: Some(clip) }
+        let layer = kit.ui.scene.glass(frame.w.round() as u32, frame.h.round() as u32, z, reading_glass(kit, kind, frame.h), at);
+        Self { layer, frame, kind, over_video: true, recipe: Recipe::Reading, wall: None, clip: Some(clip) }
     }
 
     pub fn layer(&self) -> &GlassLayer {
