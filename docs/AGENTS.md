@@ -72,7 +72,12 @@ Pitfalls:
 - After a Dolby Vision page `DE2VSYNC` can sit at 240 a second while `osd_irq` stays at 120, and the gate refuses to start; a few seconds of Live TV clears it.
 - A full host disk mid-run logs results late; check `df` first.
 
-Status (2026-11-07): not smooth under plugin load. With the tuner streaming about 11 Mbit/s and camera events firing, Home d-pad, Home widgets and the Apps grid fail on both the build before and the build after `6e47df5a` (dropped 1 to 32 frames, Apps grid first frame about 1.4 s). That change (UI at nice -10, helper threads and plugin processes batch) is hardening only, not a fix. With no load the Apps grid passes at 120 Hz since f8fc3bdd (3 of 3 runs, 2026-11-07). Do not claim a smoothness fix without a gate run under load.
+Status (2026-11-09, main 752ab5f9): not passing yet, with one to three drops left where there were tens. Nine cycles per surface at 120 Hz, dropped frames: with no load, two runs, Home d-pad 2 and 2, Home widgets 2 and 0, Apps grid 1 and 1 (b6f72b77: 87, 7, 3); under plugin load (the tuner streaming about 11 Mbit/s, camera test pop-ups, a guide refresh) Home d-pad 3, Home widgets 1, Apps grid first frame up to 524 ms (b6f72b77: 63, 10, 1444 ms). The gain came from no longer drawing a frame over one waiting behind the flip in flight (752ab5f9); `6e47df5a` (UI at nice -10, helper threads and plugin processes batch) is hardening only. Do not claim a smoothness fix without a gate run under load.
+
+Open, in this order (timeline and receipts in `HANDOFF.md`, 2026-11-09):
+
+- The first frame after a still screen. A motion's first moving frame on Home (8.6 ms to GPU done against an 8.3 ms refresh) starts only once the flip of the frame before it lands, so it misses the next refresh. Until the pacer counts frames as flowing, `Kms::next_frame_at` returns `None`, `draws_on_damage` is false while a flip is pending, and the idle grid tick is budgeted from the cheap frames before the motion. First record each UI commit's arrival in the ring. If the moving frame's commit was waiting, draw a UI commit with damage at once and queue it behind the flip in flight, only while one is undrawn; if it was not, the UI's first commit after a key has to carry the first moved frame. Accepted at 0 drops on Home d-pad and Home widgets with no load in two runs, nothing worse under load.
+- The Apps grid's first frame under load: nothing flips from the key until a camera pop-up arrives or leaves (104 to 518 ms late).
 
 ## UI scene limits
 
