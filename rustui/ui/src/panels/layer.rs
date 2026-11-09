@@ -1094,8 +1094,14 @@ impl Panels {
     }
 
     /// Unread notes: the bell's badge.
-    pub fn unread(&self) -> usize {
-        self.drawer.log.unread(&Drawer::notes(&self.env))
+    pub fn unread(&self) -> crate::home::strip::Unread {
+        self.drawer.unread(&self.env)
+    }
+
+    /// The drawer opens with the focus on `source`'s group (the bell's strip on Home was pressed on it).
+    pub fn drawer_at(&mut self, source: &str) {
+        self.drawer.focus_source(&self.env, source);
+        self.redraw = true;
     }
 }
 
@@ -1180,20 +1186,29 @@ mod tests {
         r.p.update(&r.kinds, &input, r.now);
         assert_eq!(toasts.view()[0].title, "Remote battery low");
         assert!(r.p.drawer.log.items().is_empty());
-        assert_eq!(r.p.unread(), 0);
+        assert_eq!(r.p.unread().count, 0);
 
         // An in-flight reply from the former drawer subscription is not a notification either.
         r.p.update(&r.kinds, &Input::Luna { tag: 0x5100_0100, payload: json!({"message": "Remote battery low"}) }, r.now);
         assert!(r.p.drawer.log.items().is_empty());
-        assert_eq!(r.p.unread(), 0);
+        assert_eq!(r.p.unread().count, 0);
 
         r.p.drawer.log.post(super::super::notelog::Item { id: String::new(), source: String::new(), icon: String::new(), title: "TV update ready".into(), body: String::new(), time: r.now, actions: Vec::new() });
         r.p.update(&r.kinds, &Input::Helper { topic: "plugins".into(), data: json!({"plugins": [{"id": "lock", "name": "Front door", "state": "connected"}]}) }, r.now);
         r.p.update(&r.kinds, &Input::Helper { topic: "plugin.lock.notifications".into(), data: json!({"items": [{"id": "battery", "channel": "events", "revision": 1, "receivedAt": 10.0, "post": {"title": "Battery low", "body": "Replace it", "actions": []}}]}) }, r.now);
         assert_eq!(r.p.drawer.log.items()[0].title, "TV update ready");
-        assert_eq!(r.p.unread(), 2);
+        assert_eq!(r.p.unread().count, 2);
+        // the strip's view of the same: a source each, the plugin by its name, and the drawer opens on the group that was pressed
+        let unread = r.p.unread();
+        let mut names: Vec<&str> = unread.sources.iter().map(|s| s.name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, ["Front door", "TV"]);
         r.show("drawer", false);
-        assert_eq!(r.p.unread(), 0);
+        r.p.drawer_at("Front door");
+        assert_eq!(r.p.drawer.index(), r.p.drawer.row_of(&r.p.env, "Front door").unwrap());
+        assert_ne!(r.p.drawer.row_of(&r.p.env, "TV"), r.p.drawer.row_of(&r.p.env, "Front door"));
+        assert_eq!(r.p.unread().count, 0);
+        assert!(r.p.unread().sources.is_empty(), "opening the drawer reads them");
     }
 
     #[test]

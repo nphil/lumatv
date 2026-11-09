@@ -20,6 +20,7 @@ use super::hub::{self, Note};
 use super::life::{LINGER_MS, Life, SPRING_MS};
 use super::notelog::NoteLog;
 use super::{K, Out};
+use crate::home::strip::{Note as StripNote, Unread};
 use crate::kit::screen::Effect;
 use serde_json::{Value, json};
 use std::cmp::Reverse;
@@ -217,6 +218,47 @@ impl Drawer {
 
     pub fn notes(env: &Env) -> Vec<Note> {
         hub::notes(&env.topics)
+    }
+
+    /// What the bell holds unread, for the status bar's strip: the badge's count and the unread entries by who said them. A plugin's
+    /// notification that was cleared is no longer one.
+    pub fn unread(&self, env: &Env) -> Unread {
+        let notes = Self::notes(env);
+        let seen = self.log.seen_at();
+        let mut unread: Vec<StripNote> = self.log.items().iter().filter(|i| i.time > seen).map(|i| StripNote { source: i.source.clone(), icon: i.icon.clone(), title: i.title.clone(), time: i.time }).collect();
+        for n in notes.iter().filter(|n| (n.received_at * 1000.0) as u64 > seen) {
+            if self.hidden.contains(&format!("plugin-{}-{}-{}", n.plugin_id, n.id, n.revision)) {
+                continue;
+            }
+            let icon = if n.channel_icon.is_empty() { "bell" } else { hub::icon(&n.channel_icon) };
+            unread.push(StripNote { source: n.plugin.clone(), icon: icon.to_owned(), title: n.title.clone(), time: (n.received_at * 1000.0) as u64 });
+        }
+        Unread::of(unread, self.log.unread(&notes))
+    }
+
+    /// The row the focus visits first for `source`: its header, or its one entry; `None` when the drawer has no such group.
+    pub fn row_of(&self, env: &Env, source: &str) -> Option<usize> {
+        let mut rows = 0;
+        for e in self.entries(env) {
+            match e {
+                Entry::Head { source: s, idx, .. } => {
+                    if s == source {
+                        return Some(rows + 1);
+                    }
+                    rows += usize::from(idx > 0);
+                }
+                Entry::Item { .. } => rows += 1,
+            }
+        }
+        None
+    }
+
+    /// The focus on `source`'s row, as the drawer opens at it from the status bar's strip.
+    pub fn focus_source(&mut self, env: &Env, source: &str) {
+        if let Some(row) = self.row_of(env, source) {
+            self.index = row;
+            self.button = 0;
+        }
     }
 
     /// The groups, newest first, each with its entries newest first and what said the same folded into one.

@@ -12,6 +12,7 @@ use super::picker::{Picker, PickerOut};
 use super::radar_zoom::{KEY_STEP, WHEEL_STEP};
 use super::popover::{self, Done, Popover};
 use super::search::{Search, SearchOut};
+use super::strip::{self, Rotor, Unread};
 use super::onhome::layout::Metrics;
 use super::onhome::smart::{Out as SmartOut, Smart};
 use super::wallvideo::{Ctx, WallVideo};
@@ -158,6 +159,8 @@ pub enum Request {
     /// Settings at one of its pages (Quick Access's More, a Search answer that is a page).
     SettingsPage(String),
     Notifications,
+    /// The drawer with the focus on the group of this source (OK on its glyph in the status bar's strip, or on the ticker's line).
+    NotificationsAt(String),
     Cameras,
     /// The camera viewer at full size, for the camera of the cameras topic with this id (OK on a camera item of the smart-home card), opened
     /// on the picture the card shows of it.
@@ -258,8 +261,11 @@ pub struct Home {
     /// The lock the person said to unlock, while the token to do it with is being read.
     unlock_of: Option<String>,
     pub stills: super::stills::Stills,
-    /// What the bell's badge counts (the panels' log and the plugins' notes since the drawer was last open).
-    pub unread: usize,
+    /// What the bell holds unread (the panels' log and the plugins' notes since the drawer was last open): its badge's count, and what the
+    /// status bar's free side shows with Full width on.
+    pub unread: Unread,
+    /// The title on the ticker's line.
+    pub ticker: Rotor,
     /// Do Not Disturb as the helper publishes it, what the status bar shows of it now and when that next changes (`sync_mark`).
     pub dnd: crate::dnd::Dnd,
     mark: Option<(&'static str, String)>,
@@ -406,7 +412,8 @@ impl Home {
             item_press: None,
             unlock_of: None,
             stills: super::stills::Stills::default(),
-            unread: 0,
+            unread: Unread::default(),
+            ticker: Rotor::default(),
             dnd: crate::dnd::Dnd::default(),
             mark: None,
             mark_due: None,
@@ -594,11 +601,12 @@ impl Home {
     }
 
     /// The status bar's items in the order they are drawn, left to right, as `{type, icon}` objects: the actions, then who is watching.
+    /// With Full width on, the strip of the bell's unread follows them (see [`Self::strip`]); the D-pad walks it after the buttons.
     pub fn status_items(&self) -> Vec<Value> {
-        self.status_item_list().cloned().collect()
+        self.status_item_list().cloned().chain(self.strip().items).collect()
     }
 
-    /// [`Self::status_items`] without copying them; the cameras' button only while the Cameras plugin is on.
+    /// [`Self::status_items`] without copying them and without the strip's; the cameras' button only while the Cameras plugin is on.
     fn status_item_list(&self) -> impl Iterator<Item = &Value> {
         let cameras_off = self.cameras_off();
         self.layout
@@ -625,14 +633,29 @@ impl Home {
         (h / 2.0).round() * 2.0
     }
 
-    /// The bell's count, from the panels' notification log; true when the badge has to be drawn again.
-    pub fn set_unread(&mut self, n: usize) -> bool {
-        if n == self.unread {
+    /// What the bell holds unread, from the panels' notification log; true when the badge or the strip has to be drawn again.
+    pub fn set_unread(&mut self, unread: Unread) -> bool {
+        if unread == self.unread {
             return false;
         }
-        self.unread = n;
+        self.unread = unread;
         self.dirty = true;
+        self.sync_ticker();
+        self.register();
         true
+    }
+
+    /// The ticker's line takes the unread titles as they are now (its next title when the time is up); true when its title changed. The line
+    /// is looked for only when the title is due to change, since it has to be laid out to know whether it shows.
+    fn sync_ticker(&mut self) -> bool {
+        let now = self.now;
+        let titles = &self.unread.titles;
+        let due = titles.is_empty() || self.ticker.shown().is_none_or(|s| !titles.iter().any(|t| t.text == s.text)) || self.ticker.due_at(titles.len()).is_some_and(|at| now >= at);
+        if !due || (!titles.is_empty() && !self.strip().items.iter().any(|i| kind_of(i) == strip::TICKER)) {
+            return false;
+        }
+        let titles = self.unread.titles.clone();
+        self.ticker.sync(&titles, now)
     }
 
     /// The person's text size (the kit's), which the chrome's own sizes follow.
@@ -682,6 +705,12 @@ impl Home {
     /// screen until the owner moves it). With `full` there the glass spreads over the whole row, from the cards' grid's left edge to its right,
     /// and the buttons stay where the placement puts them inside it.
     fn status_boxes(&self) -> (ui::geometry::Frame, ui::geometry::Frame) {
+        let (group, glass, _) = self.status_place();
+        (group, glass)
+    }
+
+    /// [`Self::status_boxes`] and the placement's switches: Full width and the ticker.
+    fn status_place(&self) -> (ui::geometry::Frame, ui::geometry::Frame, (bool, bool)) {
         const ITEM: &str = "statusbar";
         let span = self.status_run().last().map_or(0.0, |(x, w)| x + w) + 2.0 * STATUS_INSET;
         let h = self.status_height();
@@ -691,8 +720,34 @@ impl Home {
         let size = lumatv_placement::Size::new(span.round() as i32, h.round() as i32);
         let group = registry.rect_of(ITEM, &user, &frame, size).expect("the status bar is an item of the registry");
         let glass = registry.glass_of(ITEM, &user, &frame, size).expect("the status bar is an item of the registry");
-        let spread = registry.placement_of(ITEM, &user).is_some_and(|p| p.placement.full);
-        (ui::geometry::Frame::new(group.x as f32, group.y as f32, span, h), ui::geometry::Frame::new(glass.x as f32, glass.y as f32, if spread { glass.w as f32 } else { span }, h))
+        let placed = registry.placement_of(ITEM, &user);
+        let spread = placed.as_ref().is_some_and(|p| p.placement.full);
+        let ticker = placed.as_ref().is_none_or(|p| p.placement.ticker);
+        (ui::geometry::Frame::new(group.x as f32, group.y as f32, span, h), ui::geometry::Frame::new(glass.x as f32, glass.y as f32, if spread { glass.w as f32 } else { span }, h), (spread, ticker))
+    }
+
+    /// What the status bar's free side holds with Full width on: a glyph for each source with unread notifications and the line with the
+    /// newest title, laid out on the larger side of the glass beside the buttons (see [`strip::place`]). Nothing without Full width, and nothing
+    /// unread is an empty glass.
+    pub fn strip(&self) -> strip::Placed {
+        if self.unread.sources.is_empty() {
+            return strip::Placed::default();
+        }
+        let (group, glass, (full, ticker)) = self.status_place();
+        if !full {
+            return strip::Placed::default();
+        }
+        let scale = self.text_scale.max(1.0);
+        let item_h = self.status_height() - 2.0 * STATUS_INSET;
+        let (left, right) = (group.x - glass.x - STATUS_INSET, glass.x + glass.w - group.x - group.w - STATUS_INSET);
+        // the larger side is the free one; the strip starts at the glass's inner edge there, or after the buttons on the right
+        let room = if left >= right { (glass.x + STATUS_INSET, left - self.status_gaps.1) } else { (group.x + group.w + self.status_gaps.1, right - self.status_gaps.1) };
+        strip::place(&self.unread, ticker, room, (group.y + STATUS_INSET, item_h), self.status_gaps.0, (strip::MIN_TICKER * scale, strip::MAX_TICKER * scale))
+    }
+
+    /// The title the ticker's line has, when the strip has one.
+    pub fn ticker_title(&self) -> Option<&strip::Title> {
+        self.ticker.shown().filter(|_| self.strip().items.iter().any(|i| kind_of(i) == strip::TICKER))
     }
 
     /// The glass the status bar's buttons sit on: as wide as they are, or the whole row of the cards' grid with Full width on.
@@ -716,7 +771,7 @@ impl Home {
     pub fn status_frames(&self) -> Vec<(f32, f32, f32, f32)> {
         let group = self.status_group();
         let item_h = self.status_height() - 2.0 * STATUS_INSET;
-        self.status_run().into_iter().map(|(x, w)| (group.x + STATUS_INSET + x, group.y + STATUS_INSET, w, item_h)).collect()
+        self.status_run().into_iter().map(|(x, w)| (group.x + STATUS_INSET + x, group.y + STATUS_INSET, w, item_h)).chain(self.strip().frames).collect()
     }
 
     /// A button is a square of the pill's inner height; the profile chip adds its name.
@@ -1069,6 +1124,9 @@ impl Home {
             self.rest_drawn = true;
             self.redraw(out);
         }
+        if self.active && self.sync_ticker() {
+            self.redraw(out);
+        }
         // an answer that never came (the host restarted) does not stop the next look
         if self.poll_outstanding > 0 && now >= self.next_poll + 2 * POLL_MS {
             self.poll_outstanding = 0;
@@ -1148,6 +1206,9 @@ impl Home {
         take(self.stills.due_at(self.camera_stills_visible()));
         take(self.wall.due_at());
         take(self.radar.due_at(self.radar_loops()));
+        if self.active && self.unread.titles.len() > 1 && self.strip().items.iter().any(|i| kind_of(i) == strip::TICKER) {
+            take(self.ticker.due_at(self.unread.titles.len()));
+        }
         take(self.onhome_said.as_ref().map(|(_, until)| *until));
         if let Some(sheet) = &self.sheet {
             take(sheet.waiting());
@@ -1732,6 +1793,12 @@ impl Home {
                     "settings" => self.requests.push(Request::Quick),
                     "notifications" => self.requests.push(Request::Notifications),
                     "cameras" => self.requests.push(Request::CameraList),
+                    strip::SOURCE => {
+                        let source = self.status_items().get(i).and_then(|it| it.get("source")).and_then(Value::as_str).unwrap_or("").to_owned();
+                        self.requests.push(Request::NotificationsAt(source));
+                    }
+                    strip::TICKER => self.requests.push(self.ticker_title().map_or(Request::Notifications, |t| Request::NotificationsAt(t.source.clone()))),
+                    strip::MORE => self.requests.push(Request::Notifications),
                     _ => {}
                 }
             }
@@ -3251,7 +3318,7 @@ impl Home {
     /// Where the status bar's glass, the box of its buttons and the buttons are, for the tests and the harness's crops: `{pill: [x, y, w, h], group: [x, y, w, h], items: [[type, x, y, w, h], ...]}`.
     fn status_state(&self) -> Value {
         let (pill, group) = (self.status_pill(), self.status_group());
-        let items: Vec<Value> = self.status_item_list().zip(self.status_frames()).map(|(it, f)| json!([kind_of(it), f.0, f.1, f.2, f.3])).collect();
+        let items: Vec<Value> = self.status_items().iter().zip(self.status_frames()).map(|(it, f)| json!([kind_of(it), f.0, f.1, f.2, f.3])).collect();
         json!({"pill": [pill.x, pill.y, pill.w, pill.h], "group": [group.x, group.y, group.w, group.h], "items": items})
     }
 
@@ -3275,7 +3342,7 @@ impl Home {
             "layout": grid::entries(&self.layout).iter().map(|e| json!([e.id, e.col, e.row, e.span, e.rows, e.hidden as u8])).collect::<Vec<_>>(),
             "dock": self.dock.ids(),
             "profile": self.profile_name(),
-            "unread": self.unread,
+            "unread": self.unread.count,
             "cameraFrames": self.stills.revision,
             "statusBar": self.status_state(),
             "onhome": json!({
@@ -4720,6 +4787,104 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn unread_of(sources: usize) -> Unread {
+        let notes = (0..sources).map(|i| strip::Note { source: format!("Source {i}"), icon: "bell".into(), title: format!("Title {i}"), time: 1000 - i as u64 }).collect();
+        Unread::of(notes, sources)
+    }
+
+    fn kinds(h: &Home) -> Vec<String> {
+        h.status_items().iter().map(|i| kind_of(i).to_owned()).collect()
+    }
+
+    #[test]
+    fn the_strip_fills_the_free_side_only_with_full_width_and_only_with_something_unread() {
+        let mut h = home();
+        named(&mut h);
+        h.set_name_width("Nitin".into(), 47.63);
+        let real = h.status_items().len();
+        h.set_unread(unread_of(3));
+        placed_as(&mut h, "top-right", 0.0, false);
+        assert_eq!(h.status_items().len(), real, "without Full width the bar is the buttons alone");
+        placed_as(&mut h, "top-right", 0.0, true);
+        assert_eq!(&kinds(&h)[real..], [strip::SOURCE, strip::SOURCE, strip::SOURCE, strip::TICKER]);
+        assert_eq!(h.status_frames().len(), h.status_items().len(), "a frame for each");
+        h.set_unread(Unread::default());
+        assert_eq!(h.status_items().len(), real, "nothing unread: an empty glass");
+    }
+
+    #[test]
+    fn the_strip_sits_on_the_free_left_of_a_bar_at_the_right_inside_the_glass_and_the_focus_has_it() {
+        for scale in [1.0, 2.0] {
+            let mut h = home();
+            h.set_text_scale(scale);
+            named(&mut h);
+            h.set_name_width("Nitin".into(), 47.63);
+            let real = h.status_items().len();
+            placed_as(&mut h, "top-right", 0.0, true);
+            h.set_unread(unread_of(9));
+            let (pill, group, frames) = (h.status_pill(), h.status_group(), h.status_frames());
+            let strip = &frames[real..];
+            assert!(strip.len() >= 3, "text {scale}: glyphs and the ticker");
+            assert_eq!(strip[0].0, pill.x + STATUS_INSET, "text {scale}: from the glass's inner edge");
+            assert!(strip.iter().all(|f| f.0 + f.2 <= group.x && f.1 == frames[0].1 && f.3 == frames[0].3), "text {scale}: left of the buttons, in their row");
+            assert!(strip.windows(2).all(|w| w[0].0 + w[0].2 < w[1].0), "text {scale}: in order, apart");
+            assert_eq!(kinds(&h).last().map(String::as_str), Some(strip::TICKER));
+            for (i, f) in frames.iter().enumerate() {
+                assert_eq!(h.focus.frame(Id(STATUS_ID + i as u32)).map(|g| (g.x, g.w)), Some((f.0, f.2)), "text {scale}: {i} is registered where it is drawn");
+            }
+        }
+    }
+
+    #[test]
+    fn with_the_ticker_off_only_the_glyphs_show_and_it_is_read_live() {
+        let mut h = home();
+        named(&mut h);
+        h.set_name_width("Nitin".into(), 47.63);
+        h.set_unread(unread_of(2));
+        placed_as(&mut h, "top-right", 0.0, true);
+        assert!(kinds(&h).iter().any(|k| k == strip::TICKER));
+        let mut theme = h.theme.clone();
+        theme["layout"] = json!({"overlays": {"statusbar": {"anchor": "top-right", "dx": 0, "dy": 0, "full": true, "ticker": false}}});
+        h.set_theme(theme);
+        let k = kinds(&h);
+        assert_eq!(k.iter().filter(|k| *k == strip::SOURCE).count(), 2, "the icons stay");
+        assert!(!k.iter().any(|k| k == strip::TICKER), "and the line goes");
+    }
+
+    #[test]
+    fn ok_on_a_glyph_opens_the_bell_at_its_source_and_on_the_line_at_the_title_it_shows() {
+        let mut h = home();
+        named(&mut h);
+        h.set_name_width("Nitin".into(), 47.63);
+        placed_as(&mut h, "top-right", 0.0, true);
+        h.set_unread(unread_of(2));
+        // Left from Search walks the strip from its right end: the line, then the glyphs
+        press(&mut h, "left", 5000);
+        press(&mut h, "ok", 5100);
+        assert_eq!(h.take_requests(), [Request::NotificationsAt("Source 0".into())], "the newest title is up");
+        press(&mut h, "left", 5200);
+        press(&mut h, "ok", 5300);
+        assert_eq!(h.take_requests(), [Request::NotificationsAt("Source 1".into())]);
+        press(&mut h, "left", 5400);
+        press(&mut h, "ok", 5500);
+        assert_eq!(h.take_requests(), [Request::NotificationsAt("Source 0".into())]);
+    }
+
+    #[test]
+    fn the_line_turns_to_the_next_title_every_six_seconds_while_home_is_in_front() {
+        let mut h = home();
+        named(&mut h);
+        h.set_name_width("Nitin".into(), 47.63);
+        placed_as(&mut h, "top-right", 0.0, true);
+        h.update(&Input::Tick, 1000);
+        h.set_unread(unread_of(3));
+        assert_eq!(h.ticker_title().map(|t| t.text.as_str()), Some("Title 0"));
+        h.update(&Input::Tick, 1000 + strip::ROTATE_MS - 1);
+        assert_eq!(h.ticker_title().map(|t| t.text.as_str()), Some("Title 0"));
+        h.update(&Input::Tick, 1000 + strip::ROTATE_MS);
+        assert_eq!(h.ticker_title().map(|t| t.text.as_str()), Some("Title 1"));
     }
 
     #[test]

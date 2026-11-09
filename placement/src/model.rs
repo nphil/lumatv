@@ -219,6 +219,14 @@ pub struct Placement {
     /// offsets then say where its contents sit inside the glass. Left out of a file while it is off.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub full: bool,
+    /// With `full`, the glass's free side shows the unread notifications' ticker as well as their icons (an item that stretches). On unless the
+    /// owner turned it off; left out of a file while it is on.
+    #[serde(skip_serializing_if = "is_true")]
+    pub ticker: bool,
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
 }
 
 impl Placement {
@@ -228,6 +236,7 @@ impl Placement {
             dx,
             dy,
             full: false,
+            ticker: true,
         }
     }
 
@@ -236,13 +245,22 @@ impl Placement {
         Self { full, ..self }
     }
 
-    /// `{"anchor", "dx", "dy"}` as a file or a client writes it: all three, the anchor one of the nine, and `"full"` (a boolean) when the glass
-    /// spans the zone. Whether it suits an item is `Registry::valid`.
+    /// The same place with the ticker on the free side of a full-width glass, or not.
+    pub const fn with_ticker(self, ticker: bool) -> Self {
+        Self { ticker, ..self }
+    }
+
+    /// `{"anchor", "dx", "dy"}` as a file or a client writes it: all three, the anchor one of the nine, `"full"` (a boolean) when the glass
+    /// spans the zone and `"ticker": false` when its free side shows icons only. Whether it suits an item is `Registry::valid`.
     pub fn from_json(v: &Value) -> Option<Placement> {
         let o = v.as_object()?;
         let full = match o.get("full") {
             None => false,
             Some(f) => f.as_bool()?,
+        };
+        let ticker = match o.get("ticker") {
+            None => true,
+            Some(t) => t.as_bool()?,
         };
         Some(
             Placement::new(
@@ -250,7 +268,8 @@ impl Placement {
                 o.get("dx")?.as_f64()?,
                 o.get("dy")?.as_f64()?,
             )
-            .with_full(full),
+            .with_full(full)
+            .with_ticker(ticker),
         )
     }
 
@@ -258,6 +277,7 @@ impl Placement {
     pub fn same(&self, other: &Placement) -> bool {
         self.anchor == other.anchor
             && self.full == other.full
+            && self.ticker == other.ticker
             && (self.dx - other.dx).abs() < 0.00005
             && (self.dy - other.dy).abs() < 0.00005
     }
@@ -595,7 +615,7 @@ impl Registry {
     /// Whether `p` is a placement of `it`: an item that lives on edges only takes those, and an offset is a fraction.
     pub fn valid(&self, it: &Item, p: &Placement) -> bool {
         (it.edges.is_empty() || it.edges.contains(&p.anchor))
-            && (it.stretch || !p.full)
+            && (it.stretch || (!p.full && p.ticker))
             && p.dx.is_finite()
             && p.dy.is_finite()
             && p.dx.abs() <= 1.0
@@ -612,7 +632,7 @@ impl Registry {
                 dx = 0.0;
             }
         }
-        Placement::new(p.anchor, dx, dy).with_full(p.full)
+        Placement::new(p.anchor, dx, dy).with_full(p.full).with_ticker(p.ticker)
     }
 
     /// The placement in force for `id`: the owner's, else the item's default.
@@ -985,7 +1005,11 @@ impl Registry {
         } else {
             format!("{}, {}", cap(ROW[by]), COL[bx])
         };
-        let full = if p.full { ", full width" } else { "" };
+        let full = match (p.full, p.ticker) {
+            (true, true) => ", full width",
+            (true, false) => ", full width, no ticker",
+            _ => "",
+        };
         format!("{text}{kept}{full}")
     }
 

@@ -533,6 +533,23 @@ impl LayoutSurface {
         (w, pad, inner)
     }
 
+    /// Where each button of `widths` goes in rows of `room` pixels: its row and its offset along the row.
+    fn button_rows(widths: &[f32], gap: f32, room: f32) -> Vec<(usize, f32)> {
+        let (mut row, mut x) = (0, 0.0);
+        widths
+            .iter()
+            .map(|w| {
+                if x > 0.0 && x + w > room {
+                    row += 1;
+                    x = 0.0;
+                }
+                let at = (row, x);
+                x += w + gap;
+                at
+            })
+            .collect()
+    }
+
     fn build_panel(&self, kit: &mut Kit, engine: &mut Engine, view: &View, spot: (f32, f32), w: f32) -> std::io::Result<Panel> {
         let z = self.z + Z_PANEL;
         let (pad, gap) = (kit.space(6), kit.space(3));
@@ -562,8 +579,12 @@ impl LayoutSurface {
             y += lh + gap;
         }
         let buttons_y = y;
+        // the buttons that do not fit in a row go on to another (five of them at 200 % text are wider than the panel can be)
+        let widths: Vec<f32> = view.buttons.iter().map(|b| Button::width_for(kit, b.label, b.icon.is_some())).collect();
+        let at = Self::button_rows(&widths, gap, inner);
         if !view.buttons.is_empty() {
-            y += Button::height(kit) + gap;
+            let rows = at.last().map_or(0, |r| r.0 + 1);
+            y += rows as f32 * (Button::height(kit) + gap);
         }
         let foot_y = y;
         // the keys' rows: room for as many rows as the hints need at this width
@@ -598,17 +619,16 @@ impl LayoutSurface {
         let mut buttons = Vec::new();
         if !view.buttons.is_empty() {
             let bh = Button::height(kit);
-            let mut x = spot.0 + pad;
             for (i, b) in view.buttons.iter().enumerate() {
-                let bw = Button::width_for(kit, b.label, b.icon.is_some());
+                let bw = widths[i];
+                let (row, x) = at[i];
                 let tone = if b.primary { Tone::Primary } else { Tone::Plain };
                 let mut spec = Spec::new(b.label, tone);
                 spec.enabled = b.enabled;
                 spec.icon = b.icon;
                 spec.selected = b.selected;
-                let place = Place { id: id(i), frame: Frame::new(x, spot.1 + buttons_y, bw, bh), region: REGION, scope: SCOPE, z: z + 2 };
+                let place = Place { id: id(i), frame: Frame::new(spot.0 + pad + x, spot.1 + buttons_y + row as f32 * (bh + gap), bw, bh), region: REGION, scope: SCOPE, z: z + 2 };
                 buttons.push(Button::new(kit, engine, place, spec)?);
-                x += bw + gap;
             }
         }
         let paint = kit.ui.look.colour(PaletteRole::Sheet);
@@ -1078,7 +1098,8 @@ mod tests {
                 assert_eq!(own, glass, "{mode:?} at {scale}: off, the glass is the buttons' own box");
                 assert!(s.stat.as_ref().expect("the picture").words, "{mode:?} at {scale}: the row is named while the glass hugs the buttons");
                 let labels: Vec<&str> = g["buttons"].as_array().unwrap().iter().map(|b| b["label"].as_str().unwrap()).collect();
-                assert_eq!(labels, ["Full width", "Reset this", "Reset all", "Done"], "{mode:?} at {scale}");
+                assert_eq!(labels, ["Full width", "Notification ticker", "Reset this", "Reset all", "Done"], "{mode:?} at {scale}");
+                assert!(g["buttons"][1]["enabled"] == false, "{mode:?} at {scale}: the ticker is a part of the full bar");
                 // a click on the switch spreads the glass over the whole row
                 let b = &g["buttons"][0];
                 let (x, y) = (b["x"].as_f64().unwrap() as f32 + 10.0, b["y"].as_f64().unwrap() as f32 + 10.0);
@@ -1094,6 +1115,16 @@ mod tests {
                 assert_eq!((spread.0, spread.0 + spread.2, spread.3), (64.0, 1856.0, 60.0 * f64::from(scale)), "{mode:?} at {scale}: the glass spans the safe area's width: {spread:?}");
                 assert_eq!(held, own, "{mode:?} at {scale}: the buttons did not move");
                 assert!(g["subject"].as_str().unwrap().ends_with("full width"), "{}", g["subject"]);
+                // and its ticker can be turned off there: it is on until then
+                assert!(g["buttons"][1]["enabled"] == true, "{mode:?} at {scale}");
+                let t = &g["buttons"][1];
+                let (tx, ty) = (t["x"].as_f64().unwrap() as f32 + 10.0, t["y"].as_f64().unwrap() as f32 + 10.0);
+                let tap = |buttons| Sample { x: tx, y: ty, buttons, visible: true };
+                s.pointer(&kit, &mut engine, 5 * NS, 2200, tap(0), &mut e);
+                s.pointer(&kit, &mut engine, 6 * NS, 2210, tap(1), &mut e);
+                let out = s.pointer(&kit, &mut engine, 7 * NS, 2220, tap(0), &mut e);
+                assert!(matches!(&out[..], [lumatv_placement::Effect::Save(v)] if v["statusbar"]["ticker"] == false), "{mode:?} at {scale}: a click on Notification ticker saves it off: {out:?}");
+                draw(&mut kit, &mut engine, &mut s, &e, 2300);
                 // the pointer takes it by the glass where there are no buttons
                 assert!(s.rects.iter().any(|(id, f)| *id == "statusbar" && f.x == 64.0 && f.w == 1792.0), "the glass is what the pointer finds: {:?}", s.rects);
                 let found = lint_of(&mut kit, &s);

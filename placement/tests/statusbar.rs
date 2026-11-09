@@ -47,6 +47,20 @@ fn full_width_spreads_the_glass_over_the_bars_row_and_the_buttons_stay_where_the
 }
 
 #[test]
+fn the_ticker_is_on_unless_the_file_says_it_is_off_and_only_the_status_bar_takes_it_off() {
+    let reg = Registry::shipped();
+    let off = json!({"statusbar": {"anchor": "top-right", "dx": 0.0, "dy": 0.0, "full": true, "ticker": false}});
+    let user = reg.user_from_json(&off);
+    assert!(!reg.placement_of("statusbar", &user).unwrap().placement.ticker);
+    assert_eq!(user.to_json(), off, "off is written");
+    assert!(reg.placement_of("statusbar", &full("top-right", 0.0)).unwrap().placement.ticker, "a file of an earlier build has it on");
+    assert!(full("top-right", 0.0).to_json()["statusbar"].get("ticker").is_none(), "on is not written");
+    assert_eq!(Registry::shipped().words("statusbar", &user), "Top right, full width, no ticker");
+    let junk = reg.user_from_json(&json!({"popup": {"anchor": "top-left", "dx": 0, "dy": 0, "ticker": false}, "statusbar": {"anchor": "top", "dx": 0, "dy": 0, "ticker": "no"}}));
+    assert!(junk.is_empty(), "{:?}", junk.to_json());
+}
+
+#[test]
 fn full_is_stored_beside_the_anchor_and_the_offsets_and_only_the_status_bar_takes_it() {
     let reg = Registry::shipped();
     let written = full("top-right", 0.0).to_json();

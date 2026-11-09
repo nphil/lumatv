@@ -133,7 +133,7 @@ impl Registry {
             Dir::Up => fy = axis(fy, -1.0, f64::from(z.h - s.h), px, press.repeat),
             Dir::Down => fy = axis(fy, 1.0, f64::from(z.h - s.h), px, press.repeat),
         }
-        let np = self.from_fractions(it, fx, fy).with_full(p.full);
+        let np = self.from_fractions(it, fx, fy).with_full(p.full).with_ticker(p.ticker);
         Some(Step {
             placement: np,
             moved: !np.same(p),
@@ -207,7 +207,7 @@ impl Registry {
         } else {
             0.5
         };
-        Some(self.from_fractions(it, snap(fx, rw, SNAP_PX), snap(fy, rh, SNAP_PX)).with_full(p.full))
+        Some(self.from_fractions(it, snap(fx, rw, SNAP_PX), snap(fy, rh, SNAP_PX)).with_full(p.full).with_ticker(p.ticker))
     }
 }
 

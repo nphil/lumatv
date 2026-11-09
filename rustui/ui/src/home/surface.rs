@@ -9,6 +9,7 @@
 
 use super::layers::{AppsSurface, ConfirmSurface, EditorSurface, LibraryIcons, MenuSurface, PickerSurface, PopoverSurface, SearchSurface};
 use super::model::{self, Home, Layer, STATUS_ID, WIDGET_ID};
+use super::strip;
 use super::wallpaper::{self, WallpaperSurface};
 use super::widgets::{Content, PAD_SIDE, PAD_TOP, Pictures};
 use crate::kit::flow::Lifted;
@@ -17,7 +18,7 @@ use crate::kit::pane::{PaneKind, glass_of};
 use crate::kit::picture::{self, Fit, Picture};
 use crate::kit::text::{Text, role_style, width_of};
 use crate::kit::{Engine, Id, Kit};
-use compositor_protocol::{Glass, GroupPose, Props, Rgba, Shape};
+use compositor_protocol::{Ease, Glass, GroupPose, Props, Rgba, Shape};
 use lumatv_tokens::{Radius, TypeRole};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -142,6 +143,14 @@ struct StatusItem {
     badge: Option<ImageLayer>,
     /// The count painted in `badge` now.
     badge_n: Option<usize>,
+    /// The ticker's titles, one line each, the one that is up fully drawn and the others clear.
+    ticker: Option<Ticker>,
+}
+
+struct Ticker {
+    lines: Vec<(String, Text)>,
+    /// The title that is up now.
+    shown: Option<String>,
 }
 
 struct StatusBar {
@@ -549,6 +558,7 @@ impl HomeSurface {
             .collect::<Vec<_>>();
         home.stills.configure(&camera_rows);
         self.update_badge(kit, home);
+        self.update_ticker(kit, home);
         self.update_mark(kit, home);
         // The clock's hands, the news slide and the cards' words are kept up to date while Home is in front, and brought up to date by the apply
         // that finds it in front again: a covered Home that went on doing it sent the engine a damaged picture every second, a composed frame under
@@ -811,7 +821,9 @@ impl HomeSurface {
         let frame = Frame::new(pill.x, pill.y, pill.w, pill.h);
         let group = home.status_group();
         let profile = home.profile().cloned().unwrap_or(Value::Null);
-        let profile_key = format!("{}|{}|{:?}|{:?}|{:?}", profile, home.status_items().len(), home.chip(), home.mark_frame(), home.status_mark().map(|m| m.0));
+        let strip = home.strip();
+        let titles = if strip.items.iter().any(|i| i.get("type").and_then(Value::as_str) == Some(strip::TICKER)) { home.unread.titles.as_slice() } else { &[] };
+        let profile_key = format!("{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}", profile, home.status_items().len(), home.chip(), home.mark_frame(), home.status_mark().map(|m| m.0), strip.items, titles);
         let mend = self.status.as_mut().is_some_and(|s| s.mend.due(&kit.ui.scene, now));
         if !mend && self.status.as_ref().is_some_and(|s| s.profile_key == profile_key && s.frame == frame && s.group == group) {
             return Ok(());
@@ -837,16 +849,22 @@ impl HomeSurface {
             lift.pane.restyle(status_glass(glass_of(kit, PaneKind::Pill, h, false, false), false));
             lift.lit.restyle(status_glass(glass_of(kit, PaneKind::Pill, h, true, false), true));
             let scene = kit.ui.scene.clone();
-            let (icon, avatar, name, badge) = lift.adopting(engine, &scene, || -> std::io::Result<_> {
+            let (icon, avatar, name, badge, ticker) = lift.adopting(engine, &scene, || -> std::io::Result<_> {
                 let mut icon = None;
                 let mut avatar = None;
                 let mut name = None;
                 let mut badge = None;
-                if kind == "notifications" {
+                let mut ticker = None;
+                if kind == "notifications" || (kind == strip::SOURCE && it.get("count").and_then(Value::as_u64).unwrap_or(0) > 1) {
                     let (bw, bh, _) = Self::badge_metrics(kit, "99+");
                     badge = Some(kit.ui.scene.image(bw as u32, bh as u32, Z_STATUS + 4, Props { opacity: 0.0, visible: false, ..Props::at(w - bw, 2.0) })?);
                 }
-                if kind == "profile" {
+                if kind == strip::MORE {
+                    let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Centre);
+                    name = Some(Text::line_at(kit, 0.0, h / 2.0, w, Z_STATUS + 3, style, &format!("+{}", it.get("n").and_then(Value::as_u64).unwrap_or(0)))?);
+                } else if kind == strip::TICKER {
+                    ticker = Some(Self::build_ticker(kit, home, (w, h), titles)?);
+                } else if kind == "profile" {
                     let chip = home.chip();
                     let side = chip.avatar as u32;
                     let mut av = kit.ui.scene.image(side, side, Z_STATUS + 3, Props::at(chip.inset, chip.inset))?;
@@ -875,13 +893,62 @@ impl HomeSurface {
                         }
                     };
                 }
-                Ok((icon, avatar, name, badge))
+                Ok((icon, avatar, name, badge, ticker))
             }).ok_or_else(|| std::io::Error::other("the item's group"))??;
-            items.push(StatusItem { id, kind, lift, icon, avatar, name, badge, badge_n: None });
+            let mut item = StatusItem { id, kind, lift, icon, avatar, name, badge, badge_n: None, ticker };
+            // a source's own count is painted once: the strip is made again when it changes
+            if item.kind == strip::SOURCE
+                && let Some(layer) = item.badge.as_mut()
+            {
+                Self::paint_badge(kit, layer, it.get("count").and_then(Value::as_u64).unwrap_or(0) as usize, w);
+            }
+            items.push(item);
         }
         let mark = Self::build_mark(kit, home)?;
         self.status = Some(StatusBar { pane, frame, group, items, profile_key, mark, at: None, mend });
         Ok(())
+    }
+
+    /// The ticker's lines: one text for each title, in a pill `size` big, cut to its width with an ellipsis; the one the model has up is drawn and
+    /// the others are clear until their turn.
+    fn build_ticker(kit: &mut Kit, home: &Home, (w, h): (f32, f32), titles: &[strip::Title]) -> std::io::Result<Ticker> {
+        let style = role_style(kit, TypeRole::Label, Some(Weight::Medium), kit.ui.look.ink(), Align::Left);
+        let pad = (h * 0.4).round();
+        let room = (w - 2.0 * pad).max(10.0);
+        let up = home.ticker_title().map(|t| t.text.clone());
+        let mut lines = Vec::new();
+        for t in titles {
+            let words = ui::components::text::ellipsise(&mut kit.ui.fonts, &t.text, style.ty, room);
+            let mut line = Text::line_at(kit, pad, h / 2.0, room, Z_STATUS + 3, style, &words)?;
+            if up.as_deref() != Some(t.text.as_str()) {
+                line.set_props(Props { opacity: 0.0, visible: false, ..line.at() });
+            }
+            lines.push((t.text.clone(), line));
+        }
+        Ok(Ticker { lines, shown: up })
+    }
+
+    /// The ticker's line gives way to the next by a crossfade (at once under reduced motion).
+    fn update_ticker(&mut self, kit: &Kit, home: &Home) {
+        let Some(ticker) = self.status.as_mut().and_then(|s| s.items.iter_mut().find_map(|i| i.ticker.as_mut())) else { return };
+        let up = home.ticker_title().map(|t| t.text.clone());
+        if up == ticker.shown {
+            return;
+        }
+        let ms = kit.beat_ms(crate::kit::motion::Beat::Layer);
+        for (title, line) in &ticker.lines {
+            let on = up.as_deref() == Some(title.as_str());
+            if !on && ticker.shown.as_deref() != Some(title.as_str()) {
+                continue;
+            }
+            let to = Props { opacity: if on { 1.0 } else { 0.0 }, visible: true, ..line.at() };
+            if ms == 0 {
+                line.layer().set(Props { visible: on, ..to });
+            } else {
+                line.layer().animate(to, ms, Ease::Out);
+            }
+        }
+        ticker.shown = up;
     }
 
     /// The mark, absolutely placed on the bar: the moon centred in a button's square, a snooze alone as its smaller glyph, and the time left after it.
@@ -934,15 +1001,22 @@ impl HomeSurface {
     /// The bell's badge for `n` unread: hidden at none, otherwise the count (99+ past a hundred) in the danger colour, with a light ring
     /// on the light material.
     fn update_badge(&mut self, kit: &mut Kit, home: &Home) {
-        let n = home.unread;
-        let Some(item) = self.status.as_mut().and_then(|s| s.items.iter_mut().find(|i| i.badge.is_some())) else { return };
+        let n = home.unread.count;
+        let Some(item) = self.status.as_mut().and_then(|s| s.items.iter_mut().find(|i| i.kind == "notifications" && i.badge.is_some())) else { return };
         if item.badge_n == Some(n) {
             return;
         }
         item.badge_n = Some(n);
-        let Some(layer) = item.badge.as_mut() else { return };
+        let w = item.lift.frame.w;
+        if let Some(layer) = item.badge.as_mut() {
+            Self::paint_badge(kit, layer, n, w);
+        }
+    }
+
+    /// `layer` painted with the count `n` as a pill at the top right of a button `button_w` wide: hidden at none.
+    fn paint_badge(kit: &mut Kit, layer: &mut ImageLayer, n: usize, button_w: f32) {
         let (w, h) = (layer.width(), layer.height());
-        let at = Props::at(item.lift.frame.w - w as f32, 2.0);
+        let at = Props::at(button_w - w as f32, 2.0);
         if n == 0 {
             layer.set(Props { opacity: 0.0, visible: false, ..at });
             return;
@@ -2677,6 +2751,44 @@ mod tests {
                 }
                 std::mem::forget(h);
             }
+        }
+    }
+
+    #[test]
+    fn the_strip_is_a_button_for_each_source_with_its_count_a_chip_for_the_rest_and_a_line_that_crossfades_to_the_next_title() {
+        for scale in [1.0, 2.0] {
+            let (h, mut kit) = testkit::kit_in(Mode::Dark, scale);
+            let mut engine = Engine::new(&kit).expect("an engine");
+            let mut theme = lumatv_tokens::Tokens::shipped().json().clone();
+            theme["layout"] = json!({"overlays": {"statusbar": {"anchor": "top-right", "dx": 0, "dy": 0, "full": true}}});
+            let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
+            fixtures(&mut home);
+            home.set_text_scale(scale);
+            let notes = (0..9).map(|i| super::strip::Note { source: format!("S{i}"), icon: "bell".into(), title: format!("Title {i}"), time: 100 - i }).chain([super::strip::Note { source: "S0".into(), icon: "bell".into(), title: "Older".into(), time: 1 }]).collect();
+            home.set_unread(super::strip::Unread::of(notes, 10));
+            let mut s = HomeSurface::new(1000);
+            s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+            s.apply(&mut kit, &mut engine, &mut home, 2300).expect("Home drawn");
+            let bar = s.status.as_ref().unwrap();
+            let kinds: Vec<&str> = bar.items.iter().map(|i| i.kind.as_str()).collect();
+            let real = home.status_items().len() - home.strip().items.len();
+            let shown = kinds[real..].iter().filter(|k| **k == strip::SOURCE).count();
+            assert!((1..=6).contains(&shown) && kinds.contains(&strip::MORE), "text {scale}: nine sources do not all fit: {kinds:?}");
+            assert_eq!(kinds.last(), Some(&strip::TICKER), "text {scale}: {kinds:?}");
+            let counted = bar.items.iter().find(|i| i.kind == strip::SOURCE && i.badge.is_some()).expect("S0 has two");
+            assert_eq!(counted.lift.frame.x, bar.frame.x + 6.0, "the first glyph is S0's, from the glass's inner edge");
+            assert!(bar.items.iter().filter(|i| i.kind == strip::SOURCE).skip(1).all(|i| i.badge.is_none()), "one notification: no count");
+            let line = bar.items.last().and_then(|i| i.ticker.as_ref()).expect("the line");
+            assert_eq!(line.shown.as_deref(), Some("Title 0"));
+            assert_eq!(line.lines.len(), strip::MAX_TITLES, "a text for each title, at most eight");
+            // the next title is up after the turn, drawn by a crossfade, and the bar is not made again for it
+            let before = s.status.as_ref().map(|b| b.items.len());
+            home.update(&Input::Tick, 2300 + strip::ROTATE_MS);
+            s.apply(&mut kit, &mut engine, &mut home, 2300 + strip::ROTATE_MS).expect("Home drawn");
+            let bar = s.status.as_ref().unwrap();
+            assert_eq!(bar.items.len(), before.unwrap());
+            assert_eq!(bar.items.last().and_then(|i| i.ticker.as_ref()).and_then(|t| t.shown.as_deref()), Some("Title 1"));
+            std::mem::forget(h);
         }
     }
 }

@@ -617,10 +617,18 @@ impl Shell {
                             }
                             self.redraw = true;
                         }
-                        // the bell opens the drawer when it is in the list
+                        // the bell opens the drawer when it is in the list, at a group when its strip was pressed on one
                         crate::home::model::Request::Notifications if self.kinds.drawer => {
                             let mut out = Vec::new();
                             self.panels.show(Which::Drawer, false, &self.kinds, now, &mut out);
+                            for e in out {
+                                self.carry(e, now, acts);
+                            }
+                        }
+                        crate::home::model::Request::NotificationsAt(source) if self.kinds.drawer => {
+                            let mut out = Vec::new();
+                            self.panels.show(Which::Drawer, false, &self.kinds, now, &mut out);
+                            self.panels.drawer_at(&source);
                             for e in out {
                                 self.carry(e, now, acts);
                             }
@@ -641,7 +649,7 @@ impl Shell {
                         }
                         crate::home::model::Request::SettingsPage(page) => acts.push(Act::Log(format!("home asks for settings at {page}"))),
                         crate::home::model::Request::Settings => acts.push(Act::Log("home asks for settings".into())),
-                        crate::home::model::Request::Notifications => acts.push(Act::Log("home asks for notifications".into())),
+                        crate::home::model::Request::Notifications | crate::home::model::Request::NotificationsAt(_) => acts.push(Act::Log("home asks for notifications".into())),
                         crate::home::model::Request::Cameras if self.kinds.cameras => {
                             for e in self.cameras.open_grid(now) {
                                 self.carry(e, now, acts);

@@ -18,6 +18,7 @@ pub mod radar_view;
 pub mod radar_zoom;
 pub mod popover;
 pub mod search;
+pub mod strip;
 pub mod stills;
 pub mod surface;
 pub mod wallpaper;

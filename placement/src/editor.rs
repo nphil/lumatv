@@ -28,6 +28,7 @@ const HINT_ITEMS: &str =
     "\u{2190} \u{2192} Choose  \u{b7}  OK Pick up  \u{b7}  Down Buttons  \u{b7}  Back Done";
 const BUTTONS: [&str; 3] = ["Reset this", "Reset all", "Done"];
 const FULL: &str = "Full width";
+const TICKER: &str = "Notification ticker";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -89,13 +90,14 @@ enum Focus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Act {
     Full,
+    Ticker,
     ResetThis,
     ResetAll,
     Done,
 }
 
 const PLAIN: [Act; 3] = [Act::ResetThis, Act::ResetAll, Act::Done];
-const STRETCH: [Act; 4] = [Act::Full, Act::ResetThis, Act::ResetAll, Act::Done];
+const STRETCH: [Act; 5] = [Act::Full, Act::Ticker, Act::ResetThis, Act::ResetAll, Act::Done];
 
 pub struct Editor {
     reg: Registry,
@@ -387,9 +389,30 @@ impl Editor {
         vec![Effect::Save(self.user.to_json())]
     }
 
+    fn is_ticker(&self) -> bool {
+        self.reg
+            .placement_of(self.sel, &self.user)
+            .is_some_and(|p| p.placement.ticker)
+    }
+
+    /// The ticker of unread notifications on the free side of a full-width glass is shown, or left out so that only their icons are. It needs
+    /// the glass spread: with it off there is no free side, and the switch does nothing.
+    fn toggle_ticker(&mut self) -> Vec<Effect> {
+        if !self.stretches() || !self.is_full() {
+            return Vec::new();
+        }
+        let Some(p) = self.reg.placement_of(self.sel, &self.user) else {
+            return Vec::new();
+        };
+        let next = p.placement.with_ticker(!p.placement.ticker);
+        self.user = self.reg.with_placement(&self.user, self.sel, next);
+        vec![Effect::Save(self.user.to_json())]
+    }
+
     fn run(&mut self, act: Act, now: u64) -> Vec<Effect> {
         match act {
             Act::Full => self.toggle_full(),
+            Act::Ticker => self.toggle_ticker(),
             Act::ResetThis => self.reset_this(now),
             Act::ResetAll => self.reset_all(now),
             Act::Done => vec![Effect::Close],
@@ -401,7 +424,7 @@ impl Editor {
         self.acts().len()
     }
 
-    /// A button of the panel by its place in the view's `buttons` (Reset this, Reset all and Done, and before them the switch of an item that
+    /// A button of the panel by its place in the view's `buttons` (Reset this, Reset all and Done, and before them the switches of an item that
     /// stretches): what OK does on it, and what a pointer that presses it does. A place the panel does not have does nothing.
     pub fn press_button(&mut self, index: usize, now: u64) -> Vec<Effect> {
         if self.mode == Mode::Move {
@@ -420,17 +443,22 @@ impl Editor {
     fn button_of(&self, act: Act, focused: bool) -> Button {
         let (label, enabled) = match act {
             Act::Full => (FULL, true),
+            Act::Ticker => (TICKER, self.is_full()),
             Act::ResetThis => (BUTTONS[0], self.user.has(self.sel)),
             Act::ResetAll => (BUTTONS[1], !self.user.is_empty()),
             Act::Done => (BUTTONS[2], true),
         };
-        let on = act == Act::Full && self.is_full();
+        let on = match act {
+            Act::Full => self.is_full(),
+            Act::Ticker => self.is_ticker(),
+            _ => false,
+        };
         Button {
             label,
             enabled,
             focused,
             primary: act == Act::Done,
-            icon: (act == Act::Full).then_some(if on { "circle-check" } else { "circle" }),
+            icon: matches!(act, Act::Full | Act::Ticker).then_some(if on { "circle-check" } else { "circle" }),
             selected: on,
         }
     }

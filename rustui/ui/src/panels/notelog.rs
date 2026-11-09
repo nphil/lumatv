@@ -44,6 +44,11 @@ impl NoteLog {
         self.items.iter().filter(|i| i.time > self.seen_at).count() + notes.iter().filter(|n| (n.received_at * 1000.0) as u64 > self.seen_at).count()
     }
 
+    /// When the drawer was last open, in milliseconds: what is newer is unread.
+    pub fn seen_at(&self) -> u64 {
+        self.seen_at
+    }
+
     pub fn mark_seen(&mut self, now: u64) {
         self.seen_at = now;
     }

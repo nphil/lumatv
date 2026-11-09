@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+With Full width on, the status bar's free side shows what the bell holds unread: a glyph for each source with unread notifications (a count when it has more than one, at most six and then "+N") and a line with the newest unread title, which gives way to the next every 6 s by a crossfade. OK on a glyph or the line opens the notifications panel on that source's group. Nothing unread leaves the glass empty. A Notification ticker switch beside Full width in the layout editor turns the line off and keeps the glyphs; it is on by default and saved with the status bar's placement. The editor's buttons wrap onto a second row when they do not fit at large text sizes.
+
 An idle Home dims after 3 minutes and the screensaver comes after 5; LG's idle timer brought the saver at 3 minutes, before Home's own dim at 5. Each wait is a Settings row, 1 minute to 3 hours or Off: Dim the screen after (System › OLED care › LumaTV panel care) and Screensaver after (Home & look › Screensaver), which replaces LG's Screen Saver Standby Time (3 to 30 minutes only). The compositor runs LG's screen-saver timer at LumaTV's wait and writes nothing of LG's. A dim set at or after the screensaver does not happen first. The TV's auto power off timers are unchanged.
 
 Apple TV opens at once with the lean declutter profile on. The profile stubbed Apple's MFi service, which the app's LG provisioning calls at every start, so the app waited 50 s and opened on a "reboot required" alert. The service is kept; it runs only when called.

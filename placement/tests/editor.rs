@@ -369,14 +369,16 @@ fn only_the_status_bar_has_a_full_width_switch_and_it_comes_before_the_other_but
         assert_eq!(glass(&e, plain, 0), rect(&e, plain, 0), "{plain}: its glass is its own rectangle");
     }
     e.start(Some("statusbar"));
-    assert_eq!(labels(&e, 0), ["Full width", "Reset this", "Reset all", "Done"]);
-    assert_eq!(e.button_count(), 4);
+    assert_eq!(labels(&e, 0), ["Full width", "Notification ticker", "Reset this", "Reset all", "Done"]);
+    assert_eq!(e.button_count(), 5);
     let v = e.view(0);
     assert!(v.buttons[0].enabled && !v.buttons[0].primary && !v.buttons[0].selected);
     assert_eq!(v.buttons[0].icon, Some("circle"), "off: an empty mark");
-    assert!(!v.buttons[1].enabled && !v.buttons[2].enabled && v.buttons[3].primary, "nothing placed: nothing to reset, and Done is the primary");
+    assert!(!v.buttons[1].enabled && v.buttons[1].icon == Some("circle-check"), "the ticker is on by default, and has no free side to show on until the glass is full");
+    assert!(!v.buttons[2].enabled && !v.buttons[3].enabled && v.buttons[4].primary, "nothing placed: nothing to reset, and Done is the primary");
     // a place the panel does not have does nothing
-    assert!(e.press_button(4, 1).is_empty());
+    assert!(e.press_button(5, 1).is_empty());
+    assert!(e.press_button(1, 1).is_empty(), "the ticker's switch does nothing while the glass is not full");
     e.start(Some("popup"));
     assert!(e.press_button(3, 1).is_empty(), "the camera window has no fourth button");
     assert_eq!(e.press_button(2, 1), [Effect::Close]);
@@ -390,19 +392,19 @@ fn the_switch_spreads_the_glass_across_the_bar_and_back_without_moving_what_it_h
     assert_eq!(held, Rect::new(735, 54, 450, 60), "centred along the bar");
     assert_eq!(glass(&e, "statusbar", 0), held);
     // Down goes to the buttons, on Done; Left three times reaches Full width, and OK turns it on
-    let out = saved(&pad.taps(&mut e, &[Key::Down, Key::Left, Key::Left, Key::Left, Key::Ok]));
+    let out = saved(&pad.taps(&mut e, &[Key::Down, Key::Left, Key::Left, Key::Left, Key::Left, Key::Ok]));
     assert_eq!(out, json!({"statusbar": {"anchor": "top", "dx": 0.0, "dy": 0.0, "full": true}}));
     let v = e.view(pad.t);
     assert_eq!(v.subject, "Status bar  \u{b7}  Top, full width");
     assert_eq!(glass(&e, "statusbar", pad.t), Rect::new(64, 54, 1792, 60), "the safe area's width in the bar's row");
     assert_eq!(rect(&e, "statusbar", pad.t), held, "the buttons stay where they were");
     assert!(v.buttons[0].selected && v.buttons[0].focused && v.buttons[0].icon == Some("circle-check"));
-    assert!(v.buttons[1].enabled, "it is the owner's now: Reset this has something to put back");
+    assert!(v.buttons[1].enabled && v.buttons[2].enabled, "the ticker can be turned off now, and it is the owner's: Reset this has something to put back");
     // OK again: the default place with the glass round its buttons is the default, and nothing is placed
     let out = saved(&pad.taps(&mut e, &[Key::Ok]));
     assert_eq!(out, json!({}));
     assert_eq!(glass(&e, "statusbar", pad.t), held);
-    assert!(!e.view(pad.t).buttons[0].selected && !e.view(pad.t).buttons[1].enabled);
+    assert!(!e.view(pad.t).buttons[0].selected && !e.view(pad.t).buttons[2].enabled);
     // a pointer on the switch does what OK does there
     let out = saved(&e.press_button(0, pad.t));
     assert_eq!(out["statusbar"]["full"], json!(true));
@@ -410,10 +412,30 @@ fn the_switch_spreads_the_glass_across_the_bar_and_back_without_moving_what_it_h
 }
 
 #[test]
+fn the_ticker_switch_is_stored_only_while_off_and_only_with_a_full_glass() {
+    let (mut e, mut pad) = (editor_on(json!({"statusbar": {"anchor": "top-right", "dx": 0, "dy": 0, "full": true}})), Pad::new());
+    e.start(Some("statusbar"));
+    let v = e.view(pad.t);
+    assert!(v.buttons[1].enabled && v.buttons[1].selected && v.buttons[1].icon == Some("circle-check"), "on by default");
+    let out = saved(&e.press_button(1, pad.t));
+    assert_eq!(out, json!({"statusbar": {"anchor": "top-right", "dx": 0.0, "dy": 0.0, "full": true, "ticker": false}}));
+    let v = e.view(pad.t);
+    assert!(!v.buttons[1].selected && v.buttons[1].icon == Some("circle"));
+    assert_eq!(v.subject, "Status bar  \u{b7}  Top right, full width, no ticker");
+    let out = saved(&e.press_button(1, pad.t));
+    assert_eq!(out, json!({"statusbar": {"anchor": "top-right", "dx": 0.0, "dy": 0.0, "full": true}}), "on again leaves nothing in the file");
+    // moving the buttons keeps the choice
+    saved(&e.press_button(1, pad.t));
+    pad.taps(&mut e, &[Key::Up, Key::Ok, Key::Left]);
+    let out = saved(&pad.taps(&mut e, &[Key::Ok]));
+    assert_eq!(out["statusbar"]["ticker"], json!(false), "{out}");
+}
+
+#[test]
 fn the_focus_on_the_buttons_falls_back_to_done_for_an_item_that_has_no_such_button() {
     let (mut e, mut pad) = (editor_on(json!({})), Pad::new());
     e.start(Some("statusbar"));
-    pad.taps(&mut e, &[Key::Down, Key::Left, Key::Left, Key::Left]);
+    pad.taps(&mut e, &[Key::Down, Key::Left, Key::Left, Key::Left, Key::Left]);
     assert!(e.view(pad.t).buttons[0].focused);
     pad.taps(&mut e, &[Key::Left]);
     assert!(e.view(pad.t).buttons[0].focused, "the end holds");

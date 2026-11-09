@@ -12,7 +12,7 @@
 //! | `GET /v1/placement/editor` | the same, as it is now (`?panelW=&panelH=` for the panel's place); 409 `no_editor` when it is not open |
 //! | `POST /v1/placement/editor/key` | `{key: left, right, up, down, ok or back, t?}`: `effects` is `[{save: <layout.overlays>}]` and/or `[{close: true}]` |
 //! | `POST /v1/placement/editor/pointer` | `{phase: down, move or up, item?, x, y, pressed?, t?}` in screen pixels |
-//! | `POST /v1/placement/editor/button` | `{index, t?}` for a pointer on a button: its place in the view's `buttons` (Reset this, Reset all, Done, and before them Full width for the status bar) |
+//! | `POST /v1/placement/editor/button` | `{index, t?}` for a pointer on a button: its place in the view's `buttons` (Reset this, Reset all, Done, and before them Full width and Notification ticker for the status bar) |
 //! | `POST /v1/placement/editor/sizes` | `{sizes}`: the stand-ins were measured again (text size) |
 //! | `POST /v1/placement/editor/close` | `{closed}` |
 //!
@@ -599,7 +599,7 @@ mod tests {
     }
 
     #[test]
-    fn the_status_bars_full_width_switch_is_a_fourth_button_and_the_layout_answers_the_glass() {
+    fn the_status_bars_full_width_and_ticker_switches_come_first_and_the_layout_answers_the_glass() {
         let s = Session::default();
         let post = |path: &str, body: &str| {
             call(&s, "POST", &format!("/v1/placement/editor/{path}"), body)
@@ -611,8 +611,8 @@ mod tests {
             .iter()
             .map(|x| x["label"].as_str().unwrap())
             .collect();
-        assert_eq!(labels, ["Full width", "Reset this", "Reset all", "Done"]);
-        assert_eq!(post("button", r#"{"index": 4}"#).0, 400);
+        assert_eq!(labels, ["Full width", "Notification ticker", "Reset this", "Reset all", "Done"]);
+        assert_eq!(post("button", r#"{"index": 5}"#).0, 400);
         let (status, b) = post("button", r#"{"index": 0}"#);
         assert_eq!(status, 200, "{b}");
         assert_eq!(
