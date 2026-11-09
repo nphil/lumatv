@@ -7,7 +7,7 @@
 //! 1.04), and the lit glass that comes up with it; a hover cue is one ring moved to what the pointer is over. The layers over Home
 //! (`layers.rs`) are made when they open and dropped when they close.
 
-use super::layers::{AppsSurface, ConfirmSurface, EditorSurface, MenuSurface, PickerSurface, PopoverSurface, SearchSurface};
+use super::layers::{AppsSurface, ConfirmSurface, EditorSurface, LibraryIcons, MenuSurface, PickerSurface, PopoverSurface, SearchSurface};
 use super::model::{self, Home, Layer, STATUS_ID, WIDGET_ID};
 use super::wallpaper::{self, WallpaperSurface};
 use super::widgets::{Content, PAD_SIDE, PAD_TOP, Pictures};
@@ -288,6 +288,7 @@ pub struct HomeSurface {
     dock: Option<DockSurface>,
     hover: Option<ShapeLayer>,
     apps: Option<AppsSurface>,
+    library_icons: LibraryIcons,
     search: Option<SearchSurface>,
     editor: Option<EditorSurface>,
     picker: Option<PickerSurface>,
@@ -342,6 +343,7 @@ impl HomeSurface {
             dock: None,
             hover: None,
             apps: None,
+            library_icons: LibraryIcons::default(),
             search: None,
             editor: None,
             picker: None,
@@ -1234,8 +1236,9 @@ impl HomeSurface {
             }
             _ => {}
         }
+        self.library_icons.prepare(home.apps.all(), kit.tokens.radius(Radius::Tile));
         if let Some(a) = &mut self.apps {
-            a.update(kit, engine, home, now_ns)?;
+            a.update(kit, engine, home, &self.library_icons, now_ns)?;
         }
         let search_up = home.layer == Layer::Search;
         match (search_up, &mut self.search) {

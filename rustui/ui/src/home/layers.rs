@@ -10,6 +10,9 @@ use super::model::{Home, Layer};
 use super::picker;
 use super::search;
 use super::surface::{HIDDEN, HomeSurface, Lift, faded};
+use crate::kit::picture::Picture;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
 use crate::kit::pane::glass_of;
 use super::widgets::Words;
 use crate::kit::button::{Button, Place, Spec, Tone};
@@ -182,7 +185,7 @@ impl AppsSurface {
         Ok(Self { scrim, bar, bar_text, rail, rail_rows, rail_mark, rail_focus, page, heading, search, _viewport: viewport, grid, cells: Vec::new(), empty, key: String::new(), scroll: 0.0, z })
     }
 
-    fn build_cells(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home) -> std::io::Result<()> {
+    fn build_cells(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, icons: &LibraryIcons) -> std::io::Result<()> {
         let key = format!("{}|{}", home.apps.section, home.apps.list().iter().map(|a| a.id.as_str()).collect::<Vec<_>>().join(","));
         if key == self.key {
             return Ok(());
@@ -207,8 +210,15 @@ impl AppsSurface {
             let (plate_l, icon, name) = scene.adopting(&group, || -> std::io::Result<_> {
                 let shape = Shape { corner_radius: kit.tokens.radius(Radius::Card), fill: Fill::Solid(wash), border_width: 1.0, border: edge };
                 let plate_l = kit.ui.scene.shape(f.w as u32, f.h as u32, z + 2, shape, HIDDEN);
-                let icon = HomeSurface::tile_icon_pub(kit, &a.icon, 152, 20, kit.tokens.radius(Radius::Tile), z + 3)?;
-                let mut icon = icon;
+                let mut icon = match icons.get(&a.icon, kit.tokens.radius(Radius::Tile)) {
+                    Some(pic) => {
+                        let mut layer = kit.ui.scene.image(pic.width, pic.height, z + 3, Props::at(0.0, 0.0))?;
+                        pic.paint(&mut layer);
+                        layer.damage(None);
+                        Some(layer)
+                    }
+                    None => None,
+                };
                 if let Some(ic) = &mut icon {
                     let side = ic.width() as f32;
                     ic.set(Props { opacity: if a.hidden { 0.5 } else { 1.0 }, ..Props::at(((f.w - side) / 2.0).round(), 14.0 + (152.0 - side) / 2.0) });
@@ -227,8 +237,8 @@ impl AppsSurface {
         Ok(())
     }
 
-    pub fn update(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, _now_ns: u64) -> std::io::Result<()> {
-        self.build_cells(kit, engine, home)?;
+    pub fn update(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, icons: &LibraryIcons, _now_ns: u64) -> std::io::Result<()> {
+        self.build_cells(kit, engine, home, icons)?;
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
         let rail = home.apps.rail();
@@ -292,30 +302,99 @@ impl AppsSurface {
     }
 }
 
-impl HomeSurface {
-    /// A launch point's icon for a cell of `side`: the tile rule (edge to edge when the canvas is painted, inset otherwise).
-    pub fn tile_icon_pub(kit: &mut Kit, path: &str, side: u32, inset: u32, radius: f32, z: i32) -> std::io::Result<Option<ImageLayer>> {
-        let Some(pic) = picture::load_icon(path, None) else { return Ok(None) };
-        let mut sum = 0u64;
-        let mut n = 0u64;
-        for y in 0..pic.height {
-            for x in 0..pic.width {
-                if x == 0 || y == 0 || x + 1 == pic.width || y + 1 == pic.height {
-                    sum += pic.rgba[((y * pic.width + x) * 4 + 3) as usize] as u64;
-                    n += 1;
+/// The side of a library cell's icon, and its inset when the picture does not fill its canvas.
+const ICON_SIDE: u32 = 152;
+const ICON_INSET: u32 = 20;
+
+/// A launch point's icon for a library cell: the tile rule (edge to edge when the picture fills its canvas, inset otherwise).
+fn library_icon(path: &str, radius: f32) -> Option<Picture> {
+    let pic = picture::load_icon(path, None)?;
+    let mut sum = 0u64;
+    let mut n = 0u64;
+    for y in 0..pic.height {
+        for x in 0..pic.width {
+            if x == 0 || y == 0 || x + 1 == pic.width || y + 1 == pic.height {
+                sum += pic.rgba[((y * pic.width + x) * 4 + 3) as usize] as u64;
+                n += 1;
+            }
+        }
+    }
+    let full = n > 0 && sum as f32 / n as f32 / 255.0 >= 0.9;
+    let s = if full { ICON_SIDE } else { ICON_SIDE - 2 * ICON_INSET };
+    let mut fitted = pic.fitted_sharp(s, s);
+    if full {
+        fitted.round_corners(radius);
+    }
+    Some(fitted)
+}
+
+enum Icon {
+    Making,
+    Made(Option<Arc<Picture>>),
+}
+
+type Icons = Arc<Mutex<HashMap<String, Icon>>>;
+
+/// The library's icons, made on a background thread as soon as the launch points are known. Made as the library opened, the set's 25
+/// icons (72 to 666 px, each decoded, resampled and sharpened) held its first frame for 128 ms.
+#[derive(Default)]
+pub struct LibraryIcons {
+    radius: u32,
+    asked: Vec<String>,
+    icons: Icons,
+}
+
+impl LibraryIcons {
+    /// Has the icons of `apps` not made yet made on a background thread; the ones no longer listed are let go.
+    pub fn prepare(&mut self, apps: &[apps::App], radius: f32) {
+        let same = radius.to_bits() == self.radius && self.asked.len() == apps.len() && self.asked.iter().zip(apps).all(|(p, a)| *p == a.icon);
+        if same {
+            return;
+        }
+        if radius.to_bits() != self.radius {
+            // a thread still making icons at the old radius fills the map let go here
+            self.icons = Icons::default();
+            self.radius = radius.to_bits();
+        }
+        self.asked = apps.iter().map(|a| a.icon.clone()).collect();
+        let mut todo = Vec::new();
+        {
+            let mut icons = self.icons.lock().unwrap_or_else(PoisonError::into_inner);
+            icons.retain(|p, _| self.asked.contains(p));
+            for p in &self.asked {
+                if !icons.contains_key(p) {
+                    icons.insert(p.clone(), Icon::Making);
+                    todo.push(p.clone());
                 }
             }
         }
-        let full = n > 0 && sum as f32 / n as f32 / 255.0 >= 0.9;
-        let s = if full { side } else { side - 2 * inset };
-        let mut fitted = pic.fitted_sharp(s, s);
-        if full {
-            fitted.round_corners(radius);
+        if todo.is_empty() {
+            return;
         }
-        let mut layer = kit.ui.scene.image(s, s, z, Props::at(0.0, 0.0))?;
-        fitted.paint(&mut layer);
-        layer.damage(None);
-        Ok(Some(layer))
+        let icons = self.icons.clone();
+        let _ = std::thread::Builder::new().name("library-icons".into()).spawn(move || {
+            crate::host::priority::background();
+            for path in todo {
+                let pic = library_icon(&path, radius).map(Arc::new);
+                // an icon let go, or made by the library meanwhile, stays as it is
+                if let Some(slot @ Icon::Making) = icons.lock().unwrap_or_else(PoisonError::into_inner).get_mut(&path) {
+                    *slot = Icon::Made(pic);
+                }
+            }
+        });
+    }
+
+    /// The icon of `path` at `radius`, made here when the background thread has not come to it yet.
+    fn get(&self, path: &str, radius: f32) -> Option<Arc<Picture>> {
+        let ours = radius.to_bits() == self.radius;
+        if ours && let Some(Icon::Made(pic)) = self.icons.lock().unwrap_or_else(PoisonError::into_inner).get(path) {
+            return pic.clone();
+        }
+        let pic = library_icon(path, radius).map(Arc::new);
+        if ours {
+            self.icons.lock().unwrap_or_else(PoisonError::into_inner).insert(path.to_owned(), Icon::Made(pic.clone()));
+        }
+        pic
     }
 }
 
@@ -1153,5 +1232,27 @@ mod warning_toast_tests {
             assert_eq!(glass.tint, faded(warning, 0.18));
             assert_eq!(glass.tint_gradient, None);
         }
+    }
+
+    #[test]
+    fn a_library_icon_is_made_once_and_let_go_with_its_app() {
+        let dir = std::env::temp_dir().join(format!("library-icons-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let file = dir.join("icon.png");
+        let mut enc = png::Encoder::new(std::fs::File::create(&file).expect("a file"), 96, 96);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().expect("header").write_image_data(&[200u8, 200, 200, 255].repeat(96 * 96)).expect("pixels");
+        let path = file.to_str().expect("utf-8").to_owned();
+        let app = apps::App { id: "a".into(), title: "A".into(), icon: path.clone(), params: Value::Null, hidden: false, on_dock: false, plate: String::new(), unmovable: false, removable: false };
+        let mut icons = LibraryIcons::default();
+        icons.prepare(std::slice::from_ref(&app), 24.0);
+        let first = icons.get(&path, 24.0).expect("an icon");
+        assert_eq!(first.width, ICON_SIDE, "a picture that fills its canvas is drawn edge to edge");
+        std::fs::remove_file(&file).expect("removed");
+        assert!(icons.get(&path, 24.0).is_some_and(|p| Arc::ptr_eq(&p, &first)), "the library opened again takes the icon made before");
+        icons.prepare(&[], 24.0);
+        assert!(icons.get(&path, 24.0).is_none(), "an app no longer listed lets its icon go");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
