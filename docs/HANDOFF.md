@@ -31,6 +31,12 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Apple TV opens at once: Apple MFi kept, 2026-11-09 (not installed)
+
+The lean profile's `share` group stubbed `/usr/sbin/mfi` (`com.webos.service.mfi`). Apple TV's LG provisioning verifies its MFi key through that service at every start: with the stub it retried every 5 s, mapped its window 51.7 s after connecting and opened on a "ProvisionRebootRequired" alert, which the 7 and 9 Nov checks (20 to 35 s waits) took for no window. `items.txt` now keeps the service; it is on demand and runs only when called. With the stub lifted for one launch the window mapped 1.3 s after the app connected, on the profile picker, and the stub went back. Receipts: `/data/home/tmp/lumatv-appletv-20261109/` (not in git).
+
+A running set keeps the old bind until it reboots: `off` walks only the rows `items.txt` still has. To accept after the install: reboot, then `/usr/sbin/mfi` has no mount in `/proc/self/mounts`, and Apple TV maps its window within about 2 s with no "ProvisionRebootRequired" alert.
+
 ## TV checks, 2026-11-09 afternoon (no install)
 
 Check-only session, 14:44 to 15:45 EST, on the installed ui 55c1832c, compositor 6cded4b2, sm 65f6ca69 and helper 30f067a6. Left in Active Standby, receiver off and unmuted at -22.5 dB, test events off, Do Not Disturb as found, lease released. Receipts: `/data/home/tmp/lumatv-tvcheck-20261109/` (not in git).

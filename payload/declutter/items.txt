@@ -102,7 +102,9 @@ unit|share|tvlinkcmdprocessor.service||TV Link
 unit|share|tvlink-network-proxy.service||TV Link network proxy
 luna|share|/usr/sbin/airplay|stub|AirPlay receiver
 luna|share|/usr/sbin/upnpd|stub|UPnP/DLNA; ten random listening ports
-luna|share|/usr/sbin/mfi|stub|Apple MFi
+# Kept: Apple TV verifies its MFi key through com.webos.service.mfi at every start; with it stubbed the app
+# retried for 50 s and opened on "ProvisionRebootRequired" (set, 2026-11-09). On demand: it runs only when called.
+#luna|share|/usr/sbin/mfi|stub|Apple MFi
 
 unit|misc|cups.path||printing
 unit|misc|cups.socket||printing, listens on port 631

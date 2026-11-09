@@ -260,6 +260,15 @@ class Autoinstall(unittest.TestCase):
             self.assertEqual(self.fake.file(p), text, p + " did not come back as it was")
 
 
+class Kept(unittest.TestCase):
+    def test_no_group_stubs_the_mfi_service_apple_tv_starts_through(self):
+        # Apple TV verifies its MFi key through com.webos.service.mfi at every start; with /usr/sbin/mfi stubbed it
+        # retried for 50 s and opened on "ProvisionRebootRequired" (set, 2026-11-09).
+        with open(ITEMS) as f:
+            rows = [line.split("|") for line in f if line.strip() and not line.startswith("#")]
+        self.assertEqual([r for r in rows if r[2] == "/usr/sbin/mfi"], [])
+
+
 
 # A bind over a hosts table swaps the file for the bound one (a hard link, so that its inode shows, as `ls -i` shows a mount's
 # file on the set) and keeps the table it covered; the umount puts that one back.

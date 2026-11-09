@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Apple TV opens at once with the lean declutter profile on. The profile stubbed Apple's MFi service, which the app's LG provisioning calls at every start, so the app waited 50 s and opened on a "reboot required" alert. The service is kept; it runs only when called.
+
 The camera pop-up owns OK from the moment it appears. A held OK within 0.6 s of it showing opened Home's edit mode; it now reaches the pop-up's menu, with the press, its repeats and the release all the pop-up's. Cards keep their 0.6 s arming.
 
 The weather view shows a dash for any reading the feed lacks (UV index was blank on page 1), an unreported sunrise is a dash tile without an arc, and the Actual and Feels labels shorten to fit their tile at any text size.

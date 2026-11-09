@@ -46,7 +46,7 @@ profiles. `ads` is the first five groups; `lean` is `ads` plus four more. The
 | apps | ads | 8 Ball Pool and LG Movies & TV, the server-pushed stubs | both gone from the launcher |
 | voice | lean | `voiceconductor`, `voiceinput`, `google-home-controller`, `nlpmanager`, Alexa and ThinQ triggers and adapters, `tts`, the voice performer, the Google Home runtime | Magic Remote microphone button, LG/Alexa/ThinQ voice and Google Home stop |
 | connectivity | lean | `iconnectivity`, the rule engine, the ThinQ buddy connector, `iotjs` | LG ThinQ app control of the set stops |
-| share | lean | Miracast, AirPlay, DLNA/UPnP, `appcasting`, TV Link, My Car, `ftms`, `mfi` | casting from phones through those protocols stops; DIAL (Netflix and YouTube cast) and Chromecast stay |
+| share | lean | Miracast, AirPlay, DLNA/UPnP, `appcasting`, TV Link, My Car, `ftms` | casting from phones through those protocols stops; DIAL (Netflix and YouTube cast) and Chromecast stay |
 | misc | lean | CUPS printing sockets (ports 631 and 515) | none |
 | ai (opt) | none | NPU inference manager, `nais`, `nn-proxy` | AI picture and sound stop; kept out of `lean` because its effect on the picture pipeline is unmeasured |
 | livetv (opt) | none | the broadcast stack | Live TV and the guide stop |
@@ -120,7 +120,8 @@ Every profile keeps what the apps and the setup need:
 | YouTube | DIAL as above | same |
 | Prime Video | `amazon.service` (jailed); the app starts it itself (`contentminer` used to) | reaches the foreground with `contentminer` masked |
 | PlxNative, Moonlight | `umediaserver`, `videooutputd`, `tvrm` (decoder and video plane) | both launch with every group on |
-| Apple TV, Crunchyroll | WebAppMgr only | both launch |
+| Apple TV | Apple MFi (`com.webos.service.mfi`, on demand): the app's LG provisioning verifies its MFi key there at every start | with `mfi` stubbed the app retried for 50 s and opened on "ProvisionRebootRequired"; kept, its window maps 1.3 s after it connects (2026-11-09) |
+| Crunchyroll | WebAppMgr only | launches |
 | GeForce NOW | the system browser (`com.webos.app.browser`, `browser-service`) | foreground app after launch is the browser, as at a stock boot |
 | HyperHDR | the loader service, `hyperhdr`, `piccapautostart`, `captureservice` | loader launches; process and ports checked |
 | Hue Sync | `com.lighting.huesync.service` (jailed), `color-info-miner` | `LSHUB_SRV_LNCH` requester `colorInfoMinerSync` |
