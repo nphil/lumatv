@@ -506,7 +506,7 @@ fn run_set(o: Options) -> io::Result<()> {
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err(io::Error::other("every feed ended")),
         }
         if frame_ready && !frame_acknowledged && !frame_in_flight && Instant::now() >= frame_retry_at {
-            channel.request(Outbound { method: "POST", path: "/v1/frame-ready".into(), body: Some(json!({})), tag: Some(FRAME_READY_TAG) });
+            channel.request(Outbound { method: "POST", path: "/v1/frame-ready".into(), body: Some(json!({})), tag: Some(FRAME_READY_TAG), beside: false });
             frame_in_flight = true;
         }
         if shell.due_at().is_some_and(|due| now_ms() >= due) {

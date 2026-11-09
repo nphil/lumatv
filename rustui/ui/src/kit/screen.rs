@@ -43,7 +43,9 @@ pub enum Effect {
         path: String,
         body: Value,
     },
-    /// `GET` from the helper's API; the answer comes back as [`Input::Fetched`] with the tag.
+    /// `GET` from the helper's API; the answer comes back as [`Input::Fetched`] with the tag. It goes out once the writes asked before it
+    /// are answered but holds nothing asked after it, so fetches answer in any order and after later writes; a read whose answer must
+    /// not cross a later write is a `GET` [`Effect::Request`].
     Fetch {
         tag: u64,
         path: String,

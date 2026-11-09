@@ -1,8 +1,9 @@
 //! A long-poll feed over HTTP/1.1 on the loopback, the shape both the compositor's UI channel (`shell.rs`: `GET /v1/state`,
 //! `GET /v1/events?after=`) and the helper's API (`kit/Helper.qml`) have: one thread polls and hands topics and events to the loop over
-//! an mpsc channel, another makes the requests the loop asks for (`POST /v1/ui`, `POST /v1/luna`, the helper's posts and gets) and
-//! hands their answers back the same way. Nothing here blocks the loop; a feed that stops answering says `Up(false)` and retries at
-//! 2, 4, 8 and then 10 s, as the QML client does; a `reset` or a new `boot` starts the session again from the state.
+//! an mpsc channel, another makes the requests the loop asks for (`POST /v1/ui`, `POST /v1/luna`, the helper's posts) in order, and on
+//! the helper's feed [`READERS`] more make the gets marked [`Outbound::beside`]; all hand their answers back the same way. Nothing here
+//! blocks the loop; a feed that stops answering says `Up(false)` and retries at 2, 4, 8 and then 10 s, as the QML client does; a `reset`
+//! or a new `boot` starts the session again from the state.
 
 use serde_json::Value;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -37,6 +38,9 @@ pub struct Outbound {
     pub body: Option<Value>,
     /// The answer comes back as [`Event::Answer`] with this tag; `None` drops it.
     pub tag: Option<u64>,
+    /// A get whose answer the loop takes in any order (a picture, a poll, a check on a copy it has). On the helper's feed it goes out on
+    /// one of the [`READERS`] and holds nothing asked after it; it still waits for the requests not marked so that were asked before it.
+    pub beside: bool,
 }
 
 /// One HTTP exchange on `stream`: the status, the body, and whether the server keeps the connection for another request (the helper
@@ -212,26 +216,40 @@ impl Feed {
             }
             poll_loop(port, poll_token, topics, poll_tx, poll_pending.as_deref())
         })?;
+        let reads = if helper {
+            let (reads, waiting) = channel::<Outbound>();
+            let waiting = Arc::new(Mutex::new(waiting));
+            for _ in 0..READERS {
+                let (waiting, token, tx) = (waiting.clone(), token.clone(), etx.clone());
+                thread::Builder::new().name(format!("{name}-get")).spawn(move || {
+                    super::priority::background();
+                    read_loop(port, token, &waiting, &tx)
+                })?;
+            }
+            Some(reads)
+        } else {
+            None
+        };
         thread::Builder::new().name(format!("{name}-send")).spawn(move || {
             if helper {
                 super::priority::background();
             }
-            send_loop(port, token, rrx, etx)
+            send_loop(port, token, rrx, reads, etx)
         })?;
         Ok((Self { requests, pending }, events))
     }
 
-    /// Asks for a request; it goes out in order with the others.
+    /// Asks for a request. It goes out once the requests asked before it are answered, those marked [`Outbound::beside`] excepted.
     pub fn request(&self, out: Outbound) {
         let _ = self.requests.send(out);
     }
 
     pub fn post(&self, path: &str, body: Value) {
-        self.request(Outbound { method: "POST", path: path.to_string(), body: Some(body), tag: None });
+        self.request(Outbound { method: "POST", path: path.to_string(), body: Some(body), tag: None, beside: false });
     }
 
     pub fn get(&self, path: &str, tag: u64) {
-        self.request(Outbound { method: "GET", path: path.to_string(), body: None, tag: Some(tag) });
+        self.request(Outbound { method: "GET", path: path.to_string(), body: None, tag: Some(tag), beside: false });
     }
 
     /// `ev` as the loop applies it, added to `out`: [`Event::Waiting`] is the state and topics waiting, any other event itself.
@@ -376,26 +394,57 @@ fn retained(event: &Value) -> bool {
     event.get("kind").and_then(Value::as_str).is_none_or(|kind| kind == "changed")
 }
 
-fn send_loop(port: u16, token: Option<String>, rx: Receiver<Outbound>, tx: Sender<Event>) {
+/// The threads a feed's gets go out on. One get must not hold the rest, nor a write: the helper takes up to 700 ms over a still of a
+/// camera whose stream is cold, and queued behind the door cameras' still asks a pop-up's kept picture showed after 0.8 s and its live
+/// video was asked for 1.4 s after it came (0.24 s for a camera whose stills answer at once).
+const READERS: usize = 3;
+
+/// Gets, one at a time, each the next one waiting.
+fn read_loop(port: u16, token: Option<String>, waiting: &Mutex<Receiver<Outbound>>, tx: &Sender<Event>) {
+    let mut link = Link::new(port, Duration::from_secs(10));
+    loop {
+        let next = waiting.lock().unwrap_or_else(PoisonError::into_inner).recv();
+        let Ok(out) = next else { return };
+        if !exchange_and_answer(&mut link, token.as_deref(), out, tx) {
+            return;
+        }
+    }
+}
+
+/// The requests in the order asked, each after the one before is answered; those marked [`Outbound::beside`] go to the readers.
+fn send_loop(port: u16, token: Option<String>, rx: Receiver<Outbound>, reads: Option<Sender<Outbound>>, tx: Sender<Event>) {
     let mut link = Link::new(port, Duration::from_secs(10));
     for out in rx {
-        let body = out.body.as_ref().map(|b| serde_json::to_vec(b).unwrap_or_default());
-        let answer = link.request(out.method, &out.path, token.as_deref(), body.as_deref()).ok();
-        if let Some(tag) = out.tag {
-            // a body that is JSON is the answer; one that is not (a still, a thumbnail) comes as bytes
-            let event = match answer {
-                None => Event::Answer { tag, status: 0, body: Value::Null },
-                Some((status, bytes)) => match serde_json::from_slice::<Value>(&bytes) {
-                    Ok(body) => Event::Answer { tag, status, body },
-                    Err(_) if !bytes.is_empty() => Event::Bytes { tag, status, body: bytes },
-                    Err(_) => Event::Answer { tag, status, body: Value::Null },
-                },
-            };
-            if tx.send(event).is_err() {
-                return;
+        match &reads {
+            Some(reads) if out.beside => {
+                if reads.send(out).is_err() {
+                    return;
+                }
+            }
+            _ => {
+                if !exchange_and_answer(&mut link, token.as_deref(), out, &tx) {
+                    return;
+                }
             }
         }
     }
+}
+
+/// Makes the request and hands its answer to the loop; false once the loop is gone.
+fn exchange_and_answer(link: &mut Link, token: Option<&str>, out: Outbound, tx: &Sender<Event>) -> bool {
+    let body = out.body.as_ref().map(|b| serde_json::to_vec(b).unwrap_or_default());
+    let answer = link.request(out.method, &out.path, token, body.as_deref()).ok();
+    let Some(tag) = out.tag else { return true };
+    // a body that is JSON is the answer; one that is not (a still, a thumbnail) comes as bytes
+    let event = match answer {
+        None => Event::Answer { tag, status: 0, body: Value::Null },
+        Some((status, bytes)) => match serde_json::from_slice::<Value>(&bytes) {
+            Ok(body) => Event::Answer { tag, status, body },
+            Err(_) if !bytes.is_empty() => Event::Bytes { tag, status, body: bytes },
+            Err(_) => Event::Answer { tag, status, body: Value::Null },
+        },
+    };
+    tx.send(event).is_ok()
 }
 
 #[cfg(test)]
@@ -534,5 +583,59 @@ mod tests {
         }
         assert_eq!(answers, vec![(11, 200, "/v1/state/receiver".to_string()), (12, 200, "/v1/state/screen".to_string())]);
         assert!(served.load(std::sync::atomic::Ordering::SeqCst) >= 4);
+    }
+
+    #[test]
+    fn a_still_the_helper_is_slow_over_holds_neither_the_next_still_nor_a_write() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bound");
+        let port = listener.local_addr().expect("addr").port();
+        let (release, held) = channel::<()>();
+        let held = Arc::new(Mutex::new(held));
+        thread::spawn(move || {
+            for conn in listener.incoming() {
+                let Ok(mut conn) = conn else { return };
+                let held = held.clone();
+                thread::spawn(move || {
+                    let mut head = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while !head.ends_with(b"\r\n\r\n") {
+                        if conn.read(&mut byte).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        head.push(byte[0]);
+                    }
+                    let path = String::from_utf8_lossy(&head).split_whitespace().nth(1).unwrap_or("").to_string();
+                    if path.starts_with("/v1/state") || path.starts_with("/v1/events") {
+                        // the feed's poll waits here, out of the way
+                        thread::park();
+                    }
+                    if path.contains("/door/") {
+                        let _ = held.lock().unwrap_or_else(PoisonError::into_inner).recv();
+                    }
+                    let body = serde_json::to_vec(&serde_json::json!({"ok": true, "value": {"path": path}})).expect("json");
+                    let _ = write!(conn, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                    let _ = conn.write_all(&body);
+                });
+            }
+        });
+        let (feed, events) = Feed::start_following("test", port, None, "screen").expect("started");
+        let ask = |method, path: &str, tag, beside| feed.request(Outbound { method, path: path.into(), body: None, tag: Some(tag), beside });
+        ask("GET", "/v1/cameras/door/frame", 1, true);
+        ask("GET", "/v1/cameras/yard/frame", 2, true);
+        ask("POST", "/v1/cameras/live", 3, false);
+        let answered = |n: usize| {
+            let mut tags = Vec::new();
+            while tags.len() < n {
+                if let Event::Answer { tag, .. } = events.recv_timeout(Duration::from_secs(5)).expect("an answer") {
+                    tags.push(tag);
+                }
+            }
+            tags.sort_unstable();
+            tags
+        };
+        assert_eq!(answered(2), vec![2, 3], "the other still and the write, while the door's still is still coming");
+        release.send(()).expect("released");
+        assert_eq!(answered(1), vec![1]);
     }
 }

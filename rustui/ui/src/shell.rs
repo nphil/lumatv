@@ -367,7 +367,7 @@ impl Shell {
         for e in self.panels.start(&self.kinds) {
             self.carry(e, crate::host::now_ms(), &mut acts);
         }
-        acts.push(Act::Channel(Outbound { method: "POST", path: "/v1/ui".into(), body: Some(self.report()), tag: None }));
+        acts.push(Act::Channel(Outbound { method: "POST", path: "/v1/ui".into(), body: Some(self.report()), tag: None, beside: false }));
         acts
     }
 
@@ -395,12 +395,13 @@ impl Shell {
                 path: "/v1/luna".into(),
                 body: Some(json!({"tag": tag, "uri": uri, "payload": payload, "subscribe": subscribe})),
                 tag: None,
+                beside: false,
             })),
             Effect::Cancel { tag } => {
-                acts.push(Act::Channel(Outbound { method: "POST", path: "/v1/cancel".into(), body: Some(json!({"tag": tag})), tag: None }))
+                acts.push(Act::Channel(Outbound { method: "POST", path: "/v1/cancel".into(), body: Some(json!({"tag": tag})), tag: None, beside: false }))
             }
-            Effect::Post { path, body } => acts.push(Act::Helper(Outbound { method: "POST", path, body: Some(body), tag: None })),
-            Effect::Fetch { tag, path } => acts.push(Act::Helper(Outbound { method: "GET", path, body: None, tag: Some(tag) })),
+            Effect::Post { path, body } => acts.push(Act::Helper(Outbound { method: "POST", path, body: Some(body), tag: None, beside: false })),
+            Effect::Fetch { tag, path } => acts.push(Act::Helper(Outbound { method: "GET", path, body: None, tag: Some(tag), beside: true })),
             Effect::Request { tag, method, path, body } => {
                 let method = match method.as_str() {
                     "GET" => "GET",
@@ -408,9 +409,9 @@ impl Shell {
                     "DELETE" => "DELETE",
                     _ => "POST",
                 };
-                acts.push(Act::Helper(Outbound { method, path, body, tag: Some(tag) }))
+                acts.push(Act::Helper(Outbound { method, path, body, tag: Some(tag), beside: false }))
             }
-            Effect::Channel { path, body } => acts.push(Act::Channel(Outbound { method: "POST", path, body: Some(body), tag: None })),
+            Effect::Channel { path, body } => acts.push(Act::Channel(Outbound { method: "POST", path, body: Some(body), tag: None, beside: false })),
             Effect::Theme { tag, patch } => self.write_theme(tag, &patch, now, acts),
             Effect::Read { tag, path } => {
                 let full = self.file_of(&path);
@@ -1446,7 +1447,7 @@ impl Shell {
             let report = self.report();
             if self.reported.as_ref() != Some(&report) {
                 self.reported = Some(report.clone());
-                acts.push(Act::Channel(Outbound { method: "POST", path: "/v1/ui".into(), body: Some(report), tag: None }));
+                acts.push(Act::Channel(Outbound { method: "POST", path: "/v1/ui".into(), body: Some(report), tag: None, beside: false }));
             }
         }
     }
@@ -1837,6 +1838,7 @@ impl Shell {
                     path: "/v1/luna".into(),
                     body: Some(json!({"tag": crate::settings::src::TAG_END, "uri": "luna://com.webos.applicationManager/launch", "payload": {"id": app, "params": params}, "subscribe": false})),
                     tag: None,
+                    beside: false,
                 })),
                 ShellRequest::Layout { item } => {
                     if self.kinds.layout {
