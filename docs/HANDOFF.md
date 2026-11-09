@@ -31,6 +31,14 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Home focus dim removed, 2026-11-09 (main 7b442d73, installed 16:54 EST)
+
+Home no longer dims the other cards and the dock when the focus enters the cards (measured on the set: cards 0 to 2 %, dock 12 %). The selected card keeps its lift and highlight; the dock's glass still lights while the focus is on it. The idle panel dim is untouched.
+
+Standard cutover from standby: ui `0e7230c6` (replaced `55c1832c`); compositor `6cded4b2`, sm `65f6ca69` and helper `30f067a6` unchanged. The ui build also carries the other ui commits that reached main since `55c1832c` (camera pop-up OK, weather view, Sound route). Left as found: Active Standby, receiver off and unmuted.
+
+Frame gate at 120 Hz, 3 cycles each, old build then new: Home widgets 3 dropped / 1 burst over 20 ms, then 1 / 0; most layers in a frame 107, then 84; Home d-pad 0 / 0 on both, layers 93, then 76, first frame 242 ms, then 195 (both fail the 50 ms bar). One run each, so the drop counts sit inside the earlier run-to-run spread (0 to 2). Screenshot with focus on the Smart home card, nothing faded elsewhere: `/data/home/tmp/lumatv-nofocusdim-20261109/home-focus-smart-home-card.png`. Receipts, `gate/`, `rel/installed-7b442d73.json` and the rollback copy of `55c1832c` in `rel/backup/` are in the same folder. Not tested: standby wake after the install.
+
 ## Apple TV opens at once: Apple MFi kept, 2026-11-09 (not installed)
 
 The lean profile's `share` group stubbed `/usr/sbin/mfi` (`com.webos.service.mfi`). Apple TV's LG provisioning verifies its MFi key through that service at every start: with the stub it retried every 5 s, mapped its window 51.7 s after connecting and opened on a "ProvisionRebootRequired" alert, which the 7 and 9 Nov checks (20 to 35 s waits) took for no window. `items.txt` now keeps the service; it is on demand and runs only when called. With the stub lifted for one launch the window mapped 1.3 s after the app connected, on the profile picker, and the stub went back. Receipts: `/data/home/tmp/lumatv-appletv-20261109/` (not in git).
