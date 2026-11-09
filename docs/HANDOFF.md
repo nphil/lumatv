@@ -31,6 +31,12 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Network tuner with another app in front, 2026-11-08 (main b6f72b77, installed 23:33 EST)
+
+Helper `9287d135` (replaced `d40ed35e`) installed at 23:33 EST with the TV Active and Marquee playing in front, by the helper path alone: compositor `06313632`, ui `c3f161dd`, sm `65f6ca69` and `tools/lumatv` `0473b152` unchanged, Marquee in front and playing throughout. Before it, with Netflix in front, a tune of 2.1 returned the "did not respond" slate (`repro.ts`, `repro-slate.png`, `repro-helper.log`).
+
+Accepted on the TV at 00:08 EST over Marquee playing: a 20 s tune of 2.1 from BeastNAS carried MPEG-2 video at 1280×720 with AC-3 5.1 and stereo (mean -33.6 dB), its picture 1.6 s after the request (`verify/host-2.1-ffprobe.txt`, `verify/host-2.1-frame.png`); `/status.json` named the client while it ran and no one after; the tuner's pipeline held only `ADTU` and `SDEC`, Marquee's kept its decoders, main scaler and main sound (`session.log`, `verify/host-*.jpg`). The iPhone's Marquee tuned 5.6, 11.2 and 11.11 over the same app with pictures in 1.4 to 3.1 s (`verify/helper-tuner-lines-2335.txt`), and the TV's last channel stayed `1_32_2_1`. Untested with this helper: Netflix in 4K in front (`playSignaling` alone locked beside it, Netflix keeping all four decoders: `probe/ps2-legacy-rf27.txt`), Live TV taking the tuner mid-stream, standby, Marquee's sound by ear. Receipts: `/data/home/tmp/tuner-awake/`.
+
 ## Quick Settings flush right and signal chips install, 2026-11-08 (main bcda7804, installed 22:29 EST)
 
 Installed with the TV Active and Netflix in front (owner-approved interruption), by the standard compositor cutover and helper path; Netflix relaunched after, lease released. Installed sha256 prefixes: compositor `06313632` (replaced `108414af`), ui `c3f161dd` (replaced `8ba48ab2`), sm `65f6ca69` (unchanged), helper `d40ed35e` (replaced `a0d0c3d1`), `tools/lumatv` `0473b152` (unchanged). Gates at bcda7804: uitest, comptest, helpertest, release. Receipts: `/data/home/tmp/lumatv-ready-bcda7804/`.
