@@ -31,6 +31,10 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Phone remote connects after pairing, 2026-11-09 (main dc5474e4, installed 14:04 EST)
+
+The first real iPhone (Marquee 0.1.25, LumaRemoteKit 1.0.2) paired, then showed the TV as "off or out of reach": the TV welcomed each session, and the kit failed to decode the `welcome` because the receiver's `volumeMax` is 72.5 and the kit's `VolumeState.level`/`max` are `Int`. dc5474e4 rounds both to whole numbers (the protocol now says so). Helper-only install while the TV was on: `lumatv-helper` ea8e659b replaced 92dbac9c; compositor 6cded4b2, ui 55c1832c, sm 65f6ca69 and `tools/lumatv` 0473b152 unchanged. Twenty seconds later the phone's session was live (`live:true`, ESTABLISHED from 192.168.1.151). Receipts and rollback copy: `/data/home/tmp/lumatv-remotefix-20261109/`. `lumaremote`'s own `log::info!` lines (paired, connected, left) do not reach the TV's log; the helper does not install a `log` backend.
+
 ## Scene ceilings raised, 2026-11-09 (main 890cc3e8, installed 13:11 EST)
 
 A client may now hold 512 layers, 256 groups and 64 motion tracks (were 256, 96 and 32), so Settings over Quick Settings over Home no longer runs out of groups. A frame still walks only the layers and groups there are, and the compositor's maps stay reserved for 112 groups and 56 tracks.
