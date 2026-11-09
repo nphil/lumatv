@@ -168,6 +168,21 @@ impl Flow {
         }
     }
 
+    /// Gives `id`'s lift a group for its lit glass, or takes it away (`None`), and hands back the one it had: a lift that makes its lit
+    /// group only while it is lifted holds no group for it at rest. Bound to the track at once when the lift is in flight.
+    pub fn set_lit(&mut self, id: Id, lit: Option<Group>) -> Option<Group> {
+        let slot = self.slots.iter().position(|s| s.owner == Some(id));
+        let (_, l) = self.lifts.iter_mut().find(|(i, _)| *i == id)?;
+        let old = std::mem::replace(&mut l.lit, lit);
+        if let Some(old) = &old {
+            old.unbind(PoseProperties::ALL);
+        }
+        if let Some(si) = slot {
+            let _ = l.bind(&self.slots[si].track, self.spec.reduced);
+        }
+        old
+    }
+
     /// Gives the lift of `id` a group whose contents it does not move: `group` hangs under the lifted group, posed at `rest` when the lift is
     /// at rest.
     pub fn keep(&mut self, id: Id, group: Group, rest: GroupPose) {

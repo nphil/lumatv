@@ -1000,7 +1000,10 @@ impl QuickSurface {
         if self.stage.needs_root(arrive) {
             self.drop_built(engine);
         }
-        self.stage.ensure(kit, phase, arrive, true)?;
+        if let Err(e) = self.stage.ensure(kit, phase, arrive, true) {
+            self.drop_all(engine);
+            return Err(e);
+        }
         let width = lay::SHEET_W - 2.0 * kit.space(6);
         let faces = lay::signal_faces(view.video_info, view.info);
         let chips_w = lay::chips_width(kit, width);
@@ -1046,6 +1049,8 @@ impl QuickSurface {
                 result => {
                     let error = result.err().unwrap_or_else(|| std::io::Error::other("the scene is full: the quick panel could not be drawn whole"));
                     let _ = kit.ui.scene.take_overflow();
+                    // no sheet without its rows: what was made goes with it, and the next try starts from nothing
+                    self.drop_all(engine);
                     release_scope(engine, SCOPE);
                     return Err(error);
                 }
@@ -1644,7 +1649,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_build_releases_focus_resources_before_retry() {
+    fn failed_build_leaves_no_empty_sheet_and_releases_focus_resources_before_retry() {
         let (_h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
         let mut engine = Engine::new(&kit).unwrap();
         let (q, env) = rig(false);
@@ -1658,6 +1663,7 @@ mod tests {
         let room = kit.room().groups;
         for _ in 0..3 {
             assert!(surface.apply(&mut kit, &mut engine, &view, phase, 1000, 1_000_000_000).is_err());
+            assert!(!surface.is_up(), "no sheet is left without its rows");
             assert_eq!(kit.room().groups, room);
             assert!(engine.focus.ids_in_scope(SCOPE).is_empty());
         }

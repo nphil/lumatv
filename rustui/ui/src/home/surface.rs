@@ -266,9 +266,17 @@ struct IconArt {
     /// draws it 1:1).
     off: f32,
     lift: f32,
+    key: ArtKey,
 }
 
+/// What a tile's pictures are made from: the icon's file, the tile's side, the inset, the corner's radius and the lift's scale.
+type ArtKey = (String, u32, u32, u32, u32);
+
 impl IconArt {
+    fn key_of(path: &str, tile: u32, inset: u32, radius: f32, lift: f32) -> ArtKey {
+        (path.to_owned(), tile, inset, radius.to_bits(), lift.to_bits())
+    }
+
     fn of(path: &str, data: Option<&Path>, tile: u32, inset: u32, radius: f32, lift: f32) -> Option<Self> {
         let pic = picture::load_icon(path, data)?;
         // the edge alpha: the mean alpha of the outer ring of pixels
@@ -291,7 +299,7 @@ impl IconArt {
             }
             p
         };
-        Some(Self { rest: make(side), lifted: make(lifted_side), off: if full { 0.0 } else { inset as f32 }, lift })
+        Some(Self { rest: make(side), lifted: make(lifted_side), off: if full { 0.0 } else { inset as f32 }, lift, key: Self::key_of(path, tile, inset, radius, lift) })
     }
 
     /// The layer of one of the two pictures, in the group it is made under. The lifted one is centred where the rest one is and shown
@@ -313,8 +321,10 @@ struct Tile {
     id: Id,
     plate: ShapeLayer,
     icon: Option<ImageLayer>,
-    /// The icon again at the size the lifted tile draws it, crossfaded in by the lift (`tile_icon`).
+    /// The icon again at the size the lifted tile draws it, crossfaded in by the lift (`tile_icon`), in a lit group of the tile's lift. Both are
+    /// made only while the tile is focused or on its way back to rest: a lit group for each of 16 tiles held a sixth of the scene's 96 groups.
     lifted_icon: Option<ImageLayer>,
+    art: Option<IconArt>,
     app: String,
     slot: (i32, i32),
 }
@@ -335,6 +345,8 @@ struct DockSurface {
     scroll: f32,
     /// [`Dock::rev`] and the columns the tiles were made for.
     key: Option<(u64, usize)>,
+    /// The pictures of the tiles let go while Home was hidden or squeezed, for the tiles made again when it shows.
+    arts: Vec<IconArt>,
     halo_accent: Option<Rgba>,
     halo_at: Option<(f32, f32)>,
     /// The glass the dock's pane was last given by its dim step (`update_focus`); `None` once something else restyled it.
@@ -385,6 +397,8 @@ pub struct HomeSurface {
     /// When the cards' contents were last brought up to date, and whether a full-screen sheet covered Home at the last apply (`contents_due`).
     contents_at: u64,
     covered: bool,
+    /// Whether the dock's tiles are let go: Home is hidden under a full kind, or a panel over it needs their groups ([`HomeSurface::set_shed`]).
+    shed: bool,
     page_hidden: bool,
     dimming: Dimming,
     pub glyph_runs: bool,
@@ -432,6 +446,7 @@ impl HomeSurface {
             last_clock_s: 0,
             contents_at: 0,
             covered: false,
+            shed: false,
             page_hidden: false,
             dimming: Dimming::default(),
             glyph_runs: true,
@@ -446,6 +461,31 @@ impl HomeSurface {
 
     pub fn restyle(&mut self) {
         self.generation = 0;
+    }
+
+    /// Lets the dock's tiles and the smart-home items' lifts go at once (`true`), a group or two each, keeping the tiles' pictures; `false` has
+    /// them made again by the next apply. The shell sheds them under a full kind and for a panel or Settings that found no room in the
+    /// scene's 96 groups.
+    pub fn set_shed(&mut self, engine: &mut Engine, shed: bool) {
+        self.shed = shed;
+        if !shed {
+            return;
+        }
+        for c in &mut self.cards {
+            if let Content::OnHome(card) = &mut c.content {
+                card.shed(engine);
+            }
+        }
+        let Some(d) = self.dock.as_mut() else { return };
+        d.key = None;
+        for mut t in d.tiles.drain(..) {
+            engine.flow.drop_lift(t.id);
+            d.arts.extend(t.art.take());
+        }
+    }
+
+    pub fn is_shed(&self) -> bool {
+        self.shed
     }
 
     /// The surface's own timers that ask for Home to be drawn again: the news slide, the clock's second (or minute), and a sky that is not made yet or
@@ -750,23 +790,31 @@ impl HomeSurface {
         })?;
         let _ = radius;
         engine.flow.scroller(&kit.ui.scene, model::DOCK, &grid, GroupPose::IDENTITY, false, 4000.0).map_err(other)?;
-        Ok(DockSurface { lift, frame, viewport, grid, halo, fade, tiles: Vec::new(), pill, pill_text, pill_for: None, cols: home.dock.cols(), scroll: 0.0, key: None, halo_accent: None, halo_at: None, pane_glass: None })
+        Ok(DockSurface { lift, frame, viewport, grid, halo, fade, tiles: Vec::new(), pill, pill_text, pill_for: None, cols: home.dock.cols(), scroll: 0.0, key: None, arts: Vec::new(), halo_accent: None, halo_at: None, pane_glass: None })
     }
 
-    /// The tiles, made again when the dock's list changes.
+    /// The tiles, made again when the dock's list changes, and after a shed ([`HomeSurface::set_shed`]) from the pictures kept for them: a
+    /// picture is a decode and two resamples.
     fn build_dock_tiles(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home) -> std::io::Result<()> {
+        if self.shed {
+            return Ok(());
+        }
         let Some(d) = &mut self.dock else { return Ok(()) };
         let key = Some((home.dock.rev, home.dock.cols()));
         if key == d.key {
             return Ok(());
         }
-        d.key = key;
+        // the tiles made again after a shed lift the focus again (`update_focus`)
+        if d.key.is_none() && self.last_focus.is_some_and(|f| f.0 >= model::DOCK_ID && f.0 < model::DOCK_ID + model::DOCK_MAX) {
+            self.last_focus = None;
+        }
         d.cols = home.dock.cols();
         let mut old: Vec<Option<Tile>> = std::mem::take(&mut d.tiles).into_iter().map(Some).collect();
         let tile = home.dock.tile as f32;
         let lift = lift_scale(tile, kit.tokens.focus.tile_scale);
         let radius = kit.tokens.radius(Radius::Tile);
         let inset = home.theme.pointer("/tiles/inset").and_then(Value::as_f64).unwrap_or(19.0) as f32;
+        let mut failed = None;
         for (i, p) in home.dock.points.iter().enumerate() {
             let id = Id(model::DOCK_ID + i as u32);
             let (sx, sy) = home.dock.slot(i);
@@ -787,12 +835,21 @@ impl HomeSurface {
                 continue;
             }
             let other = |e: ui::error::UiError| std::io::Error::other(format!("{e}"));
-            let group = kit.ui.scene.group(Some(d.grid.id()), rest).map_err(other)?;
-            let lit_group = kit.ui.scene.group(Some(group.id()), GroupPose { opacity: 0.0, ..GroupPose::IDENTITY }).map_err(other)?;
+            let group = match kit.ui.scene.group(Some(d.grid.id()), rest) {
+                Ok(g) => g,
+                Err(e) => {
+                    failed = Some(other(e));
+                    break;
+                }
+            };
             let plate_colour = lumatv_tokens::colour(&p.plate).map(|c| c.premultiply(0.0)).unwrap_or(Rgba(42, 40, 51, 255));
             let scene = kit.ui.scene.clone();
-            let art = IconArt::of(&p.icon, self.data.as_deref(), tile as u32, inset as u32, radius, lift);
-            let (plate_layer, icon) = scene.adopting(&group, || -> std::io::Result<_> {
+            let made = IconArt::key_of(&p.icon, tile as u32, inset as u32, radius, lift);
+            let art = match d.arts.iter().position(|a| a.key == made) {
+                Some(j) => Some(d.arts.swap_remove(j)),
+                None => IconArt::of(&p.icon, self.data.as_deref(), tile as u32, inset as u32, radius, lift),
+            };
+            let layers = scene.adopting(&group, || -> std::io::Result<_> {
                 let shape = Shape { corner_radius: radius, fill: compositor_protocol::Fill::Solid(plate_colour), border_width: 1.0, border: faded(Rgba(255, 255, 255, 255), 0.13) };
                 let plate_layer = kit.ui.scene.shape(tile as u32, tile as u32, Z_DOCK + 3, shape, Props::at(0.0, 0.0));
                 let icon = match &art {
@@ -800,17 +857,28 @@ impl HomeSurface {
                     None => None,
                 };
                 Ok((plate_layer, icon))
-            })?;
-            let lifted_icon = match &art {
-                Some(a) => Some(scene.adopting(&lit_group, || a.layer(kit, Z_DOCK + 5, true))?),
-                None => None,
+            });
+            let (plate_layer, icon) = match layers {
+                Ok(l) => l,
+                Err(e) => {
+                    d.arts.extend(art);
+                    failed = Some(e);
+                    break;
+                }
             };
-            engine.flow.lift(id, Lifted { group, rest, scale: lift, rise: 6.0, lit: Some(lit_group) });
-            d.tiles.push(Tile { id, plate: plate_layer, icon, lifted_icon, app: p.id.clone(), slot: (sx, sy) });
+            engine.flow.lift(id, Lifted { group, rest, scale: lift, rise: 6.0, lit: None });
+            d.tiles.push(Tile { id, plate: plate_layer, icon, lifted_icon: None, art, app: p.id.clone(), slot: (sx, sy) });
         }
-        for t in old.into_iter().flatten() {
+        for mut t in old.into_iter().flatten() {
             engine.flow.drop_lift(t.id);
+            d.arts.extend(t.art.take());
         }
+        // a dock the scene had no room for keeps no key and the pictures of the tiles it lacks: the next apply makes the rest
+        if let Some(e) = failed {
+            return Err(e);
+        }
+        d.arts.clear();
+        d.key = key;
         Ok(())
     }
 
@@ -1053,7 +1121,9 @@ impl HomeSurface {
                 Content::OnHome(oh) => {
                     let Some(smart) = home.smart_of(&c.id) else { continue };
                     let mut cx = super::onhome::card::Cx { kit, engine, lift: &c.lift, pictures: &mut self.pictures, stills: &home.stills, now_ms: now, now_ns: Self::now_ns() };
-                    let view = super::onhome::card::View { smart, topic: &home.onhome, entered: (mine && home.layer == Layer::None) || home.items_editing(&c.id), notice: home.onhome_notice(), hold_ms: home.hold_ms() };
+                    // a shed card lifts no item (`set_shed`): its contents still change under the kind that covers it
+                    let entered = ((mine && home.layer == Layer::None) || home.items_editing(&c.id)) && !self.shed;
+                    let view = super::onhome::card::View { smart, topic: &home.onhome, entered, notice: home.onhome_notice(), hold_ms: home.hold_ms() };
                     let _ = oh.sync(&mut cx, &view);
                 }
                 Content::Unknown(_) => {}
@@ -1070,7 +1140,8 @@ impl HomeSurface {
             d.scroll = scroll;
             let _ = engine.flow.scroll_to(model::DOCK, scroll);
         }
-        let _ = now_ns;
+        let focused = home.focus.current().and_then(|id| id.0.checked_sub(model::DOCK_ID).filter(|i| *i < model::DOCK_MAX).map(|i| i as usize));
+        let scene = kit.ui.scene.clone();
         for (i, t) in d.tiles.iter_mut().enumerate() {
             let (sx, sy) = home.dock.slot(i);
             if t.slot != (sx, sy) {
@@ -1078,9 +1149,25 @@ impl HomeSurface {
                 let rest = GroupPose { x: sx as f32, y: sy as f32, pivot_x: home.dock.tile as f32 / 2.0, pivot_y: home.dock.tile as f32 / 2.0, ..GroupPose::IDENTITY };
                 let _ = engine.flow.place(t.id, rest);
             }
+            // the lifted icon and the lit group its lift fades in: made for the tile the focus is on (before `update_focus` lifts it) and kept
+            // until the tile is back at rest
+            let lit = t.art.is_some() && (focused == Some(i) || !engine.flow.resting(t.id, now_ns));
+            if lit == t.lifted_icon.is_some() {
+                continue;
+            }
+            if !lit {
+                t.lifted_icon = None;
+                drop(engine.flow.set_lit(t.id, None));
+                continue;
+            }
+            let (Some(a), Some(parent)) = (&t.art, engine.flow.group(t.id).map(|g| g.id())) else { continue };
+            let Ok(group) = scene.group(Some(parent), GroupPose { opacity: 0.0, ..GroupPose::IDENTITY }) else { continue };
+            if let Ok(layer) = scene.adopting(&group, || a.layer(kit, Z_DOCK + 5, true)) {
+                t.lifted_icon = Some(layer);
+                engine.flow.set_lit(t.id, Some(group));
+            }
         }
         // the glow behind the focused tile and the name under it
-        let focused = home.focus.current().and_then(|id| id.0.checked_sub(model::DOCK_ID).filter(|i| *i < model::DOCK_MAX).map(|i| i as usize));
         let dock_focused = focused.is_some() && home.layer == Layer::None;
         let accent_hex = home.dock.accent_for(home.dock.focused(), &home.theme, &home.tint.pointer("/tint").map(|t| {
             let c = |k: &str| t.get(k).and_then(Value::as_u64).unwrap_or(0) as u8;

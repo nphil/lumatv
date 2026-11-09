@@ -369,6 +369,16 @@ impl Card {
         }
     }
 
+    /// The items' lifts go at once (two groups each), but the one under a finger: Home is hidden or a panel over it needs the room. The item in
+    /// front lifts again when the card is next drawn.
+    pub fn shed(&mut self, engine: &mut Engine) {
+        let Some(b) = self.built.as_mut() else { return };
+        for view in b.views.iter_mut().filter(|v| !v.pressed) {
+            lower(engine, view);
+        }
+        b.focus = None;
+    }
+
     /// The structure: the viewport that clips, the scroller that moves under it, the track that moves it. The views are made by [`Self::items`].
     fn rebuild(&mut self, cx: &mut Cx, v: &View, shape: String) -> std::io::Result<()> {
         self.drop_built(cx);
@@ -448,7 +458,7 @@ impl Card {
         // the lift of an item that has settled back goes: the glass at rest looks the same
         for view in views.iter_mut() {
             if view.lift.is_some() && Some(view.id) != *front && !view.pressed && view.left_ms.is_some_and(|at| cx.now_ms >= at + SETTLE_MS) {
-                lower(cx, view);
+                lower(cx.engine, view);
             }
         }
         // the pointer's cue and the press
@@ -763,9 +773,9 @@ fn raise(cx: &mut Cx, scroller: &Group, view: &mut ItemView) -> std::io::Result<
 }
 
 /// The lift of an item that is at rest goes, and the glass at rest is shown again where it was: the two look the same at rest.
-fn lower(cx: &mut Cx, view: &mut ItemView) {
+fn lower(engine: &mut Engine, view: &mut ItemView) {
     if view.lift.take().is_some() {
-        cx.engine.flow.drop_lift(view.id);
+        engine.flow.drop_lift(view.id);
     }
     view.left_ms = None;
     view.flat.set(Props::at(view.rect.x, view.rect.y));
@@ -776,7 +786,7 @@ fn trim(cx: &mut Cx, views: &mut [ItemView], front: Option<Id>) {
     while views.iter().filter(|v| v.lift.is_some()).count() > MAX_LIFTS {
         let oldest = views.iter().enumerate().filter(|(_, v)| v.lift.is_some() && Some(v.id) != front && !v.pressed).min_by_key(|(_, v)| v.left_ms.unwrap_or(u64::MAX)).map(|(i, _)| i);
         match oldest {
-            Some(i) => lower(cx, &mut views[i]),
+            Some(i) => lower(cx.engine, &mut views[i]),
             None => break,
         }
     }

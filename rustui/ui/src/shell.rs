@@ -42,6 +42,9 @@ const ICON_WARM_GAP_MS: u64 = 30;
 const REPORT_HEARTBEAT_MS: u64 = 1000;
 /// The least time between two drawings for a refusal: a scene at its ceiling refuses what each drawing asks.
 const REFUSAL_REDRAW_GAP_MS: u64 = 1000;
+/// The most groups an overlay takes (the quick panel with the TV's chips and rows took 24, a page of Settings fewer): an overlay that failed
+/// with less room than this left in the scene failed for the room ([`Shell::squeeze_home`]).
+const OVERLAY_GROUPS: usize = 40;
 
 /// What the shell asks the host to do.
 #[derive(Clone, Debug, PartialEq)]
@@ -224,6 +227,13 @@ pub struct Shell {
     overlay_until: u64,
     /// When Home is next let go, a tick of its own.
     release_at: Option<u64>,
+    /// Since when a full kind (Settings, the display lab, the guide, the cameras' viewer) has covered Home, and the tick at which it has done so
+    /// [`OVERLAY_RELEASE_MS`], past its fade-in: Home's dock then lets its tiles go, and has them again the frame the kind goes.
+    covered_since: Option<u64>,
+    hide_at: Option<u64>,
+    /// A panel or Settings found no room in the scene's 96 groups and Home let its dock's tiles go for it ([`Shell::squeeze_home`]), until the
+    /// overlay has been gone a while.
+    squeeze: bool,
     /// When the next icon masks are loaded.
     icons_warm_at: Option<u64>,
     helper_up: bool,
@@ -314,6 +324,9 @@ impl Shell {
             overlay_up: false,
             overlay_until: 0,
             release_at: None,
+            covered_since: None,
+            hide_at: None,
+            squeeze: false,
             icons_warm_at: None,
             helper_up: false,
             started: false,
@@ -386,6 +399,18 @@ impl Shell {
                 acts.push(Act::Log(text));
             }
         }
+    }
+
+    /// An overlay (a panel, Settings) failed with less room in the scene than it may need: Home's dock lets its tiles go at once, a group
+    /// each, for its second try in the same frame, and has them again once the overlay has been gone a while (`after`). False when the room
+    /// is not what it lacked or there is nothing more to let go.
+    fn squeeze_home(&mut self) -> bool {
+        if !self.kinds.home || !self.overlay_up || self.home_surface.is_shed() || self.kit.room().groups >= OVERLAY_GROUPS {
+            return false;
+        }
+        self.squeeze = true;
+        self.home_surface.set_shed(&mut self.engine, true);
+        true
     }
 
     fn carry(&mut self, effect: Effect, now: u64, acts: &mut Vec<Act>) {
@@ -1219,6 +1244,25 @@ impl Shell {
         // a tick of its own when it ends
         self.release_at = (self.overlay_until > now && self.overlay_until != u64::MAX).then_some(self.overlay_until);
         let viewer = self.kinds.cameras && self.cameras.wants();
+        // Home's dock lets its tiles go (a group each) under a full kind once the kind is in, and for an overlay that found no room in the scene
+        // (`squeeze_home`) until the overlay has been gone a while, when the parked panel gives its groups back for them
+        if self.kinds.home {
+            if modal || viewer {
+                self.covered_since.get_or_insert(now);
+            } else {
+                self.covered_since = None;
+            }
+            self.hide_at = self.covered_since.map(|t| t + OVERLAY_RELEASE_MS).filter(|t| *t > now);
+            if self.squeeze && now >= self.overlay_until {
+                self.squeeze = false;
+                self.panels.give_way(false);
+            }
+            let shed = self.squeeze || self.covered_since.is_some_and(|t| now >= t + OVERLAY_RELEASE_MS);
+            if shed != self.home_surface.is_shed() {
+                self.home_surface.set_shed(&mut self.engine, shed);
+                self.redraw = true;
+            }
+        }
         for e in self.sys.set_host(&self.kinds, host_busy, viewer, now) {
             self.carry(e, now, acts);
         }
@@ -1376,7 +1420,12 @@ impl Shell {
             self.panels.set_camera(self.home.camera_frame());
             self.panels.set_gear(self.home.gear_frame());
             self.panels.camera_focus(&self.kinds, self.kinds.home && self.home.camera_focused(), now);
-            match self.panels.apply(&self.kinds, &mut self.kit, &mut self.engine, now, now_ns) {
+            let mut applied = self.panels.apply(&self.kinds, &mut self.kit, &mut self.engine, now, now_ns);
+            // a panel the scene had no room for is drawn whole in this frame, over a Home whose dock let its tiles go for it
+            if applied.is_err() && self.squeeze_home() {
+                applied = self.panels.apply(&self.kinds, &mut self.kit, &mut self.engine, now, now_ns);
+            }
+            match applied {
                 Ok(on) => live |= on,
                 Err(e) => self.apply_failed("panels", e.to_string(), acts),
             }
@@ -1399,7 +1448,11 @@ impl Shell {
             if self.kinds.settings {
                 let now_ns = self.kit.ui.scene.now_ns();
                 let over_video = self.sys.app_front();
-                match self.settings.apply(&mut self.kit, &mut self.engine, over_video, now, now_ns) {
+                let mut applied = self.settings.apply(&mut self.kit, &mut self.engine, over_video, now, now_ns);
+                if applied.is_err() && self.squeeze_home() {
+                    applied = self.settings.apply(&mut self.kit, &mut self.engine, over_video, now, now_ns);
+                }
+                match applied {
                     Ok(on) => { live |= on; set_visible(&mut interactive, 16, on); },
                     Err(e) => self.apply_failed("settings", format!("settings: {e}"), acts),
                 }
@@ -1633,7 +1686,7 @@ impl Shell {
         let lab = if self.kinds.displaylab { self.lab.due_at() } else { None };
         let guide = if self.kinds.guide { self.guide.due_at() } else { None };
         let refused = (self.kit.ui.scene.refusals() != self.refusals_seen).then_some(self.refusal_redraw_at);
-        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, guide, self.vwin.due_at(), self.release_at, self.icons_warm_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1], self.interactive_fades[2], refused].into_iter().flatten().min()
+        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, guide, self.vwin.due_at(), self.release_at, self.hide_at, self.icons_warm_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1], self.interactive_fades[2], refused].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {
@@ -3560,6 +3613,54 @@ mod tests {
         let logs: Vec<&String> = acts.iter().filter_map(|a| if let Act::Log(l) = a { Some(l) } else { None }).collect();
         assert!(!logs.iter().any(|l| l.contains("groups") || l.contains("scene is full")), "{logs:?}");
         assert_eq!(shell.state()["settings"]["built"], 7, "every row of the page is drawn");
+    }
+
+    /// 2026-11-09 09:41, just after a wake: Home's dock, its smart-home card and the wake's picker held so much of the scene's 96 groups that
+    /// the gear's panel came up empty ("quick panel: at most 96 groups") and a row of Settings' Remote & pointer could not be focused. A panel
+    /// short of room is drawn whole in the same frame over a dock that lets its tiles go, which has them again once the panel has been gone a
+    /// while; under Settings the dock lets them go once Settings is in, and has them again when it goes.
+    #[test]
+    fn a_panel_short_of_groups_is_drawn_whole_over_a_dock_that_lets_its_tiles_go_as_it_does_under_settings() {
+        let tiles = |s: &Shell| s.geometry()["home"]["dock"]["tiles"].as_u64();
+        let rows = |s: &Shell| s.geometry()["quick"]["rows"].as_array().map_or(0, Vec::len);
+        let logs = |acts: &[Act]| acts.iter().filter_map(|a| if let Act::Log(l) = a { Some(l.clone()) } else { None }).collect::<Vec<_>>();
+        let open_quick = |s: &mut Shell, at: u64| {
+            let mut acts = s.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "quick", "warm": false, "n": at}) }, at);
+            acts.extend(s.tick(at + 300));
+            acts
+        };
+        // what the panel takes over a Home with room to spare
+        let (_h, mut roomy) = home_shell("home,quick,settings");
+        roomy.tick(1_500);
+        let free = roomy.kit.room().groups;
+        open_quick(&mut roomy, 2_000);
+        let (need, all) = (free - roomy.kit.room().groups, rows(&roomy));
+        assert!(need > 3 && all > 0, "{need} groups, {all} rows");
+        // the same Home with three groups fewer left than that
+        let (_h, mut shell) = home_shell("home,quick,settings");
+        shell.tick(1_500);
+        assert_eq!(tiles(&shell), Some(6));
+        let scene = shell.kit.ui.scene.clone();
+        let held: Vec<_> = (0..shell.kit.room().groups - (need - 3)).map(|_| scene.group(None, compositor_protocol::GroupPose::IDENTITY).expect("a group")).collect();
+        let acts = open_quick(&mut shell, 2_000);
+        assert_eq!((shell.state()["panels"]["quick"].as_str(), rows(&shell)), (Some("open"), all), "every row of the panel is drawn");
+        assert!(!logs(&acts).iter().any(|l| l.contains("groups")), "{:?}", logs(&acts));
+        assert_eq!(tiles(&shell), Some(0), "the dock let its tiles go for it");
+        key(&mut shell, "back", 3_000);
+        shell.tick(3_300);
+        assert_eq!(tiles(&shell), Some(0), "not while the panel slides out");
+        let acts = shell.tick(3_100 + OVERLAY_RELEASE_MS);
+        assert_eq!(tiles(&shell), Some(6), "{:?}", logs(&acts));
+        drop(held);
+        shell.open_settings(Some("remote"), 5_000);
+        shell.tick(5_100);
+        let built = shell.state()["settings"]["built"].clone();
+        assert_eq!(tiles(&shell), Some(6), "not under Settings' fade-in");
+        shell.tick(5_000 + OVERLAY_RELEASE_MS);
+        assert_eq!((tiles(&shell), shell.state()["settings"]["built"].clone()), (Some(0), built), "Settings is in: the tiles go, its rows stay");
+        let _ = shell.settings.close(6_000);
+        shell.tick(6_010);
+        assert_eq!(tiles(&shell), Some(6), "the frame Settings goes");
     }
 
     /// Session 11's settings-scroll at 120 Hz: Settings opened from the quick panel came up at once, the panel's slide out went on under it for
