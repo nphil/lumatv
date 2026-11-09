@@ -407,6 +407,17 @@ fn main() {
     }
 }
 
+/// While the engine's socket holds back part of a commit, the loop wakes this often to push it: nothing else wakes it for that.
+/// Under load the compositor reads late: the apps grid's first frame took 112 to 524 ms (6 to 10 ms without load), sent only once
+/// an unrelated message woke the loop.
+const BACKLOG_PUSH: Duration = Duration::from_millis(2);
+
+/// How long the loop may wait for its next message: until the shell's next timer, or a moment while a commit is held back.
+fn wait_for(scene: &Scene, due: Option<u64>, now: u64) -> Duration {
+    let timer = due.map_or(Duration::from_secs(5), |due| Duration::from_millis(due.saturating_sub(now).clamp(1, 5000)));
+    if scene.wants_writable() { timer.min(BACKLOG_PUSH) } else { timer }
+}
+
 fn confirms_first_commit(first: Option<u64>, event: &SceneEvent) -> bool {
     matches!(event, SceneEvent::Frame { tag, .. } if first.is_some_and(|first| *tag >= first))
 }
@@ -449,7 +460,7 @@ fn run_set(o: Options) -> io::Result<()> {
     let mut carried: Option<Msg> = None;
     loop {
         let now = now_ms();
-        let timeout = shell.due_at().map_or(Duration::from_secs(5), |due| Duration::from_millis(due.saturating_sub(now).clamp(1, 5000)));
+        let timeout = wait_for(&shell.kit.ui.scene, shell.due_at(), now);
         match carried.take().map_or_else(|| rx.recv_timeout(timeout), Ok) {
             Ok(Msg::Scene(ev)) => {
                 if !frame_ready && confirms_first_commit(first_commit, &ev) {
@@ -503,6 +514,9 @@ fn run_set(o: Options) -> io::Result<()> {
         }
         if let Some(atlas) = shell.kit.ui.text_atlas() {
             atlas.pump();
+        }
+        if shell.kit.ui.scene.wants_writable() {
+            shell.kit.ui.scene.writer_ready().map_err(|e| io::Error::other(format!("the engine's socket: {e}")))?;
         }
         if shell.kit.ui.scene.has_pending() {
             match shell.kit.ui.try_commit() {
@@ -888,5 +902,43 @@ mod readiness_tests {
         assert!(!confirms_first_commit(Some(11), &frame(10)));
         assert!(confirms_first_commit(Some(11), &frame(11)));
         assert!(confirms_first_commit(Some(11), &frame(12)));
+    }
+
+    #[test]
+    fn a_commit_the_socket_holds_back_keeps_the_wait_short_until_it_has_gone_out() {
+        use compositor_protocol::{PROTOCOL_VERSION, Props, Request, Rgba, read_frame, write_frame};
+        use std::os::fd::AsRawFd;
+        let (app, mut comp) = UnixStream::pair().unwrap();
+        // a small send buffer, so that one commit fills it while the compositor is not reading
+        let small: libc::c_int = 4096;
+        // SAFETY: a socket this test owns and an int option of the right size.
+        let set = unsafe {
+            libc::setsockopt(app.as_raw_fd(), libc::SOL_SOCKET, libc::SO_SNDBUF, (&raw const small).cast(), size_of::<libc::c_int>() as libc::socklen_t)
+        };
+        assert_eq!(set, 0);
+        let server = std::thread::spawn(move || {
+            read_frame::<Request>(&mut comp, &mut Vec::new()).unwrap();
+            let welcome = SceneEvent::Welcome { version: PROTOCOL_VERSION, panel_width: 1920, panel_height: 1080, refresh_hz: 120.0, smooth_first_full: true };
+            write_frame(&mut comp, &welcome).unwrap();
+            comp
+        });
+        let (scene, _, _events) = Scene::over(app).unwrap();
+        let mut comp = server.join().unwrap();
+        let _shapes: Vec<_> =
+            (0..400).map(|z| scene.shape(8, 8, z, ui::components::plate::solid(Rgba(1, 2, 3, 255), 0.0), Props::at(0.0, 0.0))).collect();
+        scene.try_commit().unwrap();
+        assert!(scene.wants_writable());
+        assert_eq!(wait_for(&scene, None, 0), BACKLOG_PUSH);
+        let compositor = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            while !matches!(read_frame::<Request>(&mut comp, &mut buf).unwrap(), Some(Request::Commit { .. })) {}
+            comp
+        });
+        while scene.wants_writable() {
+            scene.writer_ready().unwrap();
+            std::thread::yield_now();
+        }
+        compositor.join().unwrap();
+        assert_eq!(wait_for(&scene, Some(40), 0), Duration::from_millis(40));
     }
 }
