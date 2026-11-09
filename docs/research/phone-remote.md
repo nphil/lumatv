@@ -183,7 +183,7 @@ Actions:
 | `guide` | | Live TV guide | `shell_show("guide")`, as the Guide key |
 | `tune` | `channel` | change channel | launch Live TV with the shell's `tune_request` parameters (`rustui/ui/src/host/channels.rs`) |
 | `launch` | `app` | open an app | `SystemRequest::LaunchApp`, after checking the id against `listApps` |
-| `volume` | `level` | set the receiver's level | `POST /v1/receiver/volume`; receiver plugin on |
+| `volume` | `level`: a number on the receiver's scale, which moves by 0.5 (41.5 is a level; finer values snap to the nearest half) | set the receiver's level | `POST /v1/receiver/volume`; receiver plugin on |
 | `power` | `to`: `on` or `off` | power | a Power tap when the state differs |
 
 Volume, mute and channel steps are keys, not actions: they take the remote's own routes (the receiver while its plugin is on, LG's audio service otherwise).
@@ -260,8 +260,8 @@ State members:
   digits, 3 number, 4 phone, 5 url, 6 email, 7 name, 8 password, 9 date, 10 time, 11 datetime, 12 terminal. Hint bits 0x8 lowercase, 0x10 uppercase, 0x20
   titlecase, 0x40 hidden text, 0x80 sensitive. Enter 0 default, 1 return, 2 done, 3 go, 4 send, 5 search, 6 next, 7 previous. `max` is the length limit (0
   none); `text` whether the field holds any text.
-- `volume`: `{"via": "receiver" | "tv", "level", "max", "muted"}`, each member present when known; `level` and `max` are whole numbers (the receiver's
-  half steps are rounded).
+- `volume`: `{"via": "receiver" | "tv", "level", "max", "muted"}`, each member present when known. The receiver moves by half steps (its display reads 41.5),
+  but `level` and `max` go out rounded to whole numbers while LumaRemoteKit 1.0.2 decodes them as integers; a fraction there fails the kit's whole `welcome`.
 - `acts`: the `act.do` names that work right now (`cameras` only while the cameras plugin is on, for example).
 
 List items: `apps` `{"id", "title"}`, the visible launchable apps by title; `channels` `{"id", "no", "name"}`, the Live TV list (`id` is the channel id `tune`

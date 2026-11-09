@@ -202,10 +202,9 @@ impl Host for TvHost {
                 self.luna(LAUNCH_URI, &json!({"id": LIVE_TV, "params": params}))
             }
             Act::Volume(_) if !self.receiver_on() => Err(Fault::Off),
-            Act::Volume(level) => {
+            Act::Volume(halves) => {
                 let max = self.hub.get(receiver::TOPIC).and_then(|r| r["volumeMax"].as_f64()).unwrap_or(crate::receiver_volume::MAX_LEVEL);
-                let level = f64::from(*level).min(max).min(crate::receiver_volume::MAX_LEVEL);
-                // the receiver's half steps
+                let level = (f64::from(*halves) / 2.0).min(max).min(crate::receiver_volume::MAX_LEVEL);
                 self.deps.receiver.send(receiver::Cmd::Volume((level * 2.0) as u16)).map_err(|_| Fault::Unavailable)
             }
         }

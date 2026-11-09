@@ -101,7 +101,8 @@ pub enum Act {
     Guide,
     Tune(String),
     Launch(String),
-    Volume(u32),
+    /// The receiver's level in half steps (`level` 41.5 is 83): its scale moves by 0.5.
+    Volume(u16),
     Power(bool),
 }
 
@@ -266,7 +267,11 @@ pub fn parse(frame: &[u8]) -> Result<Request, Refusal> {
                 "tune" => Act::Tune(arg("channel")?),
                 "launch" => Act::Launch(arg("app")?),
                 "volume" => Act::Volume(
-                    m.get("level").and_then(Value::as_u64).and_then(|l| u32::try_from(l).ok()).ok_or_else(|| bad(Fault::BadMessage))?,
+                    m.get("level")
+                        .and_then(Value::as_f64)
+                        .filter(|l| l.is_finite() && (0.0..=f64::from(u16::MAX / 2)).contains(l))
+                        .map(|l| (l * 2.0).round() as u16)
+                        .ok_or_else(|| bad(Fault::BadMessage))?,
                 ),
                 "power" => Act::Power(match string("to") {
                     Some("on") => true,
@@ -337,6 +342,11 @@ mod tests {
         assert_eq!(p(json!({"t": "act", "id": 4, "do": "launch", "app": "netflix"})), Ok(Request::Act { id: 4, act: Act::Launch("netflix".into()) }));
         assert_eq!(p(json!({"t": "act", "id": 5, "do": "tune", "channel": 31})), Ok(Request::Act { id: 5, act: Act::Tune("31".into()) }));
         assert_eq!(p(json!({"t": "act", "id": 6, "do": "power", "to": "off"})), Ok(Request::Act { id: 6, act: Act::Power(false) }));
+        // the receiver's scale moves by half steps: a whole number and a half both arrive exact, anything finer snaps to the nearest half
+        assert_eq!(p(json!({"t": "act", "id": 10, "do": "volume", "level": 50})), Ok(Request::Act { id: 10, act: Act::Volume(100) }));
+        assert_eq!(p(json!({"t": "act", "id": 11, "do": "volume", "level": 41.5})), Ok(Request::Act { id: 11, act: Act::Volume(83) }));
+        assert_eq!(p(json!({"t": "act", "id": 12, "do": "volume", "level": 41.6})), Ok(Request::Act { id: 12, act: Act::Volume(83) }));
+        assert_eq!(p(json!({"t": "act", "id": 13, "do": "volume", "level": -1})).unwrap_err().reply(), json!({"t": "done", "id": 13, "error": "bad-message"}));
         let refusal = p(json!({"t": "act", "id": 7, "do": "fly"})).unwrap_err();
         assert_eq!(refusal.reply(), json!({"t": "done", "id": 7, "error": "bad-action"}));
         assert_eq!(p(json!({"t": "act", "id": 8, "do": "launch"})).unwrap_err().reply(), json!({"t": "done", "id": 8, "error": "bad-message"}));
