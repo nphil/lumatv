@@ -50,6 +50,14 @@ pub fn dropdown(button: [f32; 4], w: f32, h: f32, gap: f32) -> Frame {
     Frame::new(x, top, w, h.min(1080.0 - EDGE_Y - top).max(0.0))
 }
 
+/// The sheet under the button as [`dropdown`] puts it, but let to grow to `inset` from the foot of the screen (the quick panel never scrolls, so
+/// it takes all the room the screen has under the status bar).
+pub fn dropdown_to_foot(button: [f32; 4], w: f32, gap: f32, inset: f32) -> Frame {
+    let top = (button[1] + button[3] + crate::home::model::STATUS_INSET + gap).round();
+    let x = (button[0] + button[2] / 2.0 - w / 2.0).round().clamp(EDGE_X, (1920.0 - EDGE_X - w).max(EDGE_X));
+    Frame::new(x, top, w, (1080.0 - inset - top).max(0.0))
+}
+
 /// A sheet `w` wide over an app, where no status bar is on the screen: against the right edge and the screen's whole height, `inset` (the
 /// theme's spacing step) from the top, the right and the bottom alike.
 pub fn flush_right(w: f32, inset: f32) -> Frame {
@@ -146,8 +154,9 @@ pub fn signal_layout(kit: &mut Kit, faces: &[ChipFace], inner: f32) -> SignalLay
     let style = role_style(kit, TypeRole::Caption, None, kit.ui.look.ink(), Align::Left);
     let (s1, gap, pad_x) = (kit.space(1), kit.space(2), kit.space(3));
     let chip_h = kit.line(TypeRole::Caption) + 2.0 * s1;
-    let mark_h = (kit.ty(TypeRole::Caption).px as f32 * 1.08).round() as u32;
+    // every glyph in a chip (the sync mark and the format badge) stands as tall as the caption's glyph
     let glyph = crate::kit::hint::glyph_side(kit, TypeRole::Caption);
+    let mark_h = glyph;
     let (mut x, mut line, mut chips) = (0.0_f32, 0usize, Vec::new());
     for face in faces {
         let face = match face {
@@ -169,8 +178,10 @@ pub fn signal_layout(kit: &mut Kit, faces: &[ChipFace], inner: f32) -> SignalLay
         chips.push(SignalChip { face, frame: Frame::new(x, line as f32 * (chip_h + gap), w, chip_h) });
         x += w + gap;
     }
-    let lines = line + 1;
-    SignalLayout { chips, lines, h: lines as f32 * chip_h + (lines - 1) as f32 * gap, chip_h, pad_x, mark_h, glyph }
+    // no reading, no row: the header is the clock alone
+    let lines = if chips.is_empty() { 0 } else { line + 1 };
+    let h = if lines == 0 { 0.0 } else { lines as f32 * chip_h + (lines - 1) as f32 * gap };
+    SignalLayout { chips, lines, h, chip_h, pad_x, mark_h, glyph }
 }
 
 /// What sits at a row's right.
@@ -269,8 +280,75 @@ pub fn below_text(r: &Row) -> Option<String> {
     }
 }
 
+/// How tightly the panel's rows and profile strip are laid out. The panel never scrolls, so when every tile does not fit the sheet at the roomy
+/// spacing it is laid out compact: less above and below a row's words, rows as short as their icon tile allows, and a tighter strip.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Density {
+    /// Space above and below a row's words (a row's side padding is `space(3)` either way).
+    pub vpad: f32,
+    /// The least a row is tall.
+    pub row: f32,
+    /// Between two rows.
+    pub gap: f32,
+    /// Round the avatars and between the strip's name and its avatar.
+    pub strip: f32,
+    /// Between the header and what follows, and between the rows and the foot.
+    pub section: f32,
+}
+
+impl Density {
+    pub fn roomy(kit: &Kit) -> Self {
+        Self { vpad: kit.space(3), row: kit.tokens.row, gap: kit.space(1), strip: kit.space(2), section: kit.space(4) }
+    }
+
+    pub fn compact(kit: &Kit) -> Self {
+        let vpad = kit.space(2);
+        Self { vpad, row: ((kit.tokens.target * 0.75).round() + 2.0 * vpad).min(kit.tokens.row), gap: kit.space(1), strip: kit.space(1), section: kit.space(3) }
+    }
+}
+
+/// The height the rows take in a column, with the gaps between them.
+pub fn content_h(layouts: &[RowLayout], gap: f32) -> f32 {
+    (layouts.iter().map(|l| l.h + gap).sum::<f32>() - gap).max(0.0)
+}
+
+/// The height of the foot: "All settings" and, when the panel can be edited, the hints of what the keys do.
+pub fn foot_h(kit: &Kit, hints: bool) -> f32 {
+    crate::kit::button::Button::height(kit) + if hints { kit.line(TypeRole::Caption) + kit.space(2) } else { 0.0 }
+}
+
+/// The header of the list: the signal chips from the content edge and the clock at the right, on one row (the chips wrap under their own first line
+/// where a large text size leaves no room). The offsets are from the top of the header; a row without a reading is the clock alone, as tall as it
+/// would be with the chips.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Header {
+    pub h: f32,
+    pub clock_y: f32,
+    pub chips_y: f32,
+}
+
+pub fn header(kit: &Kit, signal: &SignalLayout) -> Header {
+    let clock_h = kit.line(TypeRole::Label);
+    // the row is as tall with no reading as with one, so the rows under it do not move when a reading comes or goes
+    let line = clock_h.max(signal.chip_h);
+    let extra = (signal.h - signal.chip_h).max(0.0);
+    Header { h: line + extra, clock_y: ((line - clock_h) / 2.0).round(), chips_y: ((line - signal.chip_h) / 2.0).round() }
+}
+
+/// What the header leaves of the sheet's width for the chips: the widest clock (so a minute that changes moves nothing) and a gap are the clock's.
+pub fn chips_width(kit: &mut Kit, inner: f32) -> f32 {
+    let style = role_style(kit, TypeRole::Label, None, kit.ui.look.ink2(), Align::Right);
+    (inner - width_of(kit, style, "12:59 AM") - 2.0 - kit.space(4)).max(0.0)
+}
+
+/// The sheet's height that the header, the strip, the list and the foot take together, the list at `content`.
+pub fn stack_h(kit: &Kit, d: Density, head_h: f32, strip_h: f32, content: f32, foot: f32) -> f32 {
+    let strip = if strip_h > 0.0 { strip_h + kit.space(2) } else { 0.0 };
+    kit.space(6) + head_h + d.section + strip + content + d.section + foot + kit.space(6)
+}
+
 /// One row laid out for a column `width` wide (its own box; the caller places it).
-pub fn row_layout(kit: &mut Kit, r: &Row, width: f32) -> RowLayout {
+pub fn row_layout(kit: &mut Kit, r: &Row, width: f32, d: Density) -> RowLayout {
     let ink = kit.ui.look.ink();
     let ink2 = kit.ui.look.ink2();
     let pad = kit.space(3);
@@ -330,15 +408,15 @@ pub fn row_layout(kit: &mut Kit, r: &Row, width: f32) -> RowLayout {
     let text_h = words_h.max(kept);
     let stacked = below_h > 0.0 && !beside;
     let h = if stacked {
-        pad + text_h + kit.space(2) + below_h + pad
+        d.vpad + text_h + kit.space(2) + below_h + d.vpad
     } else {
-        kit.tokens.row.max(pad + text_h.max(tile).max(trail_h).max(if beside { below_h } else { 0.0 }) + pad)
+        d.row.max(d.vpad + text_h.max(tile).max(trail_h).max(if beside { below_h } else { 0.0 }) + d.vpad)
     };
-    let tile_y = if stacked { pad } else { ((h - tile) / 2.0).round() };
-    let words_y = if stacked { pad } else { ((h - words_h) / 2.0).round() };
+    let tile_y = if stacked { d.vpad } else { ((h - tile) / 2.0).round() };
+    let words_y = if stacked { d.vpad } else { ((h - words_h) / 2.0).round() };
     let below = below_value.map(|value| {
         let (x, y, w) =
-            if beside { (width - pad - need, ((h - below_h) / 2.0).round(), need) } else { (text_x, pad + text_h + kit.space(2), width - text_x - pad) };
+            if beside { (width - pad - need, ((h - below_h) / 2.0).round(), need) } else { (text_x, d.vpad + text_h + kit.space(2), width - text_x - pad) };
         Below { need, h: below_h, value, frame: Frame::new(x, y, w, below_h) }
     });
     RowLayout {
@@ -388,9 +466,9 @@ pub fn head_layout(kit: &mut Kit, v: &View, inner: f32) -> HeadLayout {
         let w = if v.clock.is_empty() { 0.0 } else { width_of(kit, role_style(kit, TypeRole::Label, None, kit.ui.look.ink2(), Align::Left), &v.clock) };
         (w, label_line)
     };
-    let below = side_w > 0.0 && one_line + side_w + gap > inner;
-    let title_w = if below || side_w == 0.0 { inner } else { inner - side_w - gap };
-    let title = wrap::lines(kit, title_style, &v.title, title_w, 3);
+    let below = side_w > 0.0 && !v.title.is_empty() && one_line + side_w + gap > inner;
+    let title_w = if below || side_w == 0.0 || v.title.is_empty() { inner } else { inner - side_w - gap };
+    let title = if v.title.is_empty() { Vec::new() } else { wrap::lines(kit, title_style, &v.title, title_w, 3) };
     let title_h = title.len() as f32 * title_line;
     let h = if side_w == 0.0 {
         title_h
@@ -406,7 +484,7 @@ pub fn head_layout(kit: &mut Kit, v: &View, inner: f32) -> HeadLayout {
     } else if below {
         (Some((v.clock.clone(), 0.0, title_h)), (0.0, 0.0))
     } else {
-        (Some((v.clock.clone(), inner - side_w, ((title_line - label_line) / 2.0).round())), (0.0, 0.0))
+        (Some((v.clock.clone(), inner - side_w, ((title_h.min(title_line) - label_line) / 2.0).round().max(0.0))), (0.0, 0.0))
     };
     HeadLayout { title, title_w, clock, hints: if hinted { v.hints_head.clone() } else { Vec::new() }, hints_at, below, h }
 }
@@ -483,21 +561,24 @@ pub fn edit_metrics(kit: &mut Kit, area_w: f32, texts: &[(&str, &str)]) -> EditM
 pub struct StripLayout {
     pub cells: Vec<Frame>,
     pub avatar: f32,
+    /// Above the avatar and below the name.
+    pub pad: f32,
     pub h: f32,
 }
 
+/// A profile's avatar in the strip: 1.5 times the 0.875 of a touch target it was, 84 px at the shipped 64.
 pub fn avatar_side(kit: &Kit) -> f32 {
-    (kit.tokens.target * 0.875).round()
+    (kit.tokens.target * 0.875 * 1.5).round()
 }
 
-pub fn strip_layout(kit: &Kit, n: usize, inner: f32) -> StripLayout {
-    let gap = kit.space(2);
+pub fn strip_layout(kit: &Kit, n: usize, inner: f32, d: Density) -> StripLayout {
+    let gap = d.strip;
     let n_f = n.max(1) as f32;
     let cell_w = ((inner - gap * (n_f - 1.0)) / n_f).floor().min(120.0);
     let total = cell_w * n_f + gap * (n_f - 1.0);
     let x0 = ((inner - total) / 2.0).floor();
-    let h = gap + avatar_side(kit) + kit.space(1) + kit.line(TypeRole::Caption) + gap;
-    StripLayout { cells: (0..n).map(|i| Frame::new(x0 + i as f32 * (cell_w + gap), 0.0, cell_w, h)).collect(), avatar: avatar_side(kit), h }
+    let h = gap + avatar_side(kit) + kit.space(1) + kit.line(TypeRole::Label) + gap;
+    StripLayout { cells: (0..n).map(|i| Frame::new(x0 + i as f32 * (cell_w + gap), 0.0, cell_w, h)).collect(), avatar: avatar_side(kit), pad: gap, h }
 }
 
 /// The PIN pad in place: an avatar and the name, four dots, what happened, and twelve keys.
@@ -699,6 +780,11 @@ fn popup_layout_with(kit: &mut Kit, p: &PopupView, text_max: usize) -> PopupLayo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn roomy_row(kit: &mut Kit, r: &Row, width: f32) -> RowLayout {
+        let d = Density::roomy(kit);
+        row_layout(kit, r, width, d)
+    }
     use crate::kit::testkit;
     use crate::panels::quick::tiles::Kind;
 
@@ -716,6 +802,32 @@ mod tests {
         r
     }
 
+    /// The owner's tiles (picture, receiver, sleep, do-not-disturb, OLED brightness, energy) as the panel builds them.
+    fn owner_rows() -> Vec<Row> {
+        let env = crate::panels::env::Env::new(serde_json::json!({}));
+        let mut all = crate::panels::quick::tiles::tiles(&env);
+        all.extend(crate::panels::quick::tiles::extras(&env));
+        ["picture", "receiver", "sleep", "dnd", "oled", "energy"].iter().map(|id| all.iter().find(|r| r.id == *id).cloned().expect("a tile")).collect()
+    }
+
+    /// At 100 % text the owner's tiles, the strip, the header and the foot fit the sheet without scrolling, over an app and over Home (where the
+    /// sheet hangs from the gear); the compact spacing is what makes them fit (at 200 % text the rows wrap to about twice the sheet's height and
+    /// the list scrolls by whole rows instead).
+    #[test]
+    fn the_owners_tiles_fit_the_sheet_without_scrolling_at_100_percent() {
+        let over_home = dropdown_to_foot([1700.0, 8.0, 64.0, 64.0], SHEET_W, 8.0, 40.0).h;
+        let (_h, mut kit) = testkit::kit(1.0);
+        let rows = owner_rows();
+        let inner = SHEET_W - 2.0 * kit.space(6);
+        let room = chips_width(&mut kit, inner);
+        let signal = signal_layout(&mut kit, &[ChipFace::Text("4K".into()), ChipFace::Text("24 fps".into()), ChipFace::Sync("120 Hz".into())], room);
+        let head_h = header(&kit, &signal).h;
+        let d = Density::compact(&kit);
+        let layouts: Vec<RowLayout> = rows.iter().map(|r| row_layout(&mut kit, r, inner, d)).collect();
+        let h = stack_h(&kit, d, head_h, strip_layout(&kit, 4, inner, d).h, content_h(&layouts, d.gap), foot_h(&kit, false));
+        assert!(h <= over_home.min(SHEET_H), "{h} against {over_home} over Home and {SHEET_H} over an app");
+    }
+
     #[test]
     fn the_sheet_is_560_wide_40_from_the_right_edge_and_56_from_the_top_and_bottom() {
         let s = sheet();
@@ -730,13 +842,13 @@ mod tests {
         r.options = vec!["Filmmaker".into(), "Cinema".into()];
         r.index = Some(1);
         r.detail = String::new();
-        let beside = row_layout(&mut kit, &r, 512.0);
+        let beside = roomy_row(&mut kit, &r, 512.0);
         assert!(beside.beside && !beside.stacked, "a short name leaves room for the control");
         assert_eq!(beside.h, 80.0, "the row's own height");
         let b = beside.below.as_ref().unwrap();
         assert_eq!(b.frame.x + b.frame.w, 512.0 - 12.0, "at the row's right inside its padding");
         r.detail = "HDMI 1 \u{b7} Dolby Vision".into();
-        let stacked = row_layout(&mut kit, &r, 512.0);
+        let stacked = roomy_row(&mut kit, &r, 512.0);
         assert!(stacked.stacked && !stacked.beside, "the long second line pushes the control down");
         let b = stacked.below.as_ref().unwrap();
         assert_eq!((b.frame.x, b.frame.w), (76.0, 512.0 - 76.0 - 12.0), "under the words, as wide as they are");
@@ -754,10 +866,10 @@ mod tests {
         r.widest = "\u{2212}34.5 dB";
         r.value = "\u{2013}".into();
         r.detail = "Not answering".into();
-        let silent = row_layout(&mut kit, &r, 512.0);
+        let silent = roomy_row(&mut kit, &r, 512.0);
         r.detail = "TV Audio \u{b7} Dolby Surround".into();
         r.value = "-34.5 dB".into();
-        let answered = row_layout(&mut kit, &r, 512.0);
+        let answered = roomy_row(&mut kit, &r, 512.0);
         assert_eq!(silent.h, answered.h, "the same two lines either way");
         assert!(silent.stacked && answered.stacked, "a row that waits for an answer is stacked whatever the answer says");
         assert_eq!(silent.below.as_ref().map(|b| b.need), answered.below.as_ref().map(|b| b.need), "the control is sized to the widest value");
@@ -769,7 +881,7 @@ mod tests {
         let mut toggle = tiles_row("plugin.ambient.ambient", Kind::Toggle);
         toggle.label = "Ambient light".into();
         toggle.detail = "Follows the picture \u{b7} 70% of full brightness".into();
-        let t = row_layout(&mut kit, &toggle, 512.0);
+        let t = roomy_row(&mut kit, &toggle, 512.0);
         assert_eq!(t.trail, Trail::Toggle);
         assert_eq!(t.trail_at.0, 512.0 - 12.0 - 84.0);
         assert!(t.detail.len() >= 2 && t.detail[0] == "Follows the picture", "{:?}", t.detail);
@@ -779,7 +891,7 @@ mod tests {
         ai.chevron = false;
         ai.value = "On".into();
         ai.tone = "positive";
-        let a = row_layout(&mut kit, &ai, 512.0);
+        let a = roomy_row(&mut kit, &ai, 512.0);
         assert!(matches!(a.trail, Trail::Chip { .. }));
     }
 
@@ -790,39 +902,47 @@ mod tests {
         let mut r = row(Kind::Toggle);
         r.label = "Magic Remote pointer".into();
         r.detail = "Speakers and headphones".into();
-        let a = row_layout(&mut kit1, &r, 512.0);
-        let b = row_layout(&mut kit2, &r, 512.0);
+        let a = roomy_row(&mut kit1, &r, 512.0);
+        let b = roomy_row(&mut kit2, &r, 512.0);
         assert!(b.h > a.h, "{} against {}", b.h, a.h);
         assert!(b.label.len() > 1, "the name wraps at 200 %: {:?}", b.label);
         assert!(b.words.w >= 100.0);
     }
 
     #[test]
-    fn the_head_puts_the_clock_beside_the_title_while_both_fit_else_under_it() {
-        let (_h, mut kit) = testkit::kit(1.0);
-        let env = crate::panels::env::Env::new(serde_json::json!({}));
-        let q = crate::panels::quick::Quick::new();
-        let mut v = q.view(&env, 1_761_000_000_000);
-        v.clock = "9:52 PM".into();
-        let head = head_layout(&mut kit, &v, 512.0);
-        assert!(!head.below);
-        let (_, x, _) = head.clock.clone().unwrap();
-        assert!(x > 300.0, "{x}");
-        let (_h2, mut big) = testkit::kit(2.0);
-        let head2 = head_layout(&mut big, &v, 512.0);
-        assert!(head2.below, "at 200 % the title leaves no room for the clock");
-        assert!(head2.title.len() >= 2, "{:?}", head2.title);
-        assert!(head2.h > head.h);
+    fn the_list_has_no_title_and_its_header_is_the_chips_from_the_left_and_the_clock_at_the_right() {
+        for scale in [1.0, 2.0] {
+            let (_h, mut kit) = testkit::kit(scale);
+            let env = crate::panels::env::Env::new(serde_json::json!({}));
+            let q = crate::panels::quick::Quick::new();
+            let mut v = q.view(&env, 1_761_000_000_000);
+            v.clock = "9:52 PM".into();
+            let head = head_layout(&mut kit, &v, 512.0);
+            assert!(head.title.is_empty() && !head.below);
+            let (_, x, y) = head.clock.clone().unwrap();
+            assert!(x > 256.0 && y == 0.0, "{scale}: the clock stands at the right of the first row: {x}");
+            let room = chips_width(&mut kit, 512.0);
+            assert!(room > 150.0 && room < 512.0, "{scale}: {room}");
+            let faces = vec![ChipFace::Text("4K".into()), ChipFace::Text("24 fps".into()), ChipFace::Sync("120 Hz".into()), ChipFace::Text("VRR".into())];
+            let s = signal_layout(&mut kit, &faces, room);
+            assert!(s.chips.iter().all(|c| c.frame.h == s.chip_h && c.frame.x + c.frame.w <= room + 0.5), "{scale}: one height, inside the room");
+            let empty = signal_layout(&mut kit, &[], room);
+            let (none, some) = (header(&kit, &empty), header(&kit, &s));
+            assert_eq!(none.h, some.h.min(none.h.max(s.chip_h)), "{scale}: a reading does not make the header taller than its first line unless it wraps");
+            if s.lines == 1 {
+                assert_eq!(none.h, some.h, "{scale}: with or without a reading the rows under it stand where they stood");
+            }
+        }
     }
 
     #[test]
     fn the_strip_centres_its_cells_and_the_pad_has_four_dots_and_twelve_keys_three_by_four() {
         let (_h, kit) = testkit::kit(1.0);
-        let s = strip_layout(&kit, 2, 512.0);
+        let s = strip_layout(&kit, 2, 512.0, Density::roomy(&kit));
         assert_eq!(s.cells.len(), 2);
         assert_eq!(s.cells[0].w, 120.0);
         assert_eq!(s.cells[0].x + (s.cells[1].x + s.cells[1].w), 512.0, "centred");
-        let six = strip_layout(&kit, 6, 512.0);
+        let six = strip_layout(&kit, 6, 512.0, Density::roomy(&kit));
         assert!(six.cells[5].x + six.cells[5].w <= 512.0 + 0.5);
         let p = pad_layout(&kit, 512.0, 840.0);
         assert_eq!((p.dots.len(), p.cells.len()), (4, 12));

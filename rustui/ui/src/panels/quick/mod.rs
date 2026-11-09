@@ -1155,7 +1155,7 @@ impl Quick {
         View {
             up: self.life.presented(),
             editing,
-            title: if editing { "Edit tiles".into() } else { "Quick settings".into() },
+            title: if editing { "Edit tiles".into() } else { String::new() },
             clock: clock_text,
             info: self.monitor.snapshot(),
             video_info: self.video.as_ref().filter(|v| env.screen_on && self.info_due.is_some() && self.info_authority.as_ref().is_some_and(|(context, app)| v.context == *context && v.app == *app) && self.info_authority == env.fg.video && self.info_answered.is_some_and(|at| now.saturating_sub(at) <= 3_000)).map(|v| VideoInfo {

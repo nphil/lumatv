@@ -652,7 +652,7 @@ fn the_view_says_where_the_panel_sits_and_what_the_head_says() {
     env.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "netflix", "home": false}) }, 1);
     let v = q.view(&env, 1_761_000_000_000);
     assert!(v.up && v.over_video && !v.editing);
-    assert_eq!(v.title, "Quick settings");
+    assert_eq!(v.title, "", "the list has no title: the chips and the clock are its header");
     assert!(v.clock.contains(':'));
     assert!(v.hints_foot.is_empty(), "the hint row is the editor's, and it is off");
     let (q, env) = rig(true);

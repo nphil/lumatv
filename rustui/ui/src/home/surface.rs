@@ -2465,6 +2465,8 @@ mod tests {
                     // a tile short of the row's end: one press further would roll over to the next row
                     let cols = home.dock.cols();
                     let want = if last { cols - 1 } else { 0 };
+                    // Down lands on the last tile of a shorter row, which can lie past `want`
+                    let key = if home.dock.index > want { "left" } else { key };
                     for n in 0..home.dock.index.abs_diff(want) {
                         press(&mut home, key, 2400 + n as u64 * 100);
                     }

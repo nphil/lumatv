@@ -252,12 +252,13 @@ pub fn extras(env: &Env) -> Vec<Row> {
     let mut energy = Row::base("energy", Kind::Stepper, "leaf", "Energy saving", Act::Energy);
     energy.options = ENERGY_NAMES.iter().map(|s| s.to_string()).collect();
     energy.enabled = env.sio.has("picture.energySaving");
+    energy.widest = "Minimum";
     energy.index = ENERGY_VALUES.iter().position(|m| *m == env.sio.text("picture.energySaving"));
 
     let mut oled = Row::base("oled", Kind::Nudge, "sun", "OLED pixel brightness", Act::Oled);
     oled.enabled = env.sio.usable("picture.backlight");
     oled.value = if env.sio.has("picture.backlight") { format!("{}", env.sio.num("picture.backlight", 0.0).round() as i64) } else { DASH.into() };
-    oled.widest = "\u{2212}34.5 dB";
+    oled.widest = "100";
     oled.slider = Some(OLED);
 
     let mut pointer = Row::base("pointer", Kind::Toggle, "mouse-pointer-2", "Magic Remote pointer", Act::Pointer);

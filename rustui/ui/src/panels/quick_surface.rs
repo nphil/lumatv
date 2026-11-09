@@ -195,8 +195,8 @@ struct SignalParts {
     _art: Option<ImageLayer>,
 }
 
-/// The kit's generation, the text size and the chips' faces.
-type SignalKey = (u64, u32, Vec<ChipFace>);
+/// The kit's generation, the text size, the width left for the chips and their faces.
+type SignalKey = (u64, u32, u32, Vec<ChipFace>);
 
 struct PickRow {
     plate: Plate,
@@ -234,6 +234,13 @@ struct RowCache {
     text_scale: u32,
     width: u32,
     rows: Vec<Row>,
+    /// The sheet's height and whether the rows have it whole at the roomy spacing (else they were laid out compact).
+    sheet_h: u32,
+    has_strip: bool,
+    hints_foot: bool,
+    /// The header's height: chips wrapped onto a second line change the room the rows have.
+    header_h: u32,
+    density: lay::Density,
     layouts: Vec<RowLayout>,
     /// The layouts' part of the panel's signature.
     sig: String,
@@ -360,9 +367,8 @@ impl QuickSurface {
         rows: &[Row],
         layouts: Vec<RowLayout>,
         window: Frame,
-        _z: i32,
+        spacing: f32,
     ) -> std::io::Result<ListParts> {
-        let spacing = kit.space(1);
         let mut tops = Vec::new();
         let mut top = 0.0;
         for l in &layouts {
@@ -410,10 +416,10 @@ impl QuickSurface {
         Ok(RowArt { cell, plate, _tile: tile_px, words, ctrl, layers: before.saturating_sub(kit.room().layers) })
     }
 
-    fn build_strip(kit: &mut Kit, engine: &mut Engine, root: &Group, people: &[Person], origin: Frame, z: i32) -> std::io::Result<(Vec<StripCell>, f32)> {
+    fn build_strip(kit: &mut Kit, engine: &mut Engine, root: &Group, people: &[Person], origin: Frame, d: lay::Density, z: i32) -> std::io::Result<(Vec<StripCell>, f32)> {
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
-        let sl = lay::strip_layout(kit, people.len(), origin.w);
+        let sl = lay::strip_layout(kit, people.len(), origin.w, d);
         let mut cells = Vec::new();
         for (i, p) in people.iter().enumerate() {
             let f = Frame::new(origin.x + sl.cells[i].x, origin.y, sl.cells[i].w, sl.h);
@@ -422,16 +428,16 @@ impl QuickSurface {
             let who = person_who(p);
             let px = avatar::px(kit, &who, sl.avatar as u32, p.active);
             let ax = f.x + ((f.w - sl.avatar) / 2.0).round();
-            let avatar_layer = px.layer(kit, z + 2, Props::at(ax, f.y + kit.space(2)))?;
+            let avatar_layer = px.layer(kit, z + 2, Props::at(ax, f.y + sl.pad))?;
             let tint = if p.active { ink } else { ink2 };
-            let name = wrap::elide(kit, role_style(kit, TypeRole::Caption, None, tint, Align::Centre), &p.name, f.w);
+            let name = wrap::elide(kit, role_style(kit, TypeRole::Label, None, tint, Align::Centre), &p.name, f.w);
             let words = Words::new(
                 kit,
                 f.x,
-                f.y + kit.space(2) + sl.avatar + kit.space(1),
+                f.y + sl.pad + sl.avatar + kit.space(1),
                 f.w,
                 z + 2,
-                &[WordLine::new(&name, TypeRole::Caption, tint).aligned(Align::Centre)],
+                &[WordLine::new(&name, TypeRole::Label, tint).aligned(Align::Centre)],
             )?;
             cells.push(StripCell { id, plate, _avatar: avatar_layer, _name: words });
         }
@@ -626,7 +632,8 @@ impl QuickSurface {
         }
     }
 
-    fn build(kit: &mut Kit, engine: &mut Engine, stage: &Stage, view: &View, rows: Vec<RowLayout>, sig: String, signal_h: f32) -> std::io::Result<Built> {
+    fn build(kit: &mut Kit, engine: &mut Engine, stage: &Stage, view: &View, laid: &RowCache, sig: String, signal: &SignalLayout) -> std::io::Result<Built> {
+        let (rows, density) = (laid.layouts.clone(), laid.density);
         let (root_group, z) = (stage.group(), stage.z());
         let scene = kit.ui.scene.clone();
         let sheet = lay::sheet();
@@ -639,6 +646,9 @@ impl QuickSurface {
             let pane = if view.over_video { Pane::reading(kit, sheet, z + 1, PaneKind::Sheet) } else { Pane::new(kit, sheet, z + 1, PaneKind::Sheet, false) };
             // ---- the head
             let hl = lay::head_layout(kit, view, inner);
+            // the list's header is the chips and the clock on one row; edit and the PIN pad keep their own head
+            let listed = view.pad.is_none() && !(view.editing && view.edit.is_some());
+            let header = if listed { lay::header(kit, signal) } else { lay::Header { h: hl.h, clock_y: 0.0, chips_y: 0.0 } };
             let title_lines: Vec<WordLine> = hl.title.iter().map(|t| WordLine::new(t, TypeRole::Title, ink).weight(Weight::SemiBold)).collect();
             let title = Words::new(kit, sheet.x + pad, sheet.y + pad, hl.title_w, z + 3, &title_lines)?;
             let clock = match &hl.clock {
@@ -647,7 +657,7 @@ impl QuickSurface {
                     let style = role_style(kit, TypeRole::Label, None, ink2, Align::Right);
                     let w = width_of(kit, style, "12:59 AM") + 2.0;
                     let right = sheet.x + pad + x + width_of(kit, style, text) + 2.0;
-                    Some(Words::new(kit, right - w, sheet.y + pad + y, w, z + 3, &[WordLine::new(text, TypeRole::Label, ink2).aligned(Align::Right)])?)
+                    Some(Words::new(kit, right - w, sheet.y + pad + header.clock_y + y, w, z + 3, &[WordLine::new(text, TypeRole::Label, ink2).aligned(Align::Right)])?)
                 }
                 None => None,
             };
@@ -659,25 +669,24 @@ impl QuickSurface {
                 hx += row.width() + kit.space(5);
                 hint_rows.push(row);
             }
-            let head_h = hl.h;
+            let head_h = header.h;
             let head = Head { title, clock, _hints: hint_rows };
-            let mut cursor = sheet.y + pad + head_h + kit.space(4);
+            let mut cursor = sheet.y + pad + head_h + density.section;
             let sheet_bottom = sheet.y + sheet.h - pad;
             let (mut strip, mut list, mut edit, mut pad_parts, mut foot) = (Vec::new(), None, None, None, None);
-            let mut signal = None;
+            let mut signal_parts = None;
             if let Some(p) = &view.pad {
                 let parts = Self::build_pad(kit, engine, root_group, p, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?;
                 pad_parts = Some(parts);
             } else if let Some(e) = view.edit.as_ref().filter(|_| view.editing) {
                 edit = Some(Self::build_edit(kit, engine, root_group, e, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?);
             } else {
-                // the signal line under the head: its chips are made by `apply_signal`
-                let at = (sheet.x + pad, sheet.y + pad + head_h + kit.space(2));
-                signal = Some(Signal { at, faces: Vec::new(), chips: Vec::new() });
-                cursor = at.1 + signal_h + kit.space(4);
+                // the chips on the header's row from the content edge: they are made by `apply_signal`
+                let at = (sheet.x + pad, sheet.y + pad + header.chips_y);
+                signal_parts = Some(Signal { at, faces: Vec::new(), chips: Vec::new() });
                 let btn_h = Button::height(kit);
                 let hints_h = if view.hints_foot.is_empty() { 0.0 } else { kit.line(TypeRole::Caption) };
-                let foot_h = btn_h + if hints_h > 0.0 { hints_h + kit.space(2) } else { 0.0 };
+                let foot_h = lay::foot_h(kit, hints_h > 0.0);
                 let foot_y = sheet_bottom - foot_h;
                 // the foot: "All settings" and what the keys do
                 let place =
@@ -698,14 +707,14 @@ impl QuickSurface {
                 }
                 foot = Some(Foot { button, _hints: hint_rows });
                 if let Some(people) = &view.strip {
-                    let (cells, h) = Self::build_strip(kit, engine, root_group, people, Frame::new(sheet.x + pad, cursor, inner, 0.0), z)?;
+                    let (cells, h) = Self::build_strip(kit, engine, root_group, people, Frame::new(sheet.x + pad, cursor, inner, 0.0), density, z)?;
                     strip = cells;
                     cursor += h + kit.space(2);
                 }
-                let window = Frame::new(sheet.x + pad, cursor, inner, (foot_y - kit.space(4) - cursor).max(1.0));
-                list = Some(Self::build_list(kit, engine, root_group, &view.rows, rows, window, z)?);
+                let window = Frame::new(sheet.x + pad, cursor, inner, (foot_y - density.section - cursor).max(1.0));
+                list = Some(Self::build_list(kit, engine, root_group, &view.rows, rows, window, density.gap)?);
             }
-            Ok(Built { sig, _pane: pane, head, strip, list, edit, pad: pad_parts, foot, signal })
+            Ok(Built { sig, _pane: pane, head, strip, list, edit, pad: pad_parts, foot, signal: signal_parts })
         })
     }
 
@@ -974,7 +983,7 @@ impl QuickSurface {
         // keeps the rectangles it started with, and at rest it follows the gear. Over an app there is no status bar: the sheet stands against
         // the right edge for the screen's whole height and slides in from there.
         let inset = kit.space(8);
-        let mut place = if view.over_video { lay::flush_right(lay::SHEET_W, inset) } else { lay::dropdown(gear, lay::SHEET_W, lay::SHEET_H, kit.space(2)) };
+        let mut place = if view.over_video { lay::flush_right(lay::SHEET_W, inset) } else { lay::dropdown_to_foot(gear, lay::SHEET_W, kit.space(2), inset) };
         // (the PIN pad at a large text size needs the sheet's whole height, and keeps the top margin then)
         if !view.over_video && view.pad.is_some() && kit.text_scale > 1.0 {
             place = Frame::new(place.x, lay::EDGE_Y, place.w, lay::SHEET_H);
@@ -994,25 +1003,45 @@ impl QuickSurface {
         self.stage.ensure(kit, phase, arrive, true)?;
         let width = lay::SHEET_W - 2.0 * kit.space(6);
         let faces = lay::signal_faces(view.video_info, view.info);
-        let key = (kit.generation(), kit.text_scale.to_bits(), faces);
+        let chips_w = lay::chips_width(kit, width);
+        let key = (kit.generation(), kit.text_scale.to_bits(), chips_w.to_bits(), faces);
         if self.signal_layout.as_ref().is_none_or(|(cached, _)| *cached != key) {
-            let layout = lay::signal_layout(kit, &key.2, width);
+            let layout = lay::signal_layout(kit, &key.3, chips_w);
             self.signal_layout = Some((key, layout));
         }
         let signal = self.signal_layout.as_ref().expect("signal layout").1.clone();
         let rows: &[Row] = if view.editing || view.pad.is_some() { &[] } else { &view.rows };
         let (generation, text_scale, width_bits) = (kit.generation(), kit.text_scale.to_bits(), width.to_bits());
-        if !self.row_cache.as_ref().is_some_and(|c| (c.generation, c.text_scale, c.width) == (generation, text_scale, width_bits) && c.rows == rows) {
-            let layouts: Vec<RowLayout> = rows.iter().map(|r| lay::row_layout(kit, r, width)).collect();
+        let (sheet_h, has_strip, hints_foot) = (sheet.h.to_bits(), view.strip.as_ref().is_some_and(|s| !s.is_empty()), !view.hints_foot.is_empty());
+        let header = lay::header(kit, &signal);
+        let current = |c: &RowCache| {
+            (c.generation, c.text_scale, c.width, c.sheet_h, c.has_strip, c.hints_foot, c.header_h) == (generation, text_scale, width_bits, sheet_h, has_strip, hints_foot, header.h.to_bits()) && c.rows == rows
+        };
+        if !self.row_cache.as_ref().is_some_and(current) {
+            // The panel never scrolls: rows at the roomy spacing when they fit the sheet with everything else, else compact
+            let head_h = header.h;
+            let strip_n = view.strip.as_ref().map_or(0, Vec::len);
+            let foot = lay::foot_h(kit, hints_foot);
+            let fits = |kit: &Kit, layouts: &[RowLayout], d: lay::Density| {
+                let strip_h = if has_strip { lay::strip_layout(kit, strip_n, width, d).h } else { 0.0 };
+                lay::stack_h(kit, d, head_h, strip_h, lay::content_h(layouts, d.gap), foot) <= sheet.h
+            };
+            let roomy = lay::Density::roomy(kit);
+            let mut density = roomy;
+            let mut layouts: Vec<RowLayout> = rows.iter().map(|r| lay::row_layout(kit, r, width, roomy)).collect();
+            if !fits(kit, &layouts, roomy) {
+                density = lay::Density::compact(kit);
+                layouts = rows.iter().map(|r| lay::row_layout(kit, r, width, density)).collect();
+            }
             let sig = layouts.iter().map(RowLayout::signature).collect::<Vec<_>>().join("\n");
-            self.row_cache = Some(RowCache { generation, text_scale, width: width_bits, rows: rows.to_vec(), layouts, sig });
+            self.row_cache = Some(RowCache { generation, text_scale, width: width_bits, sheet_h, has_strip, hints_foot, header_h: header.h.to_bits(), density, rows: rows.to_vec(), layouts, sig });
         }
-        let sig = format!("{}|{:?}", Self::signature(kit, view, &self.row_cache.as_ref().expect("row cache").sig, signal.lines), lay::sheet());
+        let sig = format!("{}|{:?}", Self::signature(kit, view, &self.row_cache.as_ref().expect("row cache").sig, signal.lines.max(1)), lay::sheet());
         if self.built.as_ref().is_none_or(|b| b.sig != sig) {
             self.drop_built(engine);
             // a click on nothing is Back: the whole screen is a focusable under everything else, absent from the keys
             self.stage.backdrop(engine, Target::Backdrop.id(), REGION_LIST);
-            let built = match Self::build(kit, engine, &self.stage, view, self.row_cache.as_ref().expect("row cache").layouts.clone(), sig, signal.h) {
+            let built = match Self::build(kit, engine, &self.stage, view, self.row_cache.as_ref().expect("row cache"), sig, &signal) {
                 Ok(built) if !kit.ui.scene.take_overflow() => built,
                 result => {
                     let error = result.err().unwrap_or_else(|| std::io::Error::other("the scene is full: the quick panel could not be drawn whole"));
@@ -1686,7 +1715,7 @@ mod tests {
         assert_eq!(u.engine.focus.modal(), Some(SCOPE), "the panel takes the keys while it is up");
         u.env.fg.home = true;
         u.apply();
-        let want = lay::dropdown(QuickSurface::GEAR, lay::SHEET_W, lay::SHEET_H, u.kit.space(2));
+        let want = lay::dropdown_to_foot(QuickSurface::GEAR, lay::SHEET_W, u.kit.space(2), inset);
         assert_eq!(u.s.geometry(&u.engine)["sheet"], json!({"x": want.x, "y": want.y, "w": want.w, "h": want.h}), "on Home, under the gear");
     }
 

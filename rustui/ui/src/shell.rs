@@ -2880,7 +2880,7 @@ mod tests {
                     }
                     let pill = shell.home.status_pill();
                     assert!(y >= f64::from(pill.y + pill.h), "{kind} at {anchor} {dx}: the body starts under the pill: {sheet}");
-                    assert!(x >= 0.0 && x + w <= 1920.0 && y + h <= 1080.0 - 56.0 + 0.5, "{kind} at {anchor} {dx}: the body is whole on the screen: {sheet}");
+                    assert!(x >= 0.0 && x + w <= 1920.0 && y + h <= 1080.0 - 40.0 + 0.5, "{kind} at {anchor} {dx}: the body is whole on the screen: {sheet}");
                 }
                 // a list taller than the sheet still scrolls with the pill where it is
                 if kind == "cameras" {
