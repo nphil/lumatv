@@ -43,7 +43,7 @@ use ui::scene::{Scene, SceneOptions};
 const SHIPPED_LAYOUT: &str = include_str!("../../../payload/theme/layout.json");
 /// The helper's topics the shell follows besides its plugins' (`kit/Helper.qml` `subscribed`, and the sheets of the cameras).
 const HELPER_TOPICS: &str =
-    "screen,weather,weather.more,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,openapps,panel,cameras,cameras.popup,cameras.live,cameras.events,onhome,profiles,voice,saver,plex.account";
+    "screen,weather,weather.more,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,openapps,panel,cameras,cameras.popup,cameras.live,cameras.events,onhome,profiles,voice,saver,plex.account,dnd";
 
 struct Options {
     host: bool,

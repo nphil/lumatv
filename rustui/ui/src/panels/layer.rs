@@ -669,22 +669,13 @@ impl Panels {
                 None => return out,
             },
             Which::Drawer => match self.drawer_s.pointer(kit, engine, now_ns, s) {
-                Some(DrawerTarget::Clear) => {
-                    self.drawer.click_clear(&self.env);
-                    Out::default()
-                }
-                Some(DrawerTarget::Item(i)) => {
-                    self.drawer.click_item(i, &self.env);
-                    Out::default()
-                }
+                Some(DrawerTarget::Clear) => self.drawer.click_clear(&self.env),
+                Some(DrawerTarget::Item(i)) => self.drawer.click_item(i, &self.env),
                 Some(DrawerTarget::Head(i)) => {
                     self.drawer.click_head(i, &self.env);
                     Out::default()
                 }
-                Some(DrawerTarget::HeadClear(i)) => {
-                    self.drawer.click_head_clear(i, &self.env);
-                    Out::default()
-                }
+                Some(DrawerTarget::HeadClear(i)) => self.drawer.click_head_clear(i, &self.env),
                 Some(DrawerTarget::Button(i, b)) => self.drawer.click_button(i, b, &self.env),
                 Some(DrawerTarget::Backdrop) => Out::close(),
                 None => return out,

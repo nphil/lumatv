@@ -82,8 +82,12 @@ struct Plan {
     icon: &'static str,
 }
 
-fn hints_of(can_expand: bool) -> Vec<Hint> {
-    if can_expand { vec![Hint::key(Key::Ok, Action::Expand), Hint::key(Key::Back, Action::Close)] } else { vec![Hint::key(Key::Ok, Action::Close)] }
+fn hints_of(can_expand: bool, can_snooze: bool) -> Vec<Hint> {
+    let mut hints = if can_expand { vec![Hint::key(Key::Ok, Action::Expand), Hint::key(Key::Back, Action::Close)] } else { vec![Hint::key(Key::Ok, Action::Close)] };
+    if can_snooze {
+        hints.insert(1, Hint { keys: vec![(Key::Ok, true)], action: None, label: Some("Snooze".into()) });
+    }
+    hints
 }
 
 /// The card as it is laid out for `view`, with `room` the height from the card's top to the bottom of its zone.
@@ -109,7 +113,7 @@ fn plan(kit: &mut Kit, view: &View, room: f32) -> Plan {
     let caption = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
     // the state's box is as wide as the widest of its words, so the foot does not move as the picture comes
     let state_w = FACES.iter().map(|f| width_of(kit, caption, f.words())).fold(0.0, f32::max) + DOT + kit.space(2);
-    let hints = hints_of(view.can_expand);
+    let hints = hints_of(view.can_expand, view.can_snooze);
     let hint_h = crate::kit::hint::glyph_side(kit, TypeRole::Caption).max(kit.line(TypeRole::Caption) as u32) as f32;
     let widths: Vec<f32> = hints.iter().map(|h| hint_width(kit, h, TypeRole::Caption)).collect();
     let sp = kit.space(5);
@@ -293,7 +297,7 @@ impl PopupSurface {
         }
         let (size, _) = self.measure(kit, view);
         let rect = self.rect(size);
-        let sig = format!("{:?}", (&view.camera, &view.name, &view.what, &view.age, view.icon, view.can_expand, view.shape, rect.x, rect.y, size.w, size.h));
+        let sig = format!("{:?}", (&view.camera, &view.name, &view.what, &view.age, view.icon, view.can_expand, view.can_snooze, view.shape, rect.x, rect.y, size.w, size.h));
         let came = self.current.is_none();
         if self.current.as_ref().is_some_and(|c| c.sig != sig) {
             self.current = None;

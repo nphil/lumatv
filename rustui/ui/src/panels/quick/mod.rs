@@ -514,6 +514,12 @@ impl Quick {
                 let body = target.as_ref().map_or_else(|| json!({}), |t| json!({"target": t}));
                 out.effects.push(Effect::Post { path: format!("/v1/plugins/{plugin}/actions/{action}"), body });
             }
+            (Act::Dnd(_), Val::On(on)) => out.effects.push(Effect::Post { path: if on { "/v1/dnd/on" } else { "/v1/dnd/off" }.into(), body: json!({}) }),
+            (Act::Dnd(snoozes), Val::Index(i)) => match i.checked_sub(crate::dnd::DURATIONS.len()).and_then(|s| snoozes.get(s)) {
+                // a snooze in the card: OK ends it
+                Some(id) => out.effects.push(Effect::Request { tag: tags::DND, method: "DELETE".into(), path: format!("/v1/dnd/snooze/{id}"), body: None }),
+                None => out.effects.push(Effect::Post { path: "/v1/dnd/on".into(), body: crate::dnd::on_body(i) }),
+            },
             _ => {}
         }
         out
@@ -644,6 +650,12 @@ impl Quick {
                         } else {
                             Some(Out::default())
                         }
+                    }
+                    // Do Not Disturb's switch has a card of durations, as a stepper's choices open on OK: Right opens it
+                    Kind::Toggle if matches!(r.act, Act::Dnd(_)) && d > 0 => {
+                        let r = r.clone();
+                        self.open_popup(&r, env, now);
+                        Some(Out::default())
                     }
                     _ => (d > 0).then(Out::default),
                 }
@@ -1061,10 +1073,24 @@ impl Quick {
                     Act::Picture(values) => values.iter().position(|(value, _)| *value == env.sio.text("picture.pictureMode")),
                     _ => tiles::everything(env).iter().find(|r| r.id == *row).and_then(|r| r.index),
                 };
+                let dnd = (row == "dnd").then(|| crate::dnd::Dnd::from_json(env.topic(crate::dnd::TOPIC).unwrap_or(&Value::Null)));
                 PopupView::Pick {
                     title: title.clone(),
-                    text: (*text).into(),
-                    options: options.iter().enumerate().map(|(i, o)| OptionView { label: o.clone(), icon: icon.clone(), detail: Self::pick_detail(row, i, now), current: current == Some(i), enabled: !matches!(act, Act::Picture(values) if !values.get(i).is_some_and(|(_, active)| *active)) }).collect(),
+                    text: dnd.as_ref().map_or_else(|| (*text).into(), crate::dnd::card_text),
+                    options: options
+                        .iter()
+                        .enumerate()
+                        .map(|(i, o)| {
+                            let snooze = dnd.as_ref().and_then(|d| i.checked_sub(crate::dnd::DURATIONS.len()).and_then(|s| d.snoozes.get(s)));
+                            OptionView {
+                                label: o.clone(),
+                                icon: if snooze.is_some() { crate::dnd::SNOOZE_GLYPH.into() } else { icon.clone() },
+                                detail: snooze.map_or_else(|| Self::pick_detail(row, i, now), |s| format!("Snoozed until {} \u{b7} OK ends it", clock::time_of(s.until))),
+                                current: current == Some(i),
+                                enabled: !matches!(act, Act::Picture(values) if !values.get(i).is_some_and(|(_, active)| *active)),
+                            }
+                        })
+                        .collect(),
                     index: *index,
                 }
             }
@@ -1112,7 +1138,16 @@ impl Quick {
             info: self.monitor.snapshot(),
             video_info: self.video.as_ref().filter(|v| env.screen_on && self.info_due.is_some() && self.info_authority.as_ref().is_some_and(|(context, app)| v.context == *context && v.app == *app) && self.info_authority == env.fg.video && self.info_answered.is_some_and(|at| now.saturating_sub(at) <= 3_000)).map(|v| VideoInfo { width: v.width, height: v.height, fps: v.fps }),
             hints_head: head,
-            hints_foot: if env.popups_on() { vec![Hint::hold(Key::Ok, Action::Edit), Hint::key(Key::Back, Action::Close)] } else { Vec::new() },
+            hints_foot: if env.popups_on() {
+                let dnd = !editing && self.popup.is_none() && self.zone == Zone::List && self.stop.and_then(|s| rows.get(s)).is_some_and(|r| matches!(r.act, Act::Dnd(_)));
+                let mut foot = vec![Hint::hold(Key::Ok, Action::Edit), Hint::key(Key::Back, Action::Close)];
+                if dnd {
+                    foot.insert(0, Hint::labelled(Key::Right, "Durations"));
+                }
+                foot
+            } else {
+                Vec::new()
+            },
             strip: if editing || self.pin.is_some() { None } else { strip.clone() },
             pad: self.pin.as_ref().map(|p| PadView { avatar: strip.as_ref().and_then(|l| l.iter().find(|x| x.id == p.id).cloned()), pin: p.view(now) }),
             rows: if editing { Vec::new() } else { rows.clone() },

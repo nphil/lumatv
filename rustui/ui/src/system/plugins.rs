@@ -171,12 +171,13 @@ impl Hub {
         self.connected.iter().any(|(i, _)| i == id)
     }
 
-    /// Every notification of every connected plugin.
+    /// Every notification of every connected plugin that Do Not Disturb did not hold. A held one (`held: true`, `helper/app/src/dnd.rs`)
+    /// is the drawer's alone: no card announces it and the saver does not show it.
     pub fn notes(&self) -> Vec<Note> {
         let mut out = Vec::new();
         for (pid, _) in &self.connected {
             let Some(doc) = self.notes.get(pid) else { continue };
-            for it in doc.get("items").and_then(Value::as_array).into_iter().flatten() {
+            for it in doc.get("items").and_then(Value::as_array).into_iter().flatten().filter(|it| it.get("held") != Some(&Value::Bool(true))) {
                 let post = it.get("post").cloned().unwrap_or(Value::Null);
                 out.push(Note {
                     plugin_id: pid.clone(),
@@ -302,6 +303,10 @@ mod tests {
             NOW + 4000,
         );
         assert!(old.posted.is_empty(), "one already past its end is not announced");
+        let mut quiet = note("d", 1, "Washer done", 0);
+        quiet["held"] = json!(true);
+        let held = h.update(&helper("plugin.ha.notifications", json!({"items": [quiet, note("a", 2, "Low battery now", 0), note("b", 1, "Garage open", 0)]})), NOW + 5000);
+        assert!(held.posted.is_empty() && h.notes().iter().all(|n| n.id != "d"), "one Do Not Disturb held is announced by nothing");
     }
 
     #[test]

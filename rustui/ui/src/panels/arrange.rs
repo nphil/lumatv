@@ -55,14 +55,26 @@ pub fn moved(order: &[String], id: &str, dir: i32) -> Vec<String> {
     out
 }
 
+/// Tiles that came after arrangements were first kept, each with the tile it goes after: an arrangement saved before one came shows it
+/// there (else last), until the owner next arranges the panel. Every arrangement written since lists them as `quickPanel.offered`.
+pub const ADDED: [(&str, &str); 1] = [("dnd", "sleep")];
+
 /// The theme patch that keeps an arrangement: the whole list every time (the host's patch merges one level deep).
 pub fn patch(order: &[String]) -> Value {
-    json!({"quickPanel": {"tiles": order}})
+    json!({"quickPanel": {"tiles": order, "offered": ADDED.iter().map(|(id, _)| *id).collect::<Vec<_>>()}})
 }
 
-/// The saved arrangement of a theme document, if it has one.
+/// The saved arrangement of a theme document, if it has one, with the tiles added since it was saved.
 pub fn saved(theme: &Value) -> Option<Vec<String>> {
-    theme.pointer("/quickPanel/tiles").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+    let mut out: Vec<String> = theme.pointer("/quickPanel/tiles").and_then(Value::as_array)?.iter().filter_map(Value::as_str).map(str::to_string).collect();
+    let offered = theme.pointer("/quickPanel/offered").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    for (id, after) in ADDED {
+        if !out.iter().any(|x| x == id) && !offered.iter().any(|x| x.as_str() == Some(id)) {
+            let at = out.iter().position(|x| x == after).map_or(out.len(), |i| i + 1);
+            out.insert(at, id.to_string());
+        }
+    }
+    Some(out)
 }
 
 #[cfg(test)]
@@ -119,8 +131,10 @@ mod tests {
     #[test]
     fn the_patch_carries_the_whole_list_and_the_theme_gives_it_back() {
         let p = patch(&v(&["a", "b"]));
-        assert_eq!(p, json!({"quickPanel": {"tiles": ["a", "b"]}}));
-        assert_eq!(saved(&p), Some(v(&["a", "b"])));
+        assert_eq!(p, json!({"quickPanel": {"tiles": ["a", "b"], "offered": ["dnd"]}}));
+        assert_eq!(saved(&p), Some(v(&["a", "b"])), "the owner took Do Not Disturb off, or never had it: it stays off");
         assert_eq!(saved(&json!({})), None);
+        // an arrangement from before the tile came shows it after the sleep timer
+        assert_eq!(saved(&json!({"quickPanel": {"tiles": ["picture", "sleep", "oled"]}})), Some(v(&["picture", "sleep", "dnd", "oled"])));
     }
 }

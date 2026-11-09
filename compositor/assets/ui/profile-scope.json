@@ -2,7 +2,7 @@
   "profile": [
     "wallpaper", "material", "materialThreshold", "dark", "light", "accent", "tint", "saturation", "depth",
     "type", "clock", "weather.days", "news", "wallpaperMotion",
-    "tiles.icons", "tiles.plates", "apps", "quickPanel.tiles",
+    "tiles.icons", "tiles.plates", "apps", "quickPanel.tiles", "quickPanel.offered",
     "remote.quickAccess", "remote.buttons", "motion.reduced", "search",
     "layout", "overlays.classes"
   ],

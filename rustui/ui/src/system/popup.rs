@@ -8,7 +8,9 @@
 //!   returns with the time it has left. An `update` of the same story changes the words of the card up and re-reads `untilMs`; it is never
 //!   a second pop-up. It ends at `untilMs` and tells the helper (`/v1/cameras/popup/clear`).
 //! - **Keys:** only OK and Back, and only 600 ms after it arrived (a press made as it came was the app's). OK clears it (the helper is told)
-//!   and asks for the full view of its camera; Back clears it. While the viewer is up there is no card.
+//!   and asks for the full view of its camera; Back clears it. Where the snooze sheet is this process's, OK is decided on its release and OK
+//!   held 700 ms asks for the sheet ([`Intent::Snooze`]); the card steps aside under it and a snooze picked there ends it ([`Popup::snoozed`]).
+//!   While the viewer is up there is no card.
 //! - **Picture:** the event's own (`/v1/cameras/events/<event>/thumbnail`, once) at once, then the camera's stills (`.../frame`), the next ask 250 ms after
 //!   the last arrived. `Live` once a still is on screen; `Event picture` while only the event's is; `Connecting` before any; `No picture`
 //!   after two refused still asks with none shown.
@@ -25,6 +27,8 @@ use crate::cameras::pics::{Planner, Want};
 use crate::cameras::sheet::encode;
 use crate::kit::picture::{self, Picture};
 use crate::kit::screen::{Effect, Input};
+use crate::panels::hold::{Hold, Released};
+use crate::panels::layer::HOLD_MS;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
@@ -116,6 +120,11 @@ impl Record {
     fn card_id(&self) -> Option<u64> {
         self.id.parse().ok()
     }
+
+    /// The camera's name, its id where it has none.
+    fn title(&self) -> String {
+        if self.name.is_empty() { self.camera.clone() } else { self.name.clone() }
+    }
 }
 
 /// What the picture box says.
@@ -151,6 +160,8 @@ pub struct View {
     pub face: Face,
     /// The full view can be opened from here (the Cameras app is the Rust shell's).
     pub can_expand: bool,
+    /// OK held asks for the snooze sheet.
+    pub can_snooze: bool,
     /// Whether the keys are the card's yet.
     pub armed: bool,
     /// The picture box is a hole over the video plane (the live video is what shows there), not a picture of the shell's.
@@ -165,6 +176,8 @@ pub struct View {
 pub enum Intent {
     /// OK: the full view of this camera.
     Expand(String),
+    /// OK held: the snooze sheet for this camera (`camera` its id, `name` what the card calls it).
+    Snooze { camera: String, name: String },
     /// A pop-up of this kind came up: the overlay queue takes in a doorbell record of the same ring.
     Shown(String),
 }
@@ -184,6 +197,9 @@ pub struct Popup {
     app_front: bool,
     viewer_up: bool,
     can_expand: bool,
+    can_snooze: bool,
+    /// OK while it is down, where a hold snoozes.
+    ok: Hold,
     planner: Planner,
     size: (u32, u32),
     /// Each camera's main stream size, from the `cameras` topic: the card's shape before its stream says one.
@@ -257,6 +273,8 @@ impl Popup {
             app_front: false,
             viewer_up: false,
             can_expand: false,
+            can_snooze: false,
+            ok: Hold::default(),
             planner: Planner::with_tags(FIRST, LAST),
             size: PICTURE,
             natives: HashMap::new(),
@@ -279,6 +297,11 @@ impl Popup {
     /// The Cameras app is the Rust shell's, so OK can open the full view.
     pub fn set_can_expand(&mut self, on: bool) {
         self.can_expand = on;
+    }
+
+    /// The snooze sheet is this process's, so OK held can open it.
+    pub fn set_can_snooze(&mut self, on: bool) {
+        self.can_snooze = on;
     }
 
     /// What the host has up that the card must not cover or be covered by: the card steps aside (it is not dismissed) or waits.
@@ -348,7 +371,7 @@ impl Popup {
         let (camera, name, what, age, icon) = match &self.current {
             Some(r) => {
                 let age = ago(((self.clock as i64 + self.skew_ms - r.at) / 1000).max(0));
-                (r.camera.clone(), if r.name.is_empty() { r.camera.clone() } else { r.name.clone() }, words_of(r), age, icon_of(&r.kind))
+                (r.camera.clone(), r.title(), words_of(r), age, icon_of(&r.kind))
             }
             None => (String::new(), String::new(), String::new(), String::new(), "camera"),
         };
@@ -362,7 +385,7 @@ impl Popup {
         } else {
             Face::Connecting
         };
-        View { up: self.up, camera, name, icon, what, age, face, can_expand: self.can_expand, armed: self.armed(self.clock), video, shape: self.shape() }
+        View { up: self.up, camera, name, icon, what, age, face, can_expand: self.can_expand, can_snooze: self.can_snooze, armed: self.armed(self.clock), video, shape: self.shape() }
     }
 
     /// The picture's size the card is shaped by (see [`View::shape`]).
@@ -423,6 +446,7 @@ impl Popup {
     /// it is not due again. What it asked of the helper is stopped.
     fn hold(&mut self, viewer: bool, out: &mut Vec<Effect>) {
         self.up = false;
+        self.ok.clear();
         self.ends_at = None;
         self.ago_at = None;
         if !viewer {
@@ -441,6 +465,7 @@ impl Popup {
             return;
         }
         self.up = false;
+        self.ok.clear();
         self.ends_at = None;
         self.ago_at = None;
         self.current = None;
@@ -452,6 +477,34 @@ impl Popup {
             out.push(Effect::Post { path: "/v1/cameras/popup/clear".into(), body: json!({}) });
         }
         out.push(Effect::Redraw);
+    }
+
+    /// OK (a tap, where a hold snoozes): the card clears and asks for the full view of its camera where there is one.
+    fn ok(&mut self, out: &mut Vec<Effect>) {
+        let camera = self.current.as_ref().map(|c| c.camera.clone()).unwrap_or_default();
+        let picture = if self.can_expand { self.best().cloned() } else { None };
+        // the full view of the same camera takes the stream over: it asks for it, and the helper finds it there
+        self.hide(true, self.can_expand, out);
+        if self.can_expand {
+            // ... and opens on the card's picture, which the video replaces when it plays
+            self.expanded = picture;
+            self.intents.push(Intent::Expand(camera));
+        }
+    }
+
+    /// A snooze was picked on the sheet the card asked for: the record of `camera` (of any camera when `None`, a snooze of them all) is done
+    /// with. It is not shown again and the helper is told.
+    pub fn snoozed(&mut self, camera: Option<&str>) -> Vec<Effect> {
+        let mut out = Vec::new();
+        let Some(t) = self.topic.as_ref().filter(|t| camera.is_none_or(|c| c == t.camera)) else { return out };
+        self.shown_id = Some(t.id.clone());
+        self.waiting_at = None;
+        if self.up {
+            self.hide(true, false, &mut out);
+        } else {
+            out.push(Effect::Post { path: "/v1/cameras/popup/clear".into(), body: json!({}) });
+        }
+        out
     }
 
     /// Whether the stills are the only picture there is: the helper says there is no live video, or it was refused, taken back or failed.
@@ -578,6 +631,11 @@ impl Popup {
                 if self.up {
                     out.extend(self.live.tick(now));
                 }
+                if self.ok.tick(now)
+                    && let Some(c) = self.current.as_ref().filter(|_| self.up)
+                {
+                    self.intents.push(Intent::Snooze { camera: c.camera.clone(), name: c.title() });
+                }
                 if self.up && self.ago_at.is_some_and(|t| now >= t) {
                     self.ago_at = Some(now + AGO_MS);
                     out.push(Effect::Redraw);
@@ -592,20 +650,13 @@ impl Popup {
                 }
             }
             Input::Key { name, down: true, repeat: false } if self.armed(now) => match name.as_str() {
-                "ok" => {
-                    let camera = self.current.as_ref().map(|c| c.camera.clone()).unwrap_or_default();
-                    let picture = if self.can_expand { self.best().cloned() } else { None };
-                    // the full view of the same camera takes the stream over: it asks for it, and the helper finds it there
-                    self.hide(true, self.can_expand, &mut out);
-                    if self.can_expand {
-                        // ... and opens on the card's picture, which the video replaces when it plays
-                        self.expanded = picture;
-                        self.intents.push(Intent::Expand(camera));
-                    }
-                }
+                // where a hold snoozes, OK is decided on its release
+                "ok" if self.can_snooze => self.ok.press(now, HOLD_MS),
+                "ok" => self.ok(&mut out),
                 "back" => self.hide(true, false, &mut out),
                 _ => {}
             },
+            Input::Key { name, down: false, .. } if name == "ok" && self.ok.release() == Released::Tap && self.up => self.ok(&mut out),
             _ => {}
         }
         if self.up {
@@ -621,7 +672,7 @@ impl Popup {
         // the stills turn quick when no window was answered in time
         let quick = (self.up && self.current.as_ref().is_some_and(|c| c.live == Some(true)) && self.live.window() == Window::Unclaimed && !self.stills_quick(self.clock))
             .then_some(self.arrived_at + QUICK_AFTER_MS);
-        [self.ends_at, self.waiting_at, self.ago_at, pics, arm, live, quick].into_iter().flatten().min()
+        [self.ends_at, self.waiting_at, self.ago_at, pics, arm, live, quick, self.ok.due_at()].into_iter().flatten().min()
     }
 
     pub fn state(&self) -> Value {
@@ -1083,5 +1134,35 @@ mod tests {
         };
         assert_eq!(heavy("both-scalers"), (QUIET_MS, "/v1/cameras/275/frame?w=520&h=292&fps=4".to_string()), "a game at 120 Hz or 4K video: a quarter of the frames of a second, not more");
         assert_eq!(heavy("app-video"), (QUICK_MS, "/v1/cameras/275/frame?w=520&h=292&fps=8".to_string()));
+    }
+
+    #[test]
+    fn where_a_hold_snoozes_ok_acts_on_its_release_and_a_held_ok_asks_for_the_sheet() {
+        let up = |name: &str| Input::Key { name: name.into(), down: false, repeat: false };
+        let mut p = Popup::new();
+        p.set_can_expand(true);
+        p.set_can_snooze(true);
+        p.update(&record(70, "person", T0 + 30_000), T0);
+        p.take_intents();
+        p.update(&key("ok"), T0 + 700);
+        assert!(p.up() && p.due_at() <= Some(T0 + 700 + HOLD_MS), "the press only starts the hold");
+        p.update(&Input::Tick, T0 + 700 + HOLD_MS - 1);
+        p.update(&up("ok"), T0 + 800);
+        assert!(!p.up());
+        assert_eq!(p.take_intents(), vec![Intent::Expand("275".into())], "a tap is OK");
+        p.update(&record(71, "person", T0 + 30_000), T0 + 1_000);
+        p.take_intents();
+        p.update(&key("ok"), T0 + 2_000);
+        p.update(&Input::Tick, T0 + 2_000 + HOLD_MS);
+        assert_eq!(p.take_intents(), vec![Intent::Snooze { camera: "275".into(), name: "Front door".into() }]);
+        let fx = p.update(&up("ok"), T0 + 2_900);
+        assert!(p.up() && posted(&fx).is_empty() && p.take_intents().is_empty(), "the release of the hold is nothing");
+        // the sheet is up: the card steps aside, and a snooze of another camera leaves it due
+        p.set_context(true, false, false, T0 + 3_000);
+        assert!(!p.up());
+        assert!(p.snoozed(Some("276")).is_empty());
+        assert_eq!(posted(&p.snoozed(Some("275"))), vec!["/v1/cameras/popup/clear".to_string()]);
+        p.set_context(false, false, false, T0 + 3_500);
+        assert!(!p.up(), "a snoozed card does not come back");
     }
 }

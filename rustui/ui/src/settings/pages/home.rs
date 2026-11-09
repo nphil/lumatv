@@ -91,6 +91,11 @@ fn rows(c: &Ctx) -> Vec<Row> {
     );
     rows.push(theme_toggle(c, ("transitions", 0, "sparkles", "Smooth transitions", "Apps grow out of their tile and shrink back."), "motion.transitions", false));
     rows.push(popups_row(c));
+    let dnd = crate::dnd::Dnd::from_json(c.helper(crate::dnd::TOPIC).unwrap_or(&Value::Null));
+    rows.push(Row::toggle("dnddoorbell").tab(0).icon("bell").label("Let doorbell through").help("A doorbell's pop-up still shows while Do Not Disturb is on.").on(dnd.let_doorbell).act(|a| match a {
+        Arg::Toggle(v) => vec![Op::Send { name: None, method: "POST", path: "/v1/dnd/settings".into(), body: Some(json!({"letDoorbell": v})) }],
+        _ => Vec::new(),
+    }));
 
     // ---- Home
     let shown = c.layout.get("widgets").and_then(Value::as_array).map_or(0, |l| l.iter().filter(|e| e.get("type").and_then(Value::as_str) != Some("dock") && e.get("hidden").and_then(Value::as_bool) != Some(true)).count());
@@ -263,6 +268,17 @@ mod tests {
         assert!(matches!(&(by_id(&r, "wallpaper").act.as_ref().unwrap())(Arg::Press)[..], [Op::Shell(ShellRequest::Wallpaper)]));
         assert_eq!(by_id(&r, "depth").index, Some(2));
         assert_eq!(patch_of_row(by_id(&r, "transitions"), Arg::Toggle(true)), json!({"motion": {"transitions": true}}));
+    }
+
+    #[test]
+    fn the_doorbell_switch_reads_and_writes_do_not_disturbs_setting_and_is_on_until_turned_off() {
+        let mut w = world();
+        assert!(by_id(&rows(&w.ctx()), "dnddoorbell").on);
+        w.topics.set_helper(crate::dnd::TOPIC, json!({"on": true, "letDoorbell": false}));
+        let r = rows(&w.ctx());
+        let row = by_id(&r, "dnddoorbell");
+        assert!(!row.on);
+        assert!(matches!(&(row.act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Send { method: "POST", path, body: Some(b), .. }] if path == "/v1/dnd/settings" && b == &json!({"letDoorbell": true})));
     }
 
     #[test]

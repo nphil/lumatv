@@ -197,6 +197,8 @@ pub struct Shell {
     panels: Panels,
     /// The press of OK or Back that is being routed was taken by a card (the pop-up's or the overlay queue's): the screens under do not see it.
     cards_took: bool,
+    /// The camera (id, name) whose pop-up opened the snooze sheet that is up: its pick snoozes that camera or them all.
+    snoozing: Option<(String, String)>,
     /// Which buttons of the pointer the screens may hear ([`Guard`]).
     pointer_guard: Guard,
     /// A pointer press that woke the saver retains its release.
@@ -297,6 +299,7 @@ impl Shell {
             engine,
             kinds,
             cards_took: false,
+            snoozing: None,
             pointer_guard: Guard::default(),
             saver_pointer_down: false,
             reported: None,
@@ -730,6 +733,19 @@ impl Shell {
             {
                 let pic = self.panels.camera_picture(id);
                 self.open_camera_viewer(id, pic, now, acts);
+            }
+            // the snooze sheet a held OK on the camera pop-up opened: the snooze is asked for, the card it was for ends, and a toast says so
+            if topic == "menu.picked"
+                && data.get("id").and_then(Value::as_str) == Some(crate::dnd::SNOOZE_FORM)
+                && let Some((camera, name)) = self.snoozing.take()
+            {
+                let (source, label, time) = crate::dnd::snooze_picked(&camera, &name, data.get("values").unwrap_or(&Value::Null));
+                self.carry(Effect::Post { path: "/v1/dnd/snooze".into(), body: crate::dnd::snooze_body(crate::dnd::CAMERA, source.as_deref(), &label, time) }, now, acts);
+                for e in self.sys.popup_snoozed(&self.kinds, source.as_deref()) {
+                    self.carry(e, now, acts);
+                }
+                let toast = json!({"sourceId": "com.webos.app.home", "message": crate::dnd::snoozed_words(&label, time), "noaction": true, "persistent": false});
+                self.carry(Effect::Luna { tag: crate::system::layer::TOAST_TAG, uri: "luna://com.webos.notification/createToast".into(), payload: toast, subscribe: false }, now, acts);
             }
             self.feed(&Input::Topic { topic, data }, now, acts);
         }
@@ -1452,6 +1468,14 @@ impl Shell {
                     self.redraw = true;
                 }
                 crate::system::layer::Intent::OpenCamera(camera) => acts.push(Act::Log(format!("camera card: the full view of {camera} is not this process's"))),
+                crate::system::layer::Intent::Snooze { camera, name } => {
+                    let mut out = Vec::new();
+                    self.panels.open_menu(crate::panels::menu::Spec::from_json(&crate::dnd::snooze_sheet(&name)), &self.kinds, now, &mut out);
+                    for e in out {
+                        self.carry(e, now, acts);
+                    }
+                    self.snoozing = Some((camera, name));
+                }
                 crate::system::layer::Intent::OpenDrawer => {
                     let mut out = Vec::new();
                     self.panels.show(Which::Drawer, false, &self.kinds, now, &mut out);
@@ -2068,6 +2092,20 @@ mod tests {
         shell.tick(20_000);
         shell.tick(20_500);
         assert_eq!(shell.state()["interactiveVisible"], false);
+    }
+
+    #[test]
+    fn do_not_disturb_holds_an_outside_senders_toast_for_the_helper_and_never_the_volume_bar() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("osd,toast"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).unwrap();
+        shell.start();
+        shell.helper(&Event::Topic { topic: crate::dnd::TOPIC.into(), data: json!({"on": true}) }, 1_000);
+        let ha = json!({"tag": FEED_TAG, "payload": {"sourceId": "com.webos.service.secondscreen.gateway", "message": "Washer<br>Done"}});
+        let acts = shell.channel(&Event::Topic { topic: "luna".into(), data: ha }, 1_100);
+        assert_eq!((helper_calls(&acts, "/v1/dnd/missed"), shell.state()["toasts"].clone()), (1, json!(0)));
+        let audio = json!({"volumeStatus": {"volume": 31, "muteStatus": false, "soundOutput": "tv_speaker", "maxVolume": 100, "cause": "volumeUp"}});
+        shell.channel(&Event::Topic { topic: "audio".into(), data: audio }, 1_200);
+        assert_eq!(shell.state()["osd"], true);
     }
 
     #[test]
@@ -3152,6 +3190,30 @@ mod tests {
         assert!(acts.iter().all(|a| !matches!(a, Act::Channel(o) if o.path == "/v1/front")));
         assert!(luna_calls(&acts, "/launch").is_empty());
         assert_eq!(helper_calls(&acts, "/v1/cameras/live/stop"), 1);
+    }
+
+    #[test]
+    fn ok_held_on_the_camera_card_opens_the_snooze_sheet_whose_pick_snoozes_the_camera_ends_the_card_and_says_so() {
+        let (_h, mut shell) = home_shell("popup,menu");
+        let record = json!({"id": 41, "event": "e41", "camera": "275", "name": "Cat Feeder", "kind": "person", "at": 1_000, "untilMs": u64::MAX / 4, "thumbnail": false});
+        shell.helper(&Event::Topic { topic: "cameras.popup".into(), data: record }, 2_000);
+        shell.tick(2_050);
+        let ok = |down| KeyEvent::Key { name: "ok".into(), down, repeat: false, seat: 0 };
+        shell.key(&ok(true), 2_800);
+        shell.tick(2_800 + crate::panels::layer::HOLD_MS);
+        assert_eq!(shell.panels.up(&shell.kinds), Some(Which::Menu), "the sheet");
+        shell.key(&ok(false), 3_600);
+        shell.tick(3_700);
+        assert_eq!((shell.panels.up(&shell.kinds), shell.state()["popup"]["up"].clone()), (Some(Which::Menu), json!(false)), "the release is nothing, and the card steps aside");
+        // OK goes on to the time, and OK on it snoozes this camera for an hour
+        key(&mut shell, "ok", 4_000);
+        let acts = key(&mut shell, "ok", 4_200);
+        let asked: Vec<Value> = acts.iter().filter_map(|a| match a { Act::Helper(o) if o.path == "/v1/dnd/snooze" => o.body.clone(), _ => None }).collect();
+        assert_eq!(asked, vec![json!({"minutes": 60, "kind": "camera", "label": "Cat Feeder", "source": "275"})]);
+        assert_eq!(helper_calls(&acts, "/v1/cameras/popup/clear"), 1);
+        assert_eq!(luna_calls(&acts, "/createToast")[0]["payload"]["message"], "Cat Feeder snoozed for 1 hour");
+        shell.tick(5_000);
+        assert_eq!(shell.state()["popup"]["up"], false, "the card does not come back");
     }
 
     /// Opens the kind `name` over Home; the kinds that nothing but their owner closes are closed by `close_owner`.

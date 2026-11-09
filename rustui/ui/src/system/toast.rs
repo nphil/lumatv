@@ -1,7 +1,8 @@
 //! The toasts' model (`panels/Notify.qml` of the QML shell, the toast part; the mock `docs/mocks/07-toast`): LG's toast feed
 //! (`luna://com.webos.notification/getToastNotification`, subscribed) drawn by LumaTV under its own compositor. Nothing is delayed: the
 //! newest toast replaces the current one and expires after its own timeout (LG's 5 s by default). LG's announcements of a picture's or a
-//! sound's format are the format badge's ([`super::badge`]), not toasts.
+//! sound's format are the format badge's ([`super::badge`]), not toasts. While Do Not Disturb is on (the `dnd` topic) a toast an outside
+//! sender raised ([`crate::dnd::holds_toast`]) is not shown: the helper keeps it with what was missed (`POST /v1/dnd/missed`).
 //! A toast never takes a key or the focus.
 
 use crate::kit::screen::{Effect, Input, Model};
@@ -27,6 +28,7 @@ pub struct Toasts {
     serial: u64,
     subscribed: bool,
     changed: bool,
+    dnd: crate::dnd::Dnd,
 }
 
 /// What the surface draws: at most the current toast.
@@ -46,15 +48,18 @@ impl Toasts {
         vec![Effect::Luna { tag: FEED_TAG, uri: FEED_URI.into(), payload: json!({"subscribe": true}), subscribe: true }]
     }
 
-    fn take(&mut self, m: &Value, now: u64) {
+    /// A toast of the feed: it replaces the current one, or is held for the helper while Do Not Disturb is on.
+    fn take(&mut self, m: &Value, now: u64) -> Option<Effect> {
         if super::badge::announced(m).is_some() {
-            return;
+            return None;
         }
         let lines = plain_lines(m.get("message").and_then(Value::as_str).unwrap_or(""));
-        let Some((title, body)) = lines.split_first() else {
-            return;
-        };
+        let (title, body) = lines.split_first()?;
         let (title, body) = (title.clone(), body.join("\n"));
+        let source = m.get("sourceId").and_then(Value::as_str).unwrap_or("");
+        if self.dnd.active(now) && !source.is_empty() && crate::dnd::holds_toast(source) {
+            return Some(Effect::Post { path: "/v1/dnd/missed".into(), body: json!({"kind": "toast", "source": source, "title": title, "body": body}) });
+        }
         let icon = m.get("iconPath").and_then(Value::as_str).unwrap_or("").to_string();
         let own = icon.is_empty() || {
             let file = icon.rsplit('/').next().unwrap_or("").to_lowercase();
@@ -65,6 +70,7 @@ impl Toasts {
         let toast = Toast { id: self.serial, title, body, icon: if own { String::new() } else { icon }, expires: now + timeout as u64 };
         self.current = Some(toast);
         self.changed = true;
+        None
     }
 
     pub fn is_empty(&self) -> bool {
@@ -110,19 +116,24 @@ impl Model for Toasts {
 
     fn update(&mut self, input: &Input, now: u64) -> Vec<Effect> {
         self.changed = false;
+        let mut out = Vec::new();
         match input {
             Input::Luna { tag, payload } if *tag == FEED_TAG => {
                 if payload.get("message").is_some() {
-                    self.take(payload, now);
+                    out.extend(self.take(payload, now));
                 }
             }
+            Input::Helper { topic, data } if topic == crate::dnd::TOPIC => self.dnd = crate::dnd::Dnd::from_json(data),
             Input::Tick if self.current.as_ref().is_some_and(|t| t.expires <= now) => {
                 self.current = None;
                 self.changed = true;
             }
             _ => {}
         }
-        if self.changed { vec![Effect::Redraw] } else { Vec::new() }
+        if self.changed {
+            out.push(Effect::Redraw);
+        }
+        out
     }
 
     fn view(&self) -> View {
@@ -202,5 +213,17 @@ mod tests {
         t.update(&audio("Turn Dolby Atmos on<br/><font size=\"1\">in Sound</font> <b>now</b>"), 2);
         assert_eq!((t.view()[0].title.as_str(), t.view()[0].body.as_str()), ("Turn Dolby Atmos on", "in Sound now"));
         assert_eq!(plain_lines("a < b<BR />c"), ["a < b", "c"]);
+    }
+
+    #[test]
+    fn under_do_not_disturb_an_outside_senders_toast_goes_to_the_helper_and_lumatvs_own_still_shows() {
+        let mut t = Toasts::new();
+        t.update(&Input::Helper { topic: crate::dnd::TOPIC.into(), data: json!({"on": true, "until": 10_000}) }, 1);
+        let ha = Input::Luna { tag: FEED_TAG, payload: json!({"sourceId": "com.webos.service.secondscreen.gateway", "message": "Washer<br>Done"}) };
+        let held = t.update(&ha, 2);
+        assert_eq!(held, vec![Effect::Post { path: "/v1/dnd/missed".into(), body: json!({"kind": "toast", "source": "com.webos.service.secondscreen.gateway", "title": "Washer", "body": "Done"}) }]);
+        assert!(t.is_empty());
+        assert_eq!(push(&mut t, "Cat Feeder snoozed for 1 hour", None, 3), vec![Effect::Redraw]);
+        assert_eq!(t.update(&ha, 10_000), vec![Effect::Redraw], "it is over at its time");
     }
 }

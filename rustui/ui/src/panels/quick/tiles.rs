@@ -38,6 +38,8 @@ pub enum Act {
     Shot,
     Record,
     Plugin { plugin: String, action: String, target: Option<String> },
+    /// Do Not Disturb: OK switches it, Right opens its card of durations and of the snoozes on (their ids, in the card's order after the durations).
+    Dnd(Vec<String>),
 }
 
 /// A value card with a track (OLED pixel brightness).
@@ -187,6 +189,8 @@ pub fn tiles(env: &Env) -> Vec<Row> {
     sleep.options = SLEEP_LABELS.iter().map(|s| s.to_string()).collect();
     sleep.index = Some(env.power.sleep_index());
 
+    let dnd = dnd_row(env);
+
     let mut wifi = Row::base("wifi", Kind::Value, "wifi", "Wi-Fi", Act::Settings("network"));
     wifi.detail = env.net.summary();
 
@@ -204,7 +208,7 @@ pub fn tiles(env: &Env) -> Vec<Row> {
     ai.value = if listener { "Allowed" } else { "Blocked" }.into();
     ai.tone = if listener { "positive" } else { "" };
 
-    let mut out = vec![picture, receiver, sleep, wifi];
+    let mut out = vec![picture, receiver, sleep, dnd, wifi];
     out.extend(plugin_rows(env));
     out.push(ai);
     out
@@ -226,6 +230,17 @@ pub fn plugin_rows(env: &Env) -> Vec<Row> {
             r
         })
         .collect()
+}
+
+/// The Do Not Disturb tile, from the helper's `dnd` topic. Its card's choice marked current is "Until I turn it off" while it is on with no end.
+fn dnd_row(env: &Env) -> Row {
+    let d = crate::dnd::Dnd::from_json(env.topic(crate::dnd::TOPIC).unwrap_or(&Value::Null));
+    let mut row = Row::base("dnd", Kind::Toggle, crate::dnd::GLYPH, "Do Not Disturb", Act::Dnd(d.snoozes.iter().map(|s| s.id.clone()).collect()));
+    row.on = d.on;
+    row.detail = crate::dnd::detail(&d, super::super::clock::time_of);
+    row.options = crate::dnd::DURATIONS.iter().map(|s| s.to_string()).chain(d.snoozes.iter().map(|s| s.label.clone())).collect();
+    row.index = (d.on && d.until.is_none()).then_some(0);
+    row
 }
 
 /// What "Add a tile" offers beyond the built-in ones (`QuickMore.rows`), each the settings page's row for the same TV setting.
@@ -294,6 +309,7 @@ pub struct Extras {
 pub fn pick_extras(id: &str) -> Extras {
     match id {
         "sleep" => Extras { text: "The TV turns off after this long. A minute before, a toast lets you cancel.", icon: Some("clock") },
+        "dnd" => Extras { text: "", icon: Some(crate::dnd::GLYPH) },
         "picture" => Extras { text: "How the picture looks. Each input keeps its own.", icon: Some("image") },
         "energy" => Extras { text: "How far the TV lowers the picture's brightness to save power.", icon: Some("leaf") },
         _ => Extras { text: "", icon: None },
@@ -322,7 +338,7 @@ mod tests {
         e.update(&Input::Helper { topic: "plugins".into(), data: json!({"plugins": [{"id": "ambient", "state": "connected"}]}) }, 0);
         e.update(&Input::Helper { topic: "plugin.ambient.tiles".into(), data: json!({"items": [{"id": "ambient", "label": "Ambient light", "icon": "base.icons/lamp", "state": {"type": "on"}, "action": "toggle", "hint": "Follows the picture"}]}) }, 0);
         let ids: Vec<String> = tiles(&e).into_iter().map(|r| r.id).collect();
-        assert_eq!(ids, vec!["picture", "receiver", "sleep", "wifi", "plugin.ambient.ambient", "ai"]);
+        assert_eq!(ids, vec!["picture", "receiver", "sleep", "dnd", "wifi", "plugin.ambient.ambient", "ai"]);
     }
 
     #[test]

@@ -12,6 +12,8 @@
 //! ```
 //!
 //! An item with `options` is a segmented row (the sleep timer): Left and Right move inside it. Up and Down move, OK picks, Back closes.
+//! A spec with `form` (an id) is a form of segmented rows that keep their choices (the snooze sheet): OK goes on to the next row, and OK on
+//! the last picks the form, as `menu.picked {id: form, index, values: [each row's choice]}`.
 //! Danger items (Uninstall) are in the danger colour and are asked about twice by whoever receives them. The card stays on the screen:
 //! it is moved back inside the safe area when the given place would put it outside. What was picked is told to the owner as the event
 //! `menu.picked {id, index}` and the menu closes: the owner decides what follows.
@@ -75,6 +77,8 @@ pub struct Spec {
     pub width: f32,
     /// A scrim behind the card (the pointer's menu has none).
     pub scrim: bool,
+    /// The form's id, empty for a menu.
+    pub form: String,
 }
 
 fn text(v: &Value, k: &str) -> String {
@@ -130,6 +134,7 @@ impl Spec {
             hint: text(v, "hint"),
             width: num(v, "width").unwrap_or(DEFAULT_WIDTH),
             scrim: v.get("scrim").and_then(Value::as_bool) != Some(false),
+            form: text(v, "form"),
         }
     }
 
@@ -200,14 +205,22 @@ impl Menu {
     }
 
     fn pick(&mut self) -> Out {
-        let Some(it) = self.spec.as_ref().and_then(|s| s.items.get(self.index)).filter(|i| !i.disabled) else { return Out::default() };
+        let Some(spec) = self.spec.as_ref() else { return Out::default() };
+        let Some(it) = spec.items.get(self.index).filter(|i| !i.disabled) else { return Out::default() };
         let mut out = Out::close();
-        out.events.push(("menu.picked".into(), json!({"id": it.id, "index": self.seg})));
+        if spec.form.is_empty() {
+            out.events.push(("menu.picked".into(), json!({"id": it.id, "index": self.seg})));
+        } else {
+            let values: Vec<usize> = spec.items.iter().enumerate().map(|(i, it)| if i == self.index { self.seg } else { it.index }).collect();
+            out.events.push(("menu.picked".into(), json!({"id": spec.form, "index": self.seg, "values": values})));
+        }
         out
     }
 
     pub fn key(&mut self, k: K) -> Out {
-        let Some(spec) = self.spec.as_ref() else { return Out::close() };
+        let Some(spec) = self.spec.as_mut() else { return Out::close() };
+        // OK on a form's row that has a row after it goes on to that row
+        let k = if k == K::Ok && !spec.form.is_empty() && spec.items.get(self.index + 1..).is_some_and(|rest| rest.iter().any(|i| !i.disabled)) { K::Down } else { k };
         match k {
             K::Up | K::Down => {
                 let d: i32 = if k == K::Up { -1 } else { 1 };
@@ -216,6 +229,10 @@ impl Menu {
                     n += d;
                 }
                 if n >= 0 && (n as usize) < spec.items.len() {
+                    // a form's row left keeps its choice; a menu's goes back to the current one
+                    if !spec.form.is_empty() && !spec.items[self.index].options.is_empty() {
+                        spec.items[self.index].index = self.seg;
+                    }
                     self.index = n as usize;
                     self.seg = if spec.items[self.index].options.is_empty() { 0 } else { spec.items[self.index].index };
                 }
@@ -336,6 +353,22 @@ mod tests {
         m.open(Spec::from_json(&json!({"items": [{"id": "a", "label": "A"}]})));
         m.key(K::Right);
         assert_eq!(m.seg(), 0, "Left and Right mean nothing on an item without segments");
+    }
+
+    #[test]
+    fn a_forms_rows_keep_their_choices_and_ok_goes_on_until_the_last_picks_the_form() {
+        let mut m = Menu::new();
+        m.open(Spec::from_json(&crate::dnd::snooze_sheet("Driveway")));
+        m.key(K::Right);
+        m.key(K::Down);
+        m.key(K::Right);
+        m.key(K::Up);
+        assert_eq!((m.index(), m.seg()), (0, 1), "the row left kept its choice");
+        let out = m.key(K::Ok);
+        assert!(!out.close && out.events.is_empty());
+        assert_eq!((m.index(), m.seg()), (1, 2));
+        let out = m.key(K::Ok);
+        assert_eq!(out.events, vec![("menu.picked".to_string(), json!({"id": "snooze", "index": 2, "values": [1, 2]}))]);
     }
 
     #[test]

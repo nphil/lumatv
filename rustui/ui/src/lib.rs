@@ -6,6 +6,7 @@
 //! set.
 
 pub mod cameras;
+pub mod dnd;
 pub mod embedded;
 pub mod guide;
 pub mod home;

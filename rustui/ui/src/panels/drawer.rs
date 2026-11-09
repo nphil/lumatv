@@ -1,7 +1,8 @@
 //! The notification drawer (`docs/mocks/13-notifications`, `panels/Drawer.qml` of the QML shell): a panel down the right side, the quick
 //! panel's width and place, that opens from the bell on Home's top bar (and a long press of the gear key), with what has happened grouped
 //! the way Android does: by who said it (AI access: what an assistant asked for and what was decided, the helper's audit; each plugin:
-//! the broker's notifications, with the plugin's own buttons; the TV: the [`NoteLog`], such as an update ready).
+//! the broker's notifications, with the plugin's own buttons; the TV: the [`NoteLog`], such as an update ready; Do Not Disturb: the alerts it
+//! and the snoozes held, the helper's `dnd` topic, forgotten there once the last of them is cleared here).
 //! A group is as new as its newest notification and the groups are ordered by it; inside a group the newest comes first.
 //! Notifications that say exactly the same (title, text and buttons) are one entry with a count. A group of one entry is that entry
 //! under a label; a group of several is a header with a focus of its own (OK opens or folds the group, Right reaches its Clear) and its
@@ -23,6 +24,9 @@ use crate::kit::screen::Effect;
 use serde_json::{Value, json};
 use std::cmp::Reverse;
 use std::collections::BTreeSet;
+
+/// The id prefix of what Do Not Disturb held.
+const MISSED: &str = "dnd-";
 
 /// What a button of an item does.
 #[derive(Clone, Debug, PartialEq)]
@@ -244,6 +248,15 @@ impl Drawer {
                 .collect();
             add(&n.plugin, "plug", Item::new(key, icon, n.title.clone(), n.body.clone(), (n.received_at * 1000.0) as u64, actions, false));
         }
+        let dnd = crate::dnd::Dnd::from_json(env.topic(crate::dnd::TOPIC).unwrap_or(&Value::Null));
+        for m in &dnd.missed {
+            let key = format!("{MISSED}{}-{}", m.at, m.title);
+            if self.hidden.contains(&key) {
+                continue;
+            }
+            let icon = if m.kind == crate::dnd::CAMERA { "camera" } else { "bell" };
+            add(crate::dnd::MISSED_GROUP, crate::dnd::GLYPH, Item::new(key, icon, m.title.clone(), m.body.clone(), m.at, Vec::new(), false));
+        }
         for l in self.log.items() {
             let actions = l.actions.iter().map(|a| Action { label: a.label.clone(), run: Do::Own { id: l.id.clone(), action: a.id.clone() } }).collect();
             add(&l.source, "monitor", Item::new(l.id.clone(), &l.icon, l.title.clone(), l.body.clone(), l.time, actions, true));
@@ -330,39 +343,50 @@ impl Drawer {
 
     // ---- what the keys and the pointer do
 
-    /// Takes the notifications of `items` out of the drawer: the TV's own from its log, the others hidden by id.
-    fn remove(&mut self, items: &[Item]) {
+    /// Takes the notifications of `items` out of the drawer: the TV's own from its log, the others hidden by id. When the last of what Do Not
+    /// Disturb held goes, the helper forgets the list too.
+    fn remove(&mut self, env: &Env, items: &[Item]) -> Vec<Effect> {
+        let mut held = false;
         for m in items.iter().flat_map(|i| &i.members) {
+            held |= m.id.starts_with(MISSED);
             if m.own {
                 self.log.dismiss(&m.id);
             } else {
                 self.hidden.insert(m.id.clone());
             }
         }
+        if held && !self.groups(env).iter().any(|g| g.source == crate::dnd::MISSED_GROUP) {
+            return vec![Effect::Request { tag: tags::DND, method: "DELETE".into(), path: "/v1/dnd/missed".into(), body: None }];
+        }
+        Vec::new()
     }
 
-    fn clear_all(&mut self, env: &Env) {
+    fn clear_all(&mut self, env: &Env) -> Vec<Effect> {
         let all: Vec<Item> = self.groups(env).into_iter().flat_map(|g| g.items).collect();
         self.log.clear();
-        self.remove(&all);
+        let effects = self.remove(env, &all);
         self.hidden_before = self.audit.iter().filter_map(|a| a.get("at").and_then(Value::as_f64)).fold(self.hidden_before.max(0.0), f64::max);
         self.expanded.clear();
         self.index = 0;
         self.button = 0;
+        effects
     }
 
     /// Clears the group `source`: its notifications go, the others stay.
-    fn clear_group(&mut self, env: &Env, source: &str) {
-        if let Some(g) = self.groups(env).into_iter().find(|g| g.source == source) {
-            self.remove(&g.items);
-        }
+    fn clear_group(&mut self, env: &Env, source: &str) -> Vec<Effect> {
+        let effects = match self.groups(env).into_iter().find(|g| g.source == source) {
+            Some(g) => self.remove(env, &g.items),
+            None => Vec::new(),
+        };
         self.expanded.remove(source);
         self.settle(env);
+        effects
     }
 
-    fn dismiss(&mut self, env: &Env, it: &Item) {
-        self.remove(std::slice::from_ref(it));
+    fn dismiss(&mut self, env: &Env, it: &Item) -> Vec<Effect> {
+        let effects = self.remove(env, std::slice::from_ref(it));
         self.settle(env);
+        effects
     }
 
     /// After something went: the focus stays on a row, and on the first of its buttons.
@@ -418,23 +442,22 @@ impl Drawer {
             K::Ok => match row {
                 None => {
                     if self.index == 0 {
-                        self.clear_all(env);
+                        return Out::effects(self.clear_all(env));
                     }
                 }
                 Some(Row::Head { source, .. }) => {
                     if self.button == 0 {
                         self.toggle(&source);
                     } else {
-                        self.clear_group(env, &source);
+                        return Out::effects(self.clear_group(env, &source));
                     }
                 }
                 Some(Row::Item(it)) => {
                     if it.actions.is_empty() {
-                        self.dismiss(env, &it);
-                    } else {
-                        let a = it.actions.get(self.button).unwrap_or(&it.actions[0]).clone();
-                        return self.run(&a);
+                        return Out::effects(self.dismiss(env, &it));
                     }
+                    let a = it.actions.get(self.button).unwrap_or(&it.actions[0]).clone();
+                    return self.run(&a);
                 }
             },
             _ => {}
@@ -443,19 +466,20 @@ impl Drawer {
     }
 
     /// A click on "Clear all".
-    pub fn click_clear(&mut self, env: &Env) {
-        self.clear_all(env);
+    pub fn click_clear(&mut self, env: &Env) -> Out {
+        Out::effects(self.clear_all(env))
     }
 
     /// A click on item `idx` (from 1): an item without buttons is cleared by it, as OK clears it.
-    pub fn click_item(&mut self, idx: usize, env: &Env) {
+    pub fn click_item(&mut self, idx: usize, env: &Env) -> Out {
         self.index = idx;
         self.button = 0;
         if let Some(Row::Item(it)) = self.rows(env).get(idx.wrapping_sub(1)).cloned()
             && it.actions.is_empty()
         {
-            self.dismiss(env, &it);
+            return Out::effects(self.dismiss(env, &it));
         }
+        Out::default()
     }
 
     /// A click on button `b` of item `idx`.
@@ -473,10 +497,10 @@ impl Drawer {
     }
 
     /// A click on the Clear of the header `idx`.
-    pub fn click_head_clear(&mut self, idx: usize, env: &Env) {
+    pub fn click_head_clear(&mut self, idx: usize, env: &Env) -> Out {
         self.index = idx;
         self.button = 1;
-        self.key(K::Ok, env);
+        self.key(K::Ok, env)
     }
 
     pub fn index(&self) -> usize {
@@ -894,5 +918,27 @@ pub(crate) mod tests {
         assert_eq!(titles(&d, &env).len(), 3);
         d.click_head_clear(head, &env);
         assert_eq!(heads(&d, &env), vec!["TV:1", "Front door:2"]);
+    }
+
+    #[test]
+    fn what_do_not_disturb_held_is_a_group_of_its_own_and_clearing_the_last_of_it_forgets_it_in_the_helper() {
+        let mut env = env();
+        feed(
+            &mut env,
+            crate::dnd::TOPIC,
+            json!({"on": false, "missed": [
+                {"kind": "camera", "source": "275", "title": "Person at Driveway", "body": "", "at": NOW - 60_000, "by": "dnd"},
+                {"kind": "toast", "source": "ha", "title": "Washer", "body": "Done", "at": NOW - 120_000, "by": "dnd"}
+            ]}),
+        );
+        let mut d = open(&env);
+        let group = d.groups(&env).into_iter().find(|g| g.source == crate::dnd::MISSED_GROUP).expect("the group");
+        assert_eq!((group.icon.as_str(), group.items[0].icon.as_str(), group.items[1].icon.as_str()), (crate::dnd::GLYPH, "camera", "bell"));
+        go_to(&mut d, &env, "Washer");
+        assert!(d.key(K::Ok, &env).effects.is_empty(), "one of two goes from the drawer only");
+        go_to(&mut d, &env, "Person at Driveway");
+        let out = d.key(K::Ok, &env);
+        assert_eq!(out.effects, vec![Effect::Request { tag: tags::DND, method: "DELETE".into(), path: "/v1/dnd/missed".into(), body: None }]);
+        assert!(d.groups(&env).iter().all(|g| g.source != crate::dnd::MISSED_GROUP));
     }
 }

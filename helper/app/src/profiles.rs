@@ -121,6 +121,7 @@ const FILE_MAX: u64 = 1024 * 1024;
 pub const COPY: &[&str] = &[
     "apps",
     "quickPanel.tiles",
+    "quickPanel.offered",
     "remote.quickAccess",
     "remote.buttons",
     "layout",
@@ -1860,6 +1861,7 @@ mod tests {
             "tiles.plates",
             "apps",
             "quickPanel.tiles",
+            "quickPanel.offered",
             "remote.quickAccess",
             "remote.buttons",
             "search",

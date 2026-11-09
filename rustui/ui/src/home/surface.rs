@@ -226,10 +226,20 @@ struct StatusBar {
     group: Frame,
     items: Vec<StatusItem>,
     profile_key: String,
+    mark: Option<Mark>,
     /// Where the pane was last put (`update_layers`): it is put again only when that changes.
     at: Option<Props>,
     /// Whether the bar came through whole: it is made again when not, since nothing else would (the chip is made last).
     mend: Mend,
+}
+
+/// Do Not Disturb's mark before the buttons: its glyph, and the time left when it is timed. Nothing on it is focusable.
+struct Mark {
+    icon: Option<ImageLayer>,
+    icon_at: Props,
+    words: Option<Text>,
+    /// Whether the bar was hidden when the layers were last put (`update_layers`).
+    hidden: Option<bool>,
 }
 
 /// A card: its lift and its content.
@@ -528,6 +538,11 @@ impl HomeSurface {
             let width = width_of(kit, style, &name);
             home.set_name_width(name, width);
         }
+        if let Some(shape) = home.mark_to_measure() {
+            let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), kit.ui.look.ink(), Align::Left);
+            let width = width_of(kit, style, &shape);
+            home.set_mark_width(shape, width);
+        }
         if rebuild {
             self.teardown(engine);
             self.generation = kit.generation();
@@ -570,6 +585,7 @@ impl HomeSurface {
             .collect::<Vec<_>>();
         home.stills.configure(&camera_rows);
         self.update_badge(kit, home);
+        self.update_mark(kit, home);
         // The clock's hands, the news slide and the cards' words are kept up to date while Home is in front, and brought up to date by the apply
         // that finds it in front again: a covered Home that went on doing it sent the engine a damaged picture every second, a composed frame under
         // a playing video for nothing.
@@ -804,7 +820,7 @@ impl HomeSurface {
         let frame = Frame::new(pill.x, pill.y, pill.w, pill.h);
         let group = home.status_group();
         let profile = home.profile().cloned().unwrap_or(Value::Null);
-        let profile_key = format!("{}|{}|{:?}", profile, home.status_items().len(), home.chip());
+        let profile_key = format!("{}|{}|{:?}|{:?}|{:?}", profile, home.status_items().len(), home.chip(), home.mark_frame(), home.status_mark().map(|m| m.0));
         let mend = self.status.as_mut().is_some_and(|s| s.mend.due(&kit.ui.scene, now));
         if !mend && self.status.as_ref().is_some_and(|s| s.profile_key == profile_key && s.frame == frame && s.group == group) {
             return Ok(());
@@ -872,8 +888,44 @@ impl HomeSurface {
             }).ok_or_else(|| std::io::Error::other("the item's group"))??;
             items.push(StatusItem { id, kind, lift, icon, avatar, name, badge, badge_n: None });
         }
-        self.status = Some(StatusBar { pane, frame, group, items, profile_key, at: None, mend });
+        let mark = Self::build_mark(kit, home)?;
+        self.status = Some(StatusBar { pane, frame, group, items, profile_key, mark, at: None, mend });
         Ok(())
+    }
+
+    /// The mark, absolutely placed on the bar: the moon centred in a button's square, a snooze alone as its smaller glyph, and the time left after it.
+    fn build_mark(kit: &mut Kit, home: &Home) -> std::io::Result<Option<Mark>> {
+        let (Some((glyph, words)), Some((x, y, w, h))) = (home.status_mark(), home.mark_frame()) else { return Ok(None) };
+        let ink = kit.ui.look.ink();
+        let grid = crate::kit::vector_icon::GRID * crate::kit::vector_icon::multiple(kit.text_scale);
+        let (icon, icon_at) = if *glyph == crate::dnd::GLYPH {
+            let centre = (x + h / 2.0, y + h / 2.0);
+            let shift = kit.icons.crisp(glyph, grid).map_or((0, 0), |(_, s)| *s);
+            let (ix, iy) = crate::kit::icon::crisp_origin(centre, grid, shift);
+            (crate::kit::icon::crisp_layer(kit, glyph, ink, Z_STATUS + 3, centre)?, Props::at(ix, iy))
+        } else {
+            let side = grid * 5 / 6;
+            let at = Props::at((x + (h - side as f32) / 2.0).round(), (y + (h - side as f32) / 2.0).round());
+            (crate::kit::icon::layer(kit, glyph, side, ink, Z_STATUS + 3, at)?, at)
+        };
+        let words = if words.is_empty() {
+            None
+        } else {
+            let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left);
+            let tx = home.mark_text_x();
+            Some(Text::line_at(kit, x + tx, y + h / 2.0, w - tx, Z_STATUS + 3, style, words)?)
+        };
+        Ok(Some(Mark { icon, icon_at, words, hidden: None }))
+    }
+
+    /// The mark's time left, written again when the minute changes (the bar is laid out again only when its width does).
+    fn update_mark(&mut self, kit: &mut Kit, home: &Home) {
+        let Some(words) = self.status.as_mut().and_then(|s| s.mark.as_mut()).and_then(|m| m.words.as_mut()) else { return };
+        if let Some((_, now)) = home.status_mark()
+            && words.text() != now
+        {
+            words.set(kit, now);
+        }
     }
 
     /// The pill of the bell's count for `text`: its width, its height and the type of the number. The height and the type grow with the
@@ -1346,6 +1398,19 @@ impl HomeSurface {
             }
             for it in &s.items {
                 it.lift.pose(engine, 1.0, !hidden);
+            }
+            if let Some(m) = &mut s.mark
+                && m.hidden != Some(hidden)
+            {
+                m.hidden = Some(hidden);
+                let shown = |at: Props| Props { opacity: if hidden { 0.0 } else { 1.0 }, visible: !hidden, ..at };
+                if let Some(icon) = &m.icon {
+                    icon.set(shown(m.icon_at));
+                }
+                if let Some(words) = &mut m.words {
+                    let at = words.at();
+                    words.set_props(shown(at));
+                }
             }
         }
         Ok(())

@@ -27,6 +27,7 @@ pub mod tags {
     pub const PLUGIN: u64 = 0x5100_0009;
     pub const CLOSE_PIN: u64 = 0x5100_000A;
     pub const SETTINGS: u64 = 0x5100_000B;
+    pub const DND: u64 = 0x5100_000C;
 }
 
 /// What the compositor says is in front.

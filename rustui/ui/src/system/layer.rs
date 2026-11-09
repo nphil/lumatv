@@ -54,12 +54,16 @@ const SAVER_CLIENT: &str = "org.nphil.lumatv";
 pub const LAYOUT_TAG: u64 = 0x5359_0300;
 /// The tag of the app launches the system layer asks for (a banner's buttons when the panels are not this process's).
 pub const LAUNCH_TAG: u64 = 0x5359_0301;
+/// The tag of the toasts the system layer raises through LG's `createToast` (a snooze's confirmation).
+pub const TOAST_TAG: u64 = 0x5359_0302;
 
 /// What a card of the layer asks the shell to do, which is not the layer's to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
     /// OK on the camera pop-up: the Cameras app's full view of this camera.
     OpenCamera(String),
+    /// OK held on the camera pop-up: the snooze sheet for this camera (`name` what the card calls it).
+    Snooze { camera: String, name: String },
     /// OK on a card with no action of its own: the notification drawer.
     OpenDrawer,
     /// Inputs on a banner: the input picker.
@@ -317,9 +321,15 @@ impl Layer {
         if kinds.popup { self.popup.set_window(window, slot, sink, now) } else { Vec::new() }
     }
 
+    /// A snooze was picked on the sheet the camera pop-up asked for (`camera` none: all cameras): the card it was for is done with.
+    pub fn popup_snoozed(&mut self, kinds: &Kinds, camera: Option<&str>) -> Vec<Effect> {
+        if kinds.popup { self.popup.snoozed(camera) } else { Vec::new() }
+    }
+
     /// The subscriptions the kinds ask for at the start.
     pub fn start(&mut self, kinds: &Kinds) -> Vec<Effect> {
         self.popup.set_can_expand(kinds.cameras);
+        self.popup.set_can_snooze(kinds.menu);
         self.overlay.set_drawer_ready(kinds.drawer);
         let mut out = Vec::new();
         if kinds.alert {
@@ -455,6 +465,7 @@ impl Layer {
             for i in self.popup.take_intents() {
                 match i {
                     popup::Intent::Expand(camera) => self.intents.push(Intent::OpenCamera(camera)),
+                    popup::Intent::Snooze { camera, name } => self.intents.push(Intent::Snooze { camera, name }),
                     popup::Intent::Shown(kind) => {
                         if kinds.cards {
                             self.overlay.camera_shown(&kind, now);
@@ -541,6 +552,7 @@ impl Layer {
             age: "Just now".into(),
             face: super::popup::Face::Live,
             can_expand: true,
+            can_snooze: true,
             armed: true,
             video: false,
             shape: None,

@@ -223,7 +223,7 @@ fn the_first_tile_takes_the_focus_once_the_settings_service_has_answered() {
 fn down_visits_the_tiles_in_order_a_tile_that_is_not_available_never_takes_the_focus_and_the_last_goes_on_to_all_settings() {
     let (mut q, mut env) = rig(false);
     let seen = walk_down(&mut q, &mut env);
-    assert_eq!(seen, vec!["picture", "receiver", "sleep", "wifi", "plugin.ambient.ambient", "plugin.lock.scene", "ai", "foot"]);
+    assert_eq!(seen, vec!["picture", "receiver", "sleep", "dnd", "wifi", "plugin.ambient.ambient", "plugin.lock.scene", "ai", "foot"]);
     assert!(!seen.contains(&"plugin.lock.door".to_string()));
     assert_eq!(q.zone(), Zone::Foot);
     // up from the button comes back to AI access
@@ -516,6 +516,28 @@ fn the_profiles_strip_is_the_first_row_one_ok_switches_and_the_current_one_is_ma
 }
 
 #[test]
+fn do_not_disturbs_switch_flips_on_ok_and_right_opens_its_durations_and_snoozes() {
+    let (mut q, mut env) = rig(false);
+    feed(&mut env, crate::dnd::TOPIC, json!({"on": false, "snoozes": [{"id": "s1", "kind": "camera", "source": "300", "label": "Front Door", "until": 3_600_000}]}), 0);
+    for _ in 0..4 {
+        if focused(&q, &env) == "dnd" { break; }
+        press(&mut q, &mut env, K::Down);
+    }
+    assert_eq!(press(&mut q, &mut env, K::Ok).effects, vec![Effect::Post { path: "/v1/dnd/on".into(), body: json!({}) }]);
+    // the card opens without the owner's value cards switched on
+    press(&mut q, &mut env, K::Right);
+    let Some(PopupView::Pick { options, .. }) = q.view(&env, 0).popup else { panic!("the durations card") };
+    let labels: Vec<&str> = options.iter().map(|o| o.label.as_str()).collect();
+    assert_eq!(labels, ["Until I turn it off", "1 hour", "2 hours", "Until tomorrow morning", "Front Door"]);
+    press(&mut q, &mut env, K::Down);
+    assert_eq!(press(&mut q, &mut env, K::Ok).effects, vec![Effect::Post { path: "/v1/dnd/on".into(), body: json!({"minutes": 60}) }]);
+    // OK on a snooze ends it
+    press(&mut q, &mut env, K::Right);
+    for _ in 0..4 { press(&mut q, &mut env, K::Down); }
+    assert_eq!(press(&mut q, &mut env, K::Ok).effects, vec![Effect::Request { tag: tags::DND, method: "DELETE".into(), path: "/v1/dnd/snooze/s1".into(), body: None }]);
+}
+
+#[test]
 fn a_profile_that_has_a_pin_asks_it_in_place_unless_the_owner_is_the_one_asking() {
     let (mut q, mut env) = rig(false);
     feed(&mut env, "profiles", two_people("isabel", &["nitin"]), 10);
@@ -610,8 +632,8 @@ fn the_panels_ids_name_what_the_pointer_lands_on() {
 #[test]
 fn a_click_focuses_and_acts_and_a_click_on_a_steppers_chevron_steps_it() {
     let (mut q, mut env) = rig(false);
-    // a click on the wifi tile (row 3) opens its page
-    let out = q.click(Target::Row(3), None, &mut env, 100);
+    // a click on the wifi tile (row 4) opens its page
+    let out = q.click(Target::Row(4), None, &mut env, 100);
     assert_eq!(out.asks, vec![Ask::Settings("network".into())]);
     assert!(out.close);
     let (mut q, mut env) = rig(false);

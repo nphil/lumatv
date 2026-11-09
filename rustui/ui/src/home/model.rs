@@ -260,6 +260,12 @@ pub struct Home {
     pub stills: super::stills::Stills,
     /// What the bell's badge counts (the panels' log and the plugins' notes since the drawer was last open).
     pub unread: usize,
+    /// Do Not Disturb as the helper publishes it, what the status bar shows of it now and when that next changes (`sync_mark`).
+    pub dnd: crate::dnd::Dnd,
+    mark: Option<(&'static str, String)>,
+    mark_due: Option<u64>,
+    /// The mark's words' width, measured by the surface as the chip's name is: the shape it was measured for (`mark_shape`), the text size and the width.
+    mark_width: Option<(String, f32, f32)>,
     pub profiles: Value,
     /// The active profile as the helper last reported it, kept in `last-profile.json`: the chip keeps the person's letter, colour and
     /// name while the helper is stopped or starting again.
@@ -401,6 +407,10 @@ impl Home {
             unlock_of: None,
             stills: super::stills::Stills::default(),
             unread: 0,
+            dnd: crate::dnd::Dnd::default(),
+            mark: None,
+            mark_due: None,
+            mark_width: None,
             profiles: Value::Null,
             kept_profile: None,
             inner: None,
@@ -652,7 +662,7 @@ impl Home {
     /// apart, a change of purpose `status_gaps.1`.
     fn status_run(&self) -> Vec<(f32, f32)> {
         let mut out = Vec::new();
-        let mut x = 0.0;
+        let mut x = if self.mark.is_some() { self.mark_span() + self.status_gaps.1 } else { 0.0 };
         let mut before: Option<Purpose> = None;
         for it in self.status_item_list() {
             let purpose = Purpose::of(kind_of(it));
@@ -744,6 +754,66 @@ impl Home {
         self.name_width = Some((name, self.text_scale.max(1.0), width));
         self.register();
         self.dirty = true;
+    }
+
+    /// What the status bar shows of Do Not Disturb before its buttons: the moon with the time left when it is timed, or the snooze glyph alone.
+    pub fn status_mark(&self) -> Option<&(&'static str, String)> {
+        self.mark.as_ref()
+    }
+
+    /// The mark's words with every digit a nought: their width is measured for that, so the bar stays put while the minutes count down.
+    fn mark_shape(&self) -> Option<String> {
+        let (_, words) = self.mark.as_ref().filter(|(_, w)| !w.is_empty())?;
+        Some(words.chars().map(|c| if c.is_ascii_digit() { '0' } else { c }).collect())
+    }
+
+    /// The shape the surface has to measure (it has the fonts), when no width for it at this text size is held yet.
+    pub fn mark_to_measure(&self) -> Option<String> {
+        let shape = self.mark_shape()?;
+        let scale = self.text_scale.max(1.0);
+        let held = matches!(&self.mark_width, Some((s, k, _)) if *s == shape && (*k - scale).abs() < 0.001);
+        (!held).then_some(shape)
+    }
+
+    pub fn set_mark_width(&mut self, shape: String, width: f32) {
+        self.mark_width = Some((shape, self.text_scale.max(1.0), width));
+        self.register();
+        self.dirty = true;
+    }
+
+    /// Where the mark's words begin, from its left edge: just past the glyph, which is centred in a button's square.
+    pub fn mark_text_x(&self) -> f32 {
+        ((self.status_height() - 2.0 * STATUS_INSET) * 0.8).round()
+    }
+
+    /// How wide the mark is: a button's square for the glyph alone; with words, as wide as the whole pixels they need, padded as the chip's name is.
+    fn mark_span(&self) -> f32 {
+        let h = self.status_height() - 2.0 * STATUS_INSET;
+        let Some(shape) = self.mark_shape() else { return h };
+        let scale = self.text_scale.max(1.0);
+        let w = match &self.mark_width {
+            Some((s, k, w)) if *s == shape && (*k - scale).abs() < 0.001 => *w,
+            _ => 9.0 * scale * shape.chars().count() as f32,
+        };
+        self.mark_text_x() + w.ceil() + (h * 0.35).round()
+    }
+
+    /// The mark's box `(x, y, w, h)`, first in the buttons' box; none while there is no mark.
+    pub fn mark_frame(&self) -> Option<(f32, f32, f32, f32)> {
+        self.mark.as_ref()?;
+        let group = self.status_group();
+        Some((group.x + STATUS_INSET, group.y + STATUS_INSET, self.mark_span(), self.status_height() - 2.0 * STATUS_INSET))
+    }
+
+    /// Takes the mark at `now` again: the bar is laid out and drawn again when it changed.
+    fn sync_mark(&mut self, out: &mut Vec<Effect>) {
+        let mark = self.dnd.status(self.now);
+        self.mark_due = self.dnd.changes_at(self.now);
+        if mark != self.mark {
+            self.mark = mark;
+            self.register();
+            self.redraw(out);
+        }
     }
 
     /// Where the button of type `kind` is on the status bar (`[x, y, w, h]`), as the bar lays it out now: the place a panel grows out of and goes
@@ -901,6 +971,9 @@ impl Home {
             }
         }
         out.append(&mut self.deferred);
+        if self.mark_due.is_some_and(|t| now >= t) {
+            self.sync_mark(&mut out);
+        }
         self.tick(&mut out);
         let visible = self.camera_stills_visible();
         out.extend(self.stills.update(input, visible, now));
@@ -1082,6 +1155,10 @@ impl Home {
         }
         take(self.colour.as_ref().and_then(|c| c.due_at()));
         take(self.thermostat.as_ref().and_then(|t| t.due_at()));
+        // the mark's time left, once a minute
+        if self.active {
+            take(self.mark_due);
+        }
         // the clock's minute, and its second hand when the analogue face shows one: only while Home is in front (behind an app nothing shows it)
         if self.active {
             let step = if self.theme.pointer("/clock/style").and_then(Value::as_str) == Some("analog") { 1000 } else { 60_000 };
@@ -1189,6 +1266,10 @@ impl Home {
                 }
             }
             "news" => self.news = data.clone(),
+            crate::dnd::TOPIC => {
+                self.dnd = crate::dnd::Dnd::from_json(data);
+                self.sync_mark(out);
+            }
             "plugins" | "ha.link" => {
                 let was_off = self.ha_off();
                 self.plugins.insert(topic.to_owned(), data.clone());
