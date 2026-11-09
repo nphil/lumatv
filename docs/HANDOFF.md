@@ -31,6 +31,12 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Quick Settings and Settings with room after a wake, 2026-11-09 (main 5ef54774, installed 11:28 EST)
+
+After the 09:40 wake Quick Settings opened empty and Settings > Remote & pointer could not focus Phone remote; both logged `at most 96 groups`. Home's 16-tile dock kept a lit group per tile at rest (a sixth of the client's 96), and with the smart-home card's lifts and the wake's picker too few groups were left for a panel. The dock now lights only the focused tile; under Settings, the cameras' viewer or any full kind the dock and the smart-home card let their groups go until the kind leaves, and a panel short of room is drawn whole once they do, never as an empty sheet.
+
+Installed by the standard cutover with Home in front and the receiver as found (external ARC, volume 57, unmuted): ui `fd666b15` (replaced `862b4cbf`); compositor `63a10300`, sm `65f6ca69` and helper `92dbac9c` unchanged. On the set Quick Settings draws whole, Phone remote takes focus and opens on OK, Home comes back with both cameras live, and no `at most 96 groups` was logged from 11:27:45 to 11:32. Not tested on the set: a wake from standby, the cameras' viewer and other full kinds. Receipts and the rollback copy of `862b4cbf`: `/data/home/tmp/lumatv-scenecap-20261109/` (`session.log`, `installed-5ef54774.json`, `qs-after-install.png`, `settings-remote-phone-focused.png`, `settings-phone-remote-opened.png`, `backup/`).
+
 ## Camera streams: one set, no duplicates, 2026-11-09 (ScryptedBridge dbacd9e, deployed 09:13 EST, no TV install)
 
 The Reolink doors' RTMP streams declare no codec, so a pop-up's codec list skipped their prebuffered `sub.bcs` and the bridge dialled the unbuffered RTSP preview (3.7-7 s). The bridge now fills a missing codec from Rebroadcast's `prebuffer:detectedCodec` and, between streams of one size, prefers the prebuffered one (ScryptedBridge 0.2.6, 744 tests). The morning's `RTSP h264Preview_01_sub` in `prebuffer:enabledStreams` on Front Door 104 and Back Door 103 is out again; the settings before are in `/data/home/tmp/lumatv-cleanstreams-20261109/scrypted-before.json`.
