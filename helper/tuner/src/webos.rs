@@ -1,8 +1,11 @@
 //! An LG webOS TV as the tuner's [`Hardware`], as measured on the set (webOS 10.2.1, kernel 5.4.268; `docs/research/live-tv-capture.md`):
 //!
-//! - LG's `utp` frees a broadcast pipeline when the connection that opened it goes, so the pipeline is opened on a luna connection that
-//!   stays up for the stream ([`Luna::open`]); `changeChannel` on that pipeline (not `setAtscManualTuning`, which leaves the frontend where
-//!   it was) moves the frontend and the TV's last channel, and the last channel is put back at the end, unless Live TV took the tuner.
+//! - The tuner is a windowless `SCAN` pipeline of LG's legacy broadcast service, played with `playSignaling`. That asks LG's resource
+//!   manager for the tuner and the section decoder alone (`WATCH_SECTION_PARSE`), so it tunes with the TV on and any app in front, takes
+//!   nothing from that app's picture or sound, and leaves the TV's last channel as it was. `utp`'s `changeChannel` asks for the whole
+//!   watch chain and was refused while the app in front held the video decoders (Netflix in 4K holds all four; 2026-11-08). The pipeline
+//!   outlives the connection that opened it, so the open one is on record ([`WebosConfig::pipeline_file`]) and one that a run ended
+//!   without closing is closed before the next opens.
 //! - The stream is the kernel's own: a second demux channel (`demux2`) takes the demod's port with the values LG's stack uses, section
 //!   filters read the PSI, and a PVR download (`dvr2`) carries the routed PIDs as 192-byte units (a 4-byte timestamp, then the packet) once
 //!   the download has been certified. The certificate is LG's documented one: the device's seed key (a call into LG's HAL, made in the
@@ -17,23 +20,26 @@ use crate::stream::{Failure, Hardware, Hold, Signal, Tap};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Read};
+use std::io::Read;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const BROADCAST: &str = "luna://com.webos.service.utp.broadcast";
+/// LG's legacy broadcast service, the one `utp`'s own drives.
+const BROADCAST: &str = "luna://com.webos.service.legacybroadcast.broadcast";
 const LIVE_TV: &str = "com.webos.app.livetv";
 /// The state of a broadcast pipeline that is its opener's: once Live TV opens, LG unrealizes the helper's.
 const RENDERING: &str = "BROADCAST_STATE_RENDERING";
 /// How long a luna call may take.
 const CALL_WAIT: Duration = Duration::from_secs(10);
-/// How long the frontend gets to lock after `changeChannel`, and how often it is asked. Measured on the set on 2026-11-05: every RF channel
-/// that locks (the weak RF 29 too) locked 0.3 to 0.35 s after `changeChannel` answered, the set answers `getSignalStatus` in about 30 ms,
-/// and an RF channel that does not lock (RF 35) reads strength 0 throughout.
+/// How long the frontend gets to lock once the channel is played, and how often it is asked. Measured on the set: every RF channel that
+/// locks (the weak RF 29 too) locked 0.3 to 0.35 s after `utp`'s `changeChannel` answered (2026-11-05), and within the first second of
+/// `playSignaling` (2026-11-08); the set answers `getSignalStatus` in about 30 ms, and an RF channel that does not lock (RF 35) reads
+/// strength 0 throughout.
 const LOCK_WAIT: Duration = Duration::from_secs(3);
 const LOCK_POLL: Duration = Duration::from_millis(100);
 /// The demodulator's report on the frequency it is tuned to.
@@ -67,14 +73,9 @@ const KEY_SCRIPT: &str = "import ctypes,sys\nl=ctypes.CDLL('libhal_lg115x.so.2')
 pub trait Luna: Send + Sync + 'static {
     /// One call and its first reply: an object, or the bare array some services answer with. `Err` is the transport's failure, in words.
     fn call(&self, uri: &str, payload: &Value, wait: Duration) -> Result<Value, String>;
-    /// A call whose connection stays up for as long as the returned [`Held`] lives, and its first reply.
-    fn open(&self, uri: &str, payload: &Value, wait: Duration) -> Result<(Value, Held), String>;
 }
 
-/// A connection [`Luna::open`] keeps up: dropping it closes the connection.
-pub type Held = Box<dyn Send>;
-
-/// The set's `luna-send`: `-n 1` for a call, `-i` for a connection that stays up for as long as its standard input is held open.
+/// The set's `luna-send`, one call each (`-n 1`).
 pub struct LunaSend {
     program: String,
 }
@@ -88,19 +89,6 @@ impl LunaSend {
     }
 }
 
-/// An `luna-send -i`: the process is the connection, so dropping it ends the process.
-struct Connection {
-    child: Child,
-    _stdin: ChildStdin,
-}
-
-impl Drop for Connection {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 impl Luna for LunaSend {
     fn call(&self, uri: &str, payload: &Value, wait: Duration) -> Result<Value, String> {
         let text = run(
@@ -108,44 +96,6 @@ impl Luna for LunaSend {
             wait,
         )?;
         first_value(&text).ok_or_else(|| "no answer".to_owned())
-    }
-
-    fn open(&self, uri: &str, payload: &Value, wait: Duration) -> Result<(Value, Held), String> {
-        let mut child = Command::new(&self.program)
-            .args(["-i", uri, &payload.to_string()])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("could not run it: {e}"))?;
-        let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("it has no pipes".to_owned());
-        };
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            let (mut reader, mut text, mut line) =
-                (BufReader::new(stdout), String::new(), String::new());
-            loop {
-                line.clear();
-                if reader.read_line(&mut line).unwrap_or(0) == 0 {
-                    break;
-                }
-                text.push_str(&line);
-                if let Some(reply) = first_value(&text) {
-                    let _ = tx.send(reply);
-                    text.clear();
-                }
-            }
-        });
-        // from here the process is ended however this goes
-        let connection = Connection {
-            child,
-            _stdin: stdin,
-        };
-        let reply = rx.recv_timeout(wait).map_err(|_| "no answer".to_owned())?;
-        Ok((reply, Box::new(connection)))
     }
 }
 
@@ -264,6 +214,9 @@ pub struct WebosConfig {
     /// The DVB adapter's directory, and the demux channel (with its PVR download) the tuner uses: LG's own stack keeps channel 0.
     pub dvb_dir: String,
     pub channel: u8,
+    /// Where the open broadcast pipeline's id is kept. LG keeps a pipeline when the program that opened it ends, so the next tune closes the
+    /// one a run left open when it ended mid-stream.
+    pub pipeline_file: PathBuf,
 }
 
 impl Default for WebosConfig {
@@ -272,6 +225,7 @@ impl Default for WebosConfig {
             python: "python3".to_owned(),
             dvb_dir: "/dev/dvb/adapter0".to_owned(),
             channel: 2,
+            pipeline_file: std::env::temp_dir().join("lumatuner-pipeline"),
         }
     }
 }
@@ -316,32 +270,41 @@ impl Inner {
         }
     }
 
-    /// Opens the windowless scan pipeline on a connection that stays up: the connection, and the pipeline's id.
-    fn open_pipeline(&self) -> Result<(Held, String), Failure> {
-        let uri = format!("{BROADCAST}/open");
-        let payload = json!({"options": {"appId": "com.webos.app.channelsetting", "windowId": "", "purpose": "SCAN"}});
-        let (reply, held) = self
-            .bus
-            .open(&uri, &payload, CALL_WAIT)
-            .map_err(|e| hw(format!("{uri}: {e}")))?;
-        match (
-            reply["returnValue"].as_bool(),
-            reply["broadcastId"].as_str(),
-        ) {
-            (Some(true), Some(id)) => Ok((held, id.to_owned())),
-            _ => Err(hw(format!(
-                "{uri}: {}",
-                reply["errorText"].as_str().unwrap_or("refused")
-            ))),
+    /// Opens the windowless scan pipeline and puts its id on record, after closing the one on record (a run that ended mid-stream left it).
+    fn open_pipeline(&self) -> Result<String, Failure> {
+        let record = &self.cfg.pipeline_file;
+        if let Ok(left) = std::fs::read_to_string(record)
+            && self.close(left.trim())
+        {
+            let _ = std::fs::remove_file(record);
         }
+        let uri = format!("{BROADCAST}/open");
+        let reply = self.luna(
+            &uri,
+            &json!({"options": {"appId": "com.webos.app.channelsetting", "windowId": "", "purpose": "SCAN"}}),
+        )?;
+        let id = reply["broadcastId"]
+            .as_str()
+            .ok_or_else(|| hw(format!("{uri}: no broadcastId")))?;
+        let _ = std::fs::write(record, id);
+        Ok(id.to_owned())
     }
 
-    fn change_channel(&self, id: &str, channel_id: &str) -> Result<(), Failure> {
+    /// Plays `channel_id` on the pipeline for its tables (`WATCH_SECTION_PARSE`): the tuner and the section decoder, no video or audio
+    /// decoder, and the TV's last channel stays as it was.
+    fn play(&self, id: &str, channel_id: &str) -> Result<(), Failure> {
         self.luna(
-            &format!("{BROADCAST}/changeChannel"),
+            &format!("{BROADCAST}/playSignaling"),
             &json!({"broadcastId": id, "channelId": channel_id}),
         )
         .map(|_| ())
+    }
+
+    /// Stops and closes a pipeline; true when LG closed it.
+    fn close(&self, id: &str) -> bool {
+        let id = json!({"broadcastId": id});
+        let _ = self.luna(&format!("{BROADCAST}/stop"), &id);
+        self.luna(&format!("{BROADCAST}/close"), &id).is_ok()
     }
 
     /// The pipeline's state as LG's broadcast service gives it: [`RENDERING`] while it is the helper's.
@@ -556,36 +519,26 @@ impl Hardware for Tv {
     fn tune(&self, channel_id: &str) -> Result<Box<dyn Tap>, Failure> {
         let inner = self.inner.clone();
         let seed = inner.seed()?;
-        let previous = inner.last_channel()?;
-        let (held, id) = inner.open_pipeline()?;
-        // from here the TV is put back however this ends: `Tuned` is the guard
+        // from here the pipeline is closed however this ends: `Tuned` is the guard
         let mut tuned = Tuned {
+            pipeline: inner.open_pipeline()?,
             inner: inner.clone(),
-            pipeline: Some((held, id.clone())),
-            previous,
-            moved: false,
             dvb: None,
         };
-        inner.change_channel(&id, channel_id)?;
-        tuned.moved = true;
-        inner.wait_lock(&id)?;
+        inner.play(&tuned.pipeline, channel_id)?;
+        inner.wait_lock(&tuned.pipeline)?;
         tuned.dvb = Some(Dvb::open(&inner.cfg, seed)?);
         Ok(Box::new(tuned))
     }
 
     fn hold(&self, channel_id: &str) -> Result<Box<dyn Hold>, Failure> {
         let inner = self.inner.clone();
-        let previous = inner.last_channel()?;
-        let (held, id) = inner.open_pipeline()?;
-        let mut tuned = Tuned {
+        let tuned = Tuned {
+            pipeline: inner.open_pipeline()?,
             inner: inner.clone(),
-            pipeline: Some((held, id.clone())),
-            previous,
-            moved: false,
             dvb: None,
         };
-        inner.change_channel(&id, channel_id)?;
-        tuned.moved = true;
+        inner.play(&tuned.pipeline, channel_id)?;
         Ok(Box::new(tuned))
     }
 
@@ -600,38 +553,24 @@ impl Hold for Tuned {
     }
 }
 
-/// A tuned antenna: the pipeline (its connection and id), the channel it moved and the demux tap. Dropping it gives the TV back, in the
-/// order that cannot overflow the download: the tap first, then the channel, then the pipeline, then its connection; a pipeline the TV
-/// took is only closed.
+/// A tuned antenna: the pipeline's id and the demux tap. Dropping it lets go in the order that cannot overflow the download: the tap first,
+/// then the pipeline.
 struct Tuned {
     inner: Arc<Inner>,
-    pipeline: Option<(Held, String)>,
-    previous: String,
-    moved: bool,
+    pipeline: String,
     dvb: Option<Dvb>,
 }
 
 impl Drop for Tuned {
     fn drop(&mut self) {
         self.dvb = None;
-        if let Some((held, id)) = self.pipeline.take() {
-            // Measured on the set on 2026-11-05: Live TV opening unrealizes this pipeline (1.1 s after its launch), and a `changeChannel`
-            // on it then realizes it again, taking the tuner and the decoders back: LG's broadcast client dropped 0.4 s after it connected
-            // and Live TV stayed black. `stop` and `close`, or nothing, left Live TV playing. So a pipeline the TV took, or one let go while
-            // Live TV is in front or running, is only closed, and the channel stays the TV's.
-            let ours = self.inner.state(&id).is_ok_and(|s| s == RENDERING) && self.inner.in_use().is_none();
-            if ours {
-                if self.moved {
-                    let _ = self.inner.change_channel(&id, &self.previous);
-                }
-                let _ = self
-                    .inner
-                    .luna(&format!("{BROADCAST}/stop"), &json!({"broadcastId": id}));
-            }
-            let _ = self
-                .inner
-                .luna(&format!("{BROADCAST}/close"), &json!({"broadcastId": id}));
-            drop(held);
+        // Live TV that has taken the tuner keeps playing through a `stop` and `close` of this pipeline (measured on the set on 2026-11-05).
+        // The record may be a newer pipeline's already: a stream that takes the tuner from the meter opens before the meter lets go.
+        let record = &self.inner.cfg.pipeline_file;
+        if self.inner.close(&self.pipeline)
+            && std::fs::read_to_string(record).is_ok_and(|id| id == self.pipeline)
+        {
+            let _ = std::fs::remove_file(record);
         }
     }
 }
@@ -646,8 +585,7 @@ impl Tap for Tuned {
     }
 
     fn taken(&mut self) -> Option<String> {
-        let id = &self.pipeline.as_ref()?.1;
-        match self.inner.state(id) {
+        match self.inner.state(&self.pipeline) {
             Ok(state) if state == RENDERING => None,
             Ok(state) => Some(format!("the TV took the tuner ({state})")),
             Err(f) => Some(f.reason()),
@@ -861,22 +799,14 @@ mod tests {
         assert_eq!(lg_stamp(1_792_902_120_000), "2026,10,25,04,22,00");
     }
 
-    /// The bus as the set answered, every call in order, and the connections `open` made closing as `closed`.
+    /// The bus as the set answered, every call in order.
     #[derive(Default)]
     struct FakeLuna {
-        log: Arc<Mutex<Vec<String>>>,
+        log: Mutex<Vec<String>>,
         front: Mutex<String>,
         pipelines: Mutex<Value>,
         state: Mutex<String>,
         down: AtomicBool,
-    }
-
-    struct Closes(Arc<Mutex<Vec<String>>>);
-
-    impl Drop for Closes {
-        fn drop(&mut self) {
-            self.0.lock().push("closed".to_owned());
-        }
     }
 
     impl Luna for FakeLuna {
@@ -886,7 +816,10 @@ mod tests {
             }
             self.log.lock().push(format!("{uri} {payload}"));
             Ok(match uri.rsplit('/').next().unwrap_or("") {
-                "getLastChannelId" => json!({"returnValue": true, "channelId": "1_32_2_4_0_0_0"}),
+                "open" => {
+                    let opened = self.log.lock().iter().filter(|l| l.contains("/open ")).count();
+                    json!({"returnValue": true, "broadcastId": format!("0000004c-{opened}")})
+                }
                 "getSignalStatus" => {
                     json!({"returnValue": true, "signal": {"locked": true, "strength": 77}})
                 }
@@ -896,37 +829,56 @@ mod tests {
                 "getForegroundAppInfo" => json!({"returnValue": true, "appId": *self.front.lock()}),
                 "getActivePipelines" => self.pipelines.lock().clone(),
                 "getBroadcastState" => json!({"returnValue": true, "state": *self.state.lock()}),
-                "changeChannel" | "stop" | "close" => json!({"returnValue": true}),
+                "playSignaling" | "stop" | "close" => json!({"returnValue": true}),
                 _ => json!({"returnValue": false, "errorText": "unexpected"}),
             })
         }
+    }
 
-        fn open(&self, uri: &str, payload: &Value, _: Duration) -> Result<(Value, Held), String> {
-            self.log.lock().push(format!("open {uri} {payload}"));
-            Ok((
-                json!({"broadcastId": "0000004c-1", "returnValue": true}),
-                Box::new(Closes(self.log.clone())),
-            ))
+    impl FakeLuna {
+        /// The calls in order, those on the broadcast service as its method and the pipeline and channel they name.
+        fn broadcast(&self) -> Vec<String> {
+            let service = format!("{BROADCAST}/");
+            self.log
+                .lock()
+                .iter()
+                .map(|line| {
+                    let Some((method, payload)) =
+                        line.strip_prefix(&service).and_then(|l| l.split_once(' '))
+                    else {
+                        return line.clone();
+                    };
+                    let payload: Value = serde_json::from_str(payload).unwrap();
+                    [Some(method), payload["broadcastId"].as_str(), payload["channelId"].as_str()]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .collect()
         }
     }
 
-    /// The TV over the fake bus; the seed is the one LG's HAL would give, so no python runs.
-    fn tv() -> (Tv, Arc<FakeLuna>) {
+    /// The TV over the fake bus, with its pipeline's record in a directory of its own; the seed is the one LG's HAL would give, so no
+    /// python runs.
+    fn tv() -> (Tv, Arc<FakeLuna>, tempfile::TempDir) {
         let luna = Arc::new(FakeLuna::default());
+        let dir = tempfile::tempdir().unwrap();
         let tv = Tv::new(
             WebosConfig {
                 dvb_dir: "/nonexistent/dvb".to_owned(),
+                pipeline_file: dir.path().join("pipeline"),
                 ..WebosConfig::default()
             },
             luna.clone(),
         );
         *tv.inner.seed.lock() = Some([0x11; 16]);
-        (tv, luna)
+        (tv, luna, dir)
     }
 
     #[test]
     fn the_channel_list_comes_from_the_tv_and_live_tv_in_front_means_in_use() {
-        let (tv, luna) = tv();
+        let (tv, luna, _dir) = tv();
         let list = docs::entries(&tv.channel_list().unwrap());
         assert_eq!(
             list.iter()
@@ -944,6 +896,13 @@ mod tests {
         );
         *luna.pipelines.lock() = json!({"returnValue": true, "data": "pipeline empty"});
         assert_eq!(tv.in_use(), None);
+        *luna.front.lock() = "netflix".into();
+        *luna.pipelines.lock() = json!([{"currentAppId": "netflix", "type": "media"}, {"currentAppId": "com.webos.app.channelsetting", "type": "tv"}]);
+        assert_eq!(
+            tv.in_use(),
+            None,
+            "another app in front, playing video, is not the TV's use of the tuner"
+        );
         *luna.pipelines.lock() = json!([{"currentAppId": "com.webos.app.livetv", "type": "tv"}]);
         assert_eq!(
             tv.in_use(),
@@ -961,12 +920,10 @@ mod tests {
 
     #[test]
     fn the_tuner_is_taken_when_the_pipeline_is_no_longer_the_one_rendering() {
-        let (tv, luna) = tv();
+        let (tv, luna, _dir) = tv();
         let mut tuned = Tuned {
-            pipeline: Some(tv.inner.open_pipeline().unwrap()),
+            pipeline: tv.inner.open_pipeline().unwrap(),
             inner: tv.inner.clone(),
-            previous: String::new(),
-            moved: false,
             dvb: None,
         };
         *luna.state.lock() = "BROADCAST_STATE_RENDERING".into();
@@ -984,60 +941,66 @@ mod tests {
     }
 
     #[test]
-    fn a_tune_that_fails_at_the_demux_puts_back_the_channel_and_closes_the_pipeline() {
-        let (tv, luna) = tv();
-        *luna.state.lock() = RENDERING.into();
-        *luna.pipelines.lock() = json!({"returnValue": true, "data": "pipeline empty"});
+    fn a_tune_plays_the_channel_for_its_tables_alone_and_lets_go_with_a_stop_and_a_close() {
+        let (tv, luna, dir) = tv();
         let failed = tv.tune("1_27_5_1_0_0_0").err();
         assert!(
             matches!(&failed, Some(Failure::Hardware(why)) if why.contains("demux")),
             "no DVB nodes: {failed:?}"
         );
-        let log = luna.log.lock().clone();
-        let at = |needle: &str, also: &str| {
-            log.iter()
-                .position(|l| l.contains(needle) && l.contains(also))
-                .unwrap_or_else(|| panic!("{needle} {also} in {log:?}"))
-        };
-        let (to, back) = (
-            at("changeChannel", "1_27_5_1_0_0_0"),
-            at("changeChannel", "1_32_2_4_0_0_0"),
+        assert_eq!(
+            luna.broadcast(),
+            [
+                "open",
+                "playSignaling 0000004c-1 1_27_5_1_0_0_0",
+                "getSignalStatus 0000004c-1",
+                "stop 0000004c-1",
+                "close 0000004c-1"
+            ],
+            "the TV's last channel is neither read nor moved"
         );
-        let (stop, close) = (at("/stop", "0000004c-1"), at("/close", "0000004c-1"));
+        let open = luna.log.lock()[0].clone();
         assert!(
-            to < back
-                && back < stop
-                && stop < close
-                && log.last().map(String::as_str) == Some("closed"),
-            "moved, put back, stopped, closed, and the connection that keeps the pipeline went last: {log:?}"
+            open.contains(r#""purpose":"SCAN""#) && open.contains(r#""windowId":"""#),
+            "windowless: {open}"
+        );
+        assert!(
+            !dir.path().join("pipeline").exists(),
+            "a closed pipeline is off the record"
         );
     }
 
     #[test]
-    fn a_pipeline_the_tv_took_or_is_taking_is_only_closed() {
-        for (state, front) in [("BROADCAST_STATE_UNREALIZED", "com.webos.app.home"), (RENDERING, LIVE_TV)] {
-            let (tv, luna) = tv();
-            *luna.pipelines.lock() = json!({"returnValue": true, "data": "pipeline empty"});
-            let tuned = Tuned {
-                pipeline: Some(tv.inner.open_pipeline().unwrap()),
-                inner: tv.inner.clone(),
-                previous: "1_32_2_4_0_0_0".into(),
-                moved: true,
-                dvb: None,
-            };
-            *luna.state.lock() = state.into();
-            *luna.front.lock() = front.into();
-            drop(tuned);
-            let log = luna.log.lock().clone();
-            assert!(
-                !log.iter().any(|l| l.contains("changeChannel") || l.contains("/stop")),
-                "{state}, {front} in front: Live TV's channel is not moved and nothing is stopped: {log:?}"
-            );
-            assert!(
-                log[log.len() - 2].contains("/close") && log.last().map(String::as_str) == Some("closed"),
-                "{log:?}"
-            );
-        }
+    fn the_pipeline_on_record_is_closed_before_the_next_opens_and_stays_on_record_until_it_closes() {
+        let (tv, luna, dir) = tv();
+        let record = dir.path().join("pipeline");
+        // a run that ended mid-stream
+        std::fs::write(&record, "left-1\n").unwrap();
+        let meter = tv.hold("1_27_5_1_0_0_0").unwrap();
+        assert_eq!(std::fs::read_to_string(&record).unwrap(), "0000004c-1");
+        // a stream that takes the tuner before the meter lets go
+        let stream = tv.hold("1_32_2_1_0_0_0").unwrap();
+        drop(meter);
+        assert_eq!(std::fs::read_to_string(&record).unwrap(), "0000004c-2");
+        drop(stream);
+        assert_eq!(
+            luna.broadcast(),
+            [
+                "stop left-1",
+                "close left-1",
+                "open",
+                "playSignaling 0000004c-1 1_27_5_1_0_0_0",
+                "stop 0000004c-1",
+                "close 0000004c-1",
+                "open",
+                "playSignaling 0000004c-2 1_32_2_1_0_0_0",
+                "stop 0000004c-1",
+                "close 0000004c-1",
+                "stop 0000004c-2",
+                "close 0000004c-2"
+            ]
+        );
+        assert!(!record.exists());
     }
 
     /// A fake program; it does nothing when `settle` runs it with `probe`.
@@ -1072,24 +1035,15 @@ mod tests {
     }
 
     #[test]
-    fn luna_send_answers_with_its_first_value_and_an_open_connection_lives_as_long_as_its_guard() {
+    fn luna_send_answers_with_its_first_value() {
         let dir = tempfile::tempdir().unwrap();
         let program = script(
             dir.path(),
             "luna-send",
-            &format!(
-                r#"if [ "$1" = "-i" ]; then
-  echo $$ > {pid:?}
-  echo '{{"broadcastId":"0000004c-1","returnValue":true}}'
-  cat > /dev/null
-  exit 0
-fi
-case "$3" in
-  */getActivePipelines) echo '[{{"currentAppId":"com.webos.app.livetv"}}]' ;;
-  *) echo 'a warning first'; echo '{{"returnValue":true,"echo":'"$4"'}}' ;;
+            r#"case "$3" in
+  */getActivePipelines) echo '[{"currentAppId":"com.webos.app.livetv"}]' ;;
+  *) echo 'a warning first'; echo '{"returnValue":true,"echo":'"$4"'}' ;;
 esac"#,
-                pid = dir.path().join("pid")
-            ),
         );
         let luna = LunaSend::new(program);
         let wait = Duration::from_secs(5);
@@ -1106,13 +1060,6 @@ esac"#,
             .unwrap(),
             json!([{"currentAppId": "com.webos.app.livetv"}])
         );
-        let (reply, held) = luna.open("luna://x/open", &json!({}), wait).unwrap();
-        assert_eq!(reply["broadcastId"], "0000004c-1");
-        let pid = std::fs::read_to_string(dir.path().join("pid")).unwrap();
-        let alive = || Path::new(&format!("/proc/{}", pid.trim())).exists();
-        assert!(alive(), "the connection is up while it is held");
-        drop(held);
-        assert!(!alive(), "and gone with its guard");
         assert!(
             LunaSend::new(dir.path().join("none").display().to_string())
                 .call("luna://x/y", &json!({}), wait)

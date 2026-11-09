@@ -68,8 +68,9 @@ The TV has one tuner, so one stream runs at a time and the TV's own Live TV come
 tuner, and a running one ends when Live TV takes it. The client whose stream has the tuner takes it over with its next request (a channel
 change); another client is refused (503) while a stream runs.
 
-The tuner answers while the TV is on, or off in Always Ready (Active Standby). With Always Ready off, a TV switched off sleeps and nothing
-answers; the plugin's page says so.
+The tuner answers while the TV is on with any app in front, or off in Always Ready (Active Standby). A stream takes only the tuner and
+the section decoder: the app in front keeps its picture and sound (Netflix in 4K, which holds every video decoder, too), and the TV's
+last channel stays as it was. With Always Ready off, a TV switched off sleeps and nothing answers; the plugin's page says so.
 
 ## Settings
 
@@ -98,6 +99,8 @@ The engine is the `lumatuner` crate (`helper/tuner`), with no LumaTV host in it.
 
 - a root service started by the Homebrew Channel: the DVB nodes (`/dev/dvb/adapter0`, demux channel 2) and LG's HAL need root;
 - luna access: `webos::LunaSend` runs the set's `luna-send`, and the set's 32-bit `python3` reads the PVR seed key from LG's HAL;
+- a file for the open broadcast pipeline's id (`WebosConfig::pipeline_file`, in the temp directory by default): LG keeps a pipeline
+  after the program that opened it ends, so the next tune closes the one a run left open;
 - a config file: the name players show, the port and the address or interface to bind, the allowed networks, where the TV's hardware
   address is read (the device id players keep), and the tuner's nodes;
 - a logger for the `log` facade (target `lumatuner`), and its own on and off: it is a network entrance.

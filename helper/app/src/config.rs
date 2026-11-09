@@ -241,6 +241,7 @@ impl HdhrConfig {
             python: self.python.clone(),
             dvb_dir: self.dvb_dir.clone(),
             channel: self.channel,
+            ..lumatuner::webos::WebosConfig::default()
         }
     }
 }

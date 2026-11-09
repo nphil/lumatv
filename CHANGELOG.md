@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The Live TV tuner serves network clients with the TV on and another app in front. Every tune with Netflix playing returned the "tuner did not respond" slate: `utp`'s `changeChannel` asks LG's resource manager for the whole watch chain, which it refused while Netflix in 4K held all four video decoders. The tuner now plays the channel for its tables alone on LG's legacy broadcast service (`playSignaling`: the tuner and the section decoder), so the app in front keeps its picture and sound and the TV's last channel stays as it was. LG keeps that pipeline when the helper ends, so its id is kept on record and the next tune closes one a run left open. The TV's own Live TV still takes the tuner. `docs/plugins/live-tv-tuner.md`.
+
 On the Home dock, Down from the top row always lands on the bottom row: on the tile directly below, or on the bottom row's last tile when the column has none (a 12-over-4 dock no longer stops at columns 5 to 12). Up keeps the same column.
 
 Quick Settings never scrolls for the usual tiles: rows take a compact spacing when the roomy one does not fit, the list has no title (the signal chips and the clock share the first row), the profile avatars are 1.5 times larger with their names in the label type, and over Home the sheet runs from the gear down to 40 px above the bottom edge. The OLED and energy tiles size their control to their own values, so they no longer stack.

@@ -92,21 +92,20 @@ pub trait Hardware: Send + Sync + 'static {
     fn programmes(&self, channel_id: &str) -> Result<Value, Failure>;
     /// Who else has the tuner, if anyone: Live TV in front, or a pipeline of its own.
     fn in_use(&self) -> Option<String>;
-    /// Tunes LG's `channel_id` and returns the tap of what the antenna carries. Dropping the tap lets everything go: the demux, the
-    /// pipeline, and the TV's last channel, which is put back unless the TV's own use has taken the tuner (then it is the TV's).
+    /// Tunes LG's `channel_id` and returns the tap of what the antenna carries; the TV's own channel stays as it was. Dropping the tap
+    /// lets everything go: the demux, then the pipeline.
     fn tune(&self, channel_id: &str) -> Result<Box<dyn Tap>, Failure>;
     /// What the demodulator says of the frequency it is tuned to, if the TV says: read, nothing is touched. A slate shows it.
     fn signal(&self) -> Option<Signal> {
         None
     }
     /// Moves the tuner to LG's `channel_id` for the meter and keeps it there: nothing is routed and the lock is not waited for, so a
-    /// frequency that does not lock is read too. Dropping the hold lets go as a tap does: the pipeline, and the TV's last channel, which
-    /// is put back.
+    /// frequency that does not lock is read too. Dropping the hold lets go as a tap does.
     fn hold(&self, channel_id: &str) -> Result<Box<dyn Hold>, Failure> {
         let _ = channel_id;
         Err(Failure::Hardware("this TV's tuner cannot be held on a channel".to_owned()))
     }
-    /// LG's channel the tuner was last moved to (the TV's last channel): what the demodulator reads while nothing of this tuner has it.
+    /// The TV's last channel, LG's: what the demodulator reads while nothing of this tuner has it.
     fn tuned_to(&self) -> Option<String> {
         None
     }

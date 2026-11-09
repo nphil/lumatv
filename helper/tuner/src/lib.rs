@@ -8,7 +8,7 @@
 //! | Hook | What |
 //! |---|---|
 //! | [`Hardware`] | the TV: its channel list and guide, whether its own use has the tuner, a tap on the tuned multiplex; [`webos::Tv`] is LG's |
-//! | [`webos::Luna`] | the luna bus [`webos::Tv`] speaks through: a call, and a call that stays connected; [`webos::LunaSend`] runs the set's `luna-send` |
+//! | [`webos::Luna`] | the luna bus [`webos::Tv`] speaks through, a call at a time; [`webos::LunaSend`] runs the set's `luna-send` |
 //! | [`Config`] | the name players show, the device id, the address and port to listen on, the networks that are answered |
 //! | [`Clock`] | monotonic time: [`real_clock`], or a test's that moves only when told |
 //! | [`Guide`] | optional ([`Tuner::with_guide`]): a better guide than the TV's own for `/xmltv.xml`, made from the TV's own listings |
