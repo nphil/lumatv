@@ -301,7 +301,7 @@ mod tests {
         }
     }
 
-    /// A TV's Home over a full dock holds 64 of the scene's 96 groups. Settings opens in the 32 that are left and draws every row of the
+    /// A TV's Home over a full dock held 64 of the scene's 96 groups. Settings opens in the 32 that were left and draws every row of the
     /// page: a plate for every row (two groups each) took 43 for the Inputs page, and the rows past the thirtieth group were never drawn.
     #[test]
     fn a_page_is_drawn_whole_in_the_groups_a_full_home_leaves_and_only_the_focus_has_a_plate() {
@@ -309,7 +309,7 @@ mod tests {
             let (_h, mut kit) = testkit::kit_in(Mode::Dark, scale);
             let mut engine = Engine::new(&kit).unwrap();
             let scene = kit.ui.scene.clone();
-            let _home: Vec<_> = (0..64).map(|_| scene.group(None, compositor_protocol::GroupPose::IDENTITY).expect("a group")).collect();
+            let _home: Vec<_> = (0..kit.room().groups.saturating_sub(32)).map(|_| scene.group(None, compositor_protocol::GroupPose::IDENTITY).expect("a group")).collect();
             let mut host = SettingsHost::new(1000, &lumatv_tokens::Tokens::shipped().json().clone(), &json!({}));
             host.open(Some("inputs"), 1000);
             let before = kit.room().groups;

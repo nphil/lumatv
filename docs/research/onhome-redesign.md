@@ -15,7 +15,7 @@ In the light theme the card is already a pale veil, so a white wash is a slab. T
 lit item is glass lit from above: white at its top, almost clear at its foot, a rim, a short soft shadow (host render: lit 235 at the top and
 219 at the foot, items 214, card 210). The viewport fades the shadow where it clips it, so no seam shows under a one-row card.
 
-The scene holds 96 groups and Home's dock and bars take most of them, so an item costs layers and no groups at rest: its lift (two groups) is
+The scene held 96 groups when the card was designed and Home's dock and bars took most of them, so an item costs layers and no groups at rest: its lift (two groups) is
 made when it comes to the front and goes once it has settled back, never more than five at a time, however many items the card holds.
 
 | Kind | Default size | OK | Hold OK | Shows |

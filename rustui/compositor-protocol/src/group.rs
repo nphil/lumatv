@@ -21,9 +21,11 @@ use serde::{Deserialize, Serialize};
 /// client may build.
 pub const MAX_GROUP_DEPTH: usize = 9;
 /// Groups a client may have at once (the resource ledger of §11.2). A group at rest costs the compositor nothing per frame (no frame, no
-/// wake, no evaluation) and a small record, so the number is the room a shell and the shell that replaces it have together (a shell
-/// is built before the one it replaces goes); the resting home holds at most 40 of them (`shell_smart`'s own pin).
-pub const MAX_GROUPS: usize = 96;
+/// wake, no evaluation) and one that does not exist costs no work: a frame evaluates the groups there are, and the compositor's
+/// maps are made for the most a shell holds, not for this number. A group is about 620 bytes in the compositor and 540 in the app. The
+/// TV's shell holds 44 at rest on Home and 68 at most, Home with Quick Settings (2026-11-09), about a quarter of the number: it is the
+/// room a shell and the one that replaces it have together (a shell is built before the one it replaces goes), with plenty to spare.
+pub const MAX_GROUPS: usize = 256;
 /// The smallest scale a pose or a binding may produce: a group scaled to nothing is hidden instead.
 pub const MIN_SCALE: f32 = 1.0e-3;
 /// The largest, the same limit the compositor puts on a layer's own scale.

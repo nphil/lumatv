@@ -1,6 +1,25 @@
 --- a/session.rs
 +++ b/session.rs
-@@ -96,6 +96,9 @@
+@@ -20,6 +20,9 @@
+ /// What a client may ask for. The device has little memory: these stop a buggy or hostile client from using it up.
+ #[derive(Clone, Copy, Debug)]
+ pub struct Limits {
++    /// Layers a client may hold. A layer costs its record (under 700 bytes) and what it holds, which `image_bytes` and
++    /// `mesh_bytes` bound; a frame walks the layers there are. The TV's shell holds 101 at rest on Home and 178 at most, as
++    /// Settings comes up over Quick Settings (2026-11-09). The app's mirror is `ui::limits::MAX_DRAWABLE_NODES`.
+     pub layers: usize,
+     /// Largest width or height of a layer.
+     pub dimension: u32,
+@@ -35,7 +38,7 @@
+     /// a driver that says less is not believed.
+     pub fn for_texture_size(max_texture: u32) -> Self {
+         Self {
+-            layers: 256,
++            layers: 512,
+             dimension: max_texture.clamp(2048, 4096),
+             image_bytes: 64 << 20,
+             mesh_bytes: 16 << 20,
+@@ -96,6 +99,9 @@
  const FOV_RANGE: (f32, f32) = (1.0, 170.0);
  /// A camera that turns faster than this is a mistake, not a look.
  const MAX_ORBIT_DEG_PER_S: f32 = 720.0;
@@ -10,7 +29,7 @@
  
  /// What handling one request produced.
  #[derive(Debug, Default)]
-@@ -311,6 +314,7 @@
+@@ -311,6 +317,7 @@
                  to,
                  duration_ms,
                  ease,
@@ -18,7 +37,7 @@
              } => {
                  self.known(id)?;
                  let to = check_props(to)?;
-@@ -319,6 +323,7 @@
+@@ -319,6 +326,7 @@
                      to,
                      duration_ms,
                      ease,
@@ -26,7 +45,7 @@
                  });
                  Ok(Done::Nothing)
              }
-@@ -731,6 +736,13 @@
+@@ -731,6 +739,13 @@
          backdrop: check_backdrop(glass.backdrop)?,
          saturation: ranged("saturation", glass.saturation, 0.0, MAX_SATURATION)?,
          refraction: ranged("refraction", glass.refraction, 0.0, MAX_REFRACTION)?,
@@ -40,7 +59,7 @@
          ..glass
      })
  }
-@@ -931,40 +943,37 @@
+@@ -931,40 +946,37 @@
      }
  
      fn glass() -> Glass {
@@ -55,21 +74,6 @@
 -                floor: 0.05,
 -                start: 0.38,
 -                end: 0.6,
--            }),
--            shadows: [
--                Some(Shadow {
--                    offset_y: 24.0,
--                    blur: 60.0,
--                    colour: Rgba(0, 0, 0, 71),
--                }),
--                None,
--            ],
--            depth: Some(Depth {
--                inset: false,
--                offset: 2.0,
--                blur: 4.0,
--                light: Rgba(26, 26, 26, 26),
--                shade: Rgba(0, 0, 0, 82),
 +        Glass { corner_radius: 28.0,
 +        tint: Rgba(18, 14, 26, 102),
 +        edge: Rgba(31, 31, 31, 31),
@@ -87,6 +91,21 @@
 +                blur: 60.0,
 +                colour: Rgba(0, 0, 0, 71),
              }),
+-            shadows: [
+-                Some(Shadow {
+-                    offset_y: 24.0,
+-                    blur: 60.0,
+-                    colour: Rgba(0, 0, 0, 71),
+-                }),
+-                None,
+-            ],
+-            depth: Some(Depth {
+-                inset: false,
+-                offset: 2.0,
+-                blur: 4.0,
+-                light: Rgba(26, 26, 26, 26),
+-                shade: Rgba(0, 0, 0, 82),
+-            }),
 -            backdrop: Backdrop::Live {
 -                radius: 30.0,
 -                downsample: 4,
@@ -111,7 +130,7 @@
      }
  
      fn wallpaper(kind: WallpaperKind) -> Wallpaper {
-@@ -1108,6 +1117,7 @@
+@@ -1108,6 +1120,7 @@
              to: Props::at(9.0, 6.0),
              duration_ms: 200,
              ease: Ease::Out,
@@ -119,7 +138,7 @@
          });
          let t = r.commit(4);
          assert_eq!((t.client, t.tag), (7, Some(4)));
-@@ -1122,6 +1132,7 @@
+@@ -1122,6 +1135,7 @@
                  Op::Set { .. },
                  Op::Animate {
                      duration_ms: 200,
@@ -127,7 +146,7 @@
                      ..
                  }
              ]
-@@ -1143,6 +1154,7 @@
+@@ -1143,6 +1157,7 @@
                  to: Props::at(0.0, 0.0),
                  duration_ms: 10,
                  ease: Ease::Linear,
@@ -135,3 +154,12 @@
              },
              restyle(3, Content::Shape(shape())),
              ripple(3, 1.0, 1.0),
+@@ -2235,7 +2250,7 @@
+     fn there_is_a_cap_on_groups_and_tracks() {
+         let mut r = rig();
+         let groups = compositor_protocol::group::MAX_GROUPS as u32;
+-        assert_eq!(groups, 96);
++        assert_eq!(groups, 256);
+         for id in 0..groups {
+             r.ok(group_req(id, None));
+         }

@@ -1,6 +1,6 @@
 --- a/src/scene.rs
 +++ b/src/scene.rs
-@@ -132,9 +132,17 @@
+@@ -132,9 +132,19 @@
      pub(crate) live_layers: usize,
      /// Layers whose creation was held back at the ceiling: nothing is ever sent for them, and the compositor never hears of them.
      refused: BTreeSet<LayerId>,
@@ -12,6 +12,8 @@
 +    /// Since the app last asked, something being built could not be made: a creation held back at the ceiling, or
 +    /// [`Scene::note_refusal`] (see [`Scene::take_overflow`]).
      overflowed: bool,
++    /// What the last build that was not made whole ran into ([`Scene::last_overflow`]).
++    last_overflow: Option<Overflow>,
 +    /// Every refusal so far: a creation held back, a picture that could not be made, a request the compositor answered with
 +    /// `Event::Error`. What [`Scene::came_through`] compares.
 +    refusals: u64,
@@ -20,7 +22,7 @@
      /// The compositor said it can draw `SmoothFirst::Full` (`Welcome::smooth_first_full`).
      smooth_first_full: bool,
  }
-@@ -158,8 +166,9 @@
+@@ -158,8 +168,9 @@
      /// A layer is dropped. The compositor is told to delete it, unless it has never heard of it, because the layer was
      /// made since the last commit: then everything staged for it is taken back, and the compositor never sees a layer
      /// whose picture is gone by the time it looks (it opens the file when it handles the `Create`, and would refuse
@@ -32,7 +34,7 @@
      pub(crate) fn delete_layer(&mut self, id: LayerId) {
          if self.pins.iter().any(|(pinned, n)| *pinned == id && *n > 0) {
              self.deferred.push(id);
-@@ -169,13 +178,21 @@
+@@ -169,13 +180,21 @@
              return;
          }
          self.live_layers = self.live_layers.saturating_sub(1);
@@ -57,7 +59,7 @@
              self.batch.push(Request::Delete { id });
          }
      }
-@@ -239,7 +256,7 @@
+@@ -239,7 +258,7 @@
          });
      }
  
@@ -66,7 +68,7 @@
      fn recycle_batch(&mut self) {
          for request in self.batch.drain(..) {
              if let Request::SetGlyphs { mut glyphs, .. } = request {
-@@ -247,6 +264,7 @@
+@@ -247,6 +266,7 @@
                  self.glyph_pool.push(glyphs);
              }
          }
@@ -74,7 +76,7 @@
      }
  
      /// Sends an urgent request, and whatever else the socket will take. The writer's error is the connection's.
-@@ -311,6 +329,15 @@
+@@ -311,6 +331,24 @@
      pub smooth_first_full: bool,
  }
  
@@ -87,21 +89,31 @@
 +    refusals: u64,
 +}
 +
++/// What a build that was not made whole ran into ([`Scene::take_overflow`], [`Scene::last_overflow`]).
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum Overflow {
++    /// The layer ceiling, [`MAX_DRAWABLE_NODES`].
++    Layers,
++    /// A picture with no file for its pixels ([`Scene::note_refusal`]).
++    Picture,
++}
++
  #[derive(Clone)]
  pub struct Scene {
      pub(crate) inner: Rc<RefCell<Inner>>,
-@@ -456,7 +483,10 @@
+@@ -456,7 +494,11 @@
              nest: None,
              live_layers: 0,
              refused: BTreeSet::new(),
 +            remade: Vec::new(),
              overflowed: false,
++            last_overflow: None,
 +            refusals: 0,
 +            shown_tag: 0,
              smooth_first_full: welcome.smooth_first_full,
          };
          Ok((
-@@ -626,6 +656,7 @@
+@@ -626,6 +668,7 @@
              } => {
                  inner.lead.presented(*tag, *presented_ns);
                  inner.remove_retired(*tag);
@@ -109,7 +121,7 @@
              }
              Event::Motion {
                  id,
-@@ -643,8 +674,9 @@
+@@ -643,8 +686,9 @@
              Event::BackdropFrozen { id, generation } => {
                  inner.observe_backdrop_frozen(*id, *generation)
              }
@@ -121,7 +133,7 @@
              Event::AtlasUploaded {
                  id,
                  slot,
-@@ -657,7 +689,9 @@
+@@ -657,7 +701,9 @@
      /// The compositor has shown the commit `tag` (an `Event::Frame` says so): it has been through every request up to that
      /// commit, so the files of layers that ended by then are of no more use to it. [`Scene::observe`] does this for a frame.
      pub fn shown(&self, tag: u64) {
@@ -132,15 +144,16 @@
      }
  
      /// How long after a request is made the screen shows it, as measured on the commits so far (and a documented constant
-@@ -752,6 +786,7 @@
+@@ -752,6 +798,8 @@
                  // nothing, and whoever builds is told (`take_overflow`) that what it built is not whole.
                  inner.refused.insert(id);
                  inner.overflowed = true;
++                inner.last_overflow = Some(Overflow::Layers);
 +                inner.refusals += 1;
              } else {
                  inner.live_layers += 1;
                  inner.push(Request::Create {
-@@ -790,15 +825,48 @@
+@@ -790,15 +838,55 @@
          MAX_DRAWABLE_NODES.saturating_sub(self.live_layers())
      }
  
@@ -154,11 +167,18 @@
      }
  
 -    /// The compositor refused a request (`Event::Error`): the same as a layer that could not be made.
++    /// What the last build that was not made whole ran into: kept until another one is not, so that whoever says a build failed can
++    /// say which ceiling it met. Groups and tracks are refused where they are asked for ([`crate::UiError::Limit`]).
++    pub fn last_overflow(&self) -> Option<Overflow> {
++        self.inner.borrow().last_overflow
++    }
++
 +    /// Something drawn could not be made whole (a picture with no file for its pixels): the same as a layer that could not be made.
      pub fn note_refusal(&self) {
 -        self.inner.borrow_mut().overflowed = true;
 +        let mut inner = self.inner.borrow_mut();
 +        inner.overflowed = true;
++        inner.last_overflow = Some(Overflow::Picture);
 +        inner.refusals += 1;
 +    }
 +
@@ -193,7 +213,7 @@
      }
  
      /// Runs `build` with every layer it makes hanging under `group` from the moment it is made, with the props it was made with
-@@ -957,12 +1025,19 @@
+@@ -957,12 +1045,19 @@
      }
  
      pub fn animate(&self, to: Props, duration_ms: u32, ease: Ease) {
@@ -213,7 +233,7 @@
          });
      }
  
-@@ -1002,8 +1077,9 @@
+@@ -1002,8 +1097,9 @@
      /// puts it above the layers of its depth made before, forgets its group and an animation it was in, which is why the layer is
      /// made where the animation ends) with the pixels of a file made for it, and, for a layer under a group, the `Attach` that puts
      /// it back there with the props it had; what was staged for the old content (quads, palette) is taken back. The count of live
@@ -225,7 +245,7 @@
      pub(crate) fn become_picture(
          &mut self,
          width: u32,
-@@ -1023,6 +1099,14 @@
+@@ -1023,6 +1119,14 @@
          {
              let mut inner = self.scene.inner.borrow_mut();
              inner.unstage_glyphs(self.id);
@@ -240,7 +260,7 @@
              inner.push(Request::Create {
                  id: self.id,
                  width,
-@@ -1534,6 +1618,7 @@
+@@ -1534,6 +1638,7 @@
          extra.animate(Props::at(9.0, 9.0), 100, Ease::Out);
          assert!(scene.take_overflow());
          assert!(!scene.take_overflow(), "told once");
@@ -248,7 +268,7 @@
          scene.try_commit().unwrap();
          let sent = batch();
          assert_eq!(sent.len(), MAX_DRAWABLE_NODES, "{} sent", sent.len());
-@@ -1685,6 +1770,57 @@
+@@ -1685,6 +1790,57 @@
      }
  
      #[test]

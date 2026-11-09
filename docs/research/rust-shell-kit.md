@@ -148,8 +148,8 @@ panel or Settings. A kind draws at `system_z + z::<BAND> + its own offsets` and 
 
 ## The scene's budget
 
-Every kind of one process draws in the one scene the engine gives it, under the compositor's ceilings (`ui::limits`: 256
-layers, 96 groups, 32 motion tracks). The rule: a modal kind (a panel, Settings, the keyboard) builds its layers when it opens
+Every kind of one process draws in the one scene the engine gives it, under the compositor's ceilings (`ui::limits`: 512
+layers, 256 groups, 64 motion tracks). The rule: a modal kind (a panel, Settings, the keyboard) builds its layers when it opens
 and drops them when it closes; nothing keeps hidden layers alive while another kind is up; the system layer (the volume display
 and the toasts) holds at most 16 layers and no groups; the shared `Engine`'s `Flow` holds `POOL` tracks plus one per scroller,
 so a kind that needs more room lowers the pool it makes the `Flow` with. `Kit::room()` answers what is left (layers, groups,

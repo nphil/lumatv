@@ -14,10 +14,11 @@ use crate::Ease;
 use serde::{Deserialize, Serialize};
 
 /// Tracks a client may have at once (the resource ledger of §11.2). A track at rest costs the compositor nothing per frame (no frame, no
-/// wake, no evaluation: it is a closed form of the time since it began) and a few dozen bytes, so the number is the room a shell and
-/// the shell that replaces it have together (a lab screen is built before the one it replaces goes); the resting home holds
-/// at most 16 of them (`shell_smart`'s own pin).
-pub const MAX_MOTIONS: usize = 32;
+/// wake, no evaluation: it is a closed form of the time since it began) and one that does not exist costs no work; a track is
+/// about 240 bytes in the compositor and 470 in the app. The TV's shell holds 10 at rest on Home and 13 at most (2026-11-09), a fifth
+/// of the number: it is the room a shell and the shell that replaces it have together (a lab screen is built before the one it
+/// replaces goes), with plenty to spare.
+pub const MAX_MOTIONS: usize = 64;
 /// Rest anchors a track may name.
 pub const MAX_ANCHORS: usize = 8;
 /// The pointer samples a velocity is measured over: the slope of the samples this long before the newest. A swipe starts from rest

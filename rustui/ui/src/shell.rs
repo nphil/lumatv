@@ -231,7 +231,7 @@ pub struct Shell {
     /// [`OVERLAY_RELEASE_MS`], past its fade-in: Home's dock then lets its tiles go, and has them again the frame the kind goes.
     covered_since: Option<u64>,
     hide_at: Option<u64>,
-    /// A panel or Settings found no room in the scene's 96 groups and Home let its dock's tiles go for it ([`Shell::squeeze_home`]), until the
+    /// A panel or Settings found no room in the scene's groups and Home let its dock's tiles go for it ([`Shell::squeeze_home`]), until the
     /// overlay has been gone a while.
     squeeze: bool,
     /// When the next icon masks are loaded.
@@ -385,20 +385,27 @@ impl Shell {
     }
 
     /// Logs a surface's failed apply when its text differs from the one logged last; the apply runs every frame and a failure that stays
-    /// (`settings: at most 96 groups`) filled the log at the frame rate.
+    /// (`settings: at most 96 groups`) filled the log at the frame rate. The line ends with what is left of each of the scene's ceilings and,
+    /// for a build that found the scene full, what it ran into.
     fn apply_failed(&mut self, src: &'static str, text: String, acts: &mut Vec<Act>) {
         self.apply_failed_now.push(src);
         match self.apply_errs.iter_mut().find(|(s, _)| *s == src) {
-            Some((_, last)) if *last == text => {}
-            Some((_, last)) => {
-                *last = text.clone();
-                acts.push(Act::Log(text));
-            }
-            None => {
-                self.apply_errs.push((src, text.clone()));
-                acts.push(Act::Log(text));
-            }
+            Some((_, last)) if *last == text => return,
+            Some((_, last)) => *last = text.clone(),
+            None => self.apply_errs.push((src, text.clone())),
         }
+        let met = match self.kit.ui.scene.last_overflow() {
+            _ if !text.contains("the scene is full") => "",
+            Some(ui::scene::Overflow::Layers) => "the layers ran out; ",
+            Some(ui::scene::Overflow::Picture) => "a picture had no pixels; ",
+            None => "",
+        };
+        let room = self.kit.room();
+        let limits = (ui::limits::MAX_DRAWABLE_NODES, ui::limits::MAX_GROUP_NODES, ui::limits::MAX_MOTION_TRACKS);
+        acts.push(Act::Log(format!(
+            "{text} ({met}left: {} of {} layers, {} of {} groups, {} of {} tracks)",
+            room.layers, limits.0, room.groups, limits.1, room.tracks, limits.2
+        )));
     }
 
     /// An overlay (a panel, Settings) failed with less room in the scene than it may need: Home's dock lets its tiles go at once, a group
@@ -1411,7 +1418,7 @@ impl Shell {
                 }
             }
             let now_ns = self.kit.ui.scene.now_ns();
-            // Settings is the modal kind over everything and needs the room (the scene has 96 groups in all, Home holds 64 of them): a panel
+            // Settings is the modal kind over everything and needs the room (Home holds 44 of the scene's groups at rest): a panel
             // that is only kept built for its next opening goes at once, and so does one sliding out under a Settings that came up at once
             if self.kinds.settings && self.settings.is_open() {
                 self.panels.give_way(self.kit.modal_beat_ms() == 0);
@@ -2334,6 +2341,28 @@ mod tests {
         pass(&mut shell, None, &mut acts);
         pass(&mut shell, Some("settings: another"), &mut acts);
         assert_eq!(acts.len(), 3, "it came back after a good frame");
+    }
+
+    #[test]
+    fn a_failed_apply_logs_the_room_left_and_a_scene_that_was_full_names_the_ceiling_it_met() {
+        let (_h, mut shell) = shell();
+        let mut acts = Vec::new();
+        shell.apply_failed("home", "home: at most 256 groups".into(), &mut acts);
+        let room = shell.kit.room();
+        let left = format!("(left: {} of 512 layers, {} of 256 groups, {} of 64 tracks)", room.layers, room.groups, room.tracks);
+        assert!(matches!(&acts[..], [Act::Log(l)] if l.ends_with(&left)), "{acts:?}");
+        let scene = shell.kit.ui.scene.clone();
+        let shape = compositor_protocol::Shape { corner_radius: 0.0, fill: compositor_protocol::Fill::Solid(compositor_protocol::Rgba(0, 0, 0, 255)), border_width: 0.0, border: compositor_protocol::Rgba(0, 0, 0, 0) };
+        let _full: Vec<_> = (0..=room.layers).map(|_| scene.shape(1, 1, 0, shape, compositor_protocol::Props::at(0.0, 0.0))).collect();
+        shell.apply_failed("settings", "settings: the scene is full: the page could not be drawn whole".into(), &mut acts);
+        assert!(matches!(acts.last(), Some(Act::Log(l)) if l.contains("whole (the layers ran out; left: 0 of 512 layers")), "{acts:?}");
+    }
+
+    /// The groups' and tracks' ceilings are held to the protocol's at compile time (`ui::group`, `ui::motion`); the layers' is the
+    /// compositor's session limit, a value made at run time.
+    #[test]
+    fn the_scene_counts_room_against_the_compositors_layer_ceiling() {
+        assert_eq!(lumatv_render::Limits::for_texture_size(4096).layers, ui::limits::MAX_DRAWABLE_NODES);
     }
 
     #[test]
@@ -3572,14 +3601,13 @@ mod tests {
         assert!(shell.geometry()["format"].as_array().unwrap().is_empty());
     }
 
-    /// A TV's Home over a full dock holds 64 of the scene's 96 groups, and the gear's panel, closed a moment ago, is kept built for four seconds
-    /// more: Settings opened from it took what was left, and the rows that did not fit were not drawn ("at most 96 groups", over and over).
+    /// A TV's Home over a full dock held 64 of the scene's 96 groups, leaving 32, and the gear's panel, closed a moment ago, is kept built for
+    /// four seconds more: Settings opened from it took what was left, and the rows that did not fit were not drawn ("at most 96 groups").
     #[test]
     fn settings_opening_over_a_full_home_takes_the_parked_gear_panel_away_and_draws_the_whole_page() {
         let (_h, mut shell) = home_shell("quick,settings");
-        let used = 96 - shell.kit.room().groups;
         let scene = shell.kit.ui.scene.clone();
-        let _full_dock: Vec<_> = (0..64usize.saturating_sub(used)).map(|_| scene.group(None, compositor_protocol::GroupPose::IDENTITY).expect("a group")).collect();
+        let _full_dock: Vec<_> = (0..shell.kit.room().groups.saturating_sub(32)).map(|_| scene.group(None, compositor_protocol::GroupPose::IDENTITY).expect("a group")).collect();
         shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "quick", "warm": false, "n": 1}) }, 2_000);
         shell.tick(2_300);
         assert_eq!(shell.state()["panels"]["quick"], "open");
@@ -3600,9 +3628,8 @@ mod tests {
     #[test]
     fn settings_shown_over_the_open_quick_panel_closes_the_panel_and_draws_the_whole_page() {
         let (_h, mut shell) = home_shell("quick,settings");
-        let used = 96 - shell.kit.room().groups;
         let scene = shell.kit.ui.scene.clone();
-        let _full_dock: Vec<_> = (0..64usize.saturating_sub(used)).map(|_| scene.group(None, compositor_protocol::GroupPose::IDENTITY).expect("a group")).collect();
+        let _full_dock: Vec<_> = (0..shell.kit.room().groups.saturating_sub(32)).map(|_| scene.group(None, compositor_protocol::GroupPose::IDENTITY).expect("a group")).collect();
         shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "quick", "warm": false, "n": 1}) }, 2_000);
         shell.tick(2_300);
         assert_eq!(shell.state()["panels"]["quick"], "open");

@@ -2,8 +2,8 @@
 //!
 //! **Each item** is a layer of glass at rest with the glyph, the words and, for a switch, the switch hung beside it. The item in front (and
 //! those still settling back) has a [`Lift`] in place of its glass at rest: the glass at rest and the lit glass that comes up with the focus,
-//! both on groups that the flowing focus scales and fades. A lift is two of the scene's 96 groups, and Home's dock and bars take most of
-//! them, so lifts are made when an item comes to the front and go once it has settled back, never more than [`MAX_LIFTS`]. The glass grows
+//! both on groups that the flowing focus scales and fades. A lift is two of the scene's groups (Home's dock and bars took most of the 96 it
+//! had), so lifts are made when an item comes to the front and go once it has settled back, never more than [`MAX_LIFTS`]. The glass grows
 //! with the focus, the type does not, so every word stays on whole pixels at rest and lifted. The whole card's content hangs under a group
 //! that is not scaled with the card's own lift, for the same reason.
 //!
@@ -753,7 +753,7 @@ fn make_view(cx: &mut Cx, scroller: &Group, scene: &ui::scene::Scene, item: &Ite
 
 /// How long after an item left the front its lift is kept: the spring that puts it back settles in about 300 ms.
 const SETTLE_MS: u64 = 600;
-/// The most lifts an item card keeps at once (each is two groups of the scene's 96): the item in front, those settling back, and one more.
+/// The most lifts an item card keeps at once (each is two of the scene's groups): the item in front, those settling back, and one more.
 const MAX_LIFTS: usize = 5;
 
 /// The lift of an item that is to come to the front (or is pressed): made now, its glass standing in the place of the glass at rest.

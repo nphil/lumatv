@@ -143,7 +143,7 @@ pub struct Flow {
 pub const POOL: usize = 8;
 
 impl Flow {
-    /// A pool of `pool` lift tracks on `scene` (the compositor allows 32 motion tracks in all; a screen's scrollers take theirs
+    /// A pool of `pool` lift tracks on `scene` (the compositor allows 64 motion tracks in all; a screen's scrollers take theirs
     /// from the rest).
     pub fn new(scene: &Scene, spec: Spec, pool: usize) -> Result<Self, UiError> {
         let mut slots = Vec::with_capacity(pool);

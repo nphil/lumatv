@@ -138,6 +138,8 @@ pub(crate) struct Inner {
     /// Since the app last asked, something being built could not be made: a creation held back at the ceiling, or
     /// [`Scene::note_refusal`] (see [`Scene::take_overflow`]).
     overflowed: bool,
+    /// What the last build that was not made whole ran into ([`Scene::last_overflow`]).
+    last_overflow: Option<Overflow>,
     /// Every refusal so far: a creation held back, a picture that could not be made, a request the compositor answered with
     /// `Event::Error`. What [`Scene::came_through`] compares.
     refusals: u64,
@@ -338,6 +340,15 @@ pub struct Watch {
     refusals: u64,
 }
 
+/// What a build that was not made whole ran into ([`Scene::take_overflow`], [`Scene::last_overflow`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Overflow {
+    /// The layer ceiling, [`MAX_DRAWABLE_NODES`].
+    Layers,
+    /// A picture with no file for its pixels ([`Scene::note_refusal`]).
+    Picture,
+}
+
 #[derive(Clone)]
 pub struct Scene {
     pub(crate) inner: Rc<RefCell<Inner>>,
@@ -485,6 +496,7 @@ impl Scene {
             refused: BTreeSet::new(),
             remade: Vec::new(),
             overflowed: false,
+            last_overflow: None,
             refusals: 0,
             shown_tag: 0,
             smooth_first_full: welcome.smooth_first_full,
@@ -786,6 +798,7 @@ impl Scene {
                 // nothing, and whoever builds is told (`take_overflow`) that what it built is not whole.
                 inner.refused.insert(id);
                 inner.overflowed = true;
+                inner.last_overflow = Some(Overflow::Layers);
                 inner.refusals += 1;
             } else {
                 inner.live_layers += 1;
@@ -832,10 +845,17 @@ impl Scene {
         std::mem::take(&mut self.inner.borrow_mut().overflowed)
     }
 
+    /// What the last build that was not made whole ran into: kept until another one is not, so that whoever says a build failed can
+    /// say which ceiling it met. Groups and tracks are refused where they are asked for ([`crate::UiError::Limit`]).
+    pub fn last_overflow(&self) -> Option<Overflow> {
+        self.inner.borrow().last_overflow
+    }
+
     /// Something drawn could not be made whole (a picture with no file for its pixels): the same as a layer that could not be made.
     pub fn note_refusal(&self) {
         let mut inner = self.inner.borrow_mut();
         inner.overflowed = true;
+        inner.last_overflow = Some(Overflow::Picture);
         inner.refusals += 1;
     }
 

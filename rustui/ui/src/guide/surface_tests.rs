@@ -216,9 +216,10 @@ fn hundreds_of_channels_and_days_of_listings_cost_no_more_layers_than_a_few_and_
     up.settle();
     // The screen of rows being left and the one flown to (a key every 40 ms, twice a remote's repeat, leaves the spring more than a screen
     // behind) and the chrome: 130 held at most. What one frame draws is the screen's (`tests/host_budget.py guide` measures it); this is
-    // what the scene holds, of its 256.
+    // what the scene holds, of its 512.
     assert!(most <= 140, "at most {most} layers held at any step of the walk");
-    assert!(up.kit.room().layers > 150, "the scene keeps its room: {}", up.kit.room().layers);
+    let held = ui::limits::MAX_DRAWABLE_NODES - up.kit.room().layers;
+    assert!(held < 106, "the scene keeps its room: {held} held");
 }
 
 #[test]
@@ -331,7 +332,7 @@ fn a_set_with_no_channel_says_so_and_a_service_that_does_not_answer_says_that() 
 fn leaving_gives_every_layer_back() {
     let mut up = Up::new(Mode::Dark, 1.0, 57, 0);
     let held = up.kit.room().layers;
-    assert!(held < 256 - 40);
+    assert!(held < ui::limits::MAX_DRAWABLE_NODES - 40);
     let fx = up.g.close("test", up.t);
     up.answer(fx);
     for _ in 0..800 {

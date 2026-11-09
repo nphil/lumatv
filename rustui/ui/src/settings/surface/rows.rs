@@ -68,8 +68,8 @@ pub struct Moment {
     pub seg: Option<usize>,
 }
 
-/// What a focus plate is made of. A row keeps this and makes the plate (two groups and a layer) when the focus comes to it: the scene has
-/// 96 groups in all, Home holds 64 of them over a full dock, and a page of seventeen rows with a plate each took 43.
+/// What a focus plate is made of. A row keeps this and makes the plate (two groups and a layer) when the focus comes to it: when the scene
+/// had 96 groups in all, Home held 64 of them over a full dock, and a page of seventeen rows with a plate each took 43.
 #[derive(Clone, Copy, Debug)]
 struct PlateSpec {
     rect: Frame,

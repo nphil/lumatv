@@ -550,9 +550,9 @@ pub struct Group {
 }
 
 impl Scene {
-    /// A group under `parent` (the screen when `None`) with `pose`. At most 96 groups at once (the ones that wait for what
-    /// hangs under them count), nested at most 8 deep; a pose the protocol would refuse is an `Err`. Made while a view is being
-    /// built by [`Scene::adopting_view`], a group with no parent hangs under the view's group.
+    /// A group under `parent` (the screen when `None`) with `pose`. At most [`crate::limits::MAX_GROUP_NODES`] groups at once
+    /// (the ones that wait for what hangs under them count), nested at most 8 deep; a pose the protocol would refuse is an `Err`.
+    /// Made while a view is being built by [`Scene::adopting_view`], a group with no parent hangs under the view's group.
     pub fn group(&self, parent: Option<GroupId>, pose: GroupPose) -> Result<Group, UiError> {
         let nest = self.inner.borrow().nest;
         let id = self

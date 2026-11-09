@@ -8,8 +8,9 @@
 //! backdrop being invalidated.
 //!
 //! The math (similarity transforms, worlds, bindings, the tracks' closed forms) is `compositor_protocol`'s, shared with the
-//! app; this file keeps the state and the order in which things are evaluated. Nothing here allocates once the maps have
-//! reached the ledger's sizes (`MAX_GROUPS` groups, `MAX_MOTIONS` tracks).
+//! app; this file keeps the state and the order in which things are evaluated. Nothing here allocates while the scene holds no
+//! more than [`RESERVED_GROUPS`] groups and [`RESERVED_MOTIONS`] tracks; past them the maps grow once, up to the ceilings
+//! (`MAX_GROUPS`, `MAX_MOTIONS`).
 
 use compositor_protocol::group::{MAX_GROUP_DEPTH, MAX_GROUPS, World, pose_preserving_world};
 use compositor_protocol::motion::{MAX_MOTIONS, Notice, Track};
@@ -18,6 +19,12 @@ use compositor_protocol::{
     PoseProperties, Settle,
 };
 use std::collections::HashMap;
+
+/// What the maps are made for: the most the TV's shell holds (68 groups and 13 tracks, 2026-11-09) with room, in the hash tables the
+/// ceilings of 96 groups and 32 tracks took (128 and 64 buckets: about 80 and 15 KiB). Reserved at the ceilings of 256 and 64 they
+/// would take about 340 KiB.
+const RESERVED_GROUPS: usize = 112;
+const RESERVED_MOTIONS: usize = 56;
 
 /// The three bindable properties, one binding slot each.
 const PROPERTIES: [PoseProperties; 3] = [
@@ -65,11 +72,11 @@ pub struct Groups {
 impl Groups {
     pub fn new() -> Self {
         let mut groups = Self::default();
-        groups.nodes.reserve(MAX_GROUPS);
-        groups.order.reserve(MAX_GROUPS);
-        groups.worlds.reserve(MAX_GROUPS);
-        groups.motions.reserve(MAX_MOTIONS);
-        groups.notices.reserve(2 * MAX_MOTIONS);
+        groups.nodes.reserve(RESERVED_GROUPS);
+        groups.order.reserve(RESERVED_GROUPS);
+        groups.worlds.reserve(RESERVED_GROUPS);
+        groups.motions.reserve(RESERVED_MOTIONS);
+        groups.notices.reserve(2 * RESERVED_MOTIONS);
         groups
     }
 

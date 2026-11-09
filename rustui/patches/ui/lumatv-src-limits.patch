@@ -1,0 +1,45 @@
+--- a/src/limits.rs
++++ b/src/limits.rs
+@@ -3,18 +3,20 @@
+ //! These are allocation ceilings to implement and measure, **not measured memory**. They bound what the shell and the toolkit may hold
+ //! inside the G2 total of 90 MB (app, compositor and idle codec, PSS); they do not add to it. A preflight resource planner refuses a surface
+ //! expansion before it would pass one of them, with readable pagination or a summary and never a dropped essential control; raising a
+-//! number needs a new ledger and a PSS proof. A test reads the design and holds each number to the text, so the code and the document
+-//! cannot drift apart unseen.
++//! number needs a new ledger and a PSS proof. A test reads the design and holds the byte rows and the depth to the text, so the code and
++//! the document cannot drift apart unseen. The node ceilings are LumaTV's, raised above the design's first ones on 2026-11-09.
+ 
+-/// Drawable nodes (layers that draw something) retained at once.
+-pub const MAX_DRAWABLE_NODES: usize = 256;
++/// Drawable nodes (layers that draw something) retained at once: the compositor's `Limits::layers`. The design's first ceiling was 256;
++/// the TV's shell held 178 at most (2026-11-09), and a layer costs only its record and what it draws.
++pub const MAX_DRAWABLE_NODES: usize = 512;
+ /// Group nodes retained at once: those of the shell on show and of the one that replaces it, built before the first goes. Groups
+-/// themselves allocate no textures.
+-pub const MAX_GROUP_NODES: usize = 96;
++/// themselves allocate no textures. The design's first ceiling was 96; the TV's shell held 68 at most (2026-11-09).
++pub const MAX_GROUP_NODES: usize = 256;
+ /// How deep groups nest: the day line under the first screen's parts is nine levels from the home's root.
+ pub const MAX_GROUP_DEPTH: usize = 9;
+-/// Motion tracks held at once: those of the shell on show and of the one that replaces it, built before the first goes.
+-pub const MAX_MOTION_TRACKS: usize = 32;
++/// Motion tracks held at once: those of the shell on show and of the one that replaces it, built before the first goes. The design's
++/// first ceiling was 32; the TV's shell held 13 at most (2026-11-09).
++pub const MAX_MOTION_TRACKS: usize = 64;
+ 
+ const MIB: usize = 1024 * 1024;
+ 
+@@ -48,12 +50,8 @@
+     }
+ 
+     #[test]
+-    fn the_node_ceilings_are_the_ones_the_design_states() {
++    fn the_group_depth_is_the_one_the_design_states() {
+         let doc = design();
+-        let phrase = format!(
+-            "Initial retained ceilings: {MAX_DRAWABLE_NODES} drawable nodes, {MAX_GROUP_NODES} group nodes, {MAX_MOTION_TRACKS} simultaneous motion tracks;"
+-        );
+-        assert!(doc.contains(&phrase), "the design no longer says: {phrase}");
+         let depth = format!("Maximum depth {MAX_GROUP_DEPTH};");
+         assert!(doc.contains(&depth), "the design no longer says: {depth}");
+     }

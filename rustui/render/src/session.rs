@@ -20,6 +20,9 @@ mod v7;
 /// What a client may ask for. The device has little memory: these stop a buggy or hostile client from using it up.
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
+    /// Layers a client may hold. A layer costs its record (under 700 bytes) and what it holds, which `image_bytes` and
+    /// `mesh_bytes` bound; a frame walks the layers there are. The TV's shell holds 101 at rest on Home and 178 at most, as
+    /// Settings comes up over Quick Settings (2026-11-09). The app's mirror is `ui::limits::MAX_DRAWABLE_NODES`.
     pub layers: usize,
     /// Largest width or height of a layer.
     pub dimension: u32,
@@ -35,7 +38,7 @@ impl Limits {
     /// a driver that says less is not believed.
     pub fn for_texture_size(max_texture: u32) -> Self {
         Self {
-            layers: 256,
+            layers: 512,
             dimension: max_texture.clamp(2048, 4096),
             image_bytes: 64 << 20,
             mesh_bytes: 16 << 20,
@@ -2247,7 +2250,7 @@ mod tests {
     fn there_is_a_cap_on_groups_and_tracks() {
         let mut r = rig();
         let groups = compositor_protocol::group::MAX_GROUPS as u32;
-        assert_eq!(groups, 96);
+        assert_eq!(groups, 256);
         for id in 0..groups {
             r.ok(group_req(id, None));
         }

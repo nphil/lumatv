@@ -322,7 +322,7 @@ struct Tile {
     plate: ShapeLayer,
     icon: Option<ImageLayer>,
     /// The icon again at the size the lifted tile draws it, crossfaded in by the lift (`tile_icon`), in a lit group of the tile's lift. Both are
-    /// made only while the tile is focused or on its way back to rest: a lit group for each of 16 tiles held a sixth of the scene's 96 groups.
+    /// made only while the tile is focused or on its way back to rest: a lit group for each of 16 tiles held a sixth of the 96 groups the scene had.
     lifted_icon: Option<ImageLayer>,
     art: Option<IconArt>,
     app: String,
@@ -465,7 +465,7 @@ impl HomeSurface {
 
     /// Lets the dock's tiles and the smart-home items' lifts go at once (`true`), a group or two each, keeping the tiles' pictures; `false` has
     /// them made again by the next apply. The shell sheds them under a full kind and for a panel or Settings that found no room in the
-    /// scene's 96 groups.
+    /// scene's groups.
     pub fn set_shed(&mut self, engine: &mut Engine, shed: bool) {
         self.shed = shed;
         if !shed {

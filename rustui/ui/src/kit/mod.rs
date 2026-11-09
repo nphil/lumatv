@@ -135,7 +135,7 @@ impl Kit {
     }
 
     /// What the one scene every kind shares has left of the compositor's ceilings: layers, groups and motion tracks
-    /// (`ui::limits`: 256, 96, 32). A modal kind asserts its budget against this when it opens.
+    /// (`ui::limits`: 512, 256, 64). A modal kind asserts its budget against this when it opens.
     pub fn room(&self) -> Room {
         let scene = &self.ui.scene;
         Room {
