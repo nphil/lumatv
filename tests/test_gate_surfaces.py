@@ -192,6 +192,9 @@ class Switches(unittest.TestCase):
         rig.sh = rig.set.sh
         rig.compositor_pid.return_value = 17
         rig.save_ring.return_value = None
+        rig.shell_noise.return_value = []
+        rig.feed_mark.return_value = None
+        rig.feed_since.return_value = []
         return rig
 
     def during_and_after(self, rig, wanted):
@@ -319,6 +322,9 @@ class Transitions(unittest.TestCase):
         rig.compositor_pid.return_value = 17
         rig.save_ring.return_value = None
         rig.lg_compositor.return_value = False
+        rig.shell_noise.return_value = []
+        rig.feed_mark.return_value = None
+        rig.feed_since.return_value = []
         rig.sh.side_effect = lambda cmd, timeout=120: (0, json.dumps({"launchPoints": [{"id": "netflix"}]}), "")
         rig.stop.return_value = ("/dev/null", "/dev/null")
         one = {"trace": "t", "windows": [{"name": "transitions-netflix-%s" % k, "first_frame_ms": 30.0, "burst_end_ms": 100.0, "burst_over20": 0, "dropped": 0,
@@ -363,6 +369,9 @@ class Transitions(unittest.TestCase):
 
     def test_a_surface_whose_tile_has_no_number_presses_nothing_and_changes_nothing(self):
         rig = Mock()
+        rig.shell_noise.return_value = []
+        rig.feed_mark.return_value = None
+        rig.feed_since.return_value = []
         rig.compositor_pid.return_value = 17
         rig.sh.return_value = (0, json.dumps({"launchPoints": [{"id": "p%d" % i} for i in range(12)] + [{"id": "netflix"}]}), "")
         res = gate.run_surface(rig, surface("transitions-netflix"), "t", 0, Mock(since=Mock(return_value=([], True))))

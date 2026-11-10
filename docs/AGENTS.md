@@ -63,7 +63,7 @@ Rollback: `cutover.sh disable` returns LG's compositor and Home (`revert` also r
 
 ## Frame gate
 
-`compositor/tools/tv_gate.py` (on the set, `compositor/deploy/gate.sh`) runs the compositor as a session and measures, per surface (Home d-pad, Home widgets, Apps grid, quick settings, Settings scroll, keyboard, input picker, switcher), cycles of open and move: dropped frames above 10 ms at 120 Hz, first frame, burst end (limit 180 ms) and frames over 20 ms, from a kernel trace. `--only frames --refresh 120` is the 120 Hz check; `--frames-quick` the short set. A run whose trace ring overran fails `trace_complete`. It leaves the refresh policy to `gate.sh refresh auto` at the end.
+`compositor/tools/tv_gate.py` (on the set, `compositor/deploy/gate.sh`) runs the compositor as a session and measures, per surface (Home d-pad, Home widgets, Apps grid, quick settings, Settings scroll, keyboard, input picker, switcher), cycles of open and move: dropped frames above 10 ms at 120 Hz, first frame, burst end (limit 180 ms) and frames over 20 ms, from a kernel trace. `--only frames --refresh 120` is the 120 Hz check; `--frames-quick` the short set. A run whose trace ring overran fails `trace_complete`. The gate (`docs/research/perf/gate.py`) snoozes every camera's alerts for the run and puts the owner's snooze back as found, also on error, Ctrl-C or kill (not Do Not Disturb: turning it on empties the missed list); a capture with a pop-up, note or toast in it (helper feed, shell state) is discarded and re-run up to twice, and the summary prints `DISCARDED n capture(s)` with the reasons; one disturbed every time fails `undisturbed`. It leaves the refresh policy to `gate.sh refresh auto` at the end.
 
 Pitfalls:
 

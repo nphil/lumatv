@@ -377,10 +377,8 @@ class Log(unittest.TestCase):
         self.assertNotIn('slides', gate.format_lines([dict(r, slides=[])]))
 
     def test_a_surface_keeps_the_slides_and_counts_nobody_elses_qml_errors(self):
-        rig = Mock()
-        rig.compositor_pid.return_value = 17
+        rig = quiet_rig()
         rig.capture.side_effect = RuntimeError('capture failed')
-        rig.sh.return_value = (0, '', '')
         log = Mock(mark=Mock(return_value={}), since=Mock(return_value=([self.VOICE, 'a [FrameMotion] 17 steps in 150 ms for 110'], True)))
         res = gate.run_surface(rig, gate.find(['home-dpad'])[0], 't', 0, log)
         self.assertEqual(res['slides'], [])        # the capture failed before the first scan: nothing yet
@@ -648,6 +646,7 @@ class Edges(unittest.TestCase):
     class FakeRig:
         def __init__(self, motion, age=None, keys=('/dev/input/event10', True), hz=None, state=None):
             self.motion, self.calls, self.age, self.woken, self.keys, self.hz, self.state = motion, [], age, False, keys, hz, state
+            self.held = None
 
         def compositor_age_s(self):
             return self.age
@@ -672,6 +671,14 @@ class Edges(unittest.TestCase):
 
         def set_motion(self, changes):
             self.calls.append(dict(changes))
+
+        def hold_start(self):
+            self.held = 'set'
+            return 'camera snooze set'
+
+        def hold_stop(self):
+            self.held = 'put back'
+            return 'camera snooze put back'
 
     def run_gate(self, motion, names):
         rig = self.FakeRig(motion)
@@ -838,16 +845,188 @@ class Edges(unittest.TestCase):
         # one dirty capture is measured again; three in a row keep the last, which then fails on its own numbers
         for answers, discarded, traces, ends in (([dirty, clean, clean, clean], 1, 4, [120.0] * 6),
                                                  ([dirty, dirty, dirty, clean, clean], 2, 5, [120.0, 944.0] + [120.0] * 4)):
-            rig = Mock()
-            rig.compositor_pid.return_value = 17
-            rig.sh.return_value = (0, '', '')
-            rig.lg_compositor.return_value = True
-            rig.stop.return_value = ('/dev/null', '/dev/null')
+            rig = quiet_rig()
             rig.analyse.side_effect = answers
             res = gate.run_surface(rig, dict(s, setup=[], teardown=[], soak=False), 't', 0, Mock(since=Mock(return_value=([], True))))
             self.assertEqual((len(res['discarded']), len(res['traces'])), (discarded, traces))
             self.assertEqual(res['discarded'][0]['windows'], [{'name': 'picker-netflix-close', 'burst_end_ms': 944.0, 'burst_app_jobs': 123}])
             self.assertEqual([w['burst_end_ms'] for w in res['windows']], ends)
+
+
+def quiet_rig():
+    """A Mock set that measures with nothing disturbing it: the shell shows no pop-up or toast and the helper published none."""
+    rig = Mock()
+    rig.compositor_pid.return_value = 17
+    rig.sh.return_value = (0, '', '')
+    rig.lg_compositor.return_value = True
+    rig.stop.return_value = ('/dev/null', '/dev/null')
+    rig.shell_noise.return_value = []
+    rig.feed_mark.return_value = None
+    rig.feed_since.return_value = []
+    return rig
+
+
+class FakeHelper:
+    """The helper's `/v1/dnd` as dnd.rs answers it: a snooze of the same scope is replaced, ids are s<serial>, the end is `until` or `minutes`."""
+
+    def __init__(self, now_ms, snoozes=()):
+        self.now, self.serial, self.log = now_ms, len(snoozes), []
+        self.snoozes = [dict(s) for s in snoozes]
+        self.missed = [{'title': 'Cat at Plant Room Cat Feeder', 'by': 'dnd'}]
+
+    def state(self):
+        return {'on': False, 'until': None, 'letDoorbell': True, 'snoozes': self.snoozes, 'missed': self.missed}
+
+    def __call__(self, method, path, body=None):
+        self.log.append((method, path))
+        if (method, path) == ('GET', '/dnd'):
+            return 200, self.state()
+        if (method, path) == ('POST', '/dnd/snooze'):
+            until = body.get('until') or self.now + body['minutes'] * 60_000
+            if until <= self.now:
+                return 400, {'error': 'the end is in the past'}
+            self.snoozes = [s for s in self.snoozes if (s['kind'], s.get('source')) != (body['kind'], body.get('source'))]
+            self.serial += 1
+            self.snoozes.append({'id': f's{self.serial}', 'kind': body['kind'], 'label': body.get('label', ''), 'until': until})
+            return 200, self.state()
+        if method == 'DELETE' and path.startswith('/dnd/snooze/'):
+            kept = [s for s in self.snoozes if s['id'] != path.rsplit('/', 1)[1]]
+            status, self.snoozes = (200 if len(kept) < len(self.snoozes) else 404), kept
+            return status, {}
+        return 404, {}
+
+
+class Disturbed(unittest.TestCase):
+    """Camera pop-ups and toasts during a run: the snooze that holds them, and the captures one landed in."""
+
+    NOW = 1_800_000_000_000
+    OWNER = {'id': 's1', 'kind': 'camera', 'label': 'Away', 'until': NOW + 3 * 3_600_000}
+    ONE_CAMERA = {'id': 's2', 'kind': 'camera', 'source': '240', 'label': 'Cat Feeder', 'until': NOW + 3_600_000}
+
+    def hold(self, snoozes):
+        helper = FakeHelper(self.NOW, snoozes)
+        return helper, gate.CameraHold(helper, clock=lambda: helper.now / 1000)
+
+    @staticmethod
+    def keys(helper):
+        return sorted((s['kind'], s.get('source', ''), s['label'], s['until']) for s in helper.snoozes)
+
+    def test_the_snooze_holds_every_camera_for_the_run_and_the_owners_is_put_back_exactly(self):
+        helper, hold = self.hold([self.OWNER, self.ONE_CAMERA])
+        before = self.keys(helper)
+        hold.start()
+        self.assertEqual([(s['label'], s['until']) for s in helper.snoozes if not s.get('source')], [(gate.HOLD_LABEL, self.NOW + gate.HOLD_MINUTES * 60_000)])
+        self.assertIn(self.ONE_CAMERA, helper.snoozes, "a single camera's snooze is not ours to touch")
+        line = hold.stop()
+        self.assertNotIn('FAIL', line)
+        self.assertEqual(self.keys(helper), before)
+        self.assertEqual(len(helper.missed), 1, 'the missed list is never emptied (Do Not Disturb turning on would)')
+
+    def test_with_no_snooze_of_the_owners_none_is_left_and_one_a_dead_gate_left_is_ended_not_restored(self):
+        helper, hold = self.hold([])
+        hold.start()
+        self.assertEqual(hold.stop(), 'camera snooze put back as found')
+        self.assertEqual(helper.snoozes, [])
+        helper, hold = self.hold([dict(self.OWNER, label=gate.HOLD_LABEL)])
+        hold.start()
+        self.assertNotIn('FAIL', hold.stop())
+        self.assertEqual(helper.snoozes, [], 'a leftover of the same label is not the owner\'s')
+
+    def test_the_snooze_is_posted_again_once_half_of_it_has_gone(self):
+        now = [self.NOW / 1000]
+        helper = FakeHelper(self.NOW)
+        hold = gate.CameraHold(helper, clock=lambda: now[0])
+        hold.start()
+        for later, posts in ((600, 1), (gate.HOLD_MINUTES * 30 + 1, 2)):
+            now[0] = self.NOW / 1000 + later
+            helper.now = int(now[0] * 1000)
+            hold.renew()
+            self.assertEqual(helper.log.count(('POST', '/dnd/snooze')), posts)
+
+    def test_a_helper_that_does_not_answer_is_reported_not_raised(self):
+        hold = gate.CameraHold(FakeHelper(self.NOW))
+        hold.start()
+        hold.call = lambda *a: (0, {})
+        self.assertTrue(hold.stop().startswith('FAIL camera snooze NOT put back'))
+        rig = object.__new__(gate.Rig)
+        rig.hold = None
+        rig.helper = lambda *a: (404, {})
+        self.assertIn('NOT snoozed', rig.hold_start(), 'a helper older than the snooze route is measured without it')
+        self.assertIsNone(rig.hold)
+
+    def test_the_helper_is_called_from_the_set_with_the_client_header(self):
+        rig = object.__new__(gate.Rig)
+        rig.sh = Mock(return_value=(0, '{"ok":true,"seq":4}\n200', ''))
+        self.assertEqual(rig.helper('POST', '/dnd/snooze', {'kind': 'camera', 'minutes': 30}), (200, {'ok': True, 'seq': 4}))
+        cmd = rig.sh.call_args.args[0]
+        self.assertIn('X-Luma-Client: gate', cmd)
+        self.assertIn('-X POST', cmd)
+        self.assertIn('http://127.0.0.1:18731/v1/dnd/snooze', cmd)
+        rig.sh = Mock(return_value=(7, '', ''))
+        self.assertEqual(rig.helper('GET', '/dnd'), (0, {}))
+
+    def test_a_pop_up_a_note_and_a_toast_are_told_apart_from_what_is_not(self):
+        events = [{'topic': 'cameras.popup', 'kind': 'changed', 'data': {'id': 7, 'camera': '240', 'kind': 'cat'}},
+                  {'topic': 'cameras.popup', 'kind': 'changed', 'data': {'id': 7, 'camera': '240', 'kind': 'cat', 'live': True}},
+                  {'topic': 'cameras.popup', 'kind': 'changed', 'data': None},
+                  {'topic': 'plugin.home-assistant.notifications', 'kind': 'posted', 'data': {'channel': 'notify', 'post': {'title': 'Washer done'}}},
+                  {'topic': 'plugin.home-assistant.notifications', 'kind': 'ended', 'data': {'id': 'n1'}},
+                  {'topic': 'dnd', 'kind': 'changed', 'data': {'on': True}}]
+        self.assertEqual(gate.feed_disturbances(events), ['camera pop-up: camera 240, cat', 'note from home-assistant: Washer done'])
+        self.assertEqual(gate.ui_noise({'popup': {'up': False}, 'toasts': 0}), [])
+        self.assertEqual(len(gate.ui_noise({'popup': {'up': True, 'camera': '240', 'kind': 'cat'}, 'toasts': 1})), 2)
+        self.assertEqual(gate.ui_noise({'popup': {'up': False}, 'toasts': 1}, toasts=False), [], "the toast surface raises its own")
+        rig = object.__new__(gate.Rig)
+        rig.helper = Mock(side_effect=[(200, {'boot': 5, 'seq': 40}), (200, {'reset': True}), (200, {'reset': False, 'events': events[:1]})])
+        mark = rig.feed_mark()
+        self.assertEqual(mark, {'boot': 5, 'seq': 40})
+        self.assertIn('ring overran', rig.feed_since(mark)[0])
+        self.assertEqual(rig.feed_since(mark), ['camera pop-up: camera 240, cat'])
+        self.assertEqual(rig.feed_since(None), [])
+
+    def test_a_disturbed_capture_is_measured_again_and_counted(self):
+        s = gate.find(['picker-netflix'], values={'INPUT': '241'})[0]
+        clean = {'trace': 't', 'windows': [window('picker-netflix-open') | {'burst_app_jobs': 0}, window('picker-netflix-close') | {'burst_app_jobs': 0}]}
+        pop = ['camera pop-up: camera 240, cat']
+        rig = quiet_rig()
+        rig.analyse.return_value = clean
+        rig.feed_since.side_effect = [pop, [], [], []]          # the first capture had a pop-up in it, the rest none
+        res = gate.run_surface(rig, dict(s, setup=[], teardown=[], soak=False), 't', 0, Mock(since=Mock(return_value=([], True))))
+        self.assertEqual([(d['trace'], d['cycles'], d['why']) for d in res['discarded']], [('gate-t-picker-netflix-m0', 1, pop)])
+        self.assertEqual(res['traces'][:2], ['gate-t-picker-netflix-m0', 'gate-t-picker-netflix-m0-r1'])
+        self.assertNotIn('undisturbed', failed(res['checks']))
+        self.assertEqual(gate.discard_summary([res]), 'DISCARDED 1 capture(s), 1 cycle(s), measured again: 1 disturbed (a pop-up, note or toast), 0 with an app\'s own drawing')
+        self.assertIn('discarded: gate-t-picker-netflix-m0 (1 cycle(s)): camera pop-up: camera 240, cat', gate.format_lines([res]))
+
+    @patch.object(gate, 'QUIET_WAIT_S', 0)
+    def test_a_capture_disturbed_every_time_is_kept_and_fails_as_disturbed(self):
+        s = gate.find(['picker-netflix'], values={'INPUT': '241'})[0]
+        clean = {'trace': 't', 'windows': [window('picker-netflix-open') | {'burst_app_jobs': 0}, window('picker-netflix-close') | {'burst_app_jobs': 0}]}
+        rig = quiet_rig()
+        rig.analyse.return_value = clean
+        rig.shell_noise.return_value = ['a toast is up']          # at the start and at the end of every capture
+        res = gate.run_surface(rig, dict(s, setup=[], teardown=[], soak=False), 't', 0, Mock(since=Mock(return_value=([], True))))
+        self.assertEqual(len(res['discarded']), 2 * 3, 'two retries of each of the three one-cycle captures')
+        self.assertEqual(failed(res['checks']).count('undisturbed'), 3)
+        self.assertIn('3 surface(s) still disturbed after 2 retries', gate.discard_summary([res]))
+        self.assertEqual(rig.shell_noise.call_args.args, (True,))
+        rig.shell_noise.reset_mock()
+        gate.run_surface(rig, dict(gate.find(['toast'])[0], setup=[], teardown=[], soak=False), 't', 0, Mock(since=Mock(return_value=([], True))))
+        self.assertEqual(rig.shell_noise.call_args.args, (False,), 'the toast surface raises its own toast')
+
+    def test_the_snooze_is_put_back_when_the_run_ends_however_it_ends(self):
+        orig = gate.measure_surfaces
+        try:
+            for boom in (RuntimeError('x'), KeyboardInterrupt(), SystemExit(143)):
+                rig = Edges.FakeRig(True)
+                def fail(*a, boom=boom):
+                    raise boom
+                gate.measure_surfaces = fail
+                with self.assertRaises(type(boom)), patch('builtins.print'):
+                    gate.run_gate(rig, [], 3, 't')
+                self.assertEqual(rig.held, 'put back', repr(boom))
+        finally:
+            gate.measure_surfaces = orig
 
 
 class QuickAndPicker(unittest.TestCase):
@@ -901,7 +1080,7 @@ class QuickAndPicker(unittest.TestCase):
                 self.assertIn('/closeByAppId', s['teardown'][0])
                 self.assertIn('com.webos.app.hdmi' + port, s['teardown'][0])
                 self.assertTrue(s['inputs_free'])
-                rig = Mock()
+                rig = quiet_rig()
                 rig.compositor_pid.return_value = 17
                 rig.sh.return_value = (0, gate.json.dumps({'ok': True, 'inputs': {
                     'ports': [{'port': 0, 'open': False}, {'port': 1, 'open': False}], 'running': []}}), '')

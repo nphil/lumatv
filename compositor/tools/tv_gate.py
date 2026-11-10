@@ -191,7 +191,9 @@ def frames_check(cycles, load=False, refresh=60, quick=False, scanout=False):
             slides = res.get("slides") or []
             if slides:      # the shell's FrameMotion lines the gate read from the log while this surface ran (120 Hz): how many slides, the fewest steps one got
                 numbers += " slides %d fewest-steps %d" % (len(slides), min(x[0] for x in slides))
-            parts.append("%s %s%s%s" % (res.get("name"), "ok" if not failed else "NOT", (" " + ",".join(failed)) if failed else "", (" [" + numbers + "]") if numbers else ""))
+            if res.get("discarded"):      # captures a pop-up, note or toast landed in (or an app drew in), measured again
+                numbers += " discarded %d" % len(res["discarded"])
+            parts.append("%s %s%s%s" % (res.get("name"), "ok" if not failed else "NOT", (" " + ",".join(failed)) if failed else "", (" [" + numbers.strip() + "]") if numbers else ""))
         detail = "; ".join(parts)
     except (OSError, ValueError, AttributeError):
         detail = "no %s.json" % name

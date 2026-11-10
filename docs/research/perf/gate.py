@@ -58,11 +58,13 @@ tv_gate.py runs them in its frames check: all of them by default, the ones that 
 Adding a surface is one entry in SURFACES (see the field list there).
 """
 import argparse
+import contextlib
 import json
 import math
 import os
 import re
 import shlex
+import signal
 import sys
 import time
 
@@ -458,6 +460,16 @@ REFRESH_HZ = 60.0
 # A capture whose burst held an app's own drawing (analyse.py `burst_app_jobs`: a film's player redrawing its controls at 60 Hz) measures
 # the app as well as the surface; it is kept under `discarded` and measured again, at most this many more times.
 APP_RETRIES = 2
+# Camera pop-ups, plugin notes and toasts take the keys and re-time the panel (a pop-up's video window put the apps grid 1450 ms late), so a
+# capture one landed in does not measure the surface. The gate snoozes every camera's alerts for the run (CameraHold: HOLD_MINUTES, renewed
+# as it goes, so a gate that is killed leaves the snooze for that long at most) and puts it back as it found it. That does not hold a doorbell
+# ring or a toast, so a capture with a pop-up, a note or a toast in it is `discarded` and measured again, at most DISTURBED_RETRIES more
+# times; QUIET_WAIT_S is how long one already up at the start is waited out.
+HOLD_MINUTES = 30
+HOLD_LABEL = 'Frame gate'
+HELPER_API = 'http://127.0.0.1:18731/v1'
+DISTURBED_RETRIES = 2
+QUIET_WAIT_S = 20
 # Home builds and warms its surfaces for about a minute after the compositor starts (round 16: idle measured 40 s after a restart
 # read p90 12.88 ms, 0.46 later); the gate waits until the compositor is this old.
 COMPOSITOR_SETTLE_S = 90
@@ -1057,6 +1069,8 @@ def format_lines(results):
             lines.append(f"      log: ... {len(r['log_lines']) - LOG_REPORT_MAX} more")
         if r.get('slides'):
             lines.append(f"      slides: {slides_summary(r['slides'])}")
+        for d in r.get('discarded', []):
+            lines.append(f"      discarded: {d['trace']} ({d.get('cycles', '?')} cycle(s)): " + '; '.join(d.get('why') or []))
     return '\n'.join(lines)
 
 
@@ -1069,6 +1083,16 @@ def slides_summary(slides):
         if item not in seen:
             seen.append(item)
     return f'{len(slides)} slide(s), fewest steps {min(s[0] for s in slides)}: ' + '; '.join(seen[:6])
+
+
+def discard_summary(results):
+    """The captures measured again, and why: a line each is in format_lines; this is the run's total."""
+    gone = [d for r in results for d in r.get('discarded', [])]
+    dist = [d for d in gone if d.get('disturbed')]
+    left = sum(1 for r in results for c in r['checks'] if c['name'] == 'undisturbed')
+    text = (f"DISCARDED {len(gone)} capture(s), {sum(d.get('cycles') or 0 for d in gone)} cycle(s), measured again: {len(dist)} disturbed "
+            f"(a pop-up, note or toast), {len(gone) - len(dist)} with an app's own drawing")
+    return text + (f"; {left} surface(s) still disturbed after {DISTURBED_RETRIES} retries" if left else '')
 
 
 def format_results(results):
@@ -1112,6 +1136,7 @@ class Rig:
         import run  # paramiko; only when there is a set to talk to
         self.run = run
         self.set = run.Set()
+        self.hold = None
 
     @property
     def sm_pid(self):
@@ -1276,6 +1301,181 @@ class Rig:
     def analyse(self, name):
         return self.run.analyse(name, self.set.sm_pid, GAP_MS * 60.0 / REFRESH_HZ, REFRESH_HZ)
 
+    def helper(self, method, path, body=None):
+        """(HTTP status, JSON answer) of the helper's loopback API from the set; (0, {}) when it did not answer. Writes carry X-Luma-Client."""
+        cmd = f"curl -s -m 10 -w '\\n%{{http_code}}' -X {method} -H 'X-Luma-Client: gate' -H 'Content-Type: application/json' "
+        if body is not None:
+            cmd += f'-d {shlex.quote(json.dumps(body))} '
+        rc, out, _ = self.sh(cmd + shlex.quote(HELPER_API + path), timeout=30)
+        text, _, code = out.rpartition('\n')
+        try:
+            return int(code), (json.loads(text) if text.strip() else {})
+        except ValueError:
+            return 0, {}
+
+    def hold_start(self):
+        """Snoozes every camera's alerts for the run; the line to print. A set whose helper has no snooze route (older than 2026-11-08) is measured
+        without, with the captures still checked for a pop-up."""
+        self.hold = CameraHold(self.helper)
+        try:
+            return self.hold.start()
+        except Exception as e:
+            self.hold = None
+            return f'cameras NOT snoozed for the run ({type(e).__name__}: {e}); pop-ups are only detected'
+
+    def hold_renew(self):
+        if self.hold:
+            self.hold.renew()
+
+    def hold_stop(self):
+        hold, self.hold = self.hold, None
+        return hold.stop() if hold else 'camera snooze: none was set'
+
+    def shell_noise(self, toasts=True):
+        """Why the shell shows a pop-up or a toast now ([] when it shows none, or when there is no shell to ask: LG's compositor); `toasts` False
+        for a surface whose own cycle raises a toast."""
+        rc, out, _ = self.sh(f'{CTL} shell', timeout=30)
+        try:
+            return ui_noise(json.loads(out[out.index('{'):]).get('ui') or {}, toasts) if rc == 0 else []
+        except ValueError:
+            return []
+
+    def feed_mark(self):
+        """Where the helper's event feed is now, for feed_since; None when it does not answer."""
+        status, doc = self.helper('GET', '/events?timeout=0')
+        return {'boot': doc.get('boot'), 'seq': doc.get('seq')} if status == 200 and doc.get('seq') is not None else None
+
+    def feed_since(self, mark):
+        """The pop-ups and notes the helper published since feed_mark (feed_disturbances); none when there was no mark."""
+        if mark is None:
+            return []
+        status, doc = self.helper('GET', f"/events?after={mark['seq']}&boot={mark['boot']}&timeout=0")
+        if status != 200:
+            return [f'the helper feed did not answer (HTTP {status})']
+        if doc.get('reset'):
+            return ['the helper restarted or its event ring overran: what came up is unknown']
+        return feed_disturbances(doc.get('events') or [])
+
+
+def ui_noise(ui, toasts=True):
+    """What the shell's state (`ctl shell`'s `ui`) says is on screen to disturb a capture: a camera pop-up, a toast."""
+    why = []
+    popup = ui.get('popup') or {}
+    if popup.get('up'):
+        why.append(f"a camera pop-up is up (camera {popup.get('camera')}, {popup.get('kind')})")
+    if toasts and ui.get('toasts'):
+        why.append('a toast is up')
+    return why
+
+
+def feed_disturbances(events):
+    """One line for each camera pop-up and plugin note in the helper's events (/v1/events). A pop-up the helper holds is never published, and a
+    pop-up's later updates carry the same id."""
+    why, seen = [], set()
+    for e in events:
+        topic, data = e.get('topic') or '', e.get('data')
+        if topic == 'cameras.popup' and isinstance(data, dict) and data:
+            if (data.get('camera'), data.get('id')) not in seen:
+                seen.add((data.get('camera'), data.get('id')))
+                why.append(f"camera pop-up: camera {data.get('camera')}, {data.get('kind')}")
+        elif topic.startswith('plugin.') and topic.endswith('.notifications') and e.get('kind') == 'posted' and isinstance(data, dict):
+            title = (data.get('post') or {}).get('title') or data.get('channel')
+            why.append(f"note from {topic.split('.')[1]}: {title}")
+    return why
+
+
+def settle_quiet(rig, toasts=True):
+    """Waits up to QUIET_WAIT_S for a pop-up or toast already up to go; what is still up then."""
+    end = time.monotonic() + QUIET_WAIT_S
+    while True:
+        noise = rig.shell_noise(toasts)
+        if not noise or time.monotonic() >= end:
+            return noise
+        time.sleep(1)
+
+
+@contextlib.contextmanager
+def signals_ignored():
+    """No Ctrl-C or kill while the run's settings are being put back."""
+    sigs = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+    try:
+        old = {s: signal.signal(s, signal.SIG_IGN) for s in sigs}
+    except ValueError:      # not the main thread
+        yield
+        return
+    try:
+        yield
+    finally:
+        for s, handler in old.items():
+            signal.signal(s, handler)
+
+
+class CameraHold:
+    """A snooze of every camera's alert (the helper's `/v1/dnd/snooze`, kind `camera`, no source) for the run, put back as it was found. It does
+    not touch Do Not Disturb, whose turning on empties the owner's missed list, nor the snoozes of single cameras. An owner's snooze of every
+    camera is what ours replaces: it is posted again, with its own end, by stop(). One left by an earlier gate that died (the same label) is not
+    the owner's: stop() ends it. `call(method, path, body)` is Rig.helper."""
+
+    def __init__(self, call, clock=time.time):
+        self.call, self.clock = call, clock
+        self.before = self.prev = None
+        self.posted = 0.0
+
+    @staticmethod
+    def whole(snooze):
+        return snooze.get('kind') == 'camera' and not snooze.get('source')
+
+    def _state(self):
+        status, doc = self.call('GET', '/dnd')
+        if status != 200 or not isinstance(doc.get('snoozes'), list):
+            raise RuntimeError(f'GET /v1/dnd answered {status}')
+        return doc
+
+    def _post(self, body):
+        status, doc = self.call('POST', '/dnd/snooze', body)
+        if status != 200:
+            raise RuntimeError(f"POST /v1/dnd/snooze answered {status}: {str(doc.get('error') or doc)[:100]}")
+
+    def _hold(self):
+        self._post({'kind': 'camera', 'label': HOLD_LABEL, 'minutes': HOLD_MINUTES})
+        self.posted = self.clock()
+
+    def start(self):
+        self.before = self._state()
+        self.prev = next((s for s in self.before['snoozes'] if self.whole(s) and s.get('label') != HOLD_LABEL), None)
+        self._hold()
+        return (f'cameras snoozed for the run (every camera, {HOLD_MINUTES} min, renewed); '
+                + ("the owner's snooze of every camera is put back after" if self.prev else 'no snooze of every camera was on'))
+
+    def renew(self):
+        """Posts the snooze again once half of it has gone; the same scope, so it replaces itself."""
+        if self.posted and self.clock() - self.posted > HOLD_MINUTES * 30:
+            self._hold()
+
+    @staticmethod
+    def _key(state, now_ms):
+        return sorted((s.get('kind'), s.get('source') or '', s.get('label') or '', s.get('until')) for s in state['snoozes']
+                      if s.get('label') != HOLD_LABEL and (s.get('until') or 0) > now_ms)
+
+    def stop(self):
+        """Ends our snooze and posts the owner's again; the line to print, which says whether the state is as it was found."""
+        try:
+            for s in self._state()['snoozes']:
+                if self.whole(s) and s.get('label') == HOLD_LABEL:
+                    status, _ = self.call('DELETE', f"/dnd/snooze/{s['id']}")
+                    if status != 200:
+                        raise RuntimeError(f"DELETE of the snooze {s['id']} answered {status}")
+            now_ms = int(self.clock() * 1000)
+            if self.prev and (self.prev.get('until') or 0) > now_ms:
+                self._post({'kind': 'camera', 'label': self.prev.get('label') or '', 'until': self.prev['until']})
+            after = self._state()
+        except Exception as e:
+            return f'FAIL camera snooze NOT put back ({type(e).__name__}: {e}): end the "{HOLD_LABEL}" snooze in /v1/dnd'
+        same = (self._key(after, now_ms) == self._key(self.before, now_ms)
+                and all(after.get(k) == self.before.get(k) for k in ('on', 'until', 'letDoorbell')))
+        return 'camera snooze put back as found' + ('' if same else '; FAIL the snoozes or Do Not Disturb differ from before the run: ' + json.dumps(
+            {'before': self._key(self.before, now_ms), 'after': self._key(after, now_ms)}))
+
 
 class LogWatch:
     """What /var/log/messages gained since mark(). The file rotates about every minute: when the inode changed or the file shrank, the file and
@@ -1434,14 +1634,21 @@ def run_surface(rig, s, tag, soak_cycles, log):
         retries = APP_RETRIES if s['app_retries'] is None else s['app_retries']
         before = rig.transitions_stats() if s['ctl_transitions'] else None
         for i, n in enumerate(plan_full(s, MEASURE_CYCLES)):
-            for attempt in range(retries + 1):
+            app_left, quiet_left, attempt = retries, DISTURBED_RETRIES, 0
+            while True:
                 name = f'{base}-m{i}' + (f'-r{attempt}' if attempt else '')
                 res['traces'].append(name)
+                rig.hold_renew()
+                toasts = '!toast' not in str(s['open'])         # the toast surface raises its own
+                start_noise = settle_quiet(rig, toasts)
+                feed = rig.feed_mark()
                 rig.capture(name, 'full')
                 trace = ring = None
                 try:
                     rc, _, err = rig.sh(cycle_command(s, n), timeout=3600)
                     ring = rig.save_ring(name)
+                    # a pop-up or note the helper published while the keys ran, or one still on screen at either end
+                    disturbed = ([f'at the start: {w}' for w in start_noise] + rig.feed_since(feed) + [f'at the end: {w}' for w in rig.shell_noise(toasts)])
                 finally:
                     trace, _sysfile = rig.stop(name)
                 if ring:
@@ -1459,9 +1666,17 @@ def run_surface(rig, s, tag, soak_cycles, log):
                 if s['delivery']:
                     apply_delivery(one, text, s['name'])
                 drawn = app_drawn(one, s['name'])
-                if not drawn or attempt == retries:
+                if disturbed and quiet_left:
+                    quiet_left -= 1
+                elif drawn and not disturbed and app_left:
+                    app_left -= 1
+                else:
                     break
-                res['discarded'].append({'trace': name, 'windows': drawn})
+                res['discarded'].append({'trace': name, 'cycles': n, 'disturbed': bool(disturbed), 'windows': drawn,
+                                         'why': disturbed or ["an app's own drawing in the burst"]})
+                attempt += 1
+            if disturbed:       # the retries were disturbed too: the last capture is kept and the surface fails on that, not on its numbers
+                checks.append(check('undisturbed', False, len(disturbed), '== 0', f'{attempt + 1} captures disturbed, the last kept: ' + '; '.join(disturbed)))
             reports.append(one)
         report = merge_reports(reports)
         lg = rig.lg_compositor()
@@ -1559,6 +1774,16 @@ def unfit(state, hz):
 
 
 def run_gate(rig, surfaces, soak_cycles, tag, log=None, load=None, load_seconds=3600):
+    """measure_surfaces with the cameras' alerts snoozed for the run and put back as found when it ends, however it ends."""
+    try:
+        print(rig.hold_start(), flush=True)
+        return measure_surfaces(rig, surfaces, soak_cycles, tag, log, load, load_seconds)
+    finally:
+        with signals_ignored():
+            print(rig.hold_stop(), flush=True)
+
+
+def measure_surfaces(rig, surfaces, soak_cycles, tag, log=None, load=None, load_seconds=3600):
     rig.push_tools()
     log = log or LogWatch(rig)
     results = []
@@ -1642,8 +1867,11 @@ def main(argv=None):
     REFRESH_HZ = a.refresh
     import analyse
     analyse.set_refresh(a.refresh)
+    for sig in (signal.SIGTERM, signal.SIGHUP):      # a kill unwinds run_gate's finally like Ctrl-C does, so the camera snooze is put back
+        signal.signal(sig, lambda signum, _frame: sys.exit(128 + signum))
     results = run_gate(Rig(), chosen, cycles, tag, load=load, load_seconds=a.load_seconds)
     v = verdict(results)
+    print(discard_summary(results))
     print(f'VERDICT {v}')
     if a.json:
         with open(a.json, 'w') as f:
