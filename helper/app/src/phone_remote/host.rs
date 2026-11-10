@@ -453,9 +453,8 @@ fn ime_state(report: Option<&Value>) -> Value {
     })
 }
 
-/// The `volume` member: the receiver's topic while its plugin is on, each member only when the receiver said it. Levels go out as whole
-/// numbers: the receiver reports half steps (41.5) and LumaRemoteKit 1.0.x decodes `level` and `max` as integers, so a fraction fails the
-/// whole `welcome` and the phone shows the TV as off.
+/// The `volume` member: the receiver's topic while its plugin is on, each member only when the receiver said it. `level` and `max` keep the
+/// receiver's half steps (41.5), as its display and the TV's volume bar show them; LumaRemoteKit 1.0.3 decodes them as numbers.
 fn volume_state(receiver: Option<&Value>) -> Value {
     let Some(r) = receiver else {
         return json!({"via": "tv"});
@@ -463,7 +462,7 @@ fn volume_state(receiver: Option<&Value>) -> Value {
     let mut volume = json!({"via": "receiver"});
     for (from, to) in [("volumeAbs", "level"), ("volumeMax", "max")] {
         if let Some(n) = r[from].as_f64() {
-            volume[to] = json!(n.round() as i64);
+            volume[to] = json!(n);
         }
     }
     if let Some(muted) = r["mute"].as_bool() {
@@ -522,7 +521,7 @@ mod tests {
 
         assert_eq!(volume_state(None), json!({"via": "tv"}));
         let receiver = json!({"volumeAbs": 41.5, "volumeMax": 70.0, "mute": null});
-        assert_eq!(volume_state(Some(&receiver)), json!({"via": "receiver", "level": 42, "max": 70}));
+        assert_eq!(volume_state(Some(&receiver)), json!({"via": "receiver", "level": 41.5, "max": 70.0}));
         assert_eq!(volume_state(Some(&json!({"volumeAbs": 57, "mute": true})))["muted"], true);
 
         assert!(!acts(false, false).iter().any(|a| matches!(*a, "cameras" | "camera" | "volume")));

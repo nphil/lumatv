@@ -260,8 +260,8 @@ State members:
   digits, 3 number, 4 phone, 5 url, 6 email, 7 name, 8 password, 9 date, 10 time, 11 datetime, 12 terminal. Hint bits 0x8 lowercase, 0x10 uppercase, 0x20
   titlecase, 0x40 hidden text, 0x80 sensitive. Enter 0 default, 1 return, 2 done, 3 go, 4 send, 5 search, 6 next, 7 previous. `max` is the length limit (0
   none); `text` whether the field holds any text.
-- `volume`: `{"via": "receiver" | "tv", "level", "max", "muted"}`, each member present when known. The receiver moves by half steps (its display reads 41.5),
-  but `level` and `max` go out rounded to whole numbers while LumaRemoteKit 1.0.2 decodes them as integers; a fraction there fails the kit's whole `welcome`.
+- `volume`: `{"via": "receiver" | "tv", "level", "max", "muted"}`, each member present when known. `level` and `max` are numbers on the receiver's scale,
+  which moves by half steps (41.5), exactly as its display shows them (LumaRemoteKit 1.0.3 and later; 1.0.2 decoded them as integers).
 - `acts`: the `act.do` names that work right now (`cameras` only while the cameras plugin is on, for example).
 
 List items: `apps` `{"id", "title"}`, the visible launchable apps by title; `channels` `{"id", "no", "name"}`, the Live TV list (`id` is the channel id `tune`
