@@ -31,6 +31,17 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Saver after Home's dim: camera pop-ups no longer restart LG's timer, 2026-11-09 (main c86426e9, installed 20:11 EST)
+
+LG's screen manager restarts its ScreenSaver timer every 30 s (`startScreenSaverResetTimer`) while `getForegroundVideoWindow` lists a `fullScreen` video. The compositor listed each camera pop-up's element at the feeder's whole-screen rectangle, so every pop-up counted as a full-screen video: LG's dbg-log of the 18:36 idle run has 8 `removeNopTimerHandler ... ScreenSaver:180(option:reset)` by `screenmanager` between 18:36:26 and 18:41:57 EST, each after a `full screen playing` verdict for `org.nphil.lumatv.cameras` at a `vwin: claim camera-popup granted` (1348,145 520x292). That confirms the [INFERENCE] in the idle timers entry below; the panel dim's 61 backlight writes in that run were followed by no restart. Each element is now listed where its claim placed it, `fullScreen` only when it covers the output. Home's dim level moved only at the 30 s beats (first step at 3:33, floor at 5:12) and now follows the stillness at every step. The weather view's UV gauge has no knob when the UV index is unknown.
+
+Standard cutover with the TV Active on Home, a toast first: ui `0f24fb79` (replaced `a4d0a797`), compositor `eeb157e7` (replaced `fba0b770`); sm `65f6ca69`, helper `658d0a76`, `tools/lumatv` `0473b152` and `helper.json` unchanged.
+
+- Idle, accepted, one run, Home left alone after one key at 20:11:50, sampled every 2.5 s: the dim began at 3:00 (want 0.99 at 3:05, then 0.01 every 8 s) and reached 0.85 at 4:58; LG's timer counted down from 298 s without a restart and the saver was up at 5:01 (4:58 the sample before). LG's dbg-log over the run has no ScreenSaver restart and no `full screen playing`. One key took the saver down and Home back to full within 3 s.
+- Weather Details with the feed's UV index null: a dash and the bare scale, no knob (`checks/uv-details.png`).
+
+Not tested: a camera pop-up during the idle wait on the set (no camera event arrived in the run; the vwin test covers the listing), other dim and saver waits. Left: Active Standby by the power key, receiver off and unmuted at -19.5 dB, `helper.json` as found, lease released. Receipts, not in git: `/data/home/tmp/lumatv-saverdim-20261109/` (`session.log`, `as-found.json`, `found2.json`, `rel/installed-c86426e9.json`, `rel/backup/`, `checks/idle7.json`, `checks/idle7-logs.txt`, `checks/idle7-saver.png`, `checks/uv.json`, `as-left.json`, `tvlogs/` with the 18:36 run's dbg-log).
+
 ## Backyard on TCP in Rebroadcast, 2026-11-09 (Scrypted setting only; nothing installed on the TV)
 
 Backyard (camera 88) went grey on Home for 2 to 6 s after a return from an app because Rebroadcast read its two streams with `FFmpeg (UDP)` and lost the key picture. Its RTSP parser (`prebuffer:rtspParser-channel0` for Stream 1, `-channel1` for Stream 2) is now `Scrypted (TCP)`, as on the other cameras, set at 18:56 through the Scrypted client (`putSetting`). To revert, put both back to `FFmpeg (UDP)`; the settings before are in `backyard-prebuffer-before.json`.
