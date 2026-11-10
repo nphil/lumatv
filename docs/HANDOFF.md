@@ -31,6 +31,16 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Backyard on TCP in Rebroadcast, 2026-11-09 (Scrypted setting only; nothing installed on the TV)
+
+Backyard (camera 88) went grey on Home for 2 to 6 s after a return from an app because Rebroadcast read its two streams with `FFmpeg (UDP)` and lost the key picture. Its RTSP parser (`prebuffer:rtspParser-channel0` for Stream 1, `-channel1` for Stream 2) is now `Scrypted (TCP)`, as on the other cameras, set at 18:56 through the Scrypted client (`putSetting`). To revert, put both back to `FFmpeg (UDP)`; the settings before are in `backyard-prebuffer-before.json`.
+
+- Tile, five rounds each (20 s in Marquee or YouTube, alternating, then Home; the helper's picture for the tile, 429x209, asked every 0.5 s for 15 s; flat = sd under 4, matched by panel captures): before 4 of 5 rounds grey, 0 / 6.7 / 2.0 / 6.3 / 2.7 s (17.6 s in all, longest span 6.7 s); after 0 of 5, 0 s. The first answer for the tile still takes 1 to 2 s in some rounds (before 2 of 5, after 3 of 5), which is the feeder's start and not the parser.
+- Pop-up and full view after: Backyard pop-up picture at 0.08 s, live at 0.56 s; Back Door 0.17 and 0.48 s; Backyard full view live at 1920x1080 h265 (capture 19:02:39).
+- NAS, 30 s windows with the TV on Home: the scrypted container used 1.53 and 2.27 cores before, 1.23, 2.09 and 2.23 after, which varies with the NVR and detection more than with this change. The Rebroadcast process (`@scrypted/prebuffer-mixin`) used 0.24 to 0.25 cores after against 0.247 over its whole 5.7 days; Backyard's two ffmpeg used 0.01 before. Camera traffic is 2.2 Mbit/s over TCP after (`ss` bytes received); the same streams are declared 2.25 Mbit/s before (a per-flow count of UDP is not available, conntrack accounting is off).
+
+Not tested: a camera or Scrypted restart with the TCP session, a run longer than five returns, Stream 1 or 2 alone. Receipts, not in git: `/data/home/tmp/lumatv-backyardtcp-20261109/` (`before.json`, `after.json`, `before-r*`, `after-r*`, `pop-after.json`, `full-open.png`, `nas-*.txt`, `as-left.json`). TV left as found: Active Standby, receiver off and unmuted, `helper.json` as found, lease released.
+
 ## Idle timers, status bar, perf, Apple TV and feeder install, 2026-11-09 (main 872f9363, installed 17:53 EST, rebooted 18:04)
 
 Standard cutover from Active Standby: app package files (`items.txt` f6685b2a, `theme.json` 28cb6c8a, `layout.json` ebdc79e3), ui `a4d0a797` (replaced `0e7230c6`), compositor `fba0b770` (replaced `6cded4b2`), then helper `658d0a76` (replaced `30f067a6`); sm `65f6ca69` and `tools/lumatv` `0473b152` unchanged. The builds carry cbaa4dbc (idle timers), 346f367d and 4b1e9885 (perf), 3f6e3759 (status bar; Nitin approved the Full width designs 9 Nov 17:40), 7eb35094 (feeder kept 30 min), d57e1a46 (Apple MFi kept) and the test and clippy fixes 44dad141 and 872f9363. Rebooted from Active Standby at 18:04 so the `mfi` bind goes.
