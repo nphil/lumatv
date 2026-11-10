@@ -182,6 +182,14 @@ fn a_key_puts_the_exact_value_back_after_a_read_and_the_journal_goes() {
     assert_eq!(r.tv.value, 73);
     let lines = r.p.take_events();
     assert!(lines.iter().any(|l| l.contains("panel back at 73 (key or pointer)")), "{lines:?}");
+    // a later put back gives its own reason, not the key's (TV 2026-11-09: each camera pop-up's video read "key or pointer")
+    r.want(0.6);
+    r.run(30_000);
+    r.look.block = Some(Block::Video);
+    r.run(500);
+    assert_eq!(r.tv.value, 73);
+    let lines = r.p.take_events();
+    assert!(lines.iter().any(|l| l.contains("panel back at 73 (video)")), "{lines:?}");
 }
 
 #[test]

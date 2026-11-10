@@ -880,6 +880,9 @@ impl State {
         json!({"returnValue": true, "windows": list})
     }
 
+    /// Each element where its video is placed. LG's screen manager restarts the ScreenSaver timer while a `fullScreen` or `isPig` video plays
+    /// (`startScreenSaverResetTimer`, 30 s) and stops for a windowed one. A camera pop-up's feeder asks for the whole screen; reported at that
+    /// rectangle, every pop-up restarted the timer (TV 2026-11-09: `removeNopTimerHandler` by screenmanager after each `full screen playing`).
     fn video_windows(&self) -> Vec<Value> {
         self.foreign
             .exported
@@ -887,12 +890,12 @@ impl State {
             .filter(|e| !e.contexts.is_empty())
             .map(|e| {
                 let app = self.scene.window_of(e.surface).and_then(|w| self.scene.window(w)).map(|w| w.app_id().to_string()).unwrap_or_default();
-                let d = e.destination;
-                let full = d.w >= crate::OUTPUT_WIDTH as i32 && d.h >= crate::OUTPUT_HEIGHT as i32;
+                let placed = self.exported_placement(e);
+                let d = self.ui_rect(&placed);
                 json!({
                     "windowId": e.window_id, "appId": app, "context": e.contexts.last(),
                     "appWindow": {"x": 0, "y": 0, "width": crate::OUTPUT_WIDTH, "height": crate::OUTPUT_HEIGHT},
-                    "fullScreen": full, "isPig": false,
+                    "fullScreen": self.covers_output(&placed), "isPig": false,
                     "displayOutput": {"x": d.x, "y": d.y, "width": d.w, "height": d.h},
                 })
             })

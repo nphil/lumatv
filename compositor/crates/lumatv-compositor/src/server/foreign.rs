@@ -79,7 +79,8 @@ impl ForeignState {
         }
     }
 
-    /// What `getForegroundVideoWindow` reports: every exported element with a context.
+    /// Every exported element with a context, at the rectangle it asked for (`ctl windows`). LG's screen manager is told where each is placed
+    /// instead (`State::video_windows`).
     pub fn video_windows(&self) -> Vec<serde_json::Value> {
         self.exported
             .values()
@@ -343,6 +344,21 @@ impl State {
         destination.translated(origin.0, origin.1)
     }
 
+    /// Where an element's video is in its window. A video window of LumaTV's (`vwin`) is where its claim says, whatever rectangle its element
+    /// asked for (the feeder asks for the whole screen), and nowhere while it has no granted claim: its element is hidden and has no hole.
+    fn exported_destination(&self, e: &Exported) -> Rect {
+        match self.scene.window_of(e.surface).and_then(|w| self.scene.window(w)).filter(|w| w.kind == crate::window::WindowType::VideoWindow) {
+            Some(w) if w.vwin_live => w.vwin_rect,
+            Some(_) => Rect::default(),
+            None => e.destination,
+        }
+    }
+
+    /// Where an element's video is placed, in the output's space: what `getForegroundVideoWindow` reports.
+    pub(crate) fn exported_placement(&self, e: &Exported) -> Rect {
+        self.exported_output_rect(e.surface, self.exported_destination(e))
+    }
+
     /// The one visible video belonging to the foreground card, if its identity is unambiguous.
     pub(crate) fn foreground_video(&self) -> Option<(&str, &str)> {
         if !self.luna_state.power.rendering || self.shell_home_drawn() {
@@ -399,12 +415,7 @@ impl State {
 
     pub(crate) fn exported_changed(&mut self, window_id: &str) {
         let Some(e) = self.foreign.exported.get(window_id) else { return };
-        let (surface, mut dest, source, original, contexts) = (e.surface, e.destination, e.source, e.original, e.contexts.clone());
-        // A video window of LumaTV's (`vwin`) is where its claim says, whatever rectangle its element asked for (the feeder asks for the whole
-        // screen), and nowhere while it has no granted claim: its element is hidden and has no hole.
-        if let Some(w) = self.scene.window_of(surface).and_then(|w| self.scene.window(w)).filter(|w| w.kind == crate::window::WindowType::VideoWindow) {
-            dest = if w.vwin_live { w.vwin_rect } else { Rect::default() };
-        }
+        let (surface, dest, source, original, contexts) = (e.surface, self.exported_destination(e), e.source, e.original, e.contexts.clone());
         let expected = (!contexts.is_empty() && !dest.is_empty()).then_some(Hole { surface, rect: dest });
         if self.scene.holes.iter().find(|h| h.surface == surface).copied() != expected {
             self.scene.invalidate_video_holes_for_surface(surface, &self.surfaces);

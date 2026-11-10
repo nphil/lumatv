@@ -3,7 +3,8 @@
 //! The care clock advances on compositor frames and idle ticks; it does not move video planes.
 //! The screensaver controls its own movement and dimming.
 //!
-//! Orbit walks a square ring of `orbitPx` one pixel per beat. Dimming eases between brightness levels at the same beats.
+//! Orbit walks a square ring of `orbitPx` one pixel per beat. Home's dim eases between brightness levels a hundredth at a time, each when
+//! its stillness reaches it rather than at the next beat.
 //!
 //! **The panel's own light** (`panelDim`, on unless the theme says off; `paneldim.rs`). Home's ease is not drawn while the panel can carry it:
 //! [`Care::dim`] is 1 for Home (so the plane takes it whole) and [`Care::home_want`] is the fraction of the user's OLED pixel brightness the
@@ -506,30 +507,33 @@ impl Care {
                 None => *l = Layer::default(),
             }
         }
-        if now_ns < self.next_beat_ns || !(pending || now_ns >= self.next_beat_ns + GRACE_NS) {
-            return false;
+        let beat = now_ns >= self.next_beat_ns && (pending || now_ns >= self.next_beat_ns + GRACE_NS);
+        if beat {
+            self.next_beat_ns = now_ns + self.settings.step_ns;
+            self.beats += 1;
+            self.walk();
         }
-        self.next_beat_ns = now_ns + self.settings.step_ns;
-        self.beats += 1;
-        self.walk();
+        // Only Home dims. Its level follows its stillness at every look, not only at beats: the dim begins at `dimAfterMin` and is at its
+        // floor when the screensaver comes, not a beat (up to `stepSec`) later (TV 2026-11-09: first at 3:33, the floor at 5:12). Between
+        // beats a Home that commits like a moving one waits for the beat's verdict.
         let s = self.settings;
-        for (i, (l, v)) in self.layers.iter_mut().zip(views).enumerate() {
-            let Some(commits) = v else { continue };
-            if i != 0 {
-                continue;
-            }
-            let secs = now_ns.saturating_sub(l.looked_ns) as f64 / SEC as f64;
-            if secs >= 1.0 && commits.saturating_sub(l.commits) as f64 / secs > MOVING_PER_S {
+        let (l, Some(commits)) = (&mut self.layers[0], views[0]) else { return self.changed };
+        let secs = now_ns.saturating_sub(l.looked_ns) as f64 / SEC as f64;
+        let moving = secs >= 1.0 && commits.saturating_sub(l.commits) as f64 / secs > MOVING_PER_S;
+        if beat {
+            if moving {
                 l.still_since_ns = now_ns;
             }
             l.commits = commits;
             l.looked_ns = now_ns;
-            let level = s.home_dim().map_or(1.0, |(after, over)| dim_level(now_ns.saturating_sub(l.still_since_ns), after, over, s.dim_floor));
-            if level != l.level {
-                l.level = level;
-                // drawn only when the panel is not the one dimming
-                self.changed |= !self.panel_carry;
-            }
+        } else if moving {
+            return self.changed;
+        }
+        let level = s.home_dim().map_or(1.0, |(after, over)| dim_level(now_ns.saturating_sub(l.still_since_ns), after, over, s.dim_floor));
+        if level != l.level {
+            l.level = level;
+            // drawn only when the panel is not the one dimming
+            self.changed |= !self.panel_carry;
         }
         self.changed
     }
@@ -605,18 +609,21 @@ mod tests {
         assert_eq!(with(None, Some(5 * MIN)), None, "Off");
         assert_eq!(with(Some(5 * MIN), Some(5 * MIN)), None, "at the saver");
         assert_eq!(with(Some(10 * MIN), Some(5 * MIN)), None, "after it");
-        // a still Home follows it: bright until 3 minutes, at the floor by the saver's 5; never dimmed with the dim Off
-        for (dim, at_saver) in [(Some(3 * MIN), 0.85), (None, 1.0)] {
+        // a still Home on idle ticks of a second: bright until 3 minutes, dimming within seconds of them, not at the beat after, and at the
+        // floor by the saver's 5; never dimmed with the dim Off
+        for (dim, first, at_saver) in [(Some(3 * MIN), Some(3 * MIN + 5 * SEC), 0.85), (None, None, 1.0)] {
             let mut c = on();
             c.settings.dim_after_ns = dim;
             let start = 10 * SEC;
-            let mut t = start;
-            c.step(t, [Some(0), None], false);
-            while t < start + 5 * MIN {
-                t += 30 * SEC + GRACE_NS;
+            let mut dimmed_at = None;
+            for k in 0..=300 {
+                let t = start + k * SEC;
                 c.step(t, [Some(0), None], false);
-                if t < start + 3 * MIN { assert_eq!(c.home_want(), 1.0); }
+                if c.home_want() < 1.0 && dimmed_at.is_none() {
+                    dimmed_at = Some(t - start);
+                }
             }
+            assert!(dimmed_at.is_none_or(|d| d > 3 * MIN) && dimmed_at <= first, "dim {dim:?}: first at {dimmed_at:?}");
             assert_eq!(c.home_want(), at_saver, "dim {dim:?}");
         }
     }

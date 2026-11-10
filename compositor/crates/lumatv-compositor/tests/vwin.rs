@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use harness::{Client, Server, assert_placements_valid, drawn, placements};
 use lumatv_compositor::control;
+use lumatv_compositor::luna::{Inbound, ToBridge};
 use lumatv_compositor::shell::Msg;
 use lumatv_compositor::vwin::Mode;
 use serde_json::{Value, json};
@@ -115,6 +116,26 @@ fn last_placement(server: &Server, ctx: &'static str) -> Value {
     placed.iter().rev().find(|p| p["context"] == ctx).cloned().unwrap_or_else(|| panic!("no placement for {ctx} in {placed:?}"))
 }
 
+/// `getForegroundVideoWindow` as LG's screen manager is answered.
+fn video_window_list(server: &Server) -> Value {
+    server.eval(|s| {
+        s.luna_inbound(Inbound {
+            token: 21,
+            service: "com.webos.surfacemanager".into(),
+            method: "getForegroundVideoWindow".into(),
+            payload: json!({}),
+            subscribe: false,
+            sender: "com.webos.service.screenmanager".into(),
+            cancelled: false,
+        });
+        s.luna.history().iter().rev().find_map(|m| match m {
+            ToBridge::Reply(r) if r.token == 21 => Some(r.payload["foregroundVideoWindow"].clone()),
+            _ => None,
+        })
+    })
+    .expect("an answer")
+}
+
 #[test]
 fn a_granted_claim_shows_its_window_with_a_hole_and_places_the_video_at_the_claims_rectangle() {
     let mut server = Server::start();
@@ -144,6 +165,9 @@ fn a_granted_claim_shows_its_window_with_a_hole_and_places_the_video_at_the_clai
     assert_eq!(r["windows"][0]["live"], true, "{r}");
     assert_eq!(r["claims"][0]["placed"], true);
     assert_eq!(r["free"], 1, "one of the two windows is left");
+    // LG's screen manager is told a window, not a full-screen video: that would restart LG's ScreenSaver timer at every pop-up
+    let listed = video_window_list(&server);
+    assert_eq!((&listed[0]["displayOutput"], &listed[0]["fullScreen"]), (&p["displayOutput"], &json!(false)), "{listed}");
 
     // released: the window is not drawn and the video is hidden; the window itself stays for the next claim
     let reply = ask(&server, json!({"op": "release", "id": "cam"}));

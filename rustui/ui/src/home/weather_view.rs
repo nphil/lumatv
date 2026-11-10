@@ -179,6 +179,11 @@ pub fn uv_word(uv: f64) -> &'static str {
     }
 }
 
+/// Where the knob sits on the UV scale (a bar `w` wide from `x`, 0 to 11+): nowhere when the reading is unknown, the tile then a dash.
+fn uv_knob(uv: Option<f32>, x: f32, w: f32) -> Option<f32> {
+    uv.map(|v| x + w * (v / 11.0).clamp(0.0, 1.0))
+}
+
 /// `8 AM`, or `8:30 AM` when it is not on the hour (`08:00` and `08:30` on the 24-hour clock), of a local `YYYY-MM-DDTHH:MM`.
 pub fn when_label(time: &str, twelve: bool) -> String {
     if time.get(14..16).and_then(|m| m.parse::<u32>().ok()).unwrap_or(0) == 0 { hour_label(time, twelve) } else { clock_label(time, twelve) }
@@ -879,7 +884,8 @@ impl WeatherSurface {
         enum Draw {
             Feels(f32, f32, f32, f32),
             Wind(f32),
-            Uv(f32),
+            /// The UV index, when the feed gives one.
+            Uv(Option<f32>),
             Rain(Vec<f32>),
             Sun(Option<f32>, i32),
             Humidity(f32),
@@ -914,7 +920,7 @@ impl WeatherSurface {
         let gust = d.more_num("/now/gustMph").map(|g| format!("Gusts {} mph", g.round() as i64)).unwrap_or_default();
         tiles.push((1, 0, 1, "WIND", wind, vec![gust], Draw::Wind(d.more_num("/now/windDeg").unwrap_or(0.0) as f32)));
         let uv = d.more_num("/now/uvIndex");
-        tiles.push((2, 0, 1, "UV INDEX", uv.map(|u| format!("{}", u.round() as i64)).unwrap_or_else(|| NONE.into()), vec![uv.map(|u| uv_word(u).to_owned()).unwrap_or_default()], Draw::Uv(uv.unwrap_or(0.0) as f32)));
+        tiles.push((2, 0, 1, "UV INDEX", uv.map(|u| format!("{}", u.round() as i64)).unwrap_or_else(|| NONE.into()), vec![uv.map(|u| uv_word(u).to_owned()).unwrap_or_default()], Draw::Uv(uv.map(|u| u as f32))));
         let rain = d.more.pointer("/daily/0/rainPct").and_then(Value::as_f64);
         let amount = d.more.pointer("/daily/0/rainIn").and_then(Value::as_f64).map(&w_in).unwrap_or_default();
         let chances: Vec<f32> = d.hours().iter().take(24).map(|h| h.get("rainPct").and_then(Value::as_f64).unwrap_or(0.0) as f32).collect();
@@ -1031,9 +1037,10 @@ impl WeatherSurface {
                     let by = g.y + g.h / 2.0 - 8.0;
                     let stops = [(0.0, faded(good, 1.0)), (0.27, faded(good, 1.0)), (0.5, faded(warn, 1.0)), (0.72, faded(bad, 0.95)), (1.0, faded(accent, 1.0))];
                     gfx::gradient_bar(c, Frame::new(g.x, by, g.w, 16.0), 8.0, &stops);
-                    let x = g.x + g.w * (v / 11.0).clamp(0.0, 1.0);
-                    c.disc(x, by + 8.0, 17.0, faded(Rgba(0, 0, 0, 255), 0.55));
-                    c.disc(x, by + 8.0, 13.0, ink);
+                    if let Some(x) = uv_knob(v, g.x, g.w) {
+                        c.disc(x, by + 8.0, 17.0, faded(Rgba(0, 0, 0, 255), 0.55));
+                        c.disc(x, by + 8.0, 13.0, ink);
+                    }
                 }
                 Draw::Rain(chances) => {
                     let n = chances.len().max(1);
@@ -1183,6 +1190,8 @@ mod tests {
         let (doc, more) = (Value::Null, Value::Null);
         let d = Data { doc: &doc, more: &more, twelve: true, fahrenheit: true };
         assert!(d.facts().iter().all(|(_, v)| v == NONE));
+        assert_eq!(uv_knob(None, 10.0, 110.0), None, "an unknown UV has no knob, not one at 0 under the dash");
+        assert_eq!((uv_knob(Some(4.0), 10.0, 110.0), uv_knob(Some(14.0), 10.0, 110.0)), (Some(50.0), Some(120.0)));
     }
 
     #[test]

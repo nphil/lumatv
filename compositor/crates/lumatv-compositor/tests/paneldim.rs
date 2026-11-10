@@ -166,7 +166,7 @@ fn an_idle_native_home_dims_the_panel_without_a_wayland_window() {
         let t = monotonic_ns();
         let mut t = run(s, t, 500);
         assert_eq!(plan(s), (0, false), "native Home has no Wayland buffer");
-        // still for longer than the wait, a beat every 30 s and its two seconds' grace: the care's level is 0.8 after the first beat
+        // still for longer than the wait and the ease (a second each): the care's level is 0.8
         t = run(s, t, 33_000);
         assert_eq!(s.scene.care.home_want(), 0.8, "Home's ease has run");
         t = run(s, t, 40_000);
@@ -186,7 +186,7 @@ fn with_nothing_set_in_the_theme_an_idle_home_dims_the_panel_to_the_shipped_leve
     home(&mut server);
     let t = server.eval(|s| {
         assert!(s.scene.care.enabled(), "the care is on until the theme says otherwise");
-        // the shipped care: still for 5 minutes, then 10 minutes down to 0.85
+        // the shipped care: still for 3 minutes, then 2 minutes down to 0.85
         let t = run(s, monotonic_ns(), 500);
         let t = run(s, t, 17 * 60_000);
         assert_eq!(s.scene.care.home_want(), 0.85, "{}", s.scene.care.status(t));
@@ -194,7 +194,7 @@ fn with_nothing_set_in_the_theme_an_idle_home_dims_the_panel_to_the_shipped_leve
     });
     assert_eq!(tv.value(), 68, "round(80 x 0.85)");
     server.eval(move |s| {
-        s.care_input();
+        s.care_input_at(t, true);
         deliver(s);
         deliver(s);
         run(s, t, 1_000);
@@ -215,14 +215,15 @@ fn a_key_puts_the_value_back_and_the_journal_goes() {
     });
     assert_eq!(tv.value(), 64);
     server.eval(move |s| {
-        s.care_input();
+        s.care_input_at(t, true);
         deliver(s);
         deliver(s);
         assert!(!journal_of().exists());
         let t = run(s, t, 1_000);
         assert_eq!(plan(s), (0, false));
-        // still, again: the hold after a key and the wait of the care come first
-        run(s, t, 5_000);
+        // still again, the care wants its dim back after its wait and ease, but nothing dims for the hold after a key
+        run(s, t, 1_500);
+        assert_eq!(s.scene.care.home_want(), 0.8);
     });
     assert_eq!(tv.value(), 80, "the user's exact value");
 }
@@ -263,7 +264,7 @@ fn a_refused_write_stops_panel_dimming() {
         assert_eq!(s.scene.care.home_want(), 0.8);
         assert_eq!(plan(s), (0, false));
         assert!((s.scene.last_plan().home_dim - 0.2).abs() < 0.0001, "refused write dims native Home");
-        s.care_input();
+        s.care_input_at(t, true);
         run(s, t, 250);
         assert_eq!(s.scene.last_plan().home_dim, 0.0, "input restores Home");
         assert!(s.journal.iter().any(|l| l.contains("the GPU dim does the work")), "{:?}", s.journal);
@@ -278,7 +279,7 @@ fn failed_ramp_does_not_double_dim_before_panel_restoration() {
     home(&mut server);
     let t = server.eval(|s| {
         care_on(s);
-        let t = run(s, monotonic_ns(), 36_000);
+        let t = run(s, monotonic_ns(), 6_000);
         assert!(s.panel.dimmed(), "the panel ramp has begun");
         t
     });

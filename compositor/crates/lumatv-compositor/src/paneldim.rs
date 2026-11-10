@@ -514,6 +514,7 @@ impl PanelDim {
     fn drop_held(&mut self) {
         self.held = None;
         self.force = false;
+        self.force_why = "";
         self.hurried = false;
         self.verified = false;
         self.backoff_ns = 0;
@@ -744,7 +745,11 @@ impl State {
     /// [`State::care_input`], with or without the wake of LG's saver: the Power key asks for standby and does not wake the screen it is
     /// about to turn off.
     pub fn care_input_with(&mut self, wake_saver: bool) {
-        let now = crate::output::monotonic_ns();
+        self.care_input_at(crate::output::monotonic_ns(), wake_saver);
+    }
+
+    /// [`State::care_input_with`] at `now`, on the clock `tick_at` is given (tests drive both).
+    pub fn care_input_at(&mut self, now: u64, wake_saver: bool) {
         self.nooperation_activity();
         self.vwin_input(now);
         if wake_saver {
