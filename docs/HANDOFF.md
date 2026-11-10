@@ -31,6 +31,10 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Exact half-step volume to phones, 2026-11-09 (main f5afe326, installed 20:27 EST)
+
+The phone remote's state now carries the receiver's `level` and `max` unrounded (41.5, 72.5), for LumaRemoteKit 1.0.3 / Marquee 0.1.29, which the one paired iPhone runs (`devices.json` app "Marquee 0.1.29"). Helper-only install with the TV in Active Standby: `lumatv-helper` 7dce7f81 replaced 658d0a76; ui 0f24fb79, compositor eeb157e7, sm 65f6ca69 and `tools/lumatv` 0473b152 unchanged. The plugin is on and listening on 18733. Not tested: the phone showing a half step against the receiver (receiver in standby at install).
+
 ## Saver after Home's dim: camera pop-ups no longer restart LG's timer, 2026-11-09 (main c86426e9, installed 20:11 EST)
 
 LG's screen manager restarts its ScreenSaver timer every 30 s (`startScreenSaverResetTimer`) while `getForegroundVideoWindow` lists a `fullScreen` video. The compositor listed each camera pop-up's element at the feeder's whole-screen rectangle, so every pop-up counted as a full-screen video: LG's dbg-log of the 18:36 idle run has 8 `removeNopTimerHandler ... ScreenSaver:180(option:reset)` by `screenmanager` between 18:36:26 and 18:41:57 EST, each after a `full screen playing` verdict for `org.nphil.lumatv.cameras` at a `vwin: claim camera-popup granted` (1348,145 520x292). That confirms the [INFERENCE] in the idle timers entry below; the panel dim's 61 backlight writes in that run were followed by no restart. Each element is now listed where its claim placed it, `fullScreen` only when it covers the output. Home's dim level moved only at the 30 s beats (first step at 3:33, floor at 5:12) and now follows the stillness at every step. The weather view's UV gauge has no knob when the UV index is unknown.
