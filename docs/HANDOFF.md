@@ -31,6 +31,14 @@ The gated installer must stage the helper, matching `tools/lumatv`, and matching
 
 The Netflix-button gate decodes `app:<id>` and `nothing` choices and checks mapped/foreground results, not journal phrasing. Other configured action types are reported as unsupported without invoking the button.
 
+## Home Assistant weather sun times and UV, 2026-11-10 (main 82f1a3cc, installed 17:08 EST)
+
+Helper `eead0c88` replaced `7dce7f81` in the package and state directory; ui `9933fdd9` replaced `0f24fb79`. Compositor `eeb157e7`, sm `65f6ca69`, `tools/lumatv` `0473b152` and `helper.json` are unchanged. The helper and UI restarted without a reboot.
+
+Accepted on the TV with Pirate Weather still selected: today's sunrise 07:05 and sunset 17:38, overview UV PEAK 5 Moderate, Details UV TODAY 5 with Peak · Moderate, and a separate Cloud cover 0% row below the humidity gauge (34%). Light and dark at normal and 200% text, current UV 0 taking precedence over a daily peak, and missing UV without a marker were checked on the host only. Other TVs and other Home Assistant weather providers are untested.
+
+Receipts: `/tmp/cs/18172b987bff/weather-tv/` (`installed.json`, `weather-details-state.json`, `acceptance.json`, `as-left.json`, `session.log`; rollback binaries in `backup/`). Left Active on weather Details, receiver settings untouched, lease released.
+
 ## Exact half-step volume to phones, 2026-11-09 (main f5afe326, installed 20:27 EST)
 
 The phone remote's state now carries the receiver's `level` and `max` unrounded (41.5, 72.5), for LumaRemoteKit 1.0.3 / Marquee 0.1.29, which the one paired iPhone runs (`devices.json` app "Marquee 0.1.29"). Helper-only install with the TV in Active Standby: `lumatv-helper` 7dce7f81 replaced 658d0a76; ui 0f24fb79, compositor eeb157e7, sm 65f6ca69 and `tools/lumatv` 0473b152 unchanged. The plugin is on and listening on 18733. Not tested: the phone showing a half step against the receiver (receiver in standby at install).
