@@ -146,8 +146,8 @@ pub fn documents(snap: &Value, cfg: &WeatherConfig, now_ms: u64) -> Option<(Weat
                 code: Some(wmo_of(d.get("condition").and_then(Value::as_str).unwrap_or(""))),
                 hi,
                 lo: number(d, "templow").map(want).or(hi),
-                sunrise: None,
-                sunset: None,
+                sunrise: d.get("sunrise").and_then(Value::as_str).map(str::to_owned),
+                sunset: d.get("sunset").and_then(Value::as_str).map(str::to_owned),
                 uv_max: number(d, "uv_index"),
                 rain_pct: number(d, "precipitation_probability"),
                 rain_in: number(d, "precipitation"),
@@ -193,7 +193,7 @@ mod tests {
         json!({"entity": "weather.pirate_weather", "available": true, "name": "Pirate Weather", "condition": "rainy",
                "reading": {"temperature": 16.0, "apparent_temperature": 14.0, "humidity": 80.0, "wind_speed": 18.0, "wind_gust_speed": 36.0, "wind_bearing": 225.0, "pressure": 1012.0, "uv_index": 3.0, "visibility": 10.0, "temperature_unit": "\u{b0}C", "wind_speed_unit": "km/h"},
                "hourly": [{"datetime": "2026-10-30T02:00:00+00:00", "condition": "rainy", "temperature": 15.0, "precipitation_probability": 70.0, "is_daytime": false, "wind_speed": 20.0}],
-               "daily": [{"datetime": "2026-10-30", "condition": "rainy", "temperature": 18.0, "templow": 11.0, "precipitation_probability": 80.0, "uv_index": 4.0},
+               "daily": [{"datetime": "2026-10-30", "condition": "rainy", "temperature": 18.0, "templow": 11.0, "precipitation_probability": 80.0, "uv_index": 4.0, "sunrise": "2026-10-30T07:41", "sunset": "2026-10-30T18:25"},
                          {"datetime": "2026-10-31", "condition": "sunny", "temperature": 20.0, "templow": 9.0}]})
     }
 
@@ -219,7 +219,9 @@ mod tests {
         assert!(!more.hourly[0].is_day && more.hourly[0].rain_pct == Some(70.0));
         assert_eq!(more.daily[0].rain_pct, Some(80.0));
         assert_eq!((more.daily[0].code, more.daily[0].hi, more.daily[0].lo), (Some(63), Some(64.4), Some(51.8)), "the entity's days, as the card has them");
-        assert!(more.daily[0].sunrise.is_none(), "an entity does not say when the sun rises");
+        assert_eq!((more.daily[0].sunrise.as_deref(), more.daily[0].sunset.as_deref()), (Some("2026-10-30T07:41"), Some("2026-10-30T18:25")));
+        assert_eq!((more.daily[0].uv_max, more.now.uv_index), (Some(4.0), Some(3.0)), "the day's peak and the reading are separate numbers");
+        assert!(more.daily[1].sunrise.is_none() && more.daily[1].sunset.is_none());
         assert!(more.alerts.is_empty());
     }
 

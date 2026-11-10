@@ -2,7 +2,7 @@
 //! (`base.weather` `source` = `homeassistant`, `entity` = a `weather.*` id).
 //!
 //! One short WebSocket conversation per refresh, through the saved Home Assistant link (`ha/link.json`, else the voice link's; `ha_store`,
-//! `voice_ws`): the entity's state and attributes (`subscribe_entities` for that one entity and `sun.sun`, never every state of the
+//! `voice_ws`): the entity's state and attributes (`subscribe_entities` for that one entity, never every state of the
 //! house), where home is (`get_config`, which the radar centres on) and the forecasts the entity says it supports
 //! (`weather.get_forecasts`, daily and hourly). What comes back is put in the snapshot shape of [`lumatv_feeds::weather_ha`], which
 //! makes the card's and the view's documents; this module only reads, converts what the mapper does not (pressure, visibility and rain to
@@ -228,7 +228,7 @@ fn watch(ha: &mut Ha, next: &mut u64, ids: &[&str], deadline: Instant) -> Result
 
 fn converse(ha: &mut Ha, entity: &str, now_ms: u64, deadline: Instant) -> Result<Reading, Why> {
     let mut next = 1;
-    let states = watch(ha, &mut next, &[entity, "sun.sun"], deadline)?;
+    let states = watch(ha, &mut next, &[entity], deadline)?;
     let state = states.get(entity).ok_or_else(|| why("no_entity", format!("Home Assistant has no {entity}")))?;
     let features = state["a"]["supported_features"].as_i64().unwrap_or(0);
     let config = command(ha, &mut next, json!({"type": "get_config"}), deadline)?;
@@ -247,7 +247,7 @@ fn converse(ha: &mut Ha, entity: &str, now_ms: u64, deadline: Instant) -> Result
     };
     let daily = if features & FORECAST_DAILY != 0 { forecast("daily")? } else { Vec::new() };
     let hourly = if features & FORECAST_HOURLY != 0 { forecast("hourly")? } else { Vec::new() };
-    let snapshot = snapshot(entity, state, states.get("sun.sun"), &daily, &hourly, (now_ms / 1000) as i64, &local_offset_s);
+    let snapshot = snapshot(entity, state, (lat, lon), &daily, &hourly, (now_ms / 1000) as i64, &local_offset_s);
     Ok(Reading { snapshot, lat, lon })
 }
 
@@ -307,7 +307,7 @@ fn inches_per(unit: &str) -> f64 {
 /// The entity's state and forecasts in the shape [`weather_ha::documents`] takes. Times are put on the clock `offset` (seconds east of
 /// UTC at an instant) gives: the TV's own, which is the house's; an hour that has gone by is left out and no more than the view's
 /// hours and days are kept.
-pub fn snapshot(entity: &str, state: &Value, sun: Option<&Value>, daily: &[Value], hourly: &[Value], now_s: i64, offset: &dyn Fn(i64) -> i64) -> Value {
+pub fn snapshot(entity: &str, state: &Value, home: (f64, f64), daily: &[Value], hourly: &[Value], now_s: i64, offset: &dyn Fn(i64) -> i64) -> Value {
     let attrs = &state["a"];
     let condition = state["s"].as_str().unwrap_or("");
     let available = !matches!(condition, "" | "unavailable" | "unknown");
@@ -330,23 +330,26 @@ pub fn snapshot(entity: &str, state: &Value, sun: Option<&Value>, daily: &[Value
         reading.insert("visibility_unit".into(), json!("km"));
     }
     let rain = inches_per(attrs["precipitation_unit"].as_str().unwrap_or(""));
-    // the sun's turn: every day is as long as the one that is coming, which is all a forecast hour's sun or moon needs
-    let day_length = |sun: &Value| -> Option<(i64, i64)> {
-        let rise = parse_iso(sun["a"]["next_rising"].as_str()?)?;
-        let set = parse_iso(sun["a"]["next_setting"].as_str()?)?;
-        Some((rise, (set - rise).rem_euclid(86_400)))
-    };
-    let sun_turn = sun.and_then(day_length);
     let days: Vec<Value> = daily
         .iter()
         .take(DAYS)
         .filter_map(|d| {
             let mut d = d.as_object()?.clone();
             let at = d.get("datetime")?.as_str()?.to_owned();
-            d.insert("datetime".into(), json!(match parse_iso(&at) {
+            let date = match parse_iso(&at) {
                 Some(unix) => local_stamp(unix, offset).chars().take(10).collect::<String>(),
                 None => at.chars().take(10).collect(),
-            }));
+            };
+            // the entity does not say when the sun rises; the day's own, on the TV's clock
+            if let Some(day) = day_number(&date) {
+                let (rise, set) = sun_day(day, home, offset);
+                for (key, at) in [("sunrise", rise), ("sunset", set)] {
+                    if let Some(at) = at {
+                        d.insert(key.into(), json!(local_stamp(at + 30, offset)));
+                    }
+                }
+            }
+            d.insert("datetime".into(), json!(date));
             scale(&mut d, "precipitation", rain);
             Some(Value::Object(d))
         })
@@ -365,9 +368,9 @@ pub fn snapshot(entity: &str, state: &Value, sun: Option<&Value>, daily: &[Value
                 None => at.chars().take(16).collect(),
             }));
             if !h.contains_key("is_daytime")
-                && let (Some(u), Some((rise, length))) = (unix, sun_turn)
+                && let Some(u) = unix
             {
-                h.insert("is_daytime".into(), json!((u - rise).rem_euclid(86_400) < length));
+                h.insert("is_daytime".into(), json!(elevation_deg(u, home) > HORIZON_DEG));
             }
             scale(&mut h, "precipitation", rain);
             Some(Value::Object(h))
@@ -382,6 +385,61 @@ fn scale(map: &mut Map<String, Value>, key: &str, by: f64) {
     if let Some(v) = map.get(key).and_then(Value::as_f64) {
         map.insert(key.to_owned(), json!(v * by));
     }
+}
+
+// -- the sun -----------------------------------------------------------------------------------------------------------------------
+
+/// The sun's centre at sunrise and sunset, degrees: the disc's radius and the air's refraction put the edge on the horizon 0.833 degree
+/// before the centre is there.
+const HORIZON_DEG: f64 = -0.833;
+
+/// How far apart a day's elevations are sampled to find where the sun crosses the horizon; a change inside a step is bisected to the
+/// second. A day's first rise and first set are kept.
+const STEP_S: i64 = 600;
+
+/// The sun's elevation above the horizon at `home` (latitude, longitude, degrees) at an instant, from LumaShow's subsolar point
+/// (`map::globe::sun_at`, the almanac's low-precision formulae).
+fn elevation_deg(unix_s: i64, (lat, lon): (f64, f64)) -> f64 {
+    let sun = map::globe::sun_at(unix_s);
+    let (phi, dec, hour) = (lat.to_radians(), sun.lat.to_radians(), (lon - sun.lon).to_radians());
+    (phi.sin() * dec.sin() + phi.cos() * dec.cos() * hour.cos()).clamp(-1.0, 1.0).asin().to_degrees()
+}
+
+/// Unix seconds of local midnight that starts day number `day` (days since 1970-01-01) on the clock `offset` gives.
+fn local_midnight(day: i64, offset: &dyn Fn(i64) -> i64) -> i64 {
+    let local = day * 86_400;
+    let guess = local - offset(local);
+    local - offset(guess)
+}
+
+/// Unix seconds when the sun rises and sets on local day `day`, `None` for an event the day does not have (the polar day and night).
+/// The day is the TV's own, so a daylight-saving day of 23 or 25 hours is walked as it is.
+fn sun_day(day: i64, home: (f64, f64), offset: &dyn Fn(i64) -> i64) -> (Option<i64>, Option<i64>) {
+    let (start, end) = (local_midnight(day, offset), local_midnight(day + 1, offset));
+    let up = |t: i64| elevation_deg(t, home) > HORIZON_DEG;
+    let (mut rise, mut set) = (None, None);
+    let (mut from, mut was_up) = (start, up(start));
+    while from < end && (rise.is_none() || set.is_none()) {
+        let to = (from + STEP_S).min(end);
+        let now_up = up(to);
+        if was_up != now_up {
+            let (mut lo, mut hi) = (from, to);
+            while hi - lo > 1 {
+                let mid = lo + (hi - lo) / 2;
+                if up(mid) == now_up { hi = mid } else { lo = mid }
+            }
+            let slot = if now_up { &mut rise } else { &mut set };
+            slot.get_or_insert(hi);
+        }
+        (from, was_up) = (to, now_up);
+    }
+    (rise, set)
+}
+
+/// The day number of a `YYYY-MM-DD` date.
+fn day_number(date: &str) -> Option<i64> {
+    let n = |from: usize, to: usize| date.get(from..to)?.parse::<i64>().ok();
+    Some(days_from_civil(n(0, 4)?, n(5, 7)?, n(8, 10)?))
 }
 
 // -- time --------------------------------------------------------------------------------------------------------------------------
@@ -473,6 +531,45 @@ mod tests {
         -5 * 3_600
     }
 
+    const NEW_YORK: (f64, f64) = (40.7128, -74.0060);
+
+    /// New York's clock: UTC-4 from the second Sunday of March 2026, 2 a.m., until the first Sunday of November, 2 a.m.; else UTC-5.
+    fn new_york(unix_s: i64) -> i64 {
+        let (on, off) = (parse_iso("2026-03-08T07:00:00+00:00").unwrap(), parse_iso("2026-11-01T06:00:00+00:00").unwrap());
+        if (on..off).contains(&unix_s) { -4 * 3_600 } else { -5 * 3_600 }
+    }
+
+    /// Minutes after local midnight of a `YYYY-MM-DDTHH:MM` stamp.
+    fn minutes(stamp: &str) -> i64 {
+        stamp[11..13].parse::<i64>().unwrap() * 60 + stamp[14..16].parse::<i64>().unwrap()
+    }
+
+    /// The local stamps of a day's sunrise and sunset (`YYYY-MM-DD`).
+    fn sun_stamps(date: &str, home: (f64, f64), offset: &dyn Fn(i64) -> i64) -> (Option<String>, Option<String>) {
+        let (rise, set) = sun_day(day_number(date).unwrap(), home, offset);
+        (rise.map(|t| local_stamp(t + 30, offset)), set.map(|t| local_stamp(t + 30, offset)))
+    }
+
+    #[test]
+    fn a_days_sun_is_found_on_the_tvs_clock_through_daylight_saving_and_the_polar_day_and_night() {
+        // Reference: NOAA's solar calculator formulae, minutes after local midnight.
+        let london = (51.5072, -0.1276);
+        let tromso = (69.6492, 18.9553);
+        let check = |date: &str, home: (f64, f64), offset: &dyn Fn(i64) -> i64, rise: i64, set: i64| {
+            let (r, s) = sun_stamps(date, home, offset);
+            let (r, s) = (r.unwrap_or_else(|| panic!("{date}: no sunrise")), s.unwrap_or_else(|| panic!("{date}: no sunset")));
+            assert!(r.starts_with(date) && s.starts_with(date), "{date}: {r} {s}");
+            assert!((minutes(&r) - rise).abs() <= 1 && (minutes(&s) - set).abs() <= 1, "{date}: {r} {s}");
+        };
+        check("2026-11-10", NEW_YORK, &new_york, 6 * 60 + 37, 16 * 60 + 42);
+        check("2026-11-01", NEW_YORK, &new_york, 6 * 60 + 26, 16 * 60 + 52); // the 25-hour day: the clock goes back at 2 a.m.
+        check("2026-03-08", NEW_YORK, &new_york, 7 * 60 + 19, 18 * 60 + 55); // the 23-hour day
+        check("2026-07-01", london, &|_| 3_600, 4 * 60 + 48, 21 * 60 + 21);
+        let plus_1 = |_: i64| 3_600;
+        assert_eq!(sun_stamps("2026-12-21", tromso, &plus_1), (None, None), "the polar night");
+        assert_eq!(sun_stamps("2026-06-21", tromso, &plus_1), (None, None), "the midnight sun");
+    }
+
     #[test]
     fn iso_times_are_read_with_their_offsets_and_dates_alone_are_not_times() {
         let t = 1_788_228_000; // 2026-09-01T02:00:00Z
@@ -493,15 +590,13 @@ mod tests {
 
     #[test]
     fn a_state_and_its_forecasts_become_the_mappers_snapshot_in_its_units_and_the_tvs_clock() {
-        // sunrise 11:00Z, sunset 22:00Z: eleven hours of day from 11:00Z
-        let sun = json!({"s": "below_horizon", "a": {"next_rising": "2026-11-04T11:00:00+00:00", "next_setting": "2026-11-03T22:00:00+00:00"}});
         let now = parse_iso("2026-11-03T05:30:00+00:00").unwrap();
         let hourly: Vec<Value> = ["04:00", "05:00", "12:00", "23:00"]
             .iter()
             .map(|t| json!({"datetime": format!("2026-11-03T{t}:00+00:00"), "condition": "cloudy", "temperature": 10.0, "precipitation": 2.54}))
             .collect();
         let daily = [json!({"datetime": "2026-11-03T05:00:00+00:00", "condition": "rainy", "temperature": 14.0, "templow": 8.0, "precipitation": 25.4}), json!({"datetime": "2026-11-04"})];
-        let s = snapshot("weather.pirate_weather", &state(), Some(&sun), &daily, &hourly, now, &east_5);
+        let s = snapshot("weather.pirate_weather", &state(), NEW_YORK, &daily, &hourly, now, &east_5);
         assert_eq!((s["available"].clone(), s["name"].clone(), s["condition"].clone()), (json!(true), json!("Pirate Weather"), json!("clear-night")));
         assert!((s["reading"]["pressure"].as_f64().unwrap() - 1013.2).abs() < 0.5, "{}", s["reading"]["pressure"]);
         assert!((s["reading"]["visibility"].as_f64().unwrap() - 9.656).abs() < 0.01);
@@ -518,14 +613,32 @@ mod tests {
     }
 
     #[test]
+    fn the_days_sunrise_and_sunset_are_the_same_day_whatever_the_time_of_day_it_is_asked() {
+        // A forecast's days start at local midnight: 2026-11-10 05:00Z is midnight in New York.
+        let daily = [json!({"datetime": "2026-11-10T05:00:00+00:00", "temperature": 10.0}), json!({"datetime": "2026-11-11", "temperature": 9.0})];
+        let sun_of = |now: &str| {
+            let s = snapshot("weather.x", &state(), NEW_YORK, &daily, &[], parse_iso(now).unwrap(), &new_york);
+            let at = |day: usize, key: &str| s["daily"][day][key].as_str().map(str::to_owned);
+            (at(0, "sunrise"), at(0, "sunset"), at(1, "sunrise"), at(1, "sunset"))
+        };
+        let morning = sun_of("2026-11-10T09:00:00+00:00");
+        // after sunrise and before sunset, when `sun.sun` can only say tomorrow's sunrise; and at night, when it says both of tomorrow
+        assert_eq!(sun_of("2026-11-10T19:00:00+00:00"), morning);
+        assert_eq!(sun_of("2026-11-11T03:00:00+00:00"), morning);
+        let (rise, set, next_rise, next_set) = morning;
+        let (rise, set, next_rise, next_set) = (rise.unwrap(), set.unwrap(), next_rise.unwrap(), next_set.unwrap());
+        assert!(rise.starts_with("2026-11-10") && set.starts_with("2026-11-10") && next_rise.starts_with("2026-11-11") && next_set.starts_with("2026-11-11"));
+        assert!(minutes(&rise) < minutes(&set) && minutes(&next_rise) > minutes(&rise), "{rise} {set} {next_rise}");
+    }
+
+    #[test]
     fn an_unavailable_entity_is_not_available_and_the_forecasts_are_capped_to_the_views() {
         let off = json!({"s": "unavailable", "a": {}});
-        assert_eq!(snapshot("weather.x", &off, None, &[], &[], 0, &east_5)["available"], json!(false));
+        assert_eq!(snapshot("weather.x", &off, NEW_YORK, &[], &[], 0, &east_5)["available"], json!(false));
         let many: Vec<Value> = (0..60).map(|i| json!({"datetime": format!("2026-11-{:02}", 1 + i % 28), "temperature": 1.0})).collect();
         let hours: Vec<Value> = (0..60).map(|i| json!({"datetime": format!("2026-11-03T{:02}:00:00+00:00", i % 24), "temperature": 1.0})).collect();
-        let s = snapshot("weather.x", &state(), None, &many, &hours, 0, &east_5);
+        let s = snapshot("weather.x", &state(), NEW_YORK, &many, &hours, 0, &east_5);
         assert_eq!((s["daily"].as_array().unwrap().len(), s["hourly"].as_array().unwrap().len()), (DAYS, HOURS));
-        assert!(s["hourly"][0].get("is_daytime").is_none(), "no sun, no guess");
     }
 
     #[test]
@@ -544,7 +657,7 @@ mod tests {
     fn the_parked_details_are_given_once_to_the_refresh_they_are_newer_than() {
         let ha = HaWeather::new(Vec::new(), AddressPolicy::HOME, None);
         let cfg = WeatherConfig { zip: key_of("weather.x"), units: Units::Celsius };
-        let (_, more) = weather_ha::documents(&snapshot("weather.x", &state(), None, &[], &[], 0, &east_5), &cfg, 5_000).unwrap();
+        let (_, more) = weather_ha::documents(&snapshot("weather.x", &state(), NEW_YORK, &[], &[], 0, &east_5), &cfg, 5_000).unwrap();
         ha.park(&cfg, more);
         assert!(ha.take_parked(&cfg, 5_000).is_none(), "not newer");
         let other = WeatherConfig { zip: key_of("weather.y"), units: Units::Celsius };

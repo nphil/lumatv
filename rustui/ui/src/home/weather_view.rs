@@ -355,13 +355,19 @@ impl<'a> Data<'a> {
         format!("{}\u{b0}", v.round() as i64)
     }
 
+    /// The UV reading and whether it is today's forecast peak: the current index when the feed has one, else the day's peak, which is never passed off as the current one.
+    fn uv(&self) -> Option<(f64, bool)> {
+        self.more_num("/now/uvIndex").map(|u| (u, false)).or_else(|| self.more_num("/daily/0/uvMax").map(|u| (u, true)))
+    }
+
     /// The four readings under the hero, each as the page shows it: an en dash for one the feed does not carry, never a blank.
     fn facts(&self) -> [(&'static str, String); 4] {
         let wind = self.num("/current/windMph").map(|v| format!("{} mph{}", v.round() as i64, self.more_num("/now/windDeg").map(|dg| format!(" {}", compass(dg))).unwrap_or_default()));
         let hum = self.num("/current/humidity").map(|v| format!("{}%", v.round() as i64));
-        let uv = self.more_num("/now/uvIndex").map(|u| format!("{} {}", u.round() as i64, uv_word(u)));
+        let uv = self.uv().map(|(u, _)| format!("{} {}", u.round() as i64, uv_word(u)));
+        let uv_label = if matches!(self.uv(), Some((_, true))) { "UV PEAK" } else { "UV INDEX" };
         let rain = self.more.pointer("/daily/0/rainPct").and_then(Value::as_f64).map(|p| format!("{}%", p.round() as i64));
-        [("WIND", wind), ("HUMIDITY", hum), ("UV INDEX", uv), ("RAIN TODAY", rain)].map(|(label, v)| (label, v.unwrap_or_else(|| NONE.to_owned())))
+        [("WIND", wind), ("HUMIDITY", hum), (uv_label, uv), ("RAIN TODAY", rain)].map(|(label, v)| (label, v.unwrap_or_else(|| NONE.to_owned())))
     }
 
     /// A key that tells the page when to be made again.
@@ -888,7 +894,8 @@ impl WeatherSurface {
             Uv(Option<f32>),
             Rain(Vec<f32>),
             Sun(Option<f32>, i32),
-            Humidity(f32),
+            /// Humidity, and the cloud cover that is shown under the arc but never drives it.
+            Humidity(f32, Option<f32>),
             Pressure(f32),
             /// Nothing to draw: the tile has no reading.
             Blank,
@@ -919,8 +926,9 @@ impl WeatherSurface {
         let wind = d.facts()[0].1.clone();
         let gust = d.more_num("/now/gustMph").map(|g| format!("Gusts {} mph", g.round() as i64)).unwrap_or_default();
         tiles.push((1, 0, 1, "WIND", wind, vec![gust], Draw::Wind(d.more_num("/now/windDeg").unwrap_or(0.0) as f32)));
-        let uv = d.more_num("/now/uvIndex");
-        tiles.push((2, 0, 1, "UV INDEX", uv.map(|u| format!("{}", u.round() as i64)).unwrap_or_else(|| NONE.into()), vec![uv.map(|u| uv_word(u).to_owned()).unwrap_or_default()], Draw::Uv(uv.map(|u| u as f32))));
+        let uv = d.uv();
+        let uv_sub = uv.map(|(u, peak)| if peak { format!("Peak \u{b7} {}", uv_word(u)) } else { uv_word(u).to_owned() }).unwrap_or_default();
+        tiles.push((2, 0, 1, if matches!(uv, Some((_, true))) { "UV TODAY" } else { "UV INDEX" }, uv.map(|(u, _)| format!("{}", u.round() as i64)).unwrap_or_else(|| NONE.into()), vec![uv_sub], Draw::Uv(uv.map(|(u, _)| u as f32))));
         let rain = d.more.pointer("/daily/0/rainPct").and_then(Value::as_f64);
         let amount = d.more.pointer("/daily/0/rainIn").and_then(Value::as_f64).map(&w_in).unwrap_or_default();
         let chances: Vec<f32> = d.hours().iter().take(24).map(|h| h.get("rainPct").and_then(Value::as_f64).unwrap_or(0.0) as f32).collect();
@@ -934,15 +942,15 @@ impl WeatherSurface {
             _ => (None, 0),
         };
         let daylight = if daylen > 0 { format!("{} h {} min of daylight", daylen / 60, daylen % 60) } else { String::new() };
-        // a feed with no sunrise or sunset (Home Assistant's weather entities) leaves the tile a dash and a line saying so, not an empty arc
+        // a feed with no sunrise or sunset leaves the tile a dash and a line saying so, not an empty arc
         tiles.push(if rise.is_none() && set.is_none() {
             (0, 1, 2, "SUNRISE AND SUNSET", NONE.into(), vec!["Not reported".into()], Draw::Blank)
         } else {
             (0, 1, 2, "SUNRISE AND SUNSET", String::new(), vec![daylight], Draw::Sun(dayfrac, daylen))
         });
         let hum = d.num("/current/humidity");
-        let cloud = d.more_num("/now/cloudPct").map(|c| format!("Cloud cover {}%", c.round() as i64)).unwrap_or_default();
-        tiles.push((2, 1, 1, "HUMIDITY", hum.map(|v| format!("{}%", v.round() as i64)).unwrap_or_else(|| NONE.into()), vec![cloud], Draw::Humidity(hum.unwrap_or(0.0) as f32)));
+        let cloud = d.more_num("/now/cloudPct");
+        tiles.push((2, 1, 1, "HUMIDITY", hum.map(|v| format!("{}%", v.round() as i64)).unwrap_or_else(|| NONE.into()), vec![String::new()], Draw::Humidity(hum.unwrap_or(0.0) as f32, cloud.map(|c| c as f32))));
         let pressure = d.more_num("/now/pressureHpa");
         let vis = d.more_num("/now/visibilityM").map(|m| if metric { format!("Visibility {} mi", (m / 1609.34).round() as i64) } else { format!("Visibility {} km", (m / 1000.0).round() as i64) }).unwrap_or_default();
         let p_text = pressure.map(|p| if metric { format!("{:.2} inHg", p * 0.029_53) } else { format!("{} hPa", p.round() as i64) }).unwrap_or_else(|| NONE.into());
@@ -1008,7 +1016,13 @@ impl WeatherSurface {
                         extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Left), "Now".to_owned()));
                         extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Right), "24 h".to_owned()));
                     }
-                    Draw::Wind(_) | Draw::Humidity(_) | Draw::Blank => {}
+                    Draw::Humidity(_, cloud) => {
+                        if let Some(c) = cloud {
+                            extra.push((Frame::new(g.x, g.bottom() - sh, g.w - 130.0, sh), sty(kit, sp, Weight::Medium, ink2, Align::Left), "Cloud cover".to_owned()));
+                            extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, sp, Weight::SemiBold, ink, Align::Right), format!("{}%", c.round() as i64)));
+                        }
+                    }
+                    Draw::Wind(_) | Draw::Blank => {}
                 }
             }
             lines.extend(extra);
@@ -1072,13 +1086,18 @@ impl WeatherSurface {
                     }
                 }
                 Draw::Blank => {}
-                Draw::Humidity(v) => {
-                    let (cx, cy, r) = (g.x + g.w / 2.0, g.y + g.h / 2.0, (g.w.min(g.h) / 2.0 - 8.0).max(24.0));
+                Draw::Humidity(v, cloud) => {
+                    // the arc keeps the room above the cloud-cover row, which is its own region under a hairline
+                    let ga = if cloud.is_some() { Frame::new(g.x, g.y, g.w, (g.h - sh - 22.0).max(40.0)) } else { g };
+                    let (cx, cy, r) = (ga.x + ga.w / 2.0, ga.y + ga.h / 2.0, (ga.w.min(ga.h) / 2.0 - 8.0).max(24.0));
                     let (a0, sweep) = (-0.75 * std::f32::consts::PI, 1.5 * std::f32::consts::PI);
                     gfx::arc(c, cx, cy, r, 12.0, a0, a0 + sweep, faded(ink, 0.12));
                     let f = (v / 100.0).clamp(0.0, 1.0);
                     if f > 0.0 {
                         gfx::arc(c, cx, cy, r, 12.0, a0, a0 + sweep * f, accent);
+                    }
+                    if cloud.is_some() {
+                        gfx::line(c, (g.x, g.bottom() - sh - 11.0), (g.right(), g.bottom() - sh - 11.0), 2.0, faded(ink, 0.14));
                     }
                 }
                 Draw::Pressure(p) => {
@@ -1181,12 +1200,20 @@ mod tests {
     }
 
     #[test]
+    fn the_current_uv_wins_and_the_days_peak_is_flagged() {
+        let doc = json!({});
+        let uv = |more: Value| Data { doc: &doc, more: &more, twelve: true, fahrenheit: true }.uv();
+        assert_eq!(uv(json!({"now": {"uvIndex": 0.0}, "daily": [{"uvMax": 4.65}]})), Some((0.0, false)));
+        assert_eq!(uv(json!({"daily": [{"uvMax": 4.65}]})), Some((4.65, true)));
+        assert_eq!(uv(json!({"daily": [{}]})), None);
+    }
+
+    #[test]
     fn a_reading_the_feed_lacks_is_a_dash_not_a_blank() {
         let (doc, more) = (json!({"current": {"windMph": 11.4, "humidity": 33.0}}), json!({"now": {"windDeg": 315.0}, "daily": [{"rainPct": 0.0}]}));
         let d = Data { doc: &doc, more: &more, twelve: true, fahrenheit: true };
         let facts = d.facts();
         assert_eq!(facts.clone().map(|(_, v)| v), ["11 mph NW", "33%", NONE, "0%"]);
-        assert_eq!(facts[2].0, "UV INDEX");
         let (doc, more) = (Value::Null, Value::Null);
         let d = Data { doc: &doc, more: &more, twelve: true, fahrenheit: true };
         assert!(d.facts().iter().all(|(_, v)| v == NONE));
