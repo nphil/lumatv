@@ -6,29 +6,191 @@ offline** (executed on captured firmware, not on the TV), **inferred**
 
 Research artifacts: `/data/home/tmp/lumatv-gaming-fw-20261101/`.
 
+## Resume here: near-native streaming performance
+
+Execution order, agreed 2026-11-09: lowest practical button-to-visible-response
+latency at high image quality takes priority over additional gaming features.
+The first target is stable 4K120 HEVC Main10 HDR10, not an unmeasured 144 Hz
+mode. This is the shared handoff for the LumaGame app session; implementation
+and fresh TV measurements have not started under this plan. Existing app-work
+holds and TV-access requirements remain in force.
+
+LG libraries are reverse-engineering, adaptation or replacement targets, not
+product limits. Separate API restrictions, firmware policy and measured
+hardware limits. Bypassing NDL is not itself an improvement: retain whichever
+path produces the best measured response, image quality and stability.
+
+### Established baseline and measurement gaps
+
+- **Controller:** GameSir Cyclone v2, its USB wireless dongle plugged directly
+  into the TV (owner-confirmed 2026-11-09). The earlier
+  [receiver capture](research/gfn-input-result.md#the-receiver) identified a
+  GameSir receiver presenting as a DualShock 4 v2: a 1 ms USB polling interval
+  and 500 HID reports/s over two seconds. This is not a genuine Sony device
+  identity or a measured 2 ms physical-button delay. Confirm the current
+  dongle mode and cadence; do not substitute a Bluetooth or cabled baseline.
+- **Throughput, not latency:** the
+  [4K120 HDR receipt](research/gfn/tv-2026-10-26/log.txt) at lines 413–422
+  records a local HEVC Main10 80 Mb/s clip looped for 300 s, 36,001 feeder
+  accepts, zero feeder drops and zero retries. The
+  [display-counter receipt](research/gfn/tv-2026-10-26/g1-4k120-80m-300s.measure.txt)
+  records approximately 120 Hz. Neither establishes unique presented frames,
+  real GFN/network performance or button-to-light latency.
+- **Input already bypasses the UI frame loop:**
+  [reader_loop](../gfn/engine/crates/lumatv-gfn-pad/src/lib.rs) blocks on device
+  events and forwards changed state at each SYN_REPORT. The pinned OpenNOW
+  engine drains input with a 250 µs event wait, not a guaranteed 250 µs maximum
+  delay. Its input queue can hold 256 samples; measure age and overflow under
+  load before changing it.
+- **Potential video waiting, not measured constant lag:** OpenNOW's media
+  channel holds eight items, which may include audio; the NVST 52 ms reorder
+  timeout applies only while a packet gap is open. The
+  [feeder](../gfn/feeder/src/feeder.c) retries a full video feed every 0.5 ms
+  for up to 8 ms by default. The clean clip above recorded no retries.
+  Queue capacity and timeout values must not be added together as normal lag.
+- **Current timing labels are not physical measurements:**
+  [runtime timings](../gfn/engine/crates/opennow-streamer-platform/src/runtime.rs)
+  reports feed-call time and queue-depth × frame-period estimates as decode
+  timing, maps p99 into p95 fields and a queue average into a p50 field, and
+  counts accepted submissions as outputs. The
+  [input send tap](../gfn/engine/crates/lumatv-gfn-sendtap/src/lib.rs) matches
+  the first send after handoff, which may be a different packet. The example
+  0.4 ms / p99 1.3 ms in the older input note is not a TV result.
+
+Transport observations refer to OpenNOW revision
+`a49b124ce31e87113fd4961f6a321fbf0ad1fdc5`, pinned in
+[the engine manifest](../gfn/engine/Cargo.toml):
+`native/opennow-streamer/crates/opennow-streamer-core/src/lib.rs` for input
+draining/media capacity, and `opennow-streamer-transport/src/nvst.rs` for
+`MJOLNIR_REORDER_DEQUEUE_TIMEOUT`. Locate the app's actual consumers and
+dependency revision before editing; do not assume a separate app has already
+adopted every shared-source change or that its local-stream adapter is ready.
+
+### Ordered execution and acceptance
+
+1. **Make timing trustworthy, then establish the baseline.** Reuse the existing
+   native reader, latency recorder and feeder counters. Separate USB report
+   arrival, changed input events, app queue age, matched input-packet send,
+   frame arrival, decoder submission, decoder completion where observable,
+   and actual presentation. Correct percentile/estimate labels; unavailable
+   decoder or display timestamps remain unavailable, not zero or inferred
+   completion. Use a correlated input packet rather than the first arbitrary
+   send. Host and TV timestamps cannot be subtracted without qualified clock
+   alignment. In a coordinated TV window, measure the current dongle under
+   idle and streaming load and physical button-to-light response with a
+   timestamped button stimulus plus high-speed recording or a photodiode.
+   Compare local streaming with direct HDMI from the same PC when available;
+   compare the GFN app with the official LG GFN client at matched settings.
+   Record any missing HDMI source, local adapter, account or physical timing
+   equipment explicitly and finish reachable software measurements first.
+   **Exit:** reproducible p50/p95/p99/max distributions with sample counts,
+   measurement uncertainty, queue-age distributions and visible frame/drop
+   evidence. Software handoff timing is never labelled end-to-end latency.
+
+2. **Reduce waiting without breaking recovery.** Follow the oldest frame and
+   input sample through transport, app queues, feeder and LG render queue.
+   Compare bounded frame-age and backlog policies one change at a time; keep
+   button press/release ordering and decoder reference dependencies intact.
+   Do not indiscriminately discard compressed frames or set all buffering to
+   zero. Measure recovery after isolated loss, bursts, reordering and load;
+   cloud retransmission and a clean LAN need different deadlines.
+   **Exit:** lower measured response delay or tail spikes beyond measurement
+   uncertainty, without stuck/missed inputs, worse corruption, freezes or
+   recovery time. A smaller queue alone is not acceptance evidence.
+
+3. **Shorten LG's decode-to-display path.** Start from the observed NDL
+   game/low-delay load and existing direct-ES alternative described below;
+   neither is a missing backend to recreate. Trace hidden buffering, frame
+   selection and presentation feedback through `libplayerAPIs`, the AV
+   connector and VDEC VO scheduling. Keep decoded video on the direct video
+   plane unless a measured alternative wins. Qualify extra low-delay controls
+   only if the existing path leaves work to remove; inspect live state rather
+   than assuming a successful setter changed the hardware. The current direct
+   ES alternative is picture-only and is not a complete gaming replacement.
+   **Exit:** a physical latency A/B with HDR, colour, audio sync and frame
+   pacing intact, plus verified state restoration on stop, disconnect, error
+   and crash. Unknown control semantics or unverified restoration stop the
+   live experiment, not the remaining offline investigation.
+
+4. **Tune quality and both transport classes.** Establish 4K120 HDR10 HEVC
+   Main10 first; 80 Mb/s is an existing clip test point, not a proven network
+   default. Increase bitrate only with measured throughput margin and stable
+   tail latency. Compare high-motion detail, text, dark gradients, colour and
+   HDR highlights, including large keyframe bursts. Compare other codecs and
+   rates on their actual quality/latency results; AV1 is not inherently faster.
+   For Apollo/Sunshine local streaming, measure game rendering, capture and
+   encoder delay; avoid unnecessary future-frame/lookahead waits and GPU
+   render backlog, and use low-latency host options supported by that host.
+   For GFN, record the server, network round-trip time, negotiated mode and
+   available server-side latency options. No TV-side change removes internet
+   propagation or NVIDIA's server workload. Share the TV presentation/input
+   path, not unqualified cloud/LAN recovery settings.
+   **Exit:** separate reproducible local and GFN profiles, with typical and
+   worst-1% response, actual delivered frames, visual quality and recovery
+   recorded; no maximum-bitrate or HDMI-equivalence claim without evidence.
+
+5. **Then qualify internal VRR and 144 Hz.** Reuse the firmware findings in
+   sections 2 and 3; internal VRR is not dismissed as HDMI-only, and 120 Hz is
+   not a proved universal firmware ceiling. Qualify safe readback, panel
+   bounds, actual frame presentation and restoration before enabling either.
+   Cloud G-SYNC also needs real presentation feedback, not a negotiated flag
+   alone. At 120 Hz a refresh period is 8.33 ms, versus 6.94 ms at 144 Hz: the
+   1.39 ms period reduction is not a promised input-lag saving and is smaller
+   than one unnecessary 120 fps frame of waiting.
+   **Exit:** independent physical scan/presentation evidence and an improved
+   experience over the qualified 120 Hz baseline, not merely a rate counter.
+
+### Execution discipline and receipts
+
+The app session owns implementation; shared LG controls remain in the trusted
+helper and active only while the gaming plugin is enabled. Run offline source
+work first, then group prepared A/B cases into coordinated TV windows. Reuse
+the existing fixtures and evidence above rather than repeating capability
+discovery. TV installation requires a main-branch revision pushed to both
+remotes and the normal device approval/coordination; this plan grants no
+standing approval or permission to wake the TV.
+
+Before each A/B, fix the game/scene, rendered and streamed frame rates, TV
+picture/HDR mode, controller/dongle mode, physical measurement position,
+network path and test duration; record unavoidable differences. Choose sample
+counts and tolerances from baseline repeatability, report the slowest 1% as
+well as the median, and reject regressions outside that uncertainty. Record
+each result with source revision, installed binary hashes, configuration,
+measurement method, raw-receipt path and restoration result. Label every
+untested case. Retain small numerical receipts, not build output or video
+recordings, in the repo; temporary captures belong in session scratch.
+
 ---
 
 ## Capability summary
 
 | Feature | Status | Implementable |
 |---------|--------|---------------|
-| 4K120 HDR 4:2:0 | measured | Yes — already working |
-| ALLM / low latency | inferred | Implementable, untested — V4L2 + resource_mgr ioctl from disassembly |
+| 4K120 HDR 4:2:0 | measured clip throughput and display counters | Working test workload; physical gaming latency unmeasured |
+| Additional low-latency controls | inferred | V4L2 + resource_mgr ioctl unqualified; NDL already selects game/low-delay mode |
 | 4K144 HDR 4:2:0 | proven offline (DE selector only) | Blocked — VO presentation policy not yet traced |
 | VRR (4K120) | inferred | Blocked — VRR register readback unqualified |
 | Cloud G-SYNC | untested | Blocked — depends on VRR |
-| HEVC 4:4:4 | inferred | No — strongly indicated hardware limitation |
+| HEVC 4:4:4 | hardware support unresolved | No working decoded path established; hardware limitation strongly indicated, not conclusive |
 | BFI / OLED Motion Pro | inferred | Implementable, untested — V4L2 control; inferred exclusive with VRR |
 
 ---
 
 ## Architecture
 
-The feeder uses NDL (`libNDL_directmedia.so`). NDL exposes Load, Play,
-SetFrameDropThreshold and SetHDRInfo. It has no HFR, low-latency, VRR or
-frame-rate controls. NDL's `Load` takes width, height and codec type — no
-fps field. The TV determines frame rate from SPS VUI timing or a PTS-spacing
-estimator.
+The gaming feeder uses NDL (`libNDL_directmedia.so`). NDL exposes Load, Play,
+SetFrameDropThreshold and SetHDRInfo. Its public API exposes no HFR,
+low-delay toggle, VRR or frame-rate control, but its underlying load sets
+`lowDelayMode` and `videoInfo.isGameMode` true. The TV logs also show the game
+picture mode and display low delay; physical response improvement is
+unmeasured. [Existing pipeline evidence](research/vwin-refresh-result.md).
+
+The feeder already has `gf_smp.c` alternatives: BUFFERSTREAM with explicit
+sink selection, and direct ES with configurable low delay but no
+`isGameMode`. Direct ES currently refuses audio and explicit sink selection;
+it is not a finished gaming replacement. NDL's `Load` takes width, height
+and codec type, not fps. The TV determines frame rate from SPS VUI timing or
+a PTS-spacing estimator.
 
 Privileged display controls (MEMC bypass, DE low-delay, VRR, HFR) use V4L2
 extended controls and resource_mgr ioctls. Per project rules these go through
@@ -94,7 +256,8 @@ uint32_t orig_de = saved_de_low_delay;
 ioctl(resmgr_fd, 0x4004613c, &orig_de);
 ```
 
-The helper itself restores when the feeder's pipe closes, covering crashes.
+Feeder disconnect can trigger helper restoration. A helper crash requires a
+surviving rollback owner; that lifecycle remains unqualified until tested.
 
 **Call chain (from disassembly):**
 - MEMC: `v4l2_vpq_vidioc_s_ctrl_be` → `vpq_hwrap_memc_lowdelaymode` →
@@ -121,8 +284,9 @@ working:
 4. Read back — confirm the new values took effect
 5. Restore saved values — confirm readback matches originals
 6. Measure input lag delta with an external latency tester (photodiode or
-   similar). The expected reduction is unknown. The acceptance criterion is
-   the lifecycle itself: read-back, set, read-back, restore, read-back.
+   similar). The expected reduction is unknown. Read-back, set, verification
+   and restoration qualify the control lifecycle, not a performance claim;
+   a latency claim additionally requires a measured physical improvement.
 
 If any step fails, record the error and stop — the control ID or device
 path may differ from the disassembly.
@@ -296,14 +460,17 @@ established without a live HW Config dump.
 
 The display pipeline supports 4:4:4 for HDMI input
 (`BE_FRC_Set_YUV_444_Mode`, `vsc_set_rgb444`). The panel can show 4:4:4
-content — only the decoder cannot produce it.
+content; the investigated decoded paths reject it. That does not by itself
+establish which restriction is firmware policy versus decoder hardware.
 
 **One cheap live check:** the Hantro HW Config register dump is printed at
 core reservation time. Look for it in existing `dmesg` or log captures before
 requesting a TV window.
 
-**Practical substitute:** 10-bit 4:2:0 HDR at high bitrate (up to 150 Mbps).
-Expose bitrate control in settings.
+**Practical baseline:** 10-bit 4:2:0 HDR with bitrate control. The 80 Mb/s
+clip receipt above establishes one workload; higher bitrates need separate
+network, decoder and image-quality qualification rather than a fixed maximum
+presented as universally usable.
 
 ---
 
@@ -370,8 +537,9 @@ Accessed through `te_debug_param_*` / VDEC IPC, not sysfs.
 
 ## Open prerequisites (LumaGame must not build on these)
 
-1. DE output timing acceptance of 144 Hz — `DE_IO_SetFrRate` /
-   `DE_REG_O22_SetFrRate` not traced; this is where the 120 cap likely lives
+1. VO frame selection at 144 fps — trace `vdisp_set_frame_rate` /
+   `vpts_match` first (section 2); DE output timing acceptance through
+   `DE_IO_SetFrRate` / `DE_REG_O22_SetFrRate` is a separate open prerequisite
 2. VRR tracking register readback — access path proven (no whitelist), but
    register contents not verified on TV (may be zero if clock-gated)
 3. Panel safe VRR blanking bounds — VRRULIMIT/VRRLLIMIT values unknown

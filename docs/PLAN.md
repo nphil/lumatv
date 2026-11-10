@@ -1355,30 +1355,18 @@ None.
 
 ## After LumaTV
 
-- Port OpenNOW (github.com/OpenCloudGaming/OpenNOW, MIT: Qt 6.8 UI, Rust
-  core and native NVST streamer, Linux ARM64 builds exist) to the set as a
-  LumaTV app (Nitin, 2026-10-25), aimed at a smooth UI and the best stream
-  the set can show: 4K, 120 fps, HDR, 4:4:4, VRR. Starts once LumaTV is
-  done. Research before any build: whether the set's video decoder accepts
-  a 4K120 low-latency stream through LG's media pipeline (decoded video
-  must go to the video planes, not the GPU), whether it decodes 4:4:4 at
-  all, whether VRR applies to anything but HDMI inputs, Qt 6 versus a
-  LumaTV-native UI over the streamer, and controller input.
-  No PC or console is connected to this TV, so this port is Nitin's only way
-  to play GeForce NOW on it for now; 4:4:4 and VRR are wanted and every route
-  to them is being tried (`docs/research/gfn-444-vrr-result.md`), with the
-  research in `docs/research/opennow-result.md` (Nitin, 2026-10-25).
-  The app's interface is LumaTV's own, clean and in Lucent like the rest of
-  the shell (not OpenNOW's Qt UI). Controller input latency is a first-class
-  requirement: a USB 2.4 GHz controller receiver is plugged into the TV, and
-  the streamer reads it at the lowest level the set allows (its own device
-  node, highest poll rate the device takes, no LG input service in the path),
-  sending each change to GeForce NOW at once (Nitin, 2026-10-25).
-  Research result (2026-10-25, `docs/research/gfn-444-vrr-result.md`): 4K120
-  HEVC Main10 HDR10 4:2:0 at a fixed 120 Hz with LG's low-delay cloud-game
-  mode is the ceiling on the set; 4:4:4 (decoder refuses it) and VRR (panel
-  VRR only for an HDMI source) are not reachable on any on-TV path. The
-  controller (GameSir receiver as a DualShock 4, 1 ms poll, 500 reports/s,
-  rumble) adds about 2 ms read directly (`docs/research/gfn-input-result.md`).
-  Nitin approved the probe tests E1-E3 (test app with sample clips, a 4:4:4
-  refusal check, a CPU decode benchmark) for the next free TV slot.
+- LumaGame's native OpenNOW-based GFN and local-streaming work follows the
+  [shared gaming contract and execution plan](lumagame-gaming-features.md#resume-here-near-native-streaming-performance)
+  (2026-11-09). Lowest practical button-to-light latency at high image quality
+  takes priority over additional gaming features: qualify measurements,
+  reduce frame waiting, optimise LG presentation, tune cloud/local profiles,
+  then qualify VRR and 144 Hz. The GameSir Cyclone v2 uses its USB wireless
+  dongle directly in the TV; the native input reader already bypasses the UI
+  frame loop. Earlier 500 reports/s is report cadence, not physical latency.
+  The 4K120 HEVC Main10 HDR10 80 Mb/s clip test passed sustained feeding;
+  physical gaming latency remains unmeasured. LG libraries may be adapted or
+  replaced where measurement justifies it: internal VRR and 144 Hz have
+  firmware leads, not working-mode guarantees, and decoder 4:4:4 hardware
+  support remains unresolved. The app retains LumaTV's Lucent UI rather than
+  OpenNOW's Qt UI. The older October research notes remain historical
+  evidence, not current capability ceilings or standing TV-test approval.
