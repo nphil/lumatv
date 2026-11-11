@@ -9,6 +9,18 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Native Home stub live, 2026-11-11 (main 332ecd7d, installed 12:57 EST)
+
+Installed from 332ecd7d in Active Standby through `compositor/tools/build-tv.sh`, a copy of the bundle to `/tmp/lumatv` and cutover `disable`, `install`, `probe`, `enable`. `disable` exited 1 with "could not restore stock UI; Home recovery failed": in standby the display capture has no bytes, so Home could not be verified visually; LG's compositor and Flutter Home were up, and `install`, `probe` and `enable` then passed (live, mounted, enabled, failures 0). Installed sha256: compositor `41c82deb13097748b1699416428749ebbd7cd1ff326156d23eabc3e9a16812c2`, ui `694bee44afcd95425aba5138311612b69cb100fd2d319ea8eb192e95873d39a6`, sm `65f6ca69` (unchanged). Replaced: compositor `eeb157e7`, ui `8aaa4114` (backups in the receipts). Helper and `tools/lumatv` unchanged.
+
+- HDMI 2 by launch: only LumaTV's input pill on screen at 1.4 and 3.4 s; `mask` app `com.webos.app.hdmi2`, rect 0,556 1506x168, no keys, active then inactive by 8 s. The switch by the remote's input picker was not run.
+- Live TV CH+: only LumaTV's channel banner; Live TV's claim unchanged (two rects, keys 402 and 403, holdMs 6500). CH- put the channel back.
+- `tools/homestub-native-tv.sh` with saver and wake: 18 PASS, 1 FAIL in 58 s. `launch-over-app`, `restart`, `saver`, `saver-end`, `wake` (standby, wake to Home, stub restarted with `boot:true`) PASS. `foreground` FAILED at the swap: HDMI 2 was running in the background from the HDMI check and took the front when the web stub left; with no input running the swap lands on Home.
+- HDMI 2 in the background, the Home key, then a SAM launch of Home, three rounds: Home in front at 2 and 6 s each time; no stale-event line in the journal.
+- `lumatv homestub-kind native` after closing HDMI 2: mounted and SAM native, boot direct kind native, one `lumatv-homestub` (VmRSS 4 kB), Home drawn normally.
+
+Left in Active Standby with the native stub in place and boot direct on; receiver off and unmuted. `lumatv homestub-kind web` puts the web stub back. Not yet seen on the set: a cold boot or reboot with the native stub. Receipts: `/data/home/tmp/lumatv-homestub-20261111/` (`checks/`, `inst.py`, `installed.json`, `backup/`).
+
 ## Native Home stub on the set, 2026-11-11 (main 6414c3ed)
 
 `tools/homestub-native-tv.sh` (stub `1a9e47e2`, compositor as installed): `launch-over-app` PASS. SAM ends and restarts the unregistered stub for a launch of Home, and skips that for a stub under about 3 s old (`skip_by_launching_time`, measured at 2.1, 2.7, 3.1, 3.6, 4, 6, 8 and 10 s); the earlier failure was the probe's own restart 2.7 s before, and the probe now waits that out. A later run failed `restart` and `app-again` on a race: SAM's launch event for the restarted stub arrived after the probe's launch of HDMI 2 and the compositor raised Home over it. The compositor now leaves such an event alone when the stub's card is under 2 s old and under an app (`home_life_event`); not run on the set. Saver and wake were not run. The web stub is back on the set. Receipts: `/data/home/tmp/lumatv-homestub-20261111/`.
