@@ -279,8 +279,9 @@ pub struct Banner {
     waiting: Option<(String, u64)>,
     /// What live TV's channel banner says and when (`channel_feed`).
     feed: Feed,
-    /// LG's own banner on Live TV, which the compositor leaves undrawn while this one stands in for it (`lg_mask`).
+    /// LG's own banner on an input, which the compositor leaves undrawn while this one stands in for it (`lg_mask`), and the input it is claimed for.
     lg: LgMask,
+    lg_for: Option<String>,
     intents: Vec<Intent>,
 }
 
@@ -332,13 +333,17 @@ impl Banner {
         out
     }
 
-    /// Live TV in front with the owner's banners on is what the channel banner follows the tuner for, and what LG's own banner is blanked for.
+    /// An input in front with the owner's banners on is what LG's own banner is blanked for, and Live TV is what the channel banner follows the tuner for.
     fn sync_live(&mut self, now: u64) -> Vec<Effect> {
-        let live = self.front && self.own && self.app == channels::LIVE_TV_APP;
-        let was = self.feed.live();
-        let mut out = self.feed.set_live(live, now);
-        if live != was {
-            out.extend(if live { self.lg.engage() } else { self.lg.release() });
+        let input = (self.front && self.own && is_input_app(&self.app)).then(|| self.app.clone());
+        let mut out = self.feed.set_live(input.as_deref() == Some(channels::LIVE_TV_APP), now);
+        // once for each input that comes: the tuner failing lets go of Live TV's claim for the rest of the visit, which a theme change must not take back
+        if input != self.lg_for {
+            out.extend(match &input {
+                Some(app) => self.lg.engage(app),
+                None => self.lg.release(),
+            });
+            self.lg_for = input;
         }
         out
     }
@@ -625,7 +630,7 @@ mod tests {
         let mut b = on();
         assert!(b.update(&fg("com.webos.app.home", true), T0).is_empty() || !b.up());
         let asked = b.update(&fg("com.webos.app.hdmi1", false), T0 + 100);
-        assert!(matches!(&asked[..], [Effect::Luna { tag: INPUTS_TAG, subscribe: false, .. }]), "the list is asked for once: {asked:?}");
+        assert_eq!(asked.iter().filter(|e| matches!(e, Effect::Luna { tag: INPUTS_TAG, subscribe: false, .. })).count(), 1, "the list is asked for once: {asked:?}");
         assert!(!b.up(), "the pill waits for the list");
         assert_eq!(b.due_at(), Some(T0 + 100 + LIST_WAIT_MS));
         assert_eq!(b.update(&Input::Luna { tag: INPUTS_TAG, payload: list() }, T0 + 150), vec![Effect::Redraw]);
@@ -664,7 +669,8 @@ mod tests {
         assert_eq!(b.update(&Input::Tick, T0 + 100 + LIST_WAIT_MS), vec![Effect::Redraw]);
         assert_eq!(spec_of(&b).name, "HDMI 2");
         // the input leaves: its pill goes with it
-        assert_eq!(b.update(&fg("com.webos.app.home", true), T0 + 2000), vec![Effect::Redraw]);
+        let fx = b.update(&fg("com.webos.app.home", true), T0 + 2000);
+        assert!(fx.contains(&Effect::Redraw), "{fx:?}");
         assert!(!b.up());
         // an answer that comes after the app went finds nobody waiting
         b.update(&fg("com.webos.app.hdmi1", false), T0 + 3000);
@@ -845,10 +851,53 @@ mod tests {
         assert_eq!(mask_ops(&fx), ["release"], "a tuner that cannot be followed leaves LG's banner alone: {fx:?}");
         assert!(mask_ops(&b.update(&fg("com.webos.app.home", true), T0 + 200)).is_empty(), "nothing is left to give back");
         assert_eq!(mask_ops(&b.update(&fg("com.webos.app.livetv", false), T0 + 300)), ["claim", "engage"], "the next visit claims again");
-        assert_eq!(mask_ops(&b.update(&fg("com.webos.app.hdmi1", false), T0 + 400)), ["release"], "another app in front: LG's banner is its own");
+        assert_eq!(mask_ops(&b.update(&fg("com.webos.app.hdmi1", false), T0 + 400)), ["claim", "engage"], "an input in front: its own window is claimed, and no tuner is followed");
+        assert_eq!(mask_ops(&b.update(&fg("netflix", false), T0 + 450)), ["release"], "another app in front: LG's banner is its own");
         b.update(&fg("com.webos.app.livetv", false), T0 + 500);
         assert_eq!(mask_ops(&b.set_theme(&json!({}), T0 + 600)), ["release"], "the owner's banners off: LG's own draws the moment");
         assert!(mask_ops(&Banner::new(&json!({})).update(&fg("com.webos.app.livetv", false), T0)).is_empty(), "never claimed with the switch off");
+    }
+
+    /// The window the first claim of a switch names.
+    fn claimed(fx: &[Effect]) -> Option<String> {
+        fx.iter().find_map(|e| match e {
+            Effect::Channel { path, body } if path == "/v1/mask" && body["op"] == "claim" => body["app"].as_str().map(str::to_string),
+            _ => None,
+        })
+    }
+
+    /// `inputcommon` draws LG's launch pill into an HDMI input's own card (window `com.webos.app.hdmi2`) about 0.6 s after the switch, for five seconds, so with this
+    /// one's pill up as well the owner saw two (2026-11-11). The claim is made with the switch, before LG draws, for the window of the input that came to the front.
+    #[test]
+    fn lgs_pill_on_an_hdmi_input_is_claimed_for_that_inputs_window_with_the_switch_and_given_back_when_it_leaves() {
+        let mut b = on();
+        let fx = b.update(&fg("com.webos.app.hdmi2", false), T0);
+        assert_eq!(mask_ops(&fx), ["claim", "engage"], "{fx:?}");
+        assert_eq!(claimed(&fx).as_deref(), Some("com.webos.app.hdmi2"));
+        assert!(!fx.iter().any(|e| matches!(e, Effect::Luna { tag: channel_feed::LAST_TAG, .. })), "an input has no tuner to follow: {fx:?}");
+        assert!(mask_ops(&b.set_theme(&json!({"banners": {"own": true}}), T0 + 100)).is_empty(), "nothing changed: nothing is asked again");
+        // another input, and Live TV: each is claimed for its own window
+        let fx = b.update(&fg("com.webos.app.hdmi1", false), T0 + 5_000);
+        assert_eq!((mask_ops(&fx), claimed(&fx).as_deref()), (vec!["claim".to_string(), "engage".to_string()], Some("com.webos.app.hdmi1")), "{fx:?}");
+        let at = Input::Luna { tag: lg_mask::POSITION_TAG, payload: json!({"returnValue": true, "settings": {"bannerPosition": "righttop"}}) };
+        let fx = b.update(&at, T0 + 5_100);
+        assert_eq!((mask_ops(&fx), claimed(&fx).as_deref()), (vec!["claim".to_string()], Some("com.webos.app.hdmi1")), "the owner's place, for the input in front: {fx:?}");
+        // the tuner Live TV was followed on failing after it left is not this input's to give back
+        let fail = Input::Luna { tag: channel_feed::LAST_TAG, payload: json!({"returnValue": false, "errorCode": -106}) };
+        assert!(mask_ops(&b.update(&fail, T0 + 5_200)).is_empty());
+        let fx = b.update(&fg("com.webos.app.livetv", false), T0 + 6_000);
+        assert_eq!((mask_ops(&fx), claimed(&fx).as_deref()), (vec!["claim".to_string(), "engage".to_string()], Some("com.webos.app.livetv")), "{fx:?}");
+        let fx = b.update(&fg("com.webos.app.hdmi3", false), T0 + 7_000);
+        assert_eq!((mask_ops(&fx), claimed(&fx).as_deref()), (vec!["claim".to_string(), "engage".to_string()], Some("com.webos.app.hdmi3")), "{fx:?}");
+        assert!(fx.contains(&Effect::Cancel { tag: channel_feed::LAST_TAG }), "Live TV's tuner is let go of: {fx:?}");
+        // given back with the input, with the screen, and with the owner's switch; claimed again from the next visit
+        assert_eq!(mask_ops(&b.update(&fg("com.webos.app.home", true), T0 + 8_000)), ["release"]);
+        assert_eq!(mask_ops(&b.update(&fg("com.webos.app.hdmi2", false), T0 + 9_000)), ["claim", "engage"]);
+        let screen = |on: bool| Input::Topic { topic: "screen".into(), data: json!({"on": on}) };
+        assert_eq!(mask_ops(&b.update(&screen(false), T0 + 10_000)), ["release"]);
+        assert_eq!(mask_ops(&b.update(&screen(true), T0 + 20_000)), ["claim", "engage"], "claimed again with the wake, as Live TV's is");
+        assert_eq!(mask_ops(&b.set_theme(&json!({}), T0 + 21_000)), ["release"]);
+        assert!(mask_ops(&Banner::new(&json!({})).update(&fg("com.webos.app.hdmi2", false), T0)).is_empty(), "never claimed with the switch off");
     }
 
     #[test]

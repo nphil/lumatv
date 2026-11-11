@@ -43,6 +43,12 @@ banner is drawn: LG draws it about 0.2 s after its tune is answered. The claim i
 cannot be followed, or the UI is gone: the stock banner returns whenever the UI is not running. At the left the chip's rectangle is the chip and a 6 px margin;
 at the right the bar's width is the channel's, so the rectangle runs from where the widest bar would put the chip to the screen's edge.
 
+HDMI inputs have the same double. `inputcommon` hosts the input's card (`com.webos.app.hdmi2`: one window, one surface, a punch-through hole) and draws LG's launch pill into it
+(`InputBanner/SimpleBanner.qml`: the bar's height, at `option.bannerPosition` like the channel banner, no Guide chip), so every switch showed LG's pill and this UI's.
+On 2026-11-11 the switch was pushed to the UI at mono 12506.02 and `FR03_0_BA_STATE "launching"` came at 12506.63; LG hides the pill after 5 s. The UI claims the bar for
+whichever input is in front with no keys and no chip and blanks it for the same 6.5 s from the switch; a switch from one input to another claims the new window. The OK and
+INFO banners of an input stay LG's, and so does its no-signal screen except where it lies under the bar in those 6.5 s.
+
 Not chosen: covering LG's banner (it is flush at x 0, this one is 64 px in, so the edge shows); `hotelMode/tvlinkOsdDisplay` (hides every banner but also
 consumes the other keys and persists); taking OK and CH+/CH- and tuning here (breaks LG's popups and the keys' other duties); reviving the QML overlay
 (removed with the other restyles).

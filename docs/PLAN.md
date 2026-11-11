@@ -239,7 +239,7 @@ set). The table below is the summary; SURFACES.md is the source.
 | Screensaver | Flutter | Own, keeping OLED pixel shift | Research |
 | Nudges, sports alarm, store promotions | Compositor QML | Off (empty view) | System UI redirect |
 | Ad and content-recognition overlays | Native | Off through LG settings | Settings |
-| HDMI input banner, OK/INFO banners, no signal | `inputcommon` QML | Rebuilt (input pill, detail, burn-in-safe no-signal) | Overlay mount |
+| HDMI input banner, OK/INFO banners, no signal | `inputcommon` QML, drawn into the input's own picture | The input pill is rebuilt in the system layer (`system/banner.rs`); LG's launch pill is blanked on the input's picture while it stands in (`system/lg_mask.rs`, `compositor/mask.rs`, the claim Live TV's banner has). The OK and INFO banners and the no-signal screen are not blanked | System UI redirect + compositor mask |
 | Power-off logo, startup cover | Compositor QML, `CoverUI` (bootd opens it; it launches the first app) | Power-off logo own (`MasterBrand` redirect); CoverUI's launch duty kept | System UI redirect |
 | Standby screen (Always Ready, Gallery+) | `lifeOnScreenMode: alwaysReady`, LG art and clock | Off: the panel goes fully dark in standby (Nitin, 2026-10-23); instant wake kept | Settings |
 | Voice listening bar, microphone indicator | `VoiceAgent` QML | Own voice bar for search only: app and title results from what is on the set, no LG cloud answers (Nitin, 2026-10-23); mic indicator always shown | Shadow module |
