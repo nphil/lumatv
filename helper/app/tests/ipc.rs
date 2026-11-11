@@ -32,31 +32,6 @@ fn health_discovery_and_state_answer_over_tcp() {
 
     let root = get(rig.addr, "/");
     assert_eq!(root.status, 200);
-    assert_eq!(
-        root.json()["endpoints"].as_array().unwrap().len(),
-        lumatv_helper::api::ROUTES.len()
-            + lumatv_helper::ai::routes::ROUTES.len()
-            + lumatv_helper::plugins::routes::ROUTES.len()
-            + lumatv_helper::voice::ROUTES.len()
-            + lumatv_helper::images::ROUTES.len()
-            + lumatv_helper::gfn_boost::ROUTES.len()
-            + lumatv_helper::crash::ROUTES.len()
-            + lumatv_helper::openapps::ROUTES.len()
-            + lumatv_helper::capture::ROUTES.len()
-            + lumatv_helper::previews::ROUTES.len()
-            + lumatv_helper::placement::ROUTES.len()
-            + lumatv_helper::saver::ROUTES.len()
-            + lumatv_helper::profiles::ROUTES.len()
-            + lumatv_helper::privacy::ROUTES.len()
-            + lumatv_helper::scrypted::routes::ROUTES.len()
-            + lumatv_helper::displaylab::ROUTES.len()
-            + lumatv_helper::onhome::ROUTES.len()
-            + lumatv_helper::guidedata::ROUTES.len()
-            + lumatv_helper::tuner::ROUTES.len()
-            + lumatv_helper::plex::ROUTES.len()
-            + lumatv_helper::dnd::ROUTES.len()
-            + lumatv_helper::phone_remote::ROUTES.len()
-    );
 
     let state = get(rig.addr, "/v1/state").json();
     assert_eq!(state["api"], 1);

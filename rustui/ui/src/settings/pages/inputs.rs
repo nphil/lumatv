@@ -7,7 +7,7 @@
 //! answers, so they stay in LG's channel screen, the last row.
 
 use super::util::{atsc3, atsc3_read, go, inputs, inputs_read};
-use crate::settings::ctx::{Ctx, Spec, ask, lg_launch};
+use crate::settings::ctx::{Ctx, Spec, ask, lg_launch, toast};
 use crate::settings::names::Table;
 use crate::settings::page::{Page, Read};
 use crate::settings::row::{Arg, Op, Row, patch_of};
@@ -18,7 +18,7 @@ pub fn page() -> Page {
 }
 
 pub fn channels() -> Page {
-    Page::new("channels", "Channels", "antenna").parent("inputs").back("Inputs & devices").reads(channel_reads).rows(channel_rows)
+    Page::new("channels", "Channels", "antenna").parent("inputs").back("Inputs & devices").reads(channel_reads).rows(channel_rows).opened(channel_opened).answered(channel_answered)
 }
 
 const PORTS: [&str; 4] = ["hdmi1", "hdmi2", "hdmi3", "hdmi4"];
@@ -264,6 +264,7 @@ fn channel_reads(_: &Ctx) -> Vec<Read> {
     vec![
         Read::lg("channel", &["autoscanChannelGroup", "analogSystemColor"]),
         Read::lg("option", &["interactive-service", "interactive-service-hdmi"]),
+        Read::Get { name: "lgchannels", path: "/v1/lgchannels" },
         atsc3_read(),
         inputs_read(),
     ]
@@ -271,6 +272,56 @@ fn channel_reads(_: &Ctx) -> Vec<Read> {
 
 const SCROLLING: Table = &[("primary_channel", "Primary Channels"), ("all_channel", "All Channels")];
 const SYSTEM_COLOR: Table = &[("multi", "Multi"), ("pal-m", "PAL-M"), ("pal-n", "PAL-N"), ("ntsc", "NTSC")];
+
+fn channel_opened(_: &Ctx) -> Vec<Op> {
+    vec![Op::Set("lgchannels.pending".into(), json!("refresh"))]
+}
+
+fn channel_answered(c: &Ctx, name: &str, doc: &Value) -> Vec<Op> {
+    match name {
+        "lgchannels.apply" => {
+            let mut ops = vec![Op::Set("lgchannels.pending".into(), json!("refresh")), Op::Refresh];
+            if doc.get("ok").and_then(Value::as_bool) != Some(true) {
+                let reason = doc.pointer("/error/message").and_then(Value::as_str).unwrap_or("the TV did not answer");
+                ops.push(toast(&format!("Not changed: {reason}")));
+            }
+            ops
+        }
+        "lgchannels" if c.local.text("lgchannels.pending") == "refresh" => vec![Op::Set("lgchannels.pending".into(), Value::Null)],
+        _ => Vec::new(),
+    }
+}
+
+fn lg_channels(c: &Ctx) -> Row {
+    let doc = c.docs.get("lgchannels");
+    let enabled = doc.get("enabled").and_then(Value::as_bool);
+    let state = doc.get("state").and_then(Value::as_str).unwrap_or("unavailable");
+    let pending = !c.local.text("lgchannels.pending").is_empty();
+    let detail = if pending {
+        if c.local.text("lgchannels.pending") == "apply" { "Changing…" } else { "Checking…" }
+    } else if matches!(state, "partial" | "unavailable") {
+        doc.get("reason").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("Not available")
+    } else {
+        ""
+    };
+    Row::toggle("lgchannels")
+        .tab(0)
+        .icon("tv")
+        .label("LG Channels")
+        .help("Turns LG Channels and its background preloading on or off. Antenna TV is unchanged.")
+        .detail(detail)
+        .on(enabled == Some(true))
+        .enabled(!pending && enabled.is_some() && state != "unavailable" && doc.get("ok").and_then(Value::as_bool) == Some(true))
+        .admin()
+        .act(|a| match a {
+            Arg::Toggle(v) => vec![
+                Op::Set("lgchannels.pending".into(), json!("apply")),
+                Op::Send { name: Some("lgchannels.apply".into()), method: "POST", path: "/v1/lgchannels".into(), body: Some(json!({"enabled": v})) },
+            ],
+            _ => Vec::new(),
+        })
+}
+
 
 /// LG shows the two Interactive Service switches only on a TV with an ATSC 3.0 tuner.
 fn interactive(c: &Ctx, ds: &str, label: &str, help: &str) -> Row {
@@ -288,6 +339,7 @@ fn channel_rows(c: &Ctx) -> Vec<Row> {
     colour.enabled = live && c.lg.usable("channel.analogSystemColor");
     colour.detail = if live { String::new() } else { "Live TV only".into() };
     vec![
+        lg_channels(c),
         c.choice(
             Spec::new("channel.autoscanChannelGroup")
                 .tab(0)
@@ -433,6 +485,30 @@ mod tests {
         let to_bt = (by_id(&r, "bt").act.as_ref().unwrap())(Arg::Press);
         assert!(matches!(&to_bt[..], [Op::Open { page, .. }] if page == "bthid"));
     }
+
+    #[test]
+    fn lg_channels_waits_for_confirmed_status_and_refreshes_after_a_change() {
+        let mut w = world();
+        w.docs.set("lgchannels", json!({"ok": true, "enabled": true, "state": "enabled", "reason": ""}));
+        let row = lg_channels(&w.ctx());
+        assert!(row.enabled && row.on);
+        let ops = (row.act.as_ref().unwrap())(Arg::Toggle(false));
+        assert!(matches!(&ops[..], [Op::Set(key, value), Op::Send { name: Some(name), method: "POST", path, body: Some(body) }] if key == "lgchannels.pending" && value == "apply" && name == "lgchannels.apply" && path == "/v1/lgchannels" && body == &json!({"enabled": false})));
+        w.local.set("lgchannels.pending", json!("apply"));
+        let row = lg_channels(&w.ctx());
+        assert!(!row.enabled && row.on && row.detail == "Changing…");
+        let ops = channel_answered(&w.ctx(), "lgchannels.apply", &json!({"ok": false, "error": {"message": "failed"}}));
+        assert!(matches!(&ops[..], [Op::Set(key, value), Op::Refresh, _] if key == "lgchannels.pending" && value == "refresh"));
+        assert!(matches!(&channel_opened(&w.ctx())[..], [Op::Set(key, value)] if key == "lgchannels.pending" && value == "refresh"));
+        w.local.set("lgchannels.pending", json!("refresh"));
+        assert!(!lg_channels(&w.ctx()).enabled);
+        assert!(matches!(&channel_answered(&w.ctx(), "lgchannels", &json!({}))[..], [Op::Set(key, value)] if key == "lgchannels.pending" && value.is_null()));
+        w.local.set("lgchannels.pending", Value::Null);
+        w.docs.set("lgchannels", json!({"ok": true, "enabled": false, "state": "partial", "reason": "Background service still running"}));
+        let row = lg_channels(&w.ctx());
+        assert!(!row.on && row.detail == "Background service still running");
+    }
+
 
     #[test]
     fn channels_wait_for_live_tv_and_the_tuner() {

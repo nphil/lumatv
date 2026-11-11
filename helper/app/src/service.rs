@@ -273,7 +273,9 @@ impl Service {
             "feeds",
             homefeeds::spawn(&ctx, feeds_rx, fetcher, weather_ha.clone(), ha_on)?,
         ));
-        threads.push(("preload", preload::spawn(&ctx)?));
+        let lgchannels = Arc::new(crate::lgchannels::Channels::new(paths.data_dir.clone(), &config.luna.send));
+        threads.push(("preload", preload::spawn(&ctx, lgchannels.clone())?));
+        threads.push(("preload-service", preload::spawn_service_watch(&ctx, lgchannels.clone())?));
         threads.push(("updateblock", crate::updateblock::spawn(&ctx)?));
         threads.push(("paneldim", crate::paneldim::spawn(&ctx)?));
         threads.push(("openapps", crate::openapps::spawn(&ctx)?));
@@ -382,6 +384,7 @@ impl Service {
             cameras,
             onhome,
             privacy,
+            lgchannels,
             capture: crate::capture::Capture::new(&config.capture),
             previews: crate::previews::Previews::new(&config, &paths, ctx.hub.clone()),
             displaylab,

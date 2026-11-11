@@ -166,6 +166,7 @@ pub struct Api {
     /// Local profiles: each person's Home and who may change what (`/v1/profiles/...`, the `profiles` topic).
     pub profiles: Arc<crate::profiles::Profiles>,
     pub privacy: Arc<lumatv_privacy::Privacy>,
+    pub lgchannels: Arc<crate::lgchannels::Channels>,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
     /// The full weather view's radar and base map (`/v1/wx/...`).
@@ -458,6 +459,7 @@ impl Api {
             .chain(crate::dnd::ROUTES.iter())
             .chain(crate::profiles::ROUTES.iter())
             .chain(crate::privacy::ROUTES.iter())
+            .chain(crate::lgchannels::ROUTES.iter())
             .chain(crate::scrypted::routes::ROUTES.iter())
             .chain(crate::onhome::ROUTES.iter())
             .chain(crate::guidedata::ROUTES.iter())
@@ -736,6 +738,7 @@ impl Handler for Api {
             ["v1", "privacy", rest @ ..] => {
                 crate::privacy::handle(&self.privacy, request, rest, self.profiles.can_admin())
             }
+            ["v1", "lgchannels"] => crate::lgchannels::handle(&self.lgchannels, request, self.profiles.can_admin()),
             ["v1", "image", root, file] if get => self.images.serve(request, root, file),
             ["v1", "images"] if get => self.ok(self.images.status()),
             ["v1", "cameras", rest @ ..] => self.cameras.handle(request, rest),
@@ -850,6 +853,7 @@ mod tests {
                 displaylab: crate::displaylab::DisplayLab::start(&ctx),
                 profiles: crate::profiles::Profiles::open(&ctx),
                 privacy: crate::privacy::new(&ctx),
+                lgchannels: Arc::new(crate::lgchannels::Channels::new(ctx.paths.data_dir.clone(), &ctx.config.luna.send)),
                 started_at: 1000,
                 data_dir: "/var/lib/test".into(),
                 fetch_backend: json!({"backend": "test"}),
@@ -946,6 +950,7 @@ mod tests {
                 + crate::dnd::ROUTES.len()
                 + crate::profiles::ROUTES.len()
                 + crate::privacy::ROUTES.len()
+                + crate::lgchannels::ROUTES.len()
                 + crate::scrypted::routes::ROUTES.len()
                 + crate::onhome::ROUTES.len()
                 + crate::guidedata::ROUTES.len()

@@ -76,6 +76,7 @@ pub mod hue_rest;
 pub mod hue_store;
 pub mod images;
 pub mod live;
+pub mod lgchannels;
 pub mod log;
 pub mod logging;
 pub mod logging_native;

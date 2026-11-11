@@ -13,7 +13,7 @@ use crate::hub::Hub;
 use crate::screen;
 use serde::Deserialize;
 use serde_json::json;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread::{self, JoinHandle};
@@ -102,6 +102,9 @@ pub fn apply(paths: &Paths, program: &str) -> Vec<String> {
     };
     let mut told = Vec::new();
     for id in ids {
+        if id == "com.webos.app.lgchannels" && paths.data_dir.join("lgchannels.json").exists() {
+            continue;
+        }
         let payload = json!({"application": {"id": id, "isEnabled": false}}).to_string();
         match call(program, &payload) {
             Ok(()) => told.push(id),
@@ -138,17 +141,90 @@ pub fn watch(hub: &Hub, stop: &Stop, mut on_switch_on: impl FnMut()) {
 }
 
 /// Starts the watcher thread.
-pub fn spawn(ctx: &Ctx) -> std::io::Result<JoinHandle<()>> {
+pub fn spawn(ctx: &Ctx, channels: std::sync::Arc<crate::lgchannels::Channels>) -> std::io::Result<JoinHandle<()>> {
     let ctx = ctx.clone();
     thread::Builder::new()
         .name("preload".to_owned())
         .stack_size(128 * 1024)
         .spawn(move || {
             let program = ctx.config.luna.send.clone();
+            channels.reconcile();
             watch(&ctx.hub, &ctx.stop, || {
-                apply(&ctx.paths, &program);
+                channels.with_preload_lock(|| apply(&ctx.paths, &program));
+                channels.reconcile();
             });
         })
+}
+fn preload_service_connected(value: &serde_json::Value) -> Option<bool> {
+    value.get("connected").and_then(|value| value.as_bool())
+}
+/// Reapply the managed setting when the preload manager reconnects while the TV is awake.
+pub fn spawn_service_watch(ctx: &Ctx, channels: std::sync::Arc<crate::lgchannels::Channels>) -> std::io::Result<JoinHandle<()>> {
+    use std::sync::{Arc, Mutex, mpsc};
+    let program = ctx.config.luna.send.clone();
+    let stop = ctx.stop.clone();
+    let slot = Arc::new(Mutex::new(None::<std::process::Child>));
+    stop.on_stop({
+        let slot = slot.clone();
+        move || {
+            if let Some(mut child) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    });
+    thread::Builder::new().name("preload-service".into()).stack_size(128 * 1024).spawn(move || {
+        while !stop.is_set() {
+            let child = Command::new(&program)
+                .args(["-n", "1000000", "luna://com.webos.service.bus/signal/registerServerStatus", r#"{"serviceName":"com.webos.service.preloadmanager","subscribe":true}"#])
+                .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn();
+            if let Ok(mut child) = child {
+                if let Some(out) = child.stdout.take() {
+                    let (tx, rx) = mpsc::sync_channel(16);
+                    let reader = thread::Builder::new().name("preload-status".into()).stack_size(128 * 1024).spawn(move || {
+                        let mut pending = String::new();
+                        for line in BufReader::new(out.take(1024 * 1024)).lines().map_while(Result::ok) {
+                            pending.push_str(&line);
+                            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&pending) {
+                                pending.clear();
+                                if let Some(connected) = preload_service_connected(&value) {
+                                    if tx.send(connected).is_err() { break; }
+                                }
+                            } else if pending.len() > 8192 {
+                                pending.clear();
+                            }
+                        }
+                    });
+                    if let Ok(reader) = reader {
+                        *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
+                        let mut received = false;
+                        let first_deadline = Instant::now() + Duration::from_secs(10);
+                        while !stop.is_set() {
+                            match rx.recv_timeout(Duration::from_secs(1)) {
+                                Ok(connected) => { received = true; if connected { channels.reconcile(); } }
+                                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                                Err(mpsc::RecvTimeoutError::Timeout) if !received && Instant::now() >= first_deadline => break,
+                                Err(mpsc::RecvTimeoutError::Timeout) => (),
+                            }
+                        }
+                        drop(rx);
+                        if let Some(mut child) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                        }
+                        let _ = reader.join();
+                    } else {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
+                } else {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+            if stop.sleep(Duration::from_secs(5)) { break; }
+        }
+    })
 }
 
 #[cfg(test)]
@@ -156,6 +232,13 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn preload_service_events_distinguish_reconnects() {
+        assert_eq!(preload_service_connected(&json!({"connected": true})), Some(true));
+        assert_eq!(preload_service_connected(&json!({"connected": false})), Some(false));
+        assert_eq!(preload_service_connected(&json!({"returnValue": false})), None);
+    }
 
     #[test]
     fn the_list_is_read_strictly_and_a_missing_file_is_empty() {

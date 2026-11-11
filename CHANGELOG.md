@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Settings now controls LG Channels and its background preload, while preserving the original preload policy when re-enabled.
+
 Home Assistant weather now calculates sunrise and sunset for each forecast day from the coordinates of the Home Assistant home. The UV index shows the current value when available and, when only a daily peak is supplied, labels it as the day's peak. Cloud cover has its own row under the humidity gauge.
 
 With Full width on, the status bar's free side shows what the bell holds unread: a glyph for each source with unread notifications (a count when it has more than one, at most six and then "+N") and a line with the newest unread title, which gives way to the next every 6 s by a crossfade. OK on a glyph or the line opens the notifications panel on that source's group. Nothing unread leaves the glass empty. A Notification ticker switch beside Full width in the layout editor turns the line off and keeps the glyphs; it is on by default and saved with the status bar's placement. The editor's buttons wrap onto a second row when they do not fit at large text sizes.
