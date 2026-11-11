@@ -142,7 +142,7 @@ esac
         # The real functions run; platform boundaries are confined to this fixture.
         harness = '''#!/bin/sh
 set -u
-STATE="$FAKE/state"; COMP="$STATE/compositor"; LOCKFILE="$STATE/mutate.lock"
+STATE="$FAKE/state"; COMP="$STATE/compositor"; LOCKFILE="$STATE/mutate.lock"; APPDIR="$FAKE/app"
 set -- "${FIXTURE_VERB:-stock-ui-restore}" "${FIXTURE_ARG:-off}"
 VERB=$1; MAINTENANCE_ACCESS=read; LOCK_WAIT=3; COMP_LG="$FAKE/supervisor"
 AUTOSTART_LINK="$FAKE/autostart/link"; AUTOSTART_SRC="$FAKE/autostart-source"
@@ -341,6 +341,21 @@ emit_error() { printf '{"ok":false,"error":"%s"}\\n' "$1"; }
         self.assertIn(INPUT, self.mounts.read_text())
         self.assertNotIn(VOICE, self.mounts.read_text())
         self.assertEqual(self.prefs.read_bytes(), before)
+
+    def test_the_restore_takes_the_launcher_repair_off_and_an_unfinished_off_is_incomplete(self):
+        tool = self.tmp / "app/tools/sysbus.sh"
+        tool.parent.mkdir(parents=True)
+        tool.write_text('#!/bin/sh\necho "sysbus $*" >> "$FAKE/calls"\n[ "${FAIL_SYSBUS:-0}" != 1 ]\n')
+        tool.chmod(0o755)
+        result = self.restore()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("sysbus off", self.calls_list())
+        self.calls.write_text("")
+        result = self.restore(FAIL_SYSBUS="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(json.loads(result.stdout)["ok"])
+        self.assertIn("sysbus off", self.calls_list())
+        self.assertIn("mode lg", self.calls_list(), "and the rest of the restore goes on")
 
     def test_requires_hold_and_unmounted_supervisor_before_cleanup(self):
         for held, mounted in ((False, False), (True, True)):

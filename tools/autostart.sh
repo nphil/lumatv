@@ -88,6 +88,11 @@ if [ "$1" = "--worker" ]; then
   if [ -x "$APPDIR/tools/declutter.sh" ]; then
     ( maintenance_clear || exit 0; de=$(timeout 20 "$APPDIR/tools/declutter.sh" early </dev/null 2>&1); log "declutter early: $(echo "$de" | tr -d '\n' | cut -c1-300)" ) &
   fi
+  # LG's Luna binding for the unified JS server (tools/sysbus.sh): lays the repaired launcher again when it was switched on, since a boot
+  # puts LG's script back. Before the Home Assistant plugin's first call can start the server. Bounded, never restarts anything.
+  if [ -x "$APPDIR/tools/sysbus.sh" ]; then
+    ( maintenance_clear || exit 0; sb=$(timeout 20 "$APPDIR/tools/sysbus.sh" early </dev/null 2>&1); log "sysbus early: $(echo "$sb" | tr -d '\n' | cut -c1-300)" ) &
+  fi
   # The logo check's frames (tools/bootcap.sh): `echo <seconds> > $STATE/bootcap` before a reboot.
   # One boot only, and detached like everything else here.
   if [ -f "$STATE/bootcap" ] && [ -x "$APPDIR/tools/bootcap.sh" ]; then

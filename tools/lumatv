@@ -2041,6 +2041,15 @@ verb_updateblock() {
   esac
 }
 
+# LG's Luna binding for the unified JS server, repaired (tools/sysbus.sh has the whole of it). The tool keeps its own lock and state.
+verb_sysbus() {
+  [ "$#" -gt 0 ] || set -- status
+  case "$1" in
+    on|off|restart|status) "$APPDIR/tools/sysbus.sh" "$@" ;;
+    *) emit_error "usage: sysbus on|off [--restart] | restart | status"; return 1 ;;
+  esac
+}
+
 # Open apps without updating (helper/app/src/openapps.rs): LG's list of apps that must be updated before they open, kept empty by the
 # helper while its flag exists. The same fields and rules as the helper's `openapps` topic, read only; the setting is changed in
 # Settings > System > Support > Update (the helper's POST /v1/openapps). `revert` puts LG's list back (openapps_restore).
@@ -2717,6 +2726,11 @@ stock_ui_restore() {
   for su_app in $(webglass_apps); do
     stock_ui_unmount_overlay "/usr/palm/applications/$su_app" "$WEBGLASS_STAGE/$su_app/upper" || su_failed=1
   done
+  # The repaired unified-server launcher is owned by this tool too: a revert or escape that left its bind or its boot marker would leave the
+  # repair on a set that was just taken back to LG's. `off` drops the marker first, so a reboot cannot lay it again whatever else happens.
+  if [ -x "$APPDIR/tools/sysbus.sh" ]; then
+    SYSBUS_LOCK_WAIT=15 timeout 20 "$APPDIR/tools/sysbus.sh" off </dev/null >/dev/null 2>&1 || su_failed=1
+  fi
   stock_ui_restore_env || su_failed=1
   timeout 5 python3 "$KEYFILTER_TOOL" remove "$KEYFILTER_HANDLER" "$KEYFILTER_DIR/$SHORT_ID.js" </dev/null >/dev/null 2>&1 || su_failed=1
   su_status=$(timeout 5 python3 "$SYSTEMUI_TOOL" status </dev/null 2>/dev/null) || su_failed=1
@@ -3401,9 +3415,9 @@ case "$VERB:${2:-}" in
   boot-direct:off|boot-direct:watch|boot-direct:wake) MAINTENANCE_ACCESS=emergency ;;
   status:|surfaces:|version:|log:*|theme:get|theme:|layout:get|layout:|layout:check|compositor:check|stock-ui-restore:)
     MAINTENANCE_ACCESS=read ;;
-  helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:)
+  helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:|sysbus:status|sysbus:)
     MAINTENANCE_ACCESS=read ;;
-  revert:|persist:off|compositor:off|homestub:escape|homestub:off|helper:stop|capture:stop|vplane:stop)
+  revert:|persist:off|compositor:off|homestub:escape|homestub:off|helper:stop|capture:stop|vplane:stop|sysbus:off)
     MAINTENANCE_ACCESS=emergency ;;
 esac
 maintenance_guard || exit 1
@@ -3562,6 +3576,7 @@ case "$VERB" in
   theme) verb_theme "${2:-get}" "${3:-}"; exit $? ;;
   layout) verb_layout "${2:-get}" "${3:-}"; exit $? ;;
   updateblock) verb_updateblock "${2:-status}"; exit $? ;;
+  sysbus) shift; verb_sysbus "$@"; exit $? ;;
   openapps) verb_openapps "${2:-status}"; exit $? ;;
   standbyscreen) verb_standbyscreen "${2:-status}"; exit $? ;;
   version) verb_version; exit $? ;;

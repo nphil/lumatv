@@ -90,6 +90,14 @@ An interrupted maintenance transaction blocks boot activation and configuration 
 the interruption marker and root-private rollback copies remain until reviewed recovery completes.
 
 
+### LG service-host repair
+
+`lumatv sysbus on` stages a private repair for the known webOS 10.2.1 Luna binding and changes only the unified JavaScript host’s launcher. `lumatv sysbus restart` applies it to the running host; Home Assistant’s TV connections briefly disconnect while the hosted services restart. Other Node processes keep LG’s original binding.
+
+`lumatv sysbus status` distinguishes the saved setting, launcher binding and running process. Only `loaded: patched` confirms that the running host uses the repaired module. The persistence hook reapplies the launcher at boot when enabled, but may run after the host has started; a restart can still be needed. Unknown firmware files and foreign launcher mounts are refused.
+
+`lumatv sysbus off --restart` restores the stock launcher and restarts the host with LG’s original module. The full stock-UI restoration also removes the launcher binding and disables its boot reapplication; an already-running host keeps its mapped module until it exits.
+
 ### Standby
 
 `lumatv wake on` stages an experimental, opt-in policy to restore the last

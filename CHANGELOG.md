@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+An optional `lumatv sysbus` repair gives LG’s shared JavaScript service host a private Luna binding that forwards dead-connection errors and keeps timer units in milliseconds. Only the known webOS 10.2.1 files are accepted; `off` restores the original launcher.
+
 Settings now controls LG Channels and its background preload, while preserving the original preload policy when re-enabled.
 
 Home Assistant weather now calculates sunrise and sunset for each forecast day from the coordinates of the Home Assistant home. The UV index shows the current value when available and, when only a daily peak is supplied, labels it as the day's peak. Cloud cover has its own row under the humidity gauge.
