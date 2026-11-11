@@ -21,8 +21,9 @@
 # standby and wake with Home alive after it; LG's Flutter Home never started; the web stub back.
 # The last line is the verdict and the receipt directory (the log, SAM's and the compositor's views, /proc of the program, the hashes, SAM's own
 # lines of the whole run in sam-dbg-log.txt, and launch-over-app.txt: what each side held and said for the launch of Home over the app).
-# A launch of Home that leaves the app in front says why in `PROBE launch-over-app: INFO cause ...`: SAM sent no launch event, the compositor had
-# no stub card to raise, or the compositor was not listening. SAM's side is read from /var/log/dbg-log (PROBE_DBGLOG); /var/log/messages has none of it.
+# A launch of Home that leaves the app in front says why in `PROBE launch-over-app: INFO cause ...`: SAM skipped it because the stub started under
+# about 3 s before, SAM sent no launch event, the compositor had no stub card to raise, or the compositor was not listening. SAM's side is read from
+# /var/log/dbg-log (PROBE_DBGLOG); /var/log/messages has none of it.
 # Exit: 0 every check that ran passed, 1 a check failed (the web stub is back), 2 refused before changing anything.
 #
 # Home held 10 s on the remote is the escape if the set is left on anything but LumaTV's Home.
@@ -87,6 +88,13 @@ journal_after() { ctl journal | sed 's/","/\n/g' | awk -v m="note: $1" 'f {print
 stub_pids() { pgrep -x "$COMM" 2>/dev/null; }
 stub_count() { stub_pids | grep -c .; }
 stub_pid() { stub_pids | head -n 1; }
+# Whole seconds the stub has run (99 when its stat cannot be read). SAM restarts an unregistered native app for a launch only when it started
+# 3 s or more before (`skip_by_launching_time`, measured 2026-11-11: skipped at 2.1 and 2.7 s, restarted at 3.1 s and later).
+stub_age() {
+    _s=$(cut -d' ' -f22 "$PROC/$(stub_pid)/stat" 2>/dev/null)
+    [ -n "$_s" ] || { echo 99; return; }
+    awk -v up="$(cut -d' ' -f1 "$PROC/uptime")" -v s="$_s" 'BEGIN { print int(up - s / 100) }'
+}
 flutter_home() { pgrep -f "flutter-client -i $HOME_ID" >/dev/null 2>&1; }
 power_state() { ls1 com.webos.service.tvpower/power/getPowerState '{}' | flat | jstr state | tr 'A-Z' 'a-z'; }
 # Waits, SECS at most, for a command to succeed (half-second steps).
@@ -131,6 +139,8 @@ launch_cause() {
         printf '%s\n' "unknown: SAM's log $DBGLOG cannot be read (PROBE_DBGLOG), so only the compositor's side is known"
     elif ! printf '%s\n' "$3" | grep -a -q -e 'API_REQUEST.*"method":"launch"' -e "APP_LAUNCH.*\"app_id\":\"$HOME_ID\""; then
         printf '%s\n' "no-request: SAM's log holds no launch request in the step ($(printf '%s\n' "$3" | grep -c .) line(s) of SAM's in it)"
+    elif printf '%s\n' "$3" | grep -a -q "\"app_id\":\"$HOME_ID\".*skip_by_launching_time"; then
+        printf '%s\n' "sam-skip-recent: SAM skipped the launch because the stub had started under about 3 s before (skip_by_launching_time)"
     elif [ "$_sent" = 0 ]; then
         printf '%s\n' "sam-silent: SAM took the launch and sent no launch event for Home (its life events for Home in the step: ${_events:-none}; its native handler line: ${_handler:-none})"
     elif [ "$1" = no ]; then
@@ -360,9 +370,11 @@ if [ "$DO_APP" = 1 ] && [ "$(elapsed)" -lt 200 ]; then
         fi
         ls1 com.webos.applicationManager/launch "{\"id\":\"$APP\"}" >/dev/null
         wait_for 15 'app_in_front' >/dev/null 2>&1; sleep 2
-        # luna-send launch of Home over the app: SAM did nothing for it on the set (no restart, no foreground change), so it is the compositor
-        # that raises the stub's card, on SAM's launch life event for Home. Tried only with the app in front for real and settled: a launch of
-        # Home sent while SAM still has Home in front is a launch of what is in front, which SAM may leave alone for no fault of the stub.
+        # luna-send launch of Home over the app: SAM's handler for the unregistered stub (LaunchNotRegisteredAppAsPolicy) ends it and starts it
+        # again, and the compositor raises the new card on SAM's launch life event. SAM skips that for a stub started under 3 s before, so the
+        # restart above is waited out first. Tried only with the app in front for real and settled: a launch of Home sent while SAM still has
+        # Home in front is a launch of what is in front, which SAM may leave alone for no fault of the stub.
+        wait_for 5 '[ "$(stub_age)" -ge 4 ]' >/dev/null 2>&1
         if app_in_front; then
             sp=$(stub_pid); note probe-launch
             windows_before=$(ctl windows); win_before=$(window_of $HOME_ID); stub_card "$win_before" && card=yes || card=no

@@ -59,6 +59,10 @@ sam_takes_launch() {
 }
 launch_event() {
   flag sam_silent && return 0
+  if flag sam_skips_recent; then
+    samlog 'APP_LAUNCH {"app_id":"com.webos.app.home","status":"running","action":"skip_by_launching_time"} life_cycle: 3'
+    return 0
+  fi
   # the log rotates between SAM's request and its event
   if flag log_rotates && [ -s "$TV/app" ]; then
     mv "$PROBE_DBGLOG" "$PROBE_DBGLOG.0"; echo '2026-11-09T23:31:00.000000Z [1600.000000000] user.info sam [] SAM NEW_LOG_FILE' > "$PROBE_DBGLOG"
@@ -454,6 +458,12 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         step = (self.out / "launch-over-app.txt").read_text()
         self.assertIn("API_REQUEST", step)
         self.assertNotIn("getAppLifeEvents", step)
+
+    def test_a_launch_sam_skips_for_a_stub_started_moments_before_is_named_as_the_cause(self):
+        self.flag("sam_skips_recent")
+        result = self.probe()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertTrue(self.cause(result).startswith("sam-skip-recent:"), self.cause(result))
 
     def test_a_log_that_rotates_during_the_launch_is_read_across_the_rotation(self):
         self.flag("log_rotates", "launch_event_missed")
