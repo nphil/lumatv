@@ -11,7 +11,7 @@ and the standing rules; this file is the dated record behind it.
 
 ## LG unified service CPU repair, 2026-11-10 (main 88cf849e)
 
-The private `webos-sysbus.node` repair is installed and enabled for the unified JavaScript service host only; the global LG module is unchanged. Installed repaired module SHA-256: `e8b2a6719af992df973ab243da11e4a0d49e6dd861e9a61677cacb45ac750717`. Original tools are backed up at `/var/lib/lumatv/backups/sysbus-88cf849e`. `lumatv sysbus off --restart` restores the stock launcher and running module. Boot ordering and reboot persistence remain untested.
+The private `webos-sysbus.node` repair is installed and enabled for the unified JavaScript service host only; the global LG module is unchanged. Installed repaired module SHA-256: `e8b2a6719af992df973ab243da11e4a0d49e6dd861e9a61677cacb45ac750717`. Original tools are backed up at `/var/lib/lumatv/backups/sysbus-88cf849e`. `lumatv sysbus off --restart` restores the stock launcher and running module. After the 2026-11-11 05:38 reboot, `lumatv sysbus status` reported the boot hook ran and the host (`ss.gateway`, 9 services: jsserver, igallery.preview, homeconnect, secondscreen gateway and client, universalqcard, billing, sportsalert, magicnum) loaded the repaired module with no restart needed. None of those services is in the video path.
 
 Three 30-second screensaver samples with Home Assistant connected measured 0.0666%, 0.0666% and 0.0666% of one core, versus 21.446%, 21.245% and 21.380% before repair. All repaired samples retained the same process and active, owned screensaver. Home Assistant mute and restore reached the native audio service; volume 57 and ARC output were preserved. The conditional Rust replacement is unnecessary at this measured load.
 
