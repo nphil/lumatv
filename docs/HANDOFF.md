@@ -11,7 +11,7 @@ and the standing rules; this file is the dated record behind it.
 
 ## LG Channels control, 2026-11-10 (main 6cabee76)
 
-Installed UI `8aaa411479f226ccedd767c8379e826c3d37e358862f3c89142b6e15e6d6b827` and helper `2865cb902fd08034b6097e4ab563b0e45c2f87508478a1bc06fc63e2bc3b7500`. The TV UI switched LG Channels off and on; off reported no running LG Channels process and persisted through a helper stop and start. The prior native close trial removed a running LG Channels process. The antenna Live TV app launched; picture playback was not verified. Network tuner 2.1 returned 1280×720 MPEG-2 video and AC-3 audio; the lineup and XMLTV guide responded. Reboot and early-boot behavior remain untested.
+Installed UI `8aaa411479f226ccedd767c8379e826c3d37e358862f3c89142b6e15e6d6b827` and helper `2865cb902fd08034b6097e4ab563b0e45c2f87508478a1bc06fc63e2bc3b7500`. The TV UI switched LG Channels off and on; off reported no running LG Channels process and persisted through a helper stop and start. The prior native close trial removed a running LG Channels process. Antenna Live TV displayed moving broadcast pictures. Network tuner 2.1 returned 1280×720 MPEG-2 video and AC-3 audio; the lineup and XMLTV guide responded. Reboot and early-boot behavior remain untested.
 
 Left on Home with LG Channels enabled, receiver on and unmuted at -30 dB. Receipt: `/data/home/tmp/lumatv-lgchannels-20261110/`.
 
