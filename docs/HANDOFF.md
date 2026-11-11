@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Native Home stub on the set, 2026-11-11 (main 6414c3ed)
+
+`tools/homestub-native-tv.sh` (stub `1a9e47e2`, compositor as installed): `launch-over-app` PASS. SAM ends and restarts the unregistered stub for a launch of Home, and skips that for a stub under about 3 s old (`skip_by_launching_time`, measured at 2.1, 2.7, 3.1, 3.6, 4, 6, 8 and 10 s); the earlier failure was the probe's own restart 2.7 s before, and the probe now waits that out. A later run failed `restart` and `app-again` on a race: SAM's launch event for the restarted stub arrived after the probe's launch of HDMI 2 and the compositor raised Home over it. Saver and wake were not run. The web stub is back on the set. Receipts: `/data/home/tmp/lumatv-homestub-20261111/`.
+
 ## LG unified service CPU repair, 2026-11-10 (main 88cf849e)
 
 The private `webos-sysbus.node` repair is installed and enabled for the unified JavaScript service host only; the global LG module is unchanged. Installed repaired module SHA-256: `e8b2a6719af992df973ab243da11e4a0d49e6dd861e9a61677cacb45ac750717`. Original tools are backed up at `/var/lib/lumatv/backups/sysbus-88cf849e`. `lumatv sysbus off --restart` restores the stock launcher and running module. After the 2026-11-11 05:38 reboot, `lumatv sysbus status` reported the boot hook ran and the host (`ss.gateway`, 9 services: jsserver, igallery.preview, homeconnect, secondscreen gateway and client, universalqcard, billing, sportsalert, magicnum) loaded the repaired module with no restart needed. None of those services is in the video path.

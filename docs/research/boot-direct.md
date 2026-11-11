@@ -241,9 +241,13 @@ when the web stub does not start either. `boot-direct status` and `status` repor
 (`check-boot-direct.py`) tests `sam == web` and has to read `native` for this kind.
 
 **Not known until the TV runs it**, each a line of `tools/homestub-native-tv.sh`:
-1. That SAM's launch life event for Home reaches the compositor when SAM does nothing else for it: `launch-over-app` says, and names the route
-   (the raise, or SAM's own restart of the stub). The Home key's route and time are `home-key`.
-2. That the app under the stub stays covered when SAM ends the stub and starts another (`restart`: no fullscreen line for it in the journal).
+1. Measured 2026-11-11 (stub `1a9e47e2`): SAM handles a launch of the running stub with `LaunchNotRegisteredAppAsPolicy` (`close_and_launch`):
+   it ends the stub and starts another, whose card takes the front, so a launch of Home over HDMI 2 brings Home back without a registration.
+   SAM skips this (`skip_by_launching_time`) for a stub started under about 3 s before: skipped at 2.1 and 2.7 s, done at 3.1 s and later.
+   `luna-send` cannot register for the stub (`registerApp` as `com.webos.app.home` is denied by the hub). The Home key's route and time are `home-key`.
+2. The app under the stub stays covered when SAM ends the stub and starts another (`restart`), passed twice. Open race, seen once: SAM's launch
+   life event for the restarted stub reached the compositor after a newer launch of HDMI 2 had raised it, and `home_life_event` raised Home over
+   the newer app.
 3. A stub started with an app in front and no launch behind it (a crash, a reclaim, the preload manager) maps at once and takes the front: not
    guarded, since SAM passes no hint and the compositor has no launch to compare with.
 4. Standby and wake: bootd's launch of Home at a wake (`wake`); the saver over Home (`saver`); no Flutter Home at any point (`flutter`).
