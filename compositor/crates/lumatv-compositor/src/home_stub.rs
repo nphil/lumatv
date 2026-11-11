@@ -7,11 +7,15 @@
 //!
 //! * the Home key: the card is raised in the key's own pass and SAM is not asked, so SAM never restarts the stub for it;
 //! * SAM's `launch` and `relaunch` life events for Home, which is all the compositor sees of a launch by anybody else (`luna-send`, the voice
-//!   service, CEC, `last_input_handler`). A `preload` event is no launch;
+//!   service, CEC, `last_input_handler`). A `preload` event is no launch. SAM sends the event as it starts the stub, and the compositor can take
+//!   it after the new card has mapped and a newer app has been raised over it (the set, 2026-11-11: Home covered HDMI 2 0.35 s after SAM's
+//!   event), so an event that finds the card new and under an app raises nothing;
 //! * a card the stub covered stays covered when the stub's card goes (`Window::held_by_home`): SAM ends the stub and starts it again for some
 //!   launches, and without this the app under it showed for the moments between.
 //!
 //! LG's own Home and the web stub are left as they were: the program says what it is with a window property, which nothing else sets.
+
+use std::time::Duration;
 
 use serde_json::Value;
 
@@ -23,6 +27,11 @@ use crate::window::{Window, WindowId};
 /// The window property `homestub.c` sets, and its value.
 pub const STUB_PROPERTY: &str = "lumatv.homeStub";
 pub const STUB_VALUE: &str = "native";
+
+/// How long a stub's card counts as new. SAM sends no launch event for a stub it started under about 3 s before (`skip_by_launching_time`:
+/// skipped at 2.1 and 2.7 s, done at 3.1 s and later, the set, 2026-11-11), so an event that finds a younger card is the one of its own start.
+/// The card is made after SAM starts counting, which is why the limit is below 3 s.
+const NEW_CARD: Duration = Duration::from_secs(2);
 
 /// Whether `w` is the native stub's card.
 pub fn is_stub(w: &Window) -> bool {
@@ -64,7 +73,8 @@ impl State {
         true
     }
 
-    /// One of SAM's life events (`lg_guide.rs` holds the subscription). A launch of Home raises the stub's card; with no stub it is SAM's alone.
+    /// One of SAM's life events (`lg_guide.rs` holds the subscription). A launch of Home raises the stub's card, unless the card is new and under an
+    /// app: that is the event of its own start, late, and the app opened since stays. With no stub it is SAM's alone.
     pub(crate) fn home_life_event(&mut self, payload: &Value) {
         if payload.get("appId").and_then(Value::as_str) != Some(HOME_APP) {
             return;
@@ -80,6 +90,8 @@ impl State {
         let Some(card) = self.native_home_card() else { return };
         if self.scene.foreground(&self.surfaces).is_some_and(|w| w.id == card) {
             self.journal(format!("home: SAM said {event} for Home: its card is in front"));
+        } else if self.scene.window(card).is_some_and(|w| w.created.elapsed() < NEW_CARD) {
+            self.journal(format!("home: SAM said {event} for Home: the stub's card is new and under an app, so the event is old: nothing raised"));
         } else {
             self.journal(format!("home: SAM said {event} for Home: the stub's card raised"));
             front_app(self, HOME_APP);

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The native Home stub no longer covers an app opened just after SAM restarted it. SAM's launch event for the restarted stub can be handled after the new card has mapped and the app has been raised over it (HDMI 2, 0.35 s after SAM's event on the set), and it raised Home over the app. An event that finds the stub's card under 2 s old and under an app now raises nothing and is journalled; SAM sends none for a stub under about 3 s old, so a launch of Home over an app is unchanged.
+
 On an HDMI input LG's own input pill no longer shows beside LumaTV's. LG draws it into the input's own window about 0.6 s after the switch, and only Live TV's window was blanked for the stand-in banner; the pill's place is now blanked on whichever input is in front, where LG's banner setting puts it, for the first 6.5 s, and given back when the input leaves, the screen sleeps or the owner's banners go off. Live TV's claim, with its Guide chip and channel keys, is unchanged.
 
 An optional `lumatv sysbus` repair gives LG’s shared JavaScript service host a private Luna binding that forwards dead-connection errors and keeps timer units in milliseconds. Only the known webOS 10.2.1 files are accepted; `off` restores the original launcher.

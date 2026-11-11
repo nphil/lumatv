@@ -11,7 +11,7 @@ and the standing rules; this file is the dated record behind it.
 
 ## Native Home stub on the set, 2026-11-11 (main 6414c3ed)
 
-`tools/homestub-native-tv.sh` (stub `1a9e47e2`, compositor as installed): `launch-over-app` PASS. SAM ends and restarts the unregistered stub for a launch of Home, and skips that for a stub under about 3 s old (`skip_by_launching_time`, measured at 2.1, 2.7, 3.1, 3.6, 4, 6, 8 and 10 s); the earlier failure was the probe's own restart 2.7 s before, and the probe now waits that out. A later run failed `restart` and `app-again` on a race: SAM's launch event for the restarted stub arrived after the probe's launch of HDMI 2 and the compositor raised Home over it. Saver and wake were not run. The web stub is back on the set. Receipts: `/data/home/tmp/lumatv-homestub-20261111/`.
+`tools/homestub-native-tv.sh` (stub `1a9e47e2`, compositor as installed): `launch-over-app` PASS. SAM ends and restarts the unregistered stub for a launch of Home, and skips that for a stub under about 3 s old (`skip_by_launching_time`, measured at 2.1, 2.7, 3.1, 3.6, 4, 6, 8 and 10 s); the earlier failure was the probe's own restart 2.7 s before, and the probe now waits that out. A later run failed `restart` and `app-again` on a race: SAM's launch event for the restarted stub arrived after the probe's launch of HDMI 2 and the compositor raised Home over it. The compositor now leaves such an event alone when the stub's card is under 2 s old and under an app (`home_life_event`); not run on the set. Saver and wake were not run. The web stub is back on the set. Receipts: `/data/home/tmp/lumatv-homestub-20261111/`.
 
 ## LG unified service CPU repair, 2026-11-10 (main 88cf849e)
 

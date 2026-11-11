@@ -2,6 +2,7 @@
 //! type and properties, and where it sits.
 
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 use crate::Rect;
 use crate::surface::SurfaceId;
@@ -181,6 +182,9 @@ pub struct Window {
     /// The card was covered by the native Home stub's card (`home_stub`) and stays covered when that card goes, as SAM ends and starts the
     /// stub again: the shell's Home is on the screen for the moments between, not the app under it. Cleared when the card comes to the front.
     pub held_by_home: bool,
+    /// When the window was made. The native Home stub makes its card as it starts, which is when SAM's relaunch guard begins to count
+    /// (`home_stub`).
+    pub created: Instant,
     /// The window is attached to a surface group as a member (`wl_webos_surface_group.attach`): LG's `isPartOfGroup()`. A member is
     /// drawn with its owner and listed with it, and is never a card or an overlay of its own: it does not come to the front, take the
     /// keys or show in the recents, whatever type it carries (Live Dmost, a WAM web app, is a card by its own properties). Kept until
@@ -228,6 +232,7 @@ impl Window {
             map_serial: 0,
             front: 0,
             held_by_home: false,
+            created: Instant::now(),
             in_group: false,
             has_wl_shell: false,
             has_webos_shell: false,

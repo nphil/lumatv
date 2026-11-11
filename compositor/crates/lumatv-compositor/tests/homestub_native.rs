@@ -211,6 +211,14 @@ fn stub_under_app(server: &mut Server, binary: &Path) -> (Child, App) {
     (child, app)
 }
 
+/// The stub's card as old as SAM's relaunch guard has let it get: SAM sends no launch of Home for a stub it started under about 3 s before.
+fn age_the_stub(server: &Server) {
+    server.eval(|s| {
+        let home = s.scene.windows().find(|w| w.app_id() == HOME).map(|w| w.id).expect("Home's window");
+        s.scene.window_mut(home).unwrap().created -= Duration::from_secs(10);
+    });
+}
+
 #[test]
 fn the_home_key_raises_the_stub_in_its_own_pass_and_sam_is_not_asked() {
     let Some(binary) = stub_binary() else { return };
@@ -289,7 +297,8 @@ fn sams_launch_of_home_raises_the_stub_and_a_preload_or_another_app_does_not() {
     life(&server, json!({"returnValue": true, "subscribed": true}));
     assert_eq!(front(&server).as_deref(), Some(APP), "the subscription's own answer");
 
-    // `luna-send launch`: SAM did nothing for it on the set, the event is all that is seen
+    // SAM's launch of Home for a stub past its relaunch guard, which it ends and starts again: the card there now is raised at once
+    age_the_stub(&server);
     life(&server, event("launch", HOME));
     let (home, app, asked, journal) = server.eval(|s| (card(s, HOME), card(s, APP), sam_launches(s), s.journal.clone()));
     assert_eq!(front(&server).as_deref(), Some(HOME));
@@ -340,6 +349,34 @@ fn the_app_under_the_stub_stays_covered_while_sam_ends_the_stub_and_starts_anoth
     server.eval(|s| front_app(s, APP));
     assert_eq!(front(&server).as_deref(), Some(APP));
     assert_eq!(server.eval(|s| card(s, APP)), Some((ShellState::Fullscreen, false)));
+    next.kill().unwrap();
+    next.wait().unwrap();
+}
+
+/// The race seen on the set (2026-11-11): SAM's `launch` event for the stub it had restarted was handled after the new card had mapped and a
+/// newer launch of HDMI 2 had raised that app over it, and Home was raised over the app opened last.
+#[test]
+fn a_launch_event_for_the_stub_just_restarted_does_not_raise_it_over_the_app_opened_since() {
+    let Some(binary) = stub_binary() else { return };
+    let mut server = Server::start();
+    let (mut child, _app) = stub_under_app(&mut server, &binary);
+
+    // SAM ends the stub and starts another, which maps and takes the front; then the app's launch raises the app
+    child.kill().unwrap();
+    child.wait().unwrap();
+    wait_for(&server, "Home's card gone", |s| s.scene.windows().all(|w| w.app_id() != HOME));
+    let mut next = start_stub(&mut server, &binary, None);
+    wait_for(&server, "Home's card mapped again", home_mapped);
+    server.eval(|s| front_app(s, APP));
+    assert_eq!(front(&server).as_deref(), Some(APP));
+
+    // the restart's own `launch` event, only now
+    life(&server, event("launch", HOME));
+    let (app, journal) = server.eval(|s| (card(s, APP), s.journal.clone()));
+    assert_eq!(front(&server).as_deref(), Some(APP), "{journal:?}");
+    assert_eq!(app, Some((ShellState::Fullscreen, false)));
+    let ignored = "home: SAM said launch for Home: the stub's card is new and under an app, so the event is old: nothing raised";
+    assert!(journal.iter().any(|l| l == ignored), "{journal:?}");
     next.kill().unwrap();
     next.wait().unwrap();
 }
