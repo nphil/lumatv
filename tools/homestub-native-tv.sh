@@ -395,6 +395,7 @@ if [ "$DO_APP" = 1 ] && [ "$(elapsed)" -lt 200 ]; then
                     pass launch-over-app "luna-send launch Home brought Home back over $APP: the compositor raised the stub's card on SAM's life event ($(printf '%s' "$launch_log" | grep -o 'SAM said [a-z]*' | head -n 1)), stub pid $sp -> $(stub_pid)"
                 else
                     pass launch-over-app "luna-send launch Home brought Home back over $APP, by SAM's own restart of the stub (pid $sp -> $(stub_pid)) and not by the compositor's raise"
+                    cause="restarted: SAM ended the stub and started it again (pid $sp -> $(stub_pid)); the new stub's card came to the front"
                 fi
             else
                 seen=$(printf '%s' "$launch_log" | grep 'home: SAM' | head -n 2 | tr '\n' ' ')
