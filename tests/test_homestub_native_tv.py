@@ -1,4 +1,4 @@
-"""The TV probe of the native Home stub (tools/homestub-native-tv.sh) against a stand-in set: SAM, the compositor's ctl, the tvpower service,
+"""The TV probe of the native Home stub (tools/homestub-native-tv.sh) against a stand-in set: SAM and its log, the compositor's ctl, the tvpower service,
 `lumatv` and /proc are small shell scripts over a few state files, and busybox sh runs the probe as it runs on the set. What is shown is the
 probe's own logic, which is what protects the set: that it refuses before it changes anything, that each check says what it found, that a
 failing check or a signal or a killed probe ends with the web stub back, and that what was not run is said so. What SAM really does with a
@@ -16,6 +16,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "tools" / "homestub-native-tv.sh"
 BUSYBOX = "/usr/bin/busybox"
+# SAM's log as the set keeps it, with an old launch event for Home from before the probe: no step of the probe may take it for its own
+OLD_SAM = ('2026-11-09T23:20:00.000000Z [900.000000000] user.info sam [] SAM SUBSCRIPTION_REPLY '
+           '{"skey":"getAppLifeEvents","payload":{"event":"launch","appId":"com.webos.app.home","returnValue":true,"reason":"undefined"}}\n')
 
 # ---- the stand-in set: one file per fact in $TV, a flag is a file named flag-NAME
 COMMON = r'''
@@ -48,7 +51,19 @@ restart_home() {
   raises && raise_home
   return 0
 }
+# SAM's own lines are in dbg-log (not in messages): the launch it takes, and the life event it sends for a Home that is running
+samlog() { printf '2026-11-09T23:30:34.093933Z [1577.679738160] user.info sam [] SAM %s\n' "$*" >> "$PROBE_DBGLOG"; }
+sam_takes_launch() {
+  samlog 'API_REQUEST {"category":"/","method":"launch","caller":"com.webos.lunasend-6737","status":"received_request"}'
+  samlog 'APP_LAUNCH {"app_id":"com.webos.app.home","caller_id":"com.webos.lunasend-6737","status":"launch"}'
+}
 launch_event() {
+  flag sam_silent && return 0
+  # the log rotates between SAM's request and its event
+  if flag log_rotates && [ -s "$TV/app" ]; then
+    mv "$PROBE_DBGLOG" "$PROBE_DBGLOG.0"; echo '2026-11-09T23:31:00.000000Z [1600.000000000] user.info sam [] SAM NEW_LOG_FILE' > "$PROBE_DBGLOG"
+  fi
+  samlog 'SUBSCRIPTION_REPLY {"skey":"getAppLifeEvents","payload":{"event":"launch","appId":"com.webos.app.home","returnValue":true,"reason":"undefined"}}'
   raises || return 0
   flag launch_event_missed && return 0
   if [ "$(get front)" = com.webos.app.home ]; then
@@ -96,6 +111,7 @@ case "$uri" in
   *applicationManager/launch)
     case "$payload" in
       *com.webos.app.home*)
+        sam_takes_launch
         if [ -e "$TV/home_running" ] && [ "$(get kind)" = native ] && [ ! -e "$TV/home_mapped" ]; then
           # a stub that was started for a preload and maps nothing: the launch has it started again, with no hint (what else would map it)
           start_home x
@@ -109,7 +125,7 @@ case "$uri" in
           flag wake_breaks_home && [ "$(get woke)" = 1 ] && exit 0
           start_home "$payload"
         fi ;;
-      *) put app "$(printf '%s' "$payload" | sed 's/.*"id":"\([^"]*\)".*/\1/')"; put app_state Fullscreen; put front "$(get app)"; [ -e "$TV/home_mapped" ] && put home_state Minimized ;;
+      *) flag app_stays_covered && [ -s "$TV/app" ] || { put app "$(printf '%s' "$payload" | sed 's/.*"id":"\([^"]*\)".*/\1/')"; put app_state Fullscreen; put front "$(get app)"; [ -e "$TV/home_mapped" ] && put home_state Minimized; } ;;
     esac
     echo '{"returnValue":true}' ;;
   *applicationManager/closeByAppId) put app ""; [ -e "$TV/home_running" ] && { put front com.webos.app.home; put home_state Fullscreen; }; echo '{"returnValue":true}' ;;
@@ -242,6 +258,7 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         (self.app / "payload" / "homestub-native" / "appinfo.json").write_text("{}")
         (self.proc / "uptime").write_text("1000.00 0.00\n")
         (self.tmp / "messages").write_text("")
+        (self.tmp / "dbg-log").write_text(OLD_SAM)
         # the set as the probe wants it: the web stub in, Home in front, the panel on, LG's refresh not due
         for name, value in (("kind", "web"), ("type", "web"), ("setting", "web"), ("front", "com.webos.app.home"), ("power", "Active"),
                             ("home_state", "Fullscreen"), ("home_size", "1920,1080"), ("pid", ""), ("app", ""), ("app_state", "Fullscreen"),
@@ -274,7 +291,7 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
 
     def env(self, **extra):
         env = dict(os.environ, FAKE_TV=str(self.tv), PROBE_PROC=str(self.proc), PROBE_COMPOSITOR=str(self.comp),
-                   LUMATV_TOOL=str(self.app / "tools" / "lumatv"), PROBE_MESSAGES=str(self.tmp / "messages"), PROBE_DEADMAN="0",
+                   LUMATV_TOOL=str(self.app / "tools" / "lumatv"), PROBE_MESSAGES=str(self.tmp / "messages"), PROBE_DBGLOG=str(self.tmp / "dbg-log"), PROBE_DEADMAN="0",
                    PATH=str(self.bin) + os.pathsep + os.environ["PATH"])
         env.update(extra)
         return env
@@ -294,6 +311,12 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         self.assertTrue(found, "no line for %s in:\n%s" % (name, result.stdout))
         return next((l for l in found if not l.startswith("PROBE %s: INFO" % name)), found[0])
 
+    def cause(self, result):
+        """What the probe says broke when its launch of Home over the app did not bring Home back."""
+        found = [l for l in self.lines(result) if l.startswith("PROBE launch-over-app: INFO cause ")]
+        self.assertEqual(len(found), 1, result.stdout)
+        return found[0].split("INFO cause ", 1)[1]
+
     # ------------------------------------------------------------------------------------------------ a run that goes well
 
     def test_a_clean_run_passes_every_check_and_puts_the_web_stub_back(self):
@@ -312,11 +335,17 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         self.assertRegex(self.verdict(result), r"^PROBE: PASS \(\d+ passed, 0 failed, 0 not run\)")
         self.assertEqual(self.switches(), ["homestub-kind native", "homestub-kind web"])
         self.assertEqual((self.state("kind"), self.state("type")), ("web", "web"), "left as it was found")
-        for name in ("probe.log", "before.txt", "after.txt", "native-end.txt"):
+        for name in ("probe.log", "before.txt", "after.txt", "native-end.txt", "sam-dbg-log.txt", "launch-over-app.txt"):
             self.assertTrue((self.out / name).exists(), name)
         self.assertTrue((self.out / "native-end-program.txt").exists(), "the program's own /proc files are in the receipt")
         self.assertRegex((self.out / "probe.log").read_text(), r"hashes: tool [0-9a-f]{64} program [0-9a-f]{64} appinfo [0-9a-f]{64}")
         self.assertFalse((self.out / "deadman.armed").exists(), "the detached switch has nothing left to do")
+        step = (self.out / "launch-over-app.txt").read_text()
+        self.assertIn("API_REQUEST", step, "SAM's side of the launch is in the receipt")
+        self.assertIn("the stub's card raised", step, "and the compositor's")
+        self.assertNotIn("[900.000000000]", step, "not what SAM logged before the launch")
+        self.assertNotIn("[900.000000000]", (self.out / "sam-dbg-log.txt").read_text(), "nor before the probe")
+        self.assertTrue(self.cause(result).startswith("heard:"), self.cause(result))
 
     def test_keep_leaves_the_native_stub_in_place_when_everything_passed(self):
         result = self.probe("--keep")
@@ -388,7 +417,7 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         self.assertIn("through SAM and not through the compositor's raise", self.line(result, "home-key"))
         self.assertIn("1 launchDefaultApp line(s)", self.line(result, "home-key"))
         self.assertIn("FAIL", self.line(result, "launch-over-app"))
-        self.assertIn("SAM's launch event for Home was not heard", self.line(result, "launch-over-app"))
+        self.assertTrue(self.cause(result).startswith("compositor-deaf:"), self.cause(result))
         self.assertIn("(window 3) was brought to the front", self.line(result, "restart"), "the app under the stub was brought back")
         self.assertIn("FAIL", self.line(result, "restart"))
         self.assertEqual(self.state("kind"), "web")
@@ -399,6 +428,7 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         self.assertIn("FAIL", self.line(result, "window"))
         self.assertIn("no lumatv.homeStub property", self.line(result, "window"))
         self.assertIn("FAIL", self.line(result, "home-key"), "and nothing is raised for it")
+        self.assertTrue(self.cause(result).startswith("no-card:"), "the card is not announced, and SAM sent its event: " + self.cause(result))
 
     def test_a_launch_event_that_does_not_come_fails_the_launch_over_an_app_alone(self):
         self.flag("launch_event_missed")
@@ -406,7 +436,7 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("PASS", self.line(result, "home-key"), "the key is the compositor's own")
         self.assertIn("FAIL", self.line(result, "launch-over-app"))
-        self.assertIn("none, so SAM's launch event for Home was not heard", self.line(result, "launch-over-app"))
+        self.assertTrue(self.cause(result).startswith("compositor-deaf:"), self.cause(result))
 
     def test_a_sam_that_ends_the_stub_on_a_launch_still_gets_home_back_by_the_raise(self):
         self.flag("launch_restarts")
@@ -414,6 +444,44 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("raised the stub's card on SAM's life event", self.line(result, "launch-over-app"))
         self.assertRegex(self.line(result, "launch-over-app"), r"stub pid \d+ -> \d+")
+
+    def test_a_sam_that_takes_the_launch_and_sends_no_event_is_named_as_the_cause(self):
+        self.flag("sam_silent")
+        result = self.probe()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("FAIL", self.line(result, "launch-over-app"))
+        self.assertTrue(self.cause(result).startswith("sam-silent:"), "the old event in the log is not this launch's: " + self.cause(result))
+        step = (self.out / "launch-over-app.txt").read_text()
+        self.assertIn("API_REQUEST", step)
+        self.assertNotIn("getAppLifeEvents", step)
+
+    def test_a_log_that_rotates_during_the_launch_is_read_across_the_rotation(self):
+        self.flag("log_rotates", "launch_event_missed")
+        result = self.probe()
+        self.assertTrue(self.cause(result).startswith("compositor-deaf:"), "SAM's request is in the old file and its event in the new: " + self.cause(result))
+        step = (self.out / "launch-over-app.txt").read_text()
+        self.assertIn("API_REQUEST", step)
+        self.assertIn("NEW_LOG_FILE", step)
+        self.assertNotIn("[900.000000000]", step)
+        run = (self.out / "sam-dbg-log.txt").read_text()
+        self.assertIn("NEW_LOG_FILE", run)
+        self.assertNotIn("[900.000000000]", run)
+
+    def test_a_sam_log_that_cannot_be_read_is_said_and_the_cause_is_not_guessed(self):
+        self.flag("launch_event_missed")
+        result = self.probe(PROBE_DBGLOG=str(self.tmp / "no-such-dir" / "dbg-log"))
+        self.assertIn("INFO", self.line(result, "dbg-log"))
+        self.assertIn("FAIL", self.line(result, "launch-over-app"))
+        self.assertTrue(self.cause(result).startswith("unknown:"), self.cause(result))
+
+    def test_an_app_that_is_not_in_front_again_is_not_launched_over(self):
+        self.flag("app_stays_covered")
+        result = self.probe()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("FAIL", self.line(result, "app-again"))
+        self.assertIn("NOT RUN", self.line(result, "launch-over-app"))
+        self.assertFalse([c for c in self.calls("ctl-calls") if "probe-launch" in c], "Home was not launched over an app that was not in front")
+        self.assertFalse((self.out / "launch-over-app.txt").exists())
 
     def test_an_app_that_shows_while_the_stub_is_gone_fails_the_restart(self):
         self.flag("restart_flashes")

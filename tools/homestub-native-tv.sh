@@ -19,7 +19,10 @@
 # after it; an app over Home; the Home key and a luna-send launch each bringing Home back over it, by the compositor's raise of the stub's card
 # (its journal says which route Home took); the stub ended and started again with the app under it kept covered; the screensaver over Home; a
 # standby and wake with Home alive after it; LG's Flutter Home never started; the web stub back.
-# The last line is the verdict and the receipt directory (the log, SAM's and the compositor's views, /proc of the program, the hashes).
+# The last line is the verdict and the receipt directory (the log, SAM's and the compositor's views, /proc of the program, the hashes, SAM's own
+# lines of the whole run in sam-dbg-log.txt, and launch-over-app.txt: what each side held and said for the launch of Home over the app).
+# A launch of Home that leaves the app in front says why in `PROBE launch-over-app: INFO cause ...`: SAM sent no launch event, the compositor had
+# no stub card to raise, or the compositor was not listening. SAM's side is read from /var/log/dbg-log (PROBE_DBGLOG); /var/log/messages has none of it.
 # Exit: 0 every check that ran passed, 1 a check failed (the web stub is back), 2 refused before changing anything.
 #
 # Home held 10 s on the remote is the escape if the set is left on anything but LumaTV's Home.
@@ -27,6 +30,7 @@ LUMATV=${LUMATV_TOOL:-/media/developer/apps/usr/palm/applications/org.nphil.luma
 COMP=${PROBE_COMPOSITOR:-/var/lib/lumatv/compositor}
 PROC=${PROBE_PROC:-/proc}
 MSGLOG=${PROBE_MESSAGES:-/var/log/messages}
+DBGLOG=${PROBE_DBGLOG:-/var/log/dbg-log}
 APP=${PROBE_APP:-com.webos.app.hdmi2}
 HOME_ID=com.webos.app.home
 COMM=lumatv-homestub
@@ -36,7 +40,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --keep) KEEP=1 ;; --no-app) DO_APP=0 ;; --no-saver) DO_SAVER=0 ;; --no-wake) DO_WAKE=0 ;;
         --out) OUT=$2; shift ;; --budget) BUDGET=$2; shift ;;
-        *) sed -n '2,25p' "$0"; exit 2 ;;
+        *) sed -n '2,28p' "$0"; exit 2 ;;
     esac
     shift
 done
@@ -92,6 +96,50 @@ home_runs() { [ -n "$(running_entry $HOME_ID)" ]; }
 home_card() { [ "$(mapped_of $HOME_ID)" = true ]; }
 no_flutter_mark() { FLUTTER_SEEN=$(( ${FLUTTER_SEEN:-0} + $(flutter_home && echo 1 || echo 0) )); }
 
+# ---- what SAM said and what the compositor made of it, for the launch of Home over an app
+# SAM's own words (its launch requests, life events and handler choices) are in dbg-log; /var/log/messages keeps only its NL_ lines. The log rotates
+# at about 3 MB (dbg-log, .0, .1: some seven minutes of the set's chatter), so what a step added is read by the byte count taken before it, and from
+# .0 as well once the first line has changed. Only SAM's lines and those that name Home, the program or a registration (registerApp, registerNativeApp:
+# the stub's own registration with SAM, if it ever makes one) are kept.
+dbg_mark() { printf '%s|%s' "$({ wc -c < "$DBGLOG"; } 2>/dev/null | tr -d ' ')" "$(head -n 1 "$DBGLOG" 2>/dev/null)"; }
+dbg_since() { # MARK
+    _at=${1%%|*}; _first=${1#*|}
+    if [ -z "$_first" ] || [ "$(head -n 1 "$DBGLOG" 2>/dev/null)" = "$_first" ]; then
+        tail -c +$(( ${_at:-0} + 1 )) "$DBGLOG" 2>/dev/null
+    else
+        tail -c +$(( ${_at:-0} + 1 )) "$DBGLOG.0" 2>/dev/null; cat "$DBGLOG" 2>/dev/null
+    fi | grep -a -F -e ' sam [] ' -e "$HOME_ID" -e "$COMM" -e registerApp -e registerNativeApp
+}
+# The stub's card as home_stub.rs wants it before it raises anything (native_home_card): mapped, a Card, in no group, once in front, announced as the stub
+stub_card() { # THE WINDOW'S JSON
+    _f=$(printf '%s' "$1" | jnum front)
+    [ "$(printf '%s' "$1" | jbool mapped)" = true ] && [ "$(printf '%s' "$1" | jstr type)" = Card ] && [ "$(printf '%s' "$1" | jbool inGroup)" = false ] \
+        && [ "${_f:-0}" -gt 0 ] && printf '%s' "$1" | grep -q '"lumatv.homeStub":"native"'
+}
+# Which link broke when a launch of Home left the app in front, from what each side logged in the step. The compositor drops a launch event that
+# finds no stub card without a word (home_stub.rs), so its silence has three readings: SAM sent no launch event, the compositor was not listening,
+# there was no card. Arguments: the stub's card there before (yes|no), the compositor's journal after the launch, SAM's lines in the step, Home's
+# window before it.
+launch_cause() {
+    _home=$(printf '%s\n' "$3" | grep -a '"skey":"getAppLifeEvents"' | grep -a "\"appId\":\"$HOME_ID\"")
+    _events=$(printf '%s\n' "$_home" | sed -n 's/.*"event":"\([a-z]*\)".*/\1/p' | tr '\n' ' ')
+    _sent=$(printf '%s\n' "$_home" | grep -a -e '"event":"launch"' -e '"event":"relaunch"' | grep -a -v '"preload"' | grep -c .)
+    _handler=$(printf '%s\n' "$3" | grep -a -o 'NATIVE_APP_HANDLER.*' | head -n 1 | cut -c1-160)
+    if printf '%s\n' "$2" | grep -q 'home: SAM said'; then
+        printf '%s\n' "heard: the compositor journaled SAM's event: $(printf '%s\n' "$2" | grep 'home: SAM said' | head -n 1)"
+    elif [ ! -r "$DBGLOG" ]; then
+        printf '%s\n' "unknown: SAM's log $DBGLOG cannot be read (PROBE_DBGLOG), so only the compositor's side is known"
+    elif ! printf '%s\n' "$3" | grep -a -q -e 'API_REQUEST.*"method":"launch"' -e "APP_LAUNCH.*\"app_id\":\"$HOME_ID\""; then
+        printf '%s\n' "no-request: SAM's log holds no launch request in the step ($(printf '%s\n' "$3" | grep -c .) line(s) of SAM's in it)"
+    elif [ "$_sent" = 0 ]; then
+        printf '%s\n' "sam-silent: SAM took the launch and sent no launch event for Home (its life events for Home in the step: ${_events:-none}; its native handler line: ${_handler:-none})"
+    elif [ "$1" = no ]; then
+        printf '%s\n' "no-card: SAM sent ${_events}for Home and the compositor had no stub card to raise (Home's window before: $(printf '%s' "$4" | cut -c1-300))"
+    else
+        printf '%s\n' "compositor-deaf: SAM sent ${_events}for Home and the stub's card was there, yet the compositor journaled nothing: the event did not reach it"
+    fi
+}
+
 snap() { # NAME: what SAM and the compositor say, and the program's own files
     {
         echo "== uptime $(up) elapsed $(elapsed)"; "$LUMATV" homestub-kind status; "$LUMATV" boot-direct status
@@ -127,6 +175,8 @@ say "homestub-native probe, uptime $T0, receipt $OUT"
 say "hashes: tool $HASH_TOOL program $HASH_BIN appinfo $HASH_INFO"
 nl_shown() { _n=$(grep -c NL_HOME_SHOWN "$MSGLOG" 2>/dev/null); echo "${_n:-0}"; }
 NL_BEFORE=$(nl_shown)
+[ -r "$DBGLOG" ] || info dbg-log "$DBGLOG is not readable: SAM's side will be missing from the receipt"
+DBG_RUN=$(dbg_mark)
 snap before
 
 # ---- the way back, armed before the first change: normal ends, signals, and a detached switch for a script that is killed
@@ -153,6 +203,7 @@ finish() {
     rm -f "$MARK"
     if [ -n "${DEADMAN_PID:-}" ]; then kill -- "-$DEADMAN_PID" 2>/dev/null || kill "$DEADMAN_PID" 2>/dev/null; fi
     snap after
+    dbg_since "$DBG_RUN" > "$OUT/sam-dbg-log.txt"
     nl=$(nl_shown)
     [ "$nl" = "$NL_BEFORE" ] && [ "${FLUTTER_SEEN:-0}" = 0 ] \
         && pass flutter "LG's Flutter Home never ran: no process at any check, NL_HOME_SHOWN $NL_BEFORE -> $nl" \
@@ -267,9 +318,11 @@ no_flutter_mark
 
 # ---- an app over Home, and the ways back
 if [ "$DO_APP" = 1 ] && [ "$(elapsed)" -lt 200 ]; then
-    app_in_front() { [ "$(fg)" = "$APP" ] || [ "$(mapped_of $APP)" = true ]; }
+    # in front for real: SAM's foreground and the compositor's front card agree. A card that is only mapped is not: HDMI 2 stays mapped under the
+    # stub's card, covered, and a launch of Home sent before it is back in front is a launch of what is in front already
+    app_in_front() { [ "$(fg)" = "$APP" ] && [ "$(state_of $APP)" = Fullscreen ]; }
     ls1 com.webos.applicationManager/launch "{\"id\":\"$APP\"}" >/dev/null
-    if wait_for 20 'app_in_front' && sleep 2 && ! home_front; then
+    if wait_for 20 'app_in_front' && sleep 2 && app_in_front; then
         pass app "$APP is in front over Home"
         # The Home key: the compositor raises the stub's card in the key's own pass and does not ask SAM, which ended the stub and started another
         # for it (0.77 s from SAM's launch to the foreground change at the audio service, 2026-11-05).
@@ -308,20 +361,37 @@ if [ "$DO_APP" = 1 ] && [ "$(elapsed)" -lt 200 ]; then
         ls1 com.webos.applicationManager/launch "{\"id\":\"$APP\"}" >/dev/null
         wait_for 15 'app_in_front' >/dev/null 2>&1; sleep 2
         # luna-send launch of Home over the app: SAM did nothing for it on the set (no restart, no foreground change), so it is the compositor
-        # that raises the stub's card, on SAM's launch life event for Home
-        sp=$(stub_pid); note probe-launch
-        ls1 com.webos.applicationManager/launch "{\"id\":\"$HOME_ID\"}" >/dev/null
-        if wait_for 6 home_raised; then
-            launch_log=$(journal_after probe-launch)
-            if printf '%s' "$launch_log" | grep -q 'home: SAM said .* for Home: the stub.s card raised'; then
-                pass launch-over-app "luna-send launch Home brought Home back over $APP: the compositor raised the stub's card on SAM's life event ($(printf '%s' "$launch_log" | grep -o 'SAM said [a-z]*' | head -n 1)), stub pid $sp -> $(stub_pid)"
+        # that raises the stub's card, on SAM's launch life event for Home. Tried only with the app in front for real and settled: a launch of
+        # Home sent while SAM still has Home in front is a launch of what is in front, which SAM may leave alone for no fault of the stub.
+        if app_in_front; then
+            sp=$(stub_pid); note probe-launch
+            windows_before=$(ctl windows); win_before=$(window_of $HOME_ID); stub_card "$win_before" && card=yes || card=no
+            dbg=$(dbg_mark)
+            ls1 com.webos.applicationManager/launch "{\"id\":\"$HOME_ID\"}" >/dev/null
+            wait_for 6 home_raised >/dev/null 2>&1; raised=$?
+            sleep 1
+            launch_log=$(journal_after probe-launch); sam_step=$(dbg_since "$dbg")
+            cause=$(launch_cause "$card" "$launch_log" "$sam_step" "$win_before")
+            {
+                printf '== the compositor'"'"'s windows before the launch (the stub'"'"'s card there: %s)\n%s\n' "$card" "$windows_before"
+                printf '== SAM'"'"'s lines in %s, and those that name Home or the program, from the launch on\n%s\n' "$DBGLOG" "$sam_step"
+                printf '== the compositor'"'"'s journal\n'; ctl journal | sed 's/","/\n/g'
+                printf '== the compositor'"'"'s windows after; SAM'"'"'s foreground is '"'"'%s'"'"'\n' "$(fg)"; ctl windows
+            } > "$OUT/launch-over-app.txt"
+            if [ "$raised" = 0 ]; then
+                if printf '%s' "$launch_log" | grep -q 'home: SAM said .* for Home: the stub.s card raised'; then
+                    pass launch-over-app "luna-send launch Home brought Home back over $APP: the compositor raised the stub's card on SAM's life event ($(printf '%s' "$launch_log" | grep -o 'SAM said [a-z]*' | head -n 1)), stub pid $sp -> $(stub_pid)"
+                else
+                    pass launch-over-app "luna-send launch Home brought Home back over $APP, by SAM's own restart of the stub (pid $sp -> $(stub_pid)) and not by the compositor's raise"
+                fi
             else
-                pass launch-over-app "luna-send launch Home brought Home back over $APP, by SAM's own restart of the stub (pid $sp -> $(stub_pid)) and not by the compositor's raise"
-                info launch-over-app "the compositor heard no launch event for Home that raised the card: $(printf '%s' "$launch_log" | grep 'home: SAM' | head -n 2 | tr '\n' ' ')"
+                seen=$(printf '%s' "$launch_log" | grep 'home: SAM' | head -n 2 | tr '\n' ' ')
+                fail launch-over-app "launch Home did not bring Home back: front is '$(fg)'; the compositor's lines on it: ${seen:-none}"
             fi
+            info launch-over-app "cause $cause"
         else
-            seen=$(journal_after probe-launch | grep 'home: SAM' | head -n 2 | tr '\n' ' ')
-            fail launch-over-app "launch Home did not bring Home back: front is '$(fg)'; the compositor's lines on it: ${seen:-none, so SAM's launch event for Home was not heard}"
+            fail app-again "$APP was not in front again after its second launch over the restarted stub (SAM's foreground '$(fg)', its card $(state_of $APP), Home's $(state_of $HOME_ID)): the launch of Home over it was not tried"
+            skip launch-over-app "the launch of Home over $APP (it was not in front)"
         fi
         [ "$(stub_count)" = 1 ] && pass app-process "still one $COMM process after the app came and went" || fail app-process "$(stub_count) $COMM processes after the app"
         ls1 com.webos.applicationManager/closeByAppId "{\"id\":\"$APP\"}" >/dev/null
