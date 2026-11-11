@@ -9,6 +9,14 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## LG unified service CPU repair, 2026-11-10 (main 88cf849e)
+
+The private `webos-sysbus.node` repair is installed and enabled for the unified JavaScript service host only; the global LG module is unchanged. Installed repaired module SHA-256: `e8b2a6719af992df973ab243da11e4a0d49e6dd861e9a61677cacb45ac750717`. Original tools are backed up at `/var/lib/lumatv/backups/sysbus-88cf849e`. `lumatv sysbus off --restart` restores the stock launcher and running module. Boot ordering and reboot persistence remain untested.
+
+Three 30-second screensaver samples with Home Assistant connected measured 0.0666%, 0.0666% and 0.0666% of one core, versus 21.446%, 21.245% and 21.380% before repair. All repaired samples retained the same process and active, owned screensaver. Home Assistant mute and restore reached the native audio service; volume 57 and ARC output were preserved. The conditional Rust replacement is unnecessary at this measured load.
+
+Receipts: `/tmp/cs/18172b987bff/` (`sysbus-install-receipt.json`, `apiadapter-before-3x30.json`, `apiadapter-after-3x30.json`, `sysbus-ha-muted.json`, `sysbus-ha-restored.json`). For a broken client the repaired loop reads the error once and stops polling it; LG's bus library still closes that connection only after the JavaScript garbage collector frees the request objects, so the descriptor can outlive the request. One closed after 1.1 s; two others outlived a 3-s window and were gone within 5 min in the same process. The stock module has the same release path. Release latency beyond these three cases is unmeasured.
+
 ## LG Channels control, 2026-11-10 (main 6cabee76)
 
 Installed UI `8aaa411479f226ccedd767c8379e826c3d37e358862f3c89142b6e15e6d6b827` and helper `2865cb902fd08034b6097e4ab563b0e45c2f87508478a1bc06fc63e2bc3b7500`. The TV UI switched LG Channels off and on; off reported no running LG Channels process and persisted through a helper stop and start. The prior native close trial removed a running LG Channels process. Antenna Live TV displayed moving broadcast pictures. Network tuner 2.1 returned 1280×720 MPEG-2 video and AC-3 audio; the lineup and XMLTV guide responded. Reboot and early-boot behavior remain untested.
