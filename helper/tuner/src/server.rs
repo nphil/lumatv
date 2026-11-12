@@ -337,7 +337,7 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
                 }
                 Ok(Admitted::Slated(slated)) => {
                     // answered at once: the slate is the first byte, and the channel is tuned while it shows
-                    log::info!("tuner: {peer} streams {guide} with slates");
+                    log::info!("tuner: {peer} streams {guide} with slates (taken in {:.2} s)", asked.elapsed().as_secs_f64());
                     write!(stream, "{HEAD}").and_then(|()| facade.play(slated, &mut stream, stop))
                 }
             };

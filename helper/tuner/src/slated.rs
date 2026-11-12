@@ -465,11 +465,11 @@ impl Play<'_> {
             return self.last(Says::Failed, End::Failed(why), out).map(Ran::Over);
         }
         self.tap = Some(tap);
-        self.stream(layout, routes, found.pat.tsid, out, stop).map(Ran::Over)
+        self.stream(layout, routes, found.pat.tsid, tuned, out, stop).map(Ran::Over)
     }
 
-    /// The program is routed: the programme in turns with the slate until the end.
-    fn stream(&mut self, layout: Layout, routes: Routes, tsid: u16, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<End> {
+    /// The program is routed: the programme in turns with the slate until the end. `tuned` is when the tuner locked.
+    fn stream(&mut self, layout: Layout, routes: Routes, tsid: u16, tuned: Duration, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<End> {
         let f = self.facade;
         let lim = &f.limits;
         let routed = self.now();
@@ -482,6 +482,8 @@ impl Play<'_> {
         let mut buf = Vec::with_capacity(PACKET * 512);
         // whether any of the program's packets came at all: a multiplex that brings the others but none of the picture does not carry it
         let mut heard = false;
+        // when the picture's first packet came: the first picture's wait, split for the log
+        let mut first_packet: Option<Duration> = None;
         let mut frame = Duration::from_micros(format.ticks(1) * 100 / 9);
         loop {
             if let Some(end) = self.given_up(stop) {
@@ -548,7 +550,11 @@ impl Play<'_> {
                         }
                     }
                     let clear = self.pictured.is_some().then_some(lim.loss_clear);
-                    if let Some((gathered, rest)) = watch.gate(&buf, now, clear) {
+                    let gated = watch.gate(&buf, now, clear);
+                    if watch.got > 0 {
+                        first_packet.get_or_insert(now);
+                    }
+                    if let Some((gathered, rest)) = gated {
                         let first = &gathered[..PACKET];
                         format = Format::of_sequence(&first[4..]).unwrap_or(format);
                         self.show.program.splice_in(layout.clone(), routes.clone(), first, &format);
@@ -557,8 +563,11 @@ impl Play<'_> {
                         watch.live(&buf[rest..], now);
                         if self.pictured.is_none() {
                             self.pictured = Some(now.saturating_sub(self.asked));
+                            let packet = first_packet.unwrap_or(now);
+                            let [tune, tables, packets, picture] =
+                                [(self.asked, tuned), (tuned, routed), (routed, packet), (packet, now)].map(|(a, b)| b.saturating_sub(a).as_secs_f64());
                             log::info!(
-                                "tuner: {}'s picture came {:.1} s after it was asked for",
+                                "tuner: {}'s picture came {:.2} s after it was asked for (tune {tune:.2}, tables {tables:.2}, first packet {packets:.2}, picture {picture:.2})",
                                 self.entry.guide,
                                 now.saturating_sub(self.asked).as_secs_f64()
                             );
