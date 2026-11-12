@@ -6,7 +6,7 @@
 use crate::kit::Kit;
 use crate::settings::row::{Kind, Row};
 use lumatv_tokens::TypeRole;
-use ui::components::text::{line_height, wrap_to};
+use ui::components::text::{ellipsise, line_height, wrap_to};
 
 /// The profile's sizes (`Lu.target`, `Lu.row`, `Lu.space(n)`) and the ones derived from them.
 #[derive(Clone, Copy, Debug)]
@@ -215,6 +215,7 @@ pub fn measure_row(kit: &mut Kit, row: &Row, w: f32) -> RowGeom {
         }
         Kind::Value => {
             let show = row.chevron || row.selected;
+            let (trail, gap) = (if show { sz.chevron() } else { 0.0 }, if show && !row.value.is_empty() { sz.s4 } else { 0.0 });
             if !row.value.is_empty() {
                 g.value = row.value.clone();
                 g.value_w = text_w(kit, &row.value, TypeRole::Label);
@@ -222,9 +223,17 @@ pub fn measure_row(kit: &mut Kit, row: &Row, w: f32) -> RowGeom {
                 if !row.value_icon.is_empty() {
                     g.value_w = g.value_w.max(text_w(kit, &row.value_min, TypeRole::Label));
                     g.chip_w = (sz.s3 + sz.chevron() + sz.s2 + g.value_w + sz.s3).ceil();
+                } else {
+                    // a long value (a key, an address) takes at most half the room beside the tile and ends in an ellipsis, so the label keeps the rest
+                    let cap = ((w - g.text_x - sz.s6 - trail - gap) / 2.0).floor().max(sz.target * 2.0);
+                    if g.value_w > cap {
+                        let ty = kit.ty(TypeRole::Label);
+                        g.value = ellipsise(&mut kit.ui.fonts, &row.value, ty, cap);
+                        g.value_w = cap;
+                    }
                 }
             }
-            (if show { sz.chevron() } else { 0.0 }, if show && !row.value.is_empty() { sz.s4 } else { 0.0 })
+            (trail, gap)
         }
         Kind::Action => {
             g.chip_w = text_w(kit, &row.button, TypeRole::Caption) + 2.0 * sz.s4;
@@ -392,6 +401,18 @@ mod tests {
         assert_eq!(s.at(-1.0, 0), None);
         let narrow = measure_row(&mut kit, &r, 700.0);
         assert!(narrow.seg.unwrap().in_view < 5, "too many for the room: some scroll in");
+    }
+
+    #[test]
+    fn a_long_value_ends_in_an_ellipsis_at_half_the_room_and_a_short_one_stays_whole() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJiJkiIoo6LnRAp/cIJtXaOiD9S8up5SxCYooB3Xc1GX";
+        let g = measure_row(&mut kit, &Row::link("hub.key").icon("key-round").label("Hub key").value(key), 1272.0);
+        assert!(g.value.ends_with('…') && g.value.len() < key.len(), "{}", g.value);
+        assert!(g.value_w <= (1272.0 - g.text_x) / 2.0, "the value keeps to half the room: {}", g.value_w);
+        assert_eq!(g.label, ["Hub key"], "the label keeps its line");
+        let short = measure_row(&mut kit, &Row::link("hub.url").icon("globe").label("Hub address").value("https://beszel.nateshome.net"), 1272.0);
+        assert_eq!(short.value, "https://beszel.nateshome.net");
     }
 
     #[test]
