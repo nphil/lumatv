@@ -9,13 +9,17 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Long row values elided, 2026-11-12 (main cc36e1b9, installed 00:44 EST)
+
+A value row's text now takes at most half the room beside its tile and ends in an ellipsis, so the Beszel hub key no longer runs over its label. ui `3352a7292f30efc330bcf17b65324017efa8e960ccc54ff3c7f9e46d77b76d11` by cutover (replaced `f84d0227`); compositor `41c82deb` and sm `65f6ca69` unchanged. Failures 0. Settings › System › Beszel checked on the set; set left in Active Standby with the receiver off. Receipts and the rollback copy: `/data/home/tmp/lumatv-valueelide-20261112/` (`session.log`, `settings-beszel.png`, `backup/`).
+
 ## Beszel plugin live, 2026-11-11 (main ab2796b2, installed 22:11 EST)
 
 Installed in Active Standby by the standard path: helper `47e55c08403cc502b85cee32025bb3b3a64e1adb65121ba44f2510feedb7faeb` (replaced `fbca937e`), `tools/lumatv` `65369adc8bb57af4021cf8fe6e59affd3b1e0533425ff67ee9e9884a0fc10efb` (replaced `6de596c7`), payload `beszel/beszel-agent` `eb4e7ac9340d380b19ab18261301b18813c1e46ebab5f0e4bf8cb6c86b4d5c20` (0.21.1) and `beszel/nvtop` `44871d3d28259ea907d6ea7d891fa1b88ea903144884ef30ccb024dfdc5e300c`, both staged by `helper start` into `bin/beszel`; ui `f84d022773f89faceac20fff03fd7c32e27d33bd8b5f3d5aa7fe8d26f3e112fa` by cutover (replaced `694bee44`); compositor `41c82deb` and sm `65f6ca69` unchanged. Failures 0.
 
 The hand-started test agent was stopped and its fingerprint moved to `beszel/data/fingerprint` (19999, 0600), so the hub kept the same system ("LG TV"). The plugin was switched on and given the hub's address, key and token through the helper's settings and secret routes. The agent runs as uid 19999 under the helper, about 12.6 MB resident, and kept running (same pid) through a wake and a return to Active Standby. Settings › System › Beszel shows "Connected to beszel.nateshome.net". The hub had the system up with a 03:17:35Z sample: CPU 20.6%, memory 59.1%, Apps disk 36.6%, Data 51%, soc 44 °C, Mali-G52 MC3 6.9% with 98 MB, eth0 traffic.
 
-On that page the hub key's value is longer than its row: it runs over the label and icon. Not tested: start after a reboot, the agent's effect on the UI with the screen on, and an agent restart after a crash. Receipts and the rollback copies: `/data/home/tmp/lumatv-beszelinstall-20261111/` (`session.log`, `settings-beszel.png`, `backup/`).
+Not tested: start after a reboot, the agent's effect on the UI with the screen on, and an agent restart after a crash. Receipts and the rollback copies: `/data/home/tmp/lumatv-beszelinstall-20261111/` (`session.log`, `settings-beszel.png`, `backup/`).
 
 ## Faster tuner channel changes, 2026-11-11 (main 0fd2db2a, installed 19:58 EST)
 
