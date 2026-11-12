@@ -1,0 +1,16 @@
+#!/bin/sh
+# Beszel's agent reads a GPU through `nvtop -lP -d <tenths of a second>` (GPU_COLLECTOR=nvtop): a JSON array per sample, for as long
+# as nvtop runs. The TV has no nvtop and its Mali GPU's counters are root's, so the helper writes a sample of them to
+# $LUMATV_GPU_SAMPLE every 10 s (helper/app/src/beszel.rs) and this hands it over at the agent's pace. It ends with the agent and not
+# before: the agent gives up on a collector that ends.
+tenths=100
+while [ $# -gt 0 ]; do
+  [ "$1" = "-d" ] && [ $# -gt 1 ] && { tenths=$2; shift; }
+  shift
+done
+every=$(( tenths / 10 ))
+[ "$every" -ge 1 ] || every=1
+while kill -0 "$PPID" 2>/dev/null; do
+  [ -r "$LUMATV_GPU_SAMPLE" ] && cat "$LUMATV_GPU_SAMPLE"
+  sleep "$every"
+done

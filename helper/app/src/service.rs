@@ -367,6 +367,11 @@ impl Service {
             "guide",
             crate::guidedata::spawn(&ctx, plugins.shared().clone(), tv, guide.clone(), plex.clone())?,
         ));
+        // Beszel: no agent runs until the owner switches it on and gives it a hub.
+        threads.push((
+            "beszel",
+            crate::beszel::spawn(&ctx, plugins.shared().clone())?,
+        ));
 
         let privacy = crate::privacy::new(&ctx);
         threads.push(("privacy", crate::privacy::spawn(&ctx, privacy.clone())?));

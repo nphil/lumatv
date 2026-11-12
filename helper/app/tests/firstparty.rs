@@ -58,13 +58,15 @@ fn weather_news_and_the_clock_are_plugins_of_the_helper_and_follow_the_feeds() {
     rig.start(test_config(json!({})), script.clone());
 
     // Listed apart from the plugins the owner switched on, all connected through the broker's sessions; the Guide data plugin, Home
-    // Assistant, the Live TV Tuner, the Bluetooth proxy, the cameras, the TV sensors and the Denon receiver, which ask first, listed off.
+    // Assistant, the Live TV Tuner, the Bluetooth proxy, the cameras, the TV sensors, the Denon receiver and Beszel, which ask first,
+    // listed off.
     assert!(
         wait_until(WAIT, || {
             let mut have = first_party(&rig);
             have.sort();
             have == [
                 ("ambient".to_owned(), "connected".to_owned()),
+                ("beszel".to_owned(), "off".to_owned()),
                 ("ble-proxy".to_owned(), "off".to_owned()),
                 ("clock".to_owned(), "connected".to_owned()),
                 ("denon-receiver".to_owned(), "off".to_owned()),

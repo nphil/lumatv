@@ -487,6 +487,17 @@
           "version": "1"
         },
         {
+          "approve": "2bf25c9b31122127faf466438b819d5dfc95afad165118660ad9ab96666f8cce",
+          "class": "S",
+          "consent": "Lets a Beszel hub watch this TV: while this is on, Beszel's agent runs on the TV and sends the hub at the address on its page the TV's processor, memory, storage, network, temperature and graphics load, with the token the hub gave for this TV, which is kept on the TV.",
+          "firstParty": true,
+          "id": "beszel",
+          "name": "Beszel",
+          "registered": false,
+          "state": "off",
+          "version": "1"
+        },
+        {
           "approve": "269969e3a5e7d0de8470dc96abe1910021557ff82a06fa82188928bea937c075",
           "class": "S",
           "consent": "Lets Home Assistant use this TV as an ESPHome Bluetooth proxy: the TV listens on the home network with the key from ble-link and passes on the Bluetooth advertisements it hears nearby, in short windows that leave the radio to the remote. It only listens: it never connects to a device.",

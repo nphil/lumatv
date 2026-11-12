@@ -196,6 +196,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(helper);
     rows.push(Row::link("about").tab(4).icon("tv").label("About this TV").help("Model, serial number, platform and software version.").does(go("about")));
     rows.push(Row::link("logging").tab(4).icon("server").label("Logging").help("Send TV logs to a server.").does(go("logging")));
+    rows.push(Row::link("beszel").tab(4).icon("gauge").label("Beszel").help("Let a Beszel hub watch this TV.").value(&super::beszel::summary(c)).does(go("beszel")));
     rows.push(Row::link("support").tab(4).icon("circle-help").label("Support").help("TV information, software update, privacy, self-diagnosis and reset.").does(go("support")));
     rows
 }

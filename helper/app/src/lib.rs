@@ -47,6 +47,7 @@ pub mod ambient_z2m_frame;
 pub mod ambient_z2m_mqtt;
 pub mod ambient_z2m_store;
 pub mod api;
+pub mod beszel;
 pub mod ble;
 pub mod ble_cli;
 pub mod ble_duty;

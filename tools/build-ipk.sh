@@ -118,6 +118,8 @@ gfn/feeder/build/arm/lumatv-gfn-feeder
 gfn/feeder/build/arm/lib
 payload/feeder/feeder.sh
 payload/feeder/role.json
+beszel/build/beszel-agent
+payload/beszel/nvtop
 tools/cardapp.sh
 tools/gfnapp.sh
 gfn/build/${GFN_ID}_${GFN_VERSION}_all.ipk
@@ -182,6 +184,12 @@ if [ -n "$MISSING" ]; then
         *vplane/build/arm/lumatv-vplane*)
             # Git-ignored like the helper; the art saver would keep drawing its own picture and say nothing.
             echo "The 32-bit video-plane player is built by vplane/build.sh (zig); this package is not built without it." >&2
+            ;;
+    esac
+    case "$MISSING" in
+        *beszel/build/beszel-agent*)
+            # Git-ignored like the helper; the Beszel plugin would have no agent to run.
+            echo "Beszel's agent is fetched by beszel/fetch-agent.sh; this package is not built without it." >&2
             ;;
     esac
     case "$MISSING" in
@@ -356,6 +364,10 @@ chmod 755 "$DATA_ROOT/payload/capture/lumatv-capture" "$DATA_ROOT/payload/captur
 mkdir -p "$DATA_ROOT/payload/jpeg"
 cp jpeg/build/arm/lumatv-jpeg "$DATA_ROOT/payload/jpeg/"
 chmod 755 "$DATA_ROOT/payload/jpeg/lumatv-jpeg"
+# Beszel's agent (its linux arm64 release, from beszel/fetch-agent.sh) beside the `nvtop` that hands it the GPU's samples (copied
+# with payload/); `lumatv` stages both beside the helper, which runs the agent only while the Beszel plugin is on.
+cp beszel/build/beszel-agent "$DATA_ROOT/payload/beszel/"
+chmod 755 "$DATA_ROOT/payload/beszel/beszel-agent" "$DATA_ROOT/payload/beszel/nvtop"
 # The art saver's video-plane player (32-bit, like LG's media library) with its clips, the LS2 role it needs and the script that
 # installs them. Nothing here installs the role: it is a permission for a new program, so only the owner's `lumatv vplane install` writes it.
 mkdir -p "$DATA_ROOT/payload/vplane/clips"

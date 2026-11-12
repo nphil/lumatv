@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A Beszel plugin (Settings › System › Beszel, off by default) makes the TV a system of a Beszel hub. The helper runs Beszel's own agent (0.21.1, linux arm64, shipped in the package) only while the plugin is on, with the hub address, key and token from the hub's Add System; the token is kept on the TV. The hub shows the TV's CPU, memory, swap, storage (Apps and Data), Ethernet and Wi-Fi, the SoC temperature and the Mali GPU's load and memory, which the helper reads as root and hands to the agent. The agent used 0.03% of one core and 11-13 MB of memory on the TV.
+
 A tuner channel change shows the new channel's picture about 0.5 s sooner: 1.35 s from the request on average over 60 changes between two frequencies, from 1.86 s. The pipeline a stream lets go of stays playing for 1 s and the next tune plays its channel on it, instead of closing it and opening another (0.13-0.17 s); the lock is checked every 10 ms instead of 100 ms; and a channel streamed before is routed with its last PIDs as soon as the tuner locks, so its first whole picture gathers while the tables are read (the wait after the tables fell from 0.76 to 0.33 s on average).
 
 The native Home stub no longer covers an app opened just after SAM restarted it. SAM's launch event for the restarted stub can be handled after the new card has mapped and the app has been raised over it (HDMI 2, 0.35 s after SAM's event on the set), and it raised Home over the app. An event that finds the stub's card under 2 s old and under an app now raises nothing and is journalled; SAM sends none for a stub under about 3 s old, so a launch of Home over an app is unchanged.

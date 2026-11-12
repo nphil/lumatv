@@ -101,6 +101,10 @@ With `denon-receiver` on and the receiver as the TV's sound output, the helper k
 
 `phone-remote` (docs in `plugins/phone-remote.md`, engine crate `lumaremote` in `helper/remote`) listens on port 18733 of the private address while on. The compositor's `phone text` and `phone edit` work only inside `phone session on`, which the helper holds only while the plugin is on and a paired phone's session is live; keep that gate when adding verbs. Pairing opens only through the AI gate's `pair_phone` prompt (OK on the physical remote), and its routes take writes only from the TV's own UI (`X-Luma-Client: lumatv-ui`). `lumaremote vectors` regenerates `helper/remote/tests/vectors.json`, which the Swift kit also runs.
 
+## Beszel
+
+`beszel` (docs in `plugins/beszel.md`) runs Beszel's released agent from `bin/beszel` as uid 19999 while on. The agent's version must match the hub's: bump `VERSION` and `SHA256` in `beszel/fetch-agent.sh` with the hub. Its fingerprint (`beszel/data/fingerprint`) is the TV's identity in the hub; keep it across reinstalls.
+
 ## Test events
 
 `POST /v1/cameras/event` fires a test pop-up only with `cameras.testEvents` in `/var/lib/lumatv/helper.json`; otherwise it answers 403 `test_events_off`. Tests that turn it on must put `helper.json` back as found, restart the helper (`tools/lumatv helper stop`, `helper start`), clear the pop-up (`POST /v1/cameras/popup/clear`) and confirm a test event is refused. Leaving it on makes pop-ups appear unprompted and spoils the next frame-gate run.

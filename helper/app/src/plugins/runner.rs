@@ -325,9 +325,6 @@ impl Runner {
         }
     }
 
-    // The resource limits' constants are the C library's type (unsigned on glibc, `int` on musl, which is the TV's): the casts below
-    // say one type for both.
-    #[allow(clippy::unnecessary_cast)]
     fn start(&self, id: &str) -> Result<Child, String> {
         let entry = self.entries.get(id).ok_or("not a plugin of the roster")?;
         let member = &entry.member;
@@ -360,7 +357,6 @@ impl Runner {
             plugin_api::Class::M => 256 * MIB,
             plugin_api::Class::L => 512 * MIB,
         };
-        let uid = member.uid;
         let mut command = Command::new(&program);
         command
             .args(&member.manifest.run.args)
@@ -372,50 +368,62 @@ impl Runner {
             .stdin(Stdio::null())
             .stdout(log)
             .stderr(log2);
-        // SAFETY: only async-signal-safe calls (libc system calls on plain integers) run between fork and exec.
-        unsafe {
-            command.pre_exec(move || {
-                libc::setsid();
-                // below the shell and the compositor, and no wake-up of it preempts them (`sys::bulk_thread`)
-                libc::setpriority(libc::PRIO_PROCESS as _, 0, 10);
-                libc::sched_setscheduler(0, libc::SCHED_BATCH, &std::mem::zeroed::<libc::sched_param>());
-                // The address space is a ceiling that catches a runaway, not the class's memory budget: stacks and the allocator
-                // reserve far more than a plugin touches.
-                set_limit(libc::RLIMIT_AS as u32, address_space);
-                set_limit(libc::RLIMIT_NOFILE as u32, 64);
-                set_limit(libc::RLIMIT_CORE as u32, 0);
-                set_limit(libc::RLIMIT_FSIZE as u32, MIB);
-                set_limit(libc::RLIMIT_NPROC as u32, 64);
-                if root {
-                    let groups = [gid];
-                    if libc::setgroups(1, groups.as_ptr()) != 0
-                        || libc::setgid(gid) != 0
-                        || libc::setuid(uid) != 0
-                    {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                }
-                libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
-                libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
-                // A program inherits the signal mask of the thread that starts it, and the helper's threads block the termination
-                // signals (`sys::block_termination_signals`): unblocked here, or neither the runner's SIGTERM nor the one below
-                // reaches it, and a program left by a killed helper takes the plugin's connection from the next helper's copy, and
-                // that copy from it, several times a second.
-                let mut none: libc::sigset_t = std::mem::zeroed();
-                libc::sigemptyset(&mut none);
-                libc::sigprocmask(libc::SIG_SETMASK, &none, std::ptr::null_mut());
-                // If the helper dies without ending its programs (SIGKILL after eight seconds, a crash) they are told to finish,
-                // so none is left to meet the next helper's copy of itself at the broker's door.
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM, 0, 0, 0);
-                Ok(())
-            });
-        }
+        confine(&mut command, root.then_some((member.uid, gid)), Some(address_space));
         command.spawn().map_err(|e| format!("{e}"))
     }
 }
 
+/// Confines a program the helper starts as a plugin's is: a session of its own, below the shell and the compositor, ceilings on files,
+/// processes and file size (and on the address space, when one is given), no core dumps, the user and group `ids` (when the helper is
+/// root), no new privileges, the termination signals unblocked, and SIGTERM when the helper dies.
+// The resource limits' constants are the C library's type (unsigned on glibc, `int` on musl, which is the TV's): the casts below say
+// one type for both.
+#[allow(clippy::unnecessary_cast)]
+pub(crate) fn confine(command: &mut Command, ids: Option<(u32, u32)>, address_space: Option<u64>) {
+    // SAFETY: only async-signal-safe calls (libc system calls on plain integers) run between fork and exec.
+    unsafe {
+        command.pre_exec(move || {
+            libc::setsid();
+            // below the shell and the compositor, and no wake-up of it preempts them (`sys::bulk_thread`)
+            libc::setpriority(libc::PRIO_PROCESS as _, 0, 10);
+            libc::sched_setscheduler(0, libc::SCHED_BATCH, &std::mem::zeroed::<libc::sched_param>());
+            // The address space is a ceiling that catches a runaway, not the class's memory budget: stacks and the allocator
+            // reserve far more than a plugin touches.
+            if let Some(bytes) = address_space {
+                set_limit(libc::RLIMIT_AS as u32, bytes);
+            }
+            set_limit(libc::RLIMIT_NOFILE as u32, 64);
+            set_limit(libc::RLIMIT_CORE as u32, 0);
+            set_limit(libc::RLIMIT_FSIZE as u32, MIB);
+            set_limit(libc::RLIMIT_NPROC as u32, 64);
+            if let Some((uid, gid)) = ids {
+                let groups = [gid];
+                if libc::setgroups(1, groups.as_ptr()) != 0
+                    || libc::setgid(gid) != 0
+                    || libc::setuid(uid) != 0
+                {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+            libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
+            // A program inherits the signal mask of the thread that starts it, and the helper's threads block the termination
+            // signals (`sys::block_termination_signals`): unblocked here, or neither the runner's SIGTERM nor the one below
+            // reaches it, and a program left by a killed helper takes the plugin's connection from the next helper's copy, and
+            // that copy from it, several times a second.
+            let mut none: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut none);
+            libc::sigprocmask(libc::SIG_SETMASK, &none, std::ptr::null_mut());
+            // If the helper dies without ending its programs (SIGKILL after eight seconds, a crash) they are told to finish,
+            // so none is left to meet the next helper's copy of itself at the broker's door.
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM, 0, 0, 0);
+            Ok(())
+        });
+    }
+}
+
 /// Ends whatever else is left in a program's session (a plugin may start processes of its own).
-fn sweep(pid: Option<u32>) {
+pub(crate) fn sweep(pid: Option<u32>) {
     if let Some(pid) = pid.and_then(|p| libc::pid_t::try_from(p).ok()) {
         // SAFETY: a signal to a process group; the group is the dead program's own.
         unsafe { libc::kill(-pid, libc::SIGKILL) };
@@ -425,9 +433,13 @@ fn sweep(pid: Option<u32>) {
 /// Asks the program to finish (SIGTERM, which the SDK turns into the plugin's `shutdown`) and ends it, and what it started, when
 /// `grace` is up.
 fn stop_child(entry: &mut Entry, grace: Duration) {
-    let Some(mut child) = entry.child.take() else {
-        return;
-    };
+    if let Some(child) = entry.child.take() {
+        end(child, grace);
+    }
+}
+
+/// Asks a program the helper started in a session of its own to finish (SIGTERM) and ends it, and what it started, when `grace` is up.
+pub(crate) fn end(mut child: Child, grace: Duration) {
     if let Ok(pid) = libc::pid_t::try_from(child.id()) {
         // SAFETY: a signal to a process of ours.
         unsafe { libc::kill(pid, libc::SIGTERM) };

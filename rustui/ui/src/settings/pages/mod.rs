@@ -7,6 +7,7 @@ pub mod about;
 pub mod access;
 pub mod ai;
 pub mod ambient;
+pub mod beszel;
 pub mod bluetooth;
 pub mod buttons;
 pub mod cameras;
@@ -78,6 +79,7 @@ pub fn all() -> Vec<Page> {
         access::captions(),
         about::page(),
         logging::page(),
+        beszel::page(),
         support::page(),
         support::delete_data(),
         support::permissions(),

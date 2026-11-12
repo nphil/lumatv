@@ -410,7 +410,7 @@ impl Secrets {
 }
 
 /// `bytes` as the file at `path`, mode 0600, whole: written beside it, then renamed.
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
