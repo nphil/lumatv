@@ -233,6 +233,8 @@ fn progress(step: usize, within: Duration) -> f32 {
 /// the lease lets the next request have it.
 struct Play<'a> {
     tap: Option<Box<dyn Tap>>,
+    /// The PIDs routed as soon as the tuner locked ([`Facade::route_early`]).
+    early: Option<Vec<u16>>,
     facade: &'a Facade,
     entry: Entry,
     look: Look,
@@ -269,6 +271,7 @@ impl Facade {
         self.tuning.streaming(&entry);
         let mut play = Play {
             tap: None,
+            early: None,
             facade: self,
             show: Show {
                 program: Program::new(tsid, layout, &format),
@@ -295,11 +298,11 @@ impl Facade {
         };
         let end = match play.run(out, stop) {
             Ok(Ran::Plain { tap, found, tuned }) => {
-                let Play { entry, lease, over, asked, .. } = play;
+                let Play { entry, lease, over, asked, early, .. } = play;
                 // the stream says what it streams again once its picture has come
                 drop(over);
                 log::info!("tuner: {}'s picture is not MPEG-2: it streams without slates", entry.guide);
-                return match self.route(&entry, tap, found, lease, (asked, tuned)) {
+                return match self.route(&entry, tap, found, lease, (asked, tuned), early) {
                     Ok(mut stream) => stream.pump(out, stop),
                     Err(failure) => {
                         self.not_found(&entry.guide, &failure);
@@ -407,6 +410,7 @@ impl Play<'_> {
             Err(why) => return self.last(Says::Failed, End::Failed(why), out).map(Ran::Over),
         };
         let tuned = self.now();
+        self.early = f.route_early(&self.entry.guide, tap.as_mut());
         self.tuning(1, tuned);
         self.tick(out)?;
         // The tables, as a stream without slates reads them, a second at a time so the slate goes on between tries. A table read whole that
@@ -461,7 +465,7 @@ impl Play<'_> {
             }
             return self.last(Says::Failed, End::Failed(Failure::Hardware("the picture is not MPEG-2".to_owned())), out).map(Ran::Over);
         };
-        if let Err(why) = tap.start(&routes.pids()) {
+        if let Err(why) = f.route_found(&self.entry.guide, tap.as_mut(), self.early.as_deref(), &routes.pids()) {
             return self.last(Says::Failed, End::Failed(why), out).map(Ran::Over);
         }
         self.tap = Some(tap);
@@ -1019,6 +1023,16 @@ pub(crate) mod tests {
         let (out, _) = play(&f);
         assert!(pictures(&out).iter().any(|p| p.0), "the programme came after its tables did");
         assert_eq!(*script.started.lock(), [vec![0x61, 0x64]]);
+    }
+
+    #[test]
+    fn a_channel_is_routed_as_its_last_stream_was_as_soon_as_it_is_tuned() {
+        let time = Time::default();
+        let script = Script::new(&time, stops_at_two());
+        let f = facade(&script, quick());
+        f.tuning.routed("2.4", &[0x61]);
+        play(&f);
+        assert_eq!(*script.started.lock(), [vec![0x61], vec![0x61, 0x64]], "and again once its tables show its program moved");
     }
 
     #[test]

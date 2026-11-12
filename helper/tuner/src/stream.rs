@@ -93,8 +93,10 @@ pub trait Hardware: Send + Sync + 'static {
     /// Who else has the tuner, if anyone: Live TV in front, or a pipeline of its own.
     fn in_use(&self) -> Option<String>;
     /// Tunes LG's `channel_id` and returns the tap of what the antenna carries; the TV's own channel stays as it was. Dropping the tap
-    /// lets everything go: the demux, then the pipeline.
+    /// lets go of the demux, then of the tuner, which may be kept a moment for the next tune ([`Hardware::release`]).
     fn tune(&self, channel_id: &str) -> Result<Box<dyn Tap>, Failure>;
+    /// Lets go at once of a tuner kept for the next tune: it is no longer shared.
+    fn release(&self) {}
     /// What the demodulator says of the frequency it is tuned to, if the TV says: read, nothing is touched. A slate shows it.
     fn signal(&self) -> Option<Signal> {
         None
@@ -211,7 +213,8 @@ pub trait Hold: Send {
 pub trait Tap: Send {
     /// One whole section (`pid`, `table_id`, `section_number`) within `wait`.
     fn section(&mut self, pid: u16, table_id: u8, number: u8, wait: Duration) -> Option<Vec<u8>>;
-    /// Routes these PIDs to the download; `read` gives their packets from here on.
+    /// Routes these PIDs to the download; `read` gives their packets from here on. Routing again replaces the last routing and what it
+    /// brought.
     fn start(&mut self, pids: &[u16]) -> Result<(), Failure>;
     /// Appends the whole 188-byte packets that arrived within `wait` (none is fine) to `out`.
     fn read(&mut self, out: &mut Vec<u8>, wait: Duration) -> Result<(), Failure>;
@@ -410,6 +413,14 @@ impl Tuning {
 
     pub(crate) fn seen(&self, guide: &str) -> Option<Seen> {
         self.known.lock().get(guide).and_then(|k| k.seen.clone())
+    }
+
+    pub(crate) fn routed(&self, guide: &str, pids: &[u16]) {
+        self.known.lock().entry(guide.to_owned()).or_default().pids = Some(pids.to_vec());
+    }
+
+    fn last_routed(&self, guide: &str) -> Option<Vec<u16>> {
+        self.known.lock().get(guide).and_then(|k| k.pids.clone())
     }
 
     pub(crate) fn known(&self) -> HashMap<String, Known> {
@@ -783,6 +794,23 @@ impl Facade {
         }
     }
 
+    /// Routes the PIDs channel `guide`'s last stream routed as soon as the tuner locks, so its picture gathers while its tables are read:
+    /// the wait for the first whole picture from the routing was 0.76 s of a 3 s channel change (2026-11-11). The PIDs, when routed.
+    pub(crate) fn route_early(&self, guide: &str, tap: &mut dyn Tap) -> Option<Vec<u16>> {
+        let pids = self.tuning.last_routed(guide)?;
+        tap.start(&pids).ok()?;
+        Some(pids)
+    }
+
+    /// Routes channel `guide`'s `pids`, unless they are the ones routed `early`: what came since is kept.
+    pub(crate) fn route_found(&self, guide: &str, tap: &mut dyn Tap, early: Option<&[u16]>, pids: &[u16]) -> Result<(), Failure> {
+        if early != Some(pids) {
+            tap.start(pids)?;
+        }
+        self.tuning.routed(guide, pids);
+        Ok(())
+    }
+
     /// Tunes `entry`'s channel, finds its program in the multiplex, routes it and waits for its first whole picture. A request of the same
     /// client that comes meanwhile takes the tuner over: this one gives up between steps (Plex asks for the next channel while the last is
     /// still tuned when channels are flipped, and its transcoder asks again for a stream that ended).
@@ -799,6 +827,7 @@ impl Facade {
         let asked = (self.clock)();
         let mut tap = self.hw.tune(&entry.channel_id)?;
         let tuned = (self.clock)();
+        let early = self.route_early(&entry.guide, tap.as_mut());
         // The tables are read in rounds from the lock on until they name the channel or `section_wait` has passed: a weak multiplex loses
         // whole sections (on RF 29 on 2026-11-05 they took up to 4.8 s, and at times did not come in 6 s), and the previous multiplex's
         // could still be on the demux for a moment (not seen on the set: the first PAT after the lock was always the new multiplex's).
@@ -823,11 +852,11 @@ impl Facade {
         if psi::protected(&found.pmt, Some(&found.channel)) {
             return Err(Failure::Protected);
         }
-        self.route(entry, tap, found, lease, (asked, tuned))
+        self.route(entry, tap, found, lease, (asked, tuned), early)
     }
 
     /// Routes the program `found` on `tap` and waits for its first whole picture: the stream without slates from there. `tuned` is when
-    /// the stream was asked for and when the tuner locked.
+    /// the stream was asked for and when the tuner locked, `early` what was routed then ([`Facade::route_early`]).
     pub(crate) fn route(
         &self,
         entry: &Entry,
@@ -835,6 +864,7 @@ impl Facade {
         found: Found,
         lease: Lease,
         (asked, tuned): (Duration, Duration),
+        early: Option<Vec<u16>>,
     ) -> Result<Stream, Failure> {
         let given_up = || {
             lease
@@ -856,7 +886,7 @@ impl Facade {
             .find(|e| matches!(e.stream_type, 0x02 | 0x1B | 0x24))
             .map(|e| (e.pid, e.stream_type));
         let watch = picture.map_or(pmt.pcr_pid, |(pid, _)| pid);
-        tap.start(&pids)?;
+        self.route_found(&entry.guide, tap.as_mut(), early.as_deref(), &pids)?;
         let routed = (self.clock)();
         // The client is told yes once the picture has come through whole, and its stream starts there: a station can list a channel whose
         // PMT names a picture and a sound that carry no packets (16.9 on 2026-11-05), a weak RF channel can bring the picture too broken to
@@ -1636,6 +1666,20 @@ pub(crate) mod tests {
         drop(first);
         assert_eq!(f.tuning.status(), Status::Idle);
         assert!(f.open("2.1", OTHER).is_ok());
+    }
+
+    #[test]
+    fn a_channel_is_routed_as_its_last_stream_was_as_soon_as_it_is_tuned_and_again_only_when_its_program_moved() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), on_air());
+        let f = facade(&fake, &time);
+        drop(f.open("2.4", PLEX).unwrap());
+        assert_eq!(f.tuning.last_routed("2.4"), Some(vec![0x60, 0x61, 0x64]));
+        drop(f.open("2.4", PLEX).unwrap());
+        assert_eq!(fake.started.lock().len(), 2, "routed once: what came while the tables were read is kept");
+        f.tuning.routed("2.4", &[0x60, 0x62]);
+        drop(f.open("2.4", PLEX).unwrap());
+        assert_eq!(fake.started.lock()[2..], [vec![0x60, 0x62], vec![0x60, 0x61, 0x64]]);
     }
 
     #[test]

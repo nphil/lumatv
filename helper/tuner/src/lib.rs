@@ -198,6 +198,7 @@ impl Tuner {
         }
         self.tuning.stop();
         self.meter.stop();
+        self.hw.release();
     }
 
     /// Where it listens, while it is served.

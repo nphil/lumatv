@@ -83,6 +83,8 @@ pub(crate) struct Seen {
 pub(crate) struct Known {
     pub(crate) seen: Option<Seen>,
     pub(crate) health: Option<Health>,
+    /// The PIDs its last stream routed: the next stream routes them as soon as the tuner locks, ahead of its tables.
+    pub(crate) pids: Option<Vec<u16>>,
 }
 
 /// A channel as the owner sees it: the lineup's channel, whether it is left out, and how it came in.

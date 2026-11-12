@@ -38,10 +38,20 @@ const RENDERING: &str = "BROADCAST_STATE_RENDERING";
 const CALL_WAIT: Duration = Duration::from_secs(10);
 /// How long the frontend gets to lock once the channel is played, and how often it is asked. Measured on the set: every RF channel that
 /// locks (the weak RF 29 too) locked 0.3 to 0.35 s after `utp`'s `changeChannel` answered (2026-11-05), and within the first second of
-/// `playSignaling` (2026-11-08); the set answers `getSignalStatus` in about 30 ms, and an RF channel that does not lock (RF 35) reads
-/// strength 0 throughout.
+/// `playSignaling` (2026-11-08); `getSignalStatus` said so 0.29 to 0.31 s after `playSignaling` answered, on a new pipeline or one
+/// already playing another channel (2026-11-11). The set answers `getSignalStatus` in about 30 ms; a pause of 100 ms between questions
+/// saw the lock up to 0.1 s late. An RF channel that does not lock (RF 35) reads strength 0 throughout.
 const LOCK_WAIT: Duration = Duration::from_secs(3);
-const LOCK_POLL: Duration = Duration::from_millis(100);
+const LOCK_POLL: Duration = Duration::from_millis(10);
+/// How long a stream's pipeline is kept, still playing, after the stream lets go of it, for the next tune to play its channel on: a
+/// client changing channel asks again at once, and the pipeline's stop and close and the next one's open took 0.13 to 0.19 s on the set
+/// (2026-11-11).
+const SPARE_FOR: Duration = Duration::from_secs(1);
+/// How much of the download is kept while tables are read with it already routed: the oldest whole units go first. 4 MiB is 2 s of a
+/// 16 Mb/s program.
+const EARLY_MOST: usize = 4 << 20;
+/// How often the download is read while a table is waited for.
+const EARLY_EVERY: Duration = Duration::from_millis(10);
 /// The demodulator's report on the frequency it is tuned to.
 const DEMOD_STATUS: &str = "/proc/lg/demod/signal_status";
 
@@ -239,6 +249,8 @@ struct Inner {
     cfg: WebosConfig,
     bus: Arc<dyn Luna>,
     seed: Mutex<Option<[u8; 16]>>,
+    /// The pipeline the last stream let go of, and when: the next tune plays on it ([`SPARE_FOR`]).
+    spare: Mutex<Option<(String, Instant)>>,
 }
 
 impl Tv {
@@ -248,6 +260,7 @@ impl Tv {
                 cfg,
                 bus,
                 seed: Mutex::new(None),
+                spare: Mutex::new(None),
             }),
         }
     }
@@ -305,6 +318,59 @@ impl Inner {
         let id = json!({"broadcastId": id});
         let _ = self.luna(&format!("{BROADCAST}/stop"), &id);
         self.luna(&format!("{BROADCAST}/close"), &id).is_ok()
+    }
+
+    /// Stops and closes `id` and takes it off the record, unless the record is a newer pipeline's already: a stream that takes the tuner
+    /// from the meter opens before the meter lets go.
+    fn let_go(&self, id: &str) {
+        let record = &self.cfg.pipeline_file;
+        if self.close(id) && std::fs::read_to_string(record).is_ok_and(|on| on == id) {
+            let _ = std::fs::remove_file(record);
+        }
+    }
+
+    /// Keeps a stream's pipeline, still playing, for the next tune; one not taken within [`SPARE_FOR`] is let go of.
+    fn park(self: &Arc<Self>, id: String) {
+        let at = Instant::now();
+        let older = self.spare.lock().replace((id, at));
+        if let Some((older, _)) = older {
+            self.let_go(&older);
+        }
+        let inner = self.clone();
+        thread::spawn(move || {
+            thread::sleep(SPARE_FOR);
+            inner.reap(Some(at));
+        });
+    }
+
+    /// Lets go of the spare pipeline: whichever it is (`None`), or only the one parked at `at`.
+    fn reap(&self, at: Option<Instant>) {
+        let id = {
+            let mut spare = self.spare.lock();
+            match spare.take() {
+                Some((id, parked)) if at.is_none_or(|at| at == parked) => id,
+                kept => {
+                    *spare = kept;
+                    return;
+                }
+            }
+        };
+        self.let_go(&id);
+    }
+
+    /// A pipeline playing `channel_id`: the spare while LG still plays on it, else a new one. From here the pipeline is let go of however
+    /// this ends: `Tuned` is the guard.
+    fn playing(self: &Arc<Self>, channel_id: &str) -> Result<Tuned, Failure> {
+        let spare = self.spare.lock().take();
+        if let Some((pipeline, _)) = spare {
+            let tuned = Tuned::on(self, pipeline);
+            if self.play(&tuned.pipeline, channel_id).is_ok() {
+                return Ok(tuned);
+            }
+        }
+        let tuned = Tuned::on(self, self.open_pipeline()?);
+        self.play(&tuned.pipeline, channel_id)?;
+        Ok(tuned)
     }
 
     /// The pipeline's state as LG's broadcast service gives it: [`RENDERING`] while it is the helper's.
@@ -517,29 +583,22 @@ impl Hardware for Tv {
     }
 
     fn tune(&self, channel_id: &str) -> Result<Box<dyn Tap>, Failure> {
-        let inner = self.inner.clone();
+        let inner = &self.inner;
         let seed = inner.seed()?;
-        // from here the pipeline is closed however this ends: `Tuned` is the guard
-        let mut tuned = Tuned {
-            pipeline: inner.open_pipeline()?,
-            inner: inner.clone(),
-            dvb: None,
-        };
-        inner.play(&tuned.pipeline, channel_id)?;
+        let mut tuned = inner.playing(channel_id)?;
         inner.wait_lock(&tuned.pipeline)?;
         tuned.dvb = Some(Dvb::open(&inner.cfg, seed)?);
+        tuned.keep = true;
         Ok(Box::new(tuned))
     }
 
+    /// The meter's pipeline is let go of at once when it stops, not kept.
     fn hold(&self, channel_id: &str) -> Result<Box<dyn Hold>, Failure> {
-        let inner = self.inner.clone();
-        let tuned = Tuned {
-            pipeline: inner.open_pipeline()?,
-            inner: inner.clone(),
-            dvb: None,
-        };
-        inner.play(&tuned.pipeline, channel_id)?;
-        Ok(Box::new(tuned))
+        Ok(Box::new(self.inner.playing(channel_id)?))
+    }
+
+    fn release(&self) {
+        self.inner.reap(None);
     }
 
     fn tuned_to(&self) -> Option<String> {
@@ -554,23 +613,35 @@ impl Hold for Tuned {
 }
 
 /// A tuned antenna: the pipeline's id and the demux tap. Dropping it lets go in the order that cannot overflow the download: the tap first,
-/// then the pipeline.
+/// then the pipeline, which a stream's tap keeps a moment for the next tune ([`SPARE_FOR`]).
 struct Tuned {
     inner: Arc<Inner>,
     pipeline: String,
     dvb: Option<Dvb>,
+    /// A stream's, locked and with its demux: the next tune can play on its pipeline.
+    keep: bool,
+}
+
+impl Tuned {
+    fn on(inner: &Arc<Inner>, pipeline: String) -> Self {
+        Self {
+            inner: inner.clone(),
+            pipeline,
+            dvb: None,
+            keep: false,
+        }
+    }
 }
 
 impl Drop for Tuned {
     fn drop(&mut self) {
         self.dvb = None;
         // Live TV that has taken the tuner keeps playing through a `stop` and `close` of this pipeline (measured on the set on 2026-11-05).
-        // The record may be a newer pipeline's already: a stream that takes the tuner from the meter opens before the meter lets go.
-        let record = &self.inner.cfg.pipeline_file;
-        if self.inner.close(&self.pipeline)
-            && std::fs::read_to_string(record).is_ok_and(|id| id == self.pipeline)
-        {
-            let _ = std::fs::remove_file(record);
+        let pipeline = std::mem::take(&mut self.pipeline);
+        if self.keep {
+            self.inner.park(pipeline);
+        } else {
+            self.inner.let_go(&pipeline);
         }
     }
 }
@@ -667,6 +738,13 @@ impl Dvb {
         let end = Instant::now() + wait;
         let mut buf = vec![0u8; 4096];
         while let Some(left) = end.checked_duration_since(Instant::now()) {
+            // a program routed ahead of its tables is read meanwhile, or the download would overflow while they come
+            let left = if self.dvr.is_some() {
+                self.keep_up();
+                left.min(EARLY_EVERY)
+            } else {
+                left
+            };
             if !readable(&file, left) {
                 continue;
             }
@@ -679,6 +757,10 @@ impl Dvb {
     }
 
     fn start(&mut self, pids: &[u16]) -> Result<(), Failure> {
+        // routed again: what the last routing brought goes with it
+        self.taps.clear();
+        self.dvr = None;
+        self.rest.clear();
         let dvr = node(&self.cfg, "dvr", false)?;
         let mut key = cert(&self.seed);
         let mut control = ExtControl {
@@ -710,20 +792,38 @@ impl Dvb {
         let Some(dvr) = self.dvr.as_ref() else {
             return Err(hw("the download is not started"));
         };
-        if !readable(dvr, wait) {
-            return Ok(());
+        // what came while the tables were read goes first
+        if self.rest.len() < UNIT {
+            if !readable(dvr, wait) {
+                return Ok(());
+            }
+            let n = match (&*dvr).read(&mut self.chunk) {
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
+                Err(e) => return Err(hw(format!("the download: {e}"))),
+            };
+            self.rest.extend_from_slice(&self.chunk[..n]);
         }
-        let n = match (&*dvr).read(&mut self.chunk) {
-            Ok(n) => n,
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
-            Err(e) => return Err(hw(format!("the download: {e}"))),
-        };
-        self.rest.extend_from_slice(&self.chunk[..n]);
         let whole = self.rest.len() / UNIT * UNIT;
         psi::strip_stamps(&self.rest[..whole], out)
             .map_err(|_| hw("the download lost its alignment"))?;
         self.rest.drain(..whole);
         Ok(())
+    }
+
+    /// Takes what the download has into `rest` without waiting, keeping at most [`EARLY_MOST`]; an error is left for `read` to meet.
+    fn keep_up(&mut self) {
+        let Some(dvr) = self.dvr.as_ref() else {
+            return;
+        };
+        while let Ok(n @ 1..) = (&*dvr).read(&mut self.chunk) {
+            self.rest.extend_from_slice(&self.chunk[..n]);
+        }
+        // `rest` starts on a unit: whole units go
+        if self.rest.len() > EARLY_MOST {
+            let over = (self.rest.len() - EARLY_MOST).div_ceil(UNIT) * UNIT;
+            self.rest.drain(..over);
+        }
     }
 }
 
@@ -829,7 +929,13 @@ mod tests {
                 "getForegroundAppInfo" => json!({"returnValue": true, "appId": *self.front.lock()}),
                 "getActivePipelines" => self.pipelines.lock().clone(),
                 "getBroadcastState" => json!({"returnValue": true, "state": *self.state.lock()}),
-                "playSignaling" | "stop" | "close" => json!({"returnValue": true}),
+                "playSignaling" => {
+                    // a closed pipeline plays nothing
+                    let id = format!("\"{}\"", payload["broadcastId"].as_str().unwrap_or(""));
+                    let closed = self.log.lock().iter().any(|l| l.contains("/close ") && l.contains(&id));
+                    json!({"returnValue": !closed})
+                }
+                "stop" | "close" => json!({"returnValue": true}),
                 _ => json!({"returnValue": false, "errorText": "unexpected"}),
             })
         }
@@ -921,11 +1027,7 @@ mod tests {
     #[test]
     fn the_tuner_is_taken_when_the_pipeline_is_no_longer_the_one_rendering() {
         let (tv, luna, _dir) = tv();
-        let mut tuned = Tuned {
-            pipeline: tv.inner.open_pipeline().unwrap(),
-            inner: tv.inner.clone(),
-            dvb: None,
-        };
+        let mut tuned = Tuned::on(&tv.inner, tv.inner.open_pipeline().unwrap());
         *luna.state.lock() = "BROADCAST_STATE_RENDERING".into();
         assert_eq!(Tap::taken(&mut tuned), None);
         *luna.state.lock() = "BROADCAST_STATE_UNREALIZED".into();
@@ -1001,6 +1103,53 @@ mod tests {
             ]
         );
         assert!(!record.exists());
+    }
+
+    #[test]
+    fn a_stream_s_pipeline_is_kept_for_the_next_tune_and_let_go_when_it_is_not_taken() {
+        let (tv, luna, dir) = tv();
+        let record = dir.path().join("pipeline");
+        let stream = |tv: &Tv| {
+            let mut tuned = Tuned::on(&tv.inner, tv.inner.open_pipeline().unwrap());
+            tuned.keep = true;
+            drop(tuned);
+        };
+        stream(&tv);
+        // the next tune plays on it (and fails at the demux here, so it lets go)
+        let _ = tv.tune("1_32_2_5_0_0_0");
+        assert_eq!(
+            luna.broadcast(),
+            ["open", "playSignaling 0000004c-1 1_32_2_5_0_0_0", "getSignalStatus 0000004c-1", "stop 0000004c-1", "close 0000004c-1"]
+        );
+        assert!(!record.exists());
+        stream(&tv);
+        assert_eq!(std::fs::read_to_string(&record).unwrap(), "0000004c-2", "a kept pipeline stays on record");
+        let parked = tv.inner.spare.lock().as_ref().map(|(_, at)| *at).unwrap();
+        tv.inner.reap(Some(parked + Duration::from_millis(1)));
+        assert!(tv.inner.spare.lock().is_some(), "a later park's spare is not this reaper's");
+        tv.inner.reap(Some(parked));
+        assert_eq!(luna.broadcast()[6..], ["stop 0000004c-2", "close 0000004c-2"]);
+        assert!(!record.exists());
+        // the tuner is no longer shared: let go at once
+        stream(&tv);
+        tv.release();
+        assert_eq!(luna.broadcast()[9..], ["stop 0000004c-3", "close 0000004c-3"]);
+        // a spare LG no longer plays is let go of, and a new pipeline opened
+        stream(&tv);
+        tv.inner.close("0000004c-4");
+        let _ = tv.hold("1_27_5_1_0_0_0");
+        assert_eq!(
+            luna.broadcast()[14..],
+            [
+                "playSignaling 0000004c-4 1_27_5_1_0_0_0",
+                "stop 0000004c-4",
+                "close 0000004c-4",
+                "open",
+                "playSignaling 0000004c-5 1_27_5_1_0_0_0",
+                "stop 0000004c-5",
+                "close 0000004c-5"
+            ]
+        );
     }
 
     /// A fake program; it does nothing when `settle` runs it with `probe`.
