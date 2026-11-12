@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A tuner channel change shows the new channel's picture about 0.5 s sooner: 1.35 s from the request on average over 60 changes between two frequencies, from 1.86 s. The pipeline a stream lets go of stays playing for 1 s and the next tune plays its channel on it, instead of closing it and opening another (0.13-0.17 s); the lock is checked every 10 ms instead of 100 ms; and a channel streamed before is routed with its last PIDs as soon as the tuner locks, so its first whole picture gathers while the tables are read (the wait after the tables fell from 0.76 to 0.33 s on average).
+
 The native Home stub no longer covers an app opened just after SAM restarted it. SAM's launch event for the restarted stub can be handled after the new card has mapped and the app has been raised over it (HDMI 2, 0.35 s after SAM's event on the set), and it raised Home over the app. An event that finds the stub's card under 2 s old and under an app now raises nothing and is journalled; SAM sends none for a stub under about 3 s old, so a launch of Home over an app is unchanged.
 
 On an HDMI input LG's own input pill no longer shows beside LumaTV's. LG draws it into the input's own window about 0.6 s after the switch, and only Live TV's window was blanked for the stand-in banner; the pill's place is now blanked on whichever input is in front, where LG's banner setting puts it, for the first 6.5 s, and given back when the input leaves, the screen sleeps or the owner's banners go off. Live TV's claim, with its Guide chip and channel keys, is unchanged.

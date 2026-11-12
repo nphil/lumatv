@@ -9,6 +9,28 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Faster tuner channel changes, 2026-11-11 (main 0fd2db2a, installed 19:58 EST)
+
+Helper installed from 0fd2db2a in Active Standby (payload and `/var/lib/lumatv/bin`, `helper start`): sha256 `fbca937e11a615148a5258a35bd3ca224589aa025018eda84b976d2315693cf1`. It replaced `63fc7a59` (c49887e0, the stage logging, installed 19:26), which had replaced `2865cb90`; both are in the receipts' `backup/`.
+
+Measured as Marquee's iOS LiveEngine asks: one client, each change a new `GET /auto/v<guide>` that takes the tuner from its last stream, alternating 2.5 (RF 32) and 5.1 (RF 27) every 8 s, the TV in Active Standby. Client times are from the request; stages are the helper's log. Means, with the range:
+
+| Stage | Before (`63fc7a59`, 10 changes) | After (`fbca937e`, 60 changes) |
+|---|---|---|
+| Take (last stream let go) | 0.21 | 0.08 |
+| Tune to lock | 0.55 | 0.51 |
+| Tables | 0.25 (0.09-0.85) | 0.35 (0.09-0.77) |
+| First packet | 0.02 | 0.00 |
+| First whole picture after the tables | 0.76 (0.05-1.34) | 0.33 (0.00-0.92) |
+| Station picture shown (client) | 1.86 (1.17-2.78) | 1.35 (0.87-1.87) |
+| Playing: audio to the first picture's PTS + 0.30 s (client) | 3.03 (2.33-3.82) | 2.53 (1.76-3.87) |
+
+LG's Live TV on the same channels, panel on, 12 changes from the key: sound 0.80 s (0.65-1.01), picture 1.39 s (0.87-1.69). The first picture now comes as fast; motion and sound still start 1.19 s after it on average (0.71-2.16), because LiveEngine starts both together once the audio reaches the first picture's time plus 0.30 s and these stations send a picture's audio well after the picture. Live TV starts the sound first. Closing that gap is a LiveEngine change, not a tuner one.
+
+5.1 lost its picture once, 0.6 s after its first picture on one change: a slate stood in for 3.1 s. The kernel log showed no tuner event then. It did not happen again in 60 more changes and a 90 s hold; in the 30 changes with the demodulator read every 0.25 s, it counted no packet errors while streaming and no stream had an audio gap over 0.36 s.
+
+Not run on the set: Live TV taking the tuner within the 1 s a released pipeline plays on; a stream preempted or failed while its pipeline is kept; the plain path (a picture that is not MPEG-2) with early routing; a channel whose PIDs changed since its last stream (routed again, unit-tested only); changes within one RF channel; changes with the panel on; the iPhone itself (the client was emulated). Left in Active Standby; receiver off and unmuted. Receipts: `/data/home/tmp/lumatv-tunerswitch-20261111/` (`d_*.jsonl`, `after_log*.txt`, `demod3.log`, `dclient.py`, `inst.py`, `backup/`).
+
 ## Native Home stub live, 2026-11-11 (main 332ecd7d, installed 12:57 EST)
 
 Installed from 332ecd7d in Active Standby through `compositor/tools/build-tv.sh`, a copy of the bundle to `/tmp/lumatv` and cutover `disable`, `install`, `probe`, `enable`. `disable` exited 1 with "could not restore stock UI; Home recovery failed": in standby the display capture has no bytes, so Home could not be verified visually; LG's compositor and Flutter Home were up, and `install`, `probe` and `enable` then passed (live, mounted, enabled, failures 0). Installed sha256: compositor `41c82deb13097748b1699416428749ebbd7cd1ff326156d23eabc3e9a16812c2`, ui `694bee44afcd95425aba5138311612b69cb100fd2d319ea8eb192e95873d39a6`, sm `65f6ca69` (unchanged). Replaced: compositor `eeb157e7`, ui `8aaa4114` (backups in the receipts). Helper and `tools/lumatv` unchanged.
