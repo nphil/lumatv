@@ -9,6 +9,12 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Rust Beszel agent live, 2026-11-13 (main b5082c23, installed 21:06 EST)
+
+Installed in Active Standby: helper `b7ef6606197ec08ccdadcaf44fefdb0289ea80e60ef46c21e5317c9402d874e2` (replaced `47e55c08`, from bcdc48d0), `tools/lumatv` `b27105c252c46911…` (replaced `65369adc`), payload and staged `beszel/beszel-native` `8459234088e8eb158a5f203ce91970844d0b7998bb719e75575cbd6cc32a5fde`; `beszel-agent` 0.21.1 `eb4e7ac9` stays beside it as the fallback. The helper runs `beszel-native`; it connected to the hub (0.21.2, Unraid `henrygd/beszel:latest`) and the hub's records for "LG TV" carry the same fields as before plus eMMC read/write rates. Over 180 s in Active Standby: 0.01 s CPU (0.006% of a core) and 1.1 MB resident, against 0.05 s (0.03%) and 11.9 MB for Beszel's agent measured just before. The first native build (bcdc48d0) answered the hub's monitor sync on connect with an error; b5082c23 fixed that and the TV runs it.
+
+Not tested on the TV: the fallback to Beszel's agent (host test only), start after a reboot, Wi-Fi signal (the TV is wired). Receipts: `/data/home/tmp/lumatv-valueelide-20261112/` (`session.log`, `measure.jsonl`, `backup/`).
+
 ## Long row values elided, 2026-11-12 (main cc36e1b9, installed 00:44 EST)
 
 A value row's text now takes at most half the room beside its tile and ends in an ellipsis, so the Beszel hub key no longer runs over its label. ui `3352a7292f30efc330bcf17b65324017efa8e960ccc54ff3c7f9e46d77b76d11` by cutover (replaced `f84d0227`); compositor `41c82deb` and sm `65f6ca69` unchanged. Failures 0. Settings › System › Beszel checked on the set; set left in Active Standby with the receiver off. Receipts and the rollback copy: `/data/home/tmp/lumatv-valueelide-20261112/` (`session.log`, `settings-beszel.png`, `backup/`).

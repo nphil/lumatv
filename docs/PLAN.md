@@ -1372,11 +1372,7 @@ None.
   evidence, not current capability ceilings or standing TV-test approval.
 - Rust rewrites of background services, parked until after LumaTV (Nitin,
   2026-11-12); each goes ahead only where a measurement on the set shows the gain.
-  - Beszel agent: the official Go agent (0.21.1) holds 12.6 MB resident. A Rust
-    agent is estimated at 3-5 MB [INFERENCE] from 2,500-4,000 lines, covering the
-    about 7,400 lines of the agent's 15,000 non-test Go lines that the TV uses; the
-    standing cost is following the hub's protocol on every Beszel release.
-    `GOMEMLIMIT` on the Go agent is the cheaper step to measure first.
+  (The Beszel agent is done: `helper/beszel-native`, docs/plugins/beszel.md.)
   - `ss.apiadapter`: after the sysbus repair it takes 0.067 % of a core in the
     screensaver (21.4 % before), so a replacement is not needed at today's load.
     The interfaces it serves: `docs/research/lg-apiadapter-interfaces.md`.

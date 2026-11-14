@@ -8,8 +8,8 @@ The Beszel plugin (`beszel`, off until switched on in Settings › System › Be
   (the linux arm64 release, pinned by version and hash in `beszel/fetch-agent.sh`, 0.21.1), and `lumatv` stages both into
   `bin/beszel` beside the helper. While the plugin is on the helper runs `beszel-native` as uid/gid 19999, confined as plugin
   programs are; off, it is stopped. It dials the hub over its WebSocket (`HUB_URL`, `TOKEN`, `KEY`) and listens on no port. An agent
-  that ends is started again after 2 s, doubling to 60 s. Beszel's agent measured on the TV in Active Standby over 180 s: 0.03% of
-  one core, 11-13 MB resident.
+  that ends is started again after 2 s, doubling to 60 s. Measured on the TV in Active Standby over 180 s (2026-11-13, hub 0.21.2):
+  `beszel-native` 0.01 s of CPU (0.006% of one core, one clock tick) and 1.1 MB resident; Beszel's agent 0.05 s (0.03%) and 11.9 MB.
 - **Fallback:** `beszel-native` exits with 76 when the hub's protocol has moved past it: a request, or the payload of a data or
   fingerprint request, that does not decode, or a hub that refuses its version when it connects. A wrong key or token and network
   failures never do. On 76 the helper runs `beszel-agent` with the same settings until the plugin is switched off and on again or
@@ -45,7 +45,8 @@ the same lines, which the helper's status reads. It differs where the TV has no 
   only an empty set of monitors is accepted); systemd requests and unknown actions get an error reply.
 
 Against a 0.21.2 hub on a PC (`hub-test.sh` with `HUB_TEST_MEASURE=180`, 181 live requests) it used 0.14 s of CPU and 2.2 MB
-resident, against 0.41 s and 13.2 MB for Beszel's agent. Not yet measured on the TV.
+resident, against 0.41 s and 13.2 MB for Beszel's agent. Beyond what Beszel's agent sends from the TV, the hub gets the eMMC's read
+and write rates (`dio`, `dios`).
 
 ## Following the hub
 
