@@ -230,8 +230,9 @@ def report(s):
     for i in s["instances"]:
         when = datetime.datetime.fromtimestamp(i["epoch"]).strftime("%m-%d %H:%M:%S")
         end = "exited after" if i["end"] is not None else "still there (%s) after" % i["censored"]
-        lines.append("pid %d %s (uptime %.0f s)%s: %s %.0f s; first guest %s, started by %s; guests %s; peak RSS %s, Pss %s; "
+        lines.append("pid %d %s (uptime %.0f s)%s: %s %.0f s%s; first guest %s, started by %s; guests %s; peak RSS %s, Pss %s; "
                      "CPU %s s" % (i["pid"], when, i["start"], "" if i["counted"] else ", already running", end, i["residentS"],
+                                   "" if i["counted"] else " of the record",
                                    i["firstGuest"] or "unknown", i["trigger"] or "not in the log",
                                    ", ".join(i["guests"]) or "none seen", mb(i["rssKb"]), mb(i["pssKb"]),
                                    "?" if i["cpuS"] is None else "%.1f" % i["cpuS"]))
