@@ -823,7 +823,8 @@ class LgExtras(unittest.TestCase):
         write(restart, '#!/bin/sh\necho "$*" >> "%s"\n' % restarts)
         os.chmod(restart, 0o755)
         self.boot()
-        rc, out, err = self.fake.run("--boot-worker", env={"DECLUTTER_PAUSE": "true", "DECLUTTER_HOST_RESTART": restart})
+        rc, out, err = self.fake.run("--boot-worker", env={"DECLUTTER_PAUSE": "true", "DECLUTTER_HOST_RESTART": restart,
+                                                          "DECLUTTER_LS_MONITOR": monitor})
         self.assertEqual(rc, 0, err)
         with open(restarts) if os.path.exists(restarts) else open(os.devnull) as f:
             return f.read()

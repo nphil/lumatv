@@ -87,10 +87,12 @@ DRY="${DECLUTTER_DRY:-0}"
 # stand-in `mount` writes and shorten the second.
 MOUNTS="${DECLUTTER_MOUNTS:-/proc/self/mounts}"
 SETTLE_STEP="${DECLUTTER_SETTLE_STEP:-15}"
-# The boot worker's waits and what restarts LG's JavaScript host (sysbus.sh's `restart`, which starts it again and checks the new
-# process); the host tests make the first instant and record the second.
+# The boot worker's waits, what restarts LG's JavaScript host (sysbus.sh's `restart`, which starts it again and checks the new
+# process) and what lists the bus's clients (by full path: the boot hook's PATH has no /usr/sbin); the host tests make the first
+# instant and stand in for the other two.
 PAUSE="${DECLUTTER_PAUSE:-sleep}"
 HOST_RESTART="${DECLUTTER_HOST_RESTART:-$APPDIR/tools/sysbus.sh}"
+LS_MONITOR="${DECLUTTER_LS_MONITOR:-/usr/sbin/ls-monitor}"
 
 # Units this tool must never stop, whatever items.txt says.
 DENY="sam.service webapp-mgr.service surface-manager.service surface-manager-daemon.service
@@ -892,7 +894,7 @@ extras_services() {
 # services. So the check runs after the first pass and again after the last.
 extras_evict() {
   group_active lgextras || return 0
-  ee_list=$(timeout 10 ls-monitor -l 2>&1)
+  ee_list=$(timeout 10 "$LS_MONITOR" -l 2>&1)
   ee_held=$(printf '%s\n' "$ee_list" | awk -v list="$(extras_services | tr '\n' ' ')" '
     BEGIN { n = split(list, a, " "); for (i = 1; i <= n; i++) want[a[i]] = 1 }
     ($2 in want) && !seen[$2]++ { printf "%s ", $2 }')
