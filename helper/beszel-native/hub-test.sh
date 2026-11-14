@@ -139,6 +139,8 @@ stats_complete() {
     and (.g | to_entries[0].value | .n == "Mali-G52 MC3" and .u == 37)' "$WORK/stats.json" >/dev/null
 }
 wait_for "a stats record with CPU, memory, disk, temperature and GPU" 150 stats_complete
+# A request the agent answered with an error (the hub's monitor sync on connect, say) still lets the system come up
+! grep -q ' ERROR ' "$WORK/agent.log" || fail "the agent logged an error"
 say "hub v$VERSION, $AGENT agent: up; stats $(cat "$WORK/stats.json")"
 
 if [ "$MEASURE" -gt 0 ]; then

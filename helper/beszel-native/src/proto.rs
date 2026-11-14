@@ -109,12 +109,12 @@ impl FingerprintRequest {
     }
 }
 
-/// The parts of a network monitor sync this agent acts on.
+/// The parts of a network monitor sync this agent acts on. A replace carries a zero `Config` beside its list (the hub's Go struct is
+/// always encoded), which the Go agent ignores, so only the action and the list's length matter.
 #[derive(Debug, Default, PartialEq)]
 struct SyncRequest {
     action: u8,
     configs: u64,
-    config: bool,
 }
 
 const SYNC_REPLACE: u8 = 0;
@@ -126,10 +126,7 @@ impl SyncRequest {
         decode_fields(data, |d, key| {
             match key {
                 Some(0) if !d.null()? => out.action = narrow(d.uint()?)?,
-                Some(1) if !d.null()? => {
-                    d.skip()?;
-                    out.config = true;
-                }
+                Some(1) => d.skip()?,
                 Some(2) if !d.null()? => out.configs = d.array_len()?,
                 Some(0..=2) => {}
                 _ => d.skip()?,
@@ -204,9 +201,7 @@ impl Session<'_> {
             GET_ZFS_DATA => (DATA, vec![0xf6]),
             GET_PACKAGE_UPDATES => (DATA, vec![0xa1, 0x03, 0xf6]),
             SYNC_NETWORK_MONITORS => match SyncRequest::decode(req.data) {
-                Ok(sync) if sync.configs == 0 && (sync.action == SYNC_DELETE || (sync.action == SYNC_REPLACE && !sync.config)) => {
-                    (DATA, vec![0xa0])
-                }
+                Ok(sync) if sync.configs == 0 && matches!(sync.action, SYNC_REPLACE | SYNC_DELETE) => (DATA, vec![0xa0]),
                 Ok(_) => return fail("network monitors are not supported by this agent".into()),
                 Err(err) => return fail(err.to_string()),
             },
@@ -418,8 +413,10 @@ mod tests {
         assert_eq!(answer(GET_CONTAINER_LOGS, None), (9, STRING, vec![0x60]));
         assert_eq!(answer(GET_ZFS_DATA, None), (9, DATA, vec![0xf6]));
         assert_eq!(answer(GET_PACKAGE_UPDATES, None), (9, DATA, vec![0xa1, 0x03, 0xf6]));
-        // The hub clears monitors with an empty replace on every connect.
-        assert_eq!(answer(SYNC_NETWORK_MONITORS, Some(&[0xa1, 0x00, 0x00])), (9, DATA, vec![0xa0]));
+        // The hub clears monitors on every connect with a replace that carries an empty list and a zero `Config`
+        // ({0: "", 1: "", 2: "", 4: 0}).
+        let replace = [0xa3, 0x00, 0x00, 0x01, 0xa4, 0x00, 0x60, 0x01, 0x60, 0x02, 0x60, 0x04, 0x00, 0x02, 0x80];
+        assert_eq!(answer(SYNC_NETWORK_MONITORS, Some(&replace)), (9, DATA, vec![0xa0]));
 
         let upsert = request(SYNC_NETWORK_MONITORS, Some(&[0xa2, 0x00, 0x01, 0x01, 0xa0]), Some(4));
         let Step::Failed { reply: Some(reply), .. } = session.handle(&upsert, &mut gather) else { panic!() };
