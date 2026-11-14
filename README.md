@@ -96,7 +96,7 @@ the interruption marker and root-private rollback copies remain until reviewed r
 
 `lumatv sysbus status` distinguishes the saved setting, launcher binding and running process. Only `loaded: patched` confirms that the running host uses the repaired module. The persistence hook reapplies the launcher at boot when enabled, but may run after the host has started; a restart can still be needed. Unknown firmware files and foreign launcher mounts are refused.
 
-`lumatv sysbus off --restart` restores the stock launcher and restarts the host with LG’s original module. The escape's stock-UI restoration and `cutover.sh revert` also remove the launcher binding and disable its boot reapplication; an already-running host keeps its mapped module until it exits. `compositor off`, `cutover.sh disable` and a failed `compositor on` leave the repair as the owner set it.
+`lumatv sysbus off --restart` restores the stock launcher and restarts the host with LG’s original module. The escape's stock-UI restoration and `cutover.sh revert` also remove the launcher binding and disable its boot reapplication; an already-running host keeps its mapped module until it exits. `compositor off` (including the Home recovery it runs), `cutover.sh disable` and a failed `compositor on` leave the repair as the owner set it.
 
 ### Standby
 

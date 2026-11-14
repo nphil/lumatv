@@ -89,5 +89,23 @@ class RecoverPanel(unittest.TestCase):
         self.assertTrue(self.journal.exists())
 
 
+class RecoverSysbusChoice(unittest.TestCase):
+    """What recover-home.sh asks `lumatv stock-ui-restore` to do with the unified-server launcher repair."""
+
+    def choice(self, arg, escaped):
+        with tempfile.TemporaryDirectory(prefix="recover-sysbus-") as tmp:
+            marker = Path(tmp) / "escaped"
+            if escaped:
+                marker.touch()
+            program = 'ESCAPED="%s"\nrecover_arg="%s"\n%s\nsysbus_arg' % (marker, arg, function("sysbus_arg"))
+            return subprocess.run(["sh", "-c", program], capture_output=True, text=True, timeout=20).stdout.strip()
+
+    def test_only_the_owners_escape_takes_the_repair_back(self):
+        self.assertEqual(self.choice("--stock", True), "")
+        self.assertEqual(self.choice("--stock", False), "keep-sysbus", "a fallback that was not the owner's escape")
+        self.assertEqual(self.choice("", True), "keep-sysbus", "the tool's own compositor off runs it with no argument")
+        self.assertEqual(self.choice("", False), "keep-sysbus")
+
+
 if __name__ == "__main__":
     unittest.main()

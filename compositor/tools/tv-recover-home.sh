@@ -8,6 +8,7 @@ SM=surface-manager-daemon.service
 LOG_RELAY=${LUMATV_LOG_RELAY:-$(dirname "$0")/logrelay.py}
 CAP=/tmp/lumatv-recover.png
 STOCK_HOLD=/var/lib/lumatv/compositor/stock-ui-held
+ESCAPED=${LUMATV_ESCAPED:-/var/lib/lumatv/compositor/escaped}
 LOCK=/tmp/lumatv-recover.flock
 
 clock_s() {
@@ -35,6 +36,11 @@ ls_ok() { grep -q '"returnValue"[[:space:]]*:[[:space:]]*true' 8>&-; }
 ours() { grep -q ' /usr/bin/surface-manager ' /proc/self/mountinfo 8>&- && pgrep -f 'bin/lumatv-compositor' 8>&- >/dev/null; }
 home_running() { bounded 10 luna-send -n 1 luna://com.palm.webappmanager/listRunningApps '{}' 2>/dev/null | grep -q '"com.webos.app.home"' 8>&-; }
 pause() { has_budget && sleep 1; }
+
+# The tool's own `compositor off` runs this script too, with the stock hold set and no argument; the supervisor passes --stock and
+# writes `escaped` only for the owner's escape. Only that takes the unified-server launcher repair back: an install's disable keeps it.
+recover_arg=${1:-}
+sysbus_arg() { [ "$recover_arg" = --stock ] && [ -e "$ESCAPED" ] || echo keep-sysbus; }
 
 failed=0
 stock=0
@@ -111,7 +117,7 @@ if [ "$stock" = 1 ]; then
     while has_budget && grep -q ' /usr/bin/surface-manager ' /proc/self/mountinfo 8>&- && [ "$n" -lt 10 ]; do
         pause; n=$((n+1))
     done
-    if bounded 30 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv stock-ui-restore; then
+    if bounded 30 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv stock-ui-restore $(sysbus_arg); then
         say "owned stock UI restoration completed"
     else
         failed=1

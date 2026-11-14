@@ -357,6 +357,19 @@ emit_error() { printf '{"ok":false,"error":"%s"}\\n' "$1"; }
         self.assertIn("sysbus off", self.calls_list())
         self.assertIn("mode lg", self.calls_list(), "and the rest of the restore goes on")
 
+    def test_the_tools_own_recovery_keeps_the_launcher_repair_and_the_escapes_takes_it_back(self):
+        tool = self.tmp / "app/tools/sysbus.sh"
+        tool.parent.mkdir(parents=True)
+        tool.write_text('#!/bin/sh\necho "sysbus $*" >> "$FAKE/calls"\n')
+        tool.chmod(0o755)
+        result = self.restore(FIXTURE_ARG="keep-sysbus")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("mode lg", self.calls_list(), "the rest of the restore ran")
+        self.assertNotIn("sysbus off", self.calls_list())
+        result = self.restore(FIXTURE_ARG="")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("sysbus off", self.calls_list())
+
     def test_compositor_off_leaves_the_launcher_repair_as_the_owner_set_it(self):
         tool = self.tmp / "app/tools/sysbus.sh"
         tool.parent.mkdir(parents=True)

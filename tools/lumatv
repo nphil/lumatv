@@ -2770,7 +2770,8 @@ stock_ui_restore() {
 verb_stock_ui_restore() {
   LOCK_WAIT=3
   take_mutation_lock || { emit_error "stock UI restore could not acquire mutation lock"; return 1; }
-  stock_ui_restore release-sysbus
+  # `keep-sysbus`: the restore of the tool's own `compositor off` (recover-home.sh), which is not a return to LG's UI by the owner.
+  if [ "${1:-}" = keep-sysbus ]; then stock_ui_restore; else stock_ui_restore release-sysbus; fi
 }
 
 
@@ -3433,7 +3434,7 @@ case "$VERB:${2:-}" in
   homestub-kind:status|homestub-kind:) MAINTENANCE_ACCESS=read ;;
   homestub-kind:web) MAINTENANCE_ACCESS=emergency ;;
   boot-direct:off|boot-direct:watch|boot-direct:wake) MAINTENANCE_ACCESS=emergency ;;
-  status:|surfaces:|version:|log:*|theme:get|theme:|layout:get|layout:|layout:check|compositor:check|stock-ui-restore:)
+  status:|surfaces:|version:|log:*|theme:get|theme:|layout:get|layout:|layout:check|compositor:check|stock-ui-restore:|stock-ui-restore:keep-sysbus)
     MAINTENANCE_ACCESS=read ;;
   helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:|sysbus:status|sysbus:)
     MAINTENANCE_ACCESS=read ;;
@@ -3572,7 +3573,7 @@ verb_layout() {
 
 case "$VERB" in
   status) verb_status; exit $? ;;
-  stock-ui-restore) verb_stock_ui_restore; exit $? ;;
+  stock-ui-restore) verb_stock_ui_restore "${2:-}"; exit $? ;;
   persist) verb_persist "${2:-}"; exit $? ;;
   restart) verb_restart; exit $? ;;
   helper) verb_helper "${2:-status}"; exit $? ;;
