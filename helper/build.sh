@@ -1,10 +1,11 @@
 #!/bin/sh
 # Builds lumatv-helper, the native helper, as the static aarch64 musl binary the set runs.
 #
-#   ./build.sh            release build for aarch64-unknown-linux-musl -> dist/lumatv-helper (+ .sha256) and the Home Assistant
-#                         plugin's package -> dist/plugins/home-assistant/{plugin.json,bin/home-assistant}
+#   ./build.sh            release build for aarch64-unknown-linux-musl -> dist/lumatv-helper and dist/beszel-native (the Beszel plugin's
+#                         agent; each + .sha256) and the Home Assistant plugin's package -> dist/plugins/home-assistant/{plugin.json,bin/home-assistant}
 #   ./build.sh test       host tests and clippy (the gate before a commit)
 #   ./build.sh check      fmt --check, clippy -D warnings, host tests, then the release build
+#   ./build.sh host       beszel-native built for this machine -> target/release/beszel-native (for beszel-native/hub-test.sh)
 #   ./build.sh clean      removes target/ and dist/
 #
 # The helper shares LumaShow OS's crates (fetch, settings-schema) by path, so the LumaShow checkout must sit beside this
@@ -56,8 +57,16 @@ chmod +x "$shim/aarch64-musl-cc" "$shim/aarch64-musl-ar"
 export CC_aarch64_unknown_linux_musl="$shim/aarch64-musl-cc"
 export AR_aarch64_unknown_linux_musl="$shim/aarch64-musl-ar"
 if ! command -v cc >/dev/null 2>&1; then
-  # the build scripts of the dependencies run on the host and need a C linker (this container has no cc)
-  printf '#!/bin/sh\nexec %s "$@"\n' "$ZIGCC" > "$shim/cc"
+  # the build scripts of the dependencies run on the host and need a C linker (this container has no cc); a host build of ring
+  # (beszel-native's release build for the hub test) compiles its C with it too, so the target spelling zig rejects is dropped here as well
+  cat > "$shim/cc" <<SHIM
+#!/bin/sh
+for a in "\$@"; do
+  shift
+  case "\$a" in --target=*) ;; *) set -- "\$@" "\$a" ;; esac
+done
+exec $ZIGCC "\$@"
+SHIM
   chmod +x "$shim/cc"
   PATH="$shim:$PATH"
   export PATH
@@ -75,13 +84,15 @@ host_tests() {
 }
 
 release() {
-  cargo build --release --target "$TARGET" -p lumatv-helper -p "$PLUGIN"
-  out="target/$TARGET/release/$BIN"
-  [ -x "$out" ] || die "the build produced no $out"
+  cargo build --release --target "$TARGET" -p lumatv-helper -p beszel-native -p "$PLUGIN"
   mkdir -p dist
-  cp -f "$out" "dist/$BIN"
-  (cd dist && sha256sum "$BIN" > "$BIN.sha256")
-  verify "dist/$BIN"
+  for name in "$BIN" beszel-native; do
+    out="target/$TARGET/release/$name"
+    [ -x "$out" ] || die "the build produced no $out"
+    cp -f "$out" "dist/$name"
+    (cd dist && sha256sum "$name" > "$name.sha256")
+    verify "dist/$name"
+  done
   plugin_package
 }
 
@@ -138,6 +149,7 @@ case "${1:-release}" in
     host_tests
     release
     ;;
+  host) cargo build --release -p beszel-native ;;
   clean) rm -rf target dist ;;
-  *) die "usage: build.sh [release|test|check|clean]" ;;
+  *) die "usage: build.sh [release|test|check|host|clean]" ;;
 esac

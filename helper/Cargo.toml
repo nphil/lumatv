@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["app", "feeds", "denon", "privacy", "tuner", "remote", "plugins/home-assistant"]
+members = ["app", "feeds", "denon", "privacy", "tuner", "remote", "plugins/home-assistant", "beszel-native"]
 
 [workspace.package]
 version = "0.1.0"

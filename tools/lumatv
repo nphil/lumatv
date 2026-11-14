@@ -92,8 +92,9 @@ CAPTURE_SOCKET="$STATE/ambient.sock"
 # The picture decoder (jpeg/service.c), started by the helper from $JPEG_BIN, where `jpeg_stage` puts it.
 JPEG_SRC="$APPDIR/payload/jpeg/lumatv-jpeg"
 JPEG_BIN="$STATE/bin/lumatv-jpeg"
-# Beszel's agent and the `nvtop` that hands it the GPU's samples (payload/beszel/), which the helper runs from $BESZEL_BIN while the
-# Beszel plugin is on; `beszel_stage` puts them there.
+# Beszel's agents (the built-in `beszel-native`, and Beszel's own `beszel-agent` for a hub newer than it, with the `nvtop` that hands
+# it the GPU's samples) in payload/beszel/, which the helper runs from $BESZEL_BIN while the Beszel plugin is on; `beszel_stage` puts
+# them there.
 BESZEL_SRC="$APPDIR/payload/beszel"
 BESZEL_BIN="$STATE/bin/beszel"
 # The art saver's video-plane player (vplane/, payload/vplane/vplane.sh): a 32-bit program that puts the saver's clips on the video
@@ -1833,11 +1834,11 @@ jpeg_stage() {
     || { rm -f "$JPEG_BIN.new"; log_line "jpeg: could not stage the decoder"; return 1; }
 }
 
-# Beszel's agent beside the helper, as the decoder is. Not fatal: the plugin's page says the agent is not installed.
+# Beszel's agents beside the helper, as the decoder is. Not fatal: the plugin's page says the agent is not installed.
 beszel_stage() {
   [ -x "$BESZEL_SRC/beszel-agent" ] || return 0   # a package built before it existed
   mkdir -p "$BESZEL_BIN" 2>/dev/null || { log_line "beszel: could not stage the agent"; return 1; }
-  for f in beszel-agent nvtop; do
+  for f in beszel-native beszel-agent nvtop; do
     cmp -s "$BESZEL_SRC/$f" "$BESZEL_BIN/$f" 2>/dev/null && continue
     cp -f "$BESZEL_SRC/$f" "$BESZEL_BIN/$f.new" 2>/dev/null && chmod 755 "$BESZEL_BIN/$f.new" \
       && mv -f "$BESZEL_BIN/$f.new" "$BESZEL_BIN/$f" 2>/dev/null \

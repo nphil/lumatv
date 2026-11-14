@@ -1,17 +1,19 @@
 //! Beszel: the TV as a system of a Beszel hub (beszel.dev), as a plugin of the helper's own that asks first (`plugins/local.rs`'s
 //! `OptIn`).
 //!
-//! **The hub's own agent.** While the plugin is on, the helper runs `beszel-agent` (Beszel's release for linux arm64, which `lumatv`
-//! stages from the payload into `bin/beszel`) as a user of its own, confined as a plugin's program is (`plugins/runner.rs`). The agent
-//! dials the hub at the page's address with the TV's token and answers only to the page's key; it listens on no port. Off, the agent
-//! is stopped and nothing is read for it.
+//! **The agent.** While the plugin is on, the helper runs `beszel-native` (the helper's own agent, `helper/beszel-native`) as a user
+//! of its own, confined as a plugin's program is (`plugins/runner.rs`). The agent dials the hub at the page's address with the TV's
+//! token and answers only to the page's key; it listens on no port. When it exits with [`NEWER_HUB`] (the hub's protocol has moved
+//! past it), Beszel's release for linux arm64 (`beszel-agent`) runs instead with the same settings, until the plugin is switched off
+//! and on again or the helper restarts. `lumatv` stages both from the payload into `bin/beszel`. Off, the agent is stopped and
+//! nothing is read for it.
 //!
 //! **What the agent cannot read as itself** the helper lays out under `/run/lumatv-beszel` every 10 s:
 //! - the SoC temperature (`/proc/lg/pm/temperature`, whole degrees) as the hwmon sensor `soc`, the only sensor the agent is shown
 //!   (`SYS_SENSORS`);
 //! - the Mali GPU's load since the last look (busy and idle time, in debugfs, which only root reads) and the memory its contexts hold,
-//!   as one sample of `nvtop -lP`, which the payload's `nvtop` hands the agent (`GPU_COLLECTOR=nvtop`). The GPU has no memory of its
-//!   own, so its total is the TV's.
+//!   as one sample of `nvtop -lP`: `beszel-native` reads it as it is (`GPU_SAMPLE_FILE`), and the payload's `nvtop` hands it to
+//!   Beszel's agent (`GPU_COLLECTOR=nvtop`). The GPU has no memory of its own, so its total is the TV's.
 //!
 //! **The token** is a secret field: kept in `beszel/token` (mode 0600) and given only to the agent, in its environment.
 
@@ -64,6 +66,10 @@ const LAST_PAUSE: Duration = Duration::from_secs(60);
 /// The longest the thread sleeps while the plugin is off.
 const LONGEST_SLEEP: Duration = Duration::from_secs(3600);
 const NEEDS: &str = "Needs the hub's address, key and token (Add System in Beszel)";
+/// `beszel-native`'s exit status for a hub it cannot serve.
+const NEWER_HUB: i32 = 76;
+/// The status's ending while Beszel's own agent runs in its place.
+const OFFICIAL: &str = " (official agent: the hub is newer than the built-in agent)";
 /// The agent's words for a connection that failed or ended (`connection_manager.go`, `client.go`).
 const LOST: [&str; 4] = [
     "Disconnected from hub",
@@ -74,7 +80,7 @@ const LOST: [&str; 4] = [
 
 /// Where the plugin finds and puts things: the TV's ([`Files::tv`]) or a test's.
 struct Files {
-    /// `beszel-agent` and the `nvtop` that answers it.
+    /// `beszel-native`, and `beszel-agent` with the `nvtop` that answers it.
     bin: PathBuf,
     /// The token and the agent's data directory.
     dir: PathBuf,
@@ -297,6 +303,8 @@ enum Event {
     Token,
     /// A line of the agent's log.
     Said(String),
+    /// The agent's log ended: it has exited.
+    Ended,
     Stop,
 }
 
@@ -328,6 +336,7 @@ fn spawn_with(ctx: &Ctx, shared: Arc<Shared>, files: Files) -> std::io::Result<J
         due: now,
         failures: 0,
         connected: false,
+        official: false,
         problem: None,
         logged: String::new(),
         next_look: now,
@@ -365,6 +374,8 @@ struct Plugin {
     /// How many times in a row the agent stopped or could not be started.
     failures: u32,
     connected: bool,
+    /// Whether Beszel's own agent runs, `beszel-native` having found the hub newer than itself.
+    official: bool,
     /// Why the agent is not connected: its last word on it, or why it stopped or could not be started.
     problem: Option<String>,
     /// What the helper's log was told last: the agent says the same every few seconds while the hub is away.
@@ -398,6 +409,7 @@ impl Plugin {
                 }
                 Ok(Event::Token) => self.restart(),
                 Ok(Event::Said(line)) => self.hear(&line),
+                Ok(Event::Ended) => {}
                 Err(RecvTimeoutError::Timeout) => {}
             }
             if self.ctx.stop.is_set() {
@@ -453,6 +465,7 @@ impl Plugin {
             self.next_look = now;
             self.due = now;
             self.failures = 0;
+            self.official = false;
         } else {
             self.halt();
             self.gpu.last = None;
@@ -511,15 +524,23 @@ impl Plugin {
             let agent = self.agent.take().map(|a| a.id());
             // what it started (the `nvtop` that answers it)
             sweep(agent);
-            let pause = self.pause();
-            crate::log_warn!(
-                "beszel: the agent stopped ({status}); starting it again in {} s",
-                pause.as_secs()
-            );
             self.connected = false;
-            self.problem
-                .get_or_insert_with(|| format!("the agent stopped ({status})"));
-            self.due = now + pause;
+            if status.code() == Some(NEWER_HUB) && !self.official {
+                crate::log_warn!("beszel: the hub is newer than the built-in agent; Beszel's own agent runs instead");
+                self.official = true;
+                self.problem = None;
+                self.failures = 0;
+                self.due = now;
+            } else {
+                let pause = self.pause();
+                crate::log_warn!(
+                    "beszel: the agent stopped ({status}); starting it again in {} s",
+                    pause.as_secs()
+                );
+                self.problem
+                    .get_or_insert_with(|| format!("the agent stopped ({status})"));
+                self.due = now + pause;
+            }
         }
         if self.agent.is_none() && now >= self.due && self.configured() {
             match self.start() {
@@ -550,7 +571,7 @@ impl Plugin {
     }
 
     fn start(&self) -> Result<Child, String> {
-        let program = self.files.bin.join("beszel-agent");
+        let program = self.files.bin.join(if self.official { "beszel-agent" } else { "beszel-native" });
         if !program.is_file() {
             return Err(format!("{} is not installed", program.display()));
         }
@@ -580,8 +601,6 @@ impl Plugin {
             .env("SKIP_SYSTEMD", "true")
             .env("LOG_LEVEL", "info")
             .env("SYS_SENSORS", self.files.run.join("sys"))
-            .env("GPU_COLLECTOR", "nvtop")
-            .env("LUMATV_GPU_SAMPLE", self.files.run.join("gpu"))
             .env("NICS", "eth0,wlan0")
             // `/` is the read-only system image: the TV's storage is `/media` (the apps) and `/var` (its data)
             .env("FILESYSTEM", "/media__Apps")
@@ -590,10 +609,17 @@ impl Plugin {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
+        let gpu = self.files.run.join("gpu");
+        if self.official {
+            command.env("GPU_COLLECTOR", "nvtop").env("LUMATV_GPU_SAMPLE", gpu);
+        } else {
+            command.env("GPU_SAMPLE_FILE", gpu);
+        }
         // no ceiling on its address space: Go reserves far more than it touches (1.27 GB seen on the TV for 12 MB resident)
         confine(&mut command, self.files.user, None);
         let mut child = command.spawn().map_err(|e| format!("{e}"))?;
         let log = child.stderr.take();
+        let pid = child.id();
         let tx = self.tx.clone();
         let reader = std::thread::Builder::new()
             .name("beszel-log".into())
@@ -603,9 +629,15 @@ impl Plugin {
                 for line in BufReader::new(log).lines() {
                     let Ok(line) = line else { break };
                     if tx.send(Event::Said(line)).is_err() {
-                        break;
+                        return;
                     }
                 }
+                // The log closes as the agent exits, a moment before the exit can be collected: waiting for that (without collecting
+                // it) lets the thread see the end now rather than at its next look, 10 s on.
+                // SAFETY: `info` is written by the call; WNOWAIT leaves the child to `Child::try_wait`.
+                let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+                unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) };
+                let _ = tx.send(Event::Ended);
             });
         if let Err(e) = reader {
             end(child, Duration::ZERO);
@@ -669,6 +701,7 @@ impl Plugin {
         } else {
             format!("Connecting to {}", host(&url))
         };
+        let status = if self.official && self.configured() { status + OFFICIAL } else { status };
         let mut facts = Map::new();
         facts.insert(
             "status".into(),
@@ -746,8 +779,12 @@ mod tests {
             .clone()
     }
 
-    /// A TV's sources, and an agent that notes what it was started with and says it connected.
-    fn files(dir: &Path) -> Files {
+    /// An agent that notes what it was started with and says it connected.
+    const CONNECTS: &str = "#!/bin/sh\nenv > \"$DATA_DIR/env\"\necho $$ > \"$DATA_DIR/pid\"\n\
+                            echo '2026/11/11 21:16:03 INFO WebSocket connected host=hub.test' >&2\nexec sleep 30\n";
+
+    /// A TV's sources, `beszel-native` as `native` has it, and a `beszel-agent` that connects.
+    fn files(dir: &Path, native: &str) -> Files {
         let tv = dir.join("tv");
         std::fs::create_dir_all(tv.join("mali")).unwrap();
         std::fs::write(tv.join("temperature"), "44\n").unwrap();
@@ -757,14 +794,11 @@ mod tests {
         std::fs::write(tv.join("meminfo"), "MemTotal:        1000 kB\n").unwrap();
         let bin = dir.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        let agent = bin.join("beszel-agent");
-        std::fs::write(
-            &agent,
-            "#!/bin/sh\nenv > \"$DATA_DIR/env\"\necho $$ > \"$DATA_DIR/pid\"\n\
-             echo '2026/11/11 21:16:03 INFO WebSocket connected host=hub.test' >&2\nexec sleep 30\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&agent, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for (name, script) in [("beszel-native", native), ("beszel-agent", CONNECTS)] {
+            let program = bin.join(name);
+            std::fs::write(&program, script).unwrap();
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         Files {
             bin,
             dir: dir.join("beszel"),
@@ -784,7 +818,7 @@ mod tests {
         let plugins = Plugins::new(&ctx);
         let threads = [
             plugins.spawn(&ctx).unwrap(),
-            spawn_with(&ctx, plugins.shared().clone(), files(dir.path())).unwrap(),
+            spawn_with(&ctx, plugins.shared().clone(), files(dir.path(), CONNECTS)).unwrap(),
         ];
         let approve = || plugins.shared().approval_of(ID);
         soon("offered, off", || approve().is_some());
@@ -794,18 +828,14 @@ mod tests {
         assert_eq!(std::fs::read_to_string(hwmon.join("name")).unwrap(), "soc\n");
         assert_eq!(std::fs::read_to_string(hwmon.join("temp1_input")).unwrap(), "44000\n");
 
-        let changes = serde_json::from_value(json!([
-            {"key": HUB_URL, "value": {"type": "text", "value": "https://hub.test/"}},
-            {"key": HUB_KEY, "value": {"type": "text", "value": "ssh-ed25519 AAAA"}}]))
-        .unwrap();
-        ctx.settings.apply(ID, changes, None).unwrap();
-        plugins.shared().submit_secret(ID, TOKEN, "tk-1").unwrap();
+        configure(&ctx, &plugins);
         soon("connected", || facts(&ctx)["status"] == "Connected to hub.test");
         assert_eq!(facts(&ctx)["hub-token"], "Kept on this TV");
         let data = dir.path().join("beszel/data");
         let env = std::fs::read_to_string(data.join("env")).unwrap();
         let sensors = format!("SYS_SENSORS={}", dir.path().join("run/sys").display());
-        for want in ["HUB_URL=https://hub.test/", "KEY=ssh-ed25519 AAAA", "TOKEN=tk-1", "DISABLE_SSH=true", "GPU_COLLECTOR=nvtop", &sensors] {
+        let gpu = format!("GPU_SAMPLE_FILE={}", dir.path().join("run/gpu").display());
+        for want in ["HUB_URL=https://hub.test/", "KEY=ssh-ed25519 AAAA", "TOKEN=tk-1", "DISABLE_SSH=true", &sensors, &gpu] {
             assert!(env.lines().any(|l| l == want), "{want}: {env}");
         }
 
@@ -814,6 +844,48 @@ mod tests {
         // SAFETY: signal 0 only asks whether the process exists.
         soon("the agent ends", || unsafe { libc::kill(pid, 0) } != 0);
         soon("nothing laid out", || !dir.path().join("run").exists());
+        ctx.stop.request();
+        for t in threads {
+            t.join().unwrap();
+        }
+    }
+
+    /// Gives the page the hub's address and key, and the token.
+    fn configure(ctx: &Ctx, plugins: &Plugins) {
+        let changes = serde_json::from_value(json!([
+            {"key": HUB_URL, "value": {"type": "text", "value": "https://hub.test/"}},
+            {"key": HUB_KEY, "value": {"type": "text", "value": "ssh-ed25519 AAAA"}}]))
+        .unwrap();
+        ctx.settings.apply(ID, changes, None).unwrap();
+        plugins.shared().submit_secret(ID, TOKEN, "tk-1").unwrap();
+    }
+
+    #[test]
+    fn a_hub_newer_than_the_built_in_agent_gets_beszels_own_until_switched_off_and_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        let plugins = Plugins::new(&ctx);
+        let newer = "#!/bin/sh\necho started >> \"$DATA_DIR/native\"\nexit 76\n";
+        let threads = [
+            plugins.spawn(&ctx).unwrap(),
+            spawn_with(&ctx, plugins.shared().clone(), files(dir.path(), newer)).unwrap(),
+        ];
+        let approve = || plugins.shared().approval_of(ID);
+        soon("offered, off", || approve().is_some());
+        plugins.switch(ID, true, approve().as_deref()).unwrap();
+        soon("its page", || facts(&ctx)["status"] == NEEDS);
+        configure(&ctx, &plugins);
+        soon("connected", || facts(&ctx)["status"] == format!("Connected to hub.test{OFFICIAL}"));
+        let data = dir.path().join("beszel/data");
+        let env = std::fs::read_to_string(data.join("env")).unwrap();
+        assert!(env.lines().any(|l| l == "GPU_COLLECTOR=nvtop"), "{env}");
+
+        let starts = || std::fs::read_to_string(data.join("native")).unwrap_or_default().lines().count();
+        assert_eq!(starts(), 1);
+        plugins.switch(ID, false, None).unwrap();
+        soon("off", || !dir.path().join("run").exists());
+        plugins.switch(ID, true, approve().as_deref()).unwrap();
+        soon("the built-in agent first again", || starts() == 2);
         ctx.stop.request();
         for t in threads {
             t.join().unwrap();
