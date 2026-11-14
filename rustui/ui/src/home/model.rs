@@ -1081,9 +1081,10 @@ impl Home {
         self.covered
     }
 
-    /// Whether the GPU wallpaper stands still.
+    /// Whether the GPU wallpaper stands still: something is over Home, or the screen is off (a moving Silk kept the compositor
+    /// drawing ten full frames a second through standby, 2026-11-14).
     pub fn wallpaper_held(&self) -> bool {
-        self.calm
+        self.calm || !self.screen_on
     }
 
     fn camera_stills_visible(&self) -> bool {
@@ -1258,7 +1259,11 @@ impl Home {
                 if on && !self.screen_on && self.picker.picker_on_wake && self.active && self.layer == Layer::None {
                     self.open_picker(out);
                 }
-                self.screen_on = on;
+                if on != self.screen_on {
+                    self.screen_on = on;
+                    // the wallpaper is held or let go in Home's next drawing (`wallpaper_held`)
+                    self.redraw(out);
+                }
             }
             // the Home key while Home is in front: with nothing open on Home and the switcher on offer (the compositor says so), the app switcher
             "homekey" => {
@@ -3576,6 +3581,17 @@ mod tests {
         assert!(!h.set_calm(true), "the same again changes nothing, so no frame is asked for");
         assert!(h.set_calm(false));
         assert!(h.weather_art_runs() && !h.wallpaper_held(), "back to Home alone");
+    }
+
+    #[test]
+    fn the_wallpaper_stands_still_while_the_screen_is_off_and_moves_again_when_it_comes_on() {
+        let mut h = home();
+        let off = h.update(&Input::Topic { topic: "screen".into(), data: json!({"on": false}) }, 2000);
+        assert!(h.wallpaper_held() && off.contains(&Effect::Redraw), "standby: Home is drawn once more, held");
+        let again = h.update(&Input::Topic { topic: "screen".into(), data: json!({"on": false}) }, 2100);
+        assert!(!again.contains(&Effect::Redraw), "the same state again asks for nothing");
+        let on = h.update(&Input::Topic { topic: "screen".into(), data: json!({"on": true}) }, 2200);
+        assert!(!h.wallpaper_held() && on.contains(&Effect::Redraw), "awake: the wallpaper goes on");
     }
 
     #[test]

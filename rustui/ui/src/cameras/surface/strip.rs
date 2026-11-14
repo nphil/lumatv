@@ -656,7 +656,9 @@ mod tests {
     }
 
     fn open(text_scale: f32) -> App {
-        let mut a = App::new(Config { text_scale, ..Config::default() });
+        // a fixed zone: the axis's labels (and whether they fit side by side at 200 %) are the same on every host
+        let clock = crate::cameras::words::Clock { twelve_hour: true, zone: crate::cameras::words::Zone::UTC };
+        let mut a = App::new(Config { text_scale, clock, ..Config::default() });
         a.update(&Input::Helper { topic: "cameras".into(), data: json!({"state": "ready", "cameras": [camera()]}) }, T0);
         a.open_full("273", T0);
         a.update(

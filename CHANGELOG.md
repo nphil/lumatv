@@ -11,6 +11,8 @@ A Home Assistant gateway plugin (Settings › System › Home Assistant gateway,
 
 With LG's extras off, declutter's boot hook restarts LG's shared JavaScript host when it still holds one of the six services after its first pass or after its last: LG starts them as their activities fire, before the hook has cancelled them all.
 
+Home's moving Silk wallpaper stands still while the screen is off. It had kept the compositor drawing ten full frames a second through standby.
+
 A Beszel plugin (Settings › System › Beszel, off by default) makes the TV a system of a Beszel hub. The helper runs Beszel's own agent (0.21.1, linux arm64, shipped in the package) only while the plugin is on, with the hub address, key and token from the hub's Add System; the token is kept on the TV. The hub shows the TV's CPU, memory, swap, storage (Apps and Data), Ethernet and Wi-Fi, the SoC temperature and the Mali GPU's load and memory, which the helper reads as root and hands to the agent. The agent used 0.03% of one core and 11-13 MB of memory on the TV.
 
 The Beszel plugin runs a built-in agent written in Rust (`beszel-native`), which sends the hub the same data as Beszel's own. Against a 0.21.2 hub on a PC, over 180 s of the hub's live view, it used 0.14 s of CPU and 2.2 MB of memory, against 0.41 s and 13.2 MB for Beszel's agent. When a hub's protocol moves past it, the helper runs Beszel's agent, which still ships in the package, until the plugin is switched off and on again.
