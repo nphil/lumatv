@@ -170,6 +170,12 @@ class FakeSet(unittest.TestCase):
         for name in ("brand.sh", "compositor.sh"):
             shutil.copy(os.path.join(ROOT, "tools", name), os.path.join(app, "tools", name))
         shutil.copy(os.path.join(ROOT, "brand.json"), os.path.join(app, "brand.json"))
+        # The sysbus repair's tool as a marker file: `on` and `off` set and clear it, each call is logged.
+        write(os.path.join(app, "tools", "sysbus.sh"), '''#!/bin/sh
+echo "sysbus $*" >> "$FAKE/calls"
+case "$1" in on) : > "$FAKE/sysbus-enabled" ;; off) rm -f "$FAKE/sysbus-enabled" ;; esac
+''', 0o755)
+        self.sysbus_marker = os.path.join(d, "sysbus-enabled")
         cli = read(os.path.join(ROOT, "tools", "lumatv"))
         cli = cli.replace('STATE="$BRAND_DATA_DIR"', 'STATE="$FAKE/data"')
         cli = cli.replace('/proc/mounts', '"$FAKE/mounts"')
@@ -478,6 +484,30 @@ class Enable(FakeSet):
         rc, out = self.cutover("enable", "--forever")
         self.assertEqual(rc, 1)
         self.assertIn("enable [--session [--max-minutes N]]", out)
+
+    def test_disable_and_enable_leave_the_sysbus_repair_as_the_owner_set_it(self):
+        marker = self.sysbus_marker
+        self.assertEqual(self.cutover("install")[0], 0)
+        for owner_set in (True, False):
+            with self.subTest(enabled=owner_set):
+                if owner_set: write(marker, "")
+                elif os.path.exists(marker): os.remove(marker)
+                self.assertEqual(self.cutover("enable", "--session")[0], 0)
+                self.assertEqual(self.cutover("disable")[0], 0)
+                self.assertEqual(self.cutover("enable", "--session")[0], 0)
+                self.assertEqual(self.cutover("disable")[0], 0)
+                self.assertEqual(os.path.exists(marker), owner_set)
+        self.assertNotIn("sysbus off", self.calls())
+
+    def test_revert_returns_to_lgs_ui_and_takes_the_sysbus_repair_off(self):
+        marker = self.sysbus_marker
+        write(marker, "")
+        self.assertEqual(self.cutover("enable", "--session")[0], 0)
+        rc, out = self.cutover("revert")
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(self.mounted())
+        self.assertFalse(os.path.exists(marker))
+        self.assertIn("sysbus off", self.calls())
 
     def test_disable_removes_the_flag_and_the_unsettled_marker_and_restores_lgs(self):
         self.cutover("enable", "--session")

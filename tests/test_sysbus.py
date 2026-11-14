@@ -186,6 +186,16 @@ class SysbusTool(unittest.TestCase):
         status = self.run_tool("status")[1]
         self.assertEqual((status["enabled"], status["launcher"]), (False, "stock"))
 
+    def test_on_after_off_lays_the_module_again_into_the_empty_state_directory(self):
+        self.run_tool("on")
+        self.run_tool("off")
+        self.assertEqual(list(self.sb.iterdir()), [])
+        self.assertEqual(self.run_tool("status")[1]["moduleOk"], False)
+        code, out = self.run_tool("on")
+        self.assertEqual((code, out), (0, {"ok": True, "sysbus": "bound"}))
+        status = self.run_tool("status")[1]
+        self.assertEqual((status["enabled"], status["launcher"], status["moduleOk"]), (True, "ours", True))
+
     def test_off_with_nothing_to_undo_leaves_no_trace(self):
         code, out = self.run_tool("off")
         self.assertEqual((code, out), (0, {"ok": True, "sysbus": "off", "was": "stock"}))

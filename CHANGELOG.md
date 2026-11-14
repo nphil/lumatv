@@ -17,7 +17,7 @@ The native Home stub no longer covers an app opened just after SAM restarted it.
 
 On an HDMI input LG's own input pill no longer shows beside LumaTV's. LG draws it into the input's own window about 0.6 s after the switch, and only Live TV's window was blanked for the stand-in banner; the pill's place is now blanked on whichever input is in front, where LG's banner setting puts it, for the first 6.5 s, and given back when the input leaves, the screen sleeps or the owner's banners go off. Live TV's claim, with its Guide chip and channel keys, is unchanged.
 
-An optional `lumatv sysbus` repair gives LG’s shared JavaScript service host a private Luna binding that forwards dead-connection errors and keeps timer units in milliseconds. Only the known webOS 10.2.1 files are accepted; `off` restores the original launcher.
+An optional `lumatv sysbus` repair gives LG’s shared JavaScript service host a private Luna binding that forwards dead-connection errors and keeps timer units in milliseconds. Only the known webOS 10.2.1 files are accepted; `off` restores the original launcher. A compositor `disable` (install and test cutovers) no longer switches the repair off; only the escape's stock-UI restoration and `cutover.sh revert` do.
 
 Settings now controls LG Channels and its background preload, while preserving the original preload policy when re-enabled.
 
