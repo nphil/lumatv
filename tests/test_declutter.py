@@ -802,6 +802,47 @@ class LgExtras(unittest.TestCase):
         g = self.status()
         self.assertEqual((g["on"], g["activities"]), (False, {n: "unsatisfied" if n in self.HELD else "absent" for n in self.names}))
 
+    def boot_worker(self, *held):
+        """The boot worker with instant waits, LG's bus holding `held` in the JavaScript host beside the gateway (and a name that only
+        looks like one of the six); the host restarts it asked for."""
+        rows = ["com.webos.service.secondscreen.gateway"] + list(held)
+        lines = ["HUB CLIENTS:", "PID       \tSERVICE NAME                  \tEXE                                \tTYPE    \tUNIQUE NAME"]
+        lines += ["3460      \t%-30s\t/usr/bin/node                      \tdynamic \tX%d" % (n, i) for i, n in enumerate(rows)]
+        lines.append("4891      \tcom.webos.keyfilter.magicnumber\t/usr/bin/surface-manager           \tstatic  \tY")
+        monitor = os.path.join(self.fake.bin, "ls-monitor")
+        write(monitor, "#!/bin/sh\ncat <<'EOF'\n%s\nEOF\n" % "\n".join(lines))
+        os.chmod(monitor, 0o755)
+        restarts = os.path.join(self.fake.bin, "restarts")
+        restart = os.path.join(self.fake.bin, "sysbus.sh")
+        write(restart, '#!/bin/sh\necho "$*" >> "%s"\n' % restarts)
+        os.chmod(restart, 0o755)
+        self.boot()
+        rc, out, err = self.fake.run("--boot-worker", env={"DECLUTTER_PAUSE": "true", "DECLUTTER_HOST_RESTART": restart})
+        self.assertEqual(rc, 0, err)
+        with open(restarts) if os.path.exists(restarts) else open(os.devnull) as f:
+            return f.read()
+
+    def log(self):
+        with open(self.fake.path("var/lib/lumatv/declutter/log")) as f:
+            return f.read()
+
+    def test_a_boot_restarts_the_host_once_when_it_holds_any_of_the_six(self):
+        self.fake.run("on", "--group", "lgextras")
+        self.assertEqual(self.boot_worker("com.webos.service.homeconnect", "com.webos.app.igallery.preview"), "restart\n")
+        self.assertIn("boot: LG's JavaScript host holds com.webos.service.homeconnect com.webos.app.igallery.preview; restarting it once",
+                      self.log())
+        self.assertIn("boot: JavaScript host restarted", self.log())
+        self.assertEqual(self.held(), [self.OTHER], "the boot passes cancelled the activities")
+
+    def test_a_boot_leaves_the_host_alone_when_it_holds_none_of_the_six(self):
+        self.fake.run("on", "--group", "lgextras")
+        self.assertEqual(self.boot_worker(), "")
+        self.assertNotIn("restarting", self.log())
+
+    def test_a_boot_leaves_the_host_alone_while_the_extras_are_on(self):
+        self.assertEqual(self.boot_worker("com.webos.service.billing"), "")
+        self.assertNotIn("restarting", self.log())
+
 
 if __name__ == "__main__":
     unittest.main()

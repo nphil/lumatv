@@ -87,6 +87,10 @@ DRY="${DECLUTTER_DRY:-0}"
 # stand-in `mount` writes and shorten the second.
 MOUNTS="${DECLUTTER_MOUNTS:-/proc/self/mounts}"
 SETTLE_STEP="${DECLUTTER_SETTLE_STEP:-15}"
+# The boot worker's waits and what restarts LG's JavaScript host (sysbus.sh's `restart`, which starts it again and checks the new
+# process); the host tests make the first instant and record the second.
+PAUSE="${DECLUTTER_PAUSE:-sleep}"
+HOST_RESTART="${DECLUTTER_HOST_RESTART:-$APPDIR/tools/sysbus.sh}"
 
 # Units this tool must never stop, whatever items.txt says.
 DENY="sam.service webapp-mgr.service surface-manager.service surface-manager-daemon.service
@@ -877,17 +881,39 @@ boot_settled() {
     timeout 10 luna-send -n 1 luna://com.webos.service.tvpower/power/getPowerState '{}' 2>/dev/null | grep -q '"returnValue"[^,]*true'
 }
 
+# The services `lgextras` keeps from starting, named by their activities (an activity is its service's name and one more part).
+extras_services() {
+  awk -F'|' '$1 == "activity" && $2 == "lgextras" { s = $3; sub(/\.[^.]*$/, "", s); print s }' "$ITEMS" | sort -u
+}
+
+# LG's JavaScript host loads the six `lgextras` services about 17 s into a boot, before the first pass cancels their activities, and
+# a loaded one keeps the host resident until the next boot. One restart sends them away; with their activities gone nothing loads them
+# again, and the host starts again only when something calls one of its services.
+extras_evict() {
+  group_active lgextras || return 0
+  ee_held=$(timeout 10 ls-monitor -l 2>/dev/null | awk -v list="$(extras_services | tr '\n' ' ')" '
+    BEGIN { n = split(list, a, " "); for (i = 1; i <= n; i++) want[a[i]] = 1 }
+    ($2 in want) && !seen[$2]++ { printf "%s ", $2 }')
+  [ -n "$ee_held" ] || return 0
+  log_line "boot: LG's JavaScript host holds ${ee_held% }; restarting it once"
+  ee_out=$(timeout 60 "$HOST_RESTART" restart </dev/null 2>&1) \
+    && log_line "boot: JavaScript host restarted" \
+    || log_line "boot: JavaScript host restart failed: $(printf '%s' "$ee_out" | tr '\n' ' ' | cut -c1-200)"
+}
+
 boot_worker() {
   # Re-applies every group that is on. Units that LG starts after this point
   # are masked before they start; the ones that came up first are stopped, and
   # two more passes later in the boot catch what a dependency or a retry started.
-  # The marker covers only the first pass: if the set answers 15 s after it,
-  # whatever this tool did has not broken the boot, and the marker goes.
+  # The marker covers only the first pass and the host restart after it: if the
+  # set answers 15 s after them, whatever this tool did has not broken the boot,
+  # and the marker goes.
   boot_pass
   log_line "boot: first pass done"
+  extras_evict
   n=0
   while [ "$n" -lt 12 ]; do
-    sleep 15
+    $PAUSE 15
     if boot_settled; then
       rm -f "$BOOT_PENDING"
       log_line "boot: settled"
@@ -897,7 +923,7 @@ boot_worker() {
   done
   [ -f "$BOOT_PENDING" ] && log_line "boot: the set did not settle; the next boot skips declutter once"
   for wait_s in 5 25; do
-    sleep "$wait_s"
+    $PAUSE "$wait_s"
     boot_pass
   done
   log_line "boot: later passes done"

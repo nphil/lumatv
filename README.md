@@ -100,7 +100,7 @@ the interruption marker and root-private rollback copies remain until reviewed r
 
 ### LG extras
 
-`lumatv lgextras off` keeps six of the services in LG’s shared JavaScript host from starting on their own: the Home Dashboard agent, store billing, the Gallery+ and Quick card previews of LG’s Home, Sports Alert and Magic Number. It cancels the activities that start them at boot and when the internet comes up, and declutter’s boot hook (its opt group `lgextras`) cancels them again after every boot, because LG loads them anew each time; LG’s files stay untouched. A service still starts when something calls it.
+`lumatv lgextras off` keeps six of the services in LG’s shared JavaScript host from starting on their own: the Home Dashboard agent, store billing, the Gallery+ and Quick card previews of LG’s Home, Sports Alert and Magic Number. It cancels the activities that start them at boot and when the internet comes up, and declutter’s boot hook (its opt group `lgextras`) cancels them again after every boot, because LG loads them anew each time; LG’s files stay untouched. LG starts them before the hook runs, so the hook then restarts the host once (`tools/sysbus.sh restart`) when it still holds one of them. A service still starts when something calls it.
 
 `lumatv lgextras on` stops that and creates the cancelled activities again from LG’s files. `lumatv lgextras status` shows the choice, whether the boot hook is armed and each activity’s state (`absent` once cancelled). Installs, compositor cutovers, `cutover.sh revert` and the escape leave the choice as set. `docs/research/jshost/watch.py` records when the host starts, what started it and how long it stays.
 
