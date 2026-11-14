@@ -21,7 +21,7 @@ use crate::config::Paths;
 use crate::ctx::Ctx;
 use crate::plugins::firstparty::clip;
 use crate::plugins::local::{Handler, Local, OptIn, Spec};
-use crate::plugins::runner::{confine, end, sweep};
+use crate::plugins::runner::{confine, sweep};
 use crate::plugins::session::{MAX_FACT_LINE, Shared};
 use parking_lot::Mutex;
 use plugin_api::wire::ToPlugin;
@@ -30,7 +30,7 @@ use settings_schema::{Value as Setting, Values};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
@@ -321,27 +321,7 @@ fn spawn_with(ctx: &Ctx, shared: Arc<Shared>, files: Files) -> std::io::Result<J
             let _ = tx.send(Event::Stop);
         });
     }
-    let now = Instant::now();
-    let mut plugin = Plugin {
-        ctx: ctx.clone(),
-        shared: shared.clone(),
-        tx: tx.clone(),
-        token: Arc::new(Token::open(files.dir.join("token"))),
-        gpu: Gpu::read(&files),
-        files,
-        page: None,
-        on: false,
-        values: Values::new(),
-        agent: None,
-        due: now,
-        failures: 0,
-        connected: false,
-        official: false,
-        problem: None,
-        logged: String::new(),
-        next_look: now,
-        said: Json::Null,
-    };
+    let mut plugin = Plugin::new(ctx, shared.clone(), files, tx.clone());
     shared.offer(
         &OPT_IN,
         Arc::new(move || {
@@ -387,6 +367,30 @@ struct Plugin {
 }
 
 impl Plugin {
+    fn new(ctx: &Ctx, shared: Arc<Shared>, files: Files, tx: Sender<Event>) -> Self {
+        let now = Instant::now();
+        Self {
+            ctx: ctx.clone(),
+            shared,
+            tx,
+            token: Arc::new(Token::open(files.dir.join("token"))),
+            gpu: Gpu::read(&files),
+            files,
+            page: None,
+            on: false,
+            values: Values::new(),
+            agent: None,
+            due: now,
+            failures: 0,
+            connected: false,
+            official: false,
+            problem: None,
+            logged: String::new(),
+            next_look: now,
+            said: Json::Null,
+        }
+    }
+
     /// After a panic: follows the switch from scratch, the agent being as the panic left it.
     fn follow_afresh(&mut self) {
         self.on = !self.shared.switched_on(ID);
@@ -494,10 +498,23 @@ impl Plugin {
 
     fn halt(&mut self) {
         if let Some(agent) = self.agent.take() {
-            end(agent, GRACE);
+            // It may have exited already (a settings change right behind its start): its status is the only word of a newer hub.
+            if let Some(status) = stop(agent, GRACE) {
+                self.newer_hub(status);
+            }
         }
         self.connected = false;
         self.problem = None;
+    }
+
+    /// Switches to Beszel's own agent when the built-in one exited saying the hub is newer than itself.
+    fn newer_hub(&mut self, status: ExitStatus) -> bool {
+        let newer = status.code() == Some(NEWER_HUB) && !self.official;
+        if newer {
+            crate::log_warn!("beszel: the hub is newer than the built-in agent; Beszel's own agent runs instead");
+            self.official = true;
+        }
+        newer
     }
 
     /// The pause before the next start, longer each time in a row.
@@ -525,9 +542,7 @@ impl Plugin {
             // what it started (the `nvtop` that answers it)
             sweep(agent);
             self.connected = false;
-            if status.code() == Some(NEWER_HUB) && !self.official {
-                crate::log_warn!("beszel: the hub is newer than the built-in agent; Beszel's own agent runs instead");
-                self.official = true;
+            if self.newer_hub(status) {
                 self.problem = None;
                 self.failures = 0;
                 self.due = now;
@@ -640,7 +655,7 @@ impl Plugin {
                 let _ = tx.send(Event::Ended);
             });
         if let Err(e) = reader {
-            end(child, Duration::ZERO);
+            stop(child, Duration::ZERO);
             return Err(format!("its log: {e}"));
         }
         Ok(child)
@@ -714,6 +729,26 @@ impl Plugin {
     }
 }
 
+/// Asks the agent to finish (SIGTERM), ends it and what it started when `grace` is up, and returns how it exited: unlike
+/// `runner::end`, which drops that.
+fn stop(mut child: Child, grace: Duration) -> Option<ExitStatus> {
+    if let Ok(pid) = libc::pid_t::try_from(child.id()) {
+        // SAFETY: a signal to a process of ours.
+        unsafe { libc::kill(pid, libc::SIGTERM) };
+    }
+    let end = Instant::now() + grace;
+    while Instant::now() < end {
+        if let Ok(Some(status)) = child.try_wait() {
+            sweep(Some(child.id()));
+            return Some(status);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    sweep(Some(child.id()));
+    let _ = child.kill();
+    child.wait().ok()
+}
+
 /// Takes what the base says to the thread: the page's values, and the token (kept here, at once, and answered).
 fn handler(tx: Sender<Event>, token: Arc<Token>) -> Handler {
     Arc::new(move |local: &Local, message: ToPlugin| match message {
@@ -749,6 +784,7 @@ mod tests {
     use crate::hub::Hub;
     use crate::plugins::Plugins;
     use crate::settings::SettingsStore;
+    use settings_schema::Key;
 
     fn ctx(dir: &Path) -> Ctx {
         let hub = Arc::new(Hub::new(1));
@@ -890,6 +926,27 @@ mod tests {
         for t in threads {
             t.join().unwrap();
         }
+    }
+
+    /// A settings change can land after the built-in agent has exited 76 and before the thread has looked: stopping it must not drop
+    /// the status, or the built-in agent is started again and exits 76 again.
+    #[test]
+    fn the_newer_hub_status_survives_a_restart_that_finds_the_agent_already_exited() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        let shared = Plugins::new(&ctx).shared().clone();
+        let files = files(dir.path(), "#!/bin/sh\nexit 76\n");
+        std::fs::create_dir_all(&files.dir).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let mut plugin = Plugin::new(&ctx, shared, files, tx);
+        plugin.values.insert(Key::new(HUB_URL).unwrap(), Setting::Text("https://hub.test/".into()));
+        plugin.values.insert(Key::new(HUB_KEY).unwrap(), Setting::Text("ssh-ed25519 AAAA".into()));
+        plugin.token.put("tk-1").unwrap();
+        plugin.agent = Some(plugin.start().unwrap());
+        // the log's end is sent once the exit can be collected, and the thread has not looked yet
+        while !matches!(rx.recv().unwrap(), Event::Ended) {}
+        plugin.restart();
+        assert!(plugin.official);
     }
 
     #[test]
