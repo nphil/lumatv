@@ -22,10 +22,11 @@
 #                          workstation dies does not leave the set on LumaTV's compositor. A trial's timer is its SECS
 #                          plus 5 minutes, for the evidence and the revert.
 #   cutover.sh disable     unmount, restart LG's compositor, bring Home back; the enabled flag is removed; the timer
-#                          is cancelled. The sysbus repair (lumatv sysbus) is left as the owner set it.
+#                          is cancelled. The sysbus repair (lumatv sysbus) and the Rust gateway on port 3001 (lumatv
+#                          ssgw) are left as the owner set them.
 #   cutover.sh status      what is live now, and the timer
-#   cutover.sh revert      disable, and take the sysbus repair off too (a return to LG's UI, not a step of an install);
-#                          the timer is cancelled
+#   cutover.sh revert      disable, and take the sysbus repair and the Rust gateway off too (a return to LG's UI, not a
+#                          step of an install); the timer is cancelled
 #   cutover.sh firmware check    hash LG's binary and libraries and say whether this build is on verified.list (exit 0/5)
 #   cutover.sh firmware record   print the verified.list entry for this build, for the gate to add once it has passed
 #   cutover.sh boot-check  what the boot hook would decide now (JSON), changing nothing
@@ -276,9 +277,10 @@ disable)
     ;;
 revert)
     # `disable` is what installs run in between; only this verb is a real return to LG's UI, which takes the repaired unified-server
-    # launcher back with it (the escape's recovery does the same through `lumatv stock-ui-restore`).
+    # launcher and the Rust gateway back with it (the escape's recovery does the same through `lumatv stock-ui-restore`).
     revert; rc=$?
     "$LUMATV_TOOL" sysbus off || rc=1
+    "$LUMATV_TOOL" ssgw off || rc=1
     exit $rc
     ;;
 safety-run)

@@ -104,6 +104,10 @@ the interruption marker and root-private rollback copies remain until reviewed r
 
 `lumatv lgextras on` stops that and creates the cancelled activities again from LG’s files. `lumatv lgextras status` shows the choice, whether the boot hook is armed and each activity’s state (`absent` once cancelled). Installs, compositor cutovers, `cutover.sh revert` and the escape leave the choice as set. `docs/research/jshost/watch.py` records when the host starts, what started it and how long it stays.
 
+### Home Assistant gateway
+
+The plugin `ssgw` (Settings › System › Home Assistant gateway, off by default) serves Home Assistant's LG integration on port 3001 with LumaTV's Rust gateway; every connection it does not take goes to LG's gateway. `lumatv ssgw status` shows xinetd's entry (`stock`, `ours` or `foreign`), the boot hook and the installed programs. `lumatv ssgw off` switches the plugin off and gives the port back to LG's entry, with or without the helper; the escape's stock-UI restoration and `cutover.sh revert` run it. Details: `docs/plugins/ssgw.md`.
+
 ### Standby
 
 `lumatv wake on` stages an experimental, opt-in policy to restore the last

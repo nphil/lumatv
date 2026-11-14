@@ -93,6 +93,11 @@ if [ "$1" = "--worker" ]; then
   if [ -x "$APPDIR/tools/sysbus.sh" ]; then
     ( maintenance_clear || exit 0; sb=$(timeout 20 "$APPDIR/tools/sysbus.sh" early </dev/null 2>&1); log "sysbus early: $(echo "$sb" | tr -d '\n' | cut -c1-300)" ) &
   fi
+  # The second-screen gateway on port 3001 (tools/ssgw.sh): binds xinetd's entry for the Rust gateway again when its plugin switched it
+  # on, since a boot puts LG's back. Until the helper starts the gateway, ssgw-accept hands every connection to LG's. Bounded.
+  if [ -x "$APPDIR/tools/ssgw.sh" ]; then
+    ( maintenance_clear || exit 0; sg=$(timeout 20 "$APPDIR/tools/ssgw.sh" early </dev/null 2>&1); log "ssgw early: $(echo "$sg" | tr -d '\n' | cut -c1-300)" ) &
+  fi
   # The logo check's frames (tools/bootcap.sh): `echo <seconds> > $STATE/bootcap` before a reboot.
   # One boot only, and detached like everything else here.
   if [ -f "$STATE/bootcap" ] && [ -x "$APPDIR/tools/bootcap.sh" ]; then

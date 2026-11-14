@@ -176,6 +176,12 @@ echo "sysbus $*" >> "$FAKE/calls"
 case "$1" in on) : > "$FAKE/sysbus-enabled" ;; off) rm -f "$FAKE/sysbus-enabled" ;; esac
 ''', 0o755)
         self.sysbus_marker = os.path.join(d, "sysbus-enabled")
+        # The Rust gateway's entry tool the same way: only `cutover.sh revert` takes the gateway off.
+        write(os.path.join(app, "tools", "ssgw.sh"), '''#!/bin/sh
+echo "ssgw $*" >> "$FAKE/calls"
+case "$1" in on) : > "$FAKE/ssgw-enabled" ;; off) rm -f "$FAKE/ssgw-enabled" ;; esac
+''', 0o755)
+        self.ssgw_marker = os.path.join(d, "ssgw-enabled")
         # declutter's groups (lgextras among them) are the owner's choice: install, cutover and revert never call the tool.
         write(os.path.join(app, "tools", "declutter.sh"), '#!/bin/sh\necho "declutter $*" >> "$FAKE/calls"\n', 0o755)
         cli = read(os.path.join(ROOT, "tools", "lumatv"))
@@ -487,30 +493,34 @@ class Enable(FakeSet):
         self.assertEqual(rc, 1)
         self.assertIn("enable [--session [--max-minutes N]]", out)
 
-    def test_disable_and_enable_leave_the_sysbus_repair_as_the_owner_set_it(self):
-        marker = self.sysbus_marker
+    def test_disable_and_enable_leave_the_sysbus_repair_and_the_gateway_as_the_owner_set_them(self):
+        markers = (self.sysbus_marker, self.ssgw_marker)
         self.assertEqual(self.cutover("install")[0], 0)
         for owner_set in (True, False):
             with self.subTest(enabled=owner_set):
-                if owner_set: write(marker, "")
-                elif os.path.exists(marker): os.remove(marker)
+                for marker in markers:
+                    if owner_set: write(marker, "")
+                    elif os.path.exists(marker): os.remove(marker)
                 self.assertEqual(self.cutover("enable", "--session")[0], 0)
                 self.assertEqual(self.cutover("disable")[0], 0)
                 self.assertEqual(self.cutover("enable", "--session")[0], 0)
                 self.assertEqual(self.cutover("disable")[0], 0)
-                self.assertEqual(os.path.exists(marker), owner_set)
+                for marker in markers:
+                    self.assertEqual(os.path.exists(marker), owner_set)
         self.assertNotIn("sysbus off", self.calls())
-        self.assertEqual([c for c in self.calls() if c.startswith("declutter")], [])
+        self.assertEqual([c for c in self.calls() if c.startswith(("declutter", "ssgw"))], [])
 
-    def test_revert_returns_to_lgs_ui_and_takes_the_sysbus_repair_off(self):
-        marker = self.sysbus_marker
-        write(marker, "")
+    def test_revert_returns_to_lgs_ui_and_takes_the_sysbus_repair_and_the_gateway_off(self):
+        for marker in (self.sysbus_marker, self.ssgw_marker):
+            write(marker, "")
         self.assertEqual(self.cutover("enable", "--session")[0], 0)
         rc, out = self.cutover("revert")
         self.assertEqual(rc, 0, out)
         self.assertFalse(self.mounted())
-        self.assertFalse(os.path.exists(marker))
+        self.assertFalse(os.path.exists(self.sysbus_marker))
+        self.assertFalse(os.path.exists(self.ssgw_marker))
         self.assertIn("sysbus off", self.calls())
+        self.assertIn("ssgw off", self.calls())
         self.assertEqual([c for c in self.calls() if c.startswith("declutter")], [])
 
     def test_disable_removes_the_flag_and_the_unsettled_marker_and_restores_lgs(self):
@@ -584,6 +594,7 @@ esac
 ''', 0o755)
         self.list_this_build()
         self.cutover("install")
+        write(self.ssgw_marker, "")
         for args in ((), ("--session",)):
             rc, out = self.cutover("enable", *args, timeout=30)
             self.assertEqual(rc, 9, out)
@@ -594,6 +605,9 @@ esac
             self.assertFalse(os.path.exists(self.st("enabled")), args)
             self.assertFalse(self.mounted())
             self.assertEqual(json.loads(self.cutover("boot-check")[1])["decision"], "held")
+        # LG's compositor taking the screen back is not a return to LG's gateway.
+        self.assertTrue(os.path.exists(self.ssgw_marker))
+        self.assertEqual([c for c in self.calls() if c.startswith("ssgw")], [])
 
 
 class SafetyTimer(FakeSet):

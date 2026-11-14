@@ -132,7 +132,7 @@ esac
         selected = "\n".join(function(source, name) for name in
                              ("take_mutation_lock", "hs_stage_dir", "hs_kind_mounted", "hs_mounted_ours", "hs_unmount", "hs_native_stop", "home_running",
                               "stock_ui_unmount_overlay", "stock_ui_luna_ok", "stock_ui_restore_env",
-                              "stock_ui_restore", "verb_stock_ui_restore", "clear_stock_running",
+                              "stock_ui_restore", "verb_stock_ui_restore", "clear_stock_running", "ssgw_release",
                               "verb_compositor", "bd_enabled", "bd_api", "bd_manual_stub"))
         compositor = (ROOT / "tools/compositor.sh").read_text()
         selected += "\n" + "\n".join(function(compositor, name) for name in
@@ -142,7 +142,7 @@ esac
         # The real functions run; platform boundaries are confined to this fixture.
         harness = '''#!/bin/sh
 set -u
-STATE="$FAKE/state"; COMP="$STATE/compositor"; LOCKFILE="$STATE/mutate.lock"; APPDIR="$FAKE/app"
+STATE="$FAKE/state"; COMP="$STATE/compositor"; LOCKFILE="$STATE/mutate.lock"; APPDIR="$FAKE/app"; HELPER_BIN="$FAKE/helper"
 set -- "${FIXTURE_VERB:-stock-ui-restore}" "${FIXTURE_ARG:-off}"
 VERB=$1; MAINTENANCE_ACCESS=read; LOCK_WAIT=3; COMP_LG="$FAKE/supervisor"
 AUTOSTART_LINK="$FAKE/autostart/link"; AUTOSTART_SRC="$FAKE/autostart-source"
@@ -342,43 +342,55 @@ emit_error() { printf '{"ok":false,"error":"%s"}\\n' "$1"; }
         self.assertNotIn(VOICE, self.mounts.read_text())
         self.assertEqual(self.prefs.read_bytes(), before)
 
-    def test_the_restore_takes_the_launcher_repair_off_and_an_unfinished_off_is_incomplete(self):
-        tool = self.tmp / "app/tools/sysbus.sh"
-        tool.parent.mkdir(parents=True)
-        tool.write_text('#!/bin/sh\necho "sysbus $*" >> "$FAKE/calls"\n[ "${FAIL_SYSBUS:-0}" != 1 ]\n')
-        tool.chmod(0o755)
+    def lg_tools(self):
+        """The launcher repair's and the Rust gateway's tools and the helper's CLI, each logging its call; FAIL_<NAME>=1 fails one."""
+        for name, line in (("app/tools/sysbus.sh", "sysbus"), ("app/tools/ssgw.sh", "ssgw"), ("helper", "helper")):
+            tool = self.tmp / name
+            tool.parent.mkdir(parents=True, exist_ok=True)
+            tool.write_text('#!/bin/sh\necho "%s $*" >> "$FAKE/calls"\n[ "${FAIL_%s:-0}" != 1 ]\n' % (line, line.upper()))
+            tool.chmod(0o755)
+
+    def released(self):
+        """The calls that give port 3001 back to LG's gateway, in order."""
+        return [c for c in self.calls_list() if c.startswith(("ssgw", "helper"))]
+
+    def test_the_restore_takes_the_launcher_repair_and_the_gateway_off_and_an_unfinished_off_is_incomplete(self):
+        self.lg_tools()
         result = self.restore()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("sysbus off", self.calls_list())
-        self.calls.write_text("")
-        result = self.restore(FAIL_SYSBUS="1")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(json.loads(result.stdout)["ok"])
-        self.assertIn("sysbus off", self.calls_list())
-        self.assertIn("mode lg", self.calls_list(), "and the rest of the restore goes on")
+        brand = self.tmp / "app/brand.json"
+        # the plugin first, so the helper cannot bind LumaTV's entry again after the tool took it off
+        self.assertEqual(self.released(), ["helper plugin-disable --id ssgw --brand %s" % brand, "ssgw off"])
+        for failing in ("FAIL_SYSBUS", "FAIL_SSGW", "FAIL_HELPER"):
+            with self.subTest(failing=failing):
+                self.calls.write_text("")
+                result = self.restore(**{failing: "1"})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(json.loads(result.stdout)["ok"])
+                self.assertIn("sysbus off", self.calls_list())
+                self.assertIn("ssgw off", self.calls_list())
+                self.assertIn("mode lg", self.calls_list(), "and the rest of the restore goes on")
 
-    def test_the_tools_own_recovery_keeps_the_launcher_repair_and_the_escapes_takes_it_back(self):
-        tool = self.tmp / "app/tools/sysbus.sh"
-        tool.parent.mkdir(parents=True)
-        tool.write_text('#!/bin/sh\necho "sysbus $*" >> "$FAKE/calls"\n')
-        tool.chmod(0o755)
+    def test_the_tools_own_recovery_keeps_the_launcher_repair_and_the_gateway_and_the_escapes_takes_them_back(self):
+        self.lg_tools()
         result = self.restore(FIXTURE_ARG="keep-sysbus")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("mode lg", self.calls_list(), "the rest of the restore ran")
         self.assertNotIn("sysbus off", self.calls_list())
+        self.assertEqual(self.released(), [])
         result = self.restore(FIXTURE_ARG="")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("sysbus off", self.calls_list())
+        self.assertIn("ssgw off", self.calls_list())
 
-    def test_compositor_off_leaves_the_launcher_repair_as_the_owner_set_it(self):
-        tool = self.tmp / "app/tools/sysbus.sh"
-        tool.parent.mkdir(parents=True)
-        tool.write_text('#!/bin/sh\necho "sysbus $*" >> "$FAKE/calls"\n')
-        tool.chmod(0o755)
+    def test_compositor_off_leaves_the_launcher_repair_and_the_gateway_as_the_owner_set_them(self):
+        self.lg_tools()
         result = self.restore(FIXTURE_VERB="compositor")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("restart stock", self.calls_list())
         self.assertNotIn("sysbus off", self.calls_list())
+        self.assertEqual(self.released(), [])
 
     def test_requires_hold_and_unmounted_supervisor_before_cleanup(self):
         for held, mounted in ((False, False), (True, True)):

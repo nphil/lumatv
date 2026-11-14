@@ -372,6 +372,11 @@ impl Service {
             "beszel",
             crate::beszel::spawn(&ctx, plugins.shared().clone())?,
         ));
+        // The Home Assistant gateway: port 3001 stays LG's until the owner switches it on.
+        threads.push((
+            "ssgw",
+            crate::ssgw::spawn(&ctx, plugins.shared().clone(), voice_policy.unwrap_or(ha_link::AddressPolicy::HOME))?,
+        ));
 
         let privacy = crate::privacy::new(&ctx);
         threads.push(("privacy", crate::privacy::spawn(&ctx, privacy.clone())?));

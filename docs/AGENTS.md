@@ -105,6 +105,10 @@ With `denon-receiver` on and the receiver as the TV's sound output, the helper k
 
 `beszel` (docs in `plugins/beszel.md`) runs Beszel's released agent from `bin/beszel` as uid 19999 while on. The agent's version must match the hub's: bump `VERSION` and `SHA256` in `beszel/fetch-agent.sh` with the hub. Its fingerprint (`beszel/data/fingerprint`) is the TV's identity in the hub; keep it across reinstalls.
 
+## Home Assistant gateway
+
+`ssgw` (docs in `plugins/ssgw.md`, engine crate `helper/ssgw`) runs the Rust gateway for port 3001 as uid 19998 while on, behind xinetd's entry as `tools/ssgw.sh` binds it; `ssgw-accept` hands every connection the gateway does not take to LG's `nsl`. Crash records are in `/var/lib/lumatv/ssgw/crash/` (`latest` names the newest). `lumatv ssgw off` is the escape: it switches the plugin off and gives the port back to LG's entry without the helper.
+
 ## Test events
 
 `POST /v1/cameras/event` fires a test pop-up only with `cameras.testEvents` in `/var/lib/lumatv/helper.json`; otherwise it answers 403 `test_events_off`. Tests that turn it on must put `helper.json` back as found, restart the helper (`tools/lumatv helper stop`, `helper start`), clear the pop-up (`POST /v1/cameras/popup/clear`) and confirm a test event is refused. Leaving it on makes pop-ups appear unprompted and spoils the next frame-gate run.

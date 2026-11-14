@@ -2068,6 +2068,32 @@ verb_sysbus() {
   esac
 }
 
+# LG's gateway back on port 3001 for good: the plugin `ssgw` is switched off first, so the helper cannot bind LumaTV's entry again, then
+# tools/ssgw.sh takes LG's entry back whether or not the helper is running. The escape's stock-UI restoration and `cutover.sh revert`
+# run it. Installs, cutovers and the gateway's crashes leave the entry: ssgw-accept hands every connection the Rust gateway does not take
+# to LG's.
+ssgw_release() {
+  sr_failed=0
+  if [ -x "$HELPER_BIN" ]; then
+    timeout 10 "$HELPER_BIN" plugin-disable --id ssgw --brand "$APPDIR/brand.json" </dev/null >/dev/null 2>&1 || sr_failed=1
+  fi
+  if [ -x "$APPDIR/tools/ssgw.sh" ]; then
+    SSGW_LOCK_WAIT=15 timeout 20 "$APPDIR/tools/ssgw.sh" off </dev/null >/dev/null 2>&1 || sr_failed=1
+  fi
+  return "$sr_failed"
+}
+
+# The Rust gateway on port 3001 (tools/ssgw.sh). It is switched on only as the helper's plugin `ssgw`, which runs it; `off` is the
+# owner's way back to LG's gateway from a shell.
+verb_ssgw() {
+  [ "$#" -gt 0 ] || set -- status
+  case "$1" in
+    status) "$APPDIR/tools/ssgw.sh" status ;;
+    off) if ssgw_release; then printf '{"ok":true,"ssgw":"off"}\n'; else emit_error "ssgw: LG's gateway could not be fully restored; see lumatv log"; return 1; fi ;;
+    *) emit_error "usage: ssgw off | status"; return 1 ;;
+  esac
+}
+
 # LG's extras in the shared JavaScript service host: declutter's opt group `lgextras` (payload/declutter/items.txt). `off` cancels the
 # activities that start them and arms declutter's boot hook, which cancels them again at every boot; `on` gives them back. Only this
 # verb or declutter.sh changes the choice: installs, cutovers and revert leave it as the owner set it. The group being on means the
@@ -2771,12 +2797,16 @@ stock_ui_restore() {
   for su_app in $(webglass_apps); do
     stock_ui_unmount_overlay "/usr/palm/applications/$su_app" "$WEBGLASS_STAGE/$su_app/upper" || su_failed=1
   done
-  # The repaired unified-server launcher is owned by this tool, but it is independent of the compositor: only the escape and recovery
-  # (verb_stock_ui_restore, which asks for it) and `cutover.sh revert` take it back, so that a set returned to LG's UI is not left with the
-  # repair. `compositor off` (what `cutover.sh disable` runs between an install and its checks) and a failed `compositor on` leave the
-  # owner's choice as it is. `off` drops the boot marker first, so a reboot cannot lay it again whatever else happens.
-  if [ "${1:-}" = release-sysbus ] && [ -x "$APPDIR/tools/sysbus.sh" ]; then
-    SYSBUS_LOCK_WAIT=15 timeout 20 "$APPDIR/tools/sysbus.sh" off </dev/null >/dev/null 2>&1 || su_failed=1
+  # The repaired unified-server launcher and the Rust gateway on port 3001 are owned by this tool, but they are independent of the
+  # compositor: only the escape and recovery (verb_stock_ui_restore, which asks for it) and `cutover.sh revert` take them back, so that a
+  # set returned to LG's UI is left with neither. `compositor off` (what `cutover.sh disable` runs between an install and its checks) and
+  # a failed `compositor on` leave the owner's choices as they are. Each `off` drops its boot marker first, so a reboot cannot lay it
+  # again whatever else happens.
+  if [ "${1:-}" = release-sysbus ]; then
+    if [ -x "$APPDIR/tools/sysbus.sh" ]; then
+      SYSBUS_LOCK_WAIT=15 timeout 20 "$APPDIR/tools/sysbus.sh" off </dev/null >/dev/null 2>&1 || su_failed=1
+    fi
+    ssgw_release || su_failed=1
   fi
   stock_ui_restore_env || su_failed=1
   timeout 5 python3 "$KEYFILTER_TOOL" remove "$KEYFILTER_HANDLER" "$KEYFILTER_DIR/$SHORT_ID.js" </dev/null >/dev/null 2>&1 || su_failed=1
@@ -2797,7 +2827,8 @@ stock_ui_restore() {
 verb_stock_ui_restore() {
   LOCK_WAIT=3
   take_mutation_lock || { emit_error "stock UI restore could not acquire mutation lock"; return 1; }
-  # `keep-sysbus`: the restore of the tool's own `compositor off` (recover-home.sh), which is not a return to LG's UI by the owner.
+  # `keep-sysbus`: the restore of the tool's own `compositor off` (recover-home.sh), which is not a return to LG's UI by the owner: the
+  # launcher repair and the Rust gateway stay.
   if [ "${1:-}" = keep-sysbus ]; then stock_ui_restore; else stock_ui_restore release-sysbus; fi
 }
 
@@ -3464,9 +3495,9 @@ case "$VERB:${2:-}" in
   lgextras:status|lgextras:) MAINTENANCE_ACCESS=read ;;
   status:|surfaces:|version:|log:*|theme:get|theme:|layout:get|layout:|layout:check|compositor:check|stock-ui-restore:|stock-ui-restore:keep-sysbus)
     MAINTENANCE_ACCESS=read ;;
-  helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:|sysbus:status|sysbus:)
+  helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:|sysbus:status|sysbus:|ssgw:status|ssgw:)
     MAINTENANCE_ACCESS=read ;;
-  revert:|persist:off|compositor:off|homestub:escape|homestub:off|helper:stop|capture:stop|vplane:stop|sysbus:off)
+  revert:|persist:off|compositor:off|homestub:escape|homestub:off|helper:stop|capture:stop|vplane:stop|sysbus:off|ssgw:off)
     MAINTENANCE_ACCESS=emergency ;;
 esac
 maintenance_guard || exit 1
@@ -3626,6 +3657,7 @@ case "$VERB" in
   layout) verb_layout "${2:-get}" "${3:-}"; exit $? ;;
   updateblock) verb_updateblock "${2:-status}"; exit $? ;;
   sysbus) shift; verb_sysbus "$@"; exit $? ;;
+  ssgw) shift; verb_ssgw "$@"; exit $? ;;
   lgextras) verb_lgextras "${2:-status}"; exit $? ;;
   openapps) verb_openapps "${2:-status}"; exit $? ;;
   standbyscreen) verb_standbyscreen "${2:-status}"; exit $? ;;

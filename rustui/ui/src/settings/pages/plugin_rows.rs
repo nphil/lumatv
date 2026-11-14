@@ -80,19 +80,23 @@ pub fn head(label: &str, help: &str, tab: usize) -> Row {
     if help.is_empty() { Row::head(label, tab) } else { Row::info(&format!("help:{label}")).tab(tab).label(label).help(help) }
 }
 
-/// The rows of one field on `tab`; the page's own kinds (a field it draws its own way) are not here.
+/// The rows of one field on `tab`; the page's own kinds (a field it draws its own way) are not here. A field shown only while the plugin
+/// has published a line (`visible_when`: `capability-present`) hides with all its rows until it has.
 pub fn field_rows(c: &Ctx, plugin: Plugin, tab: usize, f: &Value, icon: &str) -> Vec<Row> {
+    let rows = kind_rows(c, plugin, tab, f, icon);
+    let shown = f.pointer("/visible_when/type").and_then(Value::as_str) != Some("capability-present")
+        || f.pointer("/visible_when/capability").and_then(Value::as_str).is_some_and(|k| fact(c, plugin, k).is_some());
+    if shown { rows } else { rows.into_iter().map(|r| r.visible(false)).collect() }
+}
+
+fn kind_rows(c: &Ctx, plugin: Plugin, tab: usize, f: &Value, icon: &str) -> Vec<Row> {
     let (key, label, help) = (text(f, "key"), text(f, "label"), text(f, "help"));
     let kind = &f["kind"];
     let ours = Field::new(plugin.id, key, tab, icon, label).help(help);
     match text(kind, "type") {
         "read-only" => {
             let cap = kind.pointer("/value/capability").and_then(Value::as_str);
-            let mut r = Row::info(key).tab(tab).icon(icon).label(label).value(&cap.and_then(|k| fact(c, plugin, k)).unwrap_or_default());
-            if f.pointer("/visible_when/type").and_then(Value::as_str) == Some("capability-present") {
-                r = r.visible(f.pointer("/visible_when/capability").and_then(Value::as_str).is_some_and(|k| fact(c, plugin, k).is_some()));
-            }
-            vec![r]
+            vec![Row::info(key).tab(tab).icon(icon).label(label).value(&cap.and_then(|k| fact(c, plugin, k)).unwrap_or_default())]
         }
         "bool" => vec![toggle(c, ours)],
         "integer" => {

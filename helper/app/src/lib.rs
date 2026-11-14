@@ -102,6 +102,7 @@ pub mod saver;
 pub mod scrypted;
 pub mod service;
 pub mod settings;
+pub mod ssgw;
 pub mod sys;
 pub mod timeutil;
 pub mod tuner;

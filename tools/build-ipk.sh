@@ -60,6 +60,7 @@ tools/logrelay.py
 tools/declutter.sh
 tools/sysbus.sh
 tools/sysbus_fix.py
+tools/ssgw.sh
 payload/declutter/items.txt
 payload/declutter/groups.txt
 payload/declutter/dc.py
@@ -348,6 +349,8 @@ cp tools/declutter.sh "$DATA_ROOT/tools/"
 chmod 755 "$DATA_ROOT/tools/declutter.sh"
 cp tools/sysbus.sh tools/sysbus_fix.py "$DATA_ROOT/tools/"
 chmod 755 "$DATA_ROOT/tools/sysbus.sh"
+cp tools/ssgw.sh "$DATA_ROOT/tools/"
+chmod 755 "$DATA_ROOT/tools/ssgw.sh"
 mkdir -p "$DATA_ROOT/payload/helper"
 cp helper/dist/lumatv-helper "$DATA_ROOT/payload/helper/"
 chmod 755 "$DATA_ROOT/payload/helper/lumatv-helper"

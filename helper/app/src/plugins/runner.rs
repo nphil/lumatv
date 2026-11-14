@@ -376,10 +376,15 @@ impl Runner {
 /// Confines a program the helper starts as a plugin's is: a session of its own, below the shell and the compositor, ceilings on files,
 /// processes and file size (and on the address space, when one is given), no core dumps, the user and group `ids` (when the helper is
 /// root), no new privileges, the termination signals unblocked, and SIGTERM when the helper dies.
+pub(crate) fn confine(command: &mut Command, ids: Option<(u32, u32)>, address_space: Option<u64>) {
+    confine_files(command, ids, address_space, 64);
+}
+
+/// [`confine`] with a ceiling of `files` open files in place of a plugin's 64, for a program that holds many connections at once.
 // The resource limits' constants are the C library's type (unsigned on glibc, `int` on musl, which is the TV's): the casts below say
 // one type for both.
 #[allow(clippy::unnecessary_cast)]
-pub(crate) fn confine(command: &mut Command, ids: Option<(u32, u32)>, address_space: Option<u64>) {
+pub(crate) fn confine_files(command: &mut Command, ids: Option<(u32, u32)>, address_space: Option<u64>, files: u64) {
     // SAFETY: only async-signal-safe calls (libc system calls on plain integers) run between fork and exec.
     unsafe {
         command.pre_exec(move || {
@@ -392,7 +397,7 @@ pub(crate) fn confine(command: &mut Command, ids: Option<(u32, u32)>, address_sp
             if let Some(bytes) = address_space {
                 set_limit(libc::RLIMIT_AS as u32, bytes);
             }
-            set_limit(libc::RLIMIT_NOFILE as u32, 64);
+            set_limit(libc::RLIMIT_NOFILE as u32, files);
             set_limit(libc::RLIMIT_CORE as u32, 0);
             set_limit(libc::RLIMIT_FSIZE as u32, MIB);
             set_limit(libc::RLIMIT_NPROC as u32, 64);

@@ -38,6 +38,7 @@ pub const FIRST_PARTY_IDS: &[&str] = &[
     "denon-receiver",
     "phone-remote",
     "beszel",
+    "ssgw",
 ];
 
 /// What a first-party plugin is, in the words of a manifest.

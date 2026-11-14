@@ -32,6 +32,7 @@ pub mod receiver;
 pub mod remote;
 pub mod saver;
 pub mod sound;
+pub mod ssgw;
 pub mod support;
 pub mod system;
 pub mod themes;
@@ -80,6 +81,7 @@ pub fn all() -> Vec<Page> {
         about::page(),
         logging::page(),
         beszel::page(),
+        ssgw::page(),
         support::page(),
         support::delete_data(),
         support::permissions(),
