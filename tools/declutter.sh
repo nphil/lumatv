@@ -886,9 +886,10 @@ extras_services() {
   awk -F'|' '$1 == "activity" && $2 == "lgextras" { s = $3; sub(/\.[^.]*$/, "", s); print s }' "$ITEMS" | sort -u
 }
 
-# LG's JavaScript host loads the six `lgextras` services about 17 s into a boot, before the first pass cancels their activities, and
-# a loaded one keeps the host resident until the next boot. One restart sends them away; with their activities gone nothing loads them
-# again, and the host starts again only when something calls one of its services.
+# LG's JavaScript host loads the six `lgextras` services during a boot, as their activities fire: about 17 s in on one boot, after the
+# first pass at 34 s on another (68 s, 2026-11-14), and a loaded one keeps the host resident until the next boot. One restart sends
+# them away; with their activities gone nothing loads them again, and the host starts again only when something calls one of its
+# services. So the check runs after the first pass and again after the last.
 extras_evict() {
   group_active lgextras || return 0
   ee_held=$(timeout 10 ls-monitor -l 2>/dev/null | awk -v list="$(extras_services | tr '\n' ' ')" '
@@ -927,6 +928,7 @@ boot_worker() {
     boot_pass
   done
   log_line "boot: later passes done"
+  extras_evict
   return 0
 }
 
