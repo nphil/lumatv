@@ -892,10 +892,14 @@ extras_services() {
 # services. So the check runs after the first pass and again after the last.
 extras_evict() {
   group_active lgextras || return 0
-  ee_held=$(timeout 10 ls-monitor -l 2>/dev/null | awk -v list="$(extras_services | tr '\n' ' ')" '
+  ee_list=$(timeout 10 ls-monitor -l 2>&1)
+  ee_held=$(printf '%s\n' "$ee_list" | awk -v list="$(extras_services | tr '\n' ' ')" '
     BEGIN { n = split(list, a, " "); for (i = 1; i <= n; i++) want[a[i]] = 1 }
     ($2 in want) && !seen[$2]++ { printf "%s ", $2 }')
-  [ -n "$ee_held" ] || return 0
+  if [ -z "$ee_held" ]; then
+    log_line "boot: LG's JavaScript host holds none of the six ($(printf '%s\n' "$ee_list" | awk 'END { print NR }') bus rows, first: $(printf '%s\n' "$ee_list" | awk 'NR == 1' | cut -c1-120))"
+    return 0
+  fi
   log_line "boot: LG's JavaScript host holds ${ee_held% }; restarting it once"
   ee_out=$(timeout 60 "$HOST_RESTART" restart </dev/null 2>&1) \
     && log_line "boot: JavaScript host restarted" \
