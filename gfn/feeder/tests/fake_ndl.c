@@ -5,6 +5,8 @@
  *
  * FAKE_NDL_FAIL=dlinit|init|load|state     that step fails
  * FAKE_NDL_FAIL=opus                       a load that asks for Opus audio fails (the library on the set may refuse it); PCM loads
+ * FAKE_NDL_FAIL=opus-once                the first load that asks for Opus audio fails, later ones are taken
+ * FAKE_NDL_REFUSE_PCM=1                    a load that asks for PCM audio fails (as the starfish pipeline's does: gf_smp.c)
  * FAKE_NDL_AUDIO_DUMP=FILE                 the bytes of every NDL_DirectAudioPlay are appended to FILE (the PCM the feeder decoded)
  * FAKE_NDL_VIDEO_DUMP=FILE                 the bytes of every NDL_DirectVideoPlay the library took are appended to FILE (the access units the feeder gave it)
  * FAKE_NDL_NO_PLAYING=1                    the pipeline loads but never says it is playing
@@ -143,6 +145,15 @@ int NDL_DirectMediaLoad(struct data_info *info, load_cb callback) {
     }
     if (env_is("FAKE_NDL_FAIL", "opus") && info->audio.type == 3) {
         snprintf(err, sizeof err, "audio type 3 (Opus) is not supported");
+        return -1;
+    }
+    static int opus_refused;
+    if (env_is("FAKE_NDL_FAIL", "opus-once") && info->audio.type == 3 && !opus_refused++) {
+        snprintf(err, sizeof err, "audio type 3 (Opus) is not supported");
+        return -1;
+    }
+    if (env_is("FAKE_NDL_REFUSE_PCM", "1") && info->audio.type == 1) {
+        snprintf(err, sizeof err, "audio type 1 (PCM) is not supported");
         return -1;
     }
     audio_type = info->audio.type;

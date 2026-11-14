@@ -127,7 +127,7 @@ struct feeder {
     unsigned ev_count[64];
     char last_video_info[200];
     /* audio: Opus packets pass to NDL as they are (audio_mode auto or opus). When NDL refuses that load, or --audio-mode pcm asks, they
-     * are decoded here (gf_opus.c) and fed as PCM; pcm_sticky keeps a refusal in mind for the loads after it. */
+     * are decoded here (gf_opus.c) and fed as PCM; pcm_sticky keeps in mind, for the loads after it, an Opus refusal that the PCM load then got past. */
     /* The texture path (GF_TEXTURE, --texture): the video is decoded here and painted into the window's buffers at tex_w x tex_h; `swdec_dir` is where
      * the decoder's libraries are (the `lib/` beside this program, or --swdec-lib). */
     int tex_w, tex_h, tex_on, tex_nice_was;
@@ -145,7 +145,7 @@ struct feeder {
     int audio_mode, pcm, pcm_sticky, audio_streak, audio_channels;
     const char *audio_route;    /* none, opus, pcm (decoded here), pcm-in (the engine sent PCM) */
     gf_opus *opus;
-    uint64_t decode_errors;
+    uint64_t decode_errors, video_refused;
     int16_t pcm_buf[GF_OPUS_MAX_FRAMES * 2];
 };
 
@@ -273,7 +273,9 @@ static void drain_events(struct feeder *f, void (*emit)(struct feeder *, int, lo
 
 /* ---- the feed ----------------------------------------------------------------------------------------------------------------- */
 
-/* 0 fed, 1 dropped after waiting on a full buffer, -1 not loaded. `wait_us` says how long it took. */
+enum { GF_FEED_REFUSED = 2 };
+
+/* 0 fed, 1 dropped after waiting on a full buffer, GF_FEED_REFUSED the pipeline refused it (not offered again), -1 not loaded. `wait_us` says how long it took. */
 static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_ns, int *queue, int *wait_us) {
     *queue = -1;
     *wait_us = 0;
@@ -291,7 +293,7 @@ static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_
     int rc, waited = 0;
     for (;;) {
         rc = f->ops->feed_video(f->pipe, u, (unsigned)n, pts);
-        if (rc == 0) break;
+        if (rc <= 0) break;                 /* gf_pipe.h: only 1 (full) is offered again; -1 is a refusal that waiting does not change */
         if (gf_ns() - t0 >= (int64_t)f->full_wait_ms * 1000000) break;
         waited = 1;
         usleep(500);
@@ -309,6 +311,11 @@ static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_
     }
     f->sec.dropped++;
     f->total_dropped++;
+    if (rc < 0) {
+        if (!f->video_refused++ || f->video_refused % 100 == 0)
+            gf_say("%s: a video unit was refused: %s; %llu so far", f->ops->name, f->ops->error(f->pipe), (unsigned long long)f->video_refused);
+        return GF_FEED_REFUSED;
+    }
     return 1;
 }
 
@@ -626,11 +633,11 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
         snprintf(refused, sizeof refused, "%s", err);
         gf_say("%s: %s: the library refused the Opus load; decoding Opus here and loading PCM", f->ops->name, err);
         pcm = 1;
-        f->pcm_sticky = 1;
     }
     if (pcm) {
         f->pcm = 1;
         f->audio_route = "pcm";
+        if (f->audio_mode == AUDIO_AUTO) f->pcm_sticky = 1;     /* only a PCM load the library took: the starfish pipeline refuses PCM, and a refusal kept would silence every later load */
     }
     f->audio_streak = 0;
     f->pipe_ready = 1;
@@ -1173,7 +1180,7 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         gf_say("loaded: codec %u %ux%u at %u fps, audio %u (%u ch, %u Hz) as %s, hdr %u, drop threshold %d, pts unit %d, window app %s, ndl app %s", l.codec, l.width,
                l.height, l.fps, l.audio, l.channels, l.sample_rate, f->audio_route, l.hdr, l.drop_threshold, l.pts_unit, f->app_id,
                f->ndl_app && f->ndl_app[0] ? f->ndl_app : f->app_id);
-        f->total_fed = f->total_dropped = f->total_afed = f->total_adropped = f->total_retries = 0;
+        f->total_fed = f->total_dropped = f->total_afed = f->total_adropped = f->total_retries = f->video_refused = 0;
         memset(&f->sec, 0, sizeof f->sec);
         f->sec.start_ns = gf_ns();
         send_text(c, GF_LOADED, 1, f->window_id);
@@ -1189,7 +1196,7 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
             gf_accept a = {h.pts_ns, q, w};
             push_out(c, GF_ACCEPT, &a, sizeof a, NULL, 0);
         } else {
-            gf_drop d = {h.pts_ns, res < 0 ? GF_DROP_NOT_LOADED : GF_DROP_FULL, 0};
+            gf_drop d = {h.pts_ns, res == GF_FEED_REFUSED ? GF_DROP_REFUSED : res < 0 ? GF_DROP_NOT_LOADED : GF_DROP_FULL, 0};
             push_out(c, GF_DROP, &d, sizeof d, NULL, 0);
         }
         return;

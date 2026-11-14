@@ -713,6 +713,39 @@ class Serve(unittest.TestCase):
             fc.close()
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_a_unit_the_pipeline_refuses_is_offered_once_and_reported_as_refused_not_full(self):
+        tmp = tempfile.mkdtemp(prefix="gfn-feeder-es-")
+        sock = os.path.join(tmp, "feed.sock")
+        smp_log = os.path.join(tmp, "smp.log")
+        fc = FakeCompositor()
+        env = dict(os.environ, **fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.path.join(tmp, "ndl.log"), FAKE_SMP_LOG=smp_log, FAKE_SMP_REFUSE="1")
+        err = open(os.path.join(tmp, "feeder.log"), "w")
+        proc = subprocess.Popen([BIN, "--serve", sock, "--once", "-L", NDL, "-w", "video", "--pipe", "es"], env=env, stderr=err, stdout=subprocess.DEVNULL)
+        try:
+            c = Client(sock)
+            self.assertEqual(c.recv()[0], GF["HELLO"])
+            c.load(codec=1, w=1920, h=1080, fps=25, audio=0, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+            for i in range(3):
+                c.send(GF["VIDEO"], MEDIA_HEAD.pack(1_000_000_000 + i * 40_000_000, 1 if i == 0 else 0) + bytes([0, 0, 0, 1, 0x65]) + bytes(60))
+            reasons = []
+            while len(reasons) < 3:
+                t, p = c.recv()
+                if t == GF["DROP"]:
+                    reasons.append(DROP.unpack_from(p)[1])
+            self.assertEqual(reasons, [3, 3, 3], "GF_DROP_REFUSED, not GF_DROP_FULL")
+            self.assertEqual(open(smp_log).read().count("Feed "), 3, "a refusal is not offered again")
+            c.close()
+            proc.wait(timeout=10)
+            self.assertEqual(proc.returncode, 0)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            err.close()
+            fc.close()
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_the_engine_names_the_app_the_decoder_is_opened_for_before_a_load_and_may_take_it_back(self):
         tmp = tempfile.mkdtemp(prefix="gfn-feeder-app-")
         sock = os.path.join(tmp, "feed.sock")
@@ -923,6 +956,37 @@ class PcmFallback(unittest.TestCase):
             self.assertIn("did not decode", r.err())
         finally:
             r.close()
+
+    def test_a_pcm_load_the_library_refuses_is_not_remembered_so_the_next_load_asks_for_opus_again(self):
+        """The starfish pipeline takes Opus or no audio, not PCM (gf_smp.c): one Opus refusal must not turn every later load PCM-first and silent."""
+        sock = os.path.join(self.tmp, "feed.sock")
+        env = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.path.join(self.tmp, "ndl.log"), FAKE_NDL_FAIL="opus-once", FAKE_NDL_VERBOSE="1",
+                   FAKE_NDL_REFUSE_PCM="1")
+        proc = subprocess.Popen([BIN, "--serve", sock, "--once", "--window-id", "_Window_Id_8", "-L", NDL], env=env, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        try:
+            c = Client(sock)
+            self.assertEqual(c.recv()[0], GF["HELLO"])
+            c.load()
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 0, "Opus and PCM both refused")
+            c.load()
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+            for i, pk in enumerate(self.packets[:10]):
+                c.send(GF["AUDIO"], MEDIA_HEAD.pack(1_000_000_000 + i * 20_000_000, 0) + pk)
+            c.send(GF["PING"], struct.pack("<q", 1))
+            c.until(GF["PONG"])
+            c.close()
+            proc.wait(timeout=10)
+            self.assertEqual(proc.returncode, 0)
+            log = open(os.path.join(self.tmp, "ndl.log")).read()
+            self.assertEqual(log.count("audio OPUS"), 2, "the second load asks for Opus again")
+            self.assertEqual(log.count("audio PCM S16LE"), 1)
+            self.assertEqual(log.count("AudioPlay #"), 10, "the Opus packets reached the library")
+            self.assertNotIn("VIOLATION", log)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
 
     def test_the_engine_socket_gets_the_fallback_and_later_loads_go_straight_to_pcm(self):
         sock = os.path.join(self.tmp, "feed.sock")

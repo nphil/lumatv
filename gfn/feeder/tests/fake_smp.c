@@ -1,6 +1,6 @@
 /* A stand-in for LG's libplayerAPIs.so.1 (the C++ class StarfishMediaAPIs, by its mangled names: gfn/feeder/src/gf_smp.c) for the host tests.
  * It logs every call to FAKE_SMP_LOG, keeps the load's payload, answers Feed with a C++11 std::string ("Ok", or "BufferFull" for the first
- * FAKE_SMP_FULL feeds), and delivers the events a real pipeline would (LOADCOMPLETED after the first picture of a load, PLAYING after Play,
+ * FAKE_SMP_FULL feeds; "Error" for every feed with FAKE_SMP_REFUSE=1), and delivers the events a real pipeline would (LOADCOMPLETED after the first picture of a load, PLAYING after Play,
  * UNLOADCOMPLETED) from a thread of its own, the way the library's callbacks come. The object the feeder constructs is its own zeroed storage; this
  * uses the first bytes of it. FAKE_SMP_FAIL=load refuses the load.
  * What the ES player is fed is held to what fake_ndl.c holds NDL's to: a video unit that is not whole (it opens with neither an Annex B start code
@@ -109,6 +109,7 @@ void _ZN17StarfishMediaAPIs4FeedB5cxx11EPKc(struct cxx_string *out, void *self, 
     struct smp *s = self;
     const char *reply = "Ok";
     if (!s->loaded) reply = "NotLoaded";
+    else if (getenv("FAKE_SMP_REFUSE")) reply = "Error";
     else if (s->full_left > 0) {
         s->full_left--;
         reply = "BufferFull";
