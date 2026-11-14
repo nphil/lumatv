@@ -97,6 +97,11 @@ JPEG_BIN="$STATE/bin/lumatv-jpeg"
 # them there.
 BESZEL_SRC="$APPDIR/payload/beszel"
 BESZEL_BIN="$STATE/bin/beszel"
+# The Rust gateway for port 3001 (helper/ssgw) in payload/ssgw/: `ssgw_stage` puts it in $SSGW_BIN, where tools/ssgw.sh's entry for
+# xinetd names ssgw-accept and the helper's plugin `ssgw` runs ssgw.
+SSGW_GATEWAY_SRC="$APPDIR/payload/ssgw/ssgw"
+SSGW_ACCEPT_SRC="$APPDIR/payload/ssgw/ssgw-accept"
+SSGW_BIN="$STATE/ssgw/bin"
 # The art saver's video-plane player (vplane/, payload/vplane/vplane.sh): a 32-bit program that puts the saver's clips on the video
 # plane; the saver asks it for a picture through $VPLANE_MAILBOX. Its LS2 role is a permission for a new program, so only the owner's
 # `lumatv vplane install` writes it. Apply starts a player that is installed, and revert removes it with the role.
@@ -1846,6 +1851,19 @@ beszel_stage() {
   done
 }
 
+# The Rust gateway beside the helper. Each program is replaced by a rename, so xinetd never starts a half-copied ssgw-accept and a
+# running gateway keeps its file (the plugin restarts it on the new one). Not fatal: the plugin's page says the gateway is not installed.
+ssgw_stage() {
+  [ -x "$SSGW_GATEWAY_SRC" ] && [ -x "$SSGW_ACCEPT_SRC" ] || return 0   # a package built before it existed
+  mkdir -p "$SSGW_BIN" 2>/dev/null || { log_line "ssgw: could not stage the gateway"; return 1; }
+  for f in "$SSGW_GATEWAY_SRC" "$SSGW_ACCEPT_SRC"; do
+    ss_to="$SSGW_BIN/${f##*/}"
+    cmp -s "$f" "$ss_to" 2>/dev/null && continue
+    cp -f "$f" "$ss_to.new" 2>/dev/null && chmod 755 "$ss_to.new" && mv -f "$ss_to.new" "$ss_to" 2>/dev/null \
+      || { rm -f "$ss_to.new"; log_line "ssgw: could not stage ${f##*/}"; return 1; }
+  done
+}
+
 helper_config_migrate() {
   python3 - "$STATE/helper.json" <<'PY'
 import fcntl
@@ -1992,6 +2010,7 @@ helper_start() {
   fi
   jpeg_stage || true
   beszel_stage || true
+  ssgw_stage || true
   out=$("$HELPER_BIN" start --brand "$APPDIR/brand.json" 2>&1)
   case "$out" in
     *'"ok":true'*) return 0 ;;
@@ -3512,7 +3531,7 @@ esac
 
 native_storage_guard() {
   storage_guard "$STATE" "$FONTS_SRC" "$AVATARS_SRC" "$THEME_SRC" "$WALL_SRC" \
-    "$HELPER_SRC" "$JPEG_SRC" "$BESZEL_SRC" "$CAPTURE_SRC" "$CAPTURE_ROLE" "$STATE/helper.json"
+    "$HELPER_SRC" "$JPEG_SRC" "$BESZEL_SRC" "$SSGW_GATEWAY_SRC" "$SSGW_ACCEPT_SRC" "$CAPTURE_SRC" "$CAPTURE_ROLE" "$STATE/helper.json"
 }
 case "$VERB:${2:-}" in
   compositor:on|compositor-boot:*)

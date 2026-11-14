@@ -1,0 +1,17 @@
+[package]
+name = "ssgw"
+description = "A second-screen (SSAP) gateway for LG webOS TVs: one thread, no runtime, wire-compatible with LG's gateway on port 3001"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+libc.workspace = true
+ring.workspace = true
+rustls.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
