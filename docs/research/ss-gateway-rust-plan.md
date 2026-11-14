@@ -19,6 +19,24 @@ Research and plan, 2026-11-13. Nothing here is built or installed. TV facts were
   step with LG firmware. PLAN parks LG service rewrites until after LumaTV and lets each go ahead only on a measured gain; step 1 of
   the build plan is that measurement and needs no Rust.
 
+## Step 1 result (2026-11-13/14, sysbus repair on, Active Standby)
+
+| Condition | Host starts | Resident | Memory per host | CPU |
+|---|---|---|---|---|
+| After a reboot with the six cancelled, Home Assistant disabled | 1, at 17 s, by `com.webos.service.asc` | 100 % of 1.47 h | 37 MB RSS, 28 MB PSS, holding homeconnect, billing, igallery.preview, universalqcard, sportsalert | 3.2 s over 1.47 h |
+| The same, after one host restart (`lumatv sysbus restart`) | 0 in 2.51 h | 0 % | – | – |
+| Home Assistant enabled again | 5 in 6 min (50 an hour), all by `nsl` for 192.168.1.146 | 93 % | 27 MB RSS, 17 MB PSS, gateway and client only | about 2 s per start, about 2.8 % of a core |
+
+- The six stay off only if they are cancelled before they load. LG starts the host 17 s into a boot and its activities load the
+  guests before LumaTV's boot pass cancels them at 39 s; loaded guests keep the host resident. `lgextras off` therefore has to be
+  followed at boot by one host restart when the host holds any of the six (not yet built).
+- With the six off, the host's only remaining user is Home Assistant. In standby it reconnects about every 10 s; each refused
+  attempt goes through `nsl`, which starts the host, and the host quits about 67 s later. The node start is what costs the CPU.
+- So the Rust gateway is worth building: in standby with Home Assistant connected it replaces about 17 MB PSS held 93 % of the time
+  and about 2.8 % of a core of node starts with an estimated 2–3 MB and a TLS handshake per refused attempt. Receipts:
+  `/data/home/tmp/lumatv-valueelide-20261112/jshost-20261113-extras-off.jsonl`, `jshost-20261113-after-restart.jsonl`,
+  `jshost-20261114-ha-on.jsonl`.
+
 ## 1. What the host runs
 
 `/usr/bin/run-unified-service-server` with no arguments runs `node --max_old_space_size=220 … unified_service_server.js
