@@ -21,7 +21,9 @@
 # builds without it; FEATURES in the bundle says which it was built with.
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
-m64=${M64_LIBS:-/data/home/tmp/m64dl/deploy/lib}
+# The loader, libraries and Mali blob the set runs; a copy of the set's own /var/lib/lumatv/compositor/lib, checked against its
+# bundle.manifest, when the download is gone.
+m64=${M64_LIBS:-$HOME/.cache/lumatv/m64/lib}
 out=$here/deploy
 features=${LUMATV_FEATURES-ui}
 cd "$here"
