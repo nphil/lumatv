@@ -9,6 +9,12 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Reboots with the Rust gateway on; LG's extras now leave the JavaScript host, 2026-11-14 (main cb5824f5, installed 12:35 EST)
+
+Installed helper `43a0d2a5e0124471bff8f7ee88d11277cc2dd1f26bc8e1345838f3aa895b0938` (built from 092813e1, with the Beszel restart fix 8bc6e807) and `tools/declutter.sh` `faeaa0f6`; the gateway binaries are unchanged. Five reboots through the Homebrew Channel service: each time the plugin came back by itself, `ssg_https` bound to `ssgw-accept`, the gateway answering about 24 s after the kernel started with the stored client, no crash record, VmRSS 1.2 MB.
+
+The boot check for LG's extras had never worked on the set: the boot hook's PATH has no `/usr/sbin`, so `ls-monitor` was not found and the six services stayed loaded in the JavaScript host (37.9 MB resident) on every boot. It now calls `/usr/sbin/ls-monitor`, checks again after the last pass (the activity manager restored most activities after the first pass on two boots and the services loaded at 40 s), and records when it finds none. On the last boot the first check found five of the six, restarted the host once, and the host was not running at 185 s. Set left in Active Standby, receiver as found, lease released.
+
 ## Rust gateway for Home Assistant live, 2026-11-14 (main 421c10f6, installed 11:57 EST)
 
 Installed helper `b8d029ff339d607ba6cb61d53583371b469a2ecf0c50a26fca99e9e812bde9ce`, payload and staged `ssgw/ssgw` `d8a3748e249bfe98f56910550da6d79e88dec7cf514e48be441d2164cc960b87` and `ssgw/ssgw-accept` `0e186a7c`, `tools/lumatv` `877c827d`, `tools/ssgw.sh` `2e495bec`, `tools/autostart.sh` `6dd9e7d3`, `tools/declutter.sh` `e11af28a`, and by cutover ui `c250ed9f` (the plugin's page; compositor `41c82deb`, sm `65f6ca69` unchanged). The `ssgw` plugin was switched on: `/etc/xinetd.d/ssg_https` is bound to `ssgw-accept`, the gateway runs as root (luna-send does not answer the plugin's user) and holds 0.8 MB resident.
