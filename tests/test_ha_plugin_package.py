@@ -37,13 +37,16 @@ class Package(unittest.TestCase):
 
     def test_a_missing_package_says_which_script_makes_it(self):
         script = text(IPK)
-        self.assertRegex(script, r"\*helper/dist/lumatv-helper\*\|\*helper/dist/plugins/\*\)")
+        missing = next(line for line in script.splitlines() if "*helper/dist/lumatv-helper*" in line)
+        self.assertIn("*helper/dist/plugins/*", missing, "a missing plugin package is reported with the helper's")
         self.assertIn("helper/build.sh", script)
 
     def test_the_build_makes_the_package_from_lumashows_manifest_unchanged(self):
         build = text(BUILD)
         self.assertIn("PLUGIN=lumatv-plugin-home-assistant", build)
-        self.assertIn('-p lumatv-helper -p "$PLUGIN"', build, "the release build makes the helper and the plugin's program together")
+        release = next(line for line in build.splitlines() if "cargo build --release" in line)
+        self.assertIn("-p lumatv-helper", release)
+        self.assertIn('-p "$PLUGIN"', release, "the release build makes the helper and the plugin's program together")
         self.assertIn('PLUGIN_MANIFEST="$HERE/../../LumaShow/wt/lumatv/plugins/home-assistant/plugin.json"', build)
         self.assertIn('cp -f "$PLUGIN_MANIFEST" "$pkg/plugin.json"', build, "copied, never rewritten: the approval is the hash of its text")
         self.assertIn('pkg="dist/plugins/home-assistant"', build)
