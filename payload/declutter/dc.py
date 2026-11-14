@@ -11,6 +11,12 @@
                                       nor a folder under apps-dir to the deleted list; prints how many
                                       (--check: only counts)
     dc.py measure [seconds]           one JSON object: memory, resident sizes, CPU over the interval
+    dc.py activity-state <name>...    one line per activity: its name and the activity manager's state, or absent
+    dc.py activity-cancel <name>...   cancel every activity of those names; one line per name: cancelled, absent or failed
+    dc.py activity-create <dir> <name>...
+                                      create each named activity that is not held from LG's file under dir; one line
+                                      per name: created, present, nofile or failed
+    The activity commands exit 1 without output when the activity manager does not answer.
 """
 import json
 import os
@@ -144,6 +150,71 @@ def cmd_deleted_missing(path, lists, check, apps_dir):
     return 0
 
 
+AM = 'luna://com.webos.service.activitymanager/'
+
+
+def held():
+    """name -> the activities of that name the activity manager holds; None when it does not answer.
+    `list` is refused (errorCode 22) unless all four flags are given."""
+    r = luna(AM + 'list', {'details': True, 'subscribers': True, 'current': False, 'internal': False}, 5)
+    if not r.get('returnValue'):
+        return None
+    out = {}
+    for a in r.get('activities') or []:
+        out.setdefault(a.get('name'), []).append(a)
+    return out
+
+
+def why(r):
+    return str(r.get('errorText') or r.get('errorCode') or 'no answer')
+
+
+def cmd_activity_state(names):
+    h = held()
+    if h is None:
+        return 1
+    for n in names:
+        print(n, h[n][0].get('state') or 'held' if n in h else 'absent')
+    return 0
+
+
+def cmd_activity_cancel(names):
+    h = held()
+    if h is None:
+        return 1
+    for n in names:
+        if n not in h:
+            print(n, 'absent')
+            continue
+        errs = [why(r) for r in (luna(AM + 'cancel', {'activityId': a.get('activityId')}, 5) for a in h[n]) if not r.get('returnValue')]
+        print(n, 'failed ' + '; '.join(errs) if errs else 'cancelled')
+    return 0
+
+
+def cmd_activity_create(folder, names):
+    h = held()
+    if h is None:
+        return 1
+    specs = {}
+    for d, _, files in os.walk(folder):
+        for f in files:
+            try:
+                with open(os.path.join(d, f)) as fh:
+                    spec = json.load(fh)
+                specs[spec['activity']['name']] = spec
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+    for n in names:
+        if n in h:
+            print(n, 'present')
+        elif n not in specs:
+            print(n, 'nofile')
+        else:
+            r = luna(AM + 'create', specs[n], 5)
+            print(n, 'created' if r.get('returnValue') else 'failed ' + why(r))
+    return 0
+
+
 def rd(path):
     try:
         with open(path) as f:
@@ -256,6 +327,12 @@ def main(argv):
         return cmd_deleted_missing(args[0], args[2:], check, args[1])
     elif c == 'measure':
         cmd_measure(int(argv[2]) if len(argv) > 2 else 30)
+    elif c == 'activity-state' and len(argv) >= 3:
+        return cmd_activity_state(argv[2:])
+    elif c == 'activity-cancel' and len(argv) >= 3:
+        return cmd_activity_cancel(argv[2:])
+    elif c == 'activity-create' and len(argv) >= 4:
+        return cmd_activity_create(argv[2], argv[3:])
     else:
         print(__doc__)
         return 2

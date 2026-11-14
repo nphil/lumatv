@@ -14,3 +14,4 @@ misc|lean|printing sockets|none
 ai|opt|NPU inference stack: ai-inference-manager, nais, nn-proxy|AI picture and AI sound features stop; unmeasured against the picture pipeline, so not in lean until the slot shows it is safe
 livetv|opt|the broadcast TV stack|Live TV and the programme guide stop working
 cast|opt|Chromecast built-in|Home Assistant's Cast session and Cast from phones stop
+lgextras|opt|the activities that start six guests of LG's shared JavaScript host: the Home Dashboard agent, store billing, Gallery+ and Quick card previews, Sports Alert and Magic Number|those six start only when something calls them, not at boot or when the internet comes up; what they refresh in the background (Home Dashboard devices, LG Home's previews, sports alerts, number-key shortcuts) can be stale

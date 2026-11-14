@@ -8,6 +8,8 @@
 # setting name = category.key in LG's settings service; arg = JSON value to hold
 # app     name = app id removed through appInstallService; arg = nobackup: no copy kept, off cannot bring it back
 # sync    every id of LG's country lists that is not installed goes on SAM's deleted list
+# activity name = an activity that LG's activity manager loads from /etc/palm/activities at every boot; cancelled, the
+#         file stays, and off creates it again from that file
 # Every name here was seen running or enabled on the set (docs/research/declutter-result.md).
 
 unit|uploaders|rdxd.service||diagnostics collector; rdx.lgtvcommon.com in the boot log
@@ -127,3 +129,19 @@ luna|livetv|/usr/sbin/legacy-broadcast-atsc|stub|ATSC tuner service; 7 MB reside
 unit|cast|chromecast-provisioning.service||Chromecast provisioning; launches the Cast cell
 luna|cast|/usr/palm/services/com.webos.chromecast.cell/com.webos.chromecast.cell|kill|Chromecast cell (jailed)
 luna|cast|/usr/palm/services/com.webos.chromecast.log/com.webos.chromecast.log|kill|Chromecast log
+
+# The six services of LG's shared JavaScript host that Home Assistant's connection does not use (docs/research/ss-gateway-rust-plan.md);
+# all but getEvent were held by the activity manager on 2026-11-13.
+activity|lgextras|com.webos.service.homeconnect.start||Home Dashboard agent; continuous, fires when the internet comes up
+activity|lgextras|com.webos.service.billing.start||store billing; continuous, fires when the internet comes up
+activity|lgextras|com.webos.app.igallery.preview.getstatus||Gallery+ preview for LG's Home; fires when the internet comes up
+activity|lgextras|com.webos.service.universalqcard.getstatus||Quick cards for LG's Home; fires when the internet comes up
+activity|lgextras|com.webos.service.sportsalert.getstatus||Sports Alert; fires when the internet comes up
+activity|lgextras|com.webos.service.sportsalert.getSystemSettings||Sports Alert; fires on its LG settings
+activity|lgextras|com.webos.service.sportsalert.getLocaleInfo||Sports Alert; fires on its LG settings
+activity|lgextras|com.webos.service.sportsalert.getDeviceAuthenticationStatus||Sports Alert; continuous, on sdx's device authentication
+activity|lgextras|com.webos.service.sportsalert.getAccount||Sports Alert; continuous, on the LG account login
+activity|lgextras|com.webos.service.sportsalert.getEvent||Sports Alert; on a push from sportsalarm, which the ads group stubs
+activity|lgextras|com.webos.service.magicnum.getCountry||Magic Number; continuous, fires between minimal-boot-done and boot-done
+activity|lgextras|com.webos.service.magicnum.listLaunchPoints||Magic Number; continuous, on every launcher change
+activity|lgextras|com.webos.service.magicnum.notifyChannelListChanged||Magic Number; on a channel list change

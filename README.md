@@ -98,6 +98,12 @@ the interruption marker and root-private rollback copies remain until reviewed r
 
 `lumatv sysbus off --restart` restores the stock launcher and restarts the host with LG’s original module. The escape's stock-UI restoration and `cutover.sh revert` also remove the launcher binding and disable its boot reapplication; an already-running host keeps its mapped module until it exits. `compositor off` (including the Home recovery it runs), `cutover.sh disable` and a failed `compositor on` leave the repair as the owner set it.
 
+### LG extras
+
+`lumatv lgextras off` keeps six of the services in LG’s shared JavaScript host from starting on their own: the Home Dashboard agent, store billing, the Gallery+ and Quick card previews of LG’s Home, Sports Alert and Magic Number. It cancels the activities that start them at boot and when the internet comes up, and declutter’s boot hook (its opt group `lgextras`) cancels them again after every boot, because LG loads them anew each time; LG’s files stay untouched. A service still starts when something calls it.
+
+`lumatv lgextras on` stops that and creates the cancelled activities again from LG’s files. `lumatv lgextras status` shows the choice, whether the boot hook is armed and each activity’s state (`absent` once cancelled). Installs, compositor cutovers, `cutover.sh revert` and the escape leave the choice as set. `docs/research/jshost/watch.py` records when the host starts, what started it and how long it stays.
+
 ### Standby
 
 `lumatv wake on` stages an experimental, opt-in policy to restore the last

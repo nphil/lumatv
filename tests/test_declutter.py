@@ -57,6 +57,21 @@ elif uri.endswith("appInstallService/remove"):
         except OSError:
             pass
     st["apps"] = [a for a in st["apps"] if a != i]
+elif uri.endswith("activitymanager/list"):
+    # The set refuses the list (errorCode 22) unless all four flags are given.
+    if all(k in payload for k in ("details", "subscribers", "current", "internal")):
+        out = {"returnValue": True, "activities": st.get("activities", [])}
+    else:
+        out = {"returnValue": False, "errorCode": 22, "errorText": "a flag is missing"}
+elif uri.endswith("activitymanager/cancel"):
+    held = st.get("activities", [])
+    st["activities"] = [a for a in held if a["activityId"] != payload.get("activityId")]
+    if len(st["activities"]) == len(held):
+        out = {"returnValue": False, "errorCode": 2, "errorText": "activity not found"}
+elif uri.endswith("activitymanager/create"):
+    st["nextId"] = st.get("nextId", 900) + 1
+    st.setdefault("activities", []).append({"activityId": st["nextId"], "name": payload["activity"]["name"], "state": "unsatisfied"})
+    out = {"returnValue": True, "activityId": st["nextId"]}
 with open(state_path, "w") as f:
     json.dump(st, f)
 print(json.dumps(out))
@@ -164,7 +179,7 @@ class Autoinstall(unittest.TestCase):
                 if not line.strip() or line.startswith("#"):
                     continue
                 kind, group, name = line.rstrip("\n").split("|")[:3]
-                self.assertIn(kind, ("unit", "luna", "setting", "app", "sync"), line)
+                self.assertIn(kind, ("unit", "luna", "setting", "app", "sync", "activity"), line)
                 self.assertIn(group, groups, line)
                 if kind == "unit":
                     self.assertNotIn(name, deny, line)
@@ -702,6 +717,90 @@ class UpdateBlock(unittest.TestCase):
         self.assertIn(path, read_json(self.d("early.json"))["stubbed"])
         self.assertIn("iot-client.service", self.masked())
 
+
+class LgExtras(unittest.TestCase):
+    """The lgextras group: activities of LG's activity manager, cancelled by name and created again from LG's files.
+
+    The stand-in activity manager holds three of the group's activities and one of the Homebrew Channel's, under new ids at
+    every boot as on the set; LG's files are under the made-up set's etc/palm/activities.
+    """
+    HELD = ("com.webos.service.homeconnect.start", "com.webos.service.billing.start", "com.webos.service.magicnum.getCountry")
+    OTHER = "org.webosbrew.hbchannel.service.autostart"
+
+    def setUp(self):
+        base = tempfile.mkdtemp(prefix="declutter-act-")
+        self.addCleanup(shutil.rmtree, base, True)
+        self.fake = FakeSet(base)
+        with open(ITEMS) as f:
+            self.names = [line.split("|")[2] for line in f if line.startswith("activity|lgextras|")]
+        self.specs = {}
+        for n in self.names:
+            svc = n.rsplit(".", 1)[0]
+            self.specs[n] = {"activity": {"name": n, "callback": {"method": "luna://%s/start" % svc}, "type": {"continuous": True}},
+                             "replace": True, "start": True}
+            write(self.fake.path("etc/palm/activities/%s/%s.json" % (svc, n)), json.dumps(self.specs[n]))
+        # The settle watch of `early` is not wanted here.
+        p = os.path.join(self.fake.bin, "setsid")
+        write(p, NOOP)
+        os.chmod(p, 0o755)
+        self.boots = 0
+        self.boot()
+
+    def boot(self):
+        self.boots += 1
+        st = self.fake.st()
+        st["activities"] = [{"activityId": 100 * self.boots + i, "name": n, "state": "unsatisfied"}
+                            for i, n in enumerate(self.HELD + (self.OTHER,))]
+        with open(self.fake.state, "w") as f:
+            json.dump(st, f)
+
+    def held(self):
+        return [a["name"] for a in self.fake.st()["activities"]]
+
+    def cancelled(self):
+        return sorted(c["activityId"] for c in self.fake.calls("activitymanager/cancel"))
+
+    def status(self):
+        rc, out, err = self.fake.run("status", "--group", "lgextras")
+        self.assertEqual(rc, 0, err)
+        res = json.loads(out)
+        self.assertEqual(list(res["groups"]), ["lgextras"])
+        return res["groups"]["lgextras"]
+
+    def test_on_cancels_what_is_held_by_name_and_status_shows_each_activity(self):
+        rc, out, err = self.fake.run("on", "--group", "lgextras", dry=True)
+        self.assertEqual((rc, self.cancelled()), (0, []), err)
+        self.assertIn("+ cancel activity com.webos.service.homeconnect.start", err)
+        rc, out, err = self.fake.run("on", "--group", "lgextras")
+        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "on": "lgextras"}), err)
+        self.assertEqual((self.cancelled(), self.held()), ([100, 101, 102], [self.OTHER]))
+        with open(self.fake.path("var/lib/lumatv/declutter/before")) as f:
+            before = f.read()
+        for n in self.names:
+            self.assertIn("activity|%s|%s\n" % (n, "present" if n in self.HELD else "absent"), before)
+        g = self.status()
+        self.assertEqual((g["on"], g["inTarget"]), (True, "%d/%d" % (len(self.names), len(self.names))))
+        self.assertEqual(g["activities"], {n: "absent" for n in self.names})
+
+    def test_after_a_reboot_the_early_step_cancels_them_again(self):
+        self.fake.run("on", "--group", "lgextras")
+        link = self.fake.path("var/lib/webosbrew/init.d/52-declutter")
+        os.makedirs(os.path.dirname(link), exist_ok=True)
+        os.symlink(TOOL, link)
+        self.boot()
+        rc, out, err = self.fake.run("early")
+        self.assertEqual((rc, json.loads(out)["early"]), (0, True), err)
+        self.assertEqual((self.cancelled(), self.held()), ([100, 101, 102, 200, 201, 202], [self.OTHER]))
+        with open(self.fake.path("var/lib/lumatv/declutter/log")) as f:
+            self.assertEqual(f.read().count("activities cancelled at uptime"), 2)
+
+    def test_off_creates_what_was_held_from_lgs_files(self):
+        self.fake.run("on", "--group", "lgextras")
+        rc, out, err = self.fake.run("off", "--group", "lgextras")
+        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "off": "lgextras"}), err)
+        self.assertEqual(self.fake.calls("activitymanager/create"), [self.specs[n] for n in self.HELD])
+        g = self.status()
+        self.assertEqual((g["on"], g["activities"]), (False, {n: "unsatisfied" if n in self.HELD else "absent" for n in self.names}))
 
 
 if __name__ == "__main__":

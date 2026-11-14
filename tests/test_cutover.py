@@ -176,6 +176,8 @@ echo "sysbus $*" >> "$FAKE/calls"
 case "$1" in on) : > "$FAKE/sysbus-enabled" ;; off) rm -f "$FAKE/sysbus-enabled" ;; esac
 ''', 0o755)
         self.sysbus_marker = os.path.join(d, "sysbus-enabled")
+        # declutter's groups (lgextras among them) are the owner's choice: install, cutover and revert never call the tool.
+        write(os.path.join(app, "tools", "declutter.sh"), '#!/bin/sh\necho "declutter $*" >> "$FAKE/calls"\n', 0o755)
         cli = read(os.path.join(ROOT, "tools", "lumatv"))
         cli = cli.replace('STATE="$BRAND_DATA_DIR"', 'STATE="$FAKE/data"')
         cli = cli.replace('/proc/mounts', '"$FAKE/mounts"')
@@ -498,6 +500,7 @@ class Enable(FakeSet):
                 self.assertEqual(self.cutover("disable")[0], 0)
                 self.assertEqual(os.path.exists(marker), owner_set)
         self.assertNotIn("sysbus off", self.calls())
+        self.assertEqual([c for c in self.calls() if c.startswith("declutter")], [])
 
     def test_revert_returns_to_lgs_ui_and_takes_the_sysbus_repair_off(self):
         marker = self.sysbus_marker
@@ -508,6 +511,7 @@ class Enable(FakeSet):
         self.assertFalse(self.mounted())
         self.assertFalse(os.path.exists(marker))
         self.assertIn("sysbus off", self.calls())
+        self.assertEqual([c for c in self.calls() if c.startswith("declutter")], [])
 
     def test_disable_removes_the_flag_and_the_unsettled_marker_and_restores_lgs(self):
         self.cutover("enable", "--session")

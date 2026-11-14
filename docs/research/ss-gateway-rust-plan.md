@@ -297,7 +297,10 @@ building only if step 1 shows the node host stays away with them off.
 1. Measure first, without Rust: cancel the six services' activities (a reversible boot-hook step; Nitin confirms Home Hub, Sports
    Alert and Magic Number first), reboot, and with Home Assistant's `webostv` entry disabled for one evening of normal use (its
    TV automations and the HomeKit remote are off meanwhile), record how often the node host starts and how long it stays. Go on
-   only if it stays away apart from casting and LG's Settings.
+   only if it stays away apart from casting and LG's Settings. The step is `lumatv lgextras off` (declutter's opt group
+   `lgextras`); `docs/research/jshost/watch.py` records the host's starts with the launch that caused each, from LG's
+   `/var/log/dbg-log`, which on 2026-11-13 showed Home Assistant's reconnects through `nsl` starting the host about every 71 s in
+   Active Standby.
 2. `ssgw` core: TLS with LG's key and chain, websocket, `hello`, `register` with the client store and LG relay, request and
    subscription framing, error codes; host tests with the fake bus and golden exchanges.
 3. Home Assistant's URIs in `ssgw`, taking apiadapter's JavaScript as the reference; resources and the pointer socket; aiowebostv

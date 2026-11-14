@@ -2068,6 +2068,33 @@ verb_sysbus() {
   esac
 }
 
+# LG's extras in the shared JavaScript service host: declutter's opt group `lgextras` (payload/declutter/items.txt). `off` cancels the
+# activities that start them and arms declutter's boot hook, which cancels them again at every boot; `on` gives them back. Only this
+# verb or declutter.sh changes the choice: installs, cutovers and revert leave it as the owner set it. The group being on means the
+# extras are off, so the answers here speak of the extras.
+verb_lgextras() {
+  le_dc="$APPDIR/tools/declutter.sh"
+  case "$1" in
+    off)
+      le_out=$("$le_dc" on --group lgextras) || { printf '%s\n' "$le_out"; return 1; }
+      le_out=$("$le_dc" persist on) || { printf '%s\n' "$le_out"; return 1; }
+      printf '{"ok":true,"lgextras":"off"}\n' ;;
+    on)
+      le_out=$("$le_dc" off --group lgextras) || { printf '%s\n' "$le_out"; return 1; }
+      printf '{"ok":true,"lgextras":"on"}\n' ;;
+    status)
+      "$le_dc" status --group lgextras | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+g = (d.get("groups") or {}).get("lgextras")
+if not d.get("ok") or g is None:
+    print(json.dumps(d))
+    sys.exit(1)
+print(json.dumps({"ok": True, "lgextras": "off" if g["on"] else "on", "bootHook": d["persist"], "activities": g["activities"]}, separators=(",", ":")))' ;;
+    *) emit_error "usage: lgextras off|on|status"; return 1 ;;
+  esac
+}
+
 # Open apps without updating (helper/app/src/openapps.rs): LG's list of apps that must be updated before they open, kept empty by the
 # helper while its flag exists. The same fields and rules as the helper's `openapps` topic, read only; the setting is changed in
 # Settings > System > Support > Update (the helper's POST /v1/openapps). `revert` puts LG's list back (openapps_restore).
@@ -3434,6 +3461,7 @@ case "$VERB:${2:-}" in
   homestub-kind:status|homestub-kind:) MAINTENANCE_ACCESS=read ;;
   homestub-kind:web) MAINTENANCE_ACCESS=emergency ;;
   boot-direct:off|boot-direct:watch|boot-direct:wake) MAINTENANCE_ACCESS=emergency ;;
+  lgextras:status|lgextras:) MAINTENANCE_ACCESS=read ;;
   status:|surfaces:|version:|log:*|theme:get|theme:|layout:get|layout:|layout:check|compositor:check|stock-ui-restore:|stock-ui-restore:keep-sysbus)
     MAINTENANCE_ACCESS=read ;;
   helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:|sysbus:status|sysbus:)
@@ -3598,6 +3626,7 @@ case "$VERB" in
   layout) verb_layout "${2:-get}" "${3:-}"; exit $? ;;
   updateblock) verb_updateblock "${2:-status}"; exit $? ;;
   sysbus) shift; verb_sysbus "$@"; exit $? ;;
+  lgextras) verb_lgextras "${2:-status}"; exit $? ;;
   openapps) verb_openapps "${2:-status}"; exit $? ;;
   standbyscreen) verb_standbyscreen "${2:-status}"; exit $? ;;
   version) verb_version; exit $? ;;

@@ -19,6 +19,8 @@ On an HDMI input LG's own input pill no longer shows beside LumaTV's. LG draws i
 
 An optional `lumatv sysbus` repair gives LG’s shared JavaScript service host a private Luna binding that forwards dead-connection errors and keeps timer units in milliseconds. Only the known webOS 10.2.1 files are accepted; `off` restores the original launcher. A compositor `disable` (install and test cutovers) no longer switches the repair off; only the escape's stock-UI restoration and `cutover.sh revert` do.
 
+`lumatv lgextras off` cancels the activities that start six services in LG’s shared JavaScript host (the Home Dashboard agent, store billing, the Gallery+ and Quick card previews, Sports Alert and Magic Number), and declutter’s boot hook cancels them again after every boot; `on` creates them again from LG’s files and `status` lists each activity. Installs and cutovers leave the choice as set. `docs/research/jshost/watch.py` records when the host starts, what started it and how long it stays.
+
 Settings now controls LG Channels and its background preload, while preserving the original preload policy when re-enabled.
 
 Home Assistant weather now calculates sunrise and sunset for each forecast day from the coordinates of the Home Assistant home. The UV index shows the current value when available and, when only a daily peak is supplied, labels it as the day's peak. Cloud cover has its own row under the humidity gauge.

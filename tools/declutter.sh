@@ -4,7 +4,7 @@
 #   declutter.sh on ads|lean              switch a profile on (ads is part of lean)
 #   declutter.sh on --group NAME ...      switch single groups on (any group, also opt ones)
 #   declutter.sh off [--group NAME ...]   restore the recorded state, all groups or the named
-#   declutter.sh status                   one JSON object: profile, groups, memory
+#   declutter.sh status [--group NAME]    one JSON object: profile, groups, memory; --group: that group only
 #   declutter.sh list                     groups and what each costs
 #   declutter.sh boot                     boot hook entry: re-applies what is on, detached
 #   declutter.sh early                    early boot step: masks the units and binds the stubs of the groups that are on, before LG starts them
@@ -30,6 +30,9 @@
 #            (then `off` cannot bring it back: the store can)
 #   sync     mark every id of LG's country lists that is not installed as
 #            deleted, so the wake-time customization sync adds nothing
+#   activity cancel an activity that LG's activity manager loads from
+#            /etc/palm/activities at every boot (so `early` and `boot` cancel it
+#            again); the file stays, and `off` creates the activity again from it
 # Nothing under /usr, /etc or the rootfs is written. SAM, WebAppMgr, the
 # compositor and tvpowerd are never touched: names on the deny list below make
 # the tool refuse to start. The state before the first change is kept in
@@ -359,6 +362,91 @@ luna_off() {
   done
 }
 
+# ---------------------------------------------------------------- activities
+
+# A static activity's trigger (the internet coming up, a setting, the boot itself) has ls-hubd start the service it calls. Its id
+# differs from boot to boot, so dc.py finds it by name.
+ACT_DIR=$ROOT/etc/palm/activities
+
+act_names() {
+  group_items "$1" | awk -F'|' '$1=="activity" {print $3}'
+}
+
+# Cancels the activities named in $1 that the activity manager holds; the first time, records which were there.
+act_cancel() {
+  [ -n "$1" ] || return 0
+  if [ "$DRY" = 1 ]; then
+    for a in $1; do printf '+ cancel activity %s\n' "$a" >&2; done
+    return 0
+  fi
+  # shellcheck disable=SC2086
+  if ! ac_out=$(timeout 20 python3 "$PY" activity-cancel $1 2>/dev/null); then
+    log_line "activities: the activity manager did not answer at uptime $(boot_clock) s"
+    return 0
+  fi
+  ac_done="" ac_fail=""
+  while read -r a what rest; do
+    case "$what" in
+      cancelled) record activity "$a" present; ac_done="$ac_done $a" ;;
+      absent) record activity "$a" absent ;;
+      failed) ac_fail="$ac_fail $a ($rest)" ;;
+    esac
+  done <<EOF
+$ac_out
+EOF
+  [ -n "$ac_done" ] && log_line "activities cancelled at uptime $(boot_clock) s:$ac_done"
+  [ -n "$ac_fail" ] && log_line "activities not cancelled:$ac_fail"
+  return 0
+}
+
+# What was there before the first cancel and is not held now is created again from LG's file. Its creator is then luna-send,
+# not the service, until the next boot loads LG's own.
+act_restore() {
+  ar=""
+  for a in $(act_names "$1"); do
+    [ "$(recorded activity "$a")" = present ] && ar="$ar $a"
+  done
+  [ -n "$ar" ] || return 0
+  if [ "$DRY" = 1 ]; then
+    for a in $ar; do printf '+ create activity %s from its file under %s\n' "$a" "$ACT_DIR" >&2; done
+    return 0
+  fi
+  # shellcheck disable=SC2086
+  if ! ar_out=$(timeout 30 python3 "$PY" activity-create "$ACT_DIR" $ar 2>/dev/null); then
+    log_line "activities: the activity manager did not answer; they come back at the next boot"
+    return 0
+  fi
+  ar_made="" ar_not=""
+  while read -r a what rest; do
+    case "$what" in
+      created) ar_made="$ar_made $a" ;;
+      nofile|failed) ar_not="$ar_not $a ($what${rest:+ $rest})" ;;
+    esac
+  done <<EOF
+$ar_out
+EOF
+  [ -n "$ar_made" ] && log_line "activities created again from LG's files:$ar_made"
+  [ -n "$ar_not" ] && log_line "activities not created again, they come back at the next boot:$ar_not"
+  return 0
+}
+
+# One line per activity named in $1: the name and the activity manager's state for it, or absent; nothing when it does not answer.
+act_states() {
+  [ -n "$1" ] || return 0
+  # shellcheck disable=SC2086
+  timeout 20 python3 "$PY" activity-state $1 2>/dev/null
+}
+
+# The activities of a group for `status`: each name with its state ($2, from act_states), absent, or null when there was no answer.
+acts_json() {
+  aj=""
+  for a in $1; do
+    s=$(printf '%s\n' "$2" | awk -v n="$a" '$1 == n {print $2; exit}')
+    if [ -n "$s" ]; then aj="$aj${aj:+,}\"$a\":\"$s\""; else aj="$aj${aj:+,}\"$a\":null"; fi
+  done
+  printf '{%s}' "$aj"
+}
+
 # ---------------------------------------------------------------- settings
 
 setting_on() {
@@ -590,6 +678,7 @@ $items
 EOF
     kill_exes "$pats"
   fi
+  act_cancel "$(act_names "$g")"
   apps_on "$g"
   mark_active "$g"
   log_line "group $g on"
@@ -630,6 +719,7 @@ group_off() {
 $items
 EOF
   units_restore
+  act_restore "$g"
   apps_off "$g"
   unmark_active "$g"
   log_line "group $g off"
@@ -643,8 +733,9 @@ exe_running() {
 }
 
 state_json() {
-  # How many items of a group are in their target state: done/total.
+  # How many items of a group are in their target state: done/total. $2: the states of its activities (act_states).
   g=$1
+  sj_acts=${2:-}
   total=0
   done_=0
   apps=""
@@ -665,6 +756,7 @@ state_json() {
       setting) [ "$(py get "$N")" = "$A" ] && done_=$((done_ + 1)) ;;
       app) printf '%s\n' "$apps" | grep -qxF "$N" || app_installed "$N" || done_=$((done_ + 1)) ;;
       sync) [ "$(py deleted-missing --check "$DELETED_LIST" "$APP_ROOT/usr/palm/applications" $(custom_files) 2>/dev/null)" = 0 ] && done_=$((done_ + 1)) ;;
+      activity) printf '%s\n' "$sj_acts" | grep -qxF "$N absent" && done_=$((done_ + 1)) ;;
     esac
   done <<EOF
 $items
@@ -674,10 +766,25 @@ EOF
 
 verb_status() {
   [ -f "$ITEMS" ] || { emit_error "items.txt is missing"; return 1; }
+  only=""
+  case "${1:-}" in
+    "") ;;
+    --group) only=${2:-}; group_known "$only" || { emit_error "unknown group: $only"; return 1; } ;;
+    *) emit_error "usage: status [--group NAME]"; return 1 ;;
+  esac
   out=""
   for g in $(awk -F'|' '!/^#/ && NF {print $1}' "$GROUPS_FILE"); do
+    [ -z "$only" ] || [ "$g" = "$only" ] || continue
     on=false; group_active "$g" && on=true
-    out="$out${out:+,}\"$g\":{\"on\":$on,\"inTarget\":\"$(state_json "$g")\"}"
+    acts="" extra="" an=""
+    # The activity manager is asked only about a group that is on or named, which keeps the privacy page's status as quick as it
+    # was; the activities of a group that is off then count as not in target.
+    if [ "$on" = true ] || [ -n "$only" ]; then an=$(act_names "$g"); fi
+    if [ -n "$an" ]; then
+      acts=$(act_states "$an")
+      extra=",\"activities\":$(acts_json "$an" "$acts")"
+    fi
+    out="$out${out:+,}\"$g\":{\"on\":$on,\"inTarget\":\"$(state_json "$g" "$acts")\"$extra}"
   done
   prof=$(cat "$PROFILE_FILE" 2>/dev/null)
   printf '{"ok":true,"profile":"%s","groups":{%s},"persist":%s,"skip":%s,"early":%s,"updateBlock":%s,"memAvailableKb":%s}\n' \
@@ -845,7 +952,9 @@ early_write() {
 # pass of `boot` (init.d) only came at 73 s. So what needs neither luna-send nor LG's settings
 # service goes down at once, in the order of how soon LG can start it: the stub over each on-demand
 # program (a mount each, nothing else to wait for), then the masks of the units (one systemd
-# reload), then a stop for whatever of them already runs and a kill for the programs. Settings and
+# reload), then a stop for whatever of them already runs and a kill for the programs. Beside them, in
+# the background, the activities are cancelled through luna-send; one the activity manager does not
+# hold yet is left to the passes of `boot`. Settings and
 # apps persist across a boot and need no early step. Nothing is touched on a boot that is not to
 # be: no group on, persist off (nothing would settle the marker), the skip file, a boot that never
 # completed (which `boot` consumes), or one that did not settle after the last early pass (skipped
@@ -869,6 +978,17 @@ verb_early() {
   fi
   [ -f "$STUB" ] || { mkdir -p "$DCS"; mut cp "$SRC/stub.sh" "$STUB"; mut chmod 755 "$STUB"; }
   [ "$DRY" = 1 ] || : > "$EARLY_PENDING"
+  # The activities beside the rest: their triggers fire as the network comes up, at about 17.5 s on the set. The lock's trap
+  # is this shell's: the background job must not remove the lock when it ends.
+  ev_acts="" ev_act_pid=""
+  for g in $(cat "$ACTIVE" 2>/dev/null); do
+    ev_a=$(act_names "$g")
+    [ -n "$ev_a" ] && ev_acts="$ev_acts $ev_a"
+  done
+  if [ -n "$ev_acts" ]; then
+    ( trap - EXIT; act_cancel "$ev_acts" ) &
+    ev_act_pid=$!
+  fi
   # What there is to do, from the items of the groups that are on (reads only).
   ev_units="" ev_progs="" ev_pats=""
   for g in $(cat "$ACTIVE" 2>/dev/null); do
@@ -925,6 +1045,7 @@ verb_early() {
   # shellcheck disable=SC2086
   [ -n "$ev_stop" ] && mut systemctl stop --no-block $ev_stop >/dev/null 2>&1
   [ -n "$ev_pats" ] && kill_exes "$ev_pats"
+  [ -n "$ev_act_pid" ] && wait "$ev_act_pid"
   release_lock
   early_write true "" "$ev_masked" "$ev_stubbed" "$ev_run"
   n_masked=$(echo $ev_masked | wc -w | tr -d ' ')
@@ -1165,7 +1286,7 @@ VERB="${1:-status}"
 case "$VERB" in
   on)       verb_on "$@" ;;
   off)      verb_off "$@" ;;
-  status)   verb_status ;;
+  status)   verb_status "$@" ;;
   list)     verb_list ;;
   boot)     verb_boot ;;
   early)    verb_early ;;
