@@ -1599,9 +1599,10 @@ impl Model {
                     self.view.auth = Some(LinkFlow { engine: id.clone(), target: None, state: None, expires_ms: None, pin: String::new() });
                     self.open_sheet(Sheet::Auth, Focus::SheetAction(0));
                 }
-                if let AuthState::Done { target } = &state {
+                if matches!(state, AuthState::Done { .. }) {
+                    // The Targets answer starts the library traversal; a second one here overlapped it, and the GeForce NOW
+                    // engine rejected the shared first cursor as repeated.
                     Self::send(out, &id, Request::Targets);
-                    Self::send(out, &id, Request::Library { target: target.clone(), cursor: None });
                     self.view.auth = None;
                     self.close_sheet();
                 } else if let Some(a) = &mut self.view.auth {
@@ -1961,6 +1962,15 @@ mod tests {
         let r = m.revision();
         assert!(m.step(Input::Tick { now_ms: 1000, unix_s: 100 }).is_empty());
         assert_eq!(m.revision(), r);
+    }
+    #[test]
+    fn sign_in_starts_one_library_traversal_through_targets() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![]);
+        let engine = EngineId::new("gfn").unwrap();
+        let done = ipc::Event::Auth { state: AuthState::Done { target: TargetId::new("main").unwrap() } };
+        let commands = m.step(Input::Engine { engine, message: FromEngine { re: None, event: done } });
+        let sent: Vec<_> = commands.iter().filter_map(|c| if let Command::Send { request, .. } = c { Some(request) } else { None }).collect();
+        assert!(matches!(sent.as_slice(), [Request::Targets]));
     }
 }
 
