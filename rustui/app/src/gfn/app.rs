@@ -156,6 +156,8 @@ pub const ART_INFLIGHT: usize = 3;
 pub const ART_AGAIN_MS: u64 = 60_000;
 /// The account's tier is read again when the library's header or the settings are opened, but not more often than this.
 pub const ACCOUNT_REFRESH_MS: u64 = 10_000;
+/// What a launch says when the engine still holds the stream before it after one stop and a second start.
+pub const STREAMER_BUSY: &str = "The last stream has not closed yet. Press OK and play again.";
 /// What a launch the core keeps refusing for the account's scope says (it was retried once with fresh account state).
 pub const STALE_ACCOUNT: &str = "This game could not be started for the signed-in account. Open Settings, sign out and sign in again.";
 /// The core's setting for where the streamer engine is.
@@ -216,6 +218,10 @@ pub struct App {
     /// `streamer.start` was asked for this launch: a second session update before the loop records the request must not ask again
     /// (the core answers the second streamer_busy and the failure tore down the first one's session).
     start_asked: bool,
+    /// The start was refused as busy once this launch (the core holds a stream that ended until it is stopped): the stop that clears
+    /// it is in flight while `restart_after_stop`, and its answer sends the start again.
+    start_retried: bool,
+    restart_after_stop: bool,
     create_id: String,
     hello_done: bool,
     minimized: bool,
@@ -301,6 +307,8 @@ impl App {
             next_poll_ms: 0,
             pending: Vec::new(),
             start_asked: false,
+            start_retried: false,
+            restart_after_stop: false,
             create_id: String::new(),
             hello_done: false,
             minimized: false,
@@ -738,6 +746,8 @@ impl App {
         self.pad_latency = None;
         self.launch_retried = false;
         self.start_asked = false;
+        self.start_retried = false;
+        self.restart_after_stop = false;
         self.retry_stage = 0;
         self.create_request().into_iter().collect()
     }
@@ -832,6 +842,21 @@ impl App {
         self.retry_stage = 0;
         self.screen = Screen::Error;
         Vec::new()
+    }
+
+    /// `streamer.start` for the session the server made ready.
+    fn start_request(&self) -> Option<Action> {
+        let value = &self.session.as_ref()?.value;
+        Some(Self::req("streamer.start", json!({"session": value, "surface": {"visible": true, "rect": {"x": 0, "y": 0, "width": 1920, "height": 1080}}})))
+    }
+
+    /// The stop that cleared the way was answered: the start goes again if the launch is still on.
+    fn restart(&mut self) -> Vec<Action> {
+        self.restart_after_stop = false;
+        if self.screen != Screen::Launching {
+            return Vec::new();
+        }
+        self.start_request().into_iter().collect()
     }
 
     /// Re-reads the account: the session (which renews an expiring token and gives the current scope) and the subscription (the tier
@@ -1054,6 +1079,19 @@ impl App {
                 self.next_poll_ms = self.now_ms + POLL_SESSION_MS;
                 Vec::new()
             }
+            // a stream that ended still holds the engine: once, it is stopped, and the stop's answer (which comes when the engine is
+            // gone) sends the start again
+            "streamer.start" if code == "streamer_busy" && !self.start_retried && self.screen == Screen::Launching => {
+                self.start_retried = true;
+                self.restart_after_stop = true;
+                vec![Self::req("streamer.stop", json!({"reason": "a stream that had ended still held the engine"}))]
+            }
+            "streamer.start" if code == "streamer_busy" => {
+                let mut out = if self.session.is_some() { self.stop_session() } else { Vec::new() };
+                out.extend(self.fail(STREAMER_BUSY.to_owned()));
+                out
+            }
+            "streamer.stop" if self.restart_after_stop => self.restart(),
             "streamer.stop" | "session.stop" | "streamer.input.pause" | "catalog.library.list" if self.screen == Screen::Stream || self.screen == Screen::Overlay => Vec::new(),
             _ => {
                 if self.session.is_some() {
@@ -1253,6 +1291,7 @@ impl App {
                 self.art.insert(url, state);
                 Vec::new()
             }
+            "streamer.stop" if self.restart_after_stop => self.restart(),
             _ => Vec::new(),
         }
     }
@@ -1289,7 +1328,7 @@ impl App {
                 self.start_asked = true;
                 // what the server granted, which decides whether the cloud PC turns HDR on for the game (stderr is the app's log)
                 eprintln!("gfn: session ready: negotiated {} requested sdrHdrMode {}", value["negotiatedStreamProfile"], value["sessionRequestData"]["sdrHdrMode"]);
-                return vec![Self::req("streamer.start", json!({"session": value, "surface": {"visible": true, "rect": {"x": 0, "y": 0, "width": 1920, "height": 1080}}}))];
+                return self.start_request().into_iter().collect();
             }
             self.next_poll_ms = self.now_ms + POLL_SESSION_MS;
         }
@@ -1315,7 +1354,8 @@ impl App {
                 self.stats_from(&payload);
                 if self.streaming() && matches!(self.stats.status.as_str(), "error" | "stopped" | "exited") {
                     let message = if self.stats.message.is_empty() { "The stream ended.".to_owned() } else { self.stats.message.clone() };
-                    let mut out = vec![Action::PauseInput(false)];
+                    // the core keeps the engine of a stream that stopped until it is told to stop: else the next start is refused as busy
+                    let mut out = vec![Action::PauseInput(false), Self::req("streamer.stop", json!({"reason": "the stream ended"}))];
                     if let Some(s) = &self.session {
                         out.push(Self::req("session.stop", json!({"sessionId": s.id, "streamingBaseUrl": s.value["streamingBaseUrl"], "serverIp": s.value["serverIp"]})));
                     }
@@ -1677,6 +1717,37 @@ mod tests {
         let a = app.handle(Input::Core(CoreMsg::Gone));
         assert!(a.is_empty());
         assert!(app.error.contains("core stopped"));
+    }
+
+    #[test]
+    fn a_stream_that_ends_stops_its_engine_with_its_session() {
+        let mut app = signed_in_app();
+        app.screen = Screen::Stream;
+        app.session = Some(Session { id: "s1".into(), status: 2, phase: "ready".into(), queue_position: 0, value: json!({"sessionId": "s1"}) });
+        let a = app.handle(Input::Core(CoreMsg::Event { name: "streamer.changed".into(), payload: json!({"status": "error", "message": "The decoder stopped"}) }));
+        assert_eq!(methods(&a), ["streamer.stop", "session.stop"], "the core keeps the engine of a stream that ended until it is stopped");
+        assert_eq!(app.screen, Screen::Error);
+        assert_eq!(app.error, "The decoder stopped");
+    }
+
+    #[test]
+    fn a_start_refused_as_busy_stops_the_last_stream_and_starts_once_more() {
+        let mut app = signed_in_app();
+        app.screen = Screen::Launching;
+        app.session = Some(Session { id: "s2".into(), status: 2, phase: "ready".into(), queue_position: 0, value: json!({"sessionId": "s2"}) });
+        let busy = |id: &str| err(id, "streamer.start", "streamer_busy", "A native streamer session is already running");
+        app.sent("13", "streamer.start");
+        assert_eq!(methods(&app.handle(busy("13"))), ["streamer.stop"]);
+        assert_eq!(app.screen, Screen::Launching);
+        app.sent("14", "streamer.stop");
+        let a = app.handle(ok("14", "streamer.stop", json!({"status": "stopped"})));
+        assert_eq!(methods(&a), ["streamer.start"], "the stop is answered once the old engine is gone");
+        assert!(matches!(&a[0], Action::Request { params, .. } if params["session"]["sessionId"] == "s2"));
+        app.sent("15", "streamer.start");
+        let a = app.handle(busy("15"));
+        assert_eq!(methods(&a), ["streamer.stop", "session.stop"], "a second refusal gives the seat up");
+        assert_eq!(app.screen, Screen::Error);
+        assert_eq!(app.error, STREAMER_BUSY);
     }
 
     #[test]
