@@ -617,6 +617,7 @@ impl Model {
             }
             Input::Engine { engine, message } => self.engine_event(engine, message.event, &mut out),
             Input::EngineGone(id) => {
+                self.pages.retain(|(engine, _), _| *engine != id);
                 if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
                     e.descriptor = None;
                     e.error = Some("Connection lost".into());
@@ -1570,9 +1571,13 @@ impl Model {
                 }
             }
             ipc::Event::Targets { targets } => {
+                // The engine answers every account refresh with Targets (start-up, sign-in, the membership tier); a traversal
+                // already under way for a target is left to finish, since a second one shares its first cursor.
                 for t in targets.iter().filter(|t| t.link == ipc::Link::Linked) {
-                    self.pages.insert((id.clone(), t.id.clone()), Vec::new());
-                    Self::send(out, &id, Request::Library { target: t.id.clone(), cursor: None });
+                    if let std::collections::btree_map::Entry::Vacant(slot) = self.pages.entry((id.clone(), t.id.clone())) {
+                        slot.insert(Vec::new());
+                        Self::send(out, &id, Request::Library { target: t.id.clone(), cursor: None });
+                    }
                 }
                 if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
                     e.targets = targets;
@@ -1580,7 +1585,8 @@ impl Model {
                 self.rebuild_catalog();
             }
             ipc::Event::Library { target, entries, next } => {
-                let page = self.pages.entry((id.clone(), target.clone())).or_default();
+                // A page of a traversal the engine's error or restart ended is dropped: on its own it is not the library.
+                let Some(page) = self.pages.get_mut(&(id.clone(), target.clone())) else { return };
                 page.extend(entries);
                 if next.is_some() {
                     Self::send(out, &id, Request::Library { target, cursor: next });
@@ -1642,6 +1648,7 @@ impl Model {
                 }
             }
             ipc::Event::Error { message, .. } => {
+                self.pages.retain(|(engine, _), _| *engine != id);
                 self.view.notice = Some(message.clone());
                 if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
                     e.error = Some(message);
@@ -1973,6 +1980,20 @@ mod tests {
         let commands = m.step(Input::Engine { engine, message: FromEngine { re: None, event: done } });
         let sent: Vec<_> = commands.iter().filter_map(|c| if let Command::Send { request, .. } = c { Some(request) } else { None }).collect();
         assert!(matches!(sent.as_slice(), [Request::Targets]));
+    }
+    #[test]
+    fn repeated_targets_leave_the_running_library_traversal_alone() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![]);
+        let engine = EngineId::new("gfn").unwrap();
+        let target = ipc::Target { id: TargetId::new("main").unwrap(), name: "nphil".into(), detail: None, link: ipc::Link::Linked, reach: ipc::Reach::Online };
+        let deliver = |m: &mut Model, event| {
+            m.step(Input::Engine { engine: engine.clone(), message: FromEngine { re: None, event } })
+                .into_iter().filter(|c| matches!(c, Command::Send { request: Request::Library { .. }, .. })).count()
+        };
+        assert_eq!(deliver(&mut m, ipc::Event::Targets { targets: vec![target.clone()] }), 1);
+        assert_eq!(deliver(&mut m, ipc::Event::Targets { targets: vec![target.clone()] }), 0);
+        assert_eq!(deliver(&mut m, ipc::Event::Library { target: target.id.clone(), entries: vec![], next: None }), 0);
+        assert_eq!(deliver(&mut m, ipc::Event::Targets { targets: vec![target] }), 1);
     }
 }
 
