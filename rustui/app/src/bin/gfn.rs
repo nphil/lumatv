@@ -10,7 +10,9 @@
 //! back. `--hidden` is a preload: nothing is drawn until the compositor brings the window forward.
 //!
 //! The pad's side channel (`--pad-side`, a datagram socket the engine writes to while the stream's input is paused) drives the
-//! overlay with the same controller as the game.
+//! overlay with the same controller as the game. Outside a stream the app holds the pads itself and drives its menus with them.
+use lumatv_gfn_pad::menu::{MenuKey, MenuKeys};
+use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, PadState};
 use lumatv_render::host::{Engine, HostConfig};
 use lumatv_render::{Demand, Gles, now_ns};
 use lumatv_rustui::card::{FULLSCREEN, MINIMIZED, key_of};
@@ -27,7 +29,8 @@ use std::io;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixDatagram;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use ui::{SceneOptions, Ui};
 
@@ -174,11 +177,10 @@ fn graphics(gles: &Gles) -> String {
 }
 
 /// The pad's side channel: JSON datagrams from the engine while the stream's input is paused (gfn/engine `pads.rs`), turned into
-/// the overlay's keys. A report that moves the left stick or the d-pad is one key; the edge of a button press is one key.
+/// the overlay's keys, and the keys of the app's own pads ([`MenuPads`]), which come the same way so that they wake the loop.
 struct PadSide {
     sock: UnixDatagram,
-    last_buttons: u16,
-    last_dir: Option<PadKey>,
+    engine_keys: MenuKeys,
     /// The newest press latency the engine reported, until the loop takes it.
     latency: Option<PadLatency>,
 }
@@ -191,17 +193,21 @@ impl PadSide {
         let _ = std::fs::remove_file(path);
         let sock = UnixDatagram::bind(path).ok()?;
         sock.set_nonblocking(true).ok()?;
-        Some(Self { sock, last_buttons: 0, last_dir: None, latency: None })
+        Some(Self { sock, engine_keys: MenuKeys::default(), latency: None })
     }
 
-    fn poll(&mut self) -> Vec<PadKey> {
+    fn poll(&mut self) -> Vec<Input> {
         let mut out = Vec::new();
         let mut buf = [0u8; 512];
         while let Ok(n) = self.sock.recv(&mut buf) {
+            if let [MENU_DATAGRAM, i] = buf[..n] {
+                out.extend(MENU_KEYS.get(usize::from(i)).map(|k| Input::MenuPad(pad_key(*k))));
+                continue;
+            }
             let Ok(v) = serde_json::from_slice::<Value>(&buf[..n]) else { continue };
             match v["pad"].as_str() {
-                Some("guide") if v["pressed"] == true => out.push(PadKey::Guide),
-                Some("exit") => out.push(PadKey::Exit),
+                Some("guide") if v["pressed"] == true => out.push(Input::Pad(PadKey::Guide)),
+                Some("exit") => out.push(Input::Pad(PadKey::Exit)),
                 Some("latency") => {
                     let us = |k: &str| v[k].as_u64().unwrap_or(0).min(u64::from(u32::MAX)) as u32;
                     if v["n"].as_u64().unwrap_or(0) > 0 {
@@ -209,39 +215,85 @@ impl PadSide {
                     }
                 }
                 Some("report") => {
-                    let buttons = v["buttons"].as_u64().unwrap_or(0) as u16;
-                    let pressed = buttons & !self.last_buttons;
-                    self.last_buttons = buttons;
-                    if pressed & 0x1000 != 0 {
-                        out.push(PadKey::Ok);
-                    }
-                    if pressed & 0x2000 != 0 {
-                        out.push(PadKey::Back);
-                    }
-                    let lx = v["lx"].as_i64().unwrap_or(0);
-                    let ly = v["ly"].as_i64().unwrap_or(0);
-                    let dir = if pressed & 0x0001 != 0 || ly > 20_000 {
-                        Some(PadKey::Up)
-                    } else if pressed & 0x0002 != 0 || ly < -20_000 {
-                        Some(PadKey::Down)
-                    } else if pressed & 0x0004 != 0 || lx < -20_000 {
-                        Some(PadKey::Left)
-                    } else if pressed & 0x0008 != 0 || lx > 20_000 {
-                        Some(PadKey::Right)
-                    } else {
-                        None
-                    };
-                    if dir != self.last_dir {
-                        if let Some(d) = dir {
-                            out.push(d);
-                        }
-                        self.last_dir = dir;
-                    }
+                    let axis = |k: &str| v[k].as_i64().unwrap_or(0).clamp(-32_768, 32_767) as i16;
+                    let state = PadState { buttons: v["buttons"].as_u64().unwrap_or(0) as u16, left_x: axis("lx"), left_y: axis("ly"), ..PadState::default() };
+                    self.engine_keys.feed(&state, |k| out.push(Input::Pad(pad_key(k))));
                 }
                 _ => {}
             }
         }
         out
+    }
+}
+
+/// A menu key of the app's own pads on the pad side's socket: this byte, then the key's place in [`MENU_KEYS`].
+const MENU_DATAGRAM: u8 = b'm';
+const MENU_KEYS: [MenuKey; 6] = [MenuKey::Up, MenuKey::Down, MenuKey::Left, MenuKey::Right, MenuKey::Ok, MenuKey::Back];
+
+fn pad_key(k: MenuKey) -> PadKey {
+    match k {
+        MenuKey::Up => PadKey::Up,
+        MenuKey::Down => PadKey::Down,
+        MenuKey::Left => PadKey::Left,
+        MenuKey::Right => PadKey::Right,
+        MenuKey::Ok => PadKey::Ok,
+        MenuKey::Back => PadKey::Back,
+    }
+}
+
+/// The pads as the menus' remote while no stream starts or runs ([`App::wants_pads`]): held exclusively, so that LG's compositor
+/// sees none of their keys, and decoded on their reader threads. Let go before a stream starts, for the stream's engine to take.
+struct MenuPads {
+    runtime: PadRuntime,
+    sink: Arc<MenuSink>,
+}
+
+struct MenuSink {
+    active: AtomicBool,
+    keys: Mutex<[MenuKeys; MAX_PADS]>,
+    sock: UnixDatagram,
+    to: PathBuf,
+}
+
+impl PadSink for MenuSink {
+    fn pad_event(&self, _bitmap: u16, event: PadEvent) {
+        let mut keys = self.keys.lock().unwrap_or_else(|e| e.into_inner());
+        match event {
+            // decoded while let go too, so that a press held across the change is no key
+            PadEvent::Report { slot, state, .. } => {
+                if let Some(k) = keys.get_mut(usize::from(slot)) {
+                    let active = self.active.load(Ordering::Acquire);
+                    k.feed(&state, |key| {
+                        if active {
+                            let _ = self.sock.send_to(&[MENU_DATAGRAM, key as u8], &self.to);
+                        }
+                    });
+                }
+            }
+            PadEvent::Connected { slot, .. } | PadEvent::Disconnected { slot } => {
+                if let Some(k) = keys.get_mut(usize::from(slot)) {
+                    *k = MenuKeys::default();
+                }
+            }
+            PadEvent::Guide { .. } | PadEvent::ExitChord { .. } => {}
+        }
+    }
+}
+
+impl MenuPads {
+    fn start(to: &Path) -> Option<Self> {
+        let sock = UnixDatagram::unbound().ok()?;
+        sock.set_nonblocking(true).ok()?;
+        let sink = Arc::new(MenuSink { active: AtomicBool::new(false), keys: Mutex::default(), sock, to: to.to_owned() });
+        // the boost and the latency files are the stream's
+        let config = PadConfig { boost: None, latency_dir: None, ..PadConfig::from_env() };
+        Some(Self { runtime: PadRuntime::start(config, sink.clone()), sink })
+    }
+
+    fn sync(&self, wants: bool) {
+        if self.sink.active.swap(wants, Ordering::AcqRel) != wants {
+            self.runtime.set_grab(wants);
+        }
     }
 }
 
@@ -283,6 +335,7 @@ fn run(o: Options) -> io::Result<i32> {
     let mut core = CoreClient::spawn(&o.core, &o.core_args, &data, &env)?;
     log(&format!("core started, pid {:?}, data {}", core.child_pid(), data.display()));
     let mut pad = PadSide::open(&o.pad_side);
+    let menu_pads = pad.as_ref().and_then(|_| MenuPads::start(&o.pad_side));
     // SAFETY: the feeder made the descriptor and gave it to this process alone.
     let mut channel = match o.channel_fd {
         Some(fd) => Some(unsafe { Channel::from_fd(fd)? }),
@@ -433,7 +486,7 @@ fn run(o: Options) -> io::Result<i32> {
             }
         }
         if let Some(p) = pad.as_mut() {
-            inputs.extend(p.poll().into_iter().map(Input::Pad));
+            inputs.extend(p.poll());
             if let Some(l) = p.latency.take() {
                 inputs.push(Input::PadLatency(l));
             }
@@ -442,6 +495,10 @@ fn run(o: Options) -> io::Result<i32> {
         inputs.push(Input::Tick { now_ms: started.elapsed().as_millis() as u64 });
         for input in inputs {
             actions.extend(feed(&mut app, input));
+        }
+        // before the actions go: a stream's start is asked for only once the pads are let go
+        if let Some(m) = &menu_pads {
+            m.sync(app.wants_pads());
         }
         if !actions.is_empty() {
             continue;
@@ -577,6 +634,7 @@ fn describe(input: &Input) -> String {
     match input {
         Input::Key { code, pressed } => format!("key {code} {}", if *pressed { "down" } else { "up" }),
         Input::Pad(p) => format!("pad {p:?}"),
+        Input::MenuPad(p) => format!("menu pad {p:?}"),
         Input::PadLatency(l) => format!("pad latency {l:?}"),
         Input::Core(CoreMsg::Response { method, ok, error_code, .. }) => format!("{method}: {}", if *ok { "ok".to_owned() } else { format!("error {error_code}") }),
         Input::Core(CoreMsg::Event { name, .. }) => format!("event {name}"),

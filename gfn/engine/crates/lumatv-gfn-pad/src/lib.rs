@@ -27,6 +27,7 @@ use std::time::{Duration, Instant};
 
 pub mod boost;
 pub mod latency;
+pub mod menu;
 pub mod tool;
 
 pub const MAX_PADS: usize = 4;
@@ -585,6 +586,15 @@ fn discovery_loop(inner: &Arc<Inner>) {
 
 fn scan(inner: &Arc<Inner>) {
     inner.scans.fetch_add(1, Ordering::Release);
+    // a grab refused while another process held the pad (the stream's engine, until it lets go) is asked for again, quietly
+    if inner.grab.load(Ordering::Acquire) {
+        let slots = inner.slots.lock().unwrap_or_else(|e| e.into_inner());
+        for slot in slots.iter().flatten().filter(|s| !s.grabbed.load(Ordering::Acquire)) {
+            if eviocgrab(slot.fd, true).is_ok() {
+                slot.grabbed.store(true, Ordering::Release);
+            }
+        }
+    }
     let nodes = list_nodes(&inner.config.dev_dir);
     let known: Vec<String> = {
         let slots = inner.slots.lock().unwrap_or_else(|e| e.into_inner());

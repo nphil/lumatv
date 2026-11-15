@@ -108,6 +108,8 @@ pub enum Input {
     Key { code: u32, pressed: bool },
     /// The pad's side channel while the overlay is up: a direction, OK or Guide, decoded by the loop.
     Pad(PadKey),
+    /// A key from a pad the app reads itself, which only the menus take ([`App::wants_pads`]).
+    MenuPad(PadKey),
     /// The engine's press latency figures, from the pad's side channel.
     PadLatency(PadLatency),
     /// A response or event from the core.
@@ -359,6 +361,12 @@ impl App {
         !self.minimized
     }
 
+    /// Whether the app holds the pads as the menus' remote: in front, with no stream starting or running. The stream's engine takes
+    /// them at its start, so they are let go once the start is asked for.
+    pub fn wants_pads(&self) -> bool {
+        !self.minimized && !self.streaming() && !(self.screen == Screen::Launching && self.start_asked)
+    }
+
     /// The library has asked for a page and has not heard back: an empty grid is a wait, not an empty library.
     pub fn loading_library(&self) -> bool {
         self.has_pending("catalog.library.list")
@@ -409,6 +417,8 @@ impl App {
                 self.key(k)
             }
             Input::Pad(p) => self.pad(p),
+            Input::MenuPad(p) if self.wants_pads() => self.pad(p),
+            Input::MenuPad(_) => Vec::new(),
             Input::PadLatency(l) => {
                 self.pad_latency = Some(l);
                 Vec::new()
@@ -2222,5 +2232,25 @@ mod tests {
         assert_eq!(of(json!(["rtx", "hdr"])), Some(true));
         assert_eq!(of(json!(["rtx"])), Some(false), "the core asks this game for SDR");
         assert_eq!(of(Value::Null), None, "a listing without features is asked for HDR as the settings say");
+    }
+
+    #[test]
+    fn the_apps_own_pads_drive_the_menus_and_never_a_stream() {
+        let mut app = App::new();
+        app.screen = Screen::Library;
+        app.games = crate::gfn::fixtures::games(3);
+        assert!(app.wants_pads());
+        app.handle(Input::MenuPad(PadKey::Right));
+        assert_eq!(app.focus, 1, "a pad's key moves the library as the remote's does");
+        app.screen = Screen::Launching;
+        assert!(app.wants_pads(), "B gives the seat up while it is set up");
+        app.start_asked = true;
+        assert!(!app.wants_pads(), "let go once the start is asked for, for the engine to take");
+        app.screen = Screen::Stream;
+        assert!(app.handle(Input::MenuPad(PadKey::Back)).is_empty());
+        assert_eq!(app.screen, Screen::Stream, "a menu key never reaches a stream");
+        app.screen = Screen::Library;
+        app.minimized = true;
+        assert!(!app.wants_pads(), "another app has the pads while this one is covered");
     }
 }

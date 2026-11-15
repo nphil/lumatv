@@ -439,6 +439,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumatv-gfn-pad"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "lumatv-placement"
 version = "0.1.0"
 dependencies = [
@@ -469,6 +476,7 @@ dependencies = [
  "jpeg-encoder",
  "libc",
  "lumatv-compositor",
+ "lumatv-gfn-pad",
  "lumatv-render",
  "lumatv-wl-protocols",
  "parking_lot",
