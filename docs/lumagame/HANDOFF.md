@@ -17,6 +17,10 @@ Controller presses in a game (grab fix 2b263a35, untested with presses), sound b
 
 Order of work: VRR + low-latency hardware truth (running), REA of LG Game Dashboard / BT controllers / multichannel audio (running), Controller Lab screen and GameSir Cyclone 2 config protocol (running). Queued: NDL/VO on-glass presentation timestamp, VO 120 selection cap (144 Hz, AV1 at 120), HDR re-apply drop and Dolby Vision, 4:4:4 VDEC gate. Results land in docs/research/*-result.md and docs/lumagame-gaming-features.md.
 
+## Native games (study of github.com/pustal/Web-Mario-64, 2026-11-15)
+
+Web-Mario-64 is a native webOS app (`type: native`), not a web build: Ghostship (an SM64 PC port) with a webOS patch layer, SDL2 2.30.12 from webosbrew's SDL-webOS fork (armv7), GLES 3 on the TV's own driver loaded at run time, packed as an ipk with `ares-package`. Remote keys map to SDL keys (Back 482, colour keys 486-489, Exit 505). Ghostship runs game logic at 30 fps with frame interpolation; its "match refresh rate" option should drive 120 Hz (read from code, untested). Plan for LumaGame's native engine: keep ports as separate SAM apps launched by LumaGame; first build a minimal SDL2 + GLES 3 app with a frame-time log, measure 120 Hz on the TV, then test the return-to-LumaGame handoff. LumaTV's own GPU path is rustui/render (loads `libGLES_mali.so` by path) with the 64-bit runtime in gfx64/.
+
 ## Working rules
 
 - Read /data/home/lgtv/CLAUDE.md. Commit straight to main, push to origin and forge, explicit paths only (other sessions commit concurrently).
