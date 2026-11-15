@@ -20,13 +20,13 @@ use lumatv_rustui::gfn::layout::{H, W};
 use lumatv_rustui::gfn::prefs::Prefs;
 use lumatv_rustui::gfn::ui::GfnUi;
 use lumatv_rustui::lifecycle::{Channel, FromApp, ToApp};
-use lumatv_rustui::look::Mode;
+use lumatv_rustui::look::{self, Mode};
 use lumatv_rustui::window::{self, Event, Spec};
 use serde_json::Value;
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixDatagram;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use ui::{SceneOptions, Ui};
@@ -266,9 +266,52 @@ fn run(o: Options) -> io::Result<i32> {
     let _ = std::fs::remove_dir_all(&o.shm);
     std::fs::create_dir_all(&o.shm)?;
     let libmali = o.libmali.as_deref().ok_or_else(|| io::Error::other("--libmali (or LUMATV_GFX_LIB) names the GL driver"))?;
+
+    // The core first: its start and the handshake run while the window and the toolkit start (about 1.3 s of shader links on the
+    // set), not after them. It has the engine's whereabouts and the feeder's socket in its environment (the engine reads them; the
+    // core passes its environment on). The engine reads the dead zone from the preferences file when a stream starts.
+    let data = writable_data_dir(&o.data);
+    let prefs_path = o.prefs.clone().unwrap_or_else(|| data.join("prefs.json"));
+    let env = [
+        ("LUMATV_GFN_FEEDER_SOCKET", o.feeder_socket.to_string_lossy().into_owned()),
+        ("LUMATV_GFN_PAD_SIDE", o.pad_side.to_string_lossy().into_owned()),
+        ("LUMATV_GFN_PREFS", prefs_path.to_string_lossy().into_owned()),
+        ("OPENNOW_STREAMER_LOG_FILE", data.join("streamer.log").to_string_lossy().into_owned()),
+        // Where the engine writes latency.tsv and latency.json (one line per button press); `lumatv-gfn-latency` reads them.
+        ("LUMATV_GFN_LATENCY_DIR", data.to_string_lossy().into_owned()),
+    ];
+    let mut core = CoreClient::spawn(&o.core, &o.core_args, &data, &env)?;
+    log(&format!("core started, pid {:?}, data {}", core.child_pid(), data.display()));
+    let mut pad = PadSide::open(&o.pad_side);
+    // SAFETY: the feeder made the descriptor and gave it to this process alone.
+    let mut channel = match o.channel_fd {
+        Some(fd) => Some(unsafe { Channel::from_fd(fd)? }),
+        None => None,
+    };
+    let mut app = App::with_prefs(Prefs::load(&prefs_path)).with_engine(&o.engine.to_string_lossy());
+    let started = Instant::now();
+    let mut actions = app.start();
+    if o.hidden {
+        actions.extend(app.handle(Input::State(MINIMIZED)));
+    }
+    if perform(&mut actions, &mut core, &mut app, &prefs_path, &mut channel) {
+        core.shutdown();
+        return Ok(0);
+    }
+
+    // The wallpaper decides the material unless one is asked for, and the window's first frame is that material's backdrop.
+    let wall = GfnUi::wallpaper(&o.assets)?;
+    let mode = o.mode.unwrap_or_else(|| Mode::of_wallpaper(&wall));
     let spec = Spec { app_id: o.app_id.clone(), title: "GeForce NOW".into(), window_type: "_WEBOS_WINDOW_TYPE_CARD".into(), keys_back: true, state: if o.hidden { None } else { Some(FULLSCREEN) }, keys: true, video: true };
     let (gles, mut win) = window::open(W as u32, H as u32, libmali, &spec)?;
     log(&format!("GL: {}", graphics(&gles)));
+    if !o.hidden {
+        // a frame now: the card shows the app from the start instead of after the toolkit's shader links
+        let c = look::palette_for(mode).scrim_hide;
+        gles.clear(f32::from(c.0) / 255.0, f32::from(c.1) / 255.0, f32::from(c.2) / 255.0, 1.0);
+        gles.swap_buffers()?;
+        log("backdrop presented");
+    }
     let (seats, keyboards) = win.seats();
     log(&format!("seats: {seats} bound, {keyboards} with a keyboard"));
     // The video element's id goes to the feeder through a file it reads at every load (gfn/feeder, --window-id-file).
@@ -288,6 +331,10 @@ fn run(o: Options) -> io::Result<i32> {
         gles,
         HostConfig { width: W as u32, height: H as u32, refresh_hz: 60.0, shm_dir: o.shm.clone(), direct: false, gpu_sync: false, idle_trim: true, pages: 0, reference: false, blit: true, external: false, system_z: i32::MAX },
     )?;
+    if exchange(&mut core, &mut app, started, &prefs_path, &mut channel) {
+        core.shutdown();
+        return Ok(0);
+    }
     // Over the stream the window is clear but for the status line and the overlay: the video plane shows through everywhere else.
     engine.set_transparent(true);
     let (scene, _welcome, events) = ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(o.shm.clone()), ..SceneOptions::default() })?;
@@ -318,67 +365,21 @@ fn run(o: Options) -> io::Result<i32> {
             std::thread::sleep(Duration::from_millis(1));
         }
     };
-    let mut page = GfnUi::build(ui, &o.assets, o.text_scale, o.mode, None, &mut land)?;
+    let mut page = GfnUi::build(ui, &o.assets, o.text_scale, Some(mode), Some(wall), &mut land)?;
     land(&mut page.ui)?;
-
-    // The core, with the engine's whereabouts and the feeder's socket in its environment (the engine reads them; the core passes
-    // its environment on). The engine reads the dead zone from the preferences file when a stream starts.
-    let data = writable_data_dir(&o.data);
-    let prefs_path = o.prefs.clone().unwrap_or_else(|| data.join("prefs.json"));
-    let env = [
-        ("LUMATV_GFN_FEEDER_SOCKET", o.feeder_socket.to_string_lossy().into_owned()),
-        ("LUMATV_GFN_PAD_SIDE", o.pad_side.to_string_lossy().into_owned()),
-        ("LUMATV_GFN_PREFS", prefs_path.to_string_lossy().into_owned()),
-        ("OPENNOW_STREAMER_LOG_FILE", data.join("streamer.log").to_string_lossy().into_owned()),
-        // Where the engine writes latency.tsv and latency.json (one line per button press); `lumatv-gfn-latency` reads them.
-        ("LUMATV_GFN_LATENCY_DIR", data.to_string_lossy().into_owned()),
-    ];
-    let mut core = CoreClient::spawn(&o.core, &o.core_args, &data, &env)?;
-    log(&format!("core started, pid {:?}, data {}", core.child_pid(), data.display()));
-    let mut pad = PadSide::open(&o.pad_side);
-    // SAFETY: the feeder made the descriptor and gave it to this process alone.
-    let mut channel = match o.channel_fd {
-        Some(fd) => Some(unsafe { Channel::from_fd(fd)? }),
-        None => None,
-    };
-    let mut window_state = if o.hidden { MINIMIZED } else { FULLSCREEN };
-    let mut app = App::with_prefs(Prefs::load(&prefs_path)).with_engine(&o.engine.to_string_lossy());
-    let started = Instant::now();
-    let mut actions = app.start();
-    if o.hidden {
-        actions.extend(app.handle(Input::State(MINIMIZED)));
+    if exchange(&mut core, &mut app, started, &prefs_path, &mut channel) {
+        core.shutdown();
+        return Ok(0);
     }
+
+    let mut window_state = if o.hidden { MINIMIZED } else { FULLSCREEN };
     watch_swaps();
     let mut want_frame = true;
     let mut ready = false;
     loop {
-        for action in actions.drain(..) {
-            match action {
-                Action::Request { method, params } => {
-                    let shown = params.clone();
-                    match core.request(&method, params) {
-                        Ok(id) => app.sent_params(&id, &method, &shown),
-                        Err(e) => log(&format!("core request {method}: {e}")),
-                    }
-                }
-                Action::SavePrefs(p) => {
-                    if let Err(e) = p.save(&prefs_path) {
-                        log(&format!("cannot write {}: {e}", prefs_path.display()));
-                    }
-                }
-                Action::Ack { id } => {
-                    let _ = core.ack(&id);
-                }
-                Action::PauseInput(_) => {}
-                Action::Exit(why) => {
-                    log(&format!("exit: {why}"));
-                    if let Some(ch) = channel.as_mut() {
-                        ch.send(&FromApp::Exit(why));
-                    }
-                    core.shutdown();
-                    return Ok(0);
-                }
-            }
+        if perform(&mut actions, &mut core, &mut app, &prefs_path, &mut channel) {
+            core.shutdown();
+            return Ok(0);
         }
         let mut inputs: Vec<Input> = Vec::new();
         for e in win.events() {
@@ -440,10 +441,7 @@ fn run(o: Options) -> io::Result<i32> {
         inputs.extend(core.poll().into_iter().map(Input::Core));
         inputs.push(Input::Tick { now_ms: started.elapsed().as_millis() as u64 });
         for input in inputs {
-            if !matches!(input, Input::Tick { .. }) {
-                log(&format!("input {}", describe(&input)));
-            }
-            actions.extend(app.handle(input));
+            actions.extend(feed(&mut app, input));
         }
         if !actions.is_empty() {
             continue;
@@ -503,9 +501,9 @@ fn run(o: Options) -> io::Result<i32> {
             want_frame = true;
         }
 
-        let mut wait_ms = 250i64;    /* the core's messages arrive on a channel with no descriptor to wait on */
+        let mut wait_ms = 1000i64;    /* every source has a descriptor or a deadline below: this only bounds the wait */
         if page.art_busy() {
-            wait_ms = wait_ms.min(16);   /* a decoded picture arrives on a channel too: look for it every frame while any is in the works */
+            wait_ms = wait_ms.min(16);   /* a decoded picture arrives on a channel: look for it every frame while any is in the works */
         }
         if let Some(d) = app.next_wake() {
             wait_ms = wait_ms.min(d.as_millis() as i64);
@@ -519,15 +517,60 @@ fn run(o: Options) -> io::Result<i32> {
                 wait_ms = wait_ms.min((wake.saturating_sub(now_ns()) / 1_000_000) as i64);
             }
         }
-        let mut extra = [-1; 2];
-        if let Some(p) = pad.as_ref() {
-            extra[0] = p.sock.as_raw_fd();
-        }
-        if let Some(ch) = channel.as_ref() {
-            extra[1] = ch.fd();
-        }
+        let extra = [pad.as_ref().map_or(-1, |p| p.sock.as_raw_fd()), channel.as_ref().map_or(-1, |ch| ch.fd()), core.wake_fd().unwrap_or(-1)];
         win.wait_fds(wait_ms.max(0) as i32, &extra)?;
     }
+}
+
+/// Does what the rules asked for: requests and acknowledgements to the core, the preferences to their file, the end. True when the
+/// app is to end (the feeder has been told; the core is the caller's to end).
+fn perform(actions: &mut Vec<Action>, core: &mut CoreClient, app: &mut App, prefs_path: &Path, channel: &mut Option<Channel>) -> bool {
+    for action in actions.drain(..) {
+        match action {
+            Action::Request { method, params } => {
+                let shown = params.clone();
+                match core.request(&method, params) {
+                    Ok(id) => app.sent_params(&id, &method, &shown),
+                    Err(e) => log(&format!("core request {method}: {e}")),
+                }
+            }
+            Action::SavePrefs(p) => {
+                if let Err(e) = p.save(prefs_path) {
+                    log(&format!("cannot write {}: {e}", prefs_path.display()));
+                }
+            }
+            Action::Ack { id } => {
+                let _ = core.ack(&id);
+            }
+            Action::PauseInput(_) => {}
+            Action::Exit(why) => {
+                log(&format!("exit: {why}"));
+                if let Some(ch) = channel.as_mut() {
+                    ch.send(&FromApp::Exit(why));
+                }
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// The core's answers so far through the rules, and what they ask for done: the handshake and the account move on while the window
+/// is still being built.
+fn exchange(core: &mut CoreClient, app: &mut App, started: Instant, prefs_path: &Path, channel: &mut Option<Channel>) -> bool {
+    let mut actions = Vec::new();
+    for input in core.poll().into_iter().map(Input::Core).chain([Input::Tick { now_ms: started.elapsed().as_millis() as u64 }]) {
+        actions.extend(feed(app, input));
+    }
+    perform(&mut actions, core, app, prefs_path, channel)
+}
+
+/// One input through the rules, logged unless it is the clock's.
+fn feed(app: &mut App, input: Input) -> Vec<Action> {
+    if !matches!(input, Input::Tick { .. }) {
+        log(&format!("input {}", describe(&input)));
+    }
+    app.handle(input)
 }
 
 fn describe(input: &Input) -> String {

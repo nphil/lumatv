@@ -108,7 +108,11 @@ pub enum Lay {
     Head,
     Body,
     Button,
+    /// The words of an empty library.
     Tiles,
+    /// A tile's title, in that slot's own layer: a focus move leaves every title as it is, and a scroll redraws each title as a run
+    /// of its own, where one layer for the whole grid passes a run's 256 glyphs and becomes a picture of the grid.
+    TileTitle(usize),
     Overlay,
     Status,
     Help,
@@ -709,6 +713,13 @@ pub fn strip_height(m: &Metrics) -> f32 {
     2.0 * line_height(m.ty.tile) + 24.0
 }
 
+/// The title strip at the foot of the tile in `slot` of the visible grid: where that slot's title layer is.
+pub fn tile_strip(m: &Metrics, slot: usize) -> Option<Frame> {
+    let fr = tile_frame(m, slot, 0)?;
+    let strip = strip_height(m);
+    Some(Frame::new(fr.x, fr.bottom() - strip, fr.w, strip))
+}
+
 pub fn header_button(m: &Metrics) -> Frame {
     let s = m.head_side();
     Frame::new(W - SAFE_X - s, SAFE_Y, s, s)
@@ -740,6 +751,7 @@ fn plan_library(app: &App, m: &Metrics, f: &mut Fonts) -> Plan {
     let strip = strip_height(m);
     let first = app.first_row;
     let mut shown = 0;
+    let mut ring = None;
     for (slot, g) in app.games.iter().skip(first * LIBRARY_COLUMNS).take(LIBRARY_COLUMNS * GRID_ROWS).enumerate() {
         let index = first * LIBRARY_COLUMNS + slot;
         let Some(fr) = tile_frame(m, index, first) else { continue };
@@ -750,11 +762,15 @@ fn plan_library(app: &App, m: &Metrics, f: &mut Fonts) -> Plan {
         let block = ls.len() as f32 * lht2;
         let top = fr.y + fr.h - strip + ((strip - block) / 2.0).round();
         for (i, l) in ls.into_iter().enumerate() {
-            p.text(Lay::Tiles, l, t.tile, Ink::OnArt, fr.x + TILE_PAD, top + i as f32 * lht2, TILE_W - 2.0 * TILE_PAD, Align::Centre, Some(ts));
+            p.text(Lay::TileTitle(slot), l, t.tile, Ink::OnArt, fr.x + TILE_PAD, top + i as f32 * lht2, TILE_W - 2.0 * TILE_PAD, Align::Centre, Some(ts));
         }
         if focus {
-            p.surf(Fill::Ring, 0, fr, true, None);
+            ring = Some(fr);
         }
+    }
+    // after the tiles: a surface between them would renumber the tiles after it, and with them the surfaces their titles are on
+    if let Some(fr) = ring {
+        p.surf(Fill::Ring, 0, fr, true, None);
     }
     if shown == 0 {
         let words = if app.loading_library() { "Loading your library" } else { "Nothing in your library yet" };
@@ -1162,6 +1178,21 @@ mod tests {
         app.sent("1", "catalog.library.list");
         let p = plan(&app, &m, &mut f);
         assert!(p.texts.iter().any(|t| t.text == "Loading your library"));
+    }
+
+    /// A focus move changes the tiles' plates and the ring and no title, so no title layer is drawn again for it.
+    #[test]
+    fn a_focus_move_in_the_library_leaves_every_title_as_it_was() {
+        let mut f = Fonts::new();
+        let m = Metrics::new(1.0);
+        let mut app = App::new();
+        app.screen = Screen::Library;
+        app.games = (0..LIBRARY_COLUMNS * GRID_ROWS).map(|i| Game { title: format!("Game {i}"), ..Default::default() }).collect();
+        let before = plan(&app, &m, &mut f);
+        app.focus = 5;
+        let after = plan(&app, &m, &mut f);
+        assert_ne!(before.surfs, after.surfs, "the focus moved");
+        assert_eq!(before.texts, after.texts);
     }
 
     #[test]

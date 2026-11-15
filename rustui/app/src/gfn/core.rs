@@ -1,11 +1,13 @@
 //! The app's end of OpenNOW's core protocol (OpenNOW `docs/core-protocol.md`): newline-delimited JSON on the core process's stdin and
 //! stdout. Requests carry an id and get one response; the core also sends events (`session.changed`, `streamer.changed`,
-//! `auth.session.changed`, ...). A reader thread turns the core's lines into messages on a channel; [`CoreClient::poll`] drains it.
+//! `auth.session.changed`, ...). A reader thread turns the core's lines into messages on a channel and rings a socket the loop waits on
+//! ([`CoreClient::wake_fd`]); [`CoreClient::poll`] drains both.
 //! Nothing here interprets a message: that is `app.rs`'s job, so it can be tested without a core.
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::io::{self, BufRead, BufReader, Write};
-use std::os::unix::io::RawFd;
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
@@ -28,6 +30,8 @@ pub enum CoreMsg {
 pub struct CoreClient {
     stdin: Box<dyn Write + Send>,
     rx: Receiver<Value>,
+    /// Readable while messages wait on `rx`; at the end of the core's output it reads as closed.
+    wake: UnixStream,
     reader: Option<JoinHandle<()>>,
     child: Option<Child>,
     next_id: u64,
@@ -63,8 +67,11 @@ impl CoreClient {
     /// The client over any pair of streams (the tests hand it a socket pair with a fake core on the other end).
     pub fn over(stdin: Box<dyn Write + Send>, stdout: Box<dyn io::Read + Send>) -> io::Result<Self> {
         let (tx, rx) = mpsc::channel::<Value>();
-        let reader = thread::Builder::new().name("gfn-core-reader".to_owned()).spawn(move || read_lines(stdout, &tx))?;
-        Ok(Self { stdin, rx, reader: Some(reader), child: None, next_id: 1, pending: HashMap::new(), gone: false })
+        let (wake, ring) = UnixStream::pair()?;
+        wake.set_nonblocking(true)?;
+        ring.set_nonblocking(true)?;
+        let reader = thread::Builder::new().name("gfn-core-reader".to_owned()).spawn(move || read_lines(stdout, tx, ring))?;
+        Ok(Self { stdin, rx, wake, reader: Some(reader), child: None, next_id: 1, pending: HashMap::new(), gone: false })
     }
 
     /// Sends a request and returns its id.
@@ -96,6 +103,9 @@ impl CoreClient {
 
     /// Everything the core has said since the last call.
     pub fn poll(&mut self) -> Vec<CoreMsg> {
+        // the ring first: a message sent after this drain rings again, so none is left waiting without a wake
+        let mut rung = [0u8; 64];
+        while matches!((&self.wake).read(&mut rung), Ok(n) if n > 0) {}
         let mut out = Vec::new();
         loop {
             match self.rx.try_recv() {
@@ -163,6 +173,12 @@ impl CoreClient {
         self.gone
     }
 
+    /// The descriptor the loop waits on beside the window's: readable when [`CoreClient::poll`] has something. `None` once the core is
+    /// gone, whose closed end would read as ready for ever.
+    pub fn wake_fd(&self) -> Option<RawFd> {
+        (!self.gone).then(|| self.wake.as_raw_fd())
+    }
+
     pub fn child_pid(&self) -> Option<u32> {
         self.child.as_ref().map(Child::id)
     }
@@ -188,7 +204,9 @@ impl CoreClient {
     }
 }
 
-fn read_lines(stdout: Box<dyn io::Read + Send>, tx: &Sender<Value>) {
+/// The core's lines onto the channel, each followed by a byte on `ring` for the loop's wait. The channel closes before the ring, so the
+/// wake that the closed ring gives finds the end ([`CoreMsg::Gone`]).
+fn read_lines(stdout: Box<dyn io::Read + Send>, tx: Sender<Value>, ring: UnixStream) {
     let reader = BufReader::with_capacity(1 << 20, stdout);
     for line in reader.lines() {
         let Ok(line) = line else { break };
@@ -200,22 +218,19 @@ fn read_lines(stdout: Box<dyn io::Read + Send>, tx: &Sender<Value>) {
                 if tx.send(v).is_err() {
                     break;
                 }
+                // a full socket already holds a wake
+                let _ = (&ring).write(&[1]);
             }
             Err(e) => eprintln!("gfn core: a line that is not JSON ({e}): {}", &line[..line.len().min(200)]),
         }
     }
-}
-
-/// A descriptor to wait on beside the window's (the reader thread owns the pipe; the channel has none), so the loop wakes on a timer
-/// instead: `None`.
-pub fn wake_fd() -> Option<RawFd> {
-    None
+    drop(tx);
+    drop(ring);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::net::UnixStream;
 
     #[test]
     fn requests_get_ids_and_responses_find_their_method() {
@@ -241,5 +256,27 @@ mod tests {
         drop(core);
         assert_eq!(c.wait(Duration::from_secs(2)), Some(CoreMsg::Gone));
         assert!(c.poll().is_empty());
+    }
+
+    fn readable(fd: RawFd, ms: i32) -> bool {
+        let mut p = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd for the duration of the call.
+        unsafe { libc::poll(&mut p, 1, ms) == 1 }
+    }
+
+    #[test]
+    fn the_wake_descriptor_rings_for_each_message_and_for_the_end() {
+        let (a, b) = UnixStream::pair().unwrap();
+        let mut c = CoreClient::over(Box::new(a.try_clone().unwrap()), Box::new(a)).unwrap();
+        let fd = c.wake_fd().unwrap();
+        assert!(!readable(fd, 0));
+        (&b).write_all(b"{\"type\":\"event\",\"name\":\"session.changed\",\"payload\":{}}\n").unwrap();
+        assert!(readable(fd, 2000), "a message wakes the loop");
+        assert_eq!(c.poll().len(), 1);
+        assert!(!readable(fd, 0), "the poll took the wake with the message");
+        drop(b);
+        assert!(readable(fd, 2000), "the end wakes the loop too");
+        assert_eq!(c.poll(), [CoreMsg::Gone]);
+        assert_eq!(c.wake_fd(), None, "a closed core is not waited on");
     }
 }

@@ -158,6 +158,8 @@ pub const ART_AGAIN_MS: u64 = 60_000;
 pub const ACCOUNT_REFRESH_MS: u64 = 10_000;
 /// What a launch the core keeps refusing for the account's scope says (it was retried once with fresh account state).
 pub const STALE_ACCOUNT: &str = "This game could not be started for the signed-in account. Open Settings, sign out and sign in again.";
+/// The core's setting for where the streamer engine is.
+const ENGINE_PATH_KEY: &str = "nativeStreamerExecutablePath";
 
 /// The first row shown so that the focused tile is on the screen.
 pub fn first_row_for(focus: usize, current: usize) -> usize {
@@ -220,10 +222,10 @@ pub struct App {
     /// The regions are asked for once, when an account is known (the core refuses the question to a signed-out app).
     regions_asked: bool,
     /// The core takes one setting a request, and a few requests at a time (it answers `busy` past that): the settings still to send, one
-    /// at a time. `boot_settings` is the handshake's batch; the streamer is asked for once it is through, because the core finds the
-    /// engine by the path in its settings.
+    /// at a time, and the key of the one in flight. The engine's path goes first and the streamer is asked for as soon as it is in,
+    /// because the core finds the engine by the path in its settings.
     settings_queue: VecDeque<(String, Value)>,
-    boot_settings: bool,
+    setting_in_flight: Option<String>,
     engine_path: String,
     ok_down_ms: Option<u64>,
     ok_held: bool,
@@ -304,7 +306,7 @@ impl App {
             minimized: false,
             regions_asked: false,
             settings_queue: VecDeque::new(),
-            boot_settings: false,
+            setting_in_flight: None,
             engine_path: String::new(),
             ok_down_ms: None,
             ok_held: false,
@@ -323,7 +325,7 @@ impl App {
         }
     }
 
-    /// The first requests, once the core is up: the handshake, then the engine's report and the account.
+    /// The first request, once the core is up: the handshake. Its answer starts the account and the settings.
     pub fn start(&mut self) -> Vec<Action> {
         vec![Self::req("core.hello", json!({"protocolVersion": crate::gfn::core::PROTOCOL_VERSION, "shell": "lumatv", "shellVersion": env!("CARGO_PKG_VERSION")}))]
     }
@@ -670,19 +672,20 @@ impl App {
 
     /// The next setting waiting to go to the core, as a request.
     fn next_setting(&mut self) -> Option<Action> {
-        self.settings_queue.pop_front().map(|(key, value)| Self::req("settings.set", json!({"key": key, "value": value})))
+        let (key, value) = self.settings_queue.pop_front()?;
+        let action = Self::req("settings.set", json!({"key": key, "value": value}));
+        self.setting_in_flight = Some(key);
+        Some(action)
     }
 
-    /// A setting was answered (taken or refused): the next goes, and when the handshake's batch is through the streamer is asked for.
+    /// A setting was answered (taken or refused): the next goes, and once the engine's path is in, the streamer is asked for.
     fn after_setting(&mut self) -> Vec<Action> {
-        if let Some(next) = self.next_setting() {
-            return vec![next];
+        let answered = self.setting_in_flight.take();
+        let mut out: Vec<Action> = self.next_setting().into_iter().collect();
+        if answered.as_deref() == Some(ENGINE_PATH_KEY) {
+            out.push(Self::req("streamer.detect", json!({})));
         }
-        if self.boot_settings {
-            self.boot_settings = false;
-            return vec![Self::req("streamer.detect", json!({})), Self::req("auth.session.get", json!({}))];
-        }
-        Vec::new()
+        out
     }
 
     /// OK on the settings screen is told by how long it is held: pressed and let go it is the row's action, held for `HOLD_MS` it opens the
@@ -1067,15 +1070,19 @@ impl App {
         match method {
             "core.hello" => {
                 self.hello_done = true;
-                let settings = self.prefs.settings();
-                if let Some(map) = settings.as_object() {
+                if !self.engine_path.is_empty() {
+                    self.settings_queue.push_back((ENGINE_PATH_KEY.to_owned(), json!(self.engine_path)));
+                }
+                if let Some(map) = self.prefs.settings().as_object() {
                     self.settings_queue.extend(map.iter().map(|(k, v)| (k.clone(), v.clone())));
                 }
-                if !self.engine_path.is_empty() {
-                    self.settings_queue.push_back(("nativeStreamerExecutablePath".to_owned(), json!(self.engine_path)));
+                // the account needs none of the settings: the library is on its way while they go in
+                let mut out = vec![Self::req("auth.session.get", json!({}))];
+                if self.engine_path.is_empty() {
+                    out.push(Self::req("streamer.detect", json!({})));
                 }
-                self.boot_settings = true;
-                self.after_setting()
+                out.extend(self.next_setting());
+                out
             }
             "streamer.detect" => {
                 let mut caps = r["capabilities"].clone();
@@ -1424,22 +1431,30 @@ mod tests {
         json!({"status": "ready", "sourceUrl": url, "artworkUrl": format!("file://{path}"), "filePath": path, "cached": true})
     }
 
-    /// The settings the handshake sends one request at a time (the core takes one key and value, and a few requests at once): each is
-    /// answered, and what comes after the last answer is returned with the settings as the core was told them.
+    /// The settings the rules send one request at a time (the core takes one key and value, and a few requests at once): each is
+    /// answered in turn. What else the rules ask for on the way is returned, in order, with the settings as the core was told them.
     fn through_settings(app: &mut App, mut a: Vec<Action>) -> (Vec<Action>, serde_json::Map<String, Value>) {
         let mut told = serde_json::Map::new();
+        let mut rest = Vec::new();
         let mut n = 0;
-        while let [Action::Request { method, params }] = a.as_slice() {
-            if method != "settings.set" {
-                break;
+        loop {
+            let mut set = None;
+            for action in a {
+                match action {
+                    Action::Request { method, params } if method == "settings.set" => {
+                        assert!(set.is_none(), "one setting at a time");
+                        set = Some(params);
+                    }
+                    other => rest.push(other),
+                }
             }
+            let Some(params) = set else { return (rest, told) };
             assert_eq!(told.insert(params["key"].as_str().unwrap().to_owned(), params["value"].clone()), None, "a key is sent once");
             n += 1;
             let id = format!("set{n}");
             app.sent(&id, "settings.set");
             a = app.handle(ok(&id, "settings.set", json!({"key": "k", "value": null})));
         }
-        (a, told)
     }
 
     /// The auth envelope the core answers `auth.session.get` and `auth.device.complete` with: the session's user and provider and the
@@ -1459,12 +1474,16 @@ mod tests {
         assert_eq!(methods(&app.start()), ["core.hello"]);
         app.sent("1", "core.hello");
         let a = app.handle(ok("1", "core.hello", json!({"capabilities": ["nativeStreamer.v7"]})));
-        let (a, told) = through_settings(&mut app, a);
+        assert_eq!(methods(&a), ["auth.session.get", "settings.set"], "the account is read while the settings go in, one at a time");
+        assert!(matches!(&a[1], Action::Request { params, .. } if params["key"] == ENGINE_PATH_KEY), "the engine's path goes first");
+        app.sent("s0", "settings.set");
+        let b = app.handle(ok("s0", "settings.set", json!({})));
+        assert_eq!(methods(&b), ["settings.set", "streamer.detect"], "the streamer is asked for as soon as the core knows where it is");
+        let (rest, told) = through_settings(&mut app, b);
+        assert_eq!(methods(&rest), ["streamer.detect"]);
         assert_eq!(told["resolution"], "3840x2160");
         assert_eq!(told["fps"], 120);
         assert_eq!(told["enableHdr"], true);
-        assert_eq!(told["nativeStreamerExecutablePath"], "/app/bin64/opennow-streamer");
-        assert_eq!(methods(&a), ["streamer.detect", "auth.session.get"], "the streamer is asked for once the core knows where it is");
         app.sent("2", "streamer.detect");
         app.sent("3", "auth.session.get");
         let a = app.handle(ok("2", "streamer.detect", json!({"available": true, "capabilities": {"protocolVersion": 7, "videoBackends": [{"backend": "ndl"}]}})));
@@ -2101,19 +2120,19 @@ mod tests {
     }
 
     #[test]
-    fn the_viewers_choices_are_what_the_handshake_sends_the_core_one_key_at_a_time_before_the_streamer_is_asked_for() {
+    fn the_viewers_choices_are_what_the_handshake_sends_the_core_one_key_at_a_time() {
         use crate::gfn::prefs::{Prefs, Tier};
         let mut app = App::with_prefs(Prefs { tier: Tier::Uhd60, hdr: false, bitrate_mbps: 50, deadzone: 12, show_stats: true });
         app.start();
         app.sent("1", "core.hello");
         let a = app.handle(ok("1", "core.hello", json!({})));
-        assert_eq!(methods(&a), ["settings.set"], "one request, not the whole batch: the core answers busy past a few at a time");
+        assert_eq!(methods(&a), ["auth.session.get", "streamer.detect", "settings.set"], "one setting, not the whole batch: the core answers busy past a few at a time");
         let (a, params) = through_settings(&mut app, a);
         assert_eq!((params["resolution"].as_str(), params["fps"].as_u64()), (Some("3840x2160"), Some(60)));
         assert_eq!((params["enableHdr"].as_bool(), params["colorQuality"].as_str(), params["maxBitrateMbps"].as_u64()), (Some(false), Some("8bit_420"), Some(50)));
         assert_eq!(params["controllerLeftStickDeadzone"].as_u64(), Some(12));
-        assert!(!params.contains_key("nativeStreamerExecutablePath"), "no engine named, none sent");
-        assert_eq!(methods(&a), ["streamer.detect", "auth.session.get"]);
+        assert!(!params.contains_key(ENGINE_PATH_KEY), "no engine named, none sent: the streamer is asked for at once");
+        assert_eq!(methods(&a), ["auth.session.get", "streamer.detect"]);
         app.sent("2", "streamer.detect");
         let a = app.handle(ok("2", "streamer.detect", json!({"capabilities": {"protocolVersion": 7}})));
         assert!(a.is_empty());

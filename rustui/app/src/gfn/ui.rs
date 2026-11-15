@@ -8,7 +8,8 @@
 //! (`docs/research/gfn-app-result.md`, "The app"); the status line and the overlay are the only pixels.
 //!
 //! The library's tiles show box art (`art`): each tile is a glass layer (its shadow and focus), a picture layer (the art, or a
-//! placeholder of the same shape until it is there, with the title strip and the corners baked in) and, for the focused tile, a ring.
+//! placeholder of the same shape until it is there, with the title strip and the corners baked in), a text layer for its title and,
+//! for the focused tile, a ring.
 //! The art is decoded on a worker thread from the file the core cached; nothing here waits for it.
 use crate::gfn::app::{App, Art, GRID_ROWS, LIBRARY_COLUMNS, Screen};
 use crate::gfn::art::{self, Loader, Spec, Thumb};
@@ -129,6 +130,7 @@ pub struct GfnUi {
     tile_art: Vec<ImageLayer>,
     ring: GlassLayer,
     tile_text: TextLayer,
+    tile_titles: Vec<TextLayer>,
     status: GlassLayer,
     status_text: TextLayer,
     overlay: GlassLayer,
@@ -144,19 +146,23 @@ pub struct GfnUi {
     thumb_order: VecDeque<String>,
     requested: HashSet<String>,
     failed: HashSet<String>,
-    art_version: u64,
-    shown_art_version: u64,
     shown: Option<Shown>,
 }
 
 impl GfnUi {
+    /// The packaged wallpaper's pixels at the screen's size.
+    pub fn wallpaper(assets: &Path) -> io::Result<Vec<u8>> {
+        crate::home::wallpaper_pixels(&assets.join("wallpaper/wall_1080.png"), W as u32, H as u32)
+    }
+
     /// `scale` is the text scale (1.0, or 2.0 for Lucent's 200 % check); `mode` forces a material, else the wallpaper's brightness
-    /// chooses as LumaHome's does; `wall` replaces the packaged wallpaper (the renders' light one).
+    /// chooses as LumaHome's does; `wall` is the wallpaper's pixels when the caller has them (the packaged one's, or the renders' light
+    /// one), else the packaged one is read.
     pub fn build(mut ui: Ui, assets: &Path, scale: f32, mode: Option<Mode>, wall: Option<Vec<u8>>, land: &mut dyn FnMut(&mut Ui) -> io::Result<()>) -> io::Result<Self> {
         let m = Metrics::new(scale);
         let pixels = match wall {
             Some(p) => p,
-            None => crate::home::wallpaper_pixels(&assets.join("wallpaper/wall_1080.png"), W as u32, H as u32)?,
+            None => Self::wallpaper(assets)?,
         };
         let mode = mode.unwrap_or_else(|| Mode::of_wallpaper(&pixels));
         let p = look::palette_for(mode);
@@ -195,6 +201,11 @@ impl GfnUi {
         }
         let ring = ui.scene.glass(TILE_W as u32, TILE_H as u32, Z_RING, ring_glass(&p), hidden());
         let tile_text = TextLayer::new(&mut ui, Frame::new(0.0, layout::grid_top(&m), W, H - layout::grid_top(&m)), Z_TILE_TEXT, &[])?;
+        let mut tile_titles = Vec::new();
+        for slot in 0..LIBRARY_COLUMNS * GRID_ROWS {
+            let at = layout::tile_strip(&m, slot).ok_or_else(|| io::Error::other("a tile slot outside the grid"))?;
+            tile_titles.push(TextLayer::new(&mut ui, at, Z_TILE_TEXT, &[])?);
+        }
         let status_f = layout::status_frame(&mut ui.fonts, &m);
         let status = ui.scene.glass(status_f.w as u32, status_f.h as u32, Z_STATUS, status_glass(), hidden());
         let status_text = TextLayer::new(&mut ui, status_f, Z_STATUS_TEXT, &[])?;
@@ -246,6 +257,7 @@ impl GfnUi {
             tile_art,
             ring,
             tile_text,
+            tile_titles,
             status,
             status_text,
             overlay,
@@ -260,8 +272,6 @@ impl GfnUi {
             thumb_order: VecDeque::new(),
             requested: HashSet::new(),
             failed: HashSet::new(),
-            art_version: 0,
-            shown_art_version: 0,
             shown: None,
         })
     }
@@ -297,7 +307,6 @@ impl GfnUi {
                             self.requested.remove(&old);
                         }
                     }
-                    self.art_version += 1;
                 }
                 Err(e) => {
                     eprintln!("gfn: box art {}: {e}", done.key);
@@ -344,13 +353,12 @@ impl GfnUi {
         let art_now: Vec<Option<String>> = wanted.into_iter().map(|k| k.filter(|k| self.thumbs.contains_key(k))).collect();
         let next = Shown { plan, streaming: app.streaming(), art: art_now, qr: if app.screen == Screen::SignIn { app.sign_in.qr_rows.clone() } else { Vec::new() } };
         if let Some(prev) = &self.shown {
-            if prev.plan == next.plan && prev.streaming == next.streaming && prev.art == next.art && prev.qr == next.qr && self.shown_art_version == self.art_version {
+            if prev.plan == next.plan && prev.streaming == next.streaming && prev.art == next.art && prev.qr == next.qr {
                 return;
             }
         }
         let prev = self.shown.take();
         self.apply(prev.as_ref(), &next, app);
-        self.shown_art_version = self.art_version;
         self.shown = Some(next);
     }
 
@@ -413,7 +421,7 @@ impl GfnUi {
     /// The text layers: each is redrawn when what the plan puts on it changed.
     fn apply_text(&mut self, prev: Option<&Plan>, next: &Plan) {
         let button = next.surface(Fill::Button).next().map(|s| s.rect);
-        let layers: [(Lay, Frame); 7] = [
+        let mut layers: Vec<(Lay, Frame)> = vec![
             (Lay::Head, Frame::new(0.0, 0.0, W, layout::grid_top(&self.m))),
             (Lay::Body, layout::panel_frame(&self.m)),
             (Lay::Button, button.unwrap_or(Frame::new(0.0, 0.0, 0.0, 0.0))),
@@ -422,6 +430,11 @@ impl GfnUi {
             (Lay::Status, layout::status_frame(&mut self.ui.fonts, &self.m)),
             (Lay::Help, layout::panel_frame(&self.m)),
         ];
+        for slot in 0..self.tile_titles.len() {
+            if let Some(at) = layout::tile_strip(&self.m, slot) {
+                layers.push((Lay::TileTitle(slot), at));
+            }
+        }
         for (lay, origin) in layers {
             let pick = |plan: Option<&Plan>| -> (Vec<Txt>, Vec<layout::MarkBox>, Option<Frame>) {
                 match plan {
@@ -455,6 +468,11 @@ impl GfnUi {
                     self.button_text.draw(&mut self.ui, &items);
                 }
                 Lay::Tiles => self.tile_text.draw(&mut self.ui, &items),
+                Lay::TileTitle(slot) => {
+                    if let Some(layer) = self.tile_titles.get_mut(slot) {
+                        layer.draw(&mut self.ui, &items);
+                    }
+                }
                 Lay::Overlay => self.overlay_text.draw(&mut self.ui, &items),
                 Lay::Status => self.status_text.draw(&mut self.ui, &items),
                 Lay::Help => self.help_text.draw(&mut self.ui, &items),
@@ -509,7 +527,7 @@ impl GfnUi {
             };
             let want = next.art.get(slot).cloned().unwrap_or(None);
             let was_there = prev.and_then(|p| p.plan.surfaces_of(Fill::Tile, slot)).is_some();
-            let same_picture = was_there && shown_art(prev, slot) == Some(want.clone()) && self.shown_art_version == self.art_version;
+            let same_picture = was_there && shown_art(prev, slot) == Some(want.clone());
             if !same_picture || prev.is_none() {
                 let thumb = want.as_ref().and_then(|k| self.thumbs.get(k)).unwrap_or(&self.placeholder);
                 let layer = &mut self.tile_art[slot];
