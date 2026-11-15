@@ -27,7 +27,7 @@ impl Control {
     fn id(self) -> Option<u32> {
         match self {
             Self::MemcLowDelay => Some(0x0098_3a01),
-            Self::VpqLowDelay => Some(0x0098_3d09),
+            Self::VpqLowDelay => Some(0x0098_3d0e),
             Self::MotionPro => Some(0x0098_3a03),
             Self::DeLowDelay => None,
         }
@@ -35,10 +35,6 @@ impl Control {
 
     pub fn cache_caveat(self) -> bool {
         matches!(self, Self::VpqLowDelay | Self::DeLowDelay)
-    }
-
-    pub fn unsupported_reason(self) -> Option<&'static str> {
-        (self == Self::VpqLowDelay).then_some("unsupported on O22: VIDIOC_S_CTRL returns EINVAL (TV receipt 2026-11-15)")
     }
 }
 
@@ -203,7 +199,7 @@ mod tests {
     #[test]
     fn fixed_control_ids_and_targets_match_the_qualification_contract() {
         assert_eq!(Control::MemcLowDelay.id(), Some(0x0098_3a01));
-        assert_eq!(Control::VpqLowDelay.id(), Some(0x0098_3d09));
+        assert_eq!(Control::VpqLowDelay.id(), Some(0x0098_3d0e));
         assert_eq!(Control::MotionPro.id(), Some(0x0098_3a03));
         assert_eq!(Control::MotionPro.target(), 0);
         assert_eq!(Control::DeLowDelay.target(), 1);

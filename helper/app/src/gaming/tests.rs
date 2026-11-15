@@ -334,19 +334,16 @@ fn failed_restore_without_a_readback_retains_the_journal() {
 }
 
 #[test]
-fn unsupported_vpq_is_never_opened_even_with_receipts_or_a_legacy_passing_record() {
+fn vpq_stays_unqualified_until_explicit_qualification() {
     let mut rig = Rig::new();
-    let result = rig.qualify(Control::VpqLowDelay);
-    assert_eq!(result["qualified"], false);
-    assert!(result["error"].as_str().unwrap().contains("EINVAL"));
-    assert!(rig.devices.hardware.lock().calls.is_empty());
-    assert!(!rig.devices.journal.exists());
-    rig.state.records.get_mut(&Control::VpqLowDelay).unwrap().qualified = true;
-    save(&rig.state.records_path, &rig.state.records.values().collect::<Vec<_>>()).unwrap();
-    assert!(!rig.restarted("boot-one").records[&Control::VpqLowDelay].qualified);
     let lease = rig.acquire(Instant::now(), vec![Control::VpqLowDelay]);
     assert_eq!(lease["applied"], json!([]));
-    assert_eq!(lease["skipped"][0]["reason"], "unsupported");
+    assert_eq!(lease["skipped"][0]["reason"], "unqualified");
     assert!(rig.devices.hardware.lock().calls.is_empty());
+    rig.state.release(lease["id"].as_str().unwrap()).unwrap();
+    let result = rig.qualify(Control::VpqLowDelay);
+    assert_eq!(result["sequencePassed"], true);
+    assert_eq!(result["qualified"], true);
+    assert!(rig.restarted("boot-one").records[&Control::VpqLowDelay].qualified);
     assert!(!rig.devices.journal.exists());
 }
