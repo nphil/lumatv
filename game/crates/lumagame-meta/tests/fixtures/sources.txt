@@ -1,0 +1,4 @@
+igdb-games.json: IGDB's published expanded-genres response, recorded 2026-11-14 from https://api-docs.igdb.com/#expander (id 1942).
+twitch-token.json: IGDB's published Twitch authentication response, recorded 2026-11-14 from https://api-docs.igdb.com/#authentication. The token is the documentation's public example, not a credential.
+steamgriddb.json: synthetic values following SteamGridDB's Grids/Grid/Author response schemas at https://www.steamgriddb.com/static/openapi.yml (API 2.10.0); no authenticated live response was available.
+Tests never contact these URLs. Image tests generate tiny geometric rasters, not copyrighted game artwork.

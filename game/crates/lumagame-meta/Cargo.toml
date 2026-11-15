@@ -1,0 +1,19 @@
+[package]
+name = "lumagame-meta"
+description = "Identity-matched game metadata and bounded, worker-loaded artwork"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+lumagame-core = { path = "../lumagame-core" }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+image = { version = "=0.25.6", default-features = false, features = ["jpeg", "png", "webp"] }
+
+[dev-dependencies]
+tempfile = "3"
