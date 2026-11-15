@@ -177,6 +177,8 @@ class GameApp(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(os.stat(os.path.join(dest, "config", "opennow", "session.json")).st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(os.stat(os.path.join(dest, "data", "catalog.json")).st_mode), 0o644)
         self.assertEqual(stat.S_IMODE(os.stat(dest).st_mode), 0o700)
+        engines = os.stat(os.path.join(new, "engines"))
+        self.assertEqual((stat.S_IMODE(engines.st_mode), engines.st_uid), (0o755, os.stat(new).st_uid), "engines/ as the UI makes it")
         self.assertTrue(os.path.exists(os.path.join(dest, "prefs.json")))
         self.assertTrue(os.path.exists(os.path.join(old, "config", "opennow", "session.json")), "the original stays")
         self.assertEqual(os.listdir(os.path.join(new, "engines")), ["gfn"], "no staging directory is left")

@@ -145,8 +145,16 @@ impl Store {
     }
 }
 
+/// A directory only this user can open. Missing parents are made open to pass through: a data base such as
+/// `/media/developer/apps/usr/palm/data` can be missing in the app's jail and is shared with every other app's directory.
 pub fn private_dir(path: &Path) -> io::Result<()> {
-    fs::DirBuilder::new().recursive(true).mode(0o700).create(path)
+    if let Some(parent) = path.parent() {
+        fs::DirBuilder::new().recursive(true).mode(0o755).create(parent)?;
+    }
+    match fs::DirBuilder::new().mode(0o700).create(path) {
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists && path.is_dir() => Ok(()),
+        made => made,
+    }
 }
 
 /// The same app-data bases as the feeder, before a per-user host path and the explicitly temporary last resort.
@@ -226,5 +234,16 @@ mod tests {
         assert!(!dir.path().join("session.json").exists());
         store.save_secrets(&Secrets { steamgriddb_key: "private".into(), ..Secrets::default() }).unwrap();
         assert_eq!(fs::metadata(dir.path().join("secrets.json")).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn a_missing_data_base_is_made_open_and_only_the_apps_directory_private() {
+        let dir = temp();
+        let base = dir.path().join("usr/palm/data");
+        let (data, temporary) = data_dir(&base.join(APP_ID)).unwrap();
+        assert!(temporary.is_none());
+        assert_eq!(fs::metadata(&data).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_ne!(fs::metadata(&base).unwrap().permissions().mode() & 0o777, 0o700, "other apps keep their own directories here");
+        private_dir(&data).unwrap();
     }
 }

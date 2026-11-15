@@ -142,9 +142,11 @@ game_adopt_gfn() {
   fi
   game_close || { GAME_ADOPT_WHY="LumaGame did not close"; return 1; }
   owner=$(stat -c %u:%g "$new") || { GAME_ADOPT_WHY="the owner of $new could not be read"; return 1; }
+  # engines/ as the UI makes it (0755, the app's user): made here by root it would keep the UI from adding any other engine
+  { mkdir -p "$new/engines" && chmod 755 "$new/engines" && chown "$owner" "$new/engines"; } || { GAME_ADOPT_WHY="$new/engines could not be prepared"; return 1; }
   stage=$new/engines/.adopt-gfn.$$
   rm -rf "$stage"
-  mkdir -p "$stage" || { GAME_ADOPT_WHY="$stage could not be created"; return 1; }
+  mkdir "$stage" || { GAME_ADOPT_WHY="$stage could not be created"; return 1; }
   for name in config data prefs.json; do
     [ -e "$old/$name" ] || continue
     cp -Rp "$old/$name" "$stage/" || { rm -rf "$stage"; GAME_ADOPT_WHY="$old/$name could not be copied"; return 1; }

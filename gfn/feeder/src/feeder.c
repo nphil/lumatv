@@ -1018,6 +1018,20 @@ static int run_play(struct feeder *f) {
 
 /* ---- the UI process (the installed app) ------------------------------------------------------------------------------------------- */
 
+/* A base can be missing in the app's jail (first LumaGame launch on the TV: /media/developer/apps/usr/palm/data, ENOENT). It is made the
+ * way webOS makes it, open for other apps' users to pass through; only the app's own directory under it is private. */
+static void make_base(const char *path) {
+    char p[400];
+    snprintf(p, sizeof p, "%s", path);
+    for (char *s = p + 1; *s; s++) {
+        if (*s != '/') continue;
+        *s = 0;
+        mkdir(p, 0755);
+        *s = '/';
+    }
+    mkdir(p, 0755);
+}
+
 /* Starts the 64-bit UI the way the card app's launcher does (rustui/app/stub/lumatv-card.c): through gfx64/launch.sh with the
  * package's own loader, heap shim and Mali driver, in its own process group, gone with this process. What SAM gave this 32-bit
  * program (LD_PRELOAD, LD_LIBRARY_PATH) must not reach the 64-bit loader. `channel` is the UI's end of the socket pair (its
@@ -1031,6 +1045,7 @@ static const char *persistent_dir(const char *app_id, char *out, size_t cap) {
     for (size_t i = 0; i < (only ? 1 : sizeof base / sizeof *base); i++) {
         char dir[400], probe[460];
         snprintf(dir, sizeof dir, "%s/%s", only ? only : base[i], app_id);
+        make_base(only ? only : base[i]);
         int made = mkdir(dir, 0700) == 0 || errno == EEXIST;
         int made_errno = errno;
         int ok = 0;
