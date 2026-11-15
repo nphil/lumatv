@@ -35,6 +35,7 @@ pub fn games(n: usize) -> Vec<Game> {
             image_url: format!("https://x/{i}.jpg"),
             store: "STEAM".into(),
             in_library: true,
+            hdr: None,
         })
         .collect()
 }
@@ -103,7 +104,7 @@ pub fn every_screen() -> Vec<(&'static str, App)> {
     out.push(("detail-blocked", a));
     let mut a = base();
     a.screen = Screen::Detail;
-    a.detail = Some(games(2)[1].clone());
+    a.detail = Some(Game { hdr: Some(false), ..games(2)[1].clone() });
     a.decision = "ready".into();
     out.push(("detail-ready", a));
     let mut a = base();

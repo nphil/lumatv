@@ -5,8 +5,8 @@
 //! Text scale moves sizes, not designs: a larger type makes rows taller, wraps what does not fit and widens the cards, and a screen
 //! that cannot hold its content at 200 % is a failing test, not a clipped label. Chrome (the header's disc and button) grows half as
 //! fast as the text. At 100 % the numbers are the ones the screens always had.
-use crate::gfn::app::{App, GRID_ROWS, LIBRARY_COLUMNS, OVERLAY_ROWS, Screen};
-use crate::gfn::prefs::Row;
+use crate::gfn::app::{App, GRID_ROWS, Game, LIBRARY_COLUMNS, OVERLAY_ROWS, Screen};
+use crate::gfn::prefs::{Prefs, Row};
 use crate::look::{self, MED, SEMI};
 use ui::components::{Align, Form, Icon, ellipsise, line_height, wrap, wrap_to};
 use ui::geometry::Frame;
@@ -333,10 +333,9 @@ pub fn rows(app: &App) -> Vec<(String, String)> {
         Screen::SignOut => vec![("Account".into(), account_text(app))],
         Screen::Detail => {
             let g = app.detail.clone().unwrap_or_default();
+            let stream = (app.runtime_capabilities["nativeHdrSupported"] == true).then(|| stream_text(&app.prefs, &g));
             let mut r = vec![("Game".into(), g.title), ("Store".into(), g.store), ("Status".into(), decision_text(&app.decision, &app.decision_message))];
-            if app.runtime_capabilities["nativeHdrSupported"] == true {
-                r.push(("Stream".into(), app.prefs.summary()));
-            }
+            r.extend(stream.map(|s| ("Stream".into(), s)));
             r
         }
         Screen::Launching => {
@@ -404,7 +403,31 @@ pub fn phase_text(phase: &str, queue: i64) -> String {
     }
 }
 
-/// The status line's words: fps, bitrate and what the engine says, short.
+/// What the detail card says the game's stream will be: the settings, but SDR where the game's listing names no HDR (the core then
+/// asks for SDR).
+pub fn stream_text(prefs: &Prefs, g: &Game) -> String {
+    if prefs.hdr && g.hdr == Some(false) {
+        return format!("{} · {GAME_SDR}", Prefs { hdr: false, ..*prefs }.summary());
+    }
+    prefs.summary()
+}
+
+const GAME_SDR: &str = "SDR: no HDR for this game";
+
+/// Why a stream that was to be HDR is SDR, from what the core says of its session: the game's listing names no HDR, or the session
+/// the server set up is SDR. The cloud PC then keeps Windows HDR off and the game's own HDR switch is greyed out.
+pub fn sdr_reason(app: &App) -> Option<&'static str> {
+    let s = &app.session.as_ref()?.value;
+    if s["hdrDowngrade"] == "game-unsupported" {
+        Some(GAME_SDR)
+    } else if app.prefs.hdr && s["negotiatedStreamProfile"]["enableHdr"] == false {
+        Some("SDR: GeForce NOW sent no HDR")
+    } else {
+        None
+    }
+}
+
+/// The status line's words: fps, bitrate and what the engine says, short, and why the picture is SDR when HDR was asked for.
 pub fn stats_line(app: &App) -> String {
     let s = &app.stats;
     let mut parts = Vec::new();
@@ -424,10 +447,11 @@ pub fn stats_line(app: &App) -> String {
         parts.push(format!("pad {:.1} ms (p99 {:.1})", f64::from(l.p50_us) / 1000.0, f64::from(l.p99_us) / 1000.0));
     }
     if parts.is_empty() {
-        if s.message.is_empty() { s.status.clone() } else { s.message.clone() }
-    } else {
-        parts.join(" · ")
+        parts.push(if s.message.is_empty() { s.status.clone() } else { s.message.clone() });
     }
+    parts.extend(sdr_reason(app).map(str::to_owned));
+    parts.retain(|p| !p.is_empty());
+    parts.join(" · ")
 }
 
 pub fn hint(screen: Screen) -> &'static str {
@@ -967,7 +991,7 @@ pub fn over(fg: compositor_protocol::Rgba, bg: [f32; 3]) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gfn::app::{Game, PadLatency, Stats};
+    use crate::gfn::app::{PadLatency, Session, Stats};
     use crate::gfn::fixtures::every_screen;
     use crate::look::{Mode, palette_for};
 
@@ -1215,5 +1239,30 @@ mod tests {
         app.pad_latency = Some(PadLatency { p50_us: 420, p99_us: 1260 });
         app.stats = Stats { status: "streaming".into(), fps: 119.6, bitrate_mbps: 78.4, input_ready: true, ..Default::default() };
         assert_eq!(stats_line(&app), "120 fps · 78 Mbit/s · pad 0.4 ms (p99 1.3)");
+    }
+
+    /// The game's own HDR switch is greyed out on an SDR stream: the card says so before the game starts, the status line once the
+    /// session says why.
+    #[test]
+    fn an_sdr_stream_of_an_hdr_setting_says_why() {
+        let mut app = App::new();
+        let g = Game { hdr: Some(false), ..Default::default() };
+        assert_eq!(stream_text(&app.prefs, &g), "4K · 120 fps · SDR: no HDR for this game");
+        assert_eq!(stream_text(&app.prefs, &Game { hdr: None, ..g }), "4K · 120 fps · HDR10");
+        app.stats = Stats { status: "streaming".into(), fps: 119.6, bitrate_mbps: 78.4, input_ready: true, ..Default::default() };
+        let line = |app: &mut App, value: serde_json::Value| {
+            app.session = Some(Session { value, ..Default::default() });
+            stats_line(app)
+        };
+        let sdr = serde_json::json!({"negotiatedStreamProfile": {"enableHdr": false}});
+        assert_eq!(line(&mut app, serde_json::json!({"hdrDowngrade": "game-unsupported"})), "120 fps · 78 Mbit/s · SDR: no HDR for this game");
+        assert_eq!(line(&mut app, sdr.clone()), "120 fps · 78 Mbit/s · SDR: GeForce NOW sent no HDR");
+        assert_eq!(line(&mut app, serde_json::json!({"negotiatedStreamProfile": {"enableHdr": null}})), "120 fps · 78 Mbit/s", "unreported is not SDR");
+        app.prefs.hdr = false;
+        assert_eq!(line(&mut app, sdr), "120 fps · 78 Mbit/s", "SDR was asked for");
+        let mut f = Fonts::new();
+        let m = Metrics::new(1.0);
+        let longest = width(&mut f, "120 fps · 120 Mbit/s · SDR: GeForce NOW sent no HDR", m.ty.value);
+        assert!(longest <= status_frame(&mut f, &m).w - 48.0, "the reason fits the pill beside the usual stats");
     }
 }

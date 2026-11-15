@@ -43,6 +43,9 @@ pub struct Game {
     pub image_url: String,
     pub store: String,
     pub in_library: bool,
+    /// Whether the variant's GeForce NOW listing names HDR; None when the listing names no features. The core asks for SDR when the
+    /// listing names features and HDR is not among them (`catalog_hdr_settings`), and the game's own HDR switch is then greyed out.
+    pub hdr: Option<bool>,
 }
 
 /// What the core has said about one picture of the library, by its source address.
@@ -1329,7 +1332,7 @@ impl App {
                 self.next_poll_ms = 0;
                 self.start_asked = true;
                 // what the server granted, which decides whether the cloud PC turns HDR on for the game (stderr is the app's log)
-                eprintln!("gfn: session ready: negotiated {} requested sdrHdrMode {}", value["negotiatedStreamProfile"], value["sessionRequestData"]["sdrHdrMode"]);
+                eprintln!("gfn: session ready: negotiated {} hdrDowngrade {}", value["negotiatedStreamProfile"], value["hdrDowngrade"]);
                 return self.start_request().into_iter().collect();
             }
             self.next_poll_ms = self.now_ms + POLL_SESSION_MS;
@@ -1423,6 +1426,7 @@ fn game_of(g: &Value) -> Game {
         image_url: g["imageUrl"].as_str().or_else(|| g["keyArtUrl"].as_str()).or_else(|| g["heroImageUrl"].as_str()).unwrap_or("").to_owned(),
         store: selected["store"].as_str().unwrap_or("").to_owned(),
         in_library: selected["inLibrary"] == true,
+        hdr: selected["features"].as_array().map(|f| f.iter().any(|x| x == "hdr")),
     }
 }
 
@@ -2210,5 +2214,13 @@ mod tests {
         let a = app.handle(ok("2", "streamer.detect", json!({"capabilities": {"protocolVersion": 7}})));
         assert!(a.is_empty());
         assert_eq!(app.prefs.summary(), "4K · 60 fps");
+    }
+
+    #[test]
+    fn a_games_hdr_is_what_the_listing_of_its_chosen_variant_says() {
+        let of = |features: Value| game_of(&json!({"id": "1", "variants": [{"id": "v", "inLibrary": true, "features": features}]})).hdr;
+        assert_eq!(of(json!(["rtx", "hdr"])), Some(true));
+        assert_eq!(of(json!(["rtx"])), Some(false), "the core asks this game for SDR");
+        assert_eq!(of(Value::Null), None, "a listing without features is asked for HDR as the settings say");
     }
 }
