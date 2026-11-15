@@ -38,7 +38,7 @@ The HDMI receiver has a hardware test-pattern generator with its own sync genera
 
 ### (a) DRM
 
-SRC `core/drm/drm.c:298-358`: the connector advertises four static modes (720p, 1080p, 4K, 8K, all "60", the 4K mode even carries the 1080p pixel clock), `drm_set_preferred_mode(1920,1080)`, and no `drm_property`, `vrr_capable` or `VRR_ENABLED` is created anywhere in `core/drm/` (grep: zero hits). `lg1k_crtc_enable` only turns vblank on (`:411-419`). TV `/sys/kernel/debug/dri/0/state`: one CRTC "1920x1080 60 148500", connector TV-1, modes 1920x1080, 3840x2160, 1280x720. The kernel's DRM core (5.4.268) has the VRR plumbing (`linux-rockhopper/drivers/gpu/drm/drm_connector.c:1535-1564`); LG's driver never uses it. Verdict: impossible.
+SRC `core/drm/drm.c:298-358`: the connector advertises four static modes (720p, 1080p, 4K, 8K, all "60", the 4K mode even carries the 1080p pixel clock), `drm_set_preferred_mode(1920,1080)`, and `core/drm/` creates no `drm_property` and no `vrr_capable` (grep: zero hits). The CRTC's `VRR_ENABLED` (value 0 on the TV, 2026-11-15) comes from the DRM core, which attaches it to every atomic CRTC (`drm_crtc.c`); LG's driver never reads it. `lg1k_crtc_enable` only turns vblank on (`:411-419`). TV `/sys/kernel/debug/dri/0/state`: one CRTC "1920x1080 60 148500", connector TV-1, modes 1920x1080, 3840x2160, 1280x720. The kernel's DRM core (5.4.268) has the VRR plumbing (`linux-rockhopper/drivers/gpu/drm/drm_connector.c:1535-1564`); LG's driver never uses it. Verdict: impossible.
 
 ### (b) Display engine and TCON
 

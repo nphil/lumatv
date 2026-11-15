@@ -509,6 +509,9 @@ Proved offline: ready=0 + 144fps input → rate selector returns 144.
 Ready=7 + 144fps input → returns 120. ForceVRR and 144 Hz are mutually
 exclusive.
 
+Measured 2026-11-15: `VRR 1` engages tracking for a decoded full-screen 4K120
+window, and `VRR 0` does not fully undo it (Experiment results).
+
 ### First target: 4K120 + VRR
 
 4K120 is what GFN delivers today. ForceVRR at 120 fps has no rate conflict.
@@ -548,7 +551,8 @@ debug command line:
 `BE_KIPC_SetData(BE_FRC_B0_RUN_COMMAND)` → firmware
 `MCU_BE_IO_FRC_RunCommand` (O22 DE firmware `paluma_o22n3`).
 
-From the firmware (disassembly and strings, inferred):
+From the firmware (disassembly and strings, inferred; the prints were read on
+the TV on 2026-11-15, see Experiment results):
 - `VRR` without a value is a query: it prints `Current mode = N` and
   `ctrl_sync_gen_mvc_trk0 = 0x…`.
 - `VRR N` stores N in bits 13–14 of a firmware debug word in MCU RAM and
@@ -559,11 +563,11 @@ From the firmware (disassembly and strings, inferred):
   `CC8C00A0` bit6 (internal source). The measured period is `CC460B90`
   (bits 14:0 total, bit 15 valid, bits 31:16 delay).
 - The firmware rejects VRR for a windowed or overscanned picture
-  (`VRR ERR : window mode`, `VRR ERR : overscan mode`).
+  (`VRR ERR : window mode`, `VRR ERR : overscan mode`). The feeder's
+  full-screen window (`-w card`) is accepted (measured).
 
 The ForceVRR debug word is RAM-only and is lost when the firmware reloads at
-boot. Restoration target is the BSS default of 0; provenance: packaged
-initial data, not a verified live reading.
+boot. The live mode read 0 on 2026-11-15, which is the BSS default.
 
 ### Limits
 
@@ -586,18 +590,22 @@ would declare a VRR range needs a settings change to read (inferred).
 ### Save and restore
 
 Saved before any VRR change, all read-only:
-1. The firmware force mode from the `VRR` query (needs the MCU print route;
-   without it the BSS default 0 is assumed).
+1. The firmware force mode from the `VRR` query. It prints once `ipc log 1`
+   forwards the MCU log, and it read 0.
 2. `CC460B50`, `CC400800`, `CC460B84`, `CC8C00A0`, `CC460B90` and the
    firmware status words SYS_VERI_10/11 (section 1), through `DE_IOR_REG_RD`.
 3. `/proc/lg/de/win0/status` (vFreq, lowdelaymode), the DE2VSYNC/osd_irq
    rates and `/proc/lxvo/vdisp/vsync`.
 
-Restore is `VRR <saved N> end` while the same clip still plays, accepted
-only when every saved value reads back unchanged. Registers are read only
-with the screen on: in Active Standby the display blocks may be unclocked.
-A reboot clears the debug word; whether Active Standby reloads the firmware
-is unknown.
+`VRR <saved N> end` alone does not restore the state (measured 2026-11-15).
+It clears tracking and ready, but `CC460B50` keeps the delay field VRR set
+(`0x4E000`), `CC460B8C` stays `0x88420000` and `CC8C00A0` bit6 stays set.
+All three survive closing the window, Home and a new 4K120 window. A reboot
+restores every value, and `luna://com.webos.service.tvpower/power/reboot`
+restarts the kernel on the C4 (uptime 25810 s → 30 s). Whether `VRR 2 end` or
+Active Standby clears the residue is untested. Registers are read only with
+the screen on, because in Active Standby the display blocks may be
+unclocked.
 
 ### Measuring the scan rate
 
@@ -647,26 +655,90 @@ tracking follows the per-frame IPC (`deif.c` sends `pts`, `next_pts`,
 `direct_video` and `is_hfr` with every frame) rather than the timer; the
 experiment decides that.
 
-### Experiment plan (not run; needs Nitin's approval)
+### Experiment results (2026-11-15)
 
-Fresh lease, screen on, receiver muted and checked again after every app
-launch (a Home launch unmuted it once), the fixed 4K120 HDR clip playing full
-screen, no 144 Hz anywhere in the session.
-1. Baseline, read-only: probe snapshot (status words, tracking registers,
-   interrupt rates, `/proc/lxvo/vdisp/*`) and the optical scan rate.
-2. Print route: `echo ipc log 1 end > /proc/lg/de/command` (LG's usage text:
-   "print fw log on"), then `VRR end`; record `Current mode = N`. Stop if the
-   reply is not visible anywhere.
-3. `VRR 1 end`. Pass: `CC460B50` bit31 and `CC400800` bit0 = 1, `CC460B90`
-   valid, SYS_VERI_10 vrr = 1, VRR rate ≈ 120, DE2VSYNC ≈ 120 Hz, optical
-   120 Hz, picture intact.
-4. The same clip fed at 90 and 100 fps (`--fps`): does `CC460B90`, the
-   DE2VSYNC rate and the optical rate follow the frames or stay at 120?
-5. `VRR <N from step 2> end`; pass when every step-1 value is back.
+Run with Nitin's approval under the plan's conditions:
+- a lease and the screen on;
+- the receiver muted and rechecked after every launch;
+- the 4K120 HDR clip full screen (`-w card`) at 120 fps, no 144 Hz anywhere.
 
-Abort and restore on a black screen, flicker, `localmute`, watchdog or MCU
-messages, tracking bits disagreeing with the status words, or DE2VSYNC gaps.
-A reboot is the fallback when a value does not return.
+There was no optical meter, so every rate below is an SoC counter and the
+optical criteria are not measured. Receipts are in
+`/data/home/tmp/lumagame-vrrexp-20261115/` (`reads-*.json`,
+`step2-query-after10s.txt`, `step3-fw.txt`, `drm.json`, `session.log`).
+
+1. The baseline matched the earlier session (table).
+2. `ipc log 1 end` forwards the DE MCU log into the kernel log as
+   `DE_IPC_RcvMsg` lines, starting with the buffered backlog, at about one
+   line per 20 ms. `VRR end` then printed:
+   - `USAGE : VRR <0:normal mode, 1:force mode On, 2:force Mode off>`;
+   - `Current mode = 0`;
+   - `ctrl_sync_gen_mvc_trk0 = 0x4C000, disp_pulse_src_sel=1, sel_sync_vs=1,
+     nosig_duration_de=3`.
+3. `VRR 1 end` met every SoC pass criterion. The firmware printed
+   `forceVRR : 1`, then `[[ VRR ]] i:3840x2160, ifrate:120, d:3840x2160,
+   dfrate:120, rd_dly:128(2160), delay:4E000, vt_num:2114(2250-144)`, then
+   `ready:7, onOff:1, hrr_en:0, double_en:0, tracking_en:1`. During the run:
+   - the capture stayed intact (mean luma 116.7 against 119.4);
+   - the video window was unmuted again after the switch;
+   - the kernel log showed no watchdog or MCU error;
+   - the feeder kept 120 frames/s with none dropped.
+4. Not run (90 and 100 fps).
+5. `VRR 0 end` printed `forceVRR : 0` and `ready:0, onOff:0, … tracking_en:0`,
+   but it left three registers at their VRR values. A reboot restored them.
+
+| | Step 1 | `VRR 1` | After `VRR 0` | After reboot |
+|---|---|---|---|---|
+| `CC460B50` | `0x0004C000` | `0x8004E000` | `0x0004E000` | `0x0004C000` |
+| `CC400800` | `0x0` | `0x1` | `0x0` | `0x0` |
+| `CC8C00A0` | `0x20` | `0x60` | `0x60` | `0x20` |
+| `CC460B8C` | `0x84000000` | `0x88420000` | `0x88420000` | `0x84000000` |
+| `CC460B98` | `0x0` | `0x230` | `0x0` | `0x0` |
+| `CC460B90` total (valid) | 2250 fixed (0) | 2239–2255 (1) | 2239–2266 (0) | 2250 fixed (0) |
+| SYS_VERI_10 vrr / dco lock | 0 / 1 | 1 / 0 | 0 / 1 | 0 / 1 |
+| SYS_VERI_10 video delay | 15.8 ms | 17.2 ms | 15.9 ms | 15.9 ms |
+| DE2VSYNC over 5 s (fewest per 100 ms) | 120.2 Hz (12) | 117.4–117.8 Hz (10) | 120.2 Hz (12) | 120.0 Hz (12) |
+
+Each switch muted the video window for about 0.2 s: the firmware's `[MUTE]`
+local value went 10 → 5 → 0 over 195 ms when VRR turned on and 199 ms when it
+turned off.
+
+Under forced VRR the DE left its fixed 120 Hz timing. Its output ran about 2 %
+below the 120 frames/s fed, and some 100 ms windows held only 10 refreshes. The
+display path therefore held or dropped some frames (inferred; the feeder
+recorded no drops).
+
+Step 4 remains: under `VRR 1`, feed the same clip at 90 and 100 fps (`--fps`)
+and check whether `CC460B90`, DE2VSYNC and the optical rate follow the frames
+or stay at 120. The abort conditions stand: a black screen, flicker,
+`localmute`, watchdog or MCU messages, tracking bits that disagree with the
+status words, or DE2VSYNC gaps. Restore with a reboot unless `VRR 2 end` is
+shown to clear the residue.
+
+### OSD and DRM route
+
+Frames drawn by the GPU have no VRR route of their own. Measured 2026-11-15
+unless marked; receipts are `drm.json`, `reads-*.json` and `osd-*.json`.
+- DRM: driver `lg1k`, one CRTC running "1920x1080" at 60 and one connector
+  (`TV-1`: 1920x1080, 3840x2160, 1280x720). The compositor is the DRM master.
+  The CRTC carries `VRR_ENABLED` (value 0) only because the DRM core attaches
+  it to every atomic CRTC (`drm_crtc.c`), and LG's driver never reads it
+  (source). The connector has no `vrr_capable`; its only properties are EDID,
+  DPMS, link-status, non-desktop and TILE.
+- `osd_irq` counted the same vsyncs as `DE2VSYNC` in every window, forced VRR
+  included (117.2 against 117.4 Hz). The OSD plane therefore scans out on the
+  DE's timing. The compositor's flip clock is that vsync divided by
+  `fbdev_vsync_cnt_on_flip`: 1 at Home (120 Hz) and 2 during video (60 Hz).
+- Forced VRR timing follows the main video window's input (`ifrate` in the
+  firmware print, `CC460B90`). `core/fbdev`, `core/gfx`, `core/drm` and
+  `core/gpu` contain no VRR code, so OSD content cannot set the refresh
+  (inferred from source).
+
+GFN and local streaming (Sunshine, Apollo, Punktfunk) decode through an NDL
+video window, the path this experiment used. Native games drawn on the OSD
+plane could reach VRR only by being encoded into a video window (inferred).
+Under forced VRR the compositor's vblanks also become irregular (measured
+above), which its pacer sees as odd flip intervals (inferred).
 
 ### Cloud G-SYNC
 
@@ -697,12 +769,15 @@ DE refresh following frame arrival.
 
 1. ~~Verify CC460B50/CC400800/CC8C00A0 readback via `DE_REG_O22_RD`~~ —
    measured 2026-11-15 (above)
-2. MCU print route for the `VRR` query (`ipc log 1` is the candidate)
+2. ~~MCU print route for the `VRR` query~~ — `ipc log 1`, measured
+   2026-11-15
 3. VRR limits: VRRULIMIT/VRRLLIMIT defaults are not host-readable, and the
    current EDIDs declare no VRR range
 4. Whether internal tracking follows frame arrival or the decoder timer
+   (experiment step 4, not run)
 5. Optical scan measurement
-6. VRR lifecycle with save/verify/restore in the trusted helper
+6. VRR lifecycle with save/verify/restore in the trusted helper. `VRR 0`
+   leaves residue that only a reboot has cleared so far
 
 ---
 
