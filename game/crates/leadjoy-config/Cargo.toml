@@ -1,0 +1,13 @@
+[package]
+name = "leadjoy-config"
+description = "Reads and changes Leadjoy Xeno Plus settings over its vendor HID protocol, with dry runs and read-back verification"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rmp-serde = "1.3"
