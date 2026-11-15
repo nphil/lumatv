@@ -19,9 +19,10 @@ const SYS_VERI_10: u32 = 0xCC48_2228;
 const SYS_VERI_11: u32 = 0xCC48_222C;
 /// `DE_IOR_REG_RD`. `DE_IO_RegRd` takes the register's value for an error code: a nonzero register fails with EIO and its value
 /// is printed to the kernel log under the reader's pid and tid, which is where it is read from. Each such read adds a kernel log
-/// line, so the words are read every five seconds, again when the window changes, and only for the full panel.
+/// line (an ERR line per read), so the words are read for the full panel only: when it opens, when the window changes (a mode
+/// switch shows there) and every 30 seconds for the drifting video delay and measured rate.
 const DE_IOR_REG_RD: u32 = 0x8004_6164;
-const REGISTERS_EVERY: Duration = Duration::from_secs(5);
+const REGISTERS_EVERY: Duration = Duration::from_secs(30);
 /// Refreshes are counted per 100 ms: at 120 Hz a window holds 12, so one held refresh shows as 11.
 const WINDOW: Duration = Duration::from_millis(100);
 const WINDOWS: usize = 10;
