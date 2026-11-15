@@ -79,6 +79,8 @@ const GL_MAX_TEXTURE_SIZE: u32 = 0x0D33;
 const GL_VERSION: u32 = 0x1F02;
 const GL_RENDERER: u32 = 0x1F01;
 const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
+const GL_PROGRAM_BINARY_LENGTH: u32 = 0x8741;
+const GL_PROGRAM_BINARY_RETRIEVABLE_HINT: u32 = 0x8257;
 const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
 const GL_TEXTURE_WRAP_S: u32 = 0x2802;
 const GL_TEXTURE_WRAP_T: u32 = 0x2803;
@@ -212,6 +214,9 @@ api!(GlApi {
     disable_vertex_attrib_array = "glDisableVertexAttribArray" fn(u32);
     blend_func_separate = "glBlendFuncSeparate" fn(u32, u32, u32, u32);
     bind_vertex_array = "glBindVertexArray" fn(u32);
+    program_parameteri = "glProgramParameteri" fn(u32, u32, i32);
+    get_program_binary = "glGetProgramBinary" fn(u32, i32, *mut i32, *mut u32, *mut c_void);
+    program_binary = "glProgramBinary" fn(u32, u32, *const c_void, i32);
 });
 
 fn egl_error(egl: &EglCore, what: &str) -> io::Error {
@@ -433,6 +438,10 @@ pub struct Gles {
     programs: Option<programs::Lease>,
     /// The programs this linked itself.
     linked: Cell<u32>,
+    /// Where linked programs are kept between runs, for an app that opted in ([`Gles::use_program_binaries`]).
+    binaries: Option<programs::Binaries>,
+    /// The programs this loaded from there.
+    loaded: Cell<u32>,
 }
 
 /// A GL framebuffer object whose colour attachment is a gralloc buffer imported through an `EGLImage`. Neither is
@@ -787,6 +796,8 @@ impl Gles {
             on_creating_thread: PhantomData,
             programs: None,
             linked: Cell::new(0),
+            binaries: None,
+            loaded: Cell::new(0),
         })
     }
 
@@ -1575,6 +1586,18 @@ impl Gles {
         self.programs = Some(programs::Lease::new(cache));
     }
 
+    /// From now on linked programs are kept in `dir` and later runs load them instead of linking ([`programs::Binaries`]). For an app
+    /// with a data directory of its own; the directory is emptied when the driver build changes.
+    pub fn use_program_binaries(&mut self, dir: std::path::PathBuf) -> io::Result<()> {
+        self.binaries = Some(programs::Binaries::open(dir, &self.describe())?);
+        Ok(())
+    }
+
+    /// The programs this loaded from its binaries instead of linking them.
+    pub fn programs_loaded(&self) -> u32 {
+        self.loaded.get()
+    }
+
     /// The programs this linked itself, and those it took from its cache.
     pub fn programs_linked(&self) -> u32 {
         self.linked.get()
@@ -1632,6 +1655,10 @@ impl Gles {
     }
 
     fn link(&self, vertex: &CStr, fragment: &CStr) -> io::Result<u32> {
+        let binaries = self.binaries.as_ref().map(|binaries| (binaries, programs::Key::of(vertex, fragment)));
+        if let Some(program) = binaries.and_then(|(binaries, key)| self.load_binary(binaries, key)) {
+            return Ok(program);
+        }
         let vs = self.shader(GL_VERTEX_SHADER, vertex)?;
         let fs = self.shader(GL_FRAGMENT_SHADER, fragment)?;
         // SAFETY: program creation and link with status and log checks; the shaders may be deleted once attached.
@@ -1639,6 +1666,9 @@ impl Gles {
             let program = (self.gl.create_program)();
             (self.gl.attach_shader)(program, vs);
             (self.gl.attach_shader)(program, fs);
+            if binaries.is_some() {
+                (self.gl.program_parameteri)(program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, 1);
+            }
             (self.gl.link_program)(program);
             (self.gl.delete_shader)(vs);
             (self.gl.delete_shader)(fs);
@@ -1656,7 +1686,49 @@ impl Gles {
             self.known.forget_program(program);
             self.linked.set(self.linked.get() + 1);
             programs::stand_in_delay();
+            if let Some((binaries, key)) = binaries {
+                self.store_binary(binaries, key, program);
+            }
             Ok(program)
+        }
+    }
+
+    /// A program from its kept binary, or `None` (and the binary dropped) when the driver will not take it.
+    fn load_binary(&self, binaries: &programs::Binaries, key: programs::Key) -> Option<u32> {
+        let (format, bytes) = binaries.load(key)?;
+        // SAFETY: a new program given a byte slice of the length passed; its status is read before it is used.
+        unsafe {
+            let program = (self.gl.create_program)();
+            (self.gl.program_binary)(program, format, bytes.as_ptr().cast(), i32::try_from(bytes.len()).unwrap_or(0));
+            if self.is_linked(program) {
+                self.known.forget_program(program);
+                self.loaded.set(self.loaded.get() + 1);
+                return Some(program);
+            }
+            (self.gl.delete_program)(program);
+            // A format the driver no longer lists leaves GL_INVALID_ENUM behind.
+            (self.gl.get_error)();
+        }
+        binaries.discard(key);
+        None
+    }
+
+    fn store_binary(&self, binaries: &programs::Binaries, key: programs::Key, program: u32) {
+        let mut length = 0;
+        // SAFETY: a status query that writes one integer.
+        unsafe { (self.gl.get_programiv)(program, GL_PROGRAM_BINARY_LENGTH, &mut length) };
+        let Ok(capacity) = usize::try_from(length) else { return };
+        if capacity == 0 {
+            return;
+        }
+        let mut bytes = vec![0u8; capacity];
+        let (mut written, mut format) = (0, 0);
+        // SAFETY: the driver writes at most `length` bytes into a buffer of that size.
+        unsafe { (self.gl.get_program_binary)(program, length, &mut written, &mut format, bytes.as_mut_ptr().cast()) };
+        bytes.truncate(usize::try_from(written).unwrap_or(0));
+        // Not kept, the program is only linked again at the next start.
+        if !bytes.is_empty() {
+            let _ = binaries.store(key, format, &bytes);
         }
     }
 
@@ -1768,6 +1840,8 @@ impl Gles {
             on_creating_thread: PhantomData,
             programs: None,
             linked: Cell::new(0),
+            binaries: None,
+            loaded: Cell::new(0),
         };
         match gles.version() {
             Some((major, _)) if major >= 3 => Ok(gles),

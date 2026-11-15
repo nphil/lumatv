@@ -12,6 +12,9 @@ use parking_lot::Mutex;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::CStr;
+use std::fs;
+use std::io::{self, Write};
+use std::path::PathBuf;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
@@ -146,4 +149,65 @@ pub(crate) fn stand_in_delay() {
     if !DELAY.is_zero() {
         std::thread::sleep(*DELAY);
     }
+}
+
+/// Linked programs kept on disk between runs (`glGetProgramBinary`), for an app that opts in with a directory of its own: a
+/// standalone app links all 48 at every start (1.3 s on the set's Mali), and a binary loads in a fraction of that. A file is
+/// `<format, 4 bytes LE><the driver's bytes>`, named by the program's [`Key`]; the directory belongs to one driver build.
+pub struct Binaries {
+    dir: PathBuf,
+}
+
+impl Binaries {
+    /// `driver` names the driver build (its renderer and version strings). A directory written under another is emptied: a
+    /// binary only loads into the build that made it.
+    pub fn open(dir: PathBuf, driver: &str) -> io::Result<Self> {
+        fs::create_dir_all(&dir)?;
+        let stamp = dir.join("driver");
+        if fs::read_to_string(&stamp).ok().as_deref() != Some(driver) {
+            for entry in fs::read_dir(&dir)? {
+                let path = entry?.path();
+                if path.extension().is_some_and(|e| e == "bin") {
+                    fs::remove_file(path)?;
+                }
+            }
+            replace(&stamp, driver.as_bytes())?;
+        }
+        Ok(Self { dir })
+    }
+
+    fn path(&self, key: Key) -> PathBuf {
+        self.dir.join(format!("{:016x}{:016x}.bin", key.0, key.1))
+    }
+
+    pub(crate) fn load(&self, key: Key) -> Option<(u32, Vec<u8>)> {
+        let mut bytes = fs::read(self.path(key)).ok()?;
+        if bytes.len() <= 4 {
+            return None;
+        }
+        let format = u32::from_le_bytes(bytes[..4].try_into().ok()?);
+        bytes.drain(..4);
+        Some((format, bytes))
+    }
+
+    pub(crate) fn store(&self, key: Key, format: u32, binary: &[u8]) -> io::Result<()> {
+        let mut bytes = Vec::with_capacity(4 + binary.len());
+        bytes.extend_from_slice(&format.to_le_bytes());
+        bytes.extend_from_slice(binary);
+        replace(&self.path(key), &bytes)
+    }
+
+    /// Drops a binary the driver would not load, so the program is linked and stored again.
+    pub(crate) fn discard(&self, key: Key) {
+        let _ = fs::remove_file(self.path(key));
+    }
+}
+
+/// Writes beside and renames, so a power cut leaves the old file or the new one, never part of one.
+fn replace(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
+    let staged = path.with_extension("new");
+    let mut file = fs::File::create(&staged)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    fs::rename(staged, path)
 }

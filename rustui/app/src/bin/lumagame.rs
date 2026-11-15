@@ -284,7 +284,9 @@ fn run(o: Options) -> io::Result<()> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
     }
-    let (gles, mut window) = window::open(W, H, libmali, &spec)?;
+    let (mut gles, mut window) = window::open(W, H, libmali, &spec)?;
+    // Linking the engine's programs is 1.3 s of every start on the set's Mali; later starts load the kept binaries.
+    if let Err(e) = gles.use_program_binaries(shell.store.root().join("cache/shaders")) { eprintln!("lumagame: shader binaries are not kept: {e}"); }
     if let Some(id) = window.video_window_id() {
         if let Some(parent) = o.window_id.parent() { std::fs::create_dir_all(parent)?; }
         std::fs::write(&o.window_id, format!("{id}\n"))?;

@@ -1049,8 +1049,10 @@ impl Renderer {
         let wallpapers = Wallpapers::new(&gl, (panel.width, panel.height), Look::default())?;
         let meshes = MeshRenderer::new(&gl)?;
         log(format!(
-            "shader programs compiled and linked in {} ms",
-            started.elapsed().as_millis()
+            "shader programs compiled and linked in {} ms ({} linked, {} loaded from kept binaries)",
+            started.elapsed().as_millis(),
+            gl.programs_linked(),
+            gl.programs_loaded()
         ));
         let vertex_buffer = gl.new_vertex_buffer();
         let compose_buffer = gl.new_vertex_buffer();
