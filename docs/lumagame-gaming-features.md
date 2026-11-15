@@ -193,7 +193,7 @@ and codec type, not fps. The TV determines frame rate from SPS VUI timing or
 a PTS-spacing estimator.
 
 Privileged display controls (MEMC bypass, DE low-delay, VRR, HFR) use V4L2
-extended controls and resource_mgr ioctls. Per project rules these go through
+controls and DE ioctls on `/dev/lg/de0`. Per project rules these go through
 the **trusted helper** and run only while the gaming plugin is enabled.
 
 `vpu.ko` is Xtensa (VDEC coprocessor, kernel 3.18). It is not on the host
@@ -238,7 +238,7 @@ ioctl(vpq_fd, VIDIOC_S_CTRL, &ctrl);   // disable MEMC
 ctrl.id = 0x00983A03; ctrl.value = 0;
 ioctl(vpq_fd, VIDIOC_S_CTRL, &ctrl);   // disable Motion Pro
 uint32_t one = 1;
-ioctl(resmgr_fd, 0x4004613c, &one);    // DE low-delay (cmd 0x49)
+ioctl(de_fd, 0x4004613c, &one);        // DE low-delay (cmd 0x49)
 
 // 3. Read back to verify
 ctrl.id = 0x00983A01;
@@ -254,7 +254,7 @@ ioctl(vpq_fd, VIDIOC_S_CTRL, &ctrl);
 ctrl.id = 0x00983A03; ctrl.value = orig_motionpro.value;
 ioctl(vpq_fd, VIDIOC_S_CTRL, &ctrl);
 uint32_t orig_de = saved_de_low_delay;
-ioctl(resmgr_fd, 0x4004613c, &orig_de);
+ioctl(de_fd, 0x4004613c, &orig_de);
 ```
 
 Feeder disconnect can trigger helper restoration. A helper crash requires a
@@ -334,11 +334,13 @@ settings in the playback scope were identical before and after; the idle
 `filmMaker`/`sdr` scope's `backlight` moved 68 → 75 (Energy Saving is
 `auto`; no control in this run writes it).
 
-Helper bug: the failed `vpq_low_delay` set left a rollback journal entry
-whose replay fails the same way, so it blocks further qualification and every
-lease until reboot (Active Standby keeps `/run`). An orderly helper stop
-rewrites the journal from memory. A set that fails without changing the value
-must not leave an unreplayable entry.
+The failed `vpq_low_delay` set exposed a rollback entry that blocked further
+qualification and leases and was rewritten on orderly shutdown. The helper
+now drops entries when readback matches the saved value even if the restore
+ioctl fails, clearing both memory and journal. VPQ low delay is marked
+unsupported on O22 (`S_CTRL` EINVAL) and skipped; DE discovery now uses the
+registered `/dev/lg/de0` node. DE remains unqualified without live-hardware
+and lifecycle receipts. These fixes have no new TV receipt.
 
 Receipts: `/data/home/tmp/lumagame-display-20261115/` (`qualify-results.json`,
 `gaming-status-*.json`, `ld-*.txt`, `q-*-dmesg.txt`, `picture-*.json`,

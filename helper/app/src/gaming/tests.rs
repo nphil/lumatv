@@ -8,6 +8,8 @@ struct Hardware {
     values: BTreeMap<Control, i32>,
     calls: Vec<String>,
     fail_set: Option<Control>,
+    reject_writes: Option<Control>,
+    fail_read: bool,
     fail_restore: bool,
     bad_readback: bool,
     device_changed: bool,
@@ -39,6 +41,7 @@ impl ControlFd for FakeFd {
 
     fn read(&mut self, control: Control) -> io::Result<i32> {
         let mut hardware = self.devices.hardware.lock();
+        if hardware.fail_read { return Err(io::Error::other("read failed")); }
         hardware.calls.push(format!("read {control:?}"));
         let value = *hardware.values.get(&control).unwrap_or(&(1 - control.target()));
         if hardware.bad_readback && value == control.target() { Ok(1 - value) } else { Ok(value) }
@@ -48,6 +51,7 @@ impl ControlFd for FakeFd {
         assert!(self.devices.journal.exists(), "rollback must be saved before every device set");
         let mut hardware = self.devices.hardware.lock();
         hardware.calls.push(format!("write {control:?} {value}"));
+        if hardware.reject_writes == Some(control) { return Err(io::Error::from_raw_os_error(libc::EINVAL)); }
         if hardware.fail_restore && value != control.target() { return Err(io::Error::other("restore failed")); }
         hardware.values.insert(control, value);
         if hardware.fail_set == Some(control) && value == control.target() { return Err(io::Error::other("set failed after changing hardware")); }
@@ -111,14 +115,15 @@ fn qualification_records_the_read_set_read_restore_read_sequence_and_requires_li
 }
 
 #[test]
-fn cached_low_delay_getters_need_live_hardware_receipts_not_just_round_trips() {
-    for control in [Control::VpqLowDelay, Control::DeLowDelay] {
-        let mut rig = Rig::new();
-        let result = rig.state.qualify(control, &rig.devices, None, Some("tv/lifecycle".into())).unwrap();
+fn de_low_delay_needs_live_hardware_and_lifecycle_receipts_not_just_a_round_trip() {
+    let mut rig = Rig::new();
+    let control = Control::DeLowDelay;
+    for (live, lifecycle) in [(None, None), (None, Some("tv/lifecycle".into())), (Some("tv/live".into()), None)] {
+        let result = rig.state.qualify(control, &rig.devices, live, lifecycle).unwrap();
         assert_eq!(result["sequencePassed"], true);
         assert_eq!(result["qualified"], false);
-        assert_eq!(rig.qualify(control)["qualified"], true);
     }
+    assert_eq!(rig.qualify(control)["qualified"], true);
 }
 
 #[test]
@@ -257,4 +262,91 @@ fn journal_failure_prevents_every_set_and_bad_journal_survives_plugin_off() {
     restarted.error = Some(error);
     assert!(restarted.restore("plugin_off").is_err());
     assert_eq!(fs::read_to_string(&rig.devices.journal).unwrap(), "broken");
+}
+
+#[test]
+fn rejected_unchanged_set_does_not_block_other_qualifications_or_leases() {
+    for qualification in [true, false] {
+        let mut rig = Rig::new();
+        if !qualification { rig.qualify(Control::MemcLowDelay); }
+        rig.devices.hardware.lock().reject_writes = Some(Control::MemcLowDelay);
+        if qualification {
+            let result = rig.qualify(Control::MemcLowDelay);
+            assert_eq!(result["sequencePassed"], false);
+            assert_eq!(result["restored"], 0);
+        } else {
+            assert!(rig.state.acquire(holder(), vec![Control::MemcLowDelay], &rig.devices, Instant::now()).is_err());
+        }
+        assert!(rig.state.entries.is_empty());
+        assert!(rig.state.error.is_none());
+        assert!(!rig.devices.journal.exists());
+        assert_eq!(rig.qualify(Control::MotionPro)["qualified"], true);
+        let lease = rig.acquire(Instant::now(), vec![Control::MotionPro]);
+        assert_eq!(lease["applied"], json!(["motion_pro"]));
+        rig.state.release(lease["id"].as_str().unwrap()).unwrap();
+    }
+}
+
+#[test]
+fn unreplayable_saved_value_is_dropped_and_helper_stop_does_not_resurrect_it() {
+    let mut rig = Rig::new();
+    save(&rig.devices.journal, &Journal {
+        boot: "boot-one".into(),
+        controls: vec![
+            SavedControl { control: Control::VpqLowDelay, value: 0, device: "fake-vpq:81:0".into() },
+            SavedControl { control: Control::MemcLowDelay, value: 0, device: "fake-vpq:81:0".into() },
+        ],
+    }).unwrap();
+    {
+        let mut hardware = rig.devices.hardware.lock();
+        hardware.reject_writes = Some(Control::VpqLowDelay);
+        hardware.values.insert(Control::MemcLowDelay, 1);
+    }
+    rig.state.recover(&rig.devices).unwrap();
+    assert!(rig.state.entries.is_empty());
+    assert!(rig.state.error.is_none());
+    assert!(!rig.devices.journal.exists());
+    assert_eq!(rig.devices.hardware.lock().values[&Control::MemcLowDelay], 0);
+    let calls = rig.devices.hardware.lock().calls.len();
+    rig.state.restore("helper_stop").unwrap();
+    assert!(!rig.devices.journal.exists());
+    assert_eq!(rig.devices.hardware.lock().calls.len(), calls);
+    rig.state.recover(&rig.devices).unwrap();
+    assert_eq!(rig.qualify(Control::MotionPro)["qualified"], true);
+    let lease = rig.acquire(Instant::now(), vec![Control::MotionPro]);
+    rig.state.release(lease["id"].as_str().unwrap()).unwrap();
+}
+
+#[test]
+fn failed_restore_without_a_readback_retains_the_journal() {
+    let mut rig = Rig::new();
+    rig.qualify(Control::MemcLowDelay);
+    let lease = rig.acquire(Instant::now(), vec![Control::MemcLowDelay]);
+    {
+        let mut hardware = rig.devices.hardware.lock();
+        hardware.reject_writes = Some(Control::MemcLowDelay);
+        hardware.values.insert(Control::MemcLowDelay, 0);
+        hardware.fail_read = true;
+    }
+    assert!(rig.state.release(lease["id"].as_str().unwrap()).is_err());
+    assert!(rig.devices.journal.exists());
+    assert_eq!(rig.state.entries.len(), 1);
+}
+
+#[test]
+fn unsupported_vpq_is_never_opened_even_with_receipts_or_a_legacy_passing_record() {
+    let mut rig = Rig::new();
+    let result = rig.qualify(Control::VpqLowDelay);
+    assert_eq!(result["qualified"], false);
+    assert!(result["error"].as_str().unwrap().contains("EINVAL"));
+    assert!(rig.devices.hardware.lock().calls.is_empty());
+    assert!(!rig.devices.journal.exists());
+    rig.state.records.get_mut(&Control::VpqLowDelay).unwrap().qualified = true;
+    save(&rig.state.records_path, &rig.state.records.values().collect::<Vec<_>>()).unwrap();
+    assert!(!rig.restarted("boot-one").records[&Control::VpqLowDelay].qualified);
+    let lease = rig.acquire(Instant::now(), vec![Control::VpqLowDelay]);
+    assert_eq!(lease["applied"], json!([]));
+    assert_eq!(lease["skipped"][0]["reason"], "unsupported");
+    assert!(rig.devices.hardware.lock().calls.is_empty());
+    assert!(!rig.devices.journal.exists());
 }

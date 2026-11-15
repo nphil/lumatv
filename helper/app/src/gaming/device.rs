@@ -36,6 +36,10 @@ impl Control {
     pub fn cache_caveat(self) -> bool {
         matches!(self, Self::VpqLowDelay | Self::DeLowDelay)
     }
+
+    pub fn unsupported_reason(self) -> Option<&'static str> {
+        (self == Self::VpqLowDelay).then_some("unsupported on O22: VIDIOC_S_CTRL returns EINVAL (TV receipt 2026-11-15)")
+    }
 }
 
 /// An opened device set is held until restoration, including after a failed write.
@@ -107,39 +111,39 @@ impl LgDevices {
         found.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "VPQ video device is not registered"))
     }
 
-    fn resource_mgr(&self) -> io::Result<File> {
-        // The registered major/minor, not a guessed /dev name, identifies the driver.
+    fn de(&self) -> io::Result<File> {
+        // The DE ioctls are served by /dev/lg/de0, not a resource_mgr device node.
         let mut found = None;
         for entry in fs::read_dir(self.sys.join("dev/char"))? {
             let entry = entry?;
             let Ok(event) = fs::read_to_string(entry.path().join("uevent")) else { continue };
             let name = event.lines().find_map(|line| line.strip_prefix("DEVNAME="));
-            if let Some(name @ ("resource_mgr" | "lg/resource_mgr")) = name {
-                if found.is_some() { return Err(invalid("multiple resource_mgr devices")); }
+            if let Some(name @ "lg/de0") = name {
+                if found.is_some() { return Err(invalid("multiple DE devices")); }
                 found = Some(char_device(&self.dev.join(name), &entry.file_name().to_string_lossy())?);
             }
         }
-        found.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "resource_mgr character device is not registered"))
+        found.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "lg/de0 character device is not registered"))
     }
 }
 
 impl Devices for LgDevices {
     fn open(&self, controls: &[Control]) -> io::Result<Box<dyn ControlFd>> {
         let vpq = controls.iter().any(|c| c.id().is_some()).then(|| self.vpq()).transpose()?;
-        let resource = controls.contains(&Control::DeLowDelay).then(|| self.resource_mgr()).transpose()?;
+        let de = controls.contains(&Control::DeLowDelay).then(|| self.de()).transpose()?;
         let mut identity = String::new();
-        for (name, file) in [("vpq", &vpq), ("resource_mgr", &resource)] {
+        for (name, file) in [("vpq", &vpq), ("lg/de0", &de)] {
             if let Some(file) = file {
                 identity.push_str(&format!("{name}:{};", file.metadata()?.rdev()));
             }
         }
-        Ok(Box::new(LgFd { vpq, resource, de_status: self.de_status.clone(), identity }))
+        Ok(Box::new(LgFd { vpq, de, de_status: self.de_status.clone(), identity }))
     }
 }
 
 struct LgFd {
     vpq: Option<File>,
-    resource: Option<File>,
+    de: Option<File>,
     de_status: PathBuf,
     identity: String,
 }
@@ -185,9 +189,9 @@ impl ControlFd for LgFd {
         if let Some(id) = control.id() {
             ioctl(required(&self.vpq)?, 0xc008_561c, &mut V4l2Control { id, value }) // VIDIOC_S_CTRL
         } else {
-            // resource_mgr translates this ioctl to DE IPC 0x49, with a four-byte payload.
+            // The DE driver translates this ioctl to DE IPC 0x49, with a four-byte payload.
             let mut value = u32::try_from(value).map_err(|_| invalid("negative DE low-delay value"))?;
-            ioctl(required(&self.resource)?, 0x4004_613c, &mut value)
+            ioctl(required(&self.de)?, 0x4004_613c, &mut value)
         }
     }
 }
@@ -209,5 +213,20 @@ mod tests {
     fn ordinary_files_are_never_accepted_as_device_fds() {
         let temp = tempfile::NamedTempFile::new().unwrap();
         assert!(char_device(temp.path(), "1:3").is_err());
+    }
+
+    #[test]
+    fn de_discovery_uses_the_registered_lg_de0_node_without_resource_mgr() {
+        let dir = tempfile::tempdir().unwrap();
+        let sys = dir.path().join("sys");
+        let dev = dir.path().join("dev");
+        fs::create_dir_all(sys.join("dev/char/1:3")).unwrap();
+        fs::write(sys.join("dev/char/1:3/uevent"), "MAJOR=1\nMINOR=3\nDEVNAME=lg/de0\n").unwrap();
+        fs::create_dir_all(dev.join("lg")).unwrap();
+        fs::write(dev.join("lg/de0"), "").unwrap();
+        let devices = LgDevices { sys, dev, de_status: dir.path().join("status") };
+        let error = devices.de().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "gaming device is not a character device");
     }
 }

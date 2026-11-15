@@ -115,7 +115,13 @@ impl State {
     pub fn new(journal: PathBuf, records_path: PathBuf, boot: String) -> Self {
         let records = fs::read(&records_path).ok()
             .and_then(|data| serde_json::from_slice::<Vec<Qualification>>(&data).ok())
-            .unwrap_or_default().into_iter().map(|record| (record.control, record)).collect();
+            .unwrap_or_default().into_iter().map(|mut record| {
+                if let Some(reason) = record.control.unsupported_reason() {
+                    record.qualified = false;
+                    record.error = Some(reason.into());
+                }
+                (record.control, record)
+            }).collect();
         Self { enabled: false, lease: None, entries: Vec::new(), journal, records_path, boot, records, error: None, last_restore: Value::Null }
     }
 
@@ -163,9 +169,13 @@ impl State {
         let mut results = Vec::new();
         let mut pending = Vec::new();
         for mut entry in self.entries.drain(..).rev() {
-            let result = entry.fd.write(entry.saved.control, entry.saved.value)
-                .and_then(|()| entry.fd.read(entry.saved.control))
-                .and_then(|value| if value == entry.saved.value { Ok(value) } else { Err(io::Error::other(format!("restore readback {value} differs from {}", entry.saved.value))) });
+            let write = entry.fd.write(entry.saved.control, entry.saved.value);
+            // EINVAL can reject both set and restore while the saved value is unchanged.
+            let result = match (write, entry.fd.read(entry.saved.control)) {
+                (_, Ok(value)) if value == entry.saved.value => Ok(value),
+                (Err(error), _) | (Ok(()), Err(error)) => Err(error),
+                (Ok(()), Ok(value)) => Err(io::Error::other(format!("restore readback {value} differs from {}", entry.saved.value))),
+            };
             results.push(json!({"control": entry.saved.control, "saved": entry.saved.value,
                 "readback": result.as_ref().ok(), "error": result.as_ref().err().map(ToString::to_string)}));
             if result.is_err() { pending.push(entry); }
@@ -197,6 +207,10 @@ impl State {
         let mut skipped = Vec::new();
         let mut prepared = Vec::new();
         for control in controls {
+            if let Some(detail) = control.unsupported_reason() {
+                skipped.push(json!({"control": control, "reason": "unsupported", "detail": detail}));
+                continue;
+            }
             let Some(record) = self.records.get(&control).filter(|record| record.qualified && record.boot == self.boot) else {
                 skipped.push(json!({"control": control, "reason": "unqualified"}));
                 continue;
@@ -250,6 +264,7 @@ impl State {
         }
         let mut record = Qualification { control, boot: self.boot.clone(), device: String::new(), at: crate::timeutil::now_ms(), original: None, requested: control.target(), readback: None, restored: None, sequence_passed: false, qualified: false, live_readback_receipt, lifecycle_receipt, error: None };
         let sequence = (|| -> Result<(), String> {
+            if let Some(reason) = control.unsupported_reason() { return Err(reason.into()); }
             let mut fd = devices.open(&[control]).map_err(|e| format!("discovery: {e}"))?;
             record.device = fd.identity().to_owned();
             let value = fd.read(control).map_err(|e| format!("original read: {e}"))?;
@@ -286,6 +301,7 @@ impl State {
         json!({"enabled": self.enabled, "lease": self.lease.as_ref().map(Lease::view),
             "qualifications": self.records.values().collect::<Vec<_>>(), "restorePending": self.entries.len(),
             "error": self.error, "lastRestore": self.last_restore,
+            "unsupported": Control::ALL.into_iter().filter_map(|control| control.unsupported_reason().map(|reason| json!({"control": control, "reason": reason}))).collect::<Vec<_>>(),
             "cacheCaveat": "de_kwrap caches low-delay state; DE/VPQ low-delay qualification requires a live-hardware readback receipt",
             "controls": Control::ALL})
     }
