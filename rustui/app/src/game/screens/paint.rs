@@ -377,6 +377,20 @@ pub fn ready_word(ready: lumagame_core::ipc::Readiness) -> (&'static str, Role) 
     }
 }
 
+/// The status a way to play shows. Until its engine checks one game, a game listed on a linked, online target reads as available:
+/// only a check makes it "Ready", and "Unknown" for every game said nothing.
+pub fn status_word(m: &Model, key: &lumagame_core::ids::SourceKey) -> (&'static str, Role) {
+    status_of(m.readiness(key), m.target(key), m.integration(&key.engine).is_some_and(|e| e.descriptor.is_some()))
+}
+fn status_of(ready: lumagame_core::ipc::Readiness, target: Option<&lumagame_core::ipc::Target>, started: bool) -> (&'static str, Role) {
+    use lumagame_core::ipc::{Link, Reach, Readiness};
+    match (ready, target) {
+        (Readiness::Unknown, Some(t)) if t.link == Link::Linked && t.reach == Reach::Online => ("Available", Role::Positive),
+        (Readiness::Unknown, None) if !started => ("Starting", Role::Ink2),
+        (ready, _) => ready_word(ready),
+    }
+}
+
 /// `text` in lines no wider than `max_w`, each broken after its last `/` or `.` that fits, or after the last character that fits when
 /// there is none.
 fn break_address(fonts: &mut ui::Fonts, text: &str, ty: Type, max_w: f32) -> Vec<String> {
@@ -410,5 +424,17 @@ mod tests {
         let lines = break_address(&mut fonts, url, ty, max_w);
         assert_eq!(lines, ["static-login.nvidia.com/service/", "gfn/pin"]);
         assert_eq!(break_address(&mut fonts, url, ty, 4000.0), [url]);
+    }
+
+    #[test]
+    fn an_unchecked_game_on_a_linked_online_target_is_available() {
+        use lumagame_core::ids::TargetId;
+        use lumagame_core::ipc::{Link, Reach, Readiness, Target};
+        let target = |link, reach| Target { id: TargetId::new("main").unwrap(), name: "n".into(), detail: None, link, reach };
+        let online = target(Link::Linked, Reach::Online);
+        assert_eq!(status_of(Readiness::Unknown, Some(&online), true).0, "Available");
+        assert_eq!(status_of(Readiness::Install, Some(&online), true).0, "Install", "a checked answer wins");
+        assert_eq!(status_of(Readiness::Unknown, Some(&target(Link::Linked, Reach::Unknown)), true).0, "Unknown");
+        assert_eq!(status_of(Readiness::Unknown, None, false).0, "Starting");
     }
 }

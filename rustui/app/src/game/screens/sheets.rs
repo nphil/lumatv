@@ -232,6 +232,29 @@ fn auth(p: &mut Paint<'_>) {
             p.wrapped(8020, message, Frame::new(f.x + 40.0, f.y + 100.0 + p.line(Type::Title), f.w - 80.0, 0.0), Type::Body, Role::Ink2, false, 33);
             p.button(8040, Focus::SheetAction(0), "Try again", Some(Icon::Refresh), f.x + 40.0, f.y + f.h - 104.0, true, false, 34);
         }
+        None if flow.no_pcs => {
+            let manual = p
+                .model
+                .integration(&flow.engine)
+                .and_then(|e| e.descriptor.as_ref())
+                .is_some_and(|d| d.capabilities.has(lumagame_core::engine::Feature::ManualHost));
+            let f = panel(p, 1080.0, 500.0f32.max(p.line(Type::Title) + p.line(Type::Body) * 4.0 + 200.0));
+            p.text(8010, "No PCs found", Frame::new(f.x + 40.0, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0), Type::Title, Role::Ink, false, 32);
+            p.wrapped(
+                8020,
+                &format!("{name} found no PC on this network. Check that the PC is on and on the same network, or enter its address."),
+                Frame::new(f.x + 40.0, f.y + 100.0 + p.line(Type::Title), f.w - 80.0, 0.0),
+                Type::Body,
+                Role::Ink2,
+                false,
+                33,
+            );
+            let y = f.y + f.h - 104.0;
+            let w = p.button(8040, Focus::SheetAction(0), "Try again", Some(Icon::Refresh), f.x + 40.0, y, !manual, false, 34);
+            if manual {
+                p.button(8041, Focus::SheetAction(1), "Enter address", Some(Icon::Plus), f.x + 56.0 + w, y, true, false, 34);
+            }
+        }
         _ => {
             let f = panel(p, 960.0, 440.0);
             p.text(
@@ -303,30 +326,14 @@ fn pin(p: &mut Paint<'_>, name: &str, code: &str, enter: bool) {
     );
 }
 fn end_session(p: &mut Paint<'_>) {
-    let end = p.model.can_end_game();
+    let (title, body, confirm) = p.model.end_copy();
     let f = panel(p, 1080.0, if p.scale > 1.0 { 700.0 } else { 400.0 });
     let x = f.x + 40.0;
-    p.text(
-        8010,
-        if end { "End this session?" } else { "Leave the stream?" },
-        Frame::new(x, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0),
-        Type::Title,
-        Role::Ink,
-        false,
-        32,
-    );
-    p.wrapped(
-        8020,
-        if end { "The game will close on the PC. Unsaved progress may be lost." } else { "The stream will close. The game can keep running on its host." },
-        Frame::new(x, f.y + 78.0 + p.line(Type::Title), f.w - 80.0, 0.0),
-        Type::Body,
-        Role::Ink2,
-        false,
-        32,
-    );
+    p.text(8010, title, Frame::new(x, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0), Type::Title, Role::Ink, false, 32);
+    p.wrapped(8020, &body, Frame::new(x, f.y + 78.0 + p.line(Type::Title), f.w - 80.0, 0.0), Type::Body, Role::Ink2, false, 32);
     let y = f.y + f.h - 104.0;
     let w = p.button(8030, Focus::SheetAction(0), "Keep playing", Some(Icon::Play), x, y, true, false, 34);
-    p.button(8040, Focus::SheetAction(1), if end { "End session" } else { "Leave stream" }, Some(Icon::Stop), x + w + 16.0, y, false, false, 34);
+    p.button(8040, Focus::SheetAction(1), confirm, Some(Icon::Stop), x + w + 16.0, y, false, false, 34);
 }
 fn edit_text(p: &mut Paint<'_>) {
     let editing = p.model.view.sheet == Some(Sheet::EditText);

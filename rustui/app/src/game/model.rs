@@ -353,6 +353,25 @@ pub struct LinkFlow {
     pub state: Option<AuthState>,
     pub expires_ms: Option<u64>,
     pub pin: String,
+    pub since_ms: u64,
+    /// A PC engine searched for [`PC_SEARCH_MS`] without offering a PC to pair.
+    pub no_pcs: bool,
+}
+/// How long "Pair a PC" waits for a PC engine to find one before offering an address and a retry.
+pub const PC_SEARCH_MS: u64 = 20_000;
+impl LinkFlow {
+    fn new(engine: EngineId, target: Option<TargetId>, now_ms: u64) -> Self {
+        Self { engine, target, state: None, expires_ms: None, pin: String::new(), since_ms: now_ms, no_pcs: false }
+    }
+}
+/// "Play time on this TV": minutes under an hour, so ten minutes do not read as zero hours.
+pub fn play_time(seconds: u64) -> String {
+    match (seconds / 3600, seconds / 60 % 60) {
+        (0, 0) => "Under a minute".into(),
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
+    }
 }
 #[derive(Clone, Debug)]
 pub struct View {
@@ -454,10 +473,19 @@ impl Model {
             state,
             listing,
             games: Vec::new(),
-            integrations: manifests
-                .into_iter()
-                .map(|manifest| Integration { manifest, descriptor: None, schema: SettingsSchema::default(), targets: Vec::new(), error: None })
-                .collect(),
+            integrations: {
+                // Settings lists integrations under one heading per kind, so each kind has to be contiguous.
+                let mut list: Vec<_> = manifests
+                    .into_iter()
+                    .map(|manifest| Integration { manifest, descriptor: None, schema: SettingsSchema::default(), targets: Vec::new(), error: None })
+                    .collect();
+                list.sort_by_key(|e| match e.manifest.kind {
+                    EngineKind::Cloud => 0,
+                    EngineKind::Host => 1,
+                    _ => 2,
+                });
+                list
+            },
             prefs,
             view: View::default(),
             details: BTreeMap::new(),
@@ -573,6 +601,23 @@ impl Model {
     pub fn auth_remaining(&self) -> Option<u64> {
         self.view.auth.as_ref()?.expires_ms.map(|end| end.saturating_sub(self.now_ms).div_ceil(1000))
     }
+    /// The end-session sheet's title, explanation and confirming button, in the words of the engine's kind.
+    pub fn end_copy(&self) -> (&'static str, String, &'static str) {
+        let engine = self.session.as_ref().map(|s| &s.source.engine);
+        let kind = engine.and_then(|id| self.integration(id)).map(|e| e.manifest.kind);
+        let place = match (kind, engine) {
+            (Some(EngineKind::Host), _) => "on the PC".to_string(),
+            (Some(EngineKind::Cloud), Some(id)) => format!("on {}", self.engine_name(id)),
+            _ => String::new(),
+        };
+        if self.can_end_game() {
+            let body = if place.is_empty() { "The game will close.".to_string() } else { format!("The game will close {place}.") };
+            ("End this session?", format!("{body} Unsaved progress may be lost."), "End session")
+        } else {
+            let body = if place.is_empty() { "The game can keep running.".to_string() } else { format!("The game can keep running {place}.") };
+            ("Leave the stream?", format!("The stream will close. {body}"), "Leave stream")
+        }
+    }
     pub fn since_played(&self, id: GameId) -> Option<String> {
         let total = self.state.profile().history.total(id);
         if total.sessions == 0 {
@@ -653,6 +698,13 @@ impl Model {
                     if let Some(auth) = &mut self.view.auth {
                         auth.state = Some(AuthState::Failed { reason: ipc::AuthFail::Expired, message: "The code expired. Start sign-in again.".into() });
                     }
+                    changed = true;
+                }
+                let host = self.view.auth.as_ref().is_some_and(|a| self.integration(&a.engine).is_some_and(|e| e.manifest.kind == EngineKind::Host));
+                if let Some(a) = self.view.auth.as_mut().filter(|a| {
+                    host && !a.no_pcs && a.state.is_none() && a.target.is_none() && now_ms >= a.since_ms + PC_SEARCH_MS
+                }) {
+                    a.no_pcs = true;
                     changed = true;
                 }
             }
@@ -1068,7 +1120,7 @@ impl Model {
                         self.session_input(session::Input::Stop { end_game: self.can_end_game() }, out);
                     }
                 }
-                Some(Sheet::Auth) => self.auth_action(out),
+                Some(Sheet::Auth) => self.auth_action(i, out),
                 Some(Sheet::EditText) => self.save_text(out),
                 Some(Sheet::AddHost) if !self.view.address.is_empty() => {
                     if let Some(id) = &self.view.selected_engine {
@@ -1424,7 +1476,7 @@ impl Model {
     }
     fn begin_auth(&mut self, engine: EngineId, target: Option<TargetId>, out: &mut Vec<Command>) {
         let method = self.integration(&engine).and_then(|e| e.descriptor.as_ref()).and_then(|d| d.capabilities.auth.first()).copied();
-        self.view.auth = Some(LinkFlow { engine: engine.clone(), target: target.clone(), state: None, expires_ms: None, pin: String::new() });
+        self.view.auth = Some(LinkFlow::new(engine.clone(), target.clone(), self.now_ms));
         self.open_sheet(Sheet::Auth, Focus::SheetAction(0));
         if !self.enabled(&engine) {
             self.state.engines.entry(engine.clone()).or_default().enabled = true;
@@ -1437,10 +1489,25 @@ impl Model {
             self.close_sheet();
         }
     }
-    fn auth_action(&mut self, out: &mut Vec<Command>) {
+    fn auth_action(&mut self, action: usize, out: &mut Vec<Command>) {
         let Some(a) = &self.view.auth else {
             return;
         };
+        if a.no_pcs {
+            let engine = a.engine.clone();
+            Self::send(out, &engine, Request::AuthCancel);
+            self.view.auth = None;
+            self.close_sheet();
+            if action == 1 {
+                self.view.selected_engine = Some(engine);
+                self.view.address.clear();
+                self.open_sheet(Sheet::AddHost, Focus::Keyboard(0));
+            } else {
+                Self::send(out, &engine, Request::Targets);
+                self.begin_auth(engine, None, out);
+            }
+            return;
+        }
         match &a.state {
             Some(AuthState::EnterPin { digits }) if a.pin.len() == usize::from(*digits) => Self::send(out, &a.engine, Request::AuthPin { pin: a.pin.clone() }),
             Some(AuthState::Failed { .. }) => {
@@ -1496,7 +1563,7 @@ impl Model {
                     text.push(' ');
                 }
             } else if numeric {
-                self.auth_action(out);
+                self.auth_action(0, out);
             } else if self.view.sheet == Some(Sheet::EditText) {
                 self.save_text(out);
             } else if self.view.sheet == Some(Sheet::AddHost) {
@@ -1604,7 +1671,7 @@ impl Model {
             }
             ipc::Event::Auth { state } => {
                 if self.view.auth.as_ref().is_none_or(|a| a.engine != id) {
-                    self.view.auth = Some(LinkFlow { engine: id.clone(), target: None, state: None, expires_ms: None, pin: String::new() });
+                    self.view.auth = Some(LinkFlow::new(id.clone(), None, self.now_ms));
                     self.open_sheet(Sheet::Auth, Focus::SheetAction(0));
                 }
                 if matches!(state, AuthState::Done { .. }) {
@@ -1620,7 +1687,10 @@ impl Model {
                     };
                     if matches!(state, AuthState::EnterPin { .. }) {
                         self.view.focus = Focus::Keyboard(0);
+                    } else if a.no_pcs {
+                        self.view.focus = Focus::SheetAction(0);
                     }
+                    a.no_pcs = false;
                     a.state = Some(state);
                 }
             }
@@ -1753,6 +1823,10 @@ impl Model {
                         rows.push((i..(i + 10).min(44)).map(Focus::Keyboard).collect());
                     }
                     rows.push(vec![Focus::SheetAction(0)]);
+                }
+                Sheet::Auth if self.view.auth.as_ref().is_some_and(|a| a.no_pcs) => {
+                    let manual = self.view.auth.as_ref().and_then(|a| self.integration(&a.engine)).and_then(|e| e.descriptor.as_ref()).is_some_and(|d| d.capabilities.has(Feature::ManualHost));
+                    rows.push(if manual { vec![Focus::SheetAction(0), Focus::SheetAction(1)] } else { vec![Focus::SheetAction(0)] });
                 }
                 Sheet::Auth => rows.push(vec![Focus::SheetAction(0)]),
             }
@@ -1994,6 +2068,84 @@ mod tests {
         assert_eq!(deliver(&mut m, ipc::Event::Targets { targets: vec![target.clone()] }), 0);
         assert_eq!(deliver(&mut m, ipc::Event::Library { target: target.id.clone(), entries: vec![], next: None }), 0);
         assert_eq!(deliver(&mut m, ipc::Event::Targets { targets: vec![target] }), 1);
+    }
+    fn manifest(id: &str, name: &str, kind: EngineKind) -> Manifest {
+        Manifest { id: EngineId::new(id).unwrap(), name: name.into(), summary: String::new(), kind, protocol: 1, exec: None, args: Vec::new(), license: "MIT".into(), source: None }
+    }
+    fn describe(m: &mut Model, id: &str, auth: Vec<lumagame_core::engine::AuthMethod>, features: &[Feature]) {
+        let id = EngineId::new(id).unwrap();
+        m.state.engines.entry(id.clone()).or_default().enabled = true;
+        let e = m.integrations.iter_mut().find(|e| e.manifest.id == id).unwrap();
+        e.descriptor = Some(Descriptor {
+            id,
+            version: "1".into(),
+            capabilities: lumagame_core::engine::Capabilities {
+                kind: e.manifest.kind,
+                targets: lumagame_core::engine::TargetKind::Host,
+                auth,
+                presentation: Presentation::Feeder,
+                features: features.iter().copied().collect(),
+                video: None,
+            },
+        });
+    }
+    fn sent(commands: &[Command]) -> Vec<&Request> {
+        commands.iter().filter_map(|c| if let Command::Send { request, .. } = c { Some(request) } else { None }).collect()
+    }
+    #[test]
+    fn integrations_of_one_kind_sit_under_one_heading() {
+        let m = Model::new(
+            State::default(),
+            Listing::default(),
+            vec![manifest("gamestream", "Sunshine", EngineKind::Host), manifest("gfn", "GeForce NOW", EngineKind::Cloud), manifest("punktfunk", "Punktfunk", EngineKind::Host)],
+        );
+        let order: Vec<_> = m.integrations.iter().map(|e| e.manifest.id.as_str()).collect();
+        assert_eq!(order, ["gfn", "gamestream", "punktfunk"]);
+    }
+    #[test]
+    fn play_time_reads_in_minutes_under_an_hour() {
+        assert_eq!(play_time(30), "Under a minute");
+        assert_eq!(play_time(600), "10 min");
+        assert_eq!(play_time(3600), "1 h");
+        assert_eq!(play_time(5400), "1 h 30 min");
+    }
+    #[test]
+    fn ending_a_cloud_session_names_the_service_not_a_pc() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud), manifest("gamestream", "Sunshine", EngineKind::Host)]);
+        describe(&mut m, "gfn", vec![], &[Feature::EndGame]);
+        describe(&mut m, "gamestream", vec![], &[Feature::EndGame]);
+        let key = |engine: &str| SourceKey { engine: EngineId::new(engine).unwrap(), target: TargetId::new("main").unwrap(), id: lumagame_core::ids::ProviderGameId::new("1").unwrap() };
+        m.session = Some(Session::start(SessionId(1), GameId(1), key("gfn"), Presentation::Feeder, false, 0).0);
+        assert!(!m.wants_pads(), "the menu lets go of the pads as soon as a launch begins");
+        assert_eq!(m.end_copy().1, "The game will close on GeForce NOW. Unsaved progress may be lost.");
+        m.session = Some(Session::start(SessionId(2), GameId(1), key("gamestream"), Presentation::Feeder, false, 0).0);
+        assert_eq!(m.end_copy().1, "The game will close on the PC. Unsaved progress may be lost.");
+    }
+    #[test]
+    fn pairing_with_no_pc_found_offers_an_address_or_another_search() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gamestream", "Sunshine", EngineKind::Host)]);
+        describe(&mut m, "gamestream", vec![lumagame_core::engine::AuthMethod::ShowPin], &[Feature::ManualHost]);
+        let id = EngineId::new("gamestream").unwrap();
+        let mut out = Vec::new();
+        m.begin_auth(id.clone(), None, &mut out);
+        m.step(Input::Tick { now_ms: PC_SEARCH_MS - 1, unix_s: 0 });
+        assert!(!m.view.auth.as_ref().unwrap().no_pcs);
+        m.step(Input::Tick { now_ms: PC_SEARCH_MS, unix_s: 0 });
+        assert!(m.view.auth.as_ref().unwrap().no_pcs);
+        assert!(m.navigation.iter().any(|n| n.id == Focus::SheetAction(1)));
+
+        m.view.focus = Focus::SheetAction(0);
+        let retry = key(&mut m, Key::Ok);
+        assert!(matches!(sent(&retry).as_slice(), [Request::AuthCancel, Request::Targets, Request::Auth { target: None, .. }]));
+        let flow = m.view.auth.as_ref().unwrap();
+        assert!(!flow.no_pcs && flow.since_ms == PC_SEARCH_MS, "a retry searches for the full time again");
+
+        m.step(Input::Tick { now_ms: 2 * PC_SEARCH_MS, unix_s: 0 });
+        m.view.focus = Focus::SheetAction(1);
+        let manual = key(&mut m, Key::Ok);
+        assert!(matches!(sent(&manual).as_slice(), [Request::AuthCancel]));
+        assert_eq!((m.view.sheet, m.view.focus), (Some(Sheet::AddHost), Focus::Keyboard(0)));
+        assert_eq!(m.view.selected_engine, Some(id));
     }
 }
 

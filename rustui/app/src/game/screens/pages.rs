@@ -1,6 +1,6 @@
 use super::{
     art::Stage,
-    paint::{Fill, H, Paint, W, ready_word},
+    paint::{Fill, H, Paint, W, status_word},
 };
 use crate::game::model::{Density, Focus, HomeItem, Page};
 use lumagame_core::{
@@ -120,7 +120,7 @@ pub fn target_line(p: &mut Paint<'_>, id: u64, game: GameId, x: f32, y: f32, w: 
             }
         }
     }
-    let (ready, role) = ready_word(p.model.readiness(&key));
+    let (ready, role) = status_word(p.model, &key);
     let base = p.width(&text, Type::Caption) + 46.0;
     let f = Frame::new(x, y, w, p.line(Type::Caption));
     let icon = match p.model.integration(&key.engine).map(|e| e.manifest.kind) {
@@ -548,7 +548,7 @@ pub fn hub(p: &mut Paint<'_>) {
             let history = m.state().profile().history.total(game.id);
             let facts = [
                 ("Last played", m.since_played(game.id)),
-                ("Play time on this TV", (history.sessions > 0).then(|| format!("{} hours", history.seconds / 3600))),
+                ("Play time on this TV", (history.sessions > 0).then(|| crate::game::model::play_time(history.seconds))),
                 ("Achievements", details.and_then(|d| d.achievements.clone())),
                 ("Saves", details.and_then(|d| d.cloud_saves).map(|cloud| if cloud { "Cloud saves" } else { "Local saves" }.into())),
             ];
@@ -628,7 +628,7 @@ pub fn way(p: &mut Paint<'_>, id: u64, index: usize, key: lumagame_core::ids::So
     let target = p.model.target(&key);
     let name = p.model.engine_name(&key.engine);
     let sub = target.map(|t| t.name.as_str()).unwrap_or("Target unavailable");
-    let (status, role) = ready_word(p.model.readiness(&key));
+    let (status, role) = status_word(p.model, &key);
     let save = match p.model.save_compat(&key) {
         SaveCompat::Shared => "Shared saves",
         SaveCompat::Separate => "Separate saves",
