@@ -1,4 +1,4 @@
-//! The GeForce NOW app's pad reader, given a real-time slot: the one privilege the app's jail cannot give itself.
+//! The gaming apps' pad readers, given a real-time slot while the Gaming plugin is enabled.
 //!
 //! The app's engine reads the controller on one thread per pad, blocked in `read()` on the evdev node. The jail has `RLIMIT_RTPRIO` 0
 //! and no `CAP_SYS_NICE`, so the thread cannot raise itself; this module does it for it, root to thread, and for nothing else
@@ -12,7 +12,7 @@
 //! | the thread does not exist in that process | `not_found` |
 //! | the thread's name is not `gfn-pad-event<N>` (the reader's own name) | `refused` |
 //! | the process is root's | `refused` |
-//! | neither the process nor an ancestor (6 levels) runs from `org.nphil.lumatv.gfn`'s directory | `refused` |
+//! | neither the process nor an ancestor (6 levels) runs from a gaming app's directory | `refused` |
 //! | four threads are boosted already | `refused` |
 //!
 //! The policy is `SCHED_FIFO` priority 10, with `SCHED_RESET_ON_FORK` so a child never inherits it; nothing else is asked or
@@ -38,6 +38,7 @@ use std::time::{Duration, Instant};
 
 /// The app whose process tree a boosted thread must belong to.
 pub const APP_ID: &str = "org.nphil.lumatv.gfn";
+pub const GAME_APP_ID: &str = "org.nphil.lumagame";
 /// The reader thread's name (`gfn-pad-event15`, the pad crate's `format!("gfn-pad-{node}")`); the kernel keeps 15 characters, so
 /// `gfn-pad-event123` is `gfn-pad-event12`: the prefix is what is matched.
 pub const READER_PREFIX: &str = "gfn-pad-event";
@@ -228,7 +229,7 @@ impl Proc {
     /// Whether the process runs from the app's directory: its executable or one of its arguments has the app's id as a path
     /// component (the engine runs through the package's loader, so the engine's path is an argument; the app's own `main` is the exe).
     fn runs_app(&self, pid: i32) -> bool {
-        let has_id = |s: &str| s.split('/').any(|c| c == APP_ID);
+        let has_id = |s: &str| s.split('/').any(|c| matches!(c, APP_ID | GAME_APP_ID));
         let exe = std::fs::read_link(self.root.join(pid.to_string()).join("exe")).ok();
         if exe.is_some_and(|e| has_id(&e.to_string_lossy())) {
             return true;
@@ -252,6 +253,14 @@ impl Proc {
             }
         }
         false
+    }
+
+    /// The process identity is checked again after pidfd_open to reject PID reuse.
+    pub fn app_process(&self, pid: i32) -> Option<String> {
+        if pid <= 1 || !self.uid(pid).is_some_and(|uid| uid != 0) || !self.in_app_tree(pid) {
+            return None;
+        }
+        self.started(pid, pid)
     }
 }
 
@@ -346,8 +355,8 @@ impl Boost {
                 "only the app's pad reader thread is boosted".into(),
             ));
         }
-        if self.proc.uid(pid) == Some(0) {
-            return Err(Refusal::Refused("a root process is never boosted".into()));
+        if !self.proc.uid(pid).is_some_and(|uid| uid != 0) {
+            return Err(Refusal::Refused("only a known non-root process is boosted".into()));
         }
         if !self.proc.in_app_tree(pid) {
             return Err(Refusal::Refused(format!(
@@ -401,41 +410,34 @@ impl Boost {
         let Some(i) = entries.iter().position(|e| e.tid == tid && e.pid == pid) else {
             return false;
         };
-        let e = entries.remove(i);
-        self.release(&e);
+        if !self.release(&entries[i]) {
+            return false;
+        }
+        entries.remove(i);
         true
     }
 
     fn alive(&self, e: &Entry) -> bool {
         self.proc.started(e.pid, e.tid).as_deref() == Some(e.started.as_str())
-            && self
-                .proc
-                .comm(e.pid, e.tid)
-                .is_some_and(|c| c.starts_with(READER_PREFIX))
     }
 
     /// Put a surviving thread back as it was; a gone one needs nothing.
-    fn release(&self, e: &Entry) {
-        if self.alive(e) {
-            let _ = self.sched.restore(e.tid, &e.saved);
-        }
+    fn release(&self, e: &Entry) -> bool {
+        !self.alive(e)
+            || (self.sched.restore(e.tid, &e.saved).is_ok()
+                && self.sched.get(e.tid).is_ok_and(|saved| saved == e.saved))
     }
 
     /// Drop what ended: a thread that is gone or renamed, a lease that ran out.
     pub fn sweep(&self, now: Instant) {
-        let mut entries = self.entries.lock();
-        let mut keep = Vec::with_capacity(entries.len());
-        for e in entries.drain(..) {
-            if !self.alive(&e) {
-                continue;
+        self.entries.lock().retain(|entry| {
+            if !self.alive(entry) {
+                return false;
             }
-            if now >= e.lease_ends {
-                self.release(&e);
-                continue;
-            }
-            keep.push(e);
-        }
-        *entries = keep;
+            let reader = self.proc.comm(entry.pid, entry.tid)
+                .is_some_and(|comm| comm.starts_with(READER_PREFIX));
+            (reader && now < entry.lease_ends) || !self.release(entry)
+        });
     }
 
     pub fn status(&self) -> Value {
@@ -451,27 +453,28 @@ impl Boost {
     pub fn count(&self) -> usize {
         self.entries.lock().len()
     }
+
+    pub fn restore_all(&self) {
+        self.entries.lock().retain(|entry| !self.release(entry));
+    }
 }
 
-/// The helper's one boost table; the sweeper starts with the first request.
-static GLOBAL: LazyLock<Arc<Boost>> = LazyLock::new(|| {
-    let boost = Arc::new(Boost::new(
-        "/proc",
-        "/sys/devices/system/cpu",
-        Box::new(RealSched),
-    ));
-    let sweeper = Arc::clone(&boost);
-    // One second is how fast a lease or a dead thread is noticed; an idle sweep reads nothing when no thread is boosted.
-    let _ = std::thread::Builder::new()
-        .name("gfn-boost-sweep".into())
-        .spawn(move || {
-            loop {
-                std::thread::sleep(Duration::from_secs(1));
-                sweeper.sweep(Instant::now());
-            }
-        });
-    boost
+/// The Gaming plugin's watcher sweeps this table only while a reader is boosted.
+static GLOBAL: LazyLock<Boost> = LazyLock::new(|| {
+    Boost::new("/proc", "/sys/devices/system/cpu", Box::new(RealSched))
 });
+
+pub fn active() -> bool {
+    GLOBAL.count() != 0
+}
+
+pub fn restore_all() {
+    GLOBAL.restore_all();
+}
+
+pub fn sweep(now: Instant) {
+    GLOBAL.sweep(now);
+}
 
 fn ids(request: &Request) -> Result<(i32, i32), Response> {
     let v: Value = serde_json::from_slice(&request.body)
@@ -527,8 +530,8 @@ pub fn handle_with(boost: &Boost, request: &Request, rest: &[&str]) -> Response 
     }
 }
 
-pub fn handle(request: &Request, rest: &[&str]) -> Response {
-    handle_with(&GLOBAL, request, rest)
+pub fn handle(hub: &Arc<crate::hub::Hub>, request: &Request, rest: &[&str]) -> Response {
+    crate::gaming::with_enabled(hub, request, || handle_with(&GLOBAL, request, rest))
 }
 
 #[cfg(test)]
@@ -545,6 +548,7 @@ mod tests {
         state: Mutex<HashMap<i32, Saved>>,
         calls: Mutex<Vec<String>>,
         fail_boost: Mutex<bool>,
+        fail_restore: Mutex<bool>,
     }
 
     struct FakeRef(StdArc<Fake>);
@@ -584,6 +588,9 @@ mod tests {
         }
         fn restore(&self, tid: i32, saved: &Saved) -> io::Result<()> {
             self.0.calls.lock().push(format!("restore {tid}"));
+            if *self.0.fail_restore.lock() {
+                return Err(io::Error::other("scheduler restore failed"));
+            }
             self.0.state.lock().insert(tid, saved.clone());
             Ok(())
         }
@@ -944,6 +951,43 @@ mod tests {
             ))["released"],
             false
         );
+    }
+
+    #[test]
+    fn lumagame_readers_share_the_policy_and_all_are_restored_on_plugin_off() {
+        let rig = Rig::new();
+        rig.process(300, 1, 5228, "/media/developer/apps/usr/palm/applications/org.nphil.lumagame/main", &["main"]);
+        rig.thread(300, 300, "lumagame", 9);
+        rig.thread(300, 3001, "gfn-pad-event1", 10);
+        rig.thread(300, 3002, "gfn-pad-event2", 11);
+        assert_eq!(rig.boost.proc.app_process(300).as_deref(), Some("9"));
+        rig.boost.boost(300, 3001, now()).unwrap();
+        rig.boost.boost(300, 3002, now()).unwrap();
+        rig.boost.restore_all();
+        assert_eq!(rig.boost.count(), 0);
+        assert_eq!(rig.fake.state.lock()[&3001].policy, libc::SCHED_OTHER);
+        assert_eq!(rig.fake.state.lock()[&3002].priority, 0);
+        fs::remove_file(rig.dir.path().join("proc/300/status")).unwrap();
+        assert!(rig.boost.proc.app_process(300).is_none());
+        assert!(matches!(rig.boost.boost(300, 3001, now()), Err(Refusal::Refused(_))));
+    }
+
+    #[test]
+    fn failed_scheduler_restoration_stays_pending_and_a_renamed_reader_is_put_back() {
+        let rig = Rig::new();
+        rig.app_engine();
+        rig.thread(102, 2001, "gfn-pad-event1", 7);
+        rig.boost.boost(102, 2001, now()).unwrap();
+        *rig.fake.fail_restore.lock() = true;
+        assert!(!rig.boost.unboost(102, 2001));
+        assert_eq!(rig.boost.count(), 1);
+        rig.boost.restore_all();
+        assert_eq!(rig.boost.count(), 1);
+        *rig.fake.fail_restore.lock() = false;
+        rig.thread(102, 2001, "renamed", 7);
+        rig.boost.sweep(now());
+        assert_eq!(rig.boost.count(), 0);
+        assert_eq!(rig.fake.state.lock()[&2001].priority, 0);
     }
 
     #[test]

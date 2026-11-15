@@ -449,6 +449,7 @@ impl Api {
             .chain(crate::voice::ROUTES.iter())
             .chain(crate::images::ROUTES.iter())
             .chain(crate::gfn_boost::ROUTES.iter())
+            .chain(crate::gaming::ROUTES.iter())
             .chain(crate::crash::ROUTES.iter())
             .chain(crate::openapps::ROUTES.iter())
             .chain(crate::capture::ROUTES.iter())
@@ -709,7 +710,8 @@ impl Handler for Api {
                 }
                 crate::onhome::handle(&self.onhome, request, rest)
             }
-            ["v1", "gfn", rest @ ..] => crate::gfn_boost::handle(request, rest),
+            ["v1", "gaming", rest @ ..] => crate::gaming::handle(&self.hub, request, rest),
+            ["v1", "gfn", rest @ ..] => crate::gfn_boost::handle(&self.hub, request, rest),
             ["v1", "logging"] if get => self.topic("logging"),
             ["v1", "crash", rest @ ..] => crate::crash::handle(request, rest),
             ["v1", "openapps"] => {
@@ -940,6 +942,7 @@ mod tests {
                 + crate::voice::ROUTES.len()
                 + crate::images::ROUTES.len()
                 + crate::gfn_boost::ROUTES.len()
+                + crate::gaming::ROUTES.len()
                 + crate::crash::ROUTES.len()
                 + crate::openapps::ROUTES.len()
                 + crate::capture::ROUTES.len()

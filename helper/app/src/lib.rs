@@ -64,6 +64,7 @@ pub mod device;
 pub mod displaylab;
 pub mod dnd;
 pub mod fetcher;
+pub mod gaming;
 pub mod gfn_boost;
 pub mod guidedata;
 pub mod ha_plugin;

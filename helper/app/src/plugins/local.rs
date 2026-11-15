@@ -39,6 +39,7 @@ pub const FIRST_PARTY_IDS: &[&str] = &[
     "phone-remote",
     "beszel",
     "ssgw",
+    "gaming",
 ];
 
 /// What a first-party plugin is, in the words of a manifest.
