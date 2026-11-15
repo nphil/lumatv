@@ -30,6 +30,12 @@ On the TV (2026-11-15, helper `43e74d46`) the MEMC low delay and Motion Pro roun
 
 `POST /v1/gaming/pad-boost {pid,tid}` and `POST /v1/gaming/pad-unboost {pid,tid}` retain the existing policy: at most four `gfn-pad-event*` threads, non-root gaming app ancestry, FIFO priority 10 with reset-on-fork, online CPUs 1–3 when CPU 1 is available, and a 90-second renewal deadline. `GET /v1/gaming/pad-boost` lists them. Scheduling and CPU affinity are saved and restored; the plugin's watcher sweeps only while a lease or boost is active. The legacy `/v1/gfn/pad-*` routes use the same table and plugin gate until app cutover.
 
+## Stats overlay
+
+`GET /v1/gaming/display` serves the panel's side of LumaGame's stats overlay: the video window's status (`/proc/lg/de/win0/status`: size, source rate, HDR type, low delay, mute), the refresh rate from the `DE2VSYNC` interrupt (`osd_irq` where it is missing) counted per 100 ms window (average, slowest window and fewest refreshes over the last second), and with `?full=1` the DE firmware's status words SYS_VERI_10/11 (low delay, VRR, FRC, frame delay, video delay, input and output rates). Sampling starts with the first ask and stops 2 s after the last; LumaGame asks only while its overlay is up over a running stream. The counters are read every 100 ms, the window status every 250 ms and the status words every 5 s and when the window changes: `DE_IOR_REG_RD` fails a nonzero register with EIO and prints its value to the kernel log, where the value is read under the sampler's thread id, so each read adds a kernel log line.
+
+`GET /v1/gaming/overlay` and `POST /v1/gaming/overlay {"mode":"off"|"compact"|"full","changed"?}` hold the overlay setting for Quick Settings, published as the `gaming.overlay` topic and kept in the helper's data directory. LumaGame keeps its own copy; a change older than the one held is refused (`taken: false`) and the held one returned.
+
 ## GameSir settings
 
 `GET /v1/gaming/gamesir` discovers a Cyclone 2 configuration interface and reads firmware, active profile and settings.

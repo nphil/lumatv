@@ -87,7 +87,7 @@ pub struct Qualification {
 }
 
 /// Atomic replacement on the same filesystem, with the journal durable before any set.
-fn save(path: &Path, value: &impl Serialize) -> io::Result<()> {
+pub(super) fn save(path: &Path, value: &impl Serialize) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| io::Error::other("missing gaming state directory"))?;
     fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
     let temp = path.with_extension("new");

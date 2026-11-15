@@ -69,10 +69,10 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-fn char_device(path: &Path, expected: &str) -> io::Result<File> {
+fn char_device(path: &Path, expected: &str, write: bool) -> io::Result<File> {
     let file = OpenOptions::new()
         .read(true)
-        .write(true)
+        .write(write)
         .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(path)?;
     let meta = file.metadata()?;
@@ -101,13 +101,18 @@ impl LgDevices {
                 if found.is_some() {
                     return Err(invalid("multiple VPQ video devices; qualification must resolve the device"));
                 }
-                found = Some(char_device(&self.dev.join(name.as_ref()), &fs::read_to_string(entry.path().join("dev"))?)?);
+                found = Some(char_device(&self.dev.join(name.as_ref()), &fs::read_to_string(entry.path().join("dev"))?, true)?);
             }
         }
         found.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "VPQ video device is not registered"))
     }
 
-    fn de(&self) -> io::Result<File> {
+    /// The display reader's handle: only `DE_IOR_REG_RD` goes through it, so it is opened read-only.
+    pub(super) fn de_reader(&self) -> io::Result<File> {
+        self.de(false)
+    }
+
+    fn de(&self, write: bool) -> io::Result<File> {
         // The DE ioctls are served by /dev/lg/de0, not a resource_mgr device node.
         let mut found = None;
         for entry in fs::read_dir(self.sys.join("dev/char"))? {
@@ -116,7 +121,7 @@ impl LgDevices {
             let name = event.lines().find_map(|line| line.strip_prefix("DEVNAME="));
             if let Some(name @ "lg/de0") = name {
                 if found.is_some() { return Err(invalid("multiple DE devices")); }
-                found = Some(char_device(&self.dev.join(name), &entry.file_name().to_string_lossy())?);
+                found = Some(char_device(&self.dev.join(name), &entry.file_name().to_string_lossy(), write)?);
             }
         }
         found.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "lg/de0 character device is not registered"))
@@ -126,7 +131,7 @@ impl LgDevices {
 impl Devices for LgDevices {
     fn open(&self, controls: &[Control]) -> io::Result<Box<dyn ControlFd>> {
         let vpq = controls.iter().any(|c| c.id().is_some()).then(|| self.vpq()).transpose()?;
-        let de = controls.contains(&Control::DeLowDelay).then(|| self.de()).transpose()?;
+        let de = controls.contains(&Control::DeLowDelay).then(|| self.de(true)).transpose()?;
         let mut identity = String::new();
         for (name, file) in [("vpq", &vpq), ("lg/de0", &de)] {
             if let Some(file) = file {
@@ -150,7 +155,7 @@ struct V4l2Control {
     value: i32,
 }
 
-fn ioctl<T>(file: &File, request: u32, value: &mut T) -> io::Result<()> {
+pub(super) fn ioctl<T>(file: &File, request: u32, value: &mut T) -> io::Result<()> {
     // SAFETY: payloads match the fixed ioctl; musl takes a signed request, glibc unsigned.
     if unsafe { libc::ioctl(file.as_raw_fd(), request as _, value as *mut T) } < 0 {
         Err(io::Error::last_os_error())
@@ -208,7 +213,7 @@ mod tests {
     #[test]
     fn ordinary_files_are_never_accepted_as_device_fds() {
         let temp = tempfile::NamedTempFile::new().unwrap();
-        assert!(char_device(temp.path(), "1:3").is_err());
+        assert!(char_device(temp.path(), "1:3", false).is_err());
     }
 
     #[test]
@@ -221,7 +226,7 @@ mod tests {
         fs::create_dir_all(dev.join("lg")).unwrap();
         fs::write(dev.join("lg/de0"), "").unwrap();
         let devices = LgDevices { sys, dev, de_status: dir.path().join("status") };
-        let error = devices.de().unwrap_err();
+        let error = devices.de(false).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert_eq!(error.to_string(), "gaming device is not a character device");
     }

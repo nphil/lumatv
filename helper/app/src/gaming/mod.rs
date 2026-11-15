@@ -2,7 +2,9 @@
 #![allow(unsafe_code)]
 
 mod device;
+mod display;
 mod lease;
+mod overlay;
 
 use crate::ctx::Ctx;
 use crate::http::{Request, Response, error_response};
@@ -38,6 +40,9 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/v1/gaming/pad-boost", "controller reader {pid, tid}: FIFO 10, off CPU 0, 90 second lease"),
     ("POST", "/v1/gaming/pad-unboost", "restore controller reader {pid, tid}"),
     ("GET", "/v1/gaming/pad-boost", "the controller readers boosted now"),
+    ("GET", "/v1/gaming/display", "the panel's readings for LumaGame's stats overlay (?full=1 adds the firmware's status words); sampled only while asked"),
+    ("GET", "/v1/gaming/overlay", "the stats overlay setting {mode: off|compact|full, changed}, also the gaming.overlay topic"),
+    ("POST", "/v1/gaming/overlay", "set the stats overlay {mode, changed?}; the newer change wins"),
 ];
 
 static INSTANCES: LazyLock<Mutex<Vec<Weak<Gaming>>>> = LazyLock::new(|| Mutex::new(Vec::new()));
@@ -48,6 +53,8 @@ struct Gaming {
     state: Mutex<State>,
     wake: OwnedFd,
     session: Mutex<Option<Arc<Local>>>,
+    display: display::Display,
+    overlay: overlay::Store,
 }
 
 impl Gaming {
@@ -66,6 +73,7 @@ impl Gaming {
             if let Err(e) = state.restore("plugin_off") { crate::log_warn!("gaming: {e}"); }
             crate::gfn_boost::restore_all();
             *session = None;
+            self.display.stop();
         } else if session.is_none() {
             match Local::start(shared, &OPT_IN.spec, json!({"title": "Gaming"}), Arc::new(|_, _| {})) {
                 Ok(local) => *session = Some(local),
@@ -154,7 +162,11 @@ pub fn spawn(ctx: &Ctx, shared: Arc<Shared>) -> io::Result<JoinHandle<()>> {
     if wake < 0 { return Err(io::Error::last_os_error()); }
     // SAFETY: the successful eventfd call transfers a fresh fd to this owner.
     let wake = unsafe { OwnedFd::from_raw_fd(wake) };
-    let gaming = Arc::new(Gaming { hub: ctx.hub.clone(), devices, state: Mutex::new(state), wake, session: Mutex::new(None) });
+    let overlay = overlay::Store::load(ctx.paths.data_dir.join("gaming/overlay.json"));
+    overlay.publish(&ctx.hub);
+    let gaming = Arc::new(Gaming {
+        hub: ctx.hub.clone(), devices, state: Mutex::new(state), wake, session: Mutex::new(None), display: display::Display::lg(), overlay,
+    });
     let weak = Arc::downgrade(&gaming);
     let roster = Arc::downgrade(&shared);
     shared.offer(&OPT_IN, Arc::new(move || {
@@ -234,12 +246,35 @@ fn receipt(value: &Option<String>) -> bool {
     value.as_ref().is_none_or(|value| !value.trim().is_empty() && value.len() <= 1024)
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetOverlay {
+    mode: overlay::Mode,
+    changed: Option<u64>,
+}
+
+/// LumaGame's stats overlay: the panel's readings and the one setting that shows it.
+fn overlay_route(gaming: &Gaming, request: &Request, rest: &[&str]) -> Response {
+    match (request.method.as_str(), rest) {
+        ("GET", ["display"]) => ok(json!({"display": gaming.display.ask(request.param("full") == Some("1")), "overlay": gaming.overlay.get()})),
+        ("POST", ["overlay"]) => {
+            let set: SetOverlay = match body(request) { Ok(value) => value, Err(response) => return response };
+            match gaming.overlay.set(set.mode, set.changed, crate::timeutil::now_ms(), &gaming.hub) {
+                Ok((overlay, taken)) => ok(json!({"overlay": overlay, "taken": taken})),
+                Err(e) => error_response(500, "io", &e.to_string()),
+            }
+        }
+        _ => ok(json!({"overlay": gaming.overlay.get()})),
+    }
+}
+
 pub fn handle(hub: &Arc<Hub>, request: &Request, rest: &[&str]) -> Response {
     if matches!(rest, ["pad-boost" | "pad-unboost"]) { return crate::gfn_boost::handle(hub, request, rest); }
     if rest == ["gamesir"] { return crate::gamesir::handle(hub, request); }
     if rest == ["leadjoy"] { return crate::leadjoy::handle(hub, request); }
     let allow = match rest {
-        ["status"] => "GET",
+        ["status" | "display"] => "GET",
+        ["overlay"] => "GET, POST",
         ["lease"] => "POST, DELETE",
         ["renew" | "qualify" | "restore"] => "POST",
         _ => return error_response(404, "not_found", "no such endpoint"),
@@ -250,6 +285,10 @@ pub fn handle(hub: &Arc<Hub>, request: &Request, rest: &[&str]) -> Response {
     let Some(gaming) = instance(hub) else { return error_response(403, "plugin_off", "The Gaming plugin is off: switch it on in Settings"); };
     let mut state = gaming.state.lock();
     if let Err(response) = gate(&state, hub, request) { return response; }
+    if let ["display" | "overlay"] = rest {
+        drop(state);
+        return overlay_route(&gaming, request, rest);
+    }
     let dead = state.lease.as_ref().is_some_and(|lease| holder_dead(&lease.holder));
     if let Err(e) = state.tick(Instant::now(), dead, true) { return error_response(500, "restore_failed", &e); }
     let result = match (request.method.as_str(), rest) {
@@ -335,7 +374,8 @@ mod tests {
         let gaming = Arc::new(Gaming {
             hub, devices: Box::new(LgDevices::default()),
             state: Mutex::new(State::new(dir.path().join("journal"), dir.path().join("records"), "boot".into())),
-            wake: reader.into(), session: Mutex::new(None),
+            wake: reader.into(), session: Mutex::new(None), display: display::Display::lg(),
+            overlay: overlay::Store::load(dir.path().join("overlay.json")),
         });
         let weak = Arc::downgrade(&gaming);
         let roster = Arc::downgrade(&shared);
