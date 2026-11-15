@@ -360,7 +360,7 @@ impl Boost {
         }
         if !self.proc.in_app_tree(pid) {
             return Err(Refusal::Refused(format!(
-                "the process is not part of {APP_ID}"
+                "the process is not part of {APP_ID} or {GAME_APP_ID}"
             )));
         }
         let Some(started) = self.proc.started(pid, tid) else {
@@ -970,6 +970,20 @@ mod tests {
         fs::remove_file(rig.dir.path().join("proc/300/status")).unwrap();
         assert!(rig.boost.proc.app_process(300).is_none());
         assert!(matches!(rig.boost.boost(300, 3001, now()), Err(Refusal::Refused(_))));
+    }
+
+    #[test]
+    fn lumagames_stream_reader_is_boosted_through_the_engines_loader() {
+        let rig = Rig::new();
+        let app = "/media/developer/apps/usr/palm/applications/org.nphil.lumagame";
+        rig.process(300, 1, 5228, &format!("{app}/main"), &["main"]);
+        rig.process(301, 300, 5228, &format!("{app}/engines/gfn/bin/lumagame-engine-gfn"), &["bin/lumagame-engine-gfn"]);
+        // build-ipk.sh's wrapper execs the bundled loader with the streamer's path as an argument
+        let loader = format!("{app}/gfx64/bundle/lib/ld-linux-aarch64.so.1");
+        let streamer = format!("{app}/engines/gfn/bin/opennow-streamer.bin");
+        rig.process(302, 301, 5228, &loader, &[&loader, "--library-path", "x", &streamer]);
+        rig.thread(302, 3021, "gfn-pad-event9", 12);
+        assert_eq!(rig.boost.boost(302, 3021, now()).unwrap()["priority"], 10);
     }
 
     #[test]
