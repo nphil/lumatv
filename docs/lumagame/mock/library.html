@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Library</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="lumagame.css">
+<script src="themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="icons.js"></script>
+<script src="kit.js"></script>
+<script>
+  const { games, engines, ic, esc, cover, nav } = Kit;
+  const all = Object.values(games).sort((a, b) => a.title.localeCompare(b.title, "en", { sensitivity: "base" }));
+  const count = (id) => all.filter((g) => g.target === id).length;
+  const chipBtn = (label, n, o = {}) =>
+    `<span class="chip-btn${o.selected ? " is-selected" : ""}${o.focused ? " is-focused" : ""}">${o.icon ? ic(o.icon) : ""}<span>${esc(label)}</span>${n != null ? `<span class="n">${n}</span>` : ""}${o.after ? ic(o.after) : ""}</span>`;
+
+  // Engine filters show how many games each way to play can reach; counts come from the data.
+  // Sort order lives behind the Menu key; the hint at the end of the bar names the current order.
+  const filters = [
+    chipBtn("All", all.length, { selected: true }),
+    ...Object.entries(engines).map(([id, e]) => chipBtn(e.name, count(id), { icon: e.icon })),
+    `<span class="rule"></span>`,
+    chipBtn("Genre", null, { after: "chevron-down" }),
+    chipBtn("Favourites", null, { icon: "heart" }),
+    `<span class="hint sort-hint">${ic("key-menu", "glyph")}<span>Sort</span></span>`,
+  ].join("");
+
+  const focus = 2;
+  const perRow = 6;
+  const rows = [];
+  for (let i = 0; i < 12; i += perRow) {
+    const slice = all.slice(i, i + perRow);
+    const has = focus >= i && focus < i + perRow;
+    rows.push(`<div class="grid-row${has ? " has-focus" : ""}">${slice.map((g, j) => cover(g.key, { focused: i + j === focus })).join("")}</div>`);
+  }
+
+  document.querySelector(".screen").innerHTML = nav("library") + `
+    <main class="lib">
+      <div class="filters">${filters}</div>
+      <div class="grid">${rows.join("")}</div>
+    </main>`;
+  Kit.ready();
+</script>
+</body>
+</html>

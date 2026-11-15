@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Launch states</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="lumagame.css">
+<script src="themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="icons.js"></script>
+<script src="kit.js"></script>
+<script src="hub.js"></script>
+<script>
+  // ?s=checking|queue|starting|failed|offline|empty
+  const { games, engines, ic, esc, hints, nav } = Kit;
+  const s = new URLSearchParams(location.search).get("s") || "queue";
+  const screen = document.querySelector(".screen");
+
+  // Launch curtain: the steps keep fixed words so the pills never shift as the launch advances.
+  function curtain(key, at, line, sub, progress) {
+    const g = games[key];
+    const names = ["Checking", "In queue", "Starting"];
+    const pills = names.map((n, i) => {
+      if (i < at) return `<span class="done">${ic("check")}<span>${n}</span></span>`;
+      if (i === at) return `<span class="now">${ic("loader-circle")}<span>${n}</span></span>`;
+      return `<span><span>${n}</span></span>`;
+    }).join("");
+    return `
+      <div class="stage curtain-stage"><img src="${g.hero}" alt=""></div>
+      <section class="curtain on-stage">
+        <img class="curtain-logo" data-trim src="${g.logo}" alt="${esc(g.title)}">
+        <div class="steps">${pills}</div>
+        <div class="curtain-line">${line}</div>
+        ${sub ? `<div class="curtain-sub">${esc(sub)}</div>` : ""}
+        ${progress != null ? `<div class="progress"><b style="width:${progress}%"></b></div>` : ""}
+      </section>
+      <div class="corner-hints on-stage">${hints([["key-back", "Cancel"]])}</div>`;
+  }
+
+  const way = (id, sub, go, goIc, focus) => {
+    const e = engines[id];
+    return `<div class="way${focus ? " is-focused" : ""}">
+      <span class="eng">${ic(e.icon)}</span>
+      <div class="way-name">${esc(e.name)}</div>
+      <div class="way-sub">${esc(sub)}</div>
+      <div class="way-go">${ic(goIc)}<span>${esc(go)}</span></div>
+    </div>`;
+  };
+
+  const screens = {
+    checking: () => curtain("cyberpunk", 0, `<h1 class="t-title">Checking GeForce NOW</h1>`, "nitin · Ultimate"),
+    queue: () => curtain("cyberpunk", 1, `<h1 class="t-display">4th in line</h1>`, "About 2 minutes · GeForce NOW"),
+    starting: () => curtain("cyberpunk", 2, `<h1 class="t-title">Starting Cyberpunk 2077</h1>`, "Frankfurt · 9 ms", 64),
+    failed: () => Hub.html("cyberpunk", {
+      focus: "primary",
+      notice: {
+        tone: "bad", icon: "circle-x",
+        title: "Couldn't start Cyberpunk 2077",
+        body: "GeForce NOW has no free rig right now. Try again, or choose another way to play.",
+        primary: { icon: "refresh-cw", label: "Try again" },
+      },
+    }),
+    offline: () => Hub.html("elden", {
+      target: "sunshine", focus: "primary",
+      notice: {
+        tone: "bad", icon: "wifi-off",
+        title: "BEAST-PC is offline",
+        body: "Turn it on, or choose another way to play.",
+        primary: { icon: "arrow-left-right", label: "Choose where to play" },
+        secondary: { icon: "refresh-cw", label: "Try again" },
+      },
+    }),
+    empty: () => nav("home") + `
+      <section class="first-run">
+        <h1 class="t-display">Add a way to play</h1>
+        <p class="t-body">Your games appear here once LumaGame can reach a service, a PC or this TV.</p>
+        <div class="ways">
+          ${way("gfn", "Stream from the cloud", "Sign in", "key-round", true)}
+          ${way("sunshine", "Stream from Sunshine or Apollo", "Pair", "link")}
+          ${way("punktfunk", "Stream with Punktfunk", "Set up", "plug")}
+          ${way("native", "Games installed on the TV", "Browse", "chevron-right")}
+        </div>
+      </section>`,
+  };
+  screen.innerHTML = (screens[s] || screens.queue)();
+  Kit.ready(Hub.settle);
+</script>
+</body>
+</html>

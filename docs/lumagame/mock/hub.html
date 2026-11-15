@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Hub</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="lumagame.css">
+<script src="themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="icons.js"></script>
+<script src="kit.js"></script>
+<script src="hub.js"></script>
+<script>
+  document.querySelector(".screen").innerHTML = Hub.html("hades2", { focus: "play" });
+  Kit.ready(Hub.settle);
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Integrations</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="lumagame.css">
+<script src="themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="icons.js"></script>
+<script src="kit.js"></script>
+<script src="settings.js"></script>
+<script>
+  document.querySelector(".screen").innerHTML = Settings.html("integrations", { focus: "sunshine" });
+  Kit.ready();
+</script>
+</body>
+</html>

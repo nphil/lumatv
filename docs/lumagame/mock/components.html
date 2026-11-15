@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Components</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="lumagame.css">
+<script src="themes.js"></script>
+<style>
+  /* Specimen layout only; every component inside uses the product classes unchanged. */
+  .board { position: absolute; inset: var(--lu-edge-y) var(--lu-edge-x); display: grid; column-gap: 48px; align-content: start; }
+  .board.controls { grid-template-columns: 560px 440px minmax(0, 1fr); }
+  .board.content { grid-template-columns: auto minmax(0, 1fr); column-gap: 32px; row-gap: 36px; }
+  .span { grid-column: 1 / -1; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+  .tiles { display: flex; gap: var(--lg-cover-gap); align-items: flex-start; }
+  .board .nav-group { display: inline-flex; }
+  .col { display: flex; flex-direction: column; gap: 36px; min-width: 0; }
+  .spec-label { margin: 0 0 16px; font: 600 var(--lu-type-label)/1.3 var(--lu-font); color: var(--lu-ink-2); }
+  .stack { display: flex; flex-direction: column; gap: 16px; align-items: flex-start; }
+  .wrap { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .rows { margin: 0 -28px; }
+  .covers { display: flex; gap: var(--lg-cover-gap); padding-bottom: calc(var(--lu-type-body) * 1.3 + var(--lu-type-caption) * 1.35 + 40px); }
+  .board .notice { margin-top: 0; }
+  .board .toast { position: static; display: inline-flex; }
+  .board .kbd-row { justify-content: flex-start; }
+</style>
+</head>
+<body>
+<div class="screen"></div>
+<script src="icons.js"></script>
+<script src="kit.js"></script>
+<script src="settings.js"></script>
+<script>
+  // ?board=controls (default) | content
+  const { ic, hints, chip, cover } = Kit;
+  const S = Settings;
+  const board = new URLSearchParams(location.search).get("board") || "controls";
+  const spec = (label, body) => `<section><h2 class="spec-label">${label}</h2>${body}</section>`;
+  const btn = (label, icon, cls = "", iconCls = "") =>
+    `<span class="btn${cls}">${ic(icon, iconCls)}${label ? `<span>${label}</span>` : ""}</span>`;
+
+  const controls = `
+    <main class="board controls">
+      <div class="col">
+        ${spec("Buttons", `<div class="stack">
+          <div class="actions">${btn("Play", "play", " primary", "fill")}${btn("Play", "play", " primary is-focused", "fill")}</div>
+          <div class="actions">${btn("Stream settings", "sliders-horizontal")}${btn("", "heart", " icon-only")}${btn("", "ellipsis", " icon-only is-focused")}</div>
+          <div class="actions">${btn("Stream settings", "sliders-horizontal", " is-focused")}${btn("End session", "power", " danger")}</div>
+        </div>`)}
+        ${spec("Tabs", `<div class="tabs"><span class="tab is-selected">Overview</span><span class="tab is-focused">Media</span></div>`)}
+        ${spec("Filter chips", `<div class="wrap"><span class="chip-btn is-selected">All <span class="n num">28</span></span><span class="chip-btn is-focused">${ic("cloud")}GeForce NOW <span class="n num">11</span></span></div>`)}
+        ${spec("Remote hints", hints([["key-ok", "Select"], ["key-back", "Close"], ["key-menu", "Sort"]]))}
+      </div>
+      <div class="col">
+        ${spec("Status", `<div class="wrap">${["ready", "asleep", "offline", "signin", "unknown", "installed", "install", "queue"].map((k) => chip(k)).join("")}</div>`)}
+        ${spec("Capabilities", `<div class="cap-row">${["4K HDR", "120 fps", "Cloud saves", "Controller"].map((c) => `<span class="cap">${ic("check")}<span>${c}</span></span>`).join("")}</div>`)}
+        ${spec("Keyboard", `<div class="kbd">
+          <div class="kbd-row"><span class="key">q</span><span class="key">w</span><span class="key is-focused">e</span><span class="key">r</span><span class="key">t</span></div>
+          <div class="kbd-row"><span class="key wide">${ic("arrow-left")}</span><span class="key wide go">${ic("search")}</span></div>
+        </div>`)}
+      </div>
+      <div class="col">
+        ${spec("Settings rows", `<div class="rows">
+          ${S.row("Mode", S.seg(["Dark", "Light"], "Dark"))}
+          ${S.row("Reduce motion", S.toggle(false), { sub: "No lift, zoom or fades" })}
+          ${S.row("HDR", S.toggle(true))}
+          ${S.row("Bitrate", S.slider(80, 150, "Mb/s"))}
+          ${S.row("Resolution", S.stepper("4K"), { focus: true })}
+          ${S.row("Gaming PC", S.value("On", true), { icon: "monitor", sub: "BEAST-PC ready" })}
+        </div>`)}
+        ${spec("Navigation", `<div class="nav-group">
+          <span class="nav-item is-current">${ic("house")}<span>Home</span></span>
+          <span class="nav-item is-focused">${ic("library-big")}<span>Library</span></span>
+          <span class="nav-item">${ic("search")}<span>Search</span></span>
+        </div>`)}
+      </div>
+    </main>`;
+
+  const content = `
+    <main class="board content">
+      ${spec("Covers", `<div class="covers">${cover("hades2")}${cover("elden", { focused: true })}${cover("celesteclassic")}</div>`)}
+      <div class="col">
+        ${spec("Tiles", `<div class="tiles">
+          <div class="coll"><div class="tile collection"><img src="${Kit.games.ittakestwo.hero}" alt=""></div><span class="land"></span><div class="coll-label"><div class="tile-name">Couch co-op</div><div class="tile-count">6 games</div></div></div>
+          <div class="tile genre is-focused"><div class="tile-name">Roguelikes</div><div class="tile-count">5 games</div><div class="strip">${["hades2", "balatro"].map((k) => `<img src="${Kit.games[k].cover}" alt="">`).join("")}</div></div>
+        </div>`)}
+        ${spec("Toast", `<div class="toast">${ic("circle-check")}<span>Added to Favourites</span></div>`)}
+      </div>
+      <div class="span">${spec("Notices", `<div class="pair">
+        <div class="notice bad">${ic("circle-x")}<div><div class="notice-title">Couldn't start Cyberpunk 2077</div><div class="notice-body">GeForce NOW has no free rig right now. Try again, or choose another way to play.</div></div></div>
+        <div class="notice warn">${ic("key-round")}<div><div class="notice-title">GeForce NOW sign-in expired</div><div class="notice-body">Sign in again to play from the cloud.</div></div></div>
+      </div>`)}</div>
+    </main>`;
+
+  document.querySelector(".screen").innerHTML = board === "content" ? content : controls;
+  Kit.ready();
+</script>
+</body>
+</html>

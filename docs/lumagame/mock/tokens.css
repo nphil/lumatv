@@ -1,0 +1,160 @@
+/* LumaGame token layer. Lucent v2 names (languages/lucent/tokens.css) with the TV profile
+ * resolved at the 1920x1080 reference, so a Rust port is a rename. Palette roles (--pal-*)
+ * come from themes.js; everything below reads them through --lu-* and never names a colour.
+ * LumaGame additions are --lg-*. */
+
+@font-face {
+  font-family: "Manrope";
+  src: url("../../mocks/fonts/Manrope-Variable.ttf") format("truetype-variations"),
+       url("../../mocks/fonts/Manrope-Variable.ttf") format("truetype");
+  font-weight: 200 800;
+  font-display: block;
+}
+
+:root {
+  /* Lucent roles, read from the active palette */
+  --lu-canvas: var(--pal-canvas);
+  --lu-sheet: var(--pal-sheet);
+  --lu-scrim: var(--pal-scrim);
+  --lu-glass: var(--pal-glass);
+  --lu-glass-raised: var(--pal-glass-raised);
+  --lu-edge: var(--pal-edge);
+  --lu-edge-raised: var(--pal-edge-raised);
+  --lu-ink: var(--pal-ink);
+  --lu-ink-2: var(--pal-ink-2);
+  --lu-ink-3: var(--pal-ink-3);
+  --lu-focus: var(--pal-focus);
+  --lu-focus-ink: var(--pal-focus-ink);
+  --lu-track-off: var(--pal-track-off);
+  --lu-track-readable: color-mix(in srgb, var(--lu-ink) 60%, transparent);
+  --lu-accent: var(--pal-accent);
+  --lu-accent-ink: var(--pal-accent-ink);
+  --lu-positive: var(--pal-positive);
+  --lu-warning: var(--pal-warning);
+  --lu-danger: var(--pal-danger);
+  --lu-info: var(--pal-info);
+  --lu-live: var(--pal-live);
+
+  /* Lucent structure, TV profile */
+  --lu-font: Manrope, system-ui, sans-serif;
+  --lu-space-1: 4px;
+  --lu-space-2: 8px;
+  --lu-space-3: 12px;
+  --lu-space-4: 16px;
+  --lu-space-5: 20px;
+  --lu-space-6: 24px;
+  --lu-space-7: 32px;
+  --lu-space-8: 40px;
+  --lu-radius-sheet: 36.4px;
+  --lu-radius-card: 31.2px;
+  --lu-radius-tile: 26px;
+  --lu-radius-row: 23.4px;
+  --lu-radius-control: 18.2px;
+  --lu-radius-pill: 999px;
+  --lu-target: 64px;
+  --lu-row: 80px;
+  --lu-edge-x: 96px;
+  --lu-edge-y: 54px;
+  --lu-gutter: 24px;
+  --lu-focus-indicator: 2px;
+  --lu-focus-indicator-inset: 12px;
+  --lu-focus-scroll-clearance: 12px;
+  --lu-material-edge-width: 1px;
+  --lu-material-overlay-minimum-opacity: .96;
+  --lu-material-sheet-minimum-opacity: .88;
+  --lu-scrim-hides-min: .97;
+  --lu-motion-focus: 150ms;
+  --lu-motion-card: 180ms;
+  --lu-motion-exit: 120ms;
+  --lu-ease: cubic-bezier(.33, 1, .68, 1);
+  --lu-ease-exit: cubic-bezier(.4, 0, 1, 1);
+
+  /* Type: Manrope 92/40/28/26/24, weights 400/500/600 only. --lg-text-scale is the
+     user's text size (1 = 100%, 2 = 200%); card and hero sizes do not follow it. */
+  --lg-text-scale: 1;
+  --lu-type-display: calc(92px * var(--lg-text-scale));
+  --lu-type-title: calc(40px * var(--lg-text-scale));
+  --lu-type-body: calc(28px * var(--lg-text-scale));
+  --lu-type-label: calc(26px * var(--lg-text-scale));
+  --lu-type-caption: calc(24px * var(--lg-text-scale));
+  --lg-glyph: calc(37px * var(--lg-text-scale));  /* remote-key hint glyph: 1.45x the 26 px label */
+  --lg-icon: calc(32px * var(--lg-text-scale));
+
+  /* LumaGame layout */
+  --lg-nav-h: 76px;                 /* 64 px items + 6 px group padding */
+  --lg-cover-w: 280px;              /* Standard; Compact 224, Large 336; always 2:3 */
+  --lg-cover-gap: 24px;
+  --lg-hero-h: 360px;               /* Standard; Compact 240, Cinematic 480; measured from the top safe edge */
+  --lg-logo-h: 120px;               /* hero logo box per hero size: 72 / 120 / 176 */
+  --lg-hub-art-h: 720px;
+
+  /* Focus: lift, grow, land. One active shadow, neutral like every Lucent shadow, no outline or glow. */
+  --lg-focus-scale: 1.03;
+  --lg-focus-lift: -4px;
+  --lg-focus-wash: color-mix(in srgb, var(--lu-ink) 9%, transparent);
+  --lg-focus-shadow: 0 22px 44px rgba(0,0,0,.50);
+
+  /* Art stage: game art is shown on a dark stage in every theme (art and logos are authored
+     for dark), using the family's dark canvas and ink. Scrims are neutral so art keeps its hue. */
+  --lg-stage: var(--pal-stage);
+  --lg-stage-ink: var(--pal-stage-ink);
+  --lg-stage-ink-2: var(--pal-stage-ink-2);
+  --lg-primary: var(--pal-primary);
+  --lg-primary-ink: var(--lu-accent-ink);
+}
+
+/* Content on the stage resolves every role to the family's dark variant, in light themes too,
+   so controls over art keep the contrast they were checked at. */
+.on-stage {
+  --lu-canvas: var(--pal-stage-canvas);
+  --lu-sheet: var(--pal-stage-sheet);
+  --lu-ink: var(--pal-stage-ink);
+  --lu-ink-2: var(--pal-stage-ink-2);
+  --lu-ink-3: var(--pal-stage-ink-3);
+  --lu-glass: var(--pal-stage-glass);
+  --lu-glass-raised: var(--pal-stage-glass-raised);
+  --lu-edge: var(--pal-stage-edge);
+  --lu-edge-raised: var(--pal-stage-edge-raised);
+  --lu-track-off: var(--pal-stage-track-off);
+  --lu-track-readable: color-mix(in srgb, var(--pal-stage-ink) 60%, transparent);
+  --lu-accent: var(--pal-stage-accent);
+  --lu-accent-ink: var(--pal-stage-accent-ink);
+  --lu-positive: var(--pal-stage-positive);
+  --lu-warning: var(--pal-stage-warning);
+  --lu-danger: var(--pal-stage-danger);
+  --lu-info: var(--pal-stage-info);
+  --lg-primary: var(--pal-stage-primary);
+  --lg-primary-ink: var(--pal-stage-accent-ink);
+  --lu-highlight-rest: inset 0 1px 0 rgba(255,255,255,.07);
+  --lu-highlight-raised: inset 0 1px 0 rgba(255,255,255,.22), inset 0 -1px 0 rgba(0,0,0,.22);
+  --lg-focus-wash: color-mix(in srgb, var(--lu-ink) 9%, transparent);
+  color: var(--lu-ink);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --lu-shadow-rest: 0 24px 60px rgba(0,0,0,.28);
+  --lg-nav-fill: var(--lu-glass-raised);
+  --lu-shadow-raised: 0 34px 80px rgba(0,0,0,.55), 0 10px 24px rgba(0,0,0,.30);
+  --lu-highlight-rest: inset 0 1px 0 rgba(255,255,255,.07);
+  --lu-highlight-raised: inset 0 1px 0 rgba(255,255,255,.22), inset 0 -1px 0 rgba(0,0,0,.22);
+  --lg-cover-rest: 0 14px 30px rgba(0,0,0,.34);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --lu-shadow-rest: 0 24px 60px rgba(0,0,0,.18);
+  --lu-shadow-raised: 0 34px 80px rgba(0,0,0,.28), 0 10px 24px rgba(0,0,0,.14);
+  --lg-nav-fill: var(--lu-sheet);  /* light glass over dark art misses 7:1; the sheet floor holds it */
+  --lu-highlight-rest: inset 0 1px 0 rgba(255,255,255,.60);
+  --lu-highlight-raised: inset 0 1px 0 rgba(255,255,255,.90), inset 0 -1px 0 rgba(0,0,0,.10);
+  --lg-cover-rest: 0 12px 26px rgba(0,0,0,.16);
+  --lg-focus-wash: color-mix(in srgb, var(--lu-ink) 7%, transparent);
+  --lg-focus-shadow: 0 22px 44px rgba(0,0,0,.22);
+}
+
+[data-density="compact"]   { --lg-cover-w: 224px; --lg-hero-h: 240px; --lg-logo-h: 72px; }
+[data-density="cinematic"] { --lg-cover-w: 336px; --lg-hero-h: 480px; --lg-logo-h: 176px; }
+
+/* Reduced motion keeps colour and the landing light, drops lift, growth and dissolves. */
+[data-motion="reduced"] { --lg-focus-scale: 1; --lg-focus-lift: 0px; }

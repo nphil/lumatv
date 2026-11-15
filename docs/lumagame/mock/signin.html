@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Sign in</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="lumagame.css">
+<script src="themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="icons.js"></script>
+<script src="kit.js"></script>
+<script src="settings.js"></script>
+<script>
+  const { ic, hints } = Kit;
+  document.querySelector(".screen").innerHTML = Settings.html("integrations") + `
+    <div class="scrim"></div>
+    <div class="sheet-wrap"><section class="sheet dialog">
+      <div class="sheet-head"><h2 class="t-title">Sign in to GeForce NOW</h2></div>
+      <div class="signin">
+        <div class="qr"><img src="qr-signin.svg" alt="QR code for nvidia.com/activate"></div>
+        <div>
+          <p class="t-body sheet-text">Scan the code with a phone, or open the address on a phone and enter the code.</p>
+          <div class="addr">nvidia.com/activate</div>
+          <div class="code num">ABCD-EFGH</div>
+          <div class="waiting"><span>${ic("loader-circle")}Waiting for sign-in</span><span>${ic("timer")}Code expires in 9:41</span></div>
+        </div>
+      </div>
+      <div class="sheet-foot">${hints([["key-back", "Cancel"]])}</div>
+    </section></div>`;
+  Kit.ready();
+</script>
+</body>
+</html>

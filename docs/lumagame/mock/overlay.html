@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · In-game menu</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="lumagame.css">
+<script src="themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="icons.js"></script>
+<script src="kit.js"></script>
+<script>
+  // ?confirm=end shows the end-session confirm, which opens on the safe choice.
+  const { games, ic, esc, hints } = Kit;
+  const g = games.cyberpunk;
+  const confirm = new URLSearchParams(location.search).get("confirm") === "end";
+  const sep = `<i class="sep"></i>`;
+  const menu = `
+    <div class="stage curtain-stage"><img src="${g.hero}" alt=""></div>
+    <section class="curtain on-stage">
+      <img class="curtain-logo" data-trim src="${g.logo}" alt="${esc(g.title)}">
+      <div class="session">Playing on GeForce NOW · 1 h 12 min</div>
+      <div class="stats num"><b>4K</b>${sep}<b>120 fps</b>${sep}<b>HDR10</b>${sep}<b>80 Mb/s</b>${sep}<span><b>9 ms</b> delay</span></div>
+      <div class="actions">
+        <span class="btn primary${confirm ? "" : " is-focused"}">${ic("play", "fill")}<span>Resume</span></span>
+        <span class="btn">${ic("sliders-horizontal")}<span>Stream settings</span></span>
+        <span class="btn danger">${ic("power")}<span>End session</span></span>
+      </div>
+    </section>`;
+  const cornerHints = `<div class="corner-hints on-stage">${hints([["key-back", "Resume"]])}</div>`;
+  const dialog = `
+    <div class="scrim hides"></div>
+    <div class="sheet-wrap"><section class="sheet dialog mid">
+      <div class="sheet-head"><h2 class="t-title">End session?</h2></div>
+      <p class="t-body sheet-text">Cyberpunk 2077 closes on GeForce NOW. Progress since the last save may be lost.</p>
+      <div class="sheet-foot">${hints([["key-back", "Keep playing"]])}
+        <div class="actions">
+          <span class="btn primary is-focused">${ic("play", "fill")}<span>Keep playing</span></span>
+          <span class="btn danger">${ic("power")}<span>End session</span></span>
+        </div>
+      </div>
+    </section></div>`;
+  document.querySelector(".screen").innerHTML = menu + (confirm ? dialog : cornerHints);
+  Kit.ready();
+</script>
+</body>
+</html>

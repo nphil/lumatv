@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Pair a PC</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="lumagame.css">
+<script src="themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="icons.js"></script>
+<script src="kit.js"></script>
+<script src="settings.js"></script>
+<script>
+  const { ic, hints } = Kit;
+  document.querySelector(".screen").innerHTML = Settings.html("integrations") + `
+    <div class="scrim"></div>
+    <div class="sheet-wrap"><section class="sheet dialog narrow">
+      <div class="sheet-head"><h2 class="t-title">Pair with BEAST-PC</h2></div>
+      <p class="t-body sheet-text">In Sunshine on BEAST-PC, open PIN and enter this code.</p>
+      <div class="pin num" aria-label="PIN 4817"><span>4</span><span>8</span><span>1</span><span>7</span></div>
+      <div class="waiting"><span>${ic("loader-circle")}Waiting for BEAST-PC</span></div>
+      <div class="sheet-foot">${hints([["key-back", "Cancel"]])}</div>
+    </section></div>`;
+  Kit.ready();
+</script>
+</body>
+</html>

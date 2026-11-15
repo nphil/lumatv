@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- LumaGame, option B: a D-pad built from two crossing glass panes. -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#191724"/>
+      <stop offset="100%" stop-color="#1f1d2e"/>
+    </linearGradient>
+    <linearGradient id="paneIris" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c4a7e7" stop-opacity="0.92"/>
+      <stop offset="100%" stop-color="#c4a7e7" stop-opacity="0.35"/>
+    </linearGradient>
+    <linearGradient id="paneFoam" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#9ccfd8" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#9ccfd8" stop-opacity="0.28"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e0def4" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#e0def4" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="200" height="200" rx="44" fill="url(#bg)"/>
+  <rect x="4" y="4" width="192" height="192" rx="40" fill="none" stroke="#26233a" stroke-width="2"/>
+
+  <rect x="40" y="76" width="120" height="48" rx="16" fill="url(#paneFoam)"/>
+  <rect x="76" y="40" width="48" height="120" rx="16" fill="url(#paneIris)"/>
+  <path d="M80 46 L120 44 L112 62 L80 66 Z" fill="url(#sheen)"/>
+  <rect x="76" y="40" width="48" height="120" rx="16" fill="none" stroke="#e0def4" stroke-opacity="0.45" stroke-width="2"/>
+  <circle cx="100" cy="100" r="9" fill="#191724" fill-opacity="0.45"/>
+</svg>
