@@ -1,0 +1,3 @@
+#!/bin/sh
+# Host linker: the workstation has no cc, so host builds (tests, proc macros, build scripts) link with zig's clang.
+exec zig cc "$@"
