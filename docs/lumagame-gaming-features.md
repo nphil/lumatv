@@ -167,12 +167,12 @@ recordings, in the repo; temporary captures belong in session scratch.
 | Feature | Status | Implementable |
 |---------|--------|---------------|
 | 4K120 HDR 4:2:0 | measured clip throughput and display counters | Working test workload; physical gaming latency unmeasured |
-| Additional low-latency controls | inferred | V4L2 + resource_mgr ioctl unqualified; NDL already selects game/low-delay mode |
+| Additional low-latency controls | measured round trip (MEMC, Motion Pro); VPQ set refused; DE node absent | MEMC low delay and Motion Pro only; NDL already selects game/low-delay mode |
 | 4K144 HDR 4:2:0 | proven offline (DE selector only) | Blocked — VO presentation policy not yet traced |
-| VRR (4K120) | inferred | Blocked — VRR register readback unqualified |
+| VRR (4K120) | readback measured: tracking off at idle and at NDL 4K120 | Blocked — no ForceVRR lifecycle |
 | Cloud G-SYNC | untested | Blocked — depends on VRR |
-| HEVC 4:4:4 | hardware support unresolved | No working decoded path established; hardware limitation strongly indicated, not conclusive |
-| BFI / OLED Motion Pro | inferred | Implementable, untested — V4L2 control; inferred exclusive with VRR |
+| HEVC 4:4:4 | measured: decoder shows no picture; hardware support unresolved | No working decoded path; no HW Config dump reachable |
+| BFI / OLED Motion Pro | measured getter round trip at the off value only | Implementable, untested as a visible change; inferred exclusive with VRR |
 
 ---
 
@@ -205,7 +205,7 @@ VDEC images are blocked until the signed-load path is solved.
 
 ---
 
-## 1. ALLM / low latency (implementable, untested)
+## 1. ALLM / low latency (partly measured)
 
 ### What it does
 
@@ -217,8 +217,9 @@ processing latency.
 
 **Device discovery:**
 - VPQ V4L2 device: enumerate `/dev/videoN`, match platform device
-  `v4l2_vpq` via sysfs.
-- resource_mgr: char device registered by `resource_mgr_probe`.
+  `v4l2_vpq` via sysfs. On the TV this is `/dev/video50` (81:11).
+- DE: no `resource_mgr` character device is registered on the TV. The DE
+  ioctls (`resource_mgr_ioctl`) are served by `/dev/lg/de0` (1105:0).
 
 **On session start — read, set, verify:**
 
@@ -270,14 +271,36 @@ surviving rollback owner; that lifecycle remains unqualified until tested.
 kernel global at `0xffffffc012548afc`. Confirm that the getter reads live
 hardware state, not that cache.
 
+The DE firmware getter `DE_IOR_GET_LOW_DELAY` (`0x8008613d`) through
+`/dev/lg/de0` is answered by an MCU IPC that timed out on the TV
+(`DE_KIPC_GetData ... mcu[0] receive fail`, firmware status dump, about
+512 ms stall). It is not a usable readback.
+
+The LG kernel source confirms the cache problem for every getter involved
+(`kdriver/core/pe/v4l2_vpq_be.c`, `v4l2_vpq_pe.c`, `core/de/de_kwrap.c`,
+`de_proc.c`):
+- MEMC low delay and Motion Pro `G_CTRL` return driver globals assigned
+  before the hardware call's error check, so a failed hardware call still
+  reads back as the requested value.
+- VPQ low delay calls `de_kwrap_setlowdelaymode`, which sets the cache that
+  `/proc/lg/de/win0/status` `lowdelaymode` prints.
+- `DE_IOW_SET_LOW_DELAY` (`0x4004613c`) from userspace goes to
+  `DE_IO_SetLowDelay` and does not update that cache, so the `/proc`
+  readback cannot reflect the helper's own DE ioctl.
+
+During NDL 4K120 playback the caches already disagree: VPQ low delay
+`G_CTRL` reads 0 while `lowdelaymode` reads 1 (NDL sets low delay through
+the DE path, not the VPQ control). Restoring VPQ low delay to its "original"
+0 during playback would therefore switch DE low delay off.
+
 ### Qualification (must pass before shipping)
 
-None of the V4L2 control IDs, ioctl numbers or device paths have been
-verified on the TV. All are from offline disassembly. LumaGame must run a
-qualification step in a fresh leased TV window before treating them as
-working:
+The control IDs and ioctl numbers come from offline disassembly; the TV
+results below cover only the getter/setter round trip. LumaGame must run a
+qualification step in a fresh leased TV window before treating any of them
+as working:
 
-1. Discover the VPQ V4L2 device and resource_mgr char device
+1. Discover the VPQ V4L2 device and the DE character device
 2. Read current values of both MEMC controls (`VIDIOC_G_CTRL`) and DE
    low-delay state — confirm they return without error
 3. Write the low-latency values — confirm the set calls succeed
@@ -290,6 +313,36 @@ working:
 
 If any step fails, record the error and stop — the control ID or device
 path may differ from the disassembly.
+
+### TV results (2026-11-15, helper `43e74d46`)
+
+Qualified with `POST /v1/gaming/qualify` (no receipts, so nothing became
+`qualified`) during an NDL 4K120 HDR playback (picture scope
+`hdrGame`/`hdrALLM`):
+
+| Control | Original | Set | Readback | Restored | Result |
+|---------|----------|-----|----------|----------|--------|
+| `memc_low_delay` `0x00983A01` | 0 | 1 | 1 | 0 | sequence passed; no driver error logged |
+| `vpq_low_delay` `0x00983D09` | 0 | 1 | — | — | `S_CTRL` EINVAL for both set and restore |
+| `motion_pro` `0x00983A03` | 0 | 0 | 0 | 0 | sequence passed; value never changed |
+| `de_low_delay` (ioctl) | — | — | — | — | discovery failed: `resource_mgr` not registered |
+
+A separate `G_CTRL` reader saw 0/0/0 before and after each step; the MEMC
+readback of 1 comes from the driver global, so it does not prove the FRC
+state changed. Turning the plugin off left 0/0/0 with no journal. Picture
+settings in the playback scope were identical before and after; the idle
+`filmMaker`/`sdr` scope's `backlight` moved 68 → 75 (Energy Saving is
+`auto`; no control in this run writes it).
+
+Helper bug: the failed `vpq_low_delay` set left a rollback journal entry
+whose replay fails the same way, so it blocks further qualification and every
+lease until reboot (Active Standby keeps `/run`). An orderly helper stop
+rewrites the journal from memory. A set that fails without changing the value
+must not leave an unreplayable entry.
+
+Receipts: `/data/home/tmp/lumagame-display-20261115/` (`qualify-results.json`,
+`gaming-status-*.json`, `ld-*.txt`, `q-*-dmesg.txt`, `picture-*.json`,
+`rollback.json.stale-copy`).
 
 ---
 
@@ -396,24 +449,26 @@ exclusive.
 
 4K120 is what GFN delivers today. ForceVRR at 120 fps has no rate conflict.
 
-### VRR register readback (proven offline)
+### VRR register readback (measured)
 
-`DE_REG_O22_RD` (`0xffffffc010968000`) has **no address whitelist** for
-`0xCCxxxxxx` addresses. It uses `__ioremap` for any address with 0xCC top
-byte. Small addresses (≤0xFFFF) are auto-prefixed with 0xCC000000.
+`DE_REG_O22_RD` has no address whitelist for `0xCCxxxxxx` addresses. On the
+TV it is reached with ioctl `DE_IOR_REG_RD` (`0x80046164`) on `/dev/lg/de0`
+(`resource_mgr_ioctl` → `DE_IO_RegRd` → `DE_HAL_ReadReg` →
+`DE_REG_O22_RD`). `DE_IO_RegRd` treats the register value as an error code:
+a nonzero register fails with EIO and logs
+`DE_IO_RegRd 1197: Wrong ret(0x<value>)` under the caller's pid, which is
+where the value is read from; a zero register returns normally.
 
-All three VRR tracking registers are accepted:
-```
-(DE_REG_O22_RD(0xCC460B50) >> 31) & 1  → tracking bit
-DE_REG_O22_RD(0xCC400800) & 1          → ready bit
-(DE_REG_O22_RD(0xCC8C00A0) >> 6) & 1   → internal source bit
-```
+| Register | Idle (Home) | NDL 4K120 HDR playback |
+|----------|-------------|------------------------|
+| `CC460B50` (bit31 tracking) | `0x0004C000` → 0 | `0x0004C000` → 0 |
+| `CC400800` (bit0 ready) | `0x00000000` → 0 | `0x00000000` → 0 |
+| `CC8C00A0` (bit6 internal source) | `0x00000020` → 0 | `0x00000020` → 0 |
 
-This provides host-side VRR state verification without the MCU print
-channel. The reads are non-destructive hardware register accesses via
-`__ioremap`. This must still be verified on the TV (the register may
-return zero if the display engine clock is gated or the register is
-write-only), but the access path is proven.
+The registers are live (nonzero values, not clock-gated) and VRR tracking is
+off for decoded 4K120 by default (`win0` vFreq 1200, lowdelaymode 1). Receipts:
+`regs-idle-{1,2,3,after}.txt`, `regs-play120-{1,2,3}.txt`,
+`c420-win0-fr_rate.txt` in `/data/home/tmp/lumagame-display-20261115/`.
 
 The ForceVRR debug word is RAM-only — does not persist across standby/reboot.
 Force=0 re-derives ready from upstream state. Restoration target is the BSS
@@ -434,7 +489,8 @@ ignored by the TV runtime. Real implementation needs:
 
 ### Open prerequisites
 
-1. Verify CC460B50/CC400800/CC8C00A0 readback via `DE_REG_O22_RD`
+1. ~~Verify CC460B50/CC400800/CC8C00A0 readback via `DE_REG_O22_RD`~~ —
+   measured 2026-11-15 (above)
 2. Establish MCU print route for VRR query/response
 3. Qualify panel safe blanking bounds
 4. Build VRR lifecycle with save/verify/restore in trusted helper
@@ -443,7 +499,8 @@ ignored by the TV runtime. Real implementation needs:
 
 ## 4. HEVC 4:4:4
 
-Strongly indicated hardware limitation, not proven by a live HW Config dump.
+Decoded 4:4:4 never produces a picture on the TV; whether the HEVC cores lack
+4:4:4 or the firmware gates it remains unresolved.
 
 Five independent evidence chains (all inferred from firmware analysis):
 1. HEVC engine descriptor has no chroma_format_idc field
@@ -463,9 +520,16 @@ The display pipeline supports 4:4:4 for HDMI input
 content; the investigated decoded paths reject it. That does not by itself
 establish which restriction is firmware policy versus decoder hardware.
 
-**One cheap live check:** the Hantro HW Config register dump is printed at
-core reservation time. Look for it in existing `dmesg` or log captures before
-requesting a TV window.
+**Live check (2026-11-15):** the 4K120 Main 4:4:4 10 HDR clip through the
+feeder's NDL path reported `playing:1`, 1201 units fed, 0 dropped, and the
+VDEC opened in HEVC low-delay HFR mode, but no picture followed: no
+`display_picture`, VO initialisation or `vdisp` monitor lines (the 4:2:0
+control clip logs all three), a black screen, and on close
+`VCoreDrvClose 174: invalid handle` / `DecHEVCClose 532: vcore close failed`,
+meaning no decode core was ever opened for the stream. No Hantro or
+VC8000 HW Config dump appears in `dmesg` in either run, so it is not
+reachable this way. Receipts: `e444-*` and `c420-*` in
+`/data/home/tmp/lumagame-display-20261115/`.
 
 **Practical baseline:** 10-bit 4:2:0 HDR with bitrate control. The 80 Mb/s
 clip receipt above establishes one workload; higher bitrates need separate
@@ -480,6 +544,11 @@ V4L2 control `0x00983A03` (`V4L2_CID_EXT_MEMC_MOTION_PRO`). Inferred to
 be mutually exclusive with VRR — no software exclusion was found in code,
 but VRR varies the refresh interval, which prevents fixed-cadence black
 frame insertion. Offer only when VRR is disabled.
+
+On the TV (2026-11-15) Motion Pro read 0 during NDL 4K120 game-mode
+playback; the qualify round trip (0 → 0 → 0) passed but never changed the
+value, and the getter returns a driver global (section 1), so a visible
+effect is untested.
 
 **Open question:** `BE_TOP_HAL_SetTPCParam` and the
 `V4L2_CID_EXT_VBE_TPC_RECOVERY_PARAM/STATUS` controls may be panel
@@ -540,12 +609,13 @@ Accessed through `te_debug_param_*` / VDEC IPC, not sysfs.
 1. VO frame selection at 144 fps — trace `vdisp_set_frame_rate` /
    `vpts_match` first (section 2); DE output timing acceptance through
    `DE_IO_SetFrRate` / `DE_REG_O22_SetFrRate` is a separate open prerequisite
-2. VRR tracking register readback — access path proven (no whitelist), but
-   register contents not verified on TV (may be zero if clock-gated)
+2. ~~VRR tracking register readback~~ — measured 2026-11-15: live values,
+   tracking off at idle and at 4K120 (section 3)
 3. Panel safe VRR blanking bounds — VRRULIMIT/VRRLLIMIT values unknown
 4. Physical panel scan measurement at any non-120 rate — not independently
    observed
 5. Signed firmware load path — blocks any binary patch approach
 6. `te_debug_param` write path from userspace — not confirmed
-7. Hantro HW Config dump for conclusive 4:4:4 verdict — not captured
+7. Conclusive 4:4:4 verdict — no HW Config dump in `dmesg`; decoded 4:4:4
+   opens no decode core (section 4)
 8. C4 platform model ID — must match DE_IO_SetHighFrameRate gate (IDs 9–10)
