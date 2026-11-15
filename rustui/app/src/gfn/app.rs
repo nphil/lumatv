@@ -670,6 +670,8 @@ impl App {
         let mut out = vec![Action::SavePrefs(self.prefs)];
         let settings = self.prefs.settings();
         for key in row.keys() {
+            // two rows name the codec: a key still waiting goes once, with its latest value, after the keys queued with it
+            self.settings_queue.retain(|(k, _)| k != key);
             self.settings_queue.push_back(((*key).to_owned(), settings[*key].clone()));
         }
         if !self.has_pending("settings.set") {

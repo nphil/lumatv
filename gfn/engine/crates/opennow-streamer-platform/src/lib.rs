@@ -3,8 +3,8 @@
 //! units to lumatv-gfn-feeder instead of decoding them, and controllers from evdev instead of SDL.
 //!
 //! What the TV path cannot offer and says so: recording and replay (the frames never pass through this process), the microphone,
-//! pointer lock, screenshots. What it reports to the core's capability resolver: H.265 8/10-bit 4:2:0 with HDR10, H.264 8-bit; AV1 is
-//! listed as unavailable because the set caps it at 4K60 and decodes it slower than HEVC (docs/research/opennow-result.md).
+//! pointer lock, screenshots. What it reports to the core's capability resolver: H.265 and AV1 8/10-bit 4:2:0 with HDR10, H.264 8-bit.
+//! The set caps AV1 at 60 a second and decodes it slower than HEVC (docs/research/opennow-result.md): the app asks for it only at 4K 60.
 mod feeder;
 mod microphone;
 mod pads;
@@ -59,12 +59,12 @@ pub fn video_backends() -> Vec<VideoBackendCapability> {
             },
             CodecCapability {
                 codec: "av1",
-                available: false,
-                color_qualities: Some(vec![]),
-                hdr_color_qualities: Some(vec![]),
-                hdr_supported: Some(false),
+                available: true,
+                color_qualities: Some(vec!["8bit_420", "10bit_420"]),
+                hdr_color_qualities: Some(vec!["10bit_420"]),
+                hdr_supported: Some(true),
                 max_decode_dimensions: Some(DecodeDimensions { width: 3840, height: 2160 }),
-                reason: Some("the set caps AV1 at 4K60 and decodes it slower than HEVC; HEVC carries every mode"),
+                reason: None,
             },
         ],
         zero_copy_modes: vec!["video-plane"],
@@ -78,7 +78,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_capability_report_names_hevc_hdr_and_refuses_av1() {
+    fn the_capability_report_names_hevc_and_av1_with_hdr10() {
         let b = video_backends();
         assert_eq!(b.len(), 1);
         let v = serde_json::to_value(&b[0]).unwrap();
@@ -89,6 +89,9 @@ mod tests {
         assert_eq!(h265["hdrColorQualities"], serde_json::json!(["10bit_420"]));
         assert_eq!(h265["hdrSupported"], true);
         assert_eq!(h265["maxDecodeDimensions"]["width"], 4096);
-        assert_eq!(v["codecs"][2]["available"], false);
+        let av1 = &v["codecs"][2];
+        assert_eq!((av1["codec"].as_str(), av1["available"].as_bool()), (Some("av1"), Some(true)));
+        assert_eq!(av1["colorQualities"], serde_json::json!(["8bit_420", "10bit_420"]));
+        assert_eq!(av1["hdrColorQualities"], serde_json::json!(["10bit_420"]));
     }
 }

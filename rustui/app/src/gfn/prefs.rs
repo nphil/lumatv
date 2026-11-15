@@ -1,11 +1,12 @@
-//! What the settings screen changes: the stream's resolution and rate as one of four tiers, HDR, the bitrate cap, the controller's
-//! dead zone and whether the status line stays on. The app keeps them in its own small file (`prefs.json` in its data directory) and
-//! sends them to the core with `settings.set` at every start, so a value the viewer chose survives a restart whatever state the core's
-//! own settings file is in; the core's names and ranges (`native/opennow-core/src/settings.rs`) are the only ones used.
+//! What the settings screen changes: the stream's resolution, rate and codec as one of five tiers, HDR, the bitrate cap, the
+//! controller's dead zone and whether the status line stays on. The app keeps them in its own small file (`prefs.json` in its data
+//! directory) and sends them to the core with `settings.set` at every start, so a value the viewer chose survives a restart whatever
+//! state the core's own settings file is in; the core's names and ranges (`native/opennow-core/src/settings.rs`) are the only ones used.
 //!
-//! The ladders are short on purpose: a remote steps through them with Left and Right, and every rung is one that the TV path was
+//! The ladders are short on purpose: a remote steps through them with Left and Right, and every HEVC rung is one that the TV path was
 //! measured at (`docs/research/gfn-444-vrr-result.md`: 4K120 HEVC Main10 4:2:0 at a fixed 120 Hz is the ceiling; the 80 Mbit/s 4K120 clip is
-//! the gate; 100 Mbit/s is the feeder's top test clip).
+//! the gate; 100 Mbit/s is the feeder's top test clip). AV1 is a rung at 4K 60 only: the set's capability file caps AV1 at 60 a second,
+//! and it decodes slower than HEVC (`docs/research/opennow-result.md`).
 use serde_json::{Value, json};
 use std::io;
 use std::path::Path;
@@ -16,17 +17,19 @@ pub enum Tier {
     Uhd120,
     Qhd120,
     Uhd60,
+    Uhd60Av1,
     Fhd120,
 }
 
 impl Tier {
-    pub const ALL: [Tier; 4] = [Tier::Uhd120, Tier::Qhd120, Tier::Uhd60, Tier::Fhd120];
+    pub const ALL: [Tier; 5] = [Tier::Uhd120, Tier::Qhd120, Tier::Uhd60, Tier::Uhd60Av1, Tier::Fhd120];
 
     pub fn label(self) -> &'static str {
         match self {
             Tier::Uhd120 => "4K 120",
             Tier::Qhd120 => "1440p 120",
             Tier::Uhd60 => "4K 60",
+            Tier::Uhd60Av1 => "4K 60 AV1",
             Tier::Fhd120 => "1080p 120",
         }
     }
@@ -34,7 +37,7 @@ impl Tier {
     /// The core's `resolution` value.
     pub fn resolution(self) -> &'static str {
         match self {
-            Tier::Uhd120 | Tier::Uhd60 => "3840x2160",
+            Tier::Uhd120 | Tier::Uhd60 | Tier::Uhd60Av1 => "3840x2160",
             Tier::Qhd120 => "2560x1440",
             Tier::Fhd120 => "1920x1080",
         }
@@ -42,15 +45,24 @@ impl Tier {
 
     pub fn fps(self) -> u32 {
         match self {
-            Tier::Uhd60 => 60,
+            Tier::Uhd60 | Tier::Uhd60Av1 => 60,
             _ => 120,
+        }
+    }
+
+    /// The core's `codec` value, always named: the core resolves "auto" to AV1 wherever the engine reports AV1, 120 a second included,
+    /// which the set does not decode.
+    pub fn codec(self) -> &'static str {
+        match self {
+            Tier::Uhd60Av1 => "av1",
+            _ => "h265",
         }
     }
 
     /// The resolution's own name, without the rate.
     pub fn res_label(self) -> &'static str {
         match self {
-            Tier::Uhd120 | Tier::Uhd60 => "4K",
+            Tier::Uhd120 | Tier::Uhd60 | Tier::Uhd60Av1 => "4K",
             Tier::Qhd120 => "1440p",
             Tier::Fhd120 => "1080p",
         }
@@ -61,6 +73,7 @@ impl Tier {
             Tier::Uhd120 => "uhd120",
             Tier::Qhd120 => "qhd120",
             Tier::Uhd60 => "uhd60",
+            Tier::Uhd60Av1 => "uhd60av1",
             Tier::Fhd120 => "fhd120",
         }
     }
@@ -97,15 +110,14 @@ fn snap<T: Copy + Into<i64>>(ladder: &[T], value: i64) -> T {
 }
 
 impl Prefs {
-    /// The core's `settings.set` parameters: the tier, HDR with the codec and colour depth it needs, the bitrate cap, both sticks' dead
-    /// zone, and what only this platform can say (the video backend is the feeder's). HDR names HEVC: the streamer reads "auto" as H264,
-    /// which refuses every HDR stream; without HDR the codec is left to the core's resolver. The core takes only lowercase codec names
+    /// The core's `settings.set` parameters: the tier with its codec, HDR with the colour depth it needs, the bitrate cap, both sticks'
+    /// dead zone, and what only this platform can say (the video backend is the feeder's). The core takes only lowercase codec names
     /// (anything else is clamped to auto).
     pub fn settings(&self) -> Value {
         json!({
             "resolution": self.tier.resolution(),
             "fps": self.tier.fps(),
-            "codec": if self.hdr { "h265" } else { "auto" },
+            "codec": self.tier.codec(),
             "colorQuality": if self.hdr { "10bit_420" } else { "8bit_420" },
             "enableHdr": self.hdr,
             "maxBitrateMbps": self.bitrate_mbps,
@@ -114,9 +126,12 @@ impl Prefs {
         })
     }
 
-    /// What a game's card says the stream will be: "4K · 120 fps · HDR10".
+    /// What a game's card says the stream will be: "4K · 120 fps · HDR10", with the codec when it is not HEVC.
     pub fn summary(&self) -> String {
         let mut s = format!("{} · {} fps", self.tier.res_label(), self.tier.fps());
+        if self.tier.codec() == "av1" {
+            s.push_str(" · AV1");
+        }
         if self.hdr {
             s.push_str(" · HDR10");
         }
@@ -183,7 +198,7 @@ impl Row {
     /// The help mark's words: what the row does and what it costs, in two sentences at most.
     pub fn help(self) -> &'static str {
         match self {
-            Row::Stream => "Resolution and frames a second. 4K 120 is the most this TV takes and needs a fast connection; 1080p 120 is the lightest at 120.",
+            Row::Stream => "Resolution and frames a second. 4K 120 is the most this TV takes. 4K 60 AV1 is sharper on a slow link and adds a little delay.",
             Row::Hdr => "Brighter highlights and wider colour on a game that has HDR. Off sends an ordinary picture and uses less data.",
             Row::Bitrate => "The most data a second the stream may use. A lower cap keeps a slow connection smooth and costs some sharpness.",
             Row::Deadzone => "How far a stick moves before the game feels it. Raise it if the picture drifts with the pad at rest.",
@@ -237,7 +252,8 @@ impl Row {
     /// The core's setting keys the row decides (the stats line is the UI's own: none). The core takes one key and value a request.
     pub fn keys(self) -> &'static [&'static str] {
         match self {
-            Row::Stream => &["resolution", "fps"],
+            // the tier names its codec
+            Row::Stream => &["resolution", "fps", "codec"],
             // the colour depth goes before the codec: the core refuses a codec the saved depth cannot use
             Row::Hdr => &["enableHdr", "colorQuality", "codec"],
             Row::Bitrate => &["maxBitrateMbps"],
@@ -261,18 +277,25 @@ mod tests {
         assert_eq!((s["resolution"].as_str(), s["fps"].as_u64()), (Some("3840x2160"), Some(120)));
         assert_eq!((s["enableHdr"].as_bool(), s["colorQuality"].as_str()), (Some(true), Some("10bit_420")));
         assert_eq!((s["maxBitrateMbps"].as_u64(), s["controllerLeftStickDeadzone"].as_u64(), s["controllerRightStickDeadzone"].as_u64()), (Some(80), Some(8), Some(8)));
-        assert_eq!(s["codec"].as_str(), Some("h265"), "HDR needs HEVC: the streamer reads auto as H264");
+        assert_eq!(s["codec"].as_str(), Some("h265"), "HEVC carries 120 a second and HDR");
     }
 
     #[test]
-    fn each_tier_is_one_resolution_and_one_rate_and_hdr_off_drops_to_eight_bit() {
-        let want = [("4K 120", "3840x2160", 120), ("1440p 120", "2560x1440", 120), ("4K 60", "3840x2160", 60), ("1080p 120", "1920x1080", 120)];
-        for (t, (label, res, fps)) in Tier::ALL.into_iter().zip(want) {
-            let p = Prefs { tier: t, ..Prefs::default() };
-            assert_eq!((t.label(), p.settings()["resolution"].as_str().unwrap(), p.settings()["fps"].as_u64().unwrap()), (label, res, fps as u64));
+    fn each_tier_is_one_resolution_one_rate_and_one_codec_and_hdr_off_drops_to_eight_bit() {
+        let want = [
+            ("4K 120", "3840x2160", 120, "h265"),
+            ("1440p 120", "2560x1440", 120, "h265"),
+            ("4K 60", "3840x2160", 60, "h265"),
+            ("4K 60 AV1", "3840x2160", 60, "av1"),
+            ("1080p 120", "1920x1080", 120, "h265"),
+        ];
+        for (t, (label, res, fps, codec)) in Tier::ALL.into_iter().zip(want) {
+            let s = Prefs { tier: t, ..Prefs::default() }.settings();
+            assert_eq!((t.label(), s["resolution"].as_str().unwrap(), s["fps"].as_u64().unwrap(), s["codec"].as_str().unwrap()), (label, res, fps as u64, codec));
         }
         let p = Prefs { hdr: false, ..Prefs::default() };
-        assert_eq!((p.settings()["enableHdr"].as_bool(), p.settings()["colorQuality"].as_str(), p.settings()["codec"].as_str()), (Some(false), Some("8bit_420"), Some("auto")));
+        assert_eq!((p.settings()["enableHdr"].as_bool(), p.settings()["colorQuality"].as_str(), p.settings()["codec"].as_str()), (Some(false), Some("8bit_420"), Some("h265")), "auto would be AV1 at 120");
+        assert_eq!(Prefs { tier: Tier::Uhd60Av1, ..Prefs::default() }.summary(), "4K · 60 fps · AV1 · HDR10");
     }
 
     #[test]
@@ -297,7 +320,7 @@ mod tests {
 
     #[test]
     fn the_file_round_trips_and_a_damaged_one_is_read_leniently() {
-        let p = Prefs { tier: Tier::Uhd60, hdr: false, bitrate_mbps: 50, deadzone: 12, show_stats: true };
+        let p = Prefs { tier: Tier::Uhd60Av1, hdr: false, bitrate_mbps: 50, deadzone: 12, show_stats: true };
         assert_eq!(Prefs::from_json(&p.to_json()), p);
         assert_eq!(p.to_json()["deadzone"], 12, "the engine reads this key of the file when a stream starts (gfn/engine, pads.rs)");
         let odd = Prefs::from_json(&json!({"tier": "8k", "hdr": "yes", "bitrateMbps": 77, "deadzone": 99, "showStats": 1}));
