@@ -497,12 +497,16 @@ Proved offline: ready=0 + 144fps input → rate selector returns 144.
 Ready=7 + 144fps input → returns 120. ForceVRR and 144 Hz are mutually
 exclusive.
 
-Measured 2026-11-15: `VRR 1` engages tracking for a decoded full-screen 4K120
-window, and `VRR 0` does not fully undo it (Experiment results).
+Measured 2026-11-15: `VRR 1` engages tracking for a decoded full-screen
+window, and the refresh then follows the stream's declared rate (a 90 fps
+stream ran the DE at 90 Hz), not frame arrival. Only a reboot fully undoes it
+(Experiment results).
 
 ### First target: 4K120 + VRR
 
-4K120 is what GFN delivers today. ForceVRR at 120 fps has no rate conflict.
+4K120 is what GFN delivers today. ForceVRR at 120 fps has no rate conflict,
+but it gains nothing there: a 4K120 window opened under it ran at 117.0 Hz
+with held refreshes (step 4).
 
 ### VRR register readback (measured)
 
@@ -585,14 +589,17 @@ Saved before any VRR change, all read-only:
 3. `/proc/lg/de/win0/status` (vFreq, lowdelaymode), the DE2VSYNC/osd_irq
    rates and `/proc/lxvo/vdisp/vsync`.
 
-`VRR <saved N> end` alone does not restore the state (measured 2026-11-15).
-It clears tracking and ready, but `CC460B50` keeps the delay field VRR set
-(`0x4E000`), `CC460B8C` stays `0x88420000` and `CC8C00A0` bit6 stays set.
-All three survive closing the window, Home and a new 4K120 window. A reboot
-restores every value, and `luna://com.webos.service.tvpower/power/reboot`
-restarts the kernel on the C4 (uptime 25810 s → 30 s). Whether `VRR 2 end` or
-Active Standby clears the residue is untested. Registers are read only with
-the screen on, because in Active Standby the display blocks may be
+No command restores the state (measured 2026-11-15). `VRR 0 end` and
+`VRR 2 end` both clear tracking and ready, but `CC460B50` keeps the delay
+field VRR set (`0x4E000`), `CC460B8C` stays `0x88420000`, `CC8C00A0` bit6
+stays set and the idle `CC460B90` reads 28673 instead of 3945. All of it
+survives closing the window, Home, a new 4K120 window, `VRR 2` followed by
+`VRR 0`, and 30 s of Active Standby. A reboot restores every value, and
+`luna://com.webos.service.tvpower/power/reboot` restarts the kernel on the C4
+(uptime 25810 s → 30 s). With the residue, 4K120 playback measured as in
+step 1 (DE2VSYNC 119.96 Hz, fewest 12 per 100 ms, dco lock 1, video delay
+16.0 ms); 60 Hz sources and HDMI inputs are unmeasured. Registers are read
+only with the screen on, because in Active Standby the display blocks may be
 unclocked.
 
 ### Measuring the scan rate
@@ -603,8 +610,10 @@ section 1):
 - `DE2VSYNC` and `osd_irq` in `/proc/interrupts`: 119.85–120.34 Hz over 2 s
   windows, idle and playback (one count is 0.5 Hz).
 - SYS_VERI_11 frate_out: 120.
-- `CC460B90` bits 14:0: 2250 during 4K120 playback, 120.0 Hz at
-  270000/total; a stale 3945 with valid 0 at Home idle.
+- `CC460B90` bits 14:0: the main window's input period, not the output.
+  2250 during 4K120 playback (120.0 Hz at 270000/total), 3000 for a 90 fps
+  stream while DE2VSYNC stayed at 120.4 Hz (step 4); a stale 3945 with valid
+  0 at Home idle.
 - SYS_VERI_11 bits 31:16: 11791–11951 during playback, frozen at idle
   (11830, 11866, 11848). With vrr 0 this looks like the firmware's input-rate
   measurement in 0.01 Hz (inferred), 118–119.5 Hz against 120 frames/s fed.
@@ -638,10 +647,9 @@ target and sets a long-term arrival-rate estimate every 300 frames
 (`vdisp_core.c`); `phase_shift` read −430 and +430 and `dco_intv` 225356 and
 224645 in the two runs. A variable arrival cadence therefore reaches the DE
 as a 120 Hz source quantised to the 8.33 ms tick. Per-frame VRR is out of
-reach from NDL without LG kernel changes, unless the firmware's internal
-tracking follows the per-frame IPC (`deif.c` sends `pts`, `next_pts`,
-`direct_video` and `is_hfr` with every frame) rather than the timer; the
-experiment decides that.
+reach from NDL without LG kernel changes: the firmware's internal tracking
+follows the timer, not the per-frame IPC (`deif.c` sends `pts`, `next_pts`,
+`direct_video` and `is_hfr` with every frame), as step 4 measured.
 
 ### Experiment results (2026-11-15)
 
@@ -671,7 +679,7 @@ optical criteria are not measured. Receipts are in
    - the video window was unmuted again after the switch;
    - the kernel log showed no watchdog or MCU error;
    - the feeder kept 120 frames/s with none dropped.
-4. Not run (90 and 100 fps).
+4. Run separately (step 4, below).
 5. `VRR 0 end` printed `forceVRR : 0` and `ready:0, onOff:0, … tracking_en:0`,
    but it left three registers at their VRR values. A reboot restored them.
 
@@ -696,12 +704,50 @@ below the 120 frames/s fed, and some 100 ms windows held only 10 refreshes. The
 display path therefore held or dropped some frames (inferred; the feeder
 recorded no drops).
 
-Step 4 remains: under `VRR 1`, feed the same clip at 90 and 100 fps (`--fps`)
-and check whether `CC460B90`, DE2VSYNC and the optical rate follow the frames
-or stay at 120. The abort conditions stand: a black screen, flicker,
-`localmute`, watchdog or MCU messages, tracking bits that disagree with the
-status words, or DE2VSYNC gaps. Restore with a reboot unless `VRR 2 end` is
-shown to clear the residue.
+#### Step 4: 90 and 100 fps
+
+Run the same way later the same day with 4K HDR clips declared at 90, 100
+and 120 fps (`gfn/tools/gfn_streams.py`), about 30 s each in a window opened
+under the mode shown; the VRR-off runs except 120 (120) followed the restore
+reboot. Every run kept its feed rate with no drops, an intact capture (mean
+luma 117.8–119.4) and no kernel-log alarm. Receipts are in
+`/data/home/tmp/lumagame-vrrexp-20261115/step4/` (`summary.json`,
+`reads-*.json`, `fw-*.txt`, `feeder-*.json`, `session.log`).
+
+| Declared rate (fed) | VRR | DE2VSYNC over 5 s (fewest per 100 ms) | DE2VSYNC intervals over 14 ms | `CC460B90` total (valid) | SYS_VERI_11 in/out | Video delay (dco lock) |
+|---|---|---|---|---|---|---|
+| 90 (90) | off | 120.4 Hz (12) | 0 of 348 | 3000 (0) | 90/120 | 14.9 ms (0) |
+| 90 (90) | forced | 90.4 Hz (9) | 0 of 257 | 2989–3006 (1) | 90/120 | 22.8 ms (0) |
+| 100 (100) | off | 99.9 Hz (10) | 0 of 292 | 2700 (0) | 100/100 | 15.9 ms (1) |
+| 100 (100) | forced | 99.7 Hz (10) | 0 of 279 | 2698–2704 (1) | 100/100 | 19.0 ms (0) |
+| 120 (120) | off | 119.8 Hz (12) | 0 of 300 | 2250 (0) | 120/120 | 15.8 ms (1) |
+| 120 (120) | forced | 117.0 Hz (10) | 10 of 333 | 2242–2262 (1) | 120/120 | 17.2 ms (0) |
+| 120 (90) | off | 119.8 Hz (12) | 0 of 350 | 2250 (0) | 120/120 | 15.9 ms (1) |
+| 120 (90) | forced | 114.7 Hz (9) | 11 of 326 | 2248–2270 (1) | 120/120 | 17.2 ms (0) |
+
+Forced VRR makes the DE refresh follow the stream's declared rate, not frame
+arrival:
+- At 90 fps it changes the rate: the DE ran at 90.4 Hz (median interval
+  11.07 ms) instead of 120 Hz. The firmware printed `ifrate: 90, dfrate:120,
+  vt_num:2114(2250-144)` and stretched the 2250-line timing.
+- 100 fps runs at 100 Hz with VRR off too, because the firmware switches to
+  its 100 Hz timing (`MD [dType 6]`, vfp 458, 2700 lines). Under VRR it
+  printed `ifrate:100, dfrate:100, vt_num:3014(2700-144)` and `CC460B8C` read
+  `0x8BC60000`.
+- The 120 fps clip fed at 90 frames/s kept its decoder timer at 120 Hz
+  (`vdisp` 120/1 while `dco_intv` read 300153 ticks, the 90 Hz arrival).
+  Under VRR the DE stayed near 120 Hz and held some refreshes for 16–17.5 ms
+  instead of following 90.
+- A 120 fps window opened under VRR held refreshes the same way, as in the
+  first run; switching VRR on mid-stream gave 119.8 Hz with none.
+- `osd_irq` followed the DE (90.2 Hz at 90 fps) with the flip divider at 2,
+  so the compositor's clock fell to 45 Hz (inferred).
+
+`VRR 2 end` during playback printed `forceVRR : 2` and `ready:0, onOff:0, …
+tracking_en:0`, muted the window for 0.2 s and left the query at
+`Current mode = 2`. It, a following `VRR 0 end` and 30 s of Active Standby
+each left the residue described under Save and restore. The reboot restored
+every value, and 4K120 playback after it matched step 1.
 
 ### OSD and DRM route
 
@@ -750,8 +796,8 @@ Verdict: `cloud_gsync` stays false. NVIDIA does not support TV clients, and
 the C4's decoded path presents on a 120 Hz decoder timer (measured
 `fixed_frame_rate 1`, ±0.19 %), so a varying server cadence would show as
 8.33 ms-quantised judder rather than a varying refresh, while Reflex is
-already requested at 120 fps. It is worth revisiting only if step 4 shows the
-DE refresh following frame arrival.
+already requested at 120 fps. Forced VRR does not change this: it follows
+the declared rate, not frame arrival (step 4).
 
 ### Open prerequisites
 
@@ -761,11 +807,12 @@ DE refresh following frame arrival.
    2026-11-15
 3. VRR limits: VRRULIMIT/VRRLLIMIT defaults are not host-readable, and the
    current EDIDs declare no VRR range
-4. Whether internal tracking follows frame arrival or the decoder timer
-   (experiment step 4, not run)
-5. Optical scan measurement
-6. VRR lifecycle with save/verify/restore in the trusted helper. `VRR 0`
-   leaves residue that only a reboot has cleared so far
+4. ~~Whether internal tracking follows frame arrival or the decoder timer~~ —
+   the declared rate, measured 2026-11-15 (step 4)
+5. Optical scan measurement, including the 90 Hz case
+6. VRR lifecycle with save/verify/restore in the trusted helper. `VRR 0`,
+   `VRR 2` and Active Standby leave residue that only a reboot clears; its
+   effect on 60 Hz video and HDMI inputs is unmeasured
 
 ---
 

@@ -54,6 +54,8 @@ def av1(name, w, h, fps, mbps, seconds=None):
 STREAMS = [
     hevc("4k120_main10_hdr_l52_80m_ref1", 3840, 2160, 120, 80, "5.2", 1),      # the headline mode
     hevc("4k120_main10_hdr_l52_50m_ref1", 3840, 2160, 120, 50, "5.2", 1),      # the capability file's 50 Mbit/s
+    hevc("4k90_main10_hdr_l52_50m_ref1", 3840, 2160, 90, 50, "5.2", 1),        # forced-VRR rate tracking (gaming doc section 3, step 4)
+    hevc("4k100_main10_hdr_l52_50m_ref1", 3840, 2160, 100, 50, "5.2", 1),
     hevc("4k120_main10_hdr_l52_100m_ref1", 3840, 2160, 120, 100, "5.2", 1),    # NVIDIA's "up to 100 Mbps"
     hevc("4k120_main10_hdr_l52_80m_ref4", 3840, 2160, 120, 80, "5.2", 4),      # Aurora's finding: more references, slower decode
     # x265 refuses 4K120 at level 5.1 (995 Msamples/s against the level's 535), so the stream is encoded at 5.2 and the VPS/SPS level byte
