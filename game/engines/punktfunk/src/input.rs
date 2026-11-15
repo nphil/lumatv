@@ -1,7 +1,7 @@
 use lumagame_core::{ids::SessionId, ipc::{Event, FromEngine, PadKey}};
-use lumatv_gfn_pad::{PadEvent, PadSink, PadState, menu::{MenuKeys, MenuKey}};
+use lumatv_gfn_pad::{PadEvent, PadSink, PadState, latency, menu::{MenuKeys, MenuKey}};
 use punktfunk_core::{client::NativeClient, config::GamepadPref, input::{GamepadSnapshot, InputEvent, InputKind, encode_gamepad_remove, gamepad}, quic::{HidOutput, HOST_CAP_GAMEPAD_STATE}};
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}, mpsc::Sender};
+use std::{sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}, mpsc::Sender}, time::Instant};
 use crate::{Notice, dualsense::DualSense};
 
 #[derive(Default)]
@@ -13,11 +13,14 @@ pub struct Pads {
     out: Sender<Notice>,
     state: Mutex<State>,
     pub failed: AtomicBool,
+    presses: Mutex<Option<(u32,u32,u32)>>,
 }
 impl Pads {
     pub fn new(client: Arc<NativeClient>, session: SessionId, out: Sender<Notice>) -> Self {
-        Self {client,session,out,state:Mutex::new(State {app:false,slots:std::array::from_fn(|_| Slot::default())}),failed:AtomicBool::new(false)}
+        Self {client,session,out,state:Mutex::new(State {app:false,slots:std::array::from_fn(|_| Slot::default())}),failed:AtomicBool::new(false),presses:Mutex::new(None)}
     }
+    /// Presses timed from the kernel's stamp to `send_input` returning, over the pad crate's window: (count, median µs, p99 µs).
+    pub fn presses(&self) -> Option<(u32,u32,u32)> { *self.presses.lock().unwrap() }
     fn send(&self, event: InputEvent) { if self.client.send_input(&event).is_err() { self.failed.store(true,Ordering::Relaxed); } }
     pub fn route(&self, app:bool) {
         let mut state = self.state.lock().unwrap();
@@ -56,7 +59,7 @@ impl PadSink for Pads {
                 self.send(InputEvent {kind:InputKind::GamepadRemove,_pad:[0;3],code:0,x:0,y:0,flags:encode_gamepad_remove(slot,s.seq)});
                 *s=Slot::default();
             }
-            PadEvent::Report {slot,state:next,..} => {
+            PadEvent::Report {slot,state:next,press} => {
                 let Some(s) = state.slots.get_mut(usize::from(slot)) else {return};
                 if app {
                     s.menu.feed(&next,|key| {
@@ -66,12 +69,17 @@ impl PadSink for Pads {
                 } else {
                     transmit(slot,s.seq,s.state,next,self.client.host_caps & HOST_CAP_GAMEPAD_STATE != 0, |e|self.send(e));
                     s.seq=s.seq.wrapping_add(1);
+                    // The input is on its way once send_input returns: that is this transport's handoff.
+                    if let Some(id)=press { let at=Instant::now(); latency::global().link(id,at); latency::global().handoff(at,latency::mono_ns()); }
                 }
                 s.state=next;
             }
             PadEvent::Guide {pressed:true,..}|PadEvent::ExitChord {..} => { let _ = self.out.send(Notice::Emit(FromEngine::told(Event::Overlay {session:self.session}))); }
             _=>{}
         }
+    }
+    fn latency(&self, summary:&latency::Summary) {
+        *self.presses.lock().unwrap()=Some((u32::try_from(summary.samples).unwrap_or(u32::MAX),summary.handoff.p50,summary.handoff.p99));
     }
 }
 fn transmit(slot:u8,seq:u8,old:PadState,next:PadState,snapshot:bool,mut send:impl FnMut(InputEvent)) {

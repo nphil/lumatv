@@ -3,6 +3,7 @@ use super::{
     paint::{Fill, H, Paint, W},
 };
 use crate::game::model::{Focus, Section};
+use crate::game::helper::GameSirState;
 use lumagame_core::{
     engine::{Codec, EngineKind, Feature},
     ipc::{Link, Reach},
@@ -139,14 +140,16 @@ fn appearance(p: &mut Paint<'_>, x: f32, w: f32) {
     );
     row(p, 450, Focus::Setting(5), "Reduce motion", Some("No lift, zoom or fades"), Control::Toggle(m.prefs.reduce_motion), Frame::new(x, y, w, 0.0));
 }
-enum Control<'a> {
+pub(super) enum Control<'a> {
     Value(&'a str),
+    /// A value that changes in place, in tabular figures.
+    Figure(&'a str),
     Segments(&'a [&'a str], usize),
     Toggle(bool),
     Slider(u32),
     None,
 }
-fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, description: Option<&str>, control: Control<'_>, mut f: Frame) -> f32 {
+pub(super) fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, description: Option<&str>, control: Control<'_>, mut f: Frame) -> f32 {
     let available = f.w - 52.0;
     let line = p.line(Type::Body);
     let label_w = p.width(label, Type::Body);
@@ -158,8 +161,10 @@ fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, description: Optio
     };
     let slider_value = if let Control::Slider(value) = &control { format!("{value} Mb/s") } else { String::new() };
     let value_w = p.width(&slider_value, Type::Label) + 12.0;
+    let figure = if let Control::Figure(value) = &control { p.figures(value, p.ty(Type::Body), p.ink(Role::Ink2, false), 0.0, 0.0) } else { Default::default() };
     let control_w = match &control {
         Control::Value(value) => p.width(value, Type::Body),
+        Control::Figure(_) => figure.1,
         Control::Segments(..) => widths.iter().sum::<f32>() + 8.0,
         Control::Toggle(_) => 82.0,
         Control::Slider(_) => value_w + 284.0,
@@ -177,17 +182,18 @@ fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, description: Optio
     }
     let control_h = if matches!(control, Control::Segments(..)) { rows as f32 * sh + (rows - 1) as f32 * 8.0 } else { sh };
     let stack = (label_w + control_w + 80.0 > f.w || rows > 1) && control_w > 0.0;
-    let label_h = ui::components::wrap(p.fonts, label, p.ty(Type::Body), available).len().max(1) as f32 * line;
-    let desc_h = description.map_or(0.0, |s| ui::components::wrap(p.fonts, s, p.ty(Type::Caption), available).len() as f32 * p.line(Type::Caption));
+    let text_w = if stack || control_w == 0.0 { available } else { available - control_w - 32.0 };
+    let label_h = ui::components::wrap(p.fonts, label, p.ty(Type::Body), text_w).len().max(1) as f32 * line;
+    let desc_h = description.map_or(0.0, |s| ui::components::wrap(p.fonts, s, p.ty(Type::Caption), text_w).len() as f32 * p.line(Type::Caption));
     f.h = if stack { label_h + desc_h + control_h + 40.0 } else { 80.0f32.max(label_h + desc_h + 24.0).max(control_h + 16.0) };
     let focused = p.focused(focus);
     if focused {
         p.surface(id, f, Fill::Tint(p.tokens.states.focus_wash[usize::from(p.mode == Mode::Light)]), Radius::Row, false, true, false, 10);
     }
     let text_y = if stack { 12.0 } else { (f.h - label_h - desc_h) / 2.0 };
-    p.wrapped(id + 1, label, Frame::new(f.x + 26.0, f.y + text_y, available, 0.0), Type::Body, Role::Ink, false, 11);
+    p.wrapped(id + 1, label, Frame::new(f.x + 26.0, f.y + text_y, text_w, 0.0), Type::Body, Role::Ink, false, 11);
     if let Some(description) = description {
-        p.wrapped(id + 18, description, Frame::new(f.x + 26.0, f.y + text_y + label_h, available, 0.0), Type::Caption, Role::Ink2, false, 11);
+        p.wrapped(id + 18, description, Frame::new(f.x + 26.0, f.y + text_y + label_h, text_w, 0.0), Type::Caption, Role::Ink2, false, 11);
     }
     let x = f.x + f.w - control_w - 26.0;
     let cy = if stack { f.y + label_h + desc_h + 24.0 } else { f.y + (f.h - control_h) / 2.0 };
@@ -196,6 +202,9 @@ fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, description: Optio
             let mut word = p.word(value, Type::Body, p.ink(Role::Ink2, false), 0.0, 0.0, control_w);
             word.align = Align::Right;
             p.words(id + 2, Frame::new(x, if stack { cy } else { f.y + (f.h - line) / 2.0 }, control_w, line), vec![word], vec![], 12);
+        }
+        Control::Figure(_) => {
+            p.words(id + 2, Frame::new(x, if stack { cy } else { f.y + (f.h - line) / 2.0 }, control_w, line), figure.0, vec![], 12);
         }
         Control::Toggle(on) => p.toggle(id + 2, x, if stack { cy } else { f.y + (f.h - 48.0) / 2.0 }, on, false, 12),
         Control::Slider(value) => {
@@ -359,29 +368,113 @@ fn integrations(p: &mut Paint<'_>, x: f32, w: f32) {
 fn controllers(p: &mut Paint<'_>, x: f32, w: f32) {
     let mut y = 170.0;
     y += p.wrapped(200, "Controllers", Frame::new(x + 26.0, y, w - 52.0, 0.0), Type::Title, Role::Ink, false, 10) + 24.0;
-    y += p.wrapped(
-        201,
-        "Connect a Bluetooth or USB controller in the TV settings. LumaGame uses the same d-pad and confirmation controls as the remote.",
-        Frame::new(x + 26.0, y, w - 52.0, 0.0),
-        Type::Body,
-        Role::Ink2,
-        false,
-        10,
-    ) + 40.0;
+    for (i, label, description) in [
+        (0, "Controller lab", "Buttons, sticks, rumble and timing"),
+        (1, "TV controller settings", "Pair a Bluetooth controller"),
+        (2, "GameSir Cyclone 2", "Settings stored on the controller"),
+        (3, "Leadjoy Xeno", "Controller settings and logo lighting"),
+    ] {
+        y += row(p, 500 + i as u64 * 30, Focus::Setting(i), label, Some(description), Control::Value("Open"), Frame::new(x, y, w, 0.0));
+    }
+    y += 32.0;
     let pairs = [("D-pad", "Move focus"), ("A / Cross", "Select on release"), ("B / Circle", "Back"), ("Guide", "Open the playing controls")];
     for (i, (label, value)) in pairs.into_iter().enumerate() {
         y += row(p, 230 + i as u64 * 30, Focus::None, label, None, Control::Value(value), Frame::new(x, y, w, 0.0));
     }
-    y += p.wrapped(
-        410,
-        "General › External Devices › Connect Bluetooth Controller",
-        Frame::new(x + 26.0, y + 24.0, w - 52.0, 0.0),
-        Type::Caption,
-        Role::Ink2,
-        false,
-        10,
-    );
-    p.button(400, Focus::Setting(0), "Open TV settings", Some(Icon::Cog), x + 26.0, y + 64.0, false, false, 10);
+    p.wrapped(410, "TV settings: General › External Devices › Connect Bluetooth Controller",
+        Frame::new(x + 26.0, y + 24.0, w - 52.0, 0.0), Type::Caption, Role::Ink2, false, 10);
+}
+
+pub fn gamesir(p: &mut Paint<'_>) {
+    nav(p, false);
+    let (x, w) = (p.x, W - p.x * 2.0);
+    let (tx, tw) = (x + 26.0, w - 52.0);
+    let mut y = 170.0;
+    y += p.wrapped(100, "GameSir Cyclone 2", Frame::new(tx, y, tw, 0.0), Type::Title, Role::Ink, false, 10) + 24.0;
+    let device = &p.model.gamesir;
+    let status = if device.pending {
+        "Reading the controller; changes wait for read-back.".to_owned()
+    } else if let Some(error) = &device.error {
+        if matches!(device.state, GameSirState::Ready(_)) { format!("{error} The values below are the last confirmed reading.") } else { error.clone() }
+    } else {
+        match &device.state {
+            GameSirState::Idle => "Refresh to read the controller.".into(),
+            GameSirState::Off => "Switch on the Gaming plugin in LumaTV to change controller settings.".into(),
+            GameSirState::Missing => "No GameSir controller found. Connect its USB cable or 2.4 GHz receiver, then refresh.".into(),
+            GameSirState::Mode { .. } => "To change its settings, switch to X-input: hold View+Menu for 2 seconds, then refresh.".into(),
+            GameSirState::Ready(profile) => format!("Profile {} · Firmware {}{}", profile.profile, profile.firmware,
+                if profile.verified { " · Saved and read back" } else { " · Read from the controller" }),
+        }
+    };
+    y += p.wrapped(101, &status, Frame::new(tx, y, tw, 0.0), Type::Body, Role::Ink, false, 10) + 24.0;
+    y += row(p, 200, Focus::Setting(0), "Refresh", None, Control::Value(if device.pending { "Waiting" } else { "Read" }), Frame::new(x, y, w, 0.0)) + 16.0;
+    let GameSirState::Ready(profile) = &device.state else { return };
+    let values = &profile.values;
+    let rate = values.report_rate.map_or_else(|| "Unknown".into(), |rate| format!("{rate} Hz"));
+    let left = format!("{} / 4", values.rumble_left);
+    let right = format!("{} / 4", values.rumble_right);
+    let dead_left = format!("{}%", values.deadzone_left);
+    let dead_right = format!("{}%", values.deadzone_right);
+    for (i, label, control) in [
+        (1, "Report rate", Control::Value(&rate)),
+        (2, "Left rumble strength", Control::Value(&left)),
+        (3, "Right rumble strength", Control::Value(&right)),
+        (4, "D-pad diagonal lock", Control::Toggle(values.dpad_diagonal_lock)),
+        (5, "Swap A/B and X/Y", Control::Toggle(values.xinput_abxy_swap)),
+        (6, "Left stick dead zone", Control::Value(&dead_left)),
+        (7, "Right stick dead zone", Control::Value(&dead_right)),
+    ] {
+        let status = if p.focused(Focus::Setting(i)) {
+            if device.pending { Some("Waiting for read-back") } else if profile.verified { Some("Saved and read back") } else { None }
+        } else { None };
+        y += row(p, 300 + i as u64 * 30, Focus::Setting(i), label, status, control, Frame::new(x, y, w, 0.0));
+    }
+    p.wrapped(900, "These settings stay on the controller. The lab's stick settings are applied separately by each game integration.",
+        Frame::new(tx, y + 24.0, tw, 0.0), Type::Caption, Role::Ink2, false, 10);
+}
+
+pub fn leadjoy(p: &mut Paint<'_>) {
+    use crate::game::helper::LeadjoyState;
+    nav(p, false);
+    let (x, w) = (p.x, W - p.x * 2.0);
+    let (tx, tw) = (x + 26.0, w - 52.0);
+    let mut y = 170.0;
+    y += p.wrapped(100, "Leadjoy Xeno", Frame::new(tx, y, tw, 0.0), Type::Title, Role::Ink, false, 10) + 24.0;
+    let device = &p.model.leadjoy;
+    let status = if device.pending {
+        "Reading the controller; changes wait for read-back.".to_owned()
+    } else if let Some(error) = &device.error {
+        if matches!(device.state, LeadjoyState::Ready(_)) { format!("{error} The values below are the last confirmed reading.") } else { error.clone() }
+    } else {
+        match &device.state {
+            LeadjoyState::Idle => "Refresh to read the controller.".into(),
+            LeadjoyState::Off => "Switch on the Gaming plugin in LumaTV to change controller settings.".into(),
+            LeadjoyState::Missing => "No Xeno configuration interface found. Connect its USB cable or receiver, then refresh.".into(),
+            LeadjoyState::Unsupported { device, firmware } => format!("{device} · Firmware {firmware} · No supported settings"),
+            LeadjoyState::Ready(profile) => format!("{} · Firmware {} · {}", profile.device, profile.firmware,
+                if profile.verified { "Saved and read back" } else { "Read from the controller" }),
+        }
+    };
+    y += p.wrapped(101, &status, Frame::new(tx, y, tw, 0.0), Type::Body, Role::Ink, false, 10) + 24.0;
+    y += row(p, 200, Focus::Setting(0), "Refresh", None, Control::Value(if device.pending { "Waiting" } else { "Read" }), Frame::new(x, y, w, 0.0)) + 16.0;
+    let LeadjoyState::Ready(profile) = &device.state else { return };
+    for (i, field) in profile.schema.fields().enumerate() {
+        let current = profile.values.get(&field.key);
+        let text = match current { Some(Value::Text(v)) => v.clone(), Some(Value::Int(v)) => v.to_string(), Some(Value::Bool(v)) => v.to_string(), None => "Not reported".into() };
+        let value;
+        let control = match &field.kind {
+            FieldKind::Toggle { .. } => Control::Toggle(current == Some(&Value::Bool(true))),
+            FieldKind::Choice { options, .. } => Control::Value(options.iter().find(|option| option.id == text).map_or(text.as_str(), |option| option.label.as_str())),
+            FieldKind::Action => Control::Value("Apply"),
+            FieldKind::Number { unit: Some(unit), .. } => { value = format!("{text}{unit}"); Control::Value(&value) }
+            _ => Control::Value(&text),
+        };
+        let status = if p.focused(Focus::Setting(i + 1)) {
+            if device.pending { Some("Waiting for read-back") } else if profile.verified { Some("Saved and read back") } else { field.help.as_deref() }
+        } else { field.help.as_deref() };
+        y += row(p, 300 + i as u64 * 30, Focus::Setting(i + 1), &field.label, status, control, Frame::new(x, y, w, 0.0));
+    }
+    p.wrapped(1900, "Changes are written to the controller and read back.", Frame::new(tx, y + 24.0, tw, 0.0), Type::Caption, Role::Ink2, false, 10);
 }
 fn about(p: &mut Paint<'_>, x: f32, w: f32) {
     let mut y = 170.0;

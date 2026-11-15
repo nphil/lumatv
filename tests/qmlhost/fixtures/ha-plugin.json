@@ -529,9 +529,9 @@
           "version": "1"
         },
         {
-          "approve": "362488559b13cfaffed9efe7ffa7902dfc95581fb75ead14d79327a1d294f506",
+          "approve": "7f7cd468ddab2c9feaff2b454c1fe74f8e79f418d869222aee4f9fdfb4b3c6fc",
           "class": "S",
-          "consent": "Allows the gaming apps to temporarily use qualified low-latency picture controls and give their controller readers real-time priority. Original picture and thread settings are restored when a session ends, the app exits, the lease expires, the TV enters standby or this plugin is switched off. Display controls remain unavailable until qualified on this TV.",
+          "consent": "Allows the gaming apps to temporarily use qualified low-latency picture controls, give their controller readers real-time priority, and read and save supported controllers' settings. Original picture and thread settings are restored when a session ends, the app exits, the lease expires, the TV enters standby or this plugin is switched off. Controller settings remain saved on the controller. Display controls remain unavailable until qualified on this TV.",
           "firstParty": true,
           "id": "gaming",
           "name": "Gaming",

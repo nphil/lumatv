@@ -2,7 +2,7 @@ use super::{
     pages::{keyboard, logo, stage, way},
     paint::{Body, Fill, H, Node, Paint, W},
 };
-use crate::game::model::{Focus, Sheet, Sort};
+use crate::game::{helper::LeadjoyState, model::{Focus, Page, Sheet, Sort}};
 use lumagame_core::{ipc::AuthState, session::Phase};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{
@@ -337,7 +337,12 @@ fn end_session(p: &mut Paint<'_>) {
 }
 fn edit_text(p: &mut Paint<'_>) {
     let editing = p.model.view.sheet == Some(Sheet::EditText);
-    let label = if editing {
+    let label = if editing && p.model.view.page == Page::Leadjoy {
+        match &p.model.leadjoy.state {
+            LeadjoyState::Ready(profile) => p.model.view.edit_field.and_then(|i| profile.schema.fields().nth(i)).map_or("Edit setting", |field| field.label.as_str()),
+            _ => "Edit setting",
+        }
+    } else if editing {
         p.model
             .view
             .selected_engine

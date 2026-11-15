@@ -10,8 +10,13 @@ use lumagame_core::{
     settings::{FieldKind, SettingsSchema, Value, Values},
     state::{OpenSession, State},
 };
+use lumatv_gfn_pad::{
+    Curve, MAX_PADS, RawReport, Shaping, button,
+    lab::{Drift, Summary, Timing},
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use super::helper::{ControllerChange, GameSir, GameSirState, Leadjoy, LeadjoyState, LeadjoyView};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -87,6 +92,16 @@ pub enum Input {
         focus: Focus,
         down: bool,
     },
+    /// The pads as the controller lab reads them, on every pass of the shell's loop while [`Model::pad_mode`] is not the menu's: the
+    /// reports since the last pass, the connected pads' names and the number of the frame the shell draws next.
+    Lab {
+        now_ns: u64,
+        reports: Vec<(u8, RawReport)>,
+        names: [Option<String>; MAX_PADS],
+        frame: u64,
+    },
+    GameSir(Result<GameSirState, String>),
+    Leadjoy(Result<LeadjoyState, String>),
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
@@ -102,6 +117,9 @@ pub enum Command {
     FetchDetails { game: GameId },
     PlayMedia { url: String },
     OpenControllerSettings,
+    Rumble { slot: u8, low: u16, high: u16 },
+    GameSir(Option<ControllerChange>),
+    Leadjoy { view: LeadjoyView, change: Option<ControllerChange> },
     Exit,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -151,6 +169,10 @@ pub struct Preferences {
     pub codec: Option<Codec>,
     pub bitrate_mbps: u32,
     pub stats: bool,
+    /// The stick settings every engine that drives a pad applies: dead zone, anti-deadzone (both percent) and response curve.
+    pub deadzone: u8,
+    pub anti_deadzone: u8,
+    pub stick_curve: Curve,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -168,6 +190,9 @@ impl Default for Preferences {
             codec: None,
             bitrate_mbps: 80,
             stats: false,
+            deadzone: 8,
+            anti_deadzone: 0,
+            stick_curve: Curve::Linear,
         }
     }
 }
@@ -203,15 +228,24 @@ impl Preferences {
         };
         p.bitrate_mbps = v["bitrate_mbps"].as_u64().unwrap_or(80).clamp(5, 150) as u32;
         p.stats = v["stats"].as_bool().unwrap_or(false);
+        p.deadzone = v["deadzone"].as_u64().map_or(p.deadzone, |n| n.min(u64::from(DEADZONE_MAX)) as u8);
+        p.anti_deadzone = v["anti_deadzone"].as_u64().map_or(p.anti_deadzone, |n| n.min(u64::from(ANTI_DEADZONE_MAX)) as u8);
+        p.stick_curve = v["stick_curve"].as_str().and_then(Curve::from_name).unwrap_or_default();
         p
     }
     fn json(&self) -> serde_json::Value {
-        serde_json::json!({"family":self.family,"light":self.light,"hero":self.hero.index(),"covers":self.covers.index(),"text_percent":self.text_percent,"reduce_motion":self.reduce_motion,"width":self.width,"height":self.height,"fps":self.fps,"hdr":self.hdr,"codec":self.codec.map_or("auto",Codec::as_str),"bitrate_mbps":self.bitrate_mbps,"stats":self.stats})
+        serde_json::json!({"family":self.family,"light":self.light,"hero":self.hero.index(),"covers":self.covers.index(),"text_percent":self.text_percent,"reduce_motion":self.reduce_motion,"width":self.width,"height":self.height,"fps":self.fps,"hdr":self.hdr,"codec":self.codec.map_or("auto",Codec::as_str),"bitrate_mbps":self.bitrate_mbps,"stats":self.stats,"deadzone":self.deadzone,"anti_deadzone":self.anti_deadzone,"stick_curve":self.stick_curve.name()})
     }
     pub fn text_scale(&self) -> f32 {
         f32::from(self.text_percent) / 100.0
     }
+    pub fn shaping(&self) -> Shaping {
+        Shaping { deadzone_percent: self.deadzone, anti_deadzone_percent: self.anti_deadzone, curve: self.stick_curve }
+    }
 }
+/// The engines' schemas take these as the stick settings' upper bounds.
+pub const DEADZONE_MAX: u8 = 20;
+pub const ANTI_DEADZONE_MAX: u8 = 30;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GameDetails {
     pub description: String,
@@ -243,6 +277,9 @@ pub enum Page {
     Running,
     Overlay,
     Media,
+    Lab,
+    GameSir,
+    Leadjoy,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Sheet {
@@ -300,6 +337,8 @@ pub enum Focus {
     SheetAction(usize),
     Overlay(usize),
     FirstRun(usize),
+    /// The controller lab's actions: test buttons, rumble left, rumble right, flash test, measure the stream.
+    Lab(usize),
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Sort {
@@ -428,6 +467,72 @@ impl Default for View {
         }
     }
 }
+/// How the shell reads the pads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PadMode {
+    // Discriminants are also the shell's atomic input mode.
+    /// As the menu's keys.
+    Menu,
+    /// For the lab's live picture, and as the menu's keys without the sticks, which are under test.
+    Lab,
+    /// For the lab alone: a test has every button until B is held for [`LEAVE_HOLD_NS`] or the remote's Back is pressed.
+    Captured,
+}
+/// A lab test that has every button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Capture {
+    Buttons,
+    /// The screen lights on the frame after a press, for a slow-motion video to time against the thumb.
+    Flash,
+}
+/// The stream round trip the lab asked the running engine for.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Trip {
+    #[default]
+    Idle,
+    Waiting(EngineId),
+    Answer(EngineId, ipc::RoundTrip),
+    /// The engine does not time it: no `round-trip` feature, or an older engine that cannot read the request.
+    Unsupported(EngineId),
+}
+/// Holding B this long leaves a test that has every button.
+pub const LEAVE_HOLD_NS: u64 = 1_000_000_000;
+/// The lab's figures change at most this often; the dots and bars follow every report.
+pub const LAB_REFRESH_NS: u64 = 100_000_000;
+#[derive(Clone, Debug, Default)]
+pub struct LabPad {
+    pub name: String,
+    /// The latest report, before any dead zone.
+    pub report: RawReport,
+    pub timing: Timing,
+    pub summary: Summary,
+    /// Left and right stick.
+    pub drift: [Drift; 2],
+    /// The kernel's stamp of a B press still held.
+    b_down: Option<u64>,
+}
+#[derive(Clone, Debug, Default)]
+pub struct Lab {
+    pub pads: [Option<LabPad>; MAX_PADS],
+    /// The pad that reported last, which the lab draws.
+    pub active: Option<usize>,
+    pub capture: Option<Capture>,
+    /// The kernel's stamp of the press that lit the flash, while any button is held.
+    pub flash: Option<u64>,
+    /// The number of the frame the shell draws next, kept while the flash test runs.
+    pub frame: u64,
+    pub trip: Trip,
+    refreshed_ns: u64,
+}
+impl Lab {
+    pub fn connected(&self) -> usize {
+        self.pads.iter().flatten().count()
+    }
+    /// The pad the lab draws: the one that reported last, else the first connected.
+    pub fn pad(&self) -> Option<&LabPad> {
+        self.active.and_then(|i| self.pads[i].as_ref()).or_else(|| self.pads.iter().flatten().next())
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Neighbours {
     pub id: Focus,
@@ -449,6 +554,9 @@ pub struct Model {
     pub home_rows: Vec<HomeRow>,
     pub filtered: Vec<GameId>,
     pub navigation: Vec<Neighbours>,
+    pub lab: Lab,
+    pub gamesir: GameSir,
+    pub leadjoy: Leadjoy,
     session: Option<Session>,
     session_start: u64,
     foreground: bool,
@@ -493,6 +601,9 @@ impl Model {
             home_rows: Vec::new(),
             filtered: Vec::new(),
             navigation: Vec::new(),
+            lab: Lab::default(),
+            gamesir: GameSir::default(),
+            leadjoy: Leadjoy::default(),
             session: None,
             session_start: 0,
             foreground: true,
@@ -545,6 +656,29 @@ impl Model {
     }
     pub fn wants_frames(&self) -> bool {
         self.foreground && self.view.page != Page::Running
+    }
+    /// How the shell should read the pads: the lab's own modes while its page has them and no sheet covers it.
+    pub fn pad_mode(&self) -> PadMode {
+        if !self.wants_pads() || self.view.page != Page::Lab || self.view.sheet.is_some() {
+            PadMode::Menu
+        } else if self.lab.capture.is_some() {
+            PadMode::Captured
+        } else {
+            PadMode::Lab
+        }
+    }
+    /// The kernel's stamp of the press the flash test shows lit, and the number of the frame that shows it.
+    pub fn flash_press(&self) -> Option<(u64, u64)> {
+        if self.pad_mode() != PadMode::Captured || self.lab.capture != Some(Capture::Flash) {
+            return None;
+        }
+        self.lab.flash.map(|press| (press, self.lab.frame))
+    }
+    /// The running session's engine, when it can time the stream's round trip for the lab.
+    pub fn round_trip_engine(&self) -> Option<&EngineId> {
+        let s = self.session.as_ref().filter(|s| !s.is_done())?;
+        let d = self.integration(&s.source.engine)?.descriptor.as_ref()?;
+        d.capabilities.features.contains(&Feature::RoundTrip).then_some(&s.source.engine)
     }
     pub fn game(&self, id: GameId) -> Option<&Game> {
         self.games.iter().find(|g| g.id == id)
@@ -675,6 +809,8 @@ impl Model {
                 self.foreground = on;
                 self.pressed = None;
                 if !on {
+                    self.lab.capture = None;
+                    self.lab.flash = None;
                     self.session_input(session::Input::Background, &mut out);
                 }
             }
@@ -738,6 +874,30 @@ impl Model {
                     self.rebuild_filter();
                 }
             },
+            Input::Lab { now_ns, reports, names, frame } => changed = self.lab_input(now_ns, reports, names, frame),
+            Input::GameSir(result) => {
+                self.gamesir.pending = false;
+                match result {
+                    Ok(state) => { self.gamesir.state = state; self.gamesir.error = None; }
+                    Err(error) => {
+                        self.gamesir.error = Some(error);
+                        if self.view.page == Page::GameSir && self.view.sheet.is_none() { self.view.focus = Focus::Setting(0); }
+                    }
+                }
+            }
+            Input::Leadjoy(result) => {
+                self.leadjoy.pending = false;
+                match result {
+                    Ok(state) => {
+                        if let LeadjoyState::Ready(profile) = &state { self.leadjoy.view = profile.view.clone(); }
+                        self.leadjoy.state = state; self.leadjoy.error = None;
+                    }
+                    Err(error) => {
+                        self.leadjoy.error = Some(error);
+                        if self.view.page == Page::Leadjoy && self.view.sheet.is_none() { self.view.focus = Focus::Setting(0); }
+                    }
+                }
+            }
         }
         if changed || !out.is_empty() {
             self.revision = self.revision.wrapping_add(1);
@@ -748,6 +908,92 @@ impl Model {
     }
     fn send(out: &mut Vec<Command>, engine: &EngineId, request: Request) {
         out.push(Command::Send { engine: engine.clone(), request });
+    }
+    /// The lab's share of the pads. True when its page shows something new.
+    fn lab_input(&mut self, now_ns: u64, reports: Vec<(u8, RawReport)>, names: [Option<String>; MAX_PADS], frame: u64) -> bool {
+        if self.view.page != Page::Lab {
+            return false;
+        }
+        let lab = &mut self.lab;
+        let mut changed = false;
+        for (pad, name) in lab.pads.iter_mut().zip(names) {
+            if pad.as_ref().map(|p| &p.name) != name.as_ref() {
+                *pad = name.map(|name| LabPad { name, ..LabPad::default() });
+                changed = true;
+            }
+        }
+        if lab.active.is_some_and(|i| lab.pads[i].is_none()) {
+            lab.active = None;
+        }
+        let mut new_flash = false;
+        for (slot, report) in reports {
+            let Some(pad) = lab.pads.get_mut(usize::from(slot)).and_then(Option::as_mut) else {
+                continue;
+            };
+            if lab.capture == Some(Capture::Flash) && lab.flash.is_none() && report.buttons & !pad.report.buttons != 0 {
+                lab.flash = Some(report.kernel_ns);
+                new_flash = true;
+            }
+            pad.b_down = if report.buttons & button::B == 0 { None } else { pad.b_down.or(Some(report.kernel_ns)) };
+            pad.timing.push(report.kernel_ns);
+            pad.drift[0].report(report.left, report.kernel_ns);
+            pad.drift[1].report(report.right, report.kernel_ns);
+            pad.report = report;
+            lab.active = Some(usize::from(slot));
+            changed = true;
+        }
+        if !new_flash && lab.frame != frame && lab.flash.is_some() && lab.pads.iter().flatten().all(|p| p.report.buttons == 0) {
+            lab.flash = None;
+        }
+        for pad in lab.pads.iter_mut().flatten() {
+            for drift in &mut pad.drift {
+                changed |= drift.tick(now_ns);
+            }
+        }
+        if now_ns >= lab.refreshed_ns + LAB_REFRESH_NS {
+            lab.refreshed_ns = now_ns;
+            for pad in lab.pads.iter_mut().flatten() {
+                let summary = pad.timing.summary(now_ns);
+                changed |= summary != pad.summary;
+                pad.summary = summary;
+            }
+        }
+        if lab.capture.is_some() && lab.pads.iter().flatten().any(|p| p.b_down.is_some_and(|at| now_ns.saturating_sub(at) >= LEAVE_HOLD_NS)) {
+            lab.capture = None;
+            lab.flash = None;
+            changed = true;
+        }
+        if lab.capture == Some(Capture::Flash) && lab.frame != frame {
+            lab.frame = frame;
+            changed = true;
+        }
+        changed
+    }
+    fn lab_action(&mut self, action: usize, out: &mut Vec<Command>) {
+        match action {
+            0 => self.lab.capture = Some(Capture::Buttons),
+            1 | 2 => {
+                // The left motor is the heavy, low one.
+                let (low, high) = if action == 1 { (0xC000, 0) } else { (0, 0xC000) };
+                let slots = (0..MAX_PADS).filter(|&i| self.lab.pads[i].is_some()).map(|i| i as u8);
+                let before = out.len();
+                out.extend(slots.map(|slot| Command::Rumble { slot, low, high }));
+                if out.len() == before {
+                    self.view.notice = Some("No controller is connected.".into());
+                }
+            }
+            3 => {
+                self.lab.capture = Some(Capture::Flash);
+                self.lab.flash = None;
+            }
+            4 => {
+                if let (Some(engine), Some(session)) = (self.round_trip_engine().cloned(), self.session.as_ref().map(|s| s.id)) {
+                    self.lab.trip = Trip::Waiting(engine.clone());
+                    Self::send(out, &engine, Request::RoundTrip { session });
+                }
+            }
+            _ => {}
+        }
     }
     fn rebuild_catalog(&mut self) {
         let enabled = self.state.enabled_engines();
@@ -858,6 +1104,15 @@ impl Model {
     }
     fn key(&mut self, key: Key, down: bool, out: &mut Vec<Command>) -> bool {
         if !self.foreground {
+            return false;
+        }
+        if self.pad_mode() == PadMode::Captured {
+            // A lab test has every pad button; the remote's Back still leaves it.
+            if key == Key::Back && !down {
+                self.lab.capture = None;
+                self.lab.flash = None;
+                return true;
+            }
             return false;
         }
         if self.view.page == Page::Running {
@@ -1046,18 +1301,37 @@ impl Model {
                 self.view.focus = if self.view.section == Section::Integrations { Focus::Integration(0) } else { Focus::Setting(0) };
             }
             Focus::Setting(i) => {
-                if self.view.page == Page::Integration {
+                if matches!(self.view.page, Page::Integration | Page::Lab | Page::GameSir | Page::Leadjoy) {
                     self.adjust(true, out);
                 } else if self.view.section == Section::Appearance && i == 0 {
                     self.open_sheet(Sheet::Theme, Focus::Theme(0));
                 } else if self.view.section == Section::Controllers {
-                    out.push(Command::OpenControllerSettings);
+                    if i == 0 {
+                        self.lab = Lab::default();
+                        let focus = if !self.session_active() {
+                            Focus::Lab(0)
+                        } else if self.round_trip_engine().is_some() {
+                            Focus::Lab(4)
+                        } else {
+                            Focus::Setting(0)
+                        };
+                        self.show_page(Page::Lab, focus);
+                    } else if i == 1 {
+                        out.push(Command::OpenControllerSettings);
+                    } else if i == 2 {
+                        self.show_page(Page::GameSir, Focus::Setting(0));
+                        self.read_gamesir(out);
+                    } else {
+                        self.show_page(Page::Leadjoy, Focus::Setting(0));
+                        self.read_leadjoy(out);
+                    }
                 } else if self.view.section == Section::About {
                     out.push(Command::PlayMedia { url: ["https://store.steampowered.com", "https://steamgriddb.com", "https://igdb.com"][i.min(2)].into() });
                 } else {
                     self.adjust(true, out);
                 }
             }
+            Focus::Lab(i) => self.lab_action(i, out),
             Focus::Theme(i) => {
                 let families = lumatv_tokens::themes::game_catalog();
                 self.prefs.family = if i == 0 { "match-lumatv".into() } else { families.get(i - 1).map_or("rose-pine", |f| f.id).into() };
@@ -1142,6 +1416,104 @@ impl Model {
             Focus::None => {}
         }
     }
+    fn read_gamesir(&mut self, out: &mut Vec<Command>) {
+        if !self.gamesir.pending {
+            self.gamesir.pending = true;
+            self.gamesir.error = None;
+            out.push(Command::GameSir(None));
+        }
+    }
+    fn adjust_gamesir(&mut self, row: usize, right: bool, out: &mut Vec<Command>) -> bool {
+        if self.gamesir.pending { return true; }
+        if row == 0 {
+            self.read_gamesir(out);
+            return true;
+        }
+        if self.gamesir.error.is_some() { return true; }
+        let GameSirState::Ready(profile) = &self.gamesir.state else { return false };
+        let values = &profile.values;
+        let nudge = |value: u8, max| if right { value.saturating_add(1).min(max) } else { value.saturating_sub(1) };
+        let (setting, value, current) = match row {
+            1 => {
+                let rates = [250, 500, 1000];
+                let at = values.report_rate.and_then(|rate| rates.iter().position(|r| *r == rate));
+                let next = at.map_or(0, |at| if right { (at + 1).min(2) } else { at.saturating_sub(1) });
+                ("report-rate", serde_json::json!(rates[next]), serde_json::json!(values.report_rate))
+            }
+            2 => ("rumble-left", serde_json::json!(nudge(values.rumble_left, 4)), serde_json::json!(values.rumble_left)),
+            3 => ("rumble-right", serde_json::json!(nudge(values.rumble_right, 4)), serde_json::json!(values.rumble_right)),
+            4 => ("dpad-diagonal-lock", serde_json::json!(!values.dpad_diagonal_lock), serde_json::json!(values.dpad_diagonal_lock)),
+            5 => ("xinput-abxy-swap", serde_json::json!(!values.xinput_abxy_swap), serde_json::json!(values.xinput_abxy_swap)),
+            6 => ("deadzone-left", serde_json::json!(nudge(values.deadzone_left, 20)), serde_json::json!(values.deadzone_left)),
+            7 => ("deadzone-right", serde_json::json!(nudge(values.deadzone_right, 20)), serde_json::json!(values.deadzone_right)),
+            _ => return false,
+        };
+        if value != current {
+            self.gamesir.pending = true;
+            out.push(Command::GameSir(Some(ControllerChange { setting: setting.into(), value })));
+        }
+        true
+    }
+    fn read_leadjoy(&mut self, out: &mut Vec<Command>) {
+        if !self.leadjoy.pending {
+            self.leadjoy.pending = true;
+            self.leadjoy.error = None;
+            out.push(Command::Leadjoy { view: self.leadjoy.view.clone(), change: None });
+        }
+    }
+    fn adjust_leadjoy(&mut self, row: usize, right: bool, out: &mut Vec<Command>) -> bool {
+        if self.leadjoy.pending { return true; }
+        if row == 0 { self.read_leadjoy(out); return true; }
+        if self.leadjoy.error.is_some() { return true; }
+        let LeadjoyState::Ready(profile) = &self.leadjoy.state else { return false };
+        let Some(field) = profile.schema.fields().nth(row - 1) else { return false };
+        if field.kind == FieldKind::Action {
+            let change = ControllerChange { setting: field.key.clone().into(), value: serde_json::Value::Null };
+            self.leadjoy.pending = true;
+            out.push(Command::Leadjoy { view: profile.view.clone(), change: Some(change) });
+            return true;
+        }
+        let Some(current) = profile.values.get(&field.key) else { return false };
+        if matches!(field.kind, FieldKind::Text { .. }) {
+            let Value::Text(value) = current else { return false };
+            self.view.address = value.clone();
+            self.view.edit_field = Some(row - 1);
+            self.open_sheet(Sheet::EditText, Focus::Keyboard(0));
+            return true;
+        }
+        let next = match (&field.kind, current) {
+            (FieldKind::Number { min, max, step, .. }, Value::Int(v)) => Value::Int(if right { v.saturating_add(*step).min(*max) } else { v.saturating_sub(*step).max(*min) }),
+            (FieldKind::Toggle { .. }, Value::Bool(v)) => Value::Bool(!v),
+            (FieldKind::Choice { options, .. }, Value::Text(v)) => {
+                let Some(at) = options.iter().position(|o| &o.id == v) else { return false };
+                let next = if right { (at + 1).min(options.len() - 1) } else { at.saturating_sub(1) };
+                Value::Text(options[next].id.clone())
+            }
+            _ => return false,
+        };
+        if next != *current && field.kind.check(&next).is_ok() {
+            if let Some(selector) = field.key.strip_prefix("view-") {
+                let Value::Text(value) = next else { return false };
+                let mut view = profile.view.clone();
+                match selector {
+                    "section" => { view.section = value; view.button = 1; }
+                    "profile" => { let Ok(n) = value.parse() else { return false }; view.profile = n; }
+                    "sub" => { let Ok(n) = value.parse() else { return false }; view.sub = n; }
+                    "side" => { let Ok(n) = value.parse() else { return false }; view.side = n; }
+                    "button" => { let Ok(n) = value.parse() else { return false }; view.button = n; }
+                    "action" => { let Ok(n) = value.parse() else { return false }; view.action = n; }
+                    _ => return false,
+                }
+                self.leadjoy.view = view;
+                self.read_leadjoy(out);
+            } else {
+                let change = ControllerChange { setting: field.key.clone().into(), value: serde_json::json!(next) };
+                self.leadjoy.pending = true;
+                out.push(Command::Leadjoy { view: profile.view.clone(), change: Some(change) });
+            }
+        }
+        true
+    }
     fn adjust(&mut self, right: bool, out: &mut Vec<Command>) -> bool {
         if let Focus::EngineField(i) = self.view.focus {
             self.change_engine_field(i, right, out);
@@ -1153,6 +1525,10 @@ impl Model {
         let Focus::Setting(row) = self.view.focus else {
             return false;
         };
+        if self.view.page == Page::GameSir {
+            return self.adjust_gamesir(row, right, out);
+        }
+        if self.view.page == Page::Leadjoy { return self.adjust_leadjoy(row, right, out); }
         if self.view.page == Page::Integration {
             let Some(id) = self.view.selected_engine.clone() else {
                 return false;
@@ -1179,6 +1555,19 @@ impl Model {
             return true;
         }
         let step = |index: usize, len: usize| if right { (index + 1).min(len - 1) } else { index.saturating_sub(1) };
+        if self.view.page == Page::Lab {
+            let nudge = |v: u8, max: u8| if right { (v + 1).min(max) } else { v.saturating_sub(1) };
+            let curves = [Curve::Linear, Curve::Precise, Curve::Quick];
+            match row {
+                0 => self.prefs.deadzone = nudge(self.prefs.deadzone, DEADZONE_MAX),
+                1 => self.prefs.anti_deadzone = nudge(self.prefs.anti_deadzone, ANTI_DEADZONE_MAX),
+                2 => self.prefs.stick_curve = curves[step(curves.iter().position(|c| *c == self.prefs.stick_curve).unwrap_or(0), curves.len())],
+                _ => return false,
+            }
+            self.save_prefs(out);
+            self.push_common(out);
+            return true;
+        }
         match self.view.section {
             Section::Appearance => match row {
                 0 => return false,
@@ -1225,17 +1614,7 @@ impl Model {
         }
         self.save_prefs(out);
         if self.view.section == Section::Streaming {
-            let desired = self.stream_values();
-            for engine in &self.integrations {
-                if let Some(saved) = self.state.engines.get_mut(&engine.manifest.id).filter(|s| s.enabled) {
-                    for (key, value) in &desired {
-                        if engine.schema.check(key, value).is_ok() {
-                            saved.settings.insert(key.clone(), value.clone());
-                        }
-                    }
-                    Self::send(out, &engine.manifest.id, Request::Settings { values: saved.settings.clone() });
-                }
-            }
+            self.push_common(out);
         }
         true
     }
@@ -1243,7 +1622,22 @@ impl Model {
         self.state.profile_mut().ui = self.prefs.json();
         out.push(Command::SaveState);
     }
-    fn stream_values(&self) -> Values {
+    /// Copies the values every engine shares (the stream's shape and the stick settings) into each enabled engine's settings where
+    /// its schema takes them, and sends each its settings.
+    fn push_common(&mut self, out: &mut Vec<Command>) {
+        let desired = self.common_values();
+        for engine in &self.integrations {
+            if let Some(saved) = self.state.engines.get_mut(&engine.manifest.id).filter(|s| s.enabled) {
+                for (key, value) in &desired {
+                    if engine.schema.check(key, value).is_ok() {
+                        saved.settings.insert(key.clone(), value.clone());
+                    }
+                }
+                Self::send(out, &engine.manifest.id, Request::Settings { values: saved.settings.clone() });
+            }
+        }
+    }
+    fn common_values(&self) -> Values {
         Values::from([
             ("width".into(), Value::Int(i64::from(self.prefs.width))),
             ("height".into(), Value::Int(i64::from(self.prefs.height))),
@@ -1251,6 +1645,9 @@ impl Model {
             ("hdr".into(), Value::Bool(self.prefs.hdr)),
             ("bitrate-mbps".into(), Value::Int(i64::from(self.prefs.bitrate_mbps))),
             ("codec".into(), Value::Text(self.prefs.codec.map_or("auto", Codec::as_str).into())),
+            ("deadzone".into(), Value::Int(i64::from(self.prefs.deadzone))),
+            ("anti-deadzone".into(), Value::Int(i64::from(self.prefs.anti_deadzone))),
+            ("stick-curve".into(), Value::Text(self.prefs.stick_curve.name().into())),
         ])
     }
     fn change_engine_field(&mut self, index: usize, right: bool, out: &mut Vec<Command>) {
@@ -1580,6 +1977,20 @@ impl Model {
         }
     }
     fn save_text(&mut self, out: &mut Vec<Command>) {
+        if self.view.page == Page::Leadjoy {
+            if self.leadjoy.pending || self.leadjoy.error.is_some() { return; }
+            let LeadjoyState::Ready(profile) = &self.leadjoy.state else { return };
+            let Some(field) = self.view.edit_field.and_then(|i| profile.schema.fields().nth(i)) else { return };
+            let value = Value::Text(self.view.address.clone());
+            if !matches!(field.kind, FieldKind::Text { .. }) || field.kind.check(&value).is_err() {
+                self.view.notice = Some("The name is too long. Shorten it before saving.".into());
+                return;
+            }
+            out.push(Command::Leadjoy { view: profile.view.clone(), change: Some(ControllerChange { setting: field.key.clone().into(), value: serde_json::json!(value) }) });
+            self.leadjoy.pending = true;
+            self.close_sheet();
+            return;
+        }
         let Some(id) = self.view.selected_engine.clone() else {
             return;
         };
@@ -1612,7 +2023,7 @@ impl Model {
             ipc::Event::Ready { descriptor, schema } => {
                 let first = self.integration(&id).is_some_and(|e| e.descriptor.is_none());
                 if first {
-                    let desired = self.stream_values();
+                    let desired = self.common_values();
                     let saved = self.state.engines.entry(id.clone()).or_default();
                     for field in schema.fields() {
                         if let Some(value) = field.kind.default() {
@@ -1723,7 +2134,24 @@ impl Model {
                     self.key(key, down, out);
                 }
             }
-            ipc::Event::Error { message, .. } => {
+            ipc::Event::RoundTrip { session, trip } => {
+                if self.lab.trip == Trip::Waiting(id.clone()) && self.session.as_ref().is_some_and(|s| s.id == session) {
+                    self.lab.trip = Trip::Answer(id, trip);
+                }
+            }
+            ipc::Event::Error { code, message } => {
+                if self.lab.trip == Trip::Waiting(id.clone()) {
+                    // An engine older than the request answers it as unknown; the lab reads that as "not supported".
+                    if code == ipc::ErrorCode::Unsupported {
+                        self.lab.trip = Trip::Unsupported(id);
+                        // The Measure button goes with the answer, so focus moves to the first stick setting below it.
+                        if self.view.focus == Focus::Lab(4) {
+                            self.view.focus = Focus::Setting(0);
+                        }
+                        return;
+                    }
+                    self.lab.trip = Trip::Idle;
+                }
                 self.pages.retain(|(engine, _), _| *engine != id);
                 self.view.notice = Some(message.clone());
                 if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
@@ -1838,7 +2266,7 @@ impl Model {
             }
         } else {
             match self.view.page {
-                Page::Home | Page::Library | Page::Search | Page::Settings | Page::Integration => rows.push((0..4).map(Focus::Nav).collect()),
+                Page::Home | Page::Library | Page::Search | Page::Settings | Page::Integration | Page::Lab | Page::GameSir | Page::Leadjoy => rows.push((0..4).map(Focus::Nav).collect()),
                 _ => {}
             }
             match self.view.page {
@@ -1897,7 +2325,7 @@ impl Model {
                         Section::Appearance => 6,
                         Section::Streaming => 7,
                         Section::Integrations => self.integrations.len(),
-                        Section::Controllers => 1,
+                        Section::Controllers => 4,
                         Section::About => 3,
                     };
                     for i in 0..count.max(5) {
@@ -1926,6 +2354,28 @@ impl Model {
                 }
                 Page::Overlay => rows.push((0..3).map(Focus::Overlay).collect()),
                 Page::Media => rows.push(vec![Focus::HubTop(0)]),
+                Page::Lab => {
+                    if !self.session_active() {
+                        if self.prefs.text_percent > 100 { rows.extend([vec![Focus::Lab(0), Focus::Lab(1)], vec![Focus::Lab(2), Focus::Lab(3)]]); } else { rows.push((0..4).map(Focus::Lab).collect()); }
+                        if self.lab.pad().is_some() {
+                            rows.extend((5..8).map(|i| vec![Focus::Lab(i)]));
+                        }
+                    } else if self.round_trip_engine().is_some() && !matches!(self.lab.trip, Trip::Unsupported(_)) {
+                        rows.push(vec![Focus::Lab(4)]);
+                        if matches!(self.lab.trip, Trip::Answer(..)) {
+                            rows.extend((8..13).map(|i| vec![Focus::Lab(i)]));
+                        }
+                    }
+                    rows.extend((0..3).map(|i| vec![Focus::Setting(i)]));
+                }
+                Page::GameSir => {
+                    let count = if matches!(self.gamesir.state, GameSirState::Ready(_)) { 8 } else { 1 };
+                    rows.extend((0..count).map(|i| vec![Focus::Setting(i)]));
+                }
+                Page::Leadjoy => {
+                    let count = if let LeadjoyState::Ready(profile) = &self.leadjoy.state { profile.schema.fields().count() + 1 } else { 1 };
+                    rows.extend((0..count).map(|i| vec![Focus::Setting(i)]));
+                }
                 Page::Running | Page::Launch => {}
             }
         }
@@ -2164,6 +2614,248 @@ pub(crate) mod tests {
         let cancelled = AuthState::Failed { reason: ipc::AuthFail::Cancelled, message: "Link cancelled.".into() };
         m.step(Input::Engine { engine: id, message: FromEngine { re: None, event: ipc::Event::Auth { state: cancelled } } });
         assert_eq!(m.view.sheet, Some(Sheet::AddHost), "the answer to the cancel leaves the address entry open");
+    }
+
+    mod lab_tests {
+        use super::*;
+
+        fn lab() -> Model {
+            let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud)]);
+            m.view.page = Page::Settings;
+            m.view.section = Section::Controllers;
+            m.view.focus = Focus::Setting(0);
+            key(&mut m, Key::Ok);
+            m
+        }
+        fn reports(m: &mut Model, now_ns: u64, frame: u64, reports: Vec<(u8, RawReport)>) {
+            m.step(Input::Lab { now_ns, frame, reports, names: [Some("Cyclone 2".into()), None, None, None] });
+        }
+        fn report(kernel_ns: u64, buttons: u16) -> (u8, RawReport) {
+            (0, RawReport { kernel_ns, read_ns: kernel_ns + 100, buttons, ..Default::default() })
+        }
+        fn session(m: &mut Model, features: &[Feature]) {
+            describe(m, "gfn", vec![], features);
+            m.session = Some(Session::start(SessionId(1), GameId(1), "gfn|main|1".parse().unwrap(), Presentation::Feeder, false, 0).0);
+            m.rebuild_navigation();
+        }
+
+        #[test]
+        fn controllers_open_the_lab_and_back_returns_to_the_same_row() {
+            let mut m = lab();
+            assert_eq!((m.view.page, m.view.focus, m.pad_mode()), (Page::Lab, Focus::Lab(0), PadMode::Lab));
+            key(&mut m, Key::Back);
+            assert_eq!((m.view.page, m.view.section, m.view.focus), (Page::Settings, Section::Controllers, Focus::Setting(0)));
+            m.view.focus = Focus::Setting(1);
+            assert!(key(&mut m, Key::Ok).contains(&Command::OpenControllerSettings));
+        }
+
+        #[test]
+        fn capture_ignores_keys_and_remote_back_exits_on_release() {
+            let mut m = lab();
+            key(&mut m, Key::Ok);
+            assert_eq!(m.pad_mode(), PadMode::Captured);
+            let focus = m.view.focus;
+            for k in [Key::Up, Key::Right, Key::Ok, Key::Guide] { key(&mut m, k); }
+            assert_eq!(m.view.focus, focus);
+            assert_eq!(m.lab.capture, Some(Capture::Buttons));
+            m.step(Input::Key { key: Key::Back, down: true });
+            assert_eq!(m.pad_mode(), PadMode::Captured);
+            m.step(Input::Key { key: Key::Back, down: false });
+            assert_eq!(m.pad_mode(), PadMode::Lab);
+            m.view.sheet = Some(Sheet::Theme);
+            assert_eq!(m.pad_mode(), PadMode::Menu);
+            m.view.sheet = None;
+            m.step(Input::Foreground(false));
+            assert_eq!(m.pad_mode(), PadMode::Menu);
+        }
+
+        #[test]
+        fn b_hold_exits_at_one_second_without_another_report() {
+            let mut m = lab();
+            key(&mut m, Key::Ok);
+            reports(&mut m, 10, 1, vec![report(10, button::B)]);
+            reports(&mut m, 10 + LEAVE_HOLD_NS - 1, 2, vec![]);
+            assert_eq!(m.lab.capture, Some(Capture::Buttons));
+            reports(&mut m, 10 + LEAVE_HOLD_NS, 3, vec![]);
+            assert_eq!(m.lab.capture, None);
+        }
+
+        #[test]
+        fn flash_uses_the_kernel_edge_and_survives_a_batched_release_for_one_frame() {
+            let mut m = lab();
+            m.view.focus = Focus::Lab(3);
+            key(&mut m, Key::Ok);
+            reports(&mut m, 20, 7, vec![report(10, button::A), report(15, 0)]);
+            assert_eq!(m.flash_press(), Some((10, 7)));
+            reports(&mut m, 21, 7, vec![]);
+            assert_eq!(m.flash_press(), Some((10, 7)), "no buffer swap yet");
+            reports(&mut m, 22, 8, vec![]);
+            assert_eq!(m.flash_press(), None);
+            reports(&mut m, 30, 9, vec![report(25, button::X)]);
+            assert_eq!(m.flash_press(), Some((25, 9)));
+            reports(&mut m, 40, 10, vec![report(35, 0)]);
+            assert_eq!(m.flash_press(), None);
+        }
+
+        #[test]
+        fn rumble_tests_target_connected_pads_and_the_selected_motor() {
+            let mut m = lab();
+            reports(&mut m, 1, 1, vec![]);
+            m.view.focus = Focus::Lab(1);
+            assert!(key(&mut m, Key::Ok).contains(&Command::Rumble { slot: 0, low: 0xc000, high: 0 }));
+            m.view.focus = Focus::Lab(2);
+            assert!(key(&mut m, Key::Ok).contains(&Command::Rumble { slot: 0, low: 0, high: 0xc000 }));
+        }
+
+        #[test]
+        fn stick_choices_are_saved_and_sent_only_under_the_common_keys() {
+            let mut m = lab();
+            describe(&mut m, "gfn", vec![], &[]);
+            m.integrations[0].schema = serde_json::from_value(serde_json::json!({"sections":[{"title":"Sticks","fields":[
+                {"key":"deadzone","label":"Dead zone","type":"number","min":0,"max":20,"step":1,"default":8},
+                {"key":"anti-deadzone","label":"Anti-deadzone","type":"number","min":0,"max":30,"step":1,"default":0},
+                {"key":"stick-curve","label":"Curve","type":"choice","options":[{"id":"linear","label":"Linear"},{"id":"precise","label":"Precise"},{"id":"quick","label":"Quick"}],"default":"linear"}
+            ]}]})).unwrap();
+            for row in 0..3 {
+                m.view.focus = Focus::Setting(row);
+                let commands = m.step(Input::Key { key: Key::Right, down: true });
+                assert!(commands.contains(&Command::SaveState));
+                let Request::Settings { values } = sent(&commands)[0] else { panic!("settings command") };
+                assert_eq!(values.len(), 3);
+            }
+            assert_eq!((m.prefs.deadzone, m.prefs.anti_deadzone, m.prefs.stick_curve), (9, 1, Curve::Precise));
+            assert_eq!(Preferences::read(&m.state.profile().ui), m.prefs);
+            let values = &m.state.engines[&EngineId::new("gfn").unwrap()].settings;
+            assert_eq!(values["deadzone"], Value::Int(9));
+            assert_eq!(values["anti-deadzone"], Value::Int(1));
+            assert_eq!(values["stick-curve"], Value::Text("precise".into()));
+        }
+
+        #[test]
+        fn round_trip_is_additive_and_old_engines_have_no_measure_action() {
+            let mut m = lab();
+            session(&mut m, &[]);
+            assert_eq!(m.pad_mode(), PadMode::Menu);
+            assert_eq!(m.round_trip_engine(), None);
+            assert!(!m.navigation.iter().any(|n| n.id == Focus::Lab(4)));
+            let mut out = Vec::new();
+            m.lab_action(4, &mut out);
+            assert!(out.is_empty());
+            session(&mut m, &[Feature::RoundTrip]);
+            m.view.focus = Focus::Lab(4);
+            let commands = key(&mut m, Key::Ok);
+            assert!(matches!(sent(&commands).as_slice(), [Request::RoundTrip { session: SessionId(1) }]));
+            let engine = EngineId::new("gfn").unwrap();
+            let trip = ipc::RoundTrip { network_ms: Some(12.5), ..Default::default() };
+            m.step(Input::Engine { engine: engine.clone(), message: FromEngine { re: None, event: ipc::Event::RoundTrip { session: SessionId(1), trip: trip.clone() } } });
+            assert_eq!(m.lab.trip, Trip::Answer(engine.clone(), trip));
+            key(&mut m, Key::Ok);
+            m.step(Input::Engine { engine: engine.clone(), message: FromEngine { re: None, event: ipc::Event::Error { code: ipc::ErrorCode::Unsupported, message: "unknown request".into() } } });
+            assert_eq!(m.lab.trip, Trip::Unsupported(engine));
+            assert_eq!(m.view.notice, None);
+            assert_eq!(m.view.focus, Focus::Setting(0));
+            assert!(!m.navigation.iter().any(|n| n.id == Focus::Lab(4)));
+        }
+
+        #[test]
+        fn gamesir_waits_for_readback_and_keeps_last_confirmed_values_on_error() {
+            let mut m = lab();
+            key(&mut m, Key::Back);
+            m.view.focus = Focus::Setting(2);
+            assert!(key(&mut m, Key::Ok).contains(&Command::GameSir(None)));
+            assert_eq!(m.view.page, Page::GameSir);
+            assert!(m.gamesir.pending);
+            let ready = crate::game::helper::gamesir_fixture();
+            m.step(Input::GameSir(Ok(ready.clone())));
+            m.view.focus = Focus::Setting(1);
+            let commands = m.step(Input::Key { key: Key::Right, down: true });
+            assert!(commands.contains(&Command::GameSir(Some(ControllerChange { setting: "report-rate".into(), value: serde_json::json!(1000) }))));
+            assert_eq!(m.gamesir.state, ready, "no optimistic hardware value");
+            assert!(m.step(Input::Key { key: Key::Right, down: true }).is_empty(), "one request in flight");
+            m.step(Input::GameSir(Err("Read-back did not match".into())));
+            assert_eq!(m.gamesir.state, ready);
+            assert!(!m.gamesir.pending);
+            assert_eq!(m.view.focus, Focus::Setting(0), "the error is visible beside Refresh");
+            m.view.focus = Focus::Setting(1);
+            assert!(m.step(Input::Key { key: Key::Right, down: true }).is_empty(), "refresh is required after a failed write");
+            m.view.focus = Focus::Setting(0);
+            assert!(key(&mut m, Key::Ok).contains(&Command::GameSir(None)));
+            m.step(Input::GameSir(Ok(GameSirState::Mode { device: "Wireless Controller".into() })));
+            assert!(!m.navigation.iter().any(|n| n.id == Focus::Setting(1)));
+            m.step(Input::GameSir(Ok(GameSirState::Off)));
+            assert_eq!(m.gamesir.state, GameSirState::Off);
+            key(&mut m, Key::Back);
+            assert_eq!((m.view.page, m.view.focus), (Page::Settings, Focus::Setting(2)));
+        }
+
+        #[test]
+        fn leadjoy_edits_wait_for_readback_and_keep_refresh_available() {
+            let mut m = lab();
+            key(&mut m, Key::Back);
+            m.view.focus = Focus::Setting(3);
+            assert!(key(&mut m, Key::Ok).contains(&Command::Leadjoy { view: LeadjoyView::default(), change: None }));
+            assert_eq!(m.view.page, Page::Leadjoy);
+            let ready = crate::game::helper::leadjoy_fixture("general");
+            m.step(Input::Leadjoy(Ok(ready.clone())));
+            m.view.focus = Focus::Setting(4);
+            assert!(m.step(Input::Key { key: Key::Left, down: true }).is_empty(), "the green channel is already zero");
+            m.view.focus = Focus::Setting(2);
+            assert!(m.step(Input::Key { key: Key::Right, down: true }).contains(&Command::Leadjoy { view: LeadjoyView::default(), change: Some(ControllerChange {
+                setting: "logo-brightness".into(), value: serde_json::json!(81),
+            }) }));
+            assert_eq!(m.leadjoy.state, ready);
+            assert!(m.step(Input::Key { key: Key::Right, down: true }).is_empty());
+            m.step(Input::Leadjoy(Err("Read-back did not match".into())));
+            assert_eq!(m.leadjoy.state, ready);
+            assert_eq!(m.view.focus, Focus::Setting(0));
+            assert!(key(&mut m, Key::Ok).contains(&Command::Leadjoy { view: LeadjoyView::default(), change: None }));
+            m.step(Input::Leadjoy(Ok(LeadjoyState::Unsupported { device: "Other".into(), firmware: "1".into() })));
+            assert!(!m.navigation.iter().any(|n| n.id == Focus::Setting(1)));
+            m.step(Input::Leadjoy(Ok(LeadjoyState::Off)));
+            assert!(!m.leadjoy.pending);
+            key(&mut m, Key::Back);
+            assert_eq!((m.view.page, m.view.focus), (Page::Settings, Focus::Setting(3)));
+        }
+
+        #[test]
+        fn leadjoy_selectors_reread_while_names_and_actions_go_to_the_helper() {
+            use crate::game::helper::leadjoy_fixture;
+            let mut m = lab();
+            key(&mut m, Key::Back);
+            m.view.focus = Focus::Setting(3);
+            key(&mut m, Key::Ok);
+            m.step(Input::Leadjoy(Ok(leadjoy_fixture("general"))));
+            m.view.focus = Focus::Setting(1);
+            let profiles = LeadjoyView { section: "profiles".into(), ..LeadjoyView::default() };
+            assert!(m.step(Input::Key { key: Key::Right, down: true }).contains(&Command::Leadjoy { view: profiles.clone(), change: None }));
+            m.step(Input::Leadjoy(Ok(leadjoy_fixture("profiles"))));
+            m.view.focus = Focus::Setting(3);
+            assert!(key(&mut m, Key::Ok).is_empty());
+            assert_eq!((m.view.sheet, m.view.address.as_str()), (Some(Sheet::EditText), "Default"));
+            m.view.address = "Racing".into();
+            m.view.focus = Focus::SheetAction(0);
+            let rename = ControllerChange { setting: "profile-name".into(), value: serde_json::json!("Racing") };
+            assert!(key(&mut m, Key::Ok).contains(&Command::Leadjoy { view: profiles.clone(), change: Some(rename) }));
+            assert_eq!(m.view.sheet, None);
+            m.step(Input::Leadjoy(Ok(leadjoy_fixture("profiles"))));
+            m.view.focus = Focus::Setting(4);
+            let activate = ControllerChange { setting: "profile-activate".into(), value: serde_json::Value::Null };
+            assert!(key(&mut m, Key::Ok).contains(&Command::Leadjoy { view: profiles, change: Some(activate) }));
+        }
+
+        #[test]
+        fn lab_navigation_reaches_every_reading_without_sending_commands() {
+            let mut m = lab();
+            reports(&mut m, 1_000_000_000, 1, vec![report(1_000_000_000, 0)]);
+            m.prefs.text_percent = 200;
+            m.view.focus = Focus::Lab(2);
+            m.rebuild_navigation();
+            for expected in [Focus::Lab(5), Focus::Lab(6), Focus::Lab(7), Focus::Setting(0)] {
+                key(&mut m, Key::Down);
+                assert_eq!(m.view.focus, expected);
+                if matches!(expected, Focus::Lab(_)) { assert!(key(&mut m, Key::Ok).is_empty()); }
+            }
+        }
     }
 }
 

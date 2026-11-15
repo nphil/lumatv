@@ -1,6 +1,6 @@
 # Gaming
 
-First-party plugin, **off by default**. Enabling Gaming permits temporary picture controls and controller-reader scheduling for `org.nphil.lumagame` and the legacy `org.nphil.lumatv.gfn`. The app continues without the plugin; NDL's game-mode load already applies low delay, so these controls are expected to be redundant.
+First-party plugin, **off by default**. Enabling Gaming permits temporary picture controls, controller-reader scheduling and supported controllers' persistent settings for `org.nphil.lumagame` and the legacy `org.nphil.lumatv.gfn`. The app continues without the plugin; NDL's game-mode load already applies low delay, so the display controls are expected to be redundant.
 
 ## Display lease
 
@@ -29,5 +29,33 @@ On the TV (2026-11-15, helper `43e74d46`) the MEMC low delay and Motion Pro roun
 ## Controller readers
 
 `POST /v1/gaming/pad-boost {pid,tid}` and `POST /v1/gaming/pad-unboost {pid,tid}` retain the existing policy: at most four `gfn-pad-event*` threads, non-root gaming app ancestry, FIFO priority 10 with reset-on-fork, online CPUs 1–3 when CPU 1 is available, and a 90-second renewal deadline. `GET /v1/gaming/pad-boost` lists them. Scheduling and CPU affinity are saved and restored; the plugin's watcher sweeps only while a lease or boost is active. The legacy `/v1/gfn/pad-*` routes use the same table and plugin gate until app cutover.
+
+## GameSir settings
+
+`GET /v1/gaming/gamesir` discovers a Cyclone 2 configuration interface and reads firmware, active profile and settings.
+Its `state` is `ready`, `mode` (a controller without the configuration interface), or `missing`. Plugin-off and standby refuse
+the request before discovery. `POST /v1/gaming/gamesir` accepts only `{setting,value}`: `report-rate` (250/500/1000),
+`rumble-left` / `rumble-right` (0–4), `dpad-diagonal-lock` / `xinput-abxy-swap` (boolean), and `deadzone-left` /
+`deadzone-right` (inner stick dead zone, 0–20%). Paths, driver IDs and firmware operations are not accepted.
+
+Writes read the active profile first, preserve unrelated bytes and require matching read-back. Success returns the confirmed
+profile with `verified:true` and `check.state:"match"`; a mismatch returns HTTP 409 with byte offset, wanted and found values.
+One HID request runs at a time, outside the display lease lock. Each output report rechecks the plugin and screen gate.
+Controller settings remain stored after Gaming is disabled; expanded consent names that persistence. Hardware access and
+read-back still need TV acceptance.
+
+## Leadjoy settings
+
+`GET /v1/gaming/leadjoy` accepts `section`, `profile`, `sub`, `side`, `button` and `action` selectors. Defaults are
+`general,1,0,0,1,0`; sections are `general`, `profiles`, `buttons`, `sticks`, `curves`, `directions`, `triggers`, `rumble`.
+The response supplies the native settings schema, confirmed values and selected view. Profile count comes from the device.
+`POST` accepts `{view:{section,profile,sub,side,button,action},setting,value}`; settings and ranges are fixed by that section's
+schema, not arbitrary commands or paths. Selectors are read-only; `profile-activate` is a separate explicit action.
+
+Discovery matches USB `4131:3519/8008`, the exact FF80 vendor descriptor, product `Xeno` and valid c190 lighting. Unknown
+products are read-only. Each write rereads the complete configuration object, preserves unrelated fields and demands an ACK
+plus matching read-back; writes are never retried. Plugin/screen gates are checked before discovery and every report transfer.
+Logo lighting uses one RGB triplet and brightness. Hidden c191/c192 effects, firmware operations and settings without complete
+vendor contracts are not exposed. Read-back confirms application, not flash persistence or physical behaviour.
 
 Needs TV: corrected DE discovery; DE status provenance versus the kernel cache; visible effect of every set; lifecycle restoration paths; same-boot helper-crash replay; pidfd support in the TV kernel; app-jail access to loopback; controller scheduling effect; physical latency comparison. No TV acceptance or speed improvement is claimed. The detailed qualification contract is [Gaming display features, section 1](../lumagame-gaming-features.md#1-allm--low-latency-partly-measured).

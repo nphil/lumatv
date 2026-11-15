@@ -102,6 +102,8 @@ word_enum! {
         EndGame => "end-game",
         /// Reports stream measurements while playing.
         Stats => "stats",
+        /// Answers `round-trip` with the legs of a control's trip it can time.
+        RoundTrip => "round-trip",
         /// Hands controller keys to the app while the app's overlay holds the input.
         OverlayKeys => "overlay-keys",
         Rumble => "rumble",

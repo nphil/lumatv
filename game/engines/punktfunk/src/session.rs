@@ -1,16 +1,16 @@
 #[cfg(test)]
 mod feeder_tests;
 use anyhow::{Context, Result, bail, ensure};
-use lumagame_core::{engine::Codec, ids::{ProviderGameId, SessionId}, ipc::{EndReason, Event, FailReason, FromEngine, Hello, SessionState, Stats, StreamInfo}};
+use lumagame_core::{engine::Codec, ids::{ProviderGameId, SessionId}, ipc::{EndReason, Event, FailReason, FromEngine, Hello, RoundTrip, SessionState, Stats, StreamInfo}};
 use lumagame_feeder::{FeederClient, FeederMessage, Hdr, Load, audio, msg, pts_unit};
-use lumatv_gfn_pad::{PadConfig, PadRuntime};
+use lumatv_gfn_pad::PadRuntime;
 use punktfunk_core::{client::NativeClient, packet::{FLAG_SOF,USER_FLAG_RECOVERY_ANCHOR}, quic, PunktfunkError};
 use std::{path::Path, sync::{Arc, Mutex, atomic::{AtomicBool,AtomicU64,Ordering}, mpsc::Sender}, thread, time::{Duration,Instant}};
 use crate::{Notice, input::Pads, library::{Library,DESKTOP}, settings, store::Host};
 pub mod stage;
 
 #[derive(Default)]
-pub struct Control { pub stop:Arc<AtomicBool>, pub end_game:AtomicBool, pub app:AtomicBool, pub stats:AtomicBool }
+pub struct Control { pub stop:Arc<AtomicBool>, pub end_game:AtomicBool, pub app:AtomicBool, pub stats:AtomicBool, pub trip:Mutex<RoundTrip> }
 #[derive(Default)]
 struct Player { loaded:AtomicBool, accepted:AtomicU64, dropped:AtomicU64, keyframe:AtomicBool, fatal:Mutex<Option<String>> }
 impl Player {
@@ -102,7 +102,7 @@ fn media(id:SessionId,client:Arc<NativeClient>,hello:&Hello,control:&Arc<Control
         }
     }).map_err(|e|video(e.into()))?;
     let pads=Arc::new(Pads::new(Arc::clone(&client),id,out.clone()));
-    let pad_runtime=PadRuntime::start(PadConfig::default(),pads.clone());
+    let pad_runtime=PadRuntime::start(settings::pad_config(&hello.settings),pads.clone());
     pad_runtime.set_grab(true);
     let result=video_loop(id,&client,&feeder,&player,control,out,&pads,&pad_runtime,info,smooth,hdr);
     pads.route(true);
@@ -173,6 +173,7 @@ fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,play
                 bitrate_kbps:Some((bytes as f64*8.0/f64::from(seconds)/1000.0) as u32),fps:Some(frames as f32/seconds),
                 dropped:Some(client.frames_dropped()+player.dropped.load(Ordering::Relaxed)),
                 client_ms:(timings>0).then(||client_us as f32/timings as f32/1000.0),host_ms:host_us.map(|u|u as f32/1000.0)};
+            *control.trip.lock().unwrap()=trip(&snapshot,&network,pads.presses());
             let _=out.send(Notice::Emit(FromEngine::told(Event::Stats {session:id,stats:snapshot})));
             since=Instant::now();frames=0;bytes=0;client_us=0;timings=0;
         }
@@ -219,6 +220,15 @@ fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,play
             if (0..10_000_000_000).contains(&elapsed) {client_us+=elapsed as u64/1000;timings+=1;}
         }
     }
+}
+/// What `round-trip` answers from this second's measurements. Capture to arrival needs the host's clock offset; without one the
+/// figure would compare two unrelated clocks.
+fn trip(stats:&Stats,network:&punktfunk_core::hud::StatsSnapshot,presses:Option<(u32,u32,u32)>)->RoundTrip {
+    let ms=|us:u32| us as f32/1000.0;
+    let arrival=(network.host_net.is_measured() && !network.same_host_clock).then_some(&network.host_net);
+    RoundTrip {presses:presses.map(|p|p.0),press_p50_ms:presses.map(|p|ms(p.1)),press_p99_ms:presses.map(|p|ms(p.2)),
+        network_ms:stats.rtt_ms,host_ms:stats.host_ms,arrival_p50_ms:arrival.map(|a|ms(a.p50_us)),arrival_p95_ms:arrival.map(|a|ms(a.p95_us)),
+        client_ms:stats.client_ms}
 }
 fn codec_bit(codec:Codec)->u8 {match codec {Codec::H264=>1,Codec::H265=>2,Codec::Av1=>4,_=>0}}
 fn stream_info(client:&NativeClient,format:quic::VideoFormat)->Result<StreamInfo> {

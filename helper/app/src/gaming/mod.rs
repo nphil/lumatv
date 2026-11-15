@@ -25,7 +25,7 @@ use std::time::Instant;
 pub const ID: &str = "gaming";
 pub const OPT_IN: OptIn = OptIn {
     spec: Spec { id: ID, name: "Gaming", version: "1", permissions: &[] },
-    consent: "Allows the gaming apps to temporarily use qualified low-latency picture controls and give their controller readers real-time priority. Original picture and thread settings are restored when a session ends, the app exits, the lease expires, the TV enters standby or this plugin is switched off. Display controls remain unavailable until qualified on this TV.",
+    consent: "Allows the gaming apps to temporarily use qualified low-latency picture controls, give their controller readers real-time priority, and read and save supported controllers' settings. Original picture and thread settings are restored when a session ends, the app exits, the lease expires, the TV enters standby or this plugin is switched off. Controller settings remain saved on the controller. Display controls remain unavailable until qualified on this TV.",
 };
 
 pub const ROUTES: &[(&str, &str, &str)] = &[
@@ -199,6 +199,12 @@ pub fn with_enabled(hub: &Arc<Hub>, request: &Request, handler: impl FnOnce() ->
     response
 }
 
+/// Slow controller exchanges must not hold the display lease's restoration lock.
+pub(crate) fn check_enabled(hub: &Arc<Hub>, request: &Request) -> Result<(), Response> {
+    let Some(gaming) = instance(hub) else { return Err(error_response(403, "plugin_off", "The Gaming plugin is off: switch it on in Settings")); };
+    gate(&gaming.state.lock(), hub, request)
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Acquire {
@@ -230,6 +236,8 @@ fn receipt(value: &Option<String>) -> bool {
 
 pub fn handle(hub: &Arc<Hub>, request: &Request, rest: &[&str]) -> Response {
     if matches!(rest, ["pad-boost" | "pad-unboost"]) { return crate::gfn_boost::handle(hub, request, rest); }
+    if rest == ["gamesir"] { return crate::gamesir::handle(hub, request); }
+    if rest == ["leadjoy"] { return crate::leadjoy::handle(hub, request); }
     let allow = match rest {
         ["status"] => "GET",
         ["lease"] => "POST, DELETE",

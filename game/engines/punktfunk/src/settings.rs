@@ -1,16 +1,17 @@
 use anyhow::{Result, ensure};
 use lumagame_core::{engine::{AuthMethod, Capabilities, Codec, Descriptor, EngineKind, Feature, Presentation, TargetKind, VideoCaps}, ids::EngineId, ipc::Display, settings::{SettingsSchema, Value, Values}};
+use lumatv_gfn_pad::{Curve, PadConfig};
 use punktfunk_core::{client::ConnectParams, config::Mode, quic};
 use std::{collections::BTreeSet, time::Duration};
 
 pub fn descriptor() -> Descriptor {
     Descriptor { id: EngineId::new("punktfunk").unwrap(), version: env!("CARGO_PKG_VERSION").into(), capabilities: Capabilities {
         kind: EngineKind::Host, targets: TargetKind::Host, auth: vec![AuthMethod::EnterPin], presentation: Presentation::Feeder,
-        features: BTreeSet::from([Feature::Discovery, Feature::ManualHost, Feature::Wake, Feature::ManyTargets, Feature::Readiness, Feature::Resume, Feature::EndGame, Feature::Stats, Feature::OverlayKeys, Feature::Rumble]),
+        features: BTreeSet::from([Feature::Discovery, Feature::ManualHost, Feature::Wake, Feature::ManyTargets, Feature::Readiness, Feature::Resume, Feature::EndGame, Feature::Stats, Feature::RoundTrip, Feature::OverlayKeys, Feature::Rumble]),
         video: Some(VideoCaps { codecs: vec![Codec::H264,Codec::H265,Codec::Av1], width:3840,height:2160,fps:120,hdr10:true }),
     }}
 }
-/// The stream fields use the keys of LumaGame's Streaming settings, so the app's common values apply to this engine.
+/// The stream and stick fields use the keys of LumaGame's common settings, so the app's values apply to this engine.
 pub fn schema() -> SettingsSchema {
     serde_json::from_str(r#"{"sections":[{"title":"Stream","fields":[
         {"key":"width","label":"Width","type":"number","min":1280,"max":3840,"step":640,"unit":"px","default":3840},
@@ -21,7 +22,18 @@ pub fn schema() -> SettingsSchema {
         {"key":"bitrate-mbps","label":"Bitrate","type":"number","min":5,"max":200,"step":5,"unit":"Mb/s","default":50},
         {"key":"pacing","label":"Presentation","type":"choice","options":[{"id":"latency","label":"Lowest latency"},{"id":"smooth","label":"Smoothness (two frames)"}],"default":"latency"},
         {"key":"rescan","label":"Find PCs again","type":"action"}
+    ]},{"title":"Controller","fields":[
+        {"key":"deadzone","label":"Stick dead zone","type":"number","min":0,"max":20,"step":1,"unit":"%","default":8},
+        {"key":"anti-deadzone","label":"Stick anti-deadzone","type":"number","min":0,"max":30,"step":1,"unit":"%","default":0},
+        {"key":"stick-curve","label":"Stick response","type":"choice","options":[{"id":"linear","label":"Linear"},{"id":"precise","label":"Precise"},{"id":"quick","label":"Quick"}],"default":"linear"}
     ]}]}"#).expect("static schema")
+}
+/// The pads shaped as the settings say: the pad crate applies the sticks' settings before a report goes to the host.
+pub fn pad_config(values: &Values) -> PadConfig {
+    let values = schema().resolve(values);
+    let percent = |key| u8::try_from(number(&values,key)).expect("schema range");
+    PadConfig { deadzone_percent:percent("deadzone"), anti_deadzone_percent:percent("anti-deadzone"),
+        curve:Curve::from_name(text(&values,"stick-curve")).expect("schema choice"), ..PadConfig::default() }
 }
 pub fn text<'a>(v: &'a Values, key: &str) -> &'a str {
     match &v[key] { Value::Text(s) => s, _ => unreachable!("resolved schema") }
@@ -81,5 +93,13 @@ pub fn params(display: &Display, values: &Values, host: &str, port: u16) -> Resu
         assert!(params(&display,&av1,"pc",9777).is_err());
         av1.insert("fps".into(),Value::Int(60));
         assert_eq!(params(&display,&av1,"pc",9777).unwrap().preferred_codec, quic::CODEC_AV1);
+    }
+    #[test] fn the_apps_stick_values_shape_the_pads() {
+        let sticks = Values::from([("deadzone".into(),Value::Int(3)),("anti-deadzone".into(),Value::Int(10)),("stick-curve".into(),Value::Text("precise".into()))]);
+        for (key,value) in &sticks { assert_eq!(schema().check(key,value),Ok(()),"{key}"); }
+        let c = pad_config(&sticks);
+        assert_eq!((c.deadzone_percent,c.anti_deadzone_percent,c.curve),(3,10,Curve::Precise));
+        let d = pad_config(&Values::new());
+        assert_eq!((d.deadzone_percent,d.anti_deadzone_percent,d.curve),(8,0,Curve::Linear),"the pad crate's own defaults");
     }
 }

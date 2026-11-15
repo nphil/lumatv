@@ -173,6 +173,11 @@ impl Engine {
             }
             Request::Route {session,input}=>{let p=self.play.as_ref().filter(|p|p.id==session).context("There is no matching session.")?;p.control.app.store(input!=InputRoute::Game,Ordering::Release);}
             Request::Stats {session,on}=>{let p=self.play.as_ref().filter(|p|p.id==session).context("There is no matching session.")?;p.control.stats.store(on,Ordering::Release);}
+            Request::RoundTrip {session}=>{
+                let p=self.play.as_ref().filter(|p|p.id==session).context("There is no matching session.")?;
+                let trip=p.control.trip.lock().unwrap().clone();
+                self.reply(seq,Event::RoundTrip {session,trip});
+            }
             Request::Action {key} if key=="rescan"=>{
                 if self.discovery.is_none(){self.discovery=discovery::try_browse();}
                 if let Some((_,r))=&self.discovery{r.request();}
@@ -283,5 +288,13 @@ impl Engine {
         assert!(events.try_iter().any(|n|matches!(n,Notice::Emit(FromEngine {re:Some(2),event:Event::Session {session:SessionId(2),state:SessionState::Failed {reason:FailReason::Busy,..}}}))));
         e.request(ToEngine {seq:3,request:Request::Stop {session:SessionId(1),end_game:false}}).unwrap();
         assert!(e.play.is_none() && e.link.is_none());
+    }
+    #[test] fn round_trip_answers_from_the_sessions_latest_legs() {
+        let (_dir,mut e,events)=engine();let target=e.store.manual("192.0.2.1").unwrap();
+        e.request(ToEngine {seq:1,request:Request::Launch {session:SessionId(1),target,game:ProviderGameId::new("steam:570").unwrap()}}).unwrap();
+        *e.play.as_ref().unwrap().control.trip.lock().unwrap()=ipc::RoundTrip {network_ms:Some(3.5),..ipc::RoundTrip::default()};
+        e.request(ToEngine {seq:2,request:Request::RoundTrip {session:SessionId(1)}}).unwrap();
+        assert!(events.try_iter().any(|n|matches!(n,Notice::Emit(FromEngine {re:Some(2),event:Event::RoundTrip {trip,..}}) if trip.network_ms==Some(3.5))));
+        assert!(e.request(ToEngine {seq:3,request:Request::RoundTrip {session:SessionId(9)}}).is_err());
     }
 }

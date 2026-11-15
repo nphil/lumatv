@@ -9,6 +9,124 @@ use std::time::Duration;
 const RENEW_MS: u64 = 2_000;
 const TIMEOUT: Duration = Duration::from_millis(500);
 
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum GameSirState {
+    #[default]
+    Idle,
+    Off,
+    Missing,
+    Mode { device: String },
+    Ready(GameSirProfile),
+}
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+pub struct GameSirProfile {
+    pub device: String,
+    pub firmware: String,
+    pub receiver: String,
+    pub profile: u8,
+    pub profile_name: String,
+    pub verified: bool,
+    pub values: GameSirValues,
+}
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+pub struct GameSirValues {
+    pub report_rate: Option<u16>,
+    pub rumble_left: u8,
+    pub rumble_right: u8,
+    pub dpad_diagonal_lock: bool,
+    pub xinput_abxy_swap: bool,
+    pub deadzone_left: u8,
+    pub deadzone_right: u8,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct ControllerChange { pub setting: std::borrow::Cow<'static, str>, pub value: Value }
+#[derive(Clone, Debug, Default)]
+pub struct GameSir {
+    pub state: GameSirState,
+    pub pending: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum LeadjoyState {
+    #[default]
+    Idle,
+    Off,
+    Missing,
+    Unsupported { device: String, firmware: String },
+    Ready(LeadjoyProfile),
+}
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+pub struct LeadjoyProfile {
+    pub device: String,
+    pub firmware: String,
+    pub verified: bool,
+    pub view: LeadjoyView,
+    pub schema: lumagame_core::settings::SettingsSchema,
+    pub values: lumagame_core::settings::Values,
+}
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LeadjoyView {
+    pub section: String,
+    pub profile: u8,
+    pub sub: u8,
+    pub side: u8,
+    pub button: u8,
+    pub action: u8,
+}
+impl Default for LeadjoyView {
+    fn default() -> Self { Self { section: "general".into(), profile: 1, sub: 0, side: 0, button: 1, action: 0 } }
+}
+#[derive(Clone, Debug, Default)]
+pub struct Leadjoy { pub state: LeadjoyState, pub view: LeadjoyView, pub pending: bool, pub error: Option<String> }
+pub enum ControllerRequest {
+    GameSir(Option<ControllerChange>),
+    Leadjoy { view: LeadjoyView, change: Option<ControllerChange> },
+}
+pub enum ControllerReply { GameSir(Result<GameSirState, String>), Leadjoy(Result<LeadjoyState, String>) }
+pub struct ControllerClient {
+    jobs: SyncSender<ControllerRequest>,
+    results: Receiver<ControllerReply>,
+}
+impl ControllerClient {
+    pub fn new(address: SocketAddr) -> io::Result<Self> {
+        let (jobs, requests) = mpsc::sync_channel::<ControllerRequest>(1);
+        let (report, results) = mpsc::sync_channel(1);
+        thread::Builder::new().name("controller-settings".into()).spawn(move || {
+            while let Ok(request) = requests.recv() {
+                let (change, view) = match request {
+                    ControllerRequest::GameSir(change) => (change, None),
+                    ControllerRequest::Leadjoy { view, change } => (change, Some(view)),
+                };
+                let (method, mut body) = change.map_or(("GET", Value::Null), |change| ("POST", json!({"setting":change.setting, "value":change.value})));
+                let path = if let Some(view) = &view {
+                    if method == "POST" { body["view"] = json!(view); }
+                    if method == "GET" { format!("/v1/gaming/leadjoy?section={}&profile={}&sub={}&side={}&button={}&action={}", view.section, view.profile, view.sub, view.side, view.button, view.action) }
+                    else { "/v1/gaming/leadjoy".into() }
+                } else { "/v1/gaming/gamesir".into() };
+                let result = http_timeout(address, method, &path, &body, Duration::from_secs(30));
+                let reply = if view.is_some() { ControllerReply::Leadjoy(controller_reply(result)) } else { ControllerReply::GameSir(controller_reply(result)) };
+                if report.send(reply).is_err() { break; }
+            }
+        })?;
+        Ok(Self { jobs, results })
+    }
+    pub fn request(&self, request: ControllerRequest) -> Result<(), String> {
+        self.jobs.try_send(request).map_err(|error| format!("Controller request could not start: {error}"))
+    }
+    pub fn poll(&self) -> Option<ControllerReply> { self.results.try_recv().ok() }
+}
+fn controller_reply<T: serde::de::DeserializeOwned>(result: io::Result<Value>) -> Result<T, String> {
+    let value = match result {
+        Ok(value) => value,
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => json!({"state":"off"}),
+        Err(error) => return Err(format!("Controller settings are unavailable: {error}")),
+    };
+    serde_json::from_value(value).map_err(|error| format!("The controller helper sent an unreadable reply: {error}"))
+}
+
 pub struct Lease {
     wanted: Arc<AtomicBool>,
     wake: Option<SyncSender<()>>,
@@ -96,9 +214,13 @@ fn request(address: SocketAddr, method: &str, path: &str, body: &Value) -> Resul
 }
 
 fn http(address: SocketAddr, method: &str, path: &str, body: &Value) -> io::Result<Value> {
+    http_timeout(address, method, path, body, TIMEOUT)
+}
+
+fn http_timeout(address: SocketAddr, method: &str, path: &str, body: &Value, timeout: Duration) -> io::Result<Value> {
     if !address.ip().is_loopback() { return Err(io::Error::new(io::ErrorKind::InvalidInput, "the gaming helper must be on loopback")); }
     let mut stream = TcpStream::connect_timeout(&address, TIMEOUT)?;
-    stream.set_read_timeout(Some(TIMEOUT))?;
+    stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(TIMEOUT))?;
     let body = body.to_string();
     write!(stream, "{method} {path} HTTP/1.1\r\nHost: {address}\r\nX-Luma-Client: lumagame\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())?;
@@ -119,6 +241,20 @@ fn parse_reply(raw: &[u8]) -> io::Result<Value> {
         return Err(io::Error::other(format!("{status}: {message}")));
     }
     Ok(reply)
+}
+
+#[cfg(test)]
+pub(crate) fn gamesir_fixture() -> GameSirState {
+    serde_json::from_value(json!({"ok":true, "state":"ready", "device":"GameSir Cyclone 2", "firmware":"1.2.3", "receiver":"1.0.0",
+        "profile":1, "profile_name":"Default", "verified":true, "values":{"report_rate":500, "rumble_left":4, "rumble_right":3,
+        "dpad_diagonal_lock":false, "xinput_abxy_swap":false, "deadzone_left":5, "deadzone_right":5}})).unwrap()
+}
+
+/// The helper's reply for one settings section, as the helper's own test generates it (helper/app/src/leadjoy.rs checks this file).
+#[cfg(test)]
+pub(crate) fn leadjoy_fixture(section: &str) -> LeadjoyState {
+    let all: Value = serde_json::from_str(include_str!("leadjoy-fixtures.json")).unwrap();
+    serde_json::from_value(all[section].clone()).unwrap()
 }
 
 #[cfg(test)]

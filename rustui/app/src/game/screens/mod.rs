@@ -1,5 +1,6 @@
 //! Native, retained LumaGame surfaces. Plans change on input or completed artwork, never on an idle video frame.
 mod art;
+mod lab;
 mod pages;
 mod paint;
 mod settings;
@@ -40,6 +41,8 @@ pub struct GameUi {
     bytes: usize,
     generation: u64,
     unfinished_text: bool,
+    /// The page's scroll at the last plan: live nodes ease only while it changes, so they move with the page.
+    shift: f32,
 }
 struct Cached {
     image: Image,
@@ -110,6 +113,7 @@ impl GameUi {
             bytes: 0,
             generation: 0,
             unfinished_text: false,
+            shift: 0.0,
         })
     }
     pub fn set_host_tokens(&mut self, tokens: Tokens) {
@@ -178,6 +182,9 @@ impl GameUi {
             Page::Launch => sheets::launch(&mut p),
             Page::Overlay => sheets::overlay(&mut p),
             Page::Media => sheets::media(&mut p),
+            Page::Lab => lab::lab(&mut p),
+            Page::GameSir => settings::gamesir(&mut p),
+            Page::Leadjoy => settings::leadjoy(&mut p),
             Page::Running => {}
         }
         p.fit_focus();
@@ -191,12 +198,14 @@ impl GameUi {
         }
         let plan = p.plan;
         self.hits = plan.hits;
+        let scrolled = plan.shift != self.shift;
+        self.shift = plan.shift;
         let ids = plan.nodes.iter().map(|n| n.id).collect::<BTreeSet<_>>();
         debug_assert_eq!(ids.len(), plan.nodes.len(), "duplicate retained node on {:?}", model.view.page);
         self.nodes.retain(|id, _| ids.contains(id));
         self.unfinished_text = false;
         for node in plan.nodes {
-            self.keep(node, model.prefs.reduce_motion || self.tokens.motion.reduced)?;
+            self.keep(node, model.prefs.reduce_motion || self.tokens.motion.reduced, scrolled)?;
         }
         while self.bytes > 64 << 20 {
             let victim = self.images.iter().filter(|(_, c)| c.used != self.generation).min_by_key(|(_, c)| c.used).map(|(k, _)| k.clone());
@@ -210,7 +219,7 @@ impl GameUi {
         self.revision = Some(model.revision());
         Ok(true)
     }
-    fn keep(&mut self, node: Node, reduced: bool) -> io::Result<()> {
+    fn keep(&mut self, node: Node, reduced: bool, scrolled: bool) -> io::Result<()> {
         if let Body::Image(key) = &node.body {
             if let Some(cached) = self.images.get_mut(key) {
                 cached.used = self.generation;
@@ -279,6 +288,7 @@ impl GameUi {
         }
         if kept.node.props != node.props {
             let animate = !reduced
+                && (scrolled || !paint::LIVE.contains(&node.id))
                 && (kept.node.props.scale != node.props.scale
                     || (kept.node.props.x - node.props.x).abs() < 100.0 && (kept.node.props.y - node.props.y).abs() < 100.0);
             kept.layer.set(node.props, animate, self.tokens.motion.focus_ms);

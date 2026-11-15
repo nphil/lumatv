@@ -10,10 +10,13 @@ use ui::{
         data::MATERIALS,
         palette::{Mode, PaletteRole as Role, Straight},
     },
+    text::TABULAR_EM,
 };
 
 pub const W: f32 = 1920.0;
 pub const H: f32 = 1080.0;
+/// Nodes that follow a live reading (a stick's dot, a trigger's fill) and so take each position as it comes, never easing to it.
+pub const LIVE: std::ops::Range<u64> = 50_000_000..51_000_000;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Word {
     pub text: String,
@@ -51,6 +54,8 @@ pub struct Node {
 pub struct Plan {
     pub nodes: Vec<Node>,
     pub hits: Vec<(Focus, Frame)>,
+    /// How far the page is scrolled to keep the focus in view.
+    pub shift: f32,
 }
 #[derive(Clone, Copy)]
 pub enum Fill {
@@ -143,23 +148,38 @@ impl<'a> Paint<'a> {
         } else {
             0.0
         };
-        let shift = if matches!(self.model.view.focus, Focus::Home(_, _)) { 0.0 } else { (focus.y + focus.h + caption - (H - self.y)).max(0.0) };
         let scrollable = |id: u64| match self.model.view.page {
-            Page::Home | Page::Hub | Page::Integration => id >= 100,
+            Page::Home | Page::Hub | Page::Integration | Page::Lab | Page::GameSir | Page::Leadjoy => id >= 100,
             Page::Settings => id >= 200,
             Page::Library | Page::Search => id >= 1000,
             _ => false,
         };
+        let fixed = |id: &Focus| matches!(id, Focus::Nav(_) | Focus::Rail(_) | Focus::HubTop(_));
+        // The last row also brings what follows it, such as a closing note, into view, as far as the row itself stays in view.
+        let end = if self.plan.hits.iter().all(|(id, f)| fixed(id) || f.y <= focus.y) {
+            self.plan.nodes.iter().filter(|n| scrollable(n.id)).map(|n| n.frame.y + n.frame.h).fold(0.0, f32::max).min(focus.y + H - self.y - 150.0)
+        } else {
+            0.0
+        };
+        let shift = if matches!(self.model.view.focus, Focus::Home(_, _)) { 0.0 } else { ((focus.y + focus.h + caption).max(end) - (H - self.y)).max(0.0) };
+        let view = Rect { x: 0.0, y: 150.0, w: W, h: H - 150.0 };
         for node in &mut self.plan.nodes {
             if scrollable(node.id) {
                 node.frame.y -= shift;
                 node.props.y -= shift;
-                node.props.clip = Some(Rect { x: 0.0, y: 150.0, w: W, h: H - 150.0 });
-                node.props.feather = Edges::new(0.0, 0.0, 16.0, 24.0);
+                match node.props.clip {
+                    // A node with its own clip (a bar sliding in its track) keeps it, moved with the page and cut to the view.
+                    Some(own) => node.props.clip = Some(intersect(Rect { y: own.y - shift, ..own }, view)),
+                    None => {
+                        node.props.clip = Some(view);
+                        node.props.feather = Edges::new(0.0, 0.0, 16.0, 24.0);
+                    }
+                }
             }
         }
+        self.plan.shift = shift;
         for (id, frame) in &mut self.plan.hits {
-            if !matches!(id, Focus::Nav(_) | Focus::Rail(_) | Focus::HubTop(_)) {
+            if !fixed(id) {
                 frame.y -= shift;
             }
         }
@@ -238,7 +258,9 @@ impl<'a> Paint<'a> {
             }),
         });
     }
-    pub fn words(&mut self, id: u64, frame: Frame, words: Vec<Word>, marks: Vec<Mark>, z: i32) {
+    pub fn words(&mut self, id: u64, mut frame: Frame, words: Vec<Word>, marks: Vec<Mark>, z: i32) {
+        // Token line spacing may be tighter than the glyph renderer's 1.4 em box.
+        frame.h = words.iter().fold(frame.h, |height, word| height.max(word.y + line_height(word.ty)));
         self.plan.nodes.push(Node { id, frame, props: Props::at(frame.x, frame.y), z, body: Body::Text { words, marks } });
     }
     pub fn word(&self, text: impl Into<String>, role: TypeRole, colour: Rgba, x: f32, y: f32, w: f32) -> Word {
@@ -276,6 +298,30 @@ impl<'a> Paint<'a> {
         let ty = self.ty(role);
         self.fonts.measure(text, ty).width.ceil()
     }
+    /// `text` with each digit centred in a cell [`TABULAR_EM`] wide, as the font's tabular figures set it, so a number that changes in
+    /// place keeps its width. The words start at `x`; returns them and their width.
+    pub fn figures(&mut self, text: &str, ty: Type, colour: Rgba, x: f32, y: f32) -> (Vec<Word>, f32) {
+        let cell = (ty.px as f32 * TABULAR_EM).round();
+        let mut words = Vec::new();
+        let mut at = x;
+        let mut rest = text;
+        while !rest.is_empty() {
+            let digits = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+            for digit in rest[..digits].chars() {
+                words.push(Word { text: digit.into(), ty, colour, x: at, y, w: cell, align: Align::Centre });
+                at += cell;
+            }
+            rest = &rest[digits..];
+            let other = rest.find(|c: char| c.is_ascii_digit()).unwrap_or(rest.len());
+            if other > 0 {
+                let w = self.fonts.measure(&rest[..other], ty).width.ceil();
+                words.push(Word { text: rest[..other].into(), ty, colour, x: at, y, w, align: Align::Left });
+                at += w;
+            }
+            rest = &rest[other..];
+        }
+        (words, at - x)
+    }
     pub fn hit(&mut self, focus: Focus, frame: Frame) {
         self.plan.hits.push((focus, frame));
     }
@@ -286,14 +332,16 @@ impl<'a> Paint<'a> {
     pub fn button(&mut self, id: u64, focus: Focus, label: &str, icon: Option<Icon>, x: f32, y: f32, primary: bool, stage: bool, z: i32) -> f32 {
         let side = 30.0 * self.scale;
         let h = self.tokens.target.max(self.line(TypeRole::Label) + 24.0);
-        let w = self.width(label, TypeRole::Label) + if icon.is_some() { side + 14.0 } else { 0.0 } + 62.0;
+        let ty = self.bold(TypeRole::Label);
+        let label_w = self.fonts.measure(label, ty).width.ceil();
+        let w = label_w + if icon.is_some() { side + 14.0 } else { 0.0 } + 62.0;
         let frame = Frame::new(x, y, w, h);
         let focused = self.focused(focus);
         self.surface(id, frame, if primary { Fill::Primary } else { Fill::Glass }, Radius::Pill, stage, focused, !primary, z);
         let ink = if primary { self.primary(stage).1 } else { self.ink(Role::Ink, stage) };
         let mut word =
-            self.word(label, TypeRole::Label, ink, 28.0 + if icon.is_some() { side + 14.0 } else { 0.0 }, (h - self.line(TypeRole::Label)) / 2.0, w - 62.0);
-        word.ty = self.bold(TypeRole::Label);
+            self.word(label, TypeRole::Label, ink, 28.0 + if icon.is_some() { side + 14.0 } else { 0.0 }, (h - self.line(TypeRole::Label)) / 2.0, label_w);
+        word.ty = ty;
         let marks = icon.map(|icon| vec![Mark { form: Form::Icon(icon, side as u32), colour: ink, x: 28.0, y: (h - side) / 2.0 }]).unwrap_or_default();
         self.words(id + 1, frame, vec![word], marks, z + 2);
         if focused {
@@ -390,6 +438,10 @@ fn status_of(ready: lumagame_core::ipc::Readiness, target: Option<&lumagame_core
         (ready, _) => ready_word(ready),
     }
 }
+fn intersect(a: Rect, b: Rect) -> Rect {
+    let (x, y) = (a.x.max(b.x), a.y.max(b.y));
+    Rect { x, y, w: ((a.x + a.w).min(b.x + b.w) - x).max(0.0), h: ((a.y + a.h).min(b.y + b.h) - y).max(0.0) }
+}
 
 /// `text` in lines no wider than `max_w`, each broken after its last `/` or `.` that fits, or after the last character that fits when
 /// there is none.
@@ -409,6 +461,49 @@ fn break_address(fonts: &mut ui::Fonts, text: &str, ty: Type, max_w: f32) -> Vec
         lines.push(rest.drain(..fit).collect());
     }
     lines
+}
+
+#[cfg(test)]
+pub(super) fn assert_readable(plan: &Plan, fonts: &mut ui::Fonts, captured: bool) {
+    let mut ink = Vec::new();
+    for node in &plan.nodes {
+        let Body::Text { words, .. } = &node.body else { continue };
+        for word in words {
+            if word.text.is_empty() { continue; }
+            let extent = fonts.measure(&word.text, word.ty);
+            let align = match word.align { Align::Left => 0.0, Align::Centre => (word.w - extent.width) / 2.0, Align::Right => word.w - extent.width };
+            let mut pen = node.frame.x + word.x + align;
+            let baseline = node.frame.y + word.y + ((line_height(word.ty) - extent.height()) / 2.0 + extent.ascent).round();
+            let mut bounds = (f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+            for letter in word.text.chars() {
+                let (glyph, _) = fonts.raster(word.ty, letter);
+                if glyph.width > 0 && glyph.height > 0 {
+                    let left = pen + glyph.xmin as f32;
+                    let top = baseline - glyph.height as f32 - glyph.ymin as f32;
+                    bounds = (bounds.0.min(left), bounds.1.min(top), bounds.2.max(left + glyph.width as f32), bounds.3.max(top + glyph.height as f32));
+                }
+                pen += glyph.advance;
+            }
+            if !bounds.0.is_finite() { continue; }
+            assert!(bounds.0 >= node.frame.x - 1.0 && bounds.2 <= node.frame.x + node.frame.w + 1.0
+                && bounds.1 >= node.frame.y - 1.0 && bounds.3 <= node.frame.y + node.frame.h + 1.0,
+                "text clipped by its layer: {} / {:?} / {bounds:?} / {:?}", node.id, word.text, node.frame);
+            if captured {
+                assert!(bounds.0 >= 0.0 && bounds.2 <= W && bounds.1 >= 0.0 && bounds.3 <= H - 54.0,
+                    "captured text clipped: {} / {:?} / {bounds:?}", node.id, word.text);
+            }
+            if let Some(clip) = node.props.clip {
+                bounds = (bounds.0.max(clip.x), bounds.1.max(clip.y), bounds.2.min(clip.x + clip.w), bounds.3.min(clip.y + clip.h));
+            }
+            if bounds.2 > bounds.0 && bounds.3 > bounds.1 { ink.push((node.id, &word.text, bounds)); }
+        }
+    }
+    for (i, (id, text, a)) in ink.iter().enumerate() {
+        for (other, label, b) in &ink[..i] {
+            let (width, height) = (a.2.min(b.2) - a.0.max(b.0), a.3.min(b.3) - a.1.max(b.1));
+            assert!(width <= 1.0 || height <= 1.0, "overlapping text: {id}/{text:?} and {other}/{label:?}: {width} × {height}");
+        }
+    }
 }
 
 #[cfg(test)]

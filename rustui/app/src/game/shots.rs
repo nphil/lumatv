@@ -1,9 +1,10 @@
 //! Explicit `GAME_SHOTS=all` visual acceptance run. Illustrative catalog/history mirrors the HTML mocks, never production data.
 use super::{model::*, screens::GameUi};
+use super::helper::{GameSirState, LeadjoyState, gamesir_fixture, leadjoy_fixture};
 use compositor_protocol::Event;
 use lumagame_core::{
     catalog::{self, Listing},
-    engine::{Descriptor, Manifest},
+    engine::{Descriptor, Feature, Manifest},
     history::Played,
     ids::{EngineId, GameId, TargetId},
     ipc::{self, AuthState, FromEngine, Readiness, SessionState},
@@ -355,6 +356,8 @@ fn screens() -> Vec<(String, Model)> {
             Focus::Theme(3)
         } else if section == Section::Integrations {
             Focus::Integration(1)
+        } else if section == Section::Controllers {
+            Focus::Setting(0)
         } else {
             Focus::Setting(3)
         };
@@ -406,6 +409,21 @@ fn screens() -> Vec<(String, Model)> {
     launched.step(Input::Overlay);
     launched.view.stats = ipc::Stats { rtt_ms: Some(8.0), loss_pct: Some(0.0), bitrate_kbps: Some(78_000), ..Default::default() };
     add("15-overlay", launched.clone());
+    let mut lab_stream = launched.clone();
+    lab_stream.integrations.iter_mut().find(|e| e.manifest.id.as_str() == "gfn").unwrap()
+        .descriptor.as_mut().unwrap().capabilities.features.insert(Feature::RoundTrip);
+    lab_stream.view.page = Page::Settings;
+    lab_stream.view.section = Section::Controllers;
+    lab_stream.view.focus = Focus::Setting(0);
+    activate(&mut lab_stream);
+    activate(&mut lab_stream);
+    event(&mut lab_stream, "gfn", ipc::Event::RoundTrip { session, trip: ipc::RoundTrip {
+        presses: Some(14), press_p50_ms: Some(0.42), press_p99_ms: Some(1.9), network_ms: Some(21.5), host_ms: Some(6.0), ..Default::default()
+    } });
+    lab_stream.prefs.reduce_motion = true;
+    add("45-controller-lab-stream", lab_stream.clone());
+    lab_stream.view.focus = Focus::Lab(12);
+    add("45-controller-lab-stream-bottom", lab_stream);
     launched.view.focus = Focus::Overlay(2);
     activate(&mut launched);
     add("16-overlay-end-confirm", launched);
@@ -469,6 +487,90 @@ fn screens() -> Vec<(String, Model)> {
     m.view.focus = Focus::Keyboard(0);
     m.view.address = "/media/games/quake".into();
     add("42-edit-path", m);
+    let mut lab = base.clone();
+    lab.prefs.reduce_motion = true;
+    lab.view.page = Page::Settings;
+    lab.view.section = Section::Controllers;
+    lab.view.focus = Focus::Setting(0);
+    activate(&mut lab);
+    let reports = (0..32).map(|i| (0, lumatv_gfn_pad::RawReport {
+        kernel_ns: 1_000_000_000 + i * 2_000_000, read_ns: 1_000_080_000 + i * 2_000_000,
+        left: (0.16, -0.12), right: (0.02, 0.01), left_trigger: 158, right_trigger: 28, buttons: lumatv_gfn_pad::button::A
+    })).collect();
+    lab.step(Input::Lab { now_ns: 1_400_000_000, frame: 120, reports, names: [Some("GameSir Cyclone 2".into()), None, None, None] });
+    add("43-controller-lab", lab.clone());
+    let mut light = lab.clone();
+    light.prefs.light = true;
+    add("43-controller-lab-light", light);
+    for (name, focus) in [("43-controller-sticks", Focus::Lab(5)), ("43-controller-buttons", Focus::Lab(6)),
+        ("43-controller-timing", Focus::Lab(7)), ("43-controller-shaping", Focus::Setting(2))] {
+        let mut view = lab.clone();
+        view.view.focus = focus;
+        add(name, view);
+    }
+    let mut captured = lab.clone();
+    captured.view.focus = Focus::Lab(0);
+    activate(&mut captured);
+    add("43-controller-captured", captured);
+    lab.view.focus = Focus::Lab(3);
+    activate(&mut lab);
+    lab.step(Input::Lab { now_ns: 1_500_000_000, frame: 121, reports: vec![(0, lumatv_gfn_pad::RawReport {
+        kernel_ns: 1_499_000_000, buttons: lumatv_gfn_pad::button::X, ..Default::default()
+    })], names: [Some("GameSir Cyclone 2".into()), None, None, None] });
+    add("44-controller-flash", lab);
+    for (name, state) in [
+        ("46-gamesir-off", GameSirState::Off), ("46-gamesir-missing", GameSirState::Missing),
+        ("46-gamesir-ds4", GameSirState::Mode { device: "Wireless Controller".into() }), ("46-gamesir-ready", gamesir_fixture()),
+    ] {
+        let mut m = base.clone();
+        m.prefs.reduce_motion = true;
+        m.view.page = Page::GameSir;
+        m.view.focus = Focus::Setting(0);
+        m.step(Input::GameSir(Ok(state)));
+        add(name, m.clone());
+        if name == "46-gamesir-ready" {
+            m.prefs.light = true;
+            add("46-gamesir-ready-light", m.clone());
+            m.prefs.light = false;
+            m.view.focus = Focus::Setting(7);
+            add("46-gamesir-bottom", m.clone());
+            m.gamesir.pending = true;
+            add("46-gamesir-pending", m.clone());
+            m.step(Input::GameSir(Err("The controller did not keep the change. Refresh before changing another setting.".into())));
+            add("46-gamesir-error", m);
+        }
+    }
+    for (name, state) in [("47-leadjoy-off", LeadjoyState::Off), ("47-leadjoy-missing", LeadjoyState::Missing),
+        ("47-leadjoy-unsupported", LeadjoyState::Unsupported { device: "Other".into(), firmware: "1".into() }), ("47-leadjoy-ready", leadjoy_fixture("general"))] {
+        let mut m = base.clone();
+        m.prefs.reduce_motion = true;
+        m.view.page = Page::Leadjoy;
+        m.view.focus = Focus::Setting(0);
+        m.step(Input::Leadjoy(Ok(state)));
+        add(name, m.clone());
+        if name == "47-leadjoy-ready" {
+            m.prefs.light = true;
+            add("47-leadjoy-light", m.clone());
+            m.prefs.light = false;
+            m.view.focus = Focus::Setting(4);
+            m.leadjoy.pending = true;
+            add("47-leadjoy-pending", m.clone());
+            m.step(Input::Leadjoy(Err("Read-back did not match. Refresh before changing another setting.".into())));
+            add("47-leadjoy-error", m);
+        }
+    }
+    for (section, row) in [("profiles", 3), ("buttons", 8), ("sticks", 16), ("curves", 16), ("directions", 6), ("triggers", 11), ("rumble", 9)] {
+        let mut m = base.clone();
+        m.prefs.reduce_motion = true;
+        m.view.page = Page::Leadjoy;
+        m.step(Input::Leadjoy(Ok(leadjoy_fixture(section))));
+        m.view.focus = Focus::Setting(row);
+        add(&format!("47-leadjoy-{section}"), m.clone());
+        if section == "profiles" {
+            activate(&mut m);
+            add("47-leadjoy-rename", m);
+        }
+    }
     let large = out
         .iter()
         .filter(|(name, _)| {
@@ -485,6 +587,17 @@ fn screens() -> Vec<(String, Model)> {
                 "13-settings-appearance",
                 "25-settings-controllers",
                 "26-settings-about",
+                "43-controller-lab",
+                "43-controller-lab-light",
+                "44-controller-flash",
+                "45-controller-lab-stream",
+                "46-gamesir-ready",
+                "46-gamesir-ready-light",
+                "46-gamesir-ds4",
+                "43-controller-sticks", "43-controller-buttons", "43-controller-timing", "43-controller-shaping", "43-controller-captured",
+                "45-controller-lab-stream-bottom", "46-gamesir-bottom", "46-gamesir-pending", "46-gamesir-error",
+                "47-leadjoy-ready", "47-leadjoy-light", "47-leadjoy-pending", "47-leadjoy-error", "47-leadjoy-buttons", "47-leadjoy-sticks",
+                "47-leadjoy-rename",
             ]
             .contains(&name.as_str())
         })

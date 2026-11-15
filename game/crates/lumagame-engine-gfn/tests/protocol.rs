@@ -180,6 +180,21 @@ fn guide_opens_the_overlay_and_the_overlay_reads_the_pads_as_menu_keys() {
 }
 
 #[test]
+fn round_trip_answers_with_the_latest_stream_and_press_legs_once_running() {
+    let mut f=FakeCore::new(true);f.launch();
+    f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
+    f.send(23,Request::RoundTrip{session:SessionId(9)});
+    assert!(f.events.iter().any(|e| e.re==Some(23) && matches!(e.event,Event::Error{code:ErrorCode::BadRequest,..})),"not running yet");
+    f.reply("streamer.start",json!({"status":"running"}));
+    f.event("streamer.changed",json!({"status":"running","roundTripTimeMs":21.5,"hostProcessingLatencyMs":6.0}));
+    f.event("streamer.changed",json!({"status":"running"}));
+    f.adapter.pad_line(&json!({"pad":"latency","stage":"send","n":14,"p50":420,"p90":800,"p99":1900,"max":2500}).to_string());
+    f.send(24,Request::RoundTrip{session:SessionId(9)});
+    let trip=f.events.iter().find_map(|e| match &e.event {Event::RoundTrip{trip,..} if e.re==Some(24)=>Some(trip.clone()),_=>None}).unwrap();
+    assert_eq!(trip,RoundTrip{presses:Some(14),press_p50_ms:Some(0.42),press_p99_ms:Some(1.9),network_ms:Some(21.5),host_ms:Some(6.0),..RoundTrip::default()});
+}
+
+#[test]
 fn busy_streamer_is_stopped_before_exactly_one_retry() {
     let mut f=FakeCore::new(true);f.launch();
     f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));

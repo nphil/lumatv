@@ -114,6 +114,11 @@ pub enum Request {
         session: SessionId,
         on: bool,
     },
+    /// Asks for the legs of a control's round trip the engine can time; answered with `round-trip`. Only for an engine with the
+    /// `round-trip` feature.
+    RoundTrip {
+        session: SessionId,
+    },
     /// An action field of the settings page was pressed.
     Action {
         key: String,
@@ -194,6 +199,10 @@ pub enum Event {
     Stats {
         session: SessionId,
         stats: Stats,
+    },
+    RoundTrip {
+        session: SessionId,
+        trip: RoundTrip,
     },
     /// A controller key, while the input is routed to the app.
     Key {
@@ -467,6 +476,33 @@ pub struct Stats {
     pub host_ms: Option<f32>,
 }
 
+/// The legs of a control's round trip that an engine can time, in milliseconds. As in [`Stats`], a leg that was not measured is absent;
+/// none covers the TV's decoder or panel, which only a camera on the screen sees.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct RoundTrip {
+    /// Presses timed from the kernel's stamp to the engine handing them to its transport, and their median and 99th percentile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presses: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub press_p50_ms: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub press_p99_ms: Option<f32>,
+    /// The transport's round trip to the far side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_ms: Option<f32>,
+    /// Capture and encode on the far side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_ms: Option<f32>,
+    /// Capture on the far side to the frame's arrival here, median and 95th percentile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrival_p50_ms: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrival_p95_ms: Option<f32>,
+    /// From a frame's last packet to its handover to the feeder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_ms: Option<f32>,
+}
+
 word_enum! {
     pub enum PadKey {
         Up => "up",
@@ -603,6 +639,10 @@ mod tests {
             encode(&FromEngine::told(Event::Stats { session: SessionId(3), stats: Stats { rtt_ms: Some(8.5), ..Stats::default() } })),
             "{\"type\":\"stats\",\"session\":3,\"stats\":{\"rtt_ms\":8.5}}\n"
         );
+        assert_eq!(
+            encode(&FromEngine::answer(4, Event::RoundTrip { session: SessionId(3), trip: RoundTrip { network_ms: Some(9.0), ..RoundTrip::default() } })),
+            "{\"re\":4,\"type\":\"round-trip\",\"session\":3,\"trip\":{\"network_ms\":9.0}}\n"
+        );
     }
 
     #[test]
@@ -634,6 +674,7 @@ mod tests {
             Request::Stop { session: SessionId(1), end_game: true },
             Request::Route { session: SessionId(1), input: InputRoute::App },
             Request::Stats { session: SessionId(1), on: true },
+            Request::RoundTrip { session: SessionId(1) },
             Request::Action { key: "sign-out".into() },
         ];
         for (seq, request) in requests.into_iter().enumerate() {
@@ -677,6 +718,10 @@ mod tests {
             session(SessionState::Ended { reason: EndReason::Suspended }),
             session(SessionState::Failed { reason: FailReason::Video, message: "The TV refused the stream.".into() }),
             Event::Stats { session: SessionId(1), stats: Stats { rtt_ms: Some(8.5), dropped: Some(2), ..Stats::default() } },
+            Event::RoundTrip {
+                session: SessionId(1),
+                trip: RoundTrip { presses: Some(12), press_p50_ms: Some(0.4), arrival_p95_ms: Some(21.5), ..RoundTrip::default() },
+            },
             Event::Key { key: PadKey::Back, down: true },
             Event::Overlay { session: SessionId(1) },
             Event::Error { code: ErrorCode::Unsupported, message: "wake".into() },

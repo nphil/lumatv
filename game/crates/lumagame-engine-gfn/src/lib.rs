@@ -82,6 +82,8 @@ struct Launch {
     /// The app's overlay has the pads: the streamer pauses their input and hands the reports to [`Adapter::pad_line`].
     overlay: bool,
     menus: BTreeMap<u64, MenuKeys>,
+    /// The latest legs the streamer and the pads reported, for `round-trip`.
+    trip: RoundTrip,
 }
 
 /// Output batches preserve ordering: session.create is acknowledged before its stream is started.
@@ -210,7 +212,7 @@ impl Adapter {
                 self.launch = Some(Launch {
                     id:session,seq:message.seq,selection,cloud:Value::Null,started:false,running:false,stale_retried:false,
                     busy_retried:false,claimed:false,retry_stopping:false,stopping:false,end_game:false,stats:false,poll_due:0,values:self.values.clone(),
-                    overlay:false,menus:BTreeMap::new(),
+                    overlay:false,menus:BTreeMap::new(),trip:RoundTrip::default(),
                 });
                 self.session(SessionState::Checking);
                 if self.target.is_none() {
@@ -230,7 +232,12 @@ impl Adapter {
             Request::Stats { session,on } if self.launch.as_ref().is_some_and(|l| l.id == session) => {
                 if let Some(l) = &mut self.launch { l.stats = on; }
             }
-            Request::Library { .. } | Request::Check { .. } | Request::Forget { .. } | Request::Stop { .. } | Request::Route { .. } | Request::Stats { .. } => {
+            Request::RoundTrip { session } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
+                let trip = self.launch.as_ref().map(|l| l.trip.clone()).unwrap_or_default();
+                self.emit(seq,Event::RoundTrip { session,trip });
+            }
+            Request::Library { .. } | Request::Check { .. } | Request::Forget { .. } | Request::Stop { .. } | Request::Route { .. } | Request::Stats { .. }
+            | Request::RoundTrip { .. } => {
                 self.error(seq,ErrorCode::BadRequest,"The target or session is not current");
             }
             _ => self.error(seq,ErrorCode::Unsupported,"This operation is not supported by GeForce NOW"),
@@ -259,6 +266,10 @@ impl Adapter {
                     let key = match key {MenuKey::Up=>PadKey::Up,MenuKey::Down=>PadKey::Down,MenuKey::Left=>PadKey::Left,MenuKey::Right=>PadKey::Right,MenuKey::Ok=>PadKey::Ok,MenuKey::Back=>PadKey::Back};
                     for down in [true,false] { self.emit(None,Event::Key { key,down }); }
                 }
+            }
+            Some("latency") => {
+                let ms = |k:&str| v[k].as_f64().map(|us| (us/1000.0) as f32);
+                (l.trip.presses,l.trip.press_p50_ms,l.trip.press_p99_ms) = (v["n"].as_u64().and_then(|n| u32::try_from(n).ok()),ms("p50"),ms("p99"));
             }
             _ => {}
         }
@@ -717,11 +728,16 @@ impl Adapter {
         self.session(SessionState::Running { stream:Some(p) });
     }
     fn stats(&mut self, r: &Value) {
-        let Some(l) = &self.launch else { return; };
-        if !l.running || !l.stats { return; }
         let float = |key| r[key].as_f64().filter(|n| n.is_finite()).map(|n| n as f32);
+        let Some(l) = self.launch.as_mut().filter(|l| l.running) else { return; };
+        let trip = &mut l.trip;
+        trip.network_ms = float("roundTripTimeMs").or(trip.network_ms);
+        trip.host_ms = float("hostProcessingLatencyMs").or(trip.host_ms);
+        trip.client_ms = float("decodeLatencyMs").or(trip.client_ms);
+        if !l.stats { return; }
+        let session = l.id;
         let bitrate_kbps = r["bitrateMbps"].as_f64().filter(|n| n.is_finite() && *n >= 0.0).map(|n| (n*1000.0).round() as u32);
-        self.emit(None,Event::Stats { session:l.id,stats:Stats {
+        self.emit(None,Event::Stats { session,stats:Stats {
             fps:float("framesPerSecond"),bitrate_kbps,dropped:r["queueDropCount"].as_u64(),
             rtt_ms:float("roundTripTimeMs"),jitter_ms:float("jitterMs"),loss_pct:float("packetLossPercent"),
             client_ms:float("decodeLatencyMs"),host_ms:float("hostProcessingLatencyMs"),
@@ -757,7 +773,7 @@ impl Adapter {
 pub fn descriptor() -> Descriptor {
     Descriptor { id:EngineId::new("gfn").unwrap(),version:env!("CARGO_PKG_VERSION").into(),capabilities:Capabilities {
         kind:EngineKind::Cloud,targets:TargetKind::Account,auth:vec![AuthMethod::DeviceCode],presentation:Presentation::Feeder,
-        features:BTreeSet::from([Feature::Readiness,Feature::Queue,Feature::EndGame,Feature::Stats,Feature::Rumble,Feature::OverlayKeys]),
+        features:BTreeSet::from([Feature::Readiness,Feature::Queue,Feature::EndGame,Feature::Stats,Feature::RoundTrip,Feature::Rumble,Feature::OverlayKeys]),
         video:Some(VideoCaps { codecs:vec![Codec::H265,Codec::Av1,Codec::H264],width:3840,height:2160,fps:120,hdr10:true }),
     } }
 }

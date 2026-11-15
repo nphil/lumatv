@@ -1,10 +1,10 @@
 //! The feeder launches this 64-bit card window; engine decisions stay in the model and media stays out of this loop.
 use lumagame_core::{catalog::ArtKind, engine::Codec, ids::GameId, ipc::Display};
 use lumagame_meta::{Artwork, CacheLimits, Client, Http, Job, Kind, Loader, Metadata, secrets::Secrets};
-use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, button, menu::{MenuKey, MenuKeys}};
+use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, RawReport, button, menu::{MenuKey, MenuKeys}};
 use lumatv_render::{Demand, now_ns, host::{Engine, HostConfig}};
-use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::Lease, host::{self, HostEvent, Supervisor}, model::{Command, GameDetails, Input, Key, Media, Model}, screens::GameUi, store::{self, Store}}, lifecycle::{Channel, FromApp, ToApp}, window::{self, Event, Spec}};
-use std::{collections::VecDeque, io, net::SocketAddr, os::fd::AsRawFd, os::unix::net::UnixDatagram, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
+use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::{ControllerClient, ControllerRequest, ControllerReply, Lease}, host::{self, HostEvent, Supervisor}, model::{Command, GameDetails, Input, Key, Media, Model, PadMode}, screens::GameUi, store::{self, Store}}, lifecycle::{Channel, FromApp, ToApp}, window::{self, Event, Spec}};
+use std::{collections::VecDeque, io, net::SocketAddr, os::fd::AsRawFd, os::unix::net::UnixDatagram, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 use ui::{SceneOptions, Ui};
 
 const W: u32 = 1920;
@@ -53,7 +53,9 @@ fn main() {
 
 #[derive(Default)]
 struct PadKeys { menu: MenuKeys, buttons: u16 }
-struct MenuSink { active: AtomicBool, keys: Mutex<[PadKeys; MAX_PADS]>, send: UnixDatagram }
+#[derive(Default)]
+struct LabBuffer { reports: VecDeque<(u8, RawReport)>, names: [Option<String>; MAX_PADS] }
+struct MenuSink { active: AtomicBool, mode: AtomicU8, keys: Mutex<[PadKeys; MAX_PADS]>, lab: Mutex<LabBuffer>, send: UnixDatagram }
 struct MenuPads { runtime: PadRuntime, sink: Arc<MenuSink>, receive: UnixDatagram }
 
 fn menu_key(key: MenuKey) -> Key {
@@ -70,12 +72,15 @@ impl PadSink for MenuSink {
     fn pad_event(&self, _: u16, event: PadEvent) {
         let mut keys = self.keys.lock().unwrap_or_else(|e| e.into_inner());
         let active = self.active.load(Ordering::Acquire);
+        let mode = self.mode.load(Ordering::Acquire);
+        let navigating = active && mode != PadMode::Captured as u8;
         match event {
-            PadEvent::Report { slot, state, .. } => {
+            PadEvent::Report { slot, mut state, .. } => {
                 if let Some(keys) = keys.get_mut(usize::from(slot)) {
-                    // MenuKeys retains held presses across a grab change; OK and Back activate on their actual release.
-                    keys.menu.feed(&state, |key| if active { self.send(menu_key(key), true); });
-                    if active {
+                    // Stick movement belongs to the lab; held buttons still track their real release across mode changes.
+                    if mode != PadMode::Menu as u8 { state.left_x = 0; state.left_y = 0; state.right_x = 0; state.right_y = 0; }
+                    keys.menu.feed(&state, |key| if navigating { self.send(menu_key(key), true); });
+                    if navigating {
                         for (button, key) in [(button::A, Key::Ok), (button::B, Key::Back)] {
                             if keys.buttons & button != 0 && state.buttons & button == 0 { self.send(key, false); }
                         }
@@ -83,29 +88,55 @@ impl PadSink for MenuSink {
                     keys.buttons = state.buttons;
                 }
             }
-            PadEvent::Connected { slot, .. } | PadEvent::Disconnected { slot } => if let Some(keys) = keys.get_mut(usize::from(slot)) { *keys = PadKeys::default(); },
-            PadEvent::Guide { pressed, .. } if active => self.send(Key::Guide, pressed),
+            PadEvent::Connected { slot, name, .. } => {
+                if let Some(keys) = keys.get_mut(usize::from(slot)) { *keys = PadKeys::default(); }
+                if let Some(known) = self.lab.lock().unwrap_or_else(|e| e.into_inner()).names.get_mut(usize::from(slot)) { *known = Some(name); }
+            }
+            PadEvent::Disconnected { slot } => {
+                if let Some(keys) = keys.get_mut(usize::from(slot)) { *keys = PadKeys::default(); }
+                let mut lab = self.lab.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(known) = lab.names.get_mut(usize::from(slot)) { *known = None; }
+                lab.reports.retain(|(i, _)| *i != slot);
+            }
+            PadEvent::Guide { pressed, .. } if navigating => self.send(Key::Guide, pressed),
             _ => {}
         }
+    }
+    fn raw(&self, slot: u8, report: &RawReport) {
+        if !self.active.load(Ordering::Acquire) || self.mode.load(Ordering::Acquire) == PadMode::Menu as u8 { return; }
+        let mut lab = self.lab.lock().unwrap_or_else(|e| e.into_inner());
+        let wake = lab.reports.is_empty();
+        if lab.reports.len() == 4096 { lab.reports.pop_front(); }
+        lab.reports.push_back((slot, *report));
+        if wake { let _ = self.send.send(&[0]); }
     }
 }
 impl MenuPads {
     fn new() -> io::Result<Self> {
         let (send, receive) = UnixDatagram::pair()?;
         send.set_nonblocking(true)?; receive.set_nonblocking(true)?;
-        let sink = Arc::new(MenuSink { active: AtomicBool::new(false), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), send });
-        let runtime = PadRuntime::start(PadConfig { boost: None, latency_dir: None, ..PadConfig::from_env() }, sink.clone());
+        let sink = Arc::new(MenuSink { active: AtomicBool::new(false), mode: AtomicU8::new(PadMode::Menu as u8), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), lab: Mutex::new(LabBuffer::default()), send });
+        let runtime = PadRuntime::start(PadConfig { boost: None, latency_dir: None, raw: true, ..PadConfig::from_env() }, sink.clone());
         Ok(Self { runtime, sink, receive })
     }
     fn sync(&self, wanted: bool) {
         if self.sink.active.swap(wanted, Ordering::AcqRel) != wanted { self.runtime.set_grab(wanted); }
     }
-    fn poll(&self, inputs: &mut Vec<Input>) {
+    fn set_mode(&self, mode: PadMode) {
+        if self.sink.mode.swap(mode as u8, Ordering::AcqRel) != mode as u8 {
+            self.sink.lab.lock().unwrap_or_else(|e| e.into_inner()).reports.clear();
+        }
+    }
+    fn poll(&self, inputs: &mut Vec<Input>, frame: u64) {
         let mut bytes = [0; 2];
         while let Ok(n) = self.receive.recv(&mut bytes) {
             if n == 2 && self.sink.active.load(Ordering::Acquire) {
                 if let Some(key) = KEYS.get(usize::from(bytes[0])) { inputs.push(Input::Key { key: *key, down: bytes[1] != 0 }); }
             }
+        }
+        if self.sink.active.load(Ordering::Acquire) && self.sink.mode.load(Ordering::Acquire) != PadMode::Menu as u8 {
+            let mut lab = self.sink.lab.lock().unwrap_or_else(|e| e.into_inner());
+            inputs.push(Input::Lab { now_ns: now_ns(), reports: lab.reports.drain(..).collect(), names: lab.names.clone(), frame });
         }
     }
 }
@@ -143,7 +174,7 @@ fn game_details(metadata: Metadata) -> GameDetails {
 }
 
 struct Shell {
-    model: Model, host: Supervisor, store: Store, channel: Option<Channel>, lease: Lease, art: Loader,
+    model: Model, host: Supervisor, store: Store, channel: Option<Channel>, lease: Lease, controllers: ControllerClient, art: Loader,
     art_waiting: VecDeque<String>, details: Option<Details>, details_waiting: VecDeque<GameId>, state_saved: bool, media_seq: u64,
 }
 impl Shell {
@@ -152,6 +183,7 @@ impl Shell {
         for input in inputs { commands.extend(self.model.step(input)); }
         // Release the pads before an engine receives Launch, including a native app taking the foreground.
         pads.sync(self.model.wants_pads());
+        pads.set_mode(self.model.pad_mode());
         while let Some(command) = commands.pop_front() {
             let result = match command {
                 Command::Send { engine, request } => {
@@ -176,6 +208,15 @@ impl Shell {
                     else { self.launch_app("com.webos.app.browser", serde_json::json!({"target":url})) }
                 }
                 Command::OpenControllerSettings => self.launch_app("com.palm.app.settings", serde_json::json!({})),
+                Command::Rumble { slot, low, high } => pads.runtime.rumble(slot, low, high, 500),
+                Command::GameSir(change) => {
+                    if let Err(error) = self.controllers.request(ControllerRequest::GameSir(change)) { commands.extend(self.model.step(Input::GameSir(Err(error)))); }
+                    Ok(())
+                }
+                Command::Leadjoy { view, change } => {
+                    if let Err(error) = self.controllers.request(ControllerRequest::Leadjoy { view, change }) { commands.extend(self.model.step(Input::Leadjoy(Err(error)))); }
+                    Ok(())
+                }
                 Command::Exit => {
                     if let Some(ch) = &mut self.channel { ch.send(&FromApp::Exit("LumaGame closed".into())); }
                     return Ok(true);
@@ -234,6 +275,9 @@ impl Shell {
             }
         }
         while let Some(notice) = self.lease.notice() { inputs.push(Input::Notice(notice)); }
+        while let Some(reply) = self.controllers.poll() {
+            inputs.push(match reply { ControllerReply::GameSir(result) => Input::GameSir(result), ControllerReply::Leadjoy(result) => Input::Leadjoy(result) });
+        }
     }
 }
 
@@ -271,7 +315,7 @@ fn run(o: Options) -> io::Result<()> {
     inputs.extend(snapshot.notices.into_iter().chain(notices).chain(temporary).map(Input::Notice));
     // Seed wall-clock time before any engine can report Running.
     model.step(Input::Tick { now_ms: 0, unix_s: unix_seconds() });
-    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX };
+    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, controllers: ControllerClient::new(o.helper)?, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX };
     let pads = MenuPads::new()?;
     if shell.inputs(inputs, &pads, 0)? { return Ok(()); }
     let began = Instant::now();
@@ -324,6 +368,8 @@ fn run(o: Options) -> io::Result<()> {
     let mut painted_ui = true;
     let mut signalled = false;
     let mut fds = Vec::new();
+    let mut frame = 0u64;
+    let mut last_flash = None;
     loop {
         let now_ms = began.elapsed().as_millis() as u64;
         if shell.model.foreground() {
@@ -352,7 +398,7 @@ fn run(o: Options) -> io::Result<()> {
                 Err(e) => { shell.host.channel_failed(e.to_string()); shell.channel = None; inputs.push(Input::Close); }
             }
         }
-        pads.poll(&mut inputs);
+        pads.poll(&mut inputs, frame + 1);
         for event in shell.host.poll(now_ms) {
             inputs.push(match event { HostEvent::Engine { engine, message } => Input::Engine { engine, message }, HostEvent::Gone(id) => Input::EngineGone(id), HostEvent::Notice(why) => Input::Notice(why) });
         }
@@ -363,6 +409,7 @@ fn run(o: Options) -> io::Result<()> {
         if shell.model.foreground() && (visible || painted_ui) {
             while let Ok(event) = events.try_recv() { page.ui.scene.observe(&event); }
             if let Some(atlas) = page.ui.text_atlas() { atlas.pump(); }
+            let flash = shell.model.flash_press();
             let changed = page.show(&shell.model)?;
             if page.ui.scene.has_pending() { page.ui.try_commit()?; }
             if renderer.pump()?.closed { return Err(io::Error::other("the renderer closed")); }
@@ -376,6 +423,14 @@ fn run(o: Options) -> io::Result<()> {
                 let swap = renderer.gles().swap_buffers();
                 SWAP_SINCE_MS.store(0, Ordering::Relaxed);
                 swap?;
+                frame += 1;
+                if let Some((press, shown_frame)) = flash {
+                    if last_flash != Some(press) {
+                        let shown = now_ns();
+                        eprintln!("lumagame: flash press_ns={press} frame={shown_frame} shown_ns={shown} delay_ms={:.2}", shown.saturating_sub(press) as f64 / 1e6);
+                    }
+                }
+                last_flash = flash.map(|(press, _)| press);
                 renderer.frame_done(now_ns(), &cost); renderer.tidy(); renderer.idle_moment(true);
                 painted_ui = visible;
                 if !ready { ready = true; if let Some(ch) = &mut shell.channel { ch.send(&FromApp::Ready); } }
@@ -388,6 +443,7 @@ fn run(o: Options) -> io::Result<()> {
         let mut wait_ms = shell.host.wait_ms(now_ms).min(shell.lease.wait_ms(now_ms));
         if page.art_busy() || shell.art.inflight() > 0 || !shell.art_waiting.is_empty() { wait_ms = wait_ms.min(16); }
         if shell.channel.as_ref().is_some_and(Channel::pending) { wait_ms = wait_ms.min(16); }
+        if shell.model.pad_mode() != PadMode::Menu || shell.model.gamesir.pending || shell.model.leadjoy.pending { wait_ms = wait_ms.min(50); }
         if visible {
             let demand = renderer.demand();
             if let Demand::At(at) = demand { wait_ms = wait_ms.min(at.saturating_sub(now_ns()) / 1_000_000); }
@@ -437,7 +493,7 @@ mod tests {
     fn menu_ok_activates_on_release_and_is_silent_when_not_grabbed() {
         let (send, receive) = UnixDatagram::pair().unwrap();
         receive.set_nonblocking(true).unwrap();
-        let sink = MenuSink { active: AtomicBool::new(true), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), send };
+        let sink = MenuSink { active: AtomicBool::new(true), mode: AtomicU8::new(PadMode::Menu as u8), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), lab: Mutex::new(LabBuffer::default()), send };
         let report = |buttons| PadEvent::Report { slot: 0, state: PadState { buttons, ..PadState::default() }, press: None };
         let mut bytes = [0; 2];
         sink.pad_event(1, report(button::A));
@@ -452,6 +508,30 @@ mod tests {
         sink.pad_event(1, report(button::B));
         sink.pad_event(1, report(0));
         assert!(receive.recv(&mut bytes).is_err());
+    }
+
+    #[test]
+    fn lab_owns_sticks_capture_owns_all_keys_and_reports_share_one_wake() {
+        let (send, receive) = UnixDatagram::pair().unwrap();
+        receive.set_nonblocking(true).unwrap();
+        let sink = MenuSink { active: AtomicBool::new(true), mode: AtomicU8::new(PadMode::Lab as u8), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), lab: Mutex::new(LabBuffer::default()), send };
+        let report = |buttons| PadEvent::Report { slot: 0, state: PadState { left_x: i16::MAX, left_y: i16::MAX, buttons, ..PadState::default() }, press: None };
+        let mut bytes = [0; 2];
+        sink.pad_event(1, report(0));
+        assert!(receive.recv(&mut bytes).is_err());
+        sink.mode.store(PadMode::Captured as u8, Ordering::Release);
+        sink.pad_event(1, report(button::A | button::B | button::DPAD_UP));
+        sink.pad_event(1, PadEvent::Guide { slot: 0, pressed: true });
+        sink.pad_event(1, report(0));
+        assert!(receive.recv(&mut bytes).is_err());
+        sink.raw(0, &RawReport { kernel_ns: 1, ..Default::default() });
+        sink.raw(0, &RawReport { kernel_ns: 2, ..Default::default() });
+        assert_eq!(receive.recv(&mut bytes).unwrap(), 1);
+        assert!(receive.recv(&mut bytes).is_err());
+        assert_eq!(sink.lab.lock().unwrap().reports.len(), 2);
+        sink.mode.store(PadMode::Menu as u8, Ordering::Release);
+        sink.raw(0, &RawReport::default());
+        assert_eq!(sink.lab.lock().unwrap().reports.len(), 2);
     }
 
     #[test]

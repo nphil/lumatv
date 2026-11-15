@@ -46,7 +46,7 @@ required-features = ["window"]
 [features]
 default = []
 # the Wayland window (needs the Wayland client libraries at run time: the bundle's, on the set)
-window = ["dep:wayland-client", "dep:wayland-backend", "dep:lumatv-wl-protocols", "dep:wayland-protocols", "dep:lumatv-gfn-pad"]
+window = ["dep:wayland-client", "dep:wayland-backend", "dep:lumatv-wl-protocols", "dep:wayland-protocols"]
 
 [dependencies.wayland-client]
 version = "0.31"
@@ -68,10 +68,10 @@ version = "0.32"
 optional = true
 features = ["client"]
 
-# The GeForce NOW app's menus read the game pads themselves while no stream is in front.
+# The GeForce NOW app's and LumaGame's menus read the game pads themselves while no stream is in front; LumaGame's controller lab
+# models the pads' reports, so the model needs it without the window too.
 [dependencies.lumatv-gfn-pad]
 path = "../../gfn/engine/crates/lumatv-gfn-pad"
-optional = true
 
 # The host test of the card app runs its binary against LumaTV's compositor, in process, with the compositor's own test harness.
 [dev-dependencies]
