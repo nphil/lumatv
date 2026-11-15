@@ -474,6 +474,7 @@ fn run(o: Options) -> io::Result<i32> {
                                 }
                             }
                             ToApp::Sam { registered } => log(&format!("SAM registration: {}", if registered { "accepted" } else { "not accepted: the app runs without SAM's events" })),
+                            ToApp::Launched { .. } | ToApp::Foreground { .. } | ToApp::Apps { .. } => {}
                         }
                     }
                 }

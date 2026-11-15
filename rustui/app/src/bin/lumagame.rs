@@ -1,0 +1,468 @@
+//! The feeder launches this 64-bit card window; engine decisions stay in the model and media stays out of this loop.
+use lumagame_core::{catalog::ArtKind, engine::Codec, ids::GameId, ipc::Display};
+use lumagame_meta::{Artwork, CacheLimits, Client, Http, Job, Kind, Loader, Metadata, secrets::Secrets};
+use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, button, menu::{MenuKey, MenuKeys}};
+use lumatv_render::{Demand, now_ns, host::{Engine, HostConfig}};
+use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::Lease, host::{self, HostEvent, Supervisor}, model::{Command, GameDetails, Input, Key, Media, Model}, screens::GameUi, store::{self, Store}}, lifecycle::{Channel, FromApp, ToApp}, window::{self, Event, Spec}};
+use std::{collections::VecDeque, io, net::SocketAddr, os::fd::AsRawFd, os::unix::net::UnixDatagram, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
+use ui::{SceneOptions, Ui};
+
+const W: u32 = 1920;
+const H: u32 = 1080;
+static END: AtomicBool = AtomicBool::new(false);
+static SWAP_SINCE_MS: AtomicU64 = AtomicU64::new(0);
+
+struct Options {
+    app_id: String, assets: PathBuf, shm: PathBuf, engines: PathBuf, runner: Option<PathBuf>, data: PathBuf,
+    feeder: PathBuf, window_id: PathBuf, libmali: Option<String>, channel_fd: Option<i32>, hidden: bool, helper: SocketAddr,
+}
+
+fn options() -> Result<Options, String> {
+    let home = std::env::current_exe().ok().and_then(|p| p.parent().and_then(Path::parent).map(Path::to_owned)).unwrap_or_else(|| PathBuf::from("."));
+    let runtime = PathBuf::from("/tmp/org.nphil.lumagame");
+    let mut o = Options { app_id: store::APP_ID.into(), assets: home.join("assets"), shm: runtime.join("shm"), engines: home.join("engines"), runner: None,
+        data: PathBuf::from("/var/lib/lumagame"), feeder: runtime.join("feed.sock"), window_id: runtime.join("window-id"), libmali: std::env::var("LUMATV_GFX_LIB").ok(), channel_fd: None, hidden: false,
+        helper: SocketAddr::from(([127, 0, 0, 1], 18731)) };
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value"));
+        match arg.as_str() {
+            "--app-id" => o.app_id = value()?, "--assets" => o.assets = value()?.into(), "--shm" => o.shm = value()?.into(),
+            "--engines" => o.engines = value()?.into(), "--engine-runner" => o.runner = Some(value()?.into()), "--data" => o.data = value()?.into(),
+            "--feeder-socket" => o.feeder = value()?.into(), "--window-id-file" => o.window_id = value()?.into(), "--libmali" => o.libmali = Some(value()?),
+            "--channel-fd" => o.channel_fd = Some(value()?.parse::<i32>().map_err(|e| e.to_string())?), "--hidden" => o.hidden = true,
+            "--helper" => o.helper = value()?.parse::<SocketAddr>().map_err(|e| e.to_string())?,
+            _ => return Err(format!("unknown option {arg}")),
+        }
+    }
+    if !o.helper.ip().is_loopback() { return Err("--helper must be a loopback address".into()); }
+    if o.channel_fd.is_some_and(|fd| fd < 3) { return Err("--channel-fd must be an inherited descriptor, not stdin/stdout/stderr".into()); }
+    Ok(o)
+}
+
+extern "C" fn on_term(_: libc::c_int) { END.store(true, Ordering::Relaxed); }
+
+fn main() {
+    let options = match options() { Ok(o) => o, Err(e) => { eprintln!("lumagame: {e}"); std::process::exit(64); } };
+    unsafe { for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] { libc::signal(signal, on_term as extern "C" fn(libc::c_int) as libc::sighandler_t); } }
+    let shm = options.shm.clone();
+    let result = run(options);
+    let _ = std::fs::remove_dir_all(shm);
+    if let Err(e) = result { eprintln!("lumagame: {e}"); std::process::exit(1); }
+}
+
+#[derive(Default)]
+struct PadKeys { menu: MenuKeys, buttons: u16 }
+struct MenuSink { active: AtomicBool, keys: Mutex<[PadKeys; MAX_PADS]>, send: UnixDatagram }
+struct MenuPads { runtime: PadRuntime, sink: Arc<MenuSink>, receive: UnixDatagram }
+
+fn menu_key(key: MenuKey) -> Key {
+    match key { MenuKey::Up => Key::Up, MenuKey::Down => Key::Down, MenuKey::Left => Key::Left, MenuKey::Right => Key::Right, MenuKey::Ok => Key::Ok, MenuKey::Back => Key::Back }
+}
+const KEYS: [Key; 7] = [Key::Up, Key::Down, Key::Left, Key::Right, Key::Ok, Key::Back, Key::Guide];
+
+impl MenuSink {
+    fn send(&self, key: Key, down: bool) {
+        if let Some(index) = KEYS.iter().position(|k| *k == key) { let _ = self.send.send(&[index as u8, u8::from(down)]); }
+    }
+}
+impl PadSink for MenuSink {
+    fn pad_event(&self, _: u16, event: PadEvent) {
+        let mut keys = self.keys.lock().unwrap_or_else(|e| e.into_inner());
+        let active = self.active.load(Ordering::Acquire);
+        match event {
+            PadEvent::Report { slot, state, .. } => {
+                if let Some(keys) = keys.get_mut(usize::from(slot)) {
+                    // MenuKeys retains held presses across a grab change; OK and Back activate on their actual release.
+                    keys.menu.feed(&state, |key| if active { self.send(menu_key(key), true); });
+                    if active {
+                        for (button, key) in [(button::A, Key::Ok), (button::B, Key::Back)] {
+                            if keys.buttons & button != 0 && state.buttons & button == 0 { self.send(key, false); }
+                        }
+                    }
+                    keys.buttons = state.buttons;
+                }
+            }
+            PadEvent::Connected { slot, .. } | PadEvent::Disconnected { slot } => if let Some(keys) = keys.get_mut(usize::from(slot)) { *keys = PadKeys::default(); },
+            PadEvent::Guide { pressed, .. } if active => self.send(Key::Guide, pressed),
+            _ => {}
+        }
+    }
+}
+impl MenuPads {
+    fn new() -> io::Result<Self> {
+        let (send, receive) = UnixDatagram::pair()?;
+        send.set_nonblocking(true)?; receive.set_nonblocking(true)?;
+        let sink = Arc::new(MenuSink { active: AtomicBool::new(false), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), send });
+        let runtime = PadRuntime::start(PadConfig { boost: None, latency_dir: None, ..PadConfig::from_env() }, sink.clone());
+        Ok(Self { runtime, sink, receive })
+    }
+    fn sync(&self, wanted: bool) {
+        if self.sink.active.swap(wanted, Ordering::AcqRel) != wanted { self.runtime.set_grab(wanted); }
+    }
+    fn poll(&self, inputs: &mut Vec<Input>) {
+        let mut bytes = [0; 2];
+        while let Ok(n) = self.receive.recv(&mut bytes) {
+            if n == 2 && self.sink.active.load(Ordering::Acquire) {
+                if let Some(key) = KEYS.get(usize::from(bytes[0])) { inputs.push(Input::Key { key: *key, down: bytes[1] != 0 }); }
+            }
+        }
+    }
+}
+impl Drop for MenuPads { fn drop(&mut self) { self.runtime.stop(); } }
+
+struct Details {
+    jobs: SyncSender<(GameId, Vec<lumagame_core::ids::ExternalId>)>,
+    results: Receiver<(GameId, Option<Metadata>)>,
+}
+impl Details {
+    fn new(secrets: Secrets) -> io::Result<Option<Self>> {
+        if secrets.twitch_client_id.is_empty() || secrets.twitch_client_secret.is_empty() { return Ok(None); }
+        let client = Client::<Http>::new(secrets);
+        let (jobs, incoming) = mpsc::sync_channel::<(GameId, Vec<lumagame_core::ids::ExternalId>)>(4);
+        let (finished, results) = mpsc::sync_channel(4);
+        std::thread::Builder::new().name("game-details".into()).spawn(move || {
+            while let Ok((id, external)) = incoming.recv() {
+                let details = client.igdb(&external).ok().flatten();
+                if finished.send((id, details)).is_err() { break; }
+            }
+        })?;
+        Ok(Some(Self { jobs, results }))
+    }
+}
+
+fn game_details(metadata: Metadata) -> GameDetails {
+    let year = metadata.release_date.and_then(|seconds| {
+        let seconds: libc::time_t = seconds;
+        let mut date = std::mem::MaybeUninit::<libc::tm>::uninit();
+        if unsafe { libc::gmtime_r(&seconds, date.as_mut_ptr()) }.is_null() { None }
+        else { u32::try_from(unsafe { date.assume_init() }.tm_year + 1900).ok() }
+    });
+    GameDetails { description: metadata.summary, year, genres: metadata.genres, developer: (!metadata.developers.is_empty()).then(|| metadata.developers.join(", ")),
+        media: metadata.artwork.into_iter().filter(|art| matches!(art.kind, Kind::Hero | Kind::Header)).map(|art| Media { title: "Artwork".into(), image: art.url, video: None }).collect(), ..GameDetails::default() }
+}
+
+struct Shell {
+    model: Model, host: Supervisor, store: Store, channel: Option<Channel>, lease: Lease, art: Loader,
+    art_waiting: VecDeque<String>, details: Option<Details>, details_waiting: VecDeque<GameId>, state_saved: bool, media_seq: u64,
+}
+impl Shell {
+    fn inputs(&mut self, inputs: impl IntoIterator<Item = Input>, pads: &MenuPads, now_ms: u64) -> io::Result<bool> {
+        let mut commands = VecDeque::new();
+        for input in inputs { commands.extend(self.model.step(input)); }
+        // Release the pads before an engine receives Launch, including a native app taking the foreground.
+        pads.sync(self.model.wants_pads());
+        while let Some(command) = commands.pop_front() {
+            let result = match command {
+                Command::Send { engine, request } => {
+                    if let Err(e) = self.host.send(&engine, request) {
+                        commands.extend(self.model.step(Input::EngineGone(engine)));
+                        Err(e)
+                    } else { Ok(()) }
+                }
+                Command::Enable { .. } => { self.host.sync(self.model.state(), self.model.foreground(), self.model.session_active(), now_ms); Ok(()) }
+                Command::KillEngine(id) => { self.host.kill(&id, now_ms); Ok(()) }
+                Command::SaveState => {
+                    let result = self.store.save_state(self.model.state()); self.state_saved = result.is_ok(); result
+                }
+                Command::SaveCatalog => self.store.save_catalog(self.model.listing()),
+                Command::Checkpoint(open) => self.store.checkpoint(&open),
+                Command::ClearCheckpoint => if self.state_saved { self.store.clear_checkpoint() } else { Ok(()) },
+                Command::LowLatency(on) => { self.lease.set(on, now_ms); Ok(()) }
+                Command::FetchArt { url } => { self.art_waiting.push_back(url); Ok(()) }
+                Command::FetchDetails { game } => { if self.details.is_some() { self.details_waiting.push_back(game); } Ok(()) }
+                Command::PlayMedia { url } => {
+                    if !url.starts_with("https://") { Err(io::Error::new(io::ErrorKind::InvalidInput, "media must use HTTPS")) }
+                    else { self.launch_app("com.webos.app.browser", serde_json::json!({"target":url})) }
+                }
+                Command::OpenControllerSettings => self.launch_app("com.palm.app.settings", serde_json::json!({})),
+                Command::Exit => {
+                    if let Some(ch) = &mut self.channel { ch.send(&FromApp::Exit("LumaGame closed".into())); }
+                    return Ok(true);
+                }
+            };
+            if let Err(e) = result { commands.extend(self.model.step(Input::Notice(e.to_string()))); }
+        }
+        self.host.sync(self.model.state(), self.model.foreground(), self.model.session_active(), now_ms);
+        for command in self.host.lifecycle_commands() {
+            let result = self.channel.as_mut().ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "the TV application service is unavailable")).and_then(|ch| ch.try_send(&command));
+            if let Err(e) = result { self.host.channel_failed(e.to_string()); }
+        }
+        self.lease.tick(now_ms);
+        Ok(false)
+    }
+
+    fn launch_app(&mut self, app_id: &str, parameters: serde_json::Value) -> io::Result<()> {
+        let channel = self.channel.as_mut().ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "the TV application service is unavailable"))?;
+        self.media_seq = self.media_seq.wrapping_sub(1);
+        channel.try_send(&FromApp::Launch { seq: self.media_seq, app_id: app_id.into(), parameters })
+    }
+
+    fn background_work(&mut self, inputs: &mut Vec<Input>) {
+        while let Some(url) = self.art_waiting.front() {
+            if !url.contains("://") {
+                let checked = local_art(&self.model, self.store.root(), url);
+                inputs.push(match checked { Some(path) => Input::ArtReady { url: url.clone(), path }, None => Input::ArtFailed { url: url.clone() } });
+                self.art_waiting.pop_front();
+                continue;
+            }
+            let mut artwork = None;
+            for game in self.model.games() {
+                for (core, kind) in [(ArtKind::Cover, Kind::Cover), (ArtKind::Hero, Kind::Hero), (ArtKind::Logo, Kind::Logo), (ArtKind::Icon, Kind::Icon)] {
+                    if game.art(core).first() == Some(url) { artwork = Some(lumagame_meta::keyless_art(game, kind)); break; }
+                }
+                if artwork.is_some() { break; }
+            }
+            let artwork = artwork.unwrap_or_else(|| vec![Artwork { kind: Kind::Hero, url: url.clone(), credit: String::new() }]);
+            match self.art.request(Job { key: url.clone(), artwork, spec: None }) {
+                Ok(false) => break,
+                Ok(true) => { self.art_waiting.pop_front(); }
+                Err(_) => { inputs.push(Input::ArtFailed { url: url.clone() }); self.art_waiting.pop_front(); }
+            }
+        }
+        while let Some(done) = self.art.poll() {
+            inputs.push(match done.result.ok().and_then(|loaded| loaded.path) { Some(path) => Input::ArtReady { url: done.key, path }, None => Input::ArtFailed { url: done.key } });
+        }
+        if let Some(details) = &self.details {
+            while let Some(id) = self.details_waiting.front() {
+                let external = self.model.game(*id).map(|game| game.external().into_iter().cloned().collect()).unwrap_or_default();
+                if details.jobs.try_send((*id, external)).is_err() { break; }
+                self.details_waiting.pop_front();
+            }
+            while let Ok((game, metadata)) = details.results.try_recv() {
+                if let Some(metadata) = metadata { inputs.push(Input::Details { game, details: game_details(metadata) }); }
+            }
+        }
+        while let Some(notice) = self.lease.notice() { inputs.push(Input::Notice(notice)); }
+    }
+}
+
+fn inside(root: &Path, path: &Path) -> Option<PathBuf> {
+    let root = root.canonicalize().ok()?;
+    let path = if path.is_absolute() { path.to_owned() } else { root.join(path) }.canonicalize().ok()?;
+    (path.starts_with(root) && path.is_file()).then_some(path)
+}
+
+fn local_art(model: &Model, data: &Path, url: &str) -> Option<PathBuf> {
+    for source in model.games().iter().flat_map(|game| &game.sources) {
+        let art = &source.entry.art;
+        if ![&art.cover, &art.hero, &art.logo, &art.icon].iter().any(|entry| entry.as_deref() == Some(url)) { continue; }
+        if let Some(path) = inside(&data.join("cache").join(source.engine.as_str()), Path::new(url)) { return Some(path); }
+        if source.engine.as_str() == "native" && source.entry.id.as_str().bytes().all(|c| c.is_ascii_alphanumeric() || b".-_".contains(&c)) {
+            for root in ["/usr/palm/applications", "/media/developer/apps/usr/palm/applications", "/media/cryptofs/apps/usr/palm/applications"] {
+                if let Some(path) = inside(&Path::new(root).join(source.entry.id.as_str()), Path::new(url)) { return Some(path); }
+            }
+        }
+    }
+    None
+}
+
+fn run(o: Options) -> io::Result<()> {
+    let (data, temporary) = store::data_dir(&o.data)?;
+    let (store, snapshot) = Store::open(data.clone())?;
+    let (installed, notices) = host::discover(&o.engines)?;
+    let mut model = Model::new(snapshot.state, snapshot.listing, installed.iter().map(|engine| engine.manifest.clone()).collect());
+    let channel = o.channel_fd.map(|fd| unsafe { Channel::from_fd(fd) }).transpose()?;
+    let host = Supervisor::new(installed, host::Config { data, feeder: o.feeder, runner: o.runner,
+        display: Display { width: 3840, height: 2160, refresh_hz: 120, hdr10: true, codecs: vec![Codec::H264, Codec::H265, Codec::Av1] }, locale: "en-US".into(), lifecycle: channel.is_some() })?;
+    let art = Loader::with_client(store.root().join("cache/art"), CacheLimits::default(), 2, Client::<Http>::new(snapshot.secrets.clone())).map_err(io::Error::other)?;
+    let details = Details::new(snapshot.secrets)?;
+    let mut inputs = vec![Input::Foreground(!o.hidden)];
+    inputs.extend(snapshot.notices.into_iter().chain(notices).chain(temporary).map(Input::Notice));
+    // Seed wall-clock time before any engine can report Running.
+    model.step(Input::Tick { now_ms: 0, unix_s: unix_seconds() });
+    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX };
+    let pads = MenuPads::new()?;
+    if shell.inputs(inputs, &pads, 0)? { return Ok(()); }
+    let began = Instant::now();
+    std::fs::create_dir_all(&o.shm)?;
+    let libmali = o.libmali.as_deref().ok_or_else(|| io::Error::other("--libmali or LUMATV_GFX_LIB must name the GL driver"))?;
+    let spec = Spec { app_id: o.app_id, title: "LumaGame".into(), window_type: "_WEBOS_WINDOW_TYPE_CARD".into(), keys_back: true,
+        state: (!o.hidden).then_some(FULLSCREEN), keys: true, video: true };
+    match std::fs::remove_file(&o.window_id) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    let (gles, mut window) = window::open(W, H, libmali, &spec)?;
+    if let Some(id) = window.video_window_id() {
+        if let Some(parent) = o.window_id.parent() { std::fs::create_dir_all(parent)?; }
+        std::fs::write(&o.window_id, format!("{id}\n"))?;
+    } else { eprintln!("lumagame: compositor exported no video element; streaming needs a webOS video window"); }
+    let (mut renderer, endpoint) = Engine::new(gles, HostConfig { width: W, height: H, refresh_hz: 120.0, shm_dir: o.shm.clone(), direct: false, gpu_sync: false,
+        idle_trim: true, pages: 0, reference: false, blit: true, external: false, system_z: i32::MAX })?;
+    renderer.set_transparent(true);
+    let (scene, _, events) = ui::Scene::over_with(endpoint, SceneOptions { shm_dir: Some(o.shm.clone()), ..SceneOptions::default() })?;
+    renderer.finish_handshake()?;
+    let mut ui = Ui::new(scene);
+    ui.enable_glyph_text().map_err(io::Error::other)?;
+    let mut land = |ui: &mut Ui| -> io::Result<()> {
+        let started = Instant::now();
+        loop {
+            while let Ok(event) = events.try_recv() { ui.scene.observe(&event); }
+            if let Some(atlas) = ui.text_atlas() { atlas.pump(); }
+            if ui.scene.has_pending() { ui.try_commit()?; }
+            renderer.pump()?; renderer.apply_waiting(now_ns()); renderer.tidy();
+            if ui.glyph_text_settled() && !ui.scene.has_pending() && !renderer.tidy_more() { return Ok(()); }
+            if started.elapsed() > Duration::from_secs(5) { return Err(io::Error::other("the glyph atlas did not settle in 5 seconds")); }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    };
+    let mut page = GameUi::build(ui, &o.assets, &mut land)?;
+    land(&mut page.ui)?;
+    let mut theme = ThemeWatch::new();
+    if let Some(tokens) = theme.poll(0) { page.set_host_tokens(tokens); }
+    std::thread::Builder::new().name("game-swap-watch".into()).spawn(|| loop {
+        std::thread::sleep(Duration::from_millis(500));
+        let since = SWAP_SINCE_MS.load(Ordering::Relaxed);
+        if since != 0 && (now_ns() / 1_000_000).saturating_sub(since) > 8_000 { unsafe { libc::_exit(1); } }
+    })?;
+    let mut ready = false;
+    let mut want_frame = true;
+    let mut painted_ui = true;
+    let mut signalled = false;
+    let mut fds = Vec::new();
+    loop {
+        let now_ms = began.elapsed().as_millis() as u64;
+        if shell.model.foreground() {
+            if let Some(tokens) = theme.poll(now_ms) { page.set_host_tokens(tokens); }
+        }
+        let mut inputs = vec![Input::Tick { now_ms, unix_s: unix_seconds() }];
+        if END.load(Ordering::Relaxed) && !signalled { inputs.push(Input::Close); signalled = true; }
+        for event in window.events() {
+            match event {
+                Event::State(state) => { if let Some(ch) = &mut shell.channel { ch.send(&FromApp::State(state)); } inputs.push(Input::Foreground(state != MINIMIZED)); }
+                Event::Close => inputs.push(Input::Close),
+                Event::Key { code, pressed } => if let Some(key) = Key::from_code(code) { inputs.push(Input::Key { key, down: pressed }); },
+            }
+        }
+        if let Some(channel) = &mut shell.channel {
+            match channel.read() {
+                Ok(messages) => for message in messages {
+                    shell.host.lifecycle(&message);
+                    match message {
+                        ToApp::Relaunch { .. } => { window.request_state(FULLSCREEN); inputs.push(Input::Foreground(true)); want_frame = true; }
+                        ToApp::Close { .. } => inputs.push(Input::Close),
+                        ToApp::Launched { seq, success: false, message, .. } if seq == shell.media_seq => inputs.push(Input::Notice(message)),
+                        _ => {}
+                    }
+                }
+                Err(e) => { shell.host.channel_failed(e.to_string()); shell.channel = None; inputs.push(Input::Close); }
+            }
+        }
+        pads.poll(&mut inputs);
+        for event in shell.host.poll(now_ms) {
+            inputs.push(match event { HostEvent::Engine { engine, message } => Input::Engine { engine, message }, HostEvent::Gone(id) => Input::EngineGone(id), HostEvent::Notice(why) => Input::Notice(why) });
+        }
+        shell.background_work(&mut inputs);
+        if shell.inputs(inputs, &pads, now_ms)? { return Ok(()); }
+        let visible = shell.model.wants_frames();
+        // Commit the transparent scene once on entry to Running, then leave the mapped window completely idle.
+        if shell.model.foreground() && (visible || painted_ui) {
+            while let Ok(event) = events.try_recv() { page.ui.scene.observe(&event); }
+            if let Some(atlas) = page.ui.text_atlas() { atlas.pump(); }
+            let changed = page.show(&shell.model)?;
+            if page.ui.scene.has_pending() { page.ui.try_commit()?; }
+            if renderer.pump()?.closed { return Err(io::Error::other("the renderer closed")); }
+            let now = now_ns();
+            let due = match renderer.demand() { Demand::EveryRefresh => true, Demand::At(at) => now >= at, Demand::Idle => false };
+            if want_frame || changed || renderer.has_commits() || renderer.redraw_wanted() || due {
+                want_frame = false;
+                let cost = renderer.draw(now);
+                if let Some(error) = cost.gl_error { eprintln!("lumagame: GL error {error:#x}"); }
+                SWAP_SINCE_MS.store((now_ns() / 1_000_000).max(1), Ordering::Relaxed);
+                let swap = renderer.gles().swap_buffers();
+                SWAP_SINCE_MS.store(0, Ordering::Relaxed);
+                swap?;
+                renderer.frame_done(now_ns(), &cost); renderer.tidy(); renderer.idle_moment(true);
+                painted_ui = visible;
+                if !ready { ready = true; if let Some(ch) = &mut shell.channel { ch.send(&FromApp::Ready); } }
+                continue;
+            }
+            renderer.apply_waiting(now);
+            if renderer.tidy_more() { renderer.tidy(); continue; }
+            renderer.idle_moment(false);
+        } else if !shell.model.foreground() { want_frame = true; painted_ui = true; }
+        let mut wait_ms = shell.host.wait_ms(now_ms).min(shell.lease.wait_ms(now_ms));
+        if page.art_busy() || shell.art.inflight() > 0 || !shell.art_waiting.is_empty() { wait_ms = wait_ms.min(16); }
+        if shell.channel.as_ref().is_some_and(Channel::pending) { wait_ms = wait_ms.min(16); }
+        if visible {
+            let demand = renderer.demand();
+            if let Demand::At(at) = demand { wait_ms = wait_ms.min(at.saturating_sub(now_ns()) / 1_000_000); }
+            if let Some(at) = renderer.idle_wake_at(demand == Demand::Idle) { wait_ms = wait_ms.min(at.saturating_sub(now_ns()) / 1_000_000); }
+        }
+        fds.clear(); fds.push(pads.receive.as_raw_fd());
+        fds.extend(shell.channel.as_ref().map(Channel::fd)); shell.host.fds(&mut fds);
+        window.wait_fds(wait_ms.min(1000) as i32, &fds)?;
+    }
+}
+
+struct ThemeWatch {
+    path: PathBuf,
+    stamp: Option<(SystemTime, u64)>,
+    first: bool,
+    due: u64,
+}
+
+impl ThemeWatch {
+    fn new() -> Self {
+        let data = std::env::var_os("LUMATV_DATA_DIR").map(PathBuf::from).unwrap_or_else(|| "/var/lib/lumatv".into());
+        Self { path: data.join("theme/theme.json"), stamp: None, first: true, due: 0 }
+    }
+
+    fn poll(&mut self, now_ms: u64) -> Option<lumatv_tokens::Tokens> {
+        if now_ms < self.due { return None; }
+        self.due = now_ms.saturating_add(1_000);
+        let stamp = std::fs::metadata(&self.path).ok().and_then(|m| Some((m.modified().ok()?, m.len())));
+        if !std::mem::take(&mut self.first) && stamp == self.stamp { return None; }
+        self.stamp = stamp;
+        let Some((_, len)) = stamp else { return Some(lumatv_tokens::Tokens::shipped()); };
+        if len > 1 << 20 { return None; }
+        let bytes = std::fs::read(&self.path).ok()?;
+        let value = serde_json::from_slice(&bytes).ok()?;
+        Some(lumatv_tokens::Tokens::from_json(&value))
+    }
+}
+
+fn unix_seconds() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lumatv_gfn_pad::PadState;
+
+    #[test]
+    fn menu_ok_activates_on_release_and_is_silent_when_not_grabbed() {
+        let (send, receive) = UnixDatagram::pair().unwrap();
+        receive.set_nonblocking(true).unwrap();
+        let sink = MenuSink { active: AtomicBool::new(true), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), send };
+        let report = |buttons| PadEvent::Report { slot: 0, state: PadState { buttons, ..PadState::default() }, press: None };
+        let mut bytes = [0; 2];
+        sink.pad_event(1, report(button::A));
+        assert_eq!(receive.recv(&mut bytes).unwrap(), 2);
+        assert_eq!(bytes, [4, 1]);
+        sink.pad_event(1, report(button::A));
+        assert!(receive.recv(&mut bytes).is_err());
+        sink.pad_event(1, report(0));
+        receive.recv(&mut bytes).unwrap();
+        assert_eq!(bytes, [4, 0]);
+        sink.active.store(false, Ordering::Release);
+        sink.pad_event(1, report(button::B));
+        sink.pad_event(1, report(0));
+        assert!(receive.recv(&mut bytes).is_err());
+    }
+
+    #[test]
+    fn engine_art_cannot_escape_its_cache_through_a_symlink_or_parent_path() {
+        let root = std::env::var_os("CODY_DATA_SCRATCH").or_else(|| std::env::var_os("TMPDIR")).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        let dir = tempfile::tempdir_in(root).unwrap();
+        let cache = dir.path().join("cache");
+        std::fs::create_dir(&cache).unwrap();
+        std::fs::write(dir.path().join("secrets.json"), b"private").unwrap();
+        std::fs::write(cache.join("cover"), b"image").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("secrets.json"), cache.join("link")).unwrap();
+        assert!(inside(&cache, Path::new("cover")).is_some());
+        assert!(inside(&cache, Path::new("../secrets.json")).is_none());
+        assert!(inside(&cache, Path::new("link")).is_none());
+    }
+}

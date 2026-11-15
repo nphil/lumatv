@@ -236,10 +236,11 @@ fn run(o: Options) -> io::Result<i32> {
             .collect();
         if let Some(ch) = channel.as_mut() {
             match ch.read() {
-                Ok(messages) => inputs.extend(messages.into_iter().map(|m| match m {
-                    ToApp::Relaunch { reason, parameters } => Input::Relaunch { reason, parameters },
-                    ToApp::Close { reason } => Input::SamClose { reason },
-                    ToApp::Sam { registered } => Input::Sam { registered },
+                Ok(messages) => inputs.extend(messages.into_iter().filter_map(|m| match m {
+                    ToApp::Relaunch { reason, parameters } => Some(Input::Relaunch { reason, parameters }),
+                    ToApp::Close { reason } => Some(Input::SamClose { reason }),
+                    ToApp::Sam { registered } => Some(Input::Sam { registered }),
+                    ToApp::Launched { .. } | ToApp::Foreground { .. } | ToApp::Apps { .. } => None,
                 })),
                 Err(_) => inputs.push(Input::LauncherGone),
             }

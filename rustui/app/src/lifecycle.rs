@@ -5,6 +5,9 @@
 //! and hands SAM's events on over a socket pair: one JSON object a line, in both directions, on the descriptor the launcher names
 //! (`--channel-fd`). An app without a launcher (a host run) has no channel and no SAM events.
 
+use lumagame_core::ipc::{LineBuffer, MAX_LINE_BYTES};
+use serde::Deserialize;
+use std::collections::VecDeque;
 use serde_json::{Value, json};
 use std::io::{self, Read, Write};
 use std::os::fd::{FromRawFd, OwnedFd, RawFd};
@@ -19,9 +22,13 @@ pub enum ToApp {
     Close { reason: String },
     /// The launcher's own news: whether SAM accepted the registration. The app runs either way.
     Sam { registered: bool },
+    /// A launch through the feeder's registered LS2 handle.
+    Launched { seq: u64, app_id: String, success: bool, message: String },
+    Foreground { app_id: String },
+    Apps { seq: u64, apps: Vec<InstalledApp>, success: bool, message: String },
 }
 
-/// What the app tells the launcher, for its log: nothing here changes what the launcher does.
+/// Commands and window reports sent to the launcher.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FromApp {
     /// The first frame is on its way to the compositor.
@@ -32,6 +39,16 @@ pub enum FromApp {
     Page(String),
     /// The app is ending, and why.
     Exit(String),
+    Launch { seq: u64, app_id: String, parameters: Value },
+    Apps { seq: u64 },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct InstalledApp {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 pub fn state_name(state: u32) -> &'static str {
@@ -50,6 +67,8 @@ impl FromApp {
             FromApp::State(s) => json!({"kind": "state", "state": state_name(*s)}),
             FromApp::Page(p) => json!({"kind": "page", "page": p}),
             FromApp::Exit(why) => json!({"kind": "exit", "why": why}),
+            FromApp::Launch { seq, app_id, parameters } => json!({"kind":"launch","seq":seq,"app_id":app_id,"parameters":parameters}),
+            FromApp::Apps { seq } => json!({"kind":"apps","seq":seq}),
         };
         let mut line = v.to_string();
         line.push('\n');
@@ -68,6 +87,9 @@ impl ToApp {
             }
             "close" => Some(ToApp::Close { reason: text("reason") }),
             "sam" => Some(ToApp::Sam { registered: v.get("registered").and_then(Value::as_bool).unwrap_or(false) }),
+            "launched" => Some(ToApp::Launched { seq: v.get("seq")?.as_u64()?, app_id: text("app_id"), success: v.get("success")?.as_bool()?, message: text("message") }),
+            "foreground" => Some(ToApp::Foreground { app_id: text("app_id") }),
+            "apps" => Some(ToApp::Apps { seq: v.get("seq")?.as_u64()?, apps: serde_json::from_value(v.get("apps").cloned().unwrap_or_else(|| json!([]))).ok()?, success: v.get("success")?.as_bool()?, message: text("message") }),
             _ => None,
         }
     }
@@ -75,7 +97,10 @@ impl ToApp {
 
 pub struct Channel {
     stream: UnixStream,
-    buf: Vec<u8>,
+    buf: LineBuffer,
+    outgoing: VecDeque<Vec<u8>>,
+    offset: usize,
+    queued: usize,
 }
 
 impl Channel {
@@ -86,14 +111,15 @@ impl Channel {
     pub unsafe fn from_fd(fd: RawFd) -> io::Result<Channel> {
         // SAFETY: the caller's promise.
         let owned = unsafe { OwnedFd::from_raw_fd(fd) };
-        let stream = UnixStream::from(owned);
-        stream.set_nonblocking(true)?;
-        Ok(Channel { stream, buf: Vec::new() })
+        Self::from_stream(UnixStream::from(owned))
     }
 
     pub fn from_stream(stream: UnixStream) -> io::Result<Channel> {
         stream.set_nonblocking(true)?;
-        Ok(Channel { stream, buf: Vec::new() })
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&stream);
+        // The inherited lifecycle socket must not keep the feeder alive in an engine child.
+        if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } < 0 { return Err(io::Error::last_os_error()); }
+        Ok(Channel { stream, buf: LineBuffer::default(), outgoing: VecDeque::new(), offset: 0, queued: 0 })
     }
 
     pub fn fd(&self) -> RawFd {
@@ -103,25 +129,20 @@ impl Channel {
     /// Every message that has arrived. `Err(UnexpectedEof)` when the launcher is gone: an app that outlives its launcher has no one
     /// to answer to and ends.
     pub fn read(&mut self) -> io::Result<Vec<ToApp>> {
+        self.flush()?;
+        let mut out = Vec::new();
         let mut chunk = [0u8; 4096];
         let mut eof = false;
-        loop {
+        for _ in 0..256 {
             match self.stream.read(&mut chunk) {
                 Ok(0) => {
                     eof = true;
                     break;
                 }
-                Ok(n) => self.buf.extend_from_slice(&chunk[..n]),
+                Ok(n) => self.buf.push(&chunk[..n], |line| out.extend(ToApp::parse(line))),
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e),
-            }
-        }
-        let mut out = Vec::new();
-        while let Some(at) = self.buf.iter().position(|&b| b == b'\n') {
-            let line: Vec<u8> = self.buf.drain(..=at).collect();
-            if let Some(msg) = ToApp::parse(&String::from_utf8_lossy(&line)) {
-                out.push(msg);
             }
         }
         if eof && out.is_empty() {
@@ -130,10 +151,37 @@ impl Channel {
         Ok(out)
     }
 
-    /// One message; a launcher that does not read it in time (a full socket) loses it rather than holding the app up.
     pub fn send(&mut self, msg: &FromApp) {
-        let line = msg.to_line();
-        let _ = self.stream.write_all(line.as_bytes());
+        let _ = self.try_send(msg);
+    }
+
+    pub fn try_send(&mut self, msg: &FromApp) -> io::Result<()> {
+        let line = msg.to_line().into_bytes();
+        if self.queued + line.len() > MAX_LINE_BYTES {
+            return Err(io::Error::new(io::ErrorKind::WouldBlock, "the launcher's outgoing queue is full"));
+        }
+        self.queued += line.len();
+        self.outgoing.push_back(line);
+        self.flush()
+    }
+
+    pub fn pending(&self) -> bool { !self.outgoing.is_empty() }
+
+    pub fn flush(&mut self) -> io::Result<()> {
+        while let Some(line) = self.outgoing.front() {
+            match self.stream.write(&line[self.offset..]) {
+                Ok(0) => return Err(io::Error::new(io::ErrorKind::WriteZero, "the launcher took no bytes")),
+                Ok(n) => {
+                    self.offset += n;
+                    self.queued -= n;
+                    if self.offset == line.len() { self.outgoing.pop_front(); self.offset = 0; }
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
     }
 }
 
@@ -160,6 +208,17 @@ mod tests {
         assert_eq!(FromApp::State(1).to_line(), "{\"kind\":\"state\",\"state\":\"minimized\"}\n");
         assert_eq!(FromApp::Page("keys".into()).to_line(), "{\"kind\":\"page\",\"page\":\"keys\"}\n");
         assert_eq!(FromApp::Exit("Back at the root".into()).to_line(), "{\"kind\":\"exit\",\"why\":\"Back at the root\"}\n");
+    }
+
+    #[test]
+    fn native_game_lines_keep_the_request_identity() {
+        assert_eq!(ToApp::parse(r#"{"kind":"launched","seq":7,"app_id":"game","success":false,"message":"not installed"}"#),
+            Some(ToApp::Launched { seq: 7, app_id: "game".into(), success: false, message: "not installed".into() }));
+        assert_eq!(ToApp::parse(r#"{"kind":"foreground","app_id":"game"}"#), Some(ToApp::Foreground { app_id: "game".into() }));
+        let apps = ToApp::parse(r#"{"kind":"apps","seq":8,"success":true,"apps":[{"id":"game","title":"Game"}]}"#).unwrap();
+        assert!(matches!(apps, ToApp::Apps { seq: 8, success: true, apps, .. } if apps.len() == 1 && apps[0].icon.is_none()));
+        let launch: Value = serde_json::from_str(&FromApp::Launch { seq: 9, app_id: "game".into(), parameters: json!({"a":1}) }.to_line()).unwrap();
+        assert_eq!(launch["parameters"]["a"], 1);
     }
 
     #[test]
