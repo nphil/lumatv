@@ -1101,7 +1101,9 @@ impl HomeSurface {
             let mine = inner == Some(c.id.as_str());
             let row = if mine { inner_index } else { None };
             match &mut c.content {
-                Content::Clock(cl) => cl.tick(kit, &t),
+                // with the screen off a second hand drew a frame a second; the redraw at wake brings the clock to the time first
+                Content::Clock(cl) if home.screen_on => cl.tick(kit, &t),
+                Content::Clock(_) => {}
                 Content::Weather(w) => {
                     // the words and the picture of the card, and the sky's sprites, are made inside the card's group, which a lift of its own owns
                     let twelve = home.theme.pointer("/clock/twelveHour").and_then(Value::as_bool) != Some(false);
@@ -2299,6 +2301,38 @@ mod tests {
     /// What an `apply` sent to the compositor, without the commit that ends it.
     fn sent(h: &mut ui::testing::Harness) -> Vec<compositor_protocol::Request> {
         h.commit().into_iter().filter(|r| !matches!(r, compositor_protocol::Request::Commit { .. })).collect()
+    }
+
+    /// An analog clock's second hand sends nothing while the screen is off (it drew a frame a second through standby), and the clock is
+    /// brought to the time in the drawing that the screen coming on asks for.
+    #[test]
+    fn a_second_hand_sends_nothing_while_the_screen_is_off() {
+        let (mut h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let mut theme = lumatv_tokens::Tokens::shipped().json().clone();
+        lumatv_tokens::merge(&mut theme, &json!({"clock": {"style": "analog", "secondHand": "#ff3b30"}}));
+        let layout = json!({"grid": {"rows": 16}, "widgets": [{"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 6, "rows": 4},
+                                         {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]});
+        let mut home = Home::new(theme, super::super::grid::shipped(), layout);
+        fixtures(&mut home);
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        s.apply(&mut kit, &mut engine, &mut home, 2_300).expect("Home drawn");
+        h.settle_atlas();
+        s.apply(&mut kit, &mut engine, &mut home, 2_350).expect("Home drawn");
+        sent(&mut h);
+        s.apply(&mut kit, &mut engine, &mut home, 3_300).expect("a second later");
+        assert!(!sent(&mut h).is_empty(), "screen on: the hand moves");
+        home.update(&Input::Topic { topic: "screen".into(), data: json!({"on": false}) }, 3_400);
+        s.apply(&mut kit, &mut engine, &mut home, 3_450).expect("the screen went off");
+        sent(&mut h);
+        for at in [4_300, 5_300, 6_300] {
+            s.apply(&mut kit, &mut engine, &mut home, at).expect("standby");
+            assert_eq!(sent(&mut h), Vec::new(), "standby at {at} ms: nothing is sent");
+        }
+        home.update(&Input::Topic { topic: "screen".into(), data: json!({"on": true}) }, 6_400);
+        s.apply(&mut kit, &mut engine, &mut home, 6_450).expect("the screen came on");
+        assert!(!sent(&mut h).is_empty(), "the clock is brought to the time");
     }
 
     /// A switch and a lamp are toggled in the step of the key: what changes is sent once, no glass or group of the card is made again (nothing

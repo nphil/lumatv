@@ -180,12 +180,23 @@ impl Power {
         Some(power::response(round, ts, true))
     }
 
+    /// Takes in a `PowerState` report. The rounds above say when drawing stops and starts; a compositor started with the set already
+    /// in standby (an install, a restart, a boot that ends in standby) gets no round, so the first report says it: tvpower reports
+    /// Active Standby as `ACTIVE`/`always ready` there, and the compositor had drawn Home's frames at 10 a second for a screen that
+    /// was off until the next wake (2026-11-14). A report of the set fully on starts drawing whatever the rounds said.
     pub fn on_state(&mut self, payload: &Value) {
+        let first = self.state == "unknown";
         if let Some(s) = payload.get("state").and_then(Value::as_str) {
             self.state = s.to_string();
         }
         if let Some(s) = payload.get("sub state").and_then(Value::as_str) {
             self.sub_state = s.to_string();
+        }
+        let sub = self.sub_state.to_ascii_lowercase();
+        if first && (self.state.eq_ignore_ascii_case("power off") || matches!(sub.as_str(), "active standby" | "always ready" | "suspend")) {
+            self.rendering = false;
+        } else if self.state.eq_ignore_ascii_case("active") && sub == "active" {
+            self.rendering = true;
         }
     }
 
@@ -378,12 +389,18 @@ impl State {
         };
         if round == "PowerState" {
             // The standby's timeline: each state tvpower goes through, from the Power key (the rounds below are its asks of the compositor).
-            let was = (self.luna_state.power.state.clone(), self.luna_state.power.sub_state.clone());
+            let was = (self.luna_state.power.state.clone(), self.luna_state.power.sub_state.clone(), self.luna_state.power.rendering);
             self.luna_state.power.on_state(&ev.payload);
             let now = (&self.luna_state.power.state, &self.luna_state.power.sub_state);
             if (now.0, now.1) != (&was.0, &was.1) {
                 let line = format!("tvpower: the set is {:?}/{:?} (was {:?}/{:?}){}", now.0, now.1, was.0, was.1, self.since_power_key());
                 self.journal(line);
+            }
+            if self.luna_state.power.rendering != was.2 {
+                let line = format!("tvpower: drawing {} from the set's state", if self.luna_state.power.rendering { "starts" } else { "stops" });
+                self.journal(line);
+                self.refresh_policy_sync();
+                self.shell_sync_topics();
             }
             return;
         }
@@ -1036,6 +1053,21 @@ mod tests {
         assert!(uri.ends_with("/power2/responsePreparePowerOn"));
         assert!(p.rendering);
         assert!(p.on_push("PreparePowerOff", &json!({"state": "ACTIVE"})).is_none(), "a state echo without a timestamp is not a round");
+    }
+
+    #[test]
+    fn a_compositor_started_in_standby_draws_nothing_until_the_set_is_on() {
+        let mut p = Power::default();
+        p.on_state(&json!({"state": "ACTIVE", "sub state": "always ready"}));
+        assert!(!p.rendering, "the first report is standby: nothing is drawn");
+        p.on_state(&json!({"state": "ACTIVE", "sub state": "screen off"}));
+        assert!(!p.rendering, "only the rounds and a report of the set fully on start drawing");
+        p.on_state(&json!({"state": "ACTIVE", "sub state": "active"}));
+        assert!(p.rendering);
+        let mut on = Power::default();
+        on.on_state(&json!({"state": "ACTIVE", "sub state": "active"}));
+        on.on_state(&json!({"state": "POWER OFF", "sub state": "active standby"}));
+        assert!(on.rendering, "after the first report a standby state waits for its round, which stops drawing in step with tvpower");
     }
 
     #[test]
