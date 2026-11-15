@@ -277,7 +277,7 @@ Manrope at three weights only: Regular 400, Medium 500, SemiBold 600.
   the element's own ink. On pills and buttons the light sits 8 px above the bottom edge, inside;
   on rows and tiles it sits on the bottom edge; on covers it sits on the canvas 12 px below the
   art, above the caption, because art behind a bar is not contrast-safe. Rows add a 9 % ink wash
-  and an inset lit edge instead of growing. No outlines, no white pills.
+  and an inset lit edge instead of growing. Focus never draws a bright outline or a white pill.
 - **Motion**: focus 150 ms, panel enter 180 ms, exit 120 ms, art dissolve 200 ms once focus
   settles. Repeated presses jump to the newest destination. Reduced motion drops lift, growth and
   dissolves and keeps colour and the landing light.
@@ -348,7 +348,8 @@ knob.
 ### Don't:
 
 - Don't tint art, autoplay trailers, rotate the hero or add particles.
-- Don't use outlines, white pills, glows, eyebrows, gradient text, side stripes, emoji or ALL CAPS.
+- Don't mark focus with bright outlines or white pills, and don't use glows, eyebrows, gradient
+  text, side stripes, emoji or ALL CAPS. Hairline edges on chips and tiles are fine.
 - Don't put a card inside a card; a focused row's wash and lit edge are a state, not a container.
 - Don't carry status by colour alone or in jargon (`Wakes on play`, not `Wake-on-LAN`).
 - Don't use per-card live blur or more than one active focus shadow.
