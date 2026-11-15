@@ -13,12 +13,7 @@
 <script src="kit.js"></script>
 <script src="hub.js"></script>
 <script>
-  const { ic, esc, chip, hints, engines } = Kit;
-  const saves = {
-    shared: ["badge-check", "Shared"],
-    separate: ["unlink", "Separate"],
-    unknown: ["circle-question-mark", "Unknown"],
-  };
+  const { ic, chip, hints } = Kit;
   // One row per way to play Quake. Status and save compatibility come from the plugins.
   const rows = [
     { e: "gfn", sub: "nitin · Ultimate", saves: "shared", status: chip("ready"), on: true },
@@ -26,24 +21,13 @@
     { e: "punktfunk", sub: "Punktfunk", saves: "shared", status: chip("ready") },
     { e: "native", sub: "Installed · 48 MB", saves: "separate", status: chip("installed") },
   ];
-  const row = (r) => {
-    const e = engines[r.e];
-    const [sIc, sWord] = saves[r.saves];
-    return `<div class="crow${r.focus ? " is-focused" : ""}">
-      <span class="eng">${ic(e.icon)}</span>
-      <span class="who">${esc(e.name)}<small>${esc(r.sub)}</small></span>
-      <span class="meta"><span class="saves ${r.saves}">${ic(sIc)}<span>${sWord}</span></span>
-      <span class="status">${r.status}</span></span>
-      <span class="radio${r.on ? " on" : ""}"></span>
-    </div>`;
-  };
   document.querySelector(".screen").innerHTML = Hub.html("quake", { caps: ["4K", "Full controller support", "Up to 4 players"] }) + `
     <div class="scrim"></div>
     <div class="sheet-wrap"><section class="sheet dialog">
       <div class="sheet-head"><h2 class="t-title">Where to play Quake</h2></div>
-      <div class="crow-head"><span></span><span>Where</span><span>Saves</span><span>Status</span><span></span></div>
+      ${Hub.wayHead}
       <div class="sheet-body" data-scroll="56">
-        ${rows.map(row).join("")}
+        ${rows.map(Hub.wayRow).join("")}
         <div class="srow remember"><span class="grow">Remember for this game</span><span class="toggle"></span></div>
       </div>
       <div class="sheet-foot">${hints([["key-ok", "Select"], ["key-back", "Close"]])}<span class="btn primary">${ic("play", "fill")}<span>Play here</span></span></div>

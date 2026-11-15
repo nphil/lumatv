@@ -13,7 +13,24 @@
 <script src="kit.js"></script>
 <script src="hub.js"></script>
 <script>
-  document.querySelector(".screen").innerHTML = Hub.html("hades2", { focus: "play" });
+  // ?tab=ways or ?tab=media shows the page scrolled to that tab with focus inside it.
+  const tab = new URLSearchParams(location.search).get("tab") || "overview";
+  const { chip } = Kit;
+  const ways = [
+    { e: "gfn", sub: "nitin · Ultimate", saves: "shared", status: chip("ready"), on: true, focus: true },
+    { e: "sunshine", sub: "BEAST-PC · Steam · wakes on play", saves: "shared", status: chip("asleep") },
+    { e: "punktfunk", sub: "Desk PC · Steam", saves: "shared", status: chip("offline") },
+  ];
+  const m = (f) => `assets/1145350/media/${f}`;
+  const media = {
+    trailers: [
+      { src: m("trailer-1.jpg"), name: "Launch trailer", sub: "2 min" },
+      { src: m("trailer-2.jpg"), name: "Showcase", sub: "12 min" },
+    ],
+    shots: [1, 2, 3, 4, 5].map((i) => ({ src: m(`shot-${i}.jpg`) })),
+  };
+  const focus = { overview: "play", ways: "way", media: "media" }[tab];
+  document.querySelector(".screen").innerHTML = Hub.html("hades2", { focus, tab, ways, media });
   Kit.ready(Hub.settle);
 </script>
 </body>

@@ -187,7 +187,7 @@ accounts and numbers in the mocks are illustrative.
 |---|---|
 | Home (standard, cinematic, compact) | `home.html`, `home-cinematic.html`, `home-compact.html` |
 | Library | `library.html` |
-| Game hub | `hub.html` |
+| Game hub (Overview, Ways to play, Media) | `hub.html`, `hub.html?tab=ways`, `hub.html?tab=media` |
 | Chooser | `chooser.html` |
 | Settings (Appearance, Streaming) | `settings.html?section=appearance`, `?section=streaming` |
 | Integrations, pairing, sign-in | `integrations.html`, `pairing.html`, `signin.html` |
@@ -254,7 +254,9 @@ Manrope at three weights only: Regular 400, Medium 500, SemiBold 600.
   width: 7 x 226, 6 x 268, 5 x 326. One filter bar, no page title (the nav names the page); the
   Menu key opens sort, named by a hint at the bar's right end.
 - **Hub**: art 760 high behind a 1000 px text column; logo 168 high; buttons, target summary, then
-  tabs (Overview, Ways to play, Media) and four fact tiles.
+  tabs (Overview, Ways to play, Media) and four fact tiles. Moving into a tab below Overview
+  scrolls the page so the tabs land on Home's focus line (y 170) under the top bar; the art stays
+  as a dim backdrop in dark themes and leaves in light themes.
 - **Sheets** are centred: 1320 wide for lists, 1080 for a confirm, 840 for a code; at most 972
   high. Settings uses a rail (at least 420, growing with text) beside the pane, 48 apart.
 - **200 % text** reflows: chooser columns fold under the name, a sheet list that outgrows its
@@ -310,6 +312,10 @@ knob.
   chips, `[Play · target]` and `[Choose where to play]`, and the target summary (engine,
   host/store/account, readiness). After a failed launch or for an unreachable target a notice
   replaces the target summary: an opaque card whose icon carries the tone.
+- **Hub tabs**: Overview holds the fact tiles. Ways to play lists the chooser's rows at the
+  chooser's width plus `Add a way to play`; OK there makes that row the game's target, which Play
+  then names. Media has a Trailers row (named tiles with a play badge; a trailer plays only when
+  selected) and a Screenshots row (pictures, unlabelled), both in 448 x 252 collection tiles.
 - **Chooser row**: 80 high; engine badge, name and host or account, save compatibility (Shared,
   Separate, Unknown), status chip, and a radio for the selected target. OK selects a row and moves
   focus to the `Play here` action; `Remember for this game` sits under the list.
