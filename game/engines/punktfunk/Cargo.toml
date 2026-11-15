@@ -1,0 +1,39 @@
+[workspace]
+resolver = "3"
+
+[package]
+name = "lumagame-engine-punktfunk"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+tracing = "0.1"
+async-channel = "2"
+# punktfunk-core's custom TLS connector uses ureq's explicitly unversioned API.
+ureq = { version = "=3.4.2", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std"] }
+lumagame-core = { path = "../../crates/lumagame-core" }
+lumagame-feeder = { path = "../../crates/lumagame-feeder" }
+lumatv-gfn-pad = { path = "../../../gfn/engine/crates/lumatv-gfn-pad" }
+punktfunk-core = { git = "https://github.com/punktfunk/punktfunk", rev = "db9d5ac637d9a15178ba8e30da06800d5e981a00", features = ["quic", "ureq-tls"] }
+pf-client-core = { git = "https://github.com/punktfunk/punktfunk", rev = "db9d5ac637d9a15178ba8e30da06800d5e981a00", default-features = false, features = ["discovery"] }
+cros-codecs = { git = "https://github.com/punktfunk/punktfunk", rev = "db9d5ac637d9a15178ba8e30da06800d5e981a00" }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+lto = "thin"
+panic = "abort"
+strip = true

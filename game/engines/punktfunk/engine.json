@@ -1,0 +1,10 @@
+{
+  "id": "punktfunk",
+  "name": "Punktfunk",
+  "summary": "Play games from a PC running Punktfunk. Pair with the PIN shown on the PC.",
+  "kind": "host",
+  "protocol": 1,
+  "exec": "bin/lumagame-engine-punktfunk",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/nphil/lumatv/tree/main/game/engines/punktfunk"
+}
