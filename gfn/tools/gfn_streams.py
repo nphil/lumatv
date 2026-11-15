@@ -64,6 +64,12 @@ STREAMS = [
     hevc("4k120_main_sdr_l52_80m_ref1", 3840, 2160, 120, 80, "5.2", 1, hdr=False, bits=8),
     hevc("4k60_main10_hdr_l51_50m_ref1", 3840, 2160, 60, 50, "5.1", 1),        # fallback tier
     hevc("1440p120_main10_hdr_l51_50m_ref1", 2560, 1440, 120, 50, "5.1", 1),   # fallback tier; HFR below 1920x1440 needs the pipeline flag
+    hevc("1440p45_main10_hdr_l51_30m_ref1", 2560, 1440, 45, 30, "5.1", 1),    # forced-VRR odd-rate and residue probes
+    hevc("1440p50_main10_hdr_l51_30m_ref1", 2560, 1440, 50, 30, "5.1", 1),
+    hevc("1440p60_main10_hdr_l51_30m_ref1", 2560, 1440, 60, 30, "5.1", 1),
+    hevc("1440p67_main10_hdr_l51_30m_ref1", 2560, 1440, 67, 30, "5.1", 1),
+    hevc("1440p72_main10_hdr_l51_30m_ref1", 2560, 1440, 72, 30, "5.1", 1),
+    hevc("1440p75_main10_hdr_l51_30m_ref1", 2560, 1440, 75, 30, "5.1", 1),
     hevc("1080p120_main10_hdr_l51_30m_ref1", 1920, 1080, 120, 30, "5.1", 1),
     h264("1080p60_high_sdr_l41_20m", 1920, 1080, 60, 20, "4.1"),               # the control: NDL's documented H.264 path
     hevc("4k120_main444_10_hdr_l52_80m_negative", 3840, 2160, 120, 80, "5.2", 1, chroma="444", seconds=2),   # E2, expected to fail
@@ -76,7 +82,7 @@ def x265_params(s, seconds):
     p = ["bitrate=%d" % (s["mbps"] * 1000), "vbv-maxrate=%d" % (s["mbps"] * 1000), "vbv-bufsize=%d" % (s["mbps"] * 500), "hrd=1",
          "level-idc=%s" % s["level"], "high-tier=%d" % (1 if s["tier"] == "high" else 0),
          "keyint=%d" % keyint, "min-keyint=%d" % keyint, "scenecut=0", "bframes=0", "ref=%d" % s["ref"], "slices=1",
-         "aud=1", "repeat-headers=1", "range=limited", "rc-lookahead=0", "frame-threads=4", "log-level=error"]
+         "aud=1", "repeat-headers=1", "vui-timing-info=1", "range=limited", "rc-lookahead=0", "frame-threads=4", "log-level=error"]
     if s["hdr"]:
         p += ["hdr10=1", "hdr10-opt=1", "master-display=" + MASTER, "max-cll=" + MAX_CLL,
               "colorprim=bt2020", "transfer=smpte2084", "colormatrix=bt2020nc"]
