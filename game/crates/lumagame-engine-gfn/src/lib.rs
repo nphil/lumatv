@@ -30,6 +30,7 @@ enum Purpose {
     Inspect { target: TargetId, game: ProviderGameId, launch: bool },
     RefreshLaunch,
     Create,
+    Remote,
     Poll,
     Start,
     RetryStop,
@@ -70,6 +71,7 @@ struct Launch {
     running: bool,
     stale_retried: bool,
     busy_retried: bool,
+    claimed: bool,
     retry_stopping: bool,
     stopping: bool,
     end_game: bool,
@@ -203,7 +205,7 @@ impl Adapter {
                 };
                 self.launch = Some(Launch {
                     id:session,seq:message.seq,selection,cloud:Value::Null,started:false,running:false,stale_retried:false,
-                    busy_retried:false,retry_stopping:false,stopping:false,end_game:false,stats:false,poll_due:0,values:self.values.clone(),
+                    busy_retried:false,claimed:false,retry_stopping:false,stopping:false,end_game:false,stats:false,poll_due:0,values:self.values.clone(),
                 });
                 self.session(SessionState::Checking);
                 if self.target.is_none() {
@@ -289,7 +291,7 @@ impl Adapter {
     fn stop(&mut self, seq: u64, end_game: bool) {
         let Some(l) = &mut self.launch else { return; };
         l.stopping = true; l.seq = seq; l.end_game = end_game;
-        self.queue.retain(|j| !matches!(j.purpose,Purpose::Create|Purpose::Poll|Purpose::Start|Purpose::RetryStop|Purpose::RefreshLaunch|Purpose::Inspect{launch:true,..}));
+        self.queue.retain(|j| !matches!(j.purpose,Purpose::Create|Purpose::Remote|Purpose::Poll|Purpose::Start|Purpose::RetryStop|Purpose::RefreshLaunch|Purpose::Inspect{launch:true,..}));
         if self.auth.is_some() { self.cancel_auth(seq); return; }
         self.enqueue("streamer.stop",json!({"reason":"the viewer left the stream"}),Purpose::StopStream,Some(seq));
     }
@@ -534,6 +536,7 @@ impl Adapter {
                 self.resume_launch();
             }
             Purpose::Create | Purpose::Poll => self.session_update(r),
+            Purpose::Remote => self.claim(r),
             Purpose::Start => {
                 if let Some(l) = &mut self.launch {
                     if !l.stopping { l.running = true; self.running(); }
@@ -600,6 +603,11 @@ impl Adapter {
                 if let Some(l) = &mut self.launch { l.stale_retried = true; }
                 self.enqueue("auth.session.get",json!({}),Purpose::RefreshLaunch,None);
             }
+            // The same account still holds a seat, usually the game this TV left without ending it: take it back once.
+            Purpose::Create if code == "session_conflict" && self.launch.as_ref().is_some_and(|l| !l.claimed && !l.stopping) => {
+                if let Some(l) = &mut self.launch { l.claimed = true; }
+                self.enqueue("session.remote.list",json!({}),Purpose::Remote,None);
+            }
             Purpose::Start if code == "streamer_busy" && self.launch.as_ref().is_some_and(|l| !l.busy_retried && !l.stopping) => {
                 if let Some(l) = &mut self.launch { l.busy_retried = true; l.retry_stopping = true; }
                 self.enqueue("streamer.stop",json!({"reason":"a finished stream still held the engine"}),Purpose::RetryStop,None);
@@ -611,15 +619,30 @@ impl Adapter {
                 if let Some(l) = &mut self.launch { l.retry_stopping = false; }
                 self.start();
             }
-            Purpose::Create | Purpose::Poll | Purpose::Start | Purpose::RefreshLaunch | Purpose::Inspect { launch:true,.. } | Purpose::StopStream | Purpose::StopSeat => {
-                let reason = if code == "stale_account" {FailReason::Auth} else if code == "streamer_busy" {FailReason::Busy} else {FailReason::Engine};
+            Purpose::Create | Purpose::Remote | Purpose::Poll | Purpose::Start | Purpose::RefreshLaunch | Purpose::Inspect { launch:true,.. } | Purpose::StopStream | Purpose::StopSeat => {
+                let reason = if code == "stale_account" {FailReason::Auth} else if matches!(code,"streamer_busy"|"session_conflict") {FailReason::Busy} else {FailReason::Engine};
                 let message = if code == "stale_account" {"This game could not be started for the signed-in account. Sign out and sign in again."}
-                    else if code == "streamer_busy" {"The last stream has not closed yet. Try playing again."} else {"GeForce NOW could not complete the session request"};
+                    else if code == "streamer_busy" {"The last stream has not closed yet. Try playing again."}
+                    else if code == "session_conflict" {"Another GeForce NOW game is still running on this account. End it, or wait a few minutes, then play again."}
+                    else {"GeForce NOW could not complete the session request"};
                 self.finish(SessionState::Failed { reason,message:message.into() });
                 self.enqueue("streamer.stop",json!({"reason":"the session request failed"}),Purpose::Pause,None);
             }
             Purpose::Hello | Purpose::Detect | Purpose::Setting => self.core_gone("GeForce NOW could not initialize the core and streamer"),
             _ => self.error(job.seq,ErrorCode::Internal,format!("GeForce NOW refused {} ({code})",job.method)),
+        }
+    }
+    fn claim(&mut self, r: &Value) {
+        let Some(l) = &self.launch else { return; };
+        if l.stopping { return; }
+        let variant = l.selection.variant.clone();
+        let same = |s: &&Value| s["appId"].as_i64().map(|n| n.to_string()).or_else(|| s["appId"].as_str().map(str::to_owned)) == Some(variant.clone());
+        match r["sessions"].as_array().and_then(|a| a.iter().find(same)) {
+            Some(s) => {
+                let params = json!({"sessionId":s["sessionId"],"streamingBaseUrl":s["streamingBaseUrl"],"appId":variant,"recoveryMode":true});
+                self.enqueue("session.claim",params,Purpose::Create,None);
+            }
+            None => self.rejected(Job { method:"session.create",params:Value::Null,purpose:Purpose::Create,seq:None,epoch:self.epoch },"session_conflict"),
         }
     }
     fn session_update(&mut self, r: &Value) {

@@ -191,6 +191,23 @@ fn stale_scope_refreshes_account_and_reinspects_before_retry() {
 }
 
 #[test]
+fn a_seat_held_by_the_same_game_is_claimed_and_another_game_is_reported_busy() {
+    let mut f=FakeCore::new(true);f.launch();
+    f.reject("session.create","session_conflict");
+    f.reply("session.remote.list",json!({"sessions":[{"sessionId":"other","appId":999,"streamingBaseUrl":"https://a"},{"sessionId":"left","appId":123,"streamingBaseUrl":"https://b"}]}));
+    let claim=f.reply("session.claim",json!({"sessionId":"left","status":2,"rtspsEndpoints":["rtsp://server"]}));
+    assert_eq!(claim["params"]["sessionId"],"left");assert_eq!(claim["params"]["streamingBaseUrl"],"https://b");
+    f.reply("streamer.start",json!({"status":"running"}));
+    assert!(f.session_states().iter().any(|s| matches!(s,SessionState::Running{..})));
+
+    let mut f=FakeCore::new(true);f.launch();
+    f.reject("session.create","session_conflict");
+    f.reply("session.remote.list",json!({"sessions":[{"sessionId":"other","appId":999,"streamingBaseUrl":"https://a"}]}));
+    assert!(matches!(f.session_states().last(),Some(SessionState::Failed{reason:FailReason::Busy,..})));
+    f.reply("streamer.stop",json!({}));
+}
+
+#[test]
 fn cancelling_an_allocating_session_never_starts_its_late_stream() {
     let mut f=FakeCore::new(true);f.launch();
     f.send(30,Request::Stop{session:SessionId(9),end_game:true});
