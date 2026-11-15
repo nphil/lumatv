@@ -72,6 +72,7 @@ impl ButtonAction {
     }
 
     pub fn macro_action(name: String, mode: u8, steps: u16, interval: u16) -> Result<Self> {
+        check_macro_name(&name)?;
         if mode > 4 {
             return Err(Error::Invalid("macro execution mode must be 0..=4"));
         }
@@ -215,9 +216,14 @@ impl Change {
         })
     }
 
+    /// Appends a macro. An existing name must be deleted and its absence verified before replacement.
     pub fn classic_macro(name: &str, steps: &[MacroStep]) -> Result<Self> {
-        if name.is_empty() || steps.is_empty() {
-            return Err(Error::Invalid("a macro needs a name and at least one step"));
+        check_macro_name(name)?;
+        if steps.is_empty() {
+            return Err(Error::Invalid("a macro needs at least one step"));
+        }
+        if steps.iter().any(|step| step.interval > u16::MAX.into() || step.duration > u16::MAX.into()) {
+            return Err(Error::Invalid("macro step timing must fit u16 milliseconds"));
         }
         let count = u16::try_from(steps.len()).map_err(|_| Error::Invalid("macro exceeds u16 step count"))?;
         let data: Vec<u32> = steps.iter().flat_map(|s| [s.device as u32, s.key as u32, s.interval, s.duration, 1]).collect();
@@ -239,6 +245,13 @@ impl Change {
             expected: Value::Array(remaining),
         })
     }
+}
+
+fn check_macro_name(name: &str) -> Result<()> {
+    if name.is_empty() || name.len() > 32 || name.as_bytes().contains(&0) {
+        return Err(Error::Invalid("macro name must contain 1..=32 UTF-8 bytes without NUL"));
+    }
+    Ok(())
 }
 
 fn scalar(write: Command, read: Command, expected: Value) -> Result<Change> {
@@ -359,7 +372,6 @@ mod tests {
         let change = Change::classic_macro("Jump", &[step]).unwrap();
         assert_eq!(wire(&change.write), json!({"c":172,"w":{"n":"Jump","s":1,"t":0,"d":[0,1,40,80,1]}}));
         assert_eq!(wire(&change.read), json!({"c":171,"n":"Jump"}));
-        assert!(Change::classic_macro("", &[step]).is_err());
         assert!(Change::classic_macro("Jump", &[]).is_err());
         let summary = json!([{"n":"Jump","s":1,"k":[0,0]}]);
         let deleted = Change::delete_macro("Jump", &summary).unwrap();
@@ -367,5 +379,19 @@ mod tests {
         assert_eq!(deleted.expected, json!([]));
         dry_run(&deleted).unwrap();
         assert!(Change::delete_macro("Missing", &summary).is_err());
+    }
+
+    #[test]
+    fn macro_names_and_timing_match_firmware_storage_limits() {
+        let step = MacroStep { device: MacroDevice::Gamepad, key: 1, interval: 65535, duration: 65535 };
+        let name = "é".repeat(16);
+        assert!(Change::classic_macro(&name, &[step]).is_ok());
+        assert!(ButtonAction::macro_action(name, 3, 1, 65535).is_ok());
+        for name in [String::new(), "a".repeat(33), "é".repeat(17), "A\0B".into()] {
+            assert!(Change::classic_macro(&name, &[step]).is_err());
+            assert!(ButtonAction::macro_action(name, 1, 1, 0).is_err());
+        }
+        assert!(Change::classic_macro("Jump", &[MacroStep { interval: 65536, ..step }]).is_err());
+        assert!(Change::classic_macro("Jump", &[MacroStep { duration: 65536, ..step }]).is_err());
     }
 }

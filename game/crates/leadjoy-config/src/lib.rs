@@ -53,9 +53,9 @@ impl From<io::Error> for Error {
     }
 }
 
-/// MessagePack maps retain the vendor's short string keys. This does not send anything.
+/// MessagePack maps put the vendor's selectors before dependent fields. This does not send anything.
 pub fn encode(value: &Value) -> Result<Vec<frame::Report>> {
-    let payload = rmp_serde::to_vec_named(value).map_err(Error::Encode)?;
+    let payload = rmp_serde::to_vec_named(&command::WireValue(value)).map_err(Error::Encode)?;
     frame::encode(&payload)
 }
 

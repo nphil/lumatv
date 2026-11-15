@@ -1,6 +1,9 @@
 //! MessagePack command maps. Numeric ids are from the PC DLL's command-name table.
 
-use serde::{Deserialize, Serialize, ser::SerializeMap};
+use serde::{
+    Deserialize, Serialize,
+    ser::{SerializeMap, SerializeSeq},
+};
 use serde_json::{Map, Value, json};
 
 use crate::{Error, Result, frame::Report};
@@ -109,11 +112,47 @@ impl Serialize for Request {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(Some(self.fields.len() + 1))?;
         map.serialize_entry("c", &(self.command as u8))?;
-        for (key, value) in &self.fields {
-            map.serialize_entry(key, value)?;
-        }
+        serialize_fields(&mut map, &self.fields)?;
         map.end()
     }
+}
+
+pub(crate) struct WireValue<'a>(pub &'a Value);
+
+impl Serialize for WireValue<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        match self.0 {
+            Value::Object(fields) => {
+                let mut map = serializer.serialize_map(Some(fields.len()))?;
+                serialize_fields(&mut map, fields)?;
+                map.end()
+            }
+            Value::Array(values) => {
+                let mut sequence = serializer.serialize_seq(Some(values.len()))?;
+                for value in values {
+                    sequence.serialize_element(&Self(value))?;
+                }
+                sequence.end()
+            }
+            value => value.serialize(serializer),
+        }
+    }
+}
+
+fn serialize_fields<M: SerializeMap>(map: &mut M, fields: &Map<String, Value>) -> std::result::Result<(), M::Error> {
+    // V54 applies values as keys arrive: command, destination and mode selectors must precede payloads.
+    const FIRST: [&str; 11] = ["c", "b", "mkn", "et", "e", "k", "a", "n", "d", "ct", "ec"];
+    for key in FIRST {
+        if let Some(value) = fields.get(key) {
+            map.serialize_entry(key, &WireValue(value))?;
+        }
+    }
+    for (key, value) in fields {
+        if !FIRST.contains(&key.as_str()) {
+            map.serialize_entry(key, &WireValue(value))?;
+        }
+    }
+    Ok(())
 }
 
 impl Request {
@@ -429,6 +468,48 @@ mod tests {
         assert!(Profile::new(1, 3).is_err());
         assert!(Request::joystick(profile, 3).is_err());
         assert!(Request::argument(Command::Battery, "c", json!(255)).is_err());
+    }
+
+    #[test]
+    fn wire_selectors_precede_dependent_fields_in_both_encoders() {
+        let cases: [(Result<Request>, &[u8]); 6] = [
+            (Request::profile_summary(1), b"\x82\xa1c\x33\xa1b\x01"),
+            (
+                Request::argument(Command::WriteMacro, "w", json!({"n":"J","s":1,"t":0,"d":[0,1,40,80,1]})),
+                b"\x82\xa1c\xcc\xac\xa1w\x84\xa1n\xa1J\xa1d\x95\x00\x01\x28\x50\x01\xa1s\x01\xa1t\x00",
+            ),
+            (
+                Request::argument(Command::SetButton, "w", json!({"b":1,"c":0,"d1":[{"k":24,"a":1,"dn":{"t":0},"up":{"t":0}}]})),
+                b"\x82\xa1c\x3d\xa1w\x83\xa1c\x00\xa1b\x01\xa2d1\x91\x84\xa1k\x18\xa1a\x01\
+                  \xa2dn\x81\xa1t\x00\xa2up\x81\xa1t\x00",
+            ),
+            (
+                Request::argument(
+                    Command::SetMotion,
+                    "w",
+                    json!({"b":1,"c":0,"d1":{"ec":[{"et":2,"acc":10,"ag":20,"a":2}],"el":[{"e":4,"dn":{"t":0},"up":{"t":0}}]}}),
+                ),
+                b"\x82\xa1c\x65\xa1w\x83\xa1c\x00\xa1b\x01\xa2d1\x82\xa2ec\x91\x84\xa2et\x02\xa1a\x02\
+                  \xa3acc\x0a\xa2ag\x14\xa2el\x91\x83\xa1e\x04\xa2dn\x81\xa1t\x00\xa2up\x81\xa1t\x00",
+            ),
+            (
+                Request::argument(Command::SetMotionDeviceConfig, "w", json!({"b":1,"c":0,"d1":[{"mkn":1,"cs":1,"ec":[],"el":[]}]})),
+                b"\x82\xa1c\xcc\xde\xa1w\x83\xa1c\x00\xa1b\x01\xa2d1\x91\x84\xa3mkn\x01\xa2ec\x90\xa2cs\x01\xa2el\x90",
+            ),
+            (
+                Request::argument(Command::SetJoystick, "w", json!({"b":1,"c":0,"d":1,"d1":{"ct":1,"rt":2,"cv":[0,0,100,100],"extra":42}})),
+                b"\x82\xa1c\x47\xa1w\x84\xa1c\x00\xa1b\x01\xa1d\x01\xa2d1\x84\xa2ct\x01\xa2cv\x94\x00\x00\x64\x64\
+                  \xa5extra\x2a\xa2rt\x02",
+            ),
+        ];
+        for (request, expected) in cases {
+            let request = request.unwrap();
+            assert_eq!(rmp_serde::to_vec_named(&request).unwrap(), expected);
+            let reports = crate::frame::encode(expected).unwrap();
+            assert_eq!(request.reports().unwrap(), reports);
+            assert_eq!(crate::encode(&request.value()).unwrap(), reports);
+            assert_eq!(crate::decode(expected).unwrap(), request.value());
+        }
     }
 
     #[test]
