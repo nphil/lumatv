@@ -376,10 +376,36 @@ fn ioctl_code(dir: u32, nr: u32, size: u32) -> u64 {
     u64::from((dir << 30) | (size << 16) | (0x45 << 8) | nr)
 }
 
+#[cfg(not(test))]
 fn eviocgrab(fd: RawFd, grab: bool) -> io::Result<()> {
     let v: libc::c_int = i32::from(grab);
     let rc = unsafe { libc::ioctl(fd, ioctl_code(1, 0x90, 4) as _, &v as *const libc::c_int) };
     if rc < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
+}
+
+/// The kernel's grab rule for the tests' pseudo-terminals, which have no `EVIOCGRAB`: one holder per device, any second grab is
+/// `EBUSY` (the holder's own included), and only the holder can let go.
+#[cfg(test)]
+fn eviocgrab(fd: RawFd, grab: bool) -> io::Result<()> {
+    static HOLDERS: Mutex<Vec<((u64, u64), RawFd)>> = Mutex::new(Vec::new());
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstat(fd, &mut st) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let device = (st.st_dev, st.st_ino);
+    let mut holders = HOLDERS.lock().unwrap_or_else(|e| e.into_inner());
+    match (grab, holders.iter().position(|(d, _)| *d == device)) {
+        (true, None) => {
+            holders.push((device, fd));
+            Ok(())
+        }
+        (true, Some(_)) => Err(io::Error::from_raw_os_error(libc::EBUSY)),
+        (false, Some(i)) if holders[i].1 == fd => {
+            holders.remove(i);
+            Ok(())
+        }
+        (false, _) => Err(io::Error::from_raw_os_error(libc::EINVAL)),
+    }
 }
 
 fn eviocgabs(fd: RawFd, code: u16) -> io::Result<(i32, i32)> {
@@ -474,14 +500,16 @@ impl PadRuntime {
         rt
     }
 
-    /// Hold the pads exclusively (the stream is in front) or share them again.
+    /// Hold the pads exclusively (the stream is in front) or share them again. The flag changes under the slots' lock, which the
+    /// rescan's retry also holds while it reads the flag, so a retry can never take a grab back after it was given up.
     pub fn set_grab(&self, grab: bool) {
-        self.inner.grab.store(grab, Ordering::Release);
-        wake_boost(&self.inner);
         let slots = self.inner.slots.lock().unwrap_or_else(|e| e.into_inner());
-        for slot in slots.iter().flatten() {
+        self.inner.grab.store(grab, Ordering::Release);
+        for slot in slots.iter().flatten().filter(|s| s.grabbed.load(Ordering::Acquire) != grab) {
             apply_grab(slot, grab);
         }
+        drop(slots);
+        wake_boost(&self.inner);
     }
 
     pub fn grabbed(&self) -> bool {
@@ -538,7 +566,11 @@ impl PadRuntime {
         let mut slots = self.inner.slots.lock().unwrap_or_else(|e| e.into_inner());
         for slot in slots.iter_mut() {
             if let Some(s) = slot.take() {
-                unsafe { libc::close(s.fd) };     /* ends the reader's read with EBADF and releases the grab */
+                // The reader's blocked read keeps the file, and with it the grab, alive past close: let go first.
+                if s.grabbed.load(Ordering::Acquire) {
+                    apply_grab(&s, false);
+                }
+                unsafe { libc::close(s.fd) };
             }
         }
         self.inner.bitmap.store(0, Ordering::Release);
@@ -548,10 +580,10 @@ impl PadRuntime {
 fn apply_grab(slot: &Slot, grab: bool) {
     match eviocgrab(slot.fd, grab) {
         Ok(()) => slot.grabbed.store(grab, Ordering::Release),
+        // A failed release still leaves this process without the grab (it was never held, or the node is gone).
+        Err(_) if !grab => slot.grabbed.store(false, Ordering::Release),
         Err(e) => {
-            if grab {
-                eprintln!("gfn-pad: {}: grab refused: {e} (another process holds it, or the node is not an input device)", slot.node);
-            }
+            eprintln!("gfn-pad: {}: grab refused: {e} (another process holds it, or the node is not an input device)", slot.node);
         }
     }
 }
@@ -586,12 +618,16 @@ fn discovery_loop(inner: &Arc<Inner>) {
 
 fn scan(inner: &Arc<Inner>) {
     inner.scans.fetch_add(1, Ordering::Release);
-    // a grab refused while another process held the pad (the stream's engine, until it lets go) is asked for again, quietly
-    if inner.grab.load(Ordering::Acquire) {
+    // A grab refused while another process held the pad (the menu, until it lets go) is asked for again. The flag is read under
+    // the slots' lock: see `set_grab`.
+    {
         let slots = inner.slots.lock().unwrap_or_else(|e| e.into_inner());
-        for slot in slots.iter().flatten().filter(|s| !s.grabbed.load(Ordering::Acquire)) {
-            if eviocgrab(slot.fd, true).is_ok() {
-                slot.grabbed.store(true, Ordering::Release);
+        if inner.grab.load(Ordering::Acquire) {
+            for slot in slots.iter().flatten().filter(|s| !s.grabbed.load(Ordering::Acquire)) {
+                if eviocgrab(slot.fd, true).is_ok() {
+                    slot.grabbed.store(true, Ordering::Release);
+                    eprintln!("gfn-pad: {}: grabbed after an earlier refusal", slot.node);
+                }
             }
         }
     }
@@ -1158,6 +1194,36 @@ mod tests {
             rt.stop();
         }
         assert!(boost::boost(closed, 1).unwrap_err().contains("did not answer"));
+    }
+
+    fn holds(rt: &PadRuntime) -> bool {
+        rt.inner.slots.lock().unwrap().iter().flatten().any(|s| s.grabbed.load(Ordering::Acquire))
+    }
+
+    /// The menu (LumaGame's UI) and the stream's engine each run a runtime on the same pad, as on the TV.
+    #[test]
+    fn the_menu_hands_the_grab_to_the_stream_and_never_takes_it_back_unasked() {
+        let pad = FakePad::new("handoff");
+        let cfg = pad.config();
+        let menu = PadRuntime::start(cfg.clone(), collect(&cfg));
+        let stream = PadRuntime::start(cfg.clone(), collect(&cfg));
+        wait_for("both readers", || menu.bitmap() == 0x0101 && stream.bitmap() == 0x0101);
+        menu.set_grab(true);
+        assert!(holds(&menu));
+        stream.set_grab(true);
+        assert!(!holds(&stream), "the kernel refuses a second holder");
+        menu.set_grab(false);
+        assert!(!holds(&menu));
+        wait_for("the stream's rescan to take the grab", || holds(&stream));
+        stream.set_grab(false);
+        let scans = menu.scans();
+        wait_for("two rescans of the menu", || menu.scans() >= scans + 2);
+        assert!(!holds(&menu) && !holds(&stream), "a released grab stays released");
+        stream.set_grab(true);
+        stream.stop();
+        menu.set_grab(true);
+        assert!(holds(&menu), "stop lets go of the grab before closing");
+        menu.stop();
     }
 
     /// `{"pid":n,"tid":n}` without a JSON dependency: the pad crate has none.
