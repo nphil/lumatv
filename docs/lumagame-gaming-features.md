@@ -260,10 +260,14 @@ ioctl(de_fd, 0x4004613c, &orig_de);
 Feeder disconnect can trigger helper restoration. A helper crash requires a
 surviving rollback owner; that lifecycle remains unqualified until tested.
 
-**Call chain (from disassembly):**
+**Call chain (LG kernel source):**
 - MEMC: `v4l2_vpq_vidioc_s_ctrl_be` → `vpq_hwrap_memc_lowdelaymode` →
-  `BE_FRC_HAL_Set_Low_Delay` → `BE_FRC_HW_O22_Set_Low_Delay` →
-  `BE_KIPC_SetData(0x80010001, buf, 16)`
+  `BE_FRC_HAL_Set_Low_Delay` → `BE_FRC_HW_O22_SetMemcLowDelay` →
+  `BE_FRC_HW_O22_SetMemcMode` → `BE_KIPC_SetData(BE_FRC_SET_MEMC_MODE, 16
+  bytes)` on the BE IPC channel (`chip/o22/be/frc/be_frc_hw_o22.c`). The
+  message is sent only when it differs from the previous one. Low delay 1
+  sends FRC level `LX_BE_FRC_MEMC_DISABLE` (0, the level TruMotion off
+  sends); Motion Pro travels in the same message as `uFRCMotionProEn`.
 - DE: `resource_mgr_ioctl` → DE IPC command 0x49 (4-byte payload)
 - PE DNT: NOP on O22 — no action needed.
 
@@ -288,10 +292,13 @@ The LG kernel source confirms the cache problem for every getter involved
   `DE_IO_SetLowDelay` and does not update that cache, so the `/proc`
   readback cannot reflect the helper's own DE ioctl.
 
-During NDL 4K120 playback the caches already disagree: VPQ low delay
-`G_CTRL` reads 0 while `lowdelaymode` reads 1 (NDL sets low delay through
-the DE path, not the VPQ control). Restoring VPQ low delay to its "original"
-0 during playback would therefore switch DE low delay off.
+The helper's `vpq_low_delay` ID `0x00983D09` is `V4L2_CID_EXT_VPQ_BYPASS_BLOCK`
+(VPQ base `0x00983D00` + 9). `V4L2_CID_EXT_VPQ_LOW_DELAY_MODE` is `0x00983D0E`
+(base + 14, `v4l2-ext-pq.h`); the system sets it to 1 on every NDL load and
+to 0 on unload (see "Low-latency readback" below). The `G_CTRL` 0 against
+`lowdelaymode` 1 during playback and the `S_CTRL` EINVAL in the TV results
+come from the wrong control. Restoring VPQ low delay to a saved 0 during
+playback would switch DE low delay off.
 
 ### Qualification (must pass before shipping)
 
@@ -345,6 +352,61 @@ and lifecycle receipts. These fixes have no new TV receipt.
 Receipts: `/data/home/tmp/lumagame-display-20261115/` (`qualify-results.json`,
 `gaming-status-*.json`, `ld-*.txt`, `q-*-dmesg.txt`, `picture-*.json`,
 `rollback.json.stale-copy`).
+
+### Low-latency readback (2026-11-15, measured)
+
+The MEMC and Motion Pro getters return driver globals, so these readbacks
+come from the DE firmware, the decoder and the PE driver instead, all
+read-only. Idle is Home (`filmMaker`, `memcDelayLevel mid`). Playback is the
+NDL 4K120 HDR feeder clip in `hdrGame` (`memcDelayLevel none`, 120 frames/s
+fed, none dropped, queue ≤ 2), read at 4 s and 20 s in two runs.
+
+| Readback | Idle | 4K120 game playback |
+|----------|------|---------------------|
+| SYS_VERI_10 low_delay / frc / frame_delay | 1 / 0 / 0 | 1 / 0 / 0 |
+| SYS_VERI_10 vrr / justscan | 0 / 1 | 0 / 1 |
+| SYS_VERI_10 dco_lock | 0 | 0 at 4 s, 1 at 20 s |
+| SYS_VERI_10 video_delay (µs) | 650–8372, wandering | 15800–15930 |
+| SYS_VERI_11 frate_in / frate_out (Hz) | 120 / 120 | 120 / 120 |
+| `/proc/lxvdec/*/status` flags | no decoder | `low_latency,hfr,uhd_cont` |
+| `/proc/lxvo/vdisp/vpts` match mode | no decoder | `freerun_ignore_sync` |
+| PE `SetLowDelayMode` (dmesg) | 0 | 1 |
+
+SYS_VERI_10 is `CC482228` and SYS_VERI_11 is `CC48222C`, read with
+`DE_IOR_REG_RD`. The field positions come from the DE firmware's status print
+(inferred): SYS_VERI_10 video_delay 19:0 (µs), pic_init 22, vrr 23, justscan
+24, frc 25, frame_delay 27:26, prew 28, skip_nd0 29, low_delay 30, dco_lock
+31; SYS_VERI_11 frate_in 7:0, frate_out 15:8, VRR rate 31:16.
+
+- The firmware low_delay bit stayed 1 while the PE control went 0 → 1 → 0,
+  so it does not read that control back. frc 0 and frame_delay 0 show no FRC
+  frame delay in the path in either state.
+- video_delay holds 15.8–15.9 ms (about 1.9 frames at 120 Hz) during game
+  playback; its exact definition is unknown (inferred: the firmware's
+  input-to-output delay).
+- The PE driver logs LG's declared latency on each change: `Input:9,
+  Vfreq:1200, Lowdelay:1 → latency:17 ms` at clip start and `Lowdelay:0 →
+  75 ms` at clip end. Both come from a static table (`v4l2_vpq_event_latency`
+  in `core/pe/v4l2_vpq_latency.c`), not a measurement.
+- The control set at each NDL load is `V4L2_CID_EXT_VPQ_LOW_DELAY_MODE`
+  (`v4l2_vpq_vidioc_s_ctrl_pe` → `de_kwrap_setlowdelaymode`), sent by a
+  system process (inferred: `pqcontroller`).
+
+Verdict: NDL's game-mode load already applies every latency control found:
+PE/DE low delay, the decoder's low-latency mode (`CONTROL_NO_DELAY`, frames
+shown at the next vsync), and FRC off (`hdrGame` TruMotion off, firmware frc
+0). This matches LG's renderer contract for Low Delay Mode: bypass the
+delaying PQ blocks and turn MEMC off (`pq.rst`, "Low Delay Mode"). MEMC low
+delay sends the FRC level TruMotion off already sends, Motion Pro is BFI, and
+the source-sync low-delay clock (`hal_vsc_hwrap_SetLowDelayBySourceSync` →
+`DE_REG_O22_SetLowDelayClock`) refuses anything but HDMI input. No control
+was found that cuts latency beyond NDL's load (inferred from source and the
+readbacks above); the remaining lever is LumaGame's own queue depth. Glass
+latency still needs the photodiode measurement (qualification step 6).
+
+Receipts: `/data/home/tmp/lumagame-vrrlat-20261115/`
+(`reads-{idle,play-early,play-late,idle-after-play1,idle-after-play2}.json`,
+`play.out`, `play2.out`, `session.log`, `as-found.json`, `as-left.json`).
 
 ---
 
@@ -472,30 +534,175 @@ off for decoded 4K120 by default (`win0` vFreq 1200, lowdelaymode 1). Receipts:
 `regs-idle-{1,2,3,after}.txt`, `regs-play120-{1,2,3}.txt`,
 `c420-win0-fr_rate.txt` in `/data/home/tmp/lumagame-display-20261115/`.
 
-The ForceVRR debug word is RAM-only — does not persist across standby/reboot.
-Force=0 re-derives ready from upstream state. Restoration target is the BSS
-default of 0; provenance: packaged initial data, not a verified live reading.
+### Enable path (source and firmware strings)
 
-### Cloud G-SYNC integration
+Decoded video has no kernel or luna route into VRR. The kernel hands VRR to
+the firmware only as HDMI 2.1 timing flags (`LX_DE_CVI_GAME_MODE_T`
+`isVrrMode`/`isGSyncMode`/`isFreeSyncMode` in the CVI info, `vp_kwrap.c`);
+`V4L2_CID_EXT_VSC_ADAPTIVE_STREAM` is the adaptive-streaming/AirPlay seamless
+resize switch, not VRR. For MVT/MVR sources the only route is the firmware
+debug command line:
 
-`MediaStreamConfig.cloud_gsync: bool` (`types.rs:244`) is negotiated but
-ignored by the TV runtime. Real implementation needs:
+`echo VRR <N> end > /proc/lg/de/command` → `_DE_WriteProcFunction`
+(`core/de/de_proc.c`) → `BE_FRC_HW_O22_RunCommand` →
+`BE_KIPC_SetData(BE_FRC_B0_RUN_COMMAND)` → firmware
+`MCU_BE_IO_FRC_RunCommand` (O22 DE firmware `paluma_o22n3`).
 
-1. VRR on/off lifecycle in trusted helper with verified restoration
-2. Variable frame submission — stop fixed-cadence; use freerun or
-   `adaptive_freerun` for AV-sync relaxation
-3. Safe blanking bounds — VRRULIMIT/VRRLLIMIT panel values are unknown
-4. Frame presentation feedback — report actual display timestamps to GFN
-5. Independent physical scan measurement — DE-derived Hz
-   (270000/total from CC460B90) is not independently verified
+From the firmware (disassembly and strings, inferred):
+- `VRR` without a value is a query: it prints `Current mode = N` and
+  `ctrl_sync_gen_mvc_trk0 = 0x…`.
+- `VRR N` stores N in bits 13–14 of a firmware debug word in MCU RAM and
+  prints `forceVRR : N`. 1 forces the window ready field to 7, 2 forces it to
+  0, 0 re-derives it from the source.
+- Ready drives the tracking hardware: `CC460B50` bit31 (ready and on),
+  `CC400800` bit0, `CC460B84` bits 13–15 (frame doubling) and bit 7 (reset),
+  `CC8C00A0` bit6 (internal source). The measured period is `CC460B90`
+  (bits 14:0 total, bit 15 valid, bits 31:16 delay).
+- The firmware rejects VRR for a windowed or overscanned picture
+  (`VRR ERR : window mode`, `VRR ERR : overscan mode`).
+
+The ForceVRR debug word is RAM-only and is lost when the firmware reloads at
+boot. Restoration target is the BSS default of 0; provenance: packaged
+initial data, not a verified live reading.
+
+### Limits
+
+The firmware clamps the VRR rate between an upper and a lower limit, set by
+the hidden `debugType` options `VRRULIMIT`/`VRRLLIMIT` and logged as
+`VRR frate:%2u.%02uHz, vrrUpLimit:%2u.%02uHz` (and `vrrLwLimit`), so the
+limits are in 0.01 Hz. It turns them into a vertical-total range
+(`[[ VRR ]] … vt_num:%u(%u-%u)`) and doubles frames below the floor
+(`vrrDoubleOn`). The limits live in MCU RAM; no kernel path reads them and
+their defaults were not recovered from the firmware. An experiment stays at
+the 120 Hz ceiling the output already runs at.
+
+The TV's EDIDs give no VRR range either (measured): HDMI 1–4
+(`/proc/lg/hdmi20/portN/edid`, 512 bytes, `LG TV SSCR2`) carry no HDMI Forum
+VSDB and no FreeSync block, and their range descriptor allows 24–120 Hz
+vertical at up to 300 MHz pixel clock. HDMI Deep Colour is off on every port
+(`uhdDeepColorHDMI1`–`4` `off`, `freesync` `off`); the HDMI 2.1 EDID that
+would declare a VRR range needs a settings change to read (inferred).
+
+### Save and restore
+
+Saved before any VRR change, all read-only:
+1. The firmware force mode from the `VRR` query (needs the MCU print route;
+   without it the BSS default 0 is assumed).
+2. `CC460B50`, `CC400800`, `CC460B84`, `CC8C00A0`, `CC460B90` and the
+   firmware status words SYS_VERI_10/11 (section 1), through `DE_IOR_REG_RD`.
+3. `/proc/lg/de/win0/status` (vFreq, lowdelaymode), the DE2VSYNC/osd_irq
+   rates and `/proc/lxvo/vdisp/vsync`.
+
+Restore is `VRR <saved N> end` while the same clip still plays, accepted
+only when every saved value reads back unchanged. Registers are read only
+with the screen on: in Active Standby the display blocks may be unclocked.
+A reboot clears the debug word; whether Active Standby reloads the firmware
+is unknown.
+
+### Measuring the scan rate
+
+The SoC counters all come from the DE timing generator, so they show what
+the DE sends, not what the panel shows. Measured 2026-11-15 (receipts in
+section 1):
+- `DE2VSYNC` and `osd_irq` in `/proc/interrupts`: 119.85–120.34 Hz over 2 s
+  windows, idle and playback (one count is 0.5 Hz).
+- SYS_VERI_11 frate_out: 120.
+- `CC460B90` bits 14:0: 2250 during 4K120 playback, 120.0 Hz at
+  270000/total; a stale 3945 with valid 0 at Home idle.
+- SYS_VERI_11 bits 31:16: 11791–11951 during playback, frozen at idle
+  (11830, 11866, 11848). With vrr 0 this looks like the firmware's input-rate
+  measurement in 0.01 Hz (inferred), 118–119.5 Hz against 120 frames/s fed.
+
+The independent measure is optical: a photodiode or a 1000 fps camera on the
+panel, recorded at 48 kHz or more. An OLED refresh shows as a short
+brightness dip, so the dip interval gives the scan period even on a still
+image (inferred), and a clip alternating black and white frames ties each
+refresh to a source frame. LG's latency pattern
+(`V4L2_CID_EXT_VSC_LATENCY_PATTERN` → `DE_IOW_SET_LATENCY_MEASURE`, a box
+toggled black/white on each vsync for photodiode measurement) does the same
+inside the SoC but is a write.
+
+### Frame submission through NDL (measured and source)
+
+NDL already presents on arrival. During the 4K120 feeder clip the decoder
+runs LG's low-latency mode (section 1) and `/proc/lxvo/vdisp/vpts` reports
+match mode `freerun_ignore_sync` (measured): each frame's PTS is replaced by
+its enqueue time, and the frame shows at the next decoder vsync unless the
+queue has reached the discard level (`vpts.c` `_freerun_ignore_sync`,
+commented "for camera"). The ES player has no clock (`gf_ndl.c`), and
+`/proc/lxvo/vdisp/vrate` takes 120/1 from the stream (`rate_src CODEC`,
+`use_fixed 0`).
+
+That vsync is a timer, and `/proc/lxvo/vdisp/vsync` shows it pinned
+(measured): `fixed_frame_rate 1`, 120/1, interval 225000 ticks of 27 MHz
+(8333 µs), bounded to 224570–225430 ticks (119.77–120.23 Hz; 2/1000 less 20
+ticks, `VSYNC_SHIFT_LIMIT2` in `vsync.c`). Inside that band the driver
+shifts the phase every 30 vsyncs to hold the average frame wait near a fixed
+target and sets a long-term arrival-rate estimate every 300 frames
+(`vdisp_core.c`); `phase_shift` read −430 and +430 and `dco_intv` 225356 and
+224645 in the two runs. A variable arrival cadence therefore reaches the DE
+as a 120 Hz source quantised to the 8.33 ms tick. Per-frame VRR is out of
+reach from NDL without LG kernel changes, unless the firmware's internal
+tracking follows the per-frame IPC (`deif.c` sends `pts`, `next_pts`,
+`direct_video` and `is_hfr` with every frame) rather than the timer; the
+experiment decides that.
+
+### Experiment plan (not run; needs Nitin's approval)
+
+Fresh lease, screen on, receiver muted and checked again after every app
+launch (a Home launch unmuted it once), the fixed 4K120 HDR clip playing full
+screen, no 144 Hz anywhere in the session.
+1. Baseline, read-only: probe snapshot (status words, tracking registers,
+   interrupt rates, `/proc/lxvo/vdisp/*`) and the optical scan rate.
+2. Print route: `echo ipc log 1 end > /proc/lg/de/command` (LG's usage text:
+   "print fw log on"), then `VRR end`; record `Current mode = N`. Stop if the
+   reply is not visible anywhere.
+3. `VRR 1 end`. Pass: `CC460B50` bit31 and `CC400800` bit0 = 1, `CC460B90`
+   valid, SYS_VERI_10 vrr = 1, VRR rate ≈ 120, DE2VSYNC ≈ 120 Hz, optical
+   120 Hz, picture intact.
+4. The same clip fed at 90 and 100 fps (`--fps`): does `CC460B90`, the
+   DE2VSYNC rate and the optical rate follow the frames or stay at 120?
+5. `VRR <N from step 2> end`; pass when every step-1 value is back.
+
+Abort and restore on a black screen, flicker, `localmute`, watchdog or MCU
+messages, tracking bits disagreeing with the status words, or DE2VSYNC gaps.
+A reboot is the fallback when a value does not return.
+
+### Cloud G-SYNC
+
+NVIDIA supports it only on GeForce NOW Ultimate, in the native Windows
+(Turing or newer NVIDIA GPU) and macOS (Apple silicon or listed Intel Macs)
+apps from 2.0.59, on a VRR display above 60 Hz; browser, mobile, TV and Linux
+clients are unsupported
+([5504](https://nvidia.custhelp.com/app/answers/detail/a_id/5504),
+[5786](https://nvidia.custhelp.com/app/answers/detail/a_id/5786)). Ultimate
+already varies the stream rate on Reflex games; Cloud G-SYNC additionally
+lets the client's display refresh follow the frames
+([CES 2024](https://www.nvidia.com/en-us/geforce/news/g-sync-pulsar-gaming-monitor/)).
+OpenNOW (`a49b124`) requests it with `requestedStreamingFeatures.cloudGsync`
+(off by default) and requests Reflex with it or at 120 fps (`cloudmatch.rs`).
+The streamer acts only when the negotiated profile agrees, and its Linux
+pacer then presents the newest frame at once with no queue
+(`linux_frame_pacing.rs`). LumaGame's engine carries the field
+(`types.rs:244`, default false) and does nothing with it.
+
+Verdict: `cloud_gsync` stays false. NVIDIA does not support TV clients, and
+the C4's decoded path presents on a 120 Hz decoder timer (measured
+`fixed_frame_rate 1`, ±0.19 %), so a varying server cadence would show as
+8.33 ms-quantised judder rather than a varying refresh, while Reflex is
+already requested at 120 fps. It is worth revisiting only if step 4 shows the
+DE refresh following frame arrival.
 
 ### Open prerequisites
 
 1. ~~Verify CC460B50/CC400800/CC8C00A0 readback via `DE_REG_O22_RD`~~ —
    measured 2026-11-15 (above)
-2. Establish MCU print route for VRR query/response
-3. Qualify panel safe blanking bounds
-4. Build VRR lifecycle with save/verify/restore in trusted helper
+2. MCU print route for the `VRR` query (`ipc log 1` is the candidate)
+3. VRR limits: VRRULIMIT/VRRLLIMIT defaults are not host-readable, and the
+   current EDIDs declare no VRR range
+4. Whether internal tracking follows frame arrival or the decoder timer
+5. Optical scan measurement
+6. VRR lifecycle with save/verify/restore in the trusted helper
 
 ---
 
@@ -587,7 +794,6 @@ controls.
 | Symbol | Address |
 |--------|---------|
 | `vsc_check_vrr_freq` | `ffffffc01094ac30` |
-| `vsc_set_adaptives_stream` | `ffffffc010948b20` |
 | `DE_REG_O22_RD` | `ffffffc010968000` |
 
 ---
@@ -613,9 +819,10 @@ Accessed through `te_debug_param_*` / VDEC IPC, not sysfs.
    `DE_IO_SetFrRate` / `DE_REG_O22_SetFrRate` is a separate open prerequisite
 2. ~~VRR tracking register readback~~ — measured 2026-11-15: live values,
    tracking off at idle and at 4K120 (section 3)
-3. Panel safe VRR blanking bounds — VRRULIMIT/VRRLLIMIT values unknown
-4. Physical panel scan measurement at any non-120 rate — not independently
-   observed
+3. Panel safe VRR blanking bounds — VRRULIMIT/VRRLLIMIT defaults are not
+   host-readable and the current EDIDs declare no VRR range (section 3)
+4. Physical panel scan measurement at any rate — the SoC counters show only
+   what the DE sends; the optical method is in section 3
 5. Signed firmware load path — blocks any binary patch approach
 6. `te_debug_param` write path from userspace — not confirmed
 7. Conclusive 4:4:4 verdict — no HW Config dump in `dmesg`; decoded 4:4:4
