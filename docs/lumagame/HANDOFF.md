@@ -20,7 +20,7 @@ Order of work: VRR + low-latency hardware truth (running), REA of LG Game Dashbo
 ## Working rules
 
 - Read /data/home/lgtv/CLAUDE.md. Commit straight to main, push to origin and forge, explicit paths only (other sessions commit concurrently).
-- TV access: lease via /data/home/Marquee/tools/tv-lock.sh; tell the LumaTV OS chat before and after. Mute the receiver before waking the screen; leave the set in Active Standby with the receiver off and unmuted. Never touch the ssgw plugin or /etc/xinetd.d/ssg_https, never install compositor/ui, never change OLED light, brightness or picture mode.
+- TV access: lease via /data/home/Marquee/tools/tv-lock.sh. Tell the LumaTV OS chat beforehand about anything that wakes the screen, writes, installs or restarts the helper (read-only sessions need no notice), and again after. Mute the receiver before waking the screen and re-mute after every wake or app launch (the Denon keeper and ARC unmute it about 10 s later); leave the set in Active Standby with the receiver off and unmuted. Never touch the ssgw plugin or /etc/xinetd.d/ssg_https, never install compositor/ui, never change OLED light, brightness or picture mode.
 - After a helper install, confirm `lumatv ssgw status` (enabled, entry ours, gateway true) and no new crash record in /var/lib/lumatv/ssgw/crash/.
 - Never write VRR registers or ForceVRR without an owner-approved plan.
 - GFN sign-in from a phone: use a private browser tab (a stale NVIDIA session gives "Login Failed"). Never submit the device code from this host; that consumes it.
