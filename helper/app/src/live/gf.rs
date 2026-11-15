@@ -289,6 +289,8 @@ pub struct Client {
     /// A write failed, possibly half-way through a frame: nothing more can be sent on this connection. Says what failed first, so that the sends that
     /// follow report the cause and not only that there was one.
     broken: Option<String>,
+    /// `CLOCK_MONOTONIC` when the last load was sent: the feeder takes absolute monotonic stamps, callers give them relative to the load.
+    load_base_ns: i64,
 }
 
 impl Client {
@@ -307,7 +309,7 @@ impl Client {
         };
         stream.set_read_timeout(Some(timeout))?;
         stream.set_write_timeout(Some(WRITE_STALL))?;
-        let mut me = Self { stream, broken: None };
+        let mut me = Self { stream, broken: None, load_base_ns: 0 };
         let (kind, payload) = me.read_frame()?;
         let hello = decode(kind, &payload);
         if !matches!(hello, Message::Hello { .. }) {
@@ -338,7 +340,7 @@ impl Client {
     #[cfg(test)]
     pub fn from_stream(stream: UnixStream, write_stall: Duration) -> io::Result<Self> {
         stream.set_write_timeout(Some(write_stall))?;
-        Ok(Self { stream, broken: None })
+        Ok(Self { stream, broken: None, load_base_ns: 0 })
     }
 
     /// Whether a write failed: the feeder is not reading, or is gone.
@@ -383,12 +385,14 @@ impl Client {
             drop_threshold: -1,
             pts_unit: PTS_NS,
         };
+        self.load_base_ns = monotonic_ns();
         self.send(LOAD, bytes_of(&load))
     }
 
+    /// `pts_ns` counts from the last `send_load`.
     pub fn send_video(&mut self, pts_ns: i64, key: bool, data: &[u8]) -> io::Result<()> {
         let head = MediaHead {
-            pts_ns,
+            pts_ns: self.load_base_ns + pts_ns,
             key: u8::from(key),
             pad: [0; 7],
         };
@@ -439,6 +443,13 @@ impl Client {
     pub fn send_ping(&mut self, echo: i64) -> io::Result<()> {
         self.send(PING, &echo.to_le_bytes())
     }
+}
+
+fn monotonic_ns() -> i64 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid timespec for the call to fill.
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+    ts.tv_sec * 1_000_000_000 + ts.tv_nsec
 }
 
 /// One frame from any reader of the socket (the session's reader thread uses a clone).
@@ -509,7 +520,7 @@ mod tests {
         assert_eq!(decode(99, &[]), Message::Other(99));
         // a frame written by the client reads back the same
         let (a, mut b) = UnixStream::pair().unwrap();
-        let mut client = Client { stream: a, broken: None };
+        let mut client = Client { stream: a, broken: None, load_base_ns: 0 };
         client
             .send_video(1_000_000_000, true, &[0, 0, 0, 1, 0x65])
             .unwrap();
@@ -536,10 +547,24 @@ mod tests {
     }
 
     #[test]
+    fn video_stamps_go_out_on_the_monotonic_clock_from_the_load() {
+        let (a, mut b) = UnixStream::pair().unwrap();
+        let mut client = Client { stream: a, broken: None, load_base_ns: 0 };
+        let before = monotonic_ns();
+        client.send_load(CODEC_H264, 1280, 720, 30).unwrap();
+        let after = monotonic_ns();
+        read_frame(&mut b).unwrap();
+        client.send_video(5_000_000, true, &[0, 0, 0, 1, 0x65]).unwrap();
+        let (_, payload) = read_frame(&mut b).unwrap();
+        let head: MediaHead = read_struct(&payload).unwrap();
+        assert!((before + 5_000_000..=after + 5_000_000).contains(&head.pts_ns));
+    }
+
+    #[test]
     fn a_feeder_that_stops_reading_fails_the_write_instead_of_blocking_it() {
         let (a, _unread) = UnixStream::pair().unwrap();
         a.set_write_timeout(Some(Duration::from_millis(200))).unwrap();
-        let mut client = Client { stream: a, broken: None };
+        let mut client = Client { stream: a, broken: None, load_base_ns: 0 };
         let started = std::time::Instant::now();
         let picture = vec![0u8; 256 * 1024];
         let failed = (0..1000).any(|i| client.send_video(i, false, &picture).is_err());
