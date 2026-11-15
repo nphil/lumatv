@@ -8,10 +8,13 @@
 //! to `rustui/build/cardhost/`.
 #![cfg(feature = "window")]
 
+// The harness's `ui` feature is the compositor crate's own; this crate has none.
+#[allow(unexpected_cfgs)]
 #[path = "../../../compositor/crates/lumatv-compositor/tests/harness/mod.rs"]
 mod harness;
 
 use harness::{Client, Server};
+use lumatv_compositor::server::seat::SeatId;
 use lumatv_compositor::server::state::{ClientEvent, ClientHandler, State};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
@@ -203,8 +206,8 @@ fn foreground(server: &Server) -> Vec<String> {
 /// A key as the remote sends it, through the compositor's routing.
 fn remote(server: &Server, code: u32) {
     server.eval(move |s| {
-        s.key_event(code, true, false);
-        s.key_event(code, false, false);
+        s.key_event(SeatId(0), code, true, false);
+        s.key_event(SeatId(0), code, false, false);
     });
 }
 
@@ -357,7 +360,7 @@ fn a_key_on_a_seat_the_compositor_adds_after_the_app_started_reaches_it() {
     let mut app = start(&mut server, "seats", &[]);
     assert_eq!(server.eval(|s| s.seat.keyboards.len()), 1, "one seat, one keyboard");
 
-    let second = server.eval(|s| s.dh.create_global::<State, WlSeat, ()>(4, ()));
+    let second = server.eval(|s| s.dh.create_global::<State, WlSeat, SeatId>(4, SeatId(1)));
     assert!(wait_for(Duration::from_secs(5), || server.eval(|s| s.seat.keyboards.len()) == 2), "the app took the new seat's keyboard\n{}", app.log_text());
     // OK on the new seat only: the keys page opens.
     tap_on(&server, 1, OK);
