@@ -376,17 +376,23 @@ fn ioctl_code(dir: u32, nr: u32, size: u32) -> u64 {
     u64::from((dir << 30) | (size << 16) | (0x45 << 8) | nr)
 }
 
-#[cfg(not(test))]
+/// `EVIOCGRAB` takes its flag as the ioctl argument itself: the kernel grabs on any non-zero argument, so a pointer to 0 asked
+/// for a second grab (`EBUSY`) and the menu kept the pad through every stream.
 fn eviocgrab(fd: RawFd, grab: bool) -> io::Result<()> {
-    let v: libc::c_int = i32::from(grab);
-    let rc = unsafe { libc::ioctl(fd, ioctl_code(1, 0x90, 4) as _, &v as *const libc::c_int) };
+    grab_ioctl(fd, libc::c_ulong::from(grab))
+}
+
+#[cfg(not(test))]
+fn grab_ioctl(fd: RawFd, arg: libc::c_ulong) -> io::Result<()> {
+    let rc = unsafe { libc::ioctl(fd, ioctl_code(1, 0x90, 4) as _, arg) };
     if rc < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
 }
 
 /// The kernel's grab rule for the tests' pseudo-terminals, which have no `EVIOCGRAB`: one holder per device, any second grab is
 /// `EBUSY` (the holder's own included), and only the holder can let go.
 #[cfg(test)]
-fn eviocgrab(fd: RawFd, grab: bool) -> io::Result<()> {
+fn grab_ioctl(fd: RawFd, arg: libc::c_ulong) -> io::Result<()> {
+    let grab = arg != 0;
     static HOLDERS: Mutex<Vec<((u64, u64), RawFd)>> = Mutex::new(Vec::new());
     let mut st: libc::stat = unsafe { std::mem::zeroed() };
     if unsafe { libc::fstat(fd, &mut st) } != 0 {
