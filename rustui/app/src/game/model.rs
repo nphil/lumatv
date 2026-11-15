@@ -291,6 +291,8 @@ pub enum Sheet {
     EndSession,
     AddHost,
     EditText,
+    /// Confirms a controller setting that removes something, such as a macro.
+    Delete,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Section {
@@ -1396,6 +1398,10 @@ impl Model {
                 }
                 Some(Sheet::Auth) => self.auth_action(i, out),
                 Some(Sheet::EditText) => self.save_text(out),
+                Some(Sheet::Delete) => {
+                    if i == 1 { self.delete_leadjoy(out); }
+                    self.close_sheet();
+                }
                 Some(Sheet::AddHost) if !self.view.address.is_empty() => {
                     if let Some(id) = &self.view.selected_engine {
                         Self::send(out, id, Request::AddTarget { address: self.view.address.clone() });
@@ -1468,6 +1474,11 @@ impl Model {
         let LeadjoyState::Ready(profile) = &self.leadjoy.state else { return false };
         let Some(field) = profile.schema.fields().nth(row - 1) else { return false };
         if field.kind == FieldKind::Action {
+            if field.key.starts_with("delete-") {
+                self.view.edit_field = Some(row - 1);
+                self.open_sheet(Sheet::Delete, Focus::SheetAction(0));
+                return true;
+            }
             let change = ControllerChange { setting: field.key.clone().into(), value: serde_json::Value::Null };
             self.leadjoy.pending = true;
             out.push(Command::Leadjoy { view: profile.view.clone(), change: Some(change) });
@@ -1496,11 +1507,12 @@ impl Model {
                 let Value::Text(value) = next else { return false };
                 let mut view = profile.view.clone();
                 match selector {
-                    "section" => { view.section = value; view.button = 1; }
+                    "section" => { view.section = value; view.button = 1; view.step = 1; }
                     "profile" => { let Ok(n) = value.parse() else { return false }; view.profile = n; }
                     "sub" => { let Ok(n) = value.parse() else { return false }; view.sub = n; }
                     "side" => { let Ok(n) = value.parse() else { return false }; view.side = n; }
-                    "button" => { let Ok(n) = value.parse() else { return false }; view.button = n; }
+                    "button" => { let Ok(n) = value.parse() else { return false }; view.button = n; view.step = 1; }
+                    "step" => { let Ok(n) = value.parse() else { return false }; view.step = n; }
                     "action" => { let Ok(n) = value.parse() else { return false }; view.action = n; }
                     _ => return false,
                 }
@@ -1513,6 +1525,13 @@ impl Model {
             }
         }
         true
+    }
+    fn delete_leadjoy(&mut self, out: &mut Vec<Command>) {
+        if self.leadjoy.pending || self.leadjoy.error.is_some() { return; }
+        let LeadjoyState::Ready(profile) = &self.leadjoy.state else { return };
+        let Some(field) = self.view.edit_field.and_then(|i| profile.schema.fields().nth(i)).filter(|field| field.key.starts_with("delete-")) else { return };
+        out.push(Command::Leadjoy { view: profile.view.clone(), change: Some(ControllerChange { setting: field.key.clone().into(), value: serde_json::Value::Null }) });
+        self.leadjoy.pending = true;
     }
     fn adjust(&mut self, right: bool, out: &mut Vec<Command>) -> bool {
         if let Focus::EngineField(i) = self.view.focus {
@@ -2245,7 +2264,7 @@ impl Model {
                         rows.push((i..(i + cols).min(count)).map(Focus::Theme).collect());
                     }
                 }
-                Sheet::EndSession => rows.push(vec![Focus::SheetAction(0), Focus::SheetAction(1)]),
+                Sheet::EndSession | Sheet::Delete => rows.push(vec![Focus::SheetAction(0), Focus::SheetAction(1)]),
                 Sheet::Auth if self.view.auth.as_ref().is_some_and(|a| matches!(a.state, Some(AuthState::EnterPin { .. }))) => {
                     for i in (0..12).step_by(6) {
                         rows.push((i..i + 6).map(Focus::Keyboard).collect());
@@ -2841,6 +2860,35 @@ pub(crate) mod tests {
             m.view.focus = Focus::Setting(4);
             let activate = ControllerChange { setting: "profile-activate".into(), value: serde_json::Value::Null };
             assert!(key(&mut m, Key::Ok).contains(&Command::Leadjoy { view: profiles, change: Some(activate) }));
+        }
+
+        #[test]
+        fn leadjoy_macro_steps_reread_and_deleting_needs_confirmation() {
+            use crate::game::helper::leadjoy_fixture;
+            let mut m = lab();
+            key(&mut m, Key::Back);
+            m.view.focus = Focus::Setting(3);
+            key(&mut m, Key::Ok);
+            m.step(Input::Leadjoy(Ok(leadjoy_fixture("macros"))));
+            let macros = LeadjoyView { section: "macros".into(), ..LeadjoyView::default() };
+            m.view.focus = Focus::Setting(3);
+            assert!(m.step(Input::Key { key: Key::Right, down: true }).contains(&Command::Leadjoy { view: LeadjoyView { step: 2, ..macros.clone() }, change: None }));
+            let LeadjoyState::Ready(mut second) = leadjoy_fixture("macros") else { panic!("the fixture is ready") };
+            second.view.step = 2;
+            m.step(Input::Leadjoy(Ok(LeadjoyState::Ready(second))));
+            m.view.focus = Focus::Setting(2);
+            assert!(m.step(Input::Key { key: Key::Right, down: true }).contains(&Command::Leadjoy { view: LeadjoyView { button: 2, ..macros.clone() }, change: None }), "another macro starts at its first step");
+            m.step(Input::Leadjoy(Ok(leadjoy_fixture("macros"))));
+            m.view.focus = Focus::Setting(11);
+            assert!(key(&mut m, Key::Ok).is_empty());
+            assert_eq!((m.view.sheet, m.view.focus), (Some(Sheet::Delete), Focus::SheetAction(0)));
+            assert!(key(&mut m, Key::Ok).is_empty(), "keeping is the default");
+            assert_eq!((m.view.sheet, m.view.focus), (None, Focus::Setting(11)));
+            key(&mut m, Key::Ok);
+            m.view.focus = Focus::SheetAction(1);
+            let delete = ControllerChange { setting: "delete-macro".into(), value: serde_json::Value::Null };
+            assert!(key(&mut m, Key::Ok).contains(&Command::Leadjoy { view: macros, change: Some(delete) }));
+            assert_eq!((m.view.sheet, m.leadjoy.pending), (None, true));
         }
 
         #[test]

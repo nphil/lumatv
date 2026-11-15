@@ -43,6 +43,7 @@ pub fn sheet(p: &mut Paint<'_>) {
         Sheet::Auth => auth(p),
         Sheet::EndSession => end_session(p),
         Sheet::AddHost | Sheet::EditText => edit_text(p),
+        Sheet::Delete => delete(p),
     }
 }
 fn chooser(p: &mut Paint<'_>) {
@@ -334,6 +335,20 @@ fn end_session(p: &mut Paint<'_>) {
     let y = f.y + f.h - 104.0;
     let w = p.button(8030, Focus::SheetAction(0), "Keep playing", Some(Icon::Play), x, y, true, false, 34);
     p.button(8040, Focus::SheetAction(1), confirm, Some(Icon::Stop), x + w + 16.0, y, false, false, 34);
+}
+fn delete(p: &mut Paint<'_>) {
+    let field = match &p.model.leadjoy.state {
+        LeadjoyState::Ready(profile) => p.model.view.edit_field.and_then(|i| profile.schema.fields().nth(i)),
+        _ => None,
+    };
+    let (title, body) = field.map_or_else(|| ("Delete".into(), String::new()), |field| (field.label.clone(), field.help.clone().unwrap_or_default()));
+    let f = panel(p, 1080.0, if p.scale > 1.0 { 700.0 } else { 400.0 });
+    let x = f.x + 40.0;
+    p.text(8010, &title, Frame::new(x, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0), Type::Title, Role::Ink, false, 32);
+    p.wrapped(8020, &body, Frame::new(x, f.y + 78.0 + p.line(Type::Title), f.w - 80.0, 0.0), Type::Body, Role::Ink2, false, 32);
+    let y = f.y + f.h - 104.0;
+    let w = p.button(8030, Focus::SheetAction(0), "Keep", Some(Icon::Back), x, y, true, false, 34);
+    p.button(8040, Focus::SheetAction(1), "Delete", Some(Icon::Close), x + w + 16.0, y, false, false, 34);
 }
 fn edit_text(p: &mut Paint<'_>) {
     let editing = p.model.view.sheet == Some(Sheet::EditText);

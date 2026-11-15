@@ -46,16 +46,20 @@ read-back still need TV acceptance.
 
 ## Leadjoy settings
 
-`GET /v1/gaming/leadjoy` accepts `section`, `profile`, `sub`, `side`, `button` and `action` selectors. Defaults are
-`general,1,0,0,1,0`; sections are `general`, `profiles`, `buttons`, `sticks`, `curves`, `directions`, `triggers`, `rumble`.
+`GET /v1/gaming/leadjoy` accepts `section`, `profile`, `sub`, `side`, `button`, `action` and `step` selectors. Defaults are
+`general,1,0,0,1,0,1`; sections are `general`, `profiles`, `buttons`, `macros`, `sticks`, `curves`, `directions`, `triggers`,
+`motion`, `gestures`, `rumble`. `button` is the macro number in `macros` and the gesture event plus one in `gestures`.
 The response supplies the native settings schema, confirmed values and selected view. Profile count comes from the device.
-`POST` accepts `{view:{section,profile,sub,side,button,action},setting,value}`; settings and ranges are fixed by that section's
-schema, not arbitrary commands or paths. Selectors are read-only; `profile-activate` is a separate explicit action.
+`POST` accepts `{view:{section,profile,sub,side,button,action,step},setting,value}`; settings and ranges are fixed by that
+section's schema, not arbitrary commands or paths. Selectors are read-only; `profile-activate`, the macro step actions and
+`delete-macro` are separate explicit actions. A view whose macro, step or gesture no longer exists is refused with 409.
+A write the controller acknowledged but did not read back returns 502 `unverified`.
 
 Discovery matches USB `4131:3519/8008`, the exact FF80 vendor descriptor, product `Xeno` and valid c190 lighting. Unknown
 products are read-only. Each write rereads the complete configuration object, preserves unrelated fields and demands an ACK
 plus matching read-back; writes are never retried. Plugin/screen gates are checked before discovery and every report transfer.
-Logo lighting uses one RGB triplet and brightness. Hidden c191/c192 effects, firmware operations and settings without complete
-vendor contracts are not exposed. Read-back confirms application, not flash persistence or physical behaviour.
+Logo lighting uses one RGB triplet and brightness. Hidden c191/c192 effects, firmware operations, ACK-only commands
+(calibration, macro recording, reset/save/reload, sub-configuration triggers) and settings without complete vendor contracts
+are not exposed. Read-back confirms application, not flash persistence or physical behaviour.
 
 Needs TV: corrected DE discovery; DE status provenance versus the kernel cache; visible effect of every set; lifecycle restoration paths; same-boot helper-crash replay; pidfd support in the TV kernel; app-jail access to loopback; controller scheduling effect; physical latency comparison. No TV acceptance or speed improvement is claimed. The detailed qualification contract is [Gaming display features, section 1](../lumagame-gaming-features.md#1-allm--low-latency-partly-measured).

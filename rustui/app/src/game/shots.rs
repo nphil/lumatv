@@ -559,7 +559,7 @@ fn screens() -> Vec<(String, Model)> {
             add("47-leadjoy-error", m);
         }
     }
-    for (section, row) in [("profiles", 3), ("buttons", 8), ("sticks", 16), ("curves", 16), ("directions", 6), ("triggers", 11), ("rumble", 9)] {
+    for (section, row) in [("profiles", 3), ("buttons", 8), ("macros", 7), ("sticks", 16), ("curves", 16), ("directions", 6), ("triggers", 11), ("motion", 24), ("gestures", 6), ("rumble", 9)] {
         let mut m = base.clone();
         m.prefs.reduce_motion = true;
         m.view.page = Page::Leadjoy;
@@ -569,6 +569,10 @@ fn screens() -> Vec<(String, Model)> {
         if section == "profiles" {
             activate(&mut m);
             add("47-leadjoy-rename", m);
+        } else if section == "macros" {
+            m.view.focus = Focus::Setting(11);
+            activate(&mut m);
+            add("47-leadjoy-delete", m);
         }
     }
     let large = out
@@ -597,7 +601,7 @@ fn screens() -> Vec<(String, Model)> {
                 "43-controller-sticks", "43-controller-buttons", "43-controller-timing", "43-controller-shaping", "43-controller-captured",
                 "45-controller-lab-stream-bottom", "46-gamesir-bottom", "46-gamesir-pending", "46-gamesir-error",
                 "47-leadjoy-ready", "47-leadjoy-light", "47-leadjoy-pending", "47-leadjoy-error", "47-leadjoy-buttons", "47-leadjoy-sticks",
-                "47-leadjoy-rename",
+                "47-leadjoy-rename", "47-leadjoy-macros", "47-leadjoy-motion", "47-leadjoy-delete",
             ]
             .contains(&name.as_str())
         })

@@ -75,9 +75,11 @@ pub struct LeadjoyView {
     pub side: u8,
     pub button: u8,
     pub action: u8,
+    #[serde(default)]
+    pub step: u16,
 }
 impl Default for LeadjoyView {
-    fn default() -> Self { Self { section: "general".into(), profile: 1, sub: 0, side: 0, button: 1, action: 0 } }
+    fn default() -> Self { Self { section: "general".into(), profile: 1, sub: 0, side: 0, button: 1, action: 0, step: 1 } }
 }
 #[derive(Clone, Debug, Default)]
 pub struct Leadjoy { pub state: LeadjoyState, pub view: LeadjoyView, pub pending: bool, pub error: Option<String> }
@@ -103,7 +105,7 @@ impl ControllerClient {
                 let (method, mut body) = change.map_or(("GET", Value::Null), |change| ("POST", json!({"setting":change.setting, "value":change.value})));
                 let path = if let Some(view) = &view {
                     if method == "POST" { body["view"] = json!(view); }
-                    if method == "GET" { format!("/v1/gaming/leadjoy?section={}&profile={}&sub={}&side={}&button={}&action={}", view.section, view.profile, view.sub, view.side, view.button, view.action) }
+                    if method == "GET" { format!("/v1/gaming/leadjoy?section={}&profile={}&sub={}&side={}&button={}&action={}&step={}", view.section, view.profile, view.sub, view.side, view.button, view.action, view.step) }
                     else { "/v1/gaming/leadjoy".into() }
                 } else { "/v1/gaming/gamesir".into() };
                 let result = http_timeout(address, method, &path, &body, Duration::from_secs(30));

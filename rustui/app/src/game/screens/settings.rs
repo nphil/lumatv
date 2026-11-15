@@ -150,6 +150,8 @@ pub(super) enum Control<'a> {
     None,
 }
 pub(super) fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, description: Option<&str>, control: Control<'_>, mut f: Frame) -> f32 {
+    // An empty value would become a text layer with no width.
+    let control = if let Control::Value("") = control { Control::None } else { control };
     let available = f.w - 52.0;
     let line = p.line(Type::Body);
     let label_w = p.width(label, Type::Body);
@@ -466,6 +468,7 @@ pub fn leadjoy(p: &mut Paint<'_>) {
             FieldKind::Toggle { .. } => Control::Toggle(current == Some(&Value::Bool(true))),
             FieldKind::Choice { options, .. } => Control::Value(options.iter().find(|option| option.id == text).map_or(text.as_str(), |option| option.label.as_str())),
             FieldKind::Action => Control::Value("Apply"),
+            FieldKind::Text { .. } if text.is_empty() => Control::Value("Add"),
             FieldKind::Number { unit: Some(unit), .. } => { value = format!("{text}{unit}"); Control::Value(&value) }
             _ => Control::Value(&text),
         };

@@ -95,16 +95,23 @@ Settings › Controllers › Leadjoy Xeno uses the same gated helper. Discovery 
 the FF80 unnumbered 64-byte vendor interface, an `Xeno` product reply and valid logo lighting. This identifies the Xeno family,
 not uniquely the Plus model. Only the controller's reported profile count is offered.
 
-Pages expose single-colour logo RGB/brightness, polling, step precision, dual output, D-pad options, profile naming/activation,
-gamepad remapping/turbo, documented stick controls/curves/direction bindings, triggers and grip rumble. Section, profile,
-sub-configuration, side, button and press/release selectors only read; they never activate or overwrite a profile.
-Writes change one field in a fresh complete object and require read-back, preserving unknown fields, curve length, macros
-and hidden trigger-rumble ranges. Failed writes leave the last confirmed values visible and block further changes until Refresh.
+Pages expose single-colour logo RGB/brightness, controller mode, polling, step precision, dual output, D-pad and stick-direction
+options, profile naming/activation, gamepad remapping/turbo, macro assignment, documented stick controls/curves/direction
+bindings, triggers, motion control with gesture thresholds, motion-gesture actions and grip rumble. Section, profile,
+sub-configuration, side, button, gesture, macro, step and press/release selectors only read; they never activate or overwrite
+a profile. Writes change one field in a fresh complete object and require read-back, preserving unknown fields, curve length,
+macros and hidden trigger-rumble ranges. Failed writes leave the last confirmed values visible and block further changes until
+Refresh. A mode change re-enumerates the controller, so a missing read-back after it asks for Refresh instead of claiming success.
 
-Motion, macros/recording, calibration, keyboard/mouse mapping, sub-configuration triggers, connection-mode choices and remaining
-stick parameters await complete vendor contracts. Experimental c191/c192 lighting stays out of the UI; the logo has one colour
-and brightness, not a pixel editor. Hardware persistence timing and all real-pad behaviour remain untested.
+Macros are global: the page edits one step at a time of a simple macro (input, key, interval, duration), copies or removes a
+step, creates a one-step macro by name and deletes a macro after a confirmation. Advanced macros are only deletable.
+
+Calibration, macro recording (c174/c175), reset/save/reload and sub-configuration triggers answer with an ACK only, so they
+stay out of the UI. Keyboard and mouse button-mapping targets, gesture-threshold actions, the motion `fs` flag, more than two
+motion trigger keys, motion accessories (c220–c224), FPS settings (c130–c135) and the remaining stick parameters (`rjc`, `mse`) await complete vendor
+contracts. Experimental c191/c192 lighting stays out of the UI; the logo has one colour and brightness, not a pixel editor.
+Hardware persistence timing and all real-pad behaviour remain untested.
 
 Needs TV: live report timing and Bluetooth bursts; rumble; physical flash video; engine stick shaping and round-trip values;
 200% text and lab rendering cost at 120 Hz; GameSir hidraw access, real writes/read-back, receiver binding and cross-mode persistence;
-Leadjoy discovery, every setting and read-back on a real pad.
+Leadjoy discovery, every setting and read-back on a real pad, including the mode-switch reconnect.

@@ -18,18 +18,20 @@ static CONFIG: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-enum Section { #[default] General, Profiles, Buttons, Sticks, Curves, Directions, Triggers, Rumble }
+enum Section { #[default] General, Profiles, Buttons, Macros, Sticks, Curves, Directions, Triggers, Motion, Gestures, Rumble }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct View { section: Section, profile: u8, sub: u8, side: u8, button: u8, action: u8 }
+struct View { section: Section, profile: u8, sub: u8, side: u8, button: u8, action: u8, #[serde(default)] step: u16 }
 impl Default for View {
-    fn default() -> Self { Self { section: Section::General, profile: 1, sub: 0, side: 0, button: 1, action: 0 } }
+    fn default() -> Self { Self { section: Section::General, profile: 1, sub: 0, side: 0, button: 1, action: 0, step: 1 } }
 }
 impl View {
     fn validate(&self) -> Result<(), &'static str> {
         if !(1..=4).contains(&self.profile) || self.sub > 2 || self.side > 1 || self.action > 1 { return Err("invalid profile, configuration, side or action"); }
         if self.section == Section::Buttons && !settings::BUTTONS.iter().any(|(id,_)| *id == i64::from(self.button)) { return Err("this button is not remappable"); }
         if self.section == Section::Directions && !(1..=4).contains(&self.button) { return Err("invalid stick direction"); }
+        if self.section == Section::Gestures && !(1..=6).contains(&self.button) { return Err("invalid motion gesture"); }
+        if self.section == Section::Macros && self.button == 0 { return Err("invalid macro"); }
         Ok(())
     }
     fn query(request: &Request) -> Result<Self, &'static str> {
@@ -37,6 +39,7 @@ impl View {
         for (key, text) in &request.query {
             if key == "section" { value[key] = json!(text); }
             else if matches!(key.as_str(), "profile" | "sub" | "side" | "button" | "action") { value[key] = json!(text.parse::<u8>().map_err(|_| "invalid controller selector")?); }
+            else if key == "step" { value[key] = json!(text.parse::<u16>().map_err(|_| "invalid controller selector")?); }
             else { return Err("unknown controller selector"); }
         }
         let view: Self = serde_json::from_value(value).map_err(|_| "unknown controller section")?;
@@ -144,18 +147,35 @@ fn profile<T: Transport>(controller: &mut Controller<T>, selected: &View, settin
         if setting.is_some() { return Err(error_response(400, "bad_request", "the controller does not have this profile")); }
         view.profile = 1;
     }
-    let mut settings = settings::Settings::read(controller, &view)?;
+    let mut settings = settings::Settings::read(controller, &mut view)?;
     if let Some(setting) = setting {
+        if view != *selected { return Err(error_response(409, "changed", "The controller's macros or gestures changed. Refresh before editing.")); }
         let field = settings.fields.iter().find(|field| field.key == setting.setting)
             .ok_or_else(|| error_response(400, "bad_request", "this setting is not editable in the selected section"))?;
         let group = &settings.groups[field.group];
         let next = field.apply(&setting.value, &group.value).map_err(|error| error_response(400, "bad_request", error))?;
         let change = group.change(next, &field.key, &view)?;
+        let (key, index) = (field.key.clone(), field.group);
         let execution = controller.apply(&change, RunMode::Apply).map_err(|error| match error {
             leadjoy_config::Error::ReadBack => error_response(409, "readback_mismatch", "The controller did not keep the change. Refresh before changing another setting."),
+            // A mode switch re-enumerates the controller, which can drop the read-back.
+            leadjoy_config::Error::Unverified(_) if key == "mode" => error_response(502, "unverified", "The controller switched modes and reconnected. Refresh to confirm the new mode."),
+            leadjoy_config::Error::Unverified(_) => error_response(502, "unverified", "The controller took the change but did not answer the check. Refresh to see what it kept."),
             other => failed(other),
         })?;
-        settings.groups[field.group].value = execution.read_back.ok_or_else(|| failed("controller write has no read-back"))?.result;
+        match key.as_str() {
+            "macro-new" => {
+                let names = settings::macros(controller)?;
+                view.button = names.iter().position(|(name,_)| Some(name.as_str()) == setting.value.as_str()).and_then(|i| u8::try_from(i + 1).ok()).unwrap_or(1);
+                view.step = 1;
+            }
+            "delete-macro" => view.step = 1,
+            "step-insert" => view.step = view.step.saturating_add(1),
+            _ => {}
+        }
+        // Macro edits move the selectors and a new action target brings other fields, so those are read again.
+        if view.section == Section::Macros || key == "target" { settings = settings::Settings::read(controller, &mut view)?; }
+        else { settings.groups[index].value = execution.read_back.ok_or_else(|| failed("controller write has no read-back"))?.result; }
     }
     let (schema, values) = settings.display(&view, count)?;
     Ok(json!({"state":"ready", "device":name, "firmware":firmware, "view":view, "verified":setting.is_some(), "schema":schema, "values":values}))
@@ -166,21 +186,28 @@ mod tests {
     use super::*;
     use leadjoy_config::frame::Decoder;
     use std::collections::{BTreeMap, VecDeque};
-    struct Fake { decoder: Decoder, replies: VecDeque<Report>, values: BTreeMap<u8,Value>, product: &'static str, stuck: bool, wrong_side: bool, writes: usize }
+    struct Fake { decoder: Decoder, replies: VecDeque<Report>, values: BTreeMap<u8,Value>, macros: BTreeMap<String,Value>, product: &'static str, stuck: bool, wrong_side: bool, reconnect: bool, gone: bool, writes: usize }
     impl Fake {
         fn new() -> Self {
             let action = json!({"t":0,"v":[0,0,0,0],"n":"","r":0,"sp":10,"mr":0,"ms":0,"ri":0});
             let binding = json!({"a":1,"dn":action,"up":action});
-            Self { decoder: Decoder::default(), replies: VecDeque::new(), product:"Xeno", stuck:false, wrong_side:false, writes:0,
+            let gesture = |e: u8| json!({"e":e,"dn":action,"up":action});
+            Self { decoder: Decoder::default(), replies: VecDeque::new(), product:"Xeno", stuck:false, wrong_side:false, reconnect:false, gone:false, writes:0,
                 values: BTreeMap::from([
-                    (30,json!(0)),(44,json!(500)),(46,json!(0)),(48,json!({"std":0,"ljod":3,"rjod":2,"ddl":0})),(50,json!(1)),
+                    (30,json!(0)),(42,json!({"m":0,"l":1})),(44,json!(500)),(46,json!(0)),(48,json!({"std":0,"ljod":1,"rjod":2,"ddl":0})),(50,json!(1)),
                     (51,json!({"b":1,"d2":{"a":0,"n":"Default","cfg":[{"c":0,"ko":1,"at":2,"k":[24]}]}})),
                     (60,json!({"b":1,"c":0,"d1":[{"k":1,"a":1,"dn":action,"up":{"t":1,"v":[3,0,0,0],"n":"Retained macro","r":1,"sp":5,"mr":4,"ms":17,"ri":300}}]})),
                     (70,json!({"b":1,"c":0,"d":0,"d1":{"co":[0,0],"ci":1,"rjc":19,"mm":0,"mse":50,"mo":0,"mx":0,"ry":0,"asf":0,"ct":1,"cv":[0,0,25,25,50,50,75,75,100,100],"rt":0,"rc":50,"cpl":50,"cpu":50,"cpr":50,"cpd":50,"tkl":binding,"tku":binding,"tkr":binding,"tkd":binding,"future":[7,9]}})),
                     (90,json!({"b":1,"c":0,"d1":{"mol":0,"dzl":[0,100],"vtl":50,"mor":2,"dzr":[5,95],"vtr":40}})),
+                    (100,json!({"b":1,"c":0,"d1":{"sj":3,"mlj":0,"tm":2,"tk":[9,10],"kao":0,"cv":[0,0,100,100],"rt":0,"rc":50,"se":60,"hvr":50,"had":0,"hsr":0,"hrr":1,"vr":0,"st":1,"fs":0,
+                        "ec":[{"et":0,"acc":30,"ag":20,"a":2},{"et":1,"acc":35,"ag":25,"a":2},{"et":2,"acc":40,"ag":30,"a":0}],"el":[gesture(0),gesture(1),gesture(4),gesture(5)]}})),
                     (120,json!({"b":1,"c":0,"d1":{"enl":1,"grl":[0,100],"trl":[10,90],"enr":1,"grr":[5,80],"trr":[20,75]}})),
                     (190,json!({"brt":80,"rgb":[10,0,30]})),
-                ])
+                ]),
+                macros: BTreeMap::from([
+                    ("Burst".into(),json!({"n":"Burst","s":2,"t":0,"d":[0,1,40,80,1,0,4,0,50,1],"k":[0,0]})),
+                    ("Combo".into(),json!({"n":"Combo","s":1,"t":1,"d":[3,0,0,0,0]})),
+                ]),
             }
         }
     }
@@ -189,30 +216,41 @@ mod tests {
             if let Some(payload) = self.decoder.push(report).unwrap() {
                 let query = leadjoy_config::decode(&payload).unwrap();
                 let command = query["c"].as_u64().unwrap() as u8;
-                let write = match command { 31=>Some((30,"s")),45=>Some((44,"s")),47=>Some((46,"s")),49=>Some((48,"s")),61=>Some((60,"w")),71=>Some((70,"w")),91=>Some((90,"w")),121=>Some((120,"w")),190 if query["a"] == 1=>Some((190,"s")),_=>None };
+                if command == 42 && self.gone { return Err(io::Error::new(io::ErrorKind::NotConnected, "controller disconnected")); }
+                let write = match command { 31=>Some((30,"s")),45=>Some((44,"s")),47=>Some((46,"s")),49=>Some((48,"s")),61=>Some((60,"w")),71=>Some((70,"w")),91=>Some((90,"w")),101=>Some((100,"w")),121=>Some((120,"w")),190 if query["a"] == 1=>Some((190,"s")),_=>None };
+                let mut error = 0;
                 let result = if let Some((read,arg)) = write {
                     self.writes += 1; if !self.stuck { self.values.insert(read,query[arg].clone()); } None
-                } else if matches!(command,52|53) {
+                } else if matches!(command,43|52|53|172|173) {
                     self.writes += 1;
                     if !self.stuck {
-                        let summary = self.values.get_mut(&51).unwrap();
-                        let version = if summary.get("d2").is_some() { "d2" } else { "d1" };
-                        if command == 52 { summary[version]["a"] = json!(1); } else { summary[version]["n"] = query["s"]["n"].clone(); }
+                        match command {
+                            43 => { self.values.get_mut(&42).unwrap()["m"] = query["s"]["m"].clone(); self.gone = self.reconnect; }
+                            172 => { self.macros.insert(query["w"]["n"].as_str().unwrap().into(),query["w"].clone()); }
+                            173 => { self.macros.remove(query["n"].as_str().unwrap()); }
+                            _ => {
+                                let summary = self.values.get_mut(&51).unwrap();
+                                let version = if summary.get("d2").is_some() { "d2" } else { "d1" };
+                                if command == 52 { summary[version]["a"] = json!(1); } else { summary[version]["n"] = query["s"]["n"].clone(); }
+                            }
+                        }
                     }
                     None
                 } else {
-                    Some(match command {
-                        12=>json!("V54"),17=>json!({"m":self.product,"s":0}),
+                    match command {
+                        12=>Some(json!("V54")),17=>Some(json!({"m":self.product,"s":0})),
+                        170=>Some(json!(self.macros.values().map(|m| json!({"n":m["n"],"k":m.get("k").cloned().unwrap_or(json!([0,0])),"s":m["s"]})).collect::<Vec<_>>())),
+                        171=>{ let found = self.macros.get(query["n"].as_str().unwrap()).cloned(); if found.is_none() { error = 1; } found }
                         _=> {
                             let mut value = self.values.get(&command).unwrap_or_else(|| panic!("unexpected command {query}")).clone();
                             for key in ["b","c","d"] { if let Some(selector) = query["g"].get(key) { value[key] = selector.clone(); } }
                             if command == 60 { value["d1"][0]["k"] = query["g"]["k"][0].clone(); }
                             if command == 70 && self.wrong_side { value["d"] = json!(3); }
-                            value
+                            Some(value)
                         }
-                    })
+                    }
                 };
-                let mut reply = json!({"c":command,"e":0}); if let Some(result) = result { reply["r"] = result; }
+                let mut reply = json!({"c":command,"e":error}); if let Some(result) = result { reply["r"] = result; }
                 self.replies.extend(leadjoy_config::encode(&reply).unwrap());
             }
             Ok(())
@@ -231,16 +269,23 @@ mod tests {
             (Section::General,"precision",json!("128"),46,"",json!(128)),
             (Section::General,"dual-output",json!(true),30,"",json!(1)),
             (Section::General,"dpad-lock",json!(true),48,"/ddl",json!(1)),
+            (Section::General,"left-directions",json!("2"),48,"/ljod",json!(2)),
+            (Section::General,"mode",json!("3"),42,"/m",json!(3)),
             (Section::Profiles,"profile-name",json!("Racing"),51,"/d2/n",json!("Racing")),
             (Section::Profiles,"profile-activate",Value::Null,51,"/d2/a",json!(1)),
             (Section::Buttons,"key-0",json!("5"),60,"/d1/0/dn/v/0",json!(5)),
             (Section::Buttons,"turbo",json!("2"),60,"/d1/0/dn/r",json!(2)),
+            (Section::Buttons,"target",json!("1"),60,"/d1/0/dn",json!({"t":1,"v":[0,0,0,0],"n":"Burst","r":1,"sp":0,"mr":1,"ms":2,"ri":0})),
             (Section::Sticks,"anti-shake",json!(-3),70,"/d1/asf",json!(-3)),
             (Section::Sticks,"invert-x",json!(true),70,"/d1/mx",json!(1)),
             (Section::Curves,"curve-9",json!(90),70,"/d1/cv/9",json!(90)),
             (Section::Directions,"key-0",json!("7"),70,"/d1/tkl/dn/v/0",json!(7)),
             (Section::Triggers,"mode-r",json!("1"),90,"/d1/mor",json!(1)),
             (Section::Rumble,"range-l-1",json!(75),120,"/d1/grl/1",json!(75)),
+            (Section::Motion,"sensitivity",json!(80),100,"/d1/se",json!(80)),
+            (Section::Motion,"trigger-key-1",json!("8"),100,"/d1/tk/1",json!(8)),
+            (Section::Motion,"angle-2",json!(45),100,"/d1/ec/2/ag",json!(45)),
+            (Section::Gestures,"key-0",json!("4"),100,"/d1/el/0/dn/v/0",json!(4)),
         ] {
             let fake = Fake::new(); let mut expected = fake.values.clone();
             *expected.get_mut(&command).unwrap().pointer_mut(path).unwrap() = wire;
@@ -262,12 +307,56 @@ mod tests {
         assert_eq!(controller.into_transport().writes,0);
         for setting in [change(Section::General,"logo-brightness",json!(101)),change(Section::General,"logo-red",json!(256)),
             change(Section::General,"firmware",json!(0)),change(Section::Sticks,"anti-shake",json!(-11)),
-            change(Section::Buttons,"key-0",json!("255"))] {
+            change(Section::Buttons,"key-0",json!("255")),change(Section::General,"mode",json!("5")),
+            change(Section::Motion,"sensitivity",json!(101)),change(Section::Gestures,"key-0",json!("255"))] {
             let mut controller = Controller::new(Fake::new(),Duration::from_secs(1));
             assert_eq!(profile(&mut controller,&setting.view,Some(&setting)).unwrap_err().status,400);
             assert_eq!(controller.into_transport().writes,0);
         }
         assert!(serde_json::from_value::<Setting>(json!({"view":View::default(),"setting":"logo-red","value":0,"path":"/dev/hidraw0"})).is_err());
+        // A mode switch re-enumerates the controller; the acknowledged change is reported as unconfirmed, not as done.
+        let mut fake = Fake::new(); fake.reconnect = true;
+        let mut controller = Controller::new(fake,Duration::from_secs(1));
+        let setting = change(Section::General,"mode",json!("2"));
+        let error = profile(&mut controller,&setting.view,Some(&setting)).unwrap_err();
+        assert_eq!(error.status,502);
+        assert!(String::from_utf8_lossy(&error.body).contains("\"unverified\""));
+        assert_eq!(controller.into_transport().values[&42],json!({"m":2,"l":1}));
+    }
+    #[test]
+    fn macros_are_created_reshaped_assigned_and_deleted_through_read_back() {
+        let post = |controller: &mut Controller<Fake>, view: &View, setting: &str, value: Value| profile(controller,view,Some(&Setting { view:view.clone(), setting:setting.into(), value }));
+        let next = |reply: &Value| serde_json::from_value::<View>(reply["view"].clone()).unwrap();
+        let mut controller = Controller::new(Fake::new(),Duration::from_secs(1));
+        let mut view = View { section:Section::Macros, step:2, ..View::default() };
+        let reply = post(&mut controller,&view,"step-duration",json!(120)).unwrap();
+        assert_eq!(reply["values"]["step-duration"],120);
+        view.step = 1;
+        let reply = post(&mut controller,&view,"step-insert",Value::Null).unwrap();
+        assert_eq!(next(&reply).step,2);
+        view.step = 3;
+        let reply = post(&mut controller,&view,"step-remove",Value::Null).unwrap();
+        view = next(&reply); assert_eq!(view.step,2);
+        let reply = post(&mut controller,&view,"macro-new",json!("Dash")).unwrap();
+        assert_eq!((next(&reply).button,reply["values"]["step-duration"].clone()),(3,json!(100)));
+        assert_eq!(post(&mut controller,&view,"macro-new",json!("Burst")).unwrap_err().status,400);
+        // Advanced macros are kept as they are and can only be deleted.
+        view = View { section:Section::Macros, button:2, ..View::default() };
+        assert!(profile(&mut controller,&view,None).unwrap()["values"].get("step-key").is_none());
+        assert_eq!(post(&mut controller,&view,"step-insert",Value::Null).unwrap_err().status,400);
+        assert_eq!(next(&post(&mut controller,&view,"delete-macro",Value::Null).unwrap()).button,2);
+        view.step = 9;
+        assert_eq!(post(&mut controller,&view,"step-duration",json!(10)).unwrap_err().status,409);
+        // The release action plays a macro the controller no longer has; choosing another carries its step count.
+        let buttons = View { section:Section::Buttons, action:1, ..View::default() };
+        assert_eq!(profile(&mut controller,&buttons,None).unwrap()["values"]["macro"],"Retained macro");
+        post(&mut controller,&buttons,"macro",json!("Dash")).unwrap();
+        let fake = controller.into_transport();
+        assert_eq!(fake.writes,6);
+        assert_eq!(fake.values[&60]["d1"][0]["up"],json!({"t":1,"v":[3,0,0,0],"n":"Dash","r":1,"sp":5,"mr":4,"ms":1,"ri":300}));
+        assert_eq!(fake.macros.keys().collect::<Vec<_>>(),["Burst","Dash"]);
+        assert_eq!(fake.macros["Burst"]["d"],json!([0,1,40,80,1,0,1,40,80,1]));
+        assert_eq!(fake.macros["Dash"],json!({"n":"Dash","s":1,"t":0,"d":[0,1,0,100,1]}));
     }
     #[test]
     fn selectors_profile_versions_and_unknown_action_payloads_are_preserved() {
@@ -294,13 +383,13 @@ mod tests {
     #[test]
     fn native_ui_fixtures_match_the_helper_contract() {
         let mut states = serde_json::Map::new();
-        for section in [Section::General,Section::Profiles,Section::Buttons,Section::Sticks,Section::Curves,Section::Directions,Section::Triggers,Section::Rumble] {
+        for section in [Section::General,Section::Profiles,Section::Buttons,Section::Macros,Section::Sticks,Section::Curves,Section::Directions,Section::Triggers,Section::Motion,Section::Gestures,Section::Rumble] {
             let mut controller = Controller::new(Fake::new(),Duration::from_secs(1));
             let value = profile(&mut controller,&View { section, ..View::default() },None).unwrap();
             states.insert(serde_json::to_value(section).unwrap().as_str().unwrap().into(),value);
         }
         let generated = Value::Object(states);
-        if let Some(path) = std::env::var_os("LEADJOY_FIXTURE_OUTPUT") { fs::write(path,serde_json::to_vec(&generated).unwrap()).unwrap(); }
+        if let Some(path) = std::env::var_os("LEADJOY_FIXTURE_OUTPUT") { fs::write(path,serde_json::to_string_pretty(&generated).unwrap() + "\n").unwrap(); }
         else {
             let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rustui/app/src/game/leadjoy-fixtures.json");
             assert_eq!(serde_json::from_slice::<Value>(&fs::read(path).unwrap()).unwrap(),generated);

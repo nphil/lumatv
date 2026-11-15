@@ -544,7 +544,7 @@ mod tests {
         let host = Tokens::shipped();
         let mut fonts = ui::Fonts::new();
         let mut m = Model::new(State::default(), Listing::default(), vec![]);
-        let leadjoy = ["general", "profiles", "buttons", "sticks", "curves", "directions", "triggers", "rumble"].map(crate::game::helper::leadjoy_fixture);
+        let leadjoy = ["general", "profiles", "buttons", "macros", "sticks", "curves", "directions", "triggers", "motion", "gestures", "rumble"].map(crate::game::helper::leadjoy_fixture);
         let mut pad = LabPad::default();
         pad.name = "GameSir Cyclone 2".into();
         pad.summary.reports = 32;
