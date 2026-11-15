@@ -104,7 +104,11 @@ macros and hidden trigger-rumble ranges. Failed writes leave the last confirmed 
 Refresh. A mode change re-enumerates the controller, so a missing read-back after it asks for Refresh instead of claiming success.
 
 Macros are global: the page edits one step at a time of a simple macro (input, key, interval, duration), copies or removes a
-step, creates a one-step macro by name and deletes a macro after a confirmation. Advanced macros are only deletable.
+step, creates a one-step macro by name and deletes a macro after a confirmation. Advanced macros are only deletable. V54
+appends a macro written under a name it already has and plays the first one, so an edit deletes the macro, writes it again and
+requires the list to name it once; the edited macro moves to the end of the list. Names are 1–32 bytes without
+`\ / : * ? " < > |`. A macro action offers its repeat interval (0–36000 ms) only in the two repeating playback modes, the only
+ones that read it.
 
 Calibration, macro recording (c174/c175), reset/save/reload and sub-configuration triggers answer with an ACK only, so they
 stay out of the UI. Keyboard and mouse button-mapping targets, gesture-threshold actions, the motion `fs` flag, more than two

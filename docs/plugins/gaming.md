@@ -53,7 +53,8 @@ The response supplies the native settings schema, confirmed values and selected 
 `POST` accepts `{view:{section,profile,sub,side,button,action,step},setting,value}`; settings and ranges are fixed by that
 section's schema, not arbitrary commands or paths. Selectors are read-only; `profile-activate`, the macro step actions and
 `delete-macro` are separate explicit actions. A view whose macro, step or gesture no longer exists is refused with 409.
-A write the controller acknowledged but did not read back returns 502 `unverified`.
+A write the controller acknowledged but did not read back returns 502 `unverified`. A macro edit is a delete followed by a
+write; a failed write after the delete returns 502 `rewrite_failed`.
 
 Discovery matches USB `4131:3519/8008`, the exact FF80 vendor descriptor, product `Xeno` and valid c190 lighting. Unknown
 products are read-only. Each write rereads the complete configuration object, preserves unrelated fields and demands an ACK

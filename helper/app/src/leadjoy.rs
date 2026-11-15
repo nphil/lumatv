@@ -152,30 +152,35 @@ fn profile<T: Transport>(controller: &mut Controller<T>, selected: &View, settin
         if view != *selected { return Err(error_response(409, "changed", "The controller's macros or gestures changed. Refresh before editing.")); }
         let field = settings.fields.iter().find(|field| field.key == setting.setting)
             .ok_or_else(|| error_response(400, "bad_request", "this setting is not editable in the selected section"))?;
-        let group = &settings.groups[field.group];
-        let next = field.apply(&setting.value, &group.value).map_err(|error| error_response(400, "bad_request", error))?;
-        let change = group.change(next, &field.key, &view)?;
+        let next = field.apply(&setting.value, &settings.groups[field.group].value).map_err(|error| error_response(400, "bad_request", error))?;
         let (key, index) = (field.key.clone(), field.group);
-        let execution = controller.apply(&change, RunMode::Apply).map_err(|error| match error {
-            leadjoy_config::Error::ReadBack => error_response(409, "readback_mismatch", "The controller did not keep the change. Refresh before changing another setting."),
-            // A mode switch re-enumerates the controller, which can drop the read-back.
-            leadjoy_config::Error::Unverified(_) if key == "mode" => error_response(502, "unverified", "The controller switched modes and reconnected. Refresh to confirm the new mode."),
-            leadjoy_config::Error::Unverified(_) => error_response(502, "unverified", "The controller took the change but did not answer the check. Refresh to see what it kept."),
-            other => failed(other),
-        })?;
+        let (changes, written) = settings.changes(field, next, &view)?;
+        let mut read_back = None;
+        for (i, change) in changes.iter().enumerate() {
+            read_back = controller.apply(change, RunMode::Apply).map_err(|error| match error {
+                // Only a macro edit has a second write, made after its delete.
+                _ if i > 0 => error_response(502, "rewrite_failed", "The controller removed the macro to rewrite it but did not confirm the new version. Refresh before editing."),
+                leadjoy_config::Error::ReadBack => error_response(409, "readback_mismatch", "The controller did not keep the change. Refresh before changing another setting."),
+                // A mode switch re-enumerates the controller, which can drop the read-back.
+                leadjoy_config::Error::Unverified(_) if key == "mode" => error_response(502, "unverified", "The controller switched modes and reconnected. Refresh to confirm the new mode."),
+                leadjoy_config::Error::Unverified(_) => error_response(502, "unverified", "The controller took the change but did not answer the check. Refresh to see what it kept."),
+                other => failed(other),
+            })?.read_back;
+        }
+        // A written macro goes to the end of the list, and a name listed twice would play the older macro.
+        if let Some(name) = written {
+            let found: Vec<usize> = settings::macros(controller)?.iter().enumerate().filter(|(_, (n, _))| *n == name).map(|(i, _)| i).collect();
+            let [i] = found[..] else { return Err(error_response(409, "readback_mismatch", "The controller does not list the macro exactly once. Refresh before changing another setting.")) };
+            view.button = u8::try_from(i + 1).unwrap_or(u8::MAX);
+        }
         match key.as_str() {
-            "macro-new" => {
-                let names = settings::macros(controller)?;
-                view.button = names.iter().position(|(name,_)| Some(name.as_str()) == setting.value.as_str()).and_then(|i| u8::try_from(i + 1).ok()).unwrap_or(1);
-                view.step = 1;
-            }
-            "delete-macro" => view.step = 1,
+            "macro-new" | "delete-macro" => view.step = 1,
             "step-insert" => view.step = view.step.saturating_add(1),
             _ => {}
         }
-        // Macro edits move the selectors and a new action target brings other fields, so those are read again.
-        if view.section == Section::Macros || key == "target" { settings = settings::Settings::read(controller, &mut view)?; }
-        else { settings.groups[index].value = execution.read_back.ok_or_else(|| failed("controller write has no read-back"))?.result; }
+        // Macro edits move the selectors, and a new target or playback mode brings other fields, so those are read again.
+        if view.section == Section::Macros || matches!(key.as_str(), "target" | "macro-playback") { settings = settings::Settings::read(controller, &mut view)?; }
+        else { settings.groups[index].value = read_back.ok_or_else(|| failed("controller write has no read-back"))?.result; }
     }
     let (schema, values) = settings.display(&view, count)?;
     Ok(json!({"state":"ready", "device":name, "firmware":firmware, "view":view, "verified":setting.is_some(), "schema":schema, "values":values}))
@@ -186,7 +191,7 @@ mod tests {
     use super::*;
     use leadjoy_config::frame::Decoder;
     use std::collections::{BTreeMap, VecDeque};
-    struct Fake { decoder: Decoder, replies: VecDeque<Report>, values: BTreeMap<u8,Value>, macros: BTreeMap<String,Value>, product: &'static str, stuck: bool, wrong_side: bool, reconnect: bool, gone: bool, writes: usize }
+    struct Fake { decoder: Decoder, replies: VecDeque<Report>, values: BTreeMap<u8,Value>, macros: Vec<Value>, product: &'static str, stuck: bool, wrong_side: bool, reconnect: bool, gone: bool, writes: usize }
     impl Fake {
         fn new() -> Self {
             let action = json!({"t":0,"v":[0,0,0,0],"n":"","r":0,"sp":10,"mr":0,"ms":0,"ri":0});
@@ -204,10 +209,10 @@ mod tests {
                     (120,json!({"b":1,"c":0,"d1":{"enl":1,"grl":[0,100],"trl":[10,90],"enr":1,"grr":[5,80],"trr":[20,75]}})),
                     (190,json!({"brt":80,"rgb":[10,0,30]})),
                 ]),
-                macros: BTreeMap::from([
-                    ("Burst".into(),json!({"n":"Burst","s":2,"t":0,"d":[0,1,40,80,1,0,4,0,50,1],"k":[0,0]})),
-                    ("Combo".into(),json!({"n":"Combo","s":1,"t":1,"d":[3,0,0,0,0]})),
-                ]),
+                macros: vec![
+                    json!({"n":"Burst","s":2,"t":0,"d":[0,1,40,80,1,0,4,0,50,1],"k":[0,0]}),
+                    json!({"n":"Combo","s":1,"t":1,"d":[3,0,0,0,0]}),
+                ],
             }
         }
     }
@@ -226,8 +231,9 @@ mod tests {
                     if !self.stuck {
                         match command {
                             43 => { self.values.get_mut(&42).unwrap()["m"] = query["s"]["m"].clone(); self.gone = self.reconnect; }
-                            172 => { self.macros.insert(query["w"]["n"].as_str().unwrap().into(),query["w"].clone()); }
-                            173 => { self.macros.remove(query["n"].as_str().unwrap()); }
+                            // As on V54, c172 appends even under a name already in use, and c171 answers with the first match.
+                            172 => self.macros.push(query["w"].clone()),
+                            173 => { if let Some(i) = self.macros.iter().position(|m| m["n"] == query["n"]) { self.macros.remove(i); } }
                             _ => {
                                 let summary = self.values.get_mut(&51).unwrap();
                                 let version = if summary.get("d2").is_some() { "d2" } else { "d1" };
@@ -239,8 +245,8 @@ mod tests {
                 } else {
                     match command {
                         12=>Some(json!("V54")),17=>Some(json!({"m":self.product,"s":0})),
-                        170=>Some(json!(self.macros.values().map(|m| json!({"n":m["n"],"k":m.get("k").cloned().unwrap_or(json!([0,0])),"s":m["s"]})).collect::<Vec<_>>())),
-                        171=>{ let found = self.macros.get(query["n"].as_str().unwrap()).cloned(); if found.is_none() { error = 1; } found }
+                        170=>Some(json!(self.macros.iter().map(|m| json!({"n":m["n"],"k":m.get("k").cloned().unwrap_or(json!([0,0])),"s":m["s"]})).collect::<Vec<_>>())),
+                        171=>{ let found = self.macros.iter().find(|m| m["n"] == query["n"]).cloned(); if found.is_none() { error = 1; } found }
                         _=> {
                             let mut value = self.values.get(&command).unwrap_or_else(|| panic!("unexpected command {query}")).clone();
                             for key in ["b","c","d"] { if let Some(selector) = query["g"].get(key) { value[key] = selector.clone(); } }
@@ -328,35 +334,38 @@ mod tests {
         let post = |controller: &mut Controller<Fake>, view: &View, setting: &str, value: Value| profile(controller,view,Some(&Setting { view:view.clone(), setting:setting.into(), value }));
         let next = |reply: &Value| serde_json::from_value::<View>(reply["view"].clone()).unwrap();
         let mut controller = Controller::new(Fake::new(),Duration::from_secs(1));
-        let mut view = View { section:Section::Macros, step:2, ..View::default() };
-        let reply = post(&mut controller,&view,"step-duration",json!(120)).unwrap();
-        assert_eq!(reply["values"]["step-duration"],120);
+        // An edit deletes the macro and writes it again, which moves it to the end of the list.
+        let reply = post(&mut controller,&View { section:Section::Macros, step:2, ..View::default() },"step-duration",json!(120)).unwrap();
+        let mut view = next(&reply);
+        assert_eq!((view.button,view.step,reply["values"]["step-duration"].clone()),(2,2,json!(120)));
         view.step = 1;
         let reply = post(&mut controller,&view,"step-insert",Value::Null).unwrap();
         assert_eq!(next(&reply).step,2);
         view.step = 3;
         let reply = post(&mut controller,&view,"step-remove",Value::Null).unwrap();
         view = next(&reply); assert_eq!(view.step,2);
-        let reply = post(&mut controller,&view,"macro-new",json!("Dash")).unwrap();
+        for name in [" Burst ".to_owned(),"a/b".into(),"x".repeat(33),"é".repeat(17)] { assert_eq!(post(&mut controller,&view,"macro-new",json!(name)).unwrap_err().status,400,"{name}"); }
+        let reply = post(&mut controller,&view,"macro-new",json!("Dash ")).unwrap();
         assert_eq!((next(&reply).button,reply["values"]["step-duration"].clone()),(3,json!(100)));
-        assert_eq!(post(&mut controller,&view,"macro-new",json!("Burst")).unwrap_err().status,400);
         // Advanced macros are kept as they are and can only be deleted.
-        view = View { section:Section::Macros, button:2, ..View::default() };
+        view = View { section:Section::Macros, button:1, ..View::default() };
         assert!(profile(&mut controller,&view,None).unwrap()["values"].get("step-key").is_none());
         assert_eq!(post(&mut controller,&view,"step-insert",Value::Null).unwrap_err().status,400);
-        assert_eq!(next(&post(&mut controller,&view,"delete-macro",Value::Null).unwrap()).button,2);
+        assert_eq!(next(&post(&mut controller,&view,"delete-macro",Value::Null).unwrap()).button,1);
         view.step = 9;
         assert_eq!(post(&mut controller,&view,"step-duration",json!(10)).unwrap_err().status,409);
         // The release action plays a macro the controller no longer has; choosing another carries its step count.
         let buttons = View { section:Section::Buttons, action:1, ..View::default() };
         assert_eq!(profile(&mut controller,&buttons,None).unwrap()["values"]["macro"],"Retained macro");
-        post(&mut controller,&buttons,"macro",json!("Dash")).unwrap();
+        assert_eq!(post(&mut controller,&buttons,"macro",json!("Dash")).unwrap()["values"]["macro-interval"],300);
+        // The repeat interval is offered only while the macro repeats.
+        let press = View { section:Section::Buttons, ..View::default() };
+        assert!(post(&mut controller,&press,"target",json!("1")).unwrap()["values"].get("macro-interval").is_none());
+        assert_eq!(post(&mut controller,&press,"macro-playback",json!("3")).unwrap()["values"]["macro-interval"],0);
         let fake = controller.into_transport();
-        assert_eq!(fake.writes,6);
+        assert_eq!(fake.writes,11);
         assert_eq!(fake.values[&60]["d1"][0]["up"],json!({"t":1,"v":[3,0,0,0],"n":"Dash","r":1,"sp":5,"mr":4,"ms":1,"ri":300}));
-        assert_eq!(fake.macros.keys().collect::<Vec<_>>(),["Burst","Dash"]);
-        assert_eq!(fake.macros["Burst"]["d"],json!([0,1,40,80,1,0,1,40,80,1]));
-        assert_eq!(fake.macros["Dash"],json!({"n":"Dash","s":1,"t":0,"d":[0,1,0,100,1]}));
+        assert_eq!(fake.macros,[json!({"n":"Burst","s":2,"t":0,"d":[0,1,40,80,1,0,1,40,80,1]}),json!({"n":"Dash","s":1,"t":0,"d":[0,1,0,100,1]})]);
     }
     #[test]
     fn selectors_profile_versions_and_unknown_action_payloads_are_preserved() {

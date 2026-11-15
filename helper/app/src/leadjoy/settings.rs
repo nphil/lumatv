@@ -7,7 +7,7 @@ pub(super) const SECTIONS: &[(&str, &str)] = &[("general","General and logo"),("
 pub(super) const BUTTONS: &[(i64, &str)] = &[(26,"R4 / M3"),(27,"L4 / M4"),(24,"R5 / M1"),(25,"L5 / M2"),(1,"A"),(2,"B"),(4,"X"),(5,"Y"),(14,"Left stick click"),(15,"Right stick click"),(17,"D-pad up"),(18,"D-pad down"),(19,"D-pad left"),(20,"D-pad right"),(7,"LB"),(8,"RB"),(9,"LT"),(10,"RT"),(11,"Select"),(16,"Capture"),(12,"Start"),(3,"C")];
 const KEYS: &[(i64, &str)] = &[(0,"None"),(1,"A"),(2,"B"),(3,"C"),(4,"X"),(5,"Y"),(6,"Z"),(7,"LB"),(8,"RB"),(9,"LT"),(10,"RT"),(11,"Select"),(12,"Start"),(13,"Home"),(14,"Left stick click"),(15,"Right stick click"),(16,"Capture"),(17,"D-pad up"),(18,"D-pad down"),(19,"D-pad left"),(20,"D-pad right"),(21,"Menu"),(22,"Mode"),(23,"FN"),(24,"R5 / M1"),(25,"L5 / M2"),(26,"R4 / M3"),(27,"L4 / M4"),(32,"Power")];
 const GESTURES: [&str; 6] = ["Yaw left","Yaw right","Roll left","Roll right","Pitch down","Pitch up"];
-// The protocol documents no name limit; a name the firmware shortens fails the read-back rather than saving under another name.
+// c60 keeps 32 bytes of a name and c61 takes no more; the vendor app also refuses \ / : * ? " < > |.
 const MACRO_NAME: usize = 32;
 // What a new macro starts as; the vendor converter has no default macro to copy.
 const FIRST_STEP: MacroStep = MacroStep { device: MacroDevice::Gamepad, key: 1, interval: 0, duration: 100 };
@@ -15,7 +15,7 @@ const RANGE: &str = "value is outside this setting's supported range";
 
 pub(super) enum Kind {
     Number(i64, i64, i64, &'static str), Toggle, Choice(&'static [(i64, &'static str)]), Text, Activate,
-    /// What an action does. Switching to or from a macro rewrites the whole action, as the vendor converter does.
+    /// What an action does. Switching to or from a macro rewrites the whole action, as the vendor converter does: play once, no repeat interval.
     Target(Vec<(String, u16)>),
     /// The macro an action plays; its step count goes with it.
     Macro(Vec<(String, u16)>),
@@ -28,7 +28,7 @@ pub(super) struct Field { pub key: String, label: String, path: String, kind: Ki
 pub(super) struct Group { pub read: Query, pub value: Value, set: Command, argument: &'static str }
 pub(super) struct Settings { pub groups: Vec<Group>, pub fields: Vec<Field>, items: Vec<Value>, steps: u16 }
 impl Group {
-    pub fn change(&self, value: Value, key: &str, view: &View) -> Result<Change, Response> {
+    fn change(&self, value: Value, key: &str, view: &View) -> Result<Change, Response> {
         match self.read.command() {
             Command::Lighting => {
                 let mut fields = serde_json::Map::new(); fields.insert("a".into(), json!(1)); fields.insert("s".into(), value.clone());
@@ -78,7 +78,7 @@ impl Field {
                 let action = match (target, macros.first()) {
                     (0 | 2, _) if current != Some(1) => { slot["t"] = target.into(); return Ok(next); }
                     (0 | 2, _) => ButtonAction::mapping(target, [0; 4], 0),
-                    (1, Some((name, steps))) => ButtonAction::macro_action(name.clone(), 1, *steps, slot["ri"].as_u64().and_then(|n| u16::try_from(n).ok()).unwrap_or(0)),
+                    (1, Some((name, steps))) => ButtonAction::macro_action(name.clone(), 1, *steps, 0),
                     _ => return Err(RANGE),
                 }.map_err(|_| RANGE)?;
                 if let (Some(object), Ok(Value::Object(fields))) = (slot.as_object_mut(), serde_json::to_value(action)) { object.extend(fields); }
@@ -87,8 +87,9 @@ impl Field {
                 let (name, steps) = value.as_str().and_then(|s| macros.iter().find(|(name,_)| name == s)).ok_or(RANGE)?;
                 slot["n"] = name.as_str().into(); slot["ms"] = (*steps).into();
             }
-            Kind::NewMacro(names) => return value.as_str().filter(|s| !s.is_empty() && text(s, MACRO_NAME) && !names.iter().any(|name| name == s)).map(Value::from)
-                .ok_or("a new macro needs a name that no other macro uses"),
+            Kind::NewMacro(names) => return value.as_str().map(str::trim)
+                .filter(|s| !s.is_empty() && s.len() <= MACRO_NAME && !s.contains(|c: char| c.is_control() || "\\/:*?\"<>|".contains(c)) && !names.iter().any(|name| name == s))
+                .map(Value::from).ok_or("a new macro needs a name no other macro uses, up to 32 bytes, without \\ / : * ? \" < > |"),
             Kind::Insert(_) | Kind::Remove(_) if !value.is_null() => return Err(RANGE),
             Kind::Insert(i) | Kind::Remove(i) => {
                 let data = slot["d"].as_array_mut().ok_or("controller did not report this setting")?;
@@ -206,8 +207,8 @@ impl Settings {
                         this.choice(detail,"step-input","Input",&at(0),&[(0,"Controller"),(1,"Keyboard"),(2,"Mouse")]);
                         if steps[i].device == MacroDevice::Gamepad && KEYS.iter().any(|(id,_)| *id == i64::from(steps[i].key)) { this.choice(detail,"step-key","Button",&at(1),KEYS); }
                         else { this.number(detail,"step-key","Key code",&at(1),(0,255),""); this.help("A keyboard usage code, or mouse button 1 to 5."); }
-                        this.field(detail,"step-interval","Interval",&at(2),Kind::Number(0,u32::MAX.into(),10,"ms"));
-                        this.field(detail,"step-duration","Duration",&at(3),Kind::Number(0,u32::MAX.into(),10,"ms"));
+                        this.field(detail,"step-interval","Interval",&at(2),Kind::Number(0,u16::MAX.into(),10,"ms"));
+                        this.field(detail,"step-duration","Duration",&at(3),Kind::Number(0,u16::MAX.into(),10,"ms"));
                         this.field(detail,"step-insert","Copy this step","",Kind::Insert(i));
                         if steps.len() > 1 { this.field(detail,"step-remove","Remove this step","",Kind::Remove(i)); }
                     } else { view.step = 1; }
@@ -298,6 +299,17 @@ impl Settings {
         }
         Ok(this)
     }
+    /// The writes that make a field's new value, in order, and the macro they leave behind.
+    pub fn changes(&self, field: &Field, value: Value, view: &View) -> Result<(Vec<Change>, Option<String>), Response> {
+        let group = &self.groups[field.group];
+        let written = match group.read.command() { Command::MacroSummary => value.as_str(), Command::MacroDetail => value["n"].as_str(), _ => None }.map(str::to_owned);
+        let change = group.change(value, &field.key, view)?;
+        if !matches!(group.read.command(), Command::MacroDetail) { return Ok((vec![change], written)); }
+        // c172 appends and the first macro of a name wins, so an edited macro is deleted before it is written again.
+        let summary = self.groups.iter().find(|group| matches!(group.read.command(), Command::MacroSummary)).ok_or_else(|| failed("controller macro list was not read"))?;
+        let name = group.value["n"].as_str().ok_or_else(|| failed("controller omitted the macro name"))?;
+        Ok((vec![Change::delete_macro(name, &summary.value).map_err(failed)?, change], written))
+    }
     fn group<T: Transport>(&mut self, controller: &mut Controller<T>, read: Query, set: Command, argument: &'static str) -> Result<usize, Response> {
         let value = controller.read(&read).map_err(failed)?.result;
         let args = read.value();
@@ -312,6 +324,7 @@ impl Settings {
         if typed { self.choice(group,"action-type","Button action",&format!("{path}/a"),&[(0,"Press"),(1,"Press and release")]); }
         let path = format!("{path}/{}",if side == 0 { "dn" } else { "up" });
         let action = self.groups[group].value.pointer(&path).ok_or_else(|| failed("controller omitted the requested action"))?;
+        let repeats = matches!(action["mr"].as_u64(), Some(3 | 4));
         match (action["t"].as_u64(), action["r"].as_u64()) {
             (Some(0|2), Some(0|2)) => {
                 self.field(group,"target","Mapping target",&path,Kind::Target(macros.to_vec()));
@@ -323,7 +336,8 @@ impl Settings {
                 self.field(group,"target","Mapping target",&path,Kind::Target(macros.to_vec()));
                 self.field(group,"macro","Macro",&path,Kind::Macro(macros.to_vec()));
                 self.choice(group,"macro-playback","Playback",&format!("{path}/mr"),&[(0,"Off"),(1,"Tap: play once"),(2,"Hold: play once"),(3,"Hold: repeat"),(4,"Tap: repeat")]);
-                self.field(group,"macro-interval","Repeat interval",&format!("{path}/ri"),Kind::Number(0,u16::MAX.into(),10,"ms"));
+                // The firmware reads the repeat interval only while a macro repeats; the vendor app offers 0–36000 ms.
+                if repeats { self.field(group,"macro-interval","Repeat interval",&format!("{path}/ri"),Kind::Number(0,36000,10,"ms")); }
             }
             // Keyboard and mouse encodings are retained, not replaced with guessed gamepad defaults.
             _ => {}
