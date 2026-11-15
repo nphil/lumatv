@@ -2,20 +2,34 @@
 
 Current state and how to resume. Main design docs: ARCHITECTURE.md, DESIGN.md, PRODUCT.md (this folder); display research: docs/lumagame-gaming-features.md.
 
-## State (2026-11-15)
+## State (2026-11-15 14:10 PST)
 
-- App `org.nphil.lumagame` installed on the TV from main `04a4c1ab` (build-id `11b01edb054731d5`, ipk sha256 `b07b60d72de82dee…`). The TV helper is `43e74d46`; the fix in `cddab248` (gaming rollback journal) is built but not installed.
-- GeForce NOW works end to end on the TV: sign-in (account nphil, stored under the app's data dir), library with art, 4K120 stream, Back/overlay, end session. The shader cache brings the second launch's window to 397 ms (1975 ms cold).
-- Old apps `org.nphil.lumatv.gfn` and `io.unom.punktfunk.client-webos` are still installed. Remove them only after the at-home checks below pass.
+- App `org.nphil.lumagame` installed on the TV from main `04a4c1ab` (build-id `11b01edb054731d5`, ipk sha256 `b07b60d72de82dee…`). TV helper `43e74d46`. Built but NOT installed yet: helper fixes `cddab248` (gaming rollback journal) and `88a1a431` (VPQ low-delay id 0x00983D0E), plus Controller Lab / GameSir / Leadjoy pages (see "In flight").
+- GeForce NOW works end to end on the TV: sign-in (account nphil, stored under the app's data dir), library with art, 4K120 stream, Back/overlay, end session. Shader cache: second launch's window at 397 ms (1975 ms cold).
+- Old apps `org.nphil.lumatv.gfn` and `io.unom.punktfunk.client-webos` are still installed. Remove them only after the at-home checks pass.
 - Sunshine/Apollo engine: separate GPL repo github.com/nphil/lumagame-gamestream (v0.1.1), pinned in game/engines.lock, fetched by game/tools/fetch-gamestream.sh.
+- Controllers: GameSir Cyclone 2 protocol + crate `game/crates/gamesir-config` (`05374333`, docs/research/gamesir-cyclone2-protocol.md); Leadjoy Xeno Plus protocol + crate `game/crates/leadjoy-config` (`88fbfd7f`, docs/research/leadjoy-xeno-plus-protocol.md). Keep both pads in DS4 mode for play; GameSir settings need X-input mode (View+Menu 2 s), the config HID is absent in DS4 mode. Nothing has been written to a real pad.
 
-## Needs the owner at home
+## In flight
 
-Controller presses in a game (grab fix 2b263a35, untested with presses), sound by ear, Punktfunk pairing and stream with the gaming PC, Sunshine/Apollo pairing and stream, physical latency measurement, and installing helper cddab248.
+- ControllerLab-5 (worker, may have finished or died): Controller Lab screen + GameSir and Leadjoy settings pages through a helper route. Resume note: /data/home/tmp/lumagame-wip/ControllerLab.md. If its files are still uncommitted in the worktree (rustui/app/**, helper/**, game/crates/lumagame-core, lumagame-engine-gfn, game/engines/punktfunk, docs/lumagame/controller-lab.md, docs/plugins/gaming.md, tests/qmlhost/fixtures/ha-plugin.json), finish from that note: tests + clippy, commit with explicit paths, push both remotes, rebuild ipk + helper. `rustui/ui/src/system/volume.rs` is someone else's: never commit it.
 
-## Research in progress or queued
+## Next work, in order
 
-Order of work: VRR + low-latency hardware truth (running), REA of LG Game Dashboard / BT controllers / multichannel audio (running), Controller Lab screen and GameSir Cyclone 2 config protocol (running). Queued: NDL/VO on-glass presentation timestamp, VO 120 selection cap (144 Hz, AV1 at 120), HDR re-apply drop and Dolby Vision, 4:4:4 VDEC gate. Results land in docs/research/*-result.md and docs/lumagame-gaming-features.md.
+1. Finish ControllerLab (above). Then install the new LumaGame ipk and helper on the TV (announce to LumaTV first; post-checks after the helper install).
+2. With Nitin at home (he sets the time): controller presses in a game, sound by ear, Punktfunk pairing/stream and Sunshine/Apollo pairing/stream with his gaming PC, GameSir + Leadjoy settings read/write on the real pads (Leadjoy 10-colour palette test with save/restore, see the protocol doc), physical latency with Controller Lab's press-to-flash test. Then uninstall the old GFN and Punktfunk apps.
+3. Steady-rate VRR mode for local streams (docs/lumagame-gaming-features.md "True VRR"): per session the helper sets `VRR 1` and the RAM decoder params (vsync_disable_phaseshift 1, vsync_shift_delta 3000, vsync_shift_limit2 800 via /proc/lxipc/vdec/user_command); only a reboot restores; fix the 120 fps start-up dip; look for a reboot-free exit (`vdisp_set_vsync_shift` untested).
+4. Native-games proof: a minimal SDL2 + GLES 3 app launched by LumaGame with a frame-time log at 120 Hz and a clean return (see "Native games" below).
+5. Smaller items: BT pad stopSniff route (docs/research/rea-bt-controllers-result.md), overlay stats from /proc/lg/de/win0/status, 5.1 as 6-channel Opus (docs/research/rea-ndl-audio-result.md), feeder GLib warning loop after final unload in serve mode, 120 Hz UI frame-gate of LumaGame screens, screensaver over LumaGame.
+6. Needs Nitin's explicit approval (brick risk): any DE firmware modification (plan in docs/research/rea-firmware-result.md "DE firmware modification route"). Never load or patch firmware without him at the TV.
+
+## Research results (settled)
+
+- Low latency: NDL's game-mode load already applies every latency control; extra helper controls are redundant (docs/lumagame-gaming-features.md).
+- VRR: true per-frame VRR is not reachable for decoded video without changing signed VDEC firmware; the DE follows the declared or 300-frame-averaged rate. A 72 fps stream already gets 144 Hz scan-out. Cloud G-SYNC stays off.
+- 4:4:4 refused by VDEC firmware (signed); 120 fps cap compiled into signed vdec.bin. DE firmware is unsigned on O22 (plan only).
+- LG Game Dashboard is HDMI-only with no app entry point; LumaGame draws its own overlay.
+- Results: docs/research/rea-*-result.md and docs/lumagame-gaming-features.md.
 
 ## Native games (study of github.com/pustal/Web-Mario-64, 2026-11-15)
 
@@ -30,4 +44,9 @@ Web-Mario-64 is a native webOS app (`type: native`), not a web build: Ghostship 
 - After a helper install, confirm `lumatv ssgw status` (enabled, entry ours, gateway true) and no new crash record in /var/lib/lumatv/ssgw/crash/.
 - Never write VRR registers or ForceVRR without an owner-approved plan. Owner standing approval (2026-11-15, until ~17:00 PST): run TV tests without asking, except anything with brick risk (firmware loads, flashing); for those write a risk-minimising plan and ask him first.
 - GFN sign-in from a phone: use a private browser tab (a stale NVIDIA session gives "Login Failed"). Never submit the device code from this host; that consumes it.
+- Coordination: the LumaTV OS chat (session 01a19410-481a-719d-9a02-554dd995690b) owns compositor, ui, ssgw, declutter and the receiver keeper; message it with send_to_chat before and after TV writes, installs, wakes, reboots or helper restarts. Workers cannot message other chats; the parent relays their start/finish notices.
+- Workers: one deep-task at a time. Hand each worker a resume note under /data/home/tmp/lumagame-wip/<Name>.md and ask it to keep that note current so a restart can continue. Give every worker the files it owns; others commit concurrently.
+- Check every worker result before marking it done: commit on origin/main, receipts present, claims consistent with the doc. Several reports this session had wrong paths or overstated results.
+- Reporting to Nitin: he is not a programmer and has ADHD. Answer first in plain words, short bullets, numbers welcome, one clear next step at the end. Explain jargon or leave it out.
+- Disk: build output and LG binaries never in git; scratch in $CODY_SCRATCH; the shared scratch /tmp/cs/3dc58534e64e was wiped once by a worker, so keep anything needed later under /data/home/tmp/lumagame-*.
 - Host builds that pull `ring`: `CC="$PWD/tools/cc-host"` (see game/crates/lumagame-meta). The helper's root-runner test needs a world-traversable TMPDIR, which this host's private scratch lacks.
