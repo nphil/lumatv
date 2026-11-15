@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Mute mark still in standby, 2026-11-15 (main fc7f3164, installed 16:34 EST)
+
+Installed ui `3ad0204a2548a9f9220e5af87c36d2ac34775e43a2fd5138733340295bda13c3` (468e4677) and compositor `f9a1aca0f6ded2482c42f8f907664bff86baf0658841e3d80b2475824cdcd3ae` (built at fc7f3164; it differs from e412ee99 only by 431d447f's opt-in program binaries, which the compositor does not use); sm `65f6ca69` unchanged. After the reboot of 12:58 PST the set flipped about 0.9 times a second in standby: the TV's sound read muted, so the mute mark was up and hopped every 10 s, each hop a few 128x128 frames. The mark now holds still while the screen is off; measured after the install with the mark up and the screen off, 0 flips in 30 s. ssgw answering, no new crash record. The TV's mute came over CEC: `/var/log/cecmessages` has `RX507AB1` (the Denon's Report Audio Status, mute bit set) at 15:58:46 UTC, the receiver muted at a test wake; the MUOFF and standby after it sent no new status, so `com.webos.service.audio` keeps `muteStatus` true with `soundOutput` `external_arc` until the receiver next reports. Left as is.
+
 ## LumaGame second TV run, 2026-11-15 (main 04a4c1ab, installed 12:26 EST)
 
 Installed helper `43e74d46420129ebab7293d5f722231e813fab84e3f37a1262a6976d66ad77ec` (main 9d7f7e9d, replaces 43a0d2a5; ssgw status ours, gateway true, no new crash record) and LumaGame build-id `11b01edb054731d5` (ipk `b07b60d72de82dee171e47d9f487cf52a686ca3793e907c32e1cff150e533925`, main 04a4c1ab). Rollback copies of the previous app and helper are in `/data/home/tmp/lumagame-round2-20261115/backup/`; screenshots in `/tmp/cs/3dc58534e64e/tvround2/`. The Gaming plugin stayed off.
