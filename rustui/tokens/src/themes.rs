@@ -1,7 +1,28 @@
-//! The TV's local Lucent palette catalog. Source colours are straight RGBA, not Qt ARGB.
+//! Shared Lucent palettes, stored as straight RGBA rather than Qt ARGB.
+//!
+//! [`catalog`] retains LumaTV's existing IDs and shipped Rosé Pine surfaces.
+//! [`game_catalog`] provides twenty upstream families in dark and light, with
+//! 7:1 reading inks and 3:1 control cues over canvas and composited sheet.
+//! Sources and adapted counterparts are recorded in `palettes.json`; native
+//! accents are never contrast-shifted. Low-contrast accents use the derived
+//! `edgeRaised` boundary and `focus` cue rather than colour alone.
+//! [`game_options`] adds [`MATCH_LUMATV`], which the app follows from live host
+//! tokens instead of treating it as a saved family.
 use std::sync::LazyLock;
 use serde_json::{Map, Value, json};
 use ui::lucent::palette::{Mode, PaletteRole, Roles, Straight};
+
+static SOURCE: LazyLock<Value> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("palettes.json")).expect("embedded palettes")
+});
+
+/// The selection follows the host's current tokens rather than a saved palette.
+pub const MATCH_LUMATV: &str = "match-lumatv";
+
+pub struct ThemeOption {
+    pub id: &'static str,
+    pub name: &'static str,
+}
 
 pub struct ThemeFamily {
     pub id: &'static str,
@@ -91,12 +112,16 @@ fn fitted(mut c: Straight, backgrounds: [Straight; 2], min: f64, mode: Mode) -> 
     c
 }
 
+fn raw_roles(value: &Value) -> [Straight; 20] {
+    std::array::from_fn(|i| {
+        let role = PaletteRole::ALL[i];
+        Straight::parse(value[role.name()].as_str().expect("palette role"))
+            .expect("straight RGBA palette colour")
+    })
+}
+
 fn read_roles(value: &Value, mode: Mode) -> Roles {
-    let mut colours = [Straight::new(0,0,0,255); 20];
-    for (i, role) in PaletteRole::ALL.iter().enumerate() {
-        colours[i] = Straight::parse(value[role.name()].as_str().expect("palette role")).expect("straight RGBA palette colour");
-    }
-    fit_roles(colours, mode)
+    fit_roles(raw_roles(value), mode)
 }
 
 fn fit_roles(mut colours: [Straight; 20], mode: Mode) -> Roles {
@@ -118,10 +143,11 @@ fn fit_roles(mut colours: [Straight; 20], mode: Mode) -> Roles {
 }
 
 pub fn catalog() -> &'static [ThemeFamily] {
-    static SOURCE: LazyLock<Value> = LazyLock::new(|| serde_json::from_str(include_str!("palettes.json")).expect("embedded palettes"));
     static CATALOG: LazyLock<Vec<ThemeFamily>> = LazyLock::new(|| {
         let source = &*SOURCE;
-        source.as_array().expect("palette families").iter().map(|family| {
+        source.as_array().expect("palette families").iter().filter(|family| {
+            family["dark"].is_object()
+        }).map(|family| {
             let id = family["id"].as_str().expect("palette id");
             let (dark, light) = if id == "rose-pine" {
                 let dark = crate::roles(shipped_block("dark"));
@@ -140,6 +166,75 @@ pub fn catalog() -> &'static [ThemeFamily] {
 }
 
 pub fn find(id: &str) -> Option<&'static ThemeFamily> { catalog().iter().find(|family| family.id == id) }
+
+/// LumaGame's twenty upstream families; legacy LumaTV choices remain in [`catalog`].
+/// Brand accents stay unchanged. Reading inks and control cues are distance-fitted.
+pub fn game_catalog() -> &'static [ThemeFamily] {
+    static CATALOG: LazyLock<Vec<ThemeFamily>> = LazyLock::new(|| {
+        SOURCE.as_array().expect("palette families").iter()
+            .filter(|family| family["game"].is_object())
+            .map(|family| ThemeFamily {
+                id: family["id"].as_str().expect("palette id"),
+                name: if family["id"] == "rose-pine" { "Rosé Pine" }
+                    else { family["name"].as_str().expect("palette name") },
+                dark: game_roles(&family["game"]["dark"], Mode::Dark),
+                light: game_roles(&family["game"]["light"], Mode::Light),
+                wallpaper_dark: None,
+                wallpaper_light: None,
+            }).collect()
+    });
+    &CATALOG
+}
+
+pub fn game_find(id: &str) -> Option<&'static ThemeFamily> {
+    game_catalog().iter().find(|family| family.id == id)
+}
+
+/// Match LumaTV first, then the twenty families, with Rosé Pine as the first family.
+/// The host resolves [`MATCH_LUMATV`] from its live theme; it is not a family.
+pub fn game_options() -> &'static [ThemeOption] {
+    static OPTIONS: LazyLock<Vec<ThemeOption>> = LazyLock::new(|| {
+        std::iter::once(ThemeOption { id: MATCH_LUMATV, name: "Match LumaTV" })
+            .chain(game_catalog().iter().map(|family| ThemeOption {
+                id: family.id,
+                name: family.name,
+            })).collect()
+    });
+    &OPTIONS
+}
+
+fn game_roles(value: &Value, mode: Mode) -> Roles {
+    let mut colours = raw_roles(value);
+    let index = |role| PaletteRole::ALL.iter().position(|r| *r == role).expect("role");
+    let canvas = colours[index(PaletteRole::Canvas)];
+    let sheet = composite(colours[index(PaletteRole::Sheet)], canvas);
+    for role in [PaletteRole::Ink, PaletteRole::Ink2, PaletteRole::Ink3] {
+        let i = index(role);
+        colours[i] = fitted(colours[i], [canvas, sheet], 7.0, mode);
+    }
+    // Light adaptations retain their brand hues; these derived cues carry visibility.
+    for role in [PaletteRole::Focus, PaletteRole::EdgeRaised, PaletteRole::TrackOff,
+                 PaletteRole::Positive, PaletteRole::Warning, PaletteRole::Danger,
+                 PaletteRole::Info, PaletteRole::Live] {
+        let i = index(role);
+        colours[i] = fitted(colours[i], [canvas, sheet], 3.0, mode);
+    }
+    for (ink, fill) in [(PaletteRole::AccentInk, PaletteRole::Accent),
+                        (PaletteRole::FocusInk, PaletteRole::Focus)] {
+        let background = composite(colours[index(fill)], canvas);
+        let i = index(ink);
+        if contrast(composite(colours[i], background), background) < 4.5 {
+            let black = Straight::new(0, 0, 0, 255);
+            let white = Straight::new(255, 255, 255, 255);
+            colours[i] = if contrast(black, background) > contrast(white, background) {
+                black
+            } else {
+                white
+            };
+        }
+    }
+    Roles::new(colours)
+}
 
 #[cfg(test)]
 mod tests {
@@ -227,5 +322,109 @@ mod tests {
                 for bg in [canvas,sheet] { assert!(contrast(composite(r[role],bg),bg) >= min, "{} {:?} {:?}",family.id,mode,role); }
             }
         }}
+    }
+
+    #[test]
+    fn game_choices_preserve_the_legacy_catalog_and_upstream_accents() {
+        let legacy = ["rose-pine", "slate", "sand", "forest", "ocean", "plum",
+            "ember", "sage", "cocoa", "monochrome", "glacier", "indigo", "orchid",
+            "rosewater", "bordeaux", "lagoon", "olive", "honey", "terracotta", "porcelain"];
+        assert_eq!(catalog().iter().map(|f| f.id).collect::<Vec<_>>(), legacy);
+        let expected = [
+            ("rose-pine", "#C4A7E7", "#907AA9"), ("nord", "#88C0D0", "#5E81AC"),
+            ("solarized", "#268BD2", "#268BD2"), ("gruvbox", "#FABD2F", "#B57614"),
+            ("catppuccin", "#CBA6F7", "#8839EF"), ("dracula", "#BD93F9", "#644AC9"),
+            ("monokai", "#A6E22E", "#A6E22E"), ("ayu", "#E6B450", "#F2AE49"),
+            ("everforest", "#A7C080", "#8DA101"), ("kanagawa", "#7E9CD8", "#4D699B"),
+            ("tokyo-night", "#7AA2F7", "#2E7DE9"), ("one", "#61AFEF", "#4078F2"),
+            ("night-owl", "#A599E9", "#2AA298"), ("github", "#58A6FF", "#0969DA"),
+            ("oxocarbon", "#33B1FF", "#0F62FE"), ("horizon", "#DF5273", "#DA103F"),
+            ("material-palenight", "#C792EA", "#C792EA"),
+            ("synthwave-84", "#FF7EDB", "#FF7EDB"), ("cobalt2", "#FFC600", "#FFC600"),
+            ("papercolor", "#5FAFD7", "#005F87"),
+        ];
+        assert_eq!(game_catalog().len(), expected.len());
+        assert_eq!(game_options().len(), 21);
+        assert_eq!(game_options()[0].id, MATCH_LUMATV);
+        assert_eq!(game_options()[0].name, "Match LumaTV");
+        assert!(game_find(MATCH_LUMATV).is_none());
+        assert!(game_find("not-a-theme").is_none());
+        for (i, (id, dark, light)) in expected.iter().enumerate() {
+            let family = game_find(id).unwrap();
+            assert_eq!(game_catalog()[i].id, *id);
+            assert_eq!(game_options()[i + 1].id, *id);
+            let source = SOURCE.as_array().unwrap().iter().find(|f| f["id"] == *id).unwrap();
+            assert!(source["game"]["source"].as_str().unwrap().starts_with("https://"));
+            assert!(!source["game"]["modes"].as_str().unwrap().is_empty());
+            for (mode, name, accent) in [(Mode::Dark, "dark", dark), (Mode::Light, "light", light)] {
+                let roles = family.roles(mode);
+                assert_eq!(roles[PaletteRole::Accent], Straight::parse(accent).unwrap());
+                assert_eq!(roles[PaletteRole::Canvas],
+                    Straight::parse(source["game"][name]["canvas"].as_str().unwrap()).unwrap());
+                assert_eq!(Tokens::from_json(&family.patch(mode)).roles(mode), roles);
+                assert_eq!(source["game"][name].as_object().unwrap().len(), PaletteRole::ALL.len());
+            }
+        }
+    }
+
+    #[test]
+    fn all_forty_game_variants_meet_composited_distance_and_control_contrast() {
+        for family in game_catalog() {
+            for mode in [Mode::Dark, Mode::Light] {
+                let roles = family.roles(mode);
+                let canvas = roles[PaletteRole::Canvas];
+                let sheet = composite(roles[PaletteRole::Sheet], canvas);
+                for background in [canvas, sheet] {
+                    for role in [PaletteRole::Ink, PaletteRole::Ink2, PaletteRole::Ink3] {
+                        let ratio = contrast(composite(roles[role], background), background);
+                        assert!(ratio >= 7.0, "{} {mode:?} {role:?}: {ratio}", family.id);
+                    }
+                    for role in [PaletteRole::Focus, PaletteRole::EdgeRaised, PaletteRole::TrackOff,
+                                 PaletteRole::Positive, PaletteRole::Warning, PaletteRole::Danger,
+                                 PaletteRole::Info, PaletteRole::Live] {
+                        let ratio = contrast(composite(roles[role], background), background);
+                        assert!(ratio >= 3.0, "{} {mode:?} {role:?}: {ratio}", family.id);
+                    }
+                    for (ink, fill) in [(PaletteRole::AccentInk, PaletteRole::Accent),
+                                        (PaletteRole::FocusInk, PaletteRole::Focus)] {
+                        let fill = composite(roles[fill], background);
+                        let ratio = contrast(composite(roles[ink], fill), fill);
+                        assert!(ratio >= 4.5, "{} {mode:?} {ink:?}: {ratio}", family.id);
+                    }
+                }
+            }
+        }
+    }
+
+    fn lab(c: Straight) -> [f64; 3] {
+        let linear = |v: u8| {
+            let v = f64::from(v) / 255.0;
+            if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        };
+        let [r, g, b] = [linear(c.r), linear(c.g), linear(c.b)];
+        let f = |v: f64| {
+            if v > 216.0 / 24389.0 { v.cbrt() } else { v * 841.0 / 108.0 + 4.0 / 29.0 }
+        };
+        let x = f((0.4124564*r + 0.3575761*g + 0.1804375*b) / 0.95047);
+        let y = f(0.2126729*r + 0.7151522*g + 0.0721750*b);
+        let z = f((0.0193339*r + 0.1191920*g + 0.9503041*b) / 1.08883);
+        [116.0*y - 16.0, 500.0*(x-y), 200.0*(y-z)]
+    }
+
+    #[test]
+    fn dark_families_have_distinct_canvas_and_accent_signatures() {
+        for (i, a) in game_catalog().iter().enumerate() {
+            for b in &game_catalog()[i + 1..] {
+                let mut squared_delta = 0.0;
+                for role in [PaletteRole::Canvas, PaletteRole::Accent] {
+                    let a = lab(a.roles(Mode::Dark)[role]);
+                    let b = lab(b.roles(Mode::Dark)[role]);
+                    squared_delta += a.into_iter().zip(b).map(|(a, b)| (a-b).powi(2)).sum::<f64>();
+                }
+                // Joint CIE76 distance over the two equally weighted identity swatches.
+                let delta = (squared_delta / 2.0).sqrt();
+                assert!(delta >= 5.0, "{} and {} are too similar: ΔE {delta}", a.id, b.id);
+            }
+        }
     }
 }
