@@ -32,6 +32,8 @@ from fake_wayland import FakeCompositor  # noqa: E402
 
 BIN = os.path.join(FEEDER, "build", "host", "lumatv-gfn-feeder")
 ARM = os.path.join(FEEDER, "build", "arm", "lumatv-gfn-feeder")
+GAME_BIN = os.path.join(FEEDER, "build", "host", "lumagame-main")
+GAME_ARM = os.path.join(FEEDER, "build", "arm", "lumagame-main")
 NDL = os.path.join(FEEDER, "build", "host", "libNDL_directmedia.so.1")
 SMP = os.path.join(FEEDER, "build", "host", "libplayerAPIs.so.1")
 STREAMS = os.path.join(ROOT, "gfn", "build", "streams")
@@ -47,7 +49,7 @@ EVENT = struct.Struct("<iiq")
 STATUS = struct.Struct("<5Q4I2I2II2I2III")
 HELLO = struct.Struct("<4I32s64s")
 GF = dict(LOAD=1, VIDEO=2, AUDIO=3, FLUSH=4, UNLOAD=5, STATE=6, HDR=7, PING=8, APP=9, TEXTURE=10, PIPE=11, SINK=12, LOADED=16, EVENT=17, ACCEPT=18, DROP=19, STATUS=20, ERROR=21,
-          PONG=22, HELLO=23)
+          PONG=22, HELLO=23, KEYFRAME=24)
 
 # What the set logged (`smp.api LOAD`, TV 2026-10-30) when NDL loaded a 1920x1080 H.264 picture for org.nphil.lumatv.cameras: the load every NDL video has, whose
 # `lowDelayMode` and `videoInfo.isGameMode` NDL says true and no call changes (docs/research/multiview/tv-2026-10-30/luna-e2/messages/messages)
@@ -57,13 +59,16 @@ NDL_LOAD_ON_THE_SET = ('{"args":[{"mediaTransportType":"DIRECTMEDIA-ES-PLAYER","
 
 
 def build():
-    if os.path.exists(BIN) and os.path.exists(NDL) and os.path.exists(SMP) and os.path.exists(ARM):
-        newest = max(os.path.getmtime(os.path.join(FEEDER, d, f)) for d in ("src", "tests") for f in os.listdir(os.path.join(FEEDER, d)))
-        if os.path.getmtime(BIN) >= newest:
+    binaries = [BIN, NDL, SMP, ARM, GAME_BIN, GAME_ARM] + [os.path.join(FEEDER, "build", "host", name) for name in ("policy_test", "game_policy_test", "sam_test")]
+    if all(os.path.exists(p) for p in binaries):
+        newest = max([os.path.getmtime(os.path.join(FEEDER, "build.sh"))] +
+                     [os.path.getmtime(os.path.join(FEEDER, d, f)) for d in ("src", "tests") for f in os.listdir(os.path.join(FEEDER, d))])
+        if min(os.path.getmtime(p) for p in binaries) >= newest:
             return True
     if not shutil.which("zig"):
         return False
-    return subprocess.run(["sh", os.path.join(FEEDER, "build.sh")], capture_output=True).returncode == 0
+    subprocess.run(["sh", os.path.join(FEEDER, "build.sh")], check=True)
+    return True
 
 
 HAVE = build()
@@ -238,7 +243,7 @@ class Play(unittest.TestCase):
             self.assertIn("26", s["events"])
             pts = [int(l.split(" pts ")[1].split()[0]) for l in r.ndl() if " Play #" in l]
             self.assertEqual(pts, sorted(pts))
-            self.assertEqual(pts[1] - pts[0], 1000000000 // 60)
+            self.assertEqual(pts[1] - pts[0], 17)
             # the window: card type, the app id, an exported element placed full screen, the video rectangle the clip's size
             self.assertIn("wl_webos_foreign.export_element", r.fc.names())
             self.assertIn("wl_webos_exported.set_exported_window", r.fc.names())
@@ -294,7 +299,7 @@ class Play(unittest.TestCase):
             self.assertLess(names.index("Load"), names.index("SetHDRInfo"))
             self.assertLess(names.index("Load"), names.index("SetFrameDropThreshold"))
             pts = [int(l.split(" pts ")[1].split()[0]) for l in r.ndl() if " Play #" in l]
-            self.assertEqual(pts[1] - pts[0], 1000000 // 60)
+            self.assertEqual(pts[1] - pts[0], 17, "legacy unit flags cannot bypass the NDL millisecond rule")
         finally:
             r.close()
 
@@ -310,7 +315,8 @@ class Play(unittest.TestCase):
             s = r.summary()
             self.assertEqual((s["afed"], s["adropped"]), (50, 0))
             apts = [int(l.split(" pts ")[1].split()[0]) for l in log if "AudioPlay #" in l]
-            self.assertEqual(apts[1] - apts[0], 20000000)
+            self.assertEqual(apts, sorted(apts))
+            self.assertLess(apts[-1], 2000, "audio is stamped from the local player clock in milliseconds")
         finally:
             r.close()
 
@@ -488,7 +494,7 @@ class Serve(unittest.TestCase):
                 units.append(stream[pos:nxt if nxt > 0 else len(stream)])
                 pos = nxt if nxt > 0 else len(stream)
             self.assertEqual(len(units), 150)
-            t0 = 1_000_000_000
+            t0 = time.monotonic_ns()
             accepted = 0
             for i, u in enumerate(units):
                 c.send(GF["VIDEO"], MEDIA_HEAD.pack(t0 + i * 16_666_667, 1 if i % 30 == 0 else 0) + u)
@@ -522,7 +528,7 @@ class Serve(unittest.TestCase):
             proc.wait(timeout=10)
             self.assertEqual(proc.returncode, 0)
             log = open(ndl_log).read()
-            self.assertIn("FlushRenderBuffer", log)
+            self.assertNotIn("FlushRenderBuffer", log)
             self.assertIn("SetAppState 1", log)
             self.assertIn("SetHDRInfo", log)
             self.assertIn("SetFrameDropThreshold 2", log)
@@ -727,15 +733,15 @@ class Serve(unittest.TestCase):
             c.load(codec=1, w=1920, h=1080, fps=25, audio=0, hdr=0, drop=-1)
             (t, p), _ = c.until(GF["LOADED"])
             self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
-            for i in range(3):
-                c.send(GF["VIDEO"], MEDIA_HEAD.pack(1_000_000_000 + i * 40_000_000, 1 if i == 0 else 0) + bytes([0, 0, 0, 1, 0x65]) + bytes(60))
+            for i in range(4):
+                c.send(GF["VIDEO"], MEDIA_HEAD.pack(1_000_000_000 + i * 40_000_000, 1 if i in (0, 3) else 0) + bytes([0, 0, 0, 1, 0x65]) + bytes(60))
             reasons = []
-            while len(reasons) < 3:
+            while len(reasons) < 4:
                 t, p = c.recv()
                 if t == GF["DROP"]:
                     reasons.append(DROP.unpack_from(p)[1])
-            self.assertEqual(reasons, [3, 3, 3], "GF_DROP_REFUSED, not GF_DROP_FULL")
-            self.assertEqual(open(smp_log).read().count("Feed "), 3, "a refusal is not offered again")
+            self.assertEqual(reasons, [3, 4, 4, 3], "a refused anchor holds dependent units until another anchor")
+            self.assertEqual(open(smp_log).read().count("Feed "), 2, "each anchor is offered once; dependent units stay held")
             c.close()
             proc.wait(timeout=10)
             self.assertEqual(proc.returncode, 0)
@@ -972,6 +978,10 @@ class PcmFallback(unittest.TestCase):
             c.load()
             (t, p), _ = c.until(GF["LOADED"])
             self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+            while True:
+                (_, event), _ = c.until(GF["EVENT"])
+                if EVENT.unpack_from(event)[0] == 22:
+                    break
             for i, pk in enumerate(self.packets[:10]):
                 c.send(GF["AUDIO"], MEDIA_HEAD.pack(1_000_000_000 + i * 20_000_000, 0) + pk)
             c.send(GF["PING"], struct.pack("<q", 1))
@@ -1000,6 +1010,10 @@ class PcmFallback(unittest.TestCase):
                 c.load()
                 (t, p), _ = c.until(GF["LOADED"])
                 self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+                while True:
+                    (_, event), _ = c.until(GF["EVENT"])
+                    if EVENT.unpack_from(event)[0] == 22:
+                        break
                 for i, pk in enumerate(self.packets[:10]):
                     c.send(GF["AUDIO"], MEDIA_HEAD.pack(1_000_000_000 + (round_ * 100 + i) * 20_000_000, 0) + pk)
                 c.send(GF["PING"], struct.pack("<q", round_))
@@ -1021,14 +1035,31 @@ class PcmFallback(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE, "zig is needed to build the feeder")
+class PlayerRules(unittest.TestCase):
+    def test_injected_clock_rules_against_fake_ndl_for_both_identities(self):
+        for binary in ("policy_test", "game_policy_test"):
+            with self.subTest(binary=binary):
+                result = subprocess.run([os.path.join(FEEDER, "build", "host", binary), NDL], capture_output=True, text=True, timeout=1)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("7 rules passed", result.stdout)
+
+    def test_lifecycle_launch_apps_foreground_and_failures(self):
+        result = subprocess.run([os.path.join(FEEDER, "build", "host", "sam_test")], capture_output=True, text=True, timeout=1)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("lifecycle rule passed", result.stdout)
+
+
+@unittest.skipUnless(HAVE, "zig is needed to build the feeder")
 class Binary(unittest.TestCase):
     def test_arm_binary_is_32_bit_soft_float_with_libc_and_libdl_only(self):
-        out = subprocess.run(["readelf", "-h", "-d", ARM], capture_output=True, text=True).stdout
-        self.assertIn("ELF32", out)
-        self.assertIn("Machine:                           ARM", out)
-        needed = [l.split("[")[1].rstrip("]") for l in out.splitlines() if "NEEDED" in l]
-        self.assertEqual(sorted(needed), ["libc.so.6", "libdl.so.2", "libpthread.so.0"])
-        self.assertIn("Flags:                             0x5000200", out)
+        for binary in (ARM, GAME_ARM):
+            with self.subTest(binary=binary):
+                out = subprocess.run(["readelf", "-h", "-d", binary], capture_output=True, text=True).stdout
+                self.assertIn("ELF32", out)
+                self.assertIn("Machine:                           ARM", out)
+                needed = [l.split("[")[1].rstrip("]") for l in out.splitlines() if "NEEDED" in l]
+                self.assertEqual(sorted(needed), ["libc.so.6", "libdl.so.2", "libpthread.so.0"])
+                self.assertIn("Flags:                             0x5000200", out)
 
     def test_the_app_id_comes_from_the_installed_directory_and_no_arguments_means_serve(self):
         tmp = tempfile.mkdtemp(prefix="gfn-feeder-app-")
@@ -1161,6 +1192,36 @@ class Sam(unittest.TestCase):
             _, err = proc.communicate()
             self.fail("the feeder did not end\n" + err + self.text(self.hub_log) + self.text(self.ui_log))
         return err
+
+    def test_lumagame_ui_uses_launch_and_app_list_through_main(self):
+        shutil.copy(GAME_BIN, self.exe)
+        game = "com.example.game"
+        self.ui('printf \'%s\\n\' \'{"kind":"launch","seq":1,"app_id":"%s","parameters":{"level":3}}\' \'{"kind":"apps","seq":2}\' >&3\n' %
+                ("%s", game) + self.READ_UNTIL_CLOSE % self.ui_log)
+        os.rename(os.path.join(self.home, "bin64", "lumatv-gfn-app"), os.path.join(self.home, "bin64", "lumagame-ui"))
+        proc = self.start(events=[(1, REGISTERED), (300, CLOSE)], launch=launch_object(), env={
+            "FAKE_LAUNCH_REPLY": '{"returnValue":true}',
+            "FAKE_APPS_REPLY": json.dumps({"returnValue": True, "apps": [{"id": game, "title": "Game " * 20, "icon": "icon.png"}] * 300}),
+            "FAKE_FOREGROUND_REPLY": '{"returnValue":true,"appId":"org.nphil.lumagame"}',
+        })
+        err = self.finish(proc)
+        self.assertEqual(proc.returncode, 0, err)
+        lines = self.text(self.ui_log).splitlines()
+        args = lines[0]
+        self.assertIn("--engines " + self.home + "/engines", args)
+        self.assertIn("--engine-runner " + self.home + "/run64.sh", args)
+        self.assertIn("--feeder-socket " + self.tmp + "/feed.sock", args)
+        self.assertIn("--window-id-file " + self.tmp + "/window-id", args)
+        self.assertIn("--shm /tmp/org.nphil.lumagame/shm", args)
+        self.assertNotIn("--core ", args)
+        messages = [json.loads(line[5:]) for line in lines if line.startswith("got: ")]
+        self.assertIn({"kind": "launched", "seq": 1, "app_id": game, "success": True, "message": ""}, messages)
+        self.assertIn({"kind": "foreground", "app_id": "org.nphil.lumagame"}, messages)
+        apps = next(message for message in messages if message["kind"] == "apps")
+        self.assertTrue(apps["success"])
+        self.assertEqual(apps["apps"][0]["id"], game)
+        self.assertEqual(len(apps["apps"]), 300, "large app lists cross the channel without truncation")
+        self.assertIn('call luna://com.webos.applicationManager/launch {"id":"com.example.game","params":{"level":3}}', self.text(self.hub_log))
 
     def test_registers_under_the_launch_objects_id_and_hands_registered_relaunch_and_close_to_the_ui(self):
         self.ui(self.READ_UNTIL_CLOSE % self.ui_log)

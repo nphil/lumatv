@@ -14,5 +14,6 @@ test-runtime = []
 [dependencies]
 libc.workspace = true
 lumatv-gfn-pad = { path = "../lumatv-gfn-pad" }
+lumagame-feeder.workspace = true
 opennow-streamer-protocol.workspace = true
 serde_json.workspace = true

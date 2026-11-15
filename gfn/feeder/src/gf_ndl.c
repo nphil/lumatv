@@ -57,7 +57,6 @@ struct gf_ndl {
     int (*quit)(void);
     const char *(*get_error)(void);
     int started, loaded;
-    long long pts_unit;             /* what a feed's nanoseconds are divided by: the load's `pts_unit` */
 
     int lock;                       /* spin lock: callbacks run on the library's threads */
     struct { int type; long long num; char text[200]; } q[EVQ];
@@ -143,7 +142,6 @@ static int ndl_open_lib(gf_pipe **out, const char *lib, char *err, size_t cap) {
         snprintf(err, cap, "NDL_DirectMedia_DL_Initialize failed (no implementation library)");
         goto fail;
     }
-    n->pts_unit = 1;
     *out = P(n);
     return 0;
 fail:
@@ -201,7 +199,6 @@ static int ndl_start(gf_pipe *p, const char *app_id, const char *window_id, cons
         return -1;
     }
     n->started = 1;
-    n->pts_unit = l->pts_unit > 0 ? l->pts_unit : 1;
     g_ndl = n;
     struct data_info info;
     memset(&info, 0, sizeof info);
@@ -223,6 +220,7 @@ static int ndl_start(gf_pipe *p, const char *app_id, const char *window_id, cons
             return -1;
         }
     }
+    if (o->load_ns) *o->load_ns = gf_ns();
     if (n->load(&info, on_event) != 0) {
         snprintf(err, cap, "NDL_DirectMediaLoad: %s", ndl_error(p));
         return GF_PIPE_LOAD_FAILED;
@@ -231,11 +229,6 @@ static int ndl_start(gf_pipe *p, const char *app_id, const char *window_id, cons
     if (n->set_state(0) != 0) {
         snprintf(err, cap, "NDL_DirectMediaSetAppState(foreground): %s", ndl_error(p));
         return -1;
-    }
-    if (l->hdr) {
-        int rc = ndl_set_hdr(p, &l->hdr_info);
-        if (rc == -2) gf_say("ndl: this library has no NDL_DirectVideoSetHDRInfo; the stream's own SEI is what the display gets");
-        else if (rc != 0) gf_say("ndl: NDL_DirectVideoSetHDRInfo returned %d: %s", rc, ndl_error(p));
     }
     if (l->drop_threshold >= 0) {
         int rc = ndl_set_drop_threshold(p, l->drop_threshold);
@@ -246,12 +239,12 @@ static int ndl_start(gf_pipe *p, const char *app_id, const char *window_id, cons
 }
 
 static int ndl_feed_video(gf_pipe *p, const void *unit, unsigned size, long long pts_ns) {
-    int rc = N(p)->play((void *)unit, size, pts_ns / N(p)->pts_unit);
+    int rc = N(p)->play((void *)unit, size, pts_ns / GF_PTS_MS);
     return rc == 0 ? 0 : 1;
 }
 
 static int ndl_feed_audio(gf_pipe *p, const void *data, unsigned size, long long pts_ns) {
-    int rc = N(p)->play_audio((void *)data, size, pts_ns / N(p)->pts_unit);
+    int rc = N(p)->play_audio((void *)data, size, pts_ns / GF_PTS_MS);
     return rc == 0 ? 0 : 1;
 }
 
@@ -280,6 +273,11 @@ static void ndl_stop(gf_pipe *p) {
     if (n->started) n->quit();
     n->started = 0;
     g_ndl = NULL;
+    lock(n);
+    n->head = n->count = 0;
+    unlock(n);
+    uint64_t pending;
+    if (read(n->efd, &pending, sizeof pending) < 0) { /* no queued callback */ }
 }
 
 static void ndl_free(gf_pipe *p) {

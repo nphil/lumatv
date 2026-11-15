@@ -4,6 +4,8 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <ctype.h>
+#include <inttypes.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdatomic.h>
@@ -18,6 +20,18 @@
 #define SAM_REGISTER "luna://com.webos.applicationManager/registerApp"
 #define LS2_LIB "libluna-service2.so.3"
 #define GLIB_LIB "libglib-2.0.so.0"
+#define SAM_LAUNCH "luna://com.webos.applicationManager/launch"
+#define SAM_APPS "luna://com.webos.applicationManager/listApps"
+#define SAM_FOREGROUND "luna://com.webos.applicationManager/getForegroundAppInfo"
+
+struct request {
+    struct gf_sam *sam;
+    int state, apps;
+    uint64_t seq;
+    char app_id[128], params[1024];
+    unsigned long token;
+    int64_t deadline_ms;
+};
 
 /* ---- luna-service2 and glib: the calls made (the public API; the card launcher makes the same ones) ----------------------------- */
 
@@ -61,12 +75,16 @@ struct gf_sam {
     int started;
     atomic_int stop;
     int rd, wr;                         /* the pipe the thread's lines go through */
-    char acc[4096];                     /* what the reader has of the next line */
+    char acc[GF_SAM_LINE];
     size_t acc_len;
     GMainLoop *loop;
     LSHandle *sh;
     LSMessageToken token;
     int called, answered;
+    LSMessageToken foreground_token;
+    int foreground_called;
+    pthread_mutex_t requests_lock;
+    struct request requests[8];
 };
 
 /* ---- a minimal JSON scanner (lumatv-card.c's: top-level keys, raw values) ----------------------------------------------------------- */
@@ -78,23 +96,24 @@ static bool json_value(const char *obj, const char *key, const char **start, siz
     p++;
     size_t klen = strlen(key);
     while (*p) {
-        while (*p == ' ' || *p == ',' || *p == '\n') p++;
+        while (*p == ' ' || *p == ',' || *p == '\n' || *p == '\r' || *p == '\t') p++;
         if (*p == '}') return false;
         if (*p != '"') return false;
         const char *k = ++p;
         while (*p && *p != '"') {
-            if (*p == '\\') p++;
+            if (*p == '\\' && p[1]) p++;
             p++;
         }
+        if (!*p) return false;
         size_t kl = (size_t)(p - k);
         p++;
-        while (*p == ' ' || *p == ':') p++;
+        while (*p == ' ' || *p == ':' || *p == '\t' || *p == '\r' || *p == '\n') p++;
         const char *v = p;
         int depth = 0;
         if (*p == '"') {
             p++;
             while (*p && *p != '"') {
-                if (*p == '\\') p++;
+                if (*p == '\\' && p[1]) p++;
                 p++;
             }
             if (*p == '"') p++;
@@ -103,12 +122,12 @@ static bool json_value(const char *obj, const char *key, const char **start, siz
                 if (*p == '"') {
                     p++;
                     while (*p && *p != '"') {
-                        if (*p == '\\') p++;
+                        if (*p == '\\' && p[1]) p++;
                         p++;
                     }
                 } else if (*p == '{' || *p == '[') depth++;
                 else if (*p == '}' || *p == ']') depth--;
-                p++;
+                if (*p) p++;
             } while (*p && depth > 0);
         } else {
             while (*p && *p != ',' && *p != '}') p++;
@@ -125,7 +144,7 @@ static bool json_value(const char *obj, const char *key, const char **start, siz
 static bool json_string(const char *obj, const char *key, char *out, size_t outsz) {
     const char *v;
     size_t n;
-    if (!json_value(obj, key, &v, &n) || n < 2 || v[0] != '"') return false;
+    if (!json_value(obj, key, &v, &n) || n < 2 || v[0] != '"' || v[n - 1] != '"' || n - 2 >= outsz) return false;
     size_t o = 0;
     for (size_t i = 1; i + 1 < n && o + 1 < outsz; i++) {
         char c = v[i];
@@ -189,17 +208,18 @@ int gf_sam_parse_launch(const char *json, struct gf_launch *out) {
 
 /* ---- the thread ------------------------------------------------------------------------------------------------------------------ */
 
-/* One line to the feeder. A line is far under PIPE_BUF, so the write is whole or not made; a reader that is not reading loses it. */
+/* One producer on the bus thread; large app lists can span several pipe writes. */
 static void emit(struct gf_sam *s, const char *line) {
-    char buf[2048];
-    size_t n = strlen(line);
-    if (n + 2 > sizeof buf) {
-        gf_say("sam: a message of %zu bytes is too long and is dropped", n);
-        return;
+    size_t left = strlen(line);
+    if (left + 1 >= GF_SAM_LINE) return;
+    while (left) {
+        ssize_t n = write(s->wr, line, left);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return;
+        line += n;
+        left -= (size_t)n;
     }
-    memcpy(buf, line, n);
-    buf[n++] = '\n';
-    if (write(s->wr, buf, n) != (ssize_t)n) gf_say("sam: a line was not written (%s)", strerror(errno));
+    if (write(s->wr, "\n", 1) < 0) { /* the reader is gone */ }
 }
 
 static bool on_sam(LSHandle *h, LSMessage *msg, void *ctx) {
@@ -242,9 +262,162 @@ static bool on_sam(LSHandle *h, LSMessage *msg, void *ctx) {
     return true;
 }
 
+static void request_error(const struct request *r, const char *message, char *out, size_t cap) {
+    char escaped[512];
+    json_escape(message, escaped, sizeof escaped);
+    snprintf(out, cap, "{\"kind\":\"%s\",\"seq\":%" PRIu64 ",\"app_id\":\"%s\",\"success\":false,\"message\":\"%s\"%s}",
+             r->apps ? "apps" : "launched", r->seq, r->app_id, escaped, r->apps ? ",\"apps\":[]" : "");
+}
+
+static bool on_request(LSHandle *h, LSMessage *msg, void *ctx) {
+    (void)h;
+    struct request *r = ctx;
+    struct gf_sam *s = r->sam;
+    const char *payload = s->ls.LSMessageGetPayload(msg);
+    if (!payload) payload = "{}";
+    const char *apps = "[]";
+    size_t count = 2;
+    int ok = json_true(payload, "returnValue");
+    if (ok && r->apps && (!json_value(payload, "apps", &apps, &count) || *apps != '[')) ok = 0;
+    size_t size = count + 1024;
+    char *line = malloc(size < GF_SAM_LINE ? size : 1024);
+    if (line) {
+        if (!ok || size >= GF_SAM_LINE) {
+            char message[200] = "application manager refused the request";
+            json_string(payload, "errorText", message, sizeof message);
+            if (size >= GF_SAM_LINE) snprintf(message, sizeof message, "the installed app list exceeds the lifecycle limit");
+            request_error(r, message, line, 1024);
+        } else if (r->apps) {
+            snprintf(line, size, "{\"kind\":\"apps\",\"seq\":%" PRIu64 ",\"success\":true,\"apps\":%.*s}", r->seq, (int)count, apps);
+        } else {
+            snprintf(line, size, "{\"kind\":\"launched\",\"seq\":%" PRIu64 ",\"app_id\":\"%s\",\"success\":true,\"message\":\"\"}", r->seq, r->app_id);
+        }
+        emit(s, line);
+        free(line);
+    }
+    pthread_mutex_lock(&s->requests_lock);
+    r->state = 0;
+    pthread_mutex_unlock(&s->requests_lock);
+    return true;
+}
+
+static bool on_foreground(LSHandle *h, LSMessage *msg, void *ctx) {
+    (void)h;
+    struct gf_sam *s = ctx;
+    const char *payload = s->ls.LSMessageGetPayload(msg);
+    char id[128] = "", escaped[300], line[400];
+    if (!payload || !json_true(payload, "returnValue") || !json_string(payload, "appId", id, sizeof id)) return true;
+    json_escape(id, escaped, sizeof escaped);
+    snprintf(line, sizeof line, "{\"kind\":\"foreground\",\"app_id\":\"%s\"}", escaped);
+    emit(s, line);
+    return true;
+}
+
+int gf_sam_request(gf_sam *s, const char *line, char *reply, size_t cap) {
+    char kind[32] = "";
+    reply[0] = 0;
+    if (!json_string(line, "kind", kind, sizeof kind) || (strcmp(kind, "launch") && strcmp(kind, "apps"))) return 0;
+    struct request r = {.sam = s, .apps = !strcmp(kind, "apps")};
+    const char *v;
+    size_t n;
+    char seq[24] = "";
+    if (json_value(line, "seq", &v, &n) && n && n < sizeof seq) {
+        memcpy(seq, v, n);
+        char *end;
+        errno = 0;
+        r.seq = strtoull(seq, &end, 10);
+        while (isspace((unsigned char)*end)) end++;
+        if (errno || *end || !isdigit((unsigned char)seq[0])) {
+            r.seq = 0;
+            request_error(&r, "invalid request sequence", reply, cap);
+            return -1;
+        }
+    } else {
+        request_error(&r, "missing request sequence", reply, cap);
+        return -1;
+    }
+    if (!r.apps) {
+        json_string(line, "app_id", r.app_id, sizeof r.app_id);
+        int valid = r.app_id[0] != 0;
+        for (const char *p = r.app_id; *p; p++)
+            if (!isalnum((unsigned char)*p) && *p != '.' && *p != '-' && *p != '_') valid = 0;
+        if (!valid) {
+            r.app_id[0] = 0;
+            request_error(&r, "invalid app id", reply, cap);
+            return -1;
+        }
+        snprintf(r.params, sizeof r.params, "{}");
+        if (json_value(line, "parameters", &v, &n)) {
+            if (n >= sizeof r.params || n < 2 || v[0] != '{' || v[n - 1] != '}') {
+                request_error(&r, "launch parameters must be an object under 1024 bytes", reply, cap);
+                return -1;
+            }
+            memcpy(r.params, v, n);
+            r.params[n] = 0;
+        }
+    }
+    if (!s || atomic_load(&s->stop)) {
+        request_error(&r, "application manager is unavailable", reply, cap);
+        return -1;
+    }
+    pthread_mutex_lock(&s->requests_lock);
+    for (size_t i = 0; i < sizeof s->requests / sizeof *s->requests; i++) {
+        if (s->requests[i].state) continue;
+        r.state = 1;
+        s->requests[i] = r;
+        pthread_mutex_unlock(&s->requests_lock);
+        return 1;
+    }
+    pthread_mutex_unlock(&s->requests_lock);
+    request_error(&r, "application manager request queue is full", reply, cap);
+    return -1;
+}
+
+static void send_requests(struct gf_sam *s) {
+    for (size_t i = 0; i < sizeof s->requests / sizeof *s->requests; i++) {
+        struct request *r = &s->requests[i];
+        pthread_mutex_lock(&s->requests_lock);
+        int send = r->state == 1;
+        int expired = r->state == 2 && gf_ms() >= r->deadline_ms;
+        if (send) {
+            r->state = 2;
+            r->deadline_ms = gf_ms() + 10000;
+        }
+        pthread_mutex_unlock(&s->requests_lock);
+        if (expired) {
+            LSError e;
+            s->ls.LSErrorInit(&e);
+            s->ls.LSCallCancel(s->sh, r->token, &e);
+            s->ls.LSErrorFree(&e);
+            char line[1024];
+            request_error(r, "application manager did not reply within 10 seconds", line, sizeof line);
+            emit(s, line);
+            pthread_mutex_lock(&s->requests_lock);
+            r->state = 0;
+            pthread_mutex_unlock(&s->requests_lock);
+        }
+        if (!send) continue;
+        char payload[1400];
+        if (r->apps) snprintf(payload, sizeof payload, "{}");
+        else snprintf(payload, sizeof payload, "{\"id\":\"%s\",\"params\":%s}", r->app_id, r->params);
+        LSError e;
+        s->ls.LSErrorInit(&e);
+        if (!s->ls.LSCall(s->sh, r->apps ? SAM_APPS : SAM_LAUNCH, payload, on_request, r, &r->token, &e)) {
+            char line[1024];
+            request_error(r, e.message ? e.message : "application manager call failed", line, sizeof line);
+            emit(s, line);
+            pthread_mutex_lock(&s->requests_lock);
+            r->state = 0;
+            pthread_mutex_unlock(&s->requests_lock);
+        }
+        s->ls.LSErrorFree(&e);
+    }
+}
+
 static gboolean on_tick(gpointer data) {
     struct gf_sam *s = data;
     if (atomic_load(&s->stop)) s->glib.g_main_loop_quit(s->loop);
+    else send_requests(s);
     return 1;
 }
 
@@ -260,6 +433,7 @@ static void *sam_thread(void *arg) {
         s->ls.LSErrorFree(&e);
         s->sh = NULL;
         emit(s, "{\"kind\":\"sam\",\"registered\":false}");
+        atomic_store(&s->stop, 1);
         return NULL;
     }
     s->loop = s->glib.g_main_loop_new(NULL, 0);
@@ -277,9 +451,15 @@ static void *sam_thread(void *arg) {
         gf_say("sam: registered %s, registerApp sent: %s", s->app_id, payload);
     }
     s->ls.LSErrorFree(&e);
+    s->ls.LSErrorInit(&e);
+    s->foreground_called = s->ls.LSCall(s->sh, SAM_FOREGROUND, "{\"subscribe\":true}", on_foreground, s, &s->foreground_token, &e);
+    s->ls.LSErrorFree(&e);
     s->glib.g_timeout_add(100, on_tick, s);
     if (!atomic_load(&s->stop)) s->glib.g_main_loop_run(s->loop);
     s->ls.LSErrorInit(&e);
+    if (s->foreground_called) s->ls.LSCallCancel(s->sh, s->foreground_token, &e);
+    for (size_t i = 0; i < sizeof s->requests / sizeof *s->requests; i++)
+        if (s->requests[i].state == 2) s->ls.LSCallCancel(s->sh, s->requests[i].token, &e);
     if (s->called) s->ls.LSCallCancel(s->sh, s->token, &e);
     s->ls.LSErrorFree(&e);
     s->ls.LSErrorInit(&e);
@@ -308,6 +488,7 @@ gf_sam *gf_sam_start(const char *app_id, char *err, size_t cap) {
         snprintf(err, cap, "out of memory");
         return NULL;
     }
+    pthread_mutex_init(&s->requests_lock, NULL);
     snprintf(s->app_id, sizeof s->app_id, "%s", app_id);
     ls2 = dlopen(LS2_LIB, RTLD_NOW | RTLD_GLOBAL);
     if (!ls2) {
@@ -350,6 +531,7 @@ fail:
     if (fds[1] >= 0) close(fds[1]);
     if (ls2) dlclose(ls2);
     if (glib) dlclose(glib);
+    pthread_mutex_destroy(&s->requests_lock);
     free(s);
     return NULL;
 }
@@ -379,8 +561,9 @@ int gf_sam_next(gf_sam *s, char *line, size_t cap) {
 void gf_sam_stop(gf_sam *s) {
     if (!s) return;
     atomic_store(&s->stop, 1);
+    close(s->rd);                  /* release a large reply blocked in the pipe before joining */
     if (s->started) pthread_join(s->thread, NULL);
-    close(s->rd);
     close(s->wr);
+    pthread_mutex_destroy(&s->requests_lock);
     free(s);
 }

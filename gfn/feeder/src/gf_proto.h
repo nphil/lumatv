@@ -1,6 +1,6 @@
-/* The wire between the stream engine (64-bit, gfn/engine, crate opennow-streamer-platform's feeder.rs) and the feeder (this, 32-bit):
- * a Unix stream socket carrying frames of `gf_frame` (8 bytes) followed by `length` bytes of payload. Everything is little-endian and
- * laid out so that a Rust `#[repr(C)]` struct of the same fields matches byte for byte; the engine's feeder.rs tests assert the sizes.
+/* The wire between a stream engine (64-bit) and the shared feeder (32-bit):
+ * a Unix stream socket carrying frames of `gf_frame` (8 bytes) followed by `length` bytes of payload, all little-endian.
+ * Rust client and protocol reference: game/crates/lumagame-feeder.
  *
  * Why a socket and not a library: LG's media library is 32-bit only and the engine is 64-bit (docs/research/opennow-result.md, "Facts
  * the NDL path imposes"). At 100 Mbit/s the stream is 12.5 MB/s, far below a Unix socket's rate.
@@ -18,10 +18,10 @@ enum gf_msg {
     GF_LOAD = 1,        /* gf_load */
     GF_VIDEO = 2,       /* gf_media_head then the access unit */
     GF_AUDIO = 3,       /* gf_media_head then one Opus packet, or interleaved S16LE PCM */
-    GF_FLUSH = 4,       /* flush the render buffer (after a stall or a keyframe request) */
+    GF_FLUSH = 4,       /* loss: hold video until a key/recovery anchor and request one; NEVER flush NDL on network loss */
     GF_UNLOAD = 5,
     GF_STATE = 6,       /* uint8: 1 foreground, 0 background */
-    GF_HDR = 7,         /* gf_hdr: static metadata, before or after LOAD (after LOAD it is applied at once) */
+    GF_HDR = 7,         /* gf_hdr: HDR-only metadata, applied after the first accepted video unit and only when changed */
     GF_PING = 8,        /* int64 echo */
     GF_APP = 9,         /* text: the app id NDL is opened for from the next LOAD on ("" for the window's own); the window keeps its own id */
     GF_TEXTURE = 10,    /* gf_texture: from the next LOAD on the video is decoded here (gf_swdec.c) and painted into the window's own buffers at that size, which the
@@ -32,14 +32,15 @@ enum gf_msg {
     GF_SINK = 12,       /* text: the video sink the next LOAD asks for: "" the main window every pipeline gets, "sub_video" the sub window beside an app's video (the
                          * starfish pipeline only; the compositor lists the pipeline's app beside the front card while the claim holds that window) */
     /* feeder -> engine */
-    GF_LOADED = 16,     /* int32 ok (1), then text (the pipeline's answer or the error) */
+    GF_LOADED = 16,     /* int32 ok (1), then text: LOAD accepted, not LOADCOMPLETED (EVENT 22); video must flow during loading */
     GF_EVENT = 17,      /* gf_event then text */
     GF_ACCEPT = 18,     /* gf_accept: one video unit went into the pipeline */
     GF_DROP = 19,       /* gf_drop: one video unit did not (the engine asks for a keyframe) */
     GF_STATUS = 20,     /* gf_status, once a second while loaded */
-    GF_ERROR = 21,      /* int32 code then text; the feeder is unusable afterwards */
+    GF_ERROR = 21,      /* int32 code then text; fatal for this load, reported once; units refused until a fresh LOAD */
     GF_PONG = 22,       /* int64 echo, int64 feeder CLOCK_MONOTONIC ns */
     GF_HELLO = 23,      /* gf_hello: first message from the feeder on connect */
+    GF_KEYFRAME = 24,   /* empty: request a decoder-safe key/recovery anchor; video is held until MEDIA_HEAD.key is set */
 };
 
 typedef struct { uint8_t type, flags; uint16_t reserved; uint32_t length; } gf_frame;
@@ -75,14 +76,14 @@ typedef struct {
     uint32_t hdr;           /* 1: apply `hdr_info` after the load */
     gf_hdr hdr_info;
     int32_t drop_threshold; /* NDL_DirectVideoSetFrameDropThreshold after the load; -1 leaves the library's default */
-    int32_t pts_unit;       /* what the PTS fields of VIDEO/AUDIO are divided by to reach the library's unit: see gf_pts_unit */
+    int32_t pts_unit;       /* reserved legacy field; NDL always receives rounded-up milliseconds since the load call */
 } gf_load;                  /* 100 bytes */
 
 enum gf_pts_unit { GF_PTS_NS = 1, GF_PTS_US = 1000, GF_PTS_MS = 1000000 };
 
 typedef struct {
-    int64_t pts_ns;         /* the engine's clock, CLOCK_MONOTONIC-like, nanoseconds; the feeder divides by gf_load.pts_unit */
-    uint8_t key;            /* video: 1 for an IDR */
+    int64_t pts_ns;         /* VIDEO: absolute CLOCK_MONOTONIC ns, echoed in ACCEPT/DROP; AUDIO: correlation only, stamped locally */
+    uint8_t key;            /* video: 1 for a decoder-safe keyframe or recovery anchor */
     uint8_t pad[7];
 } gf_media_head;            /* 16 bytes */
 
@@ -90,7 +91,7 @@ typedef struct { int32_t type; int32_t pad; int64_t num; } gf_event;           /
 
 typedef struct { int64_t pts_ns; int32_t queue; int32_t wait_us; } gf_accept;   /* queue: render buffer length before the feed; wait: time spent on a full buffer */
 
-enum { GF_DROP_FULL = 1, GF_DROP_NOT_LOADED = 2, GF_DROP_REFUSED = 3 };
+enum { GF_DROP_FULL = 1, GF_DROP_NOT_LOADED = 2, GF_DROP_REFUSED = 3, GF_DROP_HOLD = 4, GF_DROP_FATAL = 5 };
 typedef struct { int64_t pts_ns; int32_t reason; int32_t pad; } gf_drop;
 
 typedef struct {

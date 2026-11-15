@@ -17,11 +17,13 @@ void gf_say(const char *fmt, ...) {
     fflush(stderr);
 }
 
+#ifndef GF_TEST_CLOCK
 int64_t gf_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
+#endif
 
 int64_t gf_ms(void) { return gf_ns() / 1000000; }
 int64_t vpl_ms(void) { return gf_ms(); }

@@ -27,6 +27,8 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include "fake_ndl.h"
+#include <stdatomic.h>
 
 typedef void (*load_cb)(int, long long, const char *);
 
@@ -48,6 +50,24 @@ static long long offered_pts = -1;
 static long long last_pts = -1, last_apts = -1;
 static long long recent_ns[64];
 static int recent_i;
+static atomic_int completed;
+static int primes, hdr_calls, flushes, violations, events_started;
+static pthread_t events_thread;
+
+struct fake_ndl_state FakeNDLState(void) {
+    return (struct fake_ndl_state){played, audio_played, primes, hdr_calls, flushes, audio_type, audio_channels, violations, last_pts, last_apts};
+}
+
+void FakeNDLEvent(int type, long long num) {
+    if (type == 22) atomic_store(&completed, 1);
+    if (cb) cb(type, num, type == 18 ? "fatal player error" : "true");
+}
+
+void FakeNDLReset(void) {
+    played = shown = dropped = audio_played = primes = hdr_calls = flushes = violations = offered = full_n = 0;
+    last_pts = last_apts = offered_pts = -1;
+    atomic_store(&completed, 0);
+}
 
 static long long ns(void) {
     struct timespec ts;
@@ -82,6 +102,7 @@ static int env_int(const char *k, int def) {
 }
 
 static int bad(const char *what) {
+    violations++;
     say("VIOLATION %s", what);
     snprintf(err, sizeof err, "%s", what);
     return -1;
@@ -121,7 +142,7 @@ int NDL_DirectMediaInit(const char *app_id) {
 static void *events(void *arg) {
     (void)arg;
     usleep((useconds_t)env_int("FAKE_NDL_LOAD_MS", 20) * 1000);
-    if (cb) cb(22, 1, "true");
+    FakeNDLEvent(22, 1);
     usleep(10000);
     if (cb) cb(4, 0, "{\"frameRate\":\"120/1\",\"hdrType\":\"HDR10\"}");
     usleep(20000);
@@ -162,9 +183,10 @@ int NDL_DirectMediaLoad(struct data_info *info, load_cb callback) {
     cb = callback;
     loaded = 1;
     last_pts = last_apts = -1;
-    pthread_t t;
-    pthread_create(&t, NULL, events, NULL);
-    pthread_detach(t);
+    atomic_store(&completed, 0);
+    if (!env_is("FAKE_NDL_MANUAL_EVENTS", "1")) {
+        events_started = pthread_create(&events_thread, NULL, events, NULL) == 0;
+    }
     return 0;
 }
 
@@ -182,6 +204,8 @@ int NDL_DirectVideoSetArea(int l, int t, int w, int h) {
 
 int NDL_DirectVideoSetHDRInfo(struct hdr_info h) {
     if (!loaded) return bad("SetHDRInfo before Load");
+    if (!played) return bad("SetHDRInfo before first accepted video");
+    hdr_calls++;
     say("SetHDRInfo primaries %u,%u %u,%u %u,%u white %u,%u lum %u,%u cll %u,%u vui %u,%u,%u", h.v[0], h.v[1], h.v[2], h.v[3], h.v[4], h.v[5], h.v[6],
         h.v[7], h.v[8], h.v[9], h.v[10], h.v[11], h.v[12], h.v[13], h.v[14]);
     return 0;
@@ -195,6 +219,8 @@ int NDL_DirectVideoSetFrameDropThreshold(int threshold) {
 
 int NDL_DirectVideoFlushRenderBuffer(void) {
     if (!loaded) return bad("FlushRenderBuffer before Load");
+    if (!atomic_load(&completed)) return bad("FlushRenderBuffer before LOADCOMPLETED");
+    flushes++;
     say("FlushRenderBuffer");
     return 0;
 }
@@ -240,7 +266,7 @@ int NDL_DirectVideoPlay(void *buf, unsigned size, long long pts) {
     int annexb = size > 4 && b[0] == 0 && b[1] == 0 && (b[2] == 1 || (b[2] == 0 && b[3] == 1));
     int obu = size > 2 && ((b[0] >> 3) & 0xF) == 2;      /* a temporal delimiter opens an AV1 temporal unit */
     if (!annexb && !obu) bad("a unit that starts with neither an Annex B start code nor a temporal delimiter");
-    if (pts <= last_pts) bad("a PTS that does not rise");
+    if (pts < last_pts) bad("a PTS that goes backwards");
     last_pts = pts;
     played++;
     if (getenv("FAKE_NDL_VIDEO_DUMP")) {
@@ -269,10 +295,17 @@ int NDL_DirectVideoPlay(void *buf, unsigned size, long long pts) {
 
 int NDL_DirectAudioPlay(void *buf, unsigned size, long long pts) {
     if (!loaded) return bad("AudioPlay before Load");
-    if (pts <= last_apts) bad("an audio PTS that does not rise");
+    if (pts < last_apts) bad("an audio PTS that goes backwards");
     last_apts = pts;
     if (audio_type == 1 && (size == 0 || size % (unsigned)(2 * audio_channels))) bad("a PCM unit that is not whole S16 frames");
     if (audio_type == 3 && size > 1275 * 3) bad("an Opus unit larger than any packet");
+    const unsigned char *p = buf;
+    if (audio_type == 3 && size == 3 && (p[0] == 0xec || p[0] == 0xe8) && p[1] == 0xff && p[2] == 0xfe) {
+        primes++;
+        say("AudioPrime #%d pts %lld", primes, pts);
+        return 0;
+    }
+    if (!atomic_load(&completed)) return bad("real audio before LOADCOMPLETED");
     audio_played++;
     if (getenv("FAKE_NDL_AUDIO_DUMP")) {
         FILE *d = fopen(getenv("FAKE_NDL_AUDIO_DUMP"), "ab");
@@ -287,6 +320,10 @@ int NDL_DirectAudioPlay(void *buf, unsigned size, long long pts) {
 
 int NDL_DirectMediaUnload(void) {
     say("Unload");
+    if (events_started) {
+        pthread_join(events_thread, NULL);
+        events_started = 0;
+    }
     loaded = 0;
     cb = NULL;
     return 0;

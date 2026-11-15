@@ -12,10 +12,23 @@ mkdir -p "$out/arm" "$out/host"
 sh "$here/third_party/build-opus.sh"
 sh "$here/third_party/build-ffmpeg.sh"
 opus_src=$("$here/third_party/fetch-opus.sh")
-src="$here/src/feeder.c $here/src/gf_annexb.c $here/src/gf_ndl.c $here/src/gf_smp.c $here/src/gf_log.c $here/src/gf_opus.c $here/src/gf_sam.c $here/src/gf_swdec.c $here/src/gf_yuv.c $here/../../vplane/src/vpl_wl.c"
+common="$here/src/gf_annexb.c $here/src/gf_ndl.c $here/src/gf_smp.c $here/src/gf_log.c $here/src/gf_opus.c $here/src/gf_sam.c $here/src/gf_swdec.c $here/src/gf_yuv.c $here/../../vplane/src/vpl_wl.c"
+src="$here/src/feeder.c $common"
 inc="-I$here/src -I$here/../../vplane/src -I$opus_src/include"
-zig cc -target arm-linux-gnueabi.2.28 -O2 -s -Wall -Wextra -Werror $inc -I"$out/ffmpeg/arm/include" -o "$out/arm/lumatv-gfn-feeder" $src "$out/opus/arm/libopus-dec.a" -ldl -lpthread -Wl,--gc-sections
-zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined $inc -I"$out/ffmpeg/host/include" -o "$out/host/lumatv-gfn-feeder" $src "$out/opus/host/libopus-dec.a" -ldl -lpthread
+set --
+[ -z "${GF_APP_ID:-}" ] || set -- "$@" "-DGF_APP_ID=\"$GF_APP_ID\""
+[ -z "${GF_RUNTIME_DIR:-}" ] || set -- "$@" "-DGF_RUNTIME_DIR=\"$GF_RUNTIME_DIR\""
+[ -z "${GF_UI_PROGRAM:-}" ] || set -- "$@" "-DGF_UI_PROGRAM=\"$GF_UI_PROGRAM\""
+[ -z "${GF_UI_GAME:-}" ] || set -- "$@" "-DGF_UI_GAME=$GF_UI_GAME"
+binary=${GF_BINARY_NAME:-lumatv-gfn-feeder}
+zig cc -target arm-linux-gnueabi.2.28 -O2 -s -Wall -Wextra -Werror "$@" $inc -I"$out/ffmpeg/arm/include" -o "$out/arm/$binary" $src "$out/opus/arm/libopus-dec.a" -ldl -lpthread -Wl,--gc-sections
+zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined "$@" $inc -I"$out/ffmpeg/host/include" -o "$out/host/$binary" $src "$out/opus/host/libopus-dec.a" -ldl -lpthread
+game='-DGF_APP_ID="org.nphil.lumagame" -DGF_RUNTIME_DIR="/tmp/org.nphil.lumagame" -DGF_UI_PROGRAM="bin64/lumagame-ui" -DGF_APP_TITLE="LumaGame" -DGF_UI_GAME=1'
+zig cc -target arm-linux-gnueabi.2.28 -O2 -s -Wall -Wextra -Werror $game $inc -I"$out/ffmpeg/arm/include" -o "$out/arm/lumagame-main" $src "$out/opus/arm/libopus-dec.a" -ldl -lpthread -Wl,--gc-sections
+zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined $game $inc -I"$out/ffmpeg/host/include" -o "$out/host/lumagame-main" $src "$out/opus/host/libopus-dec.a" -ldl -lpthread
+zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -DGF_TEST_CLOCK $inc -I"$out/ffmpeg/host/include" -o "$out/host/policy_test" "$here/tests/policy_test.c" $common "$out/opus/host/libopus-dec.a" -ldl -lpthread
+zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -DGF_TEST_CLOCK $game $inc -I"$out/ffmpeg/host/include" -o "$out/host/game_policy_test" "$here/tests/policy_test.c" $common "$out/opus/host/libopus-dec.a" -ldl -lpthread
+zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -DGF_TEST_CLOCK -I"$here/src" -o "$out/host/sam_test" "$here/tests/sam_test.c" "$here/src/gf_log.c" -ldl -lpthread
 for t in arm host; do
   rm -rf "$out/$t/lib"
   mkdir -p "$out/$t/lib"
@@ -36,9 +49,9 @@ zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=und
 # (rustui/app/stub/fakels2.c) on the workstation's own glib; without that glib the SAM tests are skipped.
 glib=$(ls /usr/lib/x86_64-linux-gnu/libglib-2.0.so.0 /usr/lib64/libglib-2.0.so.0 2>/dev/null | head -n 1 || true)
 if [ -n "$glib" ]; then
-  zig cc -target x86_64-linux-gnu.2.36 -O1 -g -shared -fPIC -Wall -Wextra -o "$out/host/libluna-service2.so.3" "$here/../../rustui/app/stub/fakels2.c" "$glib" -Wl,-soname,libluna-service2.so.3
+  zig cc -target x86_64-linux-gnu.2.36 -O1 -g -shared -fPIC -Wall -Wextra -o "$out/host/libluna-service2.so.3" "$here/tests/fake_ls2.c" "$glib" -Wl,-soname,libluna-service2.so.3
 fi
-echo "built $out/arm/lumatv-gfn-feeder:"
-readelf -h "$out/arm/lumatv-gfn-feeder" | grep -E 'Class|Machine'
-readelf -d "$out/arm/lumatv-gfn-feeder" | grep NEEDED
-ls -la "$out/arm/lumatv-gfn-feeder"
+echo "built $out/arm/$binary and $out/arm/lumagame-main:"
+readelf -h "$out/arm/$binary" | grep -E 'Class|Machine'
+readelf -d "$out/arm/$binary" | grep NEEDED
+ls -la "$out/arm/$binary" "$out/arm/lumagame-main"

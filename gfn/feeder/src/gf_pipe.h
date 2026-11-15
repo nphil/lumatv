@@ -37,6 +37,7 @@ typedef struct gf_pipe gf_pipe;     /* a driver's own object */
 typedef struct gf_pipe_opts {
     const char *sink;
     int low_delay;
+    int64_t *load_ns;                   /* NDL records the clock at its Load call, before any wait */
 } gf_pipe_opts;
 
 typedef struct gf_pipe_ops {
@@ -45,8 +46,8 @@ typedef struct gf_pipe_ops {
     int (*open_lib)(gf_pipe **out, const char *lib, char *err, size_t cap);
     const char *(*lib_name)(const gf_pipe *p);
     unsigned (*features)(const gf_pipe *p);
-    /* Window, app id, load, foreground, then the HDR info and the drop threshold when asked. `l` names the stream; its `pts_unit` is what the
-     * PTS of every feed is divided by to reach the library's unit; `o` what the load asks of the display. 0 started, GF_PIPE_LOAD_FAILED, -1. */
+    /* Window, app id, load, foreground, then the drop threshold. Feed timestamps are load-relative nanoseconds;
+     * NDL receives whole milliseconds. 0 started, GF_PIPE_LOAD_FAILED, -1. */
     int (*start)(gf_pipe *p, const char *app_id, const char *window_id, const gf_load *l, const gf_pipe_opts *o, char *err, size_t cap);
     /* One access unit: 0 taken, 1 the pipeline's buffer is full (offer it again), -1 refused with an error. */
     int (*feed_video)(gf_pipe *p, const void *unit, unsigned size, long long pts_ns);

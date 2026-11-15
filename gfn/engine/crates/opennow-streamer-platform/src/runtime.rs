@@ -2,8 +2,8 @@
 //! feeder reports (accepted, dropped, the pipeline's events and its per-second status) comes back as the engine's `MediaFeedback`.
 //! Decoding, HDR and the video plane are LG's; this process never sees a picture (docs/research/opennow-result.md, "Which media API").
 //!
-//! The presentation clock is the arrival time: the ES player shows a unit when it arrives (jellyfin-webos-native docs/ndl.md) and the
-//! PTS serves A/V alignment, so audio and video carry the same CLOCK_MONOTONIC reading taken when the engine pushed them.
+//! VIDEO carries absolute CLOCK_MONOTONIC nanoseconds. The shared feeder owns load-relative millisecond
+//! conversion, audio timing, loss recovery, and fatal-player latching for every engine.
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -17,7 +17,7 @@ use opennow_streamer_protocol::{
     VideoBackendCapability,
 };
 
-use crate::feeder::{self, FeederClient, FeederMessage, Hdr, Load};
+use lumagame_feeder::{self as feeder, FeederClient, FeederMessage, Hdr, Load};
 use crate::pads::PadBridge;
 use crate::recording::{EncodedRecordingReceiver, ReplaySnapshot};
 use crate::types::{
@@ -51,15 +51,12 @@ impl FeederConfig {
     pub fn from_env() -> Self {
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
         Self {
-            socket: env("LUMATV_GFN_FEEDER_SOCKET").map_or_else(|| PathBuf::from("/tmp/lumatv-gfn/feed.sock"), PathBuf::from),
+            socket: env("LUMAGAME_FEEDER_SOCKET").or_else(|| env("LUMATV_GFN_FEEDER_SOCKET"))
+                .map_or_else(|| PathBuf::from("/tmp/lumatv-gfn/feed.sock"), PathBuf::from),
             spawn: env("LUMATV_GFN_FEEDER_SPAWN").map(PathBuf::from),
             spawn_args: env("LUMATV_GFN_FEEDER_ARGS").map(|a| a.split_whitespace().map(str::to_owned).collect()).unwrap_or_default(),
             drop_threshold: env("LUMATV_GFN_DROP_THRESHOLD").and_then(|v| v.parse().ok()).unwrap_or(2),
-            pts_unit: match env("LUMATV_GFN_PTS_UNIT").as_deref() {
-                Some("us") => feeder::pts_unit::US,
-                Some("ms") => feeder::pts_unit::MS,
-                _ => feeder::pts_unit::NS,
-            },
+            pts_unit: feeder::pts_unit::MS,
             max_nits: env("LUMATV_GFN_HDR_MAX_NITS").and_then(|v| v.parse().ok()).unwrap_or(1000),
             max_average_nits: env("LUMATV_GFN_HDR_MAX_AVERAGE_NITS").and_then(|v| v.parse().ok()).unwrap_or(400),
         }
@@ -216,8 +213,8 @@ impl MediaRuntime {
             accepted: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
             started_at: Instant::now(),
-            loaded: Mutex::new(None),
             last_status: Mutex::new(None),
+            video_mid: Mutex::new(String::new()),
         });
         let (loaded_tx, loaded_rx) = mpsc::channel::<Result<(), String>>();
         let reader_shared = Arc::clone(&shared);
@@ -311,7 +308,6 @@ impl RuntimeInner {
 
 struct InFlight {
     pts_ns: i64,
-    mid: String,
     frame_index: Option<u32>,
     timestamp: u64,
     bytes: u32,
@@ -329,7 +325,7 @@ struct Shared {
     accepted: AtomicU64,
     dropped: AtomicU64,
     started_at: Instant,
-    loaded: Mutex<Option<Sender<Result<(), String>>>>,
+    video_mid: Mutex<String>,
     last_status: Mutex<Option<feeder::Status>>,
 }
 
@@ -357,39 +353,32 @@ impl Shared {
             }
             Some(FeederMessage::Drop(d)) => {
                 self.dropped.fetch_add(1, Ordering::Relaxed);
-                let mid = self.take_in_flight(d.pts_ns).map(|f| f.mid).unwrap_or_default();
+                self.take_in_flight(d.pts_ns);
                 let _ = self.feedback.send(MediaFeedback::QueueDropped { media: "video", count: 1 });
-                let _ = self.feedback.send(MediaFeedback::RequestKeyframe {
-                    mid,
-                    reason: match d.reason {
-                        1 => "the pipeline's buffer stayed full".to_owned(),
-                        2 => "the pipeline is not loaded".to_owned(),
-                        _ => "the pipeline refused the unit".to_owned(),
-                    },
-                });
             }
-            Some(FeederMessage::Event { kind, num, text }) => match kind {
-                26 => {
-                    if !self.playing.swap(true, Ordering::AcqRel) {
-                        let _ = self.feedback.send(MediaFeedback::PlaybackStarted { backend: BACKEND });
-                    }
-                }
-                18 => {
-                    let _ = self.feedback.send(MediaFeedback::DecoderError {
-                        codec: self.stream.codec.label(),
-                        message: format!("pipeline error {num}: {text}"),
+            Some(FeederMessage::Keyframe) => {
+                if !self.stopped.load(Ordering::Acquire) {
+                    let _ = self.feedback.send(MediaFeedback::RequestKeyframe {
+                        mid: self.video_mid.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+                        reason: "the feeder is holding video for a recovery anchor".to_owned(),
                     });
                 }
-                _ => {}
-            },
+            }
+            Some(FeederMessage::Event { kind: 26, .. })
+                if !self.stopped.load(Ordering::Acquire) && !self.playing.swap(true, Ordering::AcqRel) => {
+                    let _ = self.feedback.send(MediaFeedback::PlaybackStarted { backend: BACKEND });
+                }
             Some(FeederMessage::Status(s)) => {
                 *self.last_status.lock().unwrap_or_else(|e| e.into_inner()) = Some(s);
                 let _ = self.feedback.send(MediaFeedback::DecodeTimings(self.timings(&s)));
             }
             Some(FeederMessage::Error { code, text }) => {
-                let _ = self.feedback.send(MediaFeedback::OutputError { message: format!("feeder error {code}: {text}") });
+                let _ = loaded_tx.send(Err(text.clone()));
+                if !self.stopped.swap(true, Ordering::AcqRel) {
+                    let _ = self.feedback.send(MediaFeedback::OutputError { message: format!("feeder error {code}: {text}") });
+                }
             }
-            Some(FeederMessage::Hello { .. } | FeederMessage::Pong { .. } | FeederMessage::Unknown { .. }) => {}
+            Some(FeederMessage::Hello { .. } | FeederMessage::Pong { .. } | FeederMessage::Event { .. } | FeederMessage::Unknown { .. }) => {}
         }
     }
 
@@ -462,19 +451,21 @@ impl MediaSink {
         if !is_video && self.shared.muted.muted.load(Ordering::Acquire) {
             return PushOutcome::Queued;
         }
-        let mut pts = now_ns();
         let mut guard = self.client.lock().unwrap_or_else(|e| e.into_inner());
         let Some(client) = guard.as_mut() else { return PushOutcome::Closed };
+        let mut pts = now_ns();
         if is_video {
+            let mut mid = self.shared.video_mid.lock().unwrap_or_else(|e| e.into_inner());
+            if *mid != frame.mid { mid.clone_from(&frame.mid); }
+            drop(mid);
             let mut q = self.shared.in_flight.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(last) = q.back() {
                 if pts <= last.pts_ns {
-                    pts = last.pts_ns + 1;   /* two units inside one tick: the feeder wants a rising PTS */
+                    pts = last.pts_ns + 1;   /* ACCEPT/DROP correlation must remain unique, even inside one clock tick. */
                 }
             }
             q.push_back(InFlight {
                 pts_ns: pts,
-                mid: frame.mid.clone(),
                 frame_index: frame.frame_index,
                 timestamp: frame.timestamp,
                 bytes: frame.data.len() as u32,
@@ -484,7 +475,11 @@ impl MediaSink {
                 q.pop_front();
             }
         }
-        match client.send_media(kind, pts, frame.keyframe, &frame.data) {
+        let sent = (|| {
+            if is_video && !frame.contiguous && !frame.keyframe { client.send_flush()?; }
+            client.send_media(kind, pts, frame.keyframe, &frame.data)
+        })();
+        match sent {
             Ok(()) => PushOutcome::Queued,
             Err(e) => {
                 if !self.shared.stopped.swap(true, Ordering::AcqRel) {
@@ -554,10 +549,7 @@ impl MediaControl {
     pub fn update_cursor(&self, _bytes: Vec<u8>) {}
 
     pub fn stop(&self) {
-        if self.shared.stopped.swap(true, Ordering::AcqRel) {
-            let _ = self.client.lock().unwrap_or_else(|e| e.into_inner()).take().map(FeederClient::close);
-            return;
-        }
+        self.shared.stopped.store(true, Ordering::Release);
         self.runtime.pads.set_grab(false);
         self.runtime.pads.set_active(false);
         if let Some(mut client) = self.client.lock().unwrap_or_else(|e| e.into_inner()).take() {
@@ -570,5 +562,70 @@ impl MediaControl {
 impl Drop for MediaSession {
     fn drop(&mut self) {
         self.control().stop();
+    }
+}
+
+#[cfg(test)]
+mod feeder_feedback_tests {
+    use super::*;
+    use crate::types::{MediaColorQuality, StreamShortcutBindings};
+
+    fn shared() -> (Shared, Receiver<MediaFeedback>, Sender<Result<(), String>>) {
+        let captured_input = Arc::new(CapturedInputQueue::default());
+        let runtime = Arc::new(RuntimeInner {
+            feeder: FeederConfig::from_env(),
+            pads: PadBridge::new(Arc::clone(&captured_input)),
+            captured_input,
+            muted: AtomicBool::new(false),
+            paused: AtomicBool::new(false),
+            child: Mutex::new(None),
+            shutdown: Mutex::new(None),
+            sessions: AtomicU64::new(0),
+        });
+        let (feedback, rx) = mpsc::channel();
+        let (loaded, _) = mpsc::channel();
+        let shared = Shared {
+            feedback,
+            stream: MediaStreamConfig { codec: MediaVideoCodec::H265, color_quality: MediaColorQuality::TenBit420,
+                hdr: true, width: 1920, height: 1080, fps: 120, bitrate_bps: 50_000_000, cloud_gsync: false,
+                shortcuts: StreamShortcutBindings::default() },
+            stopped: AtomicBool::new(false),
+            paused: AtomicBool::new(false),
+            playing: AtomicBool::new(false),
+            muted: runtime,
+            in_flight: Mutex::new(VecDeque::new()),
+            accepted: AtomicU64::new(0),
+            dropped: AtomicU64::new(0),
+            started_at: Instant::now(),
+            video_mid: Mutex::new("video-0".to_owned()),
+            last_status: Mutex::new(None),
+        };
+        (shared, rx, loaded)
+    }
+
+    #[test]
+    fn fatal_player_failure_ends_output_once_and_eof_cannot_repeat_it() {
+        let (shared, rx, loaded) = shared();
+        shared.on_message(Some(FeederMessage::Event { kind: 18, num: 600, text: "decode failed".to_owned() }), &loaded);
+        for _ in 0..2 {
+            shared.on_message(Some(FeederMessage::Error { code: 2, text: "decode failed".to_owned() }), &loaded);
+        }
+        shared.on_message(None, &loaded);
+        assert!(shared.stopped.load(Ordering::Acquire));
+        let feedback: Vec<_> = rx.try_iter().collect();
+        assert_eq!(feedback.len(), 1);
+        assert!(matches!(&feedback[0], MediaFeedback::OutputError { message } if message.contains("decode failed")));
+    }
+
+    #[test]
+    fn held_drops_do_not_flood_the_engine_with_keyframe_requests() {
+        let (shared, rx, loaded) = shared();
+        shared.on_message(Some(FeederMessage::Drop(feeder::Drop { pts_ns: 1, reason: 1, pad: 0 })), &loaded);
+        shared.on_message(Some(FeederMessage::Keyframe), &loaded);
+        shared.on_message(Some(FeederMessage::Drop(feeder::Drop { pts_ns: 2, reason: 4, pad: 0 })), &loaded);
+        let feedback: Vec<_> = rx.try_iter().collect();
+        assert_eq!(feedback.len(), 3);
+        assert_eq!(feedback.iter().filter(|m| matches!(m, MediaFeedback::RequestKeyframe { .. })).count(), 1);
+        assert!(matches!(&feedback[1], MediaFeedback::RequestKeyframe { mid, .. } if mid == "video-0"));
     }
 }

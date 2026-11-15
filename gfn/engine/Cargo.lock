@@ -793,6 +793,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "lumagame-feeder"
+version = "0.1.0"
+
+[[package]]
 name = "lumatv-gfn-pad"
 version = "0.1.0"
 dependencies = [
@@ -941,6 +945,7 @@ name = "opennow-streamer-platform"
 version = "0.2.0"
 dependencies = [
  "libc",
+ "lumagame-feeder",
  "lumatv-gfn-pad",
  "opennow-streamer-protocol",
  "serde_json",

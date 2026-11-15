@@ -16,6 +16,7 @@
 #define GF_SAM_H
 
 #include <stddef.h>
+#define GF_SAM_LINE (128u << 10)
 
 typedef struct gf_sam gf_sam;
 
@@ -39,6 +40,10 @@ int gf_sam_fd(const gf_sam *s);
 
 /* The next line SAM's events made, without its newline: 1 when there was one, 0 when none. */
 int gf_sam_next(gf_sam *s, char *line, size_t cap);
+
+/* UI requests launch/installed apps; replies and foreground updates use the same JSON-line channel.
+ * Returns 0 for an unrelated UI message, 1 queued, -1 with a complete error reply. */
+int gf_sam_request(gf_sam *s, const char *line, char *reply, size_t cap);
 
 /* Cancels the subscription, unregisters, ends the thread. */
 void gf_sam_stop(gf_sam *s);

@@ -1,5 +1,5 @@
 //! The runtime against the real feeder (gfn/feeder, host build) with the NDL stand-in, and a pad on a pseudo-terminal standing in for
-//! an evdev node. Needs `sh gfn/feeder/build.sh` first; without the binaries the test passes vacuously and says so.
+//! an evdev node. Requires `sh gfn/feeder/build.sh` first.
 use std::ffi::CString;
 use std::fs;
 use std::os::unix::fs::symlink;
@@ -14,7 +14,7 @@ use opennow_streamer_platform::{
 };
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap()
 }
 
 fn hevc_unit(key: bool, size: usize) -> Vec<u8> {
@@ -84,10 +84,7 @@ fn a_session_feeds_the_real_feeder_and_pads_reach_the_queue() {
     let root = root();
     let feeder = root.join("gfn/feeder/build/host/lumatv-gfn-feeder");
     let lib_dir = root.join("gfn/feeder/build/host");
-    if !feeder.exists() || !lib_dir.join("libNDL_directmedia.so.1").exists() {
-        eprintln!("skipped: build the feeder first (sh gfn/feeder/build.sh)");
-        return;
-    }
+    assert!(feeder.exists() && lib_dir.join("libNDL_directmedia.so.1").exists(), "build the feeder first (sh gfn/feeder/build.sh)");
     let tmp = std::env::temp_dir().join(format!("gfn-session-{}", std::process::id()));
     let _ = fs::remove_dir_all(&tmp);
     fs::create_dir_all(&tmp).unwrap();
@@ -120,6 +117,8 @@ fn a_session_feeds_the_real_feeder_and_pads_reach_the_queue() {
     };
     let session = runtime.start_with_backend(tx, stream, "auto").expect("session");
     let sink = session.sink();
+    let mut accepted = Vec::new();
+    let mut playing = false;
     for i in 0..30u32 {
         let key = i % 10 == 0;
         let outcome = sink.push(EncodedFrame {
@@ -134,6 +133,17 @@ fn a_session_feeds_the_real_feeder_and_pads_reach_the_queue() {
             ssrc: Some(7),
         });
         assert_eq!(outcome, PushOutcome::Queued);
+        if i == 0 {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while !playing {
+                match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).expect("player started") {
+                    MediaFeedback::VideoFrameAccepted { frame_index, keyframe, .. } => accepted.push((frame_index, keyframe)),
+                    MediaFeedback::PlaybackStarted { backend } => { assert_eq!(backend, "ndl"); playing = true; }
+                    MediaFeedback::OutputError { message } => panic!("{message}"),
+                    _ => {}
+                }
+            }
+        }
         if i % 3 == 0 {
             let outcome = sink.push(EncodedFrame {
                 mid: "1".to_owned(),
@@ -148,14 +158,11 @@ fn a_session_feeds_the_real_feeder_and_pads_reach_the_queue() {
             });
             assert_eq!(outcome, PushOutcome::Queued);
         }
-        std::thread::sleep(Duration::from_millis(2));
     }
     /* the pad: a press of Cross with the left stick up, then the PS button */
     write_events(&pty, &[event(1, 0x130, 1), event(3, 1, 0), event(0, 0, 0)]);
     write_events(&pty, &[event(1, 0x13c, 1), event(0, 0, 0), event(1, 0x13c, 0), event(0, 0, 0)]);
     let deadline = Instant::now() + Duration::from_secs(6);
-    let mut accepted = Vec::new();
-    let mut playing = false;
     let mut timings = None;
     while Instant::now() < deadline && (accepted.len() < 30 || !playing || timings.is_none()) {
         match rx.recv_timeout(Duration::from_millis(200)) {
@@ -208,12 +215,12 @@ fn a_session_feeds_the_real_feeder_and_pads_reach_the_queue() {
     assert!(log.contains("Load 3840x2160 type 2 audio OPUS 2 ch 48.0 kHz"), "{log}");
     assert!(log.contains("SetHDRInfo primaries 13250,34500 7500,3000 34000,16000 white 15635,16450 lum 10000000,1 cll 1000,400 vui 16,9,9"), "{log}");
     assert!(log.contains("SetFrameDropThreshold 2"), "{log}");
-    assert_eq!(log.matches("Play #").count(), 30, "{log}");
+    assert_eq!(log.lines().filter(|line| line.contains(" Play #")).count(), 30, "{log}");
     assert_eq!(log.matches("AudioPlay #").count(), 10, "{log}");
     assert!(log.contains("Unload"), "{log}");
     assert!(!log.contains("VIOLATION"), "{log}");
     let pts: Vec<i64> = log.lines().filter(|l| l.contains(" Play #")).map(|l| l.split(" pts ").nth(1).unwrap().split(' ').next().unwrap().parse().unwrap()).collect();
-    assert!(pts.windows(2).all(|w| w[1] > w[0]), "{pts:?}");
+    assert!(pts.windows(2).all(|w| w[1] >= w[0]) && pts.last().copied().unwrap() < 1000, "{pts:?}");
     unsafe { libc::close(pty.master) };
     let _ = CString::new("");
     let _ = fs::remove_dir_all(&tmp);

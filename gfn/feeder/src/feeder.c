@@ -36,6 +36,7 @@
 #include "gf_log.h"
 #include "gf_pipe.h"
 #include "gf_proto.h"
+#include "gf_identity.h"
 #include "gf_sam.h"
 #include "gf_opus.h"
 #include "gf_swdec.h"
@@ -46,10 +47,6 @@
 #define SCREEN_H 1080
 #define VIDEO_WINDOW 16 /* a video window (-w video) draws nothing: the compositor puts its video at the rectangle it granted */
 #define SAMPLES 4096
-#define DEFAULT_APP_ID "org.nphil.lumatv.gfn"
-#define DEFAULT_SOCKET "/tmp/lumatv-gfn/feed.sock"
-#define DEFAULT_WINDOW_ID_FILE "/tmp/lumatv-gfn/window-id"
-#define DEFAULT_LOG "/tmp/lumatv-gfn/feeder.log"
 
 /* --audio-mode: Opus goes to NDL as it is and, if the library refuses that load, is decoded here (auto); only the first; only the second. */
 enum { AUDIO_AUTO = 0, AUDIO_OPUS, AUDIO_PCM };
@@ -108,8 +105,10 @@ struct feeder {
     int sam_mode, preload, chan;
     gf_sam *sam;
     int64_t close_at;           /* SAM asked the app to end: when the feeder ends it if the UI has not */
-    char chan_in[1024];
+    char chan_in[2048];
     size_t chan_len;
+    char *chan_out;
+    size_t chan_out_len, chan_out_cap;
     const char *stats_path;
     int codec, width, height, fps, seconds, loop, hdr, drop_threshold, pts_unit, full_wait_ms, burst, no_ndl, no_window, once, export_first, delay_load_ms;
     /* state */
@@ -118,6 +117,11 @@ struct feeder {
     const gf_pipe_ops *ops;     /* the pipeline started (`pipe_ready`): which driver, and its object */
     gf_pipe *pipe;
     int pipe_ready, loaded, playing, error;
+    int error_reported, hold_video, request_key, audio_enabled, prime_opus;
+    int64_t load_ns, video_ms, audio_ms, prime_at_ns;
+    int hdr_enabled, hdr_applied, video_started;
+    gf_hdr hdr_info, applied_hdr;
+    char player_error[240];
     vpl_wl *wl;
     char window_id[40];
     FILE *stats;
@@ -151,6 +155,57 @@ struct feeder {
 
 static int dispatch_window(struct feeder *f);
 static int feed_texture(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_ns);
+static void emit_event(struct feeder *f, int type, long long num, const char *text);
+
+#define LOAD_TIMEOUT_NS 8000000000LL
+#define PRIME_INTERVAL_NS 20000000LL
+
+static void fail_player(struct feeder *f, const char *message) {
+    if (f->error) return;
+    f->error = 1;
+    f->sec.errors++;
+    snprintf(f->player_error, sizeof f->player_error, "%s", message);
+}
+
+/* A ceiling, not a rising counter: a burst or a clock correction must not accumulate audio lead. */
+static int64_t player_stamp(struct feeder *f, int64_t absolute_ns, int audio) {
+    int64_t ns = absolute_ns > f->load_ns ? absolute_ns - f->load_ns : 0;
+    int64_t ms = ns / GF_PTS_MS + (ns % GF_PTS_MS != 0);
+    int64_t *last = audio ? &f->audio_ms : &f->video_ms;
+    if (ms < *last) ms = *last;
+    *last = ms;
+    return ms * GF_PTS_MS;
+}
+
+static void apply_hdr(struct feeder *f) {
+    if (!f->pipe_ready || f->error || !f->hdr_enabled || !f->video_started) return;
+    if (f->hdr_info.transferCharacteristics != 16 && f->hdr_info.transferCharacteristics != 18) return;
+    if (f->hdr_applied && !memcmp(&f->hdr_info, &f->applied_hdr, sizeof(gf_hdr))) return;
+    /* Calling again re-enters the panel's HDR mode, including when the library reports no support. */
+    f->applied_hdr = f->hdr_info;
+    f->hdr_applied = 1;
+    int rc = f->ops->set_hdr(f->pipe, &f->hdr_info);
+    if (rc != 0) gf_say("hdr: %s returned %d", f->ops->name, rc);
+}
+
+static void hold_video(struct feeder *f) {
+    if (f->hold_video || f->error) return;
+    f->hold_video = f->request_key = 1;
+}
+
+static void prime_audio(struct feeder *f) {
+    if (!f->pipe_ready || !f->prime_opus || f->loaded || f->error || gf_ns() < f->prime_at_ns) return;
+    int64_t now = gf_ns();
+    int64_t stamp = player_stamp(f, now, 1) / GF_PTS_MS;
+    int64_t target = (now - f->load_ns) / GF_PTS_MS + 40;
+    uint8_t silence[] = {f->audio_channels == 1 ? 0xe8 : 0xec, 0xff, 0xfe};
+    while (stamp < target) {
+        stamp += 5;
+        f->audio_ms = stamp;
+        if (f->ops->feed_audio(f->pipe, silence, sizeof silence, stamp * GF_PTS_MS) != 0) break;
+    }
+    f->prime_at_ns = now + PRIME_INTERVAL_NS;
+}
 
 /* ---- stats ------------------------------------------------------------------------------------------------------------------ */
 
@@ -240,16 +295,19 @@ static void drain_events(struct feeder *f, void (*emit)(struct feeder *, int, lo
         if (type >= 0 && type < 64) f->ev_count[type]++;
         switch (type) {
         case GF_EV_LOAD_COMPLETED:
-            f->loaded = 1;
-            if (!f->first_loaded_ns) f->first_loaded_ns = gf_ns();
+            if (!f->error) {
+                f->loaded = 1;
+                if (!f->first_loaded_ns) f->first_loaded_ns = gf_ns();
+            }
             break;
         case GF_EV_PLAYING:
-            f->playing = 1;
-            if (!f->first_playing_ns) f->first_playing_ns = gf_ns();
+            if (!f->error) {
+                f->playing = 1;
+                if (!f->first_playing_ns) f->first_playing_ns = gf_ns();
+            }
             break;
         case GF_EV_INT_ERROR:
-            f->error = 1;
-            f->sec.errors++;
+            fail_player(f, text[0] ? text : "the pipeline reported a fatal error");
             break;
         case GF_EV_INT_BUFFER_LOW:
         case GF_EV_STR_BUFFER_LOW: f->sec.low++; break;
@@ -271,14 +329,36 @@ static void drain_events(struct feeder *f, void (*emit)(struct feeder *, int, lo
     }
 }
 
+static void maintain_pipeline(struct feeder *f, void (*emit)(struct feeder *, int, long long, const char *)) {
+    if (!f->pipe_ready) return;
+    drain_events(f, emit);
+    if (!f->loaded && gf_ns() - f->load_ns >= LOAD_TIMEOUT_NS)
+        fail_player(f, "the player did not complete the load within 8 seconds");
+    prime_audio(f);
+}
+
+static int64_t player_deadline(const struct feeder *f, int64_t wake) {
+    if (f->pipe_ready && !f->loaded && !f->error) {
+        int64_t deadline = f->prime_opus ? f->prime_at_ns : f->load_ns + LOAD_TIMEOUT_NS;
+        if (deadline < wake) wake = deadline;
+    }
+    return wake;
+}
+
 /* ---- the feed ----------------------------------------------------------------------------------------------------------------- */
 
 enum { GF_FEED_REFUSED = 2 };
 
 /* 0 fed, 1 dropped after waiting on a full buffer, GF_FEED_REFUSED the pipeline refused it (not offered again), -1 not loaded. `wait_us` says how long it took. */
-static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_ns, int *queue, int *wait_us) {
+static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_ns, int key, int *queue, int *wait_us) {
     *queue = -1;
     *wait_us = 0;
+    if (f->error || (f->hold_video && !key)) {
+        f->sec.dropped++;
+        f->total_dropped++;
+        return f->error ? GF_DROP_FATAL : GF_DROP_HOLD;
+    }
+    if (key) f->hold_video = 0;
     if (f->tex_on) return feed_texture(f, u, n, pts_ns);
     if (f->no_ndl) {
         f->sec.fed++;
@@ -289,7 +369,7 @@ static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_
     int64_t t0 = gf_ns();
     *queue = f->ops->queued(f->pipe);
     sample_q(&f->sec, *queue);
-    long long pts = pts_ns;
+    long long pts = player_stamp(f, pts_ns, 0);
     int rc, waited = 0;
     for (;;) {
         rc = f->ops->feed_video(f->pipe, u, (unsigned)n, pts);
@@ -307,6 +387,8 @@ static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_
     if (rc == 0) {
         f->sec.fed++;
         f->total_fed++;
+        f->video_started = 1;
+        apply_hdr(f);
         return 0;
     }
     f->sec.dropped++;
@@ -320,6 +402,12 @@ static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_
 }
 
 static int feed_audio(struct feeder *f, const uint8_t *d, size_t n, int64_t pts_ns) {
+    (void)pts_ns;
+    if (!f->audio_enabled || !f->loaded || f->error) {
+        f->sec.adropped++;
+        f->total_adropped++;
+        return -1;
+    }
     if (f->no_ndl) {
         f->sec.afed++;
         f->total_afed++;
@@ -339,7 +427,7 @@ static int feed_audio(struct feeder *f, const uint8_t *d, size_t n, int64_t pts_
         data = f->pcm_buf;
         size = (size_t)frames * (size_t)f->audio_channels * sizeof(int16_t);
     }
-    int rc = f->ops->feed_audio(f->pipe, data, (unsigned)size, pts_ns);
+    int rc = f->ops->feed_audio(f->pipe, data, (unsigned)size, player_stamp(f, gf_ns(), 1));
     if (rc == 0) {
         f->audio_streak = 0;
         f->sec.afed++;
@@ -382,7 +470,7 @@ static int open_window(struct feeder *f, char *err, size_t cap) {
         snprintf(f->window_id, sizeof f->window_id, "_Window_Id_none");
         return 0;
     }
-    vpl_wl_opts wo = {.app_id = f->app_id, .title = "GeForce NOW", .width = SCREEN_W, .height = SCREEN_H, .state = 3,
+    vpl_wl_opts wo = {.app_id = f->app_id, .title = GF_APP_TITLE, .width = SCREEN_W, .height = SCREEN_H, .state = 3,
                       .export_first = f->export_first, .timeout_ms = 3000};
     if (!strcmp(f->window_type, "card")) wo.window_type = "_WEBOS_WINDOW_TYPE_CARD";
     else if (!strcmp(f->window_type, "overlay")) wo.window_type = "_WEBOS_WINDOW_TYPE_OVERLAY";
@@ -513,6 +601,7 @@ static int feed_texture(struct feeder *f, const uint8_t *u, size_t n, int64_t pt
     f->tex.decode_us += dus;
     if (dus > f->tex.decode_max) f->tex.decode_max = dus;
     if (rc < 0) {
+        gf_swdec_flush(f->swdec);   /* A real decode failure, never network loss. */
         if (!f->tex.errors++ || f->tex.errors % 100 == 0) gf_say("texture: a %zu byte unit did not decode (%s); %llu so far", n, err, (unsigned long long)f->tex.errors);
         snprintf(f->tex.last_error, sizeof f->tex.last_error, "%s", err);
         f->sec.dropped++;
@@ -596,6 +685,16 @@ static int choose_pipe(struct feeder *f, char *err, size_t cap) {
 }
 
 static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t cap) {
+    f->error = f->error_reported = f->hold_video = f->request_key = 0;
+    f->player_error[0] = 0;
+    f->load_ns = gf_ns();
+    f->video_ms = f->audio_ms = 0;
+    f->prime_at_ns = 0;
+    f->audio_enabled = l->audio != GF_AUDIO_NONE;
+    f->prime_opus = 0;
+    f->hdr_enabled = l->hdr != 0;
+    f->hdr_info = l->hdr_info;
+    f->hdr_applied = f->video_started = 0;
     if (f->tex_w > 0 && f->tex_h > 0) return start_texture(f, l, err, cap);
     if (f->window_id_file && read_window_id_file(f) != 0) {
         snprintf(err, cap, "no window id in %s yet (the UI has not exported its video element)", f->window_id_file);
@@ -607,6 +706,17 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
         return 0;
     }
     if (choose_pipe(f, err, cap) != 0) return -1;
+    gf_load plane = *l;
+    if (f->ops == &gf_ndl_ops && plane.audio == GF_AUDIO_NONE) {
+        plane.audio = GF_AUDIO_OPUS;
+        plane.channels = 2;
+        plane.sample_rate = 48000;
+    }
+    if (plane.audio == GF_AUDIO_OPUS && (plane.channels < 1 || plane.channels > 2)) {
+        snprintf(err, cap, "Opus requires mono or stereo; multistream mapping is not in protocol 1");
+        return -1;
+    }
+    l = &plane;
     place_video(f, (int)l->width, (int)l->height);
     int pcm = l->audio == GF_AUDIO_OPUS && (f->audio_mode == AUDIO_PCM || (f->audio_mode == AUDIO_AUTO && f->pcm_sticky));
     char refused[300] = "";
@@ -617,7 +727,7 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
             use.audio = GF_AUDIO_PCM_S16LE;
         }
         const char *ndl_app = f->ndl_app && f->ndl_app[0] ? f->ndl_app : f->app_id;
-        gf_pipe_opts opts = {.sink = f->sink, .low_delay = f->low_delay};
+        gf_pipe_opts opts = {.sink = f->sink, .low_delay = f->low_delay, .load_ns = &f->load_ns};
         int rc = f->ops->start(f->pipe, ndl_app, f->window_id, &use, &opts, err, cap);
         if (rc == 0) break;
         f->ops->stop(f->pipe);
@@ -643,6 +753,9 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
     f->pipe_ready = 1;
     f->loaded = f->playing = f->error = 0;
     f->first_loaded_ns = f->first_playing_ns = 0;
+    f->audio_channels = (int)l->channels;
+    f->prime_opus = f->ops == &gf_ndl_ops && !pcm && l->audio == GF_AUDIO_OPUS;
+    prime_audio(f);
     return 0;
 }
 
@@ -819,8 +932,9 @@ static int run_play(struct feeder *f) {
         int64_t now = gf_ns();
         int64_t wake = next_sec;
         if (vi < count && next_v < wake) wake = next_v;
-        if (audio.count && ai < audio.count && next_a < wake) wake = next_a;
+        if (f->loaded && audio.count && ai < audio.count && next_a < wake) wake = next_a;
         if (end && end < wake) wake = end;
+        wake = player_deadline(f, wake);
         int64_t left = wake - now;
         if (f->burst) left = 0;
         struct pollfd fds[2];
@@ -835,7 +949,7 @@ static int run_play(struct feeder *f) {
             break;
         }
         if (f->pipe_ready) {
-            drain_events(f, NULL);
+            maintain_pipeline(f, NULL);
             if (f->error) {
                 gf_say("the pipeline reported an error; stopping");
                 rc = 6;
@@ -847,7 +961,7 @@ static int run_play(struct feeder *f) {
         if (now - next_v > 250000000LL && !f->burst) next_v = now;
         for (int b = 0; b < 4 && vi < count && (f->burst || now >= next_v); b++) {
             int q, w;
-            int res = feed_video(f, data + units[vi].offset, units[vi].size, pts_v, &q, &w);
+            int res = feed_video(f, data + units[vi].offset, units[vi].size, f->load_ns + pts_v, units[vi].key, &q, &w);
             if (res < 0) break;
             pts_v += period;
             next_v += period;
@@ -856,7 +970,7 @@ static int run_play(struct feeder *f) {
             }
             if (f->burst && q > 8) break;
         }
-        while (audio.count && ai < audio.count && now >= next_a) {
+        while (f->loaded && audio.count && ai < audio.count && now >= next_a) {
             feed_audio(f, audio.data + audio.off[ai], audio.len[ai], pts_a);
             pts_a += aperiod;
             next_a += aperiod;
@@ -935,21 +1049,23 @@ static const char *persistent_dir(const char *app_id, char *out, size_t cap) {
     return out;
 }
 
-static pid_t start_ui(const char *home, const char *app_id, int channel, int hidden) {
+static pid_t start_ui(const char *home, const char *app_id, const char *socket_path, const char *window_file, int channel, int hidden) {
     char launch[600], bundle[600], shim[600], app[600], assets[600], run64[600], engine[600];
     snprintf(run64, sizeof run64, "%s/run64.sh", home);
     snprintf(engine, sizeof engine, "%s/bin64/opennow-streamer", home);
     snprintf(launch, sizeof launch, "%s/gfx64/launch.sh", home);
     snprintf(bundle, sizeof bundle, "%s/gfx64/bundle", home);
     snprintf(shim, sizeof shim, "%s/gfx64/heapshim.so", home);
-    snprintf(app, sizeof app, "%s/bin64/lumatv-gfn-app", home);
+    snprintf(app, sizeof app, "%s/%s", home, GF_UI_PROGRAM);
     snprintf(assets, sizeof assets, "%s/assets", home);
+    if (GF_UI_GAME) snprintf(engine, sizeof engine, "%s/engines", home);
     if (access(app, X_OK) != 0) {
         gf_say("no UI at %s: serving the engine only", app);
         return 0;
     }
     char data[460] = "";
     persistent_dir(app_id, data, sizeof data);
+    pid_t parent = getpid();
     pid_t pid = fork();
     if (pid < 0) {
         gf_say("fork: %s", strerror(errno));
@@ -958,6 +1074,7 @@ static pid_t start_ui(const char *home, const char *app_id, int channel, int hid
     if (pid == 0) {
         setpgid(0, 0);
         prctl(PR_SET_PDEATHSIG, SIGTERM);
+        if (getppid() != parent) _exit(1);
         unsetenv("LD_PRELOAD");
         unsetenv("LD_LIBRARY_PATH");
         setenv("PATH", "/usr/sbin:/usr/bin:/sbin:/bin", 0);
@@ -966,7 +1083,7 @@ static pid_t start_ui(const char *home, const char *app_id, int channel, int hid
             else fcntl(3, F_SETFD, 0);
         }
         for (int fd = channel >= 0 ? 4 : 3; fd < 256; fd++) close(fd);
-        const char *argv[24];
+        const char *argv[32];
         int n = 0;
         argv[n++] = "sh";
         argv[n++] = launch;
@@ -981,12 +1098,23 @@ static pid_t start_ui(const char *home, const char *app_id, int channel, int hid
         argv[n++] = "--assets";
         argv[n++] = assets;
         argv[n++] = "--shm";
-        argv[n++] = "/tmp/lumatv-gfn-shm";
-        /* The UI finds its neighbours from its own executable's directory, which under launch.sh is the loader's: say where they are. */
-        argv[n++] = "--core";
-        argv[n++] = run64;
-        argv[n++] = "--engine";
-        argv[n++] = engine;
+        argv[n++] = GF_UI_GAME ? GF_RUNTIME_DIR "/shm" : "/tmp/lumatv-gfn-shm";
+        if (GF_UI_GAME) {
+            argv[n++] = "--engines";
+            argv[n++] = engine;
+            argv[n++] = "--feeder-socket";
+            argv[n++] = socket_path;
+            argv[n++] = "--window-id-file";
+            argv[n++] = window_file ? window_file : DEFAULT_WINDOW_ID_FILE;
+            argv[n++] = "--engine-runner";
+            argv[n++] = run64;
+        } else {
+            /* Under the private loader the UI cannot discover its neighbours through /proc/self/exe. */
+            argv[n++] = "--core";
+            argv[n++] = run64;
+            argv[n++] = "--engine";
+            argv[n++] = engine;
+        }
         if (channel >= 0) {
             argv[n++] = "--channel-fd";
             argv[n++] = "3";
@@ -1030,20 +1158,47 @@ static void stop_ui(struct feeder *f) {
 static void chan_close(struct feeder *f) {
     if (f->chan >= 0) close(f->chan);
     f->chan = -1;
+    free(f->chan_out);
+    f->chan_out = NULL;
+    f->chan_out_len = f->chan_out_cap = 0;
+}
+
+static void chan_flush(struct feeder *f) {
+    while (f->chan >= 0 && f->chan_out_len) {
+        ssize_t n = send(f->chan, f->chan_out, f->chan_out_len, MSG_NOSIGNAL | MSG_DONTWAIT);
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
+        if (n <= 0) { chan_close(f); return; }
+        f->chan_out_len -= (size_t)n;
+        memmove(f->chan_out, f->chan_out + n, f->chan_out_len);
+    }
+}
+
+static void chan_send(struct feeder *f, const char *line) {
+    if (f->chan < 0) return;
+    size_t len = strlen(line), need = f->chan_out_len + len + 1;
+    if (need > 2 * GF_SAM_LINE) { chan_close(f); return; }
+    if (need > f->chan_out_cap) {
+        char *out = realloc(f->chan_out, need);
+        if (!out) { chan_close(f); return; }
+        f->chan_out = out;
+        f->chan_out_cap = need;
+    }
+    memcpy(f->chan_out + f->chan_out_len, line, len);
+    f->chan_out[need - 1] = '\n';
+    f->chan_out_len = need;
+    chan_flush(f);
 }
 
 /* SAM's lines to the UI. A `close` also starts the clock on the UI's end: with no UI (or none that listens) the feeder is the app. */
 static void sam_pump(struct feeder *f) {
-    char line[2048];
+    char line[GF_SAM_LINE];
     while (gf_sam_next(f->sam, line, sizeof line)) {
-        size_t n = strlen(line);
         if (strstr(line, "\"kind\":\"close\"")) {
             f->close_at = gf_ns() + (f->ui_pid > 0 && f->chan >= 0 ? CLOSE_GRACE_NS : 0);
             gf_say("SAM asks the app to close");
         }
-        if (f->chan < 0) continue;
-        line[n++] = '\n';
-        if (send(f->chan, line, n, MSG_NOSIGNAL | MSG_DONTWAIT) != (ssize_t)n) gf_say("the UI's channel took no line (%s)", strerror(errno));
+        chan_send(f, line);
     }
 }
 
@@ -1062,10 +1217,12 @@ static void chan_pump(struct feeder *f) {
         while ((nl = memchr(f->chan_in, '\n', f->chan_len))) {
             *nl = 0;
             gf_say("UI: %s", f->chan_in);
+            char reply[1024];
+            if (gf_sam_request(f->sam, f->chan_in, reply, sizeof reply) < 0) chan_send(f, reply);
             f->chan_len -= (size_t)(nl + 1 - f->chan_in);
             memmove(f->chan_in, nl + 1, f->chan_len);
         }
-        if (f->chan_len >= sizeof f->chan_in - 1) f->chan_len = 0;
+        if (f->chan_len >= sizeof f->chan_in - 1) { chan_close(f); return; }
     }
 }
 
@@ -1073,15 +1230,18 @@ static void chan_pump(struct feeder *f) {
 static int extras_add(struct feeder *f, struct pollfd *fds) {
     int n = 0;
     if (f->sam) fds[n++] = (struct pollfd){gf_sam_fd(f->sam), POLLIN, 0};
-    if (f->chan >= 0) fds[n++] = (struct pollfd){f->chan, POLLIN, 0};
+    if (f->chan >= 0) fds[n++] = (struct pollfd){f->chan, POLLIN | (f->chan_out_len ? POLLOUT : 0), 0};
     return n;
 }
 
 static void extras_serve(struct feeder *f, const struct pollfd *fds, int n) {
     for (int i = 0; i < n; i++) {
-        if (!(fds[i].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+        if (!(fds[i].revents & (POLLIN | POLLOUT | POLLHUP | POLLERR))) continue;
         if (f->sam && fds[i].fd == gf_sam_fd(f->sam)) sam_pump(f);
-        else if (fds[i].fd == f->chan) chan_pump(f);
+        else if (fds[i].fd == f->chan) {
+            if (fds[i].revents & (POLLIN | POLLHUP | POLLERR)) chan_pump(f);
+            if (fds[i].revents & POLLOUT) chan_flush(f);
+        }
     }
     if (f->close_at && gf_ns() >= f->close_at) {
         gf_say("the UI did not end in time after SAM's close: ending");
@@ -1160,7 +1320,18 @@ static void send_text(struct client *c, uint8_t type, int32_t code, const char *
     push_out(c, type, &code, sizeof code, text, strlen(text));
 }
 
+static void report_player(struct feeder *f, struct client *c) {
+    if (f->error && !f->error_reported) {
+        f->error_reported = 1;
+        send_text(c, GF_ERROR, 2, f->player_error);
+    }
+    if (f->request_key && !f->error) push_out(c, GF_KEYFRAME, NULL, 0, NULL, 0);
+    f->request_key = 0;
+}
+
 static void handle_message(struct feeder *f, struct client *c, uint8_t type, const uint8_t *p, size_t n) {
+    maintain_pipeline(f, emit_event);
+    report_player(f, c);
     switch (type) {
     case GF_LOAD: {
         if (n < sizeof(gf_load)) {
@@ -1170,7 +1341,7 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         gf_load l;
         memcpy(&l, p, sizeof l);
         if (f->pipe_ready || f->tex_on) stop_pipeline(f);
-        f->pts_unit = l.pts_unit > 0 ? l.pts_unit : GF_PTS_NS;
+        f->pts_unit = GF_PTS_MS;
         char err[300];
         if (start_pipeline(f, &l, err, sizeof err) != 0) {
             gf_say("load: %s", err);
@@ -1191,13 +1362,15 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         gf_media_head h;
         memcpy(&h, p, sizeof h);
         int q, w;
-        int res = feed_video(f, p + sizeof h, n - sizeof h, h.pts_ns, &q, &w);
+        int res = feed_video(f, p + sizeof h, n - sizeof h, h.pts_ns, h.key, &q, &w);
         if (res == 0) {
             gf_accept a = {h.pts_ns, q, w};
             push_out(c, GF_ACCEPT, &a, sizeof a, NULL, 0);
         } else {
-            gf_drop d = {h.pts_ns, res == GF_FEED_REFUSED ? GF_DROP_REFUSED : res < 0 ? GF_DROP_NOT_LOADED : GF_DROP_FULL, 0};
+            int reason = res == GF_FEED_REFUSED ? GF_DROP_REFUSED : res < 0 ? GF_DROP_NOT_LOADED : res == 1 ? GF_DROP_FULL : res;
+            gf_drop d = {h.pts_ns, reason, 0};
             push_out(c, GF_DROP, &d, sizeof d, NULL, 0);
+            if (reason == GF_DROP_FULL || reason == GF_DROP_REFUSED) hold_video(f);
         }
         return;
     }
@@ -1209,11 +1382,7 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         return;
     }
     case GF_FLUSH:
-        if (f->tex_on) gf_swdec_flush(f->swdec);
-        if (f->pipe_ready) {
-            int rc = f->ops->flush(f->pipe);
-            gf_say("flush: %d", rc);
-        }
+        if (f->pipe_ready || f->tex_on) hold_video(f);
         return;
     case GF_UNLOAD:
         stop_pipeline(f);
@@ -1263,12 +1432,8 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
     }
     case GF_HDR: {
         if (n < sizeof(gf_hdr)) return;
-        gf_hdr h;
-        memcpy(&h, p, sizeof h);
-        if (f->pipe_ready) {
-            int rc = f->ops->set_hdr(f->pipe, &h);
-            gf_say("hdr: %d", rc);
-        }
+        memcpy(&f->hdr_info, p, sizeof f->hdr_info);
+        apply_hdr(f);
         return;
     }
     case GF_PING: {
@@ -1312,6 +1477,7 @@ static int read_client(struct feeder *f, struct client *c) {
             break;
         }
         handle_message(f, c, h.type, c->in + pos + sizeof h, h.length);
+        report_player(f, c);
         pos += sizeof h + h.length;
     }
     if (pos) {
@@ -1353,7 +1519,7 @@ static int run_serve(struct feeder *f) {
         f->sam = gf_sam_start(f->app_id, err, sizeof err);
         if (!f->sam) gf_say("SAM: %s (the app runs without SAM's events)", err);
     }
-    if (f->ui_home) f->ui_pid = start_ui(f->ui_home, f->app_id, ui_end, f->preload);
+    if (f->ui_home) f->ui_pid = start_ui(f->ui_home, f->app_id, f->sock_path, f->window_id_file, ui_end, f->preload);
     if (ui_end >= 0) close(ui_end);
     gf_say("serving %s, window %s, library %s", f->sock_path, f->window_id, f->ndl ? gf_ndl_ops.lib_name(f->ndl) : "none");
     fprintf(f->stats, "{\"serving\":\"%s\",\"window\":\"%s\",\"library\":\"%s\",\"features\":%u,\"pid\":%d}\n", f->sock_path, f->window_id,
@@ -1399,12 +1565,14 @@ static int run_serve(struct feeder *f) {
         flush_out(&c);
         int64_t next_status = gf_ns() + 1000000000LL;
         while (!g_term && !c.broken) {
-            struct pollfd fds[5];
+            struct pollfd fds[6];
             int nf = 0;
             fds[nf++] = (struct pollfd){c.fd, POLLIN | (c.out_len ? POLLOUT : 0), 0};
             if (f->wl) fds[nf++] = (struct pollfd){vpl_wl_fd(f->wl), POLLIN, 0};
             if (f->pipe_ready) fds[nf++] = (struct pollfd){f->ops->event_fd(f->pipe), POLLIN, 0};
-            int64_t left = (next_status - gf_ns()) / 1000000;
+            int listen_index = nf;
+            fds[nf++] = (struct pollfd){ls, POLLIN, 0};
+            int64_t left = (player_deadline(f, next_status) - gf_ns() + 999999) / 1000000;
             int nx = extras_add(f, fds + nf);
             int r = poll(fds, (nfds_t)(nf + nx), left < 0 ? 0 : (int)left);
             if (r > 0) extras_serve(f, fds + nf, nx);
@@ -1414,6 +1582,16 @@ static int run_serve(struct feeder *f) {
                 g_term = 1;
                 break;
             }
+            if (fds[listen_index].revents & POLLIN) {
+                int other = accept4(ls, NULL, NULL, SOCK_CLOEXEC | SOCK_NONBLOCK);
+                if (other >= 0) {
+                    struct client refused = {.fd = other};
+                    send_text(&refused, GF_ERROR, 3, "another engine owns the player");
+                    flush_out(&refused);
+                    close(other);
+                    free(refused.out);
+                }
+            }
             if (fds[0].revents & (POLLIN | POLLHUP | POLLERR)) {
                 if (read_client(f, &c) != 0) break;
             }
@@ -1422,13 +1600,8 @@ static int run_serve(struct feeder *f) {
                 g_term = 1;
                 break;
             }
-            if (f->pipe_ready) {
-                drain_events(f, emit_event);
-                if (f->error) {
-                    send_text(&c, GF_ERROR, 2, "the pipeline reported an error");
-                    f->error = 0;
-                }
-            }
+            maintain_pipeline(f, emit_event);
+            report_player(f, &c);
             if (gf_ns() >= next_status) {
                 if (f->tex_on) write_tex_stats(f);
                 if (f->pipe_ready || f->no_ndl || f->tex_on) {
@@ -1507,7 +1680,8 @@ int main(int argc, char **argv) {
     f.fps = 120;
     f.drop_threshold = -1;
     f.low_delay = 1;
-    f.pts_unit = GF_PTS_NS;
+    f.pts_unit = GF_PTS_MS;
+    f.audio_mode = GF_UI_GAME ? AUDIO_OPUS : AUDIO_AUTO;
     f.full_wait_ms = 8;
     f.export_first = 1;
     f.stats = stdout;
@@ -1609,7 +1783,7 @@ int main(int argc, char **argv) {
         mode = 3;
         f.sam_mode = 1;
         f.sock_path = DEFAULT_SOCKET;
-        mkdir("/tmp/lumatv-gfn", 0770);
+        mkdir(GF_RUNTIME_DIR, 0770);
         static char home[512];
         ssize_t n = readlink("/proc/self/exe", home, sizeof home - 1);
         if (n > 0) {
@@ -1633,7 +1807,7 @@ int main(int argc, char **argv) {
         const char *log = getenv("LUMATV_GFN_LOG");
         if (!log) log = DEFAULT_LOG;
         if (strcmp(log, "-") != 0) {
-            mkdir("/tmp/lumatv-gfn", 0770);
+            mkdir(GF_RUNTIME_DIR, 0770);
             int fd = open(log, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
             if (fd >= 0) {
                 dup2(fd, 1);

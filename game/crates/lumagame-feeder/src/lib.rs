@@ -1,6 +1,5 @@
-//! The engine's end of the feeder socket: gfn/feeder/src/gf_proto.h, byte for byte (`#[repr(C)]` on a little-endian LP64 target; the
-//! tests check the sizes the C side prints with `--probe`). Frames are written on the caller's thread with one `writev`; what the
-//! feeder sends back is read on a thread of its own and handed to a closure.
+//! Shared engine client for `gfn/feeder/src/gf_proto.h`; see `../PROTOCOL.md`.
+//! Media writes borrow the access unit and use a stack-allocated writev. Replies run on one reader thread.
 use std::io::{self, IoSlice, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -19,6 +18,10 @@ pub mod msg {
     pub const STATE: u8 = 6;
     pub const HDR: u8 = 7;
     pub const PING: u8 = 8;
+    pub const APP: u8 = 9;
+    pub const TEXTURE: u8 = 10;
+    pub const PIPE: u8 = 11;
+    pub const SINK: u8 = 12;
     pub const LOADED: u8 = 16;
     pub const EVENT: u8 = 17;
     pub const ACCEPT: u8 = 18;
@@ -27,6 +30,7 @@ pub mod msg {
     pub const ERROR: u8 = 21;
     pub const PONG: u8 = 22;
     pub const HELLO: u8 = 23;
+    pub const KEYFRAME: u8 = 24;
 }
 
 pub mod codec {
@@ -206,24 +210,16 @@ fn read_struct<T: Copy>(b: &[u8]) -> Option<T> {
     Some(unsafe { std::ptr::read_unaligned(b.as_ptr() as *const T) })
 }
 
-/// One `writev` per frame when the socket takes it whole, the rest written piecewise: no copy of the access unit.
-fn write_all_vectored(stream: &mut UnixStream, parts: &[&[u8]]) -> io::Result<()> {
-    let total: usize = parts.iter().map(|p| p.len()).sum();
-    let slices: Vec<IoSlice<'_>> = parts.iter().map(|p| IoSlice::new(p)).collect();
-    let mut done = stream.write_vectored(&slices)?;
-    while done < total {
-        let mut skip = done;
-        for part in parts {
-            if skip >= part.len() {
-                skip -= part.len();
-                continue;
-            }
-            let n = stream.write(&part[skip..])?;
-            if n == 0 {
-                return Err(io::Error::new(io::ErrorKind::WriteZero, "the feeder socket took nothing"));
-            }
-            done += n;
-            break;
+/// Partial writes and signals preserve the frame boundary without copying the access unit.
+fn write_all_vectored<const N: usize>(stream: &mut impl Write, parts: &[&[u8]; N]) -> io::Result<()> {
+    let mut slices = parts.map(IoSlice::new);
+    let mut remaining = &mut slices[..];
+    while !remaining.is_empty() {
+        match stream.write_vectored(remaining) {
+            Ok(0) => return Err(io::Error::new(io::ErrorKind::WriteZero, "the feeder socket took nothing")),
+            Ok(n) => IoSlice::advance_slices(&mut remaining, n),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
         }
     }
     Ok(())
@@ -237,7 +233,7 @@ fn c_string(b: &[u8]) -> String {
 /// What the feeder said, decoded.
 #[derive(Debug, Clone)]
 pub enum FeederMessage {
-    Hello { library: bool, pid: u32, own_window: bool, window_id: String, library_name: String },
+    Hello { version: u32, library: bool, pid: u32, own_window: bool, window_id: String, library_name: String },
     Loaded { ok: bool, text: String },
     Event { kind: i32, num: i64, text: String },
     Accept(Accept),
@@ -245,6 +241,7 @@ pub enum FeederMessage {
     Status(Status),
     Error { code: i32, text: String },
     Pong { echo: i64, feeder_ns: i64 },
+    Keyframe,
     Unknown { kind: u8, length: u32 },
 }
 
@@ -252,6 +249,7 @@ pub fn decode(kind: u8, p: &[u8]) -> FeederMessage {
     match kind {
         msg::HELLO => match read_struct::<Hello>(p) {
             Some(h) => FeederMessage::Hello {
+                version: h.version,
                 library: h.library != 0,
                 pid: h.pid,
                 own_window: h.window != 0,
@@ -279,6 +277,7 @@ pub fn decode(kind: u8, p: &[u8]) -> FeederMessage {
             echo: i64::from_le_bytes(p[0..8].try_into().unwrap()),
             feeder_ns: i64::from_le_bytes(p[8..16].try_into().unwrap()),
         },
+        msg::KEYFRAME if p.is_empty() => FeederMessage::Keyframe,
         _ => FeederMessage::Unknown { kind, length: p.len() as u32 },
     }
 }
@@ -296,19 +295,18 @@ impl FeederClient {
         let stream = loop {
             match UnixStream::connect(path) {
                 Ok(s) => break s,
-                Err(e) if Instant::now() < end => {
-                    let _ = e;
-                    thread::sleep(Duration::from_millis(50));
+                Err(e) if matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused) && Instant::now() < end => {
+                    thread::sleep(Duration::from_millis(50).min(end.saturating_duration_since(Instant::now())));
                 }
                 Err(e) => return Err(io::Error::new(e.kind(), format!("feeder socket {}: {e}", path.display()))),
             }
         };
-        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+        stream.set_read_timeout(Some(end.saturating_duration_since(Instant::now()).max(Duration::from_millis(1))))?;
         let mut s = Self { stream, reader: None };
         let (kind, payload) = s.read_frame()?;
         let hello = decode(kind, &payload);
-        if !matches!(hello, FeederMessage::Hello { .. }) {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("the feeder opened with message {kind}, not HELLO")));
+        if !matches!(hello, FeederMessage::Hello { version: PROTO_VERSION, .. }) {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "the feeder did not greet with protocol 1"));
         }
         s.stream.set_read_timeout(None)?;
         s.stream.set_write_timeout(Some(Duration::from_millis(500)))?;
@@ -329,10 +327,14 @@ impl FeederClient {
 
     /// Starts the reader thread; `on_message` runs on it until the socket ends, when it gets `None`.
     pub fn spawn_reader(&mut self, mut on_message: impl FnMut(Option<FeederMessage>) + Send + 'static) -> io::Result<()> {
+        if self.reader.is_some() {
+            return Err(io::Error::new(io::ErrorKind::AlreadyExists, "the feeder already has a reader"));
+        }
         let mut stream = self.stream.try_clone()?;
         self.reader = Some(
-            thread::Builder::new().name("gfn-feeder-reader".to_owned()).spawn(move || {
+            thread::Builder::new().name("lumagame-feeder".to_owned()).spawn(move || {
                 let mut head = [0u8; 8];
+                let mut payload = Vec::with_capacity(512);
                 loop {
                     if stream.read_exact(&mut head).is_err() {
                         break;
@@ -341,7 +343,7 @@ impl FeederClient {
                     if f.length > MAX_PAYLOAD {
                         break;
                     }
-                    let mut payload = vec![0u8; f.length as usize];
+                    payload.resize(f.length as usize, 0);
                     if stream.read_exact(&mut payload).is_err() {
                         break;
                     }
@@ -354,12 +356,15 @@ impl FeederClient {
     }
 
     pub fn send(&mut self, kind: u8, payload: &[u8]) -> io::Result<()> {
+        if payload.len() > MAX_PAYLOAD as usize {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "a message larger than the feeder takes"));
+        }
         let f = Frame { kind, flags: 0, reserved: 0, length: payload.len() as u32 };
         write_all_vectored(&mut self.stream, &[as_bytes(&f), payload])
     }
 
     pub fn send_media(&mut self, kind: u8, pts_ns: i64, key: bool, data: &[u8]) -> io::Result<()> {
-        if data.len() as u32 > MAX_PAYLOAD - 16 {
+        if !matches!(kind, msg::VIDEO | msg::AUDIO) || data.len() > (MAX_PAYLOAD - 16) as usize {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "an access unit larger than the feeder takes"));
         }
         let f = Frame { kind, flags: 0, reserved: 0, length: (16 + data.len()) as u32 };
@@ -379,6 +384,7 @@ impl FeederClient {
         self.send(msg::STATE, &[u8::from(foreground)])
     }
 
+    /// Reports loss. The feeder holds video and requests a keyframe; it does not flush NDL.
     pub fn send_flush(&mut self) -> io::Result<()> {
         self.send(msg::FLUSH, &[])
     }
@@ -392,7 +398,11 @@ impl FeederClient {
     }
 
     /// Closes the socket; the reader thread ends with it.
-    pub fn close(mut self) {
+    pub fn close(self) {}
+}
+
+impl std::ops::Drop for FeederClient {
+    fn drop(&mut self) {
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
         if let Some(r) = self.reader.take() {
             let _ = r.join();
@@ -431,5 +441,99 @@ mod tests {
         assert_eq!((h.display_primaries_x2, h.display_primaries_y2), (34000, 16000));   /* red last */
         assert_eq!(h.max_display_mastering_luminance, 10_000_000);
         assert_eq!((h.transfer_characteristics, h.color_primaries, h.matrix_coeffs), (16, 9, 9));
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    use std::os::unix::net::UnixListener;
+    use std::sync::mpsc;
+
+    #[test]
+    fn partial_writes_and_interruptions_preserve_all_parts() {
+        struct ShortWriter { bytes: Vec<u8>, interrupted: bool }
+        impl Write for ShortWriter {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                if !self.interrupted {
+                    self.interrupted = true;
+                    return Err(io::ErrorKind::Interrupted.into());
+                }
+                let n = bytes.len().min(3);
+                self.bytes.extend_from_slice(&bytes[..n]);
+                Ok(n)
+            }
+            fn flush(&mut self) -> io::Result<()> { Ok(()) }
+        }
+        let mut writer = ShortWriter { bytes: Vec::new(), interrupted: false };
+        write_all_vectored(&mut writer, &[b"header".as_slice(), b"", b"media", b"payload"]).unwrap();
+        assert_eq!(writer.bytes, b"headermediapayload");
+        assert_eq!(write_all_vectored(&mut io::sink(), &[b"".as_slice()]).unwrap_err().kind(), io::ErrorKind::WriteZero);
+    }
+
+    #[test]
+    fn media_and_load_are_byte_exact_without_copying_the_unit() {
+        let (stream, mut peer) = UnixStream::pair().unwrap();
+        let mut client = FeederClient { stream, reader: None };
+        let load = Load { codec: codec::H265, width: 3840, height: 2160, fps: 120, audio: audio::OPUS,
+            channels: 2, sample_rate: 48000, hdr: 1, hdr_info: Hdr::hdr10(1000, 400), drop_threshold: 2, pts_unit: pts_unit::MS };
+        client.send_load(&load).unwrap();
+        client.send_media(msg::VIDEO, 123456789012, true, b"access-unit").unwrap();
+        let mut bytes = [0u8; 108 + 8 + 16 + 11];
+        peer.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes[..8], &[1, 0, 0, 0, 100, 0, 0, 0]);
+        assert_eq!(&bytes[8..108], as_bytes(&load));
+        assert_eq!(&bytes[108..116], &[2, 0, 0, 0, 27, 0, 0, 0]);
+        assert_eq!(&bytes[116..124], &123456789012i64.to_le_bytes());
+        assert_eq!(&bytes[124..132], &[1, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(&bytes[132..], b"access-unit");
+        assert!(client.send_media(msg::HDR, 0, false, b"").is_err());
+        assert!(client.send(msg::LOAD, &vec![0; MAX_PAYLOAD as usize + 1]).is_err());
+    }
+
+    #[test]
+    fn reader_delivers_recovery_and_fatal_once_then_closes() {
+        let (stream, mut peer) = UnixStream::pair().unwrap();
+        let mut client = FeederClient { stream, reader: None };
+        let (tx, rx) = mpsc::channel();
+        client.spawn_reader(move |msg| { tx.send(msg).unwrap(); }).unwrap();
+        assert_eq!(client.spawn_reader(|_| {}).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+        peer.write_all(&[msg::KEYFRAME, 0, 0, 0, 0, 0, 0, 0]).unwrap();
+        peer.write_all(&[msg::ERROR, 0, 0, 0, 9, 0, 0, 0, 2, 0, 0, 0]).unwrap();
+        peer.write_all(b"fatal").unwrap();
+        peer.shutdown(std::net::Shutdown::Write).unwrap();
+        assert!(matches!(rx.recv().unwrap(), Some(FeederMessage::Keyframe)));
+        assert!(matches!(rx.recv().unwrap(), Some(FeederMessage::Error { code: 2, text }) if text == "fatal"));
+        assert!(rx.recv().unwrap().is_none());
+        client.close();
+        let mut one = [0];
+        assert_eq!(peer.read(&mut one).unwrap(), 0);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn oversized_reply_ends_the_reader_without_allocating_it() {
+        let (stream, mut peer) = UnixStream::pair().unwrap();
+        let mut client = FeederClient { stream, reader: None };
+        let (tx, rx) = mpsc::channel();
+        client.spawn_reader(move |msg| { tx.send(msg).unwrap(); }).unwrap();
+        peer.write_all(as_bytes(&Frame { kind: msg::STATUS, length: MAX_PAYLOAD + 1, ..Default::default() })).unwrap();
+        assert!(rx.recv().unwrap().is_none());
+        client.close();
+    }
+
+    #[test]
+    fn connection_rejects_an_incompatible_protocol() {
+        let path = std::env::temp_dir().join(format!("lumagame-client-{}.sock", std::process::id()));
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            let hello = Hello { version: PROTO_VERSION + 1, library: 1, pid: 1, window: 0, window_id: [0; 32], library_name: [0; 64] };
+            write_all_vectored(&mut peer, &[as_bytes(&Frame { kind: msg::HELLO, length: 112, ..Default::default() }), as_bytes(&hello)]).unwrap();
+        });
+        let result = FeederClient::connect(&path, Duration::from_secs(1));
+        std::fs::remove_file(path).unwrap();
+        server.join().unwrap();
+        assert!(matches!(result, Err(e) if e.kind() == io::ErrorKind::InvalidData));
     }
 }
