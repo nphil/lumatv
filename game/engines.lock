@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "gamestream": {
+    "version": "0.1.0",
+    "url": "https://git.nateshome.net/nphilip89/lumagame-gamestream/releases/download/v0.1.0/lumagame-gamestream-v0.1.0-aarch64.tar.gz",
+    "sha256": "12bb22122f679675317571bb136bf5e418cc5dde297d5b8734dec0a9c7530199",
+    "source": "https://github.com/nphil/lumagame-gamestream/tree/v0.1.0",
+    "source_archive": "https://git.nateshome.net/nphilip89/lumagame-gamestream/releases/download/v0.1.0/lumagame-gamestream-v0.1.0-source.tar.gz",
+    "source_sha256": "26033722b040ada0c5d4b474a218266867d91ca03600f7285943ff2c8f4ab25b"
+  }
+}
