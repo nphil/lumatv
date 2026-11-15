@@ -248,6 +248,8 @@ pub struct Volume {
     mark_place: usize,
     hop_due: Option<u64>,
     pub still: bool,
+    /// The screen is off: a mark that hopped every `hop_ms` drew a frame of a dark panel each time (2026-11-15), so it waits for the wake.
+    dark: bool,
     pub avoid_top_right: bool,
     /// The places of a mark the owner placed (`placement`'s drift), top left corners; none while the mark has its own corners.
     placed: Option<Vec<(i32, i32)>>,
@@ -302,6 +304,7 @@ impl Volume {
             mark_place: 0,
             hop_due: None,
             still: false,
+            dark: false,
             avoid_top_right: false,
             placed: None,
             over_video: false,
@@ -775,6 +778,9 @@ impl Model for Volume {
                 }
                 self.changed = true;
             }
+            Input::Topic { topic, data } if topic == "screen" => {
+                self.dark = data.get("on").and_then(Value::as_bool) == Some(false);
+            }
             Input::Topic { topic, data } if topic == "foreground" => {
                 let home = data.get("home").and_then(Value::as_bool).unwrap_or(false);
                 self.set_over_video(!home);
@@ -888,7 +894,7 @@ impl Model for Volume {
                     }
                 }
                 let v = self.view();
-                if v.mark_up && !self.still {
+                if v.mark_up && !self.still && !self.dark {
                     match self.hop_due {
                         Some(t) if now >= t => {
                             self.hop();
@@ -1420,6 +1426,30 @@ mod tests {
         // the owner gives the mark its own corners back
         assert!(v.set_placed(None));
         assert_eq!(v.view().spots, mark_spots(false, false));
+    }
+
+    #[test]
+    fn the_mute_mark_does_not_hop_while_the_screen_is_off_and_hops_again_after_the_wake() {
+        let mut v = Volume::default();
+        v.update(&up(), 10_000);
+        v.update(&receiver(40.0, true, 10_000), 10_000);
+        v.update(&audio(12, false, "external_arc", "setVolume"), 10_000);
+        v.update(&Input::Tick, 12_600);
+        assert!(v.view().mark_up && v.hop_due.is_some(), "muted: the mark is up and its hop is due");
+        v.update(&Input::Topic { topic: "screen".into(), data: json!({"on": false}) }, 13_000);
+        for t in [15_000, 20_000, 25_000, 30_000] {
+            v.update(&receiver(40.0, true, t), t);
+            v.update(&Input::Tick, t + 100);
+            assert!(v.view().mark_up, "still muted at {t}");
+            assert_eq!((v.view().mark_place, v.hop_due), (0, None), "the screen is off at {t}: no hop, none due");
+        }
+        v.update(&Input::Topic { topic: "screen".into(), data: json!({"on": true}) }, 31_000);
+        v.update(&Input::Tick, 31_100);
+        for t in [35_000, 40_000] {
+            v.update(&receiver(40.0, true, t), t);
+        }
+        v.update(&Input::Tick, 41_200);
+        assert_eq!(v.view().mark_place, 1, "awake: it hops again after hopMs");
     }
 
     #[test]
