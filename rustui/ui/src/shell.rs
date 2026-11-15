@@ -1209,9 +1209,10 @@ impl Shell {
             self.carry(e, now, &mut acts);
         }
         self.panel_events(now, &mut acts);
-        // Home behind an app has nothing on the screen to keep up to date: its clock's second hand and its news slide each cost the compositor a
-        // composed frame a second under a playing video (the hole wipes what they drew), so they wait for Home to be in front again.
-        if self.kinds.home && self.home.active {
+        // Home behind an app, or with the screen off, has nothing on the screen to keep up to date: its clock's second hand and its news slide
+        // each cost the compositor a composed frame a second under a playing video (the hole wipes what they drew), and in standby each apply
+        // sent the profile picker's unchanged poses, so they wait for Home to be in front with the screen on (the wake draws Home again).
+        if self.kinds.home && self.home.active && self.home.screen_on {
             if self.home_surface.tick(now) {
                 self.redraw = true;
             } else if self.home_surface.art_due(now) && !self.redraw {
@@ -1694,7 +1695,7 @@ impl Shell {
             due = [due, self.toasts.due_at(), self.formats.due_at()].into_iter().flatten().min();
         }
         if self.kinds.home {
-            due = [due, self.home.due_at(), self.home.active.then(|| self.home_surface.due_at()).flatten()].into_iter().flatten().min();
+            due = [due, self.home.due_at(), (self.home.active && self.home.screen_on).then(|| self.home_surface.due_at()).flatten()].into_iter().flatten().min();
         }
         let cameras = if self.kinds.cameras { self.cameras.due_at() } else { None };
         let settings = if self.kinds.settings { self.settings.due_at() } else { None };
@@ -3472,6 +3473,28 @@ mod tests {
         shell.tick(41_050);
         assert!(!sent(&mut h).is_empty(), "in front again, the hands are drawn for the time it is");
         assert!(shell.due_at().is_some_and(|due| due <= 42_100), "and the second hand is due again: {:?}", shell.due_at());
+    }
+
+    #[test]
+    fn a_home_with_the_screen_off_asks_the_engine_for_nothing_as_the_seconds_pass_and_is_right_at_the_wake() {
+        // In standby the second hand drew a frame a second and each apply sent the profile picker's poses again (2026-11-14).
+        let sent = |h: &mut ui::testing::Harness| h.commit().into_iter().filter(|r| !format!("{r:?}").starts_with("Commit")).collect::<Vec<_>>();
+        let (mut h, mut shell) = home_shell_with("home", &json!({"clock": {"style": "analog"}}));
+        shell.tick(1_100);
+        sent(&mut h);
+        shell.tick(2_100);
+        assert!(!sent(&mut h).is_empty(), "screen on: the second hand moves");
+        shell.channel(&Event::Topic { topic: "screen".into(), data: json!({"on": false}) }, 2_500);
+        sent(&mut h);
+        for s in 3..40u64 {
+            shell.tick(s * 1000 + 50);
+            let reqs = sent(&mut h);
+            assert!(reqs.is_empty(), "t={s} s, screen off: {} requests, first {:?}", reqs.len(), reqs.first());
+        }
+        assert!(shell.due_at().is_none_or(|due| due > 40_000), "a dark Home wakes the client for no second: next due {:?}", shell.due_at());
+        shell.channel(&Event::Topic { topic: "screen".into(), data: json!({"on": true}) }, 41_000);
+        shell.tick(41_050);
+        assert!(!sent(&mut h).is_empty(), "at the wake the hands are drawn for the time it is");
     }
 
     #[test]

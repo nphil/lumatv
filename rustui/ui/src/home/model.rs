@@ -1132,7 +1132,8 @@ impl Home {
         if self.poll_outstanding > 0 && now >= self.next_poll + 2 * POLL_MS {
             self.poll_outstanding = 0;
         }
-        if self.started && self.active && now >= self.next_poll && self.poll_outstanding == 0 {
+        // with the screen off the files wait: the wake looks at once (its next look is already due)
+        if self.started && self.active && self.screen_on && now >= self.next_poll && self.poll_outstanding == 0 {
             self.next_poll = now + POLL_MS;
             self.poll_outstanding = 2;
             out.push(Effect::Read { tag: THEME_TAG, path: "theme/theme.json".into() });
@@ -1198,7 +1199,7 @@ impl Home {
         if self.moved_at > 0 && self.now < self.moved_at + self.rest_ms {
             take(Some(self.moved_at + self.rest_ms));
         }
-        if self.started && self.active {
+        if self.started && self.active && self.screen_on {
             take(Some(self.next_poll));
         }
         take(self.editor.as_ref().and_then(Editor::due_at));
@@ -1218,11 +1219,12 @@ impl Home {
         take(self.colour.as_ref().and_then(|c| c.due_at()));
         take(self.thermostat.as_ref().and_then(|t| t.due_at()));
         // the mark's time left, once a minute
-        if self.active {
+        if self.active && self.screen_on {
             take(self.mark_due);
         }
-        // the clock's minute, and its second hand when the analogue face shows one: only while Home is in front (behind an app nothing shows it)
-        if self.active {
+        // the clock's minute, and its second hand when the analogue face shows one: only while Home is seen (behind an app or with the screen
+        // off nothing shows it, and the wake draws it for the time it is)
+        if self.active && self.screen_on {
             let step = if self.theme.pointer("/clock/style").and_then(Value::as_str) == Some("analog") { 1000 } else { 60_000 };
             take(Some((self.now / step + 1) * step));
         }
