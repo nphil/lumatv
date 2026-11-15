@@ -203,6 +203,59 @@ pub fn game_options() -> &'static [ThemeOption] {
     &OPTIONS
 }
 
+/// The game TV profile over current host preferences. Unknown saved IDs are rejected.
+/// Named choices populate both variants, including the always-dark artwork stage.
+pub fn game_tokens(family: &str, mode: Mode, host: &crate::Tokens) -> Option<crate::Tokens> {
+    static PROFILE: LazyLock<Value> = LazyLock::new(|| json!({
+        "radii": { "sheet": 36.4, "card": 31.2, "tile": 26, "row": 23.4, "control": 18.2, "pill": 999 },
+        "type": {
+            "display": { "size": 92, "weight": "medium", "line": 1.04 },
+            "title": { "size": 40, "weight": "semibold", "line": 1.2 },
+            "body": { "size": 28, "weight": "regular", "line": 1.4 },
+            "label": { "size": 26, "weight": "medium", "line": 1.3 },
+            "caption": { "size": 24, "weight": "medium", "line": 1.3 }
+        },
+        "layout": { "edgeX": 96, "edgeY": 54, "gutter": 24 },
+        "target": 64,
+        "row": 80,
+        "focus": { "tileScale": 1.03, "cardScale": 1.03, "rowScale": 1.0, "buttonScale": 1.03,
+                   "pressScale": 0.97, "cardLift": 4, "landing": 2 },
+        "states": { "focusWash": [0.09, 0.09] },
+        "motion": { "focusMs": 150, "cardMs": 150, "layerMs": 180, "exitMs": 120, "artDissolveMs": 200 }
+    }));
+    let selected = if family == MATCH_LUMATV { None } else { Some(game_find(family)?) };
+    let mut value = host.json().clone();
+    if let Some(selected) = selected {
+        crate::merge(&mut value, &selected.patch(Mode::Dark));
+        crate::merge(&mut value, &selected.patch(Mode::Light));
+    }
+    crate::merge(&mut value, &PROFILE);
+    value["material"] = json!(match mode { Mode::Dark => "dark", Mode::Light => "light" });
+    Some(crate::Tokens::from_json(&value))
+}
+
+/// A primary action's derived fill and its paired ink; palette accents stay intact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PrimaryColours {
+    pub fill: Straight,
+    pub ink: Straight,
+}
+
+/// Keep a distance-readable accent pair, or derive a 7:1 primary in the same hue.
+pub fn game_primary(roles: &Roles) -> PrimaryColours {
+    let canvas = roles[PaletteRole::Canvas];
+    let fill = composite(roles[PaletteRole::Accent], canvas);
+    let ink = roles[PaletteRole::AccentInk];
+    if contrast(composite(ink, fill), fill) >= 7.0 {
+        return PrimaryColours { fill, ink };
+    }
+    let light = luminance(canvas) > 0.179;
+    let ink = if light { Straight::new(255, 255, 255, 255) }
+        else { Straight::new(0, 0, 0, 255) };
+    let mode = if light { Mode::Light } else { Mode::Dark };
+    PrimaryColours { fill: fitted(fill, [ink, ink], 7.0, mode), ink }
+}
+
 fn game_roles(value: &Value, mode: Mode) -> Roles {
     let mut colours = raw_roles(value);
     let index = |role| PaletteRole::ALL.iter().position(|r| *r == role).expect("role");
@@ -426,5 +479,71 @@ mod tests {
                 assert!(delta >= 5.0, "{} and {} are too similar: ΔE {delta}", a.id, b.id);
             }
         }
+    }
+
+    #[test]
+    fn game_profile_uses_game_geometry_and_preserves_live_host_colours_and_preferences() {
+        let host = Tokens::from_json(&json!({
+            "dark": { "accent": "#123456" }, "light": { "accent": "#654321" },
+            "motion": { "reduced": true }, "text": { "gridFit": false }
+        }));
+        for mode in [Mode::Dark, Mode::Light] {
+            let matched = game_tokens(MATCH_LUMATV, mode, &host).unwrap();
+            for variant in [Mode::Dark, Mode::Light] {
+                assert_eq!(matched.roles(variant), host.roles(variant));
+            }
+            assert_eq!(matched.mode(None), mode);
+            for (role, expected) in [(crate::Radius::Sheet, 36.4), (crate::Radius::Card, 31.2),
+                (crate::Radius::Tile, 26.0), (crate::Radius::Row, 23.4), (crate::Radius::Control, 18.2)] {
+                assert_eq!(matched.radius(role), expected);
+            }
+            assert_eq!(matched.ty(crate::TypeRole::Body).weight, ui::text::Weight::Regular);
+            assert_eq!(matched.focus.tile_scale, 1.03);
+            assert_eq!(matched.focus.card_scale, 1.03);
+            assert_eq!(matched.focus.button_scale, 1.03);
+            assert_eq!(matched.focus.row_scale, 1.0);
+            assert_eq!(matched.focus.card_lift, 4.0);
+            assert_eq!(matched.states.focus_wash, [0.09, 0.09]);
+            assert_eq!(matched.motion.focus_ms, 150);
+            assert_eq!(matched.motion.layer_ms, 180);
+            assert!(matched.motion.reduced);
+            assert!(!matched.grid_fit());
+            assert_eq!(matched.json()["layout"]["edgeX"], 96);
+            assert_eq!(matched.json()["layout"]["edgeY"], 54);
+            for family in game_catalog() {
+                let named = game_tokens(family.id, mode, &host).unwrap();
+                for variant in [Mode::Dark, Mode::Light] {
+                    assert_eq!(named.roles(variant), family.roles(variant));
+                }
+                assert!(named.motion.reduced);
+            }
+        }
+        let changed_host = Tokens::from_json(&json!({ "dark": { "accent": "#ABCDEF" } }));
+        assert_eq!(game_tokens(MATCH_LUMATV, Mode::Dark, &changed_host).unwrap().roles(Mode::Dark),
+            changed_host.roles(Mode::Dark));
+        assert!(game_tokens("unknown", Mode::Dark, &host).is_none());
+        assert_eq!(host.focus.tile_scale, Tokens::shipped().focus.tile_scale);
+        assert_eq!(host.roles(Mode::Dark)[PaletteRole::Accent], Straight::parse("#123456").unwrap());
+    }
+
+    #[test]
+    fn every_game_primary_is_distance_readable_without_changing_brand_roles() {
+        for family in game_catalog() {
+            for mode in [Mode::Dark, Mode::Light] {
+                let roles = family.roles(mode);
+                let before = *roles;
+                let primary = game_primary(roles);
+                assert!(contrast(composite(primary.ink, primary.fill), primary.fill) >= 7.0,
+                    "{} {mode:?}", family.id);
+                assert_eq!(before, *roles);
+                if contrast(composite(roles[PaletteRole::AccentInk], roles[PaletteRole::Accent]),
+                            roles[PaletteRole::Accent]) >= 7.0 {
+                    assert_eq!(primary.fill, roles[PaletteRole::Accent]);
+                    assert_eq!(primary.ink, roles[PaletteRole::AccentInk]);
+                }
+            }
+        }
+        let light = game_find("rose-pine").unwrap().roles(Mode::Light);
+        assert!(luminance(game_primary(light).fill) < luminance(light[PaletteRole::Accent]));
     }
 }
