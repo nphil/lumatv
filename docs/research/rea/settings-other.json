@@ -1,0 +1,58 @@
+{
+    "subscribed": false,
+    "category": "other",
+    "errorKey": [
+        "crosshair",
+        "fpsCounter"
+    ],
+    "method": "getSystemSettings",
+    "dimension": {
+        "dynamicRange": "sdr",
+        "gameInput": "none",
+        "gameGenre": "Standard"
+    },
+    "settings": {
+        "gameBlackLevel": 50,
+        "oledCareMode": "off",
+        "gameMode": {
+            "hdmi2": "off",
+            "hdmi4": "off",
+            "hdmi1": "off",
+            "hdmi3": "off"
+        },
+        "enableALLM": "on",
+        "blackStabilizer": 10,
+        "gameUIColor": "violet",
+        "freesync": "off",
+        "enable144HzBooster": "off",
+        "gameScreenRatio": "16:9",
+        "enableQFT": "off",
+        "gameAdjustContrast": 85,
+        "gameSharpness": 10,
+        "gameSettingModified": {
+            "RTS": false,
+            "FPS": false,
+            "Standard": false,
+            "Sports": false,
+            "RPG": false,
+            "USER": false
+        },
+        "blueLight": "off",
+        "inputOptimization": "auto",
+        "lowLevelAdjustment": 0,
+        "whiteStabilizer": 10,
+        "gameOptimization": "on",
+        "enableQuickGame": "on",
+        "darkMode": "off",
+        "gameScreenPosition": "middle",
+        "gameGenre": "Standard",
+        "gameDashboardStatusList": [
+            "fps",
+            "vrr_aiGameSound_whiteStabilizer",
+            "blackStabilizer",
+            "lowLatency"
+        ],
+        "gameColorDepth": 55
+    },
+    "returnValue": false
+}

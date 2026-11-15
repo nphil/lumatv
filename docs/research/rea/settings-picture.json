@@ -1,0 +1,27 @@
+{
+    "subscribed": false,
+    "category": "picture",
+    "errorKey": [
+        "hgig",
+        "truMotionMode"
+    ],
+    "method": "getSystemSettings",
+    "dimension": {
+        "pictureMode": "filmMaker",
+        "dynamicRange": "sdr",
+        "input": "default"
+    },
+    "settings": {
+        "hdrDynamicToneMapping": "on",
+        "motionProOLED": "off",
+        "isfMode": {
+            "expert2": "none",
+            "expert1": "none"
+        },
+        "pictureMode": "filmMaker",
+        "motionPro": "off",
+        "eyeComfortMode": "off",
+        "memcDelayLevel": "mid"
+    },
+    "returnValue": false
+}

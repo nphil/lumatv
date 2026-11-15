@@ -1,0 +1,282 @@
+{
+    "subscribed": false,
+    "returnValue": true,
+    "results": [
+        {
+            "valueTypeCheck": false,
+            "category": "picture",
+            "values": {
+                "arrayExt": [
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "on"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "off"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "HGIG"
+                    }
+                ]
+            },
+            "valueCheck": true,
+            "ui": {
+                "displayName": "hdrDynamicToneMapping",
+                "visible": false,
+                "active": false,
+                "widget": "None"
+            },
+            "vtype": "ArrayExt",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "hdrDynamicToneMapping",
+            "account": false,
+            "dimension": [
+                "input",
+                "pictureMode"
+            ]
+        },
+        {
+            "valueTypeCheck": false,
+            "category": "picture",
+            "values": {
+                "arrayExt": [
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "none"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "mid"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "max"
+                    }
+                ]
+            },
+            "valueCheck": true,
+            "ui": {
+                "displayName": "memcDelayLevel",
+                "visible": true,
+                "active": true,
+                "widget": "None"
+            },
+            "vtype": "ArrayExt",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "memcDelayLevel",
+            "account": false,
+            "dimension": [
+            ]
+        },
+        {
+            "valueTypeCheck": false,
+            "category": "picture",
+            "values": {
+                "arrayExt": [
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "off"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "low"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "medium"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "high"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "auto"
+                    }
+                ]
+            },
+            "valueCheck": true,
+            "ui": {
+                "displayName": "motionProOLED",
+                "visible": false,
+                "active": false,
+                "widget": "None"
+            },
+            "vtype": "ArrayExt",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "motionProOLED",
+            "account": false,
+            "dimension": [
+                "input",
+                "pictureMode"
+            ]
+        },
+        {
+            "valueTypeCheck": false,
+            "category": "picture",
+            "values": {
+                "arrayExt": [
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "personalized"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "hdrPersonalized"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "dolbyHdrPersonalized"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "vivid"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "hdrVivid"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "normal"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "eco"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "cinema"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "hdrStandard"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "hdrEco"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "hdrCinemaBright"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "hdrCinema"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "sports"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "game"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "photo"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "hdrGame"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "filmMaker"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "hdrFilmMaker"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "dolbyHdrVivid"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "dolbyHdrStandard"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "dolbyHdrCinemaBright"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "dolbyHdrCinema"
+                    },
+                    {
+                        "visible": false,
+                        "active": true,
+                        "value": "dolbyHdrGame"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "expert1"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "expert2"
+                    }
+                ]
+            },
+            "valueCheck": true,
+            "ui": {
+                "displayName": "pictureMode",
+                "visible": true,
+                "active": true,
+                "widget": "None"
+            },
+            "vtype": "ArrayExt",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "pictureMode",
+            "account": false,
+            "hasCountryVar": true,
+            "dimension": [
+                "input",
+                "dynamicRange"
+            ]
+        }
+    ],
+    "method": "getSystemSettingDesc"
+}

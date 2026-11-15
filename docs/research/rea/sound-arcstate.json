@@ -1,0 +1,81 @@
+{
+    "lgHarmonyDevice": false,
+    "arcProfile": "",
+    "returnValue": true,
+    "earcCapability": [
+        "PCM",
+        "DD",
+        "DTS",
+        "DD+",
+        "MAT2PCM",
+        "TrueHD",
+        "DTSX_P1",
+        "DTSHD_MA",
+        "DTSHD"
+    ],
+    "earcATMOS": true,
+    "audioDeviceType": "none",
+    "mpeg4AACLC": false,
+    "earcMatProfile": "matprofile4",
+    "arcActivation": "None",
+    "volumeSyncable": false,
+    "advancedEarcCapability": [
+        {
+            "audioCodingType": "PCM",
+            "maxChannelNumber": 8,
+            "hexSAD": "0f7f07"
+        },
+        {
+            "audioCodingType": "DD",
+            "maxChannelNumber": 6,
+            "hexSAD": "150750"
+        },
+        {
+            "audioCodingType": "DTS",
+            "maxChannelNumber": 6,
+            "hexSAD": "3d1ec0"
+        },
+        {
+            "audioCodingType": "DD+",
+            "maxChannelNumber": 8,
+            "hexSAD": "570603"
+        },
+        {
+            "audioCodingType": "MAT2PCM",
+            "maxChannelNumber": 8,
+            "hexSAD": "677e03"
+        },
+        {
+            "audioCodingType": "TrueHD",
+            "maxChannelNumber": 8,
+            "hexSAD": "677e03"
+        },
+        {
+            "audioCodingType": "DTSHD_MA",
+            "maxChannelNumber": 8,
+            "hexSAD": "5f7e01"
+        },
+        {
+            "audioCodingType": "DTSHD",
+            "maxChannelNumber": 8,
+            "hexSAD": "5f7e01"
+        },
+        {
+            "audioCodingType": "DTSX_P1",
+            "maxChannelNumber": 8,
+            "hexSAD": "5f7e03"
+        },
+        {
+            "audioCodingType": "DTSHD_MA",
+            "maxChannelNumber": 8,
+            "hexSAD": "5f7e03"
+        },
+        {
+            "audioCodingType": "DTSHD",
+            "maxChannelNumber": 8,
+            "hexSAD": "5f7e03"
+        }
+    ],
+    "connectionDepth": "depth_1",
+    "lgHarmony": false
+}

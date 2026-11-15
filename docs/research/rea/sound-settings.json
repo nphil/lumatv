@@ -1,0 +1,22 @@
+{
+    "subscribed": false,
+    "category": "sound",
+    "errorKey": [
+        "arcPlusType",
+        "eArc",
+        "enhancedAudioReturnChannel"
+    ],
+    "method": "getSystemSettings",
+    "dimension": {
+        "audioOutput": "default",
+        "audioInput": "media",
+        "soundOutput": "tv_speaker"
+    },
+    "settings": {
+        "soundOutputDigital": "passThrough",
+        "soundMode": "standard",
+        "soundOutput": "tv_speaker",
+        "eArcSupport": "on"
+    },
+    "returnValue": false
+}

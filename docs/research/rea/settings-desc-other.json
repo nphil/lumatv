@@ -1,0 +1,335 @@
+{
+    "subscribed": false,
+    "returnValue": true,
+    "results": [
+        {
+            "valueTypeCheck": false,
+            "category": "other",
+            "app_id": "",
+            "values": {
+                "range": {
+                    "max": 20,
+                    "min": 0,
+                    "interval": 1
+                }
+            },
+            "valueCheck": true,
+            "ui": {
+                "displayName": "blackStabilizer",
+                "visible": true,
+                "active": false,
+                "widget": "None"
+            },
+            "vtype": "Range",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "blackStabilizer",
+            "account": false,
+            "dimension": [
+                "gameInput",
+                "dynamicRange",
+                "gameGenre"
+            ]
+        },
+        {
+            "valueTypeCheck": false,
+            "category": "other",
+            "values": {
+                "arrayExt": [
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "off"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "on"
+                    }
+                ]
+            },
+            "valueCheck": true,
+            "ui": {
+                "displayName": "enableALLM",
+                "visible": true,
+                "active": true,
+                "widget": "none"
+            },
+            "vtype": "ArrayExt",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "enableALLM",
+            "account": false,
+            "dimension": [
+                "gameInput"
+            ]
+        },
+        {
+            "valueTypeCheck": false,
+            "category": "other",
+            "values": {
+                "arrayExt": [
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "on"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "off"
+                    }
+                ]
+            },
+            "valueCheck": true,
+            "ui": {
+                "displayName": "enableQuickGame",
+                "visible": true,
+                "active": true,
+                "widget": "none"
+            },
+            "vtype": "ArrayExt",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "enableQuickGame",
+            "account": false,
+            "dimension": [
+                "gameInput"
+            ]
+        },
+        {
+            "valueTypeCheck": false,
+            "category": "other",
+            "app_id": "",
+            "values": {
+                "arrayExt": [
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "on"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "off"
+                    }
+                ]
+            },
+            "valueCheck": true,
+            "ui": {
+                "displayName": "freesync",
+                "visible": true,
+                "active": true,
+                "widget": "none"
+            },
+            "vtype": "ArrayExt",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "freesync",
+            "condition": {
+                "supportFreeSync": "on",
+                "panelType": "OLED"
+            },
+            "account": false,
+            "dimension": [
+                "gameInput"
+            ]
+        },
+        {
+            "valueTypeCheck": false,
+            "category": "other",
+            "values": {
+                "arrayExt": [
+                ]
+            },
+            "valueCheck": false,
+            "ui": {
+                "displayName": "gameDashboardStatusList",
+                "visible": true,
+                "active": true,
+                "widget": "none"
+            },
+            "vtype": "ArrayExt",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "gameDashboardStatusList",
+            "account": false,
+            "dimension": [
+            ]
+        },
+        {
+            "valueTypeCheck": false,
+            "category": "other",
+            "app_id": "",
+            "values": {
+                "arrayExt": [
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "Standard"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "FPS"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "RPG"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "RTS"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "Sports"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "USER"
+                    }
+                ]
+            },
+            "valueCheck": true,
+            "ui": {
+                "displayName": "gameGenre",
+                "visible": true,
+                "active": false,
+                "widget": "None"
+            },
+            "vtype": "ArrayExt",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "gameGenre",
+            "account": false,
+            "dimension": [
+                "gameInput"
+            ]
+        },
+        {
+            "valueTypeCheck": false,
+            "category": "other",
+            "values": {
+                "arrayExt": [
+                ]
+            },
+            "valueCheck": false,
+            "ui": {
+                "displayName": "gameMode",
+                "visible": true,
+                "active": true,
+                "widget": "none"
+            },
+            "vtype": "ArrayExt",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "gameMode",
+            "account": false,
+            "dimension": [
+            ]
+        },
+        {
+            "valueTypeCheck": false,
+            "category": "other",
+            "app_id": "",
+            "values": {
+                "arrayExt": [
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "on"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "off"
+                    }
+                ]
+            },
+            "valueCheck": true,
+            "ui": {
+                "displayName": "gameOptimization",
+                "visible": true,
+                "active": true,
+                "widget": "none"
+            },
+            "vtype": "ArrayExt",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "gameOptimization",
+            "account": false,
+            "dimension": [
+                "gameInput"
+            ]
+        },
+        {
+            "valueTypeCheck": false,
+            "category": "other",
+            "app_id": "",
+            "values": {
+                "arrayExt": [
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "auto"
+                    },
+                    {
+                        "visible": true,
+                        "active": true,
+                        "value": "on"
+                    }
+                ]
+            },
+            "valueCheck": true,
+            "ui": {
+                "displayName": "inputOptimization",
+                "visible": true,
+                "active": false,
+                "widget": "None"
+            },
+            "vtype": "ArrayExt",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "inputOptimization",
+            "account": false,
+            "dimension": [
+                "gameInput"
+            ]
+        },
+        {
+            "valueTypeCheck": false,
+            "category": "other",
+            "app_id": "",
+            "values": {
+                "range": {
+                    "max": 20,
+                    "min": 0,
+                    "interval": 1
+                }
+            },
+            "valueCheck": true,
+            "ui": {
+                "displayName": "whiteStabilizer",
+                "visible": true,
+                "active": false,
+                "widget": "None"
+            },
+            "vtype": "Range",
+            "volatile": false,
+            "dbtype": "G",
+            "key": "whiteStabilizer",
+            "account": false,
+            "dimension": [
+                "gameInput",
+                "dynamicRange",
+                "gameGenre"
+            ]
+        }
+    ],
+    "method": "getSystemSettingDesc"
+}

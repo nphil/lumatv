@@ -1,0 +1,8 @@
+{
+    "returnValue": true,
+    "lastSoundOutput": "external_arc",
+    "soundOutput": "tv_speaker",
+    "settingsSoundOutputs": [
+        "tv_speaker"
+    ]
+}

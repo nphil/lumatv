@@ -1,0 +1,15 @@
+{
+    "subscribed": false,
+    "category": "dimensionInfo",
+    "errorKey": [
+        "dimension",
+        "pictureMode"
+    ],
+    "method": "getSystemSettings",
+    "returnValue": false,
+    "settings": {
+        "input": "default",
+        "colorSystem": "unknown",
+        "gameInput": "none"
+    }
+}
