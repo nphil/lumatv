@@ -12,11 +12,11 @@ Current state and how to resume. Main design docs: ARCHITECTURE.md, DESIGN.md, P
 
 ## In flight
 
-- ControllerLab-5 (worker, may have finished or died): Controller Lab screen + GameSir and Leadjoy settings pages through a helper route. Resume note: /data/home/tmp/lumagame-wip/ControllerLab.md. If its files are still uncommitted in the worktree (rustui/app/**, helper/**, game/crates/lumagame-core, lumagame-engine-gfn, game/engines/punktfunk, docs/lumagame/controller-lab.md, docs/plugins/gaming.md, tests/qmlhost/fixtures/ha-plugin.json), finish from that note: tests + clippy, commit with explicit paths, push both remotes, rebuild ipk + helper. `rustui/ui/src/system/volume.rs` is someone else's: never commit it.
+Nothing running. Controller Lab finished: commits `65ddd309`, `576118b4`, `c6356dae` (+ Leadjoy crate fix `5d62cb7e`). Built from main, NOT installed: helper `helper/dist/lumatv-helper` sha256 `5f158de5…74e9` (from `c6356dae`) and LumaGame ipk `game/build/org.nphil.lumagame_0.1.0_all.ipk` sha256 `96d55637…ada1`. Leadjoy settings not yet exposed (keyboard/mouse targets, gesture thresholds, motion accessories c220-c224, FPS c130-c135, rjc/mse, connection modes, advanced macro edit) and ACK-only operations (calibration, recording, reset, sub-config triggers) are listed in /data/home/tmp/lumagame-wip/ControllerLab.md.
 
 ## Next work, in order
 
-1. Finish ControllerLab (above). Then install the new LumaGame ipk and helper on the TV (announce to LumaTV first; post-checks after the helper install).
+1. Install the new LumaGame ipk and helper on the TV (announce to LumaTV first; post-checks after the helper install).
 2. With Nitin at home (he sets the time): controller presses in a game, sound by ear, Punktfunk pairing/stream and Sunshine/Apollo pairing/stream with his gaming PC, GameSir + Leadjoy settings read/write on the real pads (Leadjoy 10-colour palette test with save/restore, see the protocol doc), physical latency with Controller Lab's press-to-flash test. Then uninstall the old GFN and Punktfunk apps.
 3. Steady-rate VRR mode for local streams (docs/lumagame-gaming-features.md "True VRR"): per session the helper sets `VRR 1` and the RAM decoder params (vsync_disable_phaseshift 1, vsync_shift_delta 3000, vsync_shift_limit2 800 via /proc/lxipc/vdec/user_command); only a reboot restores; fix the 120 fps start-up dip; look for a reboot-free exit (`vdisp_set_vsync_shift` untested).
 4. Native-games proof: a minimal SDL2 + GLES 3 app launched by LumaGame with a frame-time log at 120 Hz and a clean return (see "Native games" below).
