@@ -371,6 +371,7 @@ name = "lumagame-engine-gfn"
 version = "0.1.0"
 dependencies = [
  "lumagame-core",
+ "lumatv-gfn-pad",
  "serde_json",
 ]
 
@@ -389,6 +390,13 @@ dependencies = [
  "sha2",
  "tempfile",
  "ureq",
+]
+
+[[package]]
+name = "lumatv-gfn-pad"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

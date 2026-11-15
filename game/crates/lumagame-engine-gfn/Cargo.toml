@@ -8,6 +8,8 @@ license.workspace = true
 
 [dependencies]
 lumagame-core = { path = "../lumagame-core" }
+# The streamer's pad bridge speaks this crate's report layout; it needs only libc.
+lumatv-gfn-pad = { path = "../../../gfn/engine/crates/lumatv-gfn-pad" }
 serde_json.workspace = true
 
 [lib]

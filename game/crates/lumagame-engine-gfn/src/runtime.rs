@@ -1,9 +1,10 @@
 use crate::Adapter;
 use lumagame_core::ipc::{self, ErrorCode, Event, FromEngine, Hello, LineBuffer, Request, ToEngine};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::net::UnixDatagram;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -40,7 +41,7 @@ impl Options {
     }
 }
 
-enum Input { App(String), Core(String), AppEof, CoreEof, Invalid(bool) }
+enum Input { App(String), Core(String), Pad(String), AppEof, CoreEof, Invalid(bool) }
 
 fn reader(mut input: impl Read, tx: SyncSender<Input>, app: bool) {
     let mut lines = LineBuffer::default();
@@ -65,6 +66,15 @@ fn reader(mut input: impl Read, tx: SyncSender<Input>, app: bool) {
     let _ = tx.send(if app {Input::AppEof} else {Input::CoreEof});
 }
 
+/// Datagrams from the streamer's pad bridge; ends when [`run`] shuts the socket down.
+fn pad_reader(socket: UnixDatagram, tx: SyncSender<Input>) {
+    let mut bytes = [0u8;512];
+    while let Ok(n @ 1..) = socket.recv(&mut bytes) {
+        let Ok(line) = std::str::from_utf8(&bytes[..n]) else { continue };
+        if tx.send(Input::Pad(line.into())).is_err() { return; }
+    }
+}
+
 pub fn unix_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis().try_into().unwrap_or(u64::MAX)
 }
@@ -74,7 +84,9 @@ fn private_dir(path: &Path) -> io::Result<()> {
     fs::set_permissions(path,fs::Permissions::from_mode(0o700))
 }
 
-fn spawn(options: &Options, hello: &Hello) -> io::Result<Child> {
+/// The core, and the socket its streamer sends pad events to. Without the socket (a path too long to bind) the stream still plays;
+/// only the controller's Guide button and the overlay's pad keys are lost.
+fn spawn(options: &Options, hello: &Hello) -> io::Result<(Child, Option<UnixDatagram>)> {
     let data = Path::new(&hello.data_dir);
     private_dir(data)?;
     for directory in ["config","data","cache"] { private_dir(&data.join(directory))?; }
@@ -86,6 +98,10 @@ fn spawn(options: &Options, hello: &Hello) -> io::Result<Child> {
         .env("OPENNOW_STREAMER_LOG_FILE",data.join("streamer.log"))
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit());
     if let Some(socket) = &hello.feeder { command.env("LUMATV_GFN_FEEDER_SOCKET",socket); }
+    let side = data.join("pad.sock");
+    let _ = fs::remove_file(&side);
+    let pads = UnixDatagram::bind(&side).ok();
+    if pads.is_some() { command.env("LUMATV_GFN_PAD_SIDE",&side); }
     // The kernel closes the core if the shim dies before its ordinary stdin shutdown path.
     unsafe {
         command.pre_exec(|| {
@@ -95,7 +111,7 @@ fn spawn(options: &Options, hello: &Hello) -> io::Result<Child> {
             Ok(())
         });
     }
-    command.spawn()
+    Ok((command.spawn()?,pads))
 }
 
 fn app_error(output: &mut impl Write, re: Option<u64>, code: ErrorCode, message: &str) -> io::Result<()> {
@@ -122,12 +138,21 @@ pub fn run(options: Options, input: impl Read+Send+'static, mut output: impl Wri
         app_error(&mut output,Some(hello.0),ErrorCode::BadRequest,"The engine needs an absolute data directory, feeder socket and valid display capabilities")?;
         return Ok(());
     }
-    let mut child = match spawn(&options,&hello.1) {
-        Ok(child) => child,
+    let (mut child,pads) = match spawn(&options,&hello.1) {
+        Ok(spawned) => spawned,
         Err(_) => { app_error(&mut output,Some(hello.0),ErrorCode::Internal,"The GeForce NOW core could not be started")?; return Ok(()); }
     };
     let mut core_input = child.stdin.take().ok_or_else(|| io::Error::other("The core has no stdin"))?;
     let core_output = child.stdout.take().ok_or_else(|| io::Error::other("The core has no stdout"))?;
+    let pads = match pads {
+        Some(socket) => {
+            let control = socket.try_clone()?;
+            let pad_tx = tx.clone();
+            thread::Builder::new().name("gfn-pad-reader".into()).spawn(move || pad_reader(socket,pad_tx))?;
+            Some(control)
+        }
+        None => None,
+    };
     thread::Builder::new().name("gfn-core-reader".into()).spawn(move || reader(core_output,tx,false))?;
     let data = PathBuf::from(&hello.1.data_dir);
     let prefs = fs::read(data.join("prefs.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).unwrap_or(Value::Null);
@@ -158,6 +183,7 @@ pub fn run(options: Options, input: impl Read+Send+'static, mut output: impl Wri
                     }
                 },
                 Ok(Input::Core(line)) => adapter.core_line(&line),
+                Ok(Input::Pad(line)) => adapter.pad_line(&line),
                 Ok(Input::AppEof) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 Ok(Input::CoreEof) => adapter.core_gone("The GeForce NOW core exited"),
                 Ok(Input::Invalid(app)) => {
@@ -170,14 +196,16 @@ pub fn run(options: Options, input: impl Read+Send+'static, mut output: impl Wri
         }
         Ok(())
     })();
-    // Closing stdin is OpenNOW's normal teardown, including its streamer and remote-seat cleanup.
-    let _ = core_input.write_all(ipc::encode(&json!({"type":"request","id":"shutdown","method":"app.shutdown","params":{}})).as_bytes());
-    let _ = core_input.flush();
+    // End of stdin is the core's only shutdown: its request loop ends, and dropping its streamer service stops the streamer.
     drop(core_input);
     let deadline = Instant::now()+Duration::from_secs(3);
     while child.try_wait()?.is_none() && Instant::now() < deadline { thread::sleep(Duration::from_millis(10)); }
     if child.try_wait()?.is_none() { let _ = child.kill(); }
     let _ = child.wait();
+    if let Some(pads) = pads {
+        let _ = pads.shutdown(std::net::Shutdown::Both);
+        let _ = fs::remove_file(data.join("pad.sock"));
+    }
     match result {
         Err(error) if matches!(error.kind(),io::ErrorKind::BrokenPipe|io::ErrorKind::ConnectionReset) => Ok(()),
         result => result,

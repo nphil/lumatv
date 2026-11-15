@@ -11,6 +11,7 @@ use lumagame_core::ids::{EngineId, ProviderGameId, SessionId, TargetId};
 use lumagame_core::ipc::*;
 use lumagame_core::settings::{SettingsSchema, Values};
 use serde_json::{Value, json};
+use lumatv_gfn_pad::{PadState, menu::{MenuKey, MenuKeys}};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Debug, Clone)]
@@ -78,6 +79,9 @@ struct Launch {
     stats: bool,
     poll_due: u64,
     values: Values,
+    /// The app's overlay has the pads: the streamer pauses their input and hands the reports to [`Adapter::pad_line`].
+    overlay: bool,
+    menus: BTreeMap<u64, MenuKeys>,
 }
 
 /// Output batches preserve ordering: session.create is acknowledged before its stream is started.
@@ -206,6 +210,7 @@ impl Adapter {
                 self.launch = Some(Launch {
                     id:session,seq:message.seq,selection,cloud:Value::Null,started:false,running:false,stale_retried:false,
                     busy_retried:false,claimed:false,retry_stopping:false,stopping:false,end_game:false,stats:false,poll_due:0,values:self.values.clone(),
+                    overlay:false,menus:BTreeMap::new(),
                 });
                 self.session(SessionState::Checking);
                 if self.target.is_none() {
@@ -219,6 +224,7 @@ impl Adapter {
                 self.stop(message.seq, end_game);
             }
             Request::Route { session,input } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
+                if let Some(l) = &mut self.launch { l.overlay = input == InputRoute::App; l.menus.clear(); }
                 self.enqueue("streamer.input.pause",json!({"paused":input == InputRoute::App}),Purpose::Pause,seq);
             }
             Request::Stats { session,on } if self.launch.as_ref().is_some_and(|l| l.id == session) => {
@@ -233,6 +239,30 @@ impl Adapter {
 
     fn matches_target(&self, target: &TargetId) -> bool { self.target.as_ref().is_some_and(|t| &t.id == target) }
     fn targets(&mut self, seq: Option<u64>) { self.emit(seq,Event::Targets { targets:self.target.iter().cloned().collect() }); }
+    /// One datagram from the streamer's pad bridge (`LUMATV_GFN_PAD_SIDE`). The PS button asks for the overlay, as it does on every
+    /// engine; while the overlay has the pads their reports become its menu keys.
+    pub fn pad_line(&mut self, line: &str) {
+        let Ok(v) = serde_json::from_str::<Value>(line) else { return };
+        let Some(l) = self.launch.as_mut().filter(|l| l.running && !l.stopping) else { return };
+        let session = l.id;
+        match v["pad"].as_str() {
+            Some("guide") if v["pressed"] == true => self.emit(None,Event::Overlay { session }),
+            Some("report") if l.overlay => {
+                let axis = |k:&str| v[k].as_i64().and_then(|n| i16::try_from(n).ok()).unwrap_or(0);
+                let state = PadState {
+                    buttons:v["buttons"].as_u64().and_then(|n| u16::try_from(n).ok()).unwrap_or(0),
+                    left_x:axis("lx"),left_y:axis("ly"),right_x:axis("rx"),right_y:axis("ry"),..PadState::default()
+                };
+                let mut keys = Vec::new();
+                l.menus.entry(v["slot"].as_u64().unwrap_or(0)).or_default().feed(&state,|k| keys.push(k));
+                for key in keys {
+                    let key = match key {MenuKey::Up=>PadKey::Up,MenuKey::Down=>PadKey::Down,MenuKey::Left=>PadKey::Left,MenuKey::Right=>PadKey::Right,MenuKey::Ok=>PadKey::Ok,MenuKey::Back=>PadKey::Back};
+                    for down in [true,false] { self.emit(None,Event::Key { key,down }); }
+                }
+            }
+            _ => {}
+        }
+    }
     fn session(&mut self, state: SessionState) {
         if let Some(l) = &self.launch { self.emit(Some(l.seq),Event::Session { session:l.id,state }); }
     }
@@ -727,7 +757,7 @@ impl Adapter {
 pub fn descriptor() -> Descriptor {
     Descriptor { id:EngineId::new("gfn").unwrap(),version:env!("CARGO_PKG_VERSION").into(),capabilities:Capabilities {
         kind:EngineKind::Cloud,targets:TargetKind::Account,auth:vec![AuthMethod::DeviceCode],presentation:Presentation::Feeder,
-        features:BTreeSet::from([Feature::Readiness,Feature::Queue,Feature::EndGame,Feature::Stats,Feature::Rumble]),
+        features:BTreeSet::from([Feature::Readiness,Feature::Queue,Feature::EndGame,Feature::Stats,Feature::Rumble,Feature::OverlayKeys]),
         video:Some(VideoCaps { codecs:vec![Codec::H265,Codec::Av1,Codec::H264],width:3840,height:2160,fps:120,hdr10:true }),
     } }
 }

@@ -160,6 +160,26 @@ fn launch_ack_queue_start_running_stats_and_remote_end() {
 }
 
 #[test]
+fn guide_opens_the_overlay_and_the_overlay_reads_the_pads_as_menu_keys() {
+    use lumatv_gfn_pad::button::{A,DPAD_DOWN};
+    let mut f=FakeCore::new(true);f.launch();
+    f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
+    f.reply("streamer.start",json!({"status":"running"}));
+    let mut pad=|line:Value| {f.collect();f.events.clear();f.adapter.pad_line(&line.to_string());f.collect();f.events.iter().map(|e| e.event.clone()).collect::<Vec<_>>()};
+    let report=|buttons:u16| json!({"pad":"report","slot":0,"buttons":buttons,"lt":0,"rt":0,"lx":0,"ly":0,"rx":0,"ry":0});
+    assert!(pad(report(A)).is_empty(),"the game has the pads");
+    assert_eq!(pad(json!({"pad":"guide","slot":0,"pressed":true})),[Event::Overlay{session:SessionId(9)}]);
+    assert!(pad(json!({"pad":"guide","slot":0,"pressed":false})).is_empty());
+    f.send(22,Request::Route{session:SessionId(9),input:InputRoute::App});
+    assert_eq!(f.reply("streamer.input.pause",json!({}))["params"],json!({"paused":true}));
+    let mut pad=|line:Value| {f.collect();f.events.clear();f.adapter.pad_line(&line.to_string());f.collect();f.events.iter().map(|e| e.event.clone()).collect::<Vec<_>>()};
+    let key=|key| [Event::Key{key,down:true},Event::Key{key,down:false}];
+    assert_eq!(pad(report(A)),key(PadKey::Ok),"a button held into the overlay is pressed afresh");
+    assert!(pad(report(A)).is_empty());
+    assert_eq!(pad(report(DPAD_DOWN)),key(PadKey::Down));
+}
+
+#[test]
 fn busy_streamer_is_stopped_before_exactly_one_retry() {
     let mut f=FakeCore::new(true);f.launch();
     f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));

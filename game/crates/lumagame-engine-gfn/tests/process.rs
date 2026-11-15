@@ -21,7 +21,7 @@ fn process_handshake_confines_credentials_and_stdin_eof_stops_the_core() {
     // A separate process speaks only scripted JSON lines; no NVIDIA account or network is involved.
     fs::write(&script,r#"#!/bin/sh
 set -eu
-printf '%s\n%s\n%s\n' "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" > "$HOME/environment"
+printf '%s\n%s\n%s\n%s\n' "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$LUMATV_GFN_PAD_SIDE" > "$HOME/environment"
 while IFS= read -r line; do
   id=${line#*\"id\":\"}; id=${id%%\"*}
   case "$line" in
@@ -29,8 +29,7 @@ while IFS= read -r line; do
     *'"method":"settings.set"'*) result='{}' ;;
     *'"method":"streamer.detect"'*) result='{"available":true,"capabilities":{"protocolVersion":7}}' ;;
     *'"method":"auth.session.get"'*) result='{"session":null,"generation":1}' ;;
-    *'"method":"app.shutdown"'*) printf 'closed' > "$HOME/closed"; exit 0 ;;
-    *) exit 9 ;;
+    *) printf '%s' "$line" > "$HOME/unknown"; exit 9 ;;
   esac
   printf '{"type":"response","id":"%s","ok":true,"result":%s}\n' "$id" "$result"
 done
@@ -52,11 +51,13 @@ printf 'closed' > "$HOME/closed"
     let mut line=String::new();
     reader.read_line(&mut line).unwrap();
     assert!(matches!(ipc::decode::<FromEngine>(&line).unwrap().event,Event::Ready{..}));
-    let expected=format!("{}\n{}\n{}\n",data.display(),data.join("config").display(),data.join("data").display());
+    let expected=format!("{}\n{}\n{}\n{}\n",data.display(),data.join("config").display(),data.join("data").display(),data.join("pad.sock").display());
     assert_eq!(fs::read_to_string(data.join("environment")).unwrap(),expected);
     assert_eq!(fs::metadata(&data).unwrap().permissions().mode()&0o777,0o700);
     drop(reader);drop(app);
     worker.join().unwrap().unwrap();
+    assert!(!data.join("unknown").exists(),"the shim sent the core a method it does not know: {:?}",fs::read_to_string(data.join("unknown")));
     assert_eq!(fs::read_to_string(data.join("closed")).unwrap(),"closed");
+    assert!(!data.join("pad.sock").exists(),"the pad socket goes with the shim");
     assert_eq!(fs::metadata(data.join("runtime-prefs.json")).unwrap().permissions().mode()&0o777,0o600);
 }
