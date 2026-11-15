@@ -529,6 +529,17 @@
           "version": "1"
         },
         {
+          "approve": "362488559b13cfaffed9efe7ffa7902dfc95581fb75ead14d79327a1d294f506",
+          "class": "S",
+          "consent": "Allows the gaming apps to temporarily use qualified low-latency picture controls and give their controller readers real-time priority. Original picture and thread settings are restored when a session ends, the app exits, the lease expires, the TV enters standby or this plugin is switched off. Display controls remain unavailable until qualified on this TV.",
+          "firstParty": true,
+          "id": "gaming",
+          "name": "Gaming",
+          "registered": false,
+          "state": "off",
+          "version": "1"
+        },
+        {
           "approve": "a4a46b89c10fa9e1df565a779dce0c297c8aeddbd14f462bea267a87214d16d3",
           "class": "S",
           "consent": "Fills the Live TV guide with a week of listings for a zip code, from the sources picked on its page: a Plex server on the home network, Schedules Direct (a paid account) or the free Gracenote listings. The TV asks only those (the Plex server's address, json.schedulesdirect.org, tvlistings.gracenote.com), at most every six hours, and keeps the listings, the Plex token and the Schedules Direct password on the TV.",
@@ -588,6 +599,17 @@
           "firstParty": true,
           "id": "scrypted-cameras",
           "name": "Cameras",
+          "registered": false,
+          "state": "off",
+          "version": "1"
+        },
+        {
+          "approve": "66482165f3c98e3acb2f1fd42a776a0927b8577152ea535586df29342d860e2d",
+          "class": "S",
+          "consent": "Answers Home Assistant's LG webOS TV integration with LumaTV's own gateway in place of LG's. Home Assistant keeps its pairing, LG's gateway takes over whenever LumaTV's is not running, and each crash is kept on the TV and told to the phone named on this page through Home Assistant.",
+          "firstParty": true,
+          "id": "ssgw",
+          "name": "Home Assistant gateway",
           "registered": false,
           "state": "off",
           "version": "1"
