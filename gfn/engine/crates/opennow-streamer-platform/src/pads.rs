@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use lumatv_gfn_pad::{PadConfig, PadEvent, PadRuntime, PadSink, PadState};
+use lumatv_gfn_pad::{Curve, PadConfig, PadEvent, PadRuntime, PadSink, PadState};
 
 use crate::types::{CapturedInput, CapturedInputQueue, CapturedInputSample, StreamShortcutAction};
 
@@ -115,21 +115,30 @@ fn json_str(s: &str) -> String {
     out
 }
 
-/// The dead zone the viewer chose, in percent of stick travel: the `"deadzone"` of the app's preferences file, which the UI's settings
-/// screen writes and `LUMATV_GFN_PREFS` names. It is read when the pads start, once for each stream, so a change made in the settings
-/// is in effect for the next stream. The core's own range is 0-50.
-fn prefs_deadzone(path: &std::path::Path) -> Option<u8> {
-    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-    Some(v["deadzone"].as_u64()?.min(50) as u8)
+/// The stick settings the viewer chose, from the app's preferences file that the UI's settings screen writes and `LUMATV_GFN_PREFS`
+/// names: `"deadzone"` and `"antiDeadzone"` in percent of stick travel (the core's own range is 0-50) and `"curve"` by name. A key
+/// that is missing or unreadable keeps `c`'s value. The file is read when the pads start, once for each stream, so a change made in
+/// the settings is in effect for the next stream.
+fn apply_prefs(c: &mut PadConfig, path: &std::path::Path) {
+    let Some(v) = std::fs::read(path).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) else { return };
+    if let Some(z) = v["deadzone"].as_u64() {
+        c.deadzone_percent = z.min(50) as u8;
+    }
+    if let Some(a) = v["antiDeadzone"].as_u64() {
+        c.anti_deadzone_percent = a.min(50) as u8;
+    }
+    if let Some(curve) = v["curve"].as_str().and_then(Curve::from_name) {
+        c.curve = curve;
+    }
 }
 
-/// The pad crate's configuration: its environment's, with the viewer's dead zone unless `LUMATV_GFN_PAD_DEADZONE` fixes one.
+/// The pad crate's configuration: its environment's, with the viewer's stick settings; `LUMATV_GFN_PAD_DEADZONE` fixes the dead zone.
 fn pad_config() -> PadConfig {
     let mut c = PadConfig::from_env();
-    if std::env::var_os("LUMATV_GFN_PAD_DEADZONE").is_none() {
-        if let Some(z) = std::env::var_os("LUMATV_GFN_PREFS").and_then(|p| prefs_deadzone(std::path::Path::new(&p))) {
-            c.deadzone_percent = z;
-        }
+    if let Some(p) = std::env::var_os("LUMATV_GFN_PREFS") {
+        let fixed = std::env::var_os("LUMATV_GFN_PAD_DEADZONE").is_some().then_some(c.deadzone_percent);
+        apply_prefs(&mut c, std::path::Path::new(&p));
+        c.deadzone_percent = fixed.unwrap_or(c.deadzone_percent);
     }
     c
 }
@@ -253,22 +262,24 @@ mod tests {
     }
 
     #[test]
-    fn the_dead_zone_is_the_one_in_the_apps_preferences_file_clamped_to_the_cores_range() {
-        let dir = std::env::temp_dir().join(format!("gfn-prefs-deadzone-{}", std::process::id()));
+    fn the_stick_settings_are_the_ones_in_the_apps_preferences_file_clamped_to_the_cores_range() {
+        let dir = std::env::temp_dir().join(format!("gfn-prefs-sticks-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("prefs.json");
-        // what the UI writes (rustui/app/src/gfn/prefs.rs, `Prefs::to_json`)
-        std::fs::write(&file, br#"{"tier":"uhd120","hdr":true,"bitrateMbps":80,"deadzone":12,"showStats":false}"#).unwrap();
-        assert_eq!(prefs_deadzone(&file), Some(12));
-        std::fs::write(&file, br#"{"deadzone":0}"#).unwrap();
-        assert_eq!(prefs_deadzone(&file), Some(0), "no dead zone is a choice");
-        std::fs::write(&file, br#"{"deadzone":90}"#).unwrap();
-        assert_eq!(prefs_deadzone(&file), Some(50));
-        std::fs::write(&file, br#"{"tier":"uhd120"}"#).unwrap();
-        assert_eq!(prefs_deadzone(&file), None);
-        std::fs::write(&file, b"{ not json").unwrap();
-        assert_eq!(prefs_deadzone(&file), None);
-        assert_eq!(prefs_deadzone(&dir.join("missing.json")), None);
+        let read = |json: &[u8]| {
+            std::fs::write(&file, json).unwrap();
+            let mut c = PadConfig::default();
+            apply_prefs(&mut c, &file);
+            (c.deadzone_percent, c.anti_deadzone_percent, c.curve)
+        };
+        // what the engine writes (game/crates/lumagame-engine-gfn, `pad_prefs`)
+        assert_eq!(read(br#"{"deadzone":12,"antiDeadzone":15,"curve":"precise"}"#), (12, 15, Curve::Precise));
+        assert_eq!(read(br#"{"tier":"uhd120","deadzone":0}"#), (0, 0, Curve::Linear), "no dead zone is a choice");
+        assert_eq!(read(br#"{"deadzone":90,"antiDeadzone":70,"curve":"wobbly"}"#), (50, 50, Curve::Linear));
+        assert_eq!(read(b"{ not json"), (8, 0, Curve::Linear));
+        let mut c = PadConfig::default();
+        apply_prefs(&mut c, &dir.join("missing.json"));
+        assert_eq!(c.deadzone_percent, 8);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

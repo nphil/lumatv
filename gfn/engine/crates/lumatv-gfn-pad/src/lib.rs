@@ -26,6 +26,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub mod boost;
+pub mod lab;
 pub mod latency;
 pub mod menu;
 pub mod tool;
@@ -107,11 +108,71 @@ pub enum PadEvent {
     ExitChord { slot: u8 },
 }
 
+/// One report as the kernel stamped it, before any dead zone or curve: what a controller test draws and times.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct RawReport {
+    /// The kernel's stamp, on the monotonic clock.
+    pub kernel_ns: u64,
+    /// When the reader woke with it, on the monotonic clock.
+    pub read_ns: u64,
+    /// Sticks -1..1 with up positive.
+    pub left: (f32, f32),
+    pub right: (f32, f32),
+    pub left_trigger: u8,
+    pub right_trigger: u8,
+    pub buttons: u16,
+}
+
 pub trait PadSink: Send + Sync {
     fn pad_event(&self, bitmap: u16, event: PadEvent);
 
     /// The latency figures after a second in which presses finished (the engine puts them on the app's stats line).
     fn latency(&self, _summary: &latency::Summary) {}
+
+    /// Every report, changed or not, while [`PadConfig::raw`] asks for them.
+    fn raw(&self, _slot: u8, _report: &RawReport) {}
+}
+
+/// How a stick's travel past the dead zone maps to what the game sees.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Curve {
+    #[default]
+    Linear,
+    /// Squared: fine control near the centre.
+    Precise,
+    /// Square root: quick turns off the centre.
+    Quick,
+}
+
+impl Curve {
+    pub fn name(self) -> &'static str {
+        match self {
+            Curve::Linear => "linear",
+            Curve::Precise => "precise",
+            Curve::Quick => "quick",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Curve::Linear, Curve::Precise, Curve::Quick].into_iter().find(|c| c.name() == name)
+    }
+
+    fn apply(self, t: f64) -> f64 {
+        match self {
+            Curve::Linear => t,
+            Curve::Precise => t * t,
+            Curve::Quick => t.sqrt(),
+        }
+    }
+}
+
+/// A stick's dead zone, anti-deadzone and curve, in the order they apply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Shaping {
+    pub deadzone_percent: u8,
+    /// The smallest deflection a moved stick sends: games with a dead zone of their own ignore anything below theirs.
+    pub anti_deadzone_percent: u8,
+    pub curve: Curve,
 }
 
 #[derive(Debug, Clone)]
@@ -121,6 +182,10 @@ pub struct PadConfig {
     pub rescan: Duration,
     /// Radial stick dead zone in percent, as OpenNOW applies it before the state goes on the wire.
     pub deadzone_percent: u8,
+    pub anti_deadzone_percent: u8,
+    pub curve: Curve,
+    /// Hand every report to [`PadSink::raw`]: a controller test wants them, a stream does not.
+    pub raw: bool,
     pub chord_hold: Duration,
     /// The helper's loopback address for the readers' real-time boost; `None` asks for nothing.
     pub boost: Option<SocketAddr>,
@@ -143,6 +208,9 @@ impl Default for PadConfig {
             sys_dir: PathBuf::from("/sys/class/input"),
             rescan: Duration::from_secs(2),
             deadzone_percent: 8,
+            anti_deadzone_percent: 0,
+            curve: Curve::Linear,
+            raw: false,
             chord_hold: Duration::from_secs(1),
             boost: None,
             boost_renew: Duration::from_secs(30),
@@ -169,6 +237,10 @@ impl PadConfig {
             c.deadzone_percent = z;
         }
         c
+    }
+
+    pub fn shaping(&self) -> Shaping {
+        Shaping { deadzone_percent: self.deadzone_percent, anti_deadzone_percent: self.anti_deadzone_percent, curve: self.curve }
     }
 }
 
@@ -254,11 +326,11 @@ pub struct Raw {
     keys: HashMap<u16, bool>,
     abs: HashMap<u16, i32>,
     ranges: HashMap<u16, AbsRange>,
-    deadzone_percent: u8,
+    shaping: Shaping,
 }
 
 impl Raw {
-    pub fn new(deadzone_percent: u8) -> Self {
+    pub fn new(shaping: Shaping) -> Self {
         let mut ranges = HashMap::new();
         for code in [ABS_X, ABS_Y, ABS_RX, ABS_RY, ABS_Z, ABS_RZ] {
             ranges.insert(code, AbsRange { min: 0, max: 255 });    /* the DualShock 4 shape; EVIOCGABS replaces it where it answers */
@@ -266,7 +338,7 @@ impl Raw {
         for code in [ABS_HAT0X, ABS_HAT0Y] {
             ranges.insert(code, AbsRange { min: -1, max: 1 });
         }
-        Self { keys: HashMap::new(), abs: HashMap::new(), ranges, deadzone_percent }
+        Self { keys: HashMap::new(), abs: HashMap::new(), ranges, shaping }
     }
 
     fn set_range(&mut self, code: u16, min: i32, max: i32) {
@@ -313,6 +385,19 @@ impl Raw {
         self.abs.get(&code).copied().unwrap_or(0)
     }
 
+    /// This report's sticks unshaped, beside `state`'s buttons and triggers (this report's [`Raw::state`]), with its stamps.
+    pub fn report(&self, state: &PadState, kernel_ns: u64, read_ns: u64) -> RawReport {
+        RawReport {
+            kernel_ns,
+            read_ns,
+            left: (self.axis(ABS_X) as f32, -self.axis(ABS_Y) as f32),
+            right: (self.axis(ABS_RX) as f32, -self.axis(ABS_RY) as f32),
+            left_trigger: state.left_trigger,
+            right_trigger: state.right_trigger,
+            buttons: state.buttons,
+        }
+    }
+
     pub fn state(&self) -> PadState {
         let mut b = 0u16;
         let mut set = |on: bool, bit: u16| {
@@ -334,8 +419,8 @@ impl Raw {
         set(self.key(BTN_DPAD_DOWN) || self.hat(ABS_HAT0Y) > 0, button::DPAD_DOWN);
         set(self.key(BTN_DPAD_LEFT) || self.hat(ABS_HAT0X) < 0, button::DPAD_LEFT);
         set(self.key(BTN_DPAD_RIGHT) || self.hat(ABS_HAT0X) > 0, button::DPAD_RIGHT);
-        let (lx, ly) = radial_deadzone(self.axis(ABS_X), self.axis(ABS_Y), self.deadzone_percent);
-        let (rx, ry) = radial_deadzone(self.axis(ABS_RX), self.axis(ABS_RY), self.deadzone_percent);
+        let (lx, ly) = shape(self.axis(ABS_X), self.axis(ABS_Y), self.shaping);
+        let (rx, ry) = shape(self.axis(ABS_RX), self.axis(ABS_RY), self.shaping);
         let (mut lt, mut rt) = (self.trigger(ABS_Z), self.trigger(ABS_RZ));
         if self.key(BTN_TL2) && lt == 0 {
             lt = 255;       /* a pad that reports its triggers as buttons only */
@@ -368,6 +453,22 @@ pub fn radial_deadzone(x: f64, y: f64, percent: u8) -> (i16, i16) {
     }
     let scaled = (mag - dz) / (1.0 - dz);
     let f = scaled / mag;
+    let to = |v: f64| ((v * f).clamp(-1.0, 1.0) * 32767.0).round() as i16;
+    (to(x), to(y))
+}
+
+/// The radial dead zone, then the curve, then the anti-deadzone, on -1..1 inputs, to the i16 the wire carries. With no curve and no
+/// anti-deadzone it is exactly [`radial_deadzone`].
+pub fn shape(x: f64, y: f64, s: Shaping) -> (i16, i16) {
+    let dz = f64::from(s.deadzone_percent) / 100.0;
+    let mag = x.hypot(y);
+    if mag <= dz {
+        return (0, 0);
+    }
+    let t = ((mag - dz) / (1.0 - dz)).min(1.0);
+    let anti = f64::from(s.anti_deadzone_percent.min(99)) / 100.0;
+    let out = anti + (1.0 - anti) * s.curve.apply(t);
+    let f = out / mag;
     let to = |v: f64| ((v * f).clamp(-1.0, 1.0) * 32767.0).round() as i16;
     (to(x), to(y))
 }
@@ -796,7 +897,7 @@ fn reader_loop(inner: &Arc<Inner>, slot_index: u8, slot: &Arc<Slot>) {
     wake_boost(inner);
     let clock = if eviocsclockid(slot.fd, libc::CLOCK_MONOTONIC).is_ok() { latency::Clock::Mono } else { inner.config.stamp_clock };
     let tap = &inner.config.tap;
-    let mut raw = Raw::new(inner.config.deadzone_percent);
+    let mut raw = Raw::new(inner.config.shaping());
     for code in [ABS_X, ABS_Y, ABS_RX, ABS_RY, ABS_Z, ABS_RZ, ABS_HAT0X, ABS_HAT0Y] {
         if let Ok((min, max)) = eviocgabs(slot.fd, code) {
             raw.set_range(code, min, max);
@@ -828,6 +929,9 @@ fn reader_loop(inner: &Arc<Inner>, slot_index: u8, slot: &Arc<Slot>) {
                     slot.reports.fetch_add(1, Ordering::Relaxed);
                     let bitmap = inner.bitmap.load(Ordering::Acquire);
                     let state = raw.state();
+                    if inner.config.raw {
+                        inner.sink.raw(slot_index, &raw.report(&state, latency::stamp_ns(ev.tv_sec, ev.tv_usec, clock), read_ns));
+                    }
                     if state != last {
                         let new_buttons = state.buttons & !last.buttons;
                         last = state;
@@ -898,7 +1002,7 @@ mod tests {
 
     #[test]
     fn ds4_axes_and_buttons_map_to_xinput() {
-        let mut r = Raw::new(0);
+        let mut r = Raw::new(Shaping::default());
         r.apply(EV_KEY, BTN_SOUTH, 1);
         r.apply(EV_KEY, BTN_WEST, 1);
         r.apply(EV_ABS, ABS_HAT0Y, -1);
@@ -917,6 +1021,21 @@ mod tests {
         assert_eq!(radial_deadzone(0.05, 0.0, 8), (0, 0));
         assert_eq!(radial_deadzone(1.0, 0.0, 8), (32767, 0));
         assert_eq!(radial_deadzone(0.0, -1.0, 8).1, -32767);
+    }
+
+    #[test]
+    fn sticks_take_the_dead_zone_then_the_curve_then_the_anti_deadzone() {
+        let plain = Shaping { deadzone_percent: 8, ..Shaping::default() };
+        for (x, y) in [(0.05, 0.0), (0.3, -0.4), (1.0, 0.0), (-0.7, 0.7)] {
+            assert_eq!(shape(x, y, plain), radial_deadzone(x, y, 8));
+        }
+        let lifted = Shaping { anti_deadzone_percent: 20, ..plain };
+        assert_eq!(shape(0.05, 0.0, lifted), (0, 0), "a resting stick stays at rest");
+        assert_eq!(shape(0.1, 0.0, lifted).0, 7123, "just past the dead zone it starts at 20 %");
+        assert_eq!(shape(1.0, 0.0, lifted).0, 32767);
+        assert_eq!(shape(0.5, 0.0, Shaping { curve: Curve::Precise, ..Shaping::default() }).0, 8192);
+        assert_eq!(shape(0.0, 0.25, Shaping { curve: Curve::Quick, ..Shaping::default() }).1, 16384);
+        assert_eq!(Curve::from_name("quick"), Some(Curve::Quick));
     }
 
     #[test]
@@ -1011,6 +1130,7 @@ mod tests {
         tap: Arc<latency::Tap>,
         events: Mutex<Vec<PadEvent>>,
         summaries: Mutex<Vec<latency::Summary>>,
+        raws: Mutex<Vec<RawReport>>,
     }
 
     impl PadSink for Collect {
@@ -1026,10 +1146,14 @@ mod tests {
         fn latency(&self, summary: &latency::Summary) {
             self.summaries.lock().unwrap().push(summary.clone());
         }
+
+        fn raw(&self, _slot: u8, report: &RawReport) {
+            self.raws.lock().unwrap().push(*report);
+        }
     }
 
     fn collect(cfg: &PadConfig) -> Arc<Collect> {
-        Arc::new(Collect { tap: Arc::clone(&cfg.tap), events: Mutex::new(Vec::new()), summaries: Mutex::new(Vec::new()) })
+        Arc::new(Collect { tap: Arc::clone(&cfg.tap), events: Mutex::default(), summaries: Mutex::default(), raws: Mutex::default() })
     }
 
     fn wait_for(what: &str, cond: impl Fn() -> bool) {
@@ -1042,6 +1166,24 @@ mod tests {
 
     fn reports(sink: &Collect) -> Vec<(PadState, Option<u64>)> {
         sink.events.lock().unwrap().iter().filter_map(|e| if let PadEvent::Report { state, press, .. } = e { Some((*state, *press)) } else { None }).collect()
+    }
+
+    #[test]
+    fn every_report_reaches_the_raw_sink_unshaped_with_its_stamp() {
+        let pad = FakePad::new("raw");
+        let cfg = PadConfig { raw: true, deadzone_percent: 50, ..pad.config() };
+        let sink = collect(&cfg);
+        let rt = PadRuntime::start(cfg.clone(), sink.clone());
+        wait_for("the pad", || rt.bitmap() == 0x0101);
+        let stamp = latency::mono_ns();
+        pad.report(&[(EV_ABS, ABS_X, 160), (EV_ABS, ABS_Y, 0)], stamp);
+        pad.report(&[(EV_ABS, ABS_X, 160)], stamp + 4_000_000);
+        wait_for("both reports", || sink.raws.lock().unwrap().len() == 2);
+        let raws = sink.raws.lock().unwrap().clone();
+        assert_eq!((raws[0].kernel_ns, raws[1].kernel_ns - raws[0].kernel_ns), (stamp / 1000 * 1000, 4_000_000));
+        assert!((raws[0].left.0 - 0.252).abs() < 0.001 && raws[0].left.1 == 1.0, "up is positive: {raws:?}");
+        assert_eq!(reports(&sink).len(), 1, "the unchanged second report is not a pad event");
+        rt.stop();
     }
 
     #[test]
