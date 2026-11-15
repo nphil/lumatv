@@ -4,7 +4,7 @@ use compositor_protocol::{Backdrop, Edges, Glass, Props, Rect, Rgba};
 use lumatv_tokens::{Radius, Tokens, TypeRole};
 use ui::{
     Type, Weight,
-    components::{Align, Form, Icon, wrap},
+    components::{Align, Form, Icon, line_height, wrap},
     geometry::Frame,
     lucent::{
         data::MATERIALS,
@@ -249,12 +249,24 @@ impl<'a> Paint<'a> {
         self.words(id, frame, vec![word], vec![], z);
     }
     pub fn wrapped(&mut self, id: u64, text: &str, frame: Frame, role: TypeRole, colour: Role, stage: bool, z: i32) -> f32 {
-        let ty = self.ty(role);
+        let lines = wrap(self.fonts, text, self.ty(role), frame.w);
+        self.lines(id, lines, frame, role, colour, stage, z)
+    }
+    /// An address to type on a phone, without its scheme, broken after a `/` or `.` where it is wider than the frame: `wrap` breaks
+    /// only at spaces, and an address has none.
+    pub fn address(&mut self, id: u64, url: &str, frame: Frame, role: TypeRole, colour: Role, stage: bool, z: i32) -> f32 {
+        let shown = url.strip_prefix("https://").unwrap_or(url);
+        let lines = break_address(self.fonts, shown, self.ty(role), frame.w);
+        self.lines(id, lines, frame, role, colour, stage, z)
+    }
+    /// Lines `line(role)` apart; the layer is as tall as the last line's drawn box, which is 1.4 em (`line_height`): a role with a
+    /// tighter line (display is 1.0) otherwise loses its descenders.
+    fn lines(&mut self, id: u64, lines: Vec<String>, frame: Frame, role: TypeRole, colour: Role, stage: bool, z: i32) -> f32 {
         let line = self.line(role);
-        let lines = wrap(self.fonts, text, ty, frame.w);
         let height = lines.len() as f32 * line;
+        let drawn = height - line + line_height(self.ty(role)).max(line);
         let words = lines.into_iter().enumerate().map(|(i, text)| self.word(text, role, self.ink(colour, stage), 0.0, i as f32 * line, frame.w)).collect();
-        self.words(id, Frame { h: height, ..frame }, words, vec![], z);
+        self.words(id, Frame { h: drawn, ..frame }, words, vec![], z);
         height
     }
     pub fn mark(&self, icon: Icon, side: f32, x: f32, y: f32, role: Role, stage: bool) -> Mark {
@@ -362,5 +374,41 @@ pub fn ready_word(ready: lumagame_core::ipc::Readiness) -> (&'static str, Role) 
         Offline => ("Offline", Role::Danger),
         Install => ("Install", Role::Ink2),
         Unknown => ("Unknown", Role::Ink2),
+    }
+}
+
+/// `text` in lines no wider than `max_w`, each broken after its last `/` or `.` that fits, or after the last character that fits when
+/// there is none.
+fn break_address(fonts: &mut ui::Fonts, text: &str, ty: Type, max_w: f32) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut rest: Vec<char> = text.chars().collect();
+    while !rest.is_empty() {
+        let mut fit = 1;
+        while fit < rest.len() && fonts.measure(&rest[..=fit].iter().collect::<String>(), ty).width <= max_w {
+            fit += 1;
+        }
+        if fit < rest.len() {
+            if let Some(at) = rest[..fit].iter().rposition(|c| matches!(c, '/' | '.')) {
+                fit = at + 1;
+            }
+        }
+        lines.push(rest.drain(..fit).collect());
+    }
+    lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_address_wider_than_the_frame_breaks_after_a_slash_and_keeps_every_character() {
+        let mut fonts = ui::Fonts::new();
+        let ty = Type { px: 40, weight: Weight::Regular };
+        let url = "static-login.nvidia.com/service/gfn/pin";
+        let max_w = fonts.measure("static-login.nvidia.com/service/", ty).width + 1.0;
+        let lines = break_address(&mut fonts, url, ty, max_w);
+        assert_eq!(lines, ["static-login.nvidia.com/service/", "gfn/pin"]);
+        assert_eq!(break_address(&mut fonts, url, ty, 4000.0), [url]);
     }
 }
