@@ -266,7 +266,7 @@ mod tests {
 
     fn running() -> Input {
         Input::Engine(SessionState::Running {
-            stream: Some(StreamInfo { codec: Codec::H265, width: 3840, height: 2160, fps: 120, hdr: true, audio_channels: 2 }),
+            stream: Some(StreamInfo { codec: Codec::H265, width: 3840, height: 2160, fps: 120, hdr: true, audio_channels: 2, sdr_reason: None }),
         })
     }
 

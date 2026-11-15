@@ -404,6 +404,9 @@ pub struct StreamInfo {
     pub fps: u32,
     pub hdr: bool,
     pub audio_channels: u8,
+    /// Why a requested HDR picture was delivered as SDR, when the engine reports it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sdr_reason: Option<String>,
 }
 
 word_enum! {
@@ -650,7 +653,7 @@ mod tests {
                 video: None,
             },
         };
-        let stream = StreamInfo { codec: Codec::H265, width: 3840, height: 2160, fps: 120, hdr: true, audio_channels: 6 };
+        let stream = StreamInfo { codec: Codec::H265, width: 3840, height: 2160, fps: 120, hdr: true, audio_channels: 6, sdr_reason: None };
         let session = |state| Event::Session { session: SessionId(1), state };
         let auth = |state| Event::Auth { state };
         let events = [
@@ -682,6 +685,16 @@ mod tests {
             let message = FromEngine::answer(9, event);
             assert_eq!(decode::<FromEngine>(&encode(&message)).unwrap(), message);
         }
+    }
+
+    #[test]
+    fn stream_sdr_reason_is_optional_and_round_trips() {
+        let line = r#"{"codec":"h265","width":3840,"height":2160,"fps":60,"hdr":false,"audio_channels":2}"#;
+        let mut stream: StreamInfo = decode(line).unwrap();
+        assert_eq!(stream.sdr_reason, None);
+        assert!(!encode(&stream).contains("sdr_reason"));
+        stream.sdr_reason = Some("GeForce NOW sent no HDR".into());
+        assert_eq!(decode::<StreamInfo>(&encode(&stream)).unwrap(), stream);
     }
 
     #[test]
