@@ -252,7 +252,7 @@ fn auth(p: &mut Paint<'_>) {
             let y = f.y + f.h - 104.0;
             let w = p.button(8040, Focus::SheetAction(0), "Try again", Some(Icon::Refresh), f.x + 40.0, y, !manual, false, 34);
             if manual {
-                p.button(8041, Focus::SheetAction(1), "Enter address", Some(Icon::Plus), f.x + 56.0 + w, y, true, false, 34);
+                p.button(8044, Focus::SheetAction(1), "Enter address", Some(Icon::Plus), f.x + 56.0 + w, y, true, false, 34);
             }
         }
         _ => {
@@ -514,4 +514,22 @@ pub fn media(p: &mut Paint<'_>) {
         p.text(101, &item.title, Frame::new(p.x + 88.0, p.y + 12.0, 1500.0, p.line(Type::Label)), Type::Label, Role::Ink, false, 12);
     }
     p.icon_button(110, Focus::HubTop(0), Icon::Back, p.x, p.y, false, 12);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_pc_found_keeps_both_buttons_whole() {
+        // A button takes its id and the next two (label, focus ring): "Enter address" at 8041 replaced "Try again"'s label.
+        let m = crate::game::model::tests::no_pc_found();
+        let tokens = lumatv_tokens::Tokens::shipped();
+        let mut fonts = ui::Fonts::new();
+        let mut p = Paint::new(&tokens, &m, &mut fonts);
+        sheet(&mut p);
+        let ids = p.plan.nodes.iter().map(|n| n.id).collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(ids.len(), p.plan.nodes.len());
+        assert!(ids.contains(&8041) && ids.contains(&8045), "both labels are drawn");
+    }
 }

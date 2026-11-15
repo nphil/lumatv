@@ -1670,7 +1670,13 @@ impl Model {
                 self.rebuild_catalog();
             }
             ipc::Event::Auth { state } => {
-                if self.view.auth.as_ref().is_none_or(|a| a.engine != id) {
+                let ours = self.view.auth.as_ref().is_some_and(|a| a.engine == id);
+                if !ours {
+                    // An engine answers AuthCancel with a cancelled failure after the flow is gone; reopening the sheet then
+                    // covered "Enter address" with "Link cancelled."
+                    if matches!(state, AuthState::Failed { reason: ipc::AuthFail::Cancelled, .. }) {
+                        return;
+                    }
                     self.view.auth = Some(LinkFlow::new(id.clone(), None, self.now_ms));
                     self.open_sheet(Sheet::Auth, Focus::SheetAction(0));
                 }
@@ -1982,11 +1988,19 @@ impl Model {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     fn key(m: &mut Model, key: Key) -> Vec<Command> {
         m.step(Input::Key { key, down: true });
         m.step(Input::Key { key, down: false })
+    }
+    /// Sunshine's pairing sheet once its search has found no PC.
+    pub(crate) fn no_pc_found() -> Model {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gamestream", "Sunshine", EngineKind::Host)]);
+        describe(&mut m, "gamestream", vec![lumagame_core::engine::AuthMethod::ShowPin], &[Feature::ManualHost]);
+        m.begin_auth(EngineId::new("gamestream").unwrap(), None, &mut Vec::new());
+        m.step(Input::Tick { now_ms: PC_SEARCH_MS, unix_s: 0 });
+        m
     }
     #[test]
     fn release_activates_only_the_destination_that_was_pressed() {
@@ -2145,7 +2159,11 @@ mod tests {
         let manual = key(&mut m, Key::Ok);
         assert!(matches!(sent(&manual).as_slice(), [Request::AuthCancel]));
         assert_eq!((m.view.sheet, m.view.focus), (Some(Sheet::AddHost), Focus::Keyboard(0)));
-        assert_eq!(m.view.selected_engine, Some(id));
+        assert_eq!(m.view.selected_engine, Some(id.clone()));
+
+        let cancelled = AuthState::Failed { reason: ipc::AuthFail::Cancelled, message: "Link cancelled.".into() };
+        m.step(Input::Engine { engine: id, message: FromEngine { re: None, event: ipc::Event::Auth { state: cancelled } } });
+        assert_eq!(m.view.sheet, Some(Sheet::AddHost), "the answer to the cancel leaves the address entry open");
     }
 }
 

@@ -164,7 +164,7 @@ pub fn home(p: &mut Paint<'_>) {
         meta_parts.push(format!("Played {ago}"));
     }
     if stats.seconds > 0 {
-        meta_parts.push(format!("{} h played", stats.seconds / 3600));
+        meta_parts.push(format!("{} played", crate::game::model::play_time(stats.seconds)));
     }
     let meta_text = meta_parts.join("  ·  ");
     let meta_h = ui::components::wrap(p.fonts, &meta_text, p.ty(Type::Label), 820.0).len() as f32 * p.line(Type::Label);
