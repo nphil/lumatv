@@ -168,11 +168,13 @@ recordings, in the repo; temporary captures belong in session scratch.
 |---------|--------|---------------|
 | 4K120 HDR 4:2:0 | measured clip throughput and display counters | Working test workload; physical gaming latency unmeasured |
 | Additional low-latency controls | measured round trip (MEMC, Motion Pro); VPQ set refused; DE node absent | MEMC low delay and Motion Pro only; NDL already selects game/low-delay mode |
-| 4K144 HDR 4:2:0 | proven offline (DE selector only) | Blocked — VO presentation policy not yet traced |
+| 4K144 HDR 4:2:0 | DE selector proven offline; VDEC 120 cap identified in captured code | Blocked — signed VDEC firmware clamps presentation to 120 |
 | VRR (4K120) | readback measured: tracking off at idle and at NDL 4K120 | Blocked — no ForceVRR lifecycle |
 | Cloud G-SYNC | untested | Blocked — depends on VRR |
-| HEVC 4:4:4 | measured: decoder shows no picture; hardware support unresolved | No working decoded path; no HW Config dump reachable |
+| HEVC 4:4:4 | measured no picture; captured Hantro parser rejects non-4:2:0 | No working decoded path; silicon capability remains unknown |
 | BFI / OLED Motion Pro | measured getter round trip at the off value only | Implementable, untested as a visible change; inferred exclusive with VRR |
+| On-glass presentation timestamp | no such event identified in the traced NDL/Starfish path | Software position/clock telemetry is not optical presentation feedback |
+| HDR updates / Dolby Vision streams | metadata paths traced; stream acceptance untested | Mid-stream 60 Hz regression not yet fixed; Dolby Vision needs a complete encoded-metadata path |
 
 ---
 
@@ -189,8 +191,9 @@ The feeder already has `gf_smp.c` alternatives: BUFFERSTREAM with explicit
 sink selection, and direct ES with configurable low delay but no
 `isGameMode`. Direct ES currently refuses audio and explicit sink selection;
 it is not a finished gaming replacement. NDL's `Load` takes width, height
-and codec type, not fps. The TV determines frame rate from SPS VUI timing or
-a PTS-spacing estimator.
+and codec type, not fps. Codec timing, configured rate and PTS estimation
+are separate sources; a valid low-delay default of 60/1 can outrank PTS
+estimation when codec timing is not exported, as in the traced AV1 adapter.
 
 Privileged display controls (MEMC bypass, DE low-delay, VRR, HFR) use V4L2
 controls and DE ioctls on `/dev/lg/de0`. Per project rules these go through
@@ -200,8 +203,14 @@ the **trusted helper** and run only while the gaming plugin is enabled.
 ARM64 kernel (5.4). `/sys/module/vpu/parameters/` does not exist on the host.
 Parameters like `podi_frame_rate` are not host-accessible via sysfs.
 
-Firmware signature verification is established. Binary patches to the DE or
-VDEC images are blocked until the signed-load path is solved.
+The installed O22 **DE loader does not authenticate the image**: it copies
+bytes to MCU memory; its `Verify` operation compares bytes, not signatures.
+The separate **VDEC loader is secure**: `lgkree_req_secure_fwload(0x11, …)`
+calls SMC `0x8200ff09`. An unsigned DE route does not bypass VDEC's 120 cap.
+Firmware modification remains an unapproved, brick-risk experiment, not a
+plugin capability. Exact boundaries and the approval-only
+[DE modification plan](research/rea-firmware-result.md#de-firmware-modification-route)
+are recorded separately.
 
 ---
 
@@ -420,77 +429,56 @@ synthetic-state instruction executions; all 598 bytes match the live firmware
 image. Downstream timing-table code has a 144 Hz branch. A universal
 display-firmware 120 Hz ceiling is therefore incorrect.
 
-### VO HFR enable decision (inferred from disassembly)
+### VO HFR selection and the 120 cap
 
-The VO HFR enable function at `0x505e242a` sets a flag (bit1 of the output
-descriptor at struct+44) under two conditions:
+The captured VDEC code and matching OSL source identify the HFR operands:
+decoded width × height must exceed 2,764,800 pixels and codec fps must be at
+least 61, unless an HFR flag/force option already selects the mode.
+Low-delay mode separately seeds the configured rate with 60/1. HFR selection
+does not remove the later limit.
 
-1. `vo_force_hfr != 0` — debug force, bypasses all checks
-2. Normal path: the product of two instance fields at offsets 24 and 28
-   exceeds 2764800, AND a computed rate value exceeds 60
+`vds/vdisp_core.c` fixes `MAX_FRAMERATE` at **120**. Its inlined progressive
+branch contains `movi a11,120` at `0x505c6971` before
+`vrate_set_rate_limit` (`0x505c8f88`). `vds/vrate.c` independently clamps
+rates above 120; the HFR vsync connection selects fixed 120/1 or 100/1.
+This is a constant in the captured signed `vdec.bin`, not a still-untraced
+DE timing preference.
 
-The operands at offsets 24/28 are unidentified. 2764800 equals 1920×1440
-(QHD pixel count), suggesting a resolution threshold, but this is a guess
-from the value — the field names are not established. The rate comparison
-against 60 at `0x505e25a5` is clearer but the rate source field is also
-unidentified. Both conditions are **inferred**, not proven.
+The measured ~145 frames/s entering VO, ~120 selected and ~25 dropped/s,
+with fixed 120/1 decoder vsync, are consistent with these gates. A DE
+144 Hz scan mode cannot supply 144 unique decoded frames past them.
+PTS/VUI rewriting, `force_hfr`, a forced rate of 144 and DE rate controls
+are therefore not established bypasses.
 
-### Where the 120 cap is (uncertain)
+The Xtensa `/proc/lxvo/vdisp/*` host view is a read-only relay. MCU debug
+rate setters still meet the clamp. Host `vdec_bootopts` is consumed on a
+subsequent firmware run/recovery, not a live rate control; restarting the
+MCU with different arguments cannot change the compiled constant.
 
-The 120000 literal at `0x505a6b0c` has zero `l32r` code references — it is
-a value in a data table, not a code literal pool entry.
+### AV1 reporting `vFreq=600`
 
-The measured evidence points at the **VDEC VO presentation layer**, not the
-DE: the morning report records ~145 frames/s written to VO buffers but only
-~120 selected for presentation, with ~25 dropped per second. This is a
-VO-layer frame selection decision, not a DE output timing problem. The VO
-layer selects which decoded frames to present at each vsync, and the frame
-scheduling/matching code (`vdisp_set_frame_rate`, `vpts_match`) is where
-the 120 selection most likely lives. The exact code path is not yet traced.
+`vFreq` is source fps × 10, **not panel refresh**. The AV1 parser reads
+sequence-header timing, but `gx_av1_get_disp_info` does not populate the
+shared rate numerator/denominator at offsets `+0x28/+0x2c`; the H.264
+adapter does. The generic GX path copies cached frame information rather
+than deriving an AV1 rate. This leaves the low-delay configured 60/1 as
+a usable rate source. The host codec policy also lists AV1 at 60 fps;
+that policy alone is not a silicon throughput verdict.
 
-### Viable approach (ordered by priority)
+Adding AV1 timing bits alone is not an established fix for the missing
+adapter output. Source metadata, decoder selection rate, DE timing and
+unique visible frames must be recorded separately before claiming AV1
+120. [Firmware findings and evidence](research/rea-firmware-result.md).
 
-**A. Trace the VO presentation cap (offline, highest priority)**
+### Remaining prerequisites
 
-The measured ~25 drops/s at 4K144 places the cap in the VO frame selection
-code. The `vdisp_set_frame_rate` function and the `vpts_match` duration
-switch at `0x505ca144` decide which decoded frames to present at each
-vsync. Tracing these with synthetic state (same method as
-`emulate-de-rate-selector.py`) would show exactly where 120 is selected.
-The `esFPS` / `contFPS` estimator feeds into this decision.
-
-**B. PTS / VUI rewriting (lowest live-test risk)**
-
-The TV estimates frame rate from SPS VUI timing or PTS spacing. The test
-fixture carries VUI with `num_units_in_tick=1, time_scale=144`. Real GFN
-NVENC streams often omit VUI timing, so the PTS estimator determines the
-rate. If the feeder rewrites PTS spacing to 1/144s, the VO estimator may
-see 144 and adjust its frame selection accordingly.
-
-**C. VDEC debug parameters via IPC (medium risk)**
-
-`vdec.vo_force_hfr` forces the VO HFR flag.
-`vdec.vdec_force_framerate_num/den` can override the rate the VO uses for
-frame selection. If the 120 cap is gated by the estimated rate, forcing
-144 may lift it.
-
-**D. DE_IO_SetHighFrameRate + DE_IO_SetFrRate (medium risk)**
-
-If the DE also needs to be told to scan at 144, these host-callable
-functions configure DE output timing. Gated by a platform model check
-(model IDs 9–10).
-
-**Dead ends:**
-- `podi_frame_rate` sysfs — does not exist on the host (Xtensa coprocessor)
-- DE/VDEC firmware binary patches — blocked by firmware signature verification
-- The 120000 literal at `0x505a6b0c` — data table, not code
-
-### Open prerequisites
-
-1. Trace VO `vdisp_set_frame_rate` and `vpts_match` with synthetic state
-   to find the exact 120 selection branch
-2. Confirm GFN negotiates 144 fps and check NVENC VUI timing presence
-3. Verify C4 platform model ID against `DE_IO_SetHighFrameRate` gate
+1. An authenticated VDEC change would be needed to remove the identified
+   software ceiling; no such route is established or approved.
+2. DE 144 Hz timing and the C4 model gate need separate acceptance,
+   including optical measurement. The DE-only plan cannot promise
+   144 unique NDL frames while VDEC remains capped.
+3. GFN's negotiated rate and real stream timing still need capture for
+   source compatibility, not as a proposed bypass of the constant.
 
 ---
 
@@ -783,26 +771,23 @@ DE refresh following frame arrival.
 
 ## 4. HEVC 4:4:4
 
-Decoded 4:4:4 never produces a picture on the TV; whether the HEVC cores lack
-4:4:4 or the firmware gates it remains unresolved.
+The captured Hantro/VeriSilicon firmware rejects HEVC non-4:2:0 **before
+opening a decode core**. `HEVCDecodeSeqParamSet` at `0x1ff44` reads
+`chroma_format_idc` and returns error 3 unless it equals 1 (4:2:0).
+This identifies an actual software gate; it does not establish whether
+the silicon can decode 4:4:4.
 
-Five independent evidence chains (all inferred from firmware analysis):
-1. HEVC engine descriptor has no chroma_format_idc field
-2. DPB allocator uses NV12 layout (half-resolution CbCr)
-3. Every decoder (HEVC, H.264, AV1, VP9, MPEG-2, MPEG-4) rejects non-4:2:0
-4. VO layer independently rejects non-4:2:0 subsampling
-5. No debug parameter for chroma override among 30+ force params
+`DWLGetCoreCapability` calls `HantroDecGetCoreCapability`, establishing the
+decoder family, not a precise VC8000D model. The exposed OSL output also
+announces `VDISP_FRAME_FORMAT_420`. Removing one parser check would not
+establish a supported output layout, buffer allocation or hardware path;
+the VDEC secure loader independently prevents an ordinary patched-image
+load. Claims that every codec or every hardware core rejects 4:4:4 exceed
+the inspected evidence.
 
-The decoder IP is Hantro VC8000D-series. The H.264 engine descriptor does
-include a chroma field (2 bits at word2), but the H.264 parser still rejects
-non-4:2:0 — the field exists in the hardware but the firmware gates it.
-Whether the HEVC ASIC cores have 4:4:4 blocks is not conclusively
-established without a live HW Config dump.
-
-The display pipeline supports 4:4:4 for HDMI input
-(`BE_FRC_Set_YUV_444_Mode`, `vsc_set_rgb444`). The panel can show 4:4:4
-content; the investigated decoded paths reject it. That does not by itself
-establish which restriction is firmware policy versus decoder hardware.
+The display side supports 4:4:4 for HDMI (`BE_FRC_Set_YUV_444_Mode`,
+`vsc_set_rgb444`); that is not proof of decoded 4:4:4 support.
+[Parser and secure-loader evidence](research/rea-firmware-result.md#q4-hevc-444).
 
 **Live check (2026-11-15):** the 4K120 Main 4:4:4 10 HDR clip through the
 feeder's NDL path reported `playing:1`, 1201 units fed, 0 dropped, and the
@@ -842,6 +827,45 @@ controls.
 
 ---
 
+## 6. Presentation feedback
+
+No traced NDL/Starfish event supplies a per-frame **on-glass timestamp**.
+The decoder's display notification identifies a PTS and a firmware handoff,
+not light emitted by the panel; `current_stc` in the VO notification is a
+scheduled/compensated timestamp, not a measured scanout time.
+
+Starfish's `option.useCurrentTimeWithSystemClock` converts a position update
+to event 72 with `currentTime` in milliseconds and a host monotonic
+`systemClock` in nanoseconds. The generic pipeline polls at intervals of at
+least 50 ms. NDL's callback drops that event, and DirectMediaPlayer's timer
+reports drops rather than producing periodic position events. The option
+alone therefore does not add presentation feedback to the gaming path.
+Optical measurement remains the reference for button-to-light latency.
+
+## 7. HDR updates and Dolby Vision
+
+`SetHDRInfo` can immediately regenerate `decodeInfo` from cached video
+metadata and call the video-output service. That service can reconfigure
+the window when HDR, rate or HFR metadata changes; missing `hfrEnabled`
+clears the HFR flag. No unconditional “HDR means 60 Hz” assignment was
+found in the setter. The exact metadata transition behind the reported
+mid-stream 120→60 drop remains unmeasured; no fix is claimed.
+
+The integration must preserve negotiated rate, HFR and game/low-delay
+metadata across genuine HDR changes. Avoid redundant HDR calls, establish
+metadata before normal streaming where supported, and compare the emitted
+metadata with decoder and DE rates before accepting a correction.
+
+The native media stack understands Dolby Vision caps and profile metadata,
+but `SetHDRInfo` alone cannot supply Dolby Vision's per-picture RPU
+metadata. Direct ES constructs codec caps without Dolby Vision fields and
+does not build the normal parser chain. A compatible encoded stream,
+profile-aware parser/decoder path and retained RPU data are required.
+Dolby Vision through NDL, Dolby Vision 120 fps and gaming latency remain
+untested. [Detailed findings](research/rea-firmware-result.md#q3-hdr-updates-and-dolby-vision-streams).
+
+---
+
 ## Kernel symbols reference
 
 ### Low latency
@@ -875,7 +899,9 @@ controls.
 
 ## VDEC debug parameters
 
-Accessed through `te_debug_param_*` / VDEC IPC, not sysfs.
+These symbols are inside the VDEC MCU. A writable host IPC bridge is not
+established; `/proc/lxvo/vdisp/*` is a read-only relay. None of the rate
+parameters removes the compiled 120 limit.
 
 | Parameter | Value address | Purpose |
 |-----------|---------------|---------|
@@ -889,17 +915,17 @@ Accessed through `te_debug_param_*` / VDEC IPC, not sysfs.
 
 ## Open prerequisites (LumaGame must not build on these)
 
-1. VO frame selection at 144 fps — trace `vdisp_set_frame_rate` /
-   `vpts_match` first (section 2); DE output timing acceptance through
-   `DE_IO_SetFrRate` / `DE_REG_O22_SetFrRate` is a separate open prerequisite
+1. VDEC's compiled 120 presentation ceiling — no authenticated change
+   route is established (section 2). DE 144 timing acceptance is separate
 2. ~~VRR tracking register readback~~ — measured 2026-11-15: live values,
    tracking off at idle and at 4K120 (section 3)
 3. Panel safe VRR blanking bounds — VRRULIMIT/VRRLLIMIT defaults are not
    host-readable and the current EDIDs declare no VRR range (section 3)
 4. Physical panel scan measurement at any rate — the SoC counters show only
    what the DE sends; the optical method is in section 3
-5. Signed firmware load path — blocks any binary patch approach
+5. VDEC secure firmware loading — blocks an ordinary patched VDEC image;
+   O22 DE loading is unsigned but its modification plan needs owner approval
 6. `te_debug_param` write path from userspace — not confirmed
-7. Conclusive 4:4:4 verdict — no HW Config dump in `dmesg`; decoded 4:4:4
-   opens no decode core (section 4)
+7. HEVC 4:4:4 silicon capability and output layout — the firmware parser
+   refusal is identified; removing it alone would not establish support
 8. C4 platform model ID — must match DE_IO_SetHighFrameRate gate (IDs 9–10)
