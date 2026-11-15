@@ -296,6 +296,8 @@ COMP="$STATE/compositor"
 if [ -f "$APPDIR/tools/compositor.sh" ]; then . "$APPDIR/tools/compositor.sh"; fi
 # The GeForce NOW app's own package inside this one (tools/gfnapp.sh).
 if [ -f "$APPDIR/tools/gfnapp.sh" ]; then . "$APPDIR/tools/gfnapp.sh"; fi
+# LumaGame's own package inside this one (tools/gameapp.sh).
+if [ -f "$APPDIR/tools/gameapp.sh" ]; then . "$APPDIR/tools/gameapp.sh"; fi
 # Seconds a second mutation waits for the first to finish. An apply takes ~30s
 # at worst, so this is generous without hanging a caller forever.
 LOCK_WAIT=180
@@ -2403,6 +2405,25 @@ verb_gfn() {
   return 0
 }
 
+# LumaGame (docs/lumagame/ARCHITECTURE.md): installed by the owner's own command like the GeForce NOW app; boot only updates an installed
+# one. `adopt-gfn` brings the GeForce NOW app's sign-in over so the gfn engine needs no new one.
+verb_game() {
+  case "${1:-status}" in
+    install)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      if game_install; then printf '{"ok":true,"game":%s}\n' "$(game_status)"; else emit_error "LumaGame did not install"; return 1; fi ;;
+    remove)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      if game_remove; then printf '{"ok":true,"game":%s}\n' "$(game_status)"; else emit_error "LumaGame was not removed"; return 1; fi ;;
+    adopt-gfn)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      if game_adopt_gfn; then printf '{"ok":true,"game":%s}\n' "$(game_status)"; else emit_error "$GAME_ADOPT_WHY"; return 1; fi ;;
+    status) printf '{"ok":true,"game":%s}\n' "$(game_status)" ;;
+    *) emit_error "game: install, remove, adopt-gfn or status"; return 1 ;;
+  esac
+  return 0
+}
+
 verb_wallpaper() {
   case "${1:-status}" in
     video|gpu) wallpaper_set "$1" || { emit_error "wallpaper: theme.json could not be updated"; return 1; } ;;
@@ -2625,6 +2646,13 @@ verb_compositor_boot() {
           gfn_update || log_line "boot: GeForce NOW update failed"
         else
           log_line "boot: GeForce NOW update deferred: $STORAGE_WHY"
+        fi
+      fi
+      if [ -f "${GAME_IPK:-}" ] && [ -d "${GAME_DIR:-}" ] && ! game_current && ! game_running; then
+        if app_storage_guard "$GAME_IPK" "$GAME_DIR"; then
+          game_update || log_line "boot: LumaGame update failed"
+        else
+          log_line "boot: LumaGame update deferred: $STORAGE_WHY"
         fi
       fi
       if feeder_installed; then
@@ -3514,7 +3542,7 @@ case "$VERB:${2:-}" in
   lgextras:status|lgextras:) MAINTENANCE_ACCESS=read ;;
   status:|surfaces:|version:|log:*|theme:get|theme:|layout:get|layout:|layout:check|compositor:check|stock-ui-restore:|stock-ui-restore:keep-sysbus)
     MAINTENANCE_ACCESS=read ;;
-  helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:|sysbus:status|sysbus:|ssgw:status|ssgw:)
+  helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|game:status|game:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:|sysbus:status|sysbus:|ssgw:status|ssgw:)
     MAINTENANCE_ACCESS=read ;;
   revert:|persist:off|compositor:off|homestub:escape|homestub:off|helper:stop|capture:stop|vplane:stop|sysbus:off|ssgw:off)
     MAINTENANCE_ACCESS=emergency ;;
@@ -3540,7 +3568,7 @@ esac
 
 if [ "$MAINTENANCE_ACCESS" = write ]; then
 case "$VERB" in
-  persist|standby|ntfy|theme|layout|helper|capture|inputs|vplane|feeder|gfn|wallpaper|transitions|preload|wake|compositor|compositor-boot|standbyscreen)
+  persist|standby|ntfy|theme|layout|helper|capture|inputs|vplane|feeder|gfn|game|wallpaper|transitions|preload|wake|compositor|compositor-boot|standbyscreen)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     take_mutation_lock || { bd_early_gone; emit_error "another mutation is in progress"; exit 1; }
@@ -3660,6 +3688,7 @@ case "$VERB" in
   vplane) verb_vplane "${2:-status}"; exit $? ;;
   feeder) verb_feeder "${2:-status}"; exit $? ;;
   gfn) verb_gfn "${2:-status}"; exit $? ;;
+  game) verb_game "${2:-status}"; exit $? ;;
   wallpaper) verb_wallpaper "${2:-status}"; exit $? ;;
   transitions) verb_transitions "${2:-status}"; exit $? ;;
   preload) verb_preload "${2:-status}"; exit $? ;;

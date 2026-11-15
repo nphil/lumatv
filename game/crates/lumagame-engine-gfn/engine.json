@@ -1,0 +1,11 @@
+{
+  "id": "gfn",
+  "name": "GeForce NOW",
+  "summary": "Play your GeForce NOW library in the cloud. Sign in with the code shown on the TV.",
+  "kind": "cloud",
+  "protocol": 1,
+  "exec": "bin/lumagame-engine-gfn",
+  "args": ["--core", "bin/opennow-core", "--streamer", "bin/opennow-streamer"],
+  "license": "MIT",
+  "source": "https://github.com/nphil/lumatv/tree/main/game/crates/lumagame-engine-gfn"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "org.nphil.lumagame",
+  "version": "0.1.0",
+  "vendor": "nphil",
+  "type": "native",
+  "main": "lumagame-main",
+  "title": "LumaGame",
+  "appDescription": "Cloud and PC game streaming on the video plane: GeForce NOW, Punktfunk and Sunshine/Apollo engines in one library",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "extraLargeIcon": "extraLargeIcon.png",
+  "iconColor": "#191724",
+  "nativeLifeCycleInterfaceVersion": 2,
+  "handlesRelaunch": true,
+  "requiredMemory": 320,
+  "transparent": true,
+  "visible": true
+}

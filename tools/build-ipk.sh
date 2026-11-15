@@ -126,6 +126,7 @@ beszel/build/beszel-agent
 payload/beszel/nvtop
 tools/cardapp.sh
 tools/gfnapp.sh
+tools/gameapp.sh
 gfn/build/${GFN_ID}_${GFN_VERSION}_all.ipk
 card/appinfo.json
 card/splash.png
@@ -342,7 +343,7 @@ cp tools/tileicons.js "$DATA_ROOT/tools/"
 cp tools/keyfilter.py "$DATA_ROOT/tools/"
 cp tools/theme.py "$DATA_ROOT/tools/"
 cp tools/layout.py "$DATA_ROOT/tools/"
-cp tools/tokens.py tools/systemui.py tools/preload.py tools/compositor.sh tools/cardapp.sh tools/gfnapp.sh "$DATA_ROOT/tools/"
+cp tools/tokens.py tools/systemui.py tools/preload.py tools/compositor.sh tools/cardapp.sh tools/gfnapp.sh tools/gameapp.sh "$DATA_ROOT/tools/"
 cp tools/wake.py "$DATA_ROOT/tools/"
 # LG's Content Store theme (tools/lumatv store): the overlay tool, the builder of the script it mounts (which imports tokens, shipped above)
 # and the probe's receiver and report (`store probe`). The script's sources, payload/store, go out with the rest of payload/ below.
@@ -406,6 +407,15 @@ cp "$BUILD_DIR/card-ipk/$APP_ID.card.ipk" "$DATA_ROOT/payload/card/"
 # The GeForce NOW app, as built (it names its build by hash, so nothing here is repacked); `lumatv apply` updates an installed one.
 mkdir -p "$DATA_ROOT/payload/gfn"
 cp "gfn/build/${GFN_ID}_${GFN_VERSION}_all.ipk" "$DATA_ROOT/payload/gfn/$APP_ID.gfn.ipk"
+# LumaGame (game/build-ipk.sh) rides along once built. Until it has passed on the TV a round without it still builds, and
+# `lumatv game install` then says there is no ipk in the package.
+GAME_IPK=$(ls game/build/org.nphil.lumagame_*_all.ipk 2>/dev/null | head -n 1)
+if [ -n "$GAME_IPK" ]; then
+    mkdir -p "$DATA_ROOT/payload/game"
+    cp "$GAME_IPK" "$DATA_ROOT/payload/game/org.nphil.lumagame.ipk"
+else
+    echo "Note: no game/build/org.nphil.lumagame_*_all.ipk; this package carries no LumaGame" >&2
+fi
 
 place "$DATA_ROOT/payload/keyfilter/$SRC_NAME.js" "$DATA_ROOT/payload/keyfilter/$SHORT_ID.js"
 place "$DATA_ROOT/payload/webapps/$SRC_NAME.css" "$DATA_ROOT/payload/webapps/$SHORT_ID.css"

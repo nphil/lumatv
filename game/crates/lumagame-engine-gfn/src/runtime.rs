@@ -31,6 +31,11 @@ impl Options {
                 _ => return Err(format!("Unknown argument {key}")),
             }
         }
+        // The app starts engines in their own directory, and under the package's loader current_exe() names the loader, so the
+        // manifest's relative paths are taken from there. The core hands the streamer path on as a setting, so it must be absolute.
+        let directory = std::env::current_dir().map_err(|e| e.to_string())?;
+        options.core = directory.join(&options.core);
+        options.streamer = directory.join(&options.streamer);
         Ok(options)
     }
 }
@@ -185,4 +190,23 @@ fn write_pad_prefs(data: &Path, prefs: &Value) -> io::Result<()> {
     serde_json::to_writer(&mut file,prefs)?;
     file.flush()?;
     fs::rename(path,data.join("runtime-prefs.json"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manifest_paths_are_taken_from_the_engine_directory() {
+        let options = Options::parse(["--core","bin/opennow-core","--streamer","/opt/streamer"].map(String::from)).unwrap();
+        assert_eq!(options.core,std::env::current_dir().unwrap().join("bin/opennow-core"));
+        assert_eq!(options.streamer,Path::new("/opt/streamer"));
+    }
+
+    #[test]
+    fn the_shipped_manifest_is_valid_and_its_arguments_parse() {
+        let manifest = lumagame_core::engine::Manifest::parse("gfn",include_str!("../engine.json")).unwrap();
+        let options = Options::parse(manifest.args).unwrap();
+        assert!(options.core.ends_with("bin/opennow-core") && options.streamer.ends_with("bin/opennow-streamer"));
+    }
 }

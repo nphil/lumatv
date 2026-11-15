@@ -188,7 +188,9 @@ Profiles hold choices and history. Engine accounts are the household's, not per 
 **Migration of the GeForce NOW sign-in.** Jails are per app id, so the new app cannot read the old one's files. A root step
 (`lumatv game adopt-gfn`) copies `config/`, `data/` and `prefs.json` from the old app's data directory into
 `engines/gfn/`, keeping modes, without moving them. The shim uses `prefs.json` for its defaults. If the copy is missing, the cost
-is one device-code sign-in. **Untested.**
+is one device-code sign-in. The feeder makes the app's directory under every base it tries, so the step takes LumaGame's to be the
+one holding `engines/` (LumaGame has to have started once), gives the copy to that directory's owner, and never writes over an
+existing `engines/gfn/config/`. **Untested.**
 
 ## Identity and cutover
 
