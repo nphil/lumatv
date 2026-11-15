@@ -1,0 +1,18 @@
+[package]
+name = "lumagame-engine-gfn"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+lumagame-core = { path = "../lumagame-core" }
+serde_json.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "lumagame-engine-gfn"
+path = "src/main.rs"
