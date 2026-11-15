@@ -2,9 +2,9 @@
 
 Current state and how to resume. Main design docs: ARCHITECTURE.md, DESIGN.md, PRODUCT.md (this folder); display research: docs/lumagame-gaming-features.md.
 
-## State (2026-11-15 15:17 PST)
+## State (2026-11-15 15:50 PST)
 
-- App `org.nphil.lumagame` installed on the TV from main `c6356dae` (build-id `0357aa5bbd22b264`, ipk sha256 `96d55637…ada1`), replacing build `11b01edb054731d5` (ipk `b07b60d72de82dee…`). TV helper `5f158de5…74e9` (main `c6356dae`, includes `cddab248` and `88a1a431`), replacing `43e74d46`. Rollback copies and receipts: /data/home/tmp/lumagame-install3-20261115/. Controller Lab, GameSir and Leadjoy pages open on the TV; with the Gaming plugin off the two pad pages show only the "Switch on the Gaming plugin" note and Refresh.
+- App `org.nphil.lumagame` installed on the TV from main `c6356dae` (build-id `0357aa5bbd22b264`, ipk sha256 `96d55637…ada1`), replacing build `11b01edb054731d5` (ipk `b07b60d72de82dee…`). TV helper `562bbcc6…be4a` (main `d74ab0fe`, adds the stats overlay's display readings and setting), replacing `5f158de5…74e9` (main `c6356dae`); rollback copy and receipts: /data/home/tmp/lumagame-statsoverlay-20261115/. Older rollback copies: /data/home/tmp/lumagame-install3-20261115/. Controller Lab, GameSir and Leadjoy pages open on the TV; with the Gaming plugin off the two pad pages show only the "Switch on the Gaming plugin" note and Refresh.
 - GeForce NOW works end to end on the TV: sign-in (account nphil, stored under the app's data dir), library with art, 4K120 stream, Back/overlay, end session. Shader cache: second launch's window at 397 ms (1975 ms cold).
 - Old apps `org.nphil.lumatv.gfn` and `io.unom.punktfunk.client-webos` are still installed. Remove them only after the at-home checks pass.
 - Sunshine/Apollo engine: separate GPL repo github.com/nphil/lumagame-gamestream (v0.1.1), pinned in game/engines.lock, fetched by game/tools/fetch-gamestream.sh.
@@ -12,7 +12,7 @@ Current state and how to resume. Main design docs: ARCHITECTURE.md, DESIGN.md, P
 
 ## In flight
 
-Nothing running. Controller Lab finished and installed: commits `65ddd309`, `576118b4`, `c6356dae` (+ Leadjoy crate fix `5d62cb7e`). Leadjoy settings not yet exposed (keyboard/mouse targets, gesture thresholds, motion accessories c220-c224, FPS c130-c135, rjc/mse, connection modes, advanced macro edit) and ACK-only operations (calibration, recording, reset, sub-config triggers) are listed in /data/home/tmp/lumagame-wip/ControllerLab.md.
+Stats overlay (worker StatsOverlay): the helper side is on main and on the TV (`cef727d1`, `d74ab0fe`; docs/plugins/gaming.md "Stats overlay"); the overlay, feeder frame records, setting controls and the Quick Settings tile are in progress. Resume note: /data/home/tmp/lumagame-wip/StatsOverlay.md. Controller Lab finished and installed: commits `65ddd309`, `576118b4`, `c6356dae` (+ Leadjoy crate fix `5d62cb7e`). Leadjoy settings not yet exposed (keyboard/mouse targets, gesture thresholds, motion accessories c220-c224, FPS c130-c135, rjc/mse, connection modes, advanced macro edit) and ACK-only operations (calibration, recording, reset, sub-config triggers) are listed in /data/home/tmp/lumagame-wip/ControllerLab.md.
 
 ## Next work, in order
 
