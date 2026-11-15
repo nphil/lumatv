@@ -169,7 +169,7 @@ recordings, in the repo; temporary captures belong in session scratch.
 | 4K120 HDR 4:2:0 | measured clip throughput and display counters | Working test workload; physical gaming latency unmeasured |
 | Additional low-latency controls | measured round trip (MEMC, Motion Pro); VPQ set refused; DE node absent | MEMC low delay and Motion Pro only; NDL already selects game/low-delay mode |
 | 4K144 HDR 4:2:0 | DE selector proven offline; VDEC 120 cap identified in captured code | Blocked — signed VDEC firmware clamps presentation to 120 |
-| VRR (4K120) | readback measured: tracking off at idle and at NDL 4K120 | Blocked — no ForceVRR lifecycle |
+| VRR (4K120) | forced VRR measured: refresh follows the decoder timer — the declared rate, or a 300-frame arrival average with RAM-only decoder parameters | Blocked — no ForceVRR lifecycle; no per-frame following |
 | Cloud G-SYNC | untested | Blocked — depends on VRR |
 | HEVC 4:4:4 | measured no picture; captured Hantro parser rejects non-4:2:0 | No working decoded path; silicon capability remains unknown |
 | BFI / OLED Motion Pro | measured getter round trip at the off value only | Implementable, untested as a visible change; inferred exclusive with VRR |
@@ -501,6 +501,8 @@ Measured 2026-11-15: `VRR 1` engages tracking for a decoded full-screen
 window. Refresh follows the decoder's declared-rate timing, not frame
 arrival: 45/67/72/75/90 fps track one-for-one, while 50/60 fps use doubled
 100/120 Hz decoder timers. Only a reboot fully undoes it (Experiment results).
+RAM-only decoder parameters let that timer follow a 300-frame average of the
+arrival rate (80–100 fps measured), never individual frames (True VRR).
 
 ### First target: 4K120 + VRR
 
@@ -880,6 +882,121 @@ plane could reach VRR only by being encoded into a video window (inferred).
 Under forced VRR the compositor's vblanks also become irregular (measured
 above), which its pacer sees as odd flip intervals (inferred).
 
+### True VRR
+
+Measured 2026-11-15 with the 4K120 HEVC Main10 HDR10 clip (declared 120 fps)
+under forced VRR. DE2VSYNC and osd_irq were polled about every 1.4 ms, so
+interval spreads below ~1.5 ms are polling jitter. Receipts:
+`/data/home/tmp/lumagame-vrrexp-20261115/truevrr/`.
+
+The VDEC MCU's module parameters are writable from the host:
+`param:<value>:module/vdec/parameters/<name>` written to
+`/proc/lxipc/vdec/user_command` reaches the MCU as an IPC command that its
+init applies as a sysfs write (the MCU log prints `command "param" done`).
+Values stay in MCU RAM until reboot and apply from the next decoder
+connection. Three were changed:
+
+| Parameter | Stock | Run | Effect |
+|---|---|---|---|
+| `vsync_disable_phaseshift` | 0 | 1 | Latency servo off: `next_phase_shift` read 0 instead of ±10⁷–10⁹ |
+| `vsync_shift_limit2` | 2 | 800 | Timer clamp `min/max_intv` 45020–404980: 66.7 Hz up to 200 Hz, the HAL's 5 ms period floor, instead of 224570–225430 (120 Hz ±0.19 %) |
+| `vsync_shift_delta` | 300 | 3000 | Period may move 111 µs per vsync instead of 11 µs (source) |
+
+The decoder's DCO path (`check_frame`, `vdisp_core.c`) retargets the timer
+every 300 displayed frames to their mean enqueue interval; the stock clamp
+keeps that within ±0.19 %. With the run values the timer reaches the arrival
+rate and forced VRR makes the DE follow it. Each row is a fresh load:
+
+| Feed | Parameters | Timer (Hz) | DE2VSYNC / osd_irq (Hz) | Fewest DE per 100 ms | DE interval p5/p50/p95 (ms) | `CC460B90` median (Hz) | SYS_VERI_10 delay |
+|---|---|---|---|---|---|---|---|
+| 90 fps | stock | 120.23 | 91.85 / 91.65 | 8 | 7.54 / 8.43 / 17.01 | 2242 (120.43) | 17.3 ms |
+| 100 fps | run | 100.03 | 100.06 / 100.06 | 10 | 9.36 / 9.80 / 11.02 | 2697 (100.11) | 20.6 ms |
+| 90 fps | run | 89.99 | 90.01 / 90.01 | 9 | 10.73 / 11.04 / 12.20 | 2998 (90.06) | 22.9 ms |
+| 80 fps | run | 79.99 | 80.08 / 80.08 | 8 | 11.64 / 12.46 / 13.41 | 3372 (80.07) | 25.7 ms |
+
+The stock control stayed on the 120 Hz timer grid and held some frames for
+a second period (8.4 and 16.8 ms intervals); step 4 measured 114.72 Hz for
+the same feed, so the share of held frames varies between runs. With the run
+values every frame got one period of 1/rate. The timer reached the rate one
+window after the load (300 frames, 3.0–3.75 s), first within 1 % (100.86 Hz
+for 100 fps), then within 0.03 Hz at the next window. No feeder drops or
+errors occurred.
+The firmware delay grew with the period, as in the odd-rate runs.
+
+Variable arrival used one load per pattern, with a serve-mode client pacing
+each access unit to an absolute deadline and the run values. Each row covers
+the second half of its phase:
+
+| Arrival pattern | Mean arrival (fps) | Timer (Hz) | DE2VSYNC (Hz) | DE per 100 ms | DE interval p5/p50/p95 (ms) |
+|---|---|---|---|---|---|
+| Step to 90 fps (10 s) | 90.00 | 90.00 | 91.02 | 9–10 | 9.66 / 11.01 / 12.05 |
+| Step to 100 fps (10 s) | 100.00 | 99.99 | 99.99 | 9–11 | 9.45 / 9.97 / 10.90 |
+| Step to 80 fps (10 s) | 80.00 | 79.97 | 80.00 | 8 | 11.32 / 12.51 / 13.78 |
+| Random 70–110 fps per frame (30 s) | 85.99 | 85.37 | 85.78 | 8–9 | 10.77 / 11.50 / 12.78 |
+| Alternating 70/110 fps (20 s) | 85.59 | 85.54 | 85.57 | 8–9 | 10.75 / 11.51 / 12.89 |
+| Sine 70–110 fps, 12 s period (36 s) | 85.75 | 73.8–108.1 | 92.46 | 7–11 | 8.51 / 10.46 / 13.77 |
+
+Arrivals alternating 14.3 and 9.1 ms apart produced a single DE interval
+distribution around 11.5 ms: the refresh did not follow individual frames.
+Rate steps reached the timer one or two windows later; the change to 80 fps
+at 26 s read 93.4 Hz at 27 s and 80.0 Hz at 31 s. In the sine run the timer
+stepped every ~3.5 s to the previous window's mean and lagged the arrival by
+about a quarter period, reading 103.4 Hz while frames arrived at 71 fps and
+73.8 Hz while they arrived at 96–104 fps; DE2VSYNC followed the timer. All
+10,940 access units were accepted with the feeder queue at most 3, so frames
+arriving faster than the timer were dropped inside the decoder (inferred).
+
+The step load's opening 120 fps phase estimated 121.0 Hz in its first
+window. Until the next window the DE ran at 55–59 Hz, with 6 pulses per
+100 ms in 18 of 58 windows. A timer above 120 Hz can therefore halve the
+refresh (cause not established), and `vsync_shift_limit2` widens the clamp
+symmetrically, so it cannot cap the top rate.
+
+Verdict: the refresh follows the arrival rate averaged over 300 frames
+(about 3.5 s), not individual frames. A stream held at a steady rate below
+120 fps gains a matched refresh after one window: 11.0 ms per frame at
+90 fps instead of the 8.4/16.8 ms grid. A varying cadence gets lag, repeats
+and decoder drops instead. The window is a compiled `30 * 10`, and the
+decoder presents only on its timer; changing either needs the secure-loaded
+VDEC image (Architecture). `vdisp_set_vsync_shift`, a one-shot phase shift
+applied at the next displayed frame through the same route, is the only
+per-frame host lever in the source. It is ignored while
+`vsync_disable_phaseshift` is 1 and is untested.
+
+OSD content and native games are unaffected: the timer exists only for
+decoded windows, the OSD has no sync source of its own and DRM `lg1k` has no
+VRR (OSD and DRM route above).
+
+DE firmware plan (plan only; nothing was loaded or written): DE image 0
+(`y24_pine25_o22n2_20250414.1`, SHA-256 `bc5aa595…`; main-segment VA = file
+offset + `0x501dc9dc`) has no host-triggered frame start. Its sync debug
+commands select fixed modes:
+
+| Command | VA | File offset | Function |
+|---|---|---|---|
+| DSYNC | `0x5023d64c` | `0x60c70` | One of 26 fixed output timings |
+| PSYNC | `0x5023b1e0` | `0x5e804` | Pseudo input sync at a listed rate (120, 100, 60, …) |
+| DISPFR | `0x5023f02c` | `0x62650` | Display rate from a list (60/50/48/120/100/96 Hz) or force 60 Hz |
+| HFR | `0x502406e0` | `0x63d04` | Forced HFR mode |
+| RESET | `0x5025100c` | `0x74630` | Restarts the DE MCU |
+
+The smallest candidate for OSD-driven refresh is a one-shot PSYNC pulse,
+armed by a new command once per compositor flip (inferred). It needs the
+panel's blanking bounds (open prerequisite 3) and follows the brick-risk
+plan in the
+[DE firmware modification route](research/rea-firmware-result.md#de-firmware-modification-route).
+It cannot help decoded video, whose frames reach the DE on the decoder's
+timer.
+
+The run ended with `tvpower/power/reboot`; a backgrounded `reboot` over SSH
+did not restart the TV. Post-checks: ssgw enabled, entry `ours`, gateway
+true; latest crash still `20261114-170911-001`; in Active Standby, refresh
+60 Hz auto, divider 2, and 0 fb0 flips in 30 s. After MUOFF and the
+receiver's unmuted audio report, the TV's `getVolume` `muteStatus` changed
+from true to false. Receipts: `reads-*.json`, `vds-*.json`, `feeder-*.json`,
+`vfeed-var-wide.json`, `analysis-var-wide.json`, `var-wide-per-second.json`,
+`fw-*.txt`, `params-*.json`, `reboot.json`, `as-left.json`, `session.log`.
+
 ### Cloud G-SYNC
 
 NVIDIA supports it only on GeForce NOW Ultimate, in the native Windows
@@ -903,7 +1020,9 @@ the C4's decoded path presents on a 120 Hz decoder timer (measured
 `fixed_frame_rate 1`, ±0.19 %), so a varying server cadence would show as
 8.33 ms-quantised judder rather than a varying refresh, while Reflex is
 already requested at 120 fps. Forced VRR does not change this: it follows
-the decoder's declared-rate timing, not frame arrival (step 4 and odd-rate follow-up).
+the decoder's declared-rate timing, not frame arrival (step 4 and odd-rate
+follow-up), and with widened decoder parameters a 300-frame arrival average
+(True VRR).
 
 ### Open prerequisites
 
@@ -912,9 +1031,14 @@ the decoder's declared-rate timing, not frame arrival (step 4 and odd-rate follo
 2. ~~MCU print route for the `VRR` query~~ — `ipc log 1`, measured
    2026-11-15
 3. VRR limits: VRRULIMIT/VRRLLIMIT defaults are not host-readable, and the
-   current EDIDs declare no VRR range
+   current EDIDs declare no VRR range. DE image 0 derives 47.5 Hz (or
+   39.5 Hz) to 167.0 Hz for HDMI sources, which those options override, and
+   bounds decoder sources only by vertical totals 2114–28672 (≈127.7–9.4 Hz)
+   (inferred); a 121 Hz decoder timer nevertheless halved the refresh (True VRR)
 4. ~~Whether internal tracking follows frame arrival or the decoder timer~~ —
-   the decoder's declared-rate timer, measured 2026-11-15 (step 4 and follow-up)
+   the decoder's declared-rate timer, measured 2026-11-15 (step 4 and
+   follow-up); widened decoder parameters make that timer follow a 300-frame
+   arrival average (True VRR)
 5. Optical scan measurement, including the 90 Hz and odd-rate cases
 6. VRR lifecycle with save/verify/restore in the trusted helper. `VRR 0`,
    `VRR 2` and Active Standby leave residue that only a reboot clears; its
@@ -1054,9 +1178,11 @@ untested. [Detailed findings](research/rea-firmware-result.md#q3-hdr-updates-and
 
 ## VDEC debug parameters
 
-These symbols are inside the VDEC MCU. A writable host IPC bridge is not
-established; `/proc/lxvo/vdisp/*` is a read-only relay. None of the rate
-parameters removes the compiled 120 limit.
+These symbols are inside the VDEC MCU. Host writes reach its module
+parameters as `param:<value>:module/vdec/parameters/<name>` through
+`/proc/lxipc/vdec/user_command`, RAM-only (measured for three vsync
+parameters in section 3, True VRR); `/proc/lxvo/vdisp/*` is a read-only
+relay. None of the rate parameters removes the compiled 120 limit.
 
 | Parameter | Value address | Purpose |
 |-----------|---------------|---------|
