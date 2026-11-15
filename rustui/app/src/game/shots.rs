@@ -594,6 +594,21 @@ fn closing_waits_for_session_end_and_records_the_final_seconds() {
 }
 
 #[test]
+fn remote_back_opens_the_overlay_while_a_game_runs() {
+    let mut m = fixture();
+    m.view.page = Page::Hub;
+    m.view.selected = Some(id(&m, "Cyberpunk 2077"));
+    m.view.focus = Focus::HubAction(0);
+    activate(&mut m);
+    let session = m.session().unwrap().id;
+    event(&mut m, "gfn", ipc::Event::Session { session, state: SessionState::Running { stream: None } });
+    assert_eq!(m.view.page, Page::Running);
+    m.step(Input::Key { key: Key::Back, down: true });
+    m.step(Input::Key { key: Key::Back, down: false });
+    assert_eq!(m.view.page, Page::Overlay);
+}
+
+#[test]
 fn large_text_stacks_actions_and_down_follows_the_visible_column() {
     let mut m = fixture();
     m.prefs.text_percent = 200;

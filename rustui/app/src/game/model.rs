@@ -808,7 +808,9 @@ impl Model {
             return false;
         }
         if self.view.page == Page::Running {
-            if key == Key::Guide && !down {
+            // While a game runs, the pad is read by the engine; the remote never reaches the game, so its Back is the
+            // only way to the overlay (and to ending the session) without a controller.
+            if matches!(key, Key::Guide | Key::Back) && !down {
                 self.open_overlay(out);
                 return true;
             }

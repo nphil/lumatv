@@ -40,7 +40,8 @@ offline) shown before the press, drawn natively at 120 Hz on the TV.
 
 - Ten-foot viewing on a 65-inch OLED, often in a dim room, with HDR content.
 - Input: LG Magic Remote (d-pad, OK, Back, Menu, pointer) in the app; a game controller in play.
-  During play Back belongs to the game; the overlay opens with Guide or a hold.
+  During play the controller's Back belongs to the game; the overlay opens with Guide or a hold, or
+  with the remote's Back, which never reaches the game.
 - Engines are integrations, off until switched on in Integrations, each with its own sign-in or
   pairing: GeForce NOW signs in with a code entered on a phone; Sunshine/Apollo pairs with a PIN
   entered on the PC; PCs that sleep are woken on play.
