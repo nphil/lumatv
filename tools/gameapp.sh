@@ -110,11 +110,12 @@ game_remove() {
   return 0
 }
 
-# LumaGame's data directory: the base the feeder chose, recognisable because the UI makes engines/ there on its first start. The
-# feeder creates the app's directory under every base it tries, so an existing directory alone says nothing.
+# LumaGame's data directory: the base the UI chose, recognisable by the cache/ the UI makes there on every start (engines/ appears
+# only once an engine is switched on). The feeder creates the app's directory under every base it tries, so an existing directory
+# alone says nothing.
 game_data_dir() {
   for base in $GAME_DATA_BASES; do
-    [ -d "$base/$GAME_APP/engines" ] && { printf '%s\n' "$base/$GAME_APP"; return 0; }
+    [ -d "$base/$GAME_APP/cache" ] && { printf '%s\n' "$base/$GAME_APP"; return 0; }
   done
   return 1
 }

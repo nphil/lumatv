@@ -168,7 +168,7 @@ class GameApp(unittest.TestCase):
     def test_adopt_gfn_copies_the_sign_in_into_the_engine_directory_keeping_modes_and_originals(self):
         os.makedirs(os.path.join(self.bases[0], APP))
         new = os.path.join(self.bases[1], APP)
-        os.makedirs(os.path.join(new, "engines"))
+        os.makedirs(os.path.join(new, "cache"))
         old = self.gfn_sign_in(self.bases[1])
         self.assertEqual(self.run_lib("game_adopt_gfn"), ["rc=0"])
         dest = os.path.join(new, "engines", "gfn")
@@ -186,6 +186,7 @@ class GameApp(unittest.TestCase):
         self.gfn_sign_in(self.bases[0])
         self.assertEqual(self.run_lib("game_adopt_gfn"), ["rc=1"])
         new = os.path.join(self.bases[0], APP)
+        os.makedirs(os.path.join(new, "cache"))
         write(os.path.join(new, "engines", "gfn", "config", "opennow", "session.json"), "newer", 0o600)
         self.assertEqual(self.run_lib("game_adopt_gfn"), ["rc=1"])
         with open(os.path.join(new, "engines", "gfn", "config", "opennow", "session.json")) as f:
