@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Nothing drawn in standby, 2026-11-14 (main 8e97b8bf, installed 19:39 EST)
+
+Installed compositor `e412ee993c7c46f202562a2a6f414af0ff6344fa981fa5d4ffc2d3f106c35036` (6fb56b05) and ui `65963247871a8345b63e43f3390642edeeafa390a0d5a75cf56745186775cce7` (8e97b8bf); sm `65f6ca69` unchanged. In Active Standby the panel flipped 10 times a second (`fb_flip_cnt`, 10.1/s over 6 h of uptime): Home's Silk wallpaper stepped at its 10 fps and every step was a full 1920x1080 frame, the compositor at 7.2 % of a core, the GPU at 10 % (Beszel, three days). A compositor started in standby also took the screen for on, since tvpower sends it no PreparePowerOff and reports standby as `ACTIVE`/`always ready`. Measured on the set after the install, each started in standby: 0 flips in 30 s (was 300); the compositor 1.2 passes a second and 1.7 % of a core; the whole set 7.2 % busy over 60 s, from 15.6 %. With the wake's profile picker left up in standby: 0 flips, 0.3 UI commits a second (was 2-3). A wake drew Home and the picker (118 flips in 10 s, screenshot `standby-fix-wake.png`) and the next standby drew nothing. Set left in Active Standby, receiver as found, lease released. Receipts: `/data/home/tmp/lumatv-valueelide-20261112/` (`standbymeasure.py`, `wakecheck.py`, `idle.sh`).
+
 ## Reboots with the Rust gateway on; LG's extras now leave the JavaScript host, 2026-11-14 (main cb5824f5, installed 12:35 EST)
 
 Installed helper `43a0d2a5e0124471bff8f7ee88d11277cc2dd1f26bc8e1345838f3aa895b0938` (built from 092813e1, with the Beszel restart fix 8bc6e807) and `tools/declutter.sh` `faeaa0f6`; the gateway binaries are unchanged. Five reboots through the Homebrew Channel service: each time the plugin came back by itself, `ssg_https` bound to `ssgw-accept`, the gateway answering about 24 s after the kernel started with the stored client, no crash record, VmRSS 1.2 MB.
