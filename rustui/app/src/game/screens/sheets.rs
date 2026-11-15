@@ -1,0 +1,510 @@
+use super::{
+    pages::{keyboard, logo, stage, way},
+    paint::{Body, Fill, H, Node, Paint, W},
+};
+use crate::game::model::{Focus, Sheet, Sort};
+use lumagame_core::{ipc::AuthState, session::Phase};
+use lumatv_tokens::{Radius, TypeRole as Type};
+use ui::{
+    components::{Align, Icon},
+    geometry::Frame,
+    lucent::palette::PaletteRole as Role,
+};
+
+fn curtain(p: &mut Paint<'_>) {
+    let colour = if p.model.view.sheet == Some(Sheet::EndSession) {
+        let mut colour = p.straight(Role::Canvas, false);
+        colour.a = 247;
+        colour.premultiply(0.0)
+    } else {
+        p.ink(Role::Scrim, false)
+    };
+    p.solid(8000, Frame::new(0.0, 0.0, W, H), colour, 0.0, 25);
+}
+fn panel(p: &mut Paint<'_>, width: f32, height: f32) -> Frame {
+    let frame = Frame::new((W - width) / 2.0, (H - height) / 2.0, width, height);
+    p.surface(8001, frame, Fill::Sheet, Radius::Sheet, false, false, true, 30);
+    frame
+}
+pub fn sheet(p: &mut Paint<'_>) {
+    let Some(sheet) = p.model.view.sheet else {
+        return;
+    };
+    curtain(p);
+    match sheet {
+        Sheet::Chooser => chooser(p),
+        Sheet::Sort => list(p, "Sort by", Sort::ALL.iter().map(|s| s.name().into()).collect()),
+        Sheet::Genre => {
+            let mut names = vec!["All genres".into()];
+            names.extend(p.model.genres());
+            list(p, "Genre", names);
+        }
+        Sheet::Theme => themes(p),
+        Sheet::Auth => auth(p),
+        Sheet::EndSession => end_session(p),
+        Sheet::AddHost | Sheet::EditText => edit_text(p),
+    }
+}
+fn chooser(p: &mut Paint<'_>) {
+    let Some(game) = p.model.selected_game() else {
+        return;
+    };
+    let row_h = if p.scale > 1.0 { p.line(Type::Body) + p.line(Type::Caption) * 2.0 + 44.0 } else { 80.0 };
+    let header = p.line(Type::Title) + 26.0;
+    let footer = p.tokens.target.max(p.line(Type::Label) + 24.0) + 26.0;
+    let remember_h = 80.0f32.max(p.line(Type::Body) + 24.0);
+    let height = (74.0 + header + game.sources.len() as f32 * (row_h + 6.0) + remember_h + footer).min(H - 108.0);
+    let f = panel(p, 1320.0, height);
+    let x = f.x + 36.0;
+    let w = f.w - 72.0;
+    let mut y = f.y + 40.0;
+    p.text(8010, &format!("Where to play {}", game.title), Frame::new(x, y, w, p.line(Type::Title)), Type::Title, Role::Ink, false, 32);
+    y += header;
+    let focus = if let Focus::SheetRow(i) = p.model.view.focus {
+        i
+    } else {
+        p.model.view.chooser_selected.as_ref().and_then(|key| game.sources.iter().position(|s| s.key() == *key)).unwrap_or(0)
+    };
+    let room = height - 74.0 - header - footer - remember_h;
+    let visible = (room / (row_h + 6.0)).floor().max(1.0) as usize;
+    let first = focus.saturating_sub(visible - 1);
+    for (i, source) in game.sources.iter().enumerate().skip(first).take(visible) {
+        y += way(p, 8100 + i as u64 * 20, i, source.key(), Frame::new(x, y, w, 0.0), true) + 6.0;
+    }
+    let remember_y = f.y + height - 34.0 - footer - remember_h;
+    let rf = Frame::new(x, remember_y, w, remember_h);
+    if p.focused(Focus::Remember) {
+        p.surface(8700, rf, Fill::Tint(0.09), Radius::Row, false, true, false, 32);
+    }
+    p.text(
+        8701,
+        "Remember for this game",
+        Frame::new(x + 26.0, remember_y + (remember_h - p.line(Type::Body)) / 2.0, w - 160.0, p.line(Type::Body)),
+        Type::Body,
+        Role::Ink,
+        false,
+        33,
+    );
+    p.toggle(8702, x + w - 108.0, remember_y + (remember_h - 48.0) / 2.0, p.model.view.remember, false, 33);
+    p.hit(Focus::Remember, rf);
+    let y = f.y + height - 34.0 - p.tokens.target.max(p.line(Type::Label) + 24.0);
+    let h = p.hint(8710, "Back", Icon::Back, x, y + 12.0, false, 33);
+    p.hint(8711, "Choose", Icon::Circle, x + h + 24.0, y + 12.0, false, 33);
+    let label = "Play here";
+    let button_w = p.width(label, Type::Label) + 110.0;
+    p.button(8720, Focus::SheetAction(0), label, Some(Icon::Play), x + w - button_w, y, true, false, 34);
+}
+fn list(p: &mut Paint<'_>, title: &str, values: Vec<String>) {
+    let h = 80.0f32.max(p.line(Type::Body) + 24.0);
+    let height = (p.line(Type::Title) + 106.0 + values.len() as f32 * (h + 6.0)).min(H - 108.0);
+    let f = panel(p, 960.0, height);
+    p.text(8010, title, Frame::new(f.x + 36.0, f.y + 40.0, f.w - 72.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 32);
+    let mut y = f.y + 66.0 + p.line(Type::Title);
+    let visible = ((height - p.line(Type::Title) - 106.0) / (h + 6.0)).floor().max(1.0) as usize;
+    let first = if let Focus::SheetRow(i) = p.model.view.focus { i.saturating_sub(visible - 1) } else { 0 };
+    for (i, value) in values.iter().enumerate().skip(first).take(visible) {
+        let row = Frame::new(f.x + 36.0, y, f.w - 72.0, h);
+        p.surface(
+            8100 + i as u64 * 3,
+            row,
+            Fill::Tint(if p.focused(Focus::SheetRow(i)) { 0.09 } else { 0.0 }),
+            Radius::Row,
+            false,
+            p.focused(Focus::SheetRow(i)),
+            false,
+            32,
+        );
+        p.text(
+            8101 + i as u64 * 3,
+            value,
+            Frame::new(row.x + 26.0, y + (h - p.line(Type::Body)) / 2.0, row.w - 52.0, p.line(Type::Body)),
+            Type::Body,
+            Role::Ink,
+            false,
+            33,
+        );
+        p.hit(Focus::SheetRow(i), row);
+        y += h + 6.0;
+    }
+}
+fn themes(p: &mut Paint<'_>) {
+    let f = panel(p, 1728.0, 972.0);
+    p.text(8010, "Choose a theme", Frame::new(f.x + 36.0, f.y + 36.0, f.w - 72.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 32);
+    let cols = if p.scale > 1.0 { 3 } else { 4 };
+    let card_h = if p.scale > 1.0 { 270.0 } else { 212.0 };
+    let w = (f.w - 72.0 - 24.0 * (cols - 1) as f32) / cols as f32;
+    let rows = ((f.h - p.line(Type::Title) - 108.0) / (card_h + 24.0)).floor() as usize;
+    let focus = if let Focus::Theme(i) = p.model.view.focus { i } else { 0 };
+    let first = (focus / cols).saturating_sub(rows.saturating_sub(1)) * cols;
+    let top = f.y + 72.0 + p.line(Type::Title);
+    for i in first..(first + cols * rows).min(lumatv_tokens::themes::game_options().len()) {
+        super::settings::theme_card(
+            p,
+            8100 + i as u64 * 10,
+            Focus::Theme(i),
+            i,
+            Frame::new(f.x + 36.0 + ((i - first) % cols) as f32 * (w + 24.0), top + ((i - first) / cols) as f32 * (card_h + 24.0), w, card_h),
+        );
+    }
+}
+fn auth(p: &mut Paint<'_>) {
+    let Some(flow) = &p.model.view.auth else {
+        return;
+    };
+    let name = p.model.engine_name(&flow.engine);
+    match &flow.state {
+        Some(AuthState::DeviceCode { url, code, qr, .. }) => {
+            let f = panel(p, if p.scale > 1.0 { 1728.0 } else { 1320.0 }, if p.scale > 1.0 { 972.0 } else { 660.0 });
+            p.text(
+                8010,
+                &format!("Sign in to {name}"),
+                Frame::new(f.x + 40.0, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0),
+                Type::Title,
+                Role::Ink,
+                false,
+                32,
+            );
+            let top = f.y + 66.0 + p.line(Type::Title);
+            let q = Frame::new(f.x + 40.0, top, 360.0, 360.0);
+            p.plan.nodes.push(Node {
+                id: 8020,
+                frame: q,
+                props: compositor_protocol::Props::at(q.x, q.y),
+                z: 33,
+                body: Body::Qr(qr.as_ref().unwrap_or(url).clone()),
+            });
+            let x = q.x + 416.0;
+            let w = f.x + f.w - 40.0 - x;
+            let mut y = top;
+            y += p.wrapped(8021, "Scan the QR code with a phone, or open", Frame::new(x, y, w, 0.0), Type::Body, Role::Ink2, false, 33) + 12.0;
+            y += p.wrapped(8022, url, Frame::new(x, y, w, 0.0), if p.scale > 1.0 { Type::Label } else { Type::Title }, Role::Ink, false, 33) + 24.0;
+            y += p.wrapped(8023, "Then enter this code", Frame::new(x, y, w, 0.0), Type::Body, Role::Ink2, false, 33) + 8.0;
+            p.text(8024, code, Frame::new(x, y, w, p.line(Type::Title)), Type::Title, Role::Ink, false, 33);
+            y += p.line(Type::Title) + 24.0;
+            let remaining = p.model.auth_remaining().unwrap_or(0);
+            p.text(
+                8025,
+                &format!("Code expires in {}:{:02}", remaining / 60, remaining % 60),
+                Frame::new(x, y, w, p.line(Type::Caption)),
+                Type::Caption,
+                Role::Ink2,
+                false,
+                33,
+            );
+            if p.scale > 1.0 {
+                p.wrapped(8030, "Waiting for sign-in", Frame::new(q.x, top + 384.0, q.w, 0.0), Type::Caption, Role::Ink2, false, 33);
+            } else {
+                p.hint(8030, "Waiting for sign-in", Icon::Hourglass, q.x, top + 384.0, false, 33);
+            }
+            p.button(8040, Focus::SheetAction(0), "Cancel", Some(Icon::Back), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
+        }
+        Some(AuthState::ShowPin { pin: code }) => pin(p, name, code, false),
+        Some(AuthState::EnterPin { digits }) => {
+            let entered = format!("{}{}", flow.pin, "_".repeat(usize::from(*digits).saturating_sub(flow.pin.len())));
+            pin(p, name, &entered, true);
+        }
+        Some(AuthState::Approval { hint }) => {
+            let f = panel(p, 1080.0, 580.0f32.max(p.line(Type::Title) * 2.0 + p.line(Type::Body) * 3.0 + 240.0));
+            p.text(8010, "Approve this TV", Frame::new(f.x + 40.0, f.y + 40.0, f.w - 80.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 32);
+            p.wrapped(
+                8020,
+                hint.as_deref().unwrap_or("Approve the connection on the PC to finish pairing."),
+                Frame::new(f.x + 40.0, f.y + 80.0 + p.line(Type::Title), f.w - 80.0, 0.0),
+                Type::Body,
+                Role::Ink2,
+                false,
+                33,
+            );
+            p.hint(8030, "Waiting for approval", Icon::Hourglass, f.x + 40.0, f.y + f.h - 210.0, false, 33);
+            p.button(8040, Focus::SheetAction(0), "Cancel", Some(Icon::Back), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
+        }
+        Some(AuthState::Failed { message, .. }) => {
+            let f = panel(p, 1080.0, 500.0f32.max(p.line(Type::Title) + p.line(Type::Body) * 4.0 + 200.0));
+            p.text(
+                8010,
+                "Connection not completed",
+                Frame::new(f.x + 40.0, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0),
+                Type::Title,
+                Role::Ink,
+                false,
+                32,
+            );
+            p.wrapped(8020, message, Frame::new(f.x + 40.0, f.y + 100.0 + p.line(Type::Title), f.w - 80.0, 0.0), Type::Body, Role::Ink2, false, 33);
+            p.button(8040, Focus::SheetAction(0), "Try again", Some(Icon::Refresh), f.x + 40.0, f.y + f.h - 104.0, true, false, 34);
+        }
+        _ => {
+            let f = panel(p, 960.0, 440.0);
+            p.text(
+                8010,
+                &format!("Connecting to {name}"),
+                Frame::new(f.x + 40.0, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0),
+                Type::Title,
+                Role::Ink,
+                false,
+                32,
+            );
+            p.hint(8020, "Waiting for the integration", Icon::Hourglass, f.x + 40.0, f.y + 180.0, false, 33);
+            p.button(8040, Focus::SheetAction(0), "Cancel", Some(Icon::Back), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
+        }
+    }
+}
+fn pin(p: &mut Paint<'_>, name: &str, code: &str, enter: bool) {
+    let width = if p.scale > 1.0 { 1160.0 } else { 840.0 };
+    let f = panel(
+        p,
+        width,
+        if enter {
+            900.0
+        } else if p.scale > 1.0 {
+            800.0
+        } else {
+            650.0
+        },
+    );
+    let x = f.x + 40.0;
+    let mut y = f.y + 40.0;
+    y += p.wrapped(8010, &format!("Pair with {name}"), Frame::new(x, y, width - 80.0, 0.0), Type::Title, Role::Ink, false, 32) + 20.0;
+    y += p.wrapped(
+        8011,
+        if enter { "Enter the PIN shown on the PC." } else { "Enter this PIN in the pairing request on the PC." },
+        Frame::new(x, y, width - 80.0, 0.0),
+        Type::Body,
+        Role::Ink2,
+        false,
+        32,
+    ) + 36.0;
+    let digits = code.chars().collect::<Vec<_>>();
+    let gap = 20.0;
+    let w = ((width - 80.0 - gap * (digits.len().saturating_sub(1)) as f32) / digits.len().max(1) as f32).min(136.0);
+    for (i, c) in digits.iter().enumerate() {
+        let f = Frame::new(x + i as f32 * (w + gap), y, w, 168.0);
+        p.surface(8020 + i as u64 * 2, f, Fill::Tint(0.06), Radius::Control, false, false, false, 32);
+        let mut word = p.word(c.to_string(), Type::Display, p.ink(Role::Ink, false), 0.0, (168.0 - p.line(Type::Display).min(130.0)) / 2.0, w);
+        word.ty.px = p.tokens.ty(Type::Display).px;
+        word.align = Align::Centre;
+        p.words(8021 + i as u64 * 2, f, vec![word], vec![], 33);
+    }
+    y += 204.0;
+    if enter {
+        keyboard(p, 8100, x, y, width - 80.0, true, false);
+    } else {
+        p.hint(8100, "Waiting for approval", Icon::Hourglass, x, y, false, 33);
+    }
+    p.button(
+        8500,
+        Focus::SheetAction(0),
+        if enter { "Pair" } else { "Cancel" },
+        Some(if enter { Icon::Tick } else { Icon::Back }),
+        x,
+        f.y + f.h - 104.0,
+        enter,
+        false,
+        34,
+    );
+}
+fn end_session(p: &mut Paint<'_>) {
+    let end = p.model.can_end_game();
+    let f = panel(p, 1080.0, if p.scale > 1.0 { 700.0 } else { 400.0 });
+    let x = f.x + 40.0;
+    p.text(
+        8010,
+        if end { "End this session?" } else { "Leave the stream?" },
+        Frame::new(x, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0),
+        Type::Title,
+        Role::Ink,
+        false,
+        32,
+    );
+    p.wrapped(
+        8020,
+        if end { "The game will close on the PC. Unsaved progress may be lost." } else { "The stream will close. The game can keep running on its host." },
+        Frame::new(x, f.y + 78.0 + p.line(Type::Title), f.w - 80.0, 0.0),
+        Type::Body,
+        Role::Ink2,
+        false,
+        32,
+    );
+    let y = f.y + f.h - 104.0;
+    let w = p.button(8030, Focus::SheetAction(0), "Keep playing", Some(Icon::Play), x, y, true, false, 34);
+    p.button(8040, Focus::SheetAction(1), if end { "End session" } else { "Leave stream" }, Some(Icon::Stop), x + w + 16.0, y, false, false, 34);
+}
+fn edit_text(p: &mut Paint<'_>) {
+    let editing = p.model.view.sheet == Some(Sheet::EditText);
+    let label = if editing {
+        p.model
+            .view
+            .selected_engine
+            .as_ref()
+            .and_then(|id| p.model.integration(id))
+            .and_then(|e| e.schema.fields().nth(p.model.view.edit_field?))
+            .map_or("Edit setting", |f| f.label.as_str())
+    } else {
+        "Add a PC"
+    };
+    let f = panel(p, if p.scale > 1.0 { 1728.0 } else { 1500.0 }, if p.scale > 1.0 { 972.0 } else { 850.0 });
+    let x = f.x + 40.0;
+    let w = f.w - 80.0;
+    p.text(8010, label, Frame::new(x, f.y + 32.0, w, p.line(Type::Title)), Type::Title, Role::Ink, false, 32);
+    let y = f.y + 48.0 + p.line(Type::Title);
+    let input_h = p.line(Type::Body) + 24.0;
+    p.surface(8020, Frame::new(x, y, w, input_h), Fill::Tint(0.09), Radius::Control, false, false, false, 32);
+    let placeholder = if editing { "Enter a value" } else { "IP address or hostname" };
+    p.text(
+        8021,
+        if p.model.view.address.is_empty() { placeholder } else { &p.model.view.address },
+        Frame::new(x + 24.0, y + 12.0, w - 48.0, p.line(Type::Body)),
+        Type::Body,
+        Role::Ink,
+        false,
+        33,
+    );
+    keyboard(p, 8100, x, y + input_h + 16.0, w, false, false);
+    let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
+    p.button(
+        8500,
+        Focus::SheetAction(0),
+        if editing { "Save" } else { "Add PC" },
+        Some(if editing { Icon::Tick } else { Icon::Plus }),
+        x,
+        f.y + f.h - 34.0 - button_h,
+        true,
+        false,
+        34,
+    );
+    if let Some(notice) = &p.model.view.notice {
+        p.text(8510, notice, Frame::new(x + 360.0, f.y + f.h - 32.0 - button_h, w - 360.0, button_h), Type::Caption, Role::Warning, false, 34);
+    }
+}
+pub fn launch(p: &mut Paint<'_>) {
+    let Some(session) = p.model.session() else {
+        return;
+    };
+    stage(p, session.game, 1080.0, 0.0, 1080.0, false, true);
+    let step = match session.phase() {
+        Phase::Checking | Phase::SignIn => 0,
+        Phase::Queue { .. } => 1,
+        _ => 2,
+    };
+    let (title, sub) = match session.phase() {
+        Phase::Checking => ("Checking the connection".to_string(), "Confirming the selected account and game are ready.".to_string()),
+        Phase::SignIn => ("Sign in to continue".into(), "Complete the sign-in request to start this game.".into()),
+        Phase::Queue { position, eta_s } => (
+            position.map_or_else(
+                || "Waiting in queue".into(),
+                |n| {
+                    let suffix = if (11..=13).contains(&(n % 100)) {
+                        "th"
+                    } else {
+                        match n % 10 {
+                            1 => "st",
+                            2 => "nd",
+                            3 => "rd",
+                            _ => "th",
+                        }
+                    };
+                    format!("{n}{suffix} in line")
+                },
+            ),
+            eta_s.map_or_else(
+                || "The service will start the game when a machine is ready.".into(),
+                |s| format!("Estimated wait: {} min {} sec", s / 60, s % 60),
+            ),
+        ),
+        Phase::Starting => ("Starting the game".into(), "Connecting the stream to the TV.".into()),
+        Phase::Stopping => ("Closing the session".into(), "Waiting for the host to finish.".into()),
+        _ => ("Session ended".into(), String::new()),
+    };
+    let title_role = if step == 1 { Type::Display } else { Type::Title };
+    let title_h = ui::components::wrap(p.fonts, &title, p.ty(title_role), 1600.0).len() as f32 * p.line(title_role);
+    let sub_h = ui::components::wrap(p.fonts, &sub, p.ty(Type::Label), 1600.0).len() as f32 * p.line(Type::Label);
+    let step_h = 52.0f32.max(p.line(Type::Label) + 12.0);
+    let logo_y = (H - 118.0 - sub_h - 10.0 - title_h - 36.0 - step_h - 44.0 - 240.0).max(160.0);
+    logo(p, 100, session.game, Frame::new(p.x, logo_y, 640.0, 240.0));
+    let mut y = logo_y + 284.0;
+    let mut x = p.x;
+    for (i, label) in ["Checking", "In queue", "Starting"].into_iter().enumerate() {
+        let f = Frame::new(x, y, p.width(label, Type::Label) + 74.0, step_h);
+        p.surface(120 + i as u64 * 3, f, Fill::Tint(if step == i { 0.12 } else { 0.04 }), Radius::Pill, true, false, false, 10);
+        p.words(
+            121 + i as u64 * 3,
+            f,
+            vec![p.word(label, Type::Label, p.ink(if step == i { Role::Ink } else { Role::Ink2 }, true), 42.0, (f.h - p.line(Type::Label)) / 2.0, f.w - 60.0)],
+            vec![p.mark(
+                if i < step { Icon::Tick } else { Icon::Circle },
+                22.0,
+                14.0,
+                (f.h - 22.0) / 2.0,
+                if i < step { Role::Positive } else { Role::Ink2 },
+                true,
+            )],
+            11,
+        );
+        x += f.w + 14.0;
+    }
+    y += step_h + 36.0;
+    y += p.wrapped(140, &title, Frame::new(p.x, y, 1600.0, 0.0), title_role, Role::Ink, true, 10) + 10.0;
+    p.wrapped(141, &sub, Frame::new(p.x, y, 1600.0, 0.0), Type::Label, Role::Ink2, true, 10);
+    p.hint(150, "Cancel", Icon::Back, W - p.x - 240.0, H - p.y - 50.0, true, 10);
+}
+pub fn overlay(p: &mut Paint<'_>) {
+    let Some(session) = p.model.session() else {
+        return;
+    };
+    stage(p, session.game, 1080.0, 0.0, 1080.0, false, true);
+    let actions_y = H - 118.0 - p.tokens.target.max(p.line(Type::Label) + 24.0);
+    let mut stats = Vec::new();
+    let s = &p.model.view.stats;
+    if let Some(v) = s.rtt_ms {
+        stats.push(format!("{v:.0} ms network"));
+    }
+    if let Some(v) = s.loss_pct {
+        stats.push(format!("{v:.1}% packet loss"));
+    }
+    if let Some(v) = s.bitrate_kbps {
+        stats.push(format!("{:.0} Mb/s", v as f32 / 1000.0));
+    }
+    if let Some(v) = s.host_ms {
+        stats.push(format!("{v:.1} ms host"));
+    }
+    if let Some(v) = s.client_ms {
+        stats.push(format!("{v:.1} ms client"));
+    }
+    let stats_text = stats.join("  ·  ");
+    let stats_h = if stats.is_empty() { 0.0 } else { ui::components::wrap(p.fonts, &stats_text, p.ty(Type::Label), W - p.x * 2.0).len() as f32 * p.line(Type::Label) + 10.0 };
+    let mut session_line = vec![p.model.engine_name(&session.source.engine).to_string()];
+    if let Some(stream) = &p.model.view.stream {
+        session_line.push(format!(
+            "{}p · {} fps · {} · {}",
+            stream.height,
+            stream.fps,
+            stream.codec.as_str().to_uppercase(),
+            if stream.hdr { "HDR" } else { "SDR" }
+        ));
+    }
+    let elapsed = p.model.elapsed();
+    session_line.push(format!("{}:{:02} elapsed", elapsed / 60, elapsed % 60));
+    let line = session_line.join("  ·  ");
+    let line_h = ui::components::wrap(p.fonts, &line, p.ty(Type::Label), W - p.x * 2.0).len() as f32 * p.line(Type::Label);
+    let logo_y = actions_y - 40.0 - stats_h - line_h - 30.0 - 240.0;
+    logo(p, 100, session.game, Frame::new(p.x, logo_y, 640.0, 240.0));
+    p.wrapped(101, &line, Frame::new(p.x, logo_y + 270.0, W - p.x * 2.0, line_h), Type::Label, Role::Ink, true, 10);
+    if !stats.is_empty() {
+        p.wrapped(102, &stats_text, Frame::new(p.x, logo_y + 270.0 + line_h + 10.0, W - p.x * 2.0, stats_h), Type::Label, Role::Ink2, true, 10);
+    }
+    if let Some(reason) = p.model.view.stream.as_ref().and_then(|s| s.sdr_reason.as_deref()) {
+        p.text(103, reason, Frame::new(p.x, logo_y - 60.0, W - p.x * 2.0, p.line(Type::Caption)), Type::Caption, Role::Warning, true, 10);
+    }
+    let mut x = p.x;
+    for (i, (label, icon)) in [("Resume", Icon::Play), ("Stream settings", Icon::Sliders), ("End session", Icon::Stop)].into_iter().enumerate() {
+        x += p.button(110 + i as u64 * 5, Focus::Overlay(i), label, Some(icon), x, actions_y, i == 0, true, 12) + 16.0;
+    }
+}
+pub fn media(p: &mut Paint<'_>) {
+    if let Some(item) = p.model.view.selected.and_then(|id| p.model.details.get(&id)).and_then(|d| d.media.get(p.model.view.media)) {
+        if let Some(path) = p.model.art_path(&item.image) {
+            p.image(100, path, Frame::new(p.x, 140.0, W - p.x * 2.0, H - 220.0), 0.0, true, None, 10);
+        }
+        p.text(101, &item.title, Frame::new(p.x + 88.0, p.y + 12.0, 1500.0, p.line(Type::Label)), Type::Label, Role::Ink, false, 12);
+    }
+    p.icon_button(110, Focus::HubTop(0), Icon::Back, p.x, p.y, false, 12);
+}

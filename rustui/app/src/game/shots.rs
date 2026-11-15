@@ -1,0 +1,628 @@
+//! Explicit `GAME_SHOTS=all` visual acceptance run. Illustrative catalog/history mirrors the HTML mocks, never production data.
+use super::{model::*, screens::GameUi};
+use compositor_protocol::Event;
+use lumagame_core::{
+    catalog::{self, Listing},
+    engine::{Descriptor, Manifest},
+    history::Played,
+    ids::{EngineId, GameId, TargetId},
+    ipc::{self, AuthState, FromEngine, Readiness, SessionState},
+    state::State,
+};
+use lumatv_render::{
+    Gles,
+    host::{Engine, HostConfig},
+    now_ns,
+};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    sync::mpsc::Receiver,
+    time::{Duration, Instant},
+};
+use ui::{SceneOptions, Ui};
+
+struct Shots {
+    engine: Engine,
+    page: GameUi,
+    events: Receiver<Event>,
+    now: u64,
+    shm: tempfile::TempDir,
+}
+impl Shots {
+    fn new() -> io::Result<Self> {
+        crate::rig::software_gl();
+        let shm = tempfile::tempdir()?;
+        let gles = Gles::software_pbuffer(c"libEGL.so.1", 1920, 1080)?;
+        let (mut engine, end) = Engine::new(
+            gles,
+            HostConfig {
+                width: 1920,
+                height: 1080,
+                refresh_hz: 60.0,
+                shm_dir: shm.path().to_owned(),
+                direct: false,
+                gpu_sync: false,
+                idle_trim: false,
+                pages: 0,
+                reference: false,
+                blit: false,
+                external: false,
+                system_z: i32::MAX,
+            },
+        )?;
+        engine.set_transparent(true);
+        let (scene, _, events) = ui::Scene::over_with(end, SceneOptions { shm_dir: Some(shm.path().to_owned()), ..Default::default() })?;
+        engine.finish_handshake()?;
+        let mut ui = Ui::new(scene);
+        ui.enable_glyph_text().map_err(io::Error::other)?;
+        let mut land = |ui: &mut Ui| -> io::Result<()> {
+            let end = Instant::now() + Duration::from_secs(20);
+            loop {
+                while let Ok(event) = events.try_recv() {
+                    ui.scene.observe(&event);
+                }
+                if let Some(atlas) = ui.text_atlas() {
+                    atlas.pump();
+                }
+                if ui.scene.has_pending() {
+                    let _ = ui.try_commit()?;
+                }
+                engine.pump()?;
+                engine.apply_waiting(now_ns());
+                engine.tidy();
+                if ui.glyph_text_settled() && !ui.scene.has_pending() && !engine.tidy_more() {
+                    return Ok(());
+                }
+                if Instant::now() > end {
+                    return Err(io::Error::other("glyph atlas did not settle"));
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        };
+        let page = GameUi::build(ui, &crate::rig::assets(), &mut land)?;
+        Ok(Self { engine, page, events, now: now_ns(), shm })
+    }
+    fn frame(&mut self) -> io::Result<()> {
+        self.now += 16_666_667;
+        while let Ok(event) = self.events.try_recv() {
+            self.page.ui.scene.observe(&event);
+        }
+        if let Some(atlas) = self.page.ui.text_atlas() {
+            atlas.pump();
+        }
+        if self.page.ui.scene.has_pending() {
+            let _ = self.page.ui.try_commit()?;
+        }
+        if self.engine.pump()?.closed {
+            return Err(io::Error::other("renderer closed"));
+        }
+        let cost = self.engine.draw(self.now);
+        self.engine.frame_done(self.now, &cost);
+        self.engine.tidy();
+        Ok(())
+    }
+    fn shot(&mut self, model: &Model) -> io::Result<Vec<u8>> {
+        self.page.invalidate();
+        let end = Instant::now() + Duration::from_secs(30);
+        loop {
+            self.page.show(model)?;
+            self.frame()?;
+            if !self.page.art_busy() {
+                break;
+            }
+            if Instant::now() > end {
+                return Err(io::Error::other("artwork or glyph atlas did not settle"));
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        for _ in 0..14 {
+            self.frame()?;
+            self.page.show(model)?;
+        }
+        let _ = &self.shm;
+        Ok(self.engine.read_page(0))
+    }
+}
+fn event(model: &mut Model, engine: &str, event: ipc::Event) {
+    model.step(Input::Engine { engine: EngineId::new(engine).unwrap(), message: FromEngine { re: None, event } });
+}
+fn activate(model: &mut Model) {
+    model.step(Input::Key { key: Key::Ok, down: true });
+    model.step(Input::Key { key: Key::Ok, down: false });
+}
+fn id(model: &Model, title: &str) -> GameId {
+    model.games().iter().find(|g| g.title == title).unwrap().id
+}
+fn assets() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/lumagame/mock/assets")
+}
+fn fixture() -> Model {
+    let info = [
+        ("gfn", "GeForce NOW", "cloud", "nitin · Ultimate", "device-code"),
+        ("gamestream", "Gaming PC", "host", "BEAST-PC", "show-pin"),
+        ("punktfunk", "Desk PC", "host", "Desk-PC", "enter-pin"),
+        ("native", "This TV", "native", "Installed", "approval"),
+    ];
+    let manifests = info
+        .iter()
+        .map(|(id, name, kind, _, _)| {
+            serde_json::from_value::<Manifest>(serde_json::json!({"id":id,"name":name,"summary":"Screenshot fixture","kind":kind,"protocol":1,"license":"MIT"}))
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let titles = [
+        (1145350, "Hades II", "Roguelike", 2025, "gfn", 31),
+        (1086940, "Baldur's Gate 3", "RPG", 2023, "gfn", 142),
+        (1091500, "Cyberpunk 2077", "RPG", 2020, "gfn", 64),
+        (1903340, "Clair Obscur: Expedition 33", "RPG", 2025, "gamestream", 48),
+        (413150, "Stardew Valley", "Farming", 2016, "gamestream", 212),
+        (1551360, "Forza Horizon 5", "Racing", 2021, "gfn", 37),
+        (1245620, "Elden Ring", "Action RPG", 2022, "gamestream", 188),
+        (292030, "The Witcher 3: Wild Hunt", "RPG", 2015, "gfn", 171),
+        (1174180, "Red Dead Redemption 2", "Open world", 2019, "gfn", 96),
+        (367520, "Hollow Knight", "Metroidvania", 2017, "gamestream", 77),
+        (620, "Portal 2", "Puzzle", 2011, "punktfunk", 22),
+        (1426210, "It Takes Two", "Co-op", 2021, "gamestream", 19),
+        (1057090, "Ori and the Will of the Wisps", "Platformer", 2020, "gamestream", 14),
+        (504230, "Celeste", "Platformer", 2018, "punktfunk", 26),
+        (632470, "Disco Elysium", "RPG", 2019, "gfn", 41),
+        (2358720, "Black Myth: Wukong", "Action", 2024, "gfn", 29),
+        (2379780, "Balatro", "Card game", 2024, "punktfunk", 58),
+        (553420, "Tunic", "Adventure", 2022, "gamestream", 12),
+        (1868140, "Dave the Diver", "Adventure", 2023, "punktfunk", 33),
+        (2246340, "Monster Hunter Wilds", "Action", 2025, "gfn", 52),
+        (252950, "Rocket League", "Sports", 2015, "gfn", 90),
+        (870780, "Control", "Action", 2019, "gfn", 21),
+        (2310, "Quake", "Shooter", 1996, "native", 9),
+        (2280, "DOOM + DOOM II", "Shooter", 1993, "native", 15),
+        (1536610, "OpenTTD", "Strategy", 2004, "native", 40),
+        (0, "Celeste Classic", "Platformer", 2015, "native", 0),
+        (0, "SuperTuxKart", "Racing", 2007, "native", 0),
+        (0, "Freedoom", "Shooter", 2003, "native", 0),
+    ];
+    let mut listing = Listing::default();
+    let mut state = State::default();
+    state.profile_mut().name = "Nitin".into();
+    state.profile_mut().user.preferred_engine = Some(EngineId::new("gfn").unwrap());
+    for (engine, _, _, _, _) in info {
+        let engine = EngineId::new(engine).unwrap();
+        state.engines.entry(engine.clone()).or_default().enabled = true;
+        let entries=titles.iter().filter(|t|t.4==engine.as_str()||t.0==2310||t.0==1145350).map(|(steam,title,_,_,_,_)|serde_json::from_value(serde_json::json!({"id":if *steam>0{steam.to_string()}else{title.to_string()},"title":title,"external":if *steam>0{vec![format!("steam:{steam}")]}else{vec![]},"store":if engine.as_str()=="native"{"native"}else{"steam"},"store_account":"nitin","readiness":"ready"})).unwrap()).collect();
+        listing.replace(&engine, &TargetId::new("main").unwrap(), entries);
+    }
+    let enabled = state.enabled_engines();
+    let (games, merges) = catalog::build(&mut state.identity, listing.enabled(&enabled));
+    state.apply_merges(&merges);
+    let now = 1_800_000_000;
+    for (index, (_, title, _, _, _, hours)) in titles.iter().enumerate() {
+        let g = games.iter().find(|g| g.title == *title).unwrap();
+        if *hours > 0 {
+            state.profile_mut().history.record(Played {
+                game: g.id,
+                source: g.sources[0].key(),
+                start: now - 7200 - index as u64 * 7200 - u64::from(*hours) * 3600,
+                seconds: hours * 3600,
+            });
+        }
+    }
+    let mut model = Model::new(state, listing, manifests);
+    model.step(Input::Tick { now_ms: 0, unix_s: now });
+    for (engine, _, kind, name, auth) in info {
+        let descriptor:Descriptor=serde_json::from_value(serde_json::json!({"id":engine,"version":"fixture","capabilities":{"kind":kind,"targets":if kind=="cloud"{"account"}else if kind=="native"{"device"}else{"host"},"auth":[auth],"presentation":if kind=="native"{"app"}else{"feeder"},"features":["stats","overlay-keys","end-game","manual-host","wake"]}})).unwrap();
+        event(&mut model, engine, ipc::Event::Ready { descriptor, schema: Default::default() });
+        event(
+            &mut model,
+            engine,
+            ipc::Event::Targets {
+                targets: vec![serde_json::from_value(serde_json::json!({"id":"main","name":name,"link":"linked","reach":"online"})).unwrap()],
+            },
+        );
+    }
+    let keys = model.games().iter().flat_map(|g| g.sources.iter().map(|s| s.key())).collect::<Vec<_>>();
+    for key in keys {
+        event(&mut model, key.engine.as_str(), ipc::Event::Readiness { target: key.target, game: key.id, readiness: Readiness::Ready });
+    }
+    for (steam, title, genre, year, _, _) in titles {
+        let game = id(&model, title);
+        let mut details =
+            GameDetails { year: Some(year), genres: vec![genre.into()], players: Some("1 player".into()), cloud_saves: Some(steam > 0), ..Default::default() };
+        if title == "Hades II" {
+            details.description = "Battle beyond the Underworld as Melinoë, Princess of the Underworld, against the Titan of Time.".into();
+            details.capabilities = vec!["4K HDR".into(), "Full controller support".into(), "Cloud saves".into()];
+            details.achievements = Some("18 of 40".into());
+            for (i, name) in ["trailer-1.jpg", "trailer-2.jpg", "shot-1.jpg", "shot-2.jpg", "shot-3.jpg", "shot-4.jpg", "shot-5.jpg"].into_iter().enumerate() {
+                let path = assets().join("1145350/media").join(name);
+                let url = format!("fixture://media/{name}");
+                model.art.insert(url.clone(), path);
+                details.media.push(Media {
+                    title: if i < 2 { ["Gameplay trailer", "Early access trailer"][i].into() } else { format!("Screenshot {}", i - 1) },
+                    image: url,
+                    video: (i < 2).then(|| "https://store.steampowered.com/app/1145350".into()),
+                });
+            }
+        }
+        model.details.insert(game, details);
+        if steam > 0 {
+            for (kind, name) in
+                [(catalog::ArtKind::Cover, "library_600x900_2x.jpg"), (catalog::ArtKind::Hero, "library_hero.jpg"), (catalog::ArtKind::Logo, "logo.png")]
+            {
+                if let Some(url) = model.art_url(game, kind) {
+                    model.art.insert(url, assets().join(steam.to_string()).join(name));
+                }
+            }
+        }
+    }
+    let continue_titles =
+        ["Baldur's Gate 3", "Cyberpunk 2077", "Clair Obscur: Expedition 33", "Stardew Valley", "Forza Horizon 5", "Elden Ring", "It Takes Two"];
+    let most = ["Stardew Valley", "Elden Ring", "The Witcher 3: Wild Hunt", "Baldur's Gate 3", "Red Dead Redemption 2", "Rocket League", "Hollow Knight"];
+    model.home_rows = vec![
+        HomeRow { title: "Continue".into(), items: continue_titles.iter().map(|s| HomeItem::Game(id(&model, s))).collect() },
+        HomeRow { title: "Most played".into(), items: most.iter().map(|s| HomeItem::Game(id(&model, s))).collect() },
+        HomeRow {
+            title: "Genres".into(),
+            items: ["RPG", "Action", "Platformer", "Shooter", "Racing"].into_iter().map(|s| HomeItem::Genre(s.into())).collect(),
+        },
+        HomeRow {
+            title: "On this TV".into(),
+            items: ["Quake", "DOOM + DOOM II", "Celeste Classic", "OpenTTD", "SuperTuxKart", "Freedoom"]
+                .iter()
+                .map(|s| HomeItem::Game(id(&model, s)))
+                .collect(),
+        },
+    ];
+    model.view.featured = Some(id(&model, "Hades II"));
+    model.view.selected = model.view.featured;
+    model.view.focus = Focus::Home(0, 1);
+    model.rebuild_navigation();
+    model
+}
+fn screens() -> Vec<(String, Model)> {
+    let base = fixture();
+    let mut out: Vec<(String, Model)> = Vec::new();
+    let mut add = |name: &str, mut model: Model| {
+        model.rebuild_navigation();
+        out.push((name.into(), model));
+    };
+    add("01-home", base.clone());
+    let mut m = base.clone();
+    m.prefs.light = true;
+    add("01-home-light", m);
+    let mut m = base.clone();
+    m.view.focus = Focus::Hero(0);
+    add("01-home-play-focus", m);
+    for (name, row, item) in [("02-home-most-played", 1, 2), ("03-home-genres", 2, 1), ("04-home-native-plate", 3, 2)] {
+        let mut m = base.clone();
+        m.view.home_row = row;
+        m.view.focus = Focus::Home(row, item);
+        add(name, m);
+    }
+    for (name, density) in [("05-home-cinematic", Density::Cinematic), ("06-home-compact", Density::Compact)] {
+        let mut m = base.clone();
+        m.prefs.hero = density;
+        m.prefs.covers = density;
+        add(name, m);
+    }
+    let mut m = base.clone();
+    m.view.page = Page::Library;
+    m.view.focus = Focus::Grid(2);
+    add("07-library", m.clone());
+    m.view.sheet = Some(Sheet::Sort);
+    m.view.focus = Focus::SheetRow(0);
+    add("07-library-sort", m);
+    for (name, tab, light) in
+        [("08-hub", 0, false), ("08-hub-light", 0, true), ("08-hub-ways", 1, false), ("08-hub-media", 2, false), ("08-hub-media-light", 2, true)]
+    {
+        let mut m = base.clone();
+        m.view.page = Page::Hub;
+        m.view.hub_tab = tab;
+        m.prefs.light = light;
+        m.view.focus = if tab == 1 {
+            Focus::Way(0)
+        } else if tab == 2 {
+            Focus::Media(0)
+        } else {
+            Focus::HubAction(0)
+        };
+        add(name, m);
+    }
+    let mut m = base.clone();
+    m.view.page = Page::Hub;
+    m.view.selected = Some(id(&m, "Quake"));
+    m.view.sheet = Some(Sheet::Chooser);
+    m.view.chooser_selected = m.selected_game().unwrap().sources.first().map(|s| s.key());
+    m.view.focus = Focus::SheetRow(1);
+    add("09-chooser", m.clone());
+    m.prefs.text_percent = 200;
+    add("32-chooser-text200", m);
+    for (name, section, light, scale) in [
+        ("10-integrations", Section::Integrations, false, 100),
+        ("13-settings-appearance", Section::Appearance, false, 100),
+        ("13-settings-appearance-light", Section::Appearance, true, 100),
+        ("14-settings-streaming", Section::Streaming, false, 100),
+        ("25-settings-controllers", Section::Controllers, false, 100),
+        ("26-settings-about", Section::About, false, 100),
+        ("33-settings-text200", Section::Streaming, false, 200),
+    ] {
+        let mut m = base.clone();
+        m.view.page = Page::Settings;
+        m.view.section = section;
+        m.prefs.light = light;
+        m.prefs.text_percent = scale;
+        m.prefs.fps = 120;
+        m.prefs.hdr = true;
+        m.view.focus = if section == Section::Appearance {
+            Focus::Theme(3)
+        } else if section == Section::Integrations {
+            Focus::Integration(1)
+        } else {
+            Focus::Setting(3)
+        };
+        add(name, m);
+    }
+    let mut m = base.clone();
+    m.view.page = Page::Settings;
+    m.view.sheet = Some(Sheet::Theme);
+    m.view.focus = Focus::Theme(3);
+    add("27-theme-picker", m);
+    for (name, state, engine) in [
+        ("11-pairing", AuthState::ShowPin { pin: "7249".into() }, "gamestream"),
+        ("12-signin", AuthState::DeviceCode { url: "https://nvidia.com/link".into(), code: "ABCD-EFGH".into(), qr: None, expires_s: 420 }, "gfn"),
+        ("28-enter-pin", AuthState::EnterPin { digits: 4 }, "punktfunk"),
+        ("29-approval", AuthState::Approval { hint: Some("Allow LumaGame in the Punktfunk request on Desk-PC.".into()) }, "punktfunk"),
+    ] {
+        let mut m = base.clone();
+        m.view.page = Page::Settings;
+        m.view.section = Section::Integrations;
+        event(&mut m, engine, ipc::Event::Auth { state });
+        add(name, m);
+    }
+    let mut launched = base.clone();
+    launched.view.selected = Some(id(&launched, "Cyberpunk 2077"));
+    launched.view.page = Page::Hub;
+    launched.view.chooser_selected = launched.selected_game().unwrap().sources.iter().find(|s| s.engine.as_str() == "gfn").map(|s| s.key());
+    launched.view.focus = Focus::HubAction(0);
+    activate(&mut launched);
+    add("17-state-checking", launched.clone());
+    let session = launched.session().unwrap().id;
+    event(&mut launched, "gfn", ipc::Event::Session { session, state: SessionState::Queue { position: Some(4), eta_s: Some(120) } });
+    add("18-state-queue", launched.clone());
+    event(&mut launched, "gfn", ipc::Event::Session { session, state: SessionState::Starting });
+    add("19-state-starting", launched.clone());
+    event(
+        &mut launched,
+        "gfn",
+        ipc::Event::Session {
+            session,
+            state: SessionState::Running {
+                stream: Some(
+                    serde_json::from_value(serde_json::json!({"codec":"h265","width":3840,"height":2160,"fps":120,"hdr":true,"audio_channels":2})).unwrap(),
+                ),
+            },
+        },
+    );
+    add("40-running-transparent", launched.clone());
+    launched.step(Input::Tick { now_ms: 1_932_000, unix_s: 1_800_001_932 });
+    launched.step(Input::Overlay);
+    launched.view.stats = ipc::Stats { rtt_ms: Some(8.0), loss_pct: Some(0.0), bitrate_kbps: Some(78_000), ..Default::default() };
+    add("15-overlay", launched.clone());
+    launched.view.focus = Focus::Overlay(2);
+    activate(&mut launched);
+    add("16-overlay-end-confirm", launched);
+    let mut m = base.clone();
+    m.view.page = Page::Hub;
+    m.view.notice = Some("The connection was interrupted. Check the network, then choose Play to try again.".into());
+    add("20-state-failed", m);
+    let mut m = base.clone();
+    m.view.page = Page::Integration;
+    m.view.selected_engine = Some(EngineId::new("gamestream").unwrap());
+    if let Some(e) = m.integrations.iter_mut().find(|e| e.manifest.id.as_str() == "gamestream") {
+        e.targets[0].reach = ipc::Reach::Offline;
+    }
+    m.view.focus = Focus::Setting(0);
+    add("21-state-offline-pc", m);
+    let mut m = Model::new(State::default(), Listing::default(), base.integrations.iter().map(|e| e.manifest.clone()).collect());
+    m.view.focus = Focus::FirstRun(0);
+    add("22-state-first-run", m);
+    for (name, page) in [("30-home-text200", Page::Home), ("31-hub-text200", Page::Hub)] {
+        let mut m = base.clone();
+        m.prefs.text_percent = 200;
+        m.view.page = page;
+        m.view.focus = if page == Page::Hub { Focus::HubAction(0) } else { Focus::Home(0, 1) };
+        add(name, m);
+    }
+    let mut m = base.clone();
+    m.view.page = Page::Search;
+    m.view.query = "Hades".into();
+    m.filtered = vec![id(&m, "Hades II")];
+    m.view.focus = Focus::Grid(0);
+    add("37-search", m);
+    let mut m = base.clone();
+    m.view.page = Page::Search;
+    m.view.focus = Focus::Keyboard(0);
+    add("38-search-keyboard", m);
+    let mut m = base.clone();
+    m.view.page = Page::Media;
+    m.view.media = 2;
+    add("39-media-image", m);
+    for (name, family, light, page) in [
+        ("34-home-nord-light", "nord", true, Page::Home),
+        ("35-hub-solarized", "solarized", false, Page::Hub),
+        ("36-settings-gruvbox-light", "gruvbox", true, Page::Settings),
+    ] {
+        let mut m = base.clone();
+        m.prefs.family = family.into();
+        m.prefs.light = light;
+        m.view.page = page;
+        add(name, m);
+    }
+    let mut m = base.clone();
+    m.view.page = Page::Integration;
+    m.view.selected_engine = Some(EngineId::new("gamestream").unwrap());
+    m.view.sheet = Some(Sheet::AddHost);
+    m.view.focus = Focus::Keyboard(0);
+    add("41-add-pc", m);
+    let mut m = base.clone();
+    m.view.page = Page::Integration;
+    m.view.selected_engine = Some(EngineId::new("native").unwrap());
+    m.view.sheet = Some(Sheet::EditText);
+    m.view.focus = Focus::Keyboard(0);
+    m.view.address = "/media/games/quake".into();
+    add("42-edit-path", m);
+    let large = out
+        .iter()
+        .filter(|(name, _)| {
+            [
+                "11-pairing",
+                "12-signin",
+                "28-enter-pin",
+                "29-approval",
+                "16-overlay-end-confirm",
+                "22-state-first-run",
+                "38-search-keyboard",
+                "41-add-pc",
+                "42-edit-path",
+                "13-settings-appearance",
+                "25-settings-controllers",
+                "26-settings-about",
+            ]
+            .contains(&name.as_str())
+        })
+        .map(|(name, m)| {
+            let mut m = m.clone();
+            m.prefs.text_percent = 200;
+            if m.view.page == Page::Settings && m.view.sheet.is_none() {
+                m.view.focus = Focus::Setting(if m.view.section == Section::Appearance { 5 } else { 0 });
+            }
+            m.rebuild_navigation();
+            (format!("{name}-text200"), m)
+        })
+        .collect::<Vec<_>>();
+    out.extend(large);
+    out
+}
+fn png(path: &Path, w: u32, h: u32, bytes: &[u8]) -> io::Result<()> {
+    let mut encoder = png::Encoder::new(io::BufWriter::new(std::fs::File::create(path)?), w, h);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.write_header().and_then(|mut w| w.write_image_data(bytes)).map_err(io::Error::other)
+}
+#[test]
+fn every_native_screen() -> io::Result<()> {
+    if std::env::var("GAME_SHOTS").as_deref() != Ok("all") {
+        return Ok(());
+    }
+    let scratch = std::env::var_os("CODY_SCRATCH").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let out = scratch.join("lumagame-native-shots");
+    std::fs::create_dir_all(&out)?;
+    let mocks = scratch.join("lumagame-shots");
+    let mut shots = Shots::new()?;
+    for (name, model) in screens() {
+        let pixels = shots.shot(&model)?;
+        png(&out.join(format!("{name}.png")), 1920, 1080, &pixels)?;
+        let mock = mocks.join(format!("{name}.png"));
+        if mock.exists() {
+            let reference =
+                lumagame_meta::decode_image(&std::fs::read(mock)?, lumagame_meta::ImageSpec { width: 1920, height: 1080, contain: false, trim_alpha: false })
+                    .map_err(io::Error::other)?;
+            let mut side = vec![0; 3840 * 1080 * 4];
+            for y in 0..1080 {
+                side[y * 3840 * 4..(y * 3840 + 1920) * 4].copy_from_slice(&reference.rgba[y * 1920 * 4..(y + 1) * 1920 * 4]);
+                side[(y * 3840 + 1920) * 4..(y + 1) * 3840 * 4].copy_from_slice(&pixels[y * 1920 * 4..(y + 1) * 1920 * 4]);
+            }
+            png(&out.join(format!("{name}-compare.png")), 3840, 1080, &side)?;
+        }
+        println!("{}", out.join(format!("{name}.png")).display());
+    }
+    Ok(())
+}
+
+#[test]
+fn native_text_fields_activate_on_release_and_validate_before_saving() {
+    use lumagame_core::settings::{Field, FieldKind, Section, SettingsSchema};
+    let mut m = fixture();
+    let native = EngineId::new("native").unwrap();
+    m.integrations.iter_mut().find(|e| e.manifest.id == native).unwrap().schema = SettingsSchema {
+        sections: vec![Section {
+            title: "Games".into(),
+            fields: vec![Field { key: "path".into(), label: "Game folder".into(), help: None, kind: FieldKind::Text { max_chars: 3, default: String::new() } }],
+        }],
+    };
+    m.view.page = Page::Integration;
+    m.view.selected_engine = Some(native);
+    m.view.focus = Focus::EngineField(0);
+    m.rebuild_navigation();
+    m.step(Input::Key { key: Key::Right, down: true });
+    assert_eq!(m.view.sheet, None);
+    m.step(Input::Key { key: Key::Ok, down: true });
+    assert_eq!(m.view.sheet, None);
+    m.step(Input::Key { key: Key::Ok, down: false });
+    assert_eq!(m.view.sheet, Some(Sheet::EditText));
+    m.step(Input::Text("abcd".into()));
+    m.view.focus = Focus::SheetAction(0);
+    activate(&mut m);
+    assert_eq!(m.view.sheet, Some(Sheet::EditText));
+    assert_eq!(m.view.notice.as_deref(), Some("Use at most 3 characters."));
+    m.view.address = "abc".into();
+    activate(&mut m);
+    assert_eq!(m.view.sheet, None);
+    assert_eq!(m.view.focus, Focus::EngineField(0));
+}
+
+#[test]
+fn closing_waits_for_session_end_and_records_the_final_seconds() {
+    let mut m = fixture();
+    let game = id(&m, "Cyberpunk 2077");
+    let before = m.state().profile().history.total(game).seconds;
+    m.view.page = Page::Hub;
+    m.view.selected = Some(game);
+    m.view.focus = Focus::HubAction(0);
+    activate(&mut m);
+    let session = m.session().unwrap().id;
+    event(&mut m, "gfn", ipc::Event::Session { session, state: SessionState::Starting });
+    event(&mut m, "gfn", ipc::Event::Session { session, state: SessionState::Running { stream: None } });
+    m.step(Input::Tick { now_ms: 17_000, unix_s: 1_800_000_017 });
+    let commands = m.step(Input::Close);
+    assert!(!commands.iter().any(|c| matches!(c, Command::Exit)));
+    assert!(commands.iter().any(|c| matches!(c, Command::Send { request: ipc::Request::Stop { end_game: false, .. }, .. })));
+    let commands = m.step(Input::Engine {
+        engine: EngineId::new("gfn").unwrap(),
+        message: FromEngine { re: None, event: ipc::Event::Session { session, state: SessionState::Ended { reason: ipc::EndReason::Stopped } } },
+    });
+    assert!(commands.iter().any(|c| matches!(c, Command::Exit)));
+    assert_eq!(m.state().profile().history.total(game).seconds, before + 17);
+}
+
+#[test]
+fn large_text_stacks_actions_and_down_follows_the_visible_column() {
+    let mut m = fixture();
+    m.prefs.text_percent = 200;
+    for (page, first, second) in [
+        (Page::Home, Focus::Hero(0), Focus::Hero(1)),
+        (Page::Hub, Focus::HubAction(0), Focus::HubAction(1)),
+    ] {
+        m.view.page = page;
+        m.view.focus = first;
+        m.rebuild_navigation();
+        m.step(Input::Key { key: Key::Down, down: true });
+        assert_eq!(m.view.focus, second);
+    }
+}
+
+#[test]
+fn engine_ready_applies_stream_preferences_once_without_schema_feedback() {
+    let mut m = fixture();
+    let id = EngineId::new("gfn").unwrap();
+    let engine = m.integrations.iter_mut().find(|e| e.manifest.id == id).unwrap();
+    let descriptor = engine.descriptor.take().unwrap();
+    let schema = serde_json::from_value(serde_json::json!({"sections":[{"title":"Stream","fields":[
+        {"key":"bitrate-mbps","label":"Bitrate","type":"number","min":5,"max":150,"step":5,"default":80}
+    ]}]})).unwrap();
+    let event = FromEngine { re: None, event: ipc::Event::Ready { descriptor, schema } };
+    m.prefs.bitrate_mbps = 150;
+    let commands = m.step(Input::Engine { engine: id.clone(), message: event.clone() });
+    assert!(commands.iter().any(|c| matches!(c, Command::Send { request: ipc::Request::Settings { values }, .. }
+        if values.get("bitrate-mbps") == Some(&lumagame_core::settings::Value::Int(150)))));
+    let commands = m.step(Input::Engine { engine: id, message: event });
+    assert!(!commands.iter().any(|c| matches!(c, Command::Send { request: ipc::Request::Settings { .. }, .. })));
+}
