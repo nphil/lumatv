@@ -1356,14 +1356,49 @@ mod tests {
         dir: tempfile::TempDir,
         now: Instant,
         port: u16,
+        _port_reservation: TcpStream,
     }
 
-    fn free_port() -> u16 {
-        TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port()
+    fn reserve_port() -> TcpStream {
+        // A bound non-listening socket keeps ephemeral allocations away while the real listener can rebind.
+        // SAFETY: socket returns a new descriptor; the socket option and address pointers have their specified sizes.
+        unsafe {
+            let fd = libc::socket(libc::AF_INET, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0);
+            assert!(fd >= 0, "socket: {}", io::Error::last_os_error());
+            let socket = TcpStream::from_raw_fd(fd);
+            let reuse: libc::c_int = 1;
+            assert_eq!(
+                libc::setsockopt(
+                    fd,
+                    libc::SOL_SOCKET,
+                    libc::SO_REUSEADDR,
+                    (&raw const reuse).cast(),
+                    std::mem::size_of_val(&reuse) as libc::socklen_t,
+                ),
+                0,
+                "setsockopt: {}",
+                io::Error::last_os_error()
+            );
+            let addr = libc::sockaddr_in {
+                sin_family: libc::AF_INET as libc::sa_family_t,
+                sin_port: 0,
+                sin_addr: libc::in_addr {
+                    s_addr: u32::from_ne_bytes([127, 0, 0, 1]),
+                },
+                sin_zero: [0; 8],
+            };
+            assert_eq!(
+                libc::bind(
+                    fd,
+                    (&raw const addr).cast(),
+                    std::mem::size_of_val(&addr) as libc::socklen_t,
+                ),
+                0,
+                "bind: {}",
+                io::Error::last_os_error()
+            );
+            socket
+        }
     }
 
     impl Rig {
@@ -1407,6 +1442,8 @@ mod tests {
             };
             let mut runner = Runner::new(ctx.clone(), deps, now).unwrap();
             runner.virtual_time = true;
+            let port_reservation = reserve_port();
+            let port = port_reservation.local_addr().unwrap().port();
             Self {
                 runner,
                 bt,
@@ -1416,7 +1453,8 @@ mod tests {
                 ctx,
                 dir,
                 now,
-                port: free_port(),
+                port,
+                _port_reservation: port_reservation,
             }
         }
 
