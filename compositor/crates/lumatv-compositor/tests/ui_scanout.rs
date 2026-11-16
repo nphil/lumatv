@@ -73,8 +73,10 @@ impl Output for ScanOut {
         self.frames.set_calm(self.calm);
         self.frames.set_still(true);
         let (assignment, stats) = self.frames.draw(&mut self.gl, plan, surfaces, direct)?;
+        if matches!(assignment.primary, Source::Page(_)) {
+            self.drew.lock().push(stats.owed_px);
+        }
         self.sources.lock().push(assignment);
-        self.drew.lock().push(stats.owed_px);
         Ok(stats)
     }
 
@@ -440,8 +442,9 @@ fn walk_a_layer(name: &str, calm: bool) -> Option<Vec<u64>> {
     }
     assert_eq!(rig.gl_errors(), 0);
     let drew = rig.drew.lock().clone();
-    // (the frames of the first commit and the ring's first turn owe the whole screen)
-    Some(drew[drew.len().saturating_sub(6)..].to_vec())
+    // Ignore housekeeping attempts: compare six composed frames after the ring is warm.
+    assert!(drew.len() >= 6, "{name}: fewer than six composed frames");
+    Some(drew[drew.len() - 6..].to_vec())
 }
 
 #[test]

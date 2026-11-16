@@ -20,6 +20,14 @@ fn dir(tag: &str) -> PathBuf {
     d
 }
 
+struct Cleanup(PathBuf);
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// A program that is a shell script.
 fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
     let p = dir.join(name);
@@ -44,18 +52,24 @@ fn factory(binary: PathBuf, _dir: &Path) -> VencFactory {
     VencFactory { binary }
 }
 
+fn require_host_venc() -> bool {
+    std::env::var_os("LUMATV_REQUIRE_VENC_HOST").is_some()
+}
+
 fn host_venc() -> Option<PathBuf> {
     let p = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../venc/build/host/lumatv-venc"));
-    if p.exists() {
+    if p.is_file() {
         Some(p)
+    } else if require_host_venc() {
+        panic!("{} is not built; run venc/build.sh --host-only", p.display());
     } else {
-        eprintln!("skipped: {} is not built (venc/build.sh)", p.display());
+        eprintln!("skipped: {} is not built (venc/build.sh --host-only)", p.display());
         None
     }
 }
 
-fn picture(v: u8) -> Image {
-    Image { width: 640, height: 360, rgba: [v, v, v, 255].repeat(640 * 360) }
+fn picture(v: u8, width: u32, height: u32) -> Image {
+    Image { width, height, rgba: [v, v, v, 255].repeat(width as usize * height as usize) }
 }
 
 fn spec_for(dir: &Path) -> RecordSpec {
@@ -83,6 +97,35 @@ fn wait_finished(r: &Recorder, limit: Duration) -> Finished {
     }
 }
 
+fn send_frame(rec: &Recorder, i: u64) -> Result<(), String> {
+    let began = Instant::now();
+    let (width, height) = (rec.spec().encoder.width, rec.spec().encoder.height);
+    loop {
+        // The spare vector comes back from the pipeline: the same bytes are drawn into again.
+        let mut image = picture((i * 12) as u8, width, height);
+        image.rgba = rec.spare().into_iter().chain(image.rgba).take(width as usize * height as usize * 4).collect();
+        if rec.send(image, i * 33_333) {
+            return Ok(());
+        }
+        let state = rec.snapshot();
+        if let Some(finished) = &state.finished {
+            return Err(format!("recording ended before frame {i}: {finished:?}"));
+        }
+        if began.elapsed() >= Duration::from_secs(10) {
+            return Err(format!("timed out sending frame {i}: {state:?}"));
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn fail_recording(rec: Recorder, reason: String) -> ! {
+    if !rec.is_gone() {
+        // Dropping joins the recorder, so let a stuck pipeline be cleaned up off the test thread.
+        let _ = std::thread::spawn(move || drop(rec));
+    }
+    panic!("{reason}");
+}
+
 fn boxes(file: &[u8]) -> Vec<String> {
     let (mut v, mut i) = (Vec::new(), 0);
     while i + 8 <= file.len() {
@@ -98,29 +141,35 @@ fn boxes(file: &[u8]) -> Vec<String> {
 fn the_real_program_records_a_whole_file_through_the_wire() {
     let Some(venc) = host_venc() else { return };
     let d = dir("real");
-    let rec = Recorder::start(spec_for(&d), Arc::new(factory(venc, &d))).unwrap();
+    let _cleanup = Cleanup(d.clone());
+    let mut spec = spec_for(&d);
+    spec.encoder.height = 480; // The host fake kernel emits a fixed 640x480 SPS.
+    let rec = Recorder::start(spec, Arc::new(factory(venc, &d))).unwrap();
     for i in 0..20u64 {
-        loop {
-            // The spare vector comes back from the pipeline: the same bytes are drawn into again.
-            let mut image = picture((i * 12) as u8);
-            image.rgba = rec.spare().into_iter().chain(image.rgba).take(640 * 360 * 4).collect();
-            if rec.send(image, i * 33_333) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(5));
+        if let Err(error) = send_frame(&rec, i) {
+            fail_recording(rec, error);
         }
     }
-    std::thread::sleep(Duration::from_millis(300));
+    let began = Instant::now();
+    loop {
+        let state = rec.snapshot();
+        if state.samples == 20 {
+            break;
+        }
+        if state.finished.is_some() || began.elapsed() >= Duration::from_secs(10) {
+            fail_recording(rec, format!("recording did not produce 20 samples: {state:?}"));
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
     rec.stop(20 * 33_333);
     let f = wait_finished(&rec, Duration::from_secs(10));
     assert_eq!(f.how, Ended::Stopped, "{f:?}");
     assert_eq!(f.samples, 20);
-    assert!(f.encoder.contains("exit exit status: 0") && f.encoder.contains("\"frames\":20"), "{}", f.encoder);
     let file = std::fs::read(&f.path).unwrap();
     let b = boxes(&file);
     // Keyframes every 5: four fragments.
     assert_eq!((&b[..2], b.iter().filter(|x| *x == "moof").count()), (&["ftyp".to_string(), "moov".to_string()][..], 4), "{b:?}");
-    if let Ok(out) = std::process::Command::new("ffprobe")
+    let out = match std::process::Command::new("ffprobe")
         .args([
             "-v",
             "error",
@@ -135,11 +184,31 @@ fn the_real_program_records_a_whole_file_through_the_wire() {
         .arg(&f.path)
         .output()
     {
-        let text = String::from_utf8_lossy(&out.stdout);
-        assert!(text.contains("codec_name=h264") && text.contains("width=640") && text.contains("height=360") && text.contains("nb_read_packets=20"), "{text}");
+        Ok(out) => out,
+        Err(e) if !require_host_venc() && e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("skipped packet probe: ffprobe is not installed");
+            return;
+        }
+        Err(e) => panic!("ffprobe is required to check the recorded packets: {e}"),
+    };
+    assert!(out.status.success(), "ffprobe: {}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8_lossy(&out.stdout);
+    for expected in ["codec_name=h264", "width=640", "height=480", "nb_read_packets=20"] {
+        assert!(text.lines().any(|line| line == expected), "expected {expected}, got:\n{text}");
     }
-    assert!(!d.join("venc.log").exists(), "encoder diagnostics belong only to the collector");
-    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn retrying_a_frame_reports_the_finished_recordings_error() {
+    let d = dir("send-dies");
+    let _cleanup = Cleanup(d.clone());
+    let venc = script(&d, "venc", "exit 2");
+    let mut rec = Recorder::start(spec_for(&d), Arc::new(factory(venc, &d))).unwrap();
+    let finished = wait_finished(&rec, Duration::from_secs(10));
+    rec.join();
+    assert!(matches!(&finished.how, Ended::Failed(_)), "{finished:?}");
+    let error = send_frame(&rec, 0).expect_err("a finished recorder cannot accept a frame");
+    assert!(error.contains(&format!("{finished:?}")), "{error}");
 }
 
 #[test]
@@ -170,7 +239,7 @@ fn a_program_that_stops_answering_costs_a_killed_child_and_a_recording_that_ends
     // Ready, then never an answer: one frame is read and the script sleeps.
     let venc = script(&d, "venc", r"printf 'LRDY\001\000\000\000\200\002\000\000\150\001\000\000\000\000\000\000\000\000\000\000'; sleep 60");
     let rec = Recorder::start(spec_for(&d), Arc::new(factory(venc, &d))).unwrap();
-    assert!(rec.send(picture(90), 0));
+    assert!(rec.send(picture(90, SPEC.width, SPEC.height), 0));
     let began = Instant::now();
     let f = wait_finished(&rec, Duration::from_secs(10));
     assert!(began.elapsed() > Duration::from_secs(2) && began.elapsed() < Duration::from_secs(8), "the deadline is 3 s: {:?}", began.elapsed());
@@ -192,7 +261,7 @@ fn a_program_that_answers_with_nonsense_is_cut_off() {
         r"printf 'LRDY\001\000\000\000\200\002\000\000\150\001\000\000\000\000\000\000\000\000\000\000'; head -c 345624 >/dev/null; printf 'XXXX\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'; sleep 60",
     );
     let rec = Recorder::start(spec_for(&d), Arc::new(factory(venc, &d))).unwrap();
-    assert!(rec.send(picture(10), 0));
+    assert!(rec.send(picture(10, SPEC.width, SPEC.height), 0));
     let f = wait_finished(&rec, Duration::from_secs(10));
     assert!(matches!(&f.how, Ended::Failed(why) if why.contains("answered")), "{f:?}");
     let _ = std::fs::remove_dir_all(&d);

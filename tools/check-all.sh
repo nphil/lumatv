@@ -20,7 +20,9 @@ run() { # name dir command...
     awk '{p+=$4; f+=$6; i+=$8} END{if (NR) print p" passed, "f" failed, "i" ignored"}')
   echo "$name: exit $code, $(( $(date +%s) - start )) s${tests:+, $tests}" | tee -a "$out/SUMMARY"
 }
-run compositor-test   "$root/compositor" cargo test --workspace --features ui --no-fail-fast
+run venc-host-build   "$root" sh "$root/venc/build.sh" --host-only
+run ffprobe           "$root" ffprobe -version
+run compositor-test   "$root/compositor" env LUMATV_REQUIRE_VENC_HOST=1 cargo test --workspace --features ui --no-fail-fast
 run compositor-clippy "$root/compositor" cargo clippy --workspace --features ui --all-targets -q
 run rustui-test       "$root/rustui" cargo test --workspace --no-fail-fast
 run helper-test       "$root/helper" cargo test --workspace --no-fail-fast
