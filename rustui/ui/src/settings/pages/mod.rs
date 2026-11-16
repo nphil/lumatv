@@ -12,6 +12,7 @@ pub mod bluetooth;
 pub mod buttons;
 pub mod cameras;
 pub mod capture;
+pub mod gaming;
 pub mod guide_data;
 pub mod ha_device;
 pub mod home;
@@ -82,6 +83,7 @@ pub fn all() -> Vec<Page> {
         logging::page(),
         beszel::page(),
         ssgw::page(),
+        gaming::page(),
         support::page(),
         support::delete_data(),
         support::permissions(),

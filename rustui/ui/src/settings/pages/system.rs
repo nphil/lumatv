@@ -198,6 +198,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(Row::link("logging").tab(4).icon("server").label("Logging").help("Send TV logs to a server.").does(go("logging")));
     rows.push(Row::link("beszel").tab(4).icon("gauge").label("Beszel").help("Let a Beszel hub watch this TV.").value(&super::beszel::summary(c)).does(go("beszel")));
     rows.push(Row::link("ssgw").tab(4).icon("router").label("Home Assistant gateway").help("Serve Home Assistant's LG integration with LumaTV's gateway.").value(&super::ssgw::summary(c)).does(go("ssgw")));
+    rows.push(Row::link("gaming").tab(4).icon("gamepad-2").label("Gaming").help("Let the gaming apps use the TV's game controls and Game stats.").value(&super::gaming::summary(c)).does(go("gaming")));
     rows.push(Row::link("support").tab(4).icon("circle-help").label("Support").help("TV information, software update, privacy, self-diagnosis and reset.").does(go("support")));
     rows
 }
