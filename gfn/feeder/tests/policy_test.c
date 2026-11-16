@@ -306,6 +306,58 @@ static void surround_packets_preserve_speaker_identity(void) {
 }
 
 
+static void picture_only_starfish_skips_audio_queries(const char *ndl_path) {
+    char path[4096], err[300];
+    assert(snprintf(path, sizeof path, "%s", ndl_path) < (int)sizeof path);
+    char *name = strrchr(path, '/');
+    assert(name);
+    assert((size_t)(name + 1 - path) + sizeof "libplayerAPIs.so.1" <= sizeof path);
+    strcpy(name + 1, "libplayerAPIs.so.1");
+    void *lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    assert(lib);
+    int (*queries)(void);
+    *(void **)(&queries) = dlsym(lib, "FakeSMPAudioQueries");
+    assert(queries);
+    gf_pipe *pipe;
+    assert(gf_smp_ops.open_lib(&pipe, path, err, sizeof err) == 0);
+    struct feeder status_feeder = {.pipe = pipe, .pipe_ready = 1, .ops = &gf_smp_ops};
+    gf_pipe_opts opts = {0};
+    gf_load l = load_for(GF_AUDIO_NONE, 0);
+    gf_status status;
+    int before = queries();
+
+    assert(gf_smp_ops.start(pipe, "test.app", "window", &l, &opts, err, sizeof err) == 0);
+    fill_status(&status_feeder, &status);
+    assert(status.audio_avail == 0 && queries() == before);
+    gf_smp_ops.stop(pipe);
+    assert(gf_smp_ops.audio_avail(pipe) == -1 && queries() == before);
+
+    l.audio = GF_AUDIO_OPUS;
+    assert(gf_smp_ops.start(pipe, "test.app", "window", &l, &opts, err, sizeof err) == 0);
+    fill_status(&status_feeder, &status);
+    assert(status.audio_avail == 65536 && queries() == ++before);
+    gf_smp_ops.stop(pipe);
+
+    setenv("FAKE_SMP_FAIL", "load", 1);
+    assert(gf_smp_ops.start(pipe, "test.app", "window", &l, &opts, err, sizeof err) == GF_PIPE_LOAD_FAILED);
+    assert(gf_smp_ops.audio_avail(pipe) == -1 && queries() == before);
+    unsetenv("FAKE_SMP_FAIL");
+    gf_smp_ops.stop(pipe);
+
+    l.audio = GF_AUDIO_NONE;
+    assert(gf_smp_ops.start(pipe, "test.app", "window", &l, &opts, err, sizeof err) == 0);
+    fill_status(&status_feeder, &status);
+    assert(status.audio_avail == 0 && queries() == before);
+    gf_smp_ops.stop(pipe);
+
+    assert(gf_es_ops.start(pipe, "test.app", "window", &l, &opts, err, sizeof err) == 0);
+    fill_status(&status_feeder, &status);
+    assert(status.audio_avail == 0 && queries() == before);
+    gf_es_ops.stop(pipe);
+    gf_smp_ops.free(pipe);
+    dlclose(lib);
+}
+
 int main(int argc, char **argv) {
     assert(argc == 2);
     setenv("FAKE_NDL_MANUAL_EVENTS", "1", 1);
@@ -333,6 +385,7 @@ int main(int argc, char **argv) {
     identity_is_a_build_setting();
     frame_records_are_opt_in_bounded_and_measured();
     surround_header_and_load_validation();
+    picture_only_starfish_skips_audio_queries(argv[1]);
     surround_packets_preserve_speaker_identity();
     close_all(&f);
     free(client.out);

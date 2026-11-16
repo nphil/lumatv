@@ -27,6 +27,9 @@ struct smp {
 };
 
 static FILE *logf;
+static int audio_queries;
+
+int FakeSMPAudioQueries(void) { return audio_queries; }
 
 static void note(const char *fmt, ...) {
     if (!logf) {
@@ -162,6 +165,7 @@ int _ZN17StarfishMediaAPIs25getVideoRenderQueueLengthERi(void *self, int *len) {
 
 int _ZN17StarfishMediaAPIs18getAudioBufferSizeERiS0_(void *self, int *total, int *used) {
     (void)self;
+    audio_queries++;
     *total = 65536;
     *used = 0;
     return 1;

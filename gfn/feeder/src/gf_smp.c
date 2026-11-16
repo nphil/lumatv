@@ -50,7 +50,7 @@ struct gf_smp {
     const char *(*media_id)(void *self);
     void (*op_delete)(void *);
     void *obj;
-    int started, loaded, played_after_load;
+    int started, loaded, played_after_load, has_audio;
     char error[200];
 
     int lock;                       /* spin lock: callbacks run on the library's threads */
@@ -179,12 +179,14 @@ static int starfish_load(struct gf_smp *s, const char *driver, const char *paylo
     }
     s->started = 1;
     s->loaded = s->played_after_load = 0;
+    s->has_audio = 0;
     if (!(s->notify_fg(s->obj) & 1)) gf_say("%s: notifyForeground said no (the pipeline may refuse the load)", driver);
     if (!(s->load(s->obj, payload, on_event, s) & 1)) {
         snprintf(s->error, sizeof s->error, "Load refused");
         snprintf(err, cap, "StarfishMediaAPIs::Load refused the %s load (%s)", driver, what);
         return GF_PIPE_LOAD_FAILED;
     }
+    s->has_audio = l->audio != GF_AUDIO_NONE;
     s->play(s->obj);
     if (l->hdr) gf_say("%s: the HDR metadata is not passed on this pipeline; the stream's own SEI is what the display gets", driver);
     const char *id = s->media_id ? s->media_id(s->obj) : NULL;
@@ -317,7 +319,7 @@ static int smp_queued(gf_pipe *p) {
 static int smp_audio_avail(gf_pipe *p) {
     struct gf_smp *s = S(p);
     int total = 0, used = 0;
-    if (!s->started || !s->audio_buf || !(s->audio_buf(s->obj, &total, &used) & 1)) return -1;
+    if (!s->started || !s->has_audio || !s->audio_buf || !(s->audio_buf(s->obj, &total, &used) & 1)) return -1;
     return total > used ? total - used : 0;
 }
 
@@ -358,7 +360,7 @@ static int smp_area(gf_pipe *p, int x, int y, int w, int h) {
 static void smp_stop(gf_pipe *p) {
     struct gf_smp *s = S(p);
     if (s->started) s->unload(s->obj);
-    s->started = s->loaded = 0;
+    s->started = s->loaded = s->has_audio = 0;
     if (s->obj) {
         s->dtor(s->obj);
         free(s->obj);
