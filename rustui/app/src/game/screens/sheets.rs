@@ -2,7 +2,7 @@ use super::{
     pages::{keyboard, logo, stage, way},
     paint::{Body, Fill, H, Node, Paint, W},
 };
-use crate::game::{helper::LeadjoyState, model::{Focus, Page, Sheet, Sort}};
+use crate::game::{helper::LeadjoyState, model::{Focus, Page, Section, Sheet, Sort}};
 use lumagame_core::{ipc::AuthState, session::Phase};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{
@@ -360,7 +360,11 @@ fn delete(p: &mut Paint<'_>) {
 }
 fn edit_text(p: &mut Paint<'_>) {
     let editing = p.model.view.sheet == Some(Sheet::EditText);
-    let label = if editing && p.model.view.page == Page::Leadjoy {
+    let diagnostics = editing && p.model.view.page == Page::Settings && p.model.view.section == Section::Diagnostics;
+    let secret = diagnostics && p.model.view.edit_field == Some(3);
+    let label = if diagnostics {
+        match p.model.view.edit_field { Some(1) => "Server URL", Some(2) => "Topic", Some(3) => "Write token", _ => "Edit setting" }
+    } else if editing && p.model.view.page == Page::Leadjoy {
         match &p.model.leadjoy.state {
             LeadjoyState::Ready(profile) => p.model.view.edit_field.and_then(|i| profile.schema.fields().nth(i)).map_or("Edit setting", |field| field.label.as_str()),
             _ => "Edit setting",
@@ -384,9 +388,10 @@ fn edit_text(p: &mut Paint<'_>) {
     let input_h = p.line(Type::Body) + 24.0;
     p.surface(8020, Frame::new(x, y, w, input_h), Fill::Tint(0.09), Radius::Control, false, false, false, 32);
     let placeholder = if editing { "Enter a value" } else { "IP address or hostname" };
+    let masked = if secret { "•".repeat(p.model.view.address.chars().count()) } else { String::new() };
     p.text(
         8021,
-        if p.model.view.address.is_empty() { placeholder } else { &p.model.view.address },
+        if p.model.view.address.is_empty() { placeholder } else if secret { &masked } else { &p.model.view.address },
         Frame::new(x + 24.0, y + 12.0, w - 48.0, p.line(Type::Body)),
         Type::Body,
         Role::Ink,

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+LumaGame has opt-in remote diagnostics in Settings, with a private write token and no default destination. It sends bounded batches of lifecycle, draw/swap and aggregate stream measurements; switching it off discards unsent events. An already delivered message cannot be recalled.
+
 LumaGame (`org.nphil.lumagame`) is a game streaming app of its own that puts GeForce NOW, Punktfunk and Sunshine/Apollo (the separately licensed GameStream engine, pinned at 0.1.1) behind one library on the video plane. Its engines take the app's common stream settings: resolution, frame rate, codec, HDR and bitrate (5–150 Mbps), with AV1 up to 60 fps. LumaTV's package carries it once built; `lumatv game install` puts it on the TV beside the GeForce NOW app, and `lumatv game adopt-gfn` copies that app's sign-in so GeForce NOW needs no new one. A Gaming plugin (off by default) gives a session's controller readers real-time priority; its low-latency picture controls stay unavailable until qualified on the TV. Not yet accepted on the TV.
 
 LumaGame's This TV integration lists the installed apps again on a TV with many: the feeder sent the application manager's whole reply to the UI and refused it over 128 KiB ("the installed app list exceeds the lifecycle limit"), so it now sends each app's id, title and icon, which is all the UI reads. An integration's error also no longer turns up as a notice on pages that are not about it, such as the controller lab; it stays on the integration's own card, and a notice no longer follows its page to another one.

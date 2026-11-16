@@ -47,6 +47,8 @@ LumaTV's helper (root): the `gaming` plugin, on the loopback API. Optional; the 
 Death is handled by the kernel, not by messages: `main` sets `PR_SET_PDEATHSIG` on the UI, the UI sets it on each engine, an
 engine exits when its stdin closes, and the feeder unloads the player when its engine's socket closes.
 
+LumaGame's Settings › Diagnostics is off with no server, topic or token by default. A private `diagnostics.json` in the app data directory stores its settings and write token (0600). Events use an allowlist and exclude account details, URLs, controller keys and log tails. One worker batches bounded events at five-second intervals without an idle heartbeat; a short-lived sender child uses HTTPS and can be killed while resolving or sending. Turning diagnostics off or changing the destination discards the queue and stops the child; messages already delivered cannot be recalled. On a reported fatal error, the app attempts a final batch for at most two seconds; delivery is not guaranteed and abrupt termination may prevent the attempt. Draw and swap records are not evidence of pixels reaching the panel.
+
 ## Engines
 
 The app knows no engine by name. It reads `engines/<id>/engine.json` (`engine::Manifest`: name, summary, program, licence, source

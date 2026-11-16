@@ -21,6 +21,8 @@ lumagame-meta = { path = "../../game/crates/lumagame-meta" }
 lumatv-tokens = { path = "../tokens" }
 serde = { version = "1", features = ["derive"] }
 qrcodegen = "1.8"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+url = "2"
 
 [[bin]]
 name = "lumatv-damage-bench"

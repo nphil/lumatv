@@ -17,7 +17,7 @@ use ui::{
 };
 
 fn rail(p: &mut Paint<'_>) -> f32 {
-    let icons = [Icon::Palette, Icon::Cards, Icon::Puzzle, Icon::Apps, Icon::Info];
+    let icons = [Icon::Palette, Icon::Cards, Icon::Puzzle, Icon::Apps, Icon::Info, Icon::Info];
     let side = 36.0 * p.scale;
     let mut w = 420.0f32;
     for section in Section::ALL {
@@ -66,6 +66,7 @@ pub fn settings(p: &mut Paint<'_>) {
         Section::Streaming => streaming(p, x, w),
         Section::Integrations => integrations(p, x, w),
         Section::Controllers => controllers(p, x, w),
+        Section::Diagnostics => diagnostics(p, x, w),
         Section::About => about(p, x, w),
     }
 }
@@ -145,6 +146,7 @@ fn appearance(p: &mut Paint<'_>, x: f32, w: f32) {
     );
     row(p, 450, Focus::Setting(5), "Reduce motion", Some("Focus changes at once, with no lift or fades"), Control::Toggle(m.prefs.reduce_motion), Frame::new(x, y, w, 0.0));
 }
+#[derive(Clone, Copy)]
 pub(super) enum Control<'a> {
     Value(&'a str),
     /// A value that changes in place, in tabular figures.
@@ -154,12 +156,21 @@ pub(super) enum Control<'a> {
     Slider(u32),
     None,
 }
+fn row_metrics(p: &mut Paint<'_>, label: &str, description: Option<&str>, width: f32, control_w: f32, control_h: f32, rows: usize) -> (bool, f32, f32, f32, f32) {
+    let available = width - 52.0;
+    let stack = (p.width(label, Type::Body) + control_w + 80.0 > width || rows > 1) && control_w > 0.0;
+    let text_w = if stack || control_w == 0.0 { available } else { available - control_w - 32.0 };
+    let label_h = ui::components::wrap(p.fonts, label, p.ty(Type::Body), text_w).len().max(1) as f32 * p.line(Type::Body);
+    let desc_h = description.map_or(0.0, |s| ui::components::wrap(p.fonts, s, p.ty(Type::Caption), text_w).len() as f32 * p.line(Type::Caption));
+    let height = if stack { label_h + desc_h + control_h + 40.0 } else { 80.0f32.max(label_h + desc_h + 24.0).max(control_h + 16.0) };
+    (stack, text_w, label_h, desc_h, height)
+}
+
 pub(super) fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, description: Option<&str>, control: Control<'_>, mut f: Frame) -> f32 {
     // An empty value would become a text layer with no width.
     let control = if let Control::Value("") = control { Control::None } else { control };
     let available = f.w - 52.0;
     let line = p.line(Type::Body);
-    let label_w = p.width(label, Type::Body);
     let sh = p.tokens.target.max(p.line(Type::Label) + 12.0);
     let widths = if let Control::Segments(options, _) = &control {
         options.iter().map(|s| (p.width(s, Type::Label) + 44.0).min(available - 8.0)).collect::<Vec<_>>()
@@ -188,11 +199,8 @@ pub(super) fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, descrip
         used += width;
     }
     let control_h = if matches!(control, Control::Segments(..)) { rows as f32 * sh + (rows - 1) as f32 * 8.0 } else { sh };
-    let stack = (label_w + control_w + 80.0 > f.w || rows > 1) && control_w > 0.0;
-    let text_w = if stack || control_w == 0.0 { available } else { available - control_w - 32.0 };
-    let label_h = ui::components::wrap(p.fonts, label, p.ty(Type::Body), text_w).len().max(1) as f32 * line;
-    let desc_h = description.map_or(0.0, |s| ui::components::wrap(p.fonts, s, p.ty(Type::Caption), text_w).len() as f32 * p.line(Type::Caption));
-    f.h = if stack { label_h + desc_h + control_h + 40.0 } else { 80.0f32.max(label_h + desc_h + 24.0).max(control_h + 16.0) };
+    let (stack, text_w, label_h, desc_h, height) = row_metrics(p, label, description, f.w, control_w, control_h, rows);
+    f.h = height;
     let focused = p.focused(focus);
     let from = p.plan.nodes.len();
     if focused {
@@ -486,6 +494,39 @@ pub fn leadjoy(p: &mut Paint<'_>) {
     }
     p.wrapped(1900, "Changes are written to the controller and read back.", Frame::new(tx, y + 24.0, tw, 0.0), Type::Caption, Role::Ink2, false, 10);
 }
+fn diagnostics(p: &mut Paint<'_>, x: f32, w: f32) {
+    use crate::game::diagnostics::Status;
+    let m = p.model;
+    let focus = if let Focus::Setting(i) = m.view.focus { i } else { 0 };
+    let status = match m.diagnostics_status {
+        Status::Off => "Off", Status::NotConfigured => "Add an HTTPS server and topic",
+        Status::Waiting => "Ready", Status::Sending => "Sending", Status::Sent => "Last send succeeded",
+        Status::Error => "Send failed",
+    };
+    let detail = format!("{status} · Off stops sending; delivered messages remain");
+    let rows = [
+        ("Remote diagnostics", Some(detail.as_str()), Control::Toggle(m.diagnostics.enabled)),
+        ("Server URL", None, Control::Value(if m.diagnostics.server.is_empty() { "Add" } else { &m.diagnostics.server })),
+        ("Topic", None, Control::Value(if m.diagnostics.topic.is_empty() { "Add" } else { &m.diagnostics.topic })),
+        ("Write token", None, Control::Value(if m.diagnostics.token.is_empty() { "Add" } else { "Set" })),
+        ("Clear write token", None, Control::Value("Clear")),
+        ("Test diagnostics", None, Control::Value("Send")),
+    ];
+    let control_h = p.tokens.target.max(p.line(Type::Label) + 12.0);
+    let focused_bottom = 170.0 + rows.iter().take(focus + 1).map(|(label, description, control)| {
+        let control_w = match control {
+            Control::Value(value) => p.width(value, Type::Body),
+            Control::Toggle(_) => 82.0,
+            _ => unreachable!(),
+        }.min(w - 52.0);
+        row_metrics(p, label, *description, w, control_w, control_h, 1).4 + 4.0
+    }).sum::<f32>();
+    let mut y = 170.0 - (focused_bottom + 16.0 - (H - p.y)).max(0.0);
+    for (i, (label, description, control)) in rows.into_iter().enumerate() {
+        y += row(p, 600 + i as u64 * 30, Focus::Setting(i), label, description, control, Frame::new(x, y, w, 0.0));
+    }
+}
+
 fn about(p: &mut Paint<'_>, x: f32, w: f32) {
     let mut y = 170.0;
     y += p.wrapped(200, "LumaGame", Frame::new(x + 26.0, y, w - 52.0, 0.0), Type::Title, Role::Ink, false, 10) + 16.0;

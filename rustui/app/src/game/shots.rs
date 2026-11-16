@@ -348,6 +348,8 @@ fn screens() -> Vec<(String, Model)> {
         ("14-settings-streaming", Section::Streaming, false, 100),
         ("25-settings-controllers", Section::Controllers, false, 100),
         ("26-settings-about", Section::About, false, 100),
+        ("52-diagnostics-dark", Section::Diagnostics, false, 100),
+        ("53-diagnostics-light", Section::Diagnostics, true, 100),
         ("33-settings-text200", Section::Streaming, false, 200),
     ] {
         let mut m = base.clone();
@@ -368,6 +370,23 @@ fn screens() -> Vec<(String, Model)> {
         };
         add(name, m);
     }
+    let mut secret = base.clone();
+    secret.view.page = Page::Settings;
+    secret.view.section = Section::Diagnostics;
+    secret.view.sheet = Some(Sheet::EditText);
+    secret.view.edit_field = Some(3);
+    secret.view.address = "fixture-token".into();
+    secret.view.focus = Focus::Keyboard(0);
+    add("54-diagnostics-token-masked", secret);
+    let mut long_diagnostics = base.clone();
+    long_diagnostics.view.page = Page::Settings;
+    long_diagnostics.view.section = Section::Diagnostics;
+    long_diagnostics.prefs.text_percent = 200;
+    long_diagnostics.diagnostics.server = "https://long-server-name.example.invalid/a/long/path/for/remote/diagnostics".into();
+    long_diagnostics.diagnostics.topic = "long_diagnostics_topic_name_for_a_large_text_settings_screen_123".into();
+    long_diagnostics.view.focus = Focus::Setting(5);
+    long_diagnostics.rebuild_navigation();
+    add("55-diagnostics-long-text200-test-focused", long_diagnostics);
     let mut m = base.clone();
     m.view.page = Page::Settings;
     m.view.sheet = Some(Sheet::Theme);
@@ -628,6 +647,7 @@ fn screens() -> Vec<(String, Model)> {
                 "13-settings-appearance",
                 "25-settings-controllers",
                 "26-settings-about",
+                "52-diagnostics-dark", "53-diagnostics-light",
                 "43-controller-lab",
                 "43-controller-lab-light",
                 "44-controller-flash",

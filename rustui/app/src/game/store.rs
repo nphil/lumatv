@@ -3,6 +3,8 @@ use lumagame_core::catalog::Listing;
 use lumagame_core::state::{LoadError, OpenSession, State};
 use serde::Serialize;
 use lumagame_meta::secrets::Secrets;
+use super::diagnostics::Config as DiagnosticsConfig;
+use std::os::unix::fs::PermissionsExt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
@@ -14,6 +16,7 @@ pub struct Snapshot {
     pub state: State,
     pub listing: Listing,
     pub secrets: Secrets,
+    pub diagnostics: DiagnosticsConfig,
     pub notices: Vec<String>,
 }
 
@@ -34,6 +37,12 @@ impl Store {
             Ok(secrets) => secrets,
             Err(e) => { notices.push(format!("Metadata keys could not be read: {e}")); Secrets::default() }
         };
+        let diagnostics = match fs::symlink_metadata(store.root.join("diagnostics.json")) {
+            Ok(meta) if meta.is_file() && meta.len() <= 8192 && meta.permissions().mode() & 0o077 == 0 => {
+                store.read_json("diagnostics.json").unwrap_or_default()
+            }
+            _ => DiagnosticsConfig::default(),
+        };
         if store.writable {
             match store.read_json::<OpenSession>("session.json") {
                 Ok(open) => {
@@ -51,7 +60,7 @@ impl Store {
                 }
             }
         }
-        Ok((store, Snapshot { state, listing, secrets, notices }))
+        Ok((store, Snapshot { state, listing, secrets, diagnostics, notices }))
     }
 
     pub fn root(&self) -> &Path { &self.root }
@@ -112,6 +121,7 @@ impl Store {
         if !self.writable { return Err(io::Error::new(io::ErrorKind::PermissionDenied, "saved choices belong to a newer LumaGame")); }
         secrets.save(&self.root.join("secrets.json")).map_err(io::Error::other)
     }
+    pub fn save_diagnostics(&self, config: &DiagnosticsConfig) -> io::Result<()> { self.save("diagnostics.json", config, false) }
 
     fn save<T: Serialize>(&self, name: &str, value: &T, backup: bool) -> io::Result<()> {
         if !self.writable { return Err(io::Error::new(io::ErrorKind::PermissionDenied, "saved choices belong to a newer LumaGame")); }
@@ -234,6 +244,20 @@ mod tests {
         assert!(!dir.path().join("session.json").exists());
         store.save_secrets(&Secrets { steamgriddb_key: "private".into(), ..Secrets::default() }).unwrap();
         assert_eq!(fs::metadata(dir.path().join("secrets.json")).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn diagnostics_defaults_off_and_token_stays_in_private_file() {
+        let dir = temp();
+        let (store, snapshot) = Store::open(dir.path().into()).unwrap();
+        assert!(!snapshot.diagnostics.enabled);
+        assert!(snapshot.diagnostics.server.is_empty() && snapshot.diagnostics.topic.is_empty() && snapshot.diagnostics.token.is_empty());
+        let config = DiagnosticsConfig { enabled: true, server: "https://example.invalid".into(), topic: "test".into(), token: "private-test".into() };
+        store.save_diagnostics(&config).unwrap();
+        store.save_state(&snapshot.state).unwrap();
+        assert_eq!(fs::metadata(dir.path().join("diagnostics.json")).unwrap().permissions().mode() & 0o777, 0o600);
+        assert!(!fs::read_to_string(dir.path().join("state.json")).unwrap().contains("private-test"));
+        assert_eq!(Store::open(dir.path().into()).unwrap().1.diagnostics, config);
     }
 
     #[test]

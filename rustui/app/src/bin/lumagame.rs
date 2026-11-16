@@ -5,6 +5,7 @@ use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, RawRepo
 use lumatv_render::{Demand, now_ns, host::{Engine, HostConfig}};
 use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::{ControllerClient, ControllerRequest, ControllerReply, Lease}, host::{self, HostEvent, Supervisor}, model::{Command, GameDetails, Input, Key, Media, Model, PadMode}, screens::GameUi, store::{self, Store}}, lifecycle::{Channel, FromApp, ToApp}, window::{self, Event, Spec}};
 use lumatv_rustui::game::helper::OverlayClient;
+use lumatv_rustui::game::diagnostics::{Diagnostics, Event as DiagnosticEvent};
 use std::{collections::VecDeque, io, net::SocketAddr, os::fd::AsRawFd, os::unix::net::UnixDatagram, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 use ui::{SceneOptions, Ui};
 
@@ -35,6 +36,15 @@ impl TraceState {
             Some(Phase::Done(_)) => "done",
         };
         Self { page: model.view.page, foreground: model.foreground(), phase, visible: model.wants_frames() }
+    }
+}
+fn page_name(page: lumatv_rustui::game::model::Page) -> &'static str {
+    use lumatv_rustui::game::model::Page;
+    match page {
+        Page::Home => "home", Page::Library => "library", Page::Search => "search", Page::Hub => "hub",
+        Page::Settings => "settings", Page::Integration => "integration", Page::Launch => "launch",
+        Page::Running => "running", Page::Overlay => "overlay", Page::Media => "media", Page::Lab => "lab",
+        Page::GameSir => "gamesir", Page::Leadjoy => "leadjoy",
     }
 }
 
@@ -103,10 +113,16 @@ fn options() -> Result<Options, String> {
 extern "C" fn on_term(_: libc::c_int) { END.store(true, Ordering::Relaxed); }
 
 fn main() {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--diagnostic-send")) {
+        std::process::exit(lumatv_rustui::game::diagnostics::sender_main());
+    }
     let options = match options() { Ok(o) => o, Err(e) => { eprintln!("lumagame: {e}"); std::process::exit(64); } };
     unsafe { for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] { libc::signal(signal, on_term as extern "C" fn(libc::c_int) as libc::sighandler_t); } }
     let shm = options.shm.clone();
-    let result = run(options);
+    let diagnostics = Diagnostics::default();
+    let started = Instant::now();
+    let result = run(options, &diagnostics);
+    if result.is_err() { let _ = diagnostics.flush_fatal(started.elapsed().as_millis() as u64, Duration::from_secs(2)); }
     let _ = std::fs::remove_dir_all(shm);
     if let Err(e) = result { eprintln!("lumagame: {e}"); std::process::exit(1); }
 }
@@ -237,11 +253,31 @@ struct Shell {
     model: Model, host: Supervisor, store: Store, channel: Option<Channel>, lease: Lease, controllers: ControllerClient, art: Loader,
     art_waiting: VecDeque<String>, details: Option<Details>, details_waiting: VecDeque<GameId>, state_saved: bool, media_seq: u64,
     stats: OverlayClient, frames_on: bool,
+    diagnostics: Diagnostics,
+    last_stream: Option<u64>, last_frames: Option<u64>,
 }
 impl Shell {
     fn inputs(&mut self, inputs: impl IntoIterator<Item = Input>, pads: &MenuPads, now_ms: u64) -> io::Result<bool> {
         let mut commands = VecDeque::new();
-        for input in inputs { commands.extend(self.model.step(input)); }
+        for input in inputs {
+            if self.diagnostics.enabled() {
+                match &input {
+                    Input::Engine { message, .. } => if let lumagame_core::ipc::Event::Stats { stats, .. } = &message.event {
+                        if self.last_stream.is_none_or(|at| now_ms.saturating_sub(at) >= 1000) {
+                            self.last_stream = Some(now_ms);
+                            self.diagnostics.emit(DiagnosticEvent::Stream { ms: now_ms, fps: stats.fps, bitrate_kbps: stats.bitrate_kbps, rtt_ms: stats.rtt_ms, jitter_ms: stats.jitter_ms, loss_pct: stats.loss_pct, dropped: stats.dropped, pad_reports: stats.pad.as_ref().map(|p| p.reports), pad_rate_hz: stats.pad.as_ref().map(|p| p.rate_hz), pad_p99_us: stats.pad.as_ref().map(|p| p.p99_us) });
+                        }
+                    },
+                    Input::Frames(frames) if self.last_frames.is_none_or(|at| now_ms.saturating_sub(at) >= 1000) => {
+                        self.last_frames = Some(now_ms);
+                        self.diagnostics.emit(DiagnosticEvent::Frames { ms: now_ms, fed: frames.fed, accepted: frames.accepted, dropped: frames.dropped, omitted: frames.omitted });
+                    }
+                    Input::EngineGone(_) => self.diagnostics.emit(DiagnosticEvent::Error { ms: now_ms, kind: "engine_gone" }),
+                    _ => {}
+                }
+            }
+            commands.extend(self.model.step(input));
+        }
         // Release the pads before an engine receives Launch, including a native app taking the foreground.
         pads.sync(self.model.wants_pads());
         pads.set_mode(self.model.pad_mode());
@@ -278,6 +314,11 @@ impl Shell {
                     if let Err(error) = self.controllers.request(ControllerRequest::Leadjoy { view, change }) { commands.extend(self.model.step(Input::Leadjoy(Err(error)))); }
                     Ok(())
                 }
+                Command::Diagnostics(config) => {
+                    self.diagnostics.configure(config.clone());
+                    self.store.save_diagnostics(&config)
+                }
+                Command::DiagnosticTest => { self.diagnostics.emit(DiagnosticEvent::Test); Ok(()) }
                 Command::Exit => {
                     if let Some(ch) = &mut self.channel { ch.send(&FromApp::Exit("LumaGame closed".into())); }
                     return Ok(true);
@@ -292,9 +333,10 @@ impl Shell {
         }
         self.lease.tick(now_ms);
         let visible = self.model.hud_visible();
-        if self.frames_on != visible {
-            if let Some(ch) = &mut self.channel { ch.send(&FromApp::Frames(visible)); }
-            self.frames_on = visible;
+        let frames = visible || (self.diagnostics.enabled() && self.model.foreground() && self.model.session_active());
+        if self.frames_on != frames {
+            if let Some(ch) = &mut self.channel { ch.send(&FromApp::Frames(frames)); }
+            self.frames_on = frames;
         }
         self.stats.tick(self.model.prefs.stats, visible, now_ms);
         Ok(false)
@@ -368,11 +410,13 @@ fn local_art(model: &Model, data: &Path, url: &str) -> Option<PathBuf> {
     None
 }
 
-fn run(o: Options) -> io::Result<()> {
+fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
     let (data, temporary) = store::data_dir(&o.data)?;
     let (store, snapshot) = Store::open(data.clone())?;
+    diagnostics.configure(snapshot.diagnostics.clone());
     let (installed, notices) = host::discover(&o.engines)?;
     let mut model = Model::new(snapshot.state, snapshot.listing, installed.iter().map(|engine| engine.manifest.clone()).collect());
+    model.diagnostics = snapshot.diagnostics.clone();
     let channel = o.channel_fd.map(|fd| unsafe { Channel::from_fd(fd) }).transpose()?;
     let host = Supervisor::new(installed, host::Config { data, feeder: o.feeder, runner: o.runner,
         display: Display { width: 3840, height: 2160, refresh_hz: 120, hdr10: true, codecs: vec![Codec::H264, Codec::H265, Codec::Av1] }, locale: "en-US".into(), lifecycle: channel.is_some() })?;
@@ -382,7 +426,7 @@ fn run(o: Options) -> io::Result<()> {
     inputs.extend(snapshot.notices.into_iter().chain(notices).chain(temporary).map(Input::Notice));
     // Seed wall-clock time before any engine can report Running.
     model.step(Input::Tick { now_ms: 0, unix_s: unix_seconds() });
-    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, controllers: ControllerClient::new(o.helper)?, stats: OverlayClient::new(o.helper)?, frames_on: false, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX };
+    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, controllers: ControllerClient::new(o.helper)?, stats: OverlayClient::new(o.helper)?, frames_on: false, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX, diagnostics: diagnostics.clone(), last_stream: None, last_frames: None };
     let pads = MenuPads::new()?;
     if shell.inputs(inputs, &pads, 0)? { return Ok(()); }
     let began = Instant::now();
@@ -438,6 +482,8 @@ fn run(o: Options) -> io::Result<()> {
     let mut frame = 0u64;
     let mut last_flash = None;
     let mut trace = LifecycleTrace::enabled(std::env::var_os("LUMAGAME_LIFECYCLE_TRACE").as_deref());
+    let mut remote_trace: Option<LifecycleTrace> = None;
+    let mut render_sample: Option<(u64, u32, u32, u32)> = None;
     loop {
         let now_ms = began.elapsed().as_millis() as u64;
         let mut trace_events = 0u8;
@@ -446,6 +492,9 @@ fn run(o: Options) -> io::Result<()> {
             if let Some(tokens) = theme.poll(now_ms) { page.set_host_tokens(tokens); }
         }
         let mut inputs = vec![Input::Tick { now_ms, unix_s: unix_seconds() }];
+        if shell.model.view.section == lumatv_rustui::game::model::Section::Diagnostics && shell.model.view.page == lumatv_rustui::game::model::Page::Settings {
+            inputs.push(Input::DiagnosticsStatus(shell.diagnostics.status()));
+        }
         if END.load(Ordering::Relaxed) && !signalled { inputs.push(Input::Close); signalled = true; }
         for event in window.events() {
             match event {
@@ -480,6 +529,14 @@ fn run(o: Options) -> io::Result<()> {
         }
         let exiting = shell.inputs(inputs, &pads, now_ms)?;
         let visible = shell.model.wants_frames();
+        if shell.diagnostics.enabled() {
+            let trace = remote_trace.get_or_insert_with(LifecycleTrace::default);
+            let state = TraceState::of(&shell.model);
+            let draw_event = if trace.last != Some(state) { trace_events | 1 } else { trace_events };
+            if let Some(seq) = trace.observe(state, draw_event) {
+                shell.diagnostics.emit(DiagnosticEvent::Lifecycle { ms: now_ms, page: page_name(state.page), foreground: state.foreground, phase: state.phase, visible: state.visible, sequence: seq });
+            }
+        } else { remote_trace = None; render_sample = None; }
         if let Some(trace) = &mut trace {
             let state = TraceState::of(&shell.model);
             if let Some(seq) = trace.observe(state, trace_events) {
@@ -506,14 +563,33 @@ fn run(o: Options) -> io::Result<()> {
             if want_frame || changed || renderer.has_commits() || renderer.redraw_wanted() || due {
                 want_frame = false;
                 let cost = renderer.draw(now);
+                if shell.diagnostics.enabled() {
+                    let sample = render_sample.get_or_insert((now_ms, 0, 0, 0));
+                    sample.1 = sample.1.saturating_add(1);
+                    sample.2 = sample.2.max(cost.cpu_us);
+                    sample.3 = sample.3.max(cost.draw_us);
+                    if now_ms.saturating_sub(sample.0) >= 1000 {
+                        shell.diagnostics.emit(DiagnosticEvent::Render { ms: now_ms, frames: sample.1, max_cpu_us: sample.2, max_draw_us: sample.3 });
+                        render_sample = None;
+                    }
+                }
+                if let Some(seq) = remote_trace.as_ref().and_then(|t| t.pending) {
+                    shell.diagnostics.emit(DiagnosticEvent::Draw { ms: now_ms, sequence: seq, frame: frame + 1 });
+                }
                 if let Some(error) = cost.gl_error { eprintln!("lumagame: GL error {error:#x}"); }
                 let trace_swap_start = trace.as_ref().and_then(|t| t.pending).map(|_| Instant::now());
                 SWAP_SINCE_MS.store((now_ns() / 1_000_000).max(1), Ordering::Relaxed);
                 let swap = renderer.gles().swap_buffers();
                 SWAP_SINCE_MS.store(0, Ordering::Relaxed);
+                if let Some(seq) = remote_trace.as_mut().and_then(LifecycleTrace::swapped) {
+                    shell.diagnostics.emit(DiagnosticEvent::Swap { ms: began.elapsed().as_millis() as u64, sequence: seq, frame: frame + 1, success: swap.is_ok() });
+                }
                 if let Some(seq) = trace.as_mut().and_then(LifecycleTrace::swapped) {
                     let elapsed_ms = trace_swap_start.map_or(0, |start| start.elapsed().as_millis());
                     eprintln!("lumagame-trace: ms={} seq={seq} swap={swap:?} elapsed_ms={elapsed_ms} frame={}", began.elapsed().as_millis(), frame + 1);
+                }
+                if swap.is_err() && shell.diagnostics.enabled() {
+                    shell.diagnostics.emit(DiagnosticEvent::Error { ms: now_ms, kind: "swap_failed" });
                 }
                 swap?;
                 frame += 1;

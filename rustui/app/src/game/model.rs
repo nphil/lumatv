@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use super::helper::{ControllerChange, GameSir, GameSirState, Leadjoy, LeadjoyState, LeadjoyView};
 use super::stats::{Mode as StatsMode, Overlay, Telemetry};
+use super::diagnostics::{Config as DiagnosticsConfig, Status as DiagnosticsStatus};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -106,6 +107,7 @@ pub enum Input {
     Frames(crate::lifecycle::Frames),
     Display(serde_json::Value),
     StatsSetting(Overlay),
+    DiagnosticsStatus(DiagnosticsStatus),
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
@@ -124,6 +126,8 @@ pub enum Command {
     Rumble { slot: u8, low: u16, high: u16 },
     GameSir(Option<ControllerChange>),
     Leadjoy { view: LeadjoyView, change: Option<ControllerChange> },
+    Diagnostics(DiagnosticsConfig),
+    DiagnosticTest,
     Exit,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -305,15 +309,16 @@ pub enum Section {
     Streaming,
     Integrations,
     Controllers,
+    Diagnostics,
     About,
 }
 impl Section {
-    pub const ALL: [Self; 5] = [Self::Appearance, Self::Streaming, Self::Integrations, Self::Controllers, Self::About];
+    pub const ALL: [Self; 6] = [Self::Appearance, Self::Streaming, Self::Integrations, Self::Controllers, Self::Diagnostics, Self::About];
     pub fn index(self) -> usize {
         Self::ALL.iter().position(|s| *s == self).unwrap_or(0)
     }
     pub fn name(self) -> &'static str {
-        ["Appearance", "Streaming", "Integrations", "Controllers", "About"][self.index()]
+        ["Appearance", "Streaming", "Integrations", "Controllers", "Diagnostics", "About"][self.index()]
     }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -564,6 +569,8 @@ pub struct Model {
     pub gamesir: GameSir,
     pub leadjoy: Leadjoy,
     pub telemetry: Telemetry,
+    pub diagnostics: DiagnosticsConfig,
+    pub diagnostics_status: DiagnosticsStatus,
     session: Option<Session>,
     session_start: u64,
     foreground: bool,
@@ -612,6 +619,8 @@ impl Model {
             gamesir: GameSir::default(),
             leadjoy: Leadjoy::default(),
             telemetry: Telemetry::default(),
+            diagnostics: DiagnosticsConfig::default(),
+            diagnostics_status: DiagnosticsStatus::Off,
             session: None,
             session_start: 0,
             foreground: true,
@@ -902,6 +911,7 @@ impl Model {
                     self.stats_request(&mut out);
                 }
             }
+            Input::DiagnosticsStatus(status) => { changed = self.diagnostics_status != status; self.diagnostics_status = status; }
             Input::GameSir(result) => {
                 self.gamesir.pending = false;
                 match result {
@@ -1364,6 +1374,18 @@ impl Model {
                         self.show_page(Page::Leadjoy, Focus::Setting(0));
                         self.read_leadjoy(out);
                     }
+                } else if self.view.section == Section::Diagnostics {
+                    match i {
+                        0 => { self.diagnostics.enabled = !self.diagnostics.enabled; out.push(Command::Diagnostics(self.diagnostics.clone())); self.stats_request(out); }
+                        1..=3 => {
+                            self.view.edit_field = Some(i);
+                            self.view.address = match i { 1 => self.diagnostics.server.clone(), 2 => self.diagnostics.topic.clone(), _ => String::new() };
+                            self.open_sheet(Sheet::EditText, Focus::Keyboard(0));
+                        }
+                        4 => { self.diagnostics.token.clear(); out.push(Command::Diagnostics(self.diagnostics.clone())); }
+                        5 => out.push(Command::DiagnosticTest),
+                        _ => {}
+                    }
                 } else if self.view.section == Section::About {
                     out.push(Command::PlayMedia { url: ["https://store.steampowered.com", "https://steamgriddb.com", "https://igdb.com"][i.min(2)].into() });
                 } else {
@@ -1684,7 +1706,7 @@ impl Model {
     }
     fn stats_request(&self, out: &mut Vec<Command>) {
         if let Some(s) = self.session.as_ref().filter(|s| *s.phase() == Phase::Running) {
-            let pad_timing = self.hud_visible();
+            let pad_timing = self.hud_visible() || self.diagnostics.active();
             Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.foreground && (pad_timing || self.view.page == Page::Overlay), pad_timing });
         }
     }
@@ -1902,6 +1924,7 @@ impl Model {
     }
     fn go_back(&mut self, out: &mut Vec<Command>) {
         if self.view.sheet.is_some() {
+            if self.view.sheet == Some(Sheet::EditText) && self.view.page == Page::Settings && self.view.section == Section::Diagnostics { self.view.address.clear(); }
             if self.view.sheet == Some(Sheet::Auth) {
                 if let Some(a) = self.view.auth.take() {
                     Self::send(out, &a.engine, Request::AuthCancel);
@@ -1994,17 +2017,21 @@ impl Model {
     }
     fn keyboard(&mut self, i: usize, out: &mut Vec<Command>) {
         let numeric = self.view.sheet == Some(Sheet::Auth);
-        if !numeric && i == 43 {
+        let diagnostic = self.view.page == Page::Settings && self.view.section == Section::Diagnostics && self.view.sheet == Some(Sheet::EditText);
+        let chars = if numeric {
+            "1234567890"
+        } else {
+            match (self.view.keyboard_lower, diagnostic) {
+                (true, true) => "abcdefghijklmnopqrstuvwxyz0123456789.-:/_",
+                (false, true) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/_",
+                (true, false) => "abcdefghijklmnopqrstuvwxyz0123456789.-:/",
+                (false, false) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/",
+            }
+        };
+        if !numeric && i == chars.len() + 3 {
             self.view.keyboard_lower = !self.view.keyboard_lower;
             return;
         }
-        let chars = if numeric {
-            "1234567890"
-        } else if self.view.keyboard_lower {
-            "abcdefghijklmnopqrstuvwxyz0123456789.-:/"
-        } else {
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/"
-        };
         let limit = if numeric {
             self.view
                 .auth
@@ -2053,6 +2080,19 @@ impl Model {
         }
     }
     fn save_text(&mut self, out: &mut Vec<Command>) {
+        if self.view.page == Page::Settings && self.view.section == Section::Diagnostics {
+            match self.view.edit_field {
+                Some(1) => self.diagnostics.server = self.view.address.trim().into(),
+                Some(2) => self.diagnostics.topic = self.view.address.trim().into(),
+                Some(3) if !self.view.address.is_empty() => self.diagnostics.token = std::mem::take(&mut self.view.address),
+                _ => {}
+            }
+            self.view.address.clear();
+            out.push(Command::Diagnostics(self.diagnostics.clone()));
+            self.stats_request(out);
+            self.close_sheet();
+            return;
+        }
         if self.view.page == Page::Leadjoy {
             if self.leadjoy.pending || self.leadjoy.error.is_some() { return; }
             let LeadjoyState::Ready(profile) = &self.leadjoy.state else { return };
@@ -2333,8 +2373,9 @@ impl Model {
                     rows.push(vec![Focus::SheetAction(0)]);
                 }
                 Sheet::AddHost | Sheet::EditText => {
-                    for i in (0..44).step_by(10) {
-                        rows.push((i..(i + 10).min(44)).map(Focus::Keyboard).collect());
+                    let count = if sheet == Sheet::EditText && self.view.page == Page::Settings && self.view.section == Section::Diagnostics { 45 } else { 44 };
+                    for i in (0..count).step_by(10) {
+                        rows.push((i..(i + 10).min(count)).map(Focus::Keyboard).collect());
                     }
                     rows.push(vec![Focus::SheetAction(0)]);
                 }
@@ -2406,11 +2447,12 @@ impl Model {
                         Section::Streaming => 7,
                         Section::Integrations => self.integrations.len(),
                         Section::Controllers => 4,
+                        Section::Diagnostics => 6,
                         Section::About => 3,
                     };
-                    for i in 0..count.max(5) {
+                    for i in 0..count.max(Section::ALL.len()) {
                         let mut row = Vec::new();
-                        if i < 5 {
+                        if i < Section::ALL.len() {
                             row.push(Focus::Rail(i));
                         }
                         if i < count {
@@ -2489,7 +2531,7 @@ impl Model {
                             None
                         };
                         n.up = Some(if i == 0 { Focus::Nav(3) } else { Focus::Rail(i - 1) });
-                        n.down = (i + 1 < 5).then_some(Focus::Rail(i + 1));
+                        n.down = (i + 1 < Section::ALL.len()).then_some(Focus::Rail(i + 1));
                     }
                     Focus::Setting(i) | Focus::Integration(i) => {
                         n.left = Some(Focus::Rail(section));

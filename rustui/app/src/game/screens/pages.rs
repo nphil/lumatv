@@ -512,7 +512,13 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
     });
 }
 pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool) {
-    let letters = if p.model.view.keyboard_lower { "abcdefghijklmnopqrstuvwxyz0123456789.-:/" } else { "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/" };
+    let diagnostic = p.model.view.page == Page::Settings && p.model.view.section == crate::game::model::Section::Diagnostics && p.model.view.sheet == Some(crate::game::model::Sheet::EditText);
+    let letters = match (p.model.view.keyboard_lower, diagnostic) {
+        (true, true) => "abcdefghijklmnopqrstuvwxyz0123456789.-:/_",
+        (false, true) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/_",
+        (true, false) => "abcdefghijklmnopqrstuvwxyz0123456789.-:/",
+        (false, false) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/",
+    };
     let keys: Vec<String> = if numeric {
         "1234567890".chars().map(|n| n.to_string()).chain(["⌫".into(), "Done".into()]).collect()
     } else {
