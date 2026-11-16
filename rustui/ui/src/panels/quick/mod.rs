@@ -15,6 +15,7 @@ use super::arrange;
 use super::clock;
 use super::env::{Env, tags};
 use super::hold::Hold;
+use super::hub;
 use super::life::Life;
 use super::pin::{self, Pin, Verdict};
 use super::{Ask, K, Out};
@@ -487,6 +488,12 @@ impl Quick {
                 out.close = true;
             }
             (Act::Sleep, Val::Index(i)) => out.effects = env.power.set(i, now),
+            (Act::GameStats, Val::Index(i)) => {
+                if env.topic("plugins").and_then(|roster| hub::plugin_of(roster, "gaming")).is_some_and(|p| p["state"] == "connected")
+                    && let Some(mode) = ["off", "compact", "full"].get(i) {
+                    out.effects.push(Effect::Post { path: "/v1/gaming/overlay".into(), body: json!({"mode":mode}) });
+                }
+            }
             (Act::Settings(page), _) => {
                 out.asks.push(Ask::Settings((*page).to_string()));
                 out.close = true;

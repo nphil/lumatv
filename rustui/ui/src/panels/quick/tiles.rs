@@ -37,6 +37,7 @@ pub enum Act {
     Eye,
     Shot,
     Record,
+    GameStats,
     Plugin { plugin: String, action: String, target: Option<String> },
     /// Do Not Disturb: OK switches it, Right opens its card of durations and of the snoozes on (their ids, in the card's order after the durations).
     Dnd(Vec<String>),
@@ -209,6 +210,15 @@ pub fn tiles(env: &Env) -> Vec<Row> {
     ai.tone = if listener { "positive" } else { "" };
 
     let mut out = vec![picture, receiver, sleep, dnd, wifi];
+    if env.topic("plugins").and_then(|roster| hub::plugin_of(roster, "gaming")).is_some_and(|p| p["state"] == "connected") {
+        let mut stats = Row::base("gamestats", Kind::Stepper, "gauge", "Game stats", Act::GameStats);
+        stats.options = ["Off", "Compact", "Full"].into_iter().map(str::to_owned).collect();
+        stats.index = env.topic("gaming.overlay").and_then(|v| v["mode"].as_str())
+            .and_then(|mode| ["off", "compact", "full"].iter().position(|v| *v == mode));
+        stats.enabled = stats.index.is_some();
+        stats.widest = "Compact";
+        out.push(stats);
+    }
     out.extend(plugin_rows(env));
     out.push(ai);
     out

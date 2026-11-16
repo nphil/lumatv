@@ -251,6 +251,24 @@ fn a_plugins_tile_ok_posts_its_action_and_a_switch_flips_by_the_same_post() {
 }
 
 #[test]
+fn game_stats_is_plugin_gated_and_uses_the_shared_overlay_setting() {
+    let (mut q, mut env) = rig(false);
+    assert!(!tiles::tiles(&env).iter().any(|t| t.id == "gamestats"));
+    feed(&mut env, "plugins", json!({"plugins":[{"id":"gaming","state":"connected"}]}), 1);
+    feed(&mut env, "gaming.overlay", json!({"mode":"compact","changed":1}), 1);
+    let rows = tiles::tiles(&env);
+    let i = rows.iter().position(|r| r.id == "gamestats").unwrap();
+    assert_eq!(rows[i - 1].id, "wifi");
+    assert_eq!(rows[i].options, ["Off", "Compact", "Full"]);
+    assert_eq!(rows[i].index, Some(1));
+    assert_eq!(q.act(&Act::GameStats, Val::Index(2), &mut env, 2).effects,
+        vec![Effect::Post { path: "/v1/gaming/overlay".into(), body: json!({"mode":"full"}) }]);
+    feed(&mut env, "plugins", json!({"plugins":[{"id":"gaming","state":"off"}]}), 3);
+    assert!(!tiles::tiles(&env).iter().any(|t| t.id == "gamestats"));
+    assert!(q.act(&Act::GameStats, Val::Index(0), &mut env, 4).effects.is_empty());
+}
+
+#[test]
 fn tiles_that_come_and_go_keep_the_focus_on_the_tile_it_was_on() {
     let (mut q, mut env) = rig(false);
     walk_down(&mut q, &mut env);
