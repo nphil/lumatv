@@ -214,59 +214,97 @@ pub fn home(p: &mut Paint<'_>) {
         let (x, y) = if p.scale > 1.0 { (p.x, actions_y + button_h + 16.0) } else { (p.x + width + 16.0, actions_y) };
         p.button(110, Focus::Hero(1), "Game details", Some(Icon::Info), x, y, false, true, 12);
     }
-    let mut y = if deep { 170.0 } else { hero_end + 48.0 };
-    for (row_index, row) in m.home_rows.iter().enumerate().skip(m.view.home_row).take(2) {
-        p.text(200 + row_index as u64 * 2000, &row.title, Frame::new(p.x, y, 1500.0, p.line(Type::Body)), Type::Body, Role::Ink, false, 10);
-        y += p.line(Type::Body) + 18.0;
-        let focused = match m.view.focus {
-            Focus::Home(r, i) if r == row_index => Some(i),
-            _ => None,
-        };
+    let body = p.line(Type::Body);
+    let caption = p.line(Type::Caption);
+    let cover_h = m.prefs.covers.cover_width() * 1.5;
+    let row_height = |row: &crate::game::model::HomeRow| {
+        let tile = if matches!(row.items.first(), Some(HomeItem::Collection(_) | HomeItem::Genre(_))) { 252.0 } else { cover_h };
+        body + 18.0 + tile + 26.0 + body + caption + 48.0
+    };
+    let hero_top = hero_end + 48.0;
+    let before: f32 = m.home_rows.iter().take(m.view.home_row).map(&row_height).sum();
+    let offset = before + if deep { hero_top - 170.0 } else { 0.0 };
+    let current = p.scroll_positions.get(&1).copied().unwrap_or(offset);
+    let mut top = hero_top;
+    let mut current_row = 0;
+    for (index, row) in m.home_rows.iter().enumerate() {
+        if top + row_height(row) - current > 150.0 {
+            current_row = index;
+            break;
+        }
+        top += row_height(row);
+    }
+    let total: f32 = m.home_rows.iter().map(&row_height).sum();
+    let group_index = p.plan.groups.len();
+    p.plan.groups.push(super::paint::ScrollGroup {
+        id: 1, parent: None, clip: compositor_protocol::Rect { x: 0.0, y: 150.0, w: W, h: H - 150.0 },
+        horizontal: false, offset, extent: total + hero_top, nodes: Vec::new(),
+    });
+    let start = p.plan.nodes.len();
+    let mut row_top = hero_top;
+    for (row_index, row) in m.home_rows.iter().enumerate() {
+        let height = row_height(row);
+        let visible = [m.view.home_row, current_row].iter().any(|&at| row_index >= at.saturating_sub(1) && row_index <= at + 2);
+        if !visible {
+            row_top += height;
+            continue;
+        }
+        let y = row_top - offset;
+        p.text(200 + row_index as u64 * 2000, &row.title, Frame::new(p.x, y, 1500.0, body), Type::Body, Role::Ink, false, 10);
+        let tile_y = y + body + 18.0;
+        let focused = match m.view.focus { Focus::Home(r, i) if r == row_index => Some(i), _ => None };
         let first = focused.map_or(0, |i| i.saturating_sub(m.prefs.covers.columns() - 2));
         let width_of = |item: &HomeItem| match item {
             HomeItem::Game(_) => m.prefs.covers.cover_width(),
             HomeItem::Collection(_) => 448.0,
             HomeItem::Genre(_) => 336.0,
         };
-        // One tile before the first shown and one past the edge stay in the plan, so a step slides a tile in or out of view and never
-        // makes or drops one in place. The one before is cut at the edge inset, so it never shows in the margin.
-        let from = first.saturating_sub(1);
-        let mut x = p.x - if from < first { width_of(&row.items[from]) + p.gap } else { 0.0 };
-        let mut past = false;
-        for (i, item) in row.items.iter().enumerate().skip(from) {
-            if x > W {
-                if past {
-                    break;
+        // Home rows are built from one item kind, so their tile pitch is constant even in a large library.
+        let Some(prototype) = row.items.first() else {
+            row_top += height;
+            continue;
+        };
+        let width = width_of(prototype);
+        debug_assert!(row.items.iter().all(|item| width_of(item) == width));
+        let pitch = width + p.gap;
+        let x_offset = first as f32 * pitch;
+        let id = 100 + row_index as u32;
+        let current_x = p.scroll_positions.get(&id).copied().unwrap_or(x_offset);
+        let current_item = ((current_x / pitch).floor().max(0.0) as usize).min(row.items.len() - 1);
+        let count = ((W - p.x) / pitch).ceil() as usize;
+        let mut items = Vec::with_capacity((count + 2) * 2);
+        for at in [first, current_item] {
+            for i in at.saturating_sub(1)..(at + count + 1).min(row.items.len()) {
+                if !items.contains(&i) {
+                    items.push(i);
                 }
-                past = true;
             }
-            let (start, hits) = (p.plan.nodes.len(), p.plan.hits.len());
-            let id = 220 + row_index as u64 * 2000 + i as u64 * 20;
-            let f = Focus::Home(row_index, i);
+        }
+        items.sort_unstable();
+        let nodes_start = p.plan.nodes.len();
+        for i in items {
+            let item = &row.items[i];
+            let x = p.x + i as f32 * pitch - x_offset;
+            let hits = p.plan.hits.len();
+            let id = (1_u64 << 48) | ((row_index as u64) << 32) | ((i as u64) << 5);
+            let focus = Focus::Home(row_index, i);
             match item {
-                HomeItem::Game(id_game) => cover(p, id, *id_game, f, x, y, width_of(item)),
-                HomeItem::Collection(index) => collection(p, id, *index, f, x, y),
-                HomeItem::Genre(name) => genre(p, id, name, f, x, y),
+                HomeItem::Game(game) => cover(p, id, *game, focus, x, tile_y, width),
+                HomeItem::Collection(index) => collection(p, id, *index, focus, x, tile_y),
+                HomeItem::Genre(name) => genre(p, id, name, focus, x, tile_y),
             }
-            if i < first {
-                for node in &mut p.plan.nodes[start..] {
-                    node.props.clip = Some(compositor_protocol::Rect { x: p.x - p.gap, y: 0.0, w: W, h: H });
-                }
-                // Not on screen, so not a target for the pointer.
-                p.plan.hits.truncate(hits);
+            if p.plan.hits.len() > hits {
+                p.plan.hit_groups.insert(focus, 100 + row_index as u32);
             }
-            x += width_of(item) + p.gap;
         }
-        let collection = matches!(row.items.first(), Some(HomeItem::Collection(_) | HomeItem::Genre(_)));
-        y += if collection { 252.0 } else { m.prefs.covers.cover_width() * 1.5 };
-        if focused.is_some() || collection {
-            y += 26.0 + p.line(Type::Body) + p.line(Type::Caption);
-        }
-        y += 48.0;
-        if y >= H {
-            break;
-        }
+        let nodes = p.plan.nodes[nodes_start..].iter().map(|node| node.id).collect();
+        p.plan.groups.push(super::paint::ScrollGroup {
+            id, parent: Some(1), clip: compositor_protocol::Rect { x: p.x - p.gap, y: row_top, w: W - p.x + p.gap, h: height },
+            horizontal: true, offset: x_offset, extent: row.items.len() as f32 * pitch + W, nodes,
+        });
+        row_top += height;
     }
+    p.plan.groups[group_index].nodes = p.plan.nodes[start..].iter().map(|node| node.id).collect();
 }
 pub fn cover(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, x: f32, y: f32, w: f32) {
     let Some(game) = p.model.game(game) else {
@@ -437,17 +475,41 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
         );
         return;
     }
+    if y >= H && matches!(m.view.focus, Focus::SearchField | Focus::Keyboard(_)) {
+        return;
+    }
     let columns = m.prefs.covers.columns();
     let w = (W - p.x * 2.0 - p.gap * (columns - 1) as f32) / columns as f32;
     let row_h = w * 1.5 + 40.0 + p.line(Type::Body) + p.line(Type::Caption) + 26.0;
-    for (i, game) in m.filtered.iter().enumerate().skip(m.view.first_grid_row * columns).take(columns * 2) {
-        let row = i / columns - m.view.first_grid_row;
-        let yy = y + row as f32 * row_h;
-        if yy > H {
-            break;
+    let first = m.view.first_grid_row;
+    let current = p.scroll_positions.get(&1).copied().unwrap_or(first as f32 * row_h);
+    let current_row = (current / row_h).floor().max(0.0) as usize;
+    let total = m.filtered.len().div_ceil(columns);
+    let mut rows = Vec::with_capacity(8);
+    for anchor in [first, current_row] {
+        for row in anchor.saturating_sub(1)..(anchor + 3).min(total) {
+            if !rows.contains(&row) {
+                rows.push(row);
+            }
         }
-        cover(p, 1000 + i as u64 * 20, *game, Focus::Grid(i), p.x + (i % columns) as f32 * (w + p.gap), yy, w);
     }
+    rows.sort_unstable();
+    let start = p.plan.nodes.len();
+    for row in rows {
+        let yy = y + (row as f32 - first as f32) * row_h;
+        for (i, game) in m.filtered.iter().enumerate().skip(row * columns).take(columns) {
+            let hits = p.plan.hits.len();
+            cover(p, 1000 + i as u64 * 20, *game, Focus::Grid(i), p.x + (i % columns) as f32 * (w + p.gap), yy, w);
+            if p.plan.hits.len() > hits {
+                p.plan.hit_groups.insert(Focus::Grid(i), 1);
+            }
+        }
+    }
+    let nodes = p.plan.nodes[start..].iter().map(|node| node.id).collect();
+    p.plan.groups.push(super::paint::ScrollGroup {
+        id: 1, parent: None, clip: compositor_protocol::Rect { x: p.x - p.gap, y, w: W - 2.0 * (p.x - p.gap), h: H - y },
+        horizontal: false, offset: first as f32 * row_h, extent: total as f32 * row_h + H, nodes,
+    });
 }
 pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool) {
     let letters = if p.model.view.keyboard_lower { "abcdefghijklmnopqrstuvwxyz0123456789.-:/" } else { "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/" };

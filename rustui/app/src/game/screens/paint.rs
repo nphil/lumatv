@@ -50,10 +50,22 @@ pub struct Node {
     pub z: i32,
     pub body: Body,
 }
+/// A clipped scrolling coordinate space; members carry stable IDs across scrolls.
+pub struct ScrollGroup {
+    pub id: u32,
+    pub parent: Option<u32>,
+    pub clip: Rect,
+    pub horizontal: bool,
+    pub offset: f32,
+    pub extent: f32,
+    pub nodes: Vec<u64>,
+}
 #[derive(Default)]
 pub struct Plan {
     pub nodes: Vec<Node>,
     pub hits: Vec<(Focus, Frame)>,
+    pub groups: Vec<ScrollGroup>,
+    pub hit_groups: std::collections::BTreeMap<Focus, u32>,
     /// How far the page is scrolled to keep the focus in view.
     pub shift: f32,
 }
@@ -77,6 +89,7 @@ pub struct Paint<'a> {
     pub x: f32,
     pub y: f32,
     pub gap: f32,
+    pub scroll_positions: std::collections::BTreeMap<u32, f32>,
 }
 // Keep drawing coordinates and token choices explicit, like the underlying toolkit.
 #[allow(clippy::too_many_arguments)]
@@ -93,6 +106,7 @@ impl<'a> Paint<'a> {
             x: layout["edgeX"].as_f64().unwrap_or(96.0) as f32,
             y: layout["edgeY"].as_f64().unwrap_or(54.0) as f32,
             gap: layout["gutter"].as_f64().unwrap_or(24.0) as f32,
+            scroll_positions: std::collections::BTreeMap::new(),
         }
     }
     pub fn mode_at(&self, stage: bool) -> Mode {
@@ -161,10 +175,14 @@ impl<'a> Paint<'a> {
         };
         let shift = if matches!(self.model.view.focus, Focus::Home(_, _)) { 0.0 } else { ((focus.y + focus.h + caption).max(end) - (H - self.y)).max(0.0) };
         let view = Rect { x: 0.0, y: 150.0, w: W, h: H - 150.0 };
+        let grouped: std::collections::BTreeSet<_> = self.plan.groups.iter().flat_map(|group| group.nodes.iter().copied()).collect();
         for node in &mut self.plan.nodes {
             if scrollable(node.id) {
                 node.frame.y -= shift;
                 node.props.y -= shift;
+                if grouped.contains(&node.id) {
+                    continue;
+                }
                 match node.props.clip {
                     // A node with its own clip (a bar sliding in its track) keeps it, moved with the page and cut to the view.
                     Some(own) => node.props.clip = Some(intersect(Rect { y: own.y - shift, ..own }, view)),
@@ -175,13 +193,18 @@ impl<'a> Paint<'a> {
                 }
             }
         }
+        for group in &mut self.plan.groups {
+            if group.parent.is_none() && !group.horizontal {
+                group.offset += shift;
+            }
+        }
         self.plan.shift = shift;
         for (id, frame) in &mut self.plan.hits {
             if !fixed(id) {
                 frame.y -= shift;
             }
         }
-        self.plan.nodes.retain(|n| n.id < 100 || n.frame.y + n.frame.h > 150.0 && n.frame.y < H);
+        self.plan.nodes.retain(|n| grouped.contains(&n.id) || n.id < 100 || n.frame.y + n.frame.h > 150.0 && n.frame.y < H);
     }
     pub fn primary(&self, stage: bool) -> (Rgba, Rgba) {
         let pair = lumatv_tokens::themes::game_primary(self.tokens.roles(self.mode_at(stage)));

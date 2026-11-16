@@ -10,7 +10,7 @@ mod stats;
 
 use crate::game::model::{Focus, Model, Page};
 use art::Key;
-use compositor_protocol::{Ease, Props};
+use compositor_protocol::{Ease, GroupPose, PoseBinding, PoseProperties, Props};
 use lumagame_meta::Image;
 use lumatv_tokens::{Tokens, TypeRole};
 use paint::{Body, Node, Paint};
@@ -24,6 +24,8 @@ use ui::{
     Ui,
     components::{Item, Mark, Run, TextLayer},
     geometry::Frame,
+    group::Group,
+    motion::{Motion, MotionBounds, MotionToken, Settle, Units},
     lucent::palette::Mode,
 };
 
@@ -34,7 +36,7 @@ pub struct GameUi {
     appearance: Option<(String, bool, u16, bool)>,
     revision: Option<u64>,
     nodes: BTreeMap<u64, Kept>,
-    hits: Vec<(Focus, Frame)>,
+    hits: Vec<(Focus, Frame, Option<u32>)>,
     loader: art::Loader,
     pending: BTreeSet<Key>,
     failed: BTreeSet<Key>,
@@ -44,6 +46,8 @@ pub struct GameUi {
     unfinished_text: bool,
     /// The page's scroll at the last plan: live nodes ease only while it changes, so they move with the page.
     shift: f32,
+    page: Option<Page>,
+    groups: BTreeMap<u32, Scroll>,
 }
 struct Cached {
     image: Image,
@@ -52,6 +56,17 @@ struct Cached {
 struct Kept {
     node: Node,
     layer: Layer,
+    group: Option<u32>,
+}
+struct Scroll {
+    clip: Group,
+    content: Group,
+    motion: Motion,
+    parent: Option<u32>,
+    horizontal: bool,
+    extent: f32,
+    target: f32,
+    clip_rect: compositor_protocol::Rect,
 }
 enum Layer {
     Surface(GlassLayer),
@@ -115,6 +130,8 @@ impl GameUi {
             generation: 0,
             unfinished_text: false,
             shift: 0.0,
+            page: None,
+            groups: BTreeMap::new(),
         })
     }
     pub fn set_host_tokens(&mut self, tokens: Tokens) {
@@ -126,10 +143,20 @@ impl GameUi {
         self.revision = None;
     }
     pub fn hit_test(&self, x: f32, y: f32) -> Option<Focus> {
-        self.hits.iter().rev().find(|(_, f)| x >= f.x && x < f.x + f.w && y >= f.y && y < f.y + f.h).map(|(focus, _)| *focus)
+        self.hits.iter().rev().find(|(_, f, group)| {
+            if let Some(group) = group.and_then(|id| self.groups.get(&id)) {
+                group.content.hit(&Props::at(f.x, f.y), (f.w, f.h), x, y)
+            } else {
+                x >= f.x && x < f.x + f.w && y >= f.y && y < f.y + f.h
+            }
+        }).map(|(focus, _, _)| *focus)
     }
     pub fn art_busy(&self) -> bool {
         self.loader.busy() || self.unfinished_text || !self.ui.glyph_text_settled()
+    }
+    #[cfg(test)]
+    pub(super) fn retained_counts(&self) -> (usize, usize) {
+        (self.nodes.len(), self.groups.len())
     }
     pub fn show(&mut self, model: &Model) -> io::Result<bool> {
         let mut decoded = false;
@@ -152,10 +179,13 @@ impl GameUi {
             let changed = !self.nodes.is_empty();
             self.nodes.clear();
             self.hits.clear();
+            self.groups.clear();
+            self.page = None;
             self.revision = Some(model.revision());
             return Ok(changed);
         }
-        if self.revision == Some(model.revision()) && !decoded && !self.unfinished_text && self.ui.glyph_text_settled() {
+        let scrolling = self.groups.values().any(|g| g.motion.is_active());
+        if self.revision == Some(model.revision()) && !decoded && !self.unfinished_text && self.ui.glyph_text_settled() && !scrolling {
             return Ok(false);
         }
         let appearance = (model.prefs.family.clone(), model.prefs.light, model.prefs.text_percent, model.prefs.reduce_motion);
@@ -171,7 +201,13 @@ impl GameUi {
             self.appearance = Some(appearance);
         }
         self.generation = self.generation.wrapping_add(1);
+        let scroll_positions = if self.page == Some(model.view.page) {
+            self.groups.iter().map(|(id, g)| (*id, g.motion.value())).collect()
+        } else {
+            BTreeMap::new()
+        };
         let mut p = Paint::new(&self.tokens, model, &mut self.ui.fonts);
+        p.scroll_positions = scroll_positions;
         if model.view.page != Page::Running { pages::canvas(&mut p); }
         match model.view.page {
             Page::Home => pages::home(&mut p),
@@ -197,16 +233,52 @@ impl GameUi {
         for node in &mut p.plan.nodes[sheet_start..] {
             node.z += 100;
         }
-        let plan = p.plan;
-        self.hits = plan.hits;
+        let mut plan = p.plan;
+        self.hits.clear();
         let scrolled = plan.shift != self.shift;
         self.shift = plan.shift;
+        if self.page != Some(model.view.page) {
+            self.nodes.clear();
+            self.groups.clear();
+        }
+        self.page = Some(model.view.page);
         let ids = plan.nodes.iter().map(|n| n.id).collect::<BTreeSet<_>>();
         debug_assert_eq!(ids.len(), plan.nodes.len(), "duplicate retained node on {:?}", model.view.page);
         self.nodes.retain(|id, _| ids.contains(id));
+        let reduced = model.prefs.reduce_motion || self.tokens.motion.reduced;
+        self.sync_groups(&plan.groups, reduced)?;
+        for (focus, mut frame) in plan.hits.drain(..) {
+            let group = plan.hit_groups.get(&focus).copied();
+            let mut parent = group;
+            while let Some(id) = parent {
+                let spec = plan.groups.iter().find(|g| g.id == id).expect("hit group in plan");
+                if spec.horizontal { frame.x += spec.offset; } else { frame.y += spec.offset; }
+                parent = spec.parent;
+            }
+            self.hits.push((focus, frame, group));
+        }
+        let mut membership = BTreeMap::new();
+        for group in &plan.groups {
+            for &id in &group.nodes {
+                membership.insert(id, group.id);
+            }
+        }
         self.unfinished_text = false;
-        for node in plan.nodes {
-            self.keep(node, model.prefs.reduce_motion || self.tokens.motion.reduced, scrolled)?;
+        for mut node in plan.nodes.drain(..) {
+            let group = membership.get(&node.id).copied();
+            let mut parent = group;
+            while let Some(id) = parent {
+                let spec = plan.groups.iter().find(|g| g.id == id).expect("scroll group in plan");
+                if spec.horizontal {
+                    node.frame.x += spec.offset;
+                    node.props.x += spec.offset;
+                } else {
+                    node.frame.y += spec.offset;
+                    node.props.y += spec.offset;
+                }
+                parent = spec.parent;
+            }
+            self.keep(node, reduced, scrolled, group)?;
         }
         while self.bytes > 64 << 20 {
             let victim = self.images.iter().filter(|(_, c)| c.used != self.generation).min_by_key(|(_, c)| c.used).map(|(k, _)| k.clone());
@@ -220,7 +292,45 @@ impl GameUi {
         self.revision = Some(model.revision());
         Ok(true)
     }
-    fn keep(&mut self, node: Node, reduced: bool, scrolled: bool) -> io::Result<()> {
+    fn sync_groups(&mut self, specs: &[paint::ScrollGroup], reduced: bool) -> io::Result<()> {
+        if specs.iter().any(|spec| self.groups.get(&spec.id).is_some_and(|group| {
+            group.parent != spec.parent || group.horizontal != spec.horizontal || group.extent != spec.extent.max(1.0)
+        })) {
+            self.nodes.clear();
+            self.groups.clear();
+        }
+        self.groups.retain(|id, _| specs.iter().any(|spec| spec.id == *id));
+        for spec in specs {
+            let extent = spec.extent.max(1.0);
+            if !self.groups.contains_key(&spec.id) {
+                let parent = spec.parent.and_then(|id| self.groups.get(&id)).map(|g| g.content.id());
+                let clip = self.ui.scene.group(parent, GroupPose { clip: Some(spec.clip), ..GroupPose::IDENTITY })
+                    .map_err(|e| io::Error::other(e.to_string()))?;
+                let content = self.ui.scene.group(Some(clip.id()), GroupPose::IDENTITY)
+                    .map_err(|e| io::Error::other(e.to_string()))?;
+                let motion = self.ui.scene.motion(spec.offset, MotionBounds::range(0.0, extent, Units::Pixels))
+                    .map_err(|e| io::Error::other(e.to_string()))?;
+                let to = if spec.horizontal { GroupPose { x: -1.0, ..GroupPose::IDENTITY } } else { GroupPose { y: -1.0, ..GroupPose::IDENTITY } };
+                content.bind(&motion, PoseBinding { values: [0.0, 1.0], from: GroupPose::IDENTITY, to, properties: PoseProperties::TRANSLATION })
+                    .map_err(|e| io::Error::other(e.to_string()))?;
+                self.groups.insert(spec.id, Scroll { clip, content, motion, parent: spec.parent, horizontal: spec.horizontal, extent, target: spec.offset, clip_rect: spec.clip });
+            } else {
+                let group = self.groups.get_mut(&spec.id).unwrap();
+                if group.clip_rect != spec.clip {
+                    group.clip.set_clip_feathered(Some(spec.clip), compositor_protocol::Edges::NONE);
+                    group.clip_rect = spec.clip;
+                }
+                if group.target != spec.offset || reduced && group.motion.is_active() {
+                    let duration_ms = if reduced { 0 } else { self.tokens.motion.focus_ms };
+                    group.motion.settle(Some(spec.offset), None, Settle::Timed(MotionToken { duration_ms, ease: Ease::Out }))
+                        .map_err(|e| io::Error::other(e.to_string()))?;
+                    group.target = spec.offset;
+                }
+            }
+        }
+        Ok(())
+    }
+    fn keep(&mut self, node: Node, reduced: bool, scrolled: bool, group: Option<u32>) -> io::Result<()> {
         if let Body::Image(key) = &node.body {
             if let Some(cached) = self.images.get_mut(key) {
                 cached.used = self.generation;
@@ -233,6 +343,7 @@ impl GameUi {
             }
         }
         let recreate = self.nodes.get(&node.id).is_none_or(|kept| {
+            kept.group != group ||
             kept.node.frame.w != node.frame.w
                 || kept.node.frame.h != node.frame.h
                 || kept.node.z != node.z
@@ -268,6 +379,15 @@ impl GameUi {
                     Layer::Image(layer)
                 }
             };
+            if let Some(id) = group {
+                let parent = &self.groups[&id].content;
+                let result = match &layer {
+                    Layer::Surface(layer) => parent.attach(layer, node.props),
+                    Layer::Text(layer) => parent.attach(layer.layer(), node.props),
+                    Layer::Image(layer) => parent.attach(layer, node.props),
+                };
+                result.map_err(|e| io::Error::other(e.to_string()))?;
+            }
             // A cover whose art arrives after its tile is shown fades in rather than popping; the stage art (below 100) is not a tile.
             if !reduced && node.id >= 100 && matches!(node.body, Body::Image(_)) {
                 layer.set(Props { opacity: 0.0, ..node.props }, false, 0);
@@ -275,7 +395,7 @@ impl GameUi {
             } else {
                 layer.set(node.props, false, 0);
             }
-            self.nodes.insert(node.id, Kept { node, layer });
+            self.nodes.insert(node.id, Kept { node, layer, group });
             return Ok(());
         }
         let kept = self.nodes.get_mut(&node.id).unwrap();
@@ -294,11 +414,10 @@ impl GameUi {
             }
         }
         if kept.node.props != node.props {
-            // A carousel steps one tile (at most a collection card and its gutter) sideways; every retained tile glides with it.
             let animate = !reduced
                 && (scrolled || !paint::LIVE.contains(&node.id))
                 && (kept.node.props.scale != node.props.scale
-                    || (kept.node.props.x - node.props.x).abs() < 480.0 && (kept.node.props.y - node.props.y).abs() < 100.0);
+                    || (kept.node.props.x - node.props.x).abs() < 100.0 && (kept.node.props.y - node.props.y).abs() < 100.0);
             kept.layer.set(node.props, animate, self.tokens.motion.focus_ms);
         }
         kept.node = node;

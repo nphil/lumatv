@@ -2263,14 +2263,14 @@ impl Model {
         let ids: Vec<GameId> = match self.view.page {
             Page::Home => {
                 let mut ids = Vec::new();
-                for (row_index, row) in self.home_rows.iter().enumerate().skip(self.view.home_row).take(2) {
+                for (row_index, row) in self.home_rows.iter().enumerate().skip(self.view.home_row.saturating_sub(1)).take(4) {
                     let first = if let Focus::Home(r, i) = self.view.focus {
                         if r == row_index { i.saturating_sub(self.prefs.covers.columns() - 2) } else { 0 }
                     } else {
                         0
                     };
-                    // One tile past the last shown, which `pages::home` keeps just off screen so that it slides in with its cover.
-                    for item in row.items.iter().skip(first).take(self.prefs.covers.columns() + 2) {
+                    // Keep the adjacent tiles' art ready as they enter the clipped row.
+                    for item in row.items.iter().skip(first.saturating_sub(1)).take(self.prefs.covers.columns() + 3) {
                         match item {
                             HomeItem::Game(id) => ids.push(*id),
                             HomeItem::Collection(index) => {
@@ -2289,7 +2289,7 @@ impl Model {
                 ids
             }
             Page::Library | Page::Search => {
-                self.filtered.iter().skip(self.view.first_grid_row * self.prefs.covers.columns()).take(self.prefs.covers.columns() * 2).copied().collect()
+                self.filtered.iter().skip(self.view.first_grid_row.saturating_sub(1) * self.prefs.covers.columns()).take(self.prefs.covers.columns() * 4).copied().collect()
             }
             _ => Vec::new(),
         };
