@@ -13,7 +13,7 @@ and the standing rules; this file is the dated record behind it.
 
 Installed ui `bb48fe5301aec7fbd482155f4c040293497d2969844f5abacb555923f013528f` (replaces 3ad0204a); compositor `f9a1aca0` and sm `65f6ca69` unchanged. Helper `5a1e5d9acde86b039c08a0a5db9761fbeb5bce1639159501e862bd81aa8e995c` from the same commit, built against LumaShow `tv-cameras` 30dc1854. Quick Settings' Game stats tile is now the Gaming plugin's own stepper tile through the generic plugin tile path. After the install: 0 flips in 30 s in standby, ssgw ours with no new crash record. The Gaming plugin stays off until the owner enables it.
 
-The plugin had no switch in Settings. Main 16cde03e adds Settings > System > Gaming, which asks in the plugin's consent words; installed 21:30 EST as ui `756b3c18864b187a0dfc89005d368587d95c99235a515fafdab9d5a737c8e6fa` (compositor and sm unchanged).
+The plugin had no switch in Settings. Main 16cde03e adds Settings > System > Gaming, which asks in the plugin's consent words; installed 21:30 EST as ui `756b3c18864b187a0dfc89005d368587d95c99235a515fafdab9d5a737c8e6fa` (compositor and sm unchanged). The owner switched Gaming on there and added Game stats to Quick Settings through "Add a tile" (his saved panel arrangement does not show new plugin tiles until added); he confirmed the tile shows at 21:34. Choosing Compact or Full during a stream is untested here.
 
 ## Mute mark still in standby, 2026-11-15 (main fc7f3164, installed 16:34 EST)
 
