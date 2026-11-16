@@ -14,11 +14,16 @@ impl Scene {
         }
     }
 
-    pub(crate) fn window_video(&self, window: WindowId, surfaces: &Surfaces) -> bool {
+    fn window_has_video(&self, window: WindowId, surfaces: &Surfaces) -> bool {
         let Some(w) = self.windows.get(&window) else { return false };
-        crate::switcher::input_app(w.app_id())
-            || self.video.iter().chain(self.holes.iter().map(|h| &h.surface))
-                .any(|s| self.owns_surface(w.surface, *s, surfaces))
+        crate::switcher::input_app(w.app_id()) || self.holes.iter().any(|h| self.owns_surface(w.surface, h.surface, surfaces))
+    }
+
+    pub(crate) fn window_video(&self, window: WindowId, surfaces: &Surfaces) -> bool {
+        if self.window_has_video(window, surfaces) { return true; }
+        let Some(w) = self.windows.get(&window) else { return false };
+        // An export reserves a future video element. Only a successful UI copy can override its conservative cold-launch fade.
+        self.snapshots.get(window).is_none() && self.video.iter().any(|s| self.owns_surface(w.surface, *s, surfaces))
     }
 
     /// Reserves a bounded slot before copying the last drawn app group, never the output page.
@@ -27,7 +32,7 @@ impl Scene {
             return None;
         }
         let w = self.windows.get(&window)?;
-        if w.app_id().is_empty() || w.app_id() == HOME_APP || self.window_video(window, surfaces)
+        if w.app_id().is_empty() || w.app_id() == HOME_APP || self.window_has_video(window, surfaces)
             || !matches!(w.kind, WindowType::Card | WindowType::Overlay) || w.in_group
         {
             return None;
@@ -79,16 +84,20 @@ impl Scene {
             let windows = &self.windows;
             let mut invalid = [None; CAPACITY];
             for (p, slot) in self.snapshots.pictures.iter().zip(&mut invalid) {
+                let video = self.window_has_video(p.window, surfaces);
                 if windows.get(&p.window).is_some_and(|w| w.surface != p.root || w.app_id() != p.app
                     || !matches!(w.kind, WindowType::Card | WindowType::Overlay) || w.in_group)
-                    || self.window_video(p.window, surfaces)
+                    || video
                     // Switcher activation bypasses the resume track and can already be showing newer live pixels.
                     || (self.transitions.suspended && self.front == Front::Card(p.window))
                 {
-                    *slot = Some(p.window);
+                    *slot = Some((p.window, video));
                 }
             }
-            for w in invalid.into_iter().flatten() { self.snapshots.forget(w); }
+            for (window, video) in invalid.into_iter().flatten() {
+                if video { self.transitions.stationary_video(window, now_ns); }
+                self.snapshots.forget(window);
+            }
             for p in &mut self.snapshots.pictures {
                 if self.transitions.suspended || self.front != Front::Card(p.window) {
                     p.resume = None;
@@ -136,6 +145,8 @@ impl crate::State {
         let Some(id) = self.scene.reserve_snapshot(window, &self.surfaces) else { return };
         if !self.output.freeze_app(id, window, self.scene.last_plan(), &self.scene.snapshots) {
             self.scene.invalidate_snapshot(window);
+        } else {
+            self.scene.transitions.confirm_ui_picture(window);
         }
         self.output.retain_app_snapshots(&self.scene.snapshots);
     }
@@ -200,6 +211,9 @@ mod tests {
         assert!(!scene.owns_surface(unrelated, child, &surfaces), "membership never extends to an unrelated app");
         scene.set_video_expected(child, true);
         scene.step_snapshots(&surfaces, 1);
+        assert!(!scene.snapshots.is_empty(), "a dormant exported element is not a video picture");
+        scene.holes.push(Hole { surface: child, rect: Rect::new(0, 0, 100, 100) });
+        scene.step_snapshots(&surfaces, 2);
         assert!(scene.snapshots.is_empty());
     }
 }

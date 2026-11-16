@@ -464,3 +464,88 @@ fn a_shared_memory_update_hidden_by_a_warming_group_member_is_uploaded_before_it
     assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 0);
     assert_eq!(server.eval(|s| s.stats.gl_errors), 0);
 }
+
+#[test]
+fn a_dormant_video_export_allows_only_confirmed_rgb_snapshots_and_an_active_hole_stops_the_zoom() {
+    use lumatv_compositor::transition::FRect;
+    use lumatv_compositor::Rect;
+
+    assert!(Path::new(MESA).exists(), "this pixel regression requires Mesa");
+    let hold = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let mut server = scan_out(hold.clone(), release.clone());
+    let mut rig = rig(&mut server);
+    tick(&server, 1_000 * MS);
+    let (win, _) = app(&mut rig, false);
+    let exported = rig.client.foreign.export_element(&win.surface, 0, &rig.client.qh, ());
+    rig.client.roundtrip();
+    let window = server.eval(|s| s.scene.windows().find(|w| w.app_id() == "com.example.a").unwrap().id);
+    let full = FRect::from_rect(Rect::new(0, 0, 1920, 1080));
+    tick(&server, 2_000 * MS);
+    server.eval(move |s| {
+        let p = s.scene.transitions.pose(window, 2_000 * MS).unwrap();
+        assert_eq!((p.rect, p.clip, p.radius), (full, full, 0.0), "an export still takes the conservative cold fade");
+        assert_eq!(s.output.app_snapshot_count(), 0);
+        assert!(s.scene.holes.is_empty(), "exporting without a context creates no video hole");
+    });
+    tick(&server, 2_300 * MS);
+
+    // A changed, unfinished source cannot be confirmed. Becoming drawable later must not switch this same leave from a fade to a zoom.
+    hold.store(true, Ordering::SeqCst);
+    let current = rig.client.shm_buffer(1920, 1080, 0xff20_d060);
+    rig.client.present(&win.surface, &current);
+    rig.stub.webos.set_state(3);
+    rig.client.roundtrip();
+    tick(&server, 3_000 * MS);
+    assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 0);
+    release.store(true, Ordering::SeqCst);
+    tick(&server, 3_080 * MS);
+    server.eval(move |s| {
+        let p = s.scene.transitions.pose(window, 3_080 * MS).unwrap();
+        assert_eq!((p.rect, p.clip, p.radius), (full, full, 0.0));
+        assert_eq!(s.output.app_snapshot_count(), 0, "readiness alone cannot confirm a capture that was declined");
+    });
+    tick(&server, 3_200 * MS);
+    win.webos.set_state(3);
+    rig.client.roundtrip();
+    tick(&server, 4_000 * MS);
+    assert_eq!(tick(&server, 4_300 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255]);
+
+    rig.stub.webos.set_state(3);
+    rig.client.roundtrip();
+    assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 1, "a dormant export cannot block a drawable RGB UI copy");
+    assert_eq!(tick(&server, 5_000 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255]);
+    tick(&server, 5_100 * MS);
+    assert!(server.eval(|s| s.scene.last_plan().snapshots[0].pose.clip.w < 1920.0), "the confirmed menu picture returns towards its icon");
+    tick(&server, 5_200 * MS);
+    win.webos.set_state(3);
+    rig.client.roundtrip();
+    tick(&server, 6_000 * MS);
+    assert!(server.eval(|s| s.scene.last_plan().snapshots[0].pose.clip.w < 1920.0), "the saved RGB menu resumes from its icon");
+    tick(&server, 6_080 * MS);
+
+    let imported = rig.client.foreign.import_element(rig.client.state.window_ids.last().unwrap().0.clone(), 0, &rig.client.qh, ());
+    imported.attach_punchthrough("snapshot-video".into());
+    let region = rig.client.region(0, 0, 1920, 1080);
+    exported.set_exported_window(&region, &region);
+    let clear = rig.client.shm_buffer(1920, 1080, 0);
+    rig.client.present(&win.surface, &clear);
+    rig.client.roundtrip();
+    let covered = tick(&server, 6_120 * MS);
+    assert_eq!(covered.pixel(960, 540)[3], 255, "the new video hole remains veiled");
+    server.eval(move |s| {
+        assert_eq!(s.output.app_snapshot_count(), 0, "an actual hole invalidates the saved UI regardless of playing status");
+        let track = s.scene.transitions.track_of(window).unwrap();
+        let p = track.pose_at(6_120 * MS);
+        assert_eq!((p.rect, p.clip, p.radius), (full, full, 0.0), "video never follows the interrupted icon zoom");
+        assert_eq!(track.end_ns(), 6_220 * MS, "the change does not restart the motion clock");
+        let surface = s.scene.window(window).unwrap().surface;
+        assert!(!s.scene.video_hole_visible(window, surface, Rect::new(0, 0, 1920, 1080)));
+    });
+    tick(&server, 6_300 * MS);
+    assert_eq!(tick(&server, 6_500 * MS).pixel(960, 540), [0, 0, 0, 0], "the stationary veil releases the real plane's hole");
+    rig.stub.webos.set_state(3);
+    rig.client.roundtrip();
+    assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 0, "a retained video hole remains excluded when returning Home");
+    assert_eq!(server.eval(|s| s.stats.gl_errors), 0);
+}

@@ -29,11 +29,14 @@ matching output flip releases that cover. Failed or dropped submissions cannot a
 the cover is abandoned in favour of the ordinary live/fallback path; this is a bounded hold, not a claim that a fresh frame arrived.
 Logical foreground, input, app notifications and Home never wait for a cover.
 
-Eligibility requires a complete normal RGB UI group with supported geometry, no video element or hole, and no undrawn source mutation.
-Input cards and unknown external formats are excluded. Video-plane apps keep stationary fades; their video is never sampled.
+Eligibility requires a complete normal RGB UI group with supported geometry, no owned video hole, and no undrawn source mutation.
+An exported element without a hole only reserves future video capability. A confirmed RGB copy permits normal snapshot motion;
+an unconfirmed or failed capture keeps the conservative cold-launch fade. A new hole discards the saved UI and makes any remaining
+motion stationary without restarting its end time. Paused video holes remain excluded, as do input cards and unknown external formats.
+Video is never sampled.
 The available webOS buffer metadata has no universal protection flag, so this is not a claim of general protected-content capture support.
 An ineligible or unavailable picture keeps the existing no-snapshot path. Snapshot continuity has not yet been accepted on the TV;
-the shipped motion toggle remains off.
+the shipped motion default remains off.
 
 ## What moves, and what never waits
 

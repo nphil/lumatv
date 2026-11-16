@@ -868,6 +868,28 @@ impl Transitions {
         }
     }
 
+    /// A successful app-only GPU copy proves that a dormant export's speculative veil is not part of this UI picture.
+    pub(crate) fn confirm_ui_picture(&mut self, window: WindowId) {
+        if let Some(t) = self.tracks.iter_mut().find(|t| t.window == window) {
+            t.veil = None;
+        }
+    }
+
+    /// An active hole replaces a moving saved UI. Keep its current opacity and end time, but video never follows the icon geometry.
+    pub(crate) fn stationary_video(&mut self, window: WindowId, now_ns: u64) {
+        let Some(t) = self.tracks.iter_mut().find(|t| t.window == window) else { return };
+        let current = t.pose_at(now_ns);
+        let end_ns = t.end_ns();
+        t.from = Pose { alpha: current.alpha, shade: current.shade, ..Pose::rest(t.window_rect) };
+        t.to = Pose { alpha: t.to.alpha, shade: t.to.shade, ..Pose::rest(t.window_rect) };
+        t.start_ns = now_ns;
+        t.dur_ns = end_ns.saturating_sub(now_ns);
+        t.ease = Ease::Linear;
+        t.alpha_span = (0.0, 1.0);
+        t.veil = t.arriving.then_some(Veil::Hold { hole_ns: None });
+        t.settled = true;
+    }
+
     /// `window`'s pose in this frame, if it is in transition.
     pub fn pose(&self, window: WindowId, now_ns: u64) -> Option<Pose> {
         self.track_of(window).map(|t| t.pose_at(now_ns))
