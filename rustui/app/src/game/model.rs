@@ -2655,6 +2655,72 @@ pub(crate) mod tests {
         assert_eq!(deliver(&mut m, ipc::Event::Library { target: target.id.clone(), entries: vec![], next: None }), 0);
         assert_eq!(deliver(&mut m, ipc::Event::Targets { targets: vec![target] }), 1);
     }
+    #[test]
+    fn this_tv_selection_and_discovery_refresh_the_visible_library() {
+        use crate::game::native::{self, Native};
+        use crate::lifecycle::{FromApp, InstalledApp, ToApp};
+        use lumagame_core::engine::Engine;
+        use lumagame_core::ipc::{Display, Hello, ToEngine, PROTOCOL};
+
+        fn exchange(model: &mut Model, engine: &mut Native, commands: Vec<Command>, seq: &mut u64) {
+            let mut commands = std::collections::VecDeque::from(commands);
+            loop {
+                while let Some(command) = commands.pop_front() {
+                    if let Command::Send { engine: id, request } = command {
+                        assert_eq!(id, native::id());
+                        *seq += 1;
+                        engine.send(ToEngine { seq: *seq, request });
+                    }
+                }
+                let Some(message) = engine.poll() else { break };
+                commands.extend(model.step(Input::Engine { engine: native::id(), message }));
+            }
+        }
+
+        let id = native::id();
+        let mut model = Model::new(State::default(), Listing::default(), vec![native::manifest()]);
+        model.state.engines.entry(id.clone()).or_default().enabled = true;
+        let mut engine = Native::new(true);
+        let mut seq = 1;
+        engine.send(ToEngine { seq, request: Request::Hello(Hello {
+            protocol: PROTOCOL, app_version: "test".into(), data_dir: String::new(), cache_dir: String::new(),
+            feeder: None, locale: "en-US".into(), display: Display { width: 1920, height: 1080, refresh_hz: 60, hdr10: false, codecs: vec![] },
+            settings: Values::new(),
+        }) });
+        exchange(&mut model, &mut engine, vec![], &mut seq);
+        let FromApp::Apps { seq: listing } = engine.command().unwrap() else { panic!("app discovery") };
+        let app = InstalledApp { id: "com.example.proof".into(), title: "Native proof".into(), icon: None };
+        engine.lifecycle(&ToApp::Apps { seq: listing, apps: vec![app.clone()], success: true, message: String::new() });
+        exchange(&mut model, &mut engine, vec![], &mut seq);
+        assert!(model.games().is_empty());
+
+        model.view.selected_engine = Some(id.clone());
+        let mut commands = Vec::new();
+        model.change_engine_field(0, true, &mut commands);
+        assert!(commands.contains(&Command::SaveState));
+        assert!(model.state.engines[&id].settings.values().any(|v| *v == Value::Bool(true)));
+        exchange(&mut model, &mut engine, commands, &mut seq);
+        assert_eq!(model.games().len(), 1);
+        assert_eq!(model.games()[0].title, "Native proof");
+
+        engine.send(ToEngine { seq: { seq += 1; seq }, request: Request::Action { key: "refresh-apps".into() } });
+        let FromApp::Apps { seq: listing } = engine.command().unwrap() else { panic!("app refresh") };
+        engine.lifecycle(&ToApp::Apps { seq: listing, apps: vec![], success: true, message: String::new() });
+        exchange(&mut model, &mut engine, vec![], &mut seq);
+        assert!(model.games().is_empty());
+
+        engine.send(ToEngine { seq: { seq += 1; seq }, request: Request::Action { key: "refresh-apps".into() } });
+        let FromApp::Apps { seq: listing } = engine.command().unwrap() else { panic!("app refresh") };
+        engine.lifecycle(&ToApp::Apps { seq: listing, apps: vec![app], success: true, message: String::new() });
+        exchange(&mut model, &mut engine, vec![], &mut seq);
+        assert_eq!(model.games().len(), 1, "the saved selection returns with the installed app");
+
+        let mut commands = Vec::new();
+        model.change_engine_field(0, false, &mut commands);
+        exchange(&mut model, &mut engine, commands, &mut seq);
+        assert!(model.games().is_empty());
+    }
+
     fn manifest(id: &str, name: &str, kind: EngineKind) -> Manifest {
         Manifest { id: EngineId::new(id).unwrap(), name: name.into(), summary: String::new(), kind, protocol: 1, exec: None, args: Vec::new(), license: "MIT".into(), source: None }
     }

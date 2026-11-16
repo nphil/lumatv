@@ -88,6 +88,11 @@ impl Native {
 
     fn tell_library(&mut self, seq: u64) { self.answer(seq, Event::Library { target: target(), entries: self.library(), next: None }); }
 
+    fn targets(&self) -> Event {
+        Event::Targets { targets: vec![Target { id: target(), name: "This TV".into(), detail: None,
+            link: Link::Linked, reach: if self.available { Reach::Online } else { Reach::Offline } }] }
+    }
+
     fn finish(&mut self, state: SessionState) {
         if let Some(active) = self.active.take() {
             self.commands.retain(|command| !matches!(command, FromApp::Launch { seq, .. } if *seq == active.launch));
@@ -113,7 +118,6 @@ impl Native {
                     self.apps.dedup_by(|a, b| a.id == b.id);
                     self.page = self.page.min(self.apps.len().saturating_sub(1) / PAGE);
                     self.ready(None);
-                    self.tell_library(*seq);
                 } else { self.error(*seq, ErrorCode::Internal, message); }
             }
             ToApp::Launched { seq, app_id, success, message } if self.active.as_ref().is_some_and(|a| a.launch == *seq && a.app_id == *app_id) => {
@@ -150,9 +154,11 @@ impl Engine for Native {
                 self.ready(Some(seq));
                 self.list_apps();
             }
-            Request::Settings { values } => { self.settings = values; self.tell_library(seq); }
-            Request::Targets => self.answer(seq, Event::Targets { targets: vec![Target { id: target(), name: "This TV".into(), detail: None,
-                link: Link::Linked, reach: if self.available { Reach::Online } else { Reach::Offline } }] }),
+            Request::Settings { values } => {
+                self.settings = values;
+                self.answer(seq, self.targets());
+            }
+            Request::Targets => self.answer(seq, self.targets()),
             Request::Library { target: asked, .. } if asked == target() => self.tell_library(seq),
             Request::Check { target: asked, game } => {
                 let present = asked == target() && self.library().iter().any(|entry| entry.id == game);
