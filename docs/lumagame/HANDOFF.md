@@ -6,8 +6,8 @@ Current state and how to resume. Main design docs: ARCHITECTURE.md, DESIGN.md, P
 
 - Installed protocol 2 app from `3189e617`, published to both remotes: IPK SHA-256 `5edb36f10a19ed05752dd52a755ed6ec57a335e01db87724f0c6bf87d979b029`, build-id `d2ebf1814f249e9b`, UI SHA-256 `fca2bd448d7422797b81ba467f42283fb62d1a9358e577daeef6016f993983ea`.
 - Installed helper from `056fc8a4`, SHA-256 `cf202dd23c555485106b50944bfcec51fd011d5bf7b6d0a0ba16d77bb328cb37`, and camera feeder `d919479428ff1b934c7236d6901601bd43b0b5c94f22efca61d790a4d2d04089` match payload and runtime. Decoder runtime bytes remain `389d6f76` / `be345d79`; payload was normalized to match, with prior payload backups retained. Services are healthy, ssgw has no new crash and diagnostics remain on. Receipts: /tmp/cs/3dc58534e64e/protocol2-install/.
-- TV restored to Active Standby; receiver off, input TV, volume −33 dB and mute off; TV mute was false before standby. The lease was released to LumaTV OS for its separate compositor cutover.
-- Installed LumaTV UI hash prefix `756b3c18`; compositor/SM remain `f9a1aca0` / `65f6ca69` before that separate cutover.
+- TV restored to Active Standby; receiver off, input TV, volume −33 dB and mute off; diagnostics on, lease free.
+- LumaTV UI hash prefix `756b3c18`; OS reports compositor `c51fd3e7` from `1aa1` installed, with snapshot acceptance failed (zero capture and 22 ms late gap). LumaTV OS owns the fix; prior compositor/SM were `f9a1aca0` / `65f6ca69`.
 - Installed control tools from `ac72b6fd`: `tools/lumatv` SHA-256 `fe58d9dbb92072c2693edfe220d958a3b2c294b12ca1ddc1212ecef4dab2d823`; `tools/gameapp.sh` SHA-256 `1a742aae1337ad8d50c4a3bcb6e17ba72e46ea6cb475feb5d29cedc4d974c3ec`. Receipts: /tmp/cs/3dc58534e64e/ipk2/RECEIPT.md and /tmp/cs/3dc58534e64e/tools3/.
 - Gaming's Settings consent page is enabled by the owner; the Game stats tile was visibly confirmed after adding it to a custom layout.
 - GeForce NOW works end to end on the TV: sign-in (account nphil, stored under the app's data dir), library with art, 4K120 stream, Back/overlay, end session. Shader cache: second launch's window at 397 ms (1975 ms cold).
@@ -29,6 +29,10 @@ Current state and how to resume. Main design docs: ARCHITECTURE.md, DESIGN.md, P
 - Controllers: GameSir Cyclone 2 protocol + crate `game/crates/gamesir-config` (`05374333`, docs/research/gamesir-cyclone2-protocol.md); Leadjoy Xeno Plus protocol + crate `game/crates/leadjoy-config` (`88fbfd7f`, docs/research/leadjoy-xeno-plus-protocol.md). Keep both pads in DS4 mode for play; GameSir settings need X-input mode (View+Menu 2 s), the config HID is absent in DS4 mode. Nothing has been written to a real pad.
 
 ## In flight
+
+Host-only fixes, **not installed**: `037623ae21` avoids the vendor audio-buffer query for picture-only SMP/ES; ARM and host builds and policy tests for both identities passed. `544f58e573` handles offline targets before SignIn and preserves cached library/defaults until fresh status; 47 core and 146 UI tests passed without ignored tests, as did both clippy gates. Log: /tmp/cs/3dc58534e64e/lumagame-disconnect-host-gates.log.
+
+Historical GLib warning attribution remains unproven. REA candidate evidence: `/tmp/cs/3dc58534e64e/feeder-pipeline-lifetime-evidence.json`; libpf SHA-256 `e8a966b26476f647bfcebf02b08404fc52f0198c52195e37354baa3d712fc36f`, `getAudioBufferSize` at `0x147240`, unchecked `g_object_get` at `0x147278`, and conditional `createAudioPath`. This does not establish runtime attribution.
 
 Protocol 2 source tests, clippy and review passed; ordinary shared LOAD remains 100 bytes. Camera hardware playback and physical 5.1 surround remain untested. Artifact hashes: /tmp/cs/3dc58534e64e/lumagame-protocol2-receipt.txt.
 
