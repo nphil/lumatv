@@ -29,6 +29,7 @@ fn rail(p: &mut Paint<'_>) -> f32 {
     let h = 80.0f32.max(p.line(Type::Body) + 24.0);
     for (i, section) in Section::ALL.into_iter().enumerate() {
         let f = Frame::new(p.x, top + i as f32 * (h + 4.0), w, h);
+        let from = p.plan.nodes.len();
         if p.model.view.section == section || p.focused(Focus::Rail(i)) {
             p.surface(110 + i as u64 * 3, f, Fill::Tint(if p.focused(Focus::Rail(i)) { 0.16 } else { 0.09 }), Radius::Row, false, false, false, 10);
         }
@@ -48,6 +49,9 @@ fn rail(p: &mut Paint<'_>) -> f32 {
                 p.ink(Role::Ink2, false),
                 11,
             );
+        }
+        if p.focused(Focus::Rail(i)) {
+            p.zoom(from, f, p.tokens.focus.card_scale);
         }
         p.hit(Focus::Rail(i), f);
     }
@@ -69,6 +73,7 @@ pub fn theme_card(p: &mut Paint<'_>, id: u64, focus: Focus, index: usize, f: Fra
     let option = &lumatv_tokens::themes::game_options()[index];
     let selected = p.model.prefs.family == option.id;
     let focused = p.focused(focus);
+    let from = p.plan.nodes.len();
     p.surface(id, f, Fill::Glass, Radius::Tile, false, focused, false, 31);
     if selected {
         let edge = p.plan.nodes.last_mut().unwrap();
@@ -97,7 +102,7 @@ pub fn theme_card(p: &mut Paint<'_>, id: u64, focus: Focus, index: usize, f: Fra
     let title = Frame::new(f.x + 20.0, f.y + 158.0, f.w - 40.0, p.line(Type::Label) * 2.0);
     p.wrapped(id + 3, option.name, title, Type::Label, Role::Ink, false, 33);
     if focused {
-        p.land(id + 4, f, p.ink(Role::Ink, false), 30.0, 0.0, 34);
+        p.zoom(from, f, p.tokens.focus.card_scale);
     }
     p.hit(focus, f);
 }
@@ -189,6 +194,7 @@ pub(super) fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, descrip
     let desc_h = description.map_or(0.0, |s| ui::components::wrap(p.fonts, s, p.ty(Type::Caption), text_w).len() as f32 * p.line(Type::Caption));
     f.h = if stack { label_h + desc_h + control_h + 40.0 } else { 80.0f32.max(label_h + desc_h + 24.0).max(control_h + 16.0) };
     let focused = p.focused(focus);
+    let from = p.plan.nodes.len();
     if focused {
         p.surface(id, f, Fill::Tint(p.tokens.states.focus_wash[usize::from(p.mode == Mode::Light)]), Radius::Row, false, true, false, 10);
     }
@@ -260,7 +266,7 @@ pub(super) fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, descrip
         Control::None => {}
     }
     if focused {
-        p.land(id + 19, f, p.ink(Role::Ink, false), 26.0, 0.0, 15);
+        p.zoom(from, f, p.tokens.focus.card_scale);
     }
     if focus != Focus::None {
         p.hit(focus, f);
@@ -320,6 +326,7 @@ fn integrations(p: &mut Paint<'_>, x: f32, w: f32) {
         let enabled = p.model.enabled(&e.manifest.id);
         let f = Frame::new(x, y, w, h);
         let active = p.focused(Focus::Integration(i));
+        let from = p.plan.nodes.len();
         if active {
             p.surface(201 + i as u64 * 30, f, Fill::Tint(0.09), Radius::Row, false, true, false, 10);
         }
@@ -356,7 +363,7 @@ fn integrations(p: &mut Paint<'_>, x: f32, w: f32) {
         p.toggle(203 + i as u64 * 30, x + w - 150.0, y + (h - 48.0) / 2.0, enabled, false, 12);
         p.hit(Focus::Integration(i), f);
         if active {
-            p.land(207 + i as u64 * 30, f, p.ink(Role::Ink, false), 26.0, 0.0, 14);
+            p.zoom(from, f, p.tokens.focus.card_scale);
         }
         y += h + 6.0;
         if y > H - p.y {
@@ -487,10 +494,14 @@ fn about(p: &mut Paint<'_>, x: f32, w: f32) {
     for (i, text) in [lumagame_meta::STEAM_CREDIT, lumagame_meta::SGDB_CREDIT, lumagame_meta::IGDB_CREDIT].into_iter().enumerate() {
         let h = ui::components::wrap(p.fonts, text, p.ty(Type::Body), w - 52.0).len() as f32 * p.line(Type::Body) + 32.0;
         let f = Frame::new(x, y, w, h);
+        let from = p.plan.nodes.len();
         if p.focused(Focus::Setting(i)) {
             p.surface(230 + i as u64 * 3, f, Fill::Tint(0.09), Radius::Row, false, true, false, 10);
         }
         p.wrapped(231 + i as u64 * 3, text, Frame::new(x + 26.0, y + 16.0, w - 52.0, 0.0), Type::Body, Role::Ink2, false, 11);
+        if p.focused(Focus::Setting(i)) {
+            p.zoom(from, f, p.tokens.focus.card_scale);
+        }
         p.hit(Focus::Setting(i), f);
         y += h + 8.0;
     }

@@ -74,6 +74,7 @@ fn chooser(p: &mut Paint<'_>) {
     }
     let remember_y = f.y + height - 34.0 - footer - remember_h;
     let rf = Frame::new(x, remember_y, w, remember_h);
+    let from = p.plan.nodes.len();
     if p.focused(Focus::Remember) {
         p.surface(8700, rf, Fill::Tint(0.09), Radius::Row, false, true, false, 32);
     }
@@ -87,6 +88,9 @@ fn chooser(p: &mut Paint<'_>) {
         33,
     );
     p.toggle(8702, x + w - 108.0, remember_y + (remember_h - 48.0) / 2.0, p.model.view.remember, false, 33);
+    if p.focused(Focus::Remember) {
+        p.zoom(from, rf, p.tokens.focus.card_scale);
+    }
     p.hit(Focus::Remember, rf);
     let y = f.y + height - 34.0 - p.tokens.target.max(p.line(Type::Label) + 24.0);
     let h = p.hint(8710, "Back", Icon::Back, x, y + 12.0, false, 33);
@@ -105,6 +109,7 @@ fn list(p: &mut Paint<'_>, title: &str, values: Vec<String>) {
     let first = if let Focus::SheetRow(i) = p.model.view.focus { i.saturating_sub(visible - 1) } else { 0 };
     for (i, value) in values.iter().enumerate().skip(first).take(visible) {
         let row = Frame::new(f.x + 36.0, y, f.w - 72.0, h);
+        let from = p.plan.nodes.len();
         p.surface(
             8100 + i as u64 * 3,
             row,
@@ -124,6 +129,9 @@ fn list(p: &mut Paint<'_>, title: &str, values: Vec<String>) {
             false,
             33,
         );
+        if p.focused(Focus::SheetRow(i)) {
+            p.zoom(from, row, p.tokens.focus.card_scale);
+        }
         p.hit(Focus::SheetRow(i), row);
         y += h + 6.0;
     }

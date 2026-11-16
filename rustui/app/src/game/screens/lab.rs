@@ -184,22 +184,26 @@ fn pad(p: &mut Paint<'_>, x: f32, w: f32, y: f32) -> f32 {
     // Side by side at the standard text size; larger text stacks the timing under the controls.
     let wide = m.prefs.text_percent <= 100;
     let cell = if wide { 280.0 } else { inner / 2.0 };
+    let from = p.plan.nodes.len();
     let stick_end = stick_view(p, pad, px, top, cell);
-    reading(p, 1300, Focus::Lab(5), Frame::new(px, top, cell * 2.0, stick_end - top));
+    reading(p, from, Focus::Lab(5), Frame::new(px, top, cell * 2.0, stick_end - top));
     let button_top = stick_end + 24.0;
+    let from = p.plan.nodes.len();
     let left = buttons(p, pad, px, button_top, cell);
-    reading(p, 1303, Focus::Lab(6), Frame::new(px, button_top, cell * 2.0, left - button_top));
+    reading(p, from, Focus::Lab(6), Frame::new(px, button_top, cell * 2.0, left - button_top));
     let (rx, ry, rw) = if wide { (px + cell * 2.0 + 48.0, top, inner - cell * 2.0 - 48.0) } else { (px, left + 40.0, inner) };
+    let from = p.plan.nodes.len();
     let right = timing(p, pad, rx, ry, rw);
-    reading(p, 1306, Focus::Lab(7), Frame::new(rx, ry, rw, right - ry));
+    reading(p, from, Focus::Lab(7), Frame::new(rx, ry, rw, right - ry));
     let bottom = left.max(right) + 32.0;
     p.surface(1000, Frame::new(x, y, w, bottom - y), Fill::Tint(0.04), Radius::Card, false, false, false, 10);
     bottom
 }
 
-fn reading(p: &mut Paint<'_>, id: u64, focus: Focus, f: Frame) {
+/// A focused reading grows by the card scale, with everything drawn since node `from`.
+fn reading(p: &mut Paint<'_>, from: usize, focus: Focus, f: Frame) {
     if p.focused(focus) {
-        p.land(id, f, p.ink(Role::Ink, false), 24.0, 0.0, 14);
+        p.zoom(from, f, p.tokens.focus.card_scale);
     }
     p.hit(focus, f);
 }

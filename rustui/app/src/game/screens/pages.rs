@@ -37,6 +37,7 @@ pub fn nav(p: &mut Paint<'_>, stage: bool) {
     };
     let mut x = p.x + 6.0;
     for (i, (label, icon)) in labels.into_iter().enumerate() {
+        let from = p.plan.nodes.len();
         let f = Frame::new(x, p.y + 6.0, widths[i], h - 12.0);
         let focused = p.focused(Focus::Nav(i));
         if focused || current == Some(i) {
@@ -59,6 +60,9 @@ pub fn nav(p: &mut Paint<'_>, stage: bool) {
                 62,
             );
         }
+        if focused {
+            p.zoom(from, f, p.tokens.focus.button_scale);
+        }
         p.hit(Focus::Nav(i), f);
         x += widths[i];
     }
@@ -70,6 +74,7 @@ pub fn nav(p: &mut Paint<'_>, stage: bool) {
     word.align = ui::components::Align::Centre;
     p.words(32, f, vec![word], vec![], 62);
     let target = Frame::new(f.x + 74.0, f.y + 6.0, 64.0, h - 12.0);
+    let from = p.plan.nodes.len();
     if p.focused(Focus::Nav(3)) {
         p.surface(33, target, Fill::Tint(0.16), Radius::Pill, stage, false, false, 61);
     }
@@ -80,6 +85,9 @@ pub fn nav(p: &mut Paint<'_>, stage: bool) {
         vec![p.mark(Icon::Cog, 30.0 * p.scale.min(1.5), (64.0 - 30.0 * p.scale.min(1.5)) / 2.0, (target.h - 30.0 * p.scale.min(1.5)) / 2.0, Role::Ink, stage)],
         62,
     );
+    if p.focused(Focus::Nav(3)) {
+        p.zoom(from, target, p.tokens.focus.button_scale);
+    }
     p.hit(Focus::Nav(3), target);
 }
 pub fn stage(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f32, dim: bool, curtain: bool) {
@@ -274,14 +282,8 @@ pub fn cover(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, x: f32, y: 
     if let Some(path) = p.model.art_url(game.id, ArtKind::Cover).and_then(|url| p.model.art_path(&url)) {
         p.image(id + 5, path, f, p.tokens.radius(Radius::Tile), false, None, 12);
     }
-    if focused && !p.reduced() {
-        for n in &mut p.plan.nodes[start..] {
-            n.props.scale = p.tokens.focus.card_scale;
-            n.props.y -= p.tokens.focus.card_lift;
-        }
-    }
     if focused {
-        p.land(id + 2, Frame::new(x, y + f.h + 12.0, w, p.tokens.focus.landing), p.ink(Role::Ink, false), 30.0, 0.0, 15);
+        p.zoom(start, f, p.tokens.focus.tile_scale);
         let caption = Frame::new(x, y + f.h + 26.0, (w * 2.2).min(W - p.x - x), p.line(Type::Body));
         p.text(id + 3, &game.title, caption, Type::Body, Role::Ink, false, 15);
         target_line(p, id + 4, game.id, x, caption.y + caption.h, w * 2.2, false);
@@ -291,11 +293,15 @@ pub fn cover(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, x: f32, y: 
 fn collection(p: &mut Paint<'_>, id: u64, index: usize, focus: Focus, x: f32, y: f32) {
     let c = &p.model.state().profile().user.collections[index];
     let f = Frame::new(x, y, 448.0, 252.0);
+    let from = p.plan.nodes.len();
     p.surface(id, f, Fill::Sheet, Radius::Tile, false, p.focused(focus), false, 10);
     if let Some(game) = c.games.first() {
         if let Some(path) = p.model.art_url(*game, ArtKind::Hero).and_then(|url| p.model.art_path(&url)) {
             p.image(id + 1, path, f, p.tokens.radius(Radius::Tile), false, None, 11);
         }
+    }
+    if p.focused(focus) {
+        p.zoom(from, f, p.tokens.focus.tile_scale);
     }
     p.text(id + 2, &c.name, Frame::new(x, y + 278.0, 448.0, p.line(Type::Body)), Type::Body, Role::Ink, false, 12);
     p.text(
@@ -308,12 +314,10 @@ fn collection(p: &mut Paint<'_>, id: u64, index: usize, focus: Focus, x: f32, y:
         12,
     );
     p.hit(focus, f);
-    if p.focused(focus) {
-        p.land(id + 4, f, p.ink(Role::Ink, false), 30.0, -12.0, 12);
-    }
 }
 fn genre(p: &mut Paint<'_>, id: u64, name: &str, focus: Focus, x: f32, y: f32) {
     let f = Frame::new(x, y, 336.0, 252.0);
+    let from = p.plan.nodes.len();
     p.surface(id, f, Fill::Sheet, Radius::Tile, false, p.focused(focus), false, 10);
     let ids: Vec<_> = p.model.games().iter().filter(|g| p.model.details.get(&g.id).is_some_and(|d| d.genres.iter().any(|v| v == name))).map(|g| g.id).collect();
     p.text(id + 1, name, Frame::new(x + 28.0, y + 28.0, 280.0, p.line(Type::Body)), Type::Body, Role::Ink, false, 12);
@@ -333,7 +337,7 @@ fn genre(p: &mut Paint<'_>, id: u64, name: &str, focus: Focus, x: f32, y: f32) {
     }
     p.hit(focus, f);
     if p.focused(focus) {
-        p.land(id + 8, f, p.ink(Role::Ink, false), 30.0, -12.0, 12);
+        p.zoom(from, f, p.tokens.focus.tile_scale);
     }
 }
 pub fn library(p: &mut Paint<'_>, search: bool) {
@@ -342,6 +346,7 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
     let mut y = 162.0;
     if search {
         let f = Frame::new(p.x, y, W - 2.0 * p.x, p.tokens.target.max(p.line(Type::Body) + 24.0));
+        let from = p.plan.nodes.len();
         p.surface(100, f, Fill::Glass, Radius::Pill, false, p.focused(Focus::SearchField), false, 10);
         let text = if m.view.query.is_empty() { "Search games" } else { &m.view.query };
         p.words(
@@ -358,6 +363,9 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
             vec![p.mark(Icon::Search, 32.0, 24.0, (f.h - 32.0) / 2.0, Role::Ink2, false)],
             11,
         );
+        if p.focused(Focus::SearchField) {
+            p.zoom(from, f, p.tokens.focus.button_scale);
+        }
         p.hit(Focus::SearchField, f);
         y += f.h + 24.0;
         if matches!(m.view.focus, Focus::SearchField | Focus::Keyboard(_)) {
@@ -388,6 +396,7 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
                 } else {
                     i == labels.len() - 2 && m.view.filter.favourites
                 };
+                let from = p.plan.nodes.len();
                 p.surface(
                     100 + i as u64 * 4,
                     f,
@@ -409,7 +418,7 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
                 );
                 p.hit(Focus::Filter(i), f);
                 if p.focused(Focus::Filter(i)) {
-                    p.zoom(2);
+                    p.zoom(from, f, p.tokens.focus.button_scale);
                 }
             }
             x += f.w + 12.0;
@@ -457,10 +466,14 @@ pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: boo
     let h = (52.0 * p.scale).min(80.0);
     for (i, key) in keys.iter().enumerate() {
         let f = Frame::new(x + (i % columns) as f32 * (width + gap), y + (i / columns) as f32 * (h + gap), width, h);
+        let from = p.plan.nodes.len();
         p.surface(id + i as u64 * 3, f, Fill::Tint(0.06), Radius::Control, stage, p.focused(Focus::Keyboard(i)), false, 30);
         let mut word = p.word(key, Type::Caption, p.ink(Role::Ink, stage), 2.0, (h - p.line(Type::Caption)) / 2.0, width - 4.0);
         word.align = ui::components::Align::Centre;
         p.words(id + i as u64 * 3 + 1, f, vec![word], vec![], 31);
+        if p.focused(Focus::Keyboard(i)) {
+            p.zoom(from, f, p.tokens.focus.button_scale);
+        }
         p.hit(Focus::Keyboard(i), f);
     }
 }
@@ -538,6 +551,7 @@ pub fn hub(p: &mut Paint<'_>) {
     for (i, label) in ["Overview", "Ways to play", "Media"].into_iter().enumerate() {
         let w = p.width(label, Type::Label) + 58.0;
         let f = Frame::new(x, y, w, tab_h);
+        let from = p.plan.nodes.len();
         if i == m.view.hub_tab || p.focused(Focus::Tab(i)) {
             p.surface(200 + i as u64 * 3, f, Fill::Tint(if p.focused(Focus::Tab(i)) { 0.16 } else { 0.09 }), Radius::Pill, false, false, false, 15);
         }
@@ -550,6 +564,9 @@ pub fn hub(p: &mut Paint<'_>) {
             false,
             16,
         );
+        if p.focused(Focus::Tab(i)) {
+            p.zoom(from, f, p.tokens.focus.button_scale);
+        }
         p.hit(Focus::Tab(i), f);
         x += w + 8.0;
     }
@@ -616,6 +633,7 @@ pub fn hub(p: &mut Paint<'_>) {
                     for (column, (i, item)) in items.iter().skip(first).take(4).enumerate() {
                         let x = p.x + column as f32 * (448.0 + p.gap);
                         let f = Frame::new(x, y, 448.0, 252.0);
+                        let from = p.plan.nodes.len();
                         p.surface(300 + *i as u64 * 10, f, Fill::Sheet, Radius::Tile, false, p.focused(Focus::Media(*i)), false, 10);
                         if let Some(path) = m.art_path(&item.image) {
                             p.image(301 + *i as u64 * 10, path, f, p.tokens.radius(Radius::Tile), false, None, 11);
@@ -623,6 +641,9 @@ pub fn hub(p: &mut Paint<'_>) {
                         if video {
                             p.solid(302 + *i as u64 * 10, Frame::new(x + 188.0, y + 90.0, 72.0, 72.0), p.ink(Role::Sheet, true), 36.0, 12);
                             p.words(303 + *i as u64 * 10, f, vec![], vec![p.mark(Icon::Play, 32.0, 208.0, 110.0, Role::Ink, true)], 13);
+                        }
+                        if p.focused(Focus::Media(*i)) {
+                            p.zoom(from, f, p.tokens.focus.tile_scale);
                         }
                         p.text(304 + *i as u64 * 10, &item.title, Frame::new(x, y + 278.0, 448.0, p.line(Type::Body) * 2.0), Type::Body, Role::Ink, false, 12);
                         p.hit(Focus::Media(*i), f);
@@ -646,6 +667,7 @@ pub fn way(p: &mut Paint<'_>, id: u64, index: usize, key: lumagame_core::ids::So
         SaveCompat::Unknown => "Saves unknown",
     };
     f.h = if p.scale > 1.0 { p.line(Type::Body) + p.line(Type::Caption) * 2.0 + 44.0 } else { 80.0 };
+    let from = p.plan.nodes.len();
     p.surface(
         id,
         f,
@@ -684,7 +706,7 @@ pub fn way(p: &mut Paint<'_>, id: u64, index: usize, key: lumagame_core::ids::So
     }
     p.words(id + 1, f, words, marks, 33);
     if focused {
-        p.land(id + 2, f, p.ink(Role::Ink, false), 26.0, 0.0, 34);
+        p.zoom(from, f, p.tokens.focus.card_scale);
     }
     p.hit(focus, f);
     f.h
@@ -703,6 +725,7 @@ pub fn first_run(p: &mut Paint<'_>) {
     let start = focus / cols * cols;
     for (i, e) in p.model.integrations.iter().enumerate().skip(start).take(cols) {
         let f = Frame::new(p.x + (i - start) as f32 * (w + p.gap), top, w, 320.0);
+        let from = p.plan.nodes.len();
         p.surface(200 + i as u64 * 10, f, Fill::Glass, Radius::Card, false, p.focused(Focus::FirstRun(i)), false, 10);
         let icon = match e.manifest.kind {
             EngineKind::Cloud => Icon::CloudOutline,
@@ -726,6 +749,9 @@ pub fn first_run(p: &mut Paint<'_>) {
             false,
             11,
         );
+        if p.focused(Focus::FirstRun(i)) {
+            p.zoom(from, f, p.tokens.focus.card_scale);
+        }
         p.hit(Focus::FirstRun(i), f);
     }
     if p.model.integrations.is_empty() {

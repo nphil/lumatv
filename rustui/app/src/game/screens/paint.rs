@@ -118,20 +118,18 @@ impl<'a> Paint<'a> {
     pub fn focused(&self, focus: Focus) -> bool {
         self.model.view.focus == focus
     }
-    pub fn reduced(&self) -> bool {
-        self.model.prefs.reduce_motion || self.tokens.motion.reduced
-    }
     pub fn symbol(&mut self, id: u64, symbol: Symbol, frame: Frame, colour: Rgba, z: i32) {
         self.plan.nodes.push(Node { id, frame, props: Props::at(frame.x, frame.y), z, body: Body::Symbol(symbol, colour) });
     }
     pub fn symbol_button(&mut self, id: u64, focus: Focus, symbol: Symbol, selected: bool, x: f32, y: f32, stage: bool, z: i32) {
+        let from = self.plan.nodes.len();
         let h = self.tokens.target;
         let f = Frame::new(x, y, h, h);
         self.surface(id, f, Fill::Glass, Radius::Pill, stage, self.focused(focus), true, z);
         let side = (30.0 * self.scale).min(48.0);
         self.symbol(id + 1, symbol, Frame::new(x + (h - side) / 2.0, y + (h - side) / 2.0, side, side), self.ink(if selected { Role::Accent } else { Role::Ink }, stage), z + 1);
         if self.focused(focus) {
-            self.zoom(2);
+            self.zoom(from, f, self.tokens.focus.button_scale);
         }
         self.hit(focus, f);
     }
@@ -325,18 +323,19 @@ impl<'a> Paint<'a> {
     pub fn hit(&mut self, focus: Focus, frame: Frame) {
         self.plan.hits.push((focus, frame));
     }
-    pub fn land(&mut self, id: u64, frame: Frame, colour: Rgba, inset: f32, bottom: f32, z: i32) {
-        let h = self.tokens.focus.landing;
-        self.solid(id, Frame::new(frame.x + inset, frame.y + frame.h - bottom - h, (frame.w - inset * 2.0).max(1.0), h), colour, h / 2.0, z);
-    }
-    /// A focused button's last `layers` nodes grow by the theme's button scale. With reduced motion `GameUi::keep` sets it without
+    /// Grows what a focused control drew since node `from` by `scale` about the middle of `frame`. A layer scales about its own centre,
+    /// so each is also moved to where the group's scale puts that centre. With reduced motion `GameUi::keep` sets the scale without
     /// easing, so the cue stays without the movement.
-    pub fn zoom(&mut self, layers: usize) {
-        for node in self.plan.nodes.iter_mut().rev().take(layers) {
-            node.props.scale = self.tokens.focus.button_scale;
+    pub fn zoom(&mut self, from: usize, frame: Frame, scale: f32) {
+        let (cx, cy) = (frame.x + frame.w / 2.0, frame.y + frame.h / 2.0);
+        for node in &mut self.plan.nodes[from..] {
+            node.props.x += (node.frame.x + node.frame.w / 2.0 - cx) * (scale - 1.0);
+            node.props.y += (node.frame.y + node.frame.h / 2.0 - cy) * (scale - 1.0);
+            node.props.scale = scale;
         }
     }
     pub fn button(&mut self, id: u64, focus: Focus, label: &str, icon: Option<Icon>, x: f32, y: f32, primary: bool, stage: bool, z: i32) -> f32 {
+        let from = self.plan.nodes.len();
         let side = 30.0 * self.scale;
         let h = self.tokens.target.max(self.line(TypeRole::Label) + 24.0);
         let ty = self.bold(TypeRole::Label);
@@ -352,18 +351,19 @@ impl<'a> Paint<'a> {
         let marks = icon.map(|icon| vec![Mark { form: Form::Icon(icon, side as u32), colour: ink, x: 28.0, y: (h - side) / 2.0 }]).unwrap_or_default();
         self.words(id + 1, frame, vec![word], marks, z + 2);
         if focused {
-            self.zoom(2);
+            self.zoom(from, frame, self.tokens.focus.button_scale);
         }
         self.hit(focus, frame);
         w
     }
     pub fn icon_button(&mut self, id: u64, focus: Focus, icon: Icon, x: f32, y: f32, stage: bool, z: i32) {
+        let from = self.plan.nodes.len();
         let h = self.tokens.target;
         let f = Frame::new(x, y, h, h);
         self.surface(id, f, Fill::Glass, Radius::Pill, stage, self.focused(focus), true, z);
         self.words(id + 1, f, vec![], vec![self.mark(icon, 30.0, 17.0, 17.0, Role::Ink, stage)], z + 1);
         if self.focused(focus) {
-            self.zoom(2);
+            self.zoom(from, f, self.tokens.focus.button_scale);
         }
         self.hit(focus, f);
     }
@@ -554,5 +554,22 @@ mod tests {
             assert_eq!(scales(20..40), [1.0; 4]);
             assert_eq!(p.plan.nodes.len(), 6, "no underline layer");
         }
+    }
+
+    #[test]
+    fn zoom_moves_each_layer_around_the_controls_shared_centre() {
+        use crate::game::model::Model;
+        use lumagame_core::{catalog::Listing, state::State};
+        let tokens = Tokens::shipped();
+        let model = Model::new(State::default(), Listing::default(), vec![]);
+        let mut fonts = ui::Fonts::new();
+        let mut p = Paint::new(&tokens, &model, &mut fonts);
+        p.solid(1, Frame::new(0.0, 0.0, 20.0, 20.0), Rgba(0, 0, 0, 0), 0.0, 1);
+        p.solid(2, Frame::new(80.0, 0.0, 20.0, 20.0), Rgba(0, 0, 0, 0), 0.0, 1);
+        p.zoom(0, Frame::new(0.0, 0.0, 100.0, 20.0), 1.5);
+        assert_eq!(p.plan.nodes[0].props.x, -20.0);
+        assert_eq!(p.plan.nodes[1].props.x, 100.0);
+        assert_eq!(p.plan.nodes[0].props.scale, 1.5);
+        assert_eq!(p.plan.nodes[1].props.scale, 1.5);
     }
 }
