@@ -30,8 +30,8 @@ impl Candidate {
         let entry = source.entry.readiness;
         let readiness = match target.map(|t| (t.link, t.reach)) {
             None => Readiness::Unknown,
-            Some((Link::Expired | Link::Found, _)) => Readiness::SignIn,
             Some((_, Reach::Offline)) => Readiness::Offline,
+            Some((Link::Expired | Link::Found, _)) => Readiness::SignIn,
             // Waking the host does not install the game.
             Some((_, Reach::Asleep)) if entry != Readiness::Install => Readiness::Asleep,
             Some(_) => entry,
@@ -186,7 +186,9 @@ mod tests {
         assert_eq!(of(Ready, Link::Linked, Reach::Asleep), Asleep);
         assert_eq!(of(Install, Link::Linked, Reach::Asleep), Install);
         assert_eq!(of(Ready, Link::Expired, Reach::Online), SignIn);
-        assert_eq!(of(Ready, Link::Found, Reach::Offline), SignIn);
+        assert_eq!(of(Ready, Link::Expired, Reach::Unknown), SignIn);
+        assert_eq!(of(Ready, Link::Expired, Reach::Offline), Offline);
+        assert_eq!(of(Ready, Link::Found, Reach::Offline), Offline);
         assert_eq!(Candidate::of(&source(Ready), None), Candidate { key: key(PC1), readiness: Unknown }, "its engine has not reported yet");
     }
 

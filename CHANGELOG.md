@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Picture-only Starfish and ES streams no longer query an audio buffer they did not load.
+LumaGame marks a disconnected engine's targets offline while keeping its library and remembered choices, until the engine reports fresh target status.
 
 The PC streaming engine can request 5.1 Opus or stereo (the default). Feeder protocol 2 carries the negotiated channel mapping without changing stereo or camera loads; 5.1 uses NDL only. Receiver output and speaker routing remain untested on the TV.
 

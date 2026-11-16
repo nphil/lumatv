@@ -823,6 +823,9 @@ impl Model {
                 if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
                     e.descriptor = None;
                     e.error = Some("Connection lost".into());
+                    for target in &mut e.targets {
+                        target.reach = ipc::Reach::Offline;
+                    }
                 }
                 if self.session.as_ref().is_some_and(|s| s.source.engine == id) {
                     self.session_input(session::Input::EngineGone, &mut out);
@@ -2665,6 +2668,76 @@ pub(crate) mod tests {
         assert_eq!(deliver(&mut m, ipc::Event::Targets { targets: vec![target.clone()] }), 0);
         assert_eq!(deliver(&mut m, ipc::Event::Library { target: target.id.clone(), entries: vec![], next: None }), 0);
         assert_eq!(deliver(&mut m, ipc::Event::Targets { targets: vec![target] }), 1);
+    }
+    #[test]
+    fn disconnected_engine_targets_stay_offline_until_refreshed() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![
+            manifest("pc", "PC", EngineKind::Host), manifest("other", "Other", EngineKind::Host),
+        ]);
+        describe(&mut m, "pc", vec![], &[]);
+        describe(&mut m, "other", vec![], &[]);
+        let pc = EngineId::new("pc").unwrap();
+        let other = EngineId::new("other").unwrap();
+        let target = |id: &str| Target {
+            id: TargetId::new(id).unwrap(), name: id.into(), detail: None, link: ipc::Link::Linked, reach: ipc::Reach::Online,
+        };
+        let targets = vec![target("main"), target("second")];
+        let entry = ipc::LibraryEntry {
+            id: lumagame_core::ids::ProviderGameId::new("1").unwrap(), title: "Game".into(), role: ipc::Role::Game,
+            external: vec![], store: None, store_account: None, art: ipc::Art::default(), readiness: Readiness::Ready, resumable: false,
+        };
+        let deliver = |m: &mut Model, engine: &EngineId, event| {
+            m.step(Input::Engine { engine: engine.clone(), message: FromEngine { re: None, event } })
+        };
+        deliver(&mut m, &pc, ipc::Event::Targets { targets: targets.clone() });
+        deliver(&mut m, &pc, ipc::Event::Library { target: targets[0].id.clone(), entries: vec![entry.clone()], next: None });
+        deliver(&mut m, &other, ipc::Event::Targets { targets: vec![target("main")] });
+        deliver(&mut m, &other, ipc::Event::Library { target: targets[0].id.clone(), entries: vec![entry.clone()], next: None });
+        let source: SourceKey = "pc|main|1".parse().unwrap();
+        let other_source: SourceKey = "other|main|1".parse().unwrap();
+        let game = m.games().iter().find(|g| g.source(&source).is_some()).unwrap().id;
+        m.state.profile_mut().user.started(game, &source, true);
+        let saved = m.state.profile().user.clone();
+        let games = m.games().to_vec();
+        let descriptor = m.integration(&pc).unwrap().descriptor.clone().unwrap();
+        assert_eq!(m.readiness(&source), Readiness::Ready);
+        assert!(matches!(m.resolution(game), Resolution::Launch { .. }));
+
+        m.step(Input::EngineGone(pc.clone()));
+        assert!(m.integration(&pc).unwrap().targets.iter().all(|t| t.reach == ipc::Reach::Offline && t.link == ipc::Link::Linked));
+        assert_eq!(m.readiness(&source), Readiness::Offline);
+        assert_eq!(m.readiness(&other_source), Readiness::Ready);
+        assert_eq!(m.games(), games);
+        assert_eq!(m.state.profile().user, saved);
+        m.hub(game);
+        m.rebuild_navigation();
+        assert!(!sent(&key(&mut m, Key::Ok)).iter().any(|r| matches!(r, Request::Launch { .. })));
+        assert_eq!(m.view.sheet, Some(Sheet::Chooser));
+        key(&mut m, Key::Ok);
+        assert!(!sent(&key(&mut m, Key::Ok)).iter().any(|r| matches!(r, Request::Launch { .. })));
+
+        let mut expired = targets.clone();
+        expired[0].link = ipc::Link::Expired;
+        deliver(&mut m, &pc, ipc::Event::Targets { targets: expired });
+        m.step(Input::EngineGone(pc.clone()));
+        assert_eq!(m.target(&source).unwrap().link, ipc::Link::Expired);
+        assert_eq!(m.readiness(&source), Readiness::Offline);
+        m.hub(game);
+        m.rebuild_navigation();
+        assert!(!sent(&key(&mut m, Key::Ok)).iter().any(|r| matches!(r, Request::Launch { .. })));
+        assert_eq!(m.view.sheet, Some(Sheet::Chooser));
+        key(&mut m, Key::Ok);
+        assert!(!sent(&key(&mut m, Key::Ok)).iter().any(|r| matches!(r, Request::Launch { .. })));
+
+        deliver(&mut m, &pc, ipc::Event::Ready { descriptor, schema: SettingsSchema::default() });
+        assert_eq!(m.readiness(&source), Readiness::Offline);
+        deliver(&mut m, &pc, ipc::Event::Targets { targets: targets.clone() });
+        deliver(&mut m, &pc, ipc::Event::Library { target: targets[0].id.clone(), entries: vec![entry], next: None });
+        assert_eq!(m.readiness(&source), Readiness::Ready);
+        assert_eq!(m.state.profile().user, saved);
+        m.hub(game);
+        m.rebuild_navigation();
+        assert!(key(&mut m, Key::Ok).iter().any(|c| matches!(c, Command::Send { engine, request: Request::Launch { .. } } if engine == &pc)));
     }
     #[test]
     fn integration_schema_updates_keep_focus_on_the_same_field_or_a_safe_control() {
