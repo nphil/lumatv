@@ -13,6 +13,65 @@ const H: u32 = 1080;
 static END: AtomicBool = AtomicBool::new(false);
 static SWAP_SINCE_MS: AtomicU64 = AtomicU64::new(0);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TraceState {
+    page: lumatv_rustui::game::model::Page,
+    foreground: bool,
+    phase: &'static str,
+    visible: bool,
+}
+
+impl TraceState {
+    fn of(model: &Model) -> Self {
+        use lumagame_core::session::Phase;
+        let phase = match model.session().map(|s| s.phase()) {
+            None => "none",
+            Some(Phase::Checking) => "checking",
+            Some(Phase::SignIn) => "sign-in",
+            Some(Phase::Queue { .. }) => "queue",
+            Some(Phase::Starting) => "starting",
+            Some(Phase::Running) => "running",
+            Some(Phase::Stopping) => "stopping",
+            Some(Phase::Done(_)) => "done",
+        };
+        Self { page: model.view.page, foreground: model.foreground(), phase, visible: model.wants_frames() }
+    }
+}
+
+#[derive(Default)]
+struct LifecycleTrace {
+    last: Option<TraceState>,
+    sequence: u64,
+    pending: Option<u64>,
+    decision_logged: bool,
+}
+
+impl LifecycleTrace {
+    fn enabled(value: Option<&std::ffi::OsStr>) -> Option<Self> {
+        (value == Some(std::ffi::OsStr::new("1"))).then(Self::default)
+    }
+
+    fn observe(&mut self, state: TraceState, events: u8) -> Option<u64> {
+        if events == 0 && self.last == Some(state) { return None; }
+        self.last = Some(state);
+        self.sequence += 1;
+        if events & 3 != 0 {
+            self.pending = Some(self.sequence);
+            self.decision_logged = false;
+        }
+        Some(self.sequence)
+    }
+
+    fn decision(&mut self) -> Option<u64> {
+        if self.decision_logged { return None; }
+        let sequence = self.pending?;
+        self.decision_logged = true;
+        Some(sequence)
+    }
+
+    fn swapped(&mut self) -> Option<u64> { self.pending.take() }
+}
+
 struct Options {
     app_id: String, assets: PathBuf, shm: PathBuf, engines: PathBuf, runner: Option<PathBuf>, data: PathBuf,
     feeder: PathBuf, window_id: PathBuf, libmali: Option<String>, channel_fd: Option<i32>, hidden: bool, helper: SocketAddr,
@@ -378,8 +437,11 @@ fn run(o: Options) -> io::Result<()> {
     let mut fds = Vec::new();
     let mut frame = 0u64;
     let mut last_flash = None;
+    let mut trace = LifecycleTrace::enabled(std::env::var_os("LUMAGAME_LIFECYCLE_TRACE").as_deref());
     loop {
         let now_ms = began.elapsed().as_millis() as u64;
+        let mut trace_events = 0u8;
+        let mut trace_window_state = None;
         if shell.model.foreground() {
             if let Some(tokens) = theme.poll(now_ms) { page.set_host_tokens(tokens); }
         }
@@ -387,8 +449,8 @@ fn run(o: Options) -> io::Result<()> {
         if END.load(Ordering::Relaxed) && !signalled { inputs.push(Input::Close); signalled = true; }
         for event in window.events() {
             match event {
-                Event::State(state) => { if let Some(ch) = &mut shell.channel { ch.send(&FromApp::State(state)); } inputs.push(Input::Foreground(state != MINIMIZED)); }
-                Event::Close => inputs.push(Input::Close),
+                Event::State(state) => { trace_events |= 2; trace_window_state = Some(state); if let Some(ch) = &mut shell.channel { ch.send(&FromApp::State(state)); } inputs.push(Input::Foreground(state != MINIMIZED)); }
+                Event::Close => { trace_events |= 4; inputs.push(Input::Close); }
                 Event::Key { code, pressed } => if let Some(key) = Key::from_code(code) { inputs.push(Input::Key { key, down: pressed }); },
             }
         }
@@ -397,8 +459,8 @@ fn run(o: Options) -> io::Result<()> {
                 Ok(messages) => for message in messages {
                     shell.host.lifecycle(&message);
                     match message {
-                        ToApp::Relaunch { .. } => { window.request_state(FULLSCREEN); inputs.push(Input::Foreground(true)); want_frame = true; }
-                        ToApp::Close { .. } => inputs.push(Input::Close),
+                        ToApp::Relaunch { .. } => { trace_events |= 1; window.request_state(FULLSCREEN); inputs.push(Input::Foreground(true)); want_frame = true; }
+                        ToApp::Close { .. } => { trace_events |= 4; inputs.push(Input::Close); }
                         ToApp::Launched { seq, success: false, message, .. } if seq == shell.media_seq => inputs.push(Input::Notice(message)),
                         ToApp::Frames(frames) => inputs.push(Input::Frames(frames)),
                         _ => {}
@@ -416,8 +478,15 @@ fn run(o: Options) -> io::Result<()> {
             inputs.push(Input::StatsSetting(setting));
             if let Some(display) = display { inputs.push(Input::Display(display)); }
         }
-        if shell.inputs(inputs, &pads, now_ms)? { return Ok(()); }
+        let exiting = shell.inputs(inputs, &pads, now_ms)?;
         let visible = shell.model.wants_frames();
+        if let Some(trace) = &mut trace {
+            let state = TraceState::of(&shell.model);
+            if let Some(seq) = trace.observe(state, trace_events) {
+                eprintln!("lumagame-trace: ms={now_ms} seq={seq} events={trace_events} window_state={trace_window_state:?} page={:?} foreground={} phase={} wants_frames={visible} want_frame={want_frame} painted_ui={painted_ui} eligible={} frame={frame} exiting={exiting}", state.page, state.foreground, state.phase, state.foreground && (visible || painted_ui));
+            }
+        }
+        if exiting { return Ok(()); }
         // Running keeps only the opt-in HUD; Off commits a transparent scene once and leaves the window idle.
         if shell.model.foreground() && (visible || painted_ui) {
             while let Ok(event) = events.try_recv() { page.ui.scene.observe(&event); }
@@ -428,13 +497,24 @@ fn run(o: Options) -> io::Result<()> {
             if renderer.pump()?.closed { return Err(io::Error::other("the renderer closed")); }
             let now = now_ns();
             let due = match renderer.demand() { Demand::EveryRefresh => true, Demand::At(at) => now >= at, Demand::Idle => false };
+            if let Some(seq) = trace.as_mut().and_then(LifecycleTrace::decision) {
+                let commits = renderer.has_commits();
+                let redraw = renderer.redraw_wanted();
+                let draw = want_frame || changed || commits || redraw || due;
+                eprintln!("lumagame-trace: ms={now_ms} seq={seq} decision draw={draw} want_frame={want_frame} changed={changed} commits={commits} redraw={redraw} due={due} frame={frame}");
+            }
             if want_frame || changed || renderer.has_commits() || renderer.redraw_wanted() || due {
                 want_frame = false;
                 let cost = renderer.draw(now);
                 if let Some(error) = cost.gl_error { eprintln!("lumagame: GL error {error:#x}"); }
+                let trace_swap_start = trace.as_ref().and_then(|t| t.pending).map(|_| Instant::now());
                 SWAP_SINCE_MS.store((now_ns() / 1_000_000).max(1), Ordering::Relaxed);
                 let swap = renderer.gles().swap_buffers();
                 SWAP_SINCE_MS.store(0, Ordering::Relaxed);
+                if let Some(seq) = trace.as_mut().and_then(LifecycleTrace::swapped) {
+                    let elapsed_ms = trace_swap_start.map_or(0, |start| start.elapsed().as_millis());
+                    eprintln!("lumagame-trace: ms={} seq={seq} swap={swap:?} elapsed_ms={elapsed_ms} frame={}", began.elapsed().as_millis(), frame + 1);
+                }
                 swap?;
                 frame += 1;
                 if let Some((press, shown_frame)) = flash {
@@ -501,6 +581,26 @@ fn unix_seconds() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_o
 mod tests {
     use super::*;
     use lumatv_gfn_pad::PadState;
+
+    #[test]
+    fn lifecycle_trace_is_opt_in_and_logs_transitions_not_ticks() {
+        use std::ffi::OsStr;
+        use lumatv_rustui::game::model::Page;
+        assert!(LifecycleTrace::enabled(None).is_none());
+        assert!(LifecycleTrace::enabled(Some(OsStr::new("0"))).is_none());
+        let mut trace = LifecycleTrace::enabled(Some(OsStr::new("1"))).unwrap();
+        let state = TraceState { page: Page::Hub, foreground: false, phase: "done", visible: false };
+        assert_eq!(trace.observe(state, 0), Some(1));
+        assert_eq!(trace.observe(state, 0), None);
+        assert_eq!(trace.observe(state, 1), Some(2));
+        assert_eq!(trace.decision(), Some(2));
+        assert_eq!(trace.decision(), None);
+        assert_eq!(trace.swapped(), Some(2));
+        assert_eq!(trace.swapped(), None);
+        assert_eq!(trace.observe(TraceState { foreground: true, visible: true, ..state }, 2), Some(3));
+        assert_eq!(trace.decision(), Some(3));
+        assert_eq!(trace.swapped(), Some(3));
+    }
 
     #[test]
     fn menu_ok_activates_on_release_and_is_silent_when_not_grabbed() {
