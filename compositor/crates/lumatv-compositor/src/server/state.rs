@@ -466,6 +466,11 @@ impl State {
     /// `wl_surface.commit` and what follows it: apply state, learn buffer sizes, map or unmap windows.
     pub fn commit(&mut self, id: SurfaceId) {
         self.stats.commits += 1;
+        if self.surfaces.get(id).is_some_and(|s| matches!(s.pending.buffer, Some(None)))
+            && let Some(window) = self.scene.window_of(id)
+        {
+            self.freeze_app(window);
+        }
         let State { surfaces, output, .. } = self;
         let effects = surfaces.commit(id, |b| match crate::buffer::size_of(b) {
             Some(size) => Some((size, true)),
@@ -583,6 +588,9 @@ impl State {
         if self.surfaces.has_undrawn(id) && self.scene.window_of(id).is_some() && self.output.next_frame_at(Instant::now()).is_none() {
             self.tick();
         }
+        if let Some(window) = self.scene.window_of(id) {
+            self.freeze_app(window);
+        }
         self.scene.zombify(id, &self.surfaces);
         // None of the surface's frame callbacks is answered after it is gone, wherever it waits (pending, committed, or with a frame
         // on its way): each is destroyed, as LG's compositor does. With all of them answered after the destroy, PlxNative crashed in
@@ -663,8 +671,10 @@ impl State {
         self.switcher_frame(t0);
         self.scene.transitions.suspended = self.switcher_active();
         // The screen is off (standby): nothing is mid-move when it comes back.
-        if !self.luna_state.power.rendering && self.scene.transitions.active() {
+        if !self.luna_state.power.rendering {
             self.scene.transitions.clear();
+            self.scene.snapshots.clear();
+            self.output.retain_app_snapshots(&self.scene.snapshots);
         }
         self.panel.settings = self.scene.care.settings.paneldim;
         self.panel.set_bridge(self.luna.is_connected());
@@ -689,6 +699,7 @@ impl State {
             }
         }
         scene.plan_at(surfaces, now_ns);
+        output.retain_app_snapshots(&scene.snapshots);
         let eligible_app = scene.foreground(surfaces).is_some_and(|front| {
             front.app_id() != crate::scene::HOME_APP
                 && scene.last_plan().items.iter().any(|item| item.window == front.id && !item.ghost)
@@ -887,6 +898,12 @@ impl State {
         match self.output.dispatch_events() {
             Ok(n) => self.frames_landed(n),
             Err(e) => log::warn!("output events: {e}"),
+        }
+        if let Some(receipt) = self.output.take_snapshot_presented()
+            && self.scene.snapshots.presented(receipt)
+        {
+            self.output.retain_app_snapshots(&self.scene.snapshots);
+            self.scene.redraw_all();
         }
     }
 

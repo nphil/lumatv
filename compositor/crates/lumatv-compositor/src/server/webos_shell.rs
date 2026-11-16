@@ -95,6 +95,11 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                 // A window attached to a surface group is no card (LG: `__allowedFullscreen`): it never comes to the front, whatever it asks for.
                 let card = state.scene.window(data.window).is_some_and(|w| w.kind.is_card() && !w.in_group);
                 let was_top = state.scene.foreground(&state.surfaces).is_some_and(|w| w.id == data.window);
+                if new == ShellState::Minimized && was_top {
+                    state.freeze_app(data.window);
+                } else if new == ShellState::Fullscreen && !was_top {
+                    state.scene.resume_snapshot(data.window, &state.surfaces);
+                }
                 let old = state.scene.window_mut(data.window).map(|w| std::mem::replace(&mut w.state, new));
                 // Answered at once, mapped or not: a client may hold its first frame until the state it asked for is
                 // confirmed, and HDMI 2's card stayed fullscreen but unmapped on the 2026-10-25 gate while only
@@ -140,7 +145,8 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                         line = Some(format!("window {}: {name} = {value} ({:?})", data.window.0, w.kind));
                     }
                 }
-                if app_changed {
+                if app_changed || relayer {
+                    state.scene.invalidate_snapshot(data.window);
                     state.scene.invalidate_video_holes_for_surface(data.surface, &state.surfaces);
                 }
                 if relayer || app_changed {
@@ -181,6 +187,7 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                 w.has_webos_shell = false;
             }
         } else {
+            state.freeze_app(data.window);
             let window = state.scene.window(data.window).map(|w| w.kind.is_card());
             state.scene.remove_window(data.window);
             if let Some(s) = state.surfaces.get_mut(data.surface) {
@@ -334,6 +341,13 @@ pub fn settle_cards(state: &mut State, except: Option<WindowId>) {
         let under_stub = state.scene.window(top).is_some_and(crate::home_stub::is_stub);
         for (wid, current) in cards {
             let wanted = if wid == top { ShellState::Fullscreen } else { ShellState::Minimized };
+            if current != wanted {
+                if wanted == ShellState::Minimized {
+                    state.freeze_app(wid);
+                } else {
+                    state.scene.resume_snapshot(wid, &state.surfaces);
+                }
+            }
             if let Some(w) = state.scene.window_mut(wid) {
                 if wid != top {
                     w.held_by_home = under_stub;
@@ -379,6 +393,11 @@ pub fn sync_exposed(state: &mut State) {
         })
         .collect();
     for (wid, wanted) in changes {
+        if wanted {
+            state.scene.resume_snapshot(wid, &state.surfaces);
+        } else {
+            state.freeze_app(wid);
+        }
         let Some(w) = state.scene.window_mut(wid) else { continue };
         w.exposed = wanted;
         let surface = w.surface;

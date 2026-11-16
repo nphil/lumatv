@@ -128,6 +128,7 @@ impl Dispatch<WlShellSurface, ShellSurfaceData> for State {
                 w.has_wl_shell = false;
             }
         } else {
+            state.freeze_app(data.window);
             let window = state.scene.window(data.window).map(|w| w.kind.is_card());
             state.scene.remove_window(data.window);
             if let Some(s) = state.surfaces.get_mut(data.surface) {

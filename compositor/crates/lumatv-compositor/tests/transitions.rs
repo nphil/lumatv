@@ -265,7 +265,7 @@ fn a_card_on_the_video_plane_arrives_on_a_veil_and_the_plane_is_never_shown_blac
 }
 
 #[test]
-fn foreground_video_hole_rejects_an_offscreen_transition_pose() {
+fn video_hole_waits_for_its_full_size_fade_even_with_an_offscreen_launch_origin() {
     let mut server = Server::start();
     let mut rig = rig(&mut server, true);
     state(&server, |s| {
@@ -283,14 +283,17 @@ fn foreground_video_hole_rejects_an_offscreen_transition_pose() {
     let clear = rig.client.shm_buffer(1920, 1080, 0);
     rig.client.present(&win.surface, &clear);
     rig.client.roundtrip();
-    tick(&server, 2_000 * MS);
-    state(&server, move |s| {
-        let w = s.scene.window_of(sid).unwrap();
-        let pose = s.scene.transitions.pose(w, 2_000 * MS).expect("the card is posed");
-        assert!(pose.bounds().intersect(&lumatv_compositor::Rect::new(0, 0, 1920, 1080)).is_empty());
-        assert!(!s.scene.last_plan().items.iter().any(|item| item.surface == sid));
-        assert!(!s.scene.video_hole_visible(w, sid, hole));
-    });
+    for ns in [2_000 * MS, 2_100 * MS] {
+        let frame = tick(&server, ns);
+        assert_eq!(frame.pixel(960, 540)[3], 255, "Home and the veil cover the plane during arrival");
+        state(&server, move |s| {
+            let w = s.scene.window_of(sid).unwrap();
+            let pose = s.scene.transitions.pose(w, ns).expect("the card is fading");
+            let full = lumatv_compositor::transition::FRect::from_rect(hole);
+            assert_eq!((pose.rect, pose.clip, pose.radius), (full, full, 0.0), "an offscreen icon must not move or scale video");
+            assert!(!s.scene.video_hole_visible(w, sid, hole), "placement alone does not expose a covered video hole");
+        });
+    }
     tick(&server, 2_300 * MS);
     tick(&server, 2_500 * MS);
     tick(&server, 2_800 * MS);

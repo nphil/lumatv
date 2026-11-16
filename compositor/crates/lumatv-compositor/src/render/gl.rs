@@ -14,6 +14,7 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 mod boxdim;
 mod previews;
 mod readback;
+mod snapshots;
 
 use super::egl::{self, EGLImage, EGLSync, Egl, GLint, GLuint, Platform};
 use crate::Rect;
@@ -52,6 +53,7 @@ struct Tex {
     uploaded: bool,
     /// An import of the driver's own buffer (`EGL_WAYLAND_BUFFER_WL`), the kind whose first GPU job is slow on the set.
     external: bool,
+    snapshot_rgb: bool,
     /// The fence behind the warm draw (`prepare`), while it has not signalled: the driver is still busy with the
     /// buffer. `None` once it signalled, or for a buffer imported by a frame.
     warm_sync: Option<EGLSync>,
@@ -146,6 +148,9 @@ pub struct Gl {
     warm_lines: u32,
     /// The app switcher's program and the scaled copies of its pictures (`gl/previews.rs`).
     previews: previews::Previews,
+    app_snapshots: Vec<snapshots::Picture>,
+    snapshot_frame: Option<crate::snapshot::Receipt>,
+    snapshot_presented: Option<crate::snapshot::Receipt>,
     /// The box dim's gained program, map texture and sample pass (`gl/boxdim.rs`).
     boxdim: boxdim::BoxDim,
     /// The scratch target a screenshot or recording reads a page back through (`grab_target`): its index among the targets and its size.
@@ -343,6 +348,9 @@ impl Gl {
             standin_tiles: crate::damage::Tiles::new(width, height),
             warm_lines: 0,
             previews: previews::Previews::default(),
+            app_snapshots: Vec::new(),
+            snapshot_frame: None,
+            snapshot_presented: None,
             boxdim: boxdim::BoxDim::default(),
             grab_scratch: None,
             readback: readback::Readback::default(),
@@ -764,6 +772,7 @@ impl Gl {
                         y_invert: true,
                         uploaded: false,
                         external: false,
+                        snapshot_rgb: matches!(shm.format, 0 | 1),
                         warm_sync: None,
                         held: false,
                         prepared: Instant::now(),
@@ -789,6 +798,8 @@ impl Gl {
                         y_invert: d.y_invert,
                         uploaded: true,
                         external: false,
+                        snapshot_rgb: d.planes.len() == 1 && matches!(d.format, crate::buffer::fourcc::ARGB8888
+                            | crate::buffer::fourcc::XRGB8888 | crate::buffer::fourcc::ABGR8888 | crate::buffer::fourcc::XBGR8888),
                         warm_sync: None,
                         held: false,
                         prepared: Instant::now(),
@@ -824,6 +835,8 @@ impl Gl {
                         y_invert,
                         uploaded: true,
                         external: true,
+                        // SAFETY: the same live driver resource just imported above.
+                        snapshot_rgb: unsafe { self.egl.wayland_buffer_is_rgb(ptr) },
                         warm_sync: None,
                         held: false,
                         prepared: Instant::now(),
@@ -1581,6 +1594,7 @@ impl Gl {
             owed_px: rects.iter().map(|r| r.w.max(0) as u64 * r.h.max(0) as u64).sum(),
             ..Default::default()
         };
+        stats.snapshot = self.prepare_snapshot_live(plan, surfaces);
         // (the engine's stack 0 clears the owed rectangles and draws Home into them; with Home hidden under an app's card they are cleared here
         // as they are without an engine, to the opaque black that LG's compositor has under an app, and the card and the system layer go over it)
         let wall_home = plan.home_before > 0 && !self.home_hidden && self.has_ui();
@@ -1626,6 +1640,10 @@ impl Gl {
             if wall_home && index == plan.home_before {
                 self.draw_home_over_wallpaper(plan, rects)?;
             }
+            self.draw_snapshots_before(plan, index, &mut stats.snapshot, rects);
+            if self.snapshot_replaces(plan, item.window, stats.snapshot) {
+                continue;
+            }
             if let Some(b) = plan.backdrop.as_ref().filter(|b| b.before == index) {
                 self.draw_backdrop(b, rects);
             }
@@ -1633,6 +1651,7 @@ impl Gl {
             let began = std::time::Instant::now();
             let Some((tex, _size, y_invert, new)) = self.texture_for(&item.buffer, plan.item_damage(item), &item.rect) else {
                 stats.skipped += 1;
+                if plan.snapshots.iter().any(|p| p.window == item.window) { stats.snapshot = None; }
                 continue;
             };
             if new {
@@ -1647,6 +1666,7 @@ impl Gl {
             // next frame of the move draws it.
             if warming && item.pose.is_some() {
                 stats.posed_waiting += 1;
+                if plan.snapshots.iter().any(|p| p.window == item.window) { stats.snapshot = None; }
                 continue;
             }
             if let (true, Some(page)) = (warming, standin_page) {
@@ -1673,6 +1693,7 @@ impl Gl {
                 }
                 standins.push((item.surface, item.rect));
                 stats.stood_in += 1;
+                if plan.snapshots.iter().any(|p| p.window == item.window) { stats.snapshot = None; }
                 continue;
             }
             let mut drawn = false;
@@ -1707,6 +1728,7 @@ impl Gl {
         if wall_home && plan.home_before == plan.items.len() {
             self.draw_home_over_wallpaper(plan, rects)?;
         }
+        self.draw_snapshots_before(plan, plan.items.len(), &mut stats.snapshot, rects);
         // an idle system layer leaves the backdrop above every item
         if let Some(b) = plan.backdrop.as_ref().filter(|b| b.before >= plan.items.len()) {
             self.draw_backdrop(b, rects);
@@ -1747,11 +1769,13 @@ impl Gl {
         let err = self.egl.gl_error();
         if err != egl::GL_NO_ERROR {
             self.gl_errors += 1;
+            stats.snapshot = None;
             log::warn!("gl error 0x{err:x} during render");
         }
         stats.gl_errors = self.gl_errors;
         stats.imports = imports;
         stats.render_us = t0.elapsed().as_micros() as u64;
+        self.snapshot_frame = stats.snapshot;
         // A frame that cost more than half a refresh on the CPU is one the loop's own line will show as a stall; what
         // of it was the driver taking in a client's buffer for the first time is only known here (X1's first second
         // on the third gate: a 13.7 ms pass, a refresh lost).
@@ -2030,6 +2054,7 @@ impl Drop for Gl {
     fn drop(&mut self) {
         #[cfg(feature = "ui")]
         drop(self.ui.take());
+        self.free_app_snapshots();
         // SAFETY: objects this renderer created, dropped once; the EGL display outlives them until `egl` drops.
         unsafe {
             for t in std::mem::take(&mut self.textures).into_values().chain(std::mem::take(&mut self.graveyard)) {
@@ -2122,6 +2147,22 @@ impl Output for Gl {
 
     fn prepare_previews(&mut self, buffers: &[WlBuffer]) {
         Gl::prepare_previews(self, buffers);
+    }
+
+    fn freeze_app(&mut self, id: crate::snapshot::SnapshotId, window: crate::window::WindowId, plan: &Plan, live: &crate::snapshot::Snapshots) -> bool {
+        Gl::freeze_app(self, id, window, plan, live)
+    }
+
+    fn retain_app_snapshots(&mut self, snapshots: &crate::snapshot::Snapshots) {
+        Gl::retain_app_snapshots(self, snapshots);
+    }
+
+    fn app_snapshot_count(&self) -> usize {
+        Gl::app_snapshot_count(self)
+    }
+
+    fn take_snapshot_presented(&mut self) -> Option<crate::snapshot::Receipt> {
+        self.snapshot_presented.take()
     }
 
     fn ui_state(&mut self, state: &serde_json::Value) -> bool {
@@ -2219,6 +2260,7 @@ impl Output for Gl {
     }
 
     fn present(&mut self) -> io::Result<Presented> {
+        self.snapshot_presented = self.snapshot_frame.take();
         #[cfg(feature = "ui")]
         if let Some(cost) = self.take_ui_frame() {
             self.ui_presented(lumatv_render::now_ns(), &cost);

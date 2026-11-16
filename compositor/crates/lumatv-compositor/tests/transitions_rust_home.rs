@@ -217,3 +217,123 @@ fn a_rust_home_under_an_app_that_covers_it_is_not_drawn_and_is_drawn_whole_the_f
     assert_eq!(black(&back, true), 0, "no black anywhere in it");
     drop(pieces);
 }
+
+#[test]
+fn a_frozen_app_keeps_its_group_but_not_system_ui_across_background_changes_reversal_and_close() {
+    assert!(home_engine::available(), "this pixel regression requires Mesa and the native UI engine");
+    let mut rig = rig();
+    let win = rig.client.card_as("_WEBOS_WINDOW_TYPE_CARD", "App", "com.example.a");
+    let old = rig.client.shm_pattern(1920, 1080, |x, y| if x > 1500 && y > 900 { 0 } else { APP_A });
+    rig.client.present(&win.surface, &old);
+    let group = rig.client.groups.create_surface_group(&win.surface, "snapshot-group".into(), &rig.client.qh, ());
+    let _layer = group.create_layer("tools".into(), 1, &rig.client.qh, ());
+    let child = rig.client.card_as("_WEBOS_WINDOW_TYPE_CARD", "Tools", "com.example.a");
+    group.attach(&child.surface, "tools".into());
+    let child_buffer = rig.client.shm_buffer(200, 120, 0xff20_d060);
+    rig.client.present(&child.surface, &child_buffer);
+    rig.client.roundtrip();
+    tick(&rig.server, 2_000 * MS);
+    let settled = tick(&rig.server, 2_300 * MS);
+    assert_eq!(settled.pixel(40, 40), [0x20, 0xd0, 0x60, 255]);
+    let solid = |c: [u8; 3]| Shape { corner_radius: 0.0, fill: Fill::Solid(Rgba(c[0], c[1], c[2], 255)), border_width: 0.0, border: Rgba(0, 0, 0, 0) };
+    let toast = rig.engine.ui.scene.shape(300, 100, 1000, solid([10, 200, 10]), Props::at(500.0, 500.0));
+    rig.engine.ui.try_commit().unwrap();
+    assert_eq!(tick(&rig.server, 2_400 * MS).pixel(600, 540), [10, 200, 10, 255]);
+
+    rig._keep[0].0.webos.set_state(3);
+    rig.client.roundtrip();
+    assert_eq!(rig.server.eval(|s| s.scene.snapshots.len()), 1);
+    let changed = rig.client.shm_buffer(1920, 1080, 0xff20_40e0);
+    rig.client.present(&win.surface, &changed);
+    old.destroy();
+    child.surface.destroy();
+    child_buffer.destroy();
+    rig.client.roundtrip();
+    drop(toast);
+    let _new_home = rig.engine.ui.scene.shape(1920, 1080, 5, solid([90, 70, 140]), Props::at(0.0, 0.0));
+    rig.engine.ui.try_commit().unwrap();
+    let leaving = tick(&rig.server, 3_000 * MS);
+    assert_eq!(leaving.pixel(40, 40), [0x20, 0xd0, 0x60, 255], "the destroyed group member was copied, not retained live");
+    assert_eq!(leaving.pixel(600, 540), [0xd0, 0x40, 0x40, 255], "the system toast was never in the copy");
+    assert_eq!(leaving.pixel(1800, 1000), [90, 70, 140, 255], "app alpha is preserved, not replaced with a black background");
+    let middle = tick(&rig.server, 3_100 * MS);
+    assert_eq!(middle.pixel(5, 5), [90, 70, 140, 255], "Home remains live behind the moving picture");
+    let (x, y) = rig.server.eval(|s| {
+        let p = s.scene.last_plan().snapshots[0].pose;
+        let (x, y) = p.clip.centre();
+        (x as u32, y as u32)
+    });
+    win.webos.set_state(3);
+    rig.client.roundtrip();
+    let reversed = tick(&rig.server, 3_100 * MS);
+    assert_eq!(reversed.pixel(x, y), middle.pixel(x, y), "a reversal takes over the current pose and pixels");
+    let resumed = tick(&rig.server, 3_350 * MS);
+    assert_eq!(resumed.pixel(40, 40), [0x20, 0xd0, 0x60, 255]);
+    assert_eq!(resumed.pixel(600, 540), [0xd0, 0x40, 0x40, 255], "pre-resume background blue is not a fresh frame");
+
+    win.surface.destroy();
+    rig.client.roundtrip();
+    assert_eq!(tick(&rig.server, 4_000 * MS).pixel(40, 40), [0x20, 0xd0, 0x60, 255]);
+    tick(&rig.server, 4_200 * MS);
+    assert_eq!(rig.server.eval(|s| s.scene.snapshots.len()), 0, "closed identities are not kept for relaunch");
+    let replacement = rig.client.card_as("_WEBOS_WINDOW_TYPE_CARD", "Replacement", "com.example.a");
+    rig.client.present(&replacement.surface, &changed);
+    rig.client.roundtrip();
+    tick(&rig.server, 5_000 * MS);
+    assert_eq!(tick(&rig.server, 5_250 * MS).pixel(40, 40), [0x20, 0x40, 0xe0, 255]);
+    assert!(rig.server.eval(|s| s.scene.last_plan().snapshots.is_empty()));
+    assert_eq!(rig.server.eval(|s| s.stats.gl_errors), 0);
+}
+
+#[test]
+fn reduced_motion_fades_the_frozen_card_and_a_failed_resume_is_bounded_without_blocking_home() {
+    assert!(home_engine::available(), "this pixel regression requires Mesa and the native UI engine");
+    let mut rig = rig();
+    rig.server.eval(|s| { s.motion.reduced = true; s.apply_motion(); });
+    let (win, _) = app(&mut rig, "com.example.a");
+    tick(&rig.server, 2_000 * MS);
+    tick(&rig.server, 2_150 * MS);
+    assert_eq!(rig.server.eval(|s| s.output.app_snapshot_count()), 0, "a cold launch has no saved picture");
+
+    rig._keep[0].0.webos.set_state(3);
+    rig.client.roundtrip();
+    let background = rig.client.shm_buffer(1920, 1080, 0xff20_40e0);
+    rig.client.present(&win.surface, &background);
+    rig.client.roundtrip();
+    assert_eq!(tick(&rig.server, 3_000 * MS).pixel(4, 4), [208, 64, 64, 255]);
+    let half = tick(&rig.server, 3_060 * MS).pixel(4, 4);
+    for (actual, expected) in half.into_iter().zip([120u8, 56, 80, 255]) {
+        assert!(actual.abs_diff(expected) <= 1, "a stationary linear fade over native Home: {half:?}");
+    }
+    assert_eq!(tick(&rig.server, 3_130 * MS).pixel(4, 4), [32, 48, 96, 255]);
+
+    win.webos.set_state(3);
+    rig.client.roundtrip();
+    tick(&rig.server, 4_000 * MS);
+    assert_eq!(tick(&rig.server, 4_130 * MS).pixel(4, 4), [208, 64, 64, 255],
+        "a commit made only in the background is not a fresh resume frame");
+    assert_eq!(rig.server.eval(|s| s.output.app_snapshot_count()), 1);
+    assert_eq!(tick(&rig.server, 5_501 * MS).pixel(4, 4), [32, 64, 224, 255],
+        "the bounded fallback shows the current app, not an indefinitely stuck cover");
+    assert_eq!(rig.server.eval(|s| s.output.app_snapshot_count()), 0);
+
+    rig._keep[0].0.webos.set_state(3);
+    rig.client.roundtrip();
+    tick(&rig.server, 6_000 * MS);
+    assert_eq!(rig.server.eval(|s| s.output.app_snapshot_count()), 1, "Home still works after a failed resume");
+    rig.server.eval(|s| { s.motion.forced = Some(false); s.apply_motion(); });
+    assert_eq!(rig.server.eval(|s| s.output.app_snapshot_count()), 0, "switching motion off frees every picture immediately");
+    assert_eq!(tick(&rig.server, 6_150 * MS).pixel(4, 4), [32, 48, 96, 255]);
+
+    rig.server.eval(|s| { s.motion.forced = Some(true); s.motion.reduced = false; s.apply_motion(); });
+    let (input, _) = app(&mut rig, "com.webos.app.hdmi2");
+    tick(&rig.server, 7_000 * MS);
+    tick(&rig.server, 7_500 * MS);
+    rig._keep[0].0.webos.set_state(3);
+    rig.client.roundtrip();
+    assert_eq!(rig.server.eval(|s| s.output.app_snapshot_count()), 0, "an input card is never sampled, even with an RGB UI buffer");
+    tick(&rig.server, 8_000 * MS);
+    assert_eq!(tick(&rig.server, 8_200 * MS).pixel(4, 4), [32, 48, 96, 255]);
+    input.surface.destroy();
+    assert_eq!(rig.server.eval(|s| s.stats.gl_errors), 0);
+}

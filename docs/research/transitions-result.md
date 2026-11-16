@@ -5,11 +5,35 @@ pictures it already has instead: an app grows out of its tile, goes back into it
 window) opens and closes the same way. Off by default (theme `motion.transitions`, Settings > Home & look > Smooth transitions, `lumatv
 transitions on|off`) until the TV check below passes. Not run on the set.
 
-Source: `compositor/crates/lumatv-compositor/src/transition.rs` (the engine, pure), `scene.rs` (what the front of the screen is, ghosts,
-poses), `render/gl.rs` and `render/software.rs` (drawing through a pose), `shell.rs` (what Home is told). Shell side:
-`payload/compositor/lumatv` (`LumaHome`, `Dock`, `Layers`, `panels/Splash`, `settings/PageLook`) and `compositor/shell/Shell.qml`.
+Source: `compositor/crates/lumatv-compositor/src/transition.rs` (poses), `scene.rs` and `scene/snapshots.rs` (window lifecycle and app grouping),
+`snapshot.rs` (bounded snapshot identities), `render/gl/snapshots.rs` (GPU copies), `kms/mod.rs` (presentation acknowledgment).
+Rust Home supplies the active theme's icon geometry through `rustui/ui/src/home/model.rs` and `rustui/ui/src/system/extras.rs`.
 Mocks: `docs/mocks/transitions/` (`node render.mjs`; dark and light, 100 % and 200 % text for the Settings row). Renders from the
 compositor itself: `docs/research/transitions/` (`LUMATV_TRANSITIONS_RENDER_DIR=<dir> cargo test --test transitions renders_the_transitions`).
+
+## App snapshots (2026-11-16)
+
+An eligible app and its grouped surfaces are copied before the background notification into an independent, output-sized RGBA texture.
+Home, the cursor, system layers and other apps are not copied. The existing 180/220 ms poses provide the soft landing and its reverse;
+reduced motion uses a stationary 120 ms fade. The picture is cover-fitted without changing its aspect. Nothing is written to disk or telemetry.
+
+The fixed 24 MiB payload budget holds at most three 1920×1080 pictures: 8,294,400 bytes each, 24,883,200 bytes in total.
+The oldest inactive picture is evicted first; its allocation is reused directly, never with a temporary fourth texture.
+`ctl transitions` reports the actual allocation count and payload bytes, not the driver's additional bookkeeping.
+Close, unmap, remap, app identity changes and interrupted resumes invalidate the corresponding lifecycle identity.
+
+Resume keeps the cover until the complete app group has drawable content committed after the resume request. Callback-only commits and
+background-only changes do not prove freshness; unchanged children can accompany a fresh root or sibling. The first complete picture
+replaces the cover in its existing allocation, so a newer buffer that is still warming cannot bring the old picture back. Only the
+matching output flip releases that cover. Failed or dropped submissions cannot acknowledge it. After 1.5 s without a successful handoff,
+the cover is abandoned in favour of the ordinary live/fallback path; this is a bounded hold, not a claim that a fresh frame arrived.
+Logical foreground, input, app notifications and Home never wait for a cover.
+
+Eligibility requires a complete normal RGB UI group with supported geometry, no video element or hole, and no undrawn source mutation.
+Input cards and unknown external formats are excluded. Video-plane apps keep stationary fades; their video is never sampled.
+The available webOS buffer metadata has no universal protection flag, so this is not a claim of general protected-content capture support.
+An ineligible or unavailable picture keeps the existing no-snapshot path. Snapshot continuity has not yet been accepted on the TV;
+the shipped motion toggle remains off.
 
 ## What moves, and what never waits
 
@@ -42,10 +66,8 @@ move itself composes two or three pictures for at most 13 frames).
   pointer and the keys are never a ghost's (`Item::ghost`). Home is a ghost under a launch, and Home is told it is still on the screen
   (`foreground` topic: `home` stays true, `covered` waits) until the card is whole, so Home goes on drawing (its launch screen stays up under
   the move and is cleared after it) and the video wallpaper's player is not stopped for those 220 ms (`holds_home`).
-- **Zombies.** An app that exits (Back) destroys its window the moment Home is the front. `Scene::zombify` keeps the destroyed window's last
-  buffer for its transition; `Gl::prune` keeps that buffer's texture while the plan draws it. A buffer the client destroyed *before* its
-  window keeps its import in the renderer [INFERENCE from `destroying_the_shown_buffer_keeps_the_last_frame`, which is the same rule for a
-  still window]; an shm buffer the client destroys goes with it (no ghost, a cut: only the host tests use shm for apps).
+- **Destroyed windows.** A saved GPU picture can finish an exit after every source buffer and surface is gone.
+  Without one, the existing short-lived `Scene::zombify` buffer/import fallback remains; an already destroyed shm source cannot supply it.
 - **Overlay apps.** LG's Settings maps as an overlay window the size of the screen and SAM never names it (round 11). A full-screen overlay
   that is opaque (opaque region or XRGB buffer), or `com.palm.app.settings`, counts as a card for the front.
 
@@ -54,9 +76,9 @@ move itself composes two or three pictures for at most 13 frames).
 The plane cannot be sampled and cannot be scaled: the app's window has a hole, and the video lies under the whole UI plane. So a card with a
 hole never scales over it, never shows the plane's black while it moves, and the compositor never reads the video:
 
-- **Arriving**: the card is the app's own picture on a **veil** (`#191724`, the dark canvas, opaque) where its hole is, moved and faded with the
-  card exactly as any card is (so an input zooms out of its tile as a dark card with its banner on it). The veil is made when the window has an
-  exported video element (HDMI exports before its first frame) or a hole shows up while the card arrives. It is held until the card has
+- **Arriving**: the card and its **veil** stay full-sized and fade, without a black card zooming out of the icon. The veil covers the hole
+  until the video can be exposed. It is made when the window has an exported video element (HDMI exports before its first frame)
+  or a hole shows up while the card arrives. It is held until the card has
   arrived and the hole (the compositor sends videooutputd the placement in the same step) is 150 ms old, at most 1.5 s after the card has
   arrived (no signal: it then dissolves to what the plane shows), and then fades over 180 ms (120 ms reduced): the hole is cleared and the
   veil, less opaque, goes on the clear, so the display engine blends the plane under what is left, a dissolve the GPU never reads video for.
@@ -121,7 +143,7 @@ with its brightness, the card with its mask); a veil adds a flat one. Pictures a
 
 - The display engine blending partial alpha of the UI plane over the video plane is assumed (the volume bar over video and the glass over
   the video wallpaper rely on it, and are not run on this build either). If a veil's fade shows as a cut, that is what to look for (TV check 8).
-- A window destroyed with an shm buffer, a window with no buffer left, and an overlay that is neither opaque nor Settings have no transition.
+- An app with neither a saved picture nor an eligible fallback buffer, and an overlay that is neither opaque nor Settings, has no exit transition.
 - Home to the Home stub's own card (LumaTV's Home not running) is an app-to-app move.
 - The wall video under a launch: Home stays the underlay for the 220 ms, so its hole stays too and the player is stopped when the card is whole.
 

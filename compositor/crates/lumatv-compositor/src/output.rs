@@ -89,6 +89,8 @@ pub struct RenderStats {
     pub ui_layers: u32,
     /// The frame changed nothing and composed nothing: the screen holds it already (`kms::frames`). It is no frame drawn.
     pub unchanged: bool,
+    /// Fresh app content actually drawn instead of a resume cover. A KMS flip must acknowledge it separately.
+    pub snapshot: Option<crate::snapshot::Receipt>,
 }
 
 pub trait Output {
@@ -109,6 +111,23 @@ pub trait Output {
     /// The app switcher is opening: the output makes what drawing these buffers scaled needs, now and not in the frame that first shows
     /// them. The default does nothing.
     fn prepare_previews(&mut self, _buffers: &[WlBuffer]) {}
+
+    /// Copies only this app's already imported, drawable UI surfaces into independent GPU storage. No CPU/readback fallback.
+    fn freeze_app(&mut self, _id: crate::snapshot::SnapshotId, _window: crate::window::WindowId, _plan: &Plan, _live: &crate::snapshot::Snapshots) -> bool {
+        false
+    }
+
+    fn retain_app_snapshots(&mut self, _snapshots: &crate::snapshot::Snapshots) {}
+
+    /// Actual output-sized RGBA allocations retained by the renderer (driver bookkeeping is not included).
+    fn app_snapshot_count(&self) -> usize {
+        0
+    }
+
+    /// An actual presentation, never a timeout or a callback sent for a dropped frame.
+    fn take_snapshot_presented(&mut self) -> Option<crate::snapshot::Receipt> {
+        None
+    }
 
     /// Whether the driver is still busy with a buffer `prepare_buffer` started on (its warm draw's fence has not
     /// signalled): a frame drawn now would wait on it, so the tick keeps the previous frame on the screen instead

@@ -57,6 +57,7 @@ pub mod screencap;
 pub mod server;
 pub mod shell;
 pub mod shell_rust;
+pub mod snapshot;
 pub mod subwatch;
 pub mod surface;
 pub mod switcher;

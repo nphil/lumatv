@@ -216,6 +216,10 @@ fn a_card_on_the_video_plane_arrives_on_a_veil_that_fades_once_the_video_has_had
     // HDMI exports its video element before its first frame: expected, no hole yet
     t.begin(Kind::Launch, 0, Some(party(2, "com.webos.app.hdmi2", true)), None, &[(WindowId(1), FULL)]);
     let w = WindowId(2);
+    for ms in [0, 90, 220] {
+        let p = t.pose(w, ms * MS).unwrap();
+        assert_eq!((p.rect, p.clip, p.radius), (FULL, FULL, 0.0), "a video card fades without a black zoom");
+    }
     assert_eq!(t.veil(w, 0, false).map(|v| v.alpha), Some(1.0));
     // the hole comes at 83 ms; the card arrives at 220: the veil is held
     assert_eq!(t.veil(w, 83 * MS, true).map(|v| v.alpha), Some(1.0));
@@ -404,7 +408,10 @@ fn reduced_motion_is_one_linear_fade_of_120_ms_and_nothing_moves() {
     t.clear();
     t.begin(Kind::Leave, 0, None, Some(party(2, "com.netflix", false)), &[(WindowId(1), FULL)]);
     assert_eq!(t.track_of(WindowId(2)).unwrap().dur_ns, 120 * MS);
-    assert!(t.pose(WindowId(2), 120 * MS).unwrap().is_rest_on(&FULL), "the card stays, Home dissolves in over it");
+    let half = t.pose(WindowId(2), 60 * MS).unwrap();
+    assert_eq!((half.rect, half.clip, half.radius), (FULL, FULL, 0.0));
+    assert!(near(half.alpha, 0.5), "the frozen card fades over native Home without travel");
+    assert!(near(t.pose(WindowId(2), 120 * MS).unwrap().alpha, 0.0));
 }
 
 #[test]

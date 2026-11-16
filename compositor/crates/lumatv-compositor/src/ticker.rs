@@ -182,6 +182,7 @@ impl Tick {
                 && state.output.idle_ok()
                 && !state.scene.transitions.animating(now)
                 && !state.scene.transitions.due_within(now, ns)
+                && !state.scene.snapshots.due_within(now, ns)
         });
         let paced = slow.is_none().then(|| {
             let now_ns = monotonic_ns();
@@ -190,6 +191,7 @@ impl Tick {
                     && state.output.idle_between_frames()
                     && !state.scene.transitions.animating(now_ns)
                     && !state.scene.transitions.due_within(now_ns, wait.as_nanos() as u64)
+                    && !state.scene.snapshots.due_within(now_ns, wait.as_nanos() as u64)
             };
             paced_wait(state.config.idle_tick_ns, self.calm.is_calm_between_frames(now_ns), owed_nothing, state.output.ui_due_in())
         });

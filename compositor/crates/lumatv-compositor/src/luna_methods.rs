@@ -940,6 +940,7 @@ impl State {
         let ids: Vec<_> = self.scene.windows().filter(|w| w.app_id() == app_id).map(|w| w.id).collect();
         let mut n = 0;
         for id in ids {
+            self.scene.invalidate_snapshot(id);
             if let Some(res) = self.webos_shell_resource(id) {
                 res.close();
                 n += 1;

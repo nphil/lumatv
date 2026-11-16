@@ -115,6 +115,8 @@ pub struct Current {
     pub retired: Vec<WlBuffer>,
     /// How many commits carried a buffer: a surface is mapped once this is > 0 with a buffer attached.
     pub buffer_commits: u64,
+    /// Last applied attach or damage, from the surface collection's monotonic content counter. Callbacks alone never advance it.
+    pub content_serial: u64,
     /// A commit with new content has not been drawn yet.
     pub undrawn: bool,
     /// When the oldest such commit arrived (CLOCK_MONOTONIC ns): the earliest a frame showing it could have started,
@@ -186,6 +188,7 @@ pub struct CommitEffects {
 pub struct Surfaces {
     map: BTreeMap<SurfaceId, Surface>,
     next: u32,
+    content_serial: u64,
 }
 
 impl Surfaces {
@@ -202,6 +205,10 @@ impl Surfaces {
 
     pub fn get_mut(&mut self, id: SurfaceId) -> Option<&mut Surface> {
         self.map.get_mut(&id)
+    }
+
+    pub fn content_serial(&self) -> u64 {
+        self.content_serial
     }
 
     pub fn remove(&mut self, id: SurfaceId) -> Option<Surface> {
@@ -286,6 +293,11 @@ impl Surfaces {
             newer.merge_into(&mut p);
         }
         let mut eff = CommitEffects::default();
+        let content = matches!(p.buffer, Some(Some(_))) || !p.damage.is_empty() || !p.buffer_damage.is_empty();
+        if content {
+            self.content_serial += 1;
+            s.current.content_serial = self.content_serial;
+        }
         let was_mapped = s.current.buffer.is_some();
         let geometry = (s.position, s.current.size, s.current.scale, s.current.transform);
         if let Some(b) = p.buffer {

@@ -33,6 +33,9 @@ struct ScanOut {
     hold_next: Arc<AtomicBool>,
     release: Arc<AtomicBool>,
     held: Option<WlBuffer>,
+    acknowledge: Arc<AtomicBool>,
+    fail_present: Arc<AtomicBool>,
+    pending_receipt: Option<lumatv_compositor::snapshot::Receipt>,
 }
 
 impl Output for ScanOut {
@@ -72,6 +75,22 @@ impl Output for ScanOut {
         self.gl.forget_buffer(buffer)
     }
 
+    fn freeze_app(&mut self, id: lumatv_compositor::snapshot::SnapshotId, window: lumatv_compositor::window::WindowId, plan: &Plan, live: &lumatv_compositor::snapshot::Snapshots) -> bool {
+        self.gl.freeze_app(id, window, plan, live)
+    }
+
+    fn retain_app_snapshots(&mut self, snapshots: &lumatv_compositor::snapshot::Snapshots) {
+        self.gl.retain_app_snapshots(snapshots);
+    }
+
+    fn app_snapshot_count(&self) -> usize {
+        self.gl.app_snapshot_count()
+    }
+
+    fn take_snapshot_presented(&mut self) -> Option<lumatv_compositor::snapshot::Receipt> {
+        if self.acknowledge.load(Ordering::SeqCst) { self.pending_receipt.take() } else { None }
+    }
+
     fn ui_needs_frame(&mut self) -> io::Result<bool> {
         Ok(self.gl.ui_needs_frame()? || self.gl.standin_due())
     }
@@ -82,7 +101,15 @@ impl Output for ScanOut {
     }
 
     fn present(&mut self) -> io::Result<Presented> {
-        self.gl.present()
+        let presented = self.gl.present()?;
+        let receipt = self.gl.take_snapshot_presented();
+        if self.fail_present.swap(false, Ordering::SeqCst) {
+            return Err(io::Error::other("controlled submission failure"));
+        }
+        if receipt.is_some() {
+            self.pending_receipt = receipt;
+        }
+        Ok(presented)
     }
 
     fn capture(&mut self) -> io::Result<Image> {
@@ -92,13 +119,17 @@ impl Output for ScanOut {
 }
 
 fn scan_out(hold_next: Arc<AtomicBool>, release: Arc<AtomicBool>) -> Server {
+    scan_out_with_receipts(hold_next, release, Arc::new(AtomicBool::new(true)), Arc::new(AtomicBool::new(false)))
+}
+
+fn scan_out_with_receipts(hold_next: Arc<AtomicBool>, release: Arc<AtomicBool>, acknowledge: Arc<AtomicBool>, fail_present: Arc<AtomicBool>) -> Server {
     // SAFETY: nothing else in this process reads the environment while it is set.
     unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
     Server::start_with(Box::new(move || {
         let mut gl = Gl::new(MESA, Platform::Surfaceless, 1920, 1080, BufferPath::Own, None).unwrap();
         let pages: Vec<TargetId> = (0..3).map(|_| gl.add_target().unwrap()).collect();
         let frames = Frames::new(pages.clone(), 1920, 1080);
-        Box::new(ScanOut { gl, frames, pages, hold_next, release, held: None })
+        Box::new(ScanOut { gl, frames, pages, hold_next, release, held: None, acknowledge, fail_present, pending_receipt: None })
     }))
 }
 
@@ -238,4 +269,198 @@ fn a_first_buffer_the_driver_is_busy_with_is_not_drawn_and_the_move_waits_for_it
     assert!(mid.pixel(960, 540)[0] > 0xa0, "the card is across the middle of the screen by then: {:?}", mid.pixel(960, 540));
     assert_eq!(server.eval(|s| s.stats.gl_errors), 0);
     drop(r);
+}
+
+#[test]
+fn a_resume_requires_fresh_drawable_content_and_a_real_receipt_without_rolling_back_when_the_next_buffer_warms() {
+    assert!(Path::new(MESA).exists(), "this pixel regression requires Mesa");
+    let hold = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let acknowledge = Arc::new(AtomicBool::new(false));
+    let fail = Arc::new(AtomicBool::new(false));
+    let mut server = scan_out_with_receipts(hold.clone(), release.clone(), acknowledge.clone(), fail.clone());
+    let mut rig = rig(&mut server);
+    tick(&server, 1_000 * MS);
+    let (win, old) = app(&mut rig, false);
+    tick(&server, 2_000 * MS);
+    assert_eq!(tick(&server, 2_300 * MS).pixel(960, 540), [0xd0, 0x40, 0x40, 255]);
+    rig.stub.webos.set_state(3);
+    rig.client.roundtrip();
+    assert_eq!(server.eval(|s| s.scene.snapshots.bytes()), lumatv_compositor::snapshot::PICTURE_BYTES);
+    assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 1);
+    let background = rig.client.shm_buffer(1920, 1080, 0xff20_40e0);
+    rig.client.present(&win.surface, &background);
+    old.destroy();
+    rig.client.roundtrip();
+    assert_eq!(tick(&server, 3_000 * MS).pixel(960, 540), [0xd0, 0x40, 0x40, 255]);
+    tick(&server, 3_200 * MS);
+    win.webos.set_state(3);
+    win.surface.frame(&rig.client.qh, ());
+    win.surface.commit();
+    rig.client.roundtrip();
+    tick(&server, 4_000 * MS);
+    assert_eq!(tick(&server, 4_250 * MS).pixel(960, 540), [0xd0, 0x40, 0x40, 255],
+        "neither a background commit nor a callback-only resume replaces the saved picture");
+
+    hold.store(true, Ordering::SeqCst);
+    let c = rig.client.shm_buffer(1920, 1080, 0xff20_d060);
+    rig.client.present(&win.surface, &c);
+    rig.client.roundtrip();
+    assert_eq!(tick(&server, 4_300 * MS).pixel(960, 540), [0xd0, 0x40, 0x40, 255]);
+    release.store(true, Ordering::SeqCst);
+    assert_eq!(tick(&server, 4_320 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255]);
+    assert_eq!(server.eval(|s| s.scene.snapshots.len()), 1, "storage waits for the output, not the draw");
+
+    release.store(false, Ordering::SeqCst);
+    hold.store(true, Ordering::SeqCst);
+    let d = rig.client.shm_buffer(1920, 1080, 0xffd0_a020);
+    rig.client.present(&win.surface, &d);
+    rig.client.roundtrip();
+    assert_eq!(tick(&server, 4_340 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255],
+        "queued C followed by unready D must never restore pre-resume A");
+    acknowledge.store(true, Ordering::SeqCst);
+    assert_eq!(tick(&server, 4_360 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255]);
+    assert_eq!(server.eval(|s| s.scene.snapshots.len()), 0);
+    assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 0);
+    release.store(true, Ordering::SeqCst);
+    assert_eq!(tick(&server, 4_380 * MS).pixel(960, 540), [0xd0, 0xa0, 0x20, 255]);
+    for ms in [4_400, 4_420, 4_440] {
+        server.eval(|s| s.scene.redraw_all());
+        let image = tick(&server, ms * MS);
+        assert_eq!(image.pixel(2, 2), [0xd0, 0xa0, 0x20, 255], "no old rounded cover on any ring page");
+    }
+
+    rig.stub.webos.set_state(3);
+    rig.client.roundtrip();
+    tick(&server, 5_000 * MS);
+    tick(&server, 5_200 * MS);
+    win.webos.set_state(3);
+    rig.client.roundtrip();
+    tick(&server, 6_000 * MS);
+    let fresh = rig.client.shm_buffer(1920, 1080, 0xffc0_30d0);
+    rig.client.present(&win.surface, &fresh);
+    rig.client.roundtrip();
+    fail.store(true, Ordering::SeqCst);
+    tick(&server, 6_250 * MS);
+    assert_eq!(server.eval(|s| s.scene.snapshots.len()), 1, "a failed submission is not a presentation");
+    assert_eq!(tick(&server, 6_270 * MS).pixel(960, 540), [0xc0, 0x30, 0xd0, 255]);
+    assert_eq!(server.eval(|s| s.scene.snapshots.len()), 0);
+    assert_eq!(server.eval(|s| s.stats.gl_errors), 0);
+}
+
+#[test]
+fn switcher_activation_discards_a_bypassed_picture_before_the_next_trip_home() {
+    use std::time::{Duration, Instant};
+
+    assert!(Path::new(MESA).exists(), "this pixel regression requires Mesa");
+    let mut server = scan_out(Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let mut rig = rig(&mut server);
+    tick(&server, 1_000 * MS);
+    let (win, _) = app(&mut rig, false);
+    tick(&server, 2_000 * MS);
+    tick(&server, 2_300 * MS);
+    rig.stub.webos.set_state(3);
+    rig.client.roundtrip();
+    tick(&server, 3_000 * MS);
+    tick(&server, 3_200 * MS);
+    assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 1);
+
+    // An explicit future clock keeps activation unfinished during State's ordinary Instant::now() frame, without a sleep.
+    let start = Instant::now() + Duration::from_secs(60);
+    server.eval(move |s| {
+        assert!(s.switcher_open(None, start));
+        s.switcher_op(&json!({"op":"layout", "ms":0, "cards":[{"id":"com.example.a","x":400,"y":300,"w":640,"h":360,"r":22}]}), start);
+        s.switcher_op(&json!({"op":"activate", "id":"com.example.a"}), start);
+    });
+    tick(&server, 3_400 * MS);
+    win.webos.set_state(3);
+    let current = rig.client.shm_buffer(1920, 1080, 0xff20_d060);
+    rig.client.present(&win.surface, &current);
+    rig.client.roundtrip();
+    tick(&server, 4_000 * MS);
+    assert!(server.eval(|s| s.switcher_active()), "the app becomes foreground before expansion finishes");
+    assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 0, "the bypassed old picture cannot outlive a live switcher activation");
+    server.eval(move |s| {
+        s.switcher_frame(start + Duration::from_secs(4));
+        assert!(!s.switcher_active());
+    });
+    assert_eq!(tick(&server, 4_300 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255]);
+    rig.stub.webos.set_state(3);
+    rig.client.roundtrip();
+    assert_eq!(tick(&server, 5_000 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255],
+        "the next minimize freezes current C, never pre-switcher A");
+    tick(&server, 5_200 * MS);
+    win.webos.set_state(3);
+    rig.client.roundtrip();
+    tick(&server, 6_000 * MS);
+    assert_eq!(tick(&server, 6_250 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255]);
+    assert_eq!(server.eval(|s| s.stats.gl_errors), 0);
+}
+
+#[test]
+fn a_shared_memory_update_hidden_by_a_warming_group_member_is_uploaded_before_its_receipt() {
+    use std::os::fd::{AsFd, FromRawFd};
+    use std::os::unix::fs::FileExt;
+    use wayland_client::protocol::wl_shm::Format;
+
+    assert!(Path::new(MESA).exists(), "this pixel regression requires Mesa");
+    let hold = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let acknowledge = Arc::new(AtomicBool::new(false));
+    let mut server = scan_out_with_receipts(hold.clone(), release.clone(), acknowledge.clone(), Arc::new(AtomicBool::new(false)));
+    let mut rig = rig(&mut server);
+    tick(&server, 1_000 * MS);
+    let win = rig.client.card_as("_WEBOS_WINDOW_TYPE_CARD", "App", "com.example.a");
+    // The same anonymous shared-memory buffer is edited in place; no new attachment or layout can force a full upload later.
+    // SAFETY: a fixed NUL-terminated name and valid flags; the successful descriptor is owned below.
+    let fd = unsafe { libc::memfd_create(c"snapshot-shm-update".as_ptr(), libc::MFD_CLOEXEC) };
+    assert!(fd >= 0);
+    // SAFETY: this descriptor was just created and is owned only by this file.
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    let mut bytes = 0xffd0_4040u32.to_le_bytes().repeat(1920 * 1080);
+    file.set_len(bytes.len() as u64).unwrap();
+    file.write_all_at(&bytes, 0).unwrap();
+    let pool = rig.client.shm.create_pool(file.as_fd(), bytes.len() as i32, &rig.client.qh, ());
+    let buffer = pool.create_buffer(0, 1920, 1080, 1920 * 4, Format::Argb8888, &rig.client.qh, ());
+    pool.destroy();
+    rig.client.present(&win.surface, &buffer);
+    let group = rig.client.groups.create_surface_group(&win.surface, "warming-snapshot-group".into(), &rig.client.qh, ());
+    let _layer = group.create_layer("tools".into(), 1, &rig.client.qh, ());
+    let child = rig.client.card_as("_WEBOS_WINDOW_TYPE_CARD", "Tools", "com.example.a");
+    group.attach(&child.surface, "tools".into());
+    let old_child = rig.client.shm_buffer(200, 120, 0xffd0_a020);
+    rig.client.present(&child.surface, &old_child);
+    rig.client.roundtrip();
+    tick(&server, 2_000 * MS);
+    assert_eq!(tick(&server, 2_300 * MS).pixel(960, 540), [0xd0, 0x40, 0x40, 255]);
+    rig.stub.webos.set_state(3);
+    rig.client.roundtrip();
+    assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 1, "the complete toplevel group must have a saved picture before resume");
+    tick(&server, 3_000 * MS);
+    tick(&server, 3_200 * MS);
+    win.webos.set_state(3);
+    rig.client.roundtrip();
+    tick(&server, 4_000 * MS);
+    tick(&server, 4_250 * MS);
+
+    hold.store(true, Ordering::SeqCst);
+    let next_child = rig.client.shm_buffer(200, 120, 0xff20_40e0);
+    rig.client.present(&child.surface, &next_child);
+    let green = 0xff20_d060u32.to_le_bytes();
+    for pixel in bytes.chunks_exact_mut(4) { pixel.copy_from_slice(&green); }
+    file.write_all_at(&bytes, 0).unwrap();
+    win.surface.damage(0, 0, 1920, 1080);
+    win.surface.commit();
+    rig.client.roundtrip();
+    assert_eq!(tick(&server, 4_300 * MS).pixel(960, 540), [0xd0, 0x40, 0x40, 255], "the incomplete group stays covered");
+    assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 1);
+    release.store(true, Ordering::SeqCst);
+    let ready = tick(&server, 4_320 * MS);
+    assert_eq!(ready.pixel(960, 540), [0x20, 0xd0, 0x60, 255], "consumed damage must not turn old root pixels into a fresh receipt");
+    assert_eq!(ready.pixel(40, 40), [0x20, 0x40, 0xe0, 255], "the complete group includes its now-ready child");
+    assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 1, "ready content still awaits its presentation receipt");
+    acknowledge.store(true, Ordering::SeqCst);
+    assert_eq!(tick(&server, 4_340 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255]);
+    assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 0);
+    assert_eq!(server.eval(|s| s.stats.gl_errors), 0);
 }

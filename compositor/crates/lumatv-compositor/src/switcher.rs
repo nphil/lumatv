@@ -262,7 +262,7 @@ pub struct App {
 
 /// An app whose window is only a hole over the video plane, by its id (an input, Live TV, YouTube whose player draws on the plane): no window of
 /// it has a picture worth drawing, and its card was a black rectangle.
-fn input_app(id: &str) -> bool {
+pub(crate) fn input_app(id: &str) -> bool {
     ["com.webos.app.hdmi", "com.webos.app.livetv", "com.webos.app.dp", "com.webos.app.usbc", "com.webos.app.externalinput", "youtube.leanback"].iter().any(|p| id.starts_with(p))
 }
 

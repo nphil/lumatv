@@ -532,6 +532,18 @@ impl Egl {
         Some(((w, h), inv != 0))
     }
 
+    /// Only ordinary RGB/RGBA UI buffers are eligible for app snapshots; unknown/YUV buffers are not.
+    ///
+    /// # Safety
+    /// `resource` is a live driver-owned `wl_buffer` resource.
+    pub unsafe fn wayland_buffer_is_rgb(&self, resource: *mut c_void) -> bool {
+        let Some(q) = self.opt.eglQueryWaylandBufferWL else { return false };
+        let mut format = 0;
+        // EGL_TEXTURE_FORMAT, EGL_TEXTURE_RGB and EGL_TEXTURE_RGBA from EGL_WL_bind_wayland_display.
+        // SAFETY: the caller guarantees the resource; the query writes one stack integer.
+        unsafe { q(self.display, resource, 0x3080, &mut format) != EGL_FALSE && matches!(format, 0x305D | 0x305E) }
+    }
+
     /// # Safety
     /// `resource` is a live `wl_resource` of a `wl_buffer` the bound driver created.
     pub unsafe fn image_from_wayland_buffer(&self, resource: *mut c_void) -> io::Result<EGLImage> {

@@ -166,6 +166,7 @@ struct Frame {
     /// An animation was still running after this frame (a transition, or the engine's demand at every refresh): the next frame is due at the
     /// next refresh, so a flip that comes later than that is a refresh the motion missed (`refresh::Measure::motion`).
     animating: bool,
+    snapshot: Option<crate::snapshot::Receipt>,
     #[cfg(feature = "ui")]
     ui: Option<lumatv_render::host::FrameCost>,
 }
@@ -176,6 +177,7 @@ struct InFlight {
     timing: Timing,
     fence: Option<OwnedFd>,
     animating: bool,
+    snapshot: Option<crate::snapshot::Receipt>,
     #[cfg(feature = "ui")]
     ui: Option<lumatv_render::host::FrameCost>,
 }
@@ -217,6 +219,7 @@ pub struct Kms {
     last_assignment: Option<Frame>,
     /// What the flip in flight is of: its frame's timing and in-fence, for the pacer when it lands.
     in_flight: Option<InFlight>,
+    snapshot_presented: Option<crate::snapshot::Receipt>,
     /// Whether the last tick drew a frame: the run of frames the pacer keeps in step is on while ticks keep
     /// drawing; the first tick that finds nothing to draw ends it and the fixed tick takes over.
     in_run: bool,
@@ -609,6 +612,7 @@ impl Kms {
             monotonic_flips,
             last_assignment: None,
             in_flight: None,
+            snapshot_presented: None,
             in_run: false,
             held: false,
             latch: std::cell::Cell::new((0, 0)),
@@ -773,6 +777,9 @@ impl Kms {
         let mut animating = false;
         let frame = self.in_flight.take().map(|flight| {
             animating = flight.animating;
+            if presented_ns >= self.committed_ns {
+                self.snapshot_presented = flight.snapshot;
+            }
             #[cfg(feature = "ui")]
             if let Some(cost) = flight.ui {
                 self.gl.ui_presented(presented_ns, &cost);
@@ -890,6 +897,7 @@ impl Kms {
             timing: frame.timing,
             fence: kept,
             animating: frame.animating,
+            snapshot: frame.snapshot,
             #[cfg(feature = "ui")]
             ui: frame.ui,
         });
@@ -950,6 +958,9 @@ impl Kms {
         if self.pending_flip && self.now_ns().saturating_sub(self.committed_ns) >= FLIP_OVERDUE_NS {
             log::warn!("kms: no page-flip event 250 ms after the commit; going on without it");
             self.pending_flip = false;
+            if let Some(flight) = &mut self.in_flight {
+                flight.snapshot = None;
+            }
             return true;
         }
         false
@@ -1332,6 +1343,22 @@ impl Output for Kms {
 
     fn event_fd(&self) -> Option<RawFd> {
         Some(self.card.as_fd().as_raw_fd())
+    }
+
+    fn freeze_app(&mut self, id: crate::snapshot::SnapshotId, window: crate::window::WindowId, plan: &Plan, live: &crate::snapshot::Snapshots) -> bool {
+        self.gl.freeze_app(id, window, plan, live)
+    }
+
+    fn retain_app_snapshots(&mut self, snapshots: &crate::snapshot::Snapshots) {
+        self.gl.retain_app_snapshots(snapshots);
+    }
+
+    fn app_snapshot_count(&self) -> usize {
+        self.gl.app_snapshot_count()
+    }
+
+    fn take_snapshot_presented(&mut self) -> Option<crate::snapshot::Receipt> {
+        self.snapshot_presented.take()
     }
 
     fn dispatch_events(&mut self) -> io::Result<u32> {
@@ -1769,6 +1796,7 @@ impl Output for Kms {
             timing: Timing { slot_ns, started_ns: now, ready_ns: self.now_ns(), content_ns },
             acquire,
             animating,
+            snapshot: stats.snapshot,
             #[cfg(feature = "ui")]
             ui: self.gl.take_ui_frame(),
         });

@@ -12,7 +12,7 @@
 //! The video plane cannot be sampled: it lies under the whole UI plane, and an app's picture that is on it is only a hole in the
 //! app's window. So a window with a hole never scales, and never gets a black plane either:
 //!
-//! - arriving, its card is the app's own picture on a *veil* (a flat dark fill where the hole is), moved and faded as any card is; the
+//! - arriving, its card and *veil* (a flat dark fill where the hole is) fade at full size, never zooming a black video placeholder; the
 //!   veil stays until the video has been placed for [`VEIL_SETTLE_MS`] (or [`VEIL_CAP_MS`] after the card has arrived) and is then
 //!   faded away over [`VEIL_FADE_MS`], which the display engine blends over the video: a dissolve the GPU never reads the video for;
 //! - leaving, the card stays where it is (hole and all) and Home dissolves in over it, the same blend.
@@ -595,12 +595,12 @@ impl Transitions {
     }
 
     /// A card comes to the front: from its tile (a launch with one known), else grown from the screen's middle. A card with a video
-    /// element does not scale: the veil makes its picture a card all the same, and it is the card that moves.
+    /// element fades at full size; a snapshot must never stand in for unsampleable video.
     fn arrive(&mut self, app: Party, kind: Kind, now_ns: u64, from_home: bool) {
         let reduced = self.settings.reduced;
         let w = app.rect;
         let origin = if from_home { self.origin_of(app.app_id).copied() } else { None };
-        let (start, ease) = if reduced {
+        let (start, ease) = if reduced || app.video {
             let mut p = Pose::rest(w);
             p.alpha = 0.0;
             (p, Ease::Linear)
@@ -656,13 +656,17 @@ impl Transitions {
         let video = app.video || held.as_ref().is_some_and(|(_, v, _)| v.is_some());
         let tile = self.origin_of(app.app_id).copied();
         if reduced || video {
-            // One dissolve: Home in over the card, which stays as it is (its hole shows the video until Home covers it).
+            // Native Home has no window track: fade a UI-only card itself; a video hole must stay covered until Home covers it.
             let d = self.dur(if reduced { REDUCED_MS } else { LEAVE_MS });
             let from = held.map(|(p, _, _)| p).unwrap_or_else(|| Pose::rest(w));
+            let mut to = from;
+            if reduced && !video {
+                to.alpha = 0.0;
+            }
             self.tracks.push(Track {
                 window: app.id,
                 from,
-                to: from,
+                to,
                 start_ns: now_ns,
                 dur_ns: d,
                 ease: Ease::Linear,
@@ -1054,6 +1058,8 @@ impl crate::State {
         self.scene.transitions.settings = settings;
         if !settings.enabled {
             self.scene.transitions.clear();
+            self.scene.snapshots.clear();
+            self.output.retain_app_snapshots(&self.scene.snapshots);
             self.scene.redraw_all();
         }
         self.journal(format!("transitions: {}{}", if settings.enabled { "on" } else { "off" }, if settings.reduced { ", reduced motion" } else { "" }));
@@ -1105,6 +1111,8 @@ impl crate::State {
             "active": t.active(),
             "origins": t.origins().iter().map(|(app, o)| serde_json::json!({"app": app, "tile": {"x": o.tile.x, "y": o.tile.y, "w": o.tile.w, "h": o.tile.h, "radius": o.radius}, "from": o.from.is_some()})).collect::<Vec<_>>(),
             "tracks": tracks,
+            "snapshots": {"count": self.output.app_snapshot_count(), "bytes": self.output.app_snapshot_count() * crate::snapshot::PICTURE_BYTES,
+                "budgetBytes": crate::snapshot::BUDGET_BYTES, "capacity": crate::snapshot::CAPACITY},
             "lateLog": t.late_log().iter().map(|l| serde_json::json!({"ageMs": now.saturating_sub(l.at_ns) / 1_000_000, "gapMs": l.gap_ms, "phase": l.phase})).collect::<Vec<_>>(),
             "stats": {
                 "launches": t.stats.launches, "leaves": t.stats.leaves, "switches": t.stats.switches, "interrupted": t.stats.interrupted,

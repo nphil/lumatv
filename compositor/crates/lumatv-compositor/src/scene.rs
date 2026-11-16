@@ -9,6 +9,7 @@
 //! planned at its size (`alloc_tests`); the plan borrows the scene for the frame.
 
 mod backdrop;
+mod snapshots;
 
 use std::collections::BTreeMap;
 
@@ -381,6 +382,7 @@ impl NotSole {
 #[derive(Default)]
 pub struct Plan {
     pub items: Vec<Item>,
+    pub snapshots: Vec<crate::snapshot::Draw>,
     /// The app switcher's scrim and pictures, drawn before the shell's system layer (`scene/backdrop.rs`); `None` while it is closed.
     pub backdrop: Option<Backdrop>,
     pub holes: Vec<PlannedHole>,
@@ -441,7 +443,7 @@ impl Plan {
         let at = (one.rect.x, one.rect.y);
         if self.backdrop.is_some() {
             Err(NotSole::Switcher)
-        } else if one.pose.is_some() {
+        } else if one.pose.is_some() || !self.snapshots.is_empty() {
             Err(NotSole::Transition)
         } else if self.cursor.is_some() {
             Err(NotSole::Cursor)
@@ -484,6 +486,7 @@ impl Plan {
 
     fn clear(&mut self) {
         self.items.clear();
+        self.snapshots.clear();
         self.backdrop = None;
         self.holes.clear();
         self.masks.clear();
@@ -573,6 +576,8 @@ pub struct Scene {
     home_rust: bool,
     /// The windows in transition (`transition.rs`): drawn through poses while their tracks run.
     pub transitions: Transitions,
+    pub snapshots: crate::snapshot::Snapshots,
+    last_snapshots: Vec<crate::snapshot::Draw>,
     /// The clock of the last plan, CLOCK_MONOTONIC ns: what `take_visual` answers at.
     plan_ns: u64,
     /// What the last stack built had at the front of the screen, and what the plan before it had (a change starts a transition).
@@ -816,7 +821,8 @@ impl Scene {
     pub fn remove_window(&mut self, id: WindowId) -> Option<Window> {
         let w = self.windows.remove(&id)?;
         self.by_surface.remove(&w.surface);
-        if !self.zombies.iter().any(|z| z.window == id) {
+        self.snapshots.closed(id);
+        if !self.zombies.iter().any(|z| z.window == id) && self.snapshots.get(id).is_none() {
             self.transitions.forget(id);
         }
         Some(w)
@@ -859,6 +865,7 @@ impl Scene {
             && let Some(w) = self.windows.get_mut(&id)
         {
             if mapped {
+                self.snapshots.forget(id);
                 self.map_counter += 1;
                 w.map_serial = self.map_counter;
                 // A group member never comes to the front: it is no card (`Window::in_group`).
@@ -867,6 +874,7 @@ impl Scene {
                     w.held_by_home = false;
                 }
             } else {
+                self.snapshots.closed(id);
                 w.map_serial = 0;
                 w.front = 0;
                 w.held_by_home = false;
@@ -1077,7 +1085,7 @@ impl Scene {
     /// A window at the front of the screen is being destroyed: when a transition would take it away, its last picture is kept to draw (the
     /// buffer's texture stays while the plan has it). Call before the surface is removed.
     pub fn zombify(&mut self, surface: SurfaceId, surfaces: &Surfaces) {
-        if !self.transitions.enabled() {
+        if !self.transitions.enabled() || self.window_of(surface).is_some_and(|w| self.snapshots.get(w).is_some()) {
             return;
         }
         let Some(wid) = self.by_surface.get(&surface).copied() else { return };
@@ -1166,14 +1174,15 @@ impl Scene {
         let full = FRect::new(0.0, 0.0, OUTPUT_WIDTH as f32, OUTPUT_HEIGHT as f32);
         // Something to draw for the window: it is mapped, or it was destroyed at the front and left its picture.
         let drawable = |scene: &Scene, id: WindowId| {
-            scene.windows.get(&id).is_some_and(|w| surfaces.get(w.surface).is_some_and(|s| s.is_mapped())) || scene.zombies.iter().any(|z| z.window == id)
+            scene.windows.get(&id).is_some_and(|w| surfaces.get(w.surface).is_some_and(|s| s.is_mapped()))
+                || scene.zombies.iter().any(|z| z.window == id) || scene.snapshots.get(id).is_some()
         };
         // (app id, expects video) of a window
         let info = |scene: &Scene, id: WindowId| -> (String, bool) {
             match (scene.windows.get(&id), scene.zombies.iter().find(|z| z.window == id)) {
-                (Some(w), _) => (w.app_id().to_string(), scene.video.contains(&w.surface) || scene.holes.iter().any(|h| h.surface == w.surface)),
+                (Some(w), _) => (w.app_id().to_string(), scene.window_video(id, surfaces)),
                 (None, Some(z)) => (z.app_id.clone(), z.video),
-                _ => (String::new(), false),
+                _ => scene.snapshots.get(id).map_or_else(|| (String::new(), false), |p| (p.app.clone(), false)),
             }
         };
         // Home's windows: under a launch Home and the moving wallpaper's window (its hole) both stay drawn; Home alone comes back on a leave.
@@ -1187,6 +1196,11 @@ impl Scene {
         if self.home_rust {
             home.push((HOME_RUST, full));
             home_ui.push((HOME_RUST, full));
+        }
+        if let Front::Card(id) = now
+            && !self.transitions.suspended
+        {
+            self.snapshots.resume(id, surfaces.content_serial(), now_ns);
         }
         let started = match (prev, now) {
             (Front::Home, Front::Card(b)) if drawable(self, b) => {
@@ -1228,6 +1242,8 @@ impl Scene {
             let Some(w) = self.windows.get(&t.window) else {
                 if let Some(z) = self.zombies.iter().find(|z| z.window == t.window) {
                     self.draw.push((z.layer, z.serial, z.window));
+                } else if let Some(p) = self.snapshots.get(t.window) {
+                    self.draw.push((p.layer, p.order, p.window));
                 }
                 continue;
             };
@@ -1238,7 +1254,7 @@ impl Scene {
                     }
                 }
                 None => {
-                    if t.ghost && surfaces.get(w.surface).is_some_and(|s| s.is_mapped()) {
+                    if t.ghost && (surfaces.get(w.surface).is_some_and(|s| s.is_mapped()) || self.snapshots.get(w.id).is_some()) {
                         self.draw.push((w.kind.layer(), w.map_serial, w.id));
                     }
                 }
@@ -1307,6 +1323,7 @@ impl Scene {
         let app_card = app.map(|a| WindowId(a.window));
         let (app_shift, app_dim) = (self.care.app_offset(), self.care.app_dim());
         self.step_transitions(surfaces, now_ns);
+        self.step_snapshots(surfaces, now_ns);
         self.merge_draw_list(surfaces);
         let n = self.draw.len();
         for i in 0..n {
@@ -1332,6 +1349,7 @@ impl Scene {
                         xform: false,
                     });
                 }
+                self.push_snapshot(wid, now_ns);
                 continue;
             };
             let mut dim = 1.0;
@@ -1380,6 +1398,7 @@ impl Scene {
                     self.push_tree(surfaces, s, look);
                 }
             }
+            self.push_snapshot(wid, now_ns);
         }
         self.plan.home_before = self.plan.items.iter().take_while(|i| {
             self.windows.get(&i.window).is_some_and(|w| w.kind == WindowType::Wallpaper)
@@ -1539,6 +1558,7 @@ impl Scene {
         }
         self.plan_masks(&output, now_ns);
         self.plan_backdrop(surfaces);
+        self.damage_snapshots(surfaces, output);
         self.plan.damage = self.plan.damage.intersect(&output);
         &self.plan
     }
