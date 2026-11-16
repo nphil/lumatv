@@ -613,7 +613,7 @@ fn screens() -> Vec<(String, Model)> {
             add("47-leadjoy-error", m);
         }
     }
-    for (section, row) in [("profiles", 3), ("buttons", 8), ("macros", 7), ("sticks", 16), ("curves", 16), ("directions", 6), ("triggers", 11), ("motion", 24), ("gestures", 6), ("rumble", 9)] {
+    for (section, row) in [("profiles", 4), ("buttons", 8), ("macros", 7), ("sticks", 16), ("curves", 6), ("directions", 6), ("triggers", 11), ("motion", 23), ("gestures", 6), ("rumble", 9)] {
         let mut m = base.clone();
         m.prefs.reduce_motion = true;
         m.view.page = Page::Leadjoy;
@@ -628,6 +628,19 @@ fn screens() -> Vec<(String, Model)> {
             activate(&mut m);
             add("47-leadjoy-delete", m);
         }
+    }
+    for (fixture, key) in [("keyboard","key-0"),("mouse","key-2"),("motion-long","trigger-key-47"),("sticks-missing","anti-shake"),("profiles-sub","sub-key-0")] {
+        let mut m = base.clone();
+        m.prefs.reduce_motion = true;
+        m.view.page = Page::Leadjoy;
+        let state = leadjoy_fixture(fixture);
+        let LeadjoyState::Ready(profile) = &state else { unreachable!() };
+        let focus = profile.schema.fields().position(|field| field.key == key).unwrap() + 1;
+        m.step(Input::Leadjoy(Ok(state)));
+        m.view.focus = Focus::Setting(focus);
+        add(&format!("47-leadjoy-{fixture}-dark"),m.clone());
+        m.prefs.light = true;
+        add(&format!("47-leadjoy-{fixture}-light"),m);
     }
     let large = out
         .iter()
@@ -659,6 +672,9 @@ fn screens() -> Vec<(String, Model)> {
                 "45-controller-lab-stream-bottom", "46-gamesir-bottom", "46-gamesir-pending", "46-gamesir-error",
                 "47-leadjoy-ready", "47-leadjoy-light", "47-leadjoy-pending", "47-leadjoy-error", "47-leadjoy-buttons", "47-leadjoy-sticks",
                 "47-leadjoy-rename", "47-leadjoy-macros", "47-leadjoy-motion", "47-leadjoy-delete",
+                "47-leadjoy-keyboard-dark", "47-leadjoy-keyboard-light", "47-leadjoy-mouse-dark", "47-leadjoy-mouse-light",
+                "47-leadjoy-motion-long-dark", "47-leadjoy-motion-long-light", "47-leadjoy-sticks-missing-dark", "47-leadjoy-sticks-missing-light",
+                "47-leadjoy-profiles-sub-dark", "47-leadjoy-profiles-sub-light",
             ]
             .contains(&name.as_str())
         })

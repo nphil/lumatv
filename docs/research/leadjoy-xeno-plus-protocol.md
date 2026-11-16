@@ -76,7 +76,7 @@ For profile domains, read first, modify the relevant complete `d1`, then write t
 | Stick/D-pad options | `{"c":49,"s":{"std":swap,"ljod":left_direction,"rjod":right_direction,"ddl":diagonal_lock}}` | c48; booleans are integer 0/1 |
 | Profile name | `{"c":53,"s":{"b":slot,"n":name}}` | c51; compare `d1.n` or `d2.n`, matching the returned summary version |
 | Active profile | `{"c":52,"s":slot}` | c51 for the selected slot; compare summary `.a == 1` |
-| Sub-config trigger | `{"c":54,"s":{"b":slot,"c":sub,"ko":keep_original,"at":action_type,"kao":key_logic,"k":[keys]}}` | c51; new `d2.cfg` entries identify their sub-config with `c` |
+| Sub-config trigger | `{"c":54,"s":{"b":slot,"c":sub,"ko":keep_original,"at":action_type,"k":[keys]}}` | c51 `d2.cfg`, selected by `c`; do not manufacture `kao` on V54 |
 | Buttons / turbo | `{"c":61,"w":{"b":slot,"c":sub,"d1":[mappings]}}` | c60 with the corresponding key list |
 | Stick | `{"c":71,"w":{"b":slot,"c":sub,"d":side,"d1":settings}}` | c70 with the same selectors |
 | Triggers | `{"c":91,"w":{"b":slot,"c":sub,"d1":settings}}` | c90 |
@@ -121,7 +121,11 @@ Vibration `d1` is also flat: `enl/enr` enable (0/1), `grl/grr` grip `[start,max]
 
 The 21-field `d1` uses `co` (two signed 16-bit center offsets), `ci` (shape: rounded rectangle 0, circle 1), `rjc` (release cut), `mm` (mouse mapping enabled), `mse` (mouse sensitivity), `mo` (mouse operation: Vector 0, Fixed 1), `mx/ry` (X/Y inversion), `asf` (signed anti-shake factor), `ct` (curve format), `cv` (flat alternating x/y curve numbers), `rt` (smooth shape), `rc` (curvature), `cpl/cpu/cpr/cpd` (direction trigger radii), and `tkl/tku/tkr/tkd` (direction actions, each `a/dn/up`).
 
-Normal center UI values −0.1…0.1 convert to raw units by multiplying by 1,000; newer expert controls permit a wider signed range. Anti-shake is −10…10, not a deadzone. Curve and trigger-radius controls are 0–100. Five- and eight-point curves are both supported; preserve the count returned by the device. `ct=1` is the point-defined curve, `ct=0` smooth; `rt` selects Linear/Convex/Concave/SCurve. Inner/outer deadzone and compensation are the x/y values of the first/last curve points, not additional wire fields. Serializer `0x1800e9826`, converter `0x18009b876`; shared `rt` serializer `0x18018933a`.
+Anti-shake is −10…10; release cut `rjc` is boolean and mouse sensitivity `mse` is 0–100. **`ct=1` selects Smooth; `ct=0` selects a point-defined curve.** Native parser `0x18010796c`, reader `0x18009bb61`, writer `0x18009b876` and serializer `0x1800e94b4` agree on these values. `rt` is Linear 0 / Convex 1 / Concave 2 / SCurve 3, independently of point count. Preserve the reported curve count and endpoint records. Inner/outer deadzone and compensation are curve endpoint coordinates, not additional wire fields.
+
+Curve units require exact model and firmware identification. PC stick gate `PS` is `{XenoPlus:46,XenoSe:13}`; motion gate `zS` is `{XenoPlus:46}`. These gates do not include XenoPro. New-format encoding is `round(display * 65535 / 200)`; decoding multiplies by `200 / 65535` and snaps to 0.1. The editor's display range remains 0–100, so display 100 encodes as 32768, not 65535. Older curves use integer display units. Preserve out-of-range raw coordinates during unrelated edits rather than clamping them. Frontend `NS/FS/JS/HS`, characters 89352–91000; generic editor bounds at 840400–842260.
+
+Center offsets have a separate exact `{XenoPlus:46}` gate: signed raw −32767…32767 in expert mode versus raw −100…100 in the older control (display −0.1…0.1, step 0.001). The native recognized-name list includes `Xeno`, `XenoSE`, `XenoPro` and `Xeno_Plus_COMP`, but does not establish a unique c17 `Xeno` → Plus mapping. Without that identity bridge, center and curve editing must remain unavailable; other edits must preserve raw `co` and `cv`.
 
 The V54 firmware additionally shows different spellings for some stick fields: `mom` versus PC `mo`, and `xr/yr` versus PC `mx/ry`. A configuration page must select the spelling present in the fresh device result, preserve all other fields, and verify the result; inserting a missing PC-era key is not proof the newer firmware used it.
 
@@ -152,7 +156,9 @@ The normal controller button-like motion page forces Single behavior. The contro
 
 Controller modes are XInput 0, Switch 1, PS4 2, PS5 3, mobile-touch 4 (parser `0x180102a2b`). Stick output directions are **default 0, four-way 1, eight-way 2**, not rotations (`0x18009f066`). The diagonal-lock and stick/D-pad-swap fields remain booleans.
 
-The old c51 `d1` summary contains `{a,n,k1,k2}`. The newer `d2` contains `{a,n,cfg}`; each PC sub-config summary has `c,ko,at,kao,k`. The V54 master emits only `c,ko,at,k` in each four-key map (`0x1e402be`). Consequently, key-logic changes cannot be positively verified through that V54 getter. Do not report them as read-back confirmed merely because c54 acknowledged them. Other sub-config fields can be compared against c51. The PC writes `kao` explicitly; preserve this firmware capability distinction.
+The old c51 `d1` summary contains `{a,n,k1,k2}`. The newer `d2` contains `{a,n,cfg}`. `ko` is keep-original 0/1; `at` is Responsive 0 / Toggle 1 (`0x180102c20`). The V54 master emits only `c,ko,at,k` per sub-config (`0x1e402be`), ignores c54 `kao`, and the PC gates And/Or at `{XenoPlus:999}`. An acknowledged `kao` change is therefore not supported or verified. Comparable edits require a complete fresh matching entry, preserve unknown fields, and cannot add unreported fields other than the outer profile selector `b`.
+
+V54 c54 accepts at most 32 `k` entries and stores physical IDs 1–32 as a bitmask (`0x1e40796`–`0x1e4080c`); zero padding, duplicates and input order disappear. The PC's two-key selection limit is not the wire capacity. Compare sub-config keys as a set, not an array; other protocol arrays retain their order-sensitive meaning. The getter's physical-key order is not numerical order.
 
 Macro summary c170 returns an array of `{n:name,k:[key1,key2],s:step_count}`. Read c171 with top-level `n`; its result includes `n,s,t,d` and may include `k`. A classic macro write is:
 
@@ -186,6 +192,25 @@ The DLL's complete recovered command table (`0x1800bd5a2`) also includes the fol
 No entries were recovered for 223 or the 122–129 gaps; a switch-table hole is not an undocumented valid command. Commands 210–212 are firmware-only observations, not exposed application settings.
 
 Save/reload/reset and calibration require operation-specific confirmation, not a fabricated expected setting. After save, re-read the edited domains; that checks their current values, **not survival of a power cycle**. After reload/reset, refresh each displayed domain and keep the operation status distinct from value comparison. After calibration, observe c41 completion/status and re-read stick/trigger settings; the physical centering/gyro result still requires a real-pad check.
+
+### Motion accessory settings
+
+c220 reports four `{mkn,c:[R,G,B],s}` entries; statuses are Disconnected 0, Pairing 1, Reconnecting 2, Connected 3. Missing entries are not evidence of disconnection. V54 c221 returns eleven fields per entry: `mkn,cs,pu,wm,cv,se,hvr,rt,rc,ec,el`. Preserve all eleven and unknown additions; the PC DLL's four-field reconstruction is lossy. Evidence: master `0x1e2f192`, `0x1e457a8`; native formatter `0x18009d725`.
+
+Wear position `pu` is Custom 0, Forehead 1, Top 2, Knee 3, FootBack 4. Axis thresholds and directional actions use the motion wire enums above, not the frontend's different ordinals. Knee and FootBack expose only PitchUp/YawLeft/YawRight; Knee allows Single only, FootBack permits Continuous only for Pitch. Custom/Top/Forehead allow all axes and Continuous. Forehead reverses the displayed yaw direction. Changing position must not silently discard hidden mappings or rewrite unknown action values. Sources: DLL `0x18011d363`, `0x180008acd`, `0x1800947b6`; frontend `Ty/Py/Yr` around characters 94900–97500.
+
+c224 is `{"c":224,"s":{"mkn":index,"a":action}}`, where Disconnect/Cancel is 0 and Pair/Re-pair is 1. Its ACK is not pairing completion; c220 supplies actual status. c221 uses `g` and c222 uses `w`, as existing profile queries/setters do (envelopes `0x1800d9eb5` / `0x1800dc2dc`); only c224 uses `s`.
+
+### Android feature coverage
+
+Android `libapp.so` SHA-256 `c2de0e9cbf926fefe88ce640fa329d9b591cb6302f671873224cf12b01759887` contains application-specific pages for FPS editing/repositories, advanced macro building blocks, calibration, profile import/copy, motion accessories, and camera/manual stick-curve sampling with history. These are real Android UI coverage gaps, not merely generic PC SDK commands.
+
+Recovered Android gates distinguish page presence from model support. `isSupportFPSRepository` (`0x7b09d0`) requires `isLab && bladePlus`; `_JoystickConfigState.initState` (`0x89946c`) independently applies that same gate to the SubFpsPage route (`0x8d3a20`). This route is not enabled for `xenoPlus`. `isLab` comes from `SettingState.field_3b` (JSON writer `0x73077c`). Retained method dumps: `$CODY_SCRATCH/leadjoy-android-gates/`, particularly `fps-eligibility/asm`, `fps-flag-source/asm` and `joystick-route-callers/asm`.
+
+Exact Xeno Plus firmware gates for decimal stick curves, stick curvature and stick-to-mouse support remain separate from the generic c17 `Xeno` identity, which does not resolve the exact product. Advanced-macro and stick-curve-assistance applicability remain unresolved. Android-page presence, model support, wire semantics and hardware acceptance are separate claims; full Android-app parity is not established.
+
+The Android phone-touch mapper is a different feature: its Java `MacroStep` uses seven values `[type,startX,startY,endX,endY,duration,interval]`. It must not be passed to the controller's five-value macro format. Controller OTA/first-aid pages also exist, but firmware writing remains outside ordinary configuration and requires a separate recovery and risk plan.
+
 
 ## Rust API and integration boundary
 

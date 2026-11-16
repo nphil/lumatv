@@ -77,10 +77,13 @@ pub struct LeadjoyView {
     pub action: u8,
     #[serde(default)]
     pub step: u16,
+    #[serde(default = "first_leadjoy_page")]
+    pub page: u16,
 }
 impl Default for LeadjoyView {
-    fn default() -> Self { Self { section: "general".into(), profile: 1, sub: 0, side: 0, button: 1, action: 0, step: 1 } }
+    fn default() -> Self { Self { section: "general".into(), profile: 1, sub: 0, side: 0, button: 1, action: 0, step: 1, page: 1 } }
 }
+fn first_leadjoy_page() -> u16 { 1 }
 #[derive(Clone, Debug, Default)]
 pub struct Leadjoy { pub state: LeadjoyState, pub view: LeadjoyView, pub pending: bool, pub error: Option<String> }
 pub enum ControllerRequest {
@@ -105,11 +108,11 @@ impl ControllerClient {
                 let (method, mut body) = change.map_or(("GET", Value::Null), |change| ("POST", json!({"setting":change.setting, "value":change.value})));
                 let path = if let Some(view) = &view {
                     if method == "POST" { body["view"] = json!(view); }
-                    if method == "GET" { format!("/v1/gaming/leadjoy?section={}&profile={}&sub={}&side={}&button={}&action={}&step={}", view.section, view.profile, view.sub, view.side, view.button, view.action, view.step) }
+                    if method == "GET" { format!("/v1/gaming/leadjoy?section={}&profile={}&sub={}&side={}&button={}&action={}&step={}&page={}", view.section, view.profile, view.sub, view.side, view.button, view.action, view.step, view.page) }
                     else { "/v1/gaming/leadjoy".into() }
                 } else { "/v1/gaming/gamesir".into() };
                 let result = http_timeout(address, method, &path, &body, Duration::from_secs(30));
-                let reply = if view.is_some() { ControllerReply::Leadjoy(controller_reply(result)) } else { ControllerReply::GameSir(controller_reply(result)) };
+                let reply = if view.is_some() { ControllerReply::Leadjoy(leadjoy_reply(result)) } else { ControllerReply::GameSir(controller_reply(result)) };
                 if report.send(reply).is_err() { break; }
             }
         })?;
@@ -127,6 +130,19 @@ fn controller_reply<T: serde::de::DeserializeOwned>(result: io::Result<Value>) -
         Err(error) => return Err(format!("Controller settings are unavailable: {error}")),
     };
     serde_json::from_value(value).map_err(|error| format!("The controller helper sent an unreadable reply: {error}"))
+}
+fn leadjoy_reply(result: io::Result<Value>) -> Result<LeadjoyState, String> {
+    let state = controller_reply(result)?;
+    if let LeadjoyState::Ready(profile) = &state {
+        profile.schema.validate().map_err(|error| format!("The controller helper sent invalid settings: {error}"))?;
+        for (key, value) in &profile.values {
+            profile.schema.check(key, value).map_err(|_| format!("The controller helper sent an invalid value for {key}"))?;
+        }
+        if profile.schema.fields().any(|field| field.kind.default().is_some() && !profile.values.contains_key(&field.key)) {
+            return Err("The controller helper omitted a settings value".into());
+        }
+    }
+    Ok(state)
 }
 
 /// One worker owns helper I/O. A single queued wake always reads the newest desired setting.
@@ -305,12 +321,26 @@ pub(crate) fn gamesir_fixture() -> GameSirState {
 #[cfg(test)]
 pub(crate) fn leadjoy_fixture(section: &str) -> LeadjoyState {
     let all: Value = serde_json::from_str(include_str!("leadjoy-fixtures.json")).unwrap();
-    serde_json::from_value(all[section].clone()).unwrap()
+    leadjoy_reply(Ok(all[section].clone())).unwrap()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_leadjoy_fixture_fits_and_validates_as_a_real_reply() {
+        let all: Value = serde_json::from_str(include_str!("leadjoy-fixtures.json")).unwrap();
+        for (name, value) in all.as_object().unwrap() {
+            assert!(serde_json::to_vec(value).unwrap().len() < 64 * 1024 - 512, "{name}");
+            assert!(matches!(leadjoy_reply(Ok(value.clone())), Ok(LeadjoyState::Ready(_))), "{name}");
+        }
+        let mut bad = all["keyboard"].clone();
+        let options = bad["schema"]["sections"][0]["fields"].as_array_mut().unwrap().iter_mut()
+            .find(|field| field["key"] == "key-0").unwrap()["options"].as_array_mut().unwrap();
+        options.push(json!({"id":"999","label":"Extra"}));
+        assert!(leadjoy_reply(Ok(bad)).is_err(), "more than 32 choices must be rejected");
+    }
 
     #[test]
     fn acquire_renew_release_and_failed_renew_are_best_effort() {

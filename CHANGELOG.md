@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+LumaGame's Leadjoy settings add keyboard and mouse action mappings, reported stick options, paged motion trigger keys and Sub1/Sub2 activation. Unknown fields are retained; model-dependent curve points and centre offsets stay read-only until the exact model is identifiable. Real-controller behaviour remains untested.
+
 Picture-only Starfish and ES streams no longer query an audio buffer they did not load.
 
 LumaGame marks a disconnected engine's targets offline while keeping its library and remembered choices, until the engine reports fresh target status.

@@ -232,6 +232,14 @@
                   "label": "Gamepad"
                 },
                 {
+                  "id": "3",
+                  "label": "Keyboard"
+                },
+                {
+                  "id": "4",
+                  "label": "Mouse"
+                },
+                {
                   "id": "1",
                   "label": "Macro"
                 }
@@ -803,6 +811,7 @@
     "view": {
       "action": 0,
       "button": 1,
+      "page": 1,
       "profile": 1,
       "section": "buttons",
       "side": 0,
@@ -918,130 +927,40 @@
               "type": "choice"
             },
             {
-              "default": "1",
+              "help": "Point editing is unavailable until the exact model and firmware scale are identified. Reported points are preserved.",
               "key": "curve-format",
-              "label": "Curve format",
+              "label": "Stick curve points",
+              "type": "note"
+            },
+            {
+              "default": "0",
+              "key": "response",
+              "label": "Smooth response",
               "options": [
                 {
                   "id": "0",
-                  "label": "Smooth"
+                  "label": "Linear"
                 },
                 {
                   "id": "1",
-                  "label": "Point-defined"
+                  "label": "Convex"
+                },
+                {
+                  "id": "2",
+                  "label": "Concave"
+                },
+                {
+                  "id": "3",
+                  "label": "S-curve"
                 }
               ],
               "type": "choice"
             },
             {
-              "default": 50,
+              "help": "Curvature is unavailable for a linear or unreported response.",
               "key": "curvature",
-              "label": "Smooth curvature",
-              "max": 100,
-              "min": 0,
-              "step": 1,
-              "type": "number",
-              "unit": "%"
-            },
-            {
-              "default": 0,
-              "key": "curve-0",
-              "label": "Point 1 · Input",
-              "max": 100,
-              "min": 0,
-              "step": 1,
-              "type": "number",
-              "unit": "%"
-            },
-            {
-              "default": 0,
-              "key": "curve-1",
-              "label": "Point 1 · Output",
-              "max": 100,
-              "min": 0,
-              "step": 1,
-              "type": "number",
-              "unit": "%"
-            },
-            {
-              "default": 25,
-              "key": "curve-2",
-              "label": "Point 2 · Input",
-              "max": 100,
-              "min": 0,
-              "step": 1,
-              "type": "number",
-              "unit": "%"
-            },
-            {
-              "default": 25,
-              "key": "curve-3",
-              "label": "Point 2 · Output",
-              "max": 100,
-              "min": 0,
-              "step": 1,
-              "type": "number",
-              "unit": "%"
-            },
-            {
-              "default": 50,
-              "key": "curve-4",
-              "label": "Point 3 · Input",
-              "max": 100,
-              "min": 0,
-              "step": 1,
-              "type": "number",
-              "unit": "%"
-            },
-            {
-              "default": 50,
-              "key": "curve-5",
-              "label": "Point 3 · Output",
-              "max": 100,
-              "min": 0,
-              "step": 1,
-              "type": "number",
-              "unit": "%"
-            },
-            {
-              "default": 75,
-              "key": "curve-6",
-              "label": "Point 4 · Input",
-              "max": 100,
-              "min": 0,
-              "step": 1,
-              "type": "number",
-              "unit": "%"
-            },
-            {
-              "default": 75,
-              "key": "curve-7",
-              "label": "Point 4 · Output",
-              "max": 100,
-              "min": 0,
-              "step": 1,
-              "type": "number",
-              "unit": "%"
-            },
-            {
-              "default": 100,
-              "key": "curve-8",
-              "label": "Point 5 · Input",
-              "max": 100,
-              "min": 0,
-              "step": 1,
-              "type": "number",
-              "unit": "%"
-            },
-            {
-              "default": 100,
-              "key": "curve-9",
-              "label": "Point 5 · Output",
-              "max": 100,
-              "min": 0,
-              "step": 1,
-              "type": "number",
-              "unit": "%"
+              "label": "Curvature",
+              "type": "note"
             }
           ],
           "title": "Controller"
@@ -1050,18 +969,7 @@
     },
     "state": "ready",
     "values": {
-      "curvature": 50,
-      "curve-0": 0,
-      "curve-1": 0,
-      "curve-2": 25,
-      "curve-3": 25,
-      "curve-4": 50,
-      "curve-5": 50,
-      "curve-6": 75,
-      "curve-7": 75,
-      "curve-8": 100,
-      "curve-9": 100,
-      "curve-format": "1",
+      "response": "0",
       "view-profile": "1",
       "view-section": "curves",
       "view-side": "0",
@@ -1071,6 +979,7 @@
     "view": {
       "action": 0,
       "button": 1,
+      "page": 1,
       "profile": 1,
       "section": "curves",
       "side": 0,
@@ -1253,6 +1162,14 @@
                 {
                   "id": "2",
                   "label": "Gamepad"
+                },
+                {
+                  "id": "3",
+                  "label": "Keyboard"
+                },
+                {
+                  "id": "4",
+                  "label": "Mouse"
                 },
                 {
                   "id": "1",
@@ -1827,6 +1744,7 @@
     "view": {
       "action": 0,
       "button": 1,
+      "page": 1,
       "profile": 1,
       "section": "directions",
       "side": 0,
@@ -2068,6 +1986,12 @@
                 }
               ],
               "type": "choice"
+            },
+            {
+              "help": "Read only; connection type is reported separately from controller mode.",
+              "key": "connection-type",
+              "label": "Connection type · USB wired",
+              "type": "note"
             }
           ],
           "title": "Controller"
@@ -2094,6 +2018,7 @@
     "view": {
       "action": 0,
       "button": 1,
+      "page": 1,
       "profile": 1,
       "section": "general",
       "side": 0,
@@ -2244,6 +2169,14 @@
                 {
                   "id": "2",
                   "label": "Gamepad"
+                },
+                {
+                  "id": "3",
+                  "label": "Keyboard"
+                },
+                {
+                  "id": "4",
+                  "label": "Mouse"
                 },
                 {
                   "id": "1",
@@ -2816,8 +2749,877 @@
     "view": {
       "action": 0,
       "button": 1,
+      "page": 1,
       "profile": 1,
       "section": "gestures",
+      "side": 0,
+      "step": 1,
+      "sub": 0
+    }
+  },
+  "keyboard": {
+    "device": "Xeno",
+    "firmware": "V54",
+    "schema": {
+      "sections": [
+        {
+          "fields": [
+            {
+              "default": "buttons",
+              "key": "view-section",
+              "label": "Settings",
+              "options": [
+                {
+                  "id": "general",
+                  "label": "General and logo"
+                },
+                {
+                  "id": "profiles",
+                  "label": "Profiles"
+                },
+                {
+                  "id": "buttons",
+                  "label": "Buttons and turbo"
+                },
+                {
+                  "id": "macros",
+                  "label": "Macros"
+                },
+                {
+                  "id": "sticks",
+                  "label": "Sticks"
+                },
+                {
+                  "id": "curves",
+                  "label": "Stick curves"
+                },
+                {
+                  "id": "directions",
+                  "label": "Stick direction bindings"
+                },
+                {
+                  "id": "triggers",
+                  "label": "Triggers"
+                },
+                {
+                  "id": "motion",
+                  "label": "Motion"
+                },
+                {
+                  "id": "gestures",
+                  "label": "Motion gestures"
+                },
+                {
+                  "id": "rumble",
+                  "label": "Rumble"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "view-profile",
+              "label": "Profile",
+              "options": [
+                {
+                  "id": "1",
+                  "label": "Profile 1"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "view-sub",
+              "label": "Configuration",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Main"
+                },
+                {
+                  "id": "1",
+                  "label": "Sub 1"
+                },
+                {
+                  "id": "2",
+                  "label": "Sub 2"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "view-action",
+              "label": "Action to edit",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Press"
+                },
+                {
+                  "id": "1",
+                  "label": "Release"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "view-button",
+              "label": "Button",
+              "options": [
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "action-type",
+              "label": "Button action",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Press"
+                },
+                {
+                  "id": "1",
+                  "label": "Press and release"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "3",
+              "key": "target",
+              "label": "Mapping target",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Original input"
+                },
+                {
+                  "id": "2",
+                  "label": "Gamepad"
+                },
+                {
+                  "id": "3",
+                  "label": "Keyboard"
+                },
+                {
+                  "id": "4",
+                  "label": "Mouse"
+                },
+                {
+                  "id": "1",
+                  "label": "Macro"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "key-0",
+              "label": "Mapped key 1",
+              "options": [
+                {
+                  "id": "59",
+                  "label": "F2"
+                },
+                {
+                  "id": "60",
+                  "label": "F3"
+                },
+                {
+                  "id": "61",
+                  "label": "F4"
+                },
+                {
+                  "id": "62",
+                  "label": "F5"
+                },
+                {
+                  "id": "63",
+                  "label": "F6"
+                },
+                {
+                  "id": "64",
+                  "label": "F7"
+                },
+                {
+                  "id": "65",
+                  "label": "F8"
+                },
+                {
+                  "id": "66",
+                  "label": "F9"
+                },
+                {
+                  "id": "67",
+                  "label": "F10"
+                },
+                {
+                  "id": "68",
+                  "label": "F11"
+                },
+                {
+                  "id": "69",
+                  "label": "F12"
+                },
+                {
+                  "id": "77",
+                  "label": "End"
+                },
+                {
+                  "id": "224",
+                  "label": "Ctrl"
+                },
+                {
+                  "id": "225",
+                  "label": "Shift"
+                },
+                {
+                  "id": "226",
+                  "label": "Alt"
+                },
+                {
+                  "id": "227",
+                  "label": "Win"
+                },
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "53",
+                  "label": "~"
+                },
+                {
+                  "id": "30",
+                  "label": "1"
+                },
+                {
+                  "id": "31",
+                  "label": "2"
+                },
+                {
+                  "id": "32",
+                  "label": "3"
+                },
+                {
+                  "id": "33",
+                  "label": "4"
+                },
+                {
+                  "id": "34",
+                  "label": "5"
+                },
+                {
+                  "id": "35",
+                  "label": "6"
+                },
+                {
+                  "id": "36",
+                  "label": "7"
+                },
+                {
+                  "id": "37",
+                  "label": "8"
+                },
+                {
+                  "id": "38",
+                  "label": "9"
+                },
+                {
+                  "id": "39",
+                  "label": "0"
+                },
+                {
+                  "id": "4",
+                  "label": "A"
+                },
+                {
+                  "id": "5",
+                  "label": "B"
+                },
+                {
+                  "id": "6",
+                  "label": "C"
+                },
+                {
+                  "id": "7",
+                  "label": "D"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "227",
+              "key": "key-1",
+              "label": "Mapped key 2",
+              "options": [
+                {
+                  "id": "58",
+                  "label": "F1"
+                },
+                {
+                  "id": "59",
+                  "label": "F2"
+                },
+                {
+                  "id": "60",
+                  "label": "F3"
+                },
+                {
+                  "id": "61",
+                  "label": "F4"
+                },
+                {
+                  "id": "62",
+                  "label": "F5"
+                },
+                {
+                  "id": "63",
+                  "label": "F6"
+                },
+                {
+                  "id": "64",
+                  "label": "F7"
+                },
+                {
+                  "id": "65",
+                  "label": "F8"
+                },
+                {
+                  "id": "66",
+                  "label": "F9"
+                },
+                {
+                  "id": "67",
+                  "label": "F10"
+                },
+                {
+                  "id": "68",
+                  "label": "F11"
+                },
+                {
+                  "id": "69",
+                  "label": "F12"
+                },
+                {
+                  "id": "77",
+                  "label": "End"
+                },
+                {
+                  "id": "224",
+                  "label": "Ctrl"
+                },
+                {
+                  "id": "225",
+                  "label": "Shift"
+                },
+                {
+                  "id": "226",
+                  "label": "Alt"
+                },
+                {
+                  "id": "227",
+                  "label": "Win"
+                },
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "53",
+                  "label": "~"
+                },
+                {
+                  "id": "30",
+                  "label": "1"
+                },
+                {
+                  "id": "31",
+                  "label": "2"
+                },
+                {
+                  "id": "32",
+                  "label": "3"
+                },
+                {
+                  "id": "33",
+                  "label": "4"
+                },
+                {
+                  "id": "34",
+                  "label": "5"
+                },
+                {
+                  "id": "35",
+                  "label": "6"
+                },
+                {
+                  "id": "36",
+                  "label": "7"
+                },
+                {
+                  "id": "37",
+                  "label": "8"
+                },
+                {
+                  "id": "38",
+                  "label": "9"
+                },
+                {
+                  "id": "39",
+                  "label": "0"
+                },
+                {
+                  "id": "4",
+                  "label": "A"
+                },
+                {
+                  "id": "5",
+                  "label": "B"
+                },
+                {
+                  "id": "6",
+                  "label": "C"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "4",
+              "key": "key-2",
+              "label": "Mapped key 3",
+              "options": [
+                {
+                  "id": "224",
+                  "label": "Ctrl"
+                },
+                {
+                  "id": "225",
+                  "label": "Shift"
+                },
+                {
+                  "id": "226",
+                  "label": "Alt"
+                },
+                {
+                  "id": "227",
+                  "label": "Win"
+                },
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "53",
+                  "label": "~"
+                },
+                {
+                  "id": "30",
+                  "label": "1"
+                },
+                {
+                  "id": "31",
+                  "label": "2"
+                },
+                {
+                  "id": "32",
+                  "label": "3"
+                },
+                {
+                  "id": "33",
+                  "label": "4"
+                },
+                {
+                  "id": "34",
+                  "label": "5"
+                },
+                {
+                  "id": "35",
+                  "label": "6"
+                },
+                {
+                  "id": "36",
+                  "label": "7"
+                },
+                {
+                  "id": "37",
+                  "label": "8"
+                },
+                {
+                  "id": "38",
+                  "label": "9"
+                },
+                {
+                  "id": "39",
+                  "label": "0"
+                },
+                {
+                  "id": "4",
+                  "label": "A"
+                },
+                {
+                  "id": "5",
+                  "label": "B"
+                },
+                {
+                  "id": "6",
+                  "label": "C"
+                },
+                {
+                  "id": "7",
+                  "label": "D"
+                },
+                {
+                  "id": "8",
+                  "label": "E"
+                },
+                {
+                  "id": "9",
+                  "label": "F"
+                },
+                {
+                  "id": "10",
+                  "label": "G"
+                },
+                {
+                  "id": "11",
+                  "label": "H"
+                },
+                {
+                  "id": "12",
+                  "label": "I"
+                },
+                {
+                  "id": "13",
+                  "label": "J"
+                },
+                {
+                  "id": "14",
+                  "label": "K"
+                },
+                {
+                  "id": "15",
+                  "label": "L"
+                },
+                {
+                  "id": "16",
+                  "label": "M"
+                },
+                {
+                  "id": "17",
+                  "label": "N"
+                },
+                {
+                  "id": "18",
+                  "label": "O"
+                },
+                {
+                  "id": "19",
+                  "label": "P"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "key-3",
+              "label": "Mapped key 4",
+              "options": [
+                {
+                  "id": "59",
+                  "label": "F2"
+                },
+                {
+                  "id": "60",
+                  "label": "F3"
+                },
+                {
+                  "id": "61",
+                  "label": "F4"
+                },
+                {
+                  "id": "62",
+                  "label": "F5"
+                },
+                {
+                  "id": "63",
+                  "label": "F6"
+                },
+                {
+                  "id": "64",
+                  "label": "F7"
+                },
+                {
+                  "id": "65",
+                  "label": "F8"
+                },
+                {
+                  "id": "66",
+                  "label": "F9"
+                },
+                {
+                  "id": "67",
+                  "label": "F10"
+                },
+                {
+                  "id": "68",
+                  "label": "F11"
+                },
+                {
+                  "id": "69",
+                  "label": "F12"
+                },
+                {
+                  "id": "77",
+                  "label": "End"
+                },
+                {
+                  "id": "224",
+                  "label": "Ctrl"
+                },
+                {
+                  "id": "225",
+                  "label": "Shift"
+                },
+                {
+                  "id": "226",
+                  "label": "Alt"
+                },
+                {
+                  "id": "227",
+                  "label": "Win"
+                },
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "53",
+                  "label": "~"
+                },
+                {
+                  "id": "30",
+                  "label": "1"
+                },
+                {
+                  "id": "31",
+                  "label": "2"
+                },
+                {
+                  "id": "32",
+                  "label": "3"
+                },
+                {
+                  "id": "33",
+                  "label": "4"
+                },
+                {
+                  "id": "34",
+                  "label": "5"
+                },
+                {
+                  "id": "35",
+                  "label": "6"
+                },
+                {
+                  "id": "36",
+                  "label": "7"
+                },
+                {
+                  "id": "37",
+                  "label": "8"
+                },
+                {
+                  "id": "38",
+                  "label": "9"
+                },
+                {
+                  "id": "39",
+                  "label": "0"
+                },
+                {
+                  "id": "4",
+                  "label": "A"
+                },
+                {
+                  "id": "5",
+                  "label": "B"
+                },
+                {
+                  "id": "6",
+                  "label": "C"
+                },
+                {
+                  "id": "7",
+                  "label": "D"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "turbo",
+              "label": "Repeat mode",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Normal"
+                },
+                {
+                  "id": "2",
+                  "label": "Turbo"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "10",
+              "key": "turbo-rate",
+              "label": "Turbo rate",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Off"
+                },
+                {
+                  "id": "5",
+                  "label": "5 / second"
+                },
+                {
+                  "id": "10",
+                  "label": "10 / second"
+                },
+                {
+                  "id": "20",
+                  "label": "20 / second"
+                },
+                {
+                  "id": "30",
+                  "label": "30 / second"
+                }
+              ],
+              "type": "choice"
+            }
+          ],
+          "title": "Controller"
+        }
+      ]
+    },
+    "state": "ready",
+    "values": {
+      "action-type": "1",
+      "key-0": "0",
+      "key-1": "227",
+      "key-2": "4",
+      "key-3": "0",
+      "target": "3",
+      "turbo": "0",
+      "turbo-rate": "10",
+      "view-action": "0",
+      "view-button": "1",
+      "view-profile": "1",
+      "view-section": "buttons",
+      "view-sub": "0"
+    },
+    "verified": false,
+    "view": {
+      "action": 0,
+      "button": 1,
+      "page": 1,
+      "profile": 1,
+      "section": "buttons",
       "side": 0,
       "step": 1,
       "sub": 0
@@ -3121,6 +3923,7 @@
     "view": {
       "action": 0,
       "button": 1,
+      "page": 1,
       "profile": 1,
       "section": "macros",
       "side": 0,
@@ -3541,22 +4344,6 @@
             },
             {
               "default": "0",
-              "key": "trigger-logic",
-              "label": "Trigger keys needed",
-              "options": [
-                {
-                  "id": "0",
-                  "label": "Both"
-                },
-                {
-                  "id": "1",
-                  "label": "Either"
-                }
-              ],
-              "type": "choice"
-            },
-            {
-              "default": "0",
               "key": "mouse-stick",
               "label": "Mouse-linked stick",
               "options": [
@@ -3600,14 +4387,10 @@
               "type": "choice"
             },
             {
-              "default": 50,
+              "help": "Curvature is unavailable for a linear or unreported response.",
               "key": "curvature",
               "label": "Curvature",
-              "max": 100,
-              "min": 0,
-              "step": 1,
-              "type": "number",
-              "unit": "%"
+              "type": "note"
             },
             {
               "default": 60,
@@ -3741,7 +4524,6 @@
       "angle-0": 20,
       "angle-1": 25,
       "angle-2": 30,
-      "curvature": 50,
       "horizontal-axis": "0",
       "motion": "3",
       "mouse-stick": "0",
@@ -3754,7 +4536,6 @@
       "sensor": "1",
       "trigger-key-0": "9",
       "trigger-key-1": "10",
-      "trigger-logic": "0",
       "view-profile": "1",
       "view-section": "motion",
       "view-sub": "0"
@@ -3763,8 +4544,3842 @@
     "view": {
       "action": 0,
       "button": 1,
+      "page": 1,
       "profile": 1,
       "section": "motion",
+      "side": 0,
+      "step": 1,
+      "sub": 0
+    }
+  },
+  "motion-long": {
+    "device": "Xeno",
+    "firmware": "V54",
+    "schema": {
+      "sections": [
+        {
+          "fields": [
+            {
+              "default": "motion",
+              "key": "view-section",
+              "label": "Settings",
+              "options": [
+                {
+                  "id": "general",
+                  "label": "General and logo"
+                },
+                {
+                  "id": "profiles",
+                  "label": "Profiles"
+                },
+                {
+                  "id": "buttons",
+                  "label": "Buttons and turbo"
+                },
+                {
+                  "id": "macros",
+                  "label": "Macros"
+                },
+                {
+                  "id": "sticks",
+                  "label": "Sticks"
+                },
+                {
+                  "id": "curves",
+                  "label": "Stick curves"
+                },
+                {
+                  "id": "directions",
+                  "label": "Stick direction bindings"
+                },
+                {
+                  "id": "triggers",
+                  "label": "Triggers"
+                },
+                {
+                  "id": "motion",
+                  "label": "Motion"
+                },
+                {
+                  "id": "gestures",
+                  "label": "Motion gestures"
+                },
+                {
+                  "id": "rumble",
+                  "label": "Rumble"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "view-profile",
+              "label": "Profile",
+              "options": [
+                {
+                  "id": "1",
+                  "label": "Profile 1"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "view-sub",
+              "label": "Configuration",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Main"
+                },
+                {
+                  "id": "1",
+                  "label": "Sub 1"
+                },
+                {
+                  "id": "2",
+                  "label": "Sub 2"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": 2,
+              "key": "view-page",
+              "label": "Trigger-key page",
+              "max": 3,
+              "min": 1,
+              "step": 1,
+              "type": "number"
+            },
+            {
+              "default": "3",
+              "key": "motion",
+              "label": "Motion control",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Off"
+                },
+                {
+                  "id": "1",
+                  "label": "Left stick"
+                },
+                {
+                  "id": "2",
+                  "label": "Right stick"
+                },
+                {
+                  "id": "3",
+                  "label": "Buttons"
+                },
+                {
+                  "id": "4",
+                  "label": "Mouse"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "sensor",
+              "label": "Sensor",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Accelerometer"
+                },
+                {
+                  "id": "1",
+                  "label": "Gyroscope"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "2",
+              "key": "activation",
+              "label": "Activation",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Off"
+                },
+                {
+                  "id": "1",
+                  "label": "Toggle with the trigger keys"
+                },
+                {
+                  "id": "2",
+                  "label": "While the trigger keys are held"
+                },
+                {
+                  "id": "3",
+                  "label": "Always on"
+                },
+                {
+                  "id": "4",
+                  "label": "Always on, paused while held"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-24",
+              "label": "Trigger key 25",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-25",
+              "label": "Trigger key 26",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-26",
+              "label": "Trigger key 27",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-27",
+              "label": "Trigger key 28",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-28",
+              "label": "Trigger key 29",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-29",
+              "label": "Trigger key 30",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-30",
+              "label": "Trigger key 31",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-31",
+              "label": "Trigger key 32",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-32",
+              "label": "Trigger key 33",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-33",
+              "label": "Trigger key 34",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-34",
+              "label": "Trigger key 35",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-35",
+              "label": "Trigger key 36",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-36",
+              "label": "Trigger key 37",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-37",
+              "label": "Trigger key 38",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-38",
+              "label": "Trigger key 39",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-39",
+              "label": "Trigger key 40",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-40",
+              "label": "Trigger key 41",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-41",
+              "label": "Trigger key 42",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-42",
+              "label": "Trigger key 43",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-43",
+              "label": "Trigger key 44",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-44",
+              "label": "Trigger key 45",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-45",
+              "label": "Trigger key 46",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-46",
+              "label": "Trigger key 47",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "trigger-key-47",
+              "label": "Trigger key 48",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "13",
+                  "label": "Home"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "21",
+                  "label": "Menu"
+                },
+                {
+                  "id": "22",
+                  "label": "Mode"
+                },
+                {
+                  "id": "23",
+                  "label": "FN"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "32",
+                  "label": "Power"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "mouse-stick",
+              "label": "Mouse-linked stick",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Off"
+                },
+                {
+                  "id": "1",
+                  "label": "Left stick"
+                },
+                {
+                  "id": "2",
+                  "label": "Right stick"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "response",
+              "label": "Response curve",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Linear"
+                },
+                {
+                  "id": "1",
+                  "label": "Convex"
+                },
+                {
+                  "id": "2",
+                  "label": "Concave"
+                },
+                {
+                  "id": "3",
+                  "label": "S-curve"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "help": "Curvature is unavailable for a linear or unreported response.",
+              "key": "curvature",
+              "label": "Curvature",
+              "type": "note"
+            },
+            {
+              "default": 60,
+              "key": "sensitivity",
+              "label": "Sensitivity",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
+            },
+            {
+              "default": 50,
+              "key": "ratio",
+              "label": "Horizontal to vertical ratio",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
+            },
+            {
+              "default": "0",
+              "key": "horizontal-axis",
+              "label": "Horizontal axis",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Yaw"
+                },
+                {
+                  "id": "1",
+                  "label": "Roll"
+                },
+                {
+                  "id": "2",
+                  "label": "Yaw and roll"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": false,
+              "key": "reverse-swing",
+              "label": "Reverse horizontal swing",
+              "type": "toggle"
+            },
+            {
+              "default": true,
+              "key": "reverse-roll",
+              "label": "Reverse horizontal roll",
+              "type": "toggle"
+            },
+            {
+              "default": false,
+              "key": "reverse-vertical",
+              "label": "Reverse vertical",
+              "type": "toggle"
+            },
+            {
+              "default": 30,
+              "key": "acceleration-0",
+              "label": "Gesture threshold · Yaw acceleration",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
+            },
+            {
+              "default": 20,
+              "key": "angle-0",
+              "label": "Gesture threshold · Yaw angle",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
+            },
+            {
+              "default": 35,
+              "key": "acceleration-1",
+              "label": "Gesture threshold · Roll acceleration",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
+            },
+            {
+              "default": 25,
+              "key": "angle-1",
+              "label": "Gesture threshold · Roll angle",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
+            },
+            {
+              "default": 40,
+              "key": "acceleration-2",
+              "label": "Gesture threshold · Pitch acceleration",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
+            },
+            {
+              "default": 30,
+              "key": "angle-2",
+              "label": "Gesture threshold · Pitch angle",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
+            }
+          ],
+          "title": "Controller"
+        }
+      ]
+    },
+    "state": "ready",
+    "values": {
+      "acceleration-0": 30,
+      "acceleration-1": 35,
+      "acceleration-2": 40,
+      "activation": "2",
+      "angle-0": 20,
+      "angle-1": 25,
+      "angle-2": 30,
+      "horizontal-axis": "0",
+      "motion": "3",
+      "mouse-stick": "0",
+      "ratio": 50,
+      "response": "0",
+      "reverse-roll": true,
+      "reverse-swing": false,
+      "reverse-vertical": false,
+      "sensitivity": 60,
+      "sensor": "1",
+      "trigger-key-24": "1",
+      "trigger-key-25": "1",
+      "trigger-key-26": "1",
+      "trigger-key-27": "1",
+      "trigger-key-28": "1",
+      "trigger-key-29": "1",
+      "trigger-key-30": "1",
+      "trigger-key-31": "1",
+      "trigger-key-32": "1",
+      "trigger-key-33": "1",
+      "trigger-key-34": "1",
+      "trigger-key-35": "1",
+      "trigger-key-36": "1",
+      "trigger-key-37": "1",
+      "trigger-key-38": "1",
+      "trigger-key-39": "1",
+      "trigger-key-40": "1",
+      "trigger-key-41": "1",
+      "trigger-key-42": "1",
+      "trigger-key-43": "1",
+      "trigger-key-44": "1",
+      "trigger-key-45": "1",
+      "trigger-key-46": "1",
+      "trigger-key-47": "1",
+      "view-page": 2,
+      "view-profile": "1",
+      "view-section": "motion",
+      "view-sub": "0"
+    },
+    "verified": false,
+    "view": {
+      "action": 0,
+      "button": 1,
+      "page": 2,
+      "profile": 1,
+      "section": "motion",
+      "side": 0,
+      "step": 1,
+      "sub": 0
+    }
+  },
+  "mouse": {
+    "device": "Xeno",
+    "firmware": "V54",
+    "schema": {
+      "sections": [
+        {
+          "fields": [
+            {
+              "default": "buttons",
+              "key": "view-section",
+              "label": "Settings",
+              "options": [
+                {
+                  "id": "general",
+                  "label": "General and logo"
+                },
+                {
+                  "id": "profiles",
+                  "label": "Profiles"
+                },
+                {
+                  "id": "buttons",
+                  "label": "Buttons and turbo"
+                },
+                {
+                  "id": "macros",
+                  "label": "Macros"
+                },
+                {
+                  "id": "sticks",
+                  "label": "Sticks"
+                },
+                {
+                  "id": "curves",
+                  "label": "Stick curves"
+                },
+                {
+                  "id": "directions",
+                  "label": "Stick direction bindings"
+                },
+                {
+                  "id": "triggers",
+                  "label": "Triggers"
+                },
+                {
+                  "id": "motion",
+                  "label": "Motion"
+                },
+                {
+                  "id": "gestures",
+                  "label": "Motion gestures"
+                },
+                {
+                  "id": "rumble",
+                  "label": "Rumble"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "view-profile",
+              "label": "Profile",
+              "options": [
+                {
+                  "id": "1",
+                  "label": "Profile 1"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "view-sub",
+              "label": "Configuration",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Main"
+                },
+                {
+                  "id": "1",
+                  "label": "Sub 1"
+                },
+                {
+                  "id": "2",
+                  "label": "Sub 2"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "view-action",
+              "label": "Action to edit",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Press"
+                },
+                {
+                  "id": "1",
+                  "label": "Release"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "view-button",
+              "label": "Button",
+              "options": [
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "action-type",
+              "label": "Button action",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Press"
+                },
+                {
+                  "id": "1",
+                  "label": "Press and release"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "4",
+              "key": "target",
+              "label": "Mapping target",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Original input"
+                },
+                {
+                  "id": "2",
+                  "label": "Gamepad"
+                },
+                {
+                  "id": "3",
+                  "label": "Keyboard"
+                },
+                {
+                  "id": "4",
+                  "label": "Mouse"
+                },
+                {
+                  "id": "1",
+                  "label": "Macro"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "key-0",
+              "label": "Mapped mouse button 1",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "Left button"
+                },
+                {
+                  "id": "2",
+                  "label": "Right button"
+                },
+                {
+                  "id": "3",
+                  "label": "Middle button"
+                },
+                {
+                  "id": "4",
+                  "label": "Side button 1"
+                },
+                {
+                  "id": "5",
+                  "label": "Side button 2"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "2",
+              "key": "key-1",
+              "label": "Mapped mouse button 2",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "Left button"
+                },
+                {
+                  "id": "2",
+                  "label": "Right button"
+                },
+                {
+                  "id": "3",
+                  "label": "Middle button"
+                },
+                {
+                  "id": "4",
+                  "label": "Side button 1"
+                },
+                {
+                  "id": "5",
+                  "label": "Side button 2"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "5",
+              "key": "key-2",
+              "label": "Mapped mouse button 3",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "Left button"
+                },
+                {
+                  "id": "2",
+                  "label": "Right button"
+                },
+                {
+                  "id": "3",
+                  "label": "Middle button"
+                },
+                {
+                  "id": "4",
+                  "label": "Side button 1"
+                },
+                {
+                  "id": "5",
+                  "label": "Side button 2"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "key-3",
+              "label": "Mapped mouse button 4",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "Left button"
+                },
+                {
+                  "id": "2",
+                  "label": "Right button"
+                },
+                {
+                  "id": "3",
+                  "label": "Middle button"
+                },
+                {
+                  "id": "4",
+                  "label": "Side button 1"
+                },
+                {
+                  "id": "5",
+                  "label": "Side button 2"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "turbo",
+              "label": "Repeat mode",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Normal"
+                },
+                {
+                  "id": "2",
+                  "label": "Turbo"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "10",
+              "key": "turbo-rate",
+              "label": "Turbo rate",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Off"
+                },
+                {
+                  "id": "5",
+                  "label": "5 / second"
+                },
+                {
+                  "id": "10",
+                  "label": "10 / second"
+                },
+                {
+                  "id": "20",
+                  "label": "20 / second"
+                },
+                {
+                  "id": "30",
+                  "label": "30 / second"
+                }
+              ],
+              "type": "choice"
+            }
+          ],
+          "title": "Controller"
+        }
+      ]
+    },
+    "state": "ready",
+    "values": {
+      "action-type": "1",
+      "key-0": "1",
+      "key-1": "2",
+      "key-2": "5",
+      "key-3": "0",
+      "target": "4",
+      "turbo": "0",
+      "turbo-rate": "10",
+      "view-action": "0",
+      "view-button": "1",
+      "view-profile": "1",
+      "view-section": "buttons",
+      "view-sub": "0"
+    },
+    "verified": false,
+    "view": {
+      "action": 0,
+      "button": 1,
+      "page": 1,
+      "profile": 1,
+      "section": "buttons",
       "side": 0,
       "step": 1,
       "sub": 0
@@ -3842,6 +8457,26 @@
               "type": "choice"
             },
             {
+              "default": "0",
+              "key": "view-sub",
+              "label": "Configuration",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Main"
+                },
+                {
+                  "id": "1",
+                  "label": "Sub 1"
+                },
+                {
+                  "id": "2",
+                  "label": "Sub 2"
+                }
+              ],
+              "type": "choice"
+            },
+            {
               "key": "profile-name",
               "label": "Profile name",
               "max_chars": 128,
@@ -3862,17 +8497,376 @@
     "values": {
       "profile-name": "Default",
       "view-profile": "1",
-      "view-section": "profiles"
+      "view-section": "profiles",
+      "view-sub": "0"
     },
     "verified": false,
     "view": {
       "action": 0,
       "button": 1,
+      "page": 1,
       "profile": 1,
       "section": "profiles",
       "side": 0,
       "step": 1,
       "sub": 0
+    }
+  },
+  "profiles-sub": {
+    "device": "Xeno",
+    "firmware": "V54",
+    "schema": {
+      "sections": [
+        {
+          "fields": [
+            {
+              "default": "profiles",
+              "key": "view-section",
+              "label": "Settings",
+              "options": [
+                {
+                  "id": "general",
+                  "label": "General and logo"
+                },
+                {
+                  "id": "profiles",
+                  "label": "Profiles"
+                },
+                {
+                  "id": "buttons",
+                  "label": "Buttons and turbo"
+                },
+                {
+                  "id": "macros",
+                  "label": "Macros"
+                },
+                {
+                  "id": "sticks",
+                  "label": "Sticks"
+                },
+                {
+                  "id": "curves",
+                  "label": "Stick curves"
+                },
+                {
+                  "id": "directions",
+                  "label": "Stick direction bindings"
+                },
+                {
+                  "id": "triggers",
+                  "label": "Triggers"
+                },
+                {
+                  "id": "motion",
+                  "label": "Motion"
+                },
+                {
+                  "id": "gestures",
+                  "label": "Motion gestures"
+                },
+                {
+                  "id": "rumble",
+                  "label": "Rumble"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "view-profile",
+              "label": "Profile",
+              "options": [
+                {
+                  "id": "1",
+                  "label": "Profile 1"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "view-sub",
+              "label": "Configuration",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Main"
+                },
+                {
+                  "id": "1",
+                  "label": "Sub 1"
+                },
+                {
+                  "id": "2",
+                  "label": "Sub 2"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "key": "profile-name",
+              "label": "Profile name",
+              "max_chars": 128,
+              "type": "text"
+            },
+            {
+              "help": "Make this the controller's active profile.",
+              "key": "profile-activate",
+              "label": "Activate profile",
+              "type": "action"
+            },
+            {
+              "default": true,
+              "key": "sub-keep",
+              "label": "Keep original input",
+              "type": "toggle"
+            },
+            {
+              "default": "0",
+              "key": "sub-activation",
+              "label": "Activate configuration",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Hold"
+                },
+                {
+                  "id": "1",
+                  "label": "Toggle"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "24",
+              "key": "sub-key-0",
+              "label": "Activation button 1",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "24",
+                  "label": "R5 / M1"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "sub-key-1",
+              "label": "Activation button 2",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "None"
+                },
+                {
+                  "id": "1",
+                  "label": "A"
+                },
+                {
+                  "id": "2",
+                  "label": "B"
+                },
+                {
+                  "id": "3",
+                  "label": "C"
+                },
+                {
+                  "id": "4",
+                  "label": "X"
+                },
+                {
+                  "id": "5",
+                  "label": "Y"
+                },
+                {
+                  "id": "6",
+                  "label": "Z"
+                },
+                {
+                  "id": "7",
+                  "label": "LB"
+                },
+                {
+                  "id": "8",
+                  "label": "RB"
+                },
+                {
+                  "id": "9",
+                  "label": "LT"
+                },
+                {
+                  "id": "10",
+                  "label": "RT"
+                },
+                {
+                  "id": "11",
+                  "label": "Select"
+                },
+                {
+                  "id": "12",
+                  "label": "Start"
+                },
+                {
+                  "id": "14",
+                  "label": "Left stick click"
+                },
+                {
+                  "id": "15",
+                  "label": "Right stick click"
+                },
+                {
+                  "id": "16",
+                  "label": "Capture"
+                },
+                {
+                  "id": "17",
+                  "label": "D-pad up"
+                },
+                {
+                  "id": "18",
+                  "label": "D-pad down"
+                },
+                {
+                  "id": "19",
+                  "label": "D-pad left"
+                },
+                {
+                  "id": "20",
+                  "label": "D-pad right"
+                },
+                {
+                  "id": "25",
+                  "label": "L5 / M2"
+                },
+                {
+                  "id": "26",
+                  "label": "R4 / M3"
+                },
+                {
+                  "id": "27",
+                  "label": "L4 / M4"
+                }
+              ],
+              "type": "choice"
+            }
+          ],
+          "title": "Controller"
+        }
+      ]
+    },
+    "state": "ready",
+    "values": {
+      "profile-name": "Default",
+      "sub-activation": "0",
+      "sub-keep": true,
+      "sub-key-0": "24",
+      "sub-key-1": "0",
+      "view-profile": "1",
+      "view-section": "profiles",
+      "view-sub": "1"
+    },
+    "verified": false,
+    "view": {
+      "action": 0,
+      "button": 1,
+      "page": 1,
+      "profile": 1,
+      "section": "profiles",
+      "side": 0,
+      "step": 1,
+      "sub": 1
     }
   },
   "rumble": {
@@ -4039,6 +9033,7 @@
     "view": {
       "action": 0,
       "button": 1,
+      "page": 1,
       "profile": 1,
       "section": "rumble",
       "side": 0,
@@ -4154,22 +9149,16 @@
               "type": "choice"
             },
             {
-              "default": 0,
+              "help": "The centre scale depends on the exact model and firmware; the reported value is preserved.",
               "key": "centre-x",
-              "label": "Centre X · thousandths",
-              "max": 100,
-              "min": -100,
-              "step": 1,
-              "type": "number"
+              "label": "Centre X",
+              "type": "note"
             },
             {
-              "default": 0,
+              "help": "The centre scale depends on the exact model and firmware; the reported value is preserved.",
               "key": "centre-y",
-              "label": "Centre Y · thousandths",
-              "max": 100,
-              "min": -100,
-              "step": 1,
-              "type": "number"
+              "label": "Centre Y",
+              "type": "note"
             },
             {
               "default": "1",
@@ -4220,6 +9209,22 @@
               "key": "invert-y",
               "label": "Invert Y",
               "type": "toggle"
+            },
+            {
+              "help": "Not reported or unsupported by this controller.",
+              "key": "release-cut",
+              "label": "Release cut",
+              "type": "note"
+            },
+            {
+              "default": 50,
+              "key": "mouse-sensitivity",
+              "label": "Mouse sensitivity",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
             },
             {
               "default": 0,
@@ -4278,8 +9283,6 @@
     "state": "ready",
     "values": {
       "anti-shake": 0,
-      "centre-x": 0,
-      "centre-y": 0,
       "cpd": 50,
       "cpl": 50,
       "cpr": 50,
@@ -4288,6 +9291,7 @@
       "invert-y": false,
       "mouse": false,
       "mouse-mode": "0",
+      "mouse-sensitivity": 50,
       "shape": "1",
       "view-profile": "1",
       "view-section": "sticks",
@@ -4298,6 +9302,259 @@
     "view": {
       "action": 0,
       "button": 1,
+      "page": 1,
+      "profile": 1,
+      "section": "sticks",
+      "side": 0,
+      "step": 1,
+      "sub": 0
+    }
+  },
+  "sticks-missing": {
+    "device": "Xeno",
+    "firmware": "V54",
+    "schema": {
+      "sections": [
+        {
+          "fields": [
+            {
+              "default": "sticks",
+              "key": "view-section",
+              "label": "Settings",
+              "options": [
+                {
+                  "id": "general",
+                  "label": "General and logo"
+                },
+                {
+                  "id": "profiles",
+                  "label": "Profiles"
+                },
+                {
+                  "id": "buttons",
+                  "label": "Buttons and turbo"
+                },
+                {
+                  "id": "macros",
+                  "label": "Macros"
+                },
+                {
+                  "id": "sticks",
+                  "label": "Sticks"
+                },
+                {
+                  "id": "curves",
+                  "label": "Stick curves"
+                },
+                {
+                  "id": "directions",
+                  "label": "Stick direction bindings"
+                },
+                {
+                  "id": "triggers",
+                  "label": "Triggers"
+                },
+                {
+                  "id": "motion",
+                  "label": "Motion"
+                },
+                {
+                  "id": "gestures",
+                  "label": "Motion gestures"
+                },
+                {
+                  "id": "rumble",
+                  "label": "Rumble"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "1",
+              "key": "view-profile",
+              "label": "Profile",
+              "options": [
+                {
+                  "id": "1",
+                  "label": "Profile 1"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "view-sub",
+              "label": "Configuration",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Main"
+                },
+                {
+                  "id": "1",
+                  "label": "Sub 1"
+                },
+                {
+                  "id": "2",
+                  "label": "Sub 2"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": "0",
+              "key": "view-side",
+              "label": "Stick",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Left"
+                },
+                {
+                  "id": "1",
+                  "label": "Right"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "help": "The centre scale depends on the exact model and firmware; the reported value is preserved.",
+              "key": "centre-x",
+              "label": "Centre X",
+              "type": "note"
+            },
+            {
+              "help": "The centre scale depends on the exact model and firmware; the reported value is preserved.",
+              "key": "centre-y",
+              "label": "Centre Y",
+              "type": "note"
+            },
+            {
+              "default": "1",
+              "key": "shape",
+              "label": "Stick shape",
+              "options": [
+                {
+                  "id": "0",
+                  "label": "Rounded rectangle"
+                },
+                {
+                  "id": "1",
+                  "label": "Circle"
+                }
+              ],
+              "type": "choice"
+            },
+            {
+              "default": false,
+              "key": "mouse",
+              "label": "Mouse mapping",
+              "type": "toggle"
+            },
+            {
+              "help": "Not reported, or both field spellings were reported; the original values are preserved.",
+              "key": "mouse-mode",
+              "label": "Mouse operation",
+              "type": "note"
+            },
+            {
+              "help": "Not reported, or both field spellings were reported; the original values are preserved.",
+              "key": "invert-x",
+              "label": "Invert X",
+              "type": "note"
+            },
+            {
+              "default": false,
+              "key": "invert-y",
+              "label": "Invert Y",
+              "type": "toggle"
+            },
+            {
+              "help": "Not reported or unsupported by this controller.",
+              "key": "release-cut",
+              "label": "Release cut",
+              "type": "note"
+            },
+            {
+              "help": "Not reported or unsupported by this controller.",
+              "key": "mouse-sensitivity",
+              "label": "Mouse sensitivity",
+              "type": "note"
+            },
+            {
+              "default": 0,
+              "key": "anti-shake",
+              "label": "Anti-shake",
+              "max": 10,
+              "min": -10,
+              "step": 1,
+              "type": "number"
+            },
+            {
+              "default": 50,
+              "key": "cpl",
+              "label": "Left binding radius",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
+            },
+            {
+              "default": 50,
+              "key": "cpu",
+              "label": "Up binding radius",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
+            },
+            {
+              "default": 50,
+              "key": "cpr",
+              "label": "Right binding radius",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
+            },
+            {
+              "default": 50,
+              "key": "cpd",
+              "label": "Down binding radius",
+              "max": 100,
+              "min": 0,
+              "step": 1,
+              "type": "number",
+              "unit": "%"
+            }
+          ],
+          "title": "Controller"
+        }
+      ]
+    },
+    "state": "ready",
+    "values": {
+      "anti-shake": 0,
+      "cpd": 50,
+      "cpl": 50,
+      "cpr": 50,
+      "cpu": 50,
+      "invert-y": false,
+      "mouse": false,
+      "shape": "1",
+      "view-profile": "1",
+      "view-section": "sticks",
+      "view-side": "0",
+      "view-sub": "0"
+    },
+    "verified": false,
+    "view": {
+      "action": 0,
+      "button": 1,
+      "page": 1,
       "profile": 1,
       "section": "sticks",
       "side": 0,
@@ -4519,6 +9776,7 @@
     "view": {
       "action": 0,
       "button": 1,
+      "page": 1,
       "profile": 1,
       "section": "triggers",
       "side": 0,

@@ -179,19 +179,22 @@ impl Change {
         })
     }
 
-    /// `settings` is the complete c54 `s` object; the device summary supplies the other sub-config.
-    /// Only fields the c51 summary reports are compared: V54 omits `kao`, so a key-logic change is
-    /// written and acknowledged there but cannot be read back.
+    /// `settings` contains the complete matching c51 d2 entry plus its `b` profile selector.
+    /// All reported fields must be retained; new fields and changes to `kao` cannot be verified.
     pub fn sub_config(settings: Value, summary: &Value) -> Result<Self> {
         let slot =
             settings.get("b").and_then(Value::as_u64).and_then(|v| u8::try_from(v).ok()).ok_or(Error::Invalid("sub-config requires its profile slot"))?;
         summary_version(slot, summary)?;
         let sub =
             settings.get("c").and_then(Value::as_u64).filter(|v| (1..=2).contains(v)).ok_or(Error::Invalid("only Sub1 and Sub2 have activation triggers"))?;
-        if ["ko", "at", "kao"].iter().any(|k| settings.get(k).and_then(Value::as_u64).is_none_or(|v| v > 255))
-            || !settings.get("k").is_some_and(Value::is_array)
-        {
-            return Err(Error::Invalid("complete sub-config activation fields required"));
+        let valid_activation = |value: &Value| {
+            ["ko", "at"].iter().all(|key| value.get(key).and_then(Value::as_u64).is_some_and(|v| v <= 1))
+                && value.get("k").and_then(Value::as_array).is_some_and(|keys| {
+                    keys.len() <= 32 && keys.iter().all(|key| key.as_u64().is_some_and(|id| id <= 32))
+                })
+        };
+        if !valid_activation(&settings) {
+            return Err(Error::Invalid("sub-config requires ko/at 0 or 1 and up to 32 key IDs in 0..=32"));
         }
         let mut cfg = summary
             .get("d2")
@@ -200,11 +203,20 @@ impl Change {
             .ok_or(Error::Invalid("legacy summary cannot verify sub-config activation fields"))?
             .clone();
         let entry = cfg.iter_mut().find(|v| v.get("c").and_then(Value::as_u64) == Some(sub)).ok_or(Error::Invalid("sub-config absent from device summary"))?;
-        let target = entry.as_object_mut().ok_or(Error::Invalid("sub-config summary must be an object"))?;
-        if ["ko", "at", "k"].iter().any(|key| !target.contains_key(*key)) {
-            return Err(Error::Invalid("summary does not report the sub-config activation fields"));
+        if !valid_activation(entry) {
+            return Err(Error::Invalid("summary does not report valid sub-config activation fields"));
         }
-        for (key, value) in settings.as_object().ok_or(Error::Invalid("sub-config must be an object"))? {
+        let target = entry.as_object_mut().ok_or(Error::Invalid("sub-config summary must be an object"))?;
+        if settings.get("kao").is_some_and(|value| target.get("kao") != Some(value)) {
+            return Err(Error::Invalid("sub-config key logic changes cannot be verified"));
+        }
+        let fields = settings.as_object().ok_or(Error::Invalid("sub-config must be an object"))?;
+        if target.keys().any(|key| !fields.contains_key(key))
+            || fields.keys().any(|key| key != "b" && !target.contains_key(key))
+        {
+            return Err(Error::Invalid("sub-config must retain all reported fields and add no unreported fields"));
+        }
+        for (key, value) in fields {
             if let Some(reported) = target.get_mut(key) {
                 *reported = value.clone();
             }
@@ -330,20 +342,105 @@ mod tests {
     }
 
     #[test]
-    fn sub_config_reads_back_only_the_fields_the_summary_reports() {
-        let settings = json!({"b":1,"c":1,"ko":1,"at":2,"kao":1,"k":[24,25]});
-        let v54 = json!({"b":1,"d2":{"a":1,"n":"P1","cfg":[{"c":1,"ko":0,"at":0,"k":[24]},{"c":2,"ko":0,"at":0,"k":[]}]}});
-        let change = Change::sub_config(settings.clone(), &v54).unwrap();
-        assert_eq!(wire(&change.write), json!({"c":54,"s":settings}));
-        assert_eq!(wire(&change.read), json!({"c":51,"b":1}));
-        assert_eq!(change.expected, json!({"b":1,"d2":{"cfg":[{"c":1,"ko":1,"at":2,"k":[24,25]},{"c":2,"ko":0,"at":0,"k":[]}]}}));
-        let mut reports_logic = v54.clone();
-        reports_logic["d2"]["cfg"][0]["kao"] = json!(0);
-        assert_eq!(Change::sub_config(settings.clone(), &reports_logic).unwrap().expected["d2"]["cfg"][0]["kao"], 1);
-        let mut main = settings.clone();
-        main["c"] = json!(0);
-        assert!(Change::sub_config(main, &v54).is_err());
-        assert!(Change::sub_config(settings, &json!({"b":1,"d1":{"a":1,"n":"P1","k1":[],"k2":[]}})).is_err());
+    fn sub_config_preserves_fields_and_requires_a_matching_fresh_summary() {
+        let settings = json!({"b":1,"c":1,"ko":1,"at":1,"k":[24,25],"extra":"changed","untouched":71});
+        let summary = json!({"b":1,"d2":{"cfg":[
+            {"c":1,"ko":0,"at":0,"k":[24],"extra":"old","untouched":71},
+            {"c":2,"ko":0,"at":0,"k":[],"other":99}
+        ]}});
+        let change = Change::sub_config(settings.clone(), &summary).unwrap();
+        assert_eq!(change.write.value()["s"], settings);
+        assert!(change.write.value()["s"].get("kao").is_none());
+        assert_eq!(change.write.value()["s"]["untouched"], 71);
+        assert_eq!(change.expected, json!({"b":1,"d2":{"cfg":[
+            {"c":1,"ko":1,"at":1,"k":[24,25],"extra":"changed","untouched":71},
+            {"c":2,"ko":0,"at":0,"k":[],"other":99}
+        ]}}));
+
+        for (key, value) in [
+            ("ko", json!(2)), ("ko", json!(true)), ("at", json!(2)), ("at", json!(-1)),
+            ("k", json!([24, "25"])), ("k", json!([-1])), ("k", json!([33])),
+            ("c", json!(0)), ("c", json!(3)), ("b", json!(2))
+        ] {
+            let mut invalid = settings.clone();
+            invalid[key] = value;
+            assert!(Change::sub_config(invalid, &summary).is_err(), "{key}");
+        }
+        let mut no_selector = settings.clone();
+        no_selector.as_object_mut().unwrap().remove("c");
+        assert!(Change::sub_config(no_selector, &summary).is_err());
+        let mut no_slot = settings.clone();
+        no_slot.as_object_mut().unwrap().remove("b");
+        assert!(Change::sub_config(no_slot, &summary).is_err());
+        let mut no_activation = settings.clone();
+        no_activation.as_object_mut().unwrap().remove("ko");
+        assert!(Change::sub_config(no_activation, &summary).is_err());
+        let mut too_many_keys = settings.clone();
+        too_many_keys["k"] = json!(vec![1; 33]);
+        assert!(Change::sub_config(too_many_keys, &summary).is_err());
+        let mut missing_entry = summary.clone();
+        missing_entry["d2"]["cfg"].as_array_mut().unwrap().remove(0);
+        assert!(Change::sub_config(settings.clone(), &missing_entry).is_err());
+        let mut missing_field = summary.clone();
+        missing_field["d2"]["cfg"][0].as_object_mut().unwrap().remove("k");
+        assert!(Change::sub_config(settings.clone(), &missing_field).is_err());
+        assert!(Change::sub_config(settings.clone(), &json!({"b":1,"d1":{}})).is_err());
+        let mut omitted = settings.clone();
+        omitted.as_object_mut().unwrap().remove("untouched");
+        assert!(Change::sub_config(omitted, &summary).is_err());
+        let mut unreported_only = summary["d2"]["cfg"][0].clone();
+        unreported_only["b"] = json!(1);
+        unreported_only["write_only"] = json!(42);
+        assert!(Change::sub_config(unreported_only, &summary).is_err());
+
+        let mut unreported = settings.clone();
+        unreported["kao"] = json!(1);
+        assert!(Change::sub_config(unreported.clone(), &summary).is_err());
+        let logic_only = json!({"b":1,"c":1,"ko":0,"at":0,"k":[24],"extra":"old","untouched":71,"kao":1});
+        assert!(Change::sub_config(logic_only, &summary).is_err());
+        let mut reported = summary.clone();
+        reported["d2"]["cfg"][0]["kao"] = json!(0);
+        assert!(Change::sub_config(unreported, &reported).is_err());
+        let mut unchanged = settings;
+        unchanged["kao"] = json!(0);
+        let change = Change::sub_config(unchanged, &reported).unwrap();
+        assert_eq!(change.expected["d2"]["cfg"][0]["kao"], 0);
+    }
+
+    #[test]
+    fn sub_config_apply_compares_fresh_readback() {
+        use crate::{Controller, RunMode, Transport, frame::{Report, REPORT_LEN}};
+        use std::{collections::VecDeque, io, time::Duration};
+
+        struct Replies(VecDeque<Report>);
+        impl Transport for Replies {
+            fn send(&mut self, _: &Report, _: Duration) -> io::Result<()> { Ok(()) }
+            fn recv(&mut self, report: &mut Report, _: Duration) -> io::Result<Option<usize>> {
+                Ok(self.0.pop_front().map(|reply| { *report = reply; REPORT_LEN }))
+            }
+        }
+        let summary = json!({"b":1,"d2":{"cfg":[{"c":1,"ko":0,"at":0,"k":[1],"extra":0},{"c":2,"ko":0,"at":0,"k":[]}]}});
+        let change = Change::sub_config(json!({"b":1,"c":1,"ko":1,"at":1,"k":[2,3],"extra":1}), &summary).unwrap();
+        for key in ["ko", "at", "k", "additional_key", "extra", "other_sub", "reordered", "success"] {
+            let mut readback = change.expected.clone();
+            match key {
+                "ko" | "at" | "extra" => readback["d2"]["cfg"][0][key] = json!(0),
+                "k" => readback["d2"]["cfg"][0]["k"] = json!([2]),
+                "additional_key" => readback["d2"]["cfg"][0]["k"] = json!([2,3,4]),
+                "reordered" => readback["d2"]["cfg"][0]["k"] = json!([0,3,2,0]),
+                "other_sub" => readback["d2"]["cfg"][1]["at"] = json!(1),
+                _ => {}
+            }
+            let mut replies = VecDeque::new();
+            replies.extend(crate::encode(&json!({"c":54,"e":0,"r":null})).unwrap());
+            replies.extend(crate::encode(&json!({"c":51,"e":0,"r":readback})).unwrap());
+            let result = Controller::new(Replies(replies), Duration::from_secs(1)).apply(&change, RunMode::Apply);
+            if key == "success" || key == "reordered" {
+                assert!(result.unwrap().read_back.is_some());
+            } else {
+                assert!(matches!(result, Err(Error::ReadBack)), "{key}");
+            }
+        }
     }
 
     #[test]

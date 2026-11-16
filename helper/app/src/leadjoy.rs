@@ -21,13 +21,14 @@ static CONFIG: Mutex<()> = Mutex::new(());
 enum Section { #[default] General, Profiles, Buttons, Macros, Sticks, Curves, Directions, Triggers, Motion, Gestures, Rumble }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct View { section: Section, profile: u8, sub: u8, side: u8, button: u8, action: u8, #[serde(default)] step: u16 }
+struct View { section: Section, profile: u8, sub: u8, side: u8, button: u8, action: u8, #[serde(default)] step: u16, #[serde(default = "first_page")] page: u16 }
+fn first_page() -> u16 { 1 }
 impl Default for View {
-    fn default() -> Self { Self { section: Section::General, profile: 1, sub: 0, side: 0, button: 1, action: 0, step: 1 } }
+    fn default() -> Self { Self { section: Section::General, profile: 1, sub: 0, side: 0, button: 1, action: 0, step: 1, page: 1 } }
 }
 impl View {
     fn validate(&self) -> Result<(), &'static str> {
-        if !(1..=4).contains(&self.profile) || self.sub > 2 || self.side > 1 || self.action > 1 { return Err("invalid profile, configuration, side or action"); }
+        if !(1..=4).contains(&self.profile) || self.sub > 2 || self.side > 1 || self.action > 1 || self.page == 0 { return Err("invalid profile, configuration, side, action or page"); }
         if self.section == Section::Buttons && !settings::BUTTONS.iter().any(|(id,_)| *id == i64::from(self.button)) { return Err("this button is not remappable"); }
         if self.section == Section::Directions && !(1..=4).contains(&self.button) { return Err("invalid stick direction"); }
         if self.section == Section::Gestures && !(1..=6).contains(&self.button) { return Err("invalid motion gesture"); }
@@ -39,7 +40,7 @@ impl View {
         for (key, text) in &request.query {
             if key == "section" { value[key] = json!(text); }
             else if matches!(key.as_str(), "profile" | "sub" | "side" | "button" | "action") { value[key] = json!(text.parse::<u8>().map_err(|_| "invalid controller selector")?); }
-            else if key == "step" { value[key] = json!(text.parse::<u16>().map_err(|_| "invalid controller selector")?); }
+            else if matches!(key.as_str(), "step" | "page") { value[key] = json!(text.parse::<u16>().map_err(|_| "invalid controller selector")?); }
             else { return Err("unknown controller selector"); }
         }
         let view: Self = serde_json::from_value(value).map_err(|_| "unknown controller section")?;
@@ -162,8 +163,8 @@ fn profile<T: Transport>(controller: &mut Controller<T>, selected: &View, settin
                 _ if i > 0 => error_response(502, "rewrite_failed", "The controller removed the macro to rewrite it but did not confirm the new version. Refresh before editing."),
                 leadjoy_config::Error::ReadBack => error_response(409, "readback_mismatch", "The controller did not keep the change. Refresh before changing another setting."),
                 // A mode switch re-enumerates the controller, which can drop the read-back.
-                leadjoy_config::Error::Unverified(_) if key == "mode" => error_response(502, "unverified", "The controller switched modes and reconnected. Refresh to confirm the new mode."),
-                leadjoy_config::Error::Unverified(_) => error_response(502, "unverified", "The controller took the change but did not answer the check. Refresh to see what it kept."),
+                leadjoy_config::Error::Unverified(_) if key == "mode" => error_response(502, "unverified", "The controller did not answer after the mode request. Refresh to confirm its mode."),
+                leadjoy_config::Error::Unverified(_) => error_response(502, "unverified", "The controller did not answer the check. Refresh to see what it kept."),
                 other => failed(other),
             })?.read_back;
         }
@@ -178,8 +179,8 @@ fn profile<T: Transport>(controller: &mut Controller<T>, selected: &View, settin
             "step-insert" => view.step = view.step.saturating_add(1),
             _ => {}
         }
-        // Macro edits move the selectors, and a new target or playback mode brings other fields, so those are read again.
-        if view.section == Section::Macros || matches!(key.as_str(), "target" | "macro-playback") { settings = settings::Settings::read(controller, &mut view)?; }
+        // A changed target or key set can change which fields exist.
+        if view.section == Section::Macros || key.starts_with("sub-key-") || matches!(key.as_str(), "target" | "macro-playback" | "response") { settings = settings::Settings::read(controller, &mut view)?; }
         else { settings.groups[index].value = read_back.ok_or_else(|| failed("controller write has no read-back"))?.result; }
     }
     let (schema, values) = settings.display(&view, count)?;
@@ -191,16 +192,16 @@ mod tests {
     use super::*;
     use leadjoy_config::frame::Decoder;
     use std::collections::{BTreeMap, VecDeque};
-    struct Fake { decoder: Decoder, replies: VecDeque<Report>, values: BTreeMap<u8,Value>, macros: Vec<Value>, product: &'static str, stuck: bool, wrong_side: bool, reconnect: bool, gone: bool, writes: usize }
+    struct Fake { decoder: Decoder, replies: VecDeque<Report>, values: BTreeMap<u8,Value>, macros: Vec<Value>, product: &'static str, stuck: bool, wrong_side: bool, reconnect: bool, gone: bool, writes: usize, last_sub: Option<Value> }
     impl Fake {
         fn new() -> Self {
             let action = json!({"t":0,"v":[0,0,0,0],"n":"","r":0,"sp":10,"mr":0,"ms":0,"ri":0});
             let binding = json!({"a":1,"dn":action,"up":action});
             let gesture = |e: u8| json!({"e":e,"dn":action,"up":action});
-            Self { decoder: Decoder::default(), replies: VecDeque::new(), product:"Xeno", stuck:false, wrong_side:false, reconnect:false, gone:false, writes:0,
+            Self { decoder: Decoder::default(), replies: VecDeque::new(), product:"Xeno", stuck:false, wrong_side:false, reconnect:false, gone:false, writes:0, last_sub:None,
                 values: BTreeMap::from([
                     (30,json!(0)),(42,json!({"m":0,"l":1})),(44,json!(500)),(46,json!(0)),(48,json!({"std":0,"ljod":1,"rjod":2,"ddl":0})),(50,json!(1)),
-                    (51,json!({"b":1,"d2":{"a":0,"n":"Default","cfg":[{"c":0,"ko":1,"at":2,"k":[24]}]}})),
+                    (51,json!({"b":1,"d2":{"a":0,"n":"Default","cfg":[{"c":2,"ko":0,"at":1,"k":[25,26],"future":"sub2"},{"c":0,"ko":1,"at":0,"k":[24]},{"c":1,"ko":1,"at":0,"k":[24],"future":"sub1"}]}})),
                     (60,json!({"b":1,"c":0,"d1":[{"k":1,"a":1,"dn":action,"up":{"t":1,"v":[3,0,0,0],"n":"Retained macro","r":1,"sp":5,"mr":4,"ms":17,"ri":300}}]})),
                     (70,json!({"b":1,"c":0,"d":0,"d1":{"co":[0,0],"ci":1,"rjc":19,"mm":0,"mse":50,"mo":0,"mx":0,"ry":0,"asf":0,"ct":1,"cv":[0,0,25,25,50,50,75,75,100,100],"rt":0,"rc":50,"cpl":50,"cpu":50,"cpr":50,"cpd":50,"tkl":binding,"tku":binding,"tkr":binding,"tkd":binding,"future":[7,9]}})),
                     (90,json!({"b":1,"c":0,"d1":{"mol":0,"dzl":[0,100],"vtl":50,"mor":2,"dzr":[5,95],"vtr":40}})),
@@ -226,11 +227,22 @@ mod tests {
                 let mut error = 0;
                 let result = if let Some((read,arg)) = write {
                     self.writes += 1; if !self.stuck { self.values.insert(read,query[arg].clone()); } None
-                } else if matches!(command,43|52|53|172|173) {
+                } else if matches!(command,43|52|53|54|172|173) {
                     self.writes += 1;
+                    if command == 54 { self.last_sub = Some(query["s"].clone()); }
                     if !self.stuck {
                         match command {
                             43 => { self.values.get_mut(&42).unwrap()["m"] = query["s"]["m"].clone(); self.gone = self.reconnect; }
+                            54 => {
+                                let entries = self.values.get_mut(&51).unwrap()["d2"]["cfg"].as_array_mut().unwrap();
+                                if let Some(entry) = entries.iter_mut().find(|entry| entry["c"] == query["s"]["c"]) {
+                                    for key in ["ko","at"] { if let Some(value) = query["s"].get(key) { entry[key] = value.clone(); } }
+                                    if let Some(keys) = query["s"]["k"].as_array() {
+                                        let order = [1,2,28,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,3,29,30,31,32];
+                                        entry["k"] = json!(order.into_iter().filter(|id| keys.iter().any(|key| key.as_i64() == Some(i64::from(*id)))).collect::<Vec<_>>());
+                                    }
+                                }
+                            }
                             // As on V54, c172 appends even under a name already in use, and c171 answers with the first match.
                             172 => self.macros.push(query["w"].clone()),
                             173 => { if let Some(i) = self.macros.iter().position(|m| m["n"] == query["n"]) { self.macros.remove(i); } }
@@ -284,7 +296,6 @@ mod tests {
             (Section::Buttons,"target",json!("1"),60,"/d1/0/dn",json!({"t":1,"v":[0,0,0,0],"n":"Burst","r":1,"sp":0,"mr":1,"ms":2,"ri":0})),
             (Section::Sticks,"anti-shake",json!(-3),70,"/d1/asf",json!(-3)),
             (Section::Sticks,"invert-x",json!(true),70,"/d1/mx",json!(1)),
-            (Section::Curves,"curve-9",json!(90),70,"/d1/cv/9",json!(90)),
             (Section::Directions,"key-0",json!("7"),70,"/d1/tkl/dn/v/0",json!(7)),
             (Section::Triggers,"mode-r",json!("1"),90,"/d1/mor",json!(1)),
             (Section::Rumble,"range-l-1",json!(75),120,"/d1/grl/1",json!(75)),
@@ -347,11 +358,13 @@ mod tests {
         for name in [" Burst ".to_owned(),"a/b".into(),"x".repeat(33),"é".repeat(17)] { assert_eq!(post(&mut controller,&view,"macro-new",json!(name)).unwrap_err().status,400,"{name}"); }
         let reply = post(&mut controller,&view,"macro-new",json!("Dash ")).unwrap();
         assert_eq!((next(&reply).button,reply["values"]["step-duration"].clone()),(3,json!(100)));
-        // Advanced macros are kept as they are and can only be deleted.
+        // Advanced macros remain untouched, including deletion.
         view = View { section:Section::Macros, button:1, ..View::default() };
-        assert!(profile(&mut controller,&view,None).unwrap()["values"].get("step-key").is_none());
+        let shown = profile(&mut controller,&view,None).unwrap();
+        assert!(shown["values"].get("step-key").is_none());
+        assert_eq!(schema_field(&shown,"macro-unavailable")["type"],"note");
         assert_eq!(post(&mut controller,&view,"step-insert",Value::Null).unwrap_err().status,400);
-        assert_eq!(next(&post(&mut controller,&view,"delete-macro",Value::Null).unwrap()).button,1);
+        assert_eq!(post(&mut controller,&view,"delete-macro",Value::Null).unwrap_err().status,400);
         view.step = 9;
         assert_eq!(post(&mut controller,&view,"step-duration",json!(10)).unwrap_err().status,409);
         // The release action plays a macro the controller no longer has; choosing another carries its step count.
@@ -363,9 +376,9 @@ mod tests {
         assert!(post(&mut controller,&press,"target",json!("1")).unwrap()["values"].get("macro-interval").is_none());
         assert_eq!(post(&mut controller,&press,"macro-playback",json!("3")).unwrap()["values"]["macro-interval"],0);
         let fake = controller.into_transport();
-        assert_eq!(fake.writes,11);
+        assert_eq!(fake.writes,10);
         assert_eq!(fake.values[&60]["d1"][0]["up"],json!({"t":1,"v":[3,0,0,0],"n":"Dash","r":1,"sp":5,"mr":4,"ms":1,"ri":300}));
-        assert_eq!(fake.macros,[json!({"n":"Burst","s":2,"t":0,"d":[0,1,40,80,1,0,1,40,80,1]}),json!({"n":"Dash","s":1,"t":0,"d":[0,1,0,100,1]})]);
+        assert_eq!(fake.macros,[json!({"n":"Combo","s":1,"t":1,"d":[3,0,0,0,0]}),json!({"n":"Burst","s":2,"t":0,"d":[0,1,40,80,1,0,1,40,80,1]}),json!({"n":"Dash","s":1,"t":0,"d":[0,1,0,100,1]})]);
     }
     #[test]
     fn selectors_profile_versions_and_unknown_action_payloads_are_preserved() {
@@ -389,6 +402,292 @@ mod tests {
         assert_eq!(profile(&mut controller,&setting.view,Some(&setting)).unwrap_err().status,400);
         assert_eq!(controller.into_transport().writes,0);
     }
+    fn schema_field<'a>(reply: &'a Value, key: &str) -> &'a Value {
+        reply["schema"]["sections"][0]["fields"].as_array().unwrap().iter().find(|field| field["key"] == key).unwrap()
+    }
+
+    #[test]
+    fn action_targets_reset_incompatible_slots_and_preserve_the_complete_object() {
+        for (section, command, path) in [
+            (Section::Buttons,60,"/d1/0/dn"), (Section::Directions,70,"/d1/tkl/dn"), (Section::Gestures,100,"/d1/el/0/dn"),
+        ] {
+            let mut fake = Fake::new();
+            let action = fake.values.get_mut(&command).unwrap().pointer_mut(path).unwrap();
+            action["t"] = json!(2); action["v"] = json!([1,2,3,4]); action["future"] = json!({"retained":[9,8]});
+            let mut expected = fake.values.clone();
+            let mut controller = Controller::new(fake,Duration::from_secs(1));
+            let post = |controller: &mut Controller<Fake>, key, value| {
+                let setting = change(section,key,value);
+                profile(controller,&setting.view,Some(&setting)).unwrap()
+            };
+            let keyboard = post(&mut controller,"target",json!("3"));
+            assert_eq!(keyboard["values"]["key-0"],"0");
+            assert_eq!(post(&mut controller,"key-0",json!("4"))["values"]["key-0"],"4");
+            let mouse = post(&mut controller,"target",json!("4"));
+            assert_eq!(mouse["values"]["key-0"],"0");
+            assert_eq!(post(&mut controller,"key-1",json!("5"))["values"]["key-1"],"5");
+            let gamepad = post(&mut controller,"target",json!("2"));
+            assert_eq!(gamepad["values"]["key-1"],"0");
+            expected.get_mut(&command).unwrap().pointer_mut(path).unwrap()["v"] = json!([0,0,0,0]);
+            let fake = controller.into_transport();
+            assert_eq!(fake.writes,5);
+            assert_eq!(fake.values,expected,"{section:?}");
+        }
+    }
+
+    #[test]
+    fn unreported_or_invalid_fields_are_notes_and_cannot_write() {
+        for (target, setting, value) in [(3,"key-0",json!("40")),(3,"key-0",json!("255")),(4,"key-0",json!("6")),(2,"target",json!("5"))] {
+            let mut fake = Fake::new(); fake.values.get_mut(&60).unwrap()["d1"][0]["dn"]["t"] = json!(target);
+            let mut controller = Controller::new(fake,Duration::from_secs(1));
+            let setting = change(Section::Buttons,setting,value);
+            assert_eq!(profile(&mut controller,&setting.view,Some(&setting)).unwrap_err().status,400);
+            assert_eq!(controller.into_transport().writes,0);
+        }
+        let mut fake = Fake::new();
+        let stick = fake.values.get_mut(&70).unwrap()["d1"].as_object_mut().unwrap();
+        stick.remove("mse"); stick.insert("mom".into(),json!(0)); stick.insert("mx".into(),json!("invalid"));
+        let mut controller = Controller::new(fake,Duration::from_secs(1));
+        let view = View { section:Section::Sticks, ..View::default() };
+        let shown = profile(&mut controller,&view,None).unwrap();
+        for key in ["release-cut","mouse-sensitivity","mouse-mode","invert-x"] {
+            assert_eq!(schema_field(&shown,key)["type"],"note","{key}");
+            let setting = Setting { view:view.clone(), setting:key.into(), value:json!(true) };
+            assert_eq!(profile(&mut controller,&view,Some(&setting)).unwrap_err().status,400,"{key}");
+        }
+        let connection = change(Section::General,"connection-type",json!(1));
+        assert_eq!(profile(&mut controller,&connection.view,Some(&connection)).unwrap_err().status,400);
+        assert_eq!(controller.into_transport().writes,0);
+        let mut fake = Fake::new();
+        fake.values.get_mut(&70).unwrap()["d1"]["mse"] = json!("not a number");
+        let mut controller = Controller::new(fake,Duration::from_secs(1));
+        let setting = change(Section::Sticks,"mouse-sensitivity",json!(50));
+        let shown = profile(&mut controller,&setting.view,None).unwrap();
+        assert_eq!(schema_field(&shown,"mouse-sensitivity")["type"],"note");
+        assert_eq!(profile(&mut controller,&setting.view,Some(&setting)).unwrap_err().status,400);
+        assert_eq!(controller.into_transport().writes,0);
+    }
+
+    #[test]
+    fn repeated_gestures_are_not_ambiguous_edit_targets() {
+        let mut fake = Fake::new();
+        let events = fake.values.get_mut(&100).unwrap()["d1"]["el"].as_array_mut().unwrap();
+        events.push(events[0].clone());
+        let original = fake.values.clone();
+        let mut controller = Controller::new(fake,Duration::from_secs(1));
+        let view = View { section:Section::Gestures, ..View::default() };
+        let shown = profile(&mut controller,&view,None).unwrap();
+        assert_eq!(shown["view"]["button"],2);
+        assert_eq!(schema_field(&shown,"other-gestures")["type"],"note");
+        let invalid = Setting { view:view.clone(), setting:"target".into(), value:json!("3") };
+        assert_eq!(profile(&mut controller,&view,Some(&invalid)).unwrap_err().status,409);
+        let fake = controller.into_transport();
+        assert_eq!(fake.writes,0); assert_eq!(fake.values,original);
+    }
+
+    #[test]
+    fn stick_aliases_and_reported_boolean_fields_keep_the_fresh_spelling() {
+        for (key, first, second, value, wire) in [
+            ("mouse-mode","mo","mom",json!("1"),json!(1)),
+            ("invert-x","mx","xr",json!(true),json!(1)),
+            ("invert-y","ry","yr",json!(true),json!(1)),
+            ("release-cut","rjc","rjc",json!(true),json!(1)),
+            ("mouse-sensitivity","mse","mse",json!(75),json!(75)),
+        ] {
+            for spelling in [first,second] {
+                let mut fake = Fake::new();
+                let stick = fake.values.get_mut(&70).unwrap()["d1"].as_object_mut().unwrap();
+                let previous = stick.remove(first).unwrap();
+                stick.insert(spelling.into(),if first == "rjc" { json!(0) } else { previous });
+                let mut expected = fake.values.clone();
+                expected.get_mut(&70).unwrap()["d1"][spelling] = wire.clone();
+                let mut controller = Controller::new(fake,Duration::from_secs(1));
+                let setting = change(Section::Sticks,key,value.clone());
+                assert_eq!(profile(&mut controller,&setting.view,Some(&setting)).unwrap()["verified"],true);
+                let fake = controller.into_transport();
+                assert_eq!(fake.writes,1); assert_eq!(fake.values,expected,"{key}/{spelling}");
+            }
+        }
+    }
+
+    #[test]
+    fn all_reported_motion_keys_are_paged_without_resizing() {
+        let mut fake = Fake::new();
+        fake.values.get_mut(&100).unwrap()["d1"]["tk"] = json!(vec![1; 61]);
+        fake.values.get_mut(&100).unwrap()["d1"]["tk"][60] = json!(28);
+        let mut expected = fake.values.clone();
+        let mut controller = Controller::new(fake,Duration::from_secs(1));
+        let first = View { section:Section::Motion, ..View::default() };
+        let page = profile(&mut controller,&first,None).unwrap();
+        assert_eq!(schema_field(&page,"view-page")["max"],3);
+        assert!(page["values"].get("trigger-key-23").is_some());
+        assert!(page["values"].get("trigger-key-24").is_none());
+        let absent = Setting { view:first, setting:"trigger-key-60".into(), value:json!("2") };
+        assert_eq!(profile(&mut controller,&absent.view,Some(&absent)).unwrap_err().status,400);
+        let last = View { section:Section::Motion, page:3, ..View::default() };
+        let shown = profile(&mut controller,&last,None).unwrap();
+        assert_eq!(shown["values"]["trigger-key-60"],"28");
+        assert!(schema_field(&shown,"trigger-key-60")["options"].as_array().unwrap().iter().any(|item| item["id"] == "28" && item["label"].as_str().unwrap().contains("retained")));
+        let invalid = Setting { view:last.clone(), setting:"trigger-key-60".into(), value:json!("29") };
+        assert_eq!(profile(&mut controller,&last,Some(&invalid)).unwrap_err().status,400);
+        let setting = Setting { view:last, setting:"trigger-key-60".into(), value:json!("2") };
+        let result = profile(&mut controller,&setting.view,Some(&setting)).unwrap();
+        assert_eq!(result["values"]["trigger-key-60"],"2");
+        expected.get_mut(&100).unwrap()["d1"]["tk"][60] = json!(2);
+        let fake = controller.into_transport();
+        assert_eq!(fake.writes,1); assert_eq!(fake.values,expected);
+    }
+
+    #[test]
+    fn keyboard_choice_windows_wrap_at_the_global_ends() {
+        let mut fake = Fake::new();
+        fake.values.get_mut(&60).unwrap()["d1"][0]["dn"]["t"] = json!(3);
+        fake.values.get_mut(&60).unwrap()["d1"][0]["dn"]["v"] = json!([0,227,4,0]);
+        let mut controller = Controller::new(fake,Duration::from_secs(1));
+        let shown = profile(&mut controller,&View { section:Section::Buttons, ..View::default() },None).unwrap();
+        for (key, current, previous, next) in [("key-0","0","227","53"),("key-1","227","226","0")] {
+            let options = schema_field(&shown,key)["options"].as_array().unwrap();
+            assert!(options.len() <= 32);
+            let at = options.iter().position(|option| option["id"] == current).unwrap();
+            assert_eq!(options[at - 1]["id"],previous);
+            assert_eq!(options[at + 1]["id"],next);
+        }
+    }
+
+    #[test]
+    fn unknown_curve_scales_are_not_writable_and_survive_other_changes() {
+        let mut fake = Fake::new();
+        fake.values.get_mut(&70).unwrap()["d1"]["co"] = json!([-32767,32767]);
+        fake.values.get_mut(&70).unwrap()["d1"]["cv"] = json!([0,0,65535,65535]);
+        let mut expected = fake.values.clone();
+        let mut controller = Controller::new(fake,Duration::from_secs(1));
+        for setting in [change(Section::Curves,"curve-1",json!(20)),change(Section::Sticks,"centre-x",json!(20))] {
+            assert_eq!(profile(&mut controller,&setting.view,Some(&setting)).unwrap_err().status,400);
+        }
+        let inactive = change(Section::Curves,"curvature",json!(35));
+        assert_eq!(profile(&mut controller,&inactive.view,Some(&inactive)).unwrap_err().status,400);
+        let response = change(Section::Curves,"response",json!("1"));
+        assert_eq!(profile(&mut controller,&response.view,Some(&response)).unwrap()["verified"],true);
+        assert_eq!(profile(&mut controller,&inactive.view,Some(&inactive)).unwrap()["verified"],true);
+        expected.get_mut(&70).unwrap()["d1"]["rt"] = json!(1);
+        expected.get_mut(&70).unwrap()["d1"]["rc"] = json!(35);
+        let setting = change(Section::Sticks,"mouse-sensitivity",json!(75));
+        assert_eq!(profile(&mut controller,&setting.view,Some(&setting)).unwrap()["verified"],true);
+        expected.get_mut(&70).unwrap()["d1"]["mse"] = json!(75);
+        let fake = controller.into_transport();
+        assert_eq!(fake.writes,3); assert_eq!(fake.values,expected);
+    }
+
+    #[test]
+    fn stick_smooth_response_requires_a_reported_smooth_mode() {
+        for (mode,response) in [(0,1),(2,1),(1,9)] {
+            let mut fake = Fake::new();
+            fake.values.get_mut(&70).unwrap()["d1"]["ct"] = json!(mode);
+            fake.values.get_mut(&70).unwrap()["d1"]["rt"] = json!(response);
+            let mut controller = Controller::new(fake,Duration::from_secs(1));
+            let view = View { section:Section::Curves, ..View::default() };
+            let shown = profile(&mut controller,&view,None).unwrap();
+            for key in ["response","curvature"] {
+                assert_eq!(schema_field(&shown,key)["type"],"note");
+                let setting = Setting { view:view.clone(), setting:key.into(), value:json!("1") };
+                assert_eq!(profile(&mut controller,&view,Some(&setting)).unwrap_err().status,400);
+            }
+            assert_eq!(controller.into_transport().writes,0);
+        }
+    }
+
+    #[test]
+    fn subconfig_uses_the_reported_selector_and_retains_every_other_field() {
+        for (sub,index) in [(1,2),(2,0)] {
+            let fake = Fake::new(); let mut expected = fake.values.clone();
+            let mut controller = Controller::new(fake,Duration::from_secs(1));
+            let view = View { section:Section::Profiles, sub, ..View::default() };
+            let shown = profile(&mut controller,&view,None).unwrap();
+            assert!(shown["values"].get("sub-keep").is_some());
+            assert!(shown["values"].get("sub-logic").is_none());
+            let setting = Setting { view, setting:"sub-activation".into(), value:json!(if sub == 1 { "1" } else { "0" }) };
+            assert_eq!(profile(&mut controller,&setting.view,Some(&setting)).unwrap()["verified"],true);
+            expected.get_mut(&51).unwrap()["d2"]["cfg"][index]["at"] = json!(u8::from(sub == 1));
+            let keep = Setting { view:setting.view, setting:"sub-keep".into(), value:json!(sub == 2) };
+            assert_eq!(profile(&mut controller,&keep.view,Some(&keep)).unwrap()["verified"],true);
+            expected.get_mut(&51).unwrap()["d2"]["cfg"][index]["ko"] = json!(u8::from(sub == 2));
+            let fake = controller.into_transport();
+            assert_eq!(fake.writes,2); assert_eq!(fake.values,expected);
+            let mut sent = expected[&51]["d2"]["cfg"][index].clone();
+            sent["b"] = json!(1);
+            assert_eq!(fake.last_sub.unwrap(),sent);
+            assert!(sent.get("kao").is_none());
+        }
+    }
+
+    #[test]
+    fn reported_subconfig_key_logic_is_preserved_but_not_editable() {
+        let mut fake = Fake::new();
+        fake.values.get_mut(&51).unwrap()["d2"]["cfg"][2]["kao"] = json!(1);
+        let mut expected = fake.values.clone();
+        let mut controller = Controller::new(fake,Duration::from_secs(1));
+        let view = View { section:Section::Profiles, sub:1, ..View::default() };
+        let bad = Setting { view:view.clone(), setting:"sub-logic".into(), value:json!("0") };
+        assert_eq!(profile(&mut controller,&view,Some(&bad)).unwrap_err().status,400);
+        let setting = Setting { view, setting:"sub-activation".into(), value:json!("1") };
+        assert_eq!(profile(&mut controller,&setting.view,Some(&setting)).unwrap()["verified"],true);
+        expected.get_mut(&51).unwrap()["d2"]["cfg"][2]["at"] = json!(1);
+        let fake = controller.into_transport();
+        assert_eq!(fake.writes,1); assert_eq!(fake.values,expected);
+        assert_eq!(fake.last_sub.unwrap()["kao"],1);
+    }
+
+    #[test]
+    fn subconfig_keys_preserve_unknowns_and_follow_the_reported_set() {
+        let mut fake = Fake::new();
+        fake.values.get_mut(&51).unwrap()["d2"]["cfg"][2]["k"] = json!([28,24]);
+        let mut expected = fake.values.clone();
+        let mut controller = Controller::new(fake,Duration::from_secs(1));
+        let view = View { section:Section::Profiles, sub:1, ..View::default() };
+        let shown = profile(&mut controller,&view,None).unwrap();
+        assert_eq!(shown["values"]["sub-key-0"],"28");
+        assert!(!schema_field(&shown,"sub-key-1")["options"].as_array().unwrap().iter().any(|item| item["id"] == "28"));
+        let bad = Setting { view:view.clone(), setting:"sub-key-1".into(), value:json!("28") };
+        assert_eq!(profile(&mut controller,&view,Some(&bad)).unwrap_err().status,400);
+        let setting = Setting { view, setting:"sub-key-1".into(), value:json!("4") };
+        assert_eq!(profile(&mut controller,&setting.view,Some(&setting)).unwrap()["verified"],true);
+        expected.get_mut(&51).unwrap()["d2"]["cfg"][2]["k"] = json!([28,4]);
+        let fake = controller.into_transport();
+        assert_eq!(fake.writes,1); assert_eq!(fake.values,expected);
+        assert_eq!(fake.last_sub.unwrap()["k"],json!([28,4]));
+
+        let mut controller = Controller::new(Fake::new(),Duration::from_secs(1));
+        let view = View { section:Section::Profiles, sub:1, ..View::default() };
+        let post = |controller: &mut Controller<Fake>, key: &str, value: &str| {
+            profile(controller,&view,Some(&Setting { view:view.clone(), setting:key.into(), value:json!(value) })).unwrap()
+        };
+        assert_eq!(post(&mut controller,"sub-key-1","1")["values"]["sub-key-0"],"1", "firmware may reorder keys");
+        assert_eq!(post(&mut controller,"sub-key-0","0")["values"]["sub-key-0"],"24");
+        assert_eq!(post(&mut controller,"sub-key-0","0")["values"]["sub-key-0"],"0");
+        let fake = controller.into_transport();
+        assert_eq!(fake.values[&51]["d2"]["cfg"][2]["k"],json!([]));
+        assert_eq!(fake.writes,3);
+    }
+
+    #[test]
+    fn malformed_or_ambiguous_subconfigs_never_write() {
+        for case in 0..3 {
+            let mut fake = Fake::new();
+            let entries = fake.values.get_mut(&51).unwrap()["d2"]["cfg"].as_array_mut().unwrap();
+            match case {
+                0 => { entries[2].as_object_mut().unwrap().remove("at"); }
+                1 => { let duplicate = entries[2].clone(); entries.push(duplicate); }
+                _ => entries[2]["k"] = json!([24,24]),
+            }
+            let mut controller = Controller::new(fake,Duration::from_secs(1));
+            let view = View { section:Section::Profiles, sub:1, ..View::default() };
+            let shown = profile(&mut controller,&view,None).unwrap();
+            assert_eq!(schema_field(&shown,"sub-activation-unavailable")["type"],"note");
+            let setting = Setting { view, setting:"sub-keep".into(), value:json!(true) };
+            assert_eq!(profile(&mut controller,&setting.view,Some(&setting)).unwrap_err().status,400);
+            assert_eq!(controller.into_transport().writes,0);
+        }
+    }
     #[test]
     fn native_ui_fixtures_match_the_helper_contract() {
         let mut states = serde_json::Map::new();
@@ -396,6 +695,30 @@ mod tests {
             let mut controller = Controller::new(Fake::new(),Duration::from_secs(1));
             let value = profile(&mut controller,&View { section, ..View::default() },None).unwrap();
             states.insert(serde_json::to_value(section).unwrap().as_str().unwrap().into(),value);
+        }
+        for (name, section, page) in [("keyboard",Section::Buttons,1),("mouse",Section::Buttons,1),("motion-long",Section::Motion,2),("sticks-missing",Section::Sticks,1),("profiles-sub",Section::Profiles,1)] {
+            let mut fake = Fake::new();
+            match name {
+                "keyboard" => {
+                    fake.values.get_mut(&60).unwrap()["d1"][0]["dn"]["t"] = json!(3);
+                    fake.values.get_mut(&60).unwrap()["d1"][0]["dn"]["v"] = json!([0,227,4,0]);
+                }
+                "mouse" => {
+                    fake.values.get_mut(&60).unwrap()["d1"][0]["dn"]["t"] = json!(4);
+                    fake.values.get_mut(&60).unwrap()["d1"][0]["dn"]["v"] = json!([1,2,5,0]);
+                }
+                "motion-long" => fake.values.get_mut(&100).unwrap()["d1"]["tk"] = json!(vec![1; 61]),
+                "sticks-missing" => {
+                    let stick = fake.values.get_mut(&70).unwrap()["d1"].as_object_mut().unwrap();
+                    stick.remove("mse"); stick.remove("mo"); stick.insert("xr".into(),json!(1));
+                }
+                "profiles-sub" => {},
+                _ => unreachable!(),
+            }
+            let mut controller = Controller::new(fake,Duration::from_secs(1));
+            let sub = u8::from(name == "profiles-sub");
+            let value = profile(&mut controller,&View { section, page, sub, ..View::default() },None).unwrap();
+            states.insert(name.into(),value);
         }
         let generated = Value::Object(states);
         if let Some(path) = std::env::var_os("LEADJOY_FIXTURE_OUTPUT") { fs::write(path,serde_json::to_string_pretty(&generated).unwrap() + "\n").unwrap(); }

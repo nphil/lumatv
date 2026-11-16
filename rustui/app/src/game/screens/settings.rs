@@ -480,6 +480,7 @@ pub fn leadjoy(p: &mut Paint<'_>) {
         let text = match current { Some(Value::Text(v)) => v.clone(), Some(Value::Int(v)) => v.to_string(), Some(Value::Bool(v)) => v.to_string(), None => "Not reported".into() };
         let value;
         let control = match &field.kind {
+            FieldKind::Note => Control::None,
             FieldKind::Toggle { .. } => Control::Toggle(current == Some(&Value::Bool(true))),
             FieldKind::Choice { options, .. } => Control::Value(options.iter().find(|option| option.id == text).map_or(text.as_str(), |option| option.label.as_str())),
             FieldKind::Action => Control::Value("Apply"),
@@ -490,7 +491,8 @@ pub fn leadjoy(p: &mut Paint<'_>) {
         let status = if p.focused(Focus::Setting(i + 1)) {
             if device.pending { Some("Waiting for read-back") } else if profile.verified { Some("Saved and read back") } else { field.help.as_deref() }
         } else { field.help.as_deref() };
-        y += row(p, 300 + i as u64 * 30, Focus::Setting(i + 1), &field.label, status, control, Frame::new(x, y, w, 0.0));
+        let focus = if matches!(field.kind, FieldKind::Note) { Focus::None } else { Focus::Setting(i + 1) };
+        y += row(p, 300 + i as u64 * 30, focus, &field.label, status, control, Frame::new(x, y, w, 0.0));
     }
     p.wrapped(1900, "Changes are written to the controller and read back.", Frame::new(tx, y + 24.0, tw, 0.0), Type::Caption, Role::Ink2, false, 10);
 }

@@ -79,7 +79,12 @@ impl<T: Transport> Controller<T> {
         if mode == RunMode::Apply {
             self.exchange(change.write.command(), &execution.write_reports)?;
             let reply = self.exchange(change.read.command(), &execution.read_reports).map_err(|error| Error::Unverified(Box::new(error)))?;
-            if !matches_expected(&reply.result, &change.expected) {
+            let matched = if change.write.command() == Command::SetSubConfig {
+                matches_sub_config(&reply.result, &change.expected)
+            } else {
+                matches_expected(&reply.result, &change.expected)
+            };
+            if !matched {
                 return Err(Error::ReadBack);
             }
             execution.read_back = Some(reply);
@@ -144,6 +149,42 @@ fn matches_expected(actual: &Value, expected: &Value) -> bool {
         (Value::Array(a), Value::Array(e)) => a.len() == e.len() && a.iter().zip(e).all(|(a, e)| matches_expected(a, e)),
         _ => actual == expected,
     }
+}
+
+fn matches_sub_config(actual: &Value, expected: &Value) -> bool {
+    fn entries(actual: &Value, expected: &Value) -> bool {
+        let (Some(actual), Some(expected)) = (actual.as_array(), expected.as_array()) else { return false };
+        actual.len() == expected.len() && actual.iter().zip(expected).all(|(actual, expected)| {
+            let (Some(actual), Some(expected)) = (actual.as_object(), expected.as_object()) else { return false };
+            expected.iter().all(|(key, value)| actual.get(key).is_some_and(|actual| {
+                if key == "k" {
+                    key_mask(actual).zip(key_mask(value)).is_some_and(|(a, e)| a == e)
+                } else {
+                    matches_expected(actual, value)
+                }
+            }))
+        })
+    }
+
+    // V54 stores key IDs as a bitmask; its c51 summary drops padding, duplicates and input order.
+    fn key_mask(value: &Value) -> Option<u32> {
+        value.as_array()?.iter().try_fold(0u32, |mask, key| match key.as_u64()? {
+            0 => Some(mask),
+            id @ 1..=32 => Some(mask | (1u32 << (id - 1))),
+            _ => None,
+        })
+    }
+
+    let (Some(actual), Some(expected)) = (actual.as_object(), expected.as_object()) else { return false };
+    expected.iter().all(|(key, value)| actual.get(key).is_some_and(|actual| {
+        if key != "d2" {
+            return matches_expected(actual, value);
+        }
+        let (Some(actual), Some(expected)) = (actual.as_object(), value.as_object()) else { return false };
+        expected.iter().all(|(key, value)| actual.get(key).is_some_and(|actual| {
+            if key == "cfg" { entries(actual, value) } else { matches_expected(actual, value) }
+        }))
+    }))
 }
 
 #[cfg(test)]

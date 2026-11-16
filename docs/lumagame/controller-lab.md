@@ -96,26 +96,32 @@ Settings › Controllers › Leadjoy Xeno uses the same gated helper. Discovery 
 the FF80 unnumbered 64-byte vendor interface, an `Xeno` product reply and valid logo lighting. This identifies the Xeno family,
 not uniquely the Plus model. Only the controller's reported profile count is offered.
 
-Pages expose single-colour logo RGB/brightness, controller mode, polling, step precision, dual output, D-pad and stick-direction
-options, profile naming/activation, gamepad remapping/turbo, macro assignment, documented stick controls/curves/direction
-bindings, triggers, motion control with gesture thresholds, motion-gesture actions and grip rumble. Section, profile,
-sub-configuration, side, button, gesture, macro, step and press/release selectors only read; they never activate or overwrite
-a profile. Writes change one field in a fresh complete object and require read-back, preserving unknown fields, curve length,
-macros and hidden trigger-rumble ranges. Failed writes leave the last confirmed values visible and block further changes until
-Refresh. A mode change re-enumerates the controller, so a missing read-back after it asks for Refresh instead of claiming success.
+Pages expose single-colour logo RGB/brightness, controller mode and reported connection type, polling, step precision, dual
+output, D-pad and stick-direction options, profile naming/activation, gamepad/keyboard/mouse remapping, turbo, macro assignment,
+reported stick controls and direction bindings, triggers, motion control with gesture thresholds, motion-gesture actions and
+grip rumble. Action mappings have four slots; keyboard choices use a bounded, wrapping list of named keys. Section, profile,
+sub-configuration, side, button, gesture, macro, step, motion-key page and press/release selectors only read; they never activate
+or overwrite a profile. Reported Sub1/Sub2 entries expose hold/toggle activation, original-input retention and trigger keys;
+the editor preserves other reported keys and fields and allows up to two keys when creating a new trigger combination.
+
+Writes change one field in a fresh complete object and require read-back, preserving unknown fields, other action halves,
+motion trigger-key list length, macros and hidden trigger-rumble ranges. Unreported or invalid fields stay read-only. Failed
+writes leave the last confirmed values visible and block further changes until Refresh. A mode change re-enumerates the
+controller, so a missing read-back after it asks for Refresh instead of claiming success.
 
 Macros are global: the page edits one step at a time of a simple macro (input, key, interval, duration), copies or removes a
-step, creates a one-step macro by name and deletes a macro after a confirmation. Advanced macros are only deletable. V54
+step, creates a one-step macro by name and deletes a simple macro after a confirmation. Advanced macros stay untouched. V54
 appends a macro written under a name it already has and plays the first one, so an edit deletes the macro, writes it again and
 requires the list to name it once; the edited macro moves to the end of the list. Names are 1–32 bytes without
 `\ / : * ? " < > |`. A macro action offers its repeat interval (0–36000 ms) only in the two repeating playback modes, the only
 ones that read it.
 
-Calibration, macro recording (c174/c175), reset/save/reload and sub-configuration triggers answer with an ACK only, so they
-stay out of the UI. Keyboard and mouse button-mapping targets, gesture-threshold actions, the motion `fs` flag, more than two
-motion trigger keys, motion accessories (c220–c224), FPS settings (c130–c135) and the remaining stick parameters (`rjc`, `mse`) await complete vendor
-contracts. Experimental c191/c192 lighting stays out of the UI; the logo has one colour and brightness, not a pixel editor.
-Hardware persistence timing and all real-pad behaviour remain untested.
+Stick and motion curve coordinates and stick-centre offsets stay read-only: their raw scales depend on the exact model and
+firmware, and the `Xeno` identity does not establish that model. Smooth response and curvature remain editable when the
+controller reports the smooth stick-curve mode; reported points are not converted. Calibration, macro
+recording (c174/c175), reset/save/reload, motion `kao` and `fs`, continuous gesture behaviour, motion accessories (c220–c224),
+FPS settings (c130–c135) and experimental c191/c192 lighting stay out of the UI until their applicable contracts are complete.
+Hardware persistence timing and all real-pad behaviour remain untested; these controls do not imply Android-app parity.
 
 Needs TV: live report timing and Bluetooth bursts; rumble; physical flash video; engine stick shaping and round-trip values;
 200% text and lab rendering cost at 120 Hz; GameSir hidraw access, real writes/read-back, receiver binding and cross-mode persistence;

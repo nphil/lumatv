@@ -929,7 +929,18 @@ impl Model {
                 self.leadjoy.pending = false;
                 match result {
                     Ok(state) => {
-                        if let LeadjoyState::Ready(profile) = &state { self.leadjoy.view = profile.view.clone(); }
+                        if let LeadjoyState::Ready(profile) = &state {
+                            if self.view.page == Page::Leadjoy && self.view.sheet.is_none() {
+                                if let (Focus::Setting(row @ 1..), LeadjoyState::Ready(previous)) = (self.view.focus, &self.leadjoy.state) {
+                                    let key = previous.schema.fields().nth(row - 1).map(|field| field.key.as_str());
+                                    let candidates = || profile.schema.fields().enumerate().filter(|(_, field)| !matches!(field.kind, FieldKind::Note));
+                                    let chosen = candidates().find(|(_, field)| Some(field.key.as_str()) == key)
+                                        .or_else(|| candidates().min_by_key(|(index, _)| (*index + 1).abs_diff(row)));
+                                    self.view.focus = chosen.map_or(Focus::Setting(0), |(index, _)| Focus::Setting(index + 1));
+                                }
+                            }
+                            self.leadjoy.view = profile.view.clone();
+                        }
                         self.leadjoy.state = state; self.leadjoy.error = None;
                     }
                     Err(error) => {
@@ -1567,16 +1578,17 @@ impl Model {
         };
         if next != *current && field.kind.check(&next).is_ok() {
             if let Some(selector) = field.key.strip_prefix("view-") {
-                let Value::Text(value) = next else { return false };
+                let value = match next { Value::Text(value) => value, Value::Int(value) => value.to_string(), _ => return false };
                 let mut view = profile.view.clone();
                 match selector {
-                    "section" => { view.section = value; view.button = 1; view.step = 1; }
-                    "profile" => { let Ok(n) = value.parse() else { return false }; view.profile = n; }
-                    "sub" => { let Ok(n) = value.parse() else { return false }; view.sub = n; }
+                    "section" => { view.section = value; view.button = 1; view.step = 1; view.page = 1; }
+                    "profile" => { let Ok(n) = value.parse() else { return false }; view.profile = n; view.page = 1; }
+                    "sub" => { let Ok(n) = value.parse() else { return false }; view.sub = n; view.page = 1; }
                     "side" => { let Ok(n) = value.parse() else { return false }; view.side = n; }
                     "button" => { let Ok(n) = value.parse() else { return false }; view.button = n; view.step = 1; }
                     "step" => { let Ok(n) = value.parse() else { return false }; view.step = n; }
                     "action" => { let Ok(n) = value.parse() else { return false }; view.action = n; }
+                    "page" => { let Ok(n) = value.parse() else { return false }; view.page = n; }
                     _ => return false,
                 }
                 self.leadjoy.view = view;
@@ -2509,8 +2521,11 @@ impl Model {
                     rows.extend((0..count).map(|i| vec![Focus::Setting(i)]));
                 }
                 Page::Leadjoy => {
-                    let count = if let LeadjoyState::Ready(profile) = &self.leadjoy.state { profile.schema.fields().count() + 1 } else { 1 };
-                    rows.extend((0..count).map(|i| vec![Focus::Setting(i)]));
+                    rows.push(vec![Focus::Setting(0)]);
+                    if let LeadjoyState::Ready(profile) = &self.leadjoy.state {
+                        rows.extend(profile.schema.fields().enumerate().filter(|(_, field)| !matches!(field.kind, FieldKind::Note))
+                            .map(|(i, _)| vec![Focus::Setting(i + 1)]));
+                    }
                 }
                 Page::Running | Page::Launch => {}
             }
@@ -3166,7 +3181,7 @@ pub(crate) mod tests {
             let profiles = LeadjoyView { section: "profiles".into(), ..LeadjoyView::default() };
             assert!(m.step(Input::Key { key: Key::Right, down: true }).contains(&Command::Leadjoy { view: profiles.clone(), change: None }));
             m.step(Input::Leadjoy(Ok(leadjoy_fixture("profiles"))));
-            m.view.focus = Focus::Setting(3);
+            m.view.focus = Focus::Setting(4);
             assert!(key(&mut m, Key::Ok).is_empty());
             assert_eq!((m.view.sheet, m.view.address.as_str()), (Some(Sheet::EditText), "Default"));
             m.view.address = "Racing".into();
@@ -3175,7 +3190,7 @@ pub(crate) mod tests {
             assert!(key(&mut m, Key::Ok).contains(&Command::Leadjoy { view: profiles.clone(), change: Some(rename) }));
             assert_eq!(m.view.sheet, None);
             m.step(Input::Leadjoy(Ok(leadjoy_fixture("profiles"))));
-            m.view.focus = Focus::Setting(4);
+            m.view.focus = Focus::Setting(5);
             let activate = ControllerChange { setting: "profile-activate".into(), value: serde_json::Value::Null };
             assert!(key(&mut m, Key::Ok).contains(&Command::Leadjoy { view: profiles, change: Some(activate) }));
         }
@@ -3207,6 +3222,56 @@ pub(crate) mod tests {
             let delete = ControllerChange { setting: "delete-macro".into(), value: serde_json::Value::Null };
             assert!(key(&mut m, Key::Ok).contains(&Command::Leadjoy { view: macros, change: Some(delete) }));
             assert_eq!((m.view.sheet, m.leadjoy.pending), (None, true));
+        }
+
+        #[test]
+        fn leadjoy_keyboard_wraps_and_keeps_the_selected_field_after_readback() {
+            use crate::game::helper::leadjoy_fixture;
+            let mut m = lab();
+            m.view.page = Page::Leadjoy;
+            let ready = leadjoy_fixture("keyboard");
+            m.step(Input::Leadjoy(Ok(ready.clone())));
+            let LeadjoyState::Ready(profile) = &ready else { panic!("keyboard fixture must be ready") };
+            let row = profile.schema.fields().position(|field| field.key == "key-0").unwrap() + 1;
+            m.view.focus = Focus::Setting(row);
+            let change = ControllerChange { setting: "key-0".into(), value: serde_json::json!("227") };
+            assert!(m.step(Input::Key { key:Key::Left, down:true }).contains(&Command::Leadjoy { view:profile.view.clone(), change:Some(change) }));
+
+            let LeadjoyState::Ready(mut readback) = ready else { unreachable!() };
+            let wrapped = readback.schema.fields().find(|field| field.key == "key-1").unwrap().kind.clone();
+            let first = readback.schema.sections[0].fields.iter_mut().find(|field| field.key == "key-0").unwrap();
+            first.kind = wrapped;
+            readback.values.insert("key-0".into(),Value::Text("227".into()));
+            readback.schema.sections[0].fields.insert(0, lumagame_core::settings::Field {
+                key:"read-only".into(), label:"Read only".into(), help:None, kind:FieldKind::Note,
+            });
+            readback.schema.validate().unwrap();
+            let view = readback.view.clone();
+            m.step(Input::Leadjoy(Ok(LeadjoyState::Ready(readback))));
+            assert_eq!(m.view.focus,Focus::Setting(row + 1));
+            let change = ControllerChange { setting:"key-0".into(), value:serde_json::json!("0") };
+            assert!(m.step(Input::Key { key:Key::Right, down:true }).contains(&Command::Leadjoy { view, change:Some(change) }));
+        }
+
+        #[test]
+        fn leadjoy_long_key_pages_are_read_only_selectors_and_notes_are_not_controls() {
+            use crate::game::helper::leadjoy_fixture;
+            let mut m = lab();
+            m.view.page = Page::Leadjoy;
+            let LeadjoyState::Ready(profile) = leadjoy_fixture("motion-long") else { panic!("motion fixture must be ready") };
+            let page_row = profile.schema.fields().position(|field| field.key == "view-page").unwrap() + 1;
+            let key_row = profile.schema.fields().position(|field| field.key == "trigger-key-47").unwrap() + 1;
+            let mut next = profile.view.clone(); next.page = 3;
+            m.step(Input::Leadjoy(Ok(LeadjoyState::Ready(profile))));
+            assert!(m.navigation.iter().any(|entry| entry.id == Focus::Setting(key_row)));
+            m.view.focus = Focus::Setting(page_row);
+            assert!(m.step(Input::Key { key:Key::Right, down:true }).contains(&Command::Leadjoy { view:next, change:None }));
+
+            m.step(Input::Leadjoy(Ok(leadjoy_fixture("sticks-missing"))));
+            let LeadjoyState::Ready(profile) = &m.leadjoy.state else { unreachable!() };
+            for (i, field) in profile.schema.fields().enumerate().filter(|(_, field)| matches!(field.kind, FieldKind::Note)) {
+                assert!(!m.navigation.iter().any(|entry| entry.id == Focus::Setting(i + 1)), "{}", field.key);
+            }
         }
 
         #[test]
