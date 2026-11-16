@@ -55,6 +55,16 @@ const SHOTS = [
   ["34-home-graphite-light", "home.html?family=graphite-chalk&theme=light"],
   ["35-hub-fjord", "hub.html?family=nordic-fjord"],
   ["36-settings-copper-light", "settings.html?family=copper-kiln&theme=light"],
+  ["40-stats-compact", "stats.html"],
+  ["40-stats-compact-dark", "stats.html?frame=dark"],
+  ["41-stats-full", "stats.html?view=full"],
+  ["41-stats-full-dark", "stats.html?view=full&frame=dark"],
+  ["42-stats-compact-fjord-light", "stats.html?family=nordic-fjord&theme=light"],
+  ["42-stats-compact-dark-fjord-light", "stats.html?frame=dark&family=nordic-fjord&theme=light"],
+  ["43-stats-full-fjord-light", "stats.html?view=full&family=nordic-fjord&theme=light"],
+  ["43-stats-full-dark-fjord-light", "stats.html?view=full&frame=dark&family=nordic-fjord&theme=light"],
+  ["44-stats-full-text200", "stats.html?view=full&frame=dark&text=200"],
+  ["44-stats-compact-text200", "stats.html?text=200"],
 ];
 
 const HIDE_TEXT = `*, *::before, *::after { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; caret-color: transparent !important; }`;

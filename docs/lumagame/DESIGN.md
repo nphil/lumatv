@@ -192,6 +192,7 @@ accounts and numbers in the mocks are illustrative.
 | Settings (Appearance, Streaming) | `settings.html?section=appearance`, `?section=streaming` |
 | Integrations, pairing, sign-in | `integrations.html`, `pairing.html`, `signin.html` |
 | In-stream overlay, end-session confirm | `overlay.html`, `overlay.html?confirm=end` |
+| Stats overlay (compact, full; `frame=dark` for a struggling session) | `stats.html`, `stats.html?view=full` |
 | Launch states, errors, first run | `states.html?s=checking`, `queue`, `starting`, `failed`, `offline`, `empty` |
 | Component boards | `components.html`, `components.html?board=content` |
 
@@ -204,7 +205,8 @@ dark and light (`mock/themes.js`; Rosé Pine uses the contrast-fitted values of
 - **The stage is always dark.** Game art and logos are authored for dark backgrounds, so art sits
   on the family's dark canvas in every theme, and content on the stage resolves every role to the
   dark variant (`.on-stage`). Light themes end the art band under the hero and keep rows on the
-  light canvas.
+  light canvas. The running game is stage too: the stats overlay keeps the dark roles in light
+  themes.
 - **The art keeps its colour.** Scrims are neutral black, never tinted. The left scrim behind the
   hero text is fitted per image: the 90th-percentile luminance of the text column decides an alpha
   between .72 and .90 that keeps the secondary ink at 7:1. Natively this is baked at decode
@@ -260,7 +262,8 @@ Manrope at three weights only: Regular 400, Medium 500, SemiBold 600.
 - **Sheets** are centred: 1320 wide for lists, 1080 for a confirm, 840 for a code; at most 972
   high. Settings uses a rail (at least 420, growing with text) beside the pane, 48 apart.
 - **200 % text** reflows: chooser columns fold under the name, a sheet list that outgrows its
-  sheet feathers at the bottom edge, the settings rail widens, hero meta wraps.
+  sheet feathers at the bottom edge, the settings rail widens, hero meta wraps. The stats
+  overlay's full panel holds at 150 %, where its four groups still fit the safe height.
 - **Hints**: full-screen surfaces put them in the bottom-right safe corner; sheets put them at the
   footer's left with the action on the right.
 
@@ -268,6 +271,8 @@ Manrope at three weights only: Regular 400, Medium 500, SemiBold 600.
 
 - **T0 by default**: canvas tints for fact tiles, ways-to-play tiles, title plates, notices and
   status chips. **Cached glass (T1)** only on the nav group, buttons over art, sheets and the toast.
+  The stats overlay is sheet material with its edge and no backdrop or shadow: nothing behind live
+  video can be captured.
 - **Shadows** are neutral and vertical: rest `0 24 60 / .28`, raised `0 34 80 / .55 + 0 10 24 /
   .30`, cover at rest `0 14 30 / .34`, focus `0 22 44 / .50` (light themes about half). One
   focus shadow is active at a time; nothing glows.
@@ -331,7 +336,21 @@ knob.
 - **Launch curtain**: the game's art on the stage, logo, step chips (Checking, In queue,
   Starting), one status line (queue position at display size), a progress bar and the Cancel hint.
 - **In-stream overlay**: the curtain's composition over still art on an opaque stage: logo, where
-  and how long, stream stats, then Resume, Stream settings and End session.
+  and how long, stream stats, then Resume, Stream settings, `Stats · Compact` and End session.
+- **Stats overlay**: off by default; one setting (Off, Compact, Full) shared by LumaTV's Quick
+  Settings, the in-stream menu (its button, or Menu / pad Y there), and Settings › Streaming. It sits
+  on the top-right safe corner in sheet material at the overlay floor (.96). Compact is a pill:
+  frame rate, panel refresh and the last second of frame times. Full is a 992-wide panel of four
+  groups: Frame timing and Controller on the left, Stream and Display on the right, so the columns
+  come out within a few rows of each other. Each group head carries a dot and a word (Good, Even,
+  Steady; Losing packets, Uneven, Stalling, Bursty). Rows put the label left in secondary ink and
+  the value right in ink, units in secondary ink, every figure tabular. Figures are measured; one
+  that comes from the host or the panel says `reported`, and nothing shown is an estimate. A value
+  older than 2 s shows `–` and its group reads `No data` with the outlined dot.
+- **Frame-time graph**: one bar per slot, the longest frame of about 33 ms. A late frame rises
+  from the target line (two targets of rise), an early one dips under it (one target), and a slot
+  within a pixel of the target draws nothing, so a smooth stream is a quiet line. Past one and a
+  half targets a bar is full ink. The target's value labels the line's right end.
 - **First run**: `Add a way to play` with four tiles (GeForce NOW, Gaming PC, Desk PC, This TV),
   each with its next step.
 
@@ -362,7 +381,10 @@ design respects:
 
 - Text is Manrope Regular, Medium and SemiBold from an integer-pixel glyph atlas.
 - Glass is an SDF rounded rect with a tint or vertical gradient, at most two vertical shadows, and
-  a backdrop of None, Cached, Live or Prepared. LumaGame uses Cached only.
+  a backdrop of None, Cached, Live or Prepared. LumaGame uses Cached, and None for the stats
+  overlay.
+- The stats overlay is one surface plus one text layer of words and marks (bars, dots,
+  hairlines), drawn again only when a shown value changes, at most four times a second.
 - Layers move by x, y, scale, opacity and a feathered clip: no rotation, blend modes or filters.
 - Images bake corners, strips, fades and scrims at decode (`app/src/gfn/art.rs` `Spec`).
 - The render host redraws changed 16 px tiles; static art costs nothing after it settles.

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Stats overlay</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="lumagame.css">
+<script src="themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="icons.js"></script>
+<script src="kit.js"></script>
+<script>
+  // The stats overlay over a running game. ?view=compact|full picks the size; ?frame=bright|dark picks
+  // the frame behind it and the session with it: a clean one over the bright frame, a struggling one
+  // over the dark.
+  const { esc } = Kit;
+  const q = new URLSearchParams(location.search);
+  const full = q.get("view") === "full";
+  const rough = q.get("frame") === "dark";
+  // Full holds at 150% text: at 200% its four groups do not fit the safe height. Compact follows the setting.
+  const scale = Math.min(full ? 1.5 : 2, Number(q.get("text") || 100) / 100);
+  if (full) LumaThemes.apply({ text: scale * 100 });
+  const target = 1000 / 120;
+
+  const display = [["Signal", "3840 × 2160 · HDR10"], ["Refresh", "120", "Hz"], ["Worst 100 ms", "12", "of 12 refreshes"], ["Picture", "Low delay"], ["Panel delay, reported", "15.8", "ms"]];
+  const sessions = {
+    clean: {
+      frame: "assets/1551360/frame.jpg", fps: "120", hz: "120", seed: 7, noise: 0.35, hitches: { 41: 16.8, 88: 12.1 },
+      stream: { state: ["ok", "Good"], rows: [["Source", "GeForce NOW · H.265"], ["Bitrate", "74.2", "Mb/s"], ["Round trip", "11.3", "ms"], ["Jitter", "0.8", "ms"], ["Packet loss", "0.0", "%"]] },
+      timing: { state: ["ok", "Even"], pct: ["8.3", "9.0", "11.2", "16.8"], rows: [["Frame rate", "119.9", "fps"], ["Frames / dropped", "31,204 / 2"], ["Waiting to decode", "1", "frame · 0.6 ms"]] },
+      display: { state: ["ok", "Steady"], rows: display },
+      pad: { state: ["ok", "Even"], rows: [["Pad", "DualShock 4 · Bluetooth"], ["Report rate", "250", "Hz"], ["Report gap p99", "4.9", "ms"], ["Bursts", "None"]] },
+    },
+    rough: {
+      frame: "assets/1091500/frame.jpg", fps: "117", hz: "120", seed: 11, noise: 1.1, hitches: { 9: 16.7, 30: 25.0, 31: 2.1, 55: 41.7, 56: 0.9, 79: 16.6, 101: 20.4 },
+      stream: { state: ["warn", "Losing packets"], rows: [["Source", "BEAST-PC · Sunshine · H.265"], ["Bitrate", "48.6", "Mb/s"], ["Round trip", "6.4", "ms"], ["Jitter", "3.9", "ms"], ["Packet loss", "1.4", "%"], ["Host encode, reported", "5.2", "ms"]] },
+      timing: { state: ["warn", "Uneven"], pct: ["8.4", "12.9", "24.6", "41.7"], rows: [["Frame rate", "116.8", "fps"], ["Frames / dropped", "18,433 / 37"], ["Why dropped", "29 late · 8 queue full"], ["Waiting to decode", "3", "frames · 2.1 ms"]] },
+      display: { state: ["ok", "Steady"], rows: display },
+      pad: { state: ["warn", "Bursty"], rows: [["Pad", "Xbox Wireless · Bluetooth"], ["Report rate", "125", "Hz"], ["Report gap p99", "22.4", "ms"], ["Bursts", "6", "after 22 ms gaps"]] },
+    },
+  };
+  const s = sessions[rough ? "rough" : "clean"];
+
+  // Arrival intervals, then the longest of each slot's four: a slot is about 33 ms at 120 fps.
+  function intervals(n, seed, noise, hitches) {
+    let a = seed;
+    const r = () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    return Array.from({ length: n }, (_, i) => hitches[i] ?? Math.max(...Array.from({ length: 4 }, () => target + (r() - 0.5) * 2 * noise)));
+  }
+
+  // A slot rises from the target line for a late frame and dips under it for an early one; past one
+  // and a half targets it is drawn in full ink. The rise covers two targets, the dip one. A slot
+  // within a pixel of the target draws nothing, so a smooth stream is a quiet line.
+  function spark(height, line, values) {
+    const bars = values.map((v, i) => {
+      const late = v > target * 1.5;
+      const rise = v >= target;
+      const raw = rise ? Math.min(1, (v - target) / (2 * target)) * line : Math.min(1, (target - v) / target) * (height - line);
+      if (raw < 1) return "";
+      const h = Math.max(2, Math.round(raw));
+      const top = rise ? line - h + 1 : line;
+      return `<i${late ? ' class="late"' : ""} style="left:${i * 4}px;top:${top}px;height:${h}px"></i>`;
+    });
+    return `<span class="spark" style="width:${values.length * 4 - 1}px;height:${height}px"><i class="target" style="top:${line}px"></i>${bars.join("")}</span>`;
+  }
+
+  const sep = `<i class="sep"></i>`;
+  function compact() {
+    const h = Math.round(24 * scale);
+    return `<aside class="hud hud-pill on-stage">
+      <span class="fig"><b>${s.fps}</b>fps</span>${sep}<span class="fig"><b>${s.hz}</b>Hz</span>
+      ${spark(h, Math.round(h * 2 / 3), intervals(110, s.seed, s.noise, s.hitches).slice(-28))}
+    </aside>`;
+  }
+
+  const rows = (list) => `<dl class="hud-rows">${list.map(([k, v, unit]) => `<div><dt>${esc(k)}</dt><dd><b>${esc(v)}</b>${unit ? ` ${esc(unit)}` : ""}</dd></div>`).join("")}</dl>`;
+  const head = (name, [tone, word]) => `<div class="hud-head"><h3>${esc(name)}</h3><span class="hud-state"><i class="dot ${tone}"></i>${esc(word)}</span></div>`;
+  function panel() {
+    const col = 440 * scale;
+    // The target's value labels the line at its right end; the slots stop short of it.
+    const slots = Math.floor((col - 88 * scale + 1) / 4);
+    const pct = ["p50", "p95", "p99", "max"].map((k, i) => `<span>${k}</span><span><b>${s.timing.pct[i]}</b> ms</span>`).join("");
+    // Timing on the left, the links on the right: frames and controller reports, then the network and
+    // the panel. The two columns come out within a few rows of each other.
+    return `<aside class="hud hud-panel on-stage" style="--hud-col:${col}px">
+      <div class="hud-col">
+        <section class="hud-group">${head("Frame timing", s.timing.state)}
+          <div class="hud-graph">${spark(72, 48, intervals(slots, s.seed, s.noise, s.hitches))}<span class="hud-target" style="top:48px">${target.toFixed(1)} ms</span></div>
+          <div class="hud-pct">${pct}</div>${rows(s.timing.rows)}</section>
+        <section class="hud-group">${head("Controller", s.pad.state)}${rows(s.pad.rows)}</section>
+      </div>
+      <div class="hud-col">
+        <section class="hud-group">${head("Stream", s.stream.state)}${rows(s.stream.rows)}</section>
+        <section class="hud-group">${head("Display", s.display.state)}${rows(s.display.rows)}</section>
+      </div>
+    </aside>`;
+  }
+
+  document.querySelector(".screen").innerHTML = `<img class="game-frame" src="${s.frame}" alt="">` + (full ? panel() : compact());
+  Kit.ready();
+</script>
+</body>
+</html>

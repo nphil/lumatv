@@ -26,10 +26,12 @@
       <div class="actions">
         <span class="btn primary${confirm ? "" : " is-focused"}">${ic("play", "fill")}<span>Resume</span></span>
         <span class="btn">${ic("sliders-horizontal")}<span>Stream settings</span></span>
+        <span class="btn">${ic("gauge")}<span>Stats · Compact</span></span>
         <span class="btn danger">${ic("power")}<span>End session</span></span>
       </div>
     </section>`;
-  const cornerHints = `<div class="corner-hints on-stage">${hints([["key-back", "Resume"]])}</div>`;
+  // Menu, or Y on a pad, steps the stats overlay through Off, Compact and Full from anywhere in the menu.
+  const cornerHints = `<div class="corner-hints on-stage">${hints([["key-menu", "Stats"], ["key-back", "Resume"]])}</div>`;
   const dialog = `
     <div class="scrim hides"></div>
     <div class="sheet-wrap"><section class="sheet dialog mid">

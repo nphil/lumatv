@@ -40,3 +40,15 @@ for m in "${media[@]}"; do
   [ -s "$out" ] && continue
   curl -fsSL --retry 2 -o "$out" "$url" || { rm -f "$out"; echo "missing: media/$name" >&2; }
 done
+
+# Full-size game frames behind the stats overlay mock: a bright one (Forza Horizon 5) and a dark one (Cyberpunk 2077).
+frames=(
+  "1551360 $store/1551360/ss_00f0090174380eeaf8753bd3d1028b6772c3aebf.1920x1080.jpg"
+  "1091500 $store/1091500/f678ed77c2fe7060ac9c64e32e1472e3ec3ab7dc/ss_f678ed77c2fe7060ac9c64e32e1472e3ec3ab7dc.1920x1080.jpg"
+)
+for f in "${frames[@]}"; do
+  read -r app url <<<"$f"
+  out="assets/$app/frame.jpg"
+  [ -s "$out" ] && continue
+  curl -fsSL --retry 2 -o "$out" "$url" || { rm -f "$out"; echo "missing: $app/frame.jpg" >&2; }
+done

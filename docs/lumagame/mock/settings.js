@@ -59,7 +59,7 @@
       row("Codec", seg(["Automatic", "HEVC", "AV1", "H.264"], "Automatic")) +
       group("Playing") +
       row("Preferred way to play", stepper("GeForce NOW"), { focus: f === "preferred" }) +
-      row("Show stats while playing", toggle(false)),
+      row("Stats while playing", seg(["Off", "Compact", "Full"], "Off")),
     // One row per plugin; each opens its own page, where it is switched on and connected.
     integrations: (f) =>
       group("Cloud") +
