@@ -116,6 +116,19 @@ impl Native {
                     self.apps = apps.iter().filter(|app| app.id != super::store::APP_ID && !app.title.is_empty() && ExternalId::new(ExternalId::WEBOS, &app.id).is_ok()).cloned().collect();
                     self.apps.sort_by(|a, b| a.title.cmp(&b.title).then(a.id.cmp(&b.id)));
                     self.apps.dedup_by(|a, b| a.id == b.id);
+                    // Freeze this ordering until discovery runs again, so toggling never moves the focused row.
+                    let mut left = 0;
+                    let mut right = self.apps.len();
+                    while left < right {
+                        if self.settings.get(&setting(&self.apps[left].id)) == Some(&Value::Bool(true)) {
+                            left += 1;
+                        } else {
+                            right -= 1;
+                            self.apps.swap(left, right);
+                        }
+                    }
+                    self.apps[..left].sort_unstable_by(|a, b| a.title.cmp(&b.title).then(a.id.cmp(&b.id)));
+                    self.apps[left..].sort_unstable_by(|a, b| a.title.cmp(&b.title).then(a.id.cmp(&b.id)));
                     self.page = self.page.min(self.apps.len().saturating_sub(1) / PAGE);
                     self.ready(None);
                 } else { self.error(*seq, ErrorCode::Internal, message); }
@@ -195,6 +208,31 @@ impl Engine for Native {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discovery_places_saved_apps_first_without_changing_selection_or_reordering_on_toggle() {
+        let mut engine = Native::new(true);
+        let chosen = setting("com.example.app082");
+        engine.settings.insert(chosen.clone(), Value::Bool(true));
+        engine.settings.insert(setting("com.example.app100"), Value::Bool(true));
+        let saved = engine.settings.clone();
+        let apps: Vec<_> = (0..143).map(|i| InstalledApp {
+            id: format!("com.example.app{i:03}"), title: format!("App {i:03}"), icon: None,
+        }).collect();
+        engine.list_apps();
+        let FromApp::Apps { seq } = engine.command().unwrap() else { panic!() };
+        engine.lifecycle(&ToApp::Apps { seq, apps, success: true, message: String::new() });
+        assert_eq!(engine.settings, saved);
+        assert_eq!(engine.apps[0].id, "com.example.app082");
+        assert_eq!(engine.apps[1].id, "com.example.app100");
+        assert_eq!(engine.apps[2].id, "com.example.app000");
+        assert_eq!(engine.apps[83].id, "com.example.app081");
+        assert_eq!(engine.apps[84].id, "com.example.app083");
+        let before: Vec<_> = engine.apps.iter().map(|app| app.id.clone()).collect();
+        engine.send(ToEngine { seq: 4, request: Request::Settings { values: Values::new() } });
+        assert_eq!(engine.apps.iter().map(|app| &app.id).collect::<Vec<_>>(), before.iter().collect::<Vec<_>>());
+        assert!(engine.library().is_empty());
+    }
 
     #[test]
     fn only_selected_apps_launch_and_only_foreground_starts_playtime() {

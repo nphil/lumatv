@@ -2154,6 +2154,17 @@ impl Model {
                     Self::send(out, &id, Request::Settings { values: saved.settings.clone() });
                 }
                 let auth = descriptor.capabilities.auth.first().copied();
+                if self.view.page == Page::Integration && self.view.selected_engine.as_ref() == Some(&id) {
+                    if let Focus::EngineField(index) = self.view.focus {
+                        let new_index = self.integration(&id).and_then(|e| e.schema.fields().nth(index))
+                            .and_then(|old| schema.fields().position(|field| field.key == old.key && field.kind != FieldKind::Note));
+                        let focus = new_index.map_or(Focus::Nav(3), Focus::EngineField);
+                        if focus != self.view.focus {
+                            self.view.focus = focus;
+                            self.pressed = None;
+                        }
+                    }
+                }
                 if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
                     e.descriptor = Some(descriptor);
                     e.schema = schema;
@@ -2655,6 +2666,49 @@ pub(crate) mod tests {
         assert_eq!(deliver(&mut m, ipc::Event::Library { target: target.id.clone(), entries: vec![], next: None }), 0);
         assert_eq!(deliver(&mut m, ipc::Event::Targets { targets: vec![target] }), 1);
     }
+    #[test]
+    fn integration_schema_updates_keep_focus_on_the_same_field_or_a_safe_control() {
+        let id = EngineId::new("native").unwrap();
+        let mut m = Model::new(State::default(), Listing::default(), vec![
+            manifest("native", "This TV", EngineKind::Native), manifest("other", "Other", EngineKind::Native),
+        ]);
+        describe(&mut m, "native", vec![], &[]);
+        describe(&mut m, "other", vec![], &[]);
+        let schema = |keys: &[&str]| SettingsSchema { sections: vec![lumagame_core::settings::Section {
+            title: "Apps".into(),
+            fields: keys.iter().map(|key| lumagame_core::settings::Field {
+                key: (*key).into(), label: (*key).into(), help: None, kind: FieldKind::Toggle { default: false },
+            }).collect(),
+        }] };
+        m.integrations[0].schema = schema(&["first", "proof", "third"]);
+        m.view.page = Page::Integration;
+        m.view.selected_engine = Some(id.clone());
+        m.view.focus = Focus::EngineField(1);
+        m.rebuild_navigation();
+        key(&mut m, Key::Ok);
+        key(&mut m, Key::Ok);
+        assert_eq!(m.state.engines[&id].settings.get("proof"), Some(&Value::Bool(false)));
+        assert!(!m.state.engines[&id].settings.contains_key("first"));
+        let descriptor = m.integrations[0].descriptor.clone().unwrap();
+        let other = EngineId::new("other").unwrap();
+        let other_descriptor = m.integration(&other).unwrap().descriptor.clone().unwrap();
+        m.step(Input::Engine { engine: other, message: FromEngine { re: None,
+            event: ipc::Event::Ready { descriptor: other_descriptor, schema: schema(&["unrelated"]) } } });
+        assert_eq!(m.view.focus, Focus::EngineField(1), "a background integration cannot move focus");
+        m.step(Input::Key { key: Key::Ok, down: true });
+        m.step(Input::Engine { engine: id.clone(), message: FromEngine { re: None,
+            event: ipc::Event::Ready { descriptor: descriptor.clone(), schema: schema(&["proof", "first", "third"]) } } });
+        assert_eq!(m.view.focus, Focus::EngineField(0));
+        m.step(Input::Key { key: Key::Ok, down: false });
+        assert_eq!(m.state.engines[&id].settings.get("proof"), Some(&Value::Bool(false)), "a held press is cancelled across a reorder");
+        key(&mut m, Key::Ok);
+        assert_eq!(m.state.engines[&id].settings.get("proof"), Some(&Value::Bool(true)));
+        m.step(Input::Engine { engine: id.clone(), message: FromEngine { re: None,
+            event: ipc::Event::Ready { descriptor, schema: schema(&["first", "third"]) } } });
+        assert_eq!(m.view.focus, Focus::Nav(3), "a missing or off-page app must not focus another app or switch");
+        assert!(!m.state.engines[&id].settings.contains_key("first"));
+    }
+
     #[test]
     fn this_tv_selection_and_discovery_refresh_the_visible_library() {
         use crate::game::native::{self, Native};
