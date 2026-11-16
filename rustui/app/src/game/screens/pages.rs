@@ -215,28 +215,39 @@ pub fn home(p: &mut Paint<'_>) {
             _ => None,
         };
         let first = focused.map_or(0, |i| i.saturating_sub(m.prefs.covers.columns() - 2));
-        let mut x = p.x;
-        for (i, item) in row.items.iter().enumerate().skip(first) {
+        let width_of = |item: &HomeItem| match item {
+            HomeItem::Game(_) => m.prefs.covers.cover_width(),
+            HomeItem::Collection(_) => 448.0,
+            HomeItem::Genre(_) => 336.0,
+        };
+        // One tile before the first shown and one past the edge stay in the plan, so a step slides a tile in or out of view and never
+        // makes or drops one in place. The one before is cut at the edge inset, so it never shows in the margin.
+        let from = first.saturating_sub(1);
+        let mut x = p.x - if from < first { width_of(&row.items[from]) + p.gap } else { 0.0 };
+        let mut past = false;
+        for (i, item) in row.items.iter().enumerate().skip(from) {
             if x > W {
-                break;
+                if past {
+                    break;
+                }
+                past = true;
             }
+            let (start, hits) = (p.plan.nodes.len(), p.plan.hits.len());
             let id = 220 + row_index as u64 * 2000 + i as u64 * 20;
             let f = Focus::Home(row_index, i);
-            let width = match item {
-                HomeItem::Game(id_game) => {
-                    cover(p, id, *id_game, f, x, y, m.prefs.covers.cover_width());
-                    m.prefs.covers.cover_width()
+            match item {
+                HomeItem::Game(id_game) => cover(p, id, *id_game, f, x, y, width_of(item)),
+                HomeItem::Collection(index) => collection(p, id, *index, f, x, y),
+                HomeItem::Genre(name) => genre(p, id, name, f, x, y),
+            }
+            if i < first {
+                for node in &mut p.plan.nodes[start..] {
+                    node.props.clip = Some(compositor_protocol::Rect { x: p.x - p.gap, y: 0.0, w: W, h: H });
                 }
-                HomeItem::Collection(index) => {
-                    collection(p, id, *index, f, x, y);
-                    448.0
-                }
-                HomeItem::Genre(name) => {
-                    genre(p, id, name, f, x, y);
-                    336.0
-                }
-            };
-            x += width + p.gap;
+                // Not on screen, so not a target for the pointer.
+                p.plan.hits.truncate(hits);
+            }
+            x += width_of(item) + p.gap;
         }
         let collection = matches!(row.items.first(), Some(HomeItem::Collection(_) | HomeItem::Genre(_)));
         y += if collection { 252.0 } else { m.prefs.covers.cover_width() * 1.5 };
@@ -398,7 +409,7 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
                 );
                 p.hit(Focus::Filter(i), f);
                 if p.focused(Focus::Filter(i)) {
-                    p.land(102 + i as u64 * 4, f, p.ink(Role::Ink, false), 24.0, 8.0, 12);
+                    p.zoom(2);
                 }
             }
             x += f.w + 12.0;

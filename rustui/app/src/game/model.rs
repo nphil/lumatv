@@ -2269,7 +2269,8 @@ impl Model {
                     } else {
                         0
                     };
-                    for item in row.items.iter().skip(first).take(self.prefs.covers.columns() + 1) {
+                    // One tile past the last shown, which `pages::home` keeps just off screen so that it slides in with its cover.
+                    for item in row.items.iter().skip(first).take(self.prefs.covers.columns() + 2) {
                         match item {
                             HomeItem::Game(id) => ids.push(*id),
                             HomeItem::Collection(index) => {

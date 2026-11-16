@@ -268,7 +268,13 @@ impl GameUi {
                     Layer::Image(layer)
                 }
             };
-            layer.set(node.props, false, 0);
+            // A cover whose art arrives after its tile is shown fades in rather than popping; the stage art (below 100) is not a tile.
+            if !reduced && node.id >= 100 && matches!(node.body, Body::Image(_)) {
+                layer.set(Props { opacity: 0.0, ..node.props }, false, 0);
+                layer.set(node.props, true, self.tokens.motion.focus_ms);
+            } else {
+                layer.set(node.props, false, 0);
+            }
             self.nodes.insert(node.id, Kept { node, layer });
             return Ok(());
         }
@@ -288,10 +294,11 @@ impl GameUi {
             }
         }
         if kept.node.props != node.props {
+            // A carousel steps one tile (at most a collection card and its gutter) sideways; every retained tile glides with it.
             let animate = !reduced
                 && (scrolled || !paint::LIVE.contains(&node.id))
                 && (kept.node.props.scale != node.props.scale
-                    || (kept.node.props.x - node.props.x).abs() < 100.0 && (kept.node.props.y - node.props.y).abs() < 100.0);
+                    || (kept.node.props.x - node.props.x).abs() < 480.0 && (kept.node.props.y - node.props.y).abs() < 100.0);
             kept.layer.set(node.props, animate, self.tokens.motion.focus_ms);
         }
         kept.node = node;

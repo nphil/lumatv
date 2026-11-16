@@ -117,7 +117,7 @@ impl Shots {
             }
             std::thread::sleep(Duration::from_millis(2));
         }
-        for _ in 0..14 {
+        for _ in 0..20 {
             self.frame()?;
             self.page.show(model)?;
         }
@@ -291,7 +291,12 @@ fn screens() -> Vec<(String, Model)> {
     add("01-home-light", m);
     let mut m = base.clone();
     m.view.focus = Focus::Hero(0);
-    add("01-home-play-focus", m);
+    add("01-home-play-focus", m.clone());
+    m.prefs.light = true;
+    add("01-home-play-focus-light", m);
+    let mut m = base.clone();
+    m.view.focus = Focus::Hero(1);
+    add("01-home-details-focus", m);
     for (name, row, item) in [("02-home-most-played", 1, 2), ("03-home-genres", 2, 1), ("04-home-native-plate", 3, 2)] {
         let mut m = base.clone();
         m.view.home_row = row;
@@ -871,4 +876,32 @@ fn engine_ready_applies_stream_preferences_once_without_schema_feedback() {
         if values.get("bitrate-mbps") == Some(&lumagame_core::settings::Value::Int(150)))));
     let commands = m.step(Input::Engine { engine: id, message: event });
     assert!(!commands.iter().any(|c| matches!(c, Command::Send { request: ipc::Request::Settings { .. }, .. })));
+}
+
+/// `GAME_MOTION=1`: holds Right across the first Home row, writing the carousel band of every frame to `$CODY_SCRATCH/lumagame-motion`.
+#[test]
+fn carousel_motion_frames() -> io::Result<()> {
+    if std::env::var_os("GAME_MOTION").is_none() {
+        return Ok(());
+    }
+    let scratch = std::env::var_os("CODY_SCRATCH").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let out = scratch.join("lumagame-motion");
+    std::fs::create_dir_all(&out)?;
+    let mut m = fixture();
+    m.prefs.reduce_motion = std::env::var_os("GAME_MOTION_REDUCED").is_some();
+    m.view.focus = Focus::Home(0, 0);
+    m.rebuild_navigation();
+    let mut shots = Shots::new()?;
+    shots.shot(&m)?;
+    let key = if std::env::var("GAME_MOTION").is_ok_and(|v| v == "down") { Key::Down } else { Key::Right };
+    for press in 0..8 {
+        m.step(Input::Key { key, down: true });
+        m.step(Input::Key { key, down: false });
+        for tick in 0..10 {
+            shots.page.show(&m)?;
+            shots.frame()?;
+            png(&out.join(format!("p{press}-f{tick:02}.png")), 1920, 1080, &shots.engine.read_page(0))?;
+        }
+    }
+    Ok(())
 }

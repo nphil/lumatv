@@ -131,7 +131,7 @@ impl<'a> Paint<'a> {
         let side = (30.0 * self.scale).min(48.0);
         self.symbol(id + 1, symbol, Frame::new(x + (h - side) / 2.0, y + (h - side) / 2.0, side, side), self.ink(if selected { Role::Accent } else { Role::Ink }, stage), z + 1);
         if self.focused(focus) {
-            self.land(id + 2, f, self.ink(Role::Ink, stage), 22.0, 8.0, z + 2);
+            self.zoom(2);
         }
         self.hit(focus, f);
     }
@@ -329,6 +329,13 @@ impl<'a> Paint<'a> {
         let h = self.tokens.focus.landing;
         self.solid(id, Frame::new(frame.x + inset, frame.y + frame.h - bottom - h, (frame.w - inset * 2.0).max(1.0), h), colour, h / 2.0, z);
     }
+    /// A focused button's last `layers` nodes grow by the theme's button scale. With reduced motion `GameUi::keep` sets it without
+    /// easing, so the cue stays without the movement.
+    pub fn zoom(&mut self, layers: usize) {
+        for node in self.plan.nodes.iter_mut().rev().take(layers) {
+            node.props.scale = self.tokens.focus.button_scale;
+        }
+    }
     pub fn button(&mut self, id: u64, focus: Focus, label: &str, icon: Option<Icon>, x: f32, y: f32, primary: bool, stage: bool, z: i32) -> f32 {
         let side = 30.0 * self.scale;
         let h = self.tokens.target.max(self.line(TypeRole::Label) + 24.0);
@@ -345,13 +352,7 @@ impl<'a> Paint<'a> {
         let marks = icon.map(|icon| vec![Mark { form: Form::Icon(icon, side as u32), colour: ink, x: 28.0, y: (h - side) / 2.0 }]).unwrap_or_default();
         self.words(id + 1, frame, vec![word], marks, z + 2);
         if focused {
-            self.land(id + 2, frame, ink, 26.0, 8.0, z + 3);
-            if !self.reduced() {
-                for node in self.plan.nodes.iter_mut().rev().take(3) {
-                    node.props.y -= self.tokens.focus.card_lift;
-                    node.props.scale = self.tokens.focus.card_scale;
-                }
-            }
+            self.zoom(2);
         }
         self.hit(focus, frame);
         w
@@ -362,7 +363,7 @@ impl<'a> Paint<'a> {
         self.surface(id, f, Fill::Glass, Radius::Pill, stage, self.focused(focus), true, z);
         self.words(id + 1, f, vec![], vec![self.mark(icon, 30.0, 17.0, 17.0, Role::Ink, stage)], z + 1);
         if self.focused(focus) {
-            self.land(id + 2, f, self.ink(Role::Ink, stage), 22.0, 8.0, z + 2);
+            self.zoom(2);
         }
         self.hit(focus, f);
     }
@@ -531,5 +532,27 @@ mod tests {
         assert_eq!(status_of(Readiness::Install, Some(&online), true).0, "Install", "a checked answer wins");
         assert_eq!(status_of(Readiness::Unknown, Some(&target(Link::Linked, Reach::Unknown)), true).0, "Unknown");
         assert_eq!(status_of(Readiness::Unknown, None, false).0, "Starting");
+    }
+
+    #[test]
+    fn a_focused_button_zooms_by_the_theme_scale_without_an_underline_even_with_reduced_motion() {
+        use crate::game::model::Model;
+        use lumagame_core::{catalog::Listing, state::State};
+        let host = Tokens::shipped();
+        let tokens = lumatv_tokens::themes::game_tokens("rose-pine", Mode::Dark, &host).unwrap();
+        let mut fonts = ui::Fonts::new();
+        for reduce_motion in [false, true] {
+            let mut m = Model::new(State::default(), Listing::default(), vec![]);
+            m.prefs.reduce_motion = reduce_motion;
+            m.view.focus = Focus::Hero(0);
+            let mut p = Paint::new(&tokens, &m, &mut fonts);
+            p.button(10, Focus::Hero(0), "Play", None, 0.0, 0.0, true, false, 12);
+            p.button(20, Focus::Hero(1), "Details", None, 300.0, 0.0, false, false, 12);
+            p.icon_button(30, Focus::HubTop(0), Icon::Back, 600.0, 0.0, false, 12);
+            let scales = |range: std::ops::Range<u64>| p.plan.nodes.iter().filter(|n| range.contains(&n.id)).map(|n| n.props.scale).collect::<Vec<_>>();
+            assert_eq!(scales(10..20), [tokens.focus.button_scale; 2], "reduced motion {reduce_motion}");
+            assert_eq!(scales(20..40), [1.0; 4]);
+            assert_eq!(p.plan.nodes.len(), 6, "no underline layer");
+        }
     }
 }

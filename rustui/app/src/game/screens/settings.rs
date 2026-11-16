@@ -138,7 +138,7 @@ fn appearance(p: &mut Paint<'_>, x: f32, w: f32) {
         Control::Segments(&["100%", "150%", "200%"], usize::from((m.prefs.text_percent - 100) / 50)),
         Frame::new(x, y, w, 0.0),
     );
-    row(p, 450, Focus::Setting(5), "Reduce motion", Some("No lift, zoom or fades"), Control::Toggle(m.prefs.reduce_motion), Frame::new(x, y, w, 0.0));
+    row(p, 450, Focus::Setting(5), "Reduce motion", Some("Focus changes at once, with no lift or fades"), Control::Toggle(m.prefs.reduce_motion), Frame::new(x, y, w, 0.0));
 }
 pub(super) enum Control<'a> {
     Value(&'a str),
