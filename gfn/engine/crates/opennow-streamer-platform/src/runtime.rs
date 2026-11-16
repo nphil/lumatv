@@ -82,6 +82,13 @@ pub fn controller_rumble(controller_id: u8, low_frequency: u16, high_frequency: 
     rt.pads.rumble(controller_id, low_frequency, high_frequency, duration_ms)
 }
 
+/// The streamer's `telemetry` event, forwarded to the engine's side socket (the binary calls this before writing the event out).
+pub fn stream_telemetry(telemetry: &serde_json::Value) {
+    if let Some(rt) = RUNTIME.get() {
+        rt.pads.stream_telemetry(telemetry);
+    }
+}
+
 #[derive(Clone)]
 pub struct MediaRuntime {
     inner: Arc<RuntimeInner>,

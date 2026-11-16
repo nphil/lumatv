@@ -31,6 +31,20 @@ impl Bridge {
             let _ = sock.send_to(line.as_bytes(), path);   /* nobody listening is normal before the UI opens */
         }
     }
+
+    /// The streamer's once-a-second telemetry, for the engine's statistics. The core keeps only the frame rate and bitrate of it, so
+    /// the transport's ping, RTP interarrival jitter (ms) and cumulative packet loss (%) go to the engine here, as measured. Only while a
+    /// session is live; a field the streamer had no reading for stays null.
+    fn stream(&self, telemetry: &serde_json::Value) {
+        if self.active.load(Ordering::Acquire) {
+            self.aside(stream_line(telemetry));
+        }
+    }
+}
+
+fn stream_line(t: &serde_json::Value) -> String {
+    serde_json::json!({"stream":"telemetry", "fps":t["framesPerSecond"], "bitrate_mbps":t["bitrateMbps"], "ping_ms":t["pingMs"],
+        "jitter_ms":t["jitterMs"], "loss_pct":t["packetLossPercent"]}).to_string()
 }
 
 fn gamepad(slot: u8, bitmap: u16, s: PadState) -> CapturedInput {
@@ -220,6 +234,10 @@ impl PadBridge {
         }
     }
 
+    pub fn stream_telemetry(&self, telemetry: &serde_json::Value) {
+        self.bridge.stream(telemetry);
+    }
+
     pub fn set_paused(&self, paused: bool) {
         self.bridge.paused.store(paused, Ordering::Release);
     }
@@ -337,6 +355,27 @@ mod tests {
         app.send(&[0]).unwrap();
         b.raw(0,&report(500_000_001));
         assert_eq!(b.timing.lock().unwrap()[0].timing.summary(500_000_001).reports,0);
+    }
+
+    #[test]
+    fn stream_telemetry_reaches_the_side_socket_only_while_a_session_is_live() {
+        let dir = std::env::temp_dir().join(format!("gfn-stream-side-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pad.sock");
+        let app = UnixDatagram::bind(&path).unwrap();
+        app.set_nonblocking(true).unwrap();
+        let side = UnixDatagram::unbound().unwrap();
+        let b = Bridge { queue: Arc::new(CapturedInputQueue::default()), active: AtomicBool::new(false), paused: AtomicBool::new(false), side: Some((side, path)), timing: Mutex::new(std::array::from_fn(|_| TimedPad::default())), stats: AtomicBool::new(false), stats_due: AtomicU64::new(0) };
+        let telemetry = serde_json::json!({"type":"telemetry","framesPerSecond":119.5,"bitrateMbps":80.0,"pingMs":7.25,"jitterMs":0.5,"packetLossPercent":null,"decodeTimeMs":0.0});
+        b.stream(&telemetry);
+        let mut buf = [0u8; 512];
+        assert!(app.recv(&mut buf).is_err(), "nothing is sent before the session is live");
+        b.active.store(true, Ordering::Release);
+        b.stream(&telemetry);
+        let n = app.recv(&mut buf).unwrap();
+        let line: serde_json::Value = serde_json::from_slice(&buf[..n]).unwrap();
+        assert_eq!(line, serde_json::json!({"stream":"telemetry","fps":119.5,"bitrate_mbps":80.0,"ping_ms":7.25,"jitter_ms":0.5,"loss_pct":null}));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

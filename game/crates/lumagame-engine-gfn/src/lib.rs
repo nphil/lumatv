@@ -250,9 +250,10 @@ impl Adapter {
     fn matches_target(&self, target: &TargetId) -> bool { self.target.as_ref().is_some_and(|t| &t.id == target) }
     fn targets(&mut self, seq: Option<u64>) { self.emit(seq,Event::Targets { targets:self.target.iter().cloned().collect() }); }
     /// One datagram from the streamer's pad bridge (`LUMATV_GFN_PAD_SIDE`). The PS button asks for the overlay, as it does on every
-    /// engine; while the overlay has the pads their reports become its menu keys.
+    /// engine; while the overlay has the pads their reports become its menu keys. The streamer's own telemetry arrives the same way.
     pub fn pad_line(&mut self, line: &str) {
         let Ok(v) = serde_json::from_str::<Value>(line) else { return };
+        if v["stream"] == "telemetry" { self.telemetry(&v); return; }
         let Some(l) = self.launch.as_mut().filter(|l| l.running && !l.stopping) else { return };
         let session = l.id;
         match v["pad"].as_str() {
@@ -588,7 +589,6 @@ impl Adapter {
                 if let Some(l) = &mut self.launch {
                     if !l.stopping { l.running = true; self.running(); }
                 }
-                self.stats(r);
             }
             Purpose::RetryStop => {
                 if let Some(l) = &mut self.launch { l.retry_stopping = false; }
@@ -733,21 +733,19 @@ impl Adapter {
         }
         self.session(SessionState::Running { stream:Some(p) });
     }
-    fn stats(&mut self, r: &Value) {
-        let float = |key| r[key].as_f64().filter(|n| n.is_finite()).map(|n| n as f32);
-        let Some(l) = self.launch.as_mut().filter(|l| l.running) else { return; };
-        let trip = &mut l.trip;
-        trip.network_ms = float("roundTripTimeMs").or(trip.network_ms);
-        trip.host_ms = float("hostProcessingLatencyMs").or(trip.host_ms);
-        trip.client_ms = float("decodeLatencyMs").or(trip.client_ms);
+    /// The streamer's once-a-second telemetry, forwarded by its pad bridge (the core keeps only three of these numbers, and announces
+    /// the streamer only as it starts and stops). `ping_ms` is the transport's own ping to the stream server (an ICE or stream ping),
+    /// a measured round trip; `decodeTimeMs` is not forwarded because the feeder platform reports no decode time (always 0).
+    fn telemetry(&mut self, v: &Value) {
+        let float = |key| v[key].as_f64().filter(|n| n.is_finite()).map(|n| n as f32);
+        let Some(l) = self.launch.as_mut().filter(|l| l.running && !l.stopping) else { return; };
+        l.trip.network_ms = float("ping_ms").or(l.trip.network_ms);
         if !l.stats { return; }
         let session = l.id;
-        let bitrate_kbps = r["bitrateMbps"].as_f64().filter(|n| n.is_finite() && *n >= 0.0).map(|n| (n*1000.0).round() as u32);
+        let bitrate_kbps = v["bitrate_mbps"].as_f64().filter(|n| n.is_finite() && *n >= 0.0).map(|n| (n*1000.0).round() as u32);
         let pad = l.pad.as_ref().map(|(stats, at)| PadStats { age_ms: stats.age_ms.saturating_add(self.now.saturating_sub(*at)), ..stats.clone() });
         self.emit(None,Event::Stats { session,stats:Stats {
-            fps:float("framesPerSecond"),bitrate_kbps,dropped:r["queueDropCount"].as_u64(),
-            rtt_ms:float("roundTripTimeMs"),jitter_ms:float("jitterMs"),loss_pct:float("packetLossPercent"),
-            client_ms:float("decodeLatencyMs"),host_ms:float("hostProcessingLatencyMs"),pad,
+            fps:float("fps"),bitrate_kbps,rtt_ms:float("ping_ms"),jitter_ms:float("jitter_ms"),loss_pct:float("loss_pct"),pad,..Stats::default()
         } });
     }
     fn event(&mut self, name: &str, payload: &Value) {
@@ -756,12 +754,12 @@ impl Adapter {
             "streamer.changed" => {
                 let Some(l) = &self.launch else { return; };
                 if l.stopping || l.retry_stopping { return; }
-                let status = payload["status"].as_str().unwrap_or("");
+                let status = payload["streamer"]["status"].as_str().unwrap_or("");
                 if l.running && matches!(status,"error"|"stopped"|"exited") {
                     let state = if status == "error" {SessionState::Failed { reason:FailReason::Video,message:"The stream stopped unexpectedly".into() }} else {SessionState::Ended { reason:EndReason::Remote }};
                     self.finish(state);
                     self.enqueue("streamer.stop",json!({"reason":"the stream ended"}),Purpose::Pause,None);
-                } else { self.stats(payload); }
+                }
             }
             "auth.session.changed" => {
                 if payload["generation"].as_u64() < self.scope["generation"].as_u64() { return; }

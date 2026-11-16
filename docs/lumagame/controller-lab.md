@@ -61,12 +61,13 @@ An engine with the `round-trip` feature answers `{"type":"round-trip","session":
 | Field | Meaning | GFN | Punktfunk | `gamestream` could use |
 | --- | --- | --- | --- | --- |
 | `presses`, `press_p50_ms`, `press_p99_ms` | Kernel stamp of a press until it leaves the TV, over the pad crate's window | The streamer's `latency` pad line, `send` stage (`handoff` when it has no send stamp) | Until `send_input` returns | The pad crate's `PadSink::latency`, which it already runs every second |
-| `network_ms` | Network round trip | `roundTripTimeMs` (WebRTC) | QUIC RTT | `LiGetEstimatedRttInfo` (ENet) |
-| `host_ms` | Host capture and encode | `hostProcessingLatencyMs` | The host's per-frame timing | `frameHostProcessingLatency` from each decode unit |
+| `network_ms` | Network round trip | The transport's own ping to the stream server (`pingMs`: an ICE or stream ping, measured, absent until it has a sample) | QUIC RTT | `LiGetEstimatedRttInfo` (ENet) |
+| `host_ms` | Host capture and encode | — (the streamer reports none) | The host's per-frame timing | `frameHostProcessingLatency` from each decode unit |
 | `arrival_p50_ms`, `arrival_p95_ms` | Host capture until the frame arrived | — | Capture to received, only once a clock offset to the host is measured | — |
-| `client_ms` | Client-side hand-off reported by the engine, not panel latency | `decodeLatencyMs` | Mean receive-to-decoded time | Its decode-unit time |
+| `client_ms` | Client-side hand-off reported by the engine, not panel latency | — (the streamer's `decodeTimeMs` is always 0 on the TV, so it is not forwarded) | Mean receive-to-decoded time | Its decode-unit time |
 
-GFN keeps the legs from every `streamer.changed`, whether or not stats are on. Punktfunk measures them only while stats are on,
+GFN keeps `network_ms` from each telemetry second the streamer forwards to the engine, whether or not stats are on. The same forward feeds
+the game stats overlay (frame rate, bitrate, ping, jitter, loss) while it is on. Punktfunk measures the legs only while stats are on,
 which they are while the overlay is open.
 
 An engine without the feature gets no request, and the lab says the engine does not support it. An engine built before the

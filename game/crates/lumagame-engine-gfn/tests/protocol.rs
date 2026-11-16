@@ -56,9 +56,13 @@ impl FakeCore {
         assert_eq!(request["method"],method,"{request}");
         request
     }
+    /// The core answers and announces the streamer as `{"streamer": {...}}`.
+    fn core_shape(method:&str, value:Value) -> Value {
+        if matches!(method,"streamer.start"|"streamer.stop"|"streamer.status.get"|"streamer.changed") {json!({"streamer":value})} else {value}
+    }
     fn reply(&mut self, method:&str, result:Value) -> Value {
         let request = self.next(method);
-        self.adapter.core_line(&json!({"type":"response","id":request["id"],"ok":true,"result":result}).to_string());
+        self.adapter.core_line(&json!({"type":"response","id":request["id"],"ok":true,"result":Self::core_shape(method,result)}).to_string());
         request
     }
     fn reject(&mut self, method:&str, code:&str) {
@@ -74,7 +78,7 @@ impl FakeCore {
     }
     fn send(&mut self, seq:u64, request:Request) {self.adapter.request(ToEngine{seq,request});self.collect();}
     fn event(&mut self, name:&str, payload:Value) {
-        self.adapter.core_line(&json!({"type":"event","name":name,"payload":payload}).to_string());
+        self.adapter.core_line(&json!({"type":"event","name":name,"payload":Self::core_shape(name,payload)}).to_string());
         self.collect();
     }
     fn target(&mut self) -> TargetId {
@@ -145,9 +149,10 @@ fn launch_ack_queue_start_running_stats_and_remote_end() {
         "hdrDowngrade":"game-unsupported","negotiatedStreamProfile":{"codec":"h265","enableHdr":false,"resolution":"3840x2160","fps":120}}));
     f.reply("streamer.start",json!({"status":"running"}));
     f.send(21,Request::Stats{session:SessionId(9),on:true,pad_timing:false});
-    f.event("streamer.changed",json!({"status":"running","framesPerSecond":119.8,"bitrateMbps":78.5,"queueDropCount":2}));
+    f.adapter.pad_line(&json!({"stream":"telemetry","fps":119.8,"bitrate_mbps":78.5,"ping_ms":21.5,"jitter_ms":0.2,"loss_pct":0.1}).to_string());
     f.collect();
-    assert!(f.events.iter().any(|e| matches!(&e.event,Event::Stats{stats,..} if stats.bitrate_kbps==Some(78500) && stats.fps==Some(119.8))));
+    assert!(f.events.iter().any(|e| matches!(&e.event,Event::Stats{stats,..} if stats.bitrate_kbps==Some(78500) && stats.fps==Some(119.8)
+        && stats.rtt_ms==Some(21.5) && stats.jitter_ms==Some(0.2) && stats.loss_pct==Some(0.1))));
     f.event("session.changed",json!({"sessionId":"seat","status":7,"phase":"finished"}));
     let states=f.session_states();
     assert!(matches!(states[0],SessionState::Checking));
@@ -192,13 +197,13 @@ fn pad_timing_is_opt_in_and_ages_with_the_kernel_report() {
     assert!(f.adapter.pad_stats_on());
     f.adapter.pad_line(&json!({"pad":"timing","name":"DualShock 4","reports":125,"rate_hz":250.0,"p99_us":4000,"bursts":0,"burst_gap_us":0,"age_ms":4}).to_string());
     f.adapter.tick(1000);
-    f.event("streamer.changed",json!({"status":"running","framesPerSecond":120}));
+    f.adapter.pad_line(&json!({"stream":"telemetry","fps":120}).to_string());f.collect();
     let pad=f.events.iter().rev().find_map(|e| match &e.event {Event::Stats{stats,..}=>stats.pad.as_ref(),_=>None}).unwrap();
     assert_eq!((pad.name.as_str(),pad.p99_us,pad.age_ms),("DualShock 4",4000,1004));
     f.send(23,Request::Stats{session:SessionId(9),on:true,pad_timing:false});
     assert!(!f.adapter.pad_stats_on());
     f.adapter.pad_line(&json!({"pad":"timing","name":"late report","reports":1,"rate_hz":250.0,"p99_us":4000,"bursts":0,"burst_gap_us":0,"age_ms":0}).to_string());
-    f.event("streamer.changed",json!({"status":"running","framesPerSecond":120}));
+    f.adapter.pad_line(&json!({"stream":"telemetry","fps":120}).to_string());f.collect();
     assert!(f.events.iter().rev().find_map(|e| match &e.event {Event::Stats{stats,..}=>Some(stats.pad.is_none()),_=>None}).unwrap());
     f.send(24,Request::Stats{session:SessionId(9),on:false,pad_timing:true});
     assert!(!f.adapter.pad_stats_on());
@@ -213,12 +218,12 @@ fn round_trip_answers_with_the_latest_stream_and_press_legs_once_running() {
     f.send(23,Request::RoundTrip{session:SessionId(9)});
     assert!(f.events.iter().any(|e| e.re==Some(23) && matches!(e.event,Event::Error{code:ErrorCode::BadRequest,..})),"not running yet");
     f.reply("streamer.start",json!({"status":"running"}));
-    f.event("streamer.changed",json!({"status":"running","roundTripTimeMs":21.5,"hostProcessingLatencyMs":6.0}));
-    f.event("streamer.changed",json!({"status":"running"}));
+    f.adapter.pad_line(&json!({"stream":"telemetry","fps":120,"ping_ms":21.5}).to_string());
+    f.adapter.pad_line(&json!({"stream":"telemetry","fps":120}).to_string());
     f.adapter.pad_line(&json!({"pad":"latency","stage":"send","n":14,"p50":420,"p90":800,"p99":1900,"max":2500}).to_string());
     f.send(24,Request::RoundTrip{session:SessionId(9)});
     let trip=f.events.iter().find_map(|e| match &e.event {Event::RoundTrip{trip,..} if e.re==Some(24)=>Some(trip.clone()),_=>None}).unwrap();
-    assert_eq!(trip,RoundTrip{presses:Some(14),press_p50_ms:Some(0.42),press_p99_ms:Some(1.9),network_ms:Some(21.5),host_ms:Some(6.0),..RoundTrip::default()});
+    assert_eq!(trip,RoundTrip{presses:Some(14),press_p50_ms:Some(0.42),press_p99_ms:Some(1.9),network_ms:Some(21.5),..RoundTrip::default()});
 }
 
 #[test]
@@ -333,4 +338,19 @@ fn signout_discards_an_inflight_library_and_old_session_events() {
     f.reply("session.create",json!({"sessionId":"new-seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
     let start=f.reply("streamer.start",json!({"status":"running"}));
     assert_eq!(start["params"]["session"]["sessionId"],"new-seat");
+}
+
+#[test]
+fn stream_numbers_follow_the_stats_request_and_the_core_snapshot_ends_a_dead_stream() {
+    let mut f=FakeCore::new(true);f.launch();
+    f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
+    f.reply("streamer.start",json!({"status":"running"}));
+    let line=json!({"stream":"telemetry","fps":59.9,"bitrate_mbps":40.0,"ping_ms":9.5}).to_string();
+    f.adapter.pad_line(&line);f.collect();
+    assert!(!f.events.iter().any(|e| matches!(e.event,Event::Stats{..})),"nothing is reported while statistics are off");
+    f.send(21,Request::Stats{session:SessionId(9),on:true,pad_timing:false});
+    f.adapter.pad_line(&line);f.collect();
+    assert!(f.events.iter().any(|e| matches!(&e.event,Event::Stats{stats,..} if stats.fps==Some(59.9) && stats.rtt_ms==Some(9.5) && stats.jitter_ms.is_none())));
+    f.event("streamer.changed",json!({"status":"error"}));
+    assert!(matches!(f.session_states().last(),Some(SessionState::Failed{reason:FailReason::Video,..})),"the core's wrapped snapshot names a dead streamer");
 }

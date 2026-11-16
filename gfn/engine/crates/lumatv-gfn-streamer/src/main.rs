@@ -6,7 +6,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use opennow_streamer_core::Engine;
-use opennow_streamer_platform::{MediaRuntime, controller_rumble, create_runtime};
+use opennow_streamer_platform::{MediaRuntime, controller_rumble, create_runtime, stream_telemetry};
 use opennow_streamer_protocol::{Command, error};
 use serde_json::Value;
 
@@ -30,11 +30,19 @@ fn apply_rumble(message: &Value) {
     }
 }
 
+/// The core keeps only the frame rate and bitrate of the streamer's `telemetry` event, so the engine gets the rest from here.
+fn forward_telemetry(message: &Value) {
+    if message["type"] == "telemetry" {
+        stream_telemetry(message);
+    }
+}
+
 fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
     let (event_tx, event_rx) = mpsc::channel::<Value>();
     let event_writer = thread::spawn(move || {
         while let Ok(message) = event_rx.recv() {
             apply_rumble(&message);
+            forward_telemetry(&message);
             if write_message(&message).is_err() {
                 break;
             }
