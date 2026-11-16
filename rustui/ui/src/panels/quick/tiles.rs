@@ -37,8 +37,7 @@ pub enum Act {
     Eye,
     Shot,
     Record,
-    GameStats,
-    Plugin { plugin: String, action: String, target: Option<String> },
+    Plugin { plugin: String, tile: String },
     /// Do Not Disturb: OK switches it, Right opens its card of durations and of the snoozes on (their ids, in the card's order after the durations).
     Dnd(Vec<String>),
 }
@@ -210,32 +209,27 @@ pub fn tiles(env: &Env) -> Vec<Row> {
     ai.tone = if listener { "positive" } else { "" };
 
     let mut out = vec![picture, receiver, sleep, dnd, wifi];
-    if env.topic("plugins").and_then(|roster| hub::plugin_of(roster, "gaming")).is_some_and(|p| p["state"] == "connected") {
-        let mut stats = Row::base("gamestats", Kind::Stepper, "gauge", "Game stats", Act::GameStats);
-        stats.options = ["Off", "Compact", "Full"].into_iter().map(str::to_owned).collect();
-        stats.index = env.topic("gaming.overlay").and_then(|v| v["mode"].as_str())
-            .and_then(|mode| ["off", "compact", "full"].iter().position(|v| *v == mode));
-        stats.enabled = stats.index.is_some();
-        stats.widest = "Compact";
-        out.push(stats);
-    }
     out.extend(plugin_rows(env));
     out.push(ai);
     out
 }
 
-/// The tiles plugins put (`PluginHub.tileRows`): a tile with an on/off state is a toggle, any other a button that runs its action.
-/// An observed tile shows its state and cannot be flipped from here (the plugin owns it); one that is unavailable says why and takes
-/// no focus.
+/// Plugin-owned toggles, steppers and actions. Unknown stepper state and unavailable or observed tiles take no focus.
 pub fn plugin_rows(env: &Env) -> Vec<Row> {
     hub::tiles(&env.topics)
         .into_iter()
         .map(|t| {
-            let stateful = matches!(t.state.as_str(), "on" | "off" | "observed");
-            let act = Act::Plugin { plugin: t.plugin_id.clone(), action: t.action.clone(), target: t.target.clone() };
-            let mut r = Row::base(&format!("plugin.{}.{}", t.plugin_id, t.id), if stateful { Kind::Toggle } else { Kind::Value }, &t.icon, if t.label.is_empty() { &t.id } else { &t.label }, act);
-            r.detail = if t.state == "unavailable" { hub::unavailable_text(&t.reason).to_string() } else { t.hint.clone() };
-            r.enabled = t.state != "unavailable" && t.state != "observed";
+            let kind = match t.state.as_str() {
+                "on" | "off" | "observed" => Kind::Toggle,
+                "stepper" => Kind::Stepper,
+                _ => Kind::Value,
+            };
+            let act = Act::Plugin { plugin: t.plugin_id.clone(), tile: t.id.clone() };
+            let mut r = Row::base(&format!("plugin.{}.{}", t.plugin_id, t.id), kind, &t.icon, if t.label.is_empty() { &t.id } else { &t.label }, act);
+            r.detail = if t.state == "unavailable" { hub::unavailable_text(&t.reason).to_string() } else { t.hint };
+            r.index = t.index.filter(|&index| index < t.options.len());
+            r.options = t.options.into_iter().map(|(label, _)| label).collect();
+            r.enabled = t.state != "unavailable" && t.state != "observed" && (kind != Kind::Stepper || r.index.is_some());
             r.on = t.on;
             r
         })
@@ -424,7 +418,7 @@ mod tests {
         assert_eq!((door.kind, door.detail.as_str(), door.enabled), (Kind::Value, "Offline", false));
         let scene = by("plugin.lock.scene");
         assert_eq!(scene.kind, Kind::Value);
-        assert_eq!(scene.act, Act::Plugin { plugin: "lock".into(), action: "run".into(), target: Some("movie".into()) });
+        assert_eq!(scene.act, Act::Plugin { plugin: "lock".into(), tile: "scene".into() });
         let obs = by("plugin.lock.obs");
         assert!(!obs.enabled && obs.on, "an observed tile shows its state and cannot be flipped from here");
     }

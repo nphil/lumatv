@@ -488,12 +488,6 @@ impl Quick {
                 out.close = true;
             }
             (Act::Sleep, Val::Index(i)) => out.effects = env.power.set(i, now),
-            (Act::GameStats, Val::Index(i)) => {
-                if env.topic("plugins").and_then(|roster| hub::plugin_of(roster, "gaming")).is_some_and(|p| p["state"] == "connected")
-                    && let Some(mode) = ["off", "compact", "full"].get(i) {
-                    out.effects.push(Effect::Post { path: "/v1/gaming/overlay".into(), body: json!({"mode":mode}) });
-                }
-            }
             (Act::Settings(page), _) => {
                 out.asks.push(Ask::Settings((*page).to_string()));
                 out.close = true;
@@ -523,9 +517,17 @@ impl Quick {
                     body: Some(json!({})),
                 });
             }
-            (Act::Plugin { plugin, action, target }, _) => {
-                let body = target.as_ref().map_or_else(|| json!({}), |t| json!({"target": t}));
-                out.effects.push(Effect::Post { path: format!("/v1/plugins/{plugin}/actions/{action}"), body });
+            (Act::Plugin { plugin, tile }, value) => {
+                let Some(tile) = hub::tile(&env.topics, plugin, tile) else { return out; };
+                if matches!(tile.state.as_str(), "unavailable" | "observed") { return out; }
+                let target = if tile.state == "stepper" {
+                    if tile.index.is_none_or(|index| index >= tile.options.len()) { return out; }
+                    let Val::Index(index) = value else { return out; };
+                    let Some((_, value)) = tile.options.get(index) else { return out; };
+                    Some(value.as_str())
+                } else { tile.target.as_deref() };
+                let body = target.map_or_else(|| json!({}), |target| json!({"target": target}));
+                out.effects.push(Effect::Post { path: format!("/v1/plugins/{plugin}/actions/{}", tile.action), body });
             }
             (Act::Dnd(_), Val::On(on)) => out.effects.push(Effect::Post { path: if on { "/v1/dnd/on" } else { "/v1/dnd/off" }.into(), body: json!({}) }),
             (Act::Dnd(snoozes), Val::Index(i)) => match i.checked_sub(crate::dnd::DURATIONS.len()).and_then(|s| snoozes.get(s)) {

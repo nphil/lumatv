@@ -14,6 +14,7 @@ use crate::plugins::session::Shared;
 use device::{Control, Devices, LgDevices};
 use lease::{Holder, State};
 use parking_lot::Mutex;
+use plugin_api::wire::ToPlugin;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::fs;
@@ -26,7 +27,7 @@ use std::time::Instant;
 
 pub const ID: &str = "gaming";
 pub const OPT_IN: OptIn = OptIn {
-    spec: Spec { id: ID, name: "Gaming", version: "1", permissions: &[] },
+    spec: Spec { id: ID, name: "Gaming", version: "1", permissions: &["tiles"] },
     consent: "Allows the gaming apps to temporarily use qualified low-latency picture controls, give their controller readers real-time priority, and read and save supported controllers' settings. Original picture and thread settings are restored when a session ends, the app exits, the lease expires, the TV enters standby or this plugin is switched off. Controller settings remain saved on the controller. Display controls remain unavailable until qualified on this TV.",
 };
 
@@ -75,13 +76,40 @@ impl Gaming {
             *session = None;
             self.display.stop();
         } else if session.is_none() {
-            match Local::start(shared, &OPT_IN.spec, json!({"title": "Gaming"}), Arc::new(|_, _| {})) {
+            let weak = Arc::downgrade(self);
+            let handler = Arc::new(move |local: &Local, message: ToPlugin| {
+                if let ToPlugin::ActionInvoke { op, action, target, .. } = message {
+                    let result = weak.upgrade().ok_or_else(|| "Gaming plugin stopped".to_string()).and_then(|gaming| {
+                        let mode = target.as_deref().and_then(overlay::Mode::choice)
+                            .filter(|_| action == "stats-mode").ok_or_else(|| "Unknown Game stats choice".to_string())?;
+                        gaming.set_overlay(mode, None).map(|_| ()).map_err(|error| error.to_string())
+                    });
+                    let _ = local.answer(op, result.as_ref().map(|_| ()).map_err(String::as_str));
+                }
+            });
+            let register = json!({"title":"Gaming","actions":[{"key":"stats-mode","label":"Set Game stats"}],
+                "tiles":[overlay::tile(self.overlay.get().mode)]});
+            match Local::start(shared, &OPT_IN.spec, register, handler) {
                 Ok(local) => *session = Some(local),
                 Err(e) => { state.enabled = false; crate::log_warn!("gaming: {e}"); }
             }
         }
         drop(state);
         self.signal();
+    }
+
+    fn set_overlay(&self, mode: overlay::Mode, changed: Option<u64>) -> io::Result<(overlay::Overlay, bool)> {
+        // Hold the session across the write and publication so plugin-off cannot leave a late tile behind.
+        let session = self.session.lock();
+        let local = session.as_ref().filter(|_| self.state.lock().enabled)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "Gaming plugin is off"))?;
+        let (value, taken) = self.overlay.set(mode, changed, crate::timeutil::now_ms(), &self.hub)?;
+        if taken {
+            let mut tile = overlay::tile(value.mode);
+            tile["t"] = json!("tile.put");
+            local.say(tile).map_err(io::Error::other)?;
+        }
+        Ok((value, taken))
     }
 
     fn run(&self, ctx: &Ctx) {
@@ -259,7 +287,7 @@ fn overlay_route(gaming: &Gaming, request: &Request, rest: &[&str]) -> Response 
         ("GET", ["display"]) => ok(json!({"display": gaming.display.ask(request.param("full") == Some("1")), "overlay": gaming.overlay.get()})),
         ("POST", ["overlay"]) => {
             let set: SetOverlay = match body(request) { Ok(value) => value, Err(response) => return response };
-            match gaming.overlay.set(set.mode, set.changed, crate::timeutil::now_ms(), &gaming.hub) {
+            match gaming.set_overlay(set.mode, set.changed) {
                 Ok((overlay, taken)) => ok(json!({"overlay": overlay, "taken": taken})),
                 Err(e) => error_response(500, "io", &e.to_string()),
             }
@@ -387,10 +415,25 @@ mod tests {
         shared.set_roster(&approved, None);
         assert!(gaming.state.lock().enabled);
         assert!(gaming.session.lock().is_some());
+        assert_eq!(gaming.hub.get("plugin.gaming.tiles").unwrap()["items"][0]["state"]["index"], 0);
+        shared.invoke_action(ID, "stats-mode", Some("compact".into())).unwrap();
+        assert_eq!(gaming.overlay.get().mode, overlay::Mode::Compact);
+        assert_eq!(gaming.hub.get(overlay::TOPIC).unwrap()["mode"], "compact");
+        assert_eq!(gaming.hub.get("plugin.gaming.tiles").unwrap()["items"][0]["state"]["index"], 1);
+        shared.invoke_action(ID, "stats-mode", Some("not-a-choice".into())).unwrap();
+        assert_eq!(gaming.overlay.get().mode, overlay::Mode::Compact);
+        let mut update = request("127.0.0.1");
+        update.path = "/v1/gaming/overlay".into();
+        update.body = br#"{"mode":"full"}"#.to_vec();
+        assert_eq!(overlay_route(&gaming, &update, &["overlay"]).status, 200);
+        assert_eq!(gaming.hub.get("plugin.gaming.tiles").unwrap()["items"][0]["state"]["index"], 2);
         gaming.state.lock().acquire(Holder { pid: 100, fd: fs::File::open("/dev/null").unwrap().into() }, vec![], &*gaming.devices, Instant::now()).unwrap();
         shared.set_roster(&Roster::default(), None);
         assert!(!gaming.state.lock().enabled);
         assert!(gaming.state.lock().lease.is_none());
         assert!(gaming.session.lock().is_none());
+        assert!(shared.invoke_action(ID, "stats-mode", Some("off".into())).is_err());
+        assert!(gaming.set_overlay(overlay::Mode::Off, None).is_err());
+        assert!(gaming.hub.get("plugin.gaming.tiles").is_none_or(|topic| topic["items"].as_array().is_none_or(Vec::is_empty)));
     }
 }

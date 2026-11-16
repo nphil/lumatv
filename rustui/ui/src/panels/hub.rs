@@ -16,13 +16,15 @@ pub struct Tile {
     pub id: String,
     pub label: String,
     pub icon: String,
-    /// `on`, `off`, `observed`, `unknown`, `unavailable`.
+    /// `on`, `off`, `observed`, `unknown`, `unavailable`, `stepper`.
     pub state: String,
     pub on: bool,
     pub reason: String,
     pub action: String,
     pub target: Option<String>,
     pub hint: String,
+    pub options: Vec<(String, String)>,
+    pub index: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -132,30 +134,45 @@ fn items(topics: &Topics, plugin: &str, kind: &str) -> Vec<Value> {
     topics.get(&format!("plugin.{plugin}.{kind}")).and_then(|t| t.get("items")).and_then(Value::as_array).cloned().unwrap_or_default()
 }
 
+fn read_tile(plugin: &str, name: &str, it: &Value) -> Tile {
+    let state = &it["state"];
+    let kind = state["type"].as_str().filter(|kind| !kind.is_empty()).unwrap_or("unknown");
+    Tile {
+        plugin_id: plugin.into(),
+        plugin: name.into(),
+        id: text(it, "id"),
+        label: text(it, "label"),
+        icon: icon(&text(it, "icon")).into(),
+        state: kind.into(),
+        on: kind == "on" || (kind == "observed" && state["on"] == true),
+        reason: text(state, "reason"),
+        action: text(it, "action"),
+        target: it.get("target").and_then(Value::as_str).map(str::to_string),
+        hint: text(it, "hint"),
+        options: it["options"].as_array().into_iter().flatten()
+            .map(|option| (text(option, "label"), text(option, "value"))).collect(),
+        index: state["index"].as_u64().and_then(|index| usize::try_from(index).ok()),
+    }
+}
+
 pub fn tiles(topics: &Topics) -> Vec<Tile> {
     let mut out = Vec::new();
     for (pid, name) in connected(topics) {
         for it in items(topics, &pid, "tiles") {
-            let state = it.get("state").cloned().unwrap_or(Value::Null);
-            let kind = text(&state, "type");
-            let kind = if kind.is_empty() { "unknown".to_string() } else { kind };
-            let on = kind == "on" || (kind == "observed" && state.get("on").and_then(Value::as_bool) == Some(true));
-            out.push(Tile {
-                plugin_id: pid.clone(),
-                plugin: name.clone(),
-                id: text(&it, "id"),
-                label: text(&it, "label"),
-                icon: icon(&text(&it, "icon")).to_string(),
-                state: kind,
-                on,
-                reason: text(&state, "reason"),
-                action: text(&it, "action"),
-                target: it.get("target").and_then(Value::as_str).map(str::to_string),
-                hint: text(&it, "hint"),
-            });
+            out.push(read_tile(&pid, &name, &it));
         }
     }
     out
+}
+
+/// Resolve the current contribution again at activation: a withdrawn or disabled tile cannot run a stale action.
+pub fn tile(topics: &Topics, plugin: &str, id: &str) -> Option<Tile> {
+    let owner = plugin_of(topics.get("plugins")?, plugin)?;
+    if owner["state"] != "connected" { return None; }
+    let name = owner["name"].as_str().filter(|name| !name.is_empty()).unwrap_or(plugin);
+    let items = topics.get(&format!("plugin.{plugin}.tiles"))?["items"].as_array()?;
+    let item = items.iter().find(|item| item["id"] == id)?;
+    Some(read_tile(plugin, name, item))
 }
 
 /// The plugin of the roster (`plugins`: the owner's, then the helper's own as `firstParty`) with this id, connected or not.

@@ -251,21 +251,36 @@ fn a_plugins_tile_ok_posts_its_action_and_a_switch_flips_by_the_same_post() {
 }
 
 #[test]
-fn game_stats_is_plugin_gated_and_uses_the_shared_overlay_setting() {
+fn plugin_stepper_dispatches_stable_values_only_while_available_and_connected() {
     let (mut q, mut env) = rig(false);
-    assert!(!tiles::tiles(&env).iter().any(|t| t.id == "gamestats"));
-    feed(&mut env, "plugins", json!({"plugins":[{"id":"gaming","state":"connected"}]}), 1);
-    feed(&mut env, "gaming.overlay", json!({"mode":"compact","changed":1}), 1);
-    let rows = tiles::tiles(&env);
-    let i = rows.iter().position(|r| r.id == "gamestats").unwrap();
+    let id = "plugin.gaming.stats";
+    assert!(!tiles::tiles(&env).iter().any(|t| t.id == id));
+    feed(&mut env, "plugins", json!({"firstParty":[{"id":"gaming","state":"connected"}]}), 1);
+    let mut tile = json!({"id":"stats","label":"Game stats","icon":"base.icons/gauge",
+        "state":{"type":"stepper"},"action":"stats-mode",
+        "options":[{"label":"Off","value":"off"},{"label":"Compact","value":"compact"},{"label":"Full","value":"full"}]});
+    feed(&mut env, "plugin.gaming.tiles", json!({"items":[tile.clone()]}), 1);
+    let rows = q.rows(&env);
+    let i = rows.iter().position(|r| r.id == id).unwrap();
     assert_eq!(rows[i - 1].id, "wifi");
     assert_eq!(rows[i].options, ["Off", "Compact", "Full"]);
-    assert_eq!(rows[i].index, Some(1));
-    assert_eq!(q.act(&Act::GameStats, Val::Index(2), &mut env, 2).effects,
-        vec![Effect::Post { path: "/v1/gaming/overlay".into(), body: json!({"mode":"full"}) }]);
-    feed(&mut env, "plugins", json!({"plugins":[{"id":"gaming","state":"off"}]}), 3);
-    assert!(!tiles::tiles(&env).iter().any(|t| t.id == "gamestats"));
-    assert!(q.act(&Act::GameStats, Val::Index(0), &mut env, 4).effects.is_empty());
+    assert_eq!((rows[i].kind, rows[i].index, rows[i].enabled), (Kind::Stepper, None, false));
+    let act = rows[i].act.clone();
+    assert!(q.click(Target::Row(i), Some(1), &mut env, 1).effects.is_empty());
+    assert!(q.act(&act, Val::Index(2), &mut env, 1).effects.is_empty());
+    tile["state"]["index"] = json!(1);
+    feed(&mut env, "plugin.gaming.tiles", json!({"items":[tile.clone()]}), 2);
+    assert_eq!(q.click(Target::Row(i), Some(1), &mut env, 2).effects,
+        vec![Effect::Post { path: "/v1/plugins/gaming/actions/stats-mode".into(), body: json!({"target":"full"}) }]);
+    assert!(q.act(&act, Val::Index(3), &mut env, 2).effects.is_empty());
+    tile["state"]["index"] = Value::Null;
+    feed(&mut env, "plugin.gaming.tiles", json!({"items":[tile.clone()]}), 3);
+    assert!(q.act(&act, Val::Index(0), &mut env, 3).effects.is_empty());
+    tile["state"]["index"] = json!(0);
+    feed(&mut env, "plugin.gaming.tiles", json!({"items":[tile]}), 4);
+    feed(&mut env, "plugins", json!({"firstParty":[{"id":"gaming","state":"off"}]}), 4);
+    assert!(!tiles::tiles(&env).iter().any(|t| t.id == id));
+    assert!(q.act(&act, Val::Index(1), &mut env, 4).effects.is_empty());
 }
 
 #[test]

@@ -9,7 +9,7 @@ use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 
-/// The hub topic Quick Settings reads: `{"mode": "off" | "compact" | "full", "changed": unix ms}`.
+/// The shared setting mirrored for LumaGame: `{"mode": "off" | "compact" | "full", "changed": unix ms}`.
 pub const TOPIC: &str = "gaming.overlay";
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -19,6 +19,26 @@ pub enum Mode {
     Off,
     Compact,
     Full,
+}
+
+impl Mode {
+    const CHOICES: [(Self, &'static str, &'static str); 3] = [
+        (Self::Off, "Off", "off"),
+        (Self::Compact, "Compact", "compact"),
+        (Self::Full, "Full", "full"),
+    ];
+
+    pub fn choice(value: &str) -> Option<Self> {
+        Self::CHOICES.iter().find(|(_, _, key)| *key == value).map(|(mode, _, _)| *mode)
+    }
+}
+
+pub fn tile(mode: Mode) -> serde_json::Value {
+    let index = Mode::CHOICES.iter().position(|(choice, _, _)| *choice == mode);
+    let options: Vec<_> = Mode::CHOICES.iter()
+        .map(|(_, label, value)| json!({"label":label,"value":value})).collect();
+    json!({"id":"stats","label":"Game stats","icon":"base.icons/gauge",
+        "state":{"type":"stepper","index":index},"action":"stats-mode","options":options})
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
