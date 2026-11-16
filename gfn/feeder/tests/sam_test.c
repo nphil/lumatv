@@ -27,12 +27,63 @@ static bool call(LSHandle *sh, const char *uri, const char *body, LSFilterFunc c
     return true;
 }
 
+/* An installed list as SAM writes it: each app carries far more than the UI reads (a description, nested metadata with braces in strings). */
+static char *sam_list(int n, int extras) {
+    char pad[801];
+    memset(pad, 'x', 800);
+    pad[800] = 0;
+    size_t cap = (size_t)n * 1400 + 4096;
+    char *s = malloc(cap);
+    assert(s);
+    size_t o = (size_t)snprintf(s, cap, "{\"returnValue\":true,\"apps\":[");
+    for (int i = 0; i < n; i++) {
+        o += (size_t)snprintf(s + o, cap - o,
+            "%s{\"id\":\"com.example.app%d\",\"title\":\"App %d \\\"Caf\\u00e9\\\" \\\\ }{\",\"icon\":\"/media/icons/%d.png\",\"type\":\"web\","
+            "\"visible\":true,\"description\":\"%s\",\"nested\":{\"a\":[\"]\",\"}\"],\"b\":\"\\\"\"}}", i ? "," : "", i, i, i, pad);
+    }
+    if (extras) {
+        char icon[601];
+        memset(icon, 'i', 600);
+        icon[600] = 0;
+        o += (size_t)snprintf(s + o, cap - o, ",{\"id\":\"com.example.notitle\"},{\"title\":\"No id\"},{\"id\":\"com.example.bigicon\",\"title\":\"Big\",\"icon\":\"%s\"}", icon);
+    }
+    snprintf(s + o, cap - o, "]}");
+    return s;
+}
+
+static size_t count(const char *s, const char *needle) {
+    size_t n = 0;
+    for (; (s = strstr(s, needle)); s++) n++;
+    return n;
+}
+
+static void *run_requests(void *s) {
+    send_requests(s);
+    return NULL;
+}
+
+/* One apps request answered with `payload`; the reply line is in `out` (GF_SAM_LINE bytes). As on the TV the reply is written on
+ * another thread than the one that reads it, since a pipe holds less than a reply. */
+static void ask_apps(struct gf_sam *s, const char *payload, char *out) {
+    char line[256];
+    pthread_t writer;
+    reply_payload = payload;
+    assert(gf_sam_request(s, "{\"kind\":\"apps\",\"seq\":30}", line, sizeof line) == 1);
+    assert(pthread_create(&writer, NULL, run_requests, s) == 0);
+    for (int spins = 0; !gf_sam_next(s, out, GF_SAM_LINE); spins++) {
+        assert(spins < 5000);
+        usleep(1000);
+    }
+    pthread_join(writer, NULL);
+}
+
 int main(void) {
     struct gf_sam *s = calloc(1, sizeof *s);
     assert(s);
     int fds[2];
     assert(pipe2(fds, O_CLOEXEC | O_NONBLOCK) == 0);
     s->rd = fds[0]; s->wr = fds[1];
+    fcntl(s->wr, F_SETFL, fcntl(s->wr, F_GETFL) & ~O_NONBLOCK);     /* the writing end blocks, as in gf_sam_start */
     pthread_mutex_init(&s->requests_lock, NULL);
     s->ls.LSMessageGetPayload = payload;
     s->ls.LSCall = call;
@@ -58,6 +109,29 @@ int main(void) {
     assert(!strcmp(called_uri, SAM_APPS));
     assert(gf_sam_next(s, line, sizeof line));
     assert(strstr(line, "\"kind\":\"apps\"") && strstr(line, "icon.png") && strstr(line, "\"success\":true"));
+    /* A real installed list is far over the line limit as SAM writes it; the UI is sent what it reads of each app. */
+    {
+        char *big = malloc(GF_SAM_LINE), *list = sam_list(300, 1);
+        assert(big && strlen(list) > GF_SAM_LINE);
+        ask_apps(s, list, big);
+        assert(strstr(big, "\"success\":true") && strlen(big) < GF_SAM_LINE);
+        assert(count(big, "\"id\":\"com.example.app") == 300 && !strstr(big, "description") && !strstr(big, "nested"));
+        assert(strstr(big, "\"title\":\"App 7 \\\"Caf\\u00e9\\\" \\\\ }{\",\"icon\":\"/media/icons/7.png\"}"));
+        assert(strstr(big, "com.example.bigicon\",\"title\":\"Big\"}") && !strstr(big, "iiii"));
+        assert(!strstr(big, "notitle") && !strstr(big, "No id"));
+        free(list);
+        list = sam_list(2500, 0);       /* what the UI reads of this many apps still does not fit a line: refused, not cut */
+        ask_apps(s, list, big);
+        assert(strstr(big, "\"success\":false") && strstr(big, "exceeds") && strstr(big, "\"apps\":[]"));
+        free(list);
+        ask_apps(s, "{\"returnValue\":true,\"apps\":[{\"id\":\"a\",\"title\":\"A\"},{\"id\":\"b\"", big);
+        assert(strstr(big, "\"success\":false") && strstr(big, "\"apps\":[]"));
+        ask_apps(s, "{\"returnValue\":true,\"apps\":[1]}", big);
+        assert(strstr(big, "\"success\":false"));
+        ask_apps(s, "{\"returnValue\":true,\"apps\":[]}", big);
+        assert(!strcmp(big, "{\"kind\":\"apps\",\"seq\":30,\"success\":true,\"apps\":[]}"));
+        free(big);
+    }
     LSMessage front = {"{\"returnValue\":true,\"appId\":\"org.nphil.lumagame\"}"};
     on_foreground(NULL, &front, s);
     assert(gf_sam_next(s, line, sizeof line));
@@ -66,7 +140,7 @@ int main(void) {
     assert(strstr(line, "invalid app id"));
     assert(gf_sam_request(s, "{\"kind\":\"apps\",\"seq\":-1}", line, sizeof line) == -1);
     assert(gf_sam_request(NULL, "{\"kind\":\"apps\",\"seq\":5}", line, sizeof line) == -1 && strstr(line, "unavailable"));
-    assert(calls == 3);
+    assert(calls == 3 + 5);
     for (int i = 0; i < 8; i++) assert(gf_sam_request(s, "{\"kind\":\"apps\",\"seq\":6}", line, sizeof line) == 1);
     assert(gf_sam_request(s, "{\"kind\":\"apps\",\"seq\":7}", line, sizeof line) == -1 && strstr(line, "queue is full"));
     assert(gf_sam_request(s, "{\"kind\":\"ready\"}", line, sizeof line) == 0);

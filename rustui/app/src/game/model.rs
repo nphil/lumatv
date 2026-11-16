@@ -1105,11 +1105,22 @@ impl Model {
     fn show_page(&mut self, page: Page, focus: Focus) {
         if page != self.view.page {
             self.back.push((self.view.page, self.view.focus));
+            // A notice belongs to the page that raised it.
+            self.view.notice = None;
         }
         self.view.page = page;
         self.view.sheet = None;
         self.view.focus = focus;
         self.pressed = None;
+    }
+    /// Whether `id`'s error is about what the screen shows. Elsewhere it stays on the integration's own card (`error`), so a background
+    /// failure (This TV's app listing at start-up) does not turn up on an unrelated page such as the controller lab.
+    fn engine_in_view(&self, id: &EngineId) -> bool {
+        match (self.view.sheet, self.view.page) {
+            (Some(_), _) => self.view.auth.as_ref().map(|a| &a.engine).or(self.view.selected_engine.as_ref()) == Some(id),
+            (None, Page::Hub) => self.view.selected.and_then(|g| self.play_target(g)).is_some_and(|k| k.engine == *id),
+            _ => false,
+        }
     }
     fn open_sheet(&mut self, sheet: Sheet, focus: Focus) {
         self.sheet_return = self.view.focus;
@@ -2219,7 +2230,9 @@ impl Model {
                     self.lab.trip = Trip::Idle;
                 }
                 self.pages.retain(|(engine, _), _| *engine != id);
-                self.view.notice = Some(message.clone());
+                if self.engine_in_view(&id) {
+                    self.view.notice = Some(message.clone());
+                }
                 if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
                     e.error = Some(message);
                 }
@@ -2795,6 +2808,28 @@ pub(crate) mod tests {
             assert_eq!(values["deadzone"], Value::Int(9));
             assert_eq!(values["anti-deadzone"], Value::Int(1));
             assert_eq!(values["stick-curve"], Value::Text("precise".into()));
+        }
+
+        #[test]
+        fn an_engines_background_error_stays_on_its_card_and_off_the_lab() {
+            let mut m = lab();
+            let engine = EngineId::new("gfn").unwrap();
+            let error = |m: &mut Model| m.step(Input::Engine { engine: engine.clone(), message: FromEngine { re: Some(1), event: ipc::Event::Error {
+                code: ipc::ErrorCode::Internal, message: "the installed app list exceeds the lifecycle limit".into() } } });
+            error(&mut m);
+            assert_eq!(m.view.page, Page::Lab);
+            assert_eq!(m.view.notice, None);
+            assert_eq!(m.integration(&engine).unwrap().error.as_deref(), Some("the installed app list exceeds the lifecycle limit"));
+            // Where the engine is what the screen is about, the same error is still shown.
+            m.view.notice = Some("No controller is connected.".into());
+            m.view.selected_engine = Some(engine.clone());
+            m.view.sheet = Some(Sheet::AddHost);
+            error(&mut m);
+            assert_eq!(m.view.notice.as_deref(), Some("the installed app list exceeds the lifecycle limit"));
+            // A notice does not follow its page to another one.
+            m.view.sheet = None;
+            m.show_page(Page::Settings, Focus::Setting(0));
+            assert_eq!(m.view.notice, None);
         }
 
         #[test]

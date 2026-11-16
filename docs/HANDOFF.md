@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## This TV app list over the lifecycle limit, 2026-11-15 (source only, not installed)
+
+The feeder forwarded SAM's whole `listApps` reply and refused it at 128 KiB; it now projects each app to id, title and icon (strings copied as written, so escapes survive), leaves out apps with no id or title, and still refuses a list whose projection does not fit or is not an array of objects. The same error showed in the controller lab because any engine error set the one global notice, which the lab draws; engine errors now set it only where the engine is the subject (its sheet, or the game's hub) and always sit on the integration's card. Needs a package rebuild (feeder `lumagame-main`, ui) to reach the TV; the TV has not been touched.
+
 ## Game stats as a plugin stepper, 2026-11-15 (main ac72b6fd, installed 21:12 EST)
 
 Installed ui `bb48fe5301aec7fbd482155f4c040293497d2969844f5abacb555923f013528f` (replaces 3ad0204a); compositor `f9a1aca0` and sm `65f6ca69` unchanged. Helper `5a1e5d9acde86b039c08a0a5db9761fbeb5bce1639159501e862bd81aa8e995c` from the same commit, built against LumaShow `tv-cameras` 30dc1854. Quick Settings' Game stats tile is now the Gaming plugin's own stepper tile through the generic plugin tile path. After the install: 0 flips in 30 s in standby, ssgw ours with no new crash record. The Gaming plugin stays off until the owner enables it.

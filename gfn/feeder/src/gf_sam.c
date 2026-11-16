@@ -89,6 +89,34 @@ struct gf_sam {
 
 /* ---- a minimal JSON scanner (lumatv-card.c's: top-level keys, raw values) ----------------------------------------------------------- */
 
+/* The end of the value at `p`: a string, an object or array with what is inside it, or a bare word up to the next `,` or `}`. */
+static const char *json_skip(const char *p) {
+    int depth = 0;
+    if (*p == '"') {
+        p++;
+        while (*p && *p != '"') {
+            if (*p == '\\' && p[1]) p++;
+            p++;
+        }
+        if (*p == '"') p++;
+    } else if (*p == '{' || *p == '[') {
+        do {
+            if (*p == '"') {
+                p++;
+                while (*p && *p != '"') {
+                    if (*p == '\\' && p[1]) p++;
+                    p++;
+                }
+            } else if (*p == '{' || *p == '[') depth++;
+            else if (*p == '}' || *p == ']') depth--;
+            if (*p) p++;
+        } while (*p && depth > 0);
+    } else {
+        while (*p && *p != ',' && *p != '}') p++;
+    }
+    return p;
+}
+
 static bool json_value(const char *obj, const char *key, const char **start, size_t *len) {
     const char *p = obj;
     while (*p && *p != '{') p++;
@@ -109,29 +137,7 @@ static bool json_value(const char *obj, const char *key, const char **start, siz
         p++;
         while (*p == ' ' || *p == ':' || *p == '\t' || *p == '\r' || *p == '\n') p++;
         const char *v = p;
-        int depth = 0;
-        if (*p == '"') {
-            p++;
-            while (*p && *p != '"') {
-                if (*p == '\\' && p[1]) p++;
-                p++;
-            }
-            if (*p == '"') p++;
-        } else if (*p == '{' || *p == '[') {
-            do {
-                if (*p == '"') {
-                    p++;
-                    while (*p && *p != '"') {
-                        if (*p == '\\' && p[1]) p++;
-                        p++;
-                    }
-                } else if (*p == '{' || *p == '[') depth++;
-                else if (*p == '}' || *p == ']') depth--;
-                if (*p) p++;
-            } while (*p && depth > 0);
-        } else {
-            while (*p && *p != ',' && *p != '}') p++;
-        }
+        p = json_skip(p);
         if (kl == klen && !strncmp(k, key, klen)) {
             *start = v;
             *len = (size_t)(p - v);
@@ -164,6 +170,44 @@ static bool json_true(const char *obj, const char *key) {
     const char *v;
     size_t n;
     return json_value(obj, key, &v, &n) && n >= 4 && !strncmp(v, "true", 4);
+}
+
+/* A string field of an app as SAM wrote it, quotes and escapes included, so it is JSON already. False when it is absent, not a string
+ * or longer than `max`. */
+static bool raw_string(const char *app, const char *key, size_t max, const char **v, size_t *n) {
+    return json_value(app, key, v, n) && *n >= 2 && *n <= max && (*v)[0] == '"' && (*v)[*n - 1] == '"';
+}
+
+#define APPS_TOO_LARGE "the installed app list exceeds the lifecycle limit"
+
+/* SAM's listApps array (`apps`, `count` bytes) as the UI reads it: each app's id, title and icon and nothing else of what SAM
+ * knows about it, written to `out` as an array. An app with no id or title, or an id or title over 127 or 511 characters, is not
+ * one the UI lists or launches and is left out; an icon over 511 characters is left out of its app. Returns NULL, or the reason
+ * the list is refused: not an array of objects, or what the UI reads of it still does not fit. */
+static const char *project_apps(const char *apps, size_t count, char *out, size_t cap) {
+    const char *last = apps + count - 1, *p = apps + 1;
+    if (count < 2 || *last != ']' || cap < 3) return "the installed app list is malformed";
+    size_t o = 0;
+    out[o++] = '[';
+    for (;;) {
+        while (p < last && (*p == ',' || isspace((unsigned char)*p))) p++;
+        if (p >= last) break;
+        const char *end = p;
+        if (*p != '{' || (end = json_skip(p)) > last) return "the installed app list is malformed";
+        const char *id, *title, *icon = "";
+        size_t idn, titlen, iconn = 0;
+        if (raw_string(p, "id", 129, &id, &idn) && raw_string(p, "title", 513, &title, &titlen)) {
+            bool has_icon = raw_string(p, "icon", 513, &icon, &iconn);
+            int w = snprintf(out + o, cap - o, "%s{\"id\":%.*s,\"title\":%.*s%s%.*s}", o > 1 ? "," : "", (int)idn, id, (int)titlen, title,
+                             has_icon ? ",\"icon\":" : "", (int)(has_icon ? iconn : 0), icon);
+            if (w < 0 || (size_t)w + 2 > cap - o) return APPS_TOO_LARGE;
+            o += (size_t)w;
+        }
+        p = end;
+    }
+    out[o++] = ']';
+    out[o] = 0;
+    return NULL;
 }
 
 /* A string as the body of a JSON string. */
@@ -279,17 +323,22 @@ static bool on_request(LSHandle *h, LSMessage *msg, void *ctx) {
     size_t count = 2;
     int ok = json_true(payload, "returnValue");
     if (ok && r->apps && (!json_value(payload, "apps", &apps, &count) || *apps != '[')) ok = 0;
-    size_t size = count + 1024;
-    char *line = malloc(size < GF_SAM_LINE ? size : 1024);
+    /* A reply is one line and a line is bounded, so the list goes on as what the UI reads of it, not as SAM wrote it. */
+    size_t size = ok && r->apps ? GF_SAM_LINE - 1 : 1024;
+    char *line = malloc(size);
     if (line) {
-        if (!ok || size >= GF_SAM_LINE) {
+        const char *refused = NULL;
+        if (ok && r->apps) {
+            size_t head = (size_t)snprintf(line, size, "{\"kind\":\"apps\",\"seq\":%" PRIu64 ",\"success\":true,\"apps\":", r->seq);
+            refused = project_apps(apps, count, line + head, size - head - 2);      /* room for the closing brace */
+            if (!refused) strcat(line + head, "}");
+        }
+        if (!ok || refused) {
             char message[200] = "application manager refused the request";
             json_string(payload, "errorText", message, sizeof message);
-            if (size >= GF_SAM_LINE) snprintf(message, sizeof message, "the installed app list exceeds the lifecycle limit");
+            if (refused) snprintf(message, sizeof message, "%s", refused);
             request_error(r, message, line, 1024);
-        } else if (r->apps) {
-            snprintf(line, size, "{\"kind\":\"apps\",\"seq\":%" PRIu64 ",\"success\":true,\"apps\":%.*s}", r->seq, (int)count, apps);
-        } else {
+        } else if (!r->apps) {
             snprintf(line, size, "{\"kind\":\"launched\",\"seq\":%" PRIu64 ",\"app_id\":\"%s\",\"success\":true,\"message\":\"\"}", r->seq, r->app_id);
         }
         emit(s, line);
