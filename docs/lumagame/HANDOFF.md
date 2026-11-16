@@ -2,11 +2,11 @@
 
 Current state and how to resume. Main design docs: ARCHITECTURE.md, DESIGN.md, PRODUCT.md (this folder); display research: docs/lumagame-gaming-features.md.
 
-## State (2026-11-15)
+## State (2026-11-16)
 
 - App `org.nphil.lumagame` installed from main `154363d6dd3e5bae2f93efa5790bc2bbb18e48c3`, published to origin and forge. Build-id `fcabe1b5a1535562`; IPK SHA-256 `84004058bf3777b55ab9b4b099db6c39176f848e68d76606b1d9cff6c1e7d295`; UI SHA-256 `c714728d961657af64d3383ddc28ccb90502742866b5bf7a3702edfd63d83eb8`. Corrective engine and feeder hashes are unchanged. Receipts: /tmp/cs/3dc58534e64e/diag-install and /tmp/cs/3dc58534e64e/lumagame-diagnostics-receipt.txt.
 - Helper installed from main `ac72b6fd` with shared `30dc1854`: SHA-256 `5a1e5d9acde86b039c08a0a5db9761fbeb5bce1639159501e862bd81aa8e995c`, replacing `562bbcc6…be4a`. Live and package hashes match; ports 17856/17857 are healthy. Receipt: /tmp/cs/3dc58534e64e/receipt/RECEIPT.md.
-- Helper remains healthy with ssgw baseline unchanged; the TV lease is free.
+- Helper remains healthy with ssgw baseline unchanged; helper and compositor were not changed. The TV is in Active Standby; receiver is off, input TV, volume −33.0 dB and mute off. CEC `50:7a:31` and TV `muteStatus=false` were observed before standby; the TV lease is free.
 - Installed LumaTV UI hash prefix `756b3c18`; compositor/SM remain `f9a1aca0` / `65f6ca69`. Live HUD acceptance remains outstanding.
 - Installed control tools from `ac72b6fd`: `tools/lumatv` SHA-256 `fe58d9dbb92072c2693edfe220d958a3b2c294b12ca1ddc1212ecef4dab2d823`; `tools/gameapp.sh` SHA-256 `1a742aae1337ad8d50c4a3bcb6e17ba72e46ea6cb475feb5d29cedc4d974c3ec`. Receipts: /tmp/cs/3dc58534e64e/ipk2/RECEIPT.md and /tmp/cs/3dc58534e64e/tools3/.
 - Gaming's Settings consent page is enabled by the owner; the Game stats tile was visibly confirmed after adding it to a custom layout.
@@ -17,7 +17,7 @@ Current state and how to resume. Main design docs: ARCHITECTURE.md, DESIGN.md, P
 - The corrective package includes native list projection (`9504cead`, `8f2e6166`) without arbitrary field truncation and with corrected error scoping; real 1 Hz stream telemetry over a side socket without polling (`639d3dbb`); and focus/retained carousel changes (`3b7336b2`, `e1ec07a8`, `39063c73`) with host evidence.
 - The black-screen cause remains unproven: the app was alive, mapped, fullscreen and focused; a missing surface is not confirmed, and debug symbols were unavailable. Opt-in trace `c1e7bda` is diagnostic only.
 - Runtime `diagnostics.json` is configured to the owner's ntfy with private permissions for uid 6476 (jailer); release defaults are off and blank. Publisher and receiver tokens are root-private under `/mnt/nvme/appdata/Ntfy/lumagame-diagnostics/`; event bodies contain neither tokens nor the topic.
-- Diagnostics are **off**, selected through the native toggle at 04:39:47 UTC; Off is visibly confirmed (/tmp/cs/3dc58534e64e/diag-accept/off.png), but receiver no-new-send and native On acceptance remain incomplete. The owner paused TV work until 2026-11-16 00:09 EST; the lease is free. LumaTV OS owns coordination at 00:09, after which diagnostics must be re-enabled using the focus-confirmed toggle.
+- Native foreground diagnostics Off/On acceptance passed: Off at 05:10:10–05:10:29 UTC produced zero events and no child process in three snapshots; On at 05:10:30 produced a fresh batch at 05:10:36. Diagnostics remain **on**. Receipt: `/data/agent/cody-data-scratch/3dc58534e64e/diagnostics-off-on-sanitized.json`; screenshot: /tmp/cs/3dc58534e64e/diag-resume/on.png.
 - Host checks passed: 7 diagnostics tests, 64 game tests, clippy and native screenshots. On the TV, the receiver obtained seven batches covering lifecycle, draw, swap, render, frames and stream; host cancellation passed.
 - Sanitized baseline and stream availability: `/data/agent/cody-data-scratch/3dc58534e64e/diagnostics-baseline-sanitized.json` and `diagnostics-stream-availability.json` in the same directory. All 37 stream records had numeric fps (0–71.99647) and RTT (20.47–24.54 ms); jitter and loss appeared in 5/37, pad timing was null in 37/37, and dropped frames were unset as expected.
 - Overlay analysis found no key mismatch. Pad timing requires raw reports and a sampling handshake; enabled diagnostics requests timing for every active stream, and a connected dongle alone does not prove reports. Jitter and loss describe the recent valid-packet interval, not cumulative RTCP; nulls alone do not establish a bug.
