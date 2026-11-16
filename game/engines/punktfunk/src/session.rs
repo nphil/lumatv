@@ -10,7 +10,13 @@ use crate::{Notice, input::Pads, library::{Library,DESKTOP}, settings, store::Ho
 pub mod stage;
 
 #[derive(Default)]
-pub struct Control { pub stop:Arc<AtomicBool>, pub end_game:AtomicBool, pub app:AtomicBool, pub stats:AtomicBool, pub trip:Mutex<RoundTrip> }
+pub struct Control { pub stop:Arc<AtomicBool>, pub end_game:AtomicBool, pub app:AtomicBool, pub stats:AtomicBool, pad_stats:AtomicBool, pub trip:Mutex<RoundTrip> }
+impl Control {
+    pub fn set_stats(&self,on:bool,pad_timing:bool) {
+        self.pad_stats.store(on && pad_timing,Ordering::Release);
+        self.stats.store(on,Ordering::Release);
+    }
+}
 #[derive(Default)]
 struct Player { loaded:AtomicBool, accepted:AtomicU64, dropped:AtomicU64, keyframe:AtomicBool, fatal:Mutex<Option<String>> }
 impl Player {
@@ -120,7 +126,7 @@ fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,play
     let mut stage=stage::Stage::new(info.fps,smooth,codec_bit(info.codec));
     let mut loss=stage::Loss::new(client.frames_dropped());
     let mut start=Instant::now(); let mut running=false;
-    let mut since=Instant::now(); let mut measured=false; let mut frames=0u64; let mut bytes=0u64; let mut client_us=0u64; let mut timings=0u64;
+    let mut since=Instant::now(); let mut measured=false; let mut pad_measured=false; let mut frames=0u64; let mut bytes=0u64; let mut client_us=0u64; let mut timings=0u64;
     let mut host_us=None;
     let mut dropped=0;
     let mut app=false;
@@ -144,7 +150,9 @@ fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,play
         }
         while let Ok(h)=client.next_hidout(Duration::ZERO) { pads.feedback(h); }
         let stats=control.stats.load(Ordering::Acquire);
-        if stats != measured {client.set_hud_enabled(stats);pads.sample(stats);measured=stats;since=Instant::now();frames=0;bytes=0;client_us=0;timings=0;host_us=None;}
+        if stats != measured {client.set_hud_enabled(stats);measured=stats;since=Instant::now();frames=0;bytes=0;client_us=0;timings=0;host_us=None;}
+        let pad_stats=control.pad_stats.load(Ordering::Acquire);
+        if pad_stats != pad_measured {pads.sample(pad_stats);pad_measured=pad_stats;}
         while let Ok(t)=client.next_host_timing(Duration::ZERO) { if stats { host_us=Some(t.host_us); } }
         // Drain repeats even during SDR; only real HDR10 ever reaches NDL's mode-changing call.
         let meta=client.latest_hdr_meta(Duration::ZERO);
@@ -254,6 +262,14 @@ fn metadata(m:quic::HdrMeta,c:quic::ColorInfo)->Hdr {
 
 #[cfg(test)] mod tests {
     use super::*;
+    #[test] fn controller_timing_is_independent_of_menu_statistics() {
+        let control=Control::default();
+        for (on,pad_timing,expected) in [(true,false,false),(true,true,true),(true,false,false),(false,true,false),(true,true,true),(false,false,false)] {
+            control.set_stats(on,pad_timing);
+            assert_eq!(control.stats.load(Ordering::Acquire),on);
+            assert_eq!(control.pad_stats.load(Ordering::Acquire),expected);
+        }
+    }
     #[test] fn feeder_completion_and_first_accepted_picture_are_separate() {
         let p=Player::default();
         p.event(Some(FeederMessage::Loaded {ok:true,text:String::new()}));assert!(!p.loaded.load(Ordering::Acquire));

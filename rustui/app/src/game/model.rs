@@ -822,6 +822,7 @@ impl Model {
             Input::Foreground(on) => {
                 self.foreground = on;
                 self.pressed = None;
+                self.stats_request(&mut out);
                 if !on {
                     self.lab.capture = None;
                     self.lab.flash = None;
@@ -1672,7 +1673,8 @@ impl Model {
     }
     fn stats_request(&self, out: &mut Vec<Command>) {
         if let Some(s) = self.session.as_ref().filter(|s| *s.phase() == Phase::Running) {
-            Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.prefs.stats.mode.on() || self.view.page == Page::Overlay });
+            let pad_timing = self.hud_visible();
+            Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.foreground && (pad_timing || self.view.page == Page::Overlay), pad_timing });
         }
     }
     fn set_stats(&mut self, mode: StatsMode, out: &mut Vec<Command>) {
@@ -1829,7 +1831,7 @@ impl Model {
                     self.view.sheet = None;
                     self.view.auth = None;
                     out.push(Command::SaveState);
-                    Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.prefs.stats.mode.on() });
+                    self.stats_request(out);
                     if let Some(checkpoint) = self.checkpoint(0) {
                         out.push(Command::Checkpoint(checkpoint));
                     }
@@ -1868,7 +1870,7 @@ impl Model {
             self.view.focus = Focus::Overlay(0);
             self.view.sheet = None;
             Self::send(out, &s.source.engine, Request::Route { session: s.id, input: ipc::InputRoute::App });
-            Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: true });
+            self.stats_request(out);
         }
     }
     fn resume(&mut self, out: &mut Vec<Command>) {
@@ -1877,7 +1879,7 @@ impl Model {
             self.view.sheet = None;
             self.view.focus = Focus::None;
             Self::send(out, &s.source.engine, Request::Route { session: s.id, input: ipc::InputRoute::Game });
-            Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.prefs.stats.mode.on() });
+            self.stats_request(out);
         }
     }
     pub fn can_end_game(&self) -> bool {

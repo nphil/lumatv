@@ -172,7 +172,7 @@ impl Engine {
                 if p.thread.is_none() {self.cancel_auth();let p=self.play.take().unwrap();self.session(session,seq,SessionState::Ended {reason:EndReason::Stopped});drop(p);}
             }
             Request::Route {session,input}=>{let p=self.play.as_ref().filter(|p|p.id==session).context("There is no matching session.")?;p.control.app.store(input!=InputRoute::Game,Ordering::Release);}
-            Request::Stats {session,on}=>{let p=self.play.as_ref().filter(|p|p.id==session).context("There is no matching session.")?;p.control.stats.store(on,Ordering::Release);}
+            Request::Stats {session,on,pad_timing}=>{let p=self.play.as_ref().filter(|p|p.id==session).context("There is no matching session.")?;p.control.set_stats(on,pad_timing);}
             Request::RoundTrip {session}=>{
                 let p=self.play.as_ref().filter(|p|p.id==session).context("There is no matching session.")?;
                 let trip=p.control.trip.lock().unwrap().clone();

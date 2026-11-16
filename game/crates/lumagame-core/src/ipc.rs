@@ -113,6 +113,9 @@ pub enum Request {
     Stats {
         session: SessionId,
         on: bool,
+        /// The menu can request ordinary stream metrics while controller timing stays off.
+        #[serde(default)]
+        pad_timing: bool,
     },
     /// Asks for the legs of a control's round trip the engine can time; answered with `round-trip`. Only for an engine with the
     /// `round-trip` feature.
@@ -688,7 +691,7 @@ mod tests {
             Request::Launch { session: SessionId(1), target: target(), game: game() },
             Request::Stop { session: SessionId(1), end_game: true },
             Request::Route { session: SessionId(1), input: InputRoute::App },
-            Request::Stats { session: SessionId(1), on: true },
+            Request::Stats { session: SessionId(1), on: true, pad_timing: true },
             Request::RoundTrip { session: SessionId(1) },
             Request::Action { key: "sign-out".into() },
         ];
@@ -696,6 +699,9 @@ mod tests {
             let message = ToEngine { seq: seq as u64, request };
             assert_eq!(decode::<ToEngine>(&encode(&message)).unwrap(), message);
         }
+        let mut legacy = serde_json::to_value(Request::Stats { session: SessionId(1), on: true, pad_timing: true }).unwrap();
+        legacy.as_object_mut().unwrap().remove("pad_timing");
+        assert_eq!(serde_json::from_value::<Request>(legacy).unwrap(), Request::Stats { session: SessionId(1), on: true, pad_timing: false });
 
         let descriptor = Descriptor {
             id: EngineId::new("punktfunk").unwrap(),

@@ -144,7 +144,7 @@ fn launch_ack_queue_start_running_stats_and_remote_end() {
     f.reply("session.poll",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"],
         "hdrDowngrade":"game-unsupported","negotiatedStreamProfile":{"codec":"h265","enableHdr":false,"resolution":"3840x2160","fps":120}}));
     f.reply("streamer.start",json!({"status":"running"}));
-    f.send(21,Request::Stats{session:SessionId(9),on:true});
+    f.send(21,Request::Stats{session:SessionId(9),on:true,pad_timing:false});
     f.event("streamer.changed",json!({"status":"running","framesPerSecond":119.8,"bitrateMbps":78.5,"queueDropCount":2}));
     f.collect();
     assert!(f.events.iter().any(|e| matches!(&e.event,Event::Stats{stats,..} if stats.bitrate_kbps==Some(78500) && stats.fps==Some(119.8))));
@@ -186,15 +186,24 @@ fn pad_timing_is_opt_in_and_ages_with_the_kernel_report() {
     f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
     f.reply("streamer.start",json!({"status":"running"}));
     assert!(!f.adapter.pad_stats_on());
-    f.send(22,Request::Stats{session:SessionId(9),on:true});
+    f.send(21,Request::Stats{session:SessionId(9),on:true,pad_timing:false});
+    assert!(!f.adapter.pad_stats_on(),"ordinary menu statistics must not start controller timing");
+    f.send(22,Request::Stats{session:SessionId(9),on:true,pad_timing:true});
     assert!(f.adapter.pad_stats_on());
     f.adapter.pad_line(&json!({"pad":"timing","name":"DualShock 4","reports":125,"rate_hz":250.0,"p99_us":4000,"bursts":0,"burst_gap_us":0,"age_ms":4}).to_string());
     f.adapter.tick(1000);
     f.event("streamer.changed",json!({"status":"running","framesPerSecond":120}));
     let pad=f.events.iter().rev().find_map(|e| match &e.event {Event::Stats{stats,..}=>stats.pad.as_ref(),_=>None}).unwrap();
     assert_eq!((pad.name.as_str(),pad.p99_us,pad.age_ms),("DualShock 4",4000,1004));
-    f.send(23,Request::Stats{session:SessionId(9),on:false});
+    f.send(23,Request::Stats{session:SessionId(9),on:true,pad_timing:false});
     assert!(!f.adapter.pad_stats_on());
+    f.adapter.pad_line(&json!({"pad":"timing","name":"late report","reports":1,"rate_hz":250.0,"p99_us":4000,"bursts":0,"burst_gap_us":0,"age_ms":0}).to_string());
+    f.event("streamer.changed",json!({"status":"running","framesPerSecond":120}));
+    assert!(f.events.iter().rev().find_map(|e| match &e.event {Event::Stats{stats,..}=>Some(stats.pad.is_none()),_=>None}).unwrap());
+    f.send(24,Request::Stats{session:SessionId(9),on:false,pad_timing:true});
+    assert!(!f.adapter.pad_stats_on());
+    f.send(25,Request::Stats{session:SessionId(9),on:true,pad_timing:true});
+    assert!(f.adapter.pad_stats_on());
 }
 
 #[test]

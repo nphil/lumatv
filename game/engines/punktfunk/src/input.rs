@@ -28,8 +28,9 @@ impl Pads {
         }
     }
     pub fn timing(&self, now_ns:u64) -> Option<PadStats> {
+        if !self.sampling.load(Ordering::Acquire) {return None;}
         let state = self.state.lock().unwrap();
-        let pad = state.slots.iter().filter(|p| p.connected).max_by_key(|p| p.last_ns)?;
+        let pad = state.slots.iter().filter(|p| p.connected && p.last_ns>0).max_by_key(|p| p.last_ns)?;
         let s = pad.timing.summary(now_ns);
         Some(PadStats { name:pad.name.clone(), reports:s.reports, rate_hz:s.rate_hz, p99_us:s.p99_us,
             bursts:s.bursts.count, burst_gap_us:s.bursts.gap_us, age_ms:now_ns.saturating_sub(pad.last_ns)/1_000_000 })

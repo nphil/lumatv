@@ -77,6 +77,7 @@ struct Launch {
     stopping: bool,
     end_game: bool,
     stats: bool,
+    pad_timing: bool,
     poll_due: u64,
     values: Values,
     /// The app's overlay has the pads: the streamer pauses their input and hands the reports to [`Adapter::pad_line`].
@@ -135,7 +136,7 @@ impl Adapter {
     }
 
     pub fn failed(&self) -> bool { self.failed }
-    pub fn pad_stats_on(&self) -> bool { self.launch.as_ref().is_some_and(|l| l.running && l.stats && !l.stopping) }
+    pub fn pad_stats_on(&self) -> bool { self.launch.as_ref().is_some_and(|l| l.running && l.pad_timing && !l.stopping) }
     pub fn data_dir(&self) -> &str { &self.hello.data_dir }
     pub fn pad_prefs(&self) -> Value {
         settings::pad_prefs(self.launch.as_ref().map_or(&self.values, |l| &l.values))
@@ -213,7 +214,7 @@ impl Adapter {
                 };
                 self.launch = Some(Launch {
                     id:session,seq:message.seq,selection,cloud:Value::Null,started:false,running:false,stale_retried:false,
-                    busy_retried:false,claimed:false,retry_stopping:false,stopping:false,end_game:false,stats:false,poll_due:0,values:self.values.clone(),
+                    busy_retried:false,claimed:false,retry_stopping:false,stopping:false,end_game:false,stats:false,pad_timing:false,poll_due:0,values:self.values.clone(),
                     overlay:false,menus:BTreeMap::new(),trip:RoundTrip::default(),pad:None,
                 });
                 self.session(SessionState::Checking);
@@ -231,8 +232,8 @@ impl Adapter {
                 if let Some(l) = &mut self.launch { l.overlay = input == InputRoute::App; l.menus.clear(); }
                 self.enqueue("streamer.input.pause",json!({"paused":input == InputRoute::App}),Purpose::Pause,seq);
             }
-            Request::Stats { session,on } if self.launch.as_ref().is_some_and(|l| l.id == session) => {
-                if let Some(l) = &mut self.launch { l.stats = on; if !on { l.pad = None; } }
+            Request::Stats { session,on,pad_timing } if self.launch.as_ref().is_some_and(|l| l.id == session) => {
+                if let Some(l) = &mut self.launch { l.stats = on; l.pad_timing = on && pad_timing; if !l.pad_timing { l.pad = None; } }
             }
             Request::RoundTrip { session } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
                 let trip = self.launch.as_ref().map(|l| l.trip.clone()).unwrap_or_default();
@@ -273,7 +274,7 @@ impl Adapter {
                 let ms = |k:&str| v[k].as_f64().map(|us| (us/1000.0) as f32);
                 (l.trip.presses,l.trip.press_p50_ms,l.trip.press_p99_ms) = (v["n"].as_u64().and_then(|n| u32::try_from(n).ok()),ms("p50"),ms("p99"));
             }
-            Some("timing") => {
+            Some("timing") if l.pad_timing => {
                 if let Ok(stats) = serde_json::from_value::<PadStats>(v) { l.pad = Some((stats, self.now)); }
             }
             _ => {}

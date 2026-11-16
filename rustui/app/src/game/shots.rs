@@ -798,6 +798,31 @@ fn all_stats_controls_share_one_setting_and_off_stops_frame_capture() {
 }
 
 #[test]
+fn controller_sampling_follows_the_visible_hud_not_menu_statistics() {
+    use super::stats::{Mode,Overlay};
+    let mut m=fixture();
+    m.view.page=Page::Hub;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::HubAction(0);
+    activate(&mut m);
+    let session=m.session().unwrap().id;
+    event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Running {stream:None}});
+    let flags=|commands:Vec<Command>| commands.into_iter().find_map(|c| match c {
+        Command::Send {request:ipc::Request::Stats {on,pad_timing,..},..}=>Some((on,pad_timing)),
+        _=>None,
+    }).expect("a visibility change updates both measurement flags");
+    assert_eq!(flags(m.step(Input::Overlay)),(true,false));
+    for (mode,changed) in [(Mode::Compact,1),(Mode::Full,2)] {
+        assert_eq!(flags(m.step(Input::StatsSetting(Overlay {mode,changed}))),(true,false));
+        let mut commands=m.step(Input::Key {key:Key::Back,down:true});
+        commands.extend(m.step(Input::Key {key:Key::Back,down:false}));
+        assert_eq!(flags(commands),(true,true));
+        assert_eq!(flags(m.step(Input::Overlay)),(true,false));
+    }
+    assert_eq!(flags(m.step(Input::StatsSetting(Overlay {mode:Mode::Off,changed:3}))),(true,false));
+    assert_eq!(flags(m.step(Input::StatsSetting(Overlay {mode:Mode::Compact,changed:4}))),(true,false));
+    assert_eq!(flags(m.step(Input::Foreground(false))),(false,false));
+}
+
+#[test]
 fn large_text_stacks_actions_and_down_follows_the_visible_column() {
     let mut m = fixture();
     m.prefs.text_percent = 200;

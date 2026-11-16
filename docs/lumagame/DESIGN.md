@@ -387,6 +387,9 @@ design respects:
   overlay.
 - The stats overlay is one surface plus one text layer of words and marks (bars, dots,
   hairlines), drawn again only when a shown value changes, at most four times a second.
+- Controller report timing runs only while the Compact or Full HUD is visible. The menu's
+  ordinary stream metrics use a separate flag: opening the menu or selecting Off stops
+  controller timing, and backgrounding disables both flags.
 - Layers move by x, y, scale, opacity and a feathered clip: no rotation, blend modes or filters.
 - Images bake corners, strips, fades and scrims at decode (`app/src/gfn/art.rs` `Spec`).
 - The render host redraws changed 16 px tiles; static art costs nothing after it settles.
