@@ -127,6 +127,10 @@ struct feeder {
     gf_pipe *pipe;
     int pipe_ready, loaded, playing, error;
     int error_reported, hold_video, request_key, audio_enabled, prime_opus;
+    gf_opus51 opus51;
+    int has_opus51;
+    uint8_t prime_packet[24];
+    size_t prime_size;
     int64_t load_ns, video_ms, audio_ms, prime_at_ns;
     int hdr_enabled, hdr_applied, video_started;
     gf_hdr hdr_info, applied_hdr;
@@ -208,11 +212,11 @@ static void prime_audio(struct feeder *f) {
     int64_t now = gf_ns();
     int64_t stamp = player_stamp(f, now, 1) / GF_PTS_MS;
     int64_t target = (now - f->load_ns) / GF_PTS_MS + 40;
-    uint8_t silence[] = {f->audio_channels == 1 ? 0xe8 : 0xec, 0xff, 0xfe};
+    const uint8_t *silence = f->prime_packet;
     while (stamp < target) {
         stamp += 5;
         f->audio_ms = stamp;
-        if (f->ops->feed_audio(f->pipe, silence, sizeof silence, stamp * GF_PTS_MS) != 0) break;
+        if (f->ops->feed_audio(f->pipe, silence, (unsigned)f->prime_size, stamp * GF_PTS_MS) != 0) break;
     }
     f->prime_at_ns = now + PRIME_INTERVAL_NS;
 }
@@ -705,6 +709,10 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
     f->hdr_enabled = l->hdr != 0;
     f->hdr_info = l->hdr_info;
     f->hdr_applied = f->video_started = 0;
+    if (f->has_opus51 && ((f->next_ops && f->next_ops != &gf_ndl_ops) || f->tex_w > 0 || f->tex_h > 0 || f->audio_mode == AUDIO_PCM)) {
+        snprintf(err, cap, "5.1 Opus requires the NDL player and compressed audio");
+        return -1;
+    }
     if (f->tex_w > 0 && f->tex_h > 0) return start_texture(f, l, err, cap);
     if (f->window_id_file && read_window_id_file(f) != 0) {
         snprintf(err, cap, "no window id in %s yet (the UI has not exported its video element)", f->window_id_file);
@@ -722,13 +730,13 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
         plane.channels = 2;
         plane.sample_rate = 48000;
     }
-    if (plane.audio == GF_AUDIO_OPUS && (plane.channels < 1 || plane.channels > 2)) {
-        snprintf(err, cap, "Opus requires mono or stereo; multistream mapping is not in protocol 1");
+    if (!f->has_opus51 && plane.audio == GF_AUDIO_OPUS && (plane.channels < 1 || plane.channels > 2)) {
+        snprintf(err, cap, "Opus requires mono or stereo without a multistream descriptor");
         return -1;
     }
     l = &plane;
     place_video(f, (int)l->width, (int)l->height);
-    int pcm = l->audio == GF_AUDIO_OPUS && (f->audio_mode == AUDIO_PCM || (f->audio_mode == AUDIO_AUTO && f->pcm_sticky));
+    int pcm = !f->has_opus51 && l->audio == GF_AUDIO_OPUS && (f->audio_mode == AUDIO_PCM || (f->audio_mode == AUDIO_AUTO && f->pcm_sticky));
     char refused[300] = "";
     for (;;) {
         gf_load use = *l;
@@ -737,11 +745,11 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
             use.audio = GF_AUDIO_PCM_S16LE;
         }
         const char *ndl_app = f->ndl_app && f->ndl_app[0] ? f->ndl_app : f->app_id;
-        gf_pipe_opts opts = {.sink = f->sink, .low_delay = f->low_delay, .load_ns = &f->load_ns};
+        gf_pipe_opts opts = {.sink = f->sink, .low_delay = f->low_delay, .load_ns = &f->load_ns, .opus51 = f->has_opus51 ? &f->opus51 : NULL};
         int rc = f->ops->start(f->pipe, ndl_app, f->window_id, &use, &opts, err, cap);
         if (rc == 0) break;
         f->ops->stop(f->pipe);
-        if (rc != GF_PIPE_LOAD_FAILED || pcm || l->audio != GF_AUDIO_OPUS || f->audio_mode != AUDIO_AUTO) {
+        if (rc != GF_PIPE_LOAD_FAILED || pcm || f->has_opus51 || l->audio != GF_AUDIO_OPUS || f->audio_mode != AUDIO_AUTO) {
             close_decoder(f);
             if (refused[0]) {
                 char second[300];
@@ -764,6 +772,15 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
     f->loaded = f->playing = f->error = 0;
     f->first_loaded_ns = f->first_playing_ns = 0;
     f->audio_channels = (int)l->channels;
+    f->prime_size = 0;
+    unsigned streams = f->has_opus51 ? f->opus51.streams : 1;
+    unsigned coupled = f->has_opus51 ? f->opus51.coupled : l->channels == 2;
+    for (unsigned i = 0; i < streams; i++) {
+        f->prime_packet[f->prime_size++] = i < coupled ? 0xec : 0xe8;
+        if (i + 1 < streams) f->prime_packet[f->prime_size++] = 2;
+        f->prime_packet[f->prime_size++] = 0xff;
+        f->prime_packet[f->prime_size++] = 0xfe;
+    }
     f->prime_opus = f->ops == &gf_ndl_ops && !pcm && l->audio == GF_AUDIO_OPUS;
     prime_audio(f);
     return 0;
@@ -1404,14 +1421,35 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
     maintain_pipeline(f, emit_event);
     report_player(f, c);
     switch (type) {
-    case GF_LOAD: {
-        if (n < sizeof(gf_load)) {
-            send_text(c, GF_ERROR, 1, "LOAD is short");
+    case GF_LOAD:
+    case GF_LOAD_OPUS51: {
+        if (n != (type == GF_LOAD ? sizeof(gf_load) : sizeof(gf_load_opus51))) {
+            send_text(c, GF_LOADED, 0, "Invalid LOAD length");
             return;
         }
         gf_load l;
         memcpy(&l, p, sizeof l);
+        gf_opus51 opus = {0};
+        if (type == GF_LOAD_OPUS51) {
+            memcpy(&opus, p + sizeof l, sizeof opus);
+            unsigned mask = 0;
+            for (unsigned i = 0; i < 6; i++) {
+                if (opus.mapping[i] >= 6) { send_text(c, GF_LOADED, 0, "Invalid 5.1 channel mapping"); return; }
+                mask |= 1u << opus.mapping[i];
+            }
+            if (l.audio != GF_AUDIO_OPUS || l.channels != 6 || l.sample_rate != 48000 ||
+                opus.streams < 1 || opus.streams > 6 || opus.coupled > opus.streams ||
+                opus.streams + opus.coupled != 6 || mask != 63) {
+                send_text(c, GF_LOADED, 0, "Invalid 5.1 Opus configuration");
+                return;
+            }
+        } else if (l.audio == GF_AUDIO_OPUS && l.channels > 2) {
+            send_text(c, GF_LOADED, 0, "Multistream Opus requires LOAD_OPUS51");
+            return;
+        }
         if (f->pipe_ready || f->tex_on) stop_pipeline(f);
+        f->has_opus51 = type == GF_LOAD_OPUS51;
+        f->opus51 = opus;
         f->pts_unit = GF_PTS_MS;
         char err[300];
         if (start_pipeline(f, &l, err, sizeof err) != 0) {

@@ -12,7 +12,7 @@ fn picture_ingest_precedes_load_completion_and_audio_then_flows_without_flush() 
     let dir=tempfile::tempdir().unwrap();let path=dir.path().join("feeder.sock");let listener=UnixListener::bind(&path).unwrap();
     let host=thread::spawn(move || {
         let (mut s,_)=listener.accept().unwrap();s.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
-        let mut greeting=[0;112];greeting[0..4].copy_from_slice(&1u32.to_le_bytes());greeting[4..8].copy_from_slice(&1u32.to_le_bytes());send(&mut s,msg::HELLO,&greeting);
+        let mut greeting=[0;112];greeting[0..4].copy_from_slice(&lumagame_feeder::PROTO_VERSION.to_le_bytes());greeting[4..8].copy_from_slice(&1u32.to_le_bytes());send(&mut s,msg::HELLO,&greeting);
         let (kind,body)=recv(&mut s);assert_eq!((kind,body.len()),(msg::LOAD,100));assert_eq!(u32::from_le_bytes(body[16..20].try_into().unwrap()),audio::OPUS);assert_eq!(i32::from_le_bytes(body[96..100].try_into().unwrap()),pts_unit::MS);
         send(&mut s,msg::LOADED,&1i32.to_le_bytes());
         let (kind,body)=recv(&mut s);assert_eq!(kind,msg::VIDEO);assert_eq!(body[8],1);assert_eq!(&body[16..],&[0,0,0,1,0x65,0x80]);

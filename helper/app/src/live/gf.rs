@@ -8,7 +8,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
-pub const PROTO_VERSION: u32 = 1;
+pub const PROTO_VERSION: u32 = 2;
 pub const MAX_PAYLOAD: usize = 8 << 20;
 
 pub const LOAD: u8 = 1;
@@ -217,14 +217,14 @@ pub struct Status2 {
 pub fn decode(kind: u8, p: &[u8]) -> Message {
     match kind {
         HELLO => match read_struct::<Hello>(p) {
-            Some(h) => Message::Hello {
+            Some(h) if h.version == PROTO_VERSION && p.len() == std::mem::size_of::<Hello>() => Message::Hello {
                 library: h.library == 1,
                 pid: h.pid,
                 own_window: h.window == 1,
                 window_id: c_string(&h.window_id),
                 library_name: c_string(&h.library_name),
             },
-            None => Message::Other(kind),
+            _ => Message::Other(kind),
         },
         LOADED => Message::Loaded {
             ok: read_struct::<i32>(p) == Some(1),
@@ -473,7 +473,7 @@ mod tests {
     #[test]
     fn frames_round_trip_and_the_structs_match_the_header() {
         let mut hello = Hello {
-            version: 1,
+            version: PROTO_VERSION,
             library: 1,
             pid: 7,
             window: 1,
@@ -493,6 +493,8 @@ mod tests {
                 library_name: "ndl".into()
             }
         );
+        hello.version = 1;
+        assert!(matches!(decode(HELLO, bytes_of(&hello)), Message::Other(HELLO)));
         let status = Status {
             video_fed: 60,
             loaded: 1,

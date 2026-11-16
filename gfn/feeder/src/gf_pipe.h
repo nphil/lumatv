@@ -38,6 +38,7 @@ typedef struct gf_pipe_opts {
     const char *sink;
     int low_delay;
     int64_t *load_ns;                   /* NDL records the clock at its Load call, before any wait */
+    const gf_opus51 *opus51;
 } gf_pipe_opts;
 
 typedef struct gf_pipe_ops {

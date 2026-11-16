@@ -6,7 +6,7 @@ use std::path::Path;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-pub const PROTO_VERSION: u32 = 1;
+pub const PROTO_VERSION: u32 = 2;
 pub const MAX_PAYLOAD: u32 = 8 << 20;
 
 pub mod msg {
@@ -22,6 +22,7 @@ pub mod msg {
     pub const TEXTURE: u8 = 10;
     pub const PIPE: u8 = 11;
     pub const SINK: u8 = 12;
+    pub const LOAD_OPUS51: u8 = 13;
     pub const LOADED: u8 = 16;
     pub const EVENT: u8 = 17;
     pub const ACCEPT: u8 = 18;
@@ -133,6 +134,15 @@ pub struct Load {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
+pub struct LoadOpus51 {
+    pub load: Load,
+    pub streams: u8,
+    pub coupled: u8,
+    pub mapping: [u8; 6],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct MediaHead {
     pub pts_ns: i64,
     pub key: u8,
@@ -192,6 +202,7 @@ const _: () = assert!(std::mem::size_of::<Frame>() == 8);
 const _: () = assert!(std::mem::size_of::<Hello>() == 112);
 const _: () = assert!(std::mem::size_of::<Hdr>() == 60);
 const _: () = assert!(std::mem::size_of::<Load>() == 100);
+const _: () = assert!(std::mem::size_of::<LoadOpus51>() == 108);
 const _: () = assert!(std::mem::size_of::<MediaHead>() == 16);
 const _: () = assert!(std::mem::size_of::<Event>() == 16);
 const _: () = assert!(std::mem::size_of::<Accept>() == 16);
@@ -248,7 +259,7 @@ pub enum FeederMessage {
 pub fn decode(kind: u8, p: &[u8]) -> FeederMessage {
     match kind {
         msg::HELLO => match read_struct::<Hello>(p) {
-            Some(h) => FeederMessage::Hello {
+            Some(h) if p.len() == std::mem::size_of::<Hello>() => FeederMessage::Hello {
                 version: h.version,
                 library: h.library != 0,
                 pid: h.pid,
@@ -256,7 +267,7 @@ pub fn decode(kind: u8, p: &[u8]) -> FeederMessage {
                 window_id: c_string(&h.window_id),
                 library_name: c_string(&h.library_name),
             },
-            None => FeederMessage::Unknown { kind, length: p.len() as u32 },
+            _ => FeederMessage::Unknown { kind, length: p.len() as u32 },
         },
         msg::LOADED if p.len() >= 4 => FeederMessage::Loaded {
             ok: i32::from_le_bytes([p[0], p[1], p[2], p[3]]) == 1,
@@ -306,7 +317,7 @@ impl FeederClient {
         let (kind, payload) = s.read_frame()?;
         let hello = decode(kind, &payload);
         if !matches!(hello, FeederMessage::Hello { version: PROTO_VERSION, .. }) {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "the feeder did not greet with protocol 1"));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "the feeder did not greet with protocol 2"));
         }
         s.stream.set_read_timeout(None)?;
         s.stream.set_write_timeout(Some(Duration::from_millis(500)))?;
@@ -376,6 +387,10 @@ impl FeederClient {
         self.send(msg::LOAD, as_bytes(load))
     }
 
+    pub fn send_load_opus51(&mut self, load: &LoadOpus51) -> io::Result<()> {
+        self.send(msg::LOAD_OPUS51, as_bytes(load))
+    }
+
     pub fn send_hdr(&mut self, hdr: &Hdr) -> io::Result<()> {
         self.send(msg::HDR, as_bytes(hdr))
     }
@@ -416,7 +431,7 @@ mod tests {
 
     #[test]
     fn frames_decode() {
-        let mut h = Hello { version: 1, library: 1, pid: 7, window: 0, window_id: [0; 32], library_name: [0; 64] };
+        let mut h = Hello { version: PROTO_VERSION, library: 1, pid: 7, window: 0, window_id: [0; 32], library_name: [0; 64] };
         h.window_id[.."_Window_Id_9".len()].copy_from_slice(b"_Window_Id_9");
         match decode(msg::HELLO, as_bytes(&h)) {
             FeederMessage::Hello { library, pid, own_window, window_id, .. } => {
@@ -487,6 +502,13 @@ mod transport_tests {
         assert_eq!(&bytes[116..124], &123456789012i64.to_le_bytes());
         assert_eq!(&bytes[124..132], &[1, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(&bytes[132..], b"access-unit");
+        let surround = LoadOpus51 { load: Load { channels: 6, ..load }, streams: 4, coupled: 2, mapping: [0, 1, 4, 2, 3, 5] };
+        client.send_load_opus51(&surround).unwrap();
+        let mut bytes = [0; 116];
+        peer.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes[..8], &[13, 0, 0, 0, 108, 0, 0, 0]);
+        assert_eq!(&bytes[8..108], as_bytes(&surround.load));
+        assert_eq!(&bytes[108..], &[4, 2, 0, 1, 4, 2, 3, 5]);
         assert!(client.send_media(msg::HDR, 0, false, b"").is_err());
         assert!(client.send(msg::LOAD, &vec![0; MAX_PAYLOAD as usize + 1]).is_err());
     }

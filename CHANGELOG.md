@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The PC streaming engine can request 5.1 Opus or stereo (the default). Feeder protocol 2 carries the negotiated channel mapping without changing stereo or camera loads; 5.1 uses NDL only. Receiver output and speaker routing remain untested on the TV.
+
 LumaGame has opt-in remote diagnostics in Settings, with a private write token and no default destination. It sends bounded batches of lifecycle, draw/swap and aggregate stream measurements; switching it off discards unsent events. An already delivered message cannot be recalled.
 
 LumaGame (`org.nphil.lumagame`) is a game streaming app of its own that puts GeForce NOW, Punktfunk and Sunshine/Apollo (the separately licensed GameStream engine, pinned at 0.1.1) behind one library on the video plane. Its engines take the app's common stream settings: resolution, frame rate, codec, HDR and bitrate (5–150 Mbps), with AV1 up to 60 fps. LumaTV's package carries it once built; `lumatv game install` puts it on the TV beside the GeForce NOW app, and `lumatv game adopt-gfn` copies that app's sign-in so GeForce NOW needs no new one. A Gaming plugin (off by default) gives a session's controller readers real-time priority; its low-latency picture controls stay unavailable until qualified on the TV. Not yet accepted on the TV.

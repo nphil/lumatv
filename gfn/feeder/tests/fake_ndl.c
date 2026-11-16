@@ -53,6 +53,9 @@ static int recent_i;
 static atomic_int completed;
 static int primes, hdr_calls, flushes, violations, events_started;
 static pthread_t events_thread;
+static const char *stream_header;
+
+const char *FakeNDLHeader(void) { return stream_header; }
 
 struct fake_ndl_state FakeNDLState(void) {
     return (struct fake_ndl_state){played, audio_played, primes, hdr_calls, flushes, audio_type, audio_channels, violations, last_pts, last_apts};
@@ -180,6 +183,7 @@ int NDL_DirectMediaLoad(struct data_info *info, load_cb callback) {
     audio_type = info->audio.type;
     audio_channels = info->audio.type == 1 ? (!strcmp(info->audio.pcm.channelMode, "mono") ? 1 : !strcmp(info->audio.pcm.channelMode, "6-channel") ? 6 : 2)
                                            : info->audio.type == 3 ? info->audio.opus.channels : 0;
+    stream_header = info->audio.type == 3 ? info->audio.opus.streamHeader : NULL;
     cb = callback;
     loaded = 1;
     last_pts = last_apts = -1;
@@ -298,9 +302,10 @@ int NDL_DirectAudioPlay(void *buf, unsigned size, long long pts) {
     if (pts < last_apts) bad("an audio PTS that goes backwards");
     last_apts = pts;
     if (audio_type == 1 && (size == 0 || size % (unsigned)(2 * audio_channels))) bad("a PCM unit that is not whole S16 frames");
-    if (audio_type == 3 && size > 1275 * 3) bad("an Opus unit larger than any packet");
+    if (audio_type == 3 && size > 1275 * 6 + 12) bad("an Opus unit larger than any packet");
     const unsigned char *p = buf;
-    if (audio_type == 3 && size == 3 && (p[0] == 0xec || p[0] == 0xe8) && p[1] == 0xff && p[2] == 0xfe) {
+    if (audio_type == 3 && size >= 3 && (p[0] == 0xec || p[0] == 0xe8) &&
+        p[size - 2] == 0xff && p[size - 1] == 0xfe) {
         primes++;
         say("AudioPrime #%d pts %lld", primes, pts);
         return 0;

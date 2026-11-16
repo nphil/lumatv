@@ -82,8 +82,10 @@ fn write_events(pty: &Pty, events: &[[u8; 24]]) {
 #[test]
 fn a_session_feeds_the_real_feeder_and_pads_reach_the_queue() {
     let root = root();
-    let feeder = root.join("gfn/feeder/build/host/lumatv-gfn-feeder");
-    let lib_dir = root.join("gfn/feeder/build/host");
+    let lib_dir = std::env::var_os("LUMATV_GFN_TEST_FEEDER_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("gfn/feeder/build/host"));
+    let feeder = lib_dir.join("lumatv-gfn-feeder");
     assert!(feeder.exists() && lib_dir.join("libNDL_directmedia.so.1").exists(), "build the feeder first (sh gfn/feeder/build.sh)");
     let tmp = std::env::temp_dir().join(format!("gfn-session-{}", std::process::id()));
     let _ = fs::remove_dir_all(&tmp);

@@ -10,7 +10,7 @@
 
 #include <stdint.h>
 
-#define GF_PROTO_VERSION 1
+#define GF_PROTO_VERSION 2
 #define GF_MAX_PAYLOAD (8u << 20)   /* one access unit at 100 Mbit/s is under a megabyte; eight is the hard stop */
 
 enum gf_msg {
@@ -31,6 +31,7 @@ enum gf_msg {
                          * gfn/feeder/src/gf_pipe.h) */
     GF_SINK = 12,       /* text: the video sink the next LOAD asks for: "" the main window every pipeline gets, "sub_video" the sub window beside an app's video (the
                          * starfish pipeline only; the compositor lists the pipeline's app beside the front card while the claim holds that window) */
+    GF_LOAD_OPUS51 = 13, /* gf_load followed by gf_opus51 */
     /* feeder -> engine */
     GF_LOADED = 16,     /* int32 ok (1), then text: LOAD accepted, not LOADCOMPLETED (EVENT 22); video must flow during loading */
     GF_EVENT = 17,      /* gf_event then text */
@@ -78,6 +79,15 @@ typedef struct {
     int32_t drop_threshold; /* NDL_DirectVideoSetFrameDropThreshold after the load; -1 leaves the library's default */
     int32_t pts_unit;       /* reserved legacy field; NDL always receives rounded-up milliseconds since the load call */
 } gf_load;                  /* 100 bytes */
+
+typedef struct {
+    uint8_t streams, coupled, mapping[6]; /* mapping in Vorbis channel order */
+} gf_opus51;
+
+typedef struct {
+    gf_load load;
+    gf_opus51 opus;
+} gf_load_opus51;           /* 108 bytes */
 
 enum gf_pts_unit { GF_PTS_NS = 1, GF_PTS_US = 1000, GF_PTS_MS = 1000000 };
 

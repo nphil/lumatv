@@ -1,4 +1,4 @@
-# Feeder protocol 1
+# Feeder protocol 2
 
 The 32-bit app `main` owns LG's player. Engines connect to its Unix stream socket (`/tmp/org.nphil.lumagame/feed.sock`; the old GFN app uses `/tmp/lumatv-gfn/feed.sock`). One connection owns the player; another receives ERROR 3 and closes. Disconnect unloads. No TV libraries are linked into an engine. GPL engines implement this protocol in their own process; permissive Rust engines use `lumagame-feeder`.
 
@@ -19,8 +19,9 @@ The authoritative layouts are [`gf_proto.h`](../../../../gfn/feeder/src/gf_proto
 | TEXTURE 10 | `u32 width,height`; nonzero selects CPU decoding into a camera texture, zero restores the player |
 | PIPE 11 | `ndl`, `es`, or `smp`, for the next load |
 | SINK 12 | Empty for the main video window; `sub_video` for Starfish's secondary window |
+| LOAD_OPUS51 13 | 108 bytes: the 100-byte LOAD, then `u8 streams,coupled,mapping[6]` in Vorbis channel order |
 
-Codec: H.264=1, H.265=2, AV1=4. H.264/H.265 units use Annex B start codes; AV1 uses a low-overhead temporal unit beginning with its temporal delimiter. Audio: none=0, Opus=1, interleaved signed 16-bit little-endian PCM=2. Gaming engines negotiate mono or stereo Opus at 48000 Hz; protocol 1 has no surround/multistream mapping. `key=1` marks a decoder-safe keyframe or recovery anchor. `drop_threshold=-1` leaves LG's default. `pts_unit` is a legacy field; send 1000000. Every NDL load now uses milliseconds regardless of that field.
+Codec: H.264=1, H.265=2, AV1=4. H.264/H.265 units use Annex B start codes; AV1 uses a low-overhead temporal unit beginning with its temporal delimiter. Audio: none=0, Opus=1, interleaved signed 16-bit little-endian PCM=2. Ordinary LOAD uses mono or stereo Opus. LOAD_OPUS51 requires six-channel Opus at 48000 Hz, 1–6 streams, coupled no greater than streams, streams plus coupled equal to six, and a mapping that is a permutation of 0–5. It requires NDL and compressed audio; it never falls back to PCM. `key=1` marks a decoder-safe keyframe or recovery anchor. `drop_threshold=-1` leaves LG's default. `pts_unit` is a legacy field; send 1000000. Every NDL load uses milliseconds regardless of that field.
 
 HDR is 15 `u32`s: green x/y, blue x/y, red x/y, white x/y, maximum/minimum mastering luminance, maximum content light level, maximum frame-average light level, transfer characteristics, colour primaries, matrix coefficients. Chromaticity units are 1/50000; mastering luminance units are 1/10000 nit. `Hdr::hdr10(1000,400)` supplies BT.2020/PQ defaults. SDR loads set `hdr=0`; HDR messages cannot turn them into HDR sessions.
 
@@ -42,7 +43,7 @@ DROP reasons: buffer full=1, no pipeline=2, refused unit=3, held for an anchor=4
 
 ## Load, clocks and recovery
 
-1. Read HELLO and require version 1. Send LOAD and check LOADED. `ok=1` means the load call was accepted, **not** that loading finished. Feed video immediately: some TVs report LOADCOMPLETED only after ingesting video.
+1. Read HELLO and require version 2. Send LOAD and check LOADED. `ok=1` means the load call was accepted, **not** that loading finished. Feed video immediately: some TVs report LOADCOMPLETED only after ingesting video.
 2. VIDEO timestamps are absolute `CLOCK_MONOTONIC` nanoseconds on the TV, optionally mapped from the source clock by the engine. The feeder subtracts its exact load-call timestamp, rounds up to milliseconds, and clamps each plane to its last timestamp. ACCEPT/DROP echo the original number unchanged. AUDIO's supplied timestamp is not used for presentation: audio uses the feeder's clock since load.
 3. The feeder loads and primes an Opus plane even for video-only NDL sessions. Silent packets carry the load window; real audio packets before event 22 are discarded. Priming stops on that event. The old GFN feeder retains its explicit PCM fallback for TVs that reject Opus.
 4. Loss or buffer rejection holds dependent video and sends one KEYFRAME per hold. FLUSH never calls NDL's flush: that destroys session audio. Submit the next safe anchor with `key=1`; subsequent video resumes. A real software-decode error may flush the texture decoder.

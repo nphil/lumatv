@@ -475,7 +475,7 @@ class Serve(unittest.TestCase):
             t, p = c.recv()
             self.assertEqual(t, GF["HELLO"])
             version, library, pid, window, wid, lib = HELLO.unpack(p)
-            self.assertEqual((version, library, window), (1, 1, 1))
+            self.assertEqual((version, library, window), (2, 1, 1))
             self.assertEqual(pid, proc.pid)
             self.assertTrue(wid.rstrip(b"\0").decode().startswith("_Window_Id_"))
             self.assertEqual(lib.rstrip(b"\0"), b"libNDL_directmedia.so.1")
@@ -1041,7 +1041,7 @@ class PlayerRules(unittest.TestCase):
             with self.subTest(binary=binary):
                 result = subprocess.run([os.path.join(FEEDER, "build", "host", binary), NDL], capture_output=True, text=True, timeout=1)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn("7 rules passed", result.stdout)
+                self.assertIn("10 rules passed", result.stdout)
 
     def test_lifecycle_launch_apps_foreground_and_failures(self):
         result = subprocess.run([os.path.join(FEEDER, "build", "host", "sam_test")], capture_output=True, text=True, timeout=1)

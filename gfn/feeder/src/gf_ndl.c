@@ -57,6 +57,7 @@ struct gf_ndl {
     int (*quit)(void);
     const char *(*get_error)(void);
     int started, loaded;
+    char opus_header[37];
 
     int lock;                       /* spin lock: callbacks run on the library's threads */
     struct { int type; long long num; char text[200]; } q[EVQ];
@@ -181,6 +182,23 @@ static int ndl_set_hdr(gf_pipe *p, const gf_hdr *h) {
     memcpy(i.v, h, sizeof i.v);
     return n->set_hdr(i);
 }
+static void opus51_header(char out[37], const gf_opus51 *opus) {
+    static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    uint8_t h[27] = {'O','p','u','s','H','e','a','d',1,6,0,0,0,0,0,0,0,0,1};
+    h[19] = opus->streams;
+    h[20] = opus->coupled;
+    memcpy(h + 21, opus->mapping, 6);
+    for (unsigned i = 0; i < sizeof h; i += 3) {
+        unsigned x = (unsigned)h[i] << 16 | (unsigned)h[i + 1] << 8 | h[i + 2];
+        unsigned j = i / 3 * 4;
+        out[j] = alphabet[x >> 18];
+        out[j + 1] = alphabet[(x >> 12) & 63];
+        out[j + 2] = alphabet[(x >> 6) & 63];
+        out[j + 3] = alphabet[x & 63];
+    }
+    out[36] = '\0';
+}
+
 
 static int ndl_set_drop_threshold(gf_pipe *p, int threshold) { return N(p)->set_drop ? N(p)->set_drop(threshold) : -2; }
 
@@ -209,6 +227,10 @@ static int ndl_start(gf_pipe *p, const char *app_id, const char *window_id, cons
         info.audio.opus.type = 3;
         info.audio.opus.channels = (int)l->channels;
         info.audio.opus.sampleRate = l->sample_rate / 1000.0;      /* kHz, as SS4S ndl_audio.c passes it */
+        if (o->opus51) {
+            opus51_header(n->opus_header, o->opus51);
+            info.audio.opus.streamHeader = n->opus_header;
+        }
     } else if (l->audio == GF_AUDIO_PCM_S16LE) {
         info.audio.pcm.type = 1;
         info.audio.pcm.format = "S16LE";

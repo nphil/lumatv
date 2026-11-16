@@ -10,6 +10,7 @@ int64_t gf_ns(void) { return now; }
 static struct fake_ndl_state (*state)(void);
 static void (*event)(int, long long);
 static void (*reset)(void);
+static const char *(*header)(void);
 static struct feeder f;
 static struct client client;
 static const uint8_t picture[] = {0, 0, 0, 1, 0x26, 1, 0x80, 0x42};
@@ -192,6 +193,118 @@ static void frame_records_are_opt_in_bounded_and_measured(void) {
     chan_close(&f);
     close(sv[1]);
 }
+static void surround_header_and_load_validation(void) {
+    stop_pipeline(&f);
+    reset();
+    gf_load_opus51 l = {.load = load_for(GF_AUDIO_OPUS, 0), .opus = {4, 2, {0, 1, 4, 2, 3, 5}}};
+    l.load.channels = 6;
+    client.out_len = 0;
+    handle_message(&f, &client, GF_LOAD_OPUS51, (const uint8_t *)&l, sizeof l);
+    assert(f.pipe_ready && f.has_opus51 && state().channels == 6);
+    assert(header() && !strcmp(header(), "T3B1c0hlYWQBBgAAAAAAAAAAAQQCAAEEAgMF"));
+    assert(state().primes == 8);
+    const char *saved = header();
+    complete();
+    assert(!strcmp(saved, "T3B1c0hlYWQBBgAAAAAAAAAAAQQCAAEEAgMF"));
+    stop_pipeline(&f);
+    l.load.hdr = 1;
+    handle_message(&f, &client, GF_LOAD_OPUS51, (const uint8_t *)&l, sizeof l);
+    assert(f.pipe_ready && header() && !strcmp(header(), "T3B1c0hlYWQBBgAAAAAAAAAAAQQCAAEEAgMF"));
+    stop_pipeline(&f);
+    l.opus.mapping[0] = l.opus.mapping[1];
+    client.out_len = 0;
+    handle_message(&f, &client, GF_LOAD_OPUS51, (const uint8_t *)&l, sizeof l);
+    assert(!f.pipe_ready && messages(GF_LOADED) == 1);
+    client.out_len = 0;
+    handle_message(&f, &client, GF_LOAD_OPUS51, (const uint8_t *)&l, sizeof l - 1);
+    assert(!f.pipe_ready && messages(GF_LOADED) == 1);
+    l.opus.mapping[0] = 0;
+    l.opus.streams = 3;
+    client.out_len = 0;
+    handle_message(&f, &client, GF_LOAD_OPUS51, (const uint8_t *)&l, sizeof l);
+    assert(!f.pipe_ready && messages(GF_LOADED) == 1);
+    l.opus.streams = 4;
+    l.load.sample_rate = 44100;
+    client.out_len = 0;
+    handle_message(&f, &client, GF_LOAD_OPUS51, (const uint8_t *)&l, sizeof l);
+    assert(!f.pipe_ready && messages(GF_LOADED) == 1);
+    l.load.sample_rate = 48000;
+    client.out_len = 0;
+    handle_message(&f, &client, GF_LOAD, (const uint8_t *)&l, sizeof l);
+    assert(!f.pipe_ready && messages(GF_LOADED) == 1);
+    setenv("FAKE_NDL_FAIL", "opus", 1);
+    client.out_len = 0;
+    handle_message(&f, &client, GF_LOAD_OPUS51, (const uint8_t *)&l, sizeof l);
+    assert(!f.pipe_ready && !f.pcm && messages(GF_LOADED) == 1);
+    unsetenv("FAKE_NDL_FAIL");
+    gf_load stereo = load_for(GF_AUDIO_OPUS, 0);
+    handle_message(&f, &client, GF_LOAD, (const uint8_t *)&stereo, sizeof stereo);
+    assert(f.pipe_ready && !header() && !f.has_opus51);
+    stop_pipeline(&f);
+    f.has_opus51 = 0;
+}
+
+static void surround_packets_preserve_speaker_identity(void) {
+    void *lib = dlopen("libopus.so.0", RTLD_NOW);
+    assert(lib);
+    void *(*enc_create)(int, int, int, int, const unsigned char *, int, int *);
+    int (*encode)(void *, const short *, int, unsigned char *, int);
+    void (*enc_destroy)(void *);
+    void *(*dec_create)(int, int, int, int, const unsigned char *, int *);
+    int (*decode)(void *, const unsigned char *, int, short *, int, int);
+    void (*dec_destroy)(void *);
+    *(void **)(&enc_create) = dlsym(lib, "opus_multistream_encoder_create");
+    *(void **)(&encode) = dlsym(lib, "opus_multistream_encode");
+    *(void **)(&enc_destroy) = dlsym(lib, "opus_multistream_encoder_destroy");
+    *(void **)(&dec_create) = dlsym(lib, "opus_multistream_decoder_create");
+    *(void **)(&decode) = dlsym(lib, "opus_multistream_decode");
+    *(void **)(&dec_destroy) = dlsym(lib, "opus_multistream_decoder_destroy");
+    assert(enc_create && encode && enc_destroy && dec_create && decode && dec_destroy);
+    const unsigned order[6] = {0, 2, 1, 4, 5, 3};
+    const unsigned char mappings[2][6] = {{0, 4, 1, 5, 2, 3}, {0, 1, 2, 3, 4, 5}};
+    const unsigned char lg[6] = {0, 1, 4, 5, 2, 3};
+    for (int mode = 0; mode < 2; mode++) {
+        int streams = mode ? 6 : 4, coupled = mode ? 0 : 2, error;
+        unsigned char vorbis[6], data[8192];
+        for (unsigned i = 0; i < 6; i++) vorbis[i] = mappings[mode][order[i]];
+        short input[960 * 6], wave[960 * 6], output[960 * 6], wrong[960 * 6], default_out[960 * 6];
+        for (int n = 0; n < 960; n++) for (int c = 0; c < 6; c++)
+            input[n * 6 + c] = ((n / (7 + c * 3)) % 2 ? 1 : -1) * (3000 + c * 300);
+        void *enc = enc_create(48000, 6, streams, coupled, mappings[mode], 2049, &error);
+        assert(enc && !error);
+        int bytes = encode(enc, input, 960, data, sizeof data);
+        assert(bytes > 0);
+        enc_destroy(enc);
+        void *a = dec_create(48000, 6, streams, coupled, mappings[mode], &error); assert(a && !error);
+        void *b = dec_create(48000, 6, streams, coupled, vorbis, &error); assert(b && !error);
+        void *c = dec_create(48000, 6, streams, coupled, mappings[mode], &error); assert(c && !error);
+        void *d = dec_create(48000, 6, streams, coupled, lg, &error); assert(d && !error);
+        assert(decode(a, data, bytes, wave, 960, 0) == 960);
+        assert(decode(b, data, bytes, output, 960, 0) == 960);
+        assert(decode(c, data, bytes, wrong, 960, 0) == 960);
+        assert(decode(d, data, bytes, default_out, 960, 0) == 960);
+        int incorrect = 0, lg_incorrect = 0;
+        for (int n = 0; n < 960; n++) for (int ch = 0; ch < 6; ch++) {
+            assert(output[n * 6 + ch] == wave[n * 6 + order[ch]]);
+            incorrect |= wrong[n * 6 + ch] != output[n * 6 + ch];
+            lg_incorrect |= default_out[n * 6 + ch] != output[n * 6 + ch];
+        }
+        assert(incorrect && lg_incorrect);
+        dec_destroy(a); dec_destroy(b); dec_destroy(c); dec_destroy(d);
+        f.has_opus51 = 1;
+        f.opus51 = (gf_opus51){(uint8_t)streams, (uint8_t)coupled, {0, 1, 2, 3, 4, 5}};
+        gf_load l = load_for(GF_AUDIO_OPUS, 0); l.channels = 6;
+        char err[300];
+        assert(start_pipeline(&f, &l, err, sizeof err) == 0);
+        a = dec_create(48000, 6, streams, coupled, vorbis, &error); assert(a && !error);
+        assert(decode(a, f.prime_packet, (int)f.prime_size, wave, 960, 0) == 240);
+        dec_destroy(a);
+        stop_pipeline(&f);
+    }
+    f.has_opus51 = 0;
+    dlclose(lib);
+}
+
 
 int main(int argc, char **argv) {
     assert(argc == 2);
@@ -202,6 +315,8 @@ int main(int argc, char **argv) {
     *(void **)(&state) = dlsym(lib, "FakeNDLState");
     *(void **)(&event) = dlsym(lib, "FakeNDLEvent");
     *(void **)(&reset) = dlsym(lib, "FakeNDLReset");
+    *(void **)(&header) = dlsym(lib, "FakeNDLHeader");
+    assert(header);
     assert(state && event && reset);
     f.app_id = DEFAULT_APP_ID;
     f.lib = argv[1];
@@ -217,8 +332,10 @@ int main(int argc, char **argv) {
     watchdog_and_fatal_errors_latch_until_a_new_load();
     identity_is_a_build_setting();
     frame_records_are_opt_in_bounded_and_measured();
+    surround_header_and_load_validation();
+    surround_packets_preserve_speaker_identity();
     close_all(&f);
     free(client.out);
-    puts("policy_test: 8 rules passed (injected clock, fake NDL)");
+    puts("policy_test: 10 rules passed (injected clock, fake NDL)");
     return 0;
 }
