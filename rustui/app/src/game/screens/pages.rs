@@ -189,17 +189,17 @@ pub fn home(p: &mut Paint<'_>) {
         + actions_h;
     hero_end = hero_end.max(p.y + 100.0 + content);
     let actions_y = hero_end - actions_h;
-    if !deep || p.mode == Mode::Dark {
-        stage(
-            p,
-            game.id,
-            620.0,
-            if p.mode == Mode::Light { hero_end + 40.0 } else { 360.0 },
-            if p.mode == Mode::Light { hero_end + 84.0 } else { 700.0 },
-            deep,
-            false,
-        );
-    }
+    stage(
+        p,
+        game.id,
+        620.0,
+        if p.mode == Mode::Light { hero_end + 40.0 } else { 360.0 },
+        if p.mode == Mode::Light { hero_end + 84.0 } else { 700.0 },
+        false,
+        false,
+    );
+    p.solid(3, Frame::new(0.0, 0.0, W, H), p.ink(Role::Canvas, false), 0.0, 2);
+    p.plan.nodes.last_mut().unwrap().props.opacity = if deep { if p.mode == Mode::Light { 1.0 } else { 0.5 } } else { 0.0 };
     nav(p, !deep);
     if !deep {
         let top = hero_end - content;

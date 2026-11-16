@@ -900,6 +900,9 @@ fn carousel_motion_frames() -> io::Result<()> {
     m.rebuild_navigation();
     let mut shots = Shots::new()?;
     shots.shot(&m)?;
+    if mode == "down" {
+        assert!(shots.page.has_stage(), "the Home backdrop must be loaded before scrolling");
+    }
     let key = if mode == "right" || mode == "1" { Key::Right } else { Key::Down };
     let mut peak = (0, 0);
     for press in 0..8 {
@@ -908,6 +911,9 @@ fn carousel_motion_frames() -> io::Result<()> {
         for tick in 0..10 {
             shots.page.show(&m)?;
             shots.frame()?;
+            if mode == "down" {
+                assert!(shots.page.has_stage(), "the Home backdrop disappeared while scrolling");
+            }
             let (_, groups) = shots.page.retained_counts();
             let nodes = shots.page.ui.scene.live_layers();
             peak = (peak.0.max(nodes), peak.1.max(groups));

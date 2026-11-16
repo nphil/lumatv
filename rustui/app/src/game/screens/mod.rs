@@ -158,6 +158,10 @@ impl GameUi {
     pub(super) fn retained_counts(&self) -> (usize, usize) {
         (self.nodes.len(), self.groups.len())
     }
+    #[cfg(test)]
+    pub(super) fn has_stage(&self) -> bool {
+        self.nodes.contains_key(&2)
+    }
     pub fn show(&mut self, model: &Model) -> io::Result<bool> {
         let mut decoded = false;
         while let Some(done) = self.loader.poll() {
