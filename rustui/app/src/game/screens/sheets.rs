@@ -478,7 +478,8 @@ pub fn overlay(p: &mut Paint<'_>) {
         return;
     };
     stage(p, session.game, 1080.0, 0.0, 1080.0, false, true);
-    let actions_y = H - 118.0 - p.tokens.target.max(p.line(Type::Label) + 24.0);
+    let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
+    let actions_y = H - 118.0 - button_h * if p.scale >= 2.0 { 2.0 } else { 1.0 } - if p.scale >= 2.0 { 16.0 } else { 0.0 };
     let mut stats = Vec::new();
     let s = &p.model.view.stats;
     if let Some(v) = s.rtt_ms {
@@ -522,8 +523,11 @@ pub fn overlay(p: &mut Paint<'_>) {
         p.text(103, reason, Frame::new(p.x, logo_y - 60.0, W - p.x * 2.0, p.line(Type::Caption)), Type::Caption, Role::Warning, true, 10);
     }
     let mut x = p.x;
-    for (i, (label, icon)) in [("Resume", Icon::Play), ("Stream settings", Icon::Sliders), ("End session", Icon::Stop)].into_iter().enumerate() {
-        x += p.button(110 + i as u64 * 5, Focus::Overlay(i), label, Some(icon), x, actions_y, i == 0, true, 12) + 16.0;
+    let stats_label = format!("Stats · {}", p.model.prefs.stats.mode.name());
+    let mut y = actions_y;
+    for (i, (label, icon)) in [("Resume", Icon::Play), ("Stream settings", Icon::Sliders), (stats_label.as_str(), Icon::Gauge), ("End session", Icon::Stop)].into_iter().enumerate() {
+        if p.scale >= 2.0 && i == 2 { x = p.x; y += button_h + 16.0; }
+        x += p.button(110 + i as u64 * 5, Focus::Overlay(i), label, Some(icon), x, y, i == 0, true, 12) + 16.0;
     }
 }
 pub fn media(p: &mut Paint<'_>) {

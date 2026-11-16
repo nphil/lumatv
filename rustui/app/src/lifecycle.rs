@@ -26,6 +26,7 @@ pub enum ToApp {
     Launched { seq: u64, app_id: String, success: bool, message: String },
     Foreground { app_id: String },
     Apps { seq: u64, apps: Vec<InstalledApp>, success: bool, message: String },
+    Frames(Frames),
 }
 
 /// Commands and window reports sent to the launcher.
@@ -41,6 +42,7 @@ pub enum FromApp {
     Exit(String),
     Launch { seq: u64, app_id: String, parameters: Value },
     Apps { seq: u64 },
+    Frames(bool),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -49,6 +51,16 @@ pub struct InstalledApp {
     pub title: String,
     #[serde(default)]
     pub icon: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct Frames {
+    pub fed: u64,
+    pub accepted: u64,
+    pub dropped: [u64; 5],
+    pub omitted: u64,
+    /// Arrival gap µs, arrival-to-feed µs, queued frames, drop reason (0 accepted).
+    pub samples: Vec<[i64; 4]>,
 }
 
 pub fn state_name(state: u32) -> &'static str {
@@ -69,6 +81,7 @@ impl FromApp {
             FromApp::Exit(why) => json!({"kind": "exit", "why": why}),
             FromApp::Launch { seq, app_id, parameters } => json!({"kind":"launch","seq":seq,"app_id":app_id,"parameters":parameters}),
             FromApp::Apps { seq } => json!({"kind":"apps","seq":seq}),
+            FromApp::Frames(on) => json!({"kind":"frames","on":on}),
         };
         let mut line = v.to_string();
         line.push('\n');
@@ -90,6 +103,10 @@ impl ToApp {
             "launched" => Some(ToApp::Launched { seq: v.get("seq")?.as_u64()?, app_id: text("app_id"), success: v.get("success")?.as_bool()?, message: text("message") }),
             "foreground" => Some(ToApp::Foreground { app_id: text("app_id") }),
             "apps" => Some(ToApp::Apps { seq: v.get("seq")?.as_u64()?, apps: serde_json::from_value(v.get("apps").cloned().unwrap_or_else(|| json!([]))).ok()?, success: v.get("success")?.as_bool()?, message: text("message") }),
+            "frames" => {
+                let frames: Frames = serde_json::from_value(v).ok()?;
+                (frames.samples.len() <= 256).then_some(ToApp::Frames(frames))
+            }
             _ => None,
         }
     }
@@ -219,6 +236,17 @@ mod tests {
         assert!(matches!(apps, ToApp::Apps { seq: 8, success: true, apps, .. } if apps.len() == 1 && apps[0].icon.is_none()));
         let launch: Value = serde_json::from_str(&FromApp::Launch { seq: 9, app_id: "game".into(), parameters: json!({"a":1}) }.to_line()).unwrap();
         assert_eq!(launch["parameters"]["a"], 1);
+    }
+
+    #[test]
+    fn frame_records_keep_the_feeders_units_and_are_bounded() {
+        assert_eq!(FromApp::Frames(true).to_line(), "{\"kind\":\"frames\",\"on\":true}\n");
+        assert_eq!(ToApp::parse(r#"{"kind":"frames","fed":2,"accepted":1,"dropped":[1,0,0,0,0],"omitted":0,"samples":[[-1,600,2,0],[8333,5,3,1]]}"#),
+            Some(ToApp::Frames(Frames {fed:2,accepted:1,dropped:[1,0,0,0,0],omitted:0,samples:vec![[-1,600,2,0],[8333,5,3,1]]})));
+        let mut value = json!({"kind":"frames","fed":257,"accepted":257,"dropped":[0,0,0,0,0],"omitted":0,"samples":vec![[8333,600,1,0];257]});
+        assert!(ToApp::parse(&value.to_string()).is_none());
+        value["samples"].as_array_mut().unwrap().pop();
+        assert!(ToApp::parse(&value.to_string()).is_some());
     }
 
     #[test]

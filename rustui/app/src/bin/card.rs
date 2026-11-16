@@ -240,7 +240,7 @@ fn run(o: Options) -> io::Result<i32> {
                     ToApp::Relaunch { reason, parameters } => Some(Input::Relaunch { reason, parameters }),
                     ToApp::Close { reason } => Some(Input::SamClose { reason }),
                     ToApp::Sam { registered } => Some(Input::Sam { registered }),
-                    ToApp::Launched { .. } | ToApp::Foreground { .. } | ToApp::Apps { .. } => None,
+                    ToApp::Launched { .. } | ToApp::Foreground { .. } | ToApp::Apps { .. } | ToApp::Frames(_) => None,
                 })),
                 Err(_) => inputs.push(Input::LauncherGone),
             }

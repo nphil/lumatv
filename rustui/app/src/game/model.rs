@@ -17,6 +17,7 @@ use lumatv_gfn_pad::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use super::helper::{ControllerChange, GameSir, GameSirState, Leadjoy, LeadjoyState, LeadjoyView};
+use super::stats::{Mode as StatsMode, Overlay, Telemetry};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -102,6 +103,9 @@ pub enum Input {
     },
     GameSir(Result<GameSirState, String>),
     Leadjoy(Result<LeadjoyState, String>),
+    Frames(crate::lifecycle::Frames),
+    Display(serde_json::Value),
+    StatsSetting(Overlay),
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
@@ -168,7 +172,7 @@ pub struct Preferences {
     pub hdr: bool,
     pub codec: Option<Codec>,
     pub bitrate_mbps: u32,
-    pub stats: bool,
+    pub stats: Overlay,
     /// The stick settings every engine that drives a pad applies: dead zone, anti-deadzone (both percent) and response curve.
     pub deadzone: u8,
     pub anti_deadzone: u8,
@@ -189,7 +193,7 @@ impl Default for Preferences {
             hdr: false,
             codec: None,
             bitrate_mbps: 80,
-            stats: false,
+            stats: Overlay::default(),
             deadzone: 8,
             anti_deadzone: 0,
             stick_curve: Curve::Linear,
@@ -227,7 +231,7 @@ impl Preferences {
             _ => None,
         };
         p.bitrate_mbps = v["bitrate_mbps"].as_u64().unwrap_or(80).clamp(5, 150) as u32;
-        p.stats = v["stats"].as_bool().unwrap_or(false);
+        p.stats = Overlay::read(&v["stats"]);
         p.deadzone = v["deadzone"].as_u64().map_or(p.deadzone, |n| n.min(u64::from(DEADZONE_MAX)) as u8);
         p.anti_deadzone = v["anti_deadzone"].as_u64().map_or(p.anti_deadzone, |n| n.min(u64::from(ANTI_DEADZONE_MAX)) as u8);
         p.stick_curve = v["stick_curve"].as_str().and_then(Curve::from_name).unwrap_or_default();
@@ -559,6 +563,7 @@ pub struct Model {
     pub lab: Lab,
     pub gamesir: GameSir,
     pub leadjoy: Leadjoy,
+    pub telemetry: Telemetry,
     session: Option<Session>,
     session_start: u64,
     foreground: bool,
@@ -606,6 +611,7 @@ impl Model {
             lab: Lab::default(),
             gamesir: GameSir::default(),
             leadjoy: Leadjoy::default(),
+            telemetry: Telemetry::default(),
             session: None,
             session_start: 0,
             foreground: true,
@@ -657,7 +663,10 @@ impl Model {
         self.foreground && !self.session_active()
     }
     pub fn wants_frames(&self) -> bool {
-        self.foreground && self.view.page != Page::Running
+        self.foreground && (self.view.page != Page::Running || self.hud_visible())
+    }
+    pub fn hud_visible(&self) -> bool {
+        self.foreground && self.view.page == Page::Running && self.streaming() && self.prefs.stats.mode.on()
     }
     /// How the shell should read the pads: the lab's own modes while its page has them and no sheet covers it.
     pub fn pad_mode(&self) -> PadMode {
@@ -796,7 +805,10 @@ impl Model {
                     changed = self.key(Key::Ok, down, &mut out);
                 }
             }
-            Input::Engine { engine, message } => self.engine_event(engine, message.event, &mut out),
+            Input::Engine { engine, message } => {
+                changed = self.view.page != Page::Running || !matches!(message.event, ipc::Event::Stats { .. });
+                self.engine_event(engine, message.event, &mut out);
+            }
             Input::EngineGone(id) => {
                 self.pages.retain(|(engine, _), _| *engine != id);
                 if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
@@ -831,6 +843,7 @@ impl Model {
                 self.unix_s = unix_s;
                 self.session_input(session::Input::Tick, &mut out);
                 changed = second && (self.view.page == Page::Overlay || self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some()));
+                if self.hud_visible() { changed |= self.telemetry.tick(now_ms); }
                 if self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some_and(|end| now_ms >= end) && !matches!(a.state, Some(AuthState::Failed { .. })))
                 {
                     if let Some(auth) = &mut self.view.auth {
@@ -877,6 +890,17 @@ impl Model {
                 }
             },
             Input::Lab { now_ns, reports, names, frame } => changed = self.lab_input(now_ns, reports, names, frame),
+            Input::Frames(frames) => { self.telemetry.frames(frames, self.now_ms); changed = false; }
+            Input::Display(display) => { self.telemetry.display(display, self.now_ms); changed = false; }
+            Input::StatsSetting(setting) => {
+                changed = setting.changed >= self.prefs.stats.changed && setting != self.prefs.stats;
+                if changed {
+                    self.prefs.stats = setting;
+                    if !setting.mode.on() { self.telemetry = Telemetry::default(); }
+                    self.save_prefs(&mut out);
+                    self.stats_request(&mut out);
+                }
+            }
             Input::GameSir(result) => {
                 self.gamesir.pending = false;
                 match result {
@@ -1150,6 +1174,7 @@ impl Model {
             Key::Menu if matches!(self.view.page, Page::Library | Page::Search) => {
                 self.open_sheet(Sheet::Sort, Focus::SheetRow(Sort::ALL.iter().position(|s| *s == self.view.sort).unwrap_or(0)))
             }
+            Key::Menu if self.view.page == Page::Overlay && self.view.sheet.is_none() => self.set_stats(self.prefs.stats.mode.next(), out),
             _ => {}
         }
         true
@@ -1417,6 +1442,7 @@ impl Model {
                     self.view.section = Section::Streaming;
                     self.show_page(Page::Settings, Focus::Setting(0));
                 }
+                2 => self.set_stats(self.prefs.stats.mode.next(), out),
                 _ => self.open_sheet(Sheet::EndSession, Focus::SheetAction(0)),
             },
             Focus::None => {}
@@ -1626,7 +1652,10 @@ impl Model {
                     let at = ids.iter().position(|id| *id == self.state.profile().user.preferred_engine).unwrap_or(0);
                     self.state.profile_mut().user.preferred_engine = ids[step(at, ids.len())].clone();
                 }
-                6 => self.prefs.stats = !self.prefs.stats,
+                6 => {
+                    self.set_stats(StatsMode::ALL[step(self.prefs.stats.mode.index(), 3)], out);
+                    return true;
+                }
                 _ => return false,
             },
             _ => return false,
@@ -1640,6 +1669,19 @@ impl Model {
     fn save_prefs(&mut self, out: &mut Vec<Command>) {
         self.state.profile_mut().ui = self.prefs.json();
         out.push(Command::SaveState);
+    }
+    fn stats_request(&self, out: &mut Vec<Command>) {
+        if let Some(s) = self.session.as_ref().filter(|s| *s.phase() == Phase::Running) {
+            Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.prefs.stats.mode.on() || self.view.page == Page::Overlay });
+        }
+    }
+    fn set_stats(&mut self, mode: StatsMode, out: &mut Vec<Command>) {
+        if mode == self.prefs.stats.mode { return; }
+        let unix_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |t| t.as_millis() as u64);
+        self.prefs.stats = Overlay { mode, changed: unix_ms.max(self.prefs.stats.changed.saturating_add(1)) };
+        if !mode.on() { self.telemetry = Telemetry::default(); }
+        self.save_prefs(out);
+        self.stats_request(out);
     }
     /// Copies the values every engine shares (the stream's shape and the stick settings) into each enabled engine's settings where
     /// its schema takes them, and sends each its settings.
@@ -1749,6 +1791,7 @@ impl Model {
         self.view.notice = None;
         self.view.stream = None;
         self.view.stats = Stats::default();
+        self.telemetry = Telemetry::default();
         self.view.page = Page::Launch;
         self.view.sheet = None;
         self.view.focus = Focus::None;
@@ -1786,6 +1829,7 @@ impl Model {
                     self.view.sheet = None;
                     self.view.auth = None;
                     out.push(Command::SaveState);
+                    Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.prefs.stats.mode.on() });
                     if let Some(checkpoint) = self.checkpoint(0) {
                         out.push(Command::Checkpoint(checkpoint));
                     }
@@ -1833,7 +1877,7 @@ impl Model {
             self.view.sheet = None;
             self.view.focus = Focus::None;
             Self::send(out, &s.source.engine, Request::Route { session: s.id, input: ipc::InputRoute::Game });
-            Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.prefs.stats });
+            Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.prefs.stats.mode.on() });
         }
     }
     pub fn can_end_game(&self) -> bool {
@@ -2140,6 +2184,7 @@ impl Model {
             }
             ipc::Event::Stats { session, stats } => {
                 if self.session.as_ref().is_some_and(|s| s.id == session && s.source.engine == id) {
+                    self.telemetry.stream(stats.clone(), self.now_ms);
                     self.view.stats = stats;
                 }
             }
@@ -2371,7 +2416,7 @@ impl Model {
                         rows.extend(e.schema.fields().enumerate().filter(|(_, f)| f.kind != FieldKind::Note).map(|(i, _)| vec![Focus::EngineField(i)]));
                     }
                 }
-                Page::Overlay => rows.push((0..3).map(Focus::Overlay).collect()),
+                Page::Overlay => rows.push((0..4).map(Focus::Overlay).collect()),
                 Page::Media => rows.push(vec![Focus::HubTop(0)]),
                 Page::Lab => {
                     if !self.session_active() {
@@ -2513,13 +2558,13 @@ pub(crate) mod tests {
     fn sheets_return_focus_and_destructive_confirmation_starts_safe() {
         let mut m = Model::new(State::default(), Listing::default(), vec![]);
         m.view.page = Page::Overlay;
-        m.view.focus = Focus::Overlay(2);
+        m.view.focus = Focus::Overlay(3);
         m.rebuild_navigation();
         key(&mut m, Key::Ok);
         assert_eq!(m.view.sheet, Some(Sheet::EndSession));
         assert_eq!(m.view.focus, Focus::SheetAction(0));
         key(&mut m, Key::Back);
-        assert_eq!(m.view.focus, Focus::Overlay(2));
+        assert_eq!(m.view.focus, Focus::Overlay(3));
     }
     #[test]
     fn no_history_means_no_empty_home_rows_and_idle_tick_does_not_relayout() {

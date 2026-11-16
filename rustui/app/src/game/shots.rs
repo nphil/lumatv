@@ -405,6 +405,36 @@ fn screens() -> Vec<(String, Model)> {
         },
     );
     add("40-running-transparent", launched.clone());
+    let mut hud = launched.clone();
+    hud.step(Input::Tick {now_ms:1000,unix_s:1_800_000_001});
+    hud.step(Input::StatsSetting(super::stats::Overlay {mode:super::stats::Mode::Full,changed:1}));
+    event(&mut hud,"gfn",ipc::Event::Stats {session,stats:ipc::Stats {
+        rtt_ms:Some(11.3),jitter_ms:Some(0.8),loss_pct:Some(0.0),bitrate_kbps:Some(74200),fps:Some(119.9),
+        pad:Some(ipc::PadStats {name:"DualShock 4 · Bluetooth".into(),reports:250,rate_hz:250.0,p99_us:4900,bursts:0,burst_gap_us:0,age_ms:0}),
+        ..Default::default()
+    }});
+    hud.step(Input::Frames(crate::lifecycle::Frames {fed:31204,accepted:31204,dropped:[0;5],omitted:0,
+        samples:(0..240).map(|i| [if i==41 {16800} else {8000+i%10*70},400+i%10*20,1,0]).collect()}));
+    hud.step(Input::Display(serde_json::json!({"window":{"width":3840,"height":2160,"hdrType":2,"lowDelay":true},
+        "refresh":{"hz":120.0,"fewest":12},"firmware":{"sysVeri10":{"videoDelayUs":15816}}})));
+    hud.step(Input::Tick {now_ms:1250,unix_s:1_800_000_001});
+    for (name,mode) in [("48-stats-compact-bright",super::stats::Mode::Compact),("49-stats-full-bright",super::stats::Mode::Full)] {
+        hud.prefs.stats.mode=mode;
+        add(name,hud.clone());
+    }
+    let mut rough=hud.clone();
+    rough.telemetry.frames.dropped=[29,0,8,0,0];
+    rough.telemetry.frames.fed=18433;
+    rough.telemetry.frames.omitted=4;
+    rough.telemetry.stream.loss_pct=Some(1.4);
+    rough.telemetry.stream.host_ms=Some(5.2);
+    rough.telemetry.stream.pad=Some(ipc::PadStats {name:"Xbox Wireless · Bluetooth".into(),reports:250,rate_hz:125.0,p99_us:22400,bursts:6,burst_gap_us:22000,age_ms:0});
+    add("50-stats-full-dark",rough.clone());
+    rough.prefs.light=true;
+    add("50-stats-full-dark-light",rough);
+    let mut stale=hud.clone();
+    stale.step(Input::Tick {now_ms:4000,unix_s:1_800_000_004});
+    add("51-stats-stale-dark",stale);
     launched.step(Input::Tick { now_ms: 1_932_000, unix_s: 1_800_001_932 });
     launched.step(Input::Overlay);
     launched.view.stats = ipc::Stats { rtt_ms: Some(8.0), loss_pct: Some(0.0), bitrate_kbps: Some(78_000), ..Default::default() };
@@ -424,7 +454,7 @@ fn screens() -> Vec<(String, Model)> {
     add("45-controller-lab-stream", lab_stream.clone());
     lab_stream.view.focus = Focus::Lab(12);
     add("45-controller-lab-stream-bottom", lab_stream);
-    launched.view.focus = Focus::Overlay(2);
+    launched.view.focus = Focus::Overlay(3);
     activate(&mut launched);
     add("16-overlay-end-confirm", launched);
     let mut m = base.clone();
@@ -579,6 +609,8 @@ fn screens() -> Vec<(String, Model)> {
         .iter()
         .filter(|(name, _)| {
             [
+                "48-stats-compact-bright", "49-stats-full-bright", "50-stats-full-dark", "50-stats-full-dark-light", "51-stats-stale-dark",
+                "14-settings-streaming", "15-overlay",
                 "11-pairing",
                 "12-signin",
                 "28-enter-pin",
@@ -626,16 +658,27 @@ fn png(path: &Path, w: u32, h: u32, bytes: &[u8]) -> io::Result<()> {
 }
 #[test]
 fn every_native_screen() -> io::Result<()> {
-    if std::env::var("GAME_SHOTS").as_deref() != Ok("all") {
-        return Ok(());
-    }
+    let selection=std::env::var("GAME_SHOTS").unwrap_or_default();
+    if selection.is_empty() { return Ok(()); }
     let scratch = std::env::var_os("CODY_SCRATCH").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let out = scratch.join("lumagame-native-shots");
     std::fs::create_dir_all(&out)?;
     let mocks = scratch.join("lumagame-shots");
     let mut shots = Shots::new()?;
     for (name, model) in screens() {
-        let pixels = shots.shot(&model)?;
+        if selection!="all" && !selection.split(',').any(|s| name.contains(s)) {continue;}
+        let mut pixels = shots.shot(&model)?;
+        if name.contains("-stats-") {assert!(!shots.page.show(&model)?, "unchanged HUD repainted");}
+        if name.contains("-stats-") {
+            let app=if name.contains("bright") {1551360} else {1091500};
+            let background=lumagame_meta::decode_image(&std::fs::read(assets().join(format!("{app}/frame.jpg")))?,
+                lumagame_meta::ImageSpec {width:1920,height:1080,contain:false,trim_alpha:false}).map_err(io::Error::other)?;
+            for (fg,bg) in pixels.chunks_exact_mut(4).zip(background.rgba.chunks_exact(4)) {
+                let alpha=u32::from(fg[3]);
+                for i in 0..3 {fg[i]=(u32::from(fg[i])+u32::from(bg[i])*(255-alpha)/255).min(255) as u8;}
+                fg[3]=255;
+            }
+        }
         png(&out.join(format!("{name}.png")), 1920, 1080, &pixels)?;
         let mock = mocks.join(format!("{name}.png"));
         if mock.exists() {
@@ -723,6 +766,35 @@ fn remote_back_opens_the_overlay_while_a_game_runs() {
     m.step(Input::Key { key: Key::Back, down: true });
     m.step(Input::Key { key: Key::Back, down: false });
     assert_eq!(m.view.page, Page::Overlay);
+}
+
+#[test]
+fn all_stats_controls_share_one_setting_and_off_stops_frame_capture() {
+    use super::stats::{Mode,Overlay};
+    let mut m=fixture();
+    m.view.page=Page::Hub;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::HubAction(0);
+    activate(&mut m);
+    let session=m.session().unwrap().id;
+    event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Running {stream:None}});
+    assert!(!m.hud_visible() && !m.wants_frames());
+    m.step(Input::StatsSetting(Overlay {mode:Mode::Compact,changed:1}));
+    assert!(m.hud_visible() && m.wants_frames());
+    m.step(Input::Overlay);
+    m.step(Input::Key {key:Key::Menu,down:true});
+    m.step(Input::Key {key:Key::Menu,down:false});
+    assert_eq!(m.prefs.stats.mode,Mode::Full);
+    m.view.focus=Focus::Overlay(2);activate(&mut m);
+    assert_eq!(m.prefs.stats.mode,Mode::Off);
+    m.view.page=Page::Settings;m.view.section=Section::Streaming;m.view.focus=Focus::Setting(6);
+    m.step(Input::Key {key:Key::Right,down:true});m.step(Input::Key {key:Key::Right,down:false});
+    assert_eq!(m.prefs.stats.mode,Mode::Compact);
+    let changed=m.prefs.stats.changed;
+    m.step(Input::StatsSetting(Overlay {mode:Mode::Full,changed:changed-1}));
+    assert_eq!(m.prefs.stats.mode,Mode::Compact,"an older helper reply cannot undo a local edit");
+    let out=m.step(Input::StatsSetting(Overlay {mode:Mode::Off,changed:changed+1}));
+    assert!(out.iter().any(|c| matches!(c,Command::Send {request:ipc::Request::Stats {on:false,..},..})));
+    m.view.page=Page::Running;
+    assert!(!m.hud_visible() && !m.wants_frames());
 }
 
 #[test]

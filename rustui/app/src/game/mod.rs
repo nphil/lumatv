@@ -5,5 +5,6 @@ pub mod model;
 pub mod native;
 pub mod screens;
 pub mod store;
+pub mod stats;
 #[cfg(test)]
 mod shots;

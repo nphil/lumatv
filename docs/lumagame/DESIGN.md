@@ -346,7 +346,9 @@ knob.
   Steady; Losing packets, Uneven, Stalling, Bursty). Rows put the label left in secondary ink and
   the value right in ink, units in secondary ink, every figure tabular. Figures are measured; one
   that comes from the host or the panel says `reported`, and nothing shown is an estimate. A value
-  older than 2 s shows `–` and its group reads `No data` with the outlined dot.
+  older than 2 s shows `–` and its group reads `No data` with the outlined dot. Frame percentiles
+  cover the last 10 s of feeder arrivals; the two Feed rows measure arrival to submission returning,
+  not decoding or scan-out. Accepted frames are not proof that a frame reached the panel.
 - **Frame-time graph**: one bar per slot, the longest frame of about 33 ms. A late frame rises
   from the target line (two targets of rise), an early one dips under it (one target), and a slot
   within a pixel of the target draws nothing, so a smooth stream is a quiet line. Past one and a

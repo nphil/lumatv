@@ -4,6 +4,7 @@ use lumagame_meta::{Artwork, CacheLimits, Client, Http, Job, Kind, Loader, Metad
 use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, RawReport, button, menu::{MenuKey, MenuKeys}};
 use lumatv_render::{Demand, now_ns, host::{Engine, HostConfig}};
 use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::{ControllerClient, ControllerRequest, ControllerReply, Lease}, host::{self, HostEvent, Supervisor}, model::{Command, GameDetails, Input, Key, Media, Model, PadMode}, screens::GameUi, store::{self, Store}}, lifecycle::{Channel, FromApp, ToApp}, window::{self, Event, Spec}};
+use lumatv_rustui::game::helper::OverlayClient;
 use std::{collections::VecDeque, io, net::SocketAddr, os::fd::AsRawFd, os::unix::net::UnixDatagram, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 use ui::{SceneOptions, Ui};
 
@@ -59,9 +60,9 @@ struct MenuSink { active: AtomicBool, mode: AtomicU8, keys: Mutex<[PadKeys; MAX_
 struct MenuPads { runtime: PadRuntime, sink: Arc<MenuSink>, receive: UnixDatagram }
 
 fn menu_key(key: MenuKey) -> Key {
-    match key { MenuKey::Up => Key::Up, MenuKey::Down => Key::Down, MenuKey::Left => Key::Left, MenuKey::Right => Key::Right, MenuKey::Ok => Key::Ok, MenuKey::Back => Key::Back }
+    match key { MenuKey::Up => Key::Up, MenuKey::Down => Key::Down, MenuKey::Left => Key::Left, MenuKey::Right => Key::Right, MenuKey::Ok => Key::Ok, MenuKey::Back => Key::Back, MenuKey::Menu => Key::Menu }
 }
-const KEYS: [Key; 7] = [Key::Up, Key::Down, Key::Left, Key::Right, Key::Ok, Key::Back, Key::Guide];
+const KEYS: [Key; 8] = [Key::Up, Key::Down, Key::Left, Key::Right, Key::Ok, Key::Back, Key::Guide, Key::Menu];
 
 impl MenuSink {
     fn send(&self, key: Key, down: bool) {
@@ -176,6 +177,7 @@ fn game_details(metadata: Metadata) -> GameDetails {
 struct Shell {
     model: Model, host: Supervisor, store: Store, channel: Option<Channel>, lease: Lease, controllers: ControllerClient, art: Loader,
     art_waiting: VecDeque<String>, details: Option<Details>, details_waiting: VecDeque<GameId>, state_saved: bool, media_seq: u64,
+    stats: OverlayClient, frames_on: bool,
 }
 impl Shell {
     fn inputs(&mut self, inputs: impl IntoIterator<Item = Input>, pads: &MenuPads, now_ms: u64) -> io::Result<bool> {
@@ -230,6 +232,12 @@ impl Shell {
             if let Err(e) = result { self.host.channel_failed(e.to_string()); }
         }
         self.lease.tick(now_ms);
+        let visible = self.model.hud_visible();
+        if self.frames_on != visible {
+            if let Some(ch) = &mut self.channel { ch.send(&FromApp::Frames(visible)); }
+            self.frames_on = visible;
+        }
+        self.stats.tick(self.model.prefs.stats, visible, now_ms);
         Ok(false)
     }
 
@@ -315,7 +323,7 @@ fn run(o: Options) -> io::Result<()> {
     inputs.extend(snapshot.notices.into_iter().chain(notices).chain(temporary).map(Input::Notice));
     // Seed wall-clock time before any engine can report Running.
     model.step(Input::Tick { now_ms: 0, unix_s: unix_seconds() });
-    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, controllers: ControllerClient::new(o.helper)?, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX };
+    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, controllers: ControllerClient::new(o.helper)?, stats: OverlayClient::new(o.helper)?, frames_on: false, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX };
     let pads = MenuPads::new()?;
     if shell.inputs(inputs, &pads, 0)? { return Ok(()); }
     let began = Instant::now();
@@ -392,6 +400,7 @@ fn run(o: Options) -> io::Result<()> {
                         ToApp::Relaunch { .. } => { window.request_state(FULLSCREEN); inputs.push(Input::Foreground(true)); want_frame = true; }
                         ToApp::Close { .. } => inputs.push(Input::Close),
                         ToApp::Launched { seq, success: false, message, .. } if seq == shell.media_seq => inputs.push(Input::Notice(message)),
+                        ToApp::Frames(frames) => inputs.push(Input::Frames(frames)),
                         _ => {}
                     }
                 }
@@ -403,9 +412,13 @@ fn run(o: Options) -> io::Result<()> {
             inputs.push(match event { HostEvent::Engine { engine, message } => Input::Engine { engine, message }, HostEvent::Gone(id) => Input::EngineGone(id), HostEvent::Notice(why) => Input::Notice(why) });
         }
         shell.background_work(&mut inputs);
+        while let Some((setting, display)) = shell.stats.poll() {
+            inputs.push(Input::StatsSetting(setting));
+            if let Some(display) = display { inputs.push(Input::Display(display)); }
+        }
         if shell.inputs(inputs, &pads, now_ms)? { return Ok(()); }
         let visible = shell.model.wants_frames();
-        // Commit the transparent scene once on entry to Running, then leave the mapped window completely idle.
+        // Running keeps only the opt-in HUD; Off commits a transparent scene once and leaves the window idle.
         if shell.model.foreground() && (visible || painted_ui) {
             while let Ok(event) = events.try_recv() { page.ui.scene.observe(&event); }
             if let Some(atlas) = page.ui.text_atlas() { atlas.pump(); }
@@ -440,7 +453,7 @@ fn run(o: Options) -> io::Result<()> {
             if renderer.tidy_more() { renderer.tidy(); continue; }
             renderer.idle_moment(false);
         } else if !shell.model.foreground() { want_frame = true; painted_ui = true; }
-        let mut wait_ms = shell.host.wait_ms(now_ms).min(shell.lease.wait_ms(now_ms));
+        let mut wait_ms = shell.host.wait_ms(now_ms).min(shell.lease.wait_ms(now_ms)).min(shell.stats.wait_ms(now_ms));
         if page.art_busy() || shell.art.inflight() > 0 || !shell.art_waiting.is_empty() { wait_ms = wait_ms.min(16); }
         if shell.channel.as_ref().is_some_and(Channel::pending) { wait_ms = wait_ms.min(16); }
         if shell.model.pad_mode() != PadMode::Menu || shell.model.gamesir.pending || shell.model.leadjoy.pending { wait_ms = wait_ms.min(50); }

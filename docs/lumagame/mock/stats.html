@@ -29,14 +29,14 @@
     clean: {
       frame: "assets/1551360/frame.jpg", fps: "120", hz: "120", seed: 7, noise: 0.35, hitches: { 41: 16.8, 88: 12.1 },
       stream: { state: ["ok", "Good"], rows: [["Source", "GeForce NOW · H.265"], ["Bitrate", "74.2", "Mb/s"], ["Round trip", "11.3", "ms"], ["Jitter", "0.8", "ms"], ["Packet loss", "0.0", "%"]] },
-      timing: { state: ["ok", "Even"], pct: ["8.3", "9.0", "11.2", "16.8"], rows: [["Frame rate", "119.9", "fps"], ["Frames / dropped", "31,204 / 2"], ["Waiting to decode", "1", "frame · 0.6 ms"]] },
+      timing: { state: ["ok", "Even"], pct: ["8.3", "9.0", "11.2", "16.8"], rows: [["Frame rate", "119.9", "fps"], ["Frames / dropped", "31,204 / 2"], ["Decoder queue", "1", "frame"], ["Feed p50 / p95", "0.4 / 0.6", "ms"], ["Feed p99 / max", "0.8 / 1.2", "ms"]] },
       display: { state: ["ok", "Steady"], rows: display },
       pad: { state: ["ok", "Even"], rows: [["Pad", "DualShock 4 · Bluetooth"], ["Report rate", "250", "Hz"], ["Report gap p99", "4.9", "ms"], ["Bursts", "None"]] },
     },
     rough: {
       frame: "assets/1091500/frame.jpg", fps: "117", hz: "120", seed: 11, noise: 1.1, hitches: { 9: 16.7, 30: 25.0, 31: 2.1, 55: 41.7, 56: 0.9, 79: 16.6, 101: 20.4 },
       stream: { state: ["warn", "Losing packets"], rows: [["Source", "BEAST-PC · Sunshine · H.265"], ["Bitrate", "48.6", "Mb/s"], ["Round trip", "6.4", "ms"], ["Jitter", "3.9", "ms"], ["Packet loss", "1.4", "%"], ["Host encode, reported", "5.2", "ms"]] },
-      timing: { state: ["warn", "Uneven"], pct: ["8.4", "12.9", "24.6", "41.7"], rows: [["Frame rate", "116.8", "fps"], ["Frames / dropped", "18,433 / 37"], ["Why dropped", "29 late · 8 queue full"], ["Waiting to decode", "3", "frames · 2.1 ms"]] },
+      timing: { state: ["warn", "Uneven"], pct: ["8.4", "12.9", "24.6", "41.7"], rows: [["Frame rate", "116.8", "fps"], ["Frames / dropped", "18,433 / 37"], ["Why dropped", "29 full · 8 refused"], ["Decoder queue", "3", "frames"], ["Feed p50 / p95", "0.6 / 1.2", "ms"], ["Feed p99 / max", "2.1 / 3.0", "ms"]] },
       display: { state: ["ok", "Steady"], rows: display },
       pad: { state: ["warn", "Bursty"], rows: [["Pad", "Xbox Wireless · Bluetooth"], ["Report rate", "125", "Hz"], ["Report gap p99", "22.4", "ms"], ["Bursts", "6", "after 22 ms gaps"]] },
     },

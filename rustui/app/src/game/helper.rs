@@ -129,6 +129,55 @@ fn controller_reply<T: serde::de::DeserializeOwned>(result: io::Result<Value>) -
     serde_json::from_value(value).map_err(|error| format!("The controller helper sent an unreadable reply: {error}"))
 }
 
+/// One worker owns helper I/O. A single queued wake always reads the newest desired setting.
+pub struct OverlayClient {
+    wanted: Arc<std::sync::Mutex<(super::stats::Overlay, bool)>>,
+    wake: SyncSender<()>,
+    results: Receiver<(super::stats::Overlay, Option<Value>)>,
+    due: u64,
+}
+impl OverlayClient {
+    pub fn new(address: SocketAddr) -> io::Result<Self> {
+        let wanted = Arc::new(std::sync::Mutex::new((super::stats::Overlay::default(), false)));
+        let state = Arc::clone(&wanted);
+        let (wake, requests) = mpsc::sync_channel(1);
+        let (report, results) = mpsc::sync_channel(1);
+        thread::Builder::new().name("game-stats".into()).spawn(move || {
+            while requests.recv().is_ok() {
+                let (local, visible) = *state.lock().unwrap();
+                if let Ok(value) = overlay_sync(local, visible, &mut |method, path, body| http(address,method,path,body))
+                    && report.send(value).is_err() { break; }
+            }
+        })?;
+        Ok(Self { wanted, wake, results, due: 0 })
+    }
+    pub fn tick(&mut self, overlay: super::stats::Overlay, visible: bool, now: u64) {
+        let mut state = self.wanted.lock().unwrap();
+        let changed = *state != (overlay, visible);
+        *state = (overlay, visible);
+        if changed || now >= self.due {
+            let _ = self.wake.try_send(());
+            self.due = now.saturating_add(if visible && overlay.mode.on() { super::stats::INTERVAL_MS } else { 1000 });
+        }
+    }
+    pub fn poll(&self) -> Option<(super::stats::Overlay, Option<Value>)> { self.results.try_recv().ok() }
+    pub fn wait_ms(&self, now: u64) -> u64 { self.due.saturating_sub(now) }
+}
+
+fn overlay_sync(local: super::stats::Overlay, visible: bool, http: &mut impl FnMut(&str,&str,&Value)->io::Result<Value>)
+    -> io::Result<(super::stats::Overlay,Option<Value>)> {
+    let path = if visible && local.mode.on() {
+        if local.mode == super::stats::Mode::Full { "/v1/gaming/display?full=1" } else { "/v1/gaming/display" }
+    } else { "/v1/gaming/overlay" };
+    let mut value=http("GET",path,&Value::Null)?;
+    let mut overlay:super::stats::Overlay=serde_json::from_value(value["overlay"].take())?;
+    if local.changed > overlay.changed {
+        let mut saved=http("POST","/v1/gaming/overlay",&json!(local))?;
+        overlay=serde_json::from_value(saved["overlay"].take())?;
+    }
+    Ok((overlay,value.get_mut("display").map(Value::take)))
+}
+
 pub struct Lease {
     wanted: Arc<AtomicBool>,
     wake: Option<SyncSender<()>>,
@@ -304,5 +353,26 @@ mod tests {
         let reply = b"HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n\r\n{\"ok\":false,\"error\":{\"code\":\"plugin_off\"}}";
         assert_eq!(parse_reply(reply).unwrap_err().kind(), io::ErrorKind::PermissionDenied);
         assert!(parse_reply(b"HTTP/1.1 200 OK\r\n\r\n{\"ok\":true}").is_ok());
+    }
+
+    #[test]
+    fn overlay_sync_samples_only_when_visible_and_saves_only_the_newer_setting() {
+        use super::super::stats::{Mode,Overlay};
+        for (mode,visible,path) in [(Mode::Off,true,"/v1/gaming/overlay"),(Mode::Compact,false,"/v1/gaming/overlay"),
+            (Mode::Compact,true,"/v1/gaming/display"),(Mode::Full,true,"/v1/gaming/display?full=1")] {
+            let local=Overlay {mode,changed:2};
+            let mut calls=Vec::new();
+            let (setting,_)=overlay_sync(local,visible,&mut |method,p,body| {
+                calls.push((method.to_owned(),p.to_owned()));
+                Ok(json!({"overlay":if method=="POST" {body.clone()} else {json!({"mode":"off","changed":1})}}))
+            }).unwrap();
+            assert_eq!(setting,local);
+            assert_eq!(calls,[("GET".into(),path.into()),("POST".into(),"/v1/gaming/overlay".into())]);
+        }
+        let (setting,_)=overlay_sync(Overlay::default(),false,&mut |method,_,_| {
+            assert_eq!(method,"GET");
+            Ok(json!({"overlay":{"mode":"full","changed":4}}))
+        }).unwrap();
+        assert_eq!(setting.mode,Mode::Full);
     }
 }

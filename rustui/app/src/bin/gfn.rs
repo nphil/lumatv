@@ -228,7 +228,7 @@ impl PadSide {
 
 /// A menu key of the app's own pads on the pad side's socket: this byte, then the key's place in [`MENU_KEYS`].
 const MENU_DATAGRAM: u8 = b'm';
-const MENU_KEYS: [MenuKey; 6] = [MenuKey::Up, MenuKey::Down, MenuKey::Left, MenuKey::Right, MenuKey::Ok, MenuKey::Back];
+const MENU_KEYS: [MenuKey; 7] = [MenuKey::Up, MenuKey::Down, MenuKey::Left, MenuKey::Right, MenuKey::Ok, MenuKey::Back, MenuKey::Menu];
 
 fn pad_key(k: MenuKey) -> PadKey {
     match k {
@@ -238,6 +238,7 @@ fn pad_key(k: MenuKey) -> PadKey {
         MenuKey::Right => PadKey::Right,
         MenuKey::Ok => PadKey::Ok,
         MenuKey::Back => PadKey::Back,
+        MenuKey::Menu => PadKey::Guide,
     }
 }
 
@@ -474,7 +475,7 @@ fn run(o: Options) -> io::Result<i32> {
                                 }
                             }
                             ToApp::Sam { registered } => log(&format!("SAM registration: {}", if registered { "accepted" } else { "not accepted: the app runs without SAM's events" })),
-                            ToApp::Launched { .. } | ToApp::Foreground { .. } | ToApp::Apps { .. } => {}
+                            ToApp::Launched { .. } | ToApp::Foreground { .. } | ToApp::Apps { .. } | ToApp::Frames(_) => {}
                         }
                     }
                 }

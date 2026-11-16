@@ -6,6 +6,7 @@ mod paint;
 mod settings;
 mod sheets;
 mod symbols;
+mod stats;
 
 use crate::game::model::{Focus, Model, Page};
 use art::Key;
@@ -147,7 +148,7 @@ impl GameUi {
                 }
             }
         }
-        if model.view.page == Page::Running {
+        if model.view.page == Page::Running && !model.hud_visible() {
             let changed = !self.nodes.is_empty();
             self.nodes.clear();
             self.hits.clear();
@@ -171,7 +172,7 @@ impl GameUi {
         }
         self.generation = self.generation.wrapping_add(1);
         let mut p = Paint::new(&self.tokens, model, &mut self.ui.fonts);
-        pages::canvas(&mut p);
+        if model.view.page != Page::Running { pages::canvas(&mut p); }
         match model.view.page {
             Page::Home => pages::home(&mut p),
             Page::Library => pages::library(&mut p, false),
@@ -185,7 +186,7 @@ impl GameUi {
             Page::Lab => lab::lab(&mut p),
             Page::GameSir => settings::gamesir(&mut p),
             Page::Leadjoy => settings::leadjoy(&mut p),
-            Page::Running => {}
+            Page::Running => stats::show(&mut p),
         }
         p.fit_focus();
         let sheet_start = p.plan.nodes.len();
