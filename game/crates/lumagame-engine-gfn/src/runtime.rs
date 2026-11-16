@@ -9,6 +9,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, SyncSender};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -67,9 +68,13 @@ fn reader(mut input: impl Read, tx: SyncSender<Input>, app: bool) {
 }
 
 /// Datagrams from the streamer's pad bridge; ends when [`run`] shuts the socket down.
-fn pad_reader(socket: UnixDatagram, tx: SyncSender<Input>) {
+fn pad_reader(socket: UnixDatagram, tx: SyncSender<Input>, stats: Arc<AtomicBool>) {
     let mut bytes = [0u8;512];
-    while let Ok(n @ 1..) = socket.recv(&mut bytes) {
+    while let Ok((n @ 1.., peer)) = socket.recv_from(&mut bytes) {
+        if &bytes[..n] == b"stats" {
+            let _ = socket.send_to_addr(&[u8::from(stats.load(Ordering::Acquire))], &peer);
+            continue;
+        }
         let Ok(line) = std::str::from_utf8(&bytes[..n]) else { continue };
         if tx.send(Input::Pad(line.into())).is_err() { return; }
     }
@@ -144,11 +149,13 @@ pub fn run(options: Options, input: impl Read+Send+'static, mut output: impl Wri
     };
     let mut core_input = child.stdin.take().ok_or_else(|| io::Error::other("The core has no stdin"))?;
     let core_output = child.stdout.take().ok_or_else(|| io::Error::other("The core has no stdout"))?;
+    let pad_stats = Arc::new(AtomicBool::new(false));
     let pads = match pads {
         Some(socket) => {
             let control = socket.try_clone()?;
             let pad_tx = tx.clone();
-            thread::Builder::new().name("gfn-pad-reader".into()).spawn(move || pad_reader(socket,pad_tx))?;
+            let stats = Arc::clone(&pad_stats);
+            thread::Builder::new().name("gfn-pad-reader".into()).spawn(move || pad_reader(socket,pad_tx,stats))?;
             Some(control)
         }
         None => None,
@@ -193,6 +200,7 @@ pub fn run(options: Options, input: impl Read+Send+'static, mut output: impl Wri
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
             adapter.tick(started.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+            pad_stats.store(adapter.pad_stats_on(), Ordering::Release);
         }
         Ok(())
     })();

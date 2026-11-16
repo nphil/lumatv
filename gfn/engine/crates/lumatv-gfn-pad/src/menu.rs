@@ -10,6 +10,7 @@ pub enum MenuKey {
     Right,
     Ok,
     Back,
+    Menu,
 }
 
 /// How far a stick goes before it counts as a direction: about 60 % of its travel.
@@ -32,6 +33,9 @@ impl MenuKeys {
         }
         if pressed & button::B != 0 {
             key(MenuKey::Back);
+        }
+        if pressed & button::Y != 0 {
+            key(MenuKey::Menu);
         }
         let dir = if pressed & button::DPAD_UP != 0 || s.left_y > STICK {
             Some(MenuKey::Up)
@@ -71,6 +75,8 @@ mod tests {
         assert!(keys(&mut m, down(button::A | button::DPAD_DOWN)).is_empty(), "held buttons say nothing more");
         assert!(keys(&mut m, down(0)).is_empty());
         assert_eq!(keys(&mut m, down(button::B)), [MenuKey::Back]);
+        assert_eq!(keys(&mut m, down(button::Y)), [MenuKey::Menu]);
+        assert!(keys(&mut m, down(button::Y)).is_empty());
         let stick = |left_x, left_y| PadState { left_x, left_y, ..Default::default() };
         assert_eq!(keys(&mut m, stick(0, STICK + 1)), [MenuKey::Up], "up is positive");
         assert!(keys(&mut m, stick(0, 32_767)).is_empty());

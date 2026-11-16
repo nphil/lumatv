@@ -161,7 +161,7 @@ fn launch_ack_queue_start_running_stats_and_remote_end() {
 
 #[test]
 fn guide_opens_the_overlay_and_the_overlay_reads_the_pads_as_menu_keys() {
-    use lumatv_gfn_pad::button::{A,DPAD_DOWN};
+    use lumatv_gfn_pad::button::{A,DPAD_DOWN,Y};
     let mut f=FakeCore::new(true);f.launch();
     f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
     f.reply("streamer.start",json!({"status":"running"}));
@@ -177,6 +177,24 @@ fn guide_opens_the_overlay_and_the_overlay_reads_the_pads_as_menu_keys() {
     assert_eq!(pad(report(A)),key(PadKey::Ok),"a button held into the overlay is pressed afresh");
     assert!(pad(report(A)).is_empty());
     assert_eq!(pad(report(DPAD_DOWN)),key(PadKey::Down));
+    assert_eq!(pad(report(Y)),key(PadKey::Menu));
+}
+
+#[test]
+fn pad_timing_is_opt_in_and_ages_with_the_kernel_report() {
+    let mut f=FakeCore::new(true);f.launch();
+    f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
+    f.reply("streamer.start",json!({"status":"running"}));
+    assert!(!f.adapter.pad_stats_on());
+    f.send(22,Request::Stats{session:SessionId(9),on:true});
+    assert!(f.adapter.pad_stats_on());
+    f.adapter.pad_line(&json!({"pad":"timing","name":"DualShock 4","reports":125,"rate_hz":250.0,"p99_us":4000,"bursts":0,"burst_gap_us":0,"age_ms":4}).to_string());
+    f.adapter.tick(1000);
+    f.event("streamer.changed",json!({"status":"running","framesPerSecond":120}));
+    let pad=f.events.iter().rev().find_map(|e| match &e.event {Event::Stats{stats,..}=>stats.pad.as_ref(),_=>None}).unwrap();
+    assert_eq!((pad.name.as_str(),pad.p99_us,pad.age_ms),("DualShock 4",4000,1004));
+    f.send(23,Request::Stats{session:SessionId(9),on:false});
+    assert!(!f.adapter.pad_stats_on());
 }
 
 #[test]

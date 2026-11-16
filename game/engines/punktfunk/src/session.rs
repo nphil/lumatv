@@ -144,7 +144,7 @@ fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,play
         }
         while let Ok(h)=client.next_hidout(Duration::ZERO) { pads.feedback(h); }
         let stats=control.stats.load(Ordering::Acquire);
-        if stats != measured {client.set_hud_enabled(stats);measured=stats;since=Instant::now();frames=0;bytes=0;client_us=0;timings=0;host_us=None;}
+        if stats != measured {client.set_hud_enabled(stats);pads.sample(stats);measured=stats;since=Instant::now();frames=0;bytes=0;client_us=0;timings=0;host_us=None;}
         while let Ok(t)=client.next_host_timing(Duration::ZERO) { if stats { host_us=Some(t.host_us); } }
         // Drain repeats even during SDR; only real HDR10 ever reaches NDL's mode-changing call.
         let meta=client.latest_hdr_meta(Duration::ZERO);
@@ -172,7 +172,7 @@ fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,play
                 loss_pct:(total>0).then(||network.lost as f32*100.0/total as f32),
                 bitrate_kbps:Some((bytes as f64*8.0/f64::from(seconds)/1000.0) as u32),fps:Some(frames as f32/seconds),
                 dropped:Some(client.frames_dropped()+player.dropped.load(Ordering::Relaxed)),
-                client_ms:(timings>0).then(||client_us as f32/timings as f32/1000.0),host_ms:host_us.map(|u|u as f32/1000.0)};
+                client_ms:(timings>0).then(||client_us as f32/timings as f32/1000.0),host_ms:host_us.map(|u|u as f32/1000.0),pad:pads.timing(monotonic_ns())};
             *control.trip.lock().unwrap()=trip(&snapshot,&network,pads.presses());
             let _=out.send(Notice::Emit(FromEngine::told(Event::Stats {session:id,stats:snapshot})));
             since=Instant::now();frames=0;bytes=0;client_us=0;timings=0;

@@ -32,7 +32,7 @@ pub fn schema() -> SettingsSchema {
 pub fn pad_config(values: &Values) -> PadConfig {
     let values = schema().resolve(values);
     let percent = |key| u8::try_from(number(&values,key)).expect("schema range");
-    PadConfig { deadzone_percent:percent("deadzone"), anti_deadzone_percent:percent("anti-deadzone"),
+    PadConfig { raw:true, deadzone_percent:percent("deadzone"), anti_deadzone_percent:percent("anti-deadzone"),
         curve:Curve::from_name(text(&values,"stick-curve")).expect("schema choice"), ..PadConfig::default() }
 }
 pub fn text<'a>(v: &'a Values, key: &str) -> &'a str {

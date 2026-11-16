@@ -84,6 +84,7 @@ struct Launch {
     menus: BTreeMap<u64, MenuKeys>,
     /// The latest legs the streamer and the pads reported, for `round-trip`.
     trip: RoundTrip,
+    pad: Option<(PadStats, u64)>,
 }
 
 /// Output batches preserve ordering: session.create is acknowledged before its stream is started.
@@ -134,6 +135,7 @@ impl Adapter {
     }
 
     pub fn failed(&self) -> bool { self.failed }
+    pub fn pad_stats_on(&self) -> bool { self.launch.as_ref().is_some_and(|l| l.running && l.stats && !l.stopping) }
     pub fn data_dir(&self) -> &str { &self.hello.data_dir }
     pub fn pad_prefs(&self) -> Value {
         settings::pad_prefs(self.launch.as_ref().map_or(&self.values, |l| &l.values))
@@ -212,7 +214,7 @@ impl Adapter {
                 self.launch = Some(Launch {
                     id:session,seq:message.seq,selection,cloud:Value::Null,started:false,running:false,stale_retried:false,
                     busy_retried:false,claimed:false,retry_stopping:false,stopping:false,end_game:false,stats:false,poll_due:0,values:self.values.clone(),
-                    overlay:false,menus:BTreeMap::new(),trip:RoundTrip::default(),
+                    overlay:false,menus:BTreeMap::new(),trip:RoundTrip::default(),pad:None,
                 });
                 self.session(SessionState::Checking);
                 if self.target.is_none() {
@@ -230,7 +232,7 @@ impl Adapter {
                 self.enqueue("streamer.input.pause",json!({"paused":input == InputRoute::App}),Purpose::Pause,seq);
             }
             Request::Stats { session,on } if self.launch.as_ref().is_some_and(|l| l.id == session) => {
-                if let Some(l) = &mut self.launch { l.stats = on; }
+                if let Some(l) = &mut self.launch { l.stats = on; if !on { l.pad = None; } }
             }
             Request::RoundTrip { session } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
                 let trip = self.launch.as_ref().map(|l| l.trip.clone()).unwrap_or_default();
@@ -263,13 +265,16 @@ impl Adapter {
                 let mut keys = Vec::new();
                 l.menus.entry(v["slot"].as_u64().unwrap_or(0)).or_default().feed(&state,|k| keys.push(k));
                 for key in keys {
-                    let key = match key {MenuKey::Up=>PadKey::Up,MenuKey::Down=>PadKey::Down,MenuKey::Left=>PadKey::Left,MenuKey::Right=>PadKey::Right,MenuKey::Ok=>PadKey::Ok,MenuKey::Back=>PadKey::Back};
+                    let key = match key {MenuKey::Up=>PadKey::Up,MenuKey::Down=>PadKey::Down,MenuKey::Left=>PadKey::Left,MenuKey::Right=>PadKey::Right,MenuKey::Ok=>PadKey::Ok,MenuKey::Back=>PadKey::Back,MenuKey::Menu=>PadKey::Menu};
                     for down in [true,false] { self.emit(None,Event::Key { key,down }); }
                 }
             }
             Some("latency") => {
                 let ms = |k:&str| v[k].as_f64().map(|us| (us/1000.0) as f32);
                 (l.trip.presses,l.trip.press_p50_ms,l.trip.press_p99_ms) = (v["n"].as_u64().and_then(|n| u32::try_from(n).ok()),ms("p50"),ms("p99"));
+            }
+            Some("timing") => {
+                if let Ok(stats) = serde_json::from_value::<PadStats>(v) { l.pad = Some((stats, self.now)); }
             }
             _ => {}
         }
@@ -737,10 +742,11 @@ impl Adapter {
         if !l.stats { return; }
         let session = l.id;
         let bitrate_kbps = r["bitrateMbps"].as_f64().filter(|n| n.is_finite() && *n >= 0.0).map(|n| (n*1000.0).round() as u32);
+        let pad = l.pad.as_ref().map(|(stats, at)| PadStats { age_ms: stats.age_ms.saturating_add(self.now.saturating_sub(*at)), ..stats.clone() });
         self.emit(None,Event::Stats { session,stats:Stats {
             fps:float("framesPerSecond"),bitrate_kbps,dropped:r["queueDropCount"].as_u64(),
             rtt_ms:float("roundTripTimeMs"),jitter_ms:float("jitterMs"),loss_pct:float("packetLossPercent"),
-            client_ms:float("decodeLatencyMs"),host_ms:float("hostProcessingLatencyMs"),
+            client_ms:float("decodeLatencyMs"),host_ms:float("hostProcessingLatencyMs"),pad,
         } });
     }
     fn event(&mut self, name: &str, payload: &Value) {

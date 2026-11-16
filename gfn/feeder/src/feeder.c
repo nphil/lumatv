@@ -84,6 +84,15 @@ struct second {
     int64_t start_ns;
 };
 
+#define FRAME_WINDOW_NS 250000000LL
+#define FRAME_SAMPLES 256
+struct frames {
+    int on, count;
+    int64_t due, last;
+    uint64_t fed, accepted, dropped[6], omitted;
+    struct { int64_t gap_us, feed_us; int queue, reason; } samples[FRAME_SAMPLES];
+};
+
 struct feeder {
     /* options */
     const char *lib, *app_id, *window_type, *window_id_opt, *window_id_file, *play_path, *audio_path, *sock_path;
@@ -126,6 +135,7 @@ struct feeder {
     char window_id[40];
     FILE *stats;
     struct second sec;
+    struct frames frames;
     uint64_t total_fed, total_dropped, total_afed, total_adropped, total_retries;
     int64_t first_loaded_ns, first_playing_ns, t0_ns;
     unsigned ev_count[64];
@@ -1176,6 +1186,7 @@ static void chan_close(struct feeder *f) {
     free(f->chan_out);
     f->chan_out = NULL;
     f->chan_out_len = f->chan_out_cap = 0;
+    memset(&f->frames, 0, sizeof f->frames);
 }
 
 static void chan_flush(struct feeder *f) {
@@ -1205,6 +1216,49 @@ static void chan_send(struct feeder *f, const char *line) {
     chan_flush(f);
 }
 
+static void frames_set(struct feeder *f, int on) {
+    if (f->frames.on == on) return;
+    memset(&f->frames, 0, sizeof f->frames);
+    f->frames.on = on;
+    f->frames.due = gf_ns() + FRAME_WINDOW_NS;
+}
+
+static void frames_note(struct feeder *f, int64_t arrived, int queue, int reason) {
+    struct frames *s = &f->frames;
+    if (!s->on) return;
+    s->fed++;
+    if (!reason) s->accepted++;
+    else if (reason < 6) s->dropped[reason]++;
+    if (s->count < FRAME_SAMPLES) {
+        int i = s->count++;
+        s->samples[i].gap_us = s->last ? (arrived - s->last) / 1000 : -1;
+        s->samples[i].feed_us = (gf_ns() - arrived) / 1000;
+        s->samples[i].queue = queue;
+        s->samples[i].reason = reason;
+    } else s->omitted++;
+    s->last = arrived;
+}
+
+static void frames_send(struct feeder *f, int64_t now) {
+    struct frames *s = &f->frames;
+    if (!s->on || now < s->due) return;
+    s->due = now + FRAME_WINDOW_NS;
+    /* Telemetry must never queue behind lifecycle messages on a stalled UI. Totals still include omitted samples. */
+    if (f->chan_out_len) { s->omitted += (uint64_t)s->count; s->count = 0; return; }
+    char line[32768];
+    int n = snprintf(line, sizeof line,
+        "{\"kind\":\"frames\",\"fed\":%llu,\"accepted\":%llu,\"dropped\":[%llu,%llu,%llu,%llu,%llu],\"omitted\":%llu,\"samples\":[",
+        (unsigned long long)s->fed, (unsigned long long)s->accepted,
+        (unsigned long long)s->dropped[1], (unsigned long long)s->dropped[2], (unsigned long long)s->dropped[3],
+        (unsigned long long)s->dropped[4], (unsigned long long)s->dropped[5], (unsigned long long)s->omitted);
+    for (int i = 0; i < s->count; i++)
+        n += snprintf(line + n, sizeof line - (size_t)n, "%s[%lld,%lld,%d,%d]", i ? "," : "",
+            (long long)s->samples[i].gap_us, (long long)s->samples[i].feed_us, s->samples[i].queue, s->samples[i].reason);
+    snprintf(line + n, sizeof line - (size_t)n, "]}");
+    chan_send(f, line);
+    s->count = 0;
+}
+
 /* SAM's lines to the UI. A `close` also starts the clock on the UI's end: with no UI (or none that listens) the feeder is the app. */
 static void sam_pump(struct feeder *f) {
     char line[GF_SAM_LINE];
@@ -1232,6 +1286,8 @@ static void chan_pump(struct feeder *f) {
         while ((nl = memchr(f->chan_in, '\n', f->chan_len))) {
             *nl = 0;
             gf_say("UI: %s", f->chan_in);
+            if (strstr(f->chan_in, "\"kind\":\"frames\""))
+                frames_set(f, strstr(f->chan_in, "\"on\":true") != NULL);
             char reply[1024];
             if (gf_sam_request(f->sam, f->chan_in, reply, sizeof reply) < 0) chan_send(f, reply);
             f->chan_len -= (size_t)(nl + 1 - f->chan_in);
@@ -1369,6 +1425,7 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         f->total_fed = f->total_dropped = f->total_afed = f->total_adropped = f->total_retries = f->video_refused = 0;
         memset(&f->sec, 0, sizeof f->sec);
         f->sec.start_ns = gf_ns();
+        if (f->frames.on) { frames_set(f, 0); frames_set(f, 1); }
         send_text(c, GF_LOADED, 1, f->window_id);
         return;
     }
@@ -1376,15 +1433,18 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         if (n < sizeof(gf_media_head)) return;
         gf_media_head h;
         memcpy(&h, p, sizeof h);
+        int64_t arrived = f->frames.on ? gf_ns() : 0;
         int q, w;
         int res = feed_video(f, p + sizeof h, n - sizeof h, h.pts_ns, h.key, &q, &w);
         if (res == 0) {
             gf_accept a = {h.pts_ns, q, w};
             push_out(c, GF_ACCEPT, &a, sizeof a, NULL, 0);
+            frames_note(f, arrived, q, 0);
         } else {
             int reason = res == GF_FEED_REFUSED ? GF_DROP_REFUSED : res < 0 ? GF_DROP_NOT_LOADED : res == 1 ? GF_DROP_FULL : res;
             gf_drop d = {h.pts_ns, reason, 0};
             push_out(c, GF_DROP, &d, sizeof d, NULL, 0);
+            frames_note(f, arrived, q, reason);
             if (reason == GF_DROP_FULL || reason == GF_DROP_REFUSED) hold_video(f);
         }
         return;
@@ -1587,7 +1647,9 @@ static int run_serve(struct feeder *f) {
             if (f->pipe_ready) fds[nf++] = (struct pollfd){f->ops->event_fd(f->pipe), POLLIN, 0};
             int listen_index = nf;
             fds[nf++] = (struct pollfd){ls, POLLIN, 0};
-            int64_t left = (player_deadline(f, next_status) - gf_ns() + 999999) / 1000000;
+            int64_t wake = next_status;
+            if (f->frames.on && f->frames.due < wake) wake = f->frames.due;
+            int64_t left = (player_deadline(f, wake) - gf_ns() + 999999) / 1000000;
             int nx = extras_add(f, fds + nf);
             int r = poll(fds, (nfds_t)(nf + nx), left < 0 ? 0 : (int)left);
             if (r > 0) extras_serve(f, fds + nf, nx);
@@ -1617,6 +1679,7 @@ static int run_serve(struct feeder *f) {
             }
             maintain_pipeline(f, emit_event);
             report_player(f, &c);
+            frames_send(f, gf_ns());
             if (gf_ns() >= next_status) {
                 if (f->tex_on) write_tex_stats(f);
                 if (f->pipe_ready || f->no_ndl || f->tex_on) {

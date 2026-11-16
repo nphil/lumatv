@@ -162,6 +162,37 @@ static void identity_is_a_build_setting(void) {
 #endif
 }
 
+static void frame_records_are_opt_in_bounded_and_measured(void) {
+    int sv[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    f.chan = sv[0];
+    frames_note(&f, now, 0, 0);
+    assert(f.frames.fed == 0);
+    const char *on = "{\"kind\":\"frames\",\"on\":true}\n";
+    assert(write(sv[1], on, strlen(on)) == (ssize_t)strlen(on));
+    chan_pump(&f);
+    assert(f.frames.on);
+    frames_note(&f, now, 1, 0);
+    now += 8300000;
+    frames_note(&f, now - 600000, 2, GF_DROP_FULL);
+    assert(f.frames.samples[1].gap_us == 7700 && f.frames.samples[1].feed_us == 600);
+    now += FRAME_WINDOW_NS;
+    frames_send(&f, now);
+    char line[2048] = {0};
+    assert(recv(sv[1], line, sizeof line - 1, MSG_DONTWAIT) > 0);
+    assert(strstr(line, "\"fed\":2,\"accepted\":1,\"dropped\":[1,0,0,0,0]"));
+    assert(strstr(line, "\"samples\":[[-1,0,1,0],[7700,600,2,1]]"));
+    frames_send(&f, now);
+    assert(recv(sv[1], line, sizeof line, MSG_DONTWAIT) < 0 && errno == EAGAIN);
+    for (int i = 0; i < FRAME_SAMPLES + 1; i++) frames_note(&f, now, 0, 0);
+    assert(f.frames.count == FRAME_SAMPLES && f.frames.omitted == 1);
+    frames_set(&f, 0);
+    frames_note(&f, now, 0, 0);
+    assert(!f.frames.on && !f.frames.fed);
+    chan_close(&f);
+    close(sv[1]);
+}
+
 int main(int argc, char **argv) {
     assert(argc == 2);
     setenv("FAKE_NDL_MANUAL_EVENTS", "1", 1);
@@ -185,8 +216,9 @@ int main(int argc, char **argv) {
     hdr_is_applied_after_ingest_once_per_change_never_for_sdr();
     watchdog_and_fatal_errors_latch_until_a_new_load();
     identity_is_a_build_setting();
+    frame_records_are_opt_in_bounded_and_measured();
     close_all(&f);
     free(client.out);
-    puts("policy_test: 7 rules passed (injected clock, fake NDL)");
+    puts("policy_test: 8 rules passed (injected clock, fake NDL)");
     return 0;
 }

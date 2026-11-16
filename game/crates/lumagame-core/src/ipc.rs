@@ -474,6 +474,21 @@ pub struct Stats {
     /// Capture and encode on the far side, when it reports them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_ms: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pad: Option<PadStats>,
+}
+
+/// Kernel report timing over the last three seconds, with idle pauses excluded from the rate.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PadStats {
+    pub name: String,
+    pub reports: u32,
+    pub rate_hz: f32,
+    pub p99_us: u32,
+    pub bursts: u32,
+    pub burst_gap_us: u32,
+    /// Age of the last report when this message was sent; a repeated stream update cannot revive an idle pad.
+    pub age_ms: u64,
 }
 
 /// The legs of a control's round trip that an engine can time, in milliseconds. As in [`Stats`], a leg that was not measured is absent;

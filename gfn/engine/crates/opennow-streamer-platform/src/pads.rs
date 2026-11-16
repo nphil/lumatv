@@ -2,13 +2,13 @@
 //! GFN's 38-byte event and sends it at once), the PS button becomes `Guide` (the engine asks the UI for its overlay), and the exit
 //! chord a `StopStream` shortcut. While the UI's overlay is up (input paused) the reports go to the UI's own socket instead, as JSON
 //! datagrams, so the menu can be driven with the same pad without releasing the grab.
-use std::os::unix::net::UnixDatagram;
+use std::os::{linux::net::SocketAddrExt, unix::net::{SocketAddr, UnixDatagram}};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use lumatv_gfn_pad::{Curve, PadConfig, PadEvent, PadRuntime, PadSink, PadState};
+use lumatv_gfn_pad::{Curve, PadConfig, PadEvent, PadRuntime, PadSink, PadState, RawReport, lab::Timing};
 
 use crate::types::{CapturedInput, CapturedInputQueue, CapturedInputSample, StreamShortcutAction};
 
@@ -17,7 +17,13 @@ struct Bridge {
     active: AtomicBool,
     paused: AtomicBool,
     side: Option<(UnixDatagram, PathBuf)>,
+    timing: Mutex<[TimedPad; 4]>,
+    stats: AtomicBool,
+    stats_due: AtomicU64,
 }
+
+#[derive(Default)]
+struct TimedPad { name: String, timing: Timing, sent_ns: u64 }
 
 impl Bridge {
     fn aside(&self, line: String) {
@@ -46,12 +52,16 @@ impl PadSink for Bridge {
         match event {
             PadEvent::Connected { slot, name, uniq } => {
                 self.aside(format!("{{\"pad\":\"connected\",\"slot\":{slot},\"name\":{},\"uniq\":{},\"bitmap\":{bitmap}}}", json_str(&name), json_str(&uniq)));
+                if let Some(pad) = self.timing.lock().unwrap().get_mut(usize::from(slot)) {
+                    *pad = TimedPad { name, ..TimedPad::default() };
+                }
                 if self.active.load(Ordering::Acquire) {
                     self.queue.push(gamepad(slot, bitmap, PadState::default()));
                 }
             }
             PadEvent::Disconnected { slot } => {
                 self.aside(format!("{{\"pad\":\"disconnected\",\"slot\":{slot},\"bitmap\":{bitmap}}}"));
+                if let Some(pad) = self.timing.lock().unwrap().get_mut(usize::from(slot)) { *pad = TimedPad::default(); }
                 if self.active.load(Ordering::Acquire) {
                     self.queue.release_gamepad(slot, bitmap);
                 }
@@ -98,6 +108,34 @@ impl PadSink for Bridge {
             summary.samples, s.p50, s.p90, s.p99, s.max
         ));
     }
+
+    fn raw(&self, slot: u8, report: &RawReport) {
+        let Some((sock, path)) = &self.side else { return };
+        if !self.active.load(Ordering::Acquire) { return; }
+        if report.read_ns >= self.stats_due.load(Ordering::Relaxed) {
+            self.stats_due.store(report.read_ns + 250_000_000, Ordering::Relaxed);
+            let mut flag = [0u8];
+            while sock.recv(&mut flag).is_ok() {
+                let on = flag[0] == 1;
+                if self.stats.swap(on, Ordering::AcqRel) && !on {
+                    for pad in self.timing.lock().unwrap().iter_mut() { pad.timing = Timing::default(); pad.sent_ns = 0; }
+                }
+            }
+            let _ = sock.send_to(b"stats", path);
+        }
+        if !self.stats.load(Ordering::Acquire) { return; }
+        let mut pads = self.timing.lock().unwrap();
+        let Some(pad) = pads.get_mut(usize::from(slot)) else { return };
+        pad.timing.push(report.kernel_ns);
+        if report.kernel_ns.saturating_sub(pad.sent_ns) < 1_000_000_000 { return; }
+        pad.sent_ns = report.kernel_ns;
+        let s = pad.timing.summary(report.kernel_ns);
+        let line = serde_json::json!({"pad":"timing", "name":pad.name, "reports":s.reports, "rate_hz":s.rate_hz,
+            "p99_us":s.p99_us, "bursts":s.bursts.count, "burst_gap_us":s.bursts.gap_us,
+            "age_ms":report.read_ns.saturating_sub(report.kernel_ns)/1_000_000}).to_string();
+        drop(pads);
+        self.aside(line);
+    }
 }
 
 fn json_str(s: &str) -> String {
@@ -135,6 +173,7 @@ fn apply_prefs(c: &mut PadConfig, path: &std::path::Path) {
 /// The pad crate's configuration: its environment's, with the viewer's stick settings; `LUMATV_GFN_PAD_DEADZONE` fixes the dead zone.
 fn pad_config() -> PadConfig {
     let mut c = PadConfig::from_env();
+    c.raw = true;
     if let Some(p) = std::env::var_os("LUMATV_GFN_PREFS") {
         let fixed = std::env::var_os("LUMATV_GFN_PAD_DEADZONE").is_some().then_some(c.deadzone_percent);
         apply_prefs(&mut c, std::path::Path::new(&p));
@@ -151,9 +190,14 @@ pub struct PadBridge {
 
 impl PadBridge {
     pub fn new(queue: Arc<CapturedInputQueue>) -> Self {
-        let side = std::env::var_os("LUMATV_GFN_PAD_SIDE").and_then(|p| UnixDatagram::unbound().ok().map(|s| (s, PathBuf::from(p))));
+        let side = std::env::var_os("LUMATV_GFN_PAD_SIDE").and_then(|p| {
+            let address = SocketAddr::from_abstract_name(format!("lumagame-pad-{}", std::process::id())).ok()?;
+            let s = UnixDatagram::bind_addr(&address).ok()?;
+            s.set_nonblocking(true).ok()?;
+            Some((s, PathBuf::from(p)))
+        });
         Self {
-            bridge: Arc::new(Bridge { queue, active: AtomicBool::new(false), paused: AtomicBool::new(false), side }),
+            bridge: Arc::new(Bridge { queue, active: AtomicBool::new(false), paused: AtomicBool::new(false), side, timing: Mutex::new(std::array::from_fn(|_| TimedPad::default())), stats: AtomicBool::new(false), stats_due: AtomicU64::new(0) }),
             runtime: Mutex::new(None),
         }
     }
@@ -170,6 +214,9 @@ impl PadBridge {
         self.bridge.active.store(active, Ordering::Release);
         if !active {
             self.bridge.queue.clear();
+            self.bridge.stats.store(false, Ordering::Release);
+            self.bridge.stats_due.store(0, Ordering::Relaxed);
+            for pad in self.bridge.timing.lock().unwrap().iter_mut() { pad.timing = Timing::default(); pad.sent_ns = 0; }
         }
     }
 
@@ -208,7 +255,7 @@ mod tests {
     #[test]
     fn reports_reach_the_queue_only_while_active_and_not_paused() {
         let queue = Arc::new(CapturedInputQueue::default());
-        let b = Bridge { queue: Arc::clone(&queue), active: AtomicBool::new(false), paused: AtomicBool::new(false), side: None };
+        let b = Bridge { queue: Arc::clone(&queue), active: AtomicBool::new(false), paused: AtomicBool::new(false), side: None, timing: Mutex::new(std::array::from_fn(|_| TimedPad::default())), stats: AtomicBool::new(false), stats_due: AtomicU64::new(0) };
         let s = PadState { buttons: 0x1000, ..Default::default() };
         b.pad_event(0x0101, PadEvent::Report { slot: 0, state: s, press: None });
         assert!(queue.take().is_none());
@@ -236,7 +283,9 @@ mod tests {
         let path = dir.join("pad.sock");
         let app = UnixDatagram::bind(&path).unwrap();
         let queue = Arc::new(CapturedInputQueue::default());
-        let b = Bridge { queue: Arc::clone(&queue), active: AtomicBool::new(true), paused: AtomicBool::new(false), side: Some((UnixDatagram::unbound().unwrap(), path)) };
+        let side = UnixDatagram::unbound().unwrap();
+        side.set_nonblocking(true).unwrap();
+        let b = Bridge { queue: Arc::clone(&queue), active: AtomicBool::new(true), paused: AtomicBool::new(false), side: Some((side, path)), timing: Mutex::new(std::array::from_fn(|_| TimedPad::default())), stats: AtomicBool::new(true), stats_due: AtomicU64::new(u64::MAX) };
         let s = PadState { buttons: 0x1000, ..Default::default() };
         let tap = latency::global();
         let now = latency::mono_ns();
@@ -258,7 +307,36 @@ mod tests {
         let line = std::str::from_utf8(&buf[..n]).unwrap();
         assert!(line.starts_with("{\"pad\":\"latency\",\"stage\":\"handoff\",\"n\":"), "{line}");
         assert!(line.contains("\"p99\":") && line.contains("\"max\":"), "{line}");
+        b.raw(0, &RawReport { kernel_ns: 1_000_000_000, read_ns: 1_000_000_000, ..Default::default() });
+        let _ = app.recv(&mut buf).unwrap();
+        for ms in [1004, 1008, 1012, 2000] {
+            b.raw(0, &RawReport { kernel_ns: ms * 1_000_000, read_ns: ms * 1_000_000, ..Default::default() });
+        }
+        let n = app.recv(&mut buf).unwrap();
+        let timing: serde_json::Value = serde_json::from_slice(&buf[..n]).unwrap();
+        assert_eq!(timing["pad"], "timing");
+        assert_eq!(timing["rate_hz"], 250.0);
+        assert_eq!(timing["p99_us"], 4000);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn raw_timing_needs_a_stats_subscription_and_off_clears_it() {
+        let (side,app)=UnixDatagram::pair().unwrap();
+        side.set_nonblocking(true).unwrap();
+        let b=Bridge {queue:Arc::new(CapturedInputQueue::default()),active:AtomicBool::new(true),paused:AtomicBool::new(false),
+            side:Some((side,PathBuf::new())),timing:Mutex::new(std::array::from_fn(|_| TimedPad::default())),
+            stats:AtomicBool::new(false),stats_due:AtomicU64::new(0)};
+        let report=|ns| RawReport {kernel_ns:ns,read_ns:ns,..Default::default()};
+        b.raw(0,&report(1));
+        assert_eq!(b.timing.lock().unwrap()[0].timing.summary(1).reports,0);
+        app.send(&[1]).unwrap();
+        b.raw(0,&report(250_000_001));
+        b.raw(0,&report(254_000_001));
+        assert_eq!(b.timing.lock().unwrap()[0].timing.summary(254_000_001).reports,2);
+        app.send(&[0]).unwrap();
+        b.raw(0,&report(500_000_001));
+        assert_eq!(b.timing.lock().unwrap()[0].timing.summary(500_000_001).reports,0);
     }
 
     #[test]
