@@ -43,7 +43,7 @@ use ui::scene::{Scene, SceneOptions};
 const SHIPPED_LAYOUT: &str = include_str!("../../../payload/theme/layout.json");
 /// The helper's topics the shell follows besides its plugins' (`kit/Helper.qml` `subscribed`, and the sheets of the cameras).
 const HELPER_TOPICS: &str =
-    "screen,weather,weather.more,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,openapps,panel,cameras,cameras.popup,cameras.live,cameras.events,onhome,profiles,voice,saver,plex.account,dnd,phone-remote";
+    "screen,weather,weather.more,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,openapps,panel,cameras,cameras.popup,cameras.live,cameras.events,onhome,profiles,voice,saver,plex.account,dnd,phone-remote,gaming.overlay";
 
 struct Options {
     host: bool,
@@ -894,6 +894,11 @@ fn run_host(o: Options) -> io::Result<()> {
 #[cfg(test)]
 mod readiness_tests {
     use super::*;
+
+    #[test]
+    fn game_stats_follows_the_shared_setting_in_host_and_tv_modes() {
+        assert!(HELPER_TOPICS.split(',').any(|topic| topic == "gaming.overlay"));
+    }
 
     #[test]
     fn receipt_must_cover_a_successfully_submitted_commit() {
