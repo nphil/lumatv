@@ -3,7 +3,7 @@
 LG's compositor cuts between an app, Home and the next app, and the video plane shows black in between. LumaTV's compositor animates the
 pictures it already has instead: an app grows out of its tile, goes back into it, one app fades over another, LG's Settings (an overlay
 window) opens and closes the same way. Off by default (theme `motion.transitions`, Settings > Home & look > Smooth transitions, `lumatv
-transitions on|off`) until the TV check below passes. Not run on the set.
+transitions on|off`) until the TV check below passes. Snapshot acceptance remains open.
 
 Source: `compositor/crates/lumatv-compositor/src/transition.rs` (poses), `scene.rs` and `scene/snapshots.rs` (window lifecycle and app grouping),
 `snapshot.rs` (bounded snapshot identities), `render/gl/snapshots.rs` (GPU copies), `kms/mod.rs` (presentation acknowledgment).
@@ -37,6 +37,12 @@ Video is never sampled.
 The available webOS buffer metadata has no universal protection flag, so this is not a claim of general protected-content capture support.
 An ineligible or unavailable picture keeps the existing no-snapshot path. Snapshot continuity has not yet been accepted on the TV;
 the shipped motion default remains off.
+
+The initial LumaGame menu check on compositor `c51fd3e7` produced zero snapshots and one 22 ms late gap against the 20 ms gate.
+No snapshot copy occurred, so the gap is not attributed to copying. The menu's dormant video export incorrectly excluded its RGB UI.
+Correction `0aab0209` is installed as compositor `d54bef87`; its live capture and visual handoff remain untested because the receiver's
+mute state did not remain stable before wake. Initial evidence: `/tmp/cs/18172b987bff/snapshot-tv-acceptance/`;
+corrective installation: `/tmp/cs/18172b987bff/snapshot-tv-corrected-0aab/`.
 
 ## What moves, and what never waits
 

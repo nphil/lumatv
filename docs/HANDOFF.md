@@ -9,6 +9,16 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## App snapshot continuity, 2026-11-16 (main 0aab0209, installed; acceptance open)
+
+Installed compositor `d54bef87d1aee47ec7f9a98768b3bb809b307276b2babcf889ada4be38219c14`. A dormant video export no longer excludes an otherwise eligible RGB app picture; an actual video hole still does. Snapshot capture, visual handoff and transition cadence remain unaccepted on the TV. The correction was installed in Active Standby; further wake tests are held because the receiver did not remain muted.
+
+Standby recorded 0 flips over 30.10 s. The compositor settled with zero failures; the helper and gateway remained healthy. All TV leases were released.
+
+Compositor deployment must preserve helper `cf202dd2`, camera feeder `d9194794` and decoder libraries `389d6f76`/`be345d79`, including their boot payload copies. The separate [LumaGame handoff](lumagame/HANDOFF.md) records the app baseline.
+
+Receipt: `/tmp/cs/18172b987bff/snapshot-tv-corrected-0aab/app-snapshot/cutover-receipt.json`. The initial failed capture and frame result are recorded in [the transition findings](research/transitions-result.md).
+
 ## This TV app list over the lifecycle limit, 2026-11-15 (source only, not installed)
 
 The feeder forwarded SAM's whole `listApps` reply and refused it at 128 KiB; it now projects each app to id, title and icon (strings copied as written, so escapes survive), leaves out apps with no id or title, and still refuses a list whose projection does not fit or is not an array of objects. The same error showed in the controller lab because any engine error set the one global notice, which the lab draws; engine errors now set it only where the engine is the subject (its sheet, or the game's hub) and always sit on the integration's card. Needs a package rebuild (feeder `lumagame-main`, ui) to reach the TV; the TV has not been touched.
