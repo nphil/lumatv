@@ -1,3 +1,5 @@
+/* the asserts here do work (zig cc defines NDEBUG from -O1 on unless a sanitizer is on) */
+#undef NDEBUG
 #include "../src/gf_sam.c"
 #include <assert.h>
 
@@ -45,7 +47,7 @@ static char *sam_list(int n, int extras) {
         char icon[601];
         memset(icon, 'i', 600);
         icon[600] = 0;
-        o += (size_t)snprintf(s + o, cap - o, ",{\"id\":\"com.example.notitle\"},{\"title\":\"No id\"},{\"id\":\"com.example.bigicon\",\"title\":\"Big\",\"icon\":\"%s\"}", icon);
+        o += (size_t)snprintf(s + o, cap - o, ",{\"id\":\"com.example.notitle\"},{\"title\":\"No id\"},{\"id\":\"com.example.bigicon\",\"title\":\"%s\",\"icon\":\"%s\"}", icon, icon);
     }
     snprintf(s + o, cap - o, "]}");
     return s;
@@ -117,7 +119,10 @@ int main(void) {
         assert(strstr(big, "\"success\":true") && strlen(big) < GF_SAM_LINE);
         assert(count(big, "\"id\":\"com.example.app") == 300 && !strstr(big, "description") && !strstr(big, "nested"));
         assert(strstr(big, "\"title\":\"App 7 \\\"Caf\\u00e9\\\" \\\\ }{\",\"icon\":\"/media/icons/7.png\"}"));
-        assert(strstr(big, "com.example.bigicon\",\"title\":\"Big\"}") && !strstr(big, "iiii"));
+        char i600[601];                 /* a long title and a long icon are the UI's to cut, not dropped here */
+        memset(i600, 'i', 600);
+        i600[600] = 0;
+        assert(strstr(big, "com.example.bigicon") && count(big, i600) == 2);
         assert(!strstr(big, "notitle") && !strstr(big, "No id"));
         free(list);
         list = sam_list(2500, 0);       /* what the UI reads of this many apps still does not fit a line: refused, not cut */

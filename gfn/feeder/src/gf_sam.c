@@ -172,18 +172,18 @@ static bool json_true(const char *obj, const char *key) {
     return json_value(obj, key, &v, &n) && n >= 4 && !strncmp(v, "true", 4);
 }
 
-/* A string field of an app as SAM wrote it, quotes and escapes included, so it is JSON already. False when it is absent, not a string
- * or longer than `max`. */
-static bool raw_string(const char *app, const char *key, size_t max, const char **v, size_t *n) {
-    return json_value(app, key, v, n) && *n >= 2 && *n <= max && (*v)[0] == '"' && (*v)[*n - 1] == '"';
+/* A string field of an app as SAM wrote it, quotes and escapes included, so it is JSON already. False when it is absent or not a string. */
+static bool raw_string(const char *app, const char *key, const char **v, size_t *n) {
+    return json_value(app, key, v, n) && *n >= 2 && (*v)[0] == '"' && (*v)[*n - 1] == '"';
 }
 
 #define APPS_TOO_LARGE "the installed app list exceeds the lifecycle limit"
 
 /* SAM's listApps array (`apps`, `count` bytes) as the UI reads it: each app's id, title and icon and nothing else of what SAM
- * knows about it, written to `out` as an array. An app with no id or title, or an id or title over 127 or 511 characters, is not
- * one the UI lists or launches and is left out; an icon over 511 characters is left out of its app. Returns NULL, or the reason
- * the list is refused: not an array of objects, or what the UI reads of it still does not fit. */
+ * knows about it, written to `out` as an array. The UI's own parse needs a string id and title, so an app without both would have
+ * failed the whole list there; it is left out here instead. Field lengths are the UI's to judge (it drops an id it cannot use and
+ * cuts a label); only the whole list is bounded. Returns NULL, or the reason the list is refused: not an array of objects, or what
+ * the UI reads of it still does not fit. */
 static const char *project_apps(const char *apps, size_t count, char *out, size_t cap) {
     const char *last = apps + count - 1, *p = apps + 1;
     if (count < 2 || *last != ']' || cap < 3) return "the installed app list is malformed";
@@ -196,8 +196,8 @@ static const char *project_apps(const char *apps, size_t count, char *out, size_
         if (*p != '{' || (end = json_skip(p)) > last) return "the installed app list is malformed";
         const char *id, *title, *icon = "";
         size_t idn, titlen, iconn = 0;
-        if (raw_string(p, "id", 129, &id, &idn) && raw_string(p, "title", 513, &title, &titlen)) {
-            bool has_icon = raw_string(p, "icon", 513, &icon, &iconn);
+        if (raw_string(p, "id", &id, &idn) && raw_string(p, "title", &title, &titlen)) {
+            bool has_icon = raw_string(p, "icon", &icon, &iconn);
             int w = snprintf(out + o, cap - o, "%s{\"id\":%.*s,\"title\":%.*s%s%.*s}", o > 1 ? "," : "", (int)idn, id, (int)titlen, title,
                              has_icon ? ",\"icon\":" : "", (int)(has_icon ? iconn : 0), icon);
             if (w < 0 || (size_t)w + 2 > cap - o) return APPS_TOO_LARGE;
