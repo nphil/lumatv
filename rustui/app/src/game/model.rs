@@ -1901,6 +1901,7 @@ impl Model {
                     self.view.hub_tab = 0;
                     self.view.notice = match outcome {
                         session::Outcome::Failed { message, .. } => Some(message),
+                        session::Outcome::Ended(ipc::EndReason::Remote) => Some("The game ended.".into()),
                         _ => None,
                     };
                     out.push(Command::ClearCheckpoint);
@@ -2914,6 +2915,18 @@ pub(crate) mod tests {
         assert_eq!(m.end_copy().1, "The game will close on GeForce NOW. Unsaved progress may be lost.");
         m.session = Some(Session::start(SessionId(2), GameId(1), key("gamestream"), Presentation::Feeder, false, 0).0);
         assert_eq!(m.end_copy().1, "The game will close on the PC. Unsaved progress may be lost.");
+    }
+    #[test]
+    fn a_game_that_ends_on_the_host_returns_to_its_page_with_a_notice() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud)]);
+        describe(&mut m, "gfn", vec![], &[]);
+        m.session = Some(Session::start(SessionId(1), GameId(1), "gfn|main|1".parse().unwrap(), Presentation::Feeder, false, 0).0);
+        for state in [SessionState::Running { stream: None }, SessionState::Ended { reason: ipc::EndReason::Remote }] {
+            let event = ipc::Event::Session { session: SessionId(1), state };
+            m.step(Input::Engine { engine: EngineId::new("gfn").unwrap(), message: FromEngine { re: None, event } });
+        }
+        assert_eq!((m.view.page, m.view.sheet, m.view.notice.as_deref()), (Page::Hub, None, Some("The game ended.")));
+        assert!(!m.session_active(), "nothing is left for the end-stream prompt");
     }
     #[test]
     fn pairing_with_no_pc_found_offers_an_address_or_another_search() {

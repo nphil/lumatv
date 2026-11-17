@@ -165,6 +165,23 @@ fn launch_ack_queue_start_running_stats_and_remote_end() {
 }
 
 #[test]
+fn a_stream_the_server_ended_ends_the_session_and_a_lost_connection_fails_it() {
+    let running=|| {
+        let mut f=FakeCore::new(true);f.launch();
+        f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
+        f.reply("streamer.start",json!({"status":"running"}));
+        f
+    };
+    let mut f=running();
+    f.adapter.pad_line(&json!({"stream":"ended","source":"nvst-server","resumable":false}).to_string());
+    assert_eq!(f.session_states().last(),Some(&SessionState::Ended{reason:EndReason::Remote}));
+    assert_eq!(f.reply("streamer.stop",json!({}))["params"]["reason"],"the stream ended","the finished worker is reaped for the next launch");
+    let mut f=running();
+    f.adapter.pad_line(&json!({"stream":"ended","source":"nvst-transport","resumable":null}).to_string());
+    assert!(matches!(f.session_states().last(),Some(SessionState::Failed{reason:FailReason::Network,..})));
+}
+
+#[test]
 fn guide_opens_the_overlay_and_the_overlay_reads_the_pads_as_menu_keys() {
     use lumatv_gfn_pad::button::{A,DPAD_DOWN,Y};
     let mut f=FakeCore::new(true);f.launch();

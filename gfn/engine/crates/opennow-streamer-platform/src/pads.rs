@@ -40,6 +40,13 @@ impl Bridge {
             self.aside(stream_line(telemetry));
         }
     }
+
+    /// The stream's own end and who ended it (the server, or the transport once its recovery gave up), for the engine: the core keeps
+    /// it only as a status it reports when asked. Sent although the session is no longer live, because the streamer stops its media
+    /// before it announces the end.
+    fn ended(&self, termination: &serde_json::Value) {
+        self.aside(serde_json::json!({"stream":"ended", "source":termination["source"], "resumable":termination["resumable"]}).to_string());
+    }
 }
 
 fn stream_line(t: &serde_json::Value) -> String {
@@ -238,6 +245,10 @@ impl PadBridge {
         self.bridge.stream(telemetry);
     }
 
+    pub fn stream_ended(&self, termination: &serde_json::Value) {
+        self.bridge.ended(termination);
+    }
+
     pub fn set_paused(&self, paused: bool) {
         self.bridge.paused.store(paused, Ordering::Release);
     }
@@ -375,6 +386,23 @@ mod tests {
         let n = app.recv(&mut buf).unwrap();
         let line: serde_json::Value = serde_json::from_slice(&buf[..n]).unwrap();
         assert_eq!(line, serde_json::json!({"stream":"telemetry","fps":119.5,"bitrate_mbps":80.0,"ping_ms":7.25,"jitter_ms":0.5,"loss_pct":null}));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_streams_end_reaches_the_side_socket_after_the_session_stopped() {
+        let dir = std::env::temp_dir().join(format!("gfn-stream-end-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pad.sock");
+        let app = UnixDatagram::bind(&path).unwrap();
+        app.set_nonblocking(true).unwrap();
+        let side = UnixDatagram::unbound().unwrap();
+        let b = Bridge { queue: Arc::new(CapturedInputQueue::default()), active: AtomicBool::new(false), paused: AtomicBool::new(false), side: Some((side, path)), timing: Mutex::new(std::array::from_fn(|_| TimedPad::default())), stats: AtomicBool::new(false), stats_due: AtomicU64::new(0) };
+        b.ended(&serde_json::json!({"source":"nvst-server","code":"server-terminated","resumable":false}));
+        let mut buf = [0u8; 512];
+        let n = app.recv(&mut buf).unwrap();
+        let line: serde_json::Value = serde_json::from_slice(&buf[..n]).unwrap();
+        assert_eq!(line, serde_json::json!({"stream":"ended","source":"nvst-server","resumable":false}));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

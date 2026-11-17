@@ -250,10 +250,12 @@ impl Adapter {
     fn matches_target(&self, target: &TargetId) -> bool { self.target.as_ref().is_some_and(|t| &t.id == target) }
     fn targets(&mut self, seq: Option<u64>) { self.emit(seq,Event::Targets { targets:self.target.iter().cloned().collect() }); }
     /// One datagram from the streamer's pad bridge (`LUMATV_GFN_PAD_SIDE`). The PS button asks for the overlay, as it does on every
-    /// engine; while the overlay has the pads their reports become its menu keys. The streamer's own telemetry arrives the same way.
+    /// engine; while the overlay has the pads their reports become its menu keys. The streamer's own telemetry and its end arrive the
+    /// same way.
     pub fn pad_line(&mut self, line: &str) {
         let Ok(v) = serde_json::from_str::<Value>(line) else { return };
         if v["stream"] == "telemetry" { self.telemetry(&v); return; }
+        if v["stream"] == "ended" { self.stream_ended(&v); return; }
         let Some(l) = self.launch.as_mut().filter(|l| l.running && !l.stopping) else { return };
         let session = l.id;
         match v["pad"].as_str() {
@@ -747,6 +749,17 @@ impl Adapter {
         self.emit(None,Event::Stats { session,stats:Stats {
             fps:float("fps"),bitrate_kbps,rtt_ms:float("ping_ms"),jitter_ms:float("jitter_ms"),loss_pct:float("loss_pct"),pad,..Stats::default()
         } });
+    }
+    /// The stream ended without a stop being asked for. The core keeps that only as a status it reports when asked, so the streamer
+    /// forwards it here; it has already unloaded the feeder. A server end that cannot be resumed is the game ending (quit from
+    /// inside it, a time limit); anything else is the connection lost after the transport's own recovery gave up, so a stall the
+    /// stream rides out never arrives here.
+    fn stream_ended(&mut self, v: &Value) {
+        if !self.launch.as_ref().is_some_and(|l| l.running && !l.stopping && !l.retry_stopping) { return; }
+        let state = if v["source"] == "nvst-server" && v["resumable"] != true {SessionState::Ended { reason:EndReason::Remote }}
+            else {SessionState::Failed { reason:FailReason::Network,message:"The connection to GeForce NOW was lost.".into() }};
+        self.finish(state);
+        self.enqueue("streamer.stop",json!({"reason":"the stream ended"}),Purpose::Pause,None);
     }
     fn event(&mut self, name: &str, payload: &Value) {
         match name {

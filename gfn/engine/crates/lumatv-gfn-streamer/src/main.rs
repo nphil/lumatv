@@ -1,12 +1,13 @@
 //! OpenNOW's standalone streamer entry (native/opennow-streamer/crates/opennow-streamer/src/main.rs at the pinned revision) with
-//! one addition: a `controller-rumble` event is applied to the pad here, in the process that holds the pad, before it goes up the
-//! pipe. The binary keeps upstream's name because opennow-core looks for `opennow-streamer` beside itself.
+//! two additions: a `controller-rumble` event is applied to the pad here, in the process that holds the pad, before it goes up the
+//! pipe, and what the engine needs of the events the core does not pass on goes to the engine's side socket. The binary keeps
+//! upstream's name because opennow-core looks for `opennow-streamer` beside itself.
 use std::io::{self, BufRead, Write};
 use std::sync::mpsc;
 use std::thread;
 
 use opennow_streamer_core::Engine;
-use opennow_streamer_platform::{MediaRuntime, controller_rumble, create_runtime, stream_telemetry};
+use opennow_streamer_platform::{MediaRuntime, controller_rumble, create_runtime, stream_ended, stream_telemetry};
 use opennow_streamer_protocol::{Command, error};
 use serde_json::Value;
 
@@ -30,10 +31,13 @@ fn apply_rumble(message: &Value) {
     }
 }
 
-/// The core keeps only the frame rate and bitrate of the streamer's `telemetry` event, so the engine gets the rest from here.
-fn forward_telemetry(message: &Value) {
+/// The core keeps only the frame rate and bitrate of the streamer's `telemetry` event, and a stream that ended on its own (a
+/// `stopped` status naming its `termination`) only as a status it reports when asked, so the engine gets both from here.
+fn forward_to_engine(message: &Value) {
     if message["type"] == "telemetry" {
         stream_telemetry(message);
+    } else if message["type"] == "status" && message["status"] == "stopped" && message["termination"].is_object() {
+        stream_ended(&message["termination"]);
     }
 }
 
@@ -42,7 +46,7 @@ fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
     let event_writer = thread::spawn(move || {
         while let Ok(message) = event_rx.recv() {
             apply_rumble(&message);
-            forward_telemetry(&message);
+            forward_to_engine(&message);
             if write_message(&message).is_err() {
                 break;
             }

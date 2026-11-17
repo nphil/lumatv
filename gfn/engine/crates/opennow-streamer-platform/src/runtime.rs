@@ -89,6 +89,14 @@ pub fn stream_telemetry(telemetry: &serde_json::Value) {
     }
 }
 
+/// The streamer's terminal `status` names a `termination` (the stream ended without being asked to); its cause goes to the
+/// engine's side socket (the binary calls this before writing the event out).
+pub fn stream_ended(termination: &serde_json::Value) {
+    if let Some(rt) = RUNTIME.get() {
+        rt.pads.stream_ended(termination);
+    }
+}
+
 #[derive(Clone)]
 pub struct MediaRuntime {
     inner: Arc<RuntimeInner>,

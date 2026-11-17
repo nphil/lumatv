@@ -90,7 +90,7 @@ fn private_dir(path: &Path) -> io::Result<()> {
 }
 
 /// The core, and the socket its streamer sends pad events to. Without the socket (a path too long to bind) the stream still plays;
-/// only the controller's Guide button and the overlay's pad keys are lost.
+/// the controller's Guide button, the overlay's pad keys, the stream's telemetry and word of a stream that ended on its own are lost.
 fn spawn(options: &Options, hello: &Hello) -> io::Result<(Child, Option<UnixDatagram>)> {
     let data = Path::new(&hello.data_dir);
     private_dir(data)?;

@@ -14,7 +14,7 @@ mod types;
 pub use lumagame_feeder::{FeederClient, FeederMessage, Hdr, Load, Status as FeederStatus, decode as decode_feeder_message, msg as feeder_msg};
 pub use microphone::{EncodedMicrophoneFrame, MICROPHONE_FRAME_SAMPLES, MICROPHONE_SAMPLE_RATE, MicrophoneReceiver, MicrophoneSession, MicrophoneStatus};
 pub use recording::{EncodedRecordingReceiver, ManualRecordingSummary, RecordingSummary, ReplaySnapshot, record_matroska, record_replay_matroska};
-pub use runtime::{FeederConfig, MainThreadHost, MediaControl, MediaRuntime, MediaRuntimeControl, MediaSession, MediaSink, controller_rumble, create_runtime, stream_telemetry};
+pub use runtime::{FeederConfig, MainThreadHost, MediaControl, MediaRuntime, MediaRuntimeControl, MediaSession, MediaSink, controller_rumble, create_runtime, stream_ended, stream_telemetry};
 pub use types::{
     CapturedInput, CapturedInputQueue, CapturedInputSample, DecodeStageTimings, DecodeTimingsReport, EncodedFrame, MediaCodec,
     MediaColorQuality, MediaFeedback, MediaStreamConfig, MediaVideoCodec, PushOutcome, ShortcutChord, StreamShortcutAction,

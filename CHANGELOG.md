@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A GeForce NOW game quit from inside it (its own Exit to desktop) no longer leaves a black screen and a session LumaGame still thinks is live. The core keeps a stream's end only as a status it reports when asked, so the streamer now forwards it to the engine over the pad side socket; LumaGame returns to the game's page with "The game ended.", or "The connection to GeForce NOW was lost." once the stream's own recovery gives up, and a stall the stream rides out ends nothing. Punktfunk and Sunshine/Apollo games that end on the host show the same notice. Needs a rebuilt streamer and engine, not the core. Not yet seen on the TV.
+
 With the Liquid card glass, a D-pad move leans the focusable it lands on a few pixels the way the focus went and pulls the one it left half as far toward it; both spring back on the focus spring and settle before the lift, which is unchanged. The lean is 6 px at full glass strength (at most a fortieth of the focusable's shorter side) and is off for the other glass styles and under reduced motion. Not yet seen on the TV.
 
 The Liquid card glass splits colour at its bent edge like a prism, and its edge line takes on the hue and brightness of what lies behind it. Both cost two extra backdrop reads and a few instructions in the bevel only; other glass styles are unchanged. Not yet measured on the TV.
@@ -39,7 +41,7 @@ LumaGame's Settings › Controllers has a controller lab, which shows each pad's
 
 Game stats is a Gaming-owned plugin stepper using LumaShow's shared tile contract (`30dc185447`). Off, Compact and Full share LumaGame's overlay setting; unavailable or disabled plugins cannot dispatch choices.
 
-The game stats overlay shows a GeForce NOW stream's numbers: the engine read the core's reply at the wrong level and the core announces the streamer only as it starts and stops, so Frame rate, Stream and Controller read "No data" during a game. The streamer now forwards each telemetry second (frame rate, bitrate, the transport's ping, interarrival jitter, packet loss) to the engine over the pad side socket, and the engine reads the core's `streamer.changed` status at the right level, so a streamer that dies mid-game ends the session. The ping is a measured round trip; decode and host time stay blank because the streamer reports none. Needs a rebuilt streamer and engine, not the core.
+The game stats overlay shows a GeForce NOW stream's numbers: the engine read the core's reply at the wrong level and the core announces the streamer only as it starts and stops, so Frame rate, Stream and Controller read "No data" during a game. The streamer now forwards each telemetry second (frame rate, bitrate, the transport's ping, interarrival jitter, packet loss) to the engine over the pad side socket, and the engine reads the core's `streamer.changed` status at the right level. The ping is a measured round trip; decode and host time stay blank because the streamer reports none. Needs a rebuilt streamer and engine, not the core.
 
 LumaGame's focused controls zoom by the theme's scale instead of showing an underline, and keep the zoom, applied at once, when Reduce motion is on. Persistent selections retain their own markers. Home rows and the Library grid scroll as clipped groups, keeping adjacent tiles ready so they move together instead of popping into place; covers whose art arrives late fade in.
 
