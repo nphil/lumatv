@@ -2079,8 +2079,9 @@ impl Renderer {
         };
         let sample_in = |view: View| -> Area {
             let at = placement(layer, props_of(layer, view));
+            // The lens's colour fringe reads blue a little further out than the lens bends.
             let lens = match layer.content {
-                Content::Glass(glass) => glass.edge_lens.map_or(0.0, |lens| lens.lens.max(0.0)),
+                Content::Glass(glass) => glass.edge_lens.map_or(0.0, |lens| lens.lens.max(0.0) * (1.0 + shaders::glass::EDGE_FRINGE)),
                 _ => 0.0,
             };
             if lens == 0.0 { return body_in(view); }

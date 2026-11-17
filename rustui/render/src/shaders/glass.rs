@@ -233,6 +233,8 @@ uniform mediump vec4 u_inset_shade;
 uniform mediump vec4 u_inset_light;
 #endif
 out mediump vec4 o_color;
+// How far the edge lens's line leans to the hue behind it, over a bright backdrop.
+const mediump float EDGE_TAKE = 0.7;
 SHEEN
 void main() {
     vec2 half_size = 0.5 * u_size;
@@ -251,6 +253,8 @@ void main() {
     mediump vec4 tint = mix(u_tint, u_tint_bottom, clamp(v_local.y / u_size.y, 0.0, 1.0));
 #if BACKDROP
     vec2 uv = v_uv;
+    // Where the edge lens bends, red is bent a little less and blue a little more than green, as through a prism.
+    vec2 fringe = vec2(0.0);
 #if REFRACTION
     if (d > -max(u_bend.y, u_edge_lens.x)) {
         vec2 q = abs(p) - half_size + u_radius;
@@ -259,7 +263,9 @@ void main() {
         vec2 axis = u_axes.xy * n.x + u_axes.zw * n.y;
         if (u_edge_lens.x > 0.0) {
             float t = clamp(1.0 + d / u_edge_lens.x, 0.0, 1.0);
-            uv += axis * (t * t * u_edge_lens.y) * u_inv_panel;
+            vec2 bent = axis * (t * t * u_edge_lens.y) * u_inv_panel;
+            uv += bent;
+            fringe = bent * EDGE_FRINGE;
         } else {
             float bend = u_bend.x * (1.0 - smoothstep(0.0, u_bend.y, -d));
             uv -= axis * bend * u_inv_panel;
@@ -267,6 +273,14 @@ void main() {
     }
 #endif
     mediump vec3 seen = texture(u_backdrop, uv).rgb;
+#if REFRACTION
+    // Two more reads only inside the bevel, where the lens bends: a fifth of a card or less. textureLod, because implicit
+    // derivatives are undefined in non-uniform control flow.
+    if (fringe != vec2(0.0)) {
+        seen.r = textureLod(u_backdrop, uv - fringe, 0.0).r;
+        seen.b = textureLod(u_backdrop, uv + fringe, 0.0).b;
+    }
+#endif
     if (u_saturation != 1.0) {
         seen = mix(vec3(dot(seen, vec3(0.299, 0.587, 0.114))), seen, u_saturation);
     }
@@ -301,6 +315,19 @@ void main() {
     }
     // The edge line, the strip just inside the outline.
     mediump float ring = clamp(0.5 + (d + u_edge_width) * u_scale, 0.0, 1.0);
+#if REFRACTION
+    // Under the edge lens the line takes on the light behind it: its white leans to the hue the lens shows at the outline (only
+    // as far as that is bright, so a dark backdrop does not turn noise into a coloured line), it is brighter over bright light,
+    // and it is screened onto the glass, which it brightens, rather than laid over it.
+    if (u_edge_lens.x > 0.0) {
+        mediump float peak = max(seen.r, max(seen.g, seen.b));
+        mediump vec3 hue = seen / max(peak, 1.0 / 255.0);
+        mediump float take = EDGE_TAKE * smoothstep(0.0, 0.3, peak);
+        mediump vec3 light = u_edge.rgb * mix(vec3(1.0), hue, take) * ((0.7 + 0.6 * peak) * ring);
+        c.rgb += light * (1.0 - c.rgb);
+        ring = 0.0;
+    }
+#endif
     c = over(u_edge * ring, c);
     o_color = c * (cover * u_opacity);
     // The same noise as the interior's, so that the rim is no cleaner than what it borders.
@@ -308,9 +335,16 @@ void main() {
 }"
 );
 
+/// How much more blue, and less red, than green the edge lens bends: the colour fringe of a prism. liquid-glass-react spreads its
+/// channels by 10 % and 20 % of a stronger bend; under this blur less than 0.3 does not show. The backdrop picture is read this much
+/// further out than the lens itself reaches.
+pub const EDGE_FRINGE: f32 = 0.3;
+
 /// The fragment shader of the rim program for `features`.
 pub fn rim(features: RimFeatures) -> CString {
-    let body = RIM.replace("SHEEN\n", SHEEN);
+    let body = RIM
+        .replace("SHEEN\n", SHEEN)
+        .replace("EDGE_FRINGE", &format!("{EDGE_FRINGE:?}"));
     program(
         &[
             ("BACKDROP", features.backdrop),

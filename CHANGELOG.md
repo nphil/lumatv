@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The Liquid card glass splits colour at its bent edge like a prism, and its edge line takes on the hue and brightness of what lies behind it. Both cost two extra backdrop reads and a few instructions in the bevel only; other glass styles are unchanged. Not yet measured on the TV.
+
 LumaGame's Leadjoy settings add keyboard and mouse action mappings, reported stick options, paged motion trigger keys and Sub1/Sub2 activation. Unknown fields are retained; model-dependent curve points and centre offsets stay read-only until the exact model is identifiable. Real-controller behaviour remains untested.
 
 Picture-only Starfish and ES streams no longer query an audio buffer they did not load.
