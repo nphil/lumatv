@@ -348,6 +348,8 @@ pub enum Focus {
     SheetAction(usize),
     Overlay(usize),
     FirstRun(usize),
+    /// The launch screen's Cancel: a key reaches it, so an impatient second OK never cancels the wait.
+    Cancel,
     /// The controller lab's actions: test buttons, rumble left, rumble right, flash test, measure the stream.
     Lab(usize),
 }
@@ -544,6 +546,25 @@ impl Lab {
         self.active.and_then(|i| self.pads[i].as_ref()).or_else(|| self.pads.iter().flatten().next())
     }
 }
+/// How far a session has moved through the cloud queue: the first position it reported and the lowest since. The share is the people
+/// it has got past, so a position that climbs again leaves it where it was, and it never reads as done while the session still waits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct QueueWatch(Option<(u32, u32)>);
+impl QueueWatch {
+    fn observe(&mut self, phase: &Phase) {
+        if let Phase::Queue { position: Some(at), .. } = phase {
+            let (_, best) = self.0.get_or_insert((*at, *at));
+            *best = (*best).min(*at);
+        }
+    }
+    /// The share of the queue got through. `None` unless the session waits at a known position behind someone: a queue that began
+    /// at the front has nothing to measure.
+    fn share(&self, phase: &Phase) -> Option<f32> {
+        let Phase::Queue { position: Some(_), .. } = phase else { return None };
+        let (first, best) = self.0?;
+        (first > 1).then(|| (first - best) as f32 / first as f32)
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Neighbours {
     pub id: Focus,
@@ -573,6 +594,7 @@ pub struct Model {
     pub diagnostics_status: DiagnosticsStatus,
     session: Option<Session>,
     session_start: u64,
+    queue: QueueWatch,
     foreground: bool,
     now_ms: u64,
     unix_s: u64,
@@ -623,6 +645,7 @@ impl Model {
             diagnostics_status: DiagnosticsStatus::Off,
             session: None,
             session_start: 0,
+            queue: QueueWatch::default(),
             foreground: true,
             now_ms: 0,
             unix_s: 0,
@@ -655,6 +678,17 @@ impl Model {
     }
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+    pub fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+    /// How far the queue has moved the launch, from 0 to 1, when the engine reports a position to measure it by.
+    pub fn queue_progress(&self) -> Option<f32> {
+        self.session.as_ref().and_then(|s| self.queue.share(s.phase()))
+    }
+    /// Whether the launch can still be called off: a stop that has begun cannot be.
+    pub fn can_cancel(&self) -> bool {
+        self.session.as_ref().is_some_and(|s| matches!(s.phase(), Phase::Checking | Phase::SignIn | Phase::Queue { .. } | Phase::Starting))
     }
     pub fn session(&self) -> Option<&Session> {
         self.session.as_ref()
@@ -1216,6 +1250,12 @@ impl Model {
         true
     }
     fn move_focus(&mut self, key: Key, out: &mut Vec<Command>) -> bool {
+        if self.view.page == Page::Launch && self.view.focus == Focus::None {
+            if let Some(n) = self.navigation.first() {
+                self.view.focus = n.id;
+                return true;
+            }
+        }
         let editable = match self.view.focus {
             Focus::EngineField(i) => self
                 .view
@@ -1493,6 +1533,7 @@ impl Model {
                 2 => self.set_stats(self.prefs.stats.mode.next(), out),
                 _ => self.open_sheet(Sheet::EndSession, Focus::SheetAction(0)),
             },
+            Focus::Cancel => self.session_input(session::Input::Cancel, out),
             Focus::None => {}
         }
     }
@@ -1842,6 +1883,7 @@ impl Model {
         self.view.stream = None;
         self.view.stats = Stats::default();
         self.telemetry = Telemetry::default();
+        self.queue = QueueWatch::default();
         self.view.page = Page::Launch;
         self.view.sheet = None;
         self.view.focus = Focus::None;
@@ -1850,6 +1892,7 @@ impl Model {
     fn session_input(&mut self, input: session::Input, out: &mut Vec<Command>) {
         if let Some(session) = &mut self.session {
             let effects = session.step(self.now_ms, input);
+            self.queue.observe(session.phase());
             self.session_effects(effects, out);
         }
     }
@@ -2528,7 +2571,12 @@ impl Model {
                             .map(|(i, _)| vec![Focus::Setting(i + 1)]));
                     }
                 }
-                Page::Running | Page::Launch => {}
+                Page::Running => {}
+                Page::Launch => {
+                    if self.can_cancel() {
+                        rows.push(vec![Focus::Cancel]);
+                    }
+                }
             }
         }
         rows.retain(|r| !r.is_empty());
@@ -2584,7 +2632,7 @@ impl Model {
             }
         }
         if !self.navigation.iter().any(|n| n.id == self.view.focus) {
-            self.view.focus = self.navigation.first().map_or(Focus::None, |n| n.id);
+            self.view.focus = if self.view.page == Page::Launch { Focus::None } else { self.navigation.first().map_or(Focus::None, |n| n.id) };
         }
     }
 }
@@ -2603,6 +2651,74 @@ pub(crate) mod tests {
         m.begin_auth(EngineId::new("gamestream").unwrap(), None, &mut Vec::new());
         m.step(Input::Tick { now_ms: PC_SEARCH_MS, unix_s: 0 });
         m
+    }
+    /// The launch screen of a game called `title` (with artwork when `art`) as it opens: nothing is known of the launch yet.
+    pub(crate) fn launching(title: &str, art: bool) -> Model {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud)]);
+        describe(&mut m, "gfn", vec![], &[Feature::EndGame]);
+        let source: SourceKey = "gfn|main|1".parse().unwrap();
+        let link = |name: &str| art.then(|| name.to_string());
+        let entry = ipc::LibraryEntry {
+            id: source.id.clone(),
+            title: title.into(),
+            role: Default::default(),
+            external: vec![],
+            store: None,
+            store_account: None,
+            art: ipc::Art { hero: link("hero"), logo: link("logo"), ..Default::default() },
+            readiness: Default::default(),
+            resumable: false,
+        };
+        m.games.push(Game { id: GameId(1), role: Default::default(), title: title.into(), sources: vec![catalog::Source { engine: source.engine.clone(), target: source.target.clone(), entry }] });
+        if art {
+            m.art.extend(["hero", "logo"].map(|name| (name.to_string(), PathBuf::from(name))));
+        }
+        m.start(GameId(1), source, false, &mut Vec::new());
+        m.rebuild_navigation();
+        m
+    }
+    /// What the engine says of the launch.
+    pub(crate) fn report(m: &mut Model, state: SessionState) {
+        let session = m.session().expect("a launch").id;
+        m.step(Input::Engine { engine: EngineId::new("gfn").unwrap(), message: FromEngine { re: None, event: ipc::Event::Session { session, state } } });
+    }
+    #[test]
+    fn queue_progress_follows_the_line_forward_and_starts_over_with_each_launch() {
+        let mut m = launching("Game", false);
+        let line = |position| SessionState::Queue { position, eta_s: None };
+        assert_eq!(m.queue_progress(), None, "nothing is known before the queue says where the launch stands");
+        let shares: Vec<_> = [Some(12), Some(9), Some(10), Some(6), None, Some(1)]
+            .into_iter()
+            .map(|position| {
+                report(&mut m, line(position));
+                m.queue_progress()
+            })
+            .collect();
+        assert_eq!(shares, [Some(0.0), Some(0.25), Some(0.25), Some(0.5), None, Some(11.0 / 12.0)], "forward only, and never the whole way while still waiting");
+        report(&mut m, SessionState::Starting);
+        assert_eq!(m.queue_progress(), None, "past the queue only motion is honest");
+        for (first, share) in [(1, None), (4, Some(0.0))] {
+            m.session = None;
+            m.start(GameId(1), "gfn|main|1".parse().unwrap(), false, &mut Vec::new());
+            report(&mut m, line(Some(first)));
+            assert_eq!(m.queue_progress(), share, "each launch counts from where its own queue began");
+        }
+    }
+    #[test]
+    fn cancel_on_the_launch_screen_is_a_direction_away_and_never_preselected() {
+        let phase = |m: &Model| m.session().map(|s| s.phase().clone());
+        let mut m = launching("Game", false);
+        assert_eq!((m.view.focus, m.can_cancel()), (Focus::None, true));
+        key(&mut m, Key::Ok);
+        assert_eq!(phase(&m), Some(Phase::Checking), "an OK pressed for something else does not cancel");
+        key(&mut m, Key::Down);
+        assert_eq!(m.view.focus, Focus::Cancel);
+        key(&mut m, Key::Ok);
+        assert_eq!(phase(&m), Some(Phase::Stopping));
+        assert!(!m.can_cancel() && m.navigation.is_empty() && m.view.focus == Focus::None, "a stop already under way cannot be cancelled again");
+        let mut m = launching("Game", false);
+        key(&mut m, Key::Back);
+        assert_eq!(phase(&m), Some(Phase::Stopping), "Back still cancels");
     }
     #[test]
     fn release_activates_only_the_destination_that_was_pressed() {

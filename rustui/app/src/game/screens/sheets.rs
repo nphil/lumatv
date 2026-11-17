@@ -4,7 +4,7 @@ use super::{
 };
 use compositor_protocol::{Edges, Rect};
 use crate::game::{helper::LeadjoyState, model::{Focus, Page, Section, Sheet, Sort}};
-use lumagame_core::{ipc::AuthState, session::Phase};
+use lumagame_core::ipc::AuthState;
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{
     components::{Align, Icon},
@@ -414,77 +414,6 @@ fn edit_text(p: &mut Paint<'_>) {
     if let Some(notice) = &p.model.view.notice {
         p.text(8510, notice, Frame::new(x + 360.0, f.y + f.h - 32.0 - button_h, w - 360.0, button_h), Type::Caption, Role::Warning, false, 34);
     }
-}
-pub fn launch(p: &mut Paint<'_>) {
-    let Some(session) = p.model.session() else {
-        return;
-    };
-    stage(p, session.game, 1080.0, 0.0, 1080.0, false, true);
-    let step = match session.phase() {
-        Phase::Checking | Phase::SignIn => 0,
-        Phase::Queue { .. } => 1,
-        _ => 2,
-    };
-    let (title, sub) = match session.phase() {
-        Phase::Checking => ("Checking the connection".to_string(), "Confirming the selected account and game are ready.".to_string()),
-        Phase::SignIn => ("Sign in to continue".into(), "Complete the sign-in request to start this game.".into()),
-        Phase::Queue { position, eta_s } => (
-            position.map_or_else(
-                || "Waiting in queue".into(),
-                |n| {
-                    let suffix = if (11..=13).contains(&(n % 100)) {
-                        "th"
-                    } else {
-                        match n % 10 {
-                            1 => "st",
-                            2 => "nd",
-                            3 => "rd",
-                            _ => "th",
-                        }
-                    };
-                    format!("{n}{suffix} in line")
-                },
-            ),
-            eta_s.map_or_else(
-                || "The service will start the game when a machine is ready.".into(),
-                |s| format!("Estimated wait: {} min {} sec", s / 60, s % 60),
-            ),
-        ),
-        Phase::Starting => ("Starting the game".into(), "Connecting the stream to the TV.".into()),
-        Phase::Stopping => ("Closing the session".into(), "Waiting for the host to finish.".into()),
-        _ => ("Session ended".into(), String::new()),
-    };
-    let title_role = if step == 1 { Type::Display } else { Type::Title };
-    let title_h = ui::components::wrap(p.fonts, &title, p.ty(title_role), 1600.0).len() as f32 * p.line(title_role);
-    let sub_h = ui::components::wrap(p.fonts, &sub, p.ty(Type::Label), 1600.0).len() as f32 * p.line(Type::Label);
-    let step_h = 52.0f32.max(p.line(Type::Label) + 12.0);
-    let logo_y = (H - 118.0 - sub_h - 10.0 - title_h - 36.0 - step_h - 44.0 - 240.0).max(160.0);
-    logo(p, 100, session.game, Frame::new(p.x, logo_y, 640.0, 240.0));
-    let mut y = logo_y + 284.0;
-    let mut x = p.x;
-    for (i, label) in ["Checking", "In queue", "Starting"].into_iter().enumerate() {
-        let f = Frame::new(x, y, p.width(label, Type::Label) + 74.0, step_h);
-        p.surface(120 + i as u64 * 3, f, Fill::Tint(if step == i { 0.12 } else { 0.04 }), Radius::Pill, true, false, false, 10);
-        p.words(
-            121 + i as u64 * 3,
-            f,
-            vec![p.word(label, Type::Label, p.ink(if step == i { Role::Ink } else { Role::Ink2 }, true), 42.0, (f.h - p.line(Type::Label)) / 2.0, f.w - 60.0)],
-            vec![p.mark(
-                if i < step { Icon::Tick } else { Icon::Circle },
-                22.0,
-                14.0,
-                (f.h - 22.0) / 2.0,
-                if i < step { Role::Positive } else { Role::Ink2 },
-                true,
-            )],
-            11,
-        );
-        x += f.w + 14.0;
-    }
-    y += step_h + 36.0;
-    y += p.wrapped(140, &title, Frame::new(p.x, y, 1600.0, 0.0), title_role, Role::Ink, true, 10) + 10.0;
-    p.wrapped(141, &sub, Frame::new(p.x, y, 1600.0, 0.0), Type::Label, Role::Ink2, true, 10);
-    p.hint(150, "Cancel", Icon::Back, W - p.x - 240.0, H - p.y - 50.0, true, 10);
 }
 pub fn overlay(p: &mut Paint<'_>) {
     let Some(session) = p.model.session() else {

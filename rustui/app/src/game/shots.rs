@@ -414,6 +414,17 @@ fn screens() -> Vec<(String, Model)> {
     let session = launched.session().unwrap().id;
     event(&mut launched, "gfn", ipc::Event::Session { session, state: SessionState::Queue { position: Some(4), eta_s: Some(120) } });
     add("18-state-queue", launched.clone());
+    let mut unknown = launched.clone();
+    event(&mut unknown, "gfn", ipc::Event::Session { session, state: SessionState::Queue { position: None, eta_s: None } });
+    add("17-state-queue-unknown", unknown);
+    let mut long = base.clone();
+    long.view.selected = Some(id(&long, "Ori and the Will of the Wisps"));
+    long.view.page = Page::Hub;
+    long.view.chooser_selected = long.selected_game().unwrap().sources.iter().find(|s| s.engine.as_str() == "gamestream").map(|s| s.key());
+    long.view.focus = Focus::HubAction(0);
+    activate(&mut long);
+    long.prefs.light = true;
+    add("17-state-long-title", long);
     event(&mut launched, "gfn", ipc::Event::Session { session, state: SessionState::Starting });
     add("19-state-starting", launched.clone());
     event(
@@ -653,6 +664,7 @@ fn screens() -> Vec<(String, Model)> {
                 "28-enter-pin",
                 "29-approval",
                 "16-overlay-end-confirm",
+                "17-state-checking", "18-state-queue", "19-state-starting", "17-state-queue-unknown", "17-state-long-title",
                 "22-state-first-run",
                 "38-search-keyboard",
                 "41-add-pc",

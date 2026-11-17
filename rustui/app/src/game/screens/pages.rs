@@ -9,14 +9,16 @@ use lumagame_core::{
     ids::GameId,
 };
 use lumatv_tokens::{Radius, TypeRole as Type};
+use std::path::PathBuf;
 use ui::{
     components::Icon,
     geometry::Frame,
     lucent::palette::{Mode, PaletteRole as Role},
 };
 
-pub fn canvas(p: &mut Paint<'_>) {
-    p.solid(1, Frame::new(0.0, 0.0, W, H), p.ink(Role::Canvas, false), 0.0, 0);
+/// The page's canvas. A curtain page is all stage: its text is light in every theme, so it never sits on a light canvas.
+pub fn canvas(p: &mut Paint<'_>, stage: bool) {
+    p.solid(1, Frame::new(0.0, 0.0, W, H), p.ink(Role::Canvas, stage), 0.0, 0);
 }
 pub fn nav(p: &mut Paint<'_>, stage: bool) {
     let labels = [("Home", Icon::Home), ("Library", Icon::Cards), ("Search", Icon::Search)];
@@ -104,11 +106,18 @@ pub fn stage(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_t
         );
     }
 }
+/// The game's logo art, when it has some.
+pub fn logo_art(p: &Paint<'_>, game: GameId) -> Option<PathBuf> {
+    p.model.art_url(game, ArtKind::Logo).and_then(|url| p.model.art_path(&url))
+}
+/// The game's logo, or its title in text when it has no logo art: as many lines as `frame` is tall, never more, so a long title
+/// ends in an ellipsis instead of running down into what sits under the frame.
 pub fn logo(p: &mut Paint<'_>, id: u64, game: GameId, frame: Frame) {
-    if let Some(path) = p.model.art_url(game, ArtKind::Logo).and_then(|url| p.model.art_path(&url)) {
+    if let Some(path) = logo_art(p, game) {
         p.image(id, path, frame, 0.0, true, None, 10);
     } else if let Some(game) = p.model.game(game) {
-        p.wrapped(id, &game.title, frame, Type::Title, Role::Ink, true, 10);
+        let lines = p.fit(&game.title, Type::Title, frame.w, p.rows(Type::Title, frame.h));
+        p.lines(id, lines, frame, Type::Title, Role::Ink, true, 10);
     }
 }
 fn target_label(p: &Paint<'_>, game: GameId) -> String {

@@ -335,7 +335,9 @@ knob.
 - **Toast**: top-right on the safe edge, sheet material, a positive icon and one line.
 - **Keyboard**: 72 x 64 keys at control radius, wide 164, space 420, Go in primary.
 - **Launch curtain**: the game's art on the stage, logo, step chips (Checking, In queue,
-  Starting), one status line (queue position at display size), a progress bar and the Cancel hint.
+  Starting), one status line (queue position at display size, the wait beside it), a progress bar
+  and a Cancel button. The bar fills as the queue position falls; with no position a segment sweeps
+  along it, and with reduced motion that is not drawn.
 - **In-stream overlay**: the curtain's composition over still art on an opaque stage: logo, where
   and how long, stream stats, then Resume, Stream settings, `Stats · Compact` and End session.
 - **Stats overlay**: off by default; one setting (Off, Compact, Full) shared by LumaTV's Quick

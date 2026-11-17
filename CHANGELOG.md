@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The launch screen no longer overlaps its text at large text sizes, and has a progress bar that fills only as the GeForce NOW queue position falls and otherwise sweeps (not drawn with reduced motion). Cancel is now a button the controller can focus. Not yet seen on the TV.
+
 A GeForce NOW game quit from inside it (its own Exit to desktop) no longer leaves a black screen and a session LumaGame still thinks is live. The core keeps a stream's end only as a status it reports when asked, so the streamer now forwards it to the engine over the pad side socket; LumaGame returns to the game's page with "The game ended.", or "The connection to GeForce NOW was lost." once the stream's own recovery gives up, and a stall the stream rides out ends nothing. Punktfunk and Sunshine/Apollo games that end on the host show the same notice. Needs a rebuilt streamer and engine, not the core. Not yet seen on the TV.
 
 LumaGame's menus scroll smoothly. Home's rows, the Library grid and Settings pages moved on a 150 ms timed curve that restarted from rest, at the curve's opening speed, at every key press, so a held key stepped; they now glide on the theme's critically damped spring (`motion.scrollMs`, 260 ms), which a new press continues at the speed the page already has. A Settings, Hub or controller page scrolls as one group instead of each row easing on its own, and the Integrations list scrolls with the focus instead of redrawing a window of rows. Reduced motion still moves at once.

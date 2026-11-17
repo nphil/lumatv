@@ -4,7 +4,7 @@ use compositor_protocol::{Backdrop, Edges, Glass, Props, Rect, Rgba};
 use lumatv_tokens::{Radius, Tokens, TypeRole};
 use ui::{
     Type, Weight,
-    components::{Align, Form, Icon, line_height, wrap},
+    components::{Align, Form, Icon, ellipsise, line_height, wrap, wrap_to},
     geometry::Frame,
     lucent::{
         data::MATERIALS,
@@ -67,6 +67,15 @@ pub struct ScrollGroup {
     pub extent: f32,
     pub nodes: Vec<u64>,
 }
+/// A segment that crosses its track again and again, from `from` (the node's own props) to `to` in `ms`. The compositor runs an
+/// animation once, so the shell starts the next pass when each ends.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sweep {
+    pub id: u64,
+    pub from: Props,
+    pub to: Props,
+    pub ms: u32,
+}
 #[derive(Default)]
 pub struct Plan {
     pub nodes: Vec<Node>,
@@ -75,6 +84,8 @@ pub struct Plan {
     pub hit_groups: std::collections::BTreeMap<Focus, u32>,
     /// How far the page is scrolled to keep the focus in view.
     pub shift: f32,
+    /// The page's moving bar segment, if it has one.
+    pub sweep: Option<Sweep>,
 }
 #[derive(Clone, Copy)]
 pub enum Fill {
@@ -319,6 +330,21 @@ impl<'a> Paint<'a> {
         let lines = wrap(self.fonts, text, self.ty(role), frame.w);
         self.lines(id, lines, frame, role, colour, stage, z)
     }
+    /// `text` broken into at most `max` lines that fit `width`: what does not fit ends in an ellipsis, a word too long for a line
+    /// included (`wrap` never breaks one).
+    pub fn fit(&mut self, text: &str, role: TypeRole, width: f32, max: usize) -> Vec<String> {
+        let ty = self.ty(role);
+        wrap_to(self.fonts, text, ty, width, max).into_iter().map(|line| ellipsise(self.fonts, &line, ty, width)).collect()
+    }
+    /// How tall `lines` lines of `role` are drawn: `line(role)` apart, the last as tall as its 1.4 em box.
+    pub fn block(&self, role: TypeRole, lines: usize) -> f32 {
+        let line = self.line(role);
+        lines.saturating_sub(1) as f32 * line + line_height(self.ty(role)).max(line)
+    }
+    /// How many lines of `role` fit in `height`: one at least.
+    pub fn rows(&self, role: TypeRole, height: f32) -> usize {
+        1 + ((height - self.block(role, 1)) / self.line(role)).floor().max(0.0) as usize
+    }
     /// An address to type on a phone, without its scheme, broken after a `/` or `.` where it is wider than the frame: `wrap` breaks
     /// only at spaces, and an address has none.
     pub fn address(&mut self, id: u64, url: &str, frame: Frame, role: TypeRole, colour: Role, stage: bool, z: i32) -> f32 {
@@ -328,10 +354,10 @@ impl<'a> Paint<'a> {
     }
     /// Lines `line(role)` apart; the layer is as tall as the last line's drawn box, which is 1.4 em (`line_height`): a role with a
     /// tighter line (display is 1.0) otherwise loses its descenders.
-    fn lines(&mut self, id: u64, lines: Vec<String>, frame: Frame, role: TypeRole, colour: Role, stage: bool, z: i32) -> f32 {
+    pub fn lines(&mut self, id: u64, lines: Vec<String>, frame: Frame, role: TypeRole, colour: Role, stage: bool, z: i32) -> f32 {
         let line = self.line(role);
         let height = lines.len() as f32 * line;
-        let drawn = height - line + line_height(self.ty(role)).max(line);
+        let drawn = self.block(role, lines.len());
         let words = lines.into_iter().enumerate().map(|(i, text)| self.word(text, role, self.ink(colour, stage), 0.0, i as f32 * line, frame.w)).collect();
         self.words(id, Frame { h: drawn, ..frame }, words, vec![], z);
         height

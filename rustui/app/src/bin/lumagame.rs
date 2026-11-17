@@ -611,6 +611,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
         } else if !shell.model.foreground() { want_frame = true; painted_ui = true; }
         let mut wait_ms = shell.host.wait_ms(now_ms).min(shell.lease.wait_ms(now_ms)).min(shell.stats.wait_ms(now_ms));
         if page.art_busy() || shell.art.inflight() > 0 || !shell.art_waiting.is_empty() { wait_ms = wait_ms.min(16); }
+        if let Some(ms) = page.wake_ms(now_ms) { wait_ms = wait_ms.min(ms); }
         if shell.channel.as_ref().is_some_and(Channel::pending) { wait_ms = wait_ms.min(16); }
         if shell.model.pad_mode() != PadMode::Menu || shell.model.gamesir.pending || shell.model.leadjoy.pending { wait_ms = wait_ms.min(50); }
         if visible {
