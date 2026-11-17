@@ -1,6 +1,6 @@
 use super::{
     pages::nav,
-    paint::{Fill, H, Paint, W},
+    paint::{Fill, Paint, W},
 };
 use crate::game::model::{Focus, Section};
 use crate::game::helper::GameSirState;
@@ -109,19 +109,13 @@ pub fn theme_card(p: &mut Paint<'_>, id: u64, focus: Focus, index: usize, f: Fra
 }
 fn appearance(p: &mut Paint<'_>, x: f32, w: f32) {
     let m = p.model;
-    let focused = if let Focus::Setting(i) = m.view.focus { i } else { 0 };
     let preview_h = if p.scale > 1.0 { 270.0 } else { 212.0 };
-    let row_h = 80.0f32.max(p.line(Type::Body) + 24.0);
-    let scroll = if focused >= 4 { ((170.0 + preview_h + 16.0 + (focused + 1) as f32 * (row_h + 4.0)) - (H - p.y)).max(0.0) } else { 0.0 };
-    let top = 170.0 - scroll;
-    if top + preview_h > 150.0 {
-        let cols = if p.scale > 1.0 { 2 } else { 4 };
-        let cw = (w - 20.0 * (cols - 1) as f32) / cols as f32;
-        for i in 0..cols {
-            theme_card(p, 200 + i as u64 * 10, Focus::Theme(i + 1), i + 1, Frame::new(x + i as f32 * (cw + 20.0), top, cw, preview_h));
-        }
+    let cols = if p.scale > 1.0 { 2 } else { 4 };
+    let cw = (w - 20.0 * (cols - 1) as f32) / cols as f32;
+    for i in 0..cols {
+        theme_card(p, 200 + i as u64 * 10, Focus::Theme(i + 1), i + 1, Frame::new(x + i as f32 * (cw + 20.0), 170.0, cw, preview_h));
     }
-    let mut y = top + preview_h + 16.0;
+    let mut y = 170.0 + preview_h + 16.0;
     let name = lumatv_tokens::themes::game_options().iter().find(|f| f.id == m.prefs.family).map_or("Rosé Pine", |f| f.name);
     y += row(p, 300, Focus::Setting(0), "Theme", None, Control::Value(&format!("{name}  ·  All themes")), Frame::new(x, y, w, 0.0));
     y += row(p, 330, Focus::Setting(1), "Mode", None, Control::Segments(&["Dark", "Light"], usize::from(m.prefs.light)), Frame::new(x, y, w, 0.0));
@@ -283,10 +277,7 @@ pub(super) fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, descrip
 }
 fn streaming(p: &mut Paint<'_>, x: f32, w: f32) {
     let m = p.model;
-    let focus = if let Focus::Setting(i) = m.view.focus { i } else { 0 };
-    let row_h = 80.0f32.max(p.line(Type::Body) + 24.0);
-    let shift = if focus >= 5 { (170.0 + row_h * (focus + 2) as f32 + 120.0 - (H - p.y)).max(0.0) } else { 0.0 };
-    let mut y = 170.0 - shift;
+    let mut y = 170.0;
     p.text(200, "Picture", Frame::new(x + 26.0, y, w - 52.0, p.line(Type::Body)), Type::Body, Role::Ink2, false, 10);
     y += p.line(Type::Body) + 24.0;
     let resolution = if m.prefs.height == 2160 { "4K".into() } else { format!("{}p", m.prefs.height) };
@@ -315,12 +306,10 @@ fn streaming(p: &mut Paint<'_>, x: f32, w: f32) {
     row(p, 510, Focus::Setting(6), "Stats while playing", None, Control::Segments(&["Off", "Compact", "Full"], m.prefs.stats.mode.index()), Frame::new(x, y, w, 0.0));
 }
 fn integrations(p: &mut Paint<'_>, x: f32, w: f32) {
-    let focused = if let Focus::Integration(i) = p.model.view.focus { i } else { 0 };
     let h = 100.0f32.max(p.line(Type::Body) + p.line(Type::Caption) + 24.0);
-    let first = focused.saturating_sub(if p.scale > 1.0 { 3 } else { 6 });
     let mut y = 170.0;
     let mut group = None;
-    for (i, e) in p.model.integrations.iter().enumerate().skip(first) {
+    for (i, e) in p.model.integrations.iter().enumerate() {
         if group != Some(e.manifest.kind) {
             let name = match e.manifest.kind {
                 EngineKind::Cloud => "Cloud",
@@ -374,9 +363,6 @@ fn integrations(p: &mut Paint<'_>, x: f32, w: f32) {
             p.zoom(from, f, p.tokens.focus.card_scale);
         }
         y += h + 6.0;
-        if y > H - p.y {
-            break;
-        }
     }
     if p.model.integrations.is_empty() {
         p.text(200, "No integrations are installed", Frame::new(x + 26.0, y, w - 52.0, p.line(Type::Body)), Type::Body, Role::Ink2, false, 10);
@@ -499,7 +485,6 @@ pub fn leadjoy(p: &mut Paint<'_>) {
 fn diagnostics(p: &mut Paint<'_>, x: f32, w: f32) {
     use crate::game::diagnostics::Status;
     let m = p.model;
-    let focus = if let Focus::Setting(i) = m.view.focus { i } else { 0 };
     let status = match m.diagnostics_status {
         Status::Off => "Off", Status::NotConfigured => "Add an HTTPS server and topic",
         Status::Waiting => "Ready", Status::Sending => "Sending", Status::Sent => "Last send succeeded",
@@ -514,16 +499,7 @@ fn diagnostics(p: &mut Paint<'_>, x: f32, w: f32) {
         ("Clear write token", None, Control::Value("Clear")),
         ("Test diagnostics", None, Control::Value("Send")),
     ];
-    let control_h = p.tokens.target.max(p.line(Type::Label) + 12.0);
-    let focused_bottom = 170.0 + rows.iter().take(focus + 1).map(|(label, description, control)| {
-        let control_w = match control {
-            Control::Value(value) => p.width(value, Type::Body),
-            Control::Toggle(_) => 82.0,
-            _ => unreachable!(),
-        }.min(w - 52.0);
-        row_metrics(p, label, *description, w, control_w, control_h, 1).4 + 4.0
-    }).sum::<f32>();
-    let mut y = 170.0 - (focused_bottom + 16.0 - (H - p.y)).max(0.0);
+    let mut y = 170.0;
     for (i, (label, description, control)) in rows.into_iter().enumerate() {
         y += row(p, 600 + i as u64 * 30, Focus::Setting(i), label, description, control, Frame::new(x, y, w, 0.0));
     }

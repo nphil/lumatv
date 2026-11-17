@@ -284,7 +284,8 @@ Manrope at three weights only: Regular 400, Medium 500, SemiBold 600.
   art, above the caption, because art behind a bar is not contrast-safe. Rows add a 9 % ink wash
   and an inset lit edge instead of growing. Focus never draws a bright outline or a white pill.
 - **Motion**: focus 150 ms, panel enter 180 ms, exit 120 ms, art dissolve 200 ms once focus
-  settles. Repeated presses jump to the newest destination. Reduced motion drops lift, growth and
+  settles. Scrolling (page, rows, grids) is the theme's critically damped spring (`scrollMs`, 260 ms); a
+  repeated press retargets it at the speed it has, so a held key glides on. Reduced motion drops lift, growth and
   dissolves and keeps colour and the landing light.
 
 ## Shapes

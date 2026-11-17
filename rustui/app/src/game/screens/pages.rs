@@ -238,7 +238,7 @@ pub fn home(p: &mut Paint<'_>) {
     let group_index = p.plan.groups.len();
     p.plan.groups.push(super::paint::ScrollGroup {
         id: 1, parent: None, clip: compositor_protocol::Rect { x: 0.0, y: 150.0, w: W, h: H - 150.0 },
-        horizontal: false, offset, extent: total + hero_top, nodes: Vec::new(),
+        feather: compositor_protocol::Edges::NONE, horizontal: false, offset, extent: total + hero_top, nodes: Vec::new(),
     });
     let start = p.plan.nodes.len();
     let mut row_top = hero_top;
@@ -300,7 +300,7 @@ pub fn home(p: &mut Paint<'_>) {
         let nodes = p.plan.nodes[nodes_start..].iter().map(|node| node.id).collect();
         p.plan.groups.push(super::paint::ScrollGroup {
             id, parent: Some(1), clip: compositor_protocol::Rect { x: p.x - p.gap, y: row_top, w: W - p.x + p.gap, h: height },
-            horizontal: true, offset: x_offset, extent: row.items.len() as f32 * pitch + W, nodes,
+            feather: compositor_protocol::Edges::NONE, horizontal: true, offset: x_offset, extent: row.items.len() as f32 * pitch + W, nodes,
         });
         row_top += height;
     }
@@ -508,7 +508,7 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
     let nodes = p.plan.nodes[start..].iter().map(|node| node.id).collect();
     p.plan.groups.push(super::paint::ScrollGroup {
         id: 1, parent: None, clip: compositor_protocol::Rect { x: p.x - p.gap, y, w: W - 2.0 * (p.x - p.gap), h: H - y },
-        horizontal: false, offset: first as f32 * row_h, extent: total as f32 * row_h + H, nodes,
+        feather: compositor_protocol::Edges::NONE, horizontal: false, offset: first as f32 * row_h, extent: total as f32 * row_h + H, nodes,
     });
 }
 pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool) {

@@ -15,6 +15,11 @@ use ui::{
 
 pub const W: f32 = 1920.0;
 pub const H: f32 = 1080.0;
+/// The scroll group of what a page scrolls outside its own groups (Home's rows are group 1, its rails 100 up), and the travel it may be given: fixed, so the group is made once.
+pub const PAGE_GROUP: u32 = 2;
+pub const PAGE_EXTENT: f32 = 16384.0;
+/// The scroll group of a sheet's list.
+pub const SHEET_GROUP: u32 = 3;
 /// Nodes that follow a live reading (a stick's dot, a trigger's fill) and so take each position as it comes, never easing to it.
 pub const LIVE: std::ops::Range<u64> = 50_000_000..51_000_000;
 #[derive(Clone, Debug, PartialEq)]
@@ -55,6 +60,8 @@ pub struct ScrollGroup {
     pub id: u32,
     pub parent: Option<u32>,
     pub clip: Rect,
+    /// How far in from each edge of `clip` the content fades out.
+    pub feather: Edges,
     pub horizontal: bool,
     pub offset: f32,
     pub extent: f32,
@@ -147,19 +154,12 @@ impl<'a> Paint<'a> {
         }
         self.hit(focus, f);
     }
+    /// Scrolls the page to keep the focus in view. What scrolls with it (the nodes `scrollable` names that no group of the page holds)
+    /// sits in one group of its own, so the whole page moves on one retargetable track instead of each node on a timed curve of its
+    /// own.
     pub fn fit_focus(&mut self) {
         use crate::game::model::Page;
-        if self.model.view.sheet.is_some() {
-            return;
-        }
-        let Some((_, focus)) = self.plan.hits.iter().find(|(id, _)| *id == self.model.view.focus).copied() else {
-            return;
-        };
-        let caption = if matches!(self.model.view.focus, Focus::Home(_, _) | Focus::Grid(_)) {
-            self.line(TypeRole::Body) + self.line(TypeRole::Caption) + 40.0
-        } else {
-            0.0
-        };
+        let focus = if self.model.view.sheet.is_some() { None } else { self.plan.hits.iter().find(|(id, _)| *id == self.model.view.focus).map(|(_, f)| *f) };
         let scrollable = |id: u64| match self.model.view.page {
             Page::Home | Page::Hub | Page::Integration | Page::Lab | Page::GameSir | Page::Leadjoy => id >= 100,
             Page::Settings => id >= 200,
@@ -167,30 +167,25 @@ impl<'a> Paint<'a> {
             _ => false,
         };
         let fixed = |id: &Focus| matches!(id, Focus::Nav(_) | Focus::Rail(_) | Focus::HubTop(_));
-        // The last row also brings what follows it, such as a closing note, into view, as far as the row itself stays in view.
-        let end = if self.plan.hits.iter().all(|(id, f)| fixed(id) || f.y <= focus.y) {
-            self.plan.nodes.iter().filter(|n| scrollable(n.id)).map(|n| n.frame.y + n.frame.h).fold(0.0, f32::max).min(focus.y + H - self.y - 150.0)
-        } else {
-            0.0
-        };
-        let shift = if matches!(self.model.view.focus, Focus::Home(_, _)) { 0.0 } else { ((focus.y + focus.h + caption).max(end) - (H - self.y)).max(0.0) };
-        let view = Rect { x: 0.0, y: 150.0, w: W, h: H - 150.0 };
+        let shift = focus.map_or(0.0, |focus| {
+            let caption = if matches!(self.model.view.focus, Focus::Home(_, _) | Focus::Grid(_)) {
+                self.line(TypeRole::Body) + self.line(TypeRole::Caption) + 40.0
+            } else {
+                0.0
+            };
+            // The last row also brings what follows it, such as a closing note, into view, as far as the row itself stays in view.
+            let end = if self.plan.hits.iter().all(|(id, f)| fixed(id) || f.y <= focus.y) {
+                self.plan.nodes.iter().filter(|n| scrollable(n.id)).map(|n| n.frame.y + n.frame.h).fold(0.0, f32::max).min(focus.y + H - self.y - 150.0)
+            } else {
+                0.0
+            };
+            if matches!(self.model.view.focus, Focus::Home(_, _)) { 0.0 } else { ((focus.y + focus.h + caption).max(end) - (H - self.y)).max(0.0) }
+        });
         let grouped: std::collections::BTreeSet<_> = self.plan.groups.iter().flat_map(|group| group.nodes.iter().copied()).collect();
         for node in &mut self.plan.nodes {
             if scrollable(node.id) {
                 node.frame.y -= shift;
                 node.props.y -= shift;
-                if grouped.contains(&node.id) {
-                    continue;
-                }
-                match node.props.clip {
-                    // A node with its own clip (a bar sliding in its track) keeps it, moved with the page and cut to the view.
-                    Some(own) => node.props.clip = Some(intersect(Rect { y: own.y - shift, ..own }, view)),
-                    None => {
-                        node.props.clip = Some(view);
-                        node.props.feather = Edges::new(0.0, 0.0, 16.0, 24.0);
-                    }
-                }
             }
         }
         for group in &mut self.plan.groups {
@@ -199,12 +194,41 @@ impl<'a> Paint<'a> {
             }
         }
         self.plan.shift = shift;
+        let page_group = self.plan.nodes.iter().any(|n| scrollable(n.id) && !grouped.contains(&n.id));
         for (id, frame) in &mut self.plan.hits {
             if !fixed(id) {
                 frame.y -= shift;
+                if page_group {
+                    self.plan.hit_groups.entry(*id).or_insert(PAGE_GROUP);
+                }
             }
         }
-        self.plan.nodes.retain(|n| grouped.contains(&n.id) || n.id < 100 || n.frame.y + n.frame.h > 150.0 && n.frame.y < H);
+        // The nodes of the page group are kept for the whole way from where the page is to where it is going, so none appears inside the view.
+        let from = self.scroll_positions.get(&PAGE_GROUP).copied().unwrap_or(shift);
+        let (lo, hi) = (from.min(shift), from.max(shift));
+        let in_travel = |n: &Node| n.frame.y + shift + n.frame.h > lo + 150.0 && n.frame.y + shift < hi + H;
+        self.plan.nodes.retain(|n| {
+            if grouped.contains(&n.id) || n.id < 100 {
+                true
+            } else if page_group && scrollable(n.id) {
+                in_travel(n)
+            } else {
+                n.frame.y + n.frame.h > 150.0 && n.frame.y < H
+            }
+        });
+        if page_group {
+            let nodes = self.plan.nodes.iter().filter(|n| scrollable(n.id) && !grouped.contains(&n.id)).map(|n| n.id).collect();
+            self.plan.groups.push(ScrollGroup {
+                id: PAGE_GROUP,
+                parent: None,
+                clip: Rect { x: 0.0, y: 150.0, w: W, h: H - 150.0 },
+                feather: Edges::new(0.0, 0.0, 16.0, 24.0),
+                horizontal: false,
+                offset: shift,
+                extent: PAGE_EXTENT,
+                nodes,
+            });
+        }
     }
     pub fn primary(&self, stage: bool) -> (Rgba, Rgba) {
         let pair = lumatv_tokens::themes::game_primary(self.tokens.roles(self.mode_at(stage)));
@@ -462,10 +486,6 @@ fn status_of(ready: lumagame_core::ipc::Readiness, target: Option<&lumagame_core
         (ready, _) => ready_word(ready),
     }
 }
-fn intersect(a: Rect, b: Rect) -> Rect {
-    let (x, y) = (a.x.max(b.x), a.y.max(b.y));
-    Rect { x, y, w: ((a.x + a.w).min(b.x + b.w) - x).max(0.0), h: ((a.y + a.h).min(b.y + b.h) - y).max(0.0) }
-}
 
 /// `text` in lines no wider than `max_w`, each broken after its last `/` or `.` that fits, or after the last character that fits when
 /// there is none.
@@ -517,6 +537,11 @@ pub(super) fn assert_readable(plan: &Plan, fonts: &mut ui::Fonts, captured: bool
                     "captured text clipped: {} / {:?} / {bounds:?}", node.id, word.text);
             }
             if let Some(clip) = node.props.clip {
+                bounds = (bounds.0.max(clip.x), bounds.1.max(clip.y), bounds.2.min(clip.x + clip.w), bounds.3.min(clip.y + clip.h));
+            }
+            // What the page's scroll group holds is cut to the group's clip, as a node's own clip cuts it.
+            if let Some(group) = plan.groups.iter().find(|g| g.id == PAGE_GROUP && g.nodes.contains(&node.id)) {
+                let clip = group.clip;
                 bounds = (bounds.0.max(clip.x), bounds.1.max(clip.y), bounds.2.min(clip.x + clip.w), bounds.3.min(clip.y + clip.h));
             }
             if bounds.2 > bounds.0 && bounds.3 > bounds.1 { ink.push((node.id, &word.text, bounds)); }

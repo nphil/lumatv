@@ -1,7 +1,8 @@
 use super::{
     pages::{keyboard, logo, stage, way},
-    paint::{Body, Fill, H, Node, Paint, W},
+    paint::{Body, Fill, H, Node, PAGE_EXTENT, Paint, SHEET_GROUP, ScrollGroup, W},
 };
+use compositor_protocol::{Edges, Rect};
 use crate::game::{helper::LeadjoyState, model::{Focus, Page, Section, Sheet, Sort}};
 use lumagame_core::{ipc::AuthState, session::Phase};
 use lumatv_tokens::{Radius, TypeRole as Type};
@@ -69,9 +70,10 @@ fn chooser(p: &mut Paint<'_>) {
     let room = height - 74.0 - header - footer - remember_h;
     let visible = (room / (row_h + 6.0)).floor().max(1.0) as usize;
     let first = focus.saturating_sub(visible - 1);
-    for (i, source) in game.sources.iter().enumerate().skip(first).take(visible) {
-        y += way(p, 8100 + i as u64 * 20, i, source.key(), Frame::new(x, y, w, 0.0), true) + 6.0;
-    }
+    let view = Rect { x, y, w, h: visible as f32 * (row_h + 6.0) - 6.0 };
+    scrolling(p, view, row_h + 6.0, game.sources.len(), first, 4.0, |p, i, y| {
+        way(p, 8100 + i as u64 * 20, i, game.sources[i].key(), Frame::new(x, y, w, 0.0), true);
+    });
     let remember_y = f.y + height - 34.0 - footer - remember_h;
     let rf = Frame::new(x, remember_y, w, remember_h);
     let from = p.plan.nodes.len();
@@ -104,10 +106,11 @@ fn list(p: &mut Paint<'_>, title: &str, values: Vec<String>) {
     let height = (p.line(Type::Title) + 106.0 + values.len() as f32 * (h + 6.0)).min(H - 108.0);
     let f = panel(p, 960.0, height);
     p.text(8010, title, Frame::new(f.x + 36.0, f.y + 40.0, f.w - 72.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 32);
-    let mut y = f.y + 66.0 + p.line(Type::Title);
+    let y = f.y + 66.0 + p.line(Type::Title);
     let visible = ((height - p.line(Type::Title) - 106.0) / (h + 6.0)).floor().max(1.0) as usize;
     let first = if let Focus::SheetRow(i) = p.model.view.focus { i.saturating_sub(visible - 1) } else { 0 };
-    for (i, value) in values.iter().enumerate().skip(first).take(visible) {
+    let view = Rect { x: f.x + 36.0, y, w: f.w - 72.0, h: visible as f32 * (h + 6.0) - 6.0 };
+    scrolling(p, view, h + 6.0, values.len(), first, 4.0, |p, i, y| {
         let row = Frame::new(f.x + 36.0, y, f.w - 72.0, h);
         let from = p.plan.nodes.len();
         p.surface(
@@ -122,7 +125,7 @@ fn list(p: &mut Paint<'_>, title: &str, values: Vec<String>) {
         );
         p.text(
             8101 + i as u64 * 3,
-            value,
+            &values[i],
             Frame::new(row.x + 26.0, y + (h - p.line(Type::Body)) / 2.0, row.w - 52.0, p.line(Type::Body)),
             Type::Body,
             Role::Ink,
@@ -133,8 +136,7 @@ fn list(p: &mut Paint<'_>, title: &str, values: Vec<String>) {
             p.zoom(from, row, p.tokens.focus.card_scale);
         }
         p.hit(Focus::SheetRow(i), row);
-        y += h + 6.0;
-    }
+    });
 }
 fn themes(p: &mut Paint<'_>) {
     let f = panel(p, 1728.0, 972.0);
@@ -144,17 +146,15 @@ fn themes(p: &mut Paint<'_>) {
     let w = (f.w - 72.0 - 24.0 * (cols - 1) as f32) / cols as f32;
     let rows = ((f.h - p.line(Type::Title) - 108.0) / (card_h + 24.0)).floor() as usize;
     let focus = if let Focus::Theme(i) = p.model.view.focus { i } else { 0 };
-    let first = (focus / cols).saturating_sub(rows.saturating_sub(1)) * cols;
+    let first_row = (focus / cols).saturating_sub(rows.saturating_sub(1));
     let top = f.y + 72.0 + p.line(Type::Title);
-    for i in first..(first + cols * rows).min(lumatv_tokens::themes::game_options().len()) {
-        super::settings::theme_card(
-            p,
-            8100 + i as u64 * 10,
-            Focus::Theme(i),
-            i,
-            Frame::new(f.x + 36.0 + ((i - first) % cols) as f32 * (w + 24.0), top + ((i - first) / cols) as f32 * (card_h + 24.0), w, card_h),
-        );
-    }
+    let count = lumatv_tokens::themes::game_options().len();
+    let view = Rect { x: f.x + 36.0, y: top, w: f.w - 72.0, h: rows as f32 * (card_h + 24.0) - 24.0 };
+    scrolling(p, view, card_h + 24.0, count.div_ceil(cols), first_row, 8.0, |p, row, y| {
+        for i in row * cols..((row + 1) * cols).min(count) {
+            super::settings::theme_card(p, 8100 + i as u64 * 10, Focus::Theme(i), i, Frame::new(f.x + 36.0 + (i % cols) as f32 * (w + 24.0), y, w, card_h));
+        }
+    });
 }
 fn auth(p: &mut Paint<'_>) {
     let Some(flow) = &p.model.view.auth else {
@@ -553,6 +553,39 @@ pub fn media(p: &mut Paint<'_>) {
     p.icon_button(110, Focus::HubTop(0), Icon::Back, p.x, p.y, false, 12);
 }
 
+/// Lays out rows `0..rows`, each `pitch` tall, of a list that shows from row `first` inside `view`, as a scroll group: the rows are built
+/// at their place for that offset and the group's spring carries the list there, so a list that moves on goes on from the speed it has.
+/// Only the rows the travel from the list's present offset to that one passes through are built. `pad` is how far the clip reaches past
+/// `view` above and below (and 32 px at the sides) for a focused row's lift; it is less than the gap between rows.
+fn scrolling(p: &mut Paint<'_>, view: Rect, pitch: f32, rows: usize, first: usize, pad: f32, mut row: impl FnMut(&mut Paint<'_>, usize, f32)) {
+    let offset = first as f32 * pitch;
+    let from = p.scroll_positions.get(&SHEET_GROUP).copied().unwrap_or(offset);
+    let (lo, hi) = (from.min(offset), from.max(offset));
+    let start = p.plan.nodes.len();
+    for i in 0..rows {
+        let top = i as f32 * pitch;
+        if top + pitch <= lo - pad || top >= hi + view.h + pad {
+            continue;
+        }
+        let hits = p.plan.hits.len();
+        row(p, i, view.y + top - offset);
+        for k in hits..p.plan.hits.len() {
+            let focus = p.plan.hits[k].0;
+            p.plan.hit_groups.insert(focus, SHEET_GROUP);
+        }
+    }
+    let nodes = p.plan.nodes[start..].iter().map(|node| node.id).collect();
+    p.plan.groups.push(ScrollGroup {
+        id: SHEET_GROUP,
+        parent: None,
+        clip: Rect { x: view.x - 32.0, y: view.y - pad, w: view.w + 64.0, h: view.h + 2.0 * pad },
+        feather: Edges::NONE,
+        horizontal: false,
+        offset,
+        extent: PAGE_EXTENT,
+        nodes,
+    });
+}
 #[cfg(test)]
 mod tests {
     use super::*;

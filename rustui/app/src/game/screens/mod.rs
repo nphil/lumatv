@@ -25,7 +25,7 @@ use ui::{
     components::{Item, Mark, Run, TextLayer},
     geometry::Frame,
     group::Group,
-    motion::{Motion, MotionBounds, MotionToken, Settle, Units},
+    motion::{Motion, MotionBounds, MotionToken, Settle, SpringToken, Units},
     lucent::palette::Mode,
 };
 
@@ -308,7 +308,7 @@ impl GameUi {
             let extent = spec.extent.max(1.0);
             if !self.groups.contains_key(&spec.id) {
                 let parent = spec.parent.and_then(|id| self.groups.get(&id)).map(|g| g.content.id());
-                let clip = self.ui.scene.group(parent, GroupPose { clip: Some(spec.clip), ..GroupPose::IDENTITY })
+                let clip = self.ui.scene.group(parent, GroupPose::IDENTITY.clip_feathered(spec.clip, spec.feather))
                     .map_err(|e| io::Error::other(e.to_string()))?;
                 let content = self.ui.scene.group(Some(clip.id()), GroupPose::IDENTITY)
                     .map_err(|e| io::Error::other(e.to_string()))?;
@@ -321,12 +321,11 @@ impl GameUi {
             } else {
                 let group = self.groups.get_mut(&spec.id).unwrap();
                 if group.clip_rect != spec.clip {
-                    group.clip.set_clip_feathered(Some(spec.clip), compositor_protocol::Edges::NONE);
+                    group.clip.set_clip_feathered(Some(spec.clip), spec.feather);
                     group.clip_rect = spec.clip;
                 }
                 if group.target != spec.offset || reduced && group.motion.is_active() {
-                    let duration_ms = if reduced { 0 } else { self.tokens.motion.focus_ms };
-                    group.motion.settle(Some(spec.offset), None, Settle::Timed(MotionToken { duration_ms, ease: Ease::Out }))
+                    group.motion.settle(Some(spec.offset), None, scroll_settle(self.tokens.motion.scroll_ms, reduced))
                         .map_err(|e| io::Error::other(e.to_string()))?;
                     group.target = spec.offset;
                 }
@@ -428,6 +427,16 @@ impl GameUi {
         Ok(())
     }
 }
+/// How a scroll group moves to a new offset: the theme's critically damped spring (`motion.scrollMs` is its period), which a retarget
+/// continues at the speed the group has, so a held key glides on without restarting. A timed curve restarted from rest at each press,
+/// at the curve's own opening speed, was the abrupt scroll. Reduced motion moves at once.
+fn scroll_settle(scroll_ms: u32, reduced: bool) -> Settle {
+    if reduced {
+        Settle::Timed(MotionToken { duration_ms: 0, ease: Ease::Out })
+    } else {
+        Settle::CriticalSpring(SpringToken { response_ms: (scroll_ms as f32).clamp(10.0, 5000.0) })
+    }
+}
 fn items<'a>(words: &'a [paint::Word], marks: &[paint::Mark]) -> Vec<Item<'a>> {
     words
         .iter()
@@ -462,4 +471,101 @@ fn draw_qr(layer: &mut ImageLayer, value: &str) -> io::Result<()> {
     }
     layer.damage(None);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scroll_settle;
+    use compositor_protocol::motion::{MotionBounds, Track, Units};
+
+    /// One refresh at 120 Hz.
+    const FRAME_NS: u64 = 8_333_333;
+
+    struct Run {
+        track: Track,
+        now: u64,
+        seen: Vec<f32>,
+    }
+
+    impl Run {
+        fn new(from: f32) -> Self {
+            Self { track: Track::new(from, MotionBounds::range(0.0, 20_000.0, Units::Pixels)), now: 0, seen: vec![from] }
+        }
+        fn go(&mut self, to: f32, scroll_ms: u32, reduced: bool) {
+            self.track.settle(self.now, Some(to), None, scroll_settle(scroll_ms, reduced));
+        }
+        fn frames(&mut self, n: usize) {
+            for _ in 0..n {
+                self.now += FRAME_NS;
+                self.track.advance(self.now);
+                self.seen.push(self.track.value());
+            }
+        }
+    }
+
+    /// The offsets never go back, no refresh moves them more than `step` of the way they have to go in all, and the step itself changes by
+    /// no more than `jerk` of it from one refresh to the next (a curve that restarts from rest changes it by several times that).
+    fn assert_glides(seen: &[f32], travel: f32, step: f32, jerk: f32) {
+        let steps: Vec<f32> = seen.windows(2).map(|w| w[1] - w[0]).collect();
+        assert!(steps.iter().all(|s| *s >= 0.0), "offsets went back: {steps:?}");
+        let biggest = steps.iter().copied().fold(0.0, f32::max);
+        assert!(biggest <= step * travel, "a refresh moved {biggest} px of {travel}");
+        let worst = steps.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+        assert!(worst <= jerk * travel, "the step changed by {worst} px between two refreshes of {travel}");
+    }
+
+    #[test]
+    fn a_scroll_glides_from_rest_to_its_target_without_a_jump_at_120_hz() {
+        let mut run = Run::new(0.0);
+        run.go(600.0, 260, false);
+        run.frames(80);
+        assert_glides(&run.seen, 600.0, 0.08, 0.05);
+        assert_eq!(*run.seen.last().unwrap(), 600.0);
+        assert!(run.seen[1] < 20.0, "the first refresh already jumped {}", run.seen[1]);
+    }
+
+    #[test]
+    fn a_retarget_in_mid_scroll_keeps_the_speed_it_has() {
+        let mut run = Run::new(0.0);
+        run.go(300.0, 260, false);
+        run.frames(12);
+        let (at, speed) = (run.track.value(), run.track.velocity());
+        assert!(speed > 1000.0, "not moving yet: {speed}");
+        run.go(600.0, 260, false);
+        assert_eq!((run.track.value(), run.track.velocity()), (at, speed), "the retarget stopped or jumped the offset");
+        run.frames(80);
+        assert_glides(&run.seen, 600.0, 0.08, 0.05);
+        assert_eq!(*run.seen.last().unwrap(), 600.0);
+    }
+
+    #[test]
+    fn a_held_key_that_outruns_the_scroll_glides_on_instead_of_restarting_at_each_repeat() {
+        let mut run = Run::new(0.0);
+        // A repeat every 33 ms (4 refreshes), a row of 120 px each.
+        for press in 1..=12 {
+            run.go(120.0 * press as f32, 260, false);
+            run.frames(4);
+            if press > 1 {
+                assert!(run.track.velocity() > 500.0, "stalled at repeat {press}: {}", run.track.velocity());
+            }
+        }
+        run.frames(80);
+        assert_glides(&run.seen, 1440.0, 0.05, 0.02);
+        assert_eq!(*run.seen.last().unwrap(), 1440.0);
+    }
+
+    #[test]
+    fn the_theme_sets_how_long_a_scroll_takes_and_reduced_motion_removes_it() {
+        let reach = |ms| {
+            let mut run = Run::new(0.0);
+            run.go(600.0, ms, false);
+            run.frames(12);
+            run.track.value()
+        };
+        assert!(reach(520) < reach(260) && reach(260) < reach(130));
+        let mut run = Run::new(0.0);
+        run.go(600.0, 260, true);
+        run.frames(1);
+        assert_eq!(run.track.value(), 600.0);
+    }
 }
