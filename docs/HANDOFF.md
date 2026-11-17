@@ -9,6 +9,12 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Liquid glass refinements, 2026-11-17 (main 54875f81, installed 10:18 EST; unaccepted)
+
+Installed compositor `a8bebe4619d3658e36a9255fae512ad02c7a35180a80c5cf17ceead6ec137eb3` and ui `83bbea8fddb82627503c483e37d4cc3ef8847ecd26e518d32659110ad845740b`; sm `65f6ca69`, helper, feeder and decoder libraries unchanged. Liquid card glass gains a prism fringe in its bevel, an edge line lit by the backdrop's hue and brightness, and a lean of focus moves (6 px times glass strength, capped at 2.5 % of the shorter side). The owner's theme uses Liquid at default strength, so all three are live. Installed in Active Standby; the cutover finished live, mounted and enabled with zero failures, and the lease was released.
+
+Frame cost on the TV, the lean's feel and fringe visibility at ten feet are unmeasured; host renders on Mesa only. Rollback copies: `/tmp/cs/18172b987bff/app-snapshot/backup/lumatv-compositor-d54bef87`, `lumatv-ui-756b3c18`. Receipt: `/tmp/cs/18172b987bff/app-snapshot/cutover-receipt.json`.
+
 ## App snapshot continuity, 2026-11-16 (main 0aab0209, installed; acceptance open)
 
 Installed compositor `d54bef87d1aee47ec7f9a98768b3bb809b307276b2babcf889ada4be38219c14`. A dormant video export no longer excludes an otherwise eligible RGB app picture; an actual video hole still does. Snapshot capture, visual handoff and transition cadence remain unaccepted on the TV. The correction was installed in Active Standby; further wake tests are held because the receiver did not remain muted.
