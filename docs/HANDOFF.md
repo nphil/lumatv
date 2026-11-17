@@ -13,7 +13,16 @@ and the standing rules; this file is the dated record behind it.
 
 Installed compositor `a8bebe4619d3658e36a9255fae512ad02c7a35180a80c5cf17ceead6ec137eb3` and ui `83bbea8fddb82627503c483e37d4cc3ef8847ecd26e518d32659110ad845740b`; sm `65f6ca69`, helper, feeder and decoder libraries unchanged. Liquid card glass gains a prism fringe in its bevel, an edge line lit by the backdrop's hue and brightness, and a lean of focus moves (6 px times glass strength, capped at 2.5 % of the shorter side). The owner's theme uses Liquid at default strength, so all three are live. Installed in Active Standby; the cutover finished live, mounted and enabled with zero failures, and the lease was released.
 
-Frame cost on the TV, the lean's feel and fringe visibility at ten feet are unmeasured; host renders on Mesa only. Rollback copies: `/tmp/cs/18172b987bff/app-snapshot/backup/lumatv-compositor-d54bef87`, `lumatv-ui-756b3c18`. Receipt: `/tmp/cs/18172b987bff/app-snapshot/cutover-receipt.json`.
+Measured on the TV at 14:29–14:36 EST in an owner-approved on-screen window (receiver untouched):
+
+- Idle Home under Liquid, 60 s: compositor 1.91 % + UI 0.40 % = 2.31 % of a core (target 8; 6.10 % on 2026-11-07 under Liquid), 10.0 flips a second, Mali 4.8 % busy, every idle check passed.
+- 120 Hz gate (`docs/research/perf/gate.py`, 3 cycles): home-sweep (held keys) passed with 0 dropped over 653 flips and a 17 ms first frame. home-dpad failed as before this change: 3 dropped over 832 flips and a 72.9 ms first frame (346 ms in the earlier gate list); render p50 0.65–0.70 ms and max 3.8 ms against the 8.3 ms refresh, and the 35 late frames were not GPU-bound. The first attempt was refused by the gate's own precondition (DE2VSYNC 178 a second right after `refresh 120`); the rerun met it.
+- `ui.refusals` 0 and no `compositor refused:` or `scene is full` lines; the TV had been up 3.7 h, so the window starts after its last restart.
+- A capture of Home shows the rims drawn cleanly; over the owner's dark wallpaper the fringe is faint. The lean's feel at the remote is untested.
+
+Snapshot continuity on the same build: LumaGame menu → Home → LumaGame → Home recorded 1 snapshot (8,294,400 bytes of the 24 MiB budget), 2 launches, 2 leaves, 200 transition frames, 0 interruptions, 1 cover released by its time limit, and 5 gaps of 21–25 ms against the 20 ms gate. The display captures (one every ~330 ms) show no black or foreign frame, but they are too slow to show the zoom itself, so visual continuity and cadence stay unaccepted.
+
+Rollback copies: `/tmp/cs/18172b987bff/app-snapshot/backup/lumatv-compositor-d54bef87`, `lumatv-ui-756b3c18`. Receipts: `/tmp/cs/18172b987bff/app-snapshot/cutover-receipt.json`, `/tmp/cs/18172b987bff/glass-tv/` (idle, gate, snapshot, health JSON and captures).
 
 ## App snapshot continuity, 2026-11-16 (main 0aab0209, installed; acceptance open)
 
