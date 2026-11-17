@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+With the Liquid card glass, a D-pad move leans the focusable it lands on a few pixels the way the focus went and pulls the one it left half as far toward it; both spring back on the focus spring and settle before the lift, which is unchanged. The lean is 6 px at full glass strength (at most a fortieth of the focusable's shorter side) and is off for the other glass styles and under reduced motion. Not yet seen on the TV.
+
 The Liquid card glass splits colour at its bent edge like a prism, and its edge line takes on the hue and brightness of what lies behind it. Both cost two extra backdrop reads and a few instructions in the bevel only; other glass styles are unchanged. Not yet measured on the TV.
 
 LumaGame's Leadjoy settings add keyboard and mouse action mappings, reported stick options, paged motion trigger keys and Sub1/Sub2 activation. Unknown fields are retained; model-dependent curve points and centre offsets stay read-only until the exact model is identifiable. Real-controller behaviour remains untested.

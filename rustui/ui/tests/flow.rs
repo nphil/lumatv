@@ -1,6 +1,7 @@
 //! The flowing focus, measured on the mirrors of the compositor's tracks (the same equations the compositor evaluates), sampled at
 //! 120 Hz: the outgoing and the incoming lift move together and no frame between moves shows both at rest; a retarget mid-flight
-//! keeps the velocity; a held key keeps one continuous motion within the pool; reduced motion is a crossfade.
+//! keeps the velocity; a held key keeps one continuous motion within the pool; reduced motion is a crossfade; the liquid lean rides on the
+//! lift without changing it.
 
 use compositor_protocol::GroupPose;
 use lumatv_ui::kit::flow::{Flow, Lifted, POOL, Spec};
@@ -16,27 +17,35 @@ const MS: u64 = 1_000_000;
 
 struct Rig {
     flow: Flow,
+    scene: ui::scene::Scene,
     clock: Rc<Cell<u64>>,
     lead: u64,
 }
 
 impl Rig {
+    /// `tiles` tiles in a row, 100 px apart.
     fn new(spec: Spec, tiles: u32) -> Self {
+        Self::at(spec, &(0..tiles).map(|i| (100.0 * i as f32, 700.0)).collect::<Vec<_>>())
+    }
+
+    /// Tiles of 160 px with their top lefts at `places`.
+    fn at(spec: Spec, places: &[(f32, f32)]) -> Self {
         let h = harness();
         let clock = Rc::new(Cell::new(1_000_000_000u64));
         let lead = 8 * MS;
         let c = Rc::clone(&clock);
         h.ui.scene.set_clock(move || c.get(), lead);
         let mut flow = Flow::new(&h.ui.scene, spec, POOL).expect("a pool of tracks");
-        for i in 0..tiles {
-            let rest = GroupPose { x: 100.0 * i as f32, y: 700.0, pivot_x: 80.0, pivot_y: 80.0, ..GroupPose::IDENTITY };
+        for (i, &(x, y)) in places.iter().enumerate() {
+            let rest = GroupPose { x, y, pivot_x: 80.0, pivot_y: 80.0, ..GroupPose::IDENTITY };
             let group = h.ui.scene.group(None, rest).expect("a group");
             let lit = h.ui.scene.group(Some(group.id()), GroupPose { opacity: 0.0, ..GroupPose::IDENTITY }).expect("a lit group");
-            flow.lift(Id(i), Lifted { group, rest, scale: 1.12, rise: 4.0, lit: Some(lit) });
+            flow.lift(Id(i as u32), Lifted { group, rest, scale: 1.12, rise: 4.0, lit: Some(lit) });
         }
+        let scene = h.ui.scene.clone();
         // the harness is kept alive by the scene handles the flow holds
         std::mem::forget(h);
-        Self { flow, clock, lead }
+        Self { flow, scene, clock, lead }
     }
 
     fn now(&self) -> u64 {
@@ -191,4 +200,205 @@ fn a_focused_row_is_cut_by_a_clip_that_is_its_window_and_whole_in_the_kits_viewp
     let (plate, clip) = row_in_viewport(|w| Reach::of(1.02, 0.0, (1200.0, 70.0)).clip(w));
     let clip = clip.expect("a clip");
     assert!(plate.x >= clip.x && plate.y >= clip.y && plate.right() <= clip.right() && plate.bottom() <= clip.bottom(), "the kit's clip leaves it whole: {plate:?} in {clip:?}");
+}
+
+/// Where tile `id` is centred on the screen at `at`: the lift's scale and rise keep it on its centre sideways, so what moves it there is the lean.
+fn centre(rig: &Rig, id: u32, at: u64) -> (f32, f32) {
+    rig.flow.group(Id(id)).expect("a group").world_at(at).transform.apply(80.0, 80.0)
+}
+
+/// The same tiles twice, one leaning and one not, taken through the same moves on the same clock: the difference of their centres is the lean.
+struct Twin {
+    lean: Rig,
+    plain: Rig,
+}
+
+impl Twin {
+    fn new(spec: Spec, places: &[(f32, f32)]) -> Self {
+        Self { lean: Rig::at(spec, places), plain: Rig::at(Spec { lean_px: 0.0, ..spec }, places) }
+    }
+
+    fn row(spec: Spec, tiles: u32) -> Self {
+        Self::new(spec, &(0..tiles).map(|i| (100.0 * i as f32, 700.0)).collect::<Vec<_>>())
+    }
+
+    fn go(&mut self, from: Option<u32>, to: Option<u32>) {
+        self.lean.go(from, to);
+        self.plain.go(from, to);
+    }
+
+    fn advance(&mut self, by_ns: u64) {
+        self.lean.advance(by_ns);
+        self.plain.advance(by_ns);
+    }
+
+    fn tidy(&mut self) {
+        let now = self.lean.now();
+        self.lean.flow.tidy(now);
+        self.plain.flow.tidy(now);
+    }
+
+    /// The time the screen shows what is asked for now.
+    fn shown(&self) -> u64 {
+        self.lean.shown()
+    }
+
+    /// How far the leaning tiles have pushed tile `id` off where the plain ones have it at `at`.
+    fn lean_of(&self, id: u32, at: u64) -> (f32, f32) {
+        let (a, b) = (centre(&self.lean, id, at), centre(&self.plain, id, at));
+        (a.0 - b.0, a.1 - b.1)
+    }
+
+    /// The push of tile `id` along `axis` (0 across, 1 down) that is furthest from none in the `window_ms` after `start`, and the millisecond
+    /// it was at.
+    fn peak(&self, id: u32, axis: usize, start: u64, window_ms: u64) -> (f32, u64) {
+        let at = |t: u64| {
+            let p = self.lean_of(id, start + t * MS);
+            (if axis == 0 { p.0 } else { p.1 }, t)
+        };
+        (0..=window_ms).map(at).fold((0.0, 0), |best, now| if now.0.abs() > best.0.abs() { now } else { best })
+    }
+}
+
+#[test]
+fn a_move_leans_the_incoming_along_the_way_it_went_and_the_outgoing_half_as_far_and_both_spring_back() {
+    let mut twin = Twin::row(Spec { lean_px: 3.0, ..Spec::default() }, 3);
+    twin.go(None, Some(0));
+    twin.advance(400 * MS);
+    twin.go(Some(0), Some(1));
+    let start = twin.shown();
+    let (incoming, at) = twin.peak(1, 0, start, 400);
+    let (outgoing, _) = twin.peak(0, 0, start, 400);
+    assert!((2.9..=3.05).contains(&incoming), "the incoming leans 3 px the way the focus went: {incoming}");
+    assert!((30..=55).contains(&at), "it peaks at the spring's own quarter period: {at} ms");
+    assert!((1.4..=1.55).contains(&outgoing), "the outgoing is pulled half as far toward the new focus: {outgoing}");
+    // the way is the line between the two centres, which are 4 px off level while the left one is lifted
+    assert!(twin.peak(1, 1, start, 400).0.abs() < 0.2 && twin.peak(0, 1, start, 400).0.abs() < 0.1, "the lean is along the row");
+    for id in [0, 1] {
+        for t in [400u64, 500] {
+            let (x, y) = twin.lean_of(id, start + t * MS);
+            assert!(x.abs() < 0.01 && y.abs() < 0.01, "tile {id} is back where it stood at {t} ms: ({x}, {y})");
+        }
+    }
+    // the lift is what it was: the same scale and the same lift in every millisecond
+    for t in 0..400u64 {
+        let at = start + t * MS;
+        for id in [0, 1] {
+            let (with, without) = (&twin.lean, &twin.plain);
+            let scale = |rig: &Rig| rig.flow.group(Id(id)).expect("a group").world_at(at).transform.scale;
+            assert_eq!(scale(with), scale(without), "tile {id} at {t} ms");
+            assert_eq!(with.lift(id, at), without.lift(id, at), "tile {id} at {t} ms");
+        }
+    }
+}
+
+#[test]
+fn a_lean_is_held_to_a_fortieth_of_the_tile_it_leans() {
+    // the tiles are 160 px, so 4 px, whatever the theme asks for
+    let mut twin = Twin::row(Spec { lean_px: 6.0, ..Spec::default() }, 2);
+    twin.go(None, Some(0));
+    twin.advance(400 * MS);
+    twin.go(Some(0), Some(1));
+    let start = twin.shown();
+    let (incoming, outgoing) = (twin.peak(1, 0, start, 400).0, twin.peak(0, 0, start, 400).0);
+    assert!((3.9..=4.05).contains(&incoming), "{incoming}");
+    assert!((1.9..=2.05).contains(&outgoing), "{outgoing}");
+}
+
+#[test]
+fn reduced_motion_does_not_lean_and_adds_nothing_to_the_scene() {
+    let mut twin = Twin::row(Spec { lean_px: 6.0, reduced: true, ..Spec::default() }, 3);
+    twin.go(None, Some(0));
+    twin.advance(300 * MS);
+    twin.go(Some(0), Some(1));
+    let start = twin.shown();
+    for t in 0..300u64 {
+        for id in 0..3 {
+            assert_eq!(twin.lean_of(id, start + t * MS), (0.0, 0.0), "tile {id} at {t} ms");
+        }
+    }
+    let (with, without) = (&twin.lean.scene, &twin.plain.scene);
+    assert_eq!((with.groups_alive(), with.motions_alive()), (without.groups_alive(), without.motions_alive()));
+}
+
+#[test]
+fn a_held_key_leans_without_a_jump_and_adds_no_more_than_the_pool() {
+    let mut twin = Twin::row(Spec { lean_px: 3.0, ..Spec::default() }, 12);
+    twin.go(None, Some(0));
+    twin.advance(400 * MS);
+    let counts = |rig: &Rig| (rig.scene.groups_alive(), rig.scene.motions_alive());
+    let (groups, tracks) = counts(&twin.lean);
+    assert_eq!(counts(&twin.plain), (groups, tracks));
+    let mut current = 0u32;
+    let (mut widest, mut furthest) = (0.0f32, 0.0f32);
+    for next in 1..12u32 {
+        twin.go(Some(current), Some(next));
+        current = next;
+        let start = twin.shown();
+        for id in 0..12u32 {
+            let mut before = twin.lean_of(id, start);
+            for t in 1..40u64 {
+                let now = twin.lean_of(id, start + t * MS);
+                widest = widest.max((now.0 - before.0).abs()).max((now.1 - before.1).abs());
+                furthest = furthest.max(now.0.abs()).max(now.1.abs());
+                before = now;
+            }
+        }
+        twin.advance(40 * MS);
+        twin.tidy();
+    }
+    // the kicks of a held key add up, but to a fraction of the lean more and not a multiple
+    assert!((3.0..4.5).contains(&furthest), "the furthest a tile leaned was {furthest} px");
+    assert!(widest < 0.8, "the most a lean moved in a millisecond was {widest} px");
+    let (more_groups, more_tracks) = counts(&twin.lean);
+    assert!(more_groups <= groups + POOL && more_tracks <= tracks + POOL, "{groups} groups and {tracks} tracks grew to {more_groups} and {more_tracks}");
+    assert_eq!(counts(&twin.plain), (groups, tracks), "a theme with no lean adds nothing");
+}
+
+#[test]
+fn a_turn_while_the_lean_is_still_moving_keeps_its_axis_and_does_not_jump() {
+    // right along the row, then down to the tile under the second, 60 ms on, with the lean of the second not yet back
+    let mut twin = Twin::new(Spec { lean_px: 3.0, ..Spec::default() }, &[(0.0, 700.0), (100.0, 700.0), (100.0, 900.0)]);
+    twin.go(None, Some(0));
+    twin.advance(400 * MS);
+    twin.go(Some(0), Some(1));
+    twin.advance(60 * MS);
+    let before = twin.lean_of(1, twin.shown());
+    assert!(before.0 > 2.0, "the second is still leaning: {before:?}");
+    twin.go(Some(1), Some(2));
+    let start = twin.shown();
+    let after = twin.lean_of(1, start);
+    assert!((after.0 - before.0).abs() < 0.01 && (after.1 - before.1).abs() < 0.01, "the lean is continuous through the turn: {before:?} -> {after:?}");
+    let mut widest = 0.0f32;
+    for id in [1, 2] {
+        let mut last = twin.lean_of(id, start);
+        for t in 1..=400u64 {
+            let now = twin.lean_of(id, start + t * MS);
+            widest = widest.max((now.0 - last.0).abs()).max((now.1 - last.1).abs());
+            last = now;
+        }
+        assert!(last.0.abs() < 0.01 && last.1.abs() < 0.01, "tile {id} is back where it stood: {last:?}");
+    }
+    assert!(widest < 0.8, "the most a lean moved in a millisecond was {widest} px");
+    assert!(twin.peak(1, 1, start, 400).0.abs() < 0.2, "the second stays on its axis, along the row");
+    let (down, _) = twin.peak(2, 1, start, 400);
+    assert!((2.9..=3.05).contains(&down) && twin.peak(2, 0, start, 400).0.abs() < 0.2, "the third leans down: {down}");
+}
+
+#[test]
+fn a_lean_that_has_come_to_rest_is_aimed_anew_without_a_jump() {
+    let mut twin = Twin::new(Spec { lean_px: 3.0, ..Spec::default() }, &[(0.0, 700.0), (100.0, 700.0), (100.0, 900.0)]);
+    twin.go(None, Some(0));
+    twin.advance(400 * MS);
+    twin.go(Some(0), Some(1));
+    twin.advance(600 * MS);
+    // the second has stood a while with its lean aimed along the row; the next move is down
+    let before = twin.lean_of(1, twin.shown());
+    twin.go(Some(1), Some(2));
+    let start = twin.shown();
+    let after = twin.lean_of(1, start);
+    assert!(before.0.abs() < 0.01 && after.0.abs() < 0.01 && after.1.abs() < 0.01, "{before:?} -> {after:?}");
+    let (down, _) = twin.peak(1, 1, start, 400);
+    assert!((1.4..=1.55).contains(&down), "the outgoing is pulled half as far down toward the new focus: {down}");
+    assert!(twin.peak(1, 0, start, 400).0.abs() < 0.1, "and not along the way it came");
 }

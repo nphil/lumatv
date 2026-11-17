@@ -56,7 +56,8 @@ critically damped spring from wherever it is and however fast it is going; `snap
 `lift_at(id, at_ns)`, `velocity_at(id, at_ns)`, `in_flight()`; `group(id)` (the group that holds a focusable's layers, for what the
 lift does not drive: its opacity, whether it shows), `place(id, rest)` (a focusable that took another slot: bound again in flight),
 `take_lift(id)` (a tile renamed when the dock's order changed). `Spec::default()` is the 260 ms spring (Lucent
-`motion.spring.responseMs`); `Spec { reduced: true, .. }` is the crossfade. `kit::Engine { focus, flow }` joins the two:
+`motion.spring.responseMs`); `Spec { reduced: true, .. }` is the crossfade; `Spec { lean_px, .. }` adds the liquid lean (The flowing
+focus), which `Kit::flow_spec` sets for Liquid cards. `kit::Engine { focus, flow }` joins the two:
 `engine.step(dir, now_ns)`, `engine.focus(id, now_ns)`, `engine.click(x, y, now_ns)`, `engine.clear(now_ns)`. Every screen uses the
 `Engine`; no screen animates its own focus.
 
@@ -201,6 +202,19 @@ rest between moves. Reduced motion: no scale and no rise, the lit state crossfad
 are the compositor's, evaluated at its predicted present time, so a frame of the motion costs this process nothing. The tilt
 of tvOS is not in it (nothing measured at 120 Hz yet says it is cheap). `rustui/ui/tests/flow.rs` holds the measurement on the
 mirrors of the tracks: at no frame are both tiles at rest between moves, and a retarget keeps the velocity.
+
+The liquid lean (the Liquid card glass only): a move also pushes the incoming focusable the way the focus went, along the line between
+the two centres, and pulls the outgoing one half as far toward it; both spring back on the same spring. `Kit::flow_spec` sets
+`Spec::lean_px` to 6 px times the glass strength (0 for any other glass and under reduced motion), and a lean is at most 1/40 of the
+focusable's shorter side. A 3 px lean peaks 41 ms into the move and is back within 0.01 px by 250 ms, before the lift lands at 450 ms;
+a held key at the remote's 40 ms repeat adds the kicks up to about 1.3 times the lean and moves a tile at most 0.2 px per millisecond.
+The push is a group of its own (the wrapper) that takes the lifted group's place under its parent, with a pixel track of its own, both
+made the first time a lift slot leans (at most `POOL` of each), so the lift's scale, rise and lit glass are what they were. The lifted
+group goes back under its parent when its slot is handed back. A move while a lean is still moving keeps the axis it has; a focusable
+with no room for the wrapper in the scene's group depth lifts without leaning. `Shell::reload_look` reads the lean again when the
+theme changes. `rustui/ui/tests/lean_pixels.rs` draws it with the compositor's engine on Mesa: the lean lands within 0.005 px of the
+mirror, the retained pages equal a full render in every frame, and once the lean is taken off the picture is byte for byte the one of a
+flow with no lean. Not yet seen on the TV.
 
 ## The Cameras app (`rustui/ui/src/cameras/`, kind `cameras`)
 

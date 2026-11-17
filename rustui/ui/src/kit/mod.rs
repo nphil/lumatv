@@ -28,7 +28,7 @@ pub mod viewport;
 pub mod widgets;
 pub mod wrap;
 
-use lumatv_tokens::{Tokens, TypeRole};
+use lumatv_tokens::{CardGlass, Tokens, TypeRole};
 use ui::context::Ui;
 use ui::lucent::material::MaterialTier;
 use ui::lucent::palette::Mode;
@@ -145,9 +145,13 @@ impl Kit {
         }
     }
 
-    /// The flowing-focus spring as the theme sets it: the reduced-motion crossfade when the theme asks for it.
+    /// The flowing-focus spring as the theme sets it: the reduced-motion crossfade when the theme asks for it, and on Liquid cards the lean of
+    /// a move, at the strength the theme gives that glass.
     pub fn flow_spec(&self) -> Spec {
-        Spec { reduced: self.ui.look.reduced_motion, ..Spec::default() }
+        let reduced = self.ui.look.reduced_motion;
+        let liquid = self.tokens.card_glass == CardGlass::Liquid;
+        let lean_px = if liquid && !reduced { flow::LEAN_PX * self.tokens.glass_strength().clamp(0.0, 1.0) } else { 0.0 };
+        Spec { reduced, lean_px, ..Spec::default() }
     }
 }
 

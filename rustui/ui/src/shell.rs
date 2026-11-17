@@ -2035,6 +2035,8 @@ impl Shell {
         let scale = file.pointer("/type/scale").and_then(Value::as_f64).map_or(self.theme_default_scale, |s| (s as f32).clamp(1.0, 2.0));
         let theme = tokens.json().clone();
         self.kit.retheme(tokens, mode, scale);
+        // the lean follows the theme's card glass; the rest of the spring is still read once, when the engine is built
+        self.engine.flow.spec.lean_px = self.kit.flow_spec().lean_px;
         self.cameras.app.cfg = CamerasConfig::from_theme(&self.kit, &theme);
         self.set_places(&theme);
         self.restyle_surfaces(self.glass_restyle_at.is_some());
@@ -2420,6 +2422,16 @@ mod tests {
         assert!(height_of(&shell, "cards") > cards, "the cards' stand-in is taller at 200 % text, with the editor still open");
         assert!(height_of(&shell, "popup") > popup, "so is the camera window's");
         assert_eq!(shell.state()["layout"], json!({"open": true}), "the editor stayed open through it");
+    }
+
+    #[test]
+    fn the_lean_of_the_focus_follows_the_card_glass_the_theme_chooses() {
+        let (_h, mut shell) = shell();
+        assert_eq!(shell.engine.flow.spec.lean_px, 0.0, "the shipped glass is clear");
+        shell.reload_theme(&json!({"cardGlass": "liquid"}));
+        assert_eq!(shell.engine.flow.spec.lean_px, crate::kit::flow::LEAN_PX, "Liquid at its full strength");
+        shell.reload_theme(&json!({"cardGlass": "frosted"}));
+        assert_eq!(shell.engine.flow.spec.lean_px, 0.0, "no other glass leans");
     }
 
     /// A Home shell on `kinds` (always with `home`) with the launch points of the dock and Home in front.
