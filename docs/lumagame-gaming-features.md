@@ -997,6 +997,107 @@ from true to false. Receipts: `reads-*.json`, `vds-*.json`, `feeder-*.json`,
 `vfeed-var-wide.json`, `analysis-var-wide.json`, `var-wide-per-second.json`,
 `fw-*.txt`, `params-*.json`, `reboot.json`, `as-left.json`, `session.log`.
 
+#### Decoded frames through the GPU plane (source)
+
+Whether stream frames can reach the OSD through the GPU, off the decoder
+timer, so that an OSD-driven refresh could follow each frame. Evidence: LG's
+kdriver tree, the installed kernel (`Image.lz4-5.4.268-329.ptl4tv.2`, code
+and kallsyms), DE image 0 and the 64-bit Mali g24p0 blob; untested on the TV.
+
+Ways out of the decoder:
+
+- Video window (NDL, Starfish, ES player): pictures stay in the decoder's
+  store as G1 8×4 tiles, HEVC packed (optionally lossy, 384 or 448 B) or AV1
+  FBC, 8- or 10-bit (`kdriver/core/vdec/ipc/local/v4l2_vdec.c:490-512`).
+  `libgstlxvideodec`, `libgstlxvideosink`, `libplayerAPIs`, `libpf`,
+  `starfish-media-pipeline` and `videooutputd` carry no dma-buf, EGL-image,
+  GP-scaler or `/dev/video21` strings.
+- GP scaler (`/dev/video70`; UMS `GP_SCALER` ×4, `VTG` ×1): LG's GAV
+  compositor samples a DE-scaled copy, NV12 or ARGB, at most 1920×1080,
+  HDR10/HLG tone-mapped (`gp-scaler.rst:104,113,217`). The decoder's vsync
+  callback releases GAV frames (`vdisp_core.c:966-984`) at twice the stream
+  rate capped at 120 Hz (`vsync.c:452,474-494`): the same signed timer.
+- VT capture (`/dev/video60`): copies the main scaler, sub scaler or mixer
+  output at a set rate and refuses secure video (`video-texture.rst:103,
+  762-763,775`).
+- Stateful decoder (`/dev/video21`, `lgsoc-vdec-decoder`, the web apps'
+  decoder, `media-vda-vea.rst:59`): a picture is handed over when the VDEC
+  MCU reports it decoded (`DECO`/`ENDD`, `vdec_api.c:303-318`; IPC poll,
+  `driver.c:893-906`), not on the timer. Each NV12 capture is a DE DMA copy
+  out of the store (`fbc_to_yuv` → `dma_start`, `v4l2_vdec.c:538-570`;
+  `v4l2_gps.c:2691-2741`), one at a time, waiting for the DE MCU's GPS
+  interrupt, 22 ms per try (`VIDEO_GPSDMA_WaitVsync`, `de_ipc.c:1921-1949`).
+  The installed kernel matches: `dst_worker` (`0xffffffc010d2a710`) calls
+  `dma_start` (`0xffffffc01095b6b4`) at `0xffffffc010d2ab70`, which calls
+  `gps_if_dma_start` → `DE_IO_SetGPSDMA`, then `VIDEO_GPSDMA_WaitVsync`. In
+  DE image 0 the copy runs in the IPP4 task that also runs the GP scalers
+  (`PQE_TASK_Ipp4DMAManager`, `PQE_TASK_Ipp4GpsManager`,
+  `MCU_DE_IO_SetGpsDMA`).
+
+`/dev/video21` output:
+
+- Capture formats are NV12 and `LFBC` (`v4l2_vdec.c:265-279`). NV12 is 8-bit
+  in one buffer, chroma at width × height (`:556`), at the decoded size up to
+  3840×2160 (`:71-72,557-558`); DE image 0 has an `Invalid GPS-DMA out size`
+  check with an unknown limit. `LFBC` carries no pixels: it is a copy of the
+  store descriptor for the video output, the picture held until returned
+  (`fbc_to_vo`, `:572-588,771-774`).
+- 10-bit pictures (`bpp` 1, `:497-512`) are written into the 8-bit buffer and
+  the DMA request has no HDR field (`de_kapi.h:3655-3676`), so HDR10 arrives
+  as 8-bit PQ values without tone mapping (inferred). No P010 output exists.
+- Export: `VIDIOC_EXPBUF` (`:2003`) through `vb2_hma` (`vb2_hma.c:351-374,
+  574`), one contiguous scatterlist entry (`:155-187`); the kernel has
+  `kbase_mem_import` (`0xffffffc010d53920`). The Mali blob has
+  `EGL_EXT_image_dma_buf_import_modifiers`, `GL_OES_EGL_image_external_essl3`,
+  `GL_EXT_YUV_target` and a DRM format table with NV12, NV21, NV16, P010,
+  P210, Y210 and Q410 (file offset `0x2a14350`). An NV12 import should work
+  on both sides (inferred).
+- Secure mode (`V4L2_CID_EXT_SVP`, `:1268`) puts the bitstream in the secure
+  pool `vpb` (`:844-847`). Game streams carry no DRM and can run in the clear
+  (inferred). The client must acquire `VDEC` through UMS first
+  ([hw-transcode](research/hw-transcode.md)).
+
+No route is zero-copy: Mali imports linear YUV and Arm AFBC, not the
+decoder's tiling or compression (inferred), and the only GPU-readable output
+is the DE copy.
+
+The OSD takes at most 1920×1080 at 8 bits per channel (AR24, XR24, AB24,
+XB24, one AFBC layout); its scaler doubles that to 3860×2170 and crops
+3840×2160. 4K OSD is a boot option, off here (`support_4kosd 0`). Flips land
+on DE2VSYNC at 120 Hz, and `lg1k` has no VRR or async flip
+([display-chip-direct](research/display-chip-direct.md),
+[scanout-research](research/scanout-research.md)). HDR tone mapping, noise
+reduction, super-resolution and MEMC act only on video windows; graphics get
+the HDR-UI LUT and CSC block (`0xCC480700`) when the output is HDR. A stream
+on the OSD is therefore 1080p, 8-bit and SDR, upscaled by the OSD scaler.
+
+GPU cost (inferred, scaled by bytes moved): one 1080p ARGB full-screen quad
+into the linear page takes 4.1 ms, about 16.6 MB at ~4 GB/s
+([ui120-result](research/ui120-result.md)). A 1080p NV12 frame drawn into
+that page is then about 2.8 ms and a 4K one about 5.1 ms: 34 % or 61 % of the
+GPU at 120 fps before any UI, against none for a video window. Sampling
+imported memory is unmeasured (rendering into it measured 5–20× slower). The
+DE copy writes another 3.1 MB (1080p) or 12.4 MB (4K) per frame.
+
+Verdict: not viable as zero-copy. `/dev/video21` is the one route off the
+decoder timer, so with a flip per frame and the OSD-driven refresh above it
+could give per-frame VRR. Per frame it adds driver hand-offs (under 0.5 ms),
+the DE copy (unmeasured) and the GPU pass, and drops the timer wait (0–8.3
+ms). Taking 1–4 ms for a 1080p copy, the net is −4 to +7 ms at 1080p with
+OSD-driven refresh; a copy started only on a DE vsync, or a fixed 120 Hz
+flip, each add up to 8.3 ms. At 4K the net is +1 to +22 ms (inferred). The
+DE's video delay (SYS_VERI_10, 15.8 ms at 120 fps) is for video windows; the
+OSD path's delay is unmeasured. Picture cost: 1080p, 8-bit, no HDR and none
+of LG's video processing.
+
+Decisive TV test, only if the zero-copy bar is relaxed for 1080p SDR: the
+`/dev/video21` tool of hw-transcode step 4 (`VDEC` acquired through UMS, NV12
+MMAP capture) with a 1080p HEVC game clip fed at alternating 7 and 12 ms
+gaps, logging QBUF and DQBUF times per frame. It shows whether completions
+follow the feed or an 8.33 ms grid and bounds decode plus copy; one 4K clip
+shows whether the DE accepts a 3840×2160 copy. Risk medium: first use of the
+node, and an MCU call may not return.
+
 ### Cloud G-SYNC
 
 NVIDIA supports it only on GeForce NOW Ultimate, in the native Windows
