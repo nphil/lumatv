@@ -9,6 +9,14 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Mute mark in the bottom right corner over apps; video check without a terminal, 2026-11-18 (main 5369a4a0, installed 07:17 EST; unaccepted)
+
+Over an app the mark no longer hops between the top corners, where it covered app titles (Marquee Requests, `/data/home/tmp/marquee-midnight-20261118/f-requests.png`); it steps between four places 72 px apart in the bottom right corner (x 1688–1824, y 858–994), or the bottom left while a panel is up on the right. Over Home it keeps the status bar's row. A mark the owner places in the layout editor is unchanged. Installed ui `7e0767a155d0c717e1a24567e06a0b6d27ea6b1a1ca560400acd3a8b16dd1286` (replaces 2bbf537f) in Active Standby; compositor `a8bebe46`, sm `65f6ca69` and the helper unchanged. The cutover finished live, mounted and enabled with zero failures; the video check skipped (standby). Rollback: `/tmp/cs/18172b987bff/app-snapshot/backup/lumatv-ui-2bbf537f`.
+
+`luna-send` answers nothing without a controlling terminal, so `lumatv video-check` over a plain ssh read the power state as unknown. Main 92a3fc6e runs its luna calls under `script`'s pty when stdin is not a terminal; installed 06:58 EST as `tools/compositor.sh` `a51ef9f6` (replaces 70deb6e0) and seen reporting Active Standby over ssh with stdin from `/dev/null`.
+
+The 06:47 EST wake after the 00:17–06:15 standby gave a real picture in Marquee, and the badge showed "Dolby Digital+ 5.1" for its episode (`/data/home/tmp/marquee-morning-20261118/w1-b1.png`, `s0-video.png`): the app-decoded audio badge is accepted on the TV.
+
 ## Main ede93188 installed in Active Standby, 2026-11-18 05:06 EST (video check skipped; first lit check pending)
 
 Installed ui `2bbf537f9815c38e5e406cdbe62dcbbb96708f2cb14625c32d62943fe9f08b91` (replaces 3d3fcce3), helper `e8e2fedf87b468b07e86bd241903615ad0eb42dbf3c400d97084b3a1f75fed69` (replaces cf202dd2), `tools/lumatv` `adb11696` (replaces fe58d9db), `tools/compositor.sh` `70deb6e0` (replaces 921b8988; `lumatv video-check` sources it) and `payload/feeder/check.h264` `4e2f3089` (new, under the app's `payload/feeder/`). Compositor `a8bebe46`, sm `65f6ca69`, camera feeder `d9194794`, decoder libraries `389d6f76`/`be345d79`, ssgw, beszel and the other shipped scripts unchanged. The UI carries the app-decoded audio badge (31463948); the helper its `media.audio` topic. Built locally from the published commit; the helper from `helper/build.sh`, the ui with `cargo zigbuild`.
