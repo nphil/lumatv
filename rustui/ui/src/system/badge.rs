@@ -1,7 +1,7 @@
 //! The format badge's model: what the picture in front is (its size, refresh and dynamic range, from videooutputd's MAIN sink, subscribed),
-//! the sound an HDMI, DisplayPort or USB-C input carries (utp.extinputs, as LG's INFO card reads it), and the formats LG announces for it
-//! (the toasts of its sound and picture services), shown as marks for a few seconds when a picture starts or its format changes.
-//! LG's announcements show here and never as toasts.
+//! the sound an HDMI, DisplayPort or USB-C input carries (utp.extinputs, as LG's INFO card reads it), the sound an app that decodes for
+//! itself says it delivers (the helper's `media.audio` topic) and the formats LG announces for it (the toasts of its sound and picture
+//! services), shown as marks for a few seconds when a picture starts or its format changes. LG's announcements show here and never as toasts.
 
 use super::banner::is_input_app;
 use super::toast::{FEED_TAG, plain_lines};
@@ -16,6 +16,8 @@ pub const STATUS_URI: &str = "luna://com.webos.service.videooutput/getStatus";
 /// The input's sound: one subscription per picture, each with its own tag from this one, so a late answer of the one before is not taken.
 const AUDIO_TAG_BASE: u64 = 0x7043_0000;
 const AUDIO_URI: &str = "luna://com.webos.service.utp.extinputs/getCurrentAudioCodecType";
+/// The helper's topic of what apps that decode their own sound deliver (`docs/media-audio.md`).
+const APP_AUDIO_TOPIC: &str = "media.audio";
 /// How long the badge stays up after its last news.
 pub const SHOW_MS: u64 = 3000;
 /// How long after a badge appears an announcement joins it: audiod's Dolby toast comes about a second after its picture starts.
@@ -53,6 +55,81 @@ const NAMES: [(&str, &str); 22] = [
     ("7.1", "7.1"),
 ];
 
+/// What an app says it delivers (one entry of the `media.audio` topic): only what the badge reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AppAudio {
+    app: String,
+    /// videooutputd's context of the picture it belongs to; none: whichever picture the app has in front.
+    context: Option<String>,
+    codec: String,
+    profile: String,
+    atmos: bool,
+    channels: Option<u64>,
+}
+
+/// The sound mark and the speakers mark an app's entry makes: none for a format that has no mark (AAC, Opus, FLAC, MP3).
+type AppSound = (Option<&'static str>, Option<&'static str>);
+
+fn app_entries(topic: &Value) -> Vec<AppAudio> {
+    let text = |e: &Value, k: &str| e.get(k).and_then(Value::as_str).map(str::to_owned);
+    topic
+        .get("entries")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| {
+            Some(AppAudio {
+                app: text(e, "app")?,
+                context: text(e, "context"),
+                codec: text(e, "codec")?,
+                profile: text(e, "profile").unwrap_or_default().to_ascii_lowercase(),
+                atmos: e.get("atmos").and_then(Value::as_bool).unwrap_or(false),
+                channels: e.get("channels").and_then(Value::as_u64),
+            })
+        })
+        .collect()
+}
+
+/// The marks of what an app delivers. Atmos is the mark of any Dolby carrier that has it and DTS-HD that of every DTS-HD profile
+/// (Master Audio, High Resolution, Express): the badge never spells the longer name.
+fn app_sound(a: &AppAudio) -> AppSound {
+    let sound = match a.codec.as_str() {
+        "truehd" | "eac3" if a.atmos => Some("atmos"),
+        "truehd" => Some("dolby-truehd"),
+        "eac3" => Some("dolby-digital-plus"),
+        "ac3" => Some("dolby-digital"),
+        "dts" if a.profile.contains("dts:x") => Some("dtsx"),
+        "dts" if a.profile.starts_with("dts-hd") => Some("dts-hd"),
+        "dts" => Some("dts"),
+        "pcm" => Some("pcm"),
+        _ => None,
+    };
+    let channels = match a.channels {
+        Some(6) => Some("5.1"),
+        Some(8) => Some("7.1"),
+        _ => None,
+    };
+    (sound, channels)
+}
+
+/// The marks that fit a row, in the order the badge shows them: when the whole row is too wide the speakers go first, then the sound
+/// takes its shortest mark (any Dolby Digital family format is "Dolby Audio", the brand's own mark for them). `fits` says whether a row fits.
+pub fn fit(marks: &[&'static str], fits: impl Fn(&[&'static str]) -> bool) -> Vec<&'static str> {
+    if fits(marks) {
+        return marks.to_vec();
+    }
+    let mut row: Vec<&'static str> = marks.iter().copied().filter(|m| kind_of(m) != Kind::Channels).collect();
+    if fits(&row) {
+        return row;
+    }
+    for m in &mut row {
+        if matches!(*m, "dolby-digital-plus" | "dolby-digital" | "dolby-truehd") {
+            *m = "dolby-audio";
+        }
+    }
+    row
+}
+
 /// What a mark says, in the order a badge shows them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
@@ -86,6 +163,11 @@ pub struct Badge {
 #[derive(Clone, Debug, Default)]
 pub struct Formats {
     subscribed: bool,
+    /// The app in front (the `foreground` topic), none on Home or while it is not known.
+    foreground: Option<String>,
+    /// What apps say they deliver, and the sound of the entry the badge follows: none while no entry is for the picture shown.
+    app_audio: Vec<AppAudio>,
+    app_sound: Option<AppSound>,
     /// Whether a picture is on the MAIN sink, and the context of the last one shown: a repeat of its status is not news.
     present: bool,
     shown: Option<String>,
@@ -258,6 +340,37 @@ impl Formats {
         self.changed = true;
     }
 
+    /// The sound the badge has when no app's entry gives it: the input's, if the picture is an input's.
+    fn base_sound(&self) -> AppSound {
+        self.app_sound.unwrap_or((self.input_sound, None))
+    }
+
+    /// What the app in front says it delivers for the picture shown: an input's picture has its own sound, and an entry that names a
+    /// context is for that picture alone.
+    fn wanted_app_sound(&self) -> Option<AppSound> {
+        if !self.present || self.audio_tag.is_some() {
+            return None;
+        }
+        let (shown, front) = (self.shown.as_deref()?, self.foreground.as_deref()?);
+        self.app_audio.iter().find(|e| e.app == front && e.context.as_deref().is_none_or(|c| c == shown)).map(app_sound)
+    }
+
+    /// Follows the entries, the app in front and the picture: the app's sound joins the badge that is up, and a change of it later is news
+    /// of its own, as an input's is.
+    fn follow_app_audio(&mut self, now: u64) {
+        let wanted = self.wanted_app_sound();
+        if wanted == self.app_sound {
+            return;
+        }
+        self.app_sound = wanted;
+        let before = self.marks();
+        (self.sound, self.channels) = self.base_sound();
+        let marked = wanted.is_some_and(|(sound, channels)| sound.is_some() || channels.is_some());
+        if self.marks() != before && (marked || self.up(now)) {
+            self.show(now, !self.up(now));
+        }
+    }
+
     /// Follows the sound of the input whose picture is `pipeline` (videooutputd's context is the input's pipeline), or of none.
     fn follow_audio(&mut self, pipeline: Option<&str>) -> Vec<Effect> {
         let mut out = Vec::new();
@@ -276,7 +389,7 @@ impl Formats {
 
     fn status(&mut self, doc: &Value, now: u64) -> Vec<Effect> {
         let Some(v) = info::video(doc).filter(|v| !is_own_app(&v.app)) else {
-            self.present = false;
+            (self.present, self.app_sound) = (false, None);
             return if self.audio_tag.is_some() { self.follow_audio(None) } else { Vec::new() };
         };
         self.present = true;
@@ -295,6 +408,9 @@ impl Formats {
             let effects = self.follow_audio(input.then_some(v.context.as_str()));
             self.shown = Some(v.context);
             (self.size, self.refresh, self.range, self.range_announced, self.sound, self.channels) = (size, refresh.flatten(), range, false, None, None);
+            // the app in front says what it delivers for this picture: that sound is the badge's from its first showing
+            self.app_sound = self.wanted_app_sound();
+            (self.sound, self.channels) = self.base_sound();
             self.show(now, true);
             return effects;
         }
@@ -311,6 +427,8 @@ impl Formats {
         if self.marks() != before && (input || self.up(now)) {
             self.show(now, !self.up(now));
         }
+        // the picture may have gone and come back as the same one: the entry is followed again
+        self.follow_app_audio(now);
         Vec::new()
     }
 
@@ -333,7 +451,7 @@ impl Formats {
         let joins = self.current.as_ref().is_some_and(|b| b.expires > now && now < b.since + JOIN_MS);
         if !joins {
             // news of its own (the range switched mid-film): with the size of the picture that is on, and its input's sound
-            (self.sound, self.channels) = (self.input_sound, None);
+            (self.sound, self.channels) = self.base_sound();
             if !self.present {
                 (self.size, self.refresh, self.range) = (None, None, None);
             }
@@ -343,6 +461,8 @@ impl Formats {
                 Kind::Size => self.size = Some(m),
                 Kind::Refresh => self.refresh = Some(m),
                 Kind::Range => (self.range, self.range_announced) = (Some(m), true),
+                // what an app says it delivers is what reaches the speakers: LG's own word about the sound does not replace it
+                Kind::Sound | Kind::Channels if self.app_sound.is_some() => {}
                 Kind::Sound => self.sound = Some(m),
                 Kind::Channels => self.channels = Some(m),
             }
@@ -364,6 +484,15 @@ impl Model for Formats {
                 if let Some(marks) = announced(payload) {
                     self.announce(&marks, now);
                 }
+            }
+            Input::Helper { topic, data } if topic == APP_AUDIO_TOPIC => {
+                self.app_audio = app_entries(data);
+                self.follow_app_audio(now);
+            }
+            Input::Topic { topic, data } if topic == "foreground" => {
+                let app = data.get("app").and_then(Value::as_str).filter(|a| !a.is_empty() && data.get("home").and_then(Value::as_bool) != Some(true));
+                self.foreground = app.map(str::to_owned);
+                self.follow_app_audio(now);
             }
             Input::Tick if self.current.as_ref().is_some_and(|b| b.expires <= now) => {
                 self.current = None;
@@ -573,5 +702,133 @@ mod tests {
         assert_eq!(gone, [Effect::Cancel { tag }]);
         let app = f.update(&status("film", "netflix", 1920, 1080, "none"), 50_000);
         assert!(!app.iter().any(|e| matches!(e, Effect::Luna { .. })), "an app's sound is not an input's");
+    }
+
+    fn front(app: &str) -> Input {
+        Input::Topic { topic: "foreground".into(), data: json!({"app": app, "home": app == "com.webos.app.home"}) }
+    }
+
+    fn entry(app: &str, context: Option<&str>, codec: &str, profile: Option<&str>, atmos: bool, channels: Option<u64>) -> Value {
+        json!({"app": app, "context": context, "codec": codec, "profile": profile, "atmos": atmos, "channels": channels, "layout": null, "delivered": "source"})
+    }
+
+    fn said(entries: Vec<Value>) -> Input {
+        Input::Helper { topic: APP_AUDIO_TOPIC.into(), data: json!({"entries": entries}) }
+    }
+
+    #[test]
+    fn what_an_app_delivers_is_the_sound_of_its_picture_and_a_change_of_it_is_news() {
+        let mut f = Formats::new();
+        f.update(&front("marquee"), 0);
+        f.update(&status("film", "marquee", 3840, 2160, "DolbyVision"), 1000);
+        assert_eq!(marks(&f), ["uhd", "dolby-vision"]);
+        let id = f.view().unwrap().id;
+        // it joins the badge that is up
+        assert_eq!(f.update(&said(vec![entry("marquee", Some("film"), "truehd", None, true, Some(8))]), 1500), vec![Effect::Redraw]);
+        assert_eq!(marks(&f), ["uhd", "dolby-vision", "atmos", "7.1"]);
+        assert_eq!(f.view().unwrap().id, id);
+        // a change of it renews the badge; LG's own word about the sound does not replace it
+        f.update(&said(vec![entry("marquee", Some("film"), "eac3", None, false, Some(6))]), 2000);
+        assert_eq!(marks(&f), ["uhd", "dolby-vision", "dolby-digital-plus", "5.1"]);
+        f.update(&toast("com.webos.service.audio", "Dolby Atmos"), 2100);
+        assert_eq!(marks(&f), ["uhd", "dolby-vision", "dolby-digital-plus", "5.1"]);
+        assert!(f.update(&said(vec![entry("marquee", Some("film"), "eac3", None, false, Some(6))]), 2200).is_empty(), "a repeat is no news");
+        // the app stops saying it: the sound goes
+        f.update(&said(Vec::new()), 2500);
+        assert_eq!(marks(&f), ["uhd", "dolby-vision"]);
+        // after the badge went, a new entry for the picture that is playing shows a badge of its own
+        f.update(&Input::Tick, 2500 + SHOW_MS);
+        assert_eq!(f.view(), None);
+        f.update(&said(vec![entry("marquee", None, "dts", Some("DTS-HD MA"), false, None)]), 20_000);
+        assert_eq!(marks(&f), ["uhd", "dolby-vision", "dts-hd"]);
+        assert_ne!(f.view().unwrap().id, id);
+        // AAC has no mark and takes away the one before
+        f.update(&said(vec![entry("marquee", None, "aac", None, false, Some(2))]), 20_500);
+        assert_eq!(marks(&f), ["uhd", "dolby-vision"]);
+    }
+
+    #[test]
+    fn an_entry_is_waited_for_until_its_picture_is_the_one_shown_and_shows_from_the_first_showing() {
+        let mut f = Formats::new();
+        f.update(&front("marquee"), 0);
+        f.update(&said(vec![entry("marquee", Some("next"), "truehd", None, true, None)]), 100);
+        f.update(&status("prev", "marquee", 1920, 1080, "none"), 200);
+        assert_eq!(marks(&f), ["fhd", "sdr"], "the entry is for another picture");
+        f.update(&Input::Tick, 200 + SHOW_MS);
+        f.update(&status("next", "marquee", 3840, 2160, "HDR10"), 9000);
+        assert_eq!(marks(&f), ["uhd", "hdr10", "atmos"]);
+    }
+
+    #[test]
+    fn an_entry_of_an_app_that_is_not_in_front_or_of_another_picture_is_ignored() {
+        let sound = |foreground: &str, picture: &str, entry_app: &str, entry_context: Option<&str>| {
+            let mut f = Formats::new();
+            f.update(&said(vec![entry(entry_app, entry_context, "truehd", None, true, Some(8))]), 0);
+            f.update(&front(foreground), 1);
+            f.update(&status(picture, "marquee", 3840, 2160, "none"), 1000);
+            marks(&f)
+        };
+        assert_eq!(sound("marquee", "film", "marquee", Some("film")), ["uhd", "sdr", "atmos", "7.1"]);
+        assert_eq!(sound("marquee", "film", "marquee", None), ["uhd", "sdr", "atmos", "7.1"], "no context: whichever picture is in front");
+        assert_eq!(sound("com.webos.app.hdmi1", "film", "marquee", Some("film")), ["uhd", "sdr"], "another app is in front");
+        assert_eq!(sound("com.webos.app.home", "film", "marquee", None), ["uhd", "sdr"], "Home is in front");
+        assert_eq!(sound("marquee", "film", "marquee", Some("trailer")), ["uhd", "sdr"], "another picture");
+        assert_eq!(sound("marquee", "film", "plex", Some("film")), ["uhd", "sdr"], "another app's entry");
+        // the app leaving the front takes its sound off the badge that is up
+        let mut f = Formats::new();
+        f.update(&front("marquee"), 0);
+        f.update(&status("film", "marquee", 3840, 2160, "none"), 1000);
+        f.update(&said(vec![entry("marquee", Some("film"), "pcm", None, false, Some(6))]), 1100);
+        assert_eq!(marks(&f), ["uhd", "sdr", "pcm", "5.1"]);
+        f.update(&front("com.webos.app.home"), 1200);
+        assert_eq!(marks(&f), ["uhd", "sdr"]);
+    }
+
+    #[test]
+    fn an_inputs_picture_keeps_its_own_sound_whatever_an_app_says() {
+        let mut f = Formats::new();
+        f.update(&front("com.webos.app.hdmi2"), 0);
+        f.update(&said(vec![entry("com.webos.app.hdmi2", None, "truehd", None, true, Some(8))]), 0);
+        let tag = audio_sub(&f.update(&status_at("_pipe", "com.webos.app.hdmi2", 3840, 2160, 60.0, "none"), 100));
+        f.update(&codec(tag, "AUDIO_CODEC_PCM"), 200);
+        assert_eq!(marks(&f), ["uhd", "sdr", "pcm"]);
+    }
+
+    #[test]
+    fn every_format_an_app_can_deliver_has_its_mark_or_none() {
+        let marks = |codec: &str, profile: Option<&str>, atmos: bool, channels: Option<u64>| {
+            let e = app_entries(&json!({"entries": [entry("a", None, codec, profile, atmos, channels)]}));
+            app_sound(&e[0])
+        };
+        for (codec, profile, atmos, channels, sound, speakers) in [
+            ("truehd", None, true, Some(8), Some("atmos"), Some("7.1")),
+            ("eac3", None, true, Some(6), Some("atmos"), Some("5.1")),
+            ("truehd", None, false, Some(8), Some("dolby-truehd"), Some("7.1")),
+            ("eac3", None, false, Some(6), Some("dolby-digital-plus"), Some("5.1")),
+            ("ac3", None, false, Some(6), Some("dolby-digital"), Some("5.1")),
+            ("ac3", None, true, Some(2), Some("dolby-digital"), None),
+            ("dts", Some("DTS:X"), false, Some(8), Some("dtsx"), Some("7.1")),
+            ("dts", Some("dts-hd ma"), false, Some(8), Some("dts-hd"), Some("7.1")),
+            ("dts", Some("DTS-HD High Resolution"), false, Some(8), Some("dts-hd"), Some("7.1")),
+            ("dts", None, false, Some(6), Some("dts"), Some("5.1")),
+            ("pcm", None, false, Some(2), Some("pcm"), None),
+            ("aac", None, false, Some(6), None, Some("5.1")),
+            ("opus", None, false, None, None, None),
+            ("flac", None, false, Some(2), None, None),
+            ("mp3", None, false, None, None, None),
+            ("other", None, false, Some(4), None, None),
+        ] {
+            assert_eq!(marks(codec, profile, atmos, channels), (sound, speakers), "{codec} {profile:?} atmos {atmos} {channels:?}");
+        }
+    }
+
+    #[test]
+    fn a_row_too_wide_drops_the_speakers_first_and_then_shortens_the_sound() {
+        let row = ["uhd", "dolby-vision", "dolby-truehd", "7.1"];
+        let width = |row: &[&str]| row.iter().map(|m| match *m { "dolby-truehd" => 4, "dolby-audio" => 3, "7.1" => 2, _ => 1 }).sum::<usize>();
+        assert_eq!(fit(&row, |r| width(r) <= 8), row, "it fits");
+        assert_eq!(fit(&row, |r| width(r) <= 6), ["uhd", "dolby-vision", "dolby-truehd"], "the speakers go first");
+        assert_eq!(fit(&row, |r| width(r) <= 5), ["uhd", "dolby-vision", "dolby-audio"], "then the sound is shortened");
+        assert_eq!(fit(&["uhd", "atmos", "7.1"], |r| width(r) <= 1), ["uhd", "atmos"], "Atmos has no shorter mark");
     }
 }

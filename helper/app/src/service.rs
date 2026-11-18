@@ -312,6 +312,8 @@ impl Service {
         crate::saver::open(&ctx);
         // Do Not Disturb and the snoozes: read before any camera or plugin can deliver an alert.
         crate::dnd::open(&ctx);
+        // What an app that decodes its own sound says it plays, for the format badge.
+        crate::media_audio::open(&ctx);
         // Cameras through Scrypted's LumaShow bridge, a plugin of the helper's own: nothing runs until it is switched on, nothing connects
         // until the TV is linked (`scrypted-link`), and nothing while it sleeps.
         let images = Arc::new(crate::images::Images::new(&config, &paths));

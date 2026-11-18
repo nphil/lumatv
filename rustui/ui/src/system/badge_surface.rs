@@ -2,7 +2,7 @@
 //! place for `format` (the screen's top right corner, inside the safe area, by default). It fades in and out where it rests, steps aside
 //! from what is up (the pop-up, the cards, the volume bar and the mute mark, a toast) and stays down while there is no room clear of them.
 
-use super::badge::Badge;
+use super::badge::{Badge, fit};
 use crate::kit::Kit;
 use crate::kit::motion::Beat;
 use crate::kit::pane::{Pane, PaneKind};
@@ -15,6 +15,10 @@ use ui::scene::ImageLayer;
 
 /// What the placement editor's stand-in shows: a 4K Dolby Vision film with Atmos.
 pub const SAMPLE: [&str; 3] = ["uhd", "dolby-vision", "atmos"];
+
+/// The widest the badge may be, as a share of its zone's width. The marks always sit on one row; past this the badge drops the speakers
+/// and then shortens the sound ([`fit`]) rather than grow into the screen.
+const MAX_SHARE: f32 = 0.5;
 
 /// The marks' height, the pane's side pads, the gap between marks and the pane's height, all whole pixels: the marks at the label's size
 /// with the smallest pads that still read as a pill.
@@ -94,12 +98,19 @@ impl BadgeSurface {
         self.user = user;
     }
 
+    /// The marks that fit one row of the badge's widest.
+    fn fitted(&self, kit: &Kit, marks: &[&'static str]) -> Vec<&'static str> {
+        let max = self.registry.zone_of("format", &self.frame).w as f32 * MAX_SHARE;
+        fit(marks, |row| measure(kit, row).0 <= max)
+    }
+
     fn build(&self, kit: &mut Kit, badge: &Badge, over_app: bool) -> std::io::Result<Built> {
-        let (w, h) = measure(kit, &badge.marks);
+        let marks = self.fitted(kit, &badge.marks);
+        let (w, h) = measure(kit, &marks);
         let hidden = Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) };
         let pane = Pane::themed(kit, Frame::new(0.0, 0.0, w, h), self.z, PaneKind::Pill, over_app);
         pane.layer().set(hidden);
-        let (marks, inset) = draw_marks(kit, &badge.marks, self.z + 1, hidden)?;
+        let (marks, inset) = draw_marks(kit, &marks, self.z + 1, hidden)?;
         let key = (badge.id, badge.marks.clone(), kit.generation(), kit.text_scale.to_bits(), kit.wall_backdrop, over_app);
         Ok(Built { key, pane, marks, inset, size: (w, h), at: (0.0, 0.0), visible: false })
     }
@@ -235,5 +246,28 @@ mod tests {
             }
         }
         assert_ne!(inks[0], inks[2], "the light look's ink is its own");
+    }
+
+    #[test]
+    fn a_4k_dolby_vision_truehd_atmos_7_1_badge_is_one_whole_row_at_the_largest_text_size() {
+        let marks = ["uhd", "dolby-vision", "atmos", "7.1"];
+        let (_h, mut kit) = testkit::kit_in(Mode::Dark, 2.0);
+        kit.marks = logo::load_all(&testkit::module_dir().join("icons/video"), &VIDEO_MARKS);
+        let mut s = BadgeSurface::new(Z, &json!({}), &json!({}));
+        let zone = s.registry.zone_of("format", &s.frame);
+        assert_eq!(s.fitted(&kit, &marks), marks, "nothing is dropped or shortened");
+        let (w, h) = measure(&kit, &marks);
+        assert!(w <= zone.w as f32 * MAX_SHARE, "{w} wide against a zone {} wide", zone.w);
+        let badge = Badge { id: 1, marks: marks.to_vec(), since: 0, expires: 5000 };
+        assert!(s.apply(&mut kit, Some(&badge), &[], false).unwrap());
+        let r = s.rects()[0];
+        assert_eq!((r.w, r.h), (w, h));
+        assert!(r.x >= zone.x as f32 && r.x + r.w <= (zone.x + zone.w) as f32 && r.y >= zone.y as f32, "inside its zone: {r:?}");
+        // one row: every mark side by side at one height, the whole row inside the pane's pads
+        let (mark_h, pad_x, gap, _) = metrics(&kit);
+        let row: f32 = marks.iter().map(|m| kit.marks.iter().find(|a| a.name == *m).unwrap().width_at(mark_h) as f32).sum::<f32>() + gap * (marks.len() - 1) as f32;
+        let built = s.built.as_ref().unwrap();
+        assert_eq!((built.inset.0, w), (pad_x, 2.0 * pad_x + row));
+        assert!(built.inset.1 >= 0.0 && built.inset.1 + mark_h as f32 <= h, "the marks are inside the pane's height");
     }
 }

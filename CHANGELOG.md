@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The format badge shows the sound of apps that decode it themselves. An app (Marquee, a native Plex client) posts what it delivers to the helper's `POST /v1/media/audio` (codec, Atmos, channels, repeated every 30 s; the entry ends 75 s after the last post) and the badge puts the matching mark (Atmos, Dolby TrueHD, Dolby Digital Plus, Dolby Digital, DTS:X, DTS-HD, DTS, PCM) and the 5.1 or 7.1 mark beside the size and range, while that app is in front and the entry is for the picture shown. The marks stay on one row: past half the zone's width the speakers go first, then a Dolby Digital family sound takes the Dolby Audio mark. See `docs/media-audio.md`. Not yet seen on the TV.
+
 LumaGame hints show the controller's A, B and Y when a controller was the last input used (or is connected and the remote has not been touched), and the remote's icons again after a remote key. A selects, B is Back, Cancel and Keep, Y is Sort in the library and Stats in the stream menu. Y on the controller never released its Menu key, so it did nothing and swallowed the next A press; it now releases. Not yet seen on the TV.
 
 After a stream ends, LumaGame no longer turns black with no way out. Settings opened from the in-stream menu left that menu on the Back history, so Back on the game's page reopened it for the finished session and its Resume led to the empty stream page, which neither keys nor a relaunch left. Back now takes the menu off the history, the session's end clears it, and the stream page or menu shown without a live stream falls back to the game's page. Not yet seen on the TV.

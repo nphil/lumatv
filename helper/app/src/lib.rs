@@ -84,6 +84,7 @@ pub mod lgchannels;
 pub mod log;
 pub mod logging;
 pub mod logging_native;
+pub mod media_audio;
 pub mod placement;
 pub mod phone_remote;
 pub mod plex;
