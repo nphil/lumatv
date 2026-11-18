@@ -9,9 +9,11 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
-## Liquid glass refinements, 2026-11-17 (main 54875f81, installed 10:18 EST; unaccepted)
+## Liquid glass refinements, 2026-11-17 (main 54875f81, installed 10:18 EST; lean revised by 6fe3ae72, installed 20:01 EST; unaccepted)
 
 Installed compositor `a8bebe4619d3658e36a9255fae512ad02c7a35180a80c5cf17ceead6ec137eb3` and ui `83bbea8fddb82627503c483e37d4cc3ef8847ecd26e518d32659110ad845740b`; sm `65f6ca69`, helper, feeder and decoder libraries unchanged. Liquid card glass gains a prism fringe in its bevel, an edge line lit by the backdrop's hue and brightness, and a lean of focus moves (6 px times glass strength, capped at 2.5 % of the shorter side). The owner's theme uses Liquid at default strength, so all three are live. Installed in Active Standby; the cutover finished live, mounted and enabled with zero failures, and the lease was released.
+
+The owner found the 6 px lean with the outgoing tile pulled along too much wobble. Main 6fe3ae72 leans only the incoming tile, by 3 px times glass strength; installed at 20:01 EST at the owner's request with the TV on at Home, as ui `3d3fcce3b3881f18fef06fef40a648020e30a8a888c5117b6e1cce1cb9758365` (compositor `a8bebe46` and sm unchanged). The cutover finished live, mounted and enabled with zero failures, Home in front, and the lease was released. The revised lean's feel is unconfirmed. Rollback: `/tmp/cs/18172b987bff/app-snapshot/backup/lumatv-ui-83bbea8f`.
 
 Measured on the TV at 14:29–14:36 EST in an owner-approved on-screen window (receiver untouched):
 
