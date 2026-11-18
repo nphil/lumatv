@@ -4,7 +4,7 @@ use super::{
     pages::{logo_art, stage},
     paint::{Fill, H, Paint, Sweep, W},
 };
-use crate::game::model::Focus;
+use crate::game::model::{Focus, Key};
 use compositor_protocol::{Edges, Props, Rect};
 use lumagame_core::session::Phase;
 use lumatv_tokens::{Radius, TypeRole as Type};
@@ -135,7 +135,8 @@ pub fn launch(p: &mut Paint<'_>) {
         None => {}
     }
     if p.model.can_cancel() {
-        p.button(CANCEL, Focus::Cancel, "Cancel", Some(Icon::Back), x, cancel_y, false, true, 12);
+        let lead = p.lead(Key::Back, Icon::Back);
+        p.button_lead(CANCEL, Focus::Cancel, "Cancel", Some(lead), x, cancel_y, false, true, 12);
     }
 }
 

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+LumaGame hints show the controller's A, B and Y when a controller was the last input used (or is connected and the remote has not been touched), and the remote's icons again after a remote key. A selects, B is Back, Cancel and Keep, Y is Sort in the library and Stats in the stream menu. Y on the controller never released its Menu key, so it did nothing and swallowed the next A press; it now releases. Not yet seen on the TV.
+
 After a stream ends, LumaGame no longer turns black with no way out. Settings opened from the in-stream menu left that menu on the Back history, so Back on the game's page reopened it for the finished session and its Resume led to the empty stream page, which neither keys nor a relaunch left. Back now takes the menu off the history, the session's end clears it, and the stream page or menu shown without a live stream falls back to the game's page. Not yet seen on the TV.
 
 LumaGame has a new icon: a game controller knocked out of a bright foam-to-iris plate. It fills the Home tile edge to edge; the old icon had transparent corners, so Home drew it inset and small. Not yet seen on the TV.

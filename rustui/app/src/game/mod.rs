@@ -2,6 +2,7 @@
 pub mod diagnostics;
 pub mod helper;
 pub mod host;
+pub mod input;
 pub mod model;
 pub mod native;
 pub mod observer;

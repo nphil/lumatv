@@ -1,5 +1,6 @@
 //! Native, retained LumaGame surfaces. Plans change on input or completed artwork, never on an idle video frame.
 mod art;
+mod glyph;
 mod lab;
 mod launch;
 mod pages;

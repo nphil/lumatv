@@ -84,7 +84,7 @@ fn qt_colour(c: Straight) -> String {
     else { format!("#{:02X}{:02X}{:02X}{:02X}", c.a, c.r, c.g, c.b) }
 }
 
-fn composite(f: Straight, b: Straight) -> Straight {
+pub fn composite(f: Straight, b: Straight) -> Straight {
     let a = f.a as f64 / 255.0;
     let channel = |x: u8, y: u8| (x as f64 * a + y as f64 * (1.0-a)).round() as u8;
     Straight::new(channel(f.r,b.r),channel(f.g,b.g),channel(f.b,b.b),255)
@@ -94,7 +94,8 @@ fn luminance(c: Straight) -> f64 {
     let linear = |x: u8| { let s = x as f64 / 255.0; if s <= 0.04045 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) } };
     0.2126*linear(c.r) + 0.7152*linear(c.g) + 0.0722*linear(c.b)
 }
-fn contrast(a: Straight, b: Straight) -> f64 {
+/// WCAG contrast of two colours; the first is composited by the caller where it is translucent.
+pub fn contrast(a: Straight, b: Straight) -> f64 {
     let x = luminance(a); let y = luminance(b);
     (x.max(y)+0.05)/(x.min(y)+0.05)
 }

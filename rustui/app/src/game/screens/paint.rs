@@ -1,4 +1,4 @@
-use super::{art, symbols::Symbol};
+use super::{art, glyph::Lead, symbols::Symbol};
 use crate::game::model::{Focus, Model};
 use compositor_protocol::{Backdrop, Edges, Glass, Props, Rect, Rgba};
 use lumatv_tokens::{Radius, Tokens, TypeRole};
@@ -408,21 +408,31 @@ impl<'a> Paint<'a> {
         }
     }
     pub fn button(&mut self, id: u64, focus: Focus, label: &str, icon: Option<Icon>, x: f32, y: f32, primary: bool, stage: bool, z: i32) -> f32 {
+        self.button_lead(id, focus, label, icon.map(Lead::Icon), x, y, primary, stage, z)
+    }
+    /// A button led by an icon or by a face button; the two take the same room, so switching between them moves nothing.
+    pub fn button_lead(&mut self, id: u64, focus: Focus, label: &str, lead: Option<Lead>, x: f32, y: f32, primary: bool, stage: bool, z: i32) -> f32 {
         let from = self.plan.nodes.len();
         let side = 30.0 * self.scale;
         let h = self.tokens.target.max(self.line(TypeRole::Label) + 24.0);
         let ty = self.bold(TypeRole::Label);
         let label_w = self.fonts.measure(label, ty).width.ceil();
-        let w = label_w + if icon.is_some() { side + 14.0 } else { 0.0 } + 62.0;
+        let w = label_w + if lead.is_some() { side + 14.0 } else { 0.0 } + 62.0;
         let frame = Frame::new(x, y, w, h);
         let focused = self.focused(focus);
         self.surface(id, frame, if primary { Fill::Primary } else { Fill::Glass }, Radius::Pill, stage, focused, !primary, z);
         let ink = if primary { self.primary(stage).1 } else { self.ink(Role::Ink, stage) };
         let mut word =
-            self.word(label, TypeRole::Label, ink, 28.0 + if icon.is_some() { side + 14.0 } else { 0.0 }, (h - self.line(TypeRole::Label)) / 2.0, label_w);
+            self.word(label, TypeRole::Label, ink, 28.0 + if lead.is_some() { side + 14.0 } else { 0.0 }, (h - self.line(TypeRole::Label)) / 2.0, label_w);
         word.ty = ty;
-        let marks = icon.map(|icon| vec![Mark { form: Form::Icon(icon, side as u32), colour: ink, x: 28.0, y: (h - side) / 2.0 }]).unwrap_or_default();
+        let marks = match lead {
+            Some(Lead::Icon(icon)) => vec![Mark { form: Form::Icon(icon, side as u32), colour: ink, x: 28.0, y: (h - side) / 2.0 }],
+            _ => Vec::new(),
+        };
         self.words(id + 1, frame, vec![word], marks, z + 2);
+        if let Some(Lead::Pad(face)) = lead {
+            self.pad_glyph(id + 2, face, Frame::new(x + 28.0, y + (h - side) / 2.0, side, side), primary, stage, z + 2);
+        }
         if focused {
             self.zoom(from, frame, self.tokens.focus.button_scale);
         }
@@ -473,17 +483,19 @@ impl<'a> Paint<'a> {
         );
         w
     }
-    pub fn hint(&mut self, id: u64, label: &str, icon: Icon, x: f32, y: f32, stage: bool, z: i32) -> f32 {
+    /// A hint: its key's mark, then what the key does. A face button takes the same room as an icon.
+    pub fn hint(&mut self, id: u64, label: &str, lead: impl Into<Lead>, x: f32, y: f32, stage: bool, z: i32) -> f32 {
         let side = 37.0 * self.scale;
         let w = self.width(label, TypeRole::Label) + side + 10.0;
         let frame = Frame::new(x, y, w, side.max(self.line(TypeRole::Label)));
-        self.words(
-            id,
-            frame,
-            vec![self.word(label, TypeRole::Label, self.ink(Role::Ink2, stage), side + 10.0, (side - self.line(TypeRole::Label)) / 2.0, w - side - 10.0)],
-            vec![self.mark(icon, side, 0.0, 0.0, Role::Ink, stage)],
-            z,
-        );
+        let word = self.word(label, TypeRole::Label, self.ink(Role::Ink2, stage), side + 10.0, (side - self.line(TypeRole::Label)) / 2.0, w - side - 10.0);
+        match lead.into() {
+            Lead::Icon(icon) => self.words(id, frame, vec![word], vec![self.mark(icon, side, 0.0, 0.0, Role::Ink, stage)], z),
+            Lead::Pad(face) => {
+                self.pad_glyph(id, face, Frame::new(x, y, side, side), false, stage, z);
+                self.words(id + 2, frame, vec![word], vec![], z);
+            }
+        }
         w
     }
 }

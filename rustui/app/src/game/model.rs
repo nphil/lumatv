@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use super::helper::{ControllerChange, GameSir, GameSirState, Leadjoy, LeadjoyState, LeadjoyView};
 use super::stats::{Mode as StatsMode, Overlay, Telemetry};
 use super::diagnostics::{Config as DiagnosticsConfig, Level as DiagnosticsLevel, Status as DiagnosticsStatus};
+use super::input::{Source, Sources};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -64,6 +65,13 @@ pub enum Input {
         key: Key,
         down: bool,
     },
+    /// A press on a controller, as the pad reader makes it (the remote's keys are [`Input::Key`]).
+    PadKey {
+        key: Key,
+        down: bool,
+    },
+    /// The number of controllers connected, whenever it changes.
+    Controllers(usize),
     Engine {
         engine: EngineId,
         message: FromEngine,
@@ -616,6 +624,7 @@ pub struct Model {
     requested_art: BTreeSet<String>,
     requested_details: BTreeSet<GameId>,
     pages: BTreeMap<(EngineId, TargetId), Vec<ipc::LibraryEntry>>,
+    sources: Sources,
 }
 impl Model {
     pub fn new(state: State, mut listing: Listing, manifests: Vec<Manifest>) -> Self {
@@ -667,6 +676,7 @@ impl Model {
             requested_art: BTreeSet::new(),
             requested_details: BTreeSet::new(),
             pages: BTreeMap::new(),
+            sources: Sources::default(),
         };
         m.rebuild_catalog();
         m.rebuild_navigation();
@@ -680,6 +690,10 @@ impl Model {
     }
     pub fn games(&self) -> &[Game] {
         &self.games
+    }
+    /// The kind of input whose glyphs hints draw.
+    pub fn input_source(&self) -> Source {
+        self.sources.glyphs()
     }
     pub fn foreground(&self) -> bool {
         self.foreground
@@ -862,11 +876,20 @@ impl Model {
         let mut out = Vec::new();
         let mut changed = true;
         match input {
-            Input::Key { key, down } => changed = self.key(key, down, &mut out),
+            Input::Key { key, down } => {
+                let switched = down && self.sources.used(Source::Remote);
+                changed = self.key(key, down, &mut out) | switched;
+            }
+            Input::PadKey { key, down } => {
+                let switched = down && self.sources.used(Source::Controller);
+                changed = self.key(key, down, &mut out) | switched;
+            }
+            Input::Controllers(count) => changed = self.sources.connected(count),
             Input::Click { focus, down } => {
                 if self.navigation.iter().any(|n| n.id == focus) {
+                    let switched = down && self.sources.used(Source::Remote);
                     self.view.focus = focus;
-                    changed = self.key(Key::Ok, down, &mut out);
+                    changed = self.key(Key::Ok, down, &mut out) | switched;
                 }
             }
             Input::Engine { engine, message } => {
@@ -957,7 +980,10 @@ impl Model {
                     self.rebuild_filter();
                 }
             },
-            Input::Lab { now_ns, reports, names, frame } => changed = self.lab_input(now_ns, reports, names, frame),
+            Input::Lab { now_ns, reports, names, frame } => {
+                let switched = reports.iter().any(|(_, report)| report.buttons != 0) && self.sources.used(Source::Controller);
+                changed = self.lab_input(now_ns, reports, names, frame) | switched;
+            }
             Input::Frames(frames) => { self.telemetry.frames(frames, self.now_ms); changed = false; }
             Input::Display(display) => { self.telemetry.display(display, self.now_ms); changed = false; }
             Input::StatsSetting(setting) => {
@@ -2366,6 +2392,9 @@ impl Model {
                 }
             }
             ipc::Event::Key { key, down } => {
+                if down {
+                    self.sources.used(Source::Controller);
+                }
                 if let Some(key) = Key::from_pad(key) {
                     self.key(key, down, out);
                 }

@@ -313,7 +313,13 @@ knob.
 - **Status chip**: 44 high, dot or icon plus a word: Ready, Asleep, Offline, Sign in, Unknown,
   Installed, Install, Queue. **Capability chip**: outlined, with a positive tick, only for verified
   capabilities.
-- **Hint**: the remote-key glyph plus a verb (`Select`, `Close`, `Sort`); never the key's name.
+- **Hint**: the key's glyph plus a verb (`Select`, `Close`, `Sort`); never the key's name. The glyph
+  follows the last input used: the remote's icon, or on a controller the Xbox face button (A select,
+  B back/cancel/keep, Y menu: Sort in the library, Stats in the stream menu). A connected controller
+  with no key pressed yet counts as the last input; the first press of the other kind switches. A
+  face glyph is a disc of the same size as the icon, in the button's colour if it holds 3:1 on the
+  canvas and sheet (letter 4.5:1), otherwise the theme's ink. X, the bumpers, View and Menu do
+  nothing in menus, so they get no glyph.
 - **Hub**: top bar with back, title, Favourite and more; then logo, meta, description, capability
   chips, `[Play · target]` and `[Choose where to play]`, and the target summary (engine,
   host/store/account, readiness). After a failed launch or for an unreachable target a notice

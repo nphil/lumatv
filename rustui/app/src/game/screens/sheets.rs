@@ -3,7 +3,7 @@ use super::{
     paint::{Body, Fill, H, Node, PAGE_EXTENT, Paint, SHEET_GROUP, ScrollGroup, W},
 };
 use compositor_protocol::{Edges, Rect};
-use crate::game::{helper::LeadjoyState, model::{Focus, Page, Section, Sheet, Sort}};
+use crate::game::{helper::LeadjoyState, model::{Focus, Key, Page, Section, Sheet, Sort}};
 use lumagame_core::ipc::AuthState;
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{
@@ -95,8 +95,10 @@ fn chooser(p: &mut Paint<'_>) {
     }
     p.hit(Focus::Remember, rf);
     let y = f.y + height - 34.0 - p.tokens.target.max(p.line(Type::Label) + 24.0);
-    let h = p.hint(8710, "Back", Icon::Back, x, y + 12.0, false, 33);
-    p.hint(8711, "Choose", Icon::Circle, x + h + 24.0, y + 12.0, false, 33);
+    let back = p.lead(Key::Back, Icon::Back);
+    let choose = p.lead(Key::Ok, Icon::Circle);
+    let h = p.hint(8710, "Back", back, x, y + 12.0, false, 33);
+    p.hint(8714, "Choose", choose, x + h + 24.0, y + 12.0, false, 33);
     let label = "Play here";
     let button_w = p.width(label, Type::Label) + 110.0;
     p.button(8720, Focus::SheetAction(0), label, Some(Icon::Play), x + w - button_w, y, true, false, 34);
@@ -205,7 +207,8 @@ fn auth(p: &mut Paint<'_>) {
             } else {
                 p.hint(8030, "Waiting for sign-in", Icon::Hourglass, q.x, top + 384.0, false, 33);
             }
-            p.button(8040, Focus::SheetAction(0), "Cancel", Some(Icon::Back), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
+            let lead = p.lead(Key::Back, Icon::Back);
+            p.button_lead(8040, Focus::SheetAction(0), "Cancel", Some(lead), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
         }
         Some(AuthState::ShowPin { pin: code }) => pin(p, name, code, false),
         Some(AuthState::EnterPin { digits }) => {
@@ -225,7 +228,8 @@ fn auth(p: &mut Paint<'_>) {
                 33,
             );
             p.hint(8030, "Waiting for approval", Icon::Hourglass, f.x + 40.0, f.y + f.h - 210.0, false, 33);
-            p.button(8040, Focus::SheetAction(0), "Cancel", Some(Icon::Back), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
+            let lead = p.lead(Key::Back, Icon::Back);
+            p.button_lead(8040, Focus::SheetAction(0), "Cancel", Some(lead), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
         }
         Some(AuthState::Failed { message, .. }) => {
             let f = panel(p, 1080.0, 500.0f32.max(p.line(Type::Title) + p.line(Type::Body) * 4.0 + 200.0));
@@ -276,7 +280,8 @@ fn auth(p: &mut Paint<'_>) {
                 32,
             );
             p.hint(8020, "Waiting for the integration", Icon::Hourglass, f.x + 40.0, f.y + 180.0, false, 33);
-            p.button(8040, Focus::SheetAction(0), "Cancel", Some(Icon::Back), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
+            let lead = p.lead(Key::Back, Icon::Back);
+            p.button_lead(8040, Focus::SheetAction(0), "Cancel", Some(lead), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
         }
     }
 }
@@ -322,17 +327,8 @@ fn pin(p: &mut Paint<'_>, name: &str, code: &str, enter: bool) {
     } else {
         p.hint(8100, "Waiting for approval", Icon::Hourglass, x, y, false, 33);
     }
-    p.button(
-        8500,
-        Focus::SheetAction(0),
-        if enter { "Pair" } else { "Cancel" },
-        Some(if enter { Icon::Tick } else { Icon::Back }),
-        x,
-        f.y + f.h - 104.0,
-        enter,
-        false,
-        34,
-    );
+    let lead = if enter { Icon::Tick.into() } else { p.lead(Key::Back, Icon::Back) };
+    p.button_lead(8500, Focus::SheetAction(0), if enter { "Pair" } else { "Cancel" }, Some(lead), x, f.y + f.h - 104.0, enter, false, 34);
 }
 fn end_session(p: &mut Paint<'_>) {
     let (title, body, confirm) = p.model.end_copy();
@@ -355,7 +351,8 @@ fn delete(p: &mut Paint<'_>) {
     p.text(8010, &title, Frame::new(x, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0), Type::Title, Role::Ink, false, 32);
     p.wrapped(8020, &body, Frame::new(x, f.y + 78.0 + p.line(Type::Title), f.w - 80.0, 0.0), Type::Body, Role::Ink2, false, 32);
     let y = f.y + f.h - 104.0;
-    let w = p.button(8030, Focus::SheetAction(0), "Keep", Some(Icon::Back), x, y, true, false, 34);
+    let keep = p.lead(Key::Back, Icon::Back);
+    let w = p.button_lead(8030, Focus::SheetAction(0), "Keep", Some(keep), x, y, true, false, 34);
     p.button(8040, Focus::SheetAction(1), "Delete", Some(Icon::Close), x + w + 16.0, y, false, false, 34);
 }
 fn edit_text(p: &mut Paint<'_>) {
@@ -467,9 +464,11 @@ pub fn overlay(p: &mut Paint<'_>) {
     let mut x = p.x;
     let stats_label = format!("Stats · {}", p.model.prefs.stats.mode.name());
     let mut y = actions_y;
-    for (i, (label, icon)) in [("Resume", Icon::Play), ("Stream settings", Icon::Sliders), (stats_label.as_str(), Icon::Gauge), ("End session", Icon::Stop)].into_iter().enumerate() {
+    let stats = p.lead(Key::Menu, Icon::Gauge);
+    let buttons = [("Resume", Icon::Play.into()), ("Stream settings", Icon::Sliders.into()), (stats_label.as_str(), stats), ("End session", Icon::Stop.into())];
+    for (i, (label, lead)) in buttons.into_iter().enumerate() {
         if p.scale >= 2.0 && i == 2 { x = p.x; y += button_h + 16.0; }
-        x += p.button(110 + i as u64 * 5, Focus::Overlay(i), label, Some(icon), x, y, i == 0, true, 12) + 16.0;
+        x += p.button_lead(110 + i as u64 * 5, Focus::Overlay(i), label, Some(lead), x, y, i == 0, true, 12) + 16.0;
     }
 }
 pub fn media(p: &mut Paint<'_>) {

@@ -705,6 +705,26 @@ fn screens() -> Vec<(String, Model)> {
         })
         .collect::<Vec<_>>();
     out.extend(large);
+    let pads = out
+        .iter()
+        .filter(|(name, _)| {
+            [
+                "07-library", "09-chooser", "32-chooser-text200", "11-pairing", "12-signin", "29-approval", "18-state-queue", "18-state-queue-text200",
+                "11-pairing-text200", "12-signin-text200", "15-overlay", "15-overlay-text200", "16-overlay-end-confirm",
+            ]
+            .contains(&name.as_str())
+        })
+        .flat_map(|(name, m)| {
+            let mut dark = m.clone();
+            // The pad's first press, so a remote key earlier in the fixture does not decide the glyphs.
+            let report = lumatv_gfn_pad::RawReport { buttons: lumatv_gfn_pad::button::A, ..Default::default() };
+            dark.step(Input::Lab { now_ns: 0, reports: vec![(0, report)], names: Default::default(), frame: 0 });
+            let mut light = dark.clone();
+            light.prefs.light = true;
+            [(format!("{name}-pad"), dark), (format!("{name}-pad-light"), light)]
+        })
+        .collect::<Vec<_>>();
+    out.extend(pads);
     out
 }
 fn png(path: &Path, w: u32, h: u32, bytes: &[u8]) -> io::Result<()> {
