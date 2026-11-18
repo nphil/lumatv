@@ -4,6 +4,7 @@ pub mod helper;
 pub mod host;
 pub mod model;
 pub mod native;
+pub mod observer;
 pub mod screens;
 pub mod store;
 pub mod stats;

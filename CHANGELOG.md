@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+After a stream ends, LumaGame no longer turns black with no way out. Settings opened from the in-stream menu left that menu on the Back history, so Back on the game's page reopened it for the finished session and its Resume led to the empty stream page, which neither keys nor a relaunch left. Back now takes the menu off the history, the session's end clears it, and the stream page or menu shown without a live stream falls back to the game's page. Not yet seen on the TV.
+
 LumaGame has a new icon: a game controller knocked out of a bright foam-to-iris plate. It fills the Home tile edge to edge; the old icon had transparent corners, so Home drew it inset and small. Not yet seen on the TV.
 
 A GeForce NOW session asked for in HDR now carries the default display data (1000 nits peak, 400 nits frame average, 0 minimum) that other clients send, in LumaGame and in the older GeForce NOW app; both had sent a peak/minimum pair without the frame average. Whether Doom Eternal's own HDR switch then works is not yet checked on the TV.
@@ -34,6 +36,8 @@ Smooth transitions freeze an eligible app and its grouped UI in bounded GPU-only
 Dormant video exports do not block eligible RGB menu snapshots. An actual video hole, including paused video, still discards the saved picture and keeps video stationary.
 
 LumaGame has opt-in remote diagnostics in Settings, with a private write token and no default destination. It sends bounded batches of lifecycle, draw/swap and aggregate stream measurements; switching it off discards unsent events. An already delivered message cannot be recalled.
+
+LumaGame's remote diagnostics has a log level in Settings › Diagnostics: Error, Warn, Info (the default, and what settings saved before it keep), Debug and Trace. Warn adds stalls, packet loss, missing HDR, engine errors and a stream whose video window is still muted or empty five seconds after it ran; Info adds the session's phases, negotiated stream format, the TV's display mode with the video window's mute state, and the time to the first picture; Debug adds two-second frame pacing; Trace adds six-second timing histograms and the Lab's round-trip times. A busy stream is estimated at 2 KB a minute at Warn, 23 KB at Info, 29 KB at Debug and 31 KB at Trace, within the unchanged 3 KB batch every five seconds, where Trace and Debug lines yield first. The sizes are estimated from a synthetic stream; none of this has run on the TV.
 
 LumaGame (`org.nphil.lumagame`) is a game streaming app of its own that puts GeForce NOW, Punktfunk and Sunshine/Apollo (the separately licensed GameStream engine, pinned at 0.1.1) behind one library on the video plane. Its engines take the app's common stream settings: resolution, frame rate, codec, HDR and bitrate (5–150 Mbps), with AV1 up to 60 fps. LumaTV's package carries it once built; `lumatv game install` puts it on the TV beside the GeForce NOW app, and `lumatv game adopt-gfn` copies that app's sign-in so GeForce NOW needs no new one. A Gaming plugin (off by default) gives a session's controller readers real-time priority; its low-latency picture controls stay unavailable until qualified on the TV. Not yet accepted on the TV.
 

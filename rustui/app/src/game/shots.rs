@@ -359,12 +359,15 @@ fn screens() -> Vec<(String, Model)> {
         m.prefs.text_percent = scale;
         m.prefs.fps = 120;
         m.prefs.hdr = true;
+        m.diagnostics.level = crate::game::diagnostics::Level::Debug;
         m.view.focus = if section == Section::Appearance {
             Focus::Theme(3)
         } else if section == Section::Integrations {
             Focus::Integration(1)
         } else if section == Section::Controllers {
             Focus::Setting(0)
+        } else if section == Section::Diagnostics {
+            Focus::Setting(1)
         } else {
             Focus::Setting(3)
         };
@@ -374,7 +377,7 @@ fn screens() -> Vec<(String, Model)> {
     secret.view.page = Page::Settings;
     secret.view.section = Section::Diagnostics;
     secret.view.sheet = Some(Sheet::EditText);
-    secret.view.edit_field = Some(3);
+    secret.view.edit_field = Some(4);
     secret.view.address = "fixture-token".into();
     secret.view.focus = Focus::Keyboard(0);
     add("54-diagnostics-token-masked", secret);
@@ -382,9 +385,10 @@ fn screens() -> Vec<(String, Model)> {
     long_diagnostics.view.page = Page::Settings;
     long_diagnostics.view.section = Section::Diagnostics;
     long_diagnostics.prefs.text_percent = 200;
+    long_diagnostics.diagnostics.level = crate::game::diagnostics::Level::Trace;
     long_diagnostics.diagnostics.server = "https://long-server-name.example.invalid/a/long/path/for/remote/diagnostics".into();
     long_diagnostics.diagnostics.topic = "long_diagnostics_topic_name_for_a_large_text_settings_screen_123".into();
-    long_diagnostics.view.focus = Focus::Setting(5);
+    long_diagnostics.view.focus = Focus::Setting(6);
     long_diagnostics.rebuild_navigation();
     add("55-diagnostics-long-text200-test-focused", long_diagnostics);
     let mut m = base.clone();

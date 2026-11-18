@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use super::helper::{ControllerChange, GameSir, GameSirState, Leadjoy, LeadjoyState, LeadjoyView};
 use super::stats::{Mode as StatsMode, Overlay, Telemetry};
-use super::diagnostics::{Config as DiagnosticsConfig, Status as DiagnosticsStatus};
+use super::diagnostics::{Config as DiagnosticsConfig, Level as DiagnosticsLevel, Status as DiagnosticsStatus};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -573,6 +573,14 @@ pub struct Neighbours {
     pub left: Option<Focus>,
     pub right: Option<Focus>,
 }
+/// What moved the session towards its end, for diagnostics. It is read from the input that did it, so an engine's own wording never has to be parsed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cause { Owner, Close, Background, Engine, EngineExit, Timeout }
+impl Cause {
+    pub fn word(self) -> &'static str {
+        match self { Cause::Owner => "owner", Cause::Close => "app_close", Cause::Background => "background", Cause::Engine => "engine", Cause::EngineExit => "engine_exit", Cause::Timeout => "timeout" }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct Model {
     state: State,
@@ -603,8 +611,8 @@ pub struct Model {
     pressed: Option<(Key, Focus)>,
     back: Vec<(Page, Focus)>,
     sheet_return: Focus,
-    overlay_return: bool,
     closing: bool,
+    ended_by: Option<Cause>,
     requested_art: BTreeSet<String>,
     requested_details: BTreeSet<GameId>,
     pages: BTreeMap<(EngineId, TargetId), Vec<ipc::LibraryEntry>>,
@@ -654,8 +662,8 @@ impl Model {
             pressed: None,
             back: Vec::new(),
             sheet_return: Focus::None,
-            overlay_return: false,
             closing: false,
+            ended_by: None,
             requested_art: BTreeSet::new(),
             requested_details: BTreeSet::new(),
             pages: BTreeMap::new(),
@@ -695,6 +703,19 @@ impl Model {
     }
     pub fn session_active(&self) -> bool {
         self.session.as_ref().is_some_and(|s| !s.is_done())
+    }
+    /// The session as diagnostics sees it: how it stands after a step, with what was asked for beside what the stream turned out to be.
+    pub fn observed(&self) -> Option<super::observer::Seen<'_>> {
+        let s = self.session.as_ref()?;
+        Some(super::observer::Seen {
+            id: s.id.0,
+            engine: super::observer::engine_word(s.source.engine.as_str()),
+            phase: s.phase(),
+            stream: self.view.stream.as_ref(),
+            ended_by: self.ended_by.map(Cause::word),
+            played_s: s.played(self.now_ms),
+            want: super::observer::Want { hdr: self.prefs.hdr, fps: self.prefs.fps, height: self.prefs.height },
+        })
     }
     pub fn streaming(&self) -> bool {
         self.session.as_ref().is_some_and(|s| {
@@ -983,6 +1004,14 @@ impl Model {
                     }
                 }
             }
+        }
+        // Running and the in-stream menu exist only while the stream runs: Running draws nothing over the video plane, so either page
+        // outliving its session is a black screen that no key, and no relaunch, leaves.
+        if matches!(self.view.page, Page::Running | Page::Overlay) && !self.session.as_ref().is_some_and(|s| *s.phase() == Phase::Running) {
+            self.view.sheet = None;
+            self.view.hub_tab = 0;
+            (self.view.page, self.view.focus) = if self.view.selected.is_some() { (Page::Hub, Focus::HubAction(0)) } else { (Page::Home, Focus::Nav(0)) };
+            changed = true;
         }
         if changed || !out.is_empty() {
             self.revision = self.revision.wrapping_add(1);
@@ -1431,13 +1460,14 @@ impl Model {
                 } else if self.view.section == Section::Diagnostics {
                     match i {
                         0 => { self.diagnostics.enabled = !self.diagnostics.enabled; out.push(Command::Diagnostics(self.diagnostics.clone())); self.stats_request(out); }
-                        1..=3 => {
+                        1 => { self.diagnostics.level = DiagnosticsLevel::ALL[(self.diagnostics.level.index() + 1) % DiagnosticsLevel::ALL.len()]; out.push(Command::Diagnostics(self.diagnostics.clone())); }
+                        2..=4 => {
                             self.view.edit_field = Some(i);
-                            self.view.address = match i { 1 => self.diagnostics.server.clone(), 2 => self.diagnostics.topic.clone(), _ => String::new() };
+                            self.view.address = match i { 2 => self.diagnostics.server.clone(), 3 => self.diagnostics.topic.clone(), _ => String::new() };
                             self.open_sheet(Sheet::EditText, Focus::Keyboard(0));
                         }
-                        4 => { self.diagnostics.token.clear(); out.push(Command::Diagnostics(self.diagnostics.clone())); }
-                        5 => out.push(Command::DiagnosticTest),
+                        5 => { self.diagnostics.token.clear(); out.push(Command::Diagnostics(self.diagnostics.clone())); }
+                        6 => out.push(Command::DiagnosticTest),
                         _ => {}
                     }
                 } else if self.view.section == Section::About {
@@ -1526,7 +1556,6 @@ impl Model {
             Focus::Overlay(i) => match i {
                 0 => self.resume(out),
                 1 => {
-                    self.overlay_return = true;
                     self.view.section = Section::Streaming;
                     self.show_page(Page::Settings, Focus::Setting(0));
                 }
@@ -1748,6 +1777,14 @@ impl Model {
                 }
                 _ => return false,
             },
+            Section::Diagnostics => match row {
+                1 => {
+                    self.diagnostics.level = DiagnosticsLevel::ALL[step(self.diagnostics.level.index(), DiagnosticsLevel::ALL.len())];
+                    out.push(Command::Diagnostics(self.diagnostics.clone()));
+                    return true;
+                }
+                _ => return false,
+            },
             _ => return false,
         }
         self.save_prefs(out);
@@ -1878,6 +1915,7 @@ impl Model {
         self.next_session = self.next_session.wrapping_add(1);
         self.session_start = self.unix_s;
         self.session = Some(session);
+        self.ended_by = None;
         self.view.selected = Some(game);
         self.view.notice = None;
         self.view.stream = None;
@@ -1891,7 +1929,15 @@ impl Model {
     }
     fn session_input(&mut self, input: session::Input, out: &mut Vec<Command>) {
         if let Some(session) = &mut self.session {
+            let cause = match &input {
+                session::Input::Cancel | session::Input::Stop { .. } => if self.closing { Cause::Close } else { Cause::Owner },
+                session::Input::Background => Cause::Background,
+                session::Input::EngineGone => Cause::EngineExit,
+                session::Input::Engine(_) => Cause::Engine,
+                session::Input::Tick => Cause::Timeout,
+            };
             let effects = session.step(self.now_ms, input);
+            if self.ended_by.is_none() && matches!(session.phase(), Phase::Stopping | Phase::Done(_)) { self.ended_by = Some(cause); }
             self.queue.observe(session.phase());
             self.session_effects(effects, out);
         }
@@ -1939,6 +1985,8 @@ impl Model {
                         out.push(Command::SaveState);
                     }
                     self.view.page = Page::Hub;
+                    // The in-stream menu cannot be gone back to once its stream has ended.
+                    self.back.retain(|(page, _)| *page != Page::Overlay);
                     self.view.sheet = None;
                     self.view.focus = Focus::HubAction(0);
                     self.view.hub_tab = 0;
@@ -1999,8 +2047,9 @@ impl Model {
             Page::Launch => self.session_input(session::Input::Cancel, out),
             Page::Running => {}
             Page::Overlay => self.resume(out),
-            Page::Settings if self.overlay_return => {
-                self.overlay_return = false;
+            // Settings opened from the in-stream menu returns to it from any row.
+            Page::Settings if matches!(self.back.last(), Some((Page::Overlay, _))) => {
+                self.back.pop();
                 self.view.page = Page::Overlay;
                 self.view.focus = Focus::Overlay(1);
             }
@@ -2141,9 +2190,9 @@ impl Model {
     fn save_text(&mut self, out: &mut Vec<Command>) {
         if self.view.page == Page::Settings && self.view.section == Section::Diagnostics {
             match self.view.edit_field {
-                Some(1) => self.diagnostics.server = self.view.address.trim().into(),
-                Some(2) => self.diagnostics.topic = self.view.address.trim().into(),
-                Some(3) if !self.view.address.is_empty() => self.diagnostics.token = std::mem::take(&mut self.view.address),
+                Some(2) => self.diagnostics.server = self.view.address.trim().into(),
+                Some(3) => self.diagnostics.topic = self.view.address.trim().into(),
+                Some(4) if !self.view.address.is_empty() => self.diagnostics.token = std::mem::take(&mut self.view.address),
                 _ => {}
             }
             self.view.address.clear();
@@ -2517,7 +2566,7 @@ impl Model {
                         Section::Streaming => 7,
                         Section::Integrations => self.integrations.len(),
                         Section::Controllers => 4,
-                        Section::Diagnostics => 6,
+                        Section::Diagnostics => 7,
                         Section::About => 3,
                     };
                     for i in 0..count.max(Section::ALL.len()) {
@@ -2759,16 +2808,72 @@ pub(crate) mod tests {
         assert_eq!(m.prefs.bitrate_mbps, 150);
     }
     #[test]
-    fn sheets_return_focus_and_destructive_confirmation_starts_safe() {
+    fn the_log_level_row_steps_between_levels_and_the_shell_hears_each_choice() {
         let mut m = Model::new(State::default(), Listing::default(), vec![]);
-        m.view.page = Page::Overlay;
+        m.view.page = Page::Settings;
+        m.view.section = Section::Diagnostics;
+        m.view.focus = Focus::Setting(1);
+        let heard = |m: &mut Model, key: Key| {
+            let mut commands = m.step(Input::Key { key, down: true });
+            commands.extend(m.step(Input::Key { key, down: false }));
+            commands.into_iter().rev().find_map(|command| if let Command::Diagnostics(config) = command { Some(config.level) } else { None })
+        };
+        assert_eq!(m.diagnostics.level, DiagnosticsLevel::Info);
+        assert_eq!(heard(&mut m, Key::Right), Some(DiagnosticsLevel::Debug));
+        assert_eq!(heard(&mut m, Key::Right), Some(DiagnosticsLevel::Trace));
+        assert_eq!(heard(&mut m, Key::Right), Some(DiagnosticsLevel::Trace), "no step past the last");
+        assert_eq!(heard(&mut m, Key::Ok), Some(DiagnosticsLevel::Error), "OK goes round");
+    }
+    #[test]
+    fn the_first_input_that_ends_a_session_is_the_cause_diagnostics_reports() {
+        let ended_by = |m: &Model| m.observed().and_then(|seen| seen.ended_by);
+        let mut m = launching("Game", false);
+        assert_eq!(ended_by(&m), None);
+        key(&mut m, Key::Back);
+        assert_eq!(ended_by(&m), Some("owner"));
+        report(&mut m, SessionState::Ended { reason: ipc::EndReason::Stopped });
+        assert_eq!(ended_by(&m), Some("owner"), "what the engine reports afterwards does not change the cause");
+        for word in ["engine", "background", "app_close", "engine_exit"] {
+            let mut m = launching("Game", false);
+            match word {
+                "engine" => report(&mut m, SessionState::Ended { reason: ipc::EndReason::Remote }),
+                "background" => drop(m.step(Input::Foreground(false))),
+                "app_close" => drop(m.step(Input::Close)),
+                _ => drop(m.step(Input::EngineGone(EngineId::new("gfn").unwrap()))),
+            }
+            assert_eq!(ended_by(&m), Some(word));
+        }
+    }
+    #[test]
+    fn sheets_return_focus_and_destructive_confirmation_starts_safe() {
+        let mut m = launching("Game", false);
+        report(&mut m, SessionState::Running { stream: None });
+        m.step(Input::Overlay);
         m.view.focus = Focus::Overlay(3);
-        m.rebuild_navigation();
         key(&mut m, Key::Ok);
         assert_eq!(m.view.sheet, Some(Sheet::EndSession));
         assert_eq!(m.view.focus, Focus::SheetAction(0));
         key(&mut m, Key::Back);
         assert_eq!(m.view.focus, Focus::Overlay(3));
+    }
+    #[test]
+    fn a_stream_page_never_outlives_its_session() {
+        let mut m = launching("Game", false);
+        report(&mut m, SessionState::Running { stream: None });
+        m.step(Input::Overlay);
+        m.view.focus = Focus::Overlay(1);
+        key(&mut m, Key::Ok);
+        key(&mut m, Key::Back);
+        assert_eq!((m.view.page, m.view.focus), (Page::Overlay, Focus::Overlay(1)), "Settings opened from the in-stream menu returns to it");
+        key(&mut m, Key::Ok);
+        report(&mut m, SessionState::Ended { reason: ipc::EndReason::Remote });
+        assert_eq!(m.view.page, Page::Hub);
+        key(&mut m, Key::Back);
+        assert_eq!(m.view.page, Page::Home, "Back after the stream ended skips its menu");
+        m.view.page = Page::Running;
+        m.step(Input::Foreground(true));
+        assert_eq!((m.view.page, m.view.focus), (Page::Hub, Focus::HubAction(0)), "a relaunch onto a stream page without a stream shows the game");
+        assert!(m.wants_frames(), "and the shell draws it");
     }
     #[test]
     fn no_history_means_no_empty_home_rows_and_idle_tick_does_not_relayout() {

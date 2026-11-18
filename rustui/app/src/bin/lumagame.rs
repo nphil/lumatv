@@ -4,9 +4,10 @@ use lumagame_meta::{Artwork, CacheLimits, Client, Http, Job, Kind, Loader, Metad
 use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, RawReport, button, menu::{MenuKey, MenuKeys}};
 use lumatv_render::{Demand, now_ns, host::{Engine, HostConfig}};
 use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::{ControllerClient, ControllerRequest, ControllerReply, Lease}, host::{self, HostEvent, Supervisor}, model::{Command, GameDetails, Input, Key, Media, Model, PadMode}, screens::GameUi, store::{self, Store}}, lifecycle::{Channel, FromApp, ToApp}, window::{self, Event, Spec}};
-use lumatv_rustui::game::helper::OverlayClient;
-use lumatv_rustui::game::diagnostics::{Diagnostics, Event as DiagnosticEvent};
-use std::{collections::VecDeque, io, net::SocketAddr, os::fd::AsRawFd, os::unix::net::UnixDatagram, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
+use lumatv_rustui::game::helper::{OverlayClient, Sample};
+use lumatv_rustui::game::diagnostics::{Diagnostics, Event as DiagnosticEvent, Level};
+use lumatv_rustui::game::observer::{Observer, phase_word};
+use std::{collections::VecDeque, io, net::SocketAddr, os::fd::AsRawFd, os::unix::net::UnixDatagram, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 use ui::{SceneOptions, Ui};
 
 const W: u32 = 1920;
@@ -24,18 +25,7 @@ struct TraceState {
 
 impl TraceState {
     fn of(model: &Model) -> Self {
-        use lumagame_core::session::Phase;
-        let phase = match model.session().map(|s| s.phase()) {
-            None => "none",
-            Some(Phase::Checking) => "checking",
-            Some(Phase::SignIn) => "sign-in",
-            Some(Phase::Queue { .. }) => "queue",
-            Some(Phase::Starting) => "starting",
-            Some(Phase::Running) => "running",
-            Some(Phase::Stopping) => "stopping",
-            Some(Phase::Done(_)) => "done",
-        };
-        Self { page: model.view.page, foreground: model.foreground(), phase, visible: model.wants_frames() }
+        Self { page: model.view.page, foreground: model.foreground(), phase: phase_word(model.session().map(|s| s.phase())), visible: model.wants_frames() }
     }
 }
 fn page_name(page: lumatv_rustui::game::model::Page) -> &'static str {
@@ -131,7 +121,7 @@ fn main() {
 struct PadKeys { menu: MenuKeys, buttons: u16 }
 #[derive(Default)]
 struct LabBuffer { reports: VecDeque<(u8, RawReport)>, names: [Option<String>; MAX_PADS] }
-struct MenuSink { active: AtomicBool, mode: AtomicU8, keys: Mutex<[PadKeys; MAX_PADS]>, lab: Mutex<LabBuffer>, send: UnixDatagram }
+struct MenuSink { active: AtomicBool, mode: AtomicU8, connected: AtomicU32, keys: Mutex<[PadKeys; MAX_PADS]>, lab: Mutex<LabBuffer>, send: UnixDatagram }
 struct MenuPads { runtime: PadRuntime, sink: Arc<MenuSink>, receive: UnixDatagram }
 
 fn menu_key(key: MenuKey) -> Key {
@@ -165,10 +155,12 @@ impl PadSink for MenuSink {
                 }
             }
             PadEvent::Connected { slot, name, .. } => {
+                self.connected.fetch_or(1 << (u32::from(slot) & 31), Ordering::AcqRel);
                 if let Some(keys) = keys.get_mut(usize::from(slot)) { *keys = PadKeys::default(); }
                 if let Some(known) = self.lab.lock().unwrap_or_else(|e| e.into_inner()).names.get_mut(usize::from(slot)) { *known = Some(name); }
             }
             PadEvent::Disconnected { slot } => {
+                self.connected.fetch_and(!(1 << (u32::from(slot) & 31)), Ordering::AcqRel);
                 if let Some(keys) = keys.get_mut(usize::from(slot)) { *keys = PadKeys::default(); }
                 let mut lab = self.lab.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(known) = lab.names.get_mut(usize::from(slot)) { *known = None; }
@@ -191,7 +183,7 @@ impl MenuPads {
     fn new() -> io::Result<Self> {
         let (send, receive) = UnixDatagram::pair()?;
         send.set_nonblocking(true)?; receive.set_nonblocking(true)?;
-        let sink = Arc::new(MenuSink { active: AtomicBool::new(false), mode: AtomicU8::new(PadMode::Menu as u8), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), lab: Mutex::new(LabBuffer::default()), send });
+        let sink = Arc::new(MenuSink { active: AtomicBool::new(false), mode: AtomicU8::new(PadMode::Menu as u8), connected: AtomicU32::new(0), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), lab: Mutex::new(LabBuffer::default()), send });
         let runtime = PadRuntime::start(PadConfig { boost: None, latency_dir: None, raw: true, ..PadConfig::from_env() }, sink.clone());
         Ok(Self { runtime, sink, receive })
     }
@@ -254,29 +246,44 @@ struct Shell {
     art_waiting: VecDeque<String>, details: Option<Details>, details_waiting: VecDeque<GameId>, state_saved: bool, media_seq: u64,
     stats: OverlayClient, frames_on: bool,
     diagnostics: Diagnostics,
-    last_stream: Option<u64>, last_frames: Option<u64>,
+    observer: Observer, events: Vec<DiagnosticEvent>,
 }
 impl Shell {
+    /// Hands what the observer found to the diagnostics queue, which keeps only what the level asks for.
+    fn report(&mut self) { for event in self.events.drain(..) { self.diagnostics.emit(event); } }
+    fn observe_level(&mut self, now_ms: u64) {
+        self.observer.configure(self.diagnostics.level(), now_ms, &mut self.events);
+        self.report();
+    }
+    /// The model's step, with the session as it then stands handed to diagnostics.
+    fn step(&mut self, input: Input, now_ms: u64) -> Vec<Command> {
+        let commands = self.model.step(input);
+        if self.diagnostics.enabled() {
+            self.observer.session(now_ms, self.model.observed(), &mut self.events);
+            self.report();
+        }
+        commands
+    }
     fn inputs(&mut self, inputs: impl IntoIterator<Item = Input>, pads: &MenuPads, now_ms: u64) -> io::Result<bool> {
         let mut commands = VecDeque::new();
+        self.observe_level(now_ms);
         for input in inputs {
             if self.diagnostics.enabled() {
                 match &input {
-                    Input::Engine { message, .. } => if let lumagame_core::ipc::Event::Stats { stats, .. } = &message.event {
-                        if self.last_stream.is_none_or(|at| now_ms.saturating_sub(at) >= 1000) {
-                            self.last_stream = Some(now_ms);
-                            self.diagnostics.emit(DiagnosticEvent::Stream { ms: now_ms, fps: stats.fps, bitrate_kbps: stats.bitrate_kbps, rtt_ms: stats.rtt_ms, jitter_ms: stats.jitter_ms, loss_pct: stats.loss_pct, dropped: stats.dropped, pad_reports: stats.pad.as_ref().map(|p| p.reports), pad_rate_hz: stats.pad.as_ref().map(|p| p.rate_hz), pad_p99_us: stats.pad.as_ref().map(|p| p.p99_us) });
-                        }
-                    },
-                    Input::Frames(frames) if self.last_frames.is_none_or(|at| now_ms.saturating_sub(at) >= 1000) => {
-                        self.last_frames = Some(now_ms);
-                        self.diagnostics.emit(DiagnosticEvent::Frames { ms: now_ms, fed: frames.fed, accepted: frames.accepted, dropped: frames.dropped, omitted: frames.omitted });
-                    }
-                    Input::EngineGone(_) => self.diagnostics.emit(DiagnosticEvent::Error { ms: now_ms, kind: "engine_gone" }),
+                    Input::Engine { engine, message } => self.observer.engine_event(now_ms, engine.as_str(), &message.event, &mut self.events),
+                    Input::Frames(frames) => self.observer.frames(now_ms, frames, &mut self.events),
+                    Input::Display(display) => self.observer.display(now_ms, display, &mut self.events),
+                    Input::EngineGone(_) => self.events.push(DiagnosticEvent::Error { ms: now_ms, kind: "engine_gone" }),
                     _ => {}
                 }
+                self.report();
             }
-            commands.extend(self.model.step(input));
+            commands.extend(self.step(input, now_ms));
+        }
+        if self.diagnostics.enabled() {
+            self.observer.pads(now_ms, pads.sink.connected.load(Ordering::Acquire), &mut self.events);
+            self.observer.tick(now_ms, &mut self.events);
+            self.report();
         }
         // Release the pads before an engine receives Launch, including a native app taking the foreground.
         pads.sync(self.model.wants_pads());
@@ -285,7 +292,7 @@ impl Shell {
             let result = match command {
                 Command::Send { engine, request } => {
                     if let Err(e) = self.host.send(&engine, request) {
-                        commands.extend(self.model.step(Input::EngineGone(engine)));
+                        commands.extend(self.step(Input::EngineGone(engine), now_ms));
                         Err(e)
                     } else { Ok(()) }
                 }
@@ -316,6 +323,7 @@ impl Shell {
                 }
                 Command::Diagnostics(config) => {
                     self.diagnostics.configure(config.clone());
+                    self.observe_level(now_ms);
                     self.store.save_diagnostics(&config)
                 }
                 Command::DiagnosticTest => { self.diagnostics.emit(DiagnosticEvent::Test); Ok(()) }
@@ -333,12 +341,13 @@ impl Shell {
         }
         self.lease.tick(now_ms);
         let visible = self.model.hud_visible();
-        let frames = visible || (self.diagnostics.enabled() && self.model.foreground() && self.model.session_active());
+        let frames = visible || (self.diagnostics.wants(Level::Warn) && self.model.foreground() && self.model.session_active());
         if self.frames_on != frames {
             if let Some(ch) = &mut self.channel { ch.send(&FromApp::Frames(frames)); }
             self.frames_on = frames;
         }
-        self.stats.tick(self.model.prefs.stats, visible, now_ms);
+        let panel = if self.model.foreground() { self.observer.sample(now_ms) } else { None };
+        self.stats.tick(self.model.prefs.stats, Sample::merge(Sample::hud(self.model.prefs.stats, visible), panel), now_ms);
         Ok(false)
     }
 
@@ -426,7 +435,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
     inputs.extend(snapshot.notices.into_iter().chain(notices).chain(temporary).map(Input::Notice));
     // Seed wall-clock time before any engine can report Running.
     model.step(Input::Tick { now_ms: 0, unix_s: unix_seconds() });
-    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, controllers: ControllerClient::new(o.helper)?, stats: OverlayClient::new(o.helper)?, frames_on: false, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX, diagnostics: diagnostics.clone(), last_stream: None, last_frames: None };
+    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, controllers: ControllerClient::new(o.helper)?, stats: OverlayClient::new(o.helper)?, frames_on: false, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX, diagnostics: diagnostics.clone(), observer: Observer::default(), events: Vec::new() };
     let pads = MenuPads::new()?;
     if shell.inputs(inputs, &pads, 0)? { return Ok(()); }
     let began = Instant::now();

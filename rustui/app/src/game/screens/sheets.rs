@@ -361,9 +361,9 @@ fn delete(p: &mut Paint<'_>) {
 fn edit_text(p: &mut Paint<'_>) {
     let editing = p.model.view.sheet == Some(Sheet::EditText);
     let diagnostics = editing && p.model.view.page == Page::Settings && p.model.view.section == Section::Diagnostics;
-    let secret = diagnostics && p.model.view.edit_field == Some(3);
+    let secret = diagnostics && p.model.view.edit_field == Some(4);
     let label = if diagnostics {
-        match p.model.view.edit_field { Some(1) => "Server URL", Some(2) => "Topic", Some(3) => "Write token", _ => "Edit setting" }
+        match p.model.view.edit_field { Some(2) => "Server URL", Some(3) => "Topic", Some(4) => "Write token", _ => "Edit setting" }
     } else if editing && p.model.view.page == Page::Leadjoy {
         match &p.model.leadjoy.state {
             LeadjoyState::Ready(profile) => p.model.view.edit_field.and_then(|i| profile.schema.fields().nth(i)).map_or("Edit setting", |field| field.label.as_str()),

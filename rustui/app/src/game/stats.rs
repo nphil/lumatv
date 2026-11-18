@@ -63,7 +63,7 @@ impl FrameHistory {
             queue: self.samples.back().and_then(|(_, s)| u32::try_from(s[2]).ok()) }
     }
 }
-fn percentiles(mut values: Vec<u64>) -> Option<[u64; 4]> {
+pub(crate) fn percentiles(mut values: Vec<u64>) -> Option<[u64; 4]> {
     if values.is_empty() { return None; }
     values.sort_unstable();
     Some([50, 95, 99, 100].map(|p| values[(p * values.len()).div_ceil(100) - 1]))

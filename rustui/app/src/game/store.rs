@@ -252,7 +252,8 @@ mod tests {
         let (store, snapshot) = Store::open(dir.path().into()).unwrap();
         assert!(!snapshot.diagnostics.enabled);
         assert!(snapshot.diagnostics.server.is_empty() && snapshot.diagnostics.topic.is_empty() && snapshot.diagnostics.token.is_empty());
-        let config = DiagnosticsConfig { enabled: true, server: "https://example.invalid".into(), topic: "test".into(), token: "private-test".into() };
+        assert_eq!(snapshot.diagnostics.level, crate::game::diagnostics::Level::Info);
+        let config = DiagnosticsConfig { enabled: true, level: crate::game::diagnostics::Level::Debug, server: "https://example.invalid".into(), topic: "test".into(), token: "private-test".into() };
         store.save_diagnostics(&config).unwrap();
         store.save_state(&snapshot.state).unwrap();
         assert_eq!(fs::metadata(dir.path().join("diagnostics.json")).unwrap().permissions().mode() & 0o777, 0o600);

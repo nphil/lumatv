@@ -145,46 +145,65 @@ fn leadjoy_reply(result: io::Result<Value>) -> Result<LeadjoyState, String> {
     Ok(state)
 }
 
+/// What the stats worker reads from the helper besides the overlay setting: the panel's state, every `every_ms`, with the firmware words when `full`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sample { pub every_ms: u64, pub full: bool }
+impl Sample {
+    /// The retained HUD's reading: four times a second while it is on screen, with the firmware words in Full.
+    pub fn hud(overlay: super::stats::Overlay, visible: bool) -> Option<Self> {
+        (visible && overlay.mode.on()).then(|| Self { every_ms: super::stats::INTERVAL_MS, full: overlay.mode == super::stats::Mode::Full })
+    }
+    /// Two readers of the same endpoint share one request, at the faster rate and with the firmware words if either wants them.
+    pub fn merge(a: Option<Self>, b: Option<Self>) -> Option<Self> {
+        match (a, b) {
+            (Some(a), Some(b)) => Some(Self { every_ms: a.every_ms.min(b.every_ms), full: a.full || b.full }),
+            (a, b) => a.or(b),
+        }
+    }
+}
+
 /// One worker owns helper I/O. A single queued wake always reads the newest desired setting.
 pub struct OverlayClient {
-    wanted: Arc<std::sync::Mutex<(super::stats::Overlay, bool)>>,
+    wanted: Arc<std::sync::Mutex<(super::stats::Overlay, Option<Sample>)>>,
     wake: SyncSender<()>,
     results: Receiver<(super::stats::Overlay, Option<Value>)>,
     due: u64,
 }
 impl OverlayClient {
     pub fn new(address: SocketAddr) -> io::Result<Self> {
-        let wanted = Arc::new(std::sync::Mutex::new((super::stats::Overlay::default(), false)));
+        let wanted = Arc::new(std::sync::Mutex::new((super::stats::Overlay::default(), None)));
         let state = Arc::clone(&wanted);
         let (wake, requests) = mpsc::sync_channel(1);
         let (report, results) = mpsc::sync_channel(1);
         thread::Builder::new().name("game-stats".into()).spawn(move || {
             while requests.recv().is_ok() {
-                let (local, visible) = *state.lock().unwrap();
-                if let Ok(value) = overlay_sync(local, visible, &mut |method, path, body| http(address,method,path,body))
+                let (local, sample) = *state.lock().unwrap();
+                if let Ok(value) = overlay_sync(local, sample, &mut |method, path, body| http(address,method,path,body))
                     && report.send(value).is_err() { break; }
             }
         })?;
         Ok(Self { wanted, wake, results, due: 0 })
     }
-    pub fn tick(&mut self, overlay: super::stats::Overlay, visible: bool, now: u64) {
+    pub fn tick(&mut self, overlay: super::stats::Overlay, sample: Option<Sample>, now: u64) {
         let mut state = self.wanted.lock().unwrap();
-        let changed = *state != (overlay, visible);
-        *state = (overlay, visible);
+        let changed = *state != (overlay, sample);
+        *state = (overlay, sample);
         if changed || now >= self.due {
             let _ = self.wake.try_send(());
-            self.due = now.saturating_add(if visible && overlay.mode.on() { super::stats::INTERVAL_MS } else { 1000 });
+            self.due = now.saturating_add(sample.map_or(1000, |s| s.every_ms));
         }
     }
     pub fn poll(&self) -> Option<(super::stats::Overlay, Option<Value>)> { self.results.try_recv().ok() }
     pub fn wait_ms(&self, now: u64) -> u64 { self.due.saturating_sub(now) }
 }
 
-fn overlay_sync(local: super::stats::Overlay, visible: bool, http: &mut impl FnMut(&str,&str,&Value)->io::Result<Value>)
+fn overlay_sync(local: super::stats::Overlay, sample: Option<Sample>, http: &mut impl FnMut(&str,&str,&Value)->io::Result<Value>)
     -> io::Result<(super::stats::Overlay,Option<Value>)> {
-    let path = if visible && local.mode.on() {
-        if local.mode == super::stats::Mode::Full { "/v1/gaming/display?full=1" } else { "/v1/gaming/display" }
-    } else { "/v1/gaming/overlay" };
+    let path = match sample {
+        Some(Sample { full: true, .. }) => "/v1/gaming/display?full=1",
+        Some(_) => "/v1/gaming/display",
+        None => "/v1/gaming/overlay",
+    };
     let mut value=http("GET",path,&Value::Null)?;
     let mut overlay:super::stats::Overlay=serde_json::from_value(value["overlay"].take())?;
     if local.changed > overlay.changed {
@@ -386,23 +405,36 @@ mod tests {
     }
 
     #[test]
-    fn overlay_sync_samples_only_when_visible_and_saves_only_the_newer_setting() {
+    fn overlay_sync_samples_only_when_asked_and_saves_only_the_newer_setting() {
         use super::super::stats::{Mode,Overlay};
-        for (mode,visible,path) in [(Mode::Off,true,"/v1/gaming/overlay"),(Mode::Compact,false,"/v1/gaming/overlay"),
-            (Mode::Compact,true,"/v1/gaming/display"),(Mode::Full,true,"/v1/gaming/display?full=1")] {
-            let local=Overlay {mode,changed:2};
+        for (sample,path) in [(None,"/v1/gaming/overlay"),(Some(Sample {every_ms:250,full:false}),"/v1/gaming/display"),(Some(Sample {every_ms:1000,full:true}),"/v1/gaming/display?full=1")] {
+            let local=Overlay {mode:Mode::Compact,changed:2};
             let mut calls=Vec::new();
-            let (setting,_)=overlay_sync(local,visible,&mut |method,p,body| {
+            let (setting,_)=overlay_sync(local,sample,&mut |method,p,body| {
                 calls.push((method.to_owned(),p.to_owned()));
                 Ok(json!({"overlay":if method=="POST" {body.clone()} else {json!({"mode":"off","changed":1})}}))
             }).unwrap();
             assert_eq!(setting,local);
             assert_eq!(calls,[("GET".into(),path.into()),("POST".into(),"/v1/gaming/overlay".into())]);
         }
-        let (setting,_)=overlay_sync(Overlay::default(),false,&mut |method,_,_| {
+        let (setting,_)=overlay_sync(Overlay::default(),None,&mut |method,_,_| {
             assert_eq!(method,"GET");
             Ok(json!({"overlay":{"mode":"full","changed":4}}))
         }).unwrap();
         assert_eq!(setting.mode,Mode::Full);
+    }
+
+    #[test]
+    fn the_hud_and_diagnostics_share_one_reading() {
+        use super::super::stats::{Mode,Overlay};
+        let hud=|mode,visible| Sample::hud(Overlay {mode,changed:0},visible);
+        assert_eq!(hud(Mode::Off,true),None);
+        assert_eq!(hud(Mode::Compact,false),None);
+        assert_eq!(hud(Mode::Compact,true),Some(Sample {every_ms:250,full:false}));
+        assert_eq!(hud(Mode::Full,true),Some(Sample {every_ms:250,full:true}));
+        let diagnostics=Some(Sample {every_ms:1000,full:true});
+        assert_eq!(Sample::merge(hud(Mode::Compact,true),diagnostics),Some(Sample {every_ms:250,full:true}));
+        assert_eq!(Sample::merge(None,diagnostics),diagnostics);
+        assert_eq!(Sample::merge(None,None),None);
     }
 }

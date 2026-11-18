@@ -491,8 +491,12 @@ fn diagnostics(p: &mut Paint<'_>, x: f32, w: f32) {
         Status::Error => "Send failed",
     };
     let detail = format!("{status} · Off stops sending; delivered messages remain");
+    let level = m.diagnostics.level;
+    // Short words: beside five segments the note gets a narrow column at large text sizes, where a long word would be cut off.
+    let note = ["Failures only", "Plus degraded streams", "Plus session and TV state", "Plus pacing and decode stats", "Plus fine timing detail"][level.index()];
     let rows = [
         ("Remote diagnostics", Some(detail.as_str()), Control::Toggle(m.diagnostics.enabled)),
+        ("Log level", Some(note), Control::Segments(&["Error", "Warn", "Info", "Debug", "Trace"], level.index())),
         ("Server URL", None, Control::Value(if m.diagnostics.server.is_empty() { "Add" } else { &m.diagnostics.server })),
         ("Topic", None, Control::Value(if m.diagnostics.topic.is_empty() { "Add" } else { &m.diagnostics.topic })),
         ("Write token", None, Control::Value(if m.diagnostics.token.is_empty() { "Add" } else { "Set" })),
