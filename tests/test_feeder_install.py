@@ -251,7 +251,7 @@ class Bundle(unittest.TestCase):
             done = subprocess.run(["sh", os.path.join(REPO, "compositor", "tools", "stage-feeder.sh"), out],
                                   env=dict(os.environ, FEEDER_BUILD=built), capture_output=True, text=True, timeout=30)
             self.assertEqual(done.returncode, 0, done.stderr)
-            for path in ("feeder/lumatv-gfn-feeder", "feeder/lib/libavcodec-lumatv.so.63", "feeder/feeder.sh"):
+            for path in ("feeder/lumatv-gfn-feeder", "feeder/lib/libavcodec-lumatv.so.63", "feeder/feeder.sh", "feeder/check.h264"):
                 self.assertTrue(os.path.isfile(os.path.join(out, path)), path)
             with open(os.path.join(out, "HASHES")) as f:
                 self.assertEqual([l.split()[1] for l in f], ["bin/lumatv-sm", "feeder/lumatv-gfn-feeder"])

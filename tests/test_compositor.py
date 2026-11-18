@@ -11,6 +11,8 @@ import fcntl
 import hashlib
 import json
 import os
+import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -651,6 +653,107 @@ class Switch(Fixture):
         self.assertFalse(os.path.exists(self.state("running")))
 
 
+# The set as the video check sees it: luna-send answers from files in $FAKE and logs every call, the feeder logs its
+# arguments, and sleep waits only until the feeder has started.
+VC_LUNA = '''#!/bin/sh
+echo "$*" >> "$FAKE/luna"
+case "$*" in
+  *getPowerState*) printf '{"returnValue":true,"state":"%s"}\\n' "$(cat "$FAKE/power")" ;;
+  *getForegroundAppInfo*) echo '{"returnValue":true,"appId":"com.webos.app.home"}' ;;
+  *executeOneShot*) cat "$FAKE/capture" ;;
+  *) echo '{"returnValue":true}' ;;
+esac
+'''
+VC_FEEDER = '#!/bin/sh\necho "$*" > "$FAKE/feeder-args"\n'
+VC_SLEEP = '#!/bin/sh\n[ -e "$FAKE/feeder-args" ] || exec %s 0.05\n' % (shutil.which("sleep") or "/bin/sleep")
+# What the set read during a clip that played (2026-11-17, LumaTV's compositor), and with nothing playing.
+VC_SCALER_PLAYING = "open=0\nconnect_src=VDEC\nmute=0\nsource_w=1280\nout_w=960\n"
+VC_WIN0_PLAYING = "localmute=0\nh/v active : 1280 / 720\nvFreq      : 300\n"
+VC_CAPTURE_PICTURE = '{"capturedHeight":180,"writtenBytes":4540,"returnValue":true,"capturedWidth":320}'
+VC_CAPTURE_REFUSED = '{"errorCode":12,"returnValue":false,"errorText":"REFUSED_NO_SIGNAL"}'
+
+
+class VideoCheck(unittest.TestCase):
+    """comp_video_check: a short clip through LG's decoder for the app in front, judged by the scaler, the display engine's
+    window and a capture of the video plane."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        d = self.tmp.name
+        fakebin = os.path.join(d, "fakebin")
+        os.makedirs(fakebin)
+        for name, body in (("luna-send", VC_LUNA), ("sleep", VC_SLEEP), ("lumatv-gfn-feeder", VC_FEEDER)):
+            self.put(os.path.join("fakebin", name), body)
+            os.chmod(os.path.join(fakebin, name), 0o755)
+        self.put("check.h264", "clip")
+        self.put("power", "Active")
+        self.put("scaler", VC_SCALER_PLAYING)
+        self.put("win0", VC_WIN0_PLAYING)
+        self.put("capture", VC_CAPTURE_PICTURE)
+        self.env = dict(os.environ, PATH=fakebin + os.pathsep + os.environ["PATH"], FAKE=d, LIB=LIB, CLIP=os.path.join(d, "check.h264"),
+                        COMP=os.path.join(d, "comp"), COMP_VC_FEEDER=os.path.join(fakebin, "lumatv-gfn-feeder"),
+                        COMP_VC_WIN0=os.path.join(d, "win0"), COMP_VC_SCALER=os.path.join(d, "scaler"), COMP_VC_OUT=os.path.join(d, "out"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def put(self, name, text):
+        with open(os.path.join(self.tmp.name, name), "w") as f:
+            f.write(text)
+
+    def get(self, name):
+        p = os.path.join(self.tmp.name, name)
+        if not os.path.exists(p):
+            return ""
+        with open(p) as f:
+            return f.read()
+
+    def check(self):
+        r = subprocess.run(["sh", "-u", "-c", '. "$LIB"; comp_video_check "$CLIP"; echo "$?|$COMP_VC|$COMP_VC_WHY"'],
+                           env=self.env, capture_output=True, text=True, timeout=20)
+        rc, verdict, why = r.stdout.strip().split("|", 2)
+        return int(rc), verdict, why
+
+    def test_lumatv_video_check_answers_in_json_and_exits_12_without_a_picture(self):
+        self.put("capture", VC_CAPTURE_REFUSED)
+        os.makedirs(os.path.join(self.tmp.name, "payload", "feeder"))
+        self.put(os.path.join("payload", "feeder", "check.h264"), "clip")
+        with open(os.path.join(ROOT, "tools", "lumatv")) as f:
+            tool = f.read()
+        functions = "".join(re.search(r"^%s\(\) \{\n.*?^\}\n" % name, tool, re.S | re.M).group(0) for name in ("json_escape", "verb_video_check"))
+        r = subprocess.run(["sh", "-u", "-c", '. "$LIB"\n' + functions + 'APPDIR=$FAKE\nverb_video_check'],
+                           env=self.env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(r.returncode, 12, r.stdout + r.stderr)
+        doc = json.loads(r.stdout)
+        self.assertEqual((doc["ok"], doc["video"]), (False, "none"))
+        self.assertIn("REFUSED_NO_SIGNAL", doc["why"])
+
+    def test_a_picture_on_the_panel_passes_with_the_clip_played_for_the_app_in_front(self):
+        self.assertEqual(self.check()[:2], (0, "picture"))
+        args = self.get("feeder-args")
+        self.assertIn("--play %s " % self.env["CLIP"], args)
+        self.assertIn("--ndl-app com.webos.app.home", args)
+
+    def test_a_capture_refused_while_the_decoder_plays_is_exit_12(self):
+        # 2026-11-17: the apps' decoders took every frame while LG's capture service refused the video plane.
+        self.put("capture", VC_CAPTURE_REFUSED)
+        rc, verdict, why = self.check()
+        self.assertEqual((rc, verdict), (12, "none"))
+        self.assertIn("REFUSED_NO_SIGNAL", why)
+        self.assertIn("REFUSED_NO_SIGNAL", self.get("out/readings"))
+
+    def test_a_decoder_that_never_connects_is_exit_12_after_the_wait(self):
+        self.put("scaler", "open=0\nconnect_src=NONE\nmute=1\nsource_w=0\n")
+        self.put("win0", "localmute=777\nh/v active : 0 / 0\n")
+        self.assertEqual(self.check(), (12, "none", "the decoder never connected to the scaler"))
+
+    def test_a_set_with_the_panel_off_is_neither_woken_nor_checked(self):
+        self.put("power", "Active Standby")
+        rc, verdict, why = self.check()
+        self.assertEqual((rc, verdict), (0, "skipped"))
+        self.assertIn("Active Standby", why)
+        self.assertEqual(self.get("luna").splitlines(), ["-n 1 luna://com.webos.service.tvpower/power/getPowerState {}"])
+        self.assertEqual(self.get("feeder-args"), "")
 
 
 if __name__ == "__main__":

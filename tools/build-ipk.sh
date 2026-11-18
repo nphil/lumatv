@@ -122,6 +122,7 @@ gfn/feeder/build/arm/lumatv-gfn-feeder
 gfn/feeder/build/arm/lib
 payload/feeder/feeder.sh
 payload/feeder/role.json
+payload/feeder/check.h264
 beszel/build/beszel-agent
 payload/beszel/nvtop
 tools/cardapp.sh
@@ -389,8 +390,9 @@ cp payload/vplane/clips/* "$DATA_ROOT/payload/vplane/clips/"
 chmod 755 "$DATA_ROOT/payload/vplane/lumatv-vplane" "$DATA_ROOT/payload/vplane/vplane.sh"
 # The camera feeder (32-bit, the GeForce NOW app's program too) that plays a camera's live picture on the video plane, with the LS2 role it needs and the
 # script that installs them. As for the player: the role is a permission for a new program, so only the owner's `lumatv feeder install` writes it.
+# check.h264 is the clip of `lumatv video-check`.
 mkdir -p "$DATA_ROOT/payload/feeder"
-cp gfn/feeder/build/arm/lumatv-gfn-feeder payload/feeder/feeder.sh payload/feeder/role.json "$DATA_ROOT/payload/feeder/"
+cp gfn/feeder/build/arm/lumatv-gfn-feeder payload/feeder/feeder.sh payload/feeder/role.json payload/feeder/check.h264 "$DATA_ROOT/payload/feeder/"
 chmod 755 "$DATA_ROOT/payload/feeder/lumatv-gfn-feeder" "$DATA_ROOT/payload/feeder/feeder.sh"
 # ... and the decoder libraries of its texture path (FFmpeg's H.264 and H.265 decoders, LGPL, shared: `lib/` beside the program; feeder.sh stages them)
 mkdir -p "$DATA_ROOT/payload/feeder/lib"

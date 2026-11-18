@@ -30,6 +30,10 @@
 #   cutover.sh firmware check    hash LG's binary and libraries and say whether this build is on verified.list (exit 0/5)
 #   cutover.sh firmware record   print the verified.list entry for this build, for the gate to add once it has passed
 #   cutover.sh boot-check  what the boot hook would decide now (JSON), changing nothing
+#
+# enable and disable end with a video check (tools/compositor.sh comp_video_check, skipped while the panel is off): exit 12
+# when no picture gets from LG's decoder to the panel. The switch is kept, since the set needs a reboot (`reboot`), the only
+# recovery known (2026-11-17).
 STATE=${LUMATV_STATE:-/var/lib/lumatv/compositor}
 D=${LUMATV_D:-/tmp/lumatv}
 LG=${LUMATV_LG:-/usr/bin/surface-manager}
@@ -102,6 +106,15 @@ safety_start() {
 revert() {
     safety_cancel
     "$LUMATV_TOOL" compositor off
+}
+
+video_check() {
+    if comp_video_check "$D/feeder/check.h264"; then
+        echo "video check: $COMP_VC ($COMP_VC_WHY)"
+        return 0
+    fi
+    echo "VIDEO CHECK FAILED after $1: $COMP_VC_WHY. Video stays black in every app until the set reboots: run reboot. Readings: $COMP_VC_OUT/readings"
+    exit 12
 }
 
 # The bundle's files as install saw them: size of every file under bin/ and lib/, and the SHA-256 of the ones under
@@ -270,10 +283,12 @@ trial|enable)
             exit 9
         fi
         echo "enabled ($mode): LumaTV's compositor stays live (recovery done after ${n}s more); 'cutover.sh disable' restores LG's"
+        video_check enable
     fi
     ;;
 disable)
-    revert
+    revert || exit $?
+    video_check disable
     ;;
 revert)
     # `disable` is what installs run in between; only this verb is a real return to LG's UI, which takes the repaired unified-server

@@ -2263,6 +2263,15 @@ verb_inputs() {
   return 0
 }
 
+verb_video_check() {
+  # Whether a picture still gets from LG's decoder to the panel (tools/compositor.sh comp_video_check): what to run after
+  # installing or trying an app. Exit 12 means the set needs a reboot.
+  comp_video_check "$APPDIR/payload/feeder/check.h264"; vc_rc=$?
+  vc_ok=true; [ "$vc_rc" -eq 0 ] || vc_ok=false
+  printf '{"ok":%s,"video":"%s","why":"%s","readings":"%s"}\n' "$vc_ok" "$COMP_VC" "$(json_escape "$COMP_VC_WHY")" "$COMP_VC_OUT/readings"
+  return "$vc_rc"
+}
+
 # The art saver's video-plane player. Installed means its program is staged and its role is written (vplane.sh status says so), and only
 # `lumatv vplane install` gets it there. A player that is not installed is not a fault anywhere: the saver draws its own picture.
 vplane_json() {
@@ -3685,6 +3694,7 @@ case "$VERB" in
   helper) verb_helper "${2:-status}"; exit $? ;;
   capture) verb_capture "${2:-status}"; exit $? ;;
   inputs) verb_inputs "${2:-status}"; exit $? ;;
+  video-check) verb_video_check; exit $? ;;
   vplane) verb_vplane "${2:-status}"; exit $? ;;
   feeder) verb_feeder "${2:-status}"; exit $? ;;
   gfn) verb_gfn "${2:-status}"; exit $? ;;

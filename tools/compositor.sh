@@ -492,3 +492,67 @@ comp_check_json() {
   k_would=false; [ "$COMP_WORD" = ok ] && k_would=true
   printf '{"decision":"%s","why":"%s","flag":"%s","build":"%s","wouldMount":%s}' "$COMP_WORD" "$k_why" "$(comp_flag)" "${k_build:-unknown}" "$k_would"
 }
+
+# LumaTV's compositor's control socket (`ctl`); fails while LG's compositor is the live one.
+comp_ctl() {
+  "$COMP/lib/ld-linux-aarch64.so.1" --library-path "$COMP/lib" "$COMP/bin/lumatv-compositor" ctl --runtime-dir /tmp/xdg "$@"
+}
+
+# Whether a picture still gets from LG's decoder to the panel. On 2026-11-17 video went black in every app while the
+# apps' decoders took every frame and the video window was placed; LG's capture service refused the video plane
+# (REFUSED_NO_SIGNAL) and only a reboot brought the picture back. The check plays a short silent clip through LG's
+# decoder for the app in front (the camera feeder's path), then reads the scaler, the display engine's window and a
+# capture of the video plane. Measured on webOS 10.2.1: the picture connects within 1 s, its 320x180 capture is about
+# 4.5 KB, and with nothing playing the capture is refused. The set is never woken for it.
+COMP_VC_WIN0="${COMP_VC_WIN0:-/proc/lg/de/win0/status}"
+COMP_VC_SCALER="${COMP_VC_SCALER:-/proc/lgtv-driver/scaler/main.p0}"
+COMP_VC_OUT="${COMP_VC_OUT:-/tmp/lumatv-video-check}"
+COMP_VC_APP=org.nphil.lumatv.videocheck
+COMP_VC=""
+COMP_VC_WHY=""
+
+# comp_video_check CLIP: sets COMP_VC to picture, none or skipped and COMP_VC_WHY; returns 12 for none. The readings,
+# the capture and the feeder's log stay in $COMP_VC_OUT.
+comp_video_check() {
+  vc_clip=$1
+  vc_feeder=${COMP_VC_FEEDER:-${COMP%/*}/bin/lumatv-gfn-feeder}
+  COMP_VC=skipped
+  vc_power=$(luna-send -n 1 luna://com.webos.service.tvpower/power/getPowerState '{}' 2>/dev/null | tr -d '\r\n' | sed -n 's/.*"state"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  if [ "$vc_power" != Active ]; then
+    COMP_VC_WHY="the set is in ${vc_power:-an unknown power state}; the check needs the panel on"
+    return 0
+  fi
+  if [ ! -x "$vc_feeder" ] || [ ! -f "$vc_clip" ]; then
+    COMP_VC_WHY="no feeder at $vc_feeder or no clip at $vc_clip"
+    return 0
+  fi
+  vc_fg=$(luna-send -n 1 luna://com.webos.applicationManager/getForegroundAppInfo '{}' 2>/dev/null | tr -d ' \r\n' | sed -n 's/.*"appId":"\([^"]*\)".*/\1/p')
+  rm -rf "$COMP_VC_OUT"; mkdir -p "$COMP_VC_OUT"
+  # LumaTV's compositor closes a video window nobody claimed after 3 s; LG's places any.
+  vc_claimed=false
+  if comp_live && comp_ctl vwin claim videocheck pip 1280 720 480 270 "$COMP_VC_APP" h264 1280x720@30 > "$COMP_VC_OUT/claim.json" 2>&1; then
+    vc_claimed=true
+  fi
+  XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 "$vc_feeder" --play "$vc_clip" --size 1280x720 --codec h264 --fps 30 --seconds 30 --loop \
+    -w video -a "$COMP_VC_APP" --ndl-app "${vc_fg:-com.webos.app.home}" > "$COMP_VC_OUT/feeder.log" 2>&1 &
+  vc_pid=$!
+  vc_n=0
+  while [ $vc_n -lt 10 ] && ! grep -q '^connect_src=VDEC' "$COMP_VC_SCALER" 2>/dev/null; do sleep 1; vc_n=$((vc_n + 1)); done
+  sleep 1
+  vc_cap=$(luna-send -n 1 luna://com.webos.service.capture/executeOneShot \
+    "{\"path\":\"$COMP_VC_OUT/video.png\",\"method\":\"VIDEO\",\"format\":\"PNG\",\"width\":320,\"height\":180}" 2>&1 | tr -d ' \r\n')
+  vc_win=$(grep -E 'localmute|h/v active' "$COMP_VC_WIN0" 2>/dev/null | tr -s ' \n' ' ')
+  vc_sc=$(grep -E '^(connect_src|mute|source_w)=' "$COMP_VC_SCALER" 2>/dev/null | tr '\n' ' ')
+  kill "$vc_pid" 2>/dev/null; wait "$vc_pid" 2>/dev/null
+  [ "$vc_claimed" = false ] || comp_ctl vwin release videocheck > /dev/null 2>&1
+  printf 'display window: %s\nscaler: %s\ncapture: %s\n' "$vc_win" "$vc_sc" "$vc_cap" > "$COMP_VC_OUT/readings"
+  COMP_VC_WHY=""
+  case " $vc_sc" in *" connect_src=VDEC "*) ;; *) COMP_VC_WHY="the decoder never connected to the scaler" ;; esac
+  case " $vc_sc" in *" mute=0 "*) ;; *) COMP_VC_WHY=${COMP_VC_WHY:-"the scaler stayed muted"} ;; esac
+  case "$vc_win" in *"localmute=0 "*) ;; *) COMP_VC_WHY=${COMP_VC_WHY:-"the display window stayed muted"} ;; esac
+  case "$vc_win" in *"active : 0 / 0"*) COMP_VC_WHY=${COMP_VC_WHY:-"the display window has no picture"} ;; esac
+  case "$vc_cap" in *'"returnValue":true'*) ;; *) COMP_VC_WHY=${COMP_VC_WHY:-"LG's capture service saw no video ($vc_cap)"} ;; esac
+  if [ -n "$COMP_VC_WHY" ]; then COMP_VC=none; return 12; fi
+  COMP_VC=picture; COMP_VC_WHY="connected after ${vc_n}s"
+  return 0
+}

@@ -33,9 +33,9 @@ LIB = os.path.join(ROOT, "tools", "compositor.sh")
 SM_C = os.path.join(ROOT, "compositor", "sm", "lumatv-sm.c")
 
 try:
-    from test_compositor import RELEASE, Fixture
+    from test_compositor import RELEASE, VC_CAPTURE_REFUSED, VC_FEEDER, VC_LUNA, VC_SCALER_PLAYING, VC_WIN0_PLAYING, Fixture
 except ImportError:
-    from tests.test_compositor import RELEASE, Fixture
+    from tests.test_compositor import RELEASE, VC_CAPTURE_REFUSED, VC_FEEDER, VC_LUNA, VC_SCALER_PLAYING, VC_WIN0_PLAYING, Fixture
 
 MOUNT = '''#!/bin/sh
 [ "$1" = "--bind" ] || exit 1
@@ -608,6 +608,25 @@ esac
         # LG's compositor taking the screen back is not a return to LG's gateway.
         self.assertTrue(os.path.exists(self.ssgw_marker))
         self.assertEqual([c for c in self.calls() if c.startswith("ssgw")], [])
+
+    def test_a_switch_after_which_no_picture_reaches_the_panel_is_exit_12_and_kept(self):
+        # The panel on, the clip's decoder connected and LG's capture service refusing the video plane, as on 2026-11-17.
+        d = self.tmp.name
+        for name, body in (("luna-send", VC_LUNA), ("lumatv-gfn-feeder", VC_FEEDER)):
+            write(os.path.join(self.fakebin, name), body, 0o755)
+        for name, body in (("power", "Active"), ("capture", VC_CAPTURE_REFUSED), ("scaler", VC_SCALER_PLAYING), ("win0", VC_WIN0_PLAYING)):
+            write(os.path.join(d, name), body)
+        write(os.path.join(self.dep, "feeder", "check.h264"), "clip")
+        env = {"COMP_VC_FEEDER": os.path.join(self.fakebin, "lumatv-gfn-feeder"), "COMP_VC_SCALER": os.path.join(d, "scaler"),
+               "COMP_VC_WIN0": os.path.join(d, "win0"), "COMP_VC_OUT": os.path.join(d, "vc")}
+        rc, out = self.cutover("enable", "--session", env=env)
+        self.assertEqual(rc, 12, out)
+        self.assertIn("VIDEO CHECK FAILED after enable", out)
+        self.assertTrue(self.mounted())
+        rc, out = self.cutover("disable", env=env)
+        self.assertEqual(rc, 12, out)
+        self.assertIn("VIDEO CHECK FAILED after disable", out)
+        self.assertFalse(self.mounted())
 
 
 class SafetyTimer(FakeSet):

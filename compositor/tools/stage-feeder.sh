@@ -1,6 +1,7 @@
 #!/bin/sh
-# Builds the camera feeder (gfn/feeder/build.sh) and stages it in a bundle: OUT/feeder/{lumatv-gfn-feeder,lib/,feeder.sh}. tv-cutover.sh install
-# hands that directory to feeder.sh update. FEEDER_BUILD names an already built gfn/feeder/build/arm (the host test's), which skips the build.
+# Builds the camera feeder (gfn/feeder/build.sh) and stages it in a bundle: OUT/feeder/{lumatv-gfn-feeder,lib/,feeder.sh,check.h264}. tv-cutover.sh install
+# hands that directory to feeder.sh update; check.h264 is the clip of the cutover's video check. FEEDER_BUILD names an already built
+# gfn/feeder/build/arm (the host test's), which skips the build.
 set -eu
 here=$(cd "$(dirname "$0")/../.." && pwd)
 out=$1
@@ -14,7 +15,7 @@ rm -rf "$out/feeder"
 mkdir -p "$out/feeder/lib"
 cp "$src/lumatv-gfn-feeder" "$out/feeder/"
 cp "$src"/lib/lib*-lumatv.so.* "$out/feeder/lib/"
-cp "$here/payload/feeder/feeder.sh" "$out/feeder/feeder.sh"
+cp "$here/payload/feeder/feeder.sh" "$here/payload/feeder/check.h264" "$out/feeder/"
 chmod +x "$out/feeder/lumatv-gfn-feeder"
 # The installed binaries' hashes, in one place beside the bundle.
 (cd "$out" && sha256sum bin/* feeder/lumatv-gfn-feeder > HASHES)

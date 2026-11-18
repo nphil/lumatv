@@ -55,11 +55,13 @@ Install only a commit on `main` at both remotes, with its tests, clippy and rele
 1. Lease for at least 900 s.
 2. Read the installed sha256 of the compositor, ui, sm, helper (`payload/helper/lumatv-helper` and `/var/lib/lumatv/bin/lumatv-helper`) and `tools/lumatv`; copy the binaries about to be replaced into a `backup/` and check their hashes. They are the rollback.
 3. Stage the bundle to `/tmp/lumatv` (`compositor/tools/tv-first-light.sh deploy` builds and copies it; a prebuilt one is only copied) and check the staged hashes against the build.
-4. Compositor cutover with `/tmp/lumatv/cutover.sh`: `disable`, `install` (copies to `/var/lib/lumatv/compositor`, records the firmware fingerprint), `probe`, `enable` (persistent; refused with exit 5 on a firmware not in `compositor/firmware/verified.list`). Check `status`: live, mounted, enabled, `failures` 0, not escaped.
+4. Compositor cutover with `/tmp/lumatv/cutover.sh`: `disable`, `install` (copies to `/var/lib/lumatv/compositor`, records the firmware fingerprint), `probe`, `enable` (persistent; refused with exit 5 on a firmware not in `compositor/firmware/verified.list`). Check `status`: live, mounted, enabled, `failures` 0, not escaped. `enable` and `disable` end with a video check (a short silent clip through LG's decoder, read back from the scaler, the display window and a VIDEO capture; skipped with the panel off). Exit 12 means no picture reaches the panel: reboot the set (`reboot` over SSH, in the foreground), the only recovery known, and run `tools/lumatv video-check` after it.
 5. Helper: put the new `lumatv-helper` at `payload/helper/lumatv-helper` and run `tools/lumatv helper start`, which also migrates `helper.json` atomically. Check the pid changed and the port answers.
 6. Compare the installed hashes with the build. Add a `HANDOFF.md` section: date, main sha, installed sha256 (full or 8-hex prefix), what each replaced, the receipts path, what was and was not tested on the TV, and how the set was left. Commit and push it.
 
 Rollback: `cutover.sh disable` returns LG's compositor and Home (`revert` also removes the overlays); the supervisor falls back by itself on a fault; Home held 10 s is the owner's escape. To go back one build, restore the `backup/` binaries by the same steps and `helper start`. A firmware update clears the mod and needs a new gate pass; the TV is webOS 10.2.1-5202.
+
+After installing or trying any other app on the set (LumaGame, Marquee, a test IPK), run `tools/lumatv video-check` with the panel on; exit 12 is the same reboot.
 
 ## Frame gate
 
