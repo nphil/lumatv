@@ -511,13 +511,22 @@ COMP_VC_APP=org.nphil.lumatv.videocheck
 COMP_VC=""
 COMP_VC_WHY=""
 
+# luna-send answers nothing without a controlling terminal (a plain `ssh host cmd`), so off a terminal it runs under script's pty.
+comp_vc_luna() {
+  if [ -t 0 ]; then
+    timeout 10 luna-send -n 1 "$1" "$2"
+  else
+    timeout 10 script -q -c "luna-send -n 1 '$1' '$2'" /dev/null < /dev/null
+  fi
+}
+
 # comp_video_check CLIP: sets COMP_VC to picture, none or skipped and COMP_VC_WHY; returns 12 for none. The readings,
 # the capture and the feeder's log stay in $COMP_VC_OUT.
 comp_video_check() {
   vc_clip=$1
   vc_feeder=${COMP_VC_FEEDER:-${COMP%/*}/bin/lumatv-gfn-feeder}
   COMP_VC=skipped
-  vc_power=$(luna-send -n 1 luna://com.webos.service.tvpower/power/getPowerState '{}' 2>/dev/null | tr -d '\r\n' | sed -n 's/.*"state"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  vc_power=$(comp_vc_luna luna://com.webos.service.tvpower/power/getPowerState '{}' 2>/dev/null | tr -d '\r\n' | sed -n 's/.*"state"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
   if [ "$vc_power" != Active ]; then
     COMP_VC_WHY="the set is in ${vc_power:-an unknown power state}; the check needs the panel on"
     return 0
@@ -526,7 +535,7 @@ comp_video_check() {
     COMP_VC_WHY="no feeder at $vc_feeder or no clip at $vc_clip"
     return 0
   fi
-  vc_fg=$(luna-send -n 1 luna://com.webos.applicationManager/getForegroundAppInfo '{}' 2>/dev/null | tr -d ' \r\n' | sed -n 's/.*"appId":"\([^"]*\)".*/\1/p')
+  vc_fg=$(comp_vc_luna luna://com.webos.applicationManager/getForegroundAppInfo '{}' 2>/dev/null | tr -d ' \r\n' | sed -n 's/.*"appId":"\([^"]*\)".*/\1/p')
   rm -rf "$COMP_VC_OUT"; mkdir -p "$COMP_VC_OUT"
   # LumaTV's compositor closes a video window nobody claimed after 3 s; LG's places any.
   vc_claimed=false
@@ -539,7 +548,7 @@ comp_video_check() {
   vc_n=0
   while [ $vc_n -lt 10 ] && ! grep -q '^connect_src=VDEC' "$COMP_VC_SCALER" 2>/dev/null; do sleep 1; vc_n=$((vc_n + 1)); done
   sleep 1
-  vc_cap=$(luna-send -n 1 luna://com.webos.service.capture/executeOneShot \
+  vc_cap=$(comp_vc_luna luna://com.webos.service.capture/executeOneShot \
     "{\"path\":\"$COMP_VC_OUT/video.png\",\"method\":\"VIDEO\",\"format\":\"PNG\",\"width\":320,\"height\":180}" 2>&1 | tr -d ' \r\n')
   vc_win=$(grep -E 'localmute|h/v active' "$COMP_VC_WIN0" 2>/dev/null | tr -s ' \n' ' ')
   vc_sc=$(grep -E '^(connect_src|mute|source_w)=' "$COMP_VC_SCALER" 2>/dev/null | tr '\n' ' ')
