@@ -9,7 +9,7 @@
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
   "extraLargeIcon": "extraLargeIcon.png",
-  "iconColor": "#191724",
+  "iconColor": "#A2B6E6",
   "nativeLifeCycleInterfaceVersion": 2,
   "handlesRelaunch": true,
   "requiredMemory": 320,

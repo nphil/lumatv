@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <linearGradient id="plate" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="240" y2="240"><stop offset="0" stop-color="#9CCFD8"/><stop offset="1" stop-color="#A99DF5"/></linearGradient>
+  </defs>
+  <rect width="240" height="240" fill="url(#plate)"/>
+  <path d="M120.00,70.20 L158.18,70.20 C179.76,70.20 194.70,75.18 199.68,91.78 C203.00,105.06 207.98,126.64 209.64,144.90 C211.30,161.50 203.00,169.80 191.38,169.80 C179.76,169.80 174.78,161.50 168.14,151.54 C163.16,144.90 158.18,139.92 148.22,139.92 L120.00,139.92 L91.78,139.92 C81.82,139.92 76.84,144.90 71.86,151.54 C65.22,161.50 60.24,169.80 48.62,169.80 C37.00,169.80 28.70,161.50 30.36,144.90 C32.02,126.64 37.00,105.06 40.32,91.78 C45.30,75.18 60.24,70.20 81.82,70.20 L120.00,70.20 Z" fill="#191724"/>
+  <rect x="58.58" y="102.16" width="39.84" height="12.45" rx="3.73" fill="url(#plate)"/><rect x="72.28" y="88.46" width="12.45" height="39.84" rx="3.73" fill="url(#plate)"/>
+  <circle cx="161.50" cy="94.27" r="6.81" fill="url(#plate)"/><circle cx="175.61" cy="108.38" r="6.81" fill="url(#plate)"/><circle cx="161.50" cy="122.49" r="6.81" fill="url(#plate)"/><circle cx="147.39" cy="108.38" r="6.81" fill="url(#plate)"/>
+</svg>

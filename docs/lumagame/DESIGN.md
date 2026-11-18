@@ -422,12 +422,13 @@ the permanent app id `org.nphil.lumagame`. Alternatives considered:
 - **LumaPlay**: short and active, but next to LumaTV it reads as a video player.
 - **LumaArcade**: evocative, but promises retro and emulation rather than cloud and PC games.
 
-**Icon**: three options, each on LumaTV's plate (200 viewBox, radius 44, `#191724` to `#1f1d2e`)
-with its glass panes and sheen; SVG plus PNG at 80, 130 and 240 in `icon/`.
+**Icon**: a game controller, knocked out of a bright plate (`icon/icon.svg`, 240 viewBox; the shipped PNGs in
+`game/package/` are renders of it at 240, 130 and 80).
 
-- **A, cover stack (recommended)**: three 2:3 glass covers fanned in love, foam and iris, with a play
-  notch in the front one. It reads as games at 80 px, says "play" rather than "controller", and is
-  the closest sibling to LumaTV's panes.
-- **B, glass D-pad**: two crossing panes. Reads as games, but generic and close to a plus sign.
-- **C, lit thumbstick**: a glass cap over a lit ring. Distinctive, but at 80 px it reads as a
-  record button.
+- The plate is a diagonal gradient from foam (`#9CCFD8`) to the accent iris (`#A99DF5`); the pad is canvas (`#191724`) with the
+  D-pad and four buttons cut through to the plate (about 8.7:1 at the plate's middle).
+- The square is full-bleed and opaque: Home draws a picture edge to edge only when at least 90 % of its border is opaque
+  (`fullCanvasEdgeAlpha`), and rounds the corners itself (tile 120 UI px, radius 26). The pad leaves about 12 % margin on each
+  side. A rounded-corner icon with transparent corners is inset 19 px on the plate instead and reads small.
+- `iconColor` is `#A2B6E6`, the plate's mid colour: it fills any gap in LG's own surfaces and is the glow behind the focused tile.
+- Distinct from the neighbours on the dock: GeForce NOW (black, green), Punktfunk (navy, violet circles) and LumaTV (saturated violet).

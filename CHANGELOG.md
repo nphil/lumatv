@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+LumaGame has a new icon: a game controller knocked out of a bright foam-to-iris plate. It fills the Home tile edge to edge; the old icon had transparent corners, so Home drew it inset and small. Not yet seen on the TV.
+
 A GeForce NOW session asked for in HDR now carries the default display data (1000 nits peak, 400 nits frame average, 0 minimum) that other clients send, in LumaGame and in the older GeForce NOW app; both had sent a peak/minimum pair without the frame average. Whether Doom Eternal's own HDR switch then works is not yet checked on the TV.
 
 The launch screen no longer overlaps its text at large text sizes, and has a progress bar that fills only as the GeForce NOW queue position falls and otherwise sweeps (not drawn with reduced motion). Cancel is now a button the controller can focus. Not yet seen on the TV.
