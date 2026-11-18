@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Over an app the mute mark keeps to the bottom right corner, where apps draw least, instead of hopping between the top corners, where it covered app titles and menus. It steps between four places of a small square there so the panel never holds it still, and moves to the bottom left while a panel is up on the right. A mark the owner placed in the layout editor is unchanged.
+
 LumaGame keeps remote diagnostics on across installs. webOS's installer resets the app's data files to 0777, and LumaGame ignored a diagnostics file others could read, so each install silently turned diagnostics off; it now makes its own file private again and keeps the settings.
 
 Installs check that video still reaches the panel. `cutover.sh enable` and `disable` end by playing a short silent clip through LG's decoder for the app in front and reading the scaler, the display window and a VIDEO capture; when no picture comes out they exit 12 and say the set needs a reboot, the only recovery known for the black video of 2026-11-17. `lumatv video-check` runs the same check after an app install. The check is skipped with the panel off and never wakes the set. Seen passing on the TV under both compositors; the failure branch is covered by host tests only.

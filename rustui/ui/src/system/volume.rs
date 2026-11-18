@@ -86,7 +86,7 @@ pub struct View {
     pub spots: Vec<(i32, i32)>,
     pub over_video: bool,
     pub subtitles: Subtitles,
-    pub avoid_top_right: bool,
+    pub avoid_right: bool,
     /// Nothing to read: "Receiver not answering".
     pub offline: bool,
 }
@@ -107,7 +107,7 @@ impl View {
             spots: Vec::new(),
             over_video: false,
             subtitles: Subtitles::Unknown,
-            avoid_top_right: false,
+            avoid_right: false,
             offline: false,
         }
     }
@@ -250,7 +250,7 @@ pub struct Volume {
     pub still: bool,
     /// The screen is off: a mark that hopped every `hop_ms` drew a frame of a dark panel each time (2026-11-15), so it waits for the wake.
     dark: bool,
-    pub avoid_top_right: bool,
+    pub avoid_right: bool,
     /// The places of a mark the owner placed (`placement`'s drift), top left corners; none while the mark has its own corners.
     placed: Option<Vec<(i32, i32)>>,
     over_video: bool,
@@ -305,7 +305,7 @@ impl Volume {
             hop_due: None,
             still: false,
             dark: false,
-            avoid_top_right: false,
+            avoid_right: false,
             placed: None,
             over_video: false,
             foreground: None,
@@ -459,7 +459,7 @@ impl Volume {
             spots: self.mark_spots(),
             over_video: self.over_video,
             subtitles: self.subtitles,
-            avoid_top_right: self.avoid_top_right,
+            avoid_right: self.avoid_right,
             offline: self.pill && source == Source::None,
         }
     }
@@ -467,7 +467,7 @@ impl Volume {
     pub fn mark_spots(&self) -> Vec<(i32, i32)> {
         match &self.placed {
             Some(spots) if !spots.is_empty() => spots.clone(),
-            _ => mark_spots(self.over_video, self.avoid_top_right),
+            _ => mark_spots(self.over_video, self.avoid_right),
         }
     }
 
@@ -938,20 +938,18 @@ impl Model for Volume {
     }
 }
 
-/// Where the mute mark may be: over an app the top corners, inside the safe area and below Home's status bar; over Home the status
-/// bar's row between its groups, where Home draws nothing. `avoid_top_right`: the camera pop-up is up there.
-pub fn mark_spots(over_video: bool, avoid_top_right: bool) -> Vec<(i32, i32)> {
+/// Where the mute mark may be: over an app a small square in the bottom right corner inside the safe area, where apps draw least (subtitles
+/// are centred, player bars come and go; Nitin, 2026-11-18), or the bottom left one while a panel is up on the right; over Home the status
+/// bar's row between its groups, where Home draws nothing. Over an app the places are more than a mark apart, so no pixel holds a still mark.
+pub fn mark_spots(over_video: bool, avoid_right: bool) -> Vec<(i32, i32)> {
     const EDGE_X: i32 = 96;
-    const TOP_Y: i32 = 134;
-    const INNER: i32 = 94;
+    const FOOT_Y: i32 = 930;
+    const STEP: i32 = 72;
     const BAR_Y: i32 = 52;
     if over_video {
-        if avoid_top_right {
-            vec![(EDGE_X, TOP_Y), (EDGE_X + INNER, TOP_Y + INNER)]
-        } else {
-            vec![(EDGE_X, TOP_Y), (1920 - EDGE_X - 64, TOP_Y), (1920 - EDGE_X - 64 - INNER, TOP_Y + INNER), (EDGE_X + INNER, TOP_Y + INNER)]
-        }
-    } else if avoid_top_right {
+        let (x, inward) = if avoid_right { (EDGE_X, STEP) } else { (1920 - EDGE_X - 64, -STEP) };
+        vec![(x, FOOT_Y), (x + inward, FOOT_Y), (x + inward, FOOT_Y - STEP), (x, FOOT_Y - STEP)]
+    } else if avoid_right {
         vec![(560, BAR_Y), (760, BAR_Y)]
     } else {
         vec![(560, BAR_Y), (760, BAR_Y), (1160, BAR_Y), (1360, BAR_Y)]
@@ -1482,7 +1480,7 @@ mod tests {
         v.still = false;
         v.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "netflix", "home": false}) }, 33_000);
         assert_eq!(v.mark_spots().len(), 4);
-        assert_eq!(v.mark_spots()[0], (96, 134), "over an app: the top corners");
+        assert_eq!(v.mark_spots()[0], (1760, 930), "over an app: the bottom right corner");
         // the helper stops reading: the reading ages out, the TV's own flag is what is read, and it is off
         v.update(&Input::Tick, 36_100);
         assert!(!v.view().mark_up, "aged out: gone");
