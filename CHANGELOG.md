@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+LumaGame keeps remote diagnostics on across installs. webOS's installer resets the app's data files to 0777, and LumaGame ignored a diagnostics file others could read, so each install silently turned diagnostics off; it now makes its own file private again and keeps the settings.
+
 Installs check that video still reaches the panel. `cutover.sh enable` and `disable` end by playing a short silent clip through LG's decoder for the app in front and reading the scaler, the display window and a VIDEO capture; when no picture comes out they exit 12 and say the set needs a reboot, the only recovery known for the black video of 2026-11-17. `lumatv video-check` runs the same check after an app install. The check is skipped with the panel off and never wakes the set. Seen passing on the TV under both compositors; the failure branch is covered by host tests only.
 
 The format badge shows the sound of apps that decode it themselves. An app (Marquee, a native Plex client) posts what it delivers to the helper's `POST /v1/media/audio` (codec, Atmos, channels, repeated every 30 s; the entry ends 75 s after the last post) and the badge puts the matching mark (Atmos, Dolby TrueHD, Dolby Digital Plus, Dolby Digital, DTS:X, DTS-HD, DTS, PCM) and the 5.1 or 7.1 mark beside the size and range, while that app is in front and the entry is for the picture shown. The marks stay on one row: past half the zone's width the speakers go first, then a Dolby Digital family sound takes the Dolby Audio mark. See `docs/media-audio.md`. Not yet seen on the TV.

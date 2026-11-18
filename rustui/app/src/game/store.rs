@@ -37,8 +37,12 @@ impl Store {
             Ok(secrets) => secrets,
             Err(e) => { notices.push(format!("Metadata keys could not be read: {e}")); Secrets::default() }
         };
-        let diagnostics = match fs::symlink_metadata(store.root.join("diagnostics.json")) {
-            Ok(meta) if meta.is_file() && meta.len() <= 8192 && meta.permissions().mode() & 0o077 == 0 => {
+        let diagnostics_path = store.root.join("diagnostics.json");
+        let diagnostics = match fs::symlink_metadata(&diagnostics_path) {
+            // webOS's installer resets the app's data files to 0777 on every install; a file this user can chmod
+            // is its own, so it is made private again instead of being ignored (which silently disabled diagnostics).
+            Ok(meta) if meta.is_file() && meta.len() <= 8192
+                && (meta.permissions().mode() & 0o077 == 0 || fs::set_permissions(&diagnostics_path, fs::Permissions::from_mode(0o600)).is_ok()) => {
                 store.read_json("diagnostics.json").unwrap_or_default()
             }
             _ => DiagnosticsConfig::default(),
@@ -259,6 +263,18 @@ mod tests {
         assert_eq!(fs::metadata(dir.path().join("diagnostics.json")).unwrap().permissions().mode() & 0o777, 0o600);
         assert!(!fs::read_to_string(dir.path().join("state.json")).unwrap().contains("private-test"));
         assert_eq!(Store::open(dir.path().into()).unwrap().1.diagnostics, config);
+    }
+
+    #[test]
+    fn diagnostics_left_open_by_an_install_are_made_private_and_kept() {
+        let dir = temp();
+        let (store, _) = Store::open(dir.path().into()).unwrap();
+        let config = DiagnosticsConfig { enabled: true, server: "https://example.invalid".into(), topic: "test".into(), token: "private-test".into(), ..Default::default() };
+        store.save_diagnostics(&config).unwrap();
+        let path = dir.path().join("diagnostics.json");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o777)).unwrap();
+        assert_eq!(Store::open(dir.path().into()).unwrap().1.diagnostics, config);
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }
 
     #[test]
