@@ -34,6 +34,16 @@
 # enable and disable end with a video check (tools/compositor.sh comp_video_check, skipped while the panel is off): exit 12
 # when no picture gets from LG's decoder to the panel. The switch is kept, since the set needs a reboot (`reboot`), the only
 # recovery known (2026-11-17).
+# luna-send answers nothing without a controlling terminal, so over a plain `ssh set cutover.sh ...` the Home recovery and
+# the video check fail and an enable reverts to LG's compositor (2026-11-18). On the set (its own /usr/bin/luna-send), a run
+# without one goes again under util-linux script's pty; -e keeps the exit status (exit 12 and the rest).
+if [ ! -t 0 ] && [ -z "${LUMATV_CUTOVER_PTY:-}" ] && [ -x /usr/bin/luna-send ] && command -v script > /dev/null 2>&1; then
+    LUMATV_CUTOVER_PTY=1; export LUMATV_CUTOVER_PTY
+    cmd="sh '$0'"
+    for a in "$@"; do cmd="$cmd '$(printf %s "$a" | sed "s/'/'\\\\''/g")'"; done
+    exec script -q -e -c "$cmd" /dev/null
+fi
+
 STATE=${LUMATV_STATE:-/var/lib/lumatv/compositor}
 D=${LUMATV_D:-/tmp/lumatv}
 LG=${LUMATV_LG:-/usr/bin/surface-manager}
