@@ -332,10 +332,13 @@ the helper’s decimal `volumeText`; integer TV-only levels remain unchanged.
 Settings › Sound › Receiver uses individual, model- and readback-qualified
 controls over the existing helper connection. Missing evidence stays unknown;
 conditional controls remain disabled when their current prerequisites are not
-met. Stereo and Direct are the only advertised sound-mode choices, and only for
-the identified AVR-S760H with a fresh recognized signal. Global subwoofer level
-remains unavailable until its protocol mapping is qualified. Zone 2 has its own
-source choices and reported volume limit, independent of the main zone.
+met. The identified AVR-S760H gets its manual's full set: the Movie, Music,
+Game and Pure buttons and twelve sound modes, Quick Select, subwoofer, speaker
+and LFE levels, the surround parameters, Audyssey, ECO and Zone 2 with mute.
+Other identified models get power, input, Stereo and Direct; a model's missing
+controls are left off the page. Zone 2 has its own source choices and reported
+volume limit, independent of the main zone. Details:
+`docs/plugins/denon-receiver.md`.
 
 The helper accepts one typed setting write at a time and reports it applied only
 after matching receiver readback on the same session. The native UI and helper

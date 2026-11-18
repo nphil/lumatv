@@ -1,8 +1,8 @@
 //! Settings observed on the current receiver session. A reply is not model identification.
 
-use lumatv_denon::settings::{self, Reply, Setting};
+use lumatv_denon::settings::{self, Channel, Reply, Setting, SoundCategory, SoundMode};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 const KEYS: &[&str] = &[
@@ -11,11 +11,16 @@ const KEYS: &[&str] = &[
     "soundMode",
     "quickSelect",
     "dialog",
+    "dialogControl",
     "subwoofer",
+    "lfe",
     "bass",
     "treble",
     "toneEnabled",
     "cinemaEq",
+    "drc",
+    "loudness",
+    "subwooferDirect",
     "multEq",
     "dynEq",
     "refOffset",
@@ -23,10 +28,85 @@ const KEYS: &[&str] = &[
     "zone2Power",
     "zone2Volume",
     "zone2Input",
+    "zone2Mute",
     "eco",
+];
+/// One level per speaker. `CV?` answers only for configured speakers, so a channel is offered once it has been heard.
+const CHANNELS: [(Channel, &str); 20] = [
+    (Channel::FrontLeft, "channelFL"),
+    (Channel::FrontRight, "channelFR"),
+    (Channel::Center, "channelC"),
+    (Channel::Subwoofer, "channelSW"),
+    (Channel::Subwoofer2, "channelSW2"),
+    (Channel::SurroundLeft, "channelSL"),
+    (Channel::SurroundRight, "channelSR"),
+    (Channel::SurroundBackLeft, "channelSBL"),
+    (Channel::SurroundBackRight, "channelSBR"),
+    (Channel::SurroundBack, "channelSB"),
+    (Channel::FrontHeightLeft, "channelFHL"),
+    (Channel::FrontHeightRight, "channelFHR"),
+    (Channel::TopFrontLeft, "channelTFL"),
+    (Channel::TopFrontRight, "channelTFR"),
+    (Channel::TopMiddleLeft, "channelTML"),
+    (Channel::TopMiddleRight, "channelTMR"),
+    (Channel::FrontDolbyLeft, "channelFDL"),
+    (Channel::FrontDolbyRight, "channelFDR"),
+    (Channel::SurroundDolbyLeft, "channelSDL"),
+    (Channel::SurroundDolbyRight, "channelSDR"),
+];
+const CATEGORIES: [(SoundCategory, &str); 4] = [
+    (SoundCategory::Movie, "Movie"),
+    (SoundCategory::Music, "Music"),
+    (SoundCategory::Game, "Game"),
+    (SoundCategory::Pure, "Pure"),
+];
+/// The S760H manual's sound modes; it has no Pure Direct. Any identified model is offered the first two.
+const STYLES: [(SoundMode, &str); 12] = [
+    (SoundMode::Stereo, "Stereo"),
+    (SoundMode::Direct, "Direct"),
+    (SoundMode::Auto, "Auto"),
+    (SoundMode::Dolby, "Dolby"),
+    (SoundMode::Dts, "DTS"),
+    (SoundMode::MultiChStereo, "Multi Ch Stereo"),
+    (SoundMode::Virtual, "Virtual"),
+    (SoundMode::MonoMovie, "Mono Movie"),
+    (SoundMode::RockArena, "Rock Arena"),
+    (SoundMode::JazzClub, "Jazz Club"),
+    (SoundMode::Matrix, "Matrix"),
+    (SoundMode::VideoGame, "Video Game"),
 ];
 const FRESH: Duration = Duration::from_secs(8);
 
+fn keys() -> impl Iterator<Item = &'static str> {
+    KEYS.iter()
+        .copied()
+        .chain(CHANNELS.iter().map(|(_, key)| *key))
+}
+
+fn channel_key(channel: Channel) -> Option<&'static str> {
+    CHANNELS
+        .iter()
+        .find(|(c, _)| *c == channel)
+        .map(|(_, key)| *key)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Profile {
+    /// Commands from the FY21 chart's AVR-S960H column, narrowed to what the AVR-S760H manual describes.
+    S760h,
+    /// Another identified model: power, input and the Stereo and Direct modes, which every chart since 2015 shares.
+    Generic,
+}
+
+impl Profile {
+    fn of(model: &str) -> Self {
+        if model.eq_ignore_ascii_case("AVR-S760H") {
+            Self::S760h
+        } else {
+            Self::Generic
+        }
+    }
+}
 #[derive(Default)]
 struct Entry {
     value: Option<Value>,
@@ -43,7 +123,8 @@ pub(crate) struct SettingsState {
     context_revision: u64,
     identity_attempted: bool,
     next_identity: Option<Instant>,
-    qualified: bool,
+    profile: Option<Profile>,
+    channels: BTreeSet<&'static str>,
     signal: Option<(String, Instant)>,
     prerequisites: Option<(settings::Prerequisites, Instant)>,
     next_prerequisites: Option<Instant>,
@@ -55,7 +136,7 @@ pub(crate) struct SettingsState {
 impl SettingsState {
     pub fn new(boot: u64) -> Self {
         Self {
-            entries: KEYS.iter().map(|k| (*k, Entry::default())).collect(),
+            entries: keys().map(|k| (k, Entry::default())).collect(),
             boot,
             ..Self::default()
         }
@@ -67,7 +148,7 @@ impl SettingsState {
         self.context_revision = 0;
         self.identity_attempted = false;
         self.next_identity = None;
-        self.qualified = false;
+        self.profile = None;
     }
 
     pub fn observe_context(&mut self, session: u64, revision: u64) {
@@ -103,14 +184,23 @@ impl SettingsState {
 
     pub fn qualify(&mut self, model: Option<&str>) {
         let model = model.map(|name| name.trim().trim_start_matches('*').trim());
-        self.identity_attempted = model.is_some_and(|name| !name.is_empty());
+        let model = model.filter(|name| !name.is_empty());
+        self.identity_attempted = model.is_some();
         self.next_identity =
             (!self.identity_attempted).then(|| Instant::now() + Duration::from_secs(5));
-        self.qualified = model.is_some_and(|name| name.eq_ignore_ascii_case("AVR-S760H"));
+        self.profile = model.map(Profile::of);
+    }
+
+    fn offered(&self, key: &str) -> bool {
+        match self.profile {
+            Some(Profile::S760h) => !key.starts_with("channel") || self.channels.contains(key),
+            Some(Profile::Generic) => matches!(key, "power" | "input" | "soundMode"),
+            None => false,
+        }
     }
 
     pub fn prerequisites_due(&self) -> bool {
-        self.qualified
+        self.profile.is_some()
             && self.session.is_some()
             && self.interest_until.is_some_and(|end| Instant::now() < end)
             && self
@@ -132,7 +222,7 @@ impl SettingsState {
     }
 
     pub fn token(&self) -> Option<String> {
-        if self.qualified {
+        if self.profile.is_some() {
             self.session.map(|s| format!("{}-{s}", self.boot))
         } else {
             None
@@ -152,7 +242,8 @@ impl SettingsState {
         self.signal = None;
         self.prerequisites = None;
         self.next_prerequisites = None;
-        self.qualified = false;
+        self.profile = None;
+        self.channels.clear();
         self.identity_attempted = false;
         self.next_identity = None;
     }
@@ -196,6 +287,7 @@ impl SettingsState {
                     | "zone2Power"
                     | "zone2Input"
                     | "zone2Volume"
+                    | "zone2Mute"
                     | "eco"
             ) {
                 entry.value = None;
@@ -209,17 +301,21 @@ impl SettingsState {
         if self.session != Some(session) {
             return;
         }
-        let (key, value) = reply_value(reply);
+        // The exact mode name arrives through `mode`; the reply only names its style.
+        let Some((key, value)) = reply_value(reply) else {
+            return;
+        };
+        if key.starts_with("channel") {
+            self.channels.insert(key);
+        }
         let changed = self
             .entries
             .get(key)
             .and_then(|e| e.value.as_ref())
             .is_some_and(|old| old != &value);
-        if changed && matches!(key, "power" | "input" | "soundMode") {
+        if changed && matches!(key, "power" | "input") {
             self.invalidate_context();
-            if matches!(key, "power" | "input") {
-                self.signal = None;
-            }
+            self.signal = None;
         }
         if changed && matches!(key, "multEq" | "dynEq" | "toneEnabled") {
             self.prerequisites = None;
@@ -251,24 +347,30 @@ impl SettingsState {
             .and_then(|e| e.value.as_ref())
     }
 
+    fn current_signal(&self) -> Option<&str> {
+        self.signal
+            .as_ref()
+            .filter(|(_, at)| at.elapsed() <= FRESH)
+            .map(|(signal, _)| signal.as_str())
+    }
+
     fn eligible(&self, key: &str) -> bool {
         let prereq = self.prerequisites();
         if key == "soundMode" {
             return self.current("power") == Some(&json!(true))
-                && self.signal.as_ref().is_some_and(|(signal, at)| {
-                    at.elapsed() <= FRESH
-                        && (signal == "PCM"
-                            || signal.starts_with("PCM ")
-                            || matches!(
-                                signal.as_str(),
-                                "DOLBY DIGITAL"
-                                    | "DOLBY DIGITAL PLUS"
-                                    | "DOLBY TRUEHD"
-                                    | "DOLBY ATMOS"
-                                    | "DTS"
-                                    | "DTS-HD"
-                                    | "DTS:X"
-                            ))
+                && self.current_signal().is_some_and(|signal| {
+                    signal == "PCM"
+                        || signal.starts_with("PCM ")
+                        || matches!(
+                            signal,
+                            "DOLBY DIGITAL"
+                                | "DOLBY DIGITAL PLUS"
+                                | "DOLBY TRUEHD"
+                                | "DOLBY ATMOS"
+                                | "DTS"
+                                | "DTS-HD"
+                                | "DTS:X"
+                        )
                 });
         }
         if key == "zone2Volume" {
@@ -290,19 +392,24 @@ impl SettingsState {
             return true;
         }
         if key.starts_with("zone2") {
-            if key == "zone2Input" {
-                return self.current("zone2Power") == Some(&json!(true))
-                    && prereq.is_some_and(|p| {
-                        p.zone2_present == Some(true)
-                            && p.zone2_sources.as_ref().is_some_and(|v| !v.is_empty())
-                    });
-            }
-            return self.current("zone2Power") == Some(&json!(true));
+            let present = prereq.is_some_and(|p| p.zone2_present == Some(true));
+            return self.current("zone2Power") == Some(&json!(true))
+                && match key {
+                    "zone2Input" => {
+                        present
+                            && prereq
+                                .and_then(|p| p.zone2_sources.as_ref())
+                                .is_some_and(|v| !v.is_empty())
+                    }
+                    "zone2Mute" => present,
+                    _ => true,
+                };
         }
         if self.current("power") != Some(&json!(true)) {
             return false;
         }
         let mode = self.current("soundMode").and_then(Value::as_str);
+        let style = mode.and_then(SoundMode::reported);
         let direct = mode.is_none_or(|m| m.contains("DIRECT"));
         let audyssey_mode =
             !direct && mode.is_some_and(|m| !m.contains("VIRTUAL") && !m.contains("DTS:X"));
@@ -310,6 +417,9 @@ impl SettingsState {
             .current("multEq")
             .and_then(Value::as_str)
             .is_some_and(|v| v != "OFF");
+        let signal = self.current_signal();
+        let dolby = signal.is_some_and(|s| s.starts_with("DOLBY"));
+        let dts = signal.is_some_and(|s| s.starts_with("DTS"));
         match key {
             "input" => prereq
                 .and_then(|p| p.main_sources.as_ref())
@@ -328,6 +438,13 @@ impl SettingsState {
                     && self.current("dynEq") == Some(&json!(false))
             }
             "cinemaEq" => mode.is_some_and(|m| m.contains("DOLBY") || m.contains("DTS")),
+            // The manual's conditions: Dialog Enhancer is not set in Direct or Virtual, and the surround parameters
+            // apply only to signals carrying them.
+            "dialog" => !direct && style != Some(SoundMode::Virtual),
+            "lfe" | "drc" => dolby || dts,
+            "loudness" => dolby,
+            "dialogControl" => signal == Some("DTS:X"),
+            "subwooferDirect" => matches!(style, Some(SoundMode::Direct | SoundMode::Stereo)),
             "multEq" => audyssey_mode && prereq.is_some_and(|p| p.mult_eq_available == Some(true)),
             "dynEq" => {
                 audyssey_mode
@@ -351,37 +468,48 @@ impl SettingsState {
 
     pub fn document(&self) -> Value {
         let mut map = serde_json::Map::new();
-        for key in KEYS {
-            let e = &self.entries[*key];
+        for key in keys() {
+            let e = &self.entries[key];
             let live = self.current(key);
-            let supported = self.qualified && live.is_some();
+            let offered = self.offered(key);
+            let supported = offered && live.is_some();
             let writable = supported && self.eligible(key) && e.pending.is_none();
-            let mut desc = json!({"support": if supported { "supported" } else { "unknown" }, "value": live, "updatedAt": if live.is_some() {e.at_ms} else {None}, "writable": writable, "options": if supported { self.options(key, live) } else { Vec::new() }, "pending": e.pending.as_ref().map(|id| json!({"requestId":id})), "result":e.result});
+            let support = if supported {
+                "supported"
+            } else if !offered && (self.profile.is_some() || key.starts_with("channel")) {
+                "unsupported"
+            } else {
+                "unknown"
+            };
+            let mut desc = json!({"support": support, "value": live, "updatedAt": if live.is_some() {e.at_ms} else {None}, "writable": writable, "options": if supported { self.options(key, live) } else { Vec::new() }, "pending": e.pending.as_ref().map(|id| json!({"requestId":id})), "result":e.result});
             if !supported {
-                desc["reason"] = json!(if *key == "subwoofer" {
-                    "Global subwoofer level protocol has not been qualified"
-                } else if !self.qualified {
+                desc["reason"] = json!(if self.profile.is_none() {
                     "Receiver model has not been identified for this connection"
+                } else if !offered && key.starts_with("channel") {
+                    "No speaker is configured on this channel"
+                } else if !offered {
+                    "Not offered on this receiver model"
                 } else {
                     "Waiting for a current receiver reply"
                 });
             } else if !writable {
                 desc["reason"] = json!(if e.pending.is_some() {
                     "A change is pending"
-                } else if *key == "soundMode" {
+                } else if key == "soundMode" {
                     "Waiting for a recognized current input signal"
-                } else if *key == "zone2Volume" {
+                } else if key == "zone2Volume" {
                     "Zone 2 volume limit and fixed-volume setting have not been read"
                 } else {
                     "Unavailable in the current receiver mode"
                 });
             }
-            if *key == "soundMode" && writable {
-                desc["reason"] = json!(
-                    "Stereo and Direct are documented for this model and input signal; the receiver does not report a mode list"
-                );
+            if key == "soundMode"
+                && let Some(style) = live.and_then(Value::as_str).and_then(SoundMode::reported)
+            {
+                desc["style"] = json!(style.as_str());
+                desc["category"] = json!(style.category().map(SoundCategory::as_str));
             }
-            match *key {
+            match key {
                 "bass" | "treble" => {
                     desc["min"] = json!(-6);
                     desc["max"] = json!(6);
@@ -406,9 +534,26 @@ impl SettingsState {
                         desc["step"] = json!(1);
                     }
                 }
+                trim if trim == "subwoofer" || trim.starts_with("channel") => {
+                    desc["min"] = json!(-12);
+                    desc["max"] = json!(12);
+                    desc["step"] = json!(0.5);
+                    desc["unit"] = json!("dB");
+                }
+                "lfe" => {
+                    desc["min"] = json!(-10);
+                    desc["max"] = json!(0);
+                    desc["step"] = json!(1);
+                    desc["unit"] = json!("dB");
+                }
+                "dialogControl" => {
+                    desc["min"] = json!(0);
+                    desc["max"] = json!(6);
+                    desc["step"] = json!(1);
+                }
                 _ => {}
             }
-            map.insert((*key).to_owned(), desc);
+            map.insert(key.to_owned(), desc);
         }
         Value::Object(map)
     }
@@ -429,7 +574,7 @@ impl SettingsState {
             return Err("Another change is pending");
         }
         let setting = to_setting(key, value).ok_or("Invalid setting value")?;
-        if !self.qualified || self.current(key).is_none() || !self.eligible(key) {
+        if !self.offered(key) || self.current(key).is_none() || !self.eligible(key) {
             return Err("Setting is unavailable");
         }
         let allowed = self.options(key, self.current(key));
@@ -461,6 +606,8 @@ impl SettingsState {
                     | "bass"
                     | "treble"
                     | "toneEnabled"
+                    | "dialog"
+                    | "subwooferDirect"
             )
             .then_some("soundMode"),
             matches!(key, "dynEq" | "dynVol" | "refOffset").then_some("multEq"),
@@ -476,7 +623,10 @@ impl SettingsState {
                 .ok_or("Setting is unavailable")?;
             valid_until = valid_until.min(at + FRESH);
         }
-        if key == "soundMode" {
+        if matches!(
+            key,
+            "soundMode" | "lfe" | "drc" | "loudness" | "dialogControl"
+        ) {
             valid_until =
                 valid_until.min(self.signal.as_ref().ok_or("Setting is unavailable")?.1 + FRESH);
         }
@@ -486,6 +636,7 @@ impl SettingsState {
                 | "zone2Power"
                 | "zone2Input"
                 | "zone2Volume"
+                | "zone2Mute"
                 | "bass"
                 | "treble"
                 | "toneEnabled"
@@ -514,14 +665,29 @@ impl SettingsState {
 
     fn options(&self, key: &str, current: Option<&Value>) -> Vec<Value> {
         if key == "soundMode" {
-            return if self.eligible(key) {
-                vec![
-                    json!({"value":"STEREO","label":"Stereo"}),
-                    json!({"value":"DIRECT","label":"Direct"}),
-                ]
-            } else {
-                Vec::new()
-            };
+            let full = self.profile == Some(Profile::S760h);
+            let categories = CATEGORIES.iter().filter(|_| full).map(|(category, label)| {
+                json!({"value": category.as_str(), "label": label, "kind": "category"})
+            });
+            let styles = STYLES.iter().take(if full { STYLES.len() } else { 2 }).map(
+                |(style, label)| json!({"value": style.as_str(), "label": label, "kind": "style"}),
+            );
+            return categories.chain(styles).collect();
+        }
+        if key == "drc" {
+            // The manual rules out Auto for DTS signals.
+            let dts = self.current_signal().is_some_and(|s| s.starts_with("DTS"));
+            return [
+                (settings::Drc::Off, "Off"),
+                (settings::Drc::Auto, "Auto"),
+                (settings::Drc::Low, "Low"),
+                (settings::Drc::Medium, "Medium"),
+                (settings::Drc::High, "High"),
+            ]
+            .into_iter()
+            .filter(|(value, _)| !(dts && *value == settings::Drc::Auto))
+            .map(|(value, label)| json!({"value": value.as_str(), "label": label}))
+            .collect();
         }
         let sources = match key {
             "input" => self.prerequisites().and_then(|p| p.main_sources.as_ref()),
@@ -559,7 +725,8 @@ impl SettingsState {
 
 fn options(key: &str, current: Option<&Value>) -> Vec<Value> {
     let vals: Vec<Value> = match key {
-        "power" | "toneEnabled" | "cinemaEq" | "dynEq" | "zone2Power" => {
+        "power" | "toneEnabled" | "cinemaEq" | "dynEq" | "zone2Power" | "zone2Mute"
+        | "loudness" | "subwooferDirect" => {
             vec![json!(false), json!(true)]
         }
         "quickSelect" => (1..=4).map(|n| json!(n)).collect(),
@@ -580,17 +747,18 @@ fn options(key: &str, current: Option<&Value>) -> Vec<Value> {
             .map(|s| json!(s))
             .collect(),
         "refOffset" => [0, 5, 10, 15].into_iter().map(|n| json!(n)).collect(),
-        "input" | "soundMode" | "zone2Input" => current.cloned().into_iter().collect(),
+        "input" | "zone2Input" => current.cloned().into_iter().collect(),
         _ => Vec::new(),
     };
     vals.into_iter().map(|v| json!({"label": v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()), "value": v})).collect()
 }
 
-fn reply_value(reply: Reply) -> (&'static str, Value) {
-    match reply {
+fn reply_value(reply: Reply) -> Option<(&'static str, Value)> {
+    Some(match reply {
         Reply::Power(v) => ("power", json!(v)),
         Reply::Source(v) => ("input", json!(v.as_str())),
-        Reply::SoundMode(v) => ("soundMode", json!(v.as_str())),
+        // Stands for the style; the exact name the entry holds comes from `SettingsState::mode`.
+        Reply::SoundMode(_) => return None,
         Reply::QuickSelect(v) => ("quickSelect", json!(v.as_str().parse::<u8>().ok())),
         Reply::DialogEnhancer(v) => (
             "dialog",
@@ -621,25 +789,55 @@ fn reply_value(reply: Reply) -> (&'static str, Value) {
         Reply::Zone2Power(v) => ("zone2Power", json!(v)),
         Reply::Zone2Source(v) => ("zone2Input", json!(v.as_str())),
         Reply::Zone2Volume(v) => ("zone2Volume", json!(v.value())),
-    }
+        Reply::Zone2Mute(v) => ("zone2Mute", json!(v)),
+        Reply::DialogControl(v) => ("dialogControl", json!(v.level())),
+        Reply::SubwooferLevel(v) => ("subwoofer", json!(v.db())),
+        Reply::SubwooferDirect(v) => ("subwooferDirect", json!(v)),
+        Reply::ChannelLevel(channel, v) => (channel_key(channel)?, json!(v.db())),
+        Reply::Lfe(v) => ("lfe", json!(v.db())),
+        Reply::Drc(v) => ("drc", json!(v.as_str())),
+        Reply::Loudness(v) => ("loudness", json!(v)),
+    })
 }
 
 fn to_setting(key: &str, value: &Value) -> Option<Setting> {
     let text = || value.as_str();
-    let tone = || {
-        let db = value.as_f64()?;
-        if db.fract() != 0.0 || !(-6.0..=6.0).contains(&db) {
-            return None;
-        }
-        settings::Tone::new(db as i8)
+    let whole = || {
+        value
+            .as_f64()
+            .filter(|v| v.fract() == 0.0 && v.abs() <= 127.0)
+            .map(|v| v as i8)
     };
+    let tone = || settings::Tone::new(whole()?);
+    if let Some((channel, _)) = CHANNELS.iter().find(|(_, k)| *k == key) {
+        return Some(Setting::ChannelLevel(
+            *channel,
+            settings::Trim::new(value.as_f64()?)?,
+        ));
+    }
     Some(match key {
         "power" => Setting::Power(value.as_bool()?),
         "input" => Setting::Source(settings::Source::parse(text()?)?),
-        "soundMode" => Setting::SoundMode(settings::SoundMode::parse(text()?)?),
-        "quickSelect" => {
-            Setting::QuickSelect(settings::QuickSelect::parse(&value.as_u64()?.to_string())?)
+        "soundMode" => {
+            let name = text()?;
+            match SoundCategory::parse(name) {
+                Some(category) => Setting::SoundCategory(category),
+                None => Setting::SoundMode(SoundMode::parse(name).filter(|m| m.writable())?),
+            }
         }
+        "quickSelect" => Setting::QuickSelect(
+            settings::QuickSelect::parse(&value.as_u64()?.to_string())
+                .filter(|q| *q != settings::QuickSelect::Unset)?,
+        ),
+        "dialogControl" => Setting::DialogControl(settings::DialogControl::new(
+            u8::try_from(value.as_u64()?).ok()?,
+        )?),
+        "subwoofer" => Setting::SubwooferLevel(settings::Trim::new(value.as_f64()?)?),
+        "lfe" => Setting::Lfe(settings::Lfe::new(whole()?)?),
+        "drc" => Setting::Drc(settings::Drc::parse(text()?)?),
+        "loudness" => Setting::Loudness(value.as_bool()?),
+        "subwooferDirect" => Setting::SubwooferDirect(value.as_bool()?),
+        "zone2Mute" => Setting::Zone2Mute(value.as_bool()?),
         "dialog" => Setting::DialogEnhancer(match text()? {
             "off" => settings::DialogEnhancer::Off,
             "low" => settings::DialogEnhancer::Low,
@@ -764,9 +962,15 @@ mod tests {
         state.signal(1, "PCM ZERO".into(), now);
         let mode = &state.document()["soundMode"];
         assert_eq!(mode["writable"], true);
+        let options = mode["options"].as_array().unwrap();
+        assert_eq!(options.len(), 16);
         assert_eq!(
-            mode["options"],
-            json!([{"value":"STEREO","label":"Stereo"},{"value":"DIRECT","label":"Direct"}])
+            options[0],
+            json!({"value":"MOVIE","label":"Movie","kind":"category"})
+        );
+        assert_eq!(
+            options[5],
+            json!({"value":"DIRECT","label":"Direct","kind":"style"})
         );
         assert!(state.prepare("soundMode", &json!("DIRECT"), "2-1").is_ok());
         state.context_changed(1, 5, "input");
@@ -784,5 +988,125 @@ mod tests {
         assert_eq!(state.document()["soundMode"]["writable"], false);
         state.mode(1, "DIRECT".into(), now, 9);
         assert_eq!(state.document()["bass"]["writable"], false);
+    }
+
+    #[test]
+    fn models_get_only_the_controls_they_offer() {
+        let now = Instant::now();
+        let mut state = SettingsState::new(3);
+        state.connected(1);
+        state.qualify(Some("AVR-X1700H"));
+        state.observe(1, Reply::Power(true), now, 1);
+        state.observe(1, Reply::Eco(settings::Eco::Auto), now, 2);
+        state.mode(1, "STEREO".into(), now, 3);
+        state.signal(1, "PCM".into(), now);
+        let doc = state.document();
+        assert_eq!(doc["power"]["writable"], true);
+        assert_eq!(doc["eco"]["support"], "unsupported");
+        assert_eq!(
+            doc["soundMode"]["options"],
+            json!([
+                {"value":"STEREO","label":"Stereo","kind":"style"},
+                {"value":"DIRECT","label":"Direct","kind":"style"}
+            ])
+        );
+        assert!(state.prepare("eco", &json!("ON"), "3-1").is_err());
+        assert!(state.prepare("soundMode", &json!("MOVIE"), "3-1").is_err());
+        state.qualify(Some("AVR-S760H"));
+        let trim = settings::Trim::new(-1.5).unwrap();
+        state.observe(
+            1,
+            Reply::ChannelLevel(settings::Channel::FrontLeft, trim),
+            now,
+            4,
+        );
+        let doc = state.document();
+        assert_eq!(doc["eco"]["support"], "supported");
+        assert_eq!(doc["channelFL"]["value"], -1.5);
+        assert_eq!(doc["channelSDR"]["support"], "unsupported");
+        assert!(state.prepare("channelFL", &json!(12.5), "3-1").is_err());
+        assert!(matches!(
+            state.prepare("channelFL", &json!(-12), "3-1"),
+            Ok((
+                _,
+                _,
+                _,
+                Setting::ChannelLevel(settings::Channel::FrontLeft, _),
+                _
+            ))
+        ));
+    }
+
+    #[test]
+    fn sound_modes_and_surround_parameters_follow_mode_and_signal() {
+        let now = Instant::now();
+        let mut state = SettingsState::new(4);
+        state.connected(1);
+        state.qualify(Some("AVR-S760H"));
+        state.observe(1, Reply::Power(true), now, 1);
+        state.mode(1, "DOLBY AUDIO-DD+DSUR".into(), now, 2);
+        state.observe(1, Reply::SoundMode(settings::SoundMode::Dolby), now, 3);
+        state.signal(1, "DOLBY DIGITAL".into(), now);
+        state.observe(1, Reply::Loudness(true), now, 4);
+        state.observe(1, Reply::Drc(settings::Drc::Auto), now, 5);
+        state.observe(1, Reply::Lfe(settings::Lfe::new(0).unwrap()), now, 6);
+        state.observe(1, Reply::QuickSelect(settings::QuickSelect::Unset), now, 7);
+        state.observe(
+            1,
+            Reply::DialogEnhancer(settings::DialogEnhancer::Off),
+            now,
+            8,
+        );
+        let doc = state.document();
+        assert_eq!(doc["soundMode"]["value"], "DOLBY AUDIO-DD+DSUR");
+        assert_eq!(doc["soundMode"]["style"], "DOLBY DIGITAL");
+        assert!(doc["soundMode"]["category"].is_null());
+        assert!(matches!(
+            state.prepare("soundMode", &json!("MOVIE"), "4-1"),
+            Ok((_, _, _, Setting::SoundCategory(SoundCategory::Movie), _))
+        ));
+        assert!(
+            state
+                .prepare("soundMode", &json!("MULTI CH IN"), "4-1")
+                .is_err()
+        );
+        assert_eq!(doc["loudness"]["writable"], true);
+        assert_eq!(doc["dialog"]["writable"], true);
+        assert_eq!(doc["drc"]["options"][1]["value"], "AUTO");
+        assert!(state.prepare("lfe", &json!(-11), "4-1").is_err());
+        assert!(state.prepare("lfe", &json!(-10), "4-1").is_ok());
+        assert_eq!(doc["quickSelect"]["value"], 0);
+        assert!(state.prepare("quickSelect", &json!(0), "4-1").is_err());
+        assert!(state.prepare("quickSelect", &json!(4), "4-1").is_ok());
+        state.signal(1, "DTS:X".into(), now);
+        state.observe(1, Reply::Loudness(false), now, 9);
+        state.observe(1, Reply::Drc(settings::Drc::Off), now, 10);
+        state.observe(
+            1,
+            Reply::DialogControl(settings::DialogControl::new(0).unwrap()),
+            now,
+            11,
+        );
+        let doc = state.document();
+        assert_eq!(doc["loudness"]["writable"], false);
+        assert_eq!(doc["dialogControl"]["writable"], true);
+        assert!(
+            !doc["drc"]["options"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|o| o["value"] == "AUTO")
+        );
+        state.mode(1, "VIRTUAL".into(), now, 12);
+        state.observe(
+            1,
+            Reply::DialogEnhancer(settings::DialogEnhancer::Off),
+            now,
+            13,
+        );
+        state.observe(1, Reply::SubwooferDirect(false), now, 14);
+        let doc = state.document();
+        assert_eq!(doc["dialog"]["writable"], false);
+        assert_eq!(doc["subwooferDirect"]["writable"], false);
     }
 }

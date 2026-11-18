@@ -1935,11 +1935,32 @@ mod tests {
             let value = read();
             (value["value"]["settings"]["soundMode"]["writable"] == true).then_some(value)
         });
+        let options = mode["value"]["settings"]["soundMode"]["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|option| option["value"].as_str().unwrap())
+            .collect::<Vec<_>>();
         assert_eq!(
-            mode["value"]["settings"]["soundMode"]["options"],
-            json!([
-                {"value":"STEREO","label":"Stereo"}, {"value":"DIRECT","label":"Direct"}
-            ])
+            options,
+            [
+                "MOVIE",
+                "MUSIC",
+                "GAME",
+                "PURE",
+                "STEREO",
+                "DIRECT",
+                "AUTO",
+                "DOLBY DIGITAL",
+                "DTS SURROUND",
+                "MCH STEREO",
+                "VIRTUAL",
+                "MONO MOVIE",
+                "ROCK ARENA",
+                "JAZZ CLUB",
+                "MATRIX",
+                "VIDEO GAME"
+            ]
         );
         assert_eq!(rejected("soundMode", json!("PURE DIRECT")), 400);
         fake.hold.store(true, Ordering::SeqCst);

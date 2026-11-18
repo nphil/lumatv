@@ -25,3 +25,31 @@ The helper log says at each wake what the receiver read and what was sent (`rece
 ZMON`, `receiver: on`, `receiver: not on within 3000 ms: the TV's own speakers meanwhile`), or why nothing was (`... the TV's sound
 output is not the receiver: left alone`). The keeper's commands: `receiver: the screen is on and the receiver is off: power on`, `...
 the TV input`, `receiver: the receiver does not answer|stays off: the TV's own speakers`, `receiver: on again: back to external_arc`.
+
+## Receiver settings
+
+Settings › Sound › Receiver shows the receiver's own settings while the plugin is on and the page is open. Code:
+`helper/denon/src/settings.rs` (commands and replies), `helper/app/src/receiver_settings.rs` (what is offered, when it is writable),
+`helper/app/src/receiver_telnet.rs` (write and read-back), `rustui/ui/src/settings/pages/receiver.rs`.
+
+- **Model:** each connection reads the model name from the receiver's web interface. An AVR-S760H gets the full set: the FY21
+  protocol's AVR-S960H commands, narrowed to the S760H owner's manual (Dialog Enhancer, no Pure Direct, no Center Level). Any other
+  model gets power, input and the Stereo and Direct modes; an unidentified one gets nothing. Controls a model does not have are left
+  off the page.
+- **Sound mode:** the Movie, Music, Game and Pure buttons (`MSMOVIE`, `MSMUSIC`, `MSGAME`, `MSDIRECT`) and the modes Stereo, Direct,
+  Auto, Dolby, DTS, Multi Ch Stereo, Virtual, Mono Movie, Rock Arena, Jazz Club, Matrix and Video Game. The receiver reports the
+  decoder it ended on (`DOLBY AUDIO-DD+DSUR`, `M CH IN+NEURAL:X`), shown as is and grouped under the command that selects it. A
+  button recalls its last mode or steps to the next, so its write is confirmed by any mode the manual lists under that button.
+- **Quick Select 1–4** recalls a receiver memory; `MSQUICK0` (none recalled since a change) leaves all four choosable.
+- **Levels:** Dialog Enhancer (not in Direct or Virtual), Dialog Control 0–6 (DTS:X), subwoofer level and each configured speaker's
+  level (−12 to +12 dB in 0.5 dB steps; `CV?` lists only configured speakers), LFE 0 to −10 dB, dynamic compression (Auto not for
+  DTS) and LFE for Dolby and DTS signals, loudness management for Dolby, subwoofer in Direct and Stereo, tone, Cinema EQ.
+- **Audyssey:** MultEQ, Dynamic EQ, reference level offset, Dynamic Volume, under the manual's mode conditions.
+- **Zones and power:** Zone 2 power, input, volume (only with variable volume and a read limit) and mute; ECO.
+- **Not carried:** Quick Select names (no protocol command), Zone 2 Quick Select, and the surround parameters the S760H manual marks
+  unused (Center Spread, Speaker Virtualizer, Neural:X, effect, room size, delay, Restorer, manual EQ).
+
+Every change is one command for one press, sent only for a value the helper currently advertises and only while the values it
+depends on are fresh. A change counts as applied when the receiver's read-back matches; the screen shows the read-back, never the
+requested value. A sound mode write waits for a matching mode until the 3 s deadline, because the receiver first repeats the mode
+being left. Nothing is written in the background.

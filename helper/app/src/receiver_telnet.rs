@@ -144,10 +144,12 @@ struct SettingsRequest {
     valid_until: Instant,
     authorized: Box<dyn Fn() -> bool + Send>,
     deadline: Instant,
+    /// A sound mode reply that did not match was heard; the timeout then reports a mismatch.
+    mismatched: bool,
 }
 
 fn settings_verdict(
-    request: &SettingsRequest,
+    request: &mut SettingsRequest,
     reply: Reply,
 ) -> Option<(bool, Option<&'static str>)> {
     if !reply.same_field(request.command) {
@@ -158,7 +160,13 @@ fn settings_verdict(
     } else if !request.queried {
         None
     } else if !request.command.matches_reply(&reply) {
-        Some((false, Some("settings reply mismatch")))
+        // A sound mode change first reports the mode being left, and the switch can outlast the quiet gap before the query.
+        if request.command.query() == Query::SoundMode {
+            request.mismatched = true;
+            None
+        } else {
+            Some((false, Some("settings reply mismatch")))
+        }
     } else if !(request.authorized)() {
         Some((false, Some("receiver target or screen changed")))
     } else {
@@ -292,6 +300,7 @@ impl Link {
             valid_until,
             authorized,
             deadline: Instant::now() + SETTINGS_TIMEOUT,
+            mismatched: false,
         });
         drop(state);
         self.shared.changed.notify_all();
@@ -343,7 +352,7 @@ fn coalesce_reply(
             ..
         } = event
             && *old_session == session
-            && std::mem::discriminant(old) == std::mem::discriminant(&reply)
+            && old.same_field(reply.setting())
         {
             count += 1;
             last = Some(index);
@@ -543,16 +552,17 @@ fn converse(
         let mut barrier = false;
         {
             let mut state = shared.state.lock();
-            if state
+            if let Some(request) = state
                 .settings_request
                 .as_ref()
-                .is_some_and(|request| now >= request.deadline)
+                .filter(|request| now >= request.deadline)
             {
-                finish_request(
-                    &mut state,
-                    SettingsStatus::Failed,
-                    Some("settings request timed out"),
-                );
+                let error = if request.mismatched {
+                    "settings reply mismatch"
+                } else {
+                    "settings request timed out"
+                };
+                finish_request(&mut state, SettingsStatus::Failed, Some(error));
                 drop(state);
                 wake();
             } else if now >= next_query {
@@ -728,7 +738,8 @@ fn converse(
                                     (field, r.command),
                                     (0, Setting::Power(_))
                                         | (1, Setting::Source(_))
-                                        | (2, Setting::SoundMode(_))
+                                        | (2, Setting::SoundMode(_) | Setting::SoundCategory(_))
+                                        | (1..=3, Setting::QuickSelect(_))
                                 )
                         });
                         let failed = !own && state.settings_request.is_some();
@@ -831,7 +842,7 @@ fn converse(
                 });
                 let verdict = state
                     .settings_request
-                    .as_ref()
+                    .as_mut()
                     .and_then(|request| settings_verdict(request, reply));
                 if let Some((ok, error)) = verdict {
                     finish_request(
@@ -881,7 +892,7 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         let allowed = Arc::new(AtomicBool::new(true));
         let live = Arc::clone(&allowed);
-        let request = SettingsRequest {
+        let mut request = SettingsRequest {
             session: 1,
             expected_context: 0,
             target: Target {
@@ -896,14 +907,31 @@ mod tests {
             valid_until: Instant::now() + SETTINGS_TIMEOUT,
             authorized: Box::new(move || live.load(Ordering::SeqCst)),
             deadline: Instant::now() + SETTINGS_TIMEOUT,
+            mismatched: false,
         };
         assert_eq!(
-            settings_verdict(&request, Reply::Power(true)),
+            settings_verdict(&mut request, Reply::Power(false)),
+            Some((false, Some("settings reply mismatch")))
+        );
+        assert_eq!(
+            settings_verdict(&mut request, Reply::Power(true)),
+            Some((true, None))
+        );
+        use lumatv_denon::settings::{SoundCategory, SoundMode};
+        request.command = Setting::SoundCategory(SoundCategory::Game);
+        assert_eq!(
+            settings_verdict(&mut request, Reply::SoundMode(SoundMode::Direct)),
+            None,
+            "the mode being left is not the verdict"
+        );
+        assert!(request.mismatched);
+        assert_eq!(
+            settings_verdict(&mut request, Reply::SoundMode(SoundMode::VideoGame)),
             Some((true, None))
         );
         allowed.store(false, Ordering::SeqCst);
         assert_eq!(
-            settings_verdict(&request, Reply::Power(true)),
+            settings_verdict(&mut request, Reply::SoundMode(SoundMode::VideoGame)),
             Some((false, Some("receiver target or screen changed")))
         );
     }

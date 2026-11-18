@@ -20,6 +20,29 @@ const ID: &str = "denon-receiver";
 const TABS: [&str; 5] = ["Receiver", "Sound mode", "Levels", "Audyssey", "Zones & power"];
 /// The name the switch's answer comes back under.
 const SWITCH: &str = "receiver.switch";
+/// The helper's channel level keys; it offers only the speakers the receiver reports as configured.
+const CHANNELS: [(&str, &str); 20] = [
+    ("channelFL", "Front left"),
+    ("channelFR", "Front right"),
+    ("channelC", "Centre"),
+    ("channelSW", "Subwoofer"),
+    ("channelSW2", "Subwoofer 2"),
+    ("channelSL", "Surround left"),
+    ("channelSR", "Surround right"),
+    ("channelSBL", "Surround back left"),
+    ("channelSBR", "Surround back right"),
+    ("channelSB", "Surround back"),
+    ("channelFHL", "Front height left"),
+    ("channelFHR", "Front height right"),
+    ("channelTFL", "Top front left"),
+    ("channelTFR", "Top front right"),
+    ("channelTML", "Top middle left"),
+    ("channelTMR", "Top middle right"),
+    ("channelFDL", "Front Dolby left"),
+    ("channelFDR", "Front Dolby right"),
+    ("channelSDL", "Surround Dolby left"),
+    ("channelSDR", "Surround Dolby right"),
+];
 
 pub fn page() -> Page {
     Page::new("receiver", "Receiver", "boom-box")
@@ -210,6 +233,10 @@ impl<'a> Setting<'a> {
             .and_then(|d| d.get("value"))
             .filter(|v| !v.is_null())
     }
+    /// Settings the receiver model does not offer stay off the page.
+    fn offered(&self) -> bool {
+        self.d.and_then(|d| d.get("support")).and_then(Value::as_str) != Some("unsupported")
+    }
     fn enabled(&self) -> bool {
         self.has_session && self.value().is_some() && !self.busy && self.d.and_then(|d| d.get("writable")).and_then(Value::as_bool) == Some(true)
     }
@@ -262,13 +289,14 @@ impl<'a> Setting<'a> {
         }
         String::new()
     }
-    fn options(&self, numeric: bool) -> Vec<(Value, String)> {
+    fn options(&self, numeric: bool, kind: Option<&str>) -> Vec<(Value, String)> {
         self.d
             .and_then(|d| d.get("options"))
             .and_then(Value::as_array)
             .map(|items| {
                 items
                     .iter()
+                    .filter(|o| kind.is_none() || o.get("kind").and_then(Value::as_str) == kind)
                     .filter_map(|o| {
                         let v = o.get("value")?;
                         if if numeric { !v.is_number() } else { !v.is_string() } {
@@ -290,7 +318,7 @@ fn switch(c: &Ctx, live: Option<&Value>, h: H, key: &'static str) -> Row {
     let s = Setting::new(c, live, key);
     let v = s.value().and_then(Value::as_bool);
     let enabled = s.enabled() && v.is_some();
-    let mut r = Row::toggle(h.0).tab(h.1).icon(h.2).label(h.3).help(h.4).on(v == Some(true)).admin();
+    let mut r = Row::toggle(h.0).tab(h.1).icon(h.2).label(h.3).help(h.4).on(v == Some(true)).admin().visible(s.offered());
     r.enabled = enabled;
     r.detail = s.detail();
     if v.is_none() && r.detail.is_empty() {
@@ -306,8 +334,16 @@ fn switch(c: &Ctx, live: Option<&Value>, h: H, key: &'static str) -> Row {
 
 fn choice(c: &Ctx, live: Option<&Value>, h: H, key: &'static str, numeric: bool, kind: u8) -> Row {
     let s = Setting::new(c, live, key);
-    let opts: Vec<_> = s.options(numeric).into_iter().filter(|(v, _)| key != "quickSelect" || v.as_i64().is_some()).collect();
+    let opts: Vec<_> = s.options(numeric, None).into_iter().filter(|(v, _)| key != "quickSelect" || v.as_i64().is_some()).collect();
     let index = s.value().and_then(|v| opts.iter().position(|(x, _)| x == v));
+    // Quick Select reports 0 until a memory is recalled; any memory can still be chosen.
+    pick(c, live, h, &s, opts, index, key == "quickSelect", kind)
+}
+
+/// A row of choices. `free` keeps it usable while the current value is none of them.
+#[allow(clippy::too_many_arguments)]
+fn pick(c: &Ctx, live: Option<&Value>, h: H, s: &Setting, opts: Vec<(Value, String)>, index: Option<usize>, free: bool, kind: u8) -> Row {
+    let key = s.key;
     let labels: Vec<String> = opts.iter().map(|(_, l)| l.clone()).collect();
     let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
     let mut r = match kind {
@@ -325,16 +361,12 @@ fn choice(c: &Ctx, live: Option<&Value>, h: H, key: &'static str, numeric: bool,
     .label(h.3)
     .help(h.4)
     .index(index)
-    .admin();
-    let observed_mode = key == "soundMode"
-        && s.value().and_then(Value::as_str).is_some_and(|v| {
-            let value = v.trim();
-            !value.is_empty() && !value.eq_ignore_ascii_case("unknown") && !value.eq_ignore_ascii_case("unavailable")
-        });
-    let enabled = s.enabled() && (if key == "soundMode" { observed_mode } else { index.is_some() }) && !opts.is_empty();
+    .admin()
+    .visible(s.offered());
+    let enabled = s.enabled() && (free || index.is_some()) && !opts.is_empty();
     r.enabled = enabled;
     r.detail = s.detail();
-    if index.is_none() && !observed_mode && r.detail.is_empty() {
+    if index.is_none() && !free && r.detail.is_empty() {
         r.detail = "Unavailable".into();
     }
     let now = c.now;
@@ -343,6 +375,21 @@ fn choice(c: &Ctx, live: Option<&Value>, h: H, key: &'static str, numeric: bool,
         Arg::Index(i) if enabled && !session.is_empty() => opts.get(i).map(|(v, _)| set(key, v.clone(), now, &session)).unwrap_or_default(),
         _ => Vec::new(),
     })
+}
+
+/// The MOVIE/MUSIC/GAME/PURE buttons and the modes themselves, both written through `soundMode`. The receiver reports
+/// only the mode, so a button is highlighted only when its mode belongs to that button alone.
+fn sound_modes(c: &Ctx, live: Option<&Value>, observed: bool) -> [Row; 2] {
+    let s = Setting::new(c, live, "soundMode");
+    let row = |h: H, kind: &str, field: &str| {
+        let opts = s.options(false, Some(kind));
+        let current = s.value().and(s.d).and_then(|d| d.get(field)).and_then(Value::as_str);
+        let index = current.and_then(|v| opts.iter().position(|(x, _)| x.as_str() == Some(v)));
+        pick(c, live, h, &s, opts, index, observed, 2)
+    };
+    let categories = row(H("modes", 1, "audio-waveform", "Category", "Movie, Music and Game recall that button's last mode; choosing it again steps to the next."), "category", "category");
+    let shown = categories.visible && !categories.cards.is_empty();
+    [categories.visible(shown), row(H("styles", 1, "audio-waveform", "Mode", ""), "style", "style")]
 }
 
 fn level(c: &Ctx, live: Option<&Value>, h: H, key: &'static str) -> Row {
@@ -354,7 +401,7 @@ fn level(c: &Ctx, live: Option<&Value>, h: H, key: &'static str) -> Row {
     let valid = v.is_some_and(|x| x >= min && x <= max && ((x - min) / step - ((x - min) / step).round()).abs() < 0.00001);
     let enabled = s.enabled() && range.is_some() && valid;
     let unit = s.d.and_then(|d| d.get("unit")).and_then(Value::as_str).unwrap_or("");
-    let mut r = Row::slider(h.0, min, max, step).tab(h.1).icon(h.2).label(h.3).help(h.4).admin();
+    let mut r = Row::slider(h.0, min, max, step).tab(h.1).icon(h.2).label(h.3).help(h.4).admin().visible(s.offered());
     r.enabled = enabled;
     r.detail = s.detail();
     r.num = v.filter(|_| valid).unwrap_or(min);
@@ -468,7 +515,7 @@ fn controls(c: &Ctx) -> Vec<Row> {
         .map(str::trim)
         .filter(|v| !v.is_empty() && !v.eq_ignore_ascii_case("unknown") && !v.eq_ignore_ascii_case("unavailable"));
     rows.push(Row::head(&mode.map(|v| format!("Sound mode · now {v}")).unwrap_or_else(|| "Sound mode".into()), 1));
-    rows.push(choice(c, live, H("modes", 1, "audio-waveform", "Sound mode", ""), "soundMode", false, 2));
+    rows.extend(sound_modes(c, live, mode.is_some()));
     rows.push(choice(c, live, H("quick", 1, "zap", "Quick Select", "Receiver memories."), "quickSelect", true, 0));
     let absolute = live.and_then(|r| r.get("volumeDisplay")).and_then(Value::as_str) == Some("absolute");
     let (min, max) = if absolute { (0.0, 98.0) } else { (-80.0, 18.0) };
@@ -478,8 +525,9 @@ fn controls(c: &Ctx) -> Vec<Row> {
     volume.value_text = Some(live.and_then(|r| r.get("volumeText")).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("\u{2013}").into());
     rows.push(volume);
     rows.push(choice(c, live, H("dialog", 2, "mic", "Dialog Enhancer", "Louder voices without louder everything."), "dialog", false, 0));
-    rows.push(switch(c, live, H("subwooferEnabled", 2, "speaker", "Subwoofer adjustment", ""), "subwooferEnabled"));
-    rows.push(level(c, live, H("subwoofer", 2, "speaker", "Subwoofer adjustment level", ""), "subwoofer"));
+    rows.push(level(c, live, H("dialogControl", 2, "mic", "Dialog Control", "DTS:X dialogue level."), "dialogControl"));
+    rows.push(level(c, live, H("subwoofer", 2, "speaker", "Subwoofer level", ""), "subwoofer"));
+    rows.push(level(c, live, H("lfe", 2, "speaker", "LFE level", "The low-frequency effects channel of Dolby and DTS sound."), "lfe"));
     rows.push(switch(c, live, H("toneEnabled", 2, "sliders-vertical", "Tone control", ""), "toneEnabled"));
     for (h, key) in
         [(H("bass", 2, "sliders-vertical", "Bass", "Tone control."), "bass"), (H("treble", 2, "sliders-vertical", "Treble", "Tone control."), "treble")]
@@ -487,16 +535,32 @@ fn controls(c: &Ctx) -> Vec<Row> {
         rows.push(level(c, live, h, key));
     }
     rows.push(switch(c, live, H("cinemaeq", 2, "theater", "Cinema EQ", "Softens bright film soundtracks."), "cinemaEq"));
+    rows.push(choice(c, live, H("drc", 2, "activity", "Dynamic compression", "Narrows the gap between loud and quiet scenes."), "drc", false, 0));
+    rows.push(switch(c, live, H("loudness", 2, "volume-1", "Loudness management", "For Dolby sound."), "loudness"));
+    rows.push(switch(c, live, H("subwooferDirect", 2, "speaker", "Subwoofer in Direct and Stereo", ""), "subwooferDirect"));
+    let channels: Vec<Row> = CHANNELS
+        .iter()
+        .map(|&(key, label)| {
+            let row = level(c, live, H(key, 2, "speaker", label, ""), key);
+            let shown = row.visible && Setting::new(c, live, key).d.is_some();
+            row.visible(shown)
+        })
+        .collect();
+    rows.push(Row::head("Channel levels", 2).visible(channels.iter().any(|r| r.visible)));
+    rows.extend(channels);
     rows.push(choice(c, live, H("multeq", 3, "audio-lines", "MultEQ", "Audyssey room correction."), "multEq", false, 0));
     rows.push(switch(c, live, H("dyneq", 3, "activity", "Dynamic EQ", "Keeps bass and surround full at low volume."), "dynEq"));
     rows.push(choice(c, live, H("refoffset", 3, "gauge", "Reference level offset", "For Dynamic EQ."), "refOffset", true, 0));
     rows.push(choice(c, live, H("dynvol", 3, "volume-1", "Dynamic Volume", "Evens out loud adverts and quiet dialogue."), "dynVol", false, 0));
-    rows.push(Row::head("Zone 2", 4));
+    let zone2 = Setting::new(c, live, "zone2Power").offered();
+    rows.push(Row::head("Zone 2", 4).visible(zone2));
     rows.push(switch(c, live, H("zone2power", 4, "power", "Zone 2 power", "The second pair of speakers."), "zone2Power"));
     rows.push(level(c, live, H("zone2volume", 4, "volume-2", "Zone 2 volume", ""), "zone2Volume"));
     rows.push(choice(c, live, H("zone2input", 4, "cable", "Zone 2 input", ""), "zone2Input", false, 1));
-    rows.push(Row::head("Power", 4));
-    rows.push(choice(c, live, H("eco", 4, "leaf", "ECO mode", "Less power at low volume."), "eco", false, 0));
+    rows.push(switch(c, live, H("zone2mute", 4, "volume-1", "Zone 2 mute", ""), "zone2Mute"));
+    let eco = choice(c, live, H("eco", 4, "leaf", "ECO mode", "Less power at low volume."), "eco", false, 0);
+    rows.push(Row::head("Power", 4).visible(eco.visible));
+    rows.push(eco);
     rows
 }
 
@@ -584,19 +648,55 @@ mod tests {
     #[test]
     fn actual_sound_mode_is_shown_separately_from_writable_targets() {
         let mut w = world();
-        let mut mode = descriptor(json!("Dolby Surround"));
-        mode["options"] = json!([{"value":"STEREO","label":"Stereo"},{"value":"DIRECT","label":"Direct"}]);
+        let mut mode = descriptor(json!("DOLBY AUDIO-DD+DSUR"));
+        mode["style"] = json!("DOLBY DIGITAL");
+        mode["category"] = Value::Null;
+        mode["options"] = json!([
+            {"value":"MOVIE","label":"Movie","kind":"category"},{"value":"MUSIC","label":"Music","kind":"category"},
+            {"value":"STEREO","label":"Stereo","kind":"style"},{"value":"DOLBY DIGITAL","label":"Dolby","kind":"style"}
+        ]);
         put(&mut w, "soundMode", mode.clone());
         let r = rows(&w.ctx());
-        assert!(r.iter().any(|r| r.text == "Sound mode · now Dolby Surround"));
+        assert!(r.iter().any(|r| r.text == "Sound mode · now DOLBY AUDIO-DD+DSUR"));
         assert_eq!(row(&r, "modes").index, None);
         assert!(row(&r, "modes").enabled);
-        assert_eq!(send(row(&r, "modes"), Arg::Index(1)), json!({"setting":"soundMode","value":"DIRECT","session":"session-1"}));
+        assert_eq!(send(row(&r, "modes"), Arg::Index(1)), json!({"setting":"soundMode","value":"MUSIC","session":"session-1"}));
+        assert_eq!(row(&r, "styles").index, Some(1));
+        assert_eq!(send(row(&r, "styles"), Arg::Index(0)), json!({"setting":"soundMode","value":"STEREO","session":"session-1"}));
+        mode["category"] = json!("MOVIE");
+        put(&mut w, "soundMode", mode.clone());
+        assert_eq!(row(&rows(&w.ctx()), "modes").index, Some(0));
+        mode["options"] = json!([{"value":"STEREO","label":"Stereo","kind":"style"}]);
         mode["value"] = json!("unknown");
         put(&mut w, "soundMode", mode);
         let r = rows(&w.ctx());
-        assert!(!row(&r, "modes").enabled);
+        assert!(!row(&r, "modes").visible);
+        assert!(!row(&r, "styles").enabled);
         assert!(r.iter().any(|r| r.text == "Sound mode"));
+    }
+
+    #[test]
+    fn rows_follow_what_the_receiver_model_offers() {
+        let mut w = world();
+        let mut eco = descriptor(json!("AUTO"));
+        eco["support"] = json!("unsupported");
+        put(&mut w, "eco", eco);
+        let mut front = descriptor(json!(-1.5));
+        front["min"] = json!(-12);
+        front["max"] = json!(12);
+        front["step"] = json!(0.5);
+        front["unit"] = json!("dB");
+        put(&mut w, "channelFL", front);
+        let mut quick = descriptor(json!(0));
+        quick["options"] = json!([{"value":1,"label":"1"},{"value":2,"label":"2"}]);
+        put(&mut w, "quickSelect", quick);
+        let r = rows(&w.ctx());
+        assert!(!row(&r, "eco").visible);
+        assert!(!r.iter().any(|r| r.text == "Power" && r.visible));
+        assert!(row(&r, "channelFL").visible && !row(&r, "channelC").visible);
+        assert_eq!(send(row(&r, "channelFL"), Arg::Value(-2.0)), json!({"setting":"channelFL","value":-2.0,"session":"session-1"}));
+        assert!((row(&r, "channelFL").act.as_ref().unwrap())(Arg::Value(12.5)).is_empty());
+        assert_eq!(send(row(&r, "quick"), Arg::Index(1)), json!({"setting":"quickSelect","value":2,"session":"session-1"}));
     }
 
     #[test]
