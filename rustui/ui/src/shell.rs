@@ -1362,9 +1362,9 @@ impl Shell {
                 // a mute mark the owner placed drifts about its place, clear of the cards and the panel that are up
                 let mut avoid = self.sys.avoid(&self.kinds);
                 let panel = self.panels.avoid(&self.kinds);
-                // a panel up on the right (the quick panel reaches the bottom corner) keeps the mark's own places to the left
-                self.volume.avoid_right = !panel.is_empty();
+                // a panel, the camera pop-up or a card over the mark's right-hand places keeps it to the left
                 avoid.extend(panel);
+                self.volume.avoid_right = crate::system::volume::right_places_covered(&avoid);
                 self.volume.set_placed(self.volume_surface.mark_places(&avoid));
                 let view = self.volume.view();
                 match self.volume_surface.apply(&mut self.kit, &view, now) {

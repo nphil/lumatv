@@ -938,17 +938,18 @@ impl Model for Volume {
     }
 }
 
-/// Where the mute mark may be: over an app a small square in the bottom right corner inside the safe area, where apps draw least (subtitles
-/// are centred, player bars come and go; Nitin, 2026-11-18), or the bottom left one while a panel is up on the right; over Home the status
-/// bar's row between its groups, where Home draws nothing. Over an app the places are more than a mark apart, so no pixel holds a still mark.
+/// Where the mute mark may be: over an app a small square in the top right corner, under the format badge and below the row where apps
+/// keep their own buttons (Marquee's search pill ends at y 128), clear of the seek bars and times players draw along the foot (Marquee,
+/// 2026-11-18); in the top left one while something of LumaTV's is up there. Over Home the status bar's row between its groups, where
+/// Home draws nothing. Over an app the places are more than a mark apart, so no pixel holds a still mark.
 pub fn mark_spots(over_video: bool, avoid_right: bool) -> Vec<(i32, i32)> {
     const EDGE_X: i32 = 96;
-    const FOOT_Y: i32 = 930;
+    const TOP_Y: i32 = 150;
     const STEP: i32 = 72;
     const BAR_Y: i32 = 52;
     if over_video {
         let (x, inward) = if avoid_right { (EDGE_X, STEP) } else { (1920 - EDGE_X - 64, -STEP) };
-        vec![(x, FOOT_Y), (x + inward, FOOT_Y), (x + inward, FOOT_Y - STEP), (x, FOOT_Y - STEP)]
+        vec![(x, TOP_Y), (x + inward, TOP_Y), (x + inward, TOP_Y + STEP), (x, TOP_Y + STEP)]
     } else if avoid_right {
         vec![(560, BAR_Y), (760, BAR_Y)]
     } else {
@@ -956,9 +957,23 @@ pub fn mark_spots(over_video: bool, avoid_right: bool) -> Vec<(i32, i32)> {
     }
 }
 
+/// Whether a panel, pop-up or card that is up covers any of the mark's right-hand places, over an app or over Home.
+pub fn right_places_covered(avoid: &[lumatv_placement::Rect]) -> bool {
+    let mut right = mark_spots(true, false).into_iter().chain(mark_spots(false, false).into_iter().skip(2));
+    right.any(|(x, y)| avoid.iter().any(|a| lumatv_placement::Rect::new(x, y, 64, 64).meets(a, 0)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_camera_pop_up_in_the_top_right_sends_the_mark_left_and_a_toast_at_the_foot_does_not() {
+        use lumatv_placement::Rect;
+        assert!(right_places_covered(&[Rect::new(1328, 32, 560, 469)]), "the camera pop-up's default place");
+        assert!(!right_places_covered(&[Rect::new(680, 928, 560, 98)]), "a toast at the foot of the screen");
+        assert!(!right_places_covered(&[]));
+    }
 
     #[test]
     fn subtitle_topic_distinguishes_unknown_empty_and_valid_bounds() {
@@ -1480,7 +1495,7 @@ mod tests {
         v.still = false;
         v.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "netflix", "home": false}) }, 33_000);
         assert_eq!(v.mark_spots().len(), 4);
-        assert_eq!(v.mark_spots()[0], (1760, 930), "over an app: the bottom right corner");
+        assert_eq!(v.mark_spots()[0], (1760, 150), "over an app: the top right corner, under the format badge");
         // the helper stops reading: the reading ages out, the TV's own flag is what is read, and it is off
         v.update(&Input::Tick, 36_100);
         assert!(!v.view().mark_up, "aged out: gone");

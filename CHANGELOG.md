@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Over an app the mute mark keeps to the bottom right corner, where apps draw least, instead of hopping between the top corners, where it covered app titles and menus. It steps between four places of a small square there so the panel never holds it still, and moves to the bottom left while a panel is up on the right. A mark the owner placed in the layout editor is unchanged.
+Over an app the mute mark keeps to the top right corner, under the format badge and below the row where apps keep their buttons, instead of hopping between the top corners, where it covered app titles and menus; the foot of the screen is where players draw seek bars and times. It steps between four places of a small square there so the panel never holds it still, and moves to the top left while a panel, the camera pop-up or a card is over those places. A mark the owner placed in the layout editor is unchanged.
 
 LumaGame keeps remote diagnostics on across installs. webOS's installer resets the app's data files to 0777, and LumaGame ignored a diagnostics file others could read, so each install silently turned diagnostics off; it now makes its own file private again and keeps the settings.
 
