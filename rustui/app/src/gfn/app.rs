@@ -6,7 +6,7 @@
 //! The launch sequence is the one OpenNOW's own shell runs (`opennow-qt/qml/state/ShellStore.qml`): `catalog.launch.inspect`, then
 //! `session.create` (acknowledged with an `ack` as the protocol demands), `session.poll` until the seat is ready (status 2 or 3 with
 //! endpoints), `streamer.start {session}`. Stopping is `streamer.stop` and `session.stop`. HDR is only resolved against the runtime
-//! capabilities the shell passes, so `session.create` carries the engine's report plus `nativeHdrSupported` and the display's nits.
+//! capabilities the shell passes, so `session.create` carries the engine's report plus `nativeHdrSupported`.
 use crate::gfn::prefs::{Prefs, Row};
 use crate::home::Key;
 use serde_json::{Value, json};
@@ -1139,8 +1139,9 @@ impl App {
             }
             "streamer.detect" => {
                 let mut caps = r["capabilities"].clone();
+                // No `nativeHdrDisplay`: without panel primaries the core would send the server only a max/min luminance pair and drop
+                // the 400-nit frame average that the HDR display data carries by default.
                 caps["nativeHdrSupported"] = json!(true);
-                caps["nativeHdrDisplay"] = json!({"minimumNits": 0, "maximumNits": 1000, "maximumFullFrameNits": 400});
                 self.runtime_capabilities = caps;
                 Vec::new()
             }
@@ -1545,7 +1546,7 @@ mod tests {
         let a = app.handle(ok("2", "streamer.detect", json!({"available": true, "capabilities": {"protocolVersion": 7, "videoBackends": [{"backend": "ndl"}]}})));
         assert!(a.is_empty(), "signed out, the core refuses the regions: they are asked for after the sign-in");
         assert_eq!(app.runtime_capabilities["nativeHdrSupported"], true);
-        assert_eq!(app.runtime_capabilities["nativeHdrDisplay"]["maximumNits"], 1000);
+        assert!(app.runtime_capabilities["nativeHdrDisplay"].is_null(), "a luminance pair without primaries makes the core drop the frame average from the HDR display data");
         let a = app.handle(ok("3", "auth.session.get", json!({"session": null, "generation": 1})));
         assert_eq!(app.screen, Screen::SignIn);
         assert_eq!(methods(&a), ["auth.device.start"]);

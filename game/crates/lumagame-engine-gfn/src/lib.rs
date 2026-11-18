@@ -482,10 +482,9 @@ impl Adapter {
                     self.core_gone("The GeForce NOW streamer is unavailable or incompatible"); return;
                 }
                 self.runtime = r["capabilities"].clone();
+                // No `nativeHdrDisplay`: without panel primaries the core would send the server only a max/min luminance pair and drop
+                // the 400-nit frame average that the HDR display data carries by default.
                 self.runtime["nativeHdrSupported"] = json!(self.hello.display.hdr10);
-                if self.hello.display.hdr10 {
-                    self.runtime["nativeHdrDisplay"] = json!({"minimumNits":0,"maximumNits":1000,"maximumFullFrameNits":400});
-                }
                 self.ready = true;
                 self.emit(Some(self.hello_seq),Event::Ready { descriptor:descriptor(),schema:self.schema.clone() });
             }

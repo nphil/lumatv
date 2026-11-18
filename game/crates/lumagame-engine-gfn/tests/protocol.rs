@@ -69,12 +69,16 @@ impl FakeCore {
         let request = self.next(method);
         self.adapter.core_line(&json!({"type":"response","id":request["id"],"ok":false,"error":{"code":code}}).to_string());
     }
-    fn settings(&mut self) {
+    /// Answers every queued `settings.set`; returns the key and value each carried.
+    fn settings(&mut self) -> Vec<(String, Value)> {
+        let mut set = Vec::new();
         loop {
             self.collect();
             if self.requests.front().is_none_or(|r| r["method"] != "settings.set") {break;}
-            self.reply("settings.set",json!({}));
+            let request = self.reply("settings.set",json!({}));
+            set.push((request["params"]["key"].as_str().unwrap().to_owned(), request["params"]["value"].clone()));
         }
+        set
     }
     fn send(&mut self, seq:u64, request:Request) {self.adapter.request(ToEngine{seq,request});self.collect();}
     fn event(&mut self, name:&str, payload:Value) {
@@ -85,14 +89,14 @@ impl FakeCore {
         self.collect();
         self.events.iter().rev().find_map(|e| match &e.event {Event::Targets{targets}=>targets.first().map(|t| t.id.clone()),_=>None}).unwrap()
     }
-    fn inspect_reply(&mut self) {
+    fn inspect_reply(&mut self) -> Vec<(String, Value)> {
         self.reply("catalog.launch.inspect",json!({"appId":"parent","variantId":"123","decision":{"status":"ready"},"game":game(),"scope":scope(3)}));
-        self.settings();
+        self.settings()
     }
-    fn launch(&mut self) {
+    fn launch(&mut self) -> Vec<(String, Value)> {
         let target=self.target();
         self.send(20,Request::Launch{session:SessionId(9),target,game:provider()});
-        self.inspect_reply();
+        self.inspect_reply()
     }
     fn session_states(&mut self) -> Vec<SessionState> {
         self.collect();
@@ -141,7 +145,7 @@ fn launch_ack_queue_start_running_stats_and_remote_end() {
     let create=f.reply("session.create",json!({"sessionId":"seat","status":1,"phase":"queued","queuePosition":8}));
     assert_eq!(create["params"]["scope"],scope(3));
     assert_eq!(create["params"]["runtimeCapabilities"]["nativeHdrSupported"],true);
-    assert_eq!(create["params"]["runtimeCapabilities"]["nativeHdrDisplay"]["maximumNits"],1000);
+    assert!(create["params"]["runtimeCapabilities"]["nativeHdrDisplay"].is_null(),"a luminance pair without primaries makes the core drop the frame average from the HDR display data");
     f.collect();assert_eq!(f.receipts.len(),1);
     f.event("session.changed",json!({"sessionId":"seat","status":1,"phase":"queued","queuePosition":3}));
     f.adapter.tick(1000);
@@ -162,6 +166,19 @@ fn launch_ack_queue_start_running_stats_and_remote_end() {
     assert!(states.iter().any(|s| matches!(s,SessionState::Running{stream:Some(p)} if !p.hdr && p.sdr_reason.as_deref()==Some("SDR: no HDR for this game"))));
     assert_eq!(states.last(),Some(&SessionState::Ended{reason:EndReason::Remote}));
     f.reply("streamer.stop",json!({}));
+}
+
+#[test]
+fn the_hdr_setting_goes_to_the_core_before_the_session_is_created() {
+    for (hdr, depth) in [(true,"10bit_420"),(false,"8bit_420")] {
+        let mut f=FakeCore::new(true);
+        f.send(4,Request::Settings{values:Values::from([("hdr".into(),lumagame_core::settings::Value::Bool(hdr))])});
+        let set=f.launch();
+        assert!(set.contains(&("enableHdr".into(),json!(hdr))),"{set:?}");
+        assert!(set.contains(&("colorQuality".into(),json!(depth))),"{set:?}");
+        assert!(set.contains(&("codec".into(),json!("h265"))),"HDR needs a codec that carries it: {set:?}");
+        f.reply("session.create",json!({"sessionId":"seat","status":1,"phase":"queued"}));
+    }
 }
 
 #[test]
