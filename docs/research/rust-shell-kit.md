@@ -204,17 +204,17 @@ of tvOS is not in it (nothing measured at 120 Hz yet says it is cheap). `rustui/
 mirrors of the tracks: at no frame are both tiles at rest between moves, and a retarget keeps the velocity.
 
 The liquid lean (the Liquid card glass only): a move also pushes the incoming focusable the way the focus went, along the line between
-the two centres, and pulls the outgoing one half as far toward it; both spring back on the same spring. `Kit::flow_spec` sets
-`Spec::lean_px` to 6 px times the glass strength (0 for any other glass and under reduced motion), and a lean is at most 1/40 of the
-focusable's shorter side. A 3 px lean peaks 41 ms into the move and is back within 0.01 px by 250 ms, before the lift lands at 450 ms;
-a held key at the remote's 40 ms repeat adds the kicks up to about 1.3 times the lean and moves a tile at most 0.2 px per millisecond.
-The push is a group of its own (the wrapper) that takes the lifted group's place under its parent, with a pixel track of its own, both
-made the first time a lift slot leans (at most `POOL` of each), so the lift's scale, rise and lit glass are what they were. The lifted
-group goes back under its parent when its slot is handed back. A move while a lean is still moving keeps the axis it has; a focusable
-with no room for the wrapper in the scene's group depth lifts without leaning. `Shell::reload_look` reads the lean again when the
-theme changes. `rustui/ui/tests/lean_pixels.rs` draws it with the compositor's engine on Mesa: the lean lands within 0.005 px of the
-mirror, the retained pages equal a full render in every frame, and once the lean is taken off the picture is byte for byte the one of a
-flow with no lean. Not yet seen on the TV.
+the two centres, and it springs back on the same spring. The outgoing one does not lean: 6 px with the outgoing pulled half as far
+read as too much wobble on the TV (owner, 2026-11-17). `Kit::flow_spec` sets `Spec::lean_px` to 3 px times the glass strength (0 for
+any other glass and under reduced motion), and a lean is at most 1/40 of the focusable's shorter side. A 3 px lean peaks 41 ms into
+the move and is back within 0.01 px by 250 ms, before the lift lands at 450 ms; a held key leans each tile once, as the focus lands on
+it, and moves a tile at most 0.2 px per millisecond. The push is a group of its own (the wrapper) that takes the lifted group's place
+under its parent, with a pixel track of its own, both made the first time a lift slot leans (at most `POOL` of each), so the lift's
+scale, rise and lit glass are what they were. The lifted group goes back under its parent when its slot is handed back. A kick on a
+lean that is still moving keeps the axis it has; a focusable with no room for the wrapper in the scene's group depth lifts without
+leaning. `Shell::reload_look` reads the lean again when the theme changes. `rustui/ui/tests/lean_pixels.rs` draws it with the
+compositor's engine on Mesa: the lean lands within 0.005 px of the mirror, the retained pages equal a full render in every frame, and
+once the lean is taken off the picture is byte for byte the one of a flow with no lean.
 
 ## The Cameras app (`rustui/ui/src/cameras/`, kind `cameras`)
 

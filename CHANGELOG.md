@@ -15,7 +15,7 @@ A GeForce NOW game quit from inside it (its own Exit to desktop) no longer leave
 
 LumaGame's menus scroll smoothly. Home's rows, the Library grid and Settings pages moved on a 150 ms timed curve that restarted from rest, at the curve's opening speed, at every key press, so a held key stepped; they now glide on the theme's critically damped spring (`motion.scrollMs`, 260 ms), which a new press continues at the speed the page already has. A Settings, Hub or controller page scrolls as one group instead of each row easing on its own, and the Integrations list scrolls with the focus instead of redrawing a window of rows. Reduced motion still moves at once.
 
-With the Liquid card glass, a D-pad move leans the focusable it lands on a few pixels the way the focus went and pulls the one it left half as far toward it; both spring back on the focus spring and settle before the lift, which is unchanged. The lean is 6 px at full glass strength (at most a fortieth of the focusable's shorter side) and is off for the other glass styles and under reduced motion. Not yet seen on the TV.
+With the Liquid card glass, a D-pad move leans the focusable it lands on a few pixels the way the focus went; it springs back on the focus spring and settles before the lift, which is unchanged. The lean is 3 px at full glass strength (at most a fortieth of the focusable's shorter side) and is off for the other glass styles and under reduced motion. The one it left does not lean.
 
 The Liquid card glass splits colour at its bent edge like a prism, and its edge line takes on the hue and brightness of what lies behind it. Both cost two extra backdrop reads and a few instructions in the bevel only; other glass styles are unchanged. Not yet measured on the TV.
 

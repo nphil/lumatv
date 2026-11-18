@@ -9,9 +9,9 @@
 //!   a tile, a card, a row, a button, a dock icon are all lifted the same way, scaled by their own kind's numbers.
 //! - A row that scrolls to show the focus scrolls on the **same spring**, so the scroll and the lift are one gesture.
 //! - Reduced motion: no scale and no rise; the lit state crossfades in the reduced-motion ceiling.
-//! - The liquid lean (Liquid cards, [`Spec::lean_px`]): a move also pushes the incoming focusable a few pixels the way the focus went and
-//!   pulls the outgoing one half as far toward it, and both spring back on the same spring. The push is a group of its own above the
-//!   focusable's, so the lift is exactly what it was.
+//! - The liquid lean (Liquid cards, [`Spec::lean_px`]): a move also pushes the incoming focusable a few pixels the way the focus went, and
+//!   it springs back on the same spring. Only the incoming one leans: with the outgoing pulled along as well, the owner found two tiles
+//!   moving at once too much wobble (2026-11-17). The push is a group of its own above the focusable's, so the lift is exactly what it was.
 //!
 //! The tracks are the compositor's (`compositor_protocol::motion`): it evaluates the springs at its predicted present time, at
 //! every refresh, so a frame costs this process nothing; the mirrors ([`Motion::value_at`], [`Motion::velocity_at`]) answer
@@ -35,8 +35,8 @@ pub struct Spec {
     /// The reduced-motion crossfade's length (Lucent `motion.reduce`, at most the reduced ceiling).
     pub reduced_ms: u32,
     pub reduced: bool,
-    /// How far a move pushes the incoming focusable the way the focus went, in px; the outgoing one is pulled half as far toward it. 0 is no
-    /// lean, and so is any value under reduced motion.
+    /// How far a move pushes the incoming focusable the way the focus went, in px. 0 is no lean, and so is any value under reduced
+    /// motion.
     pub lean_px: f32,
 }
 
@@ -123,8 +123,9 @@ impl Lifted {
     }
 }
 
-/// How far a move leans the incoming focusable at full glass strength, in px: the lean of Liquid cards ([`super::Kit::flow_spec`]).
-pub const LEAN_PX: f32 = 6.0;
+/// How far a move leans the incoming focusable at full glass strength, in px: the lean of Liquid cards ([`super::Kit::flow_spec`]). 6 px read as
+/// too much wobble on the TV (owner, 2026-11-17).
+pub const LEAN_PX: f32 = 3.0;
 
 /// The most a lean is of the focusable's shorter side, so that a small icon is not thrown about by what suits a card.
 const LEAN_SIDE: f32 = 0.025;
@@ -168,11 +169,10 @@ impl Lean {
     }
 }
 
-/// How a move pushes its ends: the way it went (a unit vector) and how far the incoming and the outgoing focusable lean, in px.
+/// How a move pushes the focusable it lands on: the way it went (a unit vector) and how far it leans, in px.
 struct Push {
     dir: (f32, f32),
-    inc: f32,
-    out: f32,
+    peak: f32,
 }
 
 /// A row or a grid that scrolls with the focus: its track in pixels, bound to the translation of the group that holds it.
@@ -419,7 +419,7 @@ impl Flow {
             self.slots[i].track.settle(Some(1.0), None, settle)?;
         }
         if let Some(push) = push {
-            self.lean_ends(from, to, &push);
+            self.lean_into(to, &push);
         }
         Ok(())
     }
@@ -552,31 +552,29 @@ impl Flow {
         Some((world.transform.apply(l.rest.pivot_x, l.rest.pivot_y), 2.0 * l.rest.pivot_x.min(l.rest.pivot_y)))
     }
 
-    /// How a move from `from` to `to` pushes its ends: the way it went, from where the one stands to where the other does, and how far each leans.
+    /// How a move from `from` to `to` pushes `to`: the way it went, from where the one stands to where the other does, and how far it leans.
     /// `None` without a lean, without a way (the first focus, two that stand on each other) or with an end that is not shown.
     fn push(&self, from: Option<Id>, to: Option<Id>, now_ns: u64) -> Option<Push> {
         let lean = self.spec.lean();
         if lean <= 0.0 {
             return None;
         }
-        let ((fx, fy), from_side) = self.centre(from?, now_ns)?;
+        let ((fx, fy), _) = self.centre(from?, now_ns)?;
         let ((tx, ty), to_side) = self.centre(to?, now_ns)?;
         let (dx, dy) = (tx - fx, ty - fy);
         let len = dx.hypot(dy);
         if !len.is_finite() || len < 1.0 {
             return None;
         }
-        Some(Push { dir: (dx / len, dy / len), inc: lean.min(LEAN_SIDE * to_side), out: 0.5 * lean.min(LEAN_SIDE * from_side) })
+        Some(Push { dir: (dx / len, dy / len), peak: lean.min(LEAN_SIDE * to_side) })
     }
 
-    /// Leans the ends of a move that hold a slot, each along the way the move went.
-    fn lean_ends(&mut self, from: Option<Id>, to: Option<Id>, push: &Push) {
+    /// Leans the focusable a move lands on, when it holds a slot, along the way the move went.
+    fn lean_into(&mut self, to: Option<Id>, push: &Push) {
         let est = self.scene.now_ns().saturating_add(self.scene.present_lead_ns());
-        for (id, peak) in [(to, push.inc), (from, push.out)] {
-            let Some(i) = id.and_then(|id| self.slots.iter().position(|s| s.owner == Some(id))) else { continue };
-            // the lean only adds to the lift: a focusable that cannot be wrapped (the scene's groups are at their depth or their number) lifts without it
-            let _ = self.kick(i, push.dir, peak, est);
-        }
+        let Some(i) = to.and_then(|id| self.slots.iter().position(|s| s.owner == Some(id))) else { return };
+        // the lean only adds to the lift: a focusable that cannot be wrapped (the scene's groups are at their depth or their number) lifts without it
+        let _ = self.kick(i, push.dir, push.peak, est);
     }
 
     /// Kicks slot `i`'s lean to peak `peak` px along `dir`. A lean that is still moving keeps its axis, as the wrapper's offset would jump if the
@@ -752,7 +750,7 @@ mod tests {
     }
 
     /// A tile hangs under the wrapper of its lean while its slot is held, in the wrapper's place under its parent, and goes back under the
-    /// parent it had when the slot is handed back, standing where it stood.
+    /// parent it had when the slot is handed back, standing where it stood. Only the tile a move lands on leans.
     #[test]
     fn a_tile_hangs_under_the_wrapper_of_its_lean_only_while_its_slot_is_held() {
         let (h, clock, mut flow, parent) = lab(leaning(), 2, 2);
@@ -760,23 +758,25 @@ mod tests {
         assert!(flow.slots.iter().all(|s| s.lean.is_none()), "the first focus has no way, so nothing leans");
         clock.set(clock.get() + 400 * MS);
         flow.go(Some(Id(0)), Some(Id(1)), clock.get()).expect("the focus moves on");
-        for id in [Id(0), Id(1)] {
-            let lean = flow.slots.iter().find(|s| s.owner == Some(id)).and_then(|s| s.lean.as_ref()).expect("both ends of the move lean");
-            assert_eq!(flow.group(id).expect("a group").parent(), Some(lean.wrapper.id()), "{id:?} hangs under its wrapper");
-            assert_eq!(lean.wrapper.parent(), Some(parent.id()), "the wrapper stands in its place under the parent");
-        }
+        let lean = flow.slots.iter().find(|s| s.owner == Some(Id(1))).and_then(|s| s.lean.as_ref()).expect("the incoming tile leans");
+        assert_eq!(flow.group(Id(1)).expect("a group").parent(), Some(lean.wrapper.id()), "it hangs under its wrapper");
+        assert_eq!(lean.wrapper.parent(), Some(parent.id()), "the wrapper stands in its place under the parent");
+        assert!(flow.slots.iter().find(|s| s.owner == Some(Id(0))).is_some_and(|s| s.lean.is_none()), "the outgoing tile does not lean");
+        assert_eq!(flow.group(Id(0)).expect("a group").parent(), Some(parent.id()));
 
         clock.set(clock.get() + 600 * MS);
+        flow.go(Some(Id(1)), Some(Id(0)), clock.get()).expect("the focus moves back");
+        clock.set(clock.get() + 600 * MS);
         let at = clock.get() + 8 * MS;
-        let slot = flow.slots.iter().position(|s| s.owner == Some(Id(0))).expect("the left tile's slot");
+        let slot = flow.slots.iter().position(|s| s.owner == Some(Id(1))).expect("the right tile's slot");
         let t = &flow.slots[slot].track;
         h.ui.scene.observe(&Event::Motion { id: t.wire_id(), generation: t.generation(), kind: NoticeKind::Settled, value: 0.0, velocity: 0.0, time_ns: at });
         flow.tidy(clock.get());
-        assert_eq!(flow.in_flight(), 1, "the left tile's slot was handed back");
-        let group = flow.group(Id(0)).expect("a group");
+        assert_eq!(flow.in_flight(), 1, "the right tile's slot was handed back");
+        let group = flow.group(Id(1)).expect("a group");
         assert_eq!(group.parent(), Some(parent.id()), "back under the parent it had");
         let world = group.world_at(at).transform;
-        assert_eq!((world.scale, world.tx, world.ty), (1.0, 50.0, 720.0), "at rest where it stood");
+        assert_eq!((world.scale, world.tx, world.ty), (1.0, 150.0, 720.0), "at rest where it stood");
         let lean = flow.slots[slot].lean.as_ref().expect("the lean stays for the slot's next owner");
         assert_eq!((lean.held, lean.dir, lean.wrapper.parent()), (false, None, None), "its wrapper is parked and unbound");
     }
@@ -791,8 +791,8 @@ mod tests {
         flow.drop_lift(Id(1));
         assert_eq!(flow.in_flight(), 0);
         let wrappers: Vec<&Lean> = flow.slots.iter().filter_map(|s| s.lean.as_ref()).collect();
-        assert_eq!(wrappers.len(), 2, "both ends of the move made one");
-        assert!(wrappers.iter().all(|l| !l.held && l.dir.is_none() && l.wrapper.parent().is_none()), "and both are parked");
+        assert_eq!(wrappers.len(), 1, "the incoming end of the move made one");
+        assert!(wrappers.iter().all(|l| !l.held && l.dir.is_none() && l.wrapper.parent().is_none()), "and it is parked");
     }
 
     /// A tile at the scene's group depth ceiling has no room for a wrapper above it: it lifts as it did and does not lean.

@@ -261,7 +261,7 @@ impl Twin {
 }
 
 #[test]
-fn a_move_leans_the_incoming_along_the_way_it_went_and_the_outgoing_half_as_far_and_both_spring_back() {
+fn a_move_leans_the_incoming_along_the_way_it_went_and_springs_it_back_while_the_outgoing_stays_put() {
     let mut twin = Twin::row(Spec { lean_px: 3.0, ..Spec::default() }, 3);
     twin.go(None, Some(0));
     twin.advance(400 * MS);
@@ -271,9 +271,9 @@ fn a_move_leans_the_incoming_along_the_way_it_went_and_the_outgoing_half_as_far_
     let (outgoing, _) = twin.peak(0, 0, start, 400);
     assert!((2.9..=3.05).contains(&incoming), "the incoming leans 3 px the way the focus went: {incoming}");
     assert!((30..=55).contains(&at), "it peaks at the spring's own quarter period: {at} ms");
-    assert!((1.4..=1.55).contains(&outgoing), "the outgoing is pulled half as far toward the new focus: {outgoing}");
+    assert!(outgoing.abs() < 0.01, "the outgoing does not lean: {outgoing}");
     // the way is the line between the two centres, which are 4 px off level while the left one is lifted
-    assert!(twin.peak(1, 1, start, 400).0.abs() < 0.2 && twin.peak(0, 1, start, 400).0.abs() < 0.1, "the lean is along the row");
+    assert!(twin.peak(1, 1, start, 400).0.abs() < 0.2, "the lean is along the row");
     for id in [0, 1] {
         for t in [400u64, 500] {
             let (x, y) = twin.lean_of(id, start + t * MS);
@@ -300,9 +300,8 @@ fn a_lean_is_held_to_a_fortieth_of_the_tile_it_leans() {
     twin.advance(400 * MS);
     twin.go(Some(0), Some(1));
     let start = twin.shown();
-    let (incoming, outgoing) = (twin.peak(1, 0, start, 400).0, twin.peak(0, 0, start, 400).0);
+    let incoming = twin.peak(1, 0, start, 400).0;
     assert!((3.9..=4.05).contains(&incoming), "{incoming}");
-    assert!((1.9..=2.05).contains(&outgoing), "{outgoing}");
 }
 
 #[test]
@@ -347,8 +346,8 @@ fn a_held_key_leans_without_a_jump_and_adds_no_more_than_the_pool() {
         twin.advance(40 * MS);
         twin.tidy();
     }
-    // the kicks of a held key add up, but to a fraction of the lean more and not a multiple
-    assert!((3.0..4.5).contains(&furthest), "the furthest a tile leaned was {furthest} px");
+    // each tile leans once, as the focus lands on it, and no further than its lean
+    assert!((2.9..=3.05).contains(&furthest), "the furthest a tile leaned was {furthest} px");
     assert!(widest < 0.8, "the most a lean moved in a millisecond was {widest} px");
     let (more_groups, more_tracks) = counts(&twin.lean);
     assert!(more_groups <= groups + POOL && more_tracks <= tracks + POOL, "{groups} groups and {tracks} tracks grew to {more_groups} and {more_tracks}");
@@ -356,16 +355,18 @@ fn a_held_key_leans_without_a_jump_and_adds_no_more_than_the_pool() {
 }
 
 #[test]
-fn a_turn_while_the_lean_is_still_moving_keeps_its_axis_and_does_not_jump() {
-    // right along the row, then down to the tile under the second, 60 ms on, with the lean of the second not yet back
+fn a_sideways_kick_on_a_lean_still_moving_keeps_its_axis_and_does_not_jump() {
+    // right along the row to the second, down to the tile under it, and back up to the second 60 ms after it was left, its lean not yet back
     let mut twin = Twin::new(Spec { lean_px: 3.0, ..Spec::default() }, &[(0.0, 700.0), (100.0, 700.0), (100.0, 900.0)]);
     twin.go(None, Some(0));
     twin.advance(400 * MS);
     twin.go(Some(0), Some(1));
-    twin.advance(60 * MS);
+    twin.advance(30 * MS);
+    twin.go(Some(1), Some(2));
+    twin.advance(30 * MS);
     let before = twin.lean_of(1, twin.shown());
     assert!(before.0 > 2.0, "the second is still leaning: {before:?}");
-    twin.go(Some(1), Some(2));
+    twin.go(Some(2), Some(1));
     let start = twin.shown();
     let after = twin.lean_of(1, start);
     assert!((after.0 - before.0).abs() < 0.01 && (after.1 - before.1).abs() < 0.01, "the lean is continuous through the turn: {before:?} -> {after:?}");
@@ -381,8 +382,6 @@ fn a_turn_while_the_lean_is_still_moving_keeps_its_axis_and_does_not_jump() {
     }
     assert!(widest < 0.8, "the most a lean moved in a millisecond was {widest} px");
     assert!(twin.peak(1, 1, start, 400).0.abs() < 0.2, "the second stays on its axis, along the row");
-    let (down, _) = twin.peak(2, 1, start, 400);
-    assert!((2.9..=3.05).contains(&down) && twin.peak(2, 0, start, 400).0.abs() < 0.2, "the third leans down: {down}");
 }
 
 #[test]
@@ -392,13 +391,15 @@ fn a_lean_that_has_come_to_rest_is_aimed_anew_without_a_jump() {
     twin.advance(400 * MS);
     twin.go(Some(0), Some(1));
     twin.advance(600 * MS);
-    // the second has stood a while with its lean aimed along the row; the next move is down
-    let before = twin.lean_of(1, twin.shown());
     twin.go(Some(1), Some(2));
+    twin.advance(600 * MS);
+    // the second has stood a while with its lean aimed along the row; the focus comes back to it from below
+    let before = twin.lean_of(1, twin.shown());
+    twin.go(Some(2), Some(1));
     let start = twin.shown();
     let after = twin.lean_of(1, start);
     assert!(before.0.abs() < 0.01 && after.0.abs() < 0.01 && after.1.abs() < 0.01, "{before:?} -> {after:?}");
-    let (down, _) = twin.peak(1, 1, start, 400);
-    assert!((1.4..=1.55).contains(&down), "the outgoing is pulled half as far down toward the new focus: {down}");
-    assert!(twin.peak(1, 0, start, 400).0.abs() < 0.1, "and not along the way it came");
+    let (up, _) = twin.peak(1, 1, start, 400);
+    assert!((-3.05..=-2.9).contains(&up), "the second leans up, the way the focus went: {up}");
+    assert!(twin.peak(1, 0, start, 400).0.abs() < 0.1, "and not along the way it came the first time");
 }

@@ -1,6 +1,6 @@
 //! The liquid lean through the production engine and Mesa's pixels: the flow speaks to the compositor in the protocol's own requests and the compositor
 //! draws its own groups, tracks and retained pages. The incoming tile is drawn pushed the way the focus went and back where the flow's mirror says it is, the
-//! outgoing one half as far, the pages agree with a full render in every frame, and a tile whose lean is taken off is drawn as one that never leaned.
+//! outgoing one where a flow without a lean draws it, the pages agree with a full render in every frame, and a tile whose lean is taken off is drawn as one that never leaned.
 //!
 //! A run is one engine; runs go one after another. The engine draws into the GL context that was made current last, so two stages side by side draw into each
 //! other (329 pixels of a lift disagreed with their full render in a lift-only run beside a leaning one).
@@ -158,16 +158,15 @@ fn run(spec: Spec, hand_back: Option<usize>) -> Run {
 fn the_compositor_draws_the_lean_where_the_mirror_says_and_the_pages_match_a_full_render() {
     let lean = run(Spec { lean_px: 3.0, ..Spec::default() }, None);
     let plain = run(Spec::default(), None);
-    // the tiles are 60 px, so a lean of 3 px is held to 1.5 px and the outgoing tile gets 0.75: how far each is drawn from where a flow without a lean draws it
+    // the tiles are 60 px, so a lean of 3 px is held to 1.5 px; the outgoing tile does not lean: how far each is drawn from where a flow without a lean draws it
     let pushed: Vec<[f32; 2]> = lean.shots.iter().zip(&plain.shots).map(|(a, b)| [a.edges[1] - b.edges[1], a.edges[0] - b.edges[0]]).collect();
     let furthest = |of: usize| pushed.iter().enumerate().map(|(k, p)| (p[of], k)).fold((0.0f32, 0), |best, now| if now.0 > best.0 { now } else { best });
     let (incoming, at_incoming) = furthest(0);
-    let (outgoing, _) = furthest(1);
     assert!((1.4..1.6).contains(&incoming), "the incoming tile was pushed {incoming} px at most");
-    assert!((0.7..0.8).contains(&outgoing), "the outgoing tile was pulled {outgoing} px at most");
     assert!((4..=6).contains(&at_incoming), "the push peaked at frame {at_incoming}, 41 ms in");
     for (k, p) in pushed.iter().enumerate() {
-        assert!(p[0] > -0.01 && p[1] > -0.01, "frame {k}: a tile was pushed away from the way the focus went: {p:?}");
+        assert!(p[0] > -0.01, "frame {k}: the incoming tile was pushed away from the way the focus went: {p:?}");
+        assert!(p[1].abs() < 0.01, "frame {k}: the outgoing tile moved off where a flow without a lean draws it: {p:?}");
         if k >= 30 {
             assert!(p[0].abs() < 0.01 && p[1].abs() < 0.01, "frame {k}: 250 ms on, a tile is still off its place by {p:?}");
         }
