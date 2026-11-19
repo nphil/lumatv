@@ -1,5 +1,6 @@
 //! What the channel banner of live TV says, and when: the channel the tuner is on and what is on it, read from LG's own services
-//! (`host::channels`), raised as a [`Spec`] of the banner when the channel changes, when Live TV comes to the front and when INFO is pressed.
+//! (`host::channels`), raised as a [`Spec`] of the banner when the channel changes, when Live TV comes to the front, and when OK or INFO is
+//! pressed.
 //!
 //! The tuner's channel is followed with `utp.channel/getLastChannelId` (a subscription that needs no pipeline; LG's own channel change
 //! follows the same call), and for a channel that differs from the last one the channel's own record (`iepg/getChannelInfo`: number, name,
@@ -10,11 +11,14 @@
 //! told of; an answer that comes later (the online listings among them) refreshes it without holding it longer. An answer about another
 //! channel than the tuner's is dropped, and a helper whose plugin is off is asked nothing more until Live TV comes to the front again.
 //!
-//! The timing is LG's: a change or a launch is shown for five seconds (`BannerInterfaces.qml`: `hideTimer`, zapping and launching). LG's
-//! INFO card is open for 30 s and is closed with Back; this banner takes no arrow and no pointer, so INFO holds it for eight seconds, and
-//! INFO or Back while it is up ends it.
+//! The timing is LG's: a change or a launch is shown for five seconds (`BannerInterfaces.qml`: `hideTimer`, zapping and launching). OK raises
+//! the banner with Guide and Details buttons for eight seconds, as LG's OK banner carries its Guide button. LG's INFO card is open for 30 s and
+//! is closed with Back; this banner takes no arrow and no pointer, so INFO holds it for eight seconds, and INFO or Back while it is up ends it.
+//!
+//! While Live TV is in front, whether it shows a US emergency alert (`utp.broadcast/getEmergencyInfo`, what LG's `EwsUsInterfaces.qml`
+//! follows) is followed too: the alert's Close button answers OK, so OK is left to Live TV while one shows.
 
-use super::banner::{HOLD_CHANNEL_MS, HOLD_INFO_MS, Spec};
+use super::banner::{HOLD_BUTTONS_MS, HOLD_CHANNEL_MS, HOLD_INFO_MS, Pick, Spec};
 use crate::host::channels::{self, Channel, Programme, Source};
 use crate::host::clock;
 use crate::kit::screen::{Effect, Input};
@@ -29,6 +33,8 @@ pub const INFO_TAG: u64 = 0x4A00_0011;
 pub const NOW_TAG: u64 = 0x4A00_0012;
 /// The ask of the helper for the online listings round now.
 pub const ONLINE_TAG: u64 = 0x4A00_0013;
+/// The subscription to Live TV's emergency alert.
+pub const EMERGENCY_TAG: u64 = 0x4A00_0014;
 /// The hours round now the online listings are asked for.
 const ONLINE_SPAN_MS: i64 = 6 * 3_600_000;
 
@@ -41,10 +47,18 @@ const STALE_MS: u64 = 30_000;
 /// What LG's banner says of a programme it has no entry for.
 pub const NO_INFORMATION: &str = "No information";
 
+/// Which banner: the one a change or a launch raises, OK's (with Guide and Details) or INFO's (with what the programme is about).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Look {
+    Change,
+    Ok,
+    Info,
+}
+
 /// A banner that is owed: the words it waits for and until when.
 #[derive(Clone, Copy, Debug)]
 struct Owed {
-    info_banner: bool,
+    look: Look,
     until: u64,
     channel: bool,
     programmes: bool,
@@ -91,8 +105,11 @@ pub struct Feed {
     /// When the programmes in hand were asked for.
     asked_at: u64,
     owed: Option<Owed>,
-    /// The banner of the last raise is up, and whether it is the INFO one: a later answer refreshes it.
-    up: Option<bool>,
+    /// The banner of the last raise is up, and which: a later answer refreshes it.
+    up: Option<Look>,
+    /// Live TV shows an emergency alert, and whether the subscription that says so has answered without an error.
+    emergency: bool,
+    emergency_heard: bool,
     /// Live TV came to the front at this time and the tuner has not named a channel yet.
     nameless_since: Option<u64>,
 }
@@ -116,20 +133,29 @@ impl Feed {
 
     /// The INFO banner is up: INFO and Back end it.
     pub fn info_up(&self) -> bool {
-        self.up == Some(true)
+        self.up == Some(Look::Info)
     }
 
-    /// Live TV is in front (with the owner's banners on) or it is not: the tuner's channel is followed while it is.
+    /// Live TV shows an emergency alert: its OK is its own.
+    pub fn emergency(&self) -> bool {
+        self.emergency
+    }
+
+    /// Live TV is in front (with the owner's banners on) or it is not: the tuner's channel and the emergency alert are followed while it is.
     pub fn set_live(&mut self, live: bool, now: u64) -> Vec<Effect> {
         if live == self.live {
             return Vec::new();
         }
         *self = Feed { live, nameless_since: live.then_some(now), ..Feed::default() };
         if live {
-            vec![Effect::Luna { tag: LAST_TAG, uri: channels::LAST_URI.into(), payload: channels::last_request(true), subscribe: true }]
+            vec![Effect::Luna { tag: LAST_TAG, uri: channels::LAST_URI.into(), payload: channels::last_request(true), subscribe: true }, Self::emergency_ask()]
         } else {
-            vec![Effect::Cancel { tag: LAST_TAG }]
+            vec![Effect::Cancel { tag: LAST_TAG }, Effect::Cancel { tag: EMERGENCY_TAG }]
         }
+    }
+
+    fn emergency_ask() -> Effect {
+        Effect::Luna { tag: EMERGENCY_TAG, uri: channels::EMERGENCY_URI.into(), payload: channels::emergency_request(), subscribe: true }
     }
 
     /// The banner went (its time ran out, a key ended it): a later answer does not bring it back.
@@ -161,13 +187,20 @@ impl Feed {
     }
 
     /// The words of the banner as the answers in hand give them.
-    fn spec(&self, info_banner: bool, now: u64) -> Option<Spec> {
+    fn spec(&self, look: Look, now: u64) -> Option<Spec> {
         let id = self.current.as_deref()?;
         let now_ms = now as i64;
         let (airing, next) = channels::now_next(&self.programmes, now_ms);
         let mut s = Spec::channel();
-        s.info = info_banner;
-        s.hold_ms = if info_banner { HOLD_INFO_MS } else { HOLD_CHANNEL_MS };
+        s.info = look == Look::Info;
+        s.hold_ms = match look {
+            Look::Change => HOLD_CHANNEL_MS,
+            Look::Ok => HOLD_BUTTONS_MS,
+            Look::Info => HOLD_INFO_MS,
+        };
+        if look == Look::Ok {
+            s.buttons = vec![Pick::Guide, Pick::Details];
+        }
         match &self.channel {
             Some(c) => {
                 s.number = c.number.clone();
@@ -185,7 +218,7 @@ impl Feed {
                     s.sub.push_str(&format!(" \u{b7} {left} min left"));
                 }
                 s.progress = p.progress(now_ms);
-                if info_banner {
+                if look == Look::Info {
                     s.detail = p.text.trim().to_string();
                 }
                 s.chips.extend((!p.rating.is_empty()).then(|| p.rating.clone()));
@@ -204,15 +237,15 @@ impl Feed {
     /// Raises the banner owed once the words it waits for are in or the time to wait is over; with none owed, an answer refreshes the banner up.
     fn ready(&mut self, now: u64, due: bool) -> Out {
         let Some(o) = self.owed else {
-            let Some(info_banner) = self.up else { return Out::default() };
-            return Out { raise: self.spec(info_banner, now).map(Raise::Refresh), ..Out::default() };
+            let Some(look) = self.up else { return Out::default() };
+            return Out { raise: self.spec(look, now).map(Raise::Refresh), ..Out::default() };
         };
         if !(o.channel && o.programmes) && !due {
             return Out::default();
         }
         self.owed = None;
-        self.up = Some(o.info_banner);
-        Out { raise: self.spec(o.info_banner, now).map(Raise::Show), ..Out::default() }
+        self.up = Some(o.look);
+        Out { raise: self.spec(o.look, now).map(Raise::Show), ..Out::default() }
     }
 
     pub fn update(&mut self, input: &Input, now: u64) -> Out {
@@ -220,6 +253,12 @@ impl Feed {
             return Out::default();
         }
         match input {
+            Input::Luna { tag, payload } if *tag == EMERGENCY_TAG => {
+                let answer = channels::parse_emergency(payload);
+                self.emergency_heard = answer.is_some();
+                self.emergency = answer == Some(true);
+                Out::default()
+            }
             Input::Luna { tag, payload } if *tag == LAST_TAG => self.named(payload, now),
             Input::Luna { tag, payload } if *tag == INFO_TAG => {
                 let Some(c) = channels::parse_channel_info(payload).filter(|c| self.current.as_deref() == Some(c.id.as_str())) else { return Out::default() };
@@ -291,15 +330,30 @@ impl Feed {
         self.programmes.clear();
         self.broadcast.clear();
         self.online.clear();
-        self.owed = Some(Owed { info_banner: false, until: now + WAIT_MS, channel: false, programmes: false });
-        Out { effects: self.ask(&id, now), changed: true, ..Out::default() }
+        self.owed = Some(Owed { look: Look::Change, until: now + WAIT_MS, channel: false, programmes: false });
+        let mut effects = self.ask(&id, now);
+        // with no pipeline yet (Live TV just launched) the alert's subscription ends in an error: asked again once the tuner is on a channel
+        if !self.emergency_heard {
+            effects.extend([Effect::Cancel { tag: EMERGENCY_TAG }, Self::emergency_ask()]);
+        }
+        Out { effects, changed: true, ..Out::default() }
     }
 
-    /// INFO: the banner again with what the programme is about, the record and the programmes asked for again when they are old.
+    /// OK: the banner again with its Guide and Details buttons.
+    pub fn ok_pressed(&mut self, now: u64) -> Out {
+        self.pressed(Look::Ok, now)
+    }
+
+    /// INFO: the banner again with what the programme is about.
     pub fn info_pressed(&mut self, now: u64) -> Out {
+        self.pressed(Look::Info, now)
+    }
+
+    /// A key raised the banner: the record and the programmes are asked for again when they are old.
+    fn pressed(&mut self, look: Look, now: u64) -> Out {
         let Some(id) = self.current.clone() else { return Out::default() };
         let stale = now.saturating_sub(self.asked_at) > STALE_MS || channels::now_next(&self.programmes, now as i64).0.is_none();
-        self.owed = Some(Owed { info_banner: true, until: now + WAIT_MS, channel: self.channel.is_some(), programmes: !stale });
+        self.owed = Some(Owed { look, until: now + WAIT_MS, channel: self.channel.is_some(), programmes: !stale });
         if stale {
             return Out::effects(self.ask(&id, now));
         }
@@ -344,9 +398,15 @@ mod tests {
         }
     }
 
+    fn emergency(payload: Value) -> Input {
+        Input::Luna { tag: EMERGENCY_TAG, payload }
+    }
+
+    /// Live TV in front, its emergency alert's subscription answered: none shows.
     fn live() -> Feed {
         let mut f = Feed::default();
         f.set_live(true, NOW);
+        f.update(&emergency(json!({"returnValue": true, "showing": false})), NOW);
         f
     }
 
@@ -361,7 +421,7 @@ mod tests {
     fn live_tv_in_front_follows_the_tuner_and_the_channel_it_names_raises_the_banner_when_its_words_are_in() {
         let mut f = Feed::default();
         let fx = f.set_live(true, NOW);
-        assert!(matches!(&fx[..], [Effect::Luna { tag: LAST_TAG, uri, subscribe: true, .. }] if uri == channels::LAST_URI), "{fx:?}");
+        assert!(matches!(&fx[..], [Effect::Luna { tag: LAST_TAG, uri, subscribe: true, .. }, Effect::Luna { tag: EMERGENCY_TAG, subscribe: true, .. }] if uri == channels::LAST_URI), "{fx:?}");
         assert!(f.set_live(true, NOW).is_empty(), "once");
         let out = f.update(&last(ID), NOW + 50);
         assert!(out.raise.is_none(), "the words are asked for first");
@@ -443,10 +503,41 @@ mod tests {
     }
 
     #[test]
+    fn ok_raises_the_banner_with_guide_and_details_for_eight_seconds() {
+        let mut f = live();
+        assert!(f.ok_pressed(NOW).raise.is_none(), "nothing is known of a channel before the tuner names one");
+        f.update(&last(ID), NOW);
+        f.update(&record(ID, "2-1", "WSB-HD", LOGO), NOW);
+        shown(f.update(&programmes(ID), NOW));
+        let s = shown(f.ok_pressed(NOW + 1000));
+        assert_eq!((s.buttons.as_slice(), s.hold_ms, s.info, s.detail.as_str()), ([Pick::Guide, Pick::Details].as_slice(), HOLD_BUTTONS_MS, false, ""));
+        assert!(!f.info_up());
+        match f.update(&programmes(ID), NOW + 1100).raise {
+            Some(Raise::Refresh(s)) => assert_eq!(s.buttons, vec![Pick::Guide, Pick::Details], "a late answer keeps the buttons"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_emergency_alert_is_followed_and_asked_again_after_an_answer_with_no_pipeline() {
+        let mut f = Feed::default();
+        f.set_live(true, NOW);
+        f.update(&emergency(json!({"errorCode": -106, "errorText": "No resource: "})), NOW);
+        assert!(!f.emergency());
+        let out = f.update(&last(ID), NOW + 10);
+        assert!(out.effects.contains(&Effect::Cancel { tag: EMERGENCY_TAG }) && out.effects.iter().any(|e| matches!(e, Effect::Luna { tag: EMERGENCY_TAG, .. })), "{:?}", out.effects);
+        f.update(&emergency(json!({"returnValue": true, "showing": true})), NOW + 20);
+        assert!(f.emergency());
+        assert!(!f.update(&last(OTHER), NOW + 30).effects.iter().any(|e| matches!(e, Effect::Luna { tag: EMERGENCY_TAG, .. })), "a subscription that answered is kept");
+        f.update(&emergency(json!({"returnValue": true, "showing": false})), NOW + 40);
+        assert!(!f.emergency());
+    }
+
+    #[test]
     fn leaving_live_tv_lets_go_of_the_tuner_and_coming_back_is_a_launch_again() {
         let mut f = live();
         f.update(&last(ID), NOW);
-        assert_eq!(f.set_live(false, NOW + 100), vec![Effect::Cancel { tag: LAST_TAG }]);
+        assert_eq!(f.set_live(false, NOW + 100), vec![Effect::Cancel { tag: LAST_TAG }, Effect::Cancel { tag: EMERGENCY_TAG }]);
         assert!(!f.live() && f.update(&last(OTHER), NOW + 200).effects.is_empty(), "nothing is followed while Live TV is not in front");
         f.set_live(true, NOW + 5000);
         f.update(&last(ID), NOW + 5100);

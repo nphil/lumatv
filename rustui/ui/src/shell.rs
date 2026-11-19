@@ -246,6 +246,8 @@ pub struct Shell {
     /// is to see a release whose press it never saw).
     lab_keys: Vec<String>,
     guide_keys: Vec<String>,
+    /// OK on Live TV raised the channel banner on its press: its repeats and its release are nobody's.
+    live_ok_down: bool,
     /// Waking presses and their repeats/releases belong to the saver, even after it has gone.
     saver_keys: Vec<(String, u32)>,
     /// The size and time of each polled file (the theme, the layout) as it was last read: a poll that finds them unchanged reads nothing.
@@ -334,6 +336,7 @@ impl Shell {
             entry_keys: Vec::new(),
             lab_keys: Vec::new(),
             guide_keys: Vec::new(),
+            live_ok_down: false,
             saver_keys: Vec::new(),
             polled_files: HashMap::new(),
             pointer_state: None,
@@ -1029,16 +1032,37 @@ impl Shell {
             self.after(now, &mut acts);
             return acts;
         }
-        // the Guide key: claimed from Live TV (the compositor gives it over only while the guide lists it), so LG's guide never launches. It opens the
-        // guide unless something else has the screen; nothing else hears it
+        // the Guide and List keys: claimed from Live TV (the compositor gives them over only while the guide lists them), so LG's guide never
+        // launches. They open the guide unless something else has the screen (a channel banner goes for it); nothing else hears them
         if let KeyEvent::Key { name, down, repeat, .. } = event
-            && name == "guide"
+            && (name == "guide" || name == "list")
         {
-            if self.kinds.guide && *down && !*repeat && !self.system_wants() {
-                for e in self.guide.guide_key(now) {
+            if self.kinds.guide && *down && !*repeat {
+                for e in self.sys.guide_opening(&self.kinds) {
                     self.carry(e, now, &mut acts);
                 }
+                if !self.system_wants() {
+                    for e in self.guide.guide_key(now) {
+                        self.carry(e, now, &mut acts);
+                    }
+                }
                 self.redraw = true;
+            }
+            self.after(now, &mut acts);
+            return acts;
+        }
+        // OK on Live TV at rest: claimed while the channel banner lists it (`Banner::takes`), so LG's OK banner never opens. It raises the
+        // channel banner with Guide and Details; its repeats and release are nobody's
+        if let KeyEvent::Key { name, down, repeat, .. } = event
+            && name == "ok"
+            && (self.live_ok_down || (*down && !*repeat && !self.system_wants() && self.sys.live_ok(&self.kinds)))
+        {
+            self.live_ok_down = *down;
+            if *down && !*repeat {
+                self.sys.on_key(&self.kit, &mut self.engine);
+                for e in self.sys.live_ok_key(now) {
+                    self.carry(e, now, &mut acts);
+                }
             }
             self.after(now, &mut acts);
             return acts;
@@ -1557,6 +1581,14 @@ impl Shell {
                 // compositor opens for the gear and Input when LumaTV's panels are not up (`system_ui.rs`: the Home Hub, LG's Settings)
                 crate::system::layer::Intent::OpenPicker => self.open_panel_or_app(Which::Picker, self.kinds.picker, "com.webos.app.homeconnect", now, acts),
                 crate::system::layer::Intent::OpenQuick => self.open_panel_or_app(Which::Quick, self.kinds.quick, "com.palm.app.settings", now, acts),
+                // the channel banner's Guide button: this process's guide, never LG's (the button is LG's OK banner's own, which launches it)
+                crate::system::layer::Intent::OpenGuide if self.kinds.guide => {
+                    for e in self.guide.guide_key(now) {
+                        self.carry(e, now, acts);
+                    }
+                    self.redraw = true;
+                }
+                crate::system::layer::Intent::OpenGuide => acts.push(Act::Log("channel banner: the guide is not this process's".into())),
             }
         }
     }
@@ -2213,7 +2245,7 @@ mod tests {
         shell.key(&guide(true), 1_100);
         assert_eq!(shell.state()["guide"]["open"], false, "a key the compositor should not have sent opens nothing");
         shell.channel(&front("com.webos.app.livetv"), 2_000);
-        assert_eq!(shell.report()["takes"], json!(["guide"]));
+        assert_eq!(shell.report()["takes"], json!(["guide", "list"]));
         shell.key(&guide(true), 2_100);
         shell.key(&guide(false), 2_160);
         assert_eq!(shell.state()["guide"]["open"], true);
@@ -2221,6 +2253,10 @@ mod tests {
         shell.channel(&front("org.test.player"), 3_000);
         assert_eq!(shell.state()["guide"]["open"], false);
         assert_eq!(shell.report()["takes"], json!([]));
+        // List is LG's other way into its guide (its channel list): the same guide
+        shell.channel(&front("com.webos.app.livetv"), 4_000);
+        shell.key(&KeyEvent::Key { name: "list".into(), down: true, repeat: false, seat: 0 }, 4_100);
+        assert_eq!(shell.state()["guide"]["open"], true);
     }
 
     #[test]

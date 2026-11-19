@@ -4,7 +4,7 @@
 //!   the spec asks for them, a divider and the Details, Inputs and Picture buttons;
 //! - the **channel banner**: one slim strip of the theme's glass, centred over the picture above the subtitles' band: the channel's logo (or its call
 //!   sign's letters), number and name, then what is on with its time and how much is left; INFO grows it with what the programme is about, what is
-//!   next and its marks;
+//!   next and its marks, and OK ends it with a divider and the Guide and Details buttons;
 //! - the **no-signal screen**: black in both materials, the dim block (icon, port, what is wrong, what to do, Inputs and Home) at a spot that
 //!   changes every minute, drawn in the dark material's inks whatever the TV's material is.
 //!
@@ -218,10 +218,11 @@ impl BannerSurface {
 
     /// The channel banner: one slim strip of the theme's glass, centred over the picture and resting above the subtitles' band as the toasts do. From
     /// the left: the channel's logo on a plate (its call sign's letters where it has none), its number and name, a rule, and what is on: the
-    /// programme's title over its time and a line of how much is left. INFO grows it upward with what the programme is about and, under that, what is
+    /// programme's title over its time and a line of how much is left; OK's banner ends with a rule and its buttons, as the pill's do. INFO grows
+    /// it upward with what the programme is about and, under that, what is
     /// next and the programme's marks. What the TV knows nothing of ("No information") is said quietly, with no time and no line. The glass hides the
     /// picture (`pane::reading_glass`), so nothing behind it reads through its words. The measures are the strip's (`CHANNEL_*`), the rest is the theme's.
-    fn channel(kit: &mut Kit, z: i32, spec: &Spec, b: &mut Built) -> std::io::Result<()> {
+    fn channel(kit: &mut Kit, engine: &mut Engine, z: i32, spec: &Spec, b: &mut Built) -> std::io::Result<()> {
         let (s1, s2, s3) = (kit.space(1), kit.space(2), kit.space(3));
         let (pad_x, pad_y, gap, rule) = (scaled(kit, kit.space(5)), scaled(kit, kit.space(3)), scaled(kit, kit.space(4)), scaled(kit, kit.space(5)));
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
@@ -236,7 +237,10 @@ impl BannerSurface {
         let (id_h, prog_h) = (num_h + cap_h, body_h + cap_h);
         let plate_h = scaled(kit, CHANNEL_PLATE);
         let plate_w = (plate_h * 16.0 / 9.0 / 2.0).round() * 2.0;
-        let content_h = id_h.max(prog_h).max(plate_h);
+        let btn_h = Button::height(kit);
+        let widths: Vec<f32> = spec.buttons.iter().map(|p| Button::width_for(kit, p.label(), true)).collect();
+        let buttons_w = widths.iter().sum::<f32>() + s3 * widths.len().saturating_sub(1) as f32;
+        let content_h = id_h.max(prog_h).max(plate_h).max(if widths.is_empty() { 0.0 } else { btn_h });
         let logo = (!spec.logo.is_empty()).then(|| avatar::contained(&spec.logo, (plate_w - 2.0 * s2) as u32, (plate_h - 2.0 * s2) as u32)).flatten();
         let mono = if logo.is_some() { String::new() } else { monogram(&spec.call) };
         let has_plate = logo.is_some() || !mono.is_empty();
@@ -253,7 +257,8 @@ impl BannerSurface {
         let plate_gap = if has_plate && has_id { gap } else { 0.0 };
         let lead_w = plate_run + plate_gap + id_w;
         let rule_w = if lead_w > 0.0 && has_title { 2.0 * rule + 1.0 } else { 0.0 };
-        let fixed = 2.0 * pad_x + lead_w + rule_w;
+        let buttons_run = if widths.is_empty() { 0.0 } else { 2.0 * rule + 1.0 + buttons_w };
+        let fixed = 2.0 * pad_x + lead_w + rule_w + buttons_run;
         let about = spec.info && !spec.detail.is_empty();
         let foot = spec.info && (!spec.next.is_empty() || !spec.chips.is_empty());
         let mut w = fixed + if has_title { want.clamp(scaled(kit, CHANNEL_COLUMN_MIN), scaled(kit, CHANNEL_COLUMN_MAX)) } else { 0.0 };
@@ -358,6 +363,20 @@ impl BannerSurface {
                     }
                 }
                 track_frame = frame_json(track);
+            }
+        }
+        // OK's buttons at the right end, after a rule
+        if !widths.is_empty() {
+            let mut x = frame.right() - pad_x - buttons_w;
+            let divider = Frame::new(x - rule - 1.0, top + ((content_h - prog_h) / 2.0).round(), 1.0, prog_h);
+            b.parts.push(Part::Shape(plate::shape(&kit.ui, divider, z + 1, plate::solid(edge(kit), 0.0))));
+            for (i, (p, bw)) in spec.buttons.iter().zip(&widths).enumerate() {
+                let f = Frame::new(x.round(), top + ((content_h - btn_h) / 2.0).round(), *bw, btn_h);
+                let mut btn = Button::new(kit, engine, Place { id: Target::id(i), frame: f, region: REGION, scope: SCOPE, z: z + 3 }, ButtonSpec::new(p.label(), Tone::Plain).with_icon(p.icon()))?;
+                btn.show(kit, true);
+                b.buttons.push(btn);
+                b.labels.push(p.label().to_string());
+                x += bw + s3;
             }
         }
         // INFO: a rule, what the programme is about, then what is next at the left and its marks, from the right edge in, at the right
@@ -486,7 +505,7 @@ impl BannerSurface {
         let scene = kit.ui.scene.clone();
         match v.spec.kind {
             Kind::Input => scene.adopting_view(&root.group, || Self::pill(kit, engine, z, &v.spec, over_video, &mut b))?,
-            Kind::Channel => scene.adopting_view(&root.group, || Self::channel(kit, z, &v.spec, &mut b))?,
+            Kind::Channel => scene.adopting_view(&root.group, || Self::channel(kit, engine, z, &v.spec, &mut b))?,
             Kind::NoSignal => {
                 // the black screen is under the root too, so it fades with the block; the block is a group of its own, dimmed as a whole
                 scene.adopting_view(&root.group, || b.parts.push(Part::Shape(plate::shape(&kit.ui, Frame::new(0.0, 0.0, 1920.0, 1080.0), z, plate::solid(Rgba(0, 0, 0, 255), 0.0)))));
@@ -851,6 +870,47 @@ mod tests {
                 assert!(num(bar, "h") <= h && num(bar, "w") <= w, "{mode:?} at {scale}: at most {w} by {h}: {g}");
                 assert_eq!((g["chips"].as_u64(), g["detail"].as_u64(), g["next"].as_str()), (Some(0), Some(0), Some("")), "{mode:?} at {scale}: the marks and what is next are INFO's: {g}");
                 assert_eq!(engine.focus.modal(), None);
+                let found = lint_of(&mut kit, &s);
+                assert!(found.is_empty(), "{mode:?} at {scale}: {found:?}");
+            }
+        }
+    }
+
+    /// Live TV in front on 2-1 with Evening News on, and OK pressed: the channel banner with its Guide and Details buttons.
+    fn ok_banner(b: &mut Banner, at: u64) {
+        use crate::host::channels;
+        use crate::system::channel_feed::{INFO_TAG, LAST_TAG, NOW_TAG};
+        let id = "1_32_2_1_0_0_0";
+        let stamp = |min: i64| channels::stamp(at as i64 + min * 60_000, 0);
+        b.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.livetv", "home": false, "covered": true}) }, at);
+        b.update(&Input::Luna { tag: LAST_TAG, payload: json!({"returnValue": true, "channelId": id}) }, at);
+        b.update(&Input::Luna { tag: INFO_TAG, payload: json!({"returnValue": true, "channelList": [{"channelId": id, "channelNumber": "2-1", "channelName": "WSB-HD", "imgUrl": "", "channelTypeId": 1}]}) }, at);
+        b.update(&Input::Luna { tag: NOW_TAG, payload: json!({"returnValue": true, "programList": [{"channelId": id, "programId": "p", "programName": "Evening News", "startTime": stamp(-10), "endTime": stamp(20)}]}) }, at);
+        b.ok_key(at + 1000);
+    }
+
+    #[test]
+    fn oks_banner_ends_the_strip_with_guide_and_details_which_take_the_keys_and_read_clean_in_both_materials_and_sizes() {
+        const AT: u64 = 1_800_000_000_000;
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (_h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).expect("an engine");
+                let (mut b, mut s) = (Banner::new(&json!({"banners": {"own": true}})), BannerSurface::new(1000));
+                ok_banner(&mut b, AT);
+                draw(&mut kit, &mut engine, &mut s, &b, true, AT + 1100);
+                let g = s.geometry();
+                assert_eq!(g["kind"], "channel", "{g}");
+                assert_eq!(engine.focus.modal(), Some(SCOPE), "its buttons have the keys");
+                assert_eq!(engine.focus.current(), Some(Target::id(0)), "Guide is focused first");
+                let labels: Vec<&str> = g["buttons"].as_array().unwrap().iter().map(|x| x["label"].as_str().unwrap()).collect();
+                assert_eq!(labels, vec!["Guide", "Details"]);
+                let bar = &g["bar"];
+                assert_eq!(num(bar, "x") * 2.0 + num(bar, "w"), 1920.0, "{mode:?} at {scale}: centred on the screen: {g}");
+                for btn in g["buttons"].as_array().unwrap() {
+                    assert!(num(btn, "x") >= num(bar, "x") && num(btn, "x") + num(btn, "w") <= num(bar, "x") + num(bar, "w"), "{mode:?} at {scale}: a button inside the bar: {g}");
+                    assert!(num(btn, "y") >= num(bar, "y") && num(btn, "y") + num(btn, "h") <= num(bar, "y") + num(bar, "h"), "{mode:?} at {scale}: a button inside the bar: {g}");
+                }
                 let found = lint_of(&mut kit, &s);
                 assert!(found.is_empty(), "{mode:?} at {scale}: {found:?}");
             }

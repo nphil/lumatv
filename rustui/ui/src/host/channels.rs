@@ -42,6 +42,8 @@ pub const LIST_CHANGED_URI: &str = "luna://com.webos.service.iepg/notifyChannelL
 pub const LAST_URI: &str = "luna://com.webos.service.utp.channel/getLastChannelId";
 pub const INFO_URI: &str = "luna://com.webos.service.iepg/getChannelInfo";
 pub const CURRENT_URI: &str = "luna://com.webos.service.utp.broadcast/getCurrentChannel";
+/// Whether Live TV shows a US emergency alert (EAS): the call LG's `EwsUsInterfaces.qml` subscribes to.
+pub const EMERGENCY_URI: &str = "luna://com.webos.service.utp.broadcast/getEmergencyInfo";
 pub const LAUNCH_URI: &str = "luna://com.webos.applicationManager/launch";
 /// LG's Live TV, which tunes.
 pub const LIVE_TV_APP: &str = "com.webos.app.livetv";
@@ -192,6 +194,11 @@ pub fn current_request(broadcast_id: &str, subscribe: bool) -> Value {
 /// The `getLastChannelId` request: the channel the tuner is on or was last on (`subscribe` follows it).
 pub fn last_request(subscribe: bool) -> Value {
     json!({"sourceType": "INPUTSOURCE_RF", "subscribe": subscribe})
+}
+
+/// The `getEmergencyInfo` subscription: an empty `broadcastId` is the live pipeline's.
+pub fn emergency_request() -> Value {
+    json!({"broadcastId": "", "subscribe": true})
 }
 
 /// The `getChannelInfo` request for one channel.
@@ -347,6 +354,16 @@ pub fn parse_programmes(payload: &Value, offset_s: i32) -> Result<Vec<Programme>
 pub fn parse_last(payload: &Value) -> Option<String> {
     checked(payload).ok()?;
     Some(text(payload, "channelId")).filter(|id| !id.is_empty()).map(str::to_string)
+}
+
+/// Whether a `getEmergencyInfo` answer says an alert shows; none for an error. With no pipeline yet the answer is
+/// `{"errorCode": -106, "errorText": "No resource: "}`, without a `returnValue`.
+pub fn parse_emergency(payload: &Value) -> Option<bool> {
+    checked(payload).ok()?;
+    if payload.get("errorCode").is_some() {
+        return None;
+    }
+    Some(payload.get("showing").and_then(Value::as_bool).unwrap_or(false))
 }
 
 /// The channel a `getChannelInfo` answer describes (an internet channel is told by its `11_` id).

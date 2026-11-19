@@ -53,6 +53,9 @@ pub mod code {
     /// The remote's Guide key (`IR_KEY_GUIDE` in keymap.xkb, 370 - 8). Live TV answers it by launching LG's guide itself, 2 ms after the key
     /// (`com.webos.app.livetv` asks SAM to launch `com.webos.app.livemenu` with `activateType: tvguide`; read off the set 2026-11-04).
     pub const KEY_GUIDE: u32 = 362;
+    /// The List key (`IR_KEY_PRLIST` in keymap.xkb, 795 - 8). Live TV answers it at rest by launching LG's guide on its channel list
+    /// (`CommonInputEventHandler.qml`: `activateType: channels`).
+    pub const KEY_LIST: u32 = 787;
     pub const KEY_MUTE: u32 = 113;
     pub const KEY_VOLUMEDOWN: u32 = 114;
     pub const KEY_VOLUMEUP: u32 = 115;
@@ -888,9 +891,11 @@ impl State {
         };
         // While the Magic Remote's cursor shows, OK is a click on what it points at (LG's behaviour); an arrow or
         // Back hides the cursor and goes on as a key. A release goes the way its press went: a press taken as a key (by the Rust shell, or by an app's
-        // keyboard) has its release as a key even if the cursor showed in between, and one taken as a click has its release as one.
+        // keyboard) has its release as a key even if the cursor showed in between, and one taken as a click has its release as one. A click on the
+        // focused app's own card while the Rust shell takes OK by name is that OK (`State::shell_rust_click_is_ok`).
         let key_press_open = !pressed && (self.shell_rust.took.iter().any(|(c, _, _)| *c == code) || self.seat.pressed.iter().any(|(_, c)| *c == code));
-        if matches!(code, code::KEY_ENTER | code::KEY_OK) && !key_press_open && self.seat.cursor_visible && (self.seat.pointer_focus.is_some() || self.shell_rust.pointer_in) {
+        let click = !key_press_open && self.seat.cursor_visible && (self.seat.pointer_focus.is_some() || self.shell_rust.pointer_in) && !(pressed && self.shell_rust_click_is_ok(now));
+        if matches!(code, code::KEY_ENTER | code::KEY_OK) && click {
             if seat::pointer_button(self, pressed) {
                 self.keys.delivered += 1;
                 return;
@@ -942,6 +947,9 @@ impl State {
         match r {
             Route::Client | Route::Dropped | Route::Back if grabbing && !app_holds => self.grab_key(code, pressed),
             Route::Client => {
+                if pressed && matches!(logical, keys::Logical::Digit(_)) {
+                    self.shell_rust.digit_at = Some(now);
+                }
                 // The shell's overlay stands in for what the app draws after this key (`mask.rs`): the claimed region of its window is blanked
                 // from the next plan, before the app's own banner is drawn there.
                 if pressed && self.scene.mask_listens(code) {

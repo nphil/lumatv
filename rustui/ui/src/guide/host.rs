@@ -57,21 +57,23 @@ impl GuideHost {
         std::mem::take(&mut self.redraw)
     }
 
-    /// What the shell tells the compositor it takes. Live TV in front: the Guide key, which Live TV answers by launching LG's guide. The
-    /// compositor answers every launch of LG's guide with this guide (it draws none of LG's, `lg_guide.rs`), so the key is claimed to spare the
-    /// launch; with the shell not running nothing is listed and LG's guide opens as stock. Open: also the channel rocker, which pages the guide,
-    /// Info, which opens its sheet, and a turn of the Magic Remote's wheel, which moves a row.
+    /// What the shell tells the compositor it takes. Live TV in front: the Guide and List keys, which Live TV answers by launching LG's guide
+    /// (`CommonInputEventHandler.qml`: `tvguide` and `channels`). The compositor answers every launch of LG's guide with this guide (it draws
+    /// none of LG's, `lg_guide.rs`), so the keys are claimed to spare the launch; with the shell not running nothing is listed and LG's guide
+    /// opens as stock. Open: also the channel rocker, which pages the guide, Info, which opens its sheet, and a turn of the Magic Remote's
+    /// wheel, which moves a row.
     pub fn takes(&self) -> Vec<&'static str> {
         if self.model.wants() {
-            vec!["chup", "chdown", "info", "wheelup", "wheeldown", "guide"]
+            vec!["chup", "chdown", "info", "wheelup", "wheeldown", "guide", "list"]
         } else if self.front == ch::LIVE_TV_APP {
-            vec!["guide"]
+            vec!["guide", "list"]
         } else {
             Vec::new()
         }
     }
 
-    /// The Guide key opens the guide when it is claimed (Live TV in front, the guide not open). The guide's own key is ignored while it is open.
+    /// The Guide and List keys open the guide when they are claimed (Live TV in front, the guide not open), as does the channel banner's Guide
+    /// button. They are ignored while it is open.
     pub fn guide_key(&mut self, now: u64) -> Vec<Effect> {
         if self.model.wants() || self.front != ch::LIVE_TV_APP {
             return Vec::new();
@@ -233,7 +235,7 @@ mod tests {
         h.update(&front("com.webos.app.home"), NOW);
         assert!(h.takes().is_empty() && h.guide_key(NOW + 10).is_empty() && !h.is_open(), "Home in front: the key is not claimed and opens nothing");
         h.update(&front(ch::LIVE_TV_APP), NOW + 500);
-        assert_eq!(h.takes(), ["guide"]);
+        assert_eq!(h.takes(), ["guide", "list"]);
         let fx = h.guide_key(NOW + 1_000);
         assert!(h.is_open() && !fx.is_empty());
         assert!(h.takes().contains(&"guide") && h.takes().contains(&"chup"), "open: Guide stays claimed, so Live TV never launches LG's, and the rocker pages");
@@ -249,7 +251,7 @@ mod tests {
         let mut h = GuideHost::new(1060);
         h.open(NOW);
         assert!(h.wants());
-        assert_eq!(h.takes(), ["chup", "chdown", "info", "wheelup", "wheeldown", "guide"]);
+        assert_eq!(h.takes(), ["chup", "chdown", "info", "wheelup", "wheeldown", "guide", "list"]);
         h.update(&Input::Topic { topic: "screen".into(), data: json!({"on": false}) }, NOW + 100);
         assert!(!h.is_open() && !h.wants());
     }

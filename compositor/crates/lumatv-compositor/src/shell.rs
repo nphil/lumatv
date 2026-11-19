@@ -25,13 +25,14 @@ pub(crate) const EVENTS_KEPT: usize = 512;
 /// leaves two kinds of its own there (`Q:<panel>-show` when it asks the shell for a panel on a key, `Q:<feed>-delivered` when a
 /// notification reaches it from the service), so the gate can tell what the shell is asked, and when, from what the shell does with it.
 pub const TRACE_MARKER: &str = "/sys/kernel/debug/tracing/trace_marker";
-/// The keys the system layer may ask to take while an app has the focus (`Msg::Takes`): the overlay cards' OK and Back. The arrows stay the
+/// The keys the system layer may ask to take while an app has the focus (`Msg::Takes`): the overlay cards' OK and Back, and OK while Live TV is
+/// at rest (the channel banner stands in for LG's OK banner). The arrows stay the
 /// app's, so a doorbell card never costs the person the film's controls. The Rust shell's Home also names the keys `keys.conf` teaches by name
 /// (`keys::SHELL_KEYS`): the microphone key while the helper can listen, the on-screen remote's and Search's while Home is in front, and the
-/// channel rocker and Info while the channel guide is up, and Guide while Live TV is in front. `wheel`, `wheelup` and `wheeldown` are no keys: they name a turn of the Magic
+/// channel rocker and Info while the channel guide is up, and Guide and List while Live TV is in front. `wheel`, `wheelup` and `wheeldown` are no keys: they name a turn of the Magic
 /// Remote's wheel (`State::shell_rust_wheel`, with its direction `State::shell_rust_wheel_direction`), which the Rust shell's display lab and
 /// Home's smart-home card ask for.
-pub const TAKEABLE: &[&str] = &["ok", "back", "voice", "screenremote", "search", "chup", "chdown", "info", "guide", "wheel", "wheelup", "wheeldown"];
+pub const TAKEABLE: &[&str] = &["ok", "back", "voice", "screenremote", "search", "chup", "chdown", "info", "guide", "list", "wheel", "wheelup", "wheeldown"];
 /// A press the layer took whose release has not come for this long was a release lost: the next press is a new one, not a repeat.
 pub(crate) const TOOK_STALE: Duration = Duration::from_secs(3);
 
@@ -94,8 +95,9 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "com.webos.service.factorymanager/getFactoryOpt",
     "com.webos.service.videooutput/getStatus",
     "com.webos.service.videooutput/reset/resetVideoSettings",
-    // The channel guide's and Live TV banner's reads: the channels and programmes LG's own guide shows (`iepg`) and the channel the tuner was on.
-    // The rest of those services (favourites, reservations, tuning) is not open.
+    // The channel guide's and Live TV banner's reads: the channels and programmes LG's own guide shows (`iepg`), the channel the tuner was on,
+    // and whether Live TV shows an emergency alert (its Close button takes OK). The rest of those services (favourites, reservations, tuning)
+    // is not open.
     "com.webos.service.iepg/getChannelList",
     "com.webos.service.iepg/getChannelInfo",
     "com.webos.service.iepg/getEventList",
@@ -103,6 +105,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "com.webos.service.iepg/getCurrentNextEventList",
     "com.webos.service.utp.channel/getLastChannelId",
     "com.webos.service.utp.broadcast/getCurrentChannel",
+    "com.webos.service.utp.broadcast/getEmergencyInfo",
 ];
 
 /// Whether the shell may make this call: `luna://<service>/...` with the service on the allowlist (a sub-name such as
@@ -732,7 +735,9 @@ mod tests {
         for read in ["getChannelList", "getChannelInfo", "getEventList", "getCurrentEventList", "getCurrentNextEventList"] {
             assert!(allowed(&format!("luna://com.webos.service.iepg/{read}")), "{read}");
         }
-        assert!(allowed("luna://com.webos.service.utp.channel/getLastChannelId") && allowed("luna://com.webos.service.utp.broadcast/getCurrentChannel"));
+        for read in ["utp.channel/getLastChannelId", "utp.broadcast/getCurrentChannel", "utp.broadcast/getEmergencyInfo"] {
+            assert!(allowed(&format!("luna://com.webos.service.{read}")), "{read}");
+        }
         assert!(!allowed("luna://com.webos.service.iepg/setFavoriteChannels") && !allowed("luna://com.webos.service.utp.channel/setCurrentChannel"));
         assert!(!allowed("luna://com.webos.service.iepg") && !allowed("luna://com.webos.service.utp.broadcast/setBroadcastChannel"));
     }

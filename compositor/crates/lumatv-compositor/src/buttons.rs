@@ -15,7 +15,6 @@ use serde_json::Value;
 use crate::input::code::*;
 use crate::keys::{AppKey, KeyTable, Logical, SystemRequest};
 
-const KEY_LIST: u32 = 787;
 const KEY_MORE: u32 = 994;
 
 /// The buttons that are not one of the four app buttons, by id. LG's codes (`network-input-service`'s table, as LG Input Hook's list of the

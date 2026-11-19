@@ -70,13 +70,16 @@ pub enum Intent {
     OpenPicker,
     /// Picture on a banner: the quick panel.
     OpenQuick,
+    /// Guide on the channel banner: the channel guide.
+    OpenGuide,
 }
 
-/// What a banner's buttons ask for, as the layer's intents (the input picker and the quick panel are other kinds' surfaces).
+/// What a banner's buttons ask for, as the layer's intents (the input picker, the quick panel and the guide are other kinds' surfaces).
 fn banner_intent(i: banner::Intent) -> Intent {
     match i {
         banner::Intent::OpenPicker => Intent::OpenPicker,
         banner::Intent::OpenQuick => Intent::OpenQuick,
+        banner::Intent::OpenGuide => Intent::OpenGuide,
     }
 }
 
@@ -737,7 +740,7 @@ impl Layer {
         if self.banner.wants() && !self.alerts.wants() {
             // a banner with buttons: a click is the button it ended on, and what the pointer does here is not the screens under it
             if let Some(crate::system::banner_surface::Target::Button(i)) = self.banner_surface.pointer(kit, engine, now_ns, sample) {
-                self.effects.extend(self.banner.picked(i));
+                self.effects.extend(self.banner.picked(i, now_ms));
                 self.take_banner_intents();
                 self.redraw = true;
             }
@@ -829,12 +832,13 @@ impl Layer {
         (kinds.alert && self.alerts.wants()) || (kinds.ai && self.ai.wants()) || (kinds.banner && self.banner.wants()) || (kinds.saver && self.saver.wants_keys()) || (kinds.layout && self.layout_open()) || (kinds.home && self.extras.wants())
     }
 
-    /// The keys the layer takes by name while an app has the focus: the cards' OK and Back, and INFO (Back too while its banner is up) while the
-    /// channel banner follows Live TV.
+    /// The keys the layer takes by name while an app has the focus: the cards' OK and Back, and INFO and OK (Back too while the INFO banner is
+    /// up) while the channel banner follows Live TV. The banner's own stay listed while its buttons are up: INFO then is its Details.
     pub fn takes(&self, kinds: &Kinds) -> Vec<&'static str> {
-        let quiet = !(kinds.alert && self.alerts.wants()) && !(kinds.ai && self.ai.wants()) && !(kinds.banner && self.banner.wants()) && !(kinds.saver && self.saver.wants_keys());
-        let mut keys = if quiet && !self.layout_open() && ((kinds.popup && self.popup.up()) || (kinds.cards && self.overlay.armed())) { vec!["ok", "back"] } else { Vec::new() };
-        if kinds.banner && quiet {
+        let others_quiet = !(kinds.alert && self.alerts.wants()) && !(kinds.ai && self.ai.wants()) && !(kinds.saver && self.saver.wants_keys());
+        let quiet = others_quiet && !(kinds.banner && self.banner.wants());
+        let mut keys = if quiet && !self.layout_open() && self.cards_ok(kinds) { vec!["ok", "back"] } else { Vec::new() };
+        if kinds.banner && others_quiet {
             for k in self.banner.takes() {
                 if !keys.contains(&k) {
                     keys.push(k);
@@ -842,6 +846,33 @@ impl Layer {
             }
         }
         keys
+    }
+
+    /// A card's OK and Back are taken: the camera pop-up is up, or a card has been up long enough.
+    fn cards_ok(&self, kinds: &Kinds) -> bool {
+        (kinds.popup && self.popup.up()) || (kinds.cards && self.overlay.armed())
+    }
+
+    /// OK on Live TV is the channel banner's (`Banner::takes`): nothing of the layer has the keys and no card answers OK.
+    pub fn live_ok(&self, kinds: &Kinds) -> bool {
+        kinds.banner && !self.wants(kinds) && !self.layout_open() && !self.cards_ok(kinds) && self.banner.takes().contains(&"ok")
+    }
+
+    /// OK on Live TV at rest ([`Layer::live_ok`]): the channel banner with its Guide and Details buttons.
+    pub fn live_ok_key(&mut self, now: u64) -> Vec<Effect> {
+        let out = self.banner.ok_key(now);
+        self.redraw |= out.contains(&Effect::Redraw);
+        out
+    }
+
+    /// The channel guide opens: the channel banner goes.
+    pub fn guide_opening(&mut self, kinds: &Kinds) -> Vec<Effect> {
+        if !kinds.banner {
+            return Vec::new();
+        }
+        let out = self.banner.end_channel();
+        self.redraw |= out.contains(&Effect::Redraw);
+        out
     }
 
     /// Whether the saver is up: what the compositor's OLED care and the helper's rules read (`state.saver`).

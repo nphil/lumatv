@@ -29,6 +29,9 @@ const START_ALONE: Duration = Duration::from_secs(15);
 // An idle long poll may last 60 seconds.
 const POLL_TIMEOUT: Duration = Duration::from_secs(75);
 const READY_TIMEOUT: Duration = Duration::from_secs(40);
+/// How long after a digit reaches the focused app OK stays the app's: Live TV's number entry (`SimilarListView.qml`) takes OK to tune the
+/// number typed and tunes it by itself 2.5 s after the last key.
+pub const NUMBER_ENTRY: Duration = Duration::from_secs(3);
 
 /// Parse a diagnostic selection as a sorted list of known kinds.
 pub fn parse_kinds(list: &str) -> Vec<String> {
@@ -86,6 +89,8 @@ pub struct RustShell {
     pub wants: bool,
     pub takes: Vec<String>,
     pub took: Vec<(u32, &'static str, Instant)>,
+    /// When the focused app was last given a digit: OK confirms the number it opens, so OK by name waits [`NUMBER_ENTRY`] after it.
+    pub digit_at: Option<Instant>,
     /// The pointer is over the client's layers: its samples go over the key socket until it leaves (`State::shell_rust_pointer_sample`).
     pub pointer_in: bool,
     /// Where the last sample was.
@@ -134,6 +139,7 @@ impl Default for RustShell {
             wants: false,
             takes: Vec::new(),
             took: Vec::new(),
+            digit_at: None,
             pointer_in: false,
             pointer_at: (0.0, 0.0),
             buttons: 0,
@@ -1180,7 +1186,7 @@ impl State {
         if takes && !wants {
             // Only an app's focus is the layer's to share.
             let focused = self.seat.focus.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w));
-            if focused.is_none() || self.seat.pressed.contains(&(seat, code)) {
+            if focused.is_none() || self.seat.pressed.contains(&(seat, code)) || (name == "ok" && !self.shell_rust_takes_ok(now)) {
                 return false;
             }
         }
@@ -1188,6 +1194,23 @@ impl State {
         self.shell_rust.send_key(name, true, false, seat.0);
         self.keys.delivered += 1;
         true
+    }
+
+    /// Whether OK goes to the Rust client by name now (its `takes` lists it and its layer does not want every key): only while an app's card has
+    /// the focus, so an LG pop-up window keeps its OK, and not within [`NUMBER_ENTRY`] of a digit the app was given.
+    pub fn shell_rust_takes_ok(&self, now: Instant) -> bool {
+        self.shell_rust.connected
+            && !self.shell_rust_wants_keys()
+            && self.shell_rust.takes.iter().any(|n| n == "ok")
+            && self.seat.focus.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w)).is_some_and(|w| w.kind.is_card())
+            && !self.shell_rust.digit_at.is_some_and(|t| now.saturating_duration_since(t) < NUMBER_ENTRY)
+    }
+
+    /// Whether a click of OK on the focused app's own card is the client's OK: Live TV answers a click on its picture with its OK banner, as it
+    /// answers the key, so while the client takes OK by name the click goes to it as the key.
+    pub fn shell_rust_click_is_ok(&self, now: Instant) -> bool {
+        let window = |s: Option<crate::surface::SurfaceId>| s.and_then(|s| self.scene.window_of(s));
+        !self.shell_rust.pointer_in && window(self.seat.pointer_focus).is_some() && window(self.seat.pointer_focus) == window(self.seat.focus) && self.shell_rust_takes_ok(now)
     }
 
     /// A mouse, game controller or touchpad was used (`input::Event::Activity`): a saver that is up ends as it does on any key. Nothing else
@@ -2016,7 +2039,7 @@ mod tests {
         // the guide is up and wants the keys, but has not listed these: they are Live TV's
         state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: None });
         assert!(!state.shell_rust_takes_key(seat, up, true, false, now));
-        state.shell_rust_handle(Msg::Takes(vec!["chup".into(), "chdown".into(), "info".into(), "guide".into(), "list".into()]));
+        state.shell_rust_handle(Msg::Takes(vec!["chup".into(), "chdown".into(), "info".into(), "guide".into(), "nobody".into()]));
         assert_eq!(state.shell_rust.takes, vec!["chup", "chdown", "info", "guide"], "the names are takeable, a name nobody gave is not");
         for (code, at) in [(up, 10), (down, 20), (info, 30), (guide, 40)] {
             assert!(state.shell_rust_takes_key(seat, code, true, false, now + Duration::from_millis(at)));

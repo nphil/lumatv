@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+OK on Live TV raises LumaTV's own channel banner instead of LG's: the channel's number, name or logo, the programme with its start and end and how much is left, and Guide and Details buttons, in the theme's glass, for eight seconds or until Back. Guide opens LumaTV's guide. The Guide and List keys open it as well, so LG's guide is no longer started for them. OK stays Live TV's while a channel number is being typed and while an emergency alert shows.
+
 With LG Channels switched off, Live TV no longer asks "LG Channels is now available. Do you want to set LG Channels now?". Live TV asks whenever the switch is off and it has no answer on record for the TV's country, and its two-minute timeout records none; switching LG Channels off now records the answer its No button records, also at each helper start while the switch is off.
 
 Settings › Sound › Receiver carries the AVR-S760H's own controls: the Movie, Music, Game and Pure buttons and its twelve sound modes, Quick Select 1–4 (also when no memory is active), subwoofer and per-speaker levels in 0.5 dB steps, LFE, dynamic compression, loudness management, Dialog Control, subwoofer in Direct and Stereo and Zone 2 mute, beside the existing tone, Dialog Enhancer, Audyssey, ECO and Zone 2 controls. Each is writable only when the receiver's mode and signal allow it and is confirmed by the receiver's read-back. The reported mode (`DOLBY AUDIO-DD+DSUR` and the like) is now recognised, and a sound mode write waits past the receiver's repeat of the mode being left. Other identified Denon models get power, input, Stereo and Direct; controls a model lacks are left off the page. Not yet seen on the TV or receiver.

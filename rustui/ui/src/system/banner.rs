@@ -7,11 +7,12 @@
 //! - `nosignal`: the black screen of an input with nothing on it: a dim icon, which port, what to do and two buttons (Inputs, Home). It is black on
 //!   purpose, in both materials, and its block hops to another spot every minute: a still frame on an OLED is what the screen must never hold;
 //! - `channel`: the channel banner of live TV (the logo, number and name, the programme with its time and how much is left; INFO adds what it is about,
-//!   what is next and the signal facts). Live TV is rarely used (Nitin, 2026-10-23), so this is the banner only, no guide.
+//!   what is next and the signal facts). OK on Live TV raises it with Guide (LumaTV's own channel guide) and Details (the INFO banner) buttons, in
+//!   place of LG's OK banner, whose Guide button opens LG's guide.
 //!
 //! A spec comes from the inputs themselves (`foreground`, the pill), or from the owner of the moment as the topic `banner.show` (the spec's JSON,
 //! `banner.hide` takes it away), which is what the QML's development door and `showBanner` were. Only a banner with buttons takes the keys (left and
-//! right move, OK picks, Back ends it); the pill and the channel banner take none and go by themselves.
+//! right move, OK picks, Back ends it); the pill and the channel banner without buttons take none and go by themselves.
 
 use super::channel_feed::{self, Feed, Raise};
 use super::lg_mask::{self, LgMask};
@@ -31,7 +32,7 @@ const LIST_WAIT_MS: u64 = 1500;
 /// How long a banner is held: the pill four seconds, no signal until something is picked, one with buttons eight, and the channel banner as LG
 /// holds its own (`BannerInterfaces.qml`: five seconds for a change or a launch), eight for INFO (`channel_feed`).
 const HOLD_PILL_MS: u64 = 4000;
-const HOLD_BUTTONS_MS: u64 = 8000;
+pub const HOLD_BUTTONS_MS: u64 = 8000;
 pub const HOLD_CHANNEL_MS: u64 = 5000;
 pub const HOLD_INFO_MS: u64 = 8000;
 /// The no-signal block moves to its next spot this often.
@@ -51,6 +52,7 @@ pub enum Kind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pick {
     Details,
+    Guide,
     Inputs,
     Picture,
     Home,
@@ -60,6 +62,7 @@ impl Pick {
     pub fn parse(id: &str) -> Option<Pick> {
         Some(match id {
             "details" => Pick::Details,
+            "guide" => Pick::Guide,
             "inputs" => Pick::Inputs,
             "picture" => Pick::Picture,
             "home" => Pick::Home,
@@ -70,6 +73,7 @@ impl Pick {
     pub fn id(self) -> &'static str {
         match self {
             Pick::Details => "details",
+            Pick::Guide => "guide",
             Pick::Inputs => "inputs",
             Pick::Picture => "picture",
             Pick::Home => "home",
@@ -79,6 +83,7 @@ impl Pick {
     pub fn icon(self) -> &'static str {
         match self {
             Pick::Details => "info",
+            Pick::Guide => "list-video",
             Pick::Inputs => "cable",
             Pick::Picture => "image",
             Pick::Home => "house",
@@ -88,6 +93,7 @@ impl Pick {
     pub fn label(self) -> &'static str {
         match self {
             Pick::Details => "Details",
+            Pick::Guide => "Guide",
             Pick::Inputs => "Inputs",
             Pick::Picture => "Picture",
             Pick::Home => "Home",
@@ -257,6 +263,8 @@ pub enum Intent {
     OpenPicker,
     /// Picture: the quick panel.
     OpenQuick,
+    /// Guide on the channel banner: LumaTV's channel guide.
+    OpenGuide,
 }
 
 #[derive(Debug, Default)]
@@ -406,17 +414,37 @@ impl Banner {
         fx
     }
 
-    /// The keys the layer takes by name while an app has the focus: INFO while Live TV is in front with the banners on (so LG's own INFO card
-    /// does not open under this one), and Back while the INFO banner is up (it ends it, as it ends LG's).
+    /// The keys the layer takes by name while an app has the focus: INFO and OK while Live TV is in front with the banners on (so LG's own INFO
+    /// card and OK banner do not open under this one; OK not while Live TV shows an emergency alert, whose Close button it answers), and Back
+    /// while the INFO banner is up (it ends it, as it ends LG's).
     pub fn takes(&self) -> Vec<&'static str> {
         let mut keys = Vec::new();
         if self.feed.live() {
             keys.push("info");
+            if !self.feed.emergency() {
+                keys.push("ok");
+            }
             if self.feed.info_up() {
                 keys.push("back");
             }
         }
         keys
+    }
+
+    /// OK on Live TV at rest (the layer gives it here only while [`Banner::takes`] lists it and the banner has no buttons up): the channel
+    /// banner with its buttons, or the plain pill while the tuner has named no channel.
+    pub fn ok_key(&mut self, now: u64) -> Vec<Effect> {
+        let out = self.feed.ok_pressed(now);
+        if out.raise.is_none() && out.effects.is_empty() {
+            let spec = Spec::for_input(channels::LIVE_TV_APP, &self.inputs);
+            return self.show(spec, now);
+        }
+        self.feed_out(out, now)
+    }
+
+    /// The channel guide opens: a channel banner that is up goes, buttons and all.
+    pub fn end_channel(&mut self) -> Vec<Effect> {
+        if self.spec.as_ref().is_some_and(|s| s.kind == Kind::Channel) { self.hide() } else { Vec::new() }
     }
 
     /// An input came to the front (a switch, with the owner's banners on): the pill is asked for with the list's word on the device.
@@ -488,6 +516,10 @@ impl Banner {
                 return self.pill_ready(now);
             }
             Input::Luna { tag, payload } if *tag == lg_mask::POSITION_TAG => return self.lg.position(payload),
+            Input::Luna { tag, .. } if *tag == channel_feed::EMERGENCY_TAG => {
+                let fed = self.feed.update(input, now);
+                return self.feed_out(fed, now);
+            }
             Input::Luna { tag, payload } if [channel_feed::LAST_TAG, channel_feed::INFO_TAG, channel_feed::NOW_TAG].contains(tag) => {
                 let mut out = self.lg.tuner_answer(*tag, payload);
                 let fed = self.feed.update(input, now);
@@ -529,7 +561,8 @@ impl Banner {
         Vec::new()
     }
 
-    /// A press while a banner with buttons is up: left and right move, OK picks and ends it, Back ends it. Any key keeps the banner a while longer.
+    /// A press while a banner with buttons is up: left and right move, OK picks and ends it, Back ends it, INFO on the channel banner is the INFO
+    /// banner. Any key keeps the banner a while longer.
     fn key(&mut self, name: &str, repeat: bool, now: u64) -> Vec<Effect> {
         let Some(spec) = self.spec.clone() else { return Vec::new() };
         let last = spec.buttons.len().saturating_sub(1);
@@ -539,8 +572,13 @@ impl Banner {
             "right" => self.index = (self.index + 1).min(last),
             "ok" if !repeat => {
                 let pick = spec.buttons[self.index.min(last)];
-                out.extend(self.pick(pick));
                 out.extend(self.hide());
+                out.extend(self.pick(pick, now));
+                return out;
+            }
+            "info" if !repeat && spec.kind == Kind::Channel && self.feed.live() => {
+                out.extend(self.hide());
+                out.extend(self.pick(Pick::Details, now));
                 return out;
             }
             "back" if !repeat => return self.hide(),
@@ -553,11 +591,11 @@ impl Banner {
     }
 
     /// A button was chosen with the pointer.
-    pub fn picked(&mut self, i: usize) -> Vec<Effect> {
+    pub fn picked(&mut self, i: usize, now: u64) -> Vec<Effect> {
         let Some(pick) = self.spec.as_ref().and_then(|s| s.buttons.get(i).copied()) else { return Vec::new() };
         self.index = i;
-        let mut out = self.pick(pick);
-        out.extend(self.hide());
+        let mut out = self.hide();
+        out.extend(self.pick(pick, now));
         out
     }
 
@@ -568,8 +606,13 @@ impl Banner {
         }
     }
 
-    fn pick(&mut self, pick: Pick) -> Vec<Effect> {
+    /// What a button does, once its banner is hidden: Details on Live TV is the INFO banner.
+    fn pick(&mut self, pick: Pick, now: u64) -> Vec<Effect> {
         match pick {
+            Pick::Guide => {
+                self.intents.push(Intent::OpenGuide);
+                Vec::new()
+            }
             Pick::Inputs => {
                 self.intents.push(Intent::OpenPicker);
                 Vec::new()
@@ -584,6 +627,10 @@ impl Banner {
                 payload: json!({"category": "home"}),
                 subscribe: false,
             }],
+            Pick::Details if self.feed.live() => {
+                let out = self.feed.info_pressed(now);
+                self.feed_out(out, now)
+            }
             Pick::Details => Vec::new(),
         }
     }
@@ -743,7 +790,7 @@ mod tests {
         assert_eq!(b.view().unwrap().spot, 6 % SPOTS.len(), "round the five spots");
         assert!(b.up(), "it never goes by itself");
         // the pointer picks a button
-        let fx = b.picked(1);
+        let fx = b.picked(1, T0 + SPOT_MS * 6);
         assert!(fx.iter().any(|e| matches!(e, Effect::Luna { tag: HOME_TAG, .. })) && !b.up());
     }
 
@@ -795,7 +842,7 @@ mod tests {
     fn live_tv_in_front_shows_the_channel_banner_at_a_launch_and_at_every_change_for_five_seconds_and_nothing_with_the_owners_banners_off() {
         let mut b = on();
         b.update(&fg("com.webos.app.livetv", false), T0);
-        assert_eq!(b.takes(), vec!["info"], "INFO is the banner's while Live TV is in front");
+        assert_eq!(b.takes(), vec!["info", "ok"], "INFO and OK are the banner's while Live TV is in front");
         tune(&mut b, ID, T0 + 100);
         let s = spec_of(&b);
         assert_eq!((s.kind, s.number.as_str(), s.call.as_str(), s.title.as_str(), s.next.as_str()), (Kind::Channel, "2-1", "WSB-HD", "Evening News", "Jeopardy!"));
@@ -910,7 +957,7 @@ mod tests {
         assert!(fx.contains(&Effect::Cancel { tag: channel_feed::LAST_TAG }) && mask_ops(&fx) == ["release"] && !b.up() && b.takes().is_empty(), "{fx:?}");
         let fx = b.update(&screen(true), T0 + 60_000);
         assert_eq!(mask_ops(&fx), ["claim", "engage"], "LG's banner of the wake is blanked: {fx:?}");
-        assert!(fx.iter().any(|e| matches!(e, Effect::Luna { tag: channel_feed::LAST_TAG, subscribe: true, .. })) && b.takes() == vec!["info"], "the tuner is followed again: {fx:?}");
+        assert!(fx.iter().any(|e| matches!(e, Effect::Luna { tag: channel_feed::LAST_TAG, subscribe: true, .. })) && b.takes() == vec!["info", "ok"], "the tuner is followed again: {fx:?}");
         tune(&mut b, ID, T0 + 60_100);
         assert!(b.up(), "the channel on the wake has its banner, as at a launch");
         // the screen coming on with Home in front, or with no foreground yet, follows nothing
@@ -930,9 +977,9 @@ mod tests {
         let s = spec_of(&b);
         assert!(s.info && s.detail == "About the programme." && s.hold_ms == HOLD_INFO_MS, "{s:?}");
         assert_eq!(b.due_at(), Some(T0 + 2000 + HOLD_INFO_MS));
-        assert_eq!(b.takes(), vec!["info", "back"], "Back ends this banner as it ends LG's INFO card");
+        assert_eq!(b.takes(), vec!["info", "ok", "back"], "Back ends this banner as it ends LG's INFO card");
         assert_eq!(key(&mut b, "back", T0 + 3000), vec![Effect::Redraw]);
-        assert!(!b.up() && b.takes() == vec!["info"]);
+        assert!(!b.up() && b.takes() == vec!["info", "ok"]);
         key(&mut b, "info", T0 + 4000);
         assert!(b.up());
         assert_eq!(key(&mut b, "info", T0 + 4500), vec![Effect::Redraw], "INFO again ends it");
@@ -943,5 +990,44 @@ mod tests {
         b.update(&Input::Topic { topic: SHOW_TOPIC.into(), data: json!({"kind": "channel", "number": "9", "title": "Raised"}) }, T0 + 6000);
         let late = answers(ID, T0)[0].clone();
         assert!(b.update(&late, T0 + 6100).is_empty() && spec_of(&b).title == "Raised");
+    }
+
+    #[test]
+    fn ok_on_live_tv_raises_the_banner_with_guide_and_details_and_guide_asks_for_the_guide() {
+        let mut b = on();
+        b.update(&fg("com.webos.app.livetv", false), T0);
+        assert_eq!(spec_of(&{
+            let mut nameless = on();
+            nameless.update(&fg("com.webos.app.livetv", false), T0);
+            nameless.ok_key(T0 + 10);
+            nameless
+        }).name, "Live TV", "no channel named yet: the plain pill answers OK");
+        tune(&mut b, ID, T0 + 100);
+        b.ok_key(T0 + 1000);
+        let s = spec_of(&b);
+        assert_eq!((s.kind, s.buttons.clone(), s.number.as_str()), (Kind::Channel, vec![Pick::Guide, Pick::Details], "2-1"));
+        assert!(b.wants(), "its buttons have the keys");
+        assert_eq!(b.due_at(), Some(T0 + 1000 + HOLD_BUTTONS_MS));
+        key(&mut b, "ok", T0 + 1500);
+        assert_eq!(b.take_intents(), vec![Intent::OpenGuide]);
+        assert!(!b.up(), "the guide opens in its place");
+        // Details is the INFO banner, as INFO is while the buttons are up
+        b.ok_key(T0 + 2000);
+        key(&mut b, "right", T0 + 2100);
+        key(&mut b, "ok", T0 + 2200);
+        assert!(spec_of(&b).info && b.take_intents().is_empty());
+        b.ok_key(T0 + 3000);
+        key(&mut b, "info", T0 + 3100);
+        assert!(spec_of(&b).info && spec_of(&b).buttons.is_empty());
+        // Back and the time end it
+        b.ok_key(T0 + 4000);
+        assert_eq!(key(&mut b, "back", T0 + 4100), vec![Effect::Redraw]);
+        assert!(!b.up());
+        b.ok_key(T0 + 5000);
+        b.update(&Input::Tick, T0 + 5000 + HOLD_BUTTONS_MS);
+        assert!(!b.up());
+        // an emergency alert on Live TV: its Close button answers OK, so OK is not taken
+        b.update(&Input::Luna { tag: channel_feed::EMERGENCY_TAG, payload: json!({"returnValue": true, "showing": true}) }, T0 + 20_000);
+        assert_eq!(b.takes(), vec!["info"]);
     }
 }

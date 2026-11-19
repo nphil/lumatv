@@ -134,6 +134,52 @@ fn the_channel_keys_stay_the_apps_whatever_the_layer_takes() {
 }
 
 #[test]
+fn ok_after_a_digit_is_the_apps_for_its_number_entry_and_the_layers_again_after_it() {
+    // Live TV's number entry tunes the typed number on OK: the layer that takes OK at rest leaves it to the app for three seconds
+    let mut server = Server::start();
+    let mut a = app(&mut server);
+    takes(&server, &["ok"]);
+    let t = Instant::now();
+    server.eval(move |s| {
+        press(s, KEY_1, t);
+        release(s, KEY_1, t + Duration::from_millis(50));
+        press(s, KEY_ENTER, t + Duration::from_millis(900));
+        release(s, KEY_ENTER, t + Duration::from_millis(950));
+        press(s, KEY_ENTER, t + Duration::from_millis(3_100));
+        release(s, KEY_ENTER, t + Duration::from_millis(3_150));
+    });
+    assert_eq!(syskeys(&mut a), vec![("ok".into(), true, false), ("ok".into(), false, false)], "the second OK, after the number entry, is the layer's");
+    assert_eq!(app_keys(&mut a), vec![(KEY_1, 1), (KEY_1, 0), (KEY_ENTER, 1), (KEY_ENTER, 0)]);
+}
+
+#[test]
+fn a_click_on_the_focused_card_is_the_layers_ok_while_it_takes_ok_and_a_click_otherwise() {
+    let mut server = Server::start();
+    let mut a = app(&mut server);
+    let _pointer = a.client.seat.get_pointer(&a.client.qh, ());
+    a.client.roundtrip();
+    let t = Instant::now();
+    server.eval(move |s| {
+        s.seat.cursor_visible = true;
+        s.seat.pointer_focus = s.seat.focus;
+    });
+    takes(&server, &["ok"]);
+    server.eval(move |s| {
+        press(s, KEY_ENTER, t);
+        release(s, KEY_ENTER, t + Duration::from_millis(60));
+    });
+    assert_eq!(syskeys(&mut a), vec![("ok".into(), true, false), ("ok".into(), false, false)]);
+    takes(&server, &[]);
+    server.eval(move |s| {
+        press(s, KEY_ENTER, t + Duration::from_millis(200));
+        release(s, KEY_ENTER, t + Duration::from_millis(260));
+    });
+    assert_eq!(syskeys(&mut a).len(), 2, "nothing more for the layer: the click is the app's");
+    assert!(app_keys(&mut a).is_empty(), "never the key: {:?}", a.client.state.keys);
+    assert_eq!(a.client.state.buttons.len(), 2, "a press and a release of the button: {:?}", a.client.state.buttons);
+}
+
+#[test]
 fn nothing_is_taken_until_the_layer_asks_and_once_it_lets_go_the_keys_are_the_apps_again() {
     let mut server = Server::start();
     let mut a = app(&mut server);
