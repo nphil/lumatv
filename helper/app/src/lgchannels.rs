@@ -10,6 +10,12 @@ const APP: &str = "com.webos.app.lgchannels";
 const SETTINGS: &str = "luna://com.webos.settingsservice/";
 const PRELOAD: &str = "luna://com.webos.service.preloadmanager/";
 const MANAGER: &str = "luna://com.webos.applicationManager/";
+const DB: &str = "luna://com.palm.db/";
+/// Live TV asks "LG Channels is now available. Do you want to set LG Channels now?" whenever the switch is off and this kind holds no
+/// record for the TV's country; it writes one only when Yes or No is pressed, and the prompt's two-minute timeout writes none, so it
+/// came back at every Live TV launch (2026-11-18). LumaTV writes the record "No" writes.
+const PROMPT_KIND: &str = "com.webos.app.livetv.channelpluspopup:1";
+const LIVETV: &str = "com.webos.app.livetv";
 pub const ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/v1/lgchannels", "LG Channels native and background status"),
     ("POST", "/v1/lgchannels", "set LG Channels: {enabled: bool}"),
@@ -105,7 +111,16 @@ impl Channels {
                 self.call(&format!("{MANAGER}closeByAppId"), json!({"id":APP,"reason":"windowPolicy"}))?;
                 if self.running()? { return Err("LG Channels is still running after the TV was asked to close it".into()); }
             }
+            self.answer_prompt()?;
         }
+        Ok(())
+    }
+    fn answer_prompt(&self) -> Result<(), String> {
+        let v = self.call(&format!("{SETTINGS}getSystemSettings"), json!({"category":"option","keys":["country"]}))?;
+        let country = v.pointer("/settings/country").and_then(Value::as_str).filter(|c| !c.is_empty()).ok_or("TV did not report its country")?.to_owned();
+        let found = self.call(&format!("{DB}find"), json!({"query":{"from":PROMPT_KIND,"where":[{"prop":"country","op":"=","val":country}]}}))?;
+        if found.get("results").and_then(Value::as_array).is_some_and(|r| !r.is_empty()) { return Ok(()); }
+        self.call(&format!("{DB}put"), json!({"objects":[{"_kind":PROMPT_KIND,"app_id":LIVETV,"country":country}]}))?;
         Ok(())
     }
     fn status(&self, managed: Option<&Managed>, reason: Option<String>) -> Value {
@@ -174,24 +189,34 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    struct State { native: bool, preload: bool, running: bool, fail_close: bool, writes: Vec<(String, Value)> }
+    struct State { native: bool, preload: bool, running: bool, fail_close: bool, prompts: Vec<String>, writes: Vec<(String, Value)> }
     struct Fake(Mutex<State>);
     impl Platform for Arc<Fake> {
         fn call(&self, uri: &str, payload: &Value) -> Result<Value, String> {
             let mut s = self.0.lock().unwrap();
             Ok(match uri.rsplit('/').next().unwrap() {
-                "getSystemSettings" => json!({"returnValue":true,"settings":{"channelplus":if s.native {"on"} else {"off"}}}),
+                "getSystemSettings" => json!({"returnValue":true,"settings":{"channelplus":if s.native {"on"} else {"off"},"country":"USA"}}),
                 "getPreloadPolicy" => json!({"returnValue":true,"applications":[{"id":APP,"isEnabled":s.preload,"params":{"marker":1}}]}),
                 "running" => json!({"returnValue":true,"running":if s.running {vec![json!({"id":APP})]} else {vec![]}}),
                 "setSystemSettings" => { s.writes.push((uri.into(), payload.clone())); s.native = payload["settings"]["channelplus"] == "on"; json!({"returnValue":true}) },
                 "setPreloadPolicy" => { s.writes.push((uri.into(), payload.clone())); s.preload = payload["application"]["isEnabled"].as_bool().unwrap(); json!({"returnValue":true}) },
                 "closeByAppId" => { s.writes.push((uri.into(), payload.clone())); if s.fail_close { json!({"returnValue":false}) } else { s.running = false; json!({"returnValue":true}) } },
+                "find" => {
+                    let country = payload["query"]["where"][0]["val"].as_str().unwrap();
+                    json!({"returnValue":true,"results":s.prompts.iter().filter(|c| *c == country).map(|c| json!({"country":c})).collect::<Vec<_>>()})
+                },
+                "put" => {
+                    s.writes.push((uri.into(), payload.clone()));
+                    let country = payload["objects"][0]["country"].as_str().unwrap().to_owned();
+                    s.prompts.push(country);
+                    json!({"returnValue":true})
+                },
                 _ => panic!("unexpected URI {uri}"),
             })
         }
     }
     fn setup(dir: &std::path::Path) -> (Channels, Arc<Fake>) {
-        let fake = Arc::new(Fake(Mutex::new(State { native:true, preload:true, running:true, fail_close:false, writes:vec![] })));
+        let fake = Arc::new(Fake(Mutex::new(State { native:true, preload:true, running:true, fail_close:false, prompts:vec![], writes:vec![] })));
         let channels = Channels { platform:Box::new(fake.clone()), file:dir.join("lgchannels.json"), lock:Mutex::new(()) };
         (channels, fake)
     }
@@ -208,6 +233,12 @@ mod tests {
             assert_eq!(s.writes[0].1["application"], json!({"id":APP,"isEnabled":false,"params":{"marker":1}}));
             assert!(s.writes[1].0.ends_with("setSystemSettings"));
             assert_eq!(s.writes[2].1, json!({"id":APP,"reason":"windowPolicy"}));
+            assert_eq!(s.writes[3].1, json!({"objects":[{"_kind":PROMPT_KIND,"app_id":LIVETV,"country":"USA"}]}), "Live TV's prompt answered as No");
+        }
+        channels.reconcile();
+        {
+            let s = fake.0.lock().unwrap();
+            assert_eq!(s.prompts, ["USA"], "an answered prompt is not written again");
         }
         let status = channels.change(true).unwrap();
         assert_eq!(status["state"], "enabled");
