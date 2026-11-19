@@ -56,6 +56,8 @@ pub mod code {
     /// The List key (`IR_KEY_PRLIST` in keymap.xkb, 795 - 8). Live TV answers it at rest by launching LG's guide on its channel list
     /// (`CommonInputEventHandler.qml`: `activateType: channels`).
     pub const KEY_LIST: u32 = 787;
+    /// The dash key, `IR_KEY_DASH` in keymap.xkb (779 - 8): the "-" of a sub-channel such as 5-2 while a number is typed.
+    pub const KEY_CHANNELDASH: u32 = 771;
     pub const KEY_MUTE: u32 = 113;
     pub const KEY_VOLUMEDOWN: u32 = 114;
     pub const KEY_VOLUMEUP: u32 = 115;

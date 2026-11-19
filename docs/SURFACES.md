@@ -161,10 +161,10 @@ Ph.
 | Surface | LG id · kind · size | Seen | Plan | Answer | Hook | Ph |
 |---|---|---|---|---|---|---|
 | **Live TV app**: no UI of its own: inputcommon in Live TV mode over the tuner video; operator-app variant unused | `com.webos.app.livetv` · native · 261 KB; `com.webos.app.livetvopapp` · native · 87 KB | rare | Part | **Keep**: window host; its pixels are inputcommon rows below | — | — |
-| **Channel banner**: lower-left strip: channel number (105 px), logo, source icon, programme, start-end time and progress bar; OK adds Options and Guide buttons; 5 s | `inputcommon/UserInterfaceLayer/Containers/MainViewLayer/ChannelBanner/ZappingBanner.qml` · qml · 574 lines + ChannelBanner 283, DeeplinkView 74 | rare | Yes · mock 20 | **Replace** (with `banners.own`): the Rust shell's channel strip (`system/banner.rs`, `channel_feed.rs`) from `host::channels`, 5 s on a change; OK at rest on the Live TV card raises it with Guide (the Rust guide) and Details buttons for 8 s and LG's is not shown; OK stays LG's while digits are typed (3 s), during an emergency alert and over LG's pop-ups; LG's top-edge pointer banner is not taken | Banner mask, OK taken by name, card click | 6 |
+| **Channel banner**: lower-left strip: channel number (105 px), logo, source icon, programme, start-end time and progress bar; OK adds Options and Guide buttons; 5 s | `inputcommon/UserInterfaceLayer/Containers/MainViewLayer/ChannelBanner/ZappingBanner.qml` · qml · 574 lines + ChannelBanner 283, DeeplinkView 74 | rare | Yes · mock 20 | **Replace** (with `banners.own`): the Rust shell's channel strip (`system/banner.rs`, `channel_feed.rs`) from `host::channels`, 5 s on a change; OK at rest on the Live TV card raises it with Guide (the Rust guide) and Details buttons for 8 s and LG's is not shown; OK confirms LumaTV's number entry while it is open and stays LG's while digits LG took are typed (3 s), during an emergency alert and over LG's pop-ups; LG's top-edge pointer banner is not taken | Banner mask, OK taken by name, card click | 6 |
 | **Channel detail banner**: programme list (previous, now, next) with times, progress, synopsis scroll, rating, audio and subtitle icons, REC reservation; INFO key, 30 s | `inputcommon/.../ChannelBanner/DetailInfoBanner.qml` · qml · 373 lines + DetailInfoItem 786, SynopsisScrollBar 58, ProgressBar 81 | rare | Part | **Replace** (with `banners.own`): INFO, or Details on OK's banner, grows the Rust strip with what the programme is about, what is next and its marks, 8 s | INFO taken by name | 6 |
 | **Guide and channel list**: left tab menu (TV Guide, Channels, Scheduler), channel list, EPG time grid, PIP, options; Guide, Channel List and Live TV Menu keys | `com.webos.app.livemenu` · native · 4.6 MB | rare | No | **Replace**: the Rust shell's channel guide (`docs/research/channel-guide.md`). Guide, List and the banner's Guide button open it without LG's guide starting; every other launch of LG's guide is answered by it, whichever tab it asks for: while the shell runs LG's window is never drawn and its app is closed through SAM (`lg_guide.rs`); `lumatv preload on` stops SAM preloading it; Nitin asked for it on 2026-11-03 (it supersedes "no guide", 2026-10-23); LG's guide is stock while the shell is not running, and the Scheduler (its own app) stays LG's | Guide and List keys, window hold, SAM launch event | 6 |
-| **Channel number entry**: list of channels matching typed digits (ATSC dash major-minor); Italy-only overlay app for number keys | `inputcommon/.../SimilarListView.qml` · qml · 650 lines; `com.webos.app.similarlist` · flutter · 5.4 MB | rare | No | **Keep**: antenna use only; the Flutter overlay is Italy-only | — | — |
+| **Channel number entry**: list of channels matching typed digits (ATSC dash major-minor); Italy-only overlay app for number keys | `inputcommon/.../SimilarListView.qml` · qml · 650 lines; `com.webos.app.similarlist` · flutter · 5.4 MB | rare | No | **Replace** (with `banners.own`): the Rust shell's number entry (`system/number_entry.rs`) in the channel banner's strip: the digits typed and up to four matching tuner channels with what is on; it tunes 2.5 s after the last digit (1.5 s with one match) or on OK, through the same launch as the guide, and LumaTV's channel banner follows; Up and Down move through the matches, Back and Left take a character away and end it when none is left, any other key ends it; the dash key and Guide while typing are the dash; LG's stays while the shell is not running, during an emergency alert and over LG's pop-ups; the Italy-only overlay is not taken | Digits and dash taken by name | 6 |
 | **TV Scheduler**: list of reminders and scheduled recordings with start time, title, channel; add or edit with storage info | `com.webos.app.scheduler` · web · 8.8 MB | rare | No | **Restyle**: Enact web app; Live TV only | Overlay mount (theme) | 6 |
 | **Channel tuning and Channel Manager**: auto and manual tuning for antenna, cable and satellite with progress; list with All and Favourites, edit, delete, lock, sort | `com.webos.app.channelsetting` · web · 23.1 MB; `com.webos.app.channeledit` · web · 6.5 MB | rare | Part | **Restyle**: Enact web apps; done once per antenna | Overlay mount (theme) | 6 |
 | **Emergency alert (US EAS)**: popup, bottom then top every 2 min: title ("BLUE ALERT"), locations and text, scrollbar, Close; video keeps playing; auto-hides after 2 min | `inputcommon/.../PopupLayer/EwsUsView.qml` · qml · 369 lines | rare | No | **Keep**: safety text from the broadcaster; appears only on the antenna input | — | — |
@@ -330,12 +330,12 @@ first in the chain. Power has no handler in the QML chain.
 | Input, short | `quickinputpicker` overlay | redirect through configd; no key code needed |
 | Input, held 1 s | Home Hub (`homeconnect`) from `keyaction.inputHub` | repoint the config |
 | 123 (Screen Remote), short | "More Actions" panel; held 1 s: audio description | redirect |
-| Digits, held 1 s | Quick Access slot N; 0 opens the editor | LumaHome dock numbers while it is in front; digits untouched elsewhere |
+| Digits, held 1 s | Quick Access slot N; 0 opens the editor | LumaHome dock numbers while it is in front; on Live TV a short press opens LumaTV's number entry (`banners.own`); untouched elsewhere |
 | Mic | `voiceconductor` hold, then the Search app and the listening bar | untouched |
 | Netflix, Prime Video | launch the app | untouched |
 | Disney+, Sling | not installed: LG's auto-install path | remap or Off (Needs Nitin) |
 | LG Channels, Movies, New | LG Channels app; Search with "movie"; Store category | remap or Off (Needs Nitin) |
-| Guide, Channel list, Live TV | Guide overlay; channel list; Live TV | Guide and List open the shell's channel guide while Live TV is in front (the key does not reach LG); the Live TV key is untouched |
+| Guide, Channel list, Live TV, dash | Guide overlay; channel list; Live TV; dash in a channel number, the channel list at rest | Guide, List and the dash at rest open the shell's channel guide while Live TV is in front (the key does not reach LG); Guide and the dash are the number entry's dash while it is open; the Live TV key is untouched |
 | Volume, Mute | `audioService`; the OSD is the compositor's | untouched; Mute held 2 s opens the accessibility panel |
 | Colour keys | to the app; Yellow held 5 s shows a panel test pattern, Green seven times FreeSync info (HDMI), Blue seven times a panel-usage dump | Off for the held and repeated combinations |
 | Menu, keyboard Windows | Home with `myapps` | route to the LumaHome apps grid |
@@ -423,10 +423,10 @@ tables. Listed so that no app folder and no compositor view file is left out.
 
 | Answer | daily | sometimes | rare | never | Total |
 |---|---|---|---|---|---|
-| Replace | 6 | 16 | 35 | 5 | 62 |
+| Replace | 6 | 16 | 36 | 5 | 63 |
 | Restyle | 0 | 6 | 19 | 0 | 25 |
 | Off | 0 | 0 | 6 | 18 | 24 |
-| Keep | 5 | 4 | 25 | 33 | 67 (31 dormant) |
+| Keep | 5 | 4 | 24 | 33 | 66 (31 dormant) |
 | **Total** | **11** | **26** | **85** | **56** | **178** |
 
 Plan coverage today: Yes 44, Part 37, Out 10, No 87. Of the 37 daily and sometimes surfaces, 19 have a mock.

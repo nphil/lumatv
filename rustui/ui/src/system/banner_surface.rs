@@ -5,6 +5,8 @@
 //! - the **channel banner**: one slim strip of the theme's glass, centred over the picture above the subtitles' band: the channel's logo (or its call
 //!   sign's letters), number and name, then what is on with its time and how much is left; INFO grows it with what the programme is about, what is
 //!   next and its marks, and OK ends it with a divider and the Guide and Details buttons;
+//! - the **number entry**: the channel banner's strip with the number typed and the channels it matches, one to a row with what is on, the
+//!   focused one on the theme's selected wash;
 //! - the **no-signal screen**: black in both materials, the dim block (icon, port, what is wrong, what to do, Inputs and Home) at a spot that
 //!   changes every minute, drawn in the dark material's inks whatever the TV's material is.
 //!
@@ -52,6 +54,11 @@ const CHANNEL_INFO_WIDTH: f32 = 880.0;
 const CHANNEL_CHIPS_SHARE: f32 = 0.4;
 const CHANNEL_BAR: f32 = 4.0;
 const CHANNEL_TRACK_MIN: f32 = 120.0;
+/// The number entry's measures: the widest number its columns are kept to (a major and a minor of three digits), the word under the number
+/// typed, and the widest a channel's name may be at 100 % text.
+const NUMBER_WIDEST: &str = "888-888";
+const NUMBER_WORD: &str = "Channel";
+const NUMBER_NAME_MAX: f32 = 260.0;
 
 /// Where the pointer can land: a button.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -431,6 +438,96 @@ impl BannerSurface {
         Ok(())
     }
 
+    /// The number entry, in the channel banner's strip and on its grid: the number typed (its widest kept, so the strip does not move as it is
+    /// typed) over a quiet word, a rule, and the matches one to a row (number, name, what is on), the focused one on the theme's selected wash.
+    /// With no match the column says why, quietly.
+    fn number(kit: &mut Kit, z: i32, spec: &Spec, b: &mut Built) -> std::io::Result<()> {
+        let s2 = kit.space(2);
+        let (pad_x, pad_y, gap, rule) = (scaled(kit, kit.space(5)), scaled(kit, kit.space(3)), scaled(kit, kit.space(4)), scaled(kit, kit.space(5)));
+        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        let strong = role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left);
+        let number_style = role_style(kit, TypeRole::Title, Some(Weight::SemiBold), ink, Align::Left);
+        let small = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
+        let quiet = role_style(kit, TypeRole::Body, None, ink2, Align::Left);
+        let (num_h, body_h, cap_h) = (kit.line(TypeRole::Title), kit.line(TypeRole::Body), kit.line(TypeRole::Caption));
+        let row_h = (body_h + 2.0 * kit.space(1)).ceil();
+        let id_h = num_h + cap_h;
+        let id_w = width_of(kit, number_style, NUMBER_WIDEST).max(width_of(kit, number_style, &spec.number)).max(width_of(kit, small, NUMBER_WORD)).ceil();
+        // the columns of the rows: the numbers as wide as the widest there can be, the names as their longest wants up to a cap, what is on the rest
+        let num_w = width_of(kit, strong, NUMBER_WIDEST).ceil();
+        let name_w = spec.rows.iter().map(|r| width_of(kit, strong, &r.name)).fold(0.0, f32::max).ceil().min(scaled(kit, NUMBER_NAME_MAX));
+        let title_want = spec.rows.iter().map(|r| width_of(kit, small, &r.title)).fold(0.0, f32::max).ceil();
+        let want = if spec.rows.is_empty() { width_of(kit, quiet, &spec.title).ceil() } else { s2 + num_w + gap + name_w + if title_want > 0.0 { gap + title_want } else { 0.0 } + s2 };
+        let fixed = 2.0 * pad_x + id_w + 2.0 * rule + 1.0;
+        let col_w = want.clamp(scaled(kit, CHANNEL_COLUMN_MIN), scaled(kit, CHANNEL_COLUMN_MAX)).min(1920.0 - 2.0 * SAFE_X as f32 - fixed);
+        let w = (fixed + col_w).ceil();
+        let w = w + w % 2.0;
+        let rows_h = if spec.rows.is_empty() { body_h } else { spec.rows.len() as f32 * row_h };
+        let content_h = id_h.max(rows_h);
+        let h = (2.0 * pad_y + content_h).ceil();
+        let h = h + h % 2.0;
+        let rest = PlacedRect::new(((1920.0 - w) / 2.0).round() as i32, 1080 - TOAST_FOOT - h as i32, w as i32, h as i32);
+        let placed = above_subtitles(rest, STACK);
+        let frame = Frame::new(placed.x as f32, placed.y as f32, w, h);
+        b.parts.push(Part::Pane(Pane::reading(kit, frame, z, PaneKind::Card)));
+        b.panels.push(("number entry".into(), frame, pane::reading_glass(kit, PaneKind::Card, h).tint, None));
+        let top = frame.y + pad_y;
+        let mut x = frame.x + pad_x;
+        // the number typed over the word that says what it is
+        let mut y = top + ((content_h - id_h) / 2.0).round();
+        for (text, name, style, line) in [(spec.number.as_str(), "number typed", number_style, num_h), (NUMBER_WORD, "number word", small, cap_h)] {
+            let t = Text::new(kit, Frame::new(x, y, id_w, line), z + 2, style, text)?;
+            b.words.push(Word { name: name.into(), text: text.to_string(), frame: t.frame(), style, panel: Some(0) });
+            b.parts.push(Part::Text(t));
+            y += line;
+        }
+        x += id_w + rule;
+        b.parts.push(Part::Shape(plate::shape(&kit.ui, Frame::new(x, top, 1.0, content_h), z + 1, plate::solid(edge(kit), 0.0))));
+        x += 1.0 + rule;
+        let mut focus = Value::Null;
+        if spec.rows.is_empty() {
+            let said = wrap::elide(kit, quiet, &spec.title, col_w);
+            let t = Text::new(kit, Frame::new(x, top + ((content_h - body_h) / 2.0).round(), col_w, body_h), z + 2, quiet, &said)?;
+            b.words.push(Word { name: "number none".into(), text: said, frame: t.frame(), style: quiet, panel: Some(0) });
+            b.parts.push(Part::Text(t));
+        }
+        let wash = faded(ink, kit.tokens.states.selected_wash);
+        let mut y = top + ((content_h - rows_h) / 2.0).round();
+        for (i, r) in spec.rows.iter().enumerate() {
+            let row = Frame::new(x, y, col_w, row_h);
+            let mut panel = Some(0);
+            if i == spec.row {
+                b.parts.push(Part::Shape(plate::shape(&kit.ui, row, z + 1, plate::solid(wash, kit.tokens.radius(Radius::Tile)))));
+                panel = Some(b.panels.len());
+                b.panels.push(("number focus".into(), row, wash, Some(0)));
+                focus = frame_json(row);
+            }
+            let ty = y + ((row_h - body_h) / 2.0).round();
+            let mut cx = x + s2;
+            let name_room = name_w.min((x + col_w - s2 - (cx + num_w + gap)).max(0.0));
+            let title_x = cx + num_w + gap + name_room + gap;
+            let title_room = (x + col_w - s2 - title_x).max(0.0);
+            let cells = [
+                (r.number.as_str(), "number row", strong, num_w, ty, body_h),
+                (r.name.as_str(), "number name", strong, name_room, ty, body_h),
+                (r.title.as_str(), "number title", small, title_room, y + ((row_h - cap_h) / 2.0).round(), cap_h),
+            ];
+            for (text, name, style, room, ty, line) in cells {
+                let said = if room >= 1.0 { wrap::elide(kit, style, text, room) } else { String::new() };
+                if !said.is_empty() {
+                    let t = Text::new(kit, Frame::new(cx, ty, room, line), z + 2, style, &said)?;
+                    b.words.push(Word { name: name.into(), text: said, frame: t.frame(), style, panel });
+                    b.parts.push(Part::Text(t));
+                }
+                cx += room + gap;
+            }
+            y += row_h;
+        }
+        let words: Vec<Value> = b.words.iter().map(|w| json!({"name": w.name, "text": w.text, "x": w.frame.x, "y": w.frame.y, "w": w.frame.w, "h": w.frame.h})).collect();
+        b.geometry = json!({"kind": "number", "bar": frame_json(frame), "typed": spec.number, "rows": spec.rows.len(), "focused": focus, "words": words});
+        Ok(())
+    }
+
     /// The no-signal screen: black, and the block in the dark material's inks at its spot.
     fn no_signal(kit: &mut Kit, engine: &mut Engine, z: i32, root: &Root, spec: &Spec, spot: usize, b: &mut Built) -> std::io::Result<()> {
         let screen = Frame::new(0.0, 0.0, 1920.0, 1080.0);
@@ -506,6 +603,7 @@ impl BannerSurface {
         match v.spec.kind {
             Kind::Input => scene.adopting_view(&root.group, || Self::pill(kit, engine, z, &v.spec, over_video, &mut b))?,
             Kind::Channel => scene.adopting_view(&root.group, || Self::channel(kit, engine, z, &v.spec, &mut b))?,
+            Kind::Number => scene.adopting_view(&root.group, || Self::number(kit, z, &v.spec, &mut b))?,
             Kind::NoSignal => {
                 // the black screen is under the root too, so it fades with the block; the block is a group of its own, dimmed as a whole
                 scene.adopting_view(&root.group, || b.parts.push(Part::Shape(plate::shape(&kit.ui, Frame::new(0.0, 0.0, 1920.0, 1080.0), z, plate::solid(Rgba(0, 0, 0, 255), 0.0)))));
@@ -910,6 +1008,51 @@ mod tests {
                 for btn in g["buttons"].as_array().unwrap() {
                     assert!(num(btn, "x") >= num(bar, "x") && num(btn, "x") + num(btn, "w") <= num(bar, "x") + num(bar, "w"), "{mode:?} at {scale}: a button inside the bar: {g}");
                     assert!(num(btn, "y") >= num(bar, "y") && num(btn, "y") + num(btn, "h") <= num(bar, "y") + num(bar, "h"), "{mode:?} at {scale}: a button inside the bar: {g}");
+                }
+                let found = lint_of(&mut kit, &s);
+                assert!(found.is_empty(), "{mode:?} at {scale}: {found:?}");
+            }
+        }
+    }
+
+    /// Live TV in front, 5 typed, and the tuner's channels heard: 5-1 to 5-4, one of them with a long name and a long programme.
+    fn number_entry(b: &mut Banner, at: u64) {
+        use crate::host::channels;
+        use crate::system::number_entry::{LIST_TAG, ON_NOW_TAG};
+        let stamp = |min: i64| channels::stamp(at as i64 + min * 60_000, 0);
+        b.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.livetv", "home": false, "covered": true}) }, at);
+        b.number_key("5", at);
+        let names = ["WSB-HD", "Georgia Public Broadcasting Atlanta Multicast", "Bounce", "Court TV"];
+        let list: Vec<Value> = names.iter().enumerate().map(|(i, n)| json!({"channelId": format!("id{i}"), "channelNumber": format!("5-{}", i + 1), "channelName": n})).collect();
+        b.update(&Input::Luna { tag: LIST_TAG, payload: json!({"returnValue": true, "channelList": list}) }, at + 10);
+        let on = json!({"returnValue": true, "programList": [
+            {"channelId": "id0", "programId": "a", "programName": "Evening News", "startTime": stamp(-10), "endTime": stamp(20)},
+            {"channelId": "id1", "programId": "b", "programName": "A programme with a title that runs on and on well past where any strip could end it", "startTime": stamp(-10), "endTime": stamp(20)},
+        ]});
+        b.update(&Input::Luna { tag: ON_NOW_TAG, payload: on }, at + 20);
+        b.update(&Input::Key { name: "down".into(), down: true, repeat: false }, at + 30);
+    }
+
+    #[test]
+    fn the_number_entry_is_the_channel_strip_with_its_matches_one_to_a_row_and_reads_clean_in_both_materials_and_sizes() {
+        const AT: u64 = 1_800_000_000_000;
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (_h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).expect("an engine");
+                let (mut b, mut s) = (Banner::new(&json!({"banners": {"own": true}})), BannerSurface::new(1000));
+                number_entry(&mut b, AT);
+                draw(&mut kit, &mut engine, &mut s, &b, true, AT + 100);
+                let g = s.geometry();
+                assert_eq!((g["kind"].as_str(), g["typed"].as_str(), g["rows"].as_u64()), (Some("number"), Some("5"), Some(4)), "{g}");
+                assert_eq!(engine.focus.modal(), None, "no buttons: the keys come to the entry from the banner, not the focus");
+                let bar = &g["bar"];
+                assert_eq!(num(bar, "x") * 2.0 + num(bar, "w"), 1920.0, "{mode:?} at {scale}: centred on the screen: {g}");
+                assert_eq!(num(bar, "y") + num(bar, "h"), 889.0, "{mode:?} at {scale}: on the channel banner's foot: {g}");
+                let focus = &g["focused"];
+                assert!(num(focus, "y") > num(bar, "y") && num(focus, "y") + num(focus, "h") < num(bar, "y") + num(bar, "h"), "{mode:?} at {scale}: the second row has the focus inside the strip: {g}");
+                for w in g["words"].as_array().unwrap() {
+                    assert!(num(w, "x") >= num(bar, "x") && num(w, "x") + num(w, "w") <= num(bar, "x") + num(bar, "w"), "{mode:?} at {scale}: a word inside the strip: {w}");
                 }
                 let found = lint_of(&mut kit, &s);
                 assert!(found.is_empty(), "{mode:?} at {scale}: {found:?}");

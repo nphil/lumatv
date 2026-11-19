@@ -54,16 +54,20 @@ for the compositor's is not known: the journal has SAM's answer (`lg-guide: SAM 
 guide and Live TV for memory on this set (15:03 UTC that day), so a cold start is the usual launch.
 
 OK at rest on Live TV raises LumaTV's own channel banner with Guide and Details buttons in place of LG's (`channel_feed`, `banner`), so the
-banner's Guide button opens this guide without LG's starting. OK stays Live TV's while digits are being typed (3 s from the last, longer than
-`SimilarListView`'s 2.5 s), while an emergency alert shows (`utp.broadcast/getEmergencyInfo`), while any LumaTV layer has the keys and
-while focus is not on the card. ChannelDash (771) is not taken: it is part of a typed channel number. It, LG's pointer banner at the screen's
-top edge, the Live TV menu key and the update toast still launch LG's guide, which the window hold above answers. SAM's policy preloads the
-guide (`preloadType: periodic`, `requiredMemory: 40`); `lumatv preload on` keeps it from being preloaded and `lumatv preload off` puts it back.
+banner's Guide button opens this guide without LG's starting. Digits on Live TV open LumaTV's number entry (`number_entry`) in place of
+`SimilarListView`, and OK while it is open confirms it. OK stays Live TV's while digits Live TV took are being typed (3 s from the last, longer
+than `SimilarListView`'s 2.5 s), while an emergency alert shows (`utp.broadcast/getEmergencyInfo`), while any LumaTV layer has the keys and
+while focus is not on the card; digits and the dash follow the same rules. LG's pointer banner at the screen's top edge, the Live TV menu key
+and the update toast still launch LG's guide, which the window hold above answers. SAM's policy preloads the guide (`preloadType: periodic`,
+`requiredMemory: 40`); `lumatv preload on` keeps it from being preloaded and `lumatv preload off` puts it back.
 
-The Guide and List keys are the shell's as well while Live TV is in front: it lists `guide` and `list` in its `takes` (and while it is open),
-the compositor sends the key (`KEY_GUIDE` 362, `KEY_LIST` 787) to the shell and not to Live TV, and LG's guide is not launched at all: no process to start or wake, no round
-trip through SAM. With the shell not running, not on the engine or not listing the guide (a crash, a restart, the supervisor's fallback to LG's
-compositor, the 10 s Home hold) nothing is held, nothing is asked, and LG's guide opens as stock; a window that was held is drawn from
+The Guide, List and ChannelDash keys are the shell's as well while Live TV is in front: it lists `guide`, `list` and `dash` in its `takes` (and
+while it is open), the compositor sends the key (`KEY_GUIDE` 362, `KEY_LIST` 787, `KEY_CHANNELDASH` 771) to the shell and not to Live TV, and
+LG's guide is not launched at all: no process to start or wake, no round trip through SAM. Live TV answers ChannelDash at rest as it does List
+(`CommonInputEventHandler.qml` launches the guide's `channels` tab for both); while a number is being typed, ChannelDash and Guide (LG's ATSC
+entry takes Guide for the dash) are the number entry's dash. With the shell not running, not on the engine or not listing the guide (a crash, a
+restart, the supervisor's fallback to LG's compositor, the 10 s Home hold) nothing is held, nothing is asked, and LG's guide opens as stock; a
+window that was held is drawn from
 the frame the shell is gone. `ctl shell` shows `lgGuideHeld`; `ctl shell show guide` opens the guide for a check.
 
 It closes on Back, on Home, when another app comes to the front, when the screen goes off, and after five minutes without a key or the

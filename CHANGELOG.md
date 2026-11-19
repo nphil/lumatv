@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-OK on Live TV raises LumaTV's own channel banner instead of LG's: the channel's number, name or logo, the programme with its start and end and how much is left, and Guide and Details buttons, in the theme's glass, for eight seconds or until Back. Guide opens LumaTV's guide. The Guide and List keys open it as well, so LG's guide is no longer started for them. OK stays Live TV's while a channel number is being typed and while an emergency alert shows.
+OK on Live TV raises LumaTV's own channel banner instead of LG's: the channel's number, name or logo, the programme with its start and end and how much is left, and Guide and Details buttons, in the theme's glass, for eight seconds or until Back. Guide opens LumaTV's guide. The Guide and List keys open it as well, so LG's guide is no longer started for them. OK stays Live TV's while an emergency alert shows.
+
+The number keys on Live TV open LumaTV's own channel entry instead of LG's: the number typed and up to four matching channels with what is on, in the channel banner's strip. It tunes 2.5 seconds after the last digit (1.5 seconds when one channel matches) or on OK, and LumaTV's channel banner follows. Up and Down pick another match, Back and Left take a character away and close it when none is left, and any other key closes it. The dash key, and Guide while a number is being typed, enter the sub-channel dash; the dash key at rest opens LumaTV's guide. Unlike LG's, a number without a dash also matches the sub-channel it spells, so "52" lists 52 first and then 5-2. Only tuner channels are listed. LG's entry is used while the shell is not running, during an emergency alert and over LG's pop-ups.
 
 With LG Channels switched off, Live TV no longer asks "LG Channels is now available. Do you want to set LG Channels now?". Live TV asks whenever the switch is off and it has no answer on record for the TV's country, and its two-minute timeout records none; switching LG Channels off now records the answer its No button records, also at each helper start while the switch is off.
 

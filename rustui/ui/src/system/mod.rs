@@ -19,6 +19,7 @@ pub mod format;
 pub mod layer;
 pub mod layout_surface;
 pub mod lg_mask;
+pub mod number_entry;
 pub mod overlay;
 pub mod parts;
 pub mod plugins;

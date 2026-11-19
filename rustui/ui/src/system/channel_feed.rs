@@ -349,6 +349,16 @@ impl Feed {
         self.pressed(Look::Info, now)
     }
 
+    /// The channel the tuner named last.
+    pub fn current(&self) -> Option<&str> {
+        self.current.as_deref()
+    }
+
+    /// The banner of a change for the channel it is on: the number entry tuned the channel already on, which the tuner says nothing of.
+    pub fn again(&mut self, now: u64) -> Out {
+        self.pressed(Look::Change, now)
+    }
+
     /// A key raised the banner: the record and the programmes are asked for again when they are old.
     fn pressed(&mut self, look: Look, now: u64) -> Out {
         let Some(id) = self.current.clone() else { return Out::default() };

@@ -1186,7 +1186,12 @@ impl State {
         if takes && !wants {
             // Only an app's focus is the layer's to share.
             let focused = self.seat.focus.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w));
-            if focused.is_none() || self.seat.pressed.contains(&(seat, code)) || (name == "ok" && !self.shell_rust_takes_ok(now)) {
+            let typed = name == "dash" || (name.len() == 1 && name.as_bytes()[0].is_ascii_digit());
+            if focused.is_none()
+                || self.seat.pressed.contains(&(seat, code))
+                || (name == "ok" && !self.shell_rust_takes_ok(now))
+                || (typed && (!self.shell_rust_card_focused() || self.keyboard_up()))
+            {
                 return false;
             }
         }
@@ -1196,13 +1201,19 @@ impl State {
         true
     }
 
+    /// Whether an app's card has the focus: an LG pop-up window (a prompt, an alert, LG's own number entry) keeps its OK and its digits.
+    fn shell_rust_card_focused(&self) -> bool {
+        self.seat.focus.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w)).is_some_and(|w| w.kind.is_card())
+    }
+
     /// Whether OK goes to the Rust client by name now (its `takes` lists it and its layer does not want every key): only while an app's card has
-    /// the focus, so an LG pop-up window keeps its OK, and not within [`NUMBER_ENTRY`] of a digit the app was given.
+    /// the focus, so an LG pop-up window keeps its OK, and not within [`NUMBER_ENTRY`] of a digit the app was given. Digits the client took (its
+    /// own number entry) never start that guard: its entry wants every key while it is open, so OK reaches it as the entry's confirm.
     pub fn shell_rust_takes_ok(&self, now: Instant) -> bool {
         self.shell_rust.connected
             && !self.shell_rust_wants_keys()
             && self.shell_rust.takes.iter().any(|n| n == "ok")
-            && self.seat.focus.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w)).is_some_and(|w| w.kind.is_card())
+            && self.shell_rust_card_focused()
             && !self.shell_rust.digit_at.is_some_and(|t| now.saturating_duration_since(t) < NUMBER_ENTRY)
     }
 

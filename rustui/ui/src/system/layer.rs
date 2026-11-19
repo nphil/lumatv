@@ -832,8 +832,9 @@ impl Layer {
         (kinds.alert && self.alerts.wants()) || (kinds.ai && self.ai.wants()) || (kinds.banner && self.banner.wants()) || (kinds.saver && self.saver.wants_keys()) || (kinds.layout && self.layout_open()) || (kinds.home && self.extras.wants())
     }
 
-    /// The keys the layer takes by name while an app has the focus: the cards' OK and Back, and INFO and OK (Back too while the INFO banner is
-    /// up) while the channel banner follows Live TV. The banner's own stay listed while its buttons are up: INFO then is its Details.
+    /// The keys the layer takes by name while an app has the focus: the cards' OK and Back, and INFO, OK and the digits (Back too while the INFO
+    /// banner is up, the dash while a number is typed) while the channel banner follows Live TV. The banner's own stay listed while its buttons or
+    /// its number entry are up: INFO then is its Details.
     pub fn takes(&self, kinds: &Kinds) -> Vec<&'static str> {
         let others_quiet = !(kinds.alert && self.alerts.wants()) && !(kinds.ai && self.ai.wants()) && !(kinds.saver && self.saver.wants_keys());
         let quiet = others_quiet && !(kinds.banner && self.banner.wants());
@@ -861,6 +862,24 @@ impl Layer {
     /// OK on Live TV at rest ([`Layer::live_ok`]): the channel banner with its Guide and Details buttons.
     pub fn live_ok_key(&mut self, now: u64) -> Vec<Effect> {
         let out = self.banner.ok_key(now);
+        self.redraw |= out.contains(&Effect::Redraw);
+        out
+    }
+
+    /// A digit on Live TV is the number entry's (`Banner::takes`): nothing of the layer has the keys. The compositor gives it only while Live TV's
+    /// own card has the focus, so an LG pop-up keeps its digits.
+    pub fn live_digit(&self, kinds: &Kinds, name: &str) -> bool {
+        kinds.banner && !self.wants(kinds) && !self.layout_open() && self.banner.takes_digit(name)
+    }
+
+    /// Whether a number is being typed on Live TV: Guide and the dash are its dash.
+    pub fn typing(&self, kinds: &Kinds) -> bool {
+        kinds.banner && self.banner.typing()
+    }
+
+    /// A key for the number entry from the shell: the first digit ([`Layer::live_digit`]), or Guide as the dash while it is open.
+    pub fn number_key(&mut self, name: &str, now: u64) -> Vec<Effect> {
+        let out = self.banner.number_key(name, now);
         self.redraw |= out.contains(&Effect::Redraw);
         out
     }

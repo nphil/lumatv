@@ -68,15 +68,16 @@ pub enum Logical {
 }
 
 /// The keys the Rust shell's own screens know by name and the routing has no use for: the microphone key (push to talk), the on-screen remote's and
-/// Search's, and the channel rocker, Info, Guide and List, which the channel guide pages, opens its sheet with, and is opened by (Live TV launches
-/// LG's own guide on Guide and List unless the shell takes them). Their codes are not known until the set has
-/// been read for the first three (no TV access when this was written): `keys.conf` lines `voice N`, `screenremote N` and `search N` teach
-/// them, and the client is sent these names only while it lists them in its `takes` (`shell_rust.rs`), so a mic key that the helper cannot
-/// answer stays LG's.
-pub const SHELL_KEYS: [&str; 8] = ["voice", "screenremote", "search", "chup", "chdown", "info", "guide", "list"];
+/// Search's, and the channel rocker, Info, Guide, List and the dash, which the channel guide pages, opens its sheet with, and is opened by (Live TV
+/// launches LG's own guide on Guide and List unless the shell takes them), and which LumaTV's channel number entry types a sub-channel with. Their
+/// codes are not known until the set has been read for the first three (no TV access when this was written): `keys.conf` lines `voice N`,
+/// `screenremote N` and `search N` teach them, and the client is sent these names only while it lists them in its `takes` (`shell_rust.rs`), so a
+/// mic key that the helper cannot answer stays LG's.
+pub const SHELL_KEYS: [&str; 9] = ["voice", "screenremote", "search", "chup", "chdown", "info", "guide", "list", "dash"];
 
-/// The keys of [`SHELL_KEYS`] whose codes are LG's, so nothing has to be taught: the channel rocker, Info, Guide and List.
-const SHELL_BUILT_IN: [(u32, &str); 5] = [(KEY_CHANNELUP, "chup"), (KEY_CHANNELDOWN, "chdown"), (KEY_INFO, "info"), (KEY_GUIDE, "guide"), (KEY_LIST, "list")];
+/// The keys of [`SHELL_KEYS`] whose codes are LG's, so nothing has to be taught: the channel rocker, Info, Guide, List and the dash.
+const SHELL_BUILT_IN: [(u32, &str); 6] =
+    [(KEY_CHANNELUP, "chup"), (KEY_CHANNELDOWN, "chdown"), (KEY_INFO, "info"), (KEY_GUIDE, "guide"), (KEY_LIST, "list"), (KEY_CHANNELDASH, "dash")];
 
 /// Which evdev code is which key. The built-in codes are LG's (`tools`: network-input-service's key table; the gear and Input were
 /// also read off this set); a `keys.conf` line `NAME CODE` adds a code for a key (gear, input, netflix, amazon, disneyplus,
@@ -154,7 +155,7 @@ impl KeyTable {
                 (Some(l), _, Some(c), None) => table.extra.push((c, l)),
                 (None, Some(k), Some(c), None) => table.shell.push((c, k)),
                 _ => bad.push(format!(
-                    "line {}: {line:?} is not NAME CODE with a name of gear, input, netflix, amazon, disneyplus, lgchannels, voice, screenremote, search, chup, chdown, info, guide or list",
+                    "line {}: {line:?} is not NAME CODE with a name of gear, input, netflix, amazon, disneyplus, lgchannels, voice, screenremote, search, chup, chdown, info, guide, list or dash",
                     n + 1
                 )),
             }
@@ -465,10 +466,10 @@ mod tests {
     }
 
     #[test]
-    fn the_channel_rocker_info_guide_and_list_are_named_for_the_shell_without_being_taught() {
+    fn the_channel_rocker_info_guide_list_and_dash_are_named_for_the_shell_without_being_taught() {
         let t = KeyTable::default();
-        let names = [KEY_CHANNELUP, KEY_CHANNELDOWN, KEY_INFO, KEY_GUIDE, KEY_LIST].map(|c| t.shell_name(c));
-        assert_eq!(names, [Some("chup"), Some("chdown"), Some("info"), Some("guide"), Some("list")]);
+        let names = [KEY_CHANNELUP, KEY_CHANNELDOWN, KEY_INFO, KEY_GUIDE, KEY_LIST, KEY_CHANNELDASH].map(|c| t.shell_name(c));
+        assert_eq!(names, [Some("chup"), Some("chdown"), Some("info"), Some("guide"), Some("list"), Some("dash")]);
         assert!(t.knows(KEY_INFO), "named, so not reported as a code with no name");
         assert_eq!(t.classify(KEY_CHANNELUP), Logical::Other, "the routing has nothing to do for them: the app keeps them unless the shell takes them");
         let (t, bad) = KeyTable::parse("info 1111\n");

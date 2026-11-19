@@ -153,6 +153,24 @@ fn ok_after_a_digit_is_the_apps_for_its_number_entry_and_the_layers_again_after_
 }
 
 #[test]
+fn digits_and_the_dash_the_layer_takes_are_its_own_number_entry_and_ok_after_them_is_its_too() {
+    // the layer's number entry stands in for Live TV's: a digit it lists never reaches the app and starts no guard, so OK confirms its entry
+    let mut server = Server::start();
+    let mut a = app(&mut server);
+    takes(&server, &["ok", "1", "dash"]);
+    let t = Instant::now();
+    server.eval(move |s| {
+        for (i, code) in [KEY_1, KEY_CHANNELDASH, KEY_ENTER, KEY_1 + 1].into_iter().enumerate() {
+            press(s, code, t + Duration::from_millis(i as u64 * 100));
+            release(s, code, t + Duration::from_millis(i as u64 * 100 + 50));
+        }
+    });
+    let names: Vec<String> = syskeys(&mut a).into_iter().filter(|k| k.1).map(|k| k.0).collect();
+    assert_eq!(names, ["1", "dash", "ok"], "2 is not listed, so it stays the app's");
+    assert_eq!(app_keys(&mut a), vec![(KEY_1 + 1, 1), (KEY_1 + 1, 0)]);
+}
+
+#[test]
 fn a_click_on_the_focused_card_is_the_layers_ok_while_it_takes_ok_and_a_click_otherwise() {
     let mut server = Server::start();
     let mut a = app(&mut server);

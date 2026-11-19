@@ -248,6 +248,8 @@ pub struct Shell {
     guide_keys: Vec<String>,
     /// OK on Live TV raised the channel banner on its press: its repeats and its release are nobody's.
     live_ok_down: bool,
+    /// A digit on Live TV opened the number entry on its press: its repeats and its release are nobody's.
+    live_digit_down: Option<String>,
     /// Waking presses and their repeats/releases belong to the saver, even after it has gone.
     saver_keys: Vec<(String, u32)>,
     /// The size and time of each polled file (the theme, the layout) as it was last read: a poll that finds them unchanged reads nothing.
@@ -337,6 +339,7 @@ impl Shell {
             lab_keys: Vec::new(),
             guide_keys: Vec::new(),
             live_ok_down: false,
+            live_digit_down: None,
             saver_keys: Vec::new(),
             polled_files: HashMap::new(),
             pointer_state: None,
@@ -1033,10 +1036,19 @@ impl Shell {
             return acts;
         }
         // the Guide and List keys: claimed from Live TV (the compositor gives them over only while the guide lists them), so LG's guide never
-        // launches. They open the guide unless something else has the screen (a channel banner goes for it); nothing else hears them
+        // launches. They open the guide unless something else has the screen (a channel banner or the number entry goes for it); nothing else
+        // hears them. The dash at rest is LG's channel list too; while a number is typed it and Guide are the entry's dash (LG's ATSC entry
+        // takes Guide for the dash)
         if let KeyEvent::Key { name, down, repeat, .. } = event
-            && (name == "guide" || name == "list")
+            && (name == "guide" || name == "list" || name == "dash")
         {
+            if *down && !*repeat && name != "list" && self.sys.typing(&self.kinds) {
+                for e in self.sys.number_key("dash", now) {
+                    self.carry(e, now, &mut acts);
+                }
+                self.after(now, &mut acts);
+                return acts;
+            }
             if self.kinds.guide && *down && !*repeat {
                 for e in self.sys.guide_opening(&self.kinds) {
                     self.carry(e, now, &mut acts);
@@ -1061,6 +1073,21 @@ impl Shell {
             if *down && !*repeat {
                 self.sys.on_key(&self.kit, &mut self.engine);
                 for e in self.sys.live_ok_key(now) {
+                    self.carry(e, now, &mut acts);
+                }
+            }
+            self.after(now, &mut acts);
+            return acts;
+        }
+        // a digit on Live TV at rest: claimed while the number entry lists it (`Banner::takes`), so LG's number entry never opens. It opens
+        // LumaTV's, which has every key from then on; this press's repeats and release are nobody's
+        if let KeyEvent::Key { name, down, repeat, .. } = event
+            && (self.live_digit_down.as_ref() == Some(name) || (*down && !*repeat && !self.system_wants() && self.sys.live_digit(&self.kinds, name)))
+        {
+            self.live_digit_down = down.then(|| name.clone());
+            if *down && !*repeat {
+                self.sys.on_key(&self.kit, &mut self.engine);
+                for e in self.sys.number_key(name, now) {
                     self.carry(e, now, &mut acts);
                 }
             }
@@ -2245,7 +2272,7 @@ mod tests {
         shell.key(&guide(true), 1_100);
         assert_eq!(shell.state()["guide"]["open"], false, "a key the compositor should not have sent opens nothing");
         shell.channel(&front("com.webos.app.livetv"), 2_000);
-        assert_eq!(shell.report()["takes"], json!(["guide", "list"]));
+        assert_eq!(shell.report()["takes"], json!(["guide", "list", "dash"]));
         shell.key(&guide(true), 2_100);
         shell.key(&guide(false), 2_160);
         assert_eq!(shell.state()["guide"]["open"], true);
@@ -2257,6 +2284,29 @@ mod tests {
         shell.channel(&front("com.webos.app.livetv"), 4_000);
         shell.key(&KeyEvent::Key { name: "list".into(), down: true, repeat: false, seat: 0 }, 4_100);
         assert_eq!(shell.state()["guide"]["open"], true);
+    }
+
+    #[test]
+    fn a_digit_on_live_tv_opens_lumatvs_number_entry_where_guide_is_the_dash_back_ends_it_and_list_opens_the_guide() {
+        let (_h, mut shell) = home_shell_with("banner,guide", &json!({"banners": {"own": true}}));
+        let key = |name: &str, down| KeyEvent::Key { name: name.into(), down, repeat: false, seat: 0 };
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.livetv", "home": false, "covered": true}) }, 2_000);
+        let takes = shell.report()["takes"].clone();
+        assert!(["5", "0", "dash", "guide"].iter().all(|k| takes.as_array().unwrap().iter().any(|t| t == k)), "{takes}");
+        shell.key(&key("5", true), 2_100);
+        shell.key(&key("5", false), 2_150);
+        assert_eq!((shell.state()["banner"]["kind"].clone(), shell.state()["banner"]["typed"].clone()), (json!("number"), json!("5")));
+        assert_eq!(shell.state()["banner"]["keys"], true, "the entry has every key while it is open");
+        shell.key(&key("guide", true), 2_200);
+        assert_eq!(shell.state()["banner"]["typed"], "5-", "Guide is the dash while a number is typed");
+        assert_eq!(shell.state()["guide"]["open"], false);
+        for at in [2_300, 2_400] {
+            shell.key(&key("back", true), at);
+        }
+        assert_eq!(shell.state()["banner"]["up"], false, "Back takes the dash and the digit away, and the entry with them");
+        shell.key(&key("2", true), 3_000);
+        shell.key(&key("list", true), 3_100);
+        assert!(shell.state()["banner"]["up"] == false && shell.state()["guide"]["open"] == true, "List opens the guide in the entry's place");
     }
 
     #[test]

@@ -57,16 +57,16 @@ impl GuideHost {
         std::mem::take(&mut self.redraw)
     }
 
-    /// What the shell tells the compositor it takes. Live TV in front: the Guide and List keys, which Live TV answers by launching LG's guide
-    /// (`CommonInputEventHandler.qml`: `tvguide` and `channels`). The compositor answers every launch of LG's guide with this guide (it draws
-    /// none of LG's, `lg_guide.rs`), so the keys are claimed to spare the launch; with the shell not running nothing is listed and LG's guide
-    /// opens as stock. Open: also the channel rocker, which pages the guide, Info, which opens its sheet, and a turn of the Magic Remote's
-    /// wheel, which moves a row.
+    /// What the shell tells the compositor it takes. Live TV in front: the Guide, List and dash keys, which Live TV answers by launching LG's guide
+    /// (`CommonInputEventHandler.qml`: `tvguide` for Guide, `channels` for List and for the dash at rest). The compositor answers every launch of
+    /// LG's guide with this guide (it draws none of LG's, `lg_guide.rs`), so the keys are claimed to spare the launch; with the shell not running
+    /// nothing is listed and LG's guide opens as stock. Open: also the channel rocker, which pages the guide, Info, which opens its sheet, and a
+    /// turn of the Magic Remote's wheel, which moves a row.
     pub fn takes(&self) -> Vec<&'static str> {
         if self.model.wants() {
-            vec!["chup", "chdown", "info", "wheelup", "wheeldown", "guide", "list"]
+            vec!["chup", "chdown", "info", "wheelup", "wheeldown", "guide", "list", "dash"]
         } else if self.front == ch::LIVE_TV_APP {
-            vec!["guide", "list"]
+            vec!["guide", "list", "dash"]
         } else {
             Vec::new()
         }
@@ -235,7 +235,7 @@ mod tests {
         h.update(&front("com.webos.app.home"), NOW);
         assert!(h.takes().is_empty() && h.guide_key(NOW + 10).is_empty() && !h.is_open(), "Home in front: the key is not claimed and opens nothing");
         h.update(&front(ch::LIVE_TV_APP), NOW + 500);
-        assert_eq!(h.takes(), ["guide", "list"]);
+        assert_eq!(h.takes(), ["guide", "list", "dash"]);
         let fx = h.guide_key(NOW + 1_000);
         assert!(h.is_open() && !fx.is_empty());
         assert!(h.takes().contains(&"guide") && h.takes().contains(&"chup"), "open: Guide stays claimed, so Live TV never launches LG's, and the rocker pages");
@@ -251,7 +251,7 @@ mod tests {
         let mut h = GuideHost::new(1060);
         h.open(NOW);
         assert!(h.wants());
-        assert_eq!(h.takes(), ["chup", "chdown", "info", "wheelup", "wheeldown", "guide", "list"]);
+        assert_eq!(h.takes(), ["chup", "chdown", "info", "wheelup", "wheeldown", "guide", "list", "dash"]);
         h.update(&Input::Topic { topic: "screen".into(), data: json!({"on": false}) }, NOW + 100);
         assert!(!h.is_open() && !h.wants());
     }
