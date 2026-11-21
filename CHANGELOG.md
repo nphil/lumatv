@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+LG's power-off warnings (sleep timer, power-off timer, Auto Power Off) are drawn as "Sleep timer", "Power-off timer" and "Auto power off" with a short sentence ("The TV turns off in 1 minute.") and LG's own buttons, actions and timeouts. The services send them with no title, which showed their service name (`com.webos.service.tvReservationAgent`, `com.webos.service.nop`) as the title and left `<br>` markup in the message; an alert's markup is now stripped and a missing or id-like title never shown. Not yet checked on the TV.
+
 Dolby Vision plays in LG's Cinema for a dark room or a bright one, picked by the helper from the TV's light sensor and, when the light is in between, the time of day. The choice is made as a video starts and changes during it only for a lasting change of the room's light, at most once every 15 minutes; a mode picked by hand, or a session that starts in Game or Personalized, is left alone until the next video. Settings › Picture › Dolby Vision room mode switches it off. The two Cinema modes of HDR and Dolby Vision read Cinema · Dark room and Cinema · Bright room. Not yet checked on the TV.
 
 Settings › Home › Profile button puts the profile pill at the left end of the top bar, with the search, camera, bell and gear buttons at the right end (`layout.statusBar.profile`: `left` or `right`, kept for the active profile only; Right is unchanged).

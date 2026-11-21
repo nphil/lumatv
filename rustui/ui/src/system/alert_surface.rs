@@ -38,13 +38,9 @@ fn id(n: usize) -> Id {
     Id(ID_BASE + n as u32)
 }
 
-/// LG's text with its line breaks (`<br>` in the message of an alert).
+/// LG's text with its markup and padding gone (see [`super::alert_text::clean`]).
 fn plain(text: &str) -> String {
-    let mut t = text.to_string();
-    for br in ["<br/>", "<br />", "<br>", "<BR>", "<BR/>", "<Br>"] {
-        t = t.replace(br, "\n");
-    }
-    t.trim().to_string()
+    super::alert_text::clean(text)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -332,8 +328,7 @@ impl AlertSurface {
         let title_style = role_style(kit, TypeRole::Title, None, ink, Align::Left);
         let body_style = role_style(kit, TypeRole::Body, None, ink2, Align::Left);
         let text_w = SHEET_W - 2.0 * pad - TILE - gap;
-        let title = if a.title.is_empty() { a.source_id.clone() } else { a.title.clone() };
-        let title_lines = wrap::lines(kit, title_style, &plain(&title), text_w, 2);
+        let title_lines = wrap::lines(kit, title_style, &plain(&a.title), text_w, 2);
         let header_h = TILE.max(title_lines.len() as f32 * ui::components::line_height(title_style.ty));
         let labels: Vec<(String, bool)> =
             if a.buttons.is_empty() { vec![("OK".to_string(), false)] } else { a.buttons.iter().map(|b| (b.label.clone(), false)).collect() };

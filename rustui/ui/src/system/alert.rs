@@ -7,6 +7,7 @@
 //!   title and message replaces the one up; `close` (with its `timestamp`) and `closeAll` come from the service. A button's `action` is
 //!   a luna call the service attached (`serviceURI`, `serviceMethod`, `launchParams`); Back, and a timeout, close it unanswered and run
 //!   its `onCloseAction`. A `warning` is drawn over the whole screen.
+//!   Titles and messages go through [`alert_text`]: markup is stripped, a missing or id-like title (LG hands over the caller's service name as `sourceId`) becomes a plain one, and the TV's power-off warnings get a title and a sentence of ours.
 //! - **Input popup** (a device connected to an input): one at a time; a button per input to switch to it and "Stay here"; Back or its
 //!   timeout (15 s unless it names one) closes it.
 //! - **PIN prompt**: four digits on a 3 by 4 pad (the remote's number keys type too), OK relays them through `closePincodePrompt`
@@ -15,6 +16,7 @@
 //!
 //! The PIN prompt is over the input popup over the alert (LG's order). While one is up the model wants every key.
 
+use super::alert_text;
 use crate::kit::screen::{Effect, Input, Model};
 use serde_json::{Value, json};
 
@@ -207,7 +209,7 @@ impl Alerts {
                     .into_iter()
                     .flatten()
                     .map(|b| Button {
-                        label: b.get("label").and_then(Value::as_str).filter(|l| !l.is_empty()).unwrap_or("OK").to_string(),
+                        label: b.get("label").and_then(Value::as_str).map(alert_text::clean).filter(|l| !l.is_empty()).unwrap_or_else(|| "OK".into()),
                         action: b.get("action").and_then(Action::from_json),
                         danger: b.get("danger").and_then(Value::as_bool).unwrap_or(false),
                     })
@@ -219,11 +221,16 @@ impl Alerts {
                     .and_then(|bs| bs.iter().rposition(|b| b.get("focus").and_then(Value::as_bool).unwrap_or(false)))
                     .unwrap_or(0);
                 let timeout = info.get("timeout").and_then(Value::as_f64).filter(|t| *t > 0.0);
+                let source_id = text("sourceId");
+                let (title, message) = {
+                    let labels: Vec<&str> = buttons.iter().map(|b| b.label.as_str()).collect();
+                    alert_text::present(&source_id, &text("title"), &text("message"), &labels)
+                };
                 let a = Alert {
                     timestamp: info.get("timestamp").cloned().unwrap_or(Value::Null),
-                    source_id: text("sourceId"),
-                    title: text("title"),
-                    message: text("message"),
+                    source_id,
+                    title,
+                    message,
                     modal: info.get("modal").and_then(Value::as_bool).unwrap_or(false),
                     warning: info.get("type").and_then(Value::as_str) == Some("warning"),
                     buttons,
@@ -873,5 +880,50 @@ mod tests {
         assert!(a.update(&Input::Key { name: "ok".into(), down: true, repeat: true }, 0).is_empty());
         assert!(a.alert_up());
         assert!(a.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 0).is_empty(), "a release is nothing");
+    }
+
+    /// `nopd`'s Auto Power Off warning: no title, so `notificationmgr` supplies the caller as `sourceId`.
+    #[test]
+    fn the_auto_power_off_warning_is_drawn_with_a_plain_title_and_sentence() {
+        let mut a = Alerts::new();
+        let doc = parse(
+            r#"{"alertAction": "open", "alertInfo": {"sourceId": "com.webos.service.nop", "timestamp": 11, "modal": true, "timeout": 60,
+            "message": "Your TV will be turned off in 1 minute due to the TV's Auto Power Off settings. To keep the TV on, press any buttons except the Power button.",
+            "buttons": [{"label": "OK", "focus": true}]}}"#,
+        );
+        feed(&mut a, ALERT_TAG, doc, 1000);
+        let View::Alert(v) = a.view() else { panic!("an alert is up") };
+        assert_eq!(v.title, "Auto power off");
+        assert_eq!(v.message, "The TV turns off in 1 minute. To keep it on, press any button except Power.");
+        assert_eq!(v.expires, Some(61_000), "LG's timeout is kept");
+        assert!(calls(&key(&mut a, "ok")).is_empty() && !a.alert_up(), "OK closes it");
+    }
+
+    /// `tv-reservation-agent`'s sleep timer warning: no title, markup, an OK and a Cancel that carries the call that aborts the off.
+    #[test]
+    fn the_sleep_timer_warning_keeps_its_buttons_and_its_cancel_call() {
+        let mut a = Alerts::new();
+        let doc = parse(
+            r#"{"alertAction": "open", "alertInfo": {"sourceId": "com.webos.service.tvReservationAgent", "title": "com.webos.service.tvReservationAgent",
+            "timestamp": 12, "modal": true, "timeout": 60,
+            "message": "Your TV will be turned off in 1 minute due to the TV's timer settings.<br>Click 'Cancel' to keep the TV on or 'OK' to let it turn off.",
+            "buttons": [{"label": "OK"}, {"label": "Cancel", "focus": true, "action": {"serviceURI": "luna://com.webos.service.tvReservationAgent", "serviceMethod": "cancel", "launchParams": {"abortOption": "sleepTimer"}}}],
+            "onCloseAction": {"serviceURI": "luna://com.webos.notification", "serviceMethod": "closeAlert", "launchParams": {"timestamp": 12}}}}"#,
+        );
+        feed(&mut a, ALERT_TAG, doc, 0);
+        let View::Alert(v) = a.view() else { panic!("an alert is up") };
+        assert_eq!((v.title.as_str(), v.message.as_str()), ("Sleep timer", "The TV turns off in 1 minute. Select Cancel to keep it on."));
+        assert_eq!(v.index, 1, "Cancel keeps the focus LG gave it");
+        let e = key(&mut a, "ok");
+        assert_eq!(calls(&e), vec![("luna://com.webos.service.tvReservationAgent/cancel".to_string(), json!({"abortOption": "sleepTimer"}))]);
+    }
+
+    #[test]
+    fn a_titleless_alert_never_shows_its_source_as_the_title() {
+        let mut a = Alerts::new();
+        let doc = parse(r#"{"alertAction": "open", "alertInfo": {"sourceId": "com.webos.service.nop", "timestamp": 13, "message": "Done.", "buttons": []}}"#);
+        feed(&mut a, ALERT_TAG, doc, 0);
+        let View::Alert(v) = a.view() else { panic!("an alert is up") };
+        assert_eq!((v.title.as_str(), v.message.as_str()), ("TV message", "Done."));
     }
 }
