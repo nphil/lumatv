@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A camera recording that runs out before its window ends hands over to live at once. The helper said the recording had ended only after the bridge answered its stop, and the bridge answers once its ffmpeg is gone, which can take its whole 2 s kill grace: on the TV (2026-11-07) a recording that ran dry reached the full view 2.0 s after its end was seen. The stop now goes out alongside the end. Not yet checked on the TV.
+
 A camera Scrypted marks offline is no longer passed over: the camera list and the helper's pop-up pictures and stream reads ask for it as for any other, since the mark can be wrong (Plant Room was marked offline while its stream opened in 38 ms), and the grid and the list say "Offline" only while no fresh picture arrives. It needs the Scrypted bridge's matching change, which tries such a camera instead of refusing it. Not yet checked on the TV.
 
 The Magic Remote's pointer follows the remote again after arrow keys hid it and the wheel brought it back. The compositor told lginput2 "hidden", which left the remote awake with its position feed gated until it next slept; it now says "standby" as LG's compositor does, so the next wheel turn or movement wakes the remote and positions flow. A pointer brought back this way appears at the screen centre, where lginput2 restarts its positions.

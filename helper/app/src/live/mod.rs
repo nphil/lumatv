@@ -1154,6 +1154,13 @@ impl Hangup {
             end();
         }
     }
+
+    /// The call is a request to the bridge, which answers a stop only once the playback's ffmpeg is gone (up to its 2 s kill grace): nothing
+    /// waits for that answer.
+    fn call_aside(&self) {
+        let hangup = self.clone();
+        let _ = thread::Builder::new().name("cameras-live-hangup".to_owned()).spawn(move || hangup.call());
+    }
 }
 
 struct ReaderHandle {
@@ -1168,9 +1175,8 @@ impl ReaderHandle {
     fn end(&self) {
         self.stop.store(true, Ordering::SeqCst);
         self.waker.wake();
-        if let Some(hangup) = self.hangup.clone() {
-            // the call is a request to the bridge: off the caller's path
-            let _ = thread::Builder::new().name("cameras-live-hangup".to_owned()).spawn(move || hangup.call());
+        if let Some(hangup) = &self.hangup {
+            hangup.call_aside();
         }
     }
 }
@@ -2290,8 +2296,9 @@ fn read_stream(
         break outcome;
     };
     let told = stop.load(Ordering::SeqCst) || session.ended();
-    // the stream is over: the bridge is told, so that its playback session is free for the next
-    hangup.call();
+    // the stream is over: the bridge is told, so that its playback session is free for the next, while the end is said (2026-11-07 round 1:
+    // a recording that ran dry reached the full view 2.0 s after its end was seen, the stop's answer in between)
+    hangup.call_aside();
     if told || !is_current(session, epoch) {
         return;
     }
@@ -3432,6 +3439,58 @@ mod tests {
         // the connection's own clock is the real one, by which the pictures came after the run's start: a second over `QUIET` is past them
         let quiet = QUIET + Duration::from_secs(1);
         assert!(matches!(run(&silent, 1_000_066 + 60_000, &[quiet]), Some(Ended::Quiet)), "a minute before its end the recording only stalled");
+    }
+
+    #[test]
+    fn a_recordings_end_is_said_while_the_bridge_is_still_being_told() {
+        use rtsp_client::fake::{FakeCamera, Script, annexb};
+        let hex = |s: &str| (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let (sps, pps) = (hex("6742c016d900a02ff970110000030001000003001e0f162e48"), hex("68cb83cb20"));
+        let mut key = annexb(&[&sps, &pps]);
+        key.extend(annexb(&[&[0x65, 0x88, 0x84, 1]]));
+        let mut script = Script::new(Codec::H264, vec![sps, pps], vec![key], 30);
+        script.close_after = Some(1);
+        let camera = FakeCamera::start(script);
+        let dial: Dial = Arc::new(|address, _| {
+            Rtsp::connect(&Url::parse(address)?, &Options { loopback: true, reply_timeout: Duration::from_secs(2), ..Options::default() })
+        });
+        let inner = Arc::new(Inner {
+            deps: Deps { feeder: None, dial },
+            pool: None,
+            view: Mutex::new((1, View::default())),
+            session: Mutex::new(None),
+            next: AtomicU64::new(2),
+            publish: Box::new(|_| {}),
+            sizes: Mutex::new(Sizes::default()),
+            pipes: Mutex::new(Pipes::default()),
+            es_window: ES_FIRST_PICTURE,
+            now: Arc::new(Instant::now),
+        });
+        let session = test_session(1, &inner, SMALL);
+        // the picture is on the screen: the end is not held back for it
+        session.counters.fed.store(1, Ordering::Relaxed);
+        // the bridge's answer to the stop, held until the test lets it go
+        let (told, heard) = std::sync::mpsc::channel();
+        let (answer, answered) = std::sync::mpsc::channel::<()>();
+        let hangup = Hangup::new(Some(Box::new(move || {
+            told.send(()).unwrap();
+            let _ = answered.recv();
+        })));
+        let plan = Plan { url: camera.url(), mode: Mode::Playback, started_at: 1_000_000, ..live_plan(false) };
+        let (stop, waker) = (Arc::new(AtomicBool::new(false)), Arc::new(Waker::new().unwrap()));
+        let reader = {
+            let (inner, session, stop, waker) = (inner.clone(), session.clone(), stop.clone(), waker.clone());
+            thread::spawn(move || read_stream(&inner, &session, plan, hangup, 0, &stop, &waker))
+        };
+        heard.recv_timeout(Duration::from_secs(5)).expect("the bridge is told");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while inner.view.lock().1.state != "stopped" && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let view = inner.view.lock().1.clone();
+        assert_eq!((view.state, view.reason.as_str()), ("stopped", "End of recording"), "said before the bridge answers");
+        answer.send(()).unwrap();
+        reader.join().unwrap();
     }
 
     #[test]
