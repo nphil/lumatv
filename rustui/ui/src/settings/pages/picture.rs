@@ -117,6 +117,19 @@ fn rows(c: &Ctx) -> Vec<Row> {
     if let Some(topic) = topic {
         rows.extend(slot_rows(c, topic, &current));
     }
+    let dv_room = c.theme_at(DV_ROOM).and_then(Value::as_bool).unwrap_or(true);
+    rows.push(
+        Row::toggle("dvroommode")
+            .tab(0)
+            .icon("sunrise")
+            .label("Dolby Vision room mode")
+            .help("Dolby Vision plays in Cinema for a dark room or a bright one, from the room's light and the time of day. A mode picked by hand stays until the next video.")
+            .on(dv_room)
+            .act(|a| match a {
+                Arg::Toggle(v) => vec![Op::Patch(patch_of(DV_ROOM, json!(v)))],
+                _ => Vec::new(),
+            }),
+    );
     rows.extend(brightness_rows(c));
     rows.push(c.toggle(Spec::new("picture.filmmakerAmbientLight").tab(0).icon("lamp").label("Filmmaker ambient light").help("Lifts dark scenes a little when the room is bright.")));
     rows.push(c.toggle(Spec::new("aiPicture.ai_Picture").tab(0).icon("sparkles").label("AI Picture Pro").help("LG's sharpening and upscaling. Off keeps the picture as the film was made.")));
@@ -206,6 +219,9 @@ fn go(page: &str) -> Vec<Op> {
 
 /// The value a preset's card carries: never one of LG's, so the card is never the mode the TV reports.
 const PRESET_CARD: &str = "\u{0}preset";
+
+/// The helper's Dolby Vision room mode switch (`dvroom.rs`), on unless `false`.
+const DV_ROOM: &str = "system.dolbyVisionRoom";
 
 fn preset_send(path: &str, body: Value) -> Op {
     Op::Send { name: None, method: "POST", path: path.into(), body: Some(body) }
@@ -630,7 +646,7 @@ mod tests {
         let mode = by_id(&rows, "picture.pictureMode");
         assert_eq!(mode.cards.len(), 2);
         assert_eq!(mode.index, Some(0));
-        assert_eq!(summary(&w.ctx()), "dolbyHdrCinema");
+        assert_eq!(summary(&w.ctx()), "Cinema · Dark room");
         let act = mode.act.as_ref().unwrap();
         assert!(matches!(&act(Arg::Index(1))[..], [Op::Lg { value, .. }] if value == "filmMaker"));
         assert!(act(Arg::Index(2)).is_empty());
@@ -817,5 +833,15 @@ mod tests {
         let oled = by_id(&r, "picture.backlight");
         assert_eq!((oled.num, oled.value_text.as_deref()), (33.0, Some("33")));
         assert!(matches!(&(oled.act.as_ref().unwrap())(Arg::Value(50.0))[..], [Op::Send { path, body: Some(b), .. }] if path == crate::autobright::LEVEL && b["value"] == 50.0));
+    }
+
+    #[test]
+    fn dolby_vision_room_mode_is_on_unless_switched_off() {
+        let mut w = picture_world();
+        let r = rows(&w.ctx());
+        assert!(by_id(&r, "dvroommode").on);
+        assert!(matches!(&(by_id(&r, "dvroommode").act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Patch(p)] if p["system"]["dolbyVisionRoom"] == false));
+        w.theme = json!({"system": {"dolbyVisionRoom": false}});
+        assert!(!by_id(&rows(&w.ctx()), "dvroommode").on);
     }
 }

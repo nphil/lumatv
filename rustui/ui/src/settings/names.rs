@@ -14,20 +14,28 @@ pub fn name_or(table: Table, value: &str, fallback: &str) -> String {
     table.iter().find(|(k, _)| *k == value).map_or_else(|| fallback.to_string(), |(_, n)| (*n).to_string())
 }
 
-/// LG's picture-mode captions; unknown native values remain readable as given.
+/// The longest picture-mode caption, which a stepper is sized for while the TV offers it.
+pub const CINEMA_BRIGHT: &str = "Cinema · Bright room";
+
+/// LG's picture-mode captions; unknown native values remain readable as given. HDR10 (`hdr…`) and Dolby Vision (`dolbyHdr…`)
+/// modes are separate values per dynamic range, captioned as LG's menu does, without the range. HDR's two Cinema modes are LG's
+/// dark-room and bright-room pair (its menu says Cinema and Cinema Home); SDR has one Cinema, with no bright-room twin.
 pub fn picture_mode(value: &str) -> &str {
-    match value {
-        "filmMaker" => "Filmmaker",
+    let base = value.strip_prefix("dolbyHdr").or_else(|| value.strip_prefix("hdr")).unwrap_or(value);
+    match base {
+        "filmMaker" | "FilmMaker" => "Filmmaker",
         "cinema" => "Cinema",
-        "normal" => "Standard",
-        "vivid" => "Vivid",
-        "personalized" => "Personalized",
-        "game" => "Game",
+        "Cinema" => "Cinema · Dark room",
+        "CinemaBright" => CINEMA_BRIGHT,
+        "normal" | "Standard" => "Standard",
+        "vivid" | "Vivid" => "Vivid",
+        "personalized" | "Personalized" => "Personalized",
+        "game" | "Game" => "Game",
         "sports" => "Sports",
-        "eco" => "Eco",
+        "eco" | "Eco" => "Eco",
+        "photo" => "Photo",
         "expert1" => "Expert · Day",
         "expert2" => "Expert · Night",
-        "dolbyHdrCinemaBright" => "Cinema Home",
         _ => value,
     }
 }
@@ -155,5 +163,16 @@ mod tests {
         assert_eq!(name(LMHA, "veryNew"), "veryNew");
         assert_eq!(name_or(ONOFF, "maybe", ""), "");
         assert_eq!(name(SOUND_OUTPUT, "external_arc"), "HDMI(ARC) Device");
+    }
+
+    #[test]
+    fn hdr_and_dolby_vision_modes_read_as_lgs_captions() {
+        assert_eq!(picture_mode("dolbyHdrVivid"), "Vivid");
+        assert_eq!(picture_mode("dolbyHdrCinemaBright"), "Cinema · Bright room");
+        assert_eq!(picture_mode("hdrCinema"), "Cinema · Dark room");
+        assert_eq!(picture_mode("cinema"), "Cinema");
+        assert_eq!(picture_mode("hdrFilmMaker"), "Filmmaker");
+        assert_eq!(picture_mode("normal"), "Standard");
+        assert_eq!(picture_mode("dolbyHdrNew"), "dolbyHdrNew");
     }
 }

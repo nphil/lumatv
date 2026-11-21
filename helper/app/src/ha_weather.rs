@@ -628,7 +628,7 @@ pub fn snapshot(raw: &Value, home: Option<(f64, f64)>, now_s: i64, offset: &dyn 
             if !h.contains_key("is_daytime")
                 && let (Some(u), Some(home)) = (unix, home)
             {
-                h.insert("is_daytime".into(), json!(elevation_deg(u, home) > HORIZON_DEG));
+                h.insert("is_daytime".into(), json!(sun_up(u, home)));
             }
             scale(&mut h, "precipitation", rain);
             Some(Value::Object(h))
@@ -663,6 +663,11 @@ fn elevation_deg(unix_s: i64, (lat, lon): (f64, f64)) -> f64 {
     (phi.sin() * dec.sin() + phi.cos() * dec.cos() * hour.cos()).clamp(-1.0, 1.0).asin().to_degrees()
 }
 
+/// Whether the sun is up at `home` at an instant, by the same horizon the day's sunrise and sunset use.
+pub(crate) fn sun_up(unix_s: i64, home: (f64, f64)) -> bool {
+    elevation_deg(unix_s, home) > HORIZON_DEG
+}
+
 /// Unix seconds of local midnight that starts day number `day` (days since 1970-01-01) on the clock `offset` gives.
 fn local_midnight(day: i64, offset: &dyn Fn(i64) -> i64) -> i64 {
     let local = day * 86_400;
@@ -674,7 +679,7 @@ fn local_midnight(day: i64, offset: &dyn Fn(i64) -> i64) -> i64 {
 /// The day is the TV's own, so a daylight-saving day of 23 or 25 hours is walked as it is.
 fn sun_day(day: i64, home: (f64, f64), offset: &dyn Fn(i64) -> i64) -> (Option<i64>, Option<i64>) {
     let (start, end) = (local_midnight(day, offset), local_midnight(day + 1, offset));
-    let up = |t: i64| elevation_deg(t, home) > HORIZON_DEG;
+    let up = |t: i64| sun_up(t, home);
     let (mut rise, mut set) = (None, None);
     let (mut from, mut was_up) = (start, up(start));
     while from < end && (rise.is_none() || set.is_none()) {

@@ -161,6 +161,11 @@ pub fn tiles(env: &Env) -> Vec<Row> {
     };
     let mut picture = Row::base("picture", Kind::Stepper, "image", "Picture mode", Act::Picture(Vec::new()));
     picture.detail = env.inputs.current().map(|e| e.port.clone()).unwrap_or_default();
+    // the helper's Dolby Vision room mode picked the mode in force
+    let dv_auto = env.topic("dvroom").and_then(|t| t.get("session")).is_some_and(|s| s["auto"] == true && s["mode"] == current.as_str());
+    if dv_auto {
+        picture.detail = if picture.detail.is_empty() { "Auto".into() } else { format!("{} \u{b7} Auto", picture.detail) };
+    }
     picture.options = choices.iter().map(|(value, _)| names::picture_mode(value).to_string()).collect();
     // LumaTV's presets follow LG's modes
     let presets = if choices.is_empty() { Vec::new() } else { presets::offered(env.topic(presets::TOPIC)) };
@@ -173,6 +178,10 @@ pub fn tiles(env: &Env) -> Vec<Row> {
     picture.value = presets::mode_name(&presets, &current);
     picture.enabled = env.sio.usable("picture.pictureMode") && choices.iter().any(|(_, active)| *active);
     picture.visible = env.sio.shown("picture.pictureMode");
+    // HDR and Dolby Vision offer the longest caption: sized for it, stepping through the modes does not cut a name or move the row
+    if picture.options.iter().any(|o| o == names::CINEMA_BRIGHT) {
+        picture.widest = names::CINEMA_BRIGHT;
+    }
     if choices.is_empty() {
         picture.kind = Kind::Nudge;
     }

@@ -142,9 +142,21 @@ fn unavailable_picture_modes_keep_native_readback_without_inventing_choices() {
     q.open(&mut env, 200);
     let row = &q.rows(&env)[0];
     assert!(row.options.is_empty());
-    assert_eq!(row.value, "dolbyHdrCinema");
+    assert_eq!(row.value, "Cinema · Dark room");
     assert!(q.click(Target::Row(0), Some(1), &mut env, 201).effects.is_empty());
     assert_eq!(env.sio.text("picture.pictureMode"), "dolbyHdrCinema");
+}
+
+#[test]
+fn a_dolby_vision_mode_the_helper_picked_reads_auto() {
+    let (mut q, mut env) = rig(true);
+    dolby_modes(&mut env);
+    q.open(&mut env, 200);
+    assert!(!q.rows(&env)[0].detail.contains("Auto"));
+    env.update(&Input::Helper { topic: "dvroom".into(), data: json!({"on": true, "session": {"auto": true, "mode": "dolbyHdrCinema"}}) }, 0);
+    assert!(q.rows(&env)[0].detail.ends_with("Auto"));
+    env.update(&Input::Helper { topic: "dvroom".into(), data: json!({"on": true, "session": {"auto": false, "mode": "dolbyHdrCinema"}}) }, 0);
+    assert!(!q.rows(&env)[0].detail.contains("Auto"));
 }
 
 #[test]

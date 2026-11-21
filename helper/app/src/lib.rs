@@ -37,6 +37,7 @@
 //! | [`gfn_boost`] | the GeForce NOW app's pad reader thread at real-time priority (FIFO 10, off CPU 0), the one privilege its jail cannot give itself |
 //! | [`app_priority`] | foreground priority after Android's process states: cached apps ranked by `oom_score_adj`, a low-weight CPU group, frozen after 10 s, reclaimed and, at lmkd's pressure, closed oldest first; core, always on, everything put back by every way out. Game mode on top: a native game in front gets background apps closed, feeds paused and memory reclaimed (`/v1/gamemode`) |
 //! | [`autobright`] | auto brightness: OLED pixel brightness follows the TV's light sensor between the owner's floor and his level, in place of LG's Energy saving Auto, behind `system.autoBrightness` (off by default); everything put back by every way out |
+//! | [`dvroom`] | Dolby Vision room mode: while Dolby Vision plays, LG's Cinema for a dark or a bright room from the light sensor and the time of day, held steady through a video and left alone once the owner picks a mode, behind `system.dolbyVisionRoom` (on by default) |
 //! | [`displaylab`] | the display lab: the shell's guided look at the OSD sharpener, dimming and a cut-out window, written through one hard list, journaled, read back and put back by every way out (the dead-man, the helper's stop, the next start); the TV's own shell only |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
 
@@ -67,6 +68,7 @@ pub mod ctx;
 pub mod device;
 pub mod displaylab;
 pub mod dnd;
+pub mod dvroom;
 pub mod fetcher;
 pub mod gamesir;
 pub mod gaming;
