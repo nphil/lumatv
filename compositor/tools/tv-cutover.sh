@@ -161,7 +161,9 @@ install)
     cp $D/recover-home.sh $STATE/bin/recover-home.sh
     cp $D/logrelay.py $STATE/bin/logrelay.py
     cp $D/lib/* $STATE/lib/
-    chmod +x $STATE/bin/*
+    # The loader is run directly, and cp onto an existing file keeps its old mode: a bundle staged without the exec bit (2026-11-21)
+    # worked only on sets installed before, and would leave a fresh set unable to start the compositor.
+    chmod +x $STATE/bin/* $STATE/lib/ld-linux-aarch64.so.1
     # Remove the old shell so it cannot be auto-started.
     rm -rf "$STATE/shell"
     mkdir -p "$STATE/assets"

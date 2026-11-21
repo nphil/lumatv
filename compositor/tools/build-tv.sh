@@ -40,6 +40,8 @@ esac
 x2=$here/../docs/research/arch/x2
 zig cc -target arm-linux-gnueabi.2.28 -O1 -s -o "$out/bin/x2cli" "$x2/x2cli.c" "$x2/../sysroot32/libwayland-client.so.0.20.0" -ldl -Wl,--allow-shlib-undefined
 cp "$m64"/* "$out/lib/"
+# The loader is run as a program; the cached copy of the set's lib/ does not keep its exec bit.
+chmod 755 "$out/lib/ld-linux-aarch64.so.1"
 sh "$here/sm/build.sh" > /dev/null
 x1=$here/../docs/research/arch/x1
 zig cc -target aarch64-linux-gnu.2.36 -O1 -o "$out/bin/x1client" "$x1/x1client.c" "$m64/libwayland-client.so.0" -ldl -lm -Wl,--allow-shlib-undefined
