@@ -102,6 +102,10 @@ BESZEL_BIN="$STATE/bin/beszel"
 SSGW_GATEWAY_SRC="$APPDIR/payload/ssgw/ssgw"
 SSGW_ACCEPT_SRC="$APPDIR/payload/ssgw/ssgw-accept"
 SSGW_BIN="$STATE/ssgw/bin"
+# LumaTV's memory manager's shim (helper/mm) in payload/mm/: `mm_stage` puts it in $MM_BIN_DIR, which tools/mm.sh binds over LG's
+# memchute while `lumatv mm on` holds.
+MM_SRC="$APPDIR/payload/mm/lumatv-mm"
+MM_BIN_DIR="$STATE/mm/bin"
 # The art saver's video-plane player (vplane/, payload/vplane/vplane.sh): a 32-bit program that puts the saver's clips on the video
 # plane; the saver asks it for a picture through $VPLANE_MAILBOX. Its LS2 role is a permission for a new program, so only the owner's
 # `lumatv vplane install` writes it. Apply starts a player that is installed, and revert removes it with the role.
@@ -1866,6 +1870,22 @@ ssgw_stage() {
   done
 }
 
+# The memory manager's shim. While it is bound over LG's memchute the mount holds the running file, so a new one is staged beside it as
+# lumatv-mm.next and tools/mm.sh binds it in the old one's place (restarting LG's unit). Not fatal: LG's memchute serves meanwhile.
+mm_stage() {
+  [ -x "$MM_SRC" ] || return 0   # a package built before it existed
+  mkdir -p "$MM_BIN_DIR" 2>/dev/null || { log_line "mm: could not stage the shim"; return 1; }
+  ms_to="$MM_BIN_DIR/lumatv-mm"
+  cmp -s "$MM_SRC" "$ms_to" 2>/dev/null && return 0
+  [ -f "$ms_to" ] && [ /usr/sbin/memchute -ef "$ms_to" ] && ms_to="$ms_to.next"
+  cp -f "$MM_SRC" "$ms_to.new" 2>/dev/null && chmod 755 "$ms_to.new" && mv -f "$ms_to.new" "$ms_to" 2>/dev/null \
+    || { rm -f "$ms_to.new"; log_line "mm: could not stage the shim"; return 1; }
+  case "$ms_to" in
+    *.next) MM_LOCK_WAIT=15 timeout 40 "$APPDIR/tools/mm.sh" on --auto </dev/null >/dev/null 2>&1 \
+      || log_line "mm: the new shim was not bound; the next boot binds it" ;;
+  esac
+}
+
 helper_config_migrate() {
   python3 - "$STATE/helper.json" <<'PY'
 import fcntl
@@ -2013,6 +2033,7 @@ helper_start() {
   jpeg_stage || true
   beszel_stage || true
   ssgw_stage || true
+  mm_stage || true
   out=$("$HELPER_BIN" start --brand "$APPDIR/brand.json" 2>&1)
   case "$out" in
     *'"ok":true'*) return 0 ;;
@@ -2112,6 +2133,16 @@ verb_ssgw() {
     status) "$APPDIR/tools/ssgw.sh" status ;;
     off) if ssgw_release; then printf '{"ok":true,"ssgw":"off"}\n'; else emit_error "ssgw: LG's gateway could not be fully restored; see lumatv log"; return 1; fi ;;
     *) emit_error "usage: ssgw off | status"; return 1 ;;
+  esac
+}
+
+# LumaTV's memory manager in LG's memchute's place (tools/mm.sh). `on` is also the "try again" after it gave up for the boot; `off`
+# has the shim hand back to LG's at once.
+verb_mm() {
+  [ "$#" -gt 0 ] || set -- status
+  case "$1" in
+    on|off|status) "$APPDIR/tools/mm.sh" "$1" ;;
+    *) emit_error "usage: mm on | off | status"; return 1 ;;
   esac
 }
 
@@ -2863,6 +2894,9 @@ stock_ui_restore() {
       SYSBUS_LOCK_WAIT=15 timeout 20 "$APPDIR/tools/sysbus.sh" off </dev/null >/dev/null 2>&1 || su_failed=1
     fi
     ssgw_release || su_failed=1
+    if [ -x "$APPDIR/tools/mm.sh" ]; then
+      MM_LOCK_WAIT=15 timeout 30 "$APPDIR/tools/mm.sh" off </dev/null >/dev/null 2>&1 || su_failed=1
+    fi
   fi
   stock_ui_restore_env || su_failed=1
   timeout 5 python3 "$KEYFILTER_TOOL" remove "$KEYFILTER_HANDLER" "$KEYFILTER_DIR/$SHORT_ID.js" </dev/null >/dev/null 2>&1 || su_failed=1
@@ -3551,9 +3585,9 @@ case "$VERB:${2:-}" in
   lgextras:status|lgextras:) MAINTENANCE_ACCESS=read ;;
   status:|surfaces:|version:|log:*|theme:get|theme:|layout:get|layout:|layout:check|compositor:check|stock-ui-restore:|stock-ui-restore:keep-sysbus)
     MAINTENANCE_ACCESS=read ;;
-  helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|game:status|game:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:|sysbus:status|sysbus:|ssgw:status|ssgw:)
+  helper:status|helper:|capture:status|capture:|inputs:status|inputs:|vplane:status|vplane:|feeder:status|feeder:|gfn:status|gfn:|game:status|game:|wallpaper:status|wallpaper:|transitions:status|transitions:|preload:status|preload:|logo:status|logo:|notifications:status|notifications:|compositor:status|compositor:|systemui:status|systemui:|webglass:status|webglass:|inputcommon:status|inputcommon:|updateblock:status|updateblock:|openapps:status|openapps:|voice:status|voice:|keys:status|keys:|store:status|store:|cover:status|cover:|splash:status|splash:|standbyscreen:status|standbyscreen:|homestub:status|homestub:|sysbus:status|sysbus:|ssgw:status|ssgw:|mm:status|mm:)
     MAINTENANCE_ACCESS=read ;;
-  revert:|persist:off|compositor:off|homestub:escape|homestub:off|helper:stop|capture:stop|vplane:stop|sysbus:off|ssgw:off)
+  revert:|persist:off|compositor:off|homestub:escape|homestub:off|helper:stop|capture:stop|vplane:stop|sysbus:off|ssgw:off|mm:off)
     MAINTENANCE_ACCESS=emergency ;;
 esac
 maintenance_guard || exit 1
@@ -3716,6 +3750,7 @@ case "$VERB" in
   updateblock) verb_updateblock "${2:-status}"; exit $? ;;
   sysbus) shift; verb_sysbus "$@"; exit $? ;;
   ssgw) shift; verb_ssgw "$@"; exit $? ;;
+  mm) shift; verb_mm "$@"; exit $? ;;
   lgextras) verb_lgextras "${2:-status}"; exit $? ;;
   openapps) verb_openapps "${2:-status}"; exit $? ;;
   standbyscreen) verb_standbyscreen "${2:-status}"; exit $? ;;

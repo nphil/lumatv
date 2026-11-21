@@ -52,7 +52,7 @@ utp.dvr, utp.channel.
 |---|---|---|---|
 | `setRequiredMemory` | SAM before every launch, relaunch and preload (seen); `multiviewcontroller`, with its own wait timeout (static) | `{appId, requiredMemory (0; 160 for the browser), appType, defaultWindowType, containerBasedApp, relaunch, windowGroup, windowGroupOwner(Id), preload?}` → `{"returnValue":true}` in 0.4–4.4 ms; the freeing happens afterwards | Reply at once; the launch goes to the engine |
 | `getCurrentMemState` | WAM every 5 s (seen); `gibbs`/`gibbips`, the ATSC 3.0 NRT controllers (static) | `{}` → `{currentLevel, usable, prevLevel}` (`normal`, 837 MB) | Level from the kernel's usable pages |
-| `getCustomThreshold` | preloadmanager before each preload (seen) | `{appId, threshold:"100"\|"40", subscribe:true}` → `{subscribed, threshold, current}` (`current` = usable MB) or errorCode 9 "get custom threshold blocked" (Live TV preload) | Same shape; blocked for Live TV [inference: the rule was not read] |
+| `getCustomThreshold` | preloadmanager before each preload (seen) | `{appId, threshold:"100"\|"40", subscribe:true}` → `{subscribed, threshold, current}` (`current` = usable MB) or errorCode 9 "get custom threshold blocked" (Live TV preload) | Same shape; blocked while the preload status is `limit` (an `EfsTarget` app in front) |
 | `getEFS` | emmcd (live subscription), the browser and Chromium `libcbe.so` (seen, static) | `{subscribe:true}` → `{EfsInfo:{activate:false, type:"dynamic", target:true}, HibernationInfo:{activate:true}}` | Fixed reply, both off |
 | `getCloseAppId` | appcasting app `{appType:"web", subscribe:true}`, `gibbs`, `multiviewcontroller` (static) | `{}` → errorCode 4 "Invalid Parameters Error"; pushes `{id}` of an app being closed [inference] | Push before each close |
 | `getUnitList` | `libSDL2` (`usable_memory`), the HbbTV WAM plugin, `make_oominfo.sh` and `re` (`{"procList":N}`, diagnostics) | `{usable_memory, F2IO_Stat, swapUsed, vmallocInfo, unitList:[…]}` | `usable_memory`, `swapUsed`, apps |
@@ -232,18 +232,23 @@ its own.
   process, so the pid, unit and role stay LG's and the name is back within one memchute start. Triggers: no helper within 20 s
   of start, the bridge gone for 10 s, two missed heartbeats (5 s apart), or a name it cannot register. The shim's own crash
   restarts it through `Restart=on-failure`; an unfinished-run marker counts it, and after three failures in 10 minutes the shim
-  execs LG's at start until the next boot or Try again.
-- The helper watches the shim: a shim that stops answering pings is killed (SIGKILL) and comes back through systemd.
-- Escape: `lumatv mm off`, which also works with the helper stopped.
-- A switch in Settings (helper.json `appPriority.memoryManager`), off until accepted on the set.
+  writes `gave-up` with the boot id and execs LG's at every start of that boot, until the next boot or `lumatv mm on` (Try again).
+- The helper watches the shim: a shim that stops answering pings for 15 s is killed (SIGKILL) and comes back through systemd.
+  While the switch is on and LG's serves after a fallback, the helper runs `mm.sh on --auto` once Home is in front and the link
+  has been gone 30 s, at most every minute doubling to ten, never after a give-up of this boot.
+- The helper's stop sends `bye`: the shim then waits 60 s for it instead of 10 and hands back without counting a failure, so
+  installs and helper restarts are not crashes.
+- Escape: `lumatv mm off`, which also works with the helper stopped; the escape's stock-UI restoration runs it too.
+- The switch is the `enabled` marker (`lumatv mm on|off`), off until accepted on the set; no Settings row yet. Its state, the
+  last record and the give-up are in `GET /v1/state/app_priority` under `memoryManager`.
 
 ### Crash records and alert
 
 As `ssgw`: each crash or fallback writes `/var/lib/lumatv/mm/crash/<time>-<n>/` with `reason.txt` (exit status, signal,
 "stopped answering", or the fallback trigger), the shim's last 300 log lines, the level and usable MB at the time, and the last
 20 calls (method and caller, no payloads); the newest 8 are kept and `pending` marks an unread one. The helper sends one Home
-Assistant notification per crash through the saved link, naming the reason, that LG's memchute is serving, and when the next try
-is; giving up after three sends one more. The settings page shows the record until it is read.
+Assistant notification per crash through the saved link and helper.json's `appPriority.notify` service (ssgw's phone by
+default), naming the reason, that LG's memchute is serving, and whether LumaTV's tries again or gave up until the next boot.
 
 ### Host tests (each under a second, fake clocks)
 
@@ -296,7 +301,7 @@ of tests; `tools/mm.sh` 200 and 150 of tests; supervision, records and notificat
 - The hub delivering a held `setRequiredMemory` once the name registers again.
 - `systemctl restart memchute.service` taking `memchute-ready` and `preload-manager` with it.
 - Bind-mounting over `/usr/sbin/memchute` and registering the name from the shim with LG's role.
-- The `getCustomThreshold` block rule, `getCloseAppId` pushes and what WAM does on `thresholdChanged` and `clearContainers`.
+- `getCloseAppId` pushes and what WAM does on `thresholdChanged` and `clearContainers`.
 - SAM's behaviour with a `setRequiredMemory` reply that takes seconds (only the code path was read).
 
 ## Sources

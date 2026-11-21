@@ -28,26 +28,32 @@
 //! audio daemons, the compositor, this helper), processes owned by root, apps with no memory group of their own, and LumaTV's own
 //! apps (`org.nphil.`, the brand's): a LumaGame stream behind Home still has to answer its keepalives.
 //!
-//! **memchute.** LG's memory manager runs beside this one; what the policy does only so as not to fight it (the apps it keeps are
-//! never frozen or closed, its swappiness is left alone) is in [`memchute`] alone, to be dropped when this policy takes its jobs over.
+//! **memchute.** While LG's memory manager serves (stock mode), what the policy does only so as not to fight it (the apps it keeps
+//! are never frozen or closed, its swappiness is left alone) is in [`memchute`]. While LumaTV's shim serves its name instead (`mm`,
+//! switched on with `lumatv mm on`), the engine does memchute's jobs too ([`manager`]): LG's background apps (and AirPlay) are ranked
+//! and closed after every third-party app but never frozen or demoted, and Home and memchute's keep lists are never closed.
 //!
 //! **Undo.** Every change is in a journal (`/run/lumatv-app-priority/state.json`) with the value it replaced; an app that comes back
-//! gets its values back at once, and the helper's stop, the off switch, a lost SAM subscription and the next start after a crash put
-//! back everything.
+//! gets its values back at once, and the helper's stop, the off switch, a lost SAM subscription, the return to stock mode and the
+//! next start after a crash put back everything.
 //!
-//! Topic `app_priority`: `{enabled, front, apps: [{id, state, adj, background, frozen, softLimit}], pressure, closed}`.
+//! Topic `app_priority`: `{enabled, front, apps: [{id, state, adj, background, frozen, softLimit}], pressure, closed, memoryManager}`;
+//! `memoryManager` is `{serving: "lg" | "lumatv", level, usableMB, preload, admitting}` with the link's `{switch, crash, gaveUp}`.
 //!
 //! Game mode ([`game`]) sits on top: while a native game is in front it closes and reclaims what the policy would only demote.
 
 pub mod game;
+pub mod levels;
 pub mod lg;
+pub mod manager;
 pub mod memchute;
+pub mod mm;
 pub mod os;
 pub mod pressure;
 
 use crate::ctx::Ctx;
 use crate::luna::Follow;
-use lg::{Lg, Luna};
+use lg::{Lg, Luna, Running};
 use memchute::Memchute;
 use os::{Fs, Os, Pid};
 use pressure::{Reason, Verdict, Watch};
@@ -65,6 +71,10 @@ pub const TOPIC: &str = "app_priority";
 const JOURNAL: &str = "/run/lumatv-app-priority/state.json";
 const LG_PREFIXES: [&str; 3] = ["com.webos.", "com.lge.", "com.palm."];
 const OURS_PREFIX: &str = "org.nphil.";
+/// LG's apps without an LG prefix, in ours mode closed with LG's.
+const LG_APPS: [&str; 1] = ["airplay"];
+/// Home, never closed in ours mode even when no configuration layer names it.
+const HOME: &str = "com.webos.app.home";
 /// A cached app's soft limit: everything it holds is over it.
 const CACHED_SOFT_LIMIT: u64 = 0;
 
@@ -101,6 +111,8 @@ impl Default for Timing {
 enum Class {
     /// memchute keeps it: no freeze, no close.
     Kept,
+    /// LG's own, in ours mode: ranked and closed after every other cached app, never frozen or demoted.
+    Lg,
     Other,
 }
 
@@ -195,9 +207,13 @@ pub struct Engine {
     watch: Watch,
     victim: Option<(String, Instant)>,
     quiet_until: Option<Instant>,
-    closes: VecDeque<(Instant, String, &'static str)>,
+    closes: VecDeque<Closed>,
     trimming: Arc<AtomicBool>,
     game: game::Game,
+    /// SAM's running apps with their processes and types.
+    sam: Vec<Running>,
+    /// Set while LumaTV's memory manager serves memchute's name.
+    mm: Option<manager::Manager>,
 }
 
 impl Engine {
@@ -233,16 +249,34 @@ impl Engine {
             victim: None,
             quiet_until: None,
             closes: VecDeque::new(),
+            sam: Vec::new(),
+            mm: None,
             trimming: Arc::new(AtomicBool::new(false)),
             game: game::Game::new(),
         }
     }
 
     fn class(&self, app: &str) -> Option<Class> {
-        if LG_PREFIXES.iter().any(|p| app.starts_with(p)) || app.starts_with(OURS_PREFIX) || self.ours.iter().any(|o| o == app) {
+        if app.starts_with(OURS_PREFIX) || self.ours.iter().any(|o| o == app) {
+            return None;
+        }
+        let lg = LG_PREFIXES.iter().any(|p| app.starts_with(p));
+        let memchute = self.memchute.as_ref();
+        if self.mm.is_none() {
+            return if lg {
+                None
+            } else if memchute.is_some_and(|m| m.keeps(app)) {
+                Some(Class::Kept)
+            } else {
+                Some(Class::Other)
+            };
+        }
+        if app == HOME || memchute.is_some_and(|m| m.home(app)) {
             None
-        } else if self.memchute.as_ref().is_some_and(|m| m.keeps(app)) {
-            Some(Class::Kept)
+        } else if memchute.is_some_and(|m| m.keeps_ours(app)) {
+            (!lg).then_some(Class::Kept)
+        } else if lg || LG_APPS.contains(&app) {
+            Some(Class::Lg)
         } else {
             Some(Class::Other)
         }
@@ -251,7 +285,9 @@ impl Engine {
     /// SAM's list and the pipelines, asked again; an answer that does not come keeps the last.
     pub fn refresh(&mut self, now: Instant) {
         if let Some(running) = self.lg.running() {
-            self.running = running;
+            self.running = running.iter().map(|r| r.id.clone()).collect();
+            self.sam = running;
+            self.mm_groups();
         }
         self.playing = self.lg.playing();
         self.refreshed = Some(now);
@@ -266,6 +302,7 @@ impl Engine {
         }
         self.front = Some(ids);
         self.reconcile(now);
+        self.mm_gate();
         self.game_check(now);
     }
 
@@ -338,7 +375,7 @@ impl Engine {
             }
         }
         for (app, band) in &bands {
-            let Some(class) = self.class(app) else { continue };
+            let Some(class) = self.class(app).filter(|c| *c != Class::Lg) else { continue };
             let mut held = self.held.remove(app).unwrap_or_default();
             let cached = matches!(band, Band::Cached(_));
             let freeze = cached
@@ -352,6 +389,7 @@ impl Engine {
                 self.held.insert(app.clone(), held);
             }
         }
+        self.mm_swappiness(now);
         self.save();
     }
 
@@ -416,21 +454,23 @@ impl Engine {
         }
     }
 
-    /// Whether some cached app could be reclaimed or closed, which is what sampling the pressure is for.
+    /// Whether some cached app could be reclaimed or closed, which is what sampling the pressure is for: the oldest first, and in
+    /// ours mode LG's after every other.
     fn closable(&self, bands: &BTreeMap<String, Band>) -> Vec<String> {
-        let mut apps: Vec<(u16, u64, String)> = bands
+        let mut apps: Vec<(bool, u16, u64, String)> = bands
             .iter()
-            .filter_map(|(app, band)| match band {
-                Band::Cached(rank) if self.class(app) == Some(Class::Other) => Some((*rank, self.os.usage(app), app.clone())),
+            .filter_map(|(app, band)| match (band, self.class(app)) {
+                (Band::Cached(rank), Some(c @ (Class::Other | Class::Lg))) => Some((c == Class::Lg, *rank, self.os.usage(app), app.clone())),
                 _ => None,
             })
             .collect();
-        apps.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
-        apps.into_iter().map(|(_, _, app)| app).collect()
+        apps.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)).then(b.2.cmp(&a.2)));
+        apps.into_iter().map(|(_, _, _, app)| app).collect()
     }
 
     /// The timers: SAM asked again, freezes that are due, and a pressure sample while something could be closed.
     pub fn tick(&mut self, now: Instant) {
+        self.mm_tick(now);
         if self.front.is_none() {
             return;
         }
@@ -493,13 +533,15 @@ impl Engine {
 
     /// Closes the oldest cached app when the limits allow; `false` when nothing was closed.
     fn close(&mut self, reason: Reason, now: Instant) -> bool {
-        while self.closes.front().is_some_and(|c| now.saturating_duration_since(c.0) >= Duration::from_secs(60)) {
+        while self.closes.front().is_some_and(|c| now.saturating_duration_since(c.at) >= Duration::from_secs(60)) {
             self.closes.pop_front();
         }
         let stall = reason == Reason::Stall;
+        // Launch admissions close on their own schedule and are not held to the cap.
         if self.victim.is_some()
+            || self.mm_admitting()
             || self.quiet_until.is_some_and(|t| now < t)
-            || self.closes.len() >= self.timing.closes_per_minute
+            || self.closes.iter().filter(|c| !c.launch).count() >= self.timing.closes_per_minute
             || (!stall && (self.watch.streak < 2 || self.trimming.load(Ordering::Relaxed)))
         {
             return false;
@@ -509,33 +551,48 @@ impl Engine {
         let Some(app) = self.closable(&self.bands(now)).into_iter().next() else {
             return false;
         };
-        if let Some(held) = self.held.get_mut(&app).filter(|h| h.frozen) {
-            if self.os.set_freezer(&app, "THAWED").is_ok() {
-                held.frozen = false;
-            }
-        }
-        if !self.lg.close(&app) {
-            crate::log_warn!("app priority: SAM did not close {app}");
+        if !self.close_app(&app, reason.text(), false, now) {
             self.quiet_until = Some(now + self.timing.close_wait);
             return false;
         }
-        crate::log_warn!("app priority: closed {app} ({})", reason.text());
+        self.mm_cleared();
         self.watch.closed(reason);
         self.victim = Some((app.clone(), now));
-        self.closes.push_back((now, app.clone(), reason.text()));
         let lg = self.lg.clone();
         (self.run)(Box::new(move || {
             let title = lg.title(&app).unwrap_or(app);
             lg.toast(&format!("Closed {title} to free memory for the app on screen"));
         }));
+        true
+    }
+
+    /// Closes one app through SAM, thawed first; in ours mode WAM hears of it before.
+    fn close_app(&mut self, app: &str, why: &str, launch: bool, now: Instant) -> bool {
+        if let Some(held) = self.held.get_mut(app).filter(|h| h.frozen) {
+            if self.os.set_freezer(app, "THAWED").is_ok() {
+                held.frozen = false;
+            }
+        }
+        self.mm_closing(app);
+        if !self.lg.close(app) {
+            crate::log_warn!("app priority: SAM did not close {app}");
+            return false;
+        }
+        crate::log_warn!("app priority: closed {app} ({why})");
+        self.closes.push_back(Closed { at: now, app: app.to_owned(), why: why.to_owned(), launch });
         self.save();
         true
     }
 
     /// When the policy next has something to do on its own.
     pub fn next(&self, now: Instant) -> Option<Instant> {
-        self.front.as_ref()?;
-        let mut next: Option<Instant> = self.game_next(now);
+        let mut next: Option<Instant> = self.mm_next(now);
+        if self.front.is_none() {
+            return next.map(|t| t.max(now));
+        }
+        if let Some(t) = self.game_next(now) {
+            next = Some(next.map_or(t, |n| n.min(t)));
+        }
         let bands = self.bands(now);
         let mut at = |t: Instant| next = Some(next.map_or(t, |n| n.min(t)));
         for (app, band) in &bands {
@@ -607,7 +664,8 @@ impl Engine {
             "front": self.front,
             "apps": apps,
             "pressure": {"episode": self.watch.episode, "someMs": self.watch.some_ms, "fullMs": self.watch.full_ms, "thrashing": self.watch.thrashing},
-            "closed": self.closes.iter().map(|(_, app, why)| json!({"id": app, "reason": why})).collect::<Vec<_>>(),
+            "closed": self.closes.iter().map(|c| json!({"id": c.app, "reason": c.why})).collect::<Vec<_>>(),
+            "memoryManager": self.mm_status(),
         })
     }
 }
@@ -648,16 +706,31 @@ pub fn recover(os: &dyn Os, journal: &Path) {
     let _ = os.drop_background();
 }
 
+/// A close, for the status and the cap.
+struct Closed {
+    at: Instant,
+    app: String,
+    why: String,
+    /// For a launch's admission, which the cap does not count.
+    launch: bool,
+}
+
 pub(crate) enum Msg {
     Front(Vec<String>),
     Life(String, String),
     /// The API's game mode request, answered with game mode's status.
     Game(bool, String, mpsc::Sender<Value>),
+    /// LumaTV's shim serves memchute's name.
+    MmUp(Arc<dyn manager::Shim>),
+    /// It no longer does: LG's memchute serves, or the link broke.
+    MmDown(String),
+    /// `setRequiredMemory`'s payload, already answered by the shim.
+    Launch(Value),
     Stop,
 }
 
 /// Puts back an earlier run's changes and, unless switched off, starts the policy's thread.
-pub fn spawn(ctx: &Ctx, remote: Arc<game::Remote>) -> std::io::Result<JoinHandle<()>> {
+pub fn spawn(ctx: &Ctx, remote: Arc<game::Remote>, policy: ha_link::AddressPolicy) -> std::io::Result<JoinHandle<()>> {
     let os: Arc<dyn Os> = Arc::new(Fs::lg());
     recover(&*os, Path::new(JOURNAL));
     let ctx = ctx.clone();
@@ -666,7 +739,7 @@ pub fn spawn(ctx: &Ctx, remote: Arc<game::Remote>) -> std::io::Result<JoinHandle
         .stack_size(256 * 1024)
         .spawn(move || {
             if ctx.config.app_priority.enabled {
-                run(&ctx, os, &remote);
+                run(&ctx, os, &remote, policy);
             } else {
                 ctx.hub.set(TOPIC, json!({"enabled": false}));
                 // Game mode is part of the policy: off with it.
@@ -675,7 +748,7 @@ pub fn spawn(ctx: &Ctx, remote: Arc<game::Remote>) -> std::io::Result<JoinHandle
         })
 }
 
-fn run(ctx: &Ctx, os: Arc<dyn Os>, remote: &game::Remote) {
+fn run(ctx: &Ctx, os: Arc<dyn Os>, remote: &game::Remote, policy: ha_link::AddressPolicy) {
     let (tx, rx) = mpsc::channel();
     {
         let tx = tx.clone();
@@ -695,6 +768,7 @@ fn run(ctx: &Ctx, os: Arc<dyn Os>, remote: &game::Remote) {
     let mut engine = Engine::new(os, lg, Timing::default(), memchute, ours, Some(PathBuf::from(JOURNAL)), run, Instant::now());
     engine.set_game(game::theme_switch(ctx.paths.theme_file()), &game::FEEDS);
     remote.attach(Some(tx.clone()));
+    let link = mm::Link::spawn(ctx, tx.clone(), policy);
     let mut follows: Vec<Follow> = Vec::new();
     let mut retry_at: Option<Instant> = None;
     loop {
@@ -726,14 +800,21 @@ fn run(ctx: &Ctx, os: Arc<dyn Os>, remote: &game::Remote) {
             Ok(Msg::Game(on, app, reply)) => {
                 let _ = reply.send(engine.game_request(on, &app, Instant::now()));
             }
+            Ok(Msg::MmUp(shim)) => engine.take_over(shim, Instant::now()),
+            Ok(Msg::MmDown(why)) => engine.give_back(&why),
+            Ok(Msg::Launch(request)) => engine.launch(&request, Instant::now()),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
         let now = Instant::now();
         engine.tick(now);
-        ctx.hub.set_ignoring(TOPIC, engine.status(now), &["pressure"]);
+        let mut status = engine.status(now);
+        link.annotate(&mut status);
+        ctx.hub.set_ignoring(TOPIC, status, &["pressure"]);
         ctx.hub.set(game::TOPIC, engine.game_status());
     }
     remote.attach(None);
+    // The shim answers alone from the last state and gives the name back if the helper does not return within its grace.
+    link.stop();
     drop(follows);
     engine.game_exit("stop");
     engine.restore_all("helper stop");

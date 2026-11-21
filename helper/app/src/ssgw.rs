@@ -58,7 +58,7 @@ pub const OPT_IN: OptIn = OptIn {
 };
 
 const NOTIFY: &str = "notify.service";
-const NOTIFY_DEFAULT: &str = "notify.mobile_app_nitins_iphone";
+pub(crate) const NOTIFY_DEFAULT: &str = "notify.mobile_app_nitins_iphone";
 const ACK: &str = "ack";
 const RETRY: &str = "retry";
 const FORGET: &str = "forget";
@@ -537,16 +537,16 @@ struct Running {
     as_root: bool,
 }
 
-/// A crash as the page shows it until it is marked read.
+/// A crash as the page shows it until it is marked read. The memory manager's link reads its shim's records the same way.
 #[derive(Clone, Debug, PartialEq)]
-struct Notice {
-    line: String,
-    error: String,
-    place: String,
+pub(crate) struct Notice {
+    pub(crate) line: String,
+    pub(crate) error: String,
+    pub(crate) place: String,
 }
 
 /// The crash whose notice waits to be read (`pending` names its record).
-fn pending(crash: &Path) -> Option<Notice> {
+pub(crate) fn pending(crash: &Path) -> Option<Notice> {
     let name = std::fs::read_to_string(crash.join("pending")).ok()?.trim().to_owned();
     if name.is_empty() || name.contains('/') || name.contains("..") {
         return None;
@@ -1111,7 +1111,7 @@ impl Gateway {
 }
 
 /// One notification through Home Assistant's `notify` service `service` (`notify.<name>`), over the TV's saved link.
-fn notify(links: &[PathBuf], config: &Config, policy: AddressPolicy, service: &str, title: &str, message: &str) -> Result<(), String> {
+pub(crate) fn notify(links: &[PathBuf], config: &Config, policy: AddressPolicy, service: &str, title: &str, message: &str) -> Result<(), String> {
     let name = service
         .strip_prefix("notify.")
         .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'))

@@ -299,6 +299,7 @@ impl Engine {
                     held.frozen = false;
                 }
             }
+            self.mm_closing(a);
             if !self.lg.close(a) {
                 let why = format!("SAM did not close {a}");
                 crate::log_warn!("game mode: {why}");
@@ -310,6 +311,7 @@ impl Engine {
         }
         if !apps.is_empty() {
             note = format!("closed {}", apps.join(", "));
+            self.mm_cleared();
             let (lg, names) = (self.lg.clone(), apps.clone());
             (self.run)(Box::new(move || {
                 let titles: Vec<String> = names.into_iter().map(|a| lg.title(&a).unwrap_or(a)).collect();

@@ -283,11 +283,13 @@ impl Default for DisplayLabConfig {
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct AppPriorityConfig {
     pub enabled: bool,
+    /// The Home Assistant notify service told when LumaTV's memory manager hands back to LG's (`app_priority/mm.rs`); empty: nobody.
+    pub notify: String,
 }
 
 impl Default for AppPriorityConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self { enabled: true, notify: crate::ssgw::NOTIFY_DEFAULT.to_owned() }
     }
 }
 

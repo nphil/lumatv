@@ -98,6 +98,11 @@ if [ "$1" = "--worker" ]; then
   if [ -x "$APPDIR/tools/ssgw.sh" ]; then
     ( maintenance_clear || exit 0; sg=$(timeout 20 "$APPDIR/tools/ssgw.sh" early </dev/null 2>&1); log "ssgw early: $(echo "$sg" | tr -d '\n' | cut -c1-300)" ) &
   fi
+  # LumaTV's memory manager (tools/mm.sh): binds the shim over LG's memchute again when `lumatv mm on` holds, since a boot puts LG's
+  # binary back, and restarts LG's unit on it. The shim hands back to LG's on its own when the helper does not link up. Bounded.
+  if [ -x "$APPDIR/tools/mm.sh" ]; then
+    ( maintenance_clear || exit 0; mm=$(timeout 40 "$APPDIR/tools/mm.sh" early </dev/null 2>&1); log "mm early: $(echo "$mm" | tr -d '\n' | cut -c1-300)" ) &
+  fi
   # The logo check's frames (tools/bootcap.sh): `echo <seconds> > $STATE/bootcap` before a reboot.
   # One boot only, and detached like everything else here.
   if [ -f "$STATE/bootcap" ] && [ -x "$APPDIR/tools/bootcap.sh" ]; then

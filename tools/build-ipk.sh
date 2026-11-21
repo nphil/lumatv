@@ -61,6 +61,7 @@ tools/declutter.sh
 tools/sysbus.sh
 tools/sysbus_fix.py
 tools/ssgw.sh
+tools/mm.sh
 payload/declutter/items.txt
 payload/declutter/groups.txt
 payload/declutter/dc.py
@@ -108,6 +109,7 @@ helper/dist/lumatv-helper
 helper/dist/beszel-native
 helper/dist/ssgw
 helper/dist/ssgw-accept
+helper/mm/build/arm/lumatv-mm
 helper/dist/plugins/home-assistant/plugin.json
 helper/dist/plugins/home-assistant/bin/home-assistant
 ambient/capture/build/arm/lumatv-capture
@@ -178,6 +180,12 @@ if [ -n "$MISSING" ]; then
         *ambient/capture/build/arm/lumatv-capture*)
             # Git-ignored like the helper; without it the ambient light would have no picture and say nothing.
             echo "The 32-bit colour reader is built by ambient/capture/build.sh; this package is not built without it." >&2
+            ;;
+    esac
+    case "$MISSING" in
+        *helper/mm/build/arm/lumatv-mm*)
+            # Git-ignored like the helper; without it `lumatv mm on` has no shim to bind and LG's memory manager stays.
+            echo "The memory manager's 32-bit shim is built by helper/mm/build.sh; this package is not built without it." >&2
             ;;
     esac
     case "$MISSING" in
@@ -355,6 +363,8 @@ cp tools/sysbus.sh tools/sysbus_fix.py "$DATA_ROOT/tools/"
 chmod 755 "$DATA_ROOT/tools/sysbus.sh"
 cp tools/ssgw.sh "$DATA_ROOT/tools/"
 chmod 755 "$DATA_ROOT/tools/ssgw.sh"
+cp tools/mm.sh "$DATA_ROOT/tools/"
+chmod 755 "$DATA_ROOT/tools/mm.sh"
 mkdir -p "$DATA_ROOT/payload/helper"
 cp helper/dist/lumatv-helper "$DATA_ROOT/payload/helper/"
 chmod 755 "$DATA_ROOT/payload/helper/lumatv-helper"
@@ -382,6 +392,11 @@ chmod 755 "$DATA_ROOT/payload/beszel/beszel-native" "$DATA_ROOT/payload/beszel/b
 mkdir -p "$DATA_ROOT/payload/ssgw"
 cp helper/dist/ssgw helper/dist/ssgw-accept "$DATA_ROOT/payload/ssgw/"
 chmod 755 "$DATA_ROOT/payload/ssgw/ssgw" "$DATA_ROOT/payload/ssgw/ssgw-accept"
+# The memory manager's shim (32-bit, like LG's memchute it stands in for): `lumatv` stages it; tools/mm.sh binds it over LG's binary
+# only while `lumatv mm on` holds.
+mkdir -p "$DATA_ROOT/payload/mm"
+cp helper/mm/build/arm/lumatv-mm "$DATA_ROOT/payload/mm/"
+chmod 755 "$DATA_ROOT/payload/mm/lumatv-mm"
 # The art saver's video-plane player (32-bit, like LG's media library) with its clips, the LS2 role it needs and the script that
 # installs them. Nothing here installs the role: it is a permission for a new program, so only the owner's `lumatv vplane install` writes it.
 mkdir -p "$DATA_ROOT/payload/vplane/clips"

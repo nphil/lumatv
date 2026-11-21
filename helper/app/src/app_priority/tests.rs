@@ -25,6 +25,11 @@ struct World {
     available_kb: u64,
     vm: Vec<String>,
     vm_fails: bool,
+    usable: u64,
+    groups: BTreeSet<String>,
+    attached: Vec<(String, i32)>,
+    swappiness: BTreeMap<String, u32>,
+    trims: usize,
 }
 
 #[derive(Default)]
@@ -97,11 +102,42 @@ impl Os for FakeOs {
         w.available_kb += if name == "drop_caches" { 100 * 1024 } else { 10 * 1024 };
         Ok(())
     }
+    fn usable_pages(&self) -> Option<u64> {
+        Some(self.0.lock().usable)
+    }
+    fn group_pids(&self, app: &str) -> Option<Vec<i32>> {
+        self.0.lock().procs.get(app).map(|p| p.iter().map(|p| p.pid).collect())
+    }
+    fn make_groups(&self, app: &str) -> std::io::Result<()> {
+        self.0.lock().groups.insert(app.to_owned());
+        Ok(())
+    }
+    fn attach(&self, app: &str, pid: i32) -> std::io::Result<bool> {
+        let mut w = self.0.lock();
+        let entry = (app.to_owned(), pid);
+        let new = !w.attached.contains(&entry);
+        if new {
+            w.attached.push(entry);
+        }
+        Ok(new)
+    }
+    fn remove_groups(&self, app: &str) {
+        self.0.lock().groups.remove(app);
+    }
+    fn set_swappiness(&self, app: &str, value: u32) -> std::io::Result<()> {
+        self.0.lock().swappiness.insert(app.to_owned(), value);
+        Ok(())
+    }
+    fn systrim(&self) -> usize {
+        self.0.lock().trims += 1;
+        1
+    }
 }
 
 #[derive(Default)]
 struct Sam {
     running: Vec<String>,
+    pids: BTreeMap<String, Vec<i32>>,
     playing: BTreeSet<String>,
     closed: Vec<String>,
     close_fails: bool,
@@ -113,8 +149,10 @@ struct Sam {
 struct FakeLg(Mutex<Sam>);
 
 impl Lg for FakeLg {
-    fn running(&self) -> Option<Vec<String>> {
-        Some(self.0.lock().running.clone())
+    fn running(&self) -> Option<Vec<Running>> {
+        let sam = self.0.lock();
+        let pids = |id: &str| sam.pids.get(id).cloned().unwrap_or_default();
+        Some(sam.running.iter().map(|id| Running { id: id.clone(), pids: pids(id), app_type: "native".into() }).collect())
     }
     fn playing(&self) -> Option<BTreeSet<String>> {
         let sam = self.0.lock();
@@ -166,7 +204,11 @@ fn rig(timing: Timing) -> Rig {
         w.sample = Sample { swap_total_kb: 600_000, swap_free_kb: 400_000, free_pages: 20_000, high_wmark_pages: 8_000, file_lru_pages: 100_000, ..Sample::default() };
     }
     let lg = Arc::new(FakeLg::default());
-    lg.0.lock().running = APPS.iter().map(|(a, _)| (*a).to_owned()).collect();
+    {
+        let mut sam = lg.0.lock();
+        sam.running = APPS.iter().map(|(a, _)| (*a).to_owned()).collect();
+        sam.pids = APPS.iter().map(|(a, pid)| ((*a).to_owned(), vec![*pid])).collect();
+    }
     let dir = tempfile::tempdir().unwrap();
     let journal = dir.path().join("state.json");
     let t0 = Instant::now();
@@ -556,5 +598,179 @@ mod game_mode {
             work();
         }
         assert!(g.r.os.0.lock().reclaimed.is_empty() && g.r.os.0.lock().vm.is_empty());
+    }
+}
+
+mod ours {
+    use super::*;
+    use crate::app_priority::levels::PAGES_PER_MB as MB;
+    use crate::app_priority::manager::Shim;
+    use crate::app_priority::memchute::with;
+
+    const LIVETV: &str = "com.webos.app.livetv";
+    const YOUTUBE: &str = "youtube.leanback.v4";
+
+    #[derive(Default)]
+    struct FakeShim(Mutex<Vec<Value>>);
+
+    impl Shim for FakeShim {
+        fn send(&self, message: Value) {
+            self.0.lock().push(message);
+        }
+    }
+
+    impl FakeShim {
+        fn kinds(&self, kind: &str) -> Vec<Value> {
+            self.0.lock().iter().filter(|m| m["kind"] == kind).cloned().collect()
+        }
+        fn signals(&self, name: &str) -> Vec<Value> {
+            self.kinds("signal").into_iter().filter(|m| m["name"] == name).map(|m| m["payload"].clone()).collect()
+        }
+    }
+
+    struct Ours {
+        r: Rig,
+        shim: Arc<FakeShim>,
+    }
+
+    impl Ours {
+        fn usable_at(&mut self, secs: f64, mb: u64) {
+            self.r.os.0.lock().usable = mb * MB;
+            self.r.at(secs);
+        }
+    }
+
+    /// The rig with Live TV running behind, 400 MB usable and LumaTV's memory manager serving from 2.5 s.
+    fn ours() -> Ours {
+        let mut r = rig(Timing::default());
+        {
+            let mut w = r.os.0.lock();
+            w.procs.insert(LIVETV.into(), vec![Pid { pid: 700, start: 1 }]);
+            w.oom.insert(700, -1000);
+            w.freezer.insert(LIVETV.into(), "THAWED".into());
+            w.usable = 400 * MB;
+        }
+        {
+            let mut sam = r.lg.0.lock();
+            sam.running.push(LIVETV.into());
+            sam.pids.insert(LIVETV.into(), vec![700]);
+        }
+        r.engine.memchute = Some(with(&[("KeepAlive", &[NETFLIX]), ("EfsTarget", &[YOUTUBE])]));
+        let shim = Arc::new(FakeShim::default());
+        r.engine.take_over(shim.clone(), r.t0 + s(2.5));
+        Ours { r, shim }
+    }
+
+    #[test]
+    fn a_launch_closes_third_party_apps_oldest_first_then_lgs_until_its_memory_is_free() {
+        let mut o = ours();
+        o.r.os.0.lock().usable = 100 * MB;
+        let t = o.r.t0 + s(3.0);
+        o.r.engine.launch(&json!({"appId": "com.example.browser", "requiredMemory": 160}), t);
+        // One at a time: the next waits for the last one's processes.
+        assert_eq!(o.r.lg.0.lock().closed, vec![PLEX]);
+        o.r.engine.tick(t + s(0.05));
+        assert_eq!(o.r.lg.0.lock().closed, vec![PLEX]);
+        for i in 1..=10 {
+            {
+                let mut w = o.r.os.0.lock();
+                for app in o.r.lg.0.lock().closed.iter() {
+                    if w.procs.remove(app).is_some() {
+                        w.usable += 70 * MB;
+                    }
+                }
+            }
+            o.r.engine.tick(t + s(0.1 * f64::from(i)));
+        }
+        // 160 + 120 MB was met after Live TV; Netflix (kept), Home, LumaGame and the game in front stay.
+        assert_eq!(o.r.lg.0.lock().closed, vec![PLEX, TWITCH, LIVETV]);
+        let closing: Vec<Value> = o.shim.kinds("closing").iter().map(|m| m["id"].clone()).collect();
+        assert_eq!(closing, vec![json!(PLEX), json!(TWITCH), json!(LIVETV)]);
+        assert_eq!(o.shim.signals("clearContainers").len(), 1);
+        assert_eq!(o.r.lg.0.lock().toasts, vec![format!("Closed Plex, {TWITCH}, {LIVETV} to free memory for the app starting")]);
+    }
+
+    #[test]
+    fn a_preload_or_a_launch_with_room_closes_nothing() {
+        let mut o = ours();
+        o.r.os.0.lock().usable = 100 * MB;
+        o.r.engine.launch(&json!({"appId": YOUTUBE, "requiredMemory": 0, "preload": "semi-full"}), o.r.t0 + s(3.0));
+        o.r.os.0.lock().usable = 241 * MB;
+        o.r.engine.launch(&json!({"appId": "com.example.browser", "requiredMemory": 0}), o.r.t0 + s(3.5));
+        o.r.at(4.0);
+        assert!(o.r.lg.0.lock().closed.is_empty());
+        assert!(o.r.os.0.lock().groups.contains(YOUTUBE));
+    }
+
+    #[test]
+    fn levels_are_signalled_on_change_and_each_worsening_asks_for_one_trim() {
+        let mut o = ours();
+        o.usable_at(4.0, 300);
+        o.usable_at(5.0, 240);
+        o.usable_at(6.0, 280);
+        o.usable_at(7.0, 190);
+        o.usable_at(8.0, 300);
+        let changes: Vec<Value> = o.shim.signals("thresholdChanged").iter().map(|p| p["current"].clone()).collect();
+        assert_eq!(changes, vec![json!("medium"), json!("low"), json!("normal")]);
+        assert_eq!(o.shim.signals("thresholdChanged")[0]["previous"], "normal");
+        assert_eq!(o.r.os.0.lock().trims, 2);
+        assert_eq!(o.shim.kinds("state").last().unwrap()["level"], "normal");
+    }
+
+    #[test]
+    fn groups_hold_sams_processes_and_swappiness_follows_the_screen() {
+        let mut o = ours();
+        {
+            let w = o.r.os.0.lock();
+            assert!(APPS.iter().all(|(a, _)| w.groups.contains(*a)) && w.groups.contains(LIVETV));
+            assert!(w.attached.contains(&(PLEX.into(), 100)));
+            assert_eq!((w.swappiness[GAME], w.swappiness[PLEX], w.swappiness[HOME]), (10, 100, 100));
+        }
+        o.r.engine.front(vec![PLEX.into()], o.r.t0 + s(3.0));
+        {
+            let w = o.r.os.0.lock();
+            assert_eq!((w.swappiness[GAME], w.swappiness[PLEX]), (100, 10));
+        }
+        // A process SAM names for two apps goes in neither; an app gone takes its groups with it.
+        {
+            let mut sam = o.r.lg.0.lock();
+            sam.pids.insert(TWITCH.into(), vec![200, 900]);
+            sam.pids.insert(GAME.into(), vec![600, 900]);
+            sam.running.retain(|a| a != LIVETV);
+        }
+        o.r.engine.refresh(o.r.t0 + s(4.0));
+        let w = o.r.os.0.lock();
+        assert!(!w.attached.iter().any(|(_, p)| *p == 900));
+        assert!(!w.groups.contains(LIVETV));
+    }
+
+    #[test]
+    fn takeover_adopts_frozen_cached_apps_thaws_the_rest_and_stock_puts_everything_back() {
+        let mut r = rig(Timing::default());
+        {
+            let mut w = r.os.0.lock();
+            w.freezer.insert(TWITCH.into(), "FROZEN".into());
+            w.freezer.insert(HOME.into(), "FROZEN".into());
+            w.usable = 400 * MB;
+        }
+        r.engine.take_over(Arc::new(FakeShim::default()), r.t0 + s(13.0));
+        assert_eq!(r.frozen(), vec![PLEX, TWITCH]);
+        assert!(r.engine.held[TWITCH].frozen);
+        r.engine.give_back("test");
+        assert!(!r.engine.ours());
+        r.assert_all_back();
+    }
+
+    #[test]
+    fn preloads_wait_while_an_efs_app_is_in_front_told_on_change_only() {
+        let mut o = ours();
+        let t = o.r.t0;
+        o.r.engine.front(vec![YOUTUBE.into()], t + s(3.0));
+        o.r.at(3.5);
+        assert_eq!(o.shim.kinds("state").last().unwrap()["limit"], true);
+        o.r.engine.front(vec![YOUTUBE.into(), PLEX.into()], t + s(4.0));
+        o.r.engine.front(vec![GAME.into()], t + s(5.0));
+        let statuses: Vec<Value> = o.shim.kinds("outbound").iter().map(|m| m["payload"]["status"].clone()).collect();
+        assert_eq!(statuses, vec![json!("start"), json!("limit"), json!("start")]);
     }
 }
