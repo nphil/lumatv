@@ -14,8 +14,12 @@
 //! client's connection, so a shell that is not running (LumaTV stopped, the Home-hold escape) leaves LG's saver as it always was.
 //!
 //! **A key.** Any key while it is up asks the TV to turn the screen on when LG's state is `Screen Saver` (or a preview), and ends the saver when
-//! it is the only one; the key does nothing else. **Standby** after `standbyHours` up (never a wake from standby: the panel is not left on a
-//! picture overnight, and it is not lit again by the saver).
+//! it is the only one; the key does nothing else. **Standby** after `standbyHours` up, counted from the last time anything was heard (never a
+//! wake from standby: the panel is not left on a picture overnight, and it is not lit again by the saver). **Sound** keeps the TV on: while
+//! the media server lists a pipeline of an app that holds an audio decoder or a sound output (`getActivePipelines`, asked every
+//! [`SOUND_MS`] while the saver is up, the same test as the helper's `app_priority`) the saver stays but the countdown starts again, so
+//! that music behind the saver is not cut. A paused player that keeps its decoder loaded counts as sound; an answer that does not come or
+//! is not a list is no information, and the countdown runs as if nothing sounded.
 //!
 //! The block's own timeline is here too, so that it is a model and a test: the spot, the shift, the dim, and the fade out and in at each move.
 
@@ -28,6 +32,10 @@ const LISTS: [&str; 2] = ["/power2", "/power"];
 const TAG_SUB: [u64; 2] = [0x5359_0010, 0x5359_0011];
 const TAG_WAKE: u64 = 0x5359_0020;
 const TAG_STANDBY: u64 = 0x5359_0021;
+const TAG_SOUND: u64 = 0x5359_0022;
+const PIPELINES: &str = "luna://com.webos.media/getActivePipelines";
+/// How often the media server is asked whether an app holds sound while the saver is up and a standby is waiting.
+pub const SOUND_MS: u64 = 30_000;
 /// The answers to tvpower's questions: one tag each, in a ring.
 const TAG_ANSWER: u64 = 0x5359_0100;
 const ANSWER_RING: u64 = 64;
@@ -103,6 +111,10 @@ pub struct Saver {
     next_move: u64,
     look_at: u64,
     standby_sent: bool,
+    /// When the media server last listed an app holding sound while the saver was up; the standby countdown runs from it.
+    sound_at: Option<u64>,
+    /// When the media server is next asked.
+    sound_poll_at: u64,
     screen: (f32, f32),
     block: (f32, f32),
     pointer: Option<(f32, f32)>,
@@ -117,6 +129,17 @@ pub struct Saver {
     panel_carry: bool,
     /// The dim's level as last looked at (every [`LOOK_MS`]), of the first brightness.
     level: f32,
+}
+
+/// Whether the media server's `getActivePipelines` lists an app holding an audio decoder (`ADEC`) or a sound output (`MAIN_SOUND`, `SUB_SOUND`):
+/// the helper's test for a perceptible app (`app_priority/lg.rs` `playing`). `None` when the answer is not a list (the call was refused).
+fn holds_sound(reply: &Value) -> Option<bool> {
+    Some(reply.as_array()?.iter().any(|p| {
+        p.get("currentAppId").and_then(Value::as_str).is_some_and(|id| !id.is_empty())
+            && p.get("resource").and_then(Value::as_array).is_some_and(|rs| {
+                rs.iter().filter_map(|r| r.get("resource")?.as_str()).any(|r| r == "ADEC" || r.ends_with("_SOUND"))
+            })
+    }))
 }
 
 impl Saver {
@@ -146,6 +169,8 @@ impl Saver {
             next_move: 0,
             look_at: 0,
             standby_sent: false,
+            sound_at: None,
+            sound_poll_at: 0,
             screen: (1920.0, 1080.0),
             block: (900.0, 540.0),
             pointer: None,
@@ -208,6 +233,16 @@ impl Saver {
     /// LG's own state is the saver's (a key must ask the TV to turn the screen on), or this is a preview.
     fn lg(&self) -> bool {
         self.power_state == "Screen Saver" || self.forced
+    }
+
+    /// The saver is up with a standby still to come (and the media server still to be asked about sound).
+    fn standby_waits(&self) -> bool {
+        self.up_since.is_some() && self.cfg.standby_ms > 0 && !self.standby_sent
+    }
+
+    /// Where the standby countdown starts: when the saver came up, or the last time an app held sound.
+    fn quiet_since(&self, up_since: u64) -> u64 {
+        up_since.max(self.sound_at.unwrap_or(0))
     }
 
     // ---- input ------------------------------------------------------------------------------------------------------------------
@@ -372,8 +407,14 @@ impl Saver {
         }
     }
 
-    /// An answer of tvpower: to a subscription (live, or refused), or a question on it (it has a timestamp).
+    /// An answer of tvpower: to a subscription (live, or refused), or a question on it (it has a timestamp); or the media server's pipelines.
     fn heard(&mut self, tag: u64, payload: &Value, now: u64, out: &mut Vec<Effect>) {
+        if tag == TAG_SOUND {
+            if holds_sound(payload) == Some(true) {
+                self.sound_at = Some(now);
+            }
+            return;
+        }
         let Some(i) = TAG_SUB.iter().position(|t| *t == tag) else {
             return;
         };
@@ -443,7 +484,11 @@ impl Saver {
         let Some(since) = self.up_since else {
             return;
         };
-        if self.cfg.standby_ms > 0 && !self.standby_sent && now.saturating_sub(since) >= self.cfg.standby_ms {
+        if self.standby_waits() && now >= self.sound_poll_at {
+            self.sound_poll_at = now + SOUND_MS;
+            out.push(Effect::Luna { tag: TAG_SOUND, uri: PIPELINES.into(), payload: json!({}), subscribe: false });
+        }
+        if self.standby_waits() && now.saturating_sub(self.quiet_since(since)) >= self.cfg.standby_ms {
             self.standby_sent = true;
             out.push(Effect::Luna { tag: TAG_STANDBY, uri: format!("{TVPOWER}/power/powerOff"), payload: json!({"reason": "remoteKey"}), subscribe: false });
         }
@@ -486,6 +531,8 @@ impl Saver {
             self.next_move = now + self.cfg.move_every_ms + u64::from(self.cfg.fade_ms);
             self.look_at = now + LOOK_MS;
             self.standby_sent = false;
+            self.sound_at = None;
+            self.sound_poll_at = now;
             self.pointer = None;
             self.redraw = true;
         } else if !up && self.up_since.is_some() {
@@ -507,9 +554,9 @@ impl Saver {
                 Phase::Out { at } => at,
             };
             due = [due, Some(next), Some(self.look_at)].into_iter().flatten().min();
-            if let (Some(since), false) = (self.up_since, self.standby_sent) {
-                if self.cfg.standby_ms > 0 {
-                    due = due.into_iter().chain([since + self.cfg.standby_ms]).min();
+            if self.standby_waits() {
+                if let Some(since) = self.up_since {
+                    due = due.into_iter().chain([self.quiet_since(since) + self.cfg.standby_ms, self.sound_poll_at]).min();
                 }
             }
         }
@@ -920,7 +967,7 @@ mod tests {
         let mut sent = 0;
         while now < NOW + 2 * 3_600_000 {
             now = s.due_at().unwrap().max(now);
-            for c in luna_calls(&s.update(&Input::Tick, now)) {
+            for c in luna_calls(&s.update(&Input::Tick, now)).into_iter().filter(|c| c.0 != TAG_SOUND) {
                 assert_eq!((c.1.as_str(), c.2.clone()), ("luna://com.webos.service.tvpower/power/powerOff", json!({"reason": "remoteKey"})));
                 assert!(now >= NOW + 3_600_000, "not before the hour");
                 sent += 1;
@@ -932,6 +979,43 @@ mod tests {
         home(&mut never, NOW);
         never.update(&helper("screen", json!({"state": "Screen Saver"})), NOW);
         assert!(luna_calls(&never.update(&Input::Tick, NOW + 9 * 3_600_000)).iter().all(|c| !c.1.ends_with("powerOff")), "0 hours is never");
+    }
+
+    #[test]
+    fn the_standby_waits_while_an_app_holds_sound_and_counts_the_hours_again_from_when_it_stops() {
+        const HOUR: u64 = 3_600_000;
+        let mut s = Saver::new(Config::from_theme(&json!({"screensaver": {"standbyHours": 1}}), false, 90), "c", 3);
+        home(&mut s, NOW);
+        for tag in TAG_SUB {
+            s.update(&Input::Luna { tag, payload: json!({"returnValue": true}) }, NOW);
+        }
+        s.update(&helper("screen", json!({"state": "Screen Saver"})), NOW);
+        let stops = NOW + 90 * 60_000;
+        let music = json!([
+            {"currentAppId": "", "resource": [{"resource": "ADEC"}]},
+            {"currentAppId": "org.example.music", "resource": [{"index": 1, "resource": "ADEC"}, {"index": 5, "resource": "ADEC_BANDWIDTH"}]},
+        ]);
+        let silence = json!([{"currentAppId": "com.webos.app.home", "resource": [{"resource": "MAIN_SCALER"}]}]);
+        let (mut now, mut polls, mut standby_at) = (NOW, 0, None);
+        while now < stops + 2 * HOUR && standby_at.is_none() {
+            now = s.due_at().unwrap().max(now);
+            for c in luna_calls(&s.update(&Input::Tick, now)) {
+                if c.0 == TAG_SOUND {
+                    polls += 1;
+                    assert_eq!(c.1, "luna://com.webos.media/getActivePipelines");
+                    s.update(&Input::Luna { tag: TAG_SOUND, payload: if now < stops { music.clone() } else { silence.clone() } }, now);
+                } else {
+                    standby_at = Some(now);
+                }
+            }
+            now += 1;
+        }
+        let at = standby_at.expect("standby once the sound stopped");
+        assert!(at > stops + HOUR - SOUND_MS - 2 && at <= stops + HOUR + 1, "an hour of nothing after the sound, not after the saver came up: {}", at - NOW);
+        assert!(polls > 100 && s.up(), "the saver stayed up and the media server was asked about every {SOUND_MS} ms");
+        // an answer that is not a list says nothing about sound
+        assert_eq!(holds_sound(&json!({"returnValue": false, "errorCode": -1})), None);
+        assert_eq!(holds_sound(&silence), Some(false));
     }
 
     #[test]
