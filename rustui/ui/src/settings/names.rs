@@ -25,8 +25,8 @@ pub fn picture_mode(value: &str) -> &str {
         "game" => "Game",
         "sports" => "Sports",
         "eco" => "Eco",
-        "expert1" => "Expert · day",
-        "expert2" => "Expert · night",
+        "expert1" => "Expert · Day",
+        "expert2" => "Expert · Night",
         "dolbyHdrCinemaBright" => "Cinema Home",
         _ => value,
     }

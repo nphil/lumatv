@@ -14,13 +14,13 @@ row that opens LG's own screen (themed) for the rest.
 
 ## Picture
 
-LumaTV rows: picture mode chooser (Mode tab), OLED pixel brightness,
-Filmmaker ambient light, AI Picture Pro, aspect ratio, energy saving. Tabs:
+LumaTV rows: picture mode chooser (Mode tab), OLED pixel brightness, auto
+brightness, Filmmaker ambient light, AI Picture Pro, aspect ratio, energy saving. Tabs:
 Mode · Brightness · Colour · Advanced.
 
 | LG item (path under Picture) | LumaTV |
 |---|---|
-| Select Mode: Vivid, Standard, Eco, Cinema, Sports, Game Optimizer, FILMMAKER MODE, Expert (Bright space, daytime), Expert (Dark space, night), Personalized Picture; HDR variants Cinema Home, HDR Effect | Mode tab, the chooser. LumaTV names: Filmmaker, Cinema, Standard, Vivid, Game Optimizer, Sports, Eco, Expert · day, Expert · night, Personalised |
+| Select Mode: Vivid, Standard, Eco, Cinema, Sports, Game Optimizer, FILMMAKER MODE, Expert (Bright space, daytime), Expert (Dark space, night), Personalized Picture; HDR variants Cinema Home, HDR Effect | Mode tab, the chooser. LumaTV names: Filmmaker, Cinema, Standard, Vivid, Game Optimizer, Sports, Eco, Expert · Day, Expert · Night, Personalized |
 | FILMMAKER MODE Ambient Light | Mode tab, switch "Filmmaker ambient light" |
 | Aspect Ratio: 16:9, Original, 4:3, Vertical Zoom, 4-Way Zoom, Just Scan | Mode tab, value row "Aspect ratio" |
 | Advanced Settings › Brightness: OLED Pixel Brightness, Adjust Contrast, Screen Brightness, Auto Dynamic Contrast, Dynamic Tone Mapping, Peak Brightness, Gamma(Adjust Brightness), Black Level, Video Range, Motion Eye Care, Expression Enhancer, Near Black Detail | Brightness tab (OLED pixel brightness also on the Mode tab) |
@@ -28,7 +28,7 @@ Mode · Brightness · Colour · Advanced.
 | Advanced Settings › Clarity: Adjust Sharpness, Super Resolution, Noise Reduction, MPEG Noise Reduction, Smooth Gradation, Real Cinema, TruMotion (De-Judder, De-Blur, OLED Motion, OLED Motion Pro), Precision Detail | Advanced tab |
 | Advanced Settings: Apply to All Inputs, Reset | Advanced tab |
 | General › AI Service: AI Picture Pro, AI Brightness Settings, AI Genre Selection | Mode tab "AI Picture Pro"; the other two on the Advanced tab |
-| General › Energy Saving: Energy Saving Step (Auto, Off, Minimum, Medium, Maximum), Minimum Brightness, Screen Off | Mode tab value row "Energy saving" |
+| General › Energy Saving: Energy Saving Step (Auto, Off, Minimum, Medium, Maximum), Minimum Brightness, Screen Off | Mode tab value row "Energy saving"; LumaTV's switch "Auto brightness" (beside OLED pixel brightness) replaces Auto, and the row is disabled while it is on |
 | 4:4:4 Pass Through, HDMI Deep Color, Dolby Vision PC (General › External Devices › HDMI Settings) | More in LG settings (also reachable from Inputs & devices) |
 
 ## Sound

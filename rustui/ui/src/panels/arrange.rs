@@ -57,7 +57,7 @@ pub fn moved(order: &[String], id: &str, dir: i32) -> Vec<String> {
 
 /// Tiles that came after arrangements were first kept, each with the tile it goes after: an arrangement saved before one came shows it
 /// there (else last), until the owner next arranges the panel. Every arrangement written since lists them as `quickPanel.offered`.
-pub const ADDED: [(&str, &str); 1] = [("dnd", "sleep")];
+pub const ADDED: [(&str, &str); 2] = [("dnd", "sleep"), ("autobright", "oled")];
 
 /// The theme patch that keeps an arrangement: the whole list every time (the host's patch merges one level deep).
 pub fn patch(order: &[String]) -> Value {
@@ -131,10 +131,10 @@ mod tests {
     #[test]
     fn the_patch_carries_the_whole_list_and_the_theme_gives_it_back() {
         let p = patch(&v(&["a", "b"]));
-        assert_eq!(p, json!({"quickPanel": {"tiles": ["a", "b"], "offered": ["dnd"]}}));
+        assert_eq!(p, json!({"quickPanel": {"tiles": ["a", "b"], "offered": ["dnd", "autobright"]}}));
         assert_eq!(saved(&p), Some(v(&["a", "b"])), "the owner took Do Not Disturb off, or never had it: it stays off");
         assert_eq!(saved(&json!({})), None);
-        // an arrangement from before the tile came shows it after the sleep timer
-        assert_eq!(saved(&json!({"quickPanel": {"tiles": ["picture", "sleep", "oled"]}})), Some(v(&["picture", "sleep", "dnd", "oled"])));
+        // an arrangement from before the tiles came shows each after its neighbour
+        assert_eq!(saved(&json!({"quickPanel": {"tiles": ["picture", "sleep", "oled"]}})), Some(v(&["picture", "sleep", "dnd", "oled", "autobright"])));
     }
 }

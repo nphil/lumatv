@@ -12,7 +12,7 @@ use crate::kit::{Engine, Kit};
 use serde_json::{Value, json};
 
 /// The helper's topics Settings reads besides the shell's own (`kit/Helper.qml` `subscribed`).
-pub const HELPER_TOPICS: &str = "profiles,openapps,updateblock,panel,receiver,ai,ai.prompt,ha.link,plugins,screen,cameras,onhome,plex.account,phone-remote,picture";
+pub const HELPER_TOPICS: &str = "profiles,openapps,updateblock,panel,receiver,ai,ai.prompt,ha.link,plugins,screen,cameras,onhome,plex.account,phone-remote,picture,autobright";
 
 pub struct SettingsHost {
     pub model: Model,

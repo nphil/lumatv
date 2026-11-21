@@ -5,6 +5,7 @@
 //! as one app, with no I/O of its own, so it runs under a test and under the host harness (`src/main.rs --host`) as it runs on the
 //! set.
 
+pub mod autobright;
 pub mod cameras;
 pub mod dnd;
 pub mod embedded;

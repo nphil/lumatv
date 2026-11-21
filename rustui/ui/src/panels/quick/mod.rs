@@ -233,6 +233,8 @@ pub struct Quick {
     zone: Zone,
     stop: Option<usize>,
     seg: usize,
+    /// The picture choice last made: its slot, the mode it puts in force and the mode it left.
+    pick: Option<(usize, String, String)>,
     touched: bool,
     editing: bool,
     edit: Edit,
@@ -276,6 +278,7 @@ impl Quick {
             zone: Zone::List,
             stop: None,
             seg: 0,
+            pick: None,
             touched: false,
             editing: false,
             edit: Edit::default(),
@@ -304,9 +307,22 @@ impl Quick {
 
     /// The tiles as the panel shows them: the owner's arrangement, or its own list.
     pub fn rows(&self, env: &Env) -> Vec<Row> {
-        let all = tiles::everything(env);
+        let all: Vec<Row> = tiles::everything(env).into_iter().map(|r| self.with_pick(r, env)).collect();
         let ids = arrange::shown(self.order.as_deref(), &tiles::catalogue(&all));
         ids.iter().filter_map(|id| all.iter().find(|r| r.id == *id).cloned()).collect()
+    }
+
+    /// The picture tile as the last choice made left it. LG's Eco can hold a preset's values, so the mode in force alone cannot say which
+    /// entry was chosen; the slot stays the choice's until the TV's mode is neither the one it put in force nor the one it left.
+    fn with_pick(&self, mut r: Row, env: &Env) -> Row {
+        if let (Some((i, to, from)), Act::Picture(_)) = (&self.pick, &r.act) {
+            let mode = env.sio.text("picture.pictureMode");
+            if (mode == *to || mode == *from) && *i < r.options.len() {
+                r.index = Some(*i);
+                r.value = r.options[*i].clone();
+            }
+        }
+        r
     }
 
     fn ids(rows: &[Row]) -> Vec<String> {
@@ -345,6 +361,7 @@ impl Quick {
         self.touched = false;
         self.editing = false;
         self.popup = None;
+        self.pick = None;
         self.pin = None;
         self.strip = 0;
         self.hold.clear();
@@ -457,7 +474,21 @@ impl Quick {
 
     // ---- what an act does
 
+    fn auto_bright(env: &Env) -> crate::autobright::State {
+        crate::autobright::state(crate::autobright::switched_on(env.theme.pointer(crate::autobright::POINTER)), env.topic(crate::autobright::TOPIC))
+    }
+
+    /// The value on the panel: the helper's while auto brightness drives it, LG's otherwise.
+    fn level(env: &Env, fallback: f64) -> f64 {
+        Self::auto_bright(env).level.unwrap_or_else(|| env.sio.num("picture.backlight", fallback))
+    }
+
+    /// While auto brightness drives the picture the value goes to the helper, which writes it and takes it as the level wanted in
+    /// this light.
     fn set_level(env: &mut Env, v: f64, now: u64) -> Vec<Effect> {
+        if Self::auto_bright(env).active {
+            return vec![Effect::Post { path: crate::autobright::LEVEL.into(), body: crate::autobright::level_body(v) }];
+        }
         env.sio.write("picture.backlight", &json!(v.round().clamp(0.0, 100.0) as i64), None, now)
     }
 
@@ -467,6 +498,11 @@ impl Quick {
         match (act, v) {
             (Act::Picture(values), Val::Index(i)) => {
                 if let Some((value, true)) = values.get(i) {
+                    let to = value.strip_prefix(crate::settings::presets::PREFIX).map_or_else(
+                        || value.clone(),
+                        |id| crate::settings::presets::all(env.topic(crate::settings::presets::TOPIC)).into_iter().find(|p| p.id == id).map(|p| p.mode).unwrap_or_default(),
+                    );
+                    self.pick = Some((i, to, env.sio.text("picture.pictureMode")));
                     if let Some(id) = value.strip_prefix(crate::settings::presets::PREFIX) {
                         // the helper writes the preset and switches; the mode is read again once it has
                         out.effects.push(Effect::Post { path: crate::settings::presets::POST.into(), body: json!({"id": id}) });
@@ -499,8 +535,9 @@ impl Quick {
                 out.close = true;
             }
             (Act::Energy, Val::Index(i)) => out.effects = env.sio.write("picture.energySaving", &json!(tiles::ENERGY_VALUES[i.min(4)]), None, now),
-            (Act::Oled, Val::Delta(d)) => out.effects = Self::set_level(env, env.sio.num("picture.backlight", 0.0) + f64::from(d) * 5.0, now),
+            (Act::Oled, Val::Delta(d)) => out.effects = Self::set_level(env, Self::level(env, 0.0) + f64::from(d) * 5.0, now),
             (Act::Oled, Val::Num(n)) => out.effects = Self::set_level(env, n, now),
+            (Act::AutoBright, Val::On(on)) => out.effects.push(Effect::Theme { tag: tags::THEME, patch: crate::autobright::patch(on) }),
             (Act::ScreenOff, _) => {
                 out.effects = env.sio.write("option.screenOff", &json!("on"), None, now);
                 out.close = true;
@@ -565,7 +602,7 @@ impl Quick {
     fn open_popup(&mut self, r: &Row, env: &Env, now: u64) {
         self.slider_due = Some(now + 400);
         self.popup = Some(if let Some(spec) = &r.slider {
-            Popup::Slider { row: r.id.clone(), spec: spec.clone(), shown: env.sio.num("picture.backlight", 0.0), key_at: 0 }
+            Popup::Slider { row: r.id.clone(), spec: spec.clone(), shown: Self::level(env, 0.0), key_at: 0 }
         } else {
             let x = tiles::pick_extras(&r.id);
             Popup::Pick {
@@ -1027,7 +1064,7 @@ impl Quick {
             self.slider_due = Some(now + 400);
             // the card follows what the TV says when it says something else (a remote's own key, a plugin), but not while a key is moving it
             if now.saturating_sub(*key_at) >= 800 {
-                let v = env.sio.num("picture.backlight", *shown);
+                let v = Self::level(env, *shown);
                 if v != *shown {
                     *shown = v;
                 }
@@ -1106,10 +1143,7 @@ impl Quick {
         let popup = self.popup.as_ref().map(|p| match p {
             Popup::Slider { spec, shown, .. } => PopupView::Slider { title: spec.title.into(), text: spec.text.into(), from: spec.from, to: spec.to, step: spec.step, value: *shown, marks: spec.marks, icons: spec.icons },
             Popup::Pick { row, act, title, text, icon, options, index } => {
-                let current = match act {
-                    Act::Picture(values) => values.iter().position(|(value, _)| *value == tiles::picture_current(env)),
-                    _ => tiles::everything(env).iter().find(|r| r.id == *row).and_then(|r| r.index),
-                };
+                let current = tiles::everything(env).into_iter().map(|r| self.with_pick(r, env)).find(|r| r.id == *row).and_then(|r| r.index);
                 let dnd = (row == "dnd").then(|| crate::dnd::Dnd::from_json(env.topic(crate::dnd::TOPIC).unwrap_or(&Value::Null)));
                 PopupView::Pick {
                     title: title.clone(),

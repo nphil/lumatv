@@ -190,7 +190,7 @@ fn text(v: Option<&Value>) -> String {
 }
 
 /// Seconds east of UTC on the TV's clock at `unix_s` (musl reads `TZ` or `/etc/localtime`); none when the clock cannot say.
-fn utc_offset_s(unix_s: i64) -> Option<i64> {
+pub(crate) fn utc_offset_s(unix_s: i64) -> Option<i64> {
     let t = libc::time_t::try_from(unix_s).ok()?;
     // SAFETY: `tm` is ours to fill; localtime_r writes through the pointer it is given and keeps nothing.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };

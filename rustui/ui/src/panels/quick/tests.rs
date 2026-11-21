@@ -329,6 +329,54 @@ fn left_and_right_step_a_stepper_through_its_choices_and_wrap_and_the_receiver_n
     assert!(matches!(&out.effects[0], Effect::Luna { uri, .. } if uri.ends_with("/master/volumeDown")));
 }
 
+/// Eco holds a preset's values, so the mode in force cannot say which entry was chosen: stepping goes by the choice made.
+#[test]
+fn left_and_right_visit_every_picture_entry_once_even_where_a_preset_sits_in_an_lg_mode() {
+    let (mut q, mut env) = rig(false);
+    sdr_modes(&mut env);
+    let desc = json!({"results": [{"key": "pictureMode", "values": {"arrayExt": [
+        {"value": "filmMaker"}, {"value": "cinema"}, {"value": "normal"}, {"value": "vivid"}, {"value": "game"},
+        {"value": "sports"}, {"value": "eco"}, {"value": "expert1"}, {"value": "expert2"}
+    ]}}]});
+    env.sio.learn_desc("picture", &desc);
+    feed(&mut env, "picture", json!({"context": {"input": "default", "range": "sdr"}, "presets": [
+        {"id": "rtings", "name": "RTINGS Accurate", "mode": "expert2", "applied": false},
+        {"id": "rtingsRich", "name": "RTINGS Richer Color", "mode": "expert1", "applied": false},
+        {"id": "lumaVivid", "name": "LumaTV Vivid", "mode": "eco", "applied": true}
+    ]}), 2);
+    let n = q.rows(&env)[0].options.len();
+    assert_eq!(n, 12);
+    // each step is taken as the TV would answer it: LG's modes are written, a preset puts its own mode in force
+    // (a readback that changes the mode drops the description, which the TV answers again)
+    let settle = |q: &Quick, env: &mut Env, out: &Out| {
+        for e in &out.effects {
+            if let Effect::Post { body, .. } = e {
+                let id = body["id"].as_str().unwrap();
+                let mode = if id == "lumaVivid" { "eco" } else if id == "rtings" { "expert2" } else { "expert1" };
+                env.sio.learn("picture", &json!({"settings": {"pictureMode": mode}}));
+                env.sio.learn_desc("picture", &desc);
+            }
+        }
+        let r = &q.rows(env)[0];
+        r.index.unwrap_or_else(|| panic!("{:?} {:?} {}", r.index, r.options, env.sio.text("picture.pictureMode")))
+    };
+    for dir in [K::Right, K::Left] {
+        let mut seen = Vec::new();
+        let start = q.rows(&env)[0].index.unwrap();
+        for _ in 0..n {
+            let out = press(&mut q, &mut env, dir);
+            let at = settle(&q, &mut env, &out);
+            seen.push(at);
+            assert_eq!(q.rows(&env)[0].value, q.rows(&env)[0].options[at], "the tile names the choice");
+        }
+        assert_eq!(seen.last(), Some(&start), "back at the start after one cycle");
+        let mut sorted = seen.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), n, "every entry once: {seen:?}");
+    }
+}
+
 #[test]
 fn ok_on_the_receiver_opens_its_page_and_the_sleep_timer_steps_through_lgs_choices() {
     let (mut q, mut env) = rig(false);
@@ -418,6 +466,23 @@ fn the_oled_tile_opens_a_slider_whose_keys_move_the_backlight_by_five_and_the_ca
     assert_eq!(value, 30.0);
     press(&mut q, &mut env, K::Ok);
     assert!(!q.popup_open());
+}
+
+#[test]
+fn with_auto_brightness_driving_the_picture_the_slider_shows_and_sends_the_helpers_level_and_the_tile_beside_it_switches_it() {
+    let (mut q, mut env) = rig(true);
+    env.theme = json!({"remote": {"quickPanelEdit": true}, "quickPanel": {"tiles": ["oled", "autobright"]}, "system": {"autoBrightness": true}});
+    env.update(&Input::Helper { topic: crate::autobright::TOPIC.into(), data: json!({"on": true, "active": true, "level": 22}) }, 0);
+    q.open(&mut env, 10);
+    press(&mut q, &mut env, K::Ok);
+    let Some(PopupView::Slider { value, .. }) = q.view(&env, 0).popup else { panic!("a slider card") };
+    assert_eq!(value, 22.0, "the value on the panel, not LG's last answer");
+    let out = press(&mut q, &mut env, K::Right);
+    assert!(matches!(&out.effects[..], [Effect::Post { path, body }] if path == crate::autobright::LEVEL && body["value"] == 27.0));
+    press(&mut q, &mut env, K::Ok);
+    press(&mut q, &mut env, K::Down);
+    let out = press(&mut q, &mut env, K::Ok);
+    assert!(matches!(&out.effects[..], [Effect::Theme { patch, .. }] if patch["system"]["autoBrightness"] == false));
 }
 
 #[test]

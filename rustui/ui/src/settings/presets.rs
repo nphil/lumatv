@@ -74,8 +74,8 @@ mod tests {
 
     fn topic(input: &str) -> Value {
         json!({"context": {"mode": "eco", "input": input, "range": "sdr"}, "presets": [
-            {"id": "rtings", "name": "RTINGS accurate", "mode": "expert2", "applied": false},
-            {"id": "lumaVivid", "name": "LumaTV vivid", "mode": "eco", "applied": true}
+            {"id": "rtings", "name": "RTINGS Accurate", "mode": "expert2", "applied": false},
+            {"id": "lumaVivid", "name": "LumaTV Vivid", "mode": "eco", "applied": true}
         ]})
     }
 
@@ -85,7 +85,7 @@ mod tests {
         let offered = offered(Some(&apps));
         assert_eq!(offered.iter().map(Preset::value).collect::<Vec<_>>(), ["preset:rtings", "preset:lumaVivid"]);
         assert_eq!(in_force(&offered, "eco").map(|p| p.id.as_str()), Some("lumaVivid"));
-        assert_eq!(mode_name(&offered, "eco"), "LumaTV vivid");
+        assert_eq!(mode_name(&offered, "eco"), "LumaTV Vivid");
         assert!(super::offered(Some(&topic("hdmi2"))).is_empty());
         assert!(super::offered(None).is_empty());
     }

@@ -71,8 +71,8 @@ fn rows(c: &Ctx) -> Vec<Row> {
         ("Game", "gamepad-2"),
         ("Sports", "activity"),
         ("Eco", "leaf"),
-        ("Expert \u{b7} day", "sun-medium"),
-        ("Expert \u{b7} night", "moon-star"),
+        ("Expert \u{b7} Day", "sun-medium"),
+        ("Expert \u{b7} Night", "moon-star"),
     ];
     let current = c.lg.text("picture.pictureMode");
     let choices = if let Some(list) = c.lg.list("picture.pictureMode") {
@@ -112,7 +112,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     if let Some(topic) = topic {
         rows.extend(slot_rows(c, topic, &current));
     }
-    rows.push(c.slider(Spec::new("picture.backlight").tab(0).icon("sun").label("OLED pixel brightness").range(0.0, 100.0, 1.0)));
+    rows.extend(brightness_rows(c));
     rows.push(c.toggle(Spec::new("picture.filmmakerAmbientLight").tab(0).icon("lamp").label("Filmmaker ambient light").help("Lifts dark scenes a little when the room is bright.")));
     rows.push(c.toggle(Spec::new("aiPicture.ai_Picture").tab(0).icon("sparkles").label("AI Picture Pro").help("LG's sharpening and upscaling. Off keeps the picture as the film was made.")));
     rows.push(per_app(
@@ -120,11 +120,26 @@ fn rows(c: &Ctx) -> Vec<Row> {
         c.seg(Spec::new("aspectRatio.arcPerApp").tab(0).icon("rectangle-horizontal").label("Aspect ratio").app(app.clone()).help("Original keeps the film's own shape. It is set for the input in front.").options(&["16:9", "Original", "4:3"]).values(&["16x9", "original", "4x3"])),
         "aspectRatio.arcPerApp",
     ));
-    rows.push(c.seg(Spec::new("picture.energySaving").tab(0).icon("leaf").label("Energy saving").options(&["Auto", "Off", "Minimum", "Medium", "Maximum"]).values(&["auto", "off", "min", "med", "max"])));
+    // auto brightness replaces LG's Energy saving Auto (it switches it off and puts it back), so there is one switch for it
+    let ours = crate::autobright::switched_on(c.theme_at(crate::autobright::SWITCH));
+    let mut energy = c.seg(Spec::new("picture.energySaving").tab(0).icon("leaf").label("Energy saving").options(&["Auto", "Off", "Minimum", "Medium", "Maximum"]).values(&["auto", "off", "min", "med", "max"]));
+    if ours {
+        energy.enabled = false;
+        energy.detail = crate::autobright::IN_CHARGE.into();
+    }
+    rows.push(energy);
     let auto = c.lg.is("picture.energySaving", "auto");
     let mut min = c.range(Spec::new("picture.energySavingAutoMin").tab(0).icon("leaf").label("Minimum Brightness").range(0.0, 10.0, 1.0).help("How dark Auto energy saving may make the picture."));
-    min.enabled = auto && c.lg.usable("picture.energySavingAutoMin");
-    min.detail = if !c.lg.has("picture.energySavingAutoMin") { "TV not answering".into() } else if auto { String::new() } else { "Energy saving is not Auto".into() };
+    min.enabled = !ours && auto && c.lg.usable("picture.energySavingAutoMin");
+    min.detail = if !c.lg.has("picture.energySavingAutoMin") {
+        "TV not answering".into()
+    } else if ours {
+        crate::autobright::IN_CHARGE.into()
+    } else if auto {
+        String::new()
+    } else {
+        "Energy saving is not Auto".into()
+    };
     rows.push(min);
     // Just Scan is per input like the aspect ratio: LG reads and writes it with the app's id, and the TV answers nothing to a read without one
     rows.push(per_app(c, c.toggle(Spec::new("aspectRatio.justScan").tab(0).icon("monitor").label("Show the whole picture (Just Scan)").app(app.clone()).help("Shows the picture whole, without cropping its edges. Turn it off if a line shows at an edge.")), "aspectRatio.justScan"));
@@ -210,6 +225,36 @@ const PRESET_CARD: &str = "\u{0}preset";
 
 fn preset_send(path: &str, body: Value) -> Op {
     Op::Send { name: None, method: "POST", path: path.into(), body: Some(body) }
+}
+
+/// OLED pixel brightness and the auto brightness switch beside it. While auto brightness drives the picture, the slider shows the
+/// value on the panel and sends the owner's value to the helper, which takes it as the level wanted in this light.
+fn brightness_rows(c: &Ctx) -> [Row; 2] {
+    let ab = crate::autobright::state(crate::autobright::switched_on(c.theme_at(crate::autobright::SWITCH)), c.helper(crate::autobright::TOPIC));
+    let mut oled = c.slider(Spec::new("picture.backlight").tab(0).icon("sun").label("OLED pixel brightness").range(0.0, 100.0, 1.0));
+    if ab.active {
+        if let Some(level) = ab.level {
+            oled.num = level;
+            oled.value_text = Some(format!("{}", level.round() as i64));
+        }
+        oled = oled.act(|a| match a {
+            Arg::Value(v) => vec![preset_send(crate::autobright::LEVEL, crate::autobright::level_body(v))],
+            _ => Vec::new(),
+        });
+    }
+    let switch = Row::toggle("autobrightness")
+        .tab(0)
+        .icon(crate::autobright::ICON)
+        .label(crate::autobright::LABEL)
+        .help(crate::autobright::HELP)
+        .detail(ab.detail)
+        .on(ab.on)
+        .act(|a| match a {
+            // the helper puts the owner's level back within a second of the switch going off: the page reads it again after that
+            Arg::Toggle(v) => vec![Op::Patch(crate::autobright::patch(v)), Op::RefreshIn(2_500)],
+            _ => Vec::new(),
+        });
+    [oled, switch]
 }
 
 /// The switch for separate LumaTV and video modes, the two modes, and putting back a mode a preset changed.
@@ -746,20 +791,20 @@ mod tests {
         let topic = |input: &str| {
             json!({"separate": true, "ui": {"mode": "eco", "preset": "lumaVivid"}, "video": {"mode": "filmMaker", "preset": null}, "changed": ["eco"],
                 "context": {"mode": "eco", "input": input, "range": "sdr"}, "presets": [
-                {"id": "rtings", "name": "RTINGS accurate", "mode": "expert2", "applied": false},
-                {"id": "rtingsRich", "name": "RTINGS richer colour", "mode": "expert1", "applied": false},
-                {"id": "lumaVivid", "name": "LumaTV vivid", "mode": "eco", "applied": true}]})
+                {"id": "rtings", "name": "RTINGS Accurate", "mode": "expert2", "applied": false},
+                {"id": "rtingsRich", "name": "RTINGS Richer Color", "mode": "expert1", "applied": false},
+                {"id": "lumaVivid", "name": "LumaTV Vivid", "mode": "eco", "applied": true}]})
         };
         w.topics.set_helper("picture", topic("default"));
         let r = rows(&w.ctx());
         let modes = by_id(&r, "picture.pictureMode");
-        assert_eq!(modes.cards.iter().map(|c| c.title.as_str()).skip(7).collect::<Vec<_>>(), ["Expert \u{b7} day", "Expert \u{b7} night", "RTINGS accurate", "RTINGS richer colour", "LumaTV vivid"]);
+        assert_eq!(modes.cards.iter().map(|c| c.title.as_str()).skip(7).collect::<Vec<_>>(), ["Expert \u{b7} Day", "Expert \u{b7} Night", "RTINGS Accurate", "RTINGS Richer Color", "LumaTV Vivid"]);
         assert_eq!(modes.index, Some(11), "the preset written into the mode in force");
         let ops = (modes.act.as_ref().unwrap())(Arg::Index(9));
         assert!(matches!(&ops[0], Op::Send { method: "POST", path, body: Some(b), .. } if path == "/v1/picture/preset" && b["id"] == "rtings"));
         assert!(matches!(&(by_id(&r, "separatepicture").act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Patch(_)]));
         let ui = by_id(&r, "slotui");
-        assert_eq!((ui.value.as_str(), by_id(&r, "slotvideo").value.as_str()), ("LumaTV vivid", "Filmmaker"));
+        assert_eq!((ui.value.as_str(), by_id(&r, "slotvideo").value.as_str()), ("LumaTV Vivid", "Filmmaker"));
         let [Op::Pick(spec)] = &(ui.act.as_ref().unwrap())(Arg::Press)[..] else { panic!() };
         assert_eq!((spec.current.as_str(), spec.options.len()), ("lumaVivid", 11));
         assert!(matches!(&(spec.write)("cinema")[0], Op::Send { path, body: Some(b), .. } if path == "/v1/picture/slot" && b["slot"] == "ui" && b["choice"] == "cinema"));
@@ -772,5 +817,25 @@ mod tests {
         let r = rows(&w.ctx());
         assert_eq!(by_id(&r, "picture.pictureMode").cards.len(), 9);
         assert!(!by_id(&r, "slotui").visible && !by_id(&r, "separatepicture").on);
+    }
+
+    #[test]
+    fn auto_brightness_sits_beside_oled_pixel_brightness_and_while_it_drives_the_picture_the_slider_is_the_helpers() {
+        let picture = json!({"settings": {"pictureMode": "filmMaker", "backlight": "75", "energySaving": "off", "energySavingAutoMin": "2"}, "dimension": {"input": "default", "pictureMode": "filmMaker", "dynamicRange": "sdr"}});
+        let mut w = World::new(lg_with(&[("picture", picture)], &[]));
+        let r = rows(&w.ctx());
+        let at = |r: &[Row], id: &str| r.iter().position(|x| x.id == id).unwrap();
+        assert_eq!(at(&r, "autobrightness"), at(&r, "picture.backlight") + 1);
+        assert!(!by_id(&r, "autobrightness").on && by_id(&r, "picture.energySaving").enabled);
+        assert!(matches!(&(by_id(&r, "autobrightness").act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Patch(p), Op::RefreshIn(_)] if p["system"]["autoBrightness"] == true));
+
+        w.theme = crate::autobright::patch(true);
+        w.topics.set_helper(crate::autobright::TOPIC, json!({"on": true, "active": true, "level": 33}));
+        let r = rows(&w.ctx());
+        let oled = by_id(&r, "picture.backlight");
+        assert_eq!((oled.num, oled.value_text.as_deref()), (33.0, Some("33")));
+        assert!(matches!(&(oled.act.as_ref().unwrap())(Arg::Value(50.0))[..], [Op::Send { path, body: Some(b), .. }] if path == crate::autobright::LEVEL && b["value"] == 50.0));
+        let energy = by_id(&r, "picture.energySaving");
+        assert_eq!((energy.enabled, energy.detail.as_str()), (false, crate::autobright::IN_CHARGE));
     }
 }

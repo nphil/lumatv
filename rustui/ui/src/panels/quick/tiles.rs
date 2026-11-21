@@ -32,6 +32,7 @@ pub enum Act {
     Settings(&'static str),
     Energy,
     Oled,
+    AutoBright,
     ScreenOff,
     Pointer,
     Eye,
@@ -273,11 +274,27 @@ pub fn extras(env: &Env) -> Vec<Row> {
     energy.widest = "Minimum";
     energy.index = ENERGY_VALUES.iter().position(|m| *m == env.sio.text("picture.energySaving"));
 
+    // auto brightness is a toggle of its own beside OLED pixel brightness: the nudge tile's OK opens the slider card, so a switch on it
+    // would take that press away
+    let ab = crate::autobright::state(crate::autobright::switched_on(env.theme.pointer(crate::autobright::POINTER)), env.topic(crate::autobright::TOPIC));
     let mut oled = Row::base("oled", Kind::Nudge, "sun", "OLED pixel brightness", Act::Oled);
     oled.enabled = env.sio.usable("picture.backlight");
-    oled.value = if env.sio.has("picture.backlight") { format!("{}", env.sio.num("picture.backlight", 0.0).round() as i64) } else { DASH.into() };
+    oled.value = match ab.level {
+        Some(level) => format!("{}", level.round() as i64),
+        None if env.sio.has("picture.backlight") => format!("{}", env.sio.num("picture.backlight", 0.0).round() as i64),
+        None => DASH.into(),
+    };
+    oled.detail = if ab.active { "Auto".into() } else { String::new() };
     oled.widest = "100";
     oled.slider = Some(OLED);
+
+    let mut auto = Row::base("autobright", Kind::Toggle, crate::autobright::ICON, crate::autobright::LABEL, Act::AutoBright);
+    auto.on = ab.on;
+    auto.detail = ab.detail.into();
+    if ab.on {
+        energy.enabled = false;
+        energy.detail = crate::autobright::IN_CHARGE.into();
+    }
 
     let mut pointer = Row::base("pointer", Kind::Toggle, "mouse-pointer-2", "Magic Remote pointer", Act::Pointer);
     pointer.enabled = env.sio.usable("general.remotePointer");
@@ -290,7 +307,7 @@ pub fn extras(env: &Env) -> Vec<Row> {
     let mut bluetooth = Row::base("bluetooth", Kind::Value, "headphones", "Bluetooth audio", Act::Settings("sound"));
     bluetooth.detail = "Speakers and headphones".into();
 
-    let mut out = vec![screenoff, energy, oled, pointer, eye, bluetooth];
+    let mut out = vec![screenoff, energy, oled, auto, pointer, eye, bluetooth];
     if env.capture.enabled {
         let mut shot = Row::base("shot", Kind::Action, "camera", "Screenshot", Act::Shot);
         shot.button = "Capture".into();
@@ -441,12 +458,24 @@ mod tests {
     fn the_more_tiles_follow_their_settings_and_capture_comes_only_when_the_helper_has_it_on() {
         let mut e = env();
         let ids = |e: &Env| extras(e).into_iter().map(|r| r.id).collect::<Vec<_>>();
-        assert_eq!(ids(&e), vec!["screenoff", "energy", "oled", "pointer", "eye", "bluetooth"]);
+        assert_eq!(ids(&e), vec!["screenoff", "energy", "oled", "autobright", "pointer", "eye", "bluetooth"]);
         e.update(&Input::Fetched { tag: crate::panels::env::tags::CAPTURE_READ, status: 200, data: json!({"capture": {"enabled": true, "available": true, "encoder": {"available": true}}}) }, 0);
-        assert_eq!(ids(&e), vec!["screenoff", "energy", "oled", "pointer", "eye", "bluetooth", "shot", "record"]);
+        assert_eq!(ids(&e), vec!["screenoff", "energy", "oled", "autobright", "pointer", "eye", "bluetooth", "shot", "record"]);
         assert!(extras(&e).iter().all(|r| !r.dflt), "none is on the panel until the owner adds it");
         let oled = &extras(&e)[2];
         assert_eq!((oled.value.as_str(), oled.enabled), (DASH, false));
         assert_eq!(oled.slider.as_ref().map(|s| (s.from, s.to, s.step)), Some((0.0, 100.0, 5.0)));
+    }
+
+    #[test]
+    fn with_auto_brightness_on_the_brightness_tile_shows_the_helpers_level_and_energy_saving_says_why_it_is_dimmed() {
+        let mut e = env();
+        e.theme = crate::autobright::patch(true);
+        e.update(&Input::Helper { topic: crate::autobright::TOPIC.into(), data: json!({"on": true, "active": true, "level": 42}) }, 0);
+        let x = extras(&e);
+        let by = |id: &str| x.iter().find(|r| r.id == id).unwrap();
+        assert_eq!((by("oled").value.as_str(), by("oled").detail.as_str()), ("42", "Auto"));
+        assert_eq!((by("autobright").kind, by("autobright").on), (Kind::Toggle, true));
+        assert_eq!((by("energy").enabled, by("energy").detail.as_str()), (false, crate::autobright::IN_CHARGE));
     }
 }

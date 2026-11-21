@@ -288,6 +288,8 @@ impl Service {
         threads.push(("paneldim", crate::paneldim::spawn(&ctx)?));
         let picture = Arc::new(crate::picture::Remote::default());
         threads.push(("picture", crate::picture::spawn(&ctx, picture.clone())?));
+        let autobright = Arc::new(crate::autobright::Remote::default());
+        threads.push(("autobright", crate::autobright::spawn(&ctx, autobright.clone())?));
         threads.push(("openapps", crate::openapps::spawn(&ctx)?));
         // Foreground priority: an earlier run's journal is put back before the thread starts; the thread puts everything back at the stop.
         let gamemode = Arc::new(crate::app_priority::game::Remote::default());
@@ -422,6 +424,7 @@ impl Service {
             feeds_tx,
             gamemode,
             picture,
+            autobright,
             wx,
             weather_ha,
             guide,

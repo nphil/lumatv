@@ -94,10 +94,10 @@ macro_rules! rtings {
 
 pub const PRESETS: [Preset; 3] = [
     // RTINGS calibrates in Expert (Dark Space, night): LG's `expert2`, whose own OLED pixel brightness is 60.
-    Preset { id: "rtings", name: "RTINGS accurate", mode: "expert2", settings: rtings!("auto") },
+    Preset { id: "rtings", name: "RTINGS Accurate", mode: "expert2", settings: rtings!("auto") },
     // RTINGS' alternative for saturated colour, gamut Native; in Expert (Bright Space) so it keeps a mode of its own, at Expert
     // (Dark Space)'s 60 rather than Bright Space's own 100.
-    Preset { id: "rtingsRich", name: "RTINGS richer colour", mode: "expert1", settings: rtings!("native", ("backlight", "60")) },
+    Preset { id: "rtingsRich", name: "RTINGS Richer Color", mode: "expert1", settings: rtings!("native", ("backlight", "60")) },
     // For the shell's glass themes (`rustui/tokens/src/palettes.json`), on the set's most static picture, so the pop comes from
     // colour and not from light: OLED pixel brightness 75 with Energy saving Auto, contrast 85, peak brightness off and dynamic
     // contrast off are the owner's Filmmaker values. It lives in LG's Eco mode, the one SDR mode besides Filmmaker that has Energy
@@ -109,7 +109,7 @@ pub const PRESETS: [Preset; 3] = [
     // to 40% in a ramp); the noise, MPEG and super-resolution filters off, which soften text and glass.
     Preset {
         id: "lumaVivid",
-        name: "LumaTV vivid",
+        name: "LumaTV Vivid",
         mode: "eco",
         settings: &[
             ("backlight", "75"),
@@ -662,7 +662,7 @@ fn separate_on(theme: &Path) -> bool {
 }
 
 /// A game in front: game mode on (a named game or an API lease), or a named game first on screen.
-fn game_in_front(hub: &crate::hub::Hub) -> bool {
+pub(crate) fn game_in_front(hub: &crate::hub::Hub) -> bool {
     use crate::app_priority::game;
     hub.get(game::TOPIC).and_then(|g| g.get("on").and_then(Value::as_bool)) == Some(true)
         || hub

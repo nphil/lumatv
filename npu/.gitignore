@@ -1,0 +1,9 @@
+build/
+local/
+__pycache__/
+tests/__pycache__/
+*.lgnpu
+*.bin
+*.dat
+*.so*
+*.tar*

@@ -113,7 +113,7 @@ fn call_dimension(d: &Value) -> Value {
     }
 }
 
-fn backlight(reply: &Value) -> Option<u32> {
+pub(crate) fn backlight(reply: &Value) -> Option<u32> {
     let n = match reply.pointer("/settings/backlight")? {
         Value::Number(n) => n.as_f64()?,
         Value::String(s) => s.trim().parse::<f64>().ok()?,

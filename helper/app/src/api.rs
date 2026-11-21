@@ -17,6 +17,7 @@
 //! | `POST /v1/refresh` | fetch weather and news now |
 //! | `GET /v1/gamemode`, `POST /v1/gamemode` | game mode: `{"on": bool, "appId"}`, a 30 s lease while that app is in front (`app_priority/game.rs`) |
 //! | `GET /v1/picture`, `POST /v1/picture/{preset,slot,restore}` | picture presets and the LumaTV and video picture modes (`picture.rs`) |
+//! | `GET /v1/autobright`, `POST /v1/autobright/level` | auto brightness and the owner's brightness while it is on (`autobright.rs`) |
 //! | `GET /v1/settings`, `GET /v1/settings/{owner}`, `POST /v1/settings/{owner}` | the settings layer |
 //! | `GET /v1/voice`, `POST /v1/voice/{listen,stop,cancel,refresh}` | voice search (`voice.rs`) |
 //! | `GET /v1/profiles`, `POST /v1/profiles/switch`, `POST|DELETE /v1/profiles/{id}`, `/v1/profiles/{id}/pin`, `/{id}/avatar`, `/options`, `/gallery` | local profiles (`profiles.rs`) |
@@ -146,6 +147,8 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/v1/picture/preset", "write a preset into its mode and use it for what is on screen: {\"id\"}"),
     ("POST", "/v1/picture/slot", "a slot's mode: {\"slot\": \"ui\" or \"video\", \"choice\": an SDR mode or a preset id}"),
     ("POST", "/v1/picture/restore", "put back the values presets replaced in a mode: {\"mode\"}"),
+    ("GET", "/v1/autobright", "auto brightness: the room's light, the level, its target and the owner's level"),
+    ("POST", "/v1/autobright/level", "OLED pixel brightness set by hand: {\"value\": 0 to 100}, learned as the level wanted in this light while auto brightness is on"),
 ];
 
 /// The API's handler.
@@ -186,6 +189,8 @@ pub struct Api {
     pub gamemode: Arc<crate::app_priority::game::Remote>,
     /// Picture presets and slots (`/v1/picture`), answered by the picture thread.
     pub picture: Arc<crate::picture::Remote>,
+    /// The owner's brightness while auto brightness drives it (`/v1/autobright/level`), answered by its thread.
+    pub autobright: Arc<crate::autobright::Remote>,
     /// The full weather view's radar and base map (`/v1/wx/...`).
     pub wx: Arc<crate::wxview::WxView>,
     /// Weather from a Home Assistant entity: the list the Settings picker offers (`/v1/weather/entities`).
@@ -665,6 +670,21 @@ impl Api {
         }
     }
 
+    fn autobright_level(&self, request: &Request) -> Response {
+        let body = match body_object(request) {
+            Ok(b) => b,
+            Err(r) => return r,
+        };
+        let Some(value) = body.get("value").and_then(Value::as_f64).filter(|v| (0.0..=100.0).contains(v)) else {
+            return bad_request("level takes {value: 0 to 100}");
+        };
+        match self.autobright.level(value.round() as u32) {
+            Some(Ok(status)) => self.ok(json!({"autobright": status})),
+            Some(Err(e)) => error_response(409, "autobright_refused", &e),
+            None => error_response(503, "autobright_unavailable", "the auto brightness thread is not running"),
+        }
+    }
+
     fn weather_entities(&self) -> Response {
         if !self.plugins.shared().switched_on(crate::ha_plugin::ID) {
             return error_response(409, "off", crate::ha_plugin::off_words());
@@ -793,6 +813,11 @@ impl Handler for Api {
                 None => error_response(503, "picture_unavailable", "the picture thread has not started"),
             },
             ["v1", "picture", action] if post => self.picture_post(request, action),
+            ["v1", "autobright"] if get => match self.hub.get(crate::autobright::TOPIC) {
+                Some(status) => self.ok(json!({"autobright": status})),
+                None => error_response(503, "autobright_unavailable", "the auto brightness thread has not started"),
+            },
+            ["v1", "autobright", "level"] if post => self.autobright_level(request),
             ["v1", "wx", rest @ ..] => self.wx.handle(request, rest),
             ["v1", "onhome", rest @ ..] => {
                 // which of the shared things Home shows is the owner's, as the rest of Home's layout is
@@ -957,6 +982,7 @@ mod tests {
                 feeds_tx,
                 gamemode: Arc::default(),
                 picture: Arc::default(),
+                autobright: Arc::default(),
                 wx: crate::wxview::WxView::new(Arc::new(NoFetch), dir.path()),
                 weather_ha: Arc::new(crate::ha_weather::HaWeather::new(Vec::new(), ha_link::AddressPolicy::HOME, None)),
                 guide: Arc::default(),
