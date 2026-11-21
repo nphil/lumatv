@@ -9,6 +9,34 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## ScryptedBridge 0.2.9 and the camera fixes, 2026-11-21 (bridge 8684051 deployed 06:59 EST; lumaglass 6a6137b4 installed 07:10 EST in Active Standby, with the owner's approval)
+
+Bridge 0.2.9 (lumashow-scrypted main 8684051; `out/plugin.zip` `23413a98b6a55dd9394d0cb5d23f8784ab8c9b746bb83f39aabafdef9f20394d`) was deployed with `npm run scrypted-deploy 192.168.1.69`. It carries the 0.2.8 changes:
+
+- camera tick lists apply at once;
+- a camera Scrypted marks offline is tried before it is called offline;
+- listed stream sizes are Rebroadcast's detected ones.
+
+It also adds the key-picture gate on recording encodes.
+
+On the set:
+
+- helper `e37a3363b5d475711d7316c793574da731fb6b370dd8e845b961f56ddfc096d8` (replaces 913327d9; pids 12654/12655)
+- ui `ca95dbb55141f68b241263d72880d705e519982570109668cfcd4d35343aeee2` (replaces 73afc667)
+
+The compositor (36462095) is unchanged. The cutover enable left it live and persistent; the video check was skipped because the panel is off.
+
+Untested:
+
+- ticks persisting on the bridge's settings page
+- Plant Room playing while marked offline
+- Front Door listed as 480x640/672x896: the helper's camera list was last read while the set slept and still shows the declared sizes
+- the first pop-up speed after a helper restart
+- the Backyard resume with no grey start after a plugin restart
+- the hand-off to live about 0.7 s after a recording runs dry
+
+Rollback: `/data/agent/cody-data-scratch/18172b987bff/backup/lumatv-helper-913327d9` and `lumatv-ui-73afc667`, and bridge 0.2.7 (66db109) redeployed from lumashow-scrypted.
+
 ## Pointer standby fix, preset fixes, auto brightness and the Settings speed-up, 2026-11-21 (main 4d70bc1a, installed 05:07 EST)
 
 Installed with Netflix in front but nothing playing (no VDEC pipeline), under the owner's standing install-now rule; `tv-lock` was overridden with `PLX_TV_IN_USE_OK=1`.
