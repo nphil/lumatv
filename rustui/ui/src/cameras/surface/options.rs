@@ -146,9 +146,9 @@ impl OptionsUi {
             }
             keep.push(Box::new(Text::new(cx.kit, Frame::new(16.0 + tile_s + 20.0, ((h - line) / 2.0).round(), w - 16.0 - tile_s - 20.0 - TRACK_W - 40.0, line), z + 1, style, row.name)?));
             let track_at = (w - 16.0 - TRACK_W, ((h - TRACK_H) / 2.0).round());
-            let track = plate::shape(&cx.kit.ui, Frame::new(0.0, 0.0, TRACK_W, TRACK_H), z + 1, plate::solid(Rgba(0, 0, 0, 0), TRACK_H / 2.0));
+            let track = plate::shape(&cx.kit.ui, Frame::new(0.0, 0.0, TRACK_W, TRACK_H), z + 1, plate::solid(cx.kit.ui.look.colour(PaletteRole::TrackOff), TRACK_H / 2.0));
             track.set(Props::at(track_at.0, track_at.1));
-            let knob = plate::shape(&cx.kit.ui, Frame::new(0.0, 0.0, KNOB, KNOB), z + 2, plate::solid(Rgba(255, 255, 255, 255), KNOB / 2.0));
+            let knob = plate::shape(&cx.kit.ui, Frame::new(0.0, 0.0, KNOB, KNOB), z + 2, plate::solid(cx.kit.ui.look.theme.materials.knob, KNOB / 2.0));
             let tick_side = icon_side(cx.kit, 20.0);
             let tick = icon::layer(cx.kit, "check", tick_side, self.ink.accent, z + 3, HIDDEN)?;
             Ok((track, knob, tick))

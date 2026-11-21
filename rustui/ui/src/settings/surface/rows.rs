@@ -243,8 +243,17 @@ pub fn face_px(env: &mut Env, face: &Face, side: u32, enabled: bool) -> Vec<u8> 
             let colour = straight.map_or(paint.accent, |c| c.premultiply(0.0));
             let mut px = tile_pixels(side, radius, colour, CLEAR, None);
             if !face.letter.is_empty() {
-                let luma = f32::from(colour.0) * 0.2126 + f32::from(colour.1) * 0.7152 + f32::from(colour.2) * 0.0722;
-                let ink = if luma > 140.0 { Rgba(24, 22, 34, 255) } else { Rgba(250, 248, 255, 255) };
+                let ink = match straight {
+                    // the person's colour is theirs: the letter takes whichever of the theme's two inks reads better on it
+                    Some(c) => {
+                        use ui::lucent::palette::{Mode, PaletteRole, Straight};
+                        let on = Straight { a: 255, ..c };
+                        let (dark, light) = (env.kit.tokens.roles(Mode::Light)[PaletteRole::Ink], env.kit.tokens.roles(Mode::Dark)[PaletteRole::Ink]);
+                        let pick = if ui::lucent::resolve::contrast_ratio(dark, on) >= ui::lucent::resolve::contrast_ratio(light, on) { dark } else { light };
+                        Straight { a: 255, ..pick }.premultiply(0.0)
+                    }
+                    None => paint.accent_ink,
+                };
                 let ty = ui::text::Type { px: (side as f32 * 0.5).round() as u32, weight: ui::text::Weight::SemiBold };
                 let ext = env.kit.ui.fonts.measure(&face.letter, ty);
                 let x = ((side as f32 - ext.width) / 2.0).round();

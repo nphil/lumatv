@@ -31,14 +31,10 @@ use ui::text::Weight;
 pub const FADE_OUT_MS: u32 = 180;
 pub const FADE_IN_MS: u32 = 120;
 
-/// The veil colour over a still: dark ink over the picture so the chrome reads against it.
+/// The veil colour over a still: the theme's dark canvas over the picture so the chrome reads against it, in either look.
 fn veil(kit: &crate::kit::Kit, alpha: f32) -> Rgba {
-    let (r, g, b) = match kit.mode {
-        ui::lucent::palette::Mode::Dark => (8.0, 6.0, 16.0),
-        ui::lucent::palette::Mode::Light => (8.0, 6.0, 16.0),
-    };
-    let a = (alpha.clamp(0.0, 1.0) * 255.0).round();
-    Rgba((r * alpha) as u8, (g * alpha) as u8, (b * alpha) as u8, a as u8)
+    use ui::lucent::palette::{Mode, PaletteRole, Straight};
+    Straight { a: (alpha.clamp(0.0, 1.0) * 255.0).round() as u8, ..kit.tokens.roles(Mode::Dark)[PaletteRole::Canvas] }.premultiply(0.0)
 }
 
 struct Piece2 {

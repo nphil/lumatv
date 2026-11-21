@@ -6,7 +6,7 @@
 //! spec = { title, sub, icon (Lucide) | iconUrl (a picture's file), x, y (where it opens, in the 1920x1080 scene),
 //!          anchor: { x, y, width, height, place } (instead of x, y: opens beside that rectangle, level with its bottom edge, on the left of
 //!          it when it does not fit on the right; place "below" opens under it, left edges level, above it when it does not fit),
-//!          raised: { x, y, width, height, iconUrl, plate, inset, radius } (the thing the menu belongs to, drawn above the scrim so it
+//!          raised: { x, y, width, height, iconUrl, plate, inset } (the thing the menu belongs to, drawn above the scrim so it
 //!          stays lit: a dock tile or a library icon),
 //!          items: [{ id, icon, label, detail, hint, danger, disabled, options: [...], index }], hint, width, scrim }
 //! ```
@@ -47,7 +47,6 @@ pub struct Raised {
     /// The colour behind the picture (`#RRGGBB`), none when it has no plate.
     pub plate: Option<String>,
     pub inset: f32,
-    pub radius: Option<f32>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -100,7 +99,6 @@ impl Spec {
             icon_url: text(r, "iconUrl"),
             plate: r.get("plate").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string),
             inset: num(r, "inset").unwrap_or(0.0),
-            radius: num(r, "radius"),
         });
         let items = v
             .get("items")

@@ -24,13 +24,28 @@ use ui::motion::{Motion, MotionBounds, MotionToken, Settle, Units};
 use ui::scene::{ImageLayer, ShapeLayer};
 
 const CLEAR: Rgba = Rgba(0, 0, 0, 0);
-/// The panel's black and what sits on it: the saver is dark in both looks, it is a picture of the screen.
-const PANEL: Rgba = Rgba(9, 8, 13, 255);
-const CARD: Rgba = Rgba(40, 36, 56, 255);
-const CARD_EDGE: Rgba = Rgba(86, 80, 112, 255);
-const BAR: Rgba = Rgba(150, 144, 172, 255);
-const BAR_DIM: Rgba = Rgba(92, 88, 112, 255);
-const GLYPH: Rgba = Rgba(226, 222, 240, 255);
+
+/// The screen's colours: the saver is dark in both looks (it is a picture of the screen), so they are the theme's dark roles, opaque on its
+/// canvas.
+#[derive(Clone, Copy)]
+struct Screen {
+    panel: Rgba,
+    card: Rgba,
+    card_edge: Rgba,
+    bar: Rgba,
+    bar_dim: Rgba,
+    glyph: Rgba,
+}
+
+impl Screen {
+    fn of(kit: &Kit) -> Self {
+        use ui::lucent::palette::{Mode, PaletteRole};
+        let roles = kit.tokens.roles(Mode::Dark);
+        let panel = { let c = roles[PaletteRole::Canvas]; Rgba(c.r, c.g, c.b, 255) };
+        let on = |role: PaletteRole| { let c = roles[role]; mix(Rgba(c.r, c.g, c.b, 255), panel, f32::from(c.a) / 255.0) };
+        Screen { panel, card: on(PaletteRole::GlassRaised), card_edge: on(PaletteRole::EdgeRaised), bar: on(PaletteRole::Ink2), bar_dim: on(PaletteRole::Ink3), glyph: on(PaletteRole::Ink) }
+    }
+}
 
 /// Where the picture and the name of the focused row under it are.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -112,15 +127,17 @@ fn mix(a: Rgba, b: Rgba, k: f32) -> Rgba {
 
 impl FigureArt {
     pub fn signature(kit: &Kit, fig: &Figure, geo: &FigureGeo) -> String {
-        format!("{}|{}|{}|{}|{:?}", fig.face, fig.dim, kit.mode as u8, kit.text_scale.to_bits(), geo.screen)
+        format!("{}|{}|{}|{}|{}|{:?}", fig.face, fig.dim, kit.mode as u8, kit.generation(), kit.text_scale.to_bits(), geo.screen)
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(kit: &mut Kit, paint: &Paint, sz: &Sizes, parent: &Group, geo: FigureGeo, fig: &Figure, z: i32, sig: String) -> std::io::Result<Self> {
         let scene = kit.ui.scene.clone();
         let s = geo.screen;
+        let sc = Screen::of(kit);
+        let (panel, glyph) = (sc.panel, sc.glyph);
         let radius = (kit.tokens.radius(Radius::Card) * 0.5).round();
-        let frame = plate::shape(&kit.ui, s, z, pill(PANEL, paint.edge_raised, radius, 1.0));
+        let frame = plate::shape(&kit.ui, s, z, pill(panel, paint.edge_raised, radius, 1.0));
         // the saver's face, as bright as its dimming leaves it
         let k = if fig.dim { 0.5 } else { 0.9 };
         let mut face = Vec::new();
@@ -129,11 +146,11 @@ impl FigureArt {
         match fig.face.as_str() {
             "art" => {
                 let inner = Frame::new(s.x + (s.w * 0.14).round(), s.y + (s.h * 0.16).round(), (s.w * 0.72).round(), (s.h * 0.66).round());
-                face.push(plate::shape(&kit.ui, inner, z + 1, pill(mix(accent, PANEL, 0.22 * k * 2.0), CLEAR, 4.0, 0.0)));
+                face.push(plate::shape(&kit.ui, inner, z + 1, pill(mix(accent, panel, 0.22 * k * 2.0), CLEAR, 4.0, 0.0)));
                 let hill = Frame::new(inner.x, inner.y + (inner.h * 0.58).round(), inner.w, (inner.h * 0.42).round());
-                face.push(plate::shape(&kit.ui, hill, z + 2, pill(mix(accent, PANEL, 0.12 * k * 2.0), CLEAR, 4.0, 0.0)));
+                face.push(plate::shape(&kit.ui, hill, z + 2, pill(mix(accent, panel, 0.12 * k * 2.0), CLEAR, 4.0, 0.0)));
                 let d = (inner.h * 0.2).round();
-                face.push(plate::shape(&kit.ui, Frame::new(inner.x + (inner.w * 0.68).round(), inner.y + (inner.h * 0.14).round(), d, d), z + 2, pill(mix(GLYPH, PANEL, 0.4 * k), CLEAR, d / 2.0, 0.0)));
+                face.push(plate::shape(&kit.ui, Frame::new(inner.x + (inner.w * 0.68).round(), inner.y + (inner.h * 0.14).round(), d, d), z + 2, pill(mix(glyph, panel, 0.4 * k), CLEAR, d / 2.0, 0.0)));
             }
             "off" => {}
             _ => {
@@ -144,7 +161,7 @@ impl FigureArt {
                 let at = Props::at((s.x + (s.w - w as f32) / 2.0).round(), (s.y + s.h * 0.33).round());
                 if let Ok(mut layer) = scene.image(w, h, z + 1, at) {
                     let mut px = vec![0u8; (w * h * 4) as usize];
-                    let ink = mix(GLYPH, PANEL, 0.62 * k);
+                    let ink = mix(glyph, panel, 0.62 * k);
                     kit.ui.fonts.draw(&mut ui::text::Canvas { pixels: &mut px, width: w as usize }, text, ty, (2.0, 2.0 + ext.ascent), ink);
                     layer.pixels_mut().copy_from_slice(&px);
                     layer.damage(None);
@@ -154,26 +171,26 @@ impl FigureArt {
                 let bw = (s.w * 0.22).round();
                 let bh = (s.h * 0.035).round().max(3.0);
                 let by = (s.y + s.h * 0.62).round();
-                face.push(plate::shape(&kit.ui, Frame::new(s.x + ((s.w - bw) / 2.0).round(), by, bw, bh), z + 1, pill(mix(BAR, PANEL, 0.3 * k), CLEAR, bh / 2.0, 0.0)));
+                face.push(plate::shape(&kit.ui, Frame::new(s.x + ((s.w - bw) / 2.0).round(), by, bw, bh), z + 1, pill(mix(sc.bar, panel, 0.3 * k), CLEAR, bh / 2.0, 0.0)));
             }
         }
         // the lit screen: what Wake does to the dimmed saver
         let wake = Fader::new(kit, parent)?;
-        let wake_plate = scene.adopting(&wake.group, || plate::shape(&kit.ui, s, z + 3, pill(faded(Rgba(255, 255, 255, 255), 0.16), CLEAR, radius, 0.0)));
+        let wake_plate = scene.adopting(&wake.group, || plate::shape(&kit.ui, s, z + 3, pill(faded(glyph, 0.16), CLEAR, radius, 0.0)));
         // over: a card at the corner pop-ups come to
         let card_w = (s.w * 0.4).round();
         let card_h = (s.h * 0.27).round();
         let card_at = Frame::new((s.right() - card_w - s.w * 0.05).round(), (s.y + s.h * 0.06).round(), card_w, card_h);
-        let over = Self::mark(kit, parent, card_at, z + 5, true, (CARD, CARD_EDGE))?;
+        let over = Self::mark(kit, parent, card_at, z + 5, true, &sc, (sc.card, sc.card_edge))?;
         // inside: a quiet chip under the clock, no brighter than the saver
         let chip_w = (s.w * 0.44).round();
         let chip_h = (s.h * 0.17).round();
         let chip_at = Frame::new((s.x + (s.w - chip_w) / 2.0).round(), (s.y + s.h * 0.74).round(), chip_w, chip_h);
-        let inside = Self::mark(kit, parent, chip_at, z + 4, false, (mix(CARD, PANEL, 0.45), mix(CARD_EDGE, PANEL, 0.35)))?;
+        let inside = Self::mark(kit, parent, chip_at, z + 4, false, &sc, (mix(sc.card, panel, 0.45), mix(sc.card_edge, panel, 0.35)))?;
         // hide: the saver alone, and a glyph that says nothing else comes
         let hide = Fader::new(kit, parent)?;
         let hs = (s.h * 0.16).round() as u32;
-        let hide_glyph = scene.adopting(&hide.group, || icon::layer(kit, "eye-off", hs, mix(BAR_DIM, PANEL, 0.9), z + 4, Props::at((s.x + (s.w - hs as f32) / 2.0).round(), (s.y + s.h * 0.75).round())))?;
+        let hide_glyph = scene.adopting(&hide.group, || icon::layer(kit, "eye-off", hs, mix(sc.bar_dim, panel, 0.9), z + 4, Props::at((s.x + (s.w - hs as f32) / 2.0).round(), (s.y + s.h * 0.75).round())))?;
         let caption = TextLayer::new(&mut kit.ui, geo.caption, z + 1, &[])?;
         let mut art = FigureArt {
             sig,
@@ -197,7 +214,7 @@ impl FigureArt {
         Ok(art)
     }
 
-    fn mark(kit: &mut Kit, parent: &Group, at: Frame, z: i32, card: bool, (fill, edge): (Rgba, Rgba)) -> std::io::Result<Mark> {
+    fn mark(kit: &mut Kit, parent: &Group, at: Frame, z: i32, card: bool, sc: &Screen, (fill, edge): (Rgba, Rgba)) -> std::io::Result<Mark> {
         let fade = Fader::new(kit, parent)?;
         let scene = kit.ui.scene.clone();
         let radius = (at.h * if card { 0.22 } else { 0.5 }).round();
@@ -207,15 +224,15 @@ impl FigureArt {
             parts.push(plate::shape(&kit.ui, at, z, pill(fill, edge, radius, 1.0)));
             let side = (at.h * if card { 0.5 } else { 0.56 }).round();
             let gx = at.x + if card { (at.h * 0.22).round() } else { (at.h * 0.3).round() };
-            glyph = icon::layer(kit, "bell", side as u32, GLYPH, z + 1, Props::at(gx, (at.y + (at.h - side) / 2.0).round()))?;
+            glyph = icon::layer(kit, "bell", side as u32, sc.glyph, z + 1, Props::at(gx, (at.y + (at.h - side) / 2.0).round()))?;
             let bx = gx + side + (at.h * 0.18).round();
             let bw = at.right() - bx - (at.h * if card { 0.22 } else { 0.4 }).round();
             let bh = (at.h * if card { 0.1 } else { 0.16 }).round().max(3.0);
             if card {
-                parts.push(plate::shape(&kit.ui, Frame::new(bx, (at.y + at.h * 0.3).round(), bw, bh), z + 1, pill(BAR, CLEAR, bh / 2.0, 0.0)));
-                parts.push(plate::shape(&kit.ui, Frame::new(bx, (at.y + at.h * 0.56).round(), (bw * 0.62).round(), bh), z + 1, pill(BAR_DIM, CLEAR, bh / 2.0, 0.0)));
+                parts.push(plate::shape(&kit.ui, Frame::new(bx, (at.y + at.h * 0.3).round(), bw, bh), z + 1, pill(sc.bar, CLEAR, bh / 2.0, 0.0)));
+                parts.push(plate::shape(&kit.ui, Frame::new(bx, (at.y + at.h * 0.56).round(), (bw * 0.62).round(), bh), z + 1, pill(sc.bar_dim, CLEAR, bh / 2.0, 0.0)));
             } else {
-                parts.push(plate::shape(&kit.ui, Frame::new(bx, (at.y + (at.h - bh) / 2.0).round(), bw, bh), z + 1, pill(BAR_DIM, CLEAR, bh / 2.0, 0.0)));
+                parts.push(plate::shape(&kit.ui, Frame::new(bx, (at.y + (at.h - bh) / 2.0).round(), bw, bh), z + 1, pill(sc.bar_dim, CLEAR, bh / 2.0, 0.0)));
             }
             Ok(())
         })?;
@@ -239,9 +256,10 @@ impl FigureArt {
             return;
         }
         self.icon_now = name.to_string();
+        let glyph = Screen::of(kit).glyph;
         for m in [&mut self.over, &mut self.inside] {
             if let Some(g) = &mut m.glyph {
-                icon::repaint(kit, g, name, GLYPH);
+                icon::repaint(kit, g, name, glyph);
             }
         }
     }

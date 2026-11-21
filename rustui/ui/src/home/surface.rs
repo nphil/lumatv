@@ -775,7 +775,9 @@ impl HomeSurface {
                     break;
                 }
             };
-            let plate_colour = lumatv_tokens::colour(&p.plate).map(|c| c.premultiply(0.0)).unwrap_or(Rgba(42, 40, 51, 255));
+            // The app's own plate is kept (its icon is drawn for it); one LG names no colour for takes the theme's sheet.
+            let plate_colour = lumatv_tokens::colour(&p.plate).map(|c| c.premultiply(0.0)).unwrap_or_else(|| kit.ui.look.colour(PaletteRole::Sheet));
+            let plate_edge = kit.ui.look.colour(PaletteRole::EdgeRaised);
             let scene = kit.ui.scene.clone();
             let made = IconArt::key_of(&p.icon, tile as u32, inset as u32, radius, lift);
             let art = match d.arts.iter().position(|a| a.key == made) {
@@ -783,7 +785,7 @@ impl HomeSurface {
                 None => IconArt::of(&p.icon, self.data.as_deref(), tile as u32, inset as u32, radius, lift),
             };
             let layers = scene.adopting(&group, || -> std::io::Result<_> {
-                let shape = Shape { corner_radius: radius, fill: compositor_protocol::Fill::Solid(plate_colour), border_width: 1.0, border: faded(Rgba(255, 255, 255, 255), 0.13) };
+                let shape = Shape { corner_radius: radius, fill: compositor_protocol::Fill::Solid(plate_colour), border_width: 1.0, border: plate_edge };
                 let plate_layer = kit.ui.scene.shape(tile as u32, tile as u32, Z_DOCK + 3, shape, Props::at(0.0, 0.0));
                 let icon = match &art {
                     Some(a) => Some(a.layer(kit, Z_DOCK + 4, false)?),
@@ -1171,7 +1173,10 @@ impl HomeSurface {
         let accent_hex = home.dock.accent_for(home.dock.focused(), &home.theme, &home.tint.pointer("/tint").map(|t| {
             let c = |k: &str| t.get(k).and_then(Value::as_u64).unwrap_or(0) as u8;
             wallpaper::hex(wallpaper::accent_from((c("r"), c("g"), c("b")), kit.mode == Mode::Light))
-        }).unwrap_or_else(|| "#9a8cf0".into()));
+        }).unwrap_or_else(|| {
+            let a = kit.ui.look.theme.roles[PaletteRole::Accent];
+            wallpaper::hex((a.r, a.g, a.b))
+        }));
         let accent = lumatv_tokens::colour(&accent_hex).map(|c| c.premultiply(0.0)).unwrap_or(kit.ui.look.accent());
         match (dock_focused, focused) {
             (true, Some(i)) => {
@@ -2561,6 +2566,45 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_tile_without_a_colour_of_its_own_wears_the_themes_sheet_and_follows_a_theme_change() {
+        use compositor_protocol::{Content, Fill};
+        let list = json!({"launchPoints": [{"id": "branded", "title": "Branded", "icon": "", "iconColor": "#101010"}, {"id": "plain", "title": "Plain", "icon": ""}]});
+        let (mut h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let mut theme = lumatv_tokens::Tokens::shipped().json().clone();
+        theme["material"] = json!("dark");
+        let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
+        fixtures(&mut home);
+        home.update(&Input::Luna { tag: model::LP_TAG, payload: list }, 1500);
+        home.update(&Input::Tick, 4000);
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        let mut fills = |kit: &mut Kit, engine: &mut Engine, at: u64| {
+            s.apply(kit, engine, &mut home, at).expect("Home drawn");
+            h.commit();
+            let d = s.dock.as_ref().expect("the dock");
+            let layers = h.layers();
+            let fill = |app: &str| {
+                let id = d.tiles.iter().find(|t| t.app == app).expect("the tile").plate.id();
+                match layers.iter().find(|l| l.0 == id).map(|l| &l.1) {
+                    Some(Content::Shape(Shape { fill: Fill::Solid(c), border, .. })) => (*c, *border),
+                    other => panic!("{app}: {other:?}"),
+                }
+            };
+            (fill("branded"), fill("plain"))
+        };
+        let ((branded, edge), (plain, _)) = fills(&mut kit, &mut engine, 4000);
+        assert_eq!(branded, Rgba(16, 16, 16, 255), "the app's own plate is kept");
+        assert_eq!((plain, edge), (kit.ui.look.colour(PaletteRole::Sheet), kit.ui.look.colour(PaletteRole::EdgeRaised)));
+        kit.retheme(kit.tokens.clone(), Mode::Light, 1.0);
+        let ((_, edge), (plain_after, _)) = fills(&mut kit, &mut engine, 4100);
+        assert_ne!(plain_after, plain, "the theme changed");
+        assert_eq!((plain_after, edge), (kit.ui.look.colour(PaletteRole::Sheet), kit.ui.look.colour(PaletteRole::EdgeRaised)));
+        drop(fills);
+        std::mem::forget(h);
     }
 
     #[test]

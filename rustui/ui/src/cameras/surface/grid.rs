@@ -43,12 +43,11 @@ fn hidden_props() -> Props {
     crate::system::parts::HIDDEN
 }
 
-/// The veil over a tile that is not fresh: the page's ink over the still.
+/// The veil over a tile that is not fresh: the theme's canvas over the still, a little thicker in the light look where the canvas is pale.
 fn veil_colour(kit: &crate::kit::Kit) -> Rgba {
-    match kit.mode {
-        ui::lucent::palette::Mode::Dark => Rgba(5, 4, 10, 158),
-        ui::lucent::palette::Mode::Light => Rgba(175, 171, 164, 178),
-    }
+    use ui::lucent::palette::{Mode, PaletteRole, Straight};
+    let canvas = Straight { a: 255, ..kit.ui.look.theme.roles[PaletteRole::Canvas] }.premultiply(0.0);
+    faded(canvas, if kit.mode == Mode::Dark { 0.62 } else { 0.70 })
 }
 
 struct TileUi {

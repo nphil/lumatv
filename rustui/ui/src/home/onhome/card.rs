@@ -26,9 +26,10 @@ use crate::kit::motion::Beat;
 use crate::kit::pane::{self, PaneKind};
 use crate::kit::picture::{Fit, Picture};
 use crate::kit::text::role_style;
+use crate::kit::button::faded;
 use crate::kit::widgets::{Hover, Toggle};
 use crate::kit::{Engine, Kit};
-use compositor_protocol::{Backdrop, Ease, Edges, Glass, GroupPose, Props, Rect, Rgba, Shadow, Sheen, TintGradient};
+use compositor_protocol::{Backdrop, Ease, Edges, Glass, GroupPose, Props, Rect, Rgba, TintGradient};
 use lumatv_tokens::{Radius, TypeRole};
 use serde_json::Value;
 use ui::components::text::ellipsise;
@@ -76,38 +77,27 @@ pub enum Glassy {
     Pressed,
 }
 
-fn white(alpha: f32) -> Rgba {
-    let v = (255.0 * alpha).round() as u8;
-    Rgba(v, v, v, v)
-}
-
-fn black(alpha: f32) -> Rgba {
-    Rgba(0, 0, 0, (255.0 * alpha).round() as u8)
-}
-
 /// The lit glass of an item that is in front, which is drawn over its glass at rest: the focus raises the item a clear step, so that it reads
-/// from across a room. It adds light, an edge and a lip that catch it, a stronger sheen and a shadow that says the item floats. Under the
-/// finger the shadow draws in and the light dims.
-///
-/// The light theme cannot lift by brightness alone: its card is already a pale veil, so a white wash is a slab (host render: a lit item of 241
-/// over items of 226 and a card of 210). There the item is glass lit from above, white at its top and almost clear at its foot, with a rim
-/// and a short shadow; the items at rest are thinner ([`LIGHT_REST_VEIL`]) so that the lit one has something to be brighter than.
+/// from across a room. It is the theme's raised glass with the focused edge, the raised lip, sheen and shadow of the theme's field tokens;
+/// under the finger the light dims and the shadow draws in to the pressed one.
 fn raised(kit: &Kit, rest: Glass, pressed: bool) -> Glass {
-    let dark = kit.mode == Mode::Dark;
-    let (wash, top, bottom, edge, lip, sheen, far, near) = if dark {
-        (0.15, 0.15, 0.15, white(0.46), white(0.32), Sheen { peak: 0.26, floor: 0.07, start: 0.30, end: 0.62 }, Shadow { offset_y: 20.0, blur: 44.0, colour: black(0.55) }, Shadow { offset_y: 4.0, blur: 10.0, colour: black(0.40) })
-    } else {
-        (0.20, 0.46, 0.04, white(0.98), white(0.98), Sheen { peak: 0.22, floor: 0.0, start: 0.18, end: 0.58 }, Shadow { offset_y: 12.0, blur: 28.0, colour: black(0.20) }, Shadow { offset_y: 3.0, blur: 8.0, colour: black(0.16) })
-    };
+    let fields = kit.ui.look.theme.fields;
     let dim = if pressed { 0.6 } else { 1.0 };
-    let tint = white(wash * dim);
-    let tint_gradient = (!dark).then(|| TintGradient { top: white(top * dim), bottom: white(bottom * dim) });
-    let shadows = if pressed {
-        [Some(Shadow { offset_y: 6.0, blur: 14.0, colour: black(if dark { 0.34 } else { 0.18 }) }), None]
-    } else {
-        [Some(far), Some(near)]
-    };
-    Glass { tint, tint_gradient, edge, edge_width: 1.5, highlight: lip, sheen: Some(sheen), shadows, ..rest }
+    Glass {
+        tint: faded(kit.ui.look.colour(PaletteRole::GlassRaised), dim),
+        // In the dark the raised glass alone sits within a few levels of the items at rest (host render); a wash of the theme's ink lifts it
+        // clear. In the light the raised glass already clears them.
+        tint_gradient: (kit.mode == Mode::Dark).then(|| {
+            let ink = kit.ui.look.colour(PaletteRole::Ink);
+            TintGradient { top: faded(ink, 0.24 * dim), bottom: faded(ink, 0.12 * dim) }
+        }),
+        edge: kit.tokens.extra(kit.mode).glass_focus_edge,
+        edge_width: fields.edge_width,
+        highlight: faded(fields.highlight_raised, dim),
+        sheen: Some(fields.sheen),
+        shadows: if pressed { fields.shadow_pressed } else { fields.shadow_raised },
+        ..rest
+    }
 }
 
 /// How much of the card glass's veil an item keeps at rest in the light theme: the same veil on the card's own would read as a lighter card in

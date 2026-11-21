@@ -200,7 +200,8 @@ impl Dock {
         list.iter()
             .map(|p| {
                 let id = p.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
-                let raw = p.get("iconColor").or_else(|| p.get("bgColor")).and_then(Value::as_str).unwrap_or("#2a2833").to_ascii_lowercase();
+                // none named: the tile takes the theme's sheet and the focus the theme's accent
+                let raw = p.get("iconColor").or_else(|| p.get("bgColor")).and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
                 let forced = plates.get(&id).and_then(Value::as_str).map(str::to_ascii_lowercase).unwrap_or_default();
                 let icon = overrides.get(&id).and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| Self::icon_of(p));
                 let title = renamed.get(&id).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);

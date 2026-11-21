@@ -293,7 +293,7 @@ impl MenuSurface {
                         let f = r.frame;
                         let plate = r.plate.as_deref().map(|c| {
                             let fill = crate::kit::avatar::parse(c, paint.sheet);
-                            let radius = r.radius.unwrap_or_else(|| kit.tokens.radius(Radius::Tile));
+                            let radius = kit.tokens.radius(Radius::Tile);
                             plate::shape(
                                 &kit.ui,
                                 f,
