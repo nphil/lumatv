@@ -19,5 +19,11 @@ Upstream changes applied:
   server's signed `video[0].videoSplitEncodeStripsPerFrame`, which upstream measured taking
   3840x2160@120 from about 96 to 120 fps. Ported by hand: the pin has `microphone_handoff` where
   the commit's parent did not.
+- [ac89dd0](https://github.com/OpenCloudGaming/OpenNOW/commit/ac89dd0e6c94a7aee71b638c65b2f0aa6df9ef79)
+  from [#1265](https://github.com/OpenCloudGaming/OpenNOW/pull/1265): ANNOUNCE writes
+  `chromaFormat` as the official 4:4:4 flag (0 = 4:2:0, 1 = 4:4:4) instead of `chroma_format_idc`
+  (1/3). Upstream's field logs: no 10-bit session (all HDR) reached a first video frame with the
+  idc values, and the seat ended it with 0x800e8605. Touches `nvst_rtsp_color.rs`, its tests and
+  the ANNOUNCE tests in `nvst_rtsp.rs`; applied as the commit has it.
 
 No local changes.
