@@ -65,7 +65,9 @@ game_install() {
   [ -n "$shipped" ] || { log_line "game app: the shipped ipk has no build id"; return 1; }
   game_current && return 0
   game_close
-  tmp="/tmp/$SHORT_ID-game.ipk"
+  # One file per build: an install still running after the wait keeps reading it (2026-11-18: deleting it
+  # mid-install left opkg's record half-installed and every later install of the same version refused).
+  tmp="/tmp/$SHORT_ID-game-$shipped.ipk"
   cp -f "$GAME_IPK" "$tmp" 2>/dev/null || { log_line "game app: the ipk could not be copied to /tmp"; return 1; }
   out=$("$GAME_LUNA" -n 3 -f luna://com.webos.appInstallService/dev/install "{\"id\":\"$GAME_APP\",\"ipkUrl\":\"$tmp\",\"subscribe\":true}" 2>&1 | tr -d '\n')
   i=0
@@ -74,12 +76,12 @@ game_install() {
     sleep 1
     i=$((i + 1))
   done
-  rm -f "$tmp"
   if game_current; then
+    rm -f "$tmp"
     log_line "game app $shipped installed"
     return 0
   fi
-  log_line "game app install did not complete: $(printf '%s' "$out" | cut -c1-200)"
+  log_line "game app install did not complete (the ipk stays in /tmp for the installer): $(printf '%s' "$out" | cut -c1-200)"
   return 1
 }
 
