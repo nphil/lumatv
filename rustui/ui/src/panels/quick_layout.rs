@@ -696,20 +696,27 @@ pub struct SliderLayout {
 const POPUP_EDGE: f32 = 54.0;
 
 /// The card beside the sheet. When its content is taller than the room (a list of options at large text) it rises to the top of the safe area,
-/// then gives up lines of its explanation one at a time; it never leaves the screen for a list of up to seven or eight options.
+/// then gives up lines of its explanation one at a time; it never leaves the screen for a list of up to seven or eight options. A list too
+/// long to fit even then scrolls, and since scrolling makes the room, the explanation is shown whole.
 pub fn popup_layout(kit: &mut Kit, p: &PopupView) -> PopupLayout {
+    const WHOLE: usize = 6;
     let limit = 1080.0 - POPUP_EDGE;
-    let mut text_max = 6;
-    loop {
-        let mut l = popup_layout_with(kit, p, text_max);
+    let place = |l: &mut PopupLayout| {
         if l.frame.y + l.frame.h > limit {
             l.frame.y = (limit - l.frame.h).max(POPUP_EDGE);
         }
-        let fits = l.frame.y + l.frame.h <= limit;
-        if fits || text_max == 1 || l.text.is_empty() {
-            if !fits {
-                l.scroll_options(kit, limit);
-            }
+        l.frame.y + l.frame.h <= limit
+    };
+    let mut text_max = WHOLE;
+    loop {
+        let mut l = popup_layout_with(kit, p, text_max);
+        if place(&mut l) {
+            return l;
+        }
+        if text_max == 1 || l.text.is_empty() {
+            let mut l = if text_max == WHOLE { l } else { popup_layout_with(kit, p, WHOLE) };
+            place(&mut l);
+            l.scroll_options(kit, limit);
             return l;
         }
         text_max -= 1;
@@ -1003,5 +1010,22 @@ mod tests {
         };
         let q = popup_layout(&mut kit, &pick);
         assert!(q.frame.y + q.frame.h <= 1080.0 - 54.0, "inside the screen: {:?}", q.frame);
+    }
+
+    #[test]
+    fn a_list_that_scrolls_keeps_its_whole_explanation() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let text = "How the picture looks. Each input keeps its own.";
+        let pick = PopupView::Pick {
+            title: "Picture mode".into(),
+            text: text.into(),
+            options: (0..11)
+                .map(|i| super::super::quick::OptionView { label: format!("Mode {i}"), icon: "image".into(), detail: String::new(), current: i == 1, enabled: true })
+                .collect(),
+            index: 1,
+        };
+        let q = popup_layout(&mut kit, &pick);
+        assert!(q.scroll.is_some(), "eleven modes scroll");
+        assert_eq!(q.text.join(" "), text);
     }
 }

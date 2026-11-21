@@ -23,8 +23,13 @@ pub fn page() -> Page {
 
 const MODES: [&str; 9] = ["filmMaker", "cinema", "normal", "vivid", "game", "sports", "eco", "expert1", "expert2"];
 
+/// The mode in force, by the name the Mode cards check: a LumaTV preset written into LG's mode is named for the preset.
 fn summary(c: &Ctx) -> String {
-    c.lg.opt_text("picture.pictureMode").map(|m| names::picture_mode(&m).to_string()).unwrap_or_default()
+    let Some(mode) = c.lg.opt_text("picture.pictureMode") else { return String::new() };
+    presets::offered(c.helper(presets::TOPIC))
+        .into_iter()
+        .find(|p| p.applied && p.mode == mode)
+        .map_or_else(|| names::picture_mode(&mode).to_string(), |p| p.name)
 }
 
 fn chip(c: &Ctx) -> Option<(String, &'static str)> {
@@ -800,6 +805,7 @@ mod tests {
         let modes = by_id(&r, "picture.pictureMode");
         assert_eq!(modes.cards.iter().map(|c| c.title.as_str()).skip(7).collect::<Vec<_>>(), ["Expert \u{b7} Day", "Expert \u{b7} Night", "RTINGS Accurate", "RTINGS Richer Color", "LumaTV Vivid"]);
         assert_eq!(modes.index, Some(11), "the preset written into the mode in force");
+        assert_eq!(summary(&w.ctx()), "LumaTV Vivid", "the rail names the preset the Mode cards check, not LG's Eco under it");
         let ops = (modes.act.as_ref().unwrap())(Arg::Index(9));
         assert!(matches!(&ops[0], Op::Send { method: "POST", path, body: Some(b), .. } if path == "/v1/picture/preset" && b["id"] == "rtings"));
         assert!(matches!(&(by_id(&r, "separatepicture").act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Patch(_)]));

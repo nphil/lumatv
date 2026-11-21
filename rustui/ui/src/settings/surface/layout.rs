@@ -135,6 +135,14 @@ pub fn seg_geom(kit: &mut Kit, sz: &Sizes, options: &[String], role: TypeRole, f
     SegGeom { seg_w, n, h: sz.target, in_view }
 }
 
+/// The width a card's name has beside its glyph and its check mark.
+pub fn card_text_w(sz: &Sizes, card_w: f32, glyph: bool) -> f32 {
+    let side = (sz.target * 0.5).round();
+    let check_side = (sz.target * 0.34).round();
+    let tx = sz.s5 + if glyph { side + sz.s4 } else { 0.0 };
+    (card_w - tx - sz.s5 - check_side - sz.s2).max(40.0)
+}
+
 /// The tab label and its selected mark need separate vertical space at every text scale.
 pub fn tab_height(kit: &Kit, sz: &Sizes) -> f32 {
     sz.target.max(line_height(kit.ty(TypeRole::Label)) + 2.0 * sz.s2 + 2.0 * sz.s1).ceil()
@@ -170,10 +178,19 @@ pub fn measure_row(kit: &mut Kit, row: &Row, w: f32) -> RowGeom {
         }
         Kind::Cards => {
             let two = row.cards.iter().any(|c| !c.sub.is_empty());
-            let across = if row.strip { row.in_view.max(1) } else { row.cols.max(1) };
             let edge = sz.s6;
             let gap = sz.s3;
-            let card_w = ((w - 2.0 * edge - gap * (across as f32 - 1.0)) / across as f32).floor();
+            let width_at = |across: usize| ((w - 2.0 * edge - gap * (across as f32 - 1.0)) / across as f32).floor();
+            let mut across = if row.strip { row.in_view.max(1) } else { row.cols.max(1) };
+            // a strip scrolls, so it shows fewer cards rather than cut a name short ("RTINGS Richer Color" at four across)
+            if row.strip {
+                let ty = kit.ty(TypeRole::Label);
+                let widest: Vec<(f32, bool)> = row.cards.iter().map(|c| (kit.ui.fonts.measure(&c.title, ty).width.ceil(), !c.icon.is_empty() || c.face.is_some())).collect();
+                while across > 1 && widest.iter().any(|&(text, glyph)| text > card_text_w(&sz, width_at(across), glyph)) {
+                    across -= 1;
+                }
+            }
+            let card_w = width_at(across);
             let card_h = if two { sz.row + sz.s2 } else { sz.row };
             let rows = if row.strip { 1 } else { row.cards.len().div_ceil(row.cols.max(1)) };
             g.cards = Some(CardsGeom { edge, gap, card_w, card_h, across, rows });

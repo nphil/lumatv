@@ -859,7 +859,7 @@ impl RowArt {
                 make_icon(env, "check", check_side, paint.accent, env.z + 3, Props::at(rect.x + rect.w - check_side as f32 - sz.s4, rect.y + sz.s3))?
             } else { None };
             let tx = sz.s5 + if glyph.is_some() || thumbnail.is_some() { side as f32 + sz.s4 } else { 0.0 };
-            let tw = (g.card_w - tx - sz.s5 - check_side as f32 - sz.s2).max(40.0);
+            let tw = super::layout::card_text_w(&sz, g.card_w, glyph.is_some() || thumbnail.is_some());
             let ellipsised = |kit: &mut Kit, text: &str, role: TypeRole| {
                 let ty = kit.ty(role);
                 ui::components::text::ellipsise(&mut kit.ui.fonts, text, ty, tw)

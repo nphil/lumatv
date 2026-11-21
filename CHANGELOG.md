@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Settings' rail names the picture preset in force (LumaTV Vivid, not the LG mode under it), the Mode cards show fewer at a time so every preset's name fits whole, and a Quick Settings list long enough to scroll keeps its whole explanation. Not yet checked on the TV.
+
 More of the shell takes its colours from the active theme and follows a theme change live: a dock tile whose app names no plate colour wears the theme's sheet with its raised edge, and the dock's focus glow falls back to the theme's accent; a context menu's raised tile uses the theme's tile radius; a focused smart-home item is the theme's raised glass, edge, lip, sheen and shadow; the letter on a profile colour is whichever of the theme's two inks reads better; the During the screensaver picture, the camera grid's veil, the full camera view's veil and the camera options' switch use the theme's roles. An app's own plate colour and a profile's chosen colour stay as given, since they carry meaning. Not yet checked on the TV.
 
 Weather from a Home Assistant entity can come from the LumaShow integration's `weather` module, with no Home Assistant link or token on the TV. The On Home listener offers the module; while the integration sends it (*Send a weather entity to the device*), the helper chooses the Settings entity there and maps its snapshot, otherwise it reads the entity over the saved link as before. Both ways go through one mapping: a read over the link is first put in the module's snapshot shape. The sunrise, sunset and radar centre need the integration's `home`, sent from lumashow-ha's next release. Not yet checked on the TV.
