@@ -358,6 +358,19 @@ static void picture_only_starfish_skips_audio_queries(const char *ndl_path) {
     dlclose(lib);
 }
 
+static void a_released_load_is_not_queried(void) {
+    gf_status status;
+    start(GF_AUDIO_NONE, 0);
+    fill_status(&f, &status);
+    assert(status.audio_avail == 65536 && gf_ndl_ops.queued(f.ndl) >= 0);
+    handle_message(&f, &client, GF_UNLOAD, NULL, 0);
+    f.pipe_ready = 1;           /* what a status tick would see if anything kept the pipeline marked ready */
+    fill_status(&f, &status);
+    assert(status.audio_avail == 0 && gf_ndl_ops.queued(f.ndl) == -1);
+    assert(state().violations == 0);
+    f.pipe_ready = 0;
+}
+
 int main(int argc, char **argv) {
     assert(argc == 2);
     setenv("FAKE_NDL_MANUAL_EVENTS", "1", 1);
@@ -383,6 +396,7 @@ int main(int argc, char **argv) {
     hdr_is_applied_after_ingest_once_per_change_never_for_sdr();
     watchdog_and_fatal_errors_latch_until_a_new_load();
     identity_is_a_build_setting();
+    a_released_load_is_not_queried();
     frame_records_are_opt_in_bounded_and_measured();
     surround_header_and_load_validation();
     picture_only_starfish_skips_audio_queries(argv[1]);

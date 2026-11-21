@@ -230,6 +230,7 @@ int NDL_DirectVideoFlushRenderBuffer(void) {
 }
 
 int NDL_DirectVideoGetRenderBufferLength(int *len) {
+    if (!loaded) return bad("GetRenderBufferLength without a load");
     const char *e = getenv("FAKE_NDL_QUEUE");
     if (e) {
         *len = atoi(e);
@@ -244,6 +245,7 @@ int NDL_DirectVideoGetRenderBufferLength(int *len) {
 }
 
 int NDL_DirectAudioGetAvailableBufferSize(int *avail) {
+    if (!loaded) return bad("GetAvailableBufferSize without a load");
     *avail = 65536;
     return 0;
 }

@@ -272,13 +272,14 @@ static int ndl_feed_audio(gf_pipe *p, const void *data, unsigned size, long long
 
 static int ndl_queued(gf_pipe *p) {
     int len = -1;
-    if (!N(p)->queued || N(p)->queued(&len) != 0) return -1;
+    if (!N(p)->loaded || !N(p)->queued || N(p)->queued(&len) != 0) return -1;
     return len;
 }
 
+/* Not asked once the load is released: the library's getters read the pipeline's elements, and a released one logs a GLib g_object_get assertion per call. */
 static int ndl_audio_avail(gf_pipe *p) {
     int v = -1;
-    if (!N(p)->audio_avail || N(p)->audio_avail(&v) != 0) return -1;
+    if (!N(p)->loaded || !N(p)->audio_avail || N(p)->audio_avail(&v) != 0) return -1;
     return v;
 }
 
