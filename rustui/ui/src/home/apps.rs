@@ -5,7 +5,7 @@
 //! over it; OK opens, a hold asks for the options, the Search button asks for search, Back closes. Three rows are in view; the grid
 //! scrolls a row when the focus passes the last.
 
-use super::dock::Dock;
+use super::dock::{APPS_TILE, Dock};
 use crate::kit::focus::{Dir, Focus, Id, Moved, Region};
 use serde_json::Value;
 use ui::geometry::Frame;
@@ -26,6 +26,8 @@ pub const PAGE_FRAME: Frame = Frame::new(488.0, 136.0, 1368.0, 888.0);
 /// The grid's box in the page: under the heading row.
 pub const GRID_X: f32 = PAGE_FRAME.x + 40.0;
 pub const MAX_CELLS: u32 = 60;
+/// The rail's row that opens LG's store: an action, not a section (the grid keeps showing the section it had).
+pub const STORE: &str = "store";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct App {
@@ -59,6 +61,8 @@ pub enum AppsOut {
 #[derive(Default)]
 pub struct Apps {
     apps: Vec<App>,
+    /// LG's Content Store (the dock's Apps tile launches point), kept out of `apps`: the rail's last row opens it.
+    store: Option<App>,
     categories: Value,
     /// The person's text size: the rail's rows and the Search button grow with it.
     pub scale: f32,
@@ -92,8 +96,19 @@ impl Apps {
         self.categories = theme.pointer("/apps/categories").cloned().unwrap_or(Value::Null);
         let hidden: Vec<&str> = theme.pointer("/apps/hidden").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
         let on_dock = dock.ids();
-        let mut apps: Vec<App> = dock
-            .all_points(theme)
+        let (store, points): (Vec<_>, Vec<_>) = dock.all_points(theme).into_iter().partition(|p| p.id == APPS_TILE);
+        self.store = store.into_iter().next().map(|p| App {
+            id: p.id,
+            title: "LG Content Store".into(),
+            icon: p.icon,
+            params: p.params,
+            hidden: false,
+            on_dock: false,
+            plate: p.plate,
+            unmovable: true,
+            removable: false,
+        });
+        let mut apps: Vec<App> = points
             .into_iter()
             .map(|p| App {
                 hidden: hidden.contains(&p.id.as_str()),
@@ -161,6 +176,8 @@ impl Apps {
         }
         let dock = shown.iter().filter(|a| a.on_dock).count();
         out.push(Section { id: "dock".into(), title: "On the dock".into(), sub: format!("{dock} tiles \u{b7} reorder here"), icon: "star" });
+        let sub = if self.store.is_some() { "Opens LG's app store" } else { "Not available on this TV" };
+        out.push(Section { id: STORE.into(), title: "LG Content Store".into(), sub: sub.into(), icon: "store" });
         let hidden = self.apps.iter().filter(|a| a.hidden).count();
         if hidden > 0 {
             out.push(Section { id: "hidden".into(), title: "Hidden".into(), sub: format!("{hidden} app{} \u{b7} restore any time", if hidden == 1 { "" } else { "s" }), icon: "eye-off" });
@@ -214,7 +231,7 @@ impl Apps {
         let rail = self.rail();
         if self.rail_index >= rail.len() {
             self.rail_index = rail.len() - 1;
-            self.section = rail[self.rail_index].id.clone();
+            self.section = rail.iter().rev().find(|s| s.id != STORE).map_or_else(String::new, |s| s.id.clone());
         }
         self.scroll_row = self.scroll_row.min(n.saturating_sub(1) / COLS);
         self.show_rail();
@@ -348,10 +365,24 @@ impl Apps {
         }
     }
 
+    /// Whether the rail's focus is on the store row.
+    pub fn on_store(&self) -> bool {
+        !self.in_grid && !self.search_focused && self.rail().get(self.rail_index).is_some_and(|s| s.id == STORE)
+    }
+
+    /// What the store row does: opens LG's store, or nothing when this TV has none (the row says so).
+    fn open_store(&self) -> AppsOut {
+        self.store.clone().map_or(AppsOut::Nothing, AppsOut::Launch)
+    }
+
     pub fn set_section(&mut self, i: usize) {
         let rail = self.rail();
         let i = i.min(rail.len() - 1);
         self.rail_index = i;
+        if rail[i].id == STORE {
+            self.show_rail();
+            return;
+        }
         self.section = rail[i].id.clone();
         self.show_rail();
         self.cell = 0;
@@ -383,6 +414,9 @@ impl Apps {
             if self.search_focused {
                 return AppsOut::Search;
             }
+            if self.on_store() {
+                return self.open_store();
+            }
             if !self.in_grid {
                 if !self.list().is_empty() {
                     self.in_grid = true;
@@ -409,6 +443,9 @@ impl Apps {
         self.register(focus);
         if id.0 == SEARCH_ID {
             return AppsOut::Search;
+        }
+        if self.on_store() {
+            return self.open_store();
         }
         if id.0 >= CELL_ID && id.0 < CELL_ID + MAX_CELLS {
             return self.list().get(self.cell).map_or(AppsOut::Nothing, |a| AppsOut::Launch((*a).clone()));
@@ -439,7 +476,7 @@ mod tests {
             }).collect();
             a.open();
             let n = a.rail().len();
-            assert_eq!(n, 7);
+            assert_eq!(n, 8);
             for i in (0..n).chain((0..n).rev()) {
                 a.set_section(i);
                 assert!(a.rail_visible(i));
@@ -451,5 +488,48 @@ mod tests {
             }
             assert_eq!(a.rail_first, 0);
         }
+    }
+
+    fn with_store(present: bool) -> Apps {
+        let mut dock = Dock::default();
+        dock.configure(&serde_json::json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 392);
+        let mut lps = vec![serde_json::json!({"id": "netflix", "title": "Netflix", "icon": "/n.png"})];
+        if present {
+            lps.push(serde_json::json!({"id": APPS_TILE, "title": "Apps", "unmovable": true, "icon": "/a.png"}));
+        }
+        let theme = serde_json::json!({});
+        dock.set_points(&lps, &theme);
+        let mut a = Apps::default();
+        a.set_points(&dock, &theme);
+        a.open();
+        a
+    }
+
+    #[test]
+    fn the_store_is_a_rail_row_that_launches_it_and_not_an_app() {
+        let mut a = with_store(true);
+        assert_eq!(a.all().iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), vec!["netflix"]);
+        assert_eq!(a.rail()[0].sub, "1 installed");
+        let last = a.rail().len() - 1;
+        assert_eq!(a.rail()[last].id, STORE);
+        let mut focus = Focus::default();
+        a.in_grid = false;
+        a.set_section(last);
+        assert_eq!(a.section, "all", "the grid keeps its section");
+        assert!(a.on_store());
+        match a.key("ok", None, &mut focus) {
+            AppsOut::Launch(app) => assert_eq!(app.id, APPS_TILE),
+            _ => panic!("the store row launches the store"),
+        }
+    }
+
+    #[test]
+    fn a_tv_without_the_store_says_so_and_launches_nothing() {
+        let mut a = with_store(false);
+        let last = a.rail().len() - 1;
+        assert_eq!(a.rail()[last].sub, "Not available on this TV");
+        a.in_grid = false;
+        a.set_section(last);
+        assert!(matches!(a.key("ok", None, &mut Focus::default()), AppsOut::Nothing));
     }
 }

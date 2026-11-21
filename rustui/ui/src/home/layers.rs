@@ -109,6 +109,8 @@ pub struct AppsSurface {
     rail_rows: Words,
     rail_mark: ShapeLayer,
     rail_focus: ShapeLayer,
+    /// The store row's glyph in the accent, made again when its row moves or the accent, text size or the row's frame changes.
+    store_mark: Option<(ImageLayer, (f32, f32, Rgba, u32))>,
     page: GlassLayer,
     heading: Words,
     search: Button,
@@ -182,7 +184,7 @@ impl AppsSurface {
         engine.flow.scroller(&kit.ui.scene, apps::CELLS, &grid, GroupPose::IDENTITY, false, 6000.0).map_err(other)?;
         let mut empty = Text::line_at(kit, page_f.x, page_f.y + page_f.h / 2.0, page_f.w, z + 3, role_style(kit, TypeRole::Label, None, ink2, Align::Centre), "Nothing here")?;
         empty.set_props(HIDDEN);
-        Ok(Self { scrim, bar, bar_text, rail, rail_rows, rail_mark, rail_focus, page, heading, search, _viewport: viewport, grid, cells: Vec::new(), empty, key: String::new(), scroll: 0.0, z })
+        Ok(Self { scrim, bar, bar_text, rail, rail_rows, rail_mark, rail_focus, store_mark: None, page, heading, search, _viewport: viewport, grid, cells: Vec::new(), empty, key: String::new(), scroll: 0.0, z })
     }
 
     fn build_cells(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, icons: &LibraryIcons) -> std::io::Result<()> {
@@ -250,6 +252,8 @@ impl AppsSurface {
                     let w = apps::RAIL_FRAME.w - 80.0;
                     let title_style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left);
                     let sub_style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
+                    // the store row keeps room for its glyph
+                    let w = if s.id == apps::STORE { w - 48.0 * kit.text_scale.max(1.0) } else { w };
                     let title = ui::components::text::ellipsise(&mut kit.ui.fonts, &s.title, title_style.ty, w);
                     let sub = ui::components::text::ellipsise(&mut kit.ui.fonts, &s.sub, sub_style.ty, w);
                     changes.push((2 * i, title, ink));
@@ -266,10 +270,11 @@ impl AppsSurface {
         let h = home.apps.heading();
         let sub = if kit.text_scale > 1.5 { String::new() } else { Apps::sub_of(&h.id).to_owned() };
         self.heading.set_many(kit, &[(0, &h.title, ink), (1, &sub, ink2)]);
-        let rf = home.apps.rail_frame(home.apps.rail_index, h.id == "hidden");
+        let rf = home.apps.rail_frame(home.apps.rail_index, rail.get(home.apps.rail_index).is_some_and(|s| s.id == "hidden"));
         self.rail_mark.set(Props::at(rf.x - 6.0, rf.y + 22.0 * kit.text_scale.max(1.0)));
         let on_rail = !home.apps.in_grid && !home.apps.search_focused && home.layer == Layer::Apps;
         self.rail_focus.set(if on_rail { Props::at(rf.x, rf.y) } else { HIDDEN });
+        self.update_store_mark(kit, home, &rail);
         let scroll = home.apps.scroll_row as f32 * apps::ROW_PITCH;
         if scroll != self.scroll {
             self.scroll = scroll;
@@ -284,6 +289,24 @@ impl AppsSurface {
         self.search.set_hover(kit, home.focus.hovered() == Some(Id(apps::SEARCH_ID)));
         let _ = (&self.scrim, &self.bar, &self.bar_text, &self.rail, &self.page);
         Ok(())
+    }
+
+    /// The store row's glyph, at the row's right edge, in the accent; gone while the row is scrolled out of the rail.
+    fn update_store_mark(&mut self, kit: &mut Kit, home: &Home, rail: &[apps::Section]) {
+        let slot = rail.iter().position(|s| s.id == apps::STORE).filter(|i| home.apps.rail_visible(*i));
+        let Some(i) = slot else {
+            self.store_mark = None;
+            return;
+        };
+        let f = home.apps.rail_frame(i, false);
+        let ink = kit.ui.look.accent();
+        let key = (f.x, f.y, ink, kit.text_scale.to_bits());
+        if self.store_mark.as_ref().is_some_and(|(_, k)| *k == key) {
+            return;
+        }
+        let side = crate::kit::vector_icon::GRID as f32 * crate::kit::vector_icon::multiple(kit.text_scale) as f32;
+        let centre = (f.x + f.w - 24.0 - side / 2.0, f.y + f.h / 2.0);
+        self.store_mark = crate::kit::icon::crisp_layer(kit, "store", ink, self.z + 4, centre).ok().flatten().map(|l| (l, key));
     }
 
     pub fn lint(&self, kit: &mut Kit, lint: &mut crate::kit::lint::Lint) {
