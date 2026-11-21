@@ -20,6 +20,7 @@ use super::helper::{ControllerChange, GameSir, GameSirState, Leadjoy, LeadjoySta
 use super::stats::{Mode as StatsMode, Overlay, Telemetry};
 use super::diagnostics::{Config as DiagnosticsConfig, Level as DiagnosticsLevel, Status as DiagnosticsStatus};
 use super::input::{Source, Sources};
+use super::uplink::{self, Uplink};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -116,6 +117,8 @@ pub enum Input {
     Display(serde_json::Value),
     StatsSetting(Overlay),
     DiagnosticsStatus(DiagnosticsStatus),
+    /// The TV's uplink as the shell read it; absent when the TV has no default route.
+    Uplink(Option<Uplink>),
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
@@ -242,7 +245,7 @@ impl Preferences {
             Some("av1") if p.fps <= 60 => Some(Codec::Av1),
             _ => None,
         };
-        p.bitrate_mbps = v["bitrate_mbps"].as_u64().unwrap_or(80).clamp(5, 150) as u32;
+        p.bitrate_mbps = v["bitrate_mbps"].as_u64().unwrap_or(80).clamp(u64::from(uplink::BITRATE_MIN_MBPS), u64::from(uplink::BITRATE_MAX_MBPS)) as u32;
         p.stats = Overlay::read(&v["stats"]);
         p.deadzone = v["deadzone"].as_u64().map_or(p.deadzone, |n| n.min(u64::from(DEADZONE_MAX)) as u8);
         p.anti_deadzone = v["anti_deadzone"].as_u64().map_or(p.anti_deadzone, |n| n.min(u64::from(ANTI_DEADZONE_MAX)) as u8);
@@ -596,6 +599,7 @@ pub struct Model {
     games: Vec<Game>,
     pub integrations: Vec<Integration>,
     pub prefs: Preferences,
+    pub uplink: Option<Uplink>,
     pub view: View,
     pub details: BTreeMap<GameId, GameDetails>,
     pub art: BTreeMap<String, PathBuf>,
@@ -648,6 +652,7 @@ impl Model {
                 list
             },
             prefs,
+            uplink: None,
             view: View::default(),
             details: BTreeMap::new(),
             art: BTreeMap::new(),
@@ -996,6 +1001,13 @@ impl Model {
                 }
             }
             Input::DiagnosticsStatus(status) => { changed = self.diagnostics_status != status; self.diagnostics_status = status; }
+            Input::Uplink(uplink) => {
+                changed = self.uplink != uplink;
+                if changed {
+                    self.uplink = uplink;
+                    self.follow_uplink(&mut out);
+                }
+            }
             Input::GameSir(result) => {
                 self.gamesir.pending = false;
                 match result {
@@ -1782,7 +1794,10 @@ impl Model {
                     }
                 }
                 2 => self.prefs.hdr = !self.prefs.hdr,
-                3 => self.prefs.bitrate_mbps = if right { (self.prefs.bitrate_mbps + 5).min(150) } else { self.prefs.bitrate_mbps.saturating_sub(5).max(5) },
+                3 => {
+                    let (min, max, step) = (uplink::BITRATE_MIN_MBPS, uplink::BITRATE_MAX_MBPS, uplink::BITRATE_STEP_MBPS);
+                    self.prefs.bitrate_mbps = if right { (self.prefs.bitrate_mbps + step).min(max) } else { self.prefs.bitrate_mbps.saturating_sub(step).max(min) };
+                }
                 4 => {
                     let mut codecs = vec![None, Some(Codec::H265)];
                     if self.prefs.fps <= 60 {
@@ -1858,12 +1873,33 @@ impl Model {
             ("height".into(), Value::Int(i64::from(self.prefs.height))),
             ("fps".into(), Value::Int(i64::from(self.prefs.fps))),
             ("hdr".into(), Value::Bool(self.prefs.hdr)),
-            ("bitrate-mbps".into(), Value::Int(i64::from(self.prefs.bitrate_mbps))),
+            ("bitrate-mbps".into(), Value::Int(i64::from(self.stream_bitrate_mbps()))),
             ("codec".into(), Value::Text(self.prefs.codec.map_or("auto", Codec::as_str).into())),
             ("deadzone".into(), Value::Int(i64::from(self.prefs.deadzone))),
             ("anti-deadzone".into(), Value::Int(i64::from(self.prefs.anti_deadzone))),
             ("stick-curve".into(), Value::Text(self.prefs.stick_curve.name().into())),
         ])
+    }
+    /// The bitrate the engines are asked for: the viewer's choice, held to what the uplink carries. The choice itself stays as it was
+    /// set, so a faster uplink lifts the limit by itself.
+    pub fn stream_bitrate_mbps(&self) -> u32 {
+        self.uplink.as_ref().map_or(self.prefs.bitrate_mbps, |uplink| uplink.limit(self.prefs.bitrate_mbps))
+    }
+    /// Gives each engine the bitrate the uplink now allows. An engine that runs hears it at once; the others take it from their saved
+    /// settings when they start.
+    fn follow_uplink(&mut self, out: &mut Vec<Command>) {
+        let value = Value::Int(i64::from(self.stream_bitrate_mbps()));
+        let running = self.foreground || self.session_active();
+        for engine in &self.integrations {
+            let Some(saved) = self.state.engines.get_mut(&engine.manifest.id) else { continue };
+            if saved.settings.get("bitrate-mbps") == Some(&value) || engine.schema.check("bitrate-mbps", &value).is_err() {
+                continue;
+            }
+            saved.settings.insert("bitrate-mbps".into(), value.clone());
+            if saved.enabled && running && engine.descriptor.is_some() {
+                Self::send(out, &engine.manifest.id, Request::Settings { values: saved.settings.clone() });
+            }
+        }
     }
     fn change_engine_field(&mut self, index: usize, right: bool, out: &mut Vec<Command>) {
         let Some(id) = self.view.selected_engine.clone() else {

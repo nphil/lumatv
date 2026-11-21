@@ -4,6 +4,7 @@ use super::{
 };
 use crate::game::model::{Focus, Section};
 use crate::game::helper::GameSirState;
+use crate::game::uplink::BITRATE_MAX_MBPS;
 use lumagame_core::{
     engine::{Codec, EngineKind, Feature},
     ipc::{Link, Reach},
@@ -220,7 +221,7 @@ pub(super) fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, descrip
         Control::Slider(value) => {
             let track = Frame::new(x, cy + (control_h - 6.0) / 2.0, (control_w - value_w - 24.0).max(1.0), 6.0);
             p.solid(id + 2, track, p.ink(Role::TrackOff, false), 3.0, 12);
-            let fill = track.w * value as f32 / 150.0;
+            let fill = track.w * value as f32 / BITRATE_MAX_MBPS as f32;
             p.solid(id + 3, Frame::new(track.x, track.y, fill, 6.0), p.ink(Role::Accent, false), 3.0, 13);
             p.solid(id + 4, Frame::new(track.x + fill - 10.0, track.y - 7.0, 20.0, 20.0), p.ink(Role::Ink, false), 10.0, 14);
             p.text(
@@ -284,7 +285,9 @@ fn streaming(p: &mut Paint<'_>, x: f32, w: f32) {
     y += row(p, 300, Focus::Setting(0), "Resolution", None, Control::Value(&resolution), Frame::new(x, y, w, 0.0));
     y += row(p, 330, Focus::Setting(1), "Frame rate", None, Control::Value(&format!("{} fps", m.prefs.fps)), Frame::new(x, y, w, 0.0));
     y += row(p, 360, Focus::Setting(2), "HDR", None, Control::Toggle(m.prefs.hdr), Frame::new(x, y, w, 0.0));
-    y += row(p, 390, Focus::Setting(3), "Bitrate", None, Control::Slider(m.prefs.bitrate_mbps), Frame::new(x, y, w, 0.0));
+    // The slider keeps the viewer's choice; what the TV's port lets through is said under it.
+    let note = m.uplink.as_ref().and_then(|uplink| uplink.note(m.prefs.bitrate_mbps));
+    y += row(p, 390, Focus::Setting(3), "Bitrate", note.as_deref(), Control::Slider(m.prefs.bitrate_mbps), Frame::new(x, y, w, 0.0));
     let codecs = if m.prefs.fps <= 60 { vec!["Automatic", "HEVC", "AV1", "H.264"] } else { vec!["Automatic", "HEVC", "H.264"] };
     let value = match m.prefs.codec {
         Some(Codec::H264) => "H.264",

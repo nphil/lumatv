@@ -7,6 +7,7 @@ use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::{ControllerCli
 use lumatv_rustui::game::helper::{OverlayClient, Sample};
 use lumatv_rustui::game::diagnostics::{Diagnostics, Event as DiagnosticEvent, Level};
 use lumatv_rustui::game::input::Face;
+use lumatv_rustui::game::uplink;
 use lumatv_rustui::game::observer::{Observer, phase_word};
 use std::{collections::VecDeque, io, net::SocketAddr, os::fd::AsRawFd, os::unix::net::UnixDatagram, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 use ui::{SceneOptions, Ui};
@@ -436,6 +437,8 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
     let details = Details::new(snapshot.secrets)?;
     let mut inputs = vec![Input::Foreground(!o.hidden)];
     inputs.extend(snapshot.notices.into_iter().chain(notices).chain(temporary).map(Input::Notice));
+    let mut uplink_watch = uplink::Watch::default();
+    inputs.extend(uplink_watch.poll(0, uplink::read).map(Input::Uplink));
     // Seed wall-clock time before any engine can report Running.
     model.step(Input::Tick { now_ms: 0, unix_s: unix_seconds() });
     let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, controllers: ControllerClient::new(o.helper)?, stats: OverlayClient::new(o.helper)?, frames_on: false, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX, diagnostics: diagnostics.clone(), observer: Observer::default(), events: Vec::new() };
@@ -504,6 +507,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
             if let Some(tokens) = theme.poll(now_ms) { page.set_host_tokens(tokens); }
         }
         let mut inputs = vec![Input::Tick { now_ms, unix_s: unix_seconds() }];
+        if let Some(change) = uplink_watch.poll(now_ms, uplink::read) { inputs.push(Input::Uplink(change)); }
         if shell.model.view.section == lumatv_rustui::game::model::Section::Diagnostics && shell.model.view.page == lumatv_rustui::game::model::Page::Settings {
             inputs.push(Input::DiagnosticsStatus(shell.diagnostics.status()));
         }

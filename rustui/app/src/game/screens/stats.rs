@@ -168,6 +168,9 @@ pub fn show(p: &mut Paint<'_>) {
             h.row(label, &decimal(value, 1), unit, right, &mut r, t.live[0]);
         }
         if let Some(host) = stream.host_ms { h.row("Host encode, reported", &decimal(Some(f64::from(host)), 1), "ms", right, &mut r, t.live[0]); }
+        // Counts since the session began, shown only where the engine keeps them. The second is the TV's own network stack discarding packets, not the network.
+        if let Some(n) = stream.dropped { h.row("Frames dropped", &n.to_string(), "", right, &mut r, t.live[0]); }
+        if let Some(n) = stream.socket_drops { h.row("Dropped by the TV", &n.to_string(), "packets", right, &mut r, t.live[0]); }
         r = h.rule(right, r);
         let refresh = &display["refresh"];
         let expected = number(&refresh["hz"]).map(|v| (v / 10.0).round() as u64);

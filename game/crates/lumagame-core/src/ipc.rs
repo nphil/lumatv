@@ -471,6 +471,10 @@ pub struct Stats {
     /// Frames dropped since the session began.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dropped: Option<u64>,
+    /// Datagrams the TV's network stack discarded because the stream's receive buffer was full, since the session began. Absent where
+    /// the platform keeps no count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub socket_drops: Option<u64>,
     /// From a frame's last packet to its handover to the feeder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_ms: Option<f32>,
@@ -738,7 +742,7 @@ mod tests {
             session(SessionState::Running { stream: None }),
             session(SessionState::Ended { reason: EndReason::Suspended }),
             session(SessionState::Failed { reason: FailReason::Video, message: "The TV refused the stream.".into() }),
-            Event::Stats { session: SessionId(1), stats: Stats { rtt_ms: Some(8.5), dropped: Some(2), ..Stats::default() } },
+            Event::Stats { session: SessionId(1), stats: Stats { rtt_ms: Some(8.5), dropped: Some(2), socket_drops: Some(3), ..Stats::default() } },
             Event::RoundTrip {
                 session: SessionId(1),
                 trip: RoundTrip { presses: Some(12), press_p50_ms: Some(0.4), arrival_p95_ms: Some(21.5), ..RoundTrip::default() },

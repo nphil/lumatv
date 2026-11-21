@@ -131,6 +131,7 @@ fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,play
     let mut dropped=0;
     let mut app=false;
     let mut launch_check=Instant::now()-Duration::from_secs(1);
+    let mut counted=Instant::now();
     loop {
         if control.stop.load(Ordering::Acquire) { return Ok(if control.end_game.load(Ordering::Acquire) {EndReason::Stopped}else{EndReason::Suspended}); }
         player.check().map_err(video)?;
@@ -179,11 +180,17 @@ fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,play
             let snapshot=Stats {rtt_ms:Some(client.rtt_us() as f32 / 1000.0),jitter_ms:Some(stage.pacing.jitter_ms()),
                 loss_pct:(total>0).then(||network.lost as f32*100.0/total as f32),
                 bitrate_kbps:Some((bytes as f64*8.0/f64::from(seconds)/1000.0) as u32),fps:Some(frames as f32/seconds),
-                dropped:Some(client.frames_dropped()+player.dropped.load(Ordering::Relaxed)),
+                dropped:Some(client.frames_dropped()+player.dropped.load(Ordering::Relaxed)),socket_drops:client.socket_drops(),
                 client_ms:(timings>0).then(||client_us as f32/timings as f32/1000.0),host_ms:host_us.map(|u|u as f32/1000.0),pad:pads.timing(monotonic_ns())};
             *control.trip.lock().unwrap()=trip(&snapshot,&network,pads.presses());
             let _=out.send(Notice::Emit(FromEngine::told(Event::Stats {session:id,stats:snapshot})));
             since=Instant::now();frames=0;bytes=0;client_us=0;timings=0;
+        }
+        // A rising socket count means this TV threw packets away at the stream's receive buffer; the network did not lose them.
+        if counted.elapsed()>=Duration::from_secs(10) {
+            counted=Instant::now();
+            tracing::info!("receive counters: socket drops {}, receive buffer {} KiB, frames dropped {}",
+                client.socket_drops().map_or("not counted".to_owned(),|n|n.to_string()),client.recv_buffer_kb(),client.frames_dropped());
         }
         let frame=match client.next_frame(Duration::from_millis(20)) {
             Ok(f)=>f,

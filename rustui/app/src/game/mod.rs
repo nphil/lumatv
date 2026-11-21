@@ -9,5 +9,6 @@ pub mod observer;
 pub mod screens;
 pub mod store;
 pub mod stats;
+pub mod uplink;
 #[cfg(test)]
 mod shots;

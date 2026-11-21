@@ -182,7 +182,7 @@ impl Hist {
 
 /// Trouble seen but not yet sent, because the last warning of its kind was recent.
 #[derive(Default)]
-struct Carry { dropped: [u64; 5], stalls: u32, max_gap: u64, pending: bool }
+struct Carry { dropped: [u64; 5], stalls: u32, max_gap: u64, socket_drops: u32, pending: bool }
 
 #[derive(Default)]
 pub struct Observer {
@@ -201,6 +201,8 @@ pub struct Observer {
     frames_at: Option<u64>,
     loss_at: Option<u64>,
     trouble_at: Option<u64>,
+    /// The engine's count of packets the TV dropped, as last seen. It runs from the session's start, so what rose is what is new.
+    socket_seen: u64,
 }
 
 fn due(last: &mut Option<u64>, now: u64) -> bool {
@@ -230,6 +232,7 @@ impl Observer {
             self.hist = Hist::default();
             self.latest = Latest::default();
             self.interval_us = 0;
+            self.socket_seen = 0;
         }
         let Self { session, panel, interval_us, .. } = self;
         let t = session.as_mut().expect("set above");
@@ -294,12 +297,21 @@ impl Observer {
             self.stream_at = Some(now);
             out.push(Event::Stream {
                 ms: now, fps: stats.fps.map(tenth), bitrate_kbps: stats.bitrate_kbps, rtt_ms: stats.rtt_ms.map(tenth), jitter_ms: stats.jitter_ms.map(tenth), loss_pct: stats.loss_pct.map(tenth), dropped: stats.dropped,
-                pad_reports: pad.map(|p| p.reports), pad_rate_hz: pad.map(|p| tenth(p.rate_hz)), pad_p99_us: pad.map(|p| p.p99_us),
+                socket_drops: stats.socket_drops, pad_reports: pad.map(|p| p.reports), pad_rate_hz: pad.map(|p| tenth(p.rate_hz)), pad_p99_us: pad.map(|p| p.p99_us),
             });
         }
         if let Some(loss) = stats.loss_pct.filter(|loss| *loss >= LOSS_PCT) {
             if due(&mut self.loss_at, now) { out.push(Event::NetLoss { ms: now, loss_pct: tenth(loss), rtt_ms: stats.rtt_ms.map(tenth), jitter_ms: stats.jitter_ms.map(tenth) }); }
         }
+        if let Some(total) = stats.socket_drops {
+            let rose = total.saturating_sub(self.socket_seen);
+            self.socket_seen = total;
+            if rose > 0 {
+                self.carry.socket_drops = self.carry.socket_drops.saturating_add(u32::try_from(rose).unwrap_or(u32::MAX));
+                self.carry.pending = true;
+            }
+        }
+        self.trouble(now, out);
     }
 
     /// The feeder's per-frame samples. They are checked for trouble every second, then folded into a pacing line at Debug and a histogram at Trace.
@@ -330,9 +342,13 @@ impl Observer {
             self.carry.max_gap = self.carry.max_gap.max(w.max_gap);
             self.carry.pending = true;
         }
+        self.trouble(now, out);
+    }
+    /// Sends the trouble carried, unless the last report went out within `WARN_MS`: what is held back goes with the next one.
+    fn trouble(&mut self, now: u64, out: &mut Vec<Event>) {
         if self.carry.pending && due(&mut self.trouble_at, now) {
             let c = std::mem::take(&mut self.carry);
-            out.push(Event::FrameTrouble { ms: now, dropped: c.dropped, stalls: c.stalls, max_gap_us: c.max_gap });
+            out.push(Event::FrameTrouble { ms: now, dropped: c.dropped, stalls: c.stalls, max_gap_us: c.max_gap, socket_drops: c.socket_drops });
         }
     }
     fn flush_detail(&mut self, from: u64, now: u64, out: &mut Vec<Event>) {
@@ -471,7 +487,7 @@ mod tests {
         o.session(0, Some(seen(&Phase::Running, Some(&sdr), None)), &mut out);
         o.pads(0, 0b11, &mut out);
         let stats = ipc::Stats {
-            rtt_ms: Some(12.345_678), jitter_ms: Some(1.234_567), loss_pct: Some(2.5), bitrate_kbps: Some(40_000), fps: Some(59.94), dropped: Some(0), client_ms: Some(2.345_678), host_ms: Some(6.5),
+            rtt_ms: Some(12.345_678), jitter_ms: Some(1.234_567), loss_pct: Some(2.5), bitrate_kbps: Some(40_000), fps: Some(59.94), dropped: Some(0), socket_drops: Some(0), client_ms: Some(2.345_678), host_ms: Some(6.5),
             pad: Some(PadStats { name: "Alice's Pad".into(), reports: 120, rate_hz: 125.123_45, p99_us: 9_000, bursts: 2, burst_gap_us: 30_000, age_ms: 5 }),
         };
         let trip = RoundTrip { presses: Some(12), press_p50_ms: Some(1.234_567), press_p99_ms: Some(4.5), network_ms: Some(9.0), host_ms: Some(6.5), arrival_p50_ms: Some(14.0), arrival_p95_ms: Some(20.0), client_ms: Some(2.5) };
@@ -609,6 +625,24 @@ mod tests {
         }
         assert_eq!(names(&out), ["stream@0", "stream@1000", "net_loss@1000", "stream@2000", "stream@5999", "net_loss@6000", "stream@7000"]);
         assert_eq!(json_of(&out)[2], json!({"event": "net_loss", "ms": 1000, "loss_pct": 2.5, "rtt_ms": 18.0, "jitter_ms": 3.0}));
+    }
+
+    #[test]
+    fn packets_the_tv_dropped_ride_the_stream_line_and_make_frame_trouble_at_most_every_five_seconds() {
+        let mut o = observer(Level::Info);
+        let mut out = Vec::new();
+        // The engine counts from the session's start, so each reading is a total and what rose since the last one is what is new.
+        for (now, total) in [(0, Some(0)), (1000, Some(4)), (2000, Some(9)), (3000, Some(9)), (6000, Some(9)), (7000, None)] {
+            let stats = ipc::Stats { socket_drops: total, ..ipc::Stats::default() };
+            o.engine_event(now, "punktfunk", &ipc::Event::Stats { session: SessionId(7), stats }, &mut out);
+        }
+        let totals: Vec<_> = only(&out, "stream").iter().map(|line| line["socket_drops"].as_u64()).collect();
+        assert_eq!(totals, [Some(0), Some(4), Some(9), Some(9), Some(9), None]);
+        // The five that rose at 2000 wait out the five-second gap and go with the next report.
+        assert_eq!(only(&out, "frame_trouble"), vec![
+            json!({"event": "frame_trouble", "ms": 1000, "dropped": [0, 0, 0, 0, 0], "stalls": 0, "max_gap_us": 0, "socket_drops": 4}),
+            json!({"event": "frame_trouble", "ms": 6000, "dropped": [0, 0, 0, 0, 0], "stalls": 0, "max_gap_us": 0, "socket_drops": 5}),
+        ]);
     }
 
     #[test]

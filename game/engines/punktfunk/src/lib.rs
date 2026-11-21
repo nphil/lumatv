@@ -3,6 +3,7 @@
 mod dualsense;
 mod input;
 mod library;
+mod logging;
 mod session;
 mod settings;
 mod store;
@@ -59,6 +60,7 @@ fn write(out:&mut impl Write,event:&FromEngine)->Result<()> {
     out.write_all(line.as_bytes())?;out.flush()?;Ok(())
 }
 pub fn run()->Result<()> {
+    logging::install();
     punktfunk_core::tls::install_default_provider();
     punktfunk_core::client::set_client_label(concat!("LumaGame ",env!("CARGO_PKG_VERSION")));
     let (tx,rx)=mpsc::channel();

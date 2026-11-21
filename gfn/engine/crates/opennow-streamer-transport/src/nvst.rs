@@ -6020,6 +6020,41 @@ fn udp_icmp_port_unreachable(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::ConnectionReset
 }
 
+/// Send errors that mean "not now" rather than "this socket is broken". Resource
+/// exhaustion and a momentarily unusable route recover on their own; the caller
+/// drops the datagram and the next scheduled send retries, bounded by a
+/// `SendFailureBudget`. Linux codes are matched by raw errno only, so a bare
+/// `ErrorKind` such as `PermissionDenied` stays terminal.
+fn udp_send_error_is_transient(error: &std::io::Error) -> bool {
+    // Windows WSAENOBUFS.
+    const WSAENOBUFS: i32 = 10055;
+    // EPERM is what a firewall or conntrack drop returns for sendto(2).
+    #[cfg(target_os = "linux")]
+    const LINUX_TRANSIENT: [i32; 8] = [
+        1,   // EPERM
+        12,  // ENOMEM
+        99,  // EADDRNOTAVAIL
+        100, // ENETDOWN
+        101, // ENETUNREACH
+        105, // ENOBUFS
+        112, // EHOSTDOWN
+        113, // EHOSTUNREACH
+    ];
+    if let Some(code) = error.raw_os_error() {
+        if code == WSAENOBUFS {
+            return true;
+        }
+        #[cfg(target_os = "linux")]
+        if LINUX_TRANSIENT.contains(&code) {
+            return true;
+        }
+    }
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+    )
+}
+
 fn udp_receive_is_idle(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),
@@ -6030,26 +6065,28 @@ fn udp_receive_is_idle(error: &std::io::Error) -> bool {
     )
 }
 
+/// Bounds how long one send site may keep failing with transient errors. Each
+/// site owns its own instance, so a success elsewhere (for example an inbound
+/// PONG answered) never refills another site's budget.
 #[derive(Default)]
-struct VideoKeepaliveState {
-    pings_sent: u64,
-    ping_tracker: StreamPingTracker,
+struct SendFailureBudget {
     first_failure: Option<Instant>,
     failed_attempts: u64,
     deferred_total: u64,
 }
 
-impl VideoKeepaliveState {
-    fn record_send(
+impl SendFailureBudget {
+    /// `Ok(true)`: sent. `Ok(false)`: the datagram was dropped (ICMP port
+    /// unreachable, or a transient failure inside the budget). `Err`: the stream
+    /// must stop with the original error.
+    fn record(
         &mut self,
         result: std::io::Result<usize>,
-        transaction_id: Option<[u8; 12]>,
         now: Instant,
         budget: Duration,
         operation: &'static str,
         local_port: u16,
-    ) -> std::io::Result<()> {
-        const WSAENOBUFS: i32 = 10055;
+    ) -> std::io::Result<bool> {
         match result {
             Ok(_) => {
                 if let Some(first_failure) = self.first_failure.take() {
@@ -6057,18 +6094,14 @@ impl VideoKeepaliveState {
                         "INFO",
                         "nvst-udp",
                         &format!(
-                            "operation={operation} local_port={local_port} keepalive_send=recovered failed_attempts={} failure_ms={}",
+                            "operation={operation} local_port={local_port} send=recovered failed_attempts={} failure_ms={}",
                             self.failed_attempts,
                             now.saturating_duration_since(first_failure).as_millis(),
                         ),
                     );
                 }
                 self.failed_attempts = 0;
-                self.pings_sent += 1;
-                if let Some(transaction_id) = transaction_id {
-                    self.ping_tracker.sent(transaction_id, now);
-                }
-                Ok(())
+                Ok(true)
             }
             Err(error) => {
                 if let Some(first_failure) = self.first_failure
@@ -6078,7 +6111,7 @@ impl VideoKeepaliveState {
                         "WARN",
                         "nvst-udp",
                         &format!(
-                            "operation={operation} local_port={local_port} keepalive_send=exhausted failed_attempts={} failure_ms={} budget_ms={}",
+                            "operation={operation} local_port={local_port} send=exhausted failed_attempts={} failure_ms={} budget_ms={}",
                             self.failed_attempts.saturating_add(1),
                             now.saturating_duration_since(first_failure).as_millis(),
                             budget.as_millis(),
@@ -6090,14 +6123,9 @@ impl VideoKeepaliveState {
                     if self.first_failure.is_some() {
                         self.failed_attempts = self.failed_attempts.saturating_add(1);
                     }
-                    return Ok(());
+                    return Ok(false);
                 }
-                if error.raw_os_error() != Some(WSAENOBUFS)
-                    && !matches!(
-                        error.kind(),
-                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
-                    )
-                {
+                if !udp_send_error_is_transient(&error) {
                     return Err(error);
                 }
                 self.failed_attempts = self.failed_attempts.saturating_add(1);
@@ -6109,14 +6137,44 @@ impl VideoKeepaliveState {
                         "WARN",
                         "nvst-udp",
                         &format!(
-                            "operation={operation} local_port={local_port} keepalive_send=deferred budget_ms={} retry=next-scheduled-keepalive",
+                            "operation={operation} local_port={local_port} send=deferred budget_ms={} retry=next-scheduled-send",
                             budget.as_millis(),
                         ),
                     );
                 }
-                Ok(())
+                Ok(false)
             }
         }
+    }
+}
+
+#[derive(Default)]
+struct UdpKeepaliveState {
+    pings_sent: u64,
+    ping_tracker: StreamPingTracker,
+    failures: SendFailureBudget,
+}
+
+impl UdpKeepaliveState {
+    fn record_send(
+        &mut self,
+        result: std::io::Result<usize>,
+        transaction_id: Option<[u8; 12]>,
+        now: Instant,
+        budget: Duration,
+        operation: &'static str,
+        local_port: u16,
+    ) -> std::io::Result<()> {
+        if self
+            .failures
+            .record(result, now, budget, operation, local_port)?
+        {
+            self.pings_sent += 1;
+            if let Some(transaction_id) = transaction_id {
+                self.ping_tracker.sent(transaction_id, now);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -7567,6 +7625,8 @@ fn store_sony_output(
     haptics.store_sony(rumble);
 }
 
+// The two send functions are the test seams for fault injection; production passes `send_to`.
+#[allow(clippy::too_many_arguments)]
 fn run_nvst_webrtc_bundle(
     socket: UdpSocket,
     config: NvstVideoConfig,
@@ -7574,6 +7634,8 @@ fn run_nvst_webrtc_bundle(
     outputs: NvstReceiverOutputs,
     transport_origin: Instant,
     setup: NvstWorkerSetup,
+    mut send_keepalive: impl FnMut(&UdpSocket, &[u8], SocketAddr) -> std::io::Result<usize>,
+    mut send_datagram: impl FnMut(&UdpSocket, &[u8], SocketAddr) -> std::io::Result<usize>,
 ) {
     let NvstWorkerSetup {
         rtc: Some(mut rtc),
@@ -7627,8 +7689,10 @@ fn run_nvst_webrtc_bundle(
     let mut datagram = vec![0_u8; 65_536];
     let mut inbound_datagrams = 0_u64;
     let mut outbound_datagrams = 0_u64;
-    let mut hole_punch_pings = 0_u64;
-    let mut ping_tracker = StreamPingTracker::default();
+    let mut keepalive = UdpKeepaliveState::default();
+    let mut ice_budget = SendFailureBudget::default();
+    let mut webrtc_budget = SendFailureBudget::default();
+    let mut pong_budget = SendFailureBudget::default();
     let mut ice_responses = IceResponseTracker::default();
     let mut ice_ping_responses = 0;
     let mut last_hole_punch = Instant::now() - PING_INTERVAL_BEFORE_CONNECTION;
@@ -8045,10 +8109,13 @@ fn run_nvst_webrtc_bundle(
                     if getrandom::fill(&mut ice_tid).is_ok() {
                         let ice = build_stun_binding_request(credentials, &ice_tid);
                         ice_bytes = ice.len();
-                        if let Err(error) = socket.send_to(&ice, bundle_peer) {
-                            if udp_icmp_port_unreachable(&error) {
-                                continue;
-                            }
+                        if let Err(error) = ice_budget.record(
+                            send_datagram(&socket, &ice, bundle_peer),
+                            now,
+                            receiver.config.timeout,
+                            "bundle-ice-send",
+                            local_port,
+                        ) {
                             eprintln!("NVST ICE send failed: {error}");
                             forward_optional(
                                 &event_sender,
@@ -8068,27 +8135,32 @@ fn run_nvst_webrtc_bundle(
                     &natt_tid,
                 );
                 let sent_at = Instant::now();
-                if let Err(error) = socket.send_to(&natt, bundle_peer) {
-                    if !udp_icmp_port_unreachable(&error) {
-                        eprintln!("NVST NATT send failed: {error}");
-                        forward_optional(
-                            &event_sender,
-                            receiver.stop(NvstStopCause::socket("bundle-natt-send", &error)),
-                        );
-                        break 'bundle;
-                    }
-                    None
-                } else {
-                    ping_tracker.sent(natt_tid, sent_at);
-                    Some(natt)
+                let result = send_keepalive(&socket, &natt, bundle_peer);
+                let sent = result.is_ok();
+                if let Err(error) = keepalive.record_send(
+                    result,
+                    Some(natt_tid),
+                    sent_at,
+                    receiver.config.timeout,
+                    "bundle-natt-send",
+                    local_port,
+                ) {
+                    log_udp_error("bundle-natt-send", local_port, &error);
+                    eprintln!("NVST NATT send failed: {error}");
+                    forward_optional(
+                        &event_sender,
+                        receiver.stop(NvstStopCause::socket("bundle-natt-send", &error)),
+                    );
+                    break 'bundle;
                 }
+                sent.then_some(natt)
             } else {
                 None
             };
-            hole_punch_pings += 1;
-            if hole_punch_pings == 1 || hole_punch_pings % 50 == 0 {
+            if natt.is_some() && (keepalive.pings_sent == 1 || keepalive.pings_sent % 50 == 0) {
                 eprintln!(
-                    "NVST hole-punch ping={hole_punch_pings} dest={bundle_peer} iceBurst={} iceBytes={ice_bytes} nattBytes={} credentials=redacted",
+                    "NVST hole-punch ping={} dest={bundle_peer} iceBurst={} iceBytes={ice_bytes} nattBytes={} credentials=redacted",
+                    keepalive.pings_sent,
                     if dtls_ready { 0 } else { 3 },
                     natt.as_ref().map_or(0, Vec::len),
                 );
@@ -8196,9 +8268,11 @@ fn run_nvst_webrtc_bundle(
                 "INFO",
                 "nvst-bundle",
                 &format!(
-                    "{} local_port={local_port} peer_port={} inbound={inbound_datagrams} outbound={outbound_datagrams} pings={hole_punch_pings} dtls_ready={dtls_ready} sctp_started={sctp_started} frame_ack={} pacing={frame_pacing_reports_sent} qos={} videoBytesAssembled={} qosBweKbps={} qosUtilPercent={} qosOwdUs={} qosJitterUs={}",
+                    "{} local_port={local_port} peer_port={} inbound={inbound_datagrams} outbound={outbound_datagrams} pings={} keepalive_deferred={} dtls_ready={dtls_ready} sctp_started={sctp_started} frame_ack={} pacing={frame_pacing_reports_sent} qos={} videoBytesAssembled={} qosBweKbps={} qosUtilPercent={} qosOwdUs={} qosJitterUs={}",
                     receiver.stats_line(control_stats_origin),
                     bundle_peer.port(),
+                    keepalive.pings_sent,
+                    keepalive.failures.deferred_total,
                     control_reports.frame_acks_sent,
                     control_reports.qos_reports_sent,
                     feedback.completed_frame_bytes.load(Ordering::Acquire),
@@ -8356,7 +8430,8 @@ fn run_nvst_webrtc_bundle(
                 }
                 Ok(Output::Transmit(transmit)) => {
                     outbound_datagrams += 1;
-                    liveness.last_outbound = Some(Instant::now());
+                    let sent_at = Instant::now();
+                    liveness.last_outbound = Some(sent_at);
                     let kind = if looks_like_stun(&transmit.contents) {
                         "stun"
                     } else if looks_like_dtls(&transmit.contents) {
@@ -8373,24 +8448,32 @@ fn run_nvst_webrtc_bundle(
                             transmit.contents.len()
                         );
                     }
-                    if let Err(error) = socket.send_to(&transmit.contents, bundle_peer) {
-                        if udp_icmp_port_unreachable(&error) {
-                            continue;
+                    match webrtc_budget.record(
+                        send_datagram(&socket, &transmit.contents, bundle_peer),
+                        sent_at,
+                        receiver.config.timeout,
+                        "bundle-webrtc-send",
+                        local_port,
+                    ) {
+                        Ok(true) => {}
+                        // One datagram dropped: DTLS/SCTP/SRTP/RTCP retransmit or move on.
+                        Ok(false) => continue,
+                        Err(error) => {
+                            if peek_rtp_ssrc(&transmit.contents) == Some(1) {
+                                microphone_queue.close();
+                                microphone_generation = microphone_queue.generation;
+                                rtc.direct_api().remove_stream_tx(Ssrc::from(1));
+                                let _ = event_sender
+                                    .send(NvstReceiveEvent::MicrophoneError(error.to_string()));
+                                continue;
+                            }
+                            eprintln!("NVST WebRTC send failed: {error}");
+                            forward_optional(
+                                &event_sender,
+                                receiver.stop(NvstStopCause::socket("bundle-webrtc-send", &error)),
+                            );
+                            break 'bundle;
                         }
-                        if peek_rtp_ssrc(&transmit.contents) == Some(1) {
-                            microphone_queue.close();
-                            microphone_generation = microphone_queue.generation;
-                            rtc.direct_api().remove_stream_tx(Ssrc::from(1));
-                            let _ = event_sender
-                                .send(NvstReceiveEvent::MicrophoneError(error.to_string()));
-                            continue;
-                        }
-                        eprintln!("NVST WebRTC send failed: {error}");
-                        forward_optional(
-                            &event_sender,
-                            receiver.stop(NvstStopCause::socket("bundle-webrtc-send", &error)),
-                        );
-                        break 'bundle;
                     }
                     ice_responses.sent(&transmit.contents);
                     // Official ICE-on WebRtcTransport skips setupDtls until a real
@@ -8784,7 +8867,7 @@ fn run_nvst_webrtc_bundle(
                     feedback.record_socket_receive(StreamSocket::Bundle, true, dtls_ready, length);
                     if let Some(credentials) = stun_credentials.as_ref() {
                         let received_at = Instant::now();
-                        if let Some(elapsed) = ping_tracker.receive(
+                        if let Some(elapsed) = keepalive.ping_tracker.receive(
                             &datagram[..length],
                             source,
                             credentials,
@@ -8794,9 +8877,13 @@ fn run_nvst_webrtc_bundle(
                         }
                     }
                     if datagram[..length] == *b"PING" {
-                        if let Err(error) = socket.send_to(b"PONG", source)
-                            && !udp_icmp_port_unreachable(&error)
-                        {
+                        if let Err(error) = pong_budget.record(
+                            send_datagram(&socket, b"PONG", source),
+                            Instant::now(),
+                            receiver.config.timeout,
+                            "bundle-pong-send",
+                            local_port,
+                        ) {
                             eprintln!("NVST PONG send failed: {error}");
                             forward_optional(
                                 &event_sender,
@@ -8965,7 +9052,16 @@ fn run_nvst_udp_receiver(
     setup: NvstWorkerSetup,
 ) {
     if setup.rtc.is_some() {
-        run_nvst_webrtc_bundle(socket, config, commands, outputs, transport_origin, setup);
+        run_nvst_webrtc_bundle(
+            socket,
+            config,
+            commands,
+            outputs,
+            transport_origin,
+            setup,
+            |socket, packet, peer| socket.send_to(packet, peer),
+            |socket, packet, peer| socket.send_to(packet, peer),
+        );
         return;
     }
     run_nvst_video_receiver(
@@ -8974,6 +9070,7 @@ fn run_nvst_udp_receiver(
         commands,
         outputs,
         transport_origin,
+        |socket, packet, peer| socket.send_to(packet, peer),
         |socket, packet, peer| socket.send_to(packet, peer),
     );
 }
@@ -8985,6 +9082,7 @@ fn run_nvst_video_receiver(
     outputs: NvstReceiverOutputs,
     transport_origin: Instant,
     mut send_keepalive: impl FnMut(&UdpSocket, &[u8], SocketAddr) -> std::io::Result<usize>,
+    mut send_datagram: impl FnMut(&UdpSocket, &[u8], SocketAddr) -> std::io::Result<usize>,
 ) {
     let local_port = socket.local_addr().map_or(0, |addr| addr.port());
     log_udp_receiver_start(
@@ -9006,7 +9104,9 @@ fn run_nvst_video_receiver(
     let mut datagram = vec![0_u8; 65_536];
     let mut peer_seen = false;
     let mut last_ping = Instant::now() - PING_INTERVAL_BEFORE_CONNECTION;
-    let mut keepalive = VideoKeepaliveState::default();
+    let mut keepalive = UdpKeepaliveState::default();
+    let mut stun_response_budget = SendFailureBudget::default();
+    let mut report_budget = SendFailureBudget::default();
     let mut inbound_datagrams = 0_u64;
     let mut handled_stun = 0_u64;
     let mut invalid_stun = 0_u64;
@@ -9161,8 +9261,13 @@ fn run_nvst_video_receiver(
                             handled_stun += 1;
                             peer_seen = true;
                             if let Some(response) = response
-                                && let Err(error) = socket.send_to(&response, source)
-                                && !udp_icmp_port_unreachable(&error)
+                                && let Err(error) = stun_response_budget.record(
+                                    send_datagram(&socket, &response, source),
+                                    received_at,
+                                    receiver.config.timeout,
+                                    "video-stun-response-send",
+                                    local_port,
+                                )
                             {
                                 eprintln!("NVST STUN response send failed: {error}");
                                 forward_optional(
@@ -9234,8 +9339,16 @@ fn run_nvst_video_receiver(
             last_inbound_at = Some(now);
         }
         if let Some(report) = receiver.poll_receiver_report(now) {
-            if let Err(error) = socket.send_to(&report, receiver.config.video_peer) {
-                if !udp_icmp_port_unreachable(&error) {
+            match report_budget.record(
+                send_datagram(&socket, &report, receiver.config.video_peer),
+                now,
+                receiver.config.timeout,
+                "video-receiver-report-send",
+                local_port,
+            ) {
+                Ok(true) => receiver_reports_sent += 1,
+                Ok(false) => {}
+                Err(error) => {
                     eprintln!("NVST receiver report send failed: {error}");
                     forward_optional(
                         &event_sender,
@@ -9243,14 +9356,12 @@ fn run_nvst_video_receiver(
                     );
                     return;
                 }
-            } else {
-                receiver_reports_sent += 1;
             }
         }
         if now.duration_since(last_stats_log) >= Duration::from_secs(10) {
             last_stats_log = now;
             let pings_sent = keepalive.pings_sent;
-            let keepalive_deferred = keepalive.deferred_total;
+            let keepalive_deferred = keepalive.failures.deferred_total;
             opennow_streamer_protocol::log::log_async(
                 "INFO",
                 "nvst-video",
@@ -11323,6 +11434,28 @@ mod tests {
         + Send
         + 'static,
     ) -> NvstUdpReceiverSession {
+        spawn_video_with_send_faults(
+            socket,
+            config,
+            media_consumer,
+            event_sender,
+            send_keepalive,
+            |socket, packet, peer| socket.send_to(packet, peer),
+        )
+    }
+
+    fn spawn_video_with_send_faults(
+        socket: UdpSocket,
+        config: NvstVideoConfig,
+        media_consumer: MediaConsumer,
+        event_sender: Sender<NvstReceiveEvent>,
+        send_keepalive: impl FnMut(&UdpSocket, &[u8], SocketAddr) -> std::io::Result<usize>
+        + Send
+        + 'static,
+        send_datagram: impl FnMut(&UdpSocket, &[u8], SocketAddr) -> std::io::Result<usize>
+        + Send
+        + 'static,
+    ) -> NvstUdpReceiverSession {
         socket
             .set_read_timeout(Some(UDP_RECEIVE_POLL_INTERVAL))
             .unwrap();
@@ -11343,6 +11476,7 @@ mod tests {
                 outputs,
                 Instant::now(),
                 send_keepalive,
+                send_datagram,
             );
         });
         NvstUdpReceiverSession {
@@ -11351,6 +11485,631 @@ mod tests {
             input_ready,
             microphone,
         }
+    }
+
+    fn spawn_bundle_with_keepalive_fault(
+        socket: UdpSocket,
+        config: NvstVideoConfig,
+        media_consumer: MediaConsumer,
+        event_sender: Sender<NvstReceiveEvent>,
+        send_keepalive: impl FnMut(&UdpSocket, &[u8], SocketAddr) -> std::io::Result<usize>
+        + Send
+        + 'static,
+    ) -> NvstUdpReceiverSession {
+        spawn_bundle_with_send_faults(
+            socket,
+            config,
+            media_consumer,
+            event_sender,
+            send_keepalive,
+            |socket, packet, peer| socket.send_to(packet, peer),
+        )
+    }
+
+    fn spawn_bundle_with_send_faults(
+        socket: UdpSocket,
+        mut config: NvstVideoConfig,
+        media_consumer: MediaConsumer,
+        event_sender: Sender<NvstReceiveEvent>,
+        send_keepalive: impl FnMut(&UdpSocket, &[u8], SocketAddr) -> std::io::Result<usize>
+        + Send
+        + 'static,
+        send_datagram: impl FnMut(&UdpSocket, &[u8], SocketAddr) -> std::io::Result<usize>
+        + Send
+        + 'static,
+    ) -> NvstUdpReceiverSession {
+        let mut remote = create_nvst_bundle_rtc(&socket).unwrap();
+        config.remote_dtls_fingerprint =
+            Some(nvst_local_bundle_identity(&mut remote).dtls_fingerprint);
+        let rtc =
+            prepare_nvst_webrtc_bundle(&socket, &config, create_nvst_bundle_rtc(&socket).unwrap())
+                .unwrap();
+        let (commands, receiver) = mpsc::channel();
+        let input_ready = Arc::new(AtomicBool::new(false));
+        let microphone = Arc::new(Mutex::new(MicrophoneQueue::new(false)));
+        let outputs = NvstReceiverOutputs {
+            media_consumer,
+            event_sender,
+            input_ready: input_ready.clone(),
+            microphone: microphone.clone(),
+        };
+        let join = thread::spawn(move || {
+            run_nvst_webrtc_bundle(
+                socket,
+                config,
+                receiver,
+                outputs,
+                Instant::now(),
+                NvstWorkerSetup {
+                    rtc: Some(rtc),
+                    hid_runtime: None,
+                    upstream_ready: None,
+                },
+                send_keepalive,
+                send_datagram,
+            );
+        });
+        NvstUdpReceiverSession {
+            commands,
+            join: Some(join),
+            input_ready,
+            microphone,
+        }
+    }
+
+    #[test]
+    fn bundle_keepalive_single_resource_failure_preserves_receive_and_cadence() {
+        for error in [
+            std::io::Error::from_raw_os_error(10055),
+            std::io::Error::from(std::io::ErrorKind::Interrupted),
+            std::io::Error::from(std::io::ErrorKind::WouldBlock),
+        ] {
+            let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+            server
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+            let client_address = client.local_addr().unwrap();
+            let mut config = config();
+            config.video_peer = server.local_addr().unwrap();
+            config.stun_credentials = Some(stun_credentials());
+            config.unified_socket = true;
+            let packet = protect_for_test(
+                &test_srtp(&config),
+                build_plaintext_rtp(
+                    1,
+                    FLAG_SOF | FLAG_EOF | FLAG_CONTAINS_PIC_DATA,
+                    42,
+                    &[0, 0, 1, 0x65],
+                ),
+                0,
+            );
+            server.send_to(&packet, client_address).unwrap();
+            let (media_consumer, media_receiver) = mpsc::sync_channel(1);
+            let (event_sender, event_receiver) = mpsc::channel();
+            let attempts = Arc::new(Mutex::new(Vec::new()));
+            let worker_attempts = attempts.clone();
+            let mut first_error = Some(error);
+            let session = spawn_bundle_with_keepalive_fault(
+                client,
+                config,
+                media_consumer,
+                event_sender,
+                move |socket, packet, peer| {
+                    worker_attempts.lock().unwrap().push(Instant::now());
+                    if let Some(error) = first_error.take() {
+                        Err(error)
+                    } else {
+                        socket.send_to(packet, peer)
+                    }
+                },
+            );
+            let frame = media_receiver.recv_timeout(Duration::from_secs(2));
+            assert!(
+                frame.is_ok(),
+                "failed bundle keepalive must not discard video: {frame:?}; events={:?}",
+                event_receiver.try_iter().collect::<Vec<_>>()
+            );
+            assert_eq!(frame.unwrap().frame_index, Some(42));
+            let mut datagram = [0; 2048];
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                assert!(Instant::now() < deadline, "next scheduled NATT succeeds");
+                let (length, source) = server.recv_from(&mut datagram).unwrap();
+                assert_eq!(source, client_address);
+                let packet = &datagram[..length];
+                if find_stun_attribute(packet, STUN_ATTR_USERNAME)
+                    .is_some_and(|(_, username)| username == b"PING:loc1")
+                {
+                    assert!(valid_stun_fingerprint(packet));
+                    assert!(valid_stun_message_integrity(
+                        packet,
+                        stun_credentials().remote_password.as_bytes()
+                    ));
+                    break;
+                }
+            }
+            assert!(!event_receiver.try_iter().any(|event| matches!(
+                event,
+                NvstReceiveEvent::Lifecycle(NvstReceiverState::Stopped(_))
+            )));
+            session.stop();
+            let attempts = attempts.lock().unwrap();
+            assert!(attempts.len() >= 2);
+            // Half the interval: see the persistent test.
+            assert!(
+                attempts[1].duration_since(attempts[0]) >= PING_INTERVAL_BEFORE_CONNECTION / 2
+            );
+        }
+    }
+
+    #[test]
+    fn bundle_keepalive_persistent_resource_failure_stops_despite_inbound_control() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_millis(10)))
+            .unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let client_address = client.local_addr().unwrap();
+        let mut config = config();
+        config.video_peer = server.local_addr().unwrap();
+        config.stun_credentials = Some(stun_credentials());
+        config.mjolnir_udp_port = Some(49005);
+        config.timeout = MIN_TIMEOUT;
+        let budget = config.timeout;
+        let (media_consumer, _media_receiver) = mpsc::sync_channel(1);
+        let (event_sender, event_receiver) = mpsc::channel();
+        let attempts = Arc::new(Mutex::new(Vec::new()));
+        let worker_attempts = attempts.clone();
+        let inbound = server.try_clone().unwrap();
+        let session = spawn_bundle_with_keepalive_fault(
+            client,
+            config,
+            media_consumer,
+            event_sender,
+            move |_, _, _| {
+                inbound.send_to(b"PING", client_address).unwrap();
+                worker_attempts.lock().unwrap().push(Instant::now());
+                Err(std::io::Error::from_raw_os_error(10055))
+            },
+        );
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut pongs = 0;
+        let mut datagram = [0; 2048];
+        loop {
+            assert!(Instant::now() < deadline, "persistent failures must stop");
+            if let Ok((length, _)) = server.recv_from(&mut datagram)
+                && &datagram[..length] == b"PONG"
+            {
+                pongs += 1;
+            }
+            if let Ok(event) = event_receiver.try_recv() {
+                assert!(
+                    matches!(
+                        event,
+                        NvstReceiveEvent::Lifecycle(NvstReceiverState::Stopped(
+                            NvstStopCause::Socket {
+                                operation: "bundle-natt-send",
+                                os_code: Some(10055),
+                                ..
+                            }
+                        ))
+                    ),
+                    "unexpected event: {event:?}"
+                );
+                break;
+            }
+        }
+        session.stop();
+        assert!(pongs > 0, "control receive must continue while sends defer");
+        let attempts = attempts.lock().unwrap();
+        assert!(attempts.len() > 1);
+        assert!(attempts.last().unwrap().duration_since(attempts[0]) >= budget);
+        // The schedule counts from the loop's clock read, not from the send, so a loaded
+        // runner shifts individual sends by a few milliseconds; half the interval still
+        // proves the sends are paced and not retried in a tight loop.
+        assert!(
+            attempts
+                .windows(2)
+                .all(|pair| pair[1].duration_since(pair[0])
+                    >= PING_INTERVAL_BEFORE_CONNECTION / 2)
+        );
+    }
+
+    #[test]
+    fn bundle_keepalive_permanent_send_failures_remain_terminal() {
+        for error in [
+            std::io::Error::from_raw_os_error(10051),
+            std::io::Error::from_raw_os_error(10065),
+            std::io::Error::from_raw_os_error(10022),
+            std::io::Error::from_raw_os_error(10038),
+            std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+            std::io::Error::from(std::io::ErrorKind::ConnectionAborted),
+            std::io::Error::from(std::io::ErrorKind::TimedOut),
+        ] {
+            let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+            let mut config = config();
+            config.video_peer = client.local_addr().unwrap();
+            config.stun_credentials = Some(stun_credentials());
+            let code = error.raw_os_error();
+            let kind = error.kind();
+            let (media_consumer, _media_receiver) = mpsc::sync_channel(1);
+            let (event_sender, event_receiver) = mpsc::channel();
+            let mut error = Some(error);
+            let session = spawn_bundle_with_keepalive_fault(
+                client,
+                config,
+                media_consumer,
+                event_sender,
+                move |_, _, _| Err(error.take().expect("permanent failure must not retry")),
+            );
+            let event = event_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+            session.stop();
+            assert!(
+                matches!(event, NvstReceiveEvent::Lifecycle(NvstReceiverState::Stopped(NvstStopCause::Socket { operation: "bundle-natt-send", kind: actual_kind, os_code, })) if actual_kind == kind && os_code == code),
+                "unexpected event: {event:?}"
+            );
+        }
+    }
+
+    fn stun_binding_request(transaction_id: [u8; 12]) -> Vec<u8> {
+        build_authenticated_stun_packet(
+            STUN_BINDING_REQUEST,
+            &transaction_id,
+            stun_credentials().local_password.as_bytes(),
+            &[(STUN_ATTR_USERNAME, b"loc1:remote01".to_vec())],
+        )
+    }
+
+    /// The ICE connectivity checks the bundle bursts before DTLS is ready. str0m's own
+    /// checks carry the same username but are longer.
+    fn is_ice_check(packet: &[u8]) -> bool {
+        looks_like_stun(packet)
+            && packet.len() == build_stun_binding_request(&stun_credentials(), &[0; 12]).len()
+            && find_stun_attribute(packet, STUN_ATTR_USERNAME)
+                .is_some_and(|(_, username)| username == b"remote01:loc1")
+    }
+
+    /// STUN that is neither the ICE burst nor the NATT ping: what str0m transmits itself.
+    fn is_webrtc_stun(packet: &[u8]) -> bool {
+        looks_like_stun(packet)
+            && !is_ice_check(packet)
+            && find_stun_attribute(packet, STUN_ATTR_USERNAME)
+                .is_none_or(|(_, username)| username != b"PING:loc1")
+    }
+
+    fn send_fault_config(server: &UdpSocket) -> NvstVideoConfig {
+        let mut config = config();
+        config.video_peer = server.local_addr().unwrap();
+        config.stun_credentials = Some(stun_credentials());
+        config.timeout = MIN_TIMEOUT;
+        config
+    }
+
+    fn stopped(events: &Receiver<NvstReceiveEvent>) -> bool {
+        events.try_iter().any(|event| {
+            matches!(
+                event,
+                NvstReceiveEvent::Lifecycle(NvstReceiverState::Stopped(_))
+            )
+        })
+    }
+
+    fn expect_stop(events: &Receiver<NvstReceiveEvent>, operation: &str, os_code: Option<i32>) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let event = events
+                .recv_timeout(remaining)
+                .unwrap_or_else(|_| panic!("expected a stop from {operation}"));
+            if let NvstReceiveEvent::Lifecycle(NvstReceiverState::Stopped(cause)) = event {
+                assert!(
+                    matches!(
+                        cause,
+                        NvstStopCause::Socket {
+                            operation: actual,
+                            os_code: actual_code,
+                            ..
+                        } if actual == operation && actual_code == os_code
+                    ),
+                    "unexpected stop: {cause:?}"
+                );
+                return;
+            }
+        }
+    }
+
+    fn recv_until(server: &UdpSocket, mut wanted: impl FnMut(&[u8]) -> bool, count: usize) {
+        let mut datagram = [0; 2048];
+        let mut seen = 0;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while seen < count {
+            assert!(Instant::now() < deadline, "expected datagram never arrived");
+            let (length, _) = server.recv_from(&mut datagram).expect("datagram arrives");
+            if wanted(&datagram[..length]) {
+                seen += 1;
+            }
+        }
+    }
+
+    #[test]
+    fn video_stun_response_single_transient_failure_does_not_stop_receiver() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let client_address = client.local_addr().unwrap();
+        let config = send_fault_config(&server);
+        for transaction_id in [[0x11; 12], [0x22; 12]] {
+            server
+                .send_to(&stun_binding_request(transaction_id), client_address)
+                .unwrap();
+        }
+        let (media_consumer, _media_receiver) = mpsc::sync_channel(1);
+        let (event_sender, event_receiver) = mpsc::channel();
+        let mut first = true;
+        let session = spawn_video_with_send_faults(
+            client,
+            config,
+            media_consumer,
+            event_sender,
+            |socket, packet, peer| socket.send_to(packet, peer),
+            move |socket, packet, peer| {
+                if std::mem::take(&mut first) {
+                    Err(std::io::Error::from_raw_os_error(10055))
+                } else {
+                    socket.send_to(packet, peer)
+                }
+            },
+        );
+        recv_until(
+            &server,
+            |packet| {
+                looks_like_stun(packet)
+                    && u16::from_be_bytes([packet[0], packet[1]]) == STUN_BINDING_SUCCESS_RESPONSE
+                    && packet[8..20] == [0x22; 12]
+            },
+            1,
+        );
+        assert!(!stopped(&event_receiver));
+        session.stop();
+    }
+
+    #[test]
+    fn video_stun_response_persistent_transient_failure_stops_after_budget() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let client_address = client.local_addr().unwrap();
+        let config = send_fault_config(&server);
+        server
+            .send_to(&stun_binding_request([0x11; 12]), client_address)
+            .unwrap();
+        let (media_consumer, _media_receiver) = mpsc::sync_channel(1);
+        let (event_sender, event_receiver) = mpsc::channel();
+        let session = spawn_video_with_send_faults(
+            client,
+            config,
+            media_consumer,
+            event_sender,
+            |socket, packet, peer| socket.send_to(packet, peer),
+            move |_, _, _| {
+                // Every failed response provokes the next request.
+                server
+                    .send_to(&stun_binding_request([0x11; 12]), client_address)
+                    .unwrap();
+                Err(std::io::Error::from_raw_os_error(10055))
+            },
+        );
+        expect_stop(&event_receiver, "video-stun-response-send", Some(10055));
+        session.stop();
+    }
+
+    #[test]
+    fn video_receiver_report_single_transient_failure_does_not_stop_receiver() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let client_address = client.local_addr().unwrap();
+        let config = send_fault_config(&server);
+        let srtp = test_srtp(&config);
+        let frame = |sequence: u16| {
+            protect_for_test(
+                &srtp,
+                build_plaintext_rtp(
+                    sequence,
+                    FLAG_SOF | FLAG_EOF | FLAG_CONTAINS_PIC_DATA,
+                    41 + u32::from(sequence),
+                    &[0, 0, 1, 0x65],
+                ),
+                0,
+            )
+        };
+        server.send_to(&frame(1), client_address).unwrap();
+        let (media_consumer, media_receiver) = mpsc::sync_channel(4);
+        let (event_sender, event_receiver) = mpsc::channel();
+        let (attempted, attempts) = mpsc::channel();
+        let mut first = true;
+        let session = spawn_video_with_send_faults(
+            client,
+            config,
+            media_consumer,
+            event_sender,
+            |socket, packet, peer| socket.send_to(packet, peer),
+            move |socket, packet, peer| {
+                if std::mem::take(&mut first) {
+                    attempted.send(()).unwrap();
+                    Err(std::io::Error::from_raw_os_error(10055))
+                } else {
+                    socket.send_to(packet, peer)
+                }
+            },
+        );
+        attempts
+            .recv_timeout(Duration::from_secs(2))
+            .expect("first receiver report is attempted");
+        server.send_to(&frame(2), client_address).unwrap();
+        for index in [42, 43] {
+            let frame = media_receiver
+                .recv_timeout(Duration::from_secs(2))
+                .expect("video continues after a failed receiver report");
+            assert_eq!(frame.frame_index, Some(index));
+        }
+        assert!(!stopped(&event_receiver));
+        session.stop();
+    }
+
+    #[test]
+    fn bundle_ice_single_transient_failure_does_not_stop_receiver() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut config = send_fault_config(&server);
+        config.mjolnir_udp_port = Some(49005);
+        let (media_consumer, _media_receiver) = mpsc::sync_channel(1);
+        let (event_sender, event_receiver) = mpsc::channel();
+        let mut first = true;
+        let session = spawn_bundle_with_send_faults(
+            client,
+            config,
+            media_consumer,
+            event_sender,
+            |socket, packet, peer| socket.send_to(packet, peer),
+            move |socket, packet, peer| {
+                if is_ice_check(packet) && std::mem::take(&mut first) {
+                    Err(std::io::Error::from_raw_os_error(10055))
+                } else {
+                    socket.send_to(packet, peer)
+                }
+            },
+        );
+        // Two survivors of the first burst plus a later burst.
+        recv_until(&server, is_ice_check, 4);
+        assert!(!stopped(&event_receiver));
+        session.stop();
+    }
+
+    #[test]
+    fn bundle_ice_persistent_transient_failure_stops_after_budget() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut config = send_fault_config(&server);
+        config.mjolnir_udp_port = Some(49005);
+        let (media_consumer, _media_receiver) = mpsc::sync_channel(1);
+        let (event_sender, event_receiver) = mpsc::channel();
+        let session = spawn_bundle_with_send_faults(
+            client,
+            config,
+            media_consumer,
+            event_sender,
+            |socket, packet, peer| socket.send_to(packet, peer),
+            |socket, packet, peer| {
+                if is_ice_check(packet) {
+                    Err(std::io::Error::from_raw_os_error(10055))
+                } else {
+                    socket.send_to(packet, peer)
+                }
+            },
+        );
+        expect_stop(&event_receiver, "bundle-ice-send", Some(10055));
+        session.stop();
+    }
+
+    #[test]
+    fn bundle_pong_single_transient_failure_does_not_stop_receiver() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let client_address = client.local_addr().unwrap();
+        let mut config = send_fault_config(&server);
+        config.mjolnir_udp_port = Some(49005);
+        for _ in 0..2 {
+            server.send_to(b"PING", client_address).unwrap();
+        }
+        let (media_consumer, _media_receiver) = mpsc::sync_channel(1);
+        let (event_sender, event_receiver) = mpsc::channel();
+        let mut first = true;
+        let session = spawn_bundle_with_send_faults(
+            client,
+            config,
+            media_consumer,
+            event_sender,
+            |socket, packet, peer| socket.send_to(packet, peer),
+            move |socket, packet, peer| {
+                if packet == b"PONG" && std::mem::take(&mut first) {
+                    Err(std::io::Error::from_raw_os_error(10055))
+                } else {
+                    socket.send_to(packet, peer)
+                }
+            },
+        );
+        recv_until(&server, |packet| packet == b"PONG", 1);
+        assert!(!stopped(&event_receiver));
+        session.stop();
+    }
+
+    #[test]
+    fn bundle_pong_persistent_transient_failure_stops_after_budget() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let client_address = client.local_addr().unwrap();
+        let mut config = send_fault_config(&server);
+        config.mjolnir_udp_port = Some(49005);
+        server.send_to(b"PING", client_address).unwrap();
+        let (media_consumer, _media_receiver) = mpsc::sync_channel(1);
+        let (event_sender, event_receiver) = mpsc::channel();
+        let session = spawn_bundle_with_send_faults(
+            client,
+            config,
+            media_consumer,
+            event_sender,
+            |socket, packet, peer| socket.send_to(packet, peer),
+            move |socket, packet, peer| {
+                if packet == b"PONG" {
+                    // Every failed PONG provokes the next PING.
+                    server.send_to(b"PING", client_address).unwrap();
+                    Err(std::io::Error::from_raw_os_error(10055))
+                } else {
+                    socket.send_to(packet, peer)
+                }
+            },
+        );
+        expect_stop(&event_receiver, "bundle-pong-send", Some(10055));
+        session.stop();
+    }
+
+    #[test]
+    fn bundle_webrtc_single_transient_failure_does_not_stop_receiver() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut config = send_fault_config(&server);
+        config.mjolnir_udp_port = Some(49005);
+        let (media_consumer, _media_receiver) = mpsc::sync_channel(1);
+        let (event_sender, event_receiver) = mpsc::channel();
+        let mut first = true;
+        let session = spawn_bundle_with_send_faults(
+            client,
+            config,
+            media_consumer,
+            event_sender,
+            |socket, packet, peer| socket.send_to(packet, peer),
+            move |socket, packet, peer| {
+                if is_webrtc_stun(packet) && std::mem::take(&mut first) {
+                    Err(std::io::Error::from_raw_os_error(10055))
+                } else {
+                    socket.send_to(packet, peer)
+                }
+            },
+        );
+        recv_until(&server, is_webrtc_stun, 1);
+        assert!(!stopped(&event_receiver));
+        session.stop();
     }
 
     #[test]
@@ -11543,7 +12302,6 @@ mod tests {
             std::io::Error::from_raw_os_error(10065),
             std::io::Error::from_raw_os_error(10022),
             std::io::Error::from_raw_os_error(10038),
-            std::io::Error::from_raw_os_error(1),
             std::io::Error::from(std::io::ErrorKind::PermissionDenied),
             std::io::Error::from(std::io::ErrorKind::ConnectionAborted),
             std::io::Error::from(std::io::ErrorKind::TimedOut),
@@ -11575,7 +12333,7 @@ mod tests {
     fn video_keepalive_records_only_successful_sends_and_resets_failure_budget() {
         let origin = Instant::now();
         let budget = MIN_TIMEOUT;
-        let mut state = VideoKeepaliveState::default();
+        let mut state = UdpKeepaliveState::default();
         for (index, error) in [
             std::io::Error::from_raw_os_error(10055),
             std::io::Error::from(std::io::ErrorKind::Interrupted),
@@ -11598,9 +12356,9 @@ mod tests {
             assert_eq!(state.pings_sent, 0);
             assert!(state.ping_tracker.pending.is_empty());
         }
-        assert_eq!(state.first_failure, Some(origin));
-        assert_eq!(state.failed_attempts, 4);
-        assert_eq!(state.deferred_total, 3);
+        assert_eq!(state.failures.first_failure, Some(origin));
+        assert_eq!(state.failures.failed_attempts, 4);
+        assert_eq!(state.failures.deferred_total, 3);
         let sent_at = origin + budget - Duration::from_millis(1);
         state
             .record_send(
@@ -11612,8 +12370,8 @@ mod tests {
                 0,
             )
             .unwrap();
-        assert_eq!(state.first_failure, None);
-        assert_eq!(state.failed_attempts, 0);
+        assert_eq!(state.failures.first_failure, None);
+        assert_eq!(state.failures.failed_attempts, 0);
         assert_eq!(state.pings_sent, 1);
         assert_eq!(
             state
@@ -11635,7 +12393,7 @@ mod tests {
                 0,
             )
             .unwrap();
-        assert_eq!(state.first_failure, Some(new_failure));
+        assert_eq!(state.failures.first_failure, Some(new_failure));
         assert!(
             state
                 .record_send(
@@ -11655,7 +12413,7 @@ mod tests {
     #[test]
     fn video_keepalive_icmp_errors_do_not_create_tracking_or_extend_resource_deadline() {
         let origin = Instant::now();
-        let mut state = VideoKeepaliveState::default();
+        let mut state = UdpKeepaliveState::default();
         state
             .record_send(
                 Err(std::io::Error::from(std::io::ErrorKind::ConnectionReset)),
@@ -11666,8 +12424,8 @@ mod tests {
                 0,
             )
             .unwrap();
-        assert_eq!(state.first_failure, None);
-        assert_eq!(state.failed_attempts, 0);
+        assert_eq!(state.failures.first_failure, None);
+        assert_eq!(state.failures.failed_attempts, 0);
         assert_eq!(state.pings_sent, 0);
         assert!(state.ping_tracker.pending.is_empty());
         state
@@ -11693,6 +12451,136 @@ mod tests {
                 .is_err()
         );
         assert!(state.ping_tracker.pending.is_empty());
+    }
+
+    #[test]
+    fn udp_send_error_transience_by_platform_code() {
+        for error in [
+            std::io::Error::from_raw_os_error(10055),
+            std::io::Error::from(std::io::ErrorKind::Interrupted),
+            std::io::Error::from(std::io::ErrorKind::WouldBlock),
+        ] {
+            assert!(udp_send_error_is_transient(&error), "{error:?}");
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // EPERM, ENOMEM, EADDRNOTAVAIL, ENETDOWN, ENETUNREACH, ENOBUFS, EHOSTDOWN, EHOSTUNREACH.
+            for code in [1, 12, 99, 100, 101, 105, 112, 113] {
+                let error = std::io::Error::from_raw_os_error(code);
+                assert!(udp_send_error_is_transient(&error), "errno {code}");
+            }
+            // EBADF, EINVAL, EACCES, EMSGSIZE, ECONNREFUSED.
+            for code in [9, 22, 13, 90, 111] {
+                let error = std::io::Error::from_raw_os_error(code);
+                assert!(!udp_send_error_is_transient(&error), "errno {code}");
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        assert!(!udp_send_error_is_transient(
+            &std::io::Error::from_raw_os_error(1)
+        ));
+        // Linux codes match by raw errno only; bare kinds stay terminal.
+        for kind in [
+            std::io::ErrorKind::PermissionDenied,
+            std::io::ErrorKind::ConnectionAborted,
+            std::io::ErrorKind::TimedOut,
+            std::io::ErrorKind::ConnectionReset,
+        ] {
+            assert!(!udp_send_error_is_transient(&std::io::Error::from(kind)));
+        }
+    }
+
+    #[test]
+    fn send_failure_budget_defers_inside_budget_and_returns_the_original_error_after() {
+        let origin = Instant::now();
+        let mut budget = SendFailureBudget::default();
+        for (offset, error) in [
+            (Duration::ZERO, std::io::Error::from_raw_os_error(10055)),
+            (
+                MIN_TIMEOUT - Duration::from_millis(1),
+                std::io::Error::from(std::io::ErrorKind::Interrupted),
+            ),
+        ] {
+            assert!(
+                !budget
+                    .record(Err(error), origin + offset, MIN_TIMEOUT, "test-send", 0)
+                    .unwrap()
+            );
+        }
+        assert_eq!(budget.deferred_total, 2);
+        let error = budget
+            .record(
+                Err(std::io::Error::from_raw_os_error(10055)),
+                origin + MIN_TIMEOUT,
+                MIN_TIMEOUT,
+                "test-send",
+                0,
+            )
+            .unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(10055));
+    }
+
+    #[test]
+    fn send_failure_budget_success_refills_only_its_own_site() {
+        let origin = Instant::now();
+        let mut failing = SendFailureBudget::default();
+        let mut healthy = SendFailureBudget::default();
+        for site in [&mut failing, &mut healthy] {
+            site.record(
+                Err(std::io::Error::from_raw_os_error(10055)),
+                origin,
+                MIN_TIMEOUT,
+                "test-send",
+                0,
+            )
+            .unwrap();
+        }
+        assert!(
+            healthy
+                .record(Ok(1), origin + MIN_TIMEOUT / 2, MIN_TIMEOUT, "test-send", 0)
+                .unwrap()
+        );
+        assert_eq!((healthy.first_failure, healthy.failed_attempts), (None, 0));
+        assert!(
+            failing
+                .record(
+                    Err(std::io::Error::from_raw_os_error(10055)),
+                    origin + MIN_TIMEOUT,
+                    MIN_TIMEOUT,
+                    "test-send",
+                    0,
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn send_failure_budget_permanent_errors_stop_at_once_and_icmp_is_skipped() {
+        let origin = Instant::now();
+        let mut budget = SendFailureBudget::default();
+        let error = budget
+            .record(
+                Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+                origin,
+                MIN_TIMEOUT,
+                "test-send",
+                0,
+            )
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(budget.first_failure, None);
+        assert!(
+            !budget
+                .record(
+                    Err(std::io::Error::from(std::io::ErrorKind::ConnectionReset)),
+                    origin,
+                    MIN_TIMEOUT,
+                    "test-send",
+                    0,
+                )
+                .unwrap()
+        );
+        assert_eq!((budget.first_failure, budget.deferred_total), (None, 0));
     }
 
     #[cfg(windows)]

@@ -57,7 +57,7 @@ pub enum Event {
     Draw { ms: u64, sequence: u64, frame: u64 },
     Swap { ms: u64, sequence: u64, frame: u64, success: bool },
     Render { ms: u64, frames: u32, max_cpu_us: u32, max_draw_us: u32 },
-    Stream { ms: u64, fps: Option<f32>, bitrate_kbps: Option<u32>, rtt_ms: Option<f32>, jitter_ms: Option<f32>, loss_pct: Option<f32>, dropped: Option<u64>, pad_reports: Option<u32>, pad_rate_hz: Option<f32>, pad_p99_us: Option<u32> },
+    Stream { ms: u64, fps: Option<f32>, bitrate_kbps: Option<u32>, rtt_ms: Option<f32>, jitter_ms: Option<f32>, loss_pct: Option<f32>, dropped: Option<u64>, #[serde(skip_serializing_if = "Option::is_none")] socket_drops: Option<u64>, pad_reports: Option<u32>, pad_rate_hz: Option<f32>, pad_p99_us: Option<u32> },
     Frames { ms: u64, fed: u64, accepted: u64, dropped: [u64; 5], omitted: u64 },
     Error { ms: u64, kind: &'static str },
     Test,
@@ -73,7 +73,8 @@ pub enum Event {
     /// No such reading five seconds after the session ran: the video window as it then stood, and the rates the panel and the engine report.
     NoPicture { ms: u64, session: u64, #[serde(skip_serializing_if = "Option::is_none")] muted: Option<bool>, width: u32, height: u32, #[serde(skip_serializing_if = "Option::is_none")] src_hz: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] fps: Option<f32> },
     HdrMissing { ms: u64, session: u64, engine: &'static str, why: &'static str },
-    FrameTrouble { ms: u64, dropped: [u64; 5], stalls: u32, max_gap_us: u64 },
+    /// Dropped frames and stalls since the last report. `socket_drops` is the packets the TV's network stack discarded in the same time, left out while zero.
+    FrameTrouble { ms: u64, dropped: [u64; 5], stalls: u32, max_gap_us: u64, #[serde(skip_serializing_if = "is_zero")] socket_drops: u32 },
     NetLoss { ms: u64, loss_pct: f32, #[serde(skip_serializing_if = "Option::is_none")] rtt_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] jitter_ms: Option<f32> },
     EngineError { ms: u64, engine: &'static str, code: &'static str },
     Controller { ms: u64, slot: u8, connected: bool },
@@ -319,7 +320,7 @@ pub(crate) fn assert_allowlisted(line: &str) {
         "kind", "level", "session", "engine", "after_ms", "queue", "eta_s", "codec", "width", "height", "bit_depth", "hdr", "want_hdr", "sdr", "audio",
         "want_fps", "want_height", "outcome", "reason", "by", "ran_s", "at", "hdr_type", "hz", "src_hz", "vrr", "low_delay", "why", "stalls", "max_gap_us",
         "code", "slot", "connected", "gap_us", "feed_us", "late", "client_ms", "host_ms", "pad_bursts", "pad_gap_us", "min_hz", "fewest", "span_ms",
-        "gap", "feed", "presses", "press_p50_ms", "press_p99_ms", "network_ms", "arrival_p50_ms", "arrival_p95_ms", "muted", "after_running_ms", "after_frame_ms",
+        "gap", "feed", "presses", "press_p50_ms", "press_p99_ms", "network_ms", "arrival_p50_ms", "arrival_p95_ms", "muted", "after_running_ms", "after_frame_ms", "socket_drops",
     ];
     let value: serde_json::Value = serde_json::from_str(line).unwrap();
     for (key, field) in value.as_object().unwrap() {
@@ -346,7 +347,7 @@ mod tests {
             (Event::Draw { ms: 1, sequence: 4, frame: 9 }, Level::Info),
             (Event::Swap { ms: 1, sequence: 4, frame: 9, success: true }, Level::Info),
             (Event::Render { ms: 1, frames: 60, max_cpu_us: 900, max_draw_us: 400 }, Level::Info),
-            (Event::Stream { ms: 1, fps: Some(59.9), bitrate_kbps: Some(40_000), rtt_ms: Some(12.5), jitter_ms: Some(1.5), loss_pct: Some(0.0), dropped: Some(0), pad_reports: Some(120), pad_rate_hz: Some(125.0), pad_p99_us: Some(9_000) }, Level::Info),
+            (Event::Stream { ms: 1, fps: Some(59.9), bitrate_kbps: Some(40_000), rtt_ms: Some(12.5), jitter_ms: Some(1.5), loss_pct: Some(0.0), dropped: Some(0), socket_drops: Some(0), pad_reports: Some(120), pad_rate_hz: Some(125.0), pad_p99_us: Some(9_000) }, Level::Info),
             (Event::Frames { ms: 1, fed: 60, accepted: 60, dropped: [0; 5], omitted: 0 }, Level::Info),
             (Event::Error { ms: 1, kind: "swap_failed" }, Level::Error),
             (Event::Test, Level::Error),
@@ -358,7 +359,7 @@ mod tests {
             (Event::SessionEnd { ms: 1, session: 1, engine: "gfn", outcome: "ended", reason: "stopped", by: "owner", ran_s: Some(300), level: Level::Info }, Level::Info),
             (Event::Display { ms: 1, at: "start", width: 3840, height: 2160, hdr_type: 2, muted: Some(false), hz: Some(59.9), src_hz: Some(60.0), vrr: Some(false), low_delay: Some(true) }, Level::Info),
             (Event::HdrMissing { ms: 1, session: 1, engine: "gfn", why: "game_unsupported" }, Level::Warn),
-            (Event::FrameTrouble { ms: 1, dropped: [0, 0, 0, 7, 0], stalls: 1, max_gap_us: 140_000 }, Level::Warn),
+            (Event::FrameTrouble { ms: 1, dropped: [0, 0, 0, 7, 0], stalls: 1, max_gap_us: 140_000, socket_drops: 12 }, Level::Warn),
             (Event::NetLoss { ms: 1, loss_pct: 2.5, rtt_ms: Some(30.0), jitter_ms: Some(4.0) }, Level::Warn),
             (Event::EngineError { ms: 1, engine: "gfn", code: "protocol" }, Level::Warn),
             (Event::Controller { ms: 1, slot: 0, connected: false }, Level::Warn),

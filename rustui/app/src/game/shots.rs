@@ -1,5 +1,5 @@
 //! Explicit `GAME_SHOTS=all` visual acceptance run. Illustrative catalog/history mirrors the HTML mocks, never production data.
-use super::{model::*, screens::GameUi};
+use super::{model::*, screens::GameUi, uplink::{Medium, Uplink}};
 use super::helper::{GameSirState, LeadjoyState, gamesir_fixture, leadjoy_fixture};
 use compositor_protocol::Event;
 use lumagame_core::{
@@ -8,6 +8,7 @@ use lumagame_core::{
     history::Played,
     ids::{EngineId, GameId, TargetId},
     ipc::{self, AuthState, FromEngine, Readiness, SessionState},
+    settings::{SettingsSchema, Value},
     state::State,
 };
 use lumatv_render::{
@@ -346,11 +347,14 @@ fn screens() -> Vec<(String, Model)> {
         ("13-settings-appearance", Section::Appearance, false, 100),
         ("13-settings-appearance-light", Section::Appearance, true, 100),
         ("14-settings-streaming", Section::Streaming, false, 100),
+        ("14-settings-streaming-limited", Section::Streaming, false, 100),
+        ("14-settings-streaming-wifi", Section::Streaming, false, 100),
         ("25-settings-controllers", Section::Controllers, false, 100),
         ("26-settings-about", Section::About, false, 100),
         ("52-diagnostics-dark", Section::Diagnostics, false, 100),
         ("53-diagnostics-light", Section::Diagnostics, true, 100),
         ("33-settings-text200", Section::Streaming, false, 200),
+        ("33-settings-text200-limited", Section::Streaming, false, 200),
     ] {
         let mut m = base.clone();
         m.view.page = Page::Settings;
@@ -359,6 +363,14 @@ fn screens() -> Vec<(String, Model)> {
         m.prefs.text_percent = scale;
         m.prefs.fps = 120;
         m.prefs.hdr = true;
+        // A bitrate set higher than the TV's 100 Mbit/s port carries, and the TV on Wi-Fi.
+        if name.ends_with("-limited") {
+            m.uplink = Some(Uplink { interface: "eth0".into(), medium: Medium::Wired, mbit: Some(100) });
+            m.prefs.bitrate_mbps = 150;
+        }
+        if name.ends_with("-wifi") {
+            m.uplink = Some(Uplink { interface: "wlan0".into(), medium: Medium::Wifi, mbit: None });
+        }
         m.diagnostics.level = crate::game::diagnostics::Level::Debug;
         m.view.focus = if section == Section::Appearance {
             Focus::Theme(3)
@@ -467,6 +479,8 @@ fn screens() -> Vec<(String, Model)> {
     rough.telemetry.frames.omitted=4;
     rough.telemetry.stream.loss_pct=Some(1.4);
     rough.telemetry.stream.host_ms=Some(5.2);
+    rough.telemetry.stream.dropped=Some(3);
+    rough.telemetry.stream.socket_drops=Some(12);
     rough.telemetry.stream.pad=Some(ipc::PadStats {name:"Xbox Wireless · Bluetooth".into(),reports:250,rate_hz:125.0,p99_us:22400,bursts:6,burst_gap_us:22000,age_ms:0});
     add("50-stats-full-dark",rough.clone());
     rough.prefs.light=true;
@@ -948,6 +962,59 @@ fn engine_ready_applies_stream_preferences_once_without_schema_feedback() {
         if values.get("bitrate-mbps") == Some(&lumagame_core::settings::Value::Int(150)))));
     let commands = m.step(Input::Engine { engine: id, message: event });
     assert!(!commands.iter().any(|c| matches!(c, Command::Send { request: ipc::Request::Settings { .. }, .. })));
+}
+
+fn bitrate_schema() -> SettingsSchema {
+    serde_json::from_value(serde_json::json!({"sections":[{"title":"Stream","fields":[
+        {"key":"bitrate-mbps","label":"Bitrate","type":"number","min":5,"max":150,"step":5,"default":80}
+    ]}]})).unwrap()
+}
+fn sent_bitrates(commands: &[Command]) -> Vec<Value> {
+    commands.iter().filter_map(|c| match c {
+        Command::Send { request: ipc::Request::Settings { values }, .. } => values.get("bitrate-mbps").cloned(),
+        _ => None,
+    }).collect()
+}
+fn wired(mbit: u32) -> Option<Uplink> {
+    Some(Uplink { interface: "eth0".into(), medium: Medium::Wired, mbit: Some(mbit) })
+}
+
+#[test]
+fn a_slow_wired_port_holds_the_engines_bitrate_below_the_viewers_choice() {
+    let mut m = fixture();
+    let id = EngineId::new("gfn").unwrap();
+    m.integrations.iter_mut().find(|e| e.manifest.id == id).unwrap().schema = bitrate_schema();
+    m.prefs.bitrate_mbps = 150;
+    let commands = m.step(Input::Uplink(wired(100)));
+    assert_eq!(sent_bitrates(&commands), [Value::Int(85)]);
+    assert_eq!(m.prefs.bitrate_mbps, 150, "the slider keeps what the viewer chose");
+    assert_eq!(m.state().engines[&id].settings["bitrate-mbps"], Value::Int(85), "an engine that restarts starts at the cap");
+    assert!(m.step(Input::Uplink(wired(100))).is_empty(), "the same reading says nothing new");
+    assert_eq!(sent_bitrates(&m.step(Input::Uplink(wired(1_000)))), [Value::Int(150)], "a faster port lifts the cap by itself");
+    assert_eq!(sent_bitrates(&m.step(Input::Uplink(wired(100)))), [Value::Int(85)]);
+    assert_eq!(sent_bitrates(&m.step(Input::Uplink(None))), [Value::Int(150)], "no uplink, no cap");
+}
+
+#[test]
+fn a_backgrounded_app_does_not_talk_to_engines_the_host_has_stopped() {
+    let mut m = fixture();
+    let id = EngineId::new("gfn").unwrap();
+    m.integrations.iter_mut().find(|e| e.manifest.id == id).unwrap().schema = bitrate_schema();
+    m.prefs.bitrate_mbps = 150;
+    m.step(Input::Foreground(false));
+    assert!(sent_bitrates(&m.step(Input::Uplink(wired(100)))).is_empty());
+    assert_eq!(m.state().engines[&id].settings["bitrate-mbps"], Value::Int(85), "it still starts at the cap when the app comes back");
+}
+
+#[test]
+fn an_engine_that_becomes_ready_after_the_uplink_was_read_starts_at_the_cap() {
+    let mut m = fixture();
+    let id = EngineId::new("gfn").unwrap();
+    m.prefs.bitrate_mbps = 150;
+    m.step(Input::Uplink(wired(100)));
+    let descriptor = m.integrations.iter_mut().find(|e| e.manifest.id == id).unwrap().descriptor.take().unwrap();
+    let ready = FromEngine { re: None, event: ipc::Event::Ready { descriptor, schema: bitrate_schema() } };
+    assert_eq!(sent_bitrates(&m.step(Input::Engine { engine: id, message: ready })), [Value::Int(85)]);
 }
 
 /// `GAME_MOTION=right|down|grid`: holds that key across the first Home row, down the Home rows or down the Library grid, writing every frame to
