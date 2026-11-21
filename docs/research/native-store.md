@@ -1,8 +1,8 @@
 # A native Content Store in LumaTV: feasibility and plan
 
-Owner: StoreResearch, 2026-11-21. Study only; nothing built. Facts are from the set (OLED65C4PUA, webOS 10.2.1, firmware
-33.22.52), read-only, or from LG's public store bundle, unless marked [INFERENCE]. Nothing was installed, bought or signed in;
-no app was launched. Theme work on LG's own store page is in `store-result.md`.
+Owner: StoreResearch, 2026-11-21. Study and one approved install test; nothing built. Facts are from the set (OLED65C4PUA,
+webOS 10.2.1, firmware 33.22.52) or from LG's public store bundle, unless marked [INFERENCE]. Nothing was bought or signed
+in and no app was launched. Theme work on LG's own store page is in `store-result.md`.
 
 ## Verdict
 
@@ -63,7 +63,7 @@ category and icon URL is 0.66 MB of JSON. A full sync is cheap enough to run onc
   `appinstalld.internal` (`/usr/share/luna-service2/api-permissions.d/com.webos.appinstalld.api.json`); `sdx/send` needs
   `sdx.control` (private). Root `luna-send`, which the helper uses (`helper/app/src/luna.rs`), reaches both: `sdx/send` worked
   in this study and `appInstallService/remove` already runs from the helper and the UI (`autoinstall-result.md`,
-  `rustui/ui/src/home/model.rs`). **Not tested: an actual `install` from LumaTV** (Phase 0).
+  `rustui/ui/src/home/model.rs`). An `install` from root was run in Phase 0 (§6).
 - No caller allow-list. Decompiled `AppInstallService::cb_install` (`/usr/sbin/appinstalld`, sha256 `f9591ba1…`, at
   `0x17bec0`) reads the caller with `LSUtils::getCallerId` (application id, else service name) and compares it only with
   `com.webos.service.pkgInstall`, which alone may pass the extra `$install {appFile, allowDowngrade, restoredRequest}`;
@@ -98,55 +98,117 @@ Three layers, by how stable they are:
 Plan for breakage:
 
 - **Pins**, as for the ssgw pins: the API version is read from `server_addr_version.conf` (not hard-coded) and must be in a
-  known list; each response is parsed by a strict schema of the fields LumaTV uses (unknown fields ignored, missing required
-  fields = broken). A test fixture per endpoint, from redacted captures, keeps the parser honest on the host.
-- **Daily conformance check** in the helper (after the catalogue sync, so no extra traffic): featured page, one `app/list`
-  page, one `app/app`, one `search/retrieval`, plus `pkgInstall/status` reachable. Result in a `store` topic
-  (`ok | degraded <endpoint> | broken`) with the failing endpoint and LG's code.
-- **Fallback**: any failed load, parse error or `broken` state shows a "Open LG's store" button on the page; the Apps key and
-  LumaTV's store tile then open `com.webos.app.discovery` directly (today's behaviour) until a check passes again. Install
+  known list; each response is parsed into a typed struct of only the fields LumaTV uses (unknown fields ignored, a missing
+  required field = broken). One redacted capture per endpoint is the host test fixture.
+- **Checked in the daily run**: the catalogue sync itself is the conformance check (featured page, every `app/list` page);
+  its result is the `store` topic (`ok | broken <endpoint> <LG code>`). No separate probe traffic.
+- **Fallback**: a failed load, a parse error or a `broken` state shows an "Open LG's store" button on the page, and the
+  Apps screen's store row opens `com.webos.app.discovery` directly (today's behaviour) until a sync passes again. Install
   errors from appinstalld (`IPK_VERIFY_ERR`, `download failed`, capacity) are shown in LumaTV's words with the same button.
 - **Never written to**: nothing of LG's is patched, mounted or blocked; LG's store keeps working beside LumaTV's.
 
-## 5. Recommended architecture
+## 5. Architecture (Rust only, inside what exists)
 
-- **Helper `store` plugin**, off until enabled in Settings, with its own settings page (region shown read-only, daily sync
-  on/off, cache size, "Use LG's store instead"); disabled, nothing runs and the Apps key behaves as today. Owns:
-  `sdx/send` calls with a 4 s/1 MiB cap per call (inside `luna::once`; measured calls 0.3–2.4 s, pages ≤ 200 items), the
-  daily catalogue sync to `/var/lib/lumatv/store/catalogue.json` (id, name, category, icon URL, price, flags), the local
-  search index (names and ids; server search as a second source), the install queue (one at a time, as LG's), subscriptions
-  to install status, the `app/update` check on demand, and the conformance check. Routes `GET /v1/store/{home,category,
-  app,search,updates}`, `POST /v1/store/{install,cancel,remove}`; topics `store` (health) and `store.jobs` (progress).
-- **UI pages** in `rustui/ui`: Store home (banners as static cards, shelves), category grid with paging, app page (icon,
-  screenshots, description, size, version, privacy link, Install/Open/Update/Remove), search with the on-screen keyboard,
-  Updates and My apps. Theme tokens only; icons and screenshots through the helper's image cache. Panel care: no
-  auto-advancing banner, the page dims with the rest of the shell.
-- **Entry points**: LumaTV's Apps library "Get more apps" tile, the Apps key (redirect stays switchable back to LG's), and
-  deep links from search.
+Decisions (Nitin, 2026-11-21): the remote has no Apps key, so the store lives in the **Apps screen's rail**: a "Get apps"
+row replaces "LG Content Store" as the primary entry, and "LG Content Store" stays one row below it. **No LG promotion
+banners**: the store shows categories, Popular and New only (`recommendationCategory` types 1 and 2 and `app/list`).
 
-## 6. Phased plan
+- **Helper**: one module, `store.rs`, a plugin off until enabled (its settings page: the switch and "Use LG's store
+  instead"). It holds no thread of its own and nothing resident beyond the cached files:
+  - `sdx/send` through the existing `luna::once` (4 s, 1 MiB; measured calls 0.3–2.4 s, pages ≤ 200 items);
+  - one daily run: featured page plus every `app/list` page (≈ 60 calls, 18 s) to `/var/lib/lumatv/store/catalogue.json`
+    (id, name, category, icon URL, flags; 0.66 MB for 3,269 apps), and the `app/update` POST for installed apps;
+  - app pages fetched on open (`app/app`), not cached beyond the session;
+  - search: substring and word-start match over the cached names in memory (3,269 strings); no index, no server search;
+  - images: icon and screenshot files fetched with the existing `fetcher` and kept in a size-capped folder. LG's CDN
+    labels every file `image/gif`, but the bytes are PNG or JPEG (sampled 30), which `png` and `jpeg-decoder`, already in
+    `rustui/ui`, read. Screenshots are up to 2.6 MB, so only the app page loads them, one at a time;
+  - installs: one job at a time; `luna::start` subscription to `appInstallService/install`, closed by the helper on
+    `installed`, `removed` or an error (the service keeps the subscription open after `installed`: measured 60 s);
+  - routes on the existing helper API and one hub topic `store` (health plus the running job's state and progress).
+- **UI** (`rustui/ui/src/home/apps.rs` and the existing kit): "Get apps" is a rail section like the others. Its grid is
+  the same app grid, filled from the catalogue: a row of the seven categories, then Popular and New. Selecting a cell
+  opens an app page built from existing kit rows and buttons (icon, name, seller, size, version, rating, description,
+  screenshots, Install/Open/Update/Remove with progress). The Apps screen's own search covers both installed apps and the
+  catalogue. Theme tokens only; no web view, no new framework, no auto-advancing element; the screen dims with the shell.
+- **LG's store as hand-off**: the "LG Content Store" row and the app page's "Open in LG's store"
+  (`{query: "category/GAME_APPS/<appId>"}`) for paid, sign-in, adult and NSU apps. Once LG's store leaves the screen,
+  `app_priority` closes it through its existing SAM close (`close_app`: thawed first, WAM told), as one more reason
+  beside memory pressure, so LG's store does not stay resident in `WebAppMgr`.
+
+## 6. Phase 0: install and remove from root (done, 2026-11-21, Nitin present)
+
+App: `com.masterclass.lg` (MasterClass 2.0.0), the smallest free, not-adult, no-sign-in, not-installed app among the
+278 Education and News apps checked: 89,284 B packed, 157,470 B unpacked. Called exactly as the helper would, root
+`luna-send` to `com.webos.appInstallService`, under the TV lock, nothing launched or shown.
+
+- `queryInstallCapacity {id, size, uncompressedSize}` → `{requiredSize: 349154}` in 0.13 s.
+- `install {id, subscribe:true, target:{deviceId:"INTERNAL_STORAGE"}}`, events by seconds from the request:
+  0.18 s accepted, statusValues 262–264 (no `state`; the `app/install` URL and rights step [INFERENCE]); 0.84 s
+  `ipk download current` 0 % → 1.05 s 17 % → 1.07 s `ipk download complete` 100; `ipk verifying` 1.07–1.09 s;
+  `ipk parsing` 1.09–1.14 s; `app closing` 1.14–1.16 s; `installing : installing RO` 1.16–2.20 s; `installing : start /
+  installing / service installing / activity installing / post install done` 2.20–2.43 s; **`installed` (statusValue 30)
+  at 2.43 s**. Every event carries `details.{state, progress, simpleStatus, client: "com.webos.lunasend-<pid>"}`.
+- The launch point appeared at once (`listLaunchPoints`); the log records `NL_APP_INSTALLED {"caller":
+  "com.webos.lunasend-…"}`. The first run, whose event stream was not recorded, also installed (17:58:51Z).
+- `remove {id, subscribe:true}`: `app closing` → `remove start` → `removing` (activities, jail, RO, service files, ipk,
+  data) → **`removed` (statusValue 31) at 0.40 s**; launch point and `/media/cryptofs/apps/usr/palm/applications/<id>`
+  gone. Both installs were removed; the set is as before.
+- `appinstalld`, `pkginstalld` (started although only `appInstallService` was called) and `LunaDownloadMgr` exited by
+  themselves within about 3 minutes of the last call.
+
+Still untested: a large app (download time, `pause`/`cancel` mid-download), an update of an installed app, a
+`needLogin: Y` app (most News apps carry it, the set's LG account state decides the outcome), and the error shape of a
+paid app.
+
+## 7. Background cost: what runs, what the store needs
+
+Measured on the set with LG's store closed and LumaTV on screen (RSS; CPU as share of one core, 30 s window and average
+since start):
+
+| Process | RSS | CPU 30 s / avg | Kind | Native store needs it |
+|---|---|---|---|---|
+| `sdx` | 10.9 MB | 0.45 % / 0.85 % over 21 h | resident, boot | yes: auth and every catalogue call; also LG Home's server link, and stubbing it broke LG's store (declutter note) |
+| `update` (firmware checker) | 6.1 MB | 0 / 0.02 % | resident | no |
+| `accountmanager` + account `mojodb` | 7.5 MB | 0 / 0.01 % | resident, system-wide | no (sign-in apps go to LG's store) |
+| `com.webos.app.discovery` in `WebAppMgr` | 0 now | – | only while LG's store is open | no |
+| `billing` (JS host guest), `sdp-server-notice` | 0 now | – | dynamic; billing's start activity is cancelled by `lgextras` | no |
+| `appinstalld`, `pkginstalld`, `LunaDownloadMgr` | 0 now; 5.9 + 5.1 + 7.0 MB while working | 0.24 % / 0.08 % / 0.15 % avg while up | dynamic, exit ≈ 3 min after use | only during an install, update or remove |
+
+LG's own background store jobs, from `/etc/palm/activities`: `com.webos.appUpdateService.check` (every 1 d), `.power`
+(every power-on), `.auth` (on sdx device authentication), `.usb`, and `com.webos.service.pkgUpdate` (on
+`appUpdateService/statusAll`). Each starts `appinstalld` and asks LG for updates [INFERENCE: from the activity files;
+not timed]. With automatic updates already off (`autoinstall` group), they only fill the "update to open" list.
+
+Plan: nothing store-related stays resident beyond `sdx`, which the TV needs anyway.
+
+- The native store starts the install services only for a job; they exit on their own (measured).
+- A declutter opt item for the store plugin cancels the four `appUpdateService` activities and the `pkgUpdate` one, the
+  same way `lgextras` cancels its activities, re-applied by declutter's boot hook. The helper's daily catalogue run makes
+  the one `app/update` call instead, through `sdx`, with no `appinstalld` start unless an update is chosen.
+- LG's store is closed after a hand-off (§5).
+
+Before → after, at rest: identical (≈ 24.5 MB of `sdx`, `update` and account processes, none removable for the store).
+Per day: LG's check plus one per power-on, each starting ≈ 18 MB of install services for about 3 minutes → one batch of
+≈ 61 `sdx` calls (≈ 20 s) and no install services [INFERENCE until the declutter item is measured].
+
+## 8. Plan
 
 | Phase | Work | Effort |
 |---|---|---|
-| 0. Proof on the set | With Nitin present: install and remove one small free app through `pkgInstall/install` from the helper, watch status; open LG's detail page through the `category/GAME_APPS/<appId>` deep link | 0.5 day |
-| 1. Helper module | sdx client, schemas and fixtures, sync, search index, install queue, routes, conformance check, host tests | 3–4 days |
-| 2. UI pages | home, category, app page, search, install progress, error/fallback states | 4–5 days |
-| 3. Updates and My apps | `app/update` list, update all, remove, storage figures | 1–2 days |
-| 4. TV acceptance | open time against LG's store (LG's cold first shelf: median 2.36 s), install/update/remove of three apps, fallback with sdx stopped, a week of daily checks | 1 day |
+| 0. Proof on the set | install/remove from root (§6) | done |
+| 1. Helper | `store.rs`: sdx client, typed responses and fixtures, daily run, name search, image files, install job, routes, topic, host tests | 2–3 days |
+| 2. UI | "Get apps" rail section, catalogue grid with categories/Popular/New, app page, progress, fallback button | 3–4 days |
+| 3. Background | declutter opt item for LG's update activities, `app/update` in the daily run, closing LG's store after a hand-off | 1 day |
+| 4. TV acceptance | open time against LG's store (LG's cold first shelf: median 2.36 s), install/update/remove of a large app, fallback with sdx answering errors, process check after a week | 1 day |
 
-About 10–12 days in all.
+About 7–9 days.
 
-## 7. Risks
+## 9. Risks
 
 - LG could add a caller check to `appinstalld` (today `cb_install` has none) in a firmware update [INFERENCE]; firmware
   updates are blocked here, and the fallback covers it.
-- LG could reshape `10.0.0` responses or retire the path; schemas and the daily check catch it within a day.
+- LG could reshape `10.0.0` responses or retire the path; typed parsing and the daily run catch it within a day.
 - Calls are made with the TV's own identity at a rate no higher than LG's store and updater; a misbehaving loop could get
   the device rate-limited [INFERENCE], so the sync is once a day and capped.
 - Region: the catalogue follows `X-Device-Country`; LumaTV does not fake another region.
-
-## Open questions for Nitin
-
-1. Should the Apps key open LumaTV's store, keeping LG's store one button away?
-2. Is LG's banner/promotion shelf wanted at all, or only categories, Popular and New?
-3. Phase 0 needs one real install and removal of a small free app on the set: which app, and when?
