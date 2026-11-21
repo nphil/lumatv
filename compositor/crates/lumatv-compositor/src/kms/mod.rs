@@ -13,6 +13,7 @@
 //! workstation beyond compiling; the pure parts (`assign`) are.
 
 pub mod assign;
+pub mod committer;
 pub mod cursor;
 pub mod frames;
 pub mod pageprobe;
@@ -27,7 +28,7 @@ use std::time::{Duration, Instant};
 use drm::buffer::{Buffer, DrmFourcc, DrmModifier, PlanarBuffer};
 use drm::control::atomic::AtomicModeReq;
 use drm::control::dumbbuffer::DumbBuffer;
-use drm::control::{AtomicCommitFlags, Device as ControlDevice, Event, FbCmd2Flags, PlaneType, connector, crtc, framebuffer, plane, property};
+use drm::control::{Device as ControlDevice, Event, FbCmd2Flags, PlaneType, connector, crtc, framebuffer, plane, property};
 use drm::{ClientCapability, Device, DriverCapability};
 use wayland_server::Resource;
 use wayland_server::protocol::wl_buffer::WlBuffer;
@@ -70,6 +71,8 @@ pub struct Options {
     pub afbc: afbc::Mode,
     pub pointer: crate::pointer::Mode,
     pub pointer_alpha: crate::pointer::Alpha,
+    /// SCHED_FIFO priority of the commit thread (`committer`), 0 for time-shared.
+    pub commit_priority: i32,
 }
 
 impl Default for Options {
@@ -80,6 +83,7 @@ impl Default for Options {
             afbc: afbc::Mode::Off,
             pointer: crate::pointer::Mode::Gpu,
             pointer_alpha: crate::pointer::Alpha::Premultiplied,
+            commit_priority: 0,
         }
     }
 }
@@ -182,6 +186,16 @@ struct InFlight {
     ui: Option<lumatv_render::host::FrameCost>,
 }
 
+/// What sending a commit took for granted, put back if the commit thread reports it refused (`Kms::commits_answered`).
+struct Sent {
+    /// It carried the mode.
+    first: bool,
+    /// The window's framebuffer it put on the primary plane.
+    direct: Option<u32>,
+    /// The planes' recorded state before it.
+    before: [PlaneState; 2],
+}
+
 pub struct Kms {
     card: Card,
     crtc: crtc::Handle,
@@ -219,6 +233,13 @@ pub struct Kms {
     last_assignment: Option<Frame>,
     /// What the flip in flight is of: its frame's timing and in-fence, for the pacer when it lands.
     in_flight: Option<InFlight>,
+    /// The thread that makes every atomic commit (`committer`), and what its unanswered commit assumed.
+    committer: committer::Committer<committer::CardSubmit>,
+    sent: Option<Sent>,
+    /// A flip landed and the framebuffers it let go of are still to be destroyed (`dispatch_events`).
+    reap_owed: bool,
+    /// The card's events and the commit thread's answers as one descriptor for the loop (`event_fd`).
+    events: OwnedFd,
     snapshot_presented: Option<crate::snapshot::Receipt>,
     /// Whether the last tick drew a frame: the run of frames the pacer keeps in step is on while ticks keep
     /// drawing; the first tick that finds nothing to draw ends it and the fixed tick takes over.
@@ -601,6 +622,9 @@ impl Kms {
         let period_ns = 1_000_000_000 / mode.vrefresh().max(1) as u64;
         let monotonic_flips = card.get_driver_capability(DriverCapability::MonotonicTimestamp).map(|v| v != 0).unwrap_or(false);
         log::info!("kms: page-flip timestamps are {}", if monotonic_flips { "CLOCK_MONOTONIC" } else { "CLOCK_REALTIME (translated)" });
+        // The commit thread drives a duplicate of the card: the same master (`Card::duplicate`).
+        let committer = committer::Committer::start(committer::CardSubmit(card.duplicate()?), opts.commit_priority)?;
+        let events = committer::watch(&[card.as_fd().as_raw_fd(), committer.wake_fd()])?;
         let mut kms = Kms {
             card,
             crtc,
@@ -632,6 +656,10 @@ impl Kms {
             monotonic_flips,
             last_assignment: None,
             in_flight: None,
+            committer,
+            sent: None,
+            reap_owed: false,
+            events,
             snapshot_presented: None,
             in_run: false,
             held: false,
@@ -757,8 +785,8 @@ impl Kms {
 
     /// The device the direct scan-out decision works through, and the controller, borrowed apart from the rest of the output.
     fn split(&mut self) -> (Drm<'_>, &mut Scanout) {
-        let Kms { card, primary, crtc, gl, width, height, modeset_done, scanout, .. } = self;
-        (Drm { card, primary, crtc: *crtc, size: (*width, *height), live: *modeset_done, gl }, scanout)
+        let Kms { card, primary, crtc, gl, width, height, modeset_done, scanout, committer, .. } = self;
+        (Drm { card, primary, crtc: *crtc, size: (*width, *height), live: *modeset_done, gl, committer }, scanout)
     }
 
     /// Reads the DRM events that have arrived; returns how many page flips landed. Never waits: the card's descriptor
@@ -777,6 +805,42 @@ impl Kms {
             }
         }
         Ok(landed)
+    }
+
+    /// The commit thread's answers; returns how many commits it refused. A refused commit puts back what sending it took for granted
+    /// (`commit`): the planes' state, the mode when it carried it, the flip pending. It counts as a landed frame, so its callbacks go out
+    /// (the next frame carries its damage anyway).
+    fn commits_answered(&mut self) -> u32 {
+        let mut refused = 0;
+        for done in self.committer.take_done() {
+            let sent = self.sent.take();
+            let took_ms = done.took_ns as f64 / 1e6;
+            if self.trace_left > 0 {
+                log::info!("trace: commit answered at {:.3}, {took_ms:.1} ms on the commit thread", self.now_ns() as f64 / 1e9);
+            }
+            let Err(errno) = done.result else {
+                if sent.is_some_and(|s| s.first) {
+                    log::info!("kms: the mode went out with the first frame ({took_ms:.1} ms on the commit thread)");
+                }
+                continue;
+            };
+            log::warn!("kms: atomic commit: {}", io::Error::from_raw_os_error(errno));
+            if let Some(s) = sent {
+                self.state = s.before;
+                if s.first {
+                    self.modeset_done = false;
+                }
+                if let Some(fb) = s.direct {
+                    // The test-only commit took this framebuffer; a refusal now is the next frame's composition, not the same commit again.
+                    self.scanout.refused_at_commit(fb, errno);
+                }
+            }
+            self.pending_flip = false;
+            self.in_flight = None;
+            self.scanout.failed();
+            refused += 1;
+        }
+        refused
     }
 
     fn flip_landed(&mut self, stamp_ns: u64) {
@@ -889,31 +953,26 @@ impl Kms {
     /// Commits a drawn frame now: the GL fence of a drawn page (the primary's, or the UI ring's in the split) goes
     /// along as that plane's in-fence, and a duplicate of it stays with the flip for its signal time. The two steps
     /// are timed apart: the fence's export waits for the driver to submit the draw (what a frame costs between
-    /// `render:` and the loop's own line), the commit is the kernel's atomic check.
-    fn commit_frame(&mut self, frame: Frame) -> io::Result<()> {
+    /// `render:` and the loop's own line), the commit is the request's making and its hand-over to the commit thread.
+    fn commit_frame(&mut self, frame: Frame) {
         let a = frame.assignment;
         let t0 = Instant::now();
         let drawn = matches!(a.primary, Source::Page(_)) || matches!(a.overlay, Some((Source::UiPage(_), _))) || frame.acquire;
         let fence = if drawn { self.gl.export_fence() } else { None };
         let kept = fence.as_ref().and_then(|f| f.try_clone().ok());
         let t1 = Instant::now();
-        let committed = self.commit(&a, fence, frame.acquire);
+        self.commit(&a, fence, frame.acquire);
         let t2 = Instant::now();
         if t2 - t0 > Duration::from_millis(4) {
-            log::info!("present: fence export {:.1} ms, atomic commit {:.1} ms", (t1 - t0).as_secs_f64() * 1000.0, (t2 - t1).as_secs_f64() * 1000.0);
+            log::info!("present: fence export {:.1} ms, commit sent {:.1} ms", (t1 - t0).as_secs_f64() * 1000.0, (t2 - t1).as_secs_f64() * 1000.0);
         }
         if self.trace_left > 0 {
             log::info!(
-                "trace: committed at {:.3}: fence export {:.1} ms, atomic commit {:.1} ms",
+                "trace: committed at {:.3}: fence export {:.1} ms, commit sent {:.1} ms",
                 self.now_ns() as f64 / 1e9,
                 (t1 - t0).as_secs_f64() * 1000.0,
                 (t2 - t1).as_secs_f64() * 1000.0
             );
-        }
-        if let Err(e) = committed {
-            // The frame never went out: what it would have held, the display does not.
-            self.scanout.dropped();
-            return Err(e);
         }
         self.scanout.committed();
         self.in_flight = Some(InFlight {
@@ -925,7 +984,6 @@ impl Kms {
             ui: frame.ui,
         });
         self.committed_ns = self.now_ns();
-        Ok(())
     }
 
     /// A flip that has not reported 250 ms after its commit is taken as lost (the panel off, an event the driver
@@ -989,14 +1047,14 @@ impl Kms {
         false
     }
 
-    fn commit(&mut self, a: &Assignment, in_fence: Option<OwnedFd>, acquire: bool) -> io::Result<()> {
+    /// Builds the frame's request and hands it to the commit thread, which makes it blocking (`committer`). The loop records the commit as
+    /// taken; a refusal comes back later (`commits_answered`).
+    fn commit(&mut self, a: &Assignment, in_fence: Option<OwnedFd>, acquire: bool) {
         let mut req = AtomicModeReq::new();
-        let mut flags = AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK;
         if !self.modeset_done {
             req.add_property(self.connector, self.conn_crtc_id, property::Value::CRTC(Some(self.crtc)));
             req.add_property(self.crtc, self.crtc_mode_id, property::Value::Blob(self.mode_blob));
             req.add_property(self.crtc, self.crtc_active, property::Value::Boolean(true));
-            flags |= AtomicCommitFlags::ALLOW_MODESET;
         }
         let full = Rect::new(0, 0, self.width as i32, self.height as i32);
         // The page probe's picture takes the plane while its time runs (`pageprobe`); its time up, this frame puts the page back.
@@ -1043,43 +1101,19 @@ impl Kms {
             }
         }
         let _ = self.crtc_out_fence;
-        // The session's first commit carries the mode. Made blocking, it held the loop until the GPU had the first
-        // frame and the next vblank came: 21.8 ms on the eighth gate's trial, 13.3-16.1 ms on the gates before
-        // (`present: ... atomic commit`), the trial's one loop pass over 20 ms. Non-blocking it returns at once and
-        // the page-flip event says when it is on; a driver that refuses a non-blocking modeset gets the blocking one.
+        // The session's first commit carries the mode. Made blocking on the loop, it held the loop until the GPU had the first frame and
+        // the next vblank came (13.3-21.8 ms on the gates up to the eighth); on the commit thread it holds only that thread.
         let first = !self.modeset_done;
-        let retry = first.then(|| req.clone());
-        let committed = match (retry, self.card.atomic_commit(flags, req)) {
-            (Some(req), Err(e)) => {
-                log::warn!("kms: the first commit (with the mode) refused non-blocking: {e}; committing it blocking");
-                flags.remove(AtomicCommitFlags::NONBLOCK);
-                self.card.atomic_commit(flags, req)
-            }
-            (_, r) => r,
+        let direct = match a.primary {
+            Source::Direct(fb) => Some(fb),
+            _ => None,
         };
-        match committed {
-            Ok(()) => {
-                if first {
-                    log::info!(
-                        "kms: the mode went out with the first frame ({})",
-                        if flags.contains(AtomicCommitFlags::NONBLOCK) { "non-blocking" } else { "blocking" }
-                    );
-                }
-                // The planes' recorded state follows only a commit the kernel took; after a refused one the next
-                // request must carry everything again.
-                self.state = new_state;
-                self.modeset_done = true;
-                self.pending_flip = true;
-                Ok(())
-            }
-            Err(e) => {
-                if let Source::Direct(fb) = a.primary {
-                    // The test-only commit took this framebuffer; a refusal now is the next frame's composition, not the same commit again.
-                    self.scanout.refused_at_commit(fb, e.raw_os_error().unwrap_or(libc::EIO));
-                }
-                Err(other(format!("atomic commit: {e}")))
-            }
-        }
+        self.sent = Some(Sent { first, direct, before: self.state });
+        // (the fence's descriptor goes with the job: the request names it by number)
+        self.committer.commit(req, first, in_fence);
+        self.state = new_state;
+        self.modeset_done = true;
+        self.pending_flip = true;
     }
 }
 
@@ -1186,6 +1220,7 @@ struct Drm<'a> {
     /// The mode is set (the session's first commit went out), so the driver can be asked whether a plane state would do.
     live: bool,
     gl: &'a mut Gl,
+    committer: &'a mut committer::Committer<committer::CardSubmit>,
 }
 
 impl scanout::Device for Drm<'_> {
@@ -1205,8 +1240,9 @@ impl scanout::Device for Drm<'_> {
         self.primary.knows(format)
     }
 
-    /// PRIME import, `ADDFB2` and a test-only commit of the plane with the framebuffer: the driver's own word on whether it would take it. None of
-    /// it shows anything; whatever was made is destroyed on failure.
+    /// PRIME import and `ADDFB2` here, then a test-only commit of the plane with the framebuffer on the commit thread: the driver's own word
+    /// on whether it would take it. None of it shows anything; whatever was made is destroyed on failure, and when the thread is busy with a
+    /// frame's commit (the test would wait for its flip) the next frame asks again.
     fn import(&mut self, c: &scanout::Candidate, fd: BorrowedFd<'_>) -> Result<scanout::Imported, scanout::ImportError> {
         let errno = |e: io::Error| e.raw_os_error().unwrap_or(libc::EIO);
         let gem = self.card.prime_fd_to_buffer(fd).map_err(|e| scanout::ImportError { stage: scanout::Stage::Prime, errno: errno(e) })?;
@@ -1222,10 +1258,15 @@ impl scanout::Device for Drm<'_> {
         let mut req = AtomicModeReq::new();
         let full = Rect::new(0, 0, self.size.0 as i32, self.size.1 as i32);
         set_plane(&mut req, self.primary, self.crtc, Some(u32::from(fb)), full, full, None);
-        if let Err(e) = self.card.atomic_commit(AtomicCommitFlags::TEST_ONLY, req) {
+        let tested = self.committer.test(req);
+        if tested != Some(Ok(())) {
             let _ = self.card.destroy_framebuffer(fb);
             let _ = self.card.close_buffer(gem);
-            return Err(scanout::ImportError { stage: scanout::Stage::Test, errno: errno(e) });
+            let (stage, errno) = match tested {
+                Some(Err(e)) => (scanout::Stage::Test, e),
+                _ => (scanout::Stage::Busy, 0),
+            };
+            return Err(scanout::ImportError { stage, errno });
         }
         Ok(scanout::Imported { fb: u32::from(fb), gem: u32::from(gem) })
     }
@@ -1327,6 +1368,7 @@ impl Output for Kms {
     fn idle_ok(&self) -> bool {
         !self.held
             && !self.pending_flip
+            && !self.committer.busy()
             && self.queued.is_none()
             && self.last_assignment.is_none()
             && !self.gl.standin_due()
@@ -1365,7 +1407,7 @@ impl Output for Kms {
     }
 
     fn event_fd(&self) -> Option<RawFd> {
-        Some(self.card.as_fd().as_raw_fd())
+        Some(self.events.as_raw_fd())
     }
 
     fn freeze_app(&mut self, id: crate::snapshot::SnapshotId, window: crate::window::WindowId, plan: &Plan, live: &crate::snapshot::Snapshots) -> bool {
@@ -1385,20 +1427,27 @@ impl Output for Kms {
     }
 
     fn dispatch_events(&mut self) -> io::Result<u32> {
-        let mut landed = self.drain_events()?;
+        let landed = self.drain_events()? + self.commits_answered();
+        // Framebuffers go only while the thread has no commit unanswered: until a blocking commit returns, the state it replaced still
+        // holds the framebuffers that state showed, and removing a framebuffer the kernel still holds takes the display's locks.
+        let reap = !self.committer.busy();
+        // The next frame goes out once its predecessor's flip has landed and the thread has answered for it (the event comes first: a
+        // blocking commit returns after the flip it waited for).
         if !self.pending_flip
+            && !self.committer.busy()
             && let Some(a) = self.queued.take()
-            && let Err(e) = self.commit_frame(a)
         {
-            // The state's callbacks for it go out as if it had landed; the next frame carries its damage anyway.
-            log::warn!("kms: queued frame: {e}");
-            landed += 1;
+            self.commit_frame(a);
         }
         if landed > 0 {
             // The GPU is done with the frame that landed, the last that could have read a retired texture. A queued
             // frame went out just above, so the driver's unmapping never sits between a draw and its commit; when a
             // tick took the flip, its frame starts after the frees (`BURY_BUDGET` at most).
             self.gl.bury();
+            self.reap_owed = true;
+        }
+        if self.reap_owed && reap {
+            self.reap_owed = false;
             let (mut drm, scanout) = self.split();
             scanout.reap(&mut drm);
         }
@@ -1839,15 +1888,15 @@ impl Output for Kms {
             return Ok(Presented { seq: self.seq, at_ms, ..Default::default() });
         };
         self.in_run = true;
-        // One flip in flight at a time (the kernel refuses a second non-blocking commit, and the page it reads must
-        // not be reused): a frame drawn while one is pending waits for it and goes out from `dispatch_events`.
-        if self.pending_flip && !self.flip_overdue() {
+        // One commit at a time: a frame drawn while a flip is pending, or before the commit thread has answered for the last commit, waits
+        // and goes out from `dispatch_events` (the page the flip reads must not be reused, and the thread takes one frame at a time).
+        if (self.pending_flip && !self.flip_overdue()) || self.committer.busy() {
             if self.trace_left > 0 {
                 log::info!("trace: frame queued at {:.3} behind the flip in flight", self.now_ns() as f64 / 1e9);
             }
             self.queued = Some(a);
         } else {
-            self.commit_frame(a)?;
+            self.commit_frame(a);
         }
         Ok(Presented { seq: self.seq, at_ms, pending: true, replaced })
     }
@@ -1901,6 +1950,9 @@ impl Drop for Kms {
     fn drop(&mut self) {
         // the pointer's thread hides the image before the device goes
         self.pointer.plane = None;
+        // Nothing is committed after this: the thread ends after the commit it was given (one at most, `present`), before the framebuffers
+        // that commit names go and before the master is let go.
+        self.committer.stop();
         let (mut drm, scanout) = self.split();
         scanout.close(&mut drm);
         for p in self.pages.drain(..).chain(self.ui_pages.drain(..)) {

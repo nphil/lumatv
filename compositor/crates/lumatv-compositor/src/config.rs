@@ -59,7 +59,7 @@ pub struct Config {
     /// LumaTV's data directory (`/var/lib/lumatv` on the set): the theme the remote's app buttons are read from (`theme/theme.json`) and
     /// the key codes taught to the routing (`compositor/keys.conf`).
     pub data_dir: PathBuf,
-    /// SCHED_FIFO priority of the frame loop's thread (`sched`); 0 leaves it time-shared.
+    /// SCHED_FIFO priority of the frame loop's thread (`sched`); 0 leaves it time-shared. The KMS commit thread runs one above it.
     pub rt_priority: i32,
     /// SCHED_FIFO priority of the Mali blob's submission threads (`sched::mali_threads`); 0 leaves them time-shared.
     pub rt_mali: i32,
@@ -179,7 +179,7 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --ui-demo              draw the system-layer diagnostic (requires feature ui and gl|kms); LUMATV_UI_DEMO_HZ (ticker rate,
                          default 60) and LUMATV_UI_DEMO_VOLUME_S (the volume bar up 2 s every N s) pace it
   --shell-rust LIST      native UI kinds for diagnostics (comma-separated; requires feature ui and gl|kms); production enables all kinds
-  --rt-priority N        SCHED_FIFO priority of the frame loop's thread, 1-99 (default 20; 0 keeps it time-shared)
+  --rt-priority N        SCHED_FIFO priority of the frame loop's thread, 1-99 (default 20; 0 keeps it time-shared); the KMS commit thread runs one above
   --mlock off|auto       pin the pages the compositor touches in RAM, so memory pressure from the apps in front never evicts or swaps them
                          (default auto: mlockall on fault, when RLIMIT_MEMLOCK or CAP_IPC_LOCK and the free memory allow)
   --ring off|auto|PATH   the trace ring: the last seconds of what the loop did, mapped from a file that outlives a crash (default auto:

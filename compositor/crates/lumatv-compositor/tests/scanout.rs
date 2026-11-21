@@ -40,6 +40,8 @@ struct Knobs {
     stuck: AtomicBool,
     /// The errno the next imports are refused with (0: they succeed).
     refuse_import: AtomicI32,
+    /// The test-only commits cannot be made while true (a frame's commit holds the display).
+    busy: AtomicBool,
     refuse_acquire: AtomicBool,
     /// The display's mode is not set yet while true (the session's first commit has not gone out).
     not_live: AtomicBool,
@@ -89,6 +91,9 @@ impl Device for Plane {
         if errno != 0 {
             return Err(ImportError { stage: Stage::Prime, errno });
         }
+        if self.knobs.busy.load(Ordering::SeqCst) {
+            return Err(ImportError { stage: Stage::Busy, errno: 0 });
+        }
         log.next_fb += 1;
         Ok(Imported { fb: log.next_fb, gem: 100 + log.next_fb })
     }
@@ -113,6 +118,8 @@ struct DirectOut {
     /// A frame was rendered and not yet presented (the KMS output commits nothing on a tick that drew nothing).
     rendered: bool,
     pending: bool,
+    /// The errno the commit thread answers the pending commit with, read at the next `dispatch_events`.
+    refused: Option<i32>,
     compose_only: bool,
 }
 
@@ -158,20 +165,25 @@ impl Output for DirectOut {
             return Ok(Presented::default());
         }
         let errno = self.knobs.refuse_commit.load(Ordering::SeqCst);
-        if errno != 0 {
-            // What the KMS output does with a commit the driver refused: the frame never went out, and a direct one is told to the decision.
-            self.scanout.dropped();
-            if let Some(Frame::Direct(fb)) = self.knobs.log.lock().frames.last().cloned() {
-                self.scanout.refused_at_commit(fb, errno);
-            }
-            return Err(std::io::Error::from_raw_os_error(errno));
-        }
         self.scanout.committed();
-        self.pending = true;
+        if errno != 0 {
+            // What the KMS output learns from the commit thread after the frame was sent: it never went out (`dispatch_events`).
+            self.refused = Some(errno);
+        } else {
+            self.pending = true;
+        }
         Ok(Presented { seq: 1, at_ms: lumatv_compositor::output::monotonic_ms(), pending: true, replaced: false })
     }
 
     fn dispatch_events(&mut self) -> std::io::Result<u32> {
+        if let Some(errno) = self.refused.take() {
+            // A refused commit: what it would have held, the display does not, a direct one is told to the decision, and it counts as landed.
+            self.scanout.failed();
+            if let Some(Frame::Direct(fb)) = self.knobs.log.lock().frames.last().cloned() {
+                self.scanout.refused_at_commit(fb, errno);
+            }
+            return Ok(1);
+        }
         if self.pending && !self.knobs.stuck.load(Ordering::SeqCst) {
             self.pending = false;
             self.scanout.landed();
@@ -228,6 +240,7 @@ fn rig_with(policy: Policy) -> (Server, Arc<Knobs>) {
             knobs: k,
             rendered: false,
             pending: false,
+            refused: None,
             compose_only: false,
         })
     }));
@@ -648,6 +661,22 @@ fn a_client_that_cannot_be_waited_for_composes_the_frame_but_is_not_remembered_a
     show(&mut client, &win.surface, &a);
     assert!(matches!(frames(&knobs).last(), Some(Frame::Direct(_))), "the barrier was the trouble, not the buffer");
     assert!(knobs.log.lock().acquires >= 2, "every direct frame waits for its client");
+}
+
+#[test]
+fn a_buffer_the_display_is_too_busy_to_test_is_composed_and_asked_about_again() {
+    let (mut server, knobs) = rig();
+    let mut client = Client::connect(&mut server);
+    let mali: MaliBufferSharing = client.globals.bind(&client.qh, 5..=5, ()).unwrap();
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "App");
+    let a = takeable(&mut client, &mali);
+    knobs.busy.store(true, Ordering::SeqCst);
+    show(&mut client, &win.surface, &a);
+    assert_eq!(frames(&knobs).last(), Some(&Frame::Composed("busy".into())));
+    knobs.busy.store(false, Ordering::SeqCst);
+    show(&mut client, &win.surface, &a);
+    assert!(matches!(frames(&knobs).last(), Some(Frame::Direct(_))), "the commit in flight was the trouble, not the buffer");
+    assert_eq!(knobs.log.lock().imports.len(), 2, "asked again");
 }
 
 #[test]

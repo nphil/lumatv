@@ -170,6 +170,8 @@ fn run(config: Config) -> io::Result<()> {
                 afbc: config.afbc,
                 pointer: config.pointer,
                 pointer_alpha: config.pointer_alpha,
+                // One above the loop: the flip is programmed the moment the frame's fence signals, ahead of a loop pass (`kms::committer`).
+                commit_priority: if config.rt_priority > 0 { (config.rt_priority + 1).min(99) } else { 0 },
             };
             Box::new(lumatv_compositor::kms::Kms::open(&config.card, gl, config.width, config.height, scanout, opts)?)
         }

@@ -200,6 +200,8 @@ pub enum Refusal {
     AddFb(i32),
     /// The driver refused the plane state: its test-only commit when the buffer was imported, or the commit of a frame that showed it (errno).
     Test(i32),
+    /// The test-only commit could not be made: a frame's commit holds the display until its flip (`kms::committer`). Asked again next frame.
+    Busy,
     /// The GL side could not make the acquire barrier for the buffer.
     Acquire,
     /// The frame was drawn with a layer over the window (the UI's) that the plane cannot take.
@@ -228,6 +230,7 @@ impl Refusal {
             Refusal::Import(_) => "import",
             Refusal::AddFb(_) => "addfb",
             Refusal::Test(_) => "test-commit",
+            Refusal::Busy => "busy",
             Refusal::Acquire => "acquire",
             Refusal::UiLayer => "ui-layer",
         }
@@ -255,6 +258,7 @@ impl Refusal {
             Refusal::Import(e) => format!("the display driver would not import the dma-buf: {} (a buffer of scattered pages)", errno(*e)),
             Refusal::AddFb(e) => format!("ADDFB2 refused the layout: {}", errno(*e)),
             Refusal::Test(e) => format!("the driver refused the plane state: {}", errno(*e)),
+            Refusal::Busy => "a commit in flight holds the display".into(),
             Refusal::Acquire => "the GL side could not wait for the client's rendering".into(),
             Refusal::UiLayer => "the system UI has a layer over the window".into(),
         }
@@ -262,7 +266,7 @@ impl Refusal {
 
     /// Whether this is about the buffer (and stays true for it) rather than about what else is on the screen this frame.
     pub fn of_buffer(&self) -> bool {
-        !matches!(self, Refusal::Disabled | Refusal::Plan(_) | Refusal::Capture | Refusal::NoMode | Refusal::UiLayer | Refusal::Acquire)
+        !matches!(self, Refusal::Disabled | Refusal::Plan(_) | Refusal::Capture | Refusal::NoMode | Refusal::UiLayer | Refusal::Acquire | Refusal::Busy)
     }
 }
 
@@ -377,6 +381,8 @@ pub enum Stage {
     Prime,
     AddFb,
     Test,
+    /// The test-only commit was not made (`Refusal::Busy`); nothing was left behind.
+    Busy,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -391,6 +397,7 @@ impl From<ImportError> for Refusal {
             Stage::Prime => Refusal::Import(e.errno),
             Stage::AddFb => Refusal::AddFb(e.errno),
             Stage::Test => Refusal::Test(e.errno),
+            Stage::Busy => Refusal::Busy,
         }
     }
 }
@@ -407,7 +414,7 @@ pub trait Device {
     /// Whether it lists `format` with any modifier.
     fn lists_format(&self, format: u32) -> bool;
     /// PRIME-imports the dma-buf, makes a framebuffer of it and asks the driver whether the plane would take it (a test-only commit; the mode
-    /// is set by then, [`Device::live`]). Nothing is left behind on failure.
+    /// is set by then, [`Device::live`]). Nothing is left behind on failure, nor when the test could not be made yet ([`Stage::Busy`]).
     fn import(&mut self, c: &Candidate, fd: BorrowedFd<'_>) -> Result<Imported, ImportError>;
     /// Destroys the framebuffer and the GEM handle.
     fn destroy(&mut self, imported: Imported);
@@ -599,8 +606,11 @@ impl Scanout {
                     fb
                 }
                 Err(e) => {
-                    self.stats.import_failures += 1;
-                    return Err(self.remember(&item.buffer, e.into()));
+                    let r: Refusal = e.into();
+                    if r.of_buffer() {
+                        self.stats.import_failures += 1;
+                    }
+                    return Err(self.remember(&item.buffer, r));
                 }
             },
             (None, None) => unreachable!("a buffer without a framebuffer was described above"),
@@ -709,6 +719,11 @@ impl Scanout {
             self.holds.shown = std::mem::take(&mut self.holds.pending);
         }
         self.holds.pending = std::mem::take(&mut self.holds.waiting);
+    }
+
+    /// The commit of the pending frame was refused after it was sent: the display never read it.
+    pub fn failed(&mut self) {
+        self.holds.pending = Slot::Empty;
     }
 
     /// A flip landed: the frame it carried is on the screen, and what was shown before it no longer is.
@@ -943,7 +958,7 @@ mod tests {
 
     #[test]
     fn what_is_about_the_screen_is_not_remembered_against_the_buffer() {
-        for r in [Refusal::Disabled, Refusal::Plan(NotSole::Layers(2)), Refusal::Capture, Refusal::NoMode, Refusal::UiLayer, Refusal::Acquire] {
+        for r in [Refusal::Disabled, Refusal::Plan(NotSole::Layers(2)), Refusal::Capture, Refusal::NoMode, Refusal::UiLayer, Refusal::Acquire, Refusal::Busy] {
             assert!(!r.of_buffer(), "{r:?}");
         }
         assert!(Refusal::Import(libc::EINVAL).text().contains("scattered"));

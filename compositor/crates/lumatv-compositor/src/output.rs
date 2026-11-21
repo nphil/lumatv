@@ -372,8 +372,8 @@ pub trait Output {
         None
     }
 
-    /// A file descriptor the main loop polls for the output's own events (KMS: the DRM device, readable when a
-    /// page flip has landed). `None` for outputs without events.
+    /// A file descriptor the main loop polls for the output's own events (KMS: readable when a page flip has landed or the commit
+    /// thread has answered a commit). `None` for outputs without events.
     fn event_fd(&self) -> Option<RawFd> {
         None
     }
