@@ -542,8 +542,9 @@ comp_video_check() {
   if comp_live && comp_ctl vwin claim videocheck pip 1280 720 480 270 "$COMP_VC_APP" h264 1280x720@30 > "$COMP_VC_OUT/claim.json" 2>&1; then
     vc_claimed=true
   fi
+  # --pipe es: an NDL load tells the TV the video is a game, which switches the picture mode to Game Optimizer for the check (seen 2026-11-21).
   XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 "$vc_feeder" --play "$vc_clip" --size 1280x720 --codec h264 --fps 30 --seconds 30 --loop \
-    -w video -a "$COMP_VC_APP" --ndl-app "${vc_fg:-com.webos.app.home}" > "$COMP_VC_OUT/feeder.log" 2>&1 &
+    --pipe es -w video -a "$COMP_VC_APP" --ndl-app "${vc_fg:-com.webos.app.home}" > "$COMP_VC_OUT/feeder.log" 2>&1 &
   vc_pid=$!
   vc_n=0
   while [ $vc_n -lt 10 ] && ! grep -q '^connect_src=VDEC' "$COMP_VC_SCALER" 2>/dev/null; do sleep 1; vc_n=$((vc_n + 1)); done
