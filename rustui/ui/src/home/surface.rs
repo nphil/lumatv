@@ -8,11 +8,14 @@
 //! (`layers.rs`) are made when they open and dropped when they close.
 
 use super::layers::{AppsSurface, ConfirmSurface, EditorSurface, LibraryIcons, MenuSurface, PickerSurface, PopoverSurface, SearchSurface};
+use super::dock::APPS_TILE;
 use super::model::{self, Home, Layer, STATUS_ID, WIDGET_ID};
 use super::strip;
 use super::wallpaper::{self, WallpaperSurface};
 use super::widgets::{Content, PAD_SIDE, PAD_TOP, Pictures};
 use crate::kit::flow::Lifted;
+use crate::kit::icon::crisp_origin;
+use crate::kit::vector_icon;
 use crate::kit::mend::Mend;
 use crate::kit::pane::{PaneKind, glass_of};
 use crate::kit::picture::{self, Fit, Picture};
@@ -259,8 +262,39 @@ struct Tile {
     /// made only while the tile is focused or on its way back to rest: a lit group for each of 16 tiles held a sixth of the 96 groups the scene had.
     lifted_icon: Option<ImageLayer>,
     art: Option<IconArt>,
+    /// The Apps tile's own look (a pane of the theme's glass and a dot-grid glyph in its accent) in place of a picture.
+    apps_mark: Option<AppsMark>,
     app: String,
     slot: (i32, i32),
+}
+
+/// The Apps tile: frosted theme glass with a 3 by 3 dot grid on it, restyled when the glass or the accent changes (a theme change, the focus).
+struct AppsMark {
+    glass: GlassLayer,
+    mark: ImageLayer,
+    side: u32,
+    shown: Option<(Glass, Rgba)>,
+}
+
+impl AppsMark {
+    /// The glass and the glyph's ink this tile should have now.
+    fn look(kit: &Kit, tile: f32, lit: bool, over_video: bool) -> (Glass, Rgba) {
+        let glass = Glass { corner_radius: kit.tokens.radius(Radius::Tile), ..glass_of(kit, PaneKind::Card, tile, lit, over_video) };
+        (glass, kit.ui.look.accent())
+    }
+
+    fn paint(&mut self, kit: &mut Kit, look: (Glass, Rgba)) {
+        if self.shown == Some(look) {
+            return;
+        }
+        self.shown = Some(look);
+        self.glass.restyle(look.0);
+        if let Some((glyph, _)) = kit.icons.crisp("grip", self.side) {
+            let pixels = glyph.tinted(look.1);
+            self.mark.pixels_mut().copy_from_slice(&pixels);
+            self.mark.damage(None);
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -784,16 +818,33 @@ impl HomeSurface {
                 Some(j) => Some(d.arts.swap_remove(j)),
                 None => IconArt::of(&p.icon, self.data.as_deref(), tile as u32, inset as u32, radius, lift),
             };
+            let is_apps = p.id == APPS_TILE;
+            let over_video = self.over_video;
             let layers = scene.adopting(&group, || -> std::io::Result<_> {
+                if is_apps {
+                    let side = vector_icon::GRID * vector_icon::multiple(tile / 40.0);
+                    let look = AppsMark::look(kit, tile, false, over_video);
+                    let glass = kit.ui.scene.glass(tile as u32, tile as u32, Z_DOCK + 3, look.0, Props::at(0.0, 0.0));
+                    let mark = kit.ui.scene.image(side, side, Z_DOCK + 4, Props::at(0.0, 0.0))?;
+                    let mut m = AppsMark { glass, mark, side, shown: None };
+                    if let Some((_, shift)) = kit.icons.crisp("grip", side) {
+                        let at = crisp_origin((tile / 2.0, tile / 2.0), side, *shift);
+                        m.mark.set(Props::at(at.0, at.1));
+                    }
+                    m.paint(kit, look);
+                    // no plate of its own: the glass is the tile
+                    let none = Shape { corner_radius: radius, fill: compositor_protocol::Fill::Solid(Rgba(0, 0, 0, 0)), border_width: 0.0, border: plate_edge };
+                    return Ok((kit.ui.scene.shape(tile as u32, tile as u32, Z_DOCK + 2, none, Props::at(0.0, 0.0)), None, Some(m)));
+                }
                 let shape = Shape { corner_radius: radius, fill: compositor_protocol::Fill::Solid(plate_colour), border_width: 1.0, border: plate_edge };
                 let plate_layer = kit.ui.scene.shape(tile as u32, tile as u32, Z_DOCK + 3, shape, Props::at(0.0, 0.0));
                 let icon = match &art {
                     Some(a) => Some(a.layer(kit, Z_DOCK + 4, false)?),
                     None => None,
                 };
-                Ok((plate_layer, icon))
+                Ok((plate_layer, icon, None))
             });
-            let (plate_layer, icon) = match layers {
+            let (plate_layer, icon, apps_mark) = match layers {
                 Ok(l) => l,
                 Err(e) => {
                     d.arts.extend(art);
@@ -802,7 +853,7 @@ impl HomeSurface {
                 }
             };
             engine.flow.lift(id, Lifted { group, rest, scale: lift, rise: 6.0, lit: None });
-            d.tiles.push(Tile { id, plate: plate_layer, icon, lifted_icon: None, art, app: p.id.clone(), slot: (sx, sy) });
+            d.tiles.push(Tile { id, plate: plate_layer, icon, lifted_icon: None, art, apps_mark, app: p.id.clone(), slot: (sx, sy) });
         }
         for mut t in old.into_iter().flatten() {
             engine.flow.drop_lift(t.id);
@@ -1149,6 +1200,10 @@ impl HomeSurface {
                 t.slot = (sx, sy);
                 let rest = GroupPose { x: sx as f32, y: sy as f32, pivot_x: home.dock.tile as f32 / 2.0, pivot_y: home.dock.tile as f32 / 2.0, ..GroupPose::IDENTITY };
                 let _ = engine.flow.place(t.id, rest);
+            }
+            if let Some(m) = &mut t.apps_mark {
+                let look = AppsMark::look(kit, home.dock.tile as f32, focused == Some(i) && home.layer == Layer::None, self.over_video);
+                m.paint(kit, look);
             }
             // the lifted icon and the lit group its lift fades in: made for the tile the focus is on (before `update_focus` lifts it) and kept
             // until the tile is back at rest
