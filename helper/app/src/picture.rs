@@ -246,8 +246,9 @@ impl Video {
             }
             let out = v.get("displayOutput");
             let n = |k: &str| out.and_then(|o| o.get(k)).and_then(Value::as_u64).unwrap_or(0);
-            // the panel is 3840 by 2160; a window of 90% of it counts as full screen
-            let full = v.get("fullScreen").and_then(Value::as_bool) == Some(true) || n("width") * n("height") >= 3840 * 2160 * 9 / 10;
+            // the panel is 3840 by 2160. A film scaled to fit fills one side and leaves bars on the other: a 2:1 film in Marquee
+            // reported 3840x1920 at y 120 with fullScreen false (2026-11-21), so a window spanning 90% of either side counts.
+            let full = v.get("fullScreen").and_then(Value::as_bool) == Some(true) || n("width") >= 3840 * 9 / 10 || n("height") >= 2160 * 9 / 10;
             Some(Self {
                 app: v.get("appId").and_then(Value::as_str).unwrap_or("").to_owned(),
                 hdr: v.pointer("/videoInfo/hdrType").and_then(Value::as_str).unwrap_or("none").to_owned(),

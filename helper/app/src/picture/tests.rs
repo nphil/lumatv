@@ -267,6 +267,13 @@ fn reads_videooutput_and_the_picture_subscription() {
     ]});
     assert_eq!(Video::parse(&reply), Some(film(MARQUEE)));
     assert_eq!(Video::parse(&json!({"video": [{"sink": "MAIN", "connected": false}]})), Some(None));
+    // a 2:1 film letterboxed by Marquee: LG says it is not full screen, but it fills the width
+    let letterboxed = json!({"video": [{"sink": "MAIN", "connected": true, "muted": false, "appId": MARQUEE, "fullScreen": false,
+        "displayOutput": {"x": 0, "y": 120, "width": 3840, "height": 1920}, "videoInfo": {"hdrType": "none"}}]});
+    assert_eq!(Video::parse(&letterboxed), Some(film(MARQUEE)));
+    let corner = json!({"video": [{"sink": "MAIN", "connected": true, "muted": false, "appId": MARQUEE, "fullScreen": false,
+        "displayOutput": {"x": 2560, "y": 1440, "width": 1280, "height": 720}, "videoInfo": {"hdrType": "none"}}]});
+    assert_eq!(Video::parse(&corner).map(|v| v.map(|v| v.full)), Some(Some(false)));
     let picture = json!({"settings": {"pictureMode": "filmMaker"}, "dimension": {"input": "default", "dynamicRange": "sdr"}, "subscribed": true});
     assert_eq!(Context::parse(&picture), Some(ctx("filmMaker")));
 }
