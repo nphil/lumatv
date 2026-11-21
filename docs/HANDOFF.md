@@ -9,6 +9,25 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Pointer standby fix, preset fixes, auto brightness and the Settings speed-up, 2026-11-21 (main 4d70bc1a, installed 05:07 EST)
+
+Installed with Netflix in front but nothing playing (no VDEC pipeline), under the owner's standing install-now rule; `tv-lock` was overridden with `PLX_TV_IN_USE_OK=1`.
+
+- compositor `36462095811e2c14e379a049554749a92adfc3cc50fe6d59f257df4ab4f53e7d` (ad261eae: a hidden pointer is reported to lginput2 as standby, and the 7e42a5f6 delay is reverted; replaces d71629f6)
+- ui `73afc667b2b2e13fbc455c48645337a56f55a66975b24cb01ea8e1fb1d31dee1` (presets and modes in title case, Left/Right visits every picture entry, the auto-brightness tile and row, kept hint glyphs and icon tinting; replaces 32762690)
+- helper `913327d9135b673a88ff0223dc2e093e062f5ae19a85e08c0294733ca7a2d213` (autobright, off; preset names; replaces 39dfbbb8, pids 17104/17105)
+
+All three were built from a clean worktree of main. The cutover enable left the compositor live and persistent, and the video check found a picture after 1 s. `/v1/picture` names the presets "RTINGS Accurate", "RTINGS Richer Color" and "LumaTV Vivid", `/v1/autobright` reports `on:false`, and `mm status` still has LumaTV's memory manager serving.
+
+Untested on the set:
+
+- the pointer after an arrow-key hide and a wheel turn (expect `STANDBY(2)`, `MRCU[A->S]`, then `CUSTOM_KEY_CURSOR_ON` and the pointer at the centre following the remote)
+- the stepper
+- auto brightness switched on
+- the Settings frame gate
+
+Rollback is in `/data/agent/cody-data-scratch/18172b987bff/backup/`: `lumatv-helper-39dfbbb8`, `lumatv-ui-32762690` and `lumatv-compositor-cb605100`. d71629f6 was not kept; cb605100 is the last known-good compositor.
+
 ## Wheel-shown pointer fix, 2026-11-21 (main 7e42a5f6, installed 02:00 EST with the TV on, at the owner's request)
 
 The owner reproduced a pointer that would not move. He hid the pointer with the arrow keys, then brought it back with the scroll wheel. A pointer sampler (`compositor ctl status`) recorded 1 motion in 10 s after the wheel brought it back, against hundreds per 3 s after a shake, and lginput2 sent no CURSOR_ON. The compositor now tells lginput2 that a wheel-shown pointer is visible 150 ms later, once lginput2 has handled the notch.
