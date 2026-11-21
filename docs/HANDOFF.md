@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Dolby Vision room mode, power-alert text, left profile pill and the wallpaper ceiling installed, 2026-11-21 (main 3eda58aa, 15:5x EST)
+
+Installed over Netflix with the owner's leave: compositor `a3acd46a` (replaces 7addcfd1), ui `655ab295` (replaces e0c6ed46), helper `76f0d68a` (replaces a32da0f4); sm `65f6ca69` unchanged. Video check: picture after 1 s. Profile `nitin` set to `layout.statusBar.profile` `left`; a capture shows the pill at the left end and the buttons at the right. The ceiling brought no GPU gain on the set (idle Home, owner's theme, 20 s windows; GPU busy at 10/15/30/60 fps: 25.7/34.0/46.4/70.1 % against 24.8/33.2/49.6/75.5 % before) although the host count fell from 108 to about 44 layers a step; the cause is open. Untested on the set: the Dolby Vision room choice and the power-warning text.
+
 ## Passthrough, receiver page and auto brightness installed, 2026-11-21 (main e34e23bc, 14:25 EST)
 
 Installed by the standard path: ui `e0c6ed46` (replaces df0e6da2) and helper `a32da0f4` (replaces 33fa3f1f); compositor `7addcfd1` and sm `65f6ca69` unchanged. Netflix was in front when the install started and the cutover returned the set to Home; whether it was playing is unknown. `/var/log/dbg-log` holds no `SET_MERGE_FAIL` after install. Accepted by the owner on the set at 14:36: Passthrough holds across input change and standby, the receiver page on Live TV is steady and usable, auto brightness ramps smoothly with a lamp, and the full-card rain and Apps tile look right. Untested: Passthrough across a reboot and the HDR pause.
