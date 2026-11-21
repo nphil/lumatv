@@ -9,6 +9,23 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Picture presets, saver sound and the memory manager staged, 2026-11-21 (main 6b91e348, installed 01:27 EST with the TV on, at the owner's request)
+
+Installed with Marquee playing video (the owner said to install anyway):
+
+- helper `39dfbbb87c671b0d821d871d13a37ce7b5ac98e7f36d24cd34ff711e2531545f` (replaces a4a6bf5b; pids 26062/26063, healthy)
+- ui `327626900ff165dece5427f3e8e27555bb5e71c722318aa191de3e18aceb8133` (replaces eb4deeb4)
+- the memory-manager shim `payload/mm/lumatv-mm` `a2eb4fd7`, staged off
+- `tools/lumatv` `bdfa2f27`, `tools/mm.sh`, `tools/autostart.sh` `680d1e69`
+
+The compositor (cb605100) and sm (65f6ca69) are unchanged. The cutover ran disable, install, probe and enable; enable left LumaTV's compositor live and persistent, and the video check found a picture after 1 s. `lumatv mm status`: `enabled:false, serving:lg, shim:true`.
+
+With Home in front, `/v1/picture` reports slot `ui` in Eco (preset LumaTV vivid), slot `video` in Filmmaker, and separate picture on. `dbg-log` shows Eco at OLED brightness 75, the owner's level.
+
+Untested on the set: switching to Filmmaker and back during SDR playback, the presets in Quick Settings and Settings, standby held while sound plays, and `mm on`.
+
+The engine restart at 00:51 wiped `/tmp/cs/18172b987bff`, so the earlier rollback copies listed above are gone. Rollback for this install is in `/data/agent/cody-data-scratch/18172b987bff/backup/`: `lumatv-helper-a4a6bf5b`, `lumatv-ui-eb4deeb4`, `lumatv-compositor-cb605100`, `lumatv-adb11696` (`tools/lumatv`) and `autostart.sh-6dd9e7d3`.
+
 ## Video check no longer switches the picture mode, 2026-11-21 (main 197a1b9d, installed 00:14 EST)
 
 Every `video-check` switched the set from Filmmaker Mode to Game Optimizer (backlight 75 → 90) for about 2 s: the NDL load tells the TV that the clip is a game. Three such flips showed in `/var/log/dbg-log` during the game-mode install (00:10:38, 00:11:35 and 00:11:49). The check now plays through the ES player (`--pipe es`), and the picture mode stays Filmmaker. Installed `tools/compositor.sh` `8de47c76446110941def034ac6be4a95a18e8514a94e267b195c4aa31eeb817d`, replacing a51ef9f6, and `video-check` found a picture after 1 s. Rollback: `/tmp/cs/18172b987bff/app-snapshot/backup/compositor.sh-a51ef9f6`.
