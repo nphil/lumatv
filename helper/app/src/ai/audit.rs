@@ -245,7 +245,7 @@ mod tests {
         assert!(all[0]["at"].as_u64().unwrap() > 1_700_000_000_000);
         let event = hub.events_after(Some(0), None, None).events.pop().unwrap();
         assert_eq!((event.topic.as_str(), event.kind.as_str()), ("ai", "audit"));
-        assert_eq!(event.data["tool"], "tv_launch_app");
+        assert_eq!(event.data()["tool"], "tv_launch_app");
         let text = fs::read_to_string(dir.path().join("audit.jsonl")).unwrap();
         assert_eq!(text.lines().count(), 1);
         assert!(serde_json::from_str::<Value>(text.trim()).is_ok());

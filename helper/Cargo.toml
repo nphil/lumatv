@@ -34,7 +34,8 @@ sha2 = "0.10"
 # The words on the tuner's slates, in the faces the theme names: the rasteriser the Rust UI draws its text with.
 fontdue = "0.9"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# raw_value: the hub keeps each event's value as JSON text and writes it into answers as it is (`app/src/hub.rs`).
+serde_json = { version = "1", features = ["raw_value"] }
 tempfile = "3"
 # TLS (the Scrypted bridge, `app/src/scrypted/tls.rs`: the one certificate the owner pinned is the only trust): the `ring` provider is what the GFN
 # engine already builds for this target; no certificate store, no aws-lc (cmake), no logging.

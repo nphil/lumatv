@@ -513,7 +513,11 @@ impl Guide {
                 .filter_map(|l| l.get(&c.id).map(Vec::as_slice))
                 .collect();
             if !lists.is_empty() {
-                by_channel.insert(c.id.clone(), merge::merge(&lists));
+                let mut list = merge::merge(&lists);
+                // merge reserves the first source's whole list and leaves out what overlaps: on the set, 14,700 programmes held
+                // room for 23,300 until the next rebuild
+                list.shrink_to_fit();
+                by_channel.insert(c.id.clone(), list);
             }
         }
         self.listings = Arc::new(Listings { by_channel });

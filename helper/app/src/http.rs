@@ -20,7 +20,7 @@
 
 use crate::API_VERSION;
 use parking_lot::Mutex;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -88,7 +88,7 @@ pub struct Response {
 
 impl Response {
     /// A JSON body with `status`.
-    pub fn json(status: u16, value: &Value) -> Self {
+    pub fn json(status: u16, value: &impl serde::Serialize) -> Self {
         Self {
             status,
             headers: Vec::new(),

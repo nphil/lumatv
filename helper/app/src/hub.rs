@@ -7,15 +7,20 @@
 //! to, and then wait for events after that `seq`: nothing between the two is lost, because both happen under one lock.
 //!
 //! Events are kept in a ring of [`RING_CAPACITY`]. A client that fell behind the ring, or whose `seq` is from before a restart
-//! of the helper, is told to `reset`, which means: read the snapshot again.
+//! of the helper, is told to `reset`, which means: read the snapshot again. An event keeps its value as compact JSON text, not as a
+//! `Value`: a tree costs about eight times its text (On Home's 24 KB document held 200 KB), and a ring of a large topic's changes held
+//! 24 MB of the helper's 44 MB on the set.
 //!
 //! Seam for later phases: plugin topics are `plugin.<id>.<name>` and the MCP server reads the same snapshot; neither needs a
 //! new mechanism.
 
 use crate::timeutil::now_ms;
 use parking_lot::{Condvar, Mutex};
-use serde_json::{Value, json};
+use serde::ser::{Serialize, SerializeStruct, Serializer};
+use serde_json::value::RawValue;
+use serde_json::{Map, Value};
 use std::collections::{BTreeMap, VecDeque};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// How many events are kept for clients that are slow to ask.
@@ -24,7 +29,7 @@ pub const RING_CAPACITY: usize = 256;
 pub const MAX_WAIT: Duration = Duration::from_secs(30);
 
 /// One thing that happened.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Event {
     pub seq: u64,
     /// Unix milliseconds.
@@ -32,12 +37,37 @@ pub struct Event {
     pub topic: String,
     /// `changed` for a topic that was set; otherwise what the emitter says.
     pub kind: String,
-    pub data: Value,
+    data: Arc<RawValue>,
 }
 
 impl Event {
-    pub fn to_json(&self) -> Value {
-        json!({"seq": self.seq, "at": self.at, "topic": self.topic, "kind": self.kind, "data": self.data})
+    /// What the event carries.
+    pub fn data(&self) -> Value {
+        serde_json::from_str(self.data.get()).unwrap_or(Value::Null)
+    }
+}
+
+impl PartialEq for Event {
+    fn eq(&self, other: &Self) -> bool {
+        // one serializer wrote both texts, so equal values are equal texts
+        self.seq == other.seq
+            && self.at == other.at
+            && self.topic == other.topic
+            && self.kind == other.kind
+            && self.data.get() == other.data.get()
+    }
+}
+
+/// `{"at","data","kind","seq","topic"}`, with the kept text written as it is. The keys keep the order a `Value` object writes them in.
+impl Serialize for Event {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut event = serializer.serialize_struct("Event", 5)?;
+        event.serialize_field("at", &self.at)?;
+        event.serialize_field("data", &*self.data)?;
+        event.serialize_field("kind", &self.kind)?;
+        event.serialize_field("seq", &self.seq)?;
+        event.serialize_field("topic", &self.topic)?;
+        event.end()
     }
 }
 
@@ -65,17 +95,21 @@ struct Inner {
     closed: bool,
 }
 
-/// A JSON object without some of its top-level keys (any other value is returned as it is).
-fn without_keys(value: &Value, keys: &[&str]) -> Value {
-    match value {
-        Value::Object(map) => Value::Object(
-            map.iter()
-                .filter(|(k, _)| !keys.contains(&k.as_str()))
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-        ),
-        other => other.clone(),
-    }
+/// Whether `a` and `b` are equal apart from the top-level keys in `quiet` (any other value must be equal as it is). Compares in
+/// place: copying a large topic to compare it, every poll, is churn the helper's allocator keeps.
+fn same_but(a: &Value, b: &Value, quiet: &[&str]) -> bool {
+    let (Value::Object(a), Value::Object(b)) = (a, b) else {
+        return a == b;
+    };
+    let loud = |map: &Map<String, Value>| {
+        map.iter()
+            .filter(|(k, _)| !quiet.contains(&k.as_str()))
+            .count()
+    };
+    loud(a) == loud(b)
+        && a.iter()
+            .filter(|(k, _)| !quiet.contains(&k.as_str()))
+            .all(|(k, v)| b.get(k) == Some(v))
 }
 
 pub struct Hub {
@@ -104,17 +138,19 @@ impl Hub {
         self.boot
     }
 
-    fn push(inner: &mut Inner, topic: &str, kind: &str, data: Value) {
+    fn push(inner: &mut Inner, topic: &str, kind: &str, data: &Value) {
         inner.seq += 1;
         if inner.ring.len() == RING_CAPACITY {
             inner.ring.pop_front();
         }
+        let data =
+            serde_json::value::to_raw_value(data).unwrap_or_else(|_| RawValue::NULL.to_owned());
         let event = Event {
             seq: inner.seq,
             at: now_ms(),
             topic: topic.to_owned(),
             kind: kind.to_owned(),
-            data,
+            data: Arc::from(data),
         };
         inner.ring.push_back(event);
     }
@@ -125,8 +161,8 @@ impl Hub {
         if inner.topics.get(topic) == Some(&value) {
             return false;
         }
-        inner.topics.insert(topic.to_owned(), value.clone());
-        Self::push(&mut inner, topic, "changed", value);
+        Self::push(&mut inner, topic, "changed", &value);
+        inner.topics.insert(topic.to_owned(), value);
         drop(inner);
         self.changed.notify_all();
         true
@@ -141,13 +177,13 @@ impl Hub {
             if current == &value {
                 return false;
             }
-            if without_keys(current, quiet) == without_keys(&value, quiet) {
+            if same_but(current, &value, quiet) {
                 inner.topics.insert(topic.to_owned(), value);
                 return false;
             }
         }
-        inner.topics.insert(topic.to_owned(), value.clone());
-        Self::push(&mut inner, topic, "changed", value);
+        Self::push(&mut inner, topic, "changed", &value);
+        inner.topics.insert(topic.to_owned(), value);
         drop(inner);
         self.changed.notify_all();
         true
@@ -156,7 +192,7 @@ impl Hub {
     /// Raises an event that has no retained value.
     pub fn emit(&self, topic: &str, kind: &str, data: Value) {
         let mut inner = self.inner.lock();
-        Self::push(&mut inner, topic, kind, data);
+        Self::push(&mut inner, topic, kind, &data);
         drop(inner);
         self.changed.notify_all();
     }
@@ -268,7 +304,7 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use serde_json::json;
 
     fn topics(names: &[&str]) -> Vec<String> {
         names.iter().map(|s| (*s).to_owned()).collect()
@@ -286,7 +322,7 @@ mod tests {
         let kinds: Vec<_> = batch
             .events
             .iter()
-            .map(|e| (e.seq, e.topic.as_str(), e.kind.as_str(), e.data.clone()))
+            .map(|e| (e.seq, e.topic.as_str(), e.kind.as_str(), e.data()))
             .collect();
         assert_eq!(
             kinds,
@@ -349,7 +385,7 @@ mod tests {
         hub.set("a", json!(5));
         let batch = hub.events_after(Some(snap.seq), None, None);
         assert_eq!(batch.events.len(), 1);
-        assert_eq!(batch.events[0].data, json!(5));
+        assert_eq!(batch.events[0].data(), json!(5));
     }
 
     #[test]
@@ -412,7 +448,7 @@ mod tests {
         hub.set("x", json!("go"));
         let batch = waiter.join().unwrap();
         assert_eq!(batch.events.len(), 1);
-        assert_eq!(batch.events[0].data, json!("go"));
+        assert_eq!(batch.events[0].data(), json!("go"));
     }
 
     #[test]
@@ -470,7 +506,7 @@ mod tests {
         let hub = Hub::new(1);
         hub.set("screen", json!({"on": true}));
         let e = &hub.events_after(Some(0), None, None).events[0];
-        let v = e.to_json();
+        let v = serde_json::to_value(e).unwrap();
         let mut keys: Vec<_> = v.as_object().unwrap().keys().cloned().collect();
         keys.sort();
         assert_eq!(keys, ["at", "data", "kind", "seq", "topic"]);

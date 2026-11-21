@@ -294,7 +294,7 @@ fn new_transition(
                     && changes
                         .events
                         .iter()
-                        .any(|event| actual_screen_value(&event.data) == Some(false))
+                        .any(|event| actual_screen_value(&event.data()) == Some(false))
             }));
     let act = changed && (current.0 || previous == Some(true));
     *last = Some(current);
@@ -315,7 +315,7 @@ fn same_transition(ctx: &Ctx, transition: (bool, u64), host: &str, port: u16) ->
         && changes
             .events
             .iter()
-            .all(|event| actual_screen_value(&event.data) == Some(transition.0))
+            .all(|event| actual_screen_value(&event.data()) == Some(transition.0))
         && actual_screen(&ctx.hub).is_some_and(|current| current.0 == transition.0)
 }
 

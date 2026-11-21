@@ -334,7 +334,7 @@ fn the_page_is_served_by_the_settings_api_and_the_persons_choice_reaches_the_plu
     let events = hub.events_after(Some(seq), None, Some(&topics)).events;
     assert!(
         events.iter().any(|e| e.kind == "settings_rejected"
-            && e.data["errors"]["name"] == "I cannot greet by that name"),
+            && e.data()["errors"]["name"] == "I cannot greet by that name"),
         "{events:?}"
     );
 
@@ -395,8 +395,8 @@ fn an_action_of_the_ui_reaches_the_plugin_and_its_answer_or_its_silence_is_repor
         .events
         .iter()
         .any(|e| e.kind == "action_result"
-            && e.data["op"] == op
-            && e.data["outcome"]["type"] == "ok")));
+            && e.data()["op"] == op
+            && e.data()["outcome"]["type"] == "ok")));
 
     // Silence: reported as a failure when the answer time (1 s here) runs out.
     let silent = post(rig.rig.addr, "/v1/plugins/hello/actions/greet", "").json()["op"]
@@ -407,8 +407,8 @@ fn an_action_of_the_ui_reaches_the_plugin_and_its_answer_or_its_silence_is_repor
         .events
         .iter()
         .any(|e| e.kind == "action_result"
-            && e.data["op"] == silent
-            && e.data["outcome"]["type"] == "failed")));
+            && e.data()["op"] == silent
+            && e.data()["outcome"]["type"] == "failed")));
 
     // Only declared actions of connected plugins; only the plain body.
     assert_eq!(

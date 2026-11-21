@@ -423,9 +423,9 @@ mod tests {
         let rejected = shared.invoke_action(ID, "stats-mode", Some("not-a-choice".into())).unwrap();
         let events = gaming.hub.events_after(Some(0), None, Some(&["plugin.gaming".into()]));
         let answer = events.events.iter()
-            .find(|event| event.kind == "action_result" && event.data["op"] == rejected)
+            .find(|event| event.kind == "action_result" && event.data()["op"] == rejected)
             .expect("the invalid choice receives an action result");
-        assert_eq!(answer.data["outcome"]["type"], "failed");
+        assert_eq!(answer.data()["outcome"]["type"], "failed");
         assert_eq!(gaming.overlay.get().mode, overlay::Mode::Compact);
         let mut update = request("127.0.0.1");
         update.path = "/v1/gaming/overlay".into();

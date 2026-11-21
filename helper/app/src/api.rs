@@ -36,7 +36,7 @@ use crate::receiver;
 use crate::settings::{ApplyError, SettingsStore};
 use crate::sys;
 use crate::timeutil::now_ms;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use settings_schema::SettingChange;
 use std::sync::Arc;
@@ -201,6 +201,19 @@ fn envelope(mut body: Value, now: u64) -> Value {
         map.insert("now".into(), json!(now));
     }
     body
+}
+
+/// `/v1/events`' answer: the envelope's keys and the batch, each event's kept text written as it is rather than parsed back into a
+/// tree to be written again.
+#[derive(Serialize)]
+struct EventsAnswer<'a> {
+    api: u32,
+    boot: u64,
+    events: &'a [crate::hub::Event],
+    now: u64,
+    ok: bool,
+    reset: bool,
+    seq: u64,
 }
 
 /// What a saved document's age makes of it: `fresh`, `stale` (due for a refetch, still shown), `expired` (never shown) or `none`.
@@ -575,12 +588,18 @@ impl Api {
             topics.as_deref(),
             Duration::from_secs_f64(wait),
         );
-        let events: Vec<Value> = batch
-            .events
-            .iter()
-            .map(crate::hub::Event::to_json)
-            .collect();
-        self.ok(json!({"boot": self.hub.boot(), "seq": batch.seq, "reset": batch.reset, "events": events}))
+        Response::json(
+            200,
+            &EventsAnswer {
+                api: API_VERSION,
+                boot: self.hub.boot(),
+                events: &batch.events,
+                now: now_ms(),
+                ok: true,
+                reset: batch.reset,
+                seq: batch.seq,
+            },
+        )
     }
 
     fn weather_entities(&self) -> Response {

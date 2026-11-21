@@ -850,7 +850,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].topic, "settings");
         assert_eq!(
-            events[0].data,
+            events[0].data(),
             json!({"owner": "base.weather", "version": 1})
         );
 
@@ -1085,7 +1085,7 @@ mod tests {
             .pop()
             .unwrap();
         assert_eq!(
-            (last.kind.as_str(), last.data["owner"].clone()),
+            (last.kind.as_str(), last.data()["owner"].clone()),
             ("removed", json!("base.news"))
         );
     }

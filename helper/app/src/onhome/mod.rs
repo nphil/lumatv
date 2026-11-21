@@ -476,9 +476,11 @@ impl OnHome {
         view
     }
 
+    /// Publishes the status. `at` moves on every look, every 10 s: alone it is no change, or a 24 KB document goes to every
+    /// long poll and into the event ring each time.
     fn publish(&self) {
         let doc = self.status();
-        self.inner.hub.set(TOPIC, doc);
+        self.inner.hub.set_ignoring(TOPIC, doc, &["at"]);
     }
 
     /// What the picker lists: the shared entities, filtered, by kind and name.

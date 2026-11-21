@@ -193,7 +193,9 @@ fn refresh_is_an_action_of_the_plugin_like_any_other_and_asks_the_feeds_to_fetch
     assert!(
         wait_until(WAIT, || action_results(&rig, "weather")
             .iter()
-            .any(|e| e.data["op"] == op && e.data["outcome"]["type"] == "ok")),
+            .any(
+                |e| e.data()["op"] == op && e.data()["outcome"]["type"] == "ok"
+            )),
         "no answer: {:?}",
         action_results(&rig, "weather")
     );
@@ -259,7 +261,7 @@ fn the_ambient_tile_follows_the_settings_and_a_tap_switches_the_light() {
     assert!(wait_until(WAIT, || action_results(&rig, "ambient")
         .iter()
         .any(
-            |e| e.data["op"] == op && e.data["outcome"]["type"] == "ok"
+            |e| e.data()["op"] == op && e.data()["outcome"]["type"] == "ok"
         )));
     // It is the Settings page's own switch that moved.
     let settings = get(rig.addr, "/v1/settings/base.ambient").json();

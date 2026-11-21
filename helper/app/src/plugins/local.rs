@@ -380,7 +380,7 @@ mod tests {
             events
                 .events
                 .iter()
-                .any(|e| e.kind == "action_result" && e.data["outcome"]["type"] == "ok"),
+                .any(|e| e.kind == "action_result" && e.data()["outcome"]["type"] == "ok"),
             "{events:?}"
         );
         assert_eq!(

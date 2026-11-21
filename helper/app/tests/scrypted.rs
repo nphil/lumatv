@@ -74,7 +74,7 @@ impl World {
                     .events_after(Some(0), None, Some(&["cameras".to_owned()]))
                     .events
                     .iter()
-                    .map(|e| e.data["state"].as_str().unwrap_or("?").to_owned())
+                    .map(|e| e.data()["state"].as_str().unwrap_or("?").to_owned())
                     .collect();
                 panic!(
                     "the state never became {state}: {} ({}); it went {seen:?}; the bridge saw {} connections, {} push channels open of {}; {:?}",
@@ -1987,7 +1987,7 @@ fn the_bridge_ending_the_old_recording_for_a_seek_is_not_an_end_of_recording_and
         )
         .events
         .iter()
-        .map(|e| e.data["state"].as_str().unwrap_or("").to_owned())
+        .map(|e| e.data()["state"].as_str().unwrap_or("").to_owned())
         .collect()
     };
     let playbacks = || {
