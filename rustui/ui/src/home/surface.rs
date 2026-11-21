@@ -814,11 +814,16 @@ impl HomeSurface {
             let plate_edge = kit.ui.look.colour(PaletteRole::EdgeRaised);
             let scene = kit.ui.scene.clone();
             let made = IconArt::key_of(&p.icon, tile as u32, inset as u32, radius, lift);
-            let art = match d.arts.iter().position(|a| a.key == made) {
-                Some(j) => Some(d.arts.swap_remove(j)),
-                None => IconArt::of(&p.icon, self.data.as_deref(), tile as u32, inset as u32, radius, lift),
-            };
             let is_apps = p.id == APPS_TILE;
+            // The Apps tile has no picture: its glass and glyph are its face, and a kept LG icon would come back as the focus lift.
+            let art = if is_apps {
+                None
+            } else {
+                match d.arts.iter().position(|a| a.key == made) {
+                    Some(j) => Some(d.arts.swap_remove(j)),
+                    None => IconArt::of(&p.icon, self.data.as_deref(), tile as u32, inset as u32, radius, lift),
+                }
+            };
             let over_video = self.over_video;
             let layers = scene.adopting(&group, || -> std::io::Result<_> {
                 if is_apps {
