@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Helper memory trimmed, 2026-11-20 (main 59df91b6, installed 21:58 EST with the TV on, at the owner's request)
+
+At 21:11 the helper held 49 MB (44 MB anon) after 5 h 15 min: 24.5 MB in the hub's 256-event replay ring, each event kept as a `serde_json::Value` about 8× its text, with On Home republished every 10 s for an `at` nothing reads (98 copies, 19.5 MB); about 7.6 MB of freed but unreturned heap; the guide 7.3 MB (14,800 programmes, 1.4 MB of spare capacity). Events are now kept as raw JSON text (answers byte-identical), an `at`-only On Home change is not an event, and the guide shrinks its tables after a rebuild. A two-hour host replay of the TV's mix under musl's allocator: 32.8 MB → 5.8 MB. Installed helper `2507abda5c71465091367bb7ac67110836990fc83be0ba3583da0bbbc45c3653` (replaces b9686eba; pids 22831/22832, healthy); 20 s after start the worker read 18.9 MB RSS (13.9 MB anon, 5.0 MB file). The steady-state figure after the ring has filled is still to be read. Rollback: `/tmp/cs/18172b987bff/app-snapshot/backup/lumatv-helper-b9686eba`.
+
 ## SSH key login lost after the 2026-11-20 16:05 reboot
 
 After the set's reboot at about 16:05 EST, `/home/root/.ssh/` was gone, so dropbear refused this server's key and `tv-ssh` fell back to the password. At 19:55 `/home/root/.ssh/authorized_keys` (0600) was re-created with `/data/home/.ssh/id_ed25519.pub` and key login works again. What removed the directory is not known. LumaTV came back by itself: compositor live and persistent, zero failures, ui `7b4530fb` and helper `b9686eba` as installed.
