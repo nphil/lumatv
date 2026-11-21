@@ -9,6 +9,14 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Passthrough, receiver page and auto brightness installed, 2026-11-21 (main e34e23bc, 14:25 EST)
+
+Installed by the standard path: ui `e0c6ed46` (replaces df0e6da2) and helper `a32da0f4` (replaces 33fa3f1f); compositor `7addcfd1` and sm `65f6ca69` unchanged. Netflix was in front when the install started and the cutover returned the set to Home; whether it was playing is unknown. `/var/log/dbg-log` holds no `SET_MERGE_FAIL` after install. Untested on the set: Passthrough holding across inputs, standby and reboot; the receiver page with Live TV DD surround; auto brightness start, ramps and HDR pause.
+
+## Full-card rain and Apps tile without LG art installed, 2026-11-21 (main 02ab490f, 13:55 EST)
+
+Installed ui `df0e6da2` (replaces 28518604) by the standard path; video check found a picture. Bridge 0.2.10 (lumashow-scrypted main 371fd57) was deployed to Scrypted at 13:32 and the owner confirmed Backyard pause and resume. Rain frame cost on the set is unmeasured.
+
 ## Apps tile and LG Content Store row, game-mode measures installed, 2026-11-21 (main 28c54aff, 13:12 EST)
 
 Installed with the screen on, no media pipeline, standard path: ui `28518604` (replaces c6416fe1) and helper `33fa3f1f` (main 114720ff, replaces 48916c12); compositor `7addcfd1` and sm `65f6ca69` unchanged. Video check: picture after 1 s. The dock's Apps tile is theme glass with an accent dot grid; `com.webos.app.discovery` left the Apps tiles for a "LG Content Store" rail row. Native store Phase 0 (install and remove of `com.masterclass.lg` through `appInstallService/install` as root) passed: `docs/research/native-store.md`. Untested on screen: the tile, the rail row, game-mode step fields.
