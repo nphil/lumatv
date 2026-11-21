@@ -67,6 +67,8 @@ pub struct Kit {
     pub text_scale: f32,
     /// The Lucide icons of the module (`kit/icon.rs`); empty until the shell is given its module directory.
     pub icons: icon::Icons,
+    /// The hint glyphs drawn so far (`kit/glyph.rs`).
+    pub glyphs: glyph::Kept,
     /// The format badge's marks (`icons/video`, [`logo::VIDEO_MARKS`]); empty until the shell is given its module directory.
     pub marks: Vec<logo::LogoArt>,
     pub(crate) theme_thumbnails: crate::settings::surface::rows::thumbnails::Cache,
@@ -89,7 +91,7 @@ impl Kit {
             ui.fonts.set_glyph_source(Some(Box::new(gridfit::GridFit::new())));
         }
         ui.enable_glyph_text().map_err(|e| std::io::Error::other(format!("{e}")))?;
-        let mut kit = Self { ui, tokens, mode, tier, text_scale, icons: icon::Icons::default(), marks: Vec::new(), theme_thumbnails: Default::default(), generation: 1, wall_backdrop: None, refresh_hz: 60.0 };
+        let mut kit = Self { ui, tokens, mode, tier, text_scale, icons: icon::Icons::default(), glyphs: glyph::Kept::default(), marks: Vec::new(), theme_thumbnails: Default::default(), generation: 1, wall_backdrop: None, refresh_hz: 60.0 };
         kit.warm();
         Ok(kit)
     }

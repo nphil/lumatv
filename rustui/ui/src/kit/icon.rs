@@ -26,6 +26,8 @@ pub struct Icons {
     dir: Option<PathBuf>,
     /// `None`: looked for and not there.
     masks: HashMap<String, Option<Mask>>,
+    /// The masks scaled to a side, alpha only: an icon drawn again in another ink (a row's glyph as the row is chosen) is only tinted.
+    scaled: HashMap<(String, u32), Vec<u8>>,
     kept: HashMap<(String, u32, [u8; 4]), Vec<u8>>,
     /// The glyphs drawn from their vector source (`vector_icon`) at a side, and how far each sits from the middle of its box.
     crisp: HashMap<(String, u32), Option<Crisp>>,
@@ -51,43 +53,63 @@ fn decode_mask(png_bytes: &[u8]) -> Option<Mask> {
 }
 
 impl Mask {
-    /// The alpha at (`x`, `y`) of the mask scaled to `side`, `side` a square: the mean of the source area it covers when the icon
-    /// shrinks, the bilinear sample at its centre when it grows.
-    fn sample(&self, x: u32, y: u32, side: u32) -> f32 {
-        let (sw, sh) = (self.w as f32, self.h as f32);
-        let (fx, fy) = (sw / side as f32, sh / side as f32);
+    /// The alpha of the mask scaled to `side` by `side`: each pixel the mean of the source area it covers when the icon shrinks, the
+    /// bilinear sample at its centre when it grows.
+    fn scaled(&self, side: u32) -> Vec<u8> {
+        let (fx, fy) = (self.w as f32 / side as f32, self.h as f32 / side as f32);
+        let byte = |a: f32| a.round().clamp(0.0, 255.0) as u8;
+        if fx <= 1.0 && fy <= 1.0 {
+            return (0..side).flat_map(|y| (0..side).map(move |x| (x, y))).map(|(x, y)| byte(self.bilinear(x, y, fx, fy))).collect();
+        }
+        // The source pixels each column and each row covers and how much of each, worked out once and not for every pixel: the same
+        // sums in the same order, so the same pixels, in half the time.
+        let spans = |f: f32, n: u32| -> Vec<Vec<(usize, f32)>> {
+            (0..side)
+                .map(|i| {
+                    let (lo, hi) = (i as f32 * f, (i as f32 + 1.0) * f);
+                    let mut span = Vec::new();
+                    let mut s = lo.floor();
+                    while s < hi {
+                        span.push(((s as i64).clamp(0, i64::from(n) - 1) as usize, (s + 1.0).min(hi) - s.max(lo)));
+                        s += 1.0;
+                    }
+                    span
+                })
+                .collect()
+        };
+        let (columns, rows) = (spans(fx, self.w), spans(fy, self.h));
+        let w = self.w as usize;
+        let mut out = Vec::with_capacity((side * side) as usize);
+        for row in &rows {
+            for column in &columns {
+                let (mut sum, mut weight) = (0.0f32, 0.0f32);
+                for &(sy, wy) in row {
+                    let line = &self.alpha[sy * w..(sy + 1) * w];
+                    for &(sx, wx) in column {
+                        sum += f32::from(line[sx]) * wx * wy;
+                        weight += wx * wy;
+                    }
+                }
+                out.push(byte(sum / weight.max(f32::EPSILON)));
+            }
+        }
+        out
+    }
+
+    /// The bilinear sample of the mask at the centre of pixel (`x`, `y`) of the grown icon, `fx` and `fy` source pixels to one.
+    fn bilinear(&self, x: u32, y: u32, fx: f32, fy: f32) -> f32 {
         let at = |ix: i64, iy: i64| -> f32 {
             let cx = ix.clamp(0, i64::from(self.w) - 1) as usize;
             let cy = iy.clamp(0, i64::from(self.h) - 1) as usize;
             f32::from(self.alpha[cy * self.w as usize + cx])
         };
-        if fx > 1.0 || fy > 1.0 {
-            let (x0, x1) = (x as f32 * fx, (x as f32 + 1.0) * fx);
-            let (y0, y1) = (y as f32 * fy, (y as f32 + 1.0) * fy);
-            let mut sum = 0.0;
-            let mut weight = 0.0;
-            let mut sy = y0.floor();
-            while sy < y1 {
-                let wy = (sy + 1.0).min(y1) - sy.max(y0);
-                let mut sx = x0.floor();
-                while sx < x1 {
-                    let wx = (sx + 1.0).min(x1) - sx.max(x0);
-                    sum += at(sx as i64, sy as i64) * wx * wy;
-                    weight += wx * wy;
-                    sx += 1.0;
-                }
-                sy += 1.0;
-            }
-            sum / weight.max(f32::EPSILON)
-        } else {
-            let (cx, cy) = ((x as f32 + 0.5) * fx - 0.5, (y as f32 + 0.5) * fy - 0.5);
-            let (ix, iy) = (cx.floor(), cy.floor());
-            let (tx, ty) = (cx - ix, cy - iy);
-            let (ix, iy) = (ix as i64, iy as i64);
-            let top = at(ix, iy) * (1.0 - tx) + at(ix + 1, iy) * tx;
-            let bottom = at(ix, iy + 1) * (1.0 - tx) + at(ix + 1, iy + 1) * tx;
-            top * (1.0 - ty) + bottom * ty
-        }
+        let (cx, cy) = ((x as f32 + 0.5) * fx - 0.5, (y as f32 + 0.5) * fy - 0.5);
+        let (ix, iy) = (cx.floor(), cy.floor());
+        let (tx, ty) = (cx - ix, cy - iy);
+        let (ix, iy) = (ix as i64, iy as i64);
+        let top = at(ix, iy) * (1.0 - tx) + at(ix + 1, iy) * tx;
+        let bottom = at(ix, iy + 1) * (1.0 - tx) + at(ix + 1, iy + 1) * tx;
+        top * (1.0 - ty) + bottom * ty
     }
 }
 
@@ -140,17 +162,21 @@ impl Icons {
         if let Some(px) = self.kept.get(&key) {
             return Some(px.clone());
         }
-        let mask = self.mask(name)?;
-        let mut out = vec![0u8; (side * side * 4) as usize];
-        for y in 0..side {
-            for x in 0..side {
-                let a = mask.sample(x, y, side).round().clamp(0.0, 255.0) as u32;
-                let i = ((y * side + x) * 4) as usize;
-                out[i] = (u32::from(ink.0) * a / 255) as u8;
-                out[i + 1] = (u32::from(ink.1) * a / 255) as u8;
-                out[i + 2] = (u32::from(ink.2) * a / 255) as u8;
-                out[i + 3] = (u32::from(ink.3) * a / 255) as u8;
+        let size = (key.0.clone(), side);
+        if !self.scaled.contains_key(&size) {
+            let alpha = self.mask(name)?.scaled(side);
+            if self.scaled.len() >= KEPT {
+                self.scaled.clear();
             }
+            self.scaled.insert(size.clone(), alpha);
+        }
+        let mut out = vec![0u8; (side * side * 4) as usize];
+        for (px, &a) in out.chunks_exact_mut(4).zip(&self.scaled[&size]) {
+            let a = u32::from(a);
+            px[0] = (u32::from(ink.0) * a / 255) as u8;
+            px[1] = (u32::from(ink.1) * a / 255) as u8;
+            px[2] = (u32::from(ink.2) * a / 255) as u8;
+            px[3] = (u32::from(ink.3) * a / 255) as u8;
         }
         if self.kept.len() >= KEPT {
             self.kept.clear();
@@ -332,5 +358,50 @@ mod tests {
         assert_eq!(loaded, embedded, "every icon of the folder");
         let ink = Rgba(200, 100, 50, 255);
         assert_eq!(warm.draw("bell-ring", 32, ink), cold.draw("bell-ring", 32, ink));
+    }
+
+    #[test]
+    fn a_shrunk_icon_is_the_mean_of_the_area_each_pixel_covers_pixel_for_pixel() {
+        let mut icons = Icons::new(&module());
+        let mask = icons.mask("wifi").expect("in the folder");
+        let (w, h) = (mask.w as usize, mask.h as usize);
+        for side in 1..mask.w {
+            let f = mask.w as f32 / side as f32;
+            // the definition, one pixel at a time
+            let want: Vec<u8> = (0..side * side)
+                .map(|i| {
+                    let (x, y) = ((i % side) as f32, (i / side) as f32);
+                    let (x0, x1, y0, y1) = (x * f, (x + 1.0) * f, y * f, (y + 1.0) * f);
+                    let (mut sum, mut weight) = (0.0f32, 0.0f32);
+                    let mut sy = y0.floor();
+                    while sy < y1 {
+                        let wy = (sy + 1.0).min(y1) - sy.max(y0);
+                        let mut sx = x0.floor();
+                        while sx < x1 {
+                            let wx = (sx + 1.0).min(x1) - sx.max(x0);
+                            sum += f32::from(mask.alpha[(sy as usize).min(h - 1) * w + (sx as usize).min(w - 1)]) * wx * wy;
+                            weight += wx * wy;
+                            sx += 1.0;
+                        }
+                        sy += 1.0;
+                    }
+                    (sum / weight.max(f32::EPSILON)).round().clamp(0.0, 255.0) as u8
+                })
+                .collect();
+            assert_eq!(mask.scaled(side), want, "side {side}");
+        }
+    }
+
+    #[test]
+    fn an_icon_in_a_new_ink_at_a_side_already_drawn_is_tinted_and_not_scaled_again() {
+        let mut icons = Icons::new(&module());
+        let white = icons.draw("wifi", 26, Rgba(255, 255, 255, 255)).expect("drawn");
+        let ink = Rgba(23, 19, 31, 255);
+        let dark = icons.draw("wifi", 26, ink).expect("drawn");
+        assert_eq!(icons.scaled.len(), 1, "the mask is scaled once for both inks");
+        for (w, d) in white.chunks_exact(4).zip(dark.chunks_exact(4)) {
+            let a = u32::from(w[3]);
+            assert_eq!(d, [ink.0, ink.1, ink.2, ink.3].map(|c| (u32::from(c) * a / 255) as u8));
+        }
     }
 }

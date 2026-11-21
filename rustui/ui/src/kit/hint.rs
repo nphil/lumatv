@@ -4,7 +4,6 @@
 //! (`assets/glyphs/index.json`, `compose`).
 
 use super::Kit;
-use super::glyph;
 use compositor_protocol::{Props, Rgba};
 use lumatv_tokens::TypeRole;
 use ui::components::{Align, Label, style};
@@ -214,10 +213,9 @@ impl HintRow {
             let width = stride * (names.len() as u32 - 1) + side;
             let at = Props::at(x, (y + (h - side as f32) / 2.0).round());
             let mut layer = kit.ui.scene.image(width, side, z, at)?;
-            let mut pixels = vec![0; (side * side * 4) as usize];
             for (i, name) in names.iter().enumerate() {
-                pixels.fill(0);
-                glyph::draw(name, side, glyph_colour_of(kit, name, ink), &mut pixels);
+                let colour = glyph_colour_of(kit, name, ink);
+                let Some(pixels) = kit.glyphs.get(name, side, colour) else { continue };
                 for row in 0..side as usize {
                     let src = row * side as usize * 4;
                     let dst = (row * width as usize + i * stride as usize) * 4;
@@ -280,6 +278,7 @@ impl HintRow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kit::glyph;
 
     #[test]
     fn a_hint_is_glyphs_then_the_action_then_the_label_and_names_itself() {
@@ -300,6 +299,26 @@ mod tests {
         assert_eq!(h.name(), "Hold Back, Home");
         for g in Hint::labelled(Key::Blue, "Record").glyphs() {
             assert!(glyph::known(g), "{g}");
+        }
+    }
+
+    #[test]
+    fn a_hint_row_made_again_copies_its_glyphs_and_rasters_none() {
+        let (_h, mut kit) = crate::kit::testkit::kit(1.0);
+        let hint = Hint::key(Key::Ok, Action::Expand);
+        let at = RowAt { x: 0.0, y: 0.0, h: 40.0, z: 0 };
+        let ink = kit.ui.look.ink2();
+        let first = HintRow::new(&mut kit, &hint, TypeRole::Caption, at, ink).unwrap();
+        assert_eq!(kit.glyphs.count(), 2, "the key's glyph and the action's are drawn once and kept");
+        let again = HintRow::new(&mut kit, &hint, TypeRole::Caption, at, ink).unwrap();
+        assert_eq!(kit.glyphs.count(), 2, "made again, nothing is rastered");
+        let (layer, side) = (&again.glyphs[0].0, glyph_side(&kit, TypeRole::Caption) as usize);
+        assert_eq!(first.glyphs[0].0.pixels(), layer.pixels());
+        // the first slot holds the strokes as they are drawn fresh
+        let fresh = glyph::render("key-ok", side as u32, ink).unwrap();
+        let width = layer.width() as usize;
+        for row in 0..side {
+            assert_eq!(&layer.pixels()[row * width * 4..(row * width + side) * 4], &fresh[row * side * 4..(row + 1) * side * 4], "row {row}");
         }
     }
 }

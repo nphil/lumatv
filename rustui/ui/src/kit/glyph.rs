@@ -4,7 +4,39 @@
 //! size and colour into an image layer and kept.
 
 use compositor_protocol::Rgba;
+use std::collections::HashMap;
 use std::f32::consts::PI;
+
+/// The glyphs [`Kept`] holds at most before it starts over: the hint rows draw a few dozen names, sizes and colours.
+const KEPT: usize = 128;
+
+/// The glyphs drawn so far, by name, side and colour, as [`render`] makes them. A hint row is made again whenever its hints change
+/// (Settings' bar as the focus moves to a row with other keys): it copies them instead of rastering the strokes again, 30 to 280 µs a
+/// glyph on the host.
+#[derive(Default)]
+pub struct Kept {
+    drawn: HashMap<(&'static str, u32, [u8; 4]), Vec<u8>>,
+}
+
+impl Kept {
+    /// The glyph `name`, `side` pixels square, in `colour`; `None` for a name the kit does not know.
+    pub fn get(&mut self, name: &'static str, side: u32, colour: Rgba) -> Option<&[u8]> {
+        let key = (name, side, [colour.0, colour.1, colour.2, colour.3]);
+        if !self.drawn.contains_key(&key) {
+            let pixels = render(name, side, colour)?;
+            if self.drawn.len() >= KEPT {
+                self.drawn.clear();
+            }
+            self.drawn.insert(key, pixels);
+        }
+        self.drawn.get(&key).map(Vec::as_slice)
+    }
+
+    /// How many glyphs are kept: a test sees whether making a row again rastered any.
+    pub fn count(&self) -> usize {
+        self.drawn.len()
+    }
+}
 
 /// A stroke or a fill in the 24-unit box.
 #[derive(Clone, Debug, PartialEq)]
