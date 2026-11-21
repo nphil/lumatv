@@ -54,7 +54,8 @@ Word 1 of an answer is the success the caller checks (`recv[4] == 1`); the open 
 The other types are the compositor's notices to lginput2 on `/IM_MQ_MRCU`, read there by lginput2's `tDevMsgHandler` thread
 (`IM_MAIN_InputDeviceMsgHandleTask`, started once a registration succeeded) and handed to the callbacks it registered:
 2 `SEND_CURSOR_VISIBILITY {2, state}`, 3 `SEND_CURSOR_SUPPORT {3, bool}`, 4 `SEND_CURSOR_SPEED {4, speed}`,
-9 `SEND_CURSOR_POSITION {9, x, y}`, 10 `SEND_CURSOR_STANDBY_TIME {10, ms}`, 14 `SEND_MRCU_CURSOR_ON {14, status}`.
+9 `SEND_CURSOR_POSITION {9, x, y}`, 10 `SEND_CURSOR_STANDBY_TIME {10, ms}`, 14 `SEND_MRCU_CURSOR_ON {14, status}` (the motion status:
+0 wakes the remote, lginput2's `mrcu_command(7)`).
 
 A call is one request and one `mq_timedreceive` of its answer with a 2 s timeout (`IM_CallMethodSyncWithMq`). lginput2 imports three
 functions and makes them from `mrcu_state_create`, inside the add of the remote:
@@ -71,19 +72,28 @@ queue, and the error paths of `IM_MQ_Connect` and `IM_RegisterCursorInfoCallback
 descriptors per reconnect). Had the requests reached 128 the send itself would have blocked 2 s more.
 
 What lginput2 does with the answers (`mrcu_state_registerCursorCallback`, the callbacks, `mrcu_button_event_callback`,
-`mrcu_motion_checkCursorReShow`, all read off `/usr/sbin/lginput2`):
+`mrcu_motion_cursor_callback`, the remote's state machine, all read off `/usr/sbin/lginput2`; addresses are file offsets):
 
 - The dispatch type must be 3 (`IM_INPUT_DISPATCH_ALL`, libim's default `_gInputDispatchType`): 0, 2 and 5 put the remote's state in
   its no-pointer state.
-- Visibility 0 is shown, 1 hidden, 2 hidden with the remote sent to sleep (`lginput_devmngr_command(1)`, `COMMAND_SLEEP from external`),
-  3 unknown. Support 1 applies `0x6d` (pointer on), 0 applies `0x6e`, 2 is left alone. Speed 3 is left alone, 0, 1 and 2 set the motion
+- Visibility 0 is shown, 1 hidden, 2 standby, 3 unknown. A registration's answer only stores it. A notice of 2 also puts the remote's
+  motion to sleep (`_mrcu_state_cursorVisibilityCallback` → `lginput_devmngr_command(1)` → `COMMAND_SLEEP from external`: Motion
+  Sleep to the remote, `[ACTIVE] ==> [SLEEP]`); the Bluetooth link stays up. Every other reader of the visibility tests it for 0 only.
+  Support 1 applies `0x6d` (pointer on), 0 applies `0x6e`, 2 is left alone. Speed 3 is left alone, 0, 1 and 2 set the motion
   library's. The standby time is logged and never read.
 - Told the pointer shows, lginput2 sends the wheel's press as `BTN_LEFT` (272, entry 0 of its key table) instead of `KEY_ENTER` (entry
-  185), and `CUSTOM_KEY_CURSOR_OFF` (1199) before a navigation key. Told it is hidden, it sends `CUSTOM_KEY_CURSOR_ON` (1198) when
-  the remote moves more than 300 pixels from the centre or the wheel turns, asking the compositor for the pointer. Never told, it
-  keeps its initial state (2) and pulses 1198 every 0.5 s while the remote is active.
-- `_mrcu_state_update_cursorOnTimer` (`Retry Cursor On Timer`) runs for 5 s after a failed registration and sends 1198 every 0.5 s
-  while it believes the pointer hidden.
+  185). On a navigation key while the remote is ACTIVE or ACTIVE_READY it sends `CUSTOM_KEY_CURSOR_OFF` (1199) and sets its transfer
+  gate (`remoteInfo+0x114`, set at 0x4f8a2 in `mrcu_button_event_callback`, 0x4f464): `mrcu_motion_cursor_callback` (0x4c980) then
+  passes no position on (`Transfer Cursor Position : [InActivate]`).
+- Only `[ACTIVE_READY] ==> [ACTIVE]` (0x4a71c) clears the gate, 0.4 s after the remote wakes. The wake, `[SLEEP] ==> [ACTIVE_READY]`
+  (0x4ae38), sends `CUSTOM_KEY_CURSOR_ON` (1198); the later transition puts lginput2's cursor at the centre
+  (`lginput_motion_set_force_center_location`, logged `W:1920,H:1080`), so the positions start again from there. A sleeping remote
+  wakes on a wheel turn (`Wake On Wheel`, its 1198 sent before the `REL_WHEEL`) or a shake; an awake one sends no 1198.
+  `mrcu_motion_checkCursorReShow` (0x4d788), which would send 1198 when the remote moves 300 pixels from the centre, has no caller.
+- `_mrcu_state_update_cursorOnTimer` (`Retry Cursor On Timer`, 0x4b018) runs for 5 s after a failed registration and sends 1198 every
+  0.5 s while the remote is ACTIVE and the pointer is not shown.
+- libim's own compositor half reports every hide as standby: `IM_SetCursorVisibility(false)`, its handling of the cursor-off keys and its
+  standby timer all send `{2, 2}`. Hidden (1) goes out only when the cursor is reinitialised or the dispatch type changes to 4.
 
 ## The fix
 
@@ -92,31 +102,59 @@ What lginput2 does with the answers (`mrcu_state_registerCursorCallback`, the ca
 is refused), its descriptor joins the loop's epoll, and every request is answered from the loop within the pass that read it:
 
 - `{5, pid}` gets `{5, 1}` on `/mq_IMOpenAPI_<pid>`; `{8, pid}` gets `{8, 1, 3}`; 7, 12 and 13 get `{type, 1}` (7 is remembered for 8).
-- `{0, pid}` gets `{0, 1, visibility, 1, 3, 10000}` on `/IM_MQ_MRCU`: the pointer's state (0 shown, 1 hidden), support kept on as LG's
+- `{0, pid}` gets `{0, 1, visibility, 1, 3, 10000}` on `/IM_MQ_MRCU`: the pointer's state (0 shown, 2 standby), support kept on as LG's
   default, speed left to lginput2's own, and the compositor's hide timeout (`seat::CURSOR_TIMEOUT`).
 - From then on (and from the start when `/IM_MQ_MRCU` exists: lginput2 registers with LG's compositor at boot and never again in its
-  life) each change of the pointer's visibility is sent as `{2, 0}` or `{2, 1}`. A full queue (nobody reads it) drops the notice and
-  stops them until the next registration. Hidden is 1, never 2: 2 puts the remote to sleep.
+  life) each change of the pointer's visibility is sent at once as `{2, 0}` or `{2, 2}`. A full queue (nobody reads it) drops the
+  notice and stops them until the next registration.
 - Requests found waiting at the start are read and discarded (their callers gave up 2 s after sending), and so is anything waiting on
   a queue before an answer goes on it: libim checks only word 1 of what it reads, so a stale `{5, 1}` would pass for the answer to a
-  later `GET_INPUT_DISPATCH_TYPE` (type 0: no pointer), and a stale notice `{2, 1}` for a registration's answer with support 0.
+  later `GET_INPUT_DISPATCH_TYPE` (type 0: no pointer), and a stale notice would fail a registration.
 - `input.rs` takes `BTN_LEFT` from a device as the wheel's press: the click while the pointer shows, `KEY_ENTER` when it hid first.
 
 `ctl status` reports it under `im`: `registered`, `requests`, `answered`, `unanswered`, `stale`, `purged`, `notices`.
 
 Host tests: `tests/im_queue.rs` (a stand-in lginput2 over private queues makes the three calls with libim's timeout, the
-notices follow the pointer, stale requests and answers are discarded, a full queue drops without blocking, `BTN_LEFT` is the click)
-and the unit tests of `im_queue.rs` (the messages, from the captured bytes).
+notices follow the pointer, stale requests and answers are discarded, a full queue drops without blocking, `BTN_LEFT` is the click,
+a hidden pointer is standby and the next wake shows it at the centre) and the unit tests of `im_queue.rs` (the messages, from the
+captured bytes).
+
+## The pointer that did not follow the remote
+
+With `remote.pointerShow` `wheel`, once an arrow had hidden the pointer, a wheel turn showed it again but it did not follow the remote
+(1 motion in 10 s) until the remote had been laid down and picked up. The compositor reported the hidden pointer as hidden (1), so
+lginput2 kept the remote awake with its transfer gate set, and only a sleep and a wake clear the gate. lginput2's log (2026-11-21, UTC):
+
+```
+07:04:03.852  <<< uinput: but=(CUSTOM_KEY_CURSOR_OFF, 0, success) >>>          before [KEY_LEFT] button press
+07:04:03.853  cursorVisibility: HIDE(1)
+07:04:07.465  cursorVisibility: SHOW(0)                                         the wheel's show; the remote stays ACTIVE
+              three more HIDE(1) and SHOW(0), no state change, no CUSTOM_KEY_CURSOR_ON
+07:04:25.580  {MRCU}(state) :: [ACTIVE] ==> "[SLEEP_READY]", then "[SLEEP]"     laid down
+07:04:36.236  [13] MRCU[S->AR], CUSTOM_KEY_CURSOR_ON
+07:04:36.640  [22] MRCU[AR->A], [29] W:1920,H:1080                             positions again, from the centre
+```
+
+All nine wakes in the logs sent `CUSTOM_KEY_CURSOR_ON` within 1 ms of `[SLEEP] ==> [ACTIVE_READY]`, and every `[22] MRCU[AR->A]`
+(07:02:36.32, 07:03:57.29, 07:04:36.64, 07:09:29.93) is followed by `[29] W:1920,H:1080`.
+
+Every hide is now reported as standby (2), as libim reports it: the remote's motion sleeps, the wheel turn that shows the pointer again
+wakes it (1198, then the notch), and the positions start 0.4 s later. On 1198 a hidden pointer moves to the centre (`seat::cursor_on`),
+so the pointer the notch shows sits where those positions begin. Under `movement` the same wake shows it.
 
 ## The TV check
 
 After the install, with the remote laid down until it sleeps (`MRCU_STATE ... SLEEP`) and picked up:
 
 1. lginput2's log: `STAGE_ADDING` to `STAGE_ADDED` within 100 ms, no `IM_ReceiveMsgWithMq` timeout, no `Retry Cursor On Timer`, and once
-   per lginput2 life ` set cursor status [visibility : 1] [support : 1] [speed : 3] [standby time : 10000msec]` and `ret : TRUE`.
+   per lginput2 life ` set cursor status [visibility : 2] [support : 1] [speed : 3] [standby time : 10000msec]` and `ret : TRUE`.
 2. `cat /dev/mqueue/IM_MQ_WEBOS`: `QSIZE:0`; `ls -l /proc/$(pidof lginput2)/fd | grep -c IM_MQ` does not grow across reconnects.
 3. The compositor's journal: `im: REGISTER_OPENAPI_MQ from pid N ... sent`, `im: GET_INPUT_DISPATCH_TYPE ... sent`,
    `im: REGISTER_INPUTDEVICE_MQ ... cursor info ... sent`; `ctl status` `im.answered` equal to `im.requests`, `im.unanswered` 0.
 4. The first press after waking reaches the set (a key in the journal within the same second as `STAGE_ADDED`).
 5. With the pointer shown by the wheel, the wheel's press arrives as `BTN_LEFT` (272) and clicks; hidden, as `KEY_ENTER` (28) and is OK.
-   The 1198 pulses stop while the pointer shows.
+   1198 comes only with a wake (`[13] MRCU[S->AR]`), never as a pulse.
+6. Shown by the wheel, then an arrow: lginput2 logs `cursorVisibility: STANDBY(2)`, `Opcode(Motion Sleep)` and
+   `{MRCU}(state) :: [ACTIVE] ==> "[SLEEP]"` (`[17] MRCU[A->S]`). The next wheel turn: `[13] MRCU[S->AR]`, `CUSTOM_KEY_CURSOR_ON`,
+   `cursorVisibility: SHOW(0)`, then 0.4 s later `[22] MRCU[AR->A]` and `[29] W:1920,H:1080`. `ctl status` shows the pointer at
+   [960, 540] as it appears, and its `motions` climb while the remote moves.

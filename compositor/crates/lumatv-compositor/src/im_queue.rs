@@ -19,12 +19,16 @@
 //!
 //! What the answers do in lginput2 (its `mrcu_state_*`, read off the binary):
 //! - The dispatch type must be 3 (`IM_INPUT_DISPATCH_ALL`, LG's default): 0, 2 and 5 put the remote's state machine in its no-pointer state.
-//! - The registration's cursor info is `{visibility, support, speed, standby ms}`. Visibility 0 is shown, 1 hidden, 2 hidden with the remote
-//!   sent to sleep (`COMMAND_SLEEP`), 3 unknown. Support 1 keeps the pointer enabled, 0 disables it, 2 leaves it. Speed 3 leaves lginput2's
-//!   own; 0, 1 and 2 set the motion library's. The standby time is logged and nothing else.
-//! - Told the pointer shows, lginput2 sends the wheel's press as `BTN_LEFT` instead of `KEY_ENTER` (entries 0 and 185 of its key table) and
-//!   `CUSTOM_KEY_CURSOR_OFF` (1199) before a navigation key; told it is hidden, it sends `CUSTOM_KEY_CURSOR_ON` (1198) when the remote moves
-//!   far from the centre or the wheel turns, asking for the pointer. Both keys are the compositor's (`input.rs`).
+//! - The registration's cursor info is `{visibility, support, speed, standby ms}`. Visibility 0 is shown, 1 hidden, 2 standby, 3 unknown.
+//!   Support 1 keeps the pointer enabled, 0 disables it, 2 leaves it. Speed 3 leaves lginput2's own; 0, 1 and 2 set the motion library's.
+//!   The standby time is logged and nothing else.
+//! - Told the pointer shows, lginput2 sends the wheel's press as `BTN_LEFT` instead of `KEY_ENTER` (entries 0 and 185 of its key table), and
+//!   on a navigation key it sends `CUSTOM_KEY_CURSOR_OFF` (1199) first and stops passing the remote's positions on. Only the remote's next
+//!   wake starts them again: `CUSTOM_KEY_CURSOR_ON` (1198) as it leaves SLEEP, then the positions 0.4 s later, from the centre of the screen.
+//!   Both keys are the compositor's (`input.rs`).
+//! - Told standby, lginput2 puts the remote's motion to sleep (`COMMAND_SLEEP`), so that its next wheel turn or shake is that wake. LG's
+//!   libim reports every hide as standby. Told hidden, lginput2 left the remote awake with its positions stopped until it was laid down:
+//!   the pointer a wheel turn showed did not follow the remote.
 //!
 //! Nothing here blocks: the queues are opened non-blocking, a full queue drops the message, and the requests left from before the compositor
 //! started are read and discarded at the start (their callers gave up 2 s after sending; an answer now would be read as the answer to the
@@ -90,9 +94,14 @@ pub const DISPATCH_ALL: u32 = 3;
 pub const SUPPORT_CURSOR: u32 = 1;
 /// The speed lginput2 does not apply (`mrcu_state_registerCursorCallback` skips 3): the motion library keeps its own.
 pub const SPEED_KEEP: u32 = 3;
-/// The visibility words: `IM_INPUT_SetCursorVisibility`'s states.
+/// The visibility words (`IM_INPUT_SetCursorVisibility`'s states): shown, and standby, what libim reports for every hide (its cursor-off
+/// key, its standby timer and `IM_SetCursorVisibility(false)`). Hidden (1) leaves the remote's positions stopped after a navigation key.
 pub const VISIBLE: u32 = 0;
-pub const HIDDEN: u32 = 1;
+pub const STANDBY: u32 = 2;
+
+fn visibility(visible: bool) -> u32 {
+    if visible { VISIBLE } else { STANDBY }
+}
 
 /// The compositor's side of the pointer, as the registration answers it and the notifications report it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -143,7 +152,7 @@ pub enum Answer {
 pub fn answer(req: &Request, cursor: CursorInfo, dispatch_type: u32) -> Answer {
     match req.kind {
         msg::REGISTER_INPUTDEVICE_MQ => {
-            Answer::Mrcu(message(&[req.kind, 1, if cursor.visible { VISIBLE } else { HIDDEN }, SUPPORT_CURSOR, SPEED_KEEP, cursor.standby_ms]))
+            Answer::Mrcu(message(&[req.kind, 1, visibility(cursor.visible), SUPPORT_CURSOR, SPEED_KEEP, cursor.standby_ms]))
         }
         msg::REGISTER_OPENAPI_MQ | msg::SET_INPUT_DISPATCH_TYPE | msg::SET_DEACTIVATED_DEVICE_TYPE | msg::ALLOW_TO_SET_DISPATCH_TYPE => {
             Answer::OpenApi(req.pid, message(&[req.kind, 1]))
@@ -155,7 +164,7 @@ pub fn answer(req: &Request, cursor: CursorInfo, dispatch_type: u32) -> Answer {
 
 /// The notification that the pointer showed or hid (`IM_INPUT_SendCursorVisibility`).
 pub fn visibility_notice(visible: bool) -> [u8; MSG_LEN] {
-    message(&[msg::SEND_CURSOR_VISIBILITY, if visible { VISIBLE } else { HIDDEN }])
+    message(&[msg::SEND_CURSOR_VISIBILITY, visibility(visible)])
 }
 
 /// The queues' names: LG's on the set, private ones in the host tests.
@@ -386,7 +395,7 @@ impl ImQueue {
             },
             Answer::Mrcu(m) => {
                 // Whatever waits in the queue now is nobody's: the caller's reader thread starts after this answer, so it would read what
-                // waits before it as the answer (an old notice `{2, 1}` passes for success with support 0, which disables the pointer).
+                // waits before it as the answer (an old notice, `{2, 0}` or `{2, 2}`, lacks the success word 1 and fails the registration).
                 let purged = match self.open_mrcu() {
                     Ok(()) => self.mrcu.as_ref().map_or(0, |q| q.purge(&mut self.buf)),
                     Err(_) => 0,
@@ -401,7 +410,7 @@ impl ImQueue {
                 log(format!(
                     "im: {name} from pid {}: cursor info (visibility {}, support {SUPPORT_CURSOR}, speed {SPEED_KEEP}, standby {} ms) {} on {}{}",
                     req.pid,
-                    if cursor.visible { VISIBLE } else { HIDDEN },
+                    visibility(cursor.visible),
                     cursor.standby_ms,
                     describe(&sent),
                     self.names.mrcu,
@@ -550,9 +559,9 @@ mod tests {
     #[test]
     fn the_registration_is_answered_on_the_mrcu_queue_with_the_cursor_info() {
         let req = parse(&captured(0, 3737)).unwrap();
-        assert_eq!(answer(&req, CURSOR, DISPATCH_ALL), Answer::Mrcu(message(&[0, 1, HIDDEN, 1, 3, 10_000])));
+        assert_eq!(answer(&req, CURSOR, DISPATCH_ALL), Answer::Mrcu(message(&[0, 1, 2, 1, 3, 10_000])));
         let shown = CursorInfo { visible: true, ..CURSOR };
-        assert_eq!(answer(&req, shown, DISPATCH_ALL), Answer::Mrcu(message(&[0, 1, VISIBLE, 1, 3, 10_000])));
+        assert_eq!(answer(&req, shown, DISPATCH_ALL), Answer::Mrcu(message(&[0, 1, 0, 1, 3, 10_000])));
     }
 
     #[test]
@@ -569,8 +578,8 @@ mod tests {
     }
 
     #[test]
-    fn the_visibility_notice_is_lgs_show_and_hide_states() {
+    fn a_hidden_pointer_is_reported_as_standby_as_libim_reports_it() {
         assert_eq!(&visibility_notice(true)[..8], &[2, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(&visibility_notice(false)[..8], &[2, 0, 0, 0, 1, 0, 0, 0]);
+        assert_eq!(&visibility_notice(false)[..8], &[2, 0, 0, 0, 2, 0, 0, 0]);
     }
 }

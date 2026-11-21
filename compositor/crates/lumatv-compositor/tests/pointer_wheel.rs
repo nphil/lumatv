@@ -110,7 +110,7 @@ fn key_1199_is_the_remotes_cursor_off_it_hides_the_pointer_and_is_no_ok_and_the_
     let mut server = Server::start();
     let (mut client, _keep) = pointed(&mut server);
     let seat = SeatId(0);
-    // The pulse the remote sends every 0.5 s while the pointer is active: down and up, and nothing of it is a key or the person's input.
+    // The remote's wake (1198, CUSTOM_KEY_CURSOR_ON): down and up, and nothing of it is a key or the person's input.
     let before = server.eval(|s| (s.keys.delivered, s.keys.dropped, s.seat.last_input));
     server.eval(move |s| {
         s.key_event(seat, KEY_POINTER_ALIVE, true, false);
@@ -150,7 +150,7 @@ fn key_1199_is_the_remotes_cursor_off_it_hides_the_pointer_and_is_no_ok_and_the_
     assert!(client.wait_until(WAIT, |s| s.buttons.len() >= 2));
     assert_eq!(client.state.buttons, vec![(0x110, 1), (0x110, 0)]);
     assert_eq!(client.state.keys.len(), 2, "a click, not a second Enter");
-    // The keep-alive does not hide or show anything either.
+    // A wake does not hide or move the pointer that shows either.
     server.eval(move |s| s.key_event(seat, KEY_POINTER_ALIVE, true, false));
     client.roundtrip();
     assert!(server.eval(|s| s.seat.cursor_visible), "the pointer is still up");
@@ -190,8 +190,8 @@ fn the_wheel_keeps_the_pointer_up_and_stillness_hides_it() {
     assert!(!server.eval(|s| s.seat.cursor_visible));
 }
 
-/// The remote's reports as the set records them (`LGE M-RCU`): the wake pulse and every half second after it (1198), the lay-down (1199, one stamp
-/// for down and up), the wheel press (KEY_ENTER), a one-pixel jitter of the axes.
+/// The remote's reports as the set records them (`LGE M-RCU`): the wake (1198, which lginput2 repeats every half second for up to 5 s after a
+/// failed registration), the lay-down (1199, one stamp for down and up), the wheel press (KEY_ENTER), a one-pixel jitter of the axes.
 fn pulse(s: &mut lumatv_compositor::State) {
     use lumatv_compositor::input::code::KEY_POINTER_ALIVE;
     s.key_event(lumatv_compositor::server::seat::SeatId(0), KEY_POINTER_ALIVE, true, false);
@@ -214,12 +214,11 @@ fn like_lg_shows_the_pointer_on_the_remotes_cursor_on_never_on_jitter_or_a_wheel
     assert!(!server.eval(wheel_turn), "no pointer from a wheel in LG's mode");
     client.roundtrip();
     assert!(!server.eval(|s| s.seat.cursor_visible) && client.state.pointer_enters.is_empty());
-    // the wake: lginput2 says the remote is moved on purpose (CURSOR_ON): the pointer shows where the remote points
-    assert!(server.eval(|s| {
-        remote_motion(s, 10, 20);
-        pulse(s);
-        s.seat.cursor_visible
-    }));
+    // the wake: lginput2 says the remote woke (CURSOR_ON): the pointer shows at the centre of the screen, where lginput2 starts passing the
+    // remote's positions on again, and they move it
+    server.eval(pulse);
+    assert_eq!(server.eval(|s| (s.seat.cursor_visible, s.seat.pointer_position)), (true, (960, 540)));
+    assert!(server.eval(|s| remote_motion(s, 10, 20)));
     assert!(client.wait_until(WAIT, |s| s.pointer_enters.len() == 1 && s.motions.len() == 1 && s.cursor_visibility.last() == Some(&1)));
     assert_eq!(client.state.motions[0], (10.0, 20.0));
     // shown, it follows the remote, and the pulses that follow keep it up (the timer starts again) without a second appearance
@@ -233,15 +232,14 @@ fn like_lg_shows_the_pointer_on_the_remotes_cursor_on_never_on_jitter_or_a_wheel
     assert!(server.eval(|s| s.seat.cursor_visible), "a pulse is activity");
     client.roundtrip();
     assert_eq!(client.state.pointer_enters.len(), 1);
-    // an arrow hides it, and goes on as a key; the jitter that follows shows nothing; the next deliberate move does
+    // an arrow hides it, and goes on as a key; the jitter that follows shows nothing; the next wake does, at the centre
     ctl(&server, "remote 108 tap");
     assert!(client.wait_until(WAIT, |s| s.pointer_leaves >= 1 && s.keys.len() >= 2));
     assert!(!server.eval(|s| remote_motion(s, 31, 40)));
     assert!(!server.eval(|s| s.seat.cursor_visible));
-    assert!(server.eval(|s| {
-        pulse(s);
-        s.seat.cursor_visible
-    }));
+    server.eval(pulse);
+    assert_eq!(server.eval(|s| (s.seat.cursor_visible, s.seat.pointer_position)), (true, (960, 540)));
+    assert!(server.eval(|s| remote_motion(s, 31, 40)));
     assert!(client.wait_until(WAIT, |s| s.pointer_enters.len() == 2));
     // the remote laid down (1199): the pointer goes, no key and no click reach the app
     let keys = client.state.keys.len();
@@ -262,12 +260,11 @@ fn wheel_only_shows_the_pointer_on_a_turn_never_on_cursor_on_jitter_or_motion_an
     let mut server = Server::start();
     let (mut client, _keep) = pointed(&mut server);
     assert_eq!(server.eval(|s| s.keys.pointer_show), PointerShow::Wheel);
-    // the wake pulses and the jitter: nothing
+    // the wake and the positions that follow it: nothing
     server.eval(|s| {
+        pulse(s);
         remote_motion(s, 10, 20);
-        pulse(s);
         remote_motion(s, 11, 20);
-        pulse(s);
     });
     client.roundtrip();
     assert!(!server.eval(|s| s.seat.cursor_visible) && client.state.pointer_enters.is_empty(), "CURSOR_ON shows nothing in this mode");

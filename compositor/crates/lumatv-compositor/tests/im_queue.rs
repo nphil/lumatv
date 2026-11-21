@@ -1,6 +1,7 @@
 //! LG's Input Manager queue (`im_queue`): a stand-in lginput2 makes the calls libim makes at a reconnect of the Magic Remote, over real
 //! POSIX message queues with private names, and gets the answers LG's compositor gave: at once, on the right queue, with the cursor's state.
-//! Then the compositor's pointer: told it shows, the wheel's press arrives as BTN_LEFT and is the click; the notices follow the pointer.
+//! Then the compositor's pointer: told it shows, the wheel's press arrives as BTN_LEFT and is the click; the notices follow the pointer, and a
+//! hidden pointer is standby, so that the remote's next wake shows it where the remote's positions start again.
 
 mod harness;
 
@@ -10,8 +11,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use harness::{Client, Server};
-use lumatv_compositor::im_queue::{CursorInfo, HIDDEN, ImQueue, MSG_LEN, Names, SPEED_KEEP, SUPPORT_CURSOR, VISIBLE, message, msg};
-use lumatv_compositor::server::seat::{BTN_LEFT, WHEEL_SHOW_NOTICE_DELAY, remote_motion, wheel_turn};
+use lumatv_compositor::im_queue::{CursorInfo, ImQueue, MSG_LEN, Names, SPEED_KEEP, STANDBY, SUPPORT_CURSOR, VISIBLE, message, msg};
+use lumatv_compositor::server::seat::{BTN_LEFT, remote_motion, wheel_turn};
 
 const WAIT: Duration = Duration::from_secs(3);
 /// libim waits this long for an answer (`IM_CallMethodSyncWithMq`); the fix is that none takes a measurable part of it.
@@ -173,7 +174,7 @@ fn the_reconnects_three_calls_are_answered_at_once_on_their_queues_and_the_notic
     serve(&mut im, CURSOR);
     let reply = mrcu.receive().expect("the registration is answered");
     assert!(t0.elapsed() < Duration::from_millis(200), "{:?}", t0.elapsed());
-    assert_eq!(&words(&reply)[..7], &[msg::REGISTER_INPUTDEVICE_MQ, 1, HIDDEN, SUPPORT_CURSOR, SPEED_KEEP, 10_000, 0]);
+    assert_eq!(&words(&reply)[..7], &[msg::REGISTER_INPUTDEVICE_MQ, 1, STANDBY, SUPPORT_CURSOR, SPEED_KEEP, 10_000, 0]);
     assert!(im.registered());
     assert_eq!(im.stats.registered_pid, pid);
     assert_eq!((im.stats.requests, im.stats.answered, im.stats.unanswered), (3, 3, 0));
@@ -186,7 +187,7 @@ fn the_reconnects_three_calls_are_answered_at_once_on_their_queues_and_the_notic
     im.cursor_visibility(false, &mut |l| lines.push(l));
     assert!(lines.is_empty(), "{lines:?}");
     assert_eq!(&words(&mrcu.receive().unwrap())[..2], &[msg::SEND_CURSOR_VISIBILITY, VISIBLE]);
-    assert_eq!(&words(&mrcu.receive().unwrap())[..2], &[msg::SEND_CURSOR_VISIBILITY, HIDDEN]);
+    assert_eq!(&words(&mrcu.receive().unwrap())[..2], &[msg::SEND_CURSOR_VISIBILITY, STANDBY]);
     assert_eq!(mrcu.waiting(), 0, "the repeat was not sent");
     assert_eq!(im.stats.notices, 2);
 
@@ -216,7 +217,7 @@ fn messages_waiting_from_before_the_start_are_read_and_discarded() {
         assert!(webos.send(&captured(msg::REGISTER_OPENAPI_MQ, pid)));
         assert!(webos.send(&captured(msg::REGISTER_INPUTDEVICE_MQ, pid)));
     }
-    assert!(mrcu.send(&message(&[msg::SEND_CURSOR_VISIBILITY, HIDDEN])));
+    assert!(mrcu.send(&message(&[msg::SEND_CURSOR_VISIBILITY, STANDBY])));
     assert_eq!((webos.waiting(), mrcu.waiting()), (4, 1));
     let mut im = ImQueue::open_named(names.clone()).unwrap();
     assert_eq!(im.stats.stale, 5);
@@ -299,6 +300,10 @@ fn pointed(server: &mut Server) -> (Client, Box<dyn std::any::Any>) {
     (client, Box::new((win, buf, kb, ptr)))
 }
 
+/// The pointer as lginput2 hears of it. Shown, the wheel's press is BTN_LEFT, and a navigation key makes lginput2 send its cursor-off (1199)
+/// and stop passing the remote's positions on until the remote's next wake. Hidden is standby, libim's word for every hide: lginput2 puts the
+/// remote to sleep, so the wheel turn that shows the pointer again wakes it (1198 before the notch), and the positions start again 0.4 s later
+/// from the centre of the screen, where the pointer showed.
 #[test]
 fn the_compositor_tells_lginput2_of_the_pointer_and_takes_btn_left_as_the_wheels_press() {
     let names = names();
@@ -313,7 +318,7 @@ fn the_compositor_tells_lginput2_of_the_pointer_and_takes_btn_left_as_the_wheels
     assert!(webos.send(&captured(msg::REGISTER_INPUTDEVICE_MQ, pid)));
     server.eval(|s| s.im_poll());
     let reply = mrcu.receive().expect("the registration is answered from the compositor's state");
-    assert_eq!(&words(&reply)[..6], &[0, 1, HIDDEN, SUPPORT_CURSOR, SPEED_KEEP, 10_000], "the pointer is hidden and hides after 10 s");
+    assert_eq!(&words(&reply)[..6], &[0, 1, STANDBY, SUPPORT_CURSOR, SPEED_KEEP, 10_000], "the pointer is hidden and hides after 10 s");
 
     // Hidden, the wheel's press is the key: lginput2 sends KEY_ENTER then, and the app hears it as such.
     server.eval(|s| remote_motion(s, 10, 20));
@@ -328,9 +333,6 @@ fn the_compositor_tells_lginput2_of_the_pointer_and_takes_btn_left_as_the_wheels
     // The wheel shows the pointer: lginput2 is told (and from then on sends the wheel's press as BTN_LEFT).
     assert!(server.eval(wheel_turn));
     assert!(client.wait_until(WAIT, |s| !s.pointer_enters.is_empty()));
-    // Not at once: lginput2 must still believe the pointer hidden while it handles the notch, or it never asks for the motion (1198).
-    assert_eq!(mrcu.waiting(), 0, "the notice waits for lginput2 to handle the notch");
-    server.eval(|s| lumatv_compositor::server::seat::poll_im_show(s, Instant::now() + WHEEL_SHOW_NOTICE_DELAY));
     assert_eq!(&words(&mrcu.receive().expect("shown is told"))[..2], &[msg::SEND_CURSOR_VISIBILITY, VISIBLE]);
     server.eval(move |s| {
         s.key_event(lumatv_compositor::server::seat::SeatId(0), BTN_LEFT, true, false);
@@ -340,13 +342,17 @@ fn the_compositor_tells_lginput2_of_the_pointer_and_takes_btn_left_as_the_wheels
     assert_eq!(client.state.buttons, vec![(0x110, 1), (0x110, 0)], "the click on what the pointer points at");
     assert_eq!(client.state.keys.len(), 2, "no key for it");
 
-    // An arrow hides the pointer: lginput2 is told; a BTN_LEFT that still arrives after that (lginput2 had not read the notice) is OK, the key.
+    // An arrow: lginput2, told the pointer shows, sends its cursor-off (1199) before it. The pointer hides and lginput2 is told standby, once;
+    // a BTN_LEFT that still arrives after that (lginput2 had not read the notice) is OK, the key.
     server.eval(|s| {
+        s.key_event(lumatv_compositor::server::seat::SeatId(0), 1199, true, false);
+        s.key_event(lumatv_compositor::server::seat::SeatId(0), 1199, false, false);
         s.key_event(lumatv_compositor::server::seat::SeatId(0), 106, true, false);
         s.key_event(lumatv_compositor::server::seat::SeatId(0), 106, false, false);
     });
     assert!(client.wait_until(WAIT, |s| s.keys.len() >= 4));
-    assert_eq!(&words(&mrcu.receive().expect("hidden is told"))[..2], &[msg::SEND_CURSOR_VISIBILITY, HIDDEN]);
+    assert_eq!(&words(&mrcu.receive().expect("standby is told"))[..2], &[msg::SEND_CURSOR_VISIBILITY, STANDBY]);
+    assert_eq!(mrcu.waiting(), 0, "the arrow's hide was no second notice");
     server.eval(move |s| {
         s.key_event(lumatv_compositor::server::seat::SeatId(0), BTN_LEFT, true, false);
         s.key_event(lumatv_compositor::server::seat::SeatId(0), BTN_LEFT, false, false);
@@ -354,8 +360,20 @@ fn the_compositor_tells_lginput2_of_the_pointer_and_takes_btn_left_as_the_wheels
     assert!(client.wait_until(WAIT, |s| s.keys.len() >= 6));
     assert_eq!(&client.state.keys[4..], &[(28, 1), (28, 0)]);
     assert_eq!(client.state.buttons.len(), 2, "no click without a pointer");
+
+    // The wheel turn of the sleeping remote: its wake (1198) comes before the notch. The pointer shows at the centre, where the remote's
+    // positions start again, and follows them.
+    server.eval(|s| {
+        s.key_event(lumatv_compositor::server::seat::SeatId(0), 1198, true, false);
+        s.key_event(lumatv_compositor::server::seat::SeatId(0), 1198, false, false);
+        wheel_turn(s);
+    });
+    assert_eq!(server.eval(|s| (s.seat.cursor_visible, s.seat.pointer_position)), (true, (960, 540)));
+    assert_eq!(&words(&mrcu.receive().expect("shown is told"))[..2], &[msg::SEND_CURSOR_VISIBILITY, VISIBLE]);
+    assert!(server.eval(|s| remote_motion(s, 30, 40)));
+    assert!(client.wait_until(WAIT, |s| s.motions.last() == Some(&(30.0, 40.0))));
     let status = server.eval(|s| lumatv_compositor::control::handle(s, "status").text());
     let status: serde_json::Value = serde_json::from_str(&status).unwrap();
     assert_eq!(status["im"]["registered"], true);
-    assert_eq!(status["im"]["notices"], 2);
+    assert_eq!(status["im"]["notices"], 3);
 }

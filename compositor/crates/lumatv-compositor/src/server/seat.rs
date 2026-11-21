@@ -58,10 +58,6 @@ pub struct SeatState {
     pub pointer_focus_rect: crate::Rect,
     /// When the cursor was last shown or moved, for the timeout.
     pub cursor_shown_at: Option<std::time::Instant>,
-    /// The pointer was shown by a turn of the wheel and lginput2 is told at this time, not at once ([`WHEEL_SHOW_NOTICE_DELAY`]).
-    pub im_show_due: Option<std::time::Instant>,
-    /// Set while a wheel notch shows the pointer, for [`set_cursor_visible`].
-    pub showing_by_wheel: bool,
     pub motions: u64,
     /// A press of the pointer's button was delivered to a client and its release is owed: a release with no press seen is nothing.
     pub button_down: bool,
@@ -85,8 +81,8 @@ pub enum PointerShow {
     /// A turn of the wheel shows it, where the remote points. The default.
     #[default]
     Wheel,
-    /// LG's behaviour: the pointer shows when the remote's input service says it is moved on purpose (its cursor-on report, 1198, which it repeats
-    /// every half second while the remote is in the hand), and a wheel turn alone does not show it.
+    /// LG's behaviour: the pointer shows as the remote wakes (its input service's cursor-on report, 1198; a shake or a wheel turn wakes a
+    /// sleeping remote), and a wheel turn of an awake remote does not show it.
     Movement,
 }
 
@@ -370,8 +366,8 @@ pub fn tap_app_key(state: &mut State, app: &str, code: u32) -> bool {
 }
 
 /// The Magic Remote's pointer axes reported `(x, y)`: [`pointer_motion`] where the pointer shows; otherwise only where the remote points is kept,
-/// so that a turn of the wheel ([`PointerShow::Wheel`]) or the remote's cursor-on report ([`PointerShow::Movement`]) shows the pointer there. A hidden
-/// pointer is nobody's: no client hears of the motion, and it is no input to the screen's care or to `getLastInputType`.
+/// so that a turn of the wheel ([`PointerShow::Wheel`]) shows the pointer there. A hidden pointer is nobody's: no client hears of the motion, and
+/// it is no input to the screen's care or to `getLastInputType`.
 pub fn remote_motion(state: &mut State, x: i32, y: i32) -> bool {
     if state.seat.cursor_visible {
         return pointer_motion(state, x, y);
@@ -380,19 +376,22 @@ pub fn remote_motion(state: &mut State, x: i32, y: i32) -> bool {
     false
 }
 
-/// The remote's cursor-on report (key 1198, down and up; every half second while its pointer is active): under [`PointerShow::Movement`] it shows
-/// the pointer where the remote points and, while the pointer shows, keeps it up. It is no key and no input of the person's otherwise.
-/// Returns whether a client heard the pointer appear.
+/// The remote's cursor-on report (key 1198, down and up): lginput2 sends it as the remote wakes (`[SLEEP] ==> [ACTIVE_READY]`) and passes
+/// its positions on again 0.4 s later, from the centre of the screen (`lginput_motion_set_force_center_location`, 960 x 540 of its 1920 x 1080,
+/// as the remote enters ACTIVE). A hidden pointer is put there, so that the pointer shown next does not jump when the positions come. Under
+/// [`PointerShow::Movement`] the report shows the pointer and keeps a shown one up. It is no key and no input of the person's. Returns whether
+/// a client heard the pointer appear.
 pub fn cursor_on(state: &mut State) -> bool {
-    if state.keys.pointer_show != PointerShow::Movement {
-        return false;
-    }
+    let movement = state.keys.pointer_show == PointerShow::Movement;
     if state.seat.cursor_visible {
-        state.seat.cursor_shown_at = Some(std::time::Instant::now());
+        if movement {
+            state.seat.cursor_shown_at = Some(std::time::Instant::now());
+        }
         return false;
     }
-    let (x, y) = state.seat.pointer_position;
-    pointer_motion(state, x, y)
+    let centre = (crate::OUTPUT_WIDTH as i32 / 2, crate::OUTPUT_HEIGHT as i32 / 2);
+    state.seat.pointer_position = centre;
+    movement && pointer_motion(state, centre.0, centre.1)
 }
 
 /// A notch of the Magic Remote's wheel: under [`PointerShow::Wheel`] it shows the pointer where the remote points, and while the pointer
@@ -409,10 +408,7 @@ pub fn wheel_turn(state: &mut State) -> bool {
     }
     if state.keys.pointer_show == PointerShow::Wheel {
         let (x, y) = state.seat.pointer_position;
-        state.seat.showing_by_wheel = true;
-        let heard = pointer_motion(state, x, y);
-        state.seat.showing_by_wheel = false;
-        return heard;
+        return pointer_motion(state, x, y);
     }
     false
 }
@@ -531,7 +527,8 @@ pub fn hide_cursor(state: &mut State) {
 
 /// Every client hears when the cursor appears or goes (`wl_webos_input_manager.cursor_visibility`): LG's web and
 /// native apps switch between pointer hover and 5-way focus on it. So does lginput2, over LG's Input Manager queue (`im_queue`): it sends
-/// the wheel's press as the mouse button while the pointer shows, and asks for the pointer (1198) while it is hidden.
+/// the wheel's press as the mouse button while the pointer shows, and on a hide (standby) puts the remote's motion to sleep, so that the
+/// remote's next wake ([`cursor_on`]) passes its positions on again.
 fn set_cursor_visible(state: &mut State, visible: bool) {
     if state.seat.cursor_visible == visible {
         return;
@@ -541,32 +538,9 @@ fn set_cursor_visible(state: &mut State, visible: bool) {
     for r in &state.seat.input_managers {
         r.cursor_visibility(visible as u32, None);
     }
-    if visible && state.seat.showing_by_wheel {
-        // lginput2 sends the remote's cursor-on report (1198), which starts the motion it streams, only while it still believes the pointer
-        // hidden when it handles the notch. Told at once (the notice reaches it 0.75 ms after the notch; 2929 motions before the wake and 1
-        // after on 2026-11-21), it never sends it and the pointer shows but does not follow the remote.
-        state.seat.im_show_due = Some(std::time::Instant::now() + WHEEL_SHOW_NOTICE_DELAY);
-    } else {
-        state.seat.im_show_due = None;
-        state.im_cursor_visible(visible);
-    }
+    state.im_cursor_visible(visible);
     state.pointer_sync();
     state.shell_sync_topics();
-}
-
-/// How long lginput2 is left believing the pointer hidden after a wheel notch showed it (it handles a notch within a few ms).
-pub const WHEEL_SHOW_NOTICE_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
-
-/// Tells lginput2 the pointer shows once the wheel's grace has passed, if it still does.
-pub fn poll_im_show(state: &mut State, now: std::time::Instant) {
-    if let Some(due) = state.seat.im_show_due
-        && now >= due
-    {
-        state.seat.im_show_due = None;
-        if state.seat.cursor_visible {
-            state.im_cursor_visible(true);
-        }
-    }
 }
 
 impl State {

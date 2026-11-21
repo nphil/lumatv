@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The Magic Remote's pointer follows the remote again after arrow keys hid it and the wheel brought it back. The compositor told lginput2 "hidden", which left the remote awake with its position feed gated until it next slept; it now says "standby" as LG's compositor does, so the next wheel turn or movement wakes the remote and positions flow. A pointer brought back this way appears at the screen centre, where lginput2 restarts its positions.
+
 Settings, the quick panel and every hint row do less drawing on the UI thread, with the same pixels. A hint's key and action glyphs are drawn once for each size and colour and kept, where every change of hints drew them again (30–280 µs a glyph on the host, about 0.95 ms for each Settings bar update). Icons are scaled once for each size and then only tinted for each ink, so the rail's icon in the chosen row's ink is a tint, and the scaling works out each source column's and row's share once instead of for every pixel, about twice as fast.
 
 LumaTV can replace LG's memory manager (memchute) with its own, off until `lumatv mm on`: launches get room by closing background apps oldest first (third-party before LG's, never Home, LumaTV's or LG's kept apps), with the levels, signals and preload gate LG's callers expect. Whenever LumaTV's side stops, LG's memory manager takes over within seconds and the phone is told; three failures in ten minutes leave LG's in charge until the next boot. Not yet checked on the TV.

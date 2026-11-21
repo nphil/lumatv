@@ -72,10 +72,11 @@ pub mod code {
     pub const KEY_NETFLIX: u32 = 1037;
     pub const KEY_AMAZON: u32 = 1038;
     /// The Magic Remote's CUSTOM_KEY_CURSOR_OFF (`LGE M-RCU`, key 1199, down and up in one report): lginput2 sends it when the remote is laid down and goes
-    /// to sleep (ACTIVE, SLEEP_READY, SLEEP). It is the remote saying its pointer is gone, never the person's OK: round 19 caught the focused tile
-    /// launching 3 to 9 ms after it, with no OK before it.
+    /// to sleep (ACTIVE, SLEEP_READY, SLEEP), and before a navigation key while it believes the pointer shown. It is the remote saying its pointer is
+    /// gone, never the person's OK: round 19 caught the focused tile launching 3 to 9 ms after it, with no OK before it.
     pub const KEY_CURSOR_OFF: u32 = 1199;
-    /// The pulse (1198, CUSTOM_KEY_CURSOR_ON, down and up) the same remote sends every 0.5 s while its pointer is active, to keep it alive: no key at all.
+    /// CUSTOM_KEY_CURSOR_ON (1198, down and up), which the same remote sends as it wakes (`seat::cursor_on`): no key at all. lginput2 repeats it
+    /// every 0.5 s, for at most 5 s, only after a registration with the compositor failed.
     pub const KEY_POINTER_ALIVE: u32 = 1198;
 }
 
@@ -847,8 +848,8 @@ impl State {
 
     /// [`State::key_event`] at a given time, which is what the holds are measured against (the host tests move it by hand).
     pub fn key_event_at(&mut self, seat: seat::SeatId, code: u32, pressed: bool, from_network: bool, now: Instant) {
-        // The Magic Remote's cursor-on pulse (1198, every 0.5 s while its pointer is active) is no key and no input of the person's: under
-        // `remote.pointerShow` `movement` it shows the pointer (LG's behaviour), otherwise nothing.
+        // The Magic Remote's cursor-on report (1198, sent as it wakes) is no key and no input of the person's: it puts a hidden pointer where
+        // the remote's positions start again, and under `remote.pointerShow` `movement` shows it (LG's behaviour).
         // Its cursor-off report (1199, sent as the remote is laid down) is the pointer going away: the cursor is hidden and no client hears a key.
         match code {
             code::KEY_POINTER_ALIVE => {
@@ -1054,7 +1055,6 @@ impl State {
             };
             self.run_actions(actions);
         }
-        seat::poll_im_show(self, now);
         if self.seat.cursor_visible
             && let Some(t) = self.seat.cursor_shown_at
             && t.elapsed() >= seat::CURSOR_TIMEOUT
