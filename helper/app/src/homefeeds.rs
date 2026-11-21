@@ -402,8 +402,10 @@ fn run(ctx: &Ctx, rx: &Receiver<Cmd>, env: &Env) {
             more.publish(ctx);
         }
         let on = screen::is_on(&ctx.hub);
+        // Game mode holds every fetch, a forced one too, until it ends and wakes this loop.
+        let paused = crate::app_priority::game::FEEDS.paused();
         let mut waiting_for: Option<u64> = None;
-        {
+        if !paused {
             let now = now_ms();
             if (on || weather.force) && now >= weather.due_at() {
                 weather.attempt(env, &cache);
@@ -424,7 +426,7 @@ fn run(ctx: &Ctx, rx: &Receiver<Cmd>, env: &Env) {
                 more.publish(ctx);
             }
         }
-        if on {
+        if on && !paused {
             waiting_for = Some(weather.due_at().min(news.due_at()).min(more.due_at()));
         }
         let command = match waiting_for {

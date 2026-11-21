@@ -36,7 +36,10 @@
 //! back everything.
 //!
 //! Topic `app_priority`: `{enabled, front, apps: [{id, state, adj, background, frozen, softLimit}], pressure, closed}`.
+//!
+//! Game mode ([`game`]) sits on top: while a native game is in front it closes and reclaims what the policy would only demote.
 
+pub mod game;
 pub mod lg;
 pub mod memchute;
 pub mod os;
@@ -194,6 +197,7 @@ pub struct Engine {
     quiet_until: Option<Instant>,
     closes: VecDeque<(Instant, String, &'static str)>,
     trimming: Arc<AtomicBool>,
+    game: game::Game,
 }
 
 impl Engine {
@@ -230,6 +234,7 @@ impl Engine {
             quiet_until: None,
             closes: VecDeque::new(),
             trimming: Arc::new(AtomicBool::new(false)),
+            game: game::Game::new(),
         }
     }
 
@@ -261,6 +266,7 @@ impl Engine {
         }
         self.front = Some(ids);
         self.reconcile(now);
+        self.game_check(now);
     }
 
     /// An app's life status changed: anything but `background` thaws it at once.
@@ -280,6 +286,7 @@ impl Engine {
 
     /// The subscriptions ended: with no way to tell which app is in front, nothing stays demoted.
     pub fn lost(&mut self, why: &str) {
+        self.game_exit("subscription");
         self.front = None;
         if !self.held.is_empty() {
             self.restore_all(why);
@@ -427,6 +434,7 @@ impl Engine {
         if self.front.is_none() {
             return;
         }
+        self.game_check(now);
         let due = |at: Option<Instant>, every: Duration| at.is_none_or(|t| now.saturating_duration_since(t) >= every);
         if !self.held.is_empty() && due(self.refreshed, self.timing.refresh) {
             self.refresh(now);
@@ -527,8 +535,8 @@ impl Engine {
     /// When the policy next has something to do on its own.
     pub fn next(&self, now: Instant) -> Option<Instant> {
         self.front.as_ref()?;
+        let mut next: Option<Instant> = self.game_next(now);
         let bands = self.bands(now);
-        let mut next: Option<Instant> = None;
         let mut at = |t: Instant| next = Some(next.map_or(t, |n| n.min(t)));
         for (app, band) in &bands {
             if let Some(t) = self.seen.get(app).and_then(|s| s.launching_until) {
@@ -640,14 +648,16 @@ pub fn recover(os: &dyn Os, journal: &Path) {
     let _ = os.drop_background();
 }
 
-enum Msg {
+pub(crate) enum Msg {
     Front(Vec<String>),
     Life(String, String),
+    /// The API's game mode request, answered with game mode's status.
+    Game(bool, String, mpsc::Sender<Value>),
     Stop,
 }
 
 /// Puts back an earlier run's changes and, unless switched off, starts the policy's thread.
-pub fn spawn(ctx: &Ctx) -> std::io::Result<JoinHandle<()>> {
+pub fn spawn(ctx: &Ctx, remote: Arc<game::Remote>) -> std::io::Result<JoinHandle<()>> {
     let os: Arc<dyn Os> = Arc::new(Fs::lg());
     recover(&*os, Path::new(JOURNAL));
     let ctx = ctx.clone();
@@ -656,14 +666,16 @@ pub fn spawn(ctx: &Ctx) -> std::io::Result<JoinHandle<()>> {
         .stack_size(256 * 1024)
         .spawn(move || {
             if ctx.config.app_priority.enabled {
-                run(&ctx, os);
+                run(&ctx, os, &remote);
             } else {
                 ctx.hub.set(TOPIC, json!({"enabled": false}));
+                // Game mode is part of the policy: off with it.
+                ctx.hub.set(game::TOPIC, json!({"switch": false, "on": false, "app": null, "since": null, "steps": [], "lastExit": null}));
             }
         })
 }
 
-fn run(ctx: &Ctx, os: Arc<dyn Os>) {
+fn run(ctx: &Ctx, os: Arc<dyn Os>, remote: &game::Remote) {
     let (tx, rx) = mpsc::channel();
     {
         let tx = tx.clone();
@@ -681,6 +693,8 @@ fn run(ctx: &Ctx, os: Arc<dyn Os>) {
     });
     let memchute = Some(Memchute::read(Path::new(memchute::LAYERS)));
     let mut engine = Engine::new(os, lg, Timing::default(), memchute, ours, Some(PathBuf::from(JOURNAL)), run, Instant::now());
+    engine.set_game(game::theme_switch(ctx.paths.theme_file()), &game::FEEDS);
+    remote.attach(Some(tx.clone()));
     let mut follows: Vec<Follow> = Vec::new();
     let mut retry_at: Option<Instant> = None;
     loop {
@@ -709,15 +723,22 @@ fn run(ctx: &Ctx, os: Arc<dyn Os>) {
             Ok(Msg::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Ok(Msg::Front(ids)) => engine.front(ids, Instant::now()),
             Ok(Msg::Life(app, status)) => engine.life(&app, &status, Instant::now()),
+            Ok(Msg::Game(on, app, reply)) => {
+                let _ = reply.send(engine.game_request(on, &app, Instant::now()));
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
         let now = Instant::now();
         engine.tick(now);
         ctx.hub.set_ignoring(TOPIC, engine.status(now), &["pressure"]);
+        ctx.hub.set(game::TOPIC, engine.game_status());
     }
+    remote.attach(None);
     drop(follows);
+    engine.game_exit("stop");
     engine.restore_all("helper stop");
     ctx.hub.set(TOPIC, engine.status(Instant::now()));
+    ctx.hub.set(game::TOPIC, engine.game_status());
 }
 
 fn subscribe(luna: &str, tx: &mpsc::Sender<Msg>) -> std::io::Result<Vec<Follow>> {

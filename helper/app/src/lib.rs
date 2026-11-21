@@ -35,7 +35,7 @@
 //! | [`capture`] | screenshots and screen recordings: the door to the compositor's capture, behind `capture.enabled` (off by default) |
 //! | [`previews`] | the picker's input pictures: LG's capture service asked for the video plane, kept small, behind Settings' `inputs.previews` (on) |
 //! | [`gfn_boost`] | the GeForce NOW app's pad reader thread at real-time priority (FIFO 10, off CPU 0), the one privilege its jail cannot give itself |
-//! | [`app_priority`] | foreground priority after Android's process states: cached apps ranked by `oom_score_adj`, a low-weight CPU group, frozen after 10 s, reclaimed and, at lmkd's pressure, closed oldest first; core, always on, everything put back by every way out |
+//! | [`app_priority`] | foreground priority after Android's process states: cached apps ranked by `oom_score_adj`, a low-weight CPU group, frozen after 10 s, reclaimed and, at lmkd's pressure, closed oldest first; core, always on, everything put back by every way out. Game mode on top: a native game in front gets background apps closed, feeds paused and memory reclaimed (`/v1/gamemode`) |
 //! | [`displaylab`] | the display lab: the shell's guided look at the OSD sharpener, dimming and a cut-out window, written through one hard list, journaled, read back and put back by every way out (the dead-man, the helper's stop, the next start); the TV's own shell only |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
 

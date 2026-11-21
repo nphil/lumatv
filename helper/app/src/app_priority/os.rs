@@ -40,6 +40,10 @@ pub trait Os: Send + Sync {
     /// Reclaims what the app's memory cgroup holds (`memory.force_empty`); blocks until the kernel has done what it can.
     fn reclaim(&self, app: &str) -> io::Result<()>;
     fn sample(&self) -> Option<Sample>;
+    /// `MemAvailable` of `/proc/meminfo`, in kB.
+    fn available_kb(&self) -> Option<u64>;
+    /// Writes one of the kernel's `/proc/sys/vm` knobs (`compact_memory`, `drop_caches`); blocks while the kernel does it.
+    fn vm(&self, name: &str, value: &str) -> io::Result<()>;
 }
 
 /// The soft limit a v1 memory cgroup reads back when it has none; written as `-1`.
@@ -220,6 +224,21 @@ impl Os for Fs {
             &read("zoneinfo").unwrap_or_default(),
         )
     }
+
+    fn available_kb(&self) -> Option<u64> {
+        fs::read_to_string(self.proc.join("meminfo"))
+            .ok()?
+            .lines()
+            .find_map(|l| l.strip_prefix("MemAvailable:"))?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()
+    }
+
+    fn vm(&self, name: &str, value: &str) -> io::Result<()> {
+        put(self.proc.join("sys/vm").join(name), value)
+    }
 }
 
 #[cfg(test)]
@@ -288,5 +307,16 @@ mod tests {
         assert_eq!(fs::read_to_string(dir.path().join("memory/app/memory.soft_limit_in_bytes")).unwrap(), "-1");
         os.set_soft_limit("app", 0).unwrap();
         assert_eq!(os.soft_limit("app"), Some(0));
+    }
+
+    #[test]
+    fn available_memory_is_read_and_vm_knobs_are_written_under_proc() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("sys/vm")).unwrap();
+        fs::write(dir.path().join("meminfo"), "MemTotal:  1952000 kB\nMemFree:  100 kB\nMemAvailable:  612340 kB\n").unwrap();
+        let os = Fs::new(dir.path(), dir.path());
+        assert_eq!(os.available_kb(), Some(612_340));
+        os.vm("drop_caches", "1").unwrap();
+        assert_eq!(fs::read_to_string(dir.path().join("sys/vm/drop_caches")).unwrap(), "1");
     }
 }

@@ -552,6 +552,8 @@ enum Event {
     /// The Plex account's server changed.
     Plex,
     Refresh,
+    /// Game mode ended: what fell due while it held the downloads runs now.
+    Resume,
     Stop,
 }
 
@@ -594,6 +596,12 @@ fn spawn_with(
         let tx = tx.clone();
         plex.on_change(move || {
             let _ = tx.send(Event::Plex);
+        });
+    }
+    {
+        let tx = tx.clone();
+        crate::app_priority::game::FEEDS.on_resume(move || {
+            let _ = tx.send(Event::Resume);
         });
     }
     let dir = dir_of(&ctx.paths);
@@ -666,12 +674,13 @@ impl Plugin {
                 }
                 Ok(Event::Secret | Event::Plex) => self.configure(),
                 Ok(Event::Refresh) => self.guide.refresh_soon(now_ms() as i64),
-                Err(RecvTimeoutError::Timeout) => {}
+                Ok(Event::Resume) | Err(RecvTimeoutError::Timeout) => {}
             }
             if self.ctx.stop.is_set() {
                 break;
             }
-            if self.on {
+            // Game mode holds the downloads until it ends.
+            if self.on && !crate::app_priority::game::FEEDS.paused() {
                 self.work();
             }
             self.publish();
@@ -681,7 +690,7 @@ impl Plugin {
 
     /// Until the channels are due again or a source is, at most [`LONGEST_SLEEP`].
     fn sleep(&self) -> Duration {
-        if !self.on {
+        if !self.on || crate::app_priority::game::FEEDS.paused() {
             return LONGEST_SLEEP;
         }
         let now = Instant::now();

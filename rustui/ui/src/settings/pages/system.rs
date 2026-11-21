@@ -91,6 +91,21 @@ fn dim_after(c: &Ctx) -> Row {
     row
 }
 
+/// Game mode (the theme's `system.gameMode`, read by the helper): on unless the theme says `false`.
+fn game_mode(c: &Ctx) -> Row {
+    let on = c.theme_at("system.gameMode").and_then(Value::as_bool).unwrap_or(true);
+    Row::toggle("gamemode")
+        .tab(0)
+        .icon("gamepad-2")
+        .label("Game mode")
+        .help("While a game is on screen, closes apps left in the background and frees memory for it. Going back to Home takes a moment longer.")
+        .on(on)
+        .act(|a| match a {
+            Arg::Toggle(v) => vec![Op::Patch(patch_of("system.gameMode", json!(v)))],
+            _ => Vec::new(),
+        })
+}
+
 fn go(page: &str) -> Vec<Op> {
     vec![Op::Open { page: page.into(), arg: PageArg::None }]
 }
@@ -112,6 +127,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(c.seg(Spec::new("time.noOperationAutoOff").tab(0).icon("power").label("No Operation Auto Off").help("No key for this long turns the TV off.").options(&["Off", "3 h", "6 h", "12 h", "24 h"]).values(&["off", "3", "6", "12", "24"]).lg_shown()));
     rows.push(Row::link("safety").tab(0).icon("shield").label("Safety").help("Which locks are on. A lock changes only with the PIN, in LG's screen.").does(go("safety")));
     rows.push(Row::link("capture").tab(0).icon("camera").label("Screenshots & recording").does(go("capture")));
+    rows.push(game_mode(c));
     rows.push(lg_launch("lg", "Open LG settings", "", "").tab(0).help("LG's full Settings app, themed. For what LumaTV does not cover: the account, apps and channel lists."));
 
     // ---- Time & power
@@ -409,6 +425,18 @@ mod tests {
         assert_eq!(by_id(&r, "lg").label, "Open LG settings");
         assert!(matches!(&(by_id(&r, "lg").act.as_ref().unwrap())(Arg::Press)[..], [Op::Launch { app, .. }] if app == "com.palm.app.settings"));
         assert_eq!(by_id(&r, "time.noOperationAutoOff").index, Some(0));
+    }
+
+    #[test]
+    fn game_mode_is_on_until_the_theme_says_otherwise_and_writes_the_theme() {
+        let mut w = world();
+        let r = rows(&w.ctx());
+        let row = by_id(&r, "gamemode");
+        assert!(row.on && row.tab == 0);
+        let ops = (row.act.as_ref().unwrap())(Arg::Toggle(false));
+        assert!(matches!(&ops[..], [Op::Patch(p)] if p == &json!({"system": {"gameMode": false}})));
+        w.theme = json!({"system": {"gameMode": false}});
+        assert!(!by_id(&rows(&w.ctx()), "gamemode").on);
     }
 
     #[test]

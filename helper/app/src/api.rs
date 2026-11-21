@@ -15,6 +15,7 @@
 //! | `POST /v1/receiver/volume` | send the level the volume display shows to the receiver: `{"level": 0 to 98}` (`receiver_volume.rs`) |
 //! | `GET /v1/receiver/settings`, `POST /v1/receiver/set` | receiver settings and typed writes |
 //! | `POST /v1/refresh` | fetch weather and news now |
+//! | `GET /v1/gamemode`, `POST /v1/gamemode` | game mode: `{"on": bool, "appId"}`, a 30 s lease while that app is in front (`app_priority/game.rs`) |
 //! | `GET /v1/settings`, `GET /v1/settings/{owner}`, `POST /v1/settings/{owner}` | the settings layer |
 //! | `GET /v1/voice`, `POST /v1/voice/{listen,stop,cancel,refresh}` | voice search (`voice.rs`) |
 //! | `GET /v1/profiles`, `POST /v1/profiles/switch`, `POST|DELETE /v1/profiles/{id}`, `/v1/profiles/{id}/pin`, `/{id}/avatar`, `/options`, `/gallery` | local profiles (`profiles.rs`) |
@@ -134,6 +135,12 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
         "/v1/settings/{owner}",
         "a transaction: {\"changes\": [{\"key\", \"value\"}], \"ifVersion\": n (optional)}",
     ),
+    ("GET", "/v1/gamemode", "game mode: whether it is on, for which app, and what each entry step freed"),
+    (
+        "POST",
+        "/v1/gamemode",
+        "game mode for the app in front: {\"on\": true, \"appId\"} counts 30 s and is renewed by asking again; {\"on\": false, \"appId\"} ends it until the app leaves the front",
+    ),
 ];
 
 /// The API's handler.
@@ -170,6 +177,8 @@ pub struct Api {
     pub lgchannels: Arc<crate::lgchannels::Channels>,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
+    /// Game mode's requests (`/v1/gamemode`), answered by the foreground-priority thread.
+    pub gamemode: Arc<crate::app_priority::game::Remote>,
     /// The full weather view's radar and base map (`/v1/wx/...`).
     pub wx: Arc<crate::wxview::WxView>,
     /// Weather from a Home Assistant entity: the list the Settings picker offers (`/v1/weather/entities`).
@@ -602,6 +611,30 @@ impl Api {
         )
     }
 
+    fn gamemode_get(&self) -> Response {
+        match self.hub.get(crate::app_priority::game::TOPIC) {
+            Some(status) => self.ok(json!({"gameMode": status})),
+            None => error_response(503, "game_mode_unavailable", "game mode has not started"),
+        }
+    }
+
+    fn gamemode_post(&self, request: &Request) -> Response {
+        let body = match body_object(request) {
+            Ok(b) => b,
+            Err(r) => return r,
+        };
+        let Some(on) = body.get("on").and_then(Value::as_bool) else {
+            return bad_request("on must be true or false");
+        };
+        let Some(app) = body.get("appId").and_then(Value::as_str).filter(|a| crate::app_priority::lg::valid_id(a)) else {
+            return bad_request("appId must be an app id");
+        };
+        match self.gamemode.request(on, app) {
+            Some(status) => self.ok(json!({"gameMode": status})),
+            None => error_response(503, "game_mode_unavailable", "foreground priority is not running"),
+        }
+    }
+
     fn weather_entities(&self) -> Response {
         if !self.plugins.shared().switched_on(crate::ha_plugin::ID) {
             return error_response(409, "off", crate::ha_plugin::off_words());
@@ -723,6 +756,8 @@ impl Handler for Api {
             ["v1", "phone-remote", rest @ ..] => crate::phone_remote::handle(&self.phone_remote, request, rest),
             ["v1", "voice", rest @ ..] => crate::voice::handle(&self.voice, request, rest),
             ["v1", "weather", "entities"] if get => self.weather_entities(),
+            ["v1", "gamemode"] if get => self.gamemode_get(),
+            ["v1", "gamemode"] if post => self.gamemode_post(request),
             ["v1", "wx", rest @ ..] => self.wx.handle(request, rest),
             ["v1", "onhome", rest @ ..] => {
                 // which of the shared things Home shows is the owner's, as the rest of Home's layout is
@@ -885,6 +920,7 @@ mod tests {
                 fetch_backend: json!({"backend": "test"}),
                 receiver_tx,
                 feeds_tx,
+                gamemode: Arc::default(),
                 wx: crate::wxview::WxView::new(Arc::new(NoFetch), dir.path()),
                 weather_ha: Arc::new(crate::ha_weather::HaWeather::new(Vec::new(), ha_link::AddressPolicy::HOME, None)),
                 guide: Arc::default(),

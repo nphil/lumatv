@@ -134,6 +134,14 @@ Every change is journalled in `/run/lumatv-app-priority/state.json` with the val
 
 Checks on the TV with an app in front and Marquee behind: `/proc/<pid>/oom_score_adj` 900 or more, `/proc/<pid>/cgroup` `cpu,cpuacct:/lumatv-background`, `/sys/fs/cgroup/freezer/<appId>/freezer.state` `FROZEN` after 10 s and `THAWED` at relaunch, `memory.soft_limit_in_bytes` 0, all back on return and after `tools/lumatv helper stop`.
 
+### Game mode
+
+`app_priority/game.rs`, on top of the policy. It starts when LumaGame (`org.nphil.lumagame`), GeForce NOW (`org.nphil.lumatv.gfn`) or Punktfunk (`io.unom.punktfunk.client-webos`) is first on screen; SAM has no game category. Entry, in order: background apps that are not LG's, LumaTV's, kept by memchute or holding audio are closed through SAM with one toast naming them (none while the media server has not said who plays); their exit is awaited up to 3 s; Home's weather and news refreshes and the guide's downloads pause (`game::FEEDS`); then on a worker thread, checked for an abort between steps, `memory.force_empty` on the memory groups of the running apps left (not the game's, those on screen, those holding audio or LumaTV's), `compact_memory` and one `drop_caches` of 1. Each step logs the change of `MemAvailable`. Nothing of the game is frozen, stopped or reniced, and pad-boost leases, Scrypted, camera pop-ups, lumatv-ui and LG's services are untouched.
+
+It ends 5 s after the game left the front, and at once when the switch goes off, a lease lapses, `on: false` is asked, an entry step fails, the SAM subscription is lost or the helper stops: the worker stops at its next step and the paused work resumes. A closed app is not reopened. The switch is Settings › System › General › Game mode (`system.gameMode` in theme.json, on unless `false`).
+
+`GET /v1/gamemode` and the `gamemode` topic: `{gameMode: {switch, on, app, since, steps: [{step, freedMb, ms, note}], lastExit: {reason, exitMs}}}`. `POST /v1/gamemode {"on": true, "appId"}` gives an app not on the list game mode for 30 s while it is in front, renewed by asking again; `{"on": false, "appId"}` ends it and keeps the automatic start off until that app leaves the front.
+
 ## Test events
 
 `POST /v1/cameras/event` fires a test pop-up only with `cameras.testEvents` in `/var/lib/lumatv/helper.json`; otherwise it answers 403 `test_events_off`. Tests that turn it on must put `helper.json` back as found, restart the helper (`tools/lumatv helper stop`, `helper start`), clear the pop-up (`POST /v1/cameras/popup/clear`) and confirm a test event is refused. Leaving it on makes pop-ups appear unprompted and spoils the next frame-gate run.

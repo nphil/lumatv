@@ -130,6 +130,13 @@ impl Service {
                 });
             }
         }
+        // The end of game mode wakes the feeds, so what fell due while it held them is fetched then.
+        {
+            let tx = feeds_tx.clone();
+            crate::app_priority::game::FEEDS.on_resume(move || {
+                let _ = tx.send(homefeeds::Cmd::Wake);
+            });
+        }
 
         let mut threads: Vec<(&'static str, JoinHandle<()>)> = Vec::new();
         {
@@ -281,7 +288,8 @@ impl Service {
         threads.push(("paneldim", crate::paneldim::spawn(&ctx)?));
         threads.push(("openapps", crate::openapps::spawn(&ctx)?));
         // Foreground priority: an earlier run's journal is put back before the thread starts; the thread puts everything back at the stop.
-        threads.push(("app_priority", crate::app_priority::spawn(&ctx)?));
+        let gamemode = Arc::new(crate::app_priority::game::Remote::default());
+        threads.push(("app_priority", crate::app_priority::spawn(&ctx, gamemode.clone())?));
         // Local profiles: the first open makes Nitin and Isabel from the working copy in theme/; the thread carries edits back to their profile.
         let profiles = crate::profiles::Profiles::open(&ctx);
         threads.push(("profiles", profiles.spawn(&ctx)?));
@@ -409,6 +417,7 @@ impl Service {
             fetch_backend,
             receiver_tx,
             feeds_tx,
+            gamemode,
             wx,
             weather_ha,
             guide,

@@ -22,6 +22,9 @@ struct World {
     usage: BTreeMap<String, u64>,
     reclaimed: Vec<String>,
     sample: Sample,
+    available_kb: u64,
+    vm: Vec<String>,
+    vm_fails: bool,
 }
 
 #[derive(Default)]
@@ -74,11 +77,25 @@ impl Os for FakeOs {
         self.0.lock().usage.get(app).copied().unwrap_or(0)
     }
     fn reclaim(&self, app: &str) -> std::io::Result<()> {
-        self.0.lock().reclaimed.push(app.to_owned());
+        let mut w = self.0.lock();
+        w.reclaimed.push(app.to_owned());
+        w.available_kb += 50 * 1024;
         Ok(())
     }
     fn sample(&self) -> Option<Sample> {
         Some(self.0.lock().sample)
+    }
+    fn available_kb(&self) -> Option<u64> {
+        Some(self.0.lock().available_kb)
+    }
+    fn vm(&self, name: &str, value: &str) -> std::io::Result<()> {
+        let mut w = self.0.lock();
+        if w.vm_fails {
+            return Err(std::io::Error::other("refused"));
+        }
+        w.vm.push(format!("{name}={value}"));
+        w.available_kb += if name == "drop_caches" { 100 * 1024 } else { 10 * 1024 };
+        Ok(())
     }
 }
 
@@ -87,6 +104,8 @@ struct Sam {
     running: Vec<String>,
     playing: BTreeSet<String>,
     closed: Vec<String>,
+    close_fails: bool,
+    playing_unknown: bool,
     toasts: Vec<String>,
 }
 
@@ -98,10 +117,14 @@ impl Lg for FakeLg {
         Some(self.0.lock().running.clone())
     }
     fn playing(&self) -> Option<BTreeSet<String>> {
-        Some(self.0.lock().playing.clone())
+        let sam = self.0.lock();
+        (!sam.playing_unknown).then(|| sam.playing.clone())
     }
     fn close(&self, app: &str) -> bool {
         let mut sam = self.0.lock();
+        if sam.close_fails {
+            return false;
+        }
         sam.closed.push(app.to_owned());
         sam.running.retain(|a| a != app);
         true
