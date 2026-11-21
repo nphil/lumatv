@@ -9,6 +9,12 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Wheel-shown pointer fix, 2026-11-21 (main 7e42a5f6, installed 02:00 EST with the TV on, at the owner's request)
+
+The owner reproduced a pointer that would not move. He hid the pointer with the arrow keys, then brought it back with the scroll wheel. A pointer sampler (`compositor ctl status`) recorded 1 motion in 10 s after the wheel brought it back, against hundreds per 3 s after a shake, and lginput2 sent no CURSOR_ON. The compositor now tells lginput2 that a wheel-shown pointer is visible 150 ms later, once lginput2 has handled the notch.
+
+Installed compositor `d71629f65a4db43ec79795d91df0c48f617d2882cd87954953cd0ff50d82d8c7` (replaces cb605100); ui 32762690 and sm 65f6ca69 are unchanged. The cutover enable left the compositor live and persistent, and the video check found a picture after 1 s. On the set, the next wheel-wake should log `CUSTOM_KEY_CURSOR_ON` and `motions` should rise; this is not yet checked. Rollback: `/data/agent/cody-data-scratch/18172b987bff/backup/lumatv-compositor-cb605100`.
+
 ## Picture presets, saver sound and the memory manager staged, 2026-11-21 (main 6b91e348, installed 01:27 EST with the TV on, at the owner's request)
 
 Installed with Marquee playing video (the owner said to install anyway):
