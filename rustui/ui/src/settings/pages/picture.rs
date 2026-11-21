@@ -4,13 +4,15 @@
 //! as not visible (HDR-only rows while an SDR picture plays, the ones this set never shows) is left out as LG leaves it out. A row the
 //! service has no key for is left out, one it has not answered is dimmed; the aspect ratio and TruMotion are per-input settings (the
 //! service answers them only for an app), so they are offered while an input is in front, and the head's chip names that input. The rail
-//! shows the mode in force. Fine Tune, White Balance (Colour tab) and HDMI Signalling (Expert tab) are pages of their own.
+//! shows the mode in force. Fine Tune, White Balance (Colour tab) and HDMI Signalling (Expert tab) are pages of their own. LumaTV's
+//! picture presets follow LG's modes, and the modes for LumaTV and for videos are the helper's (topic `picture`, `helper/app/src/picture.rs`).
 
 use crate::host::sio::SERVICE;
 use crate::settings::ctx::{Ctx, Spec, ask};
 use crate::settings::names;
 use crate::settings::page::{Page, Read};
-use crate::settings::row::{Arg, Op, PageArg, Row, ShellRequest};
+use crate::settings::presets::{self, Preset};
+use crate::settings::row::{Arg, ChoiceSpec, Op, PageArg, Pick, Row, ShellRequest, patch_of};
 use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::LazyLock;
@@ -81,18 +83,35 @@ fn rows(c: &Ctx) -> Vec<Row> {
         Vec::new()
     };
     let labels: Vec<String> = choices.iter().map(|(value, _)| names::picture_mode(value).to_string()).collect();
-    let values: Vec<&str> = choices.iter().map(|(value, _)| value.as_str()).collect();
-    let native_cards: Vec<(&str, &str)> = choices.iter().zip(&labels).map(|((value, _), label)| {
+    let mut values: Vec<&str> = choices.iter().map(|(value, _)| value.as_str()).collect();
+    let mut native_cards: Vec<(String, &str)> = choices.iter().zip(&labels).map(|((value, _), label)| {
         let icon = MODES.iter().position(|mode| *mode == value.as_str()).map_or("image", |i| cards[i].1);
-        (label.as_str(), icon)
+        (label.clone(), icon)
     }).collect();
-    let mut mode_row = c.cards(Spec::new("picture.pictureMode").tab(0).strip(4).values(&values).cards(&native_cards));
+    // LumaTV's presets follow LG's modes
+    let topic = c.helper(presets::TOPIC);
+    let offered = if choices.is_empty() { Vec::new() } else { presets::offered(topic) };
+    for p in &offered {
+        values.push(PRESET_CARD);
+        native_cards.push((p.name.clone(), p.icon()));
+    }
+    let card_refs: Vec<(&str, &str)> = native_cards.iter().map(|(label, icon)| (label.as_str(), *icon)).collect();
+    let mut mode_row = c.cards(Spec::new("picture.pictureMode").tab(0).strip(4).values(&values).cards(&card_refs));
     mode_row.enabled &= choices.iter().any(|(_, active)| *active);
+    if let Some(i) = offered.iter().position(|p| p.applied && p.mode == current) {
+        mode_row.index = Some(choices.len() + i);
+    }
+    let lg_count = choices.len();
+    let picks = offered.clone();
     mode_row = mode_row.act(move |arg| match arg {
+        Arg::Index(i) if i >= lg_count => picks.get(i - lg_count).map(|p| vec![preset_send("/v1/picture/preset", p.body()), Op::RefreshIn(1_500)]).unwrap_or_default(),
         Arg::Index(i) => choices.get(i).filter(|(_, active)| *active).map(|(value, _)| vec![Op::Lg { ds: "picture.pictureMode".into(), value: json!(value), app: None }]).unwrap_or_default(),
         _ => Vec::new(),
     });
     rows.push(mode_row);
+    if let Some(topic) = topic {
+        rows.extend(slot_rows(c, topic, &current));
+    }
     rows.push(c.slider(Spec::new("picture.backlight").tab(0).icon("sun").label("OLED pixel brightness").range(0.0, 100.0, 1.0)));
     rows.push(c.toggle(Spec::new("picture.filmmakerAmbientLight").tab(0).icon("lamp").label("Filmmaker ambient light").help("Lifts dark scenes a little when the room is bright.")));
     rows.push(c.toggle(Spec::new("aiPicture.ai_Picture").tab(0).icon("sparkles").label("AI Picture Pro").help("LG's sharpening and upscaling. Off keeps the picture as the film was made.")));
@@ -124,7 +143,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     // ---- Colour
     rows.push(c.slider(Spec::new("picture.color").tab(2).icon("palette").label("Colour").range(0.0, 100.0, 1.0)));
     rows.push(c.slider(Spec::new("picture.tint").tab(2).icon("blend").label("Tint").range(-50.0, 50.0, 1.0).help("Shifts skin tones between green and red.")));
-    rows.push(c.slider(Spec::new("picture.colorTemperature").tab(2).icon("sun-medium").label("Color Temperature").range(-50.0, 50.0, 1.0).help("Below zero is cooler (bluer), above zero is warmer (redder).")));
+    rows.push(c.slider(Spec::new("picture.colorTemperature").tab(2).icon("sun-medium").label("Color Temperature").range(-50.0, 50.0, 1.0).help("Below zero is warmer (redder), above zero is cooler (bluer).")));
     rows.push(c.seg_tv(Spec::new("picture.colorGamut").tab(2).icon("palette").label("Color Gamut").names(names::COLOR_GAMUT)));
     rows.push(c.seg_tv(Spec::new("picture.dynamicColor").tab(2).icon("sliders-horizontal").label("Color Adjustment").names(names::LMHA)));
     rows.push(Row::link("finetune").tab(2).icon("sliders-horizontal").label("Fine Tune").help("Saturation, tint and luminance of each of the six colours.").does(go("finetune")));
@@ -184,6 +203,63 @@ fn rows(c: &Ctx) -> Vec<Row> {
 
 fn go(page: &str) -> Vec<Op> {
     vec![Op::Open { page: page.into(), arg: PageArg::None }]
+}
+
+/// The value a preset's card carries: never one of LG's, so the card is never the mode the TV reports.
+const PRESET_CARD: &str = "\u{0}preset";
+
+fn preset_send(path: &str, body: Value) -> Op {
+    Op::Send { name: None, method: "POST", path: path.into(), body: Some(body) }
+}
+
+/// The switch for separate LumaTV and video modes, the two modes, and putting back a mode a preset changed.
+fn slot_rows(c: &Ctx, topic: &Value, current: &str) -> Vec<Row> {
+    let mut rows = Vec::new();
+    let on = c.theme_at("system.separatePicture").and_then(Value::as_bool).unwrap_or(true);
+    rows.push(
+        Row::toggle("separatepicture")
+            .tab(0)
+            .icon("tv-minimal-play")
+            .label("Separate picture for LumaTV and videos")
+            .help("LumaTV and the apps' menus keep one picture mode and videos another; the TV switches as a video starts and stops. HDR, Dolby Vision, games and the HDMI inputs keep LG's own.")
+            .on(on)
+            .act(|a| match a {
+                Arg::Toggle(v) => vec![Op::Patch(patch_of("system.separatePicture", json!(v)))],
+                _ => Vec::new(),
+            }),
+    );
+    let all = presets::all(Some(topic));
+    let slot = |id: &str, label: &str, icon: &str, help: &str| {
+        let mode = topic.pointer(&format!("/{id}/mode")).and_then(Value::as_str).unwrap_or("");
+        let preset = topic.pointer(&format!("/{id}/preset")).and_then(Value::as_str);
+        let name = all.iter().find(|p| Some(p.id.as_str()) == preset && p.mode == mode).map_or_else(|| names::picture_mode(mode).to_string(), |p| p.name.clone());
+        let options: Vec<Pick> = MODES.iter().filter(|m| **m != "game").map(|m| Pick::new(m, names::picture_mode(m))).chain(all.iter().map(|p: &Preset| Pick::new(&p.id, &p.name))).collect();
+        let chosen = preset.filter(|p| all.iter().any(|a| a.id == *p && a.mode == mode)).unwrap_or(mode).to_owned();
+        let slot_id = id.to_owned();
+        let mut r = Row::link(&format!("slot{id}")).tab(0).icon(icon).label(label).help(help).value(&name).does(vec![Op::Pick(Rc::new(ChoiceSpec {
+            title: label.into(),
+            options,
+            current: chosen,
+            write: Box::new(move |to| vec![preset_send("/v1/picture/slot", json!({"slot": slot_id, "choice": to})), Op::RefreshIn(1_500)]),
+        }))]);
+        r.visible = on;
+        r
+    };
+    rows.push(slot("ui", "LumaTV & apps", "layout-grid", "The mode for LumaTV, Home and the apps' menus."));
+    rows.push(slot("video", "Videos", "clapperboard", "The mode while an SDR video plays full screen in an app."));
+    if topic.get("changed").and_then(Value::as_array).is_some_and(|m| m.iter().any(|m| m.as_str() == Some(current))) {
+        let name = names::picture_mode(current);
+        rows.push(Row::action("restorepreset", "Restore").tab(0).icon("rotate-ccw").label(&format!("{name} as LG set it")).help("Puts back every value a LumaTV preset replaced in this mode.").does(ask(
+            "rotate-ccw",
+            &format!("Restore {name}?"),
+            "The values a LumaTV preset replaced in this mode come back.",
+            "Restore",
+            "Cancel",
+            false,
+            vec![preset_send("/v1/picture/restore", json!({"mode": current})), Op::RefreshIn(1_500)],
+        )));
+    }
+    rows
 }
 
 /// The `pictureSettingModified` LG sends along with a white balance or Fine Tune change (its `wG`): the table of picture modes the owner has
@@ -662,5 +738,39 @@ mod tests {
         let [Op::Ask(a)] = &ops[..] else { panic!() };
         assert!(matches!(&a.answers[1].then[0], Op::Act { payload, .. } if payload["category"] == "other" && payload["keys"].as_array().map(|k| k.len()) == Some(7)));
         let _ = PageArg::None;
+    }
+
+    #[test]
+    fn presets_follow_lgs_modes_and_the_slots_and_the_switch_go_to_the_helper() {
+        let mut w = World::new(lg_with(&[("picture", json!({"settings": {"pictureMode": "eco"}, "dimension": {"input": "default", "pictureMode": "eco", "dynamicRange": "sdr"}}))], &[]));
+        let topic = |input: &str| {
+            json!({"separate": true, "ui": {"mode": "eco", "preset": "lumaVivid"}, "video": {"mode": "filmMaker", "preset": null}, "changed": ["eco"],
+                "context": {"mode": "eco", "input": input, "range": "sdr"}, "presets": [
+                {"id": "rtings", "name": "RTINGS accurate", "mode": "expert2", "applied": false},
+                {"id": "rtingsRich", "name": "RTINGS richer colour", "mode": "expert1", "applied": false},
+                {"id": "lumaVivid", "name": "LumaTV vivid", "mode": "eco", "applied": true}]})
+        };
+        w.topics.set_helper("picture", topic("default"));
+        let r = rows(&w.ctx());
+        let modes = by_id(&r, "picture.pictureMode");
+        assert_eq!(modes.cards.iter().map(|c| c.title.as_str()).skip(7).collect::<Vec<_>>(), ["Expert \u{b7} day", "Expert \u{b7} night", "RTINGS accurate", "RTINGS richer colour", "LumaTV vivid"]);
+        assert_eq!(modes.index, Some(11), "the preset written into the mode in force");
+        let ops = (modes.act.as_ref().unwrap())(Arg::Index(9));
+        assert!(matches!(&ops[0], Op::Send { method: "POST", path, body: Some(b), .. } if path == "/v1/picture/preset" && b["id"] == "rtings"));
+        assert!(matches!(&(by_id(&r, "separatepicture").act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Patch(_)]));
+        let ui = by_id(&r, "slotui");
+        assert_eq!((ui.value.as_str(), by_id(&r, "slotvideo").value.as_str()), ("LumaTV vivid", "Filmmaker"));
+        let [Op::Pick(spec)] = &(ui.act.as_ref().unwrap())(Arg::Press)[..] else { panic!() };
+        assert_eq!((spec.current.as_str(), spec.options.len()), ("lumaVivid", 11));
+        assert!(matches!(&(spec.write)("cinema")[0], Op::Send { path, body: Some(b), .. } if path == "/v1/picture/slot" && b["slot"] == "ui" && b["choice"] == "cinema"));
+        let [Op::Ask(a)] = &(by_id(&r, "restorepreset").act.as_ref().unwrap())(Arg::Press)[..] else { panic!() };
+        assert!(matches!(&a.answers[1].then[0], Op::Send { body: Some(b), .. } if b["mode"] == "eco"));
+
+        // an HDMI input's picture is LG's: no presets; the switch off hides the slots
+        w.topics.set_helper("picture", topic("hdmi2"));
+        w.theme = json!({"system": {"separatePicture": false}});
+        let r = rows(&w.ctx());
+        assert_eq!(by_id(&r, "picture.pictureMode").cards.len(), 9);
+        assert!(!by_id(&r, "slotui").visible && !by_id(&r, "separatepicture").on);
     }
 }

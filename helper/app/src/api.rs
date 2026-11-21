@@ -16,6 +16,7 @@
 //! | `GET /v1/receiver/settings`, `POST /v1/receiver/set` | receiver settings and typed writes |
 //! | `POST /v1/refresh` | fetch weather and news now |
 //! | `GET /v1/gamemode`, `POST /v1/gamemode` | game mode: `{"on": bool, "appId"}`, a 30 s lease while that app is in front (`app_priority/game.rs`) |
+//! | `GET /v1/picture`, `POST /v1/picture/{preset,slot,restore}` | picture presets and the LumaTV and video picture modes (`picture.rs`) |
 //! | `GET /v1/settings`, `GET /v1/settings/{owner}`, `POST /v1/settings/{owner}` | the settings layer |
 //! | `GET /v1/voice`, `POST /v1/voice/{listen,stop,cancel,refresh}` | voice search (`voice.rs`) |
 //! | `GET /v1/profiles`, `POST /v1/profiles/switch`, `POST|DELETE /v1/profiles/{id}`, `/v1/profiles/{id}/pin`, `/{id}/avatar`, `/options`, `/gallery` | local profiles (`profiles.rs`) |
@@ -141,6 +142,10 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
         "/v1/gamemode",
         "game mode for the app in front: {\"on\": true, \"appId\"} counts 30 s and is renewed by asking again; {\"on\": false, \"appId\"} ends it until the app leaves the front",
     ),
+    ("GET", "/v1/picture", "picture modes: the LumaTV and video slots, the presets and which modes LumaTV has changed"),
+    ("POST", "/v1/picture/preset", "write a preset into its mode and use it for what is on screen: {\"id\"}"),
+    ("POST", "/v1/picture/slot", "a slot's mode: {\"slot\": \"ui\" or \"video\", \"choice\": an SDR mode or a preset id}"),
+    ("POST", "/v1/picture/restore", "put back the values presets replaced in a mode: {\"mode\"}"),
 ];
 
 /// The API's handler.
@@ -179,6 +184,8 @@ pub struct Api {
     pub feeds_tx: Sender<homefeeds::Cmd>,
     /// Game mode's requests (`/v1/gamemode`), answered by the foreground-priority thread.
     pub gamemode: Arc<crate::app_priority::game::Remote>,
+    /// Picture presets and slots (`/v1/picture`), answered by the picture thread.
+    pub picture: Arc<crate::picture::Remote>,
     /// The full weather view's radar and base map (`/v1/wx/...`).
     pub wx: Arc<crate::wxview::WxView>,
     /// Weather from a Home Assistant entity: the list the Settings picker offers (`/v1/weather/entities`).
@@ -635,6 +642,29 @@ impl Api {
         }
     }
 
+    fn picture_post(&self, request: &Request, action: &str) -> Response {
+        use crate::picture::{Cmd, Slot};
+        let body = match body_object(request) {
+            Ok(b) => b,
+            Err(r) => return r,
+        };
+        let s = |k: &str| body.get(k).and_then(Value::as_str).map(str::to_owned);
+        let cmd = match action {
+            "preset" => s("id").map(Cmd::Preset),
+            "slot" => s("slot").as_deref().and_then(Slot::parse).zip(s("choice")).map(|(slot, c)| Cmd::Slot(slot, c)),
+            "restore" => s("mode").map(Cmd::Restore),
+            _ => return error_response(404, "not_found", "no such picture action"),
+        };
+        let Some(cmd) = cmd else {
+            return bad_request("preset takes {id}, slot {slot: ui or video, choice}, restore {mode}");
+        };
+        match self.picture.request(cmd) {
+            Some(Ok(status)) => self.ok(json!({"picture": status})),
+            Some(Err(e)) => error_response(409, "picture_refused", &e),
+            None => error_response(503, "picture_unavailable", "the picture thread is not running"),
+        }
+    }
+
     fn weather_entities(&self) -> Response {
         if !self.plugins.shared().switched_on(crate::ha_plugin::ID) {
             return error_response(409, "off", crate::ha_plugin::off_words());
@@ -758,6 +788,11 @@ impl Handler for Api {
             ["v1", "weather", "entities"] if get => self.weather_entities(),
             ["v1", "gamemode"] if get => self.gamemode_get(),
             ["v1", "gamemode"] if post => self.gamemode_post(request),
+            ["v1", "picture"] if get => match self.hub.get(crate::picture::TOPIC) {
+                Some(status) => self.ok(json!({"picture": status})),
+                None => error_response(503, "picture_unavailable", "the picture thread has not started"),
+            },
+            ["v1", "picture", action] if post => self.picture_post(request, action),
             ["v1", "wx", rest @ ..] => self.wx.handle(request, rest),
             ["v1", "onhome", rest @ ..] => {
                 // which of the shared things Home shows is the owner's, as the rest of Home's layout is
@@ -921,6 +956,7 @@ mod tests {
                 receiver_tx,
                 feeds_tx,
                 gamemode: Arc::default(),
+                picture: Arc::default(),
                 wx: crate::wxview::WxView::new(Arc::new(NoFetch), dir.path()),
                 weather_ha: Arc::new(crate::ha_weather::HaWeather::new(Vec::new(), ha_link::AddressPolicy::HOME, None)),
                 guide: Arc::default(),

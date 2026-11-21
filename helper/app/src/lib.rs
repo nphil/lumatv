@@ -95,6 +95,7 @@ pub mod plugins;
 pub mod preload;
 pub mod previews;
 pub mod paneldim;
+pub mod picture;
 pub mod privacy;
 pub mod profiles;
 pub mod receiver;

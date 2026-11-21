@@ -467,6 +467,12 @@ impl Quick {
         match (act, v) {
             (Act::Picture(values), Val::Index(i)) => {
                 if let Some((value, true)) = values.get(i) {
+                    if let Some(id) = value.strip_prefix(crate::settings::presets::PREFIX) {
+                        // the helper writes the preset and switches; the mode is read again once it has
+                        out.effects.push(Effect::Post { path: crate::settings::presets::POST.into(), body: json!({"id": id}) });
+                        self.read_due = Some(now + 1_500);
+                        return out;
+                    }
                     let available = env.sio.list("picture.pictureMode").map_or_else(
                         || env.sio.desc("picture.pictureMode").is_none() && tiles::MODE_VALUES.contains(&value.as_str()) && env.sio.picture_dynamic_range().is_some_and(|range| range.eq_ignore_ascii_case("sdr")),
                         |list| list.iter().any(|item| item.value == *value && item.visible && item.active),
@@ -1101,7 +1107,7 @@ impl Quick {
             Popup::Slider { spec, shown, .. } => PopupView::Slider { title: spec.title.into(), text: spec.text.into(), from: spec.from, to: spec.to, step: spec.step, value: *shown, marks: spec.marks, icons: spec.icons },
             Popup::Pick { row, act, title, text, icon, options, index } => {
                 let current = match act {
-                    Act::Picture(values) => values.iter().position(|(value, _)| *value == env.sio.text("picture.pictureMode")),
+                    Act::Picture(values) => values.iter().position(|(value, _)| *value == tiles::picture_current(env)),
                     _ => tiles::everything(env).iter().find(|r| r.id == *row).and_then(|r| r.index),
                 };
                 let dnd = (row == "dnd").then(|| crate::dnd::Dnd::from_json(env.topic(crate::dnd::TOPIC).unwrap_or(&Value::Null)));

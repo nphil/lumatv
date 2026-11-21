@@ -14,4 +14,5 @@ pub mod src;
 pub mod model;
 pub mod view;
 pub mod pages;
+pub mod presets;
 pub mod surface;

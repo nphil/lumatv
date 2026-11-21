@@ -7,7 +7,7 @@ use super::super::arrange::Cat;
 use super::super::env::Env;
 use super::super::hub;
 use crate::host::power::SLEEP_LABELS;
-use crate::settings::names;
+use crate::settings::{names, presets};
 use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,10 +144,17 @@ fn brand(rc: Option<&Value>) -> String {
     if word.is_empty() { "Receiver".into() } else { format!("{word} receiver") }
 }
 
+/// The picture list's value in force: the preset last written into the mode in force, else LG's mode.
+pub fn picture_current(env: &Env) -> String {
+    let mode = env.sio.text("picture.pictureMode");
+    let presets = presets::offered(env.topic(presets::TOPIC));
+    presets::in_force(&presets, &mode).map_or(mode, presets::Preset::value)
+}
+
 /// The built-in tiles, the plugins' between them and AI access.
 pub fn tiles(env: &Env) -> Vec<Row> {
     let current = env.sio.text("picture.pictureMode");
-    let choices = if let Some(list) = env.sio.list("picture.pictureMode") {
+    let mut choices = if let Some(list) = env.sio.list("picture.pictureMode") {
         list.into_iter().filter(|item| item.visible && !item.value.is_empty()).map(|item| (item.value, item.active)).collect::<Vec<_>>()
     } else if env.sio.desc("picture.pictureMode").is_none() && MODE_VALUES.contains(&current.as_str()) && env.sio.picture_dynamic_range().is_some_and(|range| range.eq_ignore_ascii_case("sdr")) {
         MODE_VALUES.iter().map(|value| ((*value).to_string(), true)).collect()
@@ -157,8 +164,15 @@ pub fn tiles(env: &Env) -> Vec<Row> {
     let mut picture = Row::base("picture", Kind::Stepper, "image", "Picture mode", Act::Picture(Vec::new()));
     picture.detail = env.inputs.current().map(|e| e.port.clone()).unwrap_or_default();
     picture.options = choices.iter().map(|(value, _)| names::picture_mode(value).to_string()).collect();
-    picture.index = choices.iter().position(|(value, _)| *value == current);
-    picture.value = names::picture_mode(&current).to_string();
+    // LumaTV's presets follow LG's modes
+    let presets = if choices.is_empty() { Vec::new() } else { presets::offered(env.topic(presets::TOPIC)) };
+    for p in &presets {
+        choices.push((p.value(), true));
+        picture.options.push(p.name.clone());
+    }
+    let shown = picture_current(env);
+    picture.index = choices.iter().position(|(value, _)| *value == shown);
+    picture.value = presets::mode_name(&presets, &current);
     picture.enabled = env.sio.usable("picture.pictureMode") && choices.iter().any(|(_, active)| *active);
     picture.visible = env.sio.shown("picture.pictureMode");
     if choices.is_empty() {
