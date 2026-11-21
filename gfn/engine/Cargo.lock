@@ -922,7 +922,6 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 [[package]]
 name = "opennow-streamer-core"
 version = "0.2.0"
-source = "git+https://github.com/OpenCloudGaming/OpenNOW?rev=a49b124ce31e87113fd4961f6a321fbf0ad1fdc5#a49b124ce31e87113fd4961f6a321fbf0ad1fdc5"
 dependencies = [
  "base64",
  "getrandom 0.3.4",
@@ -963,7 +962,6 @@ dependencies = [
 [[package]]
 name = "opennow-streamer-transport"
 version = "0.2.0"
-source = "git+https://github.com/OpenCloudGaming/OpenNOW?rev=a49b124ce31e87113fd4961f6a321fbf0ad1fdc5#a49b124ce31e87113fd4961f6a321fbf0ad1fdc5"
 dependencies = [
  "aes",
  "crc32fast",
@@ -981,7 +979,6 @@ dependencies = [
  "str0m",
  "subtle",
  "thiserror",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1497,7 +1494,6 @@ dependencies = [
  "serde",
  "str0m-proto",
  "str0m-rust-crypto",
- "str0m-wincrypto",
  "subtle",
  "time",
  "tracing",
@@ -1533,17 +1529,6 @@ dependencies = [
  "sha2",
  "str0m-proto",
  "time",
-]
-
-[[package]]
-name = "str0m-wincrypto"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39d023c5572bf4dc44e1e33a684587ba6a207b4ef2dac600c287d30b547abb19"
-dependencies = [
- "dimpl",
- "str0m-proto",
- "windows",
 ]
 
 [[package]]

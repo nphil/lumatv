@@ -1,14 +1,15 @@
 //! OpenNOW's standalone streamer entry (native/opennow-streamer/crates/opennow-streamer/src/main.rs at the pinned revision) with
-//! two additions: a `controller-rumble` event is applied to the pad here, in the process that holds the pad, before it goes up the
-//! pipe, and what the engine needs of the events the core does not pass on goes to the engine's side socket. The binary keeps
-//! upstream's name because opennow-core looks for `opennow-streamer` beside itself.
+//! three additions: a `controller-rumble` event is applied to the pad here, in the process that holds the pad, before it goes up the
+//! pipe; what the engine needs of the events the core does not pass on goes to the engine's side socket; and `input-paused` moves
+//! only the pads (`pause_pads_only`). The binary keeps upstream's name because opennow-core looks for `opennow-streamer` beside
+//! itself.
 use std::io::{self, BufRead, Write};
 use std::sync::mpsc;
 use std::thread;
 
 use opennow_streamer_core::Engine;
 use opennow_streamer_platform::{MediaRuntime, controller_rumble, create_runtime, stream_ended, stream_telemetry};
-use opennow_streamer_protocol::{Command, error};
+use opennow_streamer_protocol::{Command, error, response};
 use serde_json::Value;
 
 fn write_message(message: &Value) -> io::Result<()> {
@@ -41,6 +42,24 @@ fn forward_to_engine(message: &Value) {
     }
 }
 
+/// The overlay's `input-paused`, answered here so that it reaches only the pads and the stream keeps running under the overlay.
+/// Upstream's handler also pauses the NVST video receivers, which then drop every packet before SRTP sees it, so the rollover counter
+/// stops following the sequence numbers. Past 2^15 packets the receiver guesses an index one rollover off and no packet authenticates
+/// again (opennow-streamer-transport `ReplayWindow::guess_packet_index`, pinned revision): a 72 s menu, about 47,000 packets of a
+/// 4K120 stream, lost the session on 2026-11-20.
+fn pause_pads_only(command: &Command, pause_pads: impl FnOnce(bool) -> Result<(), String>) -> Option<Value> {
+    if command.kind != "input-paused" {
+        return None;
+    }
+    let Some(paused) = command.paused else {
+        return Some(error(Some(&command.id), "missing-paused", "Pause command does not include paused state"));
+    };
+    Some(match pause_pads(paused) {
+        Ok(()) => response(command.id.as_str(), "ok"),
+        Err(message) => error(Some(&command.id), "media-host-unavailable", message),
+    })
+}
+
 fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
     let (event_tx, event_rx) = mpsc::channel::<Value>();
     let event_writer = thread::spawn(move || {
@@ -52,6 +71,7 @@ fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
             }
         }
     });
+    let pads = media_runtime.clone();
     let mut engine = Engine::with_media_runtime(event_tx, media_runtime);
 
     for line in io::stdin().lock().lines() {
@@ -66,6 +86,10 @@ fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
                 continue;
             }
         };
+        if let Some(reply) = pause_pads_only(&command, |paused| pads.set_paused(paused)) {
+            write_message(&reply)?;
+            continue;
+        }
         let (responses, keep_running) = engine.handle(command);
         for response in responses {
             write_message(&response)?;
@@ -98,5 +122,26 @@ fn main() -> io::Result<()> {
         Ok(Ok(result)) => result,
         Ok(Err(payload)) => std::panic::resume_unwind(payload),
         Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn command(json: &str) -> Command {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn input_paused_moves_only_the_pads_and_never_reaches_the_engine() {
+        let mut pads = Vec::new();
+        let reply = pause_pads_only(&command(r#"{"id":"input-paused","type":"input-paused","paused":true}"#), |paused| {
+            pads.push(paused);
+            Ok(())
+        });
+        assert_eq!(reply, Some(response("input-paused", "ok")));
+        assert_eq!(pads, [true]);
+        assert_eq!(pause_pads_only(&command(r#"{"id":"stop","type":"stop"}"#), |_| unreachable!()), None);
     }
 }

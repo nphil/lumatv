@@ -533,7 +533,7 @@ impl MediaSession {
         MediaControl { shared: Arc::clone(&self.shared), client: Arc::clone(&self.client), runtime: Arc::clone(&self.runtime) }
     }
 
-    /// The overlay is up: the pads go to the UI instead of the game; the picture keeps running underneath.
+    /// The overlay is up: the pads go to the UI instead of the game.
     pub fn set_paused(&self, paused: bool) {
         self.shared.paused.store(paused, Ordering::Release);
         self.runtime.pads.set_paused(paused);

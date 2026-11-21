@@ -43,7 +43,8 @@ path produces the best measured response, image quality and stability.
   delay. Its input queue can hold 256 samples; measure age and overflow under
   load before changing it.
 - **Potential video waiting, not measured constant lag:** OpenNOW's media
-  channel holds eight items, which may include audio; the NVST 52 ms reorder
+  channel holds 32 items (8 at the pinned revision; the engine carries
+  upstream #1451), which may include audio; the NVST 52 ms reorder
   timeout applies only while a packet gap is open. The
   [feeder](../gfn/feeder/src/feeder.c) retries a full video feed every 0.5 ms
   for up to 8 ms by default. The clean clip above recorded no retries.
@@ -59,10 +60,12 @@ path produces the best measured response, image quality and stability.
 
 Transport observations refer to OpenNOW revision
 `a49b124ce31e87113fd4961f6a321fbf0ad1fdc5`, pinned in
-[the engine manifest](../gfn/engine/Cargo.toml):
-`native/opennow-streamer/crates/opennow-streamer-core/src/lib.rs` for input
-draining/media capacity, and `opennow-streamer-transport/src/nvst.rs` for
-`MJOLNIR_REORDER_DEQUEUE_TIMEOUT`. Locate the app's actual consumers and
+[the engine manifest](../gfn/engine/Cargo.toml), whose core and transport the
+engine builds from vendored copies (changes in each crate's `VENDORED.md`):
+[core's `lib.rs`](../gfn/engine/crates/opennow-streamer-core/src/lib.rs) for
+input draining/media capacity, and
+[transport's `nvst.rs`](../gfn/engine/crates/opennow-streamer-transport/src/nvst.rs)
+for `MJOLNIR_REORDER_DEQUEUE_TIMEOUT`. Locate the app's actual consumers and
 dependency revision before editing; do not assume a separate app has already
 adopted every shared-source change or that its local-stream adapter is ready.
 
