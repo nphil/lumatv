@@ -984,7 +984,7 @@ mod tests {
                 picture: Arc::default(),
                 autobright: Arc::default(),
                 wx: crate::wxview::WxView::new(Arc::new(NoFetch), dir.path()),
-                weather_ha: Arc::new(crate::ha_weather::HaWeather::new(Vec::new(), ha_link::AddressPolicy::HOME, None)),
+                weather_ha: Arc::new(crate::ha_weather::HaWeather::new(Vec::new(), ha_link::AddressPolicy::HOME, None, Arc::default())),
                 guide: Arc::default(),
                 plex: crate::plex::PlexAccount::fixed(None),
                 tuner: Arc::new(lumatuner::Tuner::new(Arc::new(crate::tuner::tests::NoTv), lumatuner::real_clock())),

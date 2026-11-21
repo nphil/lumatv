@@ -2,8 +2,9 @@
 //!
 //! The protocol is `lumashow-ha`'s `docs/protocol.md` and the session is `ha-bridge`'s (`Session`: the Noise handshake keyed from the
 //! pairing key, `hello` and `welcome`, pings, timeouts, with no I/O); this is the socket loop around it, as `ha_bridge::Bridge` has one,
-//! trimmed to the two modules Home uses (`states`, `actions`) and keeping the entities whole ([`Mirror`], which `ha-bridge`'s does not).
-//! `cameras` and `notify` are not offered, so Home Assistant sends the TV neither a camera nor a notification over this link.
+//! trimmed to the modules the TV uses (`states` and `actions` for Home, `weather` for the weather card: `ha_weather::Relay`) and keeping the
+//! entities whole ([`Mirror`], which `ha-bridge`'s does not). `cameras` and `notify` are not offered, so Home Assistant sends the TV
+//! neither a camera nor a notification over this link.
 //!
 //! **Who may connect.** Whoever holds the TV's pairing key (the Bluetooth proxy's, `ble-link`): the channel key is made from it and read
 //! at every connection, so a TV that is not paired lets nobody in, and a session made with a key the TV no longer holds is ended at the
@@ -50,6 +51,8 @@ pub struct Config {
     pub timing: Timing,
     pub log: Log,
     pub changed: Changed,
+    /// Module `weather`: what the integration sends of it, and the way to ask.
+    pub weather: Arc<crate::ha_weather::Relay>,
 }
 
 /// An action: services of one domain on named entities, as the protocol's `actions.call` carries them.
@@ -113,6 +116,7 @@ impl Wake {
 
 enum Command {
     Call(Call, Done),
+    Weather(String, Map<String, Value>),
     Recheck,
     Stop,
 }
@@ -226,6 +230,11 @@ impl Bridge {
         let _ = self.send(Command::Recheck);
     }
 
+    /// One message of module `weather` to the integration; false when the listener is closed.
+    pub fn say_weather(&self, kind: &str, fields: Map<String, Value>) -> bool {
+        self.send(Command::Weather(kind.to_owned(), fields)).is_ok()
+    }
+
     pub fn stop(&self) {
         self.stopped.store(true, Ordering::SeqCst);
         let _ = self.commands.send(Command::Stop);
@@ -263,9 +272,14 @@ fn urandom(buf: &mut [u8]) {
     }
 }
 
-/// The modules the TV speaks: `states` and `actions` only.
+/// The modules the TV speaks: `states`, `actions` and `weather`.
 fn offered() -> BTreeMap<String, u32> {
-    wire::module::BUILT_IN.iter().filter(|(name, _)| matches!(*name, wire::module::STATES | wire::module::ACTIONS)).map(|(n, v)| ((*n).to_owned(), *v)).collect()
+    wire::module::BUILT_IN
+        .iter()
+        .filter(|(name, _)| matches!(*name, wire::module::STATES | wire::module::ACTIONS))
+        .map(|(n, v)| ((*n).to_owned(), *v))
+        .chain([(crate::ha_weather::MODULE.to_owned(), crate::ha_weather::MODULE_VERSION)])
+        .collect()
 }
 
 impl Machine {
@@ -306,6 +320,7 @@ impl Machine {
         for (_, call) in self.pending.drain() {
             (call.done)(Err(GONE.into()));
         }
+        self.cfg.weather.session(false);
         {
             let mut shared = self.shared.lock();
             shared.client = None;
@@ -407,6 +422,9 @@ impl Machine {
             match self.inbox.try_recv() {
                 Ok(Command::Stop) => return false,
                 Ok(Command::Call(call, done)) => self.start_call(call, done, Instant::now()),
+                Ok(Command::Weather(kind, body)) => {
+                    self.send_active(&Message::Other { module: crate::ha_weather::MODULE.into(), kind, body }, crate::ha_weather::MODULE);
+                }
                 Ok(Command::Recheck) => self.check_keys(Instant::now()),
                 Err(TryRecvError::Empty) => return true,
                 Err(TryRecvError::Disconnected) => return false,
@@ -555,6 +573,8 @@ impl Machine {
             self.end_active(now);
         }
         self.active = Some(id);
+        let weather = self.conns.get(&id).is_some_and(|c| c.session.carries(crate::ha_weather::MODULE));
+        self.cfg.weather.session(weather);
         {
             let mut shared = self.shared.lock();
             shared.client = Some(client.clone());
@@ -570,6 +590,7 @@ impl Machine {
             return;
         }
         {
+            self.cfg.weather.session(false);
             let mut shared = self.shared.lock();
             shared.client = None;
             shared.mirror.clear();
@@ -605,6 +626,7 @@ impl Machine {
                 }
             }
             Message::Error { code, message } => self.log(format!("the integration reported an error: {code}: {message}")),
+            Message::Other { module, kind, body } if module == crate::ha_weather::MODULE => self.cfg.weather.heard(&kind, body),
             // the rest is either the TV's to send or a module the TV did not offer: nothing
             _ => {}
         }

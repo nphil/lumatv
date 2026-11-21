@@ -250,11 +250,9 @@ impl Service {
         ));
         // On Home: Home Assistant's shared entities, through the integration that dials the TV. Nothing listens until the Home Assistant
         // plugin is switched on and the TV is paired.
-        let onhome = crate::onhome::OnHome::new(
-            &ctx,
-            onhome_deps.unwrap_or_else(|| crate::onhome::Deps::real(&ctx)),
-            plugins.shared(),
-        );
+        let onhome_deps = onhome_deps.unwrap_or_else(|| crate::onhome::Deps::real(&ctx));
+        let weather_relay = onhome_deps.weather.clone();
+        let onhome = crate::onhome::OnHome::new(&ctx, onhome_deps, plugins.shared());
         // The Home Assistant plugin's switch, offered before the weather starts so a TV whose plugin is on never starts from the built-in
         // source: On Home and the weather look again when it moves; the packaged program follows it through the roster.
         {
@@ -272,6 +270,7 @@ impl Service {
         let weather_ha = Arc::new(crate::ha_weather::HaWeather::real(
             &ctx,
             voice_policy.unwrap_or(ha_link::AddressPolicy::HOME),
+            weather_relay,
         ));
         let ha_on: Arc<dyn Fn() -> bool + Send + Sync> = {
             let shared = plugins.shared().clone();

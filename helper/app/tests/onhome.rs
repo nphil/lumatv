@@ -5,10 +5,12 @@
 
 use ha_bridge::fake::FakeIntegration;
 use ha_bridge::wire::{AreaRec, CallResult, EntityRec, Message, Policy, Snapshot, StateRec, Update};
+use lumatv_feeds::weather::{Units, WeatherConfig};
 use lumatv_helper::config::{Config, Paths};
 use lumatv_helper::control::Stop;
 use lumatv_helper::ctx::Ctx;
 use lumatv_helper::ha_plugin;
+use lumatv_helper::ha_weather::{self, HaWeather, Relay};
 use lumatv_helper::hub::Hub;
 use lumatv_helper::onhome::{OnHome, testing};
 use lumatv_helper::plugins::{roster, session};
@@ -25,6 +27,7 @@ struct Rig {
     ctx: Ctx,
     onhome: OnHome,
     switch: Arc<session::Shared>,
+    weather: Arc<Relay>,
 }
 
 /// The Home Assistant plugin's switch, as `enabled.json` has it.
@@ -47,8 +50,10 @@ fn rig(on: bool, key: Option<[u8; 32]>) -> Rig {
     let config = Config { onhome: lumatv_helper::config::OnHomeConfig { port: 0 }, ..Config::default() };
     let ctx = Ctx { config: Arc::new(config), paths: Paths::new(dir.path()), hub, settings, stop: Stop::new() };
     let switch = switch(&ctx, on);
-    let onhome = OnHome::new(&ctx, testing::keyed_deps(key), &switch);
-    Rig { _dir: dir, ctx, onhome, switch }
+    let deps = testing::keyed_deps(key);
+    let weather = deps.weather.clone();
+    let onhome = OnHome::new(&ctx, deps, &switch);
+    Rig { _dir: dir, ctx, onhome, switch, weather }
 }
 
 fn ent(id: &str, name: &str, area: Option<&str>, state: &str, attrs: Value, ctl: &[&str]) -> EntityRec {
@@ -312,6 +317,56 @@ fn only_the_paired_integration_is_let_in_and_the_cameras_and_notifications_modul
     let it = FakeIntegration::open(addr, &KEY).unwrap();
     let modules: Vec<&String> = it.welcome.as_ref().unwrap().modules.keys().collect();
     assert_eq!(modules, ["actions", "states"]);
+}
+
+/// The next message of module `weather` the TV sends.
+fn weather_said(it: &mut FakeIntegration) -> (String, serde_json::Map<String, Value>) {
+    let deadline = Instant::now() + WITHIN;
+    while Instant::now() < deadline {
+        if let Some(Message::Other { module, kind, body }) = it.recv(WITHIN)
+            && module == "weather"
+        {
+            return (kind, body);
+        }
+    }
+    panic!("the TV said nothing of the weather");
+}
+
+#[test]
+fn the_weather_card_takes_the_entity_home_assistant_sends_with_no_link_or_token() {
+    let r = rig(true, Some(KEY));
+    r.onhome.look();
+    let addr = r.onhome.local_addr().unwrap();
+    let mut it = FakeIntegration::connect(addr, &KEY).unwrap();
+    let welcome = it.hello(&[("states", 1), ("actions", 1), ("weather", 1)]).unwrap();
+    assert!(welcome.modules.contains_key("weather"), "the TV speaks the weather module");
+    let deadline = Instant::now() + WITHIN;
+    while !r.weather.carried() {
+        assert!(Instant::now() < deadline, "the session never carried the weather");
+        std::thread::yield_now();
+    }
+    // no Home Assistant link is saved: what comes is the module's
+    let ha = Arc::new(HaWeather::new(Vec::new(), ha_link::endpoint::AddressPolicy::TESTING, None, r.weather.clone()));
+    let cfg = WeatherConfig { zip: ha_weather::key_of("weather.pirate_weather"), units: Units::Fahrenheit };
+    let reader = {
+        let (ha, cfg) = (ha.clone(), cfg.clone());
+        std::thread::spawn(move || ha.documents("weather.pirate_weather", &cfg, 1_000))
+    };
+    let (kind, body) = weather_said(&mut it);
+    assert_eq!((kind.as_str(), &body["entity"]), ("select", &json!("weather.pirate_weather")), "the TV's choice is sent");
+    let recorded: Value = serde_json::from_str(include_str!("fixtures/ha_weather_snapshot.json")).unwrap();
+    let sent = recorded["snapshot"].as_object().unwrap().clone();
+    it.send(&Message::Other { module: "weather".into(), kind: "snapshot".into(), body: sent }).unwrap();
+    let (doc, more) = reader.join().unwrap().expect("the module's documents");
+    assert_eq!((doc.display.place.as_str(), doc.display.temp.as_str(), doc.lat, more.lon), ("Pirate Weather", "58\u{b0}", 33.75, -84.39));
+    // the integration goes: the card is not served from what it said, and no link means no other way in
+    it.bye("unloaded").unwrap();
+    let deadline = Instant::now() + WITHIN;
+    while r.weather.carried() {
+        assert!(Instant::now() < deadline, "the session never ended");
+        std::thread::yield_now();
+    }
+    assert!(matches!(ha.documents("weather.pirate_weather", &cfg, 2_000), Err(lumatv_feeds::FeedError::Config(_))));
 }
 
 #[test]
@@ -847,8 +902,9 @@ fn linked(ha: Option<&history_rig::FakeHa>) -> Rig {
     let mut deps = testing::keyed_deps(Some(KEY));
     deps.history.links = vec![paths.ha_link_file()];
     let switch = switch(&ctx, true);
+    let weather = deps.weather.clone();
     let onhome = OnHome::new(&ctx, deps, &switch);
-    Rig { _dir: dir, ctx, onhome, switch }
+    Rig { _dir: dir, ctx, onhome, switch, weather }
 }
 
 fn sensors() -> Snapshot {

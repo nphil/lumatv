@@ -8,7 +8,8 @@
 //! no address, no token, no way to ask Home Assistant for anything that was not shared, and no way to widen what is. Which entities are shared,
 //! and which of them the TV may call, are decided in Home Assistant; this module narrows further (nothing is called on a lock, an
 //! alarm, a siren, a camera or a valve, a garage door or a gate, and a switch, script or scene that unlocks or disarms is refused: `tile::plan`).
-//! Cameras are not carried (the `cameras` module is not offered): the TV's cameras come through Scrypted.
+//! Cameras are not carried (the `cameras` module is not offered): the TV's cameras come through Scrypted. Module `weather` is offered: when
+//! the owner lets Home Assistant send a weather entity to the TV, it is the weather card's source (`ha_weather::Relay`).
 //!
 //! What the TV shows is the owner's choice among what is shared: all of it (until the owner chooses) or a list kept in
 //! `<data dir>/onhome/picks.json`, written by Settings › Home & look › Home Assistant › On Home.
@@ -81,6 +82,8 @@ pub struct Deps {
     pub device: DeviceInfo,
     /// Where a sensor's history is asked: the saved Home Assistant link, the addresses it may be dialled at and the TLS helper.
     pub history: history::Source,
+    /// Module `weather`, which the weather source reads (`ha_weather`).
+    pub weather: Arc<crate::ha_weather::Relay>,
 }
 
 impl Deps {
@@ -88,7 +91,14 @@ impl Deps {
         let data_dir = ctx.paths.data_dir.clone();
         // The pairing key is only read: the BLE proxy and the TV sensors own it and run on their own switches, whatever this plugin's.
         let key: KeySource = Arc::new(move || crate::ble_store::load(&data_dir).ok().flatten().map(|link| link.key));
-        Self { key, bind: None, announce: true, device: device_info("LumaTV", "LG TV", env!("CARGO_PKG_VERSION")), history: history::Source::real(ctx) }
+        Self {
+            key,
+            bind: None,
+            announce: true,
+            device: device_info("LumaTV", "LG TV", env!("CARGO_PKG_VERSION")),
+            history: history::Source::real(ctx),
+            weather: Arc::default(),
+        }
     }
 }
 
@@ -106,7 +116,7 @@ pub fn device_info(friendly: &str, model: &str, version: &str) -> DeviceInfo {
     }
 }
 
-/// The announcement: the TV by its MAC, listing the two modules it speaks.
+/// The announcement: the TV by its MAC, listing the modules it speaks.
 fn service_of(device: &DeviceInfo, mac: &str, port: u16) -> mdns::Service {
     let six: String = mac.chars().filter(char::is_ascii_hexdigit).collect::<String>().to_ascii_lowercase();
     let records = [
@@ -115,7 +125,7 @@ fn service_of(device: &DeviceInfo, mac: &str, port: u16) -> mdns::Service {
         ("friendly_name", device.friendly_name.clone()),
         ("project_name", format!("LumaShow.{}", device.model)),
         ("project_version", device.sw_version.clone()),
-        ("modules", [ha_bridge::wire::module::STATES, ha_bridge::wire::module::ACTIONS].join(",")),
+        ("modules", [ha_bridge::wire::module::STATES, ha_bridge::wire::module::ACTIONS, crate::ha_weather::MODULE].join(",")),
         ("api_encryption", "Noise_NNpsk0_25519_ChaChaPoly_SHA256".to_owned()),
     ];
     mdns::Service {
@@ -405,13 +415,18 @@ impl OnHome {
             timing: ha_bridge::Timing::default(),
             log: Arc::new(|line: String| crate::log_info!("onhome: {line}")),
             changed: Arc::new(move || me.publish()),
+            weather: inner.deps.weather.clone(),
         };
-        Bridge::start(config).map(Arc::new).map_err(|e| e.to_string())
+        let bridge = Bridge::start(config).map(Arc::new).map_err(|e| e.to_string())?;
+        let weak = Arc::downgrade(&bridge);
+        inner.deps.weather.attach(Some(Box::new(move |kind, fields| weak.upgrade().is_some_and(|b| b.say_weather(kind, fields)))));
+        Ok(bridge)
     }
 
     /// Takes the listener out of the state; the caller stops it with the lock let go.
     fn stop_bridge(&self, state: &mut State) -> Option<Arc<Bridge>> {
         state.announced = None;
+        self.inner.deps.weather.attach(None);
         state.bridge.take()
     }
 
@@ -980,6 +995,13 @@ pub mod testing {
     }
 
     pub fn keyed_deps(key: Option<[u8; 32]>) -> Deps {
-        Deps { key: Arc::new(move || key), bind: Some(Ipv4Addr::LOCALHOST), announce: false, device: device_info("LumaTV", "LG TV", "test"), history: history::Source { links: Vec::new(), policy: ha_link::endpoint::AddressPolicy::TESTING, tls: None } }
+        Deps {
+            key: Arc::new(move || key),
+            bind: Some(Ipv4Addr::LOCALHOST),
+            announce: false,
+            device: device_info("LumaTV", "LG TV", "test"),
+            history: history::Source { links: Vec::new(), policy: ha_link::endpoint::AddressPolicy::TESTING, tls: None },
+            weather: Arc::default(),
+        }
     }
 }

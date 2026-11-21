@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Weather from a Home Assistant entity can come from the LumaShow integration's `weather` module, with no Home Assistant link or token on the TV. The On Home listener offers the module; while the integration sends it (*Send a weather entity to the device*), the helper chooses the Settings entity there and maps its snapshot, otherwise it reads the entity over the saved link as before. Both ways go through one mapping: a read over the link is first put in the module's snapshot shape. The sunrise, sunset and radar centre need the integration's `home`, sent from lumashow-ha's next release. Not yet checked on the TV.
+
 A camera recording that runs out before its window ends hands over to live at once. The helper said the recording had ended only after the bridge answered its stop, and the bridge answers once its ffmpeg is gone, which can take its whole 2 s kill grace: on the TV (2026-11-07) a recording that ran dry reached the full view 2.0 s after its end was seen. The stop now goes out alongside the end. Not yet checked on the TV.
 
 A camera Scrypted marks offline is no longer passed over: the camera list and the helper's pop-up pictures and stream reads ask for it as for any other, since the mark can be wrong (Plant Room was marked offline while its stream opened in 38 ms), and the grid and the list say "Offline" only while no fresh picture arrives. It needs the Scrypted bridge's matching change, which tries such a camera instead of refusing it. Not yet checked on the TV.

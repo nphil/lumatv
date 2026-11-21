@@ -1,14 +1,16 @@
 //! Weather from a Home Assistant weather entity: the other source of Home's weather card, the weather view and the screensaver's weather
 //! (`base.weather` `source` = `homeassistant`, `entity` = a `weather.*` id).
 //!
-//! One short WebSocket conversation per refresh, through the saved Home Assistant link (`ha/link.json`, else the voice link's; `ha_store`,
-//! `voice_ws`): the entity's state and attributes (`subscribe_entities` for that one entity, never every state of the
-//! house), where home is (`get_config`, which the radar centres on) and the forecasts the entity says it supports
-//! (`weather.get_forecasts`, daily and hourly). What comes back is put in the snapshot shape of [`lumatv_feeds::weather_ha`], which
-//! makes the card's and the view's documents; this module only reads, converts what the mapper does not (pressure, visibility and rain to
-//! hPa, km and inches; the forecasts' times to the TV's own clock) and speaks.
+//! Two ways in, one mapping. While Home Assistant's LumaShow integration offers module `weather` to the TV (*Send a weather entity to the
+//! device*, its protocol §10d; the On Home listener hears it, [`Relay`]), the entity's reading and forecasts come from it: no link, no
+//! token. Otherwise one short WebSocket conversation per refresh goes through the saved Home Assistant link (`ha/link.json`, else the voice
+//! link's; `ha_store`, `voice_ws`): the entity's state (`subscribe_entities` for that one entity, never every state of the house), where
+//! home is (`get_config`) and the forecasts the entity says it supports (`weather.get_forecasts`), put in the module's snapshot shape
+//! ([`raw_of`]). Either snapshot is then put on the TV's terms ([`snapshot`]: pressure, visibility and rain to hPa, km and inches, the
+//! forecasts' times on the TV's clock, the sun's day from where home is) and made into the card's and the view's documents by
+//! [`lumatv_feeds::weather_ha`].
 //!
-//! The list of the instance's weather entities for the Settings picker is `get_states` read once when the person opens it.
+//! The Settings picker's list of weather entities is the module's `list`, else `get_states` read once when the person opens it.
 //!
 //! The token never leaves `voice_ws` and goes only to the address it was saved with; a failure is a [`Why`] in words.
 
@@ -20,9 +22,10 @@ use lumatv_feeds::weather::{WeatherConfig, WeatherDoc};
 use lumatv_feeds::weather_ha;
 use lumatv_feeds::weather_more::{DAYS, HOURS, MoreDoc};
 use lumatv_feeds::FeedError;
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// How long a whole read may take, dialling included.
@@ -30,6 +33,51 @@ const WITHIN: Duration = Duration::from_secs(15);
 /// What the weather document's `zip` holds for this source, before the entity: it keeps the saved document of one source from being taken
 /// for the other's.
 pub const KEY_PREFIX: &str = "ha:";
+
+/// The module of the LumaShow integration that carries one weather entity, and the version of it the TV speaks.
+pub const MODULE: &str = "weather";
+pub const MODULE_VERSION: u32 = 1;
+/// A module snapshot this young is used as it is; an older one is asked for again (the integration also pushes one on every change and
+/// every 15 minutes).
+const FRESH: Duration = Duration::from_secs(60);
+/// The most hours and days the module sends, kept the same for a read over the link.
+const MAX_HOURS: usize = 48;
+const MAX_DAYS: usize = 10;
+/// The reading's attributes and a forecast entry's fields the module sends (`lumashow-ha` `weather.py`, `READING` and `ENTRY`).
+const READING: [&str; 17] = [
+    "temperature",
+    "apparent_temperature",
+    "dew_point",
+    "humidity",
+    "pressure",
+    "wind_speed",
+    "wind_gust_speed",
+    "wind_bearing",
+    "cloud_coverage",
+    "uv_index",
+    "visibility",
+    "ozone",
+    "temperature_unit",
+    "pressure_unit",
+    "wind_speed_unit",
+    "visibility_unit",
+    "precipitation_unit",
+];
+const ENTRY: [&str; 13] = [
+    "condition",
+    "temperature",
+    "templow",
+    "apparent_temperature",
+    "precipitation",
+    "precipitation_probability",
+    "humidity",
+    "wind_speed",
+    "wind_gust_speed",
+    "wind_bearing",
+    "cloud_coverage",
+    "uv_index",
+    "is_daytime",
+];
 
 /// `WeatherEntityFeature`: which forecasts an entity can give.
 const FORECAST_DAILY: i64 = 1;
@@ -96,20 +144,22 @@ pub struct HaWeather {
     links: Vec<PathBuf>,
     policy: AddressPolicy,
     tls: Option<TlsFetch>,
+    relay: Arc<Relay>,
     parked: Mutex<Option<(WeatherConfig, MoreDoc)>>,
 }
 
 impl HaWeather {
-    pub fn real(ctx: &crate::ctx::Ctx, policy: AddressPolicy) -> Self {
+    pub fn real(ctx: &crate::ctx::Ctx, policy: AddressPolicy, relay: Arc<Relay>) -> Self {
         Self::new(
             vec![ctx.paths.ha_link_file(), ctx.paths.data_dir.join("voice").join("ha.json")],
             policy,
             crate::voice::tls_for(&ctx.config.fetch),
+            relay,
         )
     }
 
-    pub fn new(links: Vec<PathBuf>, policy: AddressPolicy, tls: Option<TlsFetch>) -> Self {
-        Self { links, policy, tls, parked: Mutex::new(None) }
+    pub fn new(links: Vec<PathBuf>, policy: AddressPolicy, tls: Option<TlsFetch>, relay: Arc<Relay>) -> Self {
+        Self { links, policy, tls, relay, parked: Mutex::new(None) }
     }
 
     fn link(&self) -> Result<HaLink, Why> {
@@ -120,7 +170,7 @@ impl HaWeather {
                 Err(_) => return Err(why("no_link", "The Home Assistant link cannot be read")),
             }
         }
-        Err(why("no_link", "Weather from Home Assistant needs the Home Assistant link"))
+        Err(why("no_link", "Weather from Home Assistant needs Send a weather entity on the TV's LumaShow entry, or the Home Assistant link"))
     }
 
     fn connect(&self, deadline: Instant) -> Result<Ha, Why> {
@@ -128,8 +178,11 @@ impl HaWeather {
         Ha::connect(&link, self.policy, self.tls.as_ref(), deadline).map_err(Why::from)
     }
 
-    /// The instance's weather entities by friendly name.
+    /// The instance's weather entities by friendly name: the module's list while it is offered, else over the link.
     pub fn entities(&self) -> Result<Vec<Entity>, Why> {
+        if let Some(listed) = self.relay.entities(WITHIN) {
+            return listed;
+        }
         let deadline = Instant::now() + WITHIN;
         let mut ha = self.connect(deadline)?;
         let mut next = 1;
@@ -138,8 +191,14 @@ impl HaWeather {
         Ok(entities_of(&states?))
     }
 
-    /// The entity's reading and forecasts, as the snapshot of [`weather_ha`].
+    /// The entity's reading and forecasts, as the snapshot of [`weather_ha`]: the module's while it is offered, else over the link.
     pub fn read(&self, entity: &str, now_ms: u64) -> Result<Reading, Why> {
+        if let Some(sent) = self.relay.snapshot(entity, WITHIN) {
+            let raw = sent?;
+            let home = home_of(&raw);
+            let (lat, lon) = home.unwrap_or_default();
+            return Ok(Reading { snapshot: snapshot(&raw, home, (now_ms / 1000) as i64, &local_offset_s), lat, lon });
+        }
         let deadline = Instant::now() + WITHIN;
         let mut ha = self.connect(deadline)?;
         let read = converse(&mut ha, entity, now_ms, deadline);
@@ -178,6 +237,145 @@ impl HaWeather {
                 None
             }
         }
+    }
+}
+
+/// How the TV speaks module `weather` to the integration: `(message, fields)`, false when it could not be sent.
+pub type Say = Box<dyn Fn(&str, Map<String, Value>) -> bool + Send + Sync>;
+
+/// Module `weather` as the On Home listener hears it: the integration's last `list` and `snapshot` of this session, and the way to ask
+/// for them. Shared by the listener, which fills it, and [`HaWeather`], which waits on it from the feeds thread.
+#[derive(Default)]
+pub struct Relay {
+    heard: Mutex<Heard>,
+    arrived: Condvar,
+}
+
+#[derive(Default)]
+struct Heard {
+    say: Option<Say>,
+    /// The active session agreed on the module (the integration offers it only while *Send a weather entity* is on).
+    carried: bool,
+    entities: Option<Vec<Entity>>,
+    selected: Option<String>,
+    snapshot: Option<(Value, Instant)>,
+    failed: Option<String>,
+}
+
+impl Relay {
+    /// The listener's way to send, while it runs.
+    pub fn attach(&self, say: Option<Say>) {
+        self.heard.lock().say = say;
+    }
+
+    /// A session began (`carried`: it agreed on the module) or ended (`false`): what the last one said is dropped.
+    pub fn session(&self, carried: bool) {
+        let mut heard = self.heard.lock();
+        let say = heard.say.take();
+        *heard = Heard { say, carried, ..Heard::default() };
+        self.arrived.notify_all();
+    }
+
+    /// Whether the active session carries the module.
+    pub fn carried(&self) -> bool {
+        self.heard.lock().carried
+    }
+
+    /// One message of the module from the integration.
+    pub fn heard(&self, kind: &str, body: Map<String, Value>) {
+        let mut heard = self.heard.lock();
+        if !heard.carried {
+            return;
+        }
+        match kind {
+            "list" => {
+                let listed = body.get("entities").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+                let entities = listed
+                    .iter()
+                    .filter_map(|e| {
+                        let id = e["id"].as_str().filter(|id| id.starts_with("weather."))?;
+                        Some(Entity { id: id.to_owned(), name: e["name"].as_str().filter(|n| !n.trim().is_empty()).unwrap_or(id).to_owned() })
+                    })
+                    .collect();
+                heard.entities = Some(entities);
+                heard.selected = body.get("selected").and_then(Value::as_str).map(str::to_owned);
+            }
+            "snapshot" if body.get("entity").is_some_and(Value::is_string) => heard.snapshot = Some((Value::Object(body), Instant::now())),
+            "failed" => {
+                let said = body.get("message").or_else(|| body.get("code")).and_then(Value::as_str).unwrap_or("it refused");
+                heard.failed = Some(said.chars().take(120).collect());
+            }
+            _ => return,
+        }
+        self.arrived.notify_all();
+    }
+
+    fn say(heard: &Heard, kind: &str, fields: Value) -> Result<(), Why> {
+        let fields = fields.as_object().cloned().unwrap_or_default();
+        if heard.say.as_ref().is_some_and(|say| say(kind, fields)) {
+            Ok(())
+        } else {
+            Err(why("unavailable", "Home Assistant's LumaShow integration is not connected"))
+        }
+    }
+
+    /// Waits until `done` says what the session gave, the session ends or `deadline` passes.
+    fn wait<T>(&self, mut heard: parking_lot::MutexGuard<'_, Heard>, deadline: Instant, done: impl Fn(&mut Heard) -> Option<Result<T, Why>>) -> Result<T, Why> {
+        loop {
+            if !heard.carried {
+                return Err(why("unavailable", "Home Assistant's LumaShow integration disconnected"));
+            }
+            if let Some(answer) = done(&mut heard) {
+                return answer;
+            }
+            if self.arrived.wait_until(&mut heard, deadline).timed_out() {
+                return Err(why("unavailable", "Home Assistant's LumaShow integration did not answer in time"));
+            }
+        }
+    }
+
+    /// The weather entities the integration lists, `None` while no session carries the module.
+    pub fn entities(&self, within: Duration) -> Option<Result<Vec<Entity>, Why>> {
+        let heard = self.heard.lock();
+        if !heard.carried {
+            return None;
+        }
+        if heard.entities.is_none()
+            && let Err(w) = Self::say(&heard, "list", json!({}))
+        {
+            return Some(Err(w));
+        }
+        Some(self.wait(heard, Instant::now() + within, |h| h.entities.clone().map(Ok)))
+    }
+
+    /// The module's snapshot of `entity`, `None` while no session carries the module. The entity is chosen first when the integration has
+    /// another (the choice is the TV's: the integration keeps it); a snapshot older than [`FRESH`] is asked for again.
+    pub fn snapshot(&self, entity: &str, within: Duration) -> Option<Result<Value, Why>> {
+        let mut heard = self.heard.lock();
+        if !heard.carried {
+            return None;
+        }
+        let asked = Instant::now();
+        heard.failed = None;
+        let said = if heard.selected.as_deref() != Some(entity) {
+            Self::say(&heard, "select", json!({"entity": entity}))
+        } else if let Some((sent, at)) = &heard.snapshot
+            && sent["entity"] == entity
+            && at.elapsed() < FRESH
+        {
+            return Some(Ok(sent.clone()));
+        } else {
+            Self::say(&heard, "refresh", json!({}))
+        };
+        if let Err(w) = said {
+            return Some(Err(w));
+        }
+        Some(self.wait(heard, asked + within, |h| {
+            if let Some(said) = h.failed.take() {
+                return Some(Err(why("refused", format!("Home Assistant: {said}"))));
+            }
+            h.snapshot.as_ref().filter(|(sent, at)| *at >= asked && sent["entity"] == entity).map(|(sent, _)| Ok(sent.clone()))
+        }))
     }
 }
 
@@ -247,7 +445,8 @@ fn converse(ha: &mut Ha, entity: &str, now_ms: u64, deadline: Instant) -> Result
     };
     let daily = if features & FORECAST_DAILY != 0 { forecast("daily")? } else { Vec::new() };
     let hourly = if features & FORECAST_HOURLY != 0 { forecast("hourly")? } else { Vec::new() };
-    let snapshot = snapshot(entity, state, (lat, lon), &daily, &hourly, (now_ms / 1000) as i64, &local_offset_s);
+    let raw = raw_of(entity, state, &daily, &hourly);
+    let snapshot = snapshot(&raw, Some((lat, lon)), (now_ms / 1000) as i64, &local_offset_s);
     Ok(Reading { snapshot, lat, lon })
 }
 
@@ -304,13 +503,71 @@ fn inches_per(unit: &str) -> f64 {
     }
 }
 
-/// The entity's state and forecasts in the shape [`weather_ha::documents`] takes. Times are put on the clock `offset` (seconds east of
-/// UTC at an instant) gives: the TV's own, which is the house's; an hour that has gone by is left out and no more than the view's
-/// hours and days are kept.
-pub fn snapshot(entity: &str, state: &Value, home: (f64, f64), daily: &[Value], hourly: &[Value], now_s: i64, offset: &dyn Fn(i64) -> i64) -> Value {
-    let attrs = &state["a"];
+/// An entity's state (`subscribe_entities`' `{"s", "a"}`) and forecasts as module `weather` sends them (`lumashow-ha` `weather.py`,
+/// `reading_of` and `entries_of`): the reading's numbers and units, each forecast entry's fields, Home Assistant's units and times.
+pub fn raw_of(entity: &str, state: &Value, daily: &[Value], hourly: &[Value]) -> Value {
     let condition = state["s"].as_str().unwrap_or("");
-    let available = !matches!(condition, "" | "unavailable" | "unknown");
+    if matches!(condition, "" | "unavailable" | "unknown") {
+        return json!({"entity": entity, "available": false});
+    }
+    let attrs = &state["a"];
+    let mut reading = Map::new();
+    for key in READING {
+        match attrs.get(key) {
+            Some(unit @ Value::String(_)) if key.ends_with("_unit") => {
+                reading.insert(key.to_owned(), unit.clone());
+            }
+            Some(v) if v.is_number() => {
+                reading.insert(key.to_owned(), json!(v.as_f64()));
+            }
+            _ => {}
+        }
+    }
+    json!({"entity": entity, "available": true, "name": attrs["friendly_name"].as_str().unwrap_or(entity), "condition": condition,
+           "reading": reading, "hourly": entries_of(hourly, MAX_HOURS), "daily": entries_of(daily, MAX_DAYS)})
+}
+
+fn entries_of(forecast: &[Value], limit: usize) -> Vec<Value> {
+    forecast
+        .iter()
+        .take(limit)
+        .filter_map(|item| {
+            let mut entry = Map::new();
+            entry.insert("datetime".into(), json!(item.get("datetime")?.as_str()?));
+            for key in ENTRY {
+                match item.get(key) {
+                    Some(v @ Value::String(_)) if key == "condition" => {
+                        entry.insert(key.to_owned(), v.clone());
+                    }
+                    Some(v @ Value::Bool(_)) if key == "is_daytime" => {
+                        entry.insert(key.to_owned(), v.clone());
+                    }
+                    Some(v) if v.is_number() => {
+                        entry.insert(key.to_owned(), json!(v.as_f64()));
+                    }
+                    _ => {}
+                }
+            }
+            Some(Value::Object(entry))
+        })
+        .collect()
+}
+
+/// Where home is, as the module's snapshot says it (an integration before `home` was sent says nothing).
+pub fn home_of(raw: &Value) -> Option<(f64, f64)> {
+    Some((raw["home"]["latitude"].as_f64()?, raw["home"]["longitude"].as_f64()?))
+}
+
+/// A module snapshot ([`raw_of`]) in the shape [`weather_ha::documents`] takes. Times are put on the clock `offset` (seconds east of
+/// UTC at an instant) gives: the TV's own, which is the house's; an hour that has gone by is left out and no more than the view's
+/// hours and days are kept. The sun's day needs `home`; without it a day has no sunrise or sunset and an hour is day unless the entity
+/// says otherwise.
+pub fn snapshot(raw: &Value, home: Option<(f64, f64)>, now_s: i64, offset: &dyn Fn(i64) -> i64) -> Value {
+    let entity = raw["entity"].as_str().unwrap_or("");
+    if raw["available"] != json!(true) {
+        return json!({"entity": entity, "available": false});
+    }
+    let attrs = &raw["reading"];
     let mut reading = Map::new();
     for key in ["temperature", "apparent_temperature", "humidity", "wind_speed", "wind_gust_speed", "wind_bearing", "uv_index", "cloud_coverage"] {
         if let Some(v) = attrs.get(key).filter(|v| v.is_number()) {
@@ -330,7 +587,8 @@ pub fn snapshot(entity: &str, state: &Value, home: (f64, f64), daily: &[Value], 
         reading.insert("visibility_unit".into(), json!("km"));
     }
     let rain = inches_per(attrs["precipitation_unit"].as_str().unwrap_or(""));
-    let days: Vec<Value> = daily
+    let entries = |key: &str| raw[key].as_array().map(Vec::as_slice).unwrap_or_default();
+    let days: Vec<Value> = entries("daily")
         .iter()
         .take(DAYS)
         .filter_map(|d| {
@@ -341,7 +599,7 @@ pub fn snapshot(entity: &str, state: &Value, home: (f64, f64), daily: &[Value], 
                 None => at.chars().take(10).collect(),
             };
             // the entity does not say when the sun rises; the day's own, on the TV's clock
-            if let Some(day) = day_number(&date) {
+            if let (Some(home), Some(day)) = (home, day_number(&date)) {
                 let (rise, set) = sun_day(day, home, offset);
                 for (key, at) in [("sunrise", rise), ("sunset", set)] {
                     if let Some(at) = at {
@@ -354,7 +612,7 @@ pub fn snapshot(entity: &str, state: &Value, home: (f64, f64), daily: &[Value], 
             Some(Value::Object(d))
         })
         .collect();
-    let hours: Vec<Value> = hourly
+    let hours: Vec<Value> = entries("hourly")
         .iter()
         .filter_map(|h| {
             let mut h = h.as_object()?.clone();
@@ -368,7 +626,7 @@ pub fn snapshot(entity: &str, state: &Value, home: (f64, f64), daily: &[Value], 
                 None => at.chars().take(16).collect(),
             }));
             if !h.contains_key("is_daytime")
-                && let Some(u) = unix
+                && let (Some(u), Some(home)) = (unix, home)
             {
                 h.insert("is_daytime".into(), json!(elevation_deg(u, home) > HORIZON_DEG));
             }
@@ -377,7 +635,7 @@ pub fn snapshot(entity: &str, state: &Value, home: (f64, f64), daily: &[Value], 
         })
         .take(HOURS)
         .collect();
-    json!({"entity": entity, "available": available, "name": attrs["friendly_name"].as_str().unwrap_or(entity), "condition": condition,
+    json!({"entity": entity, "available": true, "name": raw["name"].as_str().unwrap_or(entity), "condition": raw["condition"].as_str().unwrap_or(""),
            "reading": reading, "hourly": hours, "daily": days})
 }
 
@@ -596,7 +854,7 @@ mod tests {
             .map(|t| json!({"datetime": format!("2026-11-03T{t}:00+00:00"), "condition": "cloudy", "temperature": 10.0, "precipitation": 2.54}))
             .collect();
         let daily = [json!({"datetime": "2026-11-03T05:00:00+00:00", "condition": "rainy", "temperature": 14.0, "templow": 8.0, "precipitation": 25.4}), json!({"datetime": "2026-11-04"})];
-        let s = snapshot("weather.pirate_weather", &state(), NEW_YORK, &daily, &hourly, now, &east_5);
+        let s = over_link("weather.pirate_weather", &state(), &daily, &hourly, now, &east_5);
         assert_eq!((s["available"].clone(), s["name"].clone(), s["condition"].clone()), (json!(true), json!("Pirate Weather"), json!("clear-night")));
         assert!((s["reading"]["pressure"].as_f64().unwrap() - 1013.2).abs() < 0.5, "{}", s["reading"]["pressure"]);
         assert!((s["reading"]["visibility"].as_f64().unwrap() - 9.656).abs() < 0.01);
@@ -617,7 +875,7 @@ mod tests {
         // A forecast's days start at local midnight: 2026-11-10 05:00Z is midnight in New York.
         let daily = [json!({"datetime": "2026-11-10T05:00:00+00:00", "temperature": 10.0}), json!({"datetime": "2026-11-11", "temperature": 9.0})];
         let sun_of = |now: &str| {
-            let s = snapshot("weather.x", &state(), NEW_YORK, &daily, &[], parse_iso(now).unwrap(), &new_york);
+            let s = over_link("weather.x", &state(), &daily, &[], parse_iso(now).unwrap(), &new_york);
             let at = |day: usize, key: &str| s["daily"][day][key].as_str().map(str::to_owned);
             (at(0, "sunrise"), at(0, "sunset"), at(1, "sunrise"), at(1, "sunset"))
         };
@@ -634,10 +892,10 @@ mod tests {
     #[test]
     fn an_unavailable_entity_is_not_available_and_the_forecasts_are_capped_to_the_views() {
         let off = json!({"s": "unavailable", "a": {}});
-        assert_eq!(snapshot("weather.x", &off, NEW_YORK, &[], &[], 0, &east_5)["available"], json!(false));
+        assert_eq!(over_link("weather.x", &off, &[], &[], 0, &east_5)["available"], json!(false));
         let many: Vec<Value> = (0..60).map(|i| json!({"datetime": format!("2026-11-{:02}", 1 + i % 28), "temperature": 1.0})).collect();
         let hours: Vec<Value> = (0..60).map(|i| json!({"datetime": format!("2026-11-03T{:02}:00:00+00:00", i % 24), "temperature": 1.0})).collect();
-        let s = snapshot("weather.x", &state(), NEW_YORK, &many, &hours, 0, &east_5);
+        let s = over_link("weather.x", &state(), &many, &hours, 0, &east_5);
         assert_eq!((s["daily"].as_array().unwrap().len(), s["hourly"].as_array().unwrap().len()), (DAYS, HOURS));
     }
 
@@ -655,9 +913,9 @@ mod tests {
 
     #[test]
     fn the_parked_details_are_given_once_to_the_refresh_they_are_newer_than() {
-        let ha = HaWeather::new(Vec::new(), AddressPolicy::HOME, None);
+        let ha = HaWeather::new(Vec::new(), AddressPolicy::HOME, None, Arc::new(Relay::default()));
         let cfg = WeatherConfig { zip: key_of("weather.x"), units: Units::Celsius };
-        let (_, more) = weather_ha::documents(&snapshot("weather.x", &state(), NEW_YORK, &[], &[], 0, &east_5), &cfg, 5_000).unwrap();
+        let (_, more) = weather_ha::documents(&over_link("weather.x", &state(), &[], &[], 0, &east_5), &cfg, 5_000).unwrap();
         ha.park(&cfg, more);
         assert!(ha.take_parked(&cfg, 5_000).is_none(), "not newer");
         let other = WeatherConfig { zip: key_of("weather.y"), units: Units::Celsius };
@@ -665,5 +923,119 @@ mod tests {
         assert_eq!(ha.take_parked(&cfg, 4_999).map(|m| m.fetched_at), Some(5_000));
         assert!(ha.take_parked(&cfg, 0).is_none(), "once");
         assert_eq!(ha.read("weather.x", 0).unwrap_err().code, "no_link");
+    }
+
+    /// What a read over the link makes of a state and its forecasts, home in New York.
+    fn over_link(entity: &str, state: &Value, daily: &[Value], hourly: &[Value], now_s: i64, offset: &dyn Fn(i64) -> i64) -> Value {
+        snapshot(&raw_of(entity, state, daily, hourly), Some(NEW_YORK), now_s, offset)
+    }
+
+    /// A real Pirate Weather entity in US units, and the snapshot the LumaShow integration's module sends for it (the same file is
+    /// `lumashow-ha`'s `tests/fixtures/weather_snapshot.json`).
+    fn recorded() -> Value {
+        serde_json::from_str(include_str!("../tests/fixtures/ha_weather_snapshot.json")).unwrap()
+    }
+
+    #[test]
+    fn a_read_over_the_link_is_the_snapshot_the_module_sends() {
+        let r = recorded();
+        let state = json!({"s": r["state"], "a": r["attributes"]});
+        let mut raw = raw_of("weather.pirate_weather", &state, r["daily"].as_array().unwrap(), r["hourly"].as_array().unwrap());
+        raw["home"] = r["home"].clone();
+        assert_eq!(raw, r["snapshot"]);
+    }
+
+    #[test]
+    fn the_modules_snapshot_in_us_units_becomes_the_documents_on_the_tvs_clock() {
+        let sent = recorded()["snapshot"].clone();
+        let home = home_of(&sent);
+        assert_eq!(home, Some((33.75, -84.39)));
+        let now = parse_iso("2026-11-21T12:10:00+00:00").unwrap();
+        let s = snapshot(&sent, home, now, &east_5);
+        assert!((s["reading"]["pressure"].as_f64().unwrap() - 1019.3).abs() < 0.1, "inHg to hPa: {}", s["reading"]["pressure"]);
+        assert!((s["reading"]["visibility"].as_f64().unwrap() - 15.015).abs() < 0.001, "mi to km");
+        // Atlanta's sun rises near 07:17 on 21 November: the first hour is night, the next day
+        let hours: Vec<(&str, bool)> = s["hourly"].as_array().unwrap().iter().map(|h| (h["datetime"].as_str().unwrap(), h["is_daytime"].as_bool().unwrap())).collect();
+        assert_eq!(hours, [("2026-11-21T07:00", false), ("2026-11-21T08:00", true), ("2026-11-21T09:00", true)]);
+        assert_eq!((s["daily"][0]["datetime"].as_str(), s["daily"][0]["precipitation"].as_f64()), (Some("2026-11-21"), Some(0.06)), "inches stay inches");
+        assert!(s["daily"][0]["sunrise"].as_str().is_some_and(|t| t.starts_with("2026-11-21T07:")));
+        let (doc, more) = weather_ha::documents(&s, &WeatherConfig { zip: key_of("weather.pirate_weather"), units: Units::Fahrenheit }, 1_000).unwrap();
+        assert_eq!((doc.display.temp.as_str(), doc.display.cond.as_str()), ("58\u{b0}", "Partly cloudy"));
+        assert_eq!(doc.display.stats, "Feels like 50\u{b0} \u{b7} 55% humidity \u{b7} 10 mph", "mph stays mph");
+        assert_eq!(more.now.visibility_m.map(f64::round), Some(15_015.0));
+        let (celsius, _) = weather_ha::documents(&s, &WeatherConfig { zip: key_of("weather.pirate_weather"), units: Units::Celsius }, 1_000).unwrap();
+        assert_eq!(celsius.display.temp, "14\u{b0}");
+    }
+
+    #[test]
+    fn a_snapshot_missing_units_home_and_forecasts_still_maps_and_guesses_nothing() {
+        let sent = json!({"entity": "weather.station", "available": true, "name": "Station", "condition": "cloudy", "reading": {"temperature": 20.0, "pressure": 1000.0, "visibility": 8.0}});
+        assert_eq!(home_of(&sent), None);
+        let hourly = [json!({"datetime": "2026-11-21T12:00:00+00:00", "temperature": 20.0})];
+        let daily = [json!({"datetime": "2026-11-21", "temperature": 22.0})];
+        let mut with = sent.clone();
+        (with["hourly"], with["daily"]) = (json!(hourly), json!(daily));
+        let s = snapshot(&with, None, 0, &east_5);
+        assert_eq!((s["reading"]["pressure"].as_f64(), s["reading"]["visibility"].as_f64()), (Some(1000.0), Some(8.0)), "hPa and km when no unit is named");
+        assert!(s["hourly"][0].get("is_daytime").is_none() && s["daily"][0].get("sunrise").is_none(), "no sun without home");
+        let (doc, more) = weather_ha::documents(&snapshot(&sent, None, 0, &east_5), &WeatherConfig { zip: key_of("weather.station"), units: Units::Celsius }, 1).unwrap();
+        assert_eq!(doc.display.temp, "20\u{b0}");
+        assert!(more.hourly.is_empty() && doc.daily.is_empty() && more.now.uv_index.is_none());
+        assert_eq!(snapshot(&json!({"entity": "weather.station", "available": false}), None, 0, &east_5)["available"], json!(false));
+    }
+
+    /// A relay whose integration answers from another thread: `answer` gets what the TV said and returns the module's replies.
+    fn answering(answer: impl Fn(&str, &Map<String, Value>) -> Vec<(&'static str, Value)> + Send + 'static) -> (Arc<Relay>, Arc<Mutex<Vec<String>>>) {
+        let relay = Arc::new(Relay::default());
+        let said = Arc::new(Mutex::new(Vec::new()));
+        let (tx, rx) = std::sync::mpsc::channel::<(String, Map<String, Value>)>();
+        let log = said.clone();
+        relay.attach(Some(Box::new(move |kind, fields| {
+            log.lock().push(kind.to_owned());
+            tx.send((kind.to_owned(), fields)).is_ok()
+        })));
+        let weak = Arc::downgrade(&relay);
+        std::thread::spawn(move || {
+            for (kind, fields) in rx {
+                let Some(relay) = weak.upgrade() else { return };
+                for (reply, body) in answer(&kind, &fields) {
+                    relay.heard(reply, body.as_object().cloned().unwrap());
+                }
+            }
+        });
+        relay.session(true);
+        (relay, said)
+    }
+
+    #[test]
+    fn the_module_is_asked_for_the_entity_chosen_on_the_tv_and_a_fresh_snapshot_is_not_asked_for_again() {
+        let (relay, said) = answering(|kind, fields| match kind {
+            // the list first: the test's next ask must find the choice already heard
+            "select" => vec![
+                ("list", json!({"entities": [{"id": "weather.home", "name": "Home"}, {"id": "sensor.x", "name": "X"}], "selected": fields["entity"]})),
+                ("snapshot", json!({"entity": fields["entity"], "available": true, "reading": {"temperature": 1.0}})),
+            ],
+            "list" => vec![("list", json!({"entities": [{"id": "weather.home", "name": "Home"}], "selected": null}))],
+            _ => vec![("failed", json!({"op": kind, "code": "nope", "message": "not now"}))],
+        });
+        let names: Vec<String> = relay.entities(Duration::from_secs(5)).unwrap().unwrap().into_iter().map(|e| e.name).collect();
+        assert_eq!(names, ["Home"]);
+        let got = relay.snapshot("weather.home", Duration::from_secs(5)).unwrap().unwrap();
+        assert_eq!(got["entity"], "weather.home");
+        relay.entities(Duration::from_secs(5)).unwrap().unwrap();
+        assert_eq!(relay.snapshot("weather.home", Duration::from_secs(5)).unwrap().unwrap(), got);
+        assert_eq!(*said.lock(), ["list", "select"], "the list once, the choice once, the fresh snapshot kept");
+    }
+
+    #[test]
+    fn a_refusal_or_an_ended_session_is_said_in_words_and_no_session_falls_to_the_link() {
+        let (relay, _) = answering(|_, _| vec![("failed", json!({"op": "select", "code": "not_found", "message": "that is not a weather entity"}))]);
+        let refused = relay.snapshot("weather.gone", Duration::from_secs(5)).unwrap().unwrap_err();
+        assert_eq!((refused.code, refused.words.as_str()), ("refused", "Home Assistant: that is not a weather entity"));
+        relay.session(false);
+        assert!(relay.snapshot("weather.gone", Duration::from_secs(5)).is_none() && relay.entities(Duration::from_secs(5)).is_none());
+        let silent = Relay::default();
+        silent.session(true);
+        assert_eq!(silent.snapshot("weather.x", Duration::ZERO).unwrap().unwrap_err().code, "unavailable", "nothing to send it with");
     }
 }
