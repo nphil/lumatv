@@ -403,6 +403,6 @@ int main(int argc, char **argv) {
     surround_packets_preserve_speaker_identity();
     close_all(&f);
     free(client.out);
-    puts("policy_test: 10 rules passed (injected clock, fake NDL)");
+    puts("policy_test: 11 rules passed (injected clock, fake NDL)");
     return 0;
 }

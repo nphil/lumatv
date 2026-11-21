@@ -1041,7 +1041,7 @@ class PlayerRules(unittest.TestCase):
             with self.subTest(binary=binary):
                 result = subprocess.run([os.path.join(FEEDER, "build", "host", binary), NDL], capture_output=True, text=True, timeout=1)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn("10 rules passed", result.stdout)
+                self.assertIn("11 rules passed", result.stdout)
 
     def test_lifecycle_launch_apps_foreground_and_failures(self):
         result = subprocess.run([os.path.join(FEEDER, "build", "host", "sam_test")], capture_output=True, text=True, timeout=1)
