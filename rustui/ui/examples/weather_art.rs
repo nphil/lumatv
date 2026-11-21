@@ -2,7 +2,7 @@
 //! condition for the card's sky (still, then moments of its motion) and, with `view`, the view's large sky of a few of them, each over the glass
 //! and the sky's wash as the shell lays them, from the same poses the compositor is given.
 
-use lumatv_ui::home::weather_art::{Cond, Sky, Stage, compose, parts};
+use lumatv_ui::home::weather_art::{Card, Cond, Sky, Stage, compose, parts};
 use lumatv_ui::home::weather_sprites::Pal;
 
 fn png(path: &str, w: u32, h: u32, rgba: &[u8]) {
@@ -73,7 +73,7 @@ fn main() {
         ("windy-rain", c(Sky::Rain, true, 1, true)),
     ];
     // the card's sky: the hero on the right, where the temperature is not
-    let card = Stage { w: 433.0, h: 244.0, hero: (318.0, 104.0), size: 190.0, ground: 236.0, fade: [14.0, 14.0, 10.0, 30.0], shy: 0.5, card: None };
+    let card = Stage { w: 433.0, h: 244.0, hero: (318.0, 104.0), size: 190.0, ground: 236.0, fade: [14.0, 14.0, 10.0, 30.0], shy: 0.5, card: Some(Card { w: 433.0, h: 480.0, radius: 24.0 }) };
     let times: [Option<f64>; 4] = [None, Some(3_000.0), Some(9_400.0), Some(21_000.0)];
     let cols = 3usize;
     let rows = list.len().div_ceil(cols);

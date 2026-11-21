@@ -720,12 +720,25 @@ impl Builder {
     // ---- rain and snow
     /// The window the rain or snow falls in: under the hero, as wide as `reach` hero sizes either side of it, from its middle to the ground.
     fn window(&self, reach: f32) -> Rect {
+        // the card's sky is all of the card's top: the rain and snow fall edge to edge from its top to the ground, and only the feathered edges
+        // ([`Builder::precip_edges`]) say where it ends, so there is no box of weather under the cloud
+        if self.st.card.is_some() {
+            return Rect { x: 0.0, y: 0.0, w: self.st.w, h: self.st.ground.round() };
+        }
         let (hx, hy) = self.st.hero;
         // however large the picture, the curtain of rain is no wider than 760 px (its sheets are as wide as it is)
         let reach = reach.min(380.0 / self.st.size);
         let (x0, x1) = ((hx - reach * self.st.size).max(0.0).round(), (hx + reach * self.st.size).min(self.st.w).round());
         let y0 = (hy - 0.1 * self.st.size).max(0.0).round();
         Rect { x: x0, y: y0, w: x1 - x0, h: (self.st.ground - y0).max(8.0).round() }
+    }
+
+    /// The feathers of the window `win` of rain or snow: shy of the words on the left and soft on the others. A window that is the whole of the card's sky also
+    /// fades at its top (the cloud's side) and, longer, toward the rows under the sky.
+    fn precip_edges(&self, win: Rect, right: f32) -> Edges {
+        let full = win.y <= 0.5 && self.st.card.is_some();
+        let (top, bottom) = if full { (0.14 * win.h, 0.2 * win.h) } else { (0.0, 0.0) };
+        Edges::new(win.w * self.st.shy, (win.w * right).max(if full { self.st.fade[1] } else { 0.0 }), top, bottom)
     }
 
     /// A sheet of far-off precipitation that slides one period in `period_ms` and is put back (the pattern repeats).
@@ -748,9 +761,12 @@ impl Builder {
             let r = streak(&self.c, len, 1.9 + 0.5 * hash(seed + 1 + i as u32 * 3), lean * len / 20.0, colour);
             let fall = win.h + r.h as f32;
             let x = win.x + win.w * (i as f32 + 0.1 + 0.8 * hash(seed + 2 + i as u32 * 3)) / many as f32;
-            let period = if hash(seed + 50 + i as u32) < 0.5 { 800 } else { 1_200 };
+            // the speed is what it was when the window began under the cloud (226 or 151 px a second at the card's size), so that a taller window
+            // is a longer fall and not a faster one: the frames a sprite asks for follow its speed
+            let was = (self.st.ground - (self.st.hero.1 - 0.1 * self.st.size).max(0.0)).max(8.0).round() + r.h as f32;
+            let period = whole_ticks(if hash(seed + 50 + i as u32) < 0.5 { 800.0 } else { 1_200.0 } * fall / was);
             let m = Motion { y: Wave::Saw { from: 0.0, to: fall, period_ms: period, phase: hash(seed + 60 + i as u32 * 3) }, bump: true, ..Motion::STILL };
-            let edges = Edges::new(win.w * self.st.shy, win.w * 0.04, 0.0, 0.0);
+            let edges = self.precip_edges(win, 0.04);
             self.add_clipped(r, (x.round(), win.y - 4.0), alpha, alpha, 1.0, m, (win, edges));
         }
     }
@@ -794,7 +810,7 @@ impl Builder {
                 bump: true,
                 ..Motion::STILL
             };
-            let edges = Edges::new(win.w * self.st.shy, win.w * 0.1, 0.0, 6.0 * k);
+            let edges = Edges { bottom: self.precip_edges(win, 0.1).bottom.max(6.0 * k), ..self.precip_edges(win, 0.1) };
             let at = (x.round(), (win.y - r.h as f32 * 0.5).round());
             self.add_clipped(r, at, alpha * (0.7 + 0.3 * big), alpha * (0.7 + 0.3 * big), 1.0, m, (win, edges));
         }
@@ -1091,7 +1107,7 @@ pub fn picture(cond: Cond, st: Stage, light: bool, pal: Pal) -> Picture {
             // what falls, behind the cloud it falls from
             let win = b.window(if snow { 1.25 } else { 0.9 });
             let h = cond.heavy as usize;
-            let edges = Edges::new(win.w * st.shy, win.w * 0.06, 0.0, 0.0);
+            let edges = b.precip_edges(win, 0.06);
             let wpx = win.w;
             if snow {
                 // streaks per pixel of the window: the bigger the picture, the more of them (their size grows to a point, their number with its width)
@@ -1553,7 +1569,7 @@ mod tests {
         each_condition(|cond| {
             for (n, st) in stages().into_iter().enumerate() {
                 let (layers, bytes) = match n {
-                    1 => (Some(38usize), Some(2_200_000usize)),
+                    1 => (Some(38usize), Some(2_800_000usize)),
                     2 => (Some(46), Some(6_000_000)),
                     _ => (None, None),
                 };
@@ -1596,6 +1612,21 @@ mod tests {
         assert_eq!(a.len(), b.len());
         for (x, y) in a.iter().zip(&b) {
             assert!((y.raster.w as i32 - 2 * x.raster.w as i32).abs() <= 3, "{} vs {}", x.raster.w, y.raster.w);
+        }
+    }
+
+    #[test]
+    fn the_card_s_rain_and_snow_span_its_sky_edge_to_edge_and_feather_at_every_side() {
+        let st = stages()[1];
+        for sky in [Sky::Drizzle, Sky::Rain, Sky::Storm, Sky::Snow] {
+            let p = parts(Cond { sky, day: true, heavy: 1, wind: false }, st, false);
+            let sheets: Vec<&Part> = p.iter().filter(|q| matches!(q.motion.y, Wave::Saw { .. }) && !q.motion.bump).collect();
+            assert!(!sheets.is_empty(), "{sky:?}");
+            for s in sheets {
+                let (clip, e) = s.clip.unwrap();
+                assert_eq!((clip.x, clip.y, clip.w), (0.0, 0.0, st.w), "{sky:?}: the window is the card's whole width and starts at its top");
+                assert!(e.left > 0.0 && e.right > 0.0 && e.top > 0.0 && e.bottom > 0.0, "{sky:?}: no hard edge: {e:?}");
+            }
         }
     }
 
